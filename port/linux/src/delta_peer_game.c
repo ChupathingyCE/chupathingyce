@@ -744,11 +744,8 @@ int delta_peer_advertised_wire_matches(const unsigned char *reserved, int size, 
 {
 	if (theirs_size > 0)
 		theirs[0] = 0;
-	if (delta_peer_protocol() == _delta_peer_protocol_opence || size <= HALO_PORT_ADVERTISED_FLAGS_OFFSET ||
-		!(reserved[HALO_PORT_ADVERTISED_FLAGS_OFFSET] & DELTA_ADVERTISED_FLAG))
-	{
+	if (delta_peer_protocol() == _delta_peer_protocol_opence || !delta_compat_speaks_delta(reserved, size))
 		return -1;
-	}
 	return delta_compat_decide(reserved, size, DELTA_MAJOR, DELTA_WIRE, theirs, theirs_size);
 }
 
@@ -756,8 +753,7 @@ int delta_peer_advertised_host_wire(const unsigned char *reserved, int size)
 {
 	struct delta_wire_id wire;
 
-	if (delta_peer_protocol() == _delta_peer_protocol_opence || size <= HALO_PORT_ADVERTISED_FLAGS_OFFSET ||
-		!(reserved[HALO_PORT_ADVERTISED_FLAGS_OFFSET] & DELTA_ADVERTISED_FLAG) ||
+	if (delta_peer_protocol() == _delta_peer_protocol_opence || !delta_compat_speaks_delta(reserved, size) ||
 		!delta_compat_host_wire(reserved, size, DELTA_MAJOR, &wire))
 	{
 		return 0;

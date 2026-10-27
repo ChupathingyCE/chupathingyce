@@ -50,6 +50,10 @@ boolean network_game_client_advertised_game_compatible(
 	struct network_game_client *client,
 	struct network_advertised_game const *game,
 	boolean tell);
+/* port: why network_game_client_advertised_game_compatible last refused a
+game, one short line ("" before any refusal): what a console's Online Games
+screen shows the player */
+char const *network_game_client_refusal(void);
 #ifdef HALO_GAME_BROWSER
 /* the advertisement of the game an invite's host advertises (the game
 list's probe, server/src/probe.c) */
