@@ -1770,8 +1770,9 @@ static void update_list(void)
 		pthread_mutex_unlock(&browser_lock);
 		return;
 	}
-	/* (with the host's fields: a list from before them sends what it has) */
-	server_url("/v1/games.txt?fields=22", url, sizeof(url));
+	/* (with the host's fields: a list from before them sends what it has; and
+	co-op games, which the list sends only when asked, for the lists' filter) */
+	server_url("/v1/games.txt?fields=22&coop=1", url, sizeof(url));
 	status = posix_browser_request(url, NULL, NULL, response, sizeof(response), error, sizeof(error));
 	if (!p2p_hosting_invite(own, sizeof(own)))
 		own[0] = 0;
