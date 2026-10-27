@@ -1138,6 +1138,69 @@ or last resized: platform_display_apply */
 static long platform_window_width = -1, platform_window_height = -1;
 #endif
 
+#ifndef HALO_ANDROID
+/* the OpenGL version the renderer needs (platform_video_initialize) */
+#ifdef __APPLE__
+#define PLATFORM_GL_NEEDED "4.1"
+#else
+#define PLATFORM_GL_NEEDED "4.5"
+#endif
+
+/* this computer's graphics can't run the renderer (no OpenGL context of the
+version it needs, or one without the functions it calls): say so plainly
+and quit, rather than go on without a display and crash at the first thing
+drawn (crash reports from 0.8.0h; game issue #78). The version the driver
+does have is asked from a context of no particular version. */
+static void platform_gl_missing(const char *reason)
+{
+	char have[160] = "";
+	char message[768];
+
+	if (platform_gl_context)
+	{
+		SDL_GL_DestroyContext(platform_gl_context);
+		platform_gl_context = NULL;
+	}
+	SDL_GL_ResetAttributes();
+	{
+		SDL_GLContext probe = SDL_GL_CreateContext(platform_window);
+
+		if (probe)
+		{
+			/* (gl.h's type, with OpenGL's calling convention) */
+			__typeof__(halo_glGetString) get_string;
+
+			SDL_GL_MakeCurrent(platform_window, probe);
+			get_string = (__typeof__(halo_glGetString))SDL_GL_GetProcAddress("glGetString");
+			if (get_string)
+			{
+				const char *version = (const char *)get_string(GL_VERSION);
+				const char *renderer = (const char *)get_string(GL_RENDERER);
+
+				if (version)
+					snprintf(have, sizeof(have), "%s%s%s%s", version, renderer ? " (" : "",
+						renderer ? renderer : "", renderer ? ")" : "");
+			}
+			SDL_GL_MakeCurrent(platform_window, NULL);
+			SDL_GL_DestroyContext(probe);
+		}
+	}
+	platform_log("graphics: %s; OpenGL %s is needed%s%s: quitting", reason, PLATFORM_GL_NEEDED,
+		have[0] ? ", the driver has OpenGL " : "", have);
+	snprintf(message, sizeof(message),
+		"Chupathingy can't run on this computer's graphics.\n\n"
+		"It needs OpenGL %s%s%s.\n\n"
+		"Updating the graphics driver can fix this. Some older graphics chips never get OpenGL %s, "
+		"and Chupathingy can't run on those yet.",
+		PLATFORM_GL_NEEDED,
+		have[0] ? ", and the graphics driver here has OpenGL " : ", and the graphics driver here doesn't have it",
+		have, PLATFORM_GL_NEEDED);
+	if (!config_boolean("debug.hidden_window") && config_real("debug.exit_after") <= 0.0)
+		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Chupathingy", message, platform_window);
+	exit(EXIT_FAILURE);
+}
+#endif
+
 BOOL platform_video_initialize(unsigned long width, unsigned long height)
 {
 	int version;
@@ -1246,11 +1309,19 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 	if (!platform_gl_context)
 	{
 		platform_log("cannot create an OpenGL context: %s", SDL_GetError());
+#ifndef HALO_ANDROID
+		platform_gl_missing("no OpenGL context of the version needed");
+#endif
 		return FALSE;
 	}
 	SDL_GL_MakeCurrent(platform_window, platform_gl_context);
 	if (!gl_functions_load())
+	{
+#ifndef HALO_ANDROID
+		platform_gl_missing("OpenGL functions are missing");
+#endif
 		return FALSE;
+	}
 #ifdef __APPLE__
 	{
 		/* port/macos/src/macos_video.c */

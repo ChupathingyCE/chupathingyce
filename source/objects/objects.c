@@ -2205,6 +2205,17 @@ void object_inverse_kinematics(
 	return;
 }
 
+/* port: never inlined. Its list of the objects in the clusters is 32 KB in
+the native builds (8 KB on the Xbox: halo_port_capacity.h), and inlined it
+was on the stack of each effect update (effects.c) for the whole of the
+update, so a chain of explosions, which nests effect updates (damage.c),
+took 32 KB more stack at each step. Called, it is on the stack only while
+it runs. */
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((noinline))
+#elif defined(_MSC_VER)
+__declspec(noinline)
+#endif
 short objects_in_sphere(
 	unsigned long class_flags,
 	unsigned long type_flags,
