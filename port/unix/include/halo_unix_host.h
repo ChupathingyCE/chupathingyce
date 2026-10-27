@@ -29,6 +29,15 @@ readlink's. */
 ssize_t halo_unix_readlink(const char *path, char *buffer, size_t size);
 #define readlink halo_unix_readlink
 
+/* ---------- socket addresses
+
+FreeBSD's struct sockaddr starts with sa_len, then the family; Winsock's, which
+the game's addresses are, with a 16-bit family (posix_net.c converts them). */
+
+#ifdef __FreeBSD__
+#define HALO_SOCKADDR_LEN 1
+#endif
+
 /* ---------- /proc/self/cmdline
 
 The process's arguments (posix_net.c: posix_command_line_argument), from
