@@ -211,9 +211,23 @@ int browser_game_version_state(const struct browser_game *game);
 game list entry): -1 older, 1 newer, 0 joinable. Every build */
 int browser_version_state(int version);
 /* whether a game's map (a scenario's name or path) is a campaign level: a
-co-op game, which no server browser lists (a direct join or an invite still
-reaches it) */
+co-op game */
 int browser_map_is_campaign(const char *map);
+/* the game lists' filter, kept for the session: all games, multiplayer
+games, or co-op games (a campaign level) */
+enum
+{
+	BROWSER_LIST_FILTER_ALL,
+	BROWSER_LIST_FILTER_MULTIPLAYER,
+	BROWSER_LIST_FILTER_COOP,
+	BROWSER_LIST_FILTERS
+};
+int browser_list_filter(void);
+void browser_list_filter_cycle(void);
+/* its name for a button or a hint: ALL, MULTIPLAYER, CO-OP */
+const char *browser_list_filter_name(void);
+/* whether a game on this map (a scenario's name or path) passes it */
+int browser_list_filter_allows(const char *map);
 /* the public listings (OpenCE's, p2p_lobby.c) followed while a screen of
 listed games is up, for which of them have a password; and the games'
 pings measured (p2p_probe.c) and estimated (browser_ping.c) meanwhile,

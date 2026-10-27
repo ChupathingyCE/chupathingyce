@@ -2593,6 +2593,33 @@ int browser_game_version_state(const struct browser_game *game)
 	return browser_version_state(game->version);
 }
 
+/* the lists' filter by kind of game (All, Multiplayer, Co-op), kept for the session */
+static int list_filter;
+
+int browser_list_filter(void)
+{
+	return list_filter;
+}
+
+void browser_list_filter_cycle(void)
+{
+	list_filter = (list_filter + 1) % BROWSER_LIST_FILTERS;
+}
+
+const char *browser_list_filter_name(void)
+{
+	static const char *const names[BROWSER_LIST_FILTERS] = { "ALL", "MULTIPLAYER", "CO-OP" };
+
+	return names[list_filter];
+}
+
+int browser_list_filter_allows(const char *map)
+{
+	if (list_filter == BROWSER_LIST_FILTER_ALL)
+		return 1;
+	return browser_map_is_campaign(map) == (list_filter == BROWSER_LIST_FILTER_COOP);
+}
+
 int browser_get_games(struct browser_game *games, int maximum_count)
 {
 	int count;
