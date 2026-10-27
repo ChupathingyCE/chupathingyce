@@ -37,9 +37,20 @@ version, the flags, the kind) are left alone. The tag's bytes zero if size is
 too small or wire is no ID. */
 void delta_compat_advertise(unsigned char *reserved, int size, int major, const char *wire);
 
+/* ... and the old layout's major and slot (DELTA_ADVERTISED_WIRE_OFFSET),
+for released clients, in the bytes between OpenCE's kind and the tag: the
+major at byte 3 (the kind's byte, so only where OpenCE does not read it), then
+the oldest compatible wire from DELTA_WIRE_FIRST_ADVERTISED on, which an
+exact-match client knows, ended before the tag. With the tag's last six
+bytes, which are the old range bytes, a released client reads the host's own
+wire and range. The flag 0x04, which those clients also want, is the
+caller's. Bytes 3 to 16 zero if size is too small or wire is no ID. */
+void delta_compat_advertise_old(unsigned char *reserved, int size, int major, const char *wire);
+
 /* the tag alone: what it says (the major, the host's wire and its oldest),
 if it is right (the two tag bytes, the layout version, the check byte, IDs,
-oldest not past the wire). 1 if so. */
+oldest not past the wire). 1 if so. The check is the old range's, over
+the tag's last six bytes. */
 int delta_compat_read_tag(const unsigned char *reserved, int size, int *major, struct delta_wire_id *wire,
 	struct delta_wire_id *oldest);
 

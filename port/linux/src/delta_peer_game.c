@@ -726,26 +726,38 @@ int delta_peer_hosting_delta(void)
 
 unsigned char delta_peer_advertised_flags(void)
 {
-	/* (OpenCE's dedicated flag, version 39: a dedicated server that announces
-	it, whatever its protocol) */
+	/* (0x04: OpenCE's dedicated flag from its version 39, and the old
+	layout's Delta flag, which released clients read. A dedicated server sets
+	it when it announces 39 or later, whatever its protocol, and while it
+	hosts with Delta: true to both readers. A host with a player at it never
+	does, as OpenCE's clients of 39 would take it for a dedicated server.) */
 #ifdef HALO_SERVER
-	if (delta_legacy_announce() >= HALO_PORT_ADVERTISED_DEDICATED_VERSION)
+	if (delta_legacy_announce() >= HALO_PORT_ADVERTISED_DEDICATED_VERSION || delta_peer_hosting_delta())
 		return HALO_PORT_ADVERTISED_DEDICATED_FLAG;
 #endif
 	return 0;
 }
 
-void delta_peer_advertised_wire(unsigned char *reserved, int size)
+typedef char delta_dedicated_flag_is_old_flag[HALO_PORT_ADVERTISED_DEDICATED_FLAG == DELTA_ADVERTISED_FLAG &&
+	HALO_PORT_ADVERTISED_FLAGS_OFFSET == DELTA_ADVERTISED_FLAGS_OFFSET ? 1 : -1];
+
+void delta_peer_advertised_wire(unsigned char *reserved, int size, int engine)
 {
 	if (size < DELTA_ADVERTISED_RESERVED_SIZE)
 		return;
 	/* (the game's kind, version 37: this build plays none of OpenCE's game
 	types) */
-	reserved[HALO_PORT_ADVERTISED_KIND_OFFSET] = 0;
+	memset(reserved + HALO_PORT_ADVERTISED_KIND_OFFSET, 0,
+		DELTA_ADVERTISED_TAG_OFFSET - HALO_PORT_ADVERTISED_KIND_OFFSET);
 	memset(reserved + DELTA_ADVERTISED_TAG_OFFSET, 0, DELTA_ADVERTISED_TAG_SIZE);
 	if (!delta_peer_hosting_delta())
 		return;
 	delta_compat_advertise(reserved, size, DELTA_MAJOR, DELTA_WIRE);
+	/* (and for released clients, the old layout where it clashes with none
+	of OpenCE's meanings: with the flag, a dedicated server's, and in a game
+	whose kind OpenCE's browsers do not read) */
+	if ((reserved[DELTA_ADVERTISED_FLAGS_OFFSET] & DELTA_ADVERTISED_FLAG) && engine != DELTA_ADVERTISED_KIND_ENGINE)
+		delta_compat_advertise_old(reserved, size, DELTA_MAJOR, DELTA_WIRE);
 }
 
 int delta_peer_advertised_speaks_delta(const unsigned char *reserved, int size)

@@ -95,15 +95,16 @@ static unsigned char range_check(const unsigned char *range)
 	return (unsigned char)(CHECK_SEED ^ range[0] ^ range[1] ^ range[2] ^ range[3] ^ range[4]);
 }
 
+/* (the tag's check: the old range's, over the tag's last six bytes, which
+are the range bytes) */
 static unsigned char tag_check(const unsigned char *tag)
 {
-	unsigned char check = CHECK_SEED;
-	int index;
-
-	for (index = 0; index < DELTA_ADVERTISED_TAG_SIZE - 1; index++)
-		check = (unsigned char)(check ^ tag[index]);
-	return check;
+	return range_check(tag + DELTA_ADVERTISED_RANGE_OFFSET - DELTA_ADVERTISED_TAG_OFFSET);
 }
+
+typedef char delta_tag_ends_with_range[
+	DELTA_ADVERTISED_RANGE_OFFSET + DELTA_ADVERTISED_RANGE_SIZE == DELTA_ADVERTISED_RESERVED_SIZE &&
+	DELTA_ADVERTISED_RANGE_OFFSET - DELTA_ADVERTISED_TAG_OFFSET == 3 ? 1 : -1];
 
 /* (two wires as a range says them: IDs, the oldest not past the wire) */
 static int range_ids(const unsigned char *bytes, struct delta_wire_id *wire, struct delta_wire_id *oldest)
@@ -144,6 +145,33 @@ void delta_compat_advertise(unsigned char *reserved, int size, int major, const 
 	tag[6] = (unsigned char)oldest.number;
 	tag[7] = (unsigned char)oldest.letter;
 	tag[8] = tag_check(tag);
+}
+
+void delta_compat_advertise_old(unsigned char *reserved, int size, int major, const char *wire)
+{
+	struct delta_wire_id own, oldest, first, slot;
+	char text[16];
+	int length;
+
+	if (size < DELTA_ADVERTISED_RESERVED_SIZE)
+		return;
+	memset(reserved + DELTA_ADVERTISED_WIRE_OFFSET, 0, DELTA_ADVERTISED_TAG_OFFSET - DELTA_ADVERTISED_WIRE_OFFSET);
+	if (!delta_compat_oldest(wire, &oldest) || !delta_wire_parse(wire, (int)strlen(wire), &own) ||
+		!delta_wire_parse(DELTA_WIRE_FIRST_ADVERTISED, (int)strlen(DELTA_WIRE_FIRST_ADVERTISED), &first))
+	{
+		return;
+	}
+	/* (the slot: the oldest wire that a build of the old layout knows, never
+	newer than the host's own, ended before the tag) */
+	slot = delta_wire_compare(&oldest, &first) < 0 ? first : oldest;
+	if (delta_wire_compare(&slot, &own) > 0)
+		slot = own;
+	delta_wire_format(&slot, text, (int)sizeof(text));
+	length = (int)strlen(text);
+	if (length >= DELTA_ADVERTISED_TAG_OFFSET - (DELTA_ADVERTISED_WIRE_OFFSET + 1))
+		return;
+	reserved[DELTA_ADVERTISED_WIRE_OFFSET] = (unsigned char)major;
+	memcpy(reserved + DELTA_ADVERTISED_WIRE_OFFSET + 1, text, (size_t)length);
 }
 
 int delta_compat_read_tag(const unsigned char *reserved, int size, int *major, struct delta_wire_id *wire,

@@ -51,7 +51,7 @@ advertisement: since `chupa-39a` in the Delta tag at their tail
 before that after the port's version and flags (`DELTA_ADVERTISED_WIRE_OFFSET`,
 with the flag 0x04), which new clients still read. Clients that do not read
 those bytes see nothing different (docs/delta.md, "The advertisement", and
-its transition until 2026-12-01).
+and its transition, which has no end date).
 
 Every wire from the console floor on (`DELTA_WIRE_CONSOLE_FLOOR`,
 `chupa-32a`: the Xbox and Switch builds) plays back to it, so a new PC wire

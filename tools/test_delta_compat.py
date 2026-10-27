@@ -90,5 +90,6 @@ def test_documented():
     docs = DOCS.read_text(encoding="utf-8")
     assert "### Wire compatibility ranges" in docs
     for needle in ("DELTA_WIRE_COMPATIBILITY", "DELTA_ADVERTISED_RANGE_OFFSET", "DELTA_ADVERTISED_TAG_OFFSET", "0xA5",
-                   "chupa-28a", "chupa-29a", "chupa-32a", "chupa-39a", "build-244", "2026-12-01"):
+                   "chupa-28a", "chupa-29a", "chupa-32a", "chupa-39a", "build-244", "no end date", "delta_compat_advertise_old",
+                   "DELTA_ADVERTISED_KIND_ENGINE"):
         assert needle in docs, needle

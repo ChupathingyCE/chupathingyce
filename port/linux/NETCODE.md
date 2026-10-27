@@ -294,8 +294,10 @@ draws no glow or overshield of its own. From 37 the advertisement's fourth
 reserved byte (the game's kind) is 0, and from 39 a dedicated server sets
 the advertisement's flag 0x04 and the internet listing's flag 32 (OpenCE's
 dedicated flags). A Delta host's own bytes are the Delta tag at the reserved
-bytes' tail (docs/delta.md, "The advertisement"), so none of OpenCE's bytes
-carry Delta.
+bytes' tail (docs/delta.md, "The advertisement"). For released clients a
+dedicated server that hosts with Delta also sets 0x04 and, in a game that
+is not Slayer, writes the old layout's major and slot from byte 3, where
+OpenCE names no kind (docs/delta.md, "The transition").
 
 A host never checks a joining client's version: the client reads the
 host's from its advertisement and joins only a version it plays with. That

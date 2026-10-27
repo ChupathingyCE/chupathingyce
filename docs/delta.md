@@ -88,7 +88,8 @@ OpenCE's public listings and LAN work without it.
   machines ignore it, and the game's own messages are not changed by it.
   Hosts before chupa-39a set the flag 0x04 instead (the flags byte at
   `HALO_PORT_ADVERTISED_FLAGS_OFFSET`); OpenCE has since given that bit a
-  meaning of its own, so it is only read now, never written.
+  meaning of its own (a dedicated server), so only a dedicated server still
+  sets it, for released clients ("The transition" below).
 
 ### Handshake
 
@@ -747,21 +748,25 @@ types:
 | 20 | the tag's layout version, 1 |
 | 21, 22 | the host's own wire: its number and its letter (39, 'a') |
 | 23, 24 | its oldest compatible wire: number and letter (28, 'a') |
-| 25 | a check: 0xA5 xor the eight bytes before |
+| 25 | a check: 0xA5 xor the five bytes before |
 
 A reader knows a Delta host by a valid tag and check, never by a flag bit.
-The tag's last six bytes sit where the old layout's range bytes were, but
-its check covers the tag as well, so an old host is never read as a new one.
-OpenCE's machines, and released builds, leave and ignore the bytes.
+The tag's last six bytes are the old layout's range bytes, check and all, so
+a released client that reads the old layout (below) where a host writes it
+too sees the host's own wire and range. An old host is never read as a new
+one: it has zeros where the tag's `'D'` and `'L'` go. OpenCE's machines
+leave and ignore the bytes.
 
 **Why it moved.** OpenCE gave two of the bytes Delta used meanings of its
 own: byte 3 is the game's kind from its version 37 (so an OpenCE client of
 37 or later read a Delta host's major, 1, as SWAT), and the flag 0x04 is a
 dedicated server from its version 39 (so an OpenCE client of 39 read every
-Delta host as dedicated). Hosts from chupa-39a on write neither: byte 3 is 0
-and 0x04 is set only by a dedicated server that announces 39 or later, as
-OpenCE's own do (the internet listing's flag 32 too; the listing never
-carried Delta bytes).
+Delta host as dedicated). Hosts from chupa-39a on write them only where
+they mean the same to OpenCE: 0x04 only on a dedicated server, and their
+major at byte 3 only in a game OpenCE names no kind for (see "The
+transition"). Otherwise byte 3 is 0. A dedicated server announcing 39 or
+later also sets the internet listing's flag 32 (the listing never carried
+Delta bytes).
 
 **The old layout, still read.** Hosts from 0.7.5a to chupa-38a set the flag
 0x04, then their major at byte 3 (`DELTA_ADVERTISED_WIRE_OFFSET`), then a
@@ -794,21 +799,38 @@ before.
 
 **The transition (decided 2026-10-27).** Released builds read only the old
 layout: the PCs on chupa-38a (0.8.0f to 0.8.0h) and before, and the consoles
-on chupa-32a (the Xbox and Switch builds). A new host can't write the old
-layout as well without the collisions above, so it doesn't: those builds
-join a new host **by its OpenCE number**, which works, as our hosts announce
-32 by default and every released build joins 32. What they lose until they
-update is Delta Peer with that host (no HELLO is sent without the flag:
-profiles, chat, team changes, platform icons, moderation sign-in, and Bomb
-game types, which a host plays only with machines that agreed to them). A
-dedicated server announcing 39 sets 0x04 as OpenCE's dedicated flag, which
-released builds still take for Delta, so they say HELLO and keep Delta Peer
-there; a chupa-32a console can't join such a server by number (it joins to
-33), which is why servers announce 39 only by their own table. **The
-transition ends 2026-12-01**: by then every console port ships a submodule
-with the tag reader (Phase 1 of the independence plan), and the PCs have
-updated through the updater. Reading the old layout stays after that date;
-removing it needs the owner's decision ("Never drop an old protocol").
+on chupa-32a (the Xbox and Switch builds). So a new host keeps writing the
+old layout as well, but only where it doesn't clash with what OpenCE now
+means by those bytes:
+
+- **The flag 0x04** means a dedicated server to OpenCE's 39. A dedicated
+  server that hosts with Delta sets it, which is true for both readers
+  (`delta_peer_advertised_flags`). A host with a player at it never sets it.
+- **Byte 3** is the game's kind to OpenCE's 37 and later, and its browser
+  reads it only in a Slayer game (`DELTA_ADVERTISED_KIND_ENGINE`; a mode
+  there names SWAT, Infection or Gun Game). With the flag, in a game of any
+  other engine, a host writes its major there and the old slot after it:
+  `chupa-29a`, ended before the tag (`delta_compat_advertise_old`). The
+  tag's last six bytes are the old range bytes, so these clients also see
+  the host's own wire and range.
+
+What a released client gets from a new host:
+
+| Host | Released client |
+| --- | --- |
+| a dedicated server, not Slayer | joins by Delta (its wire is in the host's range), whatever number the host announces; Delta Peer |
+| a dedicated server, Slayer | says HELLO (the flag) and gets Delta Peer; joins by the OpenCE number |
+| a host with a player at it | joins by the OpenCE number; no Delta Peer |
+
+Joining by number works, as our hosts announce 32 by default and every
+released build joins 32. Without Delta Peer a client loses profiles, chat,
+team changes, platform icons, moderation sign-in, and Bomb game types (a
+host plays those only with machines that agreed to them) until it updates.
+A chupa-32a console can't join a Slayer game on a server announcing 39 by
+number (it joins to 33), which is why servers announce 39 only by their own
+table. **The transition has no end date.** Hosts write the old layout where
+it fits for as long as released builds need it, and new builds read it.
+Stopping either needs the owner's decision ("Never drop an old protocol").
 
 **The cost of one slot** (the old layout, for the record). A released client
 that checked the slot exactly saw the host's oldest compatible wire,
@@ -893,7 +915,7 @@ breaking:
 	X(36, "build-266", additive) /* the host's shield effects, a new message (91) a machine of 35 drops */ \
 	X(37, "build-268", additive) /* a listed game's kind (an OpenCE game type and Hardcore) in a byte that was zero: the advertisement's fourth reserved byte and the internet listing's stamp; this build shows the name in the list and marks the games it does not play; no message or record changed */ \
 	X(38, "build-268", additive) /* the shield effects message takes a seventh value, 6, for each machine's own look; this build draws stock for it, as for the others */ \
-	X(39, "build-268", additive) /* a dedicated server's game: the advertisement's flag 0x04 and the internet listing's flag 32; no message or record changed (first build: the newest release known when it was followed, 2026-10-27) */
+	X(39, "build-294", additive) /* a dedicated server's game: the advertisement's flag 0x04 and the internet listing's flag 32; no message or record changed (first build: the oldest published release whose commit has the change, by git ancestry, 2026-10-27; older releases were removed, so an earlier one may have had it) */
 ```
 
 `tools/test_delta.py` (in CI) checks `halo_port_limits.h` against it: hosts
@@ -950,7 +972,7 @@ Known history, from `port/linux/NETCODE.md` and OpenCE's commits:
 | 36 | build-266 | The host's shield effects, a new message (91, 12 bytes, reliable: the header, 0 to 5 as a 16-bit value, 16 bits of 0), sent to a client when it has loaded and once each game; a machine of 35 drops it. Our clients take it and draw stock, the only look they have | additive |
 | 37 | build-268 | A listed game's kind: one byte, an OpenCE game type in its low seven bits (0 none, 1 SWAT, 2 Infection, 3 Gun Game) and Hardcore in bit 7. In the LAN advertisement it is the fourth reserved byte (zero before), in the internet listing the first byte of the 8-byte stamp before the signature (the signature covers it; the length is unchanged). A game type counts only on the Slayer engine; Hardcore alone names the engine (HARDCORE SLAYER). It decides only the name in the list. Our clients take any value, name the games they do not play and mark them like a game of a newer build; our own hosts send 0. A Delta host's fourth reserved byte is its Delta major (below), so an OpenCE 37 client reads a Delta host's kind as 1 | additive |
 | 38 | build-268 | The shield effects message takes a seventh value, 6, "players": the host does not dictate and each machine uses its own player's settings. A machine of 37 or older drops it. Ours draws stock for every value | additive |
-| 39 | build-268 | A dedicated server's game: the advertisement's flag 0x04 (until then Delta's, which moved to the Delta tag for it) and the internet listing's flag 32 (ours is 128; a dedicated server sets both). OpenCE's browser shows DEDICATED only for servers its master server lists, so ours appear under ALL GAMES, as we don't speak its master (below). No message or record changed. Our dedicated servers set it when they announce 39 or later, by their own table; hosts' default announce stays 32. The row's first build is the newest OpenCE release known when it was followed (2026-10-27), not checked against their releases | additive |
+| 39 | build-294 | A dedicated server's game: the advertisement's flag 0x04 (until then Delta's, which moved to the Delta tag for it) and the internet listing's flag 32 (ours is 128; a dedicated server sets both). OpenCE's browser shows DEDICATED only for servers its master server lists, so ours appear under ALL GAMES, as we don't speak its master (below). No message or record changed. Our dedicated servers set the flag 0x04 when they announce 39 or later (by their own table) or host with Delta, and the listing's flag 32 when they announce 39 or later; hosts' default announce stays 32. The row's first build is the oldest published OpenCE release whose commit has the change (checked by git ancestry on 2026-10-27); older releases were removed, so an earlier one may have had it | additive |
 
 ### Automation
 

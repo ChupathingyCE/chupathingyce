@@ -723,15 +723,18 @@ int delta_peer_protocol(void);
 /* whether this machine hosts with Delta Peer now: its socket open and
 network.protocol not "opence" */
 int delta_peer_hosting_delta(void);
-/* the host's advertisement flags to add: OpenCE's dedicated flag
-(HALO_PORT_ADVERTISED_DEDICATED_FLAG) on a dedicated server that announces
-HALO_PORT_ADVERTISED_DEDICATED_VERSION or later, else 0. Never Delta's old
-flag (delta.h) */
+/* the host's advertisement flags to add: 0x04 on a dedicated server that
+announces HALO_PORT_ADVERTISED_DEDICATED_VERSION or later, or hosts with
+Delta (OpenCE's dedicated flag, and the old layout's Delta flag, which
+released clients read), else 0 */
 unsigned char delta_peer_advertised_flags(void);
 /* the advertisement's reserved bytes (size of them) past the port's version
 and flags: the kind (0: this build plays none of OpenCE's game types), and
-while hosting with Delta the Delta tag at their tail (delta_compat.h) */
-void delta_peer_advertised_wire(unsigned char *reserved, int size);
+while hosting with Delta the Delta tag at their tail (delta_compat.h), and,
+with the flag 0x04 already in the flags and a game engine (engine, its stock
+index) other than DELTA_ADVERTISED_KIND_ENGINE, the old layout's major and
+slot for released clients (docs/delta.md, "The transition") */
+void delta_peer_advertised_wire(unsigned char *reserved, int size, int engine);
 /* whether a host's advertisement (its reserved bytes) says it speaks Delta
 Peer, so that this client says HELLO (delta_compat_speaks_delta); 0 on the
 legacy protocol */

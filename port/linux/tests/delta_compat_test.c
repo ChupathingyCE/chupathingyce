@@ -58,6 +58,57 @@ static int old_exact(const unsigned char *reserved, int major, const char *own)
 	return length == (int)strlen(own) && !memcmp(wire, own, (size_t)length) ? 1 : 0;
 }
 
+/* what a client of the old layout with the ranges (0.8.0a to 0.8.0h, the
+consoles on chupa-32a) decided, as its code was: the flag, the major and
+slot at byte 3, the range bytes when right, else the slot's exact match */
+static int old_ranged(const unsigned char *reserved, const char *own)
+{
+	const unsigned char *slot = reserved + DELTA_ADVERTISED_WIRE_OFFSET + 1;
+	const unsigned char *range = reserved + DELTA_ADVERTISED_RANGE_OFFSET;
+	struct delta_wire_id mine, mine_oldest, host, host_oldest;
+	char text[DELTA_ADVERTISED_WIRE_SIZE + 1];
+	int length = 0;
+
+	if (!(reserved[DELTA_ADVERTISED_FLAGS_OFFSET] & DELTA_ADVERTISED_FLAG) ||
+		reserved[DELTA_ADVERTISED_WIRE_OFFSET] != DELTA_MAJOR)
+	{
+		return -1;
+	}
+	while (length < DELTA_ADVERTISED_WIRE_SIZE && slot[length])
+		length++;
+	if (!length)
+		return -1;
+	memcpy(text, slot, (size_t)length);
+	text[length] = 0;
+	CHECK(delta_compat_oldest(own, &mine_oldest) && delta_wire_parse(own, (int)strlen(own), &mine));
+	if (range[0] == DELTA_ADVERTISED_RANGE_VERSION &&
+		range[5] == (0xA5 ^ range[0] ^ range[1] ^ range[2] ^ range[3] ^ range[4]))
+	{
+		host.number = range[1];
+		host.letter = range[2];
+		host_oldest.number = range[3];
+		host_oldest.letter = range[4];
+	}
+	else if (!delta_wire_parse(text, length, &host))
+		return strcmp(text, own) ? 0 : 1;
+	else
+		host_oldest = host;
+	if ((delta_wire_compare(&host, &mine_oldest) >= 0 && delta_wire_compare(&host, &mine) <= 0) ||
+		(delta_wire_compare(&mine, &host_oldest) >= 0 && delta_wire_compare(&mine, &host) <= 0))
+	{
+		return 1;
+	}
+	return strcmp(text, own) ? 0 : 1;
+}
+
+/* (the tag's check again, after a test changed its bytes) */
+static void reseal(unsigned char *reserved)
+{
+	unsigned char *range = reserved + DELTA_ADVERTISED_RANGE_OFFSET;
+
+	range[5] = (unsigned char)(0xA5 ^ range[0] ^ range[1] ^ range[2] ^ range[3] ^ range[4]);
+}
+
 static int decide(const unsigned char *reserved, const char *own)
 {
 	char theirs[24];
@@ -147,15 +198,17 @@ static void test_advertisement(void)
 	CHECK(DELTA_ADVERTISED_TAG_OFFSET == 17 && DELTA_ADVERTISED_TAG_OFFSET + DELTA_ADVERTISED_TAG_SIZE == RESERVED);
 	CHECK(reserved[17] == 'D' && reserved[18] == 'L' && reserved[19] == DELTA_MAJOR && reserved[20] == 1);
 	CHECK(reserved[21] == 32 && reserved[22] == 'a' && reserved[23] == 28 && reserved[24] == 'a');
-	CHECK(reserved[25] == (0xA5 ^ 'D' ^ 'L' ^ DELTA_MAJOR ^ 1 ^ 32 ^ 'a' ^ 28 ^ 'a'));
+	CHECK(reserved[25] == (0xA5 ^ 1 ^ 32 ^ 'a' ^ 28 ^ 'a'));
 	CHECK(delta_compat_read_tag(reserved, RESERVED, &major, &wire, &oldest) && major == DELTA_MAJOR &&
 		wire.number == 32 && oldest.number == 28);
 	/* OpenCE's bytes are left alone: the version, the flags (no 0x04), the kind and what follows it */
 	CHECK(reserved[0] == 32 && reserved[1] == 0 && reserved[2] == 0x01);
 	for (index = 3; index < DELTA_ADVERTISED_TAG_OFFSET; index++)
 		CHECK(reserved[index] == 0);
-	/* (and the old range's check is not the tag's: a new host is never read as an old one) */
-	CHECK(!delta_compat_read_range(reserved, RESERVED, &wire, &oldest));
+	/* (the tag's last six bytes are the old range bytes, check and all) */
+	CHECK(delta_compat_read_range(reserved, RESERVED, &wire, &oldest) && wire.number == 32 && oldest.number == 28);
+	/* (but without the flag and the old major, no old reader looks at them) */
+	CHECK(old_exact(reserved, DELTA_MAJOR, "chupa-29a") == -1 && old_ranged(reserved, "chupa-32a") == -1);
 
 	/* this build's own wire, and a wire with no row */
 	host(reserved, DELTA_WIRE);
@@ -181,9 +234,12 @@ static void test_tag_bytes(void)
 	struct delta_wire_id wire, oldest;
 	int major, index;
 
-	/* a wrong tag byte, layout version, check byte, order or letter is no tag */
+	/* a wrong tag byte, layout version, check byte, order or letter is no tag
+	(the major is outside the check: another one is read as such, below) */
 	for (index = DELTA_ADVERTISED_TAG_OFFSET; index < RESERVED; index++)
 	{
+		if (index == DELTA_ADVERTISED_TAG_OFFSET + 2)
+			continue;
 		host(reserved, "chupa-32a");
 		reserved[index] ^= 0x20;
 		CHECK(!delta_compat_read_tag(reserved, RESERVED, &major, &wire, &oldest));
@@ -192,13 +248,12 @@ static void test_tag_bytes(void)
 	}
 	host(reserved, "chupa-32a");
 	reserved[23] = 33;
-	reserved[25] = (unsigned char)(0xA5 ^ 'D' ^ 'L' ^ DELTA_MAJOR ^ 1 ^ 32 ^ 'a' ^ 33 ^ 'a');
+	reseal(reserved);
 	CHECK(!delta_compat_read_tag(reserved, RESERVED, &major, &wire, &oldest));
 	CHECK(!delta_compat_read_tag(reserved, RESERVED - 1, &major, &wire, &oldest));
 	/* (another major: Delta, but joined by the OpenCE number) */
 	host(reserved, "chupa-32a");
 	reserved[19] = DELTA_MAJOR + 1;
-	reserved[25] ^= (unsigned char)(DELTA_MAJOR ^ (DELTA_MAJOR + 1));
 	CHECK(delta_compat_read_tag(reserved, RESERVED, &major, &wire, &oldest) && major == DELTA_MAJOR + 1);
 	CHECK(delta_compat_speaks_delta(reserved, RESERVED) && decide(reserved, "chupa-32a") == -1);
 	CHECK(!delta_compat_host_wire(reserved, RESERVED, DELTA_MAJOR, &wire));
@@ -219,7 +274,7 @@ static void test_matrix(void)
 	host(h33, "chupa-33a");
 	host(h33wide, "chupa-33a");
 	h33wide[23] = 29;
-	h33wide[25] = (unsigned char)(0xA5 ^ 'D' ^ 'L' ^ DELTA_MAJOR ^ 1 ^ 33 ^ 'a' ^ 29 ^ 'a');
+	reseal(h33wide);
 
 	/* a 39a client: every wire of ours from 28a on */
 	CHECK(decide(h39, "chupa-39a") == 1 && decide(h38, "chupa-39a") == 1 && decide(h32, "chupa-39a") == 1);
@@ -328,22 +383,74 @@ static void test_opence_hosts(void)
 	CHECK(!delta_compat_speaks_delta(reserved, RESERVED) && decide(reserved, "chupa-39a") == -1);
 }
 
-/* the released clients (the old layout's readers: chupa-32a, chupa-38a)
-against a new host: no flag and no major at byte 3, so they join it by its
-OpenCE number; a dedicated server announcing 39 sets 0x04 (OpenCE's
-dedicated flag), and they still find no wire, so join by number */
+/* the released clients (the old layout's readers: chupa-29a's exact match,
+chupa-32a and chupa-38a's ranges) against a new host. A host with a player
+at it writes no old layout, so they join it by its OpenCE number. A
+dedicated server sets 0x04 (OpenCE's dedicated flag, the old Delta flag), so
+they say HELLO, and in a game that is not Slayer it writes the old major and
+slot too, so they join it by Delta whatever it announces; in Slayer (byte 3
+OpenCE's kind) they join it by its number */
+static void dedicated(unsigned char *reserved, int announced, int slayer)
+{
+	memset(reserved, 0, RESERVED);
+	reserved[0] = (unsigned char)announced;
+	reserved[DELTA_ADVERTISED_FLAGS_OFFSET] = 0x01 | 0x04;
+	delta_compat_advertise(reserved, RESERVED, DELTA_MAJOR, "chupa-39a");
+	if (!slayer)
+		delta_compat_advertise_old(reserved, RESERVED, DELTA_MAJOR, "chupa-39a");
+}
+
 static void test_old_clients(void)
 {
 	unsigned char reserved[RESERVED];
+	struct delta_wire_id wire, oldest;
+	int major, index;
 
+	/* a host with a player at it: the tag alone */
 	host(reserved, "chupa-39a");
 	CHECK(old_exact(reserved, DELTA_MAJOR, "chupa-29a") == -1);
 	CHECK(old_exact(reserved, DELTA_MAJOR, "chupa-39a") == -1);
-	reserved[0] = 39;
-	reserved[DELTA_ADVERTISED_FLAGS_OFFSET] |= 0x04;
-	CHECK(old_exact(reserved, DELTA_MAJOR, "chupa-32a") == -1);
-	/* (the new reader: the tag decides, whatever the flag) */
+	CHECK(old_ranged(reserved, "chupa-32a") == -1 && old_ranged(reserved, "chupa-38a") == -1);
+	CHECK(reserved[3] == 0);
+
+	/* a dedicated server, not Slayer: the old layout as well */
+	dedicated(reserved, 39, 0);
+	CHECK(reserved[DELTA_ADVERTISED_WIRE_OFFSET] == DELTA_MAJOR);
+	CHECK(!memcmp(reserved + DELTA_ADVERTISED_WIRE_OFFSET + 1, "chupa-29a", 10));
+	for (index = DELTA_ADVERTISED_WIRE_OFFSET + 1 + 9; index < DELTA_ADVERTISED_TAG_OFFSET; index++)
+		CHECK(reserved[index] == 0);
+	/* (released clients: 0.7.5's exact match, and the ranges of 0.8.0a on, which see the host's own wire) */
+	CHECK(old_exact(reserved, DELTA_MAJOR, "chupa-29a") == 1);
+	CHECK(old_ranged(reserved, "chupa-32a") == 1 && old_ranged(reserved, "chupa-38a") == 1);
+	CHECK(old_ranged(reserved, "chupa-29a") == 1 && old_ranged(reserved, "chupa-28a") == 1);
+	CHECK(delta_compat_read_range(reserved, RESERVED, &wire, &oldest) && wire.number == 39 && oldest.number == 28);
+	/* (the tag and OpenCE's bytes untouched by it) */
+	CHECK(delta_compat_read_tag(reserved, RESERVED, &major, &wire, &oldest) && wire.number == 39);
+	CHECK(reserved[0] == 39 && reserved[2] == (0x01 | 0x04));
+	/* (the new reader: the tag decides) */
 	CHECK(delta_compat_speaks_delta(reserved, RESERVED) && decide(reserved, "chupa-32a") == 1);
+	CHECK(delta_compat_host_wire(reserved, RESERVED, DELTA_MAJOR, &wire) && wire.number == 39);
+	/* (announcing 32, the same) */
+	dedicated(reserved, 32, 0);
+	CHECK(old_ranged(reserved, "chupa-32a") == 1 && decide(reserved, "chupa-38a") == 1);
+
+	/* a dedicated server in Slayer: no major at byte 3 (OpenCE would name the game SWAT), the flag alone */
+	dedicated(reserved, 39, 1);
+	CHECK(reserved[3] == 0);
+	CHECK(old_exact(reserved, DELTA_MAJOR, "chupa-29a") == -1 && old_ranged(reserved, "chupa-32a") == -1);
+	CHECK(delta_compat_speaks_delta(reserved, RESERVED) && decide(reserved, "chupa-32a") == 1);
+
+	/* the old writer: too small, or no wire, writes nothing; a wire of its own is the slot's when older than 29a */
+	memset(reserved, 0xEE, sizeof(reserved));
+	delta_compat_advertise_old(reserved, RESERVED - 1, DELTA_MAJOR, "chupa-39a");
+	CHECK(reserved[3] == 0xEE);
+	delta_compat_advertise_old(reserved, RESERVED, DELTA_MAJOR, "not a wire");
+	for (index = 3; index < DELTA_ADVERTISED_TAG_OFFSET; index++)
+		CHECK(reserved[index] == 0);
+	CHECK(reserved[2] == 0xEE && reserved[DELTA_ADVERTISED_TAG_OFFSET] == 0xEE);
+	memset(reserved, 0, sizeof(reserved));
+	delta_compat_advertise_old(reserved, RESERVED, DELTA_MAJOR, "chupa-28a");
+	CHECK(!memcmp(reserved + DELTA_ADVERTISED_WIRE_OFFSET + 1, "chupa-28a", 10));
 }
 
 static void test_host_wire(void)

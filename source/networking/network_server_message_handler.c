@@ -859,6 +859,9 @@ int network_rules_host_static_damage_reported(unsigned announce, unsigned delta_
 void network_rules_extended_options_default(unsigned char *options);
 #ifdef HALO_GAME_BROWSER
 int delta_peer_hosting_delta(void);
+/* (the advertisement's game engine, as delta.h's DELTA_ADVERTISED_KIND_ENGINE
+says Slayer's) */
+typedef char advertised_kind_engine_is_slayer[game_engine_slayer == 2 ? 1 : -1];
 int delta_peer_game_machine_legacy_version(int machine_index);
 #endif
 
@@ -2069,14 +2072,17 @@ static boolean network_game_server_handle_message_client_broadcast_game_search(
 			advertisement.reserved[HALO_PORT_ADVERTISED_FLAGS_OFFSET] =
 				HALO_PORT_ADVERTISED_DISTRIBUTED_FLAG;
 #ifdef HALO_GAME_BROWSER
-			/* (and a dedicated server's flag, version 39's; the game's kind,
-			0; and while this host speaks Delta Peer, the Delta tag at the
-			reserved bytes' tail, which OpenCE's machines ignore:
+			/* (and a dedicated server's flag, version 39's, which released
+			Delta clients read as Delta's; the game's kind, 0; and while this
+			host speaks Delta Peer, the Delta tag at the reserved bytes' tail,
+			which OpenCE's machines ignore, and on a dedicated server, in a
+			game that is not Slayer, the old layout for released clients:
 			port/linux/src/delta_peer.h) */
 			{ unsigned char delta_peer_advertised_flags(void);
-			  void delta_peer_advertised_wire(unsigned char *reserved, int size);
+			  void delta_peer_advertised_wire(unsigned char *reserved, int size, int engine);
 			  advertisement.reserved[HALO_PORT_ADVERTISED_FLAGS_OFFSET] |= delta_peer_advertised_flags();
-			  delta_peer_advertised_wire(advertisement.reserved, (int)sizeof(advertisement.reserved)); }
+			  delta_peer_advertised_wire(advertisement.reserved, (int)sizeof(advertisement.reserved),
+				  (int)game->variant.game_engine_index); }
 #endif
 			if (network_game_server_get_state(server, NULL) != _network_game_server_state_pregame ||
 				network_game_server_game_is_loading(server))

@@ -32,7 +32,9 @@ OpenCE writes its own fields there from the front (the version, the flags,
 since its version 37 the game's kind at byte 3), so the tail stays clear of
 them. The block: 'D', 'L', the host's Delta major, the block's layout
 version (1), the host's own wire (its number, then its letter), its oldest
-compatible wire (number, letter), and a check byte (0xA5 xor the eight before).
+compatible wire (number, letter), and a check byte (0xA5 xor the five before:
+the tag's last six bytes are the old layout's range bytes, below, check and
+all, so a released client reads them where the old layout is written too).
 A reader knows Delta by a valid tag and check, never by a flag bit. Written
 only while the host's Delta socket is open and network.protocol is not
 "opence" (delta_peer_advertised_wire); OpenCE's machines leave and ignore the
@@ -46,24 +48,30 @@ bytes. */
 
 /* The old layout, which hosts before the tag wrote (0.7.5a to 0.8.0h, wires
 to chupa-38a) and which readers still take when there is no tag, so that a
-new client still finds an old Delta host. Never written since: OpenCE gave
-its bytes meanings of its own (the flag 0x04 a dedicated server, version 39;
-byte 3 the game's kind, version 37), so OpenCE's clients read an old Delta
-host as dedicated and as a SWAT game. The flag (in the port's flags byte,
-HALO_PORT_ADVERTISED_FLAGS_OFFSET) said Delta... */
+new client still finds an old Delta host. Released clients read nothing
+else, so a host still writes it where it does not clash with OpenCE's
+meaning of the bytes (docs/delta.md, "The transition"): OpenCE took the flag
+0x04 for a dedicated server (version 39) and byte 3 for the game's kind
+(version 37), so a dedicated server alone sets the flag, and writes its
+major at byte 3 only in a game whose engine is not Slayer, the one engine
+OpenCE names a kind for (DELTA_ADVERTISED_KIND_ENGINE). The flag (in the
+port's flags byte, HALO_PORT_ADVERTISED_FLAGS_OFFSET) said Delta... */
 #define DELTA_ADVERTISED_FLAGS_OFFSET 2
 #define DELTA_ADVERTISED_FLAG 0x04
 /* ... and with it, in the bytes after the flags, the host's Delta major (a
 byte), then a wire, zero padded: its OLDEST COMPATIBLE wire that a released
 client knows (one that checks the bytes for an exact match, as 0.7.5a's
-does, then joins) */
+does, then joins). Readers stop at the first zero, so the tag may follow it
+in the slot's last three bytes: a host writes the slot's wire only when it
+is ended before the tag (delta_compat_advertise_old) */
 #define DELTA_ADVERTISED_WIRE_OFFSET 3
 #define DELTA_ADVERTISED_WIRE_SIZE 16
 /* ... and after the wire, to the end of the reserved bytes, the range: its
 layout version (1), the host's own wire (number, letter), its oldest
 compatible wire (number, letter), and a check byte (0xA5 xor the five
-before). The tag's last six bytes sit where these did, with a check of its
-own (delta_compat.h). */
+before). The tag's last six bytes are these, so a host that writes the old
+major and slot as well says its range to released clients too
+(delta_compat.h). */
 #define DELTA_ADVERTISED_RANGE_OFFSET (DELTA_ADVERTISED_WIRE_OFFSET + 1 + DELTA_ADVERTISED_WIRE_SIZE)
 #define DELTA_ADVERTISED_RANGE_SIZE 6
 #define DELTA_ADVERTISED_RANGE_VERSION 1
@@ -71,6 +79,11 @@ own (delta_compat.h). */
 server): an old-layout host announcing it or later is taken for Delta only
 with a wire in the old slot */
 #define DELTA_ADVERTISED_FLAG_TAKEN_VERSION 39
+/* ... the game engine (its stock index, Slayer) of the one game whose kind
+byte OpenCE's browsers read (its version 37): a major there names an OpenCE
+game type (1, SWAT), so a host writes the old layout's major and slot only
+in games of other engines */
+#define DELTA_ADVERTISED_KIND_ENGINE 2
 
 /* Delta Peer's UDP port: the game's server port (NETWORK_GAME_SERVER_PORT,
 5150) plus this, so 5160. A host listens there; a client sends from any
@@ -343,7 +356,7 @@ first; the command repository's watch adds a row when it follows OpenCE's raise
 	X(36, "build-266", additive) /* the host's shield effects, a new message (91) a machine of 35 drops */ \
 	X(37, "build-268", additive) /* a listed game's kind (an OpenCE game type and Hardcore) in a byte that was zero: the advertisement's fourth reserved byte and the internet listing's stamp; this build shows the name in the list and marks the games it does not play; no message or record changed */ \
 	X(38, "build-268", additive) /* the shield effects message takes a seventh value, 6, for each machine's own look; this build draws stock for it, as for the others */ \
-	X(39, "build-268", additive) /* a dedicated server's game: the advertisement's flag 0x04 and the internet listing's flag 32; no message or record changed (first build: the newest release known when it was followed, 2026-10-27) */
+	X(39, "build-294", additive) /* a dedicated server's game: the advertisement's flag 0x04 and the internet listing's flag 32; no message or record changed (first build: the oldest published release whose commit has the change, by git ancestry, 2026-10-27; older releases were removed, so an earlier one may have had it) */
 
 /* ---------- the legacy table (port/linux/src/delta.c)
 
