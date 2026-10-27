@@ -530,7 +530,9 @@ a pregame keep-alive every five seconds from the host
      players' ammunition and grenade counts from the host only once a
      round trip has passed since it last fired, reloaded or threw (what
      the host says before then is from before). How old what a unit
-     carries is travels in 16 bits. A client keeps what the host says a
+     carries is travels in 16 bits. A change of weapons or grenades goes
+     the tick it happens (not at the next tenth of a second) and once more
+     a fifth of a second later, and a client keeps what the host says a
      unit carries when the unit or a weapon in it has not come yet (the
      objects come over the host's stream, what they carry in a datagram,
      read first when both come at once: a spawned player's gun came a

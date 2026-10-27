@@ -35,8 +35,9 @@ same datum index (identifier and all), so that any message can name one:
   their ammunition, the weapon in hand and the grenades; a client moves its
   copies of those weapons in and out of its copies of the units to match (it
   decides no pickups, swaps or drops itself). A change of weapons or
-  grenades goes to every client at once, and a client keeps one naming a
-  unit or weapon it has not been told of yet until they come (a spawn's: the objects over the host's stream, the
+  grenades goes to every client at once (that tick, and once more a moment
+  later), and a client keeps one naming a unit or weapon it has not been told
+  of yet until they come (a spawn's: the objects over the host's stream, the
   inventory in a datagram, read first), one of ammunition alone to the
   unit's own client at once and to the others as often as the unit's place
   is sent them. A client's own player spends its own ammunition and grenades:
@@ -134,6 +135,8 @@ enum
 	/* a unit's inventory is sent this often even unchanged (one lost is
 	made good) */
 	INVENTORY_REFRESH_TICKS = TICKS_PER_SECOND,
+	/* ... and a change of its weapons or grenades once more, this long after */
+	INVENTORY_REPEAT_TICKS = 2 * INVENTORY_INTERVAL_TICKS,
 	/* ... and a unit's that has come to carry nothing, for this long after */
 	EMPTY_INVENTORY_TICKS = 3 * INVENTORY_REFRESH_TICKS,
 	/* the host's objects at rest sent each tick, round them all */
@@ -1814,9 +1817,11 @@ enum
 while: a change of weapons or grenades to every client at once, one of
 ammunition alone to the unit's own client at once and to the others by how
 near their players are, as the host sends them objects (those further off
-see its shots less) */
+see its shots less). Between those rounds (changes_only), a change of
+weapons alone, at once: a spawned player's weapons with its unit, not up to
+two ticks after. */
 static void distributed_host_send_inventories(
-	void)
+	boolean changes_only)
 {
 	struct distributed_inventory *inventories = host_send_lists.inventories.inventories;
 	byte *kinds = host_send_lists.inventories.kinds;
@@ -1866,11 +1871,19 @@ static void distributed_host_send_inventories(
 		ammunition) */
 		weapons_checksum = distributed_checksum(inventory, (long)offsetof(struct distributed_inventory, rounds_total));
 		if (objects_host_inventories[absolute_index].weapons_checksum != weapons_checksum ||
-			game_time_get() - objects_host_inventories[absolute_index].time >= INVENTORY_REFRESH_TICKS)
+			(!changes_only && game_time_get() - objects_host_inventories[absolute_index].time >= INVENTORY_REFRESH_TICKS))
 		{
 			kind = _host_inventory_to_all;
-			objects_host_inventories[absolute_index].time = game_time_get();
+			/* (a change sent again a moment later, then each refresh: one
+			lost would leave a spawned player's hands empty until the next) */
+			objects_host_inventories[absolute_index].time =
+				objects_host_inventories[absolute_index].weapons_checksum != weapons_checksum ?
+					game_time_get() - INVENTORY_REFRESH_TICKS + INVENTORY_REPEAT_TICKS : game_time_get();
 			objects_host_inventories[absolute_index].ammunition_time = NONE;
+		}
+		else if (changes_only)
+		{
+			continue;
 		}
 		else if (objects_host_inventories[absolute_index].checksum != checksum)
 		{
@@ -3036,8 +3049,7 @@ void network_objects_host_tick(
 	distributed_host_update_objects();
 	distributed_host_find_viewers();
 	distributed_host_send_states();
-	if (game_time_get() % INVENTORY_INTERVAL_TICKS == 0)
-		distributed_host_send_inventories();
+	distributed_host_send_inventories(game_time_get() % INVENTORY_INTERVAL_TICKS != 0);
 	distributed_host_send_damage_animations();
 	mcc_network_host_tick();
 }
