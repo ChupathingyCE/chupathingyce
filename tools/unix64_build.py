@@ -18,6 +18,7 @@ hand, never update themselves (configure.py refuses a release build) and have
 no profile (the committed profiles are the 32-bit builds').
 """
 
+import os
 import platform
 import shutil
 import subprocess
@@ -133,6 +134,24 @@ def pkg_config_variable(package: str, variable: str, default: str) -> str:
     return value or default
 
 
+def find_llvm_nm() -> Optional[str]:
+    """llvm-nm, which reads the LLVM bitcode of a link-time optimised build:
+    the plain name, a versioned one (llvm-nm19: the packages' on some hosts), or
+    an `nm` that is LLVM's"""
+    found = shutil.which("llvm-nm")
+    if found:
+        return found
+    versioned = sorted({str(path) for directory in os.environ.get("PATH", "").split(os.pathsep) if directory
+                        for path in Path(directory).glob("llvm-nm[0-9]*")}, reverse=True)
+    if versioned:
+        return versioned[0]
+    try:
+        version = subprocess.run(["nm", "--version"], capture_output=True, text=True).stdout
+    except OSError:
+        return None
+    return shutil.which("nm") if "LLVM" in version else None
+
+
 def unix64_configure_inputs() -> List[Path]:
     """Files whose change must re-run configure.py."""
     if not LINUX_PORT_CONFIG.is_file():
@@ -177,18 +196,22 @@ def generate_unix64_build(n: Writer, sln: Any) -> None:
         ffmpeg_inputs = [ffmpeg_stamp, *ffmpeg_archives]
 
     # The link check (tools/linux_link_check.py) reads the objects, which
-    # link-time optimisation makes LLVM bitcode: only llvm-nm can. Without it
-    # the link goes unchecked (weak references that nothing defines would
-    # resolve to address 0, and the C library's wide character functions,
-    # which assume a 32-bit wchar_t, would go unnoticed).
-    link_check = shutil.which("llvm-nm") is not None
-    if not link_check:
-        print(f"{name}: llvm-nm not found ({host.install_hint}): the link check is skipped", file=sys.stderr)
+    # link-time optimisation makes LLVM bitcode: only llvm-nm can. It is
+    # required: without it weak references that nothing defines would resolve
+    # to address 0, and the C library's wide character functions, which assume
+    # a 32-bit wchar_t, would go unnoticed. (--lto=off leaves objects any nm
+    # reads.)
+    llvm_nm = find_llvm_nm()
+    if llvm_nm is None and getattr(sln, "port_lto", "full") == "off" and shutil.which("nm"):
+        llvm_nm = shutil.which("nm")
+    if llvm_nm is None:
+        sys.exit(f"{name}: llvm-nm not found ({host.install_hint}), and the link check needs it "
+                 "(or --lto=off with any nm)")
     n.rule(
         name=f"{name}_link",
         command=(
             f"${name}_cc $ldflags -o $out @$out.rsp $libs"
-            + (" && $python tools/linux_link_check.py $out.rsp $out" if link_check else "")
+            f" && LLVM_NM={llvm_nm} $python tools/linux_link_check.py $out.rsp $out"
         ),
         description=f"{name.upper()} LINK $out",
         rspfile="$out.rsp",

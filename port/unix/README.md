@@ -28,9 +28,9 @@ headers (and in `unix_host.c`) for what its C library does differently.
 
 - FreeBSD 14 or later, amd64. The base system's clang and lld.
 - `pkg install python3 ninja pkgconf sdl3 gmake` (`gmake` builds FFmpeg).
-- `llvm` for `llvm-nm`, which the link check needs when link-time
-  optimisation is on (`--lto=off` leaves objects `nm` can read). Without it
-  the link goes unchecked, and configure.py says so.
+- `llvm` for `llvm-nm` (also found as `llvm-nm19` and the like), which the
+  link check needs: configure.py stops without it (`--lto=off` leaves objects
+  any `nm` reads).
 - OpenGL 4.5 (core) from the driver (Mesa or NVIDIA); the game needs it.
 
 ### Build
