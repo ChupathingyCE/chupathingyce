@@ -270,6 +270,116 @@ static void test_host_wire(void)
 	CHECK(!delta_compat_host_wire(reserved, RESERVED, DELTA_MAJOR, &wire));
 }
 
+/* a host of the Delta tag (the layout of the hosts to come, docs/delta.md):
+OpenCE's bytes at the front (its version, no Delta flag, the game's kind 0),
+and the tag at the tail, written here by hand from the layout */
+static void tag_host(unsigned char *reserved, int announced, int major, const char *wire, const char *oldest)
+{
+	struct delta_wire_id own = id(wire), older = id(oldest);
+	unsigned char *tag = reserved + DELTA_ADVERTISED_TAG_OFFSET;
+	unsigned char check = 0xA5;
+	int index;
+
+	memset(reserved, 0, RESERVED);
+	reserved[0] = (unsigned char)(announced & 0xFF);
+	reserved[1] = (unsigned char)(announced >> 8);
+	tag[0] = 'D';
+	tag[1] = 'L';
+	tag[2] = (unsigned char)major;
+	tag[3] = 1;
+	tag[4] = (unsigned char)own.number;
+	tag[5] = (unsigned char)own.letter;
+	tag[6] = (unsigned char)older.number;
+	tag[7] = (unsigned char)older.letter;
+	for (index = 0; index < 8; index++)
+		check = (unsigned char)(check ^ tag[index]);
+	tag[8] = check;
+}
+
+static void test_tag(void)
+{
+	unsigned char reserved[RESERVED];
+	struct delta_wire_id wire, oldest;
+	char theirs[24];
+	int major = 0;
+
+	/* the tag sits at the reserved bytes' last nine */
+	CHECK(DELTA_ADVERTISED_TAG_OFFSET == 17 && DELTA_ADVERTISED_TAG_OFFSET + DELTA_ADVERTISED_TAG_SIZE == RESERVED);
+	tag_host(reserved, 32, DELTA_MAJOR, "chupa-39a", "chupa-28a");
+	CHECK(delta_compat_read_tag(reserved, RESERVED, &major, &wire, &oldest) && major == DELTA_MAJOR &&
+		wire.number == 39 && oldest.number == 28);
+	CHECK(delta_compat_speaks_delta(reserved, RESERVED));
+	CHECK(delta_compat_host_wire(reserved, RESERVED, DELTA_MAJOR, &wire) && wire.number == 39);
+	/* (no flag and no old slot: before the tag, such a host was OpenCE's) */
+	CHECK(!(reserved[DELTA_ADVERTISED_FLAGS_OFFSET] & DELTA_ADVERTISED_FLAG) && reserved[DELTA_ADVERTISED_WIRE_OFFSET] == 0);
+
+	/* the console floor's clients and this build join it by the range, whatever number it announces */
+	CHECK(decide(reserved, "chupa-32a") == 1);
+	CHECK(decide(reserved, "chupa-38a") == 1);
+	CHECK(decide(reserved, DELTA_WIRE) == 1);
+	tag_host(reserved, 39, DELTA_MAJOR, "chupa-39a", "chupa-28a");
+	CHECK(decide(reserved, "chupa-32a") == 1);
+	tag_host(reserved, 11, DELTA_MAJOR, "chupa-39a", "chupa-28a");
+	CHECK(decide(reserved, "chupa-32a") == 1);
+
+	/* a tag host that broke with the consoles: refused, named */
+	tag_host(reserved, 32, DELTA_MAJOR, "chupa-45a", "chupa-40a");
+	CHECK(delta_compat_decide(reserved, RESERVED, DELTA_MAJOR, "chupa-32a", theirs, (int)sizeof(theirs)) == 0 &&
+		!strcmp(theirs, "chupa-45a"));
+	/* (a wire whose own range is the client's: in the host's range) */
+	tag_host(reserved, 32, DELTA_MAJOR, "chupa-45a", "chupa-30a");
+	CHECK(decide(reserved, "chupa-32a") == 1);
+
+	/* another major: the numbers decide; still Delta, to answer LEGACY */
+	tag_host(reserved, 32, DELTA_MAJOR + 1, "chupa-39a", "chupa-28a");
+	CHECK(decide(reserved, "chupa-32a") == -1);
+	CHECK(delta_compat_speaks_delta(reserved, RESERVED));
+	CHECK(!delta_compat_host_wire(reserved, RESERVED, DELTA_MAJOR, &wire));
+
+	/* a broken tag is no tag: a wrong check, layout version, mark, order, or too short */
+	tag_host(reserved, 32, DELTA_MAJOR, "chupa-39a", "chupa-28a");
+	reserved[RESERVED - 1] ^= 1;
+	CHECK(!delta_compat_read_tag(reserved, RESERVED, &major, &wire, &oldest) && decide(reserved, "chupa-32a") == -1);
+	CHECK(!delta_compat_speaks_delta(reserved, RESERVED));
+	tag_host(reserved, 32, DELTA_MAJOR, "chupa-39a", "chupa-28a");
+	reserved[DELTA_ADVERTISED_TAG_OFFSET + 3] = 2;
+	reserved[RESERVED - 1] ^= 1 ^ 2;
+	CHECK(!delta_compat_read_tag(reserved, RESERVED, &major, &wire, &oldest));
+	tag_host(reserved, 32, DELTA_MAJOR, "chupa-39a", "chupa-28a");
+	reserved[DELTA_ADVERTISED_TAG_OFFSET] = 'd';
+	reserved[RESERVED - 1] ^= 'D' ^ 'd';
+	CHECK(!delta_compat_read_tag(reserved, RESERVED, &major, &wire, &oldest));
+	tag_host(reserved, 32, DELTA_MAJOR, "chupa-39a", "chupa-28a");
+	CHECK(!delta_compat_read_tag(reserved, RESERVED - 1, &major, &wire, &oldest));
+	CHECK(delta_compat_decide(reserved, RESERVED - 1, DELTA_MAJOR, "chupa-32a", theirs, (int)sizeof(theirs)) == -1);
+
+	/* an OpenCE host: neither layout; its numbers decide */
+	memset(reserved, 0, sizeof(reserved));
+	reserved[0] = 39;
+	reserved[DELTA_ADVERTISED_FLAGS_OFFSET] = 0x01;
+	CHECK(!delta_compat_speaks_delta(reserved, RESERVED) && decide(reserved, "chupa-32a") == -1);
+}
+
+/* the old layout and the tag through the one reader: a client finds the
+hosts of both, and the old layout's slot never overrides a tag */
+static void test_both_layouts(void)
+{
+	unsigned char reserved[RESERVED];
+	struct delta_wire_id wire;
+
+	/* a host of the old layout (0.8.0h's): the flag, then the slot and range */
+	host(reserved, "chupa-38a");
+	reserved[DELTA_ADVERTISED_FLAGS_OFFSET] |= DELTA_ADVERTISED_FLAG;
+	CHECK(delta_compat_speaks_delta(reserved, RESERVED));
+	CHECK(decide(reserved, "chupa-32a") == 1 && decide(reserved, DELTA_WIRE) == 1);
+	CHECK(delta_compat_host_wire(reserved, RESERVED, DELTA_MAJOR, &wire) && wire.number == 38);
+	/* (the old layout's bytes 20 to 25 are no valid tag: its marks are not 'D' 'L') */
+	CHECK(reserved[DELTA_ADVERTISED_TAG_OFFSET] != 'D');
+	/* a host of the tag (chupa-39a's) */
+	tag_host(reserved, 32, DELTA_MAJOR, "chupa-39a", "chupa-28a");
+	CHECK(decide(reserved, "chupa-32a") == 1 && decide(reserved, DELTA_WIRE) == 1);
+}
+
 int main(void)
 {
 	test_ids();
@@ -279,6 +389,8 @@ int main(void)
 	test_matrix();
 	test_old_clients();
 	test_host_wire();
+	test_tag();
+	test_both_layouts();
 	if (failures)
 	{
 		fprintf(stderr, "delta_compat_test: %d failures\n", failures);

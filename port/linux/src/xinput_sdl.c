@@ -948,6 +948,160 @@ static void test_input_menu_gamepad(XINPUT_GAMEPAD *pad)
 	}
 }
 
+#if !defined(HALO_ANDROID) && !defined(HALO_CONSOLE_NO_TEST_GAMEPADS)
+/* debug.test_gamepads: that many virtual gamepads (SDL's), attached at the
+first poll, for tests of more than one controller (split screen). The menu
+script's pad<n>:<button> (pad2:a) presses a button of virtual gamepad n (from
+1) through SDL, as a real one would, for its 150 ms: a, b, x, y, lb, rb, up,
+down, left, right, start, back, a stick pushed all the way (ls_up, rs_left
+and so on) or a trigger pulled (lt, rt); pad<n>:unplug and pad<n>:plug take
+it out and put it back (as a new controller, as SDL sees a real one) */
+static int test_virtual_pad_count;
+static SDL_JoystickID test_virtual_pads[PORT_COUNT];
+
+static void test_virtual_pad_plug(int index)
+{
+	static char names[PORT_COUNT][32];
+	SDL_VirtualJoystickDesc desc;
+
+	SDL_INIT_INTERFACE(&desc);
+	snprintf(names[index], sizeof(names[index]), "Test Gamepad %d", index + 1);
+	desc.type = SDL_JOYSTICK_TYPE_GAMEPAD;
+	desc.naxes = SDL_GAMEPAD_AXIS_COUNT;
+	desc.nbuttons = SDL_GAMEPAD_BUTTON_COUNT;
+	desc.name = names[index];
+	test_virtual_pads[index] = SDL_AttachVirtualJoystick(&desc);
+	if (!test_virtual_pads[index])
+	{
+		platform_log("test gamepads: %s", SDL_GetError());
+		return;
+	}
+	/* (opened now, not at its event: this poll already sees it) */
+	SDL_OpenGamepad(test_virtual_pads[index]);
+	platform_log("test gamepads: %d plugged in", index + 1);
+}
+
+static void test_virtual_pads_attach(void)
+{
+	static int attached;
+	int count, index;
+
+	if (attached)
+		return;
+	attached = 1;
+	count = config_integer("debug.test_gamepads");
+	if (count > PORT_COUNT)
+		count = PORT_COUNT;
+	/* (a test's window need not have the focus) */
+	if (count > 0)
+		SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
+	for (index = 0; index < count; index++)
+		test_virtual_pad_plug(index);
+	test_virtual_pad_count = count > 0 ? count : 0;
+}
+
+/* the menu script's pad<n>:<button> now pressed on its virtual pad, every
+other button of the virtual pads let go */
+static void test_virtual_pads_update(void)
+{
+	static const struct
+	{
+		const char *name;
+		SDL_GamepadButton button;
+	} buttons[] =
+	{
+		{ "a", SDL_GAMEPAD_BUTTON_SOUTH },
+		{ "b", SDL_GAMEPAD_BUTTON_EAST },
+		{ "x", SDL_GAMEPAD_BUTTON_WEST },
+		{ "y", SDL_GAMEPAD_BUTTON_NORTH },
+		{ "lb", SDL_GAMEPAD_BUTTON_LEFT_SHOULDER },
+		{ "rb", SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER },
+		{ "up", SDL_GAMEPAD_BUTTON_DPAD_UP },
+		{ "down", SDL_GAMEPAD_BUTTON_DPAD_DOWN },
+		{ "left", SDL_GAMEPAD_BUTTON_DPAD_LEFT },
+		{ "right", SDL_GAMEPAD_BUTTON_DPAD_RIGHT },
+		{ "start", SDL_GAMEPAD_BUTTON_START },
+		{ "back", SDL_GAMEPAD_BUTTON_BACK },
+	};
+	static const struct
+	{
+		const char *name;
+		SDL_GamepadAxis axis;
+		Sint16 value;
+	} sticks[] =
+	{
+		{ "ls_up", SDL_GAMEPAD_AXIS_LEFTY, -32767 },
+		{ "ls_down", SDL_GAMEPAD_AXIS_LEFTY, 32767 },
+		{ "ls_left", SDL_GAMEPAD_AXIS_LEFTX, -32767 },
+		{ "ls_right", SDL_GAMEPAD_AXIS_LEFTX, 32767 },
+		{ "rs_up", SDL_GAMEPAD_AXIS_RIGHTY, -32767 },
+		{ "rs_down", SDL_GAMEPAD_AXIS_RIGHTY, 32767 },
+		{ "rs_left", SDL_GAMEPAD_AXIS_RIGHTX, -32767 },
+		{ "rs_right", SDL_GAMEPAD_AXIS_RIGHTX, 32767 },
+		{ "rt", SDL_GAMEPAD_AXIS_RIGHT_TRIGGER, 32767 },
+		{ "lt", SDL_GAMEPAD_AXIS_LEFT_TRIGGER, 32767 },
+	};
+	size_t length = 0;
+	const char *token;
+	const char *action = "";
+	size_t action_length = 0;
+	int pad = 0, index;
+	SDL_GamepadButton pressed = SDL_GAMEPAD_BUTTON_INVALID;
+	int stick = -1;
+
+	test_virtual_pads_attach();
+	if (!test_virtual_pad_count)
+		return;
+	token = test_input_menu_token(&length);
+	if (token && length > 5 && !strncmp(token, "pad", 3) && token[3] >= '1' &&
+		token[3] < '1' + test_virtual_pad_count && token[4] == ':')
+	{
+		pad = token[3] - '0';
+		action = token + 5;
+		action_length = length - 5;
+		for (index = 0; index < (int)(sizeof(buttons) / sizeof(buttons[0])); index++)
+		{
+			if (strlen(buttons[index].name) == action_length && !strncmp(action, buttons[index].name, action_length))
+				pressed = buttons[index].button;
+		}
+		for (index = 0; index < (int)(sizeof(sticks) / sizeof(sticks[0])); index++)
+		{
+			if (strlen(sticks[index].name) == action_length && !strncmp(action, sticks[index].name, action_length))
+				stick = index;
+		}
+		if (action_length == 6 && !strncmp(action, "unplug", 6) && test_virtual_pads[pad - 1])
+		{
+			SDL_DetachVirtualJoystick(test_virtual_pads[pad - 1]);
+			test_virtual_pads[pad - 1] = 0;
+			platform_log("test gamepads: %d unplugged", pad);
+		}
+		else if (action_length == 4 && !strncmp(action, "plug", 4) && !test_virtual_pads[pad - 1])
+			test_virtual_pad_plug(pad - 1);
+	}
+	for (index = 0; index < test_virtual_pad_count; index++)
+	{
+		SDL_Joystick *joystick = test_virtual_pads[index] ? SDL_GetJoystickFromID(test_virtual_pads[index]) : NULL;
+		int button;
+
+		if (!joystick)
+			continue;
+		for (button = 0; button < SDL_GAMEPAD_BUTTON_COUNT; button++)
+		{
+			SDL_SetJoystickVirtualButton(joystick, button,
+				index + 1 == pad && button == (int)pressed);
+		}
+		for (button = 0; button < SDL_GAMEPAD_AXIS_COUNT; button++)
+		{
+			SDL_SetJoystickVirtualAxis(joystick, button,
+				index + 1 == pad && stick >= 0 && (int)sticks[stick].axis == button ? sticks[stick].value :
+				(button == SDL_GAMEPAD_AXIS_LEFT_TRIGGER || button == SDL_GAMEPAD_AXIS_RIGHT_TRIGGER ? -32768 : 0));
+		}
+	}
+	/* (in force for this poll's read) */
+	SDL_UpdateJoysticks();
+}
+#endif
+
 static void test_input_gamepad(XINPUT_GAMEPAD *pad)
 {
 	static int checked;
@@ -1039,18 +1193,106 @@ static void wheel_update(void)
 	pthread_mutex_unlock(&mouse_lock);
 }
 
+/* ---------- gamepad ports (tools/test_split_screen_input.py compiles this
+part on its own, from here to the next part) */
+
+/* the gamepads' ports (their SDL ids, 0 for none): while two or more people
+play here (pc_menu_split_players), a controller keeps its port when another
+is plugged in or out, so that no player takes over another's view, and the
+port of one unplugged is kept for the next controller plugged in; else the
+ports follow the order the controllers were connected in */
+static SDL_JoystickID port_gamepad_ids[PORT_COUNT];
+/* the ports kept for controllers unplugged while people play */
+static BOOL port_gamepad_kept[PORT_COUNT];
+
+/* each listed gamepad's port (port_of; -1 for none), the gamepads listed in
+connection order; returns the number of ports in use: one past the last with
+a gamepad, or kept for one */
+static int gamepad_ports_assign(const SDL_JoystickID *listed, int count, BOOL keep, int *port_of)
+{
+	BOOL taken[PORT_COUNT] = { FALSE };
+	int index, port, ports = 0;
+
+	for (index = 0; index < count; index++)
+		port_of[index] = -1;
+	if (!keep)
+	{
+		/* (one person: the ports in connection order, none kept) */
+		for (port = 0; port < PORT_COUNT; port++)
+		{
+			port_gamepad_ids[port] = port < count ? listed[port] : 0;
+			port_gamepad_kept[port] = FALSE;
+			if (port < count)
+				port_of[port] = port;
+		}
+		return count < PORT_COUNT ? count : PORT_COUNT;
+	}
+	/* the controllers still connected keep their ports; an unplugged one's
+	port is kept for the next */
+	for (port = 0; port < PORT_COUNT; port++)
+	{
+		if (!port_gamepad_ids[port])
+			continue;
+		for (index = 0; index < count && !taken[port]; index++)
+		{
+			if (port_of[index] < 0 && listed[index] == port_gamepad_ids[port])
+			{
+				port_of[index] = port;
+				taken[port] = TRUE;
+			}
+		}
+		if (!taken[port])
+		{
+			port_gamepad_ids[port] = 0;
+			port_gamepad_kept[port] = TRUE;
+		}
+	}
+	/* a controller plugged in takes a kept port first, then a free one */
+	for (index = 0; index < count; index++)
+	{
+		int free_port = -1;
+
+		if (port_of[index] >= 0)
+			continue;
+		for (port = 0; port < PORT_COUNT && free_port < 0; port++)
+		{
+			if (!taken[port] && port_gamepad_kept[port])
+				free_port = port;
+		}
+		for (port = 0; port < PORT_COUNT && free_port < 0; port++)
+		{
+			if (!taken[port])
+				free_port = port;
+		}
+		if (free_port < 0)
+			break;
+		port_gamepad_ids[free_port] = listed[index];
+		port_gamepad_kept[free_port] = FALSE;
+		port_of[index] = free_port;
+		taken[free_port] = TRUE;
+	}
+	for (port = 0; port < PORT_COUNT; port++)
+	{
+		if (taken[port] || port_gamepad_kept[port])
+			ports = port + 1;
+	}
+	return ports;
+}
+
 /* ---------- SDL gamepads */
 
-/* the SDL gamepads in connection order, at most one per port */
+/* the SDL gamepads by port (NULL for a port with none: gamepad_ports_assign);
+returns the number of ports in use */
 static int sdl_gamepads(SDL_Gamepad *gamepads[PORT_COUNT])
 {
 	SDL_JoystickID *ids;
-	int count = 0, index, found = 0;
+	SDL_JoystickID listed_ids[PORT_COUNT];
+	SDL_Gamepad *listed[PORT_COUNT];
+	int port_of[PORT_COUNT];
+	int count = 0, index, found = 0, ports;
 
 	memset(gamepads, 0, sizeof(SDL_Gamepad *) * PORT_COUNT);
 	ids = SDL_GetGamepads(&count);
-	if (!ids)
-		return 0;
 #ifdef HALO_ANDROID
 	{
 		/* Android can list input devices with a few gamepad buttons (the
@@ -1058,7 +1300,7 @@ static int sdl_gamepads(SDL_Gamepad *gamepads[PORT_COUNT])
 		recognised controllers take the first ports */
 		int pass;
 
-		for (pass = 0; pass < 2; pass++)
+		for (pass = 0; pass < 2 && ids; pass++)
 		{
 			for (index = 0; index < count && found < PORT_COUNT; index++)
 			{
@@ -1071,21 +1313,33 @@ static int sdl_gamepads(SDL_Gamepad *gamepads[PORT_COUNT])
 				type = SDL_GetGamepadType(gamepad);
 				recognised = type != SDL_GAMEPAD_TYPE_UNKNOWN && type != SDL_GAMEPAD_TYPE_STANDARD;
 				if (recognised == (pass == 0))
-					gamepads[found++] = gamepad;
+				{
+					listed_ids[found] = ids[index];
+					listed[found++] = gamepad;
+				}
 			}
 		}
 	}
 #else
-	for (index = 0; index < count && found < PORT_COUNT; index++)
+	for (index = 0; ids && index < count && found < PORT_COUNT; index++)
 	{
 		SDL_Gamepad *gamepad = SDL_GetGamepadFromID(ids[index]);
 
 		if (gamepad)
-			gamepads[found++] = gamepad;
+		{
+			listed_ids[found] = ids[index];
+			listed[found++] = gamepad;
+		}
 	}
 #endif
 	SDL_free(ids);
-	return found;
+	ports = gamepad_ports_assign(listed_ids, found, pc_menu_split_players() != 0, port_of);
+	for (index = 0; index < found; index++)
+	{
+		if (port_of[index] >= 0)
+			gamepads[port_of[index]] = listed[index];
+	}
+	return ports;
 }
 
 /* the gamepad last used (its SDL id; 0 none yet), which the Controls screen
@@ -1097,8 +1351,14 @@ static SDL_JoystickID last_used_gamepad;
 int platform_gamepad_count(void)
 {
 	SDL_Gamepad *gamepads[PORT_COUNT];
+	int ports = sdl_gamepads(gamepads), port, count = 0;
 
-	return sdl_gamepads(gamepads);
+	for (port = 0; port < ports; port++)
+	{
+		if (gamepads[port])
+			count++;
+	}
+	return count;
 }
 
 /* a gamepad's name (as it names itself, else its kind's) and its kind
@@ -1108,11 +1368,17 @@ int platform_gamepad_describe(int index, char *name, size_t size)
 {
 	SDL_Gamepad *gamepads[PORT_COUNT];
 	SDL_Gamepad *gamepad = NULL;
-	int count = sdl_gamepads(gamepads), type, kind, each;
+	int ports = sdl_gamepads(gamepads), count = 0, type, kind, each;
 	const char *own;
 
 	if (size)
 		name[0] = 0;
+	/* (the connected ones in port order, none between) */
+	for (each = 0; each < ports; each++)
+	{
+		if (gamepads[each])
+			gamepads[count++] = gamepads[each];
+	}
 	if (index < 0)
 	{
 #ifndef HALO_ANDROID
@@ -1184,7 +1450,7 @@ a button held across the change would be pressed again on the other port
 (the B that leaves a profile screen leaving the game as player 1's) */
 static SDL_Gamepad *port_gamepad(SDL_Gamepad *gamepads[PORT_COUNT], int count, int port)
 {
-	if (count == 1)
+	if (count == 1 && gamepads[0])
 	{
 		BOOL split = pc_menu_split_players() != 0;
 
@@ -1456,6 +1722,9 @@ DWORD WINAPI XInputGetState(HANDLE device, PXINPUT_STATE state)
 	memset(state, 0, sizeof(*state));
 	if (port < 0)
 		return ERROR_DEVICE_NOT_CONNECTED;
+#if !defined(HALO_ANDROID) && !defined(HALO_CONSOLE_NO_TEST_GAMEPADS)
+	test_virtual_pads_update();
+#endif
 	platform_pump_events();
 	count = sdl_gamepads(gamepads);
 	if (port == 0)
