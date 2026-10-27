@@ -85,3 +85,25 @@ def test_documented():
     for needle in ("DELTA_WIRE_COMPATIBILITY", "DELTA_ADVERTISED_RANGE_OFFSET", "0xA5", "chupa-28a", "chupa-29a",
                    "chupa-32a", "build-244"):
         assert needle in docs, needle
+
+
+def test_consoles_join_by_wire():
+    """every console's join goes by the host's wire and range, as the
+    desktop's does, not by OpenCE's number alone (warthog-xbox #59): the
+    client's check takes the Delta path on the consoles' gates too"""
+    source = (ROOT / "source" / "networking" / "network_client_manager.c").read_text()
+    gate = re.search(r"#if ([^\n]*)\n#define HALO_PORT_DELTA_WIRE_JOIN 1", source)
+    assert gate, "the Delta wire join's gate"
+    for name in ("HALO_GAME_BROWSER", "HALO_CONSOLE_DELTA", "HALO_CONSOLE_ONLINE_GAMES"):
+        assert f"defined({name})" in gate.group(1), name
+    body = source[source.index("boolean network_game_client_advertised_game_compatible("):]
+    body = body[:body.index("\n}\n")]
+    assert "#ifdef HALO_PORT_DELTA_WIRE_JOIN" in body
+    assert "delta_peer_advertised_wire_matches" in body
+    # (a refusal has a short reason for a console's status line)
+    assert body.count("network_game_client_refusal_text") >= 4
+    # (the peer's checks read the tag too: no flag-only test before the decision)
+    peer = (ROOT / "port" / "linux" / "src" / "delta_peer_game.c").read_text()
+    matches = peer[peer.index("int delta_peer_advertised_wire_matches("):]
+    matches = matches[:matches.index("\n}\n")]
+    assert "delta_compat_speaks_delta" in matches and "DELTA_ADVERTISED_FLAG" not in matches

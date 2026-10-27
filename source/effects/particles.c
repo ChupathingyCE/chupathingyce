@@ -1184,6 +1184,10 @@ void particles_update(
 			{
 				if (particle_update_frame_time(particle_index, dt))
 				{
+#ifdef HALO_XBOX_CONSOLE
+					/* the Xbox runs at the game's 30 Hz; the tick mode's tables are left out to save its memory */
+					particle_update_physics(particle_index, dt);
+#else
 					long slot = particle_index & 0xFFFF;
 
 					if (particles_each_frame || particle->object_index != NONE ||
@@ -1220,6 +1224,7 @@ void particles_update(
 							particle_update_physics(particle_index, (real)ticks / (real)TICKS_PER_SECOND);
 						}
 					}
+#endif
 				}
 			}
 		}
@@ -1238,9 +1243,12 @@ void particle_render_position(
 	real_point3d *position)
 {
 	struct particle_datum *particle = particle_get(particle_index);
+#ifndef HALO_XBOX_CONSOLE
 	long slot = particle_index & 0xFFFF;
+#endif
 
 	*position = particle->position;
+#ifndef HALO_XBOX_CONSOLE
 	if (!particles_each_frame && slot < HALO_PORT_MAXIMUM_PARTICLES &&
 		particle_tick_owner[slot] == particle_index &&
 		!TEST_FLAG(particle->flags, _particle_datum_at_rest_bit))
@@ -1252,6 +1260,7 @@ void particle_render_position(
 		position->y = previous->y + (particle->position.y - previous->y) * t;
 		position->z = previous->z + (particle->position.z - previous->z) * t;
 	}
+#endif
 
 	return;
 }
