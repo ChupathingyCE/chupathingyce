@@ -2,8 +2,10 @@
 DELTA_COMPAT_TEST.C
 
 The wire compatibility ranges' tests (tools/test_delta_compat.py runs them):
-the advertisement's bytes, the old slot an exact-match client reads, and the
-join decision for every pair of wires that matters.
+the advertisement's Delta tag, the old layout new clients still read, what
+released clients make of a new host, OpenCE's own bytes (the kind, the
+dedicated flag) never taken for Delta, and the join decision for every pair
+of wires that matters.
 
     delta_compat_test
 */
@@ -37,14 +39,18 @@ static struct delta_wire_id id(const char *text)
 }
 
 /* what an exact-match client of the builds before the ranges decided from
-the old slot (0.7.5a's delta_peer_advertised_wire_matches, as it was) */
+the old slot (0.7.5a's delta_peer_advertised_wire_matches, as it was: the
+flag, then the slot) */
 static int old_exact(const unsigned char *reserved, int major, const char *own)
 {
 	const unsigned char *wire = reserved + DELTA_ADVERTISED_WIRE_OFFSET + 1;
 	int length = 0;
 
-	if (reserved[DELTA_ADVERTISED_WIRE_OFFSET] != major)
+	if (!(reserved[DELTA_ADVERTISED_FLAGS_OFFSET] & DELTA_ADVERTISED_FLAG) ||
+		reserved[DELTA_ADVERTISED_WIRE_OFFSET] != major)
+	{
 		return -1;
+	}
 	while (length < DELTA_ADVERTISED_WIRE_SIZE && wire[length])
 		length++;
 	if (!length)
@@ -59,18 +65,43 @@ static int decide(const unsigned char *reserved, const char *own)
 	return delta_compat_decide(reserved, RESERVED, DELTA_MAJOR, own, theirs, (int)sizeof(theirs));
 }
 
+/* a host of this build: OpenCE's version (32) and distributed flag, then
+the tag */
 static void host(unsigned char *reserved, const char *wire)
 {
 	memset(reserved, 0, RESERVED);
+	reserved[0] = 32;
+	reserved[DELTA_ADVERTISED_FLAGS_OFFSET] = 0x01;
 	delta_compat_advertise(reserved, RESERVED, DELTA_MAJOR, wire);
 }
 
-/* a host of a build before the ranges: its wire in the old slot alone */
+/* a host of the old layout before the ranges: the flag, its wire in the
+old slot alone */
 static void released_host(unsigned char *reserved, const char *wire)
 {
 	memset(reserved, 0, RESERVED);
+	reserved[0] = 32;
+	reserved[DELTA_ADVERTISED_FLAGS_OFFSET] = 0x01 | DELTA_ADVERTISED_FLAG;
 	reserved[DELTA_ADVERTISED_WIRE_OFFSET] = DELTA_MAJOR;
 	memcpy(reserved + DELTA_ADVERTISED_WIRE_OFFSET + 1, wire, strlen(wire));
+}
+
+/* a host of the old layout with the range bytes (0.8.0a to 0.8.0h): the
+flag, the oldest compatible wire from chupa-29a on in the slot, then its own
+wire and oldest in the range bytes */
+static void ranged_host(unsigned char *reserved, const char *wire, const char *slot, int oldest)
+{
+	unsigned char *range = reserved + DELTA_ADVERTISED_RANGE_OFFSET;
+	struct delta_wire_id own;
+
+	released_host(reserved, slot);
+	CHECK(delta_wire_parse(wire, (int)strlen(wire), &own));
+	range[0] = DELTA_ADVERTISED_RANGE_VERSION;
+	range[1] = (unsigned char)own.number;
+	range[2] = (unsigned char)own.letter;
+	range[3] = (unsigned char)oldest;
+	range[4] = 'a';
+	range[5] = (unsigned char)(0xA5 ^ range[0] ^ range[1] ^ range[2] ^ range[3] ^ range[4]);
 }
 
 static void test_ids(void)
@@ -109,152 +140,210 @@ static void test_advertisement(void)
 {
 	unsigned char reserved[RESERVED];
 	struct delta_wire_id wire, oldest;
-	int index;
+	int index, major;
 
 	host(reserved, "chupa-32a");
-	/* the Delta major, then the OLDEST compatible wire a released client knows in the old slot */
-	CHECK(reserved[DELTA_ADVERTISED_WIRE_OFFSET] == DELTA_MAJOR);
-	CHECK(!strncmp((const char *)reserved + DELTA_ADVERTISED_WIRE_OFFSET + 1, "chupa-29a", DELTA_ADVERTISED_WIRE_SIZE));
-	CHECK(reserved[DELTA_ADVERTISED_WIRE_OFFSET + 1 + 9] == 0);
-	/* the range bytes: version, own, oldest, check */
-	CHECK(DELTA_ADVERTISED_RANGE_OFFSET == 20 && DELTA_ADVERTISED_RANGE_OFFSET + DELTA_ADVERTISED_RANGE_SIZE == RESERVED);
-	CHECK(reserved[20] == 1 && reserved[21] == 32 && reserved[22] == 'a' && reserved[23] == 28 && reserved[24] == 'a');
-	CHECK(reserved[25] == (0xA5 ^ 1 ^ 32 ^ 'a' ^ 28 ^ 'a'));
-	CHECK(delta_compat_read_range(reserved, RESERVED, &wire, &oldest) && wire.number == 32 && oldest.number == 28);
-	/* the port's version and flags are left alone */
-	for (index = 0; index < DELTA_ADVERTISED_WIRE_OFFSET; index++)
+	/* the tag at the tail: 'D', 'L', the major, the layout version, own, oldest, check */
+	CHECK(DELTA_ADVERTISED_TAG_OFFSET == 17 && DELTA_ADVERTISED_TAG_OFFSET + DELTA_ADVERTISED_TAG_SIZE == RESERVED);
+	CHECK(reserved[17] == 'D' && reserved[18] == 'L' && reserved[19] == DELTA_MAJOR && reserved[20] == 1);
+	CHECK(reserved[21] == 32 && reserved[22] == 'a' && reserved[23] == 28 && reserved[24] == 'a');
+	CHECK(reserved[25] == (0xA5 ^ 'D' ^ 'L' ^ DELTA_MAJOR ^ 1 ^ 32 ^ 'a' ^ 28 ^ 'a'));
+	CHECK(delta_compat_read_tag(reserved, RESERVED, &major, &wire, &oldest) && major == DELTA_MAJOR &&
+		wire.number == 32 && oldest.number == 28);
+	/* OpenCE's bytes are left alone: the version, the flags (no 0x04), the kind and what follows it */
+	CHECK(reserved[0] == 32 && reserved[1] == 0 && reserved[2] == 0x01);
+	for (index = 3; index < DELTA_ADVERTISED_TAG_OFFSET; index++)
 		CHECK(reserved[index] == 0);
+	/* (and the old range's check is not the tag's: a new host is never read as an old one) */
+	CHECK(!delta_compat_read_range(reserved, RESERVED, &wire, &oldest));
 
-	/* 29a's own advertisement: itself in the slot */
-	host(reserved, "chupa-29a");
-	CHECK(!strcmp((const char *)reserved + DELTA_ADVERTISED_WIRE_OFFSET + 1, "chupa-29a"));
-	CHECK(delta_compat_read_range(reserved, RESERVED, &wire, &oldest) && wire.number == 29 && oldest.number == 28);
-	/* a wire with no row: itself in both places */
+	/* this build's own wire, and a wire with no row */
+	host(reserved, DELTA_WIRE);
+	CHECK(delta_compat_read_tag(reserved, RESERVED, &major, &wire, &oldest) && oldest.number == 28);
 	host(reserved, "chupa-40a");
-	CHECK(!strcmp((const char *)reserved + DELTA_ADVERTISED_WIRE_OFFSET + 1, "chupa-40a"));
-	CHECK(delta_compat_read_range(reserved, RESERVED, &wire, &oldest) && wire.number == 40 && oldest.number == 40);
-	/* a wire older than the first advertised cannot be a slot newer than itself */
-	host(reserved, "chupa-28a");
-	CHECK(!strcmp((const char *)reserved + DELTA_ADVERTISED_WIRE_OFFSET + 1, "chupa-28a"));
-	/* too small, or no wire: nothing */
+	CHECK(delta_compat_read_tag(reserved, RESERVED, &major, &wire, &oldest) && wire.number == 40 &&
+		oldest.number == 40);
+	/* too small, or no wire: no tag */
 	memset(reserved, 0, sizeof(reserved));
-	delta_compat_advertise(reserved, DELTA_ADVERTISED_RANGE_OFFSET + 5, DELTA_MAJOR, "chupa-32a");
+	delta_compat_advertise(reserved, RESERVED - 1, DELTA_MAJOR, "chupa-32a");
 	delta_compat_advertise(reserved, RESERVED, DELTA_MAJOR, "not a wire");
 	for (index = 0; index < RESERVED; index++)
 		CHECK(reserved[index] == 0);
-	/* (bytes in the way are cleared) */
+	/* (a tag's bytes in the way are cleared, the rest kept) */
 	memset(reserved, 0xEE, sizeof(reserved));
-	delta_compat_advertise(reserved, RESERVED, DELTA_MAJOR, "chupa-29a");
-	CHECK(reserved[DELTA_ADVERTISED_WIRE_OFFSET + 1 + 9] == 0 && reserved[DELTA_ADVERTISED_WIRE_OFFSET + 16] == 0);
+	delta_compat_advertise(reserved, RESERVED, DELTA_MAJOR, "not a wire");
+	CHECK(reserved[16] == 0xEE && reserved[17] == 0 && reserved[25] == 0);
 }
 
-static void test_range_bytes(void)
+static void test_tag_bytes(void)
 {
 	unsigned char reserved[RESERVED];
 	struct delta_wire_id wire, oldest;
+	int major, index;
 
-	/* a wrong layout version, check byte, order or letter is not a range */
-	host(reserved, "chupa-32a");
-	reserved[20] = 2;
-	CHECK(!delta_compat_read_range(reserved, RESERVED, &wire, &oldest));
-	host(reserved, "chupa-32a");
-	reserved[25] ^= 1;
-	CHECK(!delta_compat_read_range(reserved, RESERVED, &wire, &oldest));
+	/* a wrong tag byte, layout version, check byte, order or letter is no tag */
+	for (index = DELTA_ADVERTISED_TAG_OFFSET; index < RESERVED; index++)
+	{
+		host(reserved, "chupa-32a");
+		reserved[index] ^= 0x20;
+		CHECK(!delta_compat_read_tag(reserved, RESERVED, &major, &wire, &oldest));
+		CHECK(!delta_compat_speaks_delta(reserved, RESERVED));
+		CHECK(decide(reserved, "chupa-32a") == -1);
+	}
 	host(reserved, "chupa-32a");
 	reserved[23] = 33;
-	reserved[25] = (unsigned char)(0xA5 ^ 1 ^ 32 ^ 'a' ^ 33 ^ 'a');
-	CHECK(!delta_compat_read_range(reserved, RESERVED, &wire, &oldest));
+	reserved[25] = (unsigned char)(0xA5 ^ 'D' ^ 'L' ^ DELTA_MAJOR ^ 1 ^ 32 ^ 'a' ^ 33 ^ 'a');
+	CHECK(!delta_compat_read_tag(reserved, RESERVED, &major, &wire, &oldest));
+	CHECK(!delta_compat_read_tag(reserved, RESERVED - 1, &major, &wire, &oldest));
+	/* (another major: Delta, but joined by the OpenCE number) */
 	host(reserved, "chupa-32a");
-	reserved[22] = 'A';
-	reserved[25] = (unsigned char)(0xA5 ^ 1 ^ 32 ^ 'A' ^ 28 ^ 'a');
-	CHECK(!delta_compat_read_range(reserved, RESERVED, &wire, &oldest));
-	CHECK(!delta_compat_read_range(reserved, RESERVED - 1, &wire, &oldest));
-	/* (a broken range falls back to the old slot's rule: 29a in the slot is in 32a's range) */
-	host(reserved, "chupa-32a");
-	reserved[25] ^= 1;
-	CHECK(decide(reserved, "chupa-32a") == 1 && decide(reserved, "chupa-29a") == 1);
+	reserved[19] = DELTA_MAJOR + 1;
+	reserved[25] ^= (unsigned char)(DELTA_MAJOR ^ (DELTA_MAJOR + 1));
+	CHECK(delta_compat_read_tag(reserved, RESERVED, &major, &wire, &oldest) && major == DELTA_MAJOR + 1);
+	CHECK(delta_compat_speaks_delta(reserved, RESERVED) && decide(reserved, "chupa-32a") == -1);
+	CHECK(!delta_compat_host_wire(reserved, RESERVED, DELTA_MAJOR, &wire));
 }
 
 static void test_matrix(void)
 {
-	unsigned char h28[RESERVED], h29[RESERVED], h29old[RESERVED], h32[RESERVED], h33[RESERVED], h33wide[RESERVED];
+	unsigned char h28[RESERVED], h29[RESERVED], h32[RESERVED], h38[RESERVED], h39[RESERVED], h33[RESERVED],
+		h33wide[RESERVED];
 	char theirs[24];
 
 	host(h28, "chupa-28a");
 	host(h29, "chupa-29a");
-	released_host(h29old, "chupa-29a");
 	host(h32, "chupa-32a");
+	host(h38, "chupa-38a");
+	host(h39, "chupa-39a");
 	/* a future wire that breaks (no row: its own oldest), and one that plays with 29 on */
 	host(h33, "chupa-33a");
 	host(h33wide, "chupa-33a");
 	h33wide[23] = 29;
-	h33wide[25] = (unsigned char)(0xA5 ^ 1 ^ 33 ^ 'a' ^ 29 ^ 'a');
-	memcpy(h33wide + DELTA_ADVERTISED_WIRE_OFFSET + 1, "chupa-29a\0\0\0\0\0\0\0", 16);
+	h33wide[25] = (unsigned char)(0xA5 ^ 'D' ^ 'L' ^ DELTA_MAJOR ^ 1 ^ 33 ^ 'a' ^ 29 ^ 'a');
 
-	/* a 32a client */
+	/* a 39a client: every wire of ours from 28a on */
+	CHECK(decide(h39, "chupa-39a") == 1 && decide(h38, "chupa-39a") == 1 && decide(h32, "chupa-39a") == 1);
+	CHECK(decide(h29, "chupa-39a") == 1 && decide(h28, "chupa-39a") == 1);
+	/* a 32a client of this code (a console after its submodule takes it): the 39a host's range has it */
+	CHECK(decide(h39, "chupa-32a") == 1);
 	CHECK(decide(h32, "chupa-32a") == 1);
 	CHECK(decide(h29, "chupa-32a") == 1);
-	CHECK(decide(h29old, "chupa-32a") == 1);
 	CHECK(decide(h28, "chupa-32a") == 1);
 	CHECK(decide(h33, "chupa-32a") == 0);
 	CHECK(decide(h33wide, "chupa-32a") == 1);
-	/* a 29a client (the host of 32a plays with it, whatever the client's table) */
+	/* a 29a client */
+	CHECK(decide(h39, "chupa-29a") == 1);
 	CHECK(decide(h32, "chupa-29a") == 1);
-	CHECK(decide(h29, "chupa-29a") == 1);
-	CHECK(decide(h28, "chupa-29a") == 1);
 	CHECK(decide(h33, "chupa-29a") == 0);
 	CHECK(decide(h33wide, "chupa-29a") == 1);
-	/* a 28a client of this code (the Xbox after it takes it): 29a and 32a hosts' ranges have it */
-	CHECK(decide(h32, "chupa-28a") == 1);
-	CHECK(decide(h29, "chupa-28a") == 1);
+	/* a 28a client */
+	CHECK(decide(h39, "chupa-28a") == 1);
 	CHECK(decide(h28, "chupa-28a") == 1);
 	CHECK(decide(h33, "chupa-28a") == 0);
-	/* a client of a breaking future wire, against every host of ours */
+	/* a client of a breaking future wire: a host whose range has it plays (39a: 28a to 39a), the others not */
+	CHECK(decide(h39, "chupa-33a") == 1);
 	CHECK(decide(h32, "chupa-33a") == 0);
-	CHECK(decide(h29old, "chupa-33a") == 0);
-	/* a client further on that plays with 29 on (its row is its own to say; here a host's) */
 	CHECK(decide(h33wide, "chupa-33a") == 1);
 
 	/* the message names the host's wire */
 	CHECK(delta_compat_decide(h33, RESERVED, DELTA_MAJOR, "chupa-32a", theirs, (int)sizeof(theirs)) == 0 &&
 		!strcmp(theirs, "chupa-33a"));
-	released_host(h29old, "chupa-12a");
-	CHECK(delta_compat_decide(h29old, RESERVED, DELTA_MAJOR, "chupa-32a", theirs, (int)sizeof(theirs)) == 0 &&
-		!strcmp(theirs, "chupa-12a"));
 	/* (a small buffer is cut, ended) */
 	CHECK(delta_compat_decide(h33, RESERVED, DELTA_MAJOR, "chupa-32a", theirs, 5) == 0 && !strcmp(theirs, "chup"));
 
-	/* the OpenCE numbers decide when it does not say: no wire, another major, a host older than the slot, too short */
+	/* the OpenCE numbers decide when it does not say: nothing, too short, this client no wire */
 	memset(h32, 0, sizeof(h32));
-	CHECK(decide(h32, "chupa-32a") == -1);
-	host(h32, "chupa-32a");
-	h32[DELTA_ADVERTISED_WIRE_OFFSET] = DELTA_MAJOR + 1;
 	CHECK(decide(h32, "chupa-32a") == -1);
 	host(h32, "chupa-32a");
 	CHECK(delta_compat_decide(h32, DELTA_ADVERTISED_WIRE_OFFSET + 5, DELTA_MAJOR, "chupa-32a", theirs, (int)sizeof(theirs)) == -1);
 	CHECK(delta_compat_decide(h32, RESERVED, DELTA_MAJOR, "not a wire", theirs, (int)sizeof(theirs)) == -1);
-	/* a slot of junk is refused, as it was */
-	released_host(h29old, "chupa-?\x01 junk");
-	CHECK(decide(h29old, "chupa-32a") == 0);
 }
 
-/* the builds before the ranges: an exact-match client, whatever host of ours advertises, joins every host
-whose old slot is its own wire, and a host of 32a is joinable by a client of 29a */
+/* new clients still read the old layout: hosts released before the tag */
+static void test_old_layout(void)
+{
+	unsigned char h29old[RESERVED], h32[RESERVED], h38[RESERVED];
+	struct delta_wire_id wire;
+	char theirs[24];
+
+	released_host(h29old, "chupa-29a");
+	ranged_host(h32, "chupa-32a", "chupa-29a", 28);
+	ranged_host(h38, "chupa-38a", "chupa-29a", 28);
+	CHECK(delta_compat_speaks_delta(h29old, RESERVED) && delta_compat_speaks_delta(h38, RESERVED));
+	CHECK(decide(h29old, "chupa-39a") == 1 && decide(h32, "chupa-39a") == 1 && decide(h38, "chupa-39a") == 1);
+	CHECK(decide(h38, "chupa-32a") == 1 && decide(h29old, "chupa-32a") == 1);
+	CHECK(decide(h38, "chupa-40a") == 0);
+	CHECK(delta_compat_host_wire(h38, RESERVED, DELTA_MAJOR, &wire) && wire.number == 38);
+	CHECK(delta_compat_host_wire(h29old, RESERVED, DELTA_MAJOR, &wire) && wire.number == 29);
+	released_host(h29old, "chupa-12a");
+	CHECK(delta_compat_decide(h29old, RESERVED, DELTA_MAJOR, "chupa-32a", theirs, (int)sizeof(theirs)) == 0 &&
+		!strcmp(theirs, "chupa-12a"));
+	/* (a broken range falls back to the old slot's rule: 29a in the slot is in 32a's range) */
+	ranged_host(h32, "chupa-32a", "chupa-29a", 28);
+	h32[25] ^= 1;
+	CHECK(decide(h32, "chupa-32a") == 1 && decide(h32, "chupa-29a") == 1);
+	/* another major, or no flag: the numbers decide */
+	ranged_host(h32, "chupa-32a", "chupa-29a", 28);
+	h32[DELTA_ADVERTISED_WIRE_OFFSET] = DELTA_MAJOR + 1;
+	CHECK(decide(h32, "chupa-32a") == -1);
+	ranged_host(h32, "chupa-32a", "chupa-29a", 28);
+	h32[DELTA_ADVERTISED_FLAGS_OFFSET] = 0x01;
+	CHECK(decide(h32, "chupa-32a") == -1 && !delta_compat_speaks_delta(h32, RESERVED));
+	/* a slot of junk is refused, as it was, before OpenCE took the flag */
+	released_host(h29old, "chupa-?\x01 junk");
+	CHECK(decide(h29old, "chupa-32a") == 0);
+	/* a host before the wire was advertised: the flag alone, Delta, joined by its number */
+	memset(h32, 0, sizeof(h32));
+	h32[0] = 20;
+	h32[DELTA_ADVERTISED_FLAGS_OFFSET] = 0x01 | DELTA_ADVERTISED_FLAG;
+	CHECK(delta_compat_speaks_delta(h32, RESERVED) && decide(h32, "chupa-32a") == -1);
+}
+
+/* OpenCE's own bytes are never Delta: a host of 37 or later's kind at byte 3
+(1, SWAT, is our major), and 39's dedicated flag (our old flag) */
+static void test_opence_hosts(void)
+{
+	unsigned char reserved[RESERVED];
+	struct delta_wire_id wire;
+	int kind;
+
+	for (kind = 0; kind < 256; kind += 0x41)
+	{
+		memset(reserved, 0, sizeof(reserved));
+		reserved[0] = 39;
+		reserved[DELTA_ADVERTISED_FLAGS_OFFSET] = 0x01 | 0x04;
+		reserved[3] = (unsigned char)kind;
+		CHECK(!delta_compat_speaks_delta(reserved, RESERVED));
+		CHECK(decide(reserved, "chupa-39a") == -1 && decide(reserved, "chupa-32a") == -1);
+		CHECK(!delta_compat_host_wire(reserved, RESERVED, DELTA_MAJOR, &wire));
+		/* (and bytes of theirs past the kind, should they come: not a wire) */
+		memcpy(reserved + 4, "something", 9);
+		CHECK(!delta_compat_speaks_delta(reserved, RESERVED) && decide(reserved, "chupa-39a") == -1);
+	}
+	/* a kind of 1 on a host of 37 without the flag */
+	memset(reserved, 0, sizeof(reserved));
+	reserved[0] = 37;
+	reserved[2] = 0x01;
+	reserved[3] = 1;
+	CHECK(!delta_compat_speaks_delta(reserved, RESERVED) && decide(reserved, "chupa-39a") == -1);
+}
+
+/* the released clients (the old layout's readers: chupa-32a, chupa-38a)
+against a new host: no flag and no major at byte 3, so they join it by its
+OpenCE number; a dedicated server announcing 39 sets 0x04 (OpenCE's
+dedicated flag), and they still find no wire, so join by number */
 static void test_old_clients(void)
 {
 	unsigned char reserved[RESERVED];
 
-	host(reserved, "chupa-32a");
-	CHECK(old_exact(reserved, DELTA_MAJOR, "chupa-29a") == 1);
-	CHECK(old_exact(reserved, DELTA_MAJOR, "chupa-32a") == 0);
-	host(reserved, "chupa-29a");
-	CHECK(old_exact(reserved, DELTA_MAJOR, "chupa-29a") == 1);
-	/* (its own wire when it has no older one) */
-	host(reserved, "chupa-40a");
-	CHECK(old_exact(reserved, DELTA_MAJOR, "chupa-40a") == 1 && old_exact(reserved, DELTA_MAJOR, "chupa-29a") == 0);
-	/* (the major, the OpenCE numbers and flags are not touched) */
-	host(reserved, "chupa-32a");
-	CHECK(reserved[0] == 0 && reserved[1] == 0 && reserved[2] == 0);
+	host(reserved, "chupa-39a");
+	CHECK(old_exact(reserved, DELTA_MAJOR, "chupa-29a") == -1);
+	CHECK(old_exact(reserved, DELTA_MAJOR, "chupa-39a") == -1);
+	reserved[0] = 39;
+	reserved[DELTA_ADVERTISED_FLAGS_OFFSET] |= 0x04;
+	CHECK(old_exact(reserved, DELTA_MAJOR, "chupa-32a") == -1);
+	/* (the new reader: the tag decides, whatever the flag) */
+	CHECK(delta_compat_speaks_delta(reserved, RESERVED) && decide(reserved, "chupa-32a") == 1);
 }
 
 static void test_host_wire(void)
@@ -262,8 +351,8 @@ static void test_host_wire(void)
 	unsigned char reserved[RESERVED];
 	struct delta_wire_id wire;
 
-	host(reserved, "chupa-32a");
-	CHECK(delta_compat_host_wire(reserved, RESERVED, DELTA_MAJOR, &wire) && wire.number == 32);
+	host(reserved, "chupa-39a");
+	CHECK(delta_compat_host_wire(reserved, RESERVED, DELTA_MAJOR, &wire) && wire.number == 39);
 	released_host(reserved, "chupa-29a");
 	CHECK(delta_compat_host_wire(reserved, RESERVED, DELTA_MAJOR, &wire) && wire.number == 29);
 	memset(reserved, 0, sizeof(reserved));
@@ -275,8 +364,10 @@ int main(void)
 	test_ids();
 	test_table();
 	test_advertisement();
-	test_range_bytes();
+	test_tag_bytes();
 	test_matrix();
+	test_old_layout();
+	test_opence_hosts();
 	test_old_clients();
 	test_host_wire();
 	if (failures)

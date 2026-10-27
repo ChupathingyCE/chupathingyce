@@ -730,6 +730,10 @@ static const struct config_setting config_settings[] =
 	{ "network.coop_player_collisions", _config_boolean, "true", "HALO_NET_COOP_PLAYER_COLLISIONS", _environment_value,
 		_platform_all,
 		"Players bump into each other in online co-op." },
+	{ "network.coop_ally_friendly_fire", _config_boolean, "true", "HALO_NET_COOP_ALLY_FRIENDLY_FIRE",
+		_environment_value, _platform_all,
+		"Players' hits hurt their AI allies (Marines and the like) in online\n"
+		"co-op you host." },
 	{ "network.coop_enemies_mode", _config_string, "\"per_player\"", "HALO_NET_COOP_ENEMIES_MODE", _environment_value,
 		_platform_all,
 		"Extra enemies in online co-op: \"none\", \"per_player\"\n"

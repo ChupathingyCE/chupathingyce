@@ -3094,6 +3094,7 @@ boolean ui_widget_port_unjoin_player(struct widget_instance *widget, struct even
 void network_game_server_port_set_settings(wchar_t const *name, long maximum_players);
 void network_game_server_port_set_cooperative_friendly_fire(short friendly_fire);
 void network_game_server_port_set_cooperative_player_collisions(boolean player_collisions);
+void network_game_server_port_set_cooperative_ally_damage(boolean ally_damage);
 void *global_network_game_client_get(void);
 void *global_network_game_server_get(void);
 boolean network_game_is_splitscreen_local(void);
@@ -3985,6 +3986,7 @@ static boolean server_start(void)
 		gametype_setup_end();
 		network_game_server_port_set_cooperative_friendly_fire(multiplayer.cooperative_friendly_fire);
 		network_game_server_port_set_cooperative_player_collisions(!multiplayer.cooperative_no_player_collisions);
+		network_game_server_port_set_cooperative_ally_damage(config_boolean("network.coop_ally_friendly_fire") != 0);
 	}
 	else if (!gametype_setup_apply())
 		return campaign_fail();

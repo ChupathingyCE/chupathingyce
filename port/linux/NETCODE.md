@@ -282,10 +282,20 @@ handshake's 4 seconds are over (an OpenCE machine); the size is then that
 machine's while it is connected; the game does not start while a machine
 waits for its record, and a machine joining it in progress is started once
 its record has gone. Under 35 every machine gets the older record
-at once, as before. A host of 33 sends co-op's second bit as 0 (the players'
-hits harm their AI allies, as OpenCE's default), and sends no message 91
-(shield effects): a client of 36 then draws stock, which is all this build
-draws.
+at once, as before. From 33 a host sets co-op's second bit from
+`network.coop_ally_friendly_fire` (on by default: the players' hits harm
+their AI allies, as OpenCE's default) and honors it: with the bit set, a
+player's hit on a unit that is no player's does it no harm in network co-op
+(`game_engine_friendly_damage`); the AI's own hits on its allies are the
+game's, as ever. From 36 a host sends message 91 (shield effects), as it
+sends message 90: to a client when it has loaded, and to every client once
+each game: stock (0), or from 38 each machine's own look (6), as this build
+draws no glow or overshield of its own. From 37 the advertisement's fourth
+reserved byte (the game's kind) is 0, and from 39 a dedicated server sets
+the advertisement's flag 0x04 and the internet listing's flag 32 (OpenCE's
+dedicated flags). A Delta host's own bytes are the Delta tag at the reserved
+bytes' tail (docs/delta.md, "The advertisement"), so none of OpenCE's bytes
+carry Delta.
 
 A host never checks a joining client's version: the client reads the
 host's from its advertisement and joins only a version it plays with. That

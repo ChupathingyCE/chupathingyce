@@ -50,8 +50,9 @@ enum
 	_network_game_cooperative_no_player_collisions_bit = 0,
 	/* the players' hits do their AI allies no harm (OpenCE's network version
 	33, its Server Setup's ALLY FRIENDLY FIRE: OFF): a host's rule alone, so
-	a client takes the bit and does nothing with it; this build's hosts send
-	it as 0 */
+	a client takes the bit and does nothing with it; this build's hosts set
+	it from network.coop_ally_friendly_fire (false) and honor it
+	(game_engine_friendly_damage) */
 	_network_game_cooperative_no_ally_damage_bit = 1,
 };
 

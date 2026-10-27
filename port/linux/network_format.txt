@@ -25,6 +25,7 @@ bound NUMBER_OF_PLAYER_POWERUPS enum 43075f42087c
 bound NUMBER_OF_UNIT_GRENADE_TYPES enum a0462dbcbdd9
 bound OBJECT_NAME_BYTES MAXIMUM_OBJECT_NAMES_PER_SCENARIO / 8
 define DISTRIBUTED_ANGULAR_VELOCITY_SCALE 4096.0f
+define DISTRIBUTED_CLIENT_BUILD_KIND 92
 define DISTRIBUTED_TIME_WINDOW_TICKS (15 * TICKS_PER_SECOND)
 define DISTRIBUTED_UNIT_SCALE 32767.0f
 define DISTRIBUTED_VELOCITY_SCALE 1024.0f
@@ -250,6 +251,7 @@ struct distributed_pings_message 35c6009dee29
 struct distributed_player_input a0cf65a1197c
 struct distributed_player_ping 377e0e3045f4
 struct distributed_player_statistics 2a44afb8f96c
+struct distributed_shield_effects_message c15b7eca3894
 struct distributed_statistics_message 79134e6e9811
 struct distributed_structure_bsp 53f7d5067cc9
 struct distributed_structure_bsp_message 096278a05681

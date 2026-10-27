@@ -39,16 +39,24 @@ what fixes it.
 ### Wires
 
 Each build has a wire ID, `DELTA_WIRE` in `port/linux/include/delta.h`
-(`chupa-38a` from the release after 0.8.0g, `chupa-32a` in 0.8.0 to 0.8.0g;
-`chupa-29a` and `chupa-28a` before it). It names the
+(`chupa-39a` from the release after 0.8.0h, `chupa-38a` in 0.8.0h,
+`chupa-32a` in 0.8.0 to 0.8.0g; `chupa-29a` and `chupa-28a` before it). It names the
 revision of the game protocol the build actually speaks, which is not the same
 thing as the legacy network number the original game protocol advertises. A
 release that changes how a game plays gives itself a new wire.
 
-A Delta host puts its Delta major and its wire ID in the reserved bytes of its
-advertisement after the port's version and flags
-(`DELTA_ADVERTISED_WIRE_OFFSET`). Clients that do not read those bytes see
-nothing different.
+A Delta host puts its Delta major and its wire in the reserved bytes of its
+advertisement: since `chupa-39a` in the Delta tag at their tail
+(`DELTA_ADVERTISED_TAG_OFFSET`), clear of OpenCE's version, flags and kind;
+before that after the port's version and flags (`DELTA_ADVERTISED_WIRE_OFFSET`,
+with the flag 0x04), which new clients still read. Clients that do not read
+those bytes see nothing different (docs/delta.md, "The advertisement", and
+its transition until 2026-12-01).
+
+Every wire from the console floor on (`DELTA_WIRE_CONSOLE_FLOOR`,
+`chupa-32a`: the Xbox and Switch builds) plays back to it, so a new PC wire
+never splits the consoles from the PCs; CI checks it (docs/delta.md, "The
+console floor").
 
 ### The exact-wire join rule
 

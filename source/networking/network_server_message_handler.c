@@ -858,7 +858,7 @@ void network_rules_settings_layout_copy(unsigned char const *record, unsigned ch
 int network_rules_host_static_damage_reported(unsigned announce, unsigned delta_version);
 void network_rules_extended_options_default(unsigned char *options);
 #ifdef HALO_GAME_BROWSER
-unsigned char delta_peer_advertised_flags(void);
+int delta_peer_hosting_delta(void);
 int delta_peer_game_machine_legacy_version(int machine_index);
 #endif
 
@@ -969,7 +969,7 @@ static long network_game_server_settings_layout(
 		if (network_game_server_get_client_machine(server, machine, &machine_index))
 			delta_version = network_game_server_machine_delta_version(machine_index);
 #ifdef HALO_GAME_BROWSER
-		waiting = delta_peer_advertised_flags() != 0 &&
+		waiting = delta_peer_hosting_delta() &&
 			now - entry->since < NETWORK_GAME_SERVER_SETTINGS_HELLO_WAIT;
 #endif
 	}
@@ -2069,9 +2069,10 @@ static boolean network_game_server_handle_message_client_broadcast_game_search(
 			advertisement.reserved[HALO_PORT_ADVERTISED_FLAGS_OFFSET] =
 				HALO_PORT_ADVERTISED_DISTRIBUTED_FLAG;
 #ifdef HALO_GAME_BROWSER
-			/* (and Delta Peer's flag, while this host speaks it, with the
-			game wire it plays after the flags: OpenCE's machines ignore
-			both; port/linux/src/delta_peer.h) */
+			/* (and a dedicated server's flag, version 39's; the game's kind,
+			0; and while this host speaks Delta Peer, the Delta tag at the
+			reserved bytes' tail, which OpenCE's machines ignore:
+			port/linux/src/delta_peer.h) */
 			{ unsigned char delta_peer_advertised_flags(void);
 			  void delta_peer_advertised_wire(unsigned char *reserved, int size);
 			  advertisement.reserved[HALO_PORT_ADVERTISED_FLAGS_OFFSET] |= delta_peer_advertised_flags();

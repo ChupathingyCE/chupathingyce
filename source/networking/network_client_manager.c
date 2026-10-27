@@ -851,9 +851,11 @@ void network_game_client_note_host_network_version(
 int delta_peer_advertised_host_wire(unsigned char const *reserved, int size);
 #endif
 #if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_DELTA)
-/* port: the joined game's advertisement's flags (HALO_PORT_ADVERTISED_FLAGS_OFFSET),
-for Delta Peer (network_game_client_delta_frame); 0 for the host's own game */
-static byte network_game_client_joined_flags;
+int delta_peer_advertised_speaks_delta(unsigned char const *reserved, int size);
+/* port: whether the joined game's advertisement says its host speaks Delta
+Peer (its Delta tag, or the old layout's flag), for Delta Peer
+(network_game_client_delta_frame); 0 for the host's own game */
+static byte network_game_client_joined_delta;
 /* port: the joined game's host's identifier (its XNADDR's abEnet) */
 static byte network_game_client_joined_host[6];
 static void network_game_client_delta_frame(struct network_game_client *client);
@@ -2143,13 +2145,14 @@ boolean network_game_client_initiate_join_game(
 				network_game_client_joined_version = 0xFFFF;
 		}
 	}
-	/* (an advertised game's flags; the host's own game, joined through
+	/* (whether an advertised game's host speaks Delta; the host's own game, joined through
 	127.0.0.1, is no advertised one) */
 	{
 		long game_index = game - client->available_games;
 
-		network_game_client_joined_flags = game_index >= 0 && game_index < MAXIMUM_NETWORK_ADVERTISED_GAMES ?
-			network_game_client_advertised_versions[game_index].flags : 0;
+		network_game_client_joined_delta = (byte)(game_index >= 0 && game_index < MAXIMUM_NETWORK_ADVERTISED_GAMES &&
+			delta_peer_advertised_speaks_delta(network_game_client_advertised_versions[game_index].reserved,
+				(int)sizeof(network_game_client_advertised_versions[game_index].reserved)));
 	}
 	/* (its host's identifier, its XNADDR's abEnet: the game joined again
 	once a map it needs is downloaded, browser_screen.c) */
@@ -3710,7 +3713,7 @@ static void network_game_client_delta_frame(
 			network_player_is_valid(&client->game.players[index]) ? client->game.players[index].machine_index : -1);
 	}
 	delta_peer_game_client_frame(joined && host, host,
-		(network_game_client_joined_flags & DELTA_ADVERTISED_FLAG) != 0, network_game_client_get_machine_index(client),
+		network_game_client_joined_delta != 0, network_game_client_get_machine_index(client),
 		player_machines);
 }
 #endif

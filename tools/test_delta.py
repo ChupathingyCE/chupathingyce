@@ -70,11 +70,50 @@ def test_limits_follow_the_table():
 def test_advertised_wire_fits():
     text = DELTA.read_text(encoding="utf-8")
     wire = re.search(r'^#define DELTA_WIRE "([^"]+)"', text, re.M).group(1)
-    assert len(wire) <= define(text, "DELTA_ADVERTISED_WIRE_SIZE")
-    # (the major and the wire after the port's version and flags, within the
-    # advertisement's 0x1A reserved bytes)
+    # (a wire's number and letter, as the tag says them: chupa-<1 to 255><a to z>)
+    match = re.fullmatch(r"chupa-(\d+)([a-z])", wire)
+    assert match and 1 <= int(match.group(1)) <= 255
+    # (the old layout, still read: the major and the wire after the port's
+    # version and flags, within the advertisement's 0x1A reserved bytes)
     assert define(text, "DELTA_ADVERTISED_WIRE_OFFSET") >= 3
     assert define(text, "DELTA_ADVERTISED_WIRE_OFFSET") + 1 + define(text, "DELTA_ADVERTISED_WIRE_SIZE") <= 0x1A
+    # (the tag at the tail, past OpenCE's version, flags and kind)
+    assert define(text, "DELTA_ADVERTISED_TAG_SIZE") == 9
+    assert 0x1A - define(text, "DELTA_ADVERTISED_TAG_SIZE") > 3
+
+
+def wire_key(name):
+    number, letter = re.fullmatch(r"chupa-(\d+)([a-z])", name).groups()
+    return int(number), letter
+
+
+def test_console_floor():
+    """every wire from the console floor on reaches back to it
+    (DELTA_WIRE_CONSOLE_FLOOR, docs/delta.md, "The console floor"): the
+    oldest wire a console build in the wild plays, so that a new PC wire
+    never splits the consoles from the PCs. Raise the floor only when every
+    console port has shipped a newer wire."""
+    text = DELTA.read_text(encoding="utf-8")
+    floor = re.search(r'^#define DELTA_WIRE_CONSOLE_FLOOR "([^"]+)"', text, re.M).group(1)
+    for console in CONSOLE_WIRES_IN_THE_WILD:
+        assert wire_key(floor) <= wire_key(console), f"the floor, {floor}, is past {console}, a console's wire"
+    compatibility = text[text.index("#define DELTA_WIRE_COMPATIBILITY(X)"):]
+    compatibility = compatibility[:compatibility.index("\n\n")]
+    rows = dict(re.findall(r'X\("(chupa-\d+[a-z])", "(chupa-\d+[a-z])"\)', compatibility))
+    wire = delta_table.wire()
+    assert wire in rows, f"DELTA_WIRE ({wire}) has no row in DELTA_WIRE_COMPATIBILITY"
+    for row_wire, oldest in rows.items():
+        if wire_key(row_wire) >= wire_key(floor):
+            assert wire_key(oldest) <= wire_key(floor), \
+                f"{row_wire} plays back to {oldest} only: it must reach the console floor, {floor}"
+    for console in CONSOLE_WIRES_IN_THE_WILD:
+        assert wire_key(rows[wire]) <= wire_key(console), f"{wire} no longer reaches {console}, a console's wire"
+
+
+# the wires console builds in the wild play (warthog-xbox, warthog-switch:
+# chupa-32a on 2026-10-27); a wire leaves this list only when no console
+# build of it is in use
+CONSOLE_WIRES_IN_THE_WILD = ("chupa-32a",)
 
 
 def test_capability_bits():
@@ -796,24 +835,24 @@ def test_make_layouts(tmp_path):
     old = tmp_path / "old.json"
     old.write_bytes(delta_table.make(4, issued=1))
     result = make_table(tmp_path, "--serial", "5", "--from", str(old),
-                        "--layout", f"{own}=39:options_size=48,dropped_messages=92+93",
-                        "--layout", f"{own}=40:shield_effects_maximum=7")
+                        "--layout", f"{own}=40:options_size=48,dropped_messages=92+93",
+                        "--layout", f"{own}=41:shield_effects_maximum=7")
     assert result.returncode == 0, result.stderr
     (tmp_path / "new.json").write_text(result.stdout)
     row = json.loads(result.stdout)["wires"][own]
-    assert row["layouts"]["39"] == {"options_size": 48, "dropped_messages": [92, 93]}
-    assert row["layouts"]["40"] == {"shield_effects_maximum": 7}
+    assert row["layouts"]["40"] == {"options_size": 48, "dropped_messages": [92, 93]}
+    assert row["layouts"]["41"] == {"shield_effects_maximum": 7}
     # (made again, and with a --row for the wire: the facts past its own stay)
     wide = f"{floor()['announce'] + 6},{floor()['minimum']},{floor()['maximum'] + 2}"
     result = make_table(tmp_path, "--serial", "6", "--from", str(tmp_path / "new.json"), "--row", f"{own}={wide}")
     assert result.returncode == 0, result.stderr
     row = json.loads(result.stdout)["wires"][own]
-    assert row["announce"] == floor()["announce"] + 6 and row["layouts"]["39"]["options_size"] == 48
+    assert row["announce"] == floor()["announce"] + 6 and row["layouts"]["40"]["options_size"] == 48
     assert "33" in row["layouts"]
-    for bad in (f"{own}=38:options_size=48", f"{own}=39:options_size=40", f"{own}=39:settings_size=13300",
-                f"{own}=39:shield_effects_maximum=16", f"{own}=39:shield_effects_maximum=5",
-                f"{own}=39:dropped_messages=0", f"{own}=39:dropped_messages=256", f"{own}=39:colour=1",
-                f"{own}=39:options_size=48,options_size=52", f"{own}=39", "chupa-32a=39:options_size=48",
+    for bad in (f"{own}=39:options_size=48", f"{own}=40:options_size=40", f"{own}=40:settings_size=13300",
+                f"{own}=40:shield_effects_maximum=16", f"{own}=40:shield_effects_maximum=5",
+                f"{own}=40:dropped_messages=0", f"{own}=40:dropped_messages=256", f"{own}=40:colour=1",
+                f"{own}=40:options_size=48,options_size=52", f"{own}=40", "chupa-32a=40:options_size=48",
                 "chupa-99z=100:options_size=48"):
         assert make_table(tmp_path, "--serial", "6", "--from", str(old), "--layout", bad).returncode == 1, bad
 
@@ -838,23 +877,23 @@ def layout_line(output, version):
 def test_loader_reads_layouts(keys, checker, tmp_path):
     """this wire's row's layouts: read, and used past the build's own
     versions within the limits; the built-in facts for its own versions"""
-    row = dict(floor(), layouts={"35": {"options_size": 60}, "39": {"options_size": 48, "dropped_messages": [92, 93],
+    row = dict(floor(), layouts={"35": {"options_size": 60}, "40": {"options_size": 48, "dropped_messages": [92, 93],
                                                                     "shield_effects_maximum": 7, "later": {"a": [1]}},
-                                  "41": {"settings_size": 13146}, "42": {"options_size": 20}})
+                                  "42": {"settings_size": 13146}, "43": {"options_size": 20}})
     table = write_signed(keys, tmp_path / "t10", document(serial=10, row=row))
-    output = run_checker(checker, tmp_path, "layout", 39, "offer", table, "layout", 35, "layout", 38, "layout", 39,
-                         "layout", 41, "layout", 42, "state")
+    output = run_checker(checker, tmp_path, "layout", 40, "offer", table, "layout", 35, "layout", 39, "layout", 40,
+                         "layout", 42, "layout", 43, "state")
     assert "offer 1" in output and "4 layout facts" in output
-    assert layout_line(output, 39).startswith("layout 39 settings 13136 options 44 shield 6 dropped 91 ")
+    assert layout_line(output, 40).startswith("layout 40 settings 13136 options 44 shield 6 dropped 91 ")
     lines = [line for line in output.splitlines() if line.startswith("layout ")][1:]
     assert lines[0] == "layout 35 settings 13136 options 44 shield 6 dropped - learned 0 refused 0 facts 4"
-    assert lines[1].startswith("layout 38 settings 13136 options 44 shield 6 dropped 91 learned 0 refused 0")
-    assert lines[2].startswith("layout 39 settings 13140 options 48 shield 7 dropped 91,92,93 ")
-    assert lines[3].startswith("layout 41 settings 13146 options 48 shield 7 ")
-    assert lines[4].startswith("layout 42 settings 13146 options 48 shield 7 ") and " refused 1 " in lines[4]
+    assert lines[1].startswith("layout 39 settings 13136 options 44 shield 6 dropped 91 learned 0 refused 0")
+    assert lines[2].startswith("layout 40 settings 13140 options 48 shield 7 dropped 91,92,93 ")
+    assert lines[3].startswith("layout 42 settings 13146 options 48 shield 7 ")
+    assert lines[4].startswith("layout 43 settings 13146 options 48 shield 7 ") and " refused 1 " in lines[4]
     # (the cached table, read again at the next start)
-    output = run_checker(checker, tmp_path, "layout", 39)
-    assert layout_line(output, 39).startswith("layout 39 settings 13140 options 48 ")
+    output = run_checker(checker, tmp_path, "layout", 40)
+    assert layout_line(output, 40).startswith("layout 40 settings 13140 options 48 ")
 
 
 def test_loader_skips_other_wires_layouts(keys, checker, tmp_path):
@@ -893,9 +932,9 @@ def test_loader_override_layouts(checker, tmp_path):
     """network.legacy_table: a server announces a number of its own, with
     layouts, unsigned and never passed on"""
     local = tmp_path / "local.json"
-    local.write_bytes(document(serial=1, row={"announce": 38, "minimum": 11, "maximum": 39,
-                                              "layouts": {"39": {"options_size": 48}}}))
-    output = run_checker(checker, tmp_path, "state", "layout", 39, override=local)
-    assert state_line(output)[0] == "state 38 11 39 serial 0 override 1 disabled 0 signed 0"
+    local.write_bytes(document(serial=1, row={"announce": 38, "minimum": 11, "maximum": 40,
+                                              "layouts": {"40": {"options_size": 48}}}))
+    output = run_checker(checker, tmp_path, "state", "layout", 40, override=local)
+    assert state_line(output)[0] == "state 38 11 40 serial 0 override 1 disabled 0 signed 0"
     assert "1 layout facts" in output
-    assert layout_line(output, 39).startswith("layout 39 settings 13140 options 48 ")
+    assert layout_line(output, 40).startswith("layout 40 settings 13140 options 48 ")

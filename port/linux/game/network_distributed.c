@@ -3267,6 +3267,10 @@ short network_shield_effects(
 	return distributed_shield_effects;
 }
 
+/* OpenCE's distributed message 92, client_build, which this build never
+sends and drops unread */
+#define DISTRIBUTED_CLIENT_BUILD_KIND 92
+
 /* the distributed message kinds this game has seen that this build does not
 know, a bit a kind (each said in the log once a game) */
 static byte distributed_unknown_kinds_seen[32];
@@ -3294,6 +3298,11 @@ static void distributed_unknown_kind(
 	unsigned int version = machine_index == NONE ? network_game_client_host_network_version() :
 		(unsigned int)delta_legacy_announce();
 
+	/* (OpenCE's client_build, a player's build, repository and mods: dropped
+	unread and unlogged, and never sent: docs/delta.md, "Never send message
+	92") */
+	if (type == DISTRIBUTED_CLIENT_BUILD_KIND)
+		return;
 	if (distributed_unknown_kinds_seen[type >> 3] & (1 << (type & 7)))
 		return;
 	distributed_unknown_kinds_seen[type >> 3] |= (byte)(1 << (type & 7));
@@ -3347,6 +3356,86 @@ static void distributed_tell_aim_assist(
 	}
 }
 
+
+/* the message 91 (NETWORK_RULES_SHIELD_EFFECTS_SIZE bytes) */
+struct distributed_shield_effects_message
+{
+	struct distributed_message_header header;
+	word effects;
+	word reserved;
+};
+
+typedef char distributed_shield_effects_message_size_assert[
+	sizeof(struct distributed_shield_effects_message) == NETWORK_RULES_SHIELD_EFFECTS_SIZE &&
+	offsetof(struct distributed_shield_effects_message, effects) == 8 &&
+	offsetof(struct distributed_shield_effects_message, reserved) == 10 ? 1 : -1];
+
+/* the version whose clients take message 91's seventh value, "players" */
+#define SHIELD_EFFECTS_PLAYERS_NETWORK_VERSION 38
+#define SHIELD_EFFECTS_STOCK 0
+#define SHIELD_EFFECTS_PLAYERS 6
+
+/* the host: the value last sent to every client (NONE: none this game) */
+static long distributed_shield_effects_sent = NONE;
+
+/* (the host) its shield effects: this build draws no glow, light show or
+overshield of its own, so stock (0), or from version 38 "players" (6), which
+leaves each machine its own player's look, as offline. None before 36, whose
+machines do not know the message. */
+static long distributed_shield_effects_setting(
+	void)
+{
+	if (!network_rules_of_version(NETWORK_RULES_SHIELD_EFFECTS_VERSION))
+		return NONE;
+	return network_rules_of_version(SHIELD_EFFECTS_PLAYERS_NETWORK_VERSION) ? SHIELD_EFFECTS_PLAYERS :
+		SHIELD_EFFECTS_STOCK;
+}
+
+/* (the host) the shield effects to one client machine, or to every client
+(NONE), as the aim assist policy is sent */
+static void distributed_send_shield_effects(
+	long machine_index,
+	long effects)
+{
+	union
+	{
+		struct distributed_shield_effects_message message;
+		byte bytes[NETWORK_RULES_SHIELD_EFFECTS_SIZE];
+	} choice;
+
+	network_rules_shield_effects_write(choice.bytes, (int)effects, game_time_get());
+	if (machine_index == NONE)
+	{
+		distributed_send(&choice.message, _distributed_message_shield_effects, 1, sizeof(choice.message),
+			_distributed_to_clients_reliably);
+	}
+	else
+	{
+		distributed_send_to_machine_reliably(machine_index, &choice.message, _distributed_message_shield_effects, 1,
+			sizeof(choice.message));
+	}
+}
+
+/* (the host) a client has loaded: it is told the shield effects. If they are
+not what the clients were last told this game (the first tick of a game, or
+a legacy table's newer number), they all are, once. */
+static void distributed_tell_shield_effects(
+	long machine_index)
+{
+	long wanted = distributed_shield_effects_setting();
+
+	if (wanted == NONE)
+		return;
+	if (wanted != distributed_shield_effects_sent)
+	{
+		distributed_shield_effects_sent = wanted;
+		distributed_send_shield_effects(NONE, wanted);
+	}
+	else if (machine_index != NONE)
+	{
+		distributed_send_shield_effects(machine_index, wanted);
+	}
+}
 
 /* Co-op: the host's structure BSP. Clients switch BSP only when told
 (their own trigger volumes don't, players.c). A switch is sent at once and
@@ -3602,6 +3691,7 @@ void network_distributed_new_game(
 		network_game_client_host_network_version() != 0xFFFF &&
 		network_game_client_host_network_version() >= AIM_ASSIST_POLICY_NETWORK_VERSION;
 	distributed_aim_assist_sent = NONE;
+	distributed_shield_effects_sent = NONE;
 	distributed_shield_effects = 0;
 	distributed_shield_effects_heard = FALSE;
 	csmemset(distributed_unknown_kinds_seen, 0, sizeof(distributed_unknown_kinds_seen));
@@ -3716,6 +3806,7 @@ void network_distributed_tick(
 		distributed_send_pickups();
 		/* (a change of the setting, or the first tick of a game) */
 		distributed_tell_aim_assist(NONE);
+		distributed_tell_shield_effects(NONE);
 		if (game_time_get() % GAME_STATE_INTERVAL_TICKS == 0)
 			distributed_send_game_state(NONE);
 	}
@@ -4853,8 +4944,9 @@ void network_distributed_handle_message(
 		/* (its count 1: the client asks again, having failed to make one of
 		the host's objects) */
 		network_objects_client_asked(machine_index, header.count != 0);
-		/* (and the host's policy on aiming assist) */
+		/* (and the host's policy on aiming assist, and its shield effects) */
 		distributed_tell_aim_assist(machine_index);
+		distributed_tell_shield_effects(machine_index);
 		/* (a machine new at its index, which may have joined the game in
 		progress: every player's statistics and the game type's state, after
 		the objects it names) */
