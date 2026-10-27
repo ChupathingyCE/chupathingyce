@@ -755,6 +755,20 @@ slot's wire is the client's own (the rule since 0.7.5a). It refuses, naming
 both wires, only when neither holds. A host of another major, or one without
 the slot, is joined by its OpenCE number, as before.
 
+**The consoles decide the same way.** The original Xbox, Xbox 360 and Wii U
+builds (`HALO_CONSOLE_DELTA` or `HALO_CONSOLE_ONLINE_GAMES`) take this path
+too, so they join a Delta host whatever OpenCE number it announces, and fall
+back to the numbers only for a host without Delta. A refused game gives a
+short reason the console's Online Games screen shows: the host's wire, or
+its network version and whether it is newer or older.
+
+**Hosts of the Delta tag.** Readers also take the Delta tag, the tagged
+block at the reserved bytes' tail (`DELTA_ADVERTISED_TAG_OFFSET`): `'D'`,
+`'L'`, the major, the layout version (1), the host's own wire and its oldest
+(number and letter each), and a check (0xA5 xor the eight bytes before). A
+tag host sets no Delta flag. One reader (`delta_compat.c`) takes a valid tag
+first and the old layout otherwise, so a client finds the hosts of both.
+
 **The cost of one slot.** A released client that checks the slot exactly sees
 the host's oldest compatible wire, `chupa-29a` for a 0.8.0a host: 0.7.5
 players join it, and 0.8.0's (`chupa-32a`, an exact-match client, out for a

@@ -42,22 +42,33 @@ version, the check byte, IDs, oldest not past the wire). 1 if so. */
 int delta_compat_read_range(const unsigned char *reserved, int size, struct delta_wire_id *wire,
 	struct delta_wire_id *oldest);
 
+/* the Delta tag at the reserved bytes' tail (DELTA_ADVERTISED_TAG_OFFSET),
+the layout of the hosts to come: what it says (the major, the host's wire
+and its oldest), if it is right (the two tag bytes, the layout version, the
+check byte, IDs, oldest not past the wire). 1 if so. */
+int delta_compat_read_tag(const unsigned char *reserved, int size, int *major, struct delta_wire_id *wire,
+	struct delta_wire_id *oldest);
+
+/* whether the advertisement says its host speaks Delta: a valid tag (of any
+major), or the old layout's flag (DELTA_ADVERTISED_FLAG) */
+int delta_compat_speaks_delta(const unsigned char *reserved, int size);
+
 /* what a client of the wire (own) decides about a host's advertisement, of
-the Delta major:
+the Delta major, by its tag, else by the old layout (one reader of both):
   1  join: the host's own wire is in the client's range (the client's oldest
      to its own), or the client's wire is in the host's, or, without range
      bytes that say so, the old slot's wire is the client's own;
   0  refuse: the host plays a wire this one does not (theirs is that wire,
      printable, ended; the host's own wire if it says it, else its slot's);
- -1  the advertisement does not say (no major or wire: the host is not
-     Delta, is of another major, or is older than the wire's advertisement):
-     the OpenCE numbers decide.
+ -1  the advertisement does not say (no tag and no old slot of the major:
+     the host is not Delta, is of another major, or is older than the
+     wire's advertisement): the OpenCE numbers decide.
 Whether the host or the client speaks Delta at all is the caller's. */
 int delta_compat_decide(const unsigned char *reserved, int size, int major, const char *own, char *theirs,
 	int theirs_size);
 
-/* the wire a host plays, as its advertisement says: the range bytes' own
-wire, else the old slot's. 1 if it says. */
+/* the wire a host plays, as its advertisement says: the tag's, else the
+old layout's range bytes' own wire, else its old slot's. 1 if it says. */
 int delta_compat_host_wire(const unsigned char *reserved, int size, int major, struct delta_wire_id *wire);
 
 #endif
