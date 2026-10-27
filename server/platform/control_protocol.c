@@ -200,6 +200,38 @@ static size_t first_value(const char *value, size_t length)
 	return index;
 }
 
+/* X-Forwarded-For's last element (the one the nearest proxy added), if it
+looks like an address (hexadecimal digits, dots and colons, no more than
+fits), else empty; a later header's replaces an earlier's */
+static void forwarded_for_last(const char *value, size_t length, char *out, size_t size)
+{
+	size_t start = length;
+	size_t end = length;
+	size_t index;
+
+	out[0] = 0;
+	while (start > 0 && value[start - 1] != ',')
+		start--;
+	while (start < end && (value[start] == ' ' || value[start] == '\t'))
+		start++;
+	while (end > start && (value[end - 1] == ' ' || value[end - 1] == '\t'))
+		end--;
+	if (end == start || end - start >= size)
+		return;
+	for (index = start; index < end; index++)
+	{
+		char character = value[index];
+
+		if (!((character >= '0' && character <= '9') || (character >= 'a' && character <= 'f') ||
+			(character >= 'A' && character <= 'F') || character == '.' || character == ':'))
+		{
+			return;
+		}
+	}
+	memcpy(out, value + start, end - start);
+	out[end - start] = 0;
+}
+
 /* whether a Forwarded header's first element says proto=https */
 static int forwarded_https(const char *value, size_t length)
 {
@@ -402,8 +434,13 @@ int control_parse_request(const char *data, size_t length, struct control_reques
 		{
 			request->background = value_end - value_start == 1 && data[value_start] == '1';
 		}
-		else if (name_is(data + cursor, name_length, "x-forwarded-for") ||
-			name_is(data + cursor, name_length, "x-real-ip"))
+		else if (name_is(data + cursor, name_length, "x-forwarded-for"))
+		{
+			request->proxied = 1;
+			forwarded_for_last(data + value_start, value_end - value_start, request->forwarded_for,
+				sizeof(request->forwarded_for));
+		}
+		else if (name_is(data + cursor, name_length, "x-real-ip"))
 		{
 			request->proxied = 1;
 		}
@@ -1088,7 +1125,7 @@ int control_limiter_allowed(struct control_limiter *limiter, const uint8_t addre
 	return 1;
 }
 
-int control_limiter_take_check(struct control_limiter *limiter, int64_t now)
+static int take_check(struct control_limiter *limiter, int64_t now, int64_t keep)
 {
 	if (!limiter->started)
 	{
@@ -1103,10 +1140,24 @@ int control_limiter_take_check(struct control_limiter *limiter, int64_t now)
 			limiter->check_tokens = (int64_t)CONTROL_LIMITER_CHECK_BURST * 1000;
 		limiter->refilled = now;
 	}
-	if (limiter->check_tokens < 1000)
+	if (limiter->check_tokens < 1000 + keep * 1000)
 		return 0;
 	limiter->check_tokens -= 1000;
 	return 1;
+}
+
+int control_limiter_take_check(struct control_limiter *limiter, int64_t now)
+{
+	return take_check(limiter, now, 0);
+}
+
+int control_limiter_take_check_from(struct control_limiter *limiter, const uint8_t address[16], int64_t now)
+{
+	const struct control_limiter_entry *entry = limiter_entry(limiter, address, now, 0);
+	int clean = !entry || (entry->blocked_until <= now && (!entry->failures ||
+		now - entry->window_start >= CONTROL_LIMITER_WINDOW_SECONDS));
+
+	return take_check(limiter, now, clean ? 0 : CONTROL_LIMITER_CHECK_RESERVE);
 }
 
 void control_limiter_failed(struct control_limiter *limiter, const uint8_t address[16], int64_t now)
@@ -1217,6 +1268,8 @@ static size_t ipv6_at(const char *text, size_t start, int *local)
 	unsigned int first = 0;
 	int group_digits = 0;
 	unsigned int group = 0;
+	unsigned int bytes[4];
+	int embedded = 0;
 
 	if (start > 0 && (hex_value((unsigned char)text[start - 1]) >= 0 || text[start - 1] == ':' ||
 		(lower((unsigned char)text[start - 1]) >= 'g' && lower((unsigned char)text[start - 1]) <= 'z')))
@@ -1251,6 +1304,21 @@ static size_t ipv6_at(const char *text, size_t start, int *local)
 			group_digits = 0;
 			group = 0;
 		}
+		else if (text[index] == '.' && group_digits && colons >= 2)
+		{
+			/* (an IPv4 address as its last 32 bits: ::ffff:203.0.113.9) */
+			size_t tail = index - (size_t)group_digits;
+			size_t length = ipv4_at(text, tail, bytes);
+
+			/* (not one: the address ends before the dot, as before) */
+			if (!length)
+				break;
+			embedded = 1;
+			groups += 2;
+			group_digits = 0;
+			index = tail + length;
+			break;
+		}
 		else
 			break;
 		index++;
@@ -1267,6 +1335,21 @@ static size_t ipv6_at(const char *text, size_t start, int *local)
 		(lower((unsigned char)text[index]) >= 'g' && lower((unsigned char)text[index]) <= 'z'))
 	{
 		return 0;
+	}
+	if (embedded)
+	{
+		/* (::ffff:a.b.c.d, and the old ::a.b.c.d: as local as the IPv4
+		address is; any other prefix is an IPv6 address's) */
+		size_t prefix = index;
+
+		while (prefix > start && text[prefix - 1] != ':')
+			prefix--;
+		if ((prefix - start == 2 && !strncmp(text + start, "::", 2)) ||
+			(prefix - start == 7 && (!strncmp(text + start, "::ffff:", 7) || !strncmp(text + start, "::FFFF:", 7))))
+		{
+			*local = local_ipv4(bytes);
+			return index - start;
+		}
 	}
 	/* (::, ::1, fc00::/7, fe80::/10) */
 	*local = (!groups) || (groups == 1 && text[start] == ':' && first <= 1) || (first & 0xFE00) == 0xFC00 ||

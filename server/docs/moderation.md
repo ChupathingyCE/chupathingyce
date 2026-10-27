@@ -223,7 +223,9 @@ behind any router.
    role, so they are moderators in the game too.
 
 `sv_link_status` tells whether it is linked, to whom, and when the site was
-last heard from. `sv_unlink` (or Unlink on the site) unlinks it: the
+last heard from. While linking, the code is shown only to those who may
+link the server (the owner, the console): whoever enters it first owns the
+link. It is not written to the log. `sv_unlink` (or Unlink on the site) unlinks it: the
 server's credential (`delta_link.key` in the data folder) is deleted at
 once, and the site is told.
 
@@ -255,10 +257,17 @@ already in the server's game. With the link: outbound HTTPS to the site.
 **What it defends against.**
 
 - Guessing passwords and codes: Argon2id (19 MiB, 2 passes) for every check,
-  at most 30 checks a minute for everyone; five wrong from an address and
-  it waits five minutes; five wrong for an account and it is locked a
-  minute, doubling to an hour. Addresses are counted by a keyed hash, never
+  at most 30 checks a minute for everyone, a few of them kept for
+  addresses with no wrong tries lately; five wrong from an address and it
+  waits five minutes; five wrong for an account from one address and the
+  account is locked for that address a minute, doubling to an hour, and
+  forgotten after 15 quiet minutes (from anywhere else it still logs in,
+  and a locked login reads as a wrong password). Behind a reverse proxy,
+  `HALO_DEDICATED_CONTROL_TRUSTED_PROXY` lets these count each client
+  ([admin.md](admin.md)). Addresses are counted by a keyed hash, never
   kept. The setup code and invitations are 128-bit, single use, and expire.
+- A second factor, once on, is replaced only by turning it off first,
+  which takes the password and a current code.
 - Stolen sessions: HttpOnly, SameSite=Strict cookies (Secure over HTTPS),
   30 minutes idle, 12 hours at most, a CSRF token on every change, the
   page's origin checked, a strict Content-Security-Policy.
