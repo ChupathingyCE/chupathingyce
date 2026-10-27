@@ -769,7 +769,7 @@ int delta_peer_advertised_wire_matches(const unsigned char *reserved, int size, 
 {
 	if (theirs_size > 0)
 		theirs[0] = 0;
-	if (delta_peer_protocol() == _delta_peer_protocol_opence)
+	if (delta_peer_protocol() == _delta_peer_protocol_opence || !delta_compat_speaks_delta(reserved, size))
 		return -1;
 	return delta_compat_decide(reserved, size, DELTA_MAJOR, DELTA_WIRE, theirs, theirs_size);
 }

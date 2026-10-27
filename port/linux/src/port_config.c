@@ -954,6 +954,10 @@ static const struct config_setting config_settings[] =
 	{ "debug.test_input", _config_string, "\"\"", "HALO_TEST_INPUT", _environment_value, _platform_all,
 		"Scripted input on controller 1: \"bot:<seed>\" or \"look:<seed>\"; empty\n"
 		"for none." },
+	{ "debug.test_gamepads", _config_integer, "0", "HALO_TEST_GAMEPADS", _environment_value, _platform_desktop,
+		"Virtual gamepads (up to 4) for tests of split screen: debug.test_input's\n"
+		"\"menu:\" script presses their buttons and sticks as pad<n>:<button>, and\n"
+		"pad<n>:unplug and pad<n>:plug take one out and put it back. 0 none." },
 #ifndef HALO_CONSOLE_NO_UPDATER
 	{ "debug.update_answer", _config_string, "\"\"", "HALO_UPDATE_ANSWER", _environment_value, _platform_desktop,
 		"The answer to the update question, for tests: \"yes\", \"no\" or \"never\";\n"

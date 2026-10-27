@@ -95,16 +95,18 @@ static unsigned char range_check(const unsigned char *range)
 	return (unsigned char)(CHECK_SEED ^ range[0] ^ range[1] ^ range[2] ^ range[3] ^ range[4]);
 }
 
-/* (the tag's check: the old range's, over the tag's last six bytes, which
-are the range bytes) */
+/* (the tag's check: 0xA5 xor its eight bytes before, so that its last six,
+where the old range bytes were, never pass for them: a released client
+reads a host's own wire from the old slot alone) */
 static unsigned char tag_check(const unsigned char *tag)
 {
-	return range_check(tag + DELTA_ADVERTISED_RANGE_OFFSET - DELTA_ADVERTISED_TAG_OFFSET);
-}
+	unsigned char check = CHECK_SEED;
+	int index;
 
-typedef char delta_tag_ends_with_range[
-	DELTA_ADVERTISED_RANGE_OFFSET + DELTA_ADVERTISED_RANGE_SIZE == DELTA_ADVERTISED_RESERVED_SIZE &&
-	DELTA_ADVERTISED_RANGE_OFFSET - DELTA_ADVERTISED_TAG_OFFSET == 3 ? 1 : -1];
+	for (index = 0; index < DELTA_ADVERTISED_TAG_SIZE - 1; index++)
+		check = (unsigned char)(check ^ tag[index]);
+	return check;
+}
 
 /* (two wires as a range says them: IDs, the oldest not past the wire) */
 static int range_ids(const unsigned char *bytes, struct delta_wire_id *wire, struct delta_wire_id *oldest)

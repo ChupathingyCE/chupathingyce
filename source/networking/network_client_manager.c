@@ -3270,11 +3270,26 @@ the system link list does (network_game_join_game_from_server_list) */
 /* the platform layer's (sdl_platform.c) */
 void platform_show_message(char const *title, char const *message);
 
-#ifdef HALO_GAME_BROWSER
+/* port: the builds that join a Delta host by its game wire and range, not
+its OpenCE number: the desktop's, and the consoles' with Delta Peer or the
+Online Games screen (every console's Delta Peer client code is built in,
+port/linux/src/delta_peer_game.c) */
+#if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_DELTA) || defined(HALO_CONSOLE_ONLINE_GAMES)
+#define HALO_PORT_DELTA_WIRE_JOIN 1
 #include "delta.h"
 /* port/linux/src/delta_peer_game.c's */
 int delta_peer_advertised_wire_matches(unsigned char const *reserved, int size, char *theirs, int theirs_size);
 #endif
+
+/* port: why the last advertised game refused was refused, a line short
+enough for a console's status line (network_game_client_refusal) */
+static char network_game_client_refusal_text[64];
+
+char const *network_game_client_refusal(
+	void)
+{
+	return network_game_client_refusal_text;
+}
 
 /* whether this client can join the advertised game: its host's network
 version is one this machine plays with (HALO_PORT_NETWORK_VERSION_MINIMUM
@@ -3300,7 +3315,7 @@ boolean network_game_client_advertised_game_compatible(
 	theirs = network_game_client_advertised_versions[game_index].version;
 	distributed = (network_game_client_advertised_versions[game_index].flags &
 		HALO_PORT_ADVERTISED_DISTRIBUTED_FLAG) != 0;
-#ifdef HALO_GAME_BROWSER
+#ifdef HALO_PORT_DELTA_WIRE_JOIN
 	{
 		char wire[24];
 		int matches = delta_peer_advertised_wire_matches(network_game_client_advertised_versions[game_index].reserved,
@@ -3314,6 +3329,7 @@ boolean network_game_client_advertised_game_compatible(
 		}
 		if (matches == 0)
 		{
+			csprintf(network_game_client_refusal_text, "The host is on %.16s. You are on %s.", wire, DELTA_WIRE);
 			if (tell)
 			{
 				csprintf(message,
@@ -3345,9 +3361,11 @@ boolean network_game_client_advertised_game_compatible(
 		csprintf(message,
 			"The host is using the lockstep network code, which this version no longer has.\n\n"
 			"Ask the host to update the game.");
+		csprintf(network_game_client_refusal_text, "The host uses the old lockstep network code.");
 	}
 	else if (theirs > (unsigned int)delta_legacy_maximum())
 	{
+		csprintf(network_game_client_refusal_text, "The host is on network version %u, newer than yours.", theirs);
 		csprintf(message,
 			"The host is using a newer version of the network code than you.\n\n"
 			"You are on version %u. The host is on version %u.\n\n"
@@ -3356,6 +3374,7 @@ boolean network_game_client_advertised_game_compatible(
 	}
 	else
 	{
+		csprintf(network_game_client_refusal_text, "The host is on network version %u, older than yours.", theirs);
 		csprintf(message,
 			"The host is using an older version of the network code than you.\n\n"
 			"You are on version %u. The host is on version %u.\n\n"
@@ -3525,6 +3544,7 @@ long network_game_client_join_invite_host(
 	byte identifier[6];
 	long game_index;
 
+	network_game_client_refusal_text[0] = 0;
 #ifdef HALO_XBOX_CONSOLE
 	/* port: with console.trace (port/xbox/src/xbox_port.c), why the
 	console's join is not under way yet, every 5 seconds */

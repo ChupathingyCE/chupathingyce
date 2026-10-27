@@ -748,12 +748,12 @@ types:
 | 20 | the tag's layout version, 1 |
 | 21, 22 | the host's own wire: its number and its letter (39, 'a') |
 | 23, 24 | its oldest compatible wire: number and letter (28, 'a') |
-| 25 | a check: 0xA5 xor the five bytes before |
+| 25 | a check: 0xA5 xor the eight bytes before |
 
 A reader knows a Delta host by a valid tag and check, never by a flag bit.
-The tag's last six bytes are the old layout's range bytes, check and all, so
-a released client that reads the old layout (below) where a host writes it
-too sees the host's own wire and range. An old host is never read as a new
+The tag's last six bytes sit where the old layout's range bytes were, but
+its check covers the whole tag, so a released client never reads them as
+range bytes, and an old host is never read as a new
 one: it has zeros where the tag's `'D'` and `'L'` go. OpenCE's machines
 leave and ignore the bytes.
 
@@ -797,6 +797,13 @@ range bytes, when the old slot's wire is the client's own (the rule since
 another major, or one that says no wire, is joined by its OpenCE number, as
 before.
 
+**The consoles decide the same way.** The original Xbox, Xbox 360 and Wii U
+builds (`HALO_CONSOLE_DELTA` or `HALO_CONSOLE_ONLINE_GAMES`) take this path
+too, so they join a Delta host whatever OpenCE number it announces, and fall
+back to the numbers only for a host without Delta. A refused game gives a
+short reason the console's Online Games screen shows: the host's wire, or
+its network version and whether it is newer or older.
+
 **The transition (decided 2026-10-27).** Released builds read only the old
 layout: the PCs on chupa-38a (0.8.0f to 0.8.0h) and before, and the consoles
 on chupa-32a (the Xbox and Switch builds). So a new host keeps writing the
@@ -810,9 +817,8 @@ means by those bytes:
   reads it only in a Slayer game (`DELTA_ADVERTISED_KIND_ENGINE`; a mode
   there names SWAT, Infection or Gun Game). With the flag, in a game of any
   other engine, a host writes its major there and the old slot after it:
-  `chupa-29a`, ended before the tag (`delta_compat_advertise_old`). The
-  tag's last six bytes are the old range bytes, so these clients also see
-  the host's own wire and range.
+  `chupa-29a`, ended before the tag (`delta_compat_advertise_old`). These
+  clients take that slot as the host's wire, which is in all their ranges.
 
 What a released client gets from a new host:
 

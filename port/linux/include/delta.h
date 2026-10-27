@@ -32,9 +32,8 @@ OpenCE writes its own fields there from the front (the version, the flags,
 since its version 37 the game's kind at byte 3), so the tail stays clear of
 them. The block: 'D', 'L', the host's Delta major, the block's layout
 version (1), the host's own wire (its number, then its letter), its oldest
-compatible wire (number, letter), and a check byte (0xA5 xor the five before:
-the tag's last six bytes are the old layout's range bytes, below, check and
-all, so a released client reads them where the old layout is written too).
+compatible wire (number, letter), and a check byte (0xA5 xor the eight before;
+the 2026-10-27 console builds read it so).
 A reader knows Delta by a valid tag and check, never by a flag bit. Written
 only while the host's Delta socket is open and network.protocol is not
 "opence" (delta_peer_advertised_wire); OpenCE's machines leave and ignore the
@@ -69,9 +68,9 @@ is ended before the tag (delta_compat_advertise_old) */
 /* ... and after the wire, to the end of the reserved bytes, the range: its
 layout version (1), the host's own wire (number, letter), its oldest
 compatible wire (number, letter), and a check byte (0xA5 xor the five
-before). The tag's last six bytes are these, so a host that writes the old
-major and slot as well says its range to released clients too
-(delta_compat.h). */
+before). The tag's last six bytes sit where these did, with a check of its
+own, so a released client never reads them as range bytes: it takes the old
+slot's wire (delta_compat.h). */
 #define DELTA_ADVERTISED_RANGE_OFFSET (DELTA_ADVERTISED_WIRE_OFFSET + 1 + DELTA_ADVERTISED_WIRE_SIZE)
 #define DELTA_ADVERTISED_RANGE_SIZE 6
 #define DELTA_ADVERTISED_RANGE_VERSION 1
