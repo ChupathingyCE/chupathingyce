@@ -23,8 +23,9 @@ int server_link_start(const char *server_name, const char *version, char *text, 
 when it can be; the credential goes either way): 1, else 0 and why */
 int server_link_stop(char *text, int text_size);
 /* sv_link_status: whether it is linked, to whom, when it last heard from
-the site (JSON when json) */
-void server_link_status(int json, char *text, int text_size);
+the site (JSON when json); the pending code only when show_code (for those
+with the roles permission: whoever enters it on the site owns the link) */
+void server_link_status(int json, int show_code, char *text, int text_size);
 
 /* (the main thread's, each frame) the site's commands waiting, one at a
 time: 1 and the command, its id and the handle it came from, else 0; and

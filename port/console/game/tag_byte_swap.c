@@ -8,6 +8,8 @@ tags were read into, so a layout that does not match a map's data stops at
 the bad block instead of writing past it, and says so.
 */
 
+#include <stdlib.h>
+
 #include "cseries.h"
 #include "errors.h"
 
@@ -278,9 +280,80 @@ static void swap_long_data(struct swap_region *region, const unsigned char *data
 #define MODEL_PART_SIZE 0x68
 #define MODEL_PART_TRIANGLES 0x38 /* the part's triangles tag block */
 #define MODEL_PART_TRIANGLE_BUFFER 0x44 /* type (short), pad, count, base address */
+#define MODEL_TRIANGLE_SIZE 6 /* three shorts */
 #define TRIANGLE_BUFFER_STRIP 1
 
-static void swap_model_indices(struct swap_region *region, unsigned long address, unsigned long *swapped)
+/* the parts' index ranges, gathered over every model before any is swapped:
+parts may share their indices or overlap (Halo CE+X maps do), and a word
+swapped twice is back in the map's order. The words of a triangles block
+are kept too, as done: its layout swapped them with the block. Sorted and
+merged as the table fills; a map with more ranges than this, merged, has
+the rest swapped part by part */
+#define MAXIMUM_INDEX_RANGES 4096
+
+struct index_range
+{
+	unsigned long address;
+	unsigned long end;
+	unsigned long done; /* a triangles block's: already swapped */
+};
+
+static struct index_range index_ranges[MAXIMUM_INDEX_RANGES];
+static unsigned long index_range_count;
+
+static int index_range_compare(const void *a, const void *b)
+{
+	const struct index_range *first = a, *second = b;
+
+	if (first->done != second->done)
+		return first->done < second->done ? -1 : 1;
+	if (first->address != second->address)
+		return first->address < second->address ? -1 : 1;
+	return 0;
+}
+
+/* sorted (the ranges to swap, then the done ones), each kind's overlapping
+ranges made one */
+static void index_ranges_merge(void)
+{
+	unsigned long index, count = 0;
+
+	if (!index_range_count)
+		return;
+	qsort(index_ranges, index_range_count, sizeof(index_ranges[0]), index_range_compare);
+	for (index = 1; index < index_range_count; index++)
+	{
+		struct index_range *last = &index_ranges[count];
+
+		if (index_ranges[index].done == last->done && index_ranges[index].address < last->end)
+		{
+			if (index_ranges[index].end > last->end)
+				last->end = index_ranges[index].end;
+		}
+		else
+		{
+			index_ranges[++count] = index_ranges[index];
+		}
+	}
+	index_range_count = count + 1;
+}
+
+/* whether the range was kept (or there was no room for it) */
+static int index_range_add(unsigned long address, unsigned long size, unsigned long done)
+{
+	if (index_range_count == MAXIMUM_INDEX_RANGES)
+		index_ranges_merge();
+	if (index_range_count == MAXIMUM_INDEX_RANGES)
+		return 0;
+	index_ranges[index_range_count].address = address;
+	index_ranges[index_range_count].end = address + size;
+	index_ranges[index_range_count].done = done;
+	index_range_count++;
+	return 1;
+}
+
+static void swap_model_indices(struct swap_region *region, unsigned long address, unsigned long *parts_seen,
+	unsigned long *overflow)
 {
 	const unsigned char *model = region->base + (address - region->address);
 	long geometry_count = (long)read32(model + MODEL_GEOMETRIES);
@@ -303,21 +376,62 @@ static void swap_model_indices(struct swap_region *region, unsigned long address
 			const unsigned char *buffer = part + MODEL_PART_TRIANGLE_BUFFER;
 			unsigned short type;
 			long count = (long)read32(buffer + 4);
-			unsigned long indices = read32(buffer + 8), index_count;
+			long triangle_count = (long)read32(part + MODEL_PART_TRIANGLES);
+			unsigned long indices = read32(buffer + 8), triangles = read32(part + MODEL_PART_TRIANGLES + 4);
+			unsigned long index_count;
 
+			if (triangle_count > 0 &&
+				region_holds(region, triangles, (unsigned long)triangle_count * MODEL_TRIANGLE_SIZE))
+			{
+				index_range_add(triangles, (unsigned long)triangle_count * MODEL_TRIANGLE_SIZE, 1);
+			}
 			type = read16(buffer);
 			if (count <= 0)
 				continue;
 			index_count = type == TRIANGLE_BUFFER_STRIP ? (unsigned long)count + 2 : (unsigned long)count * 3;
 			/* (the triangles block's own words were swapped with the block) */
-			if ((long)read32(part + MODEL_PART_TRIANGLES) > 0 && read32(part + MODEL_PART_TRIANGLES + 4) == indices)
+			if (triangle_count > 0 && triangles == indices)
 				continue;
 			if (!region_holds(region, indices, index_count * 2))
 				continue;
-			swap_fields(region->base + (indices - region->address), 2, index_count);
-			(*swapped)++;
+			(*parts_seen)++;
+			if (!index_range_add(indices, index_count * 2, 0))
+			{
+				swap_fields(region->base + (indices - region->address), 2, index_count);
+				(*overflow)++;
+			}
 		}
 	}
+}
+
+/* every gathered range swapped once, but for the words its triangles
+blocks already had; the count of ranges swapped */
+static unsigned long swap_index_ranges(struct swap_region *region)
+{
+	unsigned long index, done, swapped = 0;
+
+	index_ranges_merge();
+	for (done = 0; done < index_range_count && !index_ranges[done].done; done++)
+		;
+	for (index = 0; index < index_range_count && !index_ranges[index].done; index++)
+	{
+		unsigned long at = index_ranges[index].address, end = index_ranges[index].end;
+		unsigned long next;
+
+		while (at < end)
+		{
+			/* (the done ranges behind this one are behind every later one) */
+			while (done < index_range_count && index_ranges[done].end <= at)
+				done++;
+			next = done < index_range_count && index_ranges[done].address < end ? index_ranges[done].address : end;
+			if (next > at)
+				swap_fields(region->base + (at - region->address), 2, (next - at) / 2);
+			at = next < end ? index_ranges[done].end : end;
+		}
+		swapped++;
+	}
+	index_range_count = 0;
+	return swapped;
 }
 
 static void swap_long_data(struct swap_region *region, const unsigned char *data)
@@ -359,7 +473,7 @@ void tag_byte_swap_tags(void *base, unsigned long base_address, unsigned long si
 	unsigned long missing_groups[16];
 	unsigned long missing_counts[16];
 	int missing = 0, missing_index;
-	unsigned long model_parts = 0;
+	unsigned long model_parts = 0, model_part_overflow = 0, model_index_ranges;
 
 	csmemset(&region, 0, sizeof(region));
 	region.base = base;
@@ -407,14 +521,21 @@ void tag_byte_swap_tags(void *base, unsigned long base_address, unsigned long si
 		swap_layout(&region, (unsigned long)layout, address, 0);
 		swap_tag_text(&region, group_tag, address);
 		if (group_tag == MODEL_GROUP)
-			swap_model_indices(&region, address, &model_parts);
+			swap_model_indices(&region, address, &model_parts, &model_part_overflow);
 		/* (an animation's frames, in tag data: model_animations.c reads them) */
 		if (group_tag == ANIMATION_GRAPH_GROUP)
 			animation_graph_byte_swap_data(region.base + (address - region.address));
 	}
+	/* (the models' indices, once all are known) */
+	model_index_ranges = swap_index_ranges(&region);
 	error(_error_silent, "tag byte swap: %lu of %lu tags, %lu blocks, %lu elements; %lu blocks not swapped",
 		region.tags, count, region.blocks, region.elements, region.bad_blocks);
-	error(_error_silent, "tag byte swap: %lu model parts' indices", model_parts);
+	error(_error_silent, "tag byte swap: %lu model parts' indices, in %lu ranges", model_parts, model_index_ranges);
+	if (model_part_overflow)
+	{
+		error(_error_silent, "tag byte swap: %lu model parts' indices swapped on their own (more than %d ranges)",
+			model_part_overflow, MAXIMUM_INDEX_RANGES);
+	}
 	for (missing_index = 0; missing_index < missing; missing_index++)
 	{
 		error(_error_silent, "tag byte swap: no layout for '%c%c%c%c' (%lu tags, left as they are)",
