@@ -109,6 +109,10 @@ struct control_request
 	X-Forwarded-Proto, X-Forwarded-Host, X-Real-IP), and one said HTTPS */
 	int proxied;
 	int https;
+	/* X-Forwarded-For's last address, as text (empty if none, or not one):
+	the client's, if the operator says the proxy in front is trusted
+	(HALO_DEDICATED_CONTROL_TRUSTED_PROXY) */
+	char forwarded_for[48];
 	/* X-Background: 1, the page's own polling (a session it does not keep
 	from going idle) */
 	int background;
@@ -213,6 +217,9 @@ enum
 	this many a minute for everyone, a burst of up to this many at once */
 	CONTROL_LIMITER_CHECKS_PER_MINUTE = 30,
 	CONTROL_LIMITER_CHECK_BURST = 10,
+	/* of which this many are kept for addresses with no wrong tries lately
+	(so guessing from many places does not keep everyone else out) */
+	CONTROL_LIMITER_CHECK_RESERVE = 4,
 };
 
 struct control_limiter_entry
@@ -240,6 +247,9 @@ int control_limiter_allowed(struct control_limiter *limiter, const uint8_t addre
 	int64_t *retry_after);
 /* whether a token may be checked now (the bucket for everyone) */
 int control_limiter_take_check(struct control_limiter *limiter, int64_t now);
+/* the same for an address: one with wrong tries lately (in its window, or
+blocked) leaves the reserve to the others */
+int control_limiter_take_check_from(struct control_limiter *limiter, const uint8_t address[16], int64_t now);
 void control_limiter_failed(struct control_limiter *limiter, const uint8_t address[16], int64_t now);
 void control_limiter_succeeded(struct control_limiter *limiter, const uint8_t address[16]);
 

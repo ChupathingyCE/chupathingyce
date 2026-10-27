@@ -6,6 +6,18 @@ release notes.
 
 ## Unreleased
 
+- Control panel hardening: `sv_welcome` needs the settings permission (an
+  admin's) and is in the audit file; a command missing from the permission
+  table is the console's alone. Wrong logins lock an account only for the
+  address they came from, are forgotten after 15 quiet minutes, and a
+  locked login reads as a wrong password; `HALO_DEDICATED_CONTROL_TRUSTED_PROXY`
+  lets the limits count each client behind a reverse proxy. The pending
+  link code is shown only to the owner and the console, and no longer
+  written to the log. A second factor is replaced only by turning it off
+  first (password and code). Idle connections are dropped after 3 seconds,
+  8 at most from one address. The log hides IPv4-mapped IPv6 addresses;
+  `sv_link_status`'s JSON is escaped; `HALO_DEDICATED_LINK_URL`'s plain-HTTP
+  exception is this machine's exact address only.
 - Bomb and Grifball game types for playlists (`bomb`, `grifball`,
   `grifball_open_pitch`, `bomb.*` fields), played only with Chupathingy
   clients; standard game types are unchanged.

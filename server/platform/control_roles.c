@@ -106,6 +106,10 @@ struct command_permission
 	int read_without_argument;
 };
 
+/* every command the server has (server_commands.c's server_commands[];
+tools/test_server_control.py checks that none is left out). A command not
+here needs the console (control_command_permission): the reads anyone with
+a role may run are the VIEW ones here, and no others */
 static const struct command_permission command_permissions[] =
 {
 	{ "help", CONTROL_PERMISSION_VIEW, 0, 0 },
@@ -146,6 +150,7 @@ static const struct command_permission command_permissions[] =
 	{ "sv_name", CONTROL_PERMISSION_SETTINGS, 1, 1 },
 	{ "sv_name_filter", CONTROL_PERMISSION_SETTINGS, 1, 1 },
 	{ "sv_chat", CONTROL_PERMISSION_SETTINGS, 1, 1 },
+	{ "sv_welcome", CONTROL_PERMISSION_SETTINGS, 1, 1 },
 	{ "sv_set", CONTROL_PERMISSION_SETTINGS, 1, 0 },
 	{ "sv_gametype_new", CONTROL_PERMISSION_SETTINGS, 1, 0 },
 	{ "sv_gametype_set", CONTROL_PERMISSION_SETTINGS, 1, 0 },
@@ -203,7 +208,9 @@ unsigned int control_command_permission(const char *line, int *changes)
 		}
 		return command->permission;
 	}
-	return 0;
+	/* (a command the table does not know, if the server has one: the
+	console's alone, never a role's by being left out) */
+	return CONTROL_PERMISSION_CONSOLE;
 }
 
 /* ---------- keys and names */
