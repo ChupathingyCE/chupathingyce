@@ -8434,12 +8434,54 @@ is the one that chose co-op, player 2's the one that chose their profile */
 (port/linux/game/menu_functions.c): co-op, split screen, the lobby's */
 extern unsigned char pc_menu_split_players(void);
 
+/* port: whether the widget or one inside it is the local player's */
+static boolean widget_tree_has_local_player(
+	struct widget_instance const *widget,
+	short local_player_index)
+{
+	struct widget_instance const *child;
+
+	if (widget->local_player_index == local_player_index)
+		return TRUE;
+	for (child = widget->child; child; child = child->next)
+	{
+		if (widget_tree_has_local_player(child, local_player_index))
+			return TRUE;
+	}
+	return FALSE;
+}
+
+/* port: whether a screen shown has a widget of the controller's own: its
+own screen, or its part of a shared one (the Xbox menus' four quarters of
+SELECT PROFILE, where each controller presses A to join) */
+static boolean controller_has_own_widget(
+	short controller_index)
+{
+	short widget_index;
+
+	if (controller_index < 0 || controller_index >= MAXIMUM_NUMBER_OF_LOCAL_PLAYERS)
+		return FALSE;
+	if (widget_globals.active_widgets[controller_index])
+		return TRUE;
+	for (widget_index = 0; widget_index < MAXIMUM_NUMBER_OF_LOCAL_PLAYERS; widget_index++)
+	{
+		struct widget_instance const *widget = widget_globals.active_widgets[widget_index];
+
+		if (widget && widget_tree_has_local_player(widget, controller_index))
+			return TRUE;
+	}
+	return FALSE;
+}
+
 /* port: with one person playing, any controller drives the first player's
 menus, not only the first port's: a phone can list a device of its own (its
 touch controls) before the gamepad, which then reads port 2, and a player
 picks up whichever pad is at hand. Its screens read every controller's
 events (ui_widgets_update), and take them (below). With two or more
-players, each controller keeps to its own player's menus */
+players, each controller keeps to its own player's menus, and a controller
+with a widget of its own on the screen (a quarter of the Xbox menus' SELECT
+PROFILE, still empty while one person plays) keeps to it: else its A joined
+the first player's quarter, as the first player */
 static boolean widget_takes_any_controller(
 	struct widget_instance const *widget)
 {
@@ -8447,11 +8489,21 @@ static boolean widget_takes_any_controller(
 		(we_are_at_the_main_menu || local_player_count() <= 1);
 }
 
-/* port: the controller whose events a screen reads (NONE: every one's) */
+/* port: the controller whose events a screen reads (NONE: every one's;
+only its own while another controller has a widget of its own) */
 static short widget_event_controller(
 	struct widget_instance const *widget)
 {
-	return widget_takes_any_controller(widget) ? NONE : widget->local_player_index;
+	short controller_index;
+
+	if (!widget_takes_any_controller(widget))
+		return widget->local_player_index;
+	for (controller_index = 1; controller_index < MAXIMUM_NUMBER_OF_LOCAL_PLAYERS; controller_index++)
+	{
+		if (controller_has_own_widget(controller_index))
+			return widget->local_player_index;
+	}
+	return NONE;
 }
 
 static boolean widget_takes_events_of_controller(
@@ -8463,7 +8515,8 @@ static boolean widget_takes_events_of_controller(
 	if (widget->local_player_index == NONE || widget->local_player_index == controller_index)
 		return TRUE;
 	if (widget->local_player_index == 0 && controller_index > 0 &&
-		controller_index < MAXIMUM_NUMBER_OF_LOCAL_PLAYERS && widget_takes_any_controller(widget))
+		controller_index < MAXIMUM_NUMBER_OF_LOCAL_PLAYERS && widget_takes_any_controller(widget) &&
+		!controller_has_own_widget(controller_index))
 	{
 		return TRUE;
 	}
