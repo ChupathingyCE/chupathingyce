@@ -35,6 +35,13 @@ run from a desktop's debug settings only */
 #define HALO_CONSOLE_NO_NETWORK_TEST
 #endif
 
+/* the tests' virtual gamepads (debug.test_gamepads, port/linux/src/
+xinput_sdl.c): SDL's virtual joysticks, run from a desktop's debug settings
+only */
+#ifndef HALO_CONSOLE_NO_TEST_GAMEPADS
+#define HALO_CONSOLE_NO_TEST_GAMEPADS
+#endif
+
 /* the high-res text and HUD (port/linux/src/text_hires.c,
 port/linux/game/hud_hires_tags.c): a console draws the maps' own fonts and
 bitmaps, as retail, without the atlas's texture memory */

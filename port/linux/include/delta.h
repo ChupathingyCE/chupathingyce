@@ -53,6 +53,24 @@ them (OpenCE's, released builds) leave and ignore them (delta_compat.h). */
 #define DELTA_ADVERTISED_RANGE_OFFSET (DELTA_ADVERTISED_WIRE_OFFSET + 1 + DELTA_ADVERTISED_WIRE_SIZE)
 #define DELTA_ADVERTISED_RANGE_SIZE 6
 #define DELTA_ADVERTISED_RANGE_VERSION 1
+/* ... and the Delta tag, the layout of the hosts to come (docs/delta.md):
+a tagged block at the TAIL of the 0x1A reserved bytes, clear of the bytes
+OpenCE writes from the front. 'D', 'L', the host's Delta major, the block's
+layout version (1), the host's own wire (number, letter), its oldest
+compatible wire (number, letter), and a check byte (0xA5 xor the eight
+before). A host of the tag sets no DELTA_ADVERTISED_FLAG, so a reader takes a
+valid tag first and the old layout above when there is none, through one
+helper (delta_compat.h), and finds the hosts of both. This build reads the
+tag; it still writes the old layout. */
+#define DELTA_ADVERTISED_RESERVED_SIZE 0x1A
+#define DELTA_ADVERTISED_TAG_SIZE 9
+#define DELTA_ADVERTISED_TAG_OFFSET (DELTA_ADVERTISED_RESERVED_SIZE - DELTA_ADVERTISED_TAG_SIZE)
+#define DELTA_ADVERTISED_TAG_FIRST 'D'
+#define DELTA_ADVERTISED_TAG_SECOND 'L'
+#define DELTA_ADVERTISED_TAG_VERSION 1
+/* (the port's flags byte in the reserved bytes, which holds
+DELTA_ADVERTISED_FLAG: HALO_PORT_ADVERTISED_FLAGS_OFFSET) */
+#define DELTA_ADVERTISED_FLAGS_OFFSET 2
 
 /* Delta Peer's UDP port: the game's server port (NETWORK_GAME_SERVER_PORT,
 5150) plus this, so 5160. A host listens there; a client sends from any
