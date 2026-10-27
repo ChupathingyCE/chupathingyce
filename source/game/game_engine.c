@@ -8583,6 +8583,17 @@ static void internal_rasterize_target_name(
 		}
 	}
 
+	/* port: the name stays on screen for a few ticks after the player
+	under the crosshair is gone, and in that time they can leave the game:
+	their index then names no player, and reading their name crashed (crash
+	reports from 0.8.0b to 0.8.0h, all platforms). The name is dropped. */
+	if (player->player_display_index != NONE &&
+		!player_try_and_get(player->player_display_index))
+	{
+		player->player_display_index = NONE;
+		player->player_display_count = 0;
+	}
+
 	if (player->player_display_index != NONE)
 	{
 		struct player_datum *target_player = player_get(player->player_display_index);
