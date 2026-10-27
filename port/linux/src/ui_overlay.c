@@ -28,6 +28,12 @@ are the controller's button icons (a texture array, a layer each).
 #include <stdlib.h>
 #include <string.h>
 
+/* the button icons' texture: on ES 2, with no texture arrays, one 2D texture
+with the icons one above the other (and no smaller levels: its size may not
+be a power of two) */
+#define ICONS_TARGET GL_TEXTURE_2D_ARRAY
+#define ICONS_BINDING GL_TEXTURE_BINDING_2D_ARRAY
+
 /* (xinput_sdl.c: the device the player last used: 0 keyboard, 1 Xbox-like,
 2 PlayStation, 3 Nintendo) */
 int platform_prompt_scheme(void);
@@ -820,7 +826,7 @@ static GLuint compile(GLenum type, const char *body)
 	const char *pointer = source;
 	GLint status = 0;
 
-#ifdef HALO_ANDROID
+#ifdef HALO_GL_ES
 	snprintf(source, sizeof(source), "#version %s\nprecision highp float;\nprecision highp sampler2DArray;\n%s",
 		xgpu_capabilities.shading_language, body);
 #elif defined(__APPLE__)
@@ -963,9 +969,9 @@ static int set_up(void)
 		int size = ui_prompt_icon_size, icon, texel;
 		unsigned char *pixels = malloc((size_t)size * size * 4 * NUMBER_OF_ICONS);
 
-		glGetIntegerv(GL_TEXTURE_BINDING_2D_ARRAY, &saved_array);
+		glGetIntegerv(ICONS_BINDING, &saved_array);
 		glGenTextures(1, &overlay.icons);
-		glBindTexture(GL_TEXTURE_2D_ARRAY, overlay.icons);
+		glBindTexture(ICONS_TARGET, overlay.icons);
 		if (pixels)
 		{
 			for (icon = 0; icon < NUMBER_OF_ICONS; icon++)
@@ -988,10 +994,10 @@ static int set_up(void)
 		free(pixels);
 		glGenerateMipmap(GL_TEXTURE_2D_ARRAY);
 		glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-		glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-		glBindTexture(GL_TEXTURE_2D_ARRAY, (GLuint)saved_array);
+		glTexParameteri(ICONS_TARGET, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glTexParameteri(ICONS_TARGET, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(ICONS_TARGET, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		glBindTexture(ICONS_TARGET, (GLuint)saved_array);
 	}
 	/* the picture's texture (filled when a picture is given) */
 	glGenTextures(1, &overlay.picture);
@@ -1452,10 +1458,10 @@ void ui_overlay_present(int x, int y, int width, int height, int window_width, i
 	glUseProgram(overlay.program);
 	glUniform2f(overlay.scale_location, 2.0f / (float)window_width, -2.0f / (float)window_height);
 	glActiveTexture(GL_TEXTURE1);
-	glGetIntegerv(GL_TEXTURE_BINDING_2D_ARRAY, &saved_icons);
+	glGetIntegerv(ICONS_BINDING, &saved_icons);
 	glGetIntegerv(GL_SAMPLER_BINDING, &saved_icons_sampler);
 	glBindSampler(1, 0);
-	glBindTexture(GL_TEXTURE_2D_ARRAY, overlay.icons);
+	glBindTexture(ICONS_TARGET, overlay.icons);
 	glUniform1i(overlay.icons_location, 1);
 	glActiveTexture(GL_TEXTURE2);
 	glGetIntegerv(GL_TEXTURE_BINDING_2D, &saved_picture);
@@ -1501,7 +1507,7 @@ void ui_overlay_present(int x, int y, int width, int height, int window_width, i
 	glBindTexture(GL_TEXTURE_2D, (GLuint)saved_picture);
 	glBindSampler(2, (GLuint)saved_picture_sampler);
 	glActiveTexture(GL_TEXTURE1);
-	glBindTexture(GL_TEXTURE_2D_ARRAY, (GLuint)saved_icons);
+	glBindTexture(ICONS_TARGET, (GLuint)saved_icons);
 	glBindSampler(1, (GLuint)saved_icons_sampler);
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, (GLuint)saved_texture);

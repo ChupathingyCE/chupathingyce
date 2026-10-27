@@ -36,6 +36,15 @@ typedef unsigned short wint_t;
 
 #include "../../../source/cseries/xbox_address.h"
 
+/* ---------- the renderer's OpenGL ES path
+
+OpenGL ES rather than desktop OpenGL (port/linux/src/d3d8_gl.c and the
+rest of the renderer): Android's ES 3 */
+
+#if defined(HALO_ANDROID) && !defined(HALO_GL_ES)
+#define HALO_GL_ES 1
+#endif
+
 /* ---------- XDK architecture selection (MSVC predefines these) */
 
 #define _X86_ 1
