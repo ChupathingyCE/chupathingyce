@@ -29,6 +29,13 @@ readlink's. */
 ssize_t halo_unix_readlink(const char *path, char *buffer, size_t size);
 #define readlink halo_unix_readlink
 
+/* ---------- /proc/self/cmdline
+
+The process's arguments (posix_net.c: posix_command_line_argument), from
+the kernel's own answer. 1 and the argument, or 0. */
+
+int halo_unix_command_line_argument(int index, char *buffer, unsigned long size);
+
 /* ---------- mmap
 
 The Xbox address space is asked for with a hint (port/linux/src/xbox_memory.c:

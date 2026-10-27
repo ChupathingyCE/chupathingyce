@@ -761,6 +761,9 @@ int posix_command_line_argument(int index, char *buffer, posix_ulong size)
 	(void)buffer;
 	(void)size;
 	return 0;
+#elif defined(HALO_UNIX_PLATFORM_NAME)
+	/* (the other Unix hosts': port/unix/src/unix_host.c) */
+	return halo_unix_command_line_argument(index, buffer, size);
 #else
 	char command_line[4096];
 	ssize_t length;
