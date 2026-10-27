@@ -1965,16 +1965,31 @@ void object_cause_damage(
 	return;
 }
 
+/* port: an explosion damages what is around it, each object it damages can
+make an effect of its own (its area damage effect, or its destruction's),
+and that effect's explosion damages what is around it in turn, all in one
+call: a chain of explosions nests as deep as it runs. On the Xbox it ran
+out where the effects did (256 at once); the native builds have room for
+many more effects (halo_port_capacity.h), and a long enough chain ran out
+of stack instead (crash reports from 0.8.0e and 0.8.0f). A chain stops
+where the Xbox's would have at the latest. */
+#define MAXIMUM_AREA_OF_EFFECT_NESTING 256
+
 void area_of_effect_cause_damage(
 	struct damage_data *damage,
 	long unused_object_index)
 {
+	static short area_of_effect_nesting = 0;
 	struct damage_effect_definition *definition =
 		damage_effect_definition_get(damage->definition_index);
 	/* the native builds damage more objects per explosion
 	(halo_port_capacity.h): 64 runs out in a crowd of 128 players */
 	long object_indices[HALO_PORT_MAXIMUM_AREA_OF_EFFECT_OBJECTS];
 	short object_count;
+
+	if (area_of_effect_nesting >= MAXIMUM_AREA_OF_EFFECT_NESTING)
+		return;
+	area_of_effect_nesting++;
 
 	object_count = objects_in_sphere(
 		0,
@@ -1998,6 +2013,7 @@ void area_of_effect_cause_damage(
 	}
 
 	breakable_surface_damage_area_of_effect(damage);
+	area_of_effect_nesting--;
 	return;
 }
 
