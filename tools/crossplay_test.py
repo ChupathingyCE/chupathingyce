@@ -659,7 +659,7 @@ def plan(args):
                 HALO_NET_BROADCAST=host_address, HALO_TEST_INPUT="bot:53"), None, HARD_LIMIT)]})
     if getattr(args, "server", None) and (not args.only or "server" in args.only):
         server_address, first, second = addresses(base + 20)
-        directions.append({"name": "server", "variants": ["slayer"], "server": True, "phase": 0, "copies": [
+        directions.append({"name": "server", "variants": [getattr(args, "server_gametype", "slayer")], "server": True, "phase": 0, "copies": [
             ("server/server-ours", "server", {"HALO_NET_ADDRESS": server_address,
                 "HALO_NET_BROADCAST": f"{first},{second}", "HALO_DEDICATED": "crossplay-playlist.txt",
                 "HALO_DEDICATED_MINIMUM_PLAYERS": "2", "HALO_DEDICATED_CONSOLE": "false"}, 0, SERVER_RUN_SECONDS),
@@ -693,7 +693,7 @@ def run(args):
                 args.ours_table, args.ce_maps)
             if kind == "server":
                 with open(os.path.join(copy.folder, "data", "crossplay-playlist.txt"), "w") as file:
-                    file.write(f"{args.map.replace('custom_maps' + chr(92), '')}{'@ce' if chr(92) in args.map else ''} slayer\n")
+                    file.write(f"{args.map.replace('custom_maps' + chr(92), '')}{'@ce' if chr(92) in args.map else ''} {args.server_gametype}\n")
             direction["live"].append({"copy": copy, "delay": delay, "until": until})
     started = time.time()
     # the cross-play directions (and the server) first, then the baselines:
@@ -866,6 +866,9 @@ def main():
     run_parser.add_argument("--ours", required=True, help="ChupathingyCE's game (a Linux build)")
     run_parser.add_argument("--theirs", required=True, help="OpenCE's game (a Linux build)")
     run_parser.add_argument("--server", help="ChupathingyCE's dedicated server, for the server step")
+    run_parser.add_argument("--server-gametype", default="slayer", choices=["slayer", "ctf"],
+                            help="the server's game (slayer): in CTF a Delta server also writes the old "
+                                 "advertisement layout for released clients (docs/delta.md, \"The transition\")")
     run_parser.add_argument("--ce-maps", help="a folder of Custom Edition maps (and bitmaps.map, sounds.map, loc.map), "
                             "as both builds' custom_maps; then --map custom_maps\\NAME plays one")
     run_parser.add_argument("--ours-table", help="a legacy table file for our copies (HALO_LEGACY_TABLE)")
