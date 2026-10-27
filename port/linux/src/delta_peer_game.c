@@ -128,6 +128,9 @@ static int local_platform(void)
 	const char *deck = getenv("SteamDeck");
 
 	return deck && deck[0] == '1' ? _delta_platform_steam_deck : _delta_platform_pc_linux;
+#elif defined(HALO_UNIX_DELTA_PLATFORM)
+	/* (the other Unix hosts': tools/unix64_build.py) */
+	return HALO_UNIX_DELTA_PLATFORM;
 #else
 	return _delta_platform_unknown;
 #endif
@@ -948,7 +951,7 @@ int delta_peer_game_client_state(void)
 
 static const char *const platform_names[NUMBER_OF_DELTA_PLATFORMS] = {
 	"unknown", "pc_windows", "pc_macos", "pc_linux", "android", "steam_deck", "xbox", "xbox360", "wiiu", "switch",
-	"psp", "vita", "xbox_uwp"
+	"psp", "vita", "xbox_uwp", "pc_freebsd"
 };
 
 const char *delta_peer_platform_name(int platform)

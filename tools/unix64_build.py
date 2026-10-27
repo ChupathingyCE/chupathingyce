@@ -60,6 +60,8 @@ class UnixHost:
     c_library_flags: List[str]
     # FFmpeg's --target-os
     ffmpeg_os: str
+    # the Delta platform of its builds (delta.h's enum delta_platform)
+    delta_platform: str
     # a compiler's target for this host, from what it says it targets, or ""
     triple_marker: str
     # the target when the compiler does not say
@@ -80,6 +82,7 @@ UNIX_HOSTS = {
         platform_name="FreeBSD",
         c_library_flags=["-D_C99_SOURCE"],
         ffmpeg_os="freebsd",
+        delta_platform="_delta_platform_pc_freebsd",
         triple_marker="freebsd",
         fallback_target="--target=x86_64-unknown-freebsd",
         drop_libraries=["dl"],
@@ -200,7 +203,8 @@ def generate_unix64_build(n: Writer, sln: Any) -> None:
         game_flags=lp64_game_flags([*host.c_library_flags, "-include", str(UNIX_PREFIX)]),
         # (the platform units')
         platform_flags=["-include", str(UNIX_PREFIX), "-include", str(UNIX_HOST_HEADER),
-                        f'-DHALO_UNIX_PLATFORM_NAME=\\"{host.platform_name}\\"'],
+                        f'-DHALO_UNIX_PLATFORM_NAME=\\"{host.platform_name}\\"',
+                        f"-DHALO_UNIX_DELTA_PLATFORM={host.delta_platform}"],
         posix_flags=[*UNIX_POSIX_FLAGS, "-include", str(UNIX_HOST_HEADER),
                      f'-DHALO_UNIX_PLATFORM_NAME=\\"{host.platform_name}\\"'],
         host_include=f"-idirafter {include_directory}",

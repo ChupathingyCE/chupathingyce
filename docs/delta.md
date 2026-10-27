@@ -203,8 +203,10 @@ The platform registry (`enum delta_platform`, one byte, never reused):
 0 unknown, 1 `pc_windows`, 2 `pc_macos`, 3 `pc_linux`, 4 `android`,
 5 `steam_deck` (Linux with Steam's `SteamDeck=1`), 6 `xbox`, 7 `xbox360`,
 8 `wiiu`, 9 `switch`, 10 `psp`, 11 `vita`, 12 `xbox_uwp` (the Xbox One and
-Series in developer mode). 10 to 12 are ports others build on ours; their
-policy rows are placeholders until those ports play, as the consoles' are.
+Series in developer mode), 13 `pc_freebsd` (the PC build for FreeBSD,
+[port/unix](../port/unix/README.md)). 10 to 12 are ports others build on ours;
+their policy rows are placeholders until those ports play, as the consoles'
+are. 13's is a PC's.
 
 The original Xbox, Xbox 360 and Wii U builds are Delta Peer clients
 (`HALO_CONSOLE_DELTA`). Each sends its own platform (6, 7 or 8) and a
@@ -221,7 +223,7 @@ defaults every machine's key starts from:
 
 | Platform | Hosts at most | Joins at most | Opted in | Memory | Co-op |
 | --- | --- | --- | --- | --- | --- |
-| PC (Windows, macOS, Linux) | 128 | 128 | 128 | 12 (4 GB) | yes |
+| PC (Windows, macOS, Linux, FreeBSD) | 128 | 128 | 128 | 12 (4 GB) | yes |
 | Steam Deck | 128 | 128 | 128 | 14 (16 GB) | yes |
 | Android | 128 | 128 | 128 | 11 (2 GB) | yes |
 | unknown | 128 | 128 | 128 | 0 | yes |
