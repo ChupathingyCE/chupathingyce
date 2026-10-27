@@ -694,7 +694,7 @@
     const url = link.code ? link.site + '/servers/link?code=' + encodeURIComponent(link.code) : '';
     const states = {
       off: 'Not linked. Linking lets you manage this server, and give people roles here, from your profile on the Chupathingy site.',
-      linking: link.code ? 'Linking: the code is ' + link.code + '.' : 'Linking: asking the site for a code...',
+      linking: link.code ? 'Linking: the code is ' + link.code + '.' : 'Linking: the owner is finishing it on the site.',
       linked: 'Linked to ' + link.owner + '\'s account (site roles at most ' + link.role_cap + ').',
     };
     $('link-state').textContent = link.enabled ? (states[link.state] || '') + (link.problem ? ' ' + link.problem : '')

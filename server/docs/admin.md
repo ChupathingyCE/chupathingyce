@@ -297,7 +297,12 @@ writable by that user.
   someone guessing cannot lock you out.
 - Every request is read whole, within limits, before anything is done
   with it: 8 KB of request line and headers, 4 KB of body, 32 headers, one
-  request a connection, 10 seconds to send it, 16 connections at once.
+  request a connection, 3 seconds to begin it and 10 to send it, 16
+  connections at once and 8 from one address (this machine's and a trusted
+  proxy's aside); with every one taken, the one that has waited longest
+  for its request is let go for the new one.
+- Commands: each needs its permission, from a table that lists every
+  command; one not in it is the console's alone.
   Anything that is not plainly a request the API takes is refused:
   `Transfer-Encoding`, `Expect`, repeated headers, bare line ends, control
   characters, escapes in paths, bodies on a GET, more than the
@@ -367,6 +372,13 @@ location / {
     proxy_set_header X-Forwarded-For $remote_addr;
 }
 ```
+
+The proxy's address in `HALO_DEDICATED_CONTROL_TRUSTED_PROXY`
+(`127.0.0.1`, or several, comma separated) lets the server take the
+client's address from `X-Forwarded-For` (its last address, the one the
+proxy adds), so wrong logins are counted for each client and someone
+guessing does not lock everyone out. Without it, every request counts as
+the proxy's; never name an address that is not your proxy's.
 
 If the page is reached straight over the network, with no reverse proxy's
 headers, from somewhere other than the server itself, the server warns of

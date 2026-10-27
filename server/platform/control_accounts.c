@@ -501,34 +501,103 @@ int control_totp_uri(const uint8_t secret[CONTROL_TOTP_SECRET_BYTES], const char
 
 /* ---------- one account's wrong passwords */
 
-int control_backoff_allowed(const struct control_account_backoff *backoff, int64_t now, int64_t *retry_after)
+static int backoff_find(const struct control_account_backoff *backoff, const uint8_t source[16])
 {
-	if (backoff->locked_until > now)
+	int index;
+
+	for (index = 0; index < CONTROL_BACKOFF_SOURCES; index++)
+	{
+		if (backoff->sources[index].used && !memcmp(backoff->sources[index].source, source, 16))
+			return index;
+	}
+	return -1;
+}
+
+int control_backoff_allowed(const struct control_account_backoff *backoff, const uint8_t source[16], int64_t now,
+	int64_t *retry_after)
+{
+	int index = backoff_find(backoff, source);
+
+	if (index >= 0 && backoff->sources[index].locked_until > now)
 	{
 		if (retry_after)
-			*retry_after = backoff->locked_until - now;
+			*retry_after = backoff->sources[index].locked_until - now;
 		return 0;
 	}
 	return 1;
 }
 
-void control_backoff_failed(struct control_account_backoff *backoff, int64_t now)
+void control_backoff_failed(struct control_account_backoff *backoff, const uint8_t source[16], int64_t now)
 {
-	if (++backoff->failures >= CONTROL_ACCOUNT_FAILURES)
+	int index = backoff_find(backoff, source);
+
+	if (index < 0)
 	{
-		int extra = backoff->failures - CONTROL_ACCOUNT_FAILURES;
+		int candidate;
+
+		/* (a free slot, else the one quiet longest that is not locked, else
+		the one quiet longest) */
+		for (candidate = 0; candidate < CONTROL_BACKOFF_SOURCES; candidate++)
+		{
+			const int unlocked = backoff->sources[candidate].locked_until <= now;
+
+			if (!backoff->sources[candidate].used)
+			{
+				index = candidate;
+				break;
+			}
+			if (index < 0 || (unlocked && backoff->sources[index].locked_until > now) ||
+				(unlocked == (backoff->sources[index].locked_until <= now) &&
+				backoff->sources[candidate].last_failure < backoff->sources[index].last_failure))
+			{
+				index = candidate;
+			}
+		}
+		memset(&backoff->sources[index], 0, sizeof(backoff->sources[index]));
+		backoff->sources[index].used = 1;
+		memcpy(backoff->sources[index].source, source, 16);
+	}
+	/* (failures forgotten after a quiet while, once any lock is over) */
+	if (backoff->sources[index].locked_until <= now &&
+		now - backoff->sources[index].last_failure >= CONTROL_ACCOUNT_DECAY_SECONDS)
+	{
+		backoff->sources[index].failures = 0;
+	}
+	backoff->sources[index].last_failure = now;
+	if (++backoff->sources[index].failures >= CONTROL_ACCOUNT_FAILURES)
+	{
+		int extra = backoff->sources[index].failures - CONTROL_ACCOUNT_FAILURES;
 		int64_t seconds = CONTROL_ACCOUNT_LOCK_SECONDS;
 
 		while (extra-- > 0 && seconds < CONTROL_ACCOUNT_LOCK_MAXIMUM)
 			seconds *= 2;
 		if (seconds > CONTROL_ACCOUNT_LOCK_MAXIMUM)
 			seconds = CONTROL_ACCOUNT_LOCK_MAXIMUM;
-		backoff->locked_until = now + seconds;
+		backoff->sources[index].locked_until = now + seconds;
 	}
 }
 
-void control_backoff_succeeded(struct control_account_backoff *backoff)
+void control_backoff_succeeded(struct control_account_backoff *backoff, const uint8_t source[16])
 {
-	backoff->failures = 0;
-	backoff->locked_until = 0;
+	int index = backoff_find(backoff, source);
+
+	if (index >= 0)
+		memset(&backoff->sources[index], 0, sizeof(backoff->sources[index]));
+}
+
+void control_backoff_clear(struct control_account_backoff *backoff)
+{
+	memset(backoff, 0, sizeof(*backoff));
+}
+
+int control_backoff_locked(const struct control_account_backoff *backoff, int64_t now)
+{
+	int index;
+
+	for (index = 0; index < CONTROL_BACKOFF_SOURCES; index++)
+	{
+		if (backoff->sources[index].used && backoff->sources[index].locked_until > now)
+			return 1;
+	}
+	return 0;
 }
