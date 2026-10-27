@@ -45,6 +45,12 @@ the kernel's own answer. 1 and the argument, or 0. */
 
 int halo_unix_command_line_argument(int index, char *buffer, unsigned long size);
 
+/* ---------- /proc/self/statm
+
+The process's resident memory in KB (event_upload.c), or -1. */
+
+int halo_unix_resident_kb(void);
+
 /* ---------- mmap
 
 The Xbox address space is asked for with a hint (port/linux/src/xbox_memory.c:

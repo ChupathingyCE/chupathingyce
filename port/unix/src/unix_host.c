@@ -10,7 +10,9 @@ units (tools/unix64_build.py: host_sources).
 #include <sys/types.h>
 #include <unistd.h>
 #ifdef __FreeBSD__
+#include <sys/param.h>
 #include <sys/sysctl.h>
+#include <sys/user.h>
 #endif
 
 #include "../include/halo_unix_host.h"
@@ -43,6 +45,21 @@ int halo_unix_command_line_argument(int index, char *buffer, unsigned long size)
 	(void)buffer;
 	(void)size;
 	return 0;
+#endif
+}
+
+int halo_unix_resident_kb(void)
+{
+#ifdef __FreeBSD__
+	int name[4] = { CTL_KERN, KERN_PROC, KERN_PROC_PID, (int)getpid() };
+	struct kinfo_proc process;
+	size_t length = sizeof(process);
+
+	if (sysctl(name, 4, &process, &length, NULL, 0) != 0 || length != sizeof(process))
+		return -1;
+	return (int)((long)process.ki_rssize * sysconf(_SC_PAGESIZE) / 1024);
+#else
+	return -1;
 #endif
 }
 
