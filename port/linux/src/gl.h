@@ -515,4 +515,10 @@ int gl_functions_load(void);
 (d3d8_gl.c's console_gl_draw_again); NULL where there is none */
 void *gl_function_extra(const char *name);
 
+#ifdef HALO_CONSOLE_GLES2
+/* the port's: with the driver's ES 2 entry points loaded, fills in (or
+replaces) the ES 3 ones the renderer uses; FALSE if it cannot */
+int console_gles2_layer(void);
+#endif
+
 #endif

@@ -34,6 +34,25 @@ int gl_functions_load(void)
 		!strcmp(#name, "glVertexAttribIFormat") || !strcmp(#name, "glVertexAttribBinding") || \
 		!strcmp(#name, "glBindVertexBuffer") || !strcmp(#name, "glGetQueryBufferObjectuiv") || \
 		!strcmp(#name, "glBindTextures"))
+#ifdef HALO_CONSOLE_GLES2
+	/* ES 2: what the driver has, then the port's layer fills in the ES 3
+	the renderer uses (console_gles2_layer), and only then is anything
+	missing a failure */
+#define GL_LOAD_FUNCTION(name) \
+	halo_##name = (__typeof__(halo_##name))SDL_GL_GetProcAddress(#name);
+	GL_FUNCTIONS(GL_LOAD_FUNCTION)
+#undef GL_LOAD_FUNCTION
+	if (!console_gles2_layer())
+		success = FALSE;
+#define GL_CHECK_FUNCTION(name) \
+	if (!halo_##name && !GL_OPTIONAL_FUNCTION(name)) \
+	{ \
+		platform_log("OpenGL function %s is unavailable", #name); \
+		success = FALSE; \
+	}
+	GL_FUNCTIONS(GL_CHECK_FUNCTION)
+#undef GL_CHECK_FUNCTION
+#else
 #define GL_LOAD_FUNCTION(name) \
 	halo_##name = (__typeof__(halo_##name))SDL_GL_GetProcAddress(#name); \
 	if (!halo_##name && !GL_OPTIONAL_FUNCTION(name)) \
@@ -43,6 +62,7 @@ int gl_functions_load(void)
 	}
 	GL_FUNCTIONS(GL_LOAD_FUNCTION)
 #undef GL_LOAD_FUNCTION
+#endif
 #ifdef HALO_GL_ES
 	/* a missing one is no failure: the renderer uses each only where the
 	context lists its extension (gl_initialize, d3d8_gl.c) */
