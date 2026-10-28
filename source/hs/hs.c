@@ -3639,9 +3639,13 @@ static boolean hs_syntax_node_linked_twice(
 static short hs_syntax_node_refusal(
 	struct hs_syntax_node const *expression,
 	char const **name);
+struct hs_skipped_nodes;
 static short hs_expression_refusal(
 	long root_expression_index,
-	char const **name);
+	char const **name,
+	struct hs_skipped_nodes *skipped,
+	char const *owner,
+	char const *kind);
 static void hs_scenario_functions_check(
 	struct scenario *scenario);
 static boolean hs_rebuild_source(
@@ -3683,6 +3687,22 @@ enum
 	_hs_node_refusal_downloaded_global,
 };
 
+/* port: a refusal for what a map may not do, not for a damaged node: the
+call or set is skipped and its script runs (hs_scenario_functions_check) */
+#define HS_NODE_REFUSAL_SKIPPABLE(refusal) \
+	((refusal)==_hs_node_refusal_function || (refusal)==_hs_node_refusal_global || \
+	(refusal)==_hs_node_refusal_downloaded_function || (refusal)==_hs_node_refusal_downloaded_global)
+
+/* port: the first call or set skipped (hs_expression_refusal), for the log */
+struct hs_skipped_nodes
+{
+	short count;
+	short first_refusal;
+	char const *first_name;
+	char const *first_owner;
+	char const *first_kind;
+};
+
 /* ---------- globals */
 
 static short hs_enumeration_result_count = 0;
@@ -3695,6 +3715,9 @@ static boolean hs_syntax_data_allocated = FALSE;
 maps may not (hs_scenario_functions_check) */
 static unsigned long hs_scenario_disabled_scripts[BIT_VECTOR_SIZE_IN_LONGS(MAXIMUM_HS_SCRIPTS_PER_SCENARIO)];
 static unsigned long hs_scenario_disabled_globals[BIT_VECTOR_SIZE_IN_LONGS(MAXIMUM_HS_GLOBALS)];
+/* port: the map's calls and sets a map's scripts may not make, skipped where
+they are while the rest of their scripts runs (hs_scenario_functions_check) */
+static unsigned long hs_scenario_skipped_nodes[BIT_VECTOR_SIZE_IN_LONGS(MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO)];
 /* port: the nodes linked to, then walked (hs_scenario_functions_check) */
 static unsigned long hs_syntax_nodes_marked[BIT_VECTOR_SIZE_IN_LONGS(MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO)];
 #define hs_token_enumerators hs_function_table.token_enumerators
@@ -13384,9 +13407,11 @@ download brought, or game.downloaded_maps names) may not call or set, on top
 of what no map's may (hs_function_allowed_in_maps,
 hs_external_global_settable_by_maps): what changes the player's settings
 (their profile's), other players' games (ending a game for everyone, the
-HUD text every player sees), and the globals that outlive the map (they
-keep their values into the maps played after it, a host's other players'
-among them) */
+HUD text every player sees), a cheat (deathless players), and the camera's
+clip distances (what the player sees of the world, kept into the maps
+played after it). The gameplay settings Halo PC lets a map set for its own
+games, rider_ejection and stun_enable, it may set: they are put back as
+they were when the map is unloaded (hs_downloaded_map_settings_restore) */
 static char const *const hs_functions_denied_to_downloaded_maps[]=
 {
 	"player0_look_invert_pitch",
@@ -13398,8 +13423,6 @@ static char const *const hs_functions_denied_to_downloaded_maps[]=
 static char const *const hs_globals_denied_to_downloaded_maps[]=
 {
 	"cheat_deathless_player",
-	"rider_ejection",
-	"stun_enable",
 	"rasterizer_near_clip_distance",
 	"rasterizer_far_clip_distance",
 	"rasterizer_first_person_weapon_near_clip_distance",
@@ -13410,6 +13433,42 @@ static char const *const hs_globals_denied_to_downloaded_maps[]=
 /* port: whether the map whose scripts are checked is a downloaded one
 (hs_scenario_functions_check) */
 static boolean hs_scenario_downloaded = FALSE;
+
+#ifdef HALO_CUSTOM_EDITION
+/* port: the gameplay settings a downloaded map may set, as they were before
+it was loaded: put back when it is unloaded, so the maps played after it play
+as they would have (hs_globals_denied_to_downloaded_maps) */
+extern boolean rider_ejection;
+extern boolean stun_enable;
+static struct
+{
+	boolean saved;
+	boolean rider_ejection;
+	boolean stun_enable;
+} hs_downloaded_map_settings;
+
+static void hs_downloaded_map_settings_save(
+	void)
+{
+	hs_downloaded_map_settings.saved = TRUE;
+	hs_downloaded_map_settings.rider_ejection = rider_ejection;
+	hs_downloaded_map_settings.stun_enable = stun_enable;
+
+	return;
+}
+
+static void hs_downloaded_map_settings_restore(
+	void)
+{
+	if (!hs_downloaded_map_settings.saved)
+		return;
+	hs_downloaded_map_settings.saved = FALSE;
+	rider_ejection = hs_downloaded_map_settings.rider_ejection;
+	stun_enable = hs_downloaded_map_settings.stun_enable;
+
+	return;
+}
+#endif
 
 /* port: whether the map whose scripts are checked is a known map pack's own
 ui.map, played with game.pack_menus (port/linux/game/map_packs.c): its menus
@@ -13593,13 +13652,18 @@ static boolean hs_root_type_valid(
 
 /* port: why the map's expression may not run (hs_syntax_node_refusal; a node
 it links to twice, or a loop, is damaged), and the function or global it
-names. Each node is walked once, so the stack holds no more than the nodes
+names. A call or set a map may not make doesn't stop it: that node is marked
+skipped (hs_scenario_node_skipped) and its arguments, which never run, aren't
+walked. Each node is walked once, so the stack holds no more than the nodes
 there are */
 static long *hs_expression_refusal_stack = NULL;
 
 static short hs_expression_refusal(
 	long root_expression_index,
-	char const **name)
+	char const **name,
+	struct hs_skipped_nodes *skipped,
+	char const *owner,
+	char const *kind)
 {
 	long stack_count = 0;
 	long *stack = hs_expression_refusal_stack;
@@ -13618,13 +13682,27 @@ static short hs_expression_refusal(
 	stack[stack_count++] = root_expression_index;
 	while (stack_count>0)
 	{
-		struct hs_syntax_node const *expression = hs_syntax_try_get(stack[--stack_count]);
+		long expression_index = stack[--stack_count];
+		struct hs_syntax_node const *expression = hs_syntax_try_get(expression_index);
 		long child_index;
 		short refusal;
 
 		if (!expression)
 			continue;
 		refusal = hs_syntax_node_refusal(expression, name);
+		if (HS_NODE_REFUSAL_SKIPPABLE(refusal))
+		{
+			BIT_VECTOR_SET_FLAG(hs_scenario_skipped_nodes, DATUM_INDEX_TO_ABSOLUTE_INDEX(expression_index), TRUE);
+			if (!skipped->count++)
+			{
+				skipped->first_refusal = refusal;
+				skipped->first_name = *name;
+				skipped->first_owner = owner;
+				skipped->first_kind = kind;
+			}
+			*name = NULL;
+			continue;
+		}
 		if (refusal != _hs_node_refusal_none)
 			return refusal;
 		if (TEST_FLAG(expression->flags, _hs_syntax_node_primitive_bit))
@@ -13655,9 +13733,44 @@ static short hs_expression_refusal(
 	return _hs_node_refusal_none;
 }
 
-/* port: a map's script that may not run (hs_syntax_node_refusal: one that
-calls a function a map may not, sets an external global it may not, or
-holds a node the runtime would go wrong on) doesn't: a startup, dormant or
+/* port: why a map's script node may not run, for the log
+(hs_scenario_functions_check) */
+static void hs_node_refusal_reason(
+	char reason[128],
+	short refusal,
+	char const *name)
+{
+	switch (refusal)
+	{
+	case _hs_node_refusal_function:
+		csprintf(reason, "calls %s, which a map's scripts may not", name);
+		break;
+	case _hs_node_refusal_global:
+		csprintf(reason, "sets %s, which a map's scripts may not", name);
+		break;
+	case _hs_node_refusal_downloaded_function:
+		csprintf(reason, "calls %s, which a downloaded map's scripts may not", name);
+		break;
+	case _hs_node_refusal_downloaded_global:
+		csprintf(reason, "sets %s, which a downloaded map's scripts may not", name);
+		break;
+	case _hs_node_refusal_arguments:
+		csprintf(reason, "calls %s with arguments it doesn't take", name);
+		break;
+	default:
+		csprintf(reason, "has a damaged script node");
+		break;
+	}
+
+	return;
+}
+
+/* port: a map's call of a function a map may not call, or set of an
+external global it may not set, is skipped where it is: it returns its type's
+default, its arguments unevaluated, and the rest of its script runs, as the
+map's own scripts on Halo PC go on past it (hs_scenario_node_skipped). A
+map's script that holds a node the runtime would go wrong on
+(hs_syntax_node_refusal) doesn't run: a startup, dormant or
 continuous script gets no thread, and a static one returns its type's
 default (hs_runtime.c). A global whose initializer may not run starts at its
 type's default. Every node is looked at once first; the shipped maps' are
@@ -13679,13 +13792,21 @@ static void hs_scenario_functions_check(
 	char const *first_kind = NULL;
 	short disabled_script_count = 0;
 	short disabled_global_count = 0;
+	struct hs_skipped_nodes skipped;
 	char reason[128];
+
+	csmemset(&skipped, 0, sizeof(skipped));
+	csmemset(hs_scenario_skipped_nodes, 0, sizeof(hs_scenario_skipped_nodes));
 
 #ifdef HALO_CUSTOM_EDITION
 	/* (a downloaded map's are held to tighter rules: halo_map_families.h) */
 	hs_scenario_downloaded = map_is_downloaded(cache_file_loaded_map_name());
 	if (hs_scenario_downloaded)
+	{
 		error(_error_silent, "%s is a downloaded map: its scripts may call and set less", cache_file_loaded_map_name());
+		hs_downloaded_map_settings_restore();
+		hs_downloaded_map_settings_save();
+	}
 #endif
 #ifdef HALO_MAP_LIST
 	{
@@ -13747,7 +13868,7 @@ static void hs_scenario_functions_check(
 			script_index,
 			struct hs_script);
 
-		refusal = hs_expression_refusal(script->root_expression_index, &name);
+		refusal = hs_expression_refusal(script->root_expression_index, &name, &skipped, script->name, "script");
 		if (refusal == _hs_node_refusal_none && !hs_root_type_valid(script->root_expression_index, script->return_type))
 		{
 			name = NULL;
@@ -13773,7 +13894,8 @@ static void hs_scenario_functions_check(
 			global_index,
 			struct hs_global);
 
-		refusal = hs_expression_refusal(global->initialization_expression_index, &name);
+		refusal = hs_expression_refusal(global->initialization_expression_index, &name, &skipped, global->name,
+			"global");
 		if (refusal == _hs_node_refusal_none && !hs_root_type_valid(global->initialization_expression_index, global->type))
 		{
 			name = NULL;
@@ -13793,29 +13915,18 @@ static void hs_scenario_functions_check(
 		}
 	}
 
+	if (skipped.count)
+	{
+		hs_node_refusal_reason(reason, skipped.first_refusal, skipped.first_name);
+		error(_error_silent, "the map's %s %.32s %s; skipped there, %d calls and sets skipped in all",
+			skipped.first_kind,
+			skipped.first_owner,
+			reason,
+			skipped.count);
+	}
 	if (first_owner)
 	{
-		switch (first_refusal)
-		{
-		case _hs_node_refusal_function:
-			csprintf(reason, "calls %s, which a map's scripts may not", first_name);
-			break;
-		case _hs_node_refusal_global:
-			csprintf(reason, "sets %s, which a map's scripts may not", first_name);
-			break;
-		case _hs_node_refusal_downloaded_function:
-			csprintf(reason, "calls %s, which a downloaded map's scripts may not", first_name);
-			break;
-		case _hs_node_refusal_downloaded_global:
-			csprintf(reason, "sets %s, which a downloaded map's scripts may not", first_name);
-			break;
-		case _hs_node_refusal_arguments:
-			csprintf(reason, "calls %s with arguments it doesn't take", first_name);
-			break;
-		default:
-			csprintf(reason, "has a damaged script node");
-			break;
-		}
+		hs_node_refusal_reason(reason, first_refusal, first_name);
 		error(_error_silent, "the map's %s %.32s %s; %d scripts won't run, %d globals start at their defaults",
 			first_kind,
 			first_owner,
@@ -13847,6 +13958,25 @@ boolean hs_scenario_global_initializer_disabled(
 	return global_index>=0 &&
 		global_index<MAXIMUM_HS_GLOBALS &&
 		BIT_VECTOR_TEST_FLAG(hs_scenario_disabled_globals, global_index);
+}
+
+boolean hs_scenario_node_skipped(
+	long expression_index)
+{
+	long absolute_index = DATUM_INDEX_TO_ABSOLUTE_INDEX(expression_index);
+	struct hs_syntax_node const *expression;
+
+	if (expression_index == NONE ||
+		absolute_index<0 ||
+		absolute_index>=MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO ||
+		!BIT_VECTOR_TEST_FLAG(hs_scenario_skipped_nodes, absolute_index))
+	{
+		return FALSE;
+	}
+	/* (only the map's own nodes are marked; the console's are its own) */
+	expression = hs_syntax_try_get(expression_index);
+
+	return expression && TEST_FLAG(expression->flags, _hs_syntax_node_permanent_bit);
 }
 
 static void hs_allocate(
@@ -14214,9 +14344,13 @@ void hs_dispose_from_old_map(
 	}
 	/* port: the old map's disabled scripts and globals are not the next's
 	(whose scripts may not be postprocessed: hs_scenario_postprocess clears
-	them only then) */
+	them only then), nor are its skipped calls and sets */
 	csmemset(hs_scenario_disabled_scripts, 0, sizeof(hs_scenario_disabled_scripts));
 	csmemset(hs_scenario_disabled_globals, 0, sizeof(hs_scenario_disabled_globals));
+	csmemset(hs_scenario_skipped_nodes, 0, sizeof(hs_scenario_skipped_nodes));
+#ifdef HALO_CUSTOM_EDITION
+	hs_downloaded_map_settings_restore();
+#endif
 	hs_runtime_dispose_from_old_map();
 	object_lists_dispose_from_old_map();
 	return;
@@ -15810,6 +15944,7 @@ boolean hs_scenario_postprocess(
 	/* port: the last map's are let go of (hs_scenario_functions_check) */
 	csmemset(hs_scenario_disabled_scripts, 0, sizeof(hs_scenario_disabled_scripts));
 	csmemset(hs_scenario_disabled_globals, 0, sizeof(hs_scenario_disabled_globals));
+	csmemset(hs_scenario_skipped_nodes, 0, sizeof(hs_scenario_skipped_nodes));
 	hs_allocate();
 	/* port: script data that isn't sound isn't gone through (hs_allocate
 	has an empty array stand in for it, and the map runs no scripts) */

@@ -99,15 +99,19 @@ enum
 	BITMAP_GROUP_BITMAPS_OFFSET = 0x60,
 	/* a bitmap (bitmap_group.h's bitmap_data): its format and flags; MCC's
 	high-quality compression (BC7), DXT5 and the compressed flag
-	(bitmaps.h); the port's mark of a BC7 bitmap made DXT5's format, a flag
-	none of Halo's tools set */
+	(bitmaps.h); the port's mark of a BC7 bitmap made DXT5's format, kept in
+	its mipmap pad, which nothing reads, so bitmap_verify still sees Halo's
+	own flags only; a high flag no Halo tool sets, cleared from every bitmap
+	as before */
 	BITMAP_DATA_SIZE = 0x30,
 	BITMAP_DATA_FORMAT_OFFSET = 0x0c,
 	BITMAP_DATA_FLAGS_OFFSET = 0x0e,
+	BITMAP_DATA_MIPMAP_PAD_OFFSET = 0x16,
 	BITMAP_FORMAT_DXT5 = 16,
 	BITMAP_FORMAT_BC7 = 18,
 	BITMAP_COMPRESSED_FLAG = 0x02,
-	BITMAP_PORT_BC7_FLAG = 0x8000,
+	BITMAP_PORT_BC7_MARK = 0x4337,
+	BITMAP_STRAY_HIGH_FLAG = 0x8000,
 
 	/* a model's shaders (model_definitions.h): each a tag reference and
 	a permutation */
@@ -521,21 +525,25 @@ static void ce_bitmaps_repair(
 	for (index = 0; index < count; index++)
 	{
 		byte *bitmap = bitmaps + index * BITMAP_DATA_SIZE;
-		short format;
+		short format, mark;
 		unsigned short flags;
 
 		memcpy(&format, bitmap + BITMAP_DATA_FORMAT_OFFSET, sizeof(format));
 		memcpy(&flags, bitmap + BITMAP_DATA_FLAGS_OFFSET, sizeof(flags));
+		memcpy(&mark, bitmap + BITMAP_DATA_MIPMAP_PAD_OFFSET, sizeof(mark));
+		flags &= (unsigned short)~BITMAP_STRAY_HIGH_FLAG;
 		if (format == BITMAP_FORMAT_BC7)
 		{
 			format = BITMAP_FORMAT_DXT5;
-			flags |= BITMAP_COMPRESSED_FLAG | BITMAP_PORT_BC7_FLAG;
+			flags |= BITMAP_COMPRESSED_FLAG;
+			mark = BITMAP_PORT_BC7_MARK;
 			counts->bc7_bitmaps++;
 		}
-		else
-			flags &= (unsigned short)~BITMAP_PORT_BC7_FLAG;
+		else if (mark == BITMAP_PORT_BC7_MARK)
+			mark = 0;
 		memcpy(bitmap + BITMAP_DATA_FORMAT_OFFSET, &format, sizeof(format));
 		memcpy(bitmap + BITMAP_DATA_FLAGS_OFFSET, &flags, sizeof(flags));
+		memcpy(bitmap + BITMAP_DATA_MIPMAP_PAD_OFFSET, &mark, sizeof(mark));
 	}
 }
 
@@ -643,12 +651,11 @@ tags) is one of MCC's BC7 bitmaps, made DXT5's format: its blocks are BC7's
 boolean ce_bitmap_is_bc7(
 	void const *bitmap)
 {
-	unsigned short flags;
-	short format;
+	short format, mark;
 
 	memcpy(&format, (byte const *)bitmap + BITMAP_DATA_FORMAT_OFFSET, sizeof(format));
-	memcpy(&flags, (byte const *)bitmap + BITMAP_DATA_FLAGS_OFFSET, sizeof(flags));
-	return format == BITMAP_FORMAT_DXT5 && (flags & BITMAP_PORT_BC7_FLAG);
+	memcpy(&mark, (byte const *)bitmap + BITMAP_DATA_MIPMAP_PAD_OFFSET, sizeof(mark));
+	return format == BITMAP_FORMAT_DXT5 && mark == BITMAP_PORT_BC7_MARK;
 }
 
 /* the map's tags loaded (cache_files.c), its resource maps' tags copied in:
