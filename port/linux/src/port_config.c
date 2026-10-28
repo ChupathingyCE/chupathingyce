@@ -236,49 +236,6 @@ static const struct config_setting config_settings[] =
 		_platform_android,
 		"Make the GPU fault on purpose at the 1200th frame, to see gpu_trace's record.\n"
 		"Takes effect the next start." },
-#ifdef HALO_SWITCH_CONSOLE
-	{ "display.particle_limit", _config_integer, "2048", "HALO_PARTICLE_LIMIT", _environment_value, _platform_all,
-#else
-	{ "display.particle_limit", _config_integer, "4096", "HALO_PARTICLE_LIMIT", _environment_value, _platform_all,
-#endif
-		"The most particles (sparks, smoke, casings, debris) alive at once; past\n"
-		"it the oldest goes to make room for each new one. The Xbox's limit was\n"
-		"1024. 0 for the port's own 8192 (a 64-player firefight fills them, and\n"
-		"every one costs the processor and the GPU: 2048 on the Switch, 4096\n"
-		"elsewhere). Changes at once." },
-#ifdef HALO_CONSOLE_PARTICLE_TICKS
-	{ "display.particle_ticks", _config_boolean, "true", "HALO_PARTICLE_TICKS", _environment_value, _platform_all,
-#else
-	{ "display.particle_ticks", _config_boolean, "false", "HALO_PARTICLE_TICKS", _environment_value, _platform_all,
-#endif
-		"Move the particles that are not attached to an object (sparks, casings,\n"
-		"debris) once a 30 Hz tick, as on the Xbox, and draw them between their\n"
-		"ticks: two in three of their collision tests spared at 60 frames a\n"
-		"second, more at 120. false moves them at every frame drawn, smooth at\n"
-		"high refresh rates: the desktop's default; the consoles' is true.\n"
-		"Takes effect at the next map." },
-#ifdef HALO_CONSOLE_LIGHT_LIMITS
-	{ "display.dynamic_light_limit", _config_integer, "8", "HALO_DYNAMIC_LIGHT_LIMIT", _environment_value, _platform_all,
-#else
-	{ "display.dynamic_light_limit", _config_integer, "0", "HALO_DYNAMIC_LIGHT_LIMIT", _environment_value, _platform_all,
-#endif
-		"The most dynamic lights (muzzle flashes, plasma, explosions) that light\n"
-		"the level at once: the biggest on the screen keep their light on the\n"
-		"walls and floor, the rest light only the objects near them. 0 for no\n"
-		"limit, as on the Xbox (each redraws the level it reaches twice: a\n"
-		"firefight of many is the most of a busy frame's GPU time): the\n"
-		"desktop's default; the consoles' is 8. Changes at once." },
-#ifdef HALO_CONSOLE_LIGHT_LIMITS
-	{ "display.specular_light_limit", _config_integer, "2", "HALO_SPECULAR_LIGHT_LIMIT", _environment_value, _platform_all,
-#else
-	{ "display.specular_light_limit", _config_integer, "0", "HALO_SPECULAR_LIGHT_LIMIT", _environment_value, _platform_all,
-#endif
-		"Of those, the most that add their specular highlights (the shine on\n"
-		"metal and wet floors): the biggest on the screen, the first-person\n"
-		"weapon's first. The others still light the level, without the shine.\n"
-		"0 for no limit, as on the Xbox (a near light's highlights cover most\n"
-		"of the screen: the costliest pass of a firefight): the desktop's\n"
-		"default; the consoles' is 2. Changes at once." },
 	{ "debug.gpu_profile", _config_boolean, "false", "HALO_GPU_PROFILE", _environment_set_is_true, _platform_android,
 		"Every 300 frames, log the GPU's time by part of the frame (the sky, the\n"
 		"objects, the fog...) and what a frame asks of it. Takes effect the next start." },
@@ -327,6 +284,51 @@ static const struct config_setting config_settings[] =
 		"A folder to write each shader the game draws with to, as GLSL named by its\n"
 		"hash (the names gpu_capture logs); the folder must exist. Empty for none." },
 #endif
+	/* (every build's, after the Switch's rows above: inside them, the desktop,
+	server and Android builds had none of these four) */
+#ifdef HALO_SWITCH_CONSOLE
+	{ "display.particle_limit", _config_integer, "2048", "HALO_PARTICLE_LIMIT", _environment_value, _platform_all,
+#else
+	{ "display.particle_limit", _config_integer, "4096", "HALO_PARTICLE_LIMIT", _environment_value, _platform_all,
+#endif
+		"The most particles (sparks, smoke, casings, debris) alive at once; past\n"
+		"it the oldest goes to make room for each new one. The Xbox's limit was\n"
+		"1024. 0 for the port's own 8192 (a 64-player firefight fills them, and\n"
+		"every one costs the processor and the GPU: 2048 on the Switch, 4096\n"
+		"elsewhere). Changes at once." },
+#ifdef HALO_CONSOLE_PARTICLE_TICKS
+	{ "display.particle_ticks", _config_boolean, "true", "HALO_PARTICLE_TICKS", _environment_value, _platform_all,
+#else
+	{ "display.particle_ticks", _config_boolean, "false", "HALO_PARTICLE_TICKS", _environment_value, _platform_all,
+#endif
+		"Move the particles that are not attached to an object (sparks, casings,\n"
+		"debris) once a 30 Hz tick, as on the Xbox, and draw them between their\n"
+		"ticks: two in three of their collision tests spared at 60 frames a\n"
+		"second, more at 120. false moves them at every frame drawn, smooth at\n"
+		"high refresh rates: the desktop's default; the consoles' is true.\n"
+		"Takes effect at the next map." },
+#ifdef HALO_CONSOLE_LIGHT_LIMITS
+	{ "display.dynamic_light_limit", _config_integer, "8", "HALO_DYNAMIC_LIGHT_LIMIT", _environment_value, _platform_all,
+#else
+	{ "display.dynamic_light_limit", _config_integer, "0", "HALO_DYNAMIC_LIGHT_LIMIT", _environment_value, _platform_all,
+#endif
+		"The most dynamic lights (muzzle flashes, plasma, explosions) that light\n"
+		"the level at once: the biggest on the screen keep their light on the\n"
+		"walls and floor, the rest light only the objects near them. 0 for no\n"
+		"limit, as on the Xbox (each redraws the level it reaches twice: a\n"
+		"firefight of many is the most of a busy frame's GPU time): the\n"
+		"desktop's default; the consoles' is 8. Changes at once." },
+#ifdef HALO_CONSOLE_LIGHT_LIMITS
+	{ "display.specular_light_limit", _config_integer, "2", "HALO_SPECULAR_LIGHT_LIMIT", _environment_value, _platform_all,
+#else
+	{ "display.specular_light_limit", _config_integer, "0", "HALO_SPECULAR_LIGHT_LIMIT", _environment_value, _platform_all,
+#endif
+		"Of those, the most that add their specular highlights (the shine on\n"
+		"metal and wet floors): the biggest on the screen, the first-person\n"
+		"weapon's first. The others still light the level, without the shine.\n"
+		"0 for no limit, as on the Xbox (a near light's highlights cover most\n"
+		"of the screen: the costliest pass of a firefight): the desktop's\n"
+		"default; the consoles' is 2. Changes at once." },
 	{ "display.vsync", _config_boolean, "true", "HALO_NO_VSYNC", _environment_set_is_false, _platform_all,
 		"Wait for the display between frames." },
 	{ "display.max_fps", _config_integer, "0", "HALO_MAX_FPS", _environment_value, _platform_all,
@@ -927,6 +929,15 @@ static const struct config_setting config_settings[] =
 		_platform_all,
 		"The weapon for network_test_pickup, by part of its tag name; empty\n"
 		"for any." },
+	{ "debug.network_test_password", _config_string, "\"\"", "HALO_NETWORK_TEST_PASSWORD", _environment_value,
+		_platform_all,
+		"With debug.network_test: the host's game's password (as Server Setup's\n"
+		"PASSWORD), or the password a joining machine types when its invite asks\n"
+		"for one; empty for none." },
+	{ "debug.network_test_invite_file", _config_string, "\"\"", "HALO_NETWORK_TEST_INVITE_FILE", _environment_value,
+		_platform_all,
+		"With debug.network_test's host: a file the host writes its invite link\n"
+		"to once it has one, for a joining machine's command line; empty for none." },
 	{ "debug.telnet_console", _config_boolean, "false", "HALO_TELNET_CONSOLE", _environment_set_is_true, _platform_all,
 		"A console on 127.0.0.1 (telnet_console_port), with no password." },
 	{ "debug.telnet_console_port", _config_integer, "2323", "HALO_TELNET_CONSOLE_PORT", _environment_value,
@@ -2961,7 +2972,30 @@ static const struct config_value *config_value(const char *name, enum config_typ
 	index = config_setting_index(name);
 	if (index < 0 || config_settings[index].type != type)
 	{
-		platform_log("settings: no %s setting %s", type == _config_string ? "string" : "such", name);
+		/* (said once a name: code asking every frame for a setting this build
+		doesn't have once filled the log, and the disk, with the line) */
+		static char said[32][64];
+		static long said_count;
+		long i;
+		int known = 0;
+
+		pthread_mutex_lock(&config_lock);
+		for (i = 0; i < said_count && !known; i++)
+			known = strncmp(said[i], name, sizeof(said[i]) - 1) == 0;
+		if (!known && said_count < (long)(sizeof(said) / sizeof(said[0])))
+		{
+			strncpy(said[said_count], name, sizeof(said[said_count]) - 1);
+			said_count++;
+		}
+		/* (past the first 32 names, none: a flood of different names is no
+		better than one name's) */
+		else if (!known)
+		{
+			known = 1;
+		}
+		pthread_mutex_unlock(&config_lock);
+		if (!known)
+			platform_log("settings: no %s setting %s", type == _config_string ? "string" : "such", name);
 		return &none;
 	}
 #ifdef HALO_XBOX_CONSOLE

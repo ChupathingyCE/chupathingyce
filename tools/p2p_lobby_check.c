@@ -76,6 +76,7 @@ void p2p_sign(const void *message, int size, unsigned char *signature)
 /* (p2p.c makes a new invite if the old one was listed) */
 static int new_invite_count;
 void p2p_new_invite_if_listed(void) { new_invite_count++; }
+void p2p_new_invite_for_password(const unsigned char *join_key) { (void)join_key; new_invite_count++; }
 void p2p_signal_lobby_topics(int listed, int browsing) { (void)listed; (void)browsing; }
 void p2p_signal_lobby_query(void) {}
 void p2p_signal_lobby_publish(const unsigned char *listing, int size, int closing)
