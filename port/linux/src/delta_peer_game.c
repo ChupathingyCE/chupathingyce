@@ -280,18 +280,28 @@ static delta_u32 game_random(void *context)
 	return value;
 }
 
-#ifdef HALO_XBOX_CONSOLE
-/* (the console keeps no signed legacy table, nor relays one: delta.c, its
-thread and its fetch are not in its 64 MB, nor are the table buffers
-(delta_peer.h); nothing is disabled) */
+#if defined(HALO_XBOX_CONSOLE) && !defined(HALO_CONSOLE_HTTPS)
+/* (the console without HTTPS keeps no signed legacy table: nothing is
+disabled) */
 static int game_capability_disabled(void *context, int capability)
 {
 	(void)context;
 	(void)capability;
 	return 0;
 }
+#else
+/* the legacy table's kill switch (a console with HTTPS fetches the table
+itself: delta_legacy_refresh) */
+static int game_capability_disabled(void *context, int capability)
+{
+	(void)context;
+	return delta_capability_disabled(capability);
+}
+#endif
 
-/* the console takes no legacy table: it says so (TABLE_HAVE with
+#ifdef HALO_XBOX_CONSOLE
+/* the console takes no legacy table from a host, nor relays one (the table
+buffers, delta_peer.h, are not in its 64 MB): it says so (TABLE_HAVE with
 DELTA_WIRE_TABLE_NONE), and a host does not send it one */
 static delta_u32 game_legacy_table_serial(void *context)
 {
@@ -299,13 +309,6 @@ static delta_u32 game_legacy_table_serial(void *context)
 	return DELTA_WIRE_TABLE_NONE;
 }
 #else
-/* the legacy table's kill switch */
-static int game_capability_disabled(void *context, int capability)
-{
-	(void)context;
-	return delta_capability_disabled(capability);
-}
-
 /* the legacy table's relay: delta.c's table (none taken or sent with a
 local table in use, or no key) */
 static delta_u32 game_legacy_table_serial(void *context)

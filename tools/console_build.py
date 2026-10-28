@@ -151,14 +151,18 @@ CONSOLE_HTTPS_DIR = Path("port/console/https")
 MBEDTLS_DIR = Path("port/third_party/mbedtls")
 
 
-def console_https_flags(game: Path) -> List[str]:
+def console_https_flags(game: Path, windows_crt: bool = False) -> List[str]:
     """the compile flags of console_https_sources() (and of the game units
     that call the client), the game's root at game (ConsolePort.game), for a
-    ninja command line"""
-    return [
-        '-DMBEDTLS_CONFIG_FILE=\\"console_mbedtls_config.h\\"',
-        f"-I{game / CONSOLE_HTTPS_DIR}", f"-I{game / MBEDTLS_DIR / 'include'}", f"-I{game / MBEDTLS_DIR / 'library'}",
-    ]
+    ninja command line. windows_crt: a console on an Xbox SDK's C runtime
+    (the original Xbox, the Xbox 360), whose compiler says _WIN32: the
+    little Mbed TLS takes from Windows' headers there, and the inttypes.h
+    that runtime lacks (port/console/https/msvc)"""
+    flags = ['-DMBEDTLS_CONFIG_FILE=\\"console_mbedtls_config.h\\"']
+    if windows_crt:
+        flags += [f"-I{game / CONSOLE_HTTPS_DIR / 'msvc'}"]
+    return flags + [f"-I{game / CONSOLE_HTTPS_DIR}", f"-I{game / MBEDTLS_DIR / 'include'}",
+                    f"-I{game / MBEDTLS_DIR / 'library'}"]
 
 
 def console_https_sources() -> List[Path]:
