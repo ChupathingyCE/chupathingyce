@@ -142,6 +142,10 @@ boolean main_menu_is_active(void);
 boolean bink_playback_active(void);
 boolean network_game_server_lobby_is_open(struct network_game_server *server);
 boolean network_game_server_game_is_loading(struct network_game_server *server);
+#ifdef HALO_CUSTOM_EDITION
+/* (cache_files_windows.c's) */
+boolean cache_files_map_can_open(char const *map_name);
+#endif
 /* (server_commands.c's) */
 void server_commands_update(void);
 
@@ -781,6 +785,28 @@ static boolean set_entry(
 	{
 		skip_entry(map, variant_name, problem);
 		return FALSE;
+	}
+	/* (and a map that is there, and opens: one missing or refused as it
+	loads would stop the server on the damaged disc error) */
+	{
+		static char scratch[160];
+		struct command_output output;
+
+		command_output_begin(&output, scratch, sizeof(scratch));
+		if (!server_map_playable(map, &output))
+		{
+			if (scratch[0] && scratch[strlen(scratch) - 1] == '\n')
+				scratch[strlen(scratch) - 1] = 0;
+			skip_entry(map, variant_name, scratch[0] ? scratch : "no such map");
+			return FALSE;
+		}
+#ifdef HALO_CUSTOM_EDITION
+		if (!cache_files_map_can_open(map))
+		{
+			skip_entry(map, variant_name, "the map is damaged or unsupported (the line above says why)");
+			return FALSE;
+		}
+#endif
 	}
 	main_set_multiplayer_map_name(map);
 	game_engine_override_map_name(map);
