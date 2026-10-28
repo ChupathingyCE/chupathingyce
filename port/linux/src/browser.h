@@ -294,6 +294,11 @@ carnage report confirmed with this copy's player key (browser.c); and the
 public player ID it confirms them as */
 void browser_claim_game(const unsigned short (*names)[BROWSER_PLAYER_NAME_LENGTH], int count);
 int browser_player_id(char *text, int size);
+/* player 1's Halo profile, by its folder on disk ("" or NULL: none), told
+by the game's thread when it changes: its own player key is the one in use
+from then on (save_folder.h), and a profile without one is a guest, which
+sends no key (browser_player_id and the rest say 0) */
+void browser_set_player_profile(const char *folder);
 /* the moderator key (Delta Peer's moderation, docs/delta.md): an Ed25519
 key pair made from this copy's player key, whose public half a dedicated
 server's moderators file names. Its signature of a message and its public
@@ -387,7 +392,7 @@ enum
 	BROWSER_PROFILE_LOADED,
 	/* the site did not answer (a profile it gave before is kept) */
 	BROWSER_PROFILE_FAILED,
-	/* no HTTPS game list, or no player key */
+	/* no HTTPS game list, or no player key (a guest) */
 	BROWSER_PROFILE_NO_KEY,
 	/* no game list (network.browser_url empty) */
 	BROWSER_PROFILE_NO_LIST,

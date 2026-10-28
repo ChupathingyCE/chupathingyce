@@ -396,3 +396,243 @@ enum save_folder_copy_result save_folder_copy_once(const char *shared, const cha
 	}
 	return _save_folder_copy_copied;
 }
+
+/* ---------- the player keys of the Halo profiles (save_folder.h) */
+
+static int write_adopted_marker(const char *save_root, const char *profile_folder);
+static int adopted_profile_folder(const char *save_root, char *folder, unsigned long size);
+static int same_folder(const char *first, const char *second);
+
+int save_folder_profile_key_path(const char *profile_folder, char *path, unsigned long size)
+{
+	size_t length;
+
+	if (!is_set(profile_folder))
+		return 0;
+	/* (with or without the folder's final separator, as the game's paths
+	have it) */
+	length = strlen(profile_folder);
+	while (length > 1 && (profile_folder[length - 1] == '/' || profile_folder[length - 1] == '\\'))
+		length--;
+	length = (size_t)snprintf(path, size, "%.*s/%s", (int)length, profile_folder, SAVE_FOLDER_PLAYER_KEY);
+	return length < size;
+}
+
+int save_folder_profile_has_key(const char *profile_folder)
+{
+	char path[PATH_SIZE];
+	int is_directory;
+
+	return save_folder_profile_key_path(profile_folder, path, sizeof(path)) && exists(path, &is_directory) &&
+		!is_directory;
+}
+
+int save_folder_profile_key_copy(const char *save_root, const char *from_folder, const char *to_folder)
+{
+	char from[PATH_SIZE], to[PATH_SIZE], adopted[PATH_SIZE];
+
+	if (!save_folder_profile_has_key(from_folder))
+		return 1;
+	if (!save_folder_profile_key_path(from_folder, from, sizeof(from)) ||
+		!save_folder_profile_key_path(to_folder, to, sizeof(to)) || exists(to, NULL) || !copy_file(from, to, 1))
+	{
+		return 0;
+	}
+	/* (the profile that adopted the install key: the marker follows it, so
+	that the key never goes to a second profile) */
+	if (adopted_profile_folder(save_root, adopted, sizeof(adopted)) && same_folder(adopted, from_folder) &&
+		!write_adopted_marker(save_root, to_folder))
+	{
+		unlink(to);
+		return 0;
+	}
+	return 1;
+}
+
+int save_folder_only_profile(const char *save_root, char *folder, unsigned long size)
+{
+	char u[256], udata[256], name[256], file[256];
+	char path[PATH_SIZE], udata_path[PATH_SIZE], profile[PATH_SIZE];
+	void *directory;
+	int count = 0;
+
+	if (!posix_find_entry_case_insensitive(save_root, "u", u, sizeof(u)) ||
+		!join(path, sizeof(path), save_root, u) ||
+		!posix_find_entry_case_insensitive(path, "UDATA", udata, sizeof(udata)) ||
+		!join(udata_path, sizeof(udata_path), path, udata))
+	{
+		return 0;
+	}
+	directory = posix_directory_open(udata_path);
+	if (!directory)
+		return 0;
+	while (count < 2 && posix_directory_next(directory, name, sizeof(name)))
+	{
+		/* (a profile has a blam.sav; a saved game type a blam.lst) */
+		if (!join(profile, sizeof(profile), udata_path, name) || !directory_exists(profile) ||
+			!posix_find_entry_case_insensitive(profile, "blam.sav", file, sizeof(file)))
+		{
+			continue;
+		}
+		if (!count && (unsigned long)snprintf(folder, size, "%s", profile) >= size)
+			count++;
+		count++;
+	}
+	posix_directory_close(directory);
+	return count == 1;
+}
+
+/* whether the two files hold the same bytes (both readable) */
+static int same_contents(const char *first, const char *second)
+{
+	char a[4096], b[4096];
+	int one = open(first, O_RDONLY | O_BINARY), two = open(second, O_RDONLY | O_BINARY);
+	int same = one >= 0 && two >= 0;
+
+	while (same)
+	{
+		int count_a = (int)read(one, a, sizeof(a));
+		int count_b = (int)read(two, b, sizeof(b));
+
+		if (count_a != count_b || count_a < 0 || memcmp(a, b, (size_t)(count_a > 0 ? count_a : 0)))
+			same = 0;
+		else if (!count_a)
+			break;
+	}
+	if (one >= 0)
+		close(one);
+	if (two >= 0)
+		close(two);
+	return same;
+}
+
+static int write_adopted_marker(const char *save_root, const char *profile_folder)
+{
+	static const char text[] =
+		"Chupathingy gave this install's player key (game_list_player.key, kept\n"
+		"here as it was) to the Halo profile in this folder, once:\n";
+	char path[PATH_SIZE];
+	size_t root_length = strlen(save_root);
+	const char *shown = profile_folder;
+	int file;
+	int success;
+
+	/* (the folder as the save root's, when it is in it) */
+	if (!strncmp(profile_folder, save_root, root_length) &&
+		(profile_folder[root_length] == '/' || profile_folder[root_length] == '\\'))
+	{
+		shown = profile_folder + root_length + 1;
+	}
+	if (!join(path, sizeof(path), save_root, SAVE_FOLDER_KEY_ADOPTED))
+		return 0;
+	file = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_BINARY, 0644);
+	if (file < 0)
+		return 0;
+	success = write(file, text, sizeof(text) - 1) == (int)(sizeof(text) - 1) &&
+		write(file, shown, strlen(shown)) == (int)strlen(shown) && write(file, "\n", 1) == 1;
+	return close(file) == 0 && success;
+}
+
+/* the folder the marker names (on disk); 0 when it can't be read */
+static int adopted_profile_folder(const char *save_root, char *folder, unsigned long size)
+{
+	char marker[PATH_SIZE], text[PATH_SIZE + 256], *line;
+	int file, count;
+
+	if (!join(marker, sizeof(marker), save_root, SAVE_FOLDER_KEY_ADOPTED) ||
+		(file = open(marker, O_RDONLY | O_BINARY)) < 0)
+	{
+		return 0;
+	}
+	count = (int)read(file, text, sizeof(text) - 1);
+	close(file);
+	if (count <= 0)
+		return 0;
+	text[count] = '\0';
+	/* (the folder is the last line) */
+	while (count && (text[count - 1] == '\n' || text[count - 1] == '\r'))
+		text[--count] = '\0';
+	line = strrchr(text, '\n');
+	line = line ? line + 1 : text;
+	if (!*line)
+		return 0;
+	if (line[0] == '/' || line[0] == '\\' || line[1] == ':')
+		return (unsigned long)snprintf(folder, size, "%s", line) < size;
+	return join(folder, size, save_root, line);
+}
+
+/* whether two folders are the same path, but for final separators */
+static int same_folder(const char *first, const char *second)
+{
+	size_t first_length = strlen(first), second_length = strlen(second);
+
+	while (first_length > 1 && (first[first_length - 1] == '/' || first[first_length - 1] == '\\'))
+		first_length--;
+	while (second_length > 1 && (second[second_length - 1] == '/' || second[second_length - 1] == '\\'))
+		second_length--;
+	return first_length == second_length && !strncmp(first, second, first_length);
+}
+
+/* whether the profile the marker names is still there (one deleted since:
+the install key free to go to another; a marker that can't be read is
+taken as kept) */
+static int adopted_profile_kept(const char *save_root)
+{
+	char folder[PATH_SIZE];
+
+	return !adopted_profile_folder(save_root, folder, sizeof(folder)) || directory_exists(folder);
+}
+
+enum save_folder_adopt_result save_folder_adopt_install_key(const char *save_root, const char *profile_folder)
+{
+	char marker[PATH_SIZE], install_key[PATH_SIZE], profile_key[PATH_SIZE];
+	int is_directory;
+
+	if (!join(marker, sizeof(marker), save_root, SAVE_FOLDER_KEY_ADOPTED) ||
+		!join(install_key, sizeof(install_key), save_root, SAVE_FOLDER_PLAYER_KEY))
+	{
+		return _save_folder_adopt_failed;
+	}
+	if (exists(marker, NULL) && adopted_profile_kept(save_root))
+		return _save_folder_adopt_done_before;
+	if (!exists(install_key, &is_directory) || is_directory)
+		return _save_folder_adopt_no_install_key;
+	if (!is_set(profile_folder) || !directory_exists(profile_folder))
+		return _save_folder_adopt_waiting;
+	if (!save_folder_profile_key_path(profile_folder, profile_key, sizeof(profile_key)))
+		return _save_folder_adopt_failed;
+	if (save_folder_profile_has_key(profile_folder))
+	{
+		/* (the install key itself, a copy whose marker was not written: the
+		marker now, so it never goes to a second profile) */
+		if (same_contents(install_key, profile_key))
+			return write_adopted_marker(save_root, profile_folder) ? _save_folder_adopt_adopted :
+				_save_folder_adopt_failed;
+		return _save_folder_adopt_profile_has_key;
+	}
+	if (!copy_file(install_key, profile_key, 1))
+		return _save_folder_adopt_failed;
+	/* (a marker that could not be written is written the next time: the
+	profile's copy is found the same as the install key) */
+	write_adopted_marker(save_root, profile_folder);
+	return _save_folder_adopt_adopted;
+}
+
+int save_folder_player_key(const char *save_root, const char *player1_folder, char *key_path, unsigned long size)
+{
+	char only[PATH_SIZE];
+	const char *folder = player1_folder;
+
+	if (size)
+		key_path[0] = '\0';
+	if (!is_set(folder))
+		folder = save_folder_only_profile(save_root, only, sizeof(only)) ? only : NULL;
+	save_folder_adopt_install_key(save_root, folder);
+	if (!is_set(folder) || !save_folder_profile_key_path(folder, key_path, size))
+	{
+		if (size)
+			key_path[0] = '\0';
+		return 0;
+	}
+	return 1;
+}

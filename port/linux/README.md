@@ -1097,9 +1097,11 @@ other map gets a card with its name in its family's color. RB (Link Profile)
 shows only while this copy is not linked to a profile: linked on this copy
 (kept in the save root's `game_list_profile.txt`), or a profile the site
 has for this copy's player ID. Once linked, Start's prompt names the
-profile. Each copy of the game has a player key in the save root
-(`game_list_player.key`). The key confirms the player's lines in finished
-games. The game sends the key only to an HTTPS server, or to a server on
+profile. Each Halo profile has its own player key
+(`game_list_player.key` in the profile's folder, `u/UDATA/<id>/` in the
+save root). The game uses player 1's profile's key. A profile without one
+is a guest: it plays as before and sends no key. Link Profile makes the
+key. The key confirms the player's lines in finished games. The game sends the key only to an HTTPS server, or to a server on
 this computer (`http://127.0.0.1`, `http://localhost`) for tests.
 
 To link the game to a profile on the site, do one of these steps in Online
@@ -1116,15 +1118,24 @@ Games:
   connect, or B to cancel. A code operates for two minutes, and the question
   for two minutes. Press RB (or C) for a new code.
 
-You link once. The link stays until you change the save root or the player
-key: the profile keeps the link, and the games the key played before it
-count too. Linking by code needs no key import.
+You link once per Halo profile. The link stays until you delete the Halo
+profile or change its key: the Delta profile keeps the link, and the games
+the key played before it count too. Linking by code needs no key import.
+
+Older builds had one key per install, in the save root. The first
+time a newer build needs a key, it copies that key to player 1's Halo
+profile (the active one, or the one used last), or to the only profile if
+player 1 has none. That profile keeps its link and stats. The other
+profiles start as guests. `player_key_adopted.txt` in the save root says
+which profile got it. The old `game_list_player.key` in the save root stays
+as it is: don't delete it, it is your backup, and older builds still use it.
 
 To use a key from another computer (or a backup of the profile's key) on
-Linux, either copy `game_list_player.key` into the save root, or start the
+Linux, either copy `game_list_player.key` into the Halo profile's folder
+(`u/UDATA/<id>/`), or start the
 game with the key's link as its argument: `halo 'halo://key/<64 hexadecimal
 digits>'` (the profile page's "Copy key link"). The game asks before it
-replaces its key. The file is the 32 bytes of the key. The game ignores a
+replaces player 1's profile's key. The file is the 32 bytes of the key. The game ignores a
 key file that another user owns or that others can read, and then has no
 key at all: `chmod 600 game_list_player.key`. The profile page's Install in
 Game button needs a desktop that opens `halo://` links for the game

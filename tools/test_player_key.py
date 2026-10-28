@@ -143,8 +143,28 @@ int main(int argc, char **argv)
 
 def test_failed_key_load_is_tried_again():
     """A player key that could not be read is not given up on for the run
-    (browser.c, player_key): only a loaded key is kept."""
+    (browser.c, player_key_get): only a loaded key is kept, and only for the
+    Halo profile it was read for."""
     browser = (ROOT / "port/linux/src/browser.c").read_text()
-    body = re.search(r"^static int player_key\(.*?^\}", browser, re.M | re.S).group(0)
-    assert re.search(r"else if \(loaded > 0\)\s*\{[^}]*player_key_loaded = loaded;", body)
+    body = re.search(r"^static int player_key_get\(.*?^\}", browser, re.M | re.S).group(0)
+    assert re.search(r"else if \(loaded > 0 && generation == player_profile_generation\)\s*\{[^}]*"
+                     r"player_key_loaded = loaded;", body)
     assert body.count("player_key_loaded = ") == 1
+
+
+def test_guests_send_no_key():
+    """A Halo profile without its own key is a guest (save_folder.h): the
+    key is made only when the profile signs in (Link Profile's start_connect,
+    or a restored key), and everything else that sends a key or the player
+    ID asks for it without making one, so a guest sends none."""
+    browser = (ROOT / "port/linux/src/browser.c").read_text()
+    body = re.search(r"^static int player_key_get\(.*?^\}", browser, re.M | re.S).group(0)
+    # (a profile's key file that is not there: a guest, the key not made)
+    assert re.search(r"else if \(!make && !browser_headless\(\) && posix_stat\(path, &information\) != 0\)\s*"
+                     r"\{[^}]*loaded = -1;", body)
+    assert re.search(r"^static int player_key\(unsigned char \*key\)\s*\{\s*return player_key_get\(key, 0\);",
+                     browser, re.M)
+    makers = [m.start() for m in re.finditer(r"player_key_get\(key, 1\)", browser)]
+    assert len(makers) == 1
+    start = browser.rindex("\nstatic void start_connect(", 0, makers[0])
+    assert browser.find("\n}\n", start) > makers[0]

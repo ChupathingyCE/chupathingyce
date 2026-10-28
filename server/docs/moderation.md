@@ -41,7 +41,7 @@ changes a minute (10 at once).
 
 ## Who a moderator is
 
-The game's player key (`game_list_player.key`, in each copy's save folder)
+The game's player key (`game_list_player.key`, in each Halo profile's folder)
 never leaves the player's machine except to the Chupathingy site. From it the
 game makes a second key, an Ed25519 key pair, whose public half is the
 player's **moderator key**: 64 hex digits. A server knows a moderator by

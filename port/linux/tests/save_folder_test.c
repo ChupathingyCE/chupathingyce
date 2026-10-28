@@ -1,8 +1,8 @@
 /*
 SAVE_FOLDER_TEST.C
 
-Tests of the save root's usual place and the one-time copy of the shared
-saves (port/linux/src/save_folder.c). Built and run by
+Tests of the save root's usual place, the one-time copy of the shared
+saves and the Halo profiles' player keys (port/linux/src/save_folder.c). Built and run by
 tools/test_save_folder.py with a scratch folder as its argument; exits
 nonzero on a failure. Everything it writes is under that folder.
 */
@@ -300,6 +300,217 @@ static void test_failed_copy_leaves_no_save_root(void)
 	CHECK(holds(shared, "u/UDATA/0123456789AB/SaveMeta.xbx", "profile"));
 }
 
+/* ---------- the player keys of the Halo profiles */
+
+/* a save root with the given profiles (u/UDATA/<id>/blam.sav), a saved game
+type beside them, and the install's key when key is not NULL */
+static void make_keys_root(const char *root, const char *const *profiles, int count, const char *key)
+{
+	char name[256];
+	int index;
+
+	mkdir(root, 0755);
+	make_folder(root, "u");
+	make_folder(root, "u/UDATA");
+	make_folder(root, "u/UDATA/00000000000F");
+	write_text(root, "u/UDATA/00000000000F/blam.lst", "slayer variant");
+	for (index = 0; index < count; index++)
+	{
+		snprintf(name, sizeof(name), "u/UDATA/%s", profiles[index]);
+		make_folder(root, name);
+		snprintf(name, sizeof(name), "u/UDATA/%s/blam.sav", profiles[index]);
+		write_text(root, name, "profile");
+	}
+	if (key)
+		write_text(root, SAVE_FOLDER_PLAYER_KEY, key);
+}
+
+static const char *profile_folder(char *path, size_t size, const char *root, const char *id)
+{
+	snprintf(path, size, "%s/u/UDATA/%s", root, id);
+	return path;
+}
+
+static int private_file(const char *folder, const char *name)
+{
+	char path[1024];
+	struct stat information;
+
+	snprintf(path, sizeof(path), "%s/%s", folder, name);
+	return stat(path, &information) == 0 && !(information.st_mode & 077);
+}
+
+static void test_key_path(void)
+{
+	char path[256];
+
+	CHECK(save_folder_profile_key_path("/s/u/UDATA/AB", path, sizeof(path)));
+	CHECK(!strcmp(path, "/s/u/UDATA/AB/" SAVE_FOLDER_PLAYER_KEY));
+	CHECK(save_folder_profile_key_path("/s/u/UDATA/AB/", path, sizeof(path)));
+	CHECK(!strcmp(path, "/s/u/UDATA/AB/" SAVE_FOLDER_PLAYER_KEY));
+	CHECK(!save_folder_profile_key_path("", path, sizeof(path)));
+	CHECK(!save_folder_profile_key_path("/a/long/folder", path, 8));
+}
+
+/* one profile, never picked: it adopts the install key, which stays */
+static void test_one_profile_adopts(void)
+{
+	static const char *const profiles[] = { "0000000000A1" };
+	char root[512], folder[512], key_path[1024];
+
+	make_keys_root(in_scratch(root, sizeof(root), "keys/one"), profiles, 1, "install key");
+	profile_folder(folder, sizeof(folder), root, "0000000000A1");
+	CHECK(save_folder_player_key(root, "", key_path, sizeof(key_path)));
+	CHECK(strstr(key_path, "0000000000A1/" SAVE_FOLDER_PLAYER_KEY) != NULL);
+	CHECK(holds(folder, SAVE_FOLDER_PLAYER_KEY, "install key"));
+	CHECK(private_file(folder, SAVE_FOLDER_PLAYER_KEY));
+	CHECK(holds(root, SAVE_FOLDER_PLAYER_KEY, "install key"));
+	CHECK(!holds(root, SAVE_FOLDER_KEY_ADOPTED, NULL));
+	/* (once: a second try finds the marker) */
+	CHECK(save_folder_adopt_install_key(root, folder) == _save_folder_adopt_done_before);
+}
+
+/* several profiles: none adopts it until player 1 has one, then that one
+alone does; the others are guests */
+static void test_many_profiles_wait_for_player1(void)
+{
+	static const char *const profiles[] = { "0000000000B1", "0000000000B2", "0000000000B3" };
+	char root[512], first[512], second[512], third[512], key_path[1024];
+
+	make_keys_root(in_scratch(root, sizeof(root), "keys/many"), profiles, 3, "install key");
+	profile_folder(first, sizeof(first), root, "0000000000B1");
+	profile_folder(second, sizeof(second), root, "0000000000B2");
+	profile_folder(third, sizeof(third), root, "0000000000B3");
+	CHECK(!save_folder_only_profile(root, key_path, sizeof(key_path)));
+	CHECK(!save_folder_player_key(root, NULL, key_path, sizeof(key_path)));
+	CHECK(!key_path[0]);
+	CHECK(holds(root, SAVE_FOLDER_KEY_ADOPTED, NULL));
+	CHECK(!save_folder_profile_has_key(first) && !save_folder_profile_has_key(second) &&
+		!save_folder_profile_has_key(third));
+	/* player 1 picks the second */
+	CHECK(save_folder_player_key(root, second, key_path, sizeof(key_path)));
+	CHECK(holds(second, SAVE_FOLDER_PLAYER_KEY, "install key"));
+	CHECK(!holds(root, SAVE_FOLDER_KEY_ADOPTED, NULL));
+	/* then the third: a guest, no key given */
+	CHECK(save_folder_player_key(root, third, key_path, sizeof(key_path)));
+	CHECK(strstr(key_path, "0000000000B3/" SAVE_FOLDER_PLAYER_KEY) != NULL);
+	CHECK(!save_folder_profile_has_key(third));
+	CHECK(!save_folder_profile_has_key(first));
+	CHECK(holds(root, SAVE_FOLDER_PLAYER_KEY, "install key"));
+}
+
+/* no profile yet: the install key waits, and the first profile takes it */
+static void test_no_profile_waits(void)
+{
+	char root[512], folder[512], key_path[1024];
+
+	make_keys_root(in_scratch(root, sizeof(root), "keys/none"), NULL, 0, "install key");
+	CHECK(!save_folder_player_key(root, "", key_path, sizeof(key_path)));
+	CHECK(save_folder_adopt_install_key(root, NULL) == _save_folder_adopt_waiting);
+	CHECK(holds(root, SAVE_FOLDER_KEY_ADOPTED, NULL));
+	make_folder(root, "u/UDATA/0000000000C1");
+	write_text(root, "u/UDATA/0000000000C1/blam.sav", "profile");
+	profile_folder(folder, sizeof(folder), root, "0000000000C1");
+	CHECK(save_folder_player_key(root, "", key_path, sizeof(key_path)));
+	CHECK(holds(folder, SAVE_FOLDER_PLAYER_KEY, "install key"));
+	CHECK(holds(root, SAVE_FOLDER_PLAYER_KEY, "install key"));
+}
+
+/* a new install: nothing to move, and every profile starts as a guest */
+static void test_new_install_has_guests(void)
+{
+	static const char *const profiles[] = { "0000000000D1" };
+	char root[512], folder[512], key_path[1024];
+
+	make_keys_root(in_scratch(root, sizeof(root), "keys/new"), profiles, 1, NULL);
+	profile_folder(folder, sizeof(folder), root, "0000000000D1");
+	CHECK(save_folder_adopt_install_key(root, folder) == _save_folder_adopt_no_install_key);
+	CHECK(save_folder_player_key(root, folder, key_path, sizeof(key_path)));
+	/* (a guest: its key's place, with no key there) */
+	CHECK(!save_folder_profile_has_key(folder));
+	CHECK(!is_there(key_path));
+	CHECK(holds(root, SAVE_FOLDER_PLAYER_KEY, NULL));
+	CHECK(holds(root, SAVE_FOLDER_KEY_ADOPTED, NULL));
+}
+
+/* a profile with a key of its own keeps it; the install key waits for another */
+static void test_profile_key_is_never_replaced(void)
+{
+	static const char *const profiles[] = { "0000000000E1", "0000000000E2" };
+	char root[512], own[512], other[512], key_path[1024];
+
+	make_keys_root(in_scratch(root, sizeof(root), "keys/own"), profiles, 2, "install key");
+	profile_folder(own, sizeof(own), root, "0000000000E1");
+	profile_folder(other, sizeof(other), root, "0000000000E2");
+	write_text(own, SAVE_FOLDER_PLAYER_KEY, "own key");
+	CHECK(save_folder_adopt_install_key(root, own) == _save_folder_adopt_profile_has_key);
+	CHECK(holds(own, SAVE_FOLDER_PLAYER_KEY, "own key"));
+	CHECK(holds(root, SAVE_FOLDER_KEY_ADOPTED, NULL));
+	CHECK(save_folder_player_key(root, other, key_path, sizeof(key_path)));
+	CHECK(holds(other, SAVE_FOLDER_PLAYER_KEY, "install key"));
+}
+
+/* the copy made but its marker not written: found the same, marked, and
+never given to a second profile */
+static void test_unmarked_copy_is_marked(void)
+{
+	static const char *const profiles[] = { "0000000000F1", "0000000000F2" };
+	char root[512], first[512], second[512], marker[1024];
+
+	make_keys_root(in_scratch(root, sizeof(root), "keys/unmarked"), profiles, 2, "install key");
+	profile_folder(first, sizeof(first), root, "0000000000F1");
+	profile_folder(second, sizeof(second), root, "0000000000F2");
+	CHECK(save_folder_adopt_install_key(root, first) == _save_folder_adopt_adopted);
+	snprintf(marker, sizeof(marker), "%s/%s", root, SAVE_FOLDER_KEY_ADOPTED);
+	unlink(marker);
+	CHECK(save_folder_adopt_install_key(root, first) == _save_folder_adopt_adopted);
+	CHECK(!holds(root, SAVE_FOLDER_KEY_ADOPTED, NULL));
+	CHECK(save_folder_adopt_install_key(root, second) == _save_folder_adopt_done_before);
+	CHECK(!save_folder_profile_has_key(second));
+}
+
+/* a renamed profile (a new folder) takes its key along, and the marker
+follows it; the profile that adopted the key deleted: the next one adopts
+it again */
+static void test_renamed_and_deleted_profiles(void)
+{
+	static const char *const profiles[] = { "000000000011", "000000000012" };
+	char root[512], first[512], renamed[512], second[512], path[1024];
+
+	make_keys_root(in_scratch(root, sizeof(root), "keys/rename"), profiles, 2, "install key");
+	profile_folder(first, sizeof(first), root, "000000000011");
+	profile_folder(second, sizeof(second), root, "000000000012");
+	profile_folder(renamed, sizeof(renamed), root, "000000000013");
+	CHECK(save_folder_adopt_install_key(root, first) == _save_folder_adopt_adopted);
+	/* (a guest renamed: nothing to carry) */
+	CHECK(save_folder_profile_key_copy(root, second, renamed));
+	CHECK(!is_there(renamed));
+	/* the game's rename: a new folder, the saves copied, the old one deleted */
+	mkdir(renamed, 0755);
+	write_text(renamed, "blam.sav", "profile");
+	CHECK(save_folder_profile_key_copy(root, first, renamed));
+	CHECK(holds(renamed, SAVE_FOLDER_PLAYER_KEY, "install key"));
+	CHECK(private_file(renamed, SAVE_FOLDER_PLAYER_KEY));
+	snprintf(path, sizeof(path), "%s/blam.sav", first);
+	unlink(path);
+	snprintf(path, sizeof(path), "%s/" SAVE_FOLDER_PLAYER_KEY, first);
+	unlink(path);
+	rmdir(first);
+	CHECK(save_folder_adopt_install_key(root, second) == _save_folder_adopt_done_before);
+	CHECK(!save_folder_profile_has_key(second));
+	/* (a key already in the new folder is never replaced) */
+	CHECK(!save_folder_profile_key_copy(root, renamed, renamed));
+	/* the renamed profile deleted: the install key, kept, goes to the next */
+	snprintf(path, sizeof(path), "%s/blam.sav", renamed);
+	unlink(path);
+	snprintf(path, sizeof(path), "%s/" SAVE_FOLDER_PLAYER_KEY, renamed);
+	unlink(path);
+	rmdir(renamed);
+	CHECK(save_folder_adopt_install_key(root, second) == _save_folder_adopt_adopted);
+	CHECK(holds(second, SAVE_FOLDER_PLAYER_KEY, "install key"));
+	CHECK(holds(root, SAVE_FOLDER_PLAYER_KEY, "install key"));
+}
+
 int main(int argc, char **argv)
 {
 	char path[512];
@@ -316,6 +527,7 @@ int main(int argc, char **argv)
 	mkdir(in_scratch(path, sizeof(path), "none"), 0755);
 	mkdir(in_scratch(path, sizeof(path), "partial"), 0755);
 	mkdir(in_scratch(path, sizeof(path), "failed"), 0755);
+	mkdir(in_scratch(path, sizeof(path), "keys"), 0755);
 
 	test_linux_default_in_xdg_data_home();
 	test_linux_default_without_xdg();
@@ -329,6 +541,14 @@ int main(int argc, char **argv)
 	test_nothing_shared();
 	test_interrupted_copy_is_redone();
 	test_failed_copy_leaves_no_save_root();
+	test_key_path();
+	test_one_profile_adopts();
+	test_many_profiles_wait_for_player1();
+	test_no_profile_waits();
+	test_new_install_has_guests();
+	test_profile_key_is_never_replaced();
+	test_unmarked_copy_is_marked();
+	test_renamed_and_deleted_profiles();
 
 	if (failures)
 	{
