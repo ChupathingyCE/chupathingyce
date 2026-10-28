@@ -89,7 +89,7 @@ in a busy firefight) */
 /* the resampler (resampling) */
 #define RESAMPLER_ZERO_CROSSINGS 16
 #define RESAMPLER_TABLE_STEPS 256
-#define RESAMPLER_CUTOFF 0.88
+#define RESAMPLER_CUTOFF 0.96
 #define RESAMPLER_KAISER_BETA 6.5
 #define RESAMPLER_MAXIMUM_STRETCH 2
 #define RESAMPLER_HISTORY 128
@@ -1070,10 +1070,16 @@ static void hrtf_mix(struct sdl_stream *stream, const float *mono, float *output
 
 Each voice is resampled to the output rate by band-limited interpolation (J.
 O. Smith's): an output sample is the source frames around its moment, each
-weighted by a windowed sinc low pass centred there. The low pass keeps
-RESAMPLER_CUTOFF of the source's band and takes the images of it out (65 dB
-down): linear interpolation, which the mixer did before, left them only 8 to
-20 dB down, a gritty haze above 11 kHz over every 22 kHz voice. A voice
+weighted by a windowed sinc low pass centred there. The low pass is half
+down at RESAMPLER_CUTOFF of the source's band and takes the images of it
+out: linear interpolation, which the mixer did before, left them only 8 to
+20 dB down, a gritty haze above 11 kHz over every 22 kHz voice. For a 22 kHz
+voice (most of Halo's) it keeps the band to 9.7 kHz within 0.5 dB and is
+1.4 dB down at 10 kHz, and the images from 12 kHz up are 70 dB down or more;
+only the top half kHz's (which the game's sounds hold little of) leave
+images 11 to 11.5 kHz, 13 to 30 dB down. (At 0.88 it had cut from 8.5 kHz,
+6 dB down at 9.7 kHz: duller than the Xbox. A longer low pass would take
+those last images out too, at more work a voice than the consoles have.) A voice
 played faster than the output rate takes its frames (a step over 1) gets the
 low pass narrowed to match, up to RESAMPLER_MAXIMUM_STRETCH times, so it
 does not alias. The frames come from the voice's packets in turn, so the low
