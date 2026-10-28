@@ -222,6 +222,14 @@ jobs:
           path: dist/chupathingyce-linux-release
           retention-days: 3
 
+      # (kept by ChupathingyCE's release, not a download)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: symbols-linux-release
+          path: dist/chupathingyce-linux-release-symbols
+          if-no-files-found: ignore
+          retention-days: 3
+
       - uses: actions/cache/save@v4
         if: ${{ success() && github.ref == 'refs/heads/main' }}
         with:
@@ -297,6 +305,14 @@ jobs:
         with:
           name: chupathingyce-linux64-release
           path: dist/chupathingyce-linux64-release
+          retention-days: 3
+
+      # (kept by ChupathingyCE's release, not a download)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: symbols-linux64-release
+          path: dist/chupathingyce-linux64-release-symbols
+          if-no-files-found: ignore
           retention-days: 3
 
       - uses: actions/cache/save@v4
@@ -377,6 +393,14 @@ jobs:
         with:
           name: chupathingyce-server-linux-${{ matrix.arch }}
           path: dist/chupathingyce-server-linux-${{ matrix.arch }}
+          retention-days: 3
+
+      # (kept by ChupathingyCE's release, not a download)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: symbols-server-linux-${{ matrix.arch }}-release
+          path: dist/chupathingyce-server-linux-${{ matrix.arch }}-release-symbols
+          if-no-files-found: ignore
           retention-days: 3
 
       - uses: actions/cache/save@v4
@@ -508,6 +532,14 @@ jobs:
           path: dist/chupathingyce-android-release
           retention-days: 3
 
+      # (kept by ChupathingyCE's release, not a download)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: symbols-android-release
+          path: dist/chupathingyce-android-release-symbols
+          if-no-files-found: ignore
+          retention-days: 3
+
       - uses: actions/cache/save@v4
         if: ${{ success() && github.ref == 'refs/heads/main' }}
         with:
@@ -581,6 +613,14 @@ jobs:
         with:
           name: chupathingyce-android64-release-unsigned
           path: dist/chupathingyce-android64-release
+          retention-days: 3
+
+      # (kept by ChupathingyCE's release, not a download)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: symbols-android64-release
+          path: dist/chupathingyce-android64-release-symbols
+          if-no-files-found: ignore
           retention-days: 3
 
       - uses: actions/cache/save@v4
@@ -829,6 +869,14 @@ jobs:
         with:
           name: chupathingyce-macos-release
           path: chupathingyce-macos-release.tar
+          retention-days: 3
+
+      # (kept by ChupathingyCE's release, not a download)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: symbols-macos-release
+          path: dist/chupathingyce-macos-release-symbols
+          if-no-files-found: ignore
           retention-days: 3
 
       - uses: actions/cache/save@v4
