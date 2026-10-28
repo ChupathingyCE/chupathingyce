@@ -24,6 +24,9 @@ it did before the console had the file.
 #include "port_config.h"
 #include "halo_port_limits.h"
 #include "posix.h"
+#if !defined(HALO_ANDROID) && !defined(HALO_XBOX_CONSOLE)
+#include "packaged_install.h"
+#endif
 
 #include <time.h>
 #include "tomlc17.h"
@@ -161,6 +164,15 @@ static const struct config_setting config_settings[] =
 		"640x480." },
 	{ "display.screen_width", _config_integer, "0", "HALO_SCREEN_WIDTH", _environment_value, _platform_android,
 		"The picture's width in columns: 0 matches the display, 640 is 4:3." },
+#if defined(HALO_ANDROID) && !defined(HALO_SWITCH_CONSOLE)
+	/* (the Switch's own is below; port/linux/src/d3d8_gl.c) */
+	{ "display.resolution_limit", _config_string, "\"480\"", "HALO_RESOLUTION_LIMIT", _environment_value,
+		_platform_android,
+		"The lines the game draws at: \"480\" (the game's own), \"720\", \"900\",\n"
+		"\"1080\" (or any number between) or \"native\" (the display's), no more\n"
+		"than the display has, which the picture is scaled up to. More is sharper\n"
+		"and uses more battery. Changes at once." },
+#endif
 	{ "display.texture_decode", _config_string, "\"auto\"", "HALO_TEXTURE_DECODE", _environment_value,
 		_platform_android,
 		"Where compressed textures are unpacked: \"gpu\", \"cpu\" (more memory) or\n"
@@ -681,6 +693,10 @@ static const struct config_setting config_settings[] =
 		_platform_all,
 		"Download a missing Custom Edition map from the community repositories:\n"
 		"\"ask\", \"always\" or \"never\"." },
+	{ "network.playlist_downloads", _config_string, "\"ask\"", "HALO_NET_PLAYLIST_DOWNLOADS", _environment_value,
+		_platform_all,
+		"Offer a playlist's missing maps from its verified map set when you join\n"
+		"one of its games: \"ask\", \"always\" or \"never\"." },
 	{ "network.tunnel_port", _config_integer, "0", "HALO_NET_TUNNEL_PORT", _environment_value, _platform_all | _platform_xbox,
 		"The UDP port for internet play; 0 picks one." },
 	{ "network.allow_upnp", _config_boolean, "true", "HALO_NET_ALLOW_UPNP", _environment_value, _platform_all,
@@ -1088,9 +1104,45 @@ default each had, as written */
 static int config_pending[NUMBER_OF_CONFIG_SETTINGS];
 static const char *config_pending_old[NUMBER_OF_CONFIG_SETTINGS];
 static int config_loaded = 0;
+#ifndef HALO_CONSOLE_NO_UPDATER
+/* update.auto as the file or the environment gave it, in a packaged
+install, where update.auto itself is off (config_load) */
+static int packaged_update_check = 1;
+#endif
 static pthread_mutex_t config_lock = PTHREAD_MUTEX_INITIALIZER;
 
 /* ---------- the file */
+
+int platform_packaged(void)
+{
+#if defined(HALO_ANDROID) || defined(HALO_XBOX_CONSOLE)
+	return 0;
+#else
+	static int packaged = -1;
+
+	if (packaged < 0)
+	{
+		char path[1100];
+		SDL_PathInfo information;
+
+		packaged = packaged_install_marked(getenv("HALO_PACKAGED"),
+			packaged_install_file_path(path, sizeof(path), SDL_GetBasePath()) &&
+			SDL_GetPathInfo(path, &information) && information.type == SDL_PATHTYPE_FILE);
+	}
+	return packaged;
+#endif
+}
+
+#if defined(__linux__) && !defined(HALO_ANDROID) && !defined(HALO_XBOX_CONSOLE)
+/* whether folder has maps/ or config.toml, in any case */
+static int folder_has_setup(const char *folder)
+{
+	char found[256];
+
+	return posix_find_entry_case_insensitive(folder, "maps", found, sizeof(found)) ||
+		posix_find_entry_case_insensitive(folder, "config.toml", found, sizeof(found));
+}
+#endif
 
 int platform_app_folder(char *path, unsigned long size)
 {
@@ -1105,15 +1157,23 @@ int platform_app_folder(char *path, unsigned long size)
 	return 1;
 #elif defined(__linux__) && !defined(HALO_ANDROID) && !defined(HALO_XBOX_CONSOLE)
 	/* an AppImage (which sets APPIMAGE) runs from its own file, mounted
-	read-only: its data and settings go in the save root's usual place
-	(save_folder.c), or a test's HALO_SAVE_ROOT */
+	read-only, and a packaged install (packaged_install.h) from a folder
+	its player cannot write: their data and settings go in the save root's
+	usual place (save_folder.c), or a test's HALO_SAVE_ROOT. So do those of
+	a game in any folder it cannot write, unless the folder has its own
+	maps/ or config.toml (a setup made there by hand, kept as it is) */
 	const char *appimage = getenv("APPIMAGE");
 	const char *save_root = getenv("HALO_SAVE_ROOT");
 	const char *data_home = getenv("XDG_DATA_HOME");
 	const char *home = getenv("HOME");
+	const char *base = SDL_GetBasePath();
+	int writable = !base || !*base || access(base, W_OK) == 0;
 
-	if (!appimage || !*appimage)
+	if (!packaged_install_files_in_home(appimage && *appimage, platform_packaged(), writable,
+			writable || folder_has_setup(base)))
+	{
 		return 0;
+	}
 	if (save_root && *save_root)
 		snprintf(path, (size_t)size, "%s", save_root);
 	else if (data_home && *data_home)
@@ -2513,6 +2573,7 @@ static const struct
 	{ "game.move_old_map_folders", { "ask", "yes", "no", NULL }, "\"ask\"" },
 	{ "network.protocol", { "auto", "opence", "delta", NULL }, NULL },
 	{ "network.map_downloads", { "ask", "always", "never", NULL }, "\"ask\"" },
+	{ "network.playlist_downloads", { "ask", "always", "never", NULL }, "\"ask\"" },
 	{ "network.join_from_clipboard", { "ask", "always", "never", NULL }, "\"never\"" },
 	{ "network.team_change", { "balanced", "allow", "off", NULL }, "\"balanced\"" },
 #ifndef HALO_CONSOLE_NO_DISCORD
@@ -2938,6 +2999,23 @@ static void config_load(void)
 		}
 	}
 #endif
+#ifndef HALO_CONSOLE_NO_UPDATER
+	/* (a packaged install's package manager updates it: update.auto is off
+	and stays off, packaged_install.h; whether the game still looks for a
+	new version to say so is the file's or the environment's choice) */
+	if (platform_packaged())
+	{
+		long update = config_setting_index("update.auto");
+
+		if (update >= 0)
+		{
+			packaged_update_check = config_values[update].boolean;
+			config_values[update].boolean = 0;
+			config_given[update] = 1;
+			platform_log("settings: a packaged install: update.auto is off (the package manager updates the game)");
+		}
+	}
+#endif
 	config_check_words();
 #if !defined(HALO_ANDROID) && !defined(HALO_XBOX_CONSOLE)
 	{
@@ -3058,6 +3136,13 @@ int config_write(const char *name, const char *value)
 		return 0;
 	/* (the file read first, as the other settings are) */
 	config_value(name, config_settings[index].type);
+#ifndef HALO_CONSOLE_NO_UPDATER
+	if (platform_packaged() && !strcmp(name, "update.auto"))
+	{
+		platform_log("settings: update.auto stays off in a packaged install");
+		return 0;
+	}
+#endif
 	pthread_mutex_lock(&config_lock);
 	config_set_from_text(&config_values[index], config_settings[index].type, value);
 	snprintf(section, sizeof(section), "%.*s", (int)(dot - name), name);
@@ -3479,6 +3564,11 @@ int config_default(const char *name, char *text, size_t size)
 	if (index < 0)
 		return 0;
 	value = config_settings[index].default_value;
+#ifndef HALO_CONSOLE_NO_UPDATER
+	/* (Defaults on the settings screen: a packaged install's is off) */
+	if (platform_packaged() && !strcmp(name, "update.auto"))
+		value = "false";
+#endif
 	length = strlen(value);
 	/* (a string's without its quotes: the defaults have no escapes) */
 	if (config_settings[index].type == _config_string && length >= 2 && value[0] == '"')
@@ -3489,6 +3579,14 @@ int config_default(const char *name, char *text, size_t size)
 	snprintf(text, size, "%.*s", (int)length, value);
 	return 1;
 }
+
+#ifndef HALO_CONSOLE_NO_UPDATER
+int config_packaged_update_check(void)
+{
+	config_value("update.auto", _config_boolean);
+	return packaged_update_check;
+}
+#endif
 
 int config_boolean(const char *name)
 {

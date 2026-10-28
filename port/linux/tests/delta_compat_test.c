@@ -402,6 +402,57 @@ static void dedicated(unsigned char *reserved, int announced, int slayer)
 		delta_compat_advertise_old(reserved, RESERVED, DELTA_MAJOR, "chupa-39a");
 }
 
+/* the neutral "OpenCE server" label: an OpenCE dedicated server of 39 or
+later (its flag, no Delta), never one of ours (the tag, or the old layout's
+Delta flag), never a player's game; and by a listing's flags, OpenCE's
+dedicated bit without ours */
+static void test_opence_server(void)
+{
+	unsigned char reserved[RESERVED];
+	int slayer;
+
+	/* OpenCE's dedicated server, 39 and later */
+	memset(reserved, 0, sizeof(reserved));
+	reserved[0] = 39;
+	reserved[DELTA_ADVERTISED_FLAGS_OFFSET] = 0x01 | 0x04;
+	CHECK(delta_compat_opence_server(reserved, RESERVED));
+	reserved[0] = 44;
+	CHECK(delta_compat_opence_server(reserved, RESERVED));
+	/* (with a kind at byte 3, as OpenCE's 37 writes it) */
+	reserved[3] = 2;
+	CHECK(delta_compat_opence_server(reserved, RESERVED));
+	/* a player's game: no flag */
+	reserved[DELTA_ADVERTISED_FLAGS_OFFSET] = 0x01;
+	CHECK(!delta_compat_opence_server(reserved, RESERVED));
+	/* before 39 the flag was Delta's (an old Chupathingy host) */
+	memset(reserved, 0, sizeof(reserved));
+	reserved[0] = 38;
+	reserved[DELTA_ADVERTISED_FLAGS_OFFSET] = 0x04;
+	CHECK(!delta_compat_opence_server(reserved, RESERVED));
+	/* our own dedicated servers: the tag, with the old layout or without */
+	for (slayer = 0; slayer < 2; slayer++)
+	{
+		dedicated(reserved, 39, slayer);
+		CHECK(!delta_compat_opence_server(reserved, RESERVED));
+		dedicated(reserved, 32, slayer);
+		CHECK(!delta_compat_opence_server(reserved, RESERVED));
+	}
+	/* a tag with a bad check byte is no tag */
+	dedicated(reserved, 39, 1);
+	reserved[DELTA_ADVERTISED_TAG_OFFSET + 8] ^= 0xFF;
+	CHECK(delta_compat_opence_server(reserved, RESERVED));
+	/* too short to say */
+	CHECK(!delta_compat_opence_server(reserved, DELTA_ADVERTISED_FLAGS_OFFSET));
+
+	/* listings: OpenCE's bit alone; ours with it or alone; none */
+	CHECK(delta_compat_opence_server_listing(DELTA_COMPAT_LISTING_DEDICATED_OPENCE));
+	CHECK(delta_compat_opence_server_listing(DELTA_COMPAT_LISTING_DEDICATED_OPENCE | 0x01 | 0x04));
+	CHECK(!delta_compat_opence_server_listing(DELTA_COMPAT_LISTING_DEDICATED_OPENCE | DELTA_COMPAT_LISTING_DEDICATED));
+	CHECK(!delta_compat_opence_server_listing(DELTA_COMPAT_LISTING_DEDICATED));
+	CHECK(!delta_compat_opence_server_listing(0x01 | 0x02 | 0x04));
+	CHECK(DELTA_COMPAT_LISTING_DEDICATED_OPENCE == 32 && DELTA_COMPAT_LISTING_DEDICATED == 128);
+}
+
 static void test_old_clients(void)
 {
 	unsigned char reserved[RESERVED];
@@ -590,6 +641,7 @@ int main(void)
 	test_host_wire();
 	test_tag();
 	test_both_layouts();
+	test_opence_server();
 	if (failures)
 	{
 		fprintf(stderr, "delta_compat_test: %d failures\n", failures);

@@ -390,6 +390,18 @@ short map_family_from_wire_name(
 	return map_family_parse(wire, NULL, 0);
 }
 
+/* Halo: The Master Chief Collection's Halo CE maps are cache files of
+version 13, the header of Custom Edition's with a 16-bit flags field at 0x68.
+Whether the first dwords of a file (at least two) are such a header; the
+game plays none of them yet, and says so (MAP_REASON_MCC_UNSUPPORTED) */
+#define MCC_CACHE_VERSION 13UL
+
+boolean map_family_header_is_mcc(
+	unsigned long const *header)
+{
+	return header[0] == (unsigned long)'head' && header[1] == MCC_CACHE_VERSION;
+}
+
 #ifdef HALO_CUSTOM_EDITION
 
 /* ---------- constants */
@@ -539,6 +551,13 @@ static boolean cache_file_is(
 	return result;
 }
 
+/* whether a file is an MCC map's (map_family_header_is_mcc) */
+static boolean mcc_cache_file(
+	char const *path)
+{
+	return cache_file_is(path, (long)MCC_CACHE_VERSION, FALSE);
+}
+
 /* whether a file in a place is a cache file of a version (cache_file_is); a
 compressed map's is played from its expanded copy, which path then names
 (map_compressed_file_resolve: in the save root's cache, made once) */
@@ -655,6 +674,30 @@ static boolean place_file(
 		place_folder(&places[index], folder, sizeof(folder));
 		snprintf(path, (size_t)size, "%s%s%s.map", folder, file, places[index].suffix);
 		if (place_cache_file(path, size, family_cache_version(family)))
+			return TRUE;
+	}
+	return FALSE;
+}
+
+boolean map_family_find_mcc(
+	short family,
+	char const *file,
+	char *path,
+	long size)
+{
+	long count, index;
+	struct map_family_place const *places;
+
+	if (family == _map_family_xbox || family == _map_family_pack)
+		return FALSE;
+	places = family_places(family, &count);
+	for (index = 0; index < count; index++)
+	{
+		char folder[256];
+
+		place_folder(&places[index], folder, sizeof(folder));
+		snprintf(path, (size_t)size, "%s%s%s.map", folder, file, places[index].suffix);
+		if (mcc_cache_file(path))
 			return TRUE;
 	}
 	return FALSE;
@@ -918,8 +961,11 @@ void map_family_set_game_version(
 	map_family_game.version = version;
 }
 
-void map_family_list(
+/* every multiplayer map of a family in its folders of a cache version (the
+family's own, or MCC's) */
+static void list_files(
 	short family,
+	long version,
 	void (*found)(char const *file, void *context),
 	void *context)
 {
@@ -966,7 +1012,7 @@ void map_family_list(
 			if (other < listed_count || listed_count >= MAXIMUM_LISTED_FILES)
 				continue;
 			snprintf(path, sizeof(path), "%s%s", folder, data.cFileName);
-			if (!cache_file_is(path, family_cache_version(family), TRUE))
+			if (!cache_file_is(path, version, TRUE))
 				continue;
 			snprintf(listed[listed_count++], MAP_FAMILY_FILE_LENGTH, "%s", file);
 			found(file, context);
@@ -974,6 +1020,23 @@ void map_family_list(
 		while (FindNextFileA(find, &data));
 		CloseHandle(find);
 	}
+}
+
+void map_family_list(
+	short family,
+	void (*found)(char const *file, void *context),
+	void *context)
+{
+	list_files(family, family_cache_version(family), found, context);
+}
+
+void map_family_list_mcc(
+	short family,
+	void (*found)(char const *file, void *context),
+	void *context)
+{
+	if (family == _map_family_custom_edition || family == _map_family_halo_pc)
+		list_files(family, (long)MCC_CACHE_VERSION, found, context);
 }
 
 #endif

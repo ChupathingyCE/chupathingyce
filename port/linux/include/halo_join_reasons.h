@@ -68,6 +68,10 @@ enum join_reason
 #define JOIN_REASON_PASSWORD "Password needed."
 #define JOIN_REASON_NO_ANSWER "The host didn't answer."
 #define JOIN_REASON_NO_CONNECTION "Couldn't connect to the host."
+/* a map of Halo: The Master Chief Collection (cache version 13) in a map
+folder: said in the map lists, in the log and when it is picked to play (no
+detail, and no join reason: a host never announces one) */
+#define MAP_REASON_MCC_UNSUPPORTED "MCC map: not supported yet"
 
 /* a reason without a detail as its sentence ("" for none, or one with a
 detail) */
@@ -95,6 +99,14 @@ state: -1 older, 1 newer) */
 
 /* the title of a failed join's message */
 #define JOIN_FAILED_TITLE "Halo: can't join this game"
+
+/* a host's neutral label, beside the OpenCE (legacy) marking: an OpenCE
+dedicated server, as its advertisement or public listing says it
+(delta_compat_opence_server, delta_compat_opence_server_listing). The same
+words in Online Games, the Server Browser and the site's game list (puma,
+web/site.js HOST_LABEL_OPENCE_SERVER); a description, never a badge or a
+judgment, and it grants nothing */
+#define HOST_LABEL_OPENCE_SERVER "OpenCE server"
 
 /* a reason as a wide string (menu_functions.c's text): JOIN_WIDE(JOIN_REASON_FULL) */
 #define JOIN_WIDE_TEXT(text) L##text

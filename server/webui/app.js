@@ -345,6 +345,7 @@
       ['Uptime', duration(status.uptime_seconds)],
       ['Version', status.version + ' (network ' + status.network_version + ')'],
     ];
+    if (status.skipped) rows.push(['Last skipped', status.skipped]);
     facts.replaceChildren();
     rows.forEach(([name, value]) => {
       facts.append(element('dt', name), element('dd', value));

@@ -611,11 +611,16 @@ static boolean player_control_port_menu_has_controller(
 	short local_player_index)
 {
 	long player_index = local_player_get_player_index(local_player_index);
+	struct player_datum *player;
 	short gamepad_index;
 
-	if (player_index == NONE)
+	/* (none when the player has just left the game: the local player still
+	names them until the game exits, and player_get faulted, macOS crash
+	report on 0.8.0c) */
+	player = player_index != NONE ? player_try_and_get(player_index) : NULL;
+	if (!player)
 		return FALSE;
-	gamepad_index = player_get(player_index)->local_player_index;
+	gamepad_index = player->local_player_index;
 	return gamepad_index >= 0 && gamepad_index < MAXIMUM_NUMBER_OF_LOCAL_PLAYERS &&
 		ui_widgets_active_for_local_player(gamepad_index);
 }

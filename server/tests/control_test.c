@@ -202,7 +202,24 @@ static void test_command_line(void)
 	CHECK(!command_line_map_name_valid("@cex"));
 	CHECK(!command_line_map_name_valid("a@c-x"));
 	CHECK(!command_line_map_name_valid("a@b@cex"));
-	CHECK(!command_line_map_name_valid("a b"));
+	/* (every name Halo PC takes: control_test's are HaloNet's) */
+	CHECK(command_line_map_name_valid("a b"));
+	CHECK(command_line_map_name_valid("bigassv2,104@ce"));
+	CHECK(command_line_map_name_valid("skedar v2@ce"));
+	CHECK(command_line_map_name_valid("[h3]_sandtrap@ce"));
+	CHECK(command_line_map_name_valid("h3 foundry@ce"));
+	CHECK(command_line_map_name_valid("a'b&c!#$%^~{}=+;@ce"));
+	CHECK(!command_line_map_name_valid(" a@ce"));
+	CHECK(!command_line_map_name_valid("a @ce"));
+	CHECK(!command_line_map_name_valid("a:b@ce"));
+	CHECK(!command_line_map_name_valid("a\"b@ce"));
+	CHECK(!command_line_map_name_valid("a|b"));
+	CHECK(!command_line_map_name_valid("a*b"));
+	CHECK(!command_line_map_name_valid("a\tb"));
+	CHECK(!command_line_map_name_valid(".."));
+	CHECK(!command_line_map_name_valid("con@ce"));
+	CHECK(!command_line_map_name_valid("com1"));
+	CHECK(command_line_map_name_valid("console@ce"));
 
 	CHECK(command_line_server_name_valid("[D] Slayer"));
 	CHECK(command_line_server_name_valid("123456789012345"));
@@ -1465,6 +1482,21 @@ static void test_server_config(int rounds)
 	CHECK(!server_playlist_parse("bloodgulch\n", 11, 1, &playlist, error, sizeof(error)) && strstr(error, "line 1"));
 	CHECK(!server_playlist_parse("../x slayer\n", 12, 1, &playlist, error, sizeof(error)));
 	CHECK(!server_playlist_parse("a b c\n", 6, 1, &playlist, error, sizeof(error)));
+	/* (a map's name with a space in quotes, written back so) */
+	{
+		const char *quoted = "\"skedar v2@ce\" slayer # HaloNet's\n\"a#b@ce\"\tctf\nbigassv2,104@ce king\n";
+
+		CHECK(server_playlist_parse(quoted, strlen(quoted), 1, &playlist, error, sizeof(error)) && playlist.count == 3 &&
+			!strcmp(playlist.entries[0].map, "skedar v2@ce") && !strcmp(playlist.entries[1].map, "a#b@ce") &&
+			!strcmp(playlist.entries[1].game_type, "ctf") && !strcmp(playlist.entries[2].map, "bigassv2,104@ce"));
+		CHECK(server_playlist_format(&playlist, "quoted", text, sizeof(text)) > 0 && strstr(text, "\"skedar v2@ce\""));
+		CHECK(server_playlist_parse(text, strlen(text), 1, &back, error, sizeof(error)) &&
+			!memcmp(&back, &playlist, sizeof(back)));
+		CHECK(!server_playlist_parse("\"skedar v2@ce slayer\n", 21, 1, &playlist, error, sizeof(error)));
+		CHECK(!server_playlist_parse("\"a\"b slayer\n", 12, 1, &playlist, error, sizeof(error)));
+		CHECK(server_playlist_parse("\"skedar v2@ce slayer\n", 21, 0, &playlist, error, sizeof(error)) &&
+			playlist.count == 0);
+	}
 	/* (not strict, as a playlist file has always been read: the rest of a
 	line left out) */
 	CHECK(server_playlist_parse("a b c\n", 6, 0, &playlist, error, sizeof(error)) && playlist.count == 1);
