@@ -1032,12 +1032,21 @@ void device_add_scenario_information(
 	struct device_datum *device = device_get(device_index);
 
 	device_definition_get(device->definition_index);
-	device->device.power_group_index = scenario_device->power_group_index != NONE
+	/* port: a group the map names that was not made (an index past the
+	scenario's device groups, or past what device_groups_data holds) is
+	none, and the device gets a group of its own, as for none: datum_get
+	gave NULL and the read of its value crashed (Windows x64 crash report on
+	0.8.0e, a map loading as a game began) */
+	device->device.power_group_index =
+		scenario_device->power_group_index != NONE &&
+			datum_try_and_get(device_groups_data, scenario_device->power_group_index)
 		? scenario_device->power_group_index
 		: device_group_new(
 			TEST_FLAG(scenario_device->flags, _scenario_device_initially_off_bit) ? 0.0f : 1.0f,
 			FLAG(_device_group_runtime_bit));
-	device->device.position_group_index = scenario_device->position_group_index != NONE
+	device->device.position_group_index =
+		scenario_device->position_group_index != NONE &&
+			datum_try_and_get(device_groups_data, scenario_device->position_group_index)
 		? scenario_device->position_group_index
 		: device_group_new(
 			TEST_FLAG(scenario_device->flags, _scenario_device_initially_open_bit) ? 1.0f : 0.0f,
