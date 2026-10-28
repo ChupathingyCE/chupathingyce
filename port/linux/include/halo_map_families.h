@@ -141,6 +141,10 @@ void map_downloaded_mark(char const *map_name);
 map downloader's maps: port/linux/src/map_download.c) */
 void map_downloaded_remember(char const *map_name);
 
+/* whether the first two dwords of a file are an MCC Halo CE map's header
+(cache version 13; every build) */
+boolean map_family_header_is_mcc(unsigned long const *header);
+
 #ifdef HALO_CUSTOM_EDITION
 /* a family's cache version: 609 for Custom Edition's, 7 for HaloMD's and
 Halo PC retail's, 5 for the Xbox's and a pack's */
@@ -183,9 +187,16 @@ any, which forgets it): map_family_find gives the file of that version, if
 there is one, so that the map loaded is the host's */
 void map_family_set_game_version(char const *map, unsigned long version);
 
+/* an MCC map of a name in a family's folders (Custom Edition's, Halo PC's):
+its path. The loaders find none (map_family_find): the game says it is not
+supported yet (MAP_REASON_MCC_UNSUPPORTED, halo_join_reasons.h) */
+boolean map_family_find_mcc(short family, char const *file, char *path, long size);
+
 /* every multiplayer map of a family past the Xbox's, in its folders: each
 one's file's name (without the suffix, each once), passed to found */
 void map_family_list(short family, void (*found)(char const *file, void *context), void *context);
+/* the same for the family's MCC maps, which the menus list greyed */
+void map_family_list_mcc(short family, void (*found)(char const *file, void *context), void *context);
 #endif
 
 #endif

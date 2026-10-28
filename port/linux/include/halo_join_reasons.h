@@ -68,6 +68,10 @@ enum join_reason
 #define JOIN_REASON_PASSWORD "Password needed."
 #define JOIN_REASON_NO_ANSWER "The host didn't answer."
 #define JOIN_REASON_NO_CONNECTION "Couldn't connect to the host."
+/* a map of Halo: The Master Chief Collection (cache version 13) in a map
+folder: said in the map lists, in the log and when it is picked to play (no
+detail, and no join reason: a host never announces one) */
+#define MAP_REASON_MCC_UNSUPPORTED "MCC map: not supported yet"
 
 /* a reason without a detail as its sentence ("" for none, or one with a
 detail) */
