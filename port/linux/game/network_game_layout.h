@@ -55,6 +55,15 @@ enum
 	NETWORK_GAME_LAYOUT_INDEX
 };
 
+/* the machine indices a client gave the players of no machine of the record
+past its own slots (a host's bots: network_game_layout_convert_mapped), so
+that each keeps its index from one record to the next: machine[i] for
+machine #i, 0xFF for none */
+struct network_game_layout_machine_map
+{
+	unsigned char machine[NETWORK_GAME_LAYOUT_PC_SLOTS];
+};
+
 /* the record's size for these slot counts */
 unsigned long network_game_layout_size(int machines, int players);
 
@@ -65,7 +74,27 @@ error leaves to unspecified. */
 int network_game_layout_convert(const unsigned char *from, int from_machines, int from_players,
 	unsigned char *to, int to_machines, int to_players, int *clamped);
 
+/* ... and the same, a player who names a machine past to_machines that has
+no entry in the record given a free machine index of to's, the highest
+first, the one kept gave it before while it is still free; kept (may be
+NULL) is updated */
+int network_game_layout_convert_mapped(const unsigned char *from, int from_machines, int from_players,
+	unsigned char *to, int to_machines, int to_players, int *clamped, struct network_game_layout_machine_map *kept);
+/* no machine indices given */
+void network_game_layout_machine_map_reset(struct network_game_layout_machine_map *map);
+/* the index of to_machines' for a player of machine #machine_index joining
+in progress: itself if it fits, else the one map gave it while free in
+used (to_machines flags: a machine or a player has it), else the highest
+free one (kept in map); -1 for none */
+int network_game_layout_machine_map_index(struct network_game_layout_machine_map *map, int machine_index,
+	const unsigned char *used, int to_machines);
+
 const char *network_game_layout_error_string(int error);
+/* the first entry network_game_layout_convert refuses, for the log: 1 for
+a machine (entry: its slot, then its machine index), 2 for a player (its
+slot, then its machine, controller, team and slot indices), 0 for none */
+int network_game_layout_failing_entry(const unsigned char *from, int from_machines, int from_players,
+	int to_machines, int to_players, unsigned char *entry);
 
 /* ---------- the game types' states */
 
