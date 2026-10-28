@@ -1439,6 +1439,7 @@ void hud_draw_screen(
 {
 	long player_index = local_player_get_player_index(render.local_player_index);
 	director_perspective perspective = director_get_perspective(render.local_player_index);
+	rectangle2d saved_window_bounds;
 
 	rasterizer_hud_begin();
 	if (player_index != NONE)
@@ -1481,6 +1482,9 @@ void hud_draw_screen(
 			motion_sensor_tick();
 		}
 
+		/* port: a Custom Edition map's HUD at the screen's edges, as Halo PC
+		draws it (hud_draw.c) */
+		hud_custom_edition_layout_begin(&saved_window_bounds);
 		if (hud_scripted_globals->show_hud)
 		{
 			if (perspective != _director_perspective_neutral &&
@@ -1506,6 +1510,7 @@ void hud_draw_screen(
 		}
 
 		hud_messaging_update(render.local_player_index);
+		hud_custom_edition_layout_end(&saved_window_bounds);
 	}
 
 	rasterizer_hud_end();

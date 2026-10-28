@@ -89,6 +89,7 @@ symbols in this file:
 #include "bitmaps/bitmap_group.h"
 #include "bitmaps/bitmaps_inlines.h"
 #include "bitmaps/bitmap_utilities.h"
+#include "cache/cache_files.h" /* port: CACHE_FILE_TAGS_ARE_CE */
 #include "cache/texture_cache.h"
 #include "effects/particles.h"
 #include "game/game.h"
@@ -1438,6 +1439,27 @@ void hud_zoomed_layout_begin(
 }
 
 void hud_zoomed_layout_end(
+	rectangle2d const *saved_window_bounds)
+{
+	render.camera.window_bounds = *saved_window_bounds;
+}
+
+/* port: Halo PC draws the HUD out to the screen's edges, where the Xbox
+keeps it inside the television's title-safe frame (the window bounds,
+compute_window_bounds: 48 pixels in at the sides and 36 at the top and
+bottom of 640x480). A Custom Edition or HaloMD map's HUD is made for Halo
+PC's, so it is laid out in the whole view (its viewport bounds). Xbox maps
+keep the Xbox's frame. The window bounds are put back after, as the view's
+projection is made from them. */
+void hud_custom_edition_layout_begin(
+	rectangle2d *saved_window_bounds)
+{
+	*saved_window_bounds = render.camera.window_bounds;
+	if (CACHE_FILE_TAGS_ARE_CE())
+		render.camera.window_bounds = render.camera.viewport_bounds;
+}
+
+void hud_custom_edition_layout_end(
 	rectangle2d const *saved_window_bounds)
 {
 	render.camera.window_bounds = *saved_window_bounds;

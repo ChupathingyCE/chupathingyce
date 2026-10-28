@@ -97,6 +97,10 @@ void hud_zoomed_layout_begin(
 	rectangle2d *saved_window_bounds);
 void hud_zoomed_layout_end(
 	rectangle2d const *saved_window_bounds);
+void hud_custom_edition_layout_begin(
+	rectangle2d *saved_window_bounds);
+void hud_custom_edition_layout_end(
+	rectangle2d const *saved_window_bounds);
 #endif
 long get_flash_duration(
 	struct hud_color_definition const *hud_color);
