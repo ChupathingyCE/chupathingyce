@@ -146,6 +146,8 @@ shares.
 | 13 | `bomb_movement` | TRAITS' movement and melee traits (jump, gravity, melee reach), for a player whose machine and host both agreed to it |
 | 14 | `bomb_traits` | TRAITS at 22 (Grifball test builds 2 and 3 sent it as 18, chat's CHAT_CONFIG). Room-wide with `bomb`: a host playing a Bomb game type drops every machine without both |
 | 15 | `team_change` | changing teams during a game: a client asks its host (TEAM_REQUEST), the host decides and answers (TEAM_RESULT); see "Team changes" |
+| 16 | `server_badge` | reserved for server badges (a draft); never set until that is built |
+| 17 | `object_sync` | what the game's messages leave out of the host's objects: every unit's shield and health (UNIT_VITALS) and the scenario names of the objects the host made (OBJECT_NAMES); see "Object sync" |
 
 The registry lives in the repository next to the compatibility table and is
 the single source for the bit numbers. Built so far: `platform`, `profile`,
@@ -296,6 +298,9 @@ a later version may append):
 | 22 | TRAITS | host to client | kind (1: 0 none, 1 Bomb), reserved (3), everyone's then the carrier's player traits, 12 bytes each: health, damage, resistance, speed (2 each, percent), shields (1: 0 unchanged, 1 none, 2 normal, 3 overshield), highlight (1), reserved (2); values past their ranges ([bomb.md](bomb.md)) refused. Grifball test builds 2 and 3 sent it as 18, which is CHAT_CONFIG's (a host drops those builds from a Bomb game: `bomb_traits`) |
 | 23 | TEAM_REQUEST | client to host | sequence (4, above the session's last), player (1, the game's player list index), team (1: 0 red, 1 blue, 255 the other one), reserved (2) |
 | 24 | TEAM_RESULT | host to client | sequence (4, the TEAM_REQUEST's), result (1: 0 changed, 1 at the next respawn, 2 the host takes none, 3 the teams would be uneven, 4 no teams, 5 too soon, 6 not now, 7 no such player of the machine, 8 already on that team, 9 the last player of their team), team (1, the player's now), seconds until the player may change again (2; with 5) |
+| 25, 26 | | | kept for server badges (a draft) |
+| 27 | UNIT_VITALS | host to client | count (1, at most 98), reserved (3), then 12-byte entries: the host's object (4, its datum index, which a client's copy shares), flags (1: 0x01 shield depleted, 0x02 shield charging, 0x04 shield over charging), reserved (1), body vitality (2), shield vitality (2), reserved (2); vitality in 16384ths, as the game's own unit states have it |
+| 28 | OBJECT_NAMES | host to client | total (2, the host's named objects in all, at most 512), first (2, this datagram's first entry's place among them), count (1, at most 147), reserved (3), then 8-byte entries: the host's object (4), its scenario name index (2), reserved (2) |
 
 A roster covers every machine of the game, in as many datagrams as it takes
 (32 machines each). A client forgets a machine the roster has not named for
@@ -576,6 +581,41 @@ ask goes over Delta Peer and the change itself through the game:
 The game's side is `port/linux/game/team_change.c`, its pause menu row in
 all the menu sets (`port/linux/game/menu_tags.c`), and the dedicated
 server's settings and `sv_team` (`server/docs/settings.md`).
+
+### Object sync
+
+What the game's own messages leave out of the host's objects, over
+`object_sync` (bit 17). The game messages stay as they are; a host sends
+these only to the clients that agreed to it, so OpenCE's machines, older
+builds and the console builds that do not offer it play as they always
+did. Built for Halo PC maps whose client-side scripts read objects the
+game's messages never describe (Coldsnap 20th XL; credit to ugoboom for
+the map and the report):
+
+- **Unit vitals.** The game's messages carry shield and health only for
+  players' units and the AI's. A placed biped or an empty vehicle kept its
+  full shield on a client until the host deleted it, so a script that read
+  it there (`unit_get_shield`) decided otherwise than the host's. The host
+  sends UNIT_VITALS for every other unit: a change at once if a shield or
+  body fell from full, emptied, or the shield's flags changed, other
+  changes at most every 2 ticks, each change in 3 datagrams (one may be
+  lost), and every half second the next 32 of the rest in turn (a client
+  that came late, or lost all three). They go out before the tick's object
+  changes, so a client sees a shield drop before a delete the host's
+  scripts made of it. A client's copy takes the host's values (not its
+  own player's unit, which the game's messages carry).
+- **Object names.** A client makes its copy of a host's object without the
+  scenario name (the creation message has none), so the names of objects
+  the host's scripts made (`object_create_anew`) found nothing there. The
+  host sends OBJECT_NAMES, all its named objects, when they change, when a
+  client agrees, and every 5 seconds. A client names its copy as it comes,
+  if the scenario gives that name to an object of its type and nothing
+  else holds the name then (its own copy of the same name, which it
+  deletes as not the host's, frees it).
+
+It is offered by the builds with the game list (`HALO_GAME_BROWSER`: the
+desktop builds, Android, the Switch and the dedicated server), not by the
+original Xbox's. The game's side is `port/linux/game/network_objects.c`.
 
 ### The protocol setting
 

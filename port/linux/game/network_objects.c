@@ -68,6 +68,12 @@ same datum index (identifier and all), so that any message can name one:
 #ifdef HALO_PORT_CONSOLE_LIMITS
 #include "cseries/errors.h"
 #endif
+#ifdef HALO_GAME_BROWSER
+#include "scenario/scenario.h"
+#include "scenario/scenario_definitions.h"
+#include "../src/delta_wire.h"
+#include "../src/delta_peer.h"
+#endif
 
 #include <math.h>
 
@@ -2099,9 +2105,381 @@ void network_objects_apply_vehicle_predictions(
 	}
 }
 
+#ifdef HALO_GAME_BROWSER
+/* ---------- object sync over Delta Peer (docs/delta.md, Object sync)
+
+What the game's own messages leave out of the host's objects, to the
+clients that agreed to Delta Peer's object_sync (OpenCE's and older builds'
+hear none of it, and the game's messages stay as they are):
+
+- Every unit's shield and health. The game's messages carry them only for
+  players' units and the AI's (network_distributed.c, network_actors.c), so
+  a client's copy of a placed biped or an empty vehicle kept its full
+  shield until the host deleted it, and a map's scripts that read it
+  (Coldsnap's game type detection: unit_get_shield) decided otherwise on
+  the client. A unit's change goes out at once if its shield or body fell
+  from full, emptied, or its shield's flags changed, else within
+  DELTA_VITALS_TICKS; each change in DELTA_VITALS_REPEATS datagrams, and the
+  rest in turn every DELTA_VITALS_REFRESH_TICKS. They go before the tick's
+  object changes (distributed_host_update_objects), so a client sees the
+  drop before a delete that follows from it.
+- The scenario names of the host's objects. A client's copy is made without
+  one (distributed_client_create), so the names of objects the host's
+  scripts made (object_create_anew) found nothing on the client. The host
+  sends all its named objects when they change, when a client comes, and
+  every DELTA_NAMES_REFRESH_TICKS; a client names its copy as each comes,
+  once the name is free (its own copy's goes with it). */
+
+enum
+{
+	DELTA_VITALS_REPEATS = 3,
+	DELTA_VITALS_TICKS = 2,
+	DELTA_VITALS_REFRESH_TICKS = 15,
+	DELTA_VITALS_REFRESH_COUNT = 32,
+	/* (datagrams of changes a tick, at most: the rest the next) */
+	DELTA_VITALS_DATAGRAMS = 2,
+	DELTA_NAMES_REFRESH_TICKS = 5 * TICKS_PER_SECOND,
+	/* a full shield or body (VITALITY_SCALE's 1) */
+	DELTA_VITALITY_FULL = 16384
+};
+
+/* the host's: each unit's vitality as last sent (object NONE: none) */
+struct delta_host_vital
+{
+	long object_index;
+	word body;
+	word shield;
+	byte flags;
+	byte repeats;
+};
+
+static struct delta_host_vital delta_host_vitals[MAXIMUM_TRACKED_OBJECTS];
+static long delta_host_vitals_time;
+static long delta_host_vitals_refresh_time;
+static long delta_host_vitals_cursor;
+static int delta_host_object_clients;
+static struct delta_wire_object_name delta_host_names[DELTA_WIRE_MAXIMUM_OBJECT_NAMES];
+static int delta_host_name_count;
+static long delta_host_names_time;
+/* the client's: the host's named objects, as OBJECT_NAMES said them */
+static struct delta_wire_object_name delta_client_names[DELTA_WIRE_MAXIMUM_OBJECT_NAMES];
+static int delta_client_name_count;
+
+static void delta_objects_reset(
+	void)
+{
+	long absolute_index;
+
+	for (absolute_index = 0; absolute_index < MAXIMUM_TRACKED_OBJECTS; absolute_index++)
+		delta_host_vitals[absolute_index].object_index = NONE;
+	delta_host_vitals_time = NONE;
+	delta_host_vitals_refresh_time = NONE;
+	delta_host_vitals_cursor = 0;
+	delta_host_object_clients = 0;
+	delta_host_name_count = 0;
+	delta_host_names_time = NONE;
+	delta_client_name_count = 0;
+}
+
+/* (a unit whose vitality the game's own messages carry: a player's, or the
+AI's) */
+static boolean delta_unit_carried(
+	long unit_index)
+{
+	struct unit_datum *unit = unit_get(unit_index);
+
+	return unit->unit.player_index != NONE || unit->unit.actor_index != NONE;
+}
+
+static void delta_vital_from_unit(
+	long unit_index,
+	struct delta_wire_unit_vital *vital)
+{
+	struct damage_network_state damage;
+
+	damage_get_network_state(unit_index, &damage);
+	vital->object = (delta_u32)unit_index;
+	vital->flags = (unsigned char)((damage.shield_depleted ? DELTA_WIRE_VITALS_SHIELD_DEPLETED : 0) |
+		(damage.shield_charging ? DELTA_WIRE_VITALS_SHIELD_CHARGING : 0) |
+		(damage.shield_over_charging ? DELTA_WIRE_VITALS_SHIELD_OVER_CHARGING : 0));
+	vital->body = distributed_vitality_pack(damage.body_vitality);
+	vital->shield = distributed_vitality_pack(damage.shield_vitality);
+}
+
+/* (a change a client should see at once: a value fell from full or emptied,
+or the shield's flags changed) */
+static boolean delta_vital_urgent(
+	struct delta_host_vital const *sent,
+	struct delta_wire_unit_vital const *vital)
+{
+	return sent->flags != vital->flags ||
+		(sent->shield >= DELTA_VITALITY_FULL && vital->shield < DELTA_VITALITY_FULL) ||
+		(sent->body >= DELTA_VITALITY_FULL && vital->body < DELTA_VITALITY_FULL) ||
+		(sent->shield && !vital->shield) || (sent->body && !vital->body);
+}
+
+static void delta_host_send_vitals(
+	boolean everything)
+{
+	static struct delta_wire_unit_vitals message;
+	static long due[DELTA_VITALS_DATAGRAMS * DELTA_WIRE_MAXIMUM_UNIT_VITALS];
+	struct object_iterator iterator;
+	long now = game_time_get();
+	short due_count = 0;
+	boolean urgent = FALSE;
+	boolean refresh;
+	short index;
+
+	object_iterator_new(&iterator, _object_mask_unit, 0);
+	while (object_iterator_next(&iterator))
+	{
+		struct delta_host_vital *sent;
+		struct delta_wire_unit_vital vital;
+
+		if (!distributed_object_networked(iterator.index) || delta_unit_carried(iterator.index))
+			continue;
+		sent = &delta_host_vitals[DATUM_INDEX_TO_ABSOLUTE_INDEX(iterator.index)];
+		delta_vital_from_unit(iterator.index, &vital);
+		if (sent->object_index != iterator.index)
+		{
+			/* (new: once, as it is now) */
+			sent->object_index = iterator.index;
+			sent->repeats = 1;
+		}
+		else if (sent->body != vital.body || sent->shield != vital.shield || sent->flags != vital.flags)
+		{
+			urgent = urgent || delta_vital_urgent(sent, &vital);
+			sent->repeats = DELTA_VITALS_REPEATS;
+		}
+		else if (everything && !sent->repeats)
+			sent->repeats = 1;
+		sent->body = vital.body;
+		sent->shield = vital.shield;
+		sent->flags = vital.flags;
+		if (sent->repeats && due_count < (short)NUMBEROF(due))
+			due[due_count++] = iterator.index;
+	}
+	refresh = delta_host_vitals_refresh_time == NONE || now - delta_host_vitals_refresh_time >= DELTA_VITALS_REFRESH_TICKS;
+	if (!refresh && (!due_count ||
+		(!urgent && delta_host_vitals_time != NONE && now - delta_host_vitals_time < DELTA_VITALS_TICKS)))
+	{
+		return;
+	}
+	message.count = 0;
+	for (index = 0; index < due_count; index++)
+	{
+		struct delta_host_vital *sent = &delta_host_vitals[DATUM_INDEX_TO_ABSOLUTE_INDEX(due[index])];
+
+		sent->repeats--;
+		message.entries[message.count].object = (delta_u32)due[index];
+		message.entries[message.count].flags = sent->flags;
+		message.entries[message.count].body = sent->body;
+		message.entries[message.count].shield = sent->shield;
+		if (++message.count == DELTA_WIRE_MAXIMUM_UNIT_VITALS)
+		{
+			delta_peer_game_send_unit_vitals(&message);
+			message.count = 0;
+		}
+	}
+	/* (and the next of the rest, in turn) */
+	if (refresh)
+	{
+		short added = 0;
+		long looked;
+
+		delta_host_vitals_refresh_time = now;
+		for (looked = 0; looked < MAXIMUM_TRACKED_OBJECTS && added < DELTA_VITALS_REFRESH_COUNT &&
+			message.count < DELTA_WIRE_MAXIMUM_UNIT_VITALS; looked++)
+		{
+			struct delta_host_vital *sent = &delta_host_vitals[delta_host_vitals_cursor];
+
+			delta_host_vitals_cursor = (delta_host_vitals_cursor + 1) % MAXIMUM_TRACKED_OBJECTS;
+			if (sent->object_index == NONE || !distributed_object_networked(sent->object_index) ||
+				!TEST_FLAG(_object_mask_unit, object_get(sent->object_index)->object.type) ||
+				delta_unit_carried(sent->object_index))
+			{
+				continue;
+			}
+			message.entries[message.count].object = (delta_u32)sent->object_index;
+			message.entries[message.count].flags = sent->flags;
+			message.entries[message.count].body = sent->body;
+			message.entries[message.count].shield = sent->shield;
+			message.count++;
+			added++;
+		}
+	}
+	if (message.count)
+		delta_peer_game_send_unit_vitals(&message);
+	delta_host_vitals_time = now;
+}
+
+static void delta_host_send_names(
+	boolean everything)
+{
+	static struct delta_wire_object_name names[DELTA_WIRE_MAXIMUM_OBJECT_NAMES];
+	static struct delta_wire_object_names message;
+	struct object_iterator iterator;
+	long now = game_time_get();
+	int count = 0;
+	int first;
+
+	object_iterator_new(&iterator, NETWORKED_OBJECT_TYPES, 0);
+	while (object_iterator_next(&iterator) && count < DELTA_WIRE_MAXIMUM_OBJECT_NAMES)
+	{
+		short name_index = object_get(iterator.index)->object.name_index;
+
+		if (name_index < 0 || name_index >= DELTA_WIRE_MAXIMUM_OBJECT_NAMES ||
+			!distributed_object_networked(iterator.index))
+		{
+			continue;
+		}
+		names[count].object = (delta_u32)iterator.index;
+		names[count].name = (unsigned short)name_index;
+		count++;
+	}
+	if (!everything && count == delta_host_name_count &&
+		!csmemcmp(names, delta_host_names, count * sizeof(names[0])) &&
+		delta_host_names_time != NONE && now - delta_host_names_time < DELTA_NAMES_REFRESH_TICKS)
+	{
+		return;
+	}
+	csmemcpy(delta_host_names, names, count * sizeof(names[0]));
+	delta_host_name_count = count;
+	delta_host_names_time = now;
+	/* (none: nothing to name) */
+	for (first = 0; first < count; first += DELTA_WIRE_MAXIMUM_OBJECT_NAMES_ENTRIES)
+	{
+		message.total = count;
+		message.first = first;
+		message.count = MIN(count - first, DELTA_WIRE_MAXIMUM_OBJECT_NAMES_ENTRIES);
+		csmemcpy(message.entries, &names[first], message.count * sizeof(names[0]));
+		delta_peer_game_send_object_names(&message);
+	}
+}
+
+/* the host's, each tick before its object changes */
+static void delta_host_objects(
+	void)
+{
+	int clients = delta_peer_game_objects_clients();
+	/* (a client came: everything again) */
+	boolean everything = clients > delta_host_object_clients;
+
+	delta_host_object_clients = clients;
+	if (!clients)
+		return;
+	delta_host_send_vitals(everything);
+	delta_host_send_names(everything);
+}
+
+/* the client's: a copy takes the host's vitality (not a player's unit,
+whose the game's own messages carry) */
+static void delta_client_vitals(
+	void *context,
+	struct delta_wire_unit_vitals const *vitals)
+{
+	short index;
+
+	(void)context;
+	if (!network_game_distributed_client())
+		return;
+	for (index = 0; index < vitals->count; index++)
+	{
+		struct delta_wire_unit_vital const *vital = &vitals->entries[index];
+		long unit_index = (long)vital->object;
+		struct damage_network_state damage;
+
+		if (!network_objects_client_has(unit_index) || !object_try_and_get_and_verify_type(unit_index, _object_mask_unit) ||
+			unit_get(unit_index)->unit.player_index != NONE)
+		{
+			continue;
+		}
+		damage_get_network_state(unit_index, &damage);
+		damage.shield_depleted = (vital->flags & DELTA_WIRE_VITALS_SHIELD_DEPLETED) ? TRUE : FALSE;
+		damage.shield_charging = (vital->flags & DELTA_WIRE_VITALS_SHIELD_CHARGING) ? TRUE : FALSE;
+		damage.shield_over_charging = (vital->flags & DELTA_WIRE_VITALS_SHIELD_OVER_CHARGING) ? TRUE : FALSE;
+		damage.body_vitality = distributed_vitality_unpack(vital->body);
+		damage.shield_vitality = distributed_vitality_unpack(vital->shield);
+		damage_set_network_state(unit_index, &damage);
+	}
+}
+
+/* ... a copy takes the host's name, if the scenario has it for an object of
+its type and nothing else holds it now */
+static void delta_client_name_object(
+	long object_index,
+	short name_index)
+{
+	struct scenario *scenario = global_scenario_get();
+	struct object_datum *object;
+
+	if (!network_objects_client_has(object_index))
+		return;
+	object = object_get(object_index);
+	if (object->object.name_index != NONE || name_index < 0 ||
+		name_index >= MIN(scenario->object_names.count, MAXIMUM_OBJECT_NAMES_PER_SCENARIO) ||
+		TAG_BLOCK_GET_ELEMENT(&scenario->object_names, name_index, struct scenario_object_name)->runtime_object_type !=
+			object->object.type ||
+		object_index_from_name_index(name_index) != NONE)
+	{
+		return;
+	}
+	object_claim_scenario_name(object_index, name_index);
+}
+
+static void delta_client_apply_names(
+	void)
+{
+	int index;
+
+	for (index = 0; index < delta_client_name_count; index++)
+		delta_client_name_object((long)delta_client_names[index].object, (short)delta_client_names[index].name);
+}
+
+static void delta_client_names_heard(
+	void *context,
+	struct delta_wire_object_names const *names)
+{
+	(void)context;
+	if (!network_game_distributed_client())
+		return;
+	/* (fewer than before: the rest are gone) */
+	if (names->total < delta_client_name_count)
+		delta_client_name_count = names->total;
+	csmemcpy(&delta_client_names[names->first], names->entries, names->count * sizeof(names->entries[0]));
+	if (names->first + names->count > delta_client_name_count)
+		delta_client_name_count = names->first + names->count;
+	delta_client_apply_names();
+}
+
+/* (a copy just made: its name, if the host's said it already) */
+static void delta_client_name_new(
+	long object_index)
+{
+	int index;
+
+	for (index = 0; index < delta_client_name_count; index++)
+	{
+		if ((long)delta_client_names[index].object == object_index)
+		{
+			delta_client_name_object(object_index, (short)delta_client_names[index].name);
+			return;
+		}
+	}
+}
+
+static struct delta_peer_objects_client const delta_objects_client = {
+	NULL, delta_client_vitals, delta_client_names_heard
+};
+#endif
+
 void network_objects_host_tick(
 	void)
 {
+#ifdef HALO_GAME_BROWSER
+	/* (Delta Peer's object sync, before this tick's deletes) */
+	delta_host_objects();
+#endif
 	distributed_host_update_objects();
 	distributed_host_find_viewers();
 	distributed_host_send_states();
@@ -2439,6 +2817,10 @@ static void distributed_client_create(
 		return;
 	}
 	objects_client_has[absolute_index] = object_index;
+#ifdef HALO_GAME_BROWSER
+	/* (its name, which the game's message does not carry: Delta Peer's) */
+	delta_client_name_new(object_index);
+#endif
 	/* (a unit's grenades are the host's, which its inventories bring: none
 	until they come, not the tag's that unit_new gave it, which the host's
 	game engine replaces with the game's at a player's spawn: a player
@@ -3267,6 +3649,10 @@ void network_objects_client_tick(
 	distributed_client_note_own_inventories();
 	distributed_client_send_vehicles();
 	distributed_client_carry_unsteered_vehicles();
+#ifdef HALO_GAME_BROWSER
+	/* (names whose objects came since, or were held then) */
+	delta_client_apply_names();
+#endif
 	/* (who it is, as its Discord told it: once its ready went, which makes
 	it a machine the host takes messages of) */
 	if (objects_client_ready_time != NONE)
@@ -3285,6 +3671,10 @@ void network_objects_new_game(
 
 #ifdef HALO_PORT_CONSOLE_LIMITS
 	objects_cross_play_new_game();
+#endif
+#ifdef HALO_GAME_BROWSER
+	delta_objects_reset();
+	delta_peer_game_set_objects_client(&delta_objects_client);
 #endif
 	csmemset(objects_host_inventories, 0, sizeof(objects_host_inventories));
 	host_damage_animation_count = 0;
