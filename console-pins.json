@@ -1,0 +1,11 @@
+{
+ "console_pins": 1,
+ "serial": 1,
+ "epoch": 0,
+ "issued": 1793225317,
+ "hosts": {
+  "stats.chupathingy.org": {
+   "current": "9ab724e91279a849c72f87e1ab61f26f9870c5cda3220798a732c22b90a9a50f"
+  }
+ }
+}
