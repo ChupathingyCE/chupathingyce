@@ -6151,6 +6151,8 @@ static void widget_instance_render_spinner_list(
 }
 
 #ifndef HALO_XBOX_CONSOLE
+#include "../../port/linux/src/ui_point.h"
+
 /* ---------- the mouse (desktop builds)
 
 The menus were made for a controller: the d-pad moves the focus through a
@@ -7493,6 +7495,24 @@ static void ui_widgets_process_mouse(
 		controls_screen_pointer(&pointer);
 #endif
 #endif
+	/* the carnage report's prompt is text, not targets: a click or tap on
+	one of its parts presses that part's button (game_engine_postgame_prompt,
+	#467); no menu is up to take the click instead. A finger reaches a little
+	around the text. */
+	if (pointer_active && !keyboard_active && !overlay_active && pointer.left_clicks && !ui_mouse_menu())
+	{
+		struct ui_point_prompt prompt;
+
+		if (game_engine_postgame_prompt(&prompt.top, &prompt.bottom, &prompt.left, &prompt.right, &prompt.split))
+		{
+			short part = (short)ui_point_prompt_part(&prompt, ui_mouse_pointer_is_touch ? 32 : 2,
+				pointer.click_x, pointer.click_y);
+
+			if (part != NONE)
+				game_engine_postgame_prompt_press(part);
+			pointer.left_clicks = 0;
+		}
+	}
 	if (!pointer_active || keyboard_active || overlay_active)
 	{
 		ui_mouse_press_count = 0;

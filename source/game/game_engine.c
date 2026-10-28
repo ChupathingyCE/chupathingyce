@@ -2544,6 +2544,116 @@ enum
 	POSTGAME_PROMPT_RIGHT = 610
 };
 
+/* port: the carnage report's prompt as last drawn, for a click or a tap
+on it (ui_widgets_process_mouse, #467). It is text, not widgets, so the
+menus' pointer has no target on it, and the postgame reads the gamepads'
+buttons (game_engine_update_non_deterministic), not the menus' events: a
+tap on PICK GAME or QUIT did nothing. Its parts are the text before and
+from its second button, each with that button's gamepad button. */
+enum
+{
+	POSTGAME_PROMPT_LINE_HEIGHT = 18
+};
+
+static struct
+{
+	boolean drawn;
+	short top, bottom;
+	short left, right;
+	short split;
+	short part_buttons[2];
+	/* a part's button the pointer pressed, for the next update */
+	short pressed_button;
+} postgame_prompt = { FALSE, 0, 0, 0, 0, 0, { NONE, NONE }, NONE };
+
+/* the gamepad button of a prompt's button token ("%a-button": 0, A), or
+NONE */
+static short postgame_prompt_token_button(
+	wchar_t const *token)
+{
+	if (!token)
+		return NONE;
+	return token[1] == L'a' ? 0 : token[1] == L'b' ? 1 : NONE;
+}
+
+/* where the first length characters of a prompt end, drawn unseen from
+bounds' left */
+static short postgame_prompt_measure(
+	rectangle2d const *bounds,
+	wchar_t const *prompt,
+	long length)
+{
+	wchar_t part[256];
+	rectangle2d drawn = *bounds;
+
+	length = MIN(length, (long)NUMBEROF(part) - 1);
+	csmemcpy(part, prompt, length * sizeof(wchar_t));
+	part[length] = 0;
+	draw_string_and_hack_in_icons(&drawn, NULL, NULL, 0, part, FALSE);
+
+	return draw_string_and_hack_in_icons_end_x;
+}
+
+/* notes the prompt's parts as drawn at bounds (the color is unseen) */
+static void postgame_prompt_note(
+	rectangle2d const *bounds,
+	wchar_t const *prompt,
+	short right)
+{
+	wchar_t const *a_token = wcsstr(prompt, L"%a");
+	wchar_t const *b_token = wcsstr(prompt, L"%b");
+	wchar_t const *first = a_token && (!b_token || a_token < b_token) ? a_token : b_token;
+	wchar_t const *second = first == a_token ? b_token : a_token;
+
+	postgame_prompt.drawn = first != NULL;
+	postgame_prompt.top = bounds->y0;
+	postgame_prompt.bottom = (short)(bounds->y0 + POSTGAME_PROMPT_LINE_HEIGHT);
+	postgame_prompt.left = bounds->x0;
+	postgame_prompt.right = right;
+	postgame_prompt.split = right;
+	postgame_prompt.part_buttons[0] = postgame_prompt_token_button(first);
+	postgame_prompt.part_buttons[1] = postgame_prompt_token_button(second);
+	if (second)
+	{
+		long length = (long)(second - prompt);
+		long trimmed = length;
+		short first_end;
+		short second_start;
+
+		/* halfway across the space between the parts */
+		while (trimmed > 0 && prompt[trimmed - 1] == L' ')
+			trimmed--;
+		first_end = postgame_prompt_measure(bounds, prompt, trimmed);
+		second_start = postgame_prompt_measure(bounds, prompt, length);
+		postgame_prompt.split = (short)((first_end + second_start) / 2);
+	}
+}
+
+boolean game_engine_postgame_prompt(
+	short *top,
+	short *bottom,
+	short *left,
+	short *right,
+	short *split)
+{
+	if (!game_engine_showing_postgame() || !postgame_prompt.drawn)
+		return FALSE;
+	*top = postgame_prompt.top;
+	*bottom = postgame_prompt.bottom;
+	*left = postgame_prompt.left;
+	*right = postgame_prompt.right;
+	*split = postgame_prompt.split;
+
+	return TRUE;
+}
+
+void game_engine_postgame_prompt_press(
+	short part)
+{
+	if (part >= 0 && part < (short)NUMBEROF(postgame_prompt.part_buttons) && game_engine_showing_postgame())
+		postgame_prompt.pressed_button = postgame_prompt.part_buttons[part];
+}
+
 static void postgame_draw_prompt(
 	rectangle2d const *bounds,
 	wchar_t const *prompt,
@@ -2558,6 +2668,7 @@ static void postgame_draw_prompt(
 	drawn = *bounds;
 	if (draw_string_and_hack_in_icons_end_x > POSTGAME_PROMPT_RIGHT)
 		drawn.x0 = (short)MAX(0, drawn.x0 - (draw_string_and_hack_in_icons_end_x - POSTGAME_PROMPT_RIGHT));
+	postgame_prompt_note(&drawn, prompt, (short)MIN(draw_string_and_hack_in_icons_end_x, POSTGAME_PROMPT_RIGHT));
 	draw_string_set_color(color);
 	draw_string_and_hack_in_icons(&drawn, NULL, NULL, 0, prompt, FALSE);
 }
@@ -5129,6 +5240,9 @@ void game_engine_update_non_deterministic(
 		{
 		case game_engine_mode_postgame_rasterize_delay:
 			rumble_clear_all_now();
+			/* port: nothing of the last game's prompt (postgame_prompt) */
+			postgame_prompt.drawn = FALSE;
+			postgame_prompt.pressed_button = NONE;
 			game_engine_globals.postgame_timer -= delta_seconds;
 			if (game_engine_globals.postgame_timer <= 0.0f)
 				game_engine_globals.postgame_state = game_engine_mode_postgame_rasterize;
@@ -5140,16 +5254,21 @@ void game_engine_update_non_deterministic(
 			if (game_engine_globals.postgame_progress > 1.0f)
 				game_engine_globals.postgame_progress = 1.0f;
 
-			if (test_any_gamepad_button(0) || test_any_gamepad_button(12))
+			/* port: or a click or tap on the prompt's part
+			(postgame_prompt) */
+			if (test_any_gamepad_button(0) || test_any_gamepad_button(12) ||
+				postgame_prompt.pressed_button == 0)
 			{
 				if (global_network_game_server_get())
 				network_game_server_reset_to_pregame(
 					global_network_game_server_get());
 			}
-			else if (test_any_gamepad_button(1) || test_any_gamepad_button(13))
+			else if (test_any_gamepad_button(1) || test_any_gamepad_button(13) ||
+				postgame_prompt.pressed_button == 1)
 			{
 				network_game_abort();
 			}
+			postgame_prompt.pressed_button = NONE;
 			break;
 		}
 	}

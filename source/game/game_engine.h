@@ -615,6 +615,19 @@ boolean game_engine_running(
 	void);
 boolean game_engine_showing_postgame(
 	void);
+/* port: the carnage report's prompt as last drawn, in the menus'
+coordinates: its line's top and bottom, its ends, and where its second part
+begins (right when it has one); FALSE when it is not up */
+boolean game_engine_postgame_prompt(
+	short *top,
+	short *bottom,
+	short *left,
+	short *right,
+	short *split);
+/* port: a click or tap on a part of the prompt (0 the first) presses its
+button, as the gamepad's would */
+void game_engine_postgame_prompt_press(
+	short part);
 
 boolean game_engine_get_state_message(
 	long player_index,

@@ -115,6 +115,39 @@ int main(void)
 		CHECK(!ui_point_from_window(&view, 10.0f, 10.0f, &x, &y) && x == -1 && y == -1);
 		CHECK(!ui_point_to_window(&view, 10, 10, &window_x, &window_y));
 	}
+	/* the host's carnage report prompt: B =quit from 380, A =pick game
+	from 470 to 600, on the line at 410 */
+	{
+		struct ui_point_prompt prompt = { 410, 428, 380, 600, 470 };
+
+		CHECK(ui_point_prompt_part(&prompt, 0, 400, 418) == 0);
+		CHECK(ui_point_prompt_part(&prompt, 0, 469, 418) == 0);
+		CHECK(ui_point_prompt_part(&prompt, 0, 470, 418) == 1);
+		CHECK(ui_point_prompt_part(&prompt, 0, 599, 418) == 1);
+		CHECK(ui_point_prompt_part(&prompt, 0, 600, 418) == -1);
+		CHECK(ui_point_prompt_part(&prompt, 0, 500, 400) == -1);
+		CHECK(ui_point_prompt_part(&prompt, 0, 300, 418) == -1);
+		/* a finger's margin: just above, below and beside the text */
+		CHECK(ui_point_prompt_part(&prompt, 24, 500, 395) == 1);
+		CHECK(ui_point_prompt_part(&prompt, 24, 500, 450) == 1);
+		CHECK(ui_point_prompt_part(&prompt, 24, 360, 418) == 0);
+		CHECK(ui_point_prompt_part(&prompt, 24, 620, 418) == 1);
+		CHECK(ui_point_prompt_part(&prompt, 24, 500, 300) == -1);
+	}
+	/* a client's prompt has one part: B =quit only */
+	{
+		struct ui_point_prompt prompt = { 410, 428, 520, 600, 600 };
+
+		CHECK(ui_point_prompt_part(&prompt, 24, 560, 418) == 0);
+		CHECK(ui_point_prompt_part(&prompt, 24, 610, 418) == 0);
+		CHECK(ui_point_prompt_part(&prompt, 24, 400, 418) == -1);
+	}
+	/* a prompt not drawn yet */
+	{
+		struct ui_point_prompt prompt = { 0, 0, 0, 0, 0 };
+
+		CHECK(ui_point_prompt_part(&prompt, 24, 0, 0) == -1);
+	}
 	if (failures)
 		printf("%d failures\n", failures);
 	return failures ? 1 : 0;
