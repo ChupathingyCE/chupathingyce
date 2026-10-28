@@ -289,6 +289,10 @@ symbols in this file:
 #include "cseries/cseries_windows.h"
 #endif
 
+/* port: bipeds.c's; cheats.c's (hs_evaluate_set) */
+extern boolean rider_ejection;
+void cheats_map_set_rider_ejection(boolean value);
+
 /* ---------- constants */
 
 enum
@@ -2262,6 +2266,15 @@ void hs_evaluate_set(
 		hs_global_reconcile_write((short)variable->data);
 		if (type==_hs_type_object_list)
 			object_list_add_reference(hs_global_evaluate((short)variable->data));
+		/* port: rider_ejection as the map's own scripts set it, which a
+		client in another's game keeps (cheats_network_client_enforce); the
+		console's sets are the player's, not the map's */
+		if (thread->type!=_hs_thread_type_console_command &&
+			HS_GLOBAL_DESIGNATOR_IS_EXTERNAL(variable->data) &&
+			hs_global_external_get(HS_GLOBAL_DESIGNATOR_TO_INDEX((short)variable->data))->address==&rider_ejection)
+		{
+			cheats_map_set_rider_ejection(rider_ejection);
+		}
 
 		hs_return(thread_index, hs_global_evaluate((short)variable->data));
 	}

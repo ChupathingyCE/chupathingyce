@@ -146,6 +146,15 @@ enum delta_capability
 	(TEAM_RESULT); the change itself reaches every machine, OpenCE's too,
 	through the game's own player respawn */
 	_delta_capability_team_change = 15,
+	/* reserved for server badges (a draft, not built yet): never set here */
+	_delta_capability_server_badge = 16,
+	/* what the game's own messages leave out of the host's objects
+	(docs/delta.md, Object sync): every unit's shield and health as they
+	change (UNIT_VITALS), so that a client's copy of a placed biped or an
+	empty vehicle reads as the host's does, and the scenario names of the
+	objects the host made (OBJECT_NAMES), so that a client's scripts find
+	them by name */
+	_delta_capability_object_sync = 17,
 
 	NUMBER_OF_DELTA_CAPABILITIES
 };
