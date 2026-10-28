@@ -106,6 +106,11 @@ static int local_platform(void)
 #if defined(HALO_XBOX_CONSOLE)
 	/* (before _WIN32: the console's build is a Windows target's too) */
 	return _delta_platform_xbox;
+#elif defined(HALO_XBOX360_CONSOLE)
+	/* (before _WIN32 too, for the same reason) */
+	return _delta_platform_xbox360;
+#elif defined(HALO_WIIU_CONSOLE)
+	return _delta_platform_wiiu;
 #elif defined(_WIN32)
 	/* (the Windows build under Proton on the Deck: Steam sets SteamDeck=1
 	there too) */
@@ -403,8 +408,8 @@ int delta_peer_protocol(void)
 		env.moderation_sign = game_moderation_sign;
 		env.moderation_binding = game_moderation_binding;
 		memset(&local, 0, sizeof(local));
-#ifdef HALO_XBOX_CONSOLE
-		/* (the console says what it is: no maps or moderation; its
+#ifdef HALO_CONSOLE_DELTA
+		/* (a console says what it is: no maps or moderation; its
 		profile only if the player gave it an identity file: added below) */
 		local.capabilities = (delta_u32)1 << _delta_capability_platform;
 #ifdef HALO_PORT_CHAT
@@ -438,13 +443,13 @@ int delta_peer_protocol(void)
 		table's layouts' newest) */
 		local.legacy_version = network_rules_layout_newest();
 		delta_peer_local_key(&local.key);
-#ifdef HALO_XBOX_CONSOLE
+#ifdef HALO_CONSOLE_DELTA
 		snprintf(local.build, sizeof(local.build), "Warthog %s", HALO_VERSION);
 #else
 		snprintf(local.build, sizeof(local.build), "ChupathingyCE %s", updater_version());
 #endif
 		local.has_profile = local_profile(&local.profile);
-#ifdef HALO_XBOX_CONSOLE
+#ifdef HALO_CONSOLE_DELTA
 		if (local.has_profile)
 			local.capabilities |= (delta_u32)1 << _delta_capability_profile;
 #endif
@@ -531,8 +536,8 @@ static void receive(void)
 
 /* the host's: the game's map, as MAP carries it, for the session to send
 (none while its file's hash is being made) */
-#ifdef HALO_XBOX_CONSOLE
-/* (the console takes no Halo PC maps' identities: it asks for no MAP) */
+#ifdef HALO_CONSOLE_DELTA
+/* (a console takes no Halo PC maps' identities: it asks for no MAP) */
 static void host_map(void)
 {
 }
