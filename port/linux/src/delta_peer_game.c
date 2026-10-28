@@ -29,6 +29,12 @@ HALO_GAME_BROWSER; network.protocol = "opence" turns all of it off.
 #include "browser.h"
 #include "p2p.h"
 #endif
+#ifdef HALO_CONSOLE_PROFILE_ID
+/* (the port's: this console's player ID while its player linked it to a
+Delta profile, port/console/link/console_link.h, or put an identity file
+on it) */
+int console_profile_id(unsigned char *id);
+#endif
 #ifdef HALO_XBOX_CONSOLE
 /* (the console's memory class, as log2 of megabytes: port/xbox/src/
 xbox_memory.c) */
@@ -225,7 +231,12 @@ static int local_profile(struct delta_wire_profile *profile)
 	return 1;
 #else
 	memset(profile, 0, sizeof(*profile));
-#ifdef HALO_XBOX_CONSOLE
+#if defined(HALO_CONSOLE_PROFILE_ID)
+	/* (only a console its player linked (Link Profile) or gave an identity
+	file: on a console that is the player's consent, where a desktop build
+	asks for network.share_profile) */
+	return console_profile_id(profile->player_id);
+#elif defined(HALO_XBOX_CONSOLE)
 	/* (only a copy the player gave an identity file: on a console the file
 	being there is the player's consent, where a desktop build asks for
 	network.share_profile) */

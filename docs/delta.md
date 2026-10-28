@@ -1585,6 +1585,40 @@ copy: every Halo profile on a copy counts for the same Delta profile.
 - **Consoles:** `HALO_CONSOLE_NO_DELTA_PROFILE` leaves all of it out. A
   console that has the game list keeps Online Games' Link Profile panel.
 
+### Link Profile on a console
+
+The original Xbox, the Xbox 360 and the Wii U link with a key of their own
+(`port/console/link`, the site's `console_link.py`). Their Online Games'
+Start opens a DELTA PROFILE panel: linked to whom, or a code to enter at
+stats.chupathingy.org/connect (and its QR code), then A to confirm.
+
+- **The key:** made on the console the first time its player asks for a
+  code (`delta_device.key` beside config.toml: an Ed25519 seed as 64 hex
+  digits). It never leaves the console and is never logged. The console's
+  player ID is the first 16 bytes of SHA-256("chupathingy console id v1\n"
+  + its public key), so no one can claim another console's ID.
+- **The code**, over the console list's plain HTTP (no TLS yet): the
+  console sends its public key and a commitment to a secret
+  (`/v1/console/link/start`), the site answers a nonce, the console sends
+  the secret (`/v1/console/link/code`). Both work out the code
+  (XXXX-XXXX, 10 minutes) from the key, the secret and the nonce, so a key
+  swapped on the way gives a code that isn't the one on the screen. The
+  console polls `/v1/console/link/status`, asks its player, and signs its
+  answer over the profile it showed (`/v1/console/link/confirm`). Nothing
+  sent can be used again by anyone who sees it.
+- **HTTPS later:** once a console has Mbed TLS (the site's key pinned, so no
+  clock is needed), its port sets the hook's `https_request` and the same
+  calls go to stats.chupathingy.org over TLS.
+- **Afterwards:** the console keeps the handle (`delta_link.txt`), and asks
+  `/v1/console/profile` (a signed one-use challenge) for its name and clan
+  tag when Online Games opens; unlinked on the site, it forgets it. A
+  linked console shares its ID in Delta Peer's PROFILE
+  (`HALO_CONSOLE_PROFILE_ID`), so its games count and Delta players see its
+  Delta name. A console that never asked for a code sends nothing.
+- **Unlinking** is on the site (`/profile#copies`). The original Xbox's
+  identity file (`D:\game_list_player.key`) still works, and wins when
+  present.
+
 ### Clans
 
 Clans are groups of Delta profiles, kept by the game list (its
