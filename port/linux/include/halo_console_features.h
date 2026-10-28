@@ -86,6 +86,13 @@ HALO_CONSOLE_ONLINE_GAMES
 	ui_widget.c; the original Xbox's port/xbox/game/xbox_browser_screen.c,
 	the Xbox 360's port/xbox360/game/x360_browser_screen.c, the Wii U's
 	port/wiiu/game/wiiu_browser_screen.c)
+HALO_CONSOLE_HTTPS
+	HTTPS through port/console/https (Mbed TLS over the port's sockets,
+	struct console_https_port, the site's key and GitHub's roots pinned:
+	docs/console-https.md), on its compile line: the signed legacy table
+	fetched by the console itself (delta_legacy_refresh, port/linux/src/
+	delta.c, called on a thread of the port's) and cached beside
+	config.toml
 HALO_CONSOLE_DEBUG_CHANNEL
 	a console without a standard error: the platform layer's log lines and
 	OutputDebugStringA go to its debug channel (console_debug_print,

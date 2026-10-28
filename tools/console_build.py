@@ -140,6 +140,36 @@ class ConsolePort:
                       if path.suffix in (".c", ".h"))
 
 
+# HTTPS on a console (port/console/https, docs/console-https.md): the shared
+# client, its trust, and Mbed TLS built with the consoles' configuration. A
+# port compiles console_https_sources() with console_https_flags() (paths
+# under the game's root: ConsolePort.game_path), gives the client its sockets and
+# random numbers (struct console_https_port), and builds the game with
+# -DHALO_CONSOLE_HTTPS (and port/console/https on its include path) for the
+# shared code's HTTPS: the signed legacy table's fetch (delta.c)
+CONSOLE_HTTPS_DIR = Path("port/console/https")
+MBEDTLS_DIR = Path("port/third_party/mbedtls")
+
+
+def console_https_flags(game: Path) -> List[str]:
+    """the compile flags of console_https_sources() (and of the game units
+    that call the client), the game's root at game (ConsolePort.game), for a
+    ninja command line"""
+    return [
+        '-DMBEDTLS_CONFIG_FILE=\\"console_mbedtls_config.h\\"',
+        f"-I{game / CONSOLE_HTTPS_DIR}", f"-I{game / MBEDTLS_DIR / 'include'}", f"-I{game / MBEDTLS_DIR / 'library'}",
+    ]
+
+
+def console_https_sources() -> List[Path]:
+    """the client's and Mbed TLS's sources, relative to the game's root (the
+    library's every unit: the configuration leaves out what it does not
+    need, and those units compile to nothing)"""
+    own = [CONSOLE_HTTPS_DIR / name for name in ("console_https.c", "console_https_trust.c", "console_https_roots.c")]
+    library = sorted(MBEDTLS_DIR / "library" / path.name for path in (GAME_ROOT / MBEDTLS_DIR / "library").glob("*.c"))
+    return own + library
+
+
 def console_defines(sln: Any) -> List[str]:
     """the game's defines for configure.py's console options, which every
     console build gives its game units (the shared code's HALO_CONSOLE_*)"""
