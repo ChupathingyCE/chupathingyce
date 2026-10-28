@@ -458,6 +458,7 @@ symbols in this file:
 #include "interface/ui_widget.h"
 #include "main/main.h"
 #include "math/real_math.h"
+#include "memory/data.h"
 #include "networking/network_client_manager.h"
 #include "networking/network_connection.h"
 #include "networking/network_game_globals.h"
@@ -2847,6 +2848,77 @@ static boolean network_game_server_player_among(
 	return FALSE;
 }
 
+/* whether a valid one of the players is of the player's machine and
+controller (a client finds the player to remove by those alone) */
+static boolean network_game_server_player_seat_among(
+	struct network_player const *player,
+	struct network_player *players,
+	long count)
+{
+	long index;
+
+	for (index = 0; index < count; index++)
+	{
+		if (network_player_is_valid(&players[index]) &&
+			players[index].machine_index == player->machine_index &&
+			players[index].controller_index == player->controller_index)
+		{
+			return TRUE;
+		}
+	}
+	return FALSE;
+}
+
+/* port: a machine joining the game in progress after a player quit it: the
+quitter's datum stays until the game ends (on the scoreboard, his kills and
+deaths), but he was not in the settings the machine was started with, and
+it lets go of the statistics of a player it does not have. So it is told of
+him as a machine there at his quit was: added at his slot, and quit at once
+(a later player in that slot takes it, network_game_spawn_player). Not one
+whose machine and controller a player of the game or the joining machine
+has now, whom the quit would name */
+static void network_game_server_tell_late_joiner_of_quitters(
+	struct network_game_server *server,
+	struct network_game_server_client_machine *machine,
+	struct network_player *started,
+	long count)
+{
+	struct data_iterator iterator;
+	struct player_datum *player;
+
+	if (!player_data || !player_data->valid)
+		return;
+	data_iterator_new(&iterator, player_data);
+	while ((player = (struct player_datum *)data_iterator_next(&iterator)) != NULL)
+	{
+		long slot = DATUM_INDEX_TO_ABSOLUTE_INDEX(iterator.datum_index);
+		struct network_player quitter = player->network_player_data;
+		struct message_server_remove_player_ingame remove_player;
+		void *message;
+
+		if (slot >= count || player->quit_out_of_game_time == NONE ||
+			network_player_is_valid(&server->game.players[slot]) ||
+			!network_player_is_valid(&quitter) || quitter.machine_index == machine->machine_index ||
+			network_game_server_player_seat_among(&quitter, server->game.players, count) ||
+			network_game_server_player_seat_among(&quitter, started, count))
+		{
+			continue;
+		}
+		quitter.player_list_index = (char)slot;
+		message = create_network_game_message(_message_server_add_player_ingame, &quitter, sizeof(quitter));
+		if (!message || !network_game_server_send_message_to_client_machine(server, machine, message))
+			continue;
+		remove_player.player = quitter;
+		remove_player.reason = player->quit_out_of_game_time;
+		message = create_network_game_message(_message_server_remove_player_ingame, &remove_player,
+			sizeof(remove_player));
+		if (message)
+			network_game_server_send_message_to_client_machine(server, machine, message);
+		network_event("told machine #%d of a player who quit before it joined (slot %ld, machine #%d / controller #%d)",
+			machine->machine_index, slot, quitter.machine_index, quitter.controller_index);
+	}
+}
+
 /* port: machines joining the game in progress whose start waits for their
 settings record's size (network version 35's longer record: a Delta host
 that announces 35 or later waits for a joining machine's HELLO first,
@@ -2988,6 +3060,8 @@ void network_game_server_late_joiner_loaded(
 		long count = (long)NUMBEROF(server->game.players);
 		long index;
 
+		/* the players who quit before it was started */
+		network_game_server_tell_late_joiner_of_quitters(server, machine, started, count);
 		/* the players gone while it loaded (first: a player's machine index
 		may be a new machine's, which a player added is told apart from by
 		that only) */
