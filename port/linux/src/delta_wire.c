@@ -1318,6 +1318,7 @@ int delta_wire_read_unit_vitals(const unsigned char *payload, int size, struct d
 	int index;
 
 	vitals->count = 0;
+	vitals->flags = 0;
 	if (!payload || size < DELTA_WIRE_UNIT_VITALS_SIZE || size > DELTA_WIRE_MAXIMUM_PAYLOAD ||
 		payload[0] > DELTA_WIRE_MAXIMUM_UNIT_VITALS ||
 		size < DELTA_WIRE_UNIT_VITALS_SIZE + payload[0] * DELTA_WIRE_UNIT_VITALS_ENTRY_SIZE)
@@ -1337,6 +1338,7 @@ int delta_wire_read_unit_vitals(const unsigned char *payload, int size, struct d
 			return 0;
 	}
 	vitals->count = payload[0];
+	vitals->flags = (unsigned char)(payload[1] & DELTA_WIRE_UNIT_VITALS_PASS);
 	return 1;
 }
 
@@ -1351,6 +1353,7 @@ int delta_wire_write_unit_vitals(unsigned char *data, delta_u32 session, const s
 	length = DELTA_WIRE_UNIT_VITALS_SIZE + vitals->count * DELTA_WIRE_UNIT_VITALS_ENTRY_SIZE;
 	clear(payload, length);
 	payload[0] = (unsigned char)vitals->count;
+	payload[1] = (unsigned char)(vitals->flags & DELTA_WIRE_UNIT_VITALS_PASS);
 	for (index = 0; index < vitals->count; index++)
 	{
 		unsigned char *entry = payload + DELTA_WIRE_UNIT_VITALS_SIZE + index * DELTA_WIRE_UNIT_VITALS_ENTRY_SIZE;

@@ -1240,18 +1240,23 @@ int delta_peer_game_objects_clients(void)
 	return delta_peer_objects_clients(&delta_game.peer);
 }
 
-int delta_peer_game_send_unit_vitals(const struct delta_wire_unit_vitals *vitals)
+int delta_peer_game_send_unit_vitals(int machine_index, const struct delta_wire_unit_vitals *vitals)
 {
 	if (!delta_game.ready || delta_game.role != _role_host)
 		return 0;
-	return delta_peer_send_unit_vitals(&delta_game.peer, vitals);
+	return delta_peer_send_unit_vitals(&delta_game.peer, machine_index, vitals);
 }
 
-int delta_peer_game_send_object_names(const struct delta_wire_object_names *names)
+int delta_peer_game_objects_ready(void)
+{
+	return delta_game.ready && delta_game.role == _role_client && delta_peer_client_objects_ready(&delta_game.peer);
+}
+
+int delta_peer_game_send_object_names(int machine_index, const struct delta_wire_object_names *names)
 {
 	if (!delta_game.ready || delta_game.role != _role_host)
 		return 0;
-	return delta_peer_send_object_names(&delta_game.peer, names);
+	return delta_peer_send_object_names(&delta_game.peer, machine_index, names);
 }
 
 void delta_peer_game_set_objects_client(const struct delta_peer_objects_client *client)

@@ -708,9 +708,12 @@ units' shield and health (UNIT_VITALS) and objects' scenario names
 
 /* (host) the clients that agreed to object_sync now */
 int delta_peer_objects_clients(const struct delta_peer *peer);
-/* (host) to each of them: how many it went to */
-int delta_peer_send_unit_vitals(struct delta_peer *peer, const struct delta_wire_unit_vitals *vitals);
-int delta_peer_send_object_names(struct delta_peer *peer, const struct delta_wire_object_names *names);
+/* (host) to each of them (machine_index -1), or to one: how many it went
+to */
+int delta_peer_send_unit_vitals(struct delta_peer *peer, int machine_index, const struct delta_wire_unit_vitals *vitals);
+int delta_peer_send_object_names(struct delta_peer *peer, int machine_index, const struct delta_wire_object_names *names);
+/* (client) whether the host agreed to object_sync */
+int delta_peer_client_objects_ready(const struct delta_peer *peer);
 /* (client) where what the host says goes (NULL: nowhere, dropped) */
 void delta_peer_set_objects_client(struct delta_peer *peer, const struct delta_peer_objects_client *client);
 
@@ -852,8 +855,10 @@ unsigned int delta_peer_game_team_result(struct delta_wire_team_result *result);
 that agreed to it and what goes to them; the client's, where what its host
 says goes */
 int delta_peer_game_objects_clients(void);
-int delta_peer_game_send_unit_vitals(const struct delta_wire_unit_vitals *vitals);
-int delta_peer_game_send_object_names(const struct delta_wire_object_names *names);
+int delta_peer_game_send_unit_vitals(int machine_index, const struct delta_wire_unit_vitals *vitals);
+/* (client) whether the host agreed to object_sync */
+int delta_peer_game_objects_ready(void);
+int delta_peer_game_send_object_names(int machine_index, const struct delta_wire_object_names *names);
 void delta_peer_game_set_objects_client(const struct delta_peer_objects_client *client);
 
 /* ---------- what Delta List says of a hosted game (browser.c's

@@ -299,7 +299,7 @@ a later version may append):
 | 23 | TEAM_REQUEST | client to host | sequence (4, above the session's last), player (1, the game's player list index), team (1: 0 red, 1 blue, 255 the other one), reserved (2) |
 | 24 | TEAM_RESULT | host to client | sequence (4, the TEAM_REQUEST's), result (1: 0 changed, 1 at the next respawn, 2 the host takes none, 3 the teams would be uneven, 4 no teams, 5 too soon, 6 not now, 7 no such player of the machine, 8 already on that team, 9 the last player of their team), team (1, the player's now), seconds until the player may change again (2; with 5) |
 | 25, 26 | | | kept for server badges (a draft) |
-| 27 | UNIT_VITALS | host to client | count (1, at most 98), reserved (3), then 12-byte entries: the host's object (4, its datum index, which a client's copy shares), flags (1: 0x01 shield depleted, 0x02 shield charging, 0x04 shield over charging), reserved (1), body vitality (2), shield vitality (2), reserved (2); vitality in 16384ths, as the game's own unit states have it |
+| 27 | UNIT_VITALS | host to client | count (1, at most 98), flags (1: 0x01 the last datagram of a full pass), reserved (2), then 12-byte entries: the host's object (4, its datum index, which a client's copy shares), flags (1: 0x01 shield depleted, 0x02 shield charging, 0x04 shield over charging), reserved (1), body vitality (2), shield vitality (2), reserved (2); vitality in 16384ths, as the game's own unit states have it |
 | 28 | OBJECT_NAMES | host to client | total (2, the host's named objects in all, at most 512), first (2, this datagram's first entry's place among them), count (1, at most 147), reserved (3), then 8-byte entries: the host's object (4), its scenario name index (2), reserved (2) |
 
 A roster covers every machine of the game, in as many datagrams as it takes
@@ -604,11 +604,23 @@ the map and the report):
   changes, so a client sees a shield drop before a delete the host's
   scripts made of it. A client's copy takes the host's values (not its
   own player's unit, which the game's messages carry).
+- **A client that comes late.** A client that joins, or loads the map
+  after the host, would learn of the host's deletes and the shields that
+  caused them at once, and a map's scripts would decide wrong. So when a
+  client asks for the host's objects, the host sends it every unit's
+  vitals first (a full pass, its last datagram marked), and the client
+  keeps its own copies of what the host deleted until a tick after that
+  pass came (a second at most; not at all with a host without
+  `object_sync`). Its scripts run that tick with the host's vitals on the
+  copies the map placed. In play, a client also applies the host's delete
+  of a named object two ticks late, so that the vitals heard with it (often
+  in the same frame) are there for one tick of its scripts first.
 - **Object names.** A client makes its copy of a host's object without the
   scenario name (the creation message has none), so the names of objects
   the host's scripts made (`object_create_anew`) found nothing there. The
-  host sends OBJECT_NAMES, all its named objects, when they change, when a
-  client agrees, and every 5 seconds. A client names its copy as it comes,
+  host sends OBJECT_NAMES, all its named objects (by its name list, as its
+  scripts read them), when they change, when a client agrees or asks for
+  its objects, and every 5 seconds. A client names its copy as it comes,
   if the scenario gives that name to an object of its type and nothing
   else holds the name then (its own copy of the same name, which it
   deletes as not the host's, frees it).

@@ -170,6 +170,14 @@ enum
 	DELTA_WIRE_VITALS_FLAGS = 0x07
 };
 
+/* UNIT_VITALS's own flags (its second byte) */
+enum
+{
+	/* the last datagram of a full pass: every unit the host's vitals
+	cover, sent when a client asks for the host's objects */
+	DELTA_WIRE_UNIT_VITALS_PASS = 0x01
+};
+
 /* TEAM_RESULT's results; a number is never reused */
 enum delta_team_result
 {
@@ -703,6 +711,8 @@ struct delta_wire_unit_vital
 
 struct delta_wire_unit_vitals
 {
+	/* DELTA_WIRE_UNIT_VITALS_* (others a later build's: ignored) */
+	unsigned char flags;
 	int count;
 	struct delta_wire_unit_vital entries[DELTA_WIRE_MAXIMUM_UNIT_VITALS];
 };

@@ -1194,6 +1194,7 @@ static void test_wire_objects(void)
 	CHECK(DELTA_WIRE_MAXIMUM_UNIT_VITALS == 98 && DELTA_WIRE_MAXIMUM_OBJECT_NAMES_ENTRIES == 147);
 	memset(&vitals, 0, sizeof(vitals));
 	vitals.count = DELTA_WIRE_MAXIMUM_UNIT_VITALS;
+	vitals.flags = DELTA_WIRE_UNIT_VITALS_PASS;
 	for (index = 0; index < vitals.count; index++)
 	{
 		vitals.entries[index].object = 0xE1A00000u + (delta_u32)index;
@@ -1206,7 +1207,7 @@ static void test_wire_objects(void)
 		size <= DELTA_WIRE_MAXIMUM_DATAGRAM);
 	CHECK(delta_wire_read_header(data, size, &header) && header.type == _delta_message_unit_vitals &&
 		delta_wire_read_unit_vitals(data + DELTA_WIRE_HEADER_SIZE, header.length, &vitals_in) &&
-		vitals_in.count == 98 && vitals_in.entries[97].object == 0xE1A00061u &&
+		vitals_in.count == 98 && vitals_in.flags == DELTA_WIRE_UNIT_VITALS_PASS && vitals_in.entries[97].object == 0xE1A00061u &&
 		vitals_in.entries[97].flags == (97 & DELTA_WIRE_VITALS_FLAGS) && vitals_in.entries[97].body == 16384 - 97 &&
 		vitals_in.entries[97].shield == 97);
 	/* (a count past the datagram, or flags this build does not know: refused) */
@@ -1285,6 +1286,7 @@ static void test_objects(void)
 	for (step = 0; step < 4; step++, now += 300)
 		frame(now, 3, joined, 1);
 	CHECK(delta_peer_objects_clients(&nodes[0].peer) == 1);
+	CHECK(delta_peer_client_objects_ready(&nodes[1].peer) && !delta_peer_client_objects_ready(&nodes[2].peer));
 
 	/* to the machine that agreed, and none other */
 	memset(&vitals, 0, sizeof(vitals));
@@ -1293,12 +1295,14 @@ static void test_objects(void)
 	vitals.entries[0].flags = DELTA_WIRE_VITALS_SHIELD_DEPLETED;
 	vitals.entries[0].shield = 0;
 	vitals.entries[0].body = 16384;
-	CHECK(delta_peer_send_unit_vitals(&nodes[0].peer, &vitals) == 1);
+	CHECK(delta_peer_send_unit_vitals(&nodes[0].peer, -1, &vitals) == 1);
+	CHECK(delta_peer_send_unit_vitals(&nodes[0].peer, 2, &vitals) == 0);
 	memset(&names, 0, sizeof(names));
 	names.total = names.count = 1;
 	names.entries[0].object = 0xE1A00009u;
 	names.entries[0].name = 17;
-	CHECK(delta_peer_send_object_names(&nodes[0].peer, &names) == 1);
+	CHECK(delta_peer_send_object_names(&nodes[0].peer, -1, &names) == 1);
+	CHECK(delta_peer_send_object_names(&nodes[0].peer, 2, &names) == 0);
 	deliver(now);
 	CHECK(client_objects.vitals == 1 && client_objects.names == 1);
 	CHECK(client_objects.last_vital.object == 0xE1A00004u &&
@@ -1307,7 +1311,7 @@ static void test_objects(void)
 
 	/* a client without anywhere for them drops them */
 	delta_peer_set_objects_client(&nodes[1].peer, NULL);
-	CHECK(delta_peer_send_unit_vitals(&nodes[0].peer, &vitals) == 1);
+	CHECK(delta_peer_send_unit_vitals(&nodes[0].peer, 1, &vitals) == 1);
 	deliver(now);
 	CHECK(client_objects.vitals == 1);
 }

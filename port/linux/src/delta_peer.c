@@ -1429,7 +1429,7 @@ int delta_peer_objects_clients(const struct delta_peer *peer)
 	return count;
 }
 
-int delta_peer_send_unit_vitals(struct delta_peer *peer, const struct delta_wire_unit_vitals *vitals)
+int delta_peer_send_unit_vitals(struct delta_peer *peer, int machine_index, const struct delta_wire_unit_vitals *vitals)
 {
 	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
 	int sent = 0;
@@ -1440,7 +1440,7 @@ int delta_peer_send_unit_vitals(struct delta_peer *peer, const struct delta_wire
 		struct delta_peer_host_peer *client = &peer->peers[index];
 		int size;
 
-		if (!host_objects_client(peer, client))
+		if ((machine_index >= 0 && index != machine_index) || !host_objects_client(peer, client))
 			continue;
 		size = delta_wire_write_unit_vitals(data, client->session, vitals);
 		if (!size)
@@ -1451,7 +1451,7 @@ int delta_peer_send_unit_vitals(struct delta_peer *peer, const struct delta_wire
 	return sent;
 }
 
-int delta_peer_send_object_names(struct delta_peer *peer, const struct delta_wire_object_names *names)
+int delta_peer_send_object_names(struct delta_peer *peer, int machine_index, const struct delta_wire_object_names *names)
 {
 	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
 	int sent = 0;
@@ -1462,7 +1462,7 @@ int delta_peer_send_object_names(struct delta_peer *peer, const struct delta_wir
 		struct delta_peer_host_peer *client = &peer->peers[index];
 		int size;
 
-		if (!host_objects_client(peer, client))
+		if ((machine_index >= 0 && index != machine_index) || !host_objects_client(peer, client))
 			continue;
 		size = delta_wire_write_object_names(data, client->session, names);
 		if (!size)
@@ -1471,6 +1471,11 @@ int delta_peer_send_object_names(struct delta_peer *peer, const struct delta_wir
 		sent++;
 	}
 	return sent;
+}
+
+int delta_peer_client_objects_ready(const struct delta_peer *peer)
+{
+	return client_chatting(peer, _delta_capability_object_sync);
 }
 
 void delta_peer_set_objects_client(struct delta_peer *peer, const struct delta_peer_objects_client *client)
