@@ -202,6 +202,11 @@ long network_game_client_get_next_update_number(
 	struct network_game_client *client);
 long unstrip_player_index(
 	long player_index);
+/* port: whether a host's map name (ending within size bytes) is one the
+game takes: any map file name Halo PC takes, no path out of the maps folder */
+boolean network_game_client_map_name_is_valid(
+	char const *map_name,
+	long size);
 
 /* ---------- globals */
 
