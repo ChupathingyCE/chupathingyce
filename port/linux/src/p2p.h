@@ -98,6 +98,15 @@ void p2p_port_taken(int stream, unsigned short port);
 a stream's) */
 void p2p_socket_closed(int socket, unsigned short datagram_port);
 
+/* the host's reachability, in one or two short sentences for the menus
+(Server Setup, the lobby): whether the router forwards the tunnel's port
+(UPnP), whether this network's NAT lets most players in (the two STUN
+servers saw the same port), and what to forward if not. 0 (text empty)
+when internet play is off. check_network starts the STUN servers' look,
+which hosting does anyway, so the status is known before the game starts */
+int p2p_hosting_status(char *text, int size);
+void p2p_check_network(void);
+
 /* text for the clipboard (a new invite link), once; NULL if none. Called
 from the main thread, which copies it only with network.copy_to_clipboard */
 const char *p2p_take_clipboard_text(void);

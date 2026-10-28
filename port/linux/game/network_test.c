@@ -1083,6 +1083,19 @@ void network_test_update(
 		network_test_read_settings();
 	if (network_test.mode == _network_test_off)
 		return;
+	/* (the host's reachability, as its menus show it, logged as it changes) */
+	if (network_test.mode == _network_test_host)
+	{
+		int p2p_hosting_status(char *text, int size);
+		static char shown[192];
+		char status[192];
+
+		if (p2p_hosting_status(status, sizeof(status)) && strcmp(status, shown))
+		{
+			snprintf(shown, sizeof(shown), "%s", status);
+			platform_log("network test: host status: %s", status);
+		}
+	}
 	if (network_test.mode == _network_test_download)
 	{
 		network_test_download(main_menu_loaded);
