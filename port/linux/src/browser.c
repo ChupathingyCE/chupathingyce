@@ -2508,6 +2508,22 @@ static void read_listings(void)
 	}
 }
 
+/* strcmp without case (ASCII): the server and Android builds have no
+SDL_strcasecmp */
+static int text_compare_no_case(const char *a, const char *b)
+{
+	for (; *a && *b; a++, b++)
+	{
+		int x = (*a >= 'A' && *a <= 'Z') ? *a + 32 : *a;
+		int y = (*b >= 'A' && *b <= 'Z') ? *b + 32 : *b;
+
+		if (x != y)
+			return x - y;
+	}
+	return (unsigned char)*a - (unsigned char)*b;
+}
+
+
 /* whether a listing is a game the list has: the same invite token (the
 invite's last 32 hexadecimal digits), or, for a host that lists a game once
 for each network version (p2p_listing_older_copy), the same name, map,
@@ -2521,10 +2537,10 @@ static int listing_on_list(const struct p2p_listing *listing, const char *code, 
 	{
 		const struct browser_game *game = &games[index];
 
-		if (!SDL_strcasecmp(code + BROWSER_INVITE_LENGTH - 32, game->invite + BROWSER_INVITE_LENGTH - 32))
+		if (!text_compare_no_case(code + BROWSER_INVITE_LENGTH - 32, game->invite + BROWSER_INVITE_LENGTH - 32))
 			return 1;
 		if (game->engine != listing->engine_type || game->players != listing->player_count ||
-			game->maximum_players != listing->maximum_player_count || SDL_strcasecmp(game->map, listing->map))
+			game->maximum_players != listing->maximum_player_count || text_compare_no_case(game->map, listing->map))
 		{
 			continue;
 		}
@@ -2563,7 +2579,7 @@ static int add_direct(struct browser_game *games, int count, int maximum_count, 
 		const char *code = !SDL_strncasecmp(listing->invite, "halo://join/", 12) ? listing->invite + 12 : "";
 		struct browser_game *game = &games[count];
 
-		if (listing->locked || strlen(code) != BROWSER_INVITE_LENGTH || !SDL_strcasecmp(code, own) ||
+		if (listing->locked || strlen(code) != BROWSER_INVITE_LENGTH || !text_compare_no_case(code, own) ||
 			listing_on_list(listing, code, games, listed))
 		{
 			continue;
