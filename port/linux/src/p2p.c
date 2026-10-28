@@ -356,7 +356,13 @@ static struct
 	game list (browser.c): going private or a password makes a new one */
 	int token_listed;
 	int token_announced;
-	char invite[P2P_LINK_SIZE];
+	/* a game with a password: its invite key (p2p_join_password_key), and
+	its invite's door, from which the token comes (p2p_locked_invite_token):
+	its invite link is a locked one, and the token is never shown */
+	int has_join_key;
+	unsigned char join_key[P2P_PASSWORD_KEY_SIZE];
+	unsigned char door[P2P_TOKEN_SIZE];
+	char invite[P2P_LOCKED_LINK_SIZE];
 	int invite_copied;
 	/* the game's players and its most (p2p_set_game_player_counts; 0: not
 	said, and the machines the tunnel reaches are shown) */
@@ -370,8 +376,14 @@ static struct
 	unsigned char join_host_hash[P2P_KEY_HASH_SIZE];
 	unsigned char join_token[P2P_TOKEN_SIZE];
 	unsigned long join_time;
+	/* a locked invite (a game with a password) waiting for its password
+	(p2p_locked_invite_unlock): its host's key hash, door and check */
+	int locked_waiting;
+	unsigned char locked_hash[P2P_KEY_HASH_SIZE];
+	unsigned char locked_door[P2P_TOKEN_SIZE];
+	unsigned char locked_check[P2P_INVITE_CHECK_SIZE];
 
-	char clipboard[P2P_LINK_SIZE];
+	char clipboard[P2P_LOCKED_LINK_SIZE];
 	int has_clipboard;
 
 	/* UPnP (posix_upnp.c): a thread asking the router; the port it forwards
@@ -480,17 +492,6 @@ void p2p_hex(const unsigned char *bytes, int size, char *text)
 		text[index * 2 + 1] = digits[bytes[index] & 15];
 	}
 	text[size * 2] = 0;
-}
-
-static int hex_value(char digit)
-{
-	if (digit >= '0' && digit <= '9')
-		return digit - '0';
-	if (digit >= 'a' && digit <= 'f')
-		return digit - 'a' + 10;
-	if (digit >= 'A' && digit <= 'F')
-		return digit - 'A' + 10;
-	return -1;
 }
 
 /* (host and network byte order: the same on a big-endian machine) */
@@ -2471,61 +2472,21 @@ static void tunnel_readable(void)
 static char pending_startup_invite[256];
 
 /* the host's key hash and the token in an invite link or code within text:
-1 if it holds one, -1 if it holds an older version's (with the host's
+1 if it holds one, 2 if it is a locked one (a game with a password: its
+door in token), -1 if it holds an older version's (with the host's
 identifier alone, which a key made to have it could pass for), else 0 */
 static int parse_invite(const char *text, unsigned char *host_hash, unsigned char *token)
 {
-	unsigned char bytes[P2P_KEY_HASH_SIZE + P2P_TOKEN_SIZE];
-	const char *start = NULL;
-	const char *search;
-	int digits;
-	int index;
-
-	for (search = text; *search && !start; search++)
-	{
-		static const char prefix[] = "halo://join/";
-		int length;
-
-		for (length = 0; prefix[length] && search[length] &&
-			(search[length] | 0x20) == prefix[length]; length++)
-			;
-		if (!prefix[length])
-			start = search + length;
-	}
-	if (!start)
-	{
-		/* a bare code: the text is its digits alone, spaces around them
-		allowed */
-		start = text;
-		while (*start == ' ' || *start == '\t' || *start == '\r' || *start == '\n')
-			start++;
-		for (search = start; hex_value(*search) >= 0; search++)
-			;
-		for (; *search; search++)
-		{
-			if (*search != ' ' && *search != '\t' && *search != '\r' && *search != '\n')
-				return 0;
-		}
-	}
-	for (digits = 0; hex_value(start[digits]) >= 0; digits++)
-		;
-	if (digits == 2 * (P2P_IDENTIFIER_SIZE + P2P_TOKEN_SIZE))
-		return -1;
-	if (digits != (int)sizeof(bytes) * 2)
-		return 0;
-	for (index = 0; index < (int)sizeof(bytes); index++)
-		bytes[index] = (unsigned char)(hex_value(start[index * 2]) << 4 | hex_value(start[index * 2 + 1]));
-	memcpy(host_hash, bytes, P2P_KEY_HASH_SIZE);
-	memcpy(token, bytes + P2P_KEY_HASH_SIZE, P2P_TOKEN_SIZE);
-	return 1;
+	return p2p_parse_invite(text, host_hash, token, NULL);
 }
 
 /* under p2p_lock: parse_invite's result */
 static int join_invite(const char *text)
 {
 	unsigned char hash[P2P_KEY_HASH_SIZE], host[P2P_IDENTIFIER_SIZE], token[P2P_TOKEN_SIZE];
+	unsigned char check[P2P_INVITE_CHECK_SIZE];
 	struct peer *peer;
-	int parsed = parse_invite(text, hash, token);
+	int parsed = p2p_parse_invite(text, hash, token, check);
 
 #ifdef HALO_GAME_BROWSER
 	/* (the dedicated server hosts; it joins no one) */
@@ -2541,6 +2502,17 @@ static int join_invite(const char *text)
 	if (!memcmp(host, identifier, P2P_IDENTIFIER_SIZE))
 	{
 		platform_log("Internet play: invite is from this machine (cannot join your own hosted game)");
+		return 1;
+	}
+	/* a game with a password: its token comes from the door and the
+	password, which the player is asked for (p2p_locked_invite_unlock) */
+	if (parsed == 2)
+	{
+		memcpy(p2p.locked_hash, hash, sizeof(hash));
+		memcpy(p2p.locked_door, token, sizeof(token));
+		memcpy(p2p.locked_check, check, sizeof(check));
+		p2p.locked_waiting = 1;
+		platform_log("Internet play: that game has a password; it is joined once the password is typed");
 		return 1;
 	}
 	peer = find_peer(host);
@@ -2639,7 +2611,9 @@ int p2p_hosting_invite(char *text, int size)
 	int result;
 
 	pthread_mutex_lock(&p2p_lock);
-	result = p2p.running && p2p.hosting && p2p.has_token;
+	/* (none for a game with a password: its token is never shown, and its
+	locked link is for players, not the game list) */
+	result = p2p.running && p2p.hosting && p2p.has_token && !p2p.has_join_key;
 	if (result)
 		snprintf(text, (size_t)size, "%s", p2p.invite + strlen("halo://join/"));
 	pthread_mutex_unlock(&p2p_lock);
@@ -2651,7 +2625,7 @@ int p2p_hosting_listable_invite(char *text, int size)
 	int result;
 
 	pthread_mutex_lock(&p2p_lock);
-	result = p2p.running && p2p.hosting && p2p.has_token && p2p_lobby_hosting_open();
+	result = p2p.running && p2p.hosting && p2p.has_token && !p2p.has_join_key && p2p_lobby_hosting_open();
 	if (result)
 		snprintf(text, (size_t)size, "%s", p2p.invite + strlen("halo://join/"));
 	pthread_mutex_unlock(&p2p_lock);
@@ -2794,11 +2768,23 @@ static void make_invite(void)
 	unsigned char bytes[P2P_KEY_HASH_SIZE + P2P_TOKEN_SIZE];
 	char text[2 * (P2P_KEY_HASH_SIZE + P2P_TOKEN_SIZE) + 1];
 
-	posix_random_bytes(p2p.token, sizeof(p2p.token));
 	p2p.has_token = 1;
 	p2p.token_listed = 0;
 	p2p.token_announced = 0;
 	p2p_key_hash(p2p_public_key(), bytes);
+	/* (a game with a password: a locked link, its door's, whose token only
+	the password works out; the server browser's listing seals the token
+	with the password too, p2p_lobby.c) */
+	if (p2p.has_join_key)
+	{
+		unsigned char check[P2P_INVITE_CHECK_SIZE];
+
+		posix_random_bytes(p2p.door, sizeof(p2p.door));
+		p2p_locked_invite_token(p2p.join_key, p2p.door, p2p.token, check);
+		p2p_locked_invite_text(bytes, p2p.door, check, p2p.invite);
+		return;
+	}
+	posix_random_bytes(p2p.token, sizeof(p2p.token));
 	memcpy(bytes + P2P_KEY_HASH_SIZE, p2p.token, P2P_TOKEN_SIZE);
 	p2p_hex(bytes, sizeof(bytes), text);
 	snprintf(p2p.invite, sizeof(p2p.invite), "halo://join/%s", text);
@@ -2821,6 +2807,82 @@ void p2p_new_invite_if_listed(void)
 		memcpy(p2p.clipboard, p2p.invite, sizeof(p2p.clipboard));
 		p2p.has_clipboard = 1;
 	}
+}
+
+void p2p_new_invite_for_password(const unsigned char *join_key)
+{
+	p2p.has_join_key = join_key != NULL;
+	if (join_key)
+		memcpy(p2p.join_key, join_key, sizeof(p2p.join_key));
+	else
+		memset(p2p.join_key, 0, sizeof(p2p.join_key));
+	/* (none made yet: hosting makes it, with the password) */
+	if (!p2p.has_token)
+		return;
+	make_invite();
+	{
+		char shown[128];
+
+		platform_log("Internet play: a new invite, since the password changed (the old link joins no more): %s",
+			p2p_invite_log_text(p2p.invite, shown, sizeof(shown)));
+	}
+	if (p2p.hosting)
+	{
+		p2p_signal_host(p2p.token);
+		memcpy(p2p.clipboard, p2p.invite, sizeof(p2p.clipboard));
+		p2p.has_clipboard = 1;
+	}
+}
+
+int p2p_locked_invite_waiting(void)
+{
+	int waiting;
+
+	pthread_mutex_lock(&p2p_lock);
+	waiting = p2p.locked_waiting;
+	pthread_mutex_unlock(&p2p_lock);
+	return waiting;
+}
+
+void p2p_locked_invite_cancel(void)
+{
+	pthread_mutex_lock(&p2p_lock);
+	p2p.locked_waiting = 0;
+	pthread_mutex_unlock(&p2p_lock);
+}
+
+int p2p_locked_invite_unlock(const char *password)
+{
+	unsigned char hash[P2P_KEY_HASH_SIZE], door[P2P_TOKEN_SIZE], check[P2P_INVITE_CHECK_SIZE];
+	unsigned char token[P2P_TOKEN_SIZE];
+	unsigned char bytes[P2P_KEY_HASH_SIZE + P2P_TOKEN_SIZE];
+	char text[12 + 2 * (P2P_KEY_HASH_SIZE + P2P_TOKEN_SIZE) + 1];
+	int opened;
+
+	pthread_mutex_lock(&p2p_lock);
+	opened = p2p.locked_waiting;
+	memcpy(hash, p2p.locked_hash, sizeof(hash));
+	memcpy(door, p2p.locked_door, sizeof(door));
+	memcpy(check, p2p.locked_check, sizeof(check));
+	pthread_mutex_unlock(&p2p_lock);
+	/* (the key takes a while: not under the lock) */
+	if (!opened || !p2p_locked_invite_open(password, hash, door, check, token))
+	{
+		platform_log("Internet play: that is not the game's password");
+		return 0;
+	}
+	memcpy(bytes, hash, sizeof(hash));
+	memcpy(bytes + P2P_KEY_HASH_SIZE, token, sizeof(token));
+	memcpy(text, "halo://join/", 12);
+	p2p_hex(bytes, sizeof(bytes), text + 12);
+	pthread_mutex_lock(&p2p_lock);
+	p2p.locked_waiting = 0;
+	opened = join_invite(text) > 0;
+	pthread_mutex_unlock(&p2p_lock);
+	memset(token, 0, sizeof(token));
+	memset(bytes, 0, sizeof(bytes));
+	memset(text, 0, sizeof(text));
+	return opened;
 }
 
 /* the hosted game's players, as the game says; else the host and the
@@ -3041,7 +3103,7 @@ static void update_upnp(void)
 
 const char *p2p_take_clipboard_text(void)
 {
-	static char text[P2P_LINK_SIZE];
+	static char text[P2P_LOCKED_LINK_SIZE];
 	const char *result = NULL;
 
 	if (!p2p.running)
