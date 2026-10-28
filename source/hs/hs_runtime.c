@@ -3025,6 +3025,12 @@ static void hs_evaluate(
 				expression->data);
 		}
 	}
+	else if (hs_scenario_node_skipped(expression_index))
+	{
+		/* port: a call or set a map's scripts may not make returns its
+		type's default, and the script goes on (hs_scenario_functions_check) */
+		*destination = hs_type_default_value(expression->type);
+	}
 	else
 	{
 		thread->stack->result = destination;
