@@ -176,6 +176,12 @@ jobs:
           key: ccache-linux-ubuntu-clang22-${{ github.sha }}
           restore-keys: ccache-linux-ubuntu-clang22-
 
+      # the FFmpeg source tarball (tools/download.py): kept so most runs fetch nothing
+      - uses: actions/cache@v4
+        with:
+          path: build/downloads
+          key: ffmpeg-source-${{ hashFiles('tools/ffmpeg_build.py') }}
+
       # the system root and SDL's source, which the build downloads
       - uses: actions/cache@v4
         with:
@@ -276,6 +282,12 @@ jobs:
           path: .ccache
           key: ccache-linux64-ubuntu-clang22-${{ github.sha }}
           restore-keys: ccache-linux64-ubuntu-clang22-
+
+      # the FFmpeg source tarball (tools/download.py): kept so most runs fetch nothing
+      - uses: actions/cache@v4
+        with:
+          path: build/downloads
+          key: ffmpeg-source-${{ hashFiles('tools/ffmpeg_build.py') }}
 
       # the system root and SDL's source, which the build downloads
       - uses: actions/cache@v4
@@ -490,6 +502,12 @@ jobs:
           key: ccache-android-${{ github.sha }}
           restore-keys: ccache-android-
 
+      # the FFmpeg source tarball (tools/download.py): kept so most runs fetch nothing
+      - uses: actions/cache@v4
+        with:
+          path: build/downloads
+          key: ffmpeg-source-${{ hashFiles('tools/ffmpeg_build.py') }}
+
       # musl and SDL, which configure.py fetches
       - uses: actions/cache@v4
         with:
@@ -579,6 +597,12 @@ jobs:
           key: ccache-android64-${{ github.sha }}
           restore-keys: ccache-android64-
 
+      # the FFmpeg source tarball (tools/download.py): kept so most runs fetch nothing
+      - uses: actions/cache@v4
+        with:
+          path: build/downloads
+          key: ffmpeg-source-${{ hashFiles('tools/ffmpeg_build.py') }}
+
       # musl and SDL, which configure.py fetches
       - uses: actions/cache@v4
         with:
@@ -663,6 +687,12 @@ jobs:
           path: .ccache
           key: ccache-windows-${{ github.sha }}
           restore-keys: ccache-windows-
+
+      # the FFmpeg source tarball (tools/download.py): kept so most runs fetch nothing
+      - uses: actions/cache@v4
+        with:
+          path: build/downloads
+          key: ffmpeg-source-${{ hashFiles('tools/ffmpeg_build.py') }}
 
       # SDL's development package, which configure.py fetches
       - uses: actions/cache@v4
@@ -761,6 +791,12 @@ jobs:
           key: ccache-windows64-${{ github.sha }}
           restore-keys: ccache-windows64-
 
+      # the FFmpeg source tarball (tools/download.py): kept so most runs fetch nothing
+      - uses: actions/cache@v4
+        with:
+          path: build/downloads
+          key: ffmpeg-source-${{ hashFiles('tools/ffmpeg_build.py') }}
+
       # SDL's development package, which configure.py fetches (the 32-bit
       # job's: it holds both builds' libraries)
       - uses: actions/cache@v4
@@ -842,6 +878,12 @@ jobs:
           path: .ccache
           key: ccache-macos-${{ github.sha }}
           restore-keys: ccache-macos-
+
+      # the FFmpeg source tarball (tools/download.py): kept so most runs fetch nothing
+      - uses: actions/cache@v4
+        with:
+          path: build/downloads
+          key: ffmpeg-source-${{ hashFiles('tools/ffmpeg_build.py') }}
 
       - uses: actions/cache@v4
         with:
