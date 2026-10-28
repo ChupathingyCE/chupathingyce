@@ -149,6 +149,9 @@ class ConsolePort:
 # shared code's HTTPS: the signed legacy table's fetch (delta.c)
 CONSOLE_HTTPS_DIR = Path("port/console/https")
 MBEDTLS_DIR = Path("port/third_party/mbedtls")
+# (the pin document's signature, console_pins.c: Ed25519 by Monocypher, which
+# every console already builds for internet play, so it is not listed here)
+MONOCYPHER_DIR = Path("port/third_party/monocypher")
 
 
 def console_https_flags(game: Path, windows_crt: bool = False) -> List[str]:
@@ -162,14 +165,15 @@ def console_https_flags(game: Path, windows_crt: bool = False) -> List[str]:
     if windows_crt:
         flags += [f"-I{game / CONSOLE_HTTPS_DIR / 'msvc'}"]
     return flags + [f"-I{game / CONSOLE_HTTPS_DIR}", f"-I{game / MBEDTLS_DIR / 'include'}",
-                    f"-I{game / MBEDTLS_DIR / 'library'}"]
+                    f"-I{game / MBEDTLS_DIR / 'library'}", f"-I{game / MONOCYPHER_DIR}"]
 
 
 def console_https_sources() -> List[Path]:
     """the client's and Mbed TLS's sources, relative to the game's root (the
     library's every unit: the configuration leaves out what it does not
     need, and those units compile to nothing)"""
-    own = [CONSOLE_HTTPS_DIR / name for name in ("console_https.c", "console_https_trust.c", "console_https_roots.c")]
+    own = [CONSOLE_HTTPS_DIR / name for name in ("console_https.c", "console_https_trust.c", "console_https_roots.c",
+                                                 "console_pins.c")]
     library = sorted(MBEDTLS_DIR / "library" / path.name for path in (GAME_ROOT / MBEDTLS_DIR / "library").glob("*.c"))
     return own + library
 

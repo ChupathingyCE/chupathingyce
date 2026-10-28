@@ -12,6 +12,12 @@ a backup the site has not used yet, kept offline, for the day the first one
 has to go. The site's certificate must renew with the same key (certbot's
 reuse_key), so that a renewal changes nothing here.
 
+When the site's key is not one of these, the console asks for the signed pin
+document (console_pins.h) and tries again with its pins; when that brings
+none, a chain to Let's Encrypt's ISRG Root X1 or X2 naming the host is taken
+as a backstop (dates unchecked), so that a console that missed an update is
+never stranded. Pins win: the backstop is asked only when no pin matches.
+
 raw.githubusercontent.com: GitHub's, whose keys are not ours to pin: its
 chain must lead to one of console_https_roots.c's roots (Let's Encrypt's
 ISRG roots, which it uses now, and the Sectigo and DigiCert roots GitHub
@@ -43,7 +49,8 @@ static const unsigned char site_pins[][CONSOLE_HTTPS_PIN_SIZE] =
 
 const struct console_https_trust console_https_hosts[] =
 {
-	{ CONSOLE_HTTPS_SITE, site_pins, sizeof(site_pins) / sizeof(*site_pins), NULL, 0 },
+	/* (its backstop: console_https_roots.c's first two, ISRG Root X1 and X2) */
+	{ CONSOLE_HTTPS_SITE, site_pins, sizeof(site_pins) / sizeof(*site_pins), console_https_roots, 2 },
 	/* (roots NULL: all of console_https_roots.c's) */
 	{ CONSOLE_HTTPS_GITHUB, NULL, 0, NULL, 0 },
 };

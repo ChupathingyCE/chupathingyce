@@ -26,6 +26,7 @@ GPL-2.0-or-later (port/third_party/mbedtls/LICENSE).
 
 #include "console_https.h"
 #include "console_https_trust.h"
+#include "console_pins.h"
 
 #include "mbedtls/build_info.h"
 #include "mbedtls/entropy.h"
@@ -42,6 +43,10 @@ GPL-2.0-or-later (port/third_party/mbedtls/LICENSE).
 #include <string.h>
 
 #define REQUEST_SIZE 2048
+/* the pin document asked for at most this often: after the site's key was
+not one it pins, and otherwise */
+#define PINS_RETRY (10ul * 60 * 1000)
+#define PINS_DAY (24ul * 60 * 60 * 1000)
 #define SITE_TIMEOUT 15000
 /* the flags a certificate's dates set (never, as built: kept apart all the
 same, in case a build turns the clock on) */
@@ -52,6 +57,17 @@ same, in case a build turns the clock on) */
 #endif
 
 static const struct console_https_port *https_port;
+/* the site's pins from the newest pin document (console_pins.h), beside the
+built-in ones; and when one was last asked for (0: not yet) */
+static struct console_pins saved_pins;
+static unsigned long pins_asked_at;
+static unsigned long pins_started_at;
+static int pins_asked;
+/* (the last judge: the site's key was not one it pins) */
+static int pin_missed;
+static int pins_refusal_said;
+static int pins_due(int missed);
+static int pins_refresh(unsigned long timeout_ms);
 static const struct console_https_trust *trust_table = console_https_hosts;
 static int trust_count;
 static int trust_count_set;
@@ -85,9 +101,14 @@ const char *console_https_error_string(int error)
 	return error_strings[error];
 }
 
+static void log_line(const char *text);
+static void pins_load(void);
+
 void console_https_initialize(const struct console_https_port *port)
 {
 	https_port = port;
+	pins_started_at = port ? port->milliseconds() : 0;
+	pins_load();
 }
 
 int console_https_available(void)
@@ -161,6 +182,15 @@ static int key_pinned(const struct console_https_trust *trust, const mbedtls_x50
 		if (!memcmp(hash, trust->pins[index], CONSOLE_HTTPS_PIN_SIZE))
 			return 1;
 	}
+	/* (and the pin document's, for the site) */
+	if (!strcmp(trust->host, CONSOLE_HTTPS_SITE))
+	{
+		for (index = 0; index < saved_pins.count; index++)
+		{
+			if (!memcmp(hash, saved_pins.pins[index], CONSOLE_HTTPS_PIN_SIZE))
+				return 1;
+		}
+	}
 	return 0;
 }
 
@@ -176,9 +206,24 @@ static int judge(const struct console_https_trust *trust, mbedtls_ssl_context *s
 	flags &= ~(uint32_t)DATE_FLAGS;
 	if (flags & MBEDTLS_X509_BADCERT_CN_MISMATCH)
 		return CONSOLE_HTTPS_ERROR_NAME;
-	if (trust->pin_count)
-		return key_pinned(trust, certificate) ? CONSOLE_HTTPS_OK : CONSOLE_HTTPS_ERROR_KEY;
-	return flags ? CONSOLE_HTTPS_ERROR_KEY : CONSOLE_HTTPS_OK;
+	if (!trust->pin_count)
+		return flags ? CONSOLE_HTTPS_ERROR_KEY : CONSOLE_HTTPS_OK;
+	/* a pinned host: its pins first; then, for a host with a backstop, a
+	chain to its roots (Let's Encrypt's, for the site), so that a console
+	that missed a pin update is never stranded; either way, a key it does
+	not pin is a reason to ask for the pin document */
+	if (key_pinned(trust, certificate))
+		return CONSOLE_HTTPS_OK;
+	pin_missed = 1;
+	if (trust->roots && !flags)
+	{
+		char line[128];
+
+		snprintf(line, sizeof(line), "https: %s: its key is not pinned; taken by its chain to a root", trust->host);
+		log_line(line);
+		return CONSOLE_HTTPS_OK;
+	}
+	return CONSOLE_HTTPS_ERROR_KEY;
 }
 
 /* ---------- the socket, as Mbed TLS's BIO */
@@ -403,7 +448,7 @@ static int request_locked(const struct console_https_trust *trust, const char *r
 		mbedtls_psa_crypto_free();
 		return CONSOLE_HTTPS_ERROR_RANDOM;
 	}
-	if (!trust->pin_count)
+	if (!trust->pin_count || trust->roots)
 	{
 		const struct console_https_root *list = trust->roots ? trust->roots : console_https_roots;
 		int count = trust->roots ? trust->root_count : console_https_root_count;
@@ -431,7 +476,7 @@ static int request_locked(const struct console_https_trust *trust, const char *r
 	before anything is sent; the handshake itself still proves the server
 	holds the certificate's key) */
 	mbedtls_ssl_conf_authmode(&config, MBEDTLS_SSL_VERIFY_OPTIONAL);
-	if (!trust->pin_count)
+	if (!trust->pin_count || trust->roots)
 		mbedtls_ssl_conf_ca_chain(&config, &roots, NULL);
 	mbedtls_ssl_conf_rng(&config, mbedtls_psa_get_random, MBEDTLS_PSA_RANDOM_STATE);
 	if ((code = mbedtls_ssl_setup(&ssl, &config)) != 0 || (code = mbedtls_ssl_set_hostname(&ssl, trust->host)) != 0)
@@ -502,6 +547,170 @@ done:
 	return result;
 }
 
+/* ---------- the pin document (console_pins.h) */
+
+static int build_get(char *request, int size, const char *host, const char *path)
+{
+	int length = snprintf(request, (size_t)size,
+		"GET %s HTTP/1.0\r\nHost: %s\r\nUser-Agent: %s\r\nAccept-Encoding: identity\r\nConnection: close\r\n\r\n",
+		path, host, https_port->user_agent ? https_port->user_agent : "Warthog/1");
+
+	return length > 0 && length < size ? length : 0;
+}
+
+/* whether the pin document is to be asked for: soon after the site's key
+was not one it pins, else once a day */
+static int pins_due(int missed)
+{
+	unsigned long now = https_port->milliseconds();
+
+	if (!console_pins_have_key())
+		return 0;
+	if (!pins_asked)
+		return missed || (long)(now - pins_started_at) >= (long)PINS_DAY;
+	return (long)(now - pins_asked_at) >= (long)(missed ? PINS_RETRY : PINS_DAY);
+}
+
+/* one file of the document (path) from source: the whole answer into
+buffer, its body at *body; 1 if a 200 came. plain: over the port's plain
+HTTP from the console list's host, else over HTTPS from GitHub's raw files
+(the lock held) */
+static int pins_get(int plain, const char *path, char *buffer, unsigned long size, const char **body,
+	unsigned long *body_size, unsigned long timeout_ms)
+{
+	unsigned long received = 0;
+	int status;
+
+	if (plain)
+	{
+		if (!https_port->plain_get ||
+			!https_port->plain_get(CONSOLE_HTTPS_PINS_PLAIN_HOST, path, buffer, size, &received, timeout_ms))
+			return 0;
+	}
+	else
+	{
+		const struct console_https_trust *github = find_trust(CONSOLE_HTTPS_GITHUB);
+		char request[512];
+		int length;
+
+		if (!github || !(length = build_get(request, sizeof(request), CONSOLE_HTTPS_GITHUB, path)) ||
+			request_locked(github, request, length, buffer, size, &received, timeout_ms) != CONSOLE_HTTPS_OK)
+			return 0;
+	}
+	return console_https_parse_response(buffer, received, &status, body, body_size) && status == 200;
+}
+
+static void pins_save(const char *document, unsigned long size, const char *signature)
+{
+	char temporary[300];
+	FILE *file;
+	int ok;
+
+	if (!https_port->pins_path || strlen(https_port->pins_path) + 5 > sizeof(temporary))
+		return;
+	snprintf(temporary, sizeof(temporary), "%s.new", https_port->pins_path);
+	file = fopen(temporary, "wb");
+	if (!file)
+		return;
+	ok = fwrite(signature, 1, CONSOLE_PINS_SIGNATURE_SIZE * 2, file) == CONSOLE_PINS_SIGNATURE_SIZE * 2 &&
+		fputc('\n', file) != EOF && fwrite(document, 1, size, file) == size;
+	ok = fclose(file) == 0 && ok;
+	/* (a file system that renames over no file: the old one removed first) */
+	if (ok && rename(temporary, https_port->pins_path) != 0)
+	{
+		remove(https_port->pins_path);
+		ok = rename(temporary, https_port->pins_path) == 0;
+	}
+	if (!ok)
+	{
+		remove(temporary);
+		log_line("https: the pin document could not be kept");
+	}
+}
+
+static void pins_load(void)
+{
+	char signed_form[CONSOLE_PINS_SIGNED_SIZE + 1];
+	struct console_pins pins;
+	const char *why;
+	unsigned long size;
+	FILE *file;
+
+	memset(&saved_pins, 0, sizeof(saved_pins));
+	if (!https_port || !https_port->pins_path || !console_pins_have_key() || !(file = fopen(https_port->pins_path, "rb")))
+		return;
+	size = (unsigned long)fread(signed_form, 1, sizeof(signed_form), file);
+	fclose(file);
+	if (console_pins_check_signed(CONSOLE_HTTPS_SITE, signed_form, size, &pins, &why))
+		saved_pins = pins;
+	else
+	{
+		char line[128];
+
+		snprintf(line, sizeof(line), "https: the kept pin document is not used: %s", why);
+		log_line(line);
+	}
+}
+
+/* the pin document asked for (plain HTTP first, then GitHub), checked, and
+taken if its serial is past the one in use: 1 if new pins were taken */
+static int pins_refresh(unsigned long timeout_ms)
+{
+	char document[CONSOLE_PINS_DOCUMENT_SIZE + 1024], signature[1024];
+	struct console_pins pins;
+	const char *document_body, *signature_body, *why = "it could not be had";
+	unsigned long document_size, signature_size;
+	int plain;
+
+	pins_asked = 1;
+	pins_asked_at = https_port->milliseconds();
+	for (plain = 1; plain >= 0; plain--)
+	{
+		char line[160];
+
+		if (!pins_get(plain, plain ? CONSOLE_HTTPS_PINS_PLAIN_PATH : CONSOLE_HTTPS_PINS_GITHUB_PATH, document,
+				sizeof(document), &document_body, &document_size, timeout_ms) ||
+			!pins_get(plain, plain ? CONSOLE_HTTPS_PINS_PLAIN_PATH ".sig" : CONSOLE_HTTPS_PINS_GITHUB_PATH ".sig",
+				signature, sizeof(signature), &signature_body, &signature_size, timeout_ms))
+		{
+			why = "it could not be had";
+			continue;
+		}
+		if (!console_pins_check(CONSOLE_HTTPS_SITE, document_body, document_size, signature_body, signature_size,
+			&pins, &why))
+			break;
+		if (pins.serial <= saved_pins.serial)
+		{
+			why = "it is not newer than the one in use";
+			break;
+		}
+		/* (the signature's hex digits sit before the document's in the kept
+		form; the body is moved out of the answer's buffer first) */
+		{
+			char kept_signature[CONSOLE_PINS_SIGNATURE_SIZE * 2];
+
+			memcpy(kept_signature, signature_body, sizeof(kept_signature));
+			pins_save(document_body, document_size, kept_signature);
+		}
+		saved_pins = pins;
+		snprintf(line, sizeof(line), "https: pin document %lu from %s taken: %d pins for %s", pins.serial,
+			plain ? CONSOLE_HTTPS_PINS_PLAIN_HOST : CONSOLE_HTTPS_GITHUB, pins.count, CONSOLE_HTTPS_SITE);
+		log_line(line);
+		pins_refusal_said = 0;
+		return 1;
+	}
+	/* (said once a run: a bad document changes nothing) */
+	if (!pins_refusal_said)
+	{
+		char line[128];
+
+		snprintf(line, sizeof(line), "https: no new pin document: %s", why);
+		log_line(line);
+		pins_refusal_said = 1;
+	}
+	return 0;
+}
+
 int console_https_request(const char *host, const char *path, const char *body, const char *content_type,
 	char *response, unsigned long size, unsigned long *received, unsigned long timeout_ms)
 {
@@ -541,7 +750,16 @@ int console_https_request(const char *host, const char *path, const char *body, 
 	if (https_port->lock)
 		https_port->lock();
 	mbedtls_memory_buffer_alloc_init(arena.bytes, sizeof(arena.bytes));
+	pin_missed = 0;
 	result = request_locked(trust, request, length, response, size, received, timeout_ms);
+	/* (the site's key not pinned, or a day since the pin document was last
+	asked for: asked for now, and with new pins the request tried again) */
+	if (!strcmp(trust->host, CONSOLE_HTTPS_SITE) && pins_due(pin_missed) && pins_refresh(timeout_ms) &&
+		result == CONSOLE_HTTPS_ERROR_KEY)
+	{
+		*received = 0;
+		result = request_locked(trust, request, length, response, size, received, timeout_ms);
+	}
 #ifdef CONSOLE_HTTPS_TESTS
 	{
 		size_t used = 0, blocks = 0;
