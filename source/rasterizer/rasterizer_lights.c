@@ -357,6 +357,14 @@ static void lens_flare_data_error(
 
 /* ---------- globals */
 
+/* port: the lights one view draws in a frame (MAXIMUM_LIGHTS_PER_WINDOW,
+512 on the desktop builds, not the Xbox's 128). It was the 7,200 byte stand-in
+of halo_linker_common.c, the Xbox's size, so a frame with more lights than
+that held (about 128 on 32-bit builds, 224 on 64-bit ones) wrote over the
+globals after it (scenario_globals among them): Windows x64 crash reports on
+0.8.0d, on a big Custom Edition map. It is defined here, at its real size. */
+struct rasterizer_lights rasterizer_lights = {0};
+
 static struct lens_flare_occlusion_test_results local_lens_flare_occlusion_test_results[MAXIMUM_LIGHTS_PER_MAP] = {0};
 static byte local_lens_flare_occlusion_test_results2[MAXIMUM_LENS_FLARE_MARKERS_PER_STRUCTURE+MAXIMUM_QUEUED_LENS_FLARES][MAXIMUM_WINDOWS];
 static struct rasterizer_lens_flare_submit_parameters local_lens_flare_parameters[MAXIMUM_LENS_FLARES_PER_FRAME] = {0};
