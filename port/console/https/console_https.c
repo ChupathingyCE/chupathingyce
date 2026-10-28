@@ -389,6 +389,7 @@ static int request_locked(const struct console_https_trust *trust, const char *r
 	mbedtls_ssl_config config;
 	mbedtls_x509_crt roots;
 	struct session session;
+	unsigned long started = 0, handshake = 0;
 	int result = CONSOLE_HTTPS_OK;
 	int code;
 
@@ -438,7 +439,8 @@ static int request_locked(const struct console_https_trust *trust, const char *r
 		result = code == MBEDTLS_ERR_SSL_ALLOC_FAILED ? CONSOLE_HTTPS_ERROR_MEMORY : CONSOLE_HTTPS_ERROR_HANDSHAKE;
 		goto done;
 	}
-	session.deadline = https_port->milliseconds() + timeout_ms;
+	started = https_port->milliseconds();
+	session.deadline = started + timeout_ms;
 	if (!https_port->connect(trust->host, CONSOLE_HTTPS_PORT_NUMBER, timeout_ms, &session.socket))
 	{
 		result = CONSOLE_HTTPS_ERROR_CONNECT;
@@ -464,6 +466,7 @@ static int request_locked(const struct console_https_trust *trust, const char *r
 	}
 	if (result == CONSOLE_HTTPS_OK)
 	{
+		handshake = https_port->milliseconds() - started;
 		result = judge(trust, &ssl);
 		if (result != CONSOLE_HTTPS_OK)
 		{
@@ -478,6 +481,15 @@ static int request_locked(const struct console_https_trust *trust, const char *r
 		result = tls_write(&ssl, (const unsigned char *)request, (unsigned long)request_length);
 	if (result == CONSOLE_HTTPS_OK)
 		result = tls_read_all(&ssl, response, size, received);
+	if (result == CONSOLE_HTTPS_OK)
+	{
+		char line[128];
+
+		/* (how long a console takes, for its hardware tests) */
+		snprintf(line, sizeof(line), "https: %s: %s, handshake %lu ms, %lu ms in all", trust->host,
+			mbedtls_ssl_get_version(&ssl), handshake, https_port->milliseconds() - started);
+		log_line(line);
+	}
 	if (code == 0)
 		mbedtls_ssl_close_notify(&ssl);
 	https_port->close(session.socket);
