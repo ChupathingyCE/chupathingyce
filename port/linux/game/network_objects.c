@@ -2513,6 +2513,89 @@ static void delta_client_apply_vitals(
 	delta_client_pass_heard = FALSE;
 }
 
+/* Map-placed bipeds that scripts read, kept on the client.
+
+A named biped that no player or AI has (Coldsnap's game type detectors) is
+something a map's scripts read on every machine. Coldsnap's setup is made
+for each machine to have its own: every machine's scripts find the game type
+from these bipeds and then delete the other types' ones themselves. A client
+that only had the host's would find the host's deletes already done. On a
+late join, or a delete it saw before the shield drop that led to it, it would
+read -1 and pick the wrong type (Coldsnap: CTF). So while the host has no
+object of that name, the client keeps its own: the copy it placed when the
+map loaded, or the map's placement again (in its own upper half, its own
+until the host names one of its objects so). Its own scripts can still delete
+it, and a name the host gives one of its objects takes over. With object sync
+only. */
+
+/* whether the host's names hold the name, for an object other than the one
+given (one being deleted) */
+static boolean delta_client_host_names(
+	short name_index,
+	long except_index)
+{
+	int index;
+
+	for (index = 0; index < delta_client_name_count; index++)
+	{
+		if ((short)delta_client_names[index].name == name_index &&
+			(long)delta_client_names[index].object != except_index)
+		{
+			return TRUE;
+		}
+	}
+	return FALSE;
+}
+
+static boolean delta_script_biped(
+	long object_index)
+{
+	struct object_datum *object = object_try_and_get(object_index);
+	struct unit_datum *unit;
+
+	if (!object || object->object.type != _object_type_biped || object->object.name_index == NONE)
+		return FALSE;
+	unit = unit_get(object_index);
+	return unit->unit.player_index == NONE && unit->unit.actor_index == NONE;
+}
+
+/* (one of the client's own it keeps: the host has none by its name) */
+static boolean delta_client_keeps_own(
+	long object_index)
+{
+	return delta_peer_game_objects_ready() && delta_script_biped(object_index) &&
+		!delta_client_host_names(object_get(object_index)->object.name_index, NONE);
+}
+
+/* the name of a biped the host's word is about to delete here (NONE: not one
+the client would keep) */
+static short delta_client_kept_name(
+	long object_index)
+{
+	return delta_peer_game_objects_ready() && delta_script_biped(object_index) ?
+		object_get(object_index)->object.name_index : NONE;
+}
+
+/* ... once deleted: the map's placement again, as the client's own, if the
+host has no other by that name and nothing here holds it */
+static void delta_client_place_own(
+	short name_index,
+	long deleted_index)
+{
+	struct scenario *scenario = global_scenario_get();
+
+	if (name_index == NONE ||
+		!VALID_INDEX(name_index, MIN(scenario->object_names.count, MAXIMUM_OBJECT_NAMES_PER_SCENARIO)) ||
+		TAG_BLOCK_GET_ELEMENT(&scenario->object_names, name_index, struct scenario_object_name)->runtime_object_type !=
+			_object_type_biped ||
+		object_index_from_name_index(name_index) != NONE ||
+		delta_client_host_names(name_index, deleted_index))
+	{
+		return;
+	}
+	object_new_by_name(name_index);
+}
+
 /* whether the client holds the host's delete of an object a tick: one with a
 scenario name (what a map's scripts read) while the host agreed to object
 sync, so that the vitals heard with it (UNIT_VITALS of the tick before, often
@@ -2552,9 +2635,12 @@ static void delta_client_apply_deletes(
 		}
 		if (objects_client_has[absolute_index] == object_index)
 		{
+			short kept_name = delta_client_kept_name(object_index);
+
 			objects_statistics.deletes++;
 			distributed_client_delete(object_index);
 			objects_client_has[absolute_index] = NONE;
+			delta_client_place_own(kept_name, object_index);
 		}
 	}
 	delta_client_delete_count = kept;
@@ -2588,6 +2674,7 @@ static void delta_client_name_object(
 {
 	struct scenario *scenario = global_scenario_get();
 	struct object_datum *object;
+	long holder_index;
 
 	if (!network_objects_client_has(object_index) || object_index_from_name_index(name_index) == object_index)
 		return;
@@ -2595,11 +2682,19 @@ static void delta_client_name_object(
 	if (object->object.name_index != NONE || name_index < 0 ||
 		name_index >= MIN(scenario->object_names.count, MAXIMUM_OBJECT_NAMES_PER_SCENARIO) ||
 		TAG_BLOCK_GET_ELEMENT(&scenario->object_names, name_index, struct scenario_object_name)->runtime_object_type !=
-			object->object.type ||
-		object_index_from_name_index(name_index) != NONE)
+			object->object.type)
 	{
 		return;
 	}
+	/* (the client's own copy of a biped it kept goes: the host's takes over) */
+	holder_index = object_index_from_name_index(name_index);
+	if (holder_index != NONE && !network_objects_client_has(holder_index) && delta_script_biped(holder_index))
+	{
+		objects_statistics.own_objects_removed++;
+		distributed_client_delete(holder_index);
+	}
+	if (object_index_from_name_index(name_index) != NONE)
+		return;
 	object_claim_scenario_name(object_index, name_index);
 }
 
@@ -2922,6 +3017,9 @@ static void distributed_client_create(
 	struct object_placement_data placement;
 	real_vector3d forward, up;
 	long object_index;
+#ifdef HALO_GAME_BROWSER
+	short kept_name = NONE;
+#endif
 
 	if (absolute_index < 0 || absolute_index >= MAXIMUM_TRACKED_OBJECTS ||
 		absolute_index >= object_header_data->maximum_count ||
@@ -2956,6 +3054,10 @@ static void distributed_client_create(
 			return;
 		}
 		/* something else in its place: gone */
+#ifdef HALO_GAME_BROWSER
+		/* (a map's biped the client kept: placed again in its own half) */
+		kept_name = delta_client_kept_name(existing_index);
+#endif
 		distributed_client_delete(existing_index);
 		objects_client_has[absolute_index] = NONE;
 		if (header->identifier)
@@ -2995,6 +3097,7 @@ static void distributed_client_create(
 #ifdef HALO_GAME_BROWSER
 	/* (its name, which the game's message does not carry: Delta Peer's) */
 	delta_client_name_new(object_index);
+	delta_client_place_own(kept_name, NONE);
 #endif
 	/* (a unit's grenades are the host's, which its inventories bring: none
 	until they come, not the tag's that unit_new gave it, which the host's
@@ -3735,6 +3838,10 @@ static void distributed_client_remove_own_objects(
 
 			if (!distributed_object_networked(iterator.index) || objects_client_has[absolute_index] == iterator.index)
 				continue;
+#ifdef HALO_GAME_BROWSER
+			if (delta_client_keeps_own(iterator.index))
+				continue;
+#endif
 			objects_statistics.own_objects_removed++;
 			distributed_client_delete(iterator.index);
 		}
@@ -3749,6 +3856,10 @@ static void distributed_client_remove_own_objects(
 		{
 			continue;
 		}
+#ifdef HALO_GAME_BROWSER
+		if (delta_client_keeps_own(object_index))
+			continue;
+#endif
 		objects_statistics.own_objects_removed++;
 		distributed_client_delete(object_index);
 	}

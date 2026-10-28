@@ -624,6 +624,17 @@ the map and the report):
   if the scenario gives that name to an object of its type and nothing
   else holds the name then (its own copy of the same name, which it
   deletes as not the host's, frees it).
+- **Map-placed bipeds the scripts read.** A named biped that no player or
+  AI has (Coldsnap's game type detectors) is read by the map's scripts on
+  every machine. Each machine's scripts find the game type from these
+  bipeds and then delete the other types' ones themselves. A client that
+  only had the host's would find the host's deletes already done and read
+  a missing biped (-1), so it would pick the wrong game type. So while the
+  host has no object of that name (by OBJECT_NAMES), a client keeps its own:
+  the copy it placed with the map, or the map's placement again in its own
+  half of the object array after the host's delete. Its own scripts may
+  delete it. Once the host names one of its objects so, the host's copy
+  takes the name and the client's own copy goes.
 
 It is offered by the builds with the game list (`HALO_GAME_BROWSER`: the
 desktop builds, Android, the Switch and the dedicated server), not by the
