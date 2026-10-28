@@ -148,12 +148,12 @@ enum
 	/* (98) */
 	DELTA_WIRE_MAXIMUM_UNIT_VITALS =
 		(DELTA_WIRE_MAXIMUM_PAYLOAD - DELTA_WIRE_UNIT_VITALS_SIZE) / DELTA_WIRE_UNIT_VITALS_ENTRY_SIZE,
-	/* ... OBJECT_NAMES's total, first and count, then 8-byte entries: the
-	host's named objects (at most a scenario's names) in as many datagrams
-	as it takes */
+	/* ... OBJECT_NAMES's total, first and count, then 12-byte entries: the
+	host's named objects and the names it removed (at most a scenario's
+	names) in as many datagrams as it takes */
 	DELTA_WIRE_OBJECT_NAMES_SIZE = 8,
-	DELTA_WIRE_OBJECT_NAMES_ENTRY_SIZE = 8,
-	/* (147) */
+	DELTA_WIRE_OBJECT_NAMES_ENTRY_SIZE = 12,
+	/* (98) */
 	DELTA_WIRE_MAXIMUM_OBJECT_NAMES_ENTRIES =
 		(DELTA_WIRE_MAXIMUM_PAYLOAD - DELTA_WIRE_OBJECT_NAMES_SIZE) / DELTA_WIRE_OBJECT_NAMES_ENTRY_SIZE,
 	/* (the game's MAXIMUM_OBJECT_NAMES_PER_SCENARIO) */
@@ -717,12 +717,30 @@ struct delta_wire_unit_vitals
 	struct delta_wire_unit_vital entries[DELTA_WIRE_MAXIMUM_UNIT_VITALS];
 };
 
-/* an object's scenario name (OBJECT_NAMES) */
+/* OBJECT_NAMES's entry flags */
+enum
+{
+	/* the host had an object of this name and has none now (its object is
+	NONE): a client's own copy goes, after a tick with the vitals given */
+	DELTA_WIRE_NAME_REMOVED = 0x01,
+	DELTA_WIRE_NAME_FLAGS = 0x01
+};
+
+/* an object's scenario name (OBJECT_NAMES), or a name the host removed */
 struct delta_wire_object_name
 {
+	/* (0xFFFFFFFF for a removed name) */
 	delta_u32 object;
 	/* the scenario's object name index */
 	unsigned short name;
+	/* DELTA_WIRE_NAME_* (others a later build's: ignored) */
+	unsigned char flags;
+	/* a removed name's unit as the host last had it (DELTA_WIRE_VITALS_*,
+	and vitality in 16384ths; a full shield and body for one that was not a
+	unit); 0 for the others */
+	unsigned char vitals_flags;
+	unsigned short body;
+	unsigned short shield;
 };
 
 /* the host's named objects, total in all; this datagram's count of them

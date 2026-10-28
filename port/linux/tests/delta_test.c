@@ -1191,7 +1191,7 @@ static void test_wire_objects(void)
 	int size;
 	int index;
 
-	CHECK(DELTA_WIRE_MAXIMUM_UNIT_VITALS == 98 && DELTA_WIRE_MAXIMUM_OBJECT_NAMES_ENTRIES == 147);
+	CHECK(DELTA_WIRE_MAXIMUM_UNIT_VITALS == 98 && DELTA_WIRE_MAXIMUM_OBJECT_NAMES_ENTRIES == 98);
 	memset(&vitals, 0, sizeof(vitals));
 	vitals.count = DELTA_WIRE_MAXIMUM_UNIT_VITALS;
 	vitals.flags = DELTA_WIRE_UNIT_VITALS_PASS;
@@ -1226,11 +1226,30 @@ static void test_wire_objects(void)
 		names.entries[index].object = 0xE1A00100u + (delta_u32)index;
 		names.entries[index].name = (unsigned short)(index * 9);
 	}
+	/* (a name the host removed: no object, the unit's last vitals) */
+	names.entries[51].object = 0xFFFFFFFFu;
+	names.entries[51].flags = DELTA_WIRE_NAME_REMOVED;
+	names.entries[51].vitals_flags = DELTA_WIRE_VITALS_SHIELD_DEPLETED;
+	names.entries[51].body = 0;
+	names.entries[51].shield = 0;
 	size = delta_wire_write_object_names(data, 7, &names);
+	CHECK(size == DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_OBJECT_NAMES_SIZE + 53 * DELTA_WIRE_OBJECT_NAMES_ENTRY_SIZE);
 	CHECK(delta_wire_read_header(data, size, &header) && header.type == _delta_message_object_names &&
 		delta_wire_read_object_names(data + DELTA_WIRE_HEADER_SIZE, header.length, &names_in) &&
 		names_in.total == 200 && names_in.first == 147 && names_in.count == 53 &&
-		names_in.entries[52].object == 0xE1A00134u && names_in.entries[52].name == 52 * 9);
+		names_in.entries[52].object == 0xE1A00134u && names_in.entries[52].name == 52 * 9 &&
+		!names_in.entries[52].flags);
+	CHECK(names_in.entries[51].object == 0xFFFFFFFFu && names_in.entries[51].name == 51 * 9 &&
+		names_in.entries[51].flags == DELTA_WIRE_NAME_REMOVED &&
+		names_in.entries[51].vitals_flags == DELTA_WIRE_VITALS_SHIELD_DEPLETED && !names_in.entries[51].body &&
+		!names_in.entries[51].shield);
+	/* (a later build's entry flags: ignored; vitals flags this build does not
+	know: refused) */
+	data[DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_OBJECT_NAMES_SIZE + 52 * DELTA_WIRE_OBJECT_NAMES_ENTRY_SIZE + 6] = 0x80;
+	CHECK(delta_wire_read_object_names(data + DELTA_WIRE_HEADER_SIZE, header.length, &names_in) &&
+		!names_in.entries[52].flags);
+	data[DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_OBJECT_NAMES_SIZE + 52 * DELTA_WIRE_OBJECT_NAMES_ENTRY_SIZE + 7] = 0x80;
+	CHECK(!delta_wire_read_object_names(data + DELTA_WIRE_HEADER_SIZE, header.length, &names_in));
 	/* (past the total, or a name past a scenario's: refused) */
 	names.first = 148;
 	CHECK(!delta_wire_write_object_names(data, 7, &names));
@@ -1243,8 +1262,10 @@ static struct
 {
 	int vitals;
 	int names;
+	int removed;
 	struct delta_wire_unit_vital last_vital;
 	struct delta_wire_object_name last_name;
+	struct delta_wire_object_name last_removed;
 } client_objects;
 
 static void test_objects_vitals(void *context, const struct delta_wire_unit_vitals *vitals)
@@ -1257,10 +1278,20 @@ static void test_objects_vitals(void *context, const struct delta_wire_unit_vita
 
 static void test_objects_names(void *context, const struct delta_wire_object_names *names)
 {
+	int index;
+
 	(void)context;
 	client_objects.names++;
 	if (names->count)
 		client_objects.last_name = names->entries[names->count - 1];
+	for (index = 0; index < names->count; index++)
+	{
+		if (names->entries[index].flags & DELTA_WIRE_NAME_REMOVED)
+		{
+			client_objects.removed++;
+			client_objects.last_removed = names->entries[index];
+		}
+	}
 }
 
 static const struct delta_peer_objects_client test_objects_client = { NULL, test_objects_vitals, test_objects_names };
@@ -1309,11 +1340,47 @@ static void test_objects(void)
 		client_objects.last_vital.flags == DELTA_WIRE_VITALS_SHIELD_DEPLETED && client_objects.last_vital.body == 16384);
 	CHECK(client_objects.last_name.object == 0xE1A00009u && client_objects.last_name.name == 17);
 
+	/* a client that comes late gets the host's pass alone: its names, and
+	the names it removed with their units' last vitals (Coldsnap's
+	detectors, killed or deleted before it came) */
+	{
+		int late_joined[4] = { 0, 1, 1, 1 };
+
+		node_start(3, 0x0500007F, 40003, OBJECT_SYNC_BIT, _delta_platform_pc_linux, 0, 0);
+		delta_peer_set_objects_client(&nodes[3].peer, &test_objects_client);
+		game_add(3);
+		for (step = 0; step < 4; step++, now += 300)
+			frame(now, 4, late_joined, 1);
+		CHECK(delta_peer_objects_clients(&nodes[0].peer) == 2 && delta_peer_client_objects_ready(&nodes[3].peer));
+		memset(&client_objects, 0, sizeof(client_objects));
+		memset(&names, 0, sizeof(names));
+		names.total = names.count = 3;
+		names.entries[0].object = 0xE1A00009u;
+		names.entries[0].name = 17;
+		names.entries[1].object = 0xFFFFFFFFu;
+		names.entries[1].name = 18;
+		names.entries[1].flags = DELTA_WIRE_NAME_REMOVED;
+		names.entries[1].body = 16384;
+		names.entries[1].shield = 16384;
+		names.entries[2].object = 0xFFFFFFFFu;
+		names.entries[2].name = 19;
+		names.entries[2].flags = DELTA_WIRE_NAME_REMOVED;
+		names.entries[2].vitals_flags = DELTA_WIRE_VITALS_SHIELD_DEPLETED;
+		CHECK(delta_peer_send_object_names(&nodes[0].peer, 3, &names) == 1);
+		deliver(now);
+		CHECK(client_objects.names == 1 && client_objects.removed == 2);
+		CHECK(client_objects.last_removed.name == 19 && client_objects.last_removed.object == 0xFFFFFFFFu &&
+			client_objects.last_removed.vitals_flags == DELTA_WIRE_VITALS_SHIELD_DEPLETED &&
+			!client_objects.last_removed.shield && !client_objects.last_removed.body);
+		/* (an older build's client, without object sync, gets none) */
+		CHECK(delta_peer_send_object_names(&nodes[0].peer, 2, &names) == 0);
+	}
+
 	/* a client without anywhere for them drops them */
 	delta_peer_set_objects_client(&nodes[1].peer, NULL);
 	CHECK(delta_peer_send_unit_vitals(&nodes[0].peer, 1, &vitals) == 1);
 	deliver(now);
-	CHECK(client_objects.vitals == 1);
+	CHECK(client_objects.vitals == 0);
 }
 
 /* ---------- the wire */

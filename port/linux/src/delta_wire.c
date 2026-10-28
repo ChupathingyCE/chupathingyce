@@ -1396,10 +1396,15 @@ int delta_wire_read_object_names(const unsigned char *payload, int size, struct 
 	for (index = 0; index < names->count; index++)
 	{
 		const unsigned char *entry = payload + DELTA_WIRE_OBJECT_NAMES_SIZE + index * DELTA_WIRE_OBJECT_NAMES_ENTRY_SIZE;
+		struct delta_wire_object_name *name = &names->entries[index];
 
-		names->entries[index].object = read_u32(entry);
-		names->entries[index].name = read_u16(entry + 4);
-		if (names->entries[index].name >= DELTA_WIRE_MAXIMUM_OBJECT_NAMES)
+		name->object = read_u32(entry);
+		name->name = read_u16(entry + 4);
+		name->flags = (unsigned char)(entry[6] & DELTA_WIRE_NAME_FLAGS);
+		name->vitals_flags = entry[7];
+		name->body = read_u16(entry + 8);
+		name->shield = read_u16(entry + 10);
+		if (name->name >= DELTA_WIRE_MAXIMUM_OBJECT_NAMES || (name->vitals_flags & ~DELTA_WIRE_VITALS_FLAGS))
 		{
 			names->total = names->first = names->count = 0;
 			return 0;
@@ -1424,11 +1429,19 @@ int delta_wire_write_object_names(unsigned char *data, delta_u32 session, const 
 	for (index = 0; index < names->count; index++)
 	{
 		unsigned char *entry = payload + DELTA_WIRE_OBJECT_NAMES_SIZE + index * DELTA_WIRE_OBJECT_NAMES_ENTRY_SIZE;
+		const struct delta_wire_object_name *name = &names->entries[index];
 
-		if (names->entries[index].name >= DELTA_WIRE_MAXIMUM_OBJECT_NAMES)
+		if (name->name >= DELTA_WIRE_MAXIMUM_OBJECT_NAMES || (name->flags & ~DELTA_WIRE_NAME_FLAGS) ||
+			(name->vitals_flags & ~DELTA_WIRE_VITALS_FLAGS))
+		{
 			return 0;
-		write_u32(entry, names->entries[index].object);
-		write_u16(entry + 4, names->entries[index].name);
+		}
+		write_u32(entry, name->object);
+		write_u16(entry + 4, name->name);
+		entry[6] = name->flags;
+		entry[7] = name->vitals_flags;
+		write_u16(entry + 8, name->body);
+		write_u16(entry + 10, name->shield);
 	}
 	delta_wire_write_header(data, DELTA_MAJOR, _delta_message_object_names, length, session);
 	return DELTA_WIRE_HEADER_SIZE + length;

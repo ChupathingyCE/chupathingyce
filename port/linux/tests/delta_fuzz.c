@@ -258,7 +258,9 @@ int LLVMFuzzerTestOneInput(const unsigned char *data, size_t size)
 			}
 			if (delta_wire_read_object_names(payload, header.length, &names) &&
 				(names.first + names.count > names.total || names.total > DELTA_WIRE_MAXIMUM_OBJECT_NAMES ||
-					names.count > DELTA_WIRE_MAXIMUM_OBJECT_NAMES_ENTRIES))
+					names.count > DELTA_WIRE_MAXIMUM_OBJECT_NAMES_ENTRIES ||
+					(names.count && ((names.entries[names.count - 1].flags & ~DELTA_WIRE_NAME_FLAGS) ||
+						(names.entries[names.count - 1].vitals_flags & ~DELTA_WIRE_VITALS_FLAGS)))))
 			{
 				__builtin_trap();
 			}
