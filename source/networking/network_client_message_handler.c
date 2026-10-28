@@ -1132,18 +1132,18 @@ static wchar_t const *network_game_client_unsupported_game_type(
 	{
 	case 1:
 		*name = "SWAT";
-		return L"This game uses an OpenCE game type\r\nChupathingy doesn't support yet\r\n(SWAT).";
+		return L"Uses an OpenCE game type\r\nChupathingy doesn't have yet:\r\nSWAT.";
 	case 2:
 		*name = "Infection";
-		return L"This game uses an OpenCE game type\r\nChupathingy doesn't support yet\r\n(Infection).";
+		return L"Uses an OpenCE game type\r\nChupathingy doesn't have yet:\r\nInfection.";
 	case 3:
 		*name = "Gun Game";
-		return L"This game uses an OpenCE game type\r\nChupathingy doesn't support yet\r\n(Gun Game).";
+		return L"Uses an OpenCE game type\r\nChupathingy doesn't have yet:\r\nGun Game.";
 	}
 	if (hardcore)
 	{
 		*name = "Hardcore";
-		return L"This game uses an OpenCE game type\r\nChupathingy doesn't support yet\r\n(Hardcore).";
+		return L"Uses an OpenCE game type\r\nChupathingy doesn't have yet:\r\nHardcore.";
 	}
 	return NULL;
 }

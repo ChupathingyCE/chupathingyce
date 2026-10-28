@@ -99,6 +99,7 @@ their handlers open opens.
 /* (its games on Halo PC maps: server_browser.c) */
 #include "halo_map_families.h"
 #include "halo_server_browser.h"
+#include "halo_join_reasons.h"
 /* (the multiplayer maps past the Xbox's: ui_map_list.c) */
 #include "halo_ui_map_list.h"
 #ifdef HALO_GAME_BROWSER
@@ -4842,11 +4843,11 @@ static int lobby_browser_version_state(struct p2p_listing const *game, short *ve
 #endif
 
 /* why a game of another network version is not joined (state from
-lobby_browser_version_state), in a message's words */
+lobby_browser_version_state), as every list says it (halo_join_reasons.h) */
 static void lobby_browser_version_text(int state, short version, wchar_t *text, short size)
 {
-	usnprintf(text, size - 1, L"This game runs %s version (network %d) and can't be joined.",
-		state < 0 ? L"an older" : L"a newer", version);
+	(void)version;
+	usnprintf(text, size - 1, L"%s", state < 0 ? JOIN_WIDE(JOIN_REASON_HOST_OLDER) : JOIN_WIDE(JOIN_REASON_NEEDS_UPDATE));
 	text[size - 1] = 0;
 }
 
@@ -5079,8 +5080,7 @@ static void lobby_browser_update(struct widget_instance *list)
 		}
 		else if (lobby_browser.failed_time && now - lobby_browser.failed_time < LOBBY_BROWSER_FAILED_TIME)
 		{
-			text_to_wide(lobby_browser.failed_name, name, NUMBEROF(name));
-			usnprintf(text, NUMBEROF(text) - 1, L"Could not reach %s", name);
+			usnprintf(text, NUMBEROF(text) - 1, L"%s", JOIN_WIDE(JOIN_REASON_NO_ANSWER));
 		}
 		else if (!lobby_browser.count)
 		{
@@ -5234,7 +5234,7 @@ static boolean lobby_browser_select(struct widget_instance *widget, short contro
 	}
 	if (!game->open)
 	{
-		lobby_browser_message(L"That game is not taking players.");
+		lobby_browser_message(JOIN_WIDE(JOIN_REASON_NOT_OPEN));
 		return campaign_fail();
 	}
 	if (!config_boolean("network.online"))

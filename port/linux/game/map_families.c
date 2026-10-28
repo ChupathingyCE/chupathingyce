@@ -11,6 +11,7 @@ play it); the files are looked for only on the builds that play such maps
 #include "cseries.h"
 #include "cseries/cseries_windows.h"
 #include "halo_map_families.h"
+#include "halo_join_reasons.h"
 #ifdef HALO_MAP_LIST
 #include "halo_map_packs.h"
 #endif
@@ -799,7 +800,7 @@ long map_family_stock_need(
 {
 	short edition;
 	boolean held[NUMBER_OF_MAP_FAMILIES] = { FALSE };
-	char display[MAP_FAMILY_FILE_LENGTH];
+	char display[MAP_FAMILY_FILE_LENGTH], shown[MAP_FAMILY_FILE_LENGTH + 48];
 	long needed = _map_family_xbox;
 
 	map_archive_display_name(file, display, (int)sizeof(display));
@@ -818,19 +819,22 @@ long map_family_stock_need(
 	{
 		snprintf(first, (size_t)first_size, "%s.map: this game needs the Custom Edition file.", display);
 		snprintf(second, (size_t)second_size, "Copy it from the Custom Edition installer\ninto maps_ce, then join again.");
-		snprintf(blocker, (size_t)blocker_size, "Needs the Custom Edition %s.map in maps_ce to join", display);
+		snprintf(shown, sizeof(shown), "maps_ce/%s.map (the Custom Edition file)", display);
+		snprintf(blocker, (size_t)blocker_size, JOIN_REASON_MAP_MISSING, shown);
 	}
 	else if (needed == _map_family_halo_pc)
 	{
 		snprintf(first, (size_t)first_size, "%s.map: this game needs the Halo PC file.", display);
 		snprintf(second, (size_t)second_size, "Copy it from your Halo PC install\ninto maps_pc, then join again.");
-		snprintf(blocker, (size_t)blocker_size, "Needs the Halo PC %s.map in maps_pc to join", display);
+		snprintf(shown, sizeof(shown), "maps_pc/%s.map (the Halo PC file)", display);
+		snprintf(blocker, (size_t)blocker_size, JOIN_REASON_MAP_MISSING, shown);
 	}
 	else
 	{
 		snprintf(first, (size_t)first_size, "%s.map comes with Halo PC.", display);
 		snprintf(second, (size_t)second_size, "Copy it from Halo PC (maps_pc) or\nCustom Edition (maps_ce), then join again.");
-		snprintf(blocker, (size_t)blocker_size, "%s.map comes with Halo PC: copy it into maps_pc or maps_ce to join", display);
+		snprintf(shown, sizeof(shown), "%s.map", display);
+		snprintf(blocker, (size_t)blocker_size, JOIN_REASON_MAP_FROM_HALO_PC, shown);
 	}
 	return needed;
 }
