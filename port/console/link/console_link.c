@@ -398,8 +398,8 @@ static struct
 
 static void log_line(const char *text)
 {
-	if (port && port->log)
-		port->log(text);
+	if (port && port->write_log)
+		port->write_log(text);
 }
 
 static int send_request(const char *path, const char *body, int *status)

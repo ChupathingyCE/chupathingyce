@@ -137,7 +137,7 @@ struct console_link_port
 	void (*random)(void *buffer, int size);
 	unsigned long (*milliseconds)(void);
 	/* one line in the log (never a key, code, token or address is given) */
-	void (*log)(const char *text);
+	void (*write_log)(const char *text);
 };
 
 /* where a link stands, as the panel shows it */
