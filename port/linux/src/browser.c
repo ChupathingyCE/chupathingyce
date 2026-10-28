@@ -1392,6 +1392,18 @@ static void announce(const char *invite, const struct hosted_game *game)
 	snprintf(text, sizeof(text), "%d", delta_legacy_announce());
 	form_add(form, sizeof(form), "version", text);
 	host_fields(form, sizeof(form), game);
+	/* (a dedicated server's playlist, as its host names it: HALO_PLAYLIST_ID,
+	the site's id of its verified map set, docs/playlist-maps.md) */
+	if (browser_dedicated())
+	{
+		const char *playlist = getenv("HALO_PLAYLIST_ID");
+
+		if (playlist && playlist[0] && strlen(playlist) <= 32 &&
+			!playlist[strspn(playlist, "abcdefghijklmnopqrstuvwxyz0123456789_")])
+		{
+			form_add(form, sizeof(form), "playlist", playlist);
+		}
+	}
 	/* (last: a full one may be cut short, and a list from before rosters
 	takes no field of the name) */
 	roster_text(game->roster, game->roster_count, roster, sizeof(roster));
@@ -1652,15 +1664,15 @@ static void parse_host(char **fields, struct browser_game *game)
 /* one line of /v1/games.txt: invite name map engine players
 maximum_players open version age score_limit teams roster, and (as asked:
 ?fields=22) region, platform, hosting, protocol, machines, gametype,
-capabilities, and an Xbox map pack's map's name, pack and tag (a list from
-before them sends 19) */
+capabilities, an Xbox map pack's map's name, pack and tag, and (?fields=23)
+the playlist (a list from before them sends 19, or 22) */
 static int parse_game(char *line, struct browser_game *game)
 {
-	char *fields[22];
+	char *fields[23];
 	int count = 0;
 	char *cursor = line;
 
-	while (count < 22)
+	while (count < 23)
 	{
 		fields[count++] = cursor;
 		cursor = strchr(cursor, '\t');
@@ -1746,6 +1758,16 @@ static int parse_game(char *line, struct browser_game *game)
 				snprintf(text, size, "%s", fields[field]);
 		}
 	}
+	/* (then the playlist's id, a-z, 0-9 and '_' alone: anything else is none) */
+	if (count >= 23)
+	{
+		fields[22][strcspn(fields[22], "\r\n")] = 0;
+		if (fields[22][0] && strlen(fields[22]) < sizeof(game->playlist) &&
+			!fields[22][strspn(fields[22], "abcdefghijklmnopqrstuvwxyz0123456789_")])
+		{
+			snprintf(game->playlist, sizeof(game->playlist), "%s", fields[22]);
+		}
+	}
 	return 1;
 }
 
@@ -1781,7 +1803,7 @@ static void update_list(void)
 	}
 	/* (with the host's fields: a list from before them sends what it has; and
 	co-op games, which the list sends only when asked, for the lists' filter) */
-	server_url("/v1/games.txt?fields=22&coop=1", url, sizeof(url));
+	server_url("/v1/games.txt?fields=23&coop=1", url, sizeof(url));
 	status = posix_browser_request(url, NULL, NULL, response, sizeof(response), error, sizeof(error));
 	if (!p2p_hosting_invite(own, sizeof(own)))
 		own[0] = 0;
