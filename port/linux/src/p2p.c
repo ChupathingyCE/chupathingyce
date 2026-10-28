@@ -393,6 +393,8 @@ static struct
 	/* UPnP (posix_upnp.c): a thread asking the router; the port it forwards
 	here, and when it was last asked */
 	int upnp_working;
+	/* what the router said last (p2p_hosting_status): _upnp_* */
+	int upnp_status;
 	int upnp_asked;
 	int upnp_forwarded;
 	int upnp_release_registered;
@@ -400,6 +402,15 @@ static struct
 	struct p2p_candidate upnp_candidate;
 	unsigned long upnp_time;
 } p2p = { 0, 0, -1, 0, -1, .hosting_socket = -1 };
+
+/* the router's answer to UPnP, as the host's status says it */
+enum
+{
+	_upnp_not_asked = 0,
+	_upnp_forwarded,
+	_upnp_no_router,
+	_upnp_refused,
+};
 
 /* the proxy (its index + 1) with each local port (all of theirs are on
 p2p.local_address) */
@@ -3028,12 +3039,14 @@ static void *upnp_thread(void *unused)
 				log_address_ipv4(address, external_port, text, sizeof(text)));
 		}
 		p2p.upnp_forwarded = 1;
+		p2p.upnp_status = _upnp_forwarded;
 		p2p.upnp_candidate.address = address;
 		p2p.upnp_candidate.port = external_port;
 	}
 	else if (!p2p.upnp_forwarded)
 	{
 		platform_log("Internet play: UPnP: %s", error);
+		p2p.upnp_status = strstr(error, "no UPnP router") ? _upnp_no_router : _upnp_refused;
 	}
 	pthread_mutex_unlock(&p2p_lock);
 	return NULL;
@@ -3146,6 +3159,96 @@ const char *p2p_take_clipboard_text(void)
 	}
 	pthread_mutex_unlock(&p2p_lock);
 	return result;
+}
+
+/* ---------- the host's reachability (p2p.h) */
+
+void p2p_check_network(void)
+{
+	pthread_mutex_lock(&p2p_lock);
+	if (p2p.running)
+		p2p.stun_started = 1;
+	pthread_mutex_unlock(&p2p_lock);
+}
+
+int p2p_hosting_status(char *text, int size)
+{
+	unsigned short port;
+	int mapped = 0, strict = 0, settled, upnp, upnp_allowed, fixed;
+	int index;
+
+	if (size <= 0)
+		return 0;
+	text[0] = 0;
+	if (!p2p.running)
+		return 0;
+	pthread_mutex_lock(&p2p_lock);
+	port = network_short(p2p.tunnel_port);
+	for (index = 0; index < p2p.stun_count; index++)
+	{
+		int other;
+
+		if (!p2p.stun[index].has_mapped)
+			continue;
+		mapped++;
+		for (other = 0; other < index; other++)
+		{
+			if (p2p.stun[other].has_mapped && p2p.stun[other].mapped.port != p2p.stun[index].mapped.port)
+				strict = 1;
+		}
+	}
+	settled = p2p.stun_started && stun_settled();
+	upnp = p2p.upnp_forwarded ? _upnp_forwarded : p2p.upnp_status;
+	pthread_mutex_unlock(&p2p_lock);
+	upnp_allowed = config_boolean("network.allow_upnp");
+	fixed = config_integer("network.tunnel_port") > 0;
+
+	if (upnp == _upnp_forwarded)
+	{
+		snprintf(text, (size_t)size, "Reachable: port forwarded by your router (UPnP).");
+		return 1;
+	}
+	if (mapped >= 2 && !strict)
+	{
+		snprintf(text, (size_t)size, "Reachable: most players can connect to you (UDP port %u).", port);
+		return 1;
+	}
+	if (strict)
+	{
+		/* (the advice for the port this run has: a port the game picks
+		changes each run, so forwarding it needs a fixed one first) */
+		if (fixed)
+		{
+			snprintf(text, (size_t)size, "Friends on strict networks may not reach you. Forward UDP %u%s.", port,
+				upnp_allowed && upnp == _upnp_not_asked ? " or enable UPnP on your router" :
+				upnp_allowed ? "" : " or turn on network.allow_upnp");
+		}
+		else
+		{
+			snprintf(text, (size_t)size, "Friends on strict networks may not reach you. Set a fixed port, "
+				"then forward it (UDP)%s.", upnp_allowed && upnp == _upnp_not_asked ?
+				", or enable UPnP on your router" : "");
+		}
+		if (upnp == _upnp_no_router || upnp == _upnp_refused)
+		{
+			size_t length = strlen(text);
+
+			snprintf(text + length, (size_t)size - length, upnp == _upnp_no_router ?
+				" UPnP: no router found." : " UPnP: the router refused.");
+		}
+		return 1;
+	}
+	if (!settled)
+	{
+		snprintf(text, (size_t)size, "Checking your network...");
+		return 1;
+	}
+	/* (one STUN server answered, or none: nothing to say about the NAT) */
+	if (mapped)
+		snprintf(text, (size_t)size, "Players can likely reach you (UDP port %u).", port);
+	else
+		snprintf(text, (size_t)size, "Can't check your network: the STUN servers didn't answer.");
+	return 1;
 }
 
 /* ---------- invites from elsewhere */

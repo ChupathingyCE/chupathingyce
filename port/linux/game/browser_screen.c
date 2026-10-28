@@ -458,6 +458,10 @@ static void join_first_player(
 
 /* (p2p.c: the invite this machine joined last, its hex digits) */
 int p2p_joined_invite(char *text, int size);
+/* p2p.c's: the hosted game's invite link (0: hosting none on the internet),
+and whether players can reach this host */
+int p2p_invite_link(char *link, int size);
+int p2p_hosting_status(char *text, int size);
 /* p2p.c's: why the invite joined has not reached its host (2: the host
 answered, but no connection got through; p2p.h's P2P_JOIN_NO_CONNECTION) */
 int p2p_join_failure(void);
@@ -2565,6 +2569,18 @@ static void draw_empty_list(
 		ui_overlay_text(UI_FONT_MENU_SMALL, 10.0f, center, y + 24, UI_ALIGN_CENTER, COLOR_DIM, line);
 }
 
+/* the host's reachability (p2p_hosting_status), while this machine hosts a
+game on the internet */
+static boolean hosting_status(
+	char *text,
+	long size)
+{
+	char link[160];
+
+	return global_network_game_server_get() && p2p_invite_link(link, sizeof(link)) &&
+		p2p_hosting_status(text, (int)size);
+}
+
 /* the list's footer: the order (or a message, or what the selected game
 lacks to be joined), and the page */
 static void draw_list_footer(
@@ -2579,6 +2595,7 @@ static void draw_list_footer(
 		blocker_text : game_type_blocker(selected) ? game_type_blocker(selected) :
 		ce_map_blocker(selected, blocker_text, sizeof(blocker_text));
 	char text[96];
+	char status[192];
 	float width;
 
 	if (!browser_screen.connecting && browser_screen.status[0] &&
@@ -2589,6 +2606,9 @@ static void draw_list_footer(
 	}
 	else if (blocker)
 		ui_overlay_text(UI_FONT_MENU, FOOT_SIZE + 0.5f, LIST_X + 14, text_y - 0.25f, UI_ALIGN_LEFT, COLOR_WARN, blocker);
+	/* (this machine hosts an internet game: whether players can reach it) */
+	else if (hosting_status(status, sizeof(status)))
+		ui_overlay_text(UI_FONT_MENU_SMALL, FOOT_SIZE, LIST_X + 14, text_y, UI_ALIGN_LEFT, COLOR_HEAD, status);
 	else
 	{
 		/* (RT steps to the next order, and so does the pointer on it) */
