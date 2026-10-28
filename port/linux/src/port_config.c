@@ -927,6 +927,15 @@ static const struct config_setting config_settings[] =
 		_platform_all,
 		"The weapon for network_test_pickup, by part of its tag name; empty\n"
 		"for any." },
+	{ "debug.network_test_password", _config_string, "\"\"", "HALO_NETWORK_TEST_PASSWORD", _environment_value,
+		_platform_all,
+		"With debug.network_test: the host's game's password (as Server Setup's\n"
+		"PASSWORD), or the password a joining machine types when its invite asks\n"
+		"for one; empty for none." },
+	{ "debug.network_test_invite_file", _config_string, "\"\"", "HALO_NETWORK_TEST_INVITE_FILE", _environment_value,
+		_platform_all,
+		"With debug.network_test's host: a file the host writes its invite link\n"
+		"to once it has one, for a joining machine's command line; empty for none." },
 	{ "debug.telnet_console", _config_boolean, "false", "HALO_TELNET_CONSOLE", _environment_set_is_true, _platform_all,
 		"A console on 127.0.0.1 (telnet_console_port), with no password." },
 	{ "debug.telnet_console_port", _config_integer, "2323", "HALO_TELNET_CONSOLE_PORT", _environment_value,
