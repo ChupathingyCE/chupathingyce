@@ -38,7 +38,11 @@ multipurpose map is listed (ce_models_bitmap_is_multipurpose), and the
 texture cache has the renderer sample its channels from where Halo PC keeps
 them (xbox_texture_cache.c, D3DCOMMON_PORT_PC_MULTIPURPOSE; xbox_textures.c,
 a texture swizzle). A bitmap a model shader also draws as its base or detail
-map keeps its channels, which the renderer has one order of.
+map keeps its channels, which the renderer has one order of. So does the
+multipurpose map of a model shader with MCC's flag for the Xbox's channel
+order (bit 6 of its flags, "multipurpose map uses og xbox channel order",
+which Halo PC leaves unused): tags made from the Xbox's carry it, their
+masks already where the Xbox's model shaders read them.
 */
 
 #ifdef HALO_CUSTOM_EDITION
@@ -90,8 +94,13 @@ enum
 	CE_SHADER_TYPE_TRANSPARENT_CHICAGO = 6,
 	CE_SHADER_TYPE_TRANSPARENT_CHICAGO_EXTENDED = 7,
 
-	/* a model shader's (rasterizer_xbox_models.c) base, multipurpose and
-	detail maps: their tag indices */
+	/* a model shader's (rasterizer_xbox_models.c) flags, and MCC's flag
+	there for a multipurpose map whose channels are the Xbox's (Halo PC
+	leaves the bit unused) */
+	MODEL_SHADER_FLAGS_OFFSET = 0x28,
+	MODEL_SHADER_XBOX_MULTIPURPOSE_FLAG = 0x40,
+	/* a model shader's base, multipurpose and detail maps: their tag
+	indices */
 	MODEL_SHADER_BASE_MAP_INDEX_OFFSET = 0xb0,
 	MODEL_SHADER_MULTIPURPOSE_MAP_INDEX_OFFSET = 0xc8,
 	MODEL_SHADER_DETAIL_MAP_INDEX_OFFSET = 0xe8,
@@ -354,16 +363,26 @@ static long ce_multipurpose_bitmaps_list(
 	return changed;
 }
 
+/* whether a model shader's multipurpose map is in the Xbox's channel order:
+MCC's flag for tags made from the Xbox's */
+static boolean ce_model_shader_multipurpose_is_xbox(
+	byte const *shader)
+{
+	return (*(unsigned short const *)(shader + MODEL_SHADER_FLAGS_OFFSET) & MODEL_SHADER_XBOX_MULTIPURPOSE_FLAG) != 0;
+}
+
 /* the multipurpose maps of the map's model shaders listed, but for those a
-model shader also draws as its base or detail map: the number listed */
+model shader also draws as its base or detail map, or as a multipurpose map
+in the Xbox's order: the number listed */
 static long ce_multipurpose_bitmaps_find(
 	void *tag_instances,
 	long tag_count)
 {
 	long pass, index;
-	long kept = 0;
+	long kept = 0, xbox_order = 0, xbox_kept = 0;
 
-	/* (the multipurpose maps, then the base and detail maps taken off) */
+	/* (the multipurpose maps in Halo PC's order, then the base and detail
+	maps and those in the Xbox's order taken off) */
 	for (pass = 0; pass < 2; pass++)
 	{
 		for (index = 0; index < tag_count; index++)
@@ -378,11 +397,23 @@ static long ce_multipurpose_bitmaps_find(
 			shader = xbox_pointer(instance->base_address);
 			if (!pass)
 			{
+				if (ce_model_shader_multipurpose_is_xbox(shader))
+				{
+					xbox_order++;
+					continue;
+				}
 				group = ce_bitmap_group(tag_instances, tag_count,
 					*(long const *)(shader + MODEL_SHADER_MULTIPURPOSE_MAP_INDEX_OFFSET));
 				if (group)
 					ce_multipurpose_bitmaps_list(group, FALSE);
 				continue;
+			}
+			if (ce_model_shader_multipurpose_is_xbox(shader))
+			{
+				group = ce_bitmap_group(tag_instances, tag_count,
+					*(long const *)(shader + MODEL_SHADER_MULTIPURPOSE_MAP_INDEX_OFFSET));
+				if (group)
+					xbox_kept += ce_multipurpose_bitmaps_list(group, TRUE);
 			}
 			group = ce_bitmap_group(tag_instances, tag_count, *(long const *)(shader + MODEL_SHADER_BASE_MAP_INDEX_OFFSET));
 			if (group)
@@ -397,6 +428,11 @@ static long ce_multipurpose_bitmaps_find(
 	{
 		error(_error_silent, "Custom Edition maps: %ld multipurpose bitmaps also drawn as base or detail maps keep "
 			"their channels", kept);
+	}
+	if (xbox_order)
+	{
+		error(_error_silent, "Custom Edition maps: %ld model shaders flagged with the Xbox's multipurpose order "
+			"(%ld of their bitmaps also drawn in Halo PC's keep the Xbox's)", xbox_order, xbox_kept);
 	}
 	return ce_multipurpose_bitmap_count;
 }
