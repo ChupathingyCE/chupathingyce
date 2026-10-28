@@ -46,9 +46,14 @@ enum
 	RASTERIZER_MAXIMUM_DYNAMIC_TRIANGLES_EXTRAS = HALO_PORT_MAXIMUM_DYNAMIC_TRIANGLES_EXTRAS,
 	RASTERIZER_MAXIMUM_DYNAMIC_TRIANGLE_BUFFERS = 1024,
 #ifndef HALO_XBOX_CONSOLE
-	/* four per particle (build_sprites_begin), for the native builds' larger
-	particle pool (halo_port_capacity.h) */
-	RASTERIZER_MAXIMUM_DYNAMIC_UNLIT_VERTICES = 4 * HALO_PORT_MAXIMUM_PARTICLES,
+	/* four per particle (build_sprites_begin), twice over for the native
+	builds' larger particle pool (halo_port_capacity.h): the frame's particle
+	systems, contrails, glows and lightning draw from it too, and a Halo PC
+	map's busy frame asked for more than four per particle (coldsnap: 22672
+	vertices for one batch with 30488 in use). Never fewer than the Xbox's */
+	RASTERIZER_MAXIMUM_DYNAMIC_UNLIT_VERTICES = 8 * HALO_PORT_MAXIMUM_PARTICLES > 12288 ?
+		8 * HALO_PORT_MAXIMUM_PARTICLES :
+		12288,
 #else
 	/* (3 x the 4096 of the Xbox's 1024 particles: a busy 16-player match
 	spent 8192 on sprites, the frame's particles drawn in several passes) */
