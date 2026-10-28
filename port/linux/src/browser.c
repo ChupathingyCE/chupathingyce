@@ -43,6 +43,7 @@ with it under the lock.
 #include "browser_ping.h"
 #include "qrcodegen.h"
 #include "delta_profile.h"
+#include "save_folder.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -73,7 +74,8 @@ enum
 	EXIT_WITHDRAW_WAIT = 2500,
 	EXIT_WITHDRAW_POLL = 50,
 	RESPONSE_SIZE = 32768,
-	/* the player key (game_list_player.key in the save root) */
+	/* the player key (game_list_player.key in each Halo profile's folder:
+	save_folder.h) */
 	PLAYER_KEY_SIZE = 32,
 	/* the public player ID: the first bytes of the key's hash */
 	PLAYER_ID_SIZE = 16,
@@ -403,8 +405,15 @@ static void server_url(const char *path, char *url, int size)
 
 /* ---------- the player's identity
 
-Each copy of the game has a player key: 32 random bytes made the first time
-(posix_browser_private_key: readable by this user alone), in the save root.
+Each Halo profile has its own player key (save_folder.h): 32 random bytes
+in the profile's folder (posix_browser_private_key: readable by this user
+alone), made when the profile signs in to Delta (Link Profile, or a
+restored key). The key in use is player 1's profile's (the game says which:
+browser_set_player_profile); a profile without one is a guest, and a guest
+sends no key at all. An install's key from before (in the save root) is
+moved over once (save_folder_player_key) and kept. The dedicated server and
+the probe have no profiles and keep the install's key, made the first time.
+
 The key is sent to the game list server alone, over HTTPS (whose
 certificate is checked), to confirm the player's lines in finished games;
 the server keeps no keys, only the player ID it works out from one again
@@ -422,13 +431,30 @@ static const char *local_platform_name(void);
 
 static int player_key_loaded;
 static unsigned char player_key_cached[PLAYER_KEY_SIZE];
+/* player 1's Halo profile's folder ("": none), once the game has said
+(browser_set_player_profile); generation counts the changes, so that a key
+read for the profile before is not kept for the new one */
+static int player_profile_known;
+static char player_profile_folder[1024];
+static unsigned player_profile_generation;
 
-static void player_key_path(char *path, int size)
+/* the key file in use: the install's for the dedicated server and the
+probe, else player 1's profile's (folder: player_profile_folder, as read
+under the lock); 0 when there is none (no profile, or the game has not
+said yet) */
+static int player_key_path(char *path, int size, int known, const char *folder)
 {
-	snprintf(path, (size_t)size, "%s/game_list_player.key", platform_save_root());
+	if (browser_headless())
+	{
+		snprintf(path, (size_t)size, "%s/" SAVE_FOLDER_PLAYER_KEY, platform_save_root());
+		return 1;
+	}
+	return known && save_folder_player_key(platform_save_root(), folder, path, (unsigned long)size);
 }
 
-static int player_key(unsigned char *key)
+/* the key in use (player_key_path); make: made if the profile has none yet
+(signing in), else a profile without one is a guest, and 0 */
+static int player_key_get(unsigned char *key, int make)
 {
 	/* (one thread loads it, or makes it the first time, while another that
 	wants it waits: the browser's thread and the game's both ask, and the
@@ -436,37 +462,66 @@ static int player_key(unsigned char *key)
 	missing for the whole run; held across the file's reading, not
 	browser_lock) */
 	static pthread_mutex_t load_lock = PTHREAD_MUTEX_INITIALIZER;
-	int loaded;
-	char path[1024];
+	int loaded, known;
+	unsigned generation;
+	char path[1024], folder[1024];
 
 	pthread_mutex_lock(&load_lock);
 	pthread_mutex_lock(&browser_lock);
 	loaded = player_key_loaded;
+	known = player_profile_known;
+	generation = player_profile_generation;
+	snprintf(folder, sizeof(folder), "%s", player_profile_folder);
 	pthread_mutex_unlock(&browser_lock);
 	if (!loaded)
 	{
 		unsigned char read_key[PLAYER_KEY_SIZE];
+		struct posix_file_information information;
 
 		/* (said once a run; a key that could not be read is tried again the
 		next time one is wanted, not given up on until the game restarts) */
-		static int logged;
+		static int logged, guest_logged;
 
-		player_key_path(path, sizeof(path));
-		loaded = posix_browser_private_key(path, read_key, PLAYER_KEY_SIZE) ? 1 : -1;
-		if (loaded < 0 && !logged)
+		if (!player_key_path(path, sizeof(path), known, folder))
 		{
-			logged = 1;
-			platform_log("Game list: no player key (%s): finished games are not confirmed", path);
+			loaded = -1;
+			if (known && !guest_logged)
+			{
+				guest_logged = 1;
+				platform_log("Game list: no Halo profile for player 1: no player key is sent");
+			}
+		}
+		else if (!make && !browser_headless() && posix_stat(path, &information) != 0)
+		{
+			/* (a guest: not signed in to Delta) */
+			loaded = -1;
+			if (!guest_logged)
+			{
+				guest_logged = 1;
+				platform_log("Game list: player 1's Halo profile is a guest (not signed in): no player key is sent");
+			}
+		}
+		else
+		{
+			loaded = posix_browser_private_key(path, read_key, PLAYER_KEY_SIZE) ? 1 : -1;
+			if (loaded < 0 && !logged)
+			{
+				logged = 1;
+				platform_log("Game list: no player key (%s): finished games are not confirmed", path);
+			}
 		}
 		pthread_mutex_lock(&browser_lock);
-		/* (unless a restored key took its place meanwhile) */
+		/* (unless a restored key took its place meanwhile, or player 1's
+		profile changed: then the key read is the old profile's, not kept) */
 		if (player_key_loaded)
 			loaded = player_key_loaded;
-		else if (loaded > 0)
+		else if (loaded > 0 && generation == player_profile_generation)
 		{
 			memcpy(player_key_cached, read_key, PLAYER_KEY_SIZE);
 			player_key_loaded = loaded;
 		}
+		else if (loaded > 0)
+			loaded = -1;
 		pthread_mutex_unlock(&browser_lock);
 		memset(read_key, 0, sizeof(read_key));
 	}
@@ -477,6 +532,12 @@ static int player_key(unsigned char *key)
 	memcpy(key, player_key_cached, PLAYER_KEY_SIZE);
 	pthread_mutex_unlock(&browser_lock);
 	return 1;
+}
+
+/* the key in use; 0 for a guest */
+static int player_key(unsigned char *key)
+{
+	return player_key_get(key, 0);
 }
 
 static void player_id_from_key(const unsigned char *key, char *text)
@@ -662,9 +723,10 @@ static void start_connect(int serial, const unsigned short *name)
 		connect_failed(serial, "Link Profile needs an HTTPS game list (network.browser_url).");
 		return;
 	}
-	if (!player_key(key))
+	/* (signing in: the profile's key made if it has none) */
+	if (!player_key_get(key, 1))
 	{
-		connect_failed(serial, "Link Profile could not read or make your player key.");
+		connect_failed(serial, "Link Profile needs a Halo profile and its player key.");
 		return;
 	}
 	p2p_hex(key, PLAYER_KEY_SIZE, key_text);
@@ -2391,8 +2453,11 @@ int browser_take_key_link(char *new_id, char *old_id, int size)
 		for (index = 1; posix_command_line_argument(index, argument, sizeof(argument)); index++)
 			browser_key_link(argument);
 	}
+	/* (asked about once the game has said whose profile it goes to) */
 	pthread_mutex_lock(&browser_lock);
 	memcpy(digits, browser.pending_key, sizeof(digits));
+	if (!player_profile_known && !browser_headless())
+		digits[0] = 0;
 	pthread_mutex_unlock(&browser_lock);
 	if (!digits[0] || size <= 2 * PLAYER_ID_SIZE)
 		return 0;
@@ -2405,37 +2470,83 @@ int browser_take_key_link(char *new_id, char *old_id, int size)
 	return 1;
 }
 
-/* the waiting key put in place of this copy's (yes), or dropped (no) */
+/* (under the lock) another player key in use: its link read and asked
+about again, and the Delta Profile shown loaded again */
+static void forget_player_link(void)
+{
+	browser.profile_linked = 0;
+	browser.profile_handle[0] = 0;
+	browser.profile_read = 0;
+	browser.profile_check_done = 0;
+	browser.profile_check_attempts = 0;
+	browser.profile_check_time = 0;
+	browser.game_profile_has = 0;
+	memset(&browser.game_profile, 0, sizeof(browser.game_profile));
+	browser.game_profile_serial++;
+}
+
+/* the waiting key put in place of player 1's profile's (yes), or dropped
+(no); a profile without a key is signed in with it */
 void browser_answer_key_link(int install)
 {
 	unsigned char key[PLAYER_KEY_SIZE];
-	char path[1024];
-	int ok = 0;
+	char path[1024], folder[1024], digits[2 * PLAYER_KEY_SIZE + 1];
+	int ok = 0, known, has_path = 0;
 
 	pthread_mutex_lock(&browser_lock);
-	if (install && browser.pending_key[0])
+	memcpy(digits, browser.pending_key, sizeof(digits));
+	memset(browser.pending_key, 0, sizeof(browser.pending_key));
+	known = player_profile_known;
+	snprintf(folder, sizeof(folder), "%s", player_profile_folder);
+	pthread_mutex_unlock(&browser_lock);
+	if (install && digits[0])
 	{
-		key_from_hex(browser.pending_key, key);
-		player_key_path(path, sizeof(path));
-		ok = posix_browser_replace_key(path, key, PLAYER_KEY_SIZE);
-		if (ok)
+		/* (the path worked out without the lock: it may move the install's
+		key over first) */
+		has_path = player_key_path(path, sizeof(path), known, folder);
+		key_from_hex(digits, key);
+		ok = has_path && posix_browser_replace_key(path, key, PLAYER_KEY_SIZE);
+		pthread_mutex_lock(&browser_lock);
+		if (ok && !strcmp(folder, player_profile_folder))
 		{
 			memcpy(player_key_cached, key, PLAYER_KEY_SIZE);
 			player_key_loaded = 1;
 			/* (another player: its link read and asked about again) */
-			browser.profile_linked = 0;
-			browser.profile_handle[0] = 0;
-			browser.profile_read = 0;
-			browser.profile_check_done = 0;
-			browser.profile_check_attempts = 0;
-			browser.profile_check_time = 0;
+			forget_player_link();
 		}
+		pthread_mutex_unlock(&browser_lock);
 		memset(key, 0, sizeof(key));
 	}
-	memset(browser.pending_key, 0, sizeof(browser.pending_key));
-	pthread_mutex_unlock(&browser_lock);
-	if (install)
+	memset(digits, 0, sizeof(digits));
+	if (install && !has_path)
+		platform_log("Game list: a restored player key needs a Halo profile for player 1");
+	else if (install)
 		platform_log(ok ? "Game list: the player key was restored" : "Game list: could not restore the player key");
+}
+
+/* player 1's Halo profile's folder (the game's thread, when it changes:
+game_list_claims.c); "" for none */
+void browser_set_player_profile(const char *folder)
+{
+	if (!folder)
+		folder = "";
+	pthread_mutex_lock(&browser_lock);
+	if (!player_profile_known || strcmp(folder, player_profile_folder))
+	{
+		int changed = player_profile_known;
+
+		player_profile_known = 1;
+		snprintf(player_profile_folder, sizeof(player_profile_folder), "%s", folder);
+		player_profile_generation++;
+		player_key_loaded = 0;
+		memset(player_key_cached, 0, sizeof(player_key_cached));
+		forget_player_link();
+		pthread_mutex_unlock(&browser_lock);
+		if (changed)
+			platform_log("Game list: player 1's Halo profile changed: its own player key in use");
+		return;
+	}
+	pthread_mutex_unlock(&browser_lock);
 }
 
 /* this copy's public player ID (its line in finished games), as text */

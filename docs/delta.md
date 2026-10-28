@@ -1373,8 +1373,8 @@ it queues a request and again by the main thread before it runs it.
 
 A moderator is known by a **moderator key**: an Ed25519 key pair whose seed
 is SHA-256("halo-ce-universal moderator key\n" || player key), the player
-key being the game list's (`game_list_player.key`, never sent to a game
-server). The public key (64 hex digits) is the identity. A game proves it
+key being the game list's (`game_list_player.key` of player 1's Halo
+profile, never sent to a game server). The public key (64 hex digits) is the identity. A game proves it
 with Delta Peer's `moderation` capability (see Delta Peer, Moderation);
 names and hardware ids never give a role. The site derives the same key
 whenever a game sends it its player key, and keeps the public key on the
@@ -1476,7 +1476,28 @@ copy: every Halo profile on a copy counts for the same Delta profile.
   of their settings pages. The Xbox and Gearbox menus get a
   screen drawn as Online Games is. The dialogs (Link Profile, unlinking,
   and the pages of the site with a QR code) are the same in all three.
-- **Requests:** the game sends this copy's player key, over HTTPS only,
+- **One key per Halo profile:** each Halo profile has its own player key,
+  `game_list_player.key` in the profile's folder (`u/UDATA/<id>/` in the
+  save root; `port/linux/src/save_folder.h`). The key in use is player 1's
+  profile's: the active profile, or the one used last. A profile without a
+  key is a guest. It plays as before and sends no key. Link Profile (or a
+  restored key) makes the profile's key. Renaming a profile takes its key
+  along. Deleting a profile deletes its key; the site keeps the link, and
+  the profile page's key link restores it.
+- **Moving an install's key:** builds before this had one key per install,
+  in the save root. The first time this build needs a key, the install key
+  is copied to one Halo profile: player 1's (the active one, or the one
+  used last), or the install's only profile when player 1 has none. With
+  no profile yet, or several and none picked, the key waits until player 1
+  picks one. That profile keeps the same player ID, so its link, stats and
+  roles stay as they were. The other profiles start as guests.
+  `player_key_adopted.txt` in the save root names the profile. A profile
+  that has a key of its own is never given the install key. If the profile
+  that took it is deleted, the next one player 1 uses takes it again. The
+  install key is never changed or deleted: older builds keep using it,
+  and it stays as a backup. The dedicated server and Tex have no profiles
+  and keep the install key.
+- **Requests:** the game sends player 1's profile's player key, over HTTPS only,
   to the game list: `POST /v1/game/profile` (the profile, its copies, roles
   and privacy), `/v1/game/unlink` (this copy only) and `/v1/game/privacy`
   (the site's own privacy settings). The site takes 6 requests a minute
@@ -1491,7 +1512,7 @@ copy: every Halo profile on a copy counts for the same Delta profile.
   report and the lobby (`port/linux/game/profile_names.c`). The game asks
   the site for those players' public cards (`POST /v1/game/players`, no
   key). A machine with more than one player keeps the game names, because
-  a profile belongs to a copy. OpenCE players, players who don't share,
+  Delta Peer still carries one profile per machine. OpenCE players, players who don't share,
   and what OpenCE clients see are unchanged. `display.profile_names =
   false` shows everyone by their game name.
 - **Consoles:** `HALO_CONSOLE_NO_DELTA_PROFILE` leaves all of it out. A

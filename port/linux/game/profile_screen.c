@@ -7,7 +7,8 @@ copy's player key reaches it (browser.c's browser_profile_*). The game
 shows it and links or unlinks this copy; it never makes, renames or deletes
 a profile, and account matters (password, email, two-step sign-in, export,
 deletion) stay on the site, reached with OPEN ON THE WEB. Linking is per
-copy: every Halo profile on this copy counts for the one Delta profile.
+Halo profile: player 1's profile has its own player key (made when it
+links; port/linux/src/save_folder.h), and one without is a guest.
 
 The same sections in every menu set: OVERVIEW, LINKED COPIES, ROLES,
 CLAN, PRIVACY, then LINK PROFILE (or UNLINK THIS COPY) and OPEN ON THE
@@ -507,7 +508,7 @@ static short state_lines(
 	if (!config_boolean("network.online"))
 		return add_line(lines, count, maximum, _profile_line_text, "Online play is off");
 	if (status->state == BROWSER_PROFILE_NO_KEY)
-		return add_line(lines, count, maximum, _profile_line_text, "No player key");
+		return add_line(lines, count, maximum, _profile_line_text, "Guest: not signed in");
 	if (status->state == BROWSER_PROFILE_NO_LIST)
 		return add_line(lines, count, maximum, _profile_line_text, "No game list");
 	if (!status->has_profile)

@@ -1117,6 +1117,20 @@ boolean synchronize_metadata_display_name_with_profile_name(
 										save_game_directory, game_state_get_persistent_storage_filename());
 									success = (boolean)CopyFileA(
 										old_persistent_storage_path, new_persistent_storage_path, TRUE);
+#ifdef HALO_GAME_BROWSER
+									/* port: the profile's own player key goes with it, before
+									the old folder is deleted (port/linux/game/
+									game_list_claims.c; port/linux/src/save_folder.h) */
+									if (success == TRUE)
+									{
+										boolean game_list_profile_key_carry(char const *old_directory,
+											char const *new_directory);
+
+										*filename = 0;
+										success = game_list_profile_key_carry(old_persistent_storage_path,
+											save_game_directory);
+									}
+#endif
 								}
 								else
 								{
