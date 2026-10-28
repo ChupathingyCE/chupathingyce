@@ -9506,6 +9506,19 @@ void game_engine_postspawn_player_update(
 			fragmentation_grenade_count;
 		long starting_plasma_grenade_count = 0;
 
+#ifdef HALO_CUSTOM_EDITION
+		/* port: Halo PC spawns a player with each grenade's multiplayer
+		spawn default from the globals (mp_spawn_default: 2 fragmentation
+		and 0 plasma grenades in its maps), at most the counts above, where
+		the Xbox gives every fragmentation grenade a player can carry. A
+		Custom Edition map plays as Halo PC's */
+		if (cache_file_tags_are_ce())
+		{
+			starting_fragmentation_grenade_count = fragmentation_grenade->mp_spawn_default;
+			starting_plasma_grenade_count = plasma_grenade->mp_spawn_default;
+		}
+#endif
+
 		/* port: a custom loadout's weapons (game_variant_options) */
 		if (game_variant_options_get()->loadout == _loadout_custom)
 		{
