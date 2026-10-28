@@ -87,6 +87,10 @@ enum
 	/* the original Xbox (port/xbox): not in _platform_all, each of its
 	settings marked for it */
 	_platform_xbox = 8,
+	/* the consoles on the shared GL layer (HALO_CONSOLE_GL_LAYER: the Xbox
+	360, the Wii U), as well as their desktop or Windows settings: the
+	console settings they share with the original Xbox */
+	_platform_console_gl = 16,
 };
 
 struct config_setting
@@ -840,7 +844,7 @@ static const struct config_setting config_settings[] =
 		"Detailed traces in debug.txt, for reporting a join that fails: the main\n"
 		"loop each second, every hop of an internet join, the games advertised.\n"
 		"Other hosts appear only as tags, never by their addresses." },
-	{ "console.perf_log", _config_boolean, "false", NULL, _environment_value, _platform_xbox,
+	{ "console.perf_log", _config_boolean, "false", NULL, _environment_value, _platform_xbox | _platform_console_gl,
 		"For finding what makes a scene slow: once a second, a line in debug.txt\n"
 		"with the frame time (average and worst), the time each part of the frame\n"
 		"took (game ticks, the render's parts, sound, network, present, the wait\n"
@@ -1100,6 +1104,10 @@ static const struct config_setting config_settings[] =
 #define CONFIG_PLATFORM _platform_android
 #elif defined(HALO_XBOX_CONSOLE)
 #define CONFIG_PLATFORM _platform_xbox
+#elif defined(HALO_CONSOLE_GL_LAYER) && defined(_WIN32)
+#define CONFIG_PLATFORM (_platform_desktop | _platform_windows | _platform_console_gl)
+#elif defined(HALO_CONSOLE_GL_LAYER)
+#define CONFIG_PLATFORM (_platform_desktop | _platform_console_gl)
 #elif defined(_WIN32)
 #define CONFIG_PLATFORM (_platform_desktop | _platform_windows)
 #else

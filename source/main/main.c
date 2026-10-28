@@ -3835,7 +3835,9 @@ void main_loop(
 #ifndef HALO_XBOX_CONSOLE
 					render_interpolation_frame_begin();
 					MAIN_STAGE("main_game_render");
+					HALO_PERF_BEGIN(_halo_perf_render);
 					main_game_render((double)main_globals.seconds_elapsed);
+					HALO_PERF_END(_halo_perf_render);
 					MAIN_STAGE("render_interpolation_frame_end");
 					render_interpolation_frame_end();
 					MAIN_STAGE("profile_render_end");
