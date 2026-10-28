@@ -269,6 +269,7 @@ def generate_server_build(n: Writer, sln: Any) -> None:
             lp64 = Lp64Build(n, server_sln, rule_name, cc, extra_roots=[SERVER_PLATFORM_DIR])
             host = Lp64Host(
                 name=rule_name,
+                compressed_maps=True,
                 target_flags=[*target, march, *arch.flags, *defines],
                 game_flags=LINUX64_GAME_FLAGS,
                 posix_flags=LINUX64_POSIX_FLAGS,
