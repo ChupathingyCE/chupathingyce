@@ -618,6 +618,13 @@ void map_download_get(struct map_download_progress *progress)
 	}
 }
 
+void map_download_peek(struct map_download_progress *progress)
+{
+	pthread_mutex_lock(&map_download.lock);
+	*progress = map_download.progress;
+	pthread_mutex_unlock(&map_download.lock);
+}
+
 void map_download_reset(void)
 {
 	pthread_mutex_lock(&map_download.lock);

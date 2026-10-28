@@ -5298,6 +5298,16 @@ static boolean lobby_browser_select(struct widget_instance *widget, short contro
 		lobby_browser.controller = controller;
 		return ui_widget_port_open(widget, PASSWORD_NAME, widget_deleted);
 	}
+#ifdef HALO_GAME_BROWSER
+	/* (a verified playlist's game: Online Games offers its map set first,
+	then joins it: browser_screen.c) */
+	{
+		boolean browser_screen_playlist_offer(char const *link);
+
+		if (browser_screen_playlist_offer(game->invite))
+			return TRUE;
+	}
+#endif
 	return lobby_browser_join(game, controller) || campaign_fail();
 }
 

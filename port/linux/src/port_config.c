@@ -684,6 +684,10 @@ static const struct config_setting config_settings[] =
 		_platform_all,
 		"Download a missing Custom Edition map from the community repositories:\n"
 		"\"ask\", \"always\" or \"never\"." },
+	{ "network.playlist_downloads", _config_string, "\"ask\"", "HALO_NET_PLAYLIST_DOWNLOADS", _environment_value,
+		_platform_all,
+		"Offer a playlist's missing maps from its verified map set when you join\n"
+		"one of its games: \"ask\", \"always\" or \"never\"." },
 	{ "network.tunnel_port", _config_integer, "0", "HALO_NET_TUNNEL_PORT", _environment_value, _platform_all | _platform_xbox,
 		"The UDP port for internet play; 0 picks one." },
 	{ "network.allow_upnp", _config_boolean, "true", "HALO_NET_ALLOW_UPNP", _environment_value, _platform_all,
@@ -2560,6 +2564,7 @@ static const struct
 	{ "game.move_old_map_folders", { "ask", "yes", "no", NULL }, "\"ask\"" },
 	{ "network.protocol", { "auto", "opence", "delta", NULL }, NULL },
 	{ "network.map_downloads", { "ask", "always", "never", NULL }, "\"ask\"" },
+	{ "network.playlist_downloads", { "ask", "always", "never", NULL }, "\"ask\"" },
 	{ "network.join_from_clipboard", { "ask", "always", "never", NULL }, "\"never\"" },
 	{ "network.team_change", { "balanced", "allow", "off", NULL }, "\"balanced\"" },
 #ifndef HALO_CONSOLE_NO_DISCORD
