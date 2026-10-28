@@ -2162,7 +2162,7 @@ void browser_report_game(int teams, int red_score, int blue_score, int duration_
 	pthread_mutex_unlock(&browser_lock);
 }
 
-void browser_client_report(int teams, int red_score, int blue_score, int duration_seconds,
+int browser_client_report(int teams, int red_score, int blue_score, int duration_seconds,
 	const struct browser_report_player *players, int count, const char *extra)
 {
 	char invite[BROWSER_INVITE_LENGTH + 1];
@@ -2172,11 +2172,11 @@ void browser_client_report(int teams, int red_score, int blue_score, int duratio
 	if (!config_string("network.browser_url")[0] || !config_boolean("network.report_joined_games") ||
 		!p2p_joined_invite(invite, sizeof(invite)))
 	{
-		return;
+		return 0;
 	}
 	report = report_json(teams, red_score, blue_score, duration_seconds, players, count, extra, NULL);
 	if (!report)
-		return;
+		return 0;
 	/* (the invite first: which game it is) */
 	size = strlen(report) + BROWSER_INVITE_LENGTH + 32;
 	body = malloc(size);
@@ -2184,7 +2184,7 @@ void browser_client_report(int teams, int red_score, int blue_score, int duratio
 		snprintf(body, size, "{\"invite\": \"%s\", %s", invite, report + 1);
 	free(report);
 	if (!body)
-		return;
+		return 0;
 	pthread_once(&browser_once, start_thread);
 	pthread_mutex_lock(&browser_lock);
 	free(browser.client_report);
@@ -2192,6 +2192,7 @@ void browser_client_report(int teams, int red_score, int blue_score, int duratio
 	browser.client_report_attempts = 0;
 	browser.client_report_time = p2p_now();
 	pthread_mutex_unlock(&browser_lock);
+	return 1;
 }
 
 /* the local players of a game that ended: their lines confirmed with the

@@ -566,15 +566,19 @@ static void stats_client_report(
 		(int)variant->game_engine_index, (int)variant->universal_variant.score_to_win, host, name,
 		game_stats.first_tick / TICKS_PER_SECOND, updater_version(), delta_legacy_announce());
 	game_stats_game_extra(FALSE, extra + used, (long)sizeof(extra) - used);
-	browser_client_report(
+	/* (told only when one is sent: none without a list server, with
+	reports of joined games off, or for a game not joined by its invite) */
+	if (browser_client_report(
 		teams,
 		teams ? game_engine_get_team_score(0) : 0,
 		teams ? game_engine_get_team_score(1) : 0,
 		game_time_get() / TICKS_PER_SECOND,
 		players,
 		(int)count,
-		extra);
-	platform_log("Game list: the joined game's report is on its way (%ld players)", count);
+		extra))
+	{
+		platform_log("Game list: the joined game's report is on its way (%ld players)", count);
+	}
 }
 
 /* ---------- public code */

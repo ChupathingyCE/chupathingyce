@@ -187,8 +187,10 @@ list server with this copy's player key, whoever hosted the game (a host of
 the game list's own builds reports it too; one of other builds does not),
 so that the server can record the games of hosts that do not report
 (port/linux/game/game_stats.c). extra: the report's other JSON members (the
-map, the game type, the reporting player, ...). */
-void browser_client_report(int teams, int red_score, int blue_score, int duration_seconds,
+map, the game type, the reporting player, ...). 1 if it is to be sent, 0
+if not (no list server, reports of joined games off, or a game not joined
+through an invite). */
+int browser_client_report(int teams, int red_score, int blue_score, int duration_seconds,
 	const struct browser_report_player *players, int count, const char *extra);
 
 /* a player's name as a JSON string, appended to out (UTF-8, quoted and

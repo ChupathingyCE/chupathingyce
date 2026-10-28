@@ -32,6 +32,15 @@ not just the playlist's.
 timberland@ce    team_slayer
 ```
 
+A map's name is its file's name without `.map`, as Halo PC takes it:
+commas, brackets and spaces too (`bigassv2,104@ce`, `[h3]_sandtrap@ce`).
+A name with a space (or a `#`) goes in double quotes:
+
+```
+"skedar v2@ce"   slayer
+"h3 foundry@ce"  ctf
+```
+
 **HaloMD maps**, in `maps_md/`, go in as `<name>@md`:
 
 ```

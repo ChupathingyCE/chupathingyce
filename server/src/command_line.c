@@ -386,19 +386,37 @@ int command_line_map_name_valid(
 	}
 	if (!base_length)
 		return 0;
+	/* (a map file's name as Halo PC and Chimera take it, "bigassv2,104" and
+	"h3 foundry" too, as the game's clients do (network_client_manager.c):
+	printing ASCII but : < > ? * / \ | and the double quote, and no '@' but
+	the family's; no "." or "..", nor a name of dots and spaces, nor one
+	starting or ending in a space, that a playlist could not tell apart) */
 	for (length = 0; length < base_length; length++)
 	{
 		char character = text[length];
 
-		if (!((character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') ||
-			(character >= '0' && character <= '9') || character == '_' || character == '-' || character == '.'))
-		{
+		if (character < 0x20 || character > 0x7e || strchr(":<>?*/\\|\"@", character))
 			return 0;
+	}
+	if (text[0] == '.' || text[0] == ' ' || text[base_length - 1] == ' ')
+		return 0;
+	/* (nor one of Windows's devices, con, nul, com1..., that the clients
+	refuse) */
+	{
+		static const char *const devices[] = { "con", "prn", "aux", "nul", "com", "lpt" };
+		int stem = (int)strcspn(text, ".@ ");
+		int device;
+
+		for (device = 0; device < (int)(sizeof(devices) / sizeof(devices[0])); device++)
+		{
+			if (lower(text[0]) == devices[device][0] && lower(text[1]) == devices[device][1] &&
+				lower(text[2]) == devices[device][2] &&
+				(stem == 3 || (device >= 4 && stem == 4 && text[3] >= '0' && text[3] <= '9')))
+			{
+				return 0;
+			}
 		}
 	}
-	/* (no "." or ".." for a name) */
-	if (text[0] == '.')
-		return 0;
 	return 1;
 }
 

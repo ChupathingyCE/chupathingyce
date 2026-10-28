@@ -578,6 +578,18 @@ HANDLE cache_files_ce_map_file(
 {
 	return ce_map_file.file && ce_map_file.file != INVALID_HANDLE_VALUE ? ce_map_file.file : NULL;
 }
+
+/* port: whether a Custom Edition, HaloMD or Halo PC map (<name>@ce, ...) is
+there and not refused, opened as loading it would (ce_map_open); TRUE for
+any other map. The dedicated server asks before it plays one: a map refused
+as it loads stops on the damaged disc error (server/src/dedicated.c) */
+boolean cache_files_map_can_open(
+	const char *map_name)
+{
+	char const *name = tag_name_strip_path(map_name);
+
+	return !ce_map_name_is(name) || ce_map_open(name);
+}
 #endif
 
 /* ---------- public code */
