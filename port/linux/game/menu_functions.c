@@ -4030,7 +4030,7 @@ static void browser_games_read(void)
 
 			if (network_game_client_advertised_game_is_valid(game) && !advertised_in_progress(game) == (pass == 0) &&
 				game_from_peer(game) == (multiplayer.mode == _multiplayer_mode_direct_link) &&
-				(game_from_peer(game) || !browser_map_is_campaign(game->map_name)))
+				(game_from_peer(game) || browser_list_filter_allows(game->map_name)))
 			{
 				multiplayer.games[multiplayer.game_count++] = game;
 			}
@@ -4121,7 +4121,7 @@ static boolean browser_initialize(struct widget_instance *screen, struct event_r
 	char const *title = multiplayer.mode == _multiplayer_mode_lan ? "header_lan" :
 		multiplayer.mode == _multiplayer_mode_direct_link ? "header_direct_link" : "header_server_browser";
 	char const *const titles[] = { "header_internet", "header_lan", "header_direct_link", "header_server_browser" };
-	char const *const unused[] = { "op_browser_mode", "join_game_button_update", "join_game_button_filters" };
+	char const *const unused[] = { "op_browser_mode", "join_game_button_update" };
 	short index;
 
 	server_browser_initialize(screen);
@@ -4131,6 +4131,9 @@ static boolean browser_initialize(struct widget_instance *screen, struct event_r
 		visible_set(named(screen, unused[index], 0), FALSE);
 	visible_set(named(screen, "button_clipboard", 0), multiplayer.mode == _multiplayer_mode_direct_link);
 	visible_set(named(screen, "join_game_button_refresh", 0), multiplayer.mode == _multiplayer_mode_server_browser);
+	/* (the filter's button, the PC version's FILTERS: all games, multiplayer or co-op, in the Server Browser and LAN) */
+	visible_set(named(screen, "join_game_button_filters", 0),
+		multiplayer.mode == _multiplayer_mode_server_browser || multiplayer.mode == _multiplayer_mode_lan);
 	{
 		struct widget_instance *list = named(screen, "join_game_items_list", 0);
 		struct widget_instance *child;
@@ -4468,8 +4471,8 @@ static short lobby_browser_valid_games(struct p2p_listing *games, short count)
 		wchar_t name[P2P_LISTING_NAME_SIZE + 1];
 		short index;
 
-		/* (no co-op games in a server browser) */
-		if (browser_map_is_campaign(games[read].map))
+		/* (the filter: all games, multiplayer or co-op) */
+		if (!browser_list_filter_allows(games[read].map))
 			continue;
 		text_to_wide(games[read].name, name, NUMBEROF(name));
 		if (!player_name_clean(name, NUMBEROF(name)))
@@ -4628,10 +4631,10 @@ static void lobby_browser_add_listed(void)
 	if (!config_boolean("network.online") || !config_boolean("network.public_lobby"))
 		return;
 	lobby_browser_listed.count = (short)browser_get_games(lobby_browser_listed.games, BROWSER_MAXIMUM_GAMES);
-	/* (no co-op games in a server browser) */
+	/* (the filter: all games, multiplayer or co-op) */
 	for (index = kept = 0; index < lobby_browser_listed.count; index++)
 	{
-		if (!browser_map_is_campaign(lobby_browser_listed.games[index].map))
+		if (browser_list_filter_allows(lobby_browser_listed.games[index].map))
 			lobby_browser_listed.games[kept++] = lobby_browser_listed.games[index];
 	}
 	lobby_browser_listed.count = kept;
@@ -4977,7 +4980,8 @@ static void lobby_browser_update(struct widget_instance *list)
 			text[ROW_TEXT_LENGTH - 1] = 0;
 		}
 		text_set(named(row, "server_item_map", 0), text);
-		text_set(named(row, "server_item_type", 0), game_type_name(game->engine_type));
+		text_set(named(row, "server_item_type", 0),
+			campaign_level_of(game->map) != NONE ? game_type_name(0) : game_type_name(game->engine_type));
 		usnprintf(text, ROW_TEXT_LENGTH - 1, L"%d/%d", game->player_count, game->maximum_player_count);
 		text_set(named(row, "server_item_players", 0), text);
 		/* (no ping yet: its host is reached only on joining) */
@@ -5343,6 +5347,14 @@ static void browser_update(struct widget_instance *list)
 	struct widget_instance *stats = list->parameters.list.extended_description;
 	short focused = browser_row_index(list->focused_child);
 
+	{
+		wchar_t filter[32];
+		char label[32];
+
+		snprintf(label, sizeof(label), "FILTER: %s", browser_list_filter_name());
+		text_to_wide(label, filter, NUMBEROF(filter));
+		text_set(named(screen_of(list), "join_game_button_filters", 0), filter);
+	}
 	if (multiplayer.mode == _multiplayer_mode_server_browser)
 	{
 		lobby_browser_update(list);
@@ -5460,6 +5472,14 @@ static boolean browser_select(struct widget_instance *widget, struct event_recor
 {
 	short row = browser_row_index(widget);
 
+	if (strstr(widget->name, "button_filters"))
+	{
+		browser_list_filter_cycle();
+		multiplayer.game_chosen = 0;
+		lobby_browser.chosen = lobby_browser.first = 0;
+		ui_play_audio_feedback_sound(SOUND_FORWARD);
+		return TRUE;
+	}
 	if (multiplayer.mode == _multiplayer_mode_server_browser)
 		return lobby_browser_select(widget, controller, row, widget_deleted);
 	if (row != NONE)

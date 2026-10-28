@@ -899,11 +899,11 @@ static void fetch_games(
 		csstrncpy(invite, browser_screen.games[browser_screen.selected].invite, sizeof(invite) - 1);
 	invite[sizeof(invite) - 1] = 0;
 	browser_screen.count = (short)browser_get_games(browser_screen.games, BROWSER_MAXIMUM_GAMES);
-	/* (co-op games are not listed here, whatever list they came from; an
-	invite to one still joins) */
+	/* (co-op games are listed with the others, whatever list they came from;
+	the filter, Back, picks which kind) */
 	for (index = other = 0; index < browser_screen.count; index++)
 	{
-		if (!browser_map_is_campaign(browser_screen.games[index].map))
+		if (browser_list_filter_allows(browser_screen.games[index].map))
 			browser_screen.games[other++] = browser_screen.games[index];
 	}
 	browser_screen.count = other;
@@ -1361,7 +1361,10 @@ offer's while it is) */
 			create_game();
 		break;
 	case _gamepad_binary_button_back:
-		set_status("Filters are next");
+		/* (Back: the filter, All / Multiplayer / Co-op) */
+		browser_list_filter_cycle();
+		fetch_games();
+		browser_screen.selected = 0;
 		break;
 	case _gamepad_analog_button_left_trigger:
 	case _gamepad_analog_button_white:
@@ -2462,6 +2465,12 @@ static void draw_row(
 		draw_lock(COLUMN_NAME + width + 4, text_y + 1, ROW_SIZE * 0.75f, color);
 		width += ROW_SIZE;
 	}
+	/* (a co-op game: marked, as the version's is) */
+	if (browser_map_is_campaign(game->map))
+	{
+		width += 5 + ui_overlay_text(UI_FONT_MENU, 6.5f, COLUMN_NAME + width + 5,
+			y + (LIST_ROW - 6.5f) * 0.5f + 0.5f, UI_ALIGN_LEFT, picked ? 0xC8D8F0FF : COLOR_HEAD, "CO-OP");
+	}
 	/* (a game this build can't join, by its network version: marked) */
 	if (version_state)
 	{
@@ -2515,6 +2524,15 @@ static void draw_empty_list(
 		line = NULL;
 		break;
 	default:
+		if (browser_list_filter() != BROWSER_LIST_FILTER_ALL)
+		{
+			ui_overlay_text_glow(UI_FONT_MENU, 14.0f, center, y, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFFA0,
+				browser_list_filter() == BROWSER_LIST_FILTER_COOP ? "No co-op games right now." :
+				"No multiplayer games right now.");
+			text_with_button(UI_FONT_MENU_SMALL, 10.0f, center, y + 24, COLOR_DIM, "Press", UI_BUTTON_BACK,
+				"to change the filter.");
+			return;
+		}
 		ui_overlay_text_glow(UI_FONT_MENU, 14.0f, center, y, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFFA0,
 			"No one is hosting right now.");
 		text_with_button(UI_FONT_MENU_SMALL, 10.0f, center, y + 24, COLOR_DIM, "Press", UI_BUTTON_Y,
@@ -2557,7 +2575,8 @@ static void draw_list_footer(
 
 		x += ui_overlay_button(UI_BUTTON_RIGHT_TRIGGER, SMALL_BUTTON, x, text_y - (SMALL_BUTTON - FOOT_SIZE) / 2,
 			0xFFFFFFFF) + 6;
-		snprintf(text, sizeof(text), "SORTED BY %s  \xC2\xB7  CLOSED GAMES LAST", sort_names[browser_screen.sort]);
+		snprintf(text, sizeof(text), "SORTED BY %s  \xC2\xB7  CLOSED GAMES LAST%s%s", sort_names[browser_screen.sort],
+			browser_list_filter() ? "  \xC2\xB7  ONLY " : "", browser_list_filter() ? browser_list_filter_name() : "");
 		width = ui_overlay_text(UI_FONT_MENU_SMALL, FOOT_SIZE, x, text_y, UI_ALIGN_LEFT, COLOR_HEAD, text);
 		add_target(LIST_X, y, x + width + 10, y + LIST_FOOT, UI_BUTTON_RIGHT_TRIGGER);
 	}
@@ -2741,16 +2760,19 @@ backs out, X refreshes, Y makes a game */
 static void draw_bar_prompts(
 	struct browser_game const *selected)
 {
-	static int const buttons[] = { UI_BUTTON_Y, UI_BUTTON_X, UI_BUTTON_B, UI_BUTTON_A };
-	static char const *const words[] = { "=CREATE GAME", "=REFRESH", "=BACK", "=JOIN" };
+	static int const buttons[] = { UI_BUTTON_BACK, UI_BUTTON_Y, UI_BUTTON_X, UI_BUTTON_B, UI_BUTTON_A };
+	static char filter_word[32];
+	char const *words[] = { filter_word, "=CREATE GAME", "=REFRESH", "=BACK", "=JOIN" };
 	/* (A greyed for a game whose Halo PC map or game type can't be played
 	here, and with no game to join) */
-	boolean on[] = { TRUE, TRUE, TRUE, selected != NULL && !browser_game_version_state(selected) &&
+	boolean on[] = { TRUE, TRUE, TRUE, TRUE, selected != NULL && !browser_game_version_state(selected) &&
 		!(ce_map_state(selected, FALSE) >= _ce_map_missing && !ce_map_downloadable(selected) && !ce_map_stock(selected)) &&
 		!game_type_blocker(selected) };
-	short count = selected ? 4 : 3;
-	float width = prompts_width(count, buttons, words, PROMPT_BUTTON, PROMPT_TEXT);
+	short count = selected ? 5 : 4;
+	float width;
 
+	snprintf(filter_word, sizeof(filter_word), "=FILTER: %s", browser_list_filter_name());
+	width = prompts_width(count, buttons, words, PROMPT_BUTTON, PROMPT_TEXT);
 	prompts(count, buttons, words, on, PROMPTS_RIGHT - width, BAR_Y + (BAR_BOTTOM - BAR_Y - PROMPT_BUTTON) / 2,
 		PROMPT_BUTTON, PROMPT_TEXT, BAR_Y, 480);
 }

@@ -1770,8 +1770,9 @@ static void update_list(void)
 		pthread_mutex_unlock(&browser_lock);
 		return;
 	}
-	/* (with the host's fields: a list from before them sends what it has) */
-	server_url("/v1/games.txt?fields=22", url, sizeof(url));
+	/* (with the host's fields: a list from before them sends what it has; and
+	co-op games, which the list sends only when asked, for the lists' filter) */
+	server_url("/v1/games.txt?fields=22&coop=1", url, sizeof(url));
 	status = posix_browser_request(url, NULL, NULL, response, sizeof(response), error, sizeof(error));
 	if (!p2p_hosting_invite(own, sizeof(own)))
 		own[0] = 0;
@@ -2591,6 +2592,33 @@ int browser_game_version_state(const struct browser_game *game)
 	if (game->protocol == BROWSER_PROTOCOL_DELTA && delta_peer_protocol() != _delta_peer_protocol_opence)
 		return 0;
 	return browser_version_state(game->version);
+}
+
+/* the lists' filter by kind of game (All, Multiplayer, Co-op), kept for the session */
+static int list_filter;
+
+int browser_list_filter(void)
+{
+	return list_filter;
+}
+
+void browser_list_filter_cycle(void)
+{
+	list_filter = (list_filter + 1) % BROWSER_LIST_FILTERS;
+}
+
+const char *browser_list_filter_name(void)
+{
+	static const char *const names[BROWSER_LIST_FILTERS] = { "ALL", "MULTIPLAYER", "CO-OP" };
+
+	return names[list_filter];
+}
+
+int browser_list_filter_allows(const char *map)
+{
+	if (list_filter == BROWSER_LIST_FILTER_ALL)
+		return 1;
+	return browser_map_is_campaign(map) == (list_filter == BROWSER_LIST_FILTER_COOP);
 }
 
 int browser_get_games(struct browser_game *games, int maximum_count)
