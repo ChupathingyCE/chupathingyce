@@ -96,6 +96,7 @@ and what each hook asks of the port, or on its compile lines:
 | `HALO_CONSOLE_NO_*` | the desktop extras a console leaves out (`halo_port_features.h`, a port's prefix header) |
 | `HALO_CONSOLE_ONLINE_GAMES` | the console's own Online Games screen |
 | `HALO_CONSOLE_PROFILE_ID` | on the port's compile line: Delta Peer's PROFILE carries `console_profile_id()`, the port's (a console linked with Link Profile, `port/console/link`) |
+| `HALO_CONSOLE_HTTPS` | HTTPS over the console's own sockets, with pinned keys and roots (`port/console/https`, [console-https.md](console-https.md)) |
 | `HALO_CONSOLE_LOG_BUFFER`, `HALO_CONSOLE_LOG_THROTTLE` | a log whose writes are slow |
 | `HALO_CONSOLE_GPU_RESOURCE_HOOKS`, `HALO_CONSOLE_NO_WRITE_WATCH`, `HALO_CONSOLE_HOST_ART`, `HALO_CONSOLE_MAP_LOAD_HOOKS`, `HALO_CONSOLE_STATUS_LINE` | a console renderer of its own |
 | `HALO_CONSOLE_GL_LAYER` | a console whose OpenGL is the port's own layer over another graphics API |

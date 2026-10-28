@@ -381,6 +381,12 @@ legacy table this machine has (or set by a local, unsigned override). */
 /* at start-up, on the game's thread: loads the cached table, and fetches a
 newer one in the background (never holding anything up) */
 void delta_legacy_start(void);
+/* a console with HTTPS (HALO_CONSOLE_HTTPS): one round of fetching the
+signed table (the site, else GitHub), blocking, on a thread of the port's
+(with CONSOLE_HTTPS_STACK_SIZE + DELTA_REFRESH_STACK_SIZE of stack to
+spare: the document is read on it); 1 if a valid table came
+(taken, or no newer than the one in use), 0 if none could be had */
+int delta_legacy_refresh(void);
 /* the serial of the signed table in use; 0 for none (or a local override,
 which is never passed on) */
 unsigned int delta_legacy_serial(void);
@@ -443,5 +449,8 @@ int delta_legacy_layouts(struct delta_layout_fact *facts, int count);
 /* the largest document, and signed table */
 #define DELTA_LEGACY_DOCUMENT_SIZE 16384
 #define DELTA_LEGACY_SIGNED_SIZE (128 + 1 + DELTA_LEGACY_DOCUMENT_SIZE)
+/* the stack delta_legacy_refresh needs beyond the HTTPS client's (the
+document, its answer's headers and the signature's) */
+#define DELTA_REFRESH_STACK_SIZE (DELTA_LEGACY_DOCUMENT_SIZE + 6 * 1024)
 
 #endif
