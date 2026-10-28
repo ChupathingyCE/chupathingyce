@@ -491,7 +491,10 @@ a pregame keep-alive every five seconds from the host
    60, every third within 120, every fourth further off), to every client
    three times over half a second as an object comes to rest (one lost
    would leave a falling body hanging until its turn round all of them),
-   and a few of those at rest, round them all. A client takes the host's
+   and a few of those at rest, round them all. An object at rest that a
+   script moves (objects_attach and objects_detach, object_teleport) stays
+   at rest, so the host sends it as a moving one while it moves: Coldsnap's
+   Pelicans carry their cargo that way. A client takes the host's
    word on whether each is at rest even when its copy is close enough to
    leave where it is. A body's pose goes with it: one lying limp that the
    host moves stops lying limp (the blast that moved the host's reaches
