@@ -1,7 +1,7 @@
 {
   "delta_legacy": 1,
-  "serial": 7,
-  "issued": 1792821769,
+  "serial": 8,
+  "issued": 1793207754,
   "wires": {
     "chupa-20a": {
       "announce": 23,
@@ -50,6 +50,58 @@
           ]
         },
         "38": {
+          "settings_size": 13136,
+          "options_size": 44,
+          "shield_effects_maximum": 6,
+          "dropped_messages": [
+            91
+          ]
+        }
+      }
+    },
+    "chupa-39a": {
+      "announce": 39,
+      "minimum": 11,
+      "maximum": 40,
+      "follows": "build-314",
+      "layouts": {
+        "33": {
+          "settings_size": 13120,
+          "options_size": 28
+        },
+        "34": {
+          "settings_size": 13120,
+          "options_size": 28
+        },
+        "35": {
+          "settings_size": 13136,
+          "options_size": 44
+        },
+        "36": {
+          "settings_size": 13136,
+          "options_size": 44,
+          "shield_effects_maximum": 6,
+          "dropped_messages": [
+            91
+          ]
+        },
+        "37": {
+          "settings_size": 13136,
+          "options_size": 44,
+          "shield_effects_maximum": 6,
+          "dropped_messages": [
+            91
+          ]
+        },
+        "38": {
+          "settings_size": 13136,
+          "options_size": 44,
+          "shield_effects_maximum": 6,
+          "dropped_messages": [
+            91
+          ]
+        },
+        "39": {
           "settings_size": 13136,
           "options_size": 44,
           "shield_effects_maximum": 6,
