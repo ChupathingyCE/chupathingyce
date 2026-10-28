@@ -5080,7 +5080,10 @@ static void lobby_browser_update(struct widget_instance *list)
 		}
 		else if (lobby_browser.failed_time && now - lobby_browser.failed_time < LOBBY_BROWSER_FAILED_TIME)
 		{
-			usnprintf(text, NUMBEROF(text) - 1, L"%s", JOIN_WIDE(JOIN_REASON_NO_ANSWER));
+			/* (the host answered, but strict NATs kept the connection out:
+			what helps, after it) */
+			usnprintf(text, NUMBEROF(text) - 1, L"%s", p2p_join_failure() == P2P_JOIN_NO_CONNECTION ?
+				JOIN_WIDE(JOIN_REASON_NO_CONNECTION_LINE) : JOIN_WIDE(JOIN_REASON_NO_ANSWER));
 		}
 		else if (!lobby_browser.count)
 		{

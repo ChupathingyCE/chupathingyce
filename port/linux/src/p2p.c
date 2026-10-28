@@ -370,6 +370,10 @@ static struct
 	unsigned char join_host_hash[P2P_KEY_HASH_SIZE];
 	unsigned char join_token[P2P_TOKEN_SIZE];
 	unsigned long join_time;
+	/* how the join went (p2p_join_failure): the host answered it (its
+	addresses came), and the tunnel then could not reach it */
+	int join_host_answered;
+	int join_punch_failed;
 
 	char clipboard[P2P_LINK_SIZE];
 	int has_clipboard;
@@ -930,6 +934,10 @@ static void drop_peer(struct peer *peer, const char *reason)
 	struct retired_session *retired = &p2p.retired[p2p.retired_next++ % MAXIMUM_RETIRED_SESSIONS];
 	int ask_again = p2p.joining && peer->is_host && !memcmp(peer->identifier, p2p.join_host, P2P_IDENTIFIER_SIZE);
 
+	/* (the host of the join answered, but no packet got through) */
+	if (peer->is_host && !peer->connected && !memcmp(peer->identifier, p2p.join_host, P2P_IDENTIFIER_SIZE))
+		p2p.join_punch_failed = 1;
+
 	platform_log("Internet play: %s %s: %s", peer->is_host ? "host" : "player", peer->name, reason);
 	if (peer->connected)
 	{
@@ -1070,6 +1078,8 @@ int p2p_peer_offered(const unsigned char *peer_identifier, const unsigned char *
 		peer->virtual_address = virtual_address_for(peer_identifier);
 		peer->is_host = is_host;
 		peer->offered_time = p2p_now();
+		if (is_host && !memcmp(peer_identifier, p2p.join_host, P2P_IDENTIFIER_SIZE))
+			p2p.join_host_answered = 1;
 		platform_log("Internet play: reaching %s %s", is_host ? "host" : "player", peer->name);
 	}
 	add_candidates(peer, candidates, count);
@@ -2556,7 +2566,24 @@ static int join_invite(const char *text)
 	memcpy(p2p.join_host_hash, hash, sizeof(hash));
 	memcpy(p2p.join_token, token, sizeof(token));
 	p2p.join_requested = 1;
+	p2p.join_host_answered = 0;
+	p2p.join_punch_failed = 0;
 	return 1;
+}
+
+int p2p_join_failure(void)
+{
+	struct peer *peer;
+	int failure = P2P_JOIN_NO_ANSWER;
+
+	pthread_mutex_lock(&p2p_lock);
+	peer = find_peer(p2p.join_host);
+	if (peer && peer->connected)
+		failure = 0;
+	else if (p2p.join_host_answered || p2p.join_punch_failed)
+		failure = P2P_JOIN_NO_CONNECTION;
+	pthread_mutex_unlock(&p2p_lock);
+	return failure;
 }
 
 #ifdef HALO_GAME_BROWSER
@@ -2774,7 +2801,9 @@ static void update_joining(void)
 	{
 		p2p.joining = 0;
 		p2p_signal_stop_joining();
-		platform_log("Internet play: no answer from the invite's host; it may have stopped hosting or quit");
+		platform_log(p2p.join_host_answered ? "Internet play: could not connect to the invite's host (a strict NAT "
+			"on one side; the host can forward its UDP port or turn on UPnP)" :
+			"Internet play: no answer from the invite's host; it may have stopped hosting or quit");
 	}
 }
 

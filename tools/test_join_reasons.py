@@ -35,6 +35,8 @@ REASONS = {
     "FULL": "Game is full.",
     "PASSWORD": "Password needed.",
     "NO_ANSWER": "The host didn't answer.",
+    # (a failed join's alone: the site's list never says it)
+    "NO_CONNECTION": "Couldn't connect to the host.",
 }
 
 # the wording the lists had before, each its own way
@@ -101,4 +103,5 @@ def test_header_builds_alone(tmp_path):
     # (every reason without a detail has its sentence)
     said = {value for key, value in lines.items() if key.isdigit() and value}
     assert said == {REASONS[name] for name in ("NEEDS_UPDATE", "HOST_OLDER", "OTHER_VERSION", "NEEDS_BOMB",
-                                                "NOT_OPEN", "FULL", "PASSWORD", "NO_ANSWER")}
+                                                "NOT_OPEN", "FULL", "PASSWORD", "NO_ANSWER",
+                                                "NO_CONNECTION")}
