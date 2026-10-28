@@ -100,8 +100,9 @@ KILL_INTERVAL = 5         # the host kills the last player this often (network_t
 SHOOT_INTERVAL = 2        # each machine hits the next this often (network_test_shoot)
 SCORE_TO_WIN = 4          # Slayer's score (network_test_score)
 LATE_AT = 5               # seconds into the first game a second client joins it in progress ("late")
-LEAVE_AT = 11             # ... the first client quits
-BACK_AT = 14              # ... and comes back, a new copy on its address ("back")
+LEAVE_AT = 11             # ... the first client quits, once the late client plays (else LEAVE_LIMIT)
+LEAVE_LIMIT = 30          # ... or then at the latest
+BACK_AT = 14              # ... and comes back, a new copy on its address ("back"), as long after its leave
 SECOND_GAME_PLAY = 30     # seconds of the second game (CTF) played before a direction ends
 QUIET_LIMIT = 45          # ... or seconds the host logs no play after the first game, before it ends
 NO_GAME_LIMIT = 90        # ... or seconds with no game at all
@@ -749,10 +750,16 @@ def play(directions):
                 first = games[0] if games else 0
                 if late["delay"] is None and first >= LATE_AT:
                     late["delay"] = now
-                if client["until"] == HARD_LIMIT and first >= LEAVE_AT:
+                # (the first client leaves once the late one plays: a host
+                # whose last opponent quits ends the game, as Halo does, and a
+                # host may take a few seconds to start a late machine, ours an
+                # OpenCE one's while it waits for a Delta HELLO)
+                if client["until"] == HARD_LIMIT and first >= LEAVE_AT and \
+                        (progress(late["copy"]) or first >= LEAVE_LIMIT):
                     log(f"{direction['name']}: the first client leaves {first} s into game 1")
                     client["until"] = now
-                if back["delay"] is None and first >= BACK_AT:
+                    direction["left_at"] = first
+                if back["delay"] is None and "left_at" in direction and first >= direction["left_at"] + BACK_AT - LEAVE_AT:
                     back["delay"] = now
                 if (len(games) >= 2 and games[1] >= SECOND_GAME_PLAY) or \
                         (games and now - direction["seen_at"] >= QUIET_LIMIT) or (not games and now >= NO_GAME_LIMIT):
