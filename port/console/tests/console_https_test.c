@@ -10,9 +10,11 @@ real ones (the real ones' host names kept, so the name check is the real
 one).
 
   console_https_test PORT HOST [--pin HEX] [--root FILE.der] [--path PATH]
-      [--body JSON] [--no-random] [--no-port] [--size BYTES] [--live] [--parse]
+      [--body JSON] [--no-random] [--no-port] [--size BYTES] [--plain-port PORT]
+      [--pins FILE] [--live] [--parse]
 
---live asks the real host (PORT unused) with the real pins and roots. It
+--plain-port is where the pin document is asked for over plain HTTP, and
+--pins the file the newest one is kept in. --live asks the real host (PORT unused) with the real pins and roots. It
 prints the result's number and words, the HTTP status, the arena's peak and
 the body. --parse runs the response parser's own checks instead.
 */
@@ -37,6 +39,8 @@ static unsigned short server_port;
 static int random_works = 1;
 /* (--live: the real host, by its name, and the real pins and roots) */
 static int live;
+/* (--plain-port: the plain HTTP server the pin document comes from) */
+static unsigned short plain_port;
 
 static unsigned long now_ms(void)
 {
@@ -138,14 +142,53 @@ static int test_random(unsigned char *buffer, int size)
 	return ok;
 }
 
+/* the pin document's plain HTTP GET: from the loopback address's plain_port */
+static int test_plain_get(const char *host, const char *path, char *response, unsigned long size,
+	unsigned long *received, unsigned long timeout_ms)
+{
+	struct sockaddr_in target;
+	char request[512];
+	int socket_value, length;
+
+	*received = 0;
+	if (!plain_port)
+		return 0;
+	length = snprintf(request, sizeof(request), "GET %s HTTP/1.0\r\nHost: %s\r\nConnection: close\r\n\r\n", path,
+		host);
+	socket_value = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+	if (socket_value < 0)
+		return 0;
+	memset(&target, 0, sizeof(target));
+	target.sin_family = AF_INET;
+	target.sin_port = htons(plain_port);
+	target.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+	if (connect(socket_value, (struct sockaddr *)&target, sizeof(target)) != 0 ||
+		send(socket_value, request, (size_t)length, 0) != length)
+	{
+		close(socket_value);
+		return 0;
+	}
+	while (*received < size && wait_ready(socket_value, 0, timeout_ms))
+	{
+		ssize_t count = recv(socket_value, response + *received, size - *received, 0);
+
+		if (count <= 0)
+			break;
+		*received += (unsigned long)count;
+	}
+	close(socket_value);
+	return *received > 0;
+}
+
 static void test_log(const char *text)
 {
 	fprintf(stderr, "%s\n", text);
 }
 
-static const struct console_https_port test_port =
+static struct console_https_port test_port =
 {
 	test_connect, test_send, test_receive, test_close, test_random, now_ms, NULL, NULL, test_log, "Warthog/1 (test)",
+	test_plain_get, NULL,
 };
 
 static int hex_digit(char c)
@@ -249,6 +292,10 @@ int main(int argc, char **argv)
 			reply_size = atoi(argv[++index]);
 		else if (!strcmp(argv[index], "--no-random"))
 			random_works = 0;
+		else if (!strcmp(argv[index], "--plain-port") && index + 1 < argc)
+			plain_port = (unsigned short)atoi(argv[++index]);
+		else if (!strcmp(argv[index], "--pins") && index + 1 < argc)
+			test_port.pins_path = argv[++index];
 		else if (!strcmp(argv[index], "--live"))
 			live = 1;
 		else if (!strcmp(argv[index], "--no-port"))
