@@ -132,6 +132,7 @@ symbols in this file:
 
 #include "cseries.h"
 #include "cseries/errors.h"
+#include "cache/cache_files.h" /* port: CACHE_FILE_TAGS_ARE_CE */
 #include "main/main.h"
 #include "real_math.h"
 #include "rasterizer/rasterizer.h"
@@ -1375,6 +1376,15 @@ void rasterizer_transparent_geometry_group_draw(
 				group->render_proc(
 					group->first_triangle_index,
 					group->triangle_count);
+			}
+			else if (CACHE_FILE_TAGS_ARE_CE() &&
+				group->shader->base.type == _shader_type_transparent_generic)
+			{
+				/* port: Halo PC does not draw a transparent generic shader
+				(sotr, and its extra layers), which the Xbox's renderer does. A
+				Custom Edition or HaloMD map is made for Halo PC's, so on one
+				it is not drawn either (a50's holo control in Coldsnap 20th
+				XL would show where Halo PC shows nothing). */
 			}
 			else
 			{
