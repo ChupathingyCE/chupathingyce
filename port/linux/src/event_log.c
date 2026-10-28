@@ -837,6 +837,8 @@ static void write_rows(struct text *text)
 			text_append(text, ", \"cpu\": %.1f", cpu / 10.0);
 		if (record->value[3] >= 0)
 			text_append(text, ", \"memory_mb\": %.1f", record->value[3] / 1024.0);
+		text_append(text, ", \"net_in_kbps\": %.1f, \"net_out_kbps\": %.1f", record->position[0],
+			record->position[1]);
 		text_append(text, "}");
 		any = 1;
 	}
