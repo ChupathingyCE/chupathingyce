@@ -130,6 +130,14 @@ HALO_CONSOLE_OVERSIZED_MAPS
 	not fit the tag cache says so (source/cache/cache_files_windows.c,
 	cache_files.c). The retail maps fit their own and are cached as before.
 	The desktop builds with map packs (HALO_MAP_LIST) have it too
+HALO_CONSOLE_MENU_PLATFORM
+	a console that shows the Chupathingy menus without the desktop's
+	extras: the menus' elements marked platform="console", or with this
+	console's own name ("x360", "wiiu"), in place of the desktop's
+	(port/linux/src/menu_files.c; tools/port_settings.py packs the settings
+	rows the consoles show), and the menus' button prompts drawn with
+	ui.map's own pictures where no overlay draws them
+	(chupathingy/prompts.xml)
 HALO_CONSOLE_PARTICLE_TICKS
 	the particles not attached to an object moved once a 30 Hz tick, as on
 	the Xbox, and drawn between their ticks, by default
@@ -173,6 +181,7 @@ compile lines: source/cseries/xbox_address.h).
 #define HALO_CONSOLE_GL_LAYER 1
 #define HALO_CONSOLE_LIGHT_LIMITS 1
 #define HALO_CONSOLE_OVERSIZED_MAPS 1
+#define HALO_CONSOLE_MENU_PLATFORM "wiiu"
 #endif
 
 #ifdef HALO_XBOX_CONSOLE
@@ -199,6 +208,7 @@ larger maps take a campaign map's there as well) */
 #define HALO_CONSOLE_ONLINE_GAMES 1
 #define HALO_CONSOLE_LIGHT_LIMITS 1
 #define HALO_CONSOLE_OVERSIZED_MAPS 1
+#define HALO_CONSOLE_MENU_PLATFORM "x360"
 #ifdef HALO_CONSOLE_DEBUG_TOOLS
 #define HALO_CONSOLE_BRINGUP_LOG 1
 #endif
