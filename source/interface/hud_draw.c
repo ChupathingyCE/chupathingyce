@@ -481,6 +481,28 @@ real hud_bitmap_group_scale(
 	}
 	return scale;
 }
+
+/* port: the weapon's zoom mask (interface.c) and its group's high
+resolution scale. The screen effect draws a mask at its bitmap's size
+(rasterizer_xbox_screen_effect.c), so a Custom Edition map's high resolution
+mask is drawn at that scale, as Halo PC with Chimera draws it
+(fix/hud_bitmap_scale.cpp); any other mask (a cinematic's) at its size */
+static struct bitmap_data const *hud_screen_effect_mask;
+static real hud_screen_effect_mask_bitmap_scale = 1.0f;
+
+void hud_set_screen_effect_mask(
+	struct bitmap_data const *mask,
+	long bitmap_group_index)
+{
+	hud_screen_effect_mask = mask;
+	hud_screen_effect_mask_bitmap_scale = mask ? hud_bitmap_group_scale(bitmap_group_index) : 1.0f;
+}
+
+real hud_screen_effect_mask_scale(
+	struct bitmap_data const *mask)
+{
+	return mask && mask == hud_screen_effect_mask ? hud_screen_effect_mask_bitmap_scale : 1.0f;
+}
 #endif
 
 void hud_retrieve_bitmap_and_bounding_rect(
