@@ -632,8 +632,8 @@ the map and the report):
   a missing biped (-1), so it would pick the wrong game type. So while the
   host has no object of that name (by OBJECT_NAMES), a client keeps its own:
   the copy it placed with the map, or the map's placement again in its own
-  half of the object array after the host's delete. Its own scripts may
-  delete it. Once the host names one of its objects so, the host's copy
+  half of the object array after the host's delete (not after a death: a
+  body the host cleared up stays gone). Its own scripts may delete it. Once the host names one of its objects so, the host's copy
   takes the name and the client's own copy goes.
 
 It is offered by the builds with the game list (`HALO_GAME_BROWSER`: the

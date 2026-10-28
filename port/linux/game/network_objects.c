@@ -2568,12 +2568,19 @@ static boolean delta_client_keeps_own(
 }
 
 /* the name of a biped the host's word is about to delete here (NONE: not one
-the client would keep) */
+the client would keep, or one that died: a body the host cleared up stays
+gone) */
 static short delta_client_kept_name(
 	long object_index)
 {
-	return delta_peer_game_objects_ready() && delta_script_biped(object_index) ?
-		object_get(object_index)->object.name_index : NONE;
+	struct object_datum *object;
+
+	if (!delta_peer_game_objects_ready() || !delta_script_biped(object_index))
+		return NONE;
+	object = object_get(object_index);
+	if (TEST_FLAG(object->object.damage_flags, _object_dead_bit) || object->object.body_vitality <= 0.0f)
+		return NONE;
+	return object->object.name_index;
 }
 
 /* ... once deleted: the map's placement again, as the client's own, if the
