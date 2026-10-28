@@ -135,7 +135,7 @@ def test_settings_record_by_the_hosts_version():
     assert "network_rules_settings_options_size(network_game_client_host_network_version()," in piece
     assert "piece->total_size > NETWORK_GAME_CLIENT_SETTINGS_MAXIMUM" in piece
     assert piece.count("network_game_client_leave_unsupported_game_type(") == 2
-    assert "doesn't support yet" in source
+    assert "Chupathingy doesn't have yet" in source
 
 
 def test_policy_setting_is_documented():
