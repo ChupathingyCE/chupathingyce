@@ -234,7 +234,10 @@ class Copy:
         return self.read("out.log")
 
     def debug(self):
-        return self.read(os.path.join("data", "debug.txt"))
+        # (ChupathingyCE keeps it in the data folder's logs folder, OpenCE
+        # in the data folder itself)
+        return (self.read(os.path.join("data", "logs", "debug.txt"))
+                or self.read(os.path.join("data", "debug.txt")))
 
 
 # ---------- reading a copy's log
