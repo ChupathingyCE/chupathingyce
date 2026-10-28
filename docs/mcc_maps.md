@@ -145,24 +145,63 @@ Map changes and disconnects discard the binding. No client gains host authority,
 and content matching does not prove that an untrusted client executes honest code.
 
 The issue #51 metadata cache still avoids full resource reads on each lobby
-readiness poll. Host fingerprints are also cached while map/resource metadata
-stays unchanged. Initial admission and actual loading do read the full content,
-so large packages can take longer at these points. The previous 32-bit checksum
+readiness poll. `mcc_cache_checksum` prepares the host's SHA-256 identity
+during map-version calculation, before opening an initially MCC lobby.
+Fast setup's early MCC selections wait in `mcc_ui_network` until the host's
+local client has joined its temporary lobby; they then use the normal map
+change path. Starting the temporary map is blocked while a selection waits;
+legacy selections and session teardown cancel the pending request.
+Deferring hashing until the first settings send blocked the host's local client beyond
+its five-second join deadline on large packages. `mcc_identity_prepare_host`
+retains the existing host cache while map/resource metadata stays unchanged;
+settings sends recheck those stamps and changed files require a fresh hash.
+The local admission can reuse that prepared fingerprint only for an identical
+canonical path, complete file snapshot and all 32 digest bytes. This avoids
+hashing the host's unchanged package again while a remote client waits to join.
+Other machines still fingerprint their own installation, and actual loading
+always fingerprints the opened content independently. The timeout values,
+wire format and fingerprint bytes are unchanged. Large packages still take
+time to validate; this does not make synchronous I/O immune to stalls.
+The previous 32-bit checksum
 remains for checkpoint identity and engine bookkeeping; it is no longer the
 MCC network content proof. Existing save identities are unchanged by SHA-256.
-MCC peers need matching GulchCE MCC protocol 46. Xbox and Custom Edition use
-the verified OpenCE protocol 29 and retain their original matching/loading
-behavior. See the crossplay boundary in `port/linux/NETCODE.md`. Network
+MCC peers need matching GulchCE MCC protocols. Xbox and Custom Edition retain
+their original matching/loading behavior and the OpenCE protocol baseline
+specified in [the crossplay boundary](../port/linux/NETCODE.md#gulchce-crossplay-boundary). Network
 support uses OpenCE's host-authoritative engine, not official MCC clients.
 
-The shared integration is limited to the settings record's appended digest,
+The shared identity integration uses the settings record's appended digest,
 the two host settings senders, client settings admission, and client teardown.
 These hooks are necessary because MCC modules alone cannot attach data to the
 existing host record or resolve a local path before its generic presence check.
+Startup coordination also needs small server map-selection, idle and start
+hooks: the server owns when a requested map is applied and when its round can
+start. The pending request and its cleanup remain in `mcc_ui_network.inl`,
+using the existing MCC server-disposal hook. Xbox/CE requests proceed through
+their existing map-selection code immediately.
 All hashing, package selection and binding lifetime policy lives in MCC modules;
 legacy settings omit the digest trailer and keep their original checks. The
 protocol recorder includes the full MCC settings record and its size/offset
 bounds; the crossplay tests separately pin the unchanged OpenCE prefix.
+
+Startup validation on Windows portable release used DigsiteMP/1 with normal
+timeouts and six enhanced network bots. Local play produced 61 logged samples;
+two-machine runs with identical and differently named package folders each
+produced 90 samples per machine and 76 paired seconds without sustained
+divergence. Xbox Blood Gulch and CE Death Island CTF, with bot defaults and a
+pre-fix client, passed 67 and 66 paired seconds respectively. These are bounded
+runtime checks, not full map-family or campaign qualification.
+
+A separate intermittent test-launch stall was sampled in the save-profile
+mutex while background enumeration still owned it. The automated launcher now
+waits for `filesystem_check_thread_is_active()` to clear, as normal menu input
+already does. [Its regression test](../tools/test_network_test_startup.py)
+also verifies that removing this prerequisite fails. This does not change
+the UI, save enumeration or networking timeouts. The focused suite passed
+267 checks with five platform skips; Windows, Android and web compiled and
+linked. Native/browser WebRTC testing remains blocked on this Windows host's
+POSIX path assumptions, and the Internet test lacks its MQTT broker. Physical
+Android and live cross-family transitions remain unverified.
 
 MCC's `halo1/maps/bitmaps.map` stores individual texture entries. Its
 `halo1/maps/custom_edition` resources store grouped `__pixels` and

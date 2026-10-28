@@ -1,15 +1,53 @@
-/* MCC pause-menu restarts use the existing reliable round transition, with
- * an MCC-owned snapshot instead of advancing the user's playlist. Included
- * by the server implementation to keep its private representation private. */
+/* MCC startup selections wait for local admission; pause-menu restarts use
+ * the reliable round transition and an MCC-owned snapshot. Included by the
+ * server implementation to keep its private representation private. */
 #include "mcc_cache.h"
 
 static struct network_game_server *mcc_restart_server;
 static struct network_game mcc_restart_game;
 static struct network_game_server *mcc_restart_ui_server;
 static long mcc_restart_ui_round;
+static struct network_game_server *mcc_pending_map_server;
+static char mcc_pending_map[64];
+
+boolean mcc_ui_network_defer_map(struct network_game_server *server, char const *name)
+{
+    /* Fast host setup can choose MCC while its loopback client is joining.
+     * Leave the temporary lobby usable until that admission completes;
+     * synchronous package checks must not occupy its five-second window. */
+    if (server == mcc_pending_map_server) mcc_pending_map_server = NULL;
+    if (!mcc_level_name(name) || strlen(name) >= sizeof(mcc_pending_map) ||
+        server != global_network_game_server_get() || !global_network_game_client_get() ||
+        network_game_client_get_local_machine_index() != NONE) return FALSE;
+    strcpy(mcc_pending_map, name);
+    mcc_pending_map_server = server;
+    network_event("mcc: map selection waits for the host's local admission");
+    return TRUE;
+}
+
+boolean mcc_ui_network_map_pending(struct network_game_server *server)
+{
+    return server && server == mcc_pending_map_server;
+}
+
+void mcc_ui_network_update_map(struct network_game_server *server)
+{
+    char name[sizeof(mcc_pending_map)];
+    if (!mcc_ui_network_map_pending(server)) return;
+    if (server != global_network_game_server_get() || !global_network_game_client_get() ||
+        server->state != _network_game_server_state_pregame || server->sent_start_game_message) {
+        mcc_pending_map_server = NULL;
+        return;
+    }
+    if (network_game_client_get_local_machine_index() == NONE) return;
+    strcpy(name, mcc_pending_map);
+    mcc_pending_map_server = NULL;
+    network_game_server_change_map_name(server, name);
+}
 
 void mcc_ui_network_server_dispose(struct network_game_server *server)
 {
+    if (server == mcc_pending_map_server) mcc_pending_map_server = NULL;
     if (server == mcc_restart_server) mcc_restart_server = NULL;
     if (server == mcc_restart_ui_server) mcc_restart_ui_server = NULL;
 }

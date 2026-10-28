@@ -85,10 +85,12 @@ static char const *root;
 static char const *listing="list.txt";
 static unsigned inventories;
 static int admission_reads;
+static int identities_prepared;
 static unsigned reads, largest, scans, closed;
 void mcc_cache_precache_clear(void) {}
 char const *mcc_identity_local_name(char const *name) {return name;}
 int mcc_identity_check(char const *name) {(void)name;return 1;}
+int mcc_identity_prepare_host(char const *name) {(void)name;identities_prepared++;return 1;}
 #include "mcc_runtime.h"
 #include "mcc_resources.h"
 static char saved_identity[64];
@@ -170,6 +172,7 @@ int main(int argc,char **argv) {
     if(argc==5 && !strcmp(argv[2],"admit")) {
         char message[256]={0};unsigned long checksum;
         root=argv[1];admission_reads=1;checksum=mcc_cache_checksum(argv[3]);
+        if(checksum && identities_prepared!=1)return 43;
         printf("checksum=%lu\n",checksum);
         printf("accepted=%d\n",mcc_cache_present(argv[3],strtoul(argv[4],NULL,0),message,sizeof(message)));
         printf("message=%s\n",message);return 0;

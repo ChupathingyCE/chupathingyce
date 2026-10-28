@@ -152,6 +152,11 @@ unsigned long mcc_cache_checksum(char const *name)
     if (!stream) return 0;
     if (!mcc_resources_probe(name,&source,&checksum)) checksum=0;
     fclose(stream);
+    /* Initial host setup asks for the version before opening the lobby.
+     * Prepare the identity with it, before the first settings send. Early
+     * lobby map changes are deferred by mcc_ui_network until local admission.
+     * Keep the existing checksum value. */
+    if (checksum && !mcc_identity_prepare_host(name)) checksum=0;
     return checksum;
 }
 

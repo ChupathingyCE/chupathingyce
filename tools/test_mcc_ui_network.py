@@ -44,15 +44,21 @@ struct network_game {
     struct network_player players[3];
     int number_of_games_played, local_data, machine_count;
 };
-struct network_game_server { int state; struct network_game game;
+struct network_game_server { int state,sent_start_game_message; struct network_game game;
     struct {int timer;boolean active,paused,adjusted_time_this_tick;} countdown_state;
 } server,other_server;
 static int exists=1,loaded=1,fail_reset,countdowns,opened,switched,reset,leaver;
 static int splitscreen,quickstart,closed_ui,loaded_ui,errors;
+static int client_exists=1,local_machine=NONE,map_changes;
 static struct network_game_server *selected_server=&server;
 static struct network_game original;
 static char map_name[128],screen_name[256];
 static struct network_game_server *global_network_game_server_get(void) {return exists ? selected_server : NULL;}
+static void *global_network_game_client_get(void) {return client_exists ? &client_exists : NULL;}
+static short network_game_client_get_local_machine_index(void) {return (short)local_machine;}
+static void network_game_server_change_map_name(struct network_game_server *s,char const *name) {
+    strcpy(s->game.map.name,name);map_changes++;
+}
 static int mcc_cache_tags_loaded(void) {return loaded;}
 static int mcc_level_name(char const *name) {return !strncmp(name,"mcc_maps\\",9);}
 static int network_player_is_valid(struct network_player const *p) {return p->machine_index>=0;}
@@ -99,6 +105,35 @@ static int network_game_server_reset_to_pregame(struct network_game_server *s) {
 int main(int argc,char **argv) {
     int i,result;struct network_game_server untouched;
     if(argc!=2)return 99;
+    if(!strncmp(argv[1],"map-",4)) {
+      char const *name="mcc_maps\\Package\\arena";
+      server.state=_network_game_server_state_pregame;
+      strcpy(server.game.map.name,"levels\\test\\bloodgulch\\bloodgulch");
+      untouched=server;
+      CHECK(mcc_ui_network_defer_map(&server,name),31);
+      CHECK(mcc_ui_network_map_pending(&server)&&!mcc_ui_network_map_pending(&other_server),32);
+      for(i=0;i<100;i++)mcc_ui_network_update_map(&server);
+      CHECK(!map_changes&&!memcmp(&server,&untouched,sizeof(server)),33);
+      if(!strcmp(argv[1],"map-replace")) {
+        name="mcc_maps\\Other\\arena";CHECK(mcc_ui_network_defer_map(&server,name),34);
+      }
+      if(!strcmp(argv[1],"map-xbox"))CHECK(!mcc_ui_network_defer_map(&server,"levels\\a10\\a10"),35);
+      if(!strcmp(argv[1],"map-ce"))CHECK(!mcc_ui_network_defer_map(&server,"custom_maps\\a10"),36);
+      if(!strcmp(argv[1],"map-dispose"))mcc_ui_network_server_dispose(&server);
+      if(!strcmp(argv[1],"map-no-client"))client_exists=0;
+      if(!strcmp(argv[1],"map-other-server"))selected_server=&other_server;
+      if(!strcmp(argv[1],"map-started"))server.sent_start_game_message=1;
+      if(!strcmp(argv[1],"map-ingame"))server.state=_network_game_server_state_ingame;
+      local_machine=0;mcc_ui_network_update_map(&server);
+      CHECK(!mcc_ui_network_map_pending(&server),37);
+      if(!strcmp(argv[1],"map-join")||!strcmp(argv[1],"map-replace")) {
+        CHECK(map_changes==1&&!strcmp(server.game.map.name,name),38);
+        CHECK(!mcc_ui_network_defer_map(&server,name),39);
+      } else CHECK(!map_changes,40);
+      mcc_ui_network_update_map(&server);CHECK(map_changes<=1,41);
+      client_exists=0;CHECK(!mcc_ui_network_defer_map(&server,name),42);
+      return 0;
+    }
     server.state=_network_game_server_state_ingame;
     strcpy(server.game.map.name,"mcc_maps\\a10");server.game.map.version=123;
     strcpy(server.game.name,"MCC game");
@@ -203,6 +238,8 @@ int main(int argc,char **argv) {
 
 @pytest.mark.parametrize("case", ["1", "2", "leaver", "failure", "dispose", "no-server", "inactive", "xbox", "ce", "pregame",
                                  "splitscreen", "second-round", "ui-dispose", "ui-map", "ui-version", "ui-round",
-                                 "ui-state", "ui-server", "ui-exit"])
+                                 "ui-state", "ui-server", "ui-exit", "map-join", "map-replace",
+                                 "map-xbox", "map-ce", "map-dispose", "map-no-client",
+                                 "map-other-server", "map-started", "map-ingame"])
 def test_restart_transaction(restart_tool, case):
     subprocess.run([str(restart_tool), case], check=True, capture_output=True)
