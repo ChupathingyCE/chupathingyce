@@ -367,3 +367,43 @@ int delta_compat_opence_server_listing(int flags)
 {
 	return (flags & DELTA_COMPAT_LISTING_DEDICATED_OPENCE) && !(flags & DELTA_COMPAT_LISTING_DEDICATED);
 }
+
+/* where the name's first 0 is (count: none) */
+static int name_end(const unsigned short *name, int count)
+{
+	int index;
+
+	for (index = 0; index < count && name[index]; index++)
+		;
+	return index;
+}
+
+int delta_compat_join_mark(unsigned short *name, int count)
+{
+	int end;
+
+	if (!name || count < 4)
+		return 0;
+	end = name_end(name, count);
+	if (end > count - 4)
+		return 0;
+	memset(name + end, 0, (size_t)(count - end) * sizeof(name[0]));
+	name[count - 3] = DELTA_COMPAT_JOIN_MARK_FIRST;
+	name[count - 2] = DELTA_COMPAT_JOIN_MARK_SECOND;
+	return 1;
+}
+
+int delta_compat_join_marked(unsigned short *name, int count)
+{
+	int end, marked;
+
+	if (!name || count < 4)
+		return 0;
+	end = name_end(name, count);
+	if (end >= count)
+		return 0;
+	marked = end <= count - 4 && name[count - 3] == DELTA_COMPAT_JOIN_MARK_FIRST &&
+		name[count - 2] == DELTA_COMPAT_JOIN_MARK_SECOND && !name[count - 1];
+	memset(name + end, 0, (size_t)(count - end) * sizeof(name[0]));
+	return marked;
+}

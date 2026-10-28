@@ -954,6 +954,14 @@ static boolean network_game_client_handle_message_server_pong(
 	return TRUE;
 }
 
+#ifdef HALO_PORT_CONSOLE_LIMITS
+#include "../../port/linux/game/network_game_layout.h"
+
+/* port: the machine indices given to the host's players of no machine past
+this build's (a modified host's bots), one game's (network_game_layout.h) */
+static struct network_game_layout_machine_map network_game_client_machine_map;
+#endif
+
 static boolean network_game_client_handle_message_server_machine_accepted(
 	struct network_game_client *client,
 	word *message,
@@ -978,6 +986,10 @@ static boolean network_game_client_handle_message_server_machine_accepted(
 			&packet_version,
 			_network_game_packet_class_pregame))
 		{
+#ifdef HALO_PORT_CONSOLE_LIMITS
+			/* (a new game: no machine index given yet) */
+			network_game_layout_machine_map_reset(&network_game_client_machine_map);
+#endif
 			network_game_client_accepted_into_game(client, source_address, &acceptance);
 		}
 		else
@@ -1050,9 +1062,6 @@ piece is in */
 at the network's slots, the PC builds' 128 and 128, and is folded into this
 build's 16 and 16 (port/linux/game/network_game_layout.c); a game with a
 machine or player past them is left, as a full game is, never half taken */
-int network_game_layout_convert(const unsigned char *from, int from_machines, int from_players,
-	unsigned char *to, int to_machines, int to_players, int *clamped);
-const char *network_game_layout_error_string(int error);
 
 /* (room for the record of network version 35 on, 16 bytes longer, and the
 most a signed table's layouts may add: network_rules.h's
@@ -1241,15 +1250,34 @@ static boolean network_game_client_receive_game_settings_piece(
 #ifdef HALO_PORT_CONSOLE_LIMITS
 				{
 					int clamped;
-					int error = network_game_layout_convert(network_game_client_settings_staging,
+					/* (a player of no machine of the record past this build's,
+					as a modified host's bots, is given a free machine index:
+					the PCs play with them) */
+					int error = network_game_layout_convert_mapped(network_game_client_settings_staging,
 						HALO_PORT_WIRE_NETWORK_MACHINES, HALO_PORT_WIRE_NETWORK_PLAYERS,
 						(unsigned char *)&network_game_client_settings_folded, MAXIMUM_NETWORK_MACHINE_COUNT,
-						MAXIMUM_NUMBER_OF_PLAYERS, &clamped);
+						MAXIMUM_NUMBER_OF_PLAYERS, &clamped, &network_game_client_machine_map);
 
 					if (error)
 					{
-						network_event("cross-play: leaving the host's game: its settings have %s (this build takes %d machines and %d players)",
-							network_game_layout_error_string(error), (int)MAXIMUM_NETWORK_MACHINE_COUNT,
+						unsigned char entry[5];
+						char detail[96];
+						int kind = network_game_layout_failing_entry(
+							(unsigned char const *)&network_game_client_settings_staging, HALO_PORT_WIRE_NETWORK_MACHINES,
+							HALO_PORT_WIRE_NETWORK_PLAYERS, MAXIMUM_NETWORK_MACHINE_COUNT, MAXIMUM_NUMBER_OF_PLAYERS, entry);
+
+						/* (which entry, so that a host's record the fold can't
+						take can be told from the console's log) */
+						if (kind == 1)
+							csprintf(detail, "; machine slot %d is machine #%d", (int)entry[0], (int)(signed char)entry[1]);
+						else if (kind == 2)
+							csprintf(detail, "; player slot %d names machine #%d, controller %d, team %d, slot %d",
+								(int)entry[0], (int)(signed char)entry[1], (int)(signed char)entry[2],
+								(int)(signed char)entry[3], (int)(signed char)entry[4]);
+						else
+							detail[0] = 0;
+						network_event("cross-play: leaving the host's game: its settings have %s%s (this build takes %d machines and %d players)",
+							network_game_layout_error_string(error), detail, (int)MAXIMUM_NETWORK_MACHINE_COUNT,
 							(int)MAXIMUM_NUMBER_OF_PLAYERS);
 						network_game_client_rejected_by_game(client, source_address, _rejection_code_game_is_full);
 						return TRUE;
@@ -1676,6 +1704,35 @@ static boolean network_game_client_handle_message_server_add_player_ingame(
 				PC host put in a slot past this build's (its datum, which every
 				machine shares) would not exist here, an invisible player; the
 				game is left as a full one is */
+				/* (a player of a machine past this build's that is not in the
+				game, as a modified host's bots, is given a free machine index,
+				as the settings record's fold gives it) */
+				if (!VALID_INDEX(player.machine_index, MAXIMUM_NETWORK_MACHINE_COUNT) && player.machine_index >= 0)
+				{
+					struct network_game *game = network_game_client_get_game(client);
+					unsigned char used[MAXIMUM_NETWORK_MACHINE_COUNT];
+					long index;
+					int given;
+
+					csmemset(used, 0, sizeof(used));
+					for (index = 0; game && index < MAXIMUM_NETWORK_MACHINE_COUNT; index++)
+					{
+						if (VALID_INDEX(game->machines[index].machine_index, MAXIMUM_NETWORK_MACHINE_COUNT))
+							used[game->machines[index].machine_index] = TRUE;
+					}
+					for (index = 0; game && index < MAXIMUM_NUMBER_OF_PLAYERS; index++)
+					{
+						if (game->players[index].player_list_index != NONE &&
+							VALID_INDEX(game->players[index].machine_index, MAXIMUM_NETWORK_MACHINE_COUNT))
+						{
+							used[game->players[index].machine_index] = TRUE;
+						}
+					}
+					given = network_game_layout_machine_map_index(&network_game_client_machine_map,
+						(int)player.machine_index, used, (int)MAXIMUM_NETWORK_MACHINE_COUNT);
+					if (given >= 0)
+						player.machine_index = (char)given;
+				}
 				if ((player.player_list_index != NONE && !VALID_INDEX(player.player_list_index, MAXIMUM_NUMBER_OF_PLAYERS)) ||
 					!VALID_INDEX(player.machine_index, MAXIMUM_NETWORK_MACHINE_COUNT))
 				{

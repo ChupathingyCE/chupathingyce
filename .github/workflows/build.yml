@@ -219,6 +219,8 @@ jobs:
           python3 tools/test_split_screen_input.py
           python3 tools/test_tag_byte_swap.py
           python3 tools/test_bitmap_byte_order.py
+          python3 -m pytest -q tools/test_console_link.py
+          python3 tools/test_console_https.py
 
       - name: Compile cache
         run: ccache --show-stats

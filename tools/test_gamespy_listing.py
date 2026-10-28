@@ -65,12 +65,19 @@ class Server:
         for line in self.process.stdout:
             self.output.append(line.strip())
 
-    def query(self, packet: bytes, timeout=2.0) -> bytes:
+    def query(self, packet: bytes, timeout=2.0, tries=4) -> bytes:
+        # (UDP: a busy CI machine can answer late or drop a datagram, so the
+        # query is sent again, as a real browser would, before giving up)
         client = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         client.settimeout(timeout)
         try:
-            client.sendto(packet, ("127.0.0.1", self.port))
-            return client.recvfrom(4096)[0]
+            for attempt in range(tries):
+                client.sendto(packet, ("127.0.0.1", self.port))
+                try:
+                    return client.recvfrom(4096)[0]
+                except TimeoutError:
+                    if attempt == tries - 1:
+                        raise
         finally:
             client.close()
 

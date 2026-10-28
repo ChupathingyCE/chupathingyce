@@ -328,6 +328,27 @@ int network_rules_host_settings_size(unsigned announce, unsigned delta_version, 
 	return waiting ? 0 : network_rules_settings_size(announce);
 }
 
+int network_rules_host_hello_matters(unsigned announce, unsigned oldest)
+{
+	struct network_rules_layout announced;
+	unsigned version;
+
+	if (announce < NETWORK_RULES_EXTENDED_OPTIONS_VERSION)
+		return 0;
+	network_rules_layout(announce, &announced);
+	for (version = oldest ? oldest : 1; version < announce; version++)
+	{
+		struct network_rules_layout layout;
+
+		if (version == NETWORK_RULES_VERSION_UNKNOWN)
+			continue;
+		network_rules_layout(version, &layout);
+		if (layout.settings_size != announced.settings_size || layout.options_size != announced.options_size)
+			return 1;
+	}
+	return 0;
+}
+
 int network_rules_host_settings_options(unsigned announce, unsigned delta_version)
 {
 	struct network_rules_layout layout;

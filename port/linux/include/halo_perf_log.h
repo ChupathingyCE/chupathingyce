@@ -10,13 +10,19 @@ its time on, on hardware with no profiler attached.
 
 A port that has it defines HALO_PERF_LOG (the original Xbox's prefix,
 halo_xbox_prefix.h) and gives the functions below (port/xbox/game/
-xbox_perf_log.c). Elsewhere, and while the setting is off, each hook is a
-test of one flag. Counters and timers only: nothing is formatted until the
-second's line.
+xbox_perf_log.c). The consoles on the shared GL layer (HALO_CONSOLE_GL_LAYER:
+the Xbox 360, the Wii U) have it from here, with the functions in
+port/console/game/console_perf_log.c. Elsewhere, and while the setting is
+off, each hook is a test of one flag. Counters and timers only: nothing is
+formatted until the second's line.
 */
 
 #ifndef __HALO_PERF_LOG_H
 #define __HALO_PERF_LOG_H
+
+#if defined(HALO_CONSOLE_GL_LAYER) && !defined(HALO_PERF_LOG)
+#define HALO_PERF_LOG
+#endif
 
 /* the parts of a frame that are timed. The render's own parts (world to
 HUD, and setup to end) are inside render; sound is partly inside the game

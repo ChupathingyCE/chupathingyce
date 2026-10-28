@@ -842,8 +842,10 @@ def generate_linux_build(n: Writer, sln: Any) -> None:
                          # HALO_WINDOW_BASE puts it (source/cseries/xbox_address.h), to
                          # test on the desktop what the Switch needs; never a build to ship
                          extra_flags=(["-DHALO_WINDOW_REBASE"] if getattr(sln, "window_rebase", False) else [])
-                         # configure.py --packaged (game_browser_defines)
-                         + (["-DHALO_PACKAGED"] if getattr(sln, "packaged", False) else []))
+                         # configure.py --packaged and --console-limits (game_browser_defines),
+                         # which the game's own units (source/) take too
+                         + (["-DHALO_PACKAGED"] if getattr(sln, "packaged", False) else [])
+                         + (["-DHALO_CONSOLE_LIMITS"] if getattr(sln, "console_limits", False) else []))
 
     def emit(obj_dir: Path, output: Path, extra_cflags: List[str], extra_ldflags: List[str],
              implicit_inputs: List[Path], validator: Optional[Path] = None) -> None:

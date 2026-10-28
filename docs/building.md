@@ -95,6 +95,8 @@ and what each hook asks of the port, or on its compile lines:
 | `HALO_CONSOLE_DELTA` | Delta Peer as a client |
 | `HALO_CONSOLE_NO_*` | the desktop extras a console leaves out (`halo_port_features.h`, a port's prefix header) |
 | `HALO_CONSOLE_ONLINE_GAMES` | the console's own Online Games screen |
+| `HALO_CONSOLE_PROFILE_ID` | on the port's compile line: Delta Peer's PROFILE carries `console_profile_id()`, the port's (a console linked with Link Profile, `port/console/link`) |
+| `HALO_CONSOLE_HTTPS` | HTTPS over the console's own sockets, with pinned keys and roots (`port/console/https`, [console-https.md](console-https.md)) |
 | `HALO_CONSOLE_LOG_BUFFER`, `HALO_CONSOLE_LOG_THROTTLE` | a log whose writes are slow |
 | `HALO_CONSOLE_GPU_RESOURCE_HOOKS`, `HALO_CONSOLE_NO_WRITE_WATCH`, `HALO_CONSOLE_HOST_ART`, `HALO_CONSOLE_MAP_LOAD_HOOKS`, `HALO_CONSOLE_STATUS_LINE` | a console renderer of its own |
 | `HALO_CONSOLE_GL_LAYER` | a console whose OpenGL is the port's own layer over another graphics API |
@@ -103,6 +105,20 @@ and what each hook asks of the port, or on its compile lines:
 | `HALO_CONSOLE_BRINGUP_LOG` | with the developer tools, a console's bring-up logs (frame stages, the main loop's pulse, init.txt's `later` commands) |
 | `HALO_BIG_ENDIAN` | a big-endian console: the maps' headers and tags byte-swapped as they load (`port/console/game`, `tools/tag_swap_generate.py`) |
 | `HALO_WINDOW_TRANSLATED` | with `HALO_64BIT`, a 32-bit console's Xbox addresses in a window placed wherever it has room (`source/cseries/xbox_address.h`) |
+
+### Link Profile on a console
+
+`port/console/link` is a console's Link Profile (docs/delta.md, "Delta
+Link"): `console_link.c` (the device key, the code, the requests, plain C)
+and `console_link_panel.c` (the DELTA PROFILE panel over Online Games, game
+code). A port builds both, with `port/third_party/qrcodegen` and the
+internet play's `p2p_crypto.c`, fills a `struct console_link_port` (a
+plain HTTP request to the console list's host, and later an HTTPS one; a
+thread; a lock; random bytes; the clock; the log; where the key and the
+link are kept), calls `console_link_initialize` at the start, opens the
+panel with Start on its Online Games, and defines `console_profile_id`
+with `-DHALO_CONSOLE_PROFILE_ID`. `tools/test_console_link.py` runs it on
+the host.
 
 A console's name stays in the shared code only for what is that console's
 alone: `HALO_XBOX_CONSOLE` is the original Xbox's own target (the game as

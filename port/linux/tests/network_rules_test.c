@@ -468,6 +468,13 @@ static void test_host_settings(void)
 	CHECK(network_rules_host_settings_size(35, 36, 0) == 0x3350);
 	/* a Delta build newer than the host's number: the host's */
 	CHECK(network_rules_host_settings_size(36, 40, 0) == 0x3350);
+	/* whether a HELLO could change the record: not for a host under 35, nor
+	when every version a Delta machine may say takes the host's; a Delta build
+	of 32 takes another */
+	CHECK(!network_rules_host_hello_matters(34, 0));
+	CHECK(!network_rules_host_hello_matters(39, 39) && !network_rules_host_hello_matters(39, 35));
+	CHECK(!network_rules_host_hello_matters(35, 40));
+	CHECK(network_rules_host_hello_matters(39, 32) && network_rules_host_hello_matters(39, 0));
 
 	/* who reports a static target's own damage: OpenCE's from 34 do not */
 	CHECK(network_rules_host_static_damage_reported(32, 0));
@@ -621,6 +628,10 @@ static void test_layouts_from_the_table(void)
 	CHECK(network_rules_host_settings_size(40, 39, 0) == 0x3350 && network_rules_host_settings_options(40, 39) == 0x2C);
 	CHECK(network_rules_host_settings_size(40, 42, 0) == 0x3354 && network_rules_host_settings_options(40, 42) == 0x30);
 	CHECK(network_rules_host_settings_size(42, 32, 0) == 0x3340 && network_rules_host_settings_options(42, 32) == 0x1C);
+	/* (a host of 40's layout: a HELLO of 39 takes the older one; of 41 on
+	the same) */
+	CHECK(network_rules_host_hello_matters(40, 39) && !network_rules_host_hello_matters(40, 40));
+	CHECK(!network_rules_host_hello_matters(41, 40) && network_rules_host_hello_matters(42, 41));
 	network_rules_set_layout_source(NULL);
 }
 

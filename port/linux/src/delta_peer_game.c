@@ -29,6 +29,12 @@ HALO_GAME_BROWSER; network.protocol = "opence" turns all of it off.
 #include "browser.h"
 #include "p2p.h"
 #endif
+#ifdef HALO_CONSOLE_PROFILE_ID
+/* (the port's: this console's player ID while its player linked it to a
+Delta profile, port/console/link/console_link.h, or put an identity file
+on it) */
+int console_profile_id(unsigned char *id);
+#endif
 #ifdef HALO_XBOX_CONSOLE
 /* (the console's memory class, as log2 of megabytes: port/xbox/src/
 xbox_memory.c) */
@@ -81,6 +87,9 @@ static struct
 	/* the host's game's player traits (delta_peer_game_set_traits) */
 	int has_traits;
 	struct delta_wire_traits traits;
+	/* the host's advertisement has had the old layout (released clients
+	before the tag read it): set once, kept */
+	int advertised_old;
 } delta_game = { 0 };
 
 /* whether two settings' words are the same, case aside (ASCII; no
@@ -225,7 +234,12 @@ static int local_profile(struct delta_wire_profile *profile)
 	return 1;
 #else
 	memset(profile, 0, sizeof(*profile));
-#ifdef HALO_XBOX_CONSOLE
+#if defined(HALO_CONSOLE_PROFILE_ID)
+	/* (only a console its player linked (Link Profile) or gave an identity
+	file: on a console that is the player's consent, where a desktop build
+	asks for network.share_profile) */
+	return console_profile_id(profile->player_id);
+#elif defined(HALO_XBOX_CONSOLE)
 	/* (only a copy the player gave an identity file: on a console the file
 	being there is the player's consent, where a desktop build asks for
 	network.share_profile) */
@@ -269,18 +283,28 @@ static delta_u32 game_random(void *context)
 	return value;
 }
 
-#ifdef HALO_XBOX_CONSOLE
-/* (the console keeps no signed legacy table, nor relays one: delta.c, its
-thread and its fetch are not in its 64 MB, nor are the table buffers
-(delta_peer.h); nothing is disabled) */
+#if defined(HALO_XBOX_CONSOLE) && !defined(HALO_CONSOLE_HTTPS)
+/* (the console without HTTPS keeps no signed legacy table: nothing is
+disabled) */
 static int game_capability_disabled(void *context, int capability)
 {
 	(void)context;
 	(void)capability;
 	return 0;
 }
+#else
+/* the legacy table's kill switch (a console with HTTPS fetches the table
+itself: delta_legacy_refresh) */
+static int game_capability_disabled(void *context, int capability)
+{
+	(void)context;
+	return delta_capability_disabled(capability);
+}
+#endif
 
-/* the console takes no legacy table: it says so (TABLE_HAVE with
+#ifdef HALO_XBOX_CONSOLE
+/* the console takes no legacy table from a host, nor relays one (the table
+buffers, delta_peer.h, are not in its 64 MB): it says so (TABLE_HAVE with
 DELTA_WIRE_TABLE_NONE), and a host does not send it one */
 static delta_u32 game_legacy_table_serial(void *context)
 {
@@ -288,13 +312,6 @@ static delta_u32 game_legacy_table_serial(void *context)
 	return DELTA_WIRE_TABLE_NONE;
 }
 #else
-/* the legacy table's kill switch */
-static int game_capability_disabled(void *context, int capability)
-{
-	(void)context;
-	return delta_capability_disabled(capability);
-}
-
 /* the legacy table's relay: delta.c's table (none taken or sent with a
 local table in use, or no key) */
 static delta_u32 game_legacy_table_serial(void *context)
@@ -770,7 +787,15 @@ void delta_peer_advertised_wire(unsigned char *reserved, int size, int engine)
 	of OpenCE's meanings: with the flag, a dedicated server's, and in a game
 	whose kind OpenCE's browsers do not read) */
 	if ((reserved[DELTA_ADVERTISED_FLAGS_OFFSET] & DELTA_ADVERTISED_FLAG) && engine != DELTA_ADVERTISED_KIND_ENGINE)
+	{
 		delta_compat_advertise_old(reserved, size, DELTA_MAJOR, DELTA_WIRE);
+		delta_game.advertised_old = 1;
+	}
+}
+
+int delta_peer_advertised_old_layout(void)
+{
+	return delta_game.advertised_old;
 }
 
 int delta_peer_advertised_speaks_delta(const unsigned char *reserved, int size)

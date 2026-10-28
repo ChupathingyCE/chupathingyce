@@ -202,7 +202,11 @@ and leaving cleanly what doesn't fold:
   in a slot past 16, or an entry naming one, is not taken: the console
   leaves the game as a full one (`_rejection_code_game_is_full`, "the game
   is full" on the main menu) and says why in `debug.txt` ("cross-play:
-  leaving the host's game: ..."). A host's maximum above 16 is held to 16.
+  leaving the host's game: ...", with the entry it could not take). A
+  host's maximum above 16 is held to 16. A player who names a machine the
+  record has no entry for (a modified host's bots name machines from #113
+  up) is given a free machine index of the console's instead, the highest
+  first, and keeps it for the rest of the game, joining in progress too.
 - **Joins and players in progress.** A machine index past 16 from the host
   (`message_server_machine_accepted`), or a player added in progress in a
   slot or from a machine past 16 (`message_server_add_player_ingame`),
@@ -275,7 +279,8 @@ the tunnel's thread. To be measured on the console.
 - `port/linux/game/network_game_layout.c`: the settings record between
   any two slot counts, byte for byte. A fold refuses any used machine or
   player slot, or index a used entry names, past the narrower layout (no
-  guess), and holds the gametype's maximum to its slots. A widen fills the
+  guess; a player of a machine with no entry gets a free index), and holds
+  the gametype's maximum to its slots. A widen fills the
   new slots as the game empties one. Tested on the host
   (`port/xbox/tests/network_game_layout_test.c`: the sizes the game
   asserts, an exact round trip, every refusal).
