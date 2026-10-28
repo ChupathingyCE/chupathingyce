@@ -428,6 +428,11 @@ int delta_peer_protocol(void)
 		host is set, team_change.c) */
 		local.capabilities |= (delta_u32)1 << _delta_capability_team_change;
 #endif
+#ifdef HALO_GAME_BROWSER
+		/* (units' shield and health and objects' names, as the host has
+		them: network_objects.c) */
+		local.capabilities |= (delta_u32)1 << _delta_capability_object_sync;
+#endif
 		/* (moderation: a client signs with its player key's moderator key; a
 		host offers it only with the dedicated server's moderation) */
 #ifdef HALO_GAME_BROWSER
@@ -1229,4 +1234,38 @@ unsigned int delta_peer_game_team_result(struct delta_wire_team_result *result)
 	if (!delta_game.ready)
 		return 0;
 	return delta_peer_client_team_result(&delta_game.peer, result);
+}
+
+/* ---------- object sync (port/linux/game/network_objects.c) */
+
+int delta_peer_game_objects_clients(void)
+{
+	if (!delta_game.ready || delta_game.role != _role_host)
+		return 0;
+	return delta_peer_objects_clients(&delta_game.peer);
+}
+
+int delta_peer_game_send_unit_vitals(int machine_index, const struct delta_wire_unit_vitals *vitals)
+{
+	if (!delta_game.ready || delta_game.role != _role_host)
+		return 0;
+	return delta_peer_send_unit_vitals(&delta_game.peer, machine_index, vitals);
+}
+
+int delta_peer_game_objects_ready(void)
+{
+	return delta_game.ready && delta_game.role == _role_client && delta_peer_client_objects_ready(&delta_game.peer);
+}
+
+int delta_peer_game_send_object_names(int machine_index, const struct delta_wire_object_names *names)
+{
+	if (!delta_game.ready || delta_game.role != _role_host)
+		return 0;
+	return delta_peer_send_object_names(&delta_game.peer, machine_index, names);
+}
+
+void delta_peer_game_set_objects_client(const struct delta_peer_objects_client *client)
+{
+	delta_peer_protocol();
+	delta_peer_set_objects_client(&delta_game.peer, client);
 }

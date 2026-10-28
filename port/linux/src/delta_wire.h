@@ -139,7 +139,43 @@ enum
 	DELTA_WIRE_TEAM_REQUEST_SIZE = 8,
 	DELTA_WIRE_TEAM_RESULT_SIZE = 8,
 	/* TEAM_REQUEST's team: whichever team the player is not on */
-	DELTA_WIRE_TEAM_OTHER = 0xFF
+	DELTA_WIRE_TEAM_OTHER = 0xFF,
+
+	/* object sync (docs/delta.md, Object sync): UNIT_VITALS's count and
+	reserved bytes, then 12-byte entries, as many as a datagram holds */
+	DELTA_WIRE_UNIT_VITALS_SIZE = 4,
+	DELTA_WIRE_UNIT_VITALS_ENTRY_SIZE = 12,
+	/* (98) */
+	DELTA_WIRE_MAXIMUM_UNIT_VITALS =
+		(DELTA_WIRE_MAXIMUM_PAYLOAD - DELTA_WIRE_UNIT_VITALS_SIZE) / DELTA_WIRE_UNIT_VITALS_ENTRY_SIZE,
+	/* ... OBJECT_NAMES's total, first and count, then 12-byte entries: the
+	host's named objects and the names it removed (at most a scenario's
+	names) in as many datagrams as it takes */
+	DELTA_WIRE_OBJECT_NAMES_SIZE = 8,
+	DELTA_WIRE_OBJECT_NAMES_ENTRY_SIZE = 12,
+	/* (98) */
+	DELTA_WIRE_MAXIMUM_OBJECT_NAMES_ENTRIES =
+		(DELTA_WIRE_MAXIMUM_PAYLOAD - DELTA_WIRE_OBJECT_NAMES_SIZE) / DELTA_WIRE_OBJECT_NAMES_ENTRY_SIZE,
+	/* (the game's MAXIMUM_OBJECT_NAMES_PER_SCENARIO) */
+	DELTA_WIRE_MAXIMUM_OBJECT_NAMES = 512
+};
+
+/* UNIT_VITALS's entry flags: the unit's shield, as the game's own unit
+states say it */
+enum
+{
+	DELTA_WIRE_VITALS_SHIELD_DEPLETED = 0x01,
+	DELTA_WIRE_VITALS_SHIELD_CHARGING = 0x02,
+	DELTA_WIRE_VITALS_SHIELD_OVER_CHARGING = 0x04,
+	DELTA_WIRE_VITALS_FLAGS = 0x07
+};
+
+/* UNIT_VITALS's own flags (its second byte) */
+enum
+{
+	/* the last datagram of a full pass: every unit the host's vitals
+	cover, sent when a client asks for the host's objects */
+	DELTA_WIRE_UNIT_VITALS_PASS = 0x01
 };
 
 /* TEAM_RESULT's results; a number is never reused */
@@ -343,7 +379,14 @@ enum delta_message_type
 	player asks to change teams */
 	_delta_message_team_request = 23,
 	/* host to client: what the host did with it */
-	_delta_message_team_result = 24
+	_delta_message_team_result = 24,
+	/* (25 and 26 are kept for server badges, a draft) */
+	/* object sync (both agreed to object_sync): host to client, units'
+	shield and health as they changed, and a few of the rest in turn */
+	_delta_message_unit_vitals = 27,
+	/* host to client: the scenario names of the host's objects, whenever
+	they change and every few seconds */
+	_delta_message_object_names = 28
 };
 
 /* TRAITS's game kinds: what the traits are for */
@@ -653,6 +696,63 @@ struct delta_wire_team_result
 	unsigned short seconds;
 };
 
+/* a unit's shield and health (UNIT_VITALS) */
+struct delta_wire_unit_vital
+{
+	/* the host's object (its datum index: a client's copy has the same) */
+	delta_u32 object;
+	/* DELTA_WIRE_VITALS_* */
+	unsigned char flags;
+	/* body and shield vitality, in 16384ths (the game's distributed unit
+	states' scale: up to 4) */
+	unsigned short body;
+	unsigned short shield;
+};
+
+struct delta_wire_unit_vitals
+{
+	/* DELTA_WIRE_UNIT_VITALS_* (others a later build's: ignored) */
+	unsigned char flags;
+	int count;
+	struct delta_wire_unit_vital entries[DELTA_WIRE_MAXIMUM_UNIT_VITALS];
+};
+
+/* OBJECT_NAMES's entry flags */
+enum
+{
+	/* the host had an object of this name and has none now (its object is
+	NONE): a client's own copy goes, after a tick with the vitals given */
+	DELTA_WIRE_NAME_REMOVED = 0x01,
+	DELTA_WIRE_NAME_FLAGS = 0x01
+};
+
+/* an object's scenario name (OBJECT_NAMES), or a name the host removed */
+struct delta_wire_object_name
+{
+	/* (0xFFFFFFFF for a removed name) */
+	delta_u32 object;
+	/* the scenario's object name index */
+	unsigned short name;
+	/* DELTA_WIRE_NAME_* (others a later build's: ignored) */
+	unsigned char flags;
+	/* a removed name's unit as the host last had it (DELTA_WIRE_VITALS_*,
+	and vitality in 16384ths; a full shield and body for one that was not a
+	unit); 0 for the others */
+	unsigned char vitals_flags;
+	unsigned short body;
+	unsigned short shield;
+};
+
+/* the host's named objects, total in all; this datagram's count of them
+from first on */
+struct delta_wire_object_names
+{
+	int total;
+	int first;
+	int count;
+	struct delta_wire_object_name entries[DELTA_WIRE_MAXIMUM_OBJECT_NAMES_ENTRIES];
+};
+
 /* a datagram's header: 1 if it is Delta's (the magic) and its length is the
 datagram's; the payload follows at data + DELTA_WIRE_HEADER_SIZE. A header of
 another major is still read (to answer it with LEGACY) */
@@ -747,6 +847,13 @@ int delta_wire_read_team_result(const unsigned char *payload, int size, struct d
 int delta_wire_write_team_request(unsigned char *data, delta_u32 session,
 	const struct delta_wire_team_request *request);
 int delta_wire_write_team_result(unsigned char *data, delta_u32 session, const struct delta_wire_team_result *result);
+/* object sync's messages. A count past what the datagram holds, unknown
+flags, or names past DELTA_WIRE_MAXIMUM_OBJECT_NAMES are refused */
+int delta_wire_read_unit_vitals(const unsigned char *payload, int size, struct delta_wire_unit_vitals *vitals);
+int delta_wire_read_object_names(const unsigned char *payload, int size, struct delta_wire_object_names *names);
+/* (0 for what the reader would refuse) */
+int delta_wire_write_unit_vitals(unsigned char *data, delta_u32 session, const struct delta_wire_unit_vitals *vitals);
+int delta_wire_write_object_names(unsigned char *data, delta_u32 session, const struct delta_wire_object_names *names);
 
 /* whether length bytes of text are a line to show: valid UTF-8 (shortest
 forms, no surrogates, nothing past U+10FFFF), no control characters (C0,
