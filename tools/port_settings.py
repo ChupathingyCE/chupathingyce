@@ -244,13 +244,13 @@ SCREENS = {
 # the BUTTON LAYOUT row of Controller Buttons' list, CONTROLLER_PRESETS)
 MOUSE_ROWS = [
     ("HORIZONTAL SENSITIVITY:", "input.mouse_sensitivity", SENSITIVITIES,
-     "Adjust the horizontal look sensitivity.", None),
+     "Adjust the horizontal look sensitivity.", NOT_CONSOLE),
     ("VERTICAL SENSITIVITY:", "input.mouse_vertical_sensitivity", [("SAME", "0")] + SENSITIVITIES,
-     "Adjust the vertical look sensitivity.", None),
+     "Adjust the vertical look sensitivity.", NOT_CONSOLE),
     ("INVERT VERTICAL AXIS:", "input.invert_mouse", YES_NO,
-     "Moving the mouse forward looks down.", None),
+     "Moving the mouse forward looks down.", NOT_CONSOLE),
     ("AIM ASSIST:", "input.mouse_aim_assist", ON_OFF,
-     "Use controller aim assist with the mouse.", None),
+     "Use controller aim assist with the mouse.", NOT_CONSOLE),
 ]
 GAMEPAD_ROWS = [
     ("LOOK SENSITIVITY:", "profile.look_sensitivity", [(str(step), str(step)) for step in range(1, 11)],
@@ -457,33 +457,37 @@ def _off_console(platform) -> str:
 
 def _console_places(rows: list) -> list:
     """a list's children ((widget, platform, place)) with the consoles'
-    rows packed: in each of its parts (the rows after a mark, view_<name>),
-    a row the consoles show below places they show none in moves up by that
-    many places there, as a second child of the same widget on "console"
-    (the first, then, on the other platforms alone). With no row left out
-    on the consoles, the children are as they were."""
-    packed, part = [], []
-
-    def close_part():
-        taken = {place for _, _, place in part}
-        shown = {place for _, platform, place in part if _on_console(platform)}
-        empty = sorted(taken - shown)
-        for widget, platform, place in part:
-            higher = sum(1 for other in empty if other < place)
-            if higher and _on_console(platform):
-                packed.append((widget, _off_console(platform), place))
-                packed.append((widget, CONSOLE, place - higher))
-            else:
-                packed.append((widget, platform, place))
-        part.clear()
-
-    for row in rows:
-        if row[0].rsplit("/", 1)[-1].startswith("view_"):
-            close_part()
-            packed.append(row)
+    rows packed. A row is in the views its mark names (view_<name>[_<name>],
+    the mark before it; before any mark, in every view: menu_functions.c's
+    views_show). In the first view a row is in, the places its rows take
+    that the consoles show none in are empty there, and a row the consoles
+    show moves up by those above it, as a second child of the same widget
+    on "console" (the first, then, on the other platforms alone). With no
+    row left out on the consoles, the children are as they were."""
+    marks = [row[0].rsplit("/", 1)[-1] for row in rows]
+    # (a list without marks is one view)
+    every = {view for mark in marks if mark.startswith("view_") for view in mark[5:].split("_")} or {"main"}
+    views, mark = [], None
+    for name in marks:
+        if name.startswith("view_"):
+            mark = name[5:].split("_")
+        views.append(mark if mark is not None else sorted(every))
+    packed = []
+    for index, (widget, platform, place) in enumerate(rows):
+        if marks[index].startswith("view_") or not views[index]:
+            packed.append((widget, platform, place))
+            continue
+        view = views[index][0]
+        part = [row for other, row in enumerate(rows)
+                if not marks[other].startswith("view_") and view in views[other]]
+        taken = {other_place for _, _, other_place in part}
+        shown = {other_place for _, other_platform, other_place in part if _on_console(other_platform)}
+        higher = sum(1 for empty in taken - shown if empty < place)
+        if higher and _on_console(platform):
+            packed.append((widget, _off_console(platform), place))
+            packed.append((widget, CONSOLE, place - higher))
         else:
-            part.append(row)
-    close_part()
+            packed.append((widget, platform, place))
     return packed
 
 
@@ -589,16 +593,20 @@ def _controls_rows() -> tuple:
             labels.append(row[0])
             helps.append(row[3])
 
-    rows.append((f"{base}/op_device", None, 0))
+    # (the consoles have the controller's settings alone: no keyboard or
+    # mouse, and no buttons page or layout, which HALO_CONSOLE_NO_CONTROLS
+    # leaves out; menu_functions.c shows the controller's settings when the
+    # list has no DEVICE)
+    rows.append((f"{base}/op_device", NOT_CONSOLE, 0))
     extra += _chooser(base, "device", "DEVICE:", CONTROLS_DEVICES)
     # the keyboard and mouse's
     mark("keyboard_mouse")
-    rows.append((f"{base}/op_group", None, 1))
+    rows.append((f"{base}/op_group", NOT_CONSOLE, 1))
     extra += _chooser(base, "group", "SHOW:", CONTROL_GROUPS)
     mark("keyboard")
     for index in range(CONTROL_ROWS):
         row = f"{base}/op_command_{index + 1}"
-        rows.append((row, None, index + 2))
+        rows.append((row, NOT_CONSOLE, index + 2))
         extra += _widget(row, [("width", 512), ("height", 28), ("flags", "pass_unhandled_to_focused_child"),
                                ("bitmap", "bitmaps/option_bkds"), ("color", "#FF2896FF")],
                          ['<on event="a" run="controls begin binding"/>',
@@ -618,10 +626,10 @@ def _controls_rows() -> tuple:
     settings(MOUSE_ROWS, 2)
     # the controller's
     mark("gamepad_buttons")
-    rows.append((f"{base}/op_page", None, 1))
+    rows.append((f"{base}/op_page", NOT_CONSOLE, 1))
     extra += _chooser(base, "page", "SHOW:", CONTROLLER_PAGES)
     mark("gamepad")
-    rows.append((f"{base}/op_layout", None, 2))
+    rows.append((f"{base}/op_layout", NOT_CONSOLE, 2))
     extra += _widget(f"{base}/op_layout", [("width", 512), ("height", 28), ("flags", "pass_unhandled_to_focused_child"),
                                            ("bitmap", "bitmaps/option_bkds"), ("color", "#FF2896FF")],
                      [f'<child{attributes([("widget", f"{base}/layout_label")])}/>',
@@ -639,7 +647,7 @@ def _controls_rows() -> tuple:
     settings(GAMEPAD_ROWS, 3)
     mark("buttons")
     for index, label in enumerate(CONTROLLER_ACTIONS):
-        rows.append((f"{base}/op_button_{index + 1}", None, index + 2))
+        rows.append((f"{base}/op_button_{index + 1}", NOT_CONSOLE, index + 2))
         extra += _widget(f"{base}/op_button_{index + 1}",
                          [("width", 512), ("height", 28), ("flags", "pass_unhandled_to_focused_child"),
                           ("bitmap", "bitmaps/option_bkds"), ("color", "#FF2896FF")],
@@ -657,7 +665,7 @@ def _controls_rows() -> tuple:
     # the other rows' helps are menu_functions.c's own)
     extra += _strings(f"{base}/labels", labels)
     extra += _strings(f"{base}/help_strings", [""] + helps)
-    return rows, extra
+    return _console_places(rows), extra
 
 
 # (the list's: its rows filled in and the help written each frame; on its
@@ -761,11 +769,11 @@ CHUPATHINGY_ONLY = {
 }
 
 
-def _xbox_prompt(button: str, x: int, word: str) -> list:
+def _xbox_prompt(button: str, x: int, word: str, platform=None) -> list:
     """a prompt laid out as the Xbox's: its button, then its word (the
     menus' own, chupathingy/prompts.xml, which a game's map has too)"""
-    return [f'<child{attributes([("widget", f"chupathingy/prompts/{button}"), ("x", x), ("y", 414)])}/>',
-            f'<child{attributes([("widget", f"chupathingy/prompts/{word}"), ("x", x + 22), ("y", 414)])}/>']
+    return [f'<child{attributes([("widget", f"chupathingy/prompts/{button}"), ("x", x), ("y", 414), ("platform", platform)])}/>',
+            f'<child{attributes([("widget", f"chupathingy/prompts/{word}"), ("x", x + 22), ("y", 414), ("platform", platform)])}/>']
 
 
 def chupathingy_settings_pages() -> list:
@@ -783,7 +791,9 @@ def chupathingy_settings_pages() -> list:
             handlers = [*CONTROLS_LIST_HANDLERS, '<on event="x" run="port controls accept" back="true"/>',
                         '<on event="y" run="port controls defaults"/>']
             prompts = (_xbox_prompt("y", 60, "defaults") + _xbox_prompt("x", 215, "accept") +
-                       _xbox_prompt("b", 350, "cancel") + _xbox_prompt("a", 490, "change"))
+                       _xbox_prompt("b", 350, "cancel") +
+                       # (the consoles change no key or button here)
+                       _xbox_prompt("a", 490, "change", NOT_CONSOLE))
         else:
             spec = SCREENS.get(folder) or CHUPATHINGY_ONLY[folder]
             rows, _, _ = _setting_rows(base, spec)
