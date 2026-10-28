@@ -1,7 +1,7 @@
 {
   "delta_legacy": 1,
-  "serial": 8,
-  "issued": 1793207754,
+  "serial": 9,
+  "issued": 1793207965,
   "wires": {
     "chupa-20a": {
       "announce": 23,
