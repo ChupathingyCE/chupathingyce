@@ -96,6 +96,14 @@ state: -1 older, 1 newer) */
 /* the title of a failed join's message */
 #define JOIN_FAILED_TITLE "Halo: can't join this game"
 
+/* a host's neutral label, beside the OpenCE (legacy) marking: an OpenCE
+dedicated server, as its advertisement or public listing says it
+(delta_compat_opence_server, delta_compat_opence_server_listing). The same
+words in Online Games, the Server Browser and the site's game list (puma,
+web/site.js HOST_LABEL_OPENCE_SERVER); a description, never a badge or a
+judgment, and it grants nothing */
+#define HOST_LABEL_OPENCE_SERVER "OpenCE server"
+
 /* a reason as a wide string (menu_functions.c's text): JOIN_WIDE(JOIN_REASON_FULL) */
 #define JOIN_WIDE_TEXT(text) L##text
 #define JOIN_WIDE(text) JOIN_WIDE_TEXT(text)

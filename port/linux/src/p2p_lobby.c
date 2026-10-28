@@ -62,6 +62,7 @@ of MAXIMUM_QUEUED; the rest is dropped (hosts publish again).
 #include "port_config.h"
 #include "p2p_internal.h"
 #include "halo_port_limits.h"
+#include "delta_compat.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -109,6 +110,10 @@ enum
 	/* (wide: a host whose clock is off is still listed) */
 	LIVE_WINDOW = 3600,
 };
+
+/* (delta_compat.h tells OpenCE's dedicated servers apart by these bits) */
+typedef char listing_dedicated_bits_match[_listing_dedicated_opence == DELTA_COMPAT_LISTING_DEDICATED_OPENCE &&
+	_listing_dedicated == DELTA_COMPAT_LISTING_DEDICATED ? 1 : -1];
 
 static const char signature_label[] = "hceu-lobby-1";
 
@@ -710,6 +715,7 @@ static void listing_take(const struct queued *queued, const struct listing *list
 	shown->in_progress = (listing->flags & _listing_in_progress) != 0;
 	shown->has_teams = (listing->flags & _listing_has_teams) != 0;
 	shown->dedicated = (listing->flags & (_listing_dedicated | _listing_dedicated_opence)) != 0;
+	shown->opence_server = (unsigned char)delta_compat_opence_server_listing(listing->flags);
 	shown->version = (unsigned short)listing->version;
 	shown->ping = -1;
 }

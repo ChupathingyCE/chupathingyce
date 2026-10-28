@@ -1489,6 +1489,8 @@ enum
 	COLOR_HEAD = 0x8FA6C8FF,
 	COLOR_TEXT = 0xFFFFFFFF,
 	COLOR_DIM = 0x8FA6C8FF,
+	/* a neutral label's plain gray (HOST_LABEL_OPENCE_SERVER) */
+	COLOR_NEUTRAL = 0x9AA0A8FF,
 	COLOR_LABEL = 0x7FB8FFFF,
 	COLOR_RULE = 0x2F6DD0A0,
 	/* the roster's players of each team, the Xbox's softened red and blue */
@@ -2770,9 +2772,27 @@ the map's name over its family's color (a custom map's) */
 			snprintf(text + strlen(text), sizeof(text) - strlen(text), " (%s)", machines);
 	}
 	DETAIL_LINE("Players:", text);
-	if (host_text(selected, text, sizeof(text)))
+	if (host_text(selected, text, sizeof(text)) || selected->opence_server)
 	{
+		if (!host_text(selected, text, sizeof(text)))
+			text[0] = 0;
 		DETAIL_LINE("Host:", text);
+		/* (an OpenCE dedicated server's neutral label, in gray beside the
+		host; under it when the line has no room) */
+		if (selected->opence_server)
+		{
+			float label_x = text[0] ? x + 6 : x;
+			float label_y = line_y;
+
+			if (label_x + ui_overlay_text_width(UI_FONT_MENU_SMALL, DETAIL_SIZE, HOST_LABEL_OPENCE_SERVER) >
+				ROSTER_X - 14)
+			{
+				label_x = DETAIL_TEXT_X + ui_overlay_text_width(UI_FONT_MENU_SMALL, DETAIL_SIZE, "Host:") + 4;
+				label_y = y;
+			}
+			ui_overlay_text(UI_FONT_MENU_SMALL, DETAIL_SIZE, label_x, label_y + 0.5f, UI_ALIGN_LEFT, COLOR_NEUTRAL,
+				HOST_LABEL_OPENCE_SERVER);
+		}
 	}
 #undef DETAIL_LINE
 	(void)line_y;

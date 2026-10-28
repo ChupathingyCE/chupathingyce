@@ -113,6 +113,10 @@ struct browser_game
 	/* heard directly, not on the list: a public listing from the brokers
 	(p2p_lobby.c) that the list lacks (browser_get_games) */
 	unsigned char direct;
+	/* an OpenCE dedicated server's game, by its public listing's flags
+	(p2p_listing's opence_server): the lists' neutral label
+	(HOST_LABEL_OPENCE_SERVER), nothing more */
+	unsigned char opence_server;
 };
 
 /* the note a screen of listed games shows while the list is down and its

@@ -3096,6 +3096,9 @@ boolean ui_widget_port_host(struct widget_instance *widget, struct event_record 
 boolean ui_widget_port_browse(struct widget_instance *widget, struct event_record *event, boolean *widget_deleted);
 boolean ui_widget_port_open(struct widget_instance *widget, char const *name, boolean *widget_deleted);
 boolean network_game_client_advertised_game_in_progress(void *client, struct advertised_game *game);
+#ifdef HALO_GAME_BROWSER
+boolean network_game_client_advertised_game_opence_server(void *client, struct advertised_game *game);
+#endif
 boolean ui_widget_port_join(struct widget_instance *widget, void *advertised_game, char const *lobby_name,
 	boolean *widget_deleted);
 boolean ui_widget_port_multiplayer_player(short controller_index, long profile_index);
@@ -4799,8 +4802,14 @@ static void lobby_browser_host_text(struct p2p_listing const *game, wchar_t *tex
 		if (config_boolean("network.online") && config_boolean("network.public_lobby") &&
 			browser_list_status() == BROWSER_LIST_ANSWERED)
 		{
-			usnprintf(text, size - 1, L" (%sOPENCE LEGACY, NETWORK %d)", game->dedicated ? L"DEDICATED, " : L"",
-				game->version);
+			usnprintf(text, size - 1, L" (%sOPENCE LEGACY, NETWORK %d%s)", game->dedicated ? L"DEDICATED, " : L"",
+				game->version, game->opence_server ? L", " JOIN_WIDE(HOST_LABEL_OPENCE_SERVER) : L"");
+			text[size - 1] = 0;
+		}
+		/* (and with the list down, by its listing alone) */
+		else if (game->opence_server)
+		{
+			usnprintf(text, size - 1, L" (DEDICATED, %s)", JOIN_WIDE(HOST_LABEL_OPENCE_SERVER));
 			text[size - 1] = 0;
 		}
 		return;
@@ -4821,10 +4830,18 @@ static void lobby_browser_host_text(struct p2p_listing const *game, wchar_t *tex
 
 		usnprintf(text + length, size - 1 - length, L", NETWORK %d", listed->version);
 	}
+	/* (an OpenCE dedicated server's neutral label, after its marking) */
+	if (listed->opence_server)
+	{
+		short length = (short)ustrlen(text);
+
+		usnprintf(text + length, size - 1 - length, L"%s%s", length ? L", " : L"",
+			JOIN_WIDE(HOST_LABEL_OPENCE_SERVER));
+	}
 	text[size - 1] = 0;
 	if (text[0])
 	{
-		wchar_t inner[64];
+		wchar_t inner[96];
 
 		ustrncpy(inner, text, NUMBEROF(inner) - 1);
 		inner[NUMBEROF(inner) - 1] = 0;
@@ -4947,7 +4964,7 @@ static void lobby_browser_rules_text(struct p2p_listing const *game, wchar_t *te
 	wchar_t gametype[P2P_LISTING_GAMETYPE_SIZE + 1];
 	wchar_t map[ROW_TEXT_LENGTH];
 	wchar_t score[16];
-	wchar_t host[64];
+	wchar_t host[96];
 	wchar_t mark[24];
 	short score_limit = lobby_browser_score_limit(game);
 	short family;
@@ -5473,7 +5490,19 @@ static void browser_update(struct widget_instance *list)
 		}
 		text[NUMBEROF(text) - 1] = 0;
 		text_set(named(list, "ticker_player_info", 0), text);
-		text_set(named(list, "ticker_rules_info", 0), L"");
+		/* (an OpenCE dedicated server's game, by its advertisement: the
+		lists' neutral label) */
+		text[0] = 0;
+#ifdef HALO_GAME_BROWSER
+		if (multiplayer.mode != _multiplayer_mode_server_browser && multiplayer.game_count &&
+			network_game_client_advertised_game_opence_server(global_network_game_client_get(),
+				multiplayer.games[multiplayer.game_chosen]))
+		{
+			usnprintf(text, NUMBEROF(text) - 1, L"%s", JOIN_WIDE(HOST_LABEL_OPENCE_SERVER));
+		}
+#endif
+		text[NUMBEROF(text) - 1] = 0;
+		text_set(named(list, "ticker_rules_info", 0), text);
 	}
 	if (stats)
 	{
