@@ -94,6 +94,7 @@ def families(tmp_path_factory):
     (work / "harness.c").write_text(HARNESS)
     # (the header alone: port/linux/include's stdio.h is the game's)
     shutil.copy(ROOT / "port/linux/include/halo_map_families.h", work / "halo_map_families.h")
+    shutil.copy(ROOT / "port/linux/include/halo_join_reasons.h", work / "halo_join_reasons.h")
     binary = work / "families"
     subprocess.run([cc, "-std=gnu99", "-Wall", "-Werror", "-I", str(work),
                     str(work / "harness.c"), str(ROOT / "port/linux/game/map_families.c"), "-o", str(binary)],

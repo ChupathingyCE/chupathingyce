@@ -241,6 +241,12 @@ Planned, built on section 3's advertisement.
 - **The same words everywhere.** The game list on the site, the in-game list
   and a failed join use the same reason strings, so a player is not told
   something different in each place.
+  Done for 0.8.1: the sentences are in `port/linux/include/halo_join_reasons.h`
+  ("Needs a newer Chupathingy.", "The host is on an older version.", "Map not
+  installed: ...", "Game is full.", "Password needed." and the rest), used by
+  Online Games, the PC Server Browser and the failed-join message. The site's
+  list has the same ones (puma `web/site.js`, `JOIN_REASONS`), and
+  `tools/test_join_reasons.py` holds the list both follow.
 - **Failures stay clean.** A join that fails after the list said it would work
   (a stale map, a host that changed since) ends the join with the reason and
   does not start a game that might drift.

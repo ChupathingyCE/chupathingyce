@@ -75,6 +75,7 @@ the right button is B.
 #include "networking/network_client_manager.h"
 #include "../src/browser.h"
 #include "halo_port_limits.h"
+#include "halo_join_reasons.h"
 #include "network_rules.h"
 #include "../src/browser_ping.h"
 #include "../src/map_art.h"
@@ -580,7 +581,10 @@ static void offer_given_up(
 		set_status(why);
 	else
 	{
-		snprintf(text, sizeof(text), "Needs maps_ce/%s.map to join", browser_screen.offer_display);
+		char file[BROWSER_MAP_LENGTH + 16];
+
+		snprintf(file, sizeof(file), "maps_ce/%s.map", browser_screen.offer_display);
+		snprintf(text, sizeof(text), JOIN_REASON_MAP_MISSING, file);
 		set_status(text);
 	}
 }
@@ -714,7 +718,7 @@ static void join_selected(
 	}
 	if (!game->open)
 	{
-		set_status("That game is not accepting players.");
+		set_status(JOIN_REASON_NOT_OPEN);
 		return;
 	}
 	if (game_type_blocker(game))
@@ -783,7 +787,7 @@ static void wait_for_host(
 			if (system_milliseconds() - browser_screen.connecting_time > CONNECT_TIMEOUT)
 			{
 				browser_screen.connecting = FALSE;
-				set_status("The host did not answer.");
+				set_status(JOIN_REASON_NO_ANSWER);
 			}
 			return;
 		}
@@ -825,12 +829,13 @@ static void wait_for_host(
 	else if (joined < 0)
 	{
 		browser_screen.connecting = FALSE;
-		set_status("That game can't be joined from this version.");
+		/* (the reason the join check gave, as the lists say it) */
+		set_status(network_game_client_refusal()[0] ? network_game_client_refusal() : JOIN_REASON_NEEDS_UPDATE);
 	}
 	else if (system_milliseconds() - browser_screen.connecting_time > CONNECT_TIMEOUT)
 	{
 		browser_screen.connecting = FALSE;
-		set_status("The host did not answer.");
+		set_status(JOIN_REASON_NO_ANSWER);
 	}
 }
 
@@ -943,15 +948,13 @@ static char const *game_type_blocker(
 
 		if (kind)
 		{
-			snprintf(opence_text, sizeof(opence_text), "This game uses an OpenCE game type (%s) Chupathingy doesn't support yet.",
-				kind);
+			snprintf(opence_text, sizeof(opence_text), JOIN_REASON_OPENCE_GAME_TYPE, kind);
 			return opence_text;
 		}
 	}
 	if (game->engine >= 0 && game->engine <= last)
 		return NULL;
-	return game->engine == game_engine_bomb ? "Bomb and Grifball need a Chupathingy build with Bomb." :
-		"A game type this build does not have: update Chupathingy to join.";
+	return game->engine == game_engine_bomb ? JOIN_REASON_NEEDS_BOMB : JOIN_REASON_NEEDS_UPDATE;
 }
 
 /* why a game of another network version is not joined, or NULL for one this
@@ -965,8 +968,7 @@ static char const *version_blocker(
 
 	if (!state)
 		return NULL;
-	snprintf(text, (size_t)size, "This game runs %s version (network %d) and can't be joined.",
-		state < 0 ? "an older" : "a newer", game->version);
+	snprintf(text, (size_t)size, "%s", JOIN_REASON_TEXT(JOIN_REASON_OF_VERSION_STATE(state)));
 	return text;
 }
 
@@ -993,23 +995,31 @@ static char const *ce_map_blocker(
 		}
 		else if (ce_map_downloadable(game))
 		{
-			snprintf(text, (size_t)size, "Needs %s/%s.map: join to download it", map_family_folder(family),
-				display);
+			char path[BROWSER_MAP_LENGTH + 16];
+
+			snprintf(path, sizeof(path), "%s/%s.map", map_family_folder(family), display);
+			snprintf(text, (size_t)size, JOIN_REASON_MAP_DOWNLOAD, path);
 		}
 		/* (a pack's map: its pack's folder, maps_<pack>) */
 		else if (family == _map_family_pack)
 		{
-			char pack[MAP_PACK_ID_LENGTH + 1];
+			char pack[MAP_PACK_ID_LENGTH + 1], path[MAP_PACK_ID_LENGTH + BROWSER_MAP_LENGTH + 16];
 
 			map_family_pack_id(game->map, pack, sizeof(pack));
-			snprintf(text, (size_t)size, "Needs maps_%s/%s.map to join", pack, file);
+			snprintf(path, sizeof(path), "maps_%s/%s.map", pack, file);
+			snprintf(text, (size_t)size, JOIN_REASON_MAP_MISSING, path);
 		}
 		else
-			snprintf(text, (size_t)size, "Needs %s/%s.map to join", map_family_folder(family), display);
+		{
+			char path[BROWSER_MAP_LENGTH + 16];
+
+			snprintf(path, sizeof(path), "%s/%s.map", map_family_folder(family), display);
+			snprintf(text, (size_t)size, JOIN_REASON_MAP_MISSING, path);
+		}
 		return text;
 	case _ce_map_unsupported:
-		return family == _map_family_halomd ? "HaloMD maps aren't supported in this build." :
-			"Halo PC maps aren't supported in this build.";
+		snprintf(text, (size_t)size, JOIN_REASON_MAPS_UNSUPPORTED, family == _map_family_halomd ? "HaloMD" : "Halo PC");
+		return text;
 	default:
 		return NULL;
 	}
@@ -2682,9 +2692,12 @@ the map's name over its family's color (a custom map's) */
 			label) + 4; \
 		x += ui_overlay_text(UI_FONT_MENU, DETAIL_SIZE, x, y, UI_ALIGN_LEFT, COLOR_TEXT, value); \
 		y += DETAIL_LINE_STEP;
-	snprintf(text, sizeof(text), "%s%s", browser_game_version_state(selected) ? (browser_game_version_state(selected) < 0 ? "Older version" : "Newer version") :
-		selected->open ? "Accepting players" : "In progress",
-		selected->locked ? ", password" : "");
+	/* (a game this build can't join by its version: the reason, as the
+	footer says it) */
+	if (browser_game_version_state(selected))
+		snprintf(text, sizeof(text), "%s", JOIN_REASON_TEXT(JOIN_REASON_OF_VERSION_STATE(browser_game_version_state(selected))));
+	else
+		snprintf(text, sizeof(text), "%s%s", selected->open ? "Accepting players" : "In progress", selected->locked ? ", password" : "");
 	DETAIL_LINE("Status:", text);
 	DETAIL_LINE("Map:", map_label);
 	/* (its family, spelled out beside its tag) */
