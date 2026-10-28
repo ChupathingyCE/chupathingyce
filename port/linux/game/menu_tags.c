@@ -93,10 +93,10 @@ adds to */
 #define MULTIPLAYER_COLLECTION "ui\\shell\\multiplayer"
 /* a campaign map's pause screen, which pause_patch adds to */
 #define SOLO_PAUSE_SCREEN "ui\\shell\\solo_game\\pause_game\\pause_game"
-/* the tags pause_patch adds: four buttons and their texts, and the middle
+/* the tags pause_patch adds: five buttons and their texts, and the middle
 and bottom parts of the stock box's pieces, a widget and a bitmap each (the
 campaign's has six pieces) */
-#define PAUSE_PATCH_TAGS (8 + 4 * 6)
+#define PAUSE_PATCH_TAGS (10 + 4 * 6)
 /* what a frame of ui.map's is drawn as in a game map, which has not got it */
 #define BLANK_PNG "ce/port/blank__0.png"
 #define UI_WIDGET_DEFINITION_TAG 'DeLa'
@@ -380,6 +380,7 @@ static char const *const port_function_names[] =
 	"port map list back",
 	"port pause end game",
 	"port pause change teams",
+	"port pause moderation",
 	"port pause controls", "controller screen init", "controller screen defaults", "controller begin binding",
 	"port coop begin", "port coop player 2 list initialize", "port coop player 2",
 	"port lobby open", "port lobby add player", "port lobby join", "port lobby leave",
@@ -1484,7 +1485,9 @@ static void menu_tags_release(void)
 Their list gets SETTINGS after RESUME GAME, the menus' settings (as the
 main menu's SETTINGS opens them), and a multiplayer map's, for the host,
 END GAME after it, which ends the game as its time limit would: its players
-stay, and the host picks the next map after the carnage report. A team
+stay, and the host picks the next map after the carnage report; and
+MODERATION, the host's kick and ban of its players (moderation_screen.c,
+the builds with it). A team
 game's gets CHANGE TEAMS right after RESUME GAME, as Halo PC's had it: the
 player asks the host to put them on the other team, and the menu closes
 (team_change.c). They are
@@ -1634,28 +1637,44 @@ static boolean pause_controls_offered(void)
 #endif
 }
 
+/* whether a multiplayer game's pause menus have the host's MODERATION (the
+Moderation screen over them, moderation_screen.c: kick and ban): a game
+this machine hosts, in a build with the screen */
+static boolean pause_moderation_offered(boolean host)
+{
+#ifdef HALO_GAME_BROWSER
+	return host;
+#else
+	(void)host;
+	return FALSE;
+#endif
+}
+
 /* the list's buttons: a team game's CHANGE TEAMS (change_teams), SETTINGS
 (Gearbox's menus: settings), CONTROLS (pause_controls_offered) and the
-host's END GAME (end_game) put after RESUME GAME (resume), the rows after
-them moved down; returns how far the list grew, 0 if it was not */
+host's END GAME (end_game) and MODERATION (pause_moderation_offered) put
+after RESUME GAME (resume), the rows after them moved down; returns how far
+the list grew, 0 if it was not */
 static short pause_list_patch(struct cache_file_tag_instance *instances, struct ui_widget_definition *list, long resume,
 	boolean change_teams, boolean settings, boolean end_game)
 {
+	boolean moderation = pause_moderation_offered(end_game);
 	struct ui_widget_child_reference *children = xbox_pointer(list->child_widgets.address);
 	long count = list->child_widgets.count, child;
 	boolean controls = pause_controls_offered();
 	/* (the Xbox's menus have none of ours: the Controls screen, by code) */
 	long controls_widget = !controls || !build.menus ? NONE : widget_named(PAUSE_CONTROLS_SCREEN);
-	long added = (change_teams != FALSE) + (settings != FALSE) + (controls != FALSE) + (end_game != FALSE);
+	long added = (change_teams != FALSE) + (settings != FALSE) + (controls != FALSE) + (end_game != FALSE) +
+		(moderation != FALSE);
 	struct ui_widget_child_reference *grown = allocate((count + added) * sizeof(struct ui_widget_child_reference));
 	struct ui_widget_definition const *model = tag_get(UI_WIDGET_DEFINITION_TAG, children[resume].widget_tag.index);
 	long settings_widget = !settings ? NONE :
 		widget_named(menus_chosen() == _menus_chupathingy ? PAUSE_SETTINGS_SCREEN_CHUPATHINGY : PAUSE_SETTINGS_SCREEN);
 	short spacing = count >= 2 ? (short)(children[count - 1].vertical_offset - children[count - 2].vertical_offset) :
 		PAUSE_BUTTON_SPACING;
-	void *buttons[4];
-	long tags[4];
-	char const *names[4];
+	void *buttons[5];
+	long tags[5];
+	char const *names[5];
 
 	if (!grown || !added || (settings && settings_widget == NONE) || spacing <= 0)
 		return 0;
@@ -1688,6 +1707,13 @@ static short pause_list_patch(struct cache_file_tag_instance *instances, struct 
 		tags[added] = next_tag();
 		buttons[added++] = pause_button(instances, model, "pause/end_game_button", "END GAME",
 			function_index("port pause end game", "pause", 0), NONE, FALSE);
+	}
+	if (moderation)
+	{
+		names[added] = "pause/moderation_button";
+		tags[added] = next_tag();
+		buttons[added++] = pause_button(instances, model, "pause/moderation_button", "MODERATION",
+			function_index("port pause moderation", "pause", 0), NONE, FALSE);
 	}
 	for (child = 0; child < added; child++)
 	{
@@ -1984,8 +2010,10 @@ static void pause_patch(struct cache_file_tag_instance *instances, boolean setti
 	}
 	if (patched_list != NONE)
 	{
-		platform_log("menus: the pause menu has%s%s%s%s", change_teams ? " CHANGE TEAMS" : "", settings ? " SETTINGS" : "",
-			pause_controls_offered() ? " CONTROLS" : "", host && solo_screen == NONE ? " END GAME" : "");
+		platform_log("menus: the pause menu has%s%s%s%s%s", change_teams ? " CHANGE TEAMS" : "",
+			settings ? " SETTINGS" : "", pause_controls_offered() ? " CONTROLS" : "",
+			host && solo_screen == NONE ? " END GAME" : "",
+			solo_screen == NONE && pause_moderation_offered(host) ? " MODERATION" : "");
 	}
 }
 
@@ -2495,9 +2523,14 @@ boolean pc_menu_button_key_cap(
 	float alpha)
 {
 #ifdef HALO_GAME_BROWSER
+	extern boolean moderation_screen_active(void);
 	int button = pc_menu_key_cap_button(bitmap_tag_index);
 
 	(void)x0;
+	/* (the Moderation screen over the menu: the menu's key caps hidden with
+	it, not drawn over the screen) */
+	if (button >= 0 && moderation_screen_active())
+		return TRUE;
 	if (button >= 0)
 	{
 		float size = (float)(y1 - y0) * 0.62f;

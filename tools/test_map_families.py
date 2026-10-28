@@ -41,6 +41,7 @@ char const *config_string(char const *name);
 """
 HARNESS = r"""
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "cseries.h"
 #include "halo_map_families.h"
@@ -65,6 +66,12 @@ int main(int argc, char **argv)
 			family = map_family_parse(argv[index], NULL, 0);
 			map_family_pack_id(argv[index], pack, sizeof(pack));
 			printf("%d %d %s %s\n", family, ok, out, pack[0] ? pack : "-");
+		}
+		else if (!strcmp(argv[1], "mcc"))
+		{
+			/* (argv[index]: the header's version, in decimal) */
+			unsigned long header[2] = { 'head', strtoul(argv[index], NULL, 10) };
+			printf("%d\n", map_family_header_is_mcc(header));
 		}
 		else if (!strcmp(argv[1], "wire"))
 		{
@@ -94,6 +101,7 @@ def families(tmp_path_factory):
     (work / "harness.c").write_text(HARNESS)
     # (the header alone: port/linux/include's stdio.h is the game's)
     shutil.copy(ROOT / "port/linux/include/halo_map_families.h", work / "halo_map_families.h")
+    shutil.copy(ROOT / "port/linux/include/halo_join_reasons.h", work / "halo_join_reasons.h")
     binary = work / "families"
     subprocess.run([cc, "-std=gnu99", "-Wall", "-Werror", "-I", str(work),
                     str(work / "harness.c"), str(ROOT / "port/linux/game/map_families.c"), "-o", str(binary)],
@@ -164,3 +172,9 @@ def test_pack_wire_names(families):
 
 def test_pack_listed(families):
     assert families("listed", "bloodgulch@cex", "longest@xyz") == ["4 bloodgulch", "4 longest"]
+
+
+def test_mcc_header_detected(families):
+    # (cache version 13 is MCC's; Custom Edition's 609, Halo PC's 7 and the
+    # Xbox's 5 are not)
+    assert families("mcc", "13", "609", "7", "5", "0") == ["1", "0", "0", "0", "0"]

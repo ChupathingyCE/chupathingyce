@@ -2208,6 +2208,25 @@ static void effect_generate_particles(
 	return;
 }
 
+/* whether an effect that need not be deterministic is seen where it plays:
+by the local players' view; port: a dedicated server (server/src/dedicated.c)
+has no local player, so that view is empty and such effects would never run
+their parts there, their damage included (Custom Edition maps such as
+ugoboom's Coldsnap set up their game types by effect damage); it judges them
+by every player's view, as a listen host does by its own. Particles still
+follow the local view (particles.c), so the server makes none */
+static boolean effect_location_potentially_visible_local(
+	struct location const *location)
+{
+#ifdef HALO_GAME_BROWSER
+	boolean dedicated_server_active(void);
+
+	if (dedicated_server_active())
+		return scenario_location_potentially_visible(location);
+#endif
+	return scenario_location_potentially_visible_local(location);
+}
+
 static void effect_update(
 	long effect_index,
 	real dt)
@@ -2330,7 +2349,7 @@ static void effect_update(
 			definition->flags,
 			_effect_definition_must_be_deterministic_bit)
 			? scenario_location_potentially_visible(&effect->location)
-			: scenario_location_potentially_visible_local(&effect->location);
+			: effect_location_potentially_visible_local(&effect->location);
 	}
 
 	if (!visible)

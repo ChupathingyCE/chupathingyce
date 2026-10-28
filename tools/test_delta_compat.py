@@ -108,8 +108,10 @@ def test_consoles_join_by_wire():
     body = body[:body.index("\n}\n")]
     assert "#ifdef HALO_PORT_DELTA_WIRE_JOIN" in body
     assert "delta_peer_advertised_wire_matches" in body
-    # (a refusal has a short reason for a console's status line)
-    assert body.count("network_game_client_refusal_text") >= 4
+    # (a refusal has a short reason for a console's status line: each kept by
+    # network_game_client_refuse, in the game lists' words)
+    assert body.count("network_game_client_refuse(") >= 3
+    assert "network_game_client_refusal_text" in source[source.index("static void network_game_client_refuse("):]
     # (the peer's checks read the tag too: no flag-only test before the decision)
     peer = (ROOT / "port" / "linux" / "src" / "delta_peer_game.c").read_text()
     matches = peer[peer.index("int delta_peer_advertised_wire_matches("):]

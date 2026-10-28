@@ -38,8 +38,10 @@ SCREENS = {
         "spacing": 24,
         # (rows in the place of the row before them: Window Size in
         # Resolution's, port/linux/game/menu_functions.c showing the one the
-        # display mode chosen uses; Android's anti-aliasing in the desktop's)
-        "same_place": ["display.window_size", "display.interpolation", "anti_aliasing_android"],
+        # display mode chosen uses; Android's resolution and anti-aliasing in
+        # the desktop's)
+        "same_place": ["display.window_size", "resolution_android", "display.interpolation",
+                       "anti_aliasing_android"],
         # (rows written but placed on no page: Smooth Motion, which Frame
         # Rate sets on every platform, kept so the rows after it keep their
         # strings)
@@ -57,6 +59,12 @@ SCREENS = {
             # in place of this one)
             ("WINDOW SIZE:", "display.window_size", [("1280 x 960", "1280x960")],
              "The size of the window.", "desktop"),
+            # (the lines Android draws at, no more than the display has:
+            # port/linux/src/d3d8_gl.c)
+            ("RESOLUTION:", "display.resolution_limit",
+             [("480 (XBOX)", "480"), ("720", "720"), ("900", "900"), ("1080", "1080"), ("NATIVE", "native")],
+             "Higher is sharper, but uses more battery.",
+             "android", "resolution_android"),
             ("RESOLUTION SCALING:", "display.resolution_scaling", [("NATIVE", "native"), ("ORIGINAL", "original")],
              "Native draws at full resolution. Original draws at\n640x480 and scales it up.", "desktop"),
             ("V-SYNC:", "display.vsync", ON_OFF,

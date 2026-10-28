@@ -352,3 +352,18 @@ int delta_compat_decide(const unsigned char *reserved, int size, int major, cons
 	}
 	return 0;
 }
+
+int delta_compat_opence_server(const unsigned char *reserved, int size)
+{
+	if (size <= DELTA_ADVERTISED_FLAGS_OFFSET || announced(reserved) < DELTA_ADVERTISED_FLAG_TAKEN_VERSION ||
+		!(reserved[DELTA_ADVERTISED_FLAGS_OFFSET] & DELTA_ADVERTISED_FLAG))
+	{
+		return 0;
+	}
+	return !delta_compat_speaks_delta(reserved, size);
+}
+
+int delta_compat_opence_server_listing(int flags)
+{
+	return (flags & DELTA_COMPAT_LISTING_DEDICATED_OPENCE) && !(flags & DELTA_COMPAT_LISTING_DEDICATED);
+}

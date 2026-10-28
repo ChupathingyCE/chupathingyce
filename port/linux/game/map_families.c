@@ -11,11 +11,15 @@ play it); the files are looked for only on the builds that play such maps
 #include "cseries.h"
 #include "cseries/cseries_windows.h"
 #include "halo_map_families.h"
+#include "halo_join_reasons.h"
 #ifdef HALO_MAP_LIST
 #include "halo_map_packs.h"
 #endif
 #include "../src/map_archive.h"
 #include "../src/map_file_hash.h"
+#ifdef HALO_COMPRESSED_MAPS
+#include "../src/map_compressed.h"
+#endif
 #include "map_stock_pairs.h"
 
 #include <stdio.h>
@@ -386,6 +390,18 @@ short map_family_from_wire_name(
 	return map_family_parse(wire, NULL, 0);
 }
 
+/* Halo: The Master Chief Collection's Halo CE maps are cache files of
+version 13, the header of Custom Edition's with a 16-bit flags field at 0x68.
+Whether the first dwords of a file (at least two) are such a header; the
+game plays none of them yet, and says so (MAP_REASON_MCC_UNSUPPORTED) */
+#define MCC_CACHE_VERSION 13UL
+
+boolean map_family_header_is_mcc(
+	unsigned long const *header)
+{
+	return header[0] == (unsigned long)'head' && header[1] == MCC_CACHE_VERSION;
+}
+
 #ifdef HALO_CUSTOM_EDITION
 
 /* ---------- constants */
@@ -401,6 +417,9 @@ enum
 	HALO_PC_CACHE_VERSION = 7,
 	XBOX_CACHE_VERSION = 5,
 };
+
+/* what chimera-compress adds to a compressed map's version (map_compressed.h) */
+#define COMPRESSED_CACHE_VERSION_MARK 0x861A0000UL
 
 /* each family's places, in the order they are looked in: a folder (under
 the maps folder, or the data root's) and the suffix its files' names have.
@@ -503,7 +522,9 @@ static void place_folder(
 }
 
 /* whether a file is a cache file of a version (and a multiplayer map's, if
-asked) */
+asked); on the desktop, a map of the version compressed with Chimera's
+chimera-compress too (port/linux/src/map_compressed.h), which keeps its
+header but for its version */
 static boolean cache_file_is(
 	char const *path,
 	long version,
@@ -518,11 +539,41 @@ static boolean cache_file_is(
 		return FALSE;
 	if (ReadFile(file, header, sizeof(header), &bytes_read, NULL) && bytes_read == sizeof(header))
 	{
-		result = header[0] == CACHE_HEADER_SIGNATURE && header[1] == (unsigned long)version &&
+		result = header[0] == CACHE_HEADER_SIGNATURE &&
+			(header[1] == (unsigned long)version
+#ifdef HALO_COMPRESSED_MAPS
+				|| header[1] == (COMPRESSED_CACHE_VERSION_MARK | (unsigned long)version)
+#endif
+			) &&
 			(!multiplayer || (header[CACHE_HEADER_TYPE_OFFSET / 4] & 0xffff) == CACHE_TYPE_MULTIPLAYER);
 	}
 	CloseHandle(file);
 	return result;
+}
+
+/* whether a file is an MCC map's (map_family_header_is_mcc) */
+static boolean mcc_cache_file(
+	char const *path)
+{
+	return cache_file_is(path, (long)MCC_CACHE_VERSION, FALSE);
+}
+
+/* whether a file in a place is a cache file of a version (cache_file_is); a
+compressed map's is played from its expanded copy, which path then names
+(map_compressed_file_resolve: in the save root's cache, made once) */
+static boolean place_cache_file(
+	char *path,
+	long size,
+	long version)
+{
+	if (!cache_file_is(path, version, FALSE))
+		return FALSE;
+#ifdef HALO_COMPRESSED_MAPS
+	return map_compressed_file_resolve(path, (int)size) ? TRUE : FALSE;
+#else
+	(void)size;
+	return TRUE;
+#endif
 }
 
 /* a hashed name's map (<base>_<8 hex digits>, the naming other builds use
@@ -551,7 +602,7 @@ static boolean hashed_name_find(
 
 		place_folder(&places[index], folder, sizeof(folder));
 		snprintf(path, (size_t)size, "%s%s%s.map", folder, base, places[index].suffix);
-		if (!cache_file_is(path, CUSTOM_EDITION_CACHE_VERSION, FALSE) || !map_file_hash_prefix(path, &found) ||
+		if (!place_cache_file(path, size, CUSTOM_EDITION_CACHE_VERSION) || !map_file_hash_prefix(path, &found) ||
 			found != prefix)
 		{
 			continue;
@@ -622,7 +673,31 @@ static boolean place_file(
 
 		place_folder(&places[index], folder, sizeof(folder));
 		snprintf(path, (size_t)size, "%s%s%s.map", folder, file, places[index].suffix);
-		if (cache_file_is(path, family_cache_version(family), FALSE))
+		if (place_cache_file(path, size, family_cache_version(family)))
+			return TRUE;
+	}
+	return FALSE;
+}
+
+boolean map_family_find_mcc(
+	short family,
+	char const *file,
+	char *path,
+	long size)
+{
+	long count, index;
+	struct map_family_place const *places;
+
+	if (family == _map_family_xbox || family == _map_family_pack)
+		return FALSE;
+	places = family_places(family, &count);
+	for (index = 0; index < count; index++)
+	{
+		char folder[256];
+
+		place_folder(&places[index], folder, sizeof(folder));
+		snprintf(path, (size_t)size, "%s%s%s.map", folder, file, places[index].suffix);
+		if (mcc_cache_file(path))
 			return TRUE;
 	}
 	return FALSE;
@@ -676,7 +751,7 @@ static boolean stock_find(
 
 			place_folder(&places[index], folder, sizeof(folder));
 			snprintf(path, (size_t)size, "%s%s%s.map", folder, file, places[index].suffix);
-			if (!cache_file_is(path, family_cache_version(edition), FALSE))
+			if (!place_cache_file(path, size, family_cache_version(edition)))
 				continue;
 			if (version_matches(path, version))
 				return TRUE;
@@ -714,7 +789,7 @@ static boolean find_version(
 
 		place_folder(&places[index], folder, sizeof(folder));
 		snprintf(path, (size_t)size, "%s%s%s.map", folder, file, places[index].suffix);
-		if (cache_file_is(path, family_cache_version(family), FALSE) && version_matches(path, version))
+		if (place_cache_file(path, size, family_cache_version(family)) && version_matches(path, version))
 			return TRUE;
 	}
 	if (family == _map_family_custom_edition)
@@ -729,7 +804,7 @@ static boolean find_version(
 			place_folder(&places[index], folder, sizeof(folder));
 			snprintf(path, (size_t)size, "%s%s_%08lx%s.map", folder, file, version & 0xffffffffUL,
 				places[index].suffix);
-			if (cache_file_is(path, CUSTOM_EDITION_CACHE_VERSION, FALSE) && version_matches(path, version))
+			if (place_cache_file(path, size, CUSTOM_EDITION_CACHE_VERSION) && version_matches(path, version))
 				return TRUE;
 		}
 		/* (a hashed name an older host gave the map: its base's file) */
@@ -799,7 +874,7 @@ long map_family_stock_need(
 {
 	short edition;
 	boolean held[NUMBER_OF_MAP_FAMILIES] = { FALSE };
-	char display[MAP_FAMILY_FILE_LENGTH];
+	char display[MAP_FAMILY_FILE_LENGTH], shown[MAP_FAMILY_FILE_LENGTH + 48];
 	long needed = _map_family_xbox;
 
 	map_archive_display_name(file, display, (int)sizeof(display));
@@ -818,19 +893,22 @@ long map_family_stock_need(
 	{
 		snprintf(first, (size_t)first_size, "%s.map: this game needs the Custom Edition file.", display);
 		snprintf(second, (size_t)second_size, "Copy it from the Custom Edition installer\ninto maps_ce, then join again.");
-		snprintf(blocker, (size_t)blocker_size, "Needs the Custom Edition %s.map in maps_ce to join", display);
+		snprintf(shown, sizeof(shown), "maps_ce/%s.map (the Custom Edition file)", display);
+		snprintf(blocker, (size_t)blocker_size, JOIN_REASON_MAP_MISSING, shown);
 	}
 	else if (needed == _map_family_halo_pc)
 	{
 		snprintf(first, (size_t)first_size, "%s.map: this game needs the Halo PC file.", display);
 		snprintf(second, (size_t)second_size, "Copy it from your Halo PC install\ninto maps_pc, then join again.");
-		snprintf(blocker, (size_t)blocker_size, "Needs the Halo PC %s.map in maps_pc to join", display);
+		snprintf(shown, sizeof(shown), "maps_pc/%s.map (the Halo PC file)", display);
+		snprintf(blocker, (size_t)blocker_size, JOIN_REASON_MAP_MISSING, shown);
 	}
 	else
 	{
 		snprintf(first, (size_t)first_size, "%s.map comes with Halo PC.", display);
 		snprintf(second, (size_t)second_size, "Copy it from Halo PC (maps_pc) or\nCustom Edition (maps_ce), then join again.");
-		snprintf(blocker, (size_t)blocker_size, "%s.map comes with Halo PC: copy it into maps_pc or maps_ce to join", display);
+		snprintf(shown, sizeof(shown), "%s.map", display);
+		snprintf(blocker, (size_t)blocker_size, JOIN_REASON_MAP_FROM_HALO_PC, shown);
 	}
 	return needed;
 }
@@ -883,8 +961,11 @@ void map_family_set_game_version(
 	map_family_game.version = version;
 }
 
-void map_family_list(
+/* every multiplayer map of a family in its folders of a cache version (the
+family's own, or MCC's) */
+static void list_files(
 	short family,
+	long version,
 	void (*found)(char const *file, void *context),
 	void *context)
 {
@@ -931,7 +1012,7 @@ void map_family_list(
 			if (other < listed_count || listed_count >= MAXIMUM_LISTED_FILES)
 				continue;
 			snprintf(path, sizeof(path), "%s%s", folder, data.cFileName);
-			if (!cache_file_is(path, family_cache_version(family), TRUE))
+			if (!cache_file_is(path, version, TRUE))
 				continue;
 			snprintf(listed[listed_count++], MAP_FAMILY_FILE_LENGTH, "%s", file);
 			found(file, context);
@@ -939,6 +1020,23 @@ void map_family_list(
 		while (FindNextFileA(find, &data));
 		CloseHandle(find);
 	}
+}
+
+void map_family_list(
+	short family,
+	void (*found)(char const *file, void *context),
+	void *context)
+{
+	list_files(family, family_cache_version(family), found, context);
+}
+
+void map_family_list_mcc(
+	short family,
+	void (*found)(char const *file, void *context),
+	void *context)
+{
+	if (family == _map_family_custom_edition || family == _map_family_halo_pc)
+		list_files(family, (long)MCC_CACHE_VERSION, found, context);
 }
 
 #endif

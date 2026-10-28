@@ -302,6 +302,28 @@ static void rasterizer_screen_effect_set_texture_transforms(
 
 		convolution_scale = TEST_FLAG(convolution_bitmap->flags, _bitmap_linear_bit) ?
 			default_scale : vector2d_reciprocal(&convolution_size);
+#ifdef HALO_CUSTOM_EDITION
+		/* port: a Custom Edition map's zoom mask at its bitmap group's high
+		resolution scale, smaller on the screen than its size
+		(hud_screen_effect_mask_scale, hud_draw.c) */
+		if (convolution_bitmap == parameters->convolution_mask)
+		{
+			real mask_scale = hud_screen_effect_mask_scale(parameters->convolution_mask);
+
+			if (mask_scale != 1.0f)
+			{
+				convolution_size.i *= mask_scale;
+				convolution_size.j *= mask_scale;
+				if (TEST_FLAG(convolution_bitmap->flags, _bitmap_linear_bit))
+				{
+					convolution_scale.i = 1.0f / mask_scale;
+					convolution_scale.j = 1.0f / mask_scale;
+				}
+				else
+					convolution_scale = vector2d_reciprocal(&convolution_size);
+			}
+		}
+#endif
 
 		scanline_scale = TEST_FLAG(scanline_bitmap->flags, _bitmap_linear_bit) ?
 			default_scale : vector2d_reciprocal(&scanline_size);

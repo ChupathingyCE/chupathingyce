@@ -132,6 +132,17 @@ ZLIB_SOURCES = ("adler32.c", "crc32.c", "inffast.c", "inflate.c", "inftrees.c", 
 # (its names prefixed, and the one Z_PREFIX leaves, its error messages, which
 # the game's zlib names the same)
 ZLIB_DEFINES = ("-DZ_PREFIX", "-Dz_errmsg=z_port_errmsg")
+# Zstandard's decoder (port/third_party/zstd): what expands the Halo PC maps
+# compressed with Chimera's chimera-compress (port/linux/src/map_compressed.c)
+ZSTD_DIR = Path("port/third_party/zstd")
+ZSTD_SOURCES = (
+    "lib/common/debug.c", "lib/common/entropy_common.c", "lib/common/error_private.c",
+    "lib/common/fse_decompress.c", "lib/common/xxhash.c", "lib/common/zstd_common.c",
+    "lib/decompress/huf_decompress.c", "lib/decompress/zstd_ddict.c", "lib/decompress/zstd_decompress.c",
+    "lib/decompress/zstd_decompress_block.c",
+)
+# (no assembly, no legacy formats, no multithreading, no tracing)
+ZSTD_DEFINES = ("-DZSTD_DISABLE_ASM=1", "-DZSTD_LEGACY_SUPPORT=0", "-DZSTD_TRACE=0", "-DDEBUGLEVEL=0")
 # the self-updater's TLS (port/linux/src/posix_update.c)
 MBEDTLS_DIR = Path("port/third_party/mbedtls")
 STB_DIR = Path("port/third_party/stb")
@@ -291,6 +302,11 @@ def musl_math_cflags(abi: str) -> str:
 # port/linux/game/ui_map_list.c, map_packs.c; HALO_MAP_LIST), which the
 # original Xbox's build has too (port/xbox/build.py).
 CUSTOM_EDITION_DEFINES = ["-DHALO_CUSTOM_EDITION", "-DHALO_MAP_LIST"]
+# ... and on the desktop builds alone (Linux, macOS, Windows and the
+# dedicated server), those maps compressed with Chimera's chimera-compress
+# (port/linux/src/map_compressed.c, with ZSTD_SOURCES). The consoles that
+# play Halo PC maps (the Switch) leave them out, and need no zstd
+COMPRESSED_MAP_DEFINES = ["-DHALO_COMPRESSED_MAPS"]
 
 
 def game_browser_defines(sln: Any) -> List[str]:
@@ -302,6 +318,10 @@ def game_browser_defines(sln: Any) -> List[str]:
     # on the desktop; never a build to ship
     if getattr(sln, "console_limits", False):
         defines.append("-DHALO_CONSOLE_LIMITS")
+    # configure.py --packaged: a package manager's build, which never
+    # updates itself (port/linux/src/packaged_install.h)
+    if getattr(sln, "packaged", False):
+        defines.append("-DHALO_PACKAGED")
     return defines
 
 
@@ -569,7 +589,7 @@ def linux32_objects(n: Writer, units: Linux32Units, obj_dir: Path, extra_cflags:
     # does not, so that an overrun nobody has met cannot end a game)
     abi = " ".join(_retarget(LINUX_ABI_FLAGS, units.target_flags) + target
                    + (["-DHALO_RELEASE"] if getattr(sln, "port_release", False) else ["-fstack-protector-strong"])
-                   + browser_defines + CUSTOM_EDITION_DEFINES + units.extra_flags
+                   + browser_defines + CUSTOM_EDITION_DEFINES + COMPRESSED_MAP_DEFINES + units.extra_flags
                    + units.ffmpeg[0])
     port_include = PORT_DIR / "include"
     sdk_flags = f"-idirafter {XDK_INCLUDE}"
@@ -632,6 +652,7 @@ def linux32_objects(n: Writer, units: Linux32Units, obj_dir: Path, extra_cflags:
         f"-I{QRCODEGEN_DIR}",
         f"-I{MONOCYPHER_DIR}",
         f"-I{ZLIB_DIR}",
+        f"-I{ZSTD_DIR / 'lib'}",
         "-Isource -Isource/cseries",
         sdk_flags,
         *units.include_flags,
@@ -694,6 +715,9 @@ def linux32_objects(n: Writer, units: Linux32Units, obj_dir: Path, extra_cflags:
     # the port's zlib
     for name in ZLIB_SOURCES:
         add_object(ZLIB_DIR / name, " ".join([abi, "-std=gnu11", *ZLIB_DEFINES, "-w"]))
+    # Zstandard's decoder, for compressed Halo PC maps (map_compressed.c)
+    for name in ZSTD_SOURCES:
+        add_object(ZSTD_DIR / name, " ".join([abi, "-std=gnu11", *ZSTD_DEFINES, "-w"]))
     # the game's sin, pow and the rest, the same on every port
     # (port/include/halo_math.h)
     for source in musl_math_sources():
@@ -817,7 +841,9 @@ def generate_linux_build(n: Writer, sln: Any) -> None:
                          # configure.py --window-rebase: the memory window wherever
                          # HALO_WINDOW_BASE puts it (source/cseries/xbox_address.h), to
                          # test on the desktop what the Switch needs; never a build to ship
-                         extra_flags=["-DHALO_WINDOW_REBASE"] if getattr(sln, "window_rebase", False) else [])
+                         extra_flags=(["-DHALO_WINDOW_REBASE"] if getattr(sln, "window_rebase", False) else [])
+                         # configure.py --packaged (game_browser_defines)
+                         + (["-DHALO_PACKAGED"] if getattr(sln, "packaged", False) else []))
 
     def emit(obj_dir: Path, output: Path, extra_cflags: List[str], extra_ldflags: List[str],
              implicit_inputs: List[Path], validator: Optional[Path] = None) -> None:

@@ -32,6 +32,15 @@ not just the playlist's.
 timberland@ce    team_slayer
 ```
 
+A map's name is its file's name without `.map`, as Halo PC takes it:
+commas, brackets and spaces too (`bigassv2,104@ce`, `[h3]_sandtrap@ce`).
+A name with a space (or a `#`) goes in double quotes:
+
+```
+"skedar v2@ce"   slayer
+"h3 foundry@ce"  ctf
+```
+
 **HaloMD maps**, in `maps_md/`, go in as `<name>@md`:
 
 ```
@@ -79,6 +88,14 @@ The older folders still work: `maps/ce/` (ChupathingyCE 0.7.0b and before),
 named `<name>@ce.map` (`@md`, `@pc`) in `maps/` plays too. The server never
 moves folders itself unless `HALO_MOVE_OLD_MAP_FOLDERS=yes` (see
 [Settings](settings.md)).
+
+## The playlist's map set
+
+If your playlist has a verified map set on Chupathingy's site, set
+`HALO_PLAYLIST_ID` to its id (for example `HALO_PLAYLIST_ID=c_ce_maps`). The
+server sends it with its game list entry. Players who join then see which of
+the playlist's maps they don't have, and can download them before the game
+starts. See [docs/playlist-maps.md](../../docs/playlist-maps.md).
 
 ## Game types
 

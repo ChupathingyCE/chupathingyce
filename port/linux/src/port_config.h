@@ -40,6 +40,10 @@ guest has no SDL_LoadFile) */
 char *config_file_read(const char *path, size_t *size);
 /* a setting's default, as text; 0 if there is no such setting */
 int config_default(const char *name, char *text, size_t size);
+/* in a packaged install (platform_packaged), where update.auto is off: the
+value config.toml or HALO_UPDATE_AUTO gave it, whether the game still looks
+for a new version to say so (updater.c) */
+int config_packaged_update_check(void);
 /* The settings an existing config.toml has that a new version's defaults
 would change (display.anti_aliasing, display.shadow_resolution,
 display.menus, audio.buffer_frames on Android), until the player is asked:

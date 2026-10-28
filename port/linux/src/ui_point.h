@@ -37,4 +37,20 @@ int ui_point_from_window(struct ui_point_view const *view, float window_x, float
 no size yet */
 int ui_point_to_window(struct ui_point_view const *view, short x, short y, float *window_x, float *window_y);
 
+/* a prompt of the menus drawn as text, not widgets, so it has no tap
+targets of its own (the carnage report's "B =quit    A =pick game"): its
+line's top and bottom, its left and right ends, and where its second part
+begins (right when it has one part) */
+struct ui_point_prompt
+{
+	short top, bottom;
+	short left, right;
+	short split;
+};
+
+/* the part of a prompt a menu point is on: 0 for the first, 1 for the
+second, -1 for neither; margin widens the prompt on every side (a finger
+is less exact than a mouse) */
+int ui_point_prompt_part(struct ui_point_prompt const *prompt, short margin, short x, short y);
+
 #endif

@@ -208,6 +208,13 @@ The platform registry (`enum delta_platform`, one byte, never reused):
 Series in developer mode). 10 to 12 are ports others build on ours; their
 policy rows are placeholders until those ports play, as the consoles' are.
 
+The original Xbox, Xbox 360 and Wii U builds are Delta Peer clients
+(`HALO_CONSOLE_DELTA`). Each sends its own platform (6, 7 or 8) and a
+console's capabilities: the platform key, text chat and the server's lines,
+and a profile only if its player set one up. They never host on Delta, and
+take no Halo PC maps, team changes or moderation. Their build is "Warthog"
+and the version.
+
 ### Platform policy
 
 Console builds play with PC builds, with caveats Delta controls. The
@@ -400,7 +407,9 @@ plays, with `ce_maps` agreed by both:
 A dedicated server's moderators act from the game over Delta Peer (the
 `moderation` capability). A host offers it only when it has moderation (the
 dedicated server registers its own, `delta_moderation.h`); a game a player
-hosts offers none. OpenCE players can be warned, kicked and banned like
+hosts offers none over the wire. Its host has the same Moderation screen
+for its own game (kick and ban, no sign-in), done on the host's machine
+with the console's kick and ban. OpenCE players can be warned, kicked and banned like
 anyone (the server acts through the game's own kick and ban), but only a
 Delta client can be an in-game moderator.
 
@@ -908,7 +917,7 @@ A chupa-32a console can't join a Slayer game on a server announcing 39 by
 number (it joins to 33), which is why servers announce 39 only by their own
 table. **The transition has no end date.** Hosts write the old layout where
 it fits for as long as released builds need it, and new builds read it.
-Stopping either needs the owner's decision ("Never drop an old protocol").
+Stopping either is a deliberate decision ("Never drop an old protocol").
 
 **The cost of one slot** (the old layout, for the record). A released client
 that checked the slot exactly saw the host's oldest compatible wire,

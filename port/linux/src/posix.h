@@ -109,6 +109,8 @@ int posix_socket_recv(int socket, void *buffer, int length, int flags);
 int posix_socket_recvfrom(int socket, void *buffer, int length, int flags,
 	void *address, int *address_length);
 int posix_socket_shutdown(int socket, int how);
+/* the bytes sent and received on every socket since the process started */
+void posix_socket_traffic(unsigned long long *sent, unsigned long long *received);
 int posix_socket_set_nonblocking(int socket, int nonblocking);
 int posix_socket_bytes_available(int socket, posix_ulong *count);
 /* a stream socket sends each write at once (no Nagle delay): the game's

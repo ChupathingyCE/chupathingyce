@@ -165,12 +165,18 @@ int platform_old_map_folders_move(void);
 /* the macOS application's folder for its data and settings, when the game
 runs as an application (ChupathingyCE.app): ~/Library/Application
 Support/ChupathingyCE, made if need be, into path; on Linux, when the game
-runs as an AppImage, the save root's usual place (HALO_SAVE_ROOT, else
-$XDG_DATA_HOME/chupathingyce or ~/.local/share/chupathingyce); 0 otherwise
+runs as an AppImage or a packaged install (or from a folder it cannot write
+that has no maps/ or config.toml of its own), the save root's usual place
+(HALO_SAVE_ROOT, else $XDG_DATA_HOME/chupathingyce or
+~/.local/share/chupathingyce); 0 otherwise
 (and on other systems). An application's own files are not written: it is
 signed, and may be where its player cannot write, and an AppImage is
 mounted read-only (port_config.c) */
 int platform_app_folder(char *path, unsigned long size);
+/* whether the game is a packaged install, which a package manager updates:
+built as one, HALO_PACKAGED in the environment, or a file named "packaged"
+beside the executable (packaged_install.h); 0 on Android and the consoles */
+int platform_packaged(void);
 const char *platform_save_root(void);
 /* one of the game's own folders (port_folders.h: data/ and logs/ in the
 data root, cache/ and private/ in the save root, or paths.logs and

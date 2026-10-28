@@ -589,6 +589,7 @@ the setting for one start of the game. It has priority over the file.
 | `network.join_from_clipboard` | `"never"` | `HALO_NET_JOIN_FROM_CLIPBOARD` | An invite link on the clipboard when the game comes to the front: `"ask"` asks over the menus whether to join its game (with its name and map when the game list knows them; No is kept for that invite), `"always"` joins it, `"never"` leaves it. `true` and `false`, from older versions, mean `"always"` and `"never"`. Network Settings in the Chupathingy and Gearbox menus. |
 | `network.copy_to_clipboard` | `false` | `HALO_NET_COPY_TO_CLIPBOARD` | `true`: when this copy starts to host a game, its invite link goes on the clipboard. `false`: the game leaves the clipboard alone; the link is in the log, and INVITE LINK in the Gearbox menus' Server Settings copies it. Network Settings in the Chupathingy and Gearbox menus. |
 | `network.map_downloads` | `"ask"` | `HALO_NET_MAP_DOWNLOADS` | A Custom Edition map a game you join needs and you don't have, from the community map repositories (maps.halonet.net and its mirrors, as Chimera downloads from them). `"ask"`: the Online Games screen offers to download it (Yes, No, Don't ask again, which writes `"always"` or `"never"` here). `"always"`: downloaded without asking. `"never"`: the game only says which map is missing. Network Settings in the PC menus. The map is checked before it goes in `maps_ce`: refer to "Halo PC maps" in the [README](../../README.md). Not on the dedicated server. |
+| `network.playlist_downloads` | `"ask"` | `HALO_NET_PLAYLIST_DOWNLOADS` | When you join a game of a verified playlist, its map set (refer to [docs/playlist-maps.md](../../docs/playlist-maps.md)): `"ask"` says which of its maps you don't have and offers to download them (Yes, No, Don't ask again, which writes `"always"` or `"never"` here); `"always"` downloads them without asking; `"never"` doesn't check. Each file is checked against the signed list before it goes in its folder. Separate from `network.map_downloads`. Desktop and Android. |
 | `network.tunnel_port` | `0` | `HALO_NET_TUNNEL_PORT` | The UDP port for internet play. `0`: the game selects a port. Refer to "Internet play". |
 | `network.allow_upnp` | `true` | `HALO_NET_ALLOW_UPNP` | `true`: internet play can ask the router to forward its port (UPnP). `false`: the game does not ask. Refer to "Internet play". |
 | `network.protocol` | `"auto"` | `HALO_NET_PROTOCOL` | Delta Peer, the messages between ChupathingyCE machines beside OpenCE's protocol (UDP port 5160; `docs/delta.md`). `"auto"`: Delta with the machines that speak it, plain OpenCE with the others. `"opence"`: Delta off. `"delta"`: as `"auto"` for now. |
@@ -633,8 +634,9 @@ the setting for one start of the game. It has priority over the file.
 | `debug.discord_log` | `false` | `HALO_DISCORD_LOG` | Log each activity sent to Discord, without the invite. |
 | `debug.menu_open` | `""` | `HALO_MENU_OPEN` | Start on this screen of the menus (`main_menu/settings_select/...`, as `port/assets/menus` names it), a player profile being edited, to look at it. |
 | `debug.gpu_skip_vertex_shaders`, `debug.gpu_debug_expression`, `debug.gpu_debug_flat`, `debug.gpu_debug_texture0` | off | `HALO_GPU_SKIP_VS`, `HALO_GPU_DEBUG_EXPR`, `HALO_GPU_DEBUG_FLAT`, `HALO_GPU_DEBUG_T0` | Tools to find problems in the graphics: skip the draws of a vertex shader, or replace the output of all pixel shaders with a GLSL expression (for example `t0.rgb`). |
-| `debug.network_test`, `debug.network_test_start`, `debug.network_test_kill`, `debug.network_test_score`, `debug.network_test_shoot`, `debug.network_test_vehicle`, `debug.network_test_pickup`, `debug.network_test_pickup_weapon`, `debug.network_test_fall`, `debug.network_test_bomb_in_goal`, `debug.network_test_bomb_throw`, `debug.network_test_bomb_keep`, `debug.network_test_team_change`, `debug.network_test_pause`, `debug.network_test_local_players`, `debug.test_input` | off | `HALO_NETWORK_TEST`, `HALO_NETWORK_TEST_START`, `HALO_NETWORK_TEST_KILL`, `HALO_NETWORK_TEST_SCORE`, `HALO_NETWORK_TEST_SHOOT`, `HALO_NETWORK_TEST_VEHICLE`, `HALO_NETWORK_TEST_PICKUP`, `HALO_NETWORK_TEST_PICKUP_WEAPON`, `HALO_NETWORK_TEST_FALL`, `HALO_NETWORK_TEST_BOMB_IN_GOAL`, `HALO_NETWORK_TEST_BOMB_THROW`, `HALO_NETWORK_TEST_BOMB_KEEP`, `HALO_NETWORK_TEST_TEAM_CHANGE`, `HALO_NETWORK_TEST_PAUSE`, `HALO_NETWORK_TEST_LOCAL_PLAYERS`, `HALO_TEST_INPUT` | Automatic tests of system link (`game/network_test.c`). Refer to `NETCODE.md`. |
+| `debug.network_test`, `debug.network_test_start`, `debug.network_test_kill`, `debug.network_test_score`, `debug.network_test_shoot`, `debug.network_test_vehicle`, `debug.network_test_pickup`, `debug.network_test_pickup_weapon`, `debug.network_test_fall`, `debug.network_test_bomb_in_goal`, `debug.network_test_bomb_throw`, `debug.network_test_bomb_keep`, `debug.network_test_team_change`, `debug.network_test_pause`, `debug.network_test_moderate`, `debug.network_test_moderate_time`, `debug.network_test_local_players`, `debug.network_test_password`, `debug.network_test_invite_file`, `debug.test_input` | off | `HALO_NETWORK_TEST`, `HALO_NETWORK_TEST_START`, `HALO_NETWORK_TEST_KILL`, `HALO_NETWORK_TEST_SCORE`, `HALO_NETWORK_TEST_SHOOT`, `HALO_NETWORK_TEST_VEHICLE`, `HALO_NETWORK_TEST_PICKUP`, `HALO_NETWORK_TEST_PICKUP_WEAPON`, `HALO_NETWORK_TEST_FALL`, `HALO_NETWORK_TEST_BOMB_IN_GOAL`, `HALO_NETWORK_TEST_BOMB_THROW`, `HALO_NETWORK_TEST_BOMB_KEEP`, `HALO_NETWORK_TEST_TEAM_CHANGE`, `HALO_NETWORK_TEST_PAUSE`, `HALO_NETWORK_TEST_MODERATE`, `HALO_NETWORK_TEST_MODERATE_TIME`, `HALO_NETWORK_TEST_LOCAL_PLAYERS`, `HALO_NETWORK_TEST_PASSWORD`, `HALO_NETWORK_TEST_INVITE_FILE`, `HALO_TEST_INPUT` | Automatic tests of system link (`game/network_test.c`). Refer to `NETCODE.md`. |
 | `debug.test_gamepads` | 0 | `HALO_TEST_GAMEPADS` | Virtual gamepads (SDL's, up to 4) for tests of split screen: `debug.test_input`'s `menu:` script presses their buttons and sticks as `pad<n>:<button>` (`pad2:a`, `pad1:rs_left`) and takes them out and back with `pad<n>:unplug` and `pad<n>:plug`. |
+| `debug.determinism`, `debug.determinism_hashes`, `debug.determinism_ticks`, `debug.determinism_seed` | off | `HALO_DETERMINISM`, `HALO_DETERMINISM_HASHES`, `HALO_DETERMINISM_TICKS`, `HALO_DETERMINISM_SEED` | The input-replay check of the simulation (`game/determinism_check.c`, `tools/test_determinism.py`): `record:<file>` writes every tick's player actions, `replay:<file>` plays them back, with a line of hashes of the game's state after each tick. |
 | `debug.chat_test` | `""` | `HALO_CHAT_TEST` | A script of text chat for the tests (`game/chat.c`): `"<seconds>:<what>[:<text>]"` steps separated by `;`, from when this copy is in a game: `all` and `team` say a line, `server` says one as the host's server, `mute` and `unmute` mute a machine as a moderator does (the host), `localmute` mutes one for this copy, `log` and `close` open and close the log, `type` shows a line being typed. |
 | `debug.touch_targets` | `false` | `HALO_TOUCH_TARGETS` | Outlines the tap targets of the menus (item green, value blue, list slot yellow, legend button red, the band beside the slots of a list orange, keys of the on-screen keyboard white), marks where the last finger went down and the last tap landed for 3 seconds, and logs each tap with the target that it hit (for a value, also where it splits into previous and next): to judge the accuracy of touch. |
 | `debug.solo_game` | `false` | `HALO_SOLO_GAME` | The older name of `game.start_with_one_player`: `true` turns it on too. |
@@ -665,6 +667,18 @@ Under gamescope (the Game Mode of the Steam Deck), the game does not ask,
 because a system dialog stops the game there. The game writes the new
 version in the log. To update, start the game from the desktop, or set
 `update_answer = "yes"` in the `[debug]` section of `config.toml`.
+
+A packaged install (a package manager's, such as the AUR's
+`chupathingy-bin`) never updates itself. A package turns it on with a file
+named `packaged` next to the executable, `HALO_PACKAGED=1` in the
+environment, or a build made with `configure.py --packaged`. Then
+`update.auto` is off and stays off, and a newer release only puts "update
+Chupathingy with your package manager" on the main menu's version line and in
+the log (`auto = false` in `config.toml`, or `HALO_UPDATE_AUTO=false`, stops
+that look too). On Linux, the maps, `config.toml` and the logs go in the save
+root's usual place, `~/.local/share/chupathingyce`, as an AppImage's do. So do
+those of a game in any folder it cannot write, unless that folder has its own
+`maps/` or `config.toml`.
 
 The game downloads through HTTPS. It examines the certificate of the server
 against the certificate authorities of the system: on Linux, the bundle of
@@ -846,9 +860,11 @@ the last choice of its LISTING (`network.coop_public`). A LAN game is never list
 A PUBLIC game can also have a PASSWORD (a row of Server Setup, below
 LISTING). The Server Browser shows a lock at the left of a game with a
 password. A player who selects that game must type the password, and JOIN
-GAME joins only with the correct password. The invite link of the game joins
-it without the password. The host keeps the password only while the game
-runs.
+GAME joins only with the correct password. The invite link of a game with a
+password also asks for the password before it joins, wherever the link
+comes from (a copied link, a link opened in the browser, Discord). A wrong
+password is refused, and the game asks again. The host keeps the password
+only while the game runs.
 
 In the Server Browser, select a game to join it. The game joins the invite
 of the game, as for a link. When it reaches the host, it opens the lobby.
@@ -884,6 +900,13 @@ How it operates (`src/p2p_lobby.c`):
   the host sets or changes the password, it makes a new invite. A player who
   has the listing can try passwords on their own machine without the host,
   so use a long password.
+- The invite link of a game with a password (`halo://join/p...`) holds a
+  random door, not the token. The token is a key from the password and the
+  door (Argon2id, salted with the key of the host, then HMAC-SHA256), and
+  the host listens only with the token. The link also holds a short check
+  of the password, so a wrong password is refused at once. Older versions
+  read the link as no invite. As with the listing, a player who has the
+  link can try passwords on their own machine, so use a long password.
 
 A public game does not publish the address of the host. But any machine
 with the invite can ask the host to connect, and the host then sends its
@@ -984,7 +1007,12 @@ Only machines with the invite can find the game:
   console (Tab completes the name). Remove a line from `bans.txt` to unban.
   Refer to `NETCODE.md`. `kick <player name>` drops the player the same
   way, but keeps nothing: no line in `bans.txt`, and the player can join
-  again at once. In co-op, `bringto` brings every player to the host.
+  again at once. The host can also do both from the pause menu: MODERATION
+  (or Y, or M) lists the other players. Pick a player and Kick or a Ban
+  (1 hour to forever), then confirm with A. Left and right pick a reason,
+  which is optional. A timed ban ends by itself. Only the host has this,
+  and the host's own machine is never on the list. In co-op, `bringto`
+  brings every player to the host.
   So that every player can be named, the host trims the spaces around a
   name and removes characters that draw as nothing. A
   letter with a mark is typed as the plain letter (`ban jose` for "José").

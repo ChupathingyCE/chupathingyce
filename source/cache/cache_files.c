@@ -2080,6 +2080,35 @@ boolean tag_index_is_group(
 			tag_instance->parent_group_tags[1] == group_tag);
 }
 
+/* port: the loaded tag whose data holds an address in the tag cache (a
+tag block's, for its log: tag_groups.c), the one whose data begins nearest
+below it, and the address's offset in it; NONE if none does */
+long tag_index_holding_address(
+	void const *address,
+	unsigned long *offset)
+{
+	byte const *best_base = NULL;
+	long best = NONE;
+	long absolute_index;
+
+	if (!address || !cache_file_globals.tags_loaded || !global_tag_instances)
+		return NONE;
+	for (absolute_index = 0; absolute_index < cache_file_globals.tag_header->tag_count; absolute_index++)
+	{
+		struct cache_file_tag_instance const *tag_instance = &global_tag_instances[absolute_index];
+		byte const *base = tag_instance->base_address ? (byte const *)xbox_pointer(tag_instance->base_address) : NULL;
+
+		if (base && base <= (byte const *)address && (!best_base || base > best_base))
+		{
+			best_base = base;
+			best = tag_instance->tag_index;
+		}
+	}
+	if (best != NONE)
+		*offset = (unsigned long)((byte const *)address - best_base);
+	return best;
+}
+
 char *tag_get_name(
 	long tag_index)
 {

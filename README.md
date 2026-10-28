@@ -78,6 +78,22 @@ We don't pay for code signing yet, so the first start needs one extra step:
   it, go to **System Settings → Privacy & Security**, and choose **Open
   Anyway** next to ChupathingyCE. You only do this once.
 
+### Package managers
+
+On Arch Linux, ugoboom keeps a community package on the AUR:
+[chupathingy-bin](https://aur.archlinux.org/packages/chupathingy-bin), built
+from our Linux (64-bit) release. It isn't ours, so report package problems to
+him.
+
+A package marks the game as a packaged install. Then the game never updates
+itself, and tells you to update Chupathingy with your package manager when a
+new version is out. On Linux, your maps, settings and logs go in
+`~/.local/share/chupathingyce` (or `$XDG_DATA_HOME/chupathingyce`) with your
+saves, since the game's own folder can't be written. Packagers can turn it on
+without rebuilding our signed executable: put a file named `packaged` next to
+the executable, or start the game with `HALO_PACKAGED=1`. A build of your own
+can use `configure.py --packaged`.
+
 ## You need your own copy of Halo
 
 Chupathingy doesn't include the game's maps, sounds or art. You need an Xbox
@@ -272,6 +288,16 @@ HaloMD and Halo PC retail games are Chupathingy's only: a player on
 OpenCE is told the map is missing. Between Chupathingy players,
 the map's identity (its name and a hash of its file) is checked, so a
 player with a different file of the same name is told so.
+
+**Compressed maps.** On Windows, Mac, Linux and the dedicated server, a map
+compressed with Chimera's `chimera-compress` plays like any other: put it in
+its folder as it is. The first time the game needs it, it unpacks a copy
+into the save folder's cache (`z/cache_compressed_<name>_....map`) and
+plays that copy from then on. A new version of the map gets a new copy, and
+the old one is deleted. Online, the map counts as the uncompressed file, so
+players with either file play together. Downloaded maps that come
+compressed are unpacked before they go in `maps_ce`. Android and the
+consoles don't read compressed maps yet.
 
 **Downloading a missing map.** When a game you join is on a Custom Edition
 map you don't have, the game offers to download it from the community map
@@ -643,10 +669,13 @@ not be part of our community.
   repositories, as Chimera uses them (maps.halonet.net, the HAC2 map
   repository, and its mirrors). Chupathingy's downloader is its own code;
   Chimera showed where the repositories are and how they answer.
+- [Chimera](https://github.com/SnowyMouse/chimera) by SnowyMouse and
+  contributors (GPL-3.0): Halo PC fixes reference and the compressed map
+  format.
 - Security reports: nickarcade, who reported the dedicated server's control
   panel permission gap fixed in #462.
 - Libraries: SDL3, stb, Mbed TLS, miniupnpc, KCP, tomlc17, musl's maths,
-  Expat, Monocypher, zlib, SMAA, and Project Nayuki's QR Code
+  Expat, Monocypher, zlib, Zstandard, SMAA, and Project Nayuki's QR Code
   generator. Their licenses are
   beside them in `port/third_party`.
 

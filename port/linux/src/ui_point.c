@@ -57,3 +57,15 @@ int ui_point_to_window(struct ui_point_view const *view, short x, short y, float
 	*window_y = (screen_y * (float)height / (float)view->target_height + top) * view->window_height / view->pixel_height;
 	return 1;
 }
+
+int ui_point_prompt_part(struct ui_point_prompt const *prompt, short margin, short x, short y)
+{
+	if (prompt->right <= prompt->left ||
+		y < prompt->top - margin || y >= prompt->bottom + margin ||
+		x < prompt->left - margin || x >= prompt->right + margin)
+	{
+		return -1;
+	}
+	/* (a prompt of one part is all its first, its margin included) */
+	return x < prompt->split || prompt->split >= prompt->right ? 0 : 1;
+}

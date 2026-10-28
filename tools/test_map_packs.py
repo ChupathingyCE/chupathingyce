@@ -277,7 +277,7 @@ def build(tmp_path_factory, library_header=None):
     (work / "cseries.h").write_text(STUB_CSERIES)
     (work / "cseries" / "cseries_windows.h").write_text(STUB_WINDOWS)
     (work / "harness.c").write_text(HARNESS + STUBS)
-    for header in ("halo_map_families.h", "halo_map_packs.h"):
+    for header in ("halo_map_families.h", "halo_map_packs.h", "halo_join_reasons.h"):
         shutil.copy(ROOT / "port/linux/include" / header, work / header)
     if library_header is None:
         shutil.copy(ROOT / "port/linux/game/xbox_mod_maps.h", work / "xbox_mod_maps.h")

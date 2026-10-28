@@ -45,7 +45,22 @@ const char *SDL_GetBasePath(void)
 
 bool SDL_CreateDirectory(const char *path)
 {
-	(void)path;
+	/* (every missing folder along it, as SDL makes them: a packaged
+	install's folder in the save root's place) */
+	char partial[1024];
+	size_t index;
+
+	snprintf(partial, sizeof(partial), "%s", path);
+	for (index = 1; partial[index]; index++)
+	{
+		if (partial[index] == '/')
+		{
+			partial[index] = 0;
+			mkdir(partial, 0755);
+			partial[index] = '/';
+		}
+	}
+	mkdir(partial, 0755);
 	return true;
 }
 
@@ -87,6 +102,8 @@ bool SDL_GetPathInfo(const char *path, SDL_PathInfo *info)
 		return false;
 	if (info)
 	{
+		info->type = S_ISDIR(status.st_mode) ? SDL_PATHTYPE_DIRECTORY : S_ISREG(status.st_mode) ? SDL_PATHTYPE_FILE :
+			SDL_PATHTYPE_OTHER;
 		info->size = status.st_size;
 		info->modify_time = status.st_mtime;
 	}

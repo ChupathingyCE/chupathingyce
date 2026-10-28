@@ -7,6 +7,11 @@ on a screen of its own over the menus, as the game's virtual keyboard is
 (interface/virtual_keyboard.c): drawn and driven by code, not a widget of
 the user interface's tags.
 
+The list is the main source; the games heard on the brokers that it lacks
+come after its own (browser_get_games), marked OpenCE (legacy) while it
+answers. While it is down, the screen shows the games found directly and
+says so in the footer (BROWSER_LIST_OFFLINE_NOTE).
+
 The Multiplayer menu's ONLINE GAMES item opens it (ui_widget.c). Up and
 down pick a game, left and right turn the page, A joins it through its
 invite, as a web page's Join or an invite link would, and B goes back. Once
@@ -75,10 +80,12 @@ the right button is B.
 #include "networking/network_client_manager.h"
 #include "../src/browser.h"
 #include "halo_port_limits.h"
+#include "halo_join_reasons.h"
 #include "network_rules.h"
 #include "../src/browser_ping.h"
 #include "../src/map_art.h"
 #include "../src/map_download.h"
+#include "../src/playlist_download.h"
 #include "../src/ui_overlay.h"
 #include "halo_ui_map_list.h"
 #include "halo_ui_pointer.h"
@@ -143,6 +150,21 @@ enum
 	/* one of Halo PC's own maps, never downloaded: where to copy it from,
 	until B (map_archive_stock_name) */
 	_offer_stock,
+};
+
+/* a playlist's map set offered for the game being joined
+(playlist_download.c; docs/playlist-maps.md) */
+enum
+{
+	_playlist_none,
+	/* its manifest fetched and the folders looked through */
+	_playlist_checking,
+	/* asking whether to download the missing files (or, with none to
+	download, saying which are the player's own to copy) */
+	_playlist_asking,
+	_playlist_downloading,
+	/* done with some not installed, or failed: why, then A joins */
+	_playlist_result,
 };
 
 /* the game's engines, short (as players say them) to fit the column */
@@ -242,6 +264,15 @@ static struct
 		short sort;
 	} targets[MAXIMUM_TARGETS];
 	short drawn_first;
+	/* a playlist's map set (_playlist_*): the game's invite it is offered
+	for, the playlist answered last (its offer not made again this run),
+	"Don't ask again" ticked, and what the check and download say */
+	short playlist_offer;
+	char playlist_invite[BROWSER_INVITE_LENGTH + 1];
+	char playlist_answered[33];
+	boolean playlist_dont_ask;
+	unsigned long playlist_time;
+	struct playlist_status playlist_status;
 } browser_screen;
 
 /* ---------- private code */
@@ -457,6 +488,13 @@ static void join_first_player(
 
 /* (p2p.c: the invite this machine joined last, its hex digits) */
 int p2p_joined_invite(char *text, int size);
+/* p2p.c's: the hosted game's invite link (0: hosting none on the internet),
+and whether players can reach this host */
+int p2p_invite_link(char *link, int size);
+int p2p_hosting_status(char *text, int size);
+/* p2p.c's: why the invite joined has not reached its host (2: the host
+answered, but no connection got through; p2p.h's P2P_JOIN_NO_CONNECTION) */
+int p2p_join_failure(void);
 void platform_log(char const *format, ...);
 int config_boolean(char const *name);
 void display_error_text_deferred(wchar_t const *text, short local_player_index);
@@ -580,7 +618,10 @@ static void offer_given_up(
 		set_status(why);
 	else
 	{
-		snprintf(text, sizeof(text), "Needs maps_ce/%s.map to join", browser_screen.offer_display);
+		char file[BROWSER_MAP_LENGTH + 16];
+
+		snprintf(file, sizeof(file), "maps_ce/%s.map", browser_screen.offer_display);
+		snprintf(text, sizeof(text), JOIN_REASON_MAP_MISSING, file);
 		set_status(text);
 	}
 }
@@ -693,6 +734,177 @@ static void offer_button(
 static char const *game_type_blocker(struct browser_game const *game);
 static char const *version_blocker(struct browser_game const *game, char *text, long size);
 
+/* a join that timed out: the host never answered, or it did but strict
+NATs kept the connection out (with what helps) */
+static char const *no_answer_reason(
+	void)
+{
+	return p2p_join_failure() == 2 ? JOIN_REASON_NO_CONNECTION_LINE : JOIN_REASON_NO_ANSWER;
+}
+
+/* ---------- a playlist's map set the game being joined plays */
+
+static void join_selected(void);
+static void fetch_games(void);
+
+/* a game's playlist's map set checked, if it has one this run has not
+answered and network.playlist_downloads is not "never": TRUE while it is
+(the join waits) */
+static boolean playlist_offer_begin(
+	struct browser_game const *game)
+{
+	if (!game->playlist[0] || !playlist_download_possible() || !strcmp(browser_screen.playlist_answered, game->playlist))
+		return FALSE;
+	if (!playlist_check_start(game->playlist))
+		return FALSE;
+	csstrncpy(browser_screen.playlist_invite, game->invite, sizeof(browser_screen.playlist_invite) - 1);
+	browser_screen.playlist_invite[sizeof(browser_screen.playlist_invite) - 1] = 0;
+	browser_screen.playlist_offer = _playlist_checking;
+	browser_screen.playlist_dont_ask = FALSE;
+	browser_screen.playlist_time = system_milliseconds();
+	playlist_get(&browser_screen.playlist_status);
+	return TRUE;
+}
+
+/* the offer done with: the playlist answered, and its game joined (join:
+FALSE, back to the list) */
+static void playlist_offer_end(
+	boolean join)
+{
+	short index;
+
+	csstrncpy(browser_screen.playlist_answered, browser_screen.playlist_status.playlist,
+		sizeof(browser_screen.playlist_answered) - 1);
+	browser_screen.playlist_answered[sizeof(browser_screen.playlist_answered) - 1] = 0;
+	browser_screen.playlist_offer = _playlist_none;
+	playlist_reset();
+	/* (the maps' folders asked again: some may be there now) */
+	browser_screen.ce_map_time = system_milliseconds() - CE_MAP_CHECK_INTERVAL - 1;
+	if (!join)
+		return;
+	fetch_games();
+	for (index = 0; index < browser_screen.count; index++)
+	{
+		if (!strcmp(browser_screen.games[index].invite, browser_screen.playlist_invite))
+		{
+			browser_screen.selected = index;
+			join_selected();
+			return;
+		}
+	}
+	set_status("The game is no longer listed.");
+}
+
+/* the download started (or, with nothing to download, the game joined) */
+static void playlist_download(
+	void)
+{
+	if (browser_screen.playlist_status.missing && playlist_download_start())
+	{
+		browser_screen.playlist_offer = _playlist_downloading;
+		playlist_get(&browser_screen.playlist_status);
+	}
+	else
+		playlist_offer_end(TRUE);
+}
+
+/* the check and the download followed, each frame */
+static void playlist_offer_follow(
+	void)
+{
+	struct playlist_status *status = &browser_screen.playlist_status;
+	char text[96];
+
+	playlist_get(status);
+	switch (browser_screen.playlist_offer)
+	{
+	case _playlist_checking:
+		if (status->state == PLAYLIST_FAILED)
+		{
+			/* (no map set, or none that checks: the join goes on as before) */
+			platform_log("playlist maps: %s: %s; joining as before", status->playlist, status->message);
+			playlist_offer_end(TRUE);
+		}
+		else if (status->state == PLAYLIST_READY)
+		{
+			if (!status->missing && !status->own_missing)
+				playlist_offer_end(TRUE);
+			else if (status->missing && playlist_download_setting() == MAP_DOWNLOADS_ALWAYS)
+				playlist_download();
+			else if (!status->missing && playlist_download_setting() == MAP_DOWNLOADS_ALWAYS)
+				playlist_offer_end(TRUE);
+			else
+			{
+				browser_screen.playlist_offer = _playlist_asking;
+				browser_screen.playlist_time = system_milliseconds();
+			}
+		}
+		break;
+	case _playlist_downloading:
+		if (status->state == PLAYLIST_CANCELLED)
+		{
+			playlist_offer_end(FALSE);
+			set_status("Download cancelled.");
+		}
+		else if (status->state == PLAYLIST_DONE && !status->message[0])
+		{
+			snprintf(text, sizeof(text), "Installed %d %s.", status->total, status->total == 1 ? "file" : "files");
+			set_status(text);
+			playlist_offer_end(TRUE);
+		}
+		else if (status->state == PLAYLIST_DONE || status->state == PLAYLIST_FAILED)
+		{
+			browser_screen.playlist_offer = _playlist_result;
+			browser_screen.playlist_time = system_milliseconds();
+		}
+		break;
+	default: break;
+	}
+}
+
+/* the offer's buttons: while checking, B skips it; while asking, A
+downloads, B joins without, Y ticks "Don't ask again" (kept with the
+answer: network.playlist_downloads); while downloading, B cancels; once
+done with some not installed, A joins and B goes back */
+static void playlist_offer_button(
+	short button)
+{
+	switch (browser_screen.playlist_offer)
+	{
+	case _playlist_checking:
+		if (button == _gamepad_analog_button_b)
+			playlist_offer_end(TRUE);
+		break;
+	case _playlist_asking:
+		if (button == _gamepad_analog_button_a)
+		{
+			if (browser_screen.playlist_dont_ask && browser_screen.playlist_status.missing)
+				playlist_download_set_setting(MAP_DOWNLOADS_ALWAYS);
+			playlist_download();
+		}
+		else if (button == _gamepad_analog_button_b)
+		{
+			if (browser_screen.playlist_dont_ask)
+				playlist_download_set_setting(MAP_DOWNLOADS_NEVER);
+			playlist_offer_end(TRUE);
+		}
+		else if (button == _gamepad_analog_button_y && browser_screen.playlist_status.missing)
+			browser_screen.playlist_dont_ask = !browser_screen.playlist_dont_ask;
+		break;
+	case _playlist_downloading:
+		if (button == _gamepad_analog_button_b)
+			playlist_download_cancel();
+		break;
+	case _playlist_result:
+		if (button == _gamepad_analog_button_a)
+			playlist_offer_end(TRUE);
+		else if (button == _gamepad_analog_button_b)
+			playlist_offer_end(FALSE);
+		break;
+	default: break;
+	}
+}
+
 /* a game picked: its invite joined (the tunnel to its host), then its game
 joined once advertised through it (browser_screen_process) */
 static void join_selected(
@@ -714,7 +926,7 @@ static void join_selected(
 	}
 	if (!game->open)
 	{
-		set_status("That game is not accepting players.");
+		set_status(JOIN_REASON_NOT_OPEN);
 		return;
 	}
 	if (game_type_blocker(game))
@@ -722,6 +934,10 @@ static void join_selected(
 		set_status(game_type_blocker(game));
 		return;
 	}
+	/* (a verified playlist's game: its map set checked first, the missing
+	maps offered, and the game joined after: playlist_offer_follow) */
+	if (playlist_offer_begin(game))
+		return;
 	/* (a Custom Edition map's game, only with the map: a join without it
 	would fail at its loading; the list's footer says what is missing. A
 	map that may be downloaded is offered once the host advertises it:
@@ -783,7 +999,7 @@ static void wait_for_host(
 			if (system_milliseconds() - browser_screen.connecting_time > CONNECT_TIMEOUT)
 			{
 				browser_screen.connecting = FALSE;
-				set_status("The host did not answer.");
+				set_status(no_answer_reason());
 			}
 			return;
 		}
@@ -825,12 +1041,13 @@ static void wait_for_host(
 	else if (joined < 0)
 	{
 		browser_screen.connecting = FALSE;
-		set_status("That game can't be joined from this version.");
+		/* (the reason the join check gave, as the lists say it) */
+		set_status(network_game_client_refusal()[0] ? network_game_client_refusal() : JOIN_REASON_NEEDS_UPDATE);
 	}
 	else if (system_milliseconds() - browser_screen.connecting_time > CONNECT_TIMEOUT)
 	{
 		browser_screen.connecting = FALSE;
-		set_status("The host did not answer.");
+		set_status(no_answer_reason());
 	}
 }
 
@@ -943,15 +1160,13 @@ static char const *game_type_blocker(
 
 		if (kind)
 		{
-			snprintf(opence_text, sizeof(opence_text), "This game uses an OpenCE game type (%s) Chupathingy doesn't support yet.",
-				kind);
+			snprintf(opence_text, sizeof(opence_text), JOIN_REASON_OPENCE_GAME_TYPE, kind);
 			return opence_text;
 		}
 	}
 	if (game->engine >= 0 && game->engine <= last)
 		return NULL;
-	return game->engine == game_engine_bomb ? "Bomb and Grifball need a Chupathingy build with Bomb." :
-		"A game type this build does not have: update Chupathingy to join.";
+	return game->engine == game_engine_bomb ? JOIN_REASON_NEEDS_BOMB : JOIN_REASON_NEEDS_UPDATE;
 }
 
 /* why a game of another network version is not joined, or NULL for one this
@@ -965,8 +1180,7 @@ static char const *version_blocker(
 
 	if (!state)
 		return NULL;
-	snprintf(text, (size_t)size, "This game runs %s version (network %d) and can't be joined.",
-		state < 0 ? "an older" : "a newer", game->version);
+	snprintf(text, (size_t)size, "%s", JOIN_REASON_TEXT(JOIN_REASON_OF_VERSION_STATE(state)));
 	return text;
 }
 
@@ -993,23 +1207,31 @@ static char const *ce_map_blocker(
 		}
 		else if (ce_map_downloadable(game))
 		{
-			snprintf(text, (size_t)size, "Needs %s/%s.map: join to download it", map_family_folder(family),
-				display);
+			char path[BROWSER_MAP_LENGTH + 16];
+
+			snprintf(path, sizeof(path), "%s/%s.map", map_family_folder(family), display);
+			snprintf(text, (size_t)size, JOIN_REASON_MAP_DOWNLOAD, path);
 		}
 		/* (a pack's map: its pack's folder, maps_<pack>) */
 		else if (family == _map_family_pack)
 		{
-			char pack[MAP_PACK_ID_LENGTH + 1];
+			char pack[MAP_PACK_ID_LENGTH + 1], path[MAP_PACK_ID_LENGTH + BROWSER_MAP_LENGTH + 16];
 
 			map_family_pack_id(game->map, pack, sizeof(pack));
-			snprintf(text, (size_t)size, "Needs maps_%s/%s.map to join", pack, file);
+			snprintf(path, sizeof(path), "maps_%s/%s.map", pack, file);
+			snprintf(text, (size_t)size, JOIN_REASON_MAP_MISSING, path);
 		}
 		else
-			snprintf(text, (size_t)size, "Needs %s/%s.map to join", map_family_folder(family), display);
+		{
+			char path[BROWSER_MAP_LENGTH + 16];
+
+			snprintf(path, sizeof(path), "%s/%s.map", map_family_folder(family), display);
+			snprintf(text, (size_t)size, JOIN_REASON_MAP_MISSING, path);
+		}
 		return text;
 	case _ce_map_unsupported:
-		return family == _map_family_halomd ? "HaloMD maps aren't supported in this build." :
-			"Halo PC maps aren't supported in this build.";
+		snprintf(text, (size_t)size, JOIN_REASON_MAPS_UNSUPPORTED, family == _map_family_halomd ? "HaloMD" : "Halo PC");
+		return text;
 	default:
 		return NULL;
 	}
@@ -1246,6 +1468,56 @@ boolean browser_screen_invite_game(
 	return FALSE;
 }
 
+/* a game the PC menus' Server Browser joins (menu_functions.c), by its
+invite (a link, or its hex digits): if the game list says it plays a
+verified playlist whose map set this run has not answered, Online Games
+opens over the menus with the offer, and joins the game itself after it
+(TRUE: the browser's join is left to it) */
+boolean browser_screen_playlist_offer(
+	char const *link)
+{
+	char invite[BROWSER_INVITE_LENGTH + 1];
+	char const *start = link;
+	char const *search;
+	long length = 0;
+	short index;
+
+	if (!link || !playlist_download_possible() || browser_screen.active)
+		return FALSE;
+	for (search = link; *search; search++)
+	{
+		if (!_strnicmp(search, "halo://join/", 12))
+		{
+			start = search + 12;
+			break;
+		}
+	}
+	while (length < BROWSER_INVITE_LENGTH && ((start[length] >= '0' && start[length] <= '9') ||
+		((start[length] | 0x20) >= 'a' && (start[length] | 0x20) <= 'f')))
+	{
+		invite[length] = start[length];
+		length++;
+	}
+	invite[length] = 0;
+	if (length < BROWSER_INVITE_LENGTH)
+		return FALSE;
+	browser_screen_open();
+	for (index = 0; index < browser_screen.count; index++)
+	{
+		struct browser_game const *game = &browser_screen.games[index];
+
+		if (!_strnicmp(game->invite, invite, BROWSER_INVITE_LENGTH) && game->playlist[0])
+		{
+			browser_screen.selected = index;
+			if (playlist_offer_begin(game))
+				return TRUE;
+			break;
+		}
+	}
+	browser_screen.active = FALSE;
+	return FALSE;
+}
+
 /* Y: a game of this machine's, as System Link's Y makes one (the new game's
 map chosen next; once it starts, the game list lists it) */
 static void create_game(
@@ -1328,6 +1600,12 @@ offer's while it is) */
 			offer_button(button);
 		return;
 	}
+	if (browser_screen.playlist_offer != _playlist_none)
+	{
+		if (system_milliseconds() - browser_screen.playlist_time >= CONNECT_SETTLE)
+			playlist_offer_button(button);
+		return;
+	}
 	switch (button)
 	{
 	case _gamepad_binary_button_dpad_up: held_step(-1); break;
@@ -1399,6 +1677,8 @@ void browser_screen_process(
 	fetch_games();
 	if (browser_screen.offer == _offer_downloading)
 		follow_download();
+	else if (browser_screen.playlist_offer != _playlist_none)
+		playlist_offer_follow();
 	else if (browser_screen.connecting && browser_screen.offer == _offer_none)
 		wait_for_host();
 	if (browser_screen.connect_open)
@@ -1414,7 +1694,7 @@ void browser_screen_process(
 					event.data.button.index <= _gamepad_binary_button_dpad_right)))
 			press(event.data.button.index);
 		else if (event.type == BROWSER_EVENT_LEFT_STICK && !browser_screen.connect_open &&
-			browser_screen.offer == _offer_none)
+			browser_screen.offer == _offer_none && browser_screen.playlist_offer == _playlist_none)
 		{
 			if (event.data.stick.y == SHORT_MAX)
 				held_step(-1);
@@ -1459,6 +1739,8 @@ enum
 	COLOR_HEAD = 0x8FA6C8FF,
 	COLOR_TEXT = 0xFFFFFFFF,
 	COLOR_DIM = 0x8FA6C8FF,
+	/* a neutral label's plain gray (HOST_LABEL_OPENCE_SERVER) */
+	COLOR_NEUTRAL = 0x9AA0A8FF,
 	COLOR_LABEL = 0x7FB8FFFF,
 	COLOR_RULE = 0x2F6DD0A0,
 	/* the roster's players of each team, the Xbox's softened red and blue */
@@ -1654,6 +1936,9 @@ static char const *host_text(
 	}
 	else
 		snprintf(host, sizeof(host), "%s", platform ? platform : "");
+	/* (a game heard on the brokers while the list is down: nothing said of its host) */
+	if (!protocol && game->direct)
+		protocol = "Found directly";
 	if (!host[0] && !protocol)
 		return NULL;
 	snprintf(text, (size_t)size, "%s%s%s", host, host[0] && protocol ? ", " : "", protocol ? protocol : "");
@@ -2358,6 +2643,141 @@ static void draw_map_offer(
 	}
 }
 
+/* a size in bytes as players read it: "74 MB", "1.2 GB" */
+static void size_text(
+	unsigned long long bytes,
+	char *text,
+	long size)
+{
+	if (bytes >= 1024ULL * 1024 * 1024)
+		snprintf(text, (size_t)size, "%.1f GB", bytes / (1024.0 * 1024 * 1024));
+	else
+		snprintf(text, (size_t)size, "%llu MB", (bytes + 1024 * 1024 - 1) / (1024 * 1024));
+}
+
+static void draw_playlist_offer(
+	void)
+{
+	struct playlist_status const *status = &browser_screen.playlist_status;
+	float center = CONNECT_X + CONNECT_WIDTH / 2;
+	char text[256], bytes[32];
+	long line;
+	float y;
+
+	dialog_frame(CONNECT_X, CONNECT_Y, CONNECT_WIDTH, CONNECT_HEIGHT, "PLAYLIST MAPS");
+	switch (browser_screen.playlist_offer)
+	{
+	case _playlist_checking:
+		ui_overlay_text_glow(UI_FONT_MENU, 13.0f, center, CONNECT_Y + 120, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFF90,
+			"Checking this playlist's maps\xE2\x80\xA6");
+		dialog_prompt(UI_BUTTON_B, "=SKIP");
+		break;
+	case _playlist_asking:
+	{
+		static int const buttons[] = { UI_BUTTON_B, UI_BUTTON_A };
+		static char const *const download_words[] = { "=NO", "=YES" };
+		static char const *const join_words[] = { "=CANCEL", "=JOIN" };
+
+		snprintf(text, sizeof(text), "This playlist uses %d %s.", status->maps, status->maps == 1 ? "map" : "maps");
+		ui_overlay_text(UI_FONT_MENU_SMALL, 10.0f, center, CONNECT_Y + 54, UI_ALIGN_CENTER, COLOR_DIM, text);
+		y = CONNECT_Y + 74;
+		if (status->missing)
+		{
+			size_text(status->missing_bytes, bytes, sizeof(bytes));
+			snprintf(text, sizeof(text), "%d %s installed (%s):", status->missing,
+				status->missing == 1 ? "isn't" : "aren't", bytes);
+			ui_overlay_text_glow(UI_FONT_MENU, 13.0f, center, y, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFF90, text);
+			y += 24;
+			for (line = 0; line < status->line_count && line < 4; line++, y += 15)
+				ui_overlay_text(UI_FONT_MENU_SMALL, 10.0f, center, y, UI_ALIGN_CENTER, COLOR_TEXT, status->lines[line]);
+			if (status->missing > line)
+			{
+				snprintf(text, sizeof(text), "and %d more", status->missing - (int)line);
+				ui_overlay_text(UI_FONT_MENU_SMALL, 10.0f, center, y, UI_ALIGN_CENTER, COLOR_DIM, text);
+				y += 15;
+			}
+			y += 6;
+		}
+		if (status->own_missing)
+		{
+			snprintf(text, sizeof(text), "Needs your own copy of %s.", status->own_packs);
+			ui_overlay_text(UI_FONT_MENU_SMALL, 10.0f, center, y, UI_ALIGN_CENTER, COLOR_WARN, text);
+			y += 16;
+		}
+		if (status->other_versions)
+		{
+			snprintf(text, sizeof(text), "%d %s another version: left as %s.", status->other_versions,
+				status->other_versions == 1 ? "is" : "are", status->other_versions == 1 ? "it is" : "they are");
+			ui_overlay_text(UI_FONT_MENU_SMALL, 10.0f, center, y, UI_ALIGN_CENTER, COLOR_DIM, text);
+			y += 16;
+		}
+		if (status->credits[0])
+		{
+			snprintf(text, sizeof(text), "%.90s%s", status->credits, strlen(status->credits) > 90 ? "\xE2\x80\xA6" : "");
+			ui_overlay_text(UI_FONT_MENU_SMALL, 8.5f, center, y, UI_ALIGN_CENTER, COLOR_DIM, text);
+		}
+		if (status->missing)
+		{
+			float glyph = 15.0f, box = 10.0f, width, x;
+
+			ui_overlay_text_glow(UI_FONT_MENU, 14.0f, center, CONNECT_Y + 236, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFF90,
+				"Download from Chupathingy?");
+			y = CONNECT_Y + 262;
+			width = ui_overlay_button_width(UI_BUTTON_Y, glyph) + 6 + box + 6 +
+				ui_overlay_text_width(UI_FONT_MENU, 11.0f, "DON'T ASK AGAIN");
+			x = center - width / 2;
+			x += ui_overlay_button(UI_BUTTON_Y, glyph, x, y, 0xFFFFFFFF) + 6;
+			ui_overlay_outline(x, y + (glyph - box) / 2, box, box, 2, 1.0f, COLOR_PROMPT);
+			if (browser_screen.playlist_dont_ask)
+				ui_overlay_rect(x + 2.5f, y + (glyph - box) / 2 + 2.5f, box - 5, box - 5, 1, COLOR_PROMPT);
+			ui_overlay_text_glow(UI_FONT_MENU, 11.0f, x + box + 6, y + (glyph - 11.0f) / 2 + 0.5f, UI_ALIGN_LEFT,
+				COLOR_PROMPT, 0x3D8BFF60, "DON'T ASK AGAIN");
+			add_target(center - width / 2 - 6, y - 6, center + width / 2 + 6, y + glyph + 6, UI_BUTTON_Y);
+			dialog_prompts(NUMBEROF(buttons), buttons, download_words);
+		}
+		else
+			dialog_prompts(NUMBEROF(buttons), buttons, join_words);
+		break;
+	}
+	case _playlist_downloading:
+	{
+		float bar_x = CONNECT_X + 40, bar_width = CONNECT_WIDTH - 80;
+		float done = status->current_total ? (float)status->received / (float)status->current_total : 0.0f;
+
+		snprintf(text, sizeof(text), "Downloading %s", status->current[0] ? status->current : "\xE2\x80\xA6");
+		ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, CONNECT_Y + 88, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFF90, text);
+		ui_overlay_rect(bar_x, CONNECT_Y + 126, bar_width, 12, 6, 0x0A1E44FF);
+		if (done > 0.0f)
+		{
+			ui_overlay_gradient(bar_x, CONNECT_Y + 126, bar_width * (done < 1.0f ? done : 1.0f), 12, 6, 0x8FC4FFFF,
+				0x2A62C8FF);
+		}
+		ui_overlay_outline(bar_x, CONNECT_Y + 126, bar_width, 12, 6, 1.0f, 0x4F9DFFFF);
+		snprintf(text, sizeof(text), "File %d of %d, %.1f of %.1f MB", status->done + 1 > status->total ? status->total :
+			status->done + 1, status->total, status->received / 1048576.0, status->current_total / 1048576.0);
+		ui_overlay_text(UI_FONT_MENU, 10.0f, center, CONNECT_Y + 150, UI_ALIGN_CENTER, COLOR_TEXT, text);
+		ui_overlay_text(UI_FONT_MENU_SMALL, 9.5f, center, CONNECT_Y + 176, UI_ALIGN_CENTER, COLOR_DIM,
+			"Each file is checked against Chupathingy's signed list.");
+		dialog_prompt(UI_BUTTON_B, "=CANCEL");
+		break;
+	}
+	default:
+	{
+		static int const buttons[] = { UI_BUTTON_B, UI_BUTTON_A };
+		static char const *const words[] = { "=BACK", "=JOIN" };
+
+		ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, CONNECT_Y + 92, UI_ALIGN_CENTER, COLOR_WARN, 0xF0A07060,
+			status->state == PLAYLIST_DONE ? "Some maps weren't installed" : "Could not download the maps");
+		snprintf(text, sizeof(text), "%.120s.", status->message[0] ? status->message : "the download failed");
+		if (text[0] >= 'a' && text[0] <= 'z')
+			text[0] = (char)(text[0] - 32);
+		ui_overlay_text(UI_FONT_MENU_SMALL, 9.5f, center, CONNECT_Y + 126, UI_ALIGN_CENTER, COLOR_TEXT, text);
+		dialog_prompts(NUMBEROF(buttons), buttons, words);
+		break;
+	}
+	}
+}
+
 /* ---------- drawing: the screen */
 
 /* the title, the counts and the header's two prompts */
@@ -2516,8 +2936,8 @@ static void draw_empty_list(
 		line = "Set network.browser_url in config.toml.";
 		break;
 	case BROWSER_LIST_FAILED:
-		title = "The game list isn't answering.";
-		line = "Check your internet connection.";
+		title = "The game list is offline.";
+		line = "No games found directly either. Check your internet connection.";
 		break;
 	case BROWSER_LIST_WAITING:
 		title = "Looking for games\xE2\x80\xA6";
@@ -2544,6 +2964,18 @@ static void draw_empty_list(
 		ui_overlay_text(UI_FONT_MENU_SMALL, 10.0f, center, y + 24, UI_ALIGN_CENTER, COLOR_DIM, line);
 }
 
+/* the host's reachability (p2p_hosting_status), while this machine hosts a
+game on the internet */
+static boolean hosting_status(
+	char *text,
+	long size)
+{
+	char link[160];
+
+	return global_network_game_server_get() && p2p_invite_link(link, sizeof(link)) &&
+		p2p_hosting_status(text, (int)size);
+}
+
 /* the list's footer: the order (or a message, or what the selected game
 lacks to be joined), and the page */
 static void draw_list_footer(
@@ -2558,6 +2990,7 @@ static void draw_list_footer(
 		blocker_text : game_type_blocker(selected) ? game_type_blocker(selected) :
 		ce_map_blocker(selected, blocker_text, sizeof(blocker_text));
 	char text[96];
+	char status[192];
 	float width;
 
 	if (!browser_screen.connecting && browser_screen.status[0] &&
@@ -2568,6 +3001,15 @@ static void draw_list_footer(
 	}
 	else if (blocker)
 		ui_overlay_text(UI_FONT_MENU, FOOT_SIZE + 0.5f, LIST_X + 14, text_y - 0.25f, UI_ALIGN_LEFT, COLOR_WARN, blocker);
+	/* (the list is down: its games are those heard directly) */
+	else if (browser_list_status() == BROWSER_LIST_FAILED)
+	{
+		ui_overlay_text(UI_FONT_MENU_SMALL, FOOT_SIZE, LIST_X + 14, text_y, UI_ALIGN_LEFT, COLOR_WARN,
+			BROWSER_LIST_OFFLINE_NOTE);
+	}
+	/* (this machine hosts an internet game: whether players can reach it) */
+	else if (hosting_status(status, sizeof(status)))
+		ui_overlay_text(UI_FONT_MENU_SMALL, FOOT_SIZE, LIST_X + 14, text_y, UI_ALIGN_LEFT, COLOR_HEAD, status);
 	else
 	{
 		/* (RT steps to the next order, and so does the pointer on it) */
@@ -2682,9 +3124,12 @@ the map's name over its family's color (a custom map's) */
 			label) + 4; \
 		x += ui_overlay_text(UI_FONT_MENU, DETAIL_SIZE, x, y, UI_ALIGN_LEFT, COLOR_TEXT, value); \
 		y += DETAIL_LINE_STEP;
-	snprintf(text, sizeof(text), "%s%s", browser_game_version_state(selected) ? (browser_game_version_state(selected) < 0 ? "Older version" : "Newer version") :
-		selected->open ? "Accepting players" : "In progress",
-		selected->locked ? ", password" : "");
+	/* (a game this build can't join by its version: the reason, as the
+	footer says it) */
+	if (browser_game_version_state(selected))
+		snprintf(text, sizeof(text), "%s", JOIN_REASON_TEXT(JOIN_REASON_OF_VERSION_STATE(browser_game_version_state(selected))));
+	else
+		snprintf(text, sizeof(text), "%s%s", selected->open ? "Accepting players" : "In progress", selected->locked ? ", password" : "");
 	DETAIL_LINE("Status:", text);
 	DETAIL_LINE("Map:", map_label);
 	/* (its family, spelled out beside its tag) */
@@ -2712,9 +3157,27 @@ the map's name over its family's color (a custom map's) */
 			snprintf(text + strlen(text), sizeof(text) - strlen(text), " (%s)", machines);
 	}
 	DETAIL_LINE("Players:", text);
-	if (host_text(selected, text, sizeof(text)))
+	if (host_text(selected, text, sizeof(text)) || selected->opence_server)
 	{
+		if (!host_text(selected, text, sizeof(text)))
+			text[0] = 0;
 		DETAIL_LINE("Host:", text);
+		/* (an OpenCE dedicated server's neutral label, in gray beside the
+		host; under it when the line has no room) */
+		if (selected->opence_server)
+		{
+			float label_x = text[0] ? x + 6 : x;
+			float label_y = line_y;
+
+			if (label_x + ui_overlay_text_width(UI_FONT_MENU_SMALL, DETAIL_SIZE, HOST_LABEL_OPENCE_SERVER) >
+				ROSTER_X - 14)
+			{
+				label_x = DETAIL_TEXT_X + ui_overlay_text_width(UI_FONT_MENU_SMALL, DETAIL_SIZE, "Host:") + 4;
+				label_y = y;
+			}
+			ui_overlay_text(UI_FONT_MENU_SMALL, DETAIL_SIZE, label_x, label_y + 0.5f, UI_ALIGN_LEFT, COLOR_NEUTRAL,
+				HOST_LABEL_OPENCE_SERVER);
+		}
 	}
 #undef DETAIL_LINE
 	(void)line_y;
@@ -2783,7 +3246,8 @@ void browser_screen_render(
 	short page_first, page_count, row;
 	float margin = (float)((halo_screen_width() - 640) / 2 + 2);
 	struct browser_game const *selected = browser_screen.count ? &browser_screen.games[browser_screen.selected] : NULL;
-	boolean dialog = browser_screen.connect_open || browser_screen.offer != _offer_none;
+	boolean dialog = browser_screen.connect_open || browser_screen.offer != _offer_none ||
+		browser_screen.playlist_offer != _playlist_none;
 
 	/* (what the pointer may press, as this frame draws it) */
 	browser_screen.target_count = 0;
@@ -2832,8 +3296,10 @@ void browser_screen_render(
 		ui_overlay_rect(-margin, BAND_Y + 1, 640 + 2 * margin, BAR_Y - BAND_Y - 2, 0, COLOR_SHADE);
 		if (browser_screen.connect_open)
 			draw_link_profile();
-		else
+		else if (browser_screen.offer != _offer_none)
 			draw_map_offer();
+		else
+			draw_playlist_offer();
 		ui_overlay_layer(0);
 		return;
 	}
@@ -2871,7 +3337,8 @@ void browser_screen_pointer(
 	if (pointer->right_clicks)
 		press(_gamepad_analog_button_b);
 	/* (positive: away from the player, or a finger moving down: back) */
-	if (pointer->wheel_steps && !browser_screen.connect_open && browser_screen.offer == _offer_none)
+	if (pointer->wheel_steps && !browser_screen.connect_open && browser_screen.offer == _offer_none &&
+		browser_screen.playlist_offer == _playlist_none)
 		step((short)-pointer->wheel_steps);
 	if (!pointer->left_clicks || !browser_screen.active)
 		return;
@@ -2912,7 +3379,7 @@ void browser_screen_pointer(
 	}
 	/* (not through the panel of a game being joined) */
 	if (browser_screen.drawn_first != NONE && !browser_screen.connect_open && !browser_screen.connecting &&
-		browser_screen.offer == _offer_none &&
+		browser_screen.offer == _offer_none && browser_screen.playlist_offer == _playlist_none &&
 		pointer->click_x >= LIST_X && pointer->click_x < LIST_X + LIST_WIDTH &&
 		pointer->click_y >= LIST_Y + LIST_HEAD && pointer->click_y < LIST_Y + LIST_HEAD + ROWS_PER_PAGE * LIST_ROW)
 	{

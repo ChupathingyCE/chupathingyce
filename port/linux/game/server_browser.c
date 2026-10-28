@@ -17,6 +17,7 @@ main menu, then joins that host again (browser_screen_map_missing).
 #include "main/main.h"
 #include "text/unicode.h"
 #include "halo_map_families.h"
+#include "halo_join_reasons.h"
 #include "halo_server_browser.h"
 #include "halo_ui_map_list.h"
 #include "../src/map_download.h"
@@ -115,7 +116,7 @@ boolean server_browser_map_downloadable(char const *map)
 
 boolean server_browser_map_blocked(char const *map, wchar_t *message, short length)
 {
-	char file[MAP_FILE_LENGTH], display[MAP_FILE_LENGTH], text[MAP_FILE_LENGTH + 192];
+	char file[MAP_FILE_LENGTH], display[MAP_FILE_LENGTH], text[MAP_FILE_LENGTH + 192], path[MAP_FILE_LENGTH + 48];
 	short family = map_family_parse_listed(map, file, sizeof(file));
 
 	switch (ce_map_state(map))
@@ -136,16 +137,18 @@ boolean server_browser_map_blocked(char const *map, wchar_t *message, short leng
 			char pack[MAP_PACK_ID_LENGTH + 1];
 
 			map_family_pack_id(map, pack, sizeof(pack));
-			snprintf(text, sizeof(text), "Needs maps_%s/%s.map to join", pack, file);
+			snprintf(path, sizeof(path), "maps_%s/%s.map", pack, file);
+			snprintf(text, sizeof(text), JOIN_REASON_MAP_MISSING, path);
 		}
 		else
-			snprintf(text, sizeof(text), server_browser_map_downloadable(map) ?
-				"Needs %s/%s.map: join to download it" : "Needs %s/%s.map to join",
-				map_family_folder(family), display);
+		{
+			snprintf(path, sizeof(path), "%s/%s.map", map_family_folder(family), display);
+			snprintf(text, sizeof(text), server_browser_map_downloadable(map) ? JOIN_REASON_MAP_DOWNLOAD :
+				JOIN_REASON_MAP_MISSING, path);
+		}
 		break;
 	case _ce_map_unsupported:
-		snprintf(text, sizeof(text), "%s maps aren't supported in this build.",
-			family == _map_family_halomd ? "HaloMD" : "Halo PC");
+		snprintf(text, sizeof(text), JOIN_REASON_MAPS_UNSUPPORTED, family == _map_family_halomd ? "HaloMD" : "Halo PC");
 		break;
 	default:
 		return FALSE;

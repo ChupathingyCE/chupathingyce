@@ -458,6 +458,7 @@ symbols in this file:
 #include "interface/ui_widget.h"
 #include "main/main.h"
 #include "math/real_math.h"
+#include "memory/data.h"
 #include "networking/network_client_manager.h"
 #include "networking/network_connection.h"
 #include "networking/network_game_globals.h"
@@ -477,6 +478,8 @@ symbols in this file:
 #endif
 #include "interface/player_ui.h"
 #include "tag_files/tag_files.h"
+
+#include <time.h>
 
 /* port: internet play's Discord presence (port/linux/src/p2p.c), and the
 server browser's listing of a public game (p2p_lobby.c) */
@@ -827,7 +830,10 @@ static boolean network_game_server_countdown_slowed[MAXIMUM_NETWORK_MACHINE_COUN
 /* port/linux/game/network_distributed.c's (the host's bans: bans.txt) */
 boolean network_distributed_banned(unsigned long address, char const *hardware_id);
 void network_distributed_ban(long machine_index, unsigned long address, char const *names);
+void network_distributed_ban_until(long machine_index, unsigned long address, char const *names, char const *reason,
+	unsigned long until);
 void network_distributed_kick(char const *names);
+void network_distributed_kick_reason(char const *names, char const *reason);
 /* port/linux/src/p2p.c's */
 enum
 {
@@ -977,6 +983,32 @@ short network_game_server_matching_player_names(
 	return count;
 }
 
+/* port: the names of every player of a machine, "A, B" (the host's ban and
+kick warnings and bans.txt's players=) */
+static void network_game_server_machine_player_names(
+	struct network_game_server *server,
+	long machine_index,
+	char *names,
+	long names_size)
+{
+	long index;
+
+	names[0] = 0;
+	for (index = 0; index < MAXIMUM_NETWORK_PLAYER_COUNT; index++)
+	{
+		struct network_player const *player = &server->game.players[index];
+		char name[NETWORK_GAME_SERVER_NAME_TEXT_SIZE];
+
+		if (!network_player_is_valid(player) || player->machine_index != machine_index)
+			continue;
+		network_game_server_player_name_text(player, name, sizeof(name));
+		if (names[0] && csstrlen(names) + 2 < names_size)
+			csstrcat(names, ", ");
+		if (csstrlen(names) + csstrlen(name) < names_size)
+			csstrcat(names, name);
+	}
+}
+
 /* port: the host's ban and kick commands' player: the other machine of the
 player of the name (in either case; else the one player whose name begins
 with it), and the names of that machine's players (each command's warnings
@@ -1055,20 +1087,7 @@ static boolean network_game_server_named_machine(
 		console_warning("%s: not a player of the host's own machine, nor one not joined", command);
 		return FALSE;
 	}
-	/* (every player of that machine, named) */
-	for (index = 0; index < MAXIMUM_NETWORK_PLAYER_COUNT; index++)
-	{
-		struct network_player const *player = &server->game.players[index];
-		char name[NETWORK_GAME_SERVER_NAME_TEXT_SIZE];
-
-		if (!network_player_is_valid(player) || player->machine_index != *machine_index)
-			continue;
-		network_game_server_player_name_text(player, name, sizeof(name));
-		if (names[0] && csstrlen(names) + 2 < names_size)
-			csstrcat(names, ", ");
-		if (csstrlen(names) + csstrlen(name) < names_size)
-			csstrcat(names, name);
-	}
+	network_game_server_machine_player_names(server, *machine_index, names, names_size);
 	return TRUE;
 }
 
@@ -1102,6 +1121,73 @@ boolean network_game_server_kick_player(
 		return FALSE;
 	network_distributed_kick(names);
 	network_game_server_kick_pending[machine_index] = _kick_rejoinable;
+	network_game_server_kick_rejection_codes[machine_index] = _rejection_code_blacklisted_machine;
+	return TRUE;
+}
+
+/* port: whether a machine is one the host may kick or ban: another
+machine's, joined to the game (never the host's own) */
+static boolean network_game_server_host_may_drop(
+	struct network_game_server *server,
+	long machine_index)
+{
+	return server && VALID_INDEX(machine_index, MAXIMUM_NETWORK_MACHINE_COUNT) &&
+		network_game_server_client_machine_is_joined_to_game(server, &server->client_machines[machine_index]) &&
+		!network_game_server_client_machine_is_local(server, &server->client_machines[machine_index]);
+}
+
+/* port: the host's kick from its Moderation screen (moderation_screen.c):
+as the kick command, of a machine rather than a name, with a reason (NULL
+or empty: none) */
+boolean network_game_server_host_kick_machine(
+	long machine_index,
+	char const *reason)
+{
+	struct network_game_server *server = global_network_game_server_get();
+	char names[96];
+
+	if (!network_game_server_host_may_drop(server, machine_index))
+		return FALSE;
+	network_game_server_machine_player_names(server, machine_index, names, sizeof(names));
+	network_distributed_kick_reason(names, reason);
+	network_game_server_kick_pending[machine_index] = _kick_rejoinable;
+	network_game_server_kick_rejection_codes[machine_index] = _rejection_code_blacklisted_machine;
+	return TRUE;
+}
+
+/* port: the host's ban from its Moderation screen: as the ban command, of a
+machine, for so many minutes (0: for ever, as the command's), with a reason
+(NULL or empty: none); bans.txt's line as the dedicated server's sv_ban
+writes it, "banned by the host[ for <time>][: <reason>]" */
+boolean network_game_server_host_ban_machine(
+	long machine_index,
+	long minutes,
+	char const *reason)
+{
+	struct network_game_server *server = global_network_game_server_get();
+	char names[96];
+	char text[128];
+	char duration[32] = "";
+	unsigned long until = 0;
+
+	if (!network_game_server_host_may_drop(server, machine_index))
+		return FALSE;
+	network_game_server_machine_player_names(server, machine_index, names, sizeof(names));
+	if (minutes > 0)
+	{
+		if (minutes % (24 * 60) == 0)
+			snprintf(duration, sizeof(duration), " for %ldd", minutes / (24 * 60));
+		else if (minutes % 60 == 0)
+			snprintf(duration, sizeof(duration), " for %ldh", minutes / 60);
+		else
+			snprintf(duration, sizeof(duration), " for %ldm", minutes);
+		until = (unsigned long)time(NULL) + (unsigned long)minutes * 60UL;
+	}
+	snprintf(text, sizeof(text), "banned by the host%s%s%s", duration, reason && reason[0] ? ": " : "",
+		reason && reason[0] ? reason : "");
+	network_distributed_ban_until(machine_index, network_game_server_client_machine_addresses[machine_index], names,
+		text, until);
+	network_game_server_kick_pending[machine_index] = minutes > 0 ? _kick_rejoinable : _kick_kept_out;
 	network_game_server_kick_rejection_codes[machine_index] = _rejection_code_blacklisted_machine;
 	return TRUE;
 }
@@ -2762,6 +2848,77 @@ static boolean network_game_server_player_among(
 	return FALSE;
 }
 
+/* whether a valid one of the players is of the player's machine and
+controller (a client finds the player to remove by those alone) */
+static boolean network_game_server_player_seat_among(
+	struct network_player const *player,
+	struct network_player *players,
+	long count)
+{
+	long index;
+
+	for (index = 0; index < count; index++)
+	{
+		if (network_player_is_valid(&players[index]) &&
+			players[index].machine_index == player->machine_index &&
+			players[index].controller_index == player->controller_index)
+		{
+			return TRUE;
+		}
+	}
+	return FALSE;
+}
+
+/* port: a machine joining the game in progress after a player quit it: the
+quitter's datum stays until the game ends (on the scoreboard, his kills and
+deaths), but he was not in the settings the machine was started with, and
+it lets go of the statistics of a player it does not have. So it is told of
+him as a machine there at his quit was: added at his slot, and quit at once
+(a later player in that slot takes it, network_game_spawn_player). Not one
+whose machine and controller a player of the game or the joining machine
+has now, whom the quit would name */
+static void network_game_server_tell_late_joiner_of_quitters(
+	struct network_game_server *server,
+	struct network_game_server_client_machine *machine,
+	struct network_player *started,
+	long count)
+{
+	struct data_iterator iterator;
+	struct player_datum *player;
+
+	if (!player_data || !player_data->valid)
+		return;
+	data_iterator_new(&iterator, player_data);
+	while ((player = (struct player_datum *)data_iterator_next(&iterator)) != NULL)
+	{
+		long slot = DATUM_INDEX_TO_ABSOLUTE_INDEX(iterator.datum_index);
+		struct network_player quitter = player->network_player_data;
+		struct message_server_remove_player_ingame remove_player;
+		void *message;
+
+		if (slot >= count || player->quit_out_of_game_time == NONE ||
+			network_player_is_valid(&server->game.players[slot]) ||
+			!network_player_is_valid(&quitter) || quitter.machine_index == machine->machine_index ||
+			network_game_server_player_seat_among(&quitter, server->game.players, count) ||
+			network_game_server_player_seat_among(&quitter, started, count))
+		{
+			continue;
+		}
+		quitter.player_list_index = (char)slot;
+		message = create_network_game_message(_message_server_add_player_ingame, &quitter, sizeof(quitter));
+		if (!message || !network_game_server_send_message_to_client_machine(server, machine, message))
+			continue;
+		remove_player.player = quitter;
+		remove_player.reason = player->quit_out_of_game_time;
+		message = create_network_game_message(_message_server_remove_player_ingame, &remove_player,
+			sizeof(remove_player));
+		if (message)
+			network_game_server_send_message_to_client_machine(server, machine, message);
+		network_event("told machine #%d of a player who quit before it joined (slot %ld, machine #%d / controller #%d)",
+			machine->machine_index, slot, quitter.machine_index, quitter.controller_index);
+	}
+}
+
 /* port: machines joining the game in progress whose start waits for their
 settings record's size (network version 35's longer record: a Delta host
 that announces 35 or later waits for a joining machine's HELLO first,
@@ -2903,6 +3060,8 @@ void network_game_server_late_joiner_loaded(
 		long count = (long)NUMBEROF(server->game.players);
 		long index;
 
+		/* the players who quit before it was started */
+		network_game_server_tell_late_joiner_of_quitters(server, machine, started, count);
 		/* the players gone while it loaded (first: a player's machine index
 		may be a new machine's, which a player added is told apart from by
 		that only) */

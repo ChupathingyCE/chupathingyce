@@ -1558,6 +1558,45 @@ static void test_wire_map(void)
 	CHECK(size > 0 && delta_wire_read_map(data + 12, size - 12, &back) && back.family == 200);
 }
 
+/* the wire's byte order: little-endian whatever the machine's, so that a
+big-endian console (the Xbox 360's and Wii U's PowerPC) writes the bytes a
+PC writes and reads them back (tools/test_delta_big_endian.py runs this on
+an emulated big-endian machine where it can) */
+static void test_wire_byte_order(void)
+{
+	static const unsigned char expected[] = {
+		'D', 'P', DELTA_MAJOR, _delta_message_hello, 0x1B, 0x00, 0x00, 0x00, 0x01, 0xEF, 0xCD, 0xAB,
+		0x04, 0x03, 0x02, 0x01, 0x27, 0x01, 0x07, 0x07, 0xD4, 0xC3, 0xB2, 0xA1,
+		_delta_platform_xbox360, DELTA_PLATFORM_KEY_VERSION, 0x00, 0x10, 0x10, 0x80, 0x09, 0x00,
+		'W', 'a', 'r', 't', 'h', 'o', 'g'
+	};
+	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
+	struct delta_wire_header header;
+	struct delta_wire_hello hello, hello_back;
+	int size;
+
+	memset(&hello, 0, sizeof(hello));
+	hello.capabilities = 0x01020304u;
+	hello.legacy_version = 0x0127;
+	hello.machine_index = 7;
+	hello.legacy_table_serial = 0xA1B2C3D4u;
+	hello.key.platform = _delta_platform_xbox360;
+	hello.key.version = DELTA_PLATFORM_KEY_VERSION;
+	hello.key.host_players = 16;
+	hello.key.join_players = 16;
+	hello.key.join_players_opt_in = 128;
+	hello.key.memory_class = 9;
+	strcpy(hello.build, "Warthog");
+	size = delta_wire_write_hello(data, 0xABCDEF01u, &hello);
+	CHECK(size == (int)sizeof(expected) && !memcmp(data, expected, sizeof(expected)));
+	CHECK(delta_wire_read_header(expected, (int)sizeof(expected), &header));
+	CHECK(header.session == 0xABCDEF01u && header.length == 0x1B);
+	CHECK(delta_wire_read_hello(expected + 12, header.length, &hello_back));
+	CHECK(hello_back.capabilities == 0x01020304u && hello_back.legacy_version == 0x0127);
+	CHECK(hello_back.legacy_table_serial == 0xA1B2C3D4u && hello_back.key.platform == _delta_platform_xbox360);
+	CHECK(hello_back.key.join_players_opt_in == 128 && !strcmp(hello_back.build, "Warthog"));
+}
+
 static void test_wire(void)
 {
 	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
@@ -1664,6 +1703,7 @@ static void test_wire(void)
 	CHECK(size == 12 && delta_wire_read_header(data, size, &header) && header.major == 2 && header.length == 0);
 
 	test_wire_table();
+	test_wire_byte_order();
 }
 
 static void test_rate(void)

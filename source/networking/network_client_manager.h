@@ -46,6 +46,12 @@ boolean network_game_client_set_team(
 boolean network_game_client_advertised_game_in_progress(
 	struct network_game_client *client,
 	struct network_advertised_game const *game);
+#if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_DELTA)
+/* port: whether the advertised game is an OpenCE dedicated server's (a label) */
+boolean network_game_client_advertised_game_opence_server(
+	struct network_game_client *client,
+	struct network_advertised_game const *game);
+#endif
 boolean network_game_client_advertised_game_compatible(
 	struct network_game_client *client,
 	struct network_advertised_game const *game,
@@ -202,6 +208,11 @@ long network_game_client_get_next_update_number(
 	struct network_game_client *client);
 long unstrip_player_index(
 	long player_index);
+/* port: whether a host's map name (ending within size bytes) is one the
+game takes: any map file name Halo PC takes, no path out of the maps folder */
+boolean network_game_client_map_name_is_valid(
+	char const *map_name,
+	long size);
 
 /* ---------- globals */
 

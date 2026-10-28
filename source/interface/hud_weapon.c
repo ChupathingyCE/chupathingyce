@@ -1275,6 +1275,12 @@ static void crosshairs_draw(
 											}
 
 											inverse_scale = 1.0f / scale;
+#ifdef HALO_CUSTOM_EDITION
+											/* port: a bitmap drawn at its group's high resolution
+											scale (its item's placement's, ce_hud.c) covers the view
+											at that size */
+											inverse_scale /= hud_bitmap_group_scale(element->crosshairs.bitmap.index);
+#endif
 											expand_u = (bitmap->width - (render.camera.viewport_bounds.x1 - render.camera.viewport_bounds.x0) * inverse_scale) *
 												texel_scale_u * -0.5f;
 											expand_v = (bitmap->height - (render.camera.viewport_bounds.y1 - render.camera.viewport_bounds.y0) * inverse_scale) *

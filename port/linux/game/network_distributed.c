@@ -4430,14 +4430,30 @@ void network_distributed_host_notice(
 /* (the host: network_server_manager.c, its kick command) players kicked by
 the host, which may join again: every machine told, nothing kept (no line
 in BANS_FILE) */
+void network_distributed_kick_reason(
+	char const *names,
+	char const *reason);
+
 void network_distributed_kick(
 	char const *names)
 {
+	network_distributed_kick_reason(names, NULL);
+}
+
+/* (the host's Moderation screen: moderation_screen.c) the same, with why
+(NULL or empty: nothing said) */
+void network_distributed_kick_reason(
+	char const *names,
+	char const *reason)
+{
 	char kept_names[64];
+	char kept_reason[64] = "";
 	char notice[MAXIMUM_NOTICE_LENGTH];
 
 	distributed_printable(kept_names, sizeof(kept_names), names);
-	snprintf(notice, sizeof(notice), "%s kicked by the host", kept_names);
+	if (reason && reason[0])
+		distributed_printable(kept_reason, sizeof(kept_reason), reason);
+	snprintf(notice, sizeof(notice), "%s kicked by the host%s%s", kept_names, kept_reason[0] ? ": " : "", kept_reason);
 	/* (to every client in the game: in the lobby, the host's own) */
 	if (game_in_progress())
 		distributed_send_notice(notice);
