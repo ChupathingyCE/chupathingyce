@@ -35,8 +35,10 @@ Automated system link sessions for testing the netcode without the menus
   (browser_screen_map_missing), for its panel to be seen and driven;
 - "browse" opens the Online Games screen once the main menu is up, as the
   Multiplayer menu's ONLINE GAMES does, and logs each listed game's ping
-  every few seconds (measured or estimated, never an address), for the
-  pings before joining to be seen.
+  every few seconds (measured or estimated, never an address) with its
+  invite's first digits (as the host's log has them), whether it
+  came from the game list or was heard directly (the brokers), and the
+  list's state, for the pings before joining and a list outage to be seen.
 
 Once the game runs, every second each machine logs where every player's
 unit is, so the machines' views of the game can be compared.
@@ -1193,10 +1195,14 @@ void network_test_update(
 			else if (network_test.download_started && browser_screen_active() &&
 				(long)(network_test.menu_seconds / 5.0f) != (long)((network_test.menu_seconds - seconds) / 5.0f))
 			{
-				struct browser_game games[16];
-				int count = browser_get_games(games, 16);
+				static char const *const states[] = { "answered", "waiting", "offline", "none" };
+				static struct browser_game games[BROWSER_MAXIMUM_GAMES];
+				int count = browser_get_games(games, BROWSER_MAXIMUM_GAMES);
+				int status = browser_list_status();
 				int index;
 
+				platform_log("network test: browse: list %s, %d games",
+					status >= 0 && status < (int)NUMBEROF(states) ? states[status] : "?", count);
 				for (index = 0; index < count; index++)
 				{
 					char name[BROWSER_NAME_LENGTH + 1];
@@ -1205,8 +1211,9 @@ void network_test_update(
 					for (character = 0; character < BROWSER_NAME_LENGTH && games[index].name[character]; character++)
 						name[character] = games[index].name[character] < 127 ? (char)games[index].name[character] : '?';
 					name[character] = 0;
-					platform_log("network test: browse: %s ping %s%d", name, games[index].ping_estimated ? "~" : "",
-						games[index].ping);
+					/* (the invite's first digits, as the host's own log shows them) */
+					platform_log("network test: browse: %s (%.8s...) ping %s%d (%s)", name, games[index].invite,
+						games[index].ping_estimated ? "~" : "", games[index].ping, games[index].direct ? "direct" : "list");
 				}
 			}
 		}

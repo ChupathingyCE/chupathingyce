@@ -4314,6 +4314,8 @@ static struct
 	browser takes up again as it comes back */
 	struct p2p_listing password_game;
 	boolean password_joined;
+	/* since when the game list is down (0: it is not), for its note */
+	unsigned long offline_time;
 } lobby_browser;
 
 /* the column titles that sort take the focus (the icons' do not) */
@@ -4578,12 +4580,16 @@ static short lobby_browser_rows_place(struct widget_instance *list)
 	return focused;
 }
 
-/* ---- the server browser's second source (configure.py --game-browser):
+/* ---- the server browser's main source (configure.py --game-browser):
 the games of a game list, network.browser_url (port/linux/src/browser.c;
-stats.chupathingy.org by default), merged into the listings' as listings of
-their own. A game both lists have is shown once, as its listing (the same invite
-token). One on a Halo PC map, which its host lists as <map>@ce (Custom
-Edition) or <map>@md (HaloMD), is marked PC or MD, and joined only where it
+stats.chupathingy.org by default), merged with the listings heard on the
+brokers. A game both have is shown once, as its listing (the same invite
+token: its password's lock and sealed invite are the listing's), with what
+the list says of it (its host, Delta's joining rules, its roster); one only
+the brokers have is OpenCE's (legacy) while the list answers. While the list
+is down the listings alone are shown, and the Rules line says so
+(BROWSER_LIST_OFFLINE_NOTE). One on a Halo PC map, which its host lists as
+<map>@ce (Custom Edition) or <map>@md (HaloMD), is marked PC or MD, and joined only where it
 can be played (with the map in its family's folders: server_browser.c), as
 a listing's on one is */
 
@@ -4612,7 +4618,7 @@ static struct browser_game const *lobby_browser_listed_game(struct p2p_listing c
 
 	for (index = 0; index < lobby_browser_listed.count; index++)
 	{
-		if (lobby_browser_listed.shown[index] && lobby_browser_same_token(game->invite,
+		if (!lobby_browser_listed.games[index].direct && lobby_browser_same_token(game->invite,
 			lobby_browser_listed.games[index].invite))
 		{
 			return &lobby_browser_listed.games[index];
@@ -4661,6 +4667,9 @@ static void lobby_browser_add_listed(void)
 		short other, engine;
 
 		lobby_browser_listed.shown[index] = FALSE;
+		/* (one heard directly is a listing the browser has already) */
+		if (listed->direct)
+			continue;
 		for (other = 0; other < lobby_browser.count; other++)
 		{
 			if (lobby_browser_same_token(lobby_browser.games[other].invite, listed->invite))
@@ -4772,7 +4781,8 @@ static int lobby_browser_version_state(struct p2p_listing const *game, short *ve
 }
 
 /* the Rules line's host, when the list has it (docs/delta.md, Delta List):
-" (MAC HOST, DELTA)", " (DEDICATED, LINUX, DELTA)", " (OPENCE)"; "" if not */
+" (MAC HOST, DELTA)", " (DEDICATED, LINUX, DELTA)", " (OPENCE LEGACY, NETWORK
+32)"; a listing the list lacks while it answers is OpenCE's; "" if not known */
 static void lobby_browser_host_text(struct p2p_listing const *game, wchar_t *text, short size)
 {
 	static wchar_t const *const platforms[] = {
@@ -4784,7 +4794,17 @@ static void lobby_browser_host_text(struct p2p_listing const *game, wchar_t *tex
 
 	text[0] = 0;
 	if (!listed)
+	{
+		/* (a listing the list lacks while it answers: OpenCE's, as the site says) */
+		if (config_boolean("network.online") && config_boolean("network.public_lobby") &&
+			browser_list_status() == BROWSER_LIST_ANSWERED)
+		{
+			usnprintf(text, size - 1, L" (%sOPENCE LEGACY, NETWORK %d)", game->dedicated ? L"DEDICATED, " : L"",
+				game->version);
+			text[size - 1] = 0;
+		}
 		return;
+	}
 	dedicated = listed->hosting == BROWSER_HOSTING_DEDICATED || listed->hosting == BROWSER_HOSTING_OFFICIAL;
 	platform = listed->has_platform && listed->host_platform < NUMBEROF(platforms) ? platforms[listed->host_platform] : L"";
 	usnprintf(text, size - 1, L"%s%s%s%s%s%s%s",
@@ -4792,7 +4812,7 @@ static void lobby_browser_host_text(struct p2p_listing const *game, wchar_t *tex
 		dedicated && platform[0] ? L", " : L"", platform, !dedicated && platform[0] ? L" HOST" : L"",
 		(dedicated || platform[0]) && listed->protocol ? L", " : L"",
 		listed->protocol == BROWSER_PROTOCOL_DELTA ? L"DELTA" : L"",
-		listed->protocol == BROWSER_PROTOCOL_OPENCE ? L"OPENCE" : L"");
+		listed->protocol == BROWSER_PROTOCOL_OPENCE ? L"OPENCE LEGACY" : L"");
 	/* (its network version: an OpenCE host's always, a Delta host's when not this build's) */
 	if (listed->version && (listed->protocol == BROWSER_PROTOCOL_OPENCE ||
 		(listed->protocol == BROWSER_PROTOCOL_DELTA && listed->version != delta_legacy_announce())))
@@ -4812,10 +4832,35 @@ static void lobby_browser_host_text(struct p2p_listing const *game, wchar_t *tex
 		text[size - 1] = 0;
 	}
 }
+
+/* whether the game list is down (its games then those heard directly):
+its note shows a while after it goes down or the browser opens, and while
+no game is found */
+static boolean lobby_browser_list_offline(unsigned long now)
+{
+	if (!config_boolean("network.online") || !config_boolean("network.public_lobby") ||
+		browser_list_status() != BROWSER_LIST_FAILED)
+	{
+		lobby_browser.offline_time = 0;
+		return FALSE;
+	}
+	if (!lobby_browser.offline_time || lobby_browser.offline_time < lobby_browser.begin_time)
+		lobby_browser.offline_time = now ? now : 1;
+	return !lobby_browser.count || now - lobby_browser.offline_time < LOBBY_BROWSER_MESSAGE_TIME;
+}
 #else
 static void lobby_browser_add_listed(void)
 {
 }
+
+static boolean lobby_browser_list_offline(unsigned long now)
+{
+	(void)now;
+	return FALSE;
+}
+
+/* (never shown: no game list here) */
+#define BROWSER_LIST_OFFLINE_NOTE ""
 
 static void lobby_browser_roster_text(struct p2p_listing const *game, wchar_t *text, short size)
 {
@@ -5087,6 +5132,8 @@ static void lobby_browser_update(struct widget_instance *list)
 			usnprintf(text, NUMBEROF(text) - 1, L"%s", p2p_join_failure() == P2P_JOIN_NO_CONNECTION ?
 				JOIN_WIDE(JOIN_REASON_NO_CONNECTION_LINE) : JOIN_WIDE(JOIN_REASON_NO_ANSWER));
 		}
+		else if (lobby_browser_list_offline(now))
+			usnprintf(text, NUMBEROF(text) - 1, L"%s", JOIN_WIDE(BROWSER_LIST_OFFLINE_NOTE));
 		else if (!lobby_browser.count)
 		{
 			usnprintf(text, NUMBEROF(text) - 1, L"%s", now - lobby_browser.begin_time < LOBBY_BROWSER_LOOK_TIME ?

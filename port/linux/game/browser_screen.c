@@ -7,6 +7,11 @@ on a screen of its own over the menus, as the game's virtual keyboard is
 (interface/virtual_keyboard.c): drawn and driven by code, not a widget of
 the user interface's tags.
 
+The list is the main source; the games heard on the brokers that it lacks
+come after its own (browser_get_games), marked OpenCE (legacy) while it
+answers. While it is down, the screen shows the games found directly and
+says so in the footer (BROWSER_LIST_OFFLINE_NOTE).
+
 The Multiplayer menu's ONLINE GAMES item opens it (ui_widget.c). Up and
 down pick a game, left and right turn the page, A joins it through its
 invite, as a web page's Join or an invite link would, and B goes back. Once
@@ -1679,6 +1684,9 @@ static char const *host_text(
 	}
 	else
 		snprintf(host, sizeof(host), "%s", platform ? platform : "");
+	/* (a game heard on the brokers while the list is down: nothing said of its host) */
+	if (!protocol && game->direct)
+		protocol = "Found directly";
 	if (!host[0] && !protocol)
 		return NULL;
 	snprintf(text, (size_t)size, "%s%s%s", host, host[0] && protocol ? ", " : "", protocol ? protocol : "");
@@ -2541,8 +2549,8 @@ static void draw_empty_list(
 		line = "Set network.browser_url in config.toml.";
 		break;
 	case BROWSER_LIST_FAILED:
-		title = "The game list isn't answering.";
-		line = "Check your internet connection.";
+		title = "The game list is offline.";
+		line = "No games found directly either. Check your internet connection.";
 		break;
 	case BROWSER_LIST_WAITING:
 		title = "Looking for games\xE2\x80\xA6";
@@ -2606,6 +2614,12 @@ static void draw_list_footer(
 	}
 	else if (blocker)
 		ui_overlay_text(UI_FONT_MENU, FOOT_SIZE + 0.5f, LIST_X + 14, text_y - 0.25f, UI_ALIGN_LEFT, COLOR_WARN, blocker);
+	/* (the list is down: its games are those heard directly) */
+	else if (browser_list_status() == BROWSER_LIST_FAILED)
+	{
+		ui_overlay_text(UI_FONT_MENU_SMALL, FOOT_SIZE, LIST_X + 14, text_y, UI_ALIGN_LEFT, COLOR_WARN,
+			BROWSER_LIST_OFFLINE_NOTE);
+	}
 	/* (this machine hosts an internet game: whether players can reach it) */
 	else if (hosting_status(status, sizeof(status)))
 		ui_overlay_text(UI_FONT_MENU_SMALL, FOOT_SIZE, LIST_X + 14, text_y, UI_ALIGN_LEFT, COLOR_HEAD, status);
