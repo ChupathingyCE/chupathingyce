@@ -295,8 +295,10 @@ int posix_socket_accept(int socket, void *address, int *address_length)
 server's health reports (game_events.c): every thread's, so added atomically */
 static struct
 {
-	unsigned long long sent;
-	unsigned long long received;
+	/* (8-byte aligned: a 32-bit x86 build otherwise aligns them to 4 and calls
+	libatomic, which isn't linked, instead of using cmpxchg8b) */
+	unsigned long long sent __attribute__((aligned(8)));
+	unsigned long long received __attribute__((aligned(8)));
 } traffic;
 
 static int traffic_sent(int result)
