@@ -2619,6 +2619,24 @@ static void trigger_create_projectiles(
 				normalize3d(perpendicular3d(&data.forward, &data.up));
 				projectile_distribute(&data.forward, &data.up, trigger_definition->projectile_distribution_function, trigger_definition->projectile_distribution_angle, projectile_index, projectile_count);
 				scale_vector3d(&data.forward, velocity, &data.translational_velocity);
+#ifdef HALO_CUSTOM_EDITION
+				/* port: Halo PC starts a projectile whose tag has "combine initial
+				velocity with parent velocity" with the whole velocity of what
+				fired it (the owner's ultimate parent: the vehicle the gun is on),
+				not only the part along its aim, and also when it cannot be aimed
+				(haloceded 1.0.10, trigger_create_projectiles). The Xbox's engine
+				never reads the flag. A Custom Edition map plays as Halo PC's, so
+				a bomb dropped from a moving aircraft keeps the aircraft's speed
+				(Coldsnap's nuke, Hugeass's) */
+				if (cache_file_tags_are_ce() &&
+					projectile_definition_combines_parent_velocity(projectile_definition_get(projectile_definition_index)))
+				{
+					long parent_index = object_get_ultimate_parent(
+						owner_object_index != NONE ? owner_object_index : weapon_index);
+
+					data.translational_velocity = object_get(parent_index)->object.translational_velocity;
+				}
+#endif
 
 				inside_bsp= unit && unit->unit.player_index!=NONE;
 				if (inside_bsp)
