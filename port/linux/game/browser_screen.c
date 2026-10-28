@@ -462,6 +462,9 @@ int p2p_joined_invite(char *text, int size);
 and whether players can reach this host */
 int p2p_invite_link(char *link, int size);
 int p2p_hosting_status(char *text, int size);
+/* p2p.c's: why the invite joined has not reached its host (2: the host
+answered, but no connection got through; p2p.h's P2P_JOIN_NO_CONNECTION) */
+int p2p_join_failure(void);
 void platform_log(char const *format, ...);
 int config_boolean(char const *name);
 void display_error_text_deferred(wchar_t const *text, short local_player_index);
@@ -701,6 +704,14 @@ static void offer_button(
 static char const *game_type_blocker(struct browser_game const *game);
 static char const *version_blocker(struct browser_game const *game, char *text, long size);
 
+/* a join that timed out: the host never answered, or it did but strict
+NATs kept the connection out (with what helps) */
+static char const *no_answer_reason(
+	void)
+{
+	return p2p_join_failure() == 2 ? JOIN_REASON_NO_CONNECTION_LINE : JOIN_REASON_NO_ANSWER;
+}
+
 /* a game picked: its invite joined (the tunnel to its host), then its game
 joined once advertised through it (browser_screen_process) */
 static void join_selected(
@@ -791,7 +802,7 @@ static void wait_for_host(
 			if (system_milliseconds() - browser_screen.connecting_time > CONNECT_TIMEOUT)
 			{
 				browser_screen.connecting = FALSE;
-				set_status(JOIN_REASON_NO_ANSWER);
+				set_status(no_answer_reason());
 			}
 			return;
 		}
@@ -839,7 +850,7 @@ static void wait_for_host(
 	else if (system_milliseconds() - browser_screen.connecting_time > CONNECT_TIMEOUT)
 	{
 		browser_screen.connecting = FALSE;
-		set_status(JOIN_REASON_NO_ANSWER);
+		set_status(no_answer_reason());
 	}
 }
 

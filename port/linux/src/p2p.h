@@ -45,6 +45,18 @@ void p2p_joining_host(const unsigned char *identifier);
 #endif
 #endif
 
+/* why the last invite joined has not reached its host, for a failed
+join's message: 0 it has (or none was joined); P2P_JOIN_NO_ANSWER the host
+never answered (it stopped hosting, or quit); P2P_JOIN_NO_CONNECTION it
+answered, but the tunnel could not get through (both networks' NATs too
+strict) */
+enum
+{
+	P2P_JOIN_NO_ANSWER = 1,
+	P2P_JOIN_NO_CONNECTION = 2,
+};
+int p2p_join_failure(void);
+
 /* this machine's identifier, which its XNADDR carries (6 bytes) */
 const unsigned char *p2p_identifier(void);
 /* the address the game reaches the machine with this identifier at, if it

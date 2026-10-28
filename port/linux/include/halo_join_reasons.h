@@ -43,6 +43,8 @@ enum join_reason
 	_join_reason_password,
 	/* the host never answered */
 	_join_reason_no_answer,
+	/* the host answered, but no connection got through (strict NATs) */
+	_join_reason_no_connection,
 
 	NUMBER_OF_JOIN_REASONS
 };
@@ -65,6 +67,7 @@ enum join_reason
 #define JOIN_REASON_FULL "Game is full."
 #define JOIN_REASON_PASSWORD "Password needed."
 #define JOIN_REASON_NO_ANSWER "The host didn't answer."
+#define JOIN_REASON_NO_CONNECTION "Couldn't connect to the host."
 
 /* a reason without a detail as its sentence ("" for none, or one with a
 detail) */
@@ -76,7 +79,8 @@ detail) */
 	(reason) == _join_reason_not_open ? JOIN_REASON_NOT_OPEN : \
 	(reason) == _join_reason_full ? JOIN_REASON_FULL : \
 	(reason) == _join_reason_password ? JOIN_REASON_PASSWORD : \
-	(reason) == _join_reason_no_answer ? JOIN_REASON_NO_ANSWER : "")
+	(reason) == _join_reason_no_answer ? JOIN_REASON_NO_ANSWER : \
+	(reason) == _join_reason_no_connection ? JOIN_REASON_NO_CONNECTION : "")
 
 /* a game of another network version's reason (browser_version_state's
 state: -1 older, 1 newer) */
@@ -85,6 +89,9 @@ state: -1 older, 1 newer) */
 /* what the player can do about it, after the reason in a message */
 #define JOIN_HINT_UPDATE "Update Chupathingy to join this game."
 #define JOIN_HINT_HOST_UPDATE "Ask the host to update."
+#define JOIN_HINT_NO_CONNECTION "The host can forward its UDP port or turn on UPnP."
+/* a failed connection's reason and hint, as one line */
+#define JOIN_REASON_NO_CONNECTION_LINE JOIN_REASON_NO_CONNECTION " " JOIN_HINT_NO_CONNECTION
 
 /* the title of a failed join's message */
 #define JOIN_FAILED_TITLE "Halo: can't join this game"
