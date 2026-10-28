@@ -20,7 +20,7 @@
 <img src="https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux%20%7C%20Android-lightgrey" alt="Platforms: Windows, macOS, Linux, Android">
 </p>
 
-> **Compatible with OpenCE build-244 (network version 32) for online play.** Players on that build join our games, and ours join games hosted on network versions 11 through 40. Dedicated servers can announce network version 39, so OpenCE players on it join them too. Browser builds can't join our games, nor we theirs.
+> **Compatible with OpenCE build-314 (network version 39) for online play.** Players on it join our games, and ours join games hosted on network versions 11 through 40. The original Xbox follows along through Delta; the Xbox 360, Wii U and Switch builds join by network version 32 until their next updates, and our Warthog servers announce 32 for them. Browser builds can't join our games, nor we theirs.
 
 Delta is Chupathingy's own network: Chupathingy players on every platform always play together, whatever OpenCE's version.
 
