@@ -3125,6 +3125,8 @@ void game_engine_end_game(void);
 /* the platform layer's */
 int p2p_join_invite(char const *text);
 int p2p_invite_link(char *link, int size);
+int p2p_hosting_status(char *text, int size);
+void p2p_check_network(void);
 void p2p_set_hosting_allowed(int allowed);
 int p2p_peer_address(unsigned char const *identifier, unsigned long *address);
 int platform_clipboard_get(char *text, int size);
@@ -5974,6 +5976,18 @@ static void lobby_map_show(struct widget_instance *description, char const *map_
 		widget->parameters.text_box.string_list_index = level;
 }
 
+/* (the status, ASCII, as wide text after what text holds) */
+static void append_hosting_status(wchar_t *text, size_t count, wchar_t const *separator, char const *status)
+{
+	size_t length = ustrlen(text);
+
+	for (; *separator && length < count - 1; separator++)
+		text[length++] = *separator;
+	for (; *status && length < count - 1; status++)
+		text[length++] = (wchar_t)(unsigned char)*status;
+	text[length] = 0;
+}
+
 /* "port lobby update" */
 static void lobby_update(struct widget_instance *list)
 {
@@ -6032,6 +6046,14 @@ static void lobby_update(struct widget_instance *list)
 			size_t length = ustrlen(text);
 
 			usnprintf(text + length, NUMBEROF(text) - 1 - length, L"\r\n\r\nInvite link copied.");
+		}
+		/* (the host of an internet game: whether players can reach it) */
+		{
+			char status[192];
+
+			if (global_network_game_server_get() && p2p_invite_link(link, sizeof(link)) &&
+				p2p_hosting_status(status, sizeof(status)))
+				append_hosting_status(text, NUMBEROF(text), L"\r\n\r\n", status);
 		}
 		text_set_length(named(description, "lobby_game_data", 0), text, LOBBY_TEXT_LENGTH);
 	}
@@ -7149,8 +7171,24 @@ static boolean host_setup_value(short row, wchar_t *text)
 	return FALSE;
 }
 
+/* the host's reachability (p2p_hosting_status) after a row's help, on a
+line of its own, for an internet game: wide text in buffer */
+static wchar_t const *host_help_with_status(wchar_t const *help, wchar_t *buffer, size_t count)
+{
+	char status[192];
+
+	if (multiplayer.mode == _multiplayer_mode_host_lan || !p2p_hosting_status(status, sizeof(status)))
+		return help;
+	ustrncpy(buffer, help, count - 1);
+	buffer[count - 1] = 0;
+	append_hosting_status(buffer, count, L"\r\n", status);
+	return buffer;
+}
+
 static wchar_t const *host_setup_help(short row)
 {
+	static wchar_t with_status[ROW_TEXT_LENGTH * 3];
+
 	switch (row)
 	{
 	case _host_row_name:
@@ -7163,7 +7201,8 @@ static wchar_t const *host_setup_help(short row)
 	case _host_row_password:
 		return L"Required to join from the game list.";
 	case _host_row_port:
-		return L"The UDP port for internet play. Applies on restart.";
+		return host_help_with_status(L"The UDP port for internet play. Applies on restart.", with_status,
+			NUMBEROF(with_status));
 	case _host_row_game_type:
 		return L"Choose the game type. %a-button edits it.";
 	case _host_row_team_change:
@@ -7180,7 +7219,7 @@ static wchar_t const *host_setup_help(short row)
 	case _host_row_rules:
 		return L"Team switching, the chat filter and mouse aim assist.";
 	case _host_row_start:
-		return L"Open the lobby.";
+		return host_help_with_status(L"Open the lobby.", with_status, NUMBEROF(with_status));
 	}
 	return L"";
 }
@@ -7737,6 +7776,9 @@ static boolean host_initialize(struct widget_instance *list)
 		{
 			host_setup.server = server;
 			host_setup_read();
+			/* (the network looked at now: the reachability the help shows
+			is known before the game starts) */
+			p2p_check_network();
 			multiplayer.game_private = !config_boolean("network.host_public");
 			multiplayer.game_password[0] = 0;
 			if (!multiplayer.game_name[0] && player_ui_get_active_player_profile_index(0) != NONE)
