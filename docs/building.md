@@ -95,6 +95,7 @@ and what each hook asks of the port, or on its compile lines:
 | `HALO_CONSOLE_DELTA` | Delta Peer as a client |
 | `HALO_CONSOLE_NO_*` | the desktop extras a console leaves out (`halo_port_features.h`, a port's prefix header) |
 | `HALO_CONSOLE_ONLINE_GAMES` | the console's own Online Games screen |
+| `HALO_CONSOLE_MENU_PLATFORM` | the console's name for the menus (`x360`, `wiiu`): the Chupathingy menus' rows marked `console` or with that name in place of the desktop's, packed with no gaps, and ui.map's button pictures in the prompts (`port/assets/menus/README.md`, `tools/port_settings.py`) |
 | `HALO_CONSOLE_PROFILE_ID` | on the port's compile line: Delta Peer's PROFILE carries `console_profile_id()`, the port's (a console linked with Link Profile, `port/console/link`) |
 | `HALO_CONSOLE_LOG_BUFFER`, `HALO_CONSOLE_LOG_THROTTLE` | a log whose writes are slow |
 | `HALO_CONSOLE_GPU_RESOURCE_HOOKS`, `HALO_CONSOLE_NO_WRITE_WATCH`, `HALO_CONSOLE_HOST_ART`, `HALO_CONSOLE_MAP_LOAD_HOOKS`, `HALO_CONSOLE_STATUS_LINE` | a console renderer of its own |

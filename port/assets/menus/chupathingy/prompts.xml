@@ -4,25 +4,45 @@ Xbox's are laid out, the button drawn as the device last used names it (a
 key cap, an Xbox-like pad's by snapchipper's icons, a PlayStation or
 Nintendo pad's own: port/linux/game/menu_tags.c's pc_menu_button_key_cap).
 Their own tags, not ui.map's, so that they show in a game's pause menu
-too. -->
+too.
+
+The consoles that draw no overlay (platform="console": the Xbox 360 and the
+Wii U, halo_console_features.h's HALO_CONSOLE_MENU_PLATFORM) draw A, B, X
+and Y with ui.map's own pictures instead, the Xbox's, scaled to the prompt
+(in a game's map, which has not got them, nothing). The Wii U's buttons go
+by their labels (A accepts, B backs out), so the letters are right there
+too. ui.map has no pictures of white and black, which are other buttons on
+these consoles (LB and RB, L and R): those stay blank there. -->
 <menus>
-	<bitmap name="chupathingy/prompts/a_butn">
+	<bitmap name="chupathingy/prompts/a_butn" platform="desktop android switch">
 		<frame png="ce/port/blank__0.png" width="4" height="4"/>
+	</bitmap>
+	<bitmap name="chupathingy/prompts/a_butn" platform="console">
+		<frame map="ui\shell\bitmaps\a_butn" index="0" width="28" height="28"/>
 	</bitmap>
 	<widget name="chupathingy/prompts/a" controller="1" width="20" height="22" bitmap="chupathingy/prompts/a_butn">
 	</widget>
-	<bitmap name="chupathingy/prompts/b_butn">
+	<bitmap name="chupathingy/prompts/b_butn" platform="desktop android switch">
 		<frame png="ce/port/blank__0.png" width="4" height="4"/>
+	</bitmap>
+	<bitmap name="chupathingy/prompts/b_butn" platform="console">
+		<frame map="ui\shell\bitmaps\b_butn" index="0" width="28" height="28"/>
 	</bitmap>
 	<widget name="chupathingy/prompts/b" controller="1" width="20" height="22" bitmap="chupathingy/prompts/b_butn">
 	</widget>
-	<bitmap name="chupathingy/prompts/x_butn">
+	<bitmap name="chupathingy/prompts/x_butn" platform="desktop android switch">
 		<frame png="ce/port/blank__0.png" width="4" height="4"/>
+	</bitmap>
+	<bitmap name="chupathingy/prompts/x_butn" platform="console">
+		<frame map="ui\shell\bitmaps\x_butn" index="0" width="28" height="28"/>
 	</bitmap>
 	<widget name="chupathingy/prompts/x" controller="1" width="20" height="22" bitmap="chupathingy/prompts/x_butn">
 	</widget>
-	<bitmap name="chupathingy/prompts/y_butn">
+	<bitmap name="chupathingy/prompts/y_butn" platform="desktop android switch">
 		<frame png="ce/port/blank__0.png" width="4" height="4"/>
+	</bitmap>
+	<bitmap name="chupathingy/prompts/y_butn" platform="console">
+		<frame map="ui\shell\bitmaps\y_butn" index="0" width="28" height="28"/>
 	</bitmap>
 	<widget name="chupathingy/prompts/y" controller="1" width="20" height="22" bitmap="chupathingy/prompts/y_butn">
 	</widget>
