@@ -231,8 +231,11 @@ def alpine_build(platform: str, config: str) -> int:
     # checkout's owner is another user there)
     environment += ["-e", f"HALO_COMMIT={commit()}"]
     script = f"apk add --no-cache -q {' '.join(ALPINE_PACKAGES)} && python3 tools/ci_build.py {platform} {config}"
-    run(["docker", "run", "--rm", "--platform", DOCKER_PLATFORMS[platform], "-v", f"{ROOT}:/src", "-w", "/src",
-         *environment, ALPINE_IMAGE, "sh", "-c", script])
+    # (--pull=always: the image is one tag for every architecture, and Docker
+    # runs one already there as it is, so after an x86 build the x64 one
+    # would build in the x86 container)
+    run(["docker", "run", "--rm", "--pull=always", "--platform", DOCKER_PLATFORMS[platform], "-v", f"{ROOT}:/src",
+         "-w", "/src", *environment, ALPINE_IMAGE, "sh", "-c", script])
     return 0
 
 
