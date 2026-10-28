@@ -107,6 +107,12 @@ struct observer_result const *observer_get_camera(
 	short local_player_index);
 boolean observer_command_has_finished(
 	short local_player_index);
+#ifndef HALO_XBOX_CONSOLE
+/* the camera's velocity over the last game tick (observer.c) */
+void observer_get_tick_velocity(
+	short local_player_index,
+	real_vector3d *velocity);
+#endif
 
 void observer_up_from_forward(
 	real_vector3d const *forward,

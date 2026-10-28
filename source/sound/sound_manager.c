@@ -3907,10 +3907,23 @@ static void refresh_listener(
 				&camera->position,
 				&camera->forward,
 				&camera->up);
+#ifndef HALO_XBOX_CONSOLE
+			/* (a tick's velocity, not the last frame's: observer.c) */
+			{
+				real_vector3d velocity;
+
+				observer_get_tick_velocity(local_player_index, &velocity);
+				matrix4x3_inverse_transform_vector(
+					&listener->matrix,
+					&velocity,
+					&listener->velocity);
+			}
+#else
 			matrix4x3_inverse_transform_vector(
 				&listener->matrix,
 				&camera->velocity,
 				&listener->velocity);
+#endif
 		}
 		else
 		{
