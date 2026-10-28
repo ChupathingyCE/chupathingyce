@@ -1034,8 +1034,13 @@ static int delta_get(const char *url, const char *form, const char *content_type
 _delta_invalid too */
 static enum delta_result delta_fetch(const char *url, const char *source, int *absent)
 {
-	/* (one byte past the cap shows a document cut short) */
-	static char document[DELTA_LEGACY_DOCUMENT_SIZE + 2 + DELTA_HEADER_ROOM];
+	/* (one byte past the cap shows a document cut short; a console's is on
+	the port's thread's stack, so that its memory is not kept between
+	fetches) */
+#ifdef HALO_GAME_BROWSER
+	static
+#endif
+	char document[DELTA_LEGACY_DOCUMENT_SIZE + 2 + DELTA_HEADER_ROOM];
 	char signature[256 + DELTA_HEADER_ROOM], signature_url[600], error[256];
 	int status;
 
