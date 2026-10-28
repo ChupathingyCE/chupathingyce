@@ -195,7 +195,7 @@ jobs:
 
       - name: Test
         run: |
-          python3 -m pytest -q tools/test_linux_port.py tools/test_android_asm_convert.py tools/test_touch_menu.py tools/test_ui_point.py tools/test_p2p_copies.py tools/test_ping.py tools/test_save_folder.py tools/test_packaged_install.py tools/test_server_control.py tools/test_delta.py tools/test_delta_peer.py tools/test_delta_compat.py tools/test_network_rules.py tools/test_map_download.py tools/test_playlist_maps.py tools/test_map_families.py tools/test_map_packs.py tools/test_map_report.py tools/test_event_log.py tools/test_update_manifest.py
+          python3 -m pytest -q tools/test_linux_port.py tools/test_android_asm_convert.py tools/test_touch_menu.py tools/test_ui_point.py tools/test_p2p_copies.py tools/test_ping.py tools/test_save_folder.py tools/test_packaged_install.py tools/test_server_control.py tools/test_delta.py tools/test_delta_peer.py tools/test_delta_compat.py tools/test_network_rules.py tools/test_map_download.py tools/test_playlist_maps.py tools/test_map_families.py tools/test_map_packs.py tools/test_map_report.py tools/test_event_log.py tools/test_update_manifest.py tools/test_gamespy_listing.py
           python3 tools/test_light_storage.py
           python3 tools/test_rendered_lights_storage.py
           python3 tools/test_port_config.py
