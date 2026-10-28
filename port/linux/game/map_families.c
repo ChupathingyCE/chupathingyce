@@ -17,6 +17,9 @@ play it); the files are looked for only on the builds that play such maps
 #endif
 #include "../src/map_archive.h"
 #include "../src/map_file_hash.h"
+#ifdef HALO_COMPRESSED_MAPS
+#include "../src/map_compressed.h"
+#endif
 #include "map_stock_pairs.h"
 
 #include <stdio.h>
@@ -403,6 +406,9 @@ enum
 	XBOX_CACHE_VERSION = 5,
 };
 
+/* what chimera-compress adds to a compressed map's version (map_compressed.h) */
+#define COMPRESSED_CACHE_VERSION_MARK 0x861A0000UL
+
 /* each family's places, in the order they are looked in: a folder (under
 the maps folder, or the data root's) and the suffix its files' names have.
 Each family's own folder beside maps first; then the older places, read as
@@ -504,7 +510,9 @@ static void place_folder(
 }
 
 /* whether a file is a cache file of a version (and a multiplayer map's, if
-asked) */
+asked); on the desktop, a map of the version compressed with Chimera's
+chimera-compress too (port/linux/src/map_compressed.h), which keeps its
+header but for its version */
 static boolean cache_file_is(
 	char const *path,
 	long version,
@@ -519,11 +527,34 @@ static boolean cache_file_is(
 		return FALSE;
 	if (ReadFile(file, header, sizeof(header), &bytes_read, NULL) && bytes_read == sizeof(header))
 	{
-		result = header[0] == CACHE_HEADER_SIGNATURE && header[1] == (unsigned long)version &&
+		result = header[0] == CACHE_HEADER_SIGNATURE &&
+			(header[1] == (unsigned long)version
+#ifdef HALO_COMPRESSED_MAPS
+				|| header[1] == (COMPRESSED_CACHE_VERSION_MARK | (unsigned long)version)
+#endif
+			) &&
 			(!multiplayer || (header[CACHE_HEADER_TYPE_OFFSET / 4] & 0xffff) == CACHE_TYPE_MULTIPLAYER);
 	}
 	CloseHandle(file);
 	return result;
+}
+
+/* whether a file in a place is a cache file of a version (cache_file_is); a
+compressed map's is played from its expanded copy, which path then names
+(map_compressed_file_resolve: in the save root's cache, made once) */
+static boolean place_cache_file(
+	char *path,
+	long size,
+	long version)
+{
+	if (!cache_file_is(path, version, FALSE))
+		return FALSE;
+#ifdef HALO_COMPRESSED_MAPS
+	return map_compressed_file_resolve(path, (int)size) ? TRUE : FALSE;
+#else
+	(void)size;
+	return TRUE;
+#endif
 }
 
 /* a hashed name's map (<base>_<8 hex digits>, the naming other builds use
@@ -552,7 +583,7 @@ static boolean hashed_name_find(
 
 		place_folder(&places[index], folder, sizeof(folder));
 		snprintf(path, (size_t)size, "%s%s%s.map", folder, base, places[index].suffix);
-		if (!cache_file_is(path, CUSTOM_EDITION_CACHE_VERSION, FALSE) || !map_file_hash_prefix(path, &found) ||
+		if (!place_cache_file(path, size, CUSTOM_EDITION_CACHE_VERSION) || !map_file_hash_prefix(path, &found) ||
 			found != prefix)
 		{
 			continue;
@@ -623,7 +654,7 @@ static boolean place_file(
 
 		place_folder(&places[index], folder, sizeof(folder));
 		snprintf(path, (size_t)size, "%s%s%s.map", folder, file, places[index].suffix);
-		if (cache_file_is(path, family_cache_version(family), FALSE))
+		if (place_cache_file(path, size, family_cache_version(family)))
 			return TRUE;
 	}
 	return FALSE;
@@ -677,7 +708,7 @@ static boolean stock_find(
 
 			place_folder(&places[index], folder, sizeof(folder));
 			snprintf(path, (size_t)size, "%s%s%s.map", folder, file, places[index].suffix);
-			if (!cache_file_is(path, family_cache_version(edition), FALSE))
+			if (!place_cache_file(path, size, family_cache_version(edition)))
 				continue;
 			if (version_matches(path, version))
 				return TRUE;
@@ -715,7 +746,7 @@ static boolean find_version(
 
 		place_folder(&places[index], folder, sizeof(folder));
 		snprintf(path, (size_t)size, "%s%s%s.map", folder, file, places[index].suffix);
-		if (cache_file_is(path, family_cache_version(family), FALSE) && version_matches(path, version))
+		if (place_cache_file(path, size, family_cache_version(family)) && version_matches(path, version))
 			return TRUE;
 	}
 	if (family == _map_family_custom_edition)
@@ -730,7 +761,7 @@ static boolean find_version(
 			place_folder(&places[index], folder, sizeof(folder));
 			snprintf(path, (size_t)size, "%s%s_%08lx%s.map", folder, file, version & 0xffffffffUL,
 				places[index].suffix);
-			if (cache_file_is(path, CUSTOM_EDITION_CACHE_VERSION, FALSE) && version_matches(path, version))
+			if (place_cache_file(path, size, CUSTOM_EDITION_CACHE_VERSION) && version_matches(path, version))
 				return TRUE;
 		}
 		/* (a hashed name an older host gave the map: its base's file) */

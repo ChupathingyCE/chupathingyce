@@ -147,6 +147,7 @@ def generate_macos_build(n: Writer, sln: Any) -> None:
             ffmpeg_inputs = [ffmpeg_stamp, *ffmpeg_archives]
         host = Lp64Host(
             name="macos",
+            compressed_maps=True,
             target_flags=[target],
             game_flags=MACOS_GAME_FLAGS,
             posix_flags=MACOS_POSIX_FLAGS,

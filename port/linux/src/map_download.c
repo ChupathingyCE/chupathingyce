@@ -29,7 +29,9 @@ map must also have the whole-file hash the name ends in; it is put in
 any partial file are deleted, whatever happens. The map is then marked as
 downloaded (map_families.c, for good: maps_ce/downloaded_maps.txt), so its
 scripts are held to a downloaded map's rules, and the game's own checks read all of it before it is played
-(ce_map_checks.c).
+(ce_map_checks.c). A map compressed with Chimera's chimera-compress is
+expanded right after it is unpacked (map_compressed.c), then checked and
+kept as any other.
 
 The log (debug.txt) has each request's address (the map's name alone, no
 player's), the sizes, which checks passed or failed, and the result.
@@ -38,6 +40,7 @@ player's), the sizes, which checks passed or failed, and the result.
 #include "platform.h"
 #include "port_config.h"
 #include "map_archive.h"
+#include "map_compressed.h"
 #include "map_download.h"
 #include "map_file_hash.h"
 #include "halo_map_families.h"
@@ -238,6 +241,52 @@ static int receive(const char *url, const char *path, int *status, char *error, 
 	return ok;
 }
 
+#ifdef HALO_COMPRESSED_MAPS
+/* the map unpacked into partial_path (its file open in *map), compressed
+with Chimera's chimera-compress, expanded in its place (map_compressed.c):
+the file reopened in *map, its header in header and its size in *map_size.
+1, or 0 with why in error */
+static int expand_download(const char *file, const char *partial_path, HANDLE *map, unsigned char *header,
+	unsigned int *map_size, char *error, int error_size)
+{
+	char expanded[MAP_DOWNLOAD_PATH_SIZE + 16];
+	DWORD high = 0, read = 0;
+	int ok;
+
+	platform_log("map download: %s.map is compressed (Chimera's format): expanding it", file);
+	set_phase(MAP_DOWNLOAD_UNPACKING, 0, 0);
+	CloseHandle(*map);
+	*map = INVALID_HANDLE_VALUE;
+	snprintf(expanded, sizeof(expanded), "%s.expanded", partial_path);
+	ok = map_compressed_file_expand(partial_path, expanded, error, error_size);
+	DeleteFileA(partial_path);
+	if (ok && !MoveFileA(expanded, partial_path))
+	{
+		snprintf(error, (size_t)error_size, "could not write into maps_ce");
+		ok = 0;
+	}
+	if (!ok)
+	{
+		DeleteFileA(expanded);
+		return 0;
+	}
+	*map = CreateFileA(partial_path, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL,
+		NULL);
+	ok = *map != INVALID_HANDLE_VALUE && ReadFile(*map, header, MAP_ARCHIVE_HEADER_SIZE, &read, NULL) &&
+		read == MAP_ARCHIVE_HEADER_SIZE;
+	if (ok)
+	{
+		*map_size = (unsigned int)GetFileSize(*map, &high);
+		ok = !high && *map_size != INVALID_FILE_SIZE;
+	}
+	if (!ok)
+		snprintf(error, (size_t)error_size, "the map could not be read back");
+	else
+		platform_log("map download: %s.map expanded, %u bytes", file, *map_size);
+	return ok;
+}
+#endif
+
 /* the map file (its name in the archive, and inside it) unpacked from the
 archive at archive_path into partial_path, and its header checked, and its
 version, the host's when it said which (map_download.version); for a hashed
@@ -287,7 +336,11 @@ static int unpack_and_check(const char *file, int hashed, unsigned int prefix, c
 			ReadFile(files.map, header, sizeof(header), &read, NULL) && read == sizeof(header);
 		if (!ok)
 			snprintf(error, (size_t)error_size, "the map could not be read back");
-		else
+#ifdef HALO_COMPRESSED_MAPS
+		else if (map_compressed_version(header))
+			ok = expand_download(file, partial_path, &files.map, header, &map_size, error, error_size);
+#endif
+		if (ok)
 			ok = map_archive_check_header(header, map_size, file, 0, error, error_size);
 		if (ok)
 		{
@@ -295,7 +348,8 @@ static int unpack_and_check(const char *file, int hashed, unsigned int prefix, c
 				file, map_archive_header_checksum(header));
 		}
 	}
-	CloseHandle(files.map);
+	if (files.map != INVALID_HANDLE_VALUE)
+		CloseHandle(files.map);
 	/* (the host's version: its hash's from a host of network version 29,
 	its checksum from an older one) */
 	if (ok && map_download.version)

@@ -107,6 +107,7 @@ def generate_linux64_build(n: Writer, sln: Any) -> None:
                          + ui_fonts_build(n, "linux64", build_dir / "generated" / "ui_fonts.c", sln))
     host = Lp64Host(
         name="linux64",
+        compressed_maps=True,
         target_flags=[LINUX64_TARGET, march_flag(sln), *(sdl.cflags if sdl else [])],
         game_flags=LINUX64_GAME_FLAGS,
         posix_flags=LINUX64_POSIX_FLAGS,
