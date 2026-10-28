@@ -343,6 +343,8 @@ static const struct config_setting config_settings[] =
 		"default; the consoles' is 2. Changes at once." },
 	{ "display.vsync", _config_boolean, "true", "HALO_NO_VSYNC", _environment_set_is_false, _platform_all,
 		"Wait for the display between frames." },
+	{ "display.skip_intro", _config_boolean, "false", "HALO_SKIP_INTRO", _environment_set_is_true, _platform_all,
+		"Skip the startup intro movie and advance directly to the main menu." },
 	{ "display.max_fps", _config_integer, "0", "HALO_MAX_FPS", _environment_value, _platform_all,
 		"With vsync off, the frame rate limit: 0 for twice the display's rate,\n"
 		"-1 for none (can hang some Intel graphics, and heats a phone)." },
