@@ -838,7 +838,7 @@ A chupa-32a console can't join a Slayer game on a server announcing 39 by
 number (it joins to 33), which is why servers announce 39 only by their own
 table. **The transition has no end date.** Hosts write the old layout where
 it fits for as long as released builds need it, and new builds read it.
-Stopping either needs the owner's decision ("Never drop an old protocol").
+Stopping either is a deliberate decision ("Never drop an old protocol").
 
 **The cost of one slot** (the old layout, for the record). A released client
 that checked the slot exactly saw the host's oldest compatible wire,
