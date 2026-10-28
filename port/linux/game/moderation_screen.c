@@ -82,6 +82,8 @@ enum
 {
 	COLOR_SHADE = 0x000000A0,
 	COLOR_PANEL = 0x081530F0,
+	/* (the screen's own panel: opaque, the pause menu under it hidden) */
+	COLOR_SCREEN_PANEL = 0x081530FF,
 	COLOR_PANEL_EDGE = 0x2F6DD0FF,
 	COLOR_TITLE = 0x3D8BFFFF,
 	COLOR_TEXT = 0xE6EEFCFF,
@@ -646,6 +648,22 @@ static float prompt(
 	return x + 18.0f;
 }
 
+/* left and right's prompt (the action, or while confirming the reason): both
+arrows, then the words; the pointer steps on with it */
+static float prompt_left_right(
+	char const *words,
+	float x,
+	float y)
+{
+	float left = x;
+
+	x += ui_overlay_button(UI_BUTTON_DPAD_LEFT, 15.0f, x, y, 0xFFFFFFFF) + 2.0f;
+	x += ui_overlay_button(UI_BUTTON_DPAD_RIGHT, 15.0f, x, y, 0xFFFFFFFF) + 3.0f;
+	x += ui_overlay_text(UI_FONT_BOLD, 12.0f, x, y + 1.5f, UI_ALIGN_LEFT, COLOR_PROMPT, words);
+	add_target(left - 4.0f, y - 4.0f, x + 4.0f, y + 19.0f, _gamepad_binary_button_dpad_right, NONE);
+	return x + 18.0f;
+}
+
 static char const *role_name(
 	int role)
 {
@@ -773,7 +791,7 @@ void moderation_screen_render(
 		return;
 
 	ui_overlay_rect(-200, 0, 1040, 480, 0, COLOR_SHADE);
-	ui_overlay_rect(100, 60, 440, 360, 8, COLOR_PANEL);
+	ui_overlay_rect(100, 60, 440, 360, 8, COLOR_SCREEN_PANEL);
 	ui_overlay_outline(100, 60, 440, 360, 8, 1.0f, COLOR_PANEL_EDGE);
 	ui_overlay_text(UI_FONT_BOLD, 22.0f, 120, 72, UI_ALIGN_LEFT, COLOR_TITLE, "MODERATION");
 	if (moderation_screen.host)
@@ -899,7 +917,7 @@ void moderation_screen_render(
 			moderation->result);
 	}
 	x = prompt(UI_BUTTON_A, moderation_screen.confirming ? "Confirm" : "Choose", 120, 392);
-	x = prompt(UI_BUTTON_DPAD_LEFT, moderation_screen.confirming ? "Reason" : "Action", x, 392);
+	x = prompt_left_right(moderation_screen.confirming ? "Reason" : "Action", x, 392);
 	prompt(UI_BUTTON_B, moderation_screen.confirming ? "Cancel" : "Back", x, 392);
 }
 

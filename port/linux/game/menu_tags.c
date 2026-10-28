@@ -2523,9 +2523,14 @@ boolean pc_menu_button_key_cap(
 	float alpha)
 {
 #ifdef HALO_GAME_BROWSER
+	extern boolean moderation_screen_active(void);
 	int button = pc_menu_key_cap_button(bitmap_tag_index);
 
 	(void)x0;
+	/* (the Moderation screen over the menu: the menu's key caps hidden with
+	it, not drawn over the screen) */
+	if (button >= 0 && moderation_screen_active())
+		return TRUE;
 	if (button >= 0)
 	{
 		float size = (float)(y1 - y0) * 0.62f;

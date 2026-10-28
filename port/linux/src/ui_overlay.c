@@ -476,6 +476,32 @@ static const char *const pill_labels[4][NUMBER_OF_UI_BUTTONS] =
 	{ "B", "A", "Y", "X", "+", "ZL", "ZR", "L", "R", "\xE2\x80\xB9", "\xE2\x80\xBA", "\xE2\x88\x92" },
 };
 
+/* a pill's or key cap's label: the d-pad's arrows only if a face draws them
+(the menus' face, else Noto Sans Bold: glyph_font), else "\u2039" and
+"\u203A", else "<" and ">", never a blank cap */
+static const char *pill_label(int device, int button)
+{
+	static const unsigned int arrows[2][3] = { { 0x2190, 0x2039, '<' }, { 0x2192, 0x203A, '>' } };
+	static const char *const texts[2][3] = { { "\xE2\x86\x90", "\xE2\x80\xB9", "<" },
+		{ "\xE2\x86\x92", "\xE2\x80\xBA", ">" } };
+	int side, choice;
+
+	if (button != UI_BUTTON_DPAD_LEFT && button != UI_BUTTON_DPAD_RIGHT)
+		return pill_labels[device][button];
+	side = button == UI_BUTTON_DPAD_RIGHT;
+	/* (the label's own first: the keyboard's arrow keys, the pads' chevrons) */
+	choice = device == 0 ? 0 : 1;
+	for (; choice < 2; choice++)
+	{
+		if (posix_ui_font_has(POSIX_UI_FONT_MENU, arrows[side][choice]) ||
+			posix_ui_font_has(POSIX_UI_FONT_BOLD, arrows[side][choice]))
+		{
+			return texts[side][choice];
+		}
+	}
+	return texts[side][2];
+}
+
 /* the Xbox's face buttons' colors, lit at the top and deep at the bottom */
 static const unsigned int face_colors[4][2] =
 {
@@ -628,7 +654,7 @@ float ui_overlay_button_width(int button, float size)
 		}
 		return size;
 	}
-	return pill_width(pill_labels[device][button], size);
+	return pill_width(pill_label(device, button), size);
 }
 
 float ui_overlay_button(int button, float size, float x, float y, unsigned int color)
@@ -640,7 +666,7 @@ float ui_overlay_button(int button, float size, float x, float y, unsigned int c
 
 	if (button < 0 || button >= NUMBER_OF_UI_BUTTONS)
 		return 0.0f;
-	label = pill_labels[device][button];
+	label = pill_label(device, button);
 	/* an Xbox-like pad's buttons: their icons (snapchipper's) */
 	if (device == 1 && button_icon(button) >= 0)
 		return draw_icon(button_icon(button), size, x, y, fade(0xFFFFFFFF, share));
