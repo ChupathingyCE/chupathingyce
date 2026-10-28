@@ -291,9 +291,31 @@ int posix_socket_accept(int socket, void *address, int *address_length)
 	return succeed(result);
 }
 
+/* the bytes this process has sent and received on its sockets, for the
+server's health reports (game_events.c): every thread's, so added atomically */
+static struct
+{
+	unsigned long long sent;
+	unsigned long long received;
+} traffic;
+
+static int traffic_sent(int result)
+{
+	if (result > 0)
+		__atomic_fetch_add(&traffic.sent, (unsigned long long)result, __ATOMIC_RELAXED);
+	return result;
+}
+
+static int traffic_received(int result)
+{
+	if (result > 0)
+		__atomic_fetch_add(&traffic.received, (unsigned long long)result, __ATOMIC_RELAXED);
+	return result;
+}
+
 int posix_socket_send(int socket, const void *buffer, int length, int flags)
 {
-	return succeed((int)send(socket, buffer, (size_t)length, flags | MSG_NOSIGNAL));
+	return traffic_sent(succeed((int)send(socket, buffer, (size_t)length, flags | MSG_NOSIGNAL)));
 }
 
 int posix_socket_sendto(int socket, const void *buffer, int length, int flags,
@@ -312,7 +334,7 @@ int posix_socket_sendto(int socket, const void *buffer, int length, int flags,
 		{
 			result = (int)send(socket, buffer, (size_t)length, flags | MSG_NOSIGNAL);
 		}
-		return succeed(result);
+		return traffic_sent(succeed(result));
 	}
 #endif
 	result = (int)sendto(socket, buffer, (size_t)length, flags | MSG_NOSIGNAL,
@@ -321,12 +343,12 @@ int posix_socket_sendto(int socket, const void *buffer, int length, int flags,
 	{
 		result = (int)send(socket, buffer, (size_t)length, flags | MSG_NOSIGNAL);
 	}
-	return succeed(result);
+	return traffic_sent(succeed(result));
 }
 
 int posix_socket_recv(int socket, void *buffer, int length, int flags)
 {
-	return succeed((int)recv(socket, buffer, (size_t)length, flags));
+	return traffic_received(succeed((int)recv(socket, buffer, (size_t)length, flags)));
 }
 
 int posix_socket_recvfrom(int socket, void *buffer, int length, int flags,
@@ -357,7 +379,7 @@ int posix_socket_recvfrom(int socket, void *buffer, int length, int flags,
 	if (result >= 0 && address && address_length)
 		from_host_address(address, address_length);
 #endif
-	return succeed(result);
+	return traffic_received(succeed(result));
 }
 
 int posix_socket_shutdown(int socket, int how)
@@ -1077,3 +1099,9 @@ int posix_hardware_id_source(char *text, int size)
 	return text[0] != 0;
 }
 #endif
+
+void posix_socket_traffic(unsigned long long *sent, unsigned long long *received)
+{
+	*sent = __atomic_load_n(&traffic.sent, __ATOMIC_RELAXED);
+	*received = __atomic_load_n(&traffic.received, __ATOMIC_RELAXED);
+}
