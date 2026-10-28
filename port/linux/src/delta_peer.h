@@ -766,6 +766,10 @@ with the flag 0x04 already in the flags and a game engine (engine, its stock
 index) other than DELTA_ADVERTISED_KIND_ENGINE, the old layout's major and
 slot for released clients (docs/delta.md, "The transition") */
 void delta_peer_advertised_wire(unsigned char *reserved, int size, int engine);
+/* whether this host's advertisement has had the old layout: then a released
+client from before the tag may say HELLO with an older network version
+(DELTA_TAG_OLDEST_LEGACY, delta.h) */
+int delta_peer_advertised_old_layout(void);
 /* whether a host's advertisement (its reserved bytes) says it speaks Delta
 Peer, so that this client says HELLO (delta_compat_speaks_delta); 0 on the
 legacy protocol */

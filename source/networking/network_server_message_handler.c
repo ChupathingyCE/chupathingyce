@@ -863,6 +863,13 @@ int delta_peer_hosting_delta(void);
 says Slayer's) */
 typedef char advertised_kind_engine_is_slayer[game_engine_slayer == 2 ? 1 : -1];
 int delta_peer_game_machine_legacy_version(int machine_index);
+int delta_peer_advertised_old_layout(void);
+int network_rules_host_hello_matters(unsigned announce, unsigned oldest);
+#include "delta.h"
+#endif
+#if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_DELTA)
+/* port/linux/src/delta_compat.c's */
+int delta_compat_join_marked(unsigned short *name, int count);
 #endif
 
 enum
@@ -879,9 +886,10 @@ typedef char network_game_server_settings_size_assert[
 	HALO_PORT_WIRE_NETWORK_GAME_SIZE == NETWORK_GAME_SERVER_SETTINGS_SIZE ? 1 : -1];
 
 /* each client machine's record: the connection it is for, since when it is
-waited for, its size once known (0: not yet) and its options' bytes, and
+waited for, its size once known (0: not yet) and its options' bytes,
 whether the record is owed it (it was held back:
-network_game_server_settings_frame sends it) */
+network_game_server_settings_frame sends it) and whether its join request
+had the join mark (delta_compat.h: it will say HELLO) */
 static struct network_game_server_settings_machine
 {
 	struct network_connection *connection;
@@ -889,7 +897,12 @@ static struct network_game_server_settings_machine
 	long size;
 	long options;
 	boolean owed;
+	boolean marked;
 } network_game_server_settings_machines[MAXIMUM_NETWORK_MACHINE_COUNT];
+
+/* the join mark of the join request being handled, for
+network_game_server_settings_machine_joined */
+static boolean network_game_server_join_marked;
 
 static long network_game_server_settings_slot(
 	struct network_game_server *server,
@@ -927,7 +940,11 @@ static void network_game_server_settings_machine_joined(
 	long slot = network_game_server_settings_slot(server, machine);
 
 	if (slot != NONE)
+	{
 		csmemset(&network_game_server_settings_machines[slot], 0, sizeof(network_game_server_settings_machines[slot]));
+		network_game_server_settings_machines[slot].connection = network_game_server_get_client_connection(machine);
+		network_game_server_settings_machines[slot].marked = network_game_server_join_marked;
+	}
 }
 
 /* the size of the record the machine takes, 0 while it is waited for (and
@@ -972,8 +989,15 @@ static long network_game_server_settings_layout(
 		if (network_game_server_get_client_machine(server, machine, &machine_index))
 			delta_version = network_game_server_machine_delta_version(machine_index);
 #ifdef HALO_GAME_BROWSER
+		/* (a machine that marked its join will say HELLO; one that did not
+		is OpenCE's, or a Delta build from before the mark, waited for only
+		if a HELLO it may say could change its record: the oldest version a
+		Delta build reading this host's advertisement says, from the tag
+		on, takes the host's record unless the host announces newer) */
 		waiting = delta_peer_hosting_delta() &&
-			now - entry->since < NETWORK_GAME_SERVER_SETTINGS_HELLO_WAIT;
+			now - entry->since < NETWORK_GAME_SERVER_SETTINGS_HELLO_WAIT &&
+			(entry->marked || network_rules_host_hello_matters(announce,
+				delta_peer_advertised_old_layout() ? 0 : DELTA_TAG_OLDEST_LEGACY));
 #endif
 	}
 	entry->size = network_rules_host_settings_size(announce, delta_version, waiting);
@@ -983,7 +1007,8 @@ static long network_game_server_settings_layout(
 	if (entry->size && announce >= 35)
 	{
 		network_event("machine #%ld takes the game settings record of %ld bytes (this host's network version %u, "
-			"its HELLO's %u: 0 for none)", machine_index, entry->size, announce, delta_version);
+			"its HELLO's %u: 0 for none; join mark %s)", machine_index, entry->size, announce, delta_version,
+			entry->marked ? "yes" : "no");
 	}
 	return entry->size;
 }
@@ -2263,6 +2288,12 @@ static boolean network_game_server_handle_message_client_join_game_request(
 				hardware_id[sizeof(join_game_request.hardware_id)] = 0;
 				network_game_server_set_machine_hardware_id(server_client_machine, hardware_id);
 			}
+			/* port: whether it has the join mark (delta_compat.h), which
+			then goes: nothing past the name's end is kept */
+#if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_DELTA)
+			network_game_server_join_marked = (boolean)delta_compat_join_marked(
+				(unsigned short *)join_game_request.machine_name, MAXIMUM_MACHINE_NAME_LENGTH);
+#endif
 			/* (the name comes from the wire, and need not end, nor be text
 			that draws: kept to what does; then in ASCII, for the log) */
 			network_game_server_clean_name(join_game_request.machine_name, MAXIMUM_MACHINE_NAME_LENGTH, L"Machine");

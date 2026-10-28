@@ -777,7 +777,14 @@ What each side checks, since 0.7.5a:
   its own; an OpenCE machine gets the announced number's. A host that
   announces 35 or later holds a joining machine's record until its HELLO or
   the handshake's 4 seconds have passed, as only then is it known which
-  (NETCODE.md, "Versions"). To serve OpenCE players of an older number
+  (NETCODE.md, "Versions"). It holds only a machine whose HELLO could
+  change the record: one that marked its join request (a Delta client
+  joining a Delta host puts a two-character mark past the end of its
+  machine name, which the host clears), or any machine when a build that
+  may still join without the mark could say an older version with another
+  record (a host that also advertises the old layout, or one announcing
+  past its own built-in number with a longer record). An OpenCE player
+  joining a host of ours otherwise starts at once. To serve OpenCE players of an older number
   and a newer one at once, run two hosts, one announcing each: a local
   table (`network.legacy_table`, below) sets a server's number.
 - **The next number is presumed additive.** Our client joins hosts of the

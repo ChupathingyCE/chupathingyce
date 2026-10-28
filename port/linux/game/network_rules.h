@@ -256,6 +256,11 @@ machine, or a Delta one whose HELLO has not come); waiting, whether a HELLO
 may still come. 0: wait for it. A host of 34 or older sends every machine
 the older record at once. */
 int network_rules_host_settings_size(unsigned announce, unsigned delta_version, int waiting);
+/* (a host) whether a machine's HELLO could change the record it takes: a
+Delta machine says oldest or newer, and one below announce takes its own
+version's record, which may be another size or layout than announce's. 0:
+the record of announce is the one any machine takes, so none is waited for */
+int network_rules_host_hello_matters(unsigned announce, unsigned oldest);
 /* (a host) whether a machine's players report the damage a static target
 deals (a tripmine's going off; network version 34): an OpenCE machine of a
 host of 34 on does not, nor a Delta machine that takes 35's record from the

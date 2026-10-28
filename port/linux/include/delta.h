@@ -297,6 +297,12 @@ version's rules has a new wire. */
 	X("chupa-38a", 38) \
 	X("chupa-39a", 39)
 
+/* the oldest network version a build that reads the tagged advertisement
+says in its HELLO: chupa-39a's row above, the first such wire. A host whose
+advertisement carries the tag alone hears none older; one that also carries
+the old layout may (released builds before the tag said 32 or older). */
+#define DELTA_TAG_OLDEST_LEGACY 39
+
 /* how many OpenCE numbers past the newest this build knows (the table
 below, and the one announced, the newest this build or the signed table has
 proven as a host) are presumed additive: a client joins their hosts from the
