@@ -854,6 +854,9 @@ int delta_peer_advertised_speaks_delta(unsigned char const *reserved, int size);
 Peer (its Delta tag, or the old layout's flag), for Delta Peer
 (network_game_client_delta_frame); 0 for the host's own game */
 static byte network_game_client_joined_delta;
+/* port/linux/src/delta_compat.c's: the join mark, which tells a Delta host
+this machine will say HELLO */
+int delta_compat_join_mark(unsigned short *name, int count);
 /* port: the joined game's host's identifier (its XNADDR's abEnet) */
 static byte network_game_client_joined_host[6];
 static void network_game_client_delta_frame(struct network_game_client *client);
@@ -3034,6 +3037,17 @@ static boolean network_game_client_idle_joining(
 					p2p_hardware_id(hardware_id, sizeof(hardware_id));
 					csmemcpy(join_game_request.hardware_id, hardware_id, csstrlen(hardware_id));
 				}
+#if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_DELTA)
+				/* (port: and, to a host that speaks Delta, the join mark past
+				the name's end, so that it waits for this machine's HELLO
+				alone and starts OpenCE's machines at once; the 16-bit wchar_t
+				the message's size assert holds) */
+				if (network_game_client_joined_delta)
+				{
+					delta_compat_join_mark((unsigned short *)join_game_request.machine_name,
+						MAXIMUM_MACHINE_NAME_LENGTH);
+				}
+#endif
 
 				message = create_network_game_message(
 					_message_client_join_game_request,

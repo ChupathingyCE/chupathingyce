@@ -81,6 +81,9 @@ static struct
 	/* the host's game's player traits (delta_peer_game_set_traits) */
 	int has_traits;
 	struct delta_wire_traits traits;
+	/* the host's advertisement has had the old layout (released clients
+	before the tag read it): set once, kept */
+	int advertised_old;
 } delta_game = { 0 };
 
 /* whether two settings' words are the same, case aside (ASCII; no
@@ -767,7 +770,15 @@ void delta_peer_advertised_wire(unsigned char *reserved, int size, int engine)
 	of OpenCE's meanings: with the flag, a dedicated server's, and in a game
 	whose kind OpenCE's browsers do not read) */
 	if ((reserved[DELTA_ADVERTISED_FLAGS_OFFSET] & DELTA_ADVERTISED_FLAG) && engine != DELTA_ADVERTISED_KIND_ENGINE)
+	{
 		delta_compat_advertise_old(reserved, size, DELTA_MAJOR, DELTA_WIRE);
+		delta_game.advertised_old = 1;
+	}
+}
+
+int delta_peer_advertised_old_layout(void)
+{
+	return delta_game.advertised_old;
 }
 
 int delta_peer_advertised_speaks_delta(const unsigned char *reserved, int size)
