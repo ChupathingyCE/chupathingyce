@@ -2684,6 +2684,8 @@ static void add_known(struct browser_game *games, int count)
 
 /* (every build, with the game browser or without: the menus' lobbies ask
 it too, port/linux/game/menu_functions.c) */
+#include "browser.h"
+
 #include <string.h>
 
 /* whether two names are the same, ASCII letters in either case (every
@@ -2723,24 +2725,9 @@ int browser_map_is_campaign(const char *map)
 	return 0;
 }
 
-int browser_version_state(int version)
-{
-	if (version < delta_legacy_minimum())
-		return -1;
-	return version > delta_legacy_maximum() ? 1 : 0;
-}
-
-#ifdef HALO_GAME_BROWSER
-
-int browser_game_version_state(const struct browser_game *game)
-{
-	/* (a Delta host's other number may still be joined, as above) */
-	if (game->protocol == BROWSER_PROTOCOL_DELTA && delta_peer_protocol() != _delta_peer_protocol_opence)
-		return 0;
-	return browser_version_state(game->version);
-}
-
-/* the lists' filter by kind of game (All, Multiplayer, Co-op), kept for the session */
+/* the lists' filter by kind of game (All, Multiplayer, Co-op), kept for the
+session (every build: the consoles' Join Game screen has it too,
+port/linux/game/menu_functions.c) */
 static int list_filter;
 
 int browser_list_filter(void)
@@ -2765,6 +2752,23 @@ int browser_list_filter_allows(const char *map)
 	if (list_filter == BROWSER_LIST_FILTER_ALL)
 		return 1;
 	return browser_map_is_campaign(map) == (list_filter == BROWSER_LIST_FILTER_COOP);
+}
+
+int browser_version_state(int version)
+{
+	if (version < delta_legacy_minimum())
+		return -1;
+	return version > delta_legacy_maximum() ? 1 : 0;
+}
+
+#ifdef HALO_GAME_BROWSER
+
+int browser_game_version_state(const struct browser_game *game)
+{
+	/* (a Delta host's other number may still be joined, as above) */
+	if (game->protocol == BROWSER_PROTOCOL_DELTA && delta_peer_protocol() != _delta_peer_protocol_opence)
+		return 0;
+	return browser_version_state(game->version);
 }
 
 int browser_get_games(struct browser_game *games, int maximum_count)

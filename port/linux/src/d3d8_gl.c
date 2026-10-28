@@ -183,6 +183,9 @@ static void screen_mode_choose(long *width, float scale[2])
 	/* display.screen_width, or 0 for the display's shape, which the app
 	passes (port/android/host/host_main.c) */
 	const char *display = getenv("HALO_DISPLAY_WIDTH");
+	const char *limit = config_string("display.resolution_limit");
+	int display_width = 0, display_height = 0;
+	long lines;
 
 	*width = config_integer("display.screen_width");
 	if (*width <= 0)
@@ -193,6 +196,25 @@ static void screen_mode_choose(long *width, float scale[2])
 		*width = 1600;
 	*width &= ~1L;
 	scale[0] = scale[1] = 1.0f;
+	/* display.resolution_limit: the screen's targets drawn at that many
+	lines (as the desktop draws them at the window's), no more than the
+	display has nor than the GPU's largest target takes; the display blit
+	scales the picture to the display */
+	platform_video_drawable_size(&display_width, &display_height);
+	lines = !strcmp(limit, "native") ? display_height : atol(limit);
+	if (display_height > 0 && lines > display_height)
+		lines = display_height;
+	if (lines > SCREEN_HEIGHT)
+	{
+		float factor = (float)lines / (float)SCREEN_HEIGHT;
+
+		if (maximum_target_size > 0 && *width * factor > (float)maximum_target_size)
+			factor = (float)maximum_target_size / (float)*width;
+		if (maximum_target_size > 0 && SCREEN_HEIGHT * factor > (float)maximum_target_size)
+			factor = (float)maximum_target_size / (float)SCREEN_HEIGHT;
+		if (factor > 1.0f)
+			scale[0] = scale[1] = factor;
+	}
 #else
 	long display_width, display_height;
 
@@ -2203,7 +2225,11 @@ HRESULT WINAPI D3DDevice_EndVisibilityTest(DWORD index)
 		unsigned long *count = &device.ring_test_count[device.buffer_ring];
 
 		/* (a slot tested twice in a frame is listed twice: the later
-		counter, resolved after, wins) */
+		counter, resolved after, wins). The counter counts the target's
+		pixels, once each however many samples it has: in the game's pixels
+		when it is resolved (visibility_unscaled), as display.resolution_limit
+		draws more of them */
+		device.query_area[index] = target_scale[0] * target_scale[1];
 		if (*count < VISIBILITY_TEST_SLOTS)
 		{
 			device.ring_tests[device.buffer_ring][*count][0] = (unsigned short)index;
@@ -2245,7 +2271,6 @@ HRESULT WINAPI D3DDevice_EndVisibilityTest(DWORD index)
 	return S_OK;
 }
 
-#ifndef HALO_ANDROID
 /* a count of pixels in the game's pixels */
 static GLuint visibility_unscaled(GLuint samples, DWORD index)
 {
@@ -2254,7 +2279,6 @@ static GLuint visibility_unscaled(GLuint samples, DWORD index)
 	return area > 1.0f ? (GLuint)(samples / area + 0.5f) : samples;
 }
 
-#endif
 HRESULT WINAPI D3DDevice_GetVisibilityTestResult(DWORD index, UINT *result, ULONGLONG *time_stamp)
 {
 	GLuint available = 0, samples = 0;
@@ -5216,8 +5240,8 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 				device.counter_values);
 			for (test = 0; test < device.ring_test_count[ring]; test++)
 			{
-				device.visibility_latest[device.ring_tests[ring][test][0]] =
-					device.counter_values[device.ring_tests[ring][test][1]];
+				device.visibility_latest[device.ring_tests[ring][test][0]] = visibility_unscaled(
+					device.counter_values[device.ring_tests[ring][test][1]], device.ring_tests[ring][test][0]);
 			}
 			device.ring_test_count[ring] = 0;
 		}

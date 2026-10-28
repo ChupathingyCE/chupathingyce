@@ -164,6 +164,15 @@ static const struct config_setting config_settings[] =
 		"640x480." },
 	{ "display.screen_width", _config_integer, "0", "HALO_SCREEN_WIDTH", _environment_value, _platform_android,
 		"The picture's width in columns: 0 matches the display, 640 is 4:3." },
+#if defined(HALO_ANDROID) && !defined(HALO_SWITCH_CONSOLE)
+	/* (the Switch's own is below; port/linux/src/d3d8_gl.c) */
+	{ "display.resolution_limit", _config_string, "\"480\"", "HALO_RESOLUTION_LIMIT", _environment_value,
+		_platform_android,
+		"The lines the game draws at: \"480\" (the game's own), \"720\", \"900\",\n"
+		"\"1080\" (or any number between) or \"native\" (the display's), no more\n"
+		"than the display has, which the picture is scaled up to. More is sharper\n"
+		"and uses more battery. Changes at once." },
+#endif
 	{ "display.texture_decode", _config_string, "\"auto\"", "HALO_TEXTURE_DECODE", _environment_value,
 		_platform_android,
 		"Where compressed textures are unpacked: \"gpu\", \"cpu\" (more memory) or\n"

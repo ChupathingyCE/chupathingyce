@@ -1642,6 +1642,10 @@ static void setting_now(
 	case SERVER_SETTING_PLAYLIST_SHUFFLE: snprintf(text, (size_t)size, "%s", status->playlist_shuffle ? "true" : "false"); break;
 	case SERVER_SETTING_TEAM_CHANGE: snprintf(text, (size_t)size, "%d", team_change_host_policy()); break;
 	case SERVER_SETTING_TEAM_CHANGE_MARGIN: snprintf(text, (size_t)size, "%d", team_change_host_margin()); break;
+#ifdef HALO_SERVER
+	case SERVER_SETTING_GAMESPY_LISTING: snprintf(text, (size_t)size, "%s", server_gamespy_enabled() ? "true" : "false"); break;
+	case SERVER_SETTING_GAMESPY_PORT: snprintf(text, (size_t)size, "%ld", server_gamespy_port()); break;
+#endif
 	default: text[0] = 0; break;
 	}
 }
@@ -1678,7 +1682,8 @@ static boolean setting_applies_now(
 		setting == SERVER_SETTING_WELCOME || setting == SERVER_SETTING_POSTGAME_SECONDS ||
 		setting == SERVER_SETTING_SKIP_LOBBY || setting == SERVER_SETTING_CHAT_COOLDOWN ||
 		setting == SERVER_SETTING_PLAYLIST_SHUFFLE || setting == SERVER_SETTING_CHAT_LEGACY ||
-		setting == SERVER_SETTING_TEAM_CHANGE || setting == SERVER_SETTING_TEAM_CHANGE_MARGIN;
+		setting == SERVER_SETTING_TEAM_CHANGE || setting == SERVER_SETTING_TEAM_CHANGE_MARGIN ||
+		setting == SERVER_SETTING_GAMESPY_LISTING || setting == SERVER_SETTING_GAMESPY_PORT;
 }
 
 static char const *environment_value(
@@ -1792,7 +1797,7 @@ boolean server_admin_set(
 		if (setting < 0)
 			command_output_printf(output, "(name, maximum_players, minimum_players, idle_limit, public, name_filter, "
 				"chat, chat_filter, welcome, postgame_seconds, skip_lobby, chat_cooldown, team_change, "
-				"team_change_margin, playlist_shuffle, chat_legacy)\n");
+				"team_change_margin, playlist_shuffle, chat_legacy, gamespy_listing, gamespy_port)\n");
 		return FALSE;
 	}
 	environment = environment_value((short)setting);
@@ -1843,6 +1848,12 @@ boolean server_admin_set(
 	case SERVER_SETTING_TEAM_CHANGE_MARGIN:
 		team_change_host_set(team_change_host_policy(), change.values[setting]);
 		break;
+#ifdef HALO_SERVER
+	case SERVER_SETTING_GAMESPY_LISTING:
+		server_gamespy_configure(change.values[setting] ? TRUE : FALSE, server_gamespy_port());
+		break;
+	case SERVER_SETTING_GAMESPY_PORT: server_gamespy_configure(server_gamespy_enabled(), change.values[setting]); break;
+#endif
 	}
 	error(_error_silent, "dedicated: a command sets %s to %s", server_settings_table[setting].key, line->words[2]);
 	command_output_printf(output, "%s is %s, saved in %s (%s)\n", server_settings_table[setting].key, line->words[2],
