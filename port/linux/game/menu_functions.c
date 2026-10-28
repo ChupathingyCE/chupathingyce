@@ -92,8 +92,9 @@ their handlers open opens.
 #include "../src/p2p.h"
 #include "../src/controller_layout.h"
 #include "networking/network_connection.h"
-#ifdef HALO_GAME_BROWSER
+/* (the game list's filter and the campaign levels: every build) */
 #include "../src/browser.h"
+#ifdef HALO_GAME_BROWSER
 #include "halo_port_limits.h"
 #endif
 /* (its games on Halo PC maps: server_browser.c) */
@@ -115,15 +116,6 @@ their handlers open opens.
 #include <xtl.h>
 #if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_DELTA_PROFILE)
 #include "halo_profile_screen.h"
-#endif
-
-#ifndef HALO_GAME_BROWSER
-/* (no game browser, as on the consoles: their list comes from the site, which
-leaves co-op games out for now, so every list shows all its games and there is
-no filter to change; browser.c's on the others) */
-#define browser_list_filter_allows(map) ((void)(map), 1)
-#define browser_list_filter_cycle() ((void)0)
-#define browser_list_filter_name() "ALL"
 #endif
 
 /* a player's name in the lobby: a Delta profile's (profile_names.c) is
@@ -4147,12 +4139,8 @@ static boolean browser_initialize(struct widget_instance *screen, struct event_r
 	visible_set(named(screen, "button_clipboard", 0), multiplayer.mode == _multiplayer_mode_direct_link);
 	visible_set(named(screen, "join_game_button_refresh", 0), multiplayer.mode == _multiplayer_mode_server_browser);
 	/* (the filter's button, the PC version's FILTERS: all games, multiplayer or co-op, in the Server Browser and LAN) */
-#ifdef HALO_GAME_BROWSER
 	visible_set(named(screen, "join_game_button_filters", 0),
 		multiplayer.mode == _multiplayer_mode_server_browser || multiplayer.mode == _multiplayer_mode_lan);
-#else
-	visible_set(named(screen, "join_game_button_filters", 0), FALSE);
-#endif
 	{
 		struct widget_instance *list = named(screen, "join_game_items_list", 0);
 		struct widget_instance *child;

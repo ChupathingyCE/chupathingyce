@@ -235,7 +235,7 @@ int browser_version_state(int version);
 co-op game */
 int browser_map_is_campaign(const char *map);
 /* the game lists' filter, kept for the session: all games, multiplayer
-games, or co-op games (a campaign level) */
+games, or co-op games (a campaign level). Every build */
 enum
 {
 	BROWSER_LIST_FILTER_ALL,
