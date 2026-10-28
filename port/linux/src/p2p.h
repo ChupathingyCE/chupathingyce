@@ -138,10 +138,18 @@ was listed */
 void p2p_set_hosting_public(int public);
 /* the password of the game hosted for the internet (Server Setup's
 PASSWORD; NULL or empty: none): its listing lets only those who know it
-join from the server browser (its invite link still joins it). Setting or
-changing it makes a new invite, if the old one was listed. It takes a few
-milliseconds (the password's key) */
+join from the server browser, and its invite link is a locked one, which
+joins only with the password (p2p_locked_invite_unlock). Setting or
+changing it makes a new invite at once (the old link joins no more). It
+takes a few milliseconds (the password's keys) */
 void p2p_set_hosting_password(const char *password);
+/* a locked invite (a game with a password's link, from anywhere: the
+clipboard, a link opened, Discord) waits for its password: the menus ask
+for it (invite_prompt.c). Unlock joins the game if the password is the
+game's, else returns 0 (it takes a few milliseconds); cancel forgets it */
+int p2p_locked_invite_waiting(void);
+int p2p_locked_invite_unlock(const char *password);
+void p2p_locked_invite_cancel(void);
 /* whether a dedicated server hosts: its listing says so, for browsers that
 list dedicated servers apart (the next p2p_set_game_listing publishes it) */
 void p2p_set_hosting_dedicated(int dedicated);

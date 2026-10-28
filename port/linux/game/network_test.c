@@ -193,6 +193,10 @@ static struct
 	/* download: the host's checksum, and the download started */
 	unsigned long download_version;
 	boolean download_started;
+	/* debug.network_test_password: the host's set; debug.network_test_invite_file:
+	the host's invite written */
+	boolean password_set;
+	boolean invite_written;
 } network_test;
 
 /* the map of the game at the index (of map_name's maps joined by "+", the
@@ -1075,6 +1079,58 @@ static void network_test_melee(
 	}
 }
 
+#ifdef HALO_GAME_BROWSER
+/* debug.network_test_password: the host's game's password, as Server Setup's
+PASSWORD sets it (its invite link a locked one); a joining machine's, typed
+as the password dialog would once its locked invite asks for it
+(invite_prompt.c; a wrong one is refused, and the invite left).
+debug.network_test_invite_file: the host's invite link written there once it
+has one, for the joining machine's command line */
+static void network_test_password(
+	void)
+{
+	int p2p_invite_link(char *link, int size);
+	void p2p_set_hosting_password(char const *password);
+	int p2p_locked_invite_waiting(void);
+	int p2p_locked_invite_unlock(char const *password);
+	void p2p_locked_invite_cancel(void);
+	char const *password = config_string("debug.network_test_password");
+	char const *file = config_string("debug.network_test_invite_file");
+
+	if (network_test.mode == _network_test_host)
+	{
+		char link[160];
+
+		if (!network_test.password_set && password[0])
+		{
+			network_test.password_set = TRUE;
+			p2p_set_hosting_password(password);
+			platform_log("network test: the game has a password");
+		}
+		if (file[0] && !network_test.invite_written && p2p_invite_link(link, sizeof(link)))
+		{
+			FILE *out = fopen(file, "w");
+
+			network_test.invite_written = TRUE;
+			if (out)
+			{
+				fprintf(out, "%s\n", link);
+				fclose(out);
+			}
+			platform_log("network test: invite written%s", out ? "" : " (the file could not be opened)");
+		}
+	}
+	else if (network_test.mode == _network_test_join && password[0] && p2p_locked_invite_waiting())
+	{
+		boolean opened = (boolean)p2p_locked_invite_unlock(password);
+
+		platform_log("network test: the password was %s", opened ? "taken" : "refused");
+		if (!opened)
+			p2p_locked_invite_cancel();
+	}
+}
+#endif
+
 void network_test_update(
 	boolean main_menu_loaded,
 	real seconds)
@@ -1083,6 +1139,9 @@ void network_test_update(
 		network_test_read_settings();
 	if (network_test.mode == _network_test_off)
 		return;
+#ifdef HALO_GAME_BROWSER
+	network_test_password();
+#endif
 	/* (the host's reachability, as its menus show it, logged as it changes) */
 	if (network_test.mode == _network_test_host)
 	{
