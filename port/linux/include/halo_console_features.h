@@ -121,6 +121,19 @@ HALO_CONSOLE_GLES2
 	a console with OpenGL ES 2 only: the renderer's ES path (HALO_GL_ES,
 	halo_linux_prefix.h) on an ES 2 context, which console_gles2_layer,
 	defined by the port, fills out to the ES 3 it uses (gl_functions.c)
+HALO_CONSOLE_AUDIO_OUTPUT
+	a console whose sound output SDL does not have: where SDL opens no
+	device, console_audio_start, defined by the port, plays the mixer's
+	output (dsound_sdl.c)
+HALO_CONSOLE_LIGHT_AUDIO
+	the cheaper sound by default: linear resampling and no reverb
+	(audio.resampling, audio.reverb), on a console with one slow core (the
+	Steam Link's, where the sinc resampler and the reverb took two fifths of
+	the processor)
+HALO_CONSOLE_HUD_ON_DEMAND
+	the high-res HUD's pictures decoded each when first drawn, as Android's
+	are, rather than a map's all at its load (hud_hires.c): about 40 MB less
+	at once, on a console with little memory (the Steam Link's 256 MB)
 HALO_CONSOLE_WAIT_POLL
 	a console whose system must be served by the thread that runs the game
 	(the Wii U's HOME button): console_wait_poll, defined by the port, is
