@@ -59,6 +59,23 @@ def test_header_sentences():
     assert found == REASONS
 
 
+# the neutral label of an OpenCE dedicated server, as the site says it too
+# (puma web/site.js HOST_LABEL_OPENCE_SERVER)
+OPENCE_SERVER_LABEL = "OpenCE server"
+
+
+def test_opence_server_label():
+    text = HEADER.read_text()
+    assert f'#define HOST_LABEL_OPENCE_SERVER "{OPENCE_SERVER_LABEL}"' in text
+    # (both PC lists show it from the header, never words of their own)
+    for path in (ROOT / "port" / "linux" / "game" / "browser_screen.c",
+                 ROOT / "port" / "linux" / "game" / "menu_functions.c"):
+        source = path.read_text()
+        assert "HOST_LABEL_OPENCE_SERVER" in source, path
+        assert f'"{OPENCE_SERVER_LABEL}"' not in source, path
+        assert "OPENCE SERVER" not in source, path
+
+
 def test_lists_use_the_header():
     for path in USERS:
         text = path.read_text()

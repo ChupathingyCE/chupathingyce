@@ -215,6 +215,9 @@ struct p2p_listing
 	seven bits, Hardcore in bit 7; 0 for a stock game or an older host),
 	read from the listing's stamp; only a name for the list */
 	unsigned char kind;
+	/* an OpenCE dedicated server's game, by its flags
+	(delta_compat_opence_server_listing): only a label in the lists */
+	unsigned char opence_server;
 };
 /* a copy of the public games found, each once (p2p_listing_older_copy), in
 the order shown (the most players first; then those not failed, the open

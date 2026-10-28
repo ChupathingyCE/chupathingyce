@@ -2600,6 +2600,7 @@ static int add_direct(struct browser_game *games, int count, int maximum_count, 
 		game->protocol = list_answered ? BROWSER_PROTOCOL_OPENCE : BROWSER_PROTOCOL_UNKNOWN;
 		game->kind = listing->kind;
 		game->direct = 1;
+		game->opence_server = listing->opence_server;
 		count++;
 	}
 	return count;
@@ -2640,6 +2641,7 @@ static void add_known(struct browser_game *games, int count)
 		if (games[index].direct)
 			continue;
 		games[index].kind = 0;
+		games[index].opence_server = 0;
 		for (other = 0; other < listing_count; other++)
 		{
 			p2p_hex(listings[other].key_hash, P2P_KEY_HASH_SIZE, key_hash);
@@ -2647,6 +2649,9 @@ static void add_known(struct browser_game *games, int count)
 			{
 				games[index].locked = listings[other].locked;
 				games[index].kind = listings[other].kind;
+				/* (a Delta host is never OpenCE's, whatever its listing) */
+				games[index].opence_server = games[index].protocol != BROWSER_PROTOCOL_DELTA &&
+					listings[other].opence_server;
 				break;
 			}
 		}

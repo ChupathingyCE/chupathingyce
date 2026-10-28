@@ -83,4 +83,21 @@ int delta_compat_decide(const unsigned char *reserved, int size, int major, cons
 layout's range bytes' own wire, else its old slot's. 1 if it says. */
 int delta_compat_host_wire(const unsigned char *reserved, int size, int major, struct delta_wire_id *wire);
 
+/* An OpenCE dedicated server, told apart for a neutral label in the lists
+(HOST_LABEL_OPENCE_SERVER, halo_join_reasons.h). A label only: it grants
+nothing and joining does not read it. */
+/* by its advertisement: it announces DELTA_ADVERTISED_FLAG_TAKEN_VERSION (39)
+or later with the dedicated flag (0x04 at DELTA_ADVERTISED_FLAGS_OFFSET) and
+does not speak Delta (delta_compat_speaks_delta: no tag, no old layout). Our
+own dedicated servers carry the tag while they host with Delta, so they never
+are (one with Delta off reads as OpenCE's here; its listing tells it apart).
+1 if so. */
+int delta_compat_opence_server(const unsigned char *reserved, int size);
+/* by its public listing's flags (p2p_lobby.c): OpenCE's dedicated bit (32,
+from its version 39) without ours (128), which every Chupathingy dedicated
+server sets beside it. 1 if so. */
+#define DELTA_COMPAT_LISTING_DEDICATED_OPENCE 32
+#define DELTA_COMPAT_LISTING_DEDICATED 128
+int delta_compat_opence_server_listing(int flags);
+
 #endif

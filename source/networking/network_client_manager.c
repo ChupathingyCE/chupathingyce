@@ -3432,6 +3432,25 @@ boolean network_game_client_advertised_game_in_progress(
 		(network_game_client_advertised_versions[game_index].flags & HALO_PORT_ADVERTISED_IN_PROGRESS_FLAG) != 0;
 }
 
+#if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_DELTA)
+/* port/linux/src/delta_compat.c's */
+int delta_compat_opence_server(unsigned char const *reserved, int size);
+
+/* port: whether the advertised game is an OpenCE dedicated server's (the
+dedicated flag of its version 39 and later, and no Delta): only a neutral
+label in the lists */
+boolean network_game_client_advertised_game_opence_server(
+	struct network_game_client *client,
+	struct network_advertised_game const *game)
+{
+	long game_index = client ? game - client->available_games : NONE;
+
+	return game_index >= 0 && game_index < MAXIMUM_NETWORK_ADVERTISED_GAMES &&
+		delta_compat_opence_server(network_game_client_advertised_versions[game_index].reserved,
+			(int)sizeof(network_game_client_advertised_versions[game_index].reserved));
+}
+#endif
+
 boolean network_game_client_join_first_available_game(
 	void)
 {
