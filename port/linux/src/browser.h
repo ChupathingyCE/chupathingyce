@@ -110,7 +110,14 @@ struct browser_game
 	/* the kind its public listing says (p2p_listing's; 0 when it has none
 	or isn't heard): OpenCE's game types and Hardcore, by name in the list */
 	unsigned char kind;
+	/* heard directly, not on the list: a public listing from the brokers
+	(p2p_lobby.c) that the list lacks (browser_get_games) */
+	unsigned char direct;
 };
+
+/* the note a screen of listed games shows while the list is down and its
+games are those found directly (browser_list_status: BROWSER_LIST_FAILED) */
+#define BROWSER_LIST_OFFLINE_NOTE "The game list is offline; showing games found directly."
 
 /* one player's line of a finished game's carnage report */
 struct browser_report_player
@@ -202,7 +209,11 @@ void browser_server_name(char *text, int size);
 /* the listed games, asking the server for the list again if the last one
 is more than a few seconds old: with games of other network versions
 (browser_game_version_state), without this machine's own. Returns their
-count. */
+count. The list's games come first; then, while the public listings are
+followed (browser_follow_listings), each game heard on the brokers that the
+list lacks (direct): an OpenCE (legacy) game while the list answers, and
+any host's while it is down, so a list outage costs no game the brokers
+carry. */
 int browser_get_games(struct browser_game *games, int maximum_count);
 /* whether this build can join a game by its network version: 0 if it can
 (or may try), -1 if the game runs an older version, 1 a newer one */
