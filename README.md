@@ -22,6 +22,8 @@
 
 > **Compatible with OpenCE build-244 (network version 32) for online play.** Players on that build join our games, and ours join games hosted on network versions 11 through 40. Dedicated servers can announce network version 39, so OpenCE players on it join them too. Browser builds can't join our games, nor we theirs.
 
+Chupathingy plays with OpenCE up to network version 40. Delta is our own network, and Chupathingy players on every platform always play together.
+
 Chupathingy is a free, open-source port of the Halo: Combat Evolved
 decompilation. It runs natively on Windows, Mac (Apple silicon and Intel),
 Linux (including Steam Deck) and Android, with no emulator, and it is built for stability and

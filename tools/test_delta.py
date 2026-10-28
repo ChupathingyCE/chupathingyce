@@ -110,7 +110,7 @@ def test_console_floor():
         assert wire_key(rows[wire]) <= wire_key(console), f"{wire} no longer reaches {console}, a console's wire"
 
 
-# the wires console builds in the wild play (warthog-xbox, warthog-switch:
+# the wires console builds in the wild play (warthog-xbox, warthog-360, warthog-wiiu, warthog-switch:
 # chupa-32a on 2026-10-27); a wire leaves this list only when no console
 # build of it is in use
 CONSOLE_WIRES_IN_THE_WILD = ("chupa-32a",)

@@ -851,7 +851,7 @@ Every Chupathingy platform stays in one pool. The consoles move slowest
 (their builds follow the main repository through a submodule), so they set
 the floor: `DELTA_WIRE_CONSOLE_FLOOR` in `delta.h`, `chupa-32a` on
 2026-10-27, the oldest wire a console build in the wild plays (the original
-Xbox's and the Switch's). Every row of `DELTA_WIRE_COMPATIBILITY` from the
+Xbox's, the Xbox 360's, the Wii U's and the Switch's). Every row of `DELTA_WIRE_COMPATIBILITY` from the
 floor on must reach back to it, and `DELTA_WIRE`'s row must reach every
 console wire in the wild; `tools/test_delta.py` (`test_console_floor`, in
 CI) fails otherwise. Raise the floor only when every console port has
