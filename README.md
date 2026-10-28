@@ -643,6 +643,9 @@ not be part of our community.
   repositories, as Chimera uses them (maps.halonet.net, the HAC2 map
   repository, and its mirrors). Chupathingy's downloader is its own code;
   Chimera showed where the repositories are and how they answer.
+- [Chimera](https://github.com/SnowyMouse/chimera) by SnowyMouse and
+  contributors (GPL-3.0): Halo PC fixes reference and the compressed map
+  format.
 - Security reports: nickarcade, who reported the dedicated server's control
   panel permission gap fixed in #462.
 - Libraries: SDL3, stb, Mbed TLS, miniupnpc, KCP, tomlc17, musl's maths,
