@@ -5641,6 +5641,20 @@ static boolean pause_change_teams(struct widget_instance *widget)
 	return TRUE;
 }
 
+/* "port pause moderation" (the host's pause menu's MODERATION: menu_tags.c):
+the Moderation screen over the pause menu (moderation_screen.c), its players
+to kick or ban */
+static boolean pause_moderation(void)
+{
+#ifdef HALO_GAME_BROWSER
+	extern boolean moderation_screen_open(void);
+
+	return moderation_screen_open() ? TRUE : campaign_fail();
+#else
+	return campaign_fail();
+#endif
+}
+
 /* "port pause controls" (the pause menu's CONTROLS: menu_tags.c): the
 Gearbox menus' opens their Controls Setup (its handler's
 widget), on player 1's profile, edited for it if none is (OK saves it); the
@@ -8811,6 +8825,10 @@ boolean pc_menu_event_function_invoke(
 		else if (!strcmp(name, "port pause change teams"))
 		{
 			return pause_change_teams(widget);
+		}
+		else if (!strcmp(name, "port pause moderation"))
+		{
+			return pause_moderation();
 		}
 		else if (!strcmp(name, "port pause controls"))
 		{
