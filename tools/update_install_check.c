@@ -22,6 +22,7 @@ uses of it is here) */
 #define __HALO_LINUX_PLATFORM_H
 
 #include "build_identity.h"
+#include "packaged_install.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -31,6 +32,7 @@ uses of it is here) */
 
 void platform_log(const char *format, ...) __attribute__((format(printf, 1, 2)));
 const char *platform_save_root(void);
+int platform_packaged(void);
 
 #include "updater.c"
 
@@ -84,6 +86,29 @@ double config_real(const char *name)
 const char *config_string(const char *name)
 {
 	return !strcmp(name, "debug.update_answer") ? "yes" : "";
+}
+
+/* (a packaged install's mark, as the game reads it: HALO_PACKAGED, or the
+file "packaged" beside the executable) */
+int platform_packaged(void)
+{
+	char folder[1024], path[1100];
+	ssize_t length = readlink("/proc/self/exe", folder, sizeof(folder) - 1);
+	SDL_PathInfo information;
+	char *slash;
+
+	folder[length > 0 ? length : 0] = 0;
+	slash = strrchr(folder, '/');
+	if (slash)
+		*slash = 0;
+	return packaged_install_marked(getenv("HALO_PACKAGED"),
+		packaged_install_file_path(path, sizeof(path), folder) && SDL_GetPathInfo(path, &information) &&
+		information.type == SDL_PATHTYPE_FILE);
+}
+
+int config_packaged_update_check(void)
+{
+	return 1;
 }
 
 int config_write_boolean(const char *name, int value)
