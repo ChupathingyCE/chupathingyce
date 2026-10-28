@@ -395,7 +395,9 @@ plays, with `ce_maps` agreed by both:
 A dedicated server's moderators act from the game over Delta Peer (the
 `moderation` capability). A host offers it only when it has moderation (the
 dedicated server registers its own, `delta_moderation.h`); a game a player
-hosts offers none. OpenCE players can be warned, kicked and banned like
+hosts offers none over the wire. Its host has the same Moderation screen
+for its own game (kick and ban, no sign-in), done on the host's machine
+with the console's kick and ban. OpenCE players can be warned, kicked and banned like
 anyone (the server acts through the game's own kick and ban), but only a
 Delta client can be an in-game moderator.
 

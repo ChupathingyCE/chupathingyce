@@ -69,7 +69,11 @@ up (with debug.network_test_melee: blows at a carrier), and
 debug.network_test_bomb_save has the host stand a defender on the bomb
 planted in its goal as it arms, which saves it.
 debug.network_test_team_change has each machine's player ask to change
-teams every so often (team_change.c).
+teams every so often (team_change.c). debug.network_test_moderate has the
+host take that action of its Moderation screen ("Kick", "Ban forever", ...:
+moderation_screen.c) on its first other player,
+debug.network_test_moderate_time seconds in, confirmed as a player confirms
+it, with a reason ("network test: moderation ...").
 
 Called from the main loop every frame (main.c).
 */
@@ -189,6 +193,10 @@ static struct
 	/* debug.network_test_pause: the pause menu opened then, once */
 	real pause_time;
 	boolean paused;
+	/* debug.network_test_moderate: the host's action, then, once */
+	char moderate[32];
+	real moderate_time;
+	boolean moderated;
 	char pickup_weapon[64];
 	long score_to_win;
 	long logged_time;
@@ -306,6 +314,8 @@ static void network_test_read_settings(
 	network_test.local_players = (short)PIN(config_integer("debug.network_test_local_players"), 1, 4);
 	network_test.team_change_interval = (real)config_real("debug.network_test_team_change");
 	network_test.pause_time = (real)config_real("debug.network_test_pause");
+	snprintf(network_test.moderate, sizeof(network_test.moderate), "%s", config_string("debug.network_test_moderate"));
+	network_test.moderate_time = (real)config_real("debug.network_test_moderate_time");
 	snprintf(network_test.pickup_weapon, sizeof(network_test.pickup_weapon), "%s",
 		config_string("debug.network_test_pickup_weapon"));
 	network_test.score_to_win = (long)config_integer("debug.network_test_score");
@@ -1389,6 +1399,22 @@ void network_test_update(
 				"ui\\shell\\multiplayer_game\\pause_game\\2p_pause_game" :
 				"ui\\shell\\multiplayer_game\\pause_game\\1p_pause_game", NONE, NULL, 0, NONE, NONE, NONE);
 		}
+#ifdef HALO_GAME_BROWSER
+		/* debug.network_test_moderate: the host's Moderation action on its
+		first other player, as the pause menu's MODERATION takes it */
+		if (network_test.mode == _network_test_host && network_test.moderate[0] && !network_test.moderated &&
+			game_time_get() >= (long)(network_test.moderate_time * TICKS_PER_SECOND))
+		{
+			extern boolean moderation_screen_test_act(char const *action, char *status, long status_size);
+			char status[128];
+
+			network_test.moderated = TRUE;
+			if (moderation_screen_test_act(network_test.moderate, status, sizeof(status)))
+				platform_log("network test: moderation %s: %s", network_test.moderate, status);
+			else
+				platform_log("network test: moderation %s: not taken", network_test.moderate);
+		}
+#endif
 		/* debug.network_test_team_change: every so often a player of each
 		machine asks to change teams, as the pause menu's CHANGE TEAMS does
 		(team_change.c); the joining machine's half an interval later */

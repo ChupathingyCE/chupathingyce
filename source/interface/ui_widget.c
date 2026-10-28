@@ -697,7 +697,8 @@ void browser_screen_open(void);
 boolean browser_screen_open_map_offer(void);
 void browser_screen_process(void);
 void browser_screen_render(void);
-/* port: moderation on a dedicated server (port/linux/game/moderation_screen.c) */
+/* port: moderation on a dedicated server, and the host's own kick and ban
+(port/linux/game/moderation_screen.c) */
 boolean moderation_screen_active(void);
 void moderation_screen_update(boolean menu_open);
 void moderation_screen_process(void);
@@ -9380,7 +9381,8 @@ void process_ui_widgets(
 		return;
 	}
 #endif
-	/* port: moderation's screen, over a menu of a dedicated server's game */
+	/* port: moderation's screen, over a menu of a dedicated server's game or
+	one this machine hosts */
 	moderation_screen_update(widget_globals.active_widgets[0] != NULL);
 	if (moderation_screen_active())
 	{
