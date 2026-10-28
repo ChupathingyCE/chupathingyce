@@ -413,7 +413,8 @@ jobs:
     # The server's container (server/deploy/Dockerfile) for the three
     # architectures at once, from the server job's programs, as buildx makes
     # it (nothing runs while it builds); then each started once, as above
-    # (arm64 emulated). Not pushed anywhere.
+    # (arm64 emulated). Not pushed anywhere: server-image.yml pushes each
+    # release's and the nightly's, from their published servers.
     needs: server
     runs-on: ubuntu-24.04
     timeout-minutes: 20

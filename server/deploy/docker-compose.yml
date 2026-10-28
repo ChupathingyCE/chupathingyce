@@ -1,0 +1,73 @@
+# A Chupathingy dedicated server with Docker Compose (server/docs/docker.md).
+#
+# Put this file in a folder of its own, with your maps and playlists in
+# ./data beside it:
+#   data/maps/ui.map, data/maps/bloodgulch.map, ...  (your own maps)
+#   data/playlists/free_for_all.txt, ...           (from the server's zip)
+# Then: docker compose up -d
+#
+# Every setting is in server/docs/settings.md.
+services:
+  server:
+    image: ghcr.io/chupathingyce/server:latest   # or :0.8.1b, or :nightly
+    restart: unless-stopped
+
+    # The host's network: internet play's hole punching does not get through
+    # Docker's own network to players behind their own routers. With it, no
+    # ports need publishing; open these in your firewall if it blocks them:
+    #   2302/udp  internet play (HALO_NET_TUNNEL_PORT below)
+    #   5150/udp  the game on your local network (system link)
+    #   5160/udp  Delta, Chupathingy's extras beside the game
+    network_mode: host
+
+    # The data folder: maps, playlists, settings (admin/settings.toml), saves
+    # and logs (logs/debug.txt). It must be writable by this user: the owner
+    # of ./data (run `id -u` and `id -g` to see yours).
+    user: "1000:1000"
+    volumes:
+      - ./data:/data
+
+    # The server reads packets from anyone who joins: no privileges.
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 1g
+    pids_limit: 256
+
+    # The server's console: `docker attach <container>` to type commands
+    # (sv_link, sv_kick, ...), Ctrl+P Ctrl+Q to leave it running.
+    stdin_open: true
+    tty: true
+
+    environment:
+      # The playlist, a path in the data folder (required).
+      HALO_DEDICATED: playlists/free_for_all.txt
+      # The name on the lists, 15 characters at most.
+      HALO_DEDICATED_NAME: My Server
+      # Players a game takes (up to 128), and waits for before it starts.
+      HALO_DEDICATED_MAXIMUM_PLAYERS: "16"
+      HALO_DEDICATED_MINIMUM_PLAYERS: "1"
+      # Listed in the in-game Server Browser; "false" keeps it to invites and
+      # the game list.
+      HALO_DEDICATED_PUBLIC: "true"
+      # A message each Chupathingy player gets as they join.
+      #HALO_DEDICATED_WELCOME: Welcome! Be nice.
+      # A fixed UDP port for internet play, to forward or open if anyone
+      # cannot join (0: any port).
+      HALO_NET_TUNNEL_PORT: "2302"
+
+      # The control panel and API (server/docs/admin.md): off unless set.
+      # "8080" is the host's 127.0.0.1:8080, reachable from this machine
+      # only; its token and the first owner's setup link are printed once,
+      # in `docker compose logs`.
+      #HALO_DEDICATED_CONTROL: "8080"
+      # Linking to your account on stats.chupathingy.org (sv_link on the
+      # console) gives you My Servers and roles there. "false" turns it off.
+      #HALO_DEDICATED_LINK: "true"
+      # The most a role from the site may be on this server: admin or
+      # moderator.
+      #HALO_DEDICATED_LINK_ROLE: admin
+
+      # More than one server on this machine: give each its own address for
+      # system link (127.0.0.2, 127.0.0.3, ...), its own tunnel port and its
+      # own data folder.
+      #HALO_NET_ADDRESS: 127.0.0.2

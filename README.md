@@ -489,6 +489,8 @@ with no player of its own, and lists them on stats.chupathingy.org and in the
 Server Browser. It is its own download for Linux on x86, x64 and arm64
 (Oracle Cloud's free tier and Raspberry Pis included): one file, no libraries
 to install, and no port forwarding. See [server/README.md](server/README.md).
+To run one with Docker, see
+[Host a server with Docker](server/docs/docker.md#host-a-server-with-docker).
 
 ## Cross-play and Delta
 
