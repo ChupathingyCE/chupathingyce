@@ -239,6 +239,10 @@ const struct server_setting server_settings_table[SERVER_SETTINGS] =
 		"The playlist's order shuffled each time it starts over" },
 	{ "chat_legacy", SERVER_FIELD_BOOLEAN, 0, 1, "HALO_DEDICATED_CHAT_LEGACY",
 		"OpenCE players chat too (their own text chat, bridged), while the chat is on" },
+	{ "gamespy_listing", SERVER_FIELD_BOOLEAN, 0, 1, "HALO_DEDICATED_GAMESPY_LISTING",
+		"Answer GameSpy status queries and send heartbeats to GameSpy masters" },
+	{ "gamespy_port", SERVER_FIELD_INTEGER, 1, 65535, "HALO_DEDICATED_GAMESPY_PORT",
+		"The UDP port of the GameSpy status queries" },
 };
 
 /* ---------- private code */

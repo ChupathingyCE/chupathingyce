@@ -297,6 +297,10 @@ enum
 	/* whether OpenCE players chat too (their own text chat, bridged), while
 	the chat is on */
 	SERVER_SETTING_CHAT_LEGACY,
+	/* GameSpy-style status queries and master heartbeats (server/platform/
+	gamespy_listing.h), and the UDP port they use */
+	SERVER_SETTING_GAMESPY_LISTING,
+	SERVER_SETTING_GAMESPY_PORT,
 	SERVER_SETTINGS,
 	/* a game's players, at most (halo_port_limits.h's) */
 	SERVER_SETTINGS_MAXIMUM_PLAYERS = 128,

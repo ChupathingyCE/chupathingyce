@@ -494,6 +494,28 @@ static long get_players(
 	return count;
 }
 
+long server_commands_player_rows(
+	char *names,
+	long name_size,
+	long *scores,
+	long *pings,
+	long *teams,
+	long maximum)
+{
+	static struct server_player players[HALO_PORT_MAXIMUM_NETWORK_PLAYERS];
+	long count = get_players(players, maximum < (long)NUMBEROF(players) ? maximum : (long)NUMBEROF(players));
+	long index;
+
+	for (index = 0; index < count; index++)
+	{
+		snprintf(names + index * name_size, (size_t)name_size, "%s", players[index].name);
+		scores[index] = players[index].scored ? players[index].score : 0;
+		pings[index] = players[index].ping;
+		teams[index] = players[index].team_index;
+	}
+	return count;
+}
+
 /* the player a command names: a number from sv_players, else a name (the
 whole name, in either case; else the one name beginning with it); FALSE,
 with why in the output, if none or more than one */
@@ -2296,6 +2318,9 @@ void server_commands_update(
 	}
 	server_moderation_update();
 	names_update();
+#ifdef HALO_SERVER
+	server_gamespy_update();
+#endif
 #ifdef HALO_SERVER
 	/* the console's and the control API's, as they came */
 	for (;;)
