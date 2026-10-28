@@ -151,7 +151,8 @@ const char *platform_data_root(void)
 			{
 				/* (the macOS application's data goes in its folder in
 				Application Support, not in the application, and an
-				AppImage's in the save root's place: port_config.c) */
+				AppImage's or a packaged install's in the save root's
+				place: port_config.c, packaged_install.h) */
 				char app_folder[MAX_PATH];
 				const char *destination = platform_app_folder(app_folder, sizeof(app_folder))
 					? app_folder : executable_directory;

@@ -78,6 +78,22 @@ We don't pay for code signing yet, so the first start needs one extra step:
   it, go to **System Settings → Privacy & Security**, and choose **Open
   Anyway** next to ChupathingyCE. You only do this once.
 
+### Package managers
+
+On Arch Linux, ugoboom keeps a community package on the AUR:
+[chupathingy-bin](https://aur.archlinux.org/packages/chupathingy-bin), built
+from our Linux (64-bit) release. It isn't ours, so report package problems to
+him.
+
+A package marks the game as a packaged install. Then the game never updates
+itself, and tells you to update Chupathingy with your package manager when a
+new version is out. On Linux, your maps, settings and logs go in
+`~/.local/share/chupathingyce` (or `$XDG_DATA_HOME/chupathingyce`) with your
+saves, since the game's own folder can't be written. Packagers can turn it on
+without rebuilding our signed executable: put a file named `packaged` next to
+the executable, or start the game with `HALO_PACKAGED=1`. A build of your own
+can use `configure.py --packaged`.
+
 ## You need your own copy of Halo
 
 Chupathingy doesn't include the game's maps, sounds or art. You need an Xbox

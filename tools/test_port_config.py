@@ -88,7 +88,10 @@ STUB_PLATFORM = """#include <stddef.h>
 void platform_log(const char *format, ...);
 """
 
-STUB_POSIX = """#include <sys/stat.h>
+STUB_POSIX = """#include <dirent.h>
+#include <string.h>
+#include <strings.h>
+#include <sys/stat.h>
 typedef unsigned long posix_ulong;
 struct posix_file_information
 {
@@ -107,6 +110,26 @@ static int posix_stat(const char *path, struct posix_file_information *informati
 	information->modification_seconds = (posix_ulong)st.st_mtime;
 	information->modification_nanoseconds = 0;
 	return 0;
+}
+static inline int posix_find_entry_case_insensitive(const char *directory, const char *name, char *found, unsigned long size)
+{
+	DIR *folder = opendir(directory);
+	struct dirent *entry;
+	int matched = 0;
+
+	if (!folder)
+		return 0;
+	while (!matched && (entry = readdir(folder)) != NULL)
+	{
+		if (!strcasecmp(entry->d_name, name))
+		{
+			strncpy(found, entry->d_name, size - 1);
+			found[size - 1] = 0;
+			matched = 1;
+		}
+	}
+	closedir(folder);
+	return matched;
 }
 """
 
@@ -129,6 +152,7 @@ def build(cc, kind, directory):
 	(source / "SDL3").mkdir(parents=True, exist_ok=True)
 	shutil.copy(ROOT / "port/linux/src/port_config.c", source)
 	shutil.copy(ROOT / "port/linux/src/port_config.h", source)
+	shutil.copy(ROOT / "port/linux/src/packaged_install.h", source)
 	shutil.copy(ROOT / "port/linux/include/halo_port_limits.h", source)
 	shutil.copy(ROOT / "port/linux/include/halo_port_capacity.h", source)
 	shutil.copy(ROOT / "port/linux/include/halo_port_features.h", source)
@@ -153,10 +177,12 @@ class Case:
 		self.folder.mkdir(parents=True, exist_ok=True)
 		self.path = self.folder / "config.toml"
 
-	def run(self, *arguments):
-		environment = {key: value for key, value in os.environ.items() if not key.startswith("HALO_")}
+	def run(self, *arguments, environment_extra=None):
+		environment = {key: value for key, value in os.environ.items()
+			if not key.startswith("HALO_") and key != "APPIMAGE"}
 		environment["PORT_CONFIG_TEST_FOLDER"] = str(self.folder)
 		environment["HALO_DATA_ROOT"] = str(self.folder)
+		environment.update(environment_extra or {})
 		result = subprocess.run([str(self.program), *arguments], capture_output=True, text=True,
 			env=environment, check=True)
 		values = dict(re.findall(r"^([a-z_]+\.[a-z_0-9]+)=(.*)$", result.stdout, re.M))
@@ -449,6 +475,65 @@ def test_old_browser_address(program, directory, defaults, kind):
 	check('browser_url = "https://lists.example.org"' in case.text(), "custom browser_url not kept in the file")
 
 
+def test_packaged_install(program, directory, defaults, kind):
+	"""A packaged install (packaged_install.h: HALO_PACKAGED, or a file named
+	"packaged" beside the executable): update.auto is off and stays off; on
+	Linux its config.toml is in the save root's usual place, as is a game's in
+	a folder it cannot write with no setup of its own. Elsewhere, and in a
+	normal install, nothing changes."""
+	home = directory / "packaged-home"
+	own = home / "chupathingyce" / "config.toml"
+	linux = sys.platform.startswith("linux") and kind != "android"
+	extra = {"XDG_DATA_HOME": str(home), "HOME": str(home)}
+	# (a normal install: as before, beside the executable)
+	case = Case(program, directory / "not-packaged")
+	values, _ = case.run("get", "update.auto", environment_extra=extra)
+	check(values["update.auto"] == "true", f"normal install: update.auto {values}")
+	check(case.path.exists() and not own.exists(), "normal install: config.toml not beside the executable")
+	for mark in ("environment", "file"):
+		if own.exists():
+			own.unlink()
+		case = Case(program, directory / f"packaged-{mark}")
+		environment = dict(extra)
+		if mark == "environment":
+			environment["HALO_PACKAGED"] = "1"
+		else:
+			(case.folder / "packaged").write_text('manager = "pacman"\n')
+		values, _ = case.run("get", "update.auto", environment_extra=environment)
+		if kind == "android":
+			check(values["update.auto"] == "true", f"android: packaged changed update.auto {values}")
+			continue
+		check(values["update.auto"] == "false", f"packaged ({mark}): update.auto {values}")
+		values, output = case.run("write", "update.auto", "true", environment_extra=environment)
+		check("write failed" in output and values["update.auto"] == "false",
+			f"packaged ({mark}): update.auto was turned on: {output}")
+		if linux:
+			check(own.exists() and not case.path.exists(), f"packaged ({mark}): config.toml not in {own.parent}")
+		else:
+			check(case.path.exists(), f"packaged ({mark}): config.toml moved off Linux")
+	if not linux or os.geteuid() == 0:
+		return
+	# (a folder the game cannot write: its config.toml in the save root's
+	# place, unless the folder has one of its own, which is kept)
+	for has_setup in (False, True):
+		if own.exists():
+			own.unlink()
+		case = Case(program, directory / f"read-only-{has_setup}")
+		if has_setup:
+			case.path.write_text("config_version = 2\n\n[display]\nvsync = false\n")
+		case.folder.chmod(0o555)
+		try:
+			values, _ = case.run("get", "display.vsync", "update.auto", environment_extra=extra)
+		finally:
+			case.folder.chmod(0o755)
+		check(values["update.auto"] == "true", f"read-only folder: update.auto {values}")
+		if has_setup:
+			check(values["display.vsync"] == "false" and not own.exists(),
+				f"read-only folder with config.toml: not kept {values}")
+		else:
+			check(own.exists() and not case.path.exists(), "read-only folder: config.toml not in the save root's place")
+
+
 def main():
 	parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
 	parser.add_argument("--cc", default=os.environ.get("CC", "cc"))
@@ -460,7 +545,7 @@ def main():
 			program = build(arguments.cc, kind, directory / kind)
 			for test in (test_new_file, test_previous_release_file, test_file_without_the_settings,
 				test_readded_by_older_version, test_before_config_version, test_renamed_setting,
-				test_old_browser_address):
+				test_old_browser_address, test_packaged_install):
 				try:
 					test(program, directory / kind / "cases", DEFAULTS[kind], kind)
 					print(f"ok   {kind}: {test.__name__}")

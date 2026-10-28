@@ -666,6 +666,18 @@ because a system dialog stops the game there. The game writes the new
 version in the log. To update, start the game from the desktop, or set
 `update_answer = "yes"` in the `[debug]` section of `config.toml`.
 
+A packaged install (a package manager's, such as the AUR's
+`chupathingy-bin`) never updates itself. A package turns it on with a file
+named `packaged` next to the executable, `HALO_PACKAGED=1` in the
+environment, or a build made with `configure.py --packaged`. Then
+`update.auto` is off and stays off, and a newer release only puts "update
+Chupathingy with your package manager" on the main menu's version line and in
+the log (`auto = false` in `config.toml`, or `HALO_UPDATE_AUTO=false`, stops
+that look too). On Linux, the maps, `config.toml` and the logs go in the save
+root's usual place, `~/.local/share/chupathingyce`, as an AppImage's do. So do
+those of a game in any folder it cannot write, unless that folder has its own
+`maps/` or `config.toml`.
+
 The game downloads through HTTPS. It examines the certificate of the server
 against the certificate authorities of the system: on Linux, the bundle of
 the distribution (`src/posix_update.c`, with Mbed TLS); on Windows, the

@@ -318,6 +318,10 @@ def game_browser_defines(sln: Any) -> List[str]:
     # on the desktop; never a build to ship
     if getattr(sln, "console_limits", False):
         defines.append("-DHALO_CONSOLE_LIMITS")
+    # configure.py --packaged: a package manager's build, which never
+    # updates itself (port/linux/src/packaged_install.h)
+    if getattr(sln, "packaged", False):
+        defines.append("-DHALO_PACKAGED")
     return defines
 
 
@@ -837,7 +841,9 @@ def generate_linux_build(n: Writer, sln: Any) -> None:
                          # configure.py --window-rebase: the memory window wherever
                          # HALO_WINDOW_BASE puts it (source/cseries/xbox_address.h), to
                          # test on the desktop what the Switch needs; never a build to ship
-                         extra_flags=["-DHALO_WINDOW_REBASE"] if getattr(sln, "window_rebase", False) else [])
+                         extra_flags=(["-DHALO_WINDOW_REBASE"] if getattr(sln, "window_rebase", False) else [])
+                         # configure.py --packaged (game_browser_defines)
+                         + (["-DHALO_PACKAGED"] if getattr(sln, "packaged", False) else []))
 
     def emit(obj_dir: Path, output: Path, extra_cflags: List[str], extra_ldflags: List[str],
              implicit_inputs: List[Path], validator: Optional[Path] = None) -> None:
