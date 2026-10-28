@@ -19,7 +19,10 @@ an OpenCE client and one of ours (--server).
 
 `build` makes a release build of a commit (git archive, configure.py
 --release --pgo=off --lto=off, ninja linux), ours or OpenCE's: about two
-minutes on 12 cores. `check` checks an earlier run's logs again.
+minutes on 12 cores. With --portable, configure.py gets --portable too: the
+build brings its own SDL 3 (libSDL3.so.0 beside the game), for OpenCE builds
+that need a newer SDL 3 than the machine has. `check` checks an earlier
+run's logs again.
 
 --ours-table names a legacy table file (docs/delta.md, "Local override")
 for our copies: how a build is made to announce, and join, an OpenCE number
@@ -78,6 +81,7 @@ up there); 3 to 4 minutes, every direction at once, 11 copies at most.
 """
 
 import argparse
+import glob
 import json
 import os
 import re
@@ -151,6 +155,10 @@ class Copy:
             os.makedirs(os.path.join(self.folder, sub))
         self.binary = os.path.join(self.folder, "bin", os.path.basename(binary))
         shutil.copy2(binary, self.binary)
+        # (a portable build's own libraries, libSDL3.so.0, beside the game,
+        # where it loads them from)
+        for library in glob.glob(os.path.join(os.path.dirname(binary), "lib*.so*")):
+            shutil.copy2(library, os.path.join(self.folder, "bin"))
         os.symlink(os.path.abspath(maps), os.path.join(self.folder, "data", "maps"))
         if ce_maps:
             # (Custom Edition maps and their resource maps: OpenCE's
@@ -851,7 +859,8 @@ def build(args):
     if archive.wait():
         log(f"git archive {args.ref}: failed")
         return 2
-    subprocess.run([sys.executable, "configure.py", "--release", "--pgo=off", "--lto=off"], cwd=out, check=True,
+    subprocess.run([sys.executable, "configure.py", "--release", "--pgo=off", "--lto=off"]
+                   + (["--portable"] if args.portable else []), cwd=out, check=True,
         stdout=subprocess.DEVNULL)
     targets = ["linux"] + (["server-x86"] if args.server else [])
     subprocess.run(["ninja", "-j", str(os.cpu_count() or 4)] + targets, cwd=out, check=True)
@@ -893,6 +902,8 @@ def main():
     build_parser.add_argument("--ref", required=True)
     build_parser.add_argument("--out", required=True)
     build_parser.add_argument("--server", action="store_true", help="the dedicated server too (ours)")
+    build_parser.add_argument("--portable", action="store_true",
+                              help="configure.py --portable: the build's own SDL 3 (OpenCE's, when the machine's is too old)")
     args = parser.parse_args()
     if args.command == "build":
         return build(args)
