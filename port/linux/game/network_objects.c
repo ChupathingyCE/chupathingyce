@@ -214,6 +214,12 @@ fourth (as it sends players, network_distributed.c) */
 #define MIDDLE_OBJECT_DISTANCE 60.0f
 #define FAR_OBJECT_DISTANCE 120.0f
 
+/* how far an object at rest moves in a tick (world units), or the cosine
+of how far it turns, for the host to send it as a moving one: a script
+moved it (distributed_host_moved_at_rest) */
+#define HOST_REST_MOVE_DISTANCE 0.001f
+#define HOST_REST_TURN_COSINE 0.9999f
+
 /* world units */
 #define REMOTE_OBJECT_TOLERANCE 0.05f
 /* ... and the cosine of the angle (an object at rest turned) */
@@ -350,6 +356,12 @@ rest (NONE: not since it was told of), to send it to every client
 (REST_STATE_REPEATS) */
 static boolean objects_host_state_moving[MAXIMUM_TRACKED_OBJECTS];
 static long objects_host_rest_times[MAXIMUM_TRACKED_OBJECTS];
+/* ... where each was at the last tick, and which object that was (NONE:
+none yet): one at rest that a script moves (objects_attach and
+objects_detach, object_teleport) stays at rest, and is sent as moving */
+static real_point3d objects_host_last_positions[MAXIMUM_TRACKED_OBJECTS];
+static real_vector3d objects_host_last_forwards[MAXIMUM_TRACKED_OBJECTS];
+static long objects_host_last_objects[MAXIMUM_TRACKED_OBJECTS];
 /* ... what each unit's inventory was last sent as (in all, and its weapons
 and grenades), when to every client, and when its ammunition alone last
 changed (NONE: not since); when it last carried anything (NONE: never) */
@@ -1502,6 +1514,35 @@ static boolean distributed_host_rest_state_due(
 		since < REST_STATE_REPEATS * REST_STATE_REPEAT_TICKS && since % REST_STATE_REPEAT_TICKS == 0;
 }
 
+/* whether an object at rest has moved since the last tick: a script moved
+it (Coldsnap's Pelicans carry their cargo by attaching and detaching it
+each tick, and the object is never woken), so that it goes out as a moving
+one does, not only in its turn round those at rest, many seconds apart */
+static boolean distributed_host_moved_at_rest(
+	long absolute_index,
+	long object_index)
+{
+	struct object_datum const *object = object_get(object_index);
+	boolean moved = FALSE;
+
+	if (objects_host_last_objects[absolute_index] == object_index)
+	{
+		real_point3d const *last = &objects_host_last_positions[absolute_index];
+		real_vector3d const *last_forward = &objects_host_last_forwards[absolute_index];
+		real dx = object->object.position.x - last->x;
+		real dy = object->object.position.y - last->y;
+		real dz = object->object.position.z - last->z;
+
+		moved = dx * dx + dy * dy + dz * dz > HOST_REST_MOVE_DISTANCE * HOST_REST_MOVE_DISTANCE ||
+			object->object.forward.i * last_forward->i + object->object.forward.j * last_forward->j +
+				object->object.forward.k * last_forward->k < HOST_REST_TURN_COSINE;
+	}
+	objects_host_last_objects[absolute_index] = object_index;
+	objects_host_last_positions[absolute_index] = object->object.position;
+	objects_host_last_forwards[absolute_index] = object->object.forward;
+	return moved;
+}
+
 /* where the moving objects are, to each client those near its players
 every tick, those further less often, and the vehicle it drives itself
 (which it has already) every few ticks, with which of its ticks the host
@@ -1531,8 +1572,15 @@ static void distributed_host_send_states(
 
 		objects_host_state_moving[absolute_index] = FALSE;
 		if (object_index == NONE)
+		{
+			objects_host_last_objects[absolute_index] = NONE;
 			continue;
+		}
 		at_rest = TEST_FLAG(object_get(object_index)->object.flags, _object_at_rest_bit);
+		/* (one at rest that moved goes out as a moving one; its state still
+		says at rest, so a client puts it there at once) */
+		if (distributed_host_moved_at_rest(absolute_index, object_index))
+			at_rest = FALSE;
 		objects_host_state_moving[absolute_index] = !at_rest;
 		if (at_rest && was_moving)
 			objects_host_rest_times[absolute_index] = game_time_get();
@@ -4137,6 +4185,7 @@ void network_objects_new_game(
 		objects_host_told[absolute_index] = NONE;
 		objects_host_state_moving[absolute_index] = FALSE;
 		objects_host_rest_times[absolute_index] = NONE;
+		objects_host_last_objects[absolute_index] = NONE;
 		objects_host_inventories[absolute_index].carried_time = NONE;
 		objects_host_inventories[absolute_index].ammunition_time = NONE;
 		objects_client_has[absolute_index] = NONE;
