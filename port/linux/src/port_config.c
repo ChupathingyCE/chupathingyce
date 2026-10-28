@@ -121,6 +121,17 @@ Elsewhere 512 keeps the latency low. */
 #define DEFAULT_AUDIO_BUFFER_FRAMES "512"
 #endif
 
+/* Headphone 3D (dsound_sdl.c's binaural rendering), on as the original Xbox
+had it: its DirectSound filtered every 3D voice through its HRTFs, on TV
+stereo too (DirectSoundUseFullHRTF). Surround output ignores it. A
+console's build keeps it off: the original Xbox has its own hardware path,
+and the others have not been tried with it. */
+#ifdef HALO_CONSOLE
+#define DEFAULT_AUDIO_HRTF "\"off\""
+#else
+#define DEFAULT_AUDIO_HRTF "\"on\""
+#endif
+
 /* The 3D view's anti-aliasing and the objects' shadow maps: the sharpest
 picture the builds' computers draw comfortably, with the look kept
 (multisampling smooths only the edges of what is drawn; a larger shadow map
@@ -494,9 +505,11 @@ static const struct config_setting config_settings[] =
 	{ "audio.doppler", _config_boolean, "true", "HALO_AUDIO_DOPPLER", _environment_value, _platform_all,
 		"Shift the pitch of moving sounds (a Warthog or a projectile going past),\n"
 		"as the Xbox did; false keeps them at their pitch." },
-	{ "audio.hrtf", _config_string, "\"off\"", "HALO_AUDIO_HRTF", _environment_value, _platform_all,
-		"Binaural 3D sound for headphones (HRTF): \"off\", \"on\", or \"auto\" for\n"
-		"on when the output's name says it is headphones. Stereo output only." },
+	{ "audio.hrtf", _config_string, DEFAULT_AUDIO_HRTF, "HALO_AUDIO_HRTF", _environment_value, _platform_all,
+		"Headphone 3D (HRTF): 3D sound as the Xbox made it, on headphones or TV\n"
+		"stereo. \"on\", \"off\" (turn it off if it sounds odd on your speakers),\n"
+		"or \"auto\" for on when the output's name says it is headphones.\n"
+		"Stereo output only." },
 
 	{ "audio.reverb", _config_boolean, "true", "HALO_REVERB", _environment_value, _platform_all,
 		"Echo sounds to match the place you are in." },
@@ -1306,9 +1319,11 @@ static int config_write_file(const char *path, const char *text)
 before config_version, wrote every value, which kept a default a later
 version changed) */
 #define CONFIG_VERSION 2
-/* the defaults the game has asked about (game.defaults_answered): the ones
-of v0.8.0 */
-#define CONFIG_DEFAULTS_GENERATION 1
+/* the defaults the game has asked about (game.defaults_answered): 1, the
+ones of v0.8.0; 2, Headphone 3D on. A file answered at an older generation
+is asked about the later ones only */
+#define CONFIG_DEFAULTS_GENERATION 2
+#define CONFIG_DEFAULTS_GENERATION_TEXT "2"
 #define CONFIG_VERSION_LINE "config_version = 2\n"
 #define CONFIG_VERSION_LINES "# The layout of this file, for the game: leave it.\n" CONFIG_VERSION_LINE
 #define CONFIG_VERSION_TEXT "\n" CONFIG_VERSION_LINES
@@ -1811,32 +1826,40 @@ static const struct
 	/* for an existing file that has the setting at the old default (or not
 	set): the change in words, to ask about it (config_find_new_defaults) */
 	const char *change;
+	/* the question it is asked in (CONFIG_DEFAULTS_GENERATION): a file
+	answered at this one or later is not asked again; 0 with no change */
+	int generation;
 } config_old_defaults[] =
 {
 	/* upstream's, which ChupathingyCE kept until v0.5.2b */
-	{ "display.menus", "\"pc\"", 0, NULL },
+	{ "display.menus", "\"pc\"", 0, NULL, 0 },
 	/* the Xbox's menus, the default until v0.8.0 (a file that names them
 	keeps them) */
 	{ "display.menus", "\"xbox\"", 0,
-		"The Chupathingy menus" },
+		"The Chupathingy menus", 1 },
 	/* the Xbox's, until the per-platform defaults of v0.8.0 (a file that
 	names them keeps them) */
-	{ "display.anti_aliasing", "\"off\"", 0, "Smoother edges (2x multisampling)" },
-	{ "display.shadow_resolution", "128", 0, "Sharper shadows (256)" },
+	{ "display.anti_aliasing", "\"off\"", 0, "Smoother edges (2x multisampling)", 1 },
+	{ "display.shadow_resolution", "128", 0, "Sharper shadows (256)", 1 },
 	/* asking to join a copied invite, the default until v0.8.0c: a file
 	that names "ask" keeps it, one that left it commented out follows
 	"never" without a question */
-	{ "network.join_from_clipboard", "\"ask\"", 0, NULL },
+	{ "network.join_from_clipboard", "\"ask\"", 0, NULL, 0 },
 	/* the community site's first address, the default until stats.chupathingy.org
 	(the same server, so a file that holds it follows without a question) */
-	{ "network.browser_url", "\"https://halo.milenko.org\"", 1, NULL },
+	{ "network.browser_url", "\"https://halo.milenko.org\"", 1, NULL, 0 },
 #ifdef HALO_ANDROID
-	{ "audio.buffer_frames", "512", 0, "A larger audio buffer (1024)" },
+	{ "audio.buffer_frames", "512", 0, "A larger audio buffer (1024)", 1 },
 #endif
 #ifndef HALO_CONSOLE_NO_DISCORD
 	/* OpenCE's Discord application, which ChupathingyCE kept until v0.7.5c
 	(Discord showed "OpenCE" as being played) */
-	{ "discord.application_id", "\"1553978809840050229\"", 1, NULL },
+	{ "discord.application_id", "\"1553978809840050229\"", 1, NULL, 0 },
+#endif
+#ifndef HALO_CONSOLE
+	/* the stereo pan, the default until Headphone 3D matched the Xbox (a
+	file that names "off" keeps it) */
+	{ "audio.hrtf", "\"off\"", 0, "Headphone 3D on, as the original Xbox did", 2 },
 #endif
 };
 
@@ -2114,8 +2137,11 @@ from this layout and "key = value" from the older version, and the value
 pins the older version's default. Such a value that is a default, this
 version's or an older one, is taken out with its comment, so that the
 setting follows this version's default again; a value that is no default
-stays, being the player's. Returns the new text, or NULL if there was none */
-static char *config_drop_added_defaults(const char *text, toml_datum_t table)
+stays, being the player's. With asked, only the settings asked about (and
+values at this version's default): one at an older default that the player
+kept in an earlier question stays. Returns the new text, or NULL if there
+was none */
+static char *config_drop_added_defaults(const char *text, toml_datum_t table, const int *asked)
 {
 	toml_datum_t version = toml_seek(table, "config_version");
 	int lines[NUMBER_OF_CONFIG_SETTINGS];
@@ -2133,6 +2159,7 @@ static char *config_drop_added_defaults(const char *text, toml_datum_t table)
 
 		lines[index] = 0;
 		if (datum.type != TOML_UNKNOWN && config_datum_is_a_default(datum, setting) &&
+			(!asked || asked[index] || config_datum_is(datum, setting->type, setting->default_value)) &&
 			config_text_has_commented_key(text, setting->name))
 		{
 			lines[index] = datum.lineno;
@@ -2259,13 +2286,15 @@ static void config_find_new_defaults(const char *text, toml_datum_t table)
 #ifndef HALO_SERVER
 	toml_datum_t version = toml_seek(table, "config_version");
 	toml_datum_t answered = toml_seek(table, "game.defaults_answered");
+	long long asked = answered.type == TOML_INT64 ? (long long)answered.u.int64 : 0;
 	size_t old;
 
-	if (answered.type == TOML_INT64 && answered.u.int64 >= CONFIG_DEFAULTS_GENERATION)
+	if (asked >= CONFIG_DEFAULTS_GENERATION)
 		return;
 	for (old = 0; old < NUMBER_OF_CONFIG_OLD_DEFAULTS; old++)
 	{
-		long index = config_old_defaults[old].change ? config_setting_index(config_old_defaults[old].name) : -1;
+		long index = config_old_defaults[old].change && config_old_defaults[old].generation > asked ?
+			config_setting_index(config_old_defaults[old].name) : -1;
 		const struct config_setting *setting;
 		toml_datum_t datum;
 
@@ -3334,7 +3363,7 @@ void config_new_defaults_answer(int use_new)
 			which pinned the old defaults, taken out; the commented lines
 			at the old defaults written at the new ones) */
 			if (result.ok)
-				changed = config_drop_added_defaults(text, result.toptab);
+				changed = config_drop_added_defaults(text, result.toptab, pending);
 			toml_free(result);
 			for (index = 0; index < NUMBER_OF_CONFIG_SETTINGS; index++)
 			{
@@ -3386,7 +3415,7 @@ void config_new_defaults_answer(int use_new)
 			}
 		}
 	}
-	config_write("game.defaults_answered", "1");
+	config_write("game.defaults_answered", CONFIG_DEFAULTS_GENERATION_TEXT);
 }
 
 int config_write_boolean(const char *name, int value)

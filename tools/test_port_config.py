@@ -41,20 +41,30 @@ DEFAULTS = {
 	"desktop": {
 		"display.anti_aliasing": "msaa2x",
 		"display.shadow_resolution": "256",
+		"audio.hrtf": "on",
 	},
 	"desktop32": {
 		"display.anti_aliasing": "off",
 		"display.shadow_resolution": "256",
 		"audio.buffer_frames": "512",
+		"audio.hrtf": "on",
 	},
 	"android": {
 		"display.anti_aliasing": "off",
 		"display.shadow_resolution": "256",
 		"audio.buffer_frames": "1024",
+		"audio.hrtf": "on",
 	},
 	"server": {
 		"display.anti_aliasing": "off",
 		"display.shadow_resolution": "128",
+	},
+	# (a console's build: Headphone 3D stays off, the original Xbox having
+	# its own hardware path)
+	"console": {
+		"display.anti_aliasing": "off",
+		"display.shadow_resolution": "256",
+		"audio.hrtf": "off",
 	},
 }
 
@@ -66,13 +76,19 @@ OLD = {
 	"display.anti_aliasing": "off",
 	"display.shadow_resolution": "128",
 	"audio.buffer_frames": "512",
+	"audio.hrtf": "off",
 }
 CHANGED = {
-	"desktop": ["display.menus", "display.anti_aliasing", "display.shadow_resolution"],
-	"desktop32": ["display.menus", "display.shadow_resolution"],
-	"android": ["display.menus", "display.shadow_resolution", "audio.buffer_frames"],
+	"desktop": ["display.menus", "display.anti_aliasing", "display.shadow_resolution", "audio.hrtf"],
+	"desktop32": ["display.menus", "display.shadow_resolution", "audio.hrtf"],
+	"android": ["display.menus", "display.shadow_resolution", "audio.buffer_frames", "audio.hrtf"],
 	"server": [],
+	"console": ["display.menus", "display.shadow_resolution"],
 }
+# the changes of the latest question (CONFIG_DEFAULTS_GENERATION), which a
+# file answered at the one before is asked about
+LATEST = ["audio.hrtf"]
+GENERATION = "2"
 NEW = {"display.menus": "chupathingy"}
 
 # the macros each kind of build is compiled with; the others are not macOS
@@ -82,6 +98,7 @@ DEFINES = {
 	"desktop32": ["-U__APPLE__", "-DHALO_GAME_BROWSER"],
 	"android": ["-U__APPLE__", "-DHALO_ANDROID", "-DHALO_GAME_BROWSER"],
 	"server": ["-U__APPLE__", "-DHALO_SERVER", "-DHALO_64BIT", "-DHALO_GAME_BROWSER"],
+	"console": ["-U__APPLE__", "-DHALO_CONSOLE", "-DHALO_GAME_BROWSER"],
 }
 
 STUB_PLATFORM = """#include <stddef.h>
@@ -274,7 +291,9 @@ def test_previous_release_file(program, directory, defaults, kind):
 			continue
 		case.run("answer", answer)
 		text = case.text()
-		check(re.search(r"^defaults_answered = 1$", text, re.M), f"previous/{answer}: the answer is not written")
+		check(re.search(rf"^defaults_answered = {GENERATION}$", text, re.M), f"previous/{answer}: the answer is not written")
+		if "audio.hrtf" in changed:
+			check("Headphone 3D on, as the original Xbox did" in output, f"previous/{answer}: no words for Headphone 3D")
 		# (asked once: a restart finds nothing, and changes nothing)
 		check(pending(case)[0] == 0, f"previous/{answer}: asked again")
 		values, _ = case.get(*names)
@@ -291,6 +310,53 @@ def test_previous_release_file(program, directory, defaults, kind):
 				check(values[name] == new_value(name, defaults), f"previous/new: {name} is {values[name]}")
 				check(not lines and commented == [f"# {key} = " + (f'"{values[name]}"' if not values[name].isdigit() else values[name])],
 					f"previous/new: {key}: {lines} {commented}")
+
+
+def test_answered_earlier(program, directory, defaults, kind):
+	"""A file answered at the question before (defaults_answered = 1): asked
+	about the latest changes only (Headphone 3D), and a value kept then stays
+	whatever the answer now. A Headphone 3D the player set themselves, on,
+	off or auto, is never asked about nor changed."""
+	latest = [name for name in LATEST if name in CHANGED[kind]]
+	if not latest:
+		return
+	for answer in ("keep", "new"):
+		case = Case(program, directory / f"earlier_{answer}")
+		written = previous_release_file(case, kind)
+		# (kept at the question before: shadows written at 128; the menus left
+		# to follow, as "use the new settings" did)
+		written = written.replace("# shadow_resolution = 128", "shadow_resolution = 128")
+		written = re.sub(r"^# menus = .*$", '# menus = "chupathingy"', written, flags=re.M)
+		written = re.sub(r"^# anti_aliasing = .*$", f'# anti_aliasing = "{defaults.get("display.anti_aliasing", "off")}"',
+			written, flags=re.M)
+		written = re.sub(r"^# buffer_frames = .*$", f'# buffer_frames = {defaults.get("audio.buffer_frames", "512")}',
+			written, flags=re.M)
+		written = re.sub(r"^# defaults_answered = .*$", "defaults_answered = 1", written, flags=re.M)
+		case.path.write_text(written)
+		values, _ = case.get("audio.hrtf", "display.shadow_resolution")
+		check(values["audio.hrtf"] == "off", f"earlier/{answer}: audio.hrtf is {values['audio.hrtf']} before the answer")
+		check(case.text() == written, f"earlier/{answer}: the file changed before the answer")
+		count, output = pending(case)
+		check(count == len(latest), f"earlier/{answer}: {count} changes, not {len(latest)}: {output}")
+		check("Headphone 3D on, as the original Xbox did" in output, f"earlier/{answer}: no words for Headphone 3D")
+		check("Sharper shadows" not in output and "menus" not in output, f"earlier/{answer}: asked again: {output}")
+		case.run("answer", answer)
+		values, _ = case.get("audio.hrtf", "display.shadow_resolution")
+		check(values["audio.hrtf"] == ("off" if answer == "keep" else "on"), f"earlier/{answer}: audio.hrtf {values}")
+		check(values["display.shadow_resolution"] == "128", f"earlier/{answer}: the kept shadows changed: {values}")
+		text = case.text()
+		check(re.search(rf"^defaults_answered = {GENERATION}$", text, re.M), f"earlier/{answer}: the answer is not written")
+		lines, _ = value_lines(text, "hrtf")
+		check(lines == (['hrtf = "off"'] if answer == "keep" else []), f"earlier/{answer}: hrtf lines {lines}")
+		check(pending(case)[0] == 0, f"earlier/{answer}: asked again")
+	for chosen in ("off", "on", "auto"):
+		case = Case(program, directory / f"earlier_chosen_{chosen}")
+		case.path.write_text(f'config_version = 2\n\n[audio]\nhrtf = "{chosen}"\n')
+		count, output = pending(case)
+		check("Headphone 3D" not in output, f"chosen {chosen}: asked about Headphone 3D: {output}")
+		values, _ = case.get("audio.hrtf")
+		check(values["audio.hrtf"] == chosen, f"chosen {chosen}: audio.hrtf is {values['audio.hrtf']}")
+		check(f'hrtf = "{chosen}"' in case.text(), f"chosen {chosen}: the player's value left the file")
 
 
 def test_file_without_the_settings(program, directory, defaults, kind):
@@ -482,6 +548,9 @@ def test_packaged_install(program, directory, defaults, kind):
 	Linux its config.toml is in the save root's usual place, as is a game's in
 	a folder it cannot write with no setup of its own. Elsewhere, and in a
 	normal install, nothing changes."""
+	if kind == "console":
+		# (a console has no updater)
+		return
 	home = directory / "packaged-home"
 	own = home / "chupathingyce" / "config.toml"
 	linux = sys.platform.startswith("linux") and kind != "android"
@@ -544,7 +613,7 @@ def main():
 		directory = Path(directory)
 		for kind in DEFAULTS:
 			program = build(arguments.cc, kind, directory / kind)
-			for test in (test_new_file, test_previous_release_file, test_file_without_the_settings,
+			for test in (test_new_file, test_previous_release_file, test_answered_earlier, test_file_without_the_settings,
 				test_readded_by_older_version, test_before_config_version, test_renamed_setting,
 				test_old_browser_address, test_packaged_install):
 				try:

@@ -166,7 +166,7 @@ SCREENS = {
             ("SPEAKERS:", "audio.channels", [("AUTO", "auto"), ("STEREO", "stereo"), ("5.1", "5.1"), ("7.1", "7.1")],
              "Stereo or surround. Takes effect on restart.", "desktop"),
             ("HEADPHONE 3D:", "audio.hrtf", [("OFF", "off"), ("ON", "on"), ("AUTO", "auto")],
-             "3D sound for headphones. Auto: on with headphones.", None),
+             "3D sound as on the Xbox. Turn off for speakers.", None),
             ("REVERB:", "audio.reverb", ON_OFF,
              "Room echo, and muffled sound behind walls.", None),
             ("DOPPLER:", "audio.doppler", ON_OFF,
