@@ -206,6 +206,13 @@ The platform registry (`enum delta_platform`, one byte, never reused):
 Series in developer mode). 10 to 12 are ports others build on ours; their
 policy rows are placeholders until those ports play, as the consoles' are.
 
+The original Xbox, Xbox 360 and Wii U builds are Delta Peer clients
+(`HALO_CONSOLE_DELTA`). Each sends its own platform (6, 7 or 8) and a
+console's capabilities: the platform key, text chat and the server's lines,
+and a profile only if its player set one up. They never host on Delta, and
+take no Halo PC maps, team changes or moderation. Their build is "Warthog"
+and the version.
+
 ### Platform policy
 
 Console builds play with PC builds, with caveats Delta controls. The

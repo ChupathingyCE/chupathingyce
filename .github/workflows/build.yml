@@ -199,6 +199,13 @@ jobs:
       - name: glibc 2.31
         run: python3 tools/linux_glibc_check.py dist/chupathingyce-linux-debug dist/chupathingyce-linux-release
 
+      # (Delta's wire on a big-endian machine, as the Xbox 360 and Wii U are:
+      # tools/test_delta_big_endian.py, under QEMU)
+      - name: Delta on big-endian
+        run: |
+          sudo apt-get install -y -q --no-install-recommends gcc-s390x-linux-gnu libc6-dev-s390x-cross qemu-user
+          DELTA_BE_REQUIRED=1 python3 -m pytest -q tools/test_delta_big_endian.py -rs
+
       - name: Test
         run: |
           python3 -m pytest -q tools/test_linux_port.py tools/test_android_asm_convert.py tools/test_touch_menu.py tools/test_ui_point.py tools/test_p2p_copies.py tools/test_ping.py tools/test_save_folder.py tools/test_packaged_install.py tools/test_server_control.py tools/test_delta.py tools/test_delta_peer.py tools/test_delta_compat.py tools/test_network_rules.py tools/test_map_download.py tools/test_playlist_maps.py tools/test_map_families.py tools/test_map_packs.py tools/test_map_report.py tools/test_event_log.py tools/test_update_manifest.py tools/test_gamespy_listing.py tools/test_determinism.py
