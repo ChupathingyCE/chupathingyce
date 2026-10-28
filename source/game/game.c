@@ -322,6 +322,8 @@ void game_initialize(
 	return;
 }
 
+void determinism_check_game_load(unsigned long *random_seed);
+
 void game_tick(
 	void)
 {
@@ -617,6 +619,11 @@ boolean game_load(
 
 	random_seed_debug_log(TRUE);
 	csmemcpy(&game_globals->options, options, sizeof(*options));
+	/* port: debug.determinism's games all play from one seed
+	(port/linux/game/determinism_check.c) */
+#ifndef HALO_CONSOLE_NO_NETWORK_TEST
+	determinism_check_game_load(&game_globals->options.random_seed);
+#endif
 	if (scenario_load(options->map_name))
 	{
 		game_globals->map_loaded = TRUE;

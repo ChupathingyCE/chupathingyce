@@ -972,6 +972,19 @@ static const struct config_setting config_settings[] =
 	{ "debug.test_input", _config_string, "\"\"", "HALO_TEST_INPUT", _environment_value, _platform_all,
 		"Scripted input on controller 1: \"bot:<seed>\" or \"look:<seed>\"; empty\n"
 		"for none." },
+	{ "debug.determinism", _config_string, "\"\"", "HALO_DETERMINISM", _environment_value, _platform_all,
+		"The input-replay check (tools/test_determinism.py): \"record:<file>\"\n"
+		"writes each tick's player actions to the file, \"replay:<file>\" plays\n"
+		"them back in place of the controllers'; empty for none." },
+	{ "debug.determinism_hashes", _config_string, "\"\"", "HALO_DETERMINISM_HASHES", _environment_value,
+		_platform_all,
+		"With debug.determinism: a file for a line of hashes of the game's state\n"
+		"after each tick; empty for none." },
+	{ "debug.determinism_ticks", _config_integer, "0", "HALO_DETERMINISM_TICKS", _environment_value, _platform_all,
+		"With debug.determinism: quit after this many game ticks; 0 never." },
+	{ "debug.determinism_seed", _config_integer, "1", "HALO_DETERMINISM_SEED", _environment_value, _platform_all,
+		"With debug.determinism: the games' random seed (a replay takes its\n"
+		"recording's)." },
 	{ "debug.test_gamepads", _config_integer, "0", "HALO_TEST_GAMEPADS", _environment_value, _platform_desktop,
 		"Virtual gamepads (up to 4) for tests of split screen: debug.test_input's\n"
 		"\"menu:\" script presses their buttons and sticks as pad<n>:<button>, and\n"
