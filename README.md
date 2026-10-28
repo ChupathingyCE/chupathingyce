@@ -641,6 +641,8 @@ not be part of our community.
   repositories, as Chimera uses them (maps.halonet.net, the HAC2 map
   repository, and its mirrors). Chupathingy's downloader is its own code;
   Chimera showed where the repositories are and how they answer.
+- Security reports: nickarcade, who reported the dedicated server's control
+  panel permission gap fixed in #462.
 - Libraries: SDL3, stb, Mbed TLS, miniupnpc, KCP, tomlc17, musl's maths,
   Expat, Monocypher, zlib, SMAA, and Project Nayuki's QR Code
   generator. Their licenses are
