@@ -719,25 +719,50 @@ void delta_peer_game_stop(int host)
 
 /* ---------- what the game reads */
 
-unsigned char delta_peer_advertised_flags(void)
+int delta_peer_hosting_delta(void)
 {
-	return delta_peer_protocol() != _delta_peer_protocol_opence && delta_game.role == _role_host && delta_game.port ?
-		DELTA_ADVERTISED_FLAG : 0;
+	return delta_peer_protocol() != _delta_peer_protocol_opence && delta_game.role == _role_host && delta_game.port;
 }
 
-/* (the wire's name fits its place, unended) */
-typedef char delta_advertised_wire_fits[sizeof(DELTA_WIRE) - 1 <= DELTA_ADVERTISED_WIRE_SIZE ? 1 : -1];
-
-void delta_peer_advertised_wire(unsigned char *reserved, int size)
+unsigned char delta_peer_advertised_flags(void)
 {
-	if (size < DELTA_ADVERTISED_RANGE_OFFSET + DELTA_ADVERTISED_RANGE_SIZE)
+	/* (0x04: OpenCE's dedicated flag from its version 39, and the old
+	layout's Delta flag, which released clients read. A dedicated server sets
+	it when it announces 39 or later, whatever its protocol, and while it
+	hosts with Delta: true to both readers. A host with a player at it never
+	does, as OpenCE's clients of 39 would take it for a dedicated server.) */
+#ifdef HALO_SERVER
+	if (delta_legacy_announce() >= HALO_PORT_ADVERTISED_DEDICATED_VERSION || delta_peer_hosting_delta())
+		return HALO_PORT_ADVERTISED_DEDICATED_FLAG;
+#endif
+	return 0;
+}
+
+typedef char delta_dedicated_flag_is_old_flag[HALO_PORT_ADVERTISED_DEDICATED_FLAG == DELTA_ADVERTISED_FLAG &&
+	HALO_PORT_ADVERTISED_FLAGS_OFFSET == DELTA_ADVERTISED_FLAGS_OFFSET ? 1 : -1];
+
+void delta_peer_advertised_wire(unsigned char *reserved, int size, int engine)
+{
+	if (size < DELTA_ADVERTISED_RESERVED_SIZE)
 		return;
-	memset(reserved + DELTA_ADVERTISED_WIRE_OFFSET, 0,
-		1 + DELTA_ADVERTISED_WIRE_SIZE + DELTA_ADVERTISED_RANGE_SIZE);
-	if (!delta_peer_advertised_flags())
+	/* (the game's kind, version 37: this build plays none of OpenCE's game
+	types) */
+	memset(reserved + HALO_PORT_ADVERTISED_KIND_OFFSET, 0,
+		DELTA_ADVERTISED_TAG_OFFSET - HALO_PORT_ADVERTISED_KIND_OFFSET);
+	memset(reserved + DELTA_ADVERTISED_TAG_OFFSET, 0, DELTA_ADVERTISED_TAG_SIZE);
+	if (!delta_peer_hosting_delta())
 		return;
-	/* (the old slot: the oldest compatible wire; then the range bytes) */
 	delta_compat_advertise(reserved, size, DELTA_MAJOR, DELTA_WIRE);
+	/* (and for released clients, the old layout where it clashes with none
+	of OpenCE's meanings: with the flag, a dedicated server's, and in a game
+	whose kind OpenCE's browsers do not read) */
+	if ((reserved[DELTA_ADVERTISED_FLAGS_OFFSET] & DELTA_ADVERTISED_FLAG) && engine != DELTA_ADVERTISED_KIND_ENGINE)
+		delta_compat_advertise_old(reserved, size, DELTA_MAJOR, DELTA_WIRE);
+}
+
+int delta_peer_advertised_speaks_delta(const unsigned char *reserved, int size)
+{
+	return delta_peer_protocol() != _delta_peer_protocol_opence && delta_compat_speaks_delta(reserved, size);
 }
 
 int delta_peer_advertised_wire_matches(const unsigned char *reserved, int size, char *theirs, int theirs_size)
@@ -753,11 +778,8 @@ int delta_peer_advertised_host_wire(const unsigned char *reserved, int size)
 {
 	struct delta_wire_id wire;
 
-	if (delta_peer_protocol() == _delta_peer_protocol_opence || !delta_compat_speaks_delta(reserved, size) ||
-		!delta_compat_host_wire(reserved, size, DELTA_MAJOR, &wire))
-	{
+	if (delta_peer_protocol() == _delta_peer_protocol_opence || !delta_compat_host_wire(reserved, size, DELTA_MAJOR, &wire))
 		return 0;
-	}
 	return wire.number;
 }
 
@@ -805,7 +827,7 @@ int delta_peer_game_on_delta(void)
 	if (!delta_game.ready)
 		return 0;
 	if (delta_game.role == _role_host)
-		return delta_peer_advertised_flags() != 0;
+		return delta_peer_hosting_delta();
 	return delta_game.role == _role_client && delta_game.peer.client_state == _delta_peer_client_delta;
 }
 
@@ -952,7 +974,7 @@ int delta_peer_game_host_summary(struct delta_peer_host_summary *summary)
 	summary->capabilities = peer->local.capabilities;
 	if (delta_game.role != _role_host && delta_peer_protocol() != _delta_peer_protocol_opence)
 		return 0;
-	summary->delta = delta_peer_advertised_flags() != 0;
+	summary->delta = delta_peer_hosting_delta();
 	if (!summary->delta)
 		return 1;
 	for (index = 0; index < peer->game_machine_count; index++)

@@ -13,12 +13,14 @@ false details:
 
 	"HL", format 1, the lobby version (2: HALO_PORT_NETWORK_VERSION; browsers
 	hide others), flags (open, under way, teams, closed, password,
-	dedicated), sequence (4: newest wins), Unix time (4), the Ed25519 key
+	dedicated as OpenCE's 39 says it, dedicated), sequence (4: newest wins), Unix time (4), the Ed25519 key
 	(32), the invite's token (16; a password's game's sealed with the
 	password's key, 56: p2p_seal_token; a tombstone's zero), players, most
 	players, the gametype's engine (1 each), the game's name,
 	map and gametype (a length byte, then up to 32, 32 and 24 characters of
-	printable ASCII), a stamp (8, reserved: zero), and the signature (64) of
+	printable ASCII), a stamp (8: its first byte the game's kind, version 37,
+	0 from our hosts, which play none of OpenCE's game types; the rest
+	reserved, zero), and the signature (64) of
 	"hceu-lobby-1" and all before it.
 
 Each host has a slot, hceu/3/lobby/s/<its key's hash in hex>: its listing,
@@ -76,9 +78,13 @@ enum
 	_listing_closed = 8,
 	/* its token sealed with a password's key */
 	_listing_password = 16,
+	/* a dedicated server's game, as OpenCE's version 39 says it: set with
+	_listing_dedicated by a dedicated server that announces 39 or later
+	(HALO_PORT_ADVERTISED_DEDICATED_VERSION); either bit lists a game as
+	dedicated */
+	_listing_dedicated_opence = 32,
 	/* a dedicated server's game, nobody playing at the host (ChupathingyCE's;
-	OpenCE's browsers take no notice of a bit they don't know, and may list
-	these apart) */
+	OpenCE's browsers take no notice of a bit they don't know) */
 	_listing_dedicated = 128,
 	STAMP_SIZE = 8,
 	/* the signed part's end: everything but the signature */
@@ -274,6 +280,8 @@ static int listing_make(unsigned char *bytes, int flags)
 
 	if (lobby.has_password && !(flags & _listing_closed))
 		flags |= _listing_password;
+	if ((flags & _listing_dedicated) && delta_legacy_announce() >= HALO_PORT_ADVERTISED_DEDICATED_VERSION)
+		flags |= _listing_dedicated_opence;
 	bytes[size++] = 'H';
 	bytes[size++] = 'L';
 	bytes[size++] = LISTING_FORMAT;
@@ -701,7 +709,7 @@ static void listing_take(const struct queued *queued, const struct listing *list
 	shown->open = (listing->flags & _listing_open) != 0;
 	shown->in_progress = (listing->flags & _listing_in_progress) != 0;
 	shown->has_teams = (listing->flags & _listing_has_teams) != 0;
-	shown->dedicated = (listing->flags & _listing_dedicated) != 0;
+	shown->dedicated = (listing->flags & (_listing_dedicated | _listing_dedicated_opence)) != 0;
 	shown->version = (unsigned short)listing->version;
 	shown->ping = -1;
 }

@@ -4320,6 +4320,18 @@ void network_game_server_port_set_cooperative_player_collisions(
 		network_event("network_game_server_port_set_cooperative_player_collisions() failed to send updated game settings to clients");
 }
 
+void network_game_server_port_set_cooperative_ally_damage(
+	boolean ally_damage)
+{
+	struct network_game_server *server = global_network_game_server_get();
+
+	if (!server)
+		return;
+	SET_FLAG(server->game.cooperative_flags, _network_game_cooperative_no_ally_damage_bit, !ally_damage);
+	if (server->state == _network_game_server_state_pregame && !network_game_server_send_game_data_pregame(server))
+		network_event("network_game_server_port_set_cooperative_ally_damage() failed to send updated game settings to clients");
+}
+
 /* port: a gametype's PC options: the menus' (player_ui_set_game_variant_options)
 when it is the menus' gametype, else its defaults */
 static void network_game_server_variant_options(

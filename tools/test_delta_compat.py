@@ -1,6 +1,7 @@
 """Wire compatibility ranges (docs/delta.md, "Wire compatibility ranges"): the
-C tests of port/linux/src/delta_compat.c (the advertisement's bytes, the old
-slot an exact-match client reads, the join decision for each pair of wires),
+C tests of port/linux/src/delta_compat.c (the advertisement's Delta tag, the
+old layout still read, OpenCE's bytes never taken for Delta, the join
+decision for each pair of wires),
 built with the build machine's C compiler, the table's rows, and the
 documentation of the layout."""
 import re
@@ -73,17 +74,24 @@ def test_rows():
         assert wire_key(oldest) <= wire_key(row_wire), f"{row_wire}'s oldest is newer than itself"
         assert wire_key(row_wire) >= wire_key(first)
     assert wire_key(wire) >= wire_key(first)
-    # (the layout fits the advertisement: the major and the old slot, then the six range bytes, to byte 0x1A)
+    # (the old layout, which readers still take: the major and the old slot, then the six range bytes, to byte
+    # 0x1A)
     assert "#define DELTA_ADVERTISED_RANGE_SIZE 6" in text
     assert "#define DELTA_ADVERTISED_RANGE_OFFSET (DELTA_ADVERTISED_WIRE_OFFSET + 1 + DELTA_ADVERTISED_WIRE_SIZE)" in text
     assert 3 + 1 + 16 + 6 == 0x1A
+    # (the tag at the tail, clear of OpenCE's version, flags and kind at bytes 0 to 3)
+    assert "#define DELTA_ADVERTISED_RESERVED_SIZE 0x1A" in text
+    assert "#define DELTA_ADVERTISED_TAG_SIZE 9" in text
+    assert "#define DELTA_ADVERTISED_TAG_OFFSET (DELTA_ADVERTISED_RESERVED_SIZE - DELTA_ADVERTISED_TAG_SIZE)" in text
+    assert 0x1A - 9 > 3
 
 
 def test_documented():
     docs = DOCS.read_text(encoding="utf-8")
     assert "### Wire compatibility ranges" in docs
-    for needle in ("DELTA_WIRE_COMPATIBILITY", "DELTA_ADVERTISED_RANGE_OFFSET", "0xA5", "chupa-28a", "chupa-29a",
-                   "chupa-32a", "build-244"):
+    for needle in ("DELTA_WIRE_COMPATIBILITY", "DELTA_ADVERTISED_RANGE_OFFSET", "DELTA_ADVERTISED_TAG_OFFSET", "0xA5",
+                   "chupa-28a", "chupa-29a", "chupa-32a", "chupa-39a", "build-244", "no end date", "delta_compat_advertise_old",
+                   "DELTA_ADVERTISED_KIND_ENGINE"):
         assert needle in docs, needle
 
 

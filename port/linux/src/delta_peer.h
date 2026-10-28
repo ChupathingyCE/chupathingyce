@@ -5,7 +5,7 @@ Delta Peer (docs/delta.md): ChupathingyCE's own messages between the
 machines of one game, beside OpenCE's game protocol, which stays as it is.
 
 - A host that speaks it listens on DELTA_PEER_PORT (the game's port + 10)
-  and sets DELTA_ADVERTISED_FLAG in its advertisement.
+  and puts the Delta tag in its advertisement.
 - A client that joined such a host (the game's join, unchanged) sends HELLO;
   the host answers WELCOME, or LEGACY for another major. No answer within
   DELTA_PEER_HANDSHAKE_TIME means legacy only: the game never waits.
@@ -546,7 +546,7 @@ void delta_peer_host_frame(struct delta_peer *peer, delta_u32 now, const struct 
 	int count, const signed char *player_machines);
 /* each frame while a client of another machine's game: joined (in its
 pregame, game or postgame), the host's address and Delta port, whether its
-advertisement has DELTA_ADVERTISED_FLAG, this machine's index in the game
+advertisement says it speaks Delta (delta_peer_advertised_speaks_delta), this machine's index in the game
 (DELTA_WIRE_NO_MACHINE: not yet) and each player's machine */
 void delta_peer_client_frame(struct delta_peer *peer, delta_u32 now, int joined, delta_u32 host_ipv4,
 	unsigned short host_port, int host_speaks_delta, unsigned char machine_index, const signed char *player_machines);
@@ -720,20 +720,33 @@ enum delta_peer_protocol
 };
 int delta_peer_protocol(void);
 
-/* the host's advertisement flags to add (DELTA_ADVERTISED_FLAG, or 0) */
+/* whether this machine hosts with Delta Peer now: its socket open and
+network.protocol not "opence" */
+int delta_peer_hosting_delta(void);
+/* the host's advertisement flags to add: 0x04 on a dedicated server that
+announces HALO_PORT_ADVERTISED_DEDICATED_VERSION or later, or hosts with
+Delta (OpenCE's dedicated flag, and the old layout's Delta flag, which
+released clients read), else 0 */
 unsigned char delta_peer_advertised_flags(void);
-/* the game wire after them (DELTA_ADVERTISED_WIRE_OFFSET), in the
-advertisement's reserved bytes (size of them): this build's oldest
-compatible wire in the old slot, then its own wire and that range
-(delta_compat.h); zeros unless the flag is set */
-void delta_peer_advertised_wire(unsigned char *reserved, int size);
+/* the advertisement's reserved bytes (size of them) past the port's version
+and flags: the kind (0: this build plays none of OpenCE's game types), and
+while hosting with Delta the Delta tag at their tail (delta_compat.h), and,
+with the flag 0x04 already in the flags and a game engine (engine, its stock
+index) other than DELTA_ADVERTISED_KIND_ENGINE, the old layout's major and
+slot for released clients (docs/delta.md, "The transition") */
+void delta_peer_advertised_wire(unsigned char *reserved, int size, int engine);
+/* whether a host's advertisement (its reserved bytes) says it speaks Delta
+Peer, so that this client says HELLO (delta_compat_speaks_delta); 0 on the
+legacy protocol */
+int delta_peer_advertised_speaks_delta(const unsigned char *reserved, int size);
 /* whether a host's advertisement (its reserved bytes) is of a wire this
-machine plays with: 1 when both speak Delta, of one major, and the host's
-wire is in this machine's compatible range or this machine's in the host's
-(the OpenCE numbers then don't matter), 0 when it is not (the host's wire
-into theirs, of theirs_size), -1 when either side doesn't say (this machine
-on the legacy protocol, a host without Delta, of another major, or built
-before the wire was advertised): the OpenCE numbers decide */
+machine plays with, by its Delta tag, else the old layout: 1 when both speak
+Delta, of one major, and the host's wire is in this machine's compatible
+range or this machine's in the host's (the OpenCE numbers then don't
+matter), 0 when it is not (the host's wire into theirs, of theirs_size), -1
+when either side doesn't say (this machine on the legacy protocol, a host
+without Delta, of another major, or built before the wire was advertised):
+the OpenCE numbers decide */
 int delta_peer_advertised_wire_matches(const unsigned char *reserved, int size, char *theirs, int theirs_size);
 /* the number of the wire a host's advertisement says it plays (32 for
 chupa-32a); 0 when it says none, or this machine does not read it */
@@ -817,8 +830,8 @@ without Delta (OpenCE's) */
 
 struct delta_peer_host_summary
 {
-	/* hosting with Delta now (its socket open: the advertisement's
-	DELTA_ADVERTISED_FLAG); 0 for a game hosted on the legacy protocol
+	/* hosting with Delta now (its socket open: the advertisement's Delta
+	tag); 0 for a game hosted on the legacy protocol
 	alone (network.protocol = "opence", or its port taken) */
 	int delta;
 	/* this machine's platform key and the capabilities it offers */
