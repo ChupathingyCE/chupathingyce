@@ -714,7 +714,9 @@ static void skip_entry(
 	char const *variant_name,
 	char const *reason)
 {
-	error(_error_silent, "dedicated: %s on %s: %s; skipping the entry", variant_name, map, reason);
+	/* (each entry's reason once: not again as every entry is tried again) */
+	if (!dedicated.skipped_all_rounds || dedicated.chosen_playing)
+		error(_error_silent, "dedicated: %s on %s: %s; skipping the entry", variant_name, map, reason);
 	snprintf(dedicated.skipped, sizeof(dedicated.skipped), "%s on %s: %s", variant_name, map, reason);
 	if (dedicated.chosen_playing)
 		dedicated.chosen_playing = FALSE;
