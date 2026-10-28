@@ -76,6 +76,7 @@ played instead of HALO_DEDICATED's until HALO_DEDICATED is changed.
 #include "text/unicode.h"
 #include "networking/network_server_manager.h"
 #include "dedicated.h"
+#include "command_line.h"
 #include "server_admin.h"
 #include "server_config.h"
 #ifdef HALO_GAME_BROWSER
