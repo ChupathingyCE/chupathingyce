@@ -92,17 +92,18 @@ const char *config_string(const char *name)
 file "packaged" beside the executable) */
 int platform_packaged(void)
 {
-	char folder[1024];
+	char folder[1024], path[1100];
 	ssize_t length = readlink("/proc/self/exe", folder, sizeof(folder) - 1);
+	SDL_PathInfo information;
 	char *slash;
 
-	if (length <= 0)
-		return packaged_install_marked(getenv("HALO_PACKAGED"), NULL);
-	folder[length] = 0;
+	folder[length > 0 ? length : 0] = 0;
 	slash = strrchr(folder, '/');
 	if (slash)
 		*slash = 0;
-	return packaged_install_marked(getenv("HALO_PACKAGED"), folder);
+	return packaged_install_marked(getenv("HALO_PACKAGED"),
+		packaged_install_file_path(path, sizeof(path), folder) && SDL_GetPathInfo(path, &information) &&
+		information.type == SDL_PATHTYPE_FILE);
 }
 
 int config_packaged_update_check(void)

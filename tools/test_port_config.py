@@ -140,7 +140,8 @@ bool SDL_CreateDirectory(const char *path);
 void *SDL_LoadFile(const char *path, size_t *size);
 bool SDL_SaveFile(const char *path, const void *data, size_t size);
 void SDL_free(void *memory);
-typedef struct { long long size; long long modify_time; } SDL_PathInfo;
+enum { SDL_PATHTYPE_NONE, SDL_PATHTYPE_FILE, SDL_PATHTYPE_DIRECTORY, SDL_PATHTYPE_OTHER };
+typedef struct { int type; long long size; long long modify_time; } SDL_PathInfo;
 bool SDL_GetPathInfo(const char *path, SDL_PathInfo *info);
 int SDL_strncasecmp(const char *first, const char *second, size_t length);
 """

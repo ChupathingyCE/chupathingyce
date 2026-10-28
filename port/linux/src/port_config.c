@@ -1108,7 +1108,14 @@ int platform_packaged(void)
 	static int packaged = -1;
 
 	if (packaged < 0)
-		packaged = packaged_install_marked(getenv("HALO_PACKAGED"), SDL_GetBasePath());
+	{
+		char path[1100];
+		SDL_PathInfo information;
+
+		packaged = packaged_install_marked(getenv("HALO_PACKAGED"),
+			packaged_install_file_path(path, sizeof(path), SDL_GetBasePath()) &&
+			SDL_GetPathInfo(path, &information) && information.type == SDL_PATHTYPE_FILE);
+	}
 	return packaged;
 #endif
 }

@@ -27,6 +27,16 @@ static int failures;
 		} \
 	} while (0)
 
+/* as the game looks for it: a file, not a folder, of that name in folder */
+static int file_present(const char *folder)
+{
+	char path[1100];
+	struct stat information;
+
+	return packaged_install_file_path(path, sizeof(path), folder) && stat(path, &information) == 0 &&
+		S_ISREG(information.st_mode);
+}
+
 int main(int argc, char **argv)
 {
 	char folder[1024], with_separator[1100], path[1100];
@@ -37,30 +47,41 @@ int main(int argc, char **argv)
 	if (argc >= 3 && !strcmp(argv[2], "built"))
 	{
 		/* (configure.py --packaged: marked whatever the environment says) */
-		CHECK(packaged_install_marked(NULL, NULL));
-		CHECK(packaged_install_marked("0", argv[1]));
+		CHECK(packaged_install_marked(NULL, 0));
+		CHECK(packaged_install_marked("0", 0));
 		return failures != 0;
 	}
 	snprintf(folder, sizeof(folder), "%s/game", argv[1]);
 	mkdir(folder, 0755);
 	snprintf(with_separator, sizeof(with_separator), "%s/", folder);
 
-	/* the environment: set to anything but a no */
-	CHECK(!packaged_install_marked(NULL, NULL));
-	CHECK(!packaged_install_marked(NULL, folder));
-	CHECK(packaged_install_marked("1", NULL));
-	CHECK(packaged_install_marked("pacman", NULL));
-	CHECK(packaged_install_marked("TRUE", folder));
-	CHECK(!packaged_install_marked("", folder));
-	CHECK(!packaged_install_marked("0", folder));
-	CHECK(!packaged_install_marked("false", folder));
-	CHECK(!packaged_install_marked("No", folder));
-	CHECK(!packaged_install_marked("OFF", folder));
+	/* the file's place, beside the executable */
+	CHECK(!packaged_install_file_path(path, sizeof(path), NULL));
+	CHECK(!packaged_install_file_path(path, sizeof(path), ""));
+	CHECK(packaged_install_file_path(path, sizeof(path), "/usr/lib/chupathingy") &&
+		!strcmp(path, "/usr/lib/chupathingy/packaged"));
+	CHECK(packaged_install_file_path(path, sizeof(path), "/usr/lib/chupathingy/") &&
+		!strcmp(path, "/usr/lib/chupathingy/packaged"));
 
-	/* the file beside the executable (a folder of that name is not it) */
+	/* the environment: set to anything but a no */
+	CHECK(!packaged_install_marked(NULL, 0));
+	CHECK(packaged_install_marked("1", 0));
+	CHECK(packaged_install_marked("pacman", 0));
+	CHECK(packaged_install_marked("TRUE", 0));
+	CHECK(!packaged_install_marked("", 0));
+	CHECK(!packaged_install_marked("0", 0));
+	CHECK(!packaged_install_marked("false", 0));
+	CHECK(!packaged_install_marked("No", 0));
+	CHECK(!packaged_install_marked("OFF", 0));
+	/* (the environment's no does not undo the package's file) */
+	CHECK(packaged_install_marked("0", 1));
+	CHECK(packaged_install_marked(NULL, 1));
+
+	/* the file (a folder of that name is not it) */
 	snprintf(path, sizeof(path), "%s/" PACKAGED_INSTALL_FILE, folder);
+	CHECK(!file_present(folder));
 	mkdir(path, 0755);
-	CHECK(!packaged_install_marked(NULL, folder));
+	CHECK(!file_present(folder));
 	rmdir(path);
 	file = fopen(path, "w");
 	CHECK(file != NULL);
@@ -69,12 +90,9 @@ int main(int argc, char **argv)
 		fputs("manager = \"pacman\"\n", file);
 		fclose(file);
 	}
-	CHECK(packaged_install_marked(NULL, folder));
-	CHECK(packaged_install_marked(NULL, with_separator));
-	/* (the environment's no does not undo the package's file) */
-	CHECK(packaged_install_marked("0", folder));
+	CHECK(file_present(folder) && file_present(with_separator));
 	remove(path);
-	CHECK(!packaged_install_marked(NULL, folder));
+	CHECK(!file_present(folder));
 
 	/* where the data, config.toml and logs go: the save root's usual place
 	for an AppImage, a packaged install, or a folder the game cannot write

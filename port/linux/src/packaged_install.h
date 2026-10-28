@@ -13,7 +13,7 @@ update.auto is off and stays off (port_config.c), and on Linux its data,
 settings and logs go in the save root's usual place,
 ~/.local/share/chupathingyce, as an AppImage's do (platform_app_folder).
 
-No SDL or game dependency: port/linux/tests/packaged_install_test.c builds
+No SDL, system or game dependency (the caller looks for the file): port/linux/tests/packaged_install_test.c builds
 it on its own (tools/test_packaged_install.py).
 */
 
@@ -22,7 +22,6 @@ it on its own (tools/test_packaged_install.py).
 
 #include <stdio.h>
 #include <string.h>
-#include <sys/stat.h>
 
 /* the file in the executable's folder that marks a packaged install */
 #define PACKAGED_INSTALL_FILE "packaged"
@@ -48,33 +47,31 @@ static inline int packaged_install_text_is_no(const char *text)
 	return 0;
 }
 
-/* whether this is a packaged install: built as one, or environment
-(HALO_PACKAGED's value, NULL when it is not set) says so, or folder (the
-executable's, with or without its separator; NULL or "" when not known)
-has the file "packaged" */
-static inline int packaged_install_marked(const char *environment, const char *folder)
+/* the marking file's path in folder (the executable's, with or without its
+separator) into path: 0 when folder is NULL or "" */
+static inline int packaged_install_file_path(char *path, size_t size, const char *folder)
 {
-#ifdef HALO_PACKAGED
-	(void)environment;
-	(void)folder;
-	return 1;
-#else
-	char path[1024];
-	struct stat information;
 	size_t length;
 
-	if (environment && !packaged_install_text_is_no(environment))
-		return 1;
 	if (!folder || !*folder)
 		return 0;
 	length = strlen(folder);
-	snprintf(path, sizeof(path), "%s%s" PACKAGED_INSTALL_FILE, folder,
+	snprintf(path, size, "%s%s" PACKAGED_INSTALL_FILE, folder,
 		folder[length - 1] == '/' || folder[length - 1] == '\\' ? "" : "/");
-#ifdef _WIN32
-	return stat(path, &information) == 0 && (information.st_mode & _S_IFMT) != _S_IFDIR;
+	return 1;
+}
+
+/* whether this is a packaged install: built as one, or environment
+(HALO_PACKAGED's value, NULL when it is not set) says so, or the file is
+there (file_present: a file, not a folder, at packaged_install_file_path) */
+static inline int packaged_install_marked(const char *environment, int file_present)
+{
+#ifdef HALO_PACKAGED
+	(void)environment;
+	(void)file_present;
+	return 1;
 #else
-	return stat(path, &information) == 0 && !S_ISDIR(information.st_mode);
-#endif
+	return file_present || (environment && !packaged_install_text_is_no(environment));
 #endif
 }
 
