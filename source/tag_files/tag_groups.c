@@ -178,6 +178,13 @@ void *tag_block_get_element_with_size(
 	if (index < 0 || index >= block->count || !block->address)
 	{
 		tag_index_error("block element", index, block->count);
+		/* port: a block that gives elements but no address has none from
+		here on, so that a loop over its elements ends after this one rather
+		than running on through its count (Halo PC maps' timberland and
+		infinity, in a release build: a block of 1065353216, 1.0f's bits, the
+		game asserting on it until it was closed as their games began) */
+		if (!block->address && block->count > 0)
+			((struct tag_block *)block)->count = 0;
 		return element_size <= TAG_EMPTY_DATA_SIZE ? tag_empty_data() : NULL;
 	}
 
