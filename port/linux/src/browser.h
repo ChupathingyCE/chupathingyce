@@ -121,7 +121,19 @@ struct browser_game
 	(p2p_listing's opence_server): the lists' neutral label
 	(HOST_LABEL_OPENCE_SERVER), nothing more */
 	unsigned char opence_server;
+	/* a dedicated server's signed badge, as the list says it (fields 24 and
+	25: server_badge.h's tier, 0 for none, and its label, a handle or a
+	group, empty for none). Only from a build with badge keys, and dropped
+	for a host that failed its proof on joining (docs/server-badges.md) */
+	unsigned char badge;
+	char badge_label[32];
 };
+
+/* a listed game's badge as players read it ("Official server"; NULL for none) */
+const char *browser_badge_name(int badge);
+/* the joined host's badge proof (delta_peer_game.c): a host whose proof
+failed shows no badge from then on, until it proves one */
+void browser_server_badge_proven(const char *invite, int proven);
 
 /* the note a screen of listed games shows while the list is down and its
 games are those found directly (browser_list_status: BROWSER_LIST_FAILED) */

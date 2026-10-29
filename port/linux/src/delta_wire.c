@@ -1311,6 +1311,55 @@ int delta_wire_write_team_result(unsigned char *data, delta_u32 session, const s
 	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_TEAM_RESULT_SIZE;
 }
 
+int delta_wire_read_badge_ask(const unsigned char *payload, int size, unsigned char *nonce)
+{
+	clear(nonce, DELTA_WIRE_BADGE_NONCE_SIZE);
+	if (!payload || size < DELTA_WIRE_BADGE_ASK_SIZE || size > DELTA_WIRE_MAXIMUM_PAYLOAD)
+		return 0;
+	copy_bytes(nonce, payload, DELTA_WIRE_BADGE_NONCE_SIZE);
+	return 1;
+}
+
+int delta_wire_write_badge_ask(unsigned char *data, delta_u32 session, const unsigned char *nonce)
+{
+	copy_bytes(data + DELTA_WIRE_HEADER_SIZE, nonce, DELTA_WIRE_BADGE_NONCE_SIZE);
+	delta_wire_write_header(data, DELTA_MAJOR, _delta_message_badge_ask, DELTA_WIRE_BADGE_ASK_SIZE, session);
+	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_BADGE_ASK_SIZE;
+}
+
+int delta_wire_read_badge(const unsigned char *payload, int size, struct delta_wire_badge *badge)
+{
+	int length;
+
+	clear(badge, (int)sizeof(*badge));
+	if (!payload || size < DELTA_WIRE_BADGE_SIZE || size > DELTA_WIRE_MAXIMUM_PAYLOAD)
+		return 0;
+	length = read_u16(payload + 96);
+	if (length > DELTA_WIRE_BADGE_CERTIFICATE_SIZE || size < DELTA_WIRE_BADGE_SIZE + length)
+		return 0;
+	copy_bytes(badge->nonce, payload, DELTA_WIRE_BADGE_NONCE_SIZE);
+	copy_bytes(badge->signature, payload + 32, DELTA_WIRE_BADGE_SIGNATURE_SIZE);
+	badge->certificate_length = (unsigned short)length;
+	copy_bytes(badge->certificate, payload + DELTA_WIRE_BADGE_SIZE, length);
+	return 1;
+}
+
+int delta_wire_write_badge(unsigned char *data, delta_u32 session, const struct delta_wire_badge *badge)
+{
+	unsigned char *payload = data + DELTA_WIRE_HEADER_SIZE;
+	int length = badge->certificate_length;
+
+	if (length > DELTA_WIRE_BADGE_CERTIFICATE_SIZE)
+		return 0;
+	clear(payload, DELTA_WIRE_BADGE_SIZE);
+	copy_bytes(payload, badge->nonce, DELTA_WIRE_BADGE_NONCE_SIZE);
+	copy_bytes(payload + 32, badge->signature, DELTA_WIRE_BADGE_SIGNATURE_SIZE);
+	write_u16(payload + 96, (unsigned short)length);
+	copy_bytes(payload + DELTA_WIRE_BADGE_SIZE, badge->certificate, length);
+	delta_wire_write_header(data, DELTA_MAJOR, _delta_message_badge, DELTA_WIRE_BADGE_SIZE + length, session);
+	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_BADGE_SIZE + length;
+}
+
 /* ---------- object sync */
 
 int delta_wire_read_unit_vitals(const unsigned char *payload, int size, struct delta_wire_unit_vitals *vitals)

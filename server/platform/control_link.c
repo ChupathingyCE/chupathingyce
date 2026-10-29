@@ -35,6 +35,7 @@ threads), so polls are short: one every few seconds, no long poll.
 #include "../src/server_link.h"
 
 #include "monocypher.h"
+#include "monocypher-ed25519.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -84,6 +85,7 @@ enum
 
 #define LINK_FILE "delta_link.key"
 #define ROLES_FILE "delta_roles.cache"
+#define BADGE_FILE "server_badge.cert"
 
 enum
 {
@@ -91,6 +93,12 @@ enum
 	answers (its time heard, for the expiry after a restart) */
 	ROLES_CACHE_SECONDS = 10 * 60,
 	ROLES_CACHE_SIZE = 96 * 1024,
+	/* a badge's certificate at most (server_badge.h's
+	SERVER_BADGE_MAXIMUM_SIZE), and its file; the file looked at again
+	this often */
+	BADGE_SIZE = 143,
+	BADGE_FILE_SIZE = 4096,
+	BADGE_CHECK_SECONDS = 5,
 };
 
 /* ---------- globals */
@@ -147,6 +155,14 @@ static struct
 	} results[MAXIMUM_PENDING];
 	int result_count;
 	char status[STATUS_SIZE];
+	/* the badge's certificate (server_badge.cert): when its file was last
+	looked at, as it was then, and its bytes (badge_size 0: none) */
+	int64_t badge_checked;
+	int64_t badge_modified;
+	int64_t badge_file_size;
+	int badge_exists;
+	int badge_size;
+	uint8_t badge[BADGE_SIZE];
 } link_state;
 
 /* ---------- private code */
@@ -1095,4 +1111,131 @@ void server_link_set_status(const char *json)
 	if (link_state.state == LINK_LINKED && strlen(json) < sizeof(link_state.status))
 		snprintf(link_state.status, sizeof(link_state.status), "%s", json);
 	pthread_mutex_unlock(&link_mutex);
+}
+
+/* ---------- the badge (docs/server-badges.md) */
+
+static int badge_hex(char character)
+{
+	if (character >= '0' && character <= '9')
+		return character - '0';
+	if (character >= 'a' && character <= 'f')
+		return character - 'a' + 10;
+	if (character >= 'A' && character <= 'F')
+		return character - 'A' + 10;
+	return -1;
+}
+
+/* server_badge.cert read again if it changed (the lock held): its first
+line of hexadecimal digits, '#' lines skipped */
+static void refresh_badge(void)
+{
+	char path[1024];
+	char text[BADGE_FILE_SIZE + 1];
+	struct stat information;
+	int64_t now = now_seconds();
+	int exists;
+	size_t count = 0;
+	FILE *file;
+	char *line;
+
+	if (link_state.badge_checked && now - link_state.badge_checked < BADGE_CHECK_SECONDS &&
+		now >= link_state.badge_checked)
+	{
+		return;
+	}
+	link_state.badge_checked = now;
+	data_file(BADGE_FILE, path, sizeof(path));
+	exists = !stat(path, &information) && S_ISREG(information.st_mode);
+	if (exists == link_state.badge_exists && (!exists || ((int64_t)information.st_mtime == link_state.badge_modified &&
+		(int64_t)information.st_size == link_state.badge_file_size)))
+	{
+		return;
+	}
+	link_state.badge_exists = exists;
+	link_state.badge_size = 0;
+	if (!exists)
+	{
+		platform_log("Delta Control: no %s in the data folder: no server badge", BADGE_FILE);
+		return;
+	}
+	link_state.badge_modified = (int64_t)information.st_mtime;
+	link_state.badge_file_size = (int64_t)information.st_size;
+	file = fopen(path, "r");
+	if (file)
+	{
+		count = fread(text, 1, BADGE_FILE_SIZE, file);
+		fclose(file);
+	}
+	text[count] = 0;
+	for (line = text; *line;)
+	{
+		char *end = line + strcspn(line, "\r\n");
+		char *cursor = line;
+		int size = 0;
+
+		while (cursor < end && (*cursor == ' ' || *cursor == '\t'))
+			cursor++;
+		if (cursor < end && *cursor != '#')
+		{
+			while (cursor + 1 < end && badge_hex(cursor[0]) >= 0 && badge_hex(cursor[1]) >= 0 && size < BADGE_SIZE)
+			{
+				link_state.badge[size++] = (uint8_t)(badge_hex(cursor[0]) << 4 | badge_hex(cursor[1]));
+				cursor += 2;
+			}
+			while (cursor < end && (*cursor == ' ' || *cursor == '\t'))
+				cursor++;
+			if (cursor == end)
+				link_state.badge_size = size;
+			break;
+		}
+		line = *end ? end + 1 : end;
+	}
+	if (!link_state.badge_size)
+		platform_log("Delta Control: %s is not a certificate (one line of hexadecimal digits): no server badge", BADGE_FILE);
+	else
+		platform_log("Delta Control: read %s (%d bytes)", BADGE_FILE, link_state.badge_size);
+}
+
+int server_link_badge_certificate(unsigned char *certificate, int size)
+{
+	uint8_t public_key[32];
+	int length = 0;
+
+	pthread_mutex_lock(&link_mutex);
+	if (link_state.state == LINK_LINKED && !link_state.disabled)
+	{
+		refresh_badge();
+		/* (format 1's server key, at 16: the link key's, or no badge) */
+		control_link_public_key(link_state.seed, public_key);
+		if (link_state.badge_size >= 48 && link_state.badge_size <= size &&
+			!memcmp(link_state.badge + 16, public_key, sizeof(public_key)))
+		{
+			memcpy(certificate, link_state.badge, (size_t)link_state.badge_size);
+			length = link_state.badge_size;
+		}
+	}
+	pthread_mutex_unlock(&link_mutex);
+	return length;
+}
+
+int server_link_badge_sign(const unsigned char *message, int size, unsigned char *signature)
+{
+	uint8_t secret[64];
+	uint8_t public_key[32];
+	uint8_t seed[CONTROL_LINK_SEED_BYTES];
+	int ok = 0;
+
+	pthread_mutex_lock(&link_mutex);
+	if (link_state.state == LINK_LINKED && !link_state.disabled && size >= 0)
+	{
+		/* (Monocypher wipes the seed it is given) */
+		memcpy(seed, link_state.seed, sizeof(seed));
+		crypto_ed25519_key_pair(secret, public_key, seed);
+		crypto_ed25519_sign(signature, secret, message, (size_t)size);
+		crypto_wipe(secret, sizeof(secret));
+		ok = 1;
+	}
+	pthread_mutex_unlock(&link_mutex);
+	return ok;
 }

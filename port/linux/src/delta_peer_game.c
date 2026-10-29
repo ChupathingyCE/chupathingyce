@@ -25,6 +25,7 @@ HALO_GAME_BROWSER; network.protocol = "opence" turns all of it off.
 #include "halo_map_families.h"
 #include "delta_moderation.h"
 #include "delta_chat_game.h"
+#include "server_badge.h"
 #ifdef HALO_GAME_BROWSER
 #include "browser.h"
 #include "p2p.h"
@@ -47,6 +48,7 @@ int xbox_player_id(unsigned char *id);
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 /* updater.c's (server_platform.c's in the dedicated server) */
 const char *updater_version(void);
@@ -84,6 +86,16 @@ static struct
 	/* the host's moderation binding, when last read (its invite's) */
 	unsigned long binding_time;
 	int binding_read;
+	/* the dedicated server's badge: when last looked at, and the
+	certificate then (badge_size 0: none, or not good) */
+	unsigned long badge_time;
+	int badge_read;
+	int badge_size;
+	unsigned char badge[SERVER_BADGE_MAXIMUM_SIZE];
+	/* (a client) its host's badge as the host proved it: 0 not known yet, 1
+	proven (client_badge), -1 none */
+	int client_badge_result;
+	struct server_badge client_badge;
 	/* the host's game's player traits (delta_peer_game_set_traits) */
 	int has_traits;
 	struct delta_wire_traits traits;
@@ -452,6 +464,9 @@ int delta_peer_protocol(void)
 		/* (units' shield and health and objects' names, as the host has
 		them: network_objects.c) */
 		local.capabilities |= (delta_u32)1 << _delta_capability_object_sync;
+		/* (a client asks a dedicated server for its badge; a host offers it
+		only with a certificate: host_badge, docs/server-badges.md) */
+		local.capabilities |= (delta_u32)1 << _delta_capability_server_badge;
 #endif
 		/* (moderation: a client signs with its player key's moderator key; a
 		host offers it only with the dedicated server's moderation) */
@@ -655,12 +670,133 @@ static void client_map(void)
 static void stop(void)
 {
 	delta_game.map_checked = 0;
+	delta_game.client_badge_result = 0;
 	delta_peer_stop(&delta_game.peer);
 	close_socket();
 	delta_game.role = _role_none;
 }
 
 /* ---------- the hooks */
+
+#ifndef HALO_CONSOLE_DELTA
+/* (consoles don't show badges yet: docs/server-badges.md) */
+
+/* a host's answer to BADGE_ASK: its certificate a badge key's, in date and
+of a tier this build knows, and the certificate's key's signature of this
+session's nonce */
+static int badge_proven(const struct delta_wire_badge *answer, struct server_badge *badge)
+{
+	unsigned char message[SERVER_BADGE_MESSAGE_SIZE];
+
+	return answer->certificate_length &&
+		server_badge_check(answer->certificate, answer->certificate_length, (unsigned long long)time(NULL), badge) &&
+		server_badge_signature_valid(badge, message, server_badge_proof_message(message, answer->nonce),
+			answer->signature);
+}
+
+/* (a client) its host's badge judged once a session: proven, or none (not
+offered, not answered in time, or a proof that fails). The list's badge for
+a host that proves none is not shown (browser_server_badge_proven) */
+static void client_badge(void)
+{
+	struct delta_wire_badge answer;
+	delta_u32 start = 0;
+	int state = delta_peer_client_badge(&delta_game.peer, &answer, &start);
+	int result = 0;
+
+	if (state == _delta_peer_badge_none)
+	{
+		delta_game.client_badge_result = 0;
+		return;
+	}
+	if (delta_game.client_badge_result)
+		return;
+	if (state == _delta_peer_badge_unoffered)
+		result = -1;
+	else if (state == _delta_peer_badge_answered)
+		result = badge_proven(&answer, &delta_game.client_badge) ? 1 : -1;
+	else if (GetTickCount() - start > DELTA_PEER_BADGE_ASKS * DELTA_PEER_BADGE_INTERVAL + 2000)
+		result = -1;
+	if (!result)
+		return;
+	delta_game.client_badge_result = result;
+	if (result > 0)
+	{
+		platform_log("Delta Peer: the host proved its server badge: %s%s%s%s",
+			server_badge_tier_name(delta_game.client_badge.tier), delta_game.client_badge.label[0] ? " (" : "",
+			delta_game.client_badge.label, delta_game.client_badge.label[0] ? ")" : "");
+	}
+	else if (state == _delta_peer_badge_answered && answer.certificate_length)
+		platform_log("Delta Peer: the host's server badge did not check: no badge shown");
+#ifdef HALO_GAME_BROWSER
+	{
+		char invite[BROWSER_INVITE_LENGTH + 1];
+
+		if (p2p_joined_invite(invite, (int)sizeof(invite)))
+			browser_server_badge_proven(invite, result > 0);
+	}
+#endif
+}
+#endif
+
+#ifdef HALO_SERVER
+/* (server/src/server_link.h's, Delta Control's link: plain types) */
+int server_link_badge_certificate(unsigned char *certificate, int size);
+int server_link_badge_sign(const unsigned char *message, int size, unsigned char *signature);
+
+/* a joining game's BADGE_ASK: the certificate and the link key's signature
+of its nonce (docs/server-badges.md) */
+static int game_badge_answer(void *context, const unsigned char *nonce, unsigned char *signature,
+	unsigned char *certificate, int size)
+{
+	unsigned char message[SERVER_BADGE_MESSAGE_SIZE];
+
+	(void)context;
+	if (!delta_game.badge_size || delta_game.badge_size > size ||
+		!server_link_badge_sign(message, server_badge_proof_message(message, nonce), signature))
+	{
+		return 0;
+	}
+	memcpy(certificate, delta_game.badge, (size_t)delta_game.badge_size);
+	return delta_game.badge_size;
+}
+
+static const struct delta_peer_badge_host game_badge_host = { NULL, game_badge_answer };
+
+/* the server's badge looked at again (once a second): offered while it has
+a good one, and what it has said in the log when that changes */
+static void host_badge(void)
+{
+	unsigned char certificate[SERVER_BADGE_MAXIMUM_SIZE];
+	struct server_badge badge;
+	int size;
+
+	if (delta_game.badge_read && GetTickCount() - delta_game.badge_time < 1000)
+		return;
+	delta_game.badge_time = GetTickCount();
+	size = server_link_badge_certificate(certificate, (int)sizeof(certificate));
+	if (size && !server_badge_check(certificate, size, (unsigned long long)time(NULL), &badge))
+	{
+		/* (said once for each certificate) */
+		if (!delta_game.badge_read || delta_game.badge_size || memcmp(certificate, delta_game.badge, (size_t)size))
+		{
+			platform_log("Delta Peer: the server badge's certificate is not good (not signed by a badge key of this "
+				"build, of a tier it does not know, or expired): no badge");
+		}
+		memcpy(delta_game.badge, certificate, (size_t)size);
+		size = 0;
+	}
+	else if (size && (delta_game.badge_size != size || memcmp(certificate, delta_game.badge, (size_t)size)))
+	{
+		platform_log("Delta Peer: server badge: %s%s%s%s", server_badge_tier_name(badge.tier),
+			badge.label[0] ? " (" : "", badge.label, badge.label[0] ? ")" : "");
+		memcpy(delta_game.badge, certificate, (size_t)size);
+	}
+	delta_game.badge_read = 1;
+	delta_game.badge_size = size;
+	delta_peer_set_badge_host(&delta_game.peer, size ? &game_badge_host : NULL);
+}
+#endif
 
 void delta_peer_game_host_frame(const struct delta_peer_game_machine *machines, int count,
 	const signed char *player_machines)
@@ -707,6 +843,9 @@ void delta_peer_game_host_frame(const struct delta_peer_game_machine *machines, 
 	}
 #endif
 	receive();
+#ifdef HALO_SERVER
+	host_badge();
+#endif
 	delta_peer_host_frame(&delta_game.peer, GetTickCount(), machines, count, player_machines);
 	host_map();
 	delta_peer_set_traits(&delta_game.peer, delta_game.has_traits ? &delta_game.traits : NULL);
@@ -739,6 +878,9 @@ void delta_peer_game_client_frame(int joined, delta_u32 host_ipv4, int host_spea
 			DELTA_WIRE_NO_MACHINE),
 		player_machines);
 	client_map();
+#ifndef HALO_CONSOLE_DELTA
+	client_badge();
+#endif
 }
 
 void delta_peer_game_stop(int host)
@@ -1262,6 +1404,15 @@ unsigned int delta_peer_game_team_result(struct delta_wire_team_result *result)
 	if (!delta_game.ready)
 		return 0;
 	return delta_peer_client_team_result(&delta_game.peer, result);
+}
+
+int delta_peer_game_server_badge(struct server_badge *badge)
+{
+	if (delta_game.role != _role_client || delta_game.client_badge_result <= 0)
+		return delta_game.role == _role_client ? delta_game.client_badge_result : 0;
+	if (badge)
+		*badge = delta_game.client_badge;
+	return 1;
 }
 
 /* ---------- object sync (port/linux/game/network_objects.c) */

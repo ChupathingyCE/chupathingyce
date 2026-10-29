@@ -246,6 +246,16 @@ int LLVMFuzzerTestOneInput(const unsigned char *data, size_t size)
 				__builtin_trap();
 		}
 		{
+			struct delta_wire_badge badge;
+			unsigned char nonce[DELTA_WIRE_BADGE_NONCE_SIZE];
+			const unsigned char *payload = data + DELTA_WIRE_HEADER_SIZE;
+
+			delta_wire_read_badge_ask(payload, header.length, nonce);
+			if (delta_wire_read_badge(payload, header.length, &badge) &&
+				badge.certificate_length > DELTA_WIRE_BADGE_CERTIFICATE_SIZE)
+				__builtin_trap();
+		}
+		{
 			static struct delta_wire_unit_vitals vitals;
 			static struct delta_wire_object_names names;
 			const unsigned char *payload = data + DELTA_WIRE_HEADER_SIZE;
