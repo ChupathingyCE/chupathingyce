@@ -1741,6 +1741,8 @@ enum
 	COLOR_DIM = 0x8FA6C8FF,
 	/* a neutral label's plain gray (HOST_LABEL_OPENCE_SERVER) */
 	COLOR_NEUTRAL = 0x9AA0A8FF,
+	/* a server's signed badge */
+	COLOR_BADGE = 0xE8C766FF,
 	COLOR_LABEL = 0x7FB8FFFF,
 	COLOR_RULE = 0x2F6DD0A0,
 	/* the roster's players of each team, the Xbox's softened red and blue */
@@ -1914,7 +1916,7 @@ static char const *host_text(
 		game->host_platform < NUMBEROF(platform_names) ? platform_names[game->host_platform] : NULL;
 	char const *protocol = game->protocol == BROWSER_PROTOCOL_DELTA ? "Delta" :
 		game->protocol == BROWSER_PROTOCOL_OPENCE ? "OpenCE (legacy)" : NULL;
-	char host[48], with_version[40];
+	char host[64], with_version[40];
 
 	/* (its network version: an OpenCE host's always, a Delta host's when it
 	is not this build's) */
@@ -1929,7 +1931,13 @@ static char const *host_text(
 		protocol = with_version;
 	}
 
-	if (game->hosting == BROWSER_HOSTING_DEDICATED || game->hosting == BROWSER_HOSTING_OFFICIAL)
+	/* (a signed badge names the server; else the list's own word) */
+	if (browser_badge_name(game->badge))
+	{
+		snprintf(host, sizeof(host), "%s%s%s%s", browser_badge_name(game->badge), platform ? " (" : "",
+			platform ? platform : "", platform ? ")" : "");
+	}
+	else if (game->hosting == BROWSER_HOSTING_DEDICATED || game->hosting == BROWSER_HOSTING_OFFICIAL)
 	{
 		snprintf(host, sizeof(host), "%s%s%s%s", game->hosting == BROWSER_HOSTING_OFFICIAL ? "Official server" :
 			"Dedicated", platform ? " (" : "", platform ? platform : "", platform ? ")" : "");
@@ -2891,6 +2899,17 @@ static void draw_row(
 		width += 5 + ui_overlay_text(UI_FONT_MENU, 6.5f, COLUMN_NAME + width + 5,
 			y + (LIST_ROW - 6.5f) * 0.5f + 0.5f, UI_ALIGN_LEFT, picked ? 0xC8D8F0FF : COLOR_HEAD, "CO-OP");
 	}
+	/* (a server's signed badge: marked, as co-op is) */
+	if (game->badge)
+	{
+		static char const *const tags[] = { "", "OFFICIAL", "DEVELOPER", "COMMUNITY" };
+
+		if (game->badge < NUMBEROF(tags))
+		{
+			width += 5 + ui_overlay_text(UI_FONT_MENU, 6.5f, COLUMN_NAME + width + 5,
+				y + (LIST_ROW - 6.5f) * 0.5f + 0.5f, UI_ALIGN_LEFT, picked ? 0xC8D8F0FF : COLOR_BADGE, tags[game->badge]);
+		}
+	}
 	/* (a game this build can't join, by its network version: marked) */
 	if (version_state)
 	{
@@ -3177,6 +3196,11 @@ the map's name over its family's color (a custom map's) */
 			}
 			ui_overlay_text(UI_FONT_MENU_SMALL, DETAIL_SIZE, label_x, label_y + 0.5f, UI_ALIGN_LEFT, COLOR_NEUTRAL,
 				HOST_LABEL_OPENCE_SERVER);
+		}
+		/* (a badge's label: the developer or group running it) */
+		if (selected->badge && selected->badge_label[0])
+		{
+			DETAIL_LINE("Run by:", selected->badge_label);
 		}
 	}
 #undef DETAIL_LINE

@@ -143,7 +143,10 @@ enum delta_peer_badge_state
 	_delta_peer_badge_asking,
 	/* BADGE heard for this session's nonce (checked by server_badge.c,
 	not here) */
-	_delta_peer_badge_answered
+	_delta_peer_badge_answered,
+	/* the handshake is done and the host did not agree to server_badge:
+	it has no badge to show */
+	_delta_peer_badge_unoffered
 };
 
 /* the room's limits (delta_peer_room_limit) */
@@ -920,10 +923,11 @@ int delta_peer_game_team_ready(void);
 unsigned int delta_peer_game_team_request(int player, int team);
 unsigned int delta_peer_game_team_result(struct delta_wire_team_result *result);
 
-/* server badges: the client's check with its host (enum
-delta_peer_badge_state; the answer in badge, the host's address in
-host_ipv4, and the milliseconds since the handshake began in waited) */
-int delta_peer_game_client_badge(struct delta_wire_badge *badge, delta_u32 *host_ipv4, delta_u32 *waited);
+/* server badges (docs/server-badges.md): the joined host's badge as it
+proved it on joining. 1 and its fields in badge; 0 not known yet; -1 none
+(not offered, not answered, or a proof that failed) */
+struct server_badge;
+int delta_peer_game_server_badge(struct server_badge *badge);
 
 /* object sync (port/linux/game/network_objects.c): the host's, the clients
 that agreed to it and what goes to them; the client's, where what its host

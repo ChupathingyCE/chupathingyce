@@ -26,10 +26,10 @@ enum
 };
 
 /* the capabilities this build knows (the retired md_maps and console_slots
-bits never count, nor the reserved server_badge) */
+bits never count) */
 #define KNOWN_CAPABILITIES \
 	((((delta_u32)1 << NUMBER_OF_DELTA_CAPABILITIES) - 1) & ~((delta_u32)1 << _delta_capability_md_maps) & \
-		~((delta_u32)1 << _delta_capability_console_slots) & ~((delta_u32)1 << _delta_capability_server_badge))
+		~((delta_u32)1 << _delta_capability_console_slots))
 #define CAPABILITY(bit) ((delta_u32)1 << (bit))
 /* TRAITS (22) needs both: bomb alone is a Grifball test build 2 or 3's,
 which says TRAITS as 18 */
@@ -1464,6 +1464,8 @@ int delta_peer_client_badge(const struct delta_peer *peer, struct delta_wire_bad
 		*handshake_start = peer->handshake_start;
 	if (peer->mode != _mode_client || peer->client_state != _delta_peer_client_delta)
 		return _delta_peer_badge_none;
+	if (!client_chatting(peer, _delta_capability_server_badge))
+		return _delta_peer_badge_unoffered;
 	return peer->client_badge.state;
 }
 

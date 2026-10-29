@@ -47,6 +47,7 @@ build 2 or 3's) */
 #define SERVER_MESSAGES_BIT ((delta_u32)1 << _delta_capability_server_messages)
 #define TEAM_CHANGE_BIT ((delta_u32)1 << _delta_capability_team_change)
 #define OBJECT_SYNC_BIT ((delta_u32)1 << _delta_capability_object_sync)
+#define SERVER_BADGE_BIT ((delta_u32)1 << _delta_capability_server_badge)
 
 /* ---------- a simulated network */
 
@@ -1178,6 +1179,129 @@ static void test_team(void)
 	for (step = 0; step < 4; step++, now += 300)
 		frame(now, 3, joined, 1);
 	CHECK(!delta_peer_client_team_ready(&nodes[1].peer));
+}
+
+/* ---------- server badges (docs/server-badges.md) */
+
+static void test_wire_badge(void)
+{
+	struct delta_wire_badge badge, badge_in;
+	struct delta_wire_header header;
+	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM], nonce[DELTA_WIRE_BADGE_NONCE_SIZE], nonce_in[DELTA_WIRE_BADGE_NONCE_SIZE];
+	int size, index;
+
+	for (index = 0; index < DELTA_WIRE_BADGE_NONCE_SIZE; index++)
+		nonce[index] = (unsigned char)(index * 7 + 1);
+	size = delta_wire_write_badge_ask(data, 7, nonce);
+	CHECK(size == DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_BADGE_ASK_SIZE);
+	CHECK(delta_wire_read_header(data, size, &header) && header.type == _delta_message_badge_ask &&
+		delta_wire_read_badge_ask(data + DELTA_WIRE_HEADER_SIZE, header.length, nonce_in) &&
+		!memcmp(nonce, nonce_in, sizeof(nonce)));
+	CHECK(!delta_wire_read_badge_ask(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_BADGE_ASK_SIZE - 1, nonce_in));
+
+	memset(&badge, 0, sizeof(badge));
+	memcpy(badge.nonce, nonce, sizeof(nonce));
+	for (index = 0; index < DELTA_WIRE_BADGE_SIGNATURE_SIZE; index++)
+		badge.signature[index] = (unsigned char)(0xA0 ^ index);
+	badge.certificate_length = DELTA_WIRE_BADGE_CERTIFICATE_SIZE;
+	for (index = 0; index < DELTA_WIRE_BADGE_CERTIFICATE_SIZE; index++)
+		badge.certificate[index] = (unsigned char)index;
+	size = delta_wire_write_badge(data, 7, &badge);
+	CHECK(size == DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_BADGE_SIZE + DELTA_WIRE_BADGE_CERTIFICATE_SIZE);
+	CHECK(size <= DELTA_WIRE_MAXIMUM_DATAGRAM);
+	CHECK(delta_wire_read_header(data, size, &header) && header.type == _delta_message_badge &&
+		delta_wire_read_badge(data + DELTA_WIRE_HEADER_SIZE, header.length, &badge_in) &&
+		!memcmp(&badge, &badge_in, sizeof(badge)));
+	/* (a certificate cut short, or longer than its field: refused) */
+	CHECK(!delta_wire_read_badge(data + DELTA_WIRE_HEADER_SIZE, header.length - 1, &badge_in));
+	data[DELTA_WIRE_HEADER_SIZE + 96] = DELTA_WIRE_BADGE_CERTIFICATE_SIZE + 1;
+	CHECK(!delta_wire_read_badge(data + DELTA_WIRE_HEADER_SIZE, header.length + 1, &badge_in));
+	badge.certificate_length = DELTA_WIRE_BADGE_CERTIFICATE_SIZE + 1;
+	CHECK(!delta_wire_write_badge(data, 7, &badge));
+	/* (none: said as none) */
+	badge.certificate_length = 0;
+	size = delta_wire_write_badge(data, 7, &badge);
+	CHECK(delta_wire_read_header(data, size, &header) &&
+		delta_wire_read_badge(data + DELTA_WIRE_HEADER_SIZE, header.length, &badge_in) &&
+		badge_in.certificate_length == 0);
+}
+
+static struct
+{
+	int asked;
+	unsigned char nonce[DELTA_WIRE_BADGE_NONCE_SIZE];
+} host_badge;
+
+static int test_badge_answer(void *context, const unsigned char *nonce, unsigned char *signature,
+	unsigned char *certificate, int size)
+{
+	(void)context;
+	host_badge.asked++;
+	memcpy(host_badge.nonce, nonce, sizeof(host_badge.nonce));
+	memset(signature, 0x5A, DELTA_WIRE_BADGE_SIGNATURE_SIZE);
+	memset(certificate, 0xC3, 120);
+	return size >= 120 ? 120 : 0;
+}
+
+static const struct delta_peer_badge_host test_badge_host = { NULL, test_badge_answer };
+
+static void test_badge(void)
+{
+	int joined[3] = { 0, 1, 1 };
+	struct delta_wire_badge badge;
+	delta_u32 now = 5000;
+	int step;
+
+	memset(&host_badge, 0, sizeof(host_badge));
+	node_start(0, HOST_IPV4, DELTA_PEER_PORT, SERVER_BADGE_BIT, _delta_platform_pc_linux, 0, 0);
+	node_start(1, 0x0300007F, 40001, SERVER_BADGE_BIT, _delta_platform_pc_linux, 0, 0);
+	/* (a Delta machine without server badges: an older build) */
+	node_start(2, 0x0400007F, 40002, 0, _delta_platform_pc_macos, 0, 0);
+	delta_peer_set_badge_host(&nodes[0].peer, &test_badge_host);
+	game_reset();
+	game_add(1);
+	game_add(2);
+	for (step = 0; step < 6; step++, now += 300)
+		frame(now, 3, joined, 1);
+	/* asked once, answered for this session's nonce */
+	CHECK(host_badge.asked == 1);
+	CHECK(delta_peer_client_badge(&nodes[1].peer, &badge, NULL) == _delta_peer_badge_answered);
+	CHECK(!memcmp(badge.nonce, host_badge.nonce, sizeof(badge.nonce)) && badge.certificate_length == 120 &&
+		badge.certificate[0] == 0xC3 && badge.signature[0] == 0x5A);
+	CHECK(delta_peer_client_badge(&nodes[2].peer, NULL, NULL) == _delta_peer_badge_unoffered);
+	/* (an answer to another nonce, or a second one: dropped) */
+	{
+		unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
+		struct delta_wire_badge stray = badge;
+		int size;
+
+		stray.nonce[0] ^= 1;
+		stray.certificate[0] = 0x11;
+		size = delta_wire_write_badge(data, nodes[1].peer.session, &stray);
+		delta_peer_receive(&nodes[1].peer, now, HOST_IPV4, DELTA_PEER_PORT, data, size);
+		CHECK(delta_peer_client_badge(&nodes[1].peer, &badge, NULL) == _delta_peer_badge_answered &&
+			badge.certificate[0] == 0xC3);
+		/* (asks past the host's budget: one answered a second) */
+		host_badge.asked = 0;
+		size = delta_wire_write_badge_ask(data, nodes[1].peer.session, stray.nonce);
+		delta_peer_receive(&nodes[0].peer, now, nodes[1].ipv4, nodes[1].port, data, size);
+		delta_peer_receive(&nodes[0].peer, now, nodes[1].ipv4, nodes[1].port, data, size);
+		delta_peer_receive(&nodes[0].peer, now, nodes[1].ipv4, nodes[1].port, data, size);
+		CHECK(host_badge.asked <= 1);
+		/* (an ask from a machine that did not agree to it: dropped) */
+		host_badge.asked = 0;
+		now += 5000;
+		size = delta_wire_write_badge_ask(data, nodes[2].peer.session, stray.nonce);
+		delta_peer_receive(&nodes[0].peer, now, nodes[2].ipv4, nodes[2].port, data, size);
+		CHECK(host_badge.asked == 0);
+		queued = 0;
+	}
+	/* a host without a badge offers none: a new client is told it has none */
+	delta_peer_set_badge_host(&nodes[0].peer, NULL);
+	node_start(1, 0x0300007F, 40001, SERVER_BADGE_BIT, _delta_platform_pc_linux, 0, 0);
+	for (step = 0; step < 6; step++, now += 300)
+		frame(now, 3, joined, 1);
+	CHECK(delta_peer_client_badge(&nodes[1].peer, NULL, NULL) == _delta_peer_badge_unoffered);
 }
 
 /* ---------- object sync */
@@ -3496,6 +3620,8 @@ int main(int argc, char **argv)
 	test_chat();
 	test_wire_team();
 	test_team();
+	test_wire_badge();
+	test_badge();
 	test_wire_objects();
 	test_objects();
 	test_random(iterations);
