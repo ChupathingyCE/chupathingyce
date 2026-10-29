@@ -170,15 +170,46 @@ static void anti_aliasing_read(void)
 {
 	const char *setting = config_string("display.anti_aliasing");
 	int value;
+#ifdef HALO_BGFX
+	BOOL mapped = FALSE;
+#endif
 
 	for (value = NUMBER_OF_ANTI_ALIASING_VALUES - 1;
 		value > 0 && strcmp(setting, anti_aliasing_values[value].name);
 		value--)
 	{
 	}
+#ifdef HALO_BGFX
+	/* the bgfx test backend has multisampling only: FXAA, SMAA and
+	supersampling become 2x MSAA, said once */
+	if (xgpu_bgfx && (anti_aliasing_values[value].mode == _anti_aliasing_fxaa ||
+		anti_aliasing_values[value].mode == _anti_aliasing_smaa ||
+		anti_aliasing_values[value].mode == _anti_aliasing_ssaa))
+	{
+		static BOOL said;
+		int msaa;
+
+		for (msaa = 0; anti_aliasing_values[msaa].mode != _anti_aliasing_msaa; msaa++)
+		{
+		}
+		if (!said)
+			platform_log("anti-aliasing: %s is not in the bgfx renderer yet, so %s", setting,
+				anti_aliasing_values[msaa].name);
+		said = TRUE;
+		value = msaa;
+		mapped = TRUE;
+	}
+#endif
 	if (value == anti_aliasing_value)
 		return;
 	anti_aliasing_value = value;
+#ifdef HALO_BGFX
+	if (mapped)
+	{
+		anti_aliasing_prepare();
+		return;
+	}
+#endif
 	if (strcmp(setting, anti_aliasing_values[value].name))
 		platform_log("anti-aliasing: \"%s\" is unknown, so off", setting);
 	else
