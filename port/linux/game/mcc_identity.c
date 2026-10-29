@@ -37,6 +37,7 @@ static int mcc_identity_error(char const *message)
 
 void mcc_identity_disconnect(void)
 {
+    mcc_cache_validation_clear();
     memset(&mcc_client_identity,0,sizeof(mcc_client_identity));
     memset(&mcc_host_identity,0,sizeof(mcc_host_identity));
     mcc_cache_precache_clear();

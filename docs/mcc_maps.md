@@ -1895,15 +1895,16 @@ validation is never cached, unreadable metadata prevents reuse, and a change
 during validation cannot establish a cached ready result. Rescanning the MCC
 catalog and unloading MCC tags clear the result.
 
-This is a polling optimization, not a trusted content fingerprint. Network
-admission, map-version calculation and actual loading still perform their
-existing independent resource validation. Protocol 41 and host-authority
-rules are unchanged. Initial validation can still pause the menu; this change
-removes the recurring validation after an unchanged map has been checked.
+This is a polling optimization, not a trusted content fingerprint. The original
+issue #51 fix left network admission, map-version calculation and actual loading
+on independent resource validation paths. The issue #74 extension below reuses
+unchanged checksum validation between the first two paths; actual loading still
+validates independently. Neither change alters host-authority rules or wire values.
 
 The existing MCC branch in `cache_files_give_time_to_precache` must select the
 new polling function because its old callee also serves admission callers,
-which must stay fresh. This is the only shared-engine change. Xbox and Custom
+which retain their admission checks. This was the only shared-engine change
+for issue #51. Xbox and Custom
 Edition readiness branches retain their existing code and behavior.
 
 Windows x86 portable-release testing against base `d1669f19` reproduced the
@@ -1922,6 +1923,48 @@ CE Death Island and back to Mercury, then exited normally without assertions.
 These are focused runtime checks, not full campaign or multiplayer playthroughs.
 Android and Web builds were attempted but those targets are absent from this
 Windows configuration. Native Linux validation remains for CI.
+
+## MCC map-selection validation (issue #74)
+
+Selecting a resource-backed MCC map computed its resource checksum, then
+computed it again for local admission and the first readiness poll. The
+separate readiness cache did not cover those calls, and opening the map browser
+invalidated readiness even when no files changed. These synchronous reads can
+stall the menu while it is open or returning to the lobby.
+
+`mcc_cache_probe` now retains one successful checksum with the complete
+`mcc_precache_snapshot`. Every reuse checks the name and all nine file stamps;
+failed validation or unavailable metadata cannot populate the cache. A change
+while validating refuses the result. The requested network checksum and admitted
+SHA-256 identity are still checked on every admission. Unload and disconnect
+clear the result, while catalog rescans can safely reuse unchanged inputs.
+The loader still validates the opened resources independently. All changes are
+in MCC-owned modules; no Xbox/CE implementation or network wire value changes.
+
+Uncached checksum and fingerprint probes use the existing MCC loading feedback.
+`mcc_loading_begin` returns ownership so an inner probe cannot close an outer
+loading screen. A first check can still take several seconds on large packages;
+this does not make validation asynchronous. The native missing-loading-art
+fallback remains unchanged. See the [reader's guide](reading/maps_and_resources.md#mcc-loading-feedback)
+for the call path and lifecycle.
+
+Validation on Windows x86 portable release, based on `bed24ca3`, reproduced
+multiple resource probes with DigsiteMP/1 (about 1.07 GB of resources) and removed
+the duplicate probes after the fix. The cache regression failed before the fix;
+399 focused checks passed, with five optional local-asset checks skipped.
+Two hidden Windows peers entered DigsiteMP/1 and produced 62 matching one-second
+state samples with no divergences or parse errors. Lobby captures were inspected
+at 1280x720 and 640x480. Separate Xbox Blood Gulch and CE Death Island
+smoke runs each exited normally with 22 one-second gameplay samples. These
+checks do not establish every map's compatibility or map-family transitions.
+
+Android and web builds were attempted but blocked by Unix launcher/staging
+commands in this Windows environment. The web graph/socket tests had six
+Windows path/POSIX-header failures. The browser/native WebRTC runner also failed
+on its Windows URL-to-path conversion; full browser internet play requires the
+unavailable built site, mosquitto and Xvfb. Linux and cross-platform runtime
+validation remain outstanding. No simulation, transport or protocol value was
+changed, so no network-version increment is needed.
 
 ### Missing-unit script calls (issues #50 and #63)
 

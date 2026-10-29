@@ -317,13 +317,14 @@ static int mcc_resources_inspect(char const *name,struct mcc_cache_source const 
     unsigned char header[MCC_CACHE_HEADER_BYTES];
     struct mcc_cache_identity identity;
     void *raw;
-    int ok;
+    int ok, loading;
     memset(&runtime,0,sizeof(runtime));
     if (!source || !source->read || !mcc_package_name(name,runtime.level_name) ||
         !source->read(source->context,0,sizeof(header),header) ||
         mcc_cache_identify(header,sizeof(header),source->size,&identity)!=MCC_CACHE_OK) return 0;
     raw=malloc(identity.tag_data_size);
     if (!raw) return 0;
+    loading=mcc_loading_begin(name);
     runtime.source=*source;
     ok=mcc_cache_load(source,raw,identity.tag_data_size,&runtime.report)==MCC_CACHE_OK &&
         mcc_resources_select(&runtime,raw);
@@ -331,6 +332,7 @@ static int mcc_resources_inspect(char const *name,struct mcc_cache_source const 
     if (ok && checksum) ok=mcc_resources_checksum(&runtime,
         (runtime.report.external_bitmap_count ? 1u : 0u)|(runtime.report.external_sound_count ? 2u : 0u),checksum);
     mcc_resources_dispose(&runtime);free(raw);
+    if (loading) mcc_loading_end(ok);
     return ok;
 }
 

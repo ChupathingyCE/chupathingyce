@@ -5,6 +5,7 @@ The stubs require every discovery/open operation to name d:\\mcc_maps\\, so
 an accidental fallback to Xbox or CE directories fails the executable.
 """
 import os
+import re
 from pathlib import Path
 import shutil
 import struct
@@ -93,6 +94,8 @@ int mcc_identity_check(char const *name) {(void)name;return 1;}
 int mcc_identity_prepare_host(char const *name) {(void)name;identities_prepared++;return 1;}
 #include "mcc_runtime.h"
 #include "mcc_resources.h"
+#include "mcc_precache.h"
+int mcc_precache_snapshot(char const *name,struct mcc_precache_snapshot *s) {(void)name;(void)s;return 0;}
 static char saved_identity[64];
 static int allocation_fails;
 void *mcc_runtime_allocate(struct mcc_runtime *r,uint32_t bytes) {
@@ -247,8 +250,8 @@ int main(int argc,char **argv) {
 '''
     # Exercise the actual side-effect-free runtime admission functions too.
     cache_source = (ROOT / "port/linux/game/mcc_cache.c").read_text()
-    admission = "\n".join(function(cache_source, name) for name in
-                          ("mcc_path", "mcc_scenario_identity", "mcc_file_read", "mcc_open", "mcc_cache_checksum", "mcc_cache_present"))
+    admission = re.search(r"static struct \{.*?\} mcc_validation;", cache_source, re.S).group() + "\n" + "\n".join(function(cache_source, name) for name in
+                          ("mcc_cache_validation_clear", "mcc_cache_probe", "mcc_path", "mcc_scenario_identity", "mcc_file_read", "mcc_open", "mcc_cache_checksum", "mcc_cache_present"))
     source.write_text(source_code.replace("int main(int argc,char **argv)", "#define fopen mcc_test_fopen\n#define fread mcc_test_fread\n" + admission + "\n#undef fopen\n#undef fread\nint main(int argc,char **argv)"))
     output = work / ("catalog.exe" if sys.platform == "win32" else "catalog")
     command = [compiler, "-include", str(ROOT / "port/linux/game/mcc_loading.h"), str(ROOT / "tools/mcc_loading_stub.c"), "-std=c99", "-Wall", "-Wextra", "-Werror",

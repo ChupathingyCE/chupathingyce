@@ -85,6 +85,7 @@ int csstrcasecmp(char const *a,char const *b){while(*a && tolower(*a)==tolower(*
 int game_connection(void){return connection;}
 void error(short level,char const *format,...){(void)level;(void)format;}
 void display_error_text_when_main_menu_loaded(wchar_t const *text){(void)text;errors++;}
+void mcc_cache_validation_clear(void) {}
 void mcc_cache_precache_clear(void){clears++;}
 void mcc_maps_rescan(void){}
 short mcc_maps_count(boolean multiplayer){(void)multiplayer;return (short)count;}

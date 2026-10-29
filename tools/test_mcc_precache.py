@@ -121,13 +121,14 @@ int main(void) {
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-def test_cached_polling_does_not_replace_admission_or_load_validation():
+def test_cached_polling_retains_admission_and_independent_load_validation():
     from harness import function
     native = (ROOT / "source/cache/cache_files.c").read_text()
     cache = (ROOT / "port/linux/game/mcc_cache.c").read_text()
     assert "mcc_cache_precache_ready(map_name)" in function(native, "cache_files_give_time_to_precache")
     assert "mcc_cache_require(map_name, version)" in function(native, "cache_files_map_present")
-    assert "mcc_resources_probe" in function(cache, "mcc_cache_present")
+    assert "mcc_cache_probe" in function(cache, "mcc_cache_present")
+    assert "mcc_resources_probe" in function(cache, "mcc_cache_probe")
     assert "mcc_resources_checksum" in function(cache, "mcc_cache_tags_load")
     assert "mcc_cache_precache_clear" in function(cache, "mcc_cache_tags_unload")
     assert "mcc_cache_precache_clear" in function((ROOT / "port/linux/game/mcc_maps.c").read_text(), "mcc_maps_rescan")
