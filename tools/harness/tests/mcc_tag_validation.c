@@ -146,7 +146,38 @@ static struct tag_schema_definition const anchor_schema=TAG_SCHEMA_DEFINITION(hu
 struct test_flag {long unused;char name[31];byte padding;byte rest[56];};
 static struct tag_schema_field const flag_fields[]={TAG_SCHEMA_STRING(struct test_flag,name),TAG_SCHEMA_END};
 static struct tag_schema_definition const flag_schema=TAG_SCHEMA_DEFINITION(cutscene_flag,struct test_flag,flag_fields);
+struct test_collision_surface {long plane,first_edge_index;byte flags,breakable;short material;};
+struct test_collision_edge {long vertices[2],next[2],owners[2];};
+struct test_collision {struct tag_block surfaces,edges;};
+static boolean collision_model_bsp_check(struct tag_validation *validation,void *base)
+{
+    struct test_collision *bsp=base;
+    struct test_collision_surface *surfaces=bsp->surfaces.address;
+    struct test_collision_edge *edges=bsp->edges.address;
+    long i;
+    (void)validation;
+    for(i=0;i<bsp->surfaces.count;i++) {
+        long start=surfaces[i].first_edge_index,cursor=start,steps=0;
+        do {
+            int side;
+            if(cursor<0 || cursor>=bsp->edges.count || steps++>=8)return FALSE;
+            side=edges[cursor].owners[1]==i;
+            if(edges[cursor].owners[side]!=i)return FALSE;
+            cursor=edges[cursor].next[side];
+        } while(cursor!=start);
+    }
+    return TRUE;
+}
+static struct tag_schema_definition const surface_schema=TAG_SCHEMA_DEFINITION(surface,struct test_collision_surface,name_fields);
+static struct tag_schema_definition const edge_schema=TAG_SCHEMA_DEFINITION(edge,struct test_collision_edge,name_fields);
+static struct tag_schema_field const collision_fields[]={
+    TAG_SCHEMA_BLOCK(struct test_collision,surfaces,surface_schema,131072),
+    TAG_SCHEMA_BLOCK(struct test_collision,edges,edge_schema,262144),
+    TAG_SCHEMA_CHECK(collision_model_bsp_check),TAG_SCHEMA_END
+};
+static struct tag_schema_definition const collision_schema=TAG_SCHEMA_DEFINITION(collision,struct test_collision,collision_fields);
 static struct tag_schema_group const groups[] = {
+    {'coll',{NONE,NONE},&collision_schema},
     {'dmg!',{NONE,NONE},&damage_schema},
     {'emp!',{NONE,NONE},&empty_weapon_root},
     {'adt!',{NONE,NONE},&animation_data_schema},
@@ -165,8 +196,8 @@ struct tag_schema_group const tag_schema_custom_edition_groups[] = {{0, {0, 0}, 
 void tag_validate_report(char const *message) { (void)message; }
 uint32_t mcc_audio_stream_end(struct mcc_runtime *runtime) { (void)runtime; return 1024; }
 uint32_t mcc_bitmaps_stream_end(struct mcc_runtime *runtime) { (void)runtime; return 1024; }
-int mcc_audio_contains(struct mcc_runtime *runtime, uint32_t offset, uint32_t size)
-{ (void)runtime; (void)offset; (void)size; return 0; }
+int mcc_audio_contains(struct mcc_runtime *runtime, long tag, uint32_t offset, uint32_t size)
+{ (void)tag; (void)runtime; (void)offset; (void)size; return 0; }
 int mcc_bitmaps_contains(struct mcc_runtime *runtime, uint32_t offset, uint32_t size)
 { (void)runtime; (void)offset; (void)size; return 0; }
 int mcc_bitmaps_valid(struct mcc_runtime *runtime, struct bitmap_data *bitmap)
@@ -329,6 +360,20 @@ int main(int argc, char **argv)
             strcpy((char *)model_nodes,"root");strcpy((char *)model_nodes+156,"child");
             memcpy(model_nodes+32,links,6);memcpy(model_nodes+156+32,links+3,6);
             nodes[0].first_child_node_index=NONE;
+            if (!strncmp(argv[1],"graph_model_partial",19)) {
+                short extra[3]={NONE,NONE,1},child=2;
+                block->count=graph->nodes.count=3;
+                strcpy(nodes[2].name,"head");strcpy((char *)model_nodes+312,"head");
+                memcpy(model_nodes+312+32,extra,6);memcpy(model_nodes+156+34,&child,2);
+                nodes[0].first_child_node_index=1;
+                nodes[2].next_sibling_node_index=nodes[2].first_child_node_index=NONE;
+                nodes[2].parent_node_index=1;
+                if (!strcmp(argv[1],"graph_model_partial_omitted_parents")) nodes[2].parent_node_index=0;
+                if (!strcmp(argv[1],"graph_model_partial_conflict")) {nodes[1].next_sibling_node_index=2;expected=0;}
+                if (!strcmp(argv[1],"graph_model_partial_cycle")) {
+                    short cycle=0;memcpy(model_nodes+312+34,&cycle,2);expected=0;
+                }
+            }
             if (!strncmp(argv[1],"graph_model_empty",17)) {
                 nodes[0].parent_node_index=nodes[1].parent_node_index=NONE;
                 if (!strcmp(argv[1],"graph_model_empty_partial")) {
@@ -369,6 +414,26 @@ int main(int argc, char **argv)
             if (!strcmp(argv[1],"graph_model_outside")) {block->address=runtime.tags+runtime.used-1;expected=0;}
             if (!strcmp(argv[1],"graph_model_cycle")) {short cycle=0;memcpy(model_nodes+156+34,&cycle,2);expected=0;}
         }
+    }
+    if (!strncmp(argv[1],"collision_",10)) {
+        long i;
+        struct test_collision *bsp=(void *)(runtime.tags+0x700);
+        struct test_collision_surface *surfaces=(void *)(runtime.tags+0x800);
+        struct test_collision_edge *edges=(void *)(runtime.tags+0x900);
+        header->count=2;instance[1]=instance[0];instance[1].group='coll';instance[1].handle++;instance[1].root=bsp;
+        bsp->surfaces.count=2;bsp->surfaces.address=surfaces;bsp->edges.count=6;bsp->edges.address=edges;
+        surfaces[0].first_edge_index=3;surfaces[1].first_edge_index=0;
+        for(i=0;i<6;i++) {
+            edges[i].owners[0]=i/3;edges[i].owners[1]=NONE;
+            edges[i].next[0]=i/3*3+(i+1)%3;
+        }
+        if(!strcmp(argv[1],"collision_valid")) {surfaces[0].first_edge_index=0;surfaces[1].first_edge_index=3;}
+        if(!strcmp(argv[1],"collision_no_owner")) {for(i=0;i<3;i++)edges[i].owners[0]=NONE;expected=0;}
+        if(!strcmp(argv[1],"collision_short_ring")) {edges[1].next[0]=0;expected=0;}
+        if(!strcmp(argv[1],"collision_open_ring")) {edges[2].next[0]=1;expected=0;}
+        if(!strcmp(argv[1],"collision_bad_next")) {edges[2].next[0]=6;expected=0;}
+        if(!strcmp(argv[1],"collision_bad_owner")) {edges[2].owners[0]=2;expected=0;}
+        if(!strcmp(argv[1],"collision_outside")) {bsp->edges.address=runtime.tags+runtime.used-1;expected=0;}
     }
     if (!strncmp(argv[1],"bitmap",6)) {
         header->count=2; instance[1]=instance[0]; instance[1].group='bitm'; instance[1].handle++;

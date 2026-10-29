@@ -305,17 +305,18 @@ int mcc_scripts_prepare(struct mcc_runtime *runtime)
             if (!csstrcasecmp(name,"set")) {
                 struct hs_syntax_node *target = datum_try_and_get(syntax,nodes[child].next_node_index);
                 char const *target_name=target ? mcc_script_string(strings,scenario->hs_string_constants.size,target->string_offset) : NULL;
-                if (target && (target->flags&5)==5 && target_name && !csstrcasecmp(target_name,"object_prediction")) {
+                if (target && (target->flags&5)==5 && target_name && (!csstrcasecmp(target_name,"object_prediction") ||
+                    !csstrcasecmp(target_name,"breadcrumbs_navpoints_enabled_override"))) {
                     struct hs_syntax_node *value=datum_try_and_get(syntax,target->next_node_index);
-                    /* OpenCE prediction remains enabled and host-controlled.
-                     * A literal enable agrees with that policy. Do not claim
-                     * to support disabling it or discard a computed value. */
+                    /* Prediction and MCC breadcrumb availability are always
+                     * enabled. A literal enable agrees with those policies;
+                     * never discard a disable request or computed value. */
                     if (value && (value->flags&7)==1 && value->type==_hs_type_boolean &&
                         value->constant_type==_hs_type_boolean && value->boolean_value && value->next_node_index==NONE) {
                         if (!mcc_boolean_result(node,TRUE)) return FALSE;
                         continue;
                     }
-                    error(_error_silent,"mcc: object_prediction supports only a literal enable");
+                    error(_error_silent,"mcc: %s supports only a literal enable (syntax node %ld)",target_name,i);
                     return FALSE;
                 }
                 if (target && (target->flags & 1) && mcc_disabled_skull(
@@ -330,7 +331,7 @@ int mcc_scripts_prepare(struct mcc_runtime *runtime)
                         if (!mcc_boolean_result(node,FALSE)) return FALSE;
                         continue;
                     }
-                    error(_error_silent,"mcc: scripts cannot enable unsupported skull gameplay");
+                    error(_error_silent,"mcc: unsupported skull assignment to %s (syntax node %ld); only a literal disable is supported",target_name,i);
                     return FALSE;
                 }
             }
@@ -348,7 +349,7 @@ int mcc_scripts_prepare(struct mcc_runtime *runtime)
         } else if ((node->flags & 5) == 5 && ((uint16_t)node->data & 0x8000)) {
             name = mcc_script_string(strings, scenario->hs_string_constants.size, node->string_offset);
             if (!name) return FALSE;
-            if (!csstrcasecmp(name,"object_prediction")) {
+            if (!csstrcasecmp(name,"object_prediction") || !csstrcasecmp(name,"breadcrumbs_navpoints_enabled_override")) {
                 if (node->type!=_hs_type_boolean) return FALSE;
                 node->flags&=~4;node->constant_type=_hs_type_boolean;node->data=TRUE;continue;
             }

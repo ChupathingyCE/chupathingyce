@@ -278,6 +278,75 @@ static struct tag_schema_field const *mcc_field(struct tag_schema_definition con
     return NULL;
 }
 
+/* Recover a misplaced start edge only from the surface's complete, unique
+ * authored ring. Super Wacky Funtime's Flood model swaps two start edges;
+ * no vertices, planes, edge links or surface ownership are changed. */
+static int mcc_collision_surface_edges(struct mcc_validation_context *context,
+    byte *address, struct tag_schema_definition const *schema)
+{
+    struct tag_schema_field const *sf=mcc_field(schema,"surfaces"),*ef=mcc_field(schema,"edges");
+    struct tag_block *surfaces,*edges;
+    long *first,*counts,i,j;
+    int result=0;
+    if (!sf || !ef || !sf->definition || !ef->definition ||
+        ((struct tag_schema_definition const *)sf->definition)->size!=12 ||
+        ((struct tag_schema_definition const *)ef->definition)->size!=24) return 0;
+    surfaces=(struct tag_block *)(address+sf->offset);
+    edges=(struct tag_block *)(address+ef->offset);
+    if (!surfaces->count) return 1;
+    if (surfaces->count<0 || surfaces->count>131072 || edges->count<0 || edges->count>262144) return 0;
+    /* Valid BSPs need no ownership table or allocation. */
+    for (i=0;i<surfaces->count;i++) {
+        long start=mcc_integer((byte *)surfaces->address+i*12+4,4,0);
+        byte const *edge;
+        if (start<0 || start>=edges->count) break;
+        edge=(byte *)edges->address+start*24;
+        if (mcc_integer(edge+16,4,0)!=i && mcc_integer(edge+20,4,0)!=i) break;
+    }
+    if (i==surfaces->count) return 1;
+    first=malloc(surfaces->count*2*sizeof(*first));
+    if (!first) return 0;
+    counts=first+surfaces->count;
+    for (i=0;i<surfaces->count;i++) {first[i]=NONE;counts[i]=0;}
+    for (i=0;i<edges->count;i++) {
+        byte const *edge=(byte *)edges->address+i*24;
+        for (j=0;j<2;j++) {
+            long surface=mcc_integer(edge+16+j*4,4,0);
+            if (surface==NONE) continue;
+            if (surface<0 || surface>=surfaces->count) goto done;
+            if (first[surface]==NONE) first[surface]=i;
+            counts[surface]++;
+        }
+    }
+    for (i=0;i<surfaces->count;i++) {
+        byte *surface=(byte *)surfaces->address+i*12;
+        long start=mcc_integer(surface+4,4,0),cursor,steps=0;
+        if (start>=0 && start<edges->count) {
+            byte const *edge=(byte *)edges->address+start*24;
+            if (mcc_integer(edge+16,4,0)==i || mcc_integer(edge+20,4,0)==i) continue;
+        }
+        start=cursor=first[i];
+        if (start==NONE || counts[i]<3 || counts[i]>8) goto done;
+        do {
+            byte const *edge;
+            long side;
+            if (cursor<0 || cursor>=edges->count || steps++>=counts[i]) goto done;
+            edge=(byte *)edges->address+cursor*24;
+            side=mcc_integer(edge+20,4,0)==i;
+            if (mcc_integer(edge+16+side*4,4,0)!=i) goto done;
+            cursor=mcc_integer(edge+8+side*4,4,0);
+        } while (cursor!=start);
+        if (steps!=counts[i]) goto done;
+        mcc_set_integer(surface+4,4,start);
+        mcc_problem(context,0,"collision surface start restored from its complete owned edge ring");
+    }
+    result=1;
+done:
+    if (!result) mcc_problem(context,1,"misplaced collision start has no complete unique owned edge ring");
+    free(first);
+    return result;
+}
+
 /* Some compiled graphs omit their parent hierarchy. Recover it only from
  * the model referenced by the same object, with matching ordered names.
  * Unnamed, unlinked slots can be filled without changing node indices.
@@ -289,7 +358,7 @@ static int mcc_animation_model_tree(struct mcc_validation_context *context,
     short links[64][3];
     char names[64][32];
     long i,j,root_child;
-    int found=0,parents_omitted=1,links_omitted=1,holes=0;
+    int found=0,parents_omitted=1,links_omitted=1,holes=0,partial=1,missing=0;
     if (!schema->name || schema->size!=64 || nodes->count<2 || nodes->count>64) return 0;
     for (j=0;j<nodes->count;j++) {
         byte const *node=(byte *)nodes->address+j*64;
@@ -309,7 +378,18 @@ static int mcc_animation_model_tree(struct mcc_validation_context *context,
             holes=1;
         }
     }
-    if (!parents_omitted && !links_omitted && !holes) return 0;
+    if (!parents_omitted && !links_omitted && !holes) {
+        byte referenced[64];
+        memset(referenced,0,sizeof(referenced));referenced[0]=1;
+        for (j=0;j<nodes->count;j++) {
+            byte const *node=(byte *)nodes->address+j*64;
+            long sibling=mcc_integer(node+32,2,0),child=mcc_integer(node+34,2,0);
+            if (j && sibling>0 && sibling<nodes->count) referenced[sibling]=1;
+            if (child>0 && child<nodes->count) referenced[child]=1;
+        }
+        for (j=1;j<nodes->count && referenced[j];j++) {}
+        if (j==nodes->count) return 0;
+    }
     if (mcc_integer((byte *)nodes->address+32,2,0)!=NONE) return 0;
     root_child=mcc_integer((byte *)nodes->address+34,2,0);
     for (i=0;i<header->count;i++) {
@@ -337,6 +417,21 @@ static int mcc_animation_model_tree(struct mcc_validation_context *context,
         found=1;
     }
     if (!found) return 0;
+    /* Bot Bootcamp's cyborg omits the neck's child; Arbiter's Demise's
+     * Ghost omits siblings and all parents. Recover only absent edges;
+     * every retained edge must match the associated model exactly. */
+    for (j=0;j<nodes->count;j++) {
+        byte const *node=(byte *)nodes->address+j*64;
+        long k;
+        for (k=0;k<3;k++) {
+            long link=mcc_integer(node+32+k*2,2,0);
+            if (k==2 && (!j || parents_omitted)) continue;
+            if (link==NONE && links[j][k]!=NONE) missing=1;
+            else if (link!=links[j][k]) partial=0;
+        }
+    }
+    partial=partial && missing && !holes;
+    if (!parents_omitted && !links_omitted && !holes && !partial) return 0;
     /* Exile's Flood Banshee retains the matching model's non-root links,
      * but puts the last sibling in the root's first-child slot. Admit that
      * exact convention as well as omitted links, never an arbitrary tree. */
@@ -360,7 +455,7 @@ static int mcc_animation_model_tree(struct mcc_validation_context *context,
                 cursor=mcc_integer((byte *)nodes->address+cursor*64+32,2,0);
             }
         }
-    } else if (root_child!=NONE) {
+    } else if (!partial && root_child!=NONE) {
         long child=links[0][1],last=NONE,steps=0;
         for (j=1;j<nodes->count;j++)
             if (memcmp((byte *)nodes->address+j*64+32,links[j],6)) return 0;
@@ -624,6 +719,9 @@ static void mcc_fields(struct mcc_validation_context *context, byte *address,
                         accepted = mcc_bitmaps_valid(mcc_validation.runtime, (struct bitmap_data *)address);
                     else if (!strcmp(field->name, "bitmap_group_check"))
                         accepted = mcc_bitmaps_group_valid(mcc_validation.runtime, address);
+                    else if (!strcmp(field->name, "collision_model_bsp_check"))
+                        accepted = mcc_collision_surface_edges(context,address,schema) &&
+                            field->check((struct tag_validation *)context,address);
                     else if (!strcmp(field->name, "animation_graph_check"))
                         accepted = mcc_animation_graph_check(context, address, schema);
                     else accepted = field->check((struct tag_validation *)context, address);
@@ -853,11 +951,11 @@ void mcc_validation_message(struct tag_validation *validation, boolean refuse, c
 boolean mcc_validation_file_contains(struct tag_validation *validation, long offset, long size)
 {
     struct mcc_runtime *runtime = mcc_validation.runtime;
-    (void)validation;
-    if (offset < 0 || size < 0 || !runtime) return FALSE;
+    struct mcc_validation_context *context=(struct mcc_validation_context *)validation;
+    if (!context || offset < 0 || size < 0 || !runtime) return FALSE;
     return ((unsigned long)offset <= runtime->source.size &&
         (unsigned long)size <= runtime->source.size - (unsigned long)offset) ||
-        mcc_audio_contains(runtime, (uint32_t)offset, (uint32_t)size) ||
+        mcc_audio_contains(runtime, context->handle, (uint32_t)offset, (uint32_t)size) ||
         mcc_bitmaps_contains(runtime, (uint32_t)offset, (uint32_t)size);
 }
 void *mcc_validation_root(struct tag_validation *validation)

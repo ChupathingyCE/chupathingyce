@@ -48,8 +48,8 @@ short mcc_geometry_part_palette(struct mcc_runtime *runtime, void const *vertex_
     unsigned char const **nodes);
 
 int mcc_audio_prepare(struct mcc_runtime *runtime);
-int mcc_audio_read(struct mcc_runtime *runtime, uint32_t offset, uint32_t bytes, void *out);
-int mcc_audio_contains(struct mcc_runtime *runtime, uint32_t offset, uint32_t bytes);
+int mcc_audio_read(struct mcc_runtime *runtime, long tag, uint32_t offset, uint32_t bytes, void *out);
+int mcc_audio_contains(struct mcc_runtime *runtime, long tag, uint32_t offset, uint32_t bytes);
 void mcc_audio_dispose(struct mcc_runtime *runtime);
 int mcc_bitmaps_prepare(struct mcc_runtime *runtime);
 int mcc_hud_bitmaps_prepare(struct mcc_runtime *runtime);

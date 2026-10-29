@@ -27,8 +27,9 @@
 void mcc_game_speed_reset(void) {}
 
 #define CHECK(x) do {if(!(x)){fprintf(stderr,"line %d: %s\n",__LINE__,#x);return 1;}}while(0)
-static int printed,requests,blocks,restarts,network_restarts,cinematic_skips,vehicle_spawns,possessions;
+static int printed,requests,blocks,restarts,network_restarts,cinematic_skips,vehicle_spawns,weapon_spawns,possessions;
 void cheat_all_vehicles(void) {vehicle_spawns++;}
+void cheat_all_weapons(void) {weapon_spawns++;}
 void main_skip_cinematic(void) {cinematic_skips++;}
 void main_reset_map(void) {restarts++;}
 boolean mcc_ui_restart_network_game(void) {network_restarts++;return TRUE;}
@@ -439,6 +440,13 @@ int main(int argc,char **argv) {
         call("sound_enable");CHECK(mcc_campaign_mix_gain(TRUE)==1 && mcc_campaign_mix_gain(FALSE)==.25f);
         args[0]=0;call("sound_enable");mcc_campaign_dispose();CHECK(mcc_campaign_mix_gain(TRUE)==1);
         loaded=FALSE;call("map_reset");CHECK(restarts==1);
+    } else if(!strcmp(argv[1],"weapons")) {
+        call("cheat_all_weapons");CHECK(weapon_spawns==1);
+        connection=_game_connection_network_client;call("cheat_all_weapons");CHECK(weapon_spawns==1);
+        connection=_game_connection_network_server;call("cheat_all_weapons");CHECK(weapon_spawns==2);
+        loaded=FALSE;call("cheat_all_weapons");CHECK(weapon_spawns==2);
+        loaded=TRUE;mcc_campaign_dispose();call("cheat_all_weapons");CHECK(weapon_spawns==2);
+        mcc_campaign_begin();call("cheat_all_weapons");CHECK(weapon_spawns==3);
     } else if(!strcmp(argv[1],"validation")) {
         mcc_campaign_snapshot(saved);CHECK(mcc_campaign_validate(saved,sizeof(saved)));
         CHECK(!mcc_campaign_validate(saved,sizeof(saved)-1));

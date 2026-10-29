@@ -111,3 +111,16 @@ def test_mcc_weapon_movement(native_mcc_harness):
 def test_mcc_scratch_globals_are_map_local(scripts_tool, counter):
     result = subprocess.run([str(scripts_tool), "scratch", counter], capture_output=True, text=True, timeout=10)
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("case", ["prediction_enable", "prediction_disable", "prediction_computed"])
+def test_breadcrumb_availability_override(scripts_tool, case):
+    result = subprocess.run([str(scripts_tool), case, "breadcrumbs_navpoints_enabled_override"],
+                            capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_mcc_sound_streams_and_cleanup(native_mcc_harness):
+    result = subprocess.run([str(native_mcc_harness("mcc_audio"))],
+                            capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stdout + result.stderr

@@ -545,6 +545,15 @@ static void mcc_spawn_vehicles_evaluate(short function, long thread, boolean ini
     hs_return(thread,0);
 }
 
+static void mcc_spawn_weapons_evaluate(short function, long thread, boolean initialize)
+{
+    (void)function;(void)initialize;
+    /* Use the loaded map's weapon list and existing host object replication. */
+    if (mcc_cache_tags_loaded() && mcc_campaign_owned &&
+        game_connection()!=_game_connection_network_client) cheat_all_weapons();
+    hs_return(thread,0);
+}
+
 static void mcc_object_type_predict_evaluate(short function, long thread, boolean initialize)
 {
     long *args=hs_macro_function_evaluate(function,thread,initialize);
@@ -667,7 +676,8 @@ static struct mcc_campaign_definition mcc_campaign_functions[]={
     {{_hs_type_boolean,0,"game_is_cooperative",hs_macro_function_parse,mcc_cooperative_evaluate,NULL,NULL,0,{0}},{0}},
     {{_hs_type_boolean,0,"unit_get_current_flashlight_state",hs_macro_function_parse,mcc_flashlight_evaluate,NULL,NULL,1,{_hs_type_unit}},{0}},
     {{_hs_type_void,0,"sound_set_music_gain",hs_macro_function_parse,mcc_music_gain_set_evaluate,NULL,NULL,1,{_hs_type_real}},{0}},
-    {{_hs_type_object_list,0,"players_on_multiplayer_team",hs_macro_function_parse,mcc_team_players_evaluate,NULL,NULL,1,{_hs_type_short_integer}},{0}}
+    {{_hs_type_object_list,0,"players_on_multiplayer_team",hs_macro_function_parse,mcc_team_players_evaluate,NULL,NULL,1,{_hs_type_short_integer}},{0}},
+    {{_hs_type_void,0,"cheat_all_weapons",hs_macro_function_parse,mcc_spawn_weapons_evaluate,NULL,NULL,0,{0}},{0}}
 };
 
 struct hs_function_definition *mcc_campaign_function(short index)

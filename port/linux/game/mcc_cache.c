@@ -433,7 +433,7 @@ boolean mcc_cache_read(long tag, long offset, long bytes, void *out)
     int result;
     if (!mcc_loaded || offset < 0 || bytes < 0 || !out) return FALSE;
     result = mcc_bitmaps_read(&mcc_loaded_cache, tag, (uint32_t)offset, (uint32_t)bytes, out);
-    if (result < 0) result = mcc_audio_read(&mcc_loaded_cache, (uint32_t)offset, (uint32_t)bytes, out);
+    if (result < 0) result = mcc_audio_read(&mcc_loaded_cache, tag, (uint32_t)offset, (uint32_t)bytes, out);
     if (result < 0) result = mcc_runtime_read(&mcc_loaded_cache, (uint32_t)offset, (uint32_t)bytes, out);
     if (!result) {
         memset(out, 0, (size_t)bytes);
