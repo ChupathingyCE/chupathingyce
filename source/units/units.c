@@ -2867,6 +2867,14 @@ static void unit_drop_grenades(
 	grenade_type_count = NUMBER_OF_UNIT_GRENADE_TYPES;
 	do
 	{
+		/* port: a grenade type the globals don't have (Stubbs the Zombie's
+		have none) is not dropped; Halo's globals have every one */
+		if ((long)(grenade_count_negative_base + (unsigned long)POINTER_BITS(grenade_count)) >=
+			scenario_get_game_globals()->grenades.count)
+		{
+			grenade_count++;
+			continue;
+		}
 		grenade = TAG_BLOCK_GET_ELEMENT(
 			&scenario_get_game_globals()->grenades,
 			grenade_count_negative_base + (unsigned long)POINTER_BITS(grenade_count),

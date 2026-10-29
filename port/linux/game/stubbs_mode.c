@@ -140,11 +140,21 @@ enum
 	HALO_ANIMATION_UNIT_SEAT_SIZE = 0x64,
 	STUBBS_ANIMATION_UNIT_SEAT_SIZE = 0x80,
 	/* its animations: Stubbs's are 0xBC bytes, Halo's 0xB4, Stubbs having
-	8 bytes of its own at 0x30 (zero in the maps looked at) */
+	8 bytes of padding after the key frames, at 0x38 (Sigmmma's reclaimer,
+	GPL-3.0, stubbs/defs/antr.py) */
 	ANIMATION_GRAPH_ANIMATIONS_OFFSET = 0x74,
 	HALO_ANIMATION_SIZE = 0xB4,
 	STUBBS_ANIMATION_SIZE = 0xBC,
-	STUBBS_ANIMATION_INSERT_OFFSET = 0x30,
+	STUBBS_ANIMATION_INSERT_OFFSET = 0x38,
+	/* a unit seat's weapons (0xBC, as Halo's): Halo's animations block (of
+	animation indices) is, in Stubbs, a block of 0x1C-byte sets, each with
+	such a block at 0x10 (reclaimer: animations_extended). The first set's
+	is taken as Halo's */
+	ANIMATION_UNIT_SEAT_WEAPONS_OFFSET = 0x58,
+	ANIMATION_UNIT_WEAPON_SIZE = 0xBC,
+	ANIMATION_UNIT_WEAPON_ANIMATIONS_OFFSET = 0x98,
+	STUBBS_ANIMATION_SET_SIZE = 0x1C,
+	STUBBS_ANIMATION_SET_ANIMATIONS_OFFSET = 0x10,
 	STUBBS_ANIMATION_INSERT_SIZE = 0x08,
 };
 
@@ -226,6 +236,32 @@ static long stubbs_animation_convert(unsigned char *base, unsigned long size, un
 	for (index = 0; index < count; index++)
 		memmove(seats + index * HALO_ANIMATION_UNIT_SEAT_SIZE, seats + index * STUBBS_ANIMATION_UNIT_SEAT_SIZE,
 			HALO_ANIMATION_UNIT_SEAT_SIZE);
+	for (index = 0; index < count; index++)
+	{
+		unsigned char *seat = seats + index * HALO_ANIMATION_UNIT_SEAT_SIZE;
+		unsigned long weapon_count, weapons_address, weapon_index;
+		unsigned char *weapons;
+
+		memcpy(&weapon_count, seat + ANIMATION_UNIT_SEAT_WEAPONS_OFFSET, 4);
+		memcpy(&weapons_address, seat + ANIMATION_UNIT_SEAT_WEAPONS_OFFSET + 4, 4);
+		weapons = weapon_count && weapon_count < 0x100 ?
+			stubbs_host(base, size, weapons_address, weapon_count * ANIMATION_UNIT_WEAPON_SIZE) : NULL;
+		for (weapon_index = 0; weapons && weapon_index < weapon_count; weapon_index++)
+		{
+			unsigned char *block = weapons + weapon_index * ANIMATION_UNIT_WEAPON_SIZE +
+				ANIMATION_UNIT_WEAPON_ANIMATIONS_OFFSET;
+			unsigned long set_count, sets_address;
+			unsigned char *first_set;
+
+			memcpy(&set_count, block, 4);
+			memcpy(&sets_address, block + 4, 4);
+			first_set = set_count ? stubbs_host(base, size, sets_address, STUBBS_ANIMATION_SET_SIZE) : NULL;
+			if (first_set)
+				memcpy(block, first_set + STUBBS_ANIMATION_SET_ANIMATIONS_OFFSET, 12);
+			else
+				memset(block, 0, 12);
+		}
+	}
 	return 1;
 }
 
