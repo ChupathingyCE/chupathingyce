@@ -903,6 +903,11 @@ static const struct config_setting config_settings[] =
 		"timed part of the render, so each part's time is what the chip spent\n"
 		"drawing it, not only the processor's share. Slows the game down; for\n"
 		"finding which part is slow on the chip. Read when the game starts." },
+	{ "console.widget_pool_log", _config_boolean, "false", NULL, _environment_value,
+		_platform_xbox | _platform_console_gl,
+		"For sizing the menus' memory: a line in debug.txt each time the\n"
+		"menus use a new high of their widget memory (by a KB or more), with\n"
+		"the pool's size. Read once the menus start." },
 	{ "console.join", _config_string, "\"\"", NULL, _environment_value, _platform_xbox,
 		"For testing joins without the game list: a host's LAN address\n"
 		"(\"192.168.1.20\"), which System Link joins directly, or an invite\n"
@@ -1896,29 +1901,29 @@ static const struct
 } config_old_defaults[] =
 {
 	/* upstream's, which ChupathingyCE kept until v0.5.2b */
-	{ "display.menus", "\"pc\"", 0, NULL },
+	{ "display.menus", "\"pc\"", 0, NULL, 0 },
 	/* the Xbox's menus, the default until v0.8.0 (a file that names them
 	keeps them) */
 	{ "display.menus", "\"xbox\"", 0,
-		"The Chupathingy menus" },
+		"The Chupathingy menus", 0 },
 	/* the Xbox's, until the per-platform defaults of v0.8.0 (a file that
 	names them keeps them) */
-	{ "display.anti_aliasing", "\"off\"", 0, "Smoother edges (2x multisampling)" },
-	{ "display.shadow_resolution", "128", 0, "Sharper shadows (256)" },
+	{ "display.anti_aliasing", "\"off\"", 0, "Smoother edges (2x multisampling)", 0 },
+	{ "display.shadow_resolution", "128", 0, "Sharper shadows (256)", 0 },
 	/* asking to join a copied invite, the default until v0.8.0c: a file
 	that names "ask" keeps it, one that left it commented out follows
 	"never" without a question */
-	{ "network.join_from_clipboard", "\"ask\"", 0, NULL },
+	{ "network.join_from_clipboard", "\"ask\"", 0, NULL, 0 },
 	/* the community site's first address, the default until stats.chupathingy.org
 	(the same server, so a file that holds it follows without a question) */
-	{ "network.browser_url", "\"https://halo.milenko.org\"", 1, NULL },
+	{ "network.browser_url", "\"https://halo.milenko.org\"", 1, NULL, 0 },
 #ifdef HALO_ANDROID
-	{ "audio.buffer_frames", "512", 0, "A larger audio buffer (1024)" },
+	{ "audio.buffer_frames", "512", 0, "A larger audio buffer (1024)", 0 },
 #endif
 #ifndef HALO_CONSOLE_NO_DISCORD
 	/* OpenCE's Discord application, which ChupathingyCE kept until v0.7.5c
 	(Discord showed "OpenCE" as being played) */
-	{ "discord.application_id", "\"1553978809840050229\"", 1, NULL },
+	{ "discord.application_id", "\"1553978809840050229\"", 1, NULL, 0 },
 #endif
 	/* a random port each run, until v0.8.1b gave hosting Halo's 2302 (a file
 	that names 0 keeps it; the consoles and the server keep 0) */
