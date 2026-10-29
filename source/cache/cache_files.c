@@ -1094,45 +1094,100 @@ char const *cache_files_multiplayer_region(
 	return cache_files_build_region(cache_file_globals.header.build);
 }
 
-/* whether the named map plays multiplayer with the others: FALSE only for
-a map whose header is of a build not listed above (a map whose header cannot
-be read is left to precaching, which tells of a missing map); build gets the
-map's build, empty if unread. The multiplayer menus check the loaded map's
-(ui.map's) build; this checks a multiplayer map's own, which may be of
-another build: the object and damage messages name definitions by tag
-index, which differs between builds */
-boolean cache_files_map_plays_multiplayer(
+/* the header of the named map's file, an Xbox-format map's (version 5), in
+header: FALSE when it has none to read, or it is not an Xbox-format map; build
+gets its build, empty if unread. *pack whether it is a pack's map
+(<file>@<pack>, in maps_<pack>) */
+static boolean cache_files_map_xbox_header(
 	char const *map_name,
-	char build[0x20])
+	struct cache_file_header *header,
+	char build[0x20],
+	boolean *pack)
 {
-	struct cache_file_header header;
 	char path[256];
 	HANDLE file;
-	boolean result = TRUE;
+	boolean result = FALSE;
 
 	build[0] = 0;
+	*pack = FALSE;
 	if (!map_name || !map_name[0])
-		return TRUE;
+		return FALSE;
+	*pack = map_family_parse(tag_name_strip_path(map_name), NULL, 0) == _map_family_pack;
 	/* port: (a pack's map, <file>@<pack>, in maps_<pack>) */
 	if (!map_family_xbox_path(tag_name_strip_path(map_name), path, sizeof(path)))
-		return TRUE;
+		return FALSE;
 	file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
 	if (file != INVALID_HANDLE_VALUE)
 	{
 		unsigned long bytes_read;
 
-		if (ReadFile(file, &header, sizeof(header), &bytes_read, NULL) &&
-			bytes_read == sizeof(header) &&
-			cache_file_header_verify(&header, path, FALSE))
+		if (ReadFile(file, header, sizeof(*header), &bytes_read, NULL) &&
+			bytes_read == sizeof(*header) &&
+			cache_file_header_verify(header, path, FALSE))
 		{
-			csstrncpy(build, header.build, 0x20);
+			csstrncpy(build, header->build, 0x20);
 			build[0x1F] = 0;
-			result = cache_files_build_region(header.build) != NULL;
+			result = header->version == 5;
 		}
 		CloseHandle(file);
 	}
 
 	return result;
+}
+
+/* whether the named map plays multiplayer with the others: FALSE only for
+a map other than a pack's whose header is of a build not listed above (a map
+whose header cannot be read is left to precaching, which tells of a missing
+map); build gets the map's build, empty if unread. The multiplayer menus check the loaded map's
+(ui.map's) build; this checks a multiplayer map's own, which may be of
+another build: the object and damage messages name definitions by tag
+index, which differs between builds.
+
+A pack's map (<file>@<pack>) plays whatever its build, if it is an Xbox-format
+map: what makes the tag indexes agree is that every machine has the same
+file, and every machine of ours checks that before it plays one (the host's
+fingerprint of it, cache_files_map_pack_present, and Delta Peer's MAP). Its
+tags are played as they are, as an NTSC map's are (only a listed PAL build's
+are put back to the NTSC maps', pal_tags.c): the same on every machine,
+since each has the same file. A machine that cannot say which file it has
+(OpenCE's) is kept out of a game on one of an unlisted build
+(cache_files_map_needs_delta) */
+boolean cache_files_map_plays_multiplayer(
+	char const *map_name,
+	char build[0x20])
+{
+	struct cache_file_header header;
+	boolean pack;
+
+	if (!cache_files_map_xbox_header(map_name, &header, build, &pack))
+		return TRUE;
+
+	return cache_files_build_region(header.build) != NULL || pack;
+}
+
+/* whether the named map is a pack's Xbox-format map of a build not listed
+above, which a host plays only with machines that check they have its file
+(Delta's: network_server_manager.c, network_game_server_delta_refusals). Kept
+for the last map asked, by its name */
+boolean cache_files_map_needs_delta(
+	char const *map_name)
+{
+	static char last_name[64];
+	static boolean last_result;
+	struct cache_file_header header;
+	char build[0x20];
+	boolean pack;
+
+	if (!map_name || !map_name[0] || map_family_parse(tag_name_strip_path(map_name), NULL, 0) != _map_family_pack)
+		return FALSE;
+	if (last_name[0] && !csstrncmp(last_name, map_name, sizeof(last_name)))
+		return last_result;
+	last_result = cache_files_map_xbox_header(map_name, &header, build, &pack) && pack &&
+		!cache_files_build_region(header.build);
+	csstrncpy(last_name, map_name, sizeof(last_name));
+	last_name[sizeof(last_name) - 1] = 0;
+
+	return last_result;
 }
 
 /* tells the player that maps of a build (a cache file header's) do not play
@@ -1151,7 +1206,7 @@ void cache_files_show_multiplayer_unavailable(
 		snprintf(
 			message,
 			sizeof(message),
-			"The map %s (build %s) isn't supported for multiplayer yet.\n\nAsk in the Discord to get it added.",
+			"The map %s (build %s) isn't supported for multiplayer.\n\nUse the released version of it, or ask in the Chupathingy Discord to get this build added.",
 			tag_name_strip_path(map_name),
 			build);
 	}
@@ -1161,7 +1216,7 @@ void cache_files_show_multiplayer_unavailable(
 		snprintf(
 			message,
 			sizeof(message),
-			"Your maps (build %s) aren't supported for multiplayer yet.\n\nAsk in the Discord to get them added.",
+			"Your maps (build %s) aren't supported for multiplayer yet.\n\nAsk in the Chupathingy Discord to get them added.",
 			build);
 	}
 	platform_show_message("Halo: multiplayer unavailable", message);

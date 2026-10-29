@@ -215,6 +215,12 @@ the same version of the pack's map: one without it is told which pack and
 folder it needs ("This game uses Halo CE+'s Abyss (bloodgulch.map in
 maps_cex)"). OpenCE and older Chupathingy builds can't join these games.
 
+Some packs' maps were built by another build of the Xbox's tools than the
+retail maps (Halo 1: NHE's say 01.10.12.2300). They play online all the same,
+since every player must have the same file. A game on one is played only
+between Chupathingy players: an OpenCE player who joins is let go, and the
+others are told why.
+
 The pack's own `ui.map` isn't used: the game's menus stay the game's. To play
 with the pack's own menus instead, set `game.pack_menus = "cex"` in
 `config.toml` and restart. A pack folder needs a name of 1 to 8 letters and
