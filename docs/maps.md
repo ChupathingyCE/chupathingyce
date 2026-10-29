@@ -9,8 +9,24 @@ The first-start screen takes your Xbox disc image. It also accepts your Halo PC 
 which fills `maps_ce` (not on Android yet, where **Import maps** takes
 loose `.map` files or a `.zip` of them). Or choose **Make the folders** to get empty `maps`,
 `maps_ce`, `maps_pc` and `maps_md` folders and copy the files in yourself.
+If you already have a maps folder somewhere else, choose **I already have a maps folder** and pick it.
 
 The folders it makes, and what goes in each, are below.
+
+## The setup screen
+
+On Windows, Mac and Linux the first-start screen is part of a setup screen that runs before the game.
+It opens by itself when your Xbox maps are missing. To open it any other time, hold **Shift** (or **Back**/**View**
+on a controller) while the game starts, or start the game with `--setup`.
+
+**Maps** lists every kind of map you have, with its state: Ready, how many maps, or what's missing. Pick one to open
+its folder, check its maps, or add maps from a disc image or installer. You can also drop a disc image on the window.
+
+**Logs & help** opens your logs folder, copies your version, and sends your logs to dump.chupathingy.org. It asks
+each time whether to send your `config.toml` too. Addresses are taken out first. You get a short code to paste in
+Discord with your report.
+
+`launcher.show_at_start = "always"` in `config.toml` opens it every time. `launcher.hold_to_open = false` turns the held key off.
 
 ## Halo PC maps
 

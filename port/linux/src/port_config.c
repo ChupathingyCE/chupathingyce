@@ -949,6 +949,15 @@ static const struct config_setting config_settings[] =
 	{ "crash_reports.upload", _config_string, "\"ask\"", "HALO_CRASH_REPORTS", _environment_value, _platform_desktop,
 		"Send crash reports to the developers: \"ask\", \"yes\" or \"no\"." },
 
+	{ "launcher.show_at_start", _config_string, "\"when_needed\"", "HALO_LAUNCHER_SHOW", _environment_value,
+		_platform_desktop,
+		"The setup screen before the game: \"when_needed\" (the first start, maps\n"
+		"missing, --setup, or Shift or a controller's Back held at start) or\n"
+		"\"always\"." },
+	{ "launcher.hold_to_open", _config_boolean, "true", "HALO_LAUNCHER_HOLD", _environment_value, _platform_desktop,
+		"true: holding Shift or a controller's Back (View) while the game starts\n"
+		"opens the setup screen." },
+
 	{ "debug.network_test", _config_string, "\"\"", "HALO_NETWORK_TEST", _environment_value, _platform_all,
 		"Automated system link tests: \"host:<map>\" or \"join\"; empty for none." },
 	{ "debug.network_test_start", _config_real, "15.0", "HALO_NETWORK_TEST_START", _environment_value, _platform_all,
@@ -1048,6 +1057,11 @@ static const struct config_setting config_settings[] =
 	{ "debug.network_corrupt_after", _config_real, "0.0", "HALO_NETWORK_CORRUPT_AFTER", _environment_value,
 		_platform_all,
 		"Seconds after the start before anything is damaged." },
+	{ "debug.launcher_test", _config_string, "\"\"", "HALO_LAUNCHER_TEST", _environment_value, _platform_desktop,
+		"Scripted input for the setup screen, for tests: steps such as\n"
+		"\"down,a,shot:maps,quit\" (launcher.c); empty for none." },
+	{ "debug.dump_url", _config_string, "\"\"", "HALO_DUMP_URL", _environment_value, _platform_desktop,
+		"Where Send my logs sends them, for tests; empty for the log dump site." },
 	{ "debug.test_input", _config_string, "\"\"", "HALO_TEST_INPUT", _environment_value, _platform_all,
 		"Scripted input on controller 1: \"bot:<seed>\" or \"look:<seed>\"; empty\n"
 		"for none." },
@@ -2697,6 +2711,7 @@ static const struct
 	{ "network.coop_friendly_fire", { "off", "on", "shields_only", "explosives_only", NULL }, NULL },
 	{ "network.coop_enemies_mode", { "none", "per_player", "multiplier", NULL }, "\"none\"" },
 	{ "crash_reports.upload", { "ask", "yes", "no", NULL }, "\"ask\"" },
+	{ "launcher.show_at_start", { "when_needed", "always", NULL }, "\"when_needed\"" },
 };
 
 #define NUMBER_OF_CONFIG_WORDS (sizeof(config_words) / sizeof(config_words[0]))

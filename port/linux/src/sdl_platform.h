@@ -65,6 +65,34 @@ struct platform_keystroke
 	BYTE flags;
 };
 
+/* the device the player used last, for the button prompts (xinput_sdl.c):
+a gamepad (an SDL_Gamepad), or NULL for the keyboard and mouse. The
+launcher's own input (launcher.c), which the controller emulation never
+sees */
+void platform_input_scheme_used(void *gamepad);
+
+/* whether the game runs without anyone to answer a question (a test run, a
+null renderer, the Steam Deck's Game Mode): no launcher, no message boxes */
+BOOL platform_run_is_quiet(void);
+
+/* the maps out of a file the player picked (the first start, the
+launcher's Add maps), on a thread of their own: the kind of file it is
+(an Xbox disc image, a Halo PC CD image, Custom Edition's installer), by
+what it holds; the copy started into destination (its maps/, or maps_pc/,
+maps_ce/); then, polled, how far it has got, and TRUE once it is done, with
+whether it worked (and why not in error) */
+enum
+{
+	PLATFORM_IMPORT_UNKNOWN,
+	PLATFORM_IMPORT_XBOX_DISC,
+	PLATFORM_IMPORT_HALO_PC_DISC,
+	PLATFORM_IMPORT_CE_INSTALLER,
+};
+int platform_import_kind(const char *path);
+BOOL platform_import_start(int kind, const char *image, const char *destination, char *error, int error_size);
+BOOL platform_import_poll(char *file, int file_size, unsigned long long *done, unsigned long long *total,
+	BOOL *succeeded, char *error, int error_size);
+
 BOOL platform_sdl_initialize(void);
 /* creates the window and makes its OpenGL context current on this thread */
 BOOL platform_video_initialize(unsigned long width, unsigned long height);

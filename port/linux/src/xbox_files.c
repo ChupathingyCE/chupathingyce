@@ -154,15 +154,17 @@ const char *platform_data_root(void)
 				AppImage's or a packaged install's in the save root's
 				place: port_config.c, packaged_install.h) */
 				char app_folder[MAX_PATH];
+				char offered[MAX_PATH];
 				const char *destination = platform_app_folder(app_folder, sizeof(app_folder))
 					? app_folder : executable_directory;
 
+				snprintf(offered, sizeof(offered), "%s", destination);
 				if (!has_maps(root) && destination[0] && has_maps(destination))
 					snprintf(root, sizeof(root), "%s", destination);
-				else if (!has_maps(root) && destination[0] && platform_offer_game_data(destination) &&
-					has_maps(destination))
+				else if (!has_maps(root) && destination[0] && platform_offer_game_data(offered, sizeof(offered)) &&
+					has_maps(offered))
 				{
-					snprintf(root, sizeof(root), "%s", destination);
+					snprintf(root, sizeof(root), "%s", offered);
 				}
 				/* (with no maps anywhere, the log still goes where it can
 				be written) */

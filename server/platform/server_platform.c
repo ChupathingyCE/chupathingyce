@@ -200,9 +200,10 @@ BOOL platform_sdl_initialize(void)
 }
 
 /* no disc image to offer: a server is given its maps */
-BOOL platform_offer_game_data(const char *destination)
+BOOL platform_offer_game_data(char *destination, unsigned long size)
 {
 	(void)destination;
+	(void)size;
 	return FALSE;
 }
 
