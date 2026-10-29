@@ -53,7 +53,8 @@ FFmpeg's build with them.
 ### The released build
 
 Unzip `chupathingyce-freebsd64-release.zip` and add the maps next to `halo`.
-It uses the system's SDL3: `pkg install sdl3`.
+It is built on FreeBSD 15.1 and needs FreeBSD 15 or later (amd64), and the
+system's SDL3: `pkg install sdl3`. On FreeBSD 14, build it yourself (below).
 
 ### Start the game
 
