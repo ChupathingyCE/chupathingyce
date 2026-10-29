@@ -16,6 +16,9 @@ nothing yet (each says so once in debug.txt) and return none, 0 or false.
 #include "cseries/cseries_windows.h"
 #include "errors.h"
 #include "hs/hs.h"
+#include "hs/object_lists.h"
+#include "objects/damage.h"
+#include "objects/objects.h"
 #include "stubbs_mode.h"
 
 #include <string.h>
@@ -147,6 +150,61 @@ static short stubbs_halo_function_find(
 	return NONE;
 }
 
+/* ---------- the ones made real here
+
+Each takes its arguments as the calls in Stubbs's maps pass them, and does
+what its name and its uses there say (Sigmmma's reclaimer has no script
+docs): */
+
+static long stubbs_objects_each(long object_list, void (*each)(long object_index))
+{
+	long reference, object_index;
+
+	for (object_index = object_list_get_first(object_list, &reference); object_index != NONE;
+		object_index = object_list_get_next(object_list, &reference))
+	{
+		each(object_index);
+	}
+	return 0;
+}
+
+/* returns TRUE once it has returned the call's value */
+static boolean stubbs_function_native(
+	char const *name,
+	short function_index,
+	long thread_index,
+	boolean initialize)
+{
+	long *arguments;
+	long value = 0;
+
+	if (_stricmp(name, "objects_cannot_take_damage") && _stricmp(name, "objects_cannot_die") &&
+		_stricmp(name, "objects_destroy") && _stricmp(name, "modulo"))
+	{
+		return FALSE;
+	}
+	arguments = hs_macro_function_evaluate(function_index, thread_index, initialize);
+	if (!arguments)
+		return TRUE;
+	/* (objects_cannot_take_damage <objects> <boolean>, and objects_cannot_die
+	the same: Halo has no "cannot die" apart from it) */
+	if (!_stricmp(name, "objects_cannot_take_damage") || !_stricmp(name, "objects_cannot_die"))
+	{
+		if (arguments[1] & 0xFF)
+			object_cannot_take_damage(arguments[0]);
+		else
+			object_can_take_damage(arguments[0]);
+	}
+	/* (objects_destroy <objects>) */
+	else if (!_stricmp(name, "objects_destroy"))
+		stubbs_objects_each(arguments[0], object_delete);
+	/* (modulo <long> <long>) */
+	else if (!_stricmp(name, "modulo"))
+		value = arguments[1] ? arguments[0] % arguments[1] : 0;
+	hs_return(thread_index, value);
+	return TRUE;
+}
+
 static boolean stubbs_functions_ready;
 
 static void stubbs_functions_prepare(
@@ -223,6 +281,8 @@ static void stubbs_function_evaluate(
 			return;
 		}
 	}
+	if (stubbs_function_native(function->definition.name, function_index, thread_index, initialize))
+		return;
 	if (!function->logged)
 	{
 		function->logged = TRUE;

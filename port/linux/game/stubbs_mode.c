@@ -79,7 +79,8 @@ the unit part are Halo's, and the unit part has fields of Stubbs's own
 among Halo's. Each is rewritten in place, in Halo's layout (it is longer,
 so it fits): Halo's fields copied from where Stubbs has them, as far as
 they are known, the rest zero. Not known yet, and left empty: the unit's
-HUDs, dialogue, powered seats, initial weapons and seats */
+powered seats, initial weapons and seats (Stubbs's blocks after the
+grenades do not match Halo's) */
 
 enum
 {
@@ -97,16 +98,22 @@ static struct
 	unsigned long size;
 } const stubbs_unit_fields[] =
 {
-	/* flags, default team, constant sound, child damage fraction */
-	{ 0x17C, 0x17C, 0x0C },
-	/* integrated light toggle effect to the camera's tracks (Stubbs has 0x20
-	bytes of its own before it) */
+	/* flags; Stubbs has 32 bytes of its own after them (a string: Sigmmma's
+	reclaimer, GPL-3.0, stubbs/defs/unit.py) */
+	{ 0x17C, 0x17C, 0x04 },
+	/* default team, constant sound, child damage fraction */
+	{ 0x180, 0x1A0, 0x08 },
+	/* integrated light toggle effect to the camera's tracks */
 	{ 0x188, 0x1A8, 0x78 },
-	/* acceleration scale to feign death repeat chance: 0x44 bytes of
-	Stubbs's are among these, where is not known yet; taken from the end */
+	/* acceleration scale to feign death repeat chance (Stubbs has 0x44
+	bytes of its own after the camera's tracks) */
 	{ 0x200, 0x264, 0x4C },
 	/* spawned actor variant to the melee damage and blip type */
 	{ 0x24C, 0x2B0, 0x5C },
+	/* HUDs and dialogue variants */
+	{ 0x2A8, 0x30C, 0x18 },
+	/* grenade velocity, type and count */
+	{ 0x2C0, 0x324, 0x08 },
 };
 
 static unsigned char *stubbs_host(unsigned char *base, unsigned long size, unsigned long address,
