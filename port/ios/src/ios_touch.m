@@ -213,28 +213,28 @@ initWithUpdateHandler:, its update's hinge and the hinge's angle, in
 radians), declared here so that the SDK need not have them: each is
 looked up before it is called */
 
-@protocol HaloRegionView
+@protocol HaloRegionView <NSObject>
 - (NSArray *)reservedRegionsOfKind:(id)kind;
 @end
 
-@protocol HaloRegionKind
+@protocol HaloRegionKind <NSObject>
 + (id)divisionRegionKind;
 @end
 
-@protocol HaloRegion
+@protocol HaloRegion <NSObject>
 - (CGRect)frame;
 - (BOOL)isActive;
 @end
 
-@protocol HaloHingeInteraction
+@protocol HaloHingeInteraction <NSObject>
 - (id)initWithUpdateHandler:(void (^)(id interaction, id update))handler;
 @end
 
-@protocol HaloHingeUpdate
+@protocol HaloHingeUpdate <NSObject>
 - (id)hinge;
 @end
 
-@protocol HaloHinge
+@protocol HaloHinge <NSObject>
 - (CGFloat)angle;
 @end
 
