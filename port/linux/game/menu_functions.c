@@ -2358,6 +2358,17 @@ static boolean control_capture_begin(struct widget_instance *widget)
 
 	if (control == NONE)
 		return FALSE;
+#ifndef HALO_XBOX_CONSOLE
+	/* (a click on a row's binding sets that one: the second's column starts
+	at 410 of the menus' 640, its row's 356 in the list's at 54) */
+	{
+		extern short ui_widget_port_item_click_x(void);
+		short click_x = ui_widget_port_item_click_x();
+
+		if (click_x != NONE && click_x >= 254)
+			controls_screen.slot = click_x >= 408;
+	}
+#endif
 	controls_screen.capturing_control = control;
 	controls_screen.capturing_slot = controls_screen.slot;
 	platform_binding_capture_begin();
@@ -2403,6 +2414,11 @@ static void control_capture_poll(void)
 	{
 		controls_screen.bindings[control][slot][0] = 0;
 	}
+	else
+		return;
+	/* (written at once, as the controller's buttons are: B, which leaves the
+	screen, keeps the keys set, and the game uses them now) */
+	controls_save();
 }
 
 /* "controls update menu": the group's rows, their bindings (the one left
@@ -2919,8 +2935,8 @@ static void controls_page_update(struct widget_instance *list)
 	else if (control_row(focused) || controls_screen.capturing_control != NONE)
 	{
 		line = controls_screen.capturing_control != NONE ?
-			"Press a key or mouse button. Escape cancels,\nDelete clears." :
-			"%a-button changes a key. Left and right choose which.";
+			"Press a key or mouse button. Esc cancels, Del clears." :
+			"%a-button changes a key. Left and right pick which.";
 	}
 #ifndef HALO_CONSOLE_NO_CONTROLS
 	else if (focused == named(list, "op_layout", 0) &&
@@ -2961,6 +2977,8 @@ static boolean controls_page_defaults(struct widget_instance *widget)
 	if (spinner_shown(list, "device_spinner") == _controls_device_keyboard_mouse)
 	{
 		controls_load(TRUE);
+		/* (the keys written at once, as each key set is) */
+		controls_save();
 		settings_each_in_view(list, "mouse", setting_default_show);
 		return TRUE;
 	}

@@ -7391,6 +7391,24 @@ static void ui_debug_log_targets(
 	return;
 }
 
+/* port: where in the menus' 640 columns the last click that pressed a
+row's A was, and in which frame (ui_widget_port_item_click_x) */
+static short ui_mouse_item_click_x;
+static long ui_mouse_item_click_frame = -16;
+
+/* port: the column of the click whose A a row's handler runs now (the
+Controls Setup key rows' two bindings: menu_functions.c), else NONE; the
+press is posted the frame the click is taken and handled at most a frame or
+two after, and a press of A from anything else is not a click's */
+short ui_widget_port_item_click_x(
+	void)
+{
+	short x = ui_debug_frame - ui_mouse_item_click_frame <= 2 ? ui_mouse_item_click_x : NONE;
+
+	ui_mouse_item_click_frame = -16;
+	return x;
+}
+
 /* port: a press the menus post from their updates (menu_functions.c: the
 server browser's join, once its game is reached), posted where the mouse's
 are: one posted while the widgets update or draw would be overwritten by the
@@ -7632,6 +7650,8 @@ static void ui_widgets_process_mouse(
 					}
 					ui_mouse_give_focus(target->widget);
 					ui_mouse_press(_gamepad_analog_button_a);
+					ui_mouse_item_click_x = ui_mouse_click_x;
+					ui_mouse_item_click_frame = ui_debug_frame;
 					break;
 				case _ui_mouse_target_value:
 				{
