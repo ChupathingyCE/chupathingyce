@@ -181,6 +181,16 @@ enum delta_platform
 	_delta_platform_xbox_uwp = 12,
 	/* a PC build for FreeBSD (port/unix) */
 	_delta_platform_pc_freebsd = 13,
+	/* the PlayStation 3 (Mayo's port, warthog-ps3), and community ports to
+	the PlayStation 4 and 5 */
+	_delta_platform_ps3 = 14,
+	_delta_platform_ps4 = 15,
+	_delta_platform_ps5 = 16,
+	/* the Nintendo 64 (JackT's port) */
+	_delta_platform_n64 = 17,
+	/* old PCs: DOS and Windows 9x, with a software renderer (JackT's Legacy
+	PC port) */
+	_delta_platform_pc_legacy = 18,
 
 	NUMBER_OF_DELTA_PLATFORMS
 };
@@ -227,7 +237,8 @@ a game it joins (unless its player opted in: network.platform_limits =
 and whether it plays network co-op (a host offers no co-op while a machine
 that does not is in its game: delta_peer_room_coop). One row a platform, in
 the registry's order. The consoles' rows are placeholders until their ports
-play (the original Xbox's is the owner's: 16 and 16, no co-op); the signed
+play (the original Xbox's is the owner's: 16 and 16, no co-op), as are the
+other ports' (docs/delta.md, "Platform numbers"); the signed
 legacy table's "platform_policy" section is to tune them without a release
 (delta_peer_platform_policy, delta_peer_game.c). */
 #define DELTA_PLATFORM_POLICY(X) \
@@ -244,7 +255,12 @@ legacy table's "platform_policy" section is to tune them without a release
 	X(_delta_platform_psp, 16, 16, 128, 6, 0) \
 	X(_delta_platform_vita, 16, 16, 128, 9, 0) \
 	X(_delta_platform_xbox_uwp, 128, 128, 128, 12, 1) \
-	X(_delta_platform_pc_freebsd, 128, 128, 128, 12, 1)
+	X(_delta_platform_pc_freebsd, 128, 128, 128, 12, 1) \
+	X(_delta_platform_ps3, 16, 16, 128, 8, 0) \
+	X(_delta_platform_ps4, 16, 16, 128, 12, 1) \
+	X(_delta_platform_ps5, 16, 16, 128, 13, 1) \
+	X(_delta_platform_n64, 0, 8, 16, 3, 0) \
+	X(_delta_platform_pc_legacy, 16, 16, 128, 7, 0)
 
 /* ---------- the legacy number */
 

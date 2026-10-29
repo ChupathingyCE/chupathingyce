@@ -51,14 +51,17 @@ static void say(struct delta_peer *peer, const char *format, ...)
 	peer->env.log_line(peer->env.context, text);
 }
 
+/* (delta.h's registry, in its order) */
+static const char *const platform_names[] = {
+	"unknown", "pc_windows", "pc_macos", "pc_linux", "android", "steam_deck", "xbox", "xbox360", "wiiu",
+	"switch", "psp", "vita", "xbox_uwp", "pc_freebsd", "ps3", "ps4", "ps5", "n64", "pc_legacy"
+};
+typedef char platform_names_check[sizeof(platform_names) / sizeof(platform_names[0]) == NUMBER_OF_DELTA_PLATFORMS ?
+	1 : -1];
+
 static const char *platform_name(int platform)
 {
-	static const char *const names[NUMBER_OF_DELTA_PLATFORMS] = {
-		"unknown", "pc_windows", "pc_macos", "pc_linux", "android", "steam_deck", "xbox", "xbox360", "wiiu",
-		"switch", "psp", "vita", "xbox_uwp", "pc_freebsd"
-	};
-
-	return platform >= 0 && platform < NUMBER_OF_DELTA_PLATFORMS ? names[platform] : "unknown";
+	return platform >= 0 && platform < NUMBER_OF_DELTA_PLATFORMS ? platform_names[platform] : "unknown";
 }
 
 static void peer_send(struct delta_peer *peer, delta_u32 ipv4, unsigned short port, const unsigned char *data, int size)

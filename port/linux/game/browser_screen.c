@@ -1952,22 +1952,24 @@ static char const *machines_text(
 	char *text,
 	long size)
 {
-	/* (the registry's numbers grouped as players say them; the last, those
-	without Delta) */
-	static struct { char const *name; unsigned char first, last; } const groups[] = {
-		{ "PC", 1, 3 }, { "Steam Deck", 5, 5 }, { "Android", 4, 4 }, { "Xbox", 6, 6 }, { "Xbox 360", 7, 7 },
-		{ "Wii U", 8, 8 }, { "Switch", 9, 9 }, { "PSP", 10, 10 }, { "Vita", 11, 11 }, { "Xbox Series", 12, 12 },
-		{ "other", 0, 0 }, { "OpenCE", BROWSER_MACHINE_KINDS - 1, BROWSER_MACHINE_KINDS - 1 },
+	/* (the registry's numbers grouped as players say them, each group's
+	numbers ending with -1; the last, those without Delta) */
+	static struct { char const *name; signed char kinds[6]; } const groups[] = {
+		{ "PC", { 1, 2, 3, 13, 18, -1 } }, { "Steam Deck", { 5, -1 } }, { "Android", { 4, -1 } },
+		{ "Xbox", { 6, -1 } }, { "Xbox 360", { 7, -1 } }, { "Wii U", { 8, -1 } }, { "Switch", { 9, -1 } },
+		{ "PSP", { 10, -1 } }, { "Vita", { 11, -1 } }, { "Xbox Series", { 12, -1 } }, { "PS3", { 14, -1 } },
+		{ "PS4", { 15, -1 } }, { "PS5", { 16, -1 } }, { "N64", { 17, -1 } }, { "other", { 0, -1 } },
+		{ "OpenCE", { BROWSER_MACHINE_KINDS - 1, -1 } },
 	};
 	long used = 0, group;
 
 	text[0] = 0;
 	for (group = 0; group < (long)NUMBEROF(groups) && used < size - 24; group++)
 	{
-		int count = 0, kind;
+		int count = 0, index;
 
-		for (kind = groups[group].first; kind <= groups[group].last; kind++)
-			count += game->machines[kind];
+		for (index = 0; groups[group].kinds[index] >= 0; index++)
+			count += game->machines[groups[group].kinds[index]];
 		if (count)
 			used += snprintf(text + used, (size_t)(size - used), "%s%d %s", used ? ", " : "", count, groups[group].name);
 	}

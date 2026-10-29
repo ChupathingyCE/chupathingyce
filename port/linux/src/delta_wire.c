@@ -137,6 +137,12 @@ void delta_wire_write_key(unsigned char *data, const struct delta_platform_key *
 	data[7] = 0;
 }
 
+/* (one policy row a platform of the registry: none missed) */
+#define DELTA_POLICY_COUNT(row_platform, host, join, join_opt_in, memory, coop) +1
+typedef char delta_platform_policy_check[(0 DELTA_PLATFORM_POLICY(DELTA_POLICY_COUNT)) == NUMBER_OF_DELTA_PLATFORMS ?
+	1 : -1];
+#undef DELTA_POLICY_COUNT
+
 void delta_platform_policy_default(int platform, struct delta_platform_key *key)
 {
 #define DELTA_POLICY_ROW(row_platform, host, join, join_opt_in, memory, coop) \
