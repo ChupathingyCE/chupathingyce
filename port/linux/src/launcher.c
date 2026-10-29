@@ -67,6 +67,7 @@ enum
 	MAXIMUM_MAP_ENTRIES = 512,
 	MAXIMUM_TARGETS = 48,
 	MAXIMUM_DIALOG_ROWS = 4,
+	MAXIMUM_MODES = 8,
 	PATH_SIZE = 1024,
 };
 
@@ -124,6 +125,8 @@ enum
 {
 	_action_none,
 	_action_play,
+	_action_play_mode,
+	_action_start_mode,
 	_action_family,
 	_action_move_old_folders,
 	_action_add_file,
@@ -142,6 +145,8 @@ enum
 	/* the dialogs' */
 	_action_send_with_settings,
 	_action_send_without_settings,
+	_action_ask_each_time,
+	_action_always_play,
 	_action_close_dialog,
 };
 
@@ -191,10 +196,26 @@ struct row
 	unsigned int value_color;
 	char help[200];
 	int disabled;
+	/* drawn dimmed, still picked (a mode not installed) */
+	int dim;
 	/* left and right change its value */
 	int cycles;
 	/* a gap above it */
 	int gap;
+};
+
+/* a way to play: the game as it is (vanilla), or a pack with its own menus
+(game.pack_menus: Halo CE+'s maps_cex/ui.map) */
+struct mode
+{
+	/* "vanilla", or the pack's id ("cex") */
+	char id[16];
+	/* its name on its row ("HALO CE+"), and in a sentence ("Halo CE+") */
+	char name[48];
+	char title[48];
+	char tag[8];
+	char folder[64];
+	int installed;
 };
 
 struct map_entry
@@ -245,6 +266,7 @@ enum
 	_dialog_send_ask,
 	_dialog_sending,
 	_dialog_sent,
+	_dialog_mode_question,
 };
 
 /* the file chooser's answer (SDL's dialogs answer through a callback, on
@@ -298,6 +320,12 @@ static struct
 	int family_count;
 	int old_folders;
 
+	struct mode modes[MAXIMUM_MODES];
+	int mode_count;
+	int installed_modes;
+	/* the mode PLAY starts (the last one picked, else the default) */
+	int mode;
+
 	struct map_entry map_entries[MAXIMUM_MAP_ENTRIES];
 	int map_entry_count;
 
@@ -350,6 +378,8 @@ static struct
 	Uint64 script_next;
 	char screenshot[128];
 } launcher;
+
+static void modes_find(void);
 
 /* ---------- small helpers */
 
@@ -785,6 +815,7 @@ static void scan(void)
 		family_scan(&launcher.families[index], 0);
 	/* (the older folders: never while the data root is still being found) */
 	launcher.old_folders = launcher.welcome ? 0 : platform_old_map_folders(NULL, 0);
+	modes_find();
 }
 
 static int xbox_maps_ready(void)
@@ -870,6 +901,149 @@ static void family_check_text(const struct family *family, char *text, size_t si
 		snprintf(text, size, "%d good", family->good);
 }
 
+/* ---------- the ways to play
+
+Read without opening any map but the menus' (this runs at every start):
+vanilla, then each pack folder (maps_<pack>) with its own ui.map, then the
+packs the library knows that aren't here. */
+
+static struct mode *mode_add(const char *id, const char *name, const char *tag, const char *folder, int installed)
+{
+	struct mode *mode;
+	int index;
+
+	for (index = 0; index < launcher.mode_count; index++)
+	{
+		if (!SDL_strcasecmp(launcher.modes[index].id, id))
+			return NULL;
+	}
+	if (launcher.mode_count >= MAXIMUM_MODES)
+		return NULL;
+	mode = &launcher.modes[launcher.mode_count++];
+	memset(mode, 0, sizeof(*mode));
+	snprintf(mode->id, sizeof(mode->id), "%s", id);
+	snprintf(mode->name, sizeof(mode->name), "%s", name);
+	upper(mode->name);
+	snprintf(mode->title, sizeof(mode->title), "%s", name);
+	snprintf(mode->tag, sizeof(mode->tag), "%s", tag);
+	snprintf(mode->folder, sizeof(mode->folder), "%s", folder);
+	mode->installed = installed;
+	if (installed)
+		launcher.installed_modes++;
+	return mode;
+}
+
+static void modes_find(void)
+{
+	void *directory;
+	char name[256], on_disk[256];
+	size_t index;
+
+	launcher.mode_count = launcher.installed_modes = 0;
+	mode_add("vanilla", "Vanilla Halo", "XBX", "maps", 1);
+	directory = posix_directory_open(launcher.root);
+	while (directory && posix_directory_next(directory, name, sizeof(name)))
+	{
+		char path[PATH_SIZE + 256], id[16];
+		const char *suffix = name + 5;
+		const struct xbox_mod_pack *pack;
+		size_t character, length = strlen(suffix);
+		int valid = length >= 1 && length <= 8;
+
+		if (SDL_strncasecmp(name, "maps_", 5))
+			continue;
+		for (character = 0; valid && character < length; character++)
+			valid = isalnum((unsigned char)suffix[character]) || suffix[character] == '+';
+		if (!valid || !SDL_strcasecmp(suffix, "ce") || !SDL_strcasecmp(suffix, "pc") || !SDL_strcasecmp(suffix, "md"))
+			continue;
+		snprintf(path, sizeof(path), "%s/%s", launcher.root, name);
+		if (!posix_find_entry_case_insensitive(path, "ui.map", on_disk, sizeof(on_disk)))
+			continue;
+		pack = known_pack(suffix);
+		if (pack)
+			mode_add(pack->id, pack->name, pack->tag, name, 1);
+		else
+		{
+			char tag[8];
+
+			snprintf(id, sizeof(id), "%s", suffix);
+			for (character = 0; id[character]; character++)
+				id[character] = (char)tolower((unsigned char)id[character]);
+			snprintf(tag, sizeof(tag), "%.4s", suffix);
+			upper(tag);
+			mode_add(id, suffix, tag, name, 1);
+		}
+	}
+	if (directory)
+		posix_directory_close(directory);
+	for (index = 0; index < sizeof(xbox_mod_packs) / sizeof(*xbox_mod_packs); index++)
+	{
+		char folder[64];
+
+		snprintf(folder, sizeof(folder), "maps_%s", xbox_mod_packs[index].id);
+		mode_add(xbox_mod_packs[index].id, xbox_mod_packs[index].name, xbox_mod_packs[index].tag, folder, 0);
+	}
+}
+
+/* a mode by its id (or a pack's folder name or alias); -1 for none */
+static int mode_find(const char *id)
+{
+	const struct xbox_mod_pack *pack;
+	int index;
+
+	if (!id || !*id)
+		return -1;
+	if (!SDL_strncasecmp(id, "maps_", 5))
+		id += 5;
+	pack = known_pack(id);
+	if (pack)
+		id = pack->id;
+	for (index = 0; index < launcher.mode_count; index++)
+	{
+		if (!SDL_strcasecmp(launcher.modes[index].id, id))
+			return index;
+	}
+	return -1;
+}
+
+/* the mode the game starts in without asking: launcher.default_mode, else
+the pack whose menus game.pack_menus asks for, else vanilla */
+static int mode_default(void)
+{
+	int index = config_chosen("launcher.default_mode") ? mode_find(config_string("launcher.default_mode")) : -1;
+
+	if (index < 0 || !launcher.modes[index].installed)
+		index = mode_find(config_string("game.pack_menus"));
+	if (index < 0 || !launcher.modes[index].installed)
+		index = 0;
+	return index;
+}
+
+/* whether the player chose to be asked each time (or hasn't chosen yet) */
+static int mode_asks(void)
+{
+	return strcmp(config_string("launcher.mode_choice"), "default") != 0;
+}
+
+/* the mode for this run: its menus (game.pack_menus, for this run only). A
+player who never picked one keeps what config.toml says */
+static void mode_apply(int index, int picked)
+{
+	if (index < 0 || index >= launcher.mode_count || !launcher.modes[index].installed)
+		return;
+	/* (nor one HALO_PACK_MENUS gives for this run) */
+	if (!picked && (!config_chosen("launcher.default_mode") || getenv("HALO_PACK_MENUS")))
+		return;
+	config_set("game.pack_menus", index ? launcher.modes[index].id : "");
+	platform_log("launcher: playing %s", index ? launcher.modes[index].id : "vanilla");
+}
+
+static void mode_make_default(int index)
+{
+	config_write("launcher.mode_choice", "default");
+	config_write("launcher.default_mode", launcher.modes[index].id);
+}
+
 /* ---------- the rows of each screen */
 
 static struct row *row_add(int action, const char *label)
@@ -943,19 +1117,59 @@ static void build_rows(void)
 		snprintf(row->sub, sizeof(row->sub), "Point us at it.");
 		break;
 	case _screen_play:
+		for (index = 0; index < launcher.mode_count; index++)
+		{
+			const struct mode *mode = &launcher.modes[index];
+
+			row = row_add(_action_play_mode, mode->name);
+			row->argument = index;
+			snprintf(row->tag, sizeof(row->tag), "%s", mode->tag);
+			row->tag_color = index ? COLOR_TAG_BLUE : COLOR_TAG_GREEN;
+			if (!mode->installed)
+			{
+				snprintf(row->value, sizeof(row->value), "Not installed");
+				row->value_color = COLOR_GREY;
+				row->tag_color = COLOR_GREY;
+				row->dim = 1;
+				snprintf(row->help, sizeof(row->help), "Put its maps in %s, with its ui.map. A shows your maps.",
+					mode->folder);
+			}
+			else if (!xbox_maps_ready())
+			{
+				snprintf(row->value, sizeof(row->value), "Xbox maps needed");
+				row->value_color = COLOR_AMBER;
+				snprintf(row->help, sizeof(row->help), "Add your Xbox maps first. A takes you there.");
+			}
+			else
+			{
+				snprintf(row->value, sizeof(row->value), "Ready");
+				row->value_color = COLOR_GREEN;
+				if (!index)
+					snprintf(row->help, sizeof(row->help), "The original game. Xbox maps, Xbox rules.");
+				else
+					snprintf(row->help, sizeof(row->help), "%s, with its own menus and maps.", mode->title);
+			}
+		}
+		if (launcher.installed_modes > 1)
+		{
+			row = row_add(_action_start_mode, "START IN THIS MODE");
+			row->cycles = 1;
+			row->gap = 1;
+			if (mode_asks())
+				snprintf(row->value, sizeof(row->value), "ALWAYS ASK");
+			else
+				snprintf(row->value, sizeof(row->value), "%s", launcher.modes[mode_default()].name);
+			snprintf(row->help, sizeof(row->help), "Pick a mode to skip this screen next time.");
+		}
 		row = row_add(_action_play, "PLAY");
+		row->gap = launcher.installed_modes <= 1;
+		if (launcher.mode >= 0 && launcher.mode < launcher.mode_count && launcher.installed_modes > 1)
+			snprintf(row->value, sizeof(row->value), "%s", launcher.modes[launcher.mode].name);
+		row->value_color = COLOR_WHITE;
 		if (xbox_maps_ready())
-		{
-			snprintf(row->value, sizeof(row->value), "Ready");
-			row->value_color = COLOR_GREEN;
-			snprintf(row->help, sizeof(row->help), "Your Xbox maps are ready.");
-		}
+			snprintf(row->help, sizeof(row->help), "Load the menus and play.");
 		else
-		{
-			snprintf(row->value, sizeof(row->value), "Xbox maps needed");
-			row->value_color = COLOR_AMBER;
 			snprintf(row->help, sizeof(row->help), "Add your Xbox maps first. A takes you there.");
-		}
 		break;
 	case _screen_maps:
 		for (index = 0; index < launcher.family_count; index++)
@@ -1346,7 +1560,7 @@ static float draw_row(const struct row *row, int index, float x, float y, float 
 	float height = row->sub[0] ? 35.0f : 26.5f;
 	float label_x = x + 12.0f;
 	float value_width = 0.0f;
-	unsigned int label_color = row->disabled ? COLOR_ROW_DIM : COLOR_ROW;
+	unsigned int label_color = row->disabled || row->dim ? COLOR_ROW_DIM : COLOR_ROW;
 
 	if (picked && lit)
 	{
@@ -1428,7 +1642,7 @@ static void draw_panel(float x0, float y0, float x1, float y1)
 		heading = "LET'S GET YOUR MAPS IN";
 		break;
 	case _screen_play:
-		heading = "READY TO PLAY";
+		heading = "CHOOSE HOW TO PLAY";
 		break;
 	case _screen_maps:
 		heading = "YOUR MAPS";
@@ -1619,6 +1833,12 @@ static void draw_prompts(void)
 		prompt_add(UI_BUTTON_B, "CANCEL", 1, _button_b);
 		return;
 	}
+	if (launcher.dialog == _dialog_mode_question)
+	{
+		prompt_add(UI_BUTTON_A, "SELECT", 1, _button_a);
+		prompt_add(UI_BUTTON_B, "LATER", 1, _button_b);
+		return;
+	}
 	if (launcher.dialog == _dialog_message)
 	{
 		prompt_add(UI_BUTTON_A, "OK", 1, _button_a);
@@ -1649,6 +1869,11 @@ static void draw_prompts(void)
 		launcher.screen == _screen_logs && row && row->action == _action_send_logs ? "SEND" : "SELECT",
 		row && row->action != _action_none, _button_a);
 	prompt_add(UI_BUTTON_B, "BACK", 1, _button_b);
+	if (launcher.screen == _screen_play && row && row->action == _action_play_mode &&
+		launcher.modes[row->argument].installed && launcher.installed_modes > 1)
+	{
+		prompt_add(UI_BUTTON_X, "MAKE DEFAULT", 1, _button_x);
+	}
 	if (launcher.screen == _screen_maps)
 	{
 		prompt_add(UI_BUTTON_X, "CHECK AGAIN", 1, _button_x);
@@ -2367,6 +2592,7 @@ static void play(void)
 		return;
 	}
 	platform_log("launcher: play");
+	mode_apply(launcher.mode, 1);
 	launcher.done = 1;
 }
 
@@ -2380,6 +2606,18 @@ static void act(const struct row *row)
 	switch (row->action)
 	{
 	case _action_play:
+		play();
+		break;
+	case _action_play_mode:
+		if (!launcher.modes[row->argument].installed)
+		{
+			launcher.section = _section_maps;
+			enter_screen(_screen_maps);
+			set_status(COLOR_AMBER, "Put the %s maps in %s, with its ui.map, then check again.",
+				launcher.modes[row->argument].title, launcher.modes[row->argument].folder);
+			break;
+		}
+		launcher.mode = row->argument;
 		play();
 		break;
 	case _action_family:
@@ -2475,6 +2713,32 @@ static void cycle(const struct row *row, int step)
 	const char *setting;
 	int index;
 
+	if (row->action == _action_start_mode)
+	{
+		/* (always ask, then each mode installed) */
+		int choices[MAXIMUM_MODES + 1], count = 0, current = 0, mode;
+
+		choices[count++] = -1;
+		for (mode = 0; mode < launcher.mode_count; mode++)
+		{
+			if (launcher.modes[mode].installed)
+				choices[count++] = mode;
+		}
+		for (index = 0; index < count; index++)
+		{
+			if (choices[index] == (mode_asks() ? -1 : mode_default()))
+				current = index;
+		}
+		index = ((current + step) % count + count) % count;
+		if (choices[index] < 0)
+			config_write("launcher.mode_choice", "ask");
+		else
+		{
+			mode_make_default(choices[index]);
+			launcher.mode = choices[index];
+		}
+		return;
+	}
 	if (row->action != _action_downloads)
 		return;
 	setting = config_string("network.map_downloads");
@@ -2547,7 +2811,7 @@ static void dialog_input(int button)
 		}
 		return;
 	}
-	if (launcher.dialog != _dialog_send_ask)
+	if (launcher.dialog != _dialog_send_ask && launcher.dialog != _dialog_mode_question)
 		return;
 	switch (button)
 	{
@@ -2563,9 +2827,25 @@ static void dialog_input(int button)
 		launcher.dialog = _dialog_none;
 		break;
 	case _button_a:
+	{
+		int action = launcher.dialog_rows[launcher.dialog_selected].action;
+
 		launcher.dialog = _dialog_none;
-		send_logs(launcher.dialog_rows[launcher.dialog_selected].action == _action_send_with_settings);
+		if (action == _action_ask_each_time)
+		{
+			config_write("launcher.mode_choice", "ask");
+			platform_log("launcher: the player picks a mode each time");
+		}
+		else if (action == _action_always_play)
+		{
+			mode_make_default(launcher.mode);
+			platform_log("launcher: the player always plays %s", launcher.modes[launcher.mode].id);
+			play();
+		}
+		else
+			send_logs(action == _action_send_with_settings);
 		break;
+	}
 	default:
 		break;
 	}
@@ -2619,17 +2899,17 @@ static void input(int button)
 	switch (button)
 	{
 	case _button_up:
-		if (launcher.selected > 0)
-		{
-			launcher.selected--;
-			launcher.status[0] = '\0';
-		}
-		break;
 	case _button_down:
-		if (launcher.selected + 1 < launcher.row_count)
+		if (button == _button_up ? launcher.selected > 0 : launcher.selected + 1 < launcher.row_count)
 		{
-			launcher.selected++;
+			launcher.selected += button == _button_up ? -1 : 1;
 			launcher.status[0] = '\0';
+			/* (PLAY starts the mode last picked out) */
+			if (launcher.rows[launcher.selected].action == _action_play_mode &&
+				launcher.modes[launcher.rows[launcher.selected].argument].installed)
+			{
+				launcher.mode = launcher.rows[launcher.selected].argument;
+			}
 		}
 		break;
 	case _button_left:
@@ -2675,6 +2955,12 @@ static void input(int button)
 				set_status(COLOR_AMBER, "No Xbox maps yet. Put them in the maps folder, with ui.map.");
 			else
 				set_status(COLOR_GREEN, "Checked.");
+		}
+		else if (launcher.screen == _screen_play && row && row->action == _action_play_mode &&
+			launcher.modes[row->argument].installed && launcher.installed_modes > 1)
+		{
+			mode_make_default(row->argument);
+			set_status(COLOR_GREEN, "%s starts by default now.", launcher.modes[row->argument].title);
 		}
 		else if (launcher.screen == _screen_family)
 		{
@@ -3114,6 +3400,9 @@ static void run(void)
 	platform_mouse_capture(FALSE);
 	SDL_ShowCursor();
 	scan();
+	modes_find();
+	if (launcher.mode < 0 || launcher.mode >= launcher.mode_count || !launcher.modes[launcher.mode].installed)
+		launcher.mode = mode_default();
 	while (!launcher.done)
 	{
 		Uint64 now;
@@ -3169,17 +3458,31 @@ void launcher_open_on_maps(void)
 	launcher.open_on_maps = 1;
 }
 
-/* the command line's --setup, and whether it joins a game (an invite) */
-static void command_line(int *setup, int *joining)
+/* the command line: --setup, --play, --mode <id> (or --mode=<id>), and
+whether it joins a game (an invite) */
+static void command_line(int *setup, int *play, char *mode, size_t mode_size, int *joining)
 {
 	char argument[512];
 	int index;
 
-	*setup = *joining = 0;
+	*setup = *play = *joining = 0;
+	mode[0] = '\0';
 	for (index = 1; posix_command_line_argument(index, argument, sizeof(argument)); index++)
 	{
 		if (!strcmp(argument, "--setup"))
 			*setup = 1;
+		else if (!strcmp(argument, "--play"))
+			*play = 1;
+		else if (!strncmp(argument, "--mode=", 7))
+			snprintf(mode, mode_size, "%s", argument + 7);
+		else if (!strcmp(argument, "--mode"))
+		{
+			if (posix_command_line_argument(index + 1, argument, sizeof(argument)))
+			{
+				snprintf(mode, mode_size, "%s", argument);
+				index++;
+			}
+		}
 		else if (!SDL_strncasecmp(argument, "halo://", 7) || strstr(argument, "connect"))
 			*joining = 1;
 	}
@@ -3224,27 +3527,66 @@ static int held_at_start(void)
 	return held;
 }
 
+/* the question, once a second mode is installed: be asked each time, or
+always play the one the player has now */
+static void mode_question(void)
+{
+	launcher.dialog = _dialog_mode_question;
+	launcher.dialog_selected = 0;
+	snprintf(launcher.dialog_title, sizeof(launcher.dialog_title), "HOW DO YOU WANT TO PLAY?");
+	snprintf(launcher.dialog_text, sizeof(launcher.dialog_text),
+		"You have more than one way to play now. You can change this on Play.");
+	launcher.dialog_text_color = COLOR_WHITE;
+	launcher.dialog_row_count = 2;
+	memset(launcher.dialog_rows, 0, sizeof(launcher.dialog_rows));
+	launcher.dialog_rows[0].action = _action_ask_each_time;
+	snprintf(launcher.dialog_rows[0].label, sizeof(launcher.dialog_rows[0].label), "ASK EACH TIME");
+	launcher.dialog_rows[1].action = _action_always_play;
+	snprintf(launcher.dialog_rows[1].label, sizeof(launcher.dialog_rows[1].label), "ALWAYS PLAY %s",
+		launcher.modes[launcher.mode].name);
+}
+
 void launcher_at_start(void)
 {
-	int setup, joining, open = 0;
+	int setup, play_now, joining, open = 0, question = 0;
+	char mode[64];
 
 	if (launcher.shown || platform_run_is_quiet() || !drawable())
 		return;
-	command_line(&setup, &joining);
+	command_line(&setup, &play_now, mode, sizeof(mode), &joining);
+	set_root(platform_data_root());
+	modes_find();
+	launcher.mode = mode_default();
+	if (mode[0])
+	{
+		int index = mode_find(mode);
+
+		if (index >= 0 && launcher.modes[index].installed)
+			launcher.mode = index;
+		else
+			platform_log("launcher: --mode %s: no such mode here; playing the default", mode);
+	}
 	if (launcher.open_on_maps)
 		open = 2;
-	else if (!joining)
+	else if (setup)
+		open = 1;
+	else if (!joining && !play_now && !mode[0])
 	{
-		if (setup)
-			open = 1;
-		else if (!strcmp(config_string("launcher.show_at_start"), "always"))
+		if (!strcmp(config_string("launcher.show_at_start"), "always"))
 			open = 1;
 		else if (config_boolean("launcher.hold_to_open") && held_at_start())
 			open = 1;
+		else if (launcher.installed_modes > 1 && !config_chosen("launcher.mode_choice"))
+			open = question = 1;
+		else if (launcher.installed_modes > 1 && mode_asks())
+			open = 1;
 	}
 	if (!open)
+	{
+		/* (a mode named, or the default, for this run) */
+		mode_apply(launcher.mode, mode[0] != '\0');
 		return;
-	set_root(platform_data_root());
+	}
 	launcher.welcome = 0;
 	launcher.in_panel = 1;
 	if (open == 2)
@@ -3264,6 +3606,9 @@ void launcher_at_start(void)
 		platform_log("launcher: opened at start");
 		launcher.section = _section_play;
 		enter_screen(_screen_play);
+		launcher.selected = launcher.mode;
+		if (question)
+			mode_question();
 	}
 	run();
 }
