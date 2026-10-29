@@ -1437,10 +1437,22 @@ static void render_target_multisample(struct xgpu_render_target *target, int sam
 		samples ? (GLsizei)target->gl_width : 1, samples ? (GLsizei)target->gl_height : 1);
 	glBindRenderbuffer(GL_RENDERBUFFER, 0);
 	target->samples = samples;
+	target->gl_samples = samples;
 	if (!samples)
 		return;
 	draw = target->depth ? framebuffer_find(0, target->multisample, TRUE) :
 		framebuffer_find(target->multisample, 0, TRUE);
+	/* (the samples the GPU gave, which can be more than were asked for:
+	llvmpipe gives 4 for 2. The alpha test's coverage is of these, or
+	alpha-tested surfaces are left with samples they never cover) */
+	{
+		GLint given = 0;
+
+		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, draw);
+		glGetIntegerv(GL_SAMPLES, &given);
+		if (given > samples)
+			target->gl_samples = (int)given;
+	}
 #ifdef HALO_ANDROID
 	/* (ES blits into no multisampled framebuffer: it is cleared instead. A
 	change of the setting is taken up between frames, and the frame clears
@@ -1536,7 +1548,7 @@ static BOOL bind_targets(BOOL *has_depth)
 			color->target.unresolved = TRUE;
 		if (depth)
 			depth->target.unresolved = TRUE;
-		target_samples = samples;
+		target_samples = color ? color->target.gl_samples : depth->target.gl_samples;
 	}
 	else
 	{

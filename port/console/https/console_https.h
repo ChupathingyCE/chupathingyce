@@ -10,8 +10,11 @@ port/linux/src/posix_browser.c.
 Only the hosts this file names are asked, and each one's certificate is
 checked without the console's clock (consoles often have none set):
 - stats.chupathingy.org by its public key: the certificate's key must be
-  one of the pinned keys (console_https_trust.c), and the certificate must
-  name the host. Neither its dates nor its chain matter.
+  one of the pinned keys (built in, console_https_trust.c, or from the
+  newest signed pin document, console_pins.h), and the certificate must
+  name the host. A key it does not pin makes it ask for the pin document
+  and try again; failing that, a chain to Let's Encrypt's ISRG roots is
+  taken as a backstop. Dates are never checked.
 - raw.githubusercontent.com (the signed legacy table's copy) by its chain:
   it must lead to one of a few pinned roots and name the host. Its dates are
   not checked.
@@ -39,6 +42,11 @@ extern "C" {
 #define CONSOLE_HTTPS_SITE "stats.chupathingy.org"
 #define CONSOLE_HTTPS_GITHUB "raw.githubusercontent.com"
 #define CONSOLE_HTTPS_PORT_NUMBER 443
+/* the pin document (console_pins.h): over plain HTTP from the console
+list's host, else over HTTPS from GitHub's raw files */
+#define CONSOLE_HTTPS_PINS_PLAIN_HOST "warthog.milenko.org"
+#define CONSOLE_HTTPS_PINS_PLAIN_PATH "/v1/console/pins"
+#define CONSOLE_HTTPS_PINS_GITHUB_PATH "/ChupathingyCE/chupathingyce/console-pins/console-pins.json"
 
 /* the TLS session's arena, on the requesting thread's stack (the most a
 handshake with a 4096-bit RSA chain and a 16 KB record buffer has been seen
@@ -47,7 +55,7 @@ the stack a requesting thread needs for it and Mbed TLS's own frames */
 #ifndef CONSOLE_HTTPS_ARENA_SIZE
 #define CONSOLE_HTTPS_ARENA_SIZE (80 * 1024)
 #endif
-#define CONSOLE_HTTPS_STACK_SIZE (CONSOLE_HTTPS_ARENA_SIZE + 24 * 1024)
+#define CONSOLE_HTTPS_STACK_SIZE (CONSOLE_HTTPS_ARENA_SIZE + 32 * 1024)
 
 /* a port's receive and send: no byte in the time given */
 #define CONSOLE_HTTPS_IO_TIMEOUT (-2)
@@ -80,6 +88,15 @@ struct console_https_port
 	void (*log)(const char *text);
 	/* "Warthog/1" */
 	const char *user_agent;
+	/* one plain HTTP GET of path from host (port 80): the whole response
+	into response, at most size bytes (*received of them), within
+	timeout_ms; 1 if one came. Only the pin document is asked for this way
+	(it is signed). NULL: the pin document from GitHub alone */
+	int (*plain_get)(const char *host, const char *path, char *response, unsigned long size,
+		unsigned long *received, unsigned long timeout_ms);
+	/* the newest pin document's file, beside config.toml; NULL: kept in
+	memory alone */
+	const char *pins_path;
 };
 
 enum

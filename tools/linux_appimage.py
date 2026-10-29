@@ -3,7 +3,7 @@
 own, made executable and started.
 
     python tools/linux_appimage.py [dist/chupathingyce-linux64-release]
-        [--output dist/chupathingyce-linux64.AppImage] [--appimagetool path]
+        [--output dist/chupathingyce-linux64-release.AppImage] [--appimagetool path]
 
 The build's folder (tools/ci_build.py linux64: the game, its SDL3 and the
 files beside them, as the linux64 zip has them) goes into the AppImage's
@@ -18,8 +18,11 @@ the libraries that file loads.
 
 The AppImage mounts read-only, so the game keeps its settings, log and the
 player's maps in the save root's usual place when it runs as one
-(platform_app_folder, port/linux/src/port_config.c), and does not update
-itself. Its glibc is the build's: tools/linux_glibc_check.py is run on it.
+(platform_app_folder, port/linux/src/port_config.c). It updates as one
+file: the release's AppImage, chupathingyce-linux64-release.AppImage (signed
+and in the release's updates.json like the zips), replaces it whole
+(port/linux/src/updater.c). Its glibc is the build's:
+tools/linux_glibc_check.py is run on it.
 
 appimagetool (github.com/AppImage/appimagetool, the static type 2 runtime:
 no libfuse2 needed to run the result) is taken from --appimagetool or
@@ -123,7 +126,7 @@ def appimagetool(given: str) -> Path:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("build", nargs="?", type=Path, default=ROOT / "dist/chupathingyce-linux64-release")
-    parser.add_argument("--output", type=Path, default=ROOT / f"dist/{NAME}-linux64.AppImage")
+    parser.add_argument("--output", type=Path, default=ROOT / f"dist/{NAME}-linux64-release.AppImage")
     parser.add_argument("--appimagetool", default=os.environ.get("APPIMAGETOOL", ""))
     args = parser.parse_args()
     if not (args.build / "halo").is_file():

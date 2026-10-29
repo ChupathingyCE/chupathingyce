@@ -55,6 +55,7 @@ symbols in this file:
 #include "cseries/cseries.h"
 #include "cseries/errors.h"
 #include "bitmaps/bitmap_group.h"
+#include "main/main.h" /* port: first_person_reticle_scale */
 #include "cache/texture_cache.h"
 #include "game/game.h"
 #include "game/game_globals.h"
@@ -1303,14 +1304,22 @@ static void crosshairs_draw(
 										}
 										else
 										{
+											/* port: display.reticle_scales_with_fov, the reticle
+											and its items' places about the middle scaled as the
+											world's image is by display.field_of_view */
+											struct hud_placement_definition placement = item->placement;
+											real reticle_scale = first_person_reticle_scale(render.local_player_index);
+
+											placement.offset.x = (short)fast_ftol(placement.offset.x * reticle_scale);
+											placement.offset.y = (short)fast_ftol(placement.offset.y * reticle_scale);
 											hud_draw_bitmap(
 												bitmap,
 												&absolute_placement,
-												&item->placement,
+												&placement,
 												sequence ?
 													&TAG_BLOCK_GET_ELEMENT(&sequence->sprites, frame_index, struct bitmap_group_sprite)->bounds :
 													NULL,
-												scale,
+												scale * reticle_scale,
 												0.0f,
 												color,
 												in_multiplayer,

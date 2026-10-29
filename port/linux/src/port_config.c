@@ -87,6 +87,10 @@ enum
 	/* the original Xbox (port/xbox): not in _platform_all, each of its
 	settings marked for it */
 	_platform_xbox = 8,
+	/* the consoles on the shared GL layer (HALO_CONSOLE_GL_LAYER: the Xbox
+	360, the Wii U), as well as their desktop or Windows settings: the
+	console settings they share with the original Xbox */
+	_platform_console_gl = 16,
 };
 
 struct config_setting
@@ -139,6 +143,17 @@ anti-aliasing. The server draws nothing: the Xbox's. */
 #else
 #define DEFAULT_ANTI_ALIASING "\"off\""
 #define DEFAULT_SHADOW_RESOLUTION "256"
+#endif
+
+/* Internet play's port when hosting (p2p_host_port.h): Halo's own, 2302,
+on the desktop and Android, so that a player can forward it on their router;
+a joiner keeps a random one. The consoles and the dedicated server keep a
+random port (0), as before. */
+#if defined(HALO_SERVER) || defined(HALO_XBOX_CONSOLE) || defined(HALO_CONSOLE_GL_LAYER) || \
+	defined(HALO_SWITCH_CONSOLE)
+#define DEFAULT_TUNNEL_PORT "0"
+#else
+#define DEFAULT_TUNNEL_PORT "2302"
 #endif
 
 static const struct config_setting config_settings[] =
@@ -363,6 +378,10 @@ static const struct config_setting config_settings[] =
 	{ "display.viewmodel_field_of_view", _config_real, "0.0", "HALO_VIEWMODEL_FIELD_OF_VIEW", _environment_value,
 		_platform_all | _platform_xbox,
 		"The weapon's field of view, 50 to 120. 0: display.field_of_view's." },
+	{ "display.reticle_scales_with_fov", _config_boolean, "true", "HALO_RETICLE_SCALES_WITH_FOV", _environment_value,
+		_platform_all | _platform_xbox,
+		"Size the reticle to the first-person field of view, so it matches the\n"
+		"weapon's spread on screen. No change at 70." },
 	{ "display.far_clip_distance", _config_real, "1024.0", "HALO_FAR_CLIP_DISTANCE", _environment_value, _platform_all,
 		"How far the world is drawn, up to 10000. 1024: the Xbox's." },
 	{ "display.match_timer", _config_boolean, "false", "HALO_MATCH_TIMER", _environment_value, _platform_all | _platform_xbox,
@@ -453,7 +472,7 @@ static const struct config_setting config_settings[] =
 		"Show CHANGE TEAMS in the pause menu of a team game." },
 #ifndef HALO_CONSOLE_NO_CONTROLS
 	{ "display.pause_controls", _config_boolean, "true", "HALO_PAUSE_CONTROLS", _environment_value, _platform_all,
-		"Show CONTROLS in the Xbox and Gearbox menus' pause menu." },
+		"Show CONTROLS in the pause menu." },
 #endif
 	{ "display.server_messages", _config_boolean, "true", "HALO_SERVER_MESSAGES", _environment_value, _platform_all | _platform_xbox,
 		"Show the banner for a Delta server's warnings and notices." },
@@ -699,8 +718,10 @@ static const struct config_setting config_settings[] =
 		_platform_all,
 		"Offer a playlist's missing maps from its verified map set when you join\n"
 		"one of its games: \"ask\", \"always\" or \"never\"." },
-	{ "network.tunnel_port", _config_integer, "0", "HALO_NET_TUNNEL_PORT", _environment_value, _platform_all | _platform_xbox,
-		"The UDP port for internet play; 0 picks one." },
+	{ "network.tunnel_port", _config_integer, DEFAULT_TUNNEL_PORT, "HALO_NET_TUNNEL_PORT", _environment_value,
+		_platform_all | _platform_xbox,
+		"The UDP port for internet play, to forward on your router if players\n"
+		"can't join your games; 0 picks a new port each run." },
 	{ "network.allow_upnp", _config_boolean, "true", "HALO_NET_ALLOW_UPNP", _environment_value, _platform_all,
 		"Ask the router to forward internet play's port (UPnP)." },
 	{ "network.protocol", _config_string, "\"auto\"", "HALO_NET_PROTOCOL", _environment_value, _platform_all,
@@ -840,7 +861,7 @@ static const struct config_setting config_settings[] =
 		"Detailed traces in debug.txt, for reporting a join that fails: the main\n"
 		"loop each second, every hop of an internet join, the games advertised.\n"
 		"Other hosts appear only as tags, never by their addresses." },
-	{ "console.perf_log", _config_boolean, "false", NULL, _environment_value, _platform_xbox,
+	{ "console.perf_log", _config_boolean, "false", NULL, _environment_value, _platform_xbox | _platform_console_gl,
 		"For finding what makes a scene slow: once a second, a line in debug.txt\n"
 		"with the frame time (average and worst), the time each part of the frame\n"
 		"took (game ticks, the render's parts, sound, network, present, the wait\n"
@@ -1100,6 +1121,10 @@ static const struct config_setting config_settings[] =
 #define CONFIG_PLATFORM _platform_android
 #elif defined(HALO_XBOX_CONSOLE)
 #define CONFIG_PLATFORM _platform_xbox
+#elif defined(HALO_CONSOLE_GL_LAYER) && defined(_WIN32)
+#define CONFIG_PLATFORM (_platform_desktop | _platform_windows | _platform_console_gl)
+#elif defined(HALO_CONSOLE_GL_LAYER)
+#define CONFIG_PLATFORM (_platform_desktop | _platform_console_gl)
 #elif defined(_WIN32)
 #define CONFIG_PLATFORM (_platform_desktop | _platform_windows)
 #else
@@ -1327,9 +1352,10 @@ static int config_write_file(const char *path, const char *text)
 before config_version, wrote every value, which kept a default a later
 version changed) */
 #define CONFIG_VERSION 2
-/* the defaults the game has asked about (game.defaults_answered): the ones
-of v0.8.0 */
-#define CONFIG_DEFAULTS_GENERATION 1
+/* the defaults the game has asked about (game.defaults_answered): 1, the
+ones of v0.8.0; 2, network.tunnel_port's 2302 (v0.8.1b). A file answered for
+an earlier generation is asked about the later ones only */
+#define CONFIG_DEFAULTS_GENERATION 2
 #define CONFIG_VERSION_LINE "config_version = 2\n"
 #define CONFIG_VERSION_LINES "# The layout of this file, for the game: leave it.\n" CONFIG_VERSION_LINE
 #define CONFIG_VERSION_TEXT "\n" CONFIG_VERSION_LINES
@@ -1832,6 +1858,9 @@ static const struct
 	/* for an existing file that has the setting at the old default (or not
 	set): the change in words, to ask about it (config_find_new_defaults) */
 	const char *change;
+	/* the generation of defaults it was asked about in (CONFIG_DEFAULTS_GENERATION;
+	0 for 1) */
+	int generation;
 } config_old_defaults[] =
 {
 	/* upstream's, which ChupathingyCE kept until v0.5.2b */
@@ -1859,6 +1888,9 @@ static const struct
 	(Discord showed "OpenCE" as being played) */
 	{ "discord.application_id", "\"1553978809840050229\"", 1, NULL },
 #endif
+	/* a random port each run, until v0.8.1b gave hosting Halo's 2302 (a file
+	that names 0 keeps it; the consoles and the server keep 0) */
+	{ "network.tunnel_port", "0", 0, "A fixed port for hosting (UDP 2302), to forward on your router", 2 },
 };
 
 #define NUMBER_OF_CONFIG_OLD_DEFAULTS (sizeof(config_old_defaults) / sizeof(config_old_defaults[0]))
@@ -2282,15 +2314,19 @@ static void config_find_new_defaults(const char *text, toml_datum_t table)
 	toml_datum_t answered = toml_seek(table, "game.defaults_answered");
 	size_t old;
 
-	if (answered.type == TOML_INT64 && answered.u.int64 >= CONFIG_DEFAULTS_GENERATION)
+	long answered_generation = answered.type == TOML_INT64 ? (long)answered.u.int64 : 0;
+
+	if (answered_generation >= CONFIG_DEFAULTS_GENERATION)
 		return;
 	for (old = 0; old < NUMBER_OF_CONFIG_OLD_DEFAULTS; old++)
 	{
 		long index = config_old_defaults[old].change ? config_setting_index(config_old_defaults[old].name) : -1;
+		int generation = config_old_defaults[old].generation ? config_old_defaults[old].generation : 1;
 		const struct config_setting *setting;
 		toml_datum_t datum;
 
-		if (index < 0)
+		/* (asked about already, in an earlier generation's question) */
+		if (index < 0 || generation <= answered_generation)
 			continue;
 		setting = &config_settings[index];
 		if (!(setting->platforms & CONFIG_PLATFORM) || !strcmp(config_old_defaults[old].default_value, setting->default_value))
@@ -3407,7 +3443,12 @@ void config_new_defaults_answer(int use_new)
 			}
 		}
 	}
-	config_write("game.defaults_answered", "1");
+	{
+		char generation[16];
+
+		snprintf(generation, sizeof(generation), "%d", CONFIG_DEFAULTS_GENERATION);
+		config_write("game.defaults_answered", generation);
+	}
 }
 
 int config_write_boolean(const char *name, int value)
@@ -3574,6 +3615,21 @@ unsigned long config_changes(void)
 {
 	config_follow_file();
 	return config_change_count;
+}
+
+int config_chosen(const char *name)
+{
+	long index = config_setting_index(name);
+	int chosen;
+
+	if (index < 0)
+		return 0;
+	/* (the file read first) */
+	config_value(name, config_settings[index].type);
+	pthread_mutex_lock(&config_lock);
+	chosen = config_given[index] && !config_pending[index];
+	pthread_mutex_unlock(&config_lock);
+	return chosen;
 }
 
 int config_default(const char *name, char *text, size_t size)

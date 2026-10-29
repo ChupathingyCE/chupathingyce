@@ -29,6 +29,17 @@ or cannot be reached. If it is newer, the game asks whether to update:
 - Do not ask again: after the player confirms it, update.auto = false is
   written to config.toml.
 
+Run as an AppImage (Linux: update_appimage_path), the game is that one file,
+mounted read-only: Yes downloads the AppImage the release's signed list
+names for this platform and configuration (kind "appimage") beside it (into
+update.partial/), checks its size and SHA-256 against the list's, and puts
+it in place of the AppImage file, by that file's own name (the old one
+becomes <name>.old, deleted at the next start), executable as it was, and
+starts it. Nothing is unpacked: a release without a list, or whose list has
+no AppImage, is not installed over an AppImage (its zip would only fill the
+AppImage's folder with a second copy of the game), and the player is told to
+download the new AppImage.
+
 A packaged install (packaged_install.h: the AUR's chupathingy-bin, marked
 by the build, HALO_PACKAGED or a file named "packaged" beside the
 executable) is its package manager's to update: nothing is downloaded or
@@ -112,6 +123,8 @@ looks for a new version and offers its download page) */
 #define PATH_SEPARATOR "/"
 #endif
 #define UPDATE_ASSET "chupathingyce-" UPDATE_PLATFORM "-" HALO_BUILD_FLAVOR ".zip"
+/* (an AppImage's update: the release's list names it, kind "appimage") */
+#define UPDATE_APPIMAGE_ASSET "chupathingyce-" UPDATE_PLATFORM "-" HALO_BUILD_FLAVOR ".AppImage"
 /* the release's list of its update files (update_manifest.h) */
 #define UPDATE_MANIFEST "updates.json"
 #define UPDATE_DIRECTORY "update.partial"
@@ -138,6 +151,9 @@ static SDL_AtomicInt updater_state;
 static char updater_latest_version[32];
 static char updater_directory[1024];
 static char updater_executable[1024];
+/* whether this runs from an AppImage, updater_executable then being the
+AppImage file (update_appimage_path) */
+static int updater_appimage;
 /* what is downloaded: from the release's list, or the zip's name as before
 (listed: 0, and its own signature is checked) */
 static struct
@@ -782,6 +798,13 @@ static int updater_find_file(char *error, size_t error_size)
 	updater_url(url, sizeof(url), 0, path);
 	if (!update_download(url, manifest_path, MAXIMUM_CHECK_SIZE, NULL, NULL, reason, sizeof(reason)))
 	{
+		/* (an AppImage updates only from the list: the zip is not one) */
+		if (updater_appimage)
+		{
+			snprintf(error, error_size, "this release has no list of update files (%s), and an AppImage updates "
+				"only from one: download the new AppImage from the release's page", reason);
+			return 0;
+		}
 		/* (its zip's own signature is checked instead) */
 		platform_log("update: no list of update files (%s): downloading " UPDATE_ASSET, reason);
 		return 1;
@@ -816,7 +839,7 @@ static int updater_find_file(char *error, size_t error_size)
 		platform_log("update: this build has no release key: the list's signature is not checked");
 	}
 	result = update_manifest_find(manifest, manifest_size, updater_latest_version, UPDATE_PLATFORM, HALO_BUILD_FLAVOR,
-		"zip", updater_file.tag, sizeof(updater_file.tag), updater_file.name, sizeof(updater_file.name),
+		updater_appimage ? "appimage" : "zip", updater_file.tag, sizeof(updater_file.tag), updater_file.name, sizeof(updater_file.name),
 		&updater_file.size, updater_file.sha256, sizeof(updater_file.sha256), updater_file.main_name,
 		sizeof(updater_file.main_name), reason, sizeof(reason));
 	if (result == _update_manifest_found && (!updater_file.size || updater_file.size > MAXIMUM_UPDATE_SIZE))
@@ -830,6 +853,11 @@ static int updater_find_file(char *error, size_t error_size)
 		platform_log("update: the release's list names %s (%s, %llu bytes%s%s)", updater_file.name, updater_file.tag,
 			updater_file.size, updater_file.main_name[0] ? ", main " : "", updater_file.main_name);
 		succeeded = 1;
+	}
+	else if (result == _update_manifest_missing && updater_appimage)
+	{
+		snprintf(error, error_size, "this release has no AppImage update (%s): download the new AppImage from the "
+			"release's page", reason);
 	}
 	else if (result == _update_manifest_missing)
 	{
@@ -845,6 +873,56 @@ static int updater_find_file(char *error, size_t error_size)
 done:
 	SDL_free(signature);
 	SDL_free(manifest);
+	return succeeded;
+}
+
+/* the downloaded AppImage, checked against the release's list (its size and
+SHA-256), written again from the copy that was checked, and put in place of
+the AppImage file this runs from (which becomes <name>.old), executable as
+it was; 1 when it is there */
+static int updater_install_appimage(const char *download_path, char *error, size_t error_size)
+{
+	char old_path[1300], digest[UPDATE_SHA256_TEXT_SIZE];
+	size_t size = 0;
+	unsigned char *data = SDL_LoadFile(download_path, &size);
+	int succeeded = 0;
+
+	update_delete_file(download_path);
+	if (!data || size > MAXIMUM_UPDATE_SIZE)
+	{
+		snprintf(error, error_size, "could not read the download");
+		goto done;
+	}
+	/* (always from the list, whose signature checked: updater_find_file) */
+	if (!updater_file.listed || size != updater_file.size)
+	{
+		snprintf(error, error_size, "the download was not installed: it is %llu bytes, not the list's %llu",
+			(unsigned long long)size, updater_file.size);
+		goto done;
+	}
+	update_sha256(data, size, digest);
+	if (strcmp(digest, updater_file.sha256))
+	{
+		snprintf(error, error_size, "the download was not installed: its SHA-256 is not the list's");
+		goto done;
+	}
+	platform_log("update: the download's SHA-256 is the release list's");
+	if (!SDL_SaveFile(download_path, data, size))
+	{
+		snprintf(error, error_size, "could not write the new AppImage beside the old one");
+		goto done;
+	}
+	snprintf(old_path, sizeof(old_path), "%s.old", updater_executable);
+	if (!update_replace_file(updater_executable, download_path, old_path))
+	{
+		update_delete_file(download_path);
+		snprintf(error, error_size, "could not replace %s", updater_executable);
+		goto done;
+	}
+	succeeded = 1;
+
+done:
+	SDL_free(data);
 	return succeeded;
 }
 
@@ -948,11 +1026,31 @@ static void updater_update(void)
 	int name_count = 0;
 
 	updater_path(partial, sizeof(partial), UPDATE_DIRECTORY);
-	updater_partial_path(zip_path, sizeof(zip_path), UPDATE_ASSET);
+	updater_partial_path(zip_path, sizeof(zip_path), updater_appimage ? UPDATE_APPIMAGE_ASSET : UPDATE_ASSET);
 	platform_log("update: downloading version %s", updater_latest_version);
 	if (!update_make_directory(partial))
 	{
-		snprintf(error, sizeof(error), "could not make %s (is the game's folder read-only?)", partial);
+		snprintf(error, sizeof(error), "could not make %s (is the %s folder read-only?)", partial,
+			updater_appimage ? "AppImage's" : "game's");
+	}
+	else if (updater_appimage)
+	{
+		/* (the AppImage, whole: started by the name it had) */
+		if (updater_find_file(error, sizeof(error)) && updater_download_zip(zip_path, error, sizeof(error)) &&
+			updater_install_appimage(zip_path, error, sizeof(error)))
+		{
+			update_delete_file(partial);
+			platform_log("update: starting version %s (%s)", updater_latest_version,
+				strrchr(updater_executable, PATH_SEPARATOR[0]) ? strrchr(updater_executable, PATH_SEPARATOR[0]) + 1 :
+				updater_executable);
+			if (update_launch(updater_executable))
+				exit(EXIT_SUCCESS);
+			snprintf(error, sizeof(error), "the new version is in place, but could not be started: start it again");
+		}
+		else
+		{
+			update_delete_file(partial);
+		}
 	}
 	else if (updater_find_file(error, sizeof(error)) && updater_download_zip(zip_path, error, sizeof(error)) &&
 		updater_unpack(zip_path, names, executable, &name_count, error, sizeof(error)))
@@ -985,13 +1083,25 @@ static void updater_clean_up(void)
 		"halo.old", "halo.exe.old", "chupathingy.old", "chupathingy.exe.old", "SDL3.dll.old", "libSDL3.so.0.old",
 		"SDL3-LICENSE.txt.old", "mbedtls-LICENSE.txt.old", "LICENSE.txt.old",
 	};
-	char path[1200];
+	char path[1300];
 	size_t index;
 
-	for (index = 0; index < sizeof(names) / sizeof(*names); index++)
+	/* (an AppImage's folder is the player's, not the game's: only the
+	AppImage's own old file) */
+	if (updater_appimage)
 	{
-		updater_path(path, sizeof(path), names[index]);
+		snprintf(path, sizeof(path), "%s.old", updater_executable);
 		update_delete_file(path);
+		updater_partial_path(path, sizeof(path), UPDATE_APPIMAGE_ASSET);
+		update_delete_file(path);
+	}
+	else
+	{
+		for (index = 0; index < sizeof(names) / sizeof(*names); index++)
+		{
+			updater_path(path, sizeof(path), names[index]);
+			update_delete_file(path);
+		}
 	}
 	updater_partial_path(path, sizeof(path), UPDATE_ASSET);
 	update_delete_file(path);
@@ -1022,8 +1132,12 @@ void updater_start(void)
 	}
 	else
 	{
-		if (!update_executable_path(updater_executable, sizeof(updater_executable)))
+		/* (an AppImage: its file is the one replaced) */
+		updater_appimage = update_appimage_path(updater_executable, sizeof(updater_executable));
+		if (!updater_appimage && !update_executable_path(updater_executable, sizeof(updater_executable)))
 			return;
+		if (updater_appimage)
+			platform_log("update: running as an AppImage (%s)", updater_executable);
 		snprintf(updater_directory, sizeof(updater_directory), "%s", updater_executable);
 		slash = strrchr(updater_directory, PATH_SEPARATOR[0]);
 		if (!slash)
