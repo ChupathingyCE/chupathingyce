@@ -568,6 +568,8 @@ struct data_array *hs_thread_data;
 extern struct data_array *hs_syntax_data;
 extern short const hs_external_global_count;
 extern long const hs_function_table_count;
+/* port: Halo's functions and Stubbs mode's (hs.c) */
+long hs_function_count(void);
 extern short const hs_type_sizes[NUMBER_OF_HS_TYPES];
 boolean debug_scripting;
 unsigned long hs_debug_data[BIT_VECTOR_SIZE_IN_LONGS(MAXIMUM_TRIGGER_VOLUMES_PER_SCENARIO)];
@@ -936,7 +938,7 @@ static char const *expression_get_function_name(
 			expression_index != thread->stack->expression_index)
 		{
 			/* port: an index past the table (a damaged map's) names none */
-			if ((word)syntax_node->index>=hs_function_table_count)
+			if ((word)syntax_node->index>=hs_function_count())
 				return "(corrupt function)";
 
 			return hs_function_get((word)syntax_node->index)->name;
@@ -2819,7 +2821,7 @@ static void hs_thread_main(
 		checked, but this index picks a function pointer */
 		index_count = TEST_FLAG(expression->flags, _hs_syntax_node_script_bit) ?
 			global_scenario_get()->hs_scripts.count :
-			hs_function_table_count;
+			hs_function_count();
 		if (expression->index<0 || expression->index>=index_count)
 		{
 			hs_syntax_error(thread_index);
