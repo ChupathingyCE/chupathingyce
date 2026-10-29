@@ -848,6 +848,30 @@ static void texture_dump(GLenum target, const struct xgpu_texture_description *d
 }
 #endif
 
+#ifdef HALO_BGFX
+BOOL xgpu_texture_decode_level(const struct xgpu_texture_description *description, unsigned long level,
+	const unsigned char *source, const D3DCOLOR *palette, unsigned long *destination)
+{
+	return decode_level(description, level, source, palette, destination);
+}
+
+int xgpu_texture_dxt(const struct xgpu_texture_description *description)
+{
+	switch (format_information(description->format).kind)
+	{
+	case _texel_dxt1: return 1;
+	case _texel_dxt3: return 3;
+	case _texel_dxt5: return 5;
+	default: return 0;
+	}
+}
+
+unsigned long xgpu_texture_level_bytes(const struct xgpu_texture_description *description, unsigned long level)
+{
+	return level_bytes(description, level);
+}
+#endif
+
 static void upload(GLuint texture, GLenum target, const struct xgpu_texture_description *description,
 	const unsigned char *base, const D3DCOLOR *palette)
 {

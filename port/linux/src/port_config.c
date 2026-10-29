@@ -201,6 +201,14 @@ static const struct config_setting config_settings[] =
 		_platform_android,
 		"Where compressed textures are unpacked: \"gpu\", \"cpu\" (more memory) or\n"
 		"\"auto\" (\"cpu\" on Adreno graphics, \"gpu\" on others)." },
+#ifdef HALO_BGFX
+	{ "display.renderer", _config_string, "\"gl\"", "HALO_RENDERER", _environment_value, _platform_desktop,
+		"What draws the game: \"gl\", OpenGL; \"bgfx\", the bgfx test backend\n"
+		"(Metal on macOS), a work in progress. Read at start-up." },
+	{ "display.crt_filter", _config_boolean, "false", "HALO_CRT_FILTER", _environment_set_is_true, _platform_desktop,
+		"A CRT look over the picture (scanlines, curvature, phosphor mask); the\n"
+		"bgfx renderer only, for now." },
+#endif
 #ifdef HALO_SWITCH_CONSOLE
 	/* the Switch's (port/switch): read by the deko3d renderer in the guest
 	(port/switch/guest/d3d8_dk.c) and by the host from config.toml itself */

@@ -1005,6 +1005,23 @@ void halo_menus_log(char const *file, long line, char const *message, char const
 {
 	platform_log("menus: %s:%ld: %s%s%s", file ? file : "?", line, message, detail ? " " : "", detail ? detail : "");
 }
+#ifdef HALO_BGFX
+/* (a menu's texture, the renderer's: OpenGL's or the bgfx backend's) */
+static void menu_art_delete(unsigned int texture)
+{
+	if (xgpu_bgfx)
+	{
+		xgpu_bgfx_texture_delete(texture);
+		return;
+	}
+	{
+		GLuint name = texture;
+
+		glDeleteTextures(1, &name);
+	}
+}
+#endif
+
 
 /* ---------- art */
 
@@ -1049,7 +1066,11 @@ void halo_menus_art_register(void const *texture, char const *png)
 	{
 		free(art[index].png);
 		if (art[index].texture)
+#ifdef HALO_BGFX
+			menu_art_delete(art[index].texture);
+#else
 			glDeleteTextures(1, &art[index].texture);
+#endif
 	}
 	memset(&art[index], 0, sizeof(art[index]));
 	art[index].data = data;
@@ -1067,7 +1088,11 @@ void halo_menus_art_forget(void)
 	{
 		free(art[index].png);
 		if (art[index].texture)
+#ifdef HALO_BGFX
+			menu_art_delete(art[index].texture);
+#else
 			glDeleteTextures(1, &art[index].texture);
+#endif
 	}
 	art_count = 0;
 #ifdef HALO_CONSOLE_HOST_ART
