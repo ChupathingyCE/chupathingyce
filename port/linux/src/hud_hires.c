@@ -305,6 +305,16 @@ static unsigned int png_pixels_texture(unsigned char *pixels, unsigned long widt
 	*levels = 1;
 	for (largest = width > height ? width : height; largest > 1; largest >>= 1)
 		(*levels)++;
+#ifdef HALO_BGFX
+	if (xgpu_bgfx)
+	{
+		/* (the bgfx backend's texture: d3d8_bgfx.inl) */
+		unsigned int name = xgpu_bgfx_texture_create(width, height, pixels, TRUE);
+
+		free(pixels);
+		return name;
+	}
+#endif
 	glGenTextures(1, &texture);
 	glBindTexture(GL_TEXTURE_2D, texture);
 	xgpu_gl_state_invalidate();

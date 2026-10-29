@@ -466,7 +466,7 @@ A few people look for most:
 | `audio.volume`, `audio.music_volume`, `audio.effects_volume` | Volumes, from 0.0 to 1.0. |
 | `audio.device` | The output the sound plays on, by name (Audio Setup lists them); `"default"` follows the system's default output. |
 | `audio.channels` | `"auto"` follows your output (5.1 on a 6-channel device, 7.1 on 8, else stereo); `"stereo"`, `"5.1"` or `"7.1"` set it. Desktop only; read at start. |
-| `audio.hrtf` | Headphone 3D sound: `"off"` (the default), `"on"`, or `"auto"` (on when the output's name says headphones). Stereo output only. |
+| `audio.hrtf` | Headphone 3D sound, as the Xbox's 3D sound: `"on"` (the default), `"off"` (for speakers, if it sounds odd), or `"auto"` (on when the output's name says headphones). Stereo output only. |
 | `audio.doppler` | Moving sounds shift in pitch as on the Xbox (on by default). |
 | `input.mouse_sensitivity`, `input.invert_mouse` | Mouse aim. |
 | `input.keyboard_prompts` | Button prompts follow the device you used last: keys after the keyboard or mouse, as Halo PC did, and buttons after a controller. This setting is no longer in the menus; `false` keeps the controller's buttons everywhere. |
@@ -711,7 +711,8 @@ with their authors credited in each commit.
   (the dedicated servers) no longer refuse every join after one arrived as a
   game ended.
 - [HiIAmMoot](https://github.com/HiIAmMoot) (Mootjuh): the Android menus by
-  touch, and `debug.solo_game` (a multiplayer game started alone).
+  touch, and starting a multiplayer game alone (`game.start_with_one_player`,
+  first `debug.solo_game`), now on by default.
 - [oatkrs](https://github.com/oatkrs) (Utkarsh): crisp windowed rendering and no
   audio cut-outs on macOS, and a corrupted script thread dropped instead of
   halting the game.

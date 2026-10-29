@@ -142,7 +142,7 @@
 		<string text="Adjust the effects and speech volume."/>
 		<string text="Choose the audio output device."/>
 		<string text="Stereo or surround. Takes effect on restart."/>
-		<string text="3D sound for headphones. Auto: on with headphones."/>
+		<string text="3D sound as on the Xbox. Turn off for speakers."/>
 		<string text="Room echo, and muffled sound behind walls."/>
 		<string text="Pitch shift of moving sounds, as on the Xbox."/>
 		<string text="Turn all sound on or off. Takes effect on restart."/>

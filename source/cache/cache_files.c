@@ -276,6 +276,10 @@ typedef char verify_cache_file_globals_size[
 typedef char verify_cache_file_header_size[
 	sizeof(struct cache_file_header) == 0x800 ? 1 : -1];
 
+/* port: called with a map's name once its tags have loaded (the renderer's,
+d3d8_gl.c, when it wants it) */
+void (*cache_file_map_loaded_hook)(char const *map_name);
+
 /* ---------- prototypes */
 
 static struct cache_file_tag_instance *cache_get_tag_instance(
@@ -1806,6 +1810,10 @@ long scenario_tags_load(
 
 				menu_tags_loaded(cache_file_globals.header.name);
 			}
+			/* port: the renderer's, to make this map's shaders during its
+			 * loading screen (port/linux/src/d3d8_gl.c sets it) */
+			if (cache_file_map_loaded_hook)
+				cache_file_map_loaded_hook(cache_file_globals.header.name);
 			/* port: the bitmaps the high-res HUD stands for (port/linux/game/hud_hires_tags.c) */
 #ifndef HALO_CONSOLE_NO_HIRES
 			{
