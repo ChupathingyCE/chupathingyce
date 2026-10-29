@@ -7234,7 +7234,7 @@ static boolean host_setup_value(short row, wchar_t *text)
 		if (host_setup.port)
 			usnprintf(text, ROW_TEXT_LENGTH - 1, L"%ld", host_setup.port);
 		else
-			ustrncpy(text, L"AUTO", ROW_TEXT_LENGTH - 1);
+			ustrncpy(text, L"RANDOM", ROW_TEXT_LENGTH - 1);
 		return TRUE;
 	case _host_row_game_type:
 		host_game_type_text(text);
@@ -7292,8 +7292,8 @@ static wchar_t const *host_setup_help(short row)
 	case _host_row_password:
 		return L"Required to join from the game list.";
 	case _host_row_port:
-		return host_help_with_status(L"The UDP port for internet play. Applies on restart.", with_status,
-			NUMBEROF(with_status));
+		return host_help_with_status(L"The UDP port for hosting. Forward it on your router if friends can't join.",
+			with_status, NUMBEROF(with_status));
 	case _host_row_game_type:
 		return L"Choose the game type. %a-button edits it.";
 	case _host_row_team_change:

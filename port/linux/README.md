@@ -483,11 +483,14 @@ When a version changes the default of settings that a `config.toml` has
 untouched (commented out, or not there), the game asks once, before the
 window opens, in a message box on the desktop and on Android: "Use the new
 settings" or "Keep mine" (Return and Escape). It lists the changes in words
-(smoother edges, sharper shadows, the Chupathingy menus, and on Android a
-larger audio buffer). Until it is answered, the settings keep their old
-values and the file is left as it is. "Keep mine" writes the old values into
-`config.toml`; "Use the new settings" lets them follow the new defaults. The
-answer is `game.defaults_answered`; the question does not come again. A new
+(smoother edges, sharper shadows, the Chupathingy menus, on Android a
+larger audio buffer, and since 0.8.1b a fixed port for hosting, UDP 2302).
+Until it is answered, the settings keep their old values and the file is
+left as it is. "Keep mine" writes the old values into `config.toml`; "Use
+the new settings" lets them follow the new defaults. The answer is
+`game.defaults_answered` (the number of the last set of changes asked
+about); the question does not come again for those, and a later version
+asks only about its own changes. A new
 `config.toml` has the new defaults and is not asked. A run without anyone to
 answer (a hidden window, a test) logs the question and keeps the old values.
 The dedicated server never asks and keeps its own defaults.
@@ -591,7 +594,7 @@ the setting for one start of the game. It has priority over the file.
 | `network.copy_to_clipboard` | `false` | `HALO_NET_COPY_TO_CLIPBOARD` | `true`: when this copy starts to host a game, its invite link goes on the clipboard. `false`: the game leaves the clipboard alone; the link is in the log, and INVITE LINK in the Gearbox menus' Server Settings copies it. Network Settings in the Chupathingy and Gearbox menus. |
 | `network.map_downloads` | `"ask"` | `HALO_NET_MAP_DOWNLOADS` | A Custom Edition map a game you join needs and you don't have, from the community map repositories (maps.halonet.net and its mirrors, as Chimera downloads from them). `"ask"`: the Online Games screen offers to download it (Yes, No, Don't ask again, which writes `"always"` or `"never"` here). `"always"`: downloaded without asking. `"never"`: the game only says which map is missing. Network Settings in the PC menus. The map is checked before it goes in `maps_ce`: refer to "Halo PC maps" in the [README](../../README.md). Not on the dedicated server. |
 | `network.playlist_downloads` | `"ask"` | `HALO_NET_PLAYLIST_DOWNLOADS` | When you join a game of a verified playlist, its map set (refer to [docs/playlist-maps.md](../../docs/playlist-maps.md)): `"ask"` says which of its maps you don't have and offers to download them (Yes, No, Don't ask again, which writes `"always"` or `"never"` here); `"always"` downloads them without asking; `"never"` doesn't check. Each file is checked against the signed list before it goes in its folder. Separate from `network.map_downloads`. Desktop and Android. |
-| `network.tunnel_port` | `0` | `HALO_NET_TUNNEL_PORT` | The UDP port for internet play. `0`: the game selects a port. Refer to "Internet play". |
+| `network.tunnel_port` | `2302` on the desktop and Android, `0` on the consoles and the server | `HALO_NET_TUNNEL_PORT` | The UDP port for internet play. At its default, every copy of the game starts on a port it selects, and moves to 2302 when it hosts an internet game (Server Setup, or the game's start); if another program has 2302, the next free port up to 2306; if all are taken, the selected port stays. The log names the port. A port that you set (in the file, Server Setup's PORT, or the environment variable) is used from the start, to join as well as to host, and no other is tried. `0`: the game selects a port each run, also to host. Refer to "Internet play". |
 | `network.allow_upnp` | `true` | `HALO_NET_ALLOW_UPNP` | `true`: internet play can ask the router to forward its port (UPnP). `false`: the game does not ask. Refer to "Internet play". |
 | `network.protocol` | `"auto"` | `HALO_NET_PROTOCOL` | Delta Peer, the messages between ChupathingyCE machines beside OpenCE's protocol (UDP port 5160; `docs/delta.md`). `"auto"`: Delta with the machines that speak it, plain OpenCE with the others. `"opence"`: Delta off. `"delta"`: as `"auto"` for now. |
 | `network.chat` | `"on"` | `HALO_NET_CHAT` | Text chat in the games this copy hosts: `"on"`, `"team"` (team lines alone) or `"off"`. |
@@ -1031,13 +1034,16 @@ punching). There is no relay.
 
 Some networks give a different port for each destination (for example some
 mobile and company networks). Two machines behind such networks cannot
-connect. To connect, forward `network.tunnel_port` on the router of one of
-the machines.
+connect. To connect, forward the host's port (UDP 2302 by default,
+`network.tunnel_port`) on its router to the host. Server Setup's status line
+names the port, and says "Forward UDP <port> on your router to this
+computer" when UPnP did not forward it.
 
 The game can ask the router to forward the port (UPnP,
 `src/posix_upnp.c`, with `port/third_party/miniupnpc`):
 
-- The host asks its router when a player uses its invite.
+- The host asks its router when it hosts an internet game, for the port
+  it hosts on. Another copy of the game asks when a player uses its invite.
 - A player that joins asks its router when it does not reach the host in
   5 seconds.
 - The forwarded port is one more address that the machine gives to the
