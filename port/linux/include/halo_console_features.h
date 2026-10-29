@@ -145,6 +145,17 @@ HALO_CONSOLE_PARTICLE_TICKS
 	their collision tests spared at 60 frames a second. The desktop builds
 	default to moving them at every frame drawn, smooth at high refresh
 	rates, and opt in
+HALO_CONSOLE_XBOX_MAP_SIZES
+	a console that plays the Xbox's own maps only (no Custom Edition or
+	Halo PC maps): tables the desktop builds size for those maps are sized
+	for the Xbox's. The lens flares' occlusion results hold 8,192 rows,
+	not 32,768 (source/rasterizer/rasterizer_lights.c; the most markers in
+	a retail or Halo CE+ map's BSP is d40's 4,616): 96 KB less. The
+	vehicles that respawn where the map put them are 256, not 1,024
+	(source/game/game_engine.c; the most a retail or Halo CE+ map places
+	is b40's 74): 39 KB less. A map past either limit loses only what is
+	past it: the lens flares past it (said once in debug.txt), or those
+	vehicles' respawn
 
 A big-endian console (HALO_BIG_ENDIAN, its prefix header) reads the maps,
 which are the Xbox's, little-endian, through port/console/game's byte swap
@@ -190,6 +201,7 @@ compile lines: source/cseries/xbox_address.h).
 #define HALO_CONSOLE_ONLINE_GAMES 1
 #define HALO_CONSOLE_OVERSIZED_MAPS 1
 #define HALO_CONSOLE_LIGHT_LIMITS 1
+#define HALO_CONSOLE_XBOX_MAP_SIZES 1
 #endif
 
 /* (the desktop builds copy maps to the Xbox's cache files too: a map pack's

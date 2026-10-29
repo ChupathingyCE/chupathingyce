@@ -365,8 +365,25 @@ globals after it (scenario_globals among them): Windows x64 crash reports on
 0.8.0d, on a big Custom Edition map. It is defined here, at its real size. */
 struct rasterizer_lights rasterizer_lights = {0};
 
+/* port: the rows of the queued lens flares' and the BSP markers' occlusion
+results (local_lens_flare_occlusion_test_results2): the queued flares'
+first, then a row for each marker. A marker's row goes into a short, so no
+more than SHORT_MAX+1 rows are ever reached (rasterizer_lens_flare_submit_for_cluster
+stops there); the Xbox's array had MAXIMUM_LENS_FLARE_MARKERS_PER_STRUCTURE
+of them, half never used. A console that plays only the Xbox's maps
+(HALO_CONSOLE_XBOX_MAP_SIZES) holds 8,192: the most markers in a retail or
+Halo CE+ map's BSP is d40's 4,616 */
+enum
+{
+#ifdef HALO_CONSOLE_XBOX_MAP_SIZES
+	LENS_FLARE_OCCLUSION_RESULT_ROWS = 8192,
+#else
+	LENS_FLARE_OCCLUSION_RESULT_ROWS = SHORT_MAX+1,
+#endif
+};
+
 static struct lens_flare_occlusion_test_results local_lens_flare_occlusion_test_results[MAXIMUM_LIGHTS_PER_MAP] = {0};
-static byte local_lens_flare_occlusion_test_results2[MAXIMUM_LENS_FLARE_MARKERS_PER_STRUCTURE+MAXIMUM_QUEUED_LENS_FLARES][MAXIMUM_WINDOWS];
+static byte local_lens_flare_occlusion_test_results2[LENS_FLARE_OCCLUSION_RESULT_ROWS][MAXIMUM_WINDOWS];
 static struct rasterizer_lens_flare_submit_parameters local_lens_flare_parameters[MAXIMUM_LENS_FLARES_PER_FRAME] = {0};
 static long local_lens_flare_count = 0;
 extern short global_screenshot_count;
@@ -430,7 +447,7 @@ static byte *lens_flare_occlusion_test_results_get(
 		match_assert(
 			"c:\\halo\\SOURCE\\rasterizer\\rasterizer_lights.c",
 			88,
-			structure_lens_flare_index>=0 && structure_lens_flare_index<(MAXIMUM_LENS_FLARE_MARKERS_PER_STRUCTURE+MAXIMUM_QUEUED_LENS_FLARES));
+			structure_lens_flare_index>=0 && structure_lens_flare_index<LENS_FLARE_OCCLUSION_RESULT_ROWS);
 
 		return &local_lens_flare_occlusion_test_results2[structure_lens_flare_index][window_index];
 	}
@@ -795,10 +812,11 @@ void rasterizer_lens_flare_submit_for_cluster(
 		/* port: only markers the BSP has, and no more than the occlusion
 		results hold: a marker's index goes into a short, read back sign
 		extended (rasterizer_lens_flare_submit), with the queued flares'
-		after it (a map's range: past it the index wrapped negative) */
+		before it (a map's range: past SHORT_MAX+1 rows the index wrapped
+		negative), and a console's fewer rows (LENS_FLARE_OCCLUSION_RESULT_ROWS) */
 		long marker_count= MIN(
 			structure_bsp->lens_flare_markers.count,
-			SHORT_MAX+1-MAXIMUM_QUEUED_LENS_FLARES);
+			LENS_FLARE_OCCLUSION_RESULT_ROWS-MAXIMUM_QUEUED_LENS_FLARES);
 
 		for (lens_flare_marker_index= 0; lens_flare_marker_index<cluster->lens_flare_marker_count; lens_flare_marker_index++)
 		{
