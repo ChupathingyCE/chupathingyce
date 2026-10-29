@@ -633,6 +633,22 @@ static boolean hud_draw_multitexture_overlay_get_current_weapon_definition(
 	return result;
 }
 
+/* port: the Xbox point sampled the HUD's multitexture overlays and meters
+for one player, whose HUD it drew texel for pixel at 640x480, and filtered
+them for split screen, whose HUD it scaled. Drawn at any other size they are
+scaled too, and point sampling gives them blocky, uneven edges (the most on a
+Custom Edition map's HUD, whose high resolution bitmaps are drawn at half
+their size): filtered then, as split screen's were.
+display.resolution_scaling = "original" draws at 640x480, texel for pixel. */
+static boolean hud_point_sampled(
+	real_vector2d const *xy_scale)
+{
+	return local_player_count() == 1 &&
+		halo_screen_scale() == 1.0f &&
+		xy_scale->i == 1.0f &&
+		xy_scale->j == 1.0f;
+}
+
 static void hud_draw_multitexture_overlay(
 	struct multitexture_overlay_hud_element_definition const *overlay,
 	short local_player_index,
@@ -711,7 +727,7 @@ static void hud_draw_multitexture_overlay(
 	parameters.map_scale[0].j = 1.0f;
 	parameters.map_scale[0].i = 1.0f;
 	parameters.meter_parameters = NULL;
-	parameters.point_sampled = local_player_count() == 1;
+	parameters.point_sampled = hud_point_sampled(xy_scale);
 	parameters.map[0] = bitmap_group_get_bitmap_from_sequence(
 		overlay->map[0].index,
 		0,
@@ -1608,7 +1624,7 @@ static void hud_draw_bitmap_internal(
 	parameters.map_scale[0].j = 1.0f;
 	parameters.map_scale[0].i = 1.0f;
 	parameters.meter_parameters = meter_parameters;
-	parameters.point_sampled = meter_parameters && local_player_count()==1;
+	parameters.point_sampled = meter_parameters && hud_point_sampled(xy_scale);
 	parameters.framebuffer_blend_function =
 		_shader_framebuffer_blend_function_alpha_multiply_add;
 	parameters.map[0] = (struct bitmap_data *)bitmap;
