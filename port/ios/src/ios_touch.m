@@ -6,7 +6,8 @@ The on-screen touch controls, and the hooks the game reads them through
 port/android/host/host_touch.c serves on Android from its overlay
 (port/android/app/.../TouchControls.java). This is that overlay for iOS: a
 view over SDL's, with the stick, the controller's buttons and swipe aiming,
-laid out as Android's defaults (TouchLayout.java) in the safe area.
+laid out in the safe area: smoked glass, Xbox-coloured face buttons, symbols on
+the small ones (the table below, and "how the controls look").
 
 It shows only in a game, never over the menus or a cinematic (which take
 taps themselves, through SDL's view below), and with input.touch_controls
@@ -99,35 +100,54 @@ enum
 };
 
 /* the controls, in TouchLayout.java's order: SDL_GamepadButton bits, or
-SDL's trigger axes 4 and 5; at 960x540, as Android lays them out */
+SDL's trigger axes 4 and 5. Their places are this port's own, at 960x540:
+the face buttons a diamond under the right thumb, Fire and Grenade above
+them where an index finger or the thumb reaches up, the stick under the
+left thumb with the D-pad above it, and the rarely pressed small ones as
+pills along the top and bottom edges. Each shows a big glyph (a letter, a
+word) or an SF Symbol, with a caption under it on the round ones: a pill's
+radius is half its height, and half_width its half width (0: a circle) */
 #define CONTROL_COUNT 18
 #define CONTROL_STICK 16
 static const struct
 {
 	const char *label;
+	const char *glyph, *symbol, *caption;
+	/* the glyph's or symbol's colour, 0xRRGGBB */
+	unsigned int tint;
 	int bit, trigger;
-	float x, y, radius;
+	float x, y, radius, half_width;
 } controls[CONTROL_COUNT] =
 {
-	{ "A / Jump", 0, -1, 856, 447, 36 },
-	{ "B / Melee", 1, -1, 913, 377, 32 },
-	{ "X / Reload", 2, -1, 794, 377, 34 },
-	{ "Y / Weapon", 3, -1, 850, 312, 32 },
-	{ "Fire", -1, 5, 915, 239, 39 },
-	{ "Grenade", -1, 4, 802, 239, 35 },
-	{ "Crouch", 7, -1, 236, 449, 32 },
-	{ "Zoom", 8, -1, 691, 449, 32 },
-	{ "Light", 9, -1, 360, 490, 27 },
-	{ "Gren. type", 10, -1, 438, 490, 29 },
-	{ "Pause", 6, -1, 570, 36, 28 },
-	{ "Back", 4, -1, 390, 36, 28 },
-	{ "Up", 11, -1, 100, 237, 25 },
-	{ "Down", 12, -1, 100, 335, 25 },
-	{ "Left", 13, -1, 51, 286, 25 },
-	{ "Right", 14, -1, 149, 286, 25 },
-	{ "Move", -1, -1, 115, 440, 64 },
-	{ "Fire", -1, 5, 255, 239, 39 },
+	{ "A, jump", "A", NULL, "JUMP", 0x6fd16f, 0, -1, 862, 452, 36, 0 },
+	{ "B, melee", "B", NULL, "MELEE", 0xf0625a, 1, -1, 926, 384, 31, 0 },
+	{ "X, reload", "X", NULL, "RELOAD", 0x58a6ff, 2, -1, 798, 384, 31, 0 },
+	{ "Y, switch weapon", "Y", NULL, "WEAPON", 0xf5c542, 3, -1, 862, 318, 31, 0 },
+	{ "Fire", "FIRE", NULL, NULL, 0xffffff, -1, 5, 906, 212, 44, 0 },
+	{ "Grenade", "GRENADE", NULL, NULL, 0xffffff, -1, 4, 796, 232, 34, 0 },
+	{ "Crouch", "CROUCH", NULL, NULL, 0xffffff, 7, -1, 252, 474, 30, 0 },
+	{ "Zoom", NULL, "scope", "ZOOM", 0xffffff, 8, -1, 700, 474, 30, 0 },
+	{ "Flashlight", "LIGHT", "flashlight.on.fill", NULL, 0xffffff, 9, -1, 398, 508, 17, 48 },
+	{ "Switch grenade", "SWAP", "arrow.triangle.2.circlepath", NULL, 0xffffff, 10, -1, 562, 508, 17, 48 },
+	{ "Pause", "PAUSE", "pause.fill", NULL, 0xffffff, 6, -1, 594, 34, 17, 48 },
+	{ "Back", "BACK", "chevron.backward", NULL, 0xffffff, 4, -1, 366, 34, 17, 48 },
+	{ "Up", NULL, "chevron.up", NULL, 0xffffff, 11, -1, 190, 214, 22, 0 },
+	{ "Down", NULL, "chevron.down", NULL, 0xffffff, 12, -1, 190, 286, 22, 0 },
+	{ "Left", NULL, "chevron.left", NULL, 0xffffff, 13, -1, 154, 250, 22, 0 },
+	{ "Right", NULL, "chevron.right", NULL, 0xffffff, 14, -1, 226, 250, 22, 0 },
+	{ "Move", NULL, NULL, "MOVE", 0xffffff, -1, -1, 138, 408, 68, 0 },
+	{ "Fire", "FIRE", NULL, NULL, 0xffffff, -1, 5, 72, 206, 40, 0 },
 };
+
+/* the hide toggle: a pill at the top's middle */
+#define TOGGLE_RADIUS 17
+#define TOGGLE_HALF_WIDTH 36
+
+/* how far a control reaches each way from its centre (a pill wider than tall) */
+static CGFloat control_half_width(int index)
+{
+	return MAX(controls[index].radius, controls[index].half_width);
+}
 
 /* what a finger holds: a control, the view, or the hide toggle */
 #define HELD_NONE (-1)
@@ -255,9 +275,9 @@ connected */
 	logical = CGSizeMake(width / scale, height / scale);
 	for (index = 0; index < CONTROL_COUNT; index++)
 	{
-		CGFloat radius = controls[index].radius;
+		CGFloat radius = controls[index].radius, half_width = control_half_width(index);
 
-		position[index].x = MAX(radius, MIN(logical.width - radius, controls[index].x * logical.width / 960.0));
+		position[index].x = MAX(half_width, MIN(logical.width - half_width, controls[index].x * logical.width / 960.0));
 		position[index].y = MAX(radius, MIN(logical.height - radius, controls[index].y * logical.height / 540.0));
 	}
 	[self avoidFold];
@@ -278,17 +298,17 @@ its centre is on (the fold, in the overlay's points, from the app) */
 	fold = CGRectMake((frame[0] - offset.x) / scale, (frame[1] - offset.y) / scale, frame[2] / scale, frame[3] / scale);
 	for (index = 0; index < CONTROL_COUNT; index++)
 	{
-		CGFloat radius = controls[index].radius;
+		CGFloat radius = controls[index].radius, half_width = control_half_width(index);
 		CGPoint *at = &position[index];
 
-		if (!CGRectIntersectsRect(fold, CGRectMake(at->x - radius, at->y - radius, radius * 2, radius * 2)))
+		if (!CGRectIntersectsRect(fold, CGRectMake(at->x - half_width, at->y - radius, half_width * 2, radius * 2)))
 			continue;
 		/* a fold up the screen moves controls sideways, one across it up or down */
 		if (fold.size.height >= fold.size.width)
-			at->x = at->x < CGRectGetMidX(fold) ? CGRectGetMinX(fold) - radius : CGRectGetMaxX(fold) + radius;
+			at->x = at->x < CGRectGetMidX(fold) ? CGRectGetMinX(fold) - half_width : CGRectGetMaxX(fold) + half_width;
 		else
 			at->y = at->y < CGRectGetMidY(fold) ? CGRectGetMinY(fold) - radius : CGRectGetMaxY(fold) + radius;
-		at->x = MAX(radius, MIN(logical.width - radius, at->x));
+		at->x = MAX(half_width, MIN(logical.width - half_width, at->x));
 		at->y = MAX(radius, MIN(logical.height - radius, at->y));
 	}
 }
@@ -302,7 +322,7 @@ its centre is on (the fold, in the overlay's points, from the app) */
 
 - (CGPoint)togglePosition
 {
-	return CGPointMake(logical.width / 2, 38);
+	return CGPointMake(logical.width / 2, 34);
 }
 
 - (void)reset
@@ -345,28 +365,31 @@ its centre is on (the fold, in the overlay's points, from the app) */
 	touch_state_set(next);
 }
 
-static BOOL inside(CGPoint point, CGPoint centre, CGFloat radius)
+/* whether a point is in a circle, or a pill (half_width past its radius) */
+static BOOL inside(CGPoint point, CGPoint centre, CGFloat radius, CGFloat half_width)
 {
-	CGFloat dx = point.x - centre.x, dy = point.y - centre.y;
+	CGFloat dx = fabs(point.x - centre.x) - MAX(0.0, half_width - radius), dy = point.y - centre.y;
 
+	dx = MAX(0.0, dx);
 	return dx * dx + dy * dy <= radius * radius;
 }
 
 /* the control under a finger going down, else HELD_NONE */
 - (int)hit:(CGPoint)point
 {
-	if (inside(point, [self togglePosition], 28))
+	if (inside(point, [self togglePosition], TOGGLE_RADIUS + 6, TOGGLE_HALF_WIDTH + 6))
 		return HELD_TOGGLE;
 	if (!visible)
 		return HELD_NONE;
 	for (int index = 0; index < CONTROL_COUNT; index++)
 	{
-		if (index != CONTROL_STICK && inside(point, position[index], controls[index].radius))
+		if (index != CONTROL_STICK &&
+			inside(point, position[index], controls[index].radius, controls[index].half_width))
 			return index;
 	}
 	/* the stick takes a little more than its circle */
 	if (![self held:CONTROL_STICK] &&
-		inside(point, position[CONTROL_STICK], controls[CONTROL_STICK].radius * 1.28))
+		inside(point, position[CONTROL_STICK], controls[CONTROL_STICK].radius * 1.28, 0))
 		return CONTROL_STICK;
 	return HELD_NONE;
 }
@@ -520,59 +543,166 @@ over (a finger held across the change must not press anything) */
 
 /* ---------- drawing (TouchControls.java circle, stick) */
 
-- (void)circle:(CGContextRef)context at:(CGPoint)centre radius:(CGFloat)radius
-	label:(const char *)label active:(BOOL)active
+/* ---------- how the controls look
+
+Smoked glass: a dark fill the game shows through, a sheen down from the
+top, a thin light rim; pressed, the glass lights up in the launcher's green.
+Fire's rim is the launcher's pink (art/background.svg's neon). */
+
+static UIColor *colour(unsigned int rgb, CGFloat alpha)
 {
-	CGRect box = CGRectMake(centre.x - radius, centre.y - radius, radius * 2, radius * 2);
+	return [UIColor colorWithRed:((rgb >> 16) & 0xff) / 255.0 green:((rgb >> 8) & 0xff) / 255.0
+		blue:(rgb & 0xff) / 255.0 alpha:alpha];
+}
 
-	if (active)
-		CGContextSetRGBFillColor(context, 0x83 / 255.0, 0xd9 / 255.0, 1.0, 0x99 / 255.0);
-	else
-		CGContextSetRGBFillColor(context, 0x30 / 255.0, 0x40 / 255.0, 0x50 / 255.0, 0x55 / 255.0);
-	CGContextFillEllipseInRect(context, box);
-	if (active)
-		CGContextSetRGBStrokeColor(context, 0xae / 255.0, 0xe7 / 255.0, 1.0, 1.0);
-	else
-		CGContextSetRGBStrokeColor(context, 1.0, 1.0, 1.0, 1.0);
-	CGContextSetLineWidth(context, 2);
-	CGContextStrokeEllipseInRect(context, box);
-	if (label && *label)
+#define ACCENT 0x6fd16f
+#define NEON 0xff8fb0
+
+/* the glass of one control, a circle or a pill */
+static void glass(CGContextRef context, CGPoint centre, CGFloat radius, CGFloat half_width,
+	BOOL active, unsigned int rim)
+{
+	CGFloat width = MAX(radius, half_width);
+	CGRect box = CGRectMake(centre.x - width, centre.y - radius, width * 2, radius * 2);
+	UIBezierPath *shape = [UIBezierPath bezierPathWithRoundedRect:box cornerRadius:radius];
+	CGFloat sheen[] = { 1, 1, 1, active ? 0.22 : 0.13, 1, 1, 1, 0 };
+	CGColorSpaceRef space = CGColorSpaceCreateDeviceRGB();
+	CGGradientRef gradient = CGGradientCreateWithColorComponents(space, sheen, NULL, 2);
+
+	[(active ? colour(ACCENT, 0.42) : colour(0x0b1014, 0.34)) setFill];
+	[shape fill];
+	CGContextSaveGState(context);
+	[shape addClip];
+	CGContextDrawLinearGradient(context, gradient, CGPointMake(centre.x, box.origin.y),
+		CGPointMake(centre.x, centre.y + radius * 0.1), 0);
+	CGContextRestoreGState(context);
+	CGGradientRelease(gradient);
+	CGColorSpaceRelease(space);
+	[(active ? colour(ACCENT, 1.0) : colour(rim, rim == 0xffffff ? 0.5 : 0.85)) setStroke];
+	shape.lineWidth = rim == 0xffffff ? 1.25 : 2.0;
+	[shape stroke];
+}
+
+static NSDictionary *text_style(CGFloat size, UIFontWeight weight, UIColor *colour, CGFloat kerning)
+{
+	return @{
+		NSFontAttributeName: [UIFont systemFontOfSize:size weight:weight],
+		NSForegroundColorAttributeName: colour,
+		NSKernAttributeName: @(kerning),
+	};
+}
+
+/* text centred on a point, made smaller to fit a width */
+static void centred_text(const char *text, CGPoint centre, CGFloat size, UIFontWeight weight, UIColor *colour,
+	CGFloat kerning, CGFloat fit)
+{
+	NSString *string = [NSString stringWithUTF8String:text];
+	NSDictionary *style = text_style(size, weight, colour, kerning);
+	CGSize measured = [string sizeWithAttributes:style];
+
+	if (measured.width > fit)
 	{
-		NSString *text = [NSString stringWithUTF8String:label];
-		NSDictionary *attributes = @{
-			NSFontAttributeName: [UIFont systemFontOfSize:11 weight:UIFontWeightSemibold],
-			NSForegroundColorAttributeName: UIColor.whiteColor,
-		};
-		CGSize size = [text sizeWithAttributes:attributes];
-
-		[text drawAtPoint:CGPointMake(centre.x - size.width / 2, centre.y - size.height / 2)
-			withAttributes:attributes];
+		style = text_style(size * fit / measured.width, weight, colour, kerning * fit / measured.width);
+		measured = [string sizeWithAttributes:style];
 	}
+	[string drawAtPoint:CGPointMake(centre.x - measured.width / 2, centre.y - measured.height / 2) withAttributes:style];
+}
+
+/* an SF Symbol, its size points tall at most, centred on a point */
+static CGFloat symbol(const char *name, CGPoint centre, CGFloat size, UIColor *colour)
+{
+	UIImageSymbolConfiguration *configuration =
+		[UIImageSymbolConfiguration configurationWithPointSize:size weight:UIImageSymbolWeightSemibold];
+	UIImage *image = [[UIImage systemImageNamed:[NSString stringWithUTF8String:name] withConfiguration:configuration]
+		imageWithTintColor:colour renderingMode:UIImageRenderingModeAlwaysOriginal];
+
+	if (!image)
+		return 0;
+	[image drawInRect:CGRectMake(centre.x - image.size.width / 2, centre.y - image.size.height / 2,
+		image.size.width, image.size.height)];
+	return image.size.width;
+}
+
+- (void)drawControl:(int)index context:(CGContextRef)context
+{
+	CGPoint centre = position[index];
+	CGFloat radius = controls[index].radius, half_width = controls[index].half_width;
+	BOOL active = [self held:index];
+	UIColor *tint = colour(controls[index].tint, 0.95);
+
+	glass(context, centre, radius, half_width, active, controls[index].trigger == 5 ? NEON : 0xffffff);
+	if (half_width > radius)
+	{
+		/* a pill: its symbol, then its word, side by side */
+		NSString *word = [NSString stringWithUTF8String:controls[index].glyph];
+		NSDictionary *style = text_style(10.5, UIFontWeightBold, colour(0xffffff, 0.92), 1.2);
+		CGFloat text = [word sizeWithAttributes:style].width, icon = 15, gap = 6;
+		CGFloat left = centre.x - (icon + gap + text) / 2;
+
+		symbol(controls[index].symbol, CGPointMake(left + icon / 2, centre.y), 11, tint);
+		centred_text(controls[index].glyph, CGPointMake(left + icon + gap + text / 2, centre.y), 10.5,
+			UIFontWeightBold, colour(0xffffff, 0.92), 1.2, half_width * 2);
+		return;
+	}
+	if (controls[index].caption)
+	{
+		/* a letter or symbol over a small caption */
+		CGPoint top = CGPointMake(centre.x, centre.y - radius * 0.16);
+
+		if (controls[index].glyph)
+			centred_text(controls[index].glyph, top, radius * 0.78, UIFontWeightHeavy, tint, 0, radius * 1.4);
+		else
+			symbol(controls[index].symbol, top, radius * 0.5, tint);
+		centred_text(controls[index].caption, CGPointMake(centre.x, centre.y + radius * 0.5), 7.5,
+			UIFontWeightBold, colour(0xffffff, 0.7), 0.9, radius * 1.5);
+	}
+	else if (controls[index].glyph)
+		centred_text(controls[index].glyph, centre, radius * 0.36, UIFontWeightHeavy, tint, 1.4, radius * 1.55);
+	else
+		symbol(controls[index].symbol, centre, radius * 0.62, tint);
+}
+
+/* the stick: a ringed base with its caption, and the knob where it is */
+- (void)drawStick:(CGContextRef)context
+{
+	CGPoint centre = position[CONTROL_STICK];
+	CGFloat radius = controls[CONTROL_STICK].radius;
+	BOOL active = [self held:CONTROL_STICK];
+	CGPoint knob = CGPointMake(centre.x + stick[0] / 32767.0 * radius, centre.y + stick[1] / 32767.0 * radius);
+
+	glass(context, centre, radius, 0, NO, 0xffffff);
+	[colour(0xffffff, 0.14) setStroke];
+	CGContextSetLineWidth(context, 1);
+	CGContextStrokeEllipseInRect(context, CGRectInset(CGRectMake(centre.x - radius, centre.y - radius,
+		radius * 2, radius * 2), radius * 0.42, radius * 0.42));
+	centred_text(controls[CONTROL_STICK].caption, CGPointMake(centre.x, centre.y + radius * 0.74), 7.5,
+		UIFontWeightBold, colour(0xffffff, 0.6), 1.4, radius);
+	glass(context, knob, radius * 0.4, 0, active, 0xffffff);
 }
 
 - (void)drawRect:(CGRect)rect
 {
 	CGContextRef context = UIGraphicsGetCurrentContext();
+	CGPoint toggle;
 
 	if (![self shown])
 		return;
 	CGContextSaveGState(context);
 	CGContextTranslateCTM(context, offset.x, offset.y);
 	CGContextScaleCTM(context, scale, scale);
-	[self circle:context at:[self togglePosition] radius:28 label:visible ? "Hide" : "Touch" active:NO];
+	/* the hide toggle, always: dimmer while the controls are hidden */
+	toggle = [self togglePosition];
+	glass(context, toggle, TOGGLE_RADIUS, TOGGLE_HALF_WIDTH, NO, 0xffffff);
+	symbol(visible ? "eye.slash" : "hand.tap", CGPointMake(toggle.x - 17, toggle.y), 11, colour(0xffffff, 0.9));
+	centred_text(visible ? "HIDE" : "SHOW", CGPointMake(toggle.x + 9, toggle.y), 10.5, UIFontWeightBold,
+		colour(0xffffff, 0.92), 1.2, 40);
 	if (visible)
 	{
-		CGPoint centre = position[CONTROL_STICK];
-		CGFloat radius = controls[CONTROL_STICK].radius;
-
-		[self circle:context at:centre radius:radius label:"Move" active:NO];
-		[self circle:context at:CGPointMake(centre.x + stick[0] / 32767.0 * radius, centre.y + stick[1] / 32767.0 * radius)
-			radius:24 label:"" active:[self held:CONTROL_STICK]];
+		[self drawStick:context];
 		for (int index = 0; index < CONTROL_COUNT; index++)
 		{
 			if (index != CONTROL_STICK)
-				[self circle:context at:position[index] radius:controls[index].radius
-					label:controls[index].label active:[self held:index]];
+				[self drawControl:index context:context];
 		}
 	}
 	CGContextRestoreGState(context);
