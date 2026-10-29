@@ -93,11 +93,11 @@ CHANGED = {
 }
 # the changes of the second question (game.defaults_answered = 2) and of
 # the latest (CONFIG_DEFAULTS_GENERATION): a file answered for the first
-# (v0.8.0's) is asked about both, one answered for the second about the
+# (v0.8.0's) is asked about both, one answered for a later one about the
 # latest alone
 SECOND = ["network.tunnel_port"]
 LATEST = ["audio.hrtf"]
-GENERATION = "3"
+GENERATION = "4"
 NEW = {"display.menus": "chupathingy"}
 
 # the macros each kind of build is compiled with; the others are not macOS
@@ -322,7 +322,7 @@ def test_previous_release_file(program, directory, defaults, kind):
 
 
 def test_answered_earlier(program, directory, defaults, kind):
-	"""A file answered at the question before (defaults_answered = 2): asked
+	"""A file answered at the question before (defaults_answered = 3): asked
 	about the latest changes only (Headphone 3D), and a value kept then stays
 	whatever the answer now. A Headphone 3D the player set themselves, on,
 	off or auto, is never asked about nor changed."""
@@ -342,7 +342,7 @@ def test_answered_earlier(program, directory, defaults, kind):
 			written, flags=re.M)
 		written = re.sub(r"^# tunnel_port = .*$", f'# tunnel_port = {defaults.get("network.tunnel_port", "0")}',
 			written, flags=re.M)
-		written = re.sub(r"^# defaults_answered = .*$", "defaults_answered = 2", written, flags=re.M)
+		written = re.sub(r"^# defaults_answered = .*$", "defaults_answered = 3", written, flags=re.M)
 		case.path.write_text(written)
 		values, _ = case.get("audio.hrtf", "display.shadow_resolution")
 		check(values["audio.hrtf"] == "off", f"earlier/{answer}: audio.hrtf is {values['audio.hrtf']} before the answer")

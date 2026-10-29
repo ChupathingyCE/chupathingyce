@@ -1366,10 +1366,10 @@ before config_version, wrote every value, which kept a default a later
 version changed) */
 #define CONFIG_VERSION 2
 /* the defaults the game has asked about (game.defaults_answered): 1, the
-ones of v0.8.0; 2, network.tunnel_port's 2302 (v0.8.1b); 3, Headphone 3D
-on. A file answered for an earlier generation is asked about the later ones
-only */
-#define CONFIG_DEFAULTS_GENERATION 3
+ones of v0.8.0; 2, network.tunnel_port's 2302 (v0.8.1b); 4, Headphone 3D
+on (3 is Start alone's). A file answered for an earlier generation is asked
+about the later ones only */
+#define CONFIG_DEFAULTS_GENERATION 4
 #define CONFIG_VERSION_LINE "config_version = 2\n"
 #define CONFIG_VERSION_LINES "# The layout of this file, for the game: leave it.\n" CONFIG_VERSION_LINE
 #define CONFIG_VERSION_TEXT "\n" CONFIG_VERSION_LINES
@@ -1908,7 +1908,7 @@ static const struct
 #ifndef HALO_CONSOLE
 	/* the stereo pan, the default until Headphone 3D matched the Xbox (a
 	file that names "off" keeps it) */
-	{ "audio.hrtf", "\"off\"", 0, "Headphone 3D on, as the original Xbox did", 3 },
+	{ "audio.hrtf", "\"off\"", 0, "Headphone 3D on, as the original Xbox did", 4 },
 #endif
 };
 
