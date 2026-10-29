@@ -1697,6 +1697,14 @@ long scenario_tags_load(
 
 				ce_hud_tags_loaded(global_tag_instances, ce_header->tag_count);
 			}
+			/* port: the pause menu's rows, as a stock map's get them
+			(port/linux/game/menu_tags.c: Halo PC's CHANGE SETTINGS and GAME
+			OPTIONS give way to the menus' own) */
+			{
+				extern void menu_tags_loaded(char const *map_name);
+
+				menu_tags_loaded(cache_file_globals.header.name);
+			}
 			return ce_header->scenario_tag_index;
 		}
 #endif

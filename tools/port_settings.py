@@ -96,6 +96,8 @@ SCREENS = {
             ("VIEWMODEL FOV:", "display.viewmodel_field_of_view",
              [("SAME", "0")] + [(f"{value}", f"{value}") for value in (50, 55, 60, 65, 70, 75, 80, 85, 90)],
              "How wide your weapon is drawn. Same follows the view.", None),
+            ("RETICLE FOLLOWS FOV:", "display.reticle_scales_with_fov", ON_OFF,
+             "Size the reticle to the field of view, so it matches\nthe weapon's spread.", None),
         ],
         # (rows that open a nested list in the same screen: VIEWS)
         "views": [
@@ -546,7 +548,7 @@ def _controls_rows() -> tuple:
                                ("bitmap", "bitmaps/option_bkds"), ("color", "#FF2896FF")],
                          ['<on event="a" run="controls begin binding"/>',
                           '<on event="start" run="controls begin binding"/>',
-                          '<on event="left right" run="controls binding slot"/>',
+                          '<on event="left right stick_left stick_right white black" run="controls binding slot"/>',
                           f'<child{attributes([("widget", f"{base}/command_label")])}/>',
                           f'<child{attributes([("widget", f"{base}/command_binding"), ("x", 200)])}/>',
                           f'<child{attributes([("widget", f"{base}/command_binding"), ("x", 356)])}/>'])
