@@ -156,6 +156,15 @@ random port (0), as before. */
 #define DEFAULT_TUNNEL_PORT "2302"
 #endif
 
+/* A game you host starts with only you by default (the older
+debug.solo_game, from Mootjuh, is the same setting). The dedicated server
+keeps waiting for a second player: it never needs this. */
+#ifdef HALO_SERVER
+#define DEFAULT_START_ALONE "false"
+#else
+#define DEFAULT_START_ALONE "true"
+#endif
+
 static const struct config_setting config_settings[] =
 {
 	{ "display.fullscreen", _config_boolean, DEFAULT_FULLSCREEN, "HALO_FULLSCREEN", _environment_value, _platform_desktop,
@@ -623,9 +632,10 @@ static const struct config_setting config_settings[] =
 	{ "game.unlock_all_levels", _config_boolean, "false", "HALO_UNLOCK_ALL_LEVELS", _environment_value, _platform_all | _platform_xbox,
 		"New profiles start with every campaign level unlocked." },
 
-	{ "game.start_with_one_player", _config_boolean, "false", "HALO_START_WITH_ONE_PLAYER", _environment_value,
+	{ "game.start_with_one_player", _config_boolean, DEFAULT_START_ALONE, "HALO_START_WITH_ONE_PLAYER", _environment_value,
 		_platform_all | _platform_xbox,
-		"Let a game you host start with only you. Others can join in progress." },
+		"Let a game you host start with only you, without waiting for a second\n"
+		"player. Others can join in progress. Off waits, as on the Xbox." },
 
 	{ "game.downloaded_maps", _config_string, "\"\"", "HALO_DOWNLOADED_MAPS", _environment_value, _platform_all,
 		"Maps treated as downloaded, separated by commas (bloodgulch,\n"
@@ -1353,9 +1363,10 @@ before config_version, wrote every value, which kept a default a later
 version changed) */
 #define CONFIG_VERSION 2
 /* the defaults the game has asked about (game.defaults_answered): 1, the
-ones of v0.8.0; 2, network.tunnel_port's 2302 (v0.8.1b). A file answered for
-an earlier generation is asked about the later ones only */
-#define CONFIG_DEFAULTS_GENERATION 2
+ones of v0.8.0; 2, network.tunnel_port's 2302 (v0.8.1b); 3, a game you host
+starting alone (game.start_with_one_player). A file answered for an earlier
+generation is asked about the later ones only */
+#define CONFIG_DEFAULTS_GENERATION 3
 #define CONFIG_VERSION_LINE "config_version = 2\n"
 #define CONFIG_VERSION_LINES "# The layout of this file, for the game: leave it.\n" CONFIG_VERSION_LINE
 #define CONFIG_VERSION_TEXT "\n" CONFIG_VERSION_LINES
@@ -1891,6 +1902,9 @@ static const struct
 	/* a random port each run, until v0.8.1b gave hosting Halo's 2302 (a file
 	that names 0 keeps it; the consoles and the server keep 0) */
 	{ "network.tunnel_port", "0", 0, "A fixed port for hosting (UDP 2302), to forward on your router", 2 },
+	/* a game you host waited for a second player, until it started alone by
+	default (a file that names false keeps waiting) */
+	{ "game.start_with_one_player", "false", 0, "Start a game you host alone, without waiting for a second player", 3 },
 };
 
 #define NUMBER_OF_CONFIG_OLD_DEFAULTS (sizeof(config_old_defaults) / sizeof(config_old_defaults[0]))

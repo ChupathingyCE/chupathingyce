@@ -711,7 +711,8 @@ with their authors credited in each commit.
   (the dedicated servers) no longer refuse every join after one arrived as a
   game ended.
 - [HiIAmMoot](https://github.com/HiIAmMoot) (Mootjuh): the Android menus by
-  touch, and `debug.solo_game` (a multiplayer game started alone).
+  touch, and starting a multiplayer game alone (`game.start_with_one_player`,
+  first `debug.solo_game`), now on by default.
 - [oatkrs](https://github.com/oatkrs) (Utkarsh): crisp windowed rendering and no
   audio cut-outs on macOS, and a corrupted script thread dropped instead of
   halting the game.
