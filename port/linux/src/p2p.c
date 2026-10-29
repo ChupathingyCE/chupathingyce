@@ -26,9 +26,10 @@ link games as if they were on one LAN, without a server of this project's.
   packets get through (hole punching). There is no relay: two machines whose
   NATs both map every destination to a new port cannot connect, unless a
   router forwards one of them a port. So a host asks its router to forward
-  the tunnel's port (UPnP, posix_upnp.c) as soon as a player reaches out
-  with its invite, and a joiner asks its own when it has not reached the
-  host in a few seconds (network.allow_upnp); the forwarded port is one more
+  the tunnel's port (UPnP, posix_upnp.c) as soon as it hosts an internet
+  game (on 2302 by default: p2p_host_port.h), or a player reaches out with
+  its invite, and a joiner asks its own when it has not reached the host in
+  a few seconds (network.allow_upnp); the forwarded port is one more
   of the addresses a machine offers (the joiner asks the host again every
   few seconds until they meet, and the host answers with them all). Every
   tunnel packet is sealed with a key of the session's for its direction,
@@ -60,6 +61,7 @@ only look up and create stand-ins.
 #include "port_config.h"
 #include "p2p_internal.h"
 #include "p2p_probe.h"
+#include "p2p_host_port.h"
 #include "delta.h"
 #include "log_address.h"
 #include "ikcp.h"
@@ -401,6 +403,13 @@ static struct
 	int upnp_released;
 	struct p2p_candidate upnp_candidate;
 	unsigned long upnp_time;
+
+	/* the tunnel's port for hosting (p2p_host_port.h): wanted from Server
+	Setup or the first hosted game, until it is tried (update_host_port);
+	whether the port stays from run to run (a chosen one, or the default),
+	which the host's status needs to say "forward it" */
+	int host_port_wanted;
+	int port_fixed;
 } p2p = { 0, 0, -1, 0, -1, .hosting_socket = -1 };
 
 /* the router's answer to UPnP, as the host's status says it */
@@ -2944,6 +2953,7 @@ static void update_hosting(void)
 		if (!p2p.has_token)
 			make_invite();
 		p2p.hosting = 1;
+		p2p.host_port_wanted = 1;
 		p2p.stun_started = 1;
 		p2p_signal_start();
 		p2p_signal_host(p2p.token);
@@ -3087,18 +3097,20 @@ static void upnp_release(void)
 		posix_upnp_stop_forwarding_udp(external_port);
 }
 
-/* whether a forwarded port would help: a player reaching this host (at
-once: they may need it), or a peer not reached in a while (every copy of
-the game listens, and so has an invite, from its start: a host asks only
-when its invite is used) */
+/* whether a forwarded port would help: an internet game hosted (at once:
+its port mapped before anyone joins, and the host's status says whether it
+was), a player reaching this host, or a peer not reached in a while (every
+copy of the game listens, and so has an invite, from its start: a copy that
+hosts no game asks only when its invite is used) */
 static int upnp_needed(void)
 {
 	int index;
 
 	if (p2p.joining && elapsed(p2p.join_time, UPNP_JOIN_DELAY))
 		return 1;
-	/* a game in the server browser: at once (more joiners get through) */
-	if (p2p_lobby_listed())
+	/* a hosted internet game, or one in the server browser: at once (more
+	joiners get through); after its port settled (update_host_port) */
+	if ((p2p.hosting && !p2p.host_port_wanted) || p2p_lobby_listed())
 		return 1;
 	for (index = 0; index < P2P_MAXIMUM_PEERS; index++)
 	{
@@ -3167,14 +3179,17 @@ void p2p_check_network(void)
 {
 	pthread_mutex_lock(&p2p_lock);
 	if (p2p.running)
+	{
 		p2p.stun_started = 1;
+		p2p.host_port_wanted = 1;
+	}
 	pthread_mutex_unlock(&p2p_lock);
 }
 
 int p2p_hosting_status(char *text, int size)
 {
 	unsigned short port;
-	int mapped = 0, strict = 0, settled, upnp, upnp_allowed, fixed;
+	int mapped = 0, strict = 0, settled, upnp, upnp_allowed, fixed, no_upnp;
 	int index;
 
 	if (size <= 0)
@@ -3199,35 +3214,35 @@ int p2p_hosting_status(char *text, int size)
 	}
 	settled = p2p.stun_started && stun_settled();
 	upnp = p2p.upnp_forwarded ? _upnp_forwarded : p2p.upnp_status;
+	/* (a chosen port, or the default one hosting took: the same next run,
+	so a router can forward it) */
+	fixed = p2p.port_fixed;
 	pthread_mutex_unlock(&p2p_lock);
 	upnp_allowed = config_boolean("network.allow_upnp");
-	fixed = config_integer("network.tunnel_port") > 0;
+	/* (UPnP failed, or there is none: the router needs the port forwarded
+	by hand) */
+	no_upnp = !upnp_allowed || upnp == _upnp_no_router || upnp == _upnp_refused;
 
 	if (upnp == _upnp_forwarded)
 	{
 		snprintf(text, (size_t)size, "Reachable: port forwarded by your router (UPnP).");
 		return 1;
 	}
-	if (mapped >= 2 && !strict)
-	{
-		snprintf(text, (size_t)size, "Reachable: most players can connect to you (UDP port %u).", port);
-		return 1;
-	}
 	if (strict)
 	{
-		/* (the advice for the port this run has: a port the game picks
-		changes each run, so forwarding it needs a fixed one first) */
+		/* (the advice for the port this run has: a random one changes each
+		run, so forwarding it needs a fixed one first) */
 		if (fixed)
 		{
-			snprintf(text, (size_t)size, "Friends on strict networks may not reach you. Forward UDP %u%s.", port,
-				upnp_allowed && upnp == _upnp_not_asked ? " or enable UPnP on your router" :
-				upnp_allowed ? "" : " or turn on network.allow_upnp");
+			snprintf(text, (size_t)size, "Friends on strict networks may not reach you. "
+				"Forward UDP %u on your router to this computer%s.", port,
+				upnp_allowed && upnp == _upnp_not_asked ? ", or turn on UPnP there" : "");
 		}
 		else
 		{
-			snprintf(text, (size_t)size, "Friends on strict networks may not reach you. Set a fixed port, "
-				"then forward it (UDP)%s.", upnp_allowed && upnp == _upnp_not_asked ?
-				", or enable UPnP on your router" : "");
+			snprintf(text, (size_t)size, "Friends on strict networks may not reach you. Set a fixed PORT, "
+				"then forward it (UDP) on your router%s.", upnp_allowed && upnp == _upnp_not_asked ?
+				", or turn on UPnP there" : "");
 		}
 		if (upnp == _upnp_no_router || upnp == _upnp_refused)
 		{
@@ -3238,14 +3253,28 @@ int p2p_hosting_status(char *text, int size)
 		}
 		return 1;
 	}
+	if (mapped >= 2 || (settled && mapped))
+	{
+		const char *reach = mapped >= 2 ? "Most players can reach you." : "Players can likely reach you.";
+
+		if (no_upnp && fixed)
+			snprintf(text, (size_t)size, "%s If friends can't join, forward UDP %u on your router to this computer.",
+				reach, port);
+		else if (mapped >= 2)
+			snprintf(text, (size_t)size, "Reachable: most players can connect to you (UDP port %u).", port);
+		else
+			snprintf(text, (size_t)size, "Players can likely reach you (UDP port %u).", port);
+		return 1;
+	}
 	if (!settled)
 	{
 		snprintf(text, (size_t)size, "Checking your network...");
 		return 1;
 	}
-	/* (one STUN server answered, or none: nothing to say about the NAT) */
-	if (mapped)
-		snprintf(text, (size_t)size, "Players can likely reach you (UDP port %u).", port);
+	/* (none answered: nothing to say about the NAT) */
+	if (no_upnp && fixed)
+		snprintf(text, (size_t)size, "Can't check your network. If friends can't join, forward UDP %u on your "
+			"router to this computer.", port);
 	else
 		snprintf(text, (size_t)size, "Can't check your network: the STUN servers didn't answer.");
 	return 1;
@@ -3647,6 +3676,102 @@ int p2p_probe_ping(const char *invite, int wanted)
 	return ping;
 }
 
+/* ---------- the tunnel's port for hosting (p2p_host_port.h) */
+
+#if defined(HALO_SERVER) || defined(P2P_JOINER_ONLY)
+/* (the dedicated server keeps the port it started with; the original Xbox
+does not host internet games) */
+static void update_host_port(void)
+{
+	p2p.host_port_wanted = 0;
+}
+#else
+static int open_host_port(unsigned short port, void *context)
+{
+	int *socket = context;
+
+	*socket = open_socket(SOCK_DGRAM, 0, network_short(port), NULL);
+	return *socket >= 0;
+}
+
+/* a host's tunnel moves to network.tunnel_port (the default 2302, or the
+next free one; a chosen port alone), once it is wanted (Server Setup, or the
+first hosted game) and nothing uses the tunnel: no peer, join or ping under
+way, and no router forwarding its port. Its public address is then learned
+again. A host that already has players keeps its port. */
+static void update_host_port(void)
+{
+	unsigned short ports[P2P_HOST_PORT_TRIES];
+	unsigned short bound = network_short(p2p.tunnel_port);
+	long configured;
+	int chosen, count, index, socket = -1, busy = 0;
+
+	if (!p2p.host_port_wanted)
+		return;
+	configured = config_integer("network.tunnel_port");
+	chosen = config_chosen("network.tunnel_port");
+	count = p2p_host_ports(configured, chosen, ports);
+	if (!count || p2p_host_port_kept(bound, ports, count))
+	{
+		p2p.host_port_wanted = 0;
+		return;
+	}
+	for (index = 0; index < P2P_MAXIMUM_PEERS; index++)
+		busy |= p2p.peers[index].used;
+	if (busy && p2p.hosting)
+	{
+		platform_log("Internet play: hosting on UDP %u (players reached this copy there already)", bound);
+		p2p.host_port_wanted = 0;
+		return;
+	}
+	/* (until the tunnel is free: a game being left, a ping or a router's
+	answer) */
+	if (busy || p2p.joining || p2p.join_requested || probe.browsing || p2p.upnp_working)
+		return;
+	p2p.host_port_wanted = 0;
+	if (p2p.upnp_forwarded)
+	{
+		platform_log("Internet play: hosting on UDP %u (the router forwards it already)", bound);
+		return;
+	}
+	index = p2p_host_port_open(ports, count, open_host_port, &socket);
+	if (index < 0)
+	{
+		if (count > 1)
+			platform_log("Internet play: UDP %u to %u are in use (another program, or another copy of the game); "
+				"hosting on UDP %u, a new port each run", ports[0], ports[count - 1], bound);
+		else
+			platform_log("Internet play: network.tunnel_port %u is in use; hosting on UDP %u", ports[0], bound);
+		return;
+	}
+	{
+		int size = 1 << 20;
+
+		posix_socket_setsockopt(socket, SOL_SOCKET, SO_SNDBUF, &size, sizeof(size));
+		posix_socket_setsockopt(socket, SOL_SOCKET, SO_RCVBUF, &size, sizeof(size));
+	}
+	close_socket(&p2p.tunnel_socket);
+	p2p.tunnel_socket = socket;
+	p2p.tunnel_port = network_short(ports[index]);
+	p2p.port_fixed = 1;
+	/* (the NAT maps the new port anew: learned again, and UPnP asked for it) */
+	for (index = 0; index < p2p.stun_count; index++)
+	{
+		p2p.stun[index].has_mapped = 0;
+		p2p.stun[index].attempts = 0;
+		p2p.stun[index].sent_time = 0;
+	}
+	p2p.reported_symmetric = 0;
+	p2p.upnp_asked = 0;
+	p2p.upnp_status = _upnp_not_asked;
+	if (ports[0] != network_short(p2p.tunnel_port))
+		platform_log("Internet play: hosting on UDP %u (UDP %u is in use: another program, or another copy of the game)",
+			network_short(p2p.tunnel_port), ports[0]);
+	else
+		platform_log("Internet play: hosting on UDP %u", ports[0]);
+}
+#endif
+
 static void *p2p_thread(void *unused)
 {
 	enum
@@ -3828,8 +3953,9 @@ static void *p2p_thread(void *unused)
 		}
 		update_peers();
 		expire_proxies();
-		stun_update();
 		update_hosting();
+		update_host_port();
+		stun_update();
 		/* the server browser (p2p_lobby.c): signalling while browsing too */
 		if (p2p_lobby_browsing())
 			p2p_signal_start();
@@ -3868,6 +3994,7 @@ void p2p_initialize(unsigned long local_address)
 {
 	char invite[256];
 	long tunnel_port = config_integer("network.tunnel_port");
+	int chosen = config_chosen("network.tunnel_port");
 	int index;
 
 	p2p_identifier();
@@ -3879,6 +4006,10 @@ void p2p_initialize(unsigned long local_address)
 			tunnel_port);
 		tunnel_port = 0;
 	}
+	/* (a chosen port from the start; the default is a host's only, and
+	update_host_port moves to it) */
+	tunnel_port = p2p_start_port(tunnel_port, chosen);
+	p2p.port_fixed = tunnel_port > 0;
 	for (index = 0; index < MAXIMUM_PROXIES; index++)
 		p2p.proxies[index].socket = -1;
 	for (index = 0; index < MAXIMUM_LISTENERS; index++)

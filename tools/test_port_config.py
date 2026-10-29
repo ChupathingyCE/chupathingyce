@@ -41,20 +41,24 @@ DEFAULTS = {
 	"desktop": {
 		"display.anti_aliasing": "msaa2x",
 		"display.shadow_resolution": "256",
+		"network.tunnel_port": "2302",
 	},
 	"desktop32": {
 		"display.anti_aliasing": "off",
 		"display.shadow_resolution": "256",
 		"audio.buffer_frames": "512",
+		"network.tunnel_port": "2302",
 	},
 	"android": {
 		"display.anti_aliasing": "off",
 		"display.shadow_resolution": "256",
 		"audio.buffer_frames": "1024",
+		"network.tunnel_port": "2302",
 	},
 	"server": {
 		"display.anti_aliasing": "off",
 		"display.shadow_resolution": "128",
+		"network.tunnel_port": "0",
 	},
 }
 
@@ -66,13 +70,17 @@ OLD = {
 	"display.anti_aliasing": "off",
 	"display.shadow_resolution": "128",
 	"audio.buffer_frames": "512",
+	"network.tunnel_port": "0",
 }
 CHANGED = {
-	"desktop": ["display.menus", "display.anti_aliasing", "display.shadow_resolution"],
-	"desktop32": ["display.menus", "display.shadow_resolution"],
-	"android": ["display.menus", "display.shadow_resolution", "audio.buffer_frames"],
+	"desktop": ["display.menus", "display.anti_aliasing", "display.shadow_resolution", "network.tunnel_port"],
+	"desktop32": ["display.menus", "display.shadow_resolution", "network.tunnel_port"],
+	"android": ["display.menus", "display.shadow_resolution", "audio.buffer_frames", "network.tunnel_port"],
 	"server": [],
 }
+# the changes of the second question (game.defaults_answered = 2), which a
+# file answered for the first (v0.8.0's) is asked about alone
+SECOND = ["network.tunnel_port"]
 NEW = {"display.menus": "chupathingy"}
 
 # the macros each kind of build is compiled with; the others are not macOS
@@ -274,7 +282,7 @@ def test_previous_release_file(program, directory, defaults, kind):
 			continue
 		case.run("answer", answer)
 		text = case.text()
-		check(re.search(r"^defaults_answered = 1$", text, re.M), f"previous/{answer}: the answer is not written")
+		check(re.search(r"^defaults_answered = 2$", text, re.M), f"previous/{answer}: the answer is not written")
 		# (asked once: a restart finds nothing, and changes nothing)
 		check(pending(case)[0] == 0, f"previous/{answer}: asked again")
 		values, _ = case.get(*names)
@@ -291,6 +299,60 @@ def test_previous_release_file(program, directory, defaults, kind):
 				check(values[name] == new_value(name, defaults), f"previous/new: {name} is {values[name]}")
 				check(not lines and commented == [f"# {key} = " + (f'"{values[name]}"' if not values[name].isdigit() else values[name])],
 					f"previous/new: {key}: {lines} {commented}")
+
+
+def test_answered_first_question(program, directory, defaults, kind):
+	"""A file answered for v0.8.0's question (defaults_answered = 1): asked
+	about the hosting port alone, once; its other settings stay as they are."""
+	changed = [name for name in CHANGED[kind] if name in SECOND]
+	if not changed:
+		return
+	for answer in ("keep", "new"):
+		case = Case(program, directory / f"answered_{answer}")
+		text = previous_release_file(case, kind)
+		text = re.sub(r"^# defaults_answered = .*$", "defaults_answered = 1", text, flags=re.M)
+		case.path.write_text(text)
+		count, output = pending(case)
+		check(count == len(changed), f"answered/{answer}: {count} changes, not {len(changed)}: {output}")
+		check("A fixed port for hosting (UDP 2302)" in output, f"answered/{answer}: no words for the port: {output}")
+		check("Sharper shadows" not in output, f"answered/{answer}: asked about v0.8.0's changes again")
+		values, _ = case.get("network.tunnel_port", "display.shadow_resolution")
+		check(values["network.tunnel_port"] == "0", f"answered/{answer}: the port is {values['network.tunnel_port']} before the answer")
+		# (v0.8.0's changes were answered: they follow the defaults, as before)
+		shadows = defaults["display.shadow_resolution"]
+		check(values["display.shadow_resolution"] == shadows, f"answered/{answer}: shadows are {values['display.shadow_resolution']}")
+		case.run("answer", answer)
+		text = case.text()
+		check(re.search(r"^defaults_answered = 2$", text, re.M), f"answered/{answer}: the answer is not written")
+		check(pending(case)[0] == 0, f"answered/{answer}: asked again")
+		values, _ = case.get("network.tunnel_port", "display.shadow_resolution")
+		lines, commented = value_lines(case.text(), "tunnel_port")
+		check(values["display.shadow_resolution"] == shadows, f"answered/{answer}: shadows changed after the answer")
+		if answer == "keep":
+			check(values["network.tunnel_port"] == "0" and lines == ["tunnel_port = 0"],
+				f"answered/keep: the port is {values['network.tunnel_port']}: {lines}")
+		else:
+			check(values["network.tunnel_port"] == "2302" and not lines and commented == ["# tunnel_port = 2302"],
+				f"answered/new: the port is {values['network.tunnel_port']}: {lines} {commented}")
+
+
+def test_chosen_port_kept(program, directory, defaults, kind):
+	"""A port the player chose, 0 too (a line without its #, as the Settings
+	menu writes it), is theirs: not asked about, and kept."""
+	if "network.tunnel_port" not in CHANGED[kind]:
+		return
+	for chosen in ("0", "2310"):
+		case = Case(program, directory / f"chosen_{chosen}")
+		text = previous_release_file(case, kind)
+		text = re.sub(r"^# tunnel_port = .*$", f"tunnel_port = {chosen}", text, flags=re.M)
+		case.path.write_text(text)
+		count, output = pending(case)
+		check("A fixed port for hosting" not in output, f"chosen {chosen}: asked about the port: {output}")
+		values, _ = case.get("network.tunnel_port")
+		check(values["network.tunnel_port"] == chosen, f"chosen {chosen}: the port is {values['network.tunnel_port']}")
+		case.run("answer", "new")
+		values, _ = case.get("network.tunnel_port")
+		check(values["network.tunnel_port"] == chosen, f"chosen {chosen}: the port changed to {values['network.tunnel_port']}")
 
 
 def test_file_without_the_settings(program, directory, defaults, kind):
@@ -544,7 +606,8 @@ def main():
 		directory = Path(directory)
 		for kind in DEFAULTS:
 			program = build(arguments.cc, kind, directory / kind)
-			for test in (test_new_file, test_previous_release_file, test_file_without_the_settings,
+			for test in (test_new_file, test_previous_release_file, test_answered_first_question,
+				test_chosen_port_kept, test_file_without_the_settings,
 				test_readded_by_older_version, test_before_config_version, test_renamed_setting,
 				test_old_browser_address, test_packaged_install):
 				try:

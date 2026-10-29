@@ -38,6 +38,9 @@ void config_folder(char *path, size_t size);
 /* a whole file (a UTF-8 path), NUL terminated, or NULL; free() it (the Android
 guest has no SDL_LoadFile) */
 char *config_file_read(const char *path, size_t *size);
+/* whether config.toml (as a value, not commented out) or the environment
+gives a setting its value, rather than its default */
+int config_chosen(const char *name);
 /* a setting's default, as text; 0 if there is no such setting */
 int config_default(const char *name, char *text, size_t size);
 /* in a packaged install (platform_packaged), where update.auto is off: the
