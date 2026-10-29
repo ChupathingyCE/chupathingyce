@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-<sub>IN TESTING</sub>&nbsp;
+<sub>In testing</sub><br>
 <img src="docs/badges/xbox.svg" alt="Xbox">
 <img src="docs/badges/xbox-360.svg" alt="Xbox 360">
 <img src="docs/badges/wii-u.svg" alt="Wii U">
@@ -22,7 +22,7 @@
 </p>
 
 <p align="center">
-<sub>COMMUNITY PORTS</sub>&nbsp;
+<sub>Community ports</sub><br>
 <img src="docs/badges/playstation.svg" alt="PSP, Vita, PS3, PS4, PS5">
 <img src="docs/badges/xbox-series.svg" alt="Xbox Series">
 </p>
