@@ -44,7 +44,8 @@ enum halo_perf_phase
 	_halo_perf_vsync_wait,
 	/* the render's finer parts, on the second line: the frame's start
 	(rasterizer_frame_begin), a player view's setup before its window (fog,
-	visibility, a mirror's view), the lens flares (split from effects), the
+	visibility, a mirror's view), the lens flares (their visibility tests
+	and their drawing, split from world and effects), the
 	HUD's screen effect (the scope's mask, blur and night vision, split from
 	hud) and the end (the console window, EndScene, rasterizer_frame_end) */
 	_halo_perf_render_begin,
@@ -73,6 +74,8 @@ enum halo_perf_counter
 	/* textures the cache started loading, and the screen effect's passes */
 	_halo_perf_texture_loads,
 	_halo_perf_screen_effect_passes,
+	/* the lens flares' visibility (occlusion) tests drawn */
+	_halo_perf_visibility_tests,
 	NUMBER_OF_HALO_PERF_COUNTERS
 };
 

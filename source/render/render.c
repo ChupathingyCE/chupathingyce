@@ -356,6 +356,7 @@ static void render_window(
 		HALO_PERF_RENDER_PART(_halo_perf_render_world);
 		structure_render_preprocess();
 		structure_render_lightmaps();
+		HALO_PERF_RENDER_PART(_halo_perf_render_lens_flares);
 		rasterizer_lens_flares_submit_occlusion_tests();
 		HALO_PERF_RENDER_PART(_halo_perf_render_objects);
 		render_object_shadows();

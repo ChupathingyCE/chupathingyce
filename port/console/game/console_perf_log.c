@@ -173,11 +173,12 @@ static void perf_second_log(perf_time now)
 		for (index = 0; index < (int)NUMBEROF(render_parts); index++)
 			other -= perf.phase_total[render_parts[index]];
 		error(_error_log,
-			"perf: render detail: begin %.1f setup %.1f lens flares %.1f screen effect %.1f (%.1f passes) "
+			"perf: render detail: begin %.1f setup %.1f lens flares %.1f (%.0f tests) screen effect %.1f (%.1f passes) "
 			"end %.1f sound %.1f other %.1f; occlusion wait %.1f, texture wait %.1f (%.1f loads a frame)",
 			perf_milliseconds(perf.phase_total[_halo_perf_render_begin], frames),
 			perf_milliseconds(perf.phase_total[_halo_perf_render_setup], frames),
 			perf_milliseconds(perf.phase_total[_halo_perf_render_lens_flares], frames),
+			(double)halo_perf_counters[_halo_perf_visibility_tests] / frame_count,
 			perf_milliseconds(perf.phase_total[_halo_perf_render_screen_effect], frames),
 			(double)halo_perf_counters[_halo_perf_screen_effect_passes] / frame_count,
 			perf_milliseconds(perf.phase_total[_halo_perf_render_end], frames),
