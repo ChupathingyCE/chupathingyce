@@ -99,6 +99,15 @@ Online Games' Link Profile panel, as before */
 #define HALO_CONSOLE_NO_DELTA_PROFILE
 #endif
 
+/* the audio probe and the recording of real play's sound
+(port/linux/game/audio_probe.c, debug.audio_probe and
+debug.audio_capture_seconds): a developer's tool, in a console's build with
+its developer tools (HALO_CONSOLE_DEBUG_TOOLS) only; the switch also leaves
+out the two settings and their help text */
+#if !defined(HALO_CONSOLE_DEBUG_TOOLS) && !defined(HALO_CONSOLE_NO_AUDIO_PROBE)
+#define HALO_CONSOLE_NO_AUDIO_PROBE
+#endif
+
 #endif /* HALO_CONSOLE */
 
 /* text chat (port/linux/game/chat.c): the desktop builds' (HALO_GAME_BROWSER),

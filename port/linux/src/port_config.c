@@ -1072,6 +1072,7 @@ static const struct config_setting config_settings[] =
 		"Scripted chat for tests: steps of\n"
 		"\"<seconds>:<all|team|server|mute|unmute|localmute|log|close|type>[:<text>]\"\n"
 		"separated by ;. Empty: none." },
+#ifndef HALO_CONSOLE_NO_AUDIO_PROBE
 	{ "debug.audio_probe", _config_string, "\"\"", "HALO_AUDIO_PROBE", _environment_value, _platform_all | _platform_xbox,
 		"A probe file (port/linux/game/audio_probe.c), named as the game names\n"
 		"its files (d:\\ is the game's folder: on the desktop, the data folder):\n"
@@ -1084,6 +1085,7 @@ static const struct config_setting config_settings[] =
 		"system link or online), with a log of the player's position and every\n"
 		"sound started, to d:\\audio_probe\\capture-<map>-<n>-* (that folder must\n"
 		"be there; port/linux/game/audio_probe.c); 0 none." },
+#endif
 	{ "debug.exit_after", _config_real, "0.0", "HALO_EXIT_AFTER", _environment_value, _platform_all,
 		"Quit this many seconds after the window opens; 0 never." },
 	{ "debug.hidden_window", _config_boolean, "false", "HALO_HIDDEN_WINDOW", _environment_set_is_true, _platform_desktop,
