@@ -13,7 +13,7 @@ Linux build's, and [port/linux/README.md](../linux/README.md) describes them.
 - The Xcode command line tools (`xcode-select --install`): clang and the SDK.
 - SDL3 and ninja from Homebrew: `brew install sdl3 ninja`. The movies' FFmpeg is
   built by the build itself (`tools/ffmpeg_build.py`).
-- The game data in `assets/maps` (see the [README](../../README.md)).
+- The game data in `assets/maps` (see [docs/install.md](../../docs/install.md)).
 
 ```sh
 python3 configure.py

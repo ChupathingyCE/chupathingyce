@@ -38,8 +38,8 @@ You do not need the Xbox SDK.
 The build uses all the instructions of the processor of the computer that
 builds it (`-march=native`). Such a build does not always start on a
 different computer. To make a build for other computers, enter
-`python configure.py --portable`. Refer to the build options in the main
-[README](../../README.md#build-options).
+`python configure.py --portable`. Refer to the build options in
+[docs/building.md](../../docs/building.md).
 
 For a new optimization profile (`--pgo=train`), the build compiles the
 profile runtime of LLVM for 32-bit x86 (`pgo/halo_profile_runtime.c`).
