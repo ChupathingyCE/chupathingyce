@@ -116,6 +116,10 @@ static struct
 	{ 0x2C0, 0x324, 0x08 },
 };
 
+/* the tags being converted (stubbs_mode_convert_tags) */
+static unsigned char *stubbs_tags_base;
+static unsigned long stubbs_tags_size;
+
 static unsigned char *stubbs_host(unsigned char *base, unsigned long size, unsigned long address,
 	unsigned long length)
 {
@@ -272,6 +276,56 @@ static long stubbs_animation_convert(unsigned char *base, unsigned long size, un
 	return 1;
 }
 
+/* an uncompressed animation's default data: Halo's holds each node's
+rotation (8 bytes), translation (12) and scale (4) only where the animation
+does not animate it; some of Stubbs's hold all three for every node. Those
+are packed as Halo's, in place */
+static unsigned long stubbs_animation_defaults_pack(unsigned char *animation, unsigned char *into)
+{
+	short node_count, node;
+	unsigned short flags;
+	unsigned long translation[2], rotation[2], scale, address;
+	long size, expected = 0;
+	unsigned char *defaults, *from, *to;
+
+	(void)into;
+	memcpy(&node_count, animation + 0x2C, 2);
+	memcpy(&flags, animation + 0x3A, 2);
+	memcpy(translation, animation + 0x5C, 8);
+	memcpy(rotation, animation + 0x6C, 8);
+	memcpy(&scale, animation + 0x7C, 4);
+	memcpy(&size, animation + 0x8C, 4);
+	memcpy(&address, animation + 0x8C + TAG_DATA_ADDRESS_OFFSET, 4);
+	if ((flags & 1) || node_count <= 0 || node_count > 64 || size != node_count * 24 ||
+		!(defaults = stubbs_host(stubbs_tags_base, stubbs_tags_size, address, (unsigned long)size)))
+	{
+		return 0;
+	}
+	for (node = 0; node < node_count; node++)
+	{
+		expected += (rotation[node / 32] >> (node % 32) & 1) ? 0 : 8;
+		expected += (translation[node / 32] >> (node % 32) & 1) ? 0 : 12;
+		expected += node < 32 && (scale >> node & 1) ? 0 : 4;
+	}
+	if (expected == size)
+		return 0;
+	from = to = defaults;
+	for (node = 0; node < node_count; node++)
+	{
+		if (!(rotation[node / 32] >> (node % 32) & 1))
+			memmove(to, from, 8), to += 8;
+		from += 8;
+		if (!(translation[node / 32] >> (node % 32) & 1))
+			memmove(to, from, 12), to += 12;
+		from += 12;
+		if (!(node < 32 && (scale >> node & 1)))
+			memmove(to, from, 4), to += 4;
+		from += 4;
+	}
+	memcpy(animation + 0x8C, &expected, 4);
+	return 1;
+}
+
 static unsigned long stubbs_animation_data_measure(unsigned char *animation, unsigned char *into)
 {
 	(void)into;
@@ -360,8 +414,6 @@ struct stubbs_element_layout
 	short copy_count;
 };
 
-static unsigned char *stubbs_tags_base;
-static unsigned long stubbs_tags_size;
 
 /* the block (count, address) at block, its elements repacked: their new
 address (the same) or NULL if it is not in the tags */
@@ -551,6 +603,8 @@ void stubbs_mode_convert_tags(
 		read = stubbs_animation_data ? stubbs_animations_each(base, tag_data_size, instances, count,
 			stubbs_animation_data_read, stubbs_animation_data) : 0;
 		stubbs_mode_log("animation frame data: %lu bytes in the map file, %lu read", needed, read);
+		stubbs_mode_log("%lu animations' default data packed as Halo's",
+			stubbs_animations_each(base, tag_data_size, instances, count, stubbs_animation_defaults_pack, NULL));
 	}
 }
 
