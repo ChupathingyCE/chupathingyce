@@ -362,6 +362,7 @@ static char const *platform_name(
 		{ "pc_linux", "Linux PC" }, { "pc_windows", "Windows PC" }, { "pc_macos", "Mac" },
 		{ "android", "Android" }, { "steam_deck", "Steam Deck" }, { "xbox", "Xbox" }, { "xbox360", "Xbox 360" },
 		{ "xbox_series", "Xbox Series" }, { "psp", "PSP" }, { "vita", "PS Vita" }, { "wiiu", "Wii U" },
+		{ "pc_freebsd", "FreeBSD PC" },
 	};
 	short index;
 

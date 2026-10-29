@@ -716,6 +716,8 @@ with their authors credited in each commit.
 - [oatkrs](https://github.com/oatkrs) (Utkarsh): crisp windowed rendering and no
   audio cut-outs on macOS, and a corrupted script thread dropped instead of
   halting the game.
+- [Renkoto](https://github.com/Renkoto): the FreeBSD port (`port/unix`,
+  `ninja freebsd64`) and its Delta platform, 13.
 
 ### Findings and testing
 

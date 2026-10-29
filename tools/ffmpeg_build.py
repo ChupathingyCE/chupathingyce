@@ -134,6 +134,8 @@ def main():
                  "--extra-cflags=" + " ".join(target + abi + sysroot_flags),
                  "--extra-ldflags=" + " ".join(target + link_flags + sysroot_flags),
                  *windows_tools,
+                 # (FreeBSD has no gcc: its own cc builds configure's host tools)
+                 *(["--host-cc=cc"] if target_os == "freebsd" else []),
                  "--disable-everything", "--disable-programs", "--disable-doc",
                  "--disable-network", "--disable-autodetect", "--disable-asm",
                  "--disable-shared", "--enable-static", "--disable-debug", "--enable-small",
@@ -158,9 +160,12 @@ def main():
         stamp.write_text("\n".join(str(part) for part in configure))
 
     print(f"ffmpeg_build.py: building with {compiler}")
+    # (FFmpeg's makefiles are GNU make's: on the BSDs, `make` is BSD make and
+    # GNU make is `gmake`)
+    make = "gmake" if sys.platform.startswith(("freebsd", "openbsd", "netbsd", "dragonfly")) else "make"
     with open(root / "build.log", "w") as log:
         try:
-            run(["make", "-j", str(os.cpu_count() or 4)], cwd=build, stdout=log, stderr=subprocess.STDOUT)
+            run([make, "-j", str(os.cpu_count() or 4)], cwd=build, stdout=log, stderr=subprocess.STDOUT)
         except subprocess.CalledProcessError:
             # (the compiler's own words are the only clue to a failure, and this
             # log is their only home: show the tail before giving up)

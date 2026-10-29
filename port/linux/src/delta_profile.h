@@ -42,7 +42,7 @@ struct delta_profile_game
 struct delta_profile_copy
 {
 	/* the first 8 digits of its ID, and what it last played on (delta.h's
-	platform keys: "pc_linux", "steam_deck"; empty when not known) */
+	platform keys: "pc_linux", "steam_deck", "pc_freebsd"; empty when not known) */
 	char label[12];
 	char platform[24];
 	long long linked;

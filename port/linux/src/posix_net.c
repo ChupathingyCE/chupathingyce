@@ -128,7 +128,14 @@ static int fail(void)
 	return -1;
 }
 
-#ifdef __APPLE__
+/* A host whose struct sockaddr starts with sa_len (the BSDs'), not with the
+family as Winsock's does and Linux's: the game's addresses are converted at the
+boundary (to_host_address, from_host_address). port/unix says it for its hosts. */
+#if defined(__APPLE__) && !defined(HALO_SOCKADDR_LEN)
+#define HALO_SOCKADDR_LEN 1
+#endif
+
+#ifdef HALO_SOCKADDR_LEN
 static int to_host_address(const void *address, int address_length,
 	struct sockaddr_storage *host_address, socklen_t *host_length)
 {
@@ -227,7 +234,7 @@ int posix_socket_close(int socket)
 
 int posix_socket_bind(int socket, const void *address, int address_length)
 {
-#ifdef __APPLE__
+#ifdef HALO_SOCKADDR_LEN
 	struct sockaddr_storage host_address;
 	socklen_t host_length = 0;
 
@@ -240,7 +247,7 @@ int posix_socket_bind(int socket, const void *address, int address_length)
 int posix_socket_connect(int socket, const void *address, int address_length)
 {
 	int result;
-#ifdef __APPLE__
+#ifdef HALO_SOCKADDR_LEN
 	struct sockaddr_storage host_address;
 	socklen_t host_length = 0;
 
@@ -284,7 +291,7 @@ int posix_socket_accept(int socket, void *address, int *address_length)
 
 	if (address_length)
 		*address_length = (int)length;
-#ifdef __APPLE__
+#ifdef HALO_SOCKADDR_LEN
 	if (result >= 0 && address && address_length)
 		from_host_address(address, address_length);
 #endif
@@ -324,7 +331,7 @@ int posix_socket_sendto(int socket, const void *buffer, int length, int flags,
 	const void *address, int address_length)
 {
 	int result;
-#ifdef __APPLE__
+#ifdef HALO_SOCKADDR_LEN
 	struct sockaddr_storage host_address;
 	socklen_t host_length = 0;
 
@@ -377,7 +384,7 @@ int posix_socket_recvfrom(int socket, void *buffer, int length, int flags,
 		last_error = WSAEMSGSIZE;
 		return -1;
 	}
-#ifdef __APPLE__
+#ifdef HALO_SOCKADDR_LEN
 	if (result >= 0 && address && address_length)
 		from_host_address(address, address_length);
 #endif
@@ -476,7 +483,7 @@ int posix_socket_getsockname(int socket, void *address, int *address_length)
 
 	if (address_length)
 		*address_length = (int)length;
-#ifdef __APPLE__
+#ifdef HALO_SOCKADDR_LEN
 	if (result >= 0 && address && address_length)
 		from_host_address(address, address_length);
 #endif
@@ -490,7 +497,7 @@ int posix_socket_getpeername(int socket, void *address, int *address_length)
 
 	if (address_length)
 		*address_length = (int)length;
-#ifdef __APPLE__
+#ifdef HALO_SOCKADDR_LEN
 	if (result >= 0 && address && address_length)
 		from_host_address(address, address_length);
 #endif
@@ -761,6 +768,9 @@ int posix_command_line_argument(int index, char *buffer, posix_ulong size)
 	(void)buffer;
 	(void)size;
 	return 0;
+#elif defined(HALO_UNIX_PLATFORM_NAME)
+	/* (the other Unix hosts': port/unix/src/unix_host.c) */
+	return halo_unix_command_line_argument(index, buffer, size);
 #else
 	char command_line[4096];
 	ssize_t length;

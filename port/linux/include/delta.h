@@ -179,6 +179,8 @@ enum delta_platform
 	_delta_platform_psp = 10,
 	_delta_platform_vita = 11,
 	_delta_platform_xbox_uwp = 12,
+	/* a PC build for FreeBSD (port/unix) */
+	_delta_platform_pc_freebsd = 13,
 
 	NUMBER_OF_DELTA_PLATFORMS
 };
@@ -241,7 +243,8 @@ legacy table's "platform_policy" section is to tune them without a release
 	X(_delta_platform_switch, 16, 16, 128, 12, 1) \
 	X(_delta_platform_psp, 16, 16, 128, 6, 0) \
 	X(_delta_platform_vita, 16, 16, 128, 9, 0) \
-	X(_delta_platform_xbox_uwp, 128, 128, 128, 12, 1)
+	X(_delta_platform_xbox_uwp, 128, 128, 128, 12, 1) \
+	X(_delta_platform_pc_freebsd, 128, 128, 128, 12, 1)
 
 /* ---------- the legacy number */
 
