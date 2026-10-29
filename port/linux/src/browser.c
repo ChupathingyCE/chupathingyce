@@ -42,6 +42,7 @@ with it under the lock.
 #include "browser.h"
 #include "game_report.h"
 #include "delta_peer.h"
+#include "server_badge.h"
 #include "browser_ping.h"
 #include "qrcodegen.h"
 #include "delta_profile.h"
@@ -183,6 +184,9 @@ static struct
 	/* the browser thread's own (written under the lock, which the exit's
 	withdrawal reads it under) */
 	char listed_invite[BROWSER_INVITE_LENGTH + 1];
+	/* the last host that failed its badge proof on joining (its invite;
+	empty for none): its listed badge is not shown */
+	char badge_refused[BROWSER_INVITE_LENGTH + 1];
 	unsigned long announce_time;
 	struct hosted_game announced;
 	/* whether the hosted game was offered to the list since it was last
@@ -1888,6 +1892,41 @@ static void host_fields(char *form, int size, const struct hosted_game *game)
 		form_add(form, size, "machines", text);
 }
 
+#ifdef HALO_SERVER
+/* (server/src/server_link.h's, Delta Control's link: plain types) */
+int server_link_badge_certificate(unsigned char *certificate, int size);
+int server_link_badge_sign(const unsigned char *message, int size, unsigned char *signature);
+
+/* a dedicated server's badge, if it has a good one: its certificate and the
+link key's signature of the invite and the time, which the list checks
+(badge_cert, badge_time, badge_signature: docs/server-badges.md) */
+static void badge_fields(char *form, int size, const char *invite)
+{
+	unsigned char certificate[SERVER_BADGE_MAXIMUM_SIZE], message[SERVER_BADGE_MESSAGE_SIZE], signature[64];
+	char hex[2 * SERVER_BADGE_MAXIMUM_SIZE + 1], lower[BROWSER_INVITE_LENGTH + 1], text[24];
+	struct server_badge badge;
+	unsigned long long now = (unsigned long long)time(NULL);
+	int certificate_size = server_link_badge_certificate(certificate, (int)sizeof(certificate));
+	int index, length;
+
+	if (!certificate_size || !server_badge_check(certificate, certificate_size, now, &badge))
+		return;
+	/* (the list reads the invite in lowercase) */
+	for (index = 0; invite[index] && index < BROWSER_INVITE_LENGTH; index++)
+		lower[index] = (char)(invite[index] >= 'A' && invite[index] <= 'Z' ? invite[index] - 'A' + 'a' : invite[index]);
+	lower[index] = 0;
+	length = server_badge_announce_message(message, lower, now);
+	if (!length || !server_link_badge_sign(message, length, signature))
+		return;
+	p2p_hex(certificate, certificate_size, hex);
+	form_add(form, size, "badge_cert", hex);
+	snprintf(text, sizeof(text), "%llu", now);
+	form_add(form, size, "badge_time", text);
+	p2p_hex(signature, (int)sizeof(signature), hex);
+	form_add(form, size, "badge_signature", hex);
+}
+#endif
+
 static void announce(const char *invite, const struct hosted_game *game)
 {
 	/* (the form: a roster of BROWSER_HOSTED_ROSTER names, URL encoded) */
@@ -1938,6 +1977,9 @@ static void announce(const char *invite, const struct hosted_game *game)
 			form_add(form, sizeof(form), "playlist", playlist);
 		}
 	}
+#ifdef HALO_SERVER
+	badge_fields(form, sizeof(form), invite);
+#endif
 	/* (last: a full one may be cut short, and a list from before rosters
 	takes no field of the name) */
 	roster_text(game->roster, game->roster_count, roster, sizeof(roster));
@@ -2211,15 +2253,16 @@ static void parse_host(char **fields, struct browser_game *game)
 maximum_players open version age score_limit teams roster, and (as asked:
 ?fields=22) region, platform, hosting, protocol, machines, gametype,
 capabilities, an Xbox map pack's map's name, pack and tag, (?fields=23)
-the playlist, and (?fields=24) "opence_server" for an OpenCE dedicated
-server's game (a list from before them sends 19, 22 or 23) */
+the playlist, (?fields=24) "opence_server" for an OpenCE dedicated
+server's game, and (?fields=26) a server badge and its label (a list from
+before them sends 19, 22, 23 or 24) */
 static int parse_game(char *line, struct browser_game *game)
 {
-	char *fields[24];
+	char *fields[26];
 	int count = 0;
 	char *cursor = line;
 
-	while (count < 24)
+	while (count < 26)
 	{
 		fields[count++] = cursor;
 		cursor = strchr(cursor, '\t');
@@ -2322,6 +2365,23 @@ static int parse_game(char *line, struct browser_game *game)
 		fields[23][strcspn(fields[23], "\r\n")] = 0;
 		game->opence_server = !strcmp(fields[23], "opence_server");
 	}
+	/* (then a dedicated server's badge, by name, and its label, printable
+	ASCII: none in a build without badge keys) */
+	if (count >= 26 && server_badge_has_keys())
+	{
+		size_t index;
+
+		fields[24][strcspn(fields[24], "\r\n")] = 0;
+		fields[25][strcspn(fields[25], "\r\n")] = 0;
+		game->badge = (unsigned char)server_badge_tier_number(fields[24]);
+		for (index = 0; game->badge && fields[25][index]; index++)
+		{
+			if ((unsigned char)fields[25][index] < 32 || (unsigned char)fields[25][index] > 126)
+				break;
+		}
+		if (game->badge && !fields[25][index])
+			snprintf(game->badge_label, sizeof(game->badge_label), "%s", fields[25]);
+	}
 	return 1;
 }
 
@@ -2357,7 +2417,7 @@ static void update_list(void)
 	}
 	/* (with the host's fields: a list from before them sends what it has; and
 	co-op games, which the list sends only when asked, for the lists' filter) */
-	server_url("/v1/games.txt?fields=24&coop=1", url, sizeof(url));
+	server_url("/v1/games.txt?fields=26&coop=1", url, sizeof(url));
 	status = posix_browser_request(url, NULL, NULL, response, sizeof(response), error, sizeof(error));
 	if (!p2p_hosting_invite(own, sizeof(own)))
 		own[0] = 0;
@@ -3594,6 +3654,19 @@ int browser_get_games(struct browser_game *games, int maximum_count)
 	browser.list_wanted = 1;
 	count = browser.game_count < maximum_count ? browser.game_count : maximum_count;
 	memcpy(games, browser.games, sizeof(*games) * (size_t)count);
+	if (browser.badge_refused[0])
+	{
+		int index;
+
+		for (index = 0; index < count; index++)
+		{
+			if (!strcmp(games[index].invite, browser.badge_refused))
+			{
+				games[index].badge = 0;
+				games[index].badge_label[0] = 0;
+			}
+		}
+	}
 	pthread_mutex_unlock(&browser_lock);
 	read_listings();
 	count = add_direct(games, count, maximum_count, browser_list_status() == BROWSER_LIST_ANSWERED);
@@ -3653,6 +3726,33 @@ int browser_host_listing(int *status)
 		return BROWSER_HOST_WAITING;
 	*status = answer;
 	return BROWSER_HOST_FAILED;
+}
+
+const char *browser_badge_name(int badge)
+{
+	switch (badge)
+	{
+	case _server_badge_tier_official:
+		return "Official server";
+	case _server_badge_tier_developer:
+		return "Developer server";
+	case _server_badge_tier_community:
+		return "Community server";
+	default:
+		return NULL;
+	}
+}
+
+void browser_server_badge_proven(const char *invite, int proven)
+{
+	if (!invite || strlen(invite) != BROWSER_INVITE_LENGTH)
+		return;
+	pthread_mutex_lock(&browser_lock);
+	if (!proven)
+		snprintf(browser.badge_refused, sizeof(browser.badge_refused), "%s", invite);
+	else if (!strcmp(browser.badge_refused, invite))
+		browser.badge_refused[0] = 0;
+	pthread_mutex_unlock(&browser_lock);
 }
 
 int browser_list_status(void)
