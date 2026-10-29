@@ -76,6 +76,7 @@ SERVER_EXCLUDED = {
     "port/linux/src/sdl_platform.c",
     "port/linux/src/xinput_sdl.c",
     "port/linux/src/updater.c",
+    "port/linux/src/launcher.c",
 }
 SERVER_DEFINES = ["-DHALO_SERVER"]
 OUTPUT_NAME = "chupathingyce-server"

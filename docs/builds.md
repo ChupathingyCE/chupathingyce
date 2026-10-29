@@ -12,6 +12,7 @@ What each build of the game has. The downloads are in [docs/install.md](install.
 | HaloMD maps | Yes | Yes | Yes | Yes, see [docs/maps.md](maps.md#halo-pc-maps) |
 | Server Browser in the PC menus | Yes | Yes | Yes | Yes |
 | Halo PC CD and CE installer import at first start | Yes | Yes | Yes | Not yet |
+| Setup screen before the game (maps, logs) | Yes | Yes | Yes | Not yet (its own first-start screens) |
 | Discord presence and Join | Yes | Yes | Yes | No |
 | Choice of audio output, surround and Audio Setup | Yes | Yes | Yes | No (the system's) |
 | Crash reports | Yes | Yes | Yes | Not yet |

@@ -166,21 +166,33 @@ sequence:
    contains the executable.
 
 If the game finds no data (or finds an empty `maps/`), it asks where to
-get it. This occurs at the first start:
+get it. This occurs at the first start, on the setup screen's Welcome
+(launcher.c, in the game's window, before any map loads; builds without
+the game browser show the same choices in message boxes):
 
-- "Xbox disc image" (the default) opens a file picker. Select an Xbox disc
+- "Copy from my Xbox disc image" opens a file picker. Select an Xbox disc
   image (`.xiso` or `.iso`). The game copies `maps/` next to the executable
   and shows the progress. It also copies the disc's Bink movies (`bink/`,
   the `.bik` files), only the ones `bink/` lacks.
-- "Halo PC or Custom Edition" opens the same picker for optional extras: a
-  Halo PC CD image (`.iso`) fills `maps_pc/` (pc_disc.c), and Custom
-  Edition's installer (`halocesetup_en_1.00.exe`) fills `maps_ce/`
+- "Add Halo PC or Custom Edition too" opens the same picker for optional
+  extras: a Halo PC CD image (`.iso`) fills `maps_pc/` (pc_disc.c), and
+  Custom Edition's installer (`halocesetup_en_1.00.exe`) fills `maps_ce/`
   (ce_installer.c). Both read the Microsoft cabinets the maps are packed in
   (cabinet.c). Only maps the folder lacks are written. The game still needs
   the Xbox maps, so it asks again afterward.
 - "Make the folders" makes empty `maps/`, `maps_ce/`, `maps_pc/` and
-  `maps_md/`, says what goes in each, and checks again when you say so.
-- "Quit" stops the game.
+  `maps_md/`, each with a note saying what goes in it, and opens the folder.
+  "Check again" looks for the maps.
+- "I already have a maps folder" picks a folder elsewhere; `paths.data` is
+  set to it.
+- B (Backspace or Escape) quits.
+
+A maps folder that isn't the Xbox maps later (Halo PC's ui.map, or none)
+opens the setup screen on Maps instead of a message and a quit. Held Shift
+or a controller's Back at start, `--setup`, or `launcher.show_at_start =
+"always"` open it too; runs nobody watches (`debug.hidden_window`,
+`debug.exit_after`, the null renderer, Steam Deck Game Mode) never show it.
+`debug.launcher_test` scripts it for tests and screenshots.
 
 Either picker finds out what a file is from its contents, not its name.
 

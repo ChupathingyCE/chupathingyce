@@ -24,6 +24,7 @@ and the debug keyboard that the game's console reads.
 #include "touch_input.h"
 #include "delta.h"
 #include "crash_report.h"
+#include "launcher.h"
 
 #include <SDL3/SDL.h>
 #include <stdio.h>
@@ -155,7 +156,7 @@ static void old_map_folders_offer(BOOL quiet)
 /* whether the game is run without anyone to answer a question (a test run,
 a null renderer), or where a question cannot be shown (under gamescope, the
 Steam Deck's Game Mode: updater_gamescope) */
-static BOOL platform_run_is_quiet(void)
+BOOL platform_run_is_quiet(void)
 {
 	BOOL quiet = config_boolean("debug.hidden_window") || config_real("debug.exit_after") > 0.0 ||
 		config_boolean("debug.null_renderer") || updater_gamescope();
@@ -254,12 +255,15 @@ static void data_check_maps(void)
 		break;
 	default:
 		/* (a maps folder without ui.map and no Halo PC maps in it, as "make
-		the folders" leaves it: the choices offered again) */
-		if (!quiet && !maps.stray_pc_maps && platform_offer_game_data(maps.root) &&
+		the folders" leaves it: the choices offered again; the launcher's Maps
+		has them) */
+#ifndef HALO_LAUNCHER
+		if (!quiet && !maps.stray_pc_maps && platform_offer_game_data(maps.root, sizeof(maps.root)) &&
 			data_has_xbox_maps(maps.root))
 		{
 			return;
 		}
+#endif
 		snprintf(message, sizeof(message),
 			"Halo's Xbox maps were not found: %s/maps has no ui.map.%s\n\n%s\n\n"
 			"To copy the Xbox maps from your disc image, move the maps folder aside and start Chupathingy.",
@@ -268,6 +272,17 @@ static void data_check_maps(void)
 			where);
 		break;
 	}
+#ifdef HALO_LAUNCHER
+	/* (the launcher opens on Maps with the window, the problem shown there,
+	rather than a message and a quit) */
+	if (!quiet)
+	{
+		platform_log("maps folder: %s/maps is not the Xbox maps (ui.map version %ld): the launcher opens on Maps",
+			maps.root, maps.ui_version);
+		launcher_open_on_maps();
+		return;
+	}
+#endif
 	platform_log("maps folder: %s/maps is not the Xbox maps (ui.map version %ld): quitting", maps.root,
 		maps.ui_version);
 	platform_log("%s", message);
@@ -431,12 +446,13 @@ fill themselves. A file picked is told apart by what it holds, not its
 name: an Xbox disc image (xiso.c), Custom Edition's installer
 (ce_installer.c), or a CD image (pc_disc.c) */
 
+/* (sdl_platform.h's PLATFORM_IMPORT_*) */
 enum
 {
-	_data_unknown,
-	_data_xbox_disc,
-	_data_halo_pc_disc,
-	_data_custom_edition_installer,
+	_data_unknown = PLATFORM_IMPORT_UNKNOWN,
+	_data_xbox_disc = PLATFORM_IMPORT_XBOX_DISC,
+	_data_halo_pc_disc = PLATFORM_IMPORT_HALO_PC_DISC,
+	_data_custom_edition_installer = PLATFORM_IMPORT_CE_INSTALLER,
 };
 
 struct data_extraction
@@ -448,10 +464,15 @@ struct data_extraction
 	char file[256];
 	unsigned long long done;
 	unsigned long long total;
+	BOOL running;
 	BOOL finished;
 	BOOL succeeded;
 	char error[512];
 };
+
+/* (one at a time: the first-run window's or the launcher's) */
+static struct data_extraction extraction;
+static pthread_mutex_t extraction_start_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static void data_extraction_progress(void *context, const char *file, unsigned long long done,
 	unsigned long long total)
@@ -492,33 +513,85 @@ static void *data_extraction_thread(void *context)
 	return NULL;
 }
 
-/* copies the maps, showing how far it has got; closing the window quits.
-The bytes written in written (0 when the folder had them all) */
-static BOOL data_extract(int kind, const char *image, const char *destination, unsigned long long *written,
-	char *error, int error_size)
+BOOL platform_import_start(int kind, const char *image, const char *destination, char *error, int error_size)
 {
-	static struct data_extraction extraction;
-	const char *title = kind == _data_halo_pc_disc ? "Importing Halo PC maps..." :
-		kind == _data_custom_edition_installer ? "Importing Custom Edition maps..." :
-		"Extracting the maps folder...";
-	SDL_Window *window;
-	SDL_Renderer *renderer = NULL;
+	static BOOL lock_made;
 	pthread_t thread;
-	BOOL finished = FALSE;
 
+	pthread_mutex_lock(&extraction_start_lock);
+	if (lock_made)
+	{
+		BOOL busy;
+
+		pthread_mutex_lock(&extraction.lock);
+		busy = extraction.running && !extraction.finished;
+		pthread_mutex_unlock(&extraction.lock);
+		if (busy)
+		{
+			pthread_mutex_unlock(&extraction_start_lock);
+			snprintf(error, (size_t)error_size, "Maps are being copied already.");
+			return FALSE;
+		}
+		pthread_mutex_destroy(&extraction.lock);
+	}
 	memset(&extraction, 0, sizeof(extraction));
 	pthread_mutex_init(&extraction.lock, NULL);
+	lock_made = TRUE;
 	extraction.kind = kind;
+	extraction.running = TRUE;
 	snprintf(extraction.image, sizeof(extraction.image), "%s", image);
 	snprintf(extraction.destination, sizeof(extraction.destination), "%s", destination);
 	if (pthread_create(&thread, NULL, data_extraction_thread, &extraction) != 0)
 	{
+		extraction.running = FALSE;
+		pthread_mutex_unlock(&extraction_start_lock);
 		snprintf(error, (size_t)error_size, "Could not start the extraction.");
 		return FALSE;
 	}
 	/* (waited for through extraction.finished; the Windows port's threads
 	cannot be joined) */
 	pthread_detach(thread);
+	pthread_mutex_unlock(&extraction_start_lock);
+	return TRUE;
+}
+
+BOOL platform_import_poll(char *file, int file_size, unsigned long long *done, unsigned long long *total,
+	BOOL *succeeded, char *error, int error_size)
+{
+	BOOL finished;
+
+	pthread_mutex_lock(&extraction.lock);
+	finished = extraction.finished;
+	if (file && file_size > 0)
+		snprintf(file, (size_t)file_size, "%s", extraction.file);
+	if (done)
+		*done = extraction.done;
+	if (total)
+		*total = extraction.total;
+	if (succeeded)
+		*succeeded = extraction.succeeded;
+	if (finished && error && error_size > 0)
+		snprintf(error, (size_t)error_size, "%s", extraction.succeeded ? "" : extraction.error);
+	pthread_mutex_unlock(&extraction.lock);
+	return finished;
+}
+
+#ifndef HALO_LAUNCHER
+/* copies the maps, showing how far it has got; closing the window quits.
+The bytes written in written (0 when the folder had them all) */
+static BOOL data_extract(int kind, const char *image, const char *destination, unsigned long long *written,
+	char *error, int error_size)
+{
+	const char *title = kind == _data_halo_pc_disc ? "Importing Halo PC maps..." :
+		kind == _data_custom_edition_installer ? "Importing Custom Edition maps..." :
+		"Extracting the maps folder...";
+	SDL_Window *window;
+	SDL_Renderer *renderer = NULL;
+	BOOL finished = FALSE, succeeded = FALSE;
+	unsigned long long done = 0, total = 0;
+
+	if (!platform_import_start(kind, image, destination, error, error_size))
+		return FALSE;
 	window = SDL_CreateWindow("Chupathingy", 640, 150, 0);
 	if (window)
 	{
@@ -530,7 +603,6 @@ static BOOL data_extract(int kind, const char *image, const char *destination, u
 	{
 		SDL_Event event;
 		char file[256];
-		unsigned long long done, total;
 
 		while (SDL_PollEvent(&event))
 		{
@@ -540,12 +612,7 @@ static BOOL data_extract(int kind, const char *image, const char *destination, u
 				exit(EXIT_SUCCESS);
 			}
 		}
-		pthread_mutex_lock(&extraction.lock);
-		finished = extraction.finished;
-		snprintf(file, sizeof(file), "%s", extraction.file);
-		done = extraction.done;
-		total = extraction.total;
-		pthread_mutex_unlock(&extraction.lock);
+		finished = platform_import_poll(file, sizeof(file), &done, &total, &succeeded, error, error_size);
 		if (renderer)
 		{
 			char line[320];
@@ -573,10 +640,8 @@ static BOOL data_extract(int kind, const char *image, const char *destination, u
 		SDL_DestroyRenderer(renderer);
 	if (window)
 		SDL_DestroyWindow(window);
-	*written = extraction.done;
-	if (!extraction.succeeded)
-		snprintf(error, (size_t)error_size, "%s", extraction.error);
-	return extraction.succeeded;
+	*written = done;
+	return succeeded;
 }
 
 struct data_image_choice
@@ -629,9 +694,11 @@ static BOOL data_choose_image(char *path, int size, BOOL halo_pc)
 	return TRUE;
 }
 
+#endif
+
 /* what a picked file holds (an Xbox image of a whole disc has a CD's file
 system too, so it is looked for first) */
-static int data_kind(const char *path)
+int platform_import_kind(const char *path)
 {
 	if (xiso_is_image(path))
 		return _data_xbox_disc;
@@ -652,6 +719,7 @@ static BOOL data_has_xbox_maps(const char *destination)
 	return posix_find_entry_case_insensitive(maps, "ui.map", on_disk, sizeof(on_disk)) != 0;
 }
 
+#ifndef HALO_LAUNCHER
 /* "make the folders": the maps folders made empty, what goes where shown,
 and checked again when the player says so; TRUE once the Xbox maps are
 there, FALSE to go back to the choices */
@@ -702,7 +770,7 @@ static BOOL data_make_folders(const char *destination)
 	}
 }
 
-BOOL platform_offer_game_data(const char *destination)
+BOOL platform_offer_game_data(char *destination, unsigned long size)
 {
 	enum
 	{
@@ -762,7 +830,7 @@ BOOL platform_offer_game_data(const char *destination)
 		/* no file picked: ask again */
 		if (!data_choose_image(image, sizeof(image), answer == _choice_halo_pc))
 			continue;
-		kind = data_kind(image);
+		kind = platform_import_kind(image);
 		if (kind == _data_unknown)
 		{
 			platform_log("%s is no disc image or installer this reads", image);
@@ -803,6 +871,30 @@ BOOL platform_offer_game_data(const char *destination)
 		}
 	}
 }
+#else
+/* the launcher's Welcome (launcher.c), in the game's window */
+BOOL platform_offer_game_data(char *destination, unsigned long size)
+{
+	/* (the window it opens finds the data root again while it is being
+	found: asked once) */
+	static BOOL offering;
+	BOOL found;
+
+	/* not for runs nobody is watching, nor under gamescope (the player adds
+	the maps from the desktop) */
+	if (offering || config_boolean("debug.hidden_window") || config_real("debug.exit_after") > 0.0)
+		return FALSE;
+	if (updater_gamescope())
+	{
+		platform_log("no game data: start Chupathingy once from Desktop Mode to add the maps");
+		return FALSE;
+	}
+	offering = TRUE;
+	found = launcher_welcome(destination, size);
+	offering = FALSE;
+	return found;
+}
+#endif
 #endif
 
 int halo_interpolation_enabled(void)
@@ -1361,6 +1453,11 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 #ifndef HALO_ANDROID
 	platform_mouse_capture(TRUE);
 #endif
+#ifdef HALO_LAUNCHER
+	/* the launcher, before the game draws or loads anything, when it was
+	asked for (--setup, a key held, the maps not right) */
+	launcher_at_start();
+#endif
 	return TRUE;
 }
 
@@ -1491,13 +1588,11 @@ void platform_video_swap(void)
 	next_frame = now - next_frame > interval ? now + interval : next_frame + interval;
 }
 
-#ifdef HALO_BGFX
 SDL_Window *platform_sdl_window(void)
 {
 	return platform_window;
 }
 
-#endif
 void platform_mouse_capture(BOOL capture)
 {
 	if (platform_window)
