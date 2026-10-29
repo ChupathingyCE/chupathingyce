@@ -948,6 +948,24 @@ void const *cache_file_loaded_header(
 	return cache_file_globals.tags_loaded ? &cache_file_globals.header : NULL;
 }
 
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+/* port: a read of the open map's file for Stubbs mode (stubbs_mode.c) */
+static boolean cache_file_stubbs_read(
+	long offset,
+	long size,
+	void *buffer)
+{
+	boolean read_complete = FALSE;
+
+	if (offset < 0 || size <= 0 || offset > cache_file_globals.header.file_length - size)
+		return FALSE;
+	cache_file_read(NONE, offset, size, buffer, &read_complete, TRUE);
+	while (!read_complete)
+		SwitchToThread();
+	return read_complete == TRUE;
+}
+#endif
+
 boolean cache_file_header_verify(
 	struct cache_file_header *header,
 	char const *scenario_name,
@@ -1763,6 +1781,7 @@ long scenario_tags_load(
 #if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
 			/* port: Stubbs the Zombie's tags in Halo's layouts, in Stubbs
 			mode only (port/linux/game/stubbs_mode.c) */
+			stubbs_mode_set_file_reader(cache_file_stubbs_read);
 			stubbs_mode_convert_tags(tag_cache_base_address, cache_file_globals.header.tag_data_size);
 #endif
 #ifndef HALO_CONSOLE_NO_TAG_VALIDATE
@@ -1963,6 +1982,10 @@ boolean scenario_structure_bsp_load(
 	/* port: and checked against its schema, as the map's tags were
 	(port/linux/game/tag_validate.c); a Custom Edition or HaloMD map's
 	tags are Halo PC's layout, checked as they load (ce_map_checks.c) */
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+	/* (Stubbs mode: port/linux/game/stubbs_mode.c) */
+	stubbs_mode_convert_structure_bsp(xbox_pointer(reference->base_address), reference->file_size);
+#endif
 #ifndef HALO_CONSOLE_NO_TAG_VALIDATE
 	if (
 #ifdef HALO_CUSTOM_EDITION

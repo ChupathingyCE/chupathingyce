@@ -26,4 +26,16 @@ void stubbs_mode_log(char const *format, ...);
 the schema check: nothing outside Stubbs mode */
 void stubbs_mode_convert_tags(void *tag_cache, unsigned long tag_data_size);
 
+/* how stubbs_mode_convert_tags reads the open map's file (cache_files.c):
+TRUE once size bytes at offset are in buffer */
+void stubbs_mode_set_file_reader(boolean (*read)(long offset, long size, void *buffer));
+
+/* whether size bytes at address are in the animation frame data Stubbs mode
+read from the map file (tag_validate.c) */
+boolean stubbs_mode_owns_data(void const *address, long size);
+
+/* a Stubbs structure BSP just read (its header at bsp_base, size bytes)
+rewritten where Halo's differs, before its schema check */
+void stubbs_mode_convert_structure_bsp(void *bsp_base, unsigned long size);
+
 #endif

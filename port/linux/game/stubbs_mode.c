@@ -21,6 +21,7 @@ packs never take these paths.
 #include "cseries/cseries_windows.h"
 #include "errors.h"
 #include "halo_map_packs.h"
+#include "structures/structure_bsp_definitions.h"
 #include "stubbs_mode.h"
 
 #include <stdarg.h>
@@ -143,6 +144,47 @@ enum
 	STUBBS_ANIMATION_INSERT_SIZE = 0x08,
 };
 
+/* Stubbs's animations' frame data is in the map file, not its tags (the
+Xbox streamed it): each one's data (a tag_data, Halo's at 0xA0) has a size
+and a file offset and no address. It is read into one block of the game's
+heap (which is in the Xbox address space) and the addresses set */
+enum
+{
+	HALO_ANIMATION_DATA_OFFSET = 0xA0,
+	TAG_DATA_SIZE_OFFSET = 0x00,
+	TAG_DATA_FILE_OFFSET_OFFSET = 0x08,
+	TAG_DATA_ADDRESS_OFFSET = 0x0C,
+};
+
+static void *stubbs_animation_data;
+static unsigned long stubbs_animation_data_bytes;
+static boolean (*stubbs_file_read)(long offset, long size, void *buffer);
+
+static unsigned long stubbs_animation_data_size(unsigned char *animation)
+{
+	long data_size, address;
+
+	memcpy(&data_size, animation + HALO_ANIMATION_DATA_OFFSET + TAG_DATA_SIZE_OFFSET, 4);
+	memcpy(&address, animation + HALO_ANIMATION_DATA_OFFSET + TAG_DATA_ADDRESS_OFFSET, 4);
+	return data_size > 0 && !address ? (unsigned long)data_size : 0;
+}
+
+static unsigned long stubbs_animation_data_read(unsigned char *animation, unsigned char *into)
+{
+	unsigned long data_size = stubbs_animation_data_size(animation);
+	long file_offset;
+	unsigned long address;
+
+	if (!data_size)
+		return 0;
+	memcpy(&file_offset, animation + HALO_ANIMATION_DATA_OFFSET + TAG_DATA_FILE_OFFSET_OFFSET, 4);
+	if (!stubbs_file_read || !stubbs_file_read(file_offset, (long)data_size, into))
+		return 0;
+	address = (unsigned long)(__UINTPTR_TYPE__)xbox_address(into);
+	memcpy(animation + HALO_ANIMATION_DATA_OFFSET + TAG_DATA_ADDRESS_OFFSET, &address, 4);
+	return (data_size + 15) & ~15UL;
+}
+
 static long stubbs_animation_convert(unsigned char *base, unsigned long size, unsigned long address)
 {
 	unsigned char *graph = stubbs_host(base, size, address, 0x80);
@@ -181,6 +223,52 @@ static long stubbs_animation_convert(unsigned char *base, unsigned long size, un
 		memmove(seats + index * HALO_ANIMATION_UNIT_SEAT_SIZE, seats + index * STUBBS_ANIMATION_UNIT_SEAT_SIZE,
 			HALO_ANIMATION_UNIT_SEAT_SIZE);
 	return 1;
+}
+
+static unsigned long stubbs_animation_data_measure(unsigned char *animation, unsigned char *into)
+{
+	(void)into;
+	return stubbs_animation_data_size(animation);
+}
+
+/* each animation of every graph (in Halo's layout by now), passed to visit;
+the sum of what it returns */
+static unsigned long stubbs_animations_each(unsigned char *base, unsigned long size, unsigned long instances,
+	unsigned long count, unsigned long (*visit)(unsigned char *animation, unsigned char *into), unsigned char *into)
+{
+	unsigned long index, total = 0;
+
+	for (index = 0; index < count; index++)
+	{
+		unsigned char *instance = stubbs_host(base, size, instances, count * 0x20) + index * 0x20;
+		unsigned long group, address, animation_count, animations_address, animation_index;
+		unsigned char *graph, *animations;
+
+		memcpy(&group, instance, 4);
+		memcpy(&address, instance + 0x14, 4);
+		if (group != 'antr' || !(graph = stubbs_host(base, size, address, 0x80)))
+			continue;
+		memcpy(&animation_count, graph + ANIMATION_GRAPH_ANIMATIONS_OFFSET, 4);
+		memcpy(&animations_address, graph + ANIMATION_GRAPH_ANIMATIONS_OFFSET + 4, 4);
+		if (!animation_count || animation_count > 0x1000 ||
+			!(animations = stubbs_host(base, size, animations_address, animation_count * HALO_ANIMATION_SIZE)))
+		{
+			continue;
+		}
+		for (animation_index = 0; animation_index < animation_count; animation_index++)
+		{
+			unsigned long used = visit(animations + animation_index * HALO_ANIMATION_SIZE, into ? into + total : NULL);
+
+			total += visit == stubbs_animation_data_measure ? (used + 15) & ~15UL : used;
+		}
+	}
+	return total;
+}
+
+void stubbs_mode_set_file_reader(
+	boolean (*read)(long offset, long size, void *buffer))
+{
+	stubbs_file_read = read;
 }
 
 void stubbs_mode_convert_tags(
@@ -229,5 +317,73 @@ void stubbs_mode_convert_tags(
 		converted[kind]++;
 	}
 	stubbs_mode_log("%ld bipeds and %ld vehicles rewritten in Halo's unit layout", converted[0], converted[1]);
-	stubbs_mode_log("%ld animation graphs' unit seats rewritten in Halo's layout", converted_animations);
+	stubbs_mode_log("%ld animation graphs rewritten in Halo's layout", converted_animations);
+	{
+		unsigned long needed = stubbs_animations_each(base, tag_data_size, instances, count,
+			stubbs_animation_data_measure, NULL);
+		unsigned long read;
+
+		if (stubbs_animation_data)
+		{
+			system_free(stubbs_animation_data);
+			stubbs_animation_data = NULL;
+		}
+		if (needed)
+			stubbs_animation_data = system_calloc(1, (long)needed + 16);
+		stubbs_animation_data_bytes = stubbs_animation_data ? needed : 0;
+		read = stubbs_animation_data ? stubbs_animations_each(base, tag_data_size, instances, count,
+			stubbs_animation_data_read, stubbs_animation_data) : 0;
+		stubbs_mode_log("animation frame data: %lu bytes in the map file, %lu read", needed, read);
+	}
+}
+
+boolean stubbs_mode_owns_data(
+	void const *address,
+	long size)
+{
+	unsigned char const *start = stubbs_animation_data;
+
+	return stubbs_mode_active() && start && size >= 0 && (unsigned char const *)address >= start &&
+		(unsigned long)((unsigned char const *)address - start) <= stubbs_animation_data_bytes &&
+		(unsigned long)size <= stubbs_animation_data_bytes - (unsigned long)((unsigned char const *)address - start);
+}
+
+/* ---------- Stubbs's structure BSPs, as Halo's
+
+A cluster's 12 bytes where Halo has its surface indices are something else
+in Stubbs (Sigmmma's reclaimer, GPL-3.0, stubbs/defs/sbsp.py: "different
+data here than surface indices"): left empty. Stubbs's 24 bytes of floats
+where Halo has padding are left as they are */
+enum
+{
+	CLUSTER_SIZE = 0x68,
+	CLUSTER_SURFACE_INDICES_OFFSET = 0x44,
+};
+
+void stubbs_mode_convert_structure_bsp(
+	void *bsp_base,
+	unsigned long size)
+{
+	unsigned char *base = bsp_base;
+	unsigned long bsp_address, clusters_count, clusters_address, base_address, index;
+	unsigned char *bsp, *clusters;
+
+	if (!stubbs_mode_active() || size < 0x18)
+		return;
+	base_address = (unsigned long)(__UINTPTR_TYPE__)xbox_address(base);
+	memcpy(&bsp_address, base, 4);
+	if (bsp_address < base_address || bsp_address - base_address > size - sizeof(struct structure_bsp))
+		return;
+	bsp = base + (bsp_address - base_address);
+	memcpy(&clusters_count, bsp + offsetof(struct structure_bsp, clusters), 4);
+	memcpy(&clusters_address, bsp + offsetof(struct structure_bsp, clusters) + 4, 4);
+	if (clusters_address < base_address || clusters_count > 8192 ||
+		clusters_address - base_address > size || clusters_count * CLUSTER_SIZE > size - (clusters_address - base_address))
+	{
+		return;
+	}
+	clusters = base + (clusters_address - base_address);
+	for (index = 0; index < clusters_count; index++)
+		memset(clusters + index * CLUSTER_SIZE + CLUSTER_SURFACE_INDICES_OFFSET, 0, 12);
+	stubbs_mode_log("structure bsp: %lu clusters' surface indices left empty", clusters_count);
 }

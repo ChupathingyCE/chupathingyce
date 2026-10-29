@@ -424,6 +424,8 @@ symbols in this file:
 #include "cseries/errors.h"
 
 extern boolean cache_file_tags_are_ce(void);
+/* (port/linux/game/stubbs_mode.c) */
+extern boolean stubbs_mode_active(void);
 #endif
 
 /* ---------- constants */
@@ -2736,7 +2738,8 @@ boolean hs_compile_postprocess(
 	short resolved_type;
 	struct hs_script *script;
 #ifdef HALO_CUSTOM_EDITION
-	boolean drop_failed = cache_file_tags_are_ce();
+	/* (and Stubbs the Zombie's, in Stubbs mode: port/linux/game/stubbs_mode.c) */
+	boolean drop_failed = cache_file_tags_are_ce() || stubbs_mode_active();
 	long failed_count = 0;
 #endif
 
