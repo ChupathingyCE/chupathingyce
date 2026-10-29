@@ -42,23 +42,27 @@ DEFAULTS = {
 		"display.anti_aliasing": "msaa2x",
 		"display.shadow_resolution": "256",
 		"network.tunnel_port": "2302",
+		"game.start_with_one_player": "true",
 	},
 	"desktop32": {
 		"display.anti_aliasing": "off",
 		"display.shadow_resolution": "256",
 		"audio.buffer_frames": "512",
 		"network.tunnel_port": "2302",
+		"game.start_with_one_player": "true",
 	},
 	"android": {
 		"display.anti_aliasing": "off",
 		"display.shadow_resolution": "256",
 		"audio.buffer_frames": "1024",
 		"network.tunnel_port": "2302",
+		"game.start_with_one_player": "true",
 	},
 	"server": {
 		"display.anti_aliasing": "off",
 		"display.shadow_resolution": "128",
 		"network.tunnel_port": "0",
+		"game.start_with_one_player": "false",
 	},
 }
 
@@ -71,16 +75,18 @@ OLD = {
 	"display.shadow_resolution": "128",
 	"audio.buffer_frames": "512",
 	"network.tunnel_port": "0",
+	"game.start_with_one_player": "false",
 }
 CHANGED = {
-	"desktop": ["display.menus", "display.anti_aliasing", "display.shadow_resolution", "network.tunnel_port"],
-	"desktop32": ["display.menus", "display.shadow_resolution", "network.tunnel_port"],
-	"android": ["display.menus", "display.shadow_resolution", "audio.buffer_frames", "network.tunnel_port"],
+	"desktop": ["display.menus", "display.anti_aliasing", "display.shadow_resolution", "network.tunnel_port", "game.start_with_one_player"],
+	"desktop32": ["display.menus", "display.shadow_resolution", "network.tunnel_port", "game.start_with_one_player"],
+	"android": ["display.menus", "display.shadow_resolution", "audio.buffer_frames", "network.tunnel_port", "game.start_with_one_player"],
 	"server": [],
 }
-# the changes of the second question (game.defaults_answered = 2), which a
-# file answered for the first (v0.8.0's) is asked about alone
+# the changes of the second question (game.defaults_answered = 2) and the
+# third (3): a file answered for an earlier one is asked about the later only
 SECOND = ["network.tunnel_port"]
+THIRD = ["game.start_with_one_player"]
 NEW = {"display.menus": "chupathingy"}
 
 # the macros each kind of build is compiled with; the others are not macOS
@@ -227,7 +233,7 @@ def new_value(name, defaults):
 
 
 def old_value_text(name):
-	return OLD[name] if OLD[name].isdigit() else f'"{OLD[name]}"'
+	return OLD[name] if OLD[name].isdigit() or OLD[name] in ("true", "false") else f'"{OLD[name]}"'
 
 
 def previous_release_file(case, kind):
@@ -282,7 +288,7 @@ def test_previous_release_file(program, directory, defaults, kind):
 			continue
 		case.run("answer", answer)
 		text = case.text()
-		check(re.search(r"^defaults_answered = 2$", text, re.M), f"previous/{answer}: the answer is not written")
+		check(re.search(r"^defaults_answered = 3$", text, re.M), f"previous/{answer}: the answer is not written")
 		# (asked once: a restart finds nothing, and changes nothing)
 		check(pending(case)[0] == 0, f"previous/{answer}: asked again")
 		values, _ = case.get(*names)
@@ -297,14 +303,14 @@ def test_previous_release_file(program, directory, defaults, kind):
 				check(lines == [f"{key} = {old_value_text(name)}"], f"previous/keep: {key} not pinned: {lines}")
 			else:
 				check(values[name] == new_value(name, defaults), f"previous/new: {name} is {values[name]}")
-				check(not lines and commented == [f"# {key} = " + (f'"{values[name]}"' if not values[name].isdigit() else values[name])],
+				check(not lines and commented == [f"# {key} = " + (f'"{values[name]}"' if not (values[name].isdigit() or values[name] in ("true", "false")) else values[name])],
 					f"previous/new: {key}: {lines} {commented}")
 
 
 def test_answered_first_question(program, directory, defaults, kind):
 	"""A file answered for v0.8.0's question (defaults_answered = 1): asked
 	about the hosting port alone, once; its other settings stay as they are."""
-	changed = [name for name in CHANGED[kind] if name in SECOND]
+	changed = [name for name in CHANGED[kind] if name in SECOND + THIRD]
 	if not changed:
 		return
 	for answer in ("keep", "new"):
@@ -321,10 +327,16 @@ def test_answered_first_question(program, directory, defaults, kind):
 		# (v0.8.0's changes were answered: they follow the defaults, as before)
 		shadows = defaults["display.shadow_resolution"]
 		check(values["display.shadow_resolution"] == shadows, f"answered/{answer}: shadows are {values['display.shadow_resolution']}")
+		values, _ = case.get("game.start_with_one_player")
+		check(values["game.start_with_one_player"] == "false", f"answered/{answer}: starting alone is on before the answer")
+		check("Start a game you host alone" in output, f"answered/{answer}: no words for starting alone: {output}")
 		case.run("answer", answer)
 		text = case.text()
-		check(re.search(r"^defaults_answered = 2$", text, re.M), f"answered/{answer}: the answer is not written")
+		check(re.search(r"^defaults_answered = 3$", text, re.M), f"answered/{answer}: the answer is not written")
 		check(pending(case)[0] == 0, f"answered/{answer}: asked again")
+		values, _ = case.get("game.start_with_one_player")
+		alone = "false" if answer == "keep" else "true"
+		check(values["game.start_with_one_player"] == alone, f"answered/{answer}: starting alone is {values}")
 		values, _ = case.get("network.tunnel_port", "display.shadow_resolution")
 		lines, commented = value_lines(case.text(), "tunnel_port")
 		check(values["display.shadow_resolution"] == shadows, f"answered/{answer}: shadows changed after the answer")
@@ -334,6 +346,54 @@ def test_answered_first_question(program, directory, defaults, kind):
 		else:
 			check(values["network.tunnel_port"] == "2302" and not lines and commented == ["# tunnel_port = 2302"],
 				f"answered/new: the port is {values['network.tunnel_port']}: {lines} {commented}")
+
+
+def test_start_alone(program, directory, defaults, kind):
+	"""Starting a hosted game alone (game.start_with_one_player): on for a new
+	file (not the server), asked about once for a file that had it off, kept
+	off by a player who wrote false, and turned on by the older
+	debug.solo_game."""
+	if "game.start_with_one_player" not in CHANGED[kind]:
+		case = Case(program, directory / "alone_server")
+		values, _ = case.get("game.start_with_one_player")
+		check(values["game.start_with_one_player"] == "false", f"alone/server: {values}")
+		values, _ = case.run("get", "game.start_with_one_player", environment_extra={"HALO_START_WITH_ONE_PLAYER": "true"})
+		check(values["game.start_with_one_player"] == "true", f"alone/server: the environment is ignored: {values}")
+		return
+	# a file answered for the second question: this one alone is asked
+	for answer in ("keep", "new"):
+		case = Case(program, directory / f"alone_{answer}")
+		text = previous_release_file(case, kind)
+		text = re.sub(r"^# defaults_answered = .*$", "defaults_answered = 2", text, flags=re.M)
+		text = re.sub(r"^# tunnel_port = .*$", "tunnel_port = 2302", text, flags=re.M)
+		case.path.write_text(text)
+		count, output = pending(case)
+		check(count == 1 and "Start a game you host alone" in output, f"alone/{answer}: {count} {output}")
+		check("A fixed port" not in output, f"alone/{answer}: asked about the port again")
+		case.run("answer", answer)
+		values, _ = case.get("game.start_with_one_player")
+		lines, commented = value_lines(case.text(), "start_with_one_player")
+		if answer == "keep":
+			check(values["game.start_with_one_player"] == "false" and lines == ["start_with_one_player = false"],
+				f"alone/keep: {values} {lines}")
+		else:
+			check(values["game.start_with_one_player"] == "true" and not lines and commented == ["# start_with_one_player = true"],
+				f"alone/new: {values} {lines} {commented}")
+	# a player who wrote false chose it: not asked, and kept
+	case = Case(program, directory / "alone_chosen")
+	text = previous_release_file(case, kind)
+	text = re.sub(r"^# start_with_one_player = .*$", "start_with_one_player = false", text, flags=re.M)
+	case.path.write_text(text)
+	check("Start a game you host alone" not in pending(case)[1], "alone/chosen: asked about a chosen false")
+	values, _ = case.get("game.start_with_one_player")
+	check(values["game.start_with_one_player"] == "false", f"alone/chosen: {values}")
+	# the older name, debug.solo_game / HALO_SOLO_GAME, still turns it on
+	case = Case(program, directory / "alone_old_name")
+	case.path.write_text("config_version = 2\n\n[game]\nstart_with_one_player = false\n\n[debug]\nsolo_game = true\n")
+	values, _ = case.get("game.start_with_one_player", "debug.solo_game")
+	check(values["debug.solo_game"] == "true", f"alone/old name: {values}")
+	values, _ = case.run("get", "debug.solo_game", environment_extra={"HALO_SOLO_GAME": "true"})
+	check(values["debug.solo_game"] == "true", f"alone/old environment name: {values}")
 
 
 def test_chosen_port_kept(program, directory, defaults, kind):
@@ -607,7 +667,7 @@ def main():
 		for kind in DEFAULTS:
 			program = build(arguments.cc, kind, directory / kind)
 			for test in (test_new_file, test_previous_release_file, test_answered_first_question,
-				test_chosen_port_kept, test_file_without_the_settings,
+				test_start_alone, test_chosen_port_kept, test_file_without_the_settings,
 				test_readded_by_older_version, test_before_config_version, test_renamed_setting,
 				test_old_browser_address, test_packaged_install):
 				try:
