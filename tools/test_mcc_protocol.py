@@ -347,3 +347,97 @@ int main(void) {
     exe = compile_tool(tmp_path, [path])
     run = subprocess.run([str(exe)], capture_output=True, text=True)
     assert run.returncode == 0, run.stdout + run.stderr
+
+
+def test_chat_and_mcc_message_ids_are_disjoint():
+    actual = network_format.items()
+    messages = {key: int(value) for key, value in actual.items()
+                if key.startswith("enum _distributed_message_")}
+    assert len(messages.values()) == len(set(messages.values()))
+    assert messages["enum _distributed_message_aim_assist_policy"] == 90
+    assert messages["enum _distributed_message_shield_effects"] == 91
+    assert messages["enum _distributed_message_client_build"] == 92
+    assert messages["enum _distributed_message_fire_origins"] == 93
+    protocol = (ROOT / "port/linux/game/mcc_protocol.h").read_text()
+    join_kind = int(re.search(r"#define MCC_PROTOCOL_JOIN_KIND (\d+)", protocol).group(1))
+    assert join_kind not in messages.values()
+    header = (ROOT / "port/linux/game/network_distributed.h").read_text()
+    assert header.index("_distributed_message_aim_assist_policy = 90") < header.index("_distributed_message_mcc_grenades = 94")
+    assert [messages["enum _distributed_message_chat_" + name]
+            for name in ("up", "down", "config")] == [87, 88, 89]
+    assert [messages["enum _distributed_message_mcc_" + name]
+            for name in ("grenades", "campaign", "object_names", "game_speed")] == [94, 95, 96, 97]
+    # The receive boundary must admit chat in ordinary sessions while rejecting
+    # MCC data before dispatch; it also applies recursively to batched messages.
+    receiver = function((ROOT / "port/linux/game/network_distributed.c").read_text(),
+                        "network_distributed_handle_message")
+    assert "header.type >= _distributed_message_mcc_grenades && !mcc_cache_tags_loaded()" in receiver
+
+
+def test_advertised_kind_and_mcc_capability_are_independent(tmp_path):
+    """Execute the merged writer/reader for all kind bytes and stale capability."""
+    server = (ROOT / "source/networking/network_server_message_handler.c").read_text()
+    writer = server[server.index("\t\t\tadvertisement.reserved[HALO_PORT_ADVERTISED_VERSION_OFFSET]"):]
+    writer = writer[:writer.index("\t\t\t/* (open to joins:")]
+    client = (ROOT / "source/networking/network_client_manager.c").read_text()
+    reader = client[client.index("\t\t\tnetwork_game_client_advertised_versions[game_index].version ="):]
+    reader = reader[:reader.index("\n\t\t}")]
+    limits = (ROOT / "port/linux/include/halo_port_limits.h").read_text()
+    defines = "\n".join(line for line in limits.splitlines()
+                        if line.startswith("#define HALO_PORT_ADVERTISED_"))
+    base = re.search(r"#define HALO_PORT_NETWORK_VERSION (\d+)", limits).group(1)
+    code = r'''
+#include <string.h>
+#include "mcc_protocol.h"
+typedef unsigned char byte;
+typedef unsigned short word;
+#define _network_game_server_state_pregame 0
+struct game {struct {char name[32];} map; int variant, variant_options;};
+static struct {word version;byte flags,kind;} network_game_client_advertised_versions[1];
+static int dedicated;
+static int halo_server_mode(void) {return dedicated;}
+static int game_modes_kind(int const *variant,int const *options) {(void)options;return *variant;}
+static int network_game_server_get_state(void *server,void *state) {(void)server;(void)state;return 0;}
+static int network_game_server_game_is_loading(void *server) {(void)server;return 0;}
+''' + defines + '\n#define BASE_VERSION ' + base + r'''
+unsigned int mcc_protocol_version(char const *map) {return map[0] ? MCC_PROTOCOL_VERSION : BASE_VERSION;}
+static void write_advertisement(byte *bytes,int kind,int mcc) {
+    struct {byte reserved[26];} advertisement={{0}};
+    struct game data={{""},0,0};
+    struct game *game=&data;
+    void *server=0;
+    data.variant=kind;data.map.name[0]=(char)mcc;
+''' + writer + r'''
+    memcpy(bytes,advertisement.reserved,26);
+}
+static void read_advertisement(byte const *bytes) {
+    struct {byte __unknown5A[26];} data;
+    void *unused=0;
+    int game_index=0;
+    /* The anonymous struct pointer stays local to the actual reader block. */
+    #define advertisement (&data)
+    (void)unused;memcpy(data.__unknown5A,bytes,26);
+''' + reader + r'''
+    #undef advertisement
+}
+int main(void) {
+    byte bytes[26];int kind,mcc;
+    for(dedicated=0;dedicated<2;dedicated++)for(mcc=0;mcc<2;mcc++)for(kind=0;kind<256;kind++) {
+        write_advertisement(bytes,kind,mcc);read_advertisement(bytes);
+        if(network_game_client_advertised_versions[0].kind!=kind)return 1;
+        if(network_game_client_advertised_versions[0].version!=(mcc?MCC_PROTOCOL_VERSION:BASE_VERSION))return 2;
+        if(!(network_game_client_advertised_versions[0].flags&MCC_PROTOCOL_ADVERTISED_FLAG))return 3;
+        if(!!(network_game_client_advertised_versions[0].flags&HALO_PORT_ADVERTISED_DEDICATED_FLAG)!=dedicated)return 6;
+        bytes[MCC_PROTOCOL_ADVERTISED_VERSION_OFFSET]^=1;read_advertisement(bytes);
+        if(network_game_client_advertised_versions[0].flags&MCC_PROTOCOL_ADVERTISED_FLAG)return 4;
+        if(network_game_client_advertised_versions[0].kind!=kind)return 5;
+        if(!!(network_game_client_advertised_versions[0].flags&HALO_PORT_ADVERTISED_DEDICATED_FLAG)!=dedicated)return 7;
+    }
+    return 0;
+}
+'''
+    path = tmp_path / "advertisement.c"
+    path.write_text(code)
+    exe = compile_tool(tmp_path, [path])
+    run = subprocess.run([str(exe)], capture_output=True, text=True)
+    assert run.returncode == 0, run.stdout + run.stderr
