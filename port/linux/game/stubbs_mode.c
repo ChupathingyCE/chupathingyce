@@ -21,7 +21,10 @@ packs never take these paths.
 #include "cseries/cseries_windows.h"
 #include "errors.h"
 #include "halo_map_packs.h"
+#include "tag_files/tag_files.h"
+#include "tag_schema.h"
 #include "structures/structure_bsp_definitions.h"
+#include "physics/collision_model_definitions.h"
 #include "stubbs_mode.h"
 
 #include <stdarg.h>
@@ -265,6 +268,126 @@ static unsigned long stubbs_animations_each(unsigned char *base, unsigned long s
 	return total;
 }
 
+/* ---------- sound classes
+
+Stubbs's sounds use classes that are unused slots in Halo's (sound_classes.c:
+20, 48 and others; their names are not known), which halt the game. Each is
+played as the nearest named class below it */
+enum
+{
+	SOUND_CLASS_OFFSET = 0x04,
+};
+
+extern char const *sound_class_names[];
+
+static boolean stubbs_sound_class_convert(unsigned char *field)
+{
+	short sound_class, halo_class;
+
+	memcpy(&sound_class, field, 2);
+	halo_class = sound_class < 0 ? 0 : sound_class > 50 ? 50 : sound_class;
+	while (halo_class > 0 && !sound_class_names[halo_class][0])
+		halo_class--;
+	if (halo_class == sound_class)
+		return FALSE;
+	memcpy(field, &halo_class, 2);
+	return TRUE;
+}
+
+/* ---------- blocks whose elements are longer in Stubbs
+
+A block's elements rewritten in place from Stubbs's size to Halo's (never
+longer), Halo's fields copied from where Stubbs has them, the rest zero.
+Layouts from Sigmmma's reclaimer (GPL-3.0), stubbs/defs, against its
+hek/defs for Halo's */
+
+struct stubbs_copy
+{
+	unsigned short halo_offset;
+	unsigned short stubbs_offset;
+	unsigned short size;
+};
+
+struct stubbs_element_layout
+{
+	unsigned short halo_size;
+	unsigned short stubbs_size;
+	struct stubbs_copy const *copies;
+	short copy_count;
+};
+
+static unsigned char *stubbs_tags_base;
+static unsigned long stubbs_tags_size;
+
+/* the block (count, address) at block, its elements repacked: their new
+address (the same) or NULL if it is not in the tags */
+static unsigned char *stubbs_block_repack(unsigned char *block, struct stubbs_element_layout const *layout,
+	unsigned long *count_out)
+{
+	static unsigned char element[0x1000];
+	unsigned long count, address, index;
+	unsigned char *elements;
+	short copy;
+
+	*count_out = 0;
+	memcpy(&count, block, 4);
+	memcpy(&address, block + 4, 4);
+	if (!count || count > 0x10000 ||
+		!(elements = stubbs_host(stubbs_tags_base, stubbs_tags_size, address, count * layout->stubbs_size)) ||
+		layout->stubbs_size > sizeof(element))
+	{
+		return NULL;
+	}
+	for (index = 0; index < count; index++)
+	{
+		memcpy(element, elements + index * layout->stubbs_size, layout->stubbs_size);
+		memset(elements + index * layout->halo_size, 0, layout->halo_size);
+		for (copy = 0; copy < layout->copy_count; copy++)
+			memcpy(elements + index * layout->halo_size + layout->copies[copy].halo_offset,
+				element + layout->copies[copy].stubbs_offset, layout->copies[copy].size);
+	}
+	*count_out = count;
+	return elements;
+}
+
+/* a collision model's materials, regions and their permutations (stubbs/defs/coll.py) */
+static struct stubbs_copy const stubbs_collision_material_copies[] =
+{
+	{ 0x00, 0x00, 0x30 }, /* name, flags, type, shield leak and multiplier */
+	{ 0x3C, 0x4C, 0x04 }, /* body damage multiplier */
+};
+static struct stubbs_copy const stubbs_collision_region_copies[] =
+{
+	{ 0x00, 0x00, 0x24 }, /* name, flags */
+	{ 0x28, 0x38, 0x04 }, /* damage threshold */
+	{ 0x38, 0x88, 0x10 }, /* destroyed effect (Stubbs adds garbage and a weapon) */
+	{ 0x48, 0xD4, 0x0C }, /* permutations */
+};
+static struct stubbs_copy const stubbs_collision_permutation_copies[] =
+{
+	{ 0x00, 0x00, 0x20 }, /* name */
+};
+static struct stubbs_element_layout const stubbs_collision_material = { 0x48, 0x90, stubbs_collision_material_copies, 2 };
+static struct stubbs_element_layout const stubbs_collision_region = { 0x54, 0xE0, stubbs_collision_region_copies, 4 };
+static struct stubbs_element_layout const stubbs_collision_permutation = { 0x20, 0x80, stubbs_collision_permutation_copies, 1 };
+
+static void stubbs_collision_convert(unsigned char *model)
+{
+	unsigned char *regions;
+	unsigned long count, index;
+
+	stubbs_block_repack(model + offsetof(struct collision_model, resistance.materials), &stubbs_collision_material, &count);
+	regions = stubbs_block_repack(model + offsetof(struct collision_model, resistance.regions), &stubbs_collision_region,
+		&count);
+	for (index = 0; regions && index < count; index++)
+	{
+		unsigned long permutations;
+
+		stubbs_block_repack(regions + index * stubbs_collision_region.halo_size + 0x48, &stubbs_collision_permutation,
+			&permutations);
+	}
+}
+
 void stubbs_mode_set_file_reader(
 	boolean (*read)(long offset, long size, void *buffer))
 {
@@ -279,11 +402,15 @@ void stubbs_mode_convert_tags(
 	unsigned long instances, count, index;
 	long converted[2] = { 0, 0 };
 	long converted_animations = 0;
+	long converted_collision = 0;
+	long converted_sounds = 0;
 
 	if (!stubbs_mode_active() || tag_data_size < 0x28)
 		return;
 	memcpy(&instances, base, 4);
 	memcpy(&count, base + 0x0C, 4);
+	stubbs_tags_base = base;
+	stubbs_tags_size = tag_data_size;
 	if (!stubbs_host(base, tag_data_size, instances, count * 0x20))
 	{
 		stubbs_mode_log("the tag header is not Stubbs's: nothing converted");
@@ -299,6 +426,25 @@ void stubbs_mode_convert_tags(
 
 		memcpy(&group, instance, 4);
 		memcpy(&address, instance + 0x14, 4);
+		if (group == 'snd!')
+		{
+			unsigned char *sound = stubbs_host(base, tag_data_size, address, 8);
+
+			if (sound && stubbs_sound_class_convert(sound + SOUND_CLASS_OFFSET))
+				converted_sounds++;
+			continue;
+		}
+		if (group == 'coll')
+		{
+			unsigned char *model = stubbs_host(base, tag_data_size, address, sizeof(struct collision_model));
+
+			if (model)
+			{
+				stubbs_collision_convert(model);
+				converted_collision++;
+			}
+			continue;
+		}
 		if (group == 'antr')
 		{
 			converted_animations += stubbs_animation_convert(base, tag_data_size, address);
@@ -318,6 +464,8 @@ void stubbs_mode_convert_tags(
 	}
 	stubbs_mode_log("%ld bipeds and %ld vehicles rewritten in Halo's unit layout", converted[0], converted[1]);
 	stubbs_mode_log("%ld animation graphs rewritten in Halo's layout", converted_animations);
+	stubbs_mode_log("%ld sounds of classes Halo lacks played as the nearest class before", converted_sounds);
+	stubbs_mode_log("%ld collision models' materials and regions rewritten in Halo's layout", converted_collision);
 	{
 		unsigned long needed = stubbs_animations_each(base, tag_data_size, instances, count,
 			stubbs_animation_data_measure, NULL);
