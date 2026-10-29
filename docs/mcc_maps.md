@@ -513,6 +513,27 @@ runs after native Chicago state setup because tag conversion alone cannot
 express this blend and its matching fade. Each subsequent shader installs
 its normal blend state; the adapter retains no per-map state.
 
+MCC `player_add_equipment` calls use the MCC script registry and
+`mcc_player_add_equipment`. A reset deletes the held weapon through the
+normal object-deletion service before applying the native starting profile.
+The inherited Xbox inventory clear keeps the held weapon;
+Meincrap 2's campaign selector readies a dummy weapon, so keeping it caused
+repeated profile changes with a blank viewmodel and a stale hotbar selection.
+The local version-13 `meincrap2.map` contains `weaps` and `set_weap_and_hp`:
+the former detects the dummy or flashlight state, and the latter applies a
+reset profile twice across a one-tick sleep, restoring vitality each time.
+Each profile supplies a real weapon and another dummy. This inspected script
+flow, and a reproduced ordinary switch-button failure, motivate the MCC-only
+reset semantics; the Xbox/CE clear routine is unchanged.
+
+The adapter validates the player unit and profile before deleting anything,
+leaves add-only calls intact, and runs only on the authoritative machine.
+It targets exactly the unit supplied by the script; MCC's per-player selectors
+must not inherit the legacy co-op follower expansion. It retains no sidecar
+state and uses existing object/inventory replication and deletion cleanup.
+MCC admission version 61 separates the changed equipment behavior from older
+MCC peers; the OpenCE wire format and Xbox/CE admission version stay unchanged.
+
 MCC equipment scripts may delete the currently displayed weapon before
 creating its replacement. A deletion notification clears matching local
 first-person references while the old object still exists; unrelated weapons

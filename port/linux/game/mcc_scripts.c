@@ -16,6 +16,7 @@
 #include "mcc_script_parameters.h"
 #include "mcc_syntax.h"
 #include "mcc_campaign.h"
+#include "mcc_player.h"
 #include <string.h>
 
 boolean hs_macro_function_parse(short index, long expression);
@@ -127,18 +128,37 @@ static struct hs_function_definition mcc_core_segment_definition = {
     NULL, 1, { _hs_type_string }
 };
 
+static void mcc_equipment_evaluate(short function, long thread, boolean initialize)
+{
+    long *arguments = hs_macro_function_evaluate(function, thread, initialize);
+    if (!arguments) return;
+    mcc_player_add_equipment(arguments[0], (short)arguments[1], (boolean)arguments[2]);
+    hs_return(thread, 0);
+}
+
+static struct {
+    struct hs_function_definition definition;
+    short other_parameters[2];
+} mcc_equipment_definition = {
+    { _hs_type_void, 0, "player_add_equipment", hs_macro_function_parse,
+        mcc_equipment_evaluate, "Adds a profile, or replaces all player equipment on reset.",
+        NULL, 3, { _hs_type_unit } }, { _hs_type_starting_profile, _hs_type_boolean }
+};
+
 struct hs_function_definition *mcc_script_function(short index)
 {
     if (!mcc_cache_tags_loaded()) return NULL;
     if (index == MCC_HS_DISTANCE_TO_OBJECT) return &mcc_distance_definition.definition;
     if (index == MCC_HS_MISSION_SEGMENT) return &mcc_mission_segment_definition;
     if (index == MCC_HS_CORE_SEGMENT) return &mcc_core_segment_definition;
+    if (index == MCC_HS_PLAYER_EQUIPMENT) return &mcc_equipment_definition.definition;
     return mcc_campaign_function(index);
 }
 
 short mcc_script_find(char const *name)
 {
     if (!mcc_cache_tags_loaded() || !name) return NONE;
+    if (!csstrcasecmp(name, "player_add_equipment")) return MCC_HS_PLAYER_EQUIPMENT;
     if (!csstrcasecmp(name, "objects_distance_to_object")) return MCC_HS_DISTANCE_TO_OBJECT;
     if (!csstrcasecmp(name, "mcc_mission_segment")) return MCC_HS_MISSION_SEGMENT;
     if (!csstrcasecmp(name, "core_save_name")) return MCC_HS_CORE_SEGMENT;
@@ -317,6 +337,7 @@ int mcc_scripts_prepare(struct mcc_runtime *runtime)
             if (!csstrcasecmp(name, "objects_distance_to_object")) index = MCC_HS_DISTANCE_TO_OBJECT;
             else if (!csstrcasecmp(name, "mcc_mission_segment")) index = MCC_HS_MISSION_SEGMENT;
             else if (!csstrcasecmp(name, "core_save_name")) index = MCC_HS_CORE_SEGMENT;
+            else if (!csstrcasecmp(name, "player_add_equipment")) index = MCC_HS_PLAYER_EQUIPMENT;
             else if (!csstrcasecmp(name, "player_effect_set_max_vibrate"))
                 index = hs_find_function_by_name("player_effect_set_max_rumble");
             else {

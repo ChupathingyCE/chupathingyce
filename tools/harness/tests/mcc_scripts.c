@@ -29,7 +29,14 @@ short const hs_external_global_count=443;
 static boolean loaded;
 static struct data_array list_data;
 struct data_array *object_list_header_data = &list_data;
-static long arguments[2], returned;
+static long arguments[3], returned;
+static long equipment_unit;
+static short equipment_profile;
+static boolean equipment_reset;
+static unsigned equipment_calls;
+void mcc_player_add_equipment(long unit, short profile, boolean reset) {
+    equipment_unit=unit;equipment_profile=profile;equipment_reset=reset;++equipment_calls;
+}
 static int segment_events;
 static char last_event[256];
 static struct object_datum mock_object;
@@ -168,6 +175,13 @@ int main(int argc, char **argv) {
         nodes[32766] = nodes[1]; nodes[32766].next_node_index = NONE;
     }
     if (!strcmp(argv[1], "unterminated")) { memset(strings, 'x', 128); expected = 0; }
+    if (!strcmp(argv[1], "equipment")) {
+        strcpy(strings, "player_add_equipment");
+        nodes[0].type=_hs_type_void;nodes[2].type=_hs_type_unit;
+        nodes[3].type=_hs_type_starting_profile;nodes[3].next_node_index=0x10004;
+        nodes[4].datum_header=1;nodes[4].flags=1;nodes[4].type=_hs_type_boolean;
+        nodes[4].next_node_index=NONE;syntax->count=syntax->actual_count=5;
+    }
     if (!strcmp(argv[1], "alias")) strcpy(strings, "player_effect_set_max_vibrate");
     if (!strcmp(argv[1], "extension")) strcpy(strings, "objects_distance_to_object");
     if (!strcmp(argv[1], "segment") || !strcmp(argv[1], "core_segment")) {
@@ -307,6 +321,7 @@ int main(int argc, char **argv) {
     if (!strcmp(argv[1], "full_capacity")) {
         CHECK(nodes[32765].function_index == 321 && nodes[32766].function_index == 321);
     }
+    CHECK(mcc_script_find("player_add_equipment") == NONE);
     CHECK(!mcc_script_function(MCC_HS_DISTANCE_TO_OBJECT));
     CHECK(!mcc_script_function(MCC_HS_MISSION_SEGMENT));
     CHECK(!mcc_script_function(MCC_HS_CORE_SEGMENT));
@@ -339,7 +354,23 @@ int main(int argc, char **argv) {
     CHECK(mcc_script_find("player_effect_set_max_vibrate") == 322);
     CHECK(mcc_script_find("MCC_MISSION_SEGMENT") == MCC_HS_MISSION_SEGMENT);
     CHECK(mcc_script_find("CORE_SAVE_NAME") == MCC_HS_CORE_SEGMENT);
-    if (!strcmp(argv[1], "global")) CHECK((unsigned short)nodes[0].short_value == 0x8009);
+    if (!strcmp(argv[1], "equipment")) {
+        short index=mcc_script_find("PLAYER_ADD_EQUIPMENT");
+        CHECK(index!=NONE && nodes[0].function_index==index && nodes[1].function_index==index);
+        extension=mcc_script_function(index);
+        CHECK(extension && extension->parameter_count==3 && extension->return_type==_hs_type_void);
+        CHECK(mcc_script_call_valid(nodes,syntax));
+        nodes[4].type=_hs_type_real;CHECK(!mcc_script_call_valid(nodes,syntax));
+        nodes[4].type=_hs_type_boolean;nodes[4].next_node_index=0x10002;
+        CHECK(!mcc_script_call_valid(nodes,syntax));
+        arguments[0]=123;arguments[1]=0xFFFF0007;arguments[2]=(long)0xFFFFFF01;
+        extension->evaluate(index,0,FALSE);CHECK(!equipment_calls);
+        extension->evaluate(index,0,TRUE);
+        CHECK(equipment_calls==1 && equipment_unit==123 && equipment_profile==7 && equipment_reset==TRUE);
+        arguments[2]=(long)0xFFFFFF00;extension->evaluate(index,0,TRUE);
+        CHECK(equipment_calls==2 && equipment_reset==FALSE);
+        loaded=FALSE;CHECK(!mcc_script_function(index));
+    } else if (!strcmp(argv[1], "global")) CHECK((unsigned short)nodes[0].short_value == 0x8009);
     else if (!strcmp(argv[1], "alias")) CHECK(nodes[0].function_index == 322);
     else if (!strcmp(argv[1], "extension")) {
         union { long bits; float value; } result;
