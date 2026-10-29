@@ -306,6 +306,8 @@ int mcc_audio_prepare(struct mcc_runtime *runtime)
 failed:
     error(_error_silent,"mcc audio: sound tag #%lu '%s', range %ld, permutation %ld, codec %ld: %s; map refused",
         index,tag_name,failed_range,failed_permutation,failed_codec,stage);
+    if (!runtime->failure[0]) snprintf(runtime->failure,sizeof(runtime->failure),
+        "Sound conversion failed (codec %ld). See debug.txt for the sound name.",failed_codec);
     return 0;
 }
 

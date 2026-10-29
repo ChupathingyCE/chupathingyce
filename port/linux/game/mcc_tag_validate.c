@@ -205,6 +205,10 @@ static int mcc_value_block(struct tag_schema_definition const *schema)
 static void mcc_problem(struct mcc_validation_context *context, int rejected, char const *message)
 {
     char text[512];
+    if (rejected && mcc_validation.runtime && !mcc_validation.runtime->failure[0])
+        snprintf(mcc_validation.runtime->failure,sizeof(mcc_validation.runtime->failure),
+            "Invalid data: tag %08lx, %.24s. See debug.txt.",
+            context->handle,context->field ? context->field : "root");
     if (rejected) context->rejected = TRUE;
     else ++mcc_validation.corrections;
     if (rejected || mcc_validation.corrections <= 64) {

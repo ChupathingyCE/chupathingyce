@@ -13,7 +13,11 @@ progress follows resource checks, conversion and validation, then initial
 scenario setup. It represents completed work, not a time estimate. Long audio
 and texture operations refresh the display between bounded pieces of work;
 a single blocking read or allocation can still pause it briefly. A refused
-map closes the effect and uses the existing error message.
+map closes the effect and shows its package/level and the failed check. Missing
+or incompatible resources name the resource file and where to install the
+matching MCC copy. Unsupported script names and conversion stages are reported
+when known; `debug.txt` retains the detailed checks. The existing menu return
+and network-session abort behaviour is unchanged.
 
 The screen uses the Xbox installation's `maps/loading.tga` imported from the
 disc image. If that file is missing, the original renderer has no loading

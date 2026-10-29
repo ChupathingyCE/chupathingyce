@@ -77,6 +77,15 @@ static int read_map(void *context,uint32_t offset,uint32_t size,void *out) {
 }
 int main(int argc,char **argv) {
     struct mcc_runtime runtime={0};unsigned char bytes[32]={0};int ok;
+    if(argc==4 && !strcmp(argv[1],"explain")) {
+        struct mcc_cache_source source;uint32_t sum=0;char reason[320];
+        FILE *f=fopen(argv[2],"rb");if(!f)return 8;
+        fseek(f,0,SEEK_END);source.size=(uint64_t)ftell(f);source.context=f;source.read=read_map;
+        strcpy(reason,"stale failure");
+        ok=mcc_resources_probe_explain("mcc_maps/package/a10",&source,&sum,reason,sizeof(reason));fclose(f);
+        printf("%s",reason);
+        return ok==atoi(argv[3]) ? 0 : 9;
+    }
     if(argc==4 && !strcmp(argv[1],"fingerprint")) {
         struct mcc_cache_source source;unsigned i;
         FILE *f=fopen(argv[2],"rb");if(!f)return 8;
@@ -125,7 +134,7 @@ int main(int argc,char **argv) {
     target = ["--target=i686-pc-windows-msvc", "-fuse-ld=lld"] if sys.platform == "win32" else []
     # Match the game's GNU89 mode, including libc's snprintf declaration on Linux.
     result = subprocess.run([clang] + target + [str(ROOT / "tools/mcc_loading_stub.c"), "-std=gnu89", "-Wall", "-Wextra", "-Werror", "-D_CRT_SECURE_NO_WARNINGS", "-I"+str(ROOT / "port/linux/game"),
-                    "-I"+str(work), str(source), str(ROOT / "port/linux/game/mcc_package.c"), str(ROOT / "port/linux/game/mcc_resources.c"), str(ROOT / "port/linux/game/mcc_sha256.c"), str(ROOT / "port/linux/game/mcc_cache_format.c"), "-o", str(exe)], capture_output=True, text=True)
+                    "-I"+str(work), str(source), str(ROOT / "port/linux/game/mcc_package.c"), str(ROOT / "port/linux/game/mcc_resources.c"), str(ROOT / "port/linux/game/mcc_errors.c"), str(ROOT / "port/linux/game/mcc_sha256.c"), str(ROOT / "port/linux/game/mcc_cache_format.c"), "-o", str(exe)], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
     return exe
 
@@ -361,6 +370,21 @@ def test_shared_set_selection(resource_tool, tmp_path, kind, case):
     result = subprocess.run([str(resource_tool), "probe", str(package / "a10.map"), str(int(expected)), "unused"],
                             cwd=tmp_path, capture_output=True, timeout=10)
     assert result.returncode == 0, result.stdout+result.stderr
+    explanation = subprocess.run([str(resource_tool), "explain", str(package / "a10.map"), str(int(expected))],
+                                 cwd=tmp_path, capture_output=True, text=True, timeout=10)
+    assert explanation.returncode == 0, explanation.stderr
+    if expected:
+        # A rejected partial candidate is not a failed load if another set matches.
+        assert explanation.stdout == ""
+    else:
+        assert filename in explanation.stdout
+        if case == "ambiguous":
+            assert "ambiguous" in explanation.stdout and "beside the level" in explanation.stdout
+        elif case in {"package_bad", "root_bad", "malformed_shared"}:
+            assert "invalid or unreadable" in explanation.stdout
+            assert "matching resource" in explanation.stdout
+        else:
+            assert "No matching" in explanation.stdout
     if expected and case != "unused":
         # Moving identical chosen data into the package preserves the fingerprint.
         (package / filename).write_bytes(blob())

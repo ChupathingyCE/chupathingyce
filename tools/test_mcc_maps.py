@@ -5,7 +5,6 @@ The stubs require every discovery/open operation to name d:\\mcc_maps\\, so
 an accidental fallback to Xbox or CE directories fails the executable.
 """
 import os
-import re
 from pathlib import Path
 import shutil
 import struct
@@ -78,6 +77,8 @@ int CloseHandle(HANDLE);
 #include "mcc_maps.h"
 #include "mcc_package.h"
 #include "mcc_cache_format.h"
+#include "mcc_errors.h"
+#include <errno.h>
 #include <stdarg.h>
 #include <stdint.h>
 #undef fopen
@@ -94,8 +95,6 @@ int mcc_identity_check(char const *name) {(void)name;return 1;}
 int mcc_identity_prepare_host(char const *name) {(void)name;identities_prepared++;return 1;}
 #include "mcc_runtime.h"
 #include "mcc_resources.h"
-#include "mcc_precache.h"
-int mcc_precache_snapshot(char const *name,struct mcc_precache_snapshot *s) {(void)name;(void)s;return 0;}
 static char saved_identity[64];
 static int allocation_fails;
 void *mcc_runtime_allocate(struct mcc_runtime *r,uint32_t bytes) {
@@ -250,15 +249,15 @@ int main(int argc,char **argv) {
 '''
     # Exercise the actual side-effect-free runtime admission functions too.
     cache_source = (ROOT / "port/linux/game/mcc_cache.c").read_text()
-    admission = re.search(r"static struct \{.*?\} mcc_validation;", cache_source, re.S).group() + "\n" + "\n".join(function(cache_source, name) for name in
-                          ("mcc_cache_validation_clear", "mcc_cache_probe", "mcc_path", "mcc_scenario_identity", "mcc_file_read", "mcc_open", "mcc_cache_checksum", "mcc_cache_present"))
+    admission = "\n".join(function(cache_source, name) for name in
+                          ("mcc_path", "mcc_scenario_identity", "mcc_file_read", "mcc_open_explain", "mcc_open", "mcc_cache_checksum", "mcc_cache_present"))
     source.write_text(source_code.replace("int main(int argc,char **argv)", "#define fopen mcc_test_fopen\n#define fread mcc_test_fread\n" + admission + "\n#undef fopen\n#undef fread\nint main(int argc,char **argv)"))
     output = work / ("catalog.exe" if sys.platform == "win32" else "catalog")
     command = [compiler, "-include", str(ROOT / "port/linux/game/mcc_loading.h"), str(ROOT / "tools/mcc_loading_stub.c"), "-std=c99", "-Wall", "-Wextra", "-Werror",
                "-I", str(work), "-I", str(ROOT / "port/linux/game"), str(source),
                str(ROOT / "port/linux/game/mcc_maps.c"),
                str(ROOT / "port/linux/game/mcc_package.c"),
-               str(ROOT / "port/linux/game/mcc_cache_format.c"), str(ROOT / "port/linux/game/mcc_resources.c"), str(ROOT / "port/linux/game/mcc_sha256.c"), "-o", str(output)]
+               str(ROOT / "port/linux/game/mcc_cache_format.c"), str(ROOT / "port/linux/game/mcc_resources.c"), str(ROOT / "port/linux/game/mcc_errors.c"), str(ROOT / "port/linux/game/mcc_sha256.c"), "-o", str(output)]
     if sys.platform == "win32":
         command[1:1] = ["--target=i686-pc-windows-msvc", "-fuse-ld=lld", "-D_CRT_SECURE_NO_WARNINGS"]
     result = subprocess.run(command, capture_output=True, text=True)
