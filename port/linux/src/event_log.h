@@ -83,7 +83,8 @@ enum
 	/* the server's minute: value[0] the players, value[1] the frame's
 	milliseconds (x100, average), value[2] the longest (x100), value[3]
 	the process's resident memory (KB, -1 unknown); bits its CPU
-	(thousandths of a core, -1 unknown, as int) */
+	(thousandths of a core, -1 unknown, as int); position[0] and [1] the
+	traffic received and sent over the minute (kilobits a second) */
 	EVENT_LOG_HEALTH,
 	/* player (none: someone not in the game); value[0]
 	EVENT_LOG_MODERATION_*; tag[0] the reason, tag[1] by whom, tag[2] the
@@ -137,6 +138,11 @@ enum
 	EVENT_LOG_OBJECTIVE_HILL_ENTER,
 	EVENT_LOG_OBJECTIVE_HILL_EXIT,
 	EVENT_LOG_OBJECTIVE_RACE_LAP,
+	/* Bomb's (game_engine_bomb.c): the bomb picked up, dropped (or its
+	carrier killed), carried into the goal */
+	EVENT_LOG_OBJECTIVE_BOMB_GRAB,
+	EVENT_LOG_OBJECTIVE_BOMB_DROP,
+	EVENT_LOG_OBJECTIVE_BOMB_SCORE,
 	EVENT_LOG_NUMBER_OF_OBJECTIVES
 };
 
@@ -243,6 +249,12 @@ struct event_log_player_totals
 	int ball_kills;
 	int hill_time;
 	int laps;
+	/* Bomb's (set in a Bomb game): carry seconds, carriers killed, kills
+	while carrying */
+	int bomb;
+	int bomb_carry_time;
+	int bomb_carrier_kills;
+	int bomb_kills_as_carrier;
 };
 
 /* the game, as it starts */

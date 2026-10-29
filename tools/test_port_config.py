@@ -17,6 +17,8 @@ player's can have:
   settings keep their old values and the file stays as it is, the player is
   asked once, "keep mine" writes the old values and "use the new settings"
   lets them follow the new defaults; the question never comes again;
+- a file with a setting under its older name: a value the player chose
+  goes on under the new one, and the old name's lines are taken out;
 - the per-platform defaults of each build (DEFAULTS below).
 
 Needs only a C compiler. Usage: test_port_config.py [--cc clang]
@@ -39,20 +41,40 @@ DEFAULTS = {
 	"desktop": {
 		"display.anti_aliasing": "msaa2x",
 		"display.shadow_resolution": "256",
+		"network.tunnel_port": "2302",
+		"game.start_with_one_player": "true",
+		"audio.hrtf": "on",
 	},
 	"desktop32": {
 		"display.anti_aliasing": "off",
 		"display.shadow_resolution": "256",
 		"audio.buffer_frames": "512",
+		"network.tunnel_port": "2302",
+		"game.start_with_one_player": "true",
+		"audio.hrtf": "on",
 	},
 	"android": {
 		"display.anti_aliasing": "off",
 		"display.shadow_resolution": "256",
 		"audio.buffer_frames": "1024",
+		"network.tunnel_port": "2302",
+		"game.start_with_one_player": "true",
+		"audio.hrtf": "on",
 	},
 	"server": {
 		"display.anti_aliasing": "off",
 		"display.shadow_resolution": "128",
+		"network.tunnel_port": "0",
+		"game.start_with_one_player": "false",
+	},
+	# (a console's build, one on the shared GL layer: Headphone 3D stays off,
+	# the original Xbox having its own hardware path, and the port random)
+	"console": {
+		"display.anti_aliasing": "off",
+		"display.shadow_resolution": "256",
+		"network.tunnel_port": "0",
+		"game.start_with_one_player": "true",
+		"audio.hrtf": "off",
 	},
 }
 
@@ -64,29 +86,44 @@ OLD = {
 	"display.anti_aliasing": "off",
 	"display.shadow_resolution": "128",
 	"audio.buffer_frames": "512",
+	"network.tunnel_port": "0",
+	"game.start_with_one_player": "false",
+	"audio.hrtf": "off",
 }
 CHANGED = {
-	"desktop": ["display.menus", "display.anti_aliasing", "display.shadow_resolution"],
-	"desktop32": ["display.menus", "display.shadow_resolution"],
-	"android": ["display.menus", "display.shadow_resolution", "audio.buffer_frames"],
+	"desktop": ["display.menus", "display.anti_aliasing", "display.shadow_resolution", "network.tunnel_port", "game.start_with_one_player", "audio.hrtf"],
+	"desktop32": ["display.menus", "display.shadow_resolution", "network.tunnel_port", "game.start_with_one_player", "audio.hrtf"],
+	"android": ["display.menus", "display.shadow_resolution", "audio.buffer_frames", "network.tunnel_port", "game.start_with_one_player", "audio.hrtf"],
 	"server": [],
+	"console": ["display.menus", "display.shadow_resolution", "game.start_with_one_player"],
 }
+# the changes of the second question (game.defaults_answered = 2), the
+# third (3) and the latest (CONFIG_DEFAULTS_GENERATION): a file answered for
+# an earlier one is asked about the later ones only
+SECOND = ["network.tunnel_port"]
+THIRD = ["game.start_with_one_player"]
+LATEST = ["audio.hrtf"]
+GENERATION = "4"
 NEW = {"display.menus": "chupathingy"}
 
 # the macros each kind of build is compiled with; the others are not macOS
 # (whose own defaults the native build checks on a Mac)
 DEFINES = {
-	"desktop": ["-DHALO_64BIT"],
-	"desktop32": ["-U__APPLE__"],
-	"android": ["-U__APPLE__", "-DHALO_ANDROID"],
-	"server": ["-U__APPLE__", "-DHALO_SERVER", "-DHALO_64BIT"],
+	"desktop": ["-DHALO_64BIT", "-DHALO_GAME_BROWSER"],
+	"desktop32": ["-U__APPLE__", "-DHALO_GAME_BROWSER"],
+	"android": ["-U__APPLE__", "-DHALO_ANDROID", "-DHALO_GAME_BROWSER"],
+	"server": ["-U__APPLE__", "-DHALO_SERVER", "-DHALO_64BIT", "-DHALO_GAME_BROWSER"],
+	"console": ["-U__APPLE__", "-DHALO_CONSOLE", "-DHALO_CONSOLE_GL_LAYER", "-DHALO_GAME_BROWSER"],
 }
 
 STUB_PLATFORM = """#include <stddef.h>
 void platform_log(const char *format, ...);
 """
 
-STUB_POSIX = """#include <sys/stat.h>
+STUB_POSIX = """#include <dirent.h>
+#include <string.h>
+#include <strings.h>
+#include <sys/stat.h>
 typedef unsigned long posix_ulong;
 struct posix_file_information
 {
@@ -106,6 +143,26 @@ static int posix_stat(const char *path, struct posix_file_information *informati
 	information->modification_nanoseconds = 0;
 	return 0;
 }
+static inline int posix_find_entry_case_insensitive(const char *directory, const char *name, char *found, unsigned long size)
+{
+	DIR *folder = opendir(directory);
+	struct dirent *entry;
+	int matched = 0;
+
+	if (!folder)
+		return 0;
+	while (!matched && (entry = readdir(folder)) != NULL)
+	{
+		if (!strcasecmp(entry->d_name, name))
+		{
+			strncpy(found, entry->d_name, size - 1);
+			found[size - 1] = 0;
+			matched = 1;
+		}
+	}
+	closedir(folder);
+	return matched;
+}
 """
 
 STUB_SDL = """#include <stdbool.h>
@@ -115,7 +172,8 @@ bool SDL_CreateDirectory(const char *path);
 void *SDL_LoadFile(const char *path, size_t *size);
 bool SDL_SaveFile(const char *path, const void *data, size_t size);
 void SDL_free(void *memory);
-typedef struct { long long size; long long modify_time; } SDL_PathInfo;
+enum { SDL_PATHTYPE_NONE, SDL_PATHTYPE_FILE, SDL_PATHTYPE_DIRECTORY, SDL_PATHTYPE_OTHER };
+typedef struct { int type; long long size; long long modify_time; } SDL_PathInfo;
 bool SDL_GetPathInfo(const char *path, SDL_PathInfo *info);
 int SDL_strncasecmp(const char *first, const char *second, size_t length);
 """
@@ -127,6 +185,12 @@ def build(cc, kind, directory):
 	(source / "SDL3").mkdir(parents=True, exist_ok=True)
 	shutil.copy(ROOT / "port/linux/src/port_config.c", source)
 	shutil.copy(ROOT / "port/linux/src/port_config.h", source)
+	shutil.copy(ROOT / "port/linux/src/packaged_install.h", source)
+	shutil.copy(ROOT / "port/linux/include/halo_port_limits.h", source)
+	shutil.copy(ROOT / "port/linux/include/halo_port_capacity.h", source)
+	shutil.copy(ROOT / "port/linux/include/halo_port_features.h", source)
+	shutil.copy(ROOT / "port/linux/include/halo_console_memory.h", source)
+	shutil.copy(ROOT / "port/linux/include/halo_console_features.h", source)
 	(source / "platform.h").write_text(STUB_PLATFORM)
 	(source / "posix.h").write_text(STUB_POSIX)
 	(source / "SDL3/SDL.h").write_text(STUB_SDL)
@@ -146,10 +210,12 @@ class Case:
 		self.folder.mkdir(parents=True, exist_ok=True)
 		self.path = self.folder / "config.toml"
 
-	def run(self, *arguments):
-		environment = {key: value for key, value in os.environ.items() if not key.startswith("HALO_")}
+	def run(self, *arguments, environment_extra=None):
+		environment = {key: value for key, value in os.environ.items()
+			if not key.startswith("HALO_") and key != "APPIMAGE"}
 		environment["PORT_CONFIG_TEST_FOLDER"] = str(self.folder)
 		environment["HALO_DATA_ROOT"] = str(self.folder)
+		environment.update(environment_extra or {})
 		result = subprocess.run([str(self.program), *arguments], capture_output=True, text=True,
 			env=environment, check=True)
 		values = dict(re.findall(r"^([a-z_]+\.[a-z_0-9]+)=(.*)$", result.stdout, re.M))
@@ -185,7 +251,7 @@ def new_value(name, defaults):
 
 
 def old_value_text(name):
-	return OLD[name] if OLD[name].isdigit() else f'"{OLD[name]}"'
+	return OLD[name] if OLD[name].isdigit() or OLD[name] in ("true", "false") else f'"{OLD[name]}"'
 
 
 def previous_release_file(case, kind):
@@ -240,7 +306,9 @@ def test_previous_release_file(program, directory, defaults, kind):
 			continue
 		case.run("answer", answer)
 		text = case.text()
-		check(re.search(r"^defaults_answered = 1$", text, re.M), f"previous/{answer}: the answer is not written")
+		check(re.search(rf"^defaults_answered = {GENERATION}$", text, re.M), f"previous/{answer}: the answer is not written")
+		if "audio.hrtf" in changed:
+			check("Headphone 3D on, as the original Xbox did" in output, f"previous/{answer}: no words for Headphone 3D")
 		# (asked once: a restart finds nothing, and changes nothing)
 		check(pending(case)[0] == 0, f"previous/{answer}: asked again")
 		values, _ = case.get(*names)
@@ -255,8 +323,178 @@ def test_previous_release_file(program, directory, defaults, kind):
 				check(lines == [f"{key} = {old_value_text(name)}"], f"previous/keep: {key} not pinned: {lines}")
 			else:
 				check(values[name] == new_value(name, defaults), f"previous/new: {name} is {values[name]}")
-				check(not lines and commented == [f"# {key} = " + (f'"{values[name]}"' if not values[name].isdigit() else values[name])],
+				check(not lines and commented == [f"# {key} = " + (f'"{values[name]}"' if not (values[name].isdigit() or values[name] in ("true", "false")) else values[name])],
 					f"previous/new: {key}: {lines} {commented}")
+
+
+def test_answered_earlier(program, directory, defaults, kind):
+	"""A file answered at the question before (defaults_answered = 3): asked
+	about the latest changes only (Headphone 3D), and a value kept then stays
+	whatever the answer now. A Headphone 3D the player set themselves, on,
+	off or auto, is never asked about nor changed."""
+	latest = [name for name in LATEST if name in CHANGED[kind]]
+	if not latest:
+		return
+	for answer in ("keep", "new"):
+		case = Case(program, directory / f"earlier_{answer}")
+		written = previous_release_file(case, kind)
+		# (kept at the question before: shadows written at 128; the menus left
+		# to follow, as "use the new settings" did)
+		written = written.replace("# shadow_resolution = 128", "shadow_resolution = 128")
+		written = re.sub(r"^# menus = .*$", '# menus = "chupathingy"', written, flags=re.M)
+		written = re.sub(r"^# anti_aliasing = .*$", f'# anti_aliasing = "{defaults.get("display.anti_aliasing", "off")}"',
+			written, flags=re.M)
+		written = re.sub(r"^# buffer_frames = .*$", f'# buffer_frames = {defaults.get("audio.buffer_frames", "512")}',
+			written, flags=re.M)
+		written = re.sub(r"^# tunnel_port = .*$", f'# tunnel_port = {defaults.get("network.tunnel_port", "0")}',
+			written, flags=re.M)
+		written = re.sub(r"^# start_with_one_player = .*$",
+			f'# start_with_one_player = {defaults.get("game.start_with_one_player", "false")}', written, flags=re.M)
+		written = re.sub(r"^# defaults_answered = .*$", "defaults_answered = 3", written, flags=re.M)
+		case.path.write_text(written)
+		values, _ = case.get("audio.hrtf", "display.shadow_resolution")
+		check(values["audio.hrtf"] == "off", f"earlier/{answer}: audio.hrtf is {values['audio.hrtf']} before the answer")
+		check(case.text() == written, f"earlier/{answer}: the file changed before the answer")
+		count, output = pending(case)
+		check(count == len(latest), f"earlier/{answer}: {count} changes, not {len(latest)}: {output}")
+		check("Headphone 3D on, as the original Xbox did" in output, f"earlier/{answer}: no words for Headphone 3D")
+		check("Sharper shadows" not in output and "menus" not in output and "A fixed port" not in output and
+			"Start a game you host alone" not in output,
+			f"earlier/{answer}: asked again: {output}")
+		case.run("answer", answer)
+		values, _ = case.get("audio.hrtf", "display.shadow_resolution")
+		check(values["audio.hrtf"] == ("off" if answer == "keep" else "on"), f"earlier/{answer}: audio.hrtf {values}")
+		check(values["display.shadow_resolution"] == "128", f"earlier/{answer}: the kept shadows changed: {values}")
+		text = case.text()
+		check(re.search(rf"^defaults_answered = {GENERATION}$", text, re.M), f"earlier/{answer}: the answer is not written")
+		lines, _ = value_lines(text, "hrtf")
+		check(lines == (['hrtf = "off"'] if answer == "keep" else []), f"earlier/{answer}: hrtf lines {lines}")
+		check(pending(case)[0] == 0, f"earlier/{answer}: asked again")
+	for chosen in ("off", "on", "auto"):
+		case = Case(program, directory / f"earlier_chosen_{chosen}")
+		case.path.write_text(f'config_version = 2\n\n[audio]\nhrtf = "{chosen}"\n')
+		count, output = pending(case)
+		check("Headphone 3D" not in output, f"chosen {chosen}: asked about Headphone 3D: {output}")
+		values, _ = case.get("audio.hrtf")
+		check(values["audio.hrtf"] == chosen, f"chosen {chosen}: audio.hrtf is {values['audio.hrtf']}")
+		check(f'hrtf = "{chosen}"' in case.text(), f"chosen {chosen}: the player's value left the file")
+
+
+def test_answered_first_question(program, directory, defaults, kind):
+	"""A file answered for v0.8.0's question (defaults_answered = 1): asked
+	about the later changes alone (the hosting port, starting alone, Headphone
+	3D), once; its other settings stay as they are."""
+	changed = [name for name in CHANGED[kind] if name in SECOND + THIRD + LATEST]
+	if not changed:
+		return
+	for answer in ("keep", "new"):
+		case = Case(program, directory / f"answered_{answer}")
+		text = previous_release_file(case, kind)
+		text = re.sub(r"^# defaults_answered = .*$", "defaults_answered = 1", text, flags=re.M)
+		case.path.write_text(text)
+		count, output = pending(case)
+		check(count == len(changed), f"answered/{answer}: {count} changes, not {len(changed)}: {output}")
+		# (a console's build keeps its random port)
+		port = "network.tunnel_port" in changed
+		check(("A fixed port for hosting (UDP 2302)" in output) == port, f"answered/{answer}: words for the port: {output}")
+		check("Sharper shadows" not in output, f"answered/{answer}: asked about v0.8.0's changes again")
+		if "audio.hrtf" in changed:
+			check("Headphone 3D on, as the original Xbox did" in output, f"answered/{answer}: no words for Headphone 3D")
+		values, _ = case.get("network.tunnel_port", "display.shadow_resolution")
+		check(values["network.tunnel_port"] == "0" or not port, f"answered/{answer}: the port is {values['network.tunnel_port']} before the answer")
+		# (v0.8.0's changes were answered: they follow the defaults, as before)
+		shadows = defaults["display.shadow_resolution"]
+		check(values["display.shadow_resolution"] == shadows, f"answered/{answer}: shadows are {values['display.shadow_resolution']}")
+		values, _ = case.get("game.start_with_one_player")
+		check(values["game.start_with_one_player"] == "false", f"answered/{answer}: starting alone is on before the answer")
+		check("Start a game you host alone" in output, f"answered/{answer}: no words for starting alone: {output}")
+		case.run("answer", answer)
+		text = case.text()
+		check(re.search(rf"^defaults_answered = {GENERATION}$", text, re.M), f"answered/{answer}: the answer is not written")
+		check(pending(case)[0] == 0, f"answered/{answer}: asked again")
+		values, _ = case.get("game.start_with_one_player")
+		alone = "false" if answer == "keep" else "true"
+		check(values["game.start_with_one_player"] == alone, f"answered/{answer}: starting alone is {values}")
+		values, _ = case.get("network.tunnel_port", "display.shadow_resolution")
+		lines, commented = value_lines(case.text(), "tunnel_port")
+		check(values["display.shadow_resolution"] == shadows, f"answered/{answer}: shadows changed after the answer")
+		if not port:
+			continue
+		if answer == "keep":
+			check(values["network.tunnel_port"] == "0" and lines == ["tunnel_port = 0"],
+				f"answered/keep: the port is {values['network.tunnel_port']}: {lines}")
+		else:
+			check(values["network.tunnel_port"] == "2302" and not lines and commented == ["# tunnel_port = 2302"],
+				f"answered/new: the port is {values['network.tunnel_port']}: {lines} {commented}")
+
+
+def test_start_alone(program, directory, defaults, kind):
+	"""Starting a hosted game alone (game.start_with_one_player): on for a new
+	file (not the server), asked about once for a file that had it off, kept
+	off by a player who wrote false, and turned on by the older
+	debug.solo_game."""
+	if "game.start_with_one_player" not in CHANGED[kind]:
+		case = Case(program, directory / "alone_server")
+		values, _ = case.get("game.start_with_one_player")
+		check(values["game.start_with_one_player"] == "false", f"alone/server: {values}")
+		values, _ = case.run("get", "game.start_with_one_player", environment_extra={"HALO_START_WITH_ONE_PLAYER": "true"})
+		check(values["game.start_with_one_player"] == "true", f"alone/server: the environment is ignored: {values}")
+		return
+	# a file answered for the second question: this one is asked, with the
+	# later ones (Headphone 3D)
+	later = [name for name in CHANGED[kind] if name in THIRD + LATEST]
+	for answer in ("keep", "new"):
+		case = Case(program, directory / f"alone_{answer}")
+		text = previous_release_file(case, kind)
+		text = re.sub(r"^# defaults_answered = .*$", "defaults_answered = 2", text, flags=re.M)
+		text = re.sub(r"^# tunnel_port = .*$", "tunnel_port = 2302", text, flags=re.M)
+		case.path.write_text(text)
+		count, output = pending(case)
+		check(count == len(later) and "Start a game you host alone" in output, f"alone/{answer}: {count} {output}")
+		check("A fixed port" not in output, f"alone/{answer}: asked about the port again")
+		case.run("answer", answer)
+		values, _ = case.get("game.start_with_one_player")
+		lines, commented = value_lines(case.text(), "start_with_one_player")
+		if answer == "keep":
+			check(values["game.start_with_one_player"] == "false" and lines == ["start_with_one_player = false"],
+				f"alone/keep: {values} {lines}")
+		else:
+			check(values["game.start_with_one_player"] == "true" and not lines and commented == ["# start_with_one_player = true"],
+				f"alone/new: {values} {lines} {commented}")
+	# a player who wrote false chose it: not asked, and kept
+	case = Case(program, directory / "alone_chosen")
+	text = previous_release_file(case, kind)
+	text = re.sub(r"^# start_with_one_player = .*$", "start_with_one_player = false", text, flags=re.M)
+	case.path.write_text(text)
+	check("Start a game you host alone" not in pending(case)[1], "alone/chosen: asked about a chosen false")
+	values, _ = case.get("game.start_with_one_player")
+	check(values["game.start_with_one_player"] == "false", f"alone/chosen: {values}")
+	# the older name, debug.solo_game / HALO_SOLO_GAME, still turns it on
+	case = Case(program, directory / "alone_old_name")
+	case.path.write_text("config_version = 2\n\n[game]\nstart_with_one_player = false\n\n[debug]\nsolo_game = true\n")
+	values, _ = case.get("game.start_with_one_player", "debug.solo_game")
+	check(values["debug.solo_game"] == "true", f"alone/old name: {values}")
+	values, _ = case.run("get", "debug.solo_game", environment_extra={"HALO_SOLO_GAME": "true"})
+	check(values["debug.solo_game"] == "true", f"alone/old environment name: {values}")
+
+
+def test_chosen_port_kept(program, directory, defaults, kind):
+	"""A port the player chose, 0 too (a line without its #, as the Settings
+	menu writes it), is theirs: not asked about, and kept."""
+	if "network.tunnel_port" not in CHANGED[kind]:
+		return
+	for chosen in ("0", "2310"):
+		case = Case(program, directory / f"chosen_{chosen}")
+		text = previous_release_file(case, kind)
+		text = re.sub(r"^# tunnel_port = .*$", f"tunnel_port = {chosen}", text, flags=re.M)
+		case.path.write_text(text)
+		count, output = pending(case)
+		check("A fixed port for hosting" not in output, f"chosen {chosen}: asked about the port: {output}")
+		values, _ = case.get("network.tunnel_port")
+		check(values["network.tunnel_port"] == chosen, f"chosen {chosen}: the port is {values['network.tunnel_port']}")
+		case.run("answer", "new")
+		values, _ = case.get("network.tunnel_port")
+		check(values["network.tunnel_port"] == chosen, f"chosen {chosen}: the port changed to {values['network.tunnel_port']}")
 
 
 def test_file_without_the_settings(program, directory, defaults, kind):
@@ -373,6 +611,137 @@ def test_before_config_version(program, directory, defaults, kind):
 	check(not lines and len(commented) == 1, f"version 1: vsync, at its default, is not commented out: {lines} {commented}")
 
 
+def test_renamed_setting(program, directory, defaults, kind):
+	"""A setting under its older name (config_renamed in port_config.c):
+	display.loading_screen_min_seconds, until v0.8.0b. A value the player
+	chose goes on under the new name, display.loading_screen_campaign_seconds,
+	and the multiplayer one starts at its default; a line only commented out
+	is taken out, and the new settings are at their defaults; a value already
+	under the new name is the one kept. Each time the old name's lines are
+	gone, and the next start changes nothing."""
+	old_block = ("\n# Keep the original loading screen up for at least this many seconds\n"
+		"# when a level loads (up to 30); 0 for no wait.\n"
+		"# (for one run: HALO_LOADING_SCREEN_MIN_SECONDS=<value>)\n")
+	names = ("display.loading_screen", "display.loading_screen_campaign_seconds",
+		"display.loading_screen_multiplayer_seconds")
+	cases = {
+		"chosen": (old_block + "loading_screen_min_seconds = 8\n", 8.0, ["loading_screen_campaign_seconds = 8"]),
+		"commented": (old_block + "# loading_screen_min_seconds = 0.0\n", 0.0, []),
+		"both": (old_block + "loading_screen_min_seconds = 8\n\nloading_screen_campaign_seconds = 3.0\n", 3.0,
+			["loading_screen_campaign_seconds = 3.0"]),
+	}
+	for name, (lines, campaign, campaign_lines) in cases.items():
+		case = Case(program, directory / f"renamed_{name}")
+		case.get("display.vsync")
+		text = case.text()
+		# (the file as 0.8.0 had it: the new settings not there yet, the old one)
+		for key in ("loading_screen", "loading_screen_campaign_seconds", "loading_screen_multiplayer_seconds"):
+			text = re.sub(rf"\n(# [^\n]*\n)*# {key} = [^\n]*\n", "\n", text)
+		text = text.replace("\n[display]\n", "\n[display]\n" + lines, 1)
+		case.path.write_text(text)
+		values, output = case.get(*names)
+		check(values["display.loading_screen"] == "true", f"renamed/{name}: loading_screen is {values}")
+		check(float(values["display.loading_screen_campaign_seconds"]) == campaign,
+			f"renamed/{name}: campaign is {values['display.loading_screen_campaign_seconds']}, not {campaign}")
+		check(float(values["display.loading_screen_multiplayer_seconds"]) == 0.0,
+			f"renamed/{name}: multiplayer is {values['display.loading_screen_multiplayer_seconds']}")
+		check("unknown setting" not in output, f"renamed/{name}: the old name is reported: {output}")
+		text = case.text()
+		check("loading_screen_min_seconds" not in text, f"renamed/{name}: the old name's lines stay")
+		values_lines, commented = value_lines(text, "loading_screen_campaign_seconds")
+		values_lines = [line.strip() for line in values_lines]
+		check(values_lines == campaign_lines and len(commented) == (0 if campaign_lines else 1),
+			f"renamed/{name}: campaign's lines are {values_lines} {commented}")
+		# (the player's own line under the new name stays as they wrote it)
+		check(text.count("The least seconds the loading screen stays up when a campaign level") == (0 if name == "both" else 1),
+			f"renamed/{name}: campaign's help text is not there once")
+		values_lines, commented = value_lines(text, "loading_screen_multiplayer_seconds")
+		check(not values_lines and len(commented) == 1, f"renamed/{name}: multiplayer's lines are {values_lines} {commented}")
+		before = text
+		case.get(*names)
+		check(case.text() == before, f"renamed/{name}: the file changed on the next start")
+
+
+def test_old_browser_address(program, directory, defaults, kind):
+	"""The community site's first address, written out as the default by an
+	earlier version, follows to stats.chupathingy.org (the same server); any
+	other address is the player's and is kept."""
+	case = Case(program, directory / "browser")
+	values, _ = case.get("network.browser_url")
+	check(values["network.browser_url"] == "https://stats.chupathingy.org", f"browser_url default {values}")
+	case.path.write_text('config_version = 2\n\n[network]\nbrowser_url = "https://halo.milenko.org"\n')
+	values, _ = case.get("network.browser_url")
+	check(values["network.browser_url"] == "https://stats.chupathingy.org", f"old browser_url not followed: {values}")
+	check("halo.milenko.org" not in case.text(), "old browser_url still in the file")
+	check("game list" not in pending(case)[1] and "milenko" not in pending(case)[1], pending(case)[1])
+	case.path.write_text('config_version = 2\n\n[network]\nbrowser_url = "https://lists.example.org"\n')
+	values, _ = case.get("network.browser_url")
+	check(values["network.browser_url"] == "https://lists.example.org", "custom browser_url lost")
+	check('browser_url = "https://lists.example.org"' in case.text(), "custom browser_url not kept in the file")
+
+
+def test_packaged_install(program, directory, defaults, kind):
+	"""A packaged install (packaged_install.h: HALO_PACKAGED, or a file named
+	"packaged" beside the executable): update.auto is off and stays off; on
+	Linux its config.toml is in the save root's usual place, as is a game's in
+	a folder it cannot write with no setup of its own. Elsewhere, and in a
+	normal install, nothing changes."""
+	if kind == "console":
+		# (a console has no updater)
+		return
+	home = directory / "packaged-home"
+	own = home / "chupathingyce" / "config.toml"
+	linux = sys.platform.startswith("linux") and kind != "android"
+	extra = {"XDG_DATA_HOME": str(home), "HOME": str(home)}
+	# (a normal install: as before, beside the executable)
+	case = Case(program, directory / "not-packaged")
+	values, _ = case.run("get", "update.auto", environment_extra=extra)
+	check(values["update.auto"] == "true", f"normal install: update.auto {values}")
+	check(case.path.exists() and not own.exists(), "normal install: config.toml not beside the executable")
+	for mark in ("environment", "file"):
+		if own.exists():
+			own.unlink()
+		case = Case(program, directory / f"packaged-{mark}")
+		environment = dict(extra)
+		if mark == "environment":
+			environment["HALO_PACKAGED"] = "1"
+		else:
+			(case.folder / "packaged").write_text('manager = "pacman"\n')
+		values, _ = case.run("get", "update.auto", environment_extra=environment)
+		if kind == "android":
+			check(values["update.auto"] == "true", f"android: packaged changed update.auto {values}")
+			continue
+		check(values["update.auto"] == "false", f"packaged ({mark}): update.auto {values}")
+		values, output = case.run("write", "update.auto", "true", environment_extra=environment)
+		check("write failed" in output and values["update.auto"] == "false",
+			f"packaged ({mark}): update.auto was turned on: {output}")
+		if linux:
+			check(own.exists() and not case.path.exists(), f"packaged ({mark}): config.toml not in {own.parent}")
+		else:
+			check(case.path.exists(), f"packaged ({mark}): config.toml moved off Linux")
+	if not linux or os.geteuid() == 0:
+		return
+	# (a folder the game cannot write: its config.toml in the save root's
+	# place, unless the folder has one of its own, which is kept)
+	for has_setup in (False, True):
+		if own.exists():
+			own.unlink()
+		case = Case(program, directory / f"read-only-{has_setup}")
+		if has_setup:
+			case.path.write_text("config_version = 2\n\n[display]\nvsync = false\n")
+		case.folder.chmod(0o555)
+		try:
+			values, _ = case.run("get", "display.vsync", "update.auto", environment_extra=extra)
+		finally:
+			case.folder.chmod(0o755)
+		check(values["update.auto"] == "true", f"read-only folder: update.auto {values}")
+		if has_setup:
+			check(values["display.vsync"] == "false" and not own.exists(),
+				f"read-only folder with config.toml: not kept {values}")
+		else:
+			check(own.exists() and not case.path.exists(), "read-only folder: config.toml not in the save root's place")
+
+
 def main():
 	parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
 	parser.add_argument("--cc", default=os.environ.get("CC", "cc"))
@@ -382,8 +751,10 @@ def main():
 		directory = Path(directory)
 		for kind in DEFAULTS:
 			program = build(arguments.cc, kind, directory / kind)
-			for test in (test_new_file, test_previous_release_file, test_file_without_the_settings,
-				test_readded_by_older_version, test_before_config_version):
+			for test in (test_new_file, test_previous_release_file, test_answered_first_question,
+				test_start_alone, test_answered_earlier, test_chosen_port_kept, test_file_without_the_settings,
+				test_readded_by_older_version, test_before_config_version, test_renamed_setting,
+				test_old_browser_address, test_packaged_install):
 				try:
 					test(program, directory / kind / "cases", DEFAULTS[kind], kind)
 					print(f"ok   {kind}: {test.__name__}")

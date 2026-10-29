@@ -3,7 +3,8 @@
 profile chosen becomes player 1's), laid out as the Xbox's screens are: a
 list on the left, the Xbox's profile card in the Xbox's panel on the right
 (as Settings has its help), and its prompts (Y makes a profile, X deletes
-one, B goes back, A chooses). -->
+one, B goes back, A chooses). With a game list, the list's last row is
+DELTA PROFILE (menu_functions.c), which opens delta_profile.xml. -->
 <menus>
 	<widget name="chupathingy/profiles/screen" width="640" height="480" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/gradient">
 		<on event="b" back="true"/>
@@ -49,15 +50,53 @@ one, B goes back, A chooses). -->
 		<child widget="main_menu/multiplayer_type_select/connected/4way_profile_select/qtr_screen_profile_color_pic" x="280" y="118"/>
 		<child widget="main_menu/player_profiles_select/player_profile_right_data" x="430" y="142"/>
 		<child widget="chupathingy/profiles/help" x="294" y="330"/>
+		<child widget="chupathingy/profiles/delta_line" x="294" y="300"/>
+		<child widget="chupathingy/profiles/delta_title" x="400" y="124"/>
+		<child widget="chupathingy/profiles/delta_label_0" x="400" y="150"/>
+		<child widget="chupathingy/profiles/delta_value_0" x="400" y="150"/>
+		<child widget="chupathingy/profiles/delta_label_1" x="400" y="172"/>
+		<child widget="chupathingy/profiles/delta_value_1" x="400" y="172"/>
+		<child widget="chupathingy/profiles/delta_label_2" x="400" y="189"/>
+		<child widget="chupathingy/profiles/delta_value_2" x="400" y="189"/>
+		<child widget="chupathingy/profiles/delta_label_3" x="400" y="206"/>
+		<child widget="chupathingy/profiles/delta_value_3" x="400" y="206"/>
+		<child widget="chupathingy/profiles/delta_label_4" x="400" y="223"/>
+		<child widget="chupathingy/profiles/delta_value_4" x="400" y="223"/>
 	</widget>
 	<widget name="chupathingy/profiles/panel" controller="1" left="275" top="78" width="320" height="362" bitmap="bitmaps/list_field">
 	</widget>
 	<widget name="chupathingy/profiles/help" type="text" controller="1" width="290" height="90" string_list="chupathingy/profiles/help_strings" font="ui\large_ui" color="#FF2896FF">
 	</widget>
 	<strings name="chupathingy/profiles/help_strings">
-		<string text="The profile chosen plays the\ncampaign, and Settings\nchanges its settings."/>
+		<string text="Choose a profile."/>
 	</strings>
-	<widget name="chupathingy/profiles/kind" type="text" controller="1" width="282" height="22" text="HALO PROFILE" font="ui\large_ui" color="#FF2896FF">
+	<!-- (Delta Profile: a Halo profile's "Delta:" line, and the DELTA PROFILE
+	row's summary, menu_functions.c's, hidden with display.delta_profile) -->
+	<widget name="chupathingy/profiles/delta_line" type="text" controller="1" width="290" height="20" font="ui\small_ui" color="#FF2896FF">
+	</widget>
+	<widget name="chupathingy/profiles/delta_title" type="text" controller="1" width="180" height="24" font="ui\large_ui" color="#FFFFFFFF">
+	</widget>
+	<widget name="chupathingy/profiles/delta_label_0" type="text" controller="1" width="180" height="18" font="ui\small_ui" color="#FF2896FF">
+	</widget>
+	<widget name="chupathingy/profiles/delta_value_0" type="text" controller="1" width="180" height="18" font="ui\small_ui" color="#FFFFFFFF" align="right">
+	</widget>
+	<widget name="chupathingy/profiles/delta_label_1" type="text" controller="1" width="180" height="18" font="ui\small_ui" color="#FF2896FF">
+	</widget>
+	<widget name="chupathingy/profiles/delta_value_1" type="text" controller="1" width="180" height="18" font="ui\small_ui" color="#FFFFFFFF" align="right">
+	</widget>
+	<widget name="chupathingy/profiles/delta_label_2" type="text" controller="1" width="180" height="18" font="ui\small_ui" color="#FF2896FF">
+	</widget>
+	<widget name="chupathingy/profiles/delta_value_2" type="text" controller="1" width="180" height="18" font="ui\small_ui" color="#FFFFFFFF" align="right">
+	</widget>
+	<widget name="chupathingy/profiles/delta_label_3" type="text" controller="1" width="180" height="18" font="ui\small_ui" color="#FF2896FF">
+	</widget>
+	<widget name="chupathingy/profiles/delta_value_3" type="text" controller="1" width="180" height="18" font="ui\small_ui" color="#FFFFFFFF" align="right">
+	</widget>
+	<widget name="chupathingy/profiles/delta_label_4" type="text" controller="1" width="180" height="18" font="ui\small_ui" color="#FF2896FF">
+	</widget>
+	<widget name="chupathingy/profiles/delta_value_4" type="text" controller="1" width="180" height="18" font="ui\small_ui" color="#FFFFFFFF" align="right">
+	</widget>
+	<widget name="chupathingy/profiles/kind" type="text" controller="1" width="282" height="22" font="ui\large_ui" color="#FF2896FF">
 	</widget>
 	<widget name="chupathingy/profiles/list_item_0" controller="1" width="232" height="32" bitmap="bitmaps/list_item_bkd_top">
 		<on event="a" run="single prev cl item activated"/>

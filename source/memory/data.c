@@ -104,11 +104,7 @@ void data_initialize(
 	data->maximum_count = maximum_count;
 	data->size = size;
 	data->signature = 'd@t@';
-#ifdef HALO_64BIT
-	data->data = xbox_address(data+1);
-#else
-	data->data = data+1;
-#endif
+	data->data = DATA_ARRAY_OWN_ELEMENTS(data);
 	data->valid = FALSE;
 
 	return;
@@ -533,7 +529,7 @@ void data_compact(
 
 	if (compacted_data!=empty)
 	{
-#ifdef HALO_64BIT
+#ifdef HALO_ADDRESS_TRANSLATED
 		datum = xbox_pointer(data->data);
 		absolute_index = 0;
 		compacted_count = 0;

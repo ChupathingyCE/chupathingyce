@@ -292,14 +292,22 @@ enum
 {
 	_transport_type_udp = 0x11,
 	_transport_type_tcp,
+#ifndef HALO_XBOX_CONSOLE
 	/* every machine of a session may connect at once */
 	MAXIMUM_PENDING_CONNECTIONS = HALO_PORT_MAXIMUM_NETWORK_MACHINES,
+#else
+	MAXIMUM_PENDING_CONNECTIONS = 32,
+#endif
 	MAXIMUM_ENDPOINT_THREADS = 64,
+#ifndef HALO_XBOX_CONSOLE
 	/* a host's connection to a machine holds the updates that machine has
 	not acknowledged, up to 128 ticks of 3.9 KB with 128 players, and the
 	host's connection to its own client all it sends in one frame; a full
 	buffer blocks the host (network_connection_write) */
 	MINIMUM_ENDPOINT_SOCKET_BUFFER_SIZE = 1024 * 1024,
+#else
+	MINIMUM_ENDPOINT_SOCKET_BUFFER_SIZE = 16 * 1024,
+#endif
 };
 
 /* ---------- macros */
@@ -1047,11 +1055,11 @@ short get_endpoint_address(
 			{
 				network_address = socket_address.sin_addr.s_addr;
 				network_port = socket_address.sin_port;
-				address->address.long_words[0] =
+				address->address.long_words[0] = !NETWORK_ORDER_SWAPPED ? network_address :
 					(((network_address & 0xFF0000) | (network_address >> 16)) >> 8) |
 					(((network_address & 0xFF00) | (network_address << 16)) << 8);
 				address->address_length = IPV4_ADDRESS_LENGTH;
-				address->port = (word)((network_port << 8) | (network_port >> 8));
+				address->port = !NETWORK_ORDER_SWAPPED ? network_port : (word)((network_port << 8) | (network_port >> 8));
 			}
 			else
 			{
@@ -1064,11 +1072,11 @@ short get_endpoint_address(
 		{
 			network_address = socket_address.sin_addr.s_addr;
 			network_port = socket_address.sin_port;
-			address->address.long_words[0] =
+			address->address.long_words[0] = !NETWORK_ORDER_SWAPPED ? network_address :
 				(((network_address & 0xFF0000) | (network_address >> 16)) >> 8) |
 				(((network_address & 0xFF00) | (network_address << 16)) << 8);
 			address->address_length = IPV4_ADDRESS_LENGTH;
-			address->port = (word)((network_port << 8) | (network_port >> 8));
+			address->port = !NETWORK_ORDER_SWAPPED ? network_port : (word)((network_port << 8) | (network_port >> 8));
 		}
 		else
 		{
@@ -1182,8 +1190,8 @@ short bind_endpoint(
 	{
 		struct sockaddr_in socket_address;
 
-		socket_address.sin_addr.s_addr = SWAP4(address->address.long_words[0]);
-		socket_address.sin_port = (word)SWAP2(address->port);
+		socket_address.sin_addr.s_addr = NETWORK_SWAP4(address->address.long_words[0]);
+		socket_address.sin_port = (word)NETWORK_SWAP2(address->port);
 		socket_address.sin_family = AF_INET;
 
 		if (bind(ep->socket, (struct sockaddr *)&socket_address, sizeof(socket_address)) != 0)
@@ -1235,8 +1243,8 @@ short connect_endpoint(
 			ep->socket = create_socket(AF_INET, socket_type, IPPROTO_IP);
 		}
 
-		socket_address.sin_addr.s_addr = SWAP4(address->address.long_words[0]);
-		socket_address.sin_port = (word)SWAP2(address->port);
+		socket_address.sin_addr.s_addr = NETWORK_SWAP4(address->address.long_words[0]);
+		socket_address.sin_port = (word)NETWORK_SWAP2(address->port);
 		socket_address.sin_family = AF_INET;
 		blocking = endpoint_blocking(ep);
 		set_endpoint_blocking(ep, FALSE);
@@ -1618,9 +1626,9 @@ long read_from_endpoint(
 	}
 	else if (result >= 0)
 	{
-		src_addr->address.long_words[0] = SWAP4(socket_address.sin_addr.s_addr);
+		src_addr->address.long_words[0] = NETWORK_SWAP4(socket_address.sin_addr.s_addr);
 		src_addr->address_length = IPV4_ADDRESS_LENGTH;
-		src_addr->port = (word)SWAP2(socket_address.sin_port);
+		src_addr->port = (word)NETWORK_SWAP2(socket_address.sin_port);
 	}
 
 	return result;
@@ -1641,8 +1649,8 @@ long write_to_endpoint(
 		ep && buffer && (length > 0) && dest_addr);
 	match_assert(TRANSPORT_ENDPOINT_WINSOCK_FILE, 0x3BE, transport_initialized);
 
-	socket_address.sin_addr.s_addr = SWAP4(dest_addr->address.long_words[0]);
-	socket_address.sin_port = (word)SWAP2(dest_addr->port);
+	socket_address.sin_addr.s_addr = NETWORK_SWAP4(dest_addr->address.long_words[0]);
+	socket_address.sin_port = (word)NETWORK_SWAP2(dest_addr->port);
 	socket_address.sin_family = AF_INET;
 
 	if (ep->socket == INVALID_SOCKET)
@@ -1752,7 +1760,7 @@ static SOCKET create_socket(
 			winsock_error_to_string(WSAGetLastError());
 		}
 
-#ifndef HALO_WINDOWS
+#if !defined(HALO_WINDOWS) && !defined(HALO_XBOX_CONSOLE)
 		/* Linux (and Android) grow a stream socket's buffers as far as the
 		connection needs, to several megabytes; setting a size would fix them,
 		at no more than the system's limit (about 416 KB by default) */
@@ -1796,7 +1804,7 @@ static SOCKET create_socket(
 		{
 			winsock_error_to_string(WSAGetLastError());
 		}
-#ifndef HALO_WINDOWS
+#if !defined(HALO_WINDOWS) && !defined(HALO_XBOX_CONSOLE)
 		}
 #endif
 	}

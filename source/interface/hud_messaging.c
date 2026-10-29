@@ -492,8 +492,8 @@ static char button_mappings[_icon_custom_1 - _icon_action] =
 	4,
 	3,
 	1,
-	11,
 	10,
+	11,
 	_icon_a_button,
 	_icon_b_button,
 	_icon_left_stick,
@@ -505,6 +505,76 @@ static long split_screen_hud_message_offset = 17;
 
 /* ---------- public code */
 
+/* port: a message's button icon with the same gap to the words on both
+sides. The high-res text draws each glyph centred on the font tag's
+character's advance, so its letters' ink reaches further or less far than
+the tag's: "Hold" ended past the tag's "d" and the icon after it sat against
+it, while " to" started after the tag's "t", a wide gap after the icon. The
+icon keeps the Xbox's gap to the ink of the words before it, and the words
+after it start that same gap after the icon, with either text. */
+static short hud_message_icon_shift = 0;
+static boolean hud_message_text_ink_valid = FALSE;
+static real hud_message_text_ink_x1 = 0.0f;
+static boolean hud_message_after_icon = FALSE;
+static real hud_message_icon_x1 = 0.0f;
+static real hud_message_icon_gap = 0.0f;
+
+static short hud_message_round(
+	real value)
+{
+	return (short)(value >= 0.0f ? value + 0.5f : value - 0.5f);
+}
+
+static void hud_message_spacing_reset(
+	void)
+{
+	hud_message_icon_shift = 0;
+	hud_message_text_ink_valid = FALSE;
+	hud_message_after_icon = FALSE;
+
+	return;
+}
+
+/* the text's layout from the cursor (draw_unicode_string_compute_bounds),
+moved after an icon as above */
+static void hud_message_text_place(
+	rectangle2d *bounds,
+	rectangle2d *cursor_bounds,
+	wchar_t const *text,
+	rectangle2d *text_bounds)
+{
+	short start = cursor_bounds->x0;
+	real ink_x0;
+	real ink_x1;
+
+	draw_string_set_indents(start - bounds->x0, 0);
+	draw_unicode_string_compute_bounds(bounds, text, text_bounds, cursor_bounds);
+	hud_message_icon_shift = 0;
+	hud_message_text_ink_valid = FALSE;
+	if (text_bounds->x1 > text_bounds->x0 &&
+		rasterizer_text_ink_span(bounds, text, &ink_x0, &ink_x1))
+	{
+		if (hud_message_after_icon)
+		{
+			short shift = hud_message_round(ink_x0 - (hud_message_icon_x1 + hud_message_icon_gap));
+
+			if (shift != 0)
+			{
+				start -= shift;
+				ink_x1 -= shift;
+				draw_string_set_indents(start - bounds->x0, 0);
+				draw_unicode_string_compute_bounds(bounds, text, text_bounds, cursor_bounds);
+			}
+		}
+		hud_message_icon_shift = hud_message_round(ink_x1 - text_bounds->x1);
+		hud_message_text_ink_valid = TRUE;
+		hud_message_text_ink_x1 = ink_x1;
+	}
+	hud_message_after_icon = FALSE;
+
+	return;
+}
+
 static void render_state_text(
 	rectangle2d *bounds,
 	rectangle2d *cursor_bounds,
@@ -513,8 +583,7 @@ static void render_state_text(
 {
 	rectangle2d text_bounds;
 
-	draw_string_set_indents(cursor_bounds->x0 - bounds->x0, 0);
-	draw_unicode_string_compute_bounds(bounds, text, &text_bounds, cursor_bounds);
+	hud_message_text_place(bounds, cursor_bounds, text, &text_bounds);
 	cursor_bounds->x0 -= 3;
 	text_bounds.x0 = bounds->x0;
 	if (custom && game_engine_running())
@@ -537,6 +606,9 @@ static void render_state_bitmap(
 	struct bitmap_data const *bitmap = NULL;
 	real_rectangle2d const *clip = NULL;
 	real scale;
+	/* port: the bitmap's size (its group's high resolution flags, a Custom
+	Edition map's: the weapons' pickup icons) */
+	real bitmap_scale = 1.0f;
 	point2d point;
 
 	if (icon->frame_rate)
@@ -550,15 +622,23 @@ static void render_state_bitmap(
 	if (bitmap && _texture_cache_bitmap_get_hardware_format(
 		(struct bitmap_data *)bitmap, FALSE, TRUE))
 	{
+#ifdef HALO_CUSTOM_EDITION
+		extern boolean ce_hud_bitmap_is_xbox_button(void const *bitmap);
+
+		/* (not the Xbox's button icons added to a Custom Edition map's, at
+		their own size: ce_hud.c) */
+		if (!ce_hud_bitmap_is_xbox_button(bitmap))
+			bitmap_scale = hud_bitmap_group_scale(bitmap_group_index);
+#endif
 		scale = local_player_count() > 1 ? 0.75f : 1.0f;
-		point.x = (short)(icon->offset.x * scale + cursor_bounds->x0);
+		point.x = (short)(icon->offset.x * scale + cursor_bounds->x0 + hud_message_icon_shift);
 		point.y = (short)(cursor_bounds->y1 - icon->offset.y * scale);
 		hud_draw_bitmap_direct(
 			bitmap,
 			_hud_corner_bottom_left,
 			&point,
 			clip,
-			scale,
+			scale * bitmap_scale,
 			0.0f,
 			TEST_FLAG(icon->flags, _hud_icon_use_color_bit) ? icon->color : color,
 			FALSE);
@@ -567,13 +647,19 @@ static void render_state_bitmap(
 		else if (clip)
 		{
 			cursor_bounds->x0 = (short)(
-				((clip->x1 - clip->x0) * bitmap->width + icon->width_offset) * scale + point.x);
+				((clip->x1 - clip->x0) * bitmap->width * bitmap_scale + icon->width_offset) * scale + point.x);
 		}
 		else
 		{
 			cursor_bounds->x0 = (short)(
-				(bitmap->width + icon->width_offset) * scale + point.x);
+				(bitmap->width * bitmap_scale + icon->width_offset) * scale + point.x);
 		}
+		/* (the gap the words after it start at) */
+		hud_message_after_icon = hud_message_text_ink_valid;
+		hud_message_icon_gap = point.x - hud_message_text_ink_x1;
+		hud_message_icon_x1 = point.x + (clip ? (clip->x1 - clip->x0) : 1.0f) * bitmap->width * bitmap_scale * scale;
+		hud_message_icon_shift = 0;
+		hud_message_text_ink_valid = FALSE;
 	}
 
 	return;
@@ -1015,6 +1101,166 @@ void hud_render_timer(
 
 	return;
 }
+
+#ifdef HALO_GAME_BROWSER
+/* port: a game type's numbers in the HUD's own style, the script timer's
+(hud_render_timer): its digits, and the HUD globals' timer colors (Bomb's
+round, game_engine_bomb.c). Each is placed in pixels from the middle of the
+view, as the digits are drawn, so it keeps to the middle at any shape of
+screen */
+
+/* the digits' colon (hud_draw.c's _hud_number_colon_index) */
+#define HUD_PORT_COLON_INDEX 11
+/* (hud_draw.c's _bitmap_group_type_interface_bitmaps) */
+#define HUD_PORT_INTERFACE_BITMAPS 4
+
+/* a digit's advance (the digits' screen width), at a scale */
+static real hud_port_digit_advance(
+	real scale)
+{
+	long hud_number_index = interface_get_tag_index(_interface_hud_digits);
+
+	if (hud_number_index == NONE)
+		return 0.0f;
+	return (real)HUD_NUMBER_DEFINITION_GET(hud_number_index)->screen_width * scale;
+}
+
+/* a number centered on a point (pixels from the view's middle); a flashing
+one in the timer's flash, else in this color */
+static void hud_port_draw_number(
+	short local_player_index,
+	real x,
+	real y,
+	short value,
+	pixel32 color,
+	boolean flashing,
+	long flash_reference_time,
+	real scale,
+	boolean two_digits)
+{
+	struct hud_absolute_placement_definition placement;
+	struct number_hud_element_definition numbers;
+
+	csmemset(&placement, 0, sizeof(placement));
+	csmemset(&numbers, 0, sizeof(numbers));
+	placement.corner = _hud_anchor_center;
+	numbers.placement.offset.x = (short)(long)x;
+	numbers.placement.offset.y = (short)(long)y;
+	numbers.placement.scale.i = 1.0f;
+	numbers.placement.scale.j = 1.0f;
+	numbers.colors = hud_globals->timer_definition.color;
+	numbers.colors.color = color;
+	numbers.digits = (char)(two_digits || value > 9 ? 2 : 1);
+	numbers.number_flags = FLAG(_hud_number_show_all_leading_zeros_bit);
+	hud_draw_numbers(local_player_index, &placement, &numbers, value, NONE,
+		(short)(flashing ? FLAG(_hud_draw_flashing_bit) : 0), flash_reference_time, scale);
+}
+
+/* the digits' colon, centered on a point */
+static void hud_port_draw_colon(
+	short local_player_index,
+	real x,
+	real y,
+	pixel32 color,
+	real scale)
+{
+	long hud_number_index = interface_get_tag_index(_interface_hud_digits);
+	struct hud_absolute_placement_definition placement;
+	struct hud_placement_definition offset;
+	struct bitmap_data const *bitmap = NULL;
+	real_rectangle2d const *clip = NULL;
+	struct hud_number_definition *hud_number;
+	point2d point;
+
+	if (hud_number_index == NONE)
+		return;
+	hud_number = HUD_NUMBER_DEFINITION_GET(hud_number_index);
+	csmemset(&placement, 0, sizeof(placement));
+	csmemset(&offset, 0, sizeof(offset));
+	placement.corner = _hud_anchor_center;
+	offset.offset.x = (short)(long)x;
+	offset.offset.y = (short)(long)y;
+	offset.scale.i = 1.0f;
+	offset.scale.j = 1.0f;
+	hud_calculate_point(local_player_index, &placement, &offset, NULL, local_player_count() > 1, scale, &point);
+	hud_retrieve_bitmap_and_bounding_rect(hud_number->number_bitmap.index, 0, HUD_PORT_COLON_INDEX, &bitmap, &clip);
+	if (bitmap && _texture_cache_bitmap_get_hardware_format((struct bitmap_data *)bitmap, FALSE, TRUE))
+	{
+		hud_draw_bitmap_direct(bitmap, _hud_anchor_center, &point, clip, scale, 0.0f, color,
+			bitmap_group_get(hud_number->number_bitmap.index)->type == HUD_PORT_INTERFACE_BITMAPS);
+	}
+}
+
+/* the view's half height, in the digits' pixels */
+static real hud_port_half_height(
+	void)
+{
+	return (real)(render.camera.window_bounds.y1 - render.camera.window_bounds.y0) * 0.5f;
+}
+
+void hud_render_round(
+	short local_player_index,
+	long ticks,
+	long warning_ticks,
+	long red_score,
+	pixel32 red_color,
+	long blue_score,
+	pixel32 blue_color)
+{
+	real advance = hud_port_digit_advance(1.0f);
+	real y = -hud_port_half_height() + 2.0f * advance;
+	real half_width = 0.0f;
+
+	if (advance <= 0.0f)
+		return;
+	/* the clock: minutes and seconds, as the timer has them */
+	if (ticks != NONE)
+	{
+		long seconds = (MAX(ticks, 0) + TICKS_PER_SECOND - 1) / TICKS_PER_SECOND;
+		short minutes = (short)MIN(seconds / 60, 99);
+		real minute_digits = minutes > 9 ? 2.0f : 1.0f;
+		boolean flashing = ticks <= warning_ticks;
+		pixel32 color = ticks > 0 ? hud_globals->timer_definition.color.color :
+			hud_globals->timer_definition.time_up_color.color;
+		real x;
+
+		half_width = (minute_digits + 3.0f) * advance * 0.5f;
+		x = -half_width;
+		hud_port_draw_number(local_player_index, x + minute_digits * advance * 0.5f, y, minutes, color,
+			flashing && ticks > 0, 0, 1.0f, FALSE);
+		x += minute_digits * advance;
+		hud_port_draw_colon(local_player_index, x + advance * 0.5f, y, color, 1.0f);
+		x += advance;
+		hud_port_draw_number(local_player_index, x + advance, y, (short)(seconds % 60), color,
+			flashing && ticks > 0, 0, 1.0f, TRUE);
+	}
+	/* each team's score beside it, red's left and blue's right */
+	if (red_score != NONE)
+	{
+		hud_port_draw_number(local_player_index, -(half_width + 2.5f * advance), y, (short)MIN(red_score, 99),
+			red_color, FALSE, 0, 1.0f, FALSE);
+	}
+	if (blue_score != NONE)
+	{
+		hud_port_draw_number(local_player_index, half_width + 2.5f * advance, y, (short)MIN(blue_score, 99),
+			blue_color, FALSE, 0, 1.0f, FALSE);
+	}
+}
+
+void hud_render_large_count(
+	short local_player_index,
+	long value)
+{
+	/* (four times the digits, in the upper half of the view, flashing as
+	the timer does near its end) */
+	real advance = hud_port_digit_advance(1.0f);
+
+	if (advance <= 0.0f || value < 0)
+		return;
+	hud_port_draw_number(local_player_index, 0.0f, -hud_port_half_height() * 0.4f, (short)MIN(value, 99),
+		hud_globals->timer_definition.color.color, TRUE, 0, 4.0f, FALSE);
+}
+#endif
 
 void hud_set_state_message(
 	short local_player_index,
@@ -1479,6 +1725,7 @@ void hud_messaging_update(
 			line_bounds.y0 = line_top;
 			line_bounds.y1 = line_top + 5 * line_height;
 			line_cursor = line_bounds;
+			hud_message_spacing_reset();
 			draw_string_set_draw_mode(
 				font_index,
 				NONE,
@@ -1563,12 +1810,7 @@ void hud_messaging_update(
 								element->data * sizeof(wchar_t));
 							rectangle2d text_bounds;
 
-							draw_string_set_indents(line_cursor.x0 - line_bounds.x0, 0);
-							draw_unicode_string_compute_bounds(
-								&line_bounds,
-								text,
-								&text_bounds,
-								&line_cursor);
+							hud_message_text_place(&line_bounds, &line_cursor, text, &text_bounds);
 							line_cursor.x0 -= 3;
 							text_bounds.x0 = line_bounds.x0;
 							rasterizer_draw_unicode_string(

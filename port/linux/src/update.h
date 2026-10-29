@@ -23,8 +23,14 @@ of it; 1 on success, else 0 and why in error */
 int update_download(const char *url, const char *path, unsigned long long maximum, update_progress_proc progress,
 	void *context, char *error, int error_size);
 
-/* the full path of this executable; 1 on success */
+/* the full path of this executable; 1 on success (0 for an AppImage, whose
+executable is inside its read-only mount: update_appimage_path) */
 int update_executable_path(char *path, int size);
+
+/* the full path of the AppImage file this runs from, when it runs from one
+(Linux: the APPIMAGE its runtime sets), which an update replaces whole; 1
+when so */
+int update_appimage_path(char *path, int size);
 
 /* puts the file at new_path in place of the one at path, which is renamed
 to old_path first (a running executable can be renamed, not overwritten),
@@ -43,7 +49,9 @@ void update_delete_file(const char *path);
 int update_make_directory(const char *path);
 
 /* starts the executable at path as a process of its own, with no arguments,
-this process's environment and none of its files; 1 on success */
+this process's environment and none of its files (from an AppImage, with the
+library path its AppRun was given, not the one it set for its own mount); 1
+on success */
 int update_launch(const char *path);
 
 #endif

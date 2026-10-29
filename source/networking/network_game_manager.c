@@ -852,3 +852,76 @@ boolean network_game_create_game_objects(
 }
 
 /* ---------- private code */
+
+#ifdef HALO_BIG_ENDIAN
+/* port: (network_game_manager.h) the record in the wire's byte order, by
+port/linux/game/network_distributed.c's swap */
+void distributed_wire_swap(void *data, long count, long size);
+
+#define NETWORK_GAME_SWAP(structure, first, last, size) \
+	distributed_wire_swap(&(structure)->first, \
+		(long)(((byte *)&(structure)->last + sizeof((structure)->last) - (byte *)&(structure)->first) / (size)), \
+		(size))
+
+void game_variant_byte_swap(
+	struct game_variant *variant,
+	boolean to_host)
+{
+	long engine_index;
+
+	NETWORK_GAME_SWAP(variant, human_readable_game_description, human_readable_game_description, sizeof(wchar_t));
+	if (!to_host)
+		engine_index = variant->game_engine_index;
+	NETWORK_GAME_SWAP(variant, game_engine_index, game_engine_index, sizeof(long));
+	if (to_host)
+		engine_index = variant->game_engine_index;
+	/* (teams and odd man out are booleans) */
+	NETWORK_GAME_SWAP(variant, universal_variant.flags, universal_variant.goal_radar, sizeof(long));
+	NETWORK_GAME_SWAP(variant, universal_variant.respawn_time_growth, universal_variant.vehicle_set, sizeof(long));
+	/* (the game type's rules: their numbers by the game type) */
+	switch (engine_index)
+	{
+	case game_engine_ctf:
+		NETWORK_GAME_SWAP(variant, game_engine_variant.ctf.single_flag_time,
+			game_engine_variant.ctf.single_flag_time, sizeof(long));
+		break;
+	case game_engine_oddball:
+		NETWORK_GAME_SWAP(variant, game_engine_variant.oddball.speed_with_ball,
+			game_engine_variant.oddball.ball_spawn_count, sizeof(long));
+		break;
+	case game_engine_race:
+		NETWORK_GAME_SWAP(variant, game_engine_variant.race.race_type, game_engine_variant.race.team_scoring,
+			sizeof(long));
+		break;
+	case game_engine_bomb:
+		NETWORK_GAME_SWAP(variant, game_engine_variant.bomb.arm_time, game_engine_variant.bomb.round_time,
+			sizeof(long));
+		break;
+	}
+	NETWORK_GAME_SWAP(variant, flags, flags, sizeof(word));
+}
+
+void network_game_byte_swap(
+	struct network_game *game,
+	boolean to_host)
+{
+	long index;
+
+	NETWORK_GAME_SWAP(game, name, name, sizeof(wchar_t));
+	NETWORK_GAME_SWAP(game, map.version, map.version, sizeof(long));
+	game_variant_byte_swap(&game->variant, to_host);
+	NETWORK_GAME_SWAP(game, difficulty, machine_count, sizeof(short));
+	for (index = 0; index < (long)NUMBEROF(game->machines); index++)
+		NETWORK_GAME_SWAP(&game->machines[index], name, name, sizeof(wchar_t));
+	NETWORK_GAME_SWAP(game, player_count, player_count, sizeof(short));
+	for (index = 0; index < (long)NUMBEROF(game->players); index++)
+	{
+		NETWORK_GAME_SWAP(&game->players[index], name, name, sizeof(wchar_t));
+		NETWORK_GAME_SWAP(&game->players[index], primary_color_index, icon_index, sizeof(short));
+	}
+	NETWORK_GAME_SWAP(game, __unknown426, __unknown426, sizeof(short));
+	NETWORK_GAME_SWAP(game, random_seed, number_of_games_played, sizeof(long));
+	/* (the PC options: their times and modes, then bytes) */
+	NETWORK_GAME_SWAP(game, variant_options.time_limit, variant_options.vehicle_respawn_time, sizeof(short));
+}
+#endif

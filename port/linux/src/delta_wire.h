@@ -65,6 +65,34 @@ enum
 	/* the map file's hash: BLAKE2b-256 of every byte of it */
 	DELTA_WIRE_MAP_HASH_SIZE = 32,
 
+	/* TRAITS: its fields (the game's kind, reserved), then everyone's and the
+	bomb carrier's player traits */
+	DELTA_WIRE_TRAITS_SIZE = 28,
+	DELTA_WIRE_PLAYER_TRAITS_SIZE = 12,
+	/* ... and after them, from bomb_movement's builds on (earlier builds
+	read the first 28 bytes alone): a version (1), 3 reserved, then
+	everyone's and the carrier's movement traits */
+	DELTA_WIRE_TRAITS_MOVEMENT_SIZE = 48,
+	DELTA_WIRE_TRAITS_MOVEMENT_VERSION = 1,
+	DELTA_WIRE_PLAYER_MOVEMENT_SIZE = 8,
+	/* a trait's range, in percent (the game's own: game_engine.h's
+	player_traits); a value past one is refused, never mended */
+	DELTA_WIRE_TRAIT_HEALTH_MINIMUM = 10,
+	DELTA_WIRE_TRAIT_HEALTH_MAXIMUM = 400,
+	DELTA_WIRE_TRAIT_DAMAGE_MINIMUM = 25,
+	DELTA_WIRE_TRAIT_DAMAGE_MAXIMUM = 400,
+	DELTA_WIRE_TRAIT_RESISTANCE_MINIMUM = 25,
+	DELTA_WIRE_TRAIT_RESISTANCE_MAXIMUM = 400,
+	DELTA_WIRE_TRAIT_SPEED_MINIMUM = 50,
+	DELTA_WIRE_TRAIT_SPEED_MAXIMUM = 200,
+	/* (0: unchanged, as a host before them sends it) */
+	DELTA_WIRE_TRAIT_JUMP_MINIMUM = 50,
+	DELTA_WIRE_TRAIT_JUMP_MAXIMUM = 200,
+	DELTA_WIRE_TRAIT_GRAVITY_MINIMUM = 25,
+	DELTA_WIRE_TRAIT_GRAVITY_MAXIMUM = 200,
+	DELTA_WIRE_TRAIT_MELEE_MINIMUM = 50,
+	DELTA_WIRE_TRAIT_MELEE_MAXIMUM = 200,
+
 	/* a machine index none has (a dedicated server's own machine, or a
 	client not yet given one) */
 	DELTA_WIRE_NO_MACHINE = 0xFF,
@@ -121,7 +149,43 @@ enum
 	DELTA_WIRE_BADGE_CERTIFICATE_SIZE = 143,
 	/* the messages' fixed parts (the certificate follows BADGE's) */
 	DELTA_WIRE_BADGE_ASK_SIZE = 32,
-	DELTA_WIRE_BADGE_SIZE = 100
+	DELTA_WIRE_BADGE_SIZE = 100,
+
+	/* object sync (docs/delta.md, Object sync): UNIT_VITALS's count and
+	reserved bytes, then 12-byte entries, as many as a datagram holds */
+	DELTA_WIRE_UNIT_VITALS_SIZE = 4,
+	DELTA_WIRE_UNIT_VITALS_ENTRY_SIZE = 12,
+	/* (98) */
+	DELTA_WIRE_MAXIMUM_UNIT_VITALS =
+		(DELTA_WIRE_MAXIMUM_PAYLOAD - DELTA_WIRE_UNIT_VITALS_SIZE) / DELTA_WIRE_UNIT_VITALS_ENTRY_SIZE,
+	/* ... OBJECT_NAMES's total, first and count, then 12-byte entries: the
+	host's named objects and the names it removed (at most a scenario's
+	names) in as many datagrams as it takes */
+	DELTA_WIRE_OBJECT_NAMES_SIZE = 8,
+	DELTA_WIRE_OBJECT_NAMES_ENTRY_SIZE = 12,
+	/* (98) */
+	DELTA_WIRE_MAXIMUM_OBJECT_NAMES_ENTRIES =
+		(DELTA_WIRE_MAXIMUM_PAYLOAD - DELTA_WIRE_OBJECT_NAMES_SIZE) / DELTA_WIRE_OBJECT_NAMES_ENTRY_SIZE,
+	/* (the game's MAXIMUM_OBJECT_NAMES_PER_SCENARIO) */
+	DELTA_WIRE_MAXIMUM_OBJECT_NAMES = 512
+};
+
+/* UNIT_VITALS's entry flags: the unit's shield, as the game's own unit
+states say it */
+enum
+{
+	DELTA_WIRE_VITALS_SHIELD_DEPLETED = 0x01,
+	DELTA_WIRE_VITALS_SHIELD_CHARGING = 0x02,
+	DELTA_WIRE_VITALS_SHIELD_OVER_CHARGING = 0x04,
+	DELTA_WIRE_VITALS_FLAGS = 0x07
+};
+
+/* UNIT_VITALS's own flags (its second byte) */
+enum
+{
+	/* the last datagram of a full pass: every unit the host's vitals
+	cover, sent when a client asks for the host's objects */
+	DELTA_WIRE_UNIT_VITALS_PASS = 0x01
 };
 
 /* TEAM_RESULT's results; a number is never reused */
@@ -317,7 +381,10 @@ enum delta_message_type
 	_delta_message_chat_line = 20,
 	/* host to client, if both agreed to chat: a CHAT_SAY not relayed */
 	_delta_message_chat_refused = 21,
-	/* (22: TRAITS, the Bomb builds') */
+	/* host to client, if both agreed to bomb and bomb_traits: the game's
+	player traits (for a Bomb game type), whenever they change and every few
+	seconds. Grifball test builds 2 and 3 sent it as 18, chat's number */
+	_delta_message_traits = 22,
 	/* team changes (both agreed to team_change): client to host, its
 	player asks to change teams */
 	_delta_message_team_request = 23,
@@ -327,7 +394,34 @@ enum delta_message_type
 	fresh nonce */
 	_delta_message_badge_ask = 25,
 	/* host to client: its certificate and its signature of the nonce */
-	_delta_message_badge = 26
+	_delta_message_badge = 26,
+	/* object sync (both agreed to object_sync): host to client, units'
+	shield and health as they changed, and a few of the rest in turn */
+	_delta_message_unit_vitals = 27,
+	/* host to client: the scenario names of the host's objects, whenever
+	they change and every few seconds */
+	_delta_message_object_names = 28
+};
+
+/* TRAITS's game kinds: what the traits are for */
+enum
+{
+	/* none: no traits (the host's game is no Bomb game type) */
+	DELTA_WIRE_TRAITS_NONE = 0,
+	DELTA_WIRE_TRAITS_BOMB = 1
+};
+
+/* a player trait's shields */
+enum
+{
+	/* the game type's (its variant's shields option) */
+	DELTA_WIRE_SHIELDS_UNCHANGED = 0,
+	DELTA_WIRE_SHIELDS_NONE = 1,
+	DELTA_WIRE_SHIELDS_NORMAL = 2,
+	/* charged past full, as the overshield powerup charges them, and
+	charged again while not hit */
+	DELTA_WIRE_SHIELDS_OVERSHIELD = 3,
+	NUMBER_OF_DELTA_WIRE_SHIELDS
 };
 
 /* MAP's flags */
@@ -433,6 +527,38 @@ struct delta_wire_map
 	unsigned char hash[DELTA_WIRE_MAP_HASH_SIZE];
 	/* the file's name, without its family's suffix or ".map" */
 	char name[DELTA_WIRE_MAP_NAME_SIZE + 1];
+};
+
+/* a set of player traits: percents (100 changes nothing) */
+struct delta_wire_player_traits
+{
+	/* of the unit's vitality (10: a tenth: it dies of a tenth the damage) */
+	unsigned short health;
+	/* of the damage it deals */
+	unsigned short damage;
+	/* of the damage it resists (150: it takes two thirds) */
+	unsigned short resistance;
+	/* of its speed */
+	unsigned short speed;
+	/* DELTA_WIRE_SHIELDS_* */
+	unsigned char shields;
+	/* drawn in a bright color of its own (1), else its team's (0) */
+	unsigned char highlight;
+	/* of its jump's speed, of gravity on it in the air, and of its melee
+	blow's reach (0: unchanged; only for players whose machine agreed to
+	bomb_movement) */
+	unsigned short jump;
+	unsigned short gravity;
+	unsigned short melee;
+};
+
+struct delta_wire_traits
+{
+	/* DELTA_WIRE_TRAITS_* */
+	unsigned char kind;
+	/* every player's, and the bomb carrier's on top of them */
+	struct delta_wire_player_traits everyone;
+	struct delta_wire_player_traits carrier;
 };
 
 struct delta_wire_roster
@@ -597,6 +723,63 @@ struct delta_wire_badge
 	unsigned char certificate[DELTA_WIRE_BADGE_CERTIFICATE_SIZE];
 };
 
+/* a unit's shield and health (UNIT_VITALS) */
+struct delta_wire_unit_vital
+{
+	/* the host's object (its datum index: a client's copy has the same) */
+	delta_u32 object;
+	/* DELTA_WIRE_VITALS_* */
+	unsigned char flags;
+	/* body and shield vitality, in 16384ths (the game's distributed unit
+	states' scale: up to 4) */
+	unsigned short body;
+	unsigned short shield;
+};
+
+struct delta_wire_unit_vitals
+{
+	/* DELTA_WIRE_UNIT_VITALS_* (others a later build's: ignored) */
+	unsigned char flags;
+	int count;
+	struct delta_wire_unit_vital entries[DELTA_WIRE_MAXIMUM_UNIT_VITALS];
+};
+
+/* OBJECT_NAMES's entry flags */
+enum
+{
+	/* the host had an object of this name and has none now (its object is
+	NONE): a client's own copy goes, after a tick with the vitals given */
+	DELTA_WIRE_NAME_REMOVED = 0x01,
+	DELTA_WIRE_NAME_FLAGS = 0x01
+};
+
+/* an object's scenario name (OBJECT_NAMES), or a name the host removed */
+struct delta_wire_object_name
+{
+	/* (0xFFFFFFFF for a removed name) */
+	delta_u32 object;
+	/* the scenario's object name index */
+	unsigned short name;
+	/* DELTA_WIRE_NAME_* (others a later build's: ignored) */
+	unsigned char flags;
+	/* a removed name's unit as the host last had it (DELTA_WIRE_VITALS_*,
+	and vitality in 16384ths; a full shield and body for one that was not a
+	unit); 0 for the others */
+	unsigned char vitals_flags;
+	unsigned short body;
+	unsigned short shield;
+};
+
+/* the host's named objects, total in all; this datagram's count of them
+from first on */
+struct delta_wire_object_names
+{
+	int total;
+	int first;
+	int count;
+	struct delta_wire_object_name entries[DELTA_WIRE_MAXIMUM_OBJECT_NAMES_ENTRIES];
+};
+
 /* a datagram's header: 1 if it is Delta's (the magic) and its length is the
 datagram's; the payload follows at data + DELTA_WIRE_HEADER_SIZE. A header of
 another major is still read (to answer it with LEGACY) */
@@ -629,6 +812,13 @@ int delta_wire_write_table(unsigned char *data, delta_u32 session, const struct 
 int delta_wire_write_table_have(unsigned char *data, delta_u32 session, delta_u32 serial);
 /* (0 for a map delta_wire_read_map would refuse) */
 int delta_wire_write_map(unsigned char *data, delta_u32 session, const struct delta_wire_map *map);
+/* (a kind, shields or highlight this build does not know, or a percent
+past its range, is refused) */
+int delta_wire_read_traits(const unsigned char *payload, int size, struct delta_wire_traits *traits);
+/* (0 for traits delta_wire_read_traits would refuse) */
+int delta_wire_write_traits(unsigned char *data, delta_u32 session, const struct delta_wire_traits *traits);
+/* whether traits are ones TRAITS carries (in their ranges, known values) */
+int delta_wire_traits_valid(const struct delta_wire_traits *traits);
 /* whether a map's name is one MAP carries: 1 to DELTA_WIRE_MAP_NAME_SIZE
 characters, each a letter, digit, '_', '-', '.' or ' ', and not "." or
 ".." or holding ".." */
@@ -684,6 +874,13 @@ int delta_wire_read_team_result(const unsigned char *payload, int size, struct d
 int delta_wire_write_team_request(unsigned char *data, delta_u32 session,
 	const struct delta_wire_team_request *request);
 int delta_wire_write_team_result(unsigned char *data, delta_u32 session, const struct delta_wire_team_result *result);
+/* object sync's messages. A count past what the datagram holds, unknown
+flags, or names past DELTA_WIRE_MAXIMUM_OBJECT_NAMES are refused */
+int delta_wire_read_unit_vitals(const unsigned char *payload, int size, struct delta_wire_unit_vitals *vitals);
+int delta_wire_read_object_names(const unsigned char *payload, int size, struct delta_wire_object_names *names);
+/* (0 for what the reader would refuse) */
+int delta_wire_write_unit_vitals(unsigned char *data, delta_u32 session, const struct delta_wire_unit_vitals *vitals);
+int delta_wire_write_object_names(unsigned char *data, delta_u32 session, const struct delta_wire_object_names *names);
 
 /* server badges' messages. A certificate longer than its field is refused
 (its bytes are not read here: server_badge.c does) */

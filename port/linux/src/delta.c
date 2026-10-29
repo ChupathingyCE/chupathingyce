@@ -10,6 +10,8 @@ Above it, a signed legacy table: a JSON document, signed with ChupathingyCE's
 Ed25519 key (delta_key.h), with a row of numbers for each wire (DELTA_WIRE,
 delta.h). This build reads its own wire's row alone, and takes it only if it
 widens the built-in numbers (announces a newer number, joins a wider range).
+The row may also carry "layouts" (delta.h): facts about newer OpenCE versions
+that network_rules.c reads them by (delta_legacy_layouts), within its limits.
 
 Where tables come from, the newest serial winning (an equal or older one is
 never taken, so an old copy cannot roll a machine back):
@@ -20,6 +22,12 @@ the background at start and every few hours, and GitHub's copy
 reached or gives no valid table;
 - another machine (delta_legacy_offer: Delta Peer).
 A table that does not verify is dropped, and logged; nothing is shown.
+
+A console with HTTPS (HALO_CONSOLE_HTTPS: port/console/https/console_https.h)
+fetches the same two over its own TLS, the site by its pinned key and
+GitHub by its pinned roots, when its port asks (delta_legacy_refresh, on a
+thread of the port's: this file starts none there), and caches the table
+beside config.toml.
 
 A local, unsigned file (network.legacy_table, HALO_LEGACY_TABLE) replaces
 all of that, for tests and for admins: logged as a warning at start, never
@@ -43,7 +51,15 @@ skips what it does not know.
 #include "delta_key.h"
 #ifdef HALO_GAME_BROWSER
 #include "browser_http.h"
+#define DELTA_FETCHES
+#elif defined(HALO_CONSOLE_HTTPS)
+#include "console_https.h"
+#define DELTA_FETCHES
 #endif
+
+/* (network_rules.c reads the table's layouts through delta_legacy_layouts,
+told of it at start: port/linux/game/network_rules.h) */
+void network_rules_set_layout_source(int (*source)(struct delta_layout_fact *facts, int count));
 
 #include "monocypher.h"
 #include "monocypher-ed25519.h"
@@ -78,6 +94,8 @@ enum
 	MAXIMUM_DISABLED = 64,
 	/* (an OpenCE network version is an unsigned 16-bit number) */
 	MAXIMUM_VERSION = 65535,
+	/* (a distributed message's kind is a byte; 0 is none) */
+	MAXIMUM_KIND = 255,
 };
 
 /* the capability registry's names (delta.h), as the table spells them */
@@ -85,7 +103,7 @@ static const char *const delta_capability_names[] =
 {
 	"platform", "profile", "server_messages", "chat", "ce_maps", "md_maps", "coop", "ai_sync", "vote",
 	"console_slots", "moderation", "bomb", "ping", "bomb_movement", "bomb_traits", "team_change",
-	"server_badge",
+	"server_badge", "object_sync",
 };
 _Static_assert(sizeof(delta_capability_names) / sizeof(*delta_capability_names) == NUMBER_OF_DELTA_CAPABILITIES,
 	"a name for each capability");
@@ -101,6 +119,9 @@ struct delta_table
 	("build-145"; empty: not said) */
 	char follows[DELTA_FOLLOWS_SIZE];
 	unsigned long disabled;
+	/* ... and the row's layouts, oldest first */
+	int layout_count;
+	struct delta_layout_fact layouts[DELTA_LAYOUT_FACTS];
 };
 
 static pthread_mutex_t delta_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -108,14 +129,18 @@ static pthread_mutex_t delta_lock = PTHREAD_MUTEX_INITIALIZER;
 game's, taken before delta_lock) */
 static pthread_mutex_t delta_cache_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_once_t delta_once = PTHREAD_ONCE_INIT;
+#ifdef HALO_GAME_BROWSER
 /* (the fetching thread waits on it for its next time) */
 static pthread_cond_t delta_wake = PTHREAD_COND_INITIALIZER;
+#endif
 
 static struct
 {
 	int announce, minimum, maximum;
 	char follows[DELTA_FOLLOWS_SIZE];
 	unsigned long disabled;
+	int layout_count;
+	struct delta_layout_fact layouts[DELTA_LAYOUT_FACTS];
 	/* the signed table in use (malloc'd), and its serial; none: 0 */
 	unsigned int serial;
 	char *signed_table;
@@ -349,8 +374,117 @@ static int json_follows(struct json *json, struct delta_table *table)
 	return 1;
 }
 
+/* a layout fact's "dropped_messages": [kind, ...], each 1 to 255 */
+static int json_kinds(struct json *json, struct delta_layout_fact *fact)
+{
+	int count = 0;
+
+	if (!json_take(json, '['))
+		return 0;
+	if (json_take(json, ']'))
+		return 1;
+	do
+	{
+		long long kind;
+
+		if (++count > MAXIMUM_KIND || !json_integer(json, 1, MAXIMUM_KIND, &kind))
+			return 0;
+		fact->dropped[kind >> 3] |= (unsigned char)(1 << (kind & 7));
+	} while (json_take(json, ','));
+	return json_take(json, ']');
+}
+
+/* a layout fact: {"settings_size": S, "options_size": O,
+"shield_effects_maximum": E, "dropped_messages": [K, ...]}, each optional,
+others passed over (a later build's) */
+static int json_fact(struct json *json, struct delta_layout_fact *fact)
+{
+	int seen = 0;
+
+	if (!json_take(json, '{'))
+		return 0;
+	if (json_take(json, '}'))
+		return 1;
+	json->depth++;
+	do
+	{
+		const char *key;
+		int length, escaped, bit = 0, ok;
+		long long value = 0;
+		unsigned short *field = NULL;
+
+		if (!json_string(json, &key, &length, &escaped) || !json_take(json, ':'))
+			return 0;
+		if (!escaped && json_is(key, length, "settings_size"))
+			field = &fact->settings_size, bit = 1;
+		else if (!escaped && json_is(key, length, "options_size"))
+			field = &fact->options_size, bit = 2;
+		else if (!escaped && json_is(key, length, "shield_effects_maximum"))
+			field = &fact->shield_effects_maximum, bit = 4;
+		if (field)
+		{
+			ok = json_integer(json, 0, MAXIMUM_VERSION, &value);
+			if (ok)
+				*field = (unsigned short)value;
+		}
+		else if (!escaped && json_is(key, length, "dropped_messages"))
+			bit = 8, ok = json_kinds(json, fact);
+		else
+			ok = json_skip(json);
+		/* (a key twice would read differently elsewhere) */
+		if (!ok || (seen & bit))
+			return 0;
+		seen |= bit;
+	} while (json_take(json, ','));
+	json->depth--;
+	return json_take(json, '}');
+}
+
+/* a row's "layouts": {"<version>": fact, ...}, at most DELTA_LAYOUT_FACTS,
+each version once, kept oldest first */
+static int json_layouts(struct json *json, struct delta_table *table)
+{
+	if (!json_take(json, '{'))
+		return 0;
+	if (json_take(json, '}'))
+		return 1;
+	json->depth++;
+	do
+	{
+		struct delta_layout_fact fact;
+		struct json number;
+		const char *key;
+		int length, escaped, index;
+		long long version;
+
+		if (!json_string(json, &key, &length, &escaped) || escaped || !json_take(json, ':'))
+			return 0;
+		/* (the key a version: its digits read as a number would be) */
+		number.at = key;
+		number.end = key + length;
+		number.depth = 0;
+		if (length < 1 || key[0] == ' ' || !json_integer(&number, 1, MAXIMUM_VERSION, &version) ||
+			number.at != number.end)
+		{
+			return 0;
+		}
+		memset(&fact, 0, sizeof(fact));
+		fact.version = (unsigned short)version;
+		if (table->layout_count >= DELTA_LAYOUT_FACTS || !json_fact(json, &fact))
+			return 0;
+		for (index = table->layout_count; index > 0 && table->layouts[index - 1].version > fact.version; index--)
+			table->layouts[index] = table->layouts[index - 1];
+		if (index > 0 && table->layouts[index - 1].version == fact.version)
+			return 0;
+		table->layouts[index] = fact;
+		table->layout_count++;
+	} while (json_take(json, ','));
+	json->depth--;
+	return json_take(json, '}');
+}
+
 /* a wire's row: {"announce": A, "minimum": Mi, "maximum": Ma}, and
-optionally "follows": "build-N" */
+optionally "follows": "build-N" and "layouts" */
 static int json_row(struct json *json, struct delta_table *table)
 {
 	int seen = 0;
@@ -380,6 +514,13 @@ static int json_row(struct json *json, struct delta_table *table)
 			if ((seen & 8) || !json_follows(json, table))
 				return 0;
 			seen |= 8;
+			continue;
+		}
+		else if (!escaped && json_is(key, length, "layouts"))
+		{
+			if ((seen & 16) || !json_layouts(json, table))
+				return 0;
+			seen |= 16;
 			continue;
 		}
 		if (!field)
@@ -600,11 +741,25 @@ static void delta_use_built_in(void)
 	delta.maximum = HALO_PORT_NETWORK_VERSION_MAXIMUM;
 	delta.follows[0] = 0;
 	delta.disabled = 0;
+	delta.layout_count = 0;
+}
+
+/* the table's row's layouts into the ones in use (delta_lock held) */
+static void delta_use_layouts(const struct delta_table *table)
+{
+	delta.layout_count = table->has_row ? table->layout_count : 0;
+	memcpy(delta.layouts, table->layouts, sizeof(delta.layouts));
 }
 
 static void delta_cache_path(char *path, size_t size)
 {
+#if defined(HALO_CONSOLE_HTTPS) && !defined(HALO_GAME_BROWSER)
+	/* (a console's: beside its config.toml) */
+	config_folder(path, size);
+	snprintf(path + strlen(path), size - strlen(path), "%s", DELTA_CACHE_NAME);
+#else
 	snprintf(path, size, "%s/%s", platform_save_root(), DELTA_CACHE_NAME);
+#endif
 }
 
 /* the signed table written to the cache: a new file beside it, then moved
@@ -708,15 +863,17 @@ static enum delta_result delta_take(const char *document, size_t size, const cha
 		memcpy(delta.follows, table.follows, sizeof(delta.follows));
 	}
 	delta.disabled = table.disabled;
+	delta_use_layouts(&table);
 	maximum = delta.maximum;
 	pthread_mutex_unlock(&delta_lock);
 
-	platform_log("Delta: legacy table %u from %s: announcing %d, joining %d to %d%s%s%s", table.serial, source,
-		table.has_row ? table.announce : HALO_PORT_NETWORK_VERSION,
+	platform_log("Delta: legacy table %u from %s: announcing %d, joining %d to %d%s%s%s; %d layout facts", table.serial,
+		source, table.has_row ? table.announce : HALO_PORT_NETWORK_VERSION,
 		table.has_row ? table.minimum : HALO_PORT_NETWORK_VERSION_MINIMUM,
 		maximum,
 		table.has_row ? "" : " (no row for " DELTA_WIRE ": the built-in numbers)",
-		table.has_row && table.follows[0] ? "; following OpenCE " : "", table.has_row ? table.follows : "");
+		table.has_row && table.follows[0] ? "; following OpenCE " : "", table.has_row ? table.follows : "",
+		table.has_row ? table.layout_count : 0);
 	/* (from the cache's own copy, and only while the table is still the
 	one in use: another thread may take a newer one, and free this one,
 	meanwhile) */
@@ -788,12 +945,15 @@ static int delta_load_override(void)
 		memcpy(delta.follows, table.follows, sizeof(delta.follows));
 	}
 	if (ok)
+	{
 		delta.disabled = table.disabled;
+		delta_use_layouts(&table);
+	}
 	if (ok && table.has_row)
 	{
 		platform_log("Delta: WARNING: a local, unsigned legacy table is in use (network.legacy_table, %s): "
-			"announcing %d, joining %d to %d; no signed table is fetched or passed on", path, delta.announce,
-			delta.minimum, delta.maximum);
+			"announcing %d, joining %d to %d, %d layout facts; no signed table is fetched or passed on", path,
+			delta.announce, delta.minimum, delta.maximum, delta.layout_count);
 	}
 	else
 	{
@@ -824,22 +984,68 @@ static void delta_load(void)
 	}
 }
 
-/* ---------- fetching (a thread of this file's) */
+/* ---------- fetching (a thread of this file's; a console's port's) */
+
+#ifdef DELTA_FETCHES
 
 #ifdef HALO_GAME_BROWSER
+#define delta_get posix_browser_request
+#else
+/* (a console's answers are read whole, headers and all, into the buffer
+before the body is moved to its start: room for them) */
+#define DELTA_HEADER_ROOM 2048
+
+/* posix_browser_request's GET, over the console's HTTPS: https://host/path,
+the hosts console_https.c knows alone; the status, or 0 and the error */
+static int delta_get(const char *url, const char *form, const char *content_type, char *response,
+	int response_size, char *error, int error_size)
+{
+	char host[64];
+	const char *path;
+	size_t length;
+	int status = 0, result;
+
+	(void)form;
+	(void)content_type;
+	if (strncmp(url, "https://", 8) || !(path = strchr(url + 8, '/')) ||
+		(length = (size_t)(path - (url + 8))) >= sizeof(host))
+	{
+		snprintf(error, (size_t)error_size, "not an https:// address");
+		return 0;
+	}
+	memcpy(host, url + 8, length);
+	host[length] = 0;
+	result = console_https_call(host, path, NULL, &status, response, response_size, 20000);
+	if (result != CONSOLE_HTTPS_OK)
+	{
+		snprintf(error, (size_t)error_size, "%s", console_https_error_string(result));
+		return 0;
+	}
+	return status;
+}
+#endif
+
+#ifndef DELTA_HEADER_ROOM
+#define DELTA_HEADER_ROOM 0
+#endif
 
 /* the document at url and its signature (url.sig), from source; none there
 (the server says it has no document: absent set, nothing logged) is
 _delta_invalid too */
 static enum delta_result delta_fetch(const char *url, const char *source, int *absent)
 {
-	/* (one byte past the cap shows a document cut short) */
-	static char document[DELTA_LEGACY_DOCUMENT_SIZE + 2];
-	char signature[256], signature_url[600], error[256];
+	/* (one byte past the cap shows a document cut short; a console's is on
+	the port's thread's stack, so that its memory is not kept between
+	fetches) */
+#ifdef HALO_GAME_BROWSER
+	static
+#endif
+	char document[DELTA_LEGACY_DOCUMENT_SIZE + 2 + DELTA_HEADER_ROOM];
+	char signature[256 + DELTA_HEADER_ROOM], signature_url[600], error[256];
 	int status;
 
 	*absent = 0;
-	status = posix_browser_request(url, NULL, NULL, document, sizeof(document), error, sizeof(error));
+	status = delta_get(url, NULL, NULL, document, sizeof(document), error, sizeof(error));
 	if (status == 404)
 	{
 		*absent = 1;
@@ -851,7 +1057,7 @@ static enum delta_result delta_fetch(const char *url, const char *source, int *a
 		return _delta_invalid;
 	}
 	snprintf(signature_url, sizeof(signature_url), "%s.sig", url);
-	status = posix_browser_request(signature_url, NULL, NULL, signature, sizeof(signature), error, sizeof(error));
+	status = delta_get(signature_url, NULL, NULL, signature, sizeof(signature), error, sizeof(error));
 	if (status != 200)
 	{
 		platform_log("Delta: no legacy table's signature from %s (%s)", source,
@@ -865,7 +1071,12 @@ static void delta_refresh(int *failed)
 {
 	/* (none published anywhere: said once a run, not at every retry) */
 	static int absence_said;
+#ifdef HALO_GAME_BROWSER
 	const char *base = config_string("network.browser_url");
+#else
+	/* (a console asks the site it pins, whatever network.browser_url says) */
+	const char *base = "https://" CONSOLE_HTTPS_SITE;
+#endif
 	char url[512];
 	size_t length = strlen(base);
 	int site_absent, github_absent;
@@ -896,6 +1107,7 @@ static void delta_refresh(int *failed)
 		platform_log("Delta: no legacy table from GitHub (it has none)");
 }
 
+#ifdef HALO_GAME_BROWSER
 static void *delta_thread(void *unused)
 {
 	(void)unused;
@@ -923,6 +1135,21 @@ static void *delta_thread(void *unused)
 	}
 	return NULL;
 }
+#else
+int delta_legacy_refresh(void)
+{
+	int failed = 0;
+
+	pthread_once(&delta_once, delta_load);
+	/* (no key, nothing to check a table with; no list server, the player's
+	choice to talk to none; no HTTPS yet) */
+	if (delta_legacy_override() || !delta_has_key() || !config_string("network.browser_url")[0] ||
+		!console_https_available())
+		return 0;
+	delta_refresh(&failed);
+	return !failed;
+}
+#endif
 
 #endif
 
@@ -936,6 +1163,7 @@ void delta_legacy_start(void)
 	if (started)
 		return;
 	started = 1;
+	network_rules_set_layout_source(delta_legacy_layouts);
 #ifdef HALO_GAME_BROWSER
 	/* (no key, nothing to check a table with; no list server, the player's
 	choice to talk to none) */
@@ -1056,6 +1284,19 @@ void delta_legacy_following(char *text, int size)
 		snprintf(text + strlen(text), (size_t)size - strlen(text), " (table %u)", serial);
 	else
 		snprintf(text + strlen(text), (size_t)size - strlen(text), " (built in)");
+}
+
+int delta_legacy_layouts(struct delta_layout_fact *facts, int count)
+{
+	int used;
+
+	pthread_once(&delta_once, delta_load);
+	pthread_mutex_lock(&delta_lock);
+	used = count < delta.layout_count ? count : delta.layout_count;
+	if (used > 0)
+		memcpy(facts, delta.layouts, sizeof(*facts) * (size_t)used);
+	pthread_mutex_unlock(&delta_lock);
+	return used > 0 ? used : 0;
 }
 
 int delta_legacy_override(void)

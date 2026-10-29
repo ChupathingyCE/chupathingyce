@@ -30,6 +30,9 @@ const struct server_builtin server_builtins[] =
 	{ "race", SERVER_ENGINE_RACE },
 	{ "team_race", SERVER_ENGINE_RACE },
 	{ "rally", SERVER_ENGINE_RACE },
+	{ "bomb", SERVER_ENGINE_BOMB },
+	{ "grifball", SERVER_ENGINE_BOMB },
+	{ "grifball_open_pitch", SERVER_ENGINE_BOMB },
 };
 
 const int server_builtin_count = (int)(sizeof(server_builtins) / sizeof(server_builtins[0]));
@@ -43,7 +46,8 @@ static const struct server_choice base_choices[] =
 {
 	{ "slayer", 0 }, { "team_slayer", 1 }, { "elimination", 2 }, { "ctf", 3 }, { "ironctf", 4 }, { "king", 5 },
 	{ "team_king", 6 }, { "oddball", 7 }, { "team_oddball", 8 }, { "stalker", 9 }, { "accumulation", 10 },
-	{ "race", 11 }, { "team_race", 12 }, { "rally", 13 },
+	{ "race", 11 }, { "team_race", 12 }, { "rally", 13 }, { "bomb", 14 }, { "grifball", 15 },
+	{ "grifball_open_pitch", 16 },
 };
 
 /* (game_engine.c's game_engine_weapons) */
@@ -80,11 +84,13 @@ static const struct server_choice friendly_fire_choices[] =
 };
 
 /* (the vehicle sets: game_engine.c's, then a vehicle alone each, as the
-gametype editor's presets; custom: the counts) */
+gametype editor's presets; pc: every one the map places, as Halo PC places
+them; custom: the counts) */
 static const struct server_choice vehicle_choices[] =
 {
 	{ "default", 0 }, { "none", 1 }, { "warthog", 2 }, { "ghost", 3 }, { "scorpion", 4 },
-	{ "rocket_warthog", 5 }, { "banshee", 6 }, { "gun_turret", 7 }, { "custom", SERVER_VEHICLES_CUSTOM },
+	{ "rocket_warthog", 5 }, { "banshee", 6 }, { "gun_turret", 7 }, { "pc", SERVER_VEHICLES_PC },
+	{ "custom", SERVER_VEHICLES_CUSTOM },
 };
 
 /* (game_engine_oddball.c's) */
@@ -104,6 +110,10 @@ static const struct server_choice ball_type_choices[] =
 static const struct server_choice race_type_choices[] = { { "normal", 0 }, { "any_order", 1 }, { "rally", 2 } };
 
 static const struct server_choice team_scoring_choices[] = { { "minimum", 0 }, { "maximum", 1 }, { "sum", 2 } };
+
+/* (game_engine.h's Bomb traits presets: the player traits a game starts
+with) */
+static const struct server_choice bomb_traits_choices[] = { { "none", 0 }, { "grifball", 1 }, { "open_pitch", 2 } };
 
 #define SECONDS(maximum) SERVER_FIELD_INTEGER, 0, (maximum), NO_CHOICES
 #define BOOLEAN SERVER_FIELD_BOOLEAN, 0, 1, NO_CHOICES
@@ -182,6 +192,15 @@ const struct server_gametype_field server_gametype_fields[SERVER_GAMETYPE_FIELDS
 
 	{ "race.type", CHOICE(race_type_choices), SERVER_ENGINE_RACE, "Race type", NULL },
 	{ "race.team_scoring", CHOICE(team_scoring_choices), SERVER_ENGINE_RACE, "Team scoring", NULL },
+
+	{ "bomb.arm_time", SECONDS(60), SERVER_ENGINE_BOMB, "Arm time", "seconds in the goal to score; 0: on contact" },
+	{ "bomb.reset_time", SECONDS(600), SERVER_ENGINE_BOMB, "Bomb reset", "seconds a dropped bomb lies; 0: never" },
+	{ "bomb.round_time", SECONDS(3600), SERVER_ENGINE_BOMB, "Round time", "seconds; 0: no limit" },
+	{ "bomb.new_round_on_score", BOOLEAN, SERVER_ENGINE_BOMB, "A goal starts a new round", NULL },
+	{ "bomb.melee_only", BOOLEAN, SERVER_ENGINE_BOMB, "Melee only",
+		"no weapons, grenades or powerups; the map's energy sword if it has one" },
+	{ "bomb.traits", CHOICE(bomb_traits_choices), SERVER_ENGINE_BOMB, "Player traits",
+		"grifball: one hit kills, the carrier fast and overshielded" },
 };
 
 /* ---------- the settings file's */
@@ -216,6 +235,14 @@ const struct server_setting server_settings_table[SERVER_SETTINGS] =
 		"Players changing teams during a game: 0 off, 1 balanced, 2 allow" },
 	{ "team_change_margin", SERVER_FIELD_INTEGER, 0, SERVER_SETTINGS_MAXIMUM_TEAM_CHANGE_MARGIN,
 		"HALO_DEDICATED_TEAM_CHANGE_MARGIN", "Most players one team may have over the other after a change (balanced)" },
+	{ "playlist_shuffle", SERVER_FIELD_BOOLEAN, 0, 1, "HALO_DEDICATED_PLAYLIST_SHUFFLE",
+		"The playlist's order shuffled each time it starts over" },
+	{ "chat_legacy", SERVER_FIELD_BOOLEAN, 0, 1, "HALO_DEDICATED_CHAT_LEGACY",
+		"OpenCE players chat too (their own text chat, bridged), while the chat is on" },
+	{ "gamespy_listing", SERVER_FIELD_BOOLEAN, 0, 1, "HALO_DEDICATED_GAMESPY_LISTING",
+		"Answer GameSpy status queries and send heartbeats to GameSpy masters" },
+	{ "gamespy_port", SERVER_FIELD_INTEGER, 1, 65535, "HALO_DEDICATED_GAMESPY_PORT",
+		"The UDP port of the GameSpy status queries" },
 };
 
 /* ---------- private code */
@@ -597,6 +624,7 @@ const char *server_engine_name(int engine)
 	case SERVER_ENGINE_ODDBALL: return "oddball";
 	case SERVER_ENGINE_KING: return "king";
 	case SERVER_ENGINE_RACE: return "race";
+	case SERVER_ENGINE_BOMB: return "bomb";
 	}
 	return "none";
 }
@@ -622,21 +650,27 @@ int server_playlist_parse(const char *text, size_t length, int strict, struct se
 		size_t sizes[3] = { SERVER_PLAYLIST_MAP_SIZE, SERVER_PLAYLIST_TYPE_SIZE, SERVER_PLAYLIST_MAP_SIZE };
 		const char *cursor = line_text;
 		const char *end = line_text + line_length;
-		const char *comment = memchr(line_text, '#', line_length);
 		int count = 0;
 
 		line++;
-		if (comment)
-			end = comment;
+		/* (a word may be in double quotes: a map's name with a space or a #
+		in it, "skedar v2@ce"; outside them a # starts a comment) */
 		while (count < 3)
 		{
 			size_t word_length = 0;
+			int quoted = 0;
 
 			while (cursor < end && (is_space(*cursor) || *cursor == '\r' || (!strict && (unsigned char)*cursor < 0x20)))
 				cursor++;
-			if (cursor >= end)
+			if (cursor >= end || *cursor == '#')
 				break;
-			while (cursor < end && !is_space(*cursor) && !(!strict && (unsigned char)*cursor < 0x20))
+			if (*cursor == '"')
+			{
+				quoted = 1;
+				cursor++;
+			}
+			while (cursor < end && (quoted ? *cursor != '"' : !is_space(*cursor) && *cursor != '#') &&
+				!(!strict && (unsigned char)*cursor < 0x20))
 			{
 				if (word_length + 1 >= sizes[count])
 				{
@@ -645,13 +679,33 @@ int server_playlist_parse(const char *text, size_t length, int strict, struct se
 						set_error(error, error_size, line, "a word is too long%s", NULL, NULL);
 						return 0;
 					}
-					/* (as the server's reading has it: the rest is the next word) */
+					/* (as the server's reading has it: the rest is the next
+					word; a quoted word's rest is left out) */
+					while (quoted && cursor < end && *cursor != '"')
+						cursor++;
 					break;
 				}
 				words[count][word_length++] = *cursor++;
 			}
+			if (quoted)
+			{
+				if (cursor < end && *cursor == '"')
+					cursor++;
+				else if (strict)
+				{
+					set_error(error, error_size, line, "a quote is not closed%s", NULL, NULL);
+					return 0;
+				}
+				/* (a closing quote ends the word: "a"b is not one) */
+				if (strict && cursor < end && !is_space(*cursor) && *cursor != '#')
+				{
+					set_error(error, error_size, line, "a quote is followed by more of its word%s", NULL, NULL);
+					return 0;
+				}
+			}
 			words[count][word_length] = 0;
-			count++;
+			if (word_length)
+				count++;
 		}
 		if (!count)
 			continue;
@@ -673,7 +727,7 @@ int server_playlist_parse(const char *text, size_t length, int strict, struct se
 			}
 			if (!command_line_map_name_valid(words[0]))
 			{
-				set_error(error, error_size, line, "%s is not a map's name (bloodgulch, name@ce, name@md)", words[0],
+				set_error(error, error_size, line, "%s is not a map's name (bloodgulch, name@ce, name@md, name@cex)", words[0],
 					NULL);
 				return 0;
 			}
@@ -717,8 +771,17 @@ int server_playlist_format(const struct server_playlist *playlist, const char *n
 	}
 	for (index = 0; index < playlist->count; index++)
 	{
-		int written = snprintf(out + length, size - length, "%-22s %s\n", playlist->entries[index].map,
-			playlist->entries[index].game_type);
+		const char *map = playlist->entries[index].map;
+		char quoted[SERVER_PLAYLIST_MAP_SIZE + 2];
+		int written;
+
+		/* (a name with a space or a # in it, in quotes) */
+		if (strpbrk(map, " \t#"))
+		{
+			snprintf(quoted, sizeof(quoted), "\"%s\"", map);
+			map = quoted;
+		}
+		written = snprintf(out + length, size - length, "%-22s %s\n", map, playlist->entries[index].game_type);
 
 		if (written < 0 || (size_t)written >= size - length)
 			return -1;
@@ -832,7 +895,7 @@ static int gametype_key(void *context, int line, const char *key, const struct t
 
 	if (field < 0)
 	{
-		set_error(error, error_size, line, "no setting %s (server/docs/gametypes.md)%s", key, NULL);
+		set_error(error, error_size, line, "no setting %s (server/docs/playlists.md)%s", key, NULL);
 		return 0;
 	}
 	if (gametype->set[field])
@@ -976,7 +1039,7 @@ int server_gametype_format(const struct server_gametype *gametype, const char *n
 	if (!size)
 		return -1;
 	out[0] = 0;
-	if (!append(out, size, &length, "# %s: a game type (server/docs/gametypes.md), written by the server.\n", name,
+	if (!append(out, size, &length, "# %s: a game type (server/docs/playlists.md, Game type files).\n", name,
 		NULL))
 	{
 		return -1;

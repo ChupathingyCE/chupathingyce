@@ -26,11 +26,14 @@ enum
 };
 
 /* the capabilities this build knows (the retired md_maps and console_slots
-bits never count) */
+bits never count, nor the reserved server_badge) */
 #define KNOWN_CAPABILITIES \
 	((((delta_u32)1 << NUMBER_OF_DELTA_CAPABILITIES) - 1) & ~((delta_u32)1 << _delta_capability_md_maps) & \
-		~((delta_u32)1 << _delta_capability_console_slots))
+		~((delta_u32)1 << _delta_capability_console_slots) & ~((delta_u32)1 << _delta_capability_server_badge))
 #define CAPABILITY(bit) ((delta_u32)1 << (bit))
+/* TRAITS (22) needs both: bomb alone is a Grifball test build 2 or 3's,
+which says TRAITS as 18 */
+#define BOMB_CAPABILITIES (CAPABILITY(_delta_capability_bomb) | CAPABILITY(_delta_capability_bomb_traits))
 
 static void say(struct delta_peer *peer, const char *format, ...)
 	__attribute__((format(printf, 2, 3)));
@@ -52,7 +55,7 @@ static const char *platform_name(int platform)
 {
 	static const char *const names[NUMBER_OF_DELTA_PLATFORMS] = {
 		"unknown", "pc_windows", "pc_macos", "pc_linux", "android", "steam_deck", "xbox", "xbox360", "wiiu",
-		"switch", "psp", "vita", "xbox_uwp"
+		"switch", "psp", "vita", "xbox_uwp", "pc_freebsd"
 	};
 
 	return platform >= 0 && platform < NUMBER_OF_DELTA_PLATFORMS ? names[platform] : "unknown";
@@ -195,6 +198,11 @@ static void forget_all(struct delta_peer *peer)
 	peer->table_in.active = 0;
 	memset(&peer->host_map, 0, sizeof(peer->host_map));
 	peer->host_map_generation = 0;
+	memset(&peer->host_traits, 0, sizeof(peer->host_traits));
+	peer->host_traits_generation = 0;
+	memset(peer->machine_seen, 0, sizeof(peer->machine_seen));
+	memset(peer->machine_seen_ipv4, 0, sizeof(peer->machine_seen_ipv4));
+	memset(peer->machine_seen_time, 0, sizeof(peer->machine_seen_time));
 	memset(peer->machines, 0, sizeof(peer->machines));
 	peer->room_capabilities = 0;
 	peer->room_players = DELTA_PEER_NO_LIMIT;
@@ -361,7 +369,7 @@ static void relay_frame(struct delta_peer *peer, struct delta_peer_relay *relay,
 		{
 			int size = peer->env.legacy_table_signed(peer->env.context, peer->table_out, (int)sizeof(peer->table_out));
 
-			peer->table_out_serial = size > 0 && size <= DELTA_LEGACY_SIGNED_SIZE ? serial : 0;
+			peer->table_out_serial = size > 0 && size <= (int)sizeof(peer->table_out) ? serial : 0;
 			peer->table_out_size = peer->table_out_serial ? size : 0;
 			if (!peer->table_out_serial)
 				return;
@@ -1492,6 +1500,82 @@ delta_u32 delta_peer_client_team_result(const struct delta_peer *peer, struct de
 	return peer->team_results;
 }
 
+/* ---------- object sync */
+
+/* (whether a client's session takes object sync) */
+static int host_objects_client(const struct delta_peer *peer, const struct delta_peer_host_peer *client)
+{
+	return peer->mode == _mode_host && client->used &&
+		(client->agreed & offered(peer) & CAPABILITY(_delta_capability_object_sync));
+}
+
+int delta_peer_objects_clients(const struct delta_peer *peer)
+{
+	int count = 0;
+	int index;
+
+	for (index = 0; index < DELTA_PEER_MAXIMUM_MACHINES; index++)
+	{
+		if (host_objects_client(peer, &peer->peers[index]))
+			count++;
+	}
+	return count;
+}
+
+int delta_peer_send_unit_vitals(struct delta_peer *peer, int machine_index, const struct delta_wire_unit_vitals *vitals)
+{
+	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
+	int sent = 0;
+	int index;
+
+	for (index = 0; index < DELTA_PEER_MAXIMUM_MACHINES; index++)
+	{
+		struct delta_peer_host_peer *client = &peer->peers[index];
+		int size;
+
+		if ((machine_index >= 0 && index != machine_index) || !host_objects_client(peer, client))
+			continue;
+		size = delta_wire_write_unit_vitals(data, client->session, vitals);
+		if (!size)
+			return sent;
+		peer_send(peer, client->ipv4, client->port, data, size);
+		sent++;
+	}
+	return sent;
+}
+
+int delta_peer_send_object_names(struct delta_peer *peer, int machine_index, const struct delta_wire_object_names *names)
+{
+	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
+	int sent = 0;
+	int index;
+
+	for (index = 0; index < DELTA_PEER_MAXIMUM_MACHINES; index++)
+	{
+		struct delta_peer_host_peer *client = &peer->peers[index];
+		int size;
+
+		if ((machine_index >= 0 && index != machine_index) || !host_objects_client(peer, client))
+			continue;
+		size = delta_wire_write_object_names(data, client->session, names);
+		if (!size)
+			return sent;
+		peer_send(peer, client->ipv4, client->port, data, size);
+		sent++;
+	}
+	return sent;
+}
+
+int delta_peer_client_objects_ready(const struct delta_peer *peer)
+{
+	return client_chatting(peer, _delta_capability_object_sync);
+}
+
+void delta_peer_set_objects_client(struct delta_peer *peer, const struct delta_peer_objects_client *client)
+{
+	peer->objects_client = client;
+}
+
 static void host_hello(struct delta_peer *peer, delta_u32 now, delta_u32 ipv4, unsigned short port,
 	const struct delta_wire_header *header, const unsigned char *payload)
 {
@@ -1815,6 +1899,115 @@ delta_u32 delta_peer_host_map(const struct delta_peer *peer, struct delta_wire_m
 	return peer->host_map_generation;
 }
 
+/* the game's player traits to each client that agreed to bomb: at once when
+they changed, then every DELTA_PEER_TRAITS_INTERVAL */
+static void host_send_traits(struct delta_peer *peer, delta_u32 now)
+{
+	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
+	int index;
+
+	if (!peer->traits_generation || (offered(peer) & BOMB_CAPABILITIES) != BOMB_CAPABILITIES)
+		return;
+	for (index = 0; index < DELTA_PEER_MAXIMUM_MACHINES; index++)
+	{
+		struct delta_peer_host_peer *client = &peer->peers[index];
+		int size;
+
+		if (!client->used || (client->agreed & BOMB_CAPABILITIES) != BOMB_CAPABILITIES)
+			continue;
+		if (client->traits_sent_generation == peer->traits_generation &&
+			!elapsed(now, client->traits_time, DELTA_PEER_TRAITS_INTERVAL))
+		{
+			continue;
+		}
+		size = delta_wire_write_traits(data, client->session, &peer->traits);
+		if (!size)
+			return;
+		peer_send(peer, client->ipv4, client->port, data, size);
+		client->traits_sent_generation = peer->traits_generation;
+		client->traits_time = now;
+	}
+}
+
+void delta_peer_set_traits(struct delta_peer *peer, const struct delta_wire_traits *traits)
+{
+	int index;
+
+	if (!traits || !delta_wire_traits_valid(traits))
+	{
+		memset(&peer->traits, 0, sizeof(peer->traits));
+		peer->traits_generation = 0;
+		return;
+	}
+	if (peer->traits_generation && !memcmp(&peer->traits, traits, sizeof(peer->traits)))
+		return;
+	peer->traits = *traits;
+	/* (never 0, which is none; each client is sent them at once) */
+	peer->traits_generation = peer->traits_generation + 1 ? peer->traits_generation + 1 : 1;
+	for (index = 0; index < DELTA_PEER_MAXIMUM_MACHINES; index++)
+		peer->peers[index].traits_sent_generation = 0;
+}
+
+delta_u32 delta_peer_host_traits(const struct delta_peer *peer, struct delta_wire_traits *traits)
+{
+	if (traits)
+		*traits = peer->host_traits;
+	return peer->host_traits_generation;
+}
+
+/* (the game machine at the index, or NULL: the host's view) */
+static const struct delta_peer_game_machine *host_game_machine(const struct delta_peer *peer, int machine_index)
+{
+	int index;
+
+	for (index = 0; index < peer->game_machine_count; index++)
+	{
+		if (peer->game_machines[index].machine_index == machine_index)
+			return &peer->game_machines[index];
+	}
+	return 0;
+}
+
+int delta_peer_machine_pending(const struct delta_peer *peer, delta_u32 now, int machine_index)
+{
+	const struct delta_peer_game_machine *machine;
+
+	if (peer->mode != _mode_host || !valid_machine(machine_index))
+		return 0;
+	machine = host_game_machine(peer, machine_index);
+	if (!machine || machine->local || peer->peers[machine_index].used || !peer->machine_seen[machine_index])
+		return 0;
+	return !elapsed(now, peer->machine_seen_time[machine_index], DELTA_PEER_HANDSHAKE_TIME);
+}
+
+int delta_peer_machine_legacy_version(const struct delta_peer *peer, int machine_index)
+{
+	if (peer->mode != _mode_host || !valid_machine(machine_index) || !peer->peers[machine_index].used)
+		return 0;
+	return peer->peers[machine_index].hello.legacy_version;
+}
+
+int delta_peer_machine_lacks(const struct delta_peer *peer, delta_u32 now, int machine_index, int capability)
+{
+	const struct delta_peer_game_machine *machine;
+	const struct delta_peer_host_peer *client;
+
+	if (peer->mode != _mode_host || !valid_machine(machine_index) || capability < 0 ||
+		capability >= NUMBER_OF_DELTA_CAPABILITIES)
+	{
+		return 0;
+	}
+	machine = host_game_machine(peer, machine_index);
+	if (!machine || machine->local)
+		return 0;
+	client = &peer->peers[machine_index];
+	if (client->used)
+		return !(client->agreed & offered(peer) & CAPABILITY(capability));
+	if (!peer->machine_seen[machine_index])
+		return 0;
+	return elapsed(now, peer->machine_seen_time[machine_index], DELTA_PEER_HANDSHAKE_TIME);
+}
+
 void delta_peer_host_frame(struct delta_peer *peer, delta_u32 now, const struct delta_peer_game_machine *machines,
 	int count, const signed char *player_machines)
 {
@@ -1830,6 +2023,32 @@ void delta_peer_host_frame(struct delta_peer *peer, delta_u32 now, const struct 
 			peer->game_machines[peer->game_machine_count++] = machines[index];
 	}
 	copy_players(peer, player_machines);
+
+	/* (when each machine was first seen in the game at its address: its
+	handshake's window) */
+	{
+		unsigned char present[DELTA_PEER_MAXIMUM_MACHINES];
+
+		memset(present, 0, sizeof(present));
+		for (index = 0; index < peer->game_machine_count; index++)
+		{
+			int machine_index = peer->game_machines[index].machine_index;
+
+			present[machine_index] = 1;
+			if (!peer->machine_seen[machine_index] ||
+				peer->machine_seen_ipv4[machine_index] != peer->game_machines[index].ipv4)
+			{
+				peer->machine_seen[machine_index] = 1;
+				peer->machine_seen_ipv4[machine_index] = peer->game_machines[index].ipv4;
+				peer->machine_seen_time[machine_index] = now;
+			}
+		}
+		for (index = 0; index < DELTA_PEER_MAXIMUM_MACHINES; index++)
+		{
+			if (!present[index])
+				peer->machine_seen[index] = 0;
+		}
+	}
 
 	/* (a machine gone from the game, or another now in its place, is
 	forgotten) */
@@ -1907,6 +2126,7 @@ void delta_peer_host_frame(struct delta_peer *peer, delta_u32 now, const struct 
 		peer->roster_dirty = 0;
 	}
 	host_send_maps(peer, now);
+	host_send_traits(peer, now);
 
 	{
 		int sends = 0;
@@ -1977,6 +2197,8 @@ static void client_legacy(struct delta_peer *peer, const char *why)
 	peer->table_in.active = 0;
 	memset(&peer->host_map, 0, sizeof(peer->host_map));
 	peer->host_map_generation = 0;
+	memset(&peer->host_traits, 0, sizeof(peer->host_traits));
+	peer->host_traits_generation = 0;
 	memset(peer->machines, 0, sizeof(peer->machines));
 	if (valid_machine(own))
 		peer->machines[own] = local;
@@ -2473,6 +2695,55 @@ static void client_receive(struct delta_peer *peer, delta_u32 now, delta_u32 ipv
 		{
 			peer->host_map = map;
 			peer->host_map_generation = peer->host_map_generation + 1 ? peer->host_map_generation + 1 : 1;
+		}
+		break;
+	}
+	case _delta_message_unit_vitals:
+	case _delta_message_object_names:
+	{
+		static struct delta_wire_unit_vitals vitals;
+		static struct delta_wire_object_names names;
+
+		if (peer->client_state != _delta_peer_client_delta || !peer->objects_client ||
+			!(peer->agreed & offered(peer) & CAPABILITY(_delta_capability_object_sync)))
+		{
+			peer->dropped++;
+			break;
+		}
+		if (header.type == _delta_message_unit_vitals)
+		{
+			if (!delta_wire_read_unit_vitals(payload, header.length, &vitals))
+				peer->dropped++;
+			else if (peer->objects_client->vitals)
+				peer->objects_client->vitals(peer->objects_client->context, &vitals);
+		}
+		else
+		{
+			if (!delta_wire_read_object_names(payload, header.length, &names))
+				peer->dropped++;
+			else if (peer->objects_client->names)
+				peer->objects_client->names(peer->objects_client->context, &names);
+		}
+		break;
+	}
+	case _delta_message_traits:
+	{
+		struct delta_wire_traits traits;
+
+		if (peer->client_state != _delta_peer_client_delta ||
+			(peer->agreed & offered(peer) & BOMB_CAPABILITIES) != BOMB_CAPABILITIES ||
+			!delta_wire_read_traits(payload, header.length, &traits))
+		{
+			peer->dropped++;
+			break;
+		}
+		if (!peer->host_traits_generation || memcmp(&peer->host_traits, &traits, sizeof(traits)))
+		{
+			peer->host_traits = traits;
+			peer->host_traits_generation =
+				peer->host_traits_generation + 1 ? peer->host_traits_generation + 1 : 1;
+			say(peer, "Delta Peer: the host's player traits: %s", traits.kind == DELTA_WIRE_TRAITS_BOMB ? "Bomb's" :
+				"none");
 		}
 		break;
 	}

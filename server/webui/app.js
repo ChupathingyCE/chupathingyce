@@ -345,6 +345,7 @@
       ['Uptime', duration(status.uptime_seconds)],
       ['Version', status.version + ' (network ' + status.network_version + ')'],
     ];
+    if (status.skipped) rows.push(['Last skipped', status.skipped]);
     facts.replaceChildren();
     rows.forEach(([name, value]) => {
       facts.append(element('dt', name), element('dd', value));
@@ -475,6 +476,13 @@
 
   // ---------- maps
 
+  // an Xbox map pack's map as its pack names it ("wizard@cex: Gothra (CE+)",
+  // from /v1/maps's map_packs; a server before map packs sends none)
+  function mapLabel(name) {
+    const pack = maps && maps.map_packs && maps.map_packs[name];
+    return pack ? `${name}: ${pack.name} (${pack.tag})` : name;
+  }
+
   function option(value, text) {
     const node = element('option', text === undefined ? value : text);
     node.value = value;
@@ -488,7 +496,7 @@
     const [cycle, status] = await Promise.all([api('/v1/mapcycle'), api('/v1/status')]);
     if (!maps) {
       maps = await api('/v1/maps');
-      $('map-select').replaceChildren(...maps.maps.map((name) => option(name)));
+      $('map-select').replaceChildren(...maps.maps.map((name) => option(name, mapLabel(name))));
       $('type-select').replaceChildren(...maps.game_types.map((name) => option(name)));
     }
     if (maps.maps.includes(status.map)) $('map-select').value = status.map;
@@ -687,7 +695,7 @@
     const url = link.code ? link.site + '/servers/link?code=' + encodeURIComponent(link.code) : '';
     const states = {
       off: 'Not linked. Linking lets you manage this server, and give people roles here, from your profile on the Chupathingy site.',
-      linking: link.code ? 'Linking: the code is ' + link.code + '.' : 'Linking: asking the site for a code...',
+      linking: link.code ? 'Linking: the code is ' + link.code + '.' : 'Linking: the owner is finishing it on the site.',
       linked: 'Linked to ' + link.owner + '\'s account (site roles at most ' + link.role_cap + ').',
     };
     $('link-state').textContent = link.enabled ? (states[link.state] || '') + (link.problem ? ' ' + link.problem : '')
@@ -787,7 +795,7 @@
       body.append(row);
     });
     const typeNames = (types.builtins || []).map((type) => type.name).concat((types.gametypes || []).map((type) => type.name));
-    $('editor-map').replaceChildren(...maps.maps.map((name) => option(name)));
+    $('editor-map').replaceChildren(...maps.maps.map((name) => option(name, mapLabel(name))));
     $('editor-type').replaceChildren(...typeNames.map((name) => option(name)));
     $('gametype-new-base').replaceChildren(...typeNames.map((name) => option(name)));
     const typesBody = $('gametypes-body');

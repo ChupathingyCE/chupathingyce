@@ -228,6 +228,11 @@ static uint32_t make_boot(const struct environment *environment)
 	boot->argv = (uint32_t)(uintptr_t)argv;
 	boot->environment = (uint32_t)(uintptr_t)environ_list;
 	boot->page_size = (uint32_t)getpagesize();
+	/* the window is where the game data is linked (host_memory.c), and so
+	is the image */
+	boot->contiguous_base = HALO_GUEST_WINDOW_BASE;
+	boot->contiguous_size = HALO_GUEST_WINDOW_SIZE;
+	boot->image_shift = 0;
 	return (uint32_t)(uintptr_t)boot;
 }
 

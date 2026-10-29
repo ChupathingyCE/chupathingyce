@@ -28,6 +28,7 @@ BASE = 0xE100
 PLATFORMS = {
     "pc_windows": 1, "pc_macos": 2, "pc_linux": 3, "android": 4, "steam_deck": 5, "xbox": 6, "xbox360": 7,
     "wiiu": 8, "switch": 9, "psp": 10, "vita": 11, "xbox_uwp": 12,
+    "pc_freebsd": 13,
 }
 UNITS = 1024
 ASCENT = 880

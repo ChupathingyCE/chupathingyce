@@ -1,0 +1,120 @@
+name: Server image
+
+# The dedicated server's container image (server/deploy/Dockerfile) for
+# x86, x64 and arm64, pushed to ghcr.io/chupathingyce/server when a release
+# or the nightly is published (ChupathingyCE/command's release.yml and
+# nightly.yml publish them here). The image holds the very servers the
+# release ships (its chupathingyce-server-linux-*.zip, checked against its
+# SHA256SUMS), so nothing is built again. No game files: hosts mount their
+# maps at /data (server/docs/docker.md).
+#
+# Tags: v<version> gives <version> and, unless it is a pre-release,
+# latest; nightly gives nightly. Other releases (v<version>-debug) push
+# nothing. Run by hand to push a release's image again.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The release's tag (v0.8.1b, or nightly)
+        type: string
+        required: true
+      latest:
+        description: Also tag it latest (a v<version> release)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: server-image-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  push:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ghcr.io/chupathingyce/server
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      LATEST: ${{ github.event_name == 'release' && !github.event.release.prerelease || inputs.latest }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Tags
+        id: tags
+        run: |
+          case "$TAG" in
+          nightly) version=nightly; tags="$IMAGE:nightly" ;;
+          v*-debug) echo "no image for $TAG"; exit 0 ;;
+          v[0-9]*)
+            version=${TAG#v}
+            tags="$IMAGE:$version"
+            [ "$LATEST" = true ] && tags="$tags,$IMAGE:latest" ;;
+          *) echo "no image for $TAG"; exit 0 ;;
+          esac
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tags=$tags" >> "$GITHUB_OUTPUT"
+          echo "pushing $tags"
+
+      - uses: actions/checkout@v4
+        if: steps.tags.outputs.version
+        with:
+          ref: ${{ env.TAG }}
+
+      - name: The release's servers
+        if: steps.tags.outputs.version
+        run: |
+          mkdir release
+          # (a few tries: the release's files may still be arriving)
+          for try in 1 2 3 4 5; do
+            gh release download "$TAG" -R "$GITHUB_REPOSITORY" -D release --clobber \
+              -p 'chupathingyce-server-linux-*.zip' -p SHA256SUMS && break
+            [ "$try" = 5 ] && exit 1
+            sleep 30
+          done
+          (cd release && grep -E ' chupathingyce-server-linux-(x86|x64|arm64)\.zip$' SHA256SUMS | sha256sum -c -)
+          context="$RUNNER_TEMP/context"
+          mkdir -p "$context"
+          cp server/deploy/Dockerfile "$context/"
+          for pair in x86:386 x64:amd64 arm64:arm64; do
+            arch=${pair%%:*}; platform=${pair#*:}
+            mkdir -p "$context/bin/$platform"
+            unzip -q -j "release/chupathingyce-server-linux-$arch.zip" chupathingyce-server -d "$context/bin/$platform"
+            chmod +x "$context/bin/$platform/chupathingyce-server"
+          done
+          echo "revision=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-buildx-action@v3
+        if: steps.tags.outputs.version
+
+      - name: Start it once
+        if: steps.tags.outputs.version
+        run: |
+          docker buildx build --platform linux/amd64 --load -t chupathingyce-server:test "$RUNNER_TEMP/context"
+          docker run --rm --cap-drop ALL --security-opt no-new-privileges chupathingyce-server:test --version
+          test "$(docker image inspect -f '{{.Config.User}}' chupathingyce-server:test)" = 1000:1000
+
+      - uses: docker/login-action@v3
+        if: steps.tags.outputs.version
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Push
+        if: steps.tags.outputs.version
+        env:
+          TAGS: ${{ steps.tags.outputs.tags }}
+          VERSION: ${{ steps.tags.outputs.version }}
+        run: |
+          set --
+          for tag in $(echo "$TAGS" | tr , ' '); do set -- "$@" -t "$tag"; done
+          docker buildx build --platform linux/386,linux/amd64,linux/arm64 \
+            --build-arg VERSION="$VERSION" --build-arg REVISION="$revision" \
+            "$@" --push "$RUNNER_TEMP/context"
+          docker buildx imagetools inspect "$IMAGE:$VERSION"

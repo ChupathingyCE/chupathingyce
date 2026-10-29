@@ -218,9 +218,12 @@ argument to a function of the C runtime.
 
 ## Limits
 
-- Bink video is not available on this build. The game skips the movies.
-  The disc extraction at the first start still copies the disc's `bink/`
-  movies (only the ones that are missing) next to `maps\`.
+- The movies play through FFmpeg's Bink decoder
+  (`port/linux/src/bink_ffmpeg.c`), built for Bink only and linked
+  statically with the same clang (`tools/ffmpeg_build.py`, under MSYS2's
+  shell); `configure.py --without-ffmpeg` leaves it out and the game skips
+  the movies. The disc extraction at the first start copies the disc's
+  `bink/` movies (only the ones that are missing) next to `maps\`.
 - The game uses only the ANSI file functions. A path to the data or the
   saved games with characters that are not in the code page of the system
   does not always operate.

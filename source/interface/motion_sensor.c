@@ -236,6 +236,8 @@ static void render_motion_sensor(
 	short local_player_index,
 	boolean in_multiplayer,
 	point2d const *reference);
+static real motion_sensor_sweep_theta(
+	real game_time_sec);
 
 /* ---------- globals */
 
@@ -433,6 +435,7 @@ static void motion_sensor_update(
 								center.z -
 								camera_positions[scan_player_index].z;
 
+#ifndef HALO_XBOX_CONSOLE
 							/* test the range before taking a blip slot in multiplayer
 							too: with the native builds' larger sessions, units out of
 							range would otherwise fill the slots (update_motion_sensor
@@ -444,6 +447,12 @@ static void motion_sensor_update(
 							if (magnitude_squared3d(&displacement) <=
 								hud_globals->defaults.motion_sensor_range *
 									hud_globals->defaults.motion_sensor_range)
+#else
+							if (game_engine_running() ||
+								magnitude_squared3d(&displacement) <=
+									hud_globals->defaults.motion_sensor_range *
+										hud_globals->defaults.motion_sensor_range)
+#endif
 							{
 								struct motion_sensor_player *player =
 									&motion_sensor_globals->players[scan_player_index];
@@ -729,7 +738,13 @@ static void render_motion_sensor(
 		}
 	}
 
-	rasterizer_hud_motion_sensor_blip_end(&center_point, sweep_theta);
+	/* port: between ticks, the sweep where it is at the frame drawn, not
+	the tick (port/linux/game/render_interpolation.c) */
+	rasterizer_hud_motion_sensor_blip_end(
+		&center_point,
+		render_interpolation_drawing() ?
+			motion_sensor_sweep_theta(render_interpolation_game_time_sec(game_time_get())) :
+			sweep_theta);
 
 render_motion_sensor_done:
 	{
@@ -783,28 +798,35 @@ void motion_sensor_draw_screen(
 	return;
 }
 
-void motion_sensor_tick(
-	void)
+/* port: the sweep's scale at a game time (in seconds) */
+static real motion_sensor_sweep_theta(
+	real game_time_sec)
 {
-	real sweep_time = (real)fmod(
-		(real)game_time_get() * (1.0f / TICKS_PER_SECOND),
-		2.1f);
+	real sweep_time = (real)fmod(game_time_sec, 2.1f);
 
 	if (sweep_time < 2.0375f)
 	{
-		sweep_theta =
+		return
 			1.0f /
 			((sweep_time + 0.0625f) * scale[5]);
 	}
 	else
 	{
-		sweep_theta = 0.4f;
+		return 0.4f;
 	}
+}
 
+void motion_sensor_tick(
+	void)
+{
+	sweep_theta = motion_sensor_sweep_theta((real)game_time_get() * (1.0f / TICKS_PER_SECOND));
+
+#ifndef HALO_XBOX_CONSOLE
 	/* The HUD is drawn once a frame, several frames per tick
 	(port/linux/game/render_interpolation.c), and each update moves the
 	blip history on a step: update once a tick, as on the Xbox. */
 	if (motion_sensor_globals->last_update_time != game_time_get())
+#endif
 	motion_sensor_update();
 
 	return;
@@ -1109,7 +1131,7 @@ static void render_blip(
 		if (blip_type == _blip_type_custom)
 		{
 			pulse_scale = (real)(
-				(sin((real)game_time_get() * 0.104719733f) + 1.0) *
+				(sin(render_interpolation_ticks_since(game_time_get(), 0) * 0.104719733f) + 1.0) *
 					(1.0 / 3.0) +
 				1.0);
 		}
@@ -1134,7 +1156,9 @@ motion_sensor_initialize_for_new_map(
 	long player_count;
 
 	csmemset(motion_sensor_globals, 0, sizeof(*motion_sensor_globals));
+#ifndef HALO_XBOX_CONSOLE
 	motion_sensor_globals->last_update_time = NONE;
+#endif
 	player = motion_sensor_globals->players;
 	player_count = NUMBEROF(motion_sensor_globals->players);
 

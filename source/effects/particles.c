@@ -208,6 +208,7 @@ static boolean particle_update_physics(
 static real const particle_collision_effect_scale_bounds[2] = {1.5f, 0.5f};
 
 static struct profile_section particles_update_section = {"particles_update", NONE, TRUE};
+#ifndef HALO_XBOX_CONSOLE
 /* A frame was a tick on the Xbox. The native builds draw several frames per
 tick (port/linux/game/render_interpolation.c), so what counted frames counts
 30 Hz ticks of game time instead: particles that animate once a frame step
@@ -218,6 +219,83 @@ static real particles_leftover_ticks = 0.f;
 static long particles_update_ticks = 0;
 static long particles_tick_frame_indices[MAXIMUM_PARTICLE_UNRENDERED_FRAME_COUNT + 1];
 static long particles_tick_frame_head = 0;
+#endif
+
+/* port: a particle that is not attached to an object moves (and casts its
+collision rays) once a 30 Hz tick, as on the Xbox, rather than at each of the
+several frames the native builds draw in a tick - two at 60 frames a second,
+four at 120: with 64 players shooting, the rays were about a sixth of the
+Switch's game thread. Each such particle keeps where it was at the tick
+before, and is drawn between the two by the time into the tick
+(particle_render_position): a tick behind, as the objects are drawn
+(render_interpolation.c). A new particle stands at its start until its
+first tick, as on the Xbox. One not drawn since the tick before (off the
+screen, behind a wall, too small to draw) moves once every
+PARTICLE_UNSEEN_TICKS ticks instead, by all the time it was owed: unseen
+for MAXIMUM_PARTICLE_UNRENDERED_FRAME_COUNT ticks it is deleted anyway, and
+in a 64-player game most of a match's sparks and casings are another
+player's. display.particle_ticks off moves them each frame, as before (the
+desktop's default; the consoles' is on, HALO_CONSOLE_PARTICLE_TICKS). The
+slots are by the particle's absolute index, with its whole datum index to
+tell a reused slot; none of it is game state. */
+#define PARTICLE_UNSEEN_TICKS 4
+
+/* port: display.particle_limit, the most particles alive at once (0: the
+pool's, HALO_PORT_MAXIMUM_PARTICLES; the Xbox's was 1024). With 64 players in
+a small map the pool's 8192 filled, and the particles were 30% of the
+Switch's game thread. Past the limit the oldest particle goes to make room
+for the new one - a fresh spark rather than old smoke, which is fading
+anyway - found in a ring of the particles in the order they were made; the
+first-person weapon's are never the ones let go. Read each frame; how many
+lived is said every 10 s of play. */
+static long particles_limit;
+static long particles_refused;
+static long particles_retired;
+static long particles_made_order[HALO_PORT_MAXIMUM_PARTICLES];
+static long particles_made_oldest, particles_made_count;
+/* the particle particles_update is updating, which the effects of its own
+collision may make room for others with: never the one let go */
+static long particles_updating_index = NONE;
+
+/* (room for one more under the limit: the oldest that is still alive let go) */
+static boolean particles_make_room(
+	void)
+{
+	while (particles_made_count > 0)
+	{
+		long particle_index = particles_made_order[particles_made_oldest];
+		struct particle_datum *particle = datum_try_and_get(particle_data, particle_index);
+
+		particles_made_oldest = (particles_made_oldest + 1) % HALO_PORT_MAXIMUM_PARTICLES;
+		particles_made_count--;
+		if (particle && particle_index != particles_updating_index &&
+			!TEST_FLAG(particle->flags, _particle_datum_attached_to_local_player_bit))
+		{
+			datum_delete(particle_data, particle_index);
+			particles_retired++;
+			return TRUE;
+		}
+	}
+	return FALSE;
+}
+
+/* (the particle made, the newest in the ring: a full ring forgets its oldest) */
+static void particles_made(
+	long particle_index)
+{
+	if (particles_made_count == HALO_PORT_MAXIMUM_PARTICLES)
+	{
+		particles_made_oldest = (particles_made_oldest + 1) % HALO_PORT_MAXIMUM_PARTICLES;
+		particles_made_count--;
+	}
+	particles_made_order[(particles_made_oldest + particles_made_count) % HALO_PORT_MAXIMUM_PARTICLES] = particle_index;
+	particles_made_count++;
+}
+
+static boolean particles_each_frame;
+static long particle_tick_owner[HALO_PORT_MAXIMUM_PARTICLES];
+static real_point3d particle_tick_previous[HALO_PORT_MAXIMUM_PARTICLES];
+static short particle_tick_owed[HALO_PORT_MAXIMUM_PARTICLES];
 
 static char const *particle_effect_marker_names[NUMBER_OF_PARTICLE_EFFECT_MARKERS] =
 {
@@ -230,10 +308,14 @@ static char const *particle_effect_marker_names[NUMBER_OF_PARTICLE_EFFECT_MARKER
 void particles_initialize(
 	void)
 {
+#ifndef HALO_XBOX_CONSOLE
 	/* the native builds' larger particle pool (halo_port_capacity.h);
 	render_particles sizes its unchecked list of visible particles by the same
 	value */
 	particle_data = game_state_data_new("particle", HALO_PORT_MAXIMUM_PARTICLES, 0x70);
+#else
+	particle_data = game_state_data_new("particle", 1024, 0x70);
+#endif
 	if (!particle_data)
 		error(_error_immediate, "couldn't allocate particle globals");
 
@@ -243,7 +325,14 @@ void particles_initialize(
 void particles_initialize_for_new_map(
 	void)
 {
+	extern int config_boolean(const char *name);
+	long slot;
+
 	data_make_valid(particle_data);
+	particles_each_frame = config_boolean("display.particle_ticks") == 0;
+	particles_made_oldest = particles_made_count = 0;
+	for (slot = 0; slot < HALO_PORT_MAXIMUM_PARTICLES; slot++)
+		particle_tick_owner[slot] = NONE;
 
 	return;
 }
@@ -595,7 +684,11 @@ static boolean particle_update_frame_time(
 	{
 		if (TEST_FLAG(definition->flags, _particle_definition_animate_once_per_frame_bit))
 		{
+#ifndef HALO_XBOX_CONSOLE
 			if (dt != 0.0f && particles_update_ticks > 0)
+#else
+			if (dt != 0.0f)
+#endif
 				return particle_next_frame(particle_index);
 		}
 		else
@@ -864,10 +957,16 @@ void particle_new(
 		return;
 	}
 
+	if (particles_limit > 0 && particle_data->actual_count >= particles_limit && !particles_make_room())
+	{
+		particles_refused++;
+		return;
+	}
 	particle_index = datum_new(particle_data);
 
 	if (particle_index == NONE)
 		return;
+	particles_made(particle_index);
 
 	particle = particle_get(particle_index);
 
@@ -1009,6 +1108,30 @@ void particles_update(
 	profile_enter(particles_update_section);
 
 	{
+		extern long config_integer(const char *name);
+		extern void platform_log(const char *format, ...);
+		static long counted_frames, counted_alive, counted_most;
+		static real counted_seconds;
+
+		particles_limit = config_integer("display.particle_limit");
+		counted_frames++;
+		counted_alive += particle_data->actual_count;
+		counted_most = MAX(counted_most, (long)particle_data->actual_count);
+		counted_seconds += dt;
+		if (counted_seconds >= 10.0f)
+		{
+			if (counted_most > 0)
+				platform_log("particles: %.0f alive on average, %ld the most; past display.particle_limit (%ld), %ld of the "
+					"oldest let go for new ones, %ld not made", (double)counted_alive / counted_frames, counted_most,
+					particles_limit, particles_retired, particles_refused);
+			counted_frames = counted_alive = counted_most = 0;
+			particles_refused = particles_retired = 0;
+			counted_seconds = 0.0f;
+		}
+	}
+
+#ifndef HALO_XBOX_CONSOLE
+	{
 		long tick;
 
 		particles_leftover_ticks += dt * TICKS_PER_SECOND;
@@ -1024,6 +1147,7 @@ void particles_update(
 		}
 	}
 
+#endif
 	for (particle_index = data_next_index(particle_data, NONE);
 		particle_index != NONE;
 		particle_index = data_next_index(particle_data, particle_index))
@@ -1032,10 +1156,17 @@ void particles_update(
 		struct particle_definition *definition = particle_definition_get(particle->definition_index);
 		boolean was_new = (particle->age == 0.0f);
 
+		particles_updating_index = particle_index;
+
+#ifndef HALO_XBOX_CONSOLE
 		if (render.frame_index - particle->last_rendered_frame_index >
 			MAXIMUM_PARTICLE_UNRENDERED_FRAME_COUNT &&
 			particle->last_rendered_frame_index < particles_tick_frame_indices[
 				(particles_tick_frame_head + 1) % NUMBEROF(particles_tick_frame_indices)])
+#else
+		if (render.frame_index - particle->last_rendered_frame_index >
+			MAXIMUM_PARTICLE_UNRENDERED_FRAME_COUNT)
+#endif
 		{
 			datum_delete(particle_data, particle_index);
 		}
@@ -1052,12 +1183,84 @@ void particles_update(
 			else
 			{
 				if (particle_update_frame_time(particle_index, dt))
+				{
+#ifdef HALO_XBOX_CONSOLE
+					/* the Xbox runs at the game's 30 Hz; the tick mode's tables are left out to save its memory */
 					particle_update_physics(particle_index, dt);
+#else
+					long slot = particle_index & 0xFFFF;
+
+					if (particles_each_frame || particle->object_index != NONE ||
+						slot >= HALO_PORT_MAXIMUM_PARTICLES)
+					{
+						particle_update_physics(particle_index, dt);
+					}
+					/* (port: moved once a tick, the time of the ticks passed;
+					drawn between the two ticks' positions) */
+					else if (particles_update_ticks > 0)
+					{
+						/* (drawn since the tick before this frame's: the frame index
+						drawn at that tick, particles_tick_frame_indices, past the
+						ticks this frame has recorded) */
+						long seen_since = particles_tick_frame_indices[
+							(particles_tick_frame_head + NUMBEROF(particles_tick_frame_indices) -
+								MIN(particles_update_ticks, (long)NUMBEROF(particles_tick_frame_indices) - 1)) %
+							NUMBEROF(particles_tick_frame_indices)];
+						long ticks = particles_update_ticks;
+
+						if (particle_tick_owner[slot] == particle_index)
+							ticks += particle_tick_owed[slot];
+						if (particle_tick_owner[slot] == particle_index &&
+							particle->last_rendered_frame_index < seen_since &&
+							ticks < PARTICLE_UNSEEN_TICKS)
+						{
+							particle_tick_owed[slot] = (short)ticks;
+						}
+						else
+						{
+							particle_tick_previous[slot] = particle->position;
+							particle_tick_owner[slot] = particle_index;
+							particle_tick_owed[slot] = 0;
+							particle_update_physics(particle_index, (real)ticks / (real)TICKS_PER_SECOND);
+						}
+					}
+#endif
+				}
 			}
 		}
 	}
 
+	particles_updating_index = NONE;
 	profile_exit(particles_update_section);
+
+	return;
+}
+
+/* port: where a particle not attached to an object is drawn: between the
+positions of its last two ticks, by the time into the tick (particles_update) */
+void particle_render_position(
+	long particle_index,
+	real_point3d *position)
+{
+	struct particle_datum *particle = particle_get(particle_index);
+#ifndef HALO_XBOX_CONSOLE
+	long slot = particle_index & 0xFFFF;
+#endif
+
+	*position = particle->position;
+#ifndef HALO_XBOX_CONSOLE
+	if (!particles_each_frame && slot < HALO_PORT_MAXIMUM_PARTICLES &&
+		particle_tick_owner[slot] == particle_index &&
+		!TEST_FLAG(particle->flags, _particle_datum_at_rest_bit))
+	{
+		real_point3d const *previous = &particle_tick_previous[slot];
+		real t = PIN(particles_leftover_ticks, 0.0f, 1.0f);
+
+		position->x = previous->x + (particle->position.x - previous->x) * t;
+		position->y = previous->y + (particle->position.y - previous->y) * t;
+		position->z = previous->z + (particle->position.z - previous->z) * t;
+	}
+#endif
 
 	return;
 }

@@ -232,6 +232,10 @@ symbols in this file:
 #include "bitmaps/bitmap_utilities.h"
 #include "bitmaps/bitmap_group.h"
 #include "bitmaps/s3tc/s3tc.h"
+#ifdef HALO_BIG_ENDIAN
+/* port: a map's pixels in a big-endian console's byte order */
+#include "bitmap_byte_order.h"
+#endif
 #include "cseries/errors.h"
 
 /* ---------- constants */
@@ -2105,6 +2109,10 @@ static void bitmap_2d_uncompress_from_mipmap(
 {
 	pixel32 colors[S3TC_BLOCK_PIXELS];
 	byte *block;
+#ifdef HALO_BIG_ENDIAN
+	/* port: each block with its words in the console's byte order */
+	unsigned long block_copy[4];
+#endif
 	short height;
 	short x, y;
 	short destination_x, destination_y;
@@ -2135,23 +2143,44 @@ static void bitmap_2d_uncompress_from_mipmap(
 			switch (source_bitmap->format)
 			{
 			case _bitmap_format_dxt1:
+#ifdef HALO_BIG_ENDIAN
+				bitmap_byte_order_s3tc_rgb(block, block_copy);
+				DecodeBlockRGB(
+					(struct s3tc_block_rgb *)block_copy,
+					(struct s3tc_color *)colors);
+#else
 				DecodeBlockRGB(
 					(struct s3tc_block_rgb *)block,
 					(struct s3tc_color *)colors);
+#endif
 				block += sizeof(struct s3tc_block_rgb);
 				break;
 
 			case _bitmap_format_dxt3:
+#ifdef HALO_BIG_ENDIAN
+				bitmap_byte_order_s3tc_alpha4(block, block_copy);
+				DecodeBlockAlpha4(
+					(struct s3tc_block_alpha4 *)block_copy,
+					(struct s3tc_color *)colors);
+#else
 				DecodeBlockAlpha4(
 					(struct s3tc_block_alpha4 *)block,
 					(struct s3tc_color *)colors);
+#endif
 				block += sizeof(struct s3tc_block_alpha4);
 				break;
 
 			case _bitmap_format_dxt5:
+#ifdef HALO_BIG_ENDIAN
+				bitmap_byte_order_s3tc_alpha3(block, block_copy);
+				DecodeBlockAlpha3(
+					(struct s3tc_block_alpha3 *)block_copy,
+					(struct s3tc_color *)colors);
+#else
 				DecodeBlockAlpha3(
 					(struct s3tc_block_alpha3 *)block,
 					(struct s3tc_color *)colors);
+#endif
 				block += sizeof(struct s3tc_block_alpha3);
 				break;
 
@@ -2159,6 +2188,15 @@ static void bitmap_2d_uncompress_from_mipmap(
 				match_vassert("c:\\halo\\SOURCE\\bitmaps\\bitmap_utilities.c", 0x78C, FALSE, "### ERROR unsupported bitmap format");
 				break;
 			}
+
+#ifdef HALO_BIG_ENDIAN
+			/* port: the decoded colors' bytes are blue, green, red and alpha,
+			pixel32s as the Xbox keeps them; as the CPU's own words */
+			for (i = 0; i < S3TC_BLOCK_PIXELS; i++)
+			{
+				colors[i] = (pixel32)bitmap_byte_order_s3tc_color(&colors[i]);
+			}
+#endif
 
 			for (j = 0; j < 4; j++)
 			{

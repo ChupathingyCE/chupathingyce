@@ -1,6 +1,7 @@
 """Wire compatibility ranges (docs/delta.md, "Wire compatibility ranges"): the
-C tests of port/linux/src/delta_compat.c (the advertisement's bytes, the old
-slot an exact-match client reads, the join decision for each pair of wires),
+C tests of port/linux/src/delta_compat.c (the advertisement's Delta tag, the
+old layout still read, OpenCE's bytes never taken for Delta, the join
+decision for each pair of wires),
 built with the build machine's C compiler, the table's rows, and the
 documentation of the layout."""
 import re
@@ -73,15 +74,46 @@ def test_rows():
         assert wire_key(oldest) <= wire_key(row_wire), f"{row_wire}'s oldest is newer than itself"
         assert wire_key(row_wire) >= wire_key(first)
     assert wire_key(wire) >= wire_key(first)
-    # (the layout fits the advertisement: the major and the old slot, then the six range bytes, to byte 0x1A)
+    # (the old layout, which readers still take: the major and the old slot, then the six range bytes, to byte
+    # 0x1A)
     assert "#define DELTA_ADVERTISED_RANGE_SIZE 6" in text
     assert "#define DELTA_ADVERTISED_RANGE_OFFSET (DELTA_ADVERTISED_WIRE_OFFSET + 1 + DELTA_ADVERTISED_WIRE_SIZE)" in text
     assert 3 + 1 + 16 + 6 == 0x1A
+    # (the tag at the tail, clear of OpenCE's version, flags and kind at bytes 0 to 3)
+    assert "#define DELTA_ADVERTISED_RESERVED_SIZE 0x1A" in text
+    assert "#define DELTA_ADVERTISED_TAG_SIZE 9" in text
+    assert "#define DELTA_ADVERTISED_TAG_OFFSET (DELTA_ADVERTISED_RESERVED_SIZE - DELTA_ADVERTISED_TAG_SIZE)" in text
+    assert 0x1A - 9 > 3
 
 
 def test_documented():
     docs = DOCS.read_text(encoding="utf-8")
     assert "### Wire compatibility ranges" in docs
-    for needle in ("DELTA_WIRE_COMPATIBILITY", "DELTA_ADVERTISED_RANGE_OFFSET", "0xA5", "chupa-28a", "chupa-29a",
-                   "chupa-32a", "build-244"):
+    for needle in ("DELTA_WIRE_COMPATIBILITY", "DELTA_ADVERTISED_RANGE_OFFSET", "DELTA_ADVERTISED_TAG_OFFSET", "0xA5",
+                   "chupa-28a", "chupa-29a", "chupa-32a", "chupa-39a", "build-244", "no end date", "delta_compat_advertise_old",
+                   "DELTA_ADVERTISED_KIND_ENGINE"):
         assert needle in docs, needle
+
+
+def test_consoles_join_by_wire():
+    """every console's join goes by the host's wire and range, as the
+    desktop's does, not by OpenCE's number alone (warthog-xbox #59): the
+    client's check takes the Delta path on the consoles' gates too"""
+    source = (ROOT / "source" / "networking" / "network_client_manager.c").read_text()
+    gate = re.search(r"#if ([^\n]*)\n#define HALO_PORT_DELTA_WIRE_JOIN 1", source)
+    assert gate, "the Delta wire join's gate"
+    for name in ("HALO_GAME_BROWSER", "HALO_CONSOLE_DELTA", "HALO_CONSOLE_ONLINE_GAMES"):
+        assert f"defined({name})" in gate.group(1), name
+    body = source[source.index("boolean network_game_client_advertised_game_compatible("):]
+    body = body[:body.index("\n}\n")]
+    assert "#ifdef HALO_PORT_DELTA_WIRE_JOIN" in body
+    assert "delta_peer_advertised_wire_matches" in body
+    # (a refusal has a short reason for a console's status line: each kept by
+    # network_game_client_refuse, in the game lists' words)
+    assert body.count("network_game_client_refuse(") >= 3
+    assert "network_game_client_refusal_text" in source[source.index("static void network_game_client_refuse("):]
+    # (the peer's checks read the tag too: no flag-only test before the decision)
+    peer = (ROOT / "port" / "linux" / "src" / "delta_peer_game.c").read_text()
+    matches = peer[peer.index("int delta_peer_advertised_wire_matches("):]
+    matches = matches[:matches.index("\n}\n")]
+    assert "delta_compat_speaks_delta" in matches and "DELTA_ADVERTISED_FLAG" not in matches

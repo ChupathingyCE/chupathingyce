@@ -38,7 +38,10 @@ enum game_engine_type
 	game_engine_oddball,
 	game_engine_king,
 	game_engine_race,
-	game_engine_terminator,
+	/* port: Bomb (game_engine_bomb.c), in the slot Bungie's cut terminator
+	game type had; played only between ChupathingyCE machines that agree on
+	Delta Peer's bomb capability (docs/bomb.md) */
+	game_engine_bomb,
 	game_engine_stub,
 	number_of_game_engines,
 	first_usable_game_engine_index = game_engine_ctf,
@@ -129,6 +132,44 @@ struct race_variant
 	long team_scoring;
 };
 
+/* port: Bomb's rules (game_engine_bomb.c) */
+enum
+{
+	/* a goal starts a new round: every player respawns and the bomb resets */
+	_bomb_new_round_on_score_bit = 0,
+	/* melee only: no starting weapons, none on the map, no grenades or
+	powerups; a map's player-usable energy sword, if it has one, in hand
+	(game_variant_options_default) */
+	_bomb_melee_only_bit,
+};
+
+/* port: the player traits a Bomb gametype starts with
+(game_engine_traits_default) */
+enum
+{
+	_bomb_traits_none = 0,
+	_bomb_traits_grifball,
+	/* Grifball's, everyone faster (175%), the carrier faster still (200%):
+	Open Pitch, for a big map */
+	_bomb_traits_open_pitch,
+	NUMBER_OF_BOMB_TRAITS
+};
+
+struct bomb_variant
+{
+	/* seconds the carrier stands in the goal to score; 0: on contact */
+	long arm_time;
+	/* seconds a dropped bomb lies before it resets; 0: never */
+	long reset_time;
+	/* seconds a round lasts (it ends without a score); 0: no limit */
+	long round_time;
+	/* _bomb_*_bit */
+	byte flags;
+	/* _bomb_traits_* */
+	byte traits;
+	byte pad[10];
+};
+
 union game_engine_variant
 {
 	struct ctf_variant ctf;
@@ -136,7 +177,10 @@ union game_engine_variant
 	struct king_variant king;
 	struct oddball_variant oddball;
 	struct race_variant race;
+	struct bomb_variant bomb;
 };
+
+typedef char verify_game_engine_variant_size[sizeof(union game_engine_variant) == 0x18 ? 1 : -1];
 
 struct game_variant
 {
@@ -333,6 +377,143 @@ typedef char verify_game_engine_player_update_offset[
 	offsetof(struct game_engine, player_update) == 0x70 ? 1 : -1];
 #endif
 
+/* port: player traits (docs/bomb.md, "Player traits"): percents of a
+player's health, of the damage it deals and resists, and of its speed (100
+changes nothing), and its shields. A Bomb game type plays by them: every
+player's, and its bomb carrier's on top; its host sends them over Delta
+Peer (TRAITS: delta_wire.h has the same ranges) */
+enum
+{
+	PLAYER_TRAIT_HEALTH_MINIMUM = 10,
+	PLAYER_TRAIT_HEALTH_MAXIMUM = 400,
+	PLAYER_TRAIT_DAMAGE_MINIMUM = 25,
+	PLAYER_TRAIT_DAMAGE_MAXIMUM = 400,
+	PLAYER_TRAIT_RESISTANCE_MINIMUM = 25,
+	PLAYER_TRAIT_RESISTANCE_MAXIMUM = 400,
+	PLAYER_TRAIT_SPEED_MINIMUM = 50,
+	PLAYER_TRAIT_SPEED_MAXIMUM = 200,
+	PLAYER_TRAIT_JUMP_MINIMUM = 50,
+	PLAYER_TRAIT_JUMP_MAXIMUM = 200,
+	PLAYER_TRAIT_GRAVITY_MINIMUM = 25,
+	PLAYER_TRAIT_GRAVITY_MAXIMUM = 200,
+	PLAYER_TRAIT_MELEE_MINIMUM = 50,
+	PLAYER_TRAIT_MELEE_MAXIMUM = 200,
+};
+
+enum
+{
+	/* the variant's (its no shields option) */
+	_trait_shields_unchanged = 0,
+	_trait_shields_none,
+	_trait_shields_normal,
+	/* charged past full, as the overshield powerup charges them (three
+	times), and charged again whenever they drain */
+	_trait_shields_overshield,
+	NUMBER_OF_TRAIT_SHIELDS
+};
+
+struct player_traits
+{
+	short health;
+	short damage;
+	short resistance;
+	short speed;
+	/* _trait_shields_* */
+	byte shields;
+	/* drawn in a bright color of its own */
+	byte highlight;
+	byte pad[2];
+	/* of its jump's speed, of gravity on it in the air, and of its melee
+	blow's reach: only for players whose machine has Delta Peer's
+	bomb_movement (game_engine_traits_jump_multiplier) */
+	short jump;
+	short gravity;
+	short melee;
+	short pad2;
+};
+
+struct game_traits
+{
+	struct player_traits everyone;
+	struct player_traits carrier;
+};
+
+#ifdef HALO_GAME_BROWSER
+/* (game_engine_bomb.c) a variant's traits (none but a Bomb game type's), and
+traits kept in their ranges */
+void game_engine_traits_default(struct game_variant const *variant, struct game_traits *traits);
+void game_engine_traits_clean(struct game_traits *traits);
+/* whether the game plays by traits now (a Bomb game type) */
+boolean game_engine_traits_active(void);
+/* the traits' damage multiplier (1 when none), and whether a player has
+shields by them (NONE: the game type's own rule) */
+real game_engine_traits_damage_multiplier(long damaging_player_index, long damaged_player_index);
+long game_engine_traits_shields(long player_index);
+/* the traits' jump, gravity and melee reach multipliers of a player (1 when
+none, or when its machine or the host lacks them: it moves and strikes as
+it always did) */
+real game_engine_traits_jump_multiplier(long player_index);
+real game_engine_traits_gravity_multiplier(long player_index);
+real game_engine_traits_melee_multiplier(long player_index);
+/* the host's: its game's traits, for Delta Peer to send (none for a game
+that is no Bomb game type) */
+void game_engine_bomb_host_traits(struct game_variant const *variant);
+/* a melee-only Bomb game: and the map's energy sword in the unit's hands,
+if the map has one players can use */
+boolean game_engine_bomb_melee_only(void);
+void game_engine_bomb_give_sword(long unit_index);
+/* whether a weapon is a melee-only game's unseen fists (the pistol, given
+where the map has no sword): not drawn, no HUD of its own, can't shoot */
+boolean game_engine_bomb_hides_weapon(long definition_index);
+/* a player's view's Bomb HUD (game_engine.c draws it after the HUD): the
+round's clock and each team's rounds, the planted bomb's countdown, and the
+carrier's arming */
+void game_engine_bomb_rasterize(long player_index);
+/* whether the map's scripts are off: a Bomb game on a court with a game of
+its own (game_engine_bomb.c, bomb_courts) */
+boolean game_engine_bomb_scripts_off(void);
+/* whether a map's placed weapon is placed: a Bomb game on a court places
+none of the court's own ball (the bomb takes its place) */
+struct scenario_object_datum;
+boolean game_engine_bomb_weapon_placement_allowed(struct scenario_object_datum const *placement,
+	struct tag_block *palette);
+/* whether a weapon's pickup line is not shown (the bomb's: the game's own
+message says who has it) */
+boolean game_engine_bomb_hides_pickup(long weapon_definition_index);
+/* the game's report's Bomb members (JSON, without braces, into text): a
+player's line's, and the game's; their length, 0 for none (another game
+type) */
+long game_engine_bomb_report_player(long player_index, char *text, long size);
+long game_engine_bomb_report_game(char *text, long size);
+/* a player's carry seconds, carrier kills and kills as carrier (the event
+log's); FALSE when no Bomb game is running */
+boolean game_engine_bomb_player_statistics(long player_index, long *carry_seconds, long *carrier_kills,
+	long *kills_as_carrier);
+/* the network test's (network_test.c): the bomb, a team's goal, a team's
+score, the round, and the goal the bomb is planted in, arming (the host's;
+NONE: none) */
+long game_engine_bomb_weapon(void);
+long game_engine_bomb_planted_goal(void);
+boolean game_engine_bomb_goal(long team_index, union real_point3d *position);
+long game_engine_bomb_team_score(long team_index);
+long game_engine_bomb_round(void);
+/* a goal's countdown and blast: whether a death counts nothing (the scoring
+team's own in the blast) and when its player respawns, the countdown's
+second now (0: none), and whether no one spawns (the blast's pause) */
+boolean game_engine_bomb_silent_death(long killing_player_index, long dead_player_index, boolean friendly_fire);
+long game_engine_bomb_silent_respawn_ticks(void);
+long game_engine_bomb_countdown(void);
+boolean game_engine_bomb_holds_spawns(void);
+/* whether the game is played in rounds (a Bomb game type): a team change
+waits for the player's next respawn or the next round (team_change.c) */
+boolean game_engine_bomb_rounds(void);
+/* whether a landing hurts: not in Grifball (one hit kills, and a fall would
+be one); falling for too long still kills */
+boolean game_engine_bomb_landing_damage(void);
+/* a unit struck by a melee blow that didn't kill it: a carrier's fumble */
+void game_engine_bomb_unit_struck(long unit_index);
+#endif
+
 /* port: the most a game type's state for the distributed netcode's clients
 may take (port/linux/game/network_distributed.c's MAXIMUM_GAME_STATE_SIZE,
 less the postgame state game_engine_write_network_state puts first) */
@@ -434,6 +615,19 @@ boolean game_engine_running(
 	void);
 boolean game_engine_showing_postgame(
 	void);
+/* port: the carnage report's prompt as last drawn, in the menus'
+coordinates: its line's top and bottom, its ends, and where its second part
+begins (right when it has one); FALSE when it is not up */
+boolean game_engine_postgame_prompt(
+	short *top,
+	short *bottom,
+	short *left,
+	short *right,
+	short *split);
+/* port: a click or tap on a part of the prompt (0 the first) presses its
+button, as the gamepad's would */
+void game_engine_postgame_prompt_press(
+	short part);
 
 boolean game_engine_get_state_message(
 	long player_index,
@@ -670,6 +864,10 @@ boolean game_engine_force_autopickup(
 
 void game_engine_play_multiplayer_sound(
 	long sound_index);
+#ifdef HALO_GAME_BROWSER
+boolean game_engine_multiplayer_sound_exists(
+	long sound_index);
+#endif
 void game_engine_update_multiplayer_sound(
 	void);
 void game_engine_intialize_queued_sounds(
@@ -724,4 +922,25 @@ void game_show_score_extended(
 	long team_index);
 
 #endif
+#ifdef HALO_BIG_ENDIAN
+/* port: a big-endian console (port/linux/game/network_distributed.h): the
+game types' states the host sends (game_engine_write_network_state) are
+little-endian on the wire, as the PCs and the original Xbox send them. Each
+game type's turns its own between this machine's order and the wire's
+(either way: their layouts are fixed), a state of another size left as it
+is (its read refuses it). */
+void distributed_wire_swap(void *data, long count, long size);
+/* the fields from first to last of the state, numbers of size bytes each
+with no padding between them */
+#define GAME_ENGINE_NETWORK_STATE_SWAP(state, first, last, size) \
+	distributed_wire_swap(&(state)->first, \
+		(long)(((byte *)&(state)->last + sizeof((state)->last) - (byte *)&(state)->first) / (size)), (size))
+void game_engine_slayer_network_state_byte_swap(byte *buffer, long size);
+void game_engine_ctf_network_state_byte_swap(byte *buffer, long size);
+void game_engine_oddball_network_state_byte_swap(byte *buffer, long size);
+void game_engine_king_network_state_byte_swap(byte *buffer, long size);
+void game_engine_race_network_state_byte_swap(byte *buffer, long size);
+void game_engine_bomb_network_state_byte_swap(byte *buffer, long size);
+#endif
+
 #endif // __GAME_ENGINE_H

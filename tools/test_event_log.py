@@ -115,6 +115,15 @@ def test_sample_batch(program):
     assert batch["limits"]["dropped"] == {}
 
 
+def test_bomb_objectives(program):
+    sample = json.loads(run(program, "sample"))
+    assert "bomb_carry_time" not in sample["players"][0]["objectives"]
+    batch = json.loads(run(program, "bomb"))
+    objectives = batch["players"][0]["objectives"]
+    assert (objectives["flag_grabs"], objectives["flag_scores"]) == (3, 2)
+    assert (objectives["bomb_carry_time"], objectives["bomb_carrier_kills"], objectives["bomb_kills_as_carrier"]) == (42, 2, 1)
+
+
 def test_killjoy_from_the_grave_playlist_and_color(program):
     batch = json.loads(run(program, "medals"))
     walter, jo, guest = batch["players"]

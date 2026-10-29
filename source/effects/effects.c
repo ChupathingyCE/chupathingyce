@@ -185,6 +185,9 @@ enum effect_flags
 	_effect_invisible_bit,
 	_effect_delete_on_stop_bit,
 	_effect_nonviolent_bit,
+	/* port: drawn, with its sounds and lights, but dealing no damage
+	(effects_port_harmless) */
+	_effect_port_harmless_bit,
 	NUMBER_OF_EFFECT_FLAGS
 };
 
@@ -609,6 +612,10 @@ boolean effects_corpse_nonviolent = TRUE;
 
 boolean debug_effects_nonviolent = FALSE;
 
+/* port: the effects made while it is set deal no damage (Bomb's goal blast
+draws grenade explosions, its damage its own: game_engine_bomb.c) */
+boolean effects_port_harmless = FALSE;
+
 /* the effect marker list the effect_new_*_from_markers entry points hand to
 effect_marker_list_get_markers_by_name (January's own name for this static is unrecovered) */
 static struct effect_marker_list const *global_effect_marker_list;
@@ -620,6 +627,7 @@ static struct profile_section effects_update_section = {"effects_update", NONE, 
 void effects_initialize(
 	void)
 {
+#ifndef HALO_XBOX_CONSOLE
 	/* the native builds' larger effect pools (halo_port_capacity.h); a full
 	pool drops deterministic effects, damage included */
 #ifdef HALO_64BIT
@@ -633,6 +641,10 @@ void effects_initialize(
 	effect_data = game_state_data_new("effect", HALO_PORT_MAXIMUM_EFFECTS, 0xFC);
 #endif
 	effect_location_data = game_state_data_new("effect location", HALO_PORT_MAXIMUM_EFFECT_LOCATIONS, 0x3C);
+#else
+	effect_data = game_state_data_new("effect", 0x100, 0xFC);
+	effect_location_data = game_state_data_new("effect location", 0x200, 0x3C);
+#endif
 	if (!effect_data || !effect_location_data)
 		error(_error_immediate, "couldn't allocate effect globals");
 
@@ -1557,6 +1569,8 @@ static long effect_allocate(
 				effect->owner_object_index = owner_object_index;
 				effect->local_player_index = NONE;
 				effect->header.flags = 0;
+				if (effects_port_harmless)
+					SET_FLAG(effect->header.flags, _effect_port_harmless_bit, TRUE);
 
 				effect_set_event(effect_index, 0);
 			}
@@ -1754,6 +1768,8 @@ static void effect_generate_part(
 			struct object_datum *owner =
 				object_try_and_get(effect->owner_object_index);
 
+			if (TEST_FLAG(effect->header.flags, _effect_port_harmless_bit))
+				break;
 			damage_data_new(&damage, part_definition->reference.index);
 
 			if (owner)
@@ -2192,6 +2208,25 @@ static void effect_generate_particles(
 	return;
 }
 
+/* whether an effect that need not be deterministic is seen where it plays:
+by the local players' view; port: a dedicated server (server/src/dedicated.c)
+has no local player, so that view is empty and such effects would never run
+their parts there, their damage included (Custom Edition maps such as
+ugoboom's Coldsnap set up their game types by effect damage); it judges them
+by every player's view, as a listen host does by its own. Particles still
+follow the local view (particles.c), so the server makes none */
+static boolean effect_location_potentially_visible_local(
+	struct location const *location)
+{
+#ifdef HALO_GAME_BROWSER
+	boolean dedicated_server_active(void);
+
+	if (dedicated_server_active())
+		return scenario_location_potentially_visible(location);
+#endif
+	return scenario_location_potentially_visible_local(location);
+}
+
 static void effect_update(
 	long effect_index,
 	real dt)
@@ -2314,7 +2349,7 @@ static void effect_update(
 			definition->flags,
 			_effect_definition_must_be_deterministic_bit)
 			? scenario_location_potentially_visible(&effect->location)
-			: scenario_location_potentially_visible_local(&effect->location);
+			: effect_location_potentially_visible_local(&effect->location);
 	}
 
 	if (!visible)

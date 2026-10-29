@@ -261,6 +261,10 @@ boolean hs_scenario_script_disabled(
 	short script_index);
 boolean hs_scenario_global_initializer_disabled(
 	short global_index);
+/* port: the map's call or set a map's scripts may not make, skipped where it
+is (hs_scenario_functions_check) */
+boolean hs_scenario_node_skipped(
+	long expression_index);
 
 /* ---------- prototypes/HS_GLOBALS_EXTERNAL.C */
 

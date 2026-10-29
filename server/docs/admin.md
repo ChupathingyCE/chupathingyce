@@ -37,7 +37,7 @@ the duration.
 | `sv_status` | The server: name, version and network version, the OpenCE build it follows (the legacy table's, [Delta](../../docs/delta.md#following-opence)), state (lobby, loading, in game, carnage report), map and game type, playlist entry, players, whether it is public, uptime. |
 | `sv_players` | The players: number, name, team, score and ping (in a game), and their machine's hardware id. |
 | `sv_warn <player> <reason>` | Warns the player: a ChupathingyCE game shows the reason (Delta Peer); the warning is in the audit file either way. |
-| `sv_say <text>` | A server message: a line in the chat of every ChupathingyCE player, in their HUD font, marked "Server". In double quotes for more than a word. OpenCE players do not see it. In the audit file. |
+| `sv_say <text>` | A server message: a line in the chat of every ChupathingyCE player, in their HUD font, marked "Server". In double quotes for more than a word. OpenCE players see it as the host's notice in their own chat, while they may chat (`chat_legacy`). In the audit file. |
 | `sv_chat [on\|team\|off]` | Shows or sets the players' text chat: `on`, `team` (team lines alone) or `off`. Saved in the settings file (`chat`: 2, 1 or 0), in effect at once. On unless set. |
 | `sv_welcome [text\|off]` | Shows or sets the welcome: a server message each Chupathingy player gets in their chat as they join (the rest of the line, quotes optional; 127 characters at most). `off`: none. Saved in the settings file (`welcome`), in effect at once; `HALO_DEDICATED_WELCOME` in the environment wins over it. |
 | `sv_mute <player> [minutes]` | Stops passing on a player's chat lines, until they leave the game or for 1 to 1440 minutes. Their game is told ("You are muted"); server messages still reach them. In the audit file. |
@@ -47,8 +47,8 @@ the duration.
 | `sv_ban <player> [duration] [reason]` | Drops the player and keeps their machine out: for ever, or for a while (`30m`, `2h`, `7d`, `1w`, `1d12h`; a bare number is minutes). Every player in the game is told. bans.txt's reason says by whom, how long and why. |
 | `sv_unban <ban>` | Takes a ban out, by its number in `sv_banlist`. |
 | `sv_banlist` | The bans: number, when, hardware id, how long is left, the players' names and why. Never their addresses. |
-| `sv_map <map> <game type>` | Plays that map and game type now: the game in progress ends at once (no carnage report), and after the new one the playlist goes on where it was. In the lobby it is set at once. Maps: `bloodgulch`, a Custom Edition map as `<name>@ce`, a HaloMD map as `<name>@md`, a Halo PC map as `<name>@pc` ([Playlists](playlists.md)). Game types: `slayer`, `team_slayer`, `ctf`, `king`, `oddball`, `race`, ... |
-| `sv_maps` | The maps this server can play (its multiplayer maps: Xbox, `<name>@ce`, `<name>@md`, `<name>@pc`) and the game types `sv_map` takes. |
+| `sv_map <map> <game type>` | Plays that map and game type now: the game in progress ends at once (no carnage report), and after the new one the playlist goes on where it was. In the lobby it is set at once. Maps: `bloodgulch`, a Custom Edition map as `<name>@ce`, a HaloMD map as `<name>@md`, a Halo PC map as `<name>@pc`, an Xbox map pack's as `<name>@<pack>` (`wizard@cex`); a name with a space in double quotes, `sv_map "skedar v2@ce" slayer` ([Playlists](playlists.md)). Game types: `slayer`, `team_slayer`, `ctf`, `king`, `oddball`, `race`, ... |
+| `sv_maps` | The maps this server can play (its multiplayer maps: Xbox, `<name>@ce`, `<name>@md`, `<name>@pc`, the Xbox map packs' `<name>@<pack>`) and the game types `sv_map` takes. In JSON (the control API), `map_packs` names each pack's map: `{"wizard@cex": {"name": "Gothra", "pack": "Halo CE+", "tag": "CE+"}}`. |
 | `sv_mapcycle` | The playlist, and which entry is playing or next. |
 | `sv_mapcycle_next` | Skips to the playlist's next entry now (the game in progress ends without its carnage report). |
 | `sv_end_game` | Ends the game in progress, as its score limit would: the carnage report shows, then the next entry's lobby opens. |
@@ -180,7 +180,7 @@ Authorization: Bearer chce_4f0c...e91a
 | `POST /v1/command` with `{"command": "<command>"}` | `{"ok": true, "output": "..."}`: whether the command did what it was asked, and what it printed. Any command above. |
 | `GET /v1/bans` | `sv_banlist` as JSON: `{"bans": [{"number": 1, "when": "2026-10-05 02:18:03", "id": "c382...", "players": "Player", "reason": "...", "until": 1791182883, "seconds_left": 1793}], "count": 1}`. `until` and `seconds_left` are `null` for a ban for ever. |
 | `GET /v1/mapcycle` | `sv_mapcycle` as JSON: the playlist's `entries` (`number`, `map`, `game_type`), the `entry` playing, `state`, and what a command `chosen` now or set `next` (or `null`). |
-| `GET /v1/maps` | `sv_maps` as JSON: `{"maps": ["beavercreek", ...], "game_types": ["slayer", ...]}`. |
+| `GET /v1/maps` | `sv_maps` as JSON: `{"maps": ["beavercreek", ..., "wizard@cex"], "game_types": ["slayer", ...], "map_packs": {"wizard@cex": {"name": "Gothra", "pack": "Halo CE+", "tag": "CE+"}}}` (`map_packs` since map packs: the Xbox map packs' maps' names). |
 | `GET /v1/playlists`, `/v1/gametypes`, `/v1/settings`, `/v1/moderators`, `/v1/link` | `sv_playlists`, `sv_gametypes`, `sv_settings`, `sv_mod_list`, `sv_link_status` as JSON. |
 | `POST /v1/query` with `{"command": "sv_playlist big"}` | A read command's JSON (`sv_playlist`, `sv_gametype`, ...). |
 | `POST /v1/file` with `{"kind": "playlist", "name": "big", "text": "..."}` | A playlist's (or, `"gametype"`, a game type's) file, saved whole, checked first: `{"ok", "output"}`. |
@@ -211,8 +211,14 @@ curl -s -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:8080/v1/log?since=0"
  "map": "bloodgulch", "game_type": "slayer", "chosen": false, "next_map": null,
  "next_game_type": null, "playlist": "playlists/slayer.txt", "entry": 2, "entries": 5,
  "players": 3, "maximum_players": 12, "minimum_players": 1, "public": true,
- "idle_limit_minutes": 5, "uptime_seconds": 86400}
+ "idle_limit_minutes": 5, "uptime_seconds": 86400, "skipped": null}
 ```
+
+`skipped` is the last playlist entry the server skipped and why (a map name
+the game does not take, a game type it cannot find, a lobby that closed
+before its game started), or `null`. The server log says it too. When every
+entry is skipped in a row, the server waits before trying again: 5 seconds,
+then twice as long each time, up to 5 minutes.
 
 `state` is `starting`, `lobby`, `loading`, `in_game` or `postgame`. In
 `/v1/players`, `team` is `red`, `blue` or `null` (no teams), and `score` and
@@ -297,7 +303,12 @@ writable by that user.
   someone guessing cannot lock you out.
 - Every request is read whole, within limits, before anything is done
   with it: 8 KB of request line and headers, 4 KB of body, 32 headers, one
-  request a connection, 10 seconds to send it, 16 connections at once.
+  request a connection, 3 seconds to begin it and 10 to send it, 16
+  connections at once and 8 from one address (this machine's and a trusted
+  proxy's aside); with every one taken, the one that has waited longest
+  for its request is let go for the new one.
+- Commands: each needs its permission, from a table that lists every
+  command; one not in it is the console's alone.
   Anything that is not plainly a request the API takes is refused:
   `Transfer-Encoding`, `Expect`, repeated headers, bare line ends, control
   characters, escapes in paths, bodies on a GET, more than the
@@ -367,6 +378,13 @@ location / {
     proxy_set_header X-Forwarded-For $remote_addr;
 }
 ```
+
+The proxy's address in `HALO_DEDICATED_CONTROL_TRUSTED_PROXY`
+(`127.0.0.1`, or several, comma separated) lets the server take the
+client's address from `X-Forwarded-For` (its last address, the one the
+proxy adds), so wrong logins are counted for each client and someone
+guessing does not lock everyone out. Without it, every request counts as
+the proxy's; never name an address that is not your proxy's.
 
 If the page is reached straight over the network, with no reverse proxy's
 headers, from somewhere other than the server itself, the server warns of

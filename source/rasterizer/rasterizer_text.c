@@ -238,7 +238,14 @@ static void rasterizer_draw_hires_character_with_dropshadow(
 
 
 static struct hardware_character_cache hardware_character_cache;
+#ifndef HALO_CONSOLE_NO_HIRES
 static struct bitmap_data *hires_text_atlas = NULL;
+#else
+/* port: the consoles draw the maps' own fonts, as the Xbox did: no atlas
+(its texture was 128 KB of a 64 MB console), and the high-res paths below
+are never taken */
+#define hires_text_atlas ((struct bitmap_data *)NULL)
+#endif
 static long hires_text_font = NONE;
 /* port: the text's scale about a point (rasterizer_text_set_scale) */
 static real text_scale = 1.0f;
@@ -286,6 +293,7 @@ rasterizer_text_cache_initialize(
 			hardware_character_cache.bitmap = bitmap;
 			hardware_character_cache.initialized = TRUE;
 
+#ifndef HALO_CONSOLE_NO_HIRES
 			/* port: the high-res text atlas's placeholder */
 			hires_text_atlas = bitmap_2d_new(
 				HIRES_TEXT_ATLAS_BITMAP_SIZE,
@@ -304,6 +312,7 @@ rasterizer_text_cache_initialize(
 					HIRES_TEXT_ATLAS_BITMAP_SIZE,
 					HIRES_TEXT_ATLAS_BITMAP_SIZE);
 			}
+#endif
 		}
 		else
 		{
@@ -361,12 +370,14 @@ rasterizer_text_cache_dispose(
 		rasterizer_text_cache_flush();
 		bitmap_delete(hardware_character_cache.bitmap);
 		hardware_character_cache.initialized = FALSE;
+#ifndef HALO_CONSOLE_NO_HIRES
 		if (hires_text_atlas)
 		{
 			text_hires_register_atlas(NULL, 0, 0);
 			bitmap_delete(hires_text_atlas);
 			hires_text_atlas = NULL;
 		}
+#endif
 	}
 
 	return;
@@ -1186,15 +1197,23 @@ cache_hardware_format_character(
 
 			for (x = 0; x < cell_width; x++)
 			{
+				word texel;
+
 				if (y < padding || y >= padding + font_character->bitmap_height ||
 					x < padding || x >= padding + font_character->bitmap_width)
 				{
-					*destination++ = 0x0FFF;
+					texel = 0x0FFF;
 				}
 				else
 				{
-					*destination++ = (word)((*source++ << 8) | 0x0FFF);
+					texel = (word)((*source++ << 8) | 0x0FFF);
 				}
+#if defined(__BIG_ENDIAN__) || (defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)
+				/* (port: the texture's texels are the map's byte order,
+				little-endian, as its bitmaps' are) */
+				texel = (word)((texel << 8) | (texel >> 8));
+#endif
+				*destination++ = texel;
 			}
 		}
 
@@ -1205,4 +1224,75 @@ cache_hardware_format_character(
 	}
 
 	return;
+}
+
+/* port: rasterizer_text_ink_span's character: where the character's ink is
+drawn, as rasterizer_draw_hires_glyph places a high-res glyph (its advance
+centred on the font tag's character's) or, without the high-res text, the
+font tag's character's bitmap */
+static real ink_span_x0;
+static real ink_span_x1;
+
+static void rasterizer_text_ink_span_character(
+	struct parse_string_state *state,
+	struct font_header *font,
+	struct font_character *font_character,
+	pixel32 color,
+	short x0,
+	short y0,
+	short x,
+	short y,
+	short dx,
+	short dy)
+{
+	real left = (real)x0;
+	real right = (real)(x0 + dx);
+
+	if (hires_text_font != NONE)
+	{
+		struct text_hires_glyph glyph;
+
+		if (!text_hires_glyph(hires_text_font, font_character->character, &glyph) ||
+			glyph.right <= glyph.left)
+		{
+			return;
+		}
+		left = (real)(x0 - x + font_character->bitmap_origin_x) +
+			(font_character->character_width - glyph.advance) * 0.5f + glyph.left;
+		right = left + (glyph.right - glyph.left);
+	}
+	else if (dx <= 0 || dy <= 0)
+	{
+		return;
+	}
+	ink_span_x0 = MIN(ink_span_x0, left);
+	ink_span_x1 = MAX(ink_span_x1, right);
+
+	return;
+}
+
+boolean rasterizer_text_ink_span(
+	rectangle2d const *bounds,
+	wchar_t const *string,
+	real *x0,
+	real *x1)
+{
+	long saved_font = hires_text_font;
+	long character_index;
+
+	/* (the font rasterizer_draw_unicode_string would draw it with) */
+	hires_text_font = hires_text_atlas ? hires_text_font_get(draw_string_get_font(), MAX(text_scale, 1.0f)) : NONE;
+	for (character_index = 0; hires_text_font != NONE && string[character_index]; character_index++)
+	{
+		if (!text_hires_covers(hires_text_font, (word)string[character_index]))
+			hires_text_font = NONE;
+	}
+	ink_span_x0 = 32767.0f;
+	ink_span_x1 = -32768.0f;
+	draw_unicode_string(rasterizer_text_ink_span_character, bounds, NULL, NULL, 0, string);
+	hires_text_font = saved_font;
+	*x0 = ink_span_x0;
+	*x1 = ink_span_x1;
+
+	return ink_span_x1 > ink_span_x0;
 }
