@@ -1111,8 +1111,8 @@ static struct tag_schema_definition const optional_static_hud_element_schema =
 static struct tag_schema_field const meter_hud_element_fields[] =
 {
 	TAG_SCHEMA_REFERENCE(struct meter_hud_element_definition, meter_bitmap, TAG_SCHEMA_GROUPS('bitm')),
-	TAG_SCHEMA_BLOCK(struct meter_hud_element_definition, multitexture_overlays, multitexture_overlay_schema,
-		MAXIMUM_MULTITEXTURE_OVERLAYS_PER_HUD_ELEMENT),
+	/* (a meter has no multitexture overlays: its min alpha is where the
+	structure had them) */
 	TAG_SCHEMA_END
 };
 

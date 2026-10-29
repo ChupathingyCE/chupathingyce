@@ -73,6 +73,9 @@ HUD, use the `bitmaps.map`, `sounds.map` and `loc.map` from Aerocatia's
 [halopc-restored](https://github.com/Aerocatia/halopc-restored/releases/tag/r220)
 release r220 (the "custom edition full shared" package) in `maps_ce` instead of
 the stock ones; keep a copy of yours. Maps with their own HUD use theirs.
+HUD meters made in the Xbox's channel order, such as halopc-restored's Xbox
+order meters or a custom HUD whose meters are flagged "use Xbox shading", draw
+that way.
 
 **Playing with OpenCE players.** OpenCE plays Custom Edition maps from
 a `custom_maps` folder. A game on a Custom Edition map is named the same way
