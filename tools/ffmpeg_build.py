@@ -134,6 +134,8 @@ def main():
                  "--extra-cflags=" + " ".join(target + abi + sysroot_flags),
                  "--extra-ldflags=" + " ".join(target + link_flags + sysroot_flags),
                  *windows_tools,
+                 # (FreeBSD has no gcc: its own cc builds configure's host tools)
+                 *(["--host-cc=cc"] if target_os == "freebsd" else []),
                  "--disable-everything", "--disable-programs", "--disable-doc",
                  "--disable-network", "--disable-autodetect", "--disable-asm",
                  "--disable-shared", "--enable-static", "--disable-debug", "--enable-small",
