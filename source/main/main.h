@@ -30,6 +30,9 @@ boolean gamepad_button_is_down(
 /* port: display.viewmodel_field_of_view (main.c) */
 real first_person_weapon_projection_scale(
 	void);
+/* port: display.reticle_scales_with_fov (main.c) */
+real first_person_reticle_scale(
+	short local_player_index);
 
 void set_window_camera_values(
 	struct render_window *window,
