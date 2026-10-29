@@ -3428,7 +3428,12 @@ static void run(void)
 context the overlay can draw with before its device starts) */
 static int drawable(void)
 {
+#ifdef HALO_BGFX
 	return strcmp(config_string("display.renderer"), "bgfx") != 0;
+#else
+	/* (display.renderer is only in builds with the bgfx backend) */
+	return 1;
+#endif
 }
 
 int launcher_welcome(char *destination, unsigned long size)
