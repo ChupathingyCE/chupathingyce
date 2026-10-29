@@ -202,7 +202,24 @@ static void test_command_line(void)
 	CHECK(!command_line_map_name_valid("@cex"));
 	CHECK(!command_line_map_name_valid("a@c-x"));
 	CHECK(!command_line_map_name_valid("a@b@cex"));
-	CHECK(!command_line_map_name_valid("a b"));
+	/* (every name Halo PC takes: control_test's are HaloNet's) */
+	CHECK(command_line_map_name_valid("a b"));
+	CHECK(command_line_map_name_valid("bigassv2,104@ce"));
+	CHECK(command_line_map_name_valid("skedar v2@ce"));
+	CHECK(command_line_map_name_valid("[h3]_sandtrap@ce"));
+	CHECK(command_line_map_name_valid("h3 foundry@ce"));
+	CHECK(command_line_map_name_valid("a'b&c!#$%^~{}=+;@ce"));
+	CHECK(!command_line_map_name_valid(" a@ce"));
+	CHECK(!command_line_map_name_valid("a @ce"));
+	CHECK(!command_line_map_name_valid("a:b@ce"));
+	CHECK(!command_line_map_name_valid("a\"b@ce"));
+	CHECK(!command_line_map_name_valid("a|b"));
+	CHECK(!command_line_map_name_valid("a*b"));
+	CHECK(!command_line_map_name_valid("a\tb"));
+	CHECK(!command_line_map_name_valid(".."));
+	CHECK(!command_line_map_name_valid("con@ce"));
+	CHECK(!command_line_map_name_valid("com1"));
+	CHECK(command_line_map_name_valid("console@ce"));
 
 	CHECK(command_line_server_name_valid("[D] Slayer"));
 	CHECK(command_line_server_name_valid("123456789012345"));
@@ -705,6 +722,20 @@ static void test_limiter(void)
 	for (index = 0; index < 100; index++)
 		taken += control_limiter_take_check(&limiter, 9062);
 	CHECK(taken == CONTROL_LIMITER_CHECK_BURST);
+	/* the reserve: an address with wrong tries lately leaves the last few
+	checks to the others */
+	control_limiter_initialize(&limiter);
+	control_limiter_failed(&limiter, one, 20000);
+	taken = 0;
+	for (index = 0; index < 100; index++)
+		taken += control_limiter_take_check_from(&limiter, one, 20000);
+	CHECK(taken == CONTROL_LIMITER_CHECK_BURST - CONTROL_LIMITER_CHECK_RESERVE);
+	taken = 0;
+	for (index = 0; index < 100; index++)
+		taken += control_limiter_take_check_from(&limiter, two, 20000);
+	CHECK(taken == CONTROL_LIMITER_CHECK_RESERVE);
+	/* (once its window is over, it is clean again) */
+	CHECK(control_limiter_take_check_from(&limiter, one, 20000 + CONTROL_LIMITER_WINDOW_SECONDS));
 	/* many addresses: the table is not overrun, and the blocked stay so */
 	control_limiter_initialize(&limiter);
 	for (index = 0; index < CONTROL_LIMITER_FAILURES; index++)
@@ -734,6 +765,14 @@ static void test_log(void)
 	CHECK(!strcmp(out, "10.04.26 12:34:56  version 01.10.12.2276 v1.2.3.4 1.2.3.4.5"));
 	control_log_scrub("peer [2001:db8::1]:2302 and [::1]:5 and fe80::1 and 2001:db8:0:0:0:0:0:2", out, sizeof(out));
 	CHECK(!strcmp(out, "peer [addr#hidden]:2302 and [::1]:5 and fe80::1 and addr#hidden"));
+	/* (IPv4-mapped IPv6: hidden whole, unless the IPv4 address is local) */
+	control_log_scrub("from [::ffff:8.8.4.4]:2302 ::FFFF:203.0.113.9 ::ffff:192.168.1.5 ::ffff:127.0.0.1", out,
+		sizeof(out));
+	CHECK(!strcmp(out, "from [addr#hidden]:2302 addr#hidden ::ffff:192.168.1.5 ::ffff:127.0.0.1"));
+	control_log_scrub("::8.8.8.8 and 64:ff9b::8.8.8.8 and 2001:db8::1.2", out, sizeof(out));
+	CHECK(!strcmp(out, "addr#hidden and addr#hidden and addr#hidden.2"));
+	control_log_scrub("fe80::10.0.0.1 12:34:56.789", out, sizeof(out));
+	CHECK(!strcmp(out, "fe80::10.0.0.1 12:34:56.789"));
 	control_log_scrub("addr#3f2a9c joined; a\x01" "b\xc3\xa9", out, sizeof(out));
 	CHECK(!strcmp(out, "addr#3f2a9c joined; a?b??"));
 	control_log_scrub("1.2.3.4", out, 5);
@@ -815,6 +854,17 @@ static void test_web_requests(void)
 		&status) == CONTROL_PARSE_DONE && request.proxied && !request.https);
 	CHECK(parse("GET / HTTP/1.1\r\nHost: x\r\nX-Forwarded-For: 192.0.2.1\r\n\r\n", &request, &status) ==
 		CONTROL_PARSE_DONE && request.proxied && !request.https);
+	CHECK(!strcmp(request.forwarded_for, "192.0.2.1"));
+	/* (X-Forwarded-For's last address, the nearest proxy's: an earlier one
+	the client may have written itself) */
+	CHECK(parse("GET / HTTP/1.1\r\nHost: x\r\nX-Forwarded-For: 10.0.0.1, 203.0.113.7 \r\n\r\n", &request,
+		&status) == CONTROL_PARSE_DONE && !strcmp(request.forwarded_for, "203.0.113.7"));
+	CHECK(parse("GET / HTTP/1.1\r\nHost: x\r\nX-Forwarded-For: 1.1.1.1\r\nX-Forwarded-For: 2001:db8::5\r\n\r\n",
+		&request, &status) == CONTROL_PARSE_DONE && !strcmp(request.forwarded_for, "2001:db8::5"));
+	CHECK(parse("GET / HTTP/1.1\r\nHost: x\r\nX-Forwarded-For: 1.1.1.1, unknown\r\n\r\n", &request, &status) ==
+		CONTROL_PARSE_DONE && !request.forwarded_for[0]);
+	CHECK(parse("GET / HTTP/1.1\r\nHost: x\r\nX-Forwarded-For: 1.1.1.1,\r\n\r\n", &request, &status) ==
+		CONTROL_PARSE_DONE && !request.forwarded_for[0]);
 	CHECK(parse("GET / HTTP/1.1\r\nHost: x\r\nSec-Fetch-Site: cross-site\r\n\r\n", &request, &status) ==
 		CONTROL_PARSE_DONE && request.cross_site);
 	CHECK(parse("GET / HTTP/1.1\r\nHost: x\r\nSec-Fetch-Site: none\r\n\r\n", &request, &status) ==
@@ -1082,7 +1132,13 @@ static void test_roles(void)
 	CHECK(control_command_permission("sv_link", NULL) == CONTROL_PERMISSION_ROLES);
 	CHECK(control_command_permission("sv_admin_add x", NULL) == CONTROL_PERMISSION_CONSOLE);
 	CHECK(control_command_permission("sv_account_invite owner", NULL) == CONTROL_PERMISSION_CONSOLE);
-	CHECK(!control_command_permission("sv_nothing", NULL));
+	CHECK(control_command_permission("sv_welcome", &changes) == CONTROL_PERMISSION_VIEW && !changes);
+	CHECK(control_command_permission("sv_welcome \"hi there\"", &changes) == CONTROL_PERMISSION_SETTINGS && changes);
+	CHECK(control_command_permission("sv_welcome off", &changes) == CONTROL_PERMISSION_SETTINGS && changes);
+	/* (denied by default: a command the table leaves out is the console's) */
+	CHECK(control_command_permission("sv_nothing", &changes) == CONTROL_PERMISSION_CONSOLE && !changes);
+	CHECK(control_command_permission("sv_nothing x y", NULL) == CONTROL_PERMISSION_CONSOLE);
+	CHECK(!(control_role_permissions(CONTROL_ROLE_OWNER) & CONTROL_PERMISSION_CONSOLE));
 	CHECK(!control_command_permission("", NULL) && !control_command_permission("# a comment", NULL));
 	CHECK(!control_command_permission("sv_kick \"unclosed", NULL));
 
@@ -1325,21 +1381,53 @@ static void test_accounts(void)
 	/* one account's backoff: five wrong, a minute locked, doubling to an
 	hour; a right one clears it */
 	memset(&backoff, 0, sizeof(backoff));
-	for (index = 0; index < CONTROL_ACCOUNT_FAILURES - 1; index++)
 	{
-		control_backoff_failed(&backoff, 100);
-		CHECK(control_backoff_allowed(&backoff, 100, &retry));
+		static const uint8_t here[16] = { 1 };
+		static const uint8_t there[16] = { 2 };
+
+		for (index = 0; index < CONTROL_ACCOUNT_FAILURES - 1; index++)
+		{
+			control_backoff_failed(&backoff, here, 100);
+			CHECK(control_backoff_allowed(&backoff, here, 100, &retry));
+		}
+		control_backoff_failed(&backoff, here, 100);
+		CHECK(!control_backoff_allowed(&backoff, here, 100, &retry) && retry == CONTROL_ACCOUNT_LOCK_SECONDS);
+		CHECK(control_backoff_locked(&backoff, 100));
+		/* (locked for that source alone: the owner elsewhere still logs in) */
+		CHECK(control_backoff_allowed(&backoff, there, 100, &retry));
+		CHECK(control_backoff_allowed(&backoff, here, 100 + CONTROL_ACCOUNT_LOCK_SECONDS, &retry));
+		CHECK(!control_backoff_locked(&backoff, 100 + CONTROL_ACCOUNT_LOCK_SECONDS));
+		control_backoff_failed(&backoff, here, 200);
+		CHECK(!control_backoff_allowed(&backoff, here, 200, &retry) && retry == 2 * CONTROL_ACCOUNT_LOCK_SECONDS);
+		for (index = 0; index < 20; index++)
+			control_backoff_failed(&backoff, here, 300);
+		CHECK(!control_backoff_allowed(&backoff, here, 300, &retry) && retry == CONTROL_ACCOUNT_LOCK_MAXIMUM);
+		control_backoff_succeeded(&backoff, there);
+		CHECK(!control_backoff_allowed(&backoff, here, 300, &retry));
+		control_backoff_succeeded(&backoff, here);
+		CHECK(control_backoff_allowed(&backoff, here, 300, &retry));
+		/* failures decay: four, a quiet while, four more: never locked */
+		for (index = 0; index < CONTROL_ACCOUNT_FAILURES - 1; index++)
+			control_backoff_failed(&backoff, here, 1000);
+		for (index = 0; index < CONTROL_ACCOUNT_FAILURES - 1; index++)
+			control_backoff_failed(&backoff, here, 1000 + CONTROL_ACCOUNT_DECAY_SECONDS);
+		CHECK(control_backoff_allowed(&backoff, here, 1000 + CONTROL_ACCOUNT_DECAY_SECONDS, &retry));
+		/* many sources: the table is not overrun, and the locked stay so */
+		control_backoff_clear(&backoff);
+		for (index = 0; index < CONTROL_ACCOUNT_FAILURES; index++)
+			control_backoff_failed(&backoff, here, 5000);
+		for (index = 0; index < 500; index++)
+		{
+			uint8_t source[16] = { 9 };
+
+			source[14] = (uint8_t)(index >> 8);
+			source[15] = (uint8_t)index;
+			control_backoff_failed(&backoff, source, 5001);
+		}
+		CHECK(!control_backoff_allowed(&backoff, here, 5002, &retry));
+		control_backoff_clear(&backoff);
+		CHECK(control_backoff_allowed(&backoff, here, 5002, &retry) && !control_backoff_locked(&backoff, 5002));
 	}
-	control_backoff_failed(&backoff, 100);
-	CHECK(!control_backoff_allowed(&backoff, 100, &retry) && retry == CONTROL_ACCOUNT_LOCK_SECONDS);
-	CHECK(control_backoff_allowed(&backoff, 100 + CONTROL_ACCOUNT_LOCK_SECONDS, &retry));
-	control_backoff_failed(&backoff, 200);
-	CHECK(!control_backoff_allowed(&backoff, 200, &retry) && retry == 2 * CONTROL_ACCOUNT_LOCK_SECONDS);
-	for (index = 0; index < 20; index++)
-		control_backoff_failed(&backoff, 300);
-	CHECK(!control_backoff_allowed(&backoff, 300, &retry) && retry == CONTROL_ACCOUNT_LOCK_MAXIMUM);
-	control_backoff_succeeded(&backoff);
-	CHECK(control_backoff_allowed(&backoff, 300, &retry));
 }
 
 /* ---------- request bodies of string fields (control_parse_fields) */
@@ -1394,6 +1482,21 @@ static void test_server_config(int rounds)
 	CHECK(!server_playlist_parse("bloodgulch\n", 11, 1, &playlist, error, sizeof(error)) && strstr(error, "line 1"));
 	CHECK(!server_playlist_parse("../x slayer\n", 12, 1, &playlist, error, sizeof(error)));
 	CHECK(!server_playlist_parse("a b c\n", 6, 1, &playlist, error, sizeof(error)));
+	/* (a map's name with a space in quotes, written back so) */
+	{
+		const char *quoted = "\"skedar v2@ce\" slayer # HaloNet's\n\"a#b@ce\"\tctf\nbigassv2,104@ce king\n";
+
+		CHECK(server_playlist_parse(quoted, strlen(quoted), 1, &playlist, error, sizeof(error)) && playlist.count == 3 &&
+			!strcmp(playlist.entries[0].map, "skedar v2@ce") && !strcmp(playlist.entries[1].map, "a#b@ce") &&
+			!strcmp(playlist.entries[1].game_type, "ctf") && !strcmp(playlist.entries[2].map, "bigassv2,104@ce"));
+		CHECK(server_playlist_format(&playlist, "quoted", text, sizeof(text)) > 0 && strstr(text, "\"skedar v2@ce\""));
+		CHECK(server_playlist_parse(text, strlen(text), 1, &back, error, sizeof(error)) &&
+			!memcmp(&back, &playlist, sizeof(back)));
+		CHECK(!server_playlist_parse("\"skedar v2@ce slayer\n", 21, 1, &playlist, error, sizeof(error)));
+		CHECK(!server_playlist_parse("\"a\"b slayer\n", 12, 1, &playlist, error, sizeof(error)));
+		CHECK(server_playlist_parse("\"skedar v2@ce slayer\n", 21, 0, &playlist, error, sizeof(error)) &&
+			playlist.count == 0);
+	}
 	/* (not strict, as a playlist file has always been read: the rest of a
 	line left out) */
 	CHECK(server_playlist_parse("a b c\n", 6, 0, &playlist, error, sizeof(error)) && playlist.count == 1);
@@ -1716,6 +1819,46 @@ static void test_link(int rounds)
 		CHECK(!control_link_parse_status("{\"state\": \"linked\", \"server_id\": \"../x\"}", 42, state, sizeof(state),
 			server_id, sizeof(server_id), owner, sizeof(owner)));
 	}
+	/* sv_link_status's JSON: strings escaped, the code only when given */
+	{
+		struct control_link_status status;
+		char json[2048];
+
+		memset(&status, 0, sizeof(status));
+		status.enabled = 1;
+		status.state = "linking";
+		status.site = "https://stats.chupathingy.org";
+		status.server_id = "";
+		status.owner = "a\"b\\c";
+		status.code = "";
+		status.heard_seconds_ago = -1;
+		status.role_cap = "admin";
+		status.problem = "line\none";
+		status.roles_state = "none";
+		CHECK(control_link_status_json(&status, json, sizeof(json)) > 0);
+		CHECK(strstr(json, "\"code\": null") && strstr(json, "\"server_id\": null"));
+		CHECK(strstr(json, "\"owner\": \"a\\\"b\\\\c\"") && strstr(json, "\"problem\": \"line\\none\""));
+		status.code = "ABCD-1234";
+		CHECK(control_link_status_json(&status, json, sizeof(json)) > 0 && strstr(json, "\"code\": \"ABCD-1234\""));
+		CHECK(control_link_status_json(&status, json, 40) == -1);
+	}
+	/* the site's address: HTTPS, or plain HTTP to this machine alone */
+	CHECK(control_link_url_allowed("https://stats.chupathingy.org"));
+	CHECK(control_link_url_allowed("https://example.org:8443/x"));
+	CHECK(control_link_url_allowed("http://127.0.0.1"));
+	CHECK(control_link_url_allowed("http://127.0.0.1:8080"));
+	CHECK(control_link_url_allowed("http://localhost/"));
+	CHECK(control_link_url_allowed("http://[::1]:5000/site"));
+	CHECK(!control_link_url_allowed("http://127.0.0.1.example.org"));
+	CHECK(!control_link_url_allowed("http://localhost.example.org/"));
+	CHECK(!control_link_url_allowed("http://localhost@example.org"));
+	CHECK(!control_link_url_allowed("http://127.0.0.10"));
+	CHECK(!control_link_url_allowed("http://127.0.0.1:"));
+	CHECK(!control_link_url_allowed("http://127.0.0.1:80x"));
+	CHECK(!control_link_url_allowed("http://example.org"));
+	CHECK(!control_link_url_allowed("https://"));
+	CHECK(!control_link_url_allowed("ftp://localhost"));
+	CHECK(!control_link_url_allowed(""));
 	/* the commands the link takes, and their reasons */
 	CHECK(control_link_command_line("sv_kick 3", "camping", line, sizeof(line), &why) &&
 		!strcmp(line, "sv_kick 3 \"camping\""));

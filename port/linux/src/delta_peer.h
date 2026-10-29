@@ -5,7 +5,7 @@ Delta Peer (docs/delta.md): ChupathingyCE's own messages between the
 machines of one game, beside OpenCE's game protocol, which stays as it is.
 
 - A host that speaks it listens on DELTA_PEER_PORT (the game's port + 10)
-  and sets DELTA_ADVERTISED_FLAG in its advertisement.
+  and puts the Delta tag in its advertisement.
 - A client that joined such a host (the game's join, unchanged) sends HELLO;
   the host answers WELCOME, or LEGACY for another major. No answer within
   DELTA_PEER_HANDSHAKE_TIME means legacy only: the game never waits.
@@ -227,6 +227,16 @@ struct delta_peer_team_host
 	delta_team_result), the player's team now in team, and with too soon the
 	seconds to wait in seconds */
 	int (*request)(void *context, int machine_index, int player, int team, int *team_now, int *seconds);
+};
+
+/* the client's object sync (docs/delta.md, Object sync): what its host's
+UNIT_VITALS and OBJECT_NAMES said, each as it comes (both agreed to
+object_sync; read and checked for their shape, not what they name) */
+struct delta_peer_objects_client
+{
+	void *context;
+	void (*vitals)(void *context, const struct delta_wire_unit_vitals *vitals);
+	void (*names)(void *context, const struct delta_wire_object_names *names);
 };
 
 /* the host's chat with a client's session */
@@ -531,6 +541,10 @@ struct delta_peer
 	delta_u32 team_results;
 	struct delta_wire_team_result team_result;
 
+	/* object sync: the client's (NULL: none, and what the host says of its
+	objects is dropped) */
+	const struct delta_peer_objects_client *objects_client;
+
 	/* counted for the tests and the log */
 	unsigned long dropped;
 };
@@ -546,7 +560,7 @@ void delta_peer_host_frame(struct delta_peer *peer, delta_u32 now, const struct 
 	int count, const signed char *player_machines);
 /* each frame while a client of another machine's game: joined (in its
 pregame, game or postgame), the host's address and Delta port, whether its
-advertisement has DELTA_ADVERTISED_FLAG, this machine's index in the game
+advertisement says it speaks Delta (delta_peer_advertised_speaks_delta), this machine's index in the game
 (DELTA_WIRE_NO_MACHINE: not yet) and each player's machine */
 void delta_peer_client_frame(struct delta_peer *peer, delta_u32 now, int joined, delta_u32 host_ipv4,
 	unsigned short host_port, int host_speaks_delta, unsigned char machine_index, const signed char *player_machines);
@@ -584,6 +598,11 @@ int delta_peer_machine_lacks(const struct delta_peer *peer, delta_u32 now, int m
 no session yet and its window not over (a game that needs the capability
 waits for it) */
 int delta_peer_machine_pending(const struct delta_peer *peer, delta_u32 now, int machine_index);
+/* ... and the OpenCE network version a machine of the game said in its
+HELLO, the newest whose rules it plays (DELTA_LEGACY_NEWEST; earlier builds
+said their HALO_PORT_NETWORK_VERSION, 32 or older): 0 for one without a session
+(an OpenCE machine, or one whose HELLO has not come yet) */
+int delta_peer_machine_legacy_version(const struct delta_peer *peer, int machine_index);
 
 /* ---------- moderation (docs/delta.md, Moderation)
 
@@ -681,6 +700,23 @@ delta_u32 delta_peer_client_team_request(struct delta_peer *peer, int player, in
 last in result */
 delta_u32 delta_peer_client_team_result(const struct delta_peer *peer, struct delta_wire_team_result *result);
 
+/* ---------- object sync (docs/delta.md, Object sync)
+
+The host's game says what the game's own messages leave out of its objects:
+units' shield and health (UNIT_VITALS) and objects' scenario names
+(OBJECT_NAMES), to every client that agreed to object_sync. */
+
+/* (host) the clients that agreed to object_sync now */
+int delta_peer_objects_clients(const struct delta_peer *peer);
+/* (host) to each of them (machine_index -1), or to one: how many it went
+to */
+int delta_peer_send_unit_vitals(struct delta_peer *peer, int machine_index, const struct delta_wire_unit_vitals *vitals);
+int delta_peer_send_object_names(struct delta_peer *peer, int machine_index, const struct delta_wire_object_names *names);
+/* (client) whether the host agreed to object_sync */
+int delta_peer_client_objects_ready(const struct delta_peer *peer);
+/* (client) where what the host says goes (NULL: nowhere, dropped) */
+void delta_peer_set_objects_client(struct delta_peer *peer, const struct delta_peer_objects_client *client);
+
 /* what is known of a machine (0 if nothing) */
 int delta_peer_machine(const struct delta_peer *peer, int machine_index, struct delta_peer_machine *machine);
 /* whether every machine of the game has the capability now (room-wide
@@ -715,20 +751,37 @@ enum delta_peer_protocol
 };
 int delta_peer_protocol(void);
 
-/* the host's advertisement flags to add (DELTA_ADVERTISED_FLAG, or 0) */
+/* whether this machine hosts with Delta Peer now: its socket open and
+network.protocol not "opence" */
+int delta_peer_hosting_delta(void);
+/* the host's advertisement flags to add: 0x04 on a dedicated server that
+announces HALO_PORT_ADVERTISED_DEDICATED_VERSION or later, or hosts with
+Delta (OpenCE's dedicated flag, and the old layout's Delta flag, which
+released clients read), else 0 */
 unsigned char delta_peer_advertised_flags(void);
-/* the game wire after them (DELTA_ADVERTISED_WIRE_OFFSET), in the
-advertisement's reserved bytes (size of them): this build's oldest
-compatible wire in the old slot, then its own wire and that range
-(delta_compat.h); zeros unless the flag is set */
-void delta_peer_advertised_wire(unsigned char *reserved, int size);
+/* the advertisement's reserved bytes (size of them) past the port's version
+and flags: the kind (0: this build plays none of OpenCE's game types), and
+while hosting with Delta the Delta tag at their tail (delta_compat.h), and,
+with the flag 0x04 already in the flags and a game engine (engine, its stock
+index) other than DELTA_ADVERTISED_KIND_ENGINE, the old layout's major and
+slot for released clients (docs/delta.md, "The transition") */
+void delta_peer_advertised_wire(unsigned char *reserved, int size, int engine);
+/* whether this host's advertisement has had the old layout: then a released
+client from before the tag may say HELLO with an older network version
+(DELTA_TAG_OLDEST_LEGACY, delta.h) */
+int delta_peer_advertised_old_layout(void);
+/* whether a host's advertisement (its reserved bytes) says it speaks Delta
+Peer, so that this client says HELLO (delta_compat_speaks_delta); 0 on the
+legacy protocol */
+int delta_peer_advertised_speaks_delta(const unsigned char *reserved, int size);
 /* whether a host's advertisement (its reserved bytes) is of a wire this
-machine plays with: 1 when both speak Delta, of one major, and the host's
-wire is in this machine's compatible range or this machine's in the host's
-(the OpenCE numbers then don't matter), 0 when it is not (the host's wire
-into theirs, of theirs_size), -1 when either side doesn't say (this machine
-on the legacy protocol, a host without Delta, of another major, or built
-before the wire was advertised): the OpenCE numbers decide */
+machine plays with, by its Delta tag, else the old layout: 1 when both speak
+Delta, of one major, and the host's wire is in this machine's compatible
+range or this machine's in the host's (the OpenCE numbers then don't
+matter), 0 when it is not (the host's wire into theirs, of theirs_size), -1
+when either side doesn't say (this machine on the legacy protocol, a host
+without Delta, of another major, or built before the wire was advertised):
+the OpenCE numbers decide */
 int delta_peer_advertised_wire_matches(const unsigned char *reserved, int size, char *theirs, int theirs_size);
 /* the number of the wire a host's advertisement says it plays (32 for
 chupa-32a); 0 when it says none, or this machine does not read it */
@@ -785,6 +838,9 @@ machine knows it (its own, the host's, the roster's); none for a player
 without one */
 int delta_peer_game_player_has(int player_index, int capability);
 int delta_peer_game_machine_pending(int machine_index);
+/* ... and the network version its HELLO said (delta_peer_machine_legacy_version;
+0 while this host has no Delta, or the machine no session) */
+int delta_peer_game_machine_legacy_version(int machine_index);
 /* the game's room: delta_peer_room_has and _room_limit of the session */
 int delta_peer_game_room_has(int capability);
 int delta_peer_game_room_limit(int limit);
@@ -799,6 +855,16 @@ int delta_peer_game_team_ready(void);
 unsigned int delta_peer_game_team_request(int player, int team);
 unsigned int delta_peer_game_team_result(struct delta_wire_team_result *result);
 
+/* object sync (port/linux/game/network_objects.c): the host's, the clients
+that agreed to it and what goes to them; the client's, where what its host
+says goes */
+int delta_peer_game_objects_clients(void);
+int delta_peer_game_send_unit_vitals(int machine_index, const struct delta_wire_unit_vitals *vitals);
+/* (client) whether the host agreed to object_sync */
+int delta_peer_game_objects_ready(void);
+int delta_peer_game_send_object_names(int machine_index, const struct delta_wire_object_names *names);
+void delta_peer_game_set_objects_client(const struct delta_peer_objects_client *client);
+
 /* ---------- what Delta List says of a hosted game (browser.c's
 announcement; docs/delta.md, Delta List) */
 
@@ -809,8 +875,8 @@ without Delta (OpenCE's) */
 
 struct delta_peer_host_summary
 {
-	/* hosting with Delta now (its socket open: the advertisement's
-	DELTA_ADVERTISED_FLAG); 0 for a game hosted on the legacy protocol
+	/* hosting with Delta now (its socket open: the advertisement's Delta
+	tag); 0 for a game hosted on the legacy protocol
 	alone (network.protocol = "opence", or its port taken) */
 	int delta;
 	/* this machine's platform key and the capabilities it offers */

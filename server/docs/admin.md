@@ -47,7 +47,7 @@ the duration.
 | `sv_ban <player> [duration] [reason]` | Drops the player and keeps their machine out: for ever, or for a while (`30m`, `2h`, `7d`, `1w`, `1d12h`; a bare number is minutes). Every player in the game is told. bans.txt's reason says by whom, how long and why. |
 | `sv_unban <ban>` | Takes a ban out, by its number in `sv_banlist`. |
 | `sv_banlist` | The bans: number, when, hardware id, how long is left, the players' names and why. Never their addresses. |
-| `sv_map <map> <game type>` | Plays that map and game type now: the game in progress ends at once (no carnage report), and after the new one the playlist goes on where it was. In the lobby it is set at once. Maps: `bloodgulch`, a Custom Edition map as `<name>@ce`, a HaloMD map as `<name>@md`, a Halo PC map as `<name>@pc`, an Xbox map pack's as `<name>@<pack>` (`wizard@cex`) ([Playlists](playlists.md)). Game types: `slayer`, `team_slayer`, `ctf`, `king`, `oddball`, `race`, ... |
+| `sv_map <map> <game type>` | Plays that map and game type now: the game in progress ends at once (no carnage report), and after the new one the playlist goes on where it was. In the lobby it is set at once. Maps: `bloodgulch`, a Custom Edition map as `<name>@ce`, a HaloMD map as `<name>@md`, a Halo PC map as `<name>@pc`, an Xbox map pack's as `<name>@<pack>` (`wizard@cex`); a name with a space in double quotes, `sv_map "skedar v2@ce" slayer` ([Playlists](playlists.md)). Game types: `slayer`, `team_slayer`, `ctf`, `king`, `oddball`, `race`, ... |
 | `sv_maps` | The maps this server can play (its multiplayer maps: Xbox, `<name>@ce`, `<name>@md`, `<name>@pc`, the Xbox map packs' `<name>@<pack>`) and the game types `sv_map` takes. In JSON (the control API), `map_packs` names each pack's map: `{"wizard@cex": {"name": "Gothra", "pack": "Halo CE+", "tag": "CE+"}}`. |
 | `sv_mapcycle` | The playlist, and which entry is playing or next. |
 | `sv_mapcycle_next` | Skips to the playlist's next entry now (the game in progress ends without its carnage report). |
@@ -211,8 +211,14 @@ curl -s -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:8080/v1/log?since=0"
  "map": "bloodgulch", "game_type": "slayer", "chosen": false, "next_map": null,
  "next_game_type": null, "playlist": "playlists/slayer.txt", "entry": 2, "entries": 5,
  "players": 3, "maximum_players": 12, "minimum_players": 1, "public": true,
- "idle_limit_minutes": 5, "uptime_seconds": 86400}
+ "idle_limit_minutes": 5, "uptime_seconds": 86400, "skipped": null}
 ```
+
+`skipped` is the last playlist entry the server skipped and why (a map name
+the game does not take, a game type it cannot find, a lobby that closed
+before its game started), or `null`. The server log says it too. When every
+entry is skipped in a row, the server waits before trying again: 5 seconds,
+then twice as long each time, up to 5 minutes.
 
 `state` is `starting`, `lobby`, `loading`, `in_game` or `postgame`. In
 `/v1/players`, `team` is `red`, `blue` or `null` (no teams), and `score` and
@@ -297,7 +303,12 @@ writable by that user.
   someone guessing cannot lock you out.
 - Every request is read whole, within limits, before anything is done
   with it: 8 KB of request line and headers, 4 KB of body, 32 headers, one
-  request a connection, 10 seconds to send it, 16 connections at once.
+  request a connection, 3 seconds to begin it and 10 to send it, 16
+  connections at once and 8 from one address (this machine's and a trusted
+  proxy's aside); with every one taken, the one that has waited longest
+  for its request is let go for the new one.
+- Commands: each needs its permission, from a table that lists every
+  command; one not in it is the console's alone.
   Anything that is not plainly a request the API takes is refused:
   `Transfer-Encoding`, `Expect`, repeated headers, bare line ends, control
   characters, escapes in paths, bodies on a GET, more than the
@@ -367,6 +378,13 @@ location / {
     proxy_set_header X-Forwarded-For $remote_addr;
 }
 ```
+
+The proxy's address in `HALO_DEDICATED_CONTROL_TRUSTED_PROXY`
+(`127.0.0.1`, or several, comma separated) lets the server take the
+client's address from `X-Forwarded-For` (its last address, the one the
+proxy adds), so wrong logins are counted for each client and someone
+guessing does not lock everyone out. Without it, every request counts as
+the proxy's; never name an address that is not your proxy's.
 
 If the page is reached straight over the network, with no reverse proxy's
 headers, from somewhere other than the server itself, the server warns of

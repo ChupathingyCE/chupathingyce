@@ -16,9 +16,14 @@ server forgets a game it is not told about for a while, so a copy of the
 game that quits without withdrawing drops off by itself.
 
 Browsing: browser_get_games asks for the list when the last one is more
-than LIST_INTERVAL old, and returns what it has meanwhile. Only games of
-this machine's network version are kept (the others could not be joined),
-and never this machine's own.
+than LIST_INTERVAL old, and returns what it has meanwhile. Games of another
+network version than this machine can join are kept too, for the screens to
+mark (browser_game_version_state); never this machine's own. The list is
+the main source; the public listings heard on the brokers (p2p_lobby.c,
+mqtt.chupathingy.org among them) add the games it lacks (direct): OpenCE's
+(legacy) while it answers, and every host's while it is down. So losing
+the list costs no game the brokers carry, and losing the brokers OpenCE
+uses costs only OpenCE's games.
 
 The requests (posix_browser.c) block, so they are made on a thread of this
 file's, which the first call starts; the game's threads only exchange state
@@ -59,6 +64,9 @@ enum
 	LIST_INTERVAL = 5000,
 	/* (asked again this long after a failure) */
 	RETRY_INTERVAL = 15000,
+	/* the last list's games are kept through failures this long, then
+	dropped (the games heard directly stay: browser_get_games) */
+	LIST_STALE = 90000,
 	THREAD_INTERVAL = 250,
 	/* a copy of the game that quits waits this long at most for its
 	listing's withdrawal (the list drops it by itself later otherwise) */
@@ -269,6 +277,7 @@ static struct
 	unsigned long list_request_time;
 	unsigned long list_time;
 	int list_failed;
+	unsigned long list_answered_time;
 	int game_count;
 	struct browser_game games[BROWSER_MAXIMUM_GAMES];
 } browser;
@@ -1383,6 +1392,18 @@ static void announce(const char *invite, const struct hosted_game *game)
 	snprintf(text, sizeof(text), "%d", delta_legacy_announce());
 	form_add(form, sizeof(form), "version", text);
 	host_fields(form, sizeof(form), game);
+	/* (a dedicated server's playlist, as its host names it: HALO_PLAYLIST_ID,
+	the site's id of its verified map set, docs/playlist-maps.md) */
+	if (browser_dedicated())
+	{
+		const char *playlist = getenv("HALO_PLAYLIST_ID");
+
+		if (playlist && playlist[0] && strlen(playlist) <= 32 &&
+			!playlist[strspn(playlist, "abcdefghijklmnopqrstuvwxyz0123456789_")])
+		{
+			form_add(form, sizeof(form), "playlist", playlist);
+		}
+	}
 	/* (last: a full one may be cut short, and a list from before rosters
 	takes no field of the name) */
 	roster_text(game->roster, game->roster_count, roster, sizeof(roster));
@@ -1643,15 +1664,15 @@ static void parse_host(char **fields, struct browser_game *game)
 /* one line of /v1/games.txt: invite name map engine players
 maximum_players open version age score_limit teams roster, and (as asked:
 ?fields=22) region, platform, hosting, protocol, machines, gametype,
-capabilities, and an Xbox map pack's map's name, pack and tag (a list from
-before them sends 19) */
+capabilities, an Xbox map pack's map's name, pack and tag, and (?fields=23)
+the playlist (a list from before them sends 19, or 22) */
 static int parse_game(char *line, struct browser_game *game)
 {
-	char *fields[22];
+	char *fields[23];
 	int count = 0;
 	char *cursor = line;
 
-	while (count < 22)
+	while (count < 23)
 	{
 		fields[count++] = cursor;
 		cursor = strchr(cursor, '\t');
@@ -1737,6 +1758,16 @@ static int parse_game(char *line, struct browser_game *game)
 				snprintf(text, size, "%s", fields[field]);
 		}
 	}
+	/* (then the playlist's id, a-z, 0-9 and '_' alone: anything else is none) */
+	if (count >= 23)
+	{
+		fields[22][strcspn(fields[22], "\r\n")] = 0;
+		if (fields[22][0] && strlen(fields[22]) < sizeof(game->playlist) &&
+			!fields[22][strspn(fields[22], "abcdefghijklmnopqrstuvwxyz0123456789_")])
+		{
+			snprintf(game->playlist, sizeof(game->playlist), "%s", fields[22]);
+		}
+	}
 	return 1;
 }
 
@@ -1770,8 +1801,9 @@ static void update_list(void)
 		pthread_mutex_unlock(&browser_lock);
 		return;
 	}
-	/* (with the host's fields: a list from before them sends what it has) */
-	server_url("/v1/games.txt?fields=22", url, sizeof(url));
+	/* (with the host's fields: a list from before them sends what it has; and
+	co-op games, which the list sends only when asked, for the lists' filter) */
+	server_url("/v1/games.txt?fields=23&coop=1", url, sizeof(url));
 	status = posix_browser_request(url, NULL, NULL, response, sizeof(response), error, sizeof(error));
 	if (!p2p_hosting_invite(own, sizeof(own)))
 		own[0] = 0;
@@ -1788,13 +1820,10 @@ static void update_list(void)
 				*next++ = 0;
 			if (!line[0])
 				continue;
-			/* (a game of another OpenCE number too when its host speaks
-			Delta: joining it goes by the game wire its advertisement says,
-			network_game_client_advertised_game_compatible) */
-			if (parse_game(line, &games[count]) &&
-				((games[count].version >= delta_legacy_minimum() && games[count].version <= delta_legacy_maximum()) ||
-				(games[count].protocol == BROWSER_PROTOCOL_DELTA && delta_peer_protocol() != _delta_peer_protocol_opence)) &&
-				strcmp(games[count].invite, own))
+			/* (a game of another number is kept, marked by the screens: a
+			Delta host's may still be joined, by the game wire its
+			advertisement says, network_game_client_advertised_game_compatible) */
+			if (parse_game(line, &games[count]) && strcmp(games[count].invite, own))
 			{
 				count++;
 			}
@@ -1811,7 +1840,10 @@ static void update_list(void)
 	{
 		memcpy(browser.games, games, sizeof(*games) * (size_t)count);
 		browser.game_count = count;
+		browser.list_answered_time = browser.list_time;
 	}
+	else if (elapsed(browser.list_answered_time, LIST_STALE))
+		browser.game_count = 0;
 	pthread_mutex_unlock(&browser_lock);
 	free(games);
 }
@@ -2152,7 +2184,7 @@ void browser_report_game(int teams, int red_score, int blue_score, int duration_
 	pthread_mutex_unlock(&browser_lock);
 }
 
-void browser_client_report(int teams, int red_score, int blue_score, int duration_seconds,
+int browser_client_report(int teams, int red_score, int blue_score, int duration_seconds,
 	const struct browser_report_player *players, int count, const char *extra)
 {
 	char invite[BROWSER_INVITE_LENGTH + 1];
@@ -2162,11 +2194,11 @@ void browser_client_report(int teams, int red_score, int blue_score, int duratio
 	if (!config_string("network.browser_url")[0] || !config_boolean("network.report_joined_games") ||
 		!p2p_joined_invite(invite, sizeof(invite)))
 	{
-		return;
+		return 0;
 	}
 	report = report_json(teams, red_score, blue_score, duration_seconds, players, count, extra, NULL);
 	if (!report)
-		return;
+		return 0;
 	/* (the invite first: which game it is) */
 	size = strlen(report) + BROWSER_INVITE_LENGTH + 32;
 	body = malloc(size);
@@ -2174,7 +2206,7 @@ void browser_client_report(int teams, int red_score, int blue_score, int duratio
 		snprintf(body, size, "{\"invite\": \"%s\", %s", invite, report + 1);
 	free(report);
 	if (!body)
-		return;
+		return 0;
 	pthread_once(&browser_once, start_thread);
 	pthread_mutex_lock(&browser_lock);
 	free(browser.client_report);
@@ -2182,6 +2214,7 @@ void browser_client_report(int teams, int red_score, int blue_score, int duratio
 	browser.client_report_attempts = 0;
 	browser.client_report_time = p2p_now();
 	pthread_mutex_unlock(&browser_lock);
+	return 1;
 }
 
 /* the local players of a game that ended: their lines confirmed with the
@@ -2479,17 +2512,16 @@ static int invite_identifier(const char *invite, unsigned char *identifier)
 	return 1;
 }
 
-/* what the list does not say of its games and this machine knows: the
-round trip to a host the tunnel reaches, and which games' public listings
-have a password (a listing's key hash is its invite's first half) */
-static void add_known(struct browser_game *games, int count)
+/* the public listings heard on the brokers (p2p_lobby.c) while they are
+followed, read again each LISTINGS_INTERVAL (the game's thread's alone) */
+enum { LISTINGS = 256, LISTINGS_INTERVAL = 1000 };
+static struct p2p_listing listings[LISTINGS];
+static int listing_count;
+
+static void read_listings(void)
 {
-	enum { LISTINGS = 64, LISTINGS_INTERVAL = 1000 };
-	static struct p2p_listing listings[LISTINGS];
-	static int listing_count;
 	static unsigned long listings_time;
 	static int listings_read;
-	int index, other;
 
 	if (!listings_read || elapsed(listings_time, LISTINGS_INTERVAL))
 	{
@@ -2497,6 +2529,112 @@ static void add_known(struct browser_game *games, int count)
 		listings_time = p2p_now();
 		listings_read = 1;
 	}
+}
+
+/* strcmp without case (ASCII): the server and Android builds have no
+SDL_strcasecmp */
+static int text_compare_no_case(const char *a, const char *b)
+{
+	for (; *a && *b; a++, b++)
+	{
+		int x = (*a >= 'A' && *a <= 'Z') ? *a + 32 : *a;
+		int y = (*b >= 'A' && *b <= 'Z') ? *b + 32 : *b;
+
+		if (x != y)
+			return x - y;
+	}
+	return (unsigned char)*a - (unsigned char)*b;
+}
+
+
+/* whether a listing is a game the list has: the same invite token (the
+invite's last 32 hexadecimal digits), or, for a host that lists a game once
+for each network version (p2p_listing_older_copy), the same name, map,
+game type and players */
+static int listing_on_list(const struct p2p_listing *listing, const char *code, const struct browser_game *games,
+	int count)
+{
+	int index, character;
+
+	for (index = 0; index < count; index++)
+	{
+		const struct browser_game *game = &games[index];
+
+		if (!text_compare_no_case(code + BROWSER_INVITE_LENGTH - 32, game->invite + BROWSER_INVITE_LENGTH - 32))
+			return 1;
+		if (game->engine != listing->engine_type || game->players != listing->player_count ||
+			game->maximum_players != listing->maximum_player_count || text_compare_no_case(game->map, listing->map))
+		{
+			continue;
+		}
+		for (character = 0; character < BROWSER_NAME_LENGTH && listing->name[character]; character++)
+		{
+			unsigned short a = game->name[character], b = (unsigned char)listing->name[character];
+
+			if ((a >= 'A' && a <= 'Z' ? a + 32 : a) != (b >= 'A' && b <= 'Z' ? b + 32 : b))
+				break;
+		}
+		if ((character == BROWSER_NAME_LENGTH || !listing->name[character]) &&
+			(character == BROWSER_NAME_LENGTH || !game->name[character]))
+		{
+			return 1;
+		}
+	}
+	return 0;
+}
+
+/* the games heard on the brokers that the list lacks, after its count
+games (up to maximum_count): marked direct, and OpenCE (legacy) while the
+list answers (a Chupathingy host announces its game to the list too; the
+site marks a game it only hears there the same way). One with a password,
+whose invite is sealed (p2p_listing_unlock), is left to the Server Browser,
+which asks for it; and this machine's own is left out, as the list's is */
+static int add_direct(struct browser_game *games, int count, int maximum_count, int list_answered)
+{
+	char own[BROWSER_INVITE_LENGTH + 1];
+	int listed = count, index, character;
+
+	if (!p2p_hosting_invite(own, sizeof(own)))
+		own[0] = 0;
+	for (index = 0; index < listing_count && count < maximum_count; index++)
+	{
+		const struct p2p_listing *listing = &listings[index];
+		const char *code = !SDL_strncasecmp(listing->invite, "halo://join/", 12) ? listing->invite + 12 : "";
+		struct browser_game *game = &games[count];
+
+		if (listing->locked || strlen(code) != BROWSER_INVITE_LENGTH || !text_compare_no_case(code, own) ||
+			listing_on_list(listing, code, games, listed))
+		{
+			continue;
+		}
+		memset(game, 0, sizeof(*game));
+		snprintf(game->invite, sizeof(game->invite), "%s", code);
+		for (character = 0; character < BROWSER_NAME_LENGTH && listing->name[character]; character++)
+			game->name[character] = (unsigned char)listing->name[character];
+		snprintf(game->map, sizeof(game->map), "%s", listing->map);
+		game->engine = listing->engine_type;
+		game->players = listing->player_count;
+		game->maximum_players = listing->maximum_player_count;
+		game->open = listing->open;
+		game->teams = listing->has_teams;
+		game->version = listing->version;
+		game->hosting = listing->dedicated ? BROWSER_HOSTING_DEDICATED : BROWSER_HOSTING_UNKNOWN;
+		game->protocol = list_answered ? BROWSER_PROTOCOL_OPENCE : BROWSER_PROTOCOL_UNKNOWN;
+		game->kind = listing->kind;
+		game->direct = 1;
+		game->opence_server = listing->opence_server;
+		count++;
+	}
+	return count;
+}
+
+/* what the list does not say of its games and this machine knows: the
+round trip to a host the tunnel reaches, and which games' public listings
+have a password (a listing's key hash is its invite's first half) */
+static void add_known(struct browser_game *games, int count)
+{
+	int index, other;
+
 	for (index = 0; index < count; index++)
 	{
 		unsigned char identifier[P2P_IDENTIFIER_SIZE];
@@ -2522,14 +2660,20 @@ static void add_known(struct browser_game *games, int count)
 			}
 		}
 		games[index].locked = 0;
+		if (games[index].direct)
+			continue;
+		games[index].kind = 0;
+		games[index].opence_server = 0;
 		for (other = 0; other < listing_count; other++)
 		{
-			if (!listings[other].locked)
-				continue;
 			p2p_hex(listings[other].key_hash, P2P_KEY_HASH_SIZE, key_hash);
 			if (!SDL_strncasecmp(key_hash, games[index].invite, 2 * P2P_KEY_HASH_SIZE))
 			{
-				games[index].locked = 1;
+				games[index].locked = listings[other].locked;
+				games[index].kind = listings[other].kind;
+				/* (a Delta host is never OpenCE's, whatever its listing) */
+				games[index].opence_server = games[index].protocol != BROWSER_PROTOCOL_DELTA &&
+					listings[other].opence_server;
 				break;
 			}
 		}
@@ -2540,6 +2684,8 @@ static void add_known(struct browser_game *games, int count)
 
 /* (every build, with the game browser or without: the menus' lobbies ask
 it too, port/linux/game/menu_functions.c) */
+#include "browser.h"
+
 #include <string.h>
 
 /* whether two names are the same, ASCII letters in either case (every
@@ -2579,7 +2725,51 @@ int browser_map_is_campaign(const char *map)
 	return 0;
 }
 
+/* the lists' filter by kind of game (All, Multiplayer, Co-op), kept for the
+session (every build: the consoles' Join Game screen has it too,
+port/linux/game/menu_functions.c) */
+static int list_filter;
+
+int browser_list_filter(void)
+{
+	return list_filter;
+}
+
+void browser_list_filter_cycle(void)
+{
+	list_filter = (list_filter + 1) % BROWSER_LIST_FILTERS;
+}
+
+const char *browser_list_filter_name(void)
+{
+	static const char *const names[BROWSER_LIST_FILTERS] = { "ALL", "MULTIPLAYER", "CO-OP" };
+
+	return names[list_filter];
+}
+
+int browser_list_filter_allows(const char *map)
+{
+	if (list_filter == BROWSER_LIST_FILTER_ALL)
+		return 1;
+	return browser_map_is_campaign(map) == (list_filter == BROWSER_LIST_FILTER_COOP);
+}
+
+int browser_version_state(int version)
+{
+	if (version < delta_legacy_minimum())
+		return -1;
+	return version > delta_legacy_maximum() ? 1 : 0;
+}
+
 #ifdef HALO_GAME_BROWSER
+
+int browser_game_version_state(const struct browser_game *game)
+{
+	/* (a Delta host's other number may still be joined, as above) */
+	if (game->protocol == BROWSER_PROTOCOL_DELTA && delta_peer_protocol() != _delta_peer_protocol_opence)
+		return 0;
+	return browser_version_state(game->version);
+}
 
 int browser_get_games(struct browser_game *games, int maximum_count)
 {
@@ -2591,6 +2781,8 @@ int browser_get_games(struct browser_game *games, int maximum_count)
 	count = browser.game_count < maximum_count ? browser.game_count : maximum_count;
 	memcpy(games, browser.games, sizeof(*games) * (size_t)count);
 	pthread_mutex_unlock(&browser_lock);
+	read_listings();
+	count = add_direct(games, count, maximum_count, browser_list_status() == BROWSER_LIST_ANSWERED);
 	add_known(games, count);
 	return count;
 }

@@ -114,29 +114,37 @@ Raise it with any change to what the machines send each other. */
 from it only in what the other machines leave out (a message a machine of
 the other version does not know it drops). Which are which is delta.h's
 table (DELTA_LEGACY_VERSIONS): the minimum is its newest breaking version,
-the maximum its newest or above it: hosts of OpenCE's next versions are
-joined before a release follows them, as most of its raises leave the game's
+the maximum its newest and the next (DELTA_LEGACY_PRESUMED): hosts of
+OpenCE's next versions are joined before a release follows them, as most of its raises leave the game's
 messages as they were (tools/test_delta.py checks them; they stay numbers
 here, which the command repository reads). A host
 never checks a client's version: the client does (network_client_manager.c),
 so the range is the client's. */
 #define HALO_PORT_NETWORK_VERSION_MINIMUM 11
-#define HALO_PORT_NETWORK_VERSION_MAXIMUM 33
+#define HALO_PORT_NETWORK_VERSION_MAXIMUM 40
 /* ... the numbers in use (port/linux/src/delta.c): the three above, until a
 legacy table (docs/delta.md) widens them; code asks these, not the numbers */
 int delta_legacy_announce(void);
 int delta_legacy_minimum(void);
 int delta_legacy_maximum(void);
 /* ... the advertisement's reserved bytes: the version (a little-endian word),
-then flags */
+then flags, then (version 37) the game's kind: an OpenCE game type in the low
+seven bits, Hardcore in bit 7; our hosts play none and send 0. A Delta host's
+own bytes are at the tail (delta.h, DELTA_ADVERTISED_TAG_OFFSET). */
 #define HALO_PORT_ADVERTISED_VERSION_OFFSET 0
 #define HALO_PORT_ADVERTISED_FLAGS_OFFSET 2
+#define HALO_PORT_ADVERTISED_KIND_OFFSET 3
 /* ... the host plays the distributed netcode (always, since the lockstep
 netcode was removed; hosts of version 4 built before then may not) */
 #define HALO_PORT_ADVERTISED_DISTRIBUTED_FLAG 0x01
 /* ... the game is under way (loading, playing or over), not in its lobby:
 the menus show it before joining it (hosts built before then never set it) */
 #define HALO_PORT_ADVERTISED_IN_PROGRESS_FLAG 0x02
+/* ... a dedicated server's game (version 39): set by a dedicated server that
+announces 39 or later (delta_peer_advertised_flags); hosts of the old Delta
+layout set 0x04 for Delta (delta.h's DELTA_ADVERTISED_FLAG) */
+#define HALO_PORT_ADVERTISED_DEDICATED_FLAG 0x04
+#define HALO_PORT_ADVERTISED_DEDICATED_VERSION 39
 
 /* a message header's 12-bit length allows messages of up to 0xFFF bytes,
 header included; the per-tick update of 128 players is 3,857 */

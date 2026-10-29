@@ -11,6 +11,16 @@
 #   docker buildx build --platform linux/386,linux/amd64,linux/arm64 .
 # (deploy.sh puts the one server it is given there, and builds for it)
 FROM alpine:3.22
+# (the release workflow, server-image.yml, gives the version and commit)
+ARG VERSION=dev
+ARG REVISION=
+LABEL org.opencontainers.image.title="Chupathingy Dedicated Server" \
+	org.opencontainers.image.description="The Chupathingy dedicated server for Halo: Combat Evolved. No game files: mount your maps at /data." \
+	org.opencontainers.image.source="https://github.com/ChupathingyCE/chupathingyce" \
+	org.opencontainers.image.url="https://github.com/ChupathingyCE/chupathingyce/blob/main/server/docs/docker.md" \
+	org.opencontainers.image.licenses="GPL-3.0-or-later" \
+	org.opencontainers.image.version="${VERSION}" \
+	org.opencontainers.image.revision="${REVISION}"
 # (BuildKit's, from the platform; Docker's legacy builder needs it given:
 # --build-arg TARGETARCH=amd64, as deploy.sh does)
 ARG TARGETARCH

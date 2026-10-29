@@ -42,6 +42,9 @@ HALO_BUILD_FLAVOR.
 #define BUILD_IDENTITY_PLATFORM "Windows"
 #elif defined(__APPLE__)
 #define BUILD_IDENTITY_PLATFORM "macOS"
+#elif defined(HALO_UNIX_PLATFORM_NAME)
+/* (the other Unix hosts': tools/unix64_build.py) */
+#define BUILD_IDENTITY_PLATFORM HALO_UNIX_PLATFORM_NAME
 #else
 #define BUILD_IDENTITY_PLATFORM "Linux"
 #endif

@@ -46,9 +46,14 @@ enum
 	RASTERIZER_MAXIMUM_DYNAMIC_TRIANGLES_EXTRAS = HALO_PORT_MAXIMUM_DYNAMIC_TRIANGLES_EXTRAS,
 	RASTERIZER_MAXIMUM_DYNAMIC_TRIANGLE_BUFFERS = 1024,
 #ifndef HALO_XBOX_CONSOLE
-	/* four per particle (build_sprites_begin), for the native builds' larger
-	particle pool (halo_port_capacity.h) */
-	RASTERIZER_MAXIMUM_DYNAMIC_UNLIT_VERTICES = 4 * HALO_PORT_MAXIMUM_PARTICLES,
+	/* four per particle (build_sprites_begin), twice over for the native
+	builds' larger particle pool (halo_port_capacity.h): the frame's particle
+	systems, contrails, glows and lightning draw from it too, and a Halo PC
+	map's busy frame asked for more than four per particle (coldsnap: 22672
+	vertices for one batch with 30488 in use). Never fewer than the Xbox's */
+	RASTERIZER_MAXIMUM_DYNAMIC_UNLIT_VERTICES = 8 * HALO_PORT_MAXIMUM_PARTICLES > 12288 ?
+		8 * HALO_PORT_MAXIMUM_PARTICLES :
+		12288,
 #else
 	/* (3 x the 4096 of the Xbox's 1024 particles: a busy 16-player match
 	spent 8192 on sprites, the frame's particles drawn in several passes) */
@@ -912,6 +917,14 @@ void rasterizer_draw_unicode_string(
 	point2d *cursor_reference,
 	short height_adjust,
 	wchar_t const *string);
+/* port: the span its ink is drawn across, as rasterizer_draw_unicode_string
+draws the string in these bounds (the high-res text's glyphs, else the font
+tag's characters); FALSE when nothing shows */
+boolean rasterizer_text_ink_span(
+	rectangle2d const *bounds,
+	wchar_t const *string,
+	real *x0,
+	real *x1);
 /* port: text drawn scale times larger about a point, until set back to 1 */
 void rasterizer_text_set_scale(
 	real scale,

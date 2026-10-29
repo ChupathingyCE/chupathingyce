@@ -39,15 +39,24 @@ what fixes it.
 ### Wires
 
 Each build has a wire ID, `DELTA_WIRE` in `port/linux/include/delta.h`
-(`chupa-32a` in 0.8.0; `chupa-29a` and `chupa-28a` before it). It names the
+(`chupa-39a` from the release after 0.8.0h, `chupa-38a` in 0.8.0h,
+`chupa-32a` in 0.8.0 to 0.8.0g; `chupa-29a` and `chupa-28a` before it). It names the
 revision of the game protocol the build actually speaks, which is not the same
 thing as the legacy network number the original game protocol advertises. A
 release that changes how a game plays gives itself a new wire.
 
-A Delta host puts its Delta major and its wire ID in the reserved bytes of its
-advertisement after the port's version and flags
-(`DELTA_ADVERTISED_WIRE_OFFSET`). Clients that do not read those bytes see
-nothing different.
+A Delta host puts its Delta major and its wire in the reserved bytes of its
+advertisement: since `chupa-39a` in the Delta tag at their tail
+(`DELTA_ADVERTISED_TAG_OFFSET`), clear of OpenCE's version, flags and kind;
+before that after the port's version and flags (`DELTA_ADVERTISED_WIRE_OFFSET`,
+with the flag 0x04), which new clients still read. Clients that do not read
+those bytes see nothing different (docs/delta.md, "The advertisement", and
+and its transition, which has no end date).
+
+Every wire from the console floor on (`DELTA_WIRE_CONSOLE_FLOOR`,
+`chupa-32a`: the Xbox and Switch builds) plays back to it, so a new PC wire
+never splits the consoles from the PCs; CI checks it (docs/delta.md, "The
+console floor").
 
 ### The exact-wire join rule
 
@@ -232,6 +241,12 @@ Planned, built on section 3's advertisement.
 - **The same words everywhere.** The game list on the site, the in-game list
   and a failed join use the same reason strings, so a player is not told
   something different in each place.
+  Done for 0.8.1: the sentences are in `port/linux/include/halo_join_reasons.h`
+  ("Needs a newer Chupathingy.", "The host is on an older version.", "Map not
+  installed: ...", "Game is full.", "Password needed." and the rest), used by
+  Online Games, the PC Server Browser and the failed-join message. The site's
+  list has the same ones (puma `web/site.js`, `JOIN_REASONS`), and
+  `tools/test_join_reasons.py` holds the list both follow.
 - **Failures stay clean.** A join that fails after the list said it would work
   (a stale map, a host that changed since) ends the join with the reason and
   does not start a game that might drift.

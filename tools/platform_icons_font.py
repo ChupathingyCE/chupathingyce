@@ -5,9 +5,11 @@ from the one-color SVGs in port/linux/ui/fonts/platform_icons/:
     python tools/platform_icons_font.py
 
 Each SVG is 24 x 24 with a single filled path (no transforms, strokes or
-gradients; holes wind against their outline). It becomes one glyph at
-U+E100 plus its platform number (delta.h's enum delta_platform), named by
-the file: pc_windows.svg is platform 1. Needs fontTools.
+gradients; holes wind against their outline). It becomes one glyph, named by
+the file, at U+E100 plus each of its platform numbers (delta.h's enum
+delta_platform, PLATFORMS below): pc_windows.svg is platform 1, and
+playstation.svg draws every PlayStation's (10, 11, 14, 15, 16). Needs
+fontTools.
 """
 
 import sys
@@ -24,10 +26,13 @@ ROOT = Path(__file__).resolve().parent.parent
 SOURCES = ROOT / "port/linux/ui/fonts/platform_icons"
 OUTPUT = ROOT / "port/linux/ui/fonts/platform_icons.ttf"
 BASE = 0xE100
-# delta.h's enum delta_platform (unknown has no logo)
+# each SVG's platforms, delta.h's enum delta_platform (unknown has no logo,
+# nor do the Nintendo 64, 17, and the Legacy PC, 18, yet)
 PLATFORMS = {
-    "pc_windows": 1, "pc_macos": 2, "pc_linux": 3, "android": 4, "steam_deck": 5, "xbox": 6, "xbox360": 7,
-    "wiiu": 8, "switch": 9, "psp": 10, "vita": 11, "xbox_uwp": 12,
+    "pc_windows": (1,), "pc_macos": (2,), "pc_linux": (3,), "android": (4,), "steam_deck": (5,), "xbox": (6,),
+    "xbox360": (7,), "wiiu": (8,), "switch": (9,), "xbox_uwp": (12,), "pc_freebsd": (13,),
+    # (the PSP, the Vita, the PS3, the PS4 and the PS5)
+    "playstation": (10, 11, 14, 15, 16),
 }
 UNITS = 1024
 ASCENT = 880
@@ -53,7 +58,7 @@ def main() -> None:
     unknown = [f.name for f in files if f.stem not in PLATFORMS]
     if unknown or not files:
         sys.exit(f"no platform for {unknown}" if unknown else "no SVGs")
-    files.sort(key=lambda f: PLATFORMS[f.stem])
+    files.sort(key=lambda f: PLATFORMS[f.stem][0])
     order = [".notdef"] + [f.stem for f in files]
     glyphs = {".notdef": TTGlyphPen(None).glyph()}
     metrics = {".notdef": (UNITS, 0)}
@@ -61,7 +66,8 @@ def main() -> None:
     for f in files:
         glyphs[f.stem] = glyph(f)
         metrics[f.stem] = (UNITS, 0)
-        cmap[BASE + PLATFORMS[f.stem]] = f.stem
+        for platform in PLATFORMS[f.stem]:
+            cmap[BASE + platform] = f.stem
     builder = FontBuilder(UNITS, isTTF=True)
     builder.setupGlyphOrder(order)
     builder.setupCharacterMap(cmap)

@@ -176,8 +176,43 @@ static void test_a_name_with_inner_spaces_differs(void)
 	CHECK(kept() == 2);
 }
 
+static int hidden(int index)
+{
+	return p2p_listing_hidden_copy(games, heard_times, count, index, 20, 30);
+}
+
+static void test_a_version_outside_the_window_is_kept_marked_not_hidden(void)
+{
+	reset();
+	add("Lobby", 36, 100);
+	add("Other", 32, 100);
+	CHECK(!hidden(0));
+	CHECK(!hidden(1));
+}
+
+static void test_a_joinable_copy_stands_for_a_newer_one_outside_the_window(void)
+{
+	reset();
+	add("Game", 36, 100);
+	add("Game", 29, 100);
+	CHECK(hidden(0));
+	CHECK(!hidden(1));
+}
+
+static void test_copies_outside_the_window_keep_one(void)
+{
+	reset();
+	add("Game", 35, 100);
+	add("Game", 36, 100);
+	CHECK(hidden(0));
+	CHECK(!hidden(1));
+}
+
 int main(void)
 {
+	test_a_version_outside_the_window_is_kept_marked_not_hidden();
+	test_a_joinable_copy_stands_for_a_newer_one_outside_the_window();
+	test_copies_outside_the_window_keep_one();
 	test_one_game_under_every_version_shows_once();
 	test_the_newest_version_wins_whatever_the_order();
 	test_of_the_newest_copies_the_last_heard();

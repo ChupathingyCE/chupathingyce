@@ -83,7 +83,8 @@ enum
 	/* the server's minute: value[0] the players, value[1] the frame's
 	milliseconds (x100, average), value[2] the longest (x100), value[3]
 	the process's resident memory (KB, -1 unknown); bits its CPU
-	(thousandths of a core, -1 unknown, as int) */
+	(thousandths of a core, -1 unknown, as int); position[0] and [1] the
+	traffic received and sent over the minute (kilobits a second) */
 	EVENT_LOG_HEALTH,
 	/* player (none: someone not in the game); value[0]
 	EVENT_LOG_MODERATION_*; tag[0] the reason, tag[1] by whom, tag[2] the

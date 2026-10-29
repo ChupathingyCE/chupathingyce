@@ -227,6 +227,78 @@ decides friendly fire by its own setting. Messages 87 to 89 are OpenCE's
 text chat, which Delta chat bridges (`docs/delta.md`, Chat): a build without
 them drops them as unknown, so they take no version of their own.
 
+Versions 33 to 38 are OpenCE's, which this build's clients play while its
+hosts still announce 32 (`network_rules_of_version`, by the version the host
+advertised; a host not known plays by the older rules). Version 33 adds a
+second bit to the settings' co-op byte (bit 1: the players' hits do their AI
+allies no harm), which only a host acts on. Version 34 changes no message:
+scenery and devices that are a shield alone (Rat Race's energy shields, a
+Custom Edition map's tripmines) are static targets too, which a client
+reports its hits on and applies the host's events to; a client runs the
+shields of static targets itself (no host sends them); a client reports no
+damage whose owner object is a static target (a tripmine going off, which
+the host deals); and a host's event naming an index that is no object on the
+client, the host's copy of one made during play, is applied to the client's
+nearest static target to the damage's origin, within its bounding sphere and
+2.0 world units (and an area effect's cutoff radius). Version 35 grows the
+gametype's PC options from 0x1C to 0x2C bytes (OpenCE's SWAT, Infection,
+Gun Game and Hardcore), so the settings record is 13,136 bytes at the
+network's slots, not 13,120: a client takes the size by the host's version
+(either, from a host not known), makes a newer record the older layout
+before anything reads it, and sanitizes the 16 further bytes
+(`network_rules.c`). A game that plays one of those game types is left, and
+the player told which, as this build doesn't play them yet. Version 36 adds
+message 91, the host's shield effects (12 bytes: the header, a 16-bit 0 to 5,
+16 bits of 0), reliably from the host; a client takes it and draws stock,
+the only shield look this build has. Version 37 puts a game's kind (an OpenCE
+game type in the low seven bits, Hardcore in bit 7) in a byte that was zero:
+the advertisement's fourth reserved byte and the first byte of the internet
+listing's stamp. Our readers take any value there (the listing's signature
+covers the stamp as sent) and the game list names the game types this build
+doesn't play, marking them like a game of a newer build; our own hosts send
+a stock game's kind, 0. Version 38 lets message 91 carry 6, each machine's
+own look, which this build draws as stock too.
+
+A host plays by the number it announces (`delta_legacy_announce()`: the
+built-in one, or a legacy table's), which is the number of every OpenCE
+machine in its game, as they join only their own. From 34 a host takes
+scenery and devices that are a shield alone as static targets (their hits
+reported, their damage sent to every machine), finds the nearest of its own
+static targets (within its bounding sphere and 1.0 more) for a client's hit
+report on an index that names none of its units, weapons, equipment or
+static targets (a tripmine each machine made at an index of its own), and
+deals a static target's own damage (a tripmine's going off) itself for the
+machines whose players no longer report it: OpenCE's of 34 on, and Delta
+machines that take 35's record from it; an older build's report is still
+taken, so it is never dealt twice. From 35 the game settings record is 16
+bytes longer (13,136: the gametype's options 0x2C bytes, OpenCE's own game
+types' bytes; this host plays none of them and sends their defaults), and a
+machine takes only the size of its version. An OpenCE machine takes the
+announced number's; a Delta machine the record of the older of its HELLO's
+number (the newest it plays, `DELTA_LEGACY_NEWEST`; builds before 36 said
+32 or older there) and the host's. A Delta host that announces 35 or later
+therefore holds a joining machine's record until its HELLO comes, or the
+handshake's 4 seconds are over (an OpenCE machine); the size is then that
+machine's while it is connected; the game does not start while a machine
+waits for its record, and a machine joining it in progress is started once
+its record has gone. Under 35 every machine gets the older record
+at once, as before. From 33 a host sets co-op's second bit from
+`network.coop_ally_friendly_fire` (on by default: the players' hits harm
+their AI allies, as OpenCE's default) and honors it: with the bit set, a
+player's hit on a unit that is no player's does it no harm in network co-op
+(`game_engine_friendly_damage`); the AI's own hits on its allies are the
+game's, as ever. From 36 a host sends message 91 (shield effects), as it
+sends message 90: to a client when it has loaded, and to every client once
+each game: stock (0), or from 38 each machine's own look (6), as this build
+draws no glow or overshield of its own. From 37 the advertisement's fourth
+reserved byte (the game's kind) is 0, and from 39 a dedicated server sets
+the advertisement's flag 0x04 and the internet listing's flag 32 (OpenCE's
+dedicated flags). A Delta host's own bytes are the Delta tag at the reserved
+bytes' tail (docs/delta.md, "The advertisement"). For released clients a
+dedicated server that hosts with Delta also sets 0x04 and, in a game that
+is not Slayer, writes the old layout's major and slot from byte 3, where
+OpenCE names no kind (docs/delta.md, "The transition").
+
 A host never checks a joining client's version: the client reads the
 host's from its advertisement and joins only a version it plays with. That
 is its own, or one of a range (HALO_PORT_NETWORK_VERSION_MINIMUM to
@@ -249,7 +321,7 @@ format with ours: extract that build's source (for example `git archive
 `python3 tools/network_format.py --compare /tmp/opence`. Their own message
 kinds (votes to kick, voice, map sharing) are expected there, as is our
 `server_pregame_keep_alive` field list (the same bytes on the wire); match
-anything else before taking the number. The tool is OpenCE's (Addison Bair,
+anything else before taking the number. The tool is OpenCE's (addisonbair,
 MrBruh), CC0.
 
 A client plays by its host's rules: in another's game (searching for it,
@@ -419,7 +491,10 @@ a pregame keep-alive every five seconds from the host
    60, every third within 120, every fourth further off), to every client
    three times over half a second as an object comes to rest (one lost
    would leave a falling body hanging until its turn round all of them),
-   and a few of those at rest, round them all. A client takes the host's
+   and a few of those at rest, round them all. An object at rest that a
+   script moves (objects_attach and objects_detach, object_teleport) stays
+   at rest, so the host sends it as a moving one while it moves: Coldsnap's
+   Pelicans carry their cargo that way. A client takes the host's
    word on whether each is at rest even when its copy is close enough to
    leave where it is. A body's pose goes with it: one lying limp that the
    host moves stops lying limp (the blast that moved the host's reaches

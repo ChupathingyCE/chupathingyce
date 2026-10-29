@@ -6,6 +6,34 @@ release notes.
 
 ## Unreleased
 
+- Map names as Halo PC takes them: commas, brackets, spaces and the rest a
+  Windows file name can have (`bigassv2,104@ce`, `[h3]_sandtrap@ce`), in
+  `sv_map`, `sv_maps` and playlists. A name with a space goes in double
+  quotes (`sv_map "skedar v2@ce" slayer`, and the same in a playlist file).
+  A playlist entry that cannot be played (a missing or damaged map, a
+  campaign level, an unknown game type, or a lobby that closed before its
+  game started) is skipped with the reason in the log, `sv_status` and the
+  panel, instead of being hosted again every 5 seconds or stopping the
+  server on the damaged disc error. When every entry is skipped, the server
+  waits 5 seconds, then twice as long each round, up to 5 minutes.
+- GameSpy status queries, off by default (`gamespy_listing`,
+  `HALO_DEDICATED_GAMESPY_*`): the server answers `\basic\` and QR2 status
+  queries on UDP 2302 and sends QR2 heartbeats to the masters Halo Custom
+  Edition 1.0.10 reports to, with Xbox maps named `xbox_<map>` (naming from
+  the Custom Edition community, via ugoboom). It reports its own version, so
+  Custom Edition 1.0.10's browser does not show it.
+- Control panel hardening: `sv_welcome` needs the settings permission (an
+  admin's) and is in the audit file; a command missing from the permission
+  table is the console's alone. Wrong logins lock an account only for the
+  address they came from, are forgotten after 15 quiet minutes, and a
+  locked login reads as a wrong password; `HALO_DEDICATED_CONTROL_TRUSTED_PROXY`
+  lets the limits count each client behind a reverse proxy. The pending
+  link code is shown only to the owner and the console, and no longer
+  written to the log. A second factor is replaced only by turning it off
+  first (password and code). Idle connections are dropped after 3 seconds,
+  8 at most from one address. The log hides IPv4-mapped IPv6 addresses;
+  `sv_link_status`'s JSON is escaped; `HALO_DEDICATED_LINK_URL`'s plain-HTTP
+  exception is this machine's exact address only.
 - Bomb and Grifball game types for playlists (`bomb`, `grifball`,
   `grifball_open_pitch`, `bomb.*` fields), played only with Chupathingy
   clients; standard game types are unchanged.

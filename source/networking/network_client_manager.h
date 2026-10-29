@@ -46,10 +46,20 @@ boolean network_game_client_set_team(
 boolean network_game_client_advertised_game_in_progress(
 	struct network_game_client *client,
 	struct network_advertised_game const *game);
+#if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_DELTA)
+/* port: whether the advertised game is an OpenCE dedicated server's (a label) */
+boolean network_game_client_advertised_game_opence_server(
+	struct network_game_client *client,
+	struct network_advertised_game const *game);
+#endif
 boolean network_game_client_advertised_game_compatible(
 	struct network_game_client *client,
 	struct network_advertised_game const *game,
 	boolean tell);
+/* port: why network_game_client_advertised_game_compatible last refused a
+game, one short line ("" before any refusal): what a console's Online Games
+screen shows the player */
+char const *network_game_client_refusal(void);
 #ifdef HALO_GAME_BROWSER
 /* the advertisement of the game an invite's host advertises (the game
 list's probe, server/src/probe.c) */
@@ -107,6 +117,9 @@ short network_game_client_get_machine_index(
 /* port: the joined game's host's network version (0xFFFF: not known) */
 unsigned int network_game_client_host_network_version(
 	void);
+/* port: ... where it was not known, the version it showed it is at least */
+void network_game_client_note_host_network_version(
+	unsigned int version);
 boolean network_game_client_advertised_game_is_valid(
 	struct network_advertised_game *advertised_game);
 struct network_advertised_game *network_game_client_get_available_games(
@@ -195,6 +208,11 @@ long network_game_client_get_next_update_number(
 	struct network_game_client *client);
 long unstrip_player_index(
 	long player_index);
+/* port: whether a host's map name (ending within size bytes) is one the
+game takes: any map file name Halo PC takes, no path out of the maps folder */
+boolean network_game_client_map_name_is_valid(
+	char const *map_name,
+	long size);
 
 /* ---------- globals */
 

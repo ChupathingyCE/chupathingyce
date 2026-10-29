@@ -104,6 +104,9 @@ symbols in this file:
 #include "observer.h"
 
 #include "game/players.h"
+#ifndef HALO_XBOX_CONSOLE
+#include "game/game.h"
+#endif
 #include "networking/network_connection.h"
 #include "cache/predicted_resources.h"
 #include "physics/collisions.h"
@@ -232,6 +235,73 @@ typedef char observer_size_assert[
 	sizeof(struct observer) == 0x29C ? 1 : -1];
 typedef char observer_globals_size_assert[
 	sizeof(struct observer_globals) == 0xA74 ? 1 : -1];
+#endif
+
+#ifndef HALO_XBOX_CONSOLE
+/* The camera's velocity over the last game tick, for the sound listener's
+Doppler shift (sound_manager.c, refresh_listener). The observer runs once a
+frame, and its velocity is that frame's. A first-person camera snaps to
+where the player is after each tick, its velocity that move over the frame:
+at 30 frames a second (the Xbox) a tick's move over a tick, but at 144 a
+tick's move over the one frame after the tick (almost 5 times too fast) and
+nothing on the frames between. Every 3D sound took that, less the listener's
+velocity, as its own, and warbled 30 times a second while the player moved.
+Here a snapping camera's moves are added up and taken over the ticks they
+were made in, which is the Xbox's velocity again at 30 frames a second. A
+camera gliding to its target (a timed observer command) has a velocity of
+its own, smooth from frame to frame, and keeps it. */
+struct observer_tick_velocity
+{
+	boolean valid;
+	long tick;
+	real_vector3d moved;
+	real_vector3d velocity;
+};
+
+static struct observer_tick_velocity observer_tick_velocities[MAXIMUM_NUMBER_OF_LOCAL_PLAYERS];
+
+/* a frame of dtime seconds, the game at tick, whose velocity was velocity:
+the camera's own (gliding) or its move over the frame */
+static void observer_tick_velocity_add(
+	struct observer_tick_velocity *average,
+	long tick,
+	real dtime,
+	boolean gliding,
+	real_vector3d const *velocity)
+{
+	if (!average->valid || tick < average->tick)
+	{
+		average->valid = TRUE;
+		average->tick = tick;
+		average->moved.i = average->moved.j = average->moved.k = 0.f;
+		average->velocity.i = average->velocity.j = average->velocity.k = 0.f;
+	}
+	if (gliding)
+	{
+		average->moved.i = average->moved.j = average->moved.k = 0.f;
+		average->velocity = *velocity;
+	}
+	else
+	{
+		average->moved.i += velocity->i*dtime;
+		average->moved.j += velocity->j*dtime;
+		average->moved.k += velocity->k*dtime;
+		/* (the frame a tick ran in moves the camera by that tick: it ends
+		the tick's move) */
+		if (tick != average->tick)
+		{
+			real scale = (real)TICKS_PER_SECOND/(real)(tick - average->tick);
+
+			average->velocity.i = average->moved.i*scale;
+			average->velocity.j = average->moved.j*scale;
+			average->velocity.k = average->moved.k*scale;
+			average->moved.i = average->moved.j = average->moved.k = 0.f;
+		}
+	}
+	average->tick = tick;
+
+	return;
+}
 #endif
 
 /* ---------- prototypes */
@@ -395,6 +465,27 @@ void observer_dispose_from_old_map(
 	return;
 }
 
+#ifndef HALO_XBOX_CONSOLE
+void observer_get_tick_velocity(
+	short local_player_index,
+	real_vector3d *velocity)
+{
+	struct observer_tick_velocity const *average =
+		&observer_tick_velocities[local_player_index];
+
+	if (average->valid)
+	{
+		*velocity = average->velocity;
+	}
+	else
+	{
+		*velocity = observer_get_camera(local_player_index)->velocity;
+	}
+
+	return;
+}
+
+#endif
 struct observer_result const *observer_get_camera(
 	short local_player_index)
 {
@@ -1317,6 +1408,9 @@ void observer_update(
 		if (local_player_get_player_index(local_player_index) != NONE)
 		{
 			struct observer *observer = observer_get(local_player_index);
+#ifndef HALO_XBOX_CONSOLE
+			boolean gliding, frozen;
+#endif
 
 			match_assert(
 				"c:\\halo\\SOURCE\\camera\\observer.c",
@@ -1330,11 +1424,29 @@ void observer_update(
 
 			observer->updated_for_frame = TRUE;
 			observer_update_command(local_player_index);
+#ifndef HALO_XBOX_CONSOLE
+			/* (as observer_update_velocities will find the focus: gliding
+			to its target over a timed command, or not) */
+			gliding = observer->last_command.parameter_timers[_observer_command_parameter_focus_position] >
+				observer_globals.dtime;
+			frozen = TEST_FLAG(observer->pending_command->flags, _observer_command_freeze_camera_bit);
+#endif
 			if (observer_globals.dtime != 0.f)
 			{
 				observer_pass_time(local_player_index);
 			}
 			observer_postcheck(local_player_index);
+#ifndef HALO_XBOX_CONSOLE
+			if (observer_globals.dtime != 0.f)
+			{
+				observer_tick_velocity_add(
+					&observer_tick_velocities[local_player_index],
+					game_time_get(),
+					observer_globals.dtime,
+					gliding && !frozen,
+					frozen ? global_zero_vector3d : &observer->result.velocity);
+			}
+#endif
 
 			match_assert(
 				"c:\\halo\\SOURCE\\camera\\observer.c",

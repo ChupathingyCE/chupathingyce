@@ -167,6 +167,11 @@ static void segv_handler(int signal_number, siginfo_t *information, void *contex
 	pc = ucontext->uc_mcontext.gregs[REG_RIP];
 	frame = ucontext->uc_mcontext.gregs[REG_RBP];
 	stack = ucontext->uc_mcontext.gregs[REG_RSP];
+#elif defined(HALO_UNIX_CONTEXT_PC)
+	/* (the other Unix hosts': port/unix/include/halo_unix_host.h) */
+	pc = HALO_UNIX_CONTEXT_PC(ucontext);
+	frame = HALO_UNIX_CONTEXT_FRAME(ucontext);
+	stack = HALO_UNIX_CONTEXT_STACK(ucontext);
 #endif
 	length = snprintf(line, sizeof(line), PLATFORM_LOG_PREFIX "fault at %p, pc %llx fp %llx sp %llx\n",
 		information->si_addr, pc, frame, stack);

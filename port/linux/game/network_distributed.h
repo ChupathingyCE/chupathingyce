@@ -119,6 +119,14 @@ enum
 	(network.block_mouse_aim_assist): 12 bytes, the header and a 16-bit
 	value (1: blocked) and 16 bits of 0. 90 as in OpenCE's network version 32. */
 	_distributed_message_aim_assist_policy = 90,
+	/* the host's shield effects (glow, light show, overshield), reliably to
+	a client when it has loaded and once each game: 12 bytes, the header and
+	a 16-bit value (0 stock to 6, 6 each machine's own look from version
+	38) and 16 bits of 0, network_rules.c. 91 as in OpenCE's network version
+	36; a client takes and keeps it, and draws stock, the one this build has
+	(network_shield_effects). A host announcing 36 or later sends it: stock,
+	or from 38 each machine's own (6) */
+	_distributed_message_shield_effects = 91,
 
 	NUMBER_OF_DISTRIBUTED_MESSAGES
 };
@@ -268,6 +276,14 @@ real distributed_vitality_unpack(word value);
 a client (blocked until it speaks, or always allowed by a host of a version
 that has no such policy), never in single player or the menus */
 boolean network_aim_assist_blocked(void);
+/* whether the game is played by the rules of the network version or a
+later one: a client by its host's advertised version (one not known plays
+by the older rules), a host by the number it announces
+(delta_legacy_announce) */
+boolean network_rules_of_version(unsigned int version);
+/* a client: the host's shield effects (0 stock to 6, message 91), stock
+until it says; this build draws stock whatever they are */
+short network_shield_effects(void);
 
 /* ---------- prototypes/NETWORK_ACTORS.C */
 

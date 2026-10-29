@@ -35,8 +35,10 @@ Automated system link sessions for testing the netcode without the menus
   (browser_screen_map_missing), for its panel to be seen and driven;
 - "browse" opens the Online Games screen once the main menu is up, as the
   Multiplayer menu's ONLINE GAMES does, and logs each listed game's ping
-  every few seconds (measured or estimated, never an address), for the
-  pings before joining to be seen.
+  every few seconds (measured or estimated, never an address) with its
+  invite's first digits (as the host's log has them), whether it
+  came from the game list or was heard directly (the brokers), and the
+  list's state, for the pings before joining and a list outage to be seen.
 
 Once the game runs, every second each machine logs where every player's
 unit is, so the machines' views of the game can be compared.
@@ -67,7 +69,11 @@ up (with debug.network_test_melee: blows at a carrier), and
 debug.network_test_bomb_save has the host stand a defender on the bomb
 planted in its goal as it arms, which saves it.
 debug.network_test_team_change has each machine's player ask to change
-teams every so often (team_change.c).
+teams every so often (team_change.c). debug.network_test_moderate has the
+host take that action of its Moderation screen ("Kick", "Ban forever", ...:
+moderation_screen.c) on its first other player,
+debug.network_test_moderate_time seconds in, confirmed as a player confirms
+it, with a reason ("network test: moderation ...").
 
 Called from the main loop every frame (main.c).
 */
@@ -187,12 +193,20 @@ static struct
 	/* debug.network_test_pause: the pause menu opened then, once */
 	real pause_time;
 	boolean paused;
+	/* debug.network_test_moderate: the host's action, then, once */
+	char moderate[32];
+	real moderate_time;
+	boolean moderated;
 	char pickup_weapon[64];
 	long score_to_win;
 	long logged_time;
 	/* download: the host's checksum, and the download started */
 	unsigned long download_version;
 	boolean download_started;
+	/* debug.network_test_password: the host's set; debug.network_test_invite_file:
+	the host's invite written */
+	boolean password_set;
+	boolean invite_written;
 } network_test;
 
 /* the map of the game at the index (of map_name's maps joined by "+", the
@@ -300,6 +314,8 @@ static void network_test_read_settings(
 	network_test.local_players = (short)PIN(config_integer("debug.network_test_local_players"), 1, 4);
 	network_test.team_change_interval = (real)config_real("debug.network_test_team_change");
 	network_test.pause_time = (real)config_real("debug.network_test_pause");
+	snprintf(network_test.moderate, sizeof(network_test.moderate), "%s", config_string("debug.network_test_moderate"));
+	network_test.moderate_time = (real)config_real("debug.network_test_moderate_time");
 	snprintf(network_test.pickup_weapon, sizeof(network_test.pickup_weapon), "%s",
 		config_string("debug.network_test_pickup_weapon"));
 	network_test.score_to_win = (long)config_integer("debug.network_test_score");
@@ -1075,6 +1091,58 @@ static void network_test_melee(
 	}
 }
 
+#ifdef HALO_GAME_BROWSER
+/* debug.network_test_password: the host's game's password, as Server Setup's
+PASSWORD sets it (its invite link a locked one); a joining machine's, typed
+as the password dialog would once its locked invite asks for it
+(invite_prompt.c; a wrong one is refused, and the invite left).
+debug.network_test_invite_file: the host's invite link written there once it
+has one, for the joining machine's command line */
+static void network_test_password(
+	void)
+{
+	int p2p_invite_link(char *link, int size);
+	void p2p_set_hosting_password(char const *password);
+	int p2p_locked_invite_waiting(void);
+	int p2p_locked_invite_unlock(char const *password);
+	void p2p_locked_invite_cancel(void);
+	char const *password = config_string("debug.network_test_password");
+	char const *file = config_string("debug.network_test_invite_file");
+
+	if (network_test.mode == _network_test_host)
+	{
+		char link[160];
+
+		if (!network_test.password_set && password[0])
+		{
+			network_test.password_set = TRUE;
+			p2p_set_hosting_password(password);
+			platform_log("network test: the game has a password");
+		}
+		if (file[0] && !network_test.invite_written && p2p_invite_link(link, sizeof(link)))
+		{
+			FILE *out = fopen(file, "w");
+
+			network_test.invite_written = TRUE;
+			if (out)
+			{
+				fprintf(out, "%s\n", link);
+				fclose(out);
+			}
+			platform_log("network test: invite written%s", out ? "" : " (the file could not be opened)");
+		}
+	}
+	else if (network_test.mode == _network_test_join && password[0] && p2p_locked_invite_waiting())
+	{
+		boolean opened = (boolean)p2p_locked_invite_unlock(password);
+
+		platform_log("network test: the password was %s", opened ? "taken" : "refused");
+		if (!opened)
+			p2p_locked_invite_cancel();
+	}
+}
+#endif
+
 void network_test_update(
 	boolean main_menu_loaded,
 	real seconds)
@@ -1083,6 +1151,22 @@ void network_test_update(
 		network_test_read_settings();
 	if (network_test.mode == _network_test_off)
 		return;
+#ifdef HALO_GAME_BROWSER
+	network_test_password();
+#endif
+	/* (the host's reachability, as its menus show it, logged as it changes) */
+	if (network_test.mode == _network_test_host)
+	{
+		int p2p_hosting_status(char *text, int size);
+		static char shown[192];
+		char status[192];
+
+		if (p2p_hosting_status(status, sizeof(status)) && strcmp(status, shown))
+		{
+			snprintf(shown, sizeof(shown), "%s", status);
+			platform_log("network test: host status: %s", status);
+		}
+	}
 	if (network_test.mode == _network_test_download)
 	{
 		network_test_download(main_menu_loaded);
@@ -1121,10 +1205,14 @@ void network_test_update(
 			else if (network_test.download_started && browser_screen_active() &&
 				(long)(network_test.menu_seconds / 5.0f) != (long)((network_test.menu_seconds - seconds) / 5.0f))
 			{
-				struct browser_game games[16];
-				int count = browser_get_games(games, 16);
+				static char const *const states[] = { "answered", "waiting", "offline", "none" };
+				static struct browser_game games[BROWSER_MAXIMUM_GAMES];
+				int count = browser_get_games(games, BROWSER_MAXIMUM_GAMES);
+				int status = browser_list_status();
 				int index;
 
+				platform_log("network test: browse: list %s, %d games",
+					status >= 0 && status < (int)NUMBEROF(states) ? states[status] : "?", count);
 				for (index = 0; index < count; index++)
 				{
 					char name[BROWSER_NAME_LENGTH + 1];
@@ -1133,8 +1221,9 @@ void network_test_update(
 					for (character = 0; character < BROWSER_NAME_LENGTH && games[index].name[character]; character++)
 						name[character] = games[index].name[character] < 127 ? (char)games[index].name[character] : '?';
 					name[character] = 0;
-					platform_log("network test: browse: %s ping %s%d", name, games[index].ping_estimated ? "~" : "",
-						games[index].ping);
+					/* (the invite's first digits, as the host's own log shows them) */
+					platform_log("network test: browse: %s (%.8s...) ping %s%d (%s)", name, games[index].invite,
+						games[index].ping_estimated ? "~" : "", games[index].ping, games[index].direct ? "direct" : "list");
 				}
 			}
 		}
@@ -1310,6 +1399,22 @@ void network_test_update(
 				"ui\\shell\\multiplayer_game\\pause_game\\2p_pause_game" :
 				"ui\\shell\\multiplayer_game\\pause_game\\1p_pause_game", NONE, NULL, 0, NONE, NONE, NONE);
 		}
+#ifdef HALO_GAME_BROWSER
+		/* debug.network_test_moderate: the host's Moderation action on its
+		first other player, as the pause menu's MODERATION takes it */
+		if (network_test.mode == _network_test_host && network_test.moderate[0] && !network_test.moderated &&
+			game_time_get() >= (long)(network_test.moderate_time * TICKS_PER_SECOND))
+		{
+			extern boolean moderation_screen_test_act(char const *action, char *status, long status_size);
+			char status[128];
+
+			network_test.moderated = TRUE;
+			if (moderation_screen_test_act(network_test.moderate, status, sizeof(status)))
+				platform_log("network test: moderation %s: %s", network_test.moderate, status);
+			else
+				platform_log("network test: moderation %s: not taken", network_test.moderate);
+		}
+#endif
 		/* debug.network_test_team_change: every so often a player of each
 		machine asks to change teams, as the pause menu's CHANGE TEAMS does
 		(team_change.c); the joining machine's half an interval later */

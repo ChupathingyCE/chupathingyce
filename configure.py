@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# root build script: writes build.ninja for the native ports (Linux, Windows,
+# root build script: writes build.ninja for the native ports (Linux, other Unix hosts, Windows,
 # Android, macOS) and the dedicated server (Linux), and for the console ports
 # given with --console-port (tools/console_build.py). Run from a console
 # repository, with the game as its submodule, it writes that repository's
@@ -22,6 +22,7 @@ from tools.linux_build import generate_linux_build, linux_configure_inputs
 from tools.linux64_build import generate_linux64_build, linux64_configure_inputs
 from tools.macos_build import generate_macos_build, macos_configure_inputs
 from tools.server_build import generate_server_build, server_configure_inputs
+from tools.unix64_build import generate_unix64_build, unix64_configure_inputs, unix_host
 from tools.version import commit_inputs
 from tools.windows_build import generate_windows_build, windows_configure_inputs
 
@@ -63,6 +64,15 @@ parser.add_argument(
     "(HALO_GAME_BROWSER; port/linux/src/browser.c); on unless --no-game-browser",
 )
 parser.add_argument(
+    "--renderer",
+    choices=["gl", "bgfx"],
+    default="gl",
+    help="macOS: what draws the game. gl (the default) is OpenGL (port/linux/src/d3d8_gl.c); bgfx also builds "
+    "the bgfx test backend (Metal; port/linux/src/d3d8_bgfx.inl), chosen at run time with display.renderer = "
+    "\"bgfx\" or HALO_RENDERER=bgfx. It fetches bgfx, bx and bimg at pinned commits into build/macos/third_party "
+    "and links Homebrew's shaderc and SPIRV-Cross",
+)
+parser.add_argument(
     "--console-limits",
     action="store_true",
     help="native ports (Linux, macOS): the original Xbox build's network and object limits "
@@ -75,6 +85,13 @@ parser.add_argument(
     help="the 32-bit Linux build (ninja linux) with its Xbox memory window wherever HALO_WINDOW_BASE puts it "
     "(HALO_WINDOW_REBASE: source/cseries/xbox_address.h), to test on the desktop what the Switch's guest "
     "does; never a build to ship",
+)
+parser.add_argument(
+    "--packaged",
+    action="store_true",
+    help="desktop builds: a package manager's build (HALO_PACKAGED; port/linux/src/packaged_install.h): "
+    "the game never updates itself, and on Linux keeps its data and settings in ~/.local/share/chupathingyce. "
+    "A package of a release's own executable sets HALO_PACKAGED=1 or puts a file named packaged beside it instead",
 )
 parser.add_argument(
     "--lto",
@@ -146,7 +163,9 @@ sln = SimpleNamespace(
     game_browser=args.game_browser,
     console_limits=args.console_limits,
     window_rebase=args.window_rebase,
+    packaged=args.packaged,
     port_lto=args.lto,
+    renderer=args.renderer,
     port_portable=args.portable,
     port_pgo=args.pgo,
     port_pgo_profile=args.pgo_profile,
@@ -181,8 +200,12 @@ n.variable("python", f'"{sys.executable}"')
 n.newline()
 
 if not console_only:
-    generate_linux_build(n, sln)
-    generate_linux64_build(n, sln)
+    # (the Linux targets are Linux's: the other Unix hosts' are their own,
+    # `ninja freebsd64`: tools/unix64_build.py)
+    if unix_host() is None:
+        generate_linux_build(n, sln)
+        generate_linux64_build(n, sln)
+    generate_unix64_build(n, sln)
     generate_android_build(n, sln)
     generate_android64_build(n, sln)
     generate_windows_build(n, sln)
@@ -207,6 +230,7 @@ n.build(
         *([] if console_only else [
             *linux_configure_inputs(),
             *linux64_configure_inputs(),
+            *unix64_configure_inputs(),
             *android_configure_inputs(),
             *android64_configure_inputs(),
             *windows_configure_inputs(),
@@ -223,7 +247,8 @@ n.newline()
 # the build for this computer, where it could be generated (the Windows
 # build is left out when SDL cannot be fetched, for instance), or a console
 # repository's own port
-default = "windows" if is_windows() else "macos" if sys.platform == "darwin" else "linux"
+default = ("windows" if is_windows() else "macos" if sys.platform == "darwin"
+           else unix_host().name if unix_host() else "linux")
 if console_only:
     default = console_ports[0].name
 if f"\nbuild {default}: " in out.getvalue():

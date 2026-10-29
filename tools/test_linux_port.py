@@ -228,7 +228,10 @@ def test_menus_are_well_formed():
             where = f"{path.name}: <{element.tag} {element.get('name', '')}>"
             assert element.tag in MENU_ATTRIBUTES, where
             assert set(element.attrib) <= MENU_ATTRIBUTES[element.tag], where
-            assert element.get("platform") in (None, "desktop", "android"), where
+            # (the platforms it is on, separated by spaces: menu_files.c)
+            if element.get("platform") is not None:
+                names = element.get("platform").split(" ")
+                assert names and set(names) <= {"desktop", "android", "switch", "console", "x360", "wiiu"}, where
             # (menu_files.c's whole numbers, which the tags keep in shorts,
             # its true/false attributes, and no text but whitespace outside
             # <string>s)
@@ -315,11 +318,12 @@ def test_report_joined_games_stops_claims():
     root = MENUS.parent.parent.parent
     browser = (root / "port/linux/src/browser.c").read_text()
     for function in ("browser_client_report", "browser_claim_game"):
-        body = re.search(r"^void " + function + r"\(.*?^\}", browser, re.M | re.S).group(0)
+        # (browser_client_report says whether it sent: int, return 0)
+        body = re.search(r"^(?:void|int) " + function + r"\(.*?^\}", browser, re.M | re.S).group(0)
         gate = re.search(r'!config_boolean\("network\.report_joined_games"\)\s*\|\|\s*'
                          r'!p2p_joined_invite\(', body)
         assert gate, function
-        assert body.index("return;") > gate.start(), function
+        assert re.search(r"return( 0)?;", body[gate.start():]), function
     readme = (root / "port/linux/README.md").read_text()
     row = next(line for line in readme.splitlines() if line.startswith("| `network.report_joined_games`"))
     assert "/v1/claim" in row
@@ -463,6 +467,7 @@ def test_p2p_signatures_and_listings(tmp_path):
     built = subprocess.run(["clang", *flags, "-O1", "-no-pie", "-Wl,--unresolved-symbols=ignore-all", "-o",
                             str(program), "tools/p2p_lobby_check.c", "port/linux/src/p2p_crypto.c",
                             "port/linux/src/p2p_lobby.c", "port/linux/src/p2p_copies.c",
+                            "port/linux/src/delta_compat.c",
                             "port/third_party/monocypher/monocypher.c",
                             "port/third_party/monocypher/monocypher-ed25519.c"],
                            capture_output=True, text=True)

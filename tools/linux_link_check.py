@@ -17,6 +17,7 @@ library would have supplied.
 Usage: linux_link_check.py [--static] <response file listing the objects> [executable]
 """
 
+import os
 import re
 import shlex
 import shutil
@@ -37,7 +38,7 @@ RUNTIME_WEAK_REFERENCES = {
 
 
 # llvm-nm also reads the LLVM bitcode objects of link-time optimised builds
-NM = shutil.which("llvm-nm") or "nm"
+NM = os.environ.get("LLVM_NM") or shutil.which("llvm-nm") or "nm"
 
 
 def symbol_table(objects: List[str]) -> Dict[str, Set[str]]:

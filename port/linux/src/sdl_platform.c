@@ -12,6 +12,9 @@ and the debug keyboard that the game's console reads.
 #include "platform.h"
 #include "sdl_platform.h"
 #include "gl.h"
+#ifdef HALO_BGFX
+#include "xgpu.h"
+#endif
 #include "port_config.h"
 #include "p2p.h"
 #include "posix.h"
@@ -1138,6 +1141,69 @@ or last resized: platform_display_apply */
 static long platform_window_width = -1, platform_window_height = -1;
 #endif
 
+#ifndef HALO_ANDROID
+/* the OpenGL version the renderer needs (platform_video_initialize) */
+#ifdef __APPLE__
+#define PLATFORM_GL_NEEDED "4.1"
+#else
+#define PLATFORM_GL_NEEDED "4.5"
+#endif
+
+/* this computer's graphics can't run the renderer (no OpenGL context of the
+version it needs, or one without the functions it calls): say so plainly
+and quit, rather than go on without a display and crash at the first thing
+drawn (crash reports from 0.8.0h; game issue #78). The version the driver
+does have is asked from a context of no particular version. */
+static void platform_gl_missing(const char *reason)
+{
+	char have[160] = "";
+	char message[768];
+
+	if (platform_gl_context)
+	{
+		SDL_GL_DestroyContext(platform_gl_context);
+		platform_gl_context = NULL;
+	}
+	SDL_GL_ResetAttributes();
+	{
+		SDL_GLContext probe = SDL_GL_CreateContext(platform_window);
+
+		if (probe)
+		{
+			/* (gl.h's type, with OpenGL's calling convention) */
+			__typeof__(halo_glGetString) get_string;
+
+			SDL_GL_MakeCurrent(platform_window, probe);
+			get_string = (__typeof__(halo_glGetString))SDL_GL_GetProcAddress("glGetString");
+			if (get_string)
+			{
+				const char *version = (const char *)get_string(GL_VERSION);
+				const char *renderer = (const char *)get_string(GL_RENDERER);
+
+				if (version)
+					snprintf(have, sizeof(have), "%s%s%s%s", version, renderer ? " (" : "",
+						renderer ? renderer : "", renderer ? ")" : "");
+			}
+			SDL_GL_MakeCurrent(platform_window, NULL);
+			SDL_GL_DestroyContext(probe);
+		}
+	}
+	platform_log("graphics: %s; OpenGL %s is needed%s%s: quitting", reason, PLATFORM_GL_NEEDED,
+		have[0] ? ", the driver has OpenGL " : "", have);
+	snprintf(message, sizeof(message),
+		"Chupathingy can't run on this computer's graphics.\n\n"
+		"It needs OpenGL %s%s%s.\n\n"
+		"Updating the graphics driver can fix this. Some older graphics chips never get OpenGL %s, "
+		"and Chupathingy can't run on those yet.",
+		PLATFORM_GL_NEEDED,
+		have[0] ? ", and the graphics driver here has OpenGL " : ", and the graphics driver here doesn't have it",
+		have, PLATFORM_GL_NEEDED);
+	if (!config_boolean("debug.hidden_window") && config_real("debug.exit_after") <= 0.0)
+		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Chupathingy", message, platform_window);
+	exit(EXIT_FAILURE);
+}
+#endif
+
 BOOL platform_video_initialize(unsigned long width, unsigned long height)
 {
 	int version;
@@ -1147,6 +1213,11 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 		return TRUE;
 	if (!platform_sdl_initialize())
 		return FALSE;
+#ifdef HALO_BGFX
+	/* the bgfx test backend draws instead (d3d8_bgfx.inl): a window without
+	an OpenGL context, whose Metal layer bgfx draws into */
+	xgpu_bgfx = strcmp(config_string("display.renderer"), "bgfx") == 0;
+#endif
 
 #ifdef HALO_ANDROID
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
@@ -1213,7 +1284,12 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 	(void)height;
 	platform_window_size_setting(&platform_window_width, &platform_window_height);
 	platform_window = SDL_CreateWindow(title, (int)platform_window_width, (int)platform_window_height,
+#ifdef HALO_BGFX
+		(xgpu_bgfx ? SDL_WINDOW_METAL : SDL_WINDOW_OPENGL) |
+		SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY |
+#else
 		SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY |
+#endif
 		(config_boolean("debug.hidden_window") ? SDL_WINDOW_HIDDEN : 0) |
 		(platform_fullscreen_setting() ? SDL_WINDOW_FULLSCREEN : 0));
 #endif
@@ -1233,6 +1309,15 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 	window here */
 	SDL_SyncWindow(platform_window);
 #endif
+#ifdef HALO_BGFX
+	if (xgpu_bgfx)
+	{
+		platform_event_thread = SDL_GetCurrentThreadID();
+		platform_log("renderer: bgfx");
+		platform_mouse_capture(TRUE);
+		return TRUE;
+	}
+#endif
 	platform_gl_context = SDL_GL_CreateContext(platform_window);
 #ifdef HALO_ANDROID
 	/* ES 3.2 where the driver has it, otherwise the renderer makes do with
@@ -1246,11 +1331,19 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 	if (!platform_gl_context)
 	{
 		platform_log("cannot create an OpenGL context: %s", SDL_GetError());
+#ifndef HALO_ANDROID
+		platform_gl_missing("no OpenGL context of the version needed");
+#endif
 		return FALSE;
 	}
 	SDL_GL_MakeCurrent(platform_window, platform_gl_context);
 	if (!gl_functions_load())
+	{
+#ifndef HALO_ANDROID
+		platform_gl_missing("OpenGL functions are missing");
+#endif
 		return FALSE;
+	}
 #ifdef __APPLE__
 	{
 		/* port/macos/src/macos_video.c */
@@ -1380,6 +1473,10 @@ void platform_video_swap(void)
 	static Uint64 next_frame;
 	Uint64 interval, now;
 
+#ifdef HALO_BGFX
+	/* (the device presents: d3d8_bgfx.inl; this paces the frames) */
+	if (!xgpu_bgfx)
+#endif
 	SDL_GL_SwapWindow(platform_window);
 	interval = frame_interval_ns();
 	if (!interval)
@@ -1394,6 +1491,13 @@ void platform_video_swap(void)
 	next_frame = now - next_frame > interval ? now + interval : next_frame + interval;
 }
 
+#ifdef HALO_BGFX
+SDL_Window *platform_sdl_window(void)
+{
+	return platform_window;
+}
+
+#endif
 void platform_mouse_capture(BOOL capture)
 {
 	if (platform_window)

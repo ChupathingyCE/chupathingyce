@@ -5,6 +5,7 @@
     python tools/ci_build.py linux debug
     python tools/ci_build.py android release
     python tools/ci_build.py server-x64 release --alpine
+    python tools/ci_build.py freebsd64 release      (on FreeBSD)
 
 Builds are portable (any x86-64 processor; for the arm64 server, any
 64-bit ARM), so they run on other computers. Debug builds skip link-time and profile-guided optimisation,
@@ -58,6 +59,10 @@ OUTPUTS = {
     "linux": ["build/linux/halo", "build/linux/libSDL3.so.0", "build/linux/SDL3-LICENSE.txt"],
     # the native 64-bit build (ninja linux64; tools/linux64_build.py)
     "linux64": ["build/linux64/halo", "build/linux64/libSDL3.so.0", "build/linux64/SDL3-LICENSE.txt"],
+    # the native 64-bit FreeBSD build (ninja freebsd64; tools/unix64_build.py),
+    # built on FreeBSD: SDL3 is the system's package (pkg install sdl3), not
+    # brought along
+    "freebsd64": ["build/freebsd64/halo"],
     "windows": ["build/windows/halo.exe", "build/windows/SDL3.dll"],
     # the native 64-bit build (ninja windows64; tools/windows_build.py)
     "windows64": ["build/windows64/halo.exe", "build/windows64/SDL3.dll"],
@@ -180,6 +185,7 @@ def main() -> int:
                     *sorted((ROOT / "build/windows/third_party").glob(f"SDL3-*/lib/{sdl_arch}/SDL3.pdb"))]:
             shutil.copy2(pdb, symbols)
             print(f"{pdb.relative_to(ROOT)} -> {symbols.relative_to(ROOT)}", flush=True)
+    keep_native_symbols(args.platform, args.config)
     # Chupathingy's own license (GPL-3.0-or-later), which asks every copy to
     # carry it
     shutil.copy2(ROOT / "LICENSE", dist / "LICENSE.txt")
@@ -230,9 +236,43 @@ def alpine_build(platform: str, config: str) -> int:
     # checkout's owner is another user there)
     environment += ["-e", f"HALO_COMMIT={commit()}"]
     script = f"apk add --no-cache -q {' '.join(ALPINE_PACKAGES)} && python3 tools/ci_build.py {platform} {config}"
-    run(["docker", "run", "--rm", "--platform", DOCKER_PLATFORMS[platform], "-v", f"{ROOT}:/src", "-w", "/src",
-         *environment, ALPINE_IMAGE, "sh", "-c", script])
+    # (--pull=always: the image is one tag for every architecture, and Docker
+    # runs one already there as it is, so after an x86 build the x64 one
+    # would build in the x86 container)
+    run(["docker", "run", "--rm", "--pull=always", "--platform", DOCKER_PLATFORMS[platform], "-v", f"{ROOT}:/src",
+         "-w", "/src", *environment, ALPINE_IMAGE, "sh", "-c", script])
     return 0
+
+
+def keep_native_symbols(platform: str, config: str) -> None:
+    """dist/chupathingyce-<platform>-<config>-symbols for the builds that are
+    not Windows': the Linux programs with their debug information (the
+    download carries it too), the Mac application's .dSYM (its program holds
+    only a map to the objects, which are gone after the build), and the
+    Android app's native libraries before the APK strips them. Kept by the
+    release workflow for crash reports; never part of a download."""
+    symbols = ROOT / "dist" / f"chupathingyce-{platform}-{config}-symbols"
+    if platform in ("linux", "linux64", "freebsd64"):
+        files = [ROOT / f"build/{platform}/halo"]
+    elif platform in ("android", "android64"):
+        files = sorted((ROOT / f"build/{platform}/jniLibs").glob("*/*.so"))
+    elif platform == "macos":
+        files = []
+    else:
+        return
+    if symbols.exists():
+        shutil.rmtree(symbols)
+    symbols.mkdir(parents=True)
+    for file in files:
+        shutil.copy2(file, symbols)
+        print(f"{file.relative_to(ROOT)} -> {symbols.relative_to(ROOT)}", flush=True)
+    if platform == "macos":
+        for program in sorted((ROOT / "build/macos/ChupathingyCE.app/Contents/MacOS").iterdir()):
+            if program.is_file():
+                # (a failure is a warning: the release does not wait on symbols)
+                result = subprocess.run(["dsymutil", str(program), "-o", str(symbols / f"{program.name}.dSYM")])
+                if result.returncode != 0:
+                    print(f"warning: dsymutil failed for {program.name}", flush=True)
 
 
 def strip_debug(program: Path) -> None:
@@ -257,6 +297,12 @@ def server_dist(platform: str, config: str, output: str) -> int:
         shutil.rmtree(dist)
     (dist / "playlists").mkdir(parents=True)
     shutil.copy2(ROOT / output, dist)
+    # the full program (debug information and all), apart, for crash reports
+    symbols = ROOT / "dist" / f"chupathingyce-server-linux-{arch}-{config}-symbols"
+    if symbols.exists():
+        shutil.rmtree(symbols)
+    symbols.mkdir(parents=True)
+    shutil.copy2(ROOT / output, symbols)
     if config == "release":
         # a release's download without its debug information (about 20 MB
         # of 33); build/server-<arch>/ keeps the full program, and a debug

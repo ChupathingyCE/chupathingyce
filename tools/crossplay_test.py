@@ -19,7 +19,10 @@ an OpenCE client and one of ours (--server).
 
 `build` makes a release build of a commit (git archive, configure.py
 --release --pgo=off --lto=off, ninja linux), ours or OpenCE's: about two
-minutes on 12 cores. `check` checks an earlier run's logs again.
+minutes on 12 cores. With --portable, configure.py gets --portable too: the
+build brings its own SDL 3 (libSDL3.so.0 beside the game), for OpenCE builds
+that need a newer SDL 3 than the machine has. `check` checks an earlier
+run's logs again.
 
 --ours-table names a legacy table file (docs/delta.md, "Local override")
 for our copies: how a build is made to announce, and join, an OpenCE number
@@ -78,6 +81,7 @@ up there); 3 to 4 minutes, every direction at once, 11 copies at most.
 """
 
 import argparse
+import glob
 import json
 import os
 import re
@@ -96,8 +100,9 @@ KILL_INTERVAL = 5         # the host kills the last player this often (network_t
 SHOOT_INTERVAL = 2        # each machine hits the next this often (network_test_shoot)
 SCORE_TO_WIN = 4          # Slayer's score (network_test_score)
 LATE_AT = 5               # seconds into the first game a second client joins it in progress ("late")
-LEAVE_AT = 11             # ... the first client quits
-BACK_AT = 14              # ... and comes back, a new copy on its address ("back")
+LEAVE_AT = 11             # ... the first client quits, once the late client plays (else LEAVE_LIMIT)
+LEAVE_LIMIT = 30          # ... or then at the latest
+BACK_AT = 14              # ... and comes back, a new copy on its address ("back"), as long after its leave
 SECOND_GAME_PLAY = 30     # seconds of the second game (CTF) played before a direction ends
 QUIET_LIMIT = 45          # ... or seconds the host logs no play after the first game, before it ends
 NO_GAME_LIMIT = 90        # ... or seconds with no game at all
@@ -151,6 +156,10 @@ class Copy:
             os.makedirs(os.path.join(self.folder, sub))
         self.binary = os.path.join(self.folder, "bin", os.path.basename(binary))
         shutil.copy2(binary, self.binary)
+        # (a portable build's own libraries, libSDL3.so.0, beside the game,
+        # where it loads them from)
+        for library in glob.glob(os.path.join(os.path.dirname(binary), "lib*.so*")):
+            shutil.copy2(library, os.path.join(self.folder, "bin"))
         os.symlink(os.path.abspath(maps), os.path.join(self.folder, "data", "maps"))
         if ce_maps:
             # (Custom Edition maps and their resource maps: OpenCE's
@@ -226,7 +235,10 @@ class Copy:
         return self.read("out.log")
 
     def debug(self):
-        return self.read(os.path.join("data", "debug.txt"))
+        # (ChupathingyCE keeps it in the data folder's logs folder, OpenCE
+        # in the data folder itself)
+        return (self.read(os.path.join("data", "logs", "debug.txt"))
+                or self.read(os.path.join("data", "debug.txt")))
 
 
 # ---------- reading a copy's log
@@ -659,7 +671,7 @@ def plan(args):
                 HALO_NET_BROADCAST=host_address, HALO_TEST_INPUT="bot:53"), None, HARD_LIMIT)]})
     if getattr(args, "server", None) and (not args.only or "server" in args.only):
         server_address, first, second = addresses(base + 20)
-        directions.append({"name": "server", "variants": ["slayer"], "server": True, "phase": 0, "copies": [
+        directions.append({"name": "server", "variants": [getattr(args, "server_gametype", "slayer")], "server": True, "phase": 0, "copies": [
             ("server/server-ours", "server", {"HALO_NET_ADDRESS": server_address,
                 "HALO_NET_BROADCAST": f"{first},{second}", "HALO_DEDICATED": "crossplay-playlist.txt",
                 "HALO_DEDICATED_MINIMUM_PLAYERS": "2", "HALO_DEDICATED_CONSOLE": "false"}, 0, SERVER_RUN_SECONDS),
@@ -693,7 +705,7 @@ def run(args):
                 args.ours_table, args.ce_maps)
             if kind == "server":
                 with open(os.path.join(copy.folder, "data", "crossplay-playlist.txt"), "w") as file:
-                    file.write(f"{args.map.replace('custom_maps' + chr(92), '')}{'@ce' if chr(92) in args.map else ''} slayer\n")
+                    file.write(f"{args.map.replace('custom_maps' + chr(92), '')}{'@ce' if chr(92) in args.map else ''} {args.server_gametype}\n")
             direction["live"].append({"copy": copy, "delay": delay, "until": until})
     started = time.time()
     # the cross-play directions (and the server) first, then the baselines:
@@ -738,10 +750,16 @@ def play(directions):
                 first = games[0] if games else 0
                 if late["delay"] is None and first >= LATE_AT:
                     late["delay"] = now
-                if client["until"] == HARD_LIMIT and first >= LEAVE_AT:
+                # (the first client leaves once the late one plays: a host
+                # whose last opponent quits ends the game, as Halo does, and a
+                # host may take a few seconds to start a late machine, ours an
+                # OpenCE one's while it waits for a Delta HELLO)
+                if client["until"] == HARD_LIMIT and first >= LEAVE_AT and \
+                        (progress(late["copy"]) or first >= LEAVE_LIMIT):
                     log(f"{direction['name']}: the first client leaves {first} s into game 1")
                     client["until"] = now
-                if back["delay"] is None and first >= BACK_AT:
+                    direction["left_at"] = first
+                if back["delay"] is None and "left_at" in direction and first >= direction["left_at"] + BACK_AT - LEAVE_AT:
                     back["delay"] = now
                 if (len(games) >= 2 and games[1] >= SECOND_GAME_PLAY) or \
                         (games and now - direction["seen_at"] >= QUIET_LIMIT) or (not games and now >= NO_GAME_LIMIT):
@@ -851,7 +869,8 @@ def build(args):
     if archive.wait():
         log(f"git archive {args.ref}: failed")
         return 2
-    subprocess.run([sys.executable, "configure.py", "--release", "--pgo=off", "--lto=off"], cwd=out, check=True,
+    subprocess.run([sys.executable, "configure.py", "--release", "--pgo=off", "--lto=off"]
+                   + (["--portable"] if args.portable else []), cwd=out, check=True,
         stdout=subprocess.DEVNULL)
     targets = ["linux"] + (["server-x86"] if args.server else [])
     subprocess.run(["ninja", "-j", str(os.cpu_count() or 4)] + targets, cwd=out, check=True)
@@ -866,6 +885,9 @@ def main():
     run_parser.add_argument("--ours", required=True, help="ChupathingyCE's game (a Linux build)")
     run_parser.add_argument("--theirs", required=True, help="OpenCE's game (a Linux build)")
     run_parser.add_argument("--server", help="ChupathingyCE's dedicated server, for the server step")
+    run_parser.add_argument("--server-gametype", default="slayer", choices=["slayer", "ctf"],
+                            help="the server's game (slayer): in CTF a Delta server also writes the old "
+                                 "advertisement layout for released clients (docs/delta.md, \"The transition\")")
     run_parser.add_argument("--ce-maps", help="a folder of Custom Edition maps (and bitmaps.map, sounds.map, loc.map), "
                             "as both builds' custom_maps; then --map custom_maps\\NAME plays one")
     run_parser.add_argument("--ours-table", help="a legacy table file for our copies (HALO_LEGACY_TABLE)")
@@ -890,6 +912,8 @@ def main():
     build_parser.add_argument("--ref", required=True)
     build_parser.add_argument("--out", required=True)
     build_parser.add_argument("--server", action="store_true", help="the dedicated server too (ours)")
+    build_parser.add_argument("--portable", action="store_true",
+                              help="configure.py --portable: the build's own SDL 3 (OpenCE's, when the machine's is too old)")
     args = parser.parse_args()
     if args.command == "build":
         return build(args)

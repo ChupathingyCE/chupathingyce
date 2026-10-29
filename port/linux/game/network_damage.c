@@ -56,6 +56,7 @@ being hit looks and feels like on the clients).
 #include "scenario/scenario.h"
 #include "units/units.h"
 #include "network_distributed.h"
+#include "network_rules.h"
 
 #include <math.h>
 
@@ -74,6 +75,9 @@ boolean distributed_get_death(short dead_player_index, byte *killing_player_inde
 	boolean *killed_by_vehicle);
 /* cache_files.c's */
 boolean tag_index_is_group(long tag_index, long group_tag);
+/* (the host) whether a machine's players report a static target's own
+damage (network_server_message_handler.c) */
+boolean network_game_server_machine_reports_static_damage(long machine_index);
 /* game_engine.c's */
 long game_engine_network_player_score(long player_index);
 /* physics.c's (world units a tick, each tick) */
@@ -499,12 +503,65 @@ static boolean distributed_damage_to_data(
 	return TRUE;
 }
 
-/* whether the object is scenery or a device that damage can destroy */
+/* whether the object is scenery or a device that damage can destroy, or,
+from network version 34 (network_rules_of_version), one that is a shield
+alone (Rat Race's energy shields, the tripmines of Bigass): every machine of
+a game takes the same ones */
 static boolean static_target(
 	long object_index)
 {
-	return object_try_and_get_and_verify_type(object_index, STATIC_TARGET_TYPES) &&
-		object_get_maximum_body_vitality(object_index, TRUE) > 0.0f;
+	struct object_datum *object = (struct object_datum *)object_try_and_get_and_verify_type(object_index,
+		STATIC_TARGET_TYPES);
+
+	if (!object)
+		return FALSE;
+	if (object_get_maximum_body_vitality(object_index, TRUE) > 0.0f)
+		return TRUE;
+	return network_rules_of_version(NETWORK_RULES_STATIC_SHIELDS_VERSION) &&
+		object->object.maximum_shield_vitality > 0.0f;
+}
+
+/* (a client) whether it runs the object's shields itself, their stun and
+recharge: a static target's, from network version 34, as the host sends no
+shield of one (else a broken one stays broken on the client's screen) */
+boolean network_damage_client_runs_shields(
+	long object_index)
+{
+	return network_rules_of_version(NETWORK_RULES_STATIC_SHIELDS_VERSION) && static_target(object_index);
+}
+
+/* (a client) the nearest static target to the point, within its bounding
+sphere and the reach: the copy of one a host's event names by the host's
+own index, made during play (a tripmine), which each machine makes at an
+index of its own. NONE for none; the first found of two as near. */
+static long static_target_nearest(
+	real_point3d const *point,
+	real reach)
+{
+	struct object_iterator iterator;
+	struct object_datum *object;
+	long nearest = NONE;
+	real nearest_distance = 0.0f;
+
+	object_iterator_new(&iterator, STATIC_TARGET_TYPES, 0);
+	while ((object = object_iterator_next(&iterator)) != NULL)
+	{
+		real_point3d origin;
+		real distance;
+
+		if (!static_target(iterator.index))
+			continue;
+		object_get_origin(iterator.index, &origin);
+		distance = (origin.x - point->x) * (origin.x - point->x) + (origin.y - point->y) * (origin.y - point->y) +
+			(origin.z - point->z) * (origin.z - point->z);
+		if (network_rules_static_within(distance, object->object.bounding_sphere_radius, reach) &&
+			(nearest == NONE || distance < nearest_distance))
+		{
+			nearest = iterator.index;
+			nearest_distance = distance;
+		}
+	}
+	return nearest;
 }
 
 /* ---------- object_cause_damage (damage.c) */
@@ -652,8 +709,12 @@ boolean network_damage_deals(
 
 			damage_replay_player_effect(unit->unit.player_index, &effect, 0.0f);
 		}
-		/* a hit of this machine's own player's, on the host's object */
+		/* a hit of this machine's own player's, on the host's object (but
+not a static target's own, a tripmine's going off, which from network
+version 34 the host deals itself, whoever placed it) */
 		if (distributed_player_is_local(damage->owner_player_index) &&
+			!(network_rules_of_version(NETWORK_RULES_STATIC_SHIELDS_VERSION) &&
+				damage->owner_object_index != NONE && static_target(damage->owner_object_index)) &&
 			(network_objects_client_has(object_index) || static_target(object_index)) &&
 			damage_report_count < MAXIMUM_HIT_REPORTS_PER_TICK)
 		{
@@ -684,8 +745,15 @@ boolean network_damage_deals(
 	{
 		struct player_datum *owner = player_try_and_get(damage->owner_player_index);
 
-		if (owner && !owner->quit_out_of_game &&
-			distributed_player_machine((short)DATUM_INDEX_TO_ABSOLUTE_INDEX(damage->owner_player_index)) != NONE)
+		long owner_machine = distributed_player_machine((short)DATUM_INDEX_TO_ABSOLUTE_INDEX(damage->owner_player_index));
+
+		/* (from network version 34, a static target's own damage, a
+		tripmine's going off, dealt here whoever placed it, unless the
+		placer's machine still reports it: an older build's) */
+		if (owner && !owner->quit_out_of_game && owner_machine != NONE &&
+			!(network_rules_of_version(NETWORK_RULES_STATIC_SHIELDS_VERSION) &&
+				damage->owner_object_index != NONE && static_target(damage->owner_object_index) &&
+				!network_game_server_machine_reports_static_damage(owner_machine)))
 		{
 			distributed_damage_material((struct damage_data *)damage, object_index, material_index);
 			return FALSE;
@@ -1976,8 +2044,31 @@ void network_damage_handle_reports(
 	for (index = 0; index < count; index++)
 	{
 		struct distributed_hit_report const *report = &reports[index];
+		struct distributed_hit_report matched;
 		struct damage_data damage;
 
+		/* (from network version 34, a report on an index that names none of
+		this machine's units, weapons, equipment or static targets: the
+		client's own copy of a static target made during play, a tripmine,
+		is this machine's nearest to where the client had it, within its
+		bounding sphere and 1.0 more) */
+		if (network_rules_of_version(NETWORK_RULES_STATIC_SHIELDS_VERSION) &&
+			distributed_object_index_valid(report->object_index) &&
+			DATUM_INDEX_TO_ABSOLUTE_INDEX(report->object_index) < MAXIMUM_OBJECTS_PER_MAP &&
+			distributed_point_valid(&report->target_position, REPORT_WORLD_BOUND) &&
+			!object_try_and_get_and_verify_type(report->object_index,
+				_object_mask_biped | _object_mask_vehicle | _object_mask_weapon | _object_mask_equipment) &&
+			!static_target(report->object_index))
+		{
+			long nearest = static_target_nearest(&report->target_position, NETWORK_RULES_STATIC_REPORT_REACH);
+
+			if (nearest != NONE)
+			{
+				matched = *report;
+				matched.object_index = nearest;
+				report = &matched;
+			}
+		}
 		if (!distributed_report_valid(machine_index, report, &damage))
 		{
 			damage_rejected_reports++;
@@ -2269,14 +2360,32 @@ void network_damage_handle_events(
 			}
 			break;
 		case _damage_event_static:
-			if (distributed_object_index_valid(event->object_index) && static_target(event->object_index) &&
-				distributed_damage_indices_valid(event->object_index, event->node_index, event->region_index,
+		{
+			long object_index = event->object_index;
+
+			/* (from network version 34, an index that names no object here,
+			the host's own copy of one made during play: the nearest static
+			target to where the damage is from, within reach; an index that
+			names another object is not taken for one) */
+			if (distributed_object_index_valid(object_index) && !static_target(object_index) &&
+				network_rules_of_version(NETWORK_RULES_STATIC_SHIELDS_VERSION) &&
+				DATUM_INDEX_TO_ABSOLUTE_INDEX(object_index) < MAXIMUM_OBJECTS_PER_MAP &&
+				!object_try_and_get_and_verify_type(object_index, -1))
+			{
+				boolean area = TEST_FLAG(damage.flags, _damage_area_of_effect_bit);
+
+				object_index = static_target_nearest(&damage.origin, network_rules_static_event_reach(area,
+					area ? damage_effect_definition_get(damage.definition_index)->cutoff_radius : 0.0f));
+			}
+			if (distributed_object_index_valid(object_index) && static_target(object_index) &&
+				distributed_damage_indices_valid(object_index, event->node_index, event->region_index,
 					event->material_index))
 			{
-				damage_replay_static(event->object_index, &damage, event->node_index, event->region_index,
+				damage_replay_static(object_index, &damage, event->node_index, event->region_index,
 					event->material_index);
 			}
 			break;
+		}
 		}
 	}
 }

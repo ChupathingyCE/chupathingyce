@@ -35,6 +35,13 @@ run from a desktop's debug settings only */
 #define HALO_CONSOLE_NO_NETWORK_TEST
 #endif
 
+/* the tests' virtual gamepads (debug.test_gamepads, port/linux/src/
+xinput_sdl.c): SDL's virtual joysticks, run from a desktop's debug settings
+only */
+#ifndef HALO_CONSOLE_NO_TEST_GAMEPADS
+#define HALO_CONSOLE_NO_TEST_GAMEPADS
+#endif
+
 /* the high-res text and HUD (port/linux/src/text_hires.c,
 port/linux/game/hud_hires_tags.c): a console draws the maps' own fonts and
 bitmaps, as retail, without the atlas's texture memory */
@@ -90,6 +97,15 @@ the scoreboard and in the lobby; a console that gets the game list keeps
 Online Games' Link Profile panel, as before */
 #ifndef HALO_CONSOLE_NO_DELTA_PROFILE
 #define HALO_CONSOLE_NO_DELTA_PROFILE
+#endif
+
+/* the audio probe and the recording of real play's sound
+(port/linux/game/audio_probe.c, debug.audio_probe and
+debug.audio_capture_seconds): a developer's tool, in a console's build with
+its developer tools (HALO_CONSOLE_DEBUG_TOOLS) only; the switch also leaves
+out the two settings and their help text */
+#if !defined(HALO_CONSOLE_DEBUG_TOOLS) && !defined(HALO_CONSOLE_NO_AUDIO_PROBE)
+#define HALO_CONSOLE_NO_AUDIO_PROBE
 #endif
 
 #endif /* HALO_CONSOLE */

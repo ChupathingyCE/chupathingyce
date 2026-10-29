@@ -86,6 +86,7 @@ symbols in this file:
 #include "interface/first_person_weapons.h"
 #include "interface/hud.h"
 #include "interface/hud_definitions.h"
+#include "interface/hud_draw.h" /* port: hud_set_screen_effect_mask */
 #include "interface/interface.h"
 #include "interface/hud_messaging.h"
 #include "interface/terminal.h"
@@ -610,6 +611,9 @@ void interface_draw_screen(
 			struct rasterizer_cinematic_screen_effect_parameters parameters;
 
 			csmemset(&parameters, 0, sizeof(parameters));
+#ifdef HALO_CUSTOM_EDITION
+			hud_set_screen_effect_mask(NULL, NONE);
+#endif
 
 			if (zoomed ||
 				!TEST_FLAG(screen_effect->mask_flags,
@@ -625,6 +629,10 @@ void interface_draw_screen(
 						&bitmap_group_get(mask_tag_index)->bitmaps,
 						0,
 						struct bitmap_data);
+#ifdef HALO_CUSTOM_EDITION
+					/* port: drawn at its group's high resolution scale (hud_draw.c) */
+					hud_set_screen_effect_mask(parameters.convolution_mask, mask_tag_index);
+#endif
 					parameters.filter_light_enhancement_uses_convolution_mask =
 						TEST_FLAG(
 							screen_effect->light_enhancement_flags,

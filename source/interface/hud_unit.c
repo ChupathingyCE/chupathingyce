@@ -744,7 +744,12 @@ void hud_render_damage_indicators(
 						_hud_anchor_center,
 						&corner,
 						clip,
+#ifdef HALO_CUSTOM_EDITION
+						/* port: at its group's high resolution scale */
+						scale * hud_bitmap_group_scale(bitmap_group_index),
+#else
 						scale,
+#endif
 						theta,
 						definition->color,
 						FALSE);

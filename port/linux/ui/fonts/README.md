@@ -15,13 +15,16 @@ glyphs from U+E000, so a prompt names the button of what the player holds.
 
 `platform_icons.ttf` draws the scoreboard's platform logos, one glyph per
 platform at U+E100 plus its number in delta.h's registry (Windows U+E101 up
-to Switch U+E109). A player whose platform isn't known, or has no logo yet,
-gets none. The sources are the SVGs in `platform_icons/`, and
-`tools/platform_icons_font.py` builds the font from them:
+to Legacy PC U+E112). One logo can serve several platforms: the PlayStation
+logo is the PSP's, the Vita's, the PS3's, the PS4's and the PS5's. A player
+whose platform isn't known, or has no logo yet (the Nintendo 64, the Legacy
+PC), gets none. The sources are the SVGs in `platform_icons/`, and
+`tools/platform_icons_font.py` builds the font from them (its `PLATFORMS`
+says which numbers each SVG draws):
 
-- Windows, Apple (Mac), Linux, Android, Steam Deck, Xbox (the Xbox 360's and
-  Xbox Series' sphere) and Nintendo Switch are from
-  [Simple Icons](https://simpleicons.org), CC0 1.0.
+- Windows, Apple (Mac), Linux, FreeBSD, Android, Steam Deck, Nintendo
+  Switch, PlayStation (`playstation.svg`) and Xbox (the Xbox Series' sphere,
+  `xbox_uwp.svg`) are from [Simple Icons](https://simpleicons.org), CC0 1.0.
 - The original Xbox's X mark is Wikimedia Commons' "Xbox Logo 2001.svg"
   (public domain, PD-textlogo), the X symbol only, flattened to one shape.
 - The Xbox 360's ring and the Wii U GamePad are our own drawings (CC0).

@@ -61,13 +61,15 @@ SERVER_PLATFORM_DIR = SERVER_DIR / "platform"
 SERVER_PLATFORM_SOURCES = [SERVER_PLATFORM_DIR / "server_platform.c", SERVER_PLATFORM_DIR / "server_input.c"]
 # and with the host's ABI: SDL's few utility functions, glibc's backtrace,
 # and the console, control API and web admin page, and their HTTPS (server/docs/admin.md;
-# the page's files are embedded by tools/embed_webui.py)
+# the page's files are embedded by tools/embed_webui.py), and the GameSpy-style
+# status queries and heartbeats (gamespy_listing.c)
 SERVER_NATIVE_SOURCES = [SERVER_PLATFORM_DIR / "sdl_headless.c", SERVER_PLATFORM_DIR / "backtrace.c",
                          SERVER_PLATFORM_DIR / "control_protocol.c", SERVER_PLATFORM_DIR / "control_web.c",
                          SERVER_PLATFORM_DIR / "control_tls.c", SERVER_PLATFORM_DIR / "server_control.c",
                          SERVER_PLATFORM_DIR / "control_roles.c", SERVER_PLATFORM_DIR / "control_accounts.c",
                          SERVER_PLATFORM_DIR / "server_roles.c", SERVER_PLATFORM_DIR / "control_link_protocol.c",
-                         SERVER_PLATFORM_DIR / "control_link.c", SERVER_PLATFORM_DIR / "server_events.c"]
+                         SERVER_PLATFORM_DIR / "control_link.c", SERVER_PLATFORM_DIR / "server_events.c",
+                         SERVER_PLATFORM_DIR / "gamespy_listing.c"]
 SERVER_WEBUI_DIR = SERVER_DIR / "webui"
 # the window, input and self-updater the server has none of
 SERVER_EXCLUDED = {
@@ -269,6 +271,7 @@ def generate_server_build(n: Writer, sln: Any) -> None:
             lp64 = Lp64Build(n, server_sln, rule_name, cc, extra_roots=[SERVER_PLATFORM_DIR])
             host = Lp64Host(
                 name=rule_name,
+                compressed_maps=True,
                 target_flags=[*target, march, *arch.flags, *defines],
                 game_flags=LINUX64_GAME_FLAGS,
                 posix_flags=LINUX64_POSIX_FLAGS,

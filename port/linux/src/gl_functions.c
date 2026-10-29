@@ -17,6 +17,11 @@ GL_FUNCTIONS(GL_DEFINE_FUNCTION)
 GL_OPTIONAL_FUNCTIONS(GL_DEFINE_FUNCTION)
 #endif
 
+void *gl_function_extra(const char *name)
+{
+	return (void *)SDL_GL_GetProcAddress(name);
+}
+
 int gl_functions_load(void)
 {
 	int success = TRUE;

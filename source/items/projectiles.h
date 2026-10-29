@@ -124,6 +124,9 @@ boolean projectile_aim_ballistic(
 void projectile_accelerate(
 	long projectile_index,
 	union real_vector3d const *acceleration);
+/* port: Halo PC's (projectiles.c) */
+boolean projectile_definition_combines_parent_velocity(
+	struct projectile_definition const *definition);
 
 /* ---------- globals */
 

@@ -505,6 +505,76 @@ static long split_screen_hud_message_offset = 17;
 
 /* ---------- public code */
 
+/* port: a message's button icon with the same gap to the words on both
+sides. The high-res text draws each glyph centred on the font tag's
+character's advance, so its letters' ink reaches further or less far than
+the tag's: "Hold" ended past the tag's "d" and the icon after it sat against
+it, while " to" started after the tag's "t", a wide gap after the icon. The
+icon keeps the Xbox's gap to the ink of the words before it, and the words
+after it start that same gap after the icon, with either text. */
+static short hud_message_icon_shift = 0;
+static boolean hud_message_text_ink_valid = FALSE;
+static real hud_message_text_ink_x1 = 0.0f;
+static boolean hud_message_after_icon = FALSE;
+static real hud_message_icon_x1 = 0.0f;
+static real hud_message_icon_gap = 0.0f;
+
+static short hud_message_round(
+	real value)
+{
+	return (short)(value >= 0.0f ? value + 0.5f : value - 0.5f);
+}
+
+static void hud_message_spacing_reset(
+	void)
+{
+	hud_message_icon_shift = 0;
+	hud_message_text_ink_valid = FALSE;
+	hud_message_after_icon = FALSE;
+
+	return;
+}
+
+/* the text's layout from the cursor (draw_unicode_string_compute_bounds),
+moved after an icon as above */
+static void hud_message_text_place(
+	rectangle2d *bounds,
+	rectangle2d *cursor_bounds,
+	wchar_t const *text,
+	rectangle2d *text_bounds)
+{
+	short start = cursor_bounds->x0;
+	real ink_x0;
+	real ink_x1;
+
+	draw_string_set_indents(start - bounds->x0, 0);
+	draw_unicode_string_compute_bounds(bounds, text, text_bounds, cursor_bounds);
+	hud_message_icon_shift = 0;
+	hud_message_text_ink_valid = FALSE;
+	if (text_bounds->x1 > text_bounds->x0 &&
+		rasterizer_text_ink_span(bounds, text, &ink_x0, &ink_x1))
+	{
+		if (hud_message_after_icon)
+		{
+			short shift = hud_message_round(ink_x0 - (hud_message_icon_x1 + hud_message_icon_gap));
+
+			if (shift != 0)
+			{
+				start -= shift;
+				ink_x1 -= shift;
+				draw_string_set_indents(start - bounds->x0, 0);
+				draw_unicode_string_compute_bounds(bounds, text, text_bounds, cursor_bounds);
+			}
+		}
+		hud_message_icon_shift = hud_message_round(ink_x1 - text_bounds->x1);
+		hud_message_text_ink_valid = TRUE;
+		hud_message_text_ink_x1 = ink_x1;
+	}
+	hud_message_after_icon = FALSE;
+
+	return;
+}
+
 static void render_state_text(
 	rectangle2d *bounds,
 	rectangle2d *cursor_bounds,
@@ -513,8 +583,7 @@ static void render_state_text(
 {
 	rectangle2d text_bounds;
 
-	draw_string_set_indents(cursor_bounds->x0 - bounds->x0, 0);
-	draw_unicode_string_compute_bounds(bounds, text, &text_bounds, cursor_bounds);
+	hud_message_text_place(bounds, cursor_bounds, text, &text_bounds);
 	cursor_bounds->x0 -= 3;
 	text_bounds.x0 = bounds->x0;
 	if (custom && game_engine_running())
@@ -537,6 +606,9 @@ static void render_state_bitmap(
 	struct bitmap_data const *bitmap = NULL;
 	real_rectangle2d const *clip = NULL;
 	real scale;
+	/* port: the bitmap's size (its group's high resolution flags, a Custom
+	Edition map's: the weapons' pickup icons) */
+	real bitmap_scale = 1.0f;
 	point2d point;
 
 	if (icon->frame_rate)
@@ -550,15 +622,23 @@ static void render_state_bitmap(
 	if (bitmap && _texture_cache_bitmap_get_hardware_format(
 		(struct bitmap_data *)bitmap, FALSE, TRUE))
 	{
+#ifdef HALO_CUSTOM_EDITION
+		extern boolean ce_hud_bitmap_is_xbox_button(void const *bitmap);
+
+		/* (not the Xbox's button icons added to a Custom Edition map's, at
+		their own size: ce_hud.c) */
+		if (!ce_hud_bitmap_is_xbox_button(bitmap))
+			bitmap_scale = hud_bitmap_group_scale(bitmap_group_index);
+#endif
 		scale = local_player_count() > 1 ? 0.75f : 1.0f;
-		point.x = (short)(icon->offset.x * scale + cursor_bounds->x0);
+		point.x = (short)(icon->offset.x * scale + cursor_bounds->x0 + hud_message_icon_shift);
 		point.y = (short)(cursor_bounds->y1 - icon->offset.y * scale);
 		hud_draw_bitmap_direct(
 			bitmap,
 			_hud_corner_bottom_left,
 			&point,
 			clip,
-			scale,
+			scale * bitmap_scale,
 			0.0f,
 			TEST_FLAG(icon->flags, _hud_icon_use_color_bit) ? icon->color : color,
 			FALSE);
@@ -567,13 +647,19 @@ static void render_state_bitmap(
 		else if (clip)
 		{
 			cursor_bounds->x0 = (short)(
-				((clip->x1 - clip->x0) * bitmap->width + icon->width_offset) * scale + point.x);
+				((clip->x1 - clip->x0) * bitmap->width * bitmap_scale + icon->width_offset) * scale + point.x);
 		}
 		else
 		{
 			cursor_bounds->x0 = (short)(
-				(bitmap->width + icon->width_offset) * scale + point.x);
+				(bitmap->width * bitmap_scale + icon->width_offset) * scale + point.x);
 		}
+		/* (the gap the words after it start at) */
+		hud_message_after_icon = hud_message_text_ink_valid;
+		hud_message_icon_gap = point.x - hud_message_text_ink_x1;
+		hud_message_icon_x1 = point.x + (clip ? (clip->x1 - clip->x0) : 1.0f) * bitmap->width * bitmap_scale * scale;
+		hud_message_icon_shift = 0;
+		hud_message_text_ink_valid = FALSE;
 	}
 
 	return;
@@ -1639,6 +1725,7 @@ void hud_messaging_update(
 			line_bounds.y0 = line_top;
 			line_bounds.y1 = line_top + 5 * line_height;
 			line_cursor = line_bounds;
+			hud_message_spacing_reset();
 			draw_string_set_draw_mode(
 				font_index,
 				NONE,
@@ -1723,12 +1810,7 @@ void hud_messaging_update(
 								element->data * sizeof(wchar_t));
 							rectangle2d text_bounds;
 
-							draw_string_set_indents(line_cursor.x0 - line_bounds.x0, 0);
-							draw_unicode_string_compute_bounds(
-								&line_bounds,
-								text,
-								&text_bounds,
-								&line_cursor);
+							hud_message_text_place(&line_bounds, &line_cursor, text, &text_bounds);
 							line_cursor.x0 -= 3;
 							text_bounds.x0 = line_bounds.x0;
 							rasterizer_draw_unicode_string(

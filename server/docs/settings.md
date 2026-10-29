@@ -26,10 +26,15 @@ the file.
 | `HALO_DEDICATED_POSTGAME_SECONDS` | `20` | How long the carnage report shows after each game before the next game's lobby, 0 to 300 seconds. |
 | `HALO_DEDICATED_SKIP_LOBBY` | `false` | `true`: after the carnage report, if enough players stayed (`HALO_DEDICATED_MINIMUM_PLAYERS`, and teams as the game needs), the next game starts after a 3-second countdown instead of waiting out the lobby's. Otherwise the lobby opens as always. |
 | `HALO_DEDICATED_PLAYLIST_SHUFFLE` | `false` | `true`: each time the playlist starts over, its entries are put in a new random order (the first pass is in the file's order). The entry just played is not first in the next pass. `sv_set playlist_shuffle true` changes it while the server runs. |
+| `HALO_DEDICATED_GAMESPY_LISTING` | `false` | `true`: answer GameSpy status queries and send heartbeats to GameSpy masters ([below](#gamespy-status-queries)). `sv_set gamespy_listing true` turns it on while the server runs. |
+| `HALO_DEDICATED_GAMESPY_PORT` | `2302` | The UDP port of the GameSpy status queries (`gamespy_port`). |
+| `HALO_DEDICATED_GAMESPY_MASTERS` | `s1.master.hosthpc.com:27900` | The masters the heartbeats go to, `host:port`, comma separated (at most 4). Set but empty: none, the queries are answered alone. |
+| `HALO_DEDICATED_GAMESPY_VERSION` | the server's version | The version (`gamever`) the queries and heartbeats report. |
 | `HALO_DEDICATED_COMMANDS` | (none) | A file of [commands](admin.md#startup-commands) in the data folder, run once the server first hosts. |
 | `HALO_DEDICATED_CONSOLE` | on in a terminal | Commands typed on the server's standard input ([the console](admin.md#the-console)). `true`: read them even when it is not a terminal; `false`: never. |
 | `HALO_DEDICATED_CONTROL` | (off) | The [control API](admin.md#the-control-api)'s address: a port (`8080`, on 127.0.0.1 only) or an address and port (`127.0.0.1:8080`, `[::1]:8080`, `0.0.0.0:8443`). Its token is made and printed the first time, and the first owner's setup link. The [control panel](moderation.md#the-control-panel) is on the same address: plain HTTP on the loopback address, HTTPS beyond it. |
 | `HALO_DEDICATED_CONTROL_TLS` | `auto` | `auto`: HTTPS beyond the loopback address; `on`: always; `off`: never (refused on a public address). [moderation.md](moderation.md#remote-access-safely) |
+| `HALO_DEDICATED_CONTROL_TRUSTED_PROXY` | (none) | The reverse proxies in front of the control panel (their addresses, comma separated: `127.0.0.1`): their `X-Forwarded-For` names the client, so the login limits count each client and not the proxy. [admin.md](admin.md#reaching-it-safely) |
 | `HALO_DEDICATED_CONTROL_CERT`, `HALO_DEDICATED_CONTROL_KEY` | (the server's own) | Your own certificate and key for the control panel's HTTPS (PEM, as certbot writes them; a path in the data folder or absolute). A renewal is taken within a minute. |
 | `HALO_DEDICATED_LINK` | `true` | `false` turns the [link to the Chupathingy site](moderation.md#the-link-to-the-chupathingy-site-optional) off for good. Until `sv_link`, it does nothing either way. |
 | `HALO_DEDICATED_LINK_URL` | `HALO_NET_BROWSER` if set, else `https://stats.chupathingy.org` | The site the server links to (HTTPS). |
@@ -40,7 +45,7 @@ The settings file's keys (`sv_settings` lists them, with where each value
 comes from): `name`, `maximum_players`, `minimum_players`, `idle_limit`,
 `public` (from the next start), `name_filter`, `chat`, `chat_filter`,
 `welcome`, `postgame_seconds`, `skip_lobby`, `chat_cooldown`, `team_change`
-(0 off, 1 balanced, 2 allow), `team_change_margin`, `playlist_shuffle`, `chat_legacy`, and the playlist
+(0 off, 1 balanced, 2 allow), `team_change_margin`, `playlist_shuffle`, `chat_legacy`, `gamespy_listing`, `gamespy_port`, and the playlist
 `sv_playlist_use` chose. `sv_set welcome Hello and welcome` takes
 the rest of the line as the value (quotes optional).
 
@@ -107,6 +112,37 @@ the next entry's lobby opens, or with `HALO_DEDICATED_SKIP_LOBBY` the next
 game starts at once when enough players stayed. The playlist vote on the
 Chupathingy site changes the playlist files each week; it needs no lobby time
 in the game.
+
+## GameSpy status queries
+
+Off unless `gamespy_listing` is on. The server then answers GameSpy status
+queries on UDP port 2302 (`HALO_DEDICATED_GAMESPY_PORT`) in the two forms
+Halo Custom Edition's servers answer: GameSpy's `\basic\` (and `\status\`,
+`\info\`, `\players\`, `\rules\`) and QR2's `FE FD 00`, plus QR2's echo,
+which a LAN server browser broadcasts. It also sends QR2 heartbeats to the
+masters in `HALO_DEDICATED_GAMESPY_MASTERS` (the ones Custom Edition 1.0.10
+reports to, by default, game name `halom`) and answers their challenge. As
+it stops, it tells the masters it is gone.
+
+What it reports: the server's name, the map, the game type, the score
+limit, teams or not, the seats and the players (name, score, ping, team;
+32 rows at most). A map has the name Custom Edition players know it by: an
+Xbox map is `xbox_<map>` (`xbox_bloodgulch`; Custom Edition's own
+`bloodgulch` is the PC version, with other geometry), a Custom Edition or
+Halo PC map (`timberland@ce`, `icefields@pc`) its own name. Two keys of the
+server's own, `bridge` (`chupathingy`) and `bridge_version` (the server's
+version), let a client tell it from a Custom Edition server.
+
+The version reported is the server's own (`HALO_DEDICATED_GAMESPY_VERSION`
+sets another). Custom Edition 1.0.10's server browser shows only servers
+reporting its own version, `01.00.10.0621`, so by default the server is in
+the masters' list but that browser does not show it. Its players cannot join
+this server, so reporting `01.00.10.0621` would show them a game they cannot
+join.
+
+The UDP port must be open (forwarded) for the queries to reach the server
+from outside. The naming of Xbox maps is the Custom Edition community's,
+passed on by ugoboom.
 
 ## Folders
 

@@ -137,6 +137,12 @@ void delta_wire_write_key(unsigned char *data, const struct delta_platform_key *
 	data[7] = 0;
 }
 
+/* (one policy row a platform of the registry: none missed) */
+#define DELTA_POLICY_COUNT(row_platform, host, join, join_opt_in, memory, coop) +1
+typedef char delta_platform_policy_check[(0 DELTA_PLATFORM_POLICY(DELTA_POLICY_COUNT)) == NUMBER_OF_DELTA_PLATFORMS ?
+	1 : -1];
+#undef DELTA_POLICY_COUNT
+
 void delta_platform_policy_default(int platform, struct delta_platform_key *key)
 {
 #define DELTA_POLICY_ROW(row_platform, host, join, join_opt_in, memory, coop) \
@@ -1309,6 +1315,142 @@ int delta_wire_write_team_result(unsigned char *data, delta_u32 session, const s
 	write_u16(payload + 6, result->seconds);
 	delta_wire_write_header(data, DELTA_MAJOR, _delta_message_team_result, DELTA_WIRE_TEAM_RESULT_SIZE, session);
 	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_TEAM_RESULT_SIZE;
+}
+
+/* ---------- object sync */
+
+int delta_wire_read_unit_vitals(const unsigned char *payload, int size, struct delta_wire_unit_vitals *vitals)
+{
+	int index;
+
+	vitals->count = 0;
+	vitals->flags = 0;
+	if (!payload || size < DELTA_WIRE_UNIT_VITALS_SIZE || size > DELTA_WIRE_MAXIMUM_PAYLOAD ||
+		payload[0] > DELTA_WIRE_MAXIMUM_UNIT_VITALS ||
+		size < DELTA_WIRE_UNIT_VITALS_SIZE + payload[0] * DELTA_WIRE_UNIT_VITALS_ENTRY_SIZE)
+	{
+		return 0;
+	}
+	for (index = 0; index < payload[0]; index++)
+	{
+		const unsigned char *entry = payload + DELTA_WIRE_UNIT_VITALS_SIZE + index * DELTA_WIRE_UNIT_VITALS_ENTRY_SIZE;
+		struct delta_wire_unit_vital *vital = &vitals->entries[index];
+
+		vital->object = read_u32(entry);
+		vital->flags = entry[4];
+		vital->body = read_u16(entry + 6);
+		vital->shield = read_u16(entry + 8);
+		if (vital->flags & ~DELTA_WIRE_VITALS_FLAGS)
+			return 0;
+	}
+	vitals->count = payload[0];
+	vitals->flags = (unsigned char)(payload[1] & DELTA_WIRE_UNIT_VITALS_PASS);
+	return 1;
+}
+
+int delta_wire_write_unit_vitals(unsigned char *data, delta_u32 session, const struct delta_wire_unit_vitals *vitals)
+{
+	unsigned char *payload = data + DELTA_WIRE_HEADER_SIZE;
+	int length;
+	int index;
+
+	if (vitals->count < 0 || vitals->count > DELTA_WIRE_MAXIMUM_UNIT_VITALS)
+		return 0;
+	length = DELTA_WIRE_UNIT_VITALS_SIZE + vitals->count * DELTA_WIRE_UNIT_VITALS_ENTRY_SIZE;
+	clear(payload, length);
+	payload[0] = (unsigned char)vitals->count;
+	payload[1] = (unsigned char)(vitals->flags & DELTA_WIRE_UNIT_VITALS_PASS);
+	for (index = 0; index < vitals->count; index++)
+	{
+		unsigned char *entry = payload + DELTA_WIRE_UNIT_VITALS_SIZE + index * DELTA_WIRE_UNIT_VITALS_ENTRY_SIZE;
+		const struct delta_wire_unit_vital *vital = &vitals->entries[index];
+
+		if (vital->flags & ~DELTA_WIRE_VITALS_FLAGS)
+			return 0;
+		write_u32(entry, vital->object);
+		entry[4] = vital->flags;
+		write_u16(entry + 6, vital->body);
+		write_u16(entry + 8, vital->shield);
+	}
+	delta_wire_write_header(data, DELTA_MAJOR, _delta_message_unit_vitals, length, session);
+	return DELTA_WIRE_HEADER_SIZE + length;
+}
+
+static int object_names_valid(const struct delta_wire_object_names *names)
+{
+	return names->total >= 0 && names->total <= DELTA_WIRE_MAXIMUM_OBJECT_NAMES && names->first >= 0 &&
+		names->count >= 0 && names->count <= DELTA_WIRE_MAXIMUM_OBJECT_NAMES_ENTRIES &&
+		names->first + names->count <= names->total;
+}
+
+int delta_wire_read_object_names(const unsigned char *payload, int size, struct delta_wire_object_names *names)
+{
+	int index;
+
+	names->total = names->first = names->count = 0;
+	if (!payload || size < DELTA_WIRE_OBJECT_NAMES_SIZE || size > DELTA_WIRE_MAXIMUM_PAYLOAD)
+		return 0;
+	names->total = read_u16(payload);
+	names->first = read_u16(payload + 2);
+	names->count = payload[4];
+	if (!object_names_valid(names) ||
+		size < DELTA_WIRE_OBJECT_NAMES_SIZE + names->count * DELTA_WIRE_OBJECT_NAMES_ENTRY_SIZE)
+	{
+		names->total = names->first = names->count = 0;
+		return 0;
+	}
+	for (index = 0; index < names->count; index++)
+	{
+		const unsigned char *entry = payload + DELTA_WIRE_OBJECT_NAMES_SIZE + index * DELTA_WIRE_OBJECT_NAMES_ENTRY_SIZE;
+		struct delta_wire_object_name *name = &names->entries[index];
+
+		name->object = read_u32(entry);
+		name->name = read_u16(entry + 4);
+		name->flags = (unsigned char)(entry[6] & DELTA_WIRE_NAME_FLAGS);
+		name->vitals_flags = entry[7];
+		name->body = read_u16(entry + 8);
+		name->shield = read_u16(entry + 10);
+		if (name->name >= DELTA_WIRE_MAXIMUM_OBJECT_NAMES || (name->vitals_flags & ~DELTA_WIRE_VITALS_FLAGS))
+		{
+			names->total = names->first = names->count = 0;
+			return 0;
+		}
+	}
+	return 1;
+}
+
+int delta_wire_write_object_names(unsigned char *data, delta_u32 session, const struct delta_wire_object_names *names)
+{
+	unsigned char *payload = data + DELTA_WIRE_HEADER_SIZE;
+	int length;
+	int index;
+
+	if (!object_names_valid(names))
+		return 0;
+	length = DELTA_WIRE_OBJECT_NAMES_SIZE + names->count * DELTA_WIRE_OBJECT_NAMES_ENTRY_SIZE;
+	clear(payload, length);
+	write_u16(payload, (unsigned int)names->total);
+	write_u16(payload + 2, (unsigned int)names->first);
+	payload[4] = (unsigned char)names->count;
+	for (index = 0; index < names->count; index++)
+	{
+		unsigned char *entry = payload + DELTA_WIRE_OBJECT_NAMES_SIZE + index * DELTA_WIRE_OBJECT_NAMES_ENTRY_SIZE;
+		const struct delta_wire_object_name *name = &names->entries[index];
+
+		if (name->name >= DELTA_WIRE_MAXIMUM_OBJECT_NAMES || (name->flags & ~DELTA_WIRE_NAME_FLAGS) ||
+			(name->vitals_flags & ~DELTA_WIRE_VITALS_FLAGS))
+		{
+			return 0;
+		}
+		write_u32(entry, name->object);
+		write_u16(entry + 4, name->name);
+		entry[6] = name->flags;
+		entry[7] = name->vitals_flags;
+		write_u16(entry + 8, name->body);
+		write_u16(entry + 10, name->shield);
+	}
+	delta_wire_write_header(data, DELTA_MAJOR, _delta_message_object_names, length, session);
+	return DELTA_WIRE_HEADER_SIZE + length;
 }
 
 int delta_wire_chat_text_valid(const char *text, int length, int maximum_characters)

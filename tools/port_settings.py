@@ -23,6 +23,16 @@ ON_OFF = [("ON", "true"), ("OFF", "false")]
 SENSITIVITIES = [(f"{value:g}", f"{value:g}") for value in (0.1, 0.15, 0.25, 0.4, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4)]
 VOLUMES = [(str(step), f"{step / 10:g}") for step in range(11)]
 
+# A row's platform: None for every platform, else the names it is on,
+# separated by spaces (port/linux/src/menu_files.c): "desktop", "android",
+# "switch", and "console" for the Xbox 360 and the Wii U, which show the
+# Chupathingy menus without the desktop's extras. A row the consoles leave
+# out (a setting they do not have, or one the console decides) is on
+# NOT_CONSOLE. The consoles' rows are packed with no gaps where the others'
+# would be (_console_places).
+CONSOLE = "console"
+NOT_CONSOLE = "desktop android switch"
+
 # each screen: its folder below PE, its screen's widget (the name the profile
 # menu opens), its header (widget, bitmap), the row spacing, its rows:
 # (label, setting, [(shown, value)], help, platform[, key]): key names the
@@ -38,8 +48,10 @@ SCREENS = {
         "spacing": 24,
         # (rows in the place of the row before them: Window Size in
         # Resolution's, port/linux/game/menu_functions.c showing the one the
-        # display mode chosen uses; Android's anti-aliasing in the desktop's)
-        "same_place": ["display.window_size", "display.interpolation", "anti_aliasing_android"],
+        # display mode chosen uses; Android's resolution and anti-aliasing in
+        # the desktop's)
+        "same_place": ["display.window_size", "resolution_android", "display.interpolation",
+                       "anti_aliasing_android"],
         # (rows written but placed on no page: Smooth Motion, which Frame
         # Rate sets on every platform, kept so the rows after it keep their
         # strings)
@@ -57,10 +69,16 @@ SCREENS = {
             # in place of this one)
             ("WINDOW SIZE:", "display.window_size", [("1280 x 960", "1280x960")],
              "The size of the window.", "desktop"),
+            # (the lines Android draws at, no more than the display has:
+            # port/linux/src/d3d8_gl.c)
+            ("RESOLUTION:", "display.resolution_limit",
+             [("480 (XBOX)", "480"), ("720", "720"), ("900", "900"), ("1080", "1080"), ("NATIVE", "native")],
+             "Higher is sharper, but uses more battery.",
+             "android", "resolution_android"),
             ("RESOLUTION SCALING:", "display.resolution_scaling", [("NATIVE", "native"), ("ORIGINAL", "original")],
              "Native draws at full resolution. Original draws at\n640x480 and scales it up.", "desktop"),
             ("V-SYNC:", "display.vsync", ON_OFF,
-             "Sync frames to the display.", None),
+             "Sync frames to the display.", NOT_CONSOLE),
             # (port/linux/game/menu_functions.c: 30 also turns display.interpolation
             # off, the others on, on every platform. Instant Aim,
             # display.direct_camera, is in config.toml alone)
@@ -88,6 +106,8 @@ SCREENS = {
             ("VIEWMODEL FOV:", "display.viewmodel_field_of_view",
              [("SAME", "0")] + [(f"{value}", f"{value}") for value in (50, 55, 60, 65, 70, 75, 80, 85, 90)],
              "How wide your weapon is drawn. Same follows the view.", None),
+            ("RETICLE FOLLOWS FOV:", "display.reticle_scales_with_fov", ON_OFF,
+             "Size the reticle to the field of view, so it matches\nthe weapon's spread.", None),
         ],
         # (rows that open a nested list in the same screen: VIEWS)
         "views": [
@@ -113,17 +133,17 @@ SCREENS = {
                 # (read when the game starts: menu_tags.c)
                 ("MENU STYLE:", "display.menus",
                  [("CHUPATHINGY", "chupathingy"), ("XBOX", "xbox"), ("GEARBOX", "gearbox")],
-                 "Takes effect on restart.", None),
+                 "Takes effect on restart.", NOT_CONSOLE),
                 ("HIGH-RES HUD:", "display.high_res_hud", ON_OFF,
-                 "Draw the HUD in high resolution.", None),
+                 "Draw the HUD in high resolution.", NOT_CONSOLE),
                 ("HIGH-RES TEXT:", "display.high_res_text", ON_OFF,
-                 "Draw text and titles in high resolution.", None),
+                 "Draw text and titles in high resolution.", NOT_CONSOLE),
                 ("PLAYER NAMES:", "display.player_names",
                  [("ALL", "all"), ("ALLIES", "allies"), ("ENEMIES", "enemies"), ("NONE", "none")],
-                 "Choose whose names show above players.", None),
+                 "Choose whose names show above players.", NOT_CONSOLE),
                 ("PLAYER NAME SIZE:", "display.player_name_scale",
                  [(f"{value:g}x", f"{value:g}") for value in (0.5, 0.75, 1, 1.25, 1.5, 2)],
-                 "Adjust the size of player names.", None),
+                 "Adjust the size of player names.", NOT_CONSOLE),
                 ("SCOREBOARD LAYOUT:", "display.scoreboard_team_layout", [("TEAMS", "teams"), ("BY SCORE", "score")],
                  "Show team games by team, or all players by score.", None),
                 ("SCOREBOARD PANEL:", "display.scoreboard_background", ON_OFF,
@@ -158,7 +178,7 @@ SCREENS = {
             ("SPEAKERS:", "audio.channels", [("AUTO", "auto"), ("STEREO", "stereo"), ("5.1", "5.1"), ("7.1", "7.1")],
              "Stereo or surround. Takes effect on restart.", "desktop"),
             ("HEADPHONE 3D:", "audio.hrtf", [("OFF", "off"), ("ON", "on"), ("AUTO", "auto")],
-             "3D sound for headphones. Auto: on with headphones.", None),
+             "3D sound as on the Xbox. Turn off for speakers.", None),
             ("REVERB:", "audio.reverb", ON_OFF,
              "Room echo, and muffled sound behind walls.", None),
             ("DOPPLER:", "audio.doppler", ON_OFF,
@@ -178,36 +198,36 @@ SCREENS = {
             ("INTERNET PLAY:", "network.online", ON_OFF,
              "Host and join games over the internet.", None),
             ("UPNP PORT FORWARDING:", "network.allow_upnp", ON_OFF,
-             "Ask the router to forward the game's port.", None),
+             "Ask the router to forward the game's port.", NOT_CONSOLE),
             ("MAP DOWNLOADS:", "network.map_downloads", [("ASK", "ask"), ("ALWAYS", "always"), ("NEVER", "never")],
-             "Download missing Custom Edition maps.", None),
+             "Download missing Custom Edition maps.", NOT_CONSOLE),
             ("JOIN FROM CLIPBOARD:", "network.join_from_clipboard",
              [("ASK", "ask"), ("ALWAYS", "always"), ("NEVER", "never")],
-             "Join a game from an invite link on the clipboard.", None),
+             "Join a game from an invite link on the clipboard.", NOT_CONSOLE),
             ("COPY INVITE LINK:", "network.copy_to_clipboard", ON_OFF,
-             "Copy your game's invite link when you host.", None),
+             "Copy your game's invite link when you host.", NOT_CONSOLE),
             ("CHECK FOR UPDATES:", "update.auto", ON_OFF,
-             "Check for a new version at startup.", None),
+             "Check for a new version at startup.", NOT_CONSOLE),
             ("START WITH ONE PLAYER:", "game.start_with_one_player", ON_OFF,
              "Let a game you host start with only you.", None),
         ],
         "views": [
             ("chat", "CHAT", "Text chat and the word filter.", [
-                ("CHAT:", "chat.enabled", ON_OFF, "Text chat with other players.", None),
+                ("CHAT:", "chat.enabled", ON_OFF, "Text chat with other players.", NOT_CONSOLE),
                 ("SHOW CHAT:", "chat.show", [("ALL", "all"), ("TEAM", "team"), ("OFF", "off")],
-                 "Choose whose chat lines show.", None),
+                 "Choose whose chat lines show.", NOT_CONSOLE),
                 ("WORD FILTER:", "chat.filter", [("MASK", "mask"), ("HIDE", "hide"), ("SHOW", "show")],
-                 "Mask, hide or show blocked words.", None),
+                 "Mask, hide or show blocked words.", NOT_CONSOLE),
                 ("STREAMER MODE:", "chat.streamer_mode", ON_OFF,
-                 "Show players in chat by team, not by name.", None),
+                 "Show players in chat by team, not by name.", NOT_CONSOLE),
             ]),
             ("privacy", "PRIVACY", "What stats and reports are sent.", [
                 ("HOSTED GAME STATS:", "network.report_hosted_games", ON_OFF,
-                 "Send stats of games you host to the game list.", None),
+                 "Send stats of games you host to the game list.", NOT_CONSOLE),
                 ("DELTA STATS:", "network.report_events", ON_OFF,
-                 "Record games you host for Delta match pages.", None),
+                 "Record games you host for Delta match pages.", NOT_CONSOLE),
                 ("JOINED GAME STATS:", "network.report_joined_games", ON_OFF,
-                 "Add games you join to your game list profile.", None),
+                 "Add games you join to your game list profile.", NOT_CONSOLE),
                 ("CRASH REPORTS:", "crash_reports.upload", [("ASK", "ask"), ("YES", "yes"), ("NO", "no")],
                  "Send crash reports to the developers.", "desktop"),
                 ("DISCORD STATUS:", "discord.presence", [("FULL", "full"), ("MINIMAL", "minimal"), ("OFF", "off")],
@@ -226,13 +246,13 @@ SCREENS = {
 # the BUTTON LAYOUT row of Controller Buttons' list, CONTROLLER_PRESETS)
 MOUSE_ROWS = [
     ("HORIZONTAL SENSITIVITY:", "input.mouse_sensitivity", SENSITIVITIES,
-     "Adjust the horizontal look sensitivity.", None),
+     "Adjust the horizontal look sensitivity.", NOT_CONSOLE),
     ("VERTICAL SENSITIVITY:", "input.mouse_vertical_sensitivity", [("SAME", "0")] + SENSITIVITIES,
-     "Adjust the vertical look sensitivity.", None),
+     "Adjust the vertical look sensitivity.", NOT_CONSOLE),
     ("INVERT VERTICAL AXIS:", "input.invert_mouse", YES_NO,
-     "Moving the mouse forward looks down.", None),
+     "Moving the mouse forward looks down.", NOT_CONSOLE),
     ("AIM ASSIST:", "input.mouse_aim_assist", ON_OFF,
-     "Use controller aim assist with the mouse.", None),
+     "Use controller aim assist with the mouse.", NOT_CONSOLE),
 ]
 GAMEPAD_ROWS = [
     ("LOOK SENSITIVITY:", "profile.look_sensitivity", [(str(step), str(step)) for step in range(1, 11)],
@@ -426,18 +446,69 @@ def _mark(base: str, view: str) -> list:
     return _widget(f"{base}/view_{view}", [("width", 1), ("height", 1)], [])
 
 
+def _on_console(platform) -> bool:
+    return platform is None or CONSOLE in platform.split()
+
+
+def _off_console(platform) -> str:
+    """the platform's names but the consoles'"""
+    if platform is None:
+        return NOT_CONSOLE
+    return " ".join(name for name in platform.split() if name != CONSOLE)
+
+
+def _console_places(rows: list) -> list:
+    """a list's children ((widget, platform, place)) with the consoles'
+    rows packed. A row is in the views its mark names (view_<name>[_<name>],
+    the mark before it; before any mark, in every view: menu_functions.c's
+    views_show). In the first view a row is in, the places its rows take
+    that the consoles show none in are empty there, and a row the consoles
+    show moves up by those above it, as a second child of the same widget
+    on "console" (the first, then, on the other platforms alone). With no
+    row left out on the consoles, the children are as they were."""
+    marks = [row[0].rsplit("/", 1)[-1] for row in rows]
+    # (a list without marks is one view)
+    every = {view for mark in marks if mark.startswith("view_") for view in mark[5:].split("_")} or {"main"}
+    views, mark = [], None
+    for name in marks:
+        if name.startswith("view_"):
+            mark = name[5:].split("_")
+        views.append(mark if mark is not None else sorted(every))
+    packed = []
+    for index, (widget, platform, place) in enumerate(rows):
+        if marks[index].startswith("view_") or not views[index]:
+            packed.append((widget, platform, place))
+            continue
+        view = views[index][0]
+        part = [row for other, row in enumerate(rows)
+                if not marks[other].startswith("view_") and view in views[other]]
+        taken = {other_place for _, _, other_place in part}
+        shown = {other_place for _, other_platform, other_place in part if _on_console(other_platform)}
+        higher = sum(1 for empty in taken - shown if empty < place)
+        if higher and _on_console(platform):
+            packed.append((widget, _off_console(platform), place))
+            packed.append((widget, CONSOLE, place - higher))
+        else:
+            packed.append((widget, platform, place))
+    return packed
+
+
 def _setting_rows(base: str, spec: dict) -> tuple:
     """a settings screen's list children ((widget, platform, place)) and
     the widgets of its rows, labels and helps"""
     entries, labels, helps = _layout(spec)
     rows, extra = [], []
+    # (a row that opens a nested list none of whose rows the consoles show
+    # is left out there too)
+    views = {view: view_rows for view, _, _, view_rows in spec.get("views", [])}
     for entry in entries:
         if entry[0] == "mark":
             rows.append((f"{base}/view_{entry[1]}", None, 0))
             extra += _mark(base, entry[1])
         elif entry[0] == "link":
-            _, _, key, place, label_index = entry
-            rows.append((f"{base}/op_{key}", None, place))
+            _, view, key, place, label_index = entry
+            shown = any(_on_console(row[4]) for row in views[view])
+            rows.append((f"{base}/op_{key}", None if shown else NOT_CONSOLE, place))
             extra += _link_row(base, key, label_index)
         else:
             _, row, key, place, label_index = entry
@@ -447,7 +518,7 @@ def _setting_rows(base: str, spec: dict) -> tuple:
     # (the help of the row whose label is string n is n + 1: the buttons' is 0)
     strings = _strings(f"{base}/labels", labels)
     strings += _strings(f"{base}/help_strings", [""] + [text.replace("\n", "\\n") for text in helps])
-    return rows, extra, strings
+    return _console_places(rows) if spec.get("consoles", True) else rows, extra, strings
 
 
 def _setting_screen(folder: str, spec: dict) -> list:
@@ -524,21 +595,25 @@ def _controls_rows() -> tuple:
             labels.append(row[0])
             helps.append(row[3])
 
-    rows.append((f"{base}/op_device", None, 0))
+    # (the consoles have the controller's settings alone: no keyboard or
+    # mouse, and no buttons page or layout, which HALO_CONSOLE_NO_CONTROLS
+    # leaves out; menu_functions.c shows the controller's settings when the
+    # list has no DEVICE)
+    rows.append((f"{base}/op_device", NOT_CONSOLE, 0))
     extra += _chooser(base, "device", "DEVICE:", CONTROLS_DEVICES)
     # the keyboard and mouse's
     mark("keyboard_mouse")
-    rows.append((f"{base}/op_group", None, 1))
+    rows.append((f"{base}/op_group", NOT_CONSOLE, 1))
     extra += _chooser(base, "group", "SHOW:", CONTROL_GROUPS)
     mark("keyboard")
     for index in range(CONTROL_ROWS):
         row = f"{base}/op_command_{index + 1}"
-        rows.append((row, None, index + 2))
+        rows.append((row, NOT_CONSOLE, index + 2))
         extra += _widget(row, [("width", 512), ("height", 28), ("flags", "pass_unhandled_to_focused_child"),
                                ("bitmap", "bitmaps/option_bkds"), ("color", "#FF2896FF")],
                          ['<on event="a" run="controls begin binding"/>',
                           '<on event="start" run="controls begin binding"/>',
-                          '<on event="left right" run="controls binding slot"/>',
+                          '<on event="left right stick_left stick_right white black" run="controls binding slot"/>',
                           f'<child{attributes([("widget", f"{base}/command_label")])}/>',
                           f'<child{attributes([("widget", f"{base}/command_binding"), ("x", 200)])}/>',
                           f'<child{attributes([("widget", f"{base}/command_binding"), ("x", 356)])}/>'])
@@ -553,10 +628,10 @@ def _controls_rows() -> tuple:
     settings(MOUSE_ROWS, 2)
     # the controller's
     mark("gamepad_buttons")
-    rows.append((f"{base}/op_page", None, 1))
+    rows.append((f"{base}/op_page", NOT_CONSOLE, 1))
     extra += _chooser(base, "page", "SHOW:", CONTROLLER_PAGES)
     mark("gamepad")
-    rows.append((f"{base}/op_layout", None, 2))
+    rows.append((f"{base}/op_layout", NOT_CONSOLE, 2))
     extra += _widget(f"{base}/op_layout", [("width", 512), ("height", 28), ("flags", "pass_unhandled_to_focused_child"),
                                            ("bitmap", "bitmaps/option_bkds"), ("color", "#FF2896FF")],
                      [f'<child{attributes([("widget", f"{base}/layout_label")])}/>',
@@ -574,7 +649,7 @@ def _controls_rows() -> tuple:
     settings(GAMEPAD_ROWS, 3)
     mark("buttons")
     for index, label in enumerate(CONTROLLER_ACTIONS):
-        rows.append((f"{base}/op_button_{index + 1}", None, index + 2))
+        rows.append((f"{base}/op_button_{index + 1}", NOT_CONSOLE, index + 2))
         extra += _widget(f"{base}/op_button_{index + 1}",
                          [("width", 512), ("height", 28), ("flags", "pass_unhandled_to_focused_child"),
                           ("bitmap", "bitmaps/option_bkds"), ("color", "#FF2896FF")],
@@ -592,7 +667,7 @@ def _controls_rows() -> tuple:
     # the other rows' helps are menu_functions.c's own)
     extra += _strings(f"{base}/labels", labels)
     extra += _strings(f"{base}/help_strings", [""] + helps)
-    return rows, extra
+    return _console_places(rows), extra
 
 
 # (the list's: its rows filled in and the help written each frame; on its
@@ -667,6 +742,9 @@ DELTA_PRIVACY = "delta_privacy_setup"
 CHUPATHINGY_ONLY = {
     DELTA_PRIVACY: {
         "screen": "delta_privacy_settings_screen",
+        # (not on the consoles, HALO_CONSOLE_NO_DELTA_PROFILE: its rows are
+        # not packed for them)
+        "consoles": False,
         "header": ("header_privacy", "chupathingy/delta_profile/header_privacy"),
         "spacing": 30,
         "rows": [
@@ -693,11 +771,11 @@ CHUPATHINGY_ONLY = {
 }
 
 
-def _xbox_prompt(button: str, x: int, word: str) -> list:
+def _xbox_prompt(button: str, x: int, word: str, platform=None) -> list:
     """a prompt laid out as the Xbox's: its button, then its word (the
     menus' own, chupathingy/prompts.xml, which a game's map has too)"""
-    return [f'<child{attributes([("widget", f"chupathingy/prompts/{button}"), ("x", x), ("y", 414)])}/>',
-            f'<child{attributes([("widget", f"chupathingy/prompts/{word}"), ("x", x + 22), ("y", 414)])}/>']
+    return [f'<child{attributes([("widget", f"chupathingy/prompts/{button}"), ("x", x), ("y", 414), ("platform", platform)])}/>',
+            f'<child{attributes([("widget", f"chupathingy/prompts/{word}"), ("x", x + 22), ("y", 414), ("platform", platform)])}/>']
 
 
 def chupathingy_settings_pages() -> list:
@@ -715,7 +793,9 @@ def chupathingy_settings_pages() -> list:
             handlers = [*CONTROLS_LIST_HANDLERS, '<on event="x" run="port controls accept" back="true"/>',
                         '<on event="y" run="port controls defaults"/>']
             prompts = (_xbox_prompt("y", 60, "defaults") + _xbox_prompt("x", 215, "accept") +
-                       _xbox_prompt("b", 350, "cancel") + _xbox_prompt("a", 490, "change"))
+                       _xbox_prompt("b", 350, "cancel") +
+                       # (the consoles change no key or button here)
+                       _xbox_prompt("a", 490, "change", NOT_CONSOLE))
         else:
             spec = SCREENS.get(folder) or CHUPATHINGY_ONLY[folder]
             rows, _, _ = _setting_rows(base, spec)
@@ -1339,8 +1419,8 @@ HOST_OPTIONS = {
         ("MOUSE AIM ASSIST:", "network.block_mouse_aim_assist", [("ALLOWED", "false"), ("BLOCKED", "true")],
          "Allow or block aim assist for mouse players.",
          None),
-        ("PORT:", "network.tunnel_port", [("AUTO", "0")] + [(str(port), str(port)) for port in range(2302, 2311)],
-         "The UDP port for internet play. Applies on restart.",
+        ("PORT:", "network.tunnel_port", [("RANDOM", "0")] + [(str(port), str(port)) for port in range(2302, 2311)],
+         "The UDP port for hosting. Forward it on your router if friends can't join.",
          None),
     ],
 }

@@ -138,6 +138,7 @@ typedef char verify_ce_bitmap_data_size[sizeof(struct bitmap_data) == CE_BITMAP_
 char const *cache_files_map_directory(void);
 HANDLE cache_files_ce_map_file(void);
 int ce_vorbis_decode(const unsigned char *data, int size, int *channels, int *sample_rate, short **samples);
+int ce_vorbis_resample(short **samples, int frames, int channels, int rate, int wanted);
 void ce_vorbis_free(short *samples);
 static void ce_sounds_decode(void *tag_instances, long tag_count);
 
@@ -1358,7 +1359,9 @@ static void ce_sounds_decode(
 	char path[256];
 	HANDLE file = NULL;
 	unsigned long written = 0;
-	long sounds = 0, in_map = 0, permutations_decoded = 0, repaired = 0, copied = 0;
+	long sounds = 0, in_map = 0, permutations_decoded = 0, repaired = 0, copied = 0, resampled_count = 0;
+	boolean resampled_told = FALSE;
+	int played_rate;
 	long index;
 	/* (a sound's decoded permutations, changed once all of them are) */
 	struct ce_decoded_permutation *decoded = NULL;
@@ -1445,6 +1448,10 @@ static void ce_sounds_decode(
 		}
 		encoding = *(short *)(sound + CE_SOUND_ENCODING_OFFSET);
 		sample_rate = *(short *)(sound + CE_SOUND_SAMPLE_RATE_OFFSET);
+		/* (the rate the game plays the sound at: a mono sound's always 22 kHz,
+		as the Xbox's channels have it; Halo PC's 44 kHz mono sounds are
+		decoded to it and made 22 kHz sounds) */
+		played_rate = encoding ? (sample_rate ? 44100 : 22050) : 22050;
 		/* (all or nothing: every permutation is decoded and written before
 		any is changed. A sound read from the decoded file with a permutation
 		left pointing into its own file, or the other way about, would play
@@ -1526,12 +1533,32 @@ static void ce_sounds_decode(
 					ce_vorbis_decode(data, size, &channels, &rate, &samples) : -1;
 				if (data)
 					free(data);
-				/* (and no more than the sound cache could hold of it) */
-				if (frames <= 0 || channels != (encoding ? 2 : 1) || rate != (sample_rate ? 44100 : 22050) ||
-					frames > 0x1000000)
+				/* (one at twice the rate it is played at, or half it, brought
+				to it: ce_vorbis_resample, told once a map) */
+				if (frames > 0 && channels == (encoding ? 2 : 1) && rate != played_rate)
 				{
-					error(_error_silent, "Custom Edition maps: %s: an Ogg Vorbis permutation of %d channels at %d Hz",
-						(char const *)xbox_pointer(instance->name), channels, rate);
+					int resampled = ce_vorbis_resample(&samples, frames, channels, rate, played_rate);
+
+					if (resampled > 0)
+					{
+						if (!resampled_told)
+						{
+							error(_error_silent, "Custom Edition maps: %s: Ogg Vorbis samples at %d Hz, played at %d Hz: "
+								"resampled (any more like it are too)", (char const *)xbox_pointer(instance->name), rate,
+								played_rate);
+							resampled_told = TRUE;
+						}
+						frames = resampled;
+						rate = played_rate;
+						resampled_count++;
+					}
+				}
+				/* (and no more than the sound cache could hold of it) */
+				if (frames <= 0 || channels != (encoding ? 2 : 1) || rate != played_rate || frames > 0x1000000)
+				{
+					error(_error_silent, "Custom Edition maps: %s: an Ogg Vorbis permutation of %d channels at %d Hz "
+						"in a sound of %d at %d Hz; it does not play", (char const *)xbox_pointer(instance->name),
+						channels, rate, encoding ? 2 : 1, played_rate);
 					ce_vorbis_free(samples);
 					all = FALSE;
 					break;
@@ -1583,6 +1610,9 @@ static void ce_sounds_decode(
 		}
 		permutations_decoded += (long)decoded_count;
 		*(short *)(sound + CE_SOUND_COMPRESSION_OFFSET) = CE_SOUND_COMPRESSION_NONE;
+		/* (a 44 kHz mono sound, its samples now 22 kHz's) */
+		if (!encoding && sample_rate)
+			*(short *)(sound + CE_SOUND_SAMPLE_RATE_OFFSET) = 0;
 		sounds++;
 		if (from_map)
 			in_map++;
@@ -1590,8 +1620,9 @@ static void ce_sounds_decode(
 	free(decoded);
 	ce_decoded_sounds_file = file;
 	error(_error_silent, "Custom Edition maps: %ld Ogg Vorbis sounds decoded, %ld of them the map's (%ld permutations, "
-		"%lu bytes); %ld sounds given their permutations' compression; %ld with samples in both the map and sounds.map "
-		"copied", sounds, in_map, permutations_decoded, written, repaired, copied);
+		"%lu bytes; %ld permutations resampled to their sounds' rate); %ld sounds given their permutations' compression; "
+		"%ld with samples in both the map and sounds.map copied", sounds, in_map, permutations_decoded, written,
+		resampled_count, repaired, copied);
 }
 
 /* the resource map a tag's pixels or samples are read from (cache_files_windows.c),
