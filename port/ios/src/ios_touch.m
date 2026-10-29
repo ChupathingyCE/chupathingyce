@@ -19,11 +19,21 @@ Not yet Android's: the layout editor and its options, gyroscope aiming and
 the phone's rumble.
 
 On a large screen (an iPad, iPhone Duo's inner display) the controls keep
-about a phone's size and still spread to the corners, under the thumbs. On
-iPhone Duo held part open, the app tells the overlay where the fold is
-(halo_ios_set_fold_proc: app/Sources/iOS/Fold.swift) and no control sits on
-it. On the Apple TV (HALO_TVOS) there is no touch screen: the hooks are
-here, and answer nothing, and the game is played with a controller.
+about a phone's size and still spread to the corners, under the thumbs.
+
+iPhone Duo (iOS 27.1): closed, it is a phone, and the outer display's
+layout is a phone's; open flat, the inner display is one big screen. Held
+part open like a laptop (the fold across the screen, say at 70 degrees),
+the picture goes in the half above the fold (host_present_area: the game's
+platform_video_present_area) and the controls in the half below it, a
+controller's deck; part open like a book (the fold up the screen), no
+control sits on the fold. The fold is UIKit's division region, and a hinge
+interaction says when to look again; both are reached through the
+Objective-C runtime, so the overlay builds with any SDK and does nothing
+where iOS has neither.
+
+On the Apple TV (HALO_TVOS) there is no touch screen: the hooks are here,
+and answer nothing, and the game is played with a controller.
 */
 
 #import <UIKit/UIKit.h>
@@ -67,13 +77,10 @@ void host_gesture_insets(int *insets)
 	insets[0] = insets[1] = insets[2] = insets[3] = 0;
 }
 
-void halo_ios_set_fold_proc(halo_ios_fold_proc proc)
+void host_present_area(float *area)
 {
-	(void)proc;
-}
-
-void halo_ios_fold_changed(void)
-{
+	area[0] = area[1] = 0.0f;
+	area[2] = area[3] = 1.0f;
 }
 
 #else
@@ -198,8 +205,67 @@ static void touch_state_set(const int32_t *next)
 than a big phone's in landscape (0.75), where an iPad's would be 1.25 and up */
 #define MAX_TOUCH_SCALE 1.0
 
-/* where iPhone Duo's fold is (halo_ios_set_fold_proc), or none */
-static halo_ios_fold_proc fold_proc;
+/* ---------- iPhone Duo's fold and hinge (iOS 27.1's UIKit)
+
+As Apple declares them (UIView's reservedRegionsOfKind:, the division
+region kind, UIViewReservedRegion's frame and isActive, UIHingeInteraction's
+initWithUpdateHandler:, its update's hinge and the hinge's angle, in
+radians), declared here so that the SDK need not have them: each is
+looked up before it is called */
+
+@protocol HaloRegionView
+- (NSArray *)reservedRegionsOfKind:(id)kind;
+@end
+
+@protocol HaloRegionKind
++ (id)divisionRegionKind;
+@end
+
+@protocol HaloRegion
+- (CGRect)frame;
+- (BOOL)isActive;
+@end
+
+@protocol HaloHingeInteraction
+- (id)initWithUpdateHandler:(void (^)(id interaction, id update))handler;
+@end
+
+@protocol HaloHingeUpdate
+- (id)hinge;
+@end
+
+@protocol HaloHinge
+- (CGFloat)angle;
+@end
+
+/* the fold across a view, in its points, while the device is part open
+(Apple's division region is active only then); NO when there is none: not
+an iPhone Duo, not iOS 27.1, or open flat */
+static BOOL fold_in_view(UIView *view, CGRect *fold)
+{
+	Class kind = NSClassFromString(@"UIViewReservedRegionKind");
+	NSArray *regions;
+
+	if (!kind || ![kind respondsToSelector:@selector(divisionRegionKind)] ||
+		![view respondsToSelector:@selector(reservedRegionsOfKind:)])
+		return NO;
+	regions = [(id<HaloRegionView>)view reservedRegionsOfKind:[(Class<HaloRegionKind>)kind divisionRegionKind]];
+	for (id<HaloRegion> region in regions)
+	{
+		if ([region respondsToSelector:@selector(isActive)] && [region isActive] &&
+			[region respondsToSelector:@selector(frame)])
+		{
+			*fold = [region frame];
+			return YES;
+		}
+	}
+	return NO;
+}
+
+/* the part of the window the picture is shown in, as fractions of it (x,
+y, width, height from the top left): all of it, but the half above the fold
+in the laptop posture (host_present_area) */
+static float present_area[4] = { 0.0f, 0.0f, 1.0f, 1.0f };
 
 @interface HaloTouchControls : UIView
 - (void)sceneChanged;
@@ -227,6 +293,14 @@ static halo_ios_fold_proc fold_proc;
 	BOOL visible;
 	BOOL was_shown;
 	float sensitivity;
+	/* iPhone Duo: the fold the controls were laid out around, whether there
+	was one, and whether it ran across the screen (the laptop posture: the
+	controls below it); the hinge's angle last reported, in degrees */
+	CGRect laid_fold;
+	BOOL laid_folded;
+	BOOL tabletop;
+	BOOL hinge_watched;
+	double hinge_degrees;
 }
 
 - (instancetype)initWithFrame:(CGRect)frame
@@ -260,18 +334,53 @@ connected */
 
 - (void)layoutSubviews
 {
-	UIEdgeInsets safe = self.safeAreaInsets;
-	CGFloat width = MAX(1.0, self.bounds.size.width - safe.left - safe.right);
-	CGFloat height = MAX(1.0, self.bounds.size.height - safe.top - safe.bottom);
+	CGRect area = UIEdgeInsetsInsetRect(self.bounds, self.safeAreaInsets);
+	CGRect fold = CGRectZero;
+	BOOL folded = fold_in_view(self, &fold), was_tabletop = tabletop;
+	CGFloat width, height;
 	int index;
 
 	[super layoutSubviews];
 	[self reset];
+	[self watchHinge];
+	laid_fold = fold;
+	laid_folded = folded;
+	/* the laptop posture: a fold across the screen. The picture above it,
+	the controls below it */
+	tabletop = folded && fold.size.width > fold.size.height && self.bounds.size.height > 0 &&
+		CGRectGetMinY(fold) > 0 && CGRectGetMaxY(fold) < CGRectGetMaxY(area);
+	if (tabletop)
+	{
+		CGFloat top = MAX(CGRectGetMinY(area), CGRectGetMaxY(fold));
+
+		area.size.height = CGRectGetMaxY(area) - top;
+		area.origin.y = top;
+		present_area[0] = 0.0f;
+		present_area[1] = 0.0f;
+		present_area[2] = 1.0f;
+		present_area[3] = (float)(CGRectGetMinY(fold) / self.bounds.size.height);
+	}
+	else
+	{
+		present_area[0] = present_area[1] = 0.0f;
+		present_area[2] = present_area[3] = 1.0f;
+	}
+	if (tabletop != was_tabletop)
+	{
+		if (tabletop)
+			SDL_Log("touch: iPhone Duo part open like a laptop (hinge at %.0f degrees): the picture above the fold, "
+				"the controls below", hinge_degrees);
+		else
+			SDL_Log("touch: the whole screen again");
+	}
+	width = MAX(1.0, area.size.width);
+	height = MAX(1.0, area.size.height);
 	/* circles keep their proportions, the controls spread over the whole
-	safe area (TouchControls.java layoutControls); no larger than a big
-	phone's, so that an iPad's are not a hand's width */
+	safe area (TouchControls.java layoutControls), or the deck below the
+	fold; no larger than a big phone's, so that an iPad's are not a hand's
+	width */
 	scale = MAX(0.01, MIN(MAX_TOUCH_SCALE, MIN(width / 960.0, height / 540.0)));
-	offset = CGPointMake(safe.left, safe.top);
+	offset = area.origin;
 	logical = CGSizeMake(width / scale, height / scale);
 	for (index = 0; index < CONTROL_COUNT; index++)
 	{
@@ -284,18 +393,19 @@ connected */
 	[self setNeedsDisplay];
 }
 
-/* iPhone Duo part open: a control over the fold moves off it, to the side
-its centre is on (the fold, in the overlay's points, from the app) */
+/* iPhone Duo part open like a book: a control over the fold moves off it,
+to the side its centre is on (in the laptop posture the controls are all
+below the fold already) */
 - (void)avoidFold
 {
-	double frame[4];
 	CGRect fold;
 	int index;
 
-	if (!fold_proc || !fold_proc((__bridge void *)self, frame))
+	if (!laid_folded || tabletop)
 		return;
 	/* (in logical units, as the controls are) */
-	fold = CGRectMake((frame[0] - offset.x) / scale, (frame[1] - offset.y) / scale, frame[2] / scale, frame[3] / scale);
+	fold = CGRectMake((laid_fold.origin.x - offset.x) / scale, (laid_fold.origin.y - offset.y) / scale,
+		laid_fold.size.width / scale, laid_fold.size.height / scale);
 	for (index = 0; index < CONTROL_COUNT; index++)
 	{
 		CGFloat radius = controls[index].radius, half_width = control_half_width(index);
@@ -311,6 +421,63 @@ its centre is on (the fold, in the overlay's points, from the app) */
 		at->x = MAX(half_width, MIN(logical.width - half_width, at->x));
 		at->y = MAX(radius, MIN(logical.height - radius, at->y));
 	}
+}
+
+/* the fold, looked at again: laid out anew only when it comes, goes or
+moves (the hinge reports as it turns, and a layout lets go of every finger) */
+- (void)foldMaybeChanged
+{
+	CGRect fold = CGRectZero;
+	BOOL folded = fold_in_view(self, &fold);
+
+	if (folded != laid_folded || (folded && !CGRectEqualToRect(fold, laid_fold)))
+		[self setNeedsLayout];
+}
+
+/* iPhone Duo's hinge, once: each report looks at the fold again, now and a
+moment later (the region can follow the hinge by a little) */
+- (void)watchHinge
+{
+	Class class = NSClassFromString(@"UIHingeInteraction");
+	__weak HaloTouchControls *weak = self;
+	id interaction;
+
+	if (hinge_watched || !class || ![class instancesRespondToSelector:@selector(initWithUpdateHandler:)])
+		return;
+	hinge_watched = YES;
+	interaction = [(id<HaloHingeInteraction>)[class alloc] initWithUpdateHandler:^(id unused, id update) {
+		[weak hingeMoved:update];
+	}];
+	if ([interaction conformsToProtocol:@protocol(UIInteraction)])
+	{
+		[self addInteraction:interaction];
+		SDL_Log("touch: watching iPhone Duo's hinge");
+	}
+}
+
+- (void)hingeMoved:(id)update
+{
+	id hinge = [update respondsToSelector:@selector(hinge)] ? [(id<HaloHingeUpdate>)update hinge] : nil;
+	__weak HaloTouchControls *weak = self;
+
+	if ([hinge respondsToSelector:@selector(angle)])
+		hinge_degrees = [(id<HaloHinge>)hinge angle] * 180.0 / M_PI;
+	[self foldMaybeChanged];
+	dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 250 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
+		[weak foldMaybeChanged];
+	});
+}
+
+/* (UIKit runs this again when the regions it read change) */
++ (BOOL)requiresConstraintBasedLayout
+{
+	return YES;
+}
+
+- (void)updateConstraints
+{
+	[self foldMaybeChanged];
+	[super updateConstraints];
 }
 
 - (CGPoint)logicalPoint:(UITouch *)touch
@@ -687,6 +854,18 @@ static CGFloat symbol(const char *name, CGPoint centre, CGFloat size, UIColor *c
 
 	if (![self shown])
 		return;
+	if (tabletop)
+	{
+		/* the deck below the fold: the launcher's night, and a hairline
+		where the screen bends */
+		CGRect deck = CGRectMake(0, CGRectGetMaxY(laid_fold), self.bounds.size.width,
+			self.bounds.size.height - CGRectGetMaxY(laid_fold));
+
+		[colour(0x0d1114, 1.0) setFill];
+		UIRectFill(deck);
+		[colour(0xffffff, 0.08) setFill];
+		UIRectFill(CGRectMake(0, CGRectGetMaxY(laid_fold), self.bounds.size.width, 1));
+	}
 	CGContextSaveGState(context);
 	CGContextTranslateCTM(context, offset.x, offset.y);
 	CGContextScaleCTM(context, scale, scale);
@@ -798,17 +977,13 @@ void host_gesture_insets(int *insets)
 	insets[0] = insets[1] = insets[2] = insets[3] = 0;
 }
 
-/* ---------- iPhone Duo's fold (halo_ios.h) */
-
-void halo_ios_set_fold_proc(halo_ios_fold_proc proc)
+/* the part of the window the picture is shown in (sdl_platform.c,
+platform_video_present_area): the half above iPhone Duo's fold in the
+laptop posture, else all of it; read each frame, on the main thread */
+void host_present_area(float *area)
 {
-	fold_proc = proc;
-	[overlay setNeedsLayout];
-}
-
-void halo_ios_fold_changed(void)
-{
-	[overlay setNeedsLayout];
+	overlay_attach();
+	memcpy(area, present_area, sizeof(present_area));
 }
 
 #endif

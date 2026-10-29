@@ -6,8 +6,9 @@
 # Two apps: ChupathingyCE, for iPhone (iPhone Duo too) and iPad, which the
 # Vision Pro runs as an iPad app (visionOS has no OpenGL ES of its own), and
 # ChupathingyCE-tvOS, for the Apple TV. Sources/Shared is both's: the app,
-# the importers and the downloader; Sources/iOS the iPhone's launcher and
-# iPhone Duo's fold, Sources/tvOS the TV's launcher and its upload page. The
+# the importers and the downloader; Sources/iOS the iPhone's launcher (iPhone
+# Duo's fold is the touch overlay's: port/ios/src/ios_touch.m), Sources/tvOS
+# the TV's launcher and its upload page. The
 # TV's game is its own build (lib-tvos/: ninja tvos).
 name: ChupathingyCE
 options:

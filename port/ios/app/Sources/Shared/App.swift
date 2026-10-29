@@ -15,10 +15,6 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
   ) -> Bool {
     /* made on the first start, as the Android launcher does */
     GameData.makeFolders()
-    #if os(iOS)
-    /* iPhone Duo's fold, for the touch controls (Fold.swift) */
-    Fold.install()
-    #endif
     return true
   }
 

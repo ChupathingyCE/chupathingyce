@@ -26,15 +26,6 @@ the game is not running yet */
 void halo_ios_set_invite(const char *link);
 int halo_ios_open_link(const char *link);
 
-/* iPhone Duo's fold, for the touch controls (port/ios/src/ios_touch.m),
-which keep off it: the app's function, given the overlay's view, puts the
-fold's frame in the view's points (x, y, width, height) in frame and
-returns 1 while the device is part open, else 0. halo_ios_fold_changed
-asks the overlay to look again (the hinge moved). Nothing on the Apple TV */
-typedef int (*halo_ios_fold_proc)(void *view, double *frame);
-void halo_ios_set_fold_proc(halo_ios_fold_proc proc);
-void halo_ios_fold_changed(void);
-
 #ifdef __cplusplus
 }
 #endif
