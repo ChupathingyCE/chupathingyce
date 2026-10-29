@@ -1,7 +1,7 @@
 # Windows
 
 `ninja windows` compiles the game with clang for 32-bit x86 Windows. The
-result is a native executable, `build/windows/halo.exe`, with `SDL3.dll`
+result is a native executable, `build/windows/chupathingy.exe`, with `SDL3.dll`
 next to it. You must build on Windows.
 
 The Windows build uses the platform layer of the Linux build
@@ -48,7 +48,7 @@ LLVM for Windows supplies this runtime only for x86-64.
 ### 64-bit
 
 `ninja windows64` builds the same game as native x64 code,
-`build/windows64/halo.exe`, with `SDL3.dll` for x64 next to it. It needs the
+`build/windows64/chupathingy.exe`, with `SDL3.dll` for x64 next to it. It needs the
 x64 MSVC libraries of Visual Studio instead of the x86 ones.
 
 It is the 64-bit build of the other systems (`HALO_64BIT`: see
@@ -64,7 +64,7 @@ It is the 64-bit build of the other systems (`HALO_64BIT`: see
   process in that range.
 - The write tracking and the crash reports of `src/win32_memory_watch.c`
   convert between Xbox addresses and the pointers of the process. A crash
-  report gives the address of `halo.exe` in that run, and the calls come
+  report gives the address of `chupathingy.exe` in that run, and the calls come
   from the unwind data of x64 code, not from a chain of frame pointers.
 - It is not optimized with a profile. The committed profiles are those of
   the 32-bit builds.
@@ -77,21 +77,22 @@ and the other ports over the network, and it is a dedicated server too
 
 ## Start the game
 
-Enter `build\windows\halo.exe`.
+Enter `build\windows\chupathingy.exe`. The small `halo.exe` beside it starts
+`chupathingy.exe`, for shortcuts made before the rename in 0.9.0.
 
 The game finds the game data as on Linux. Refer to "Start the game" in
 [port/linux/README.md](../linux/README.md#start-the-game).
 
 | Item | Location |
 | --- | --- |
-| Settings | `config.toml` next to `halo.exe` |
+| Settings | `config.toml` next to `chupathingy.exe` |
 | Saved games | `%APPDATA%\ChupathingyCE`, or `paths.saves` in `config.toml`. The first start copies the saves from `%APPDATA%\halo`, which earlier versions used, and leaves that folder as it was |
 | Log | `logs\debug.txt` in the data root (the folder that contains `maps\`), or `paths.logs` |
 | Log of the port | The console. The release build has no console: `halo.log` in the same `logs\` folder |
 | Crash reports | `logs\crashes\`, until the game sends them |
 
 Before 0.8.0, `debug.txt` was in the data root itself, and `halo.log` and
-`crashes\` were next to `halo.exe`. The game leaves the old files where
+`crashes\` were next to the program (`halo.exe` then). The game leaves the old files where
 they are; crash reports still waiting there are sent from there.
 
 ## How the port operates
@@ -168,9 +169,9 @@ A crash writes the faulting address and the calls that led to it to
 to the ChupathingyCE site (`network.browser_url`, `POST /v1/crash`), which
 groups the crashes and tells the developers:
 
-1. The game starts a second copy of `halo.exe` (`halo.exe --crash-report`).
+1. The game starts a second copy of `chupathingy.exe` (`chupathingy.exe --crash-report`).
    This copy writes a minidump of the game to `logs\crashes\` (until
-   0.8.0, `crashes\` next to `halo.exe`), and walks the stack of the thread that crashed. Then the
+   0.8.0, `crashes\` next to the program), and walks the stack of the thread that crashed. Then the
    game stops. A minidump contains the stacks and the registers of the
    threads, and the list of the modules. It does not contain the other
    memory of the game.
@@ -180,7 +181,7 @@ groups the crashes and tells the developers:
    no reports and does not ask again. The answer `"no"` deletes the report.
 3. The copy sends the report, then deletes it. If it cannot send it (for
    example, with no network connection), the game sends it when it starts
-   the next time (`halo.exe --crash-upload`, in the background).
+   the next time (`chupathingy.exe --crash-upload`, in the background).
    `logs\crashes\` keeps at most 8 reports.
 
 A report is JSON (`port/linux/src/crash_report.h`). It contains:
@@ -189,7 +190,7 @@ A report is JSON (`port/linux/src/crash_report.h`). It contains:
   the architecture, and the version of Windows (and of Wine, under Wine or
   Proton).
 - The exception code, and up to 32 calls that led to it. Each call is a
-  module and an offset in it, for example `halo.exe+0x1a2b3c`.
+  module and an offset in it, for example `chupathingy.exe+0x1a2b3c`.
 - The last 200 lines of `halo.log`. The game replaces each public IP
   address in them with `[address]` before it sends them.
 - The minidump, if it is 1 MB or smaller.
@@ -197,16 +198,16 @@ A report is JSON (`port/linux/src/crash_report.h`). It contains:
 A report contains no player names other than the names in the log, and no
 hardware IDs.
 
-Each release has the PDBs as `halo-windows-<configuration>-symbols.zip`.
+Each release has the PDBs as `chupathingyce-windows-<configuration>-symbols.zip` (private, for the maintainers).
 `tools/symbolize_crash.py` uses them to add the function names and the
 source lines to the crash lines of a `debug.txt` or a `halo.log`, and to
-the calls of a report (`halo.exe+0x...`):
+the calls of a report (`chupathingy.exe+0x...`):
 
 ```
-python tools/symbolize_crash.py debug.txt halo.exe
+python tools/symbolize_crash.py debug.txt chupathingy.exe
 ```
 
-Give the `halo.exe` of the build that crashed, with its `halo.pdb` next to
+Give the `chupathingy.exe` of the build that crashed, with its `chupathingy.pdb` next to
 it. The tool needs `llvm-symbolizer` (LLVM).
 
 Local builds and the other builds of the `dev` and `custom` channels send

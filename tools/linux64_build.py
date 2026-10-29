@@ -3,7 +3,7 @@
 The 32-bit Linux build's game and platform layer (tools/linux_build.py,
 port/linux), compiled as native x86-64 code as the macOS build is
 (tools/lp64_build.py: HALO_64BIT and the `long` rewrite), with glibc, SDL3
-and desktop OpenGL. It links build/linux64/halo, which is also a dedicated
+and desktop OpenGL. It links build/linux64/chupathingy, which is also a dedicated
 server (server/README.md) with the game browser.
 
 As the 32-bit build, it honours --lto and --portable; it is not optimised
@@ -18,7 +18,8 @@ from pathlib import Path
 from typing import Any, List, Optional
 
 from .embed_assets import hud_assets_build, hud_configure_inputs, ui_fonts_build
-from .linux_build import OPTIMISATION, ffmpeg_build, linux_sysroot, lto_flags, march_flag, portable_sdl
+from .linux_build import (OPTIMISATION, RENAME_STUB_SCRIPT, ffmpeg_build, linux_sysroot, lto_flags, march_flag,
+                          portable_sdl)
 from .lp64_build import (
     LINUX_PORT_CONFIG,
     Lp64Build,
@@ -66,7 +67,7 @@ def generate_linux64_build(n: Writer, sln: Any) -> None:
         return
     config = load_json(LINUX_PORT_CONFIG)
     build_dir: Path = sln.build_dir / "linux64"
-    output = build_dir / "halo"
+    output = build_dir / "chupathingy"
     cc = sln.linux_cc or "clang"
 
     n.comment("Native 64-bit Linux build (ninja linux64)")
@@ -144,5 +145,9 @@ def generate_linux64_build(n: Writer, sln: Any) -> None:
     # internet play's MQTT brokers, a file beside the game (network.brokers_file)
     brokers = build_dir / "brokers.txt"
     n.build(outputs=brokers, rule="linux64_copy", inputs=Path("port/assets/network/brokers.txt"))
-    n.build(outputs="linux64", rule="phony", inputs=[output, brokers, *sdl_outputs])
+    # halo, which starts chupathingy (port/linux/src/rename_stub.h; TODO(after
+    # 0.9.x): remove)
+    stub = build_dir / "halo"
+    n.build(outputs=stub, rule="linux64_copy", inputs=RENAME_STUB_SCRIPT)
+    n.build(outputs="linux64", rule="phony", inputs=[output, brokers, stub, *sdl_outputs])
     n.newline()

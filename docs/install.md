@@ -17,6 +17,13 @@ Get the latest release from the [Releases page](https://github.com/ChupathingyCE
 | Mac | `chupathingyce-macos-release.zip` | macOS 13 or later, Apple silicon or Intel. |
 | FreeBSD (64-bit) | `chupathingyce-freebsd64-release.zip` | FreeBSD 14 or later, amd64. See [port/unix/README.md](../port/unix/README.md). |
 
+The program is `chupathingy.exe` on Windows and `chupathingy` on Linux and
+FreeBSD. Until 0.9.0 it was `halo.exe` and `halo`. The downloads still have a
+small `halo.exe` (`halo` on Linux and FreeBSD) that starts `chupathingy`, so
+shortcuts, Steam entries and scripts made for the old name keep working for
+now. Point them at `chupathingy` when you can: the small one goes away in a
+later release. The Mac app is still ChupathingyCE.
+
 The game checks for new releases when it starts and asks before updating. The Linux AppImage updates itself too: the new AppImage replaces the old file.
 The Windows and Linux builds are for x86 and x64 PCs; there are no ARM builds of
 the game for them yet.
@@ -62,8 +69,8 @@ On Android, copy the disc image to your phone first; the maps, settings and
 saves go in `/sdcard/Android/data/dev.horrible.chupathingyce/files`. On a
 Mac, the maps, settings and saves go in
 `~/Library/Application Support/ChupathingyCE`.
-On Linux, the maps and settings (`config.toml`) go next to the `halo`
-executable, and the saves in `~/.local/share/chupathingyce` (or
+On Linux, the maps and settings (`config.toml`) go next to the `chupathingy`
+program, and the saves in `~/.local/share/chupathingyce` (or
 `$XDG_DATA_HOME/chupathingyce`). On Windows, the saves go in
 `%APPDATA%\ChupathingyCE`. The first start copies your profiles, saved games
 and game types from the folder earlier versions used (`halo-linux`, on Linux
@@ -86,7 +93,7 @@ Beside the maps folders, the game keeps folders of its own:
 | `cache` (in the save folder) | What the game can make again; safe to delete. |
 
 Until 0.8.0, `debug.txt` was beside `maps` (and on Windows `halo.log` beside
-`halo.exe`). The game leaves an old one where it is.
+the program). The game leaves an old one where it is.
 
 ## Which build
 

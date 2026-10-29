@@ -13,11 +13,11 @@ ninja            # the game for the computer you're on
 | Target | Result | Instructions |
 | --- | --- | --- |
 | `ninja macos` | `build/macos/ChupathingyCE.app` | [port/macos/README.md](../port/macos/README.md) |
-| `ninja linux64` | `build/linux64/halo` (64-bit) | [port/linux/README.md](../port/linux/README.md) |
-| `ninja linux` | `build/linux/halo` (32-bit) | [port/linux/README.md](../port/linux/README.md) |
-| `ninja windows` | `build/windows/halo.exe` | [port/windows/README.md](../port/windows/README.md) |
-| `ninja windows64` | `build/windows64/halo.exe`, the 64-bit game | [port/windows/README.md](../port/windows/README.md#64-bit) |
-| `ninja freebsd64` | `build/freebsd64/halo`, on FreeBSD | [port/unix/README.md](../port/unix/README.md) |
+| `ninja linux64` | `build/linux64/chupathingy` (64-bit) | [port/linux/README.md](../port/linux/README.md) |
+| `ninja linux` | `build/linux/chupathingy` (32-bit) | [port/linux/README.md](../port/linux/README.md) |
+| `ninja windows` | `build/windows/chupathingy.exe` | [port/windows/README.md](../port/windows/README.md) |
+| `ninja windows64` | `build/windows64/chupathingy.exe`, the 64-bit game | [port/windows/README.md](../port/windows/README.md#64-bit) |
+| `ninja freebsd64` | `build/freebsd64/chupathingy`, on FreeBSD | [port/unix/README.md](../port/unix/README.md) |
 | `ninja android_apk` | the Android app | [port/android/README.md](../port/android/README.md) |
 | `ninja server` | `build/server-<arch>/chupathingyce-server`, the dedicated server (Linux) | [server/docs/building.md](../server/docs/building.md) |
 

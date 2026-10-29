@@ -51,8 +51,8 @@ Where the game's `maps` folder is:
 | Platform | The folder holding `maps`, `maps_ce`, `maps_md`, `maps_pc` and the map packs' `maps_<pack>` |
 | --- | --- |
 | Mac | `~/Library/Application Support/ChupathingyCE/` |
-| Linux | next to the `halo` executable |
-| Windows | next to `halo.exe` |
+| Linux | next to the `chupathingy` program |
+| Windows | next to `chupathingy.exe` |
 | Android | `/sdcard/Android/data/dev.horrible.chupathingyce/files` |
 
 Copy the `.map` files from your own Halo PC install. On Android, Import
