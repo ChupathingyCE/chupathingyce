@@ -143,6 +143,7 @@ symbols in this file:
 #include "halo_map_families.h"
 #ifdef HALO_MAP_LIST
 #include "halo_map_packs.h"
+#include "stubbs_mode.h"
 #endif
 #include "models/models.h"
 
@@ -1758,6 +1759,11 @@ long scenario_tags_load(
 				tag_cache_base_address,
 				XBOX_ADDRESS(tag_cache_base_address),
 				cache_file_globals.header.tag_data_size);
+#endif
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+			/* port: Stubbs the Zombie's tags in Halo's layouts, in Stubbs
+			mode only (port/linux/game/stubbs_mode.c) */
+			stubbs_mode_convert_tags(tag_cache_base_address, cache_file_globals.header.tag_data_size);
 #endif
 #ifndef HALO_CONSOLE_NO_TAG_VALIDATE
 			/* port: and every tag checked against its group's schema before
