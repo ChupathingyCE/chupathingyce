@@ -97,10 +97,12 @@ The rows open the pages of settings_pages.xml. -->
 	<strings name="chupathingy/settings/descriptions">
 		<string text="Rename this profile.\n\n\nCurrent Profile:"/>
 		<string text="Change the current profile's\nfree-for-all multiplayer color.\n\nCurrent Profile:"/>
-		<string text="Change the keyboard, mouse\nand controller settings.\n\nCurrent Profile:"/>
+		<string text="Change the keyboard, mouse\nand controller settings.\n\nCurrent Profile:" platform="desktop android switch"/>
+		<string text="Change the controller\nsettings.\n\nCurrent Profile:" platform="console"/>
 		<string text="Adjust the video and\ninterface settings.\n\nCurrent Profile:"/>
 		<string text="Adjust the audio settings.\n\n\nCurrent Profile:"/>
-		<string text="Adjust the network, chat\nand privacy settings.\n\nCurrent Profile:"/>
+		<string text="Adjust the network, chat\nand privacy settings.\n\nCurrent Profile:" platform="desktop android switch"/>
+		<string text="Adjust the network\nsettings.\n\nCurrent Profile:" platform="console"/>
 		<string text="About Chupathingy.\n\n\nCurrent Profile:"/>
 		<string text="Save the changes made\nto this profile.\n\nCurrent Profile:"/>
 	</strings>

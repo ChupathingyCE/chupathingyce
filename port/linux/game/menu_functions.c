@@ -2837,10 +2837,17 @@ static short spinner_shown(struct widget_instance *list, char const *name)
 	return spinner ? spinner->parameters.list.selected_index : 0;
 }
 
+/* the device DEVICE shows: the controller's on a list without it (the
+consoles', tools/port_settings.py) */
+static short controls_device_shown(struct widget_instance *list)
+{
+	return named(list, "device_spinner", 0) ? spinner_shown(list, "device_spinner") : _controls_device_gamepad;
+}
+
 /* the view the two SHOWs choose */
 static char const *controls_page_view(struct widget_instance *list)
 {
-	if (spinner_shown(list, "device_spinner") == _controls_device_keyboard_mouse)
+	if (controls_device_shown(list) == _controls_device_keyboard_mouse)
 		return spinner_shown(list, "group_spinner") == CONTROL_GROUP_MOUSE ? "mouse" : "keyboard";
 #ifdef HALO_SWITCH_CONSOLE
 	/* port: the controller's third page, the gyroscope's settings (the
@@ -2974,7 +2981,7 @@ static boolean controls_page_defaults(struct widget_instance *widget)
 
 	if (!list)
 		return FALSE;
-	if (spinner_shown(list, "device_spinner") == _controls_device_keyboard_mouse)
+	if (controls_device_shown(list) == _controls_device_keyboard_mouse)
 	{
 		controls_load(TRUE);
 		/* (the keys written at once, as each key set is) */
