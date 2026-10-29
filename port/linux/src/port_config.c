@@ -2913,10 +2913,10 @@ static char *config_text_with_line(const char *text, const char *name, const cha
 			config_append(&out, "\n");
 		if (!in_section)
 		{
-			char header[80];
-
-			snprintf(header, sizeof(header), "\n[%s]\n", wanted);
-			config_append(&out, header);
+			/* (appended in pieces: a section name of any length fits) */
+			config_append(&out, "\n[");
+			config_append(&out, wanted);
+			config_append(&out, "]\n");
 		}
 		config_append(&out, line_text);
 	}
