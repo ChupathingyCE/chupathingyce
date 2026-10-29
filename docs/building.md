@@ -1,8 +1,41 @@
 # Building
 
-The desktop, Android and server builds are in the README, "Building it
-yourself": `python3 configure.py`, then `ninja` and a target. This page
-covers what the README doesn't.
+## Desktop, Android and the server
+
+You need Python 3, [ninja](https://ninja-build.org/) and clang. The game
+supplies the Xbox SDK declarations it uses, so you don't need the SDK.
+
+```sh
+python3 configure.py
+ninja            # the game for the computer you're on
+```
+
+| Target | Result | Instructions |
+| --- | --- | --- |
+| `ninja macos` | `build/macos/ChupathingyCE.app` | [port/macos/README.md](../port/macos/README.md) |
+| `ninja linux64` | `build/linux64/halo` (64-bit) | [port/linux/README.md](../port/linux/README.md) |
+| `ninja linux` | `build/linux/halo` (32-bit) | [port/linux/README.md](../port/linux/README.md) |
+| `ninja windows` | `build/windows/halo.exe` | [port/windows/README.md](../port/windows/README.md) |
+| `ninja windows64` | `build/windows64/halo.exe`, the 64-bit game | [port/windows/README.md](../port/windows/README.md#64-bit) |
+| `ninja freebsd64` | `build/freebsd64/halo`, on FreeBSD | [port/unix/README.md](../port/unix/README.md) |
+| `ninja android_apk` | the Android app | [port/android/README.md](../port/android/README.md) |
+| `ninja server` | `build/server-<arch>/chupathingyce-server`, the dedicated server (Linux) | [server/docs/building.md](../server/docs/building.md) |
+
+Useful `configure.py` options:
+
+| Option | What it does |
+| --- | --- |
+| `--release` | A release build, as players get. Without it, a failed check stops the game. |
+| `--portable` | A Linux or Windows build that runs on any x86-64 computer, or a universal Mac application, to give to others. The Linux builds also run on older distributions and on SteamOS: refer to "Portable build" in [port/linux/README.md](../port/linux/README.md#portable-build). |
+| `--no-game-browser` | Leaves out the server list, stats and dedicated servers. |
+| `--pgo=off`, `--lto=off` | Faster builds, without profile-guided or link-time optimisation. |
+
+The console ports (original Xbox, Xbox 360, Switch, Wii U) are built from their own
+repositories, with this one as a submodule: [Console ports](#console-ports), below.
+
+The version being made is in `VERSION`. Releases are built and published by
+the project's release workflow; the builds on this repository's Actions page
+are for checking changes.
 
 ## Console ports
 
@@ -16,7 +49,7 @@ the build's generic side (`tools/console_build.py`).
 | [ChupathingyCE/warthog-xbox](https://github.com/ChupathingyCE/warthog-xbox) | original Xbox | Test builds: plays online, up to 32 players, with Halo CE+ maps | Milenko |
 | [ChupathingyCE/warthog-360](https://github.com/ChupathingyCE/warthog-360) | Xbox 360 | Plays and joins servers on RGH hardware; test builds on Discord | Milenko |
 | [ChupathingyCE/warthog-switch](https://github.com/ChupathingyCE/warthog-switch) | Switch | Working: boots and plays on Switch hardware; CI builds it | [thelinkin3000](https://github.com/thelinkin3000) |
-| [ChupathingyCE/warthog-wiiu](https://github.com/ChupathingyCE/warthog-wiiu) | Wii U | Plays on hardware and joins servers online; [public test build](https://github.com/ChupathingyCE/warthog-wiiu/releases/tag/test-20261022) | Milenko |
+| [ChupathingyCE/warthog-wiiu](https://github.com/ChupathingyCE/warthog-wiiu) | Wii U | Plays on hardware and joins servers online; [public test builds](https://github.com/ChupathingyCE/warthog-wiiu/releases) | Milenko |
 
 A console repository looks like this:
 
