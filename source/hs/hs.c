@@ -14311,6 +14311,11 @@ host started. A later switch to another copy reloads the level every couple
 of seconds, so that request is ignored. Cleared for each map. */
 static short scripted_multiplayer_bsp = NONE;
 static boolean scripted_multiplayer_bsp_reported = FALSE;
+/* port: a menu's script runs (hs_evaluate_by_name: a map's pause menu row
+the player chose, as Coldsnap's TIME OF DAY), whose switch_bsp is the
+player's choice, not the map's script reloading the level: it is made, and
+is the bsp the map's scripts may switch to from then on */
+static boolean hs_menu_script_running = FALSE;
 
 void hs_initialize_for_new_map(
 	void)
@@ -14527,7 +14532,11 @@ boolean hs_evaluate_by_name(
 		/* port: a script that doesn't run (hs_scenario_functions_check)
 		isn't run here either */
 		if (!hs_scenario_script_disabled(script_index))
+		{
+			hs_menu_script_running = TRUE;
 			hs_runtime_evaluate(script->root_expression_index);
+			hs_menu_script_running = FALSE;
+		}
 		return TRUE;
 	}
 
@@ -15755,7 +15764,7 @@ static void scenario_switch_structure_bsp_evaluate(
 			scenario_switch_structure_bsp(structure_bsp_index);
 		}
 		else if (scripted_multiplayer_bsp == NONE ||
-			scripted_multiplayer_bsp == structure_bsp_index)
+			scripted_multiplayer_bsp == structure_bsp_index || hs_menu_script_running)
 		{
 			scripted_multiplayer_bsp = structure_bsp_index;
 			scenario_switch_structure_bsp(structure_bsp_index);
