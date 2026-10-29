@@ -473,6 +473,7 @@ symbols in this file:
 #include "text/unicode.h"
 
 #include "cache/cache_files.h"
+#include "halo_map_families.h" /* port: map_family_parse */
 #ifdef HALO_GAME_BROWSER
 #include "../../port/linux/src/browser.h"
 #endif
@@ -491,8 +492,9 @@ void p2p_set_game_listing(const char *name, const char *map, const char *gametyp
 protocol, which it leaves as it is: the hosted game's machines and players
 told to it each idle, and the game gone */
 static void network_game_server_delta_frame(struct network_game_server *server);
-static void network_game_server_bomb_refusals(struct network_game_server *server);
-static boolean network_game_server_bomb_ready(struct network_game_server *server);
+static boolean network_game_server_delta_only(struct network_game_server *server);
+static void network_game_server_delta_refusals(struct network_game_server *server);
+static boolean network_game_server_delta_ready(struct network_game_server *server);
 int delta_peer_game_machine_pending(int machine_index);
 void delta_peer_game_stop(int host);
 #endif
@@ -2637,11 +2639,12 @@ void network_game_server_update_ticks(
 			}
 
 #ifdef HALO_GAME_BROWSER
-			/* port: a Bomb game type adds no player of a machine still in its
-			Delta handshake's window: it loads nothing of the game until it
-			is known to have the bomb capability (else it is dropped,
-			network_game_server_bomb_refusals) */
-			if (server->game.variant.game_engine_index == game_engine_bomb)
+			/* port: a Bomb game type, or a pack's map of an unlisted build,
+			adds no player of a machine still in its Delta handshake's
+			window: it loads nothing of the game until it is known to have
+			what the game needs (else it is dropped,
+			network_game_server_delta_refusals) */
+			if (network_game_server_delta_only(server))
 			{
 				long machine_index = server->queued_player_valid ? server->queued_player.machine_index :
 					server->waiting_player_count > 0 ? server->waiting_players[0].machine_index : NONE;
@@ -3385,8 +3388,9 @@ boolean server_ok_to_countdown(
 	boolean teams_full = !server_needs_more_teams(server);
 	boolean enough_players = server->game.player_count >= server->game.minimum_players;
 #ifdef HALO_GAME_BROWSER
-	/* port: a Bomb game type waits for its machines' Delta handshakes */
-	boolean bomb_ready = network_game_server_bomb_ready(server);
+	/* port: a Bomb game type, or a pack's map of an unlisted build, waits
+	for its machines' Delta handshakes */
+	boolean bomb_ready = network_game_server_delta_ready(server);
 #else
 	boolean bomb_ready = TRUE;
 #endif
@@ -5455,18 +5459,34 @@ static void network_game_server_delta_frame(
 (none for any other game) */
 	game_engine_bomb_host_traits(&server->game.variant);
 	delta_peer_game_host_frame(machines, count, player_machines);
-	network_game_server_bomb_refusals(server);
+	network_game_server_delta_refusals(server);
 }
 
 void network_distributed_host_notice(char const *text);
 
+/* whether the game is played only between Delta machines: a Bomb game type,
+or a pack's map of a build the cache files do not list (cache_files.c,
+cache_files_map_needs_delta) */
+static boolean network_game_server_delta_only(
+	struct network_game_server *server)
+{
+	return server->game.variant.game_engine_index == game_engine_bomb ||
+		cache_files_map_needs_delta(server->game.map.name);
+}
+
 /* Bomb game types (docs/bomb.md) are played only between machines that agree
 to Delta Peer's bomb capability: an OpenCE machine (or an older build of
-ours) would read the game as Race and refuse its state. Such a machine is
-dropped once its handshake's window is over, in the lobby or a game in
-progress (it may join again: the next game may be another), with a notice;
-the host plays on. Nothing happens in any other game */
-static void network_game_server_bomb_refusals(
+ours) would read the game as Race and refuse its state. A pack's map of a
+build the cache files do not list (NHE's, say) is played only between Delta
+machines: each checks that its file is the host's (the game record's
+fingerprint, Delta Peer's MAP), where an OpenCE machine cannot say which
+file it has, and one of other tags would desync (the object and damage
+messages name definitions by tag index). Every Delta build offers the
+platform capability, consoles' too. Such a machine is dropped once its
+handshake's window is over, in the lobby or a game in progress (it may join
+again: the next game may be another), with a notice; the host plays on.
+Nothing happens in any other game */
+static void network_game_server_delta_refusals(
 	struct network_game_server *server)
 {
 	static unsigned long refused_addresses[MAXIMUM_NETWORK_MACHINE_COUNT];
@@ -5476,8 +5496,10 @@ static void network_game_server_bomb_refusals(
 	{
 		struct network_game_server_client_machine *machine = &server->client_machines[index];
 		unsigned long address;
+		boolean bomb = server->game.variant.game_engine_index == game_engine_bomb;
+		boolean pack_map = !bomb && cache_files_map_needs_delta(server->game.map.name);
 
-		if (server->game.variant.game_engine_index != game_engine_bomb ||
+		if ((!bomb && !pack_map) ||
 			!network_game_server_client_machine_is_joined_to_game(server, machine) ||
 			network_game_server_client_machine_is_local(server, machine) ||
 			machine->machine_index < 0 || machine->machine_index >= MAXIMUM_NETWORK_MACHINE_COUNT)
@@ -5486,11 +5508,13 @@ static void network_game_server_bomb_refusals(
 			continue;
 		}
 		/* (bomb_traits: a Grifball test build 2 or 3 says TRAITS as 18) */
-		if (!delta_peer_game_machine_lacks(machine->machine_index, _delta_capability_bomb) &&
+		if (bomb && !delta_peer_game_machine_lacks(machine->machine_index, _delta_capability_bomb) &&
 			!delta_peer_game_machine_lacks(machine->machine_index, _delta_capability_bomb_traits))
 		{
 			continue;
 		}
+		if (pack_map && !delta_peer_game_machine_lacks(machine->machine_index, _delta_capability_platform))
+			continue;
 		address = (unsigned long)network_game_server_machine_ipv4_address(server, machine->machine_index);
 		/* (once: the drop takes effect when the server next looks at its
 		machines) */
@@ -5525,7 +5549,18 @@ static void network_game_server_bomb_refusals(
 				}
 				names[length] = 0;
 			}
+			if (pack_map)
+			{
+				char file[64];
+
+				map_family_parse(server->game.map.name, file, sizeof(file));
+				snprintf(notice, sizeof(notice), "%s cannot play %s: this map plays only with Chupathingy players",
+					names[0] ? names : "A player", file);
+				network_event("map: client machine #%ld is not a Delta machine, and %s is a pack's map of an "
+					"unlisted build: dropped", (long)machine->machine_index, server->game.map.name);
+			}
 			/* (the game type's own name, in ASCII: Bomb, Grifball) */
+			else
 			{
 				char gametype[16];
 				short character;
@@ -5540,22 +5575,23 @@ static void network_game_server_bomb_refusals(
 				gametype[character] = 0;
 				snprintf(notice, sizeof(notice), "%s cannot play %s: it is played only between Chupathingy builds with Bomb",
 					names[0] ? names : "A player", gametype[0] ? gametype : "Bomb");
+				network_event("bomb: client machine #%ld has no bomb capability (OpenCE, or an older build): dropped",
+					(long)machine->machine_index);
 			}
-			network_event("bomb: client machine #%ld has no bomb capability (OpenCE, or an older build): dropped",
-				(long)machine->machine_index);
 			network_distributed_host_notice(notice);
 		}
 	}
 }
 
-/* whether a Bomb game type's lobby may count down: no machine still in its
+/* whether a lobby played only between Delta machines (a Bomb game type, a
+pack's map of an unlisted build) may count down: no machine still in its
 Delta handshake's window (it may yet be one to drop) */
-static boolean network_game_server_bomb_ready(
+static boolean network_game_server_delta_ready(
 	struct network_game_server *server)
 {
 	long index;
 
-	if (server->game.variant.game_engine_index != game_engine_bomb)
+	if (!network_game_server_delta_only(server))
 		return TRUE;
 	for (index = 0; index < MAXIMUM_NETWORK_MACHINE_COUNT; index++)
 	{

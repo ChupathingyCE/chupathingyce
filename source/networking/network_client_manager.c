@@ -2463,7 +2463,7 @@ void network_game_client_rejected_by_game(
 		rejection_code == _rejection_code_game_is_full ? JOIN_REASON_FULL :
 		rejection_code == _rejection_code_game_is_closed ? JOIN_REASON_NOT_OPEN :
 		rejection_code == _rejection_code_bad_password ? JOIN_REASON_PASSWORD :
-		/* (too old: this machine's, as the host says it, network_game_server_bomb_refusals) */
+		/* (too old: this machine's, as the host says it, network_game_server_delta_refusals) */
 		rejection_code == _rejection_code_version_too_old ? JOIN_REASON_NEEDS_UPDATE :
 		rejection_code == _rejection_code_version_too_new ? JOIN_REASON_HOST_OLDER : "");
 	/* port: the join went to the pregame screen at once (and a machine
