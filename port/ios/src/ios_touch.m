@@ -30,7 +30,9 @@ controller's deck; part open like a book (the fold up the screen), no
 control sits on the fold. The fold is UIKit's division region, and a hinge
 interaction says when to look again; both are reached through the
 Objective-C runtime, so the overlay builds with any SDK and does nothing
-where iOS has neither.
+where iOS has neither. On the inner display the game turns with the device
+(chooseOrientations): held like a laptop that display is taller than it is
+wide, and iOS scales a game held to landscape into the middle of it.
 
 On the Apple TV (HALO_TVOS) there is no touch screen: the hooks are here,
 and answer nothing, and the game is played with a controller.
@@ -301,6 +303,10 @@ static float present_area[4] = { 0.0f, 0.0f, 1.0f, 1.0f };
 	BOOL tabletop;
 	BOOL hinge_watched;
 	double hinge_degrees;
+	/* the device has a hinge (it reported one), and the game may take any
+	orientation (its inner display) rather than landscape alone */
+	BOOL has_hinge;
+	BOOL any_orientation;
 }
 
 - (instancetype)initWithFrame:(CGRect)frame
@@ -343,6 +349,7 @@ connected */
 	[super layoutSubviews];
 	[self reset];
 	[self watchHinge];
+	[self chooseOrientations];
 	laid_fold = fold;
 	laid_folded = folded;
 	/* the laptop posture: a fold across the screen. The picture above it,
@@ -462,10 +469,40 @@ moment later (the region can follow the hinge by a little) */
 
 	if ([hinge respondsToSelector:@selector(angle)])
 		hinge_degrees = [(id<HaloHinge>)hinge angle] * 180.0 / M_PI;
+	if (hinge && !has_hinge)
+	{
+		UIScreen *screen = self.window.windowScene.screen;
+
+		SDL_Log("touch: a hinge, at %.0f degrees; on a %.0fx%.0f point display, the game %.0fx%.0f", hinge_degrees,
+			screen.bounds.size.width, screen.bounds.size.height, self.bounds.size.width, self.bounds.size.height);
+		has_hinge = YES;
+	}
+	[self chooseOrientations];
 	[self foldMaybeChanged];
 	dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 250 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
 		[weak foldMaybeChanged];
 	});
+}
+
+/* The orientations the game takes (SDL's view controller reads the hint
+whenever iOS asks): on iPhone Duo's inner display any, as Apple asks of an
+app there, so that held like a laptop (taller than wide, the fold across)
+the game fills it and splits at the fold; anywhere else, the outer display
+and every other iPhone and iPad, landscape (ios_main.c). The inner display
+is told by its size: no phone's is 600 points across */
+- (void)chooseOrientations
+{
+	UIScreen *screen = self.window.windowScene.screen;
+	BOOL any = has_hinge && screen && MIN(screen.bounds.size.width, screen.bounds.size.height) >= 600.0;
+
+	if (any == any_orientation)
+		return;
+	any_orientation = any;
+	SDL_SetHint(SDL_HINT_ORIENTATIONS,
+		any ? "LandscapeLeft LandscapeRight Portrait PortraitUpsideDown" : "LandscapeLeft LandscapeRight");
+	SDL_Log("touch: %s", any ? "iPhone Duo's inner display: the game turns with the device"
+		: "landscape only");
+	[self.window.rootViewController setNeedsUpdateOfSupportedInterfaceOrientations];
 }
 
 /* (UIKit runs this again when the regions it read change) */

@@ -39,9 +39,11 @@ targets:
             UIWindowSceneSessionRoleApplication:
               - UISceneConfigurationName: Default
                 UISceneDelegateClassName: "$(PRODUCT_MODULE_NAME).SceneDelegate"
-        # the launcher turns with the device; the game asks SDL for landscape
+        # the launcher turns with the device; the game asks SDL for landscape,
+        # but on iPhone Duo's inner display any way up (ios_touch.m)
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
         UISupportedInterfaceOrientations~ipad:
