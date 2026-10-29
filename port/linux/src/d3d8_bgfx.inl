@@ -195,6 +195,8 @@ struct bg_target
 	unsigned long width, height, pixel_width, pixel_height;
 	float scale[2];
 	BOOL depth, fresh;
+	/* samples a pixel (0: not multisampled; bg_screen_samples) */
+	int samples;
 	bgfx_texture_handle_t texture;
 	unsigned long last_rendered, written;
 };
@@ -246,6 +248,7 @@ static struct
 	bgfx_frame_buffer_handle_t framebuffer;
 	float target_scale[2];
 	unsigned long target_width, target_height;
+	int target_samples;
 	unsigned long write_serial;
 
 	/* the frame's views: the one being drawn, its frame buffer and
@@ -1397,6 +1400,10 @@ static uint64_t bg_state(BOOL has_depth, uint32_t *stencil, uint32_t *back_stenc
 		state |= BGFX_STATE_CULL_CW;
 	else if (rs[D3DRS_CULLMODE] == 0x901)
 		state |= BGFX_STATE_CULL_CCW;
+	/* (Metal rasterizes a multisampled target's samples anyway; Direct3D 11
+	and OpenGL only with it) */
+	if (bg.target_samples > 1)
+		state |= BGFX_STATE_MSAA;
 	if (rs[D3DRS_FILLMODE] == D3DFILL_WIREFRAME)
 		bg_log_once("wireframe");
 	return state;
@@ -1449,6 +1456,53 @@ static void bg_view_set(bgfx_frame_buffer_handle_t framebuffer, const unsigned s
 
 /* ---------- render targets (render_target_get's) */
 
+/* display.anti_aliasing's multisampling, as the OpenGL path's (its
+render_target_multisample): the samples a pixel of the screen's targets, or
+0. Such a target's bgfx texture is made with that many samples: bgfx draws
+into a multisampled texture of its own and resolves it into the target's
+texture at the end of each view, so what samples or copies the target reads
+the resolved pixels. Every target at the screen's size is multisampled, the
+back buffer, its depth buffer and what is drawn with them (a frame
+buffer's attachments have the same samples). A change of the setting
+between frames makes new targets (bg_target_get's key), cleared once as
+any new one. FXAA, SMAA and supersampling are the OpenGL path's only. */
+static int bg_screen_samples(void)
+{
+	static int unsupported;
+	const bgfx_caps_t *caps;
+	int samples;
+
+	if (anti_aliasing() != _anti_aliasing_msaa)
+		return 0;
+	samples = anti_aliasing_values[anti_aliasing_value].samples;
+	caps = bgfx_get_caps();
+	if (!(caps->formats[BGFX_TEXTURE_FORMAT_BGRA8] & BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER_MSAA) ||
+		!(caps->formats[BGFX_TEXTURE_FORMAT_D24S8] & BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER_MSAA))
+	{
+		if (!unsupported++)
+			platform_log("anti-aliasing: bgfx's renderer has no multisampled targets, so none");
+		return 0;
+	}
+	return samples;
+}
+
+/* a target's texture flags; a multisampled depth buffer is write-only
+(nothing samples it, and bgfx makes no frame buffer of one it would have to
+resolve) */
+static uint64_t bg_samples_flags(int samples, BOOL depth)
+{
+	uint64_t flags;
+
+	switch (samples)
+	{
+	case 2: flags = BGFX_TEXTURE_RT_MSAA_X2; break;
+	case 4: flags = BGFX_TEXTURE_RT_MSAA_X4; break;
+	case 8: flags = BGFX_TEXTURE_RT_MSAA_X8; break;
+	default: return BGFX_TEXTURE_RT;
+	}
+	return depth ? flags | BGFX_TEXTURE_RT_WRITE_ONLY : flags;
+}
+
 static struct bg_target **bg_target_bucket(DWORD data)
 {
 	return &bg.targets[((data >> 12) ^ (data >> 20)) % BG_TARGET_BUCKETS];
@@ -1460,6 +1514,7 @@ static struct bg_target *bg_target_get(const D3DSurface *surface)
 	unsigned long width, height;
 	float scale[2] = { 1.0f, 1.0f };
 	BOOL depth;
+	int samples = 0;
 
 	if (!surface || !surface->Data)
 		return NULL;
@@ -1470,6 +1525,7 @@ static struct bg_target *bg_target_get(const D3DSurface *surface)
 	{
 		scale[0] = screen_scale[0];
 		scale[1] = screen_scale[1];
+		samples = bg_screen_samples();
 	}
 	else if (!depth && surface_is_shadow_map(surface))
 	{
@@ -1479,7 +1535,7 @@ static struct bg_target *bg_target_get(const D3DSurface *surface)
 	for (entry = *bg_target_bucket(surface->Data); entry; entry = entry->next)
 	{
 		if (entry->data == surface->Data && entry->width == width && entry->height == height && entry->depth == depth &&
-			entry->scale[0] == scale[0] && entry->scale[1] == scale[1])
+			entry->scale[0] == scale[0] && entry->scale[1] == scale[1] && entry->samples == samples)
 			return entry;
 	}
 	entry = calloc(1, sizeof(*entry));
@@ -1489,11 +1545,12 @@ static struct bg_target *bg_target_get(const D3DSurface *surface)
 	entry->depth = depth;
 	entry->scale[0] = scale[0];
 	entry->scale[1] = scale[1];
+	entry->samples = samples;
 	entry->pixel_width = (unsigned long)(width * scale[0] + 0.5f);
 	entry->pixel_height = (unsigned long)(height * scale[1] + 0.5f);
 	entry->texture = bgfx_create_texture_2d((uint16_t)entry->pixel_width, (uint16_t)entry->pixel_height, false, 1,
 		depth ? BGFX_TEXTURE_FORMAT_D24S8 : BGFX_TEXTURE_FORMAT_BGRA8,
-		BGFX_TEXTURE_RT | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP, NULL, 0);
+		bg_samples_flags(samples, depth) | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP, NULL, 0);
 	/* (cleared once: what a new target holds is undefined) */
 	entry->fresh = TRUE;
 	entry->next = *bg_target_bucket(entry->data);
@@ -1535,6 +1592,8 @@ static bgfx_frame_buffer_handle_t bg_framebuffer_get(struct bg_target *color, st
 	entry->color = color_index;
 	entry->depth = depth_index;
 	entry->handle = bgfx_create_frame_buffer_from_handles(count, attachments, false);
+	if (!BGFX_HANDLE_IS_VALID(entry->handle))
+		bg_log_once("a frame buffer bgfx would not make");
 	entry->next = bg.framebuffers;
 	bg.framebuffers = entry;
 	return entry->handle;
@@ -1555,6 +1614,12 @@ static BOOL bg_bind_targets(BOOL *has_depth)
 		bg_log_once("a depth buffer of another size than its target");
 		depth = NULL;
 	}
+	if (color && depth && color->samples != depth->samples)
+	{
+		/* (nor of other samples) */
+		bg_log_once("a depth buffer of other samples than its target");
+		depth = NULL;
+	}
 	if (!color && !depth)
 		return FALSE;
 	if (color)
@@ -1568,6 +1633,7 @@ static BOOL bg_bind_targets(BOOL *has_depth)
 	bg.target_scale[1] = color ? color->scale[1] : depth->scale[1];
 	bg.target_width = color ? color->pixel_width : depth->pixel_width;
 	bg.target_height = color ? color->pixel_height : depth->pixel_height;
+	bg.target_samples = color ? color->samples : depth->samples;
 	bg.framebuffer = bg_framebuffer_get(color, depth);
 	if ((color && color->fresh) || (depth && depth->fresh))
 	{
@@ -2595,6 +2661,9 @@ static void bg_draw(D3DPRIMITIVETYPE type, BOOL immediate, unsigned long first, 
 		D3D__RenderState[D3DRS_DESTBLEND] == D3DBLEND_SRCALPHA;
 	key.point_threshold = key.point_threshold && key.coverage_alpha;
 	key.alpha_test_function = D3D__RenderState[D3DRS_ALPHATESTENABLE] ? D3D__RenderState[D3DRS_ALPHAFUNC] : 0;
+	/* (multisampled: the alpha test covers samples, as the OpenGL path's) */
+	if (bg.target_samples > 1 && key.alpha_test_function && !D3D__RenderState[D3DRS_ALPHABLENDENABLE])
+		key.alpha_test_samples = (unsigned char)bg.target_samples;
 	key.fog_enable = D3D__RenderState[D3DRS_FOGENABLE] != 0;
 	key.fog_table_mode = (unsigned char)D3D__RenderState[D3DRS_FOGTABLEMODE];
 
@@ -2782,8 +2851,10 @@ static void bg_visibility_end(DWORD index)
 	bg.tests[index].pending[count].first = bg.test_first;
 	bg.tests[index].pending[count].count = bg.test_count < BG_QUERY_COUNT ? bg.test_count : BG_QUERY_COUNT;
 	bg.tests[index].pending[count].frame = bg.frame;
-	/* (the count in the game's pixels: lens flares divide it by their area) */
-	bg.tests[index].pending[count].area = bg.target_scale[0] * bg.target_scale[1];
+	/* (the count in the game's pixels: lens flares divide it by their area;
+	a multisampled target's queries count its samples) */
+	bg.tests[index].pending[count].area = bg.target_scale[0] * bg.target_scale[1] *
+		(float)(bg.target_samples > 1 ? bg.target_samples : 1);
 	bg.tests[index].pending_count = (unsigned char)(count + 1);
 	bg.stat_tests++;
 }
