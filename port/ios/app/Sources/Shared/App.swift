@@ -1,7 +1,8 @@
 /*
-The app: its scene shows the launcher (LauncherViewController), which
-imports the game's data and starts the game. Once started, the game opens a
-window of its own (SDL's) over the launcher's, and the process ends with it.
+The app: its scene shows the launcher (LauncherViewController, or on the
+Apple TV TVLauncherViewController), which imports the game's data and
+starts the game. Once started, the game opens a window of its own (SDL's)
+over the launcher's, and the process ends with it.
 */
 
 import UIKit
@@ -14,6 +15,10 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
   ) -> Bool {
     /* made on the first start, as the Android launcher does */
     GameData.makeFolders()
+    #if os(iOS)
+    /* iPhone Duo's fold, for the touch controls (Fold.swift) */
+    Fold.install()
+    #endif
     return true
   }
 
@@ -33,7 +38,11 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
   ) {
     guard let scene = scene as? UIWindowScene else { return }
     let window = UIWindow(windowScene: scene)
+    #if os(tvOS)
+    window.rootViewController = TVLauncherViewController()
+    #else
     window.rootViewController = LauncherViewController()
+    #endif
     window.makeKeyAndVisible()
     self.window = window
     /* (the app started from an invite link) */
@@ -47,14 +56,20 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
   private func open(_ contexts: Set<UIOpenURLContext>) {
     guard let link = contexts.first?.url, link.scheme?.lowercased() == "halo" else { return }
     Game.open(link.absoluteString)
+    #if os(iOS)
     (window?.rootViewController as? LauncherViewController)?.inviteChanged()
+    #endif
   }
 }
 
 /* The game's data folder: the app's Documents folder, which iOS keeps and
 the Files app shows, laid out as the Android build's (chupathingyce's
 port/android/README.md, "Game data"): maps and bink from the disc, maps_ce,
-maps_md and maps_pc for Halo PC maps, save, logs and config.toml. */
+maps_md and maps_pc for Halo PC maps, save, logs and config.toml.
+
+tvOS gives an app no Documents folder to keep: there it is a folder in the
+app's caches, which the system may empty when the TV runs short of room
+(never while the app runs), and the maps are imported again. */
 enum GameData {
   static let folders = ["maps", "maps_ce", "maps_md", "maps_pc", "save", "logs"]
 
@@ -62,7 +77,11 @@ enum GameData {
   static let spaceNeeded: Int64 = 2_200_000_000
 
   static var root: URL {
+    #if os(tvOS)
+    FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("ChupathingyCE")
+    #else
     FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+    #endif
   }
 
   static func makeFolders() {
@@ -79,8 +98,14 @@ enum GameData {
   }
 
   static var availableSpace: Int64 {
+    #if os(tvOS)
+    /* (tvOS has no "for important usage": the volume's free space) */
+    let values = try? root.resourceValues(forKeys: [.volumeAvailableCapacityKey])
+    return Int64(values?.volumeAvailableCapacity ?? 0)
+    #else
     let values = try? root.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
     return values?.volumeAvailableCapacityForImportantUsage ?? 0
+    #endif
   }
 }
 
