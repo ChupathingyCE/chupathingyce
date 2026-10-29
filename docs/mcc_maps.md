@@ -2167,3 +2167,49 @@ Linux was not executed. Browser/native transport testing could not start
 because Playwright is absent. Those platform checks remain for CI. Temporary
 map copies and generated caches were removed; logs and verified compressed
 private test saves were retained.
+
+## Cutscene title layout
+
+Issue [#76](https://github.com/chestahh/GulchCE/issues/76) reports truncated
+Warthog Rally titles. Inspection of the local `warthog_rally.map` found 17
+scenario titles, all centered, with horizontal bounds 240..400 and text flags
+zero (no wrapping). The `gold` title references the complete trophy message;
+its string is not truncated in the map. A hidden Windows run of `bed24ca3`
+displayed only "You won the gold", confirming clipping at the authored box.
+
+The MCC compatibility policy lets non-wrapping titles use the available
+screen width around their authored alignment anchor. This is based on the
+intact authored messages and observed clipping, not a claim that the original
+MCC renderer has been executed or precisely reproduced. Wrapped, inverted and
+already offscreen rectangles retain their bounds. Vertical layout, font,
+colors, fades, title timing and script/network state are unchanged.
+
+`mcc_hud_title_bounds` in `port/linux/game/mcc_hud_draw.c` owns the adjustment.
+The one additive call in `source/cutscene/cinematics.c` is needed after native
+widescreen positioning: changing the tag rectangle at load time would also
+change that positioning, particularly for left/right-aligned titles. The
+helper returns immediately outside MCC and changes only the temporary draw
+rectangle; no allocation, retained state or unload cleanup is needed. The
+native text layout and Xbox/Custom Edition title implementations remain intact.
+
+The asset-free title tests execute the real renderer dispatch and MCC helper,
+covering legacy bounds, wide screens, wrapping, alignment, tag immutability,
+and MCC-to-legacy transitions. A negative control removes the integration
+call and must reproduce the failure. These checks cover title layout, not
+full map compatibility or campaign completion.
+
+Validation on the issue-76 branch based on `bed24ca3`: the portable release
+Windows build passed, as did 350 focused cinematic-title, Unicode-parser and
+MCC HUD tests. Hidden native runs reproduced the clipped trophy message at
+1280x960, then showed its complete ending at 640x480 and 854x480. A bounded
+854x480 session entered Warthog Rally, Xbox `a10`, Custom Edition
+`deathisland`, then Warthog Rally again; the trophy title still rendered
+correctly after reload. These are loading/rendering observations, not full
+playthroughs. The locked-vehicle announcement also rendered completely.
+
+Both changed translation units compiled with the generated Android guest and
+wasm32 compiler commands. Full `ninja android` and `ninja web` attempts were
+blocked on this Windows host by non-executable host wrappers and Unix shell
+rules; those full builds and Linux runtime validation remain outstanding.
+The change affects local presentation only, so no network protocol/version
+change or multiplayer transport test is required.
