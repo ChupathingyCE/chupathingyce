@@ -62,12 +62,13 @@ Get the latest release from the [Releases page](https://github.com/ChupathingyCE
 | --- | --- | --- |
 | Windows (64-bit) | `chupathingyce-windows64-release.zip` | Windows 10 or later, 64-bit. |
 | Windows (32-bit, older PCs) | `chupathingyce-windows-release.zip` | Windows 10 or later. |
+| Linux (64-bit), AppImage | `chupathingyce-linux64-release.AppImage` | One file: make it executable and run it. glibc 2.31 or later. Updates itself. |
 | Linux (64-bit) | `chupathingyce-linux64-release.zip` | glibc 2.31 or later (Debian 11, Ubuntu 20.04). Brings its own SDL3. See [port/linux/README.md](port/linux/README.md). |
 | Linux (32-bit, older systems) | `chupathingyce-linux-release.zip` | glibc 2.31 or later (32-bit). Brings its own SDL3. See [port/linux/README.md](port/linux/README.md). |
 | Android | `chupathingyce-android-release.zip` | Android 9 or later, 64-bit. See [port/android/README.md](port/android/README.md). |
 | Mac | `chupathingyce-macos-release.zip` | macOS 13 or later, Apple silicon or Intel. |
 
-The game checks for new releases when it starts and asks before updating. On Linux there is also an AppImage, on the test builds for now.
+The game checks for new releases when it starts and asks before updating. The Linux AppImage updates itself too: the new AppImage replaces the old file.
 The Windows and Linux builds are for x86 and x64 PCs; there are no ARM builds of
 the game for them yet.
 
@@ -191,7 +192,7 @@ still list them on the site (Host a Game).
 | The game | Yes | Yes, Apple silicon and Intel | Yes | Yes |
 | Online Games, hosting, stats | Yes | Yes | Yes | Yes |
 | Dedicated server | The game, for a test | The game, for a test | Yes: x86, x64 and arm64, and Docker | |
-| Updates itself | Yes | Opens the download page | Yes; not the AppImage | Yes |
+| Updates itself | Yes | Opens the download page | Yes, the AppImage too | Yes |
 | Halo PC (Custom Edition) maps | Yes | Yes | Yes | Yes, see below |
 | HaloMD maps | Yes | Yes | Yes | Yes, see below |
 | Server Browser in the PC menus | Yes | Yes | Yes | Yes |
@@ -213,7 +214,6 @@ says when a new version is out, and you update from Desktop Mode.
 - **Releases** are the stable builds, on the [Releases page](https://github.com/ChupathingyCE/chupathingyce/releases/latest). The game updates itself from them.
 - **Nightly** is the [`nightly` pre-release](https://github.com/ChupathingyCE/chupathingyce/releases/tag/nightly): main, built every day at 04:00 UTC when it has changed. For early birds; it doesn't update itself.
 - **Testing** builds are hand-rolled builds of a branch, published as pre-releases named "(test builds)". The current one is the [Grifball test](https://chupathingy.org/grifball).
-- **Linux AppImage** is on the test builds for now.
 - **What's coming** is the [0.8.0 milestone](https://github.com/ChupathingyCE/chupathingyce/milestone/5) and its unreleased [release notes](docs/release-notes/0.8.0.md).
 
 ## Online co-op

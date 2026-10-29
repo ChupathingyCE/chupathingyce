@@ -697,6 +697,16 @@ the list gives for this platform and examines its size and SHA-256 against
 the list. A release from before version 0.8.0 has no list. For such a
 release, the game examines the signature of the zip (`<zip>.sig`).
 
+The AppImage (`chupathingyce-linux64-release.AppImage`) updates as one
+file. The game downloads the new AppImage that the signed list names, checks
+its size and SHA-256, and puts it in place of the AppImage it runs from,
+with the same file name, so a renamed AppImage or a menu shortcut to it keeps
+working. The old AppImage is kept as `<name>.old` until the next start. The
+folder of the AppImage must let the game write to it. A release without a
+list, or with no AppImage in its list, is not installed over an AppImage:
+the game says to download the new AppImage instead. A packaged AppImage
+(`HALO_PACKAGED=1`) never updates itself.
+
 Builds that you make yourself have no build number. They do not look for
 updates.
 
