@@ -320,7 +320,7 @@ game runs) */
 boolean network_game_solo_game(
 	void)
 {
-	return config_boolean("game.start_with_one_player") || config_boolean("debug.solo_game") ? TRUE : FALSE;
+	return config_boolean("game.start_with_one_player") ? TRUE : FALSE;
 }
 
 boolean network_game_is_active(
