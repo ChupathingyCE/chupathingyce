@@ -26,6 +26,11 @@ its folder, check its maps, or add maps from a disc image or installer. You can 
 each time whether to send your `config.toml` too. Addresses are taken out first. You get a short code to paste in
 Discord with your report.
 
+**Play** lists the ways you can play: Vanilla Halo, and each map pack that has its own menus (a `maps_<pack>` folder
+with its `ui.map`, such as Halo CE+ in `maps_cex`). Once you have more than one, the game asks once whether to pick
+each time or always play the one you have. **Start in this mode** changes that later, and X makes the selected mode
+the default. `--play` starts the default mode without asking, and `--mode cex` (or `--mode vanilla`) starts that one.
+
 `launcher.show_at_start = "always"` in `config.toml` opens it every time. `launcher.hold_to_open = false` turns the held key off.
 
 ## Halo PC maps

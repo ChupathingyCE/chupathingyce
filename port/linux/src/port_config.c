@@ -957,6 +957,15 @@ static const struct config_setting config_settings[] =
 	{ "launcher.hold_to_open", _config_boolean, "true", "HALO_LAUNCHER_HOLD", _environment_value, _platform_desktop,
 		"true: holding Shift or a controller's Back (View) while the game starts\n"
 		"opens the setup screen." },
+	{ "launcher.mode_choice", _config_string, "\"ask\"", "HALO_LAUNCHER_MODE_CHOICE", _environment_value,
+		_platform_desktop,
+		"With more than one way to play (a map pack with its own menus):\n"
+		"\"ask\" picks one on the setup screen each time, \"default\" starts in\n"
+		"launcher.default_mode. --play and --mode <id> skip the question." },
+	{ "launcher.default_mode", _config_string, "\"vanilla\"", "HALO_LAUNCHER_DEFAULT_MODE", _environment_value,
+		_platform_desktop,
+		"The way to play with launcher.mode_choice = \"default\": \"vanilla\" or\n"
+		"a pack's id (\"cex\" for Halo CE+)." },
 
 	{ "debug.network_test", _config_string, "\"\"", "HALO_NETWORK_TEST", _environment_value, _platform_all,
 		"Automated system link tests: \"host:<map>\" or \"join\"; empty for none." },
@@ -2712,6 +2721,7 @@ static const struct
 	{ "network.coop_enemies_mode", { "none", "per_player", "multiplier", NULL }, "\"none\"" },
 	{ "crash_reports.upload", { "ask", "yes", "no", NULL }, "\"ask\"" },
 	{ "launcher.show_at_start", { "when_needed", "always", NULL }, "\"when_needed\"" },
+	{ "launcher.mode_choice", { "ask", "default", NULL }, "\"ask\"" },
 };
 
 #define NUMBER_OF_CONFIG_WORDS (sizeof(config_words) / sizeof(config_words[0]))

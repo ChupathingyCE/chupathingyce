@@ -194,6 +194,14 @@ or a controller's Back at start, `--setup`, or `launcher.show_at_start =
 `debug.exit_after`, the null renderer, Steam Deck Game Mode) never show it.
 `debug.launcher_test` scripts it for tests and screenshots.
 
+Its Play section picks the mode: vanilla, or a pack with its own `ui.map`,
+played as `game.pack_menus` for that run. With two or more installed, the
+game asks once (`launcher.mode_choice`: "ask" or "default", with
+`launcher.default_mode`); "ask" opens Play at every start. `--play` starts
+the default mode and `--mode <id>` that mode, neither asking. A player who
+never answered keeps what `game.pack_menus` says, and `HALO_PACK_MENUS` wins
+for its run.
+
 Either picker finds out what a file is from its contents, not its name.
 
 The game writes the copy to `maps.partial`. When the copy is complete, the
