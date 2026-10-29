@@ -26,7 +26,7 @@ those a listed game keeps (as many as the Online Games screen shows) */
 #define BROWSER_LISTED_ROSTER 16
 /* a listed game's machines by platform: Delta's registry
 (NUMBER_OF_DELTA_PLATFORMS), then those without Delta */
-#define BROWSER_MACHINE_KINDS 15
+#define BROWSER_MACHINE_KINDS 20
 
 /* how a listed game is hosted, and on what protocol, as the list says
 (docs/delta.md, Delta List): not known (an older host, or one listed by its

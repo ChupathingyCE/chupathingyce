@@ -206,9 +206,11 @@ The platform registry (`enum delta_platform`, one byte, never reused):
 5 `steam_deck` (Linux with Steam's `SteamDeck=1`), 6 `xbox`, 7 `xbox360`,
 8 `wiiu`, 9 `switch`, 10 `psp`, 11 `vita`, 12 `xbox_uwp` (the Xbox One and
 Series in developer mode), 13 `pc_freebsd` (the PC build for FreeBSD,
-[port/unix](../port/unix/README.md)). 10 to 12 are ports others build on ours;
-their policy rows are placeholders until those ports play, as the consoles'
-are. 13's is a PC's.
+[port/unix](../port/unix/README.md)), 14 `ps3`, 15 `ps4`, 16 `ps5`, 17 `n64`,
+18 `pc_legacy` (DOS and Windows 9x PCs). 10 to 12 and 14 to 18 are ports
+others build on ours; their policy rows are placeholders until those ports
+play, as the consoles' are. 13's is a PC's. How a port gets a number: see
+"Platform numbers" below.
 
 The original Xbox, Xbox 360 and Wii U builds are Delta Peer clients
 (`HALO_CONSOLE_DELTA`). Each sends its own platform (6, 7 or 8) and a
@@ -231,11 +233,17 @@ defaults every machine's key starts from:
 | unknown | 128 | 128 | 128 | 0 | yes |
 | Xbox | 16 | 16 | 128 | 6 (64 MB) | no |
 | Xbox 360, Wii U, Switch | 16 | 16 | 128 | 9, 10, 12 (placeholders until their ports play) | yes |
+| PSP, Vita | 16 | 16 | 128 | 6, 9 (placeholders) | no |
+| Xbox Series (developer mode) | 128 | 128 | 128 | 12 | yes |
+| PS3 | 16 | 16 | 128 | 8 (256 MB; placeholder) | no |
+| PS4, PS5 | 16 | 16 | 128 | 12, 13 (placeholders) | yes |
+| Nintendo 64 | 0 (never hosts) | 8 | 16 | 3 (8 MB; placeholder) | no |
+| Legacy PC (DOS, Windows 9x) | 16 | 16 | 128 | 7 (128 MB; placeholder) | no |
 
 Co-op: a host offers no network co-op (the Map screen's campaign levels
 refuse, and say why in the log) while a machine of a platform without it is
-in its game, nor on such a platform itself (`delta_peer_room_coop`). Only
-the original Xbox is kept out today.
+in its game, nor on such a platform itself (`delta_peer_room_coop`). Of the
+platforms that play today, only the original Xbox is kept out.
 
 A host protects the weakest machine of its game: it takes no more players
 than the smallest of its own hosting limit and every Delta machine's join
@@ -260,6 +268,75 @@ Overrides, on purpose:
 The signed legacy table is to carry a `platform_policy` section that tunes
 the rows without a release; the hook is `delta_peer_platform_policy()` in
 `delta_peer_game.c` (not built yet: the defaults stand).
+
+### Platform numbers
+
+Every build that speaks Delta says what it runs on: one number from the
+registry above. The scoreboard picks its logo from it, the site sorts
+games by it, and hosts use its policy row to keep weaker machines safe.
+This section is for people who port Chupathingy to something new.
+
+**Numbers are never reused.** A number stays with its platform for good,
+even if that port stops. New platforms go at the end of the list.
+
+**Ask before you ship.** Don't pick a free number yourself: two ports could
+pick the same one. Open an issue on
+[ChupathingyCE/chupathingyce](https://github.com/ChupathingyCE/chupathingyce/issues),
+or ask on the Discord. Tell us the platform, your port, and roughly how much
+memory the game gets there. We add the number to `delta.h` and this page,
+and the site learns it too.
+
+**Identify your build.** Build with `-DHALO_DELTA_PLATFORM=_delta_platform_<name>`
+(`_delta_platform_ps3`, say). The game sends that number in its platform
+key. Without it, the game picks a number from what it's built for (Windows,
+Mac, Linux, Android, FreeBSD and our console builds), and `unknown` (0)
+otherwise. A build with no number of its own still plays;
+it just shows no logo and gets the unknown row.
+
+**What the policy row means.** Each platform has one row in
+`DELTA_PLATFORM_POLICY` (`delta.h`):
+
+- **Hosts at most:** the most players a game it hosts can have. 0 means it
+  doesn't host.
+- **Joins at most:** the most players a game it joins can have. A host
+  keeps its game at or under this.
+- **Opted in:** the limit when the player turns the caveats off
+  (`network.platform_limits = "off"`).
+- **Memory:** log2 of the megabytes the game gets. 6 is 64 MB, 8 is 256 MB,
+  12 is 4 GB.
+- **Co-op:** whether it plays network co-op. If not, a host offers no co-op
+  while it's in the game.
+
+A new port's row starts careful: 16 players, no co-op on small machines.
+Once the port plays well, tell us what it handles and we raise it. A port
+can also claim lower limits in its own key; a host takes the lower value.
+
+**The numbers today:**
+
+| Number | Name | Platform | Port |
+| --- | --- | --- | --- |
+| 0 | `unknown` | not known | |
+| 1 | `pc_windows` | Windows | ours |
+| 2 | `pc_macos` | macOS | ours |
+| 3 | `pc_linux` | Linux | ours |
+| 4 | `android` | Android | ours |
+| 5 | `steam_deck` | Steam Deck | ours |
+| 6 | `xbox` | original Xbox | ours (warthog-xbox) |
+| 7 | `xbox360` | Xbox 360 | ours (warthog-360) |
+| 8 | `wiiu` | Wii U | ours (warthog-wiiu) |
+| 9 | `switch` | Nintendo Switch | warthog-switch |
+| 10 | `psp` | PSP | Sheepdog01 |
+| 11 | `vita` | PS Vita | Lord BirchWood |
+| 12 | `xbox_uwp` | Xbox One and Series, developer mode | ReviveMe |
+| 13 | `pc_freebsd` | FreeBSD | Renkoto (port/unix) |
+| 14 | `ps3` | PlayStation 3 | Mayo |
+| 15 | `ps4` | PlayStation 4 | community port |
+| 16 | `ps5` | PlayStation 5 | community port |
+| 17 | `n64` | Nintendo 64 | JackT |
+| 18 | `pc_legacy` | DOS and Windows 9x PCs | JackT (Legacy PC) |
+
+The PSP, Vita, PS3, PS4 and PS5 share the PlayStation logo on the
+scoreboard. Nintendo 64 and Legacy PC have no logo yet.
 
 ### Wire format
 
