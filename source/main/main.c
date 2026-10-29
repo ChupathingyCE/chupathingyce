@@ -1223,6 +1223,34 @@ real first_person_weapon_projection_scale(
 	return weapon_scale > 0.0f ? first_person_field_of_view_scale() / weapon_scale : 1.0f;
 }
 
+/* port: display.reticle_scales_with_fov, what the reticle's size (and its
+items' offsets from the middle) is scaled by in the local player's
+first-person view: the inverse of the field of view's tangent scale, as the
+world's image is (the screen's aspect and the zoom scale both alike), so the
+reticle still covers the weapon's spread. 1 at 70, the Xbox's, in any other
+view, or with the setting off. */
+real first_person_reticle_scale(
+	short local_player_index)
+{
+	extern int config_boolean(char const *name);
+	static unsigned long read_at = (unsigned long)-1;
+	static boolean enabled = FALSE;
+
+	if (read_at != config_changes())
+	{
+		read_at = config_changes();
+		enabled = config_boolean("display.reticle_scales_with_fov") != 0;
+	}
+	if (!enabled ||
+		local_player_index == NONE ||
+		director_get_perspective(local_player_index) != _director_perspective_first_person)
+	{
+		return 1.0f;
+	}
+
+	return 1.0f / first_person_field_of_view_scale();
+}
+
 /* port: display.far_clip_distance, how far the world is drawn (1024 as on
 the Xbox, to 10000). It is a floor under the camera's far clip, applied each
 frame: the map's own value, a script or init.txt can raise the clip beyond it

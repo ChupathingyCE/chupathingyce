@@ -228,7 +228,10 @@ def test_menus_are_well_formed():
             where = f"{path.name}: <{element.tag} {element.get('name', '')}>"
             assert element.tag in MENU_ATTRIBUTES, where
             assert set(element.attrib) <= MENU_ATTRIBUTES[element.tag], where
-            assert element.get("platform") in (None, "desktop", "android"), where
+            # (the platforms it is on, separated by spaces: menu_files.c)
+            if element.get("platform") is not None:
+                names = element.get("platform").split(" ")
+                assert names and set(names) <= {"desktop", "android", "switch", "console", "x360", "wiiu"}, where
             # (menu_files.c's whole numbers, which the tags keep in shorts,
             # its true/false attributes, and no text but whitespace outside
             # <string>s)

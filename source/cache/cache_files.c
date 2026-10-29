@@ -276,6 +276,10 @@ typedef char verify_cache_file_globals_size[
 typedef char verify_cache_file_header_size[
 	sizeof(struct cache_file_header) == 0x800 ? 1 : -1];
 
+/* port: called with a map's name once its tags have loaded (the renderer's,
+d3d8_gl.c, when it wants it) */
+void (*cache_file_map_loaded_hook)(char const *map_name);
+
 /* ---------- prototypes */
 
 static struct cache_file_tag_instance *cache_get_tag_instance(
@@ -1693,6 +1697,14 @@ long scenario_tags_load(
 
 				ce_hud_tags_loaded(global_tag_instances, ce_header->tag_count);
 			}
+			/* port: the pause menu's rows, as a stock map's get them
+			(port/linux/game/menu_tags.c: Halo PC's CHANGE SETTINGS and GAME
+			OPTIONS give way to the menus' own) */
+			{
+				extern void menu_tags_loaded(char const *map_name);
+
+				menu_tags_loaded(cache_file_globals.header.name);
+			}
 			return ce_header->scenario_tag_index;
 		}
 #endif
@@ -1798,6 +1810,10 @@ long scenario_tags_load(
 
 				menu_tags_loaded(cache_file_globals.header.name);
 			}
+			/* port: the renderer's, to make this map's shaders during its
+			 * loading screen (port/linux/src/d3d8_gl.c sets it) */
+			if (cache_file_map_loaded_hook)
+				cache_file_map_loaded_hook(cache_file_globals.header.name);
 			/* port: the bitmaps the high-res HUD stands for (port/linux/game/hud_hires_tags.c) */
 #ifndef HALO_CONSOLE_NO_HIRES
 			{

@@ -4579,8 +4579,14 @@ netcode). Vehicles otherwise stay where they are left (the Xbox game's). */
 enum
 {
 	/* (a map places up to 80 vehicles, a Halo PC map more: those past this
-	never came back; 48 bytes each, outside the game state) */
+	never came back; 52 bytes each, outside the game state. A console that
+	plays only the Xbox's maps keeps 256: the most a retail or Halo CE+ map
+	places is b40's 74) */
+#ifdef HALO_CONSOLE_XBOX_MAP_SIZES
+	MAXIMUM_VEHICLE_HOMES = 256
+#else
 	MAXIMUM_VEHICLE_HOMES = 1024
+#endif
 };
 
 static struct

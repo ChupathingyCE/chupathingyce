@@ -917,6 +917,14 @@ void rasterizer_draw_unicode_string(
 	point2d *cursor_reference,
 	short height_adjust,
 	wchar_t const *string);
+/* port: the span its ink is drawn across, as rasterizer_draw_unicode_string
+draws the string in these bounds (the high-res text's glyphs, else the font
+tag's characters); FALSE when nothing shows */
+boolean rasterizer_text_ink_span(
+	rectangle2d const *bounds,
+	wchar_t const *string,
+	real *x0,
+	real *x1);
 /* port: text drawn scale times larger about a point, until set back to 1 */
 void rasterizer_text_set_scale(
 	real scale,

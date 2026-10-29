@@ -109,6 +109,9 @@ void rasterizer_set_pixel_shader(
 	struct pixel_shader_definition const *definition);
 void rasterizer_set_model_skinning(
 	struct render_skinning const *skinning);
+/* port: display.viewmodel_field_of_view in the fog screen's model pass */
+void rasterizer_set_frustum_first_person_width(
+	boolean first_person);
 union point2d *rasterizer_set_texture(
 	short stage,
 	short bitmap_type,

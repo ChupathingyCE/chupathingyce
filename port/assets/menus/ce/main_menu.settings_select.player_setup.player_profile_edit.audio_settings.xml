@@ -18,10 +18,14 @@
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/op_effects_volume" x="54" y="133"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/op_device" x="54" y="163" platform="desktop"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/op_channels" x="54" y="193" platform="desktop"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/op_hrtf" x="54" y="223"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/op_reverb" x="54" y="253"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/op_doppler" x="54" y="283"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/op_enabled" x="54" y="313"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/op_hrtf" x="54" y="223" platform="desktop android switch"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/op_hrtf" x="54" y="163" platform="console"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/op_reverb" x="54" y="253" platform="desktop android switch"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/op_reverb" x="54" y="193" platform="console"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/op_doppler" x="54" y="283" platform="desktop android switch"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/op_doppler" x="54" y="223" platform="console"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/op_enabled" x="54" y="313" platform="desktop android switch"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/op_enabled" x="54" y="253" platform="console"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/button_bar" y="414"/>
 	</widget>
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/button_bar" type="column_list" width="640" height="28" flags="pass_unhandled_to_focused_child left_right_tabs_items">
@@ -138,7 +142,7 @@
 		<string text="Adjust the effects and speech volume."/>
 		<string text="Choose the audio output device."/>
 		<string text="Stereo or surround. Takes effect on restart."/>
-		<string text="3D sound for headphones. Auto: on with headphones."/>
+		<string text="3D sound as on the Xbox. Turn off for speakers."/>
 		<string text="Room echo, and muffled sound behind walls."/>
 		<string text="Pitch shift of moving sounds, as on the Xbox."/>
 		<string text="Turn all sound on or off. Takes effect on restart."/>

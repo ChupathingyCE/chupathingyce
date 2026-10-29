@@ -30,6 +30,11 @@ HALO_CONSOLE_LIGHT_LIMITS
 	specular highlights (display.dynamic_light_limit and
 	display.specular_light_limit, source/objects/object_lights.c). The
 	desktop builds default both to 0, every light lit as before, and opt in
+HALO_CONSOLE_WIDGET_POOL_SIZE
+	the menus' widget memory, in bytes, for a console that shows only the
+	Xbox's menus: the desktop's 256 KB is for the PC menus' screens
+	(port/assets/menus), which have many more widgets (source/interface/
+	ui_widget.c; console.widget_pool_log logs what the menus use)
 HALO_CONSOLE_NO_WRITE_WATCH
 	a console that will not write-protect guest memory, so the renderer's
 	write watch cannot see the game write a resource: locks and file reads
@@ -130,6 +135,14 @@ HALO_CONSOLE_OVERSIZED_MAPS
 	not fit the tag cache says so (source/cache/cache_files_windows.c,
 	cache_files.c). The retail maps fit their own and are cached as before.
 	The desktop builds with map packs (HALO_MAP_LIST) have it too
+HALO_CONSOLE_MENU_PLATFORM
+	a console that shows the Chupathingy menus without the desktop's
+	extras: the menus' elements marked platform="console", or with this
+	console's own name ("x360", "wiiu"), in place of the desktop's
+	(port/linux/src/menu_files.c; tools/port_settings.py packs the settings
+	rows the consoles show), and the menus' button prompts drawn with
+	ui.map's own pictures where no overlay draws them
+	(chupathingy/prompts.xml)
 HALO_CONSOLE_PARTICLE_TICKS
 	the particles not attached to an object moved once a 30 Hz tick, as on
 	the Xbox, and drawn between their ticks, by default
@@ -137,6 +150,17 @@ HALO_CONSOLE_PARTICLE_TICKS
 	their collision tests spared at 60 frames a second. The desktop builds
 	default to moving them at every frame drawn, smooth at high refresh
 	rates, and opt in
+HALO_CONSOLE_XBOX_MAP_SIZES
+	a console that plays the Xbox's own maps only (no Custom Edition or
+	Halo PC maps): tables the desktop builds size for those maps are sized
+	for the Xbox's. The lens flares' occlusion results hold 8,192 rows,
+	not 32,768 (source/rasterizer/rasterizer_lights.c; the most markers in
+	a retail or Halo CE+ map's BSP is d40's 4,616): 96 KB less. The
+	vehicles that respawn where the map put them are 256, not 1,024
+	(source/game/game_engine.c; the most a retail or Halo CE+ map places
+	is b40's 74): 39 KB less. A map past either limit loses only what is
+	past it: the lens flares past it (said once in debug.txt), or those
+	vehicles' respawn
 
 A big-endian console (HALO_BIG_ENDIAN, its prefix header) reads the maps,
 which are the Xbox's, little-endian, through port/console/game's byte swap
@@ -173,14 +197,18 @@ compile lines: source/cseries/xbox_address.h).
 #define HALO_CONSOLE_GL_LAYER 1
 #define HALO_CONSOLE_LIGHT_LIMITS 1
 #define HALO_CONSOLE_OVERSIZED_MAPS 1
+#define HALO_CONSOLE_MENU_PLATFORM "wiiu"
 #endif
 
 #ifdef HALO_XBOX_CONSOLE
 #define HALO_CONSOLE_PARTICLE_TICKS 1
 #define HALO_CONSOLE_LOG_BUFFER 1
+/* (the H1 Performance Build's 64 KB; the retail game had 16 KB) */
+#define HALO_CONSOLE_WIDGET_POOL_SIZE 0x10000
 #define HALO_CONSOLE_ONLINE_GAMES 1
 #define HALO_CONSOLE_OVERSIZED_MAPS 1
 #define HALO_CONSOLE_LIGHT_LIMITS 1
+#define HALO_CONSOLE_XBOX_MAP_SIZES 1
 #endif
 
 /* (the desktop builds copy maps to the Xbox's cache files too: a map pack's
@@ -199,6 +227,7 @@ larger maps take a campaign map's there as well) */
 #define HALO_CONSOLE_ONLINE_GAMES 1
 #define HALO_CONSOLE_LIGHT_LIMITS 1
 #define HALO_CONSOLE_OVERSIZED_MAPS 1
+#define HALO_CONSOLE_MENU_PLATFORM "x360"
 #ifdef HALO_CONSOLE_DEBUG_TOOLS
 #define HALO_CONSOLE_BRINGUP_LOG 1
 #endif

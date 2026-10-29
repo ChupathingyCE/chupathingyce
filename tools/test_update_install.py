@@ -15,7 +15,11 @@ halo, then updates itself:
   - from a zip that adds the game's executable by its later name, which
     arrives executable and is started (the list's "main"),
   - never in a packaged install (a file named "packaged" beside it, or
-    HALO_PACKAGED=1): the new version is only pointed out.
+    HALO_PACKAGED=1): the new version is only pointed out,
+  - as an AppImage (APPIMAGE set, as its runtime sets it): the AppImage file
+    itself replaced by the list's AppImage, checked, and started, with
+    nothing unpacked beside it; never from a release without the list or an
+    AppImage in it, a changed AppImage, or a packaged install.
 
 Linux only (the updater finds itself in /proc/self/exe); the 32-bit build
 where the system's SDL 3 is the i386 one. It needs OpenSSL 3's openssl for
@@ -47,6 +51,7 @@ pytestmark = pytest.mark.skipif(not sys.platform.startswith("linux"), reason="th
 
 OLD, NEW = "0.8.0", "0.8.1"
 ASSET = "chupathingyce-linux-release.zip"
+APPIMAGE = "chupathingyce-linux-release.AppImage"
 REPOSITORY = "ChupathingyCE/chupathingyce"
 MBEDTLS = ROOT / "port/third_party/mbedtls"
 ZLIB_SOURCES = ("adler32.c", "crc32.c", "inffast.c", "inflate.c", "inftrees.c", "uncompr.c", "zutil.c")
@@ -372,3 +377,126 @@ def test_packaged_install_not_updated(keys, builds, server, tmp_path, mark):
     assert not has(lines, "downloading") and not any(line.startswith(NEW) for line in lines)
     assert not any(path.startswith("/files/") or path.endswith("updates.json") for path in server.requests)
     assert snapshot(folder) == before and not (folder / "update.partial").exists()
+
+
+def install_appimage(tmp_path, builds):
+    """the old version as an AppImage the player downloaded and renamed, in a
+    folder of other files of theirs"""
+    folder = tmp_path / "Applications"
+    folder.mkdir()
+    appimage = folder / "Chupathingy.AppImage"
+    shutil.copy(builds[OLD], appimage)
+    os.chmod(appimage, 0o755)
+    (folder / "notes.txt").write_bytes(b"the player's\n")
+    return folder, appimage
+
+
+def appimage_release(tmp_path, builds, keys, names=(ASSET, APPIMAGE), listed=(ASSET, APPIMAGE)):
+    """the new version's zip and AppImage, the listed ones in its signed list"""
+    release = tmp_path / "release"
+    release_zip(release, builds)
+    shutil.copy(builds[NEW], release / APPIMAGE)
+    if listed:
+        update_sign.manifest(keys[0][0], NEW, f"v{NEW}", f"v{NEW}-debug", "0" * 40, [release / name for name in listed])
+    return release
+
+
+def run_appimage(tmp_path, appimage, server, finished, extra_environment=None):
+    """as run, started as the AppImage runtime starts the game: APPIMAGE, and
+    the library path an AppRun gives it"""
+    environment = {"APPIMAGE": str(appimage), "LD_LIBRARY_PATH": "/tmp/.mount_old/usr/lib:/opt/host/lib",
+                   "CHUPATHINGYCE_HOST_LD_LIBRARY_PATH": "/opt/host/lib", **(extra_environment or {})}
+    log = tmp_path / "update.log"
+    log.write_text("")
+    home = tmp_path / "home"
+    (home / "saves").mkdir(parents=True, exist_ok=True)
+    environment = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": str(home),
+                   "HALO_SAVE_ROOT": str(home / "saves"), "HALO_UPDATE_TEST_SERVER": server.url,
+                   "HALO_UPDATE_TEST_CA": str(server.authority), "HALO_UPDATE_TEST_LOG": str(log), **environment}
+    subprocess.run([str(appimage)], cwd=tmp_path, env=environment, timeout=120, capture_output=True)
+    deadline = time.time() + 60
+    while time.time() < deadline:
+        lines = log.read_text().splitlines()
+        if any(line.startswith(finished) and line.endswith(" done") for line in lines):
+            return lines
+        time.sleep(0.2)
+    raise AssertionError("the update did not finish:\n" + log.read_text())
+
+
+def test_appimage_updated(keys, builds, server, tmp_path):
+    """(f) an AppImage: the list's AppImage replaces the AppImage file, by
+    its own name, executable; the zip is never downloaded or unpacked, the
+    folder's other files are left alone, and the new one starts with the
+    library path its AppRun was given"""
+    folder, appimage = install_appimage(tmp_path, builds)
+    release = appimage_release(tmp_path, builds, keys)
+    server.release(NEW, release, [ASSET, APPIMAGE, "updates.json", "updates.json.sig"])
+    name = appimage.name
+    lines = run_appimage(tmp_path, appimage, server, f"{NEW} {name}")
+    assert has(lines, f"{OLD} {name} update: running as an AppImage ({appimage})")
+    assert has(lines, f"{OLD} {name} update: the release's list names {APPIMAGE}")
+    assert has(lines, f"{OLD} {name} update: the download's SHA-256 is the release list's")
+    assert has(lines, f"{OLD} {name} update: starting version {NEW} ({name})")
+    assert has(lines, f"{NEW} {name} library path: /opt/host/lib")
+    assert has(lines, f"{NEW} {name} update: this is the latest version ({NEW})")
+    assert not any(ASSET in path for path in server.requests)
+    after = snapshot(folder)
+    assert after[name][0] == hashlib.sha256(builds[NEW].read_bytes()).hexdigest()
+    assert after[name][1] == 0o755
+    # (nothing else: no zip's files, no .old once the new one started)
+    assert set(after) == {name, "notes.txt"}, after
+    assert not (folder / "update.partial").exists()
+
+
+@pytest.mark.parametrize("change", ["no-list", "no-appimage-listed", "appimage", "other-key"])
+def test_appimage_refused(keys, builds, server, tmp_path, change):
+    """(g) an AppImage is not updated from a release without the list (its
+    zip is no AppImage), from a list without an AppImage, from a changed
+    AppImage or a list signed by another key: the file is as it was"""
+    folder, appimage = install_appimage(tmp_path, builds)
+    before = snapshot(folder)
+    if change == "no-list":
+        release = appimage_release(tmp_path, builds, keys, listed=())
+        update_sign.sign(keys[0][0], NEW, [release / ASSET, release / APPIMAGE])
+        names = [ASSET, f"{ASSET}.sig", APPIMAGE, f"{APPIMAGE}.sig"]
+    elif change == "no-appimage-listed":
+        release = appimage_release(tmp_path, builds, keys, listed=(ASSET,))
+        names = [ASSET, APPIMAGE, "updates.json", "updates.json.sig"]
+    else:
+        release = appimage_release(tmp_path, builds, keys)
+        if change == "other-key":
+            update_sign.manifest(keys[1][0], NEW, f"v{NEW}", f"v{NEW}-debug", "0" * 40,
+                                 [release / ASSET, release / APPIMAGE])
+        else:
+            data = bytearray((release / APPIMAGE).read_bytes())
+            data[len(data) // 2] ^= 0x01
+            (release / APPIMAGE).write_bytes(bytes(data))
+        names = [ASSET, APPIMAGE, "updates.json", "updates.json.sig"]
+    server.release(NEW, release, names)
+    name = appimage.name
+    lines = run_appimage(tmp_path, appimage, server, f"{OLD} {name}")
+    assert has(lines, f"{OLD} {name} update: failed: ")
+    if change in ("no-list", "no-appimage-listed"):
+        assert has(lines, "download the new AppImage")
+    assert not has(lines, "starting version") and not any(line.startswith(NEW) for line in lines)
+    assert not any(path.startswith("/files/") and path.endswith(ASSET) for path in server.requests)
+    if change != "appimage":
+        assert not any(path.startswith("/files/") and path.endswith(APPIMAGE) for path in server.requests)
+    assert snapshot(folder) == before
+    assert not (folder / "update.partial").exists()
+
+
+def test_packaged_appimage_not_updated(keys, builds, server, tmp_path):
+    """(h) a packaged install that runs as an AppImage (HALO_PACKAGED=1) is
+    still its package manager's: nothing downloaded or changed"""
+    folder, appimage = install_appimage(tmp_path, builds)
+    before = snapshot(folder)
+    release = appimage_release(tmp_path, builds, keys)
+    server.release(NEW, release, [ASSET, APPIMAGE, "updates.json", "updates.json.sig"])
+    name = appimage.name
+    lines = run_appimage(tmp_path, appimage, server, f"{OLD} {name}", {"HALO_PACKAGED": "1"})
+    assert has(lines, f"{OLD} {name} update: version {NEW} is available")
+    assert has(lines, "update Chupathingy with your package manager")
+    assert not has(lines, "downloading") and not any(line.startswith(NEW) for line in lines)
+    assert not any(path.startswith("/files/") or path.endswith("updates.json") for path in server.requests)
+    assert snapshot(folder) == before
