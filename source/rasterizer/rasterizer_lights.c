@@ -869,6 +869,16 @@ void rasterizer_lens_flares_submit_occlusion_tests(
 		rasterizer_widget_begin(
 			_widget_type_internal_occlusion_test,
 			FLAG(_rasterizer_widget_z_enable_bit));
+#ifdef HALO_CONSOLE_GL_LAYER
+		/* port: nothing but the tests until d3d8_gl_visibility_tests_end, so
+		the console's renderer draws the later ones with the first one's state
+		(port/linux/src/d3d8_gl.c visibility_run) */
+		{
+			extern void d3d8_gl_visibility_tests_begin(void);
+
+			d3d8_gl_visibility_tests_begin();
+		}
+#endif
 
 		for (lens_flare_index = 0; lens_flare_index < local_lens_flare_count; lens_flare_index++)
 		{
@@ -919,6 +929,13 @@ void rasterizer_lens_flares_submit_occlusion_tests(
 			}
 		}
 
+#ifdef HALO_CONSOLE_GL_LAYER
+		{
+			extern void d3d8_gl_visibility_tests_end(void);
+
+			d3d8_gl_visibility_tests_end();
+		}
+#endif
 		rasterizer_widget_end();
 	}
 
