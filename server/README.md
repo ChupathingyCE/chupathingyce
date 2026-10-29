@@ -72,7 +72,9 @@ itself), and its saves in `~/.local/share/chupathingyce` unless
 `debug.txt` starts.
 
 To keep a server running all the time, with restarts and several servers on
-one machine, use [Docker or systemd](docs/docker.md).
+one machine, use [Docker or systemd](docs/docker.md). Each release has a
+ready image, `ghcr.io/chupathingyce/server`: see
+[Host a server with Docker](docs/docker.md#host-a-server-with-docker).
 
 ## What it does
 
@@ -158,7 +160,7 @@ is on.
 | [docs/admin.md](docs/admin.md) | Running a server: its commands, its console, startup commands, the control API and web admin page (and reaching them safely). |
 | [docs/moderation.md](docs/moderation.md) | Moderators and the control panel: roles, accounts, second factors, invitations, in-game moderation, HTTPS, the link to stats.chupathingy.org, and security notes. |
 | [docs/playlists.md](docs/playlists.md) | Playlists: the maps (Xbox, `@ce`, `@md`, the Xbox map packs' `@cex`), the game types, and the ones included. |
-| [docs/docker.md](docs/docker.md) | The container image, the systemd services, more servers on one host, and the game list's probe. |
+| [docs/docker.md](docs/docker.md) | Hosting with Docker, the container image, the systemd services, more servers on one host, and the game list's probe. |
 | [docs/building.md](docs/building.md) | Building the server: the targets, musl and glibc, and how it differs from the game. |
 | [CHANGELOG.md](CHANGELOG.md) | What changed in the server, release by release. |
 

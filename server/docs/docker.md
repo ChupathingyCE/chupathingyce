@@ -6,8 +6,85 @@ container is the easy way to keep one running, restart it when it stops,
 and keep several apart on one machine; `server/deploy/` has what the `[D]`
 servers on stats.chupathingy.org run with.
 
+## Host a server with Docker
+
+Each release has a ready image, `ghcr.io/chupathingyce/server`, for x86,
+x64 and arm64 Linux. Docker picks the right one for your machine.
+
+- `latest` is the newest release.
+- `0.8.1b` (any release's version) stays on that release.
+- `nightly` is the newest nightly build, for testing.
+
+The image has no game files. You bring your own maps.
+
+You need a Linux machine that stays on, with Docker and Docker Compose.
+A small VPS or a home server works. Many one-click cloud hosts (the kind
+that run a container for you) only pass web traffic and have no UDP, so
+players can't reach a server there.
+
+1. Make a folder for the server and a `data` folder in it:
+
+   ```sh
+   mkdir -p my-server/data/maps my-server/data/playlists
+   cd my-server
+   ```
+
+2. Copy your `ui.map` and multiplayer maps into `data/maps`. Use the maps
+   of the North American (NTSC) Xbox disc, as the players do. Custom
+   Edition, HaloMD and Halo PC maps go in folders beside `maps`
+   ([quick start](../README.md#quick-start)).
+
+3. Get the playlists: download the server's zip from the
+   [releases page](https://github.com/ChupathingyCE/chupathingyce/releases)
+   and copy its `playlists` folder into `data`. Or write your own
+   ([Playlists](playlists.md)).
+
+4. Download [`docker-compose.yml`](../deploy/docker-compose.yml) into the
+   folder and open it. Set your server's name, its playlist and how many
+   players it takes. Every other setting is in [Settings](settings.md).
+
+5. The server runs as user 1000. If that isn't you, change `user:` in
+   the file to your own (`id -u` and `id -g` show it), or give the folder
+   to user 1000: `sudo chown -R 1000:1000 data`.
+
+6. Start it:
+
+   ```sh
+   docker compose up -d
+   docker compose logs -f
+   ```
+
+   Within a few seconds it shows on
+   [stats.chupathingy.org](https://stats.chupathingy.org) and in the
+   in-game Server Browser.
+
+7. Ports: the server needs none forwarded in most cases. If your firewall
+   blocks incoming UDP, or some players can't join, open UDP 2302 (internet
+   play, `HALO_NET_TUNNEL_PORT`). Players on your local network also use UDP
+   5150 and 5160.
+
+8. To manage it from your account on the site, link it: `docker attach`
+   to the container, type `sv_link`, and open the link it prints, signed in
+   ([Moderation](moderation.md#the-link-to-the-chupathingy-site-optional)).
+   Or sign in at
+   [stats.chupathingy.org/servers/link](https://stats.chupathingy.org/servers/link)
+   and enter the code. Ctrl+P then Ctrl+Q leaves the console without
+   stopping the server.
+
+To update, `docker compose pull && docker compose up -d`. Without Compose,
+the same server is one command:
+
+```sh
+docker run -d --name my-server --restart unless-stopped --network host \
+  --user "$(id -u):$(id -g)" --cap-drop ALL --security-opt no-new-privileges \
+  --memory 1g --pids-limit 256 \
+  -e HALO_DEDICATED=playlists/free_for_all.txt -e HALO_DEDICATED_NAME="My Server" \
+  -v "$PWD/data:/data" ghcr.io/chupathingyce/server:latest
+```
+
 ## The image
 
+To build the image yourself:
 [`server/deploy/Dockerfile`](../deploy/Dockerfile) puts the server on
 Alpine Linux. One Dockerfile makes the image for every architecture: its
 build folder holds each architecture's server as
