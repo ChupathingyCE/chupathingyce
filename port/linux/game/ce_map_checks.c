@@ -702,13 +702,15 @@ void *ce_tags_pointer(
 	long size)
 {
 	extern boolean cache_file_tags_are_ce(void);
+	extern boolean pc_menu_owns(unsigned long address, long size);
 	static byte scratch[0x40000];
 	static long misses;
 
-	/* (the bounds first: they pass for nearly every read) */
+	/* (the bounds first: they pass for nearly every read; then the menus'
+	own tags, added to the map's: menu_tags.c) */
 	if (!size || (address >= CE_IMAGE_TAG_CACHE_BASE && size > 0 &&
 		ce_range_within(address - CE_IMAGE_TAG_CACHE_BASE, (unsigned long)size, CE_IMAGE_TAG_CACHE_SIZE)) ||
-		!cache_file_tags_are_ce())
+		!cache_file_tags_are_ce() || pc_menu_owns(address, size))
 	{
 		return xbox_pointer(address);
 	}
