@@ -114,6 +114,11 @@ looks for a new version and offers its download page) */
 #elif defined(__APPLE__)
 #define UPDATE_PLATFORM "macos"
 #define PATH_SEPARATOR "/"
+#elif defined(__FreeBSD__) && defined(HALO_64BIT)
+/* (the FreeBSD build's own download, ninja freebsd64: tools/unix64_build.py;
+never the Linux one) */
+#define UPDATE_PLATFORM "freebsd64"
+#define PATH_SEPARATOR "/"
 #elif defined(HALO_64BIT)
 /* (the 64-bit Linux build's own download, ninja linux64: tools/ci_build.py) */
 #define UPDATE_PLATFORM "linux64"

@@ -1,7 +1,7 @@
 name: Build
 
 # Debug and release builds of the native ports (Linux and Windows, 32- and
-# 64-bit, Android and its native 64-bit app, macOS), and release builds of the dedicated server (Linux
+# 64-bit, Android and its native 64-bit app, macOS, FreeBSD), and release builds of the dedicated server (Linux
 # x86, x64 and arm64) and its container, for every pushed commit and pull
 # request, uploaded as artifacts: whether a change builds. tools/ci_build.py does each build; see it for the options.
 #
@@ -341,6 +341,106 @@ jobs:
         with:
           path: .ccache
           key: ccache-linux64-ubuntu-clang22-${{ github.sha }}
+
+  freebsd64:
+    # The native 64-bit FreeBSD build (ninja freebsd64, port/unix: Renkoto's
+    # port), built on FreeBSD 15.1 itself, in a virtual machine on Ubuntu
+    # (vmactions/freebsd-vm, pinned to a commit: QEMU with the runner's KVM;
+    # the checkout synced in with rsync and dist/ back out). Cross-compiling
+    # from Linux would need a FreeBSD system root with the ports' SDL3 and a
+    # build that names its host apart from the machine it runs on; the
+    # virtual machine builds as a FreeBSD player does, with the base
+    # system's clang and the packages, for a few minutes of start-up. Its
+    # SDL3 is the system's package, not brought along.
+    #
+    # A release's or a nightly's run (started by hand) does not fail when
+    # this job does: the other platforms are still published, without
+    # FreeBSD's (ChupathingyCE/command takes it when it is there). A commit
+    # from before the port has none.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    continue-on-error: ${{ github.event_name == 'workflow_dispatch' }}
+    env:
+      FREEBSD_RELEASE: "15.1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit }}
+
+      - name: Has it
+        id: has
+        run: |
+          if [ -f tools/unix64_build.py ]; then
+            echo "freebsd64=true" >> "$GITHUB_OUTPUT"
+            # (git in the virtual machine may not read the synced checkout)
+            echo "HALO_COMMIT=$(git rev-parse --short=8 HEAD)" >> "$GITHUB_ENV"
+          else
+            echo "::notice::no FreeBSD build at this commit (ninja freebsd64): skipped"
+          fi
+
+      # (restored on every run, saved only on main, as the other jobs')
+      - uses: actions/cache/restore@v4
+        if: steps.has.outputs.freebsd64 == 'true'
+        with:
+          path: .ccache
+          key: ccache-freebsd64-${{ env.FREEBSD_RELEASE }}-${{ github.sha }}
+          restore-keys: ccache-freebsd64-${{ env.FREEBSD_RELEASE }}-
+
+      # the FFmpeg source tarball (tools/download.py)
+      - uses: actions/cache@v4
+        if: steps.has.outputs.freebsd64 == 'true'
+        with:
+          path: build/downloads
+          key: ffmpeg-source-${{ hashFiles('tools/ffmpeg_build.py') }}
+
+      - name: Debug and release, on FreeBSD
+        if: steps.has.outputs.freebsd64 == 'true'
+        uses: vmactions/freebsd-vm@c46abacb49f09938ca4e1702d15d836285d694cc # v1.5.9
+        with:
+          release: ${{ env.FREEBSD_RELEASE }}
+          usesh: true
+          sync: rsync
+          envs: "HALO_VERSION HALO_RELEASE_BUILD HALO_COMMIT CI_COMPILER_LAUNCHER CCACHE_DIR CCACHE_BASEDIR CCACHE_MAXSIZE"
+          prepare: |
+            pkg install -y python3 ninja pkgconf sdl3 gmake llvm ccache
+          run: |
+            set -e
+            freebsd-version
+            cc --version | head -n 1
+            python3 tools/ci_build.py freebsd64 debug
+            python3 tools/ci_build.py freebsd64 release
+            ccache --show-stats
+            # (only dist/, the compile cache and the downloads come back)
+            rm -rf build/freebsd64
+
+      - uses: actions/upload-artifact@v4
+        if: steps.has.outputs.freebsd64 == 'true'
+        with:
+          name: chupathingyce-freebsd64-debug
+          path: dist/chupathingyce-freebsd64-debug
+          retention-days: 3
+
+      - uses: actions/upload-artifact@v4
+        if: steps.has.outputs.freebsd64 == 'true'
+        with:
+          name: chupathingyce-freebsd64-release
+          path: dist/chupathingyce-freebsd64-release
+          retention-days: 3
+
+      # (kept by ChupathingyCE's release, not a download)
+      - uses: actions/upload-artifact@v4
+        if: steps.has.outputs.freebsd64 == 'true'
+        with:
+          name: symbols-freebsd64-release
+          path: dist/chupathingyce-freebsd64-release-symbols
+          if-no-files-found: ignore
+          retention-days: 3
+
+      - uses: actions/cache/save@v4
+        if: ${{ success() && steps.has.outputs.freebsd64 == 'true' && github.ref == 'refs/heads/main' }}
+        with:
+          path: .ccache
+          key: ccache-freebsd64-${{ env.FREEBSD_RELEASE }}-${{ github.sha }}
 
   server:
     # The dedicated server (tools/server_build.py): one static program for

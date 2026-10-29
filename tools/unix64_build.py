@@ -13,9 +13,11 @@ and in UNIX_HOSTS below: the C library's restriction to ISO C, where SDL3 is,
 the libraries to link, FFmpeg's target. A new host is an entry there, and what
 port/unix says for it.
 
-These builds are not published or tested by the project: they are built by
-hand, never update themselves (configure.py refuses a release build) and have
-no profile (the committed profiles are the 32-bit builds').
+A host's builds are published only when its entry says so (published):
+FreeBSD's are, built by the GitHub workflow in a FreeBSD virtual machine and
+released as freebsd64, which its updater downloads (updater.c). Another host's
+are built by hand and never update themselves (configure.py refuses a release
+build). None has a profile (the committed profiles are the 32-bit builds').
 """
 
 import os
@@ -72,6 +74,10 @@ class UnixHost:
     add_libraries: List[str] = field(default_factory=list)
     # how to install what the build needs, for the messages
     install_hint: str = ""
+    # whether the project publishes its builds (chupathingyce-<name>-<config>
+    # .zip, updater.c's UPDATE_PLATFORM for it): only then may a release
+    # build (HALO_RELEASE_BUILD=1, which updates itself) be made
+    published: bool = False
 
 
 UNIX_HOSTS = {
@@ -89,6 +95,9 @@ UNIX_HOSTS = {
         drop_libraries=["dl"],
         add_libraries=["execinfo"],
         install_hint="pkg install llvm",
+        # (built by the GitHub workflow in a FreeBSD virtual machine, and
+        # released and updated as "freebsd64")
+        published=True,
     ),
 }
 
@@ -165,8 +174,8 @@ def generate_unix64_build(n: Writer, sln: Any) -> None:
     if host is None or not LINUX_PORT_CONFIG.is_file():
         # another system, or a checkout without the port (or a test fixture)
         return
-    if release_build():
-        # (updater.c would download the Linux build, "linux64", over this one)
+    if release_build() and not host.published:
+        # (updater.c would download a build the project does not publish)
         sys.exit(f"configure.py: HALO_RELEASE_BUILD=1 makes a build that updates itself, and the project publishes "
                  f"none for {host.platform_name}: unset it")
     config = load_json(LINUX_PORT_CONFIG)

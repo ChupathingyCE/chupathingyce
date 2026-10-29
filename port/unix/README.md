@@ -2,9 +2,13 @@
 
 `ninja freebsd64` builds the same game as the 64-bit Linux build
 (`ninja linux64`, [port/linux/README.md](../linux/README.md#64-bit)) as native
-x86-64 code on FreeBSD: `build/freebsd64/halo`. The project publishes no
-FreeBSD build and does not test this one: it is built by hand, and it never
-updates itself (`configure.py` refuses `HALO_RELEASE_BUILD=1` here).
+x86-64 code on FreeBSD: `build/freebsd64/halo`. Releases and nightlies have
+it as `chupathingyce-freebsd64-release.zip`, built by the Build workflow in a
+FreeBSD 15.1 virtual machine, and a release's build updates itself from the
+next release's FreeBSD zip (`updater.c`, "freebsd64"). A host whose builds the
+project does not publish (`published` in `tools/unix64_build.py`) is built by
+hand and never updates itself (`configure.py` refuses `HALO_RELEASE_BUILD=1`
+there).
 
 The Xbox address space and the `long` rewrite are the 64-bit Linux build's
 (`tools/lp64_build.py`). What differs is the host, and all of it is here and in
@@ -45,6 +49,11 @@ without a target builds `freebsd64`. `--portable` only means "any x86-64
 processor" here (`-march=x86-64` instead of `-march=native`). `--lto=thin`
 or `--lto=off` link faster. `--without-ffmpeg` leaves the movies out, and
 FFmpeg's build with them.
+
+### The released build
+
+Unzip `chupathingyce-freebsd64-release.zip` and add the maps next to `halo`.
+It uses the system's SDL3: `pkg install sdl3`.
 
 ### Start the game
 
