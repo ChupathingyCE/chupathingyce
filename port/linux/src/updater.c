@@ -26,6 +26,13 @@ or cannot be reached. If it is newer, the game asks whether to update:
   has none: its chupathingyce-<platform>-<release|debug>.zip is downloaded,
   with that zip's own signature (<zip>.sig) checked, as before.
 - No: nothing, until the next start.
+
+The game is chupathingy (chupathingy.exe) from 0.9.0, and was halo
+(halo.exe) before. A release's zip carries both: the game, which the list
+names as its "main", and a small halo that starts it (rename_stub.h), for
+shortcuts and for the updaters from before the list, which start halo again.
+At its start the renamed game removes an old halo beside it that is a game,
+never the stub (updater_remove_old_program).
 - Do not ask again: after the player confirms it, update.auto = false is
   written to config.toml.
 
@@ -55,6 +62,7 @@ at the server HALO_UPDATE_TEST_SERVER names in place of GitHub. No release
 is built with it.
 */
 
+#include "rename_stub.h"
 #include "platform.h"
 #include "port_config.h"
 #include "update.h"
@@ -1080,6 +1088,58 @@ static void updater_update(void)
 	}
 }
 
+/* the game's program from before the rename, beside the renamed one: halo
+beside chupathingy, halo.exe beside chupathingy.exe (rename_stub.h), removed,
+unless it is the small stub that starts this one, which stays for the
+shortcuts and scripts that start halo */
+static void updater_remove_old_program(void)
+{
+	const char *running = strrchr(updater_executable, PATH_SEPARATOR[0]);
+	const char *old_name = rename_stub_old_name(running ? running + 1 : updater_executable);
+	unsigned char data[RENAME_STUB_MAXIMUM_SIZE > 65536 ? 65536 : RENAME_STUB_MAXIMUM_SIZE];
+	char path[1300];
+	SDL_PathInfo info;
+	SDL_IOStream *file;
+	size_t size = 0;
+	Sint64 file_size;
+
+	if (!old_name)
+		return;
+	updater_path(path, sizeof(path), old_name);
+	if (!SDL_GetPathInfo(path, &info) || info.type != SDL_PATHTYPE_FILE)
+		return;
+	file = SDL_IOFromFile(path, "rb");
+	if (!file)
+		return;
+	file_size = SDL_GetIOSize(file);
+	if (file_size >= 0 && (Uint64)file_size <= RENAME_STUB_MAXIMUM_SIZE)
+	{
+		/* (a stub has its mark near its start, or, a Windows one, in its
+		data: read it whole, in pieces, and look at each with the last
+		mark's length of the one before it) */
+		size_t keep = sizeof(RENAME_STUB_MARK) - 2, got;
+
+		while ((got = SDL_ReadIO(file, data + size, sizeof(data) - size)) > 0)
+		{
+			size += got;
+			if (rename_stub_is_stub(data, size, (unsigned long long)file_size))
+			{
+				SDL_CloseIO(file);
+				return;
+			}
+			if (size > keep)
+			{
+				memmove(data, data + size - keep, keep);
+				size = keep;
+			}
+		}
+	}
+	SDL_CloseIO(file);
+	platform_log("update: removing %s, the game from before its rename to %s", old_name,
+		running ? running + 1 : updater_executable);
+	update_delete_file(path);
+}
+
 /* the files a previous update left behind */
 static void updater_clean_up(void)
 {
@@ -1107,6 +1167,7 @@ static void updater_clean_up(void)
 			updater_path(path, sizeof(path), names[index]);
 			update_delete_file(path);
 		}
+		updater_remove_old_program();
 	}
 	updater_partial_path(path, sizeof(path), UPDATE_ASSET);
 	update_delete_file(path);

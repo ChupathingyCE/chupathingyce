@@ -55,17 +55,22 @@ from tools.version import base_version, commit, release_build, version  # noqa: 
 # what each port's build leaves, and what goes into dist/
 OUTPUTS = {
     # (and the SDL3 each portable build brings, tools/linux_build.py, with its
-    # zlib license, as the release carries the other libraries')
-    "linux": ["build/linux/halo", "build/linux/libSDL3.so.0", "build/linux/SDL3-LICENSE.txt"],
+    # zlib license, as the release carries the other libraries'). The game is
+    # chupathingy (chupathingy.exe) from 0.9.0; halo (halo.exe) beside it is
+    # the small stub that starts it, for shortcuts and scripts made for
+    # the old name (port/linux/src/rename_stub.h; TODO(after 0.9.x): remove)
+    "linux": ["build/linux/chupathingy", "build/linux/halo", "build/linux/libSDL3.so.0",
+              "build/linux/SDL3-LICENSE.txt"],
     # the native 64-bit build (ninja linux64; tools/linux64_build.py)
-    "linux64": ["build/linux64/halo", "build/linux64/libSDL3.so.0", "build/linux64/SDL3-LICENSE.txt"],
+    "linux64": ["build/linux64/chupathingy", "build/linux64/halo", "build/linux64/libSDL3.so.0",
+                "build/linux64/SDL3-LICENSE.txt"],
     # the native 64-bit FreeBSD build (ninja freebsd64; tools/unix64_build.py),
     # built on FreeBSD: SDL3 is the system's package (pkg install sdl3), not
     # brought along
-    "freebsd64": ["build/freebsd64/halo"],
-    "windows": ["build/windows/halo.exe", "build/windows/SDL3.dll"],
+    "freebsd64": ["build/freebsd64/chupathingy", "build/freebsd64/halo"],
+    "windows": ["build/windows/chupathingy.exe", "build/windows/halo.exe", "build/windows/SDL3.dll"],
     # the native 64-bit build (ninja windows64; tools/windows_build.py)
-    "windows64": ["build/windows64/halo.exe", "build/windows64/SDL3.dll"],
+    "windows64": ["build/windows64/chupathingy.exe", "build/windows64/halo.exe", "build/windows64/SDL3.dll"],
     "android": [],  # the APK, below
     # the native 64-bit app (ninja android64; tools/android64_build.py): the
     # same app, built with -Pnative64, its APK below
@@ -171,17 +176,17 @@ def main() -> int:
         # (the SDL3 inside it, the build's own: zlib license)
         shutil.copy2(ROOT / "build/macos/third_party/SDL3/LICENSE.txt", dist / "SDL3-LICENSE.txt")
     if args.platform in ("windows", "windows64"):
-        # the symbols of halo.exe and SDL3.dll, apart (players do not need
+        # the symbols of chupathingy.exe and SDL3.dll, apart (players do not need
         # them): tools/symbolize_crash.py reads debug.txt's crash lines and
         # the crash reports' calls (port/windows/src/win32_crash.c) with
-        # them, and a debugger the reports' minidumps; halo.map, the
+        # them, and a debugger the reports' minidumps; chupathingy.map, the
         # linker's map, names the functions without LLVM's tools
         symbols = ROOT / "dist" / f"chupathingyce-{args.platform}-{args.config}-symbols"
         sdl_arch = "x64" if args.platform == "windows64" else "x86"
         if symbols.exists():
             shutil.rmtree(symbols)
         symbols.mkdir(parents=True)
-        for pdb in [ROOT / f"build/{args.platform}/halo.pdb", ROOT / f"build/{args.platform}/halo.map",
+        for pdb in [ROOT / f"build/{args.platform}/chupathingy.pdb", ROOT / f"build/{args.platform}/chupathingy.map",
                     *sorted((ROOT / "build/windows/third_party").glob(f"SDL3-*/lib/{sdl_arch}/SDL3.pdb"))]:
             shutil.copy2(pdb, symbols)
             print(f"{pdb.relative_to(ROOT)} -> {symbols.relative_to(ROOT)}", flush=True)
@@ -253,7 +258,7 @@ def keep_native_symbols(platform: str, config: str) -> None:
     release workflow for crash reports; never part of a download."""
     symbols = ROOT / "dist" / f"chupathingyce-{platform}-{config}-symbols"
     if platform in ("linux", "linux64", "freebsd64"):
-        files = [ROOT / f"build/{platform}/halo"]
+        files = [ROOT / f"build/{platform}/chupathingy"]
     elif platform in ("android", "android64"):
         files = sorted((ROOT / f"build/{platform}/jniLibs").glob("*/*.so"))
     elif platform == "macos":
