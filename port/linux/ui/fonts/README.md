@@ -19,8 +19,8 @@ to Switch U+E109). A player whose platform isn't known, or has no logo yet,
 gets none. The sources are the SVGs in `platform_icons/`, and
 `tools/platform_icons_font.py` builds the font from them:
 
-- Windows, Apple (Mac), Linux, Android, Steam Deck, Xbox (the Xbox 360's and
-  Xbox Series' sphere) and Nintendo Switch are from
+- Windows, Apple (Mac), Linux, FreeBSD, Android, Steam Deck, Xbox (the Xbox
+  360's and Xbox Series' sphere) and Nintendo Switch are from
   [Simple Icons](https://simpleicons.org), CC0 1.0.
 - The original Xbox's X mark is Wikimedia Commons' "Xbox Logo 2001.svg"
   (public domain, PD-textlogo), the X symbol only, flattened to one shape.
