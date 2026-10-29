@@ -331,7 +331,7 @@ int posix_find_entry_case_insensitive(const char *directory, const char *name,
 
 /* Describe a code address as "module+offset" without allocating, for the
 64-bit game's stack dumps (source/cseries/stack_walk_windows.c): the
-offset into halo.exe is the build's own address, the same from run to run */
+offset into chupathingy.exe is the build's own address, the same from run to run */
 void posix_describe_address(void *address, char *buffer, posix_ulong size)
 {
 	HMODULE module;

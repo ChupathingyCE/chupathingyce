@@ -2173,7 +2173,7 @@ with the NTSC Xbox maps:
 python3 tools/crossplay_test.py build --repo . --ref v0.7.0b --out /tmp/ours --server
 python3 tools/crossplay_test.py build --repo ../opence --ref build-145 --out /tmp/theirs
 echo '{"delta_legacy": 1, "serial": 1, "wires": {"chupa-20a": {"announce": 22, "minimum": 11, "maximum": 22}}}' > row.json
-python3 tools/crossplay_test.py run --ours /tmp/ours/build/linux/halo \
+python3 tools/crossplay_test.py run --ours /tmp/ours/build/linux/chupathingy \
     --server /tmp/ours/build/server-x86/chupathingyce-server \
     --theirs /tmp/theirs/build/linux/halo --maps ~/halo/maps \
     --ours-table row.json --work /tmp/crossplay --out result.json

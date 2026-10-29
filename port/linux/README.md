@@ -1,7 +1,7 @@
 # Linux
 
 `ninja linux` compiles the game with clang for 32-bit x86 Linux. The result
-is a native executable, `build/linux/halo`. The game shows its graphics with
+is a native executable, `build/linux/chupathingy`. The game shows its graphics with
 OpenGL 4.5. It plays sound through SDL3. It accepts keyboard, mouse and
 gamepad input.
 
@@ -100,7 +100,7 @@ root's include folders from `pkg-config`, which splits a path at its spaces,
 so the portable build stops with a message there.
 
 To see the glibc version that a build needs, enter
-`readelf -V build/linux/halo | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1`.
+`readelf -V build/linux/chupathingy | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1`.
 `tools/linux_glibc_check.py`, which the GitHub Actions builds run on every
 Linux executable and library they make, fails on any version later than
 2.31.
@@ -130,7 +130,7 @@ Linux executable and library they make, fails on any version later than
 ### 64-bit
 
 `ninja linux64` builds the same game as native x86-64 code,
-`build/linux64/halo`, the way the macOS build does (the 64-bit build in
+`build/linux64/chupathingy`, the way the macOS build does (the 64-bit build in
 [port/macos/README.md](../macos/README.md): `HALO_64BIT` and the `long`
 rewrite, `tools/lp64_build.py`). It needs the 64-bit glibc and SDL3
 development files (`libsdl3-dev` on Debian 13 and Ubuntu 25.04 or later,
@@ -148,11 +148,12 @@ network, and it is a dedicated server too (`server/README.md`).
 
 ## Start the game
 
-Enter `build/linux/halo`.
+Enter `build/linux/chupathingy`. The small `halo` script beside it starts
+`chupathingy`, for shortcuts and scripts made before the rename in 0.9.0.
 
 The Steam Deck is not a supported platform yet. The Linux build may run
 on it: unpack `chupathingyce-linux64-release.zip` into a folder (in Desktop
-Mode), and add `halo` to Steam as a non-Steam game ("Add a Game" in the
+Mode), and add `chupathingy` to Steam as a non-Steam game ("Add a Game" in the
 Games menu of Steam). Reports are welcome in #bug-reports on the Discord.
 
 The game data is the folder that contains `maps/`, from an Xbox disc image
@@ -263,7 +264,7 @@ The settings are in `config.toml` next to the executable. Refer to
 
 If the game stops because of a fatal signal, it writes the address and a
 backtrace to the standard error. To find the function at the address, enter
-`addr2line -e build/linux/halo <address>`.
+`addr2line -e build/linux/chupathingy <address>`.
 
 ### Crash reports
 
@@ -281,11 +282,11 @@ reports.
 A report has the same format as on Windows
 (`port/linux/src/crash_report.h`), without a minidump: the build, the
 system, the signal, up to 32 calls (each a module and an offset in it, for
-example `halo+0x2715b4`), and the last 200 lines of `debug.txt` from before
+example `chupathingy+0x2715b4`), and the last 200 lines of `debug.txt` from before
 the crash, with each public IP address replaced with `[address]`. To find
-the function of a call on macOS, enter `atos -o halo -l 0x100000000
+the function of a call on macOS, enter `atos -o chupathingy -l 0x100000000
 0x1002715b4` (the offset plus `0x100000000`); on Linux, enter
-`addr2line -e halo 0x2715b4`.
+`addr2line -e chupathingy 0x2715b4`.
 
 Local builds send no crash reports. To test the crash reports with such a
 build, set the `HALO_CRASH_REPORTS_ANY_BUILD` environment variable. Android
@@ -826,9 +827,9 @@ broadcasts. Thus each copy must send its broadcasts to the other copies.
 For a host and two clients, enter these commands in three terminals:
 
 ```sh
-HALO_NET_ADDRESS=127.0.0.200 HALO_NET_BROADCAST=127.0.0.201,127.0.0.202 build/linux/halo
-HALO_NET_ADDRESS=127.0.0.201 HALO_NET_BROADCAST=127.0.0.200 build/linux/halo
-HALO_NET_ADDRESS=127.0.0.202 HALO_NET_BROADCAST=127.0.0.200 build/linux/halo
+HALO_NET_ADDRESS=127.0.0.200 HALO_NET_BROADCAST=127.0.0.201,127.0.0.202 build/linux/chupathingy
+HALO_NET_ADDRESS=127.0.0.201 HALO_NET_BROADCAST=127.0.0.200 build/linux/chupathingy
+HALO_NET_ADDRESS=127.0.0.202 HALO_NET_BROADCAST=127.0.0.200 build/linux/chupathingy
 ```
 
 Do not give 127.0.0.1 to a copy. Each copy gets to its own address through
@@ -874,7 +875,7 @@ To join a game, do one of these steps:
 - Copy the link and select PASTE LINK in Join Game's Direct Link. With
   `network.join_from_clipboard` set to `"ask"` or `"always"`, going to the
   game after copying the link is enough.
-- Enter `halo <link>`.
+- Enter `chupathingy <link>`.
 - Accept a Discord invite. Refer to "Discord".
 
 When the machines connect, the game of the host shows in Multiplayer,

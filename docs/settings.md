@@ -16,9 +16,9 @@ on Windows).
 
 | Platform | config.toml is |
 | --- | --- |
-| Windows | next to `halo.exe` |
+| Windows | next to `chupathingy.exe` |
 | Mac | `~/Library/Application Support/ChupathingyCE/config.toml` |
-| Linux | next to the `halo` executable |
+| Linux | next to the `chupathingy` program |
 | Android | in the game's data folder, `/sdcard/Android/data/dev.horrible.chupathingyce/files` |
 
 A few people look for most:

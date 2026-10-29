@@ -17,8 +17,8 @@ vitality, the scores). The check passes when the record run and both
 replays agree on every tick: a difference is reported at its first tick
 with the part that differs (rng, players, objects, scores).
 
-    python3 tools/test_determinism.py --binary build/linux/halo --maps ~/halo/maps
-    python3 tools/test_determinism.py --binary build/linux/halo --maps ~/halo/maps \\
+    python3 tools/test_determinism.py --binary build/linux/chupathingy --maps ~/halo/maps
+    python3 tools/test_determinism.py --binary build/linux/chupathingy --maps ~/halo/maps \\
         --map bloodgulch --ticks 900 --work /tmp/determinism
 
 Needs a Linux (or macOS) build and the stock Xbox maps (NTSC). CI has no
@@ -199,7 +199,7 @@ def test_determinism(tmp_path):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--binary", default=os.path.join(ROOT, "build", "linux", "halo"))
+    parser.add_argument("--binary", default=os.path.join(ROOT, "build", "linux", "chupathingy"))
     parser.add_argument("--maps", required=True, help="a folder of the stock Xbox maps")
     parser.add_argument("--map", default=DEFAULT_MAP)
     parser.add_argument("--ticks", type=int, default=DEFAULT_TICKS)

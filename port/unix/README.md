@@ -2,7 +2,7 @@
 
 `ninja freebsd64` builds the same game as the 64-bit Linux build
 (`ninja linux64`, [port/linux/README.md](../linux/README.md#64-bit)) as native
-x86-64 code on FreeBSD: `build/freebsd64/halo`. Releases and nightlies have
+x86-64 code on FreeBSD: `build/freebsd64/chupathingy`. Releases and nightlies have
 it as `chupathingyce-freebsd64-release.zip`, built by the Build workflow in a
 FreeBSD 15.1 virtual machine, and a release's build updates itself from the
 next release's FreeBSD zip (`updater.c`, "freebsd64"). A host whose builds the
@@ -52,13 +52,13 @@ FFmpeg's build with them.
 
 ### The released build
 
-Unzip `chupathingyce-freebsd64-release.zip` and add the maps next to `halo`.
+Unzip `chupathingyce-freebsd64-release.zip` and add the maps next to `chupathingy`.
 It is built on FreeBSD 15.1 and needs FreeBSD 15 or later (amd64), and the
 system's SDL3: `pkg install sdl3`. On FreeBSD 14, build it yourself (below).
 
 ### Start the game
 
-As on Linux (`build/freebsd64/halo`; the maps next to it, the saves in
+As on Linux (`build/freebsd64/chupathingy`; the maps next to it, the saves in
 `~/.local/share/chupathingyce`). The executable's own folder is found with
 `sysctl kern.proc.pathname`, not `/proc`, which FreeBSD does not mount by
 default.

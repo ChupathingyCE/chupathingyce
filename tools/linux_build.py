@@ -2,7 +2,7 @@
 
 It compiles the game sources with clang for 32-bit x86 Linux, adds the
 platform layer in ``port/linux/src``, and links an ELF executable at
-``build/linux/halo``. See port/linux/README.md for the design.
+``build/linux/chupathingy``. See port/linux/README.md for the design.
 """
 
 import json
@@ -19,6 +19,9 @@ from .ninja_syntax import Writer
 from .version import VERSION_SOURCES, identity_defines, release_build, version
 
 PORT_DIR = Path("port/linux")
+# the halo that starts chupathingy, beside it in the Linux and FreeBSD builds
+# (port/linux/src/rename_stub.h; TODO(after 0.9.x): remove)
+RENAME_STUB_SCRIPT = Path("port/rename_stub/halo.sh")
 PORT_CONFIG = PORT_DIR / "port.json"
 # the Xbox SDK declarations the game and the platform layer use, in place of
 # the SDK's headers (port/include/xdk/README.md)
@@ -732,7 +735,7 @@ def generate_linux_build(n: Writer, sln: Any) -> None:
     config = _load_port_config()
     build_dir: Path = sln.build_dir / "linux"
     obj_dir = build_dir / "obj"
-    output = build_dir / "halo"
+    output = build_dir / "chupathingy"
     cc = sln.linux_cc or "clang"
     prefix_header = PORT_DIR / "include" / "halo_linux_prefix.h"
     semantics_header = build_dir / "halo_msvc_semantics.h"
@@ -904,7 +907,7 @@ def generate_linux_build(n: Writer, sln: Any) -> None:
     # simply goes without, and deleting it trains a new one.
     profile = pgo_profile(sln, LINUX_PROFILE, [], cc)
     if pgo_mode(sln) == "train" and profile == LINUX_PROFILE:
-        instrumented = build_dir / "pgo-generate" / "halo"
+        instrumented = build_dir / "pgo-generate" / "chupathingy"
         emit(build_dir / "pgo-generate" / "obj", instrumented, ["-fprofile-generate"], ["-fprofile-generate"], [])
         n.build(
             outputs=profile,
@@ -923,5 +926,9 @@ def generate_linux_build(n: Writer, sln: Any) -> None:
     # internet play's MQTT brokers, a file beside the game (network.brokers_file)
     brokers = build_dir / "brokers.txt"
     n.build(outputs=brokers, rule="linux_copy", inputs=Path("port/assets/network/brokers.txt"))
-    n.build(outputs="linux", rule="phony", inputs=[output, brokers, validator, *sdl_outputs])
+    # halo, which starts chupathingy, for what started the game by its old
+    # name (port/linux/src/rename_stub.h; TODO(after 0.9.x): remove)
+    stub = build_dir / "halo"
+    n.build(outputs=stub, rule="linux_copy", inputs=RENAME_STUB_SCRIPT)
+    n.build(outputs="linux", rule="phony", inputs=[output, brokers, validator, stub, *sdl_outputs])
     n.newline()

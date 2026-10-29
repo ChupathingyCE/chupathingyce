@@ -6,7 +6,7 @@ Win32 file API for the Linux build, over POSIX descriptors.
 Xbox paths are translated below two roots. d:\ is the data root, the
 directory holding the game's maps/ folder: paths.data (port_config.c), else the current
 directory when it has maps/, else assets/ in the current directory or two
-levels above the executable (the repository root for build/linux/halo).
+levels above the executable (the repository root for build/linux/chupathingy).
 Every other drive letter X:\ is the subdirectory X/ of the save root (z:\ holds the persistent cache and saves,
 u:\ user data, t:\ title data): paths.saves, else the game's own folder
 (save_folder.c): $XDG_DATA_HOME/chupathingyce or ~/.local/share/chupathingyce,
@@ -116,13 +116,13 @@ const char *platform_data_root(void)
 			}
 			else if (length > 0)
 			{
-				/* <repository>/build/linux/halo -> <repository>/assets */
+				/* <repository>/build/linux/chupathingy -> <repository>/assets */
 				char *slash;
 				int level;
 
 				executable[length] = '\0';
 #ifdef __APPLE__
-				/* ... and <repository>/build/macos/ChupathingyCE.app/Contents/MacOS/halo:
+				/* ... and <repository>/build/macos/ChupathingyCE.app/Contents/MacOS/chupathingy:
 				the nearest assets folder up to five levels up */
 				for (level = 0; level < 6 && (slash = strrchr(executable, '/')); level++)
 				{

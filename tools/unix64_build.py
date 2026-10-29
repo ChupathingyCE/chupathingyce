@@ -30,7 +30,7 @@ from pathlib import Path
 from typing import Any, Callable, List, Optional
 
 from .embed_assets import hud_assets_build, hud_configure_inputs, ui_fonts_build
-from .linux_build import OPTIMISATION, ffmpeg_build, lto_flags, march_flag
+from .linux_build import OPTIMISATION, RENAME_STUB_SCRIPT, ffmpeg_build, lto_flags, march_flag
 from .lp64_build import (
     LINUX_PORT_CONFIG,
     Lp64Build,
@@ -181,7 +181,7 @@ def generate_unix64_build(n: Writer, sln: Any) -> None:
     config = load_json(LINUX_PORT_CONFIG)
     name = host.name
     build_dir: Path = sln.build_dir / name
-    output = build_dir / "halo"
+    output = build_dir / "chupathingy"
     cc = sln.linux_cc or "clang"
     target = host_target(host, cc)
     # SDL3 is the ports' (devel/sdl3), under /usr/local, which the compiler
@@ -270,5 +270,9 @@ def generate_unix64_build(n: Writer, sln: Any) -> None:
     # internet play's MQTT brokers, a file beside the game (network.brokers_file)
     brokers = build_dir / "brokers.txt"
     n.build(outputs=brokers, rule=f"{name}_copy", inputs=Path("port/assets/network/brokers.txt"))
-    n.build(outputs=name, rule="phony", inputs=[output, brokers])
+    # halo, which starts chupathingy (port/linux/src/rename_stub.h; TODO(after
+    # 0.9.x): remove)
+    stub = build_dir / "halo"
+    n.build(outputs=stub, rule=f"{name}_copy", inputs=RENAME_STUB_SCRIPT)
+    n.build(outputs=name, rule="phony", inputs=[output, brokers, stub])
     n.newline()

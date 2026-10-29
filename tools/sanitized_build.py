@@ -35,7 +35,7 @@ SANITIZE = ["-fsanitize=address,undefined", "-fno-sanitize=alignment,float-cast-
 
 def commands(build):
     """the build's compile commands and its link command, as ninja runs them"""
-    target = f"build/{build}/halo"
+    target = f"build/{build}/chupathingy"
     lines = subprocess.run(["ninja", "-t", "commands", target], cwd=ROOT, check=True, capture_output=True,
                            text=True).stdout.splitlines()
     compiles = [shlex.split(line) for line in lines if " -c " in line and not line.startswith(("python", '"'))
@@ -71,7 +71,7 @@ def main():
     parser.add_argument("--clean", action="store_true", help="compile every unit again")
     options = parser.parse_args()
 
-    subprocess.run(["ninja", f"build/{options.build}/halo"], cwd=ROOT, check=True)
+    subprocess.run(["ninja", f"build/{options.build}/chupathingy"], cwd=ROOT, check=True)
     output_dir = Path(f"build/{options.build}-asan")
     compiles, link = commands(options.build)
     objects = []
@@ -101,7 +101,7 @@ def main():
     for word in link:
         if word.startswith("@"):
             # (the response file's: the target's explicit inputs)
-            query = subprocess.run(["ninja", "-t", "query", f"build/{options.build}/halo"], cwd=ROOT, check=True,
+            query = subprocess.run(["ninja", "-t", "query", f"build/{options.build}/chupathingy"], cwd=ROOT, check=True,
                                    capture_output=True, text=True).stdout.splitlines()
             listed = []
             for line in query[2:]:
@@ -117,12 +117,12 @@ def main():
         elif word.startswith("-flto") or word.startswith("-fprofile") or word.startswith("-Wl,-cache_path") or \
                 word.startswith("-Wl,--thinlto"):
             continue
-        elif word == f"build/{options.build}/halo":
-            words.append(str(output_dir / "halo"))
+        elif word == f"build/{options.build}/chupathingy":
+            words.append(str(output_dir / "chupathingy"))
         else:
             words.append(word)
     subprocess.run([*words, "-fsanitize=address,undefined"], cwd=ROOT, check=True)
-    print(output_dir / "halo")
+    print(output_dir / "chupathingy")
 
 
 if __name__ == "__main__":

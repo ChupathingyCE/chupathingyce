@@ -19,7 +19,7 @@ too), need a display, play silently and take about fifteen minutes. On
 Windows, started from a session without a desktop (over ssh), each run is a
 scheduled task in the session of the logged-in user.
 
-Usage: pgo_train.py --binary build/linux/pgo-generate/halo --work build/pgo/linux
+Usage: pgo_train.py --binary build/linux/pgo-generate/chupathingy --work build/pgo/linux
                     --output pgo/halo_linux.profdata
 """
 
