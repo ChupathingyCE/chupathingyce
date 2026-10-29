@@ -511,5 +511,8 @@ pointers, sees the declarations without these aliases */
 
 /* returns FALSE (and logs) if a required function is missing */
 int gl_functions_load(void);
+/* an entry point of a console's GL layer that is not OpenGL's, by name
+(d3d8_gl.c's console_gl_draw_again); NULL where there is none */
+void *gl_function_extra(const char *name);
 
 #endif

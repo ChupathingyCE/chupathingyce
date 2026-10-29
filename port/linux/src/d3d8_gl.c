@@ -688,6 +688,37 @@ struct gl_device
 
 static struct gl_device device;
 
+#ifdef HALO_CONSOLE_GL_LAYER
+/* A console's visibility test runs (console.visibility_test_runs). The lens
+flares' occlusion tests come one after another, with nothing between them
+but each test's quad (rasterizer_lens_flares_submit_occlusion_tests, which
+brackets them with d3d8_gl_visibility_tests_begin and _end), so every test
+has the first one's program, state and targets. The first test is drawn as
+any draw is; each one after it puts its vertices in the stream buffer right
+after the one before, and the console's GL layer draws them with the state
+it already has (console_gl_draw_again: its program, state and vertex
+streams as the previous draw left them, the vertices from `first`). That
+leaves each later test a query and a draw call, where a full draw costs the
+360 about 25 us. A layer without the entry point draws every test in full. */
+static struct
+{
+	void (*draw_again)(GLenum mode, GLint first, GLsizei count);
+	/* the setting, and the layer has the entry point */
+	BOOL enabled;
+	/* between d3d8_gl_visibility_tests_begin and _end */
+	BOOL bracketed;
+	/* a test was drawn in full in this bracket: what the later ones keep */
+	BOOL open;
+	unsigned long base_offset;
+	unsigned long next_offset;
+	struct vertex_shader_object *vertex_shader;
+	D3DSurface *render_target;
+	D3DSurface *depth_stencil;
+	unsigned long long constants_serial;
+	D3DPRIMITIVETYPE type;
+} visibility_run;
+#endif
+
 /* debug.gpu_stats prints these once a second */
 static struct
 {
@@ -1824,6 +1855,12 @@ static void gl_initialize(void)
 	debug_settings.dump_shaders = *config_string("debug.gpu_dump_shaders") ?
 		config_string("debug.gpu_dump_shaders") : NULL;
 	debug_settings.statistics = config_boolean("debug.gpu_stats");
+#ifdef HALO_CONSOLE_GL_LAYER
+	visibility_run.draw_again = (void (*)(GLenum, GLint, GLsizei))gl_function_extra("console_gl_draw_again");
+	visibility_run.enabled = visibility_run.draw_again && config_boolean("console.visibility_test_runs");
+	platform_log("GPU: visibility test runs %s", visibility_run.enabled ? "on" :
+		visibility_run.draw_again ? "off (console.visibility_test_runs)" : "off (the GL layer has none)");
+#endif
 	{
 		GLint renderbuffer_size = 0;
 
@@ -3803,6 +3840,11 @@ static struct program_entry *prepare_draw(BOOL immediate)
 	BOOL has_depth = FALSE;
 	int stage;
 
+#ifdef HALO_CONSOLE_GL_LAYER
+	/* (any draw in full ends a visibility test run: its state is what the
+	run's draws keep; D3DDevice_End starts one again after a test's) */
+	visibility_run.open = FALSE;
+#endif
 	if (!device.gl_ready || !program || !device.vertex_shader || !program->instructions)
 	{
 		stats.skipped_no_program++;
@@ -4923,6 +4965,59 @@ static void immediate_emit(void)
 	device.immediate_count++;
 }
 
+#ifdef HALO_CONSOLE_GL_LAYER
+/* the lens flares' occlusion tests begin and end (rasterizer_lights.c):
+nothing but the tests comes between, so a run of them can keep the first
+one's state (visibility_run) */
+void d3d8_gl_visibility_tests_begin(void)
+{
+	visibility_run.bracketed = visibility_run.enabled;
+	visibility_run.open = FALSE;
+}
+
+void d3d8_gl_visibility_tests_end(void)
+{
+	visibility_run.bracketed = FALSE;
+	visibility_run.open = FALSE;
+}
+
+/* a test after the run's first: its vertices after the last test's in the
+stream buffer, drawn by the GL layer with the state it has; FALSE to draw
+it in full (and end the run) */
+static BOOL visibility_run_draw(D3DPRIMITIVETYPE type, unsigned long count, unsigned long stride)
+{
+	unsigned long size = count * stride, offset;
+
+	if (!visibility_run.open)
+		return FALSE;
+	/* (the same kind of test, under the same shader, constants and
+	targets; its vertices where the last test's ended, in the same buffer:
+	stream_reserve would orphan it at its end) */
+	if (!visibility_run.bracketed || !device.visibility_test_active || type != visibility_run.type ||
+		device.vertex_shader != visibility_run.vertex_shader || device.render_target != visibility_run.render_target ||
+		device.depth_stencil != visibility_run.depth_stencil || constants_serial != visibility_run.constants_serial ||
+		device.stream_offset != visibility_run.next_offset || ((size + 15) & ~15UL) != size ||
+		device.stream_offset + size > STREAM_BUFFER_SIZE)
+	{
+		visibility_run.open = FALSE;
+		return FALSE;
+	}
+	trace_draw("immediate", type, count, device.immediate_vertices);
+	offset = stream_upload(device.immediate_vertices, size);
+	if (offset < visibility_run.base_offset || (offset - visibility_run.base_offset) % stride)
+	{
+		/* (not expected: drawn from where it is, in full) */
+		visibility_run.open = FALSE;
+		return FALSE;
+	}
+	visibility_run.next_offset = device.stream_offset;
+	stats.immediate_draws++;
+	visibility_run.draw_again(primitive_mode(type), (GLint)((offset - visibility_run.base_offset) / stride),
+		(GLsizei)count);
+	return TRUE;
+}
+#endif
+
 void WINAPI D3DDevice_End(void)
 {
 	unsigned long stride = XGPU_VERTEX_ATTRIBUTE_COUNT * 4 * sizeof(float);
@@ -4937,10 +5032,29 @@ void WINAPI D3DDevice_End(void)
 		return;
 	}
 #endif
+#ifdef HALO_CONSOLE_GL_LAYER
+	if (count && visibility_run_draw(type, count, stride))
+		return;
+#endif
 	if (!count || !prepare_draw(TRUE))
 		return;
 	trace_draw("immediate", type, count, device.immediate_vertices);
 	offset = stream_upload(device.immediate_vertices, count * stride);
+#ifdef HALO_CONSOLE_GL_LAYER
+	if (visibility_run.bracketed && device.visibility_test_active && type != D3DPT_QUADLIST)
+	{
+		/* this test's state, vertex array and binding stay for the run's
+		later tests */
+		visibility_run.open = TRUE;
+		visibility_run.base_offset = offset;
+		visibility_run.next_offset = device.stream_offset;
+		visibility_run.vertex_shader = device.vertex_shader;
+		visibility_run.render_target = device.render_target;
+		visibility_run.depth_stencil = device.depth_stencil;
+		visibility_run.constants_serial = constants_serial;
+		visibility_run.type = type;
+	}
+#endif
 #if defined(HALO_ANDROID) || defined(__APPLE__)
 	for (index = 0; index < XGPU_VERTEX_ATTRIBUTE_COUNT; index++)
 	{
