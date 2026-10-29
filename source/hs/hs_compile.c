@@ -1526,6 +1526,26 @@ static boolean hs_parse_enum(
 		}
 	}
 
+#ifdef HALO_CUSTOM_EDITION
+	/* port: Stubbs the Zombie's teams by its own names, as the same
+	indices (Stubbs mode only: port/linux/game/stubbs_mode.c) */
+	if (value_index == enum_definition->count && expression->type == _hs_type_enum_team && stubbs_mode_active())
+	{
+		static char const *const stubbs_teams[] =
+		{
+			"default", "player", "civilian", "cop", "militia", "robot", "zombie", "security", "army", "possessed",
+		};
+
+		for (value_index = 0; value_index < (short)NUMBEROF(stubbs_teams) && value_index < enum_definition->count;
+			value_index++)
+		{
+			if (!_stricmp(hs_compile_globals.compiled_source + expression->source_offset, stubbs_teams[value_index]))
+				break;
+		}
+		if (value_index >= (short)NUMBEROF(stubbs_teams))
+			value_index = enum_definition->count;
+	}
+#endif
 	if (value_index == enum_definition->count)
 	{
 		sprintf(
@@ -2637,6 +2657,8 @@ static boolean hs_compile_postprocess_drop_failed(
 
 /* (hs.c's function table's count) */
 extern long const hs_function_table_count;
+/* port: Halo's functions and Stubbs mode's (hs.c) */
+long hs_function_count(void);
 
 /* port: the argument nodes of a function call node, after its name: the
 first, and the one after `node` */
@@ -2666,7 +2688,7 @@ static boolean hs_postprocess_passthrough_arguments(
 		expression->data == NONE ||
 		!(predicate = datum_try_and_get(hs_syntax_data, expression->data)) ||
 		expression->function_index < 0 ||
-		expression->function_index >= hs_function_table_count ||
+		expression->function_index >= hs_function_count() ||
 		(function = hs_function_get(expression->function_index))->return_type != _hs_passthrough)
 	{
 		return TRUE;
@@ -2729,6 +2751,61 @@ static boolean hs_postprocess_passthrough_arguments(
 	}
 }
 
+#ifdef HALO_CUSTOM_EDITION
+/* port: Stubbs the Zombie's value types have two more than Halo's: image_effect
+after object_definition and disguise_type after hud_corner (the order of
+Stubbs's own type names). Its maps' nodes, scripts and globals are numbered
+so; here they are renumbered as Halo's, those two read as strings (Stubbs
+mode's functions take them so: port/linux/game/stubbs_functions.c) */
+static short hs_stubbs_type_to_halo(
+	short type)
+{
+	if (type <= _hs_type_object_definition)
+		return type;
+	if (type == _hs_type_object_definition + 1)
+		return _hs_type_string;
+	if (type <= _hs_type_enum_hud_corner + 1)
+		return type - 1;
+	if (type == _hs_type_enum_hud_corner + 2)
+		return _hs_type_string;
+	return type - 2 <= _hs_type_scenery_name ? type - 2 : _hs_type_void;
+}
+
+static void hs_stubbs_types_to_halo(
+	void)
+{
+	struct scenario *scenario = global_scenario_get();
+	long expression_index;
+	long nodes = 0;
+	short index;
+
+	for (expression_index = data_next_index(hs_syntax_data, NONE);
+		expression_index != NONE;
+		expression_index = data_next_index(hs_syntax_data, expression_index))
+	{
+		struct hs_syntax_node *expression = hs_syntax_get(expression_index);
+
+		expression->type = hs_stubbs_type_to_halo(expression->type);
+		if (TEST_FLAG(expression->flags, _hs_syntax_node_primitive_bit))
+			expression->constant_type = hs_stubbs_type_to_halo(expression->constant_type);
+		nodes++;
+	}
+	for (index = 0; index < scenario->hs_scripts.count; index++)
+	{
+		struct hs_script *script = TAG_BLOCK_GET_ELEMENT(&scenario->hs_scripts, index, struct hs_script);
+
+		script->return_type = hs_stubbs_type_to_halo(script->return_type);
+	}
+	for (index = 0; index < scenario->hs_globals.count; index++)
+	{
+		struct hs_global *global = TAG_BLOCK_GET_ELEMENT(&scenario->hs_globals, index, struct hs_global);
+
+		global->type = hs_stubbs_type_to_halo(global->type);
+	}
+	error(_error_silent, "stubbs mode: %ld script nodes' types renumbered as Halo's", nodes);
+}
+#endif
+
 boolean hs_compile_postprocess(
 	char const **error_message_pointer,
 	char const **error_source_pointer)
@@ -2741,6 +2818,11 @@ boolean hs_compile_postprocess(
 	/* (and Stubbs the Zombie's, in Stubbs mode: port/linux/game/stubbs_mode.c) */
 	boolean drop_failed = cache_file_tags_are_ce() || stubbs_mode_active();
 	long failed_count = 0;
+
+	/* port: Stubbs the Zombie's value types in Halo's numbering, in Stubbs
+	mode only (port/linux/game/stubbs_mode.c) */
+	if (stubbs_mode_active())
+		hs_stubbs_types_to_halo();
 #endif
 
 	hs_compile_globals.compiled_source = xbox_pointer(global_scenario_get()->hs_string_constants.address);

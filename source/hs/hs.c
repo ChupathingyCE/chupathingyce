@@ -12140,6 +12140,16 @@ long const hs_function_table_count= 418 + 3 + 24;
 long const hs_function_table_count= 418;
 #endif
 
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+/* port: Stubbs the Zombie's functions, a table of their own after Halo's
+(Stubbs mode only: port/linux/game/stubbs_functions.c) */
+#include "stubbs_mode.h"
+#define HS_FUNCTION_COUNT() (hs_function_table_count + stubbs_function_count())
+#else
+#define HS_FUNCTION_COUNT() hs_function_table_count
+#endif
+
+
 struct hs_enum_definition const hs_enum_table[]=
 {
 	{ 4, 0, global_game_difficulty_level_names },
@@ -13531,11 +13541,16 @@ static short hs_syntax_node_refusal(
 		return _hs_node_refusal_none;
 
 	function_index = expression->function_index;
-	if (function_index<0 || function_index>=(short)NUMBEROF(hs_function_allowed_in_maps))
+	if (function_index<0 || (function_index>=(short)NUMBEROF(hs_function_allowed_in_maps) &&
+		function_index>=(short)HS_FUNCTION_COUNT()))
+	{
 		return _hs_node_refusal_damaged;
+	}
 	function = hs_function_get(function_index);
 	*name = function->name;
-	if (!hs_function_allowed_in_maps[function_index] &&
+	/* (Stubbs mode's functions, past Halo's, a map may call) */
+	if (function_index<(short)NUMBEROF(hs_function_allowed_in_maps) &&
+		!hs_function_allowed_in_maps[function_index] &&
 		!(hs_scenario_pack_menus && !csstrcmp(function->name, "map_name")))
 	{
 		return _hs_node_refusal_function;
@@ -14368,14 +14383,25 @@ void hs_recompile(
 	return;
 }
 
+/* port: the functions there are now (Halo's, and Stubbs mode's after them) */
+long hs_function_count(
+	void)
+{
+	return HS_FUNCTION_COUNT();
+}
+
 struct hs_function_definition *hs_function_get(
 	short function_index)
 {
 	match_assert(
 		"c:\\halo\\SOURCE\\hs\\hs.c",
 		522,
-		function_index>=0 && function_index<hs_function_table_count);
+		function_index>=0 && function_index<HS_FUNCTION_COUNT());
 
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+	if (function_index>=hs_function_table_count)
+		return stubbs_function_get(function_index - hs_function_table_count);
+#endif
 	return hs_function_table.functions[function_index];
 }
 
@@ -14506,6 +14532,16 @@ short hs_find_function_by_name(
 {
 	short function_index;
 
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+	/* (Stubbs mode's first: some take other arguments than Halo's of their
+	name, as camera_control) */
+	{
+		long stubbs_index = stubbs_function_find(name);
+
+		if (stubbs_index != NONE)
+			return (short)(hs_function_table_count + stubbs_index);
+	}
+#endif
 	for (function_index = 0; function_index<hs_function_table_count; function_index++)
 	{
 		if (_stricmp(hs_function_table.functions[function_index]->name, name) == 0)

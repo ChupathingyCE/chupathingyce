@@ -25,6 +25,7 @@ packs never take these paths.
 #include "tag_schema.h"
 #include "structures/structure_bsp_definitions.h"
 #include "physics/collision_model_definitions.h"
+#include "scenario/scenario_definitions.h"
 #include "stubbs_mode.h"
 
 #include <stdarg.h>
@@ -371,6 +372,23 @@ static struct stubbs_element_layout const stubbs_collision_material = { 0x48, 0x
 static struct stubbs_element_layout const stubbs_collision_region = { 0x54, 0xE0, stubbs_collision_region_copies, 4 };
 static struct stubbs_element_layout const stubbs_collision_permutation = { 0x20, 0x80, stubbs_collision_permutation_copies, 1 };
 
+/* a scenario's cutscene titles: Stubbs's are 0x104 bytes, Halo's 0x60, the
+same through the fade times (0x50), Stubbs adding a bitmap and more (found
+in the map data: the elements' names are 0x104 apart) */
+static struct stubbs_copy const stubbs_cutscene_title_copies[] =
+{
+	{ 0x00, 0x00, 0x50 },
+};
+static struct stubbs_element_layout const stubbs_cutscene_title = { 0x60, 0x104, stubbs_cutscene_title_copies, 1 };
+
+static void stubbs_scenario_convert(unsigned char *scenario)
+{
+	unsigned long count;
+
+	stubbs_block_repack(scenario + offsetof(struct scenario, cutscene_chapter_titles), &stubbs_cutscene_title, &count);
+	stubbs_mode_log("%lu cutscene titles rewritten in Halo's layout", count);
+}
+
 static void stubbs_collision_convert(unsigned char *model)
 {
 	unsigned char *regions;
@@ -426,6 +444,14 @@ void stubbs_mode_convert_tags(
 
 		memcpy(&group, instance, 4);
 		memcpy(&address, instance + 0x14, 4);
+		if (group == 'scnr')
+		{
+			unsigned char *scenario = stubbs_host(base, tag_data_size, address, sizeof(struct scenario));
+
+			if (scenario)
+				stubbs_scenario_convert(scenario);
+			continue;
+		}
 		if (group == 'snd!')
 		{
 			unsigned char *sound = stubbs_host(base, tag_data_size, address, 8);

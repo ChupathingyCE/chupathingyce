@@ -38,4 +38,11 @@ boolean stubbs_mode_owns_data(void const *address, long size);
 rewritten where Halo's differs, before its schema check */
 void stubbs_mode_convert_structure_bsp(void *bsp_base, unsigned long size);
 
+/* Stubbs's script functions (stubbs_functions.c): how many there are (none
+outside Stubbs mode), one by its index among them, and a name's index (NONE) */
+struct hs_function_definition;
+long stubbs_function_count(void);
+struct hs_function_definition *stubbs_function_get(long index);
+long stubbs_function_find(char const *name);
+
 #endif
