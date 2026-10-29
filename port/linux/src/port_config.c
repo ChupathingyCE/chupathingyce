@@ -125,6 +125,17 @@ Elsewhere 512 keeps the latency low. */
 #define DEFAULT_AUDIO_BUFFER_FRAMES "512"
 #endif
 
+/* Headphone 3D (dsound_sdl.c's binaural rendering), on as the original Xbox
+had it: its DirectSound filtered every 3D voice through its HRTFs, on TV
+stereo too (DirectSoundUseFullHRTF). Surround output ignores it. A
+console's build keeps it off: the original Xbox has its own hardware path,
+and the others have not been tried with it. */
+#ifdef HALO_CONSOLE
+#define DEFAULT_AUDIO_HRTF "\"off\""
+#else
+#define DEFAULT_AUDIO_HRTF "\"on\""
+#endif
+
 /* The 3D view's anti-aliasing and the objects' shadow maps: the sharpest
 picture the builds' computers draw comfortably, with the look kept
 (multisampling smooths only the edges of what is drawn; a larger shadow map
@@ -532,9 +543,11 @@ static const struct config_setting config_settings[] =
 	{ "audio.doppler", _config_boolean, "true", "HALO_AUDIO_DOPPLER", _environment_value, _platform_all,
 		"Shift the pitch of moving sounds (a Warthog or a projectile going past),\n"
 		"as the Xbox did; false keeps them at their pitch." },
-	{ "audio.hrtf", _config_string, "\"off\"", "HALO_AUDIO_HRTF", _environment_value, _platform_all,
-		"Binaural 3D sound for headphones (HRTF): \"off\", \"on\", or \"auto\" for\n"
-		"on when the output's name says it is headphones. Stereo output only." },
+	{ "audio.hrtf", _config_string, DEFAULT_AUDIO_HRTF, "HALO_AUDIO_HRTF", _environment_value, _platform_all,
+		"Headphone 3D (HRTF): 3D sound as the Xbox made it, on headphones or TV\n"
+		"stereo. \"on\", \"off\" (turn it off if it sounds odd on your speakers),\n"
+		"or \"auto\" for on when the output's name says it is headphones.\n"
+		"Stereo output only." },
 
 	{ "audio.reverb", _config_boolean, "true", "HALO_REVERB", _environment_value, _platform_all,
 		"Echo sounds to match the place you are in." },
@@ -1372,9 +1385,9 @@ version changed) */
 #define CONFIG_VERSION 2
 /* the defaults the game has asked about (game.defaults_answered): 1, the
 ones of v0.8.0; 2, network.tunnel_port's 2302 (v0.8.1b); 3, a game you host
-starting alone (game.start_with_one_player). A file answered for an earlier
-generation is asked about the later ones only */
-#define CONFIG_DEFAULTS_GENERATION 3
+starting alone (game.start_with_one_player); 4, Headphone 3D on. A file
+answered for an earlier generation is asked about the later ones only */
+#define CONFIG_DEFAULTS_GENERATION 4
 #define CONFIG_VERSION_LINE "config_version = 2\n"
 #define CONFIG_VERSION_LINES "# The layout of this file, for the game: leave it.\n" CONFIG_VERSION_LINE
 #define CONFIG_VERSION_TEXT "\n" CONFIG_VERSION_LINES
@@ -1913,6 +1926,11 @@ static const struct
 	/* a game you host waited for a second player, until it started alone by
 	default (a file that names false keeps waiting) */
 	{ "game.start_with_one_player", "false", 0, "Start a game you host alone, without waiting for a second player", 3 },
+#ifndef HALO_CONSOLE
+	/* the stereo pan, the default until Headphone 3D matched the Xbox (a
+	file that names "off" keeps it) */
+	{ "audio.hrtf", "\"off\"", 0, "Headphone 3D on, as the original Xbox did", 4 },
+#endif
 };
 
 #define NUMBER_OF_CONFIG_OLD_DEFAULTS (sizeof(config_old_defaults) / sizeof(config_old_defaults[0]))
@@ -2189,8 +2207,11 @@ from this layout and "key = value" from the older version, and the value
 pins the older version's default. Such a value that is a default, this
 version's or an older one, is taken out with its comment, so that the
 setting follows this version's default again; a value that is no default
-stays, being the player's. Returns the new text, or NULL if there was none */
-static char *config_drop_added_defaults(const char *text, toml_datum_t table)
+stays, being the player's. With asked, only the settings asked about (and
+values at this version's default): one at an older default that the player
+kept in an earlier question stays. Returns the new text, or NULL if there
+was none */
+static char *config_drop_added_defaults(const char *text, toml_datum_t table, const int *asked)
 {
 	toml_datum_t version = toml_seek(table, "config_version");
 	int lines[NUMBER_OF_CONFIG_SETTINGS];
@@ -2208,6 +2229,7 @@ static char *config_drop_added_defaults(const char *text, toml_datum_t table)
 
 		lines[index] = 0;
 		if (datum.type != TOML_UNKNOWN && config_datum_is_a_default(datum, setting) &&
+			(!asked || asked[index] || config_datum_is(datum, setting->type, setting->default_value)) &&
 			config_text_has_commented_key(text, setting->name))
 		{
 			lines[index] = datum.lineno;
@@ -3413,7 +3435,7 @@ void config_new_defaults_answer(int use_new)
 			which pinned the old defaults, taken out; the commented lines
 			at the old defaults written at the new ones) */
 			if (result.ok)
-				changed = config_drop_added_defaults(text, result.toptab);
+				changed = config_drop_added_defaults(text, result.toptab, pending);
 			toml_free(result);
 			for (index = 0; index < NUMBER_OF_CONFIG_SETTINGS; index++)
 			{
