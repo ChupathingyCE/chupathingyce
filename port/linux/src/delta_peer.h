@@ -229,6 +229,16 @@ struct delta_peer_team_host
 	int (*request)(void *context, int machine_index, int player, int team, int *team_now, int *seconds);
 };
 
+/* the client's object sync (docs/delta.md, Object sync): what its host's
+UNIT_VITALS and OBJECT_NAMES said, each as it comes (both agreed to
+object_sync; read and checked for their shape, not what they name) */
+struct delta_peer_objects_client
+{
+	void *context;
+	void (*vitals)(void *context, const struct delta_wire_unit_vitals *vitals);
+	void (*names)(void *context, const struct delta_wire_object_names *names);
+};
+
 /* the host's chat with a client's session */
 struct delta_peer_host_chat
 {
@@ -531,6 +541,10 @@ struct delta_peer
 	delta_u32 team_results;
 	struct delta_wire_team_result team_result;
 
+	/* object sync: the client's (NULL: none, and what the host says of its
+	objects is dropped) */
+	const struct delta_peer_objects_client *objects_client;
+
 	/* counted for the tests and the log */
 	unsigned long dropped;
 };
@@ -686,6 +700,23 @@ delta_u32 delta_peer_client_team_request(struct delta_peer *peer, int player, in
 last in result */
 delta_u32 delta_peer_client_team_result(const struct delta_peer *peer, struct delta_wire_team_result *result);
 
+/* ---------- object sync (docs/delta.md, Object sync)
+
+The host's game says what the game's own messages leave out of its objects:
+units' shield and health (UNIT_VITALS) and objects' scenario names
+(OBJECT_NAMES), to every client that agreed to object_sync. */
+
+/* (host) the clients that agreed to object_sync now */
+int delta_peer_objects_clients(const struct delta_peer *peer);
+/* (host) to each of them (machine_index -1), or to one: how many it went
+to */
+int delta_peer_send_unit_vitals(struct delta_peer *peer, int machine_index, const struct delta_wire_unit_vitals *vitals);
+int delta_peer_send_object_names(struct delta_peer *peer, int machine_index, const struct delta_wire_object_names *names);
+/* (client) whether the host agreed to object_sync */
+int delta_peer_client_objects_ready(const struct delta_peer *peer);
+/* (client) where what the host says goes (NULL: nowhere, dropped) */
+void delta_peer_set_objects_client(struct delta_peer *peer, const struct delta_peer_objects_client *client);
+
 /* what is known of a machine (0 if nothing) */
 int delta_peer_machine(const struct delta_peer *peer, int machine_index, struct delta_peer_machine *machine);
 /* whether every machine of the game has the capability now (room-wide
@@ -735,6 +766,10 @@ with the flag 0x04 already in the flags and a game engine (engine, its stock
 index) other than DELTA_ADVERTISED_KIND_ENGINE, the old layout's major and
 slot for released clients (docs/delta.md, "The transition") */
 void delta_peer_advertised_wire(unsigned char *reserved, int size, int engine);
+/* whether this host's advertisement has had the old layout: then a released
+client from before the tag may say HELLO with an older network version
+(DELTA_TAG_OLDEST_LEGACY, delta.h) */
+int delta_peer_advertised_old_layout(void);
 /* whether a host's advertisement (its reserved bytes) says it speaks Delta
 Peer, so that this client says HELLO (delta_compat_speaks_delta); 0 on the
 legacy protocol */
@@ -819,6 +854,16 @@ void delta_peer_game_set_team_host(const struct delta_peer_team_host *host);
 int delta_peer_game_team_ready(void);
 unsigned int delta_peer_game_team_request(int player, int team);
 unsigned int delta_peer_game_team_result(struct delta_wire_team_result *result);
+
+/* object sync (port/linux/game/network_objects.c): the host's, the clients
+that agreed to it and what goes to them; the client's, where what its host
+says goes */
+int delta_peer_game_objects_clients(void);
+int delta_peer_game_send_unit_vitals(int machine_index, const struct delta_wire_unit_vitals *vitals);
+/* (client) whether the host agreed to object_sync */
+int delta_peer_game_objects_ready(void);
+int delta_peer_game_send_object_names(int machine_index, const struct delta_wire_object_names *names);
+void delta_peer_game_set_objects_client(const struct delta_peer_objects_client *client);
 
 /* ---------- what Delta List says of a hosted game (browser.c's
 announcement; docs/delta.md, Delta List) */

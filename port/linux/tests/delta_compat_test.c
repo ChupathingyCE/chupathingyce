@@ -628,8 +628,67 @@ static void test_both_layouts(void)
 	CHECK(decide(reserved, "chupa-32a") == 1 && decide(reserved, DELTA_WIRE) == 1);
 }
 
+/* the join mark: past the name's end, cleared by the host; a name too long
+for it, or OpenCE's (no mark), is no marked one */
+static void test_join_mark(void)
+{
+	unsigned short name[32];
+	unsigned short copy[32];
+	int index;
+	struct
+	{
+		const char *wire;
+		int number;
+	} const rows[] = {
+#define TEST_ROW(row_wire, row_number) { row_wire, row_number },
+		DELTA_WIRE_LEGACY_NEWEST(TEST_ROW)
+#undef TEST_ROW
+	};
+
+	memset(name, 0, sizeof(name));
+	name[0] = 'S';
+	name[1] = 'h';
+	CHECK(delta_compat_join_mark(name, 32) && name[2] == 0 && name[29] == DELTA_COMPAT_JOIN_MARK_FIRST &&
+		name[30] == DELTA_COMPAT_JOIN_MARK_SECOND && name[31] == 0);
+	memcpy(copy, name, sizeof(copy));
+	CHECK(delta_compat_join_marked(copy, 32));
+	for (index = 2; index < 32; index++)
+		CHECK(copy[index] == 0);
+	CHECK(copy[0] == 'S' && copy[1] == 'h');
+	/* (an unmarked name, and one of 28 characters, the longest marked) */
+	memset(name, 0, sizeof(name));
+	name[0] = 'S';
+	CHECK(!delta_compat_join_marked(name, 32));
+	for (index = 0; index < 28; index++)
+		name[index] = 'a';
+	CHECK(delta_compat_join_mark(name, 32) && delta_compat_join_marked(name, 32) && name[27] == 'a');
+	/* (29 characters: no room) */
+	memset(name, 0, sizeof(name));
+	for (index = 0; index < 29; index++)
+		name[index] = 'a';
+	CHECK(!delta_compat_join_mark(name, 32) && !delta_compat_join_marked(name, 32));
+	/* (a name with no end: left as it is) */
+	for (index = 0; index < 32; index++)
+		name[index] = 'b';
+	CHECK(!delta_compat_join_marked(name, 32) && name[31] == 'b');
+	/* (the mark's characters inside a name are no mark, and are kept) */
+	memset(name, 0, sizeof(name));
+	name[0] = DELTA_COMPAT_JOIN_MARK_FIRST;
+	name[1] = DELTA_COMPAT_JOIN_MARK_SECOND;
+	CHECK(!delta_compat_join_marked(name, 32) && name[0] == DELTA_COMPAT_JOIN_MARK_FIRST);
+	CHECK(!delta_compat_join_mark(name, 3) && !delta_compat_join_marked(NULL, 32));
+
+	/* the oldest version a tag reader says is the first tagged wire's */
+	for (index = 0; index < (int)(sizeof(rows) / sizeof(rows[0])); index++)
+	{
+		if (!strcmp(rows[index].wire, "chupa-39a"))
+			CHECK(rows[index].number == DELTA_TAG_OLDEST_LEGACY);
+	}
+}
+
 int main(void)
 {
+	test_join_mark();
 	test_ids();
 	test_table();
 	test_advertisement();

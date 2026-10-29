@@ -53,8 +53,14 @@ The rows open the pages of settings_pages.xml. -->
 		<on event="start" open="chupathingy/settings/network_setup_screen"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 	</widget>
-	<!-- (the Xbox's SAVE CHANGES, under its line) -->
-	<widget name="chupathingy/settings/save_item" type="text" left="51" top="370" width="232" height="32" bitmap="bitmaps/list_item_bkd" string_list="main_menu/settings_select/player_setup/player_profile_edit/profile_edit_options" string_index="7" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="5">
+	<!-- (the Xbox's SAVE CHANGES, under its line: its frame's bottom on the
+	box's, which its line runs on into, as the top row's frame's top meets the
+	box's top) -->
+	<bitmap name="chupathingy/settings/list_item_bkd_bottom">
+		<frame png="chupathingy/settings/list_item_bkd_bottom__0.png" width="256" height="32"/>
+		<frame png="chupathingy/settings/list_item_bkd_bottom__1.png" width="256" height="32"/>
+	</bitmap>
+	<widget name="chupathingy/settings/save_item" type="text" left="51" top="368" width="232" height="32" bitmap="chupathingy/settings/list_item_bkd_bottom" string_list="main_menu/settings_select/player_setup/player_profile_edit/profile_edit_options" string_index="7" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="5">
 		<on event="a" run="player profile save changes" open="error/warning_saving_file_screen"/>
 		<on event="start" run="player profile save changes" open="error/warning_saving_file_screen"/>
 		<on event="left_mouse" run="mouse emit accept event"/>

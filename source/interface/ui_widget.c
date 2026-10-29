@@ -697,7 +697,8 @@ void browser_screen_open(void);
 boolean browser_screen_open_map_offer(void);
 void browser_screen_process(void);
 void browser_screen_render(void);
-/* port: moderation on a dedicated server (port/linux/game/moderation_screen.c) */
+/* port: moderation on a dedicated server, and the host's own kick and ban
+(port/linux/game/moderation_screen.c) */
 boolean moderation_screen_active(void);
 void moderation_screen_update(boolean menu_open);
 void moderation_screen_process(void);
@@ -5371,10 +5372,15 @@ void main_screen_shell_load(
 	if (main_screen_shell_first_load == TRUE)
 	{
 		char const *command_line = shell_get_command_line();
+		int config_boolean(char const *name);
 
 		if (command_line && _stricmp(command_line, "xdemo") == 0)
 		{
 			error(_error_silent, "xbox command line= '%s'", command_line);
+		}
+		else if (config_boolean("display.skip_intro"))
+		{
+			load_main_menu = TRUE;
 		}
 		else
 		{
@@ -7385,6 +7391,24 @@ static void ui_debug_log_targets(
 	return;
 }
 
+/* port: where in the menus' 640 columns the last click that pressed a
+row's A was, and in which frame (ui_widget_port_item_click_x) */
+static short ui_mouse_item_click_x;
+static long ui_mouse_item_click_frame = -16;
+
+/* port: the column of the click whose A a row's handler runs now (the
+Controls Setup key rows' two bindings: menu_functions.c), else NONE; the
+press is posted the frame the click is taken and handled at most a frame or
+two after, and a press of A from anything else is not a click's */
+short ui_widget_port_item_click_x(
+	void)
+{
+	short x = ui_debug_frame - ui_mouse_item_click_frame <= 2 ? ui_mouse_item_click_x : NONE;
+
+	ui_mouse_item_click_frame = -16;
+	return x;
+}
+
 /* port: a press the menus post from their updates (menu_functions.c: the
 server browser's join, once its game is reached), posted where the mouse's
 are: one posted while the widgets update or draw would be overwritten by the
@@ -7626,6 +7650,8 @@ static void ui_widgets_process_mouse(
 					}
 					ui_mouse_give_focus(target->widget);
 					ui_mouse_press(_gamepad_analog_button_a);
+					ui_mouse_item_click_x = ui_mouse_click_x;
+					ui_mouse_item_click_frame = ui_debug_frame;
 					break;
 				case _ui_mouse_target_value:
 				{
@@ -9380,7 +9406,8 @@ void process_ui_widgets(
 		return;
 	}
 #endif
-	/* port: moderation's screen, over a menu of a dedicated server's game */
+	/* port: moderation's screen, over a menu of a dedicated server's game or
+	one this machine hosts */
 	moderation_screen_update(widget_globals.active_widgets[0] != NULL);
 	if (moderation_screen_active())
 	{

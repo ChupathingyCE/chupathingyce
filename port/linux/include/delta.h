@@ -146,6 +146,15 @@ enum delta_capability
 	(TEAM_RESULT); the change itself reaches every machine, OpenCE's too,
 	through the game's own player respawn */
 	_delta_capability_team_change = 15,
+	/* reserved for server badges (a draft, not built yet): never set here */
+	_delta_capability_server_badge = 16,
+	/* what the game's own messages leave out of the host's objects
+	(docs/delta.md, Object sync): every unit's shield and health as they
+	change (UNIT_VITALS), so that a client's copy of a placed biped or an
+	empty vehicle reads as the host's does, and the scenario names of the
+	objects the host made (OBJECT_NAMES), so that a client's scripts find
+	them by name */
+	_delta_capability_object_sync = 17,
 
 	NUMBER_OF_DELTA_CAPABILITIES
 };
@@ -288,6 +297,12 @@ version's rules has a new wire. */
 	X("chupa-38a", 38) \
 	X("chupa-39a", 39)
 
+/* the oldest network version a build that reads the tagged advertisement
+says in its HELLO: chupa-39a's row above, the first such wire. A host whose
+advertisement carries the tag alone hears none older; one that also carries
+the old layout may (released builds before the tag said 32 or older). */
+#define DELTA_TAG_OLDEST_LEGACY 39
+
 /* how many OpenCE numbers past the newest this build knows (the table
 below, and the one announced, the newest this build or the signed table has
 proven as a host) are presumed additive: a client joins their hosts from the
@@ -366,6 +381,12 @@ legacy table this machine has (or set by a local, unsigned override). */
 /* at start-up, on the game's thread: loads the cached table, and fetches a
 newer one in the background (never holding anything up) */
 void delta_legacy_start(void);
+/* a console with HTTPS (HALO_CONSOLE_HTTPS): one round of fetching the
+signed table (the site, else GitHub), blocking, on a thread of the port's
+(with CONSOLE_HTTPS_STACK_SIZE + DELTA_REFRESH_STACK_SIZE of stack to
+spare: the document is read on it); 1 if a valid table came
+(taken, or no newer than the one in use), 0 if none could be had */
+int delta_legacy_refresh(void);
 /* the serial of the signed table in use; 0 for none (or a local override,
 which is never passed on) */
 unsigned int delta_legacy_serial(void);
@@ -428,5 +449,8 @@ int delta_legacy_layouts(struct delta_layout_fact *facts, int count);
 /* the largest document, and signed table */
 #define DELTA_LEGACY_DOCUMENT_SIZE 16384
 #define DELTA_LEGACY_SIGNED_SIZE (128 + 1 + DELTA_LEGACY_DOCUMENT_SIZE)
+/* the stack delta_legacy_refresh needs beyond the HTTPS client's (the
+document, its answer's headers and the signature's) */
+#define DELTA_REFRESH_STACK_SIZE (DELTA_LEGACY_DOCUMENT_SIZE + 6 * 1024)
 
 #endif

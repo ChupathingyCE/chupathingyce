@@ -2358,6 +2358,17 @@ static boolean control_capture_begin(struct widget_instance *widget)
 
 	if (control == NONE)
 		return FALSE;
+#ifndef HALO_XBOX_CONSOLE
+	/* (a click on a row's binding sets that one: the second's column starts
+	at 410 of the menus' 640, its row's 356 in the list's at 54) */
+	{
+		extern short ui_widget_port_item_click_x(void);
+		short click_x = ui_widget_port_item_click_x();
+
+		if (click_x != NONE && click_x >= 254)
+			controls_screen.slot = click_x >= 408;
+	}
+#endif
 	controls_screen.capturing_control = control;
 	controls_screen.capturing_slot = controls_screen.slot;
 	platform_binding_capture_begin();
@@ -2403,6 +2414,11 @@ static void control_capture_poll(void)
 	{
 		controls_screen.bindings[control][slot][0] = 0;
 	}
+	else
+		return;
+	/* (written at once, as the controller's buttons are: B, which leaves the
+	screen, keeps the keys set, and the game uses them now) */
+	controls_save();
 }
 
 /* "controls update menu": the group's rows, their bindings (the one left
@@ -2919,8 +2935,8 @@ static void controls_page_update(struct widget_instance *list)
 	else if (control_row(focused) || controls_screen.capturing_control != NONE)
 	{
 		line = controls_screen.capturing_control != NONE ?
-			"Press a key or mouse button. Escape cancels,\nDelete clears." :
-			"%a-button changes a key. Left and right choose which.";
+			"Press a key or mouse button. Esc cancels, Del clears." :
+			"%a-button changes a key. Left and right pick which.";
 	}
 #ifndef HALO_CONSOLE_NO_CONTROLS
 	else if (focused == named(list, "op_layout", 0) &&
@@ -2961,6 +2977,8 @@ static boolean controls_page_defaults(struct widget_instance *widget)
 	if (spinner_shown(list, "device_spinner") == _controls_device_keyboard_mouse)
 	{
 		controls_load(TRUE);
+		/* (the keys written at once, as each key set is) */
+		controls_save();
 		settings_each_in_view(list, "mouse", setting_default_show);
 		return TRUE;
 	}
@@ -5641,6 +5659,20 @@ static boolean pause_change_teams(struct widget_instance *widget)
 	return TRUE;
 }
 
+/* "port pause moderation" (the host's pause menu's MODERATION: menu_tags.c):
+the Moderation screen over the pause menu (moderation_screen.c), its players
+to kick or ban */
+static boolean pause_moderation(void)
+{
+#ifdef HALO_GAME_BROWSER
+	extern boolean moderation_screen_open(void);
+
+	return moderation_screen_open() ? TRUE : campaign_fail();
+#else
+	return campaign_fail();
+#endif
+}
+
 /* "port pause controls" (the pause menu's CONTROLS: menu_tags.c): the
 Gearbox menus' opens their Controls Setup (its handler's
 widget), on player 1's profile, edited for it if none is (OK saves it); the
@@ -7220,7 +7252,7 @@ static boolean host_setup_value(short row, wchar_t *text)
 		if (host_setup.port)
 			usnprintf(text, ROW_TEXT_LENGTH - 1, L"%ld", host_setup.port);
 		else
-			ustrncpy(text, L"AUTO", ROW_TEXT_LENGTH - 1);
+			ustrncpy(text, L"RANDOM", ROW_TEXT_LENGTH - 1);
 		return TRUE;
 	case _host_row_game_type:
 		host_game_type_text(text);
@@ -7278,8 +7310,8 @@ static wchar_t const *host_setup_help(short row)
 	case _host_row_password:
 		return L"Required to join from the game list.";
 	case _host_row_port:
-		return host_help_with_status(L"The UDP port for internet play. Applies on restart.", with_status,
-			NUMBEROF(with_status));
+		return host_help_with_status(L"The UDP port for hosting. Forward it on your router if friends can't join.",
+			with_status, NUMBEROF(with_status));
 	case _host_row_game_type:
 		return L"Choose the game type. %a-button edits it.";
 	case _host_row_team_change:
@@ -8811,6 +8843,10 @@ boolean pc_menu_event_function_invoke(
 		else if (!strcmp(name, "port pause change teams"))
 		{
 			return pause_change_teams(widget);
+		}
+		else if (!strcmp(name, "port pause moderation"))
+		{
+			return pause_moderation();
 		}
 		else if (!strcmp(name, "port pause controls"))
 		{

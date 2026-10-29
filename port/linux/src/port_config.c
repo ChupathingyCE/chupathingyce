@@ -87,6 +87,10 @@ enum
 	/* the original Xbox (port/xbox): not in _platform_all, each of its
 	settings marked for it */
 	_platform_xbox = 8,
+	/* the consoles on the shared GL layer (HALO_CONSOLE_GL_LAYER: the Xbox
+	360, the Wii U), as well as their desktop or Windows settings: the
+	console settings they share with the original Xbox */
+	_platform_console_gl = 16,
 };
 
 struct config_setting
@@ -150,6 +154,17 @@ anti-aliasing. The server draws nothing: the Xbox's. */
 #else
 #define DEFAULT_ANTI_ALIASING "\"off\""
 #define DEFAULT_SHADOW_RESOLUTION "256"
+#endif
+
+/* Internet play's port when hosting (p2p_host_port.h): Halo's own, 2302,
+on the desktop and Android, so that a player can forward it on their router;
+a joiner keeps a random one. The consoles and the dedicated server keep a
+random port (0), as before. */
+#if defined(HALO_SERVER) || defined(HALO_XBOX_CONSOLE) || defined(HALO_CONSOLE_GL_LAYER) || \
+	defined(HALO_SWITCH_CONSOLE)
+#define DEFAULT_TUNNEL_PORT "0"
+#else
+#define DEFAULT_TUNNEL_PORT "2302"
 #endif
 
 static const struct config_setting config_settings[] =
@@ -354,6 +369,8 @@ static const struct config_setting config_settings[] =
 		"default; the consoles' is 2. Changes at once." },
 	{ "display.vsync", _config_boolean, "true", "HALO_NO_VSYNC", _environment_set_is_false, _platform_all,
 		"Wait for the display between frames." },
+	{ "display.skip_intro", _config_boolean, "false", "HALO_SKIP_INTRO", _environment_set_is_true, _platform_all,
+		"Skip the startup intro movie and advance directly to the main menu." },
 	{ "display.max_fps", _config_integer, "0", "HALO_MAX_FPS", _environment_value, _platform_all,
 		"With vsync off, the frame rate limit: 0 for twice the display's rate,\n"
 		"-1 for none (can hang some Intel graphics, and heats a phone)." },
@@ -372,6 +389,10 @@ static const struct config_setting config_settings[] =
 	{ "display.viewmodel_field_of_view", _config_real, "0.0", "HALO_VIEWMODEL_FIELD_OF_VIEW", _environment_value,
 		_platform_all | _platform_xbox,
 		"The weapon's field of view, 50 to 120. 0: display.field_of_view's." },
+	{ "display.reticle_scales_with_fov", _config_boolean, "true", "HALO_RETICLE_SCALES_WITH_FOV", _environment_value,
+		_platform_all | _platform_xbox,
+		"Size the reticle to the first-person field of view, so it matches the\n"
+		"weapon's spread on screen. No change at 70." },
 	{ "display.far_clip_distance", _config_real, "1024.0", "HALO_FAR_CLIP_DISTANCE", _environment_value, _platform_all,
 		"How far the world is drawn, up to 10000. 1024: the Xbox's." },
 	{ "display.match_timer", _config_boolean, "false", "HALO_MATCH_TIMER", _environment_value, _platform_all | _platform_xbox,
@@ -462,7 +483,7 @@ static const struct config_setting config_settings[] =
 		"Show CHANGE TEAMS in the pause menu of a team game." },
 #ifndef HALO_CONSOLE_NO_CONTROLS
 	{ "display.pause_controls", _config_boolean, "true", "HALO_PAUSE_CONTROLS", _environment_value, _platform_all,
-		"Show CONTROLS in the Xbox and Gearbox menus' pause menu." },
+		"Show CONTROLS in the pause menu." },
 #endif
 	{ "display.server_messages", _config_boolean, "true", "HALO_SERVER_MESSAGES", _environment_value, _platform_all | _platform_xbox,
 		"Show the banner for a Delta server's warnings and notices." },
@@ -710,8 +731,10 @@ static const struct config_setting config_settings[] =
 		_platform_all,
 		"Offer a playlist's missing maps from its verified map set when you join\n"
 		"one of its games: \"ask\", \"always\" or \"never\"." },
-	{ "network.tunnel_port", _config_integer, "0", "HALO_NET_TUNNEL_PORT", _environment_value, _platform_all | _platform_xbox,
-		"The UDP port for internet play; 0 picks one." },
+	{ "network.tunnel_port", _config_integer, DEFAULT_TUNNEL_PORT, "HALO_NET_TUNNEL_PORT", _environment_value,
+		_platform_all | _platform_xbox,
+		"The UDP port for internet play, to forward on your router if players\n"
+		"can't join your games; 0 picks a new port each run." },
 	{ "network.allow_upnp", _config_boolean, "true", "HALO_NET_ALLOW_UPNP", _environment_value, _platform_all,
 		"Ask the router to forward internet play's port (UPnP)." },
 	{ "network.protocol", _config_string, "\"auto\"", "HALO_NET_PROTOCOL", _environment_value, _platform_all,
@@ -851,7 +874,7 @@ static const struct config_setting config_settings[] =
 		"Detailed traces in debug.txt, for reporting a join that fails: the main\n"
 		"loop each second, every hop of an internet join, the games advertised.\n"
 		"Other hosts appear only as tags, never by their addresses." },
-	{ "console.perf_log", _config_boolean, "false", NULL, _environment_value, _platform_xbox,
+	{ "console.perf_log", _config_boolean, "false", NULL, _environment_value, _platform_xbox | _platform_console_gl,
 		"For finding what makes a scene slow: once a second, a line in debug.txt\n"
 		"with the frame time (average and worst), the time each part of the frame\n"
 		"took (game ticks, the render's parts, sound, network, present, the wait\n"
@@ -910,6 +933,12 @@ static const struct config_setting config_settings[] =
 		"Every this many seconds a test player changes teams; 0 never." },
 	{ "debug.network_test_pause", _config_real, "0.0", "HALO_NETWORK_TEST_PAUSE", _environment_value, _platform_all,
 		"Seconds into a test game to open the pause menu; 0 never." },
+	{ "debug.network_test_moderate", _config_string, "\"\"", "HALO_NETWORK_TEST_MODERATE", _environment_value,
+		_platform_all,
+		"A test host's Moderation action on its first other player (\"Kick\", \"Ban forever\"); empty for none." },
+	{ "debug.network_test_moderate_time", _config_real, "20.0", "HALO_NETWORK_TEST_MODERATE_TIME", _environment_value,
+		_platform_all,
+		"Seconds into a test game that the host's Moderation action is taken." },
 	{ "debug.network_test_local_players", _config_integer, "1", "HALO_NETWORK_TEST_LOCAL_PLAYERS", _environment_value,
 		_platform_all,
 		"A test machine's players, 1 to 4." },
@@ -994,6 +1023,19 @@ static const struct config_setting config_settings[] =
 	{ "debug.test_input", _config_string, "\"\"", "HALO_TEST_INPUT", _environment_value, _platform_all,
 		"Scripted input on controller 1: \"bot:<seed>\" or \"look:<seed>\"; empty\n"
 		"for none." },
+	{ "debug.determinism", _config_string, "\"\"", "HALO_DETERMINISM", _environment_value, _platform_all,
+		"The input-replay check (tools/test_determinism.py): \"record:<file>\"\n"
+		"writes each tick's player actions to the file, \"replay:<file>\" plays\n"
+		"them back in place of the controllers'; empty for none." },
+	{ "debug.determinism_hashes", _config_string, "\"\"", "HALO_DETERMINISM_HASHES", _environment_value,
+		_platform_all,
+		"With debug.determinism: a file for a line of hashes of the game's state\n"
+		"after each tick; empty for none." },
+	{ "debug.determinism_ticks", _config_integer, "0", "HALO_DETERMINISM_TICKS", _environment_value, _platform_all,
+		"With debug.determinism: quit after this many game ticks; 0 never." },
+	{ "debug.determinism_seed", _config_integer, "1", "HALO_DETERMINISM_SEED", _environment_value, _platform_all,
+		"With debug.determinism: the games' random seed (a replay takes its\n"
+		"recording's)." },
 	{ "debug.test_gamepads", _config_integer, "0", "HALO_TEST_GAMEPADS", _environment_value, _platform_desktop,
 		"Virtual gamepads (up to 4) for tests of split screen: debug.test_input's\n"
 		"\"menu:\" script presses their buttons and sticks as pad<n>:<button>, and\n"
@@ -1092,6 +1134,10 @@ static const struct config_setting config_settings[] =
 #define CONFIG_PLATFORM _platform_android
 #elif defined(HALO_XBOX_CONSOLE)
 #define CONFIG_PLATFORM _platform_xbox
+#elif defined(HALO_CONSOLE_GL_LAYER) && defined(_WIN32)
+#define CONFIG_PLATFORM (_platform_desktop | _platform_windows | _platform_console_gl)
+#elif defined(HALO_CONSOLE_GL_LAYER)
+#define CONFIG_PLATFORM (_platform_desktop | _platform_console_gl)
 #elif defined(_WIN32)
 #define CONFIG_PLATFORM (_platform_desktop | _platform_windows)
 #else
@@ -1320,10 +1366,10 @@ before config_version, wrote every value, which kept a default a later
 version changed) */
 #define CONFIG_VERSION 2
 /* the defaults the game has asked about (game.defaults_answered): 1, the
-ones of v0.8.0; 2, Headphone 3D on. A file answered at an older generation
-is asked about the later ones only */
-#define CONFIG_DEFAULTS_GENERATION 2
-#define CONFIG_DEFAULTS_GENERATION_TEXT "2"
+ones of v0.8.0; 2, network.tunnel_port's 2302 (v0.8.1b); 3, Headphone 3D
+on. A file answered for an earlier generation is asked about the later ones
+only */
+#define CONFIG_DEFAULTS_GENERATION 3
 #define CONFIG_VERSION_LINE "config_version = 2\n"
 #define CONFIG_VERSION_LINES "# The layout of this file, for the game: leave it.\n" CONFIG_VERSION_LINE
 #define CONFIG_VERSION_TEXT "\n" CONFIG_VERSION_LINES
@@ -1826,40 +1872,43 @@ static const struct
 	/* for an existing file that has the setting at the old default (or not
 	set): the change in words, to ask about it (config_find_new_defaults) */
 	const char *change;
-	/* the question it is asked in (CONFIG_DEFAULTS_GENERATION): a file
-	answered at this one or later is not asked again; 0 with no change */
+	/* the generation of defaults it was asked about in (CONFIG_DEFAULTS_GENERATION;
+	0 for 1) */
 	int generation;
 } config_old_defaults[] =
 {
 	/* upstream's, which ChupathingyCE kept until v0.5.2b */
-	{ "display.menus", "\"pc\"", 0, NULL, 0 },
+	{ "display.menus", "\"pc\"", 0, NULL },
 	/* the Xbox's menus, the default until v0.8.0 (a file that names them
 	keeps them) */
 	{ "display.menus", "\"xbox\"", 0,
-		"The Chupathingy menus", 1 },
+		"The Chupathingy menus" },
 	/* the Xbox's, until the per-platform defaults of v0.8.0 (a file that
 	names them keeps them) */
-	{ "display.anti_aliasing", "\"off\"", 0, "Smoother edges (2x multisampling)", 1 },
-	{ "display.shadow_resolution", "128", 0, "Sharper shadows (256)", 1 },
+	{ "display.anti_aliasing", "\"off\"", 0, "Smoother edges (2x multisampling)" },
+	{ "display.shadow_resolution", "128", 0, "Sharper shadows (256)" },
 	/* asking to join a copied invite, the default until v0.8.0c: a file
 	that names "ask" keeps it, one that left it commented out follows
 	"never" without a question */
-	{ "network.join_from_clipboard", "\"ask\"", 0, NULL, 0 },
+	{ "network.join_from_clipboard", "\"ask\"", 0, NULL },
 	/* the community site's first address, the default until stats.chupathingy.org
 	(the same server, so a file that holds it follows without a question) */
-	{ "network.browser_url", "\"https://halo.milenko.org\"", 1, NULL, 0 },
+	{ "network.browser_url", "\"https://halo.milenko.org\"", 1, NULL },
 #ifdef HALO_ANDROID
-	{ "audio.buffer_frames", "512", 0, "A larger audio buffer (1024)", 1 },
+	{ "audio.buffer_frames", "512", 0, "A larger audio buffer (1024)" },
 #endif
 #ifndef HALO_CONSOLE_NO_DISCORD
 	/* OpenCE's Discord application, which ChupathingyCE kept until v0.7.5c
 	(Discord showed "OpenCE" as being played) */
-	{ "discord.application_id", "\"1553978809840050229\"", 1, NULL, 0 },
+	{ "discord.application_id", "\"1553978809840050229\"", 1, NULL },
 #endif
+	/* a random port each run, until v0.8.1b gave hosting Halo's 2302 (a file
+	that names 0 keeps it; the consoles and the server keep 0) */
+	{ "network.tunnel_port", "0", 0, "A fixed port for hosting (UDP 2302), to forward on your router", 2 },
 #ifndef HALO_CONSOLE
 	/* the stereo pan, the default until Headphone 3D matched the Xbox (a
 	file that names "off" keeps it) */
-	{ "audio.hrtf", "\"off\"", 0, "Headphone 3D on, as the original Xbox did", 2 },
+	{ "audio.hrtf", "\"off\"", 0, "Headphone 3D on, as the original Xbox did", 3 },
 #endif
 };
 
@@ -2286,19 +2335,21 @@ static void config_find_new_defaults(const char *text, toml_datum_t table)
 #ifndef HALO_SERVER
 	toml_datum_t version = toml_seek(table, "config_version");
 	toml_datum_t answered = toml_seek(table, "game.defaults_answered");
-	long long asked = answered.type == TOML_INT64 ? (long long)answered.u.int64 : 0;
 	size_t old;
 
-	if (asked >= CONFIG_DEFAULTS_GENERATION)
+	long answered_generation = answered.type == TOML_INT64 ? (long)answered.u.int64 : 0;
+
+	if (answered_generation >= CONFIG_DEFAULTS_GENERATION)
 		return;
 	for (old = 0; old < NUMBER_OF_CONFIG_OLD_DEFAULTS; old++)
 	{
-		long index = config_old_defaults[old].change && config_old_defaults[old].generation > asked ?
-			config_setting_index(config_old_defaults[old].name) : -1;
+		long index = config_old_defaults[old].change ? config_setting_index(config_old_defaults[old].name) : -1;
+		int generation = config_old_defaults[old].generation ? config_old_defaults[old].generation : 1;
 		const struct config_setting *setting;
 		toml_datum_t datum;
 
-		if (index < 0)
+		/* (asked about already, in an earlier generation's question) */
+		if (index < 0 || generation <= answered_generation)
 			continue;
 		setting = &config_settings[index];
 		if (!(setting->platforms & CONFIG_PLATFORM) || !strcmp(config_old_defaults[old].default_value, setting->default_value))
@@ -3415,7 +3466,12 @@ void config_new_defaults_answer(int use_new)
 			}
 		}
 	}
-	config_write("game.defaults_answered", CONFIG_DEFAULTS_GENERATION_TEXT);
+	{
+		char generation[16];
+
+		snprintf(generation, sizeof(generation), "%d", CONFIG_DEFAULTS_GENERATION);
+		config_write("game.defaults_answered", generation);
+	}
 }
 
 int config_write_boolean(const char *name, int value)
@@ -3582,6 +3638,21 @@ unsigned long config_changes(void)
 {
 	config_follow_file();
 	return config_change_count;
+}
+
+int config_chosen(const char *name)
+{
+	long index = config_setting_index(name);
+	int chosen;
+
+	if (index < 0)
+		return 0;
+	/* (the file read first) */
+	config_value(name, config_settings[index].type);
+	pthread_mutex_lock(&config_lock);
+	chosen = config_given[index] && !config_pending[index];
+	pthread_mutex_unlock(&config_lock);
+	return chosen;
 }
 
 int config_default(const char *name, char *text, size_t size)

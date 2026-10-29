@@ -100,4 +100,20 @@ server sets beside it. 1 if so. */
 #define DELTA_COMPAT_LISTING_DEDICATED 128
 int delta_compat_opence_server_listing(int flags);
 
+/* The join mark. A client that will say HELLO to its Delta host marks its
+join request (the game's message_client_join_game_request, as it is) in the
+last free characters of its machine name, past the name's end: a name of
+count 16-bit characters ended within its first count - 3 (the mark is two
+characters, then the field's last, 0). Only a Delta host is sent it, and a
+host that reads it waits for the HELLO of a marked machine alone; OpenCE's
+machines never mark. */
+#define DELTA_COMPAT_JOIN_MARK_FIRST 0x0394
+#define DELTA_COMPAT_JOIN_MARK_SECOND 0x0001
+/* the mark into name (a name too long for it is left unmarked): 1 if
+marked */
+int delta_compat_join_mark(unsigned short *name, int count);
+/* whether a received name has the mark; what follows the name's end is
+cleared either way (a name not ended within count is left as it is) */
+int delta_compat_join_marked(unsigned short *name, int count);
+
 #endif

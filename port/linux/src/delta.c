@@ -23,6 +23,12 @@ reached or gives no valid table;
 - another machine (delta_legacy_offer: Delta Peer).
 A table that does not verify is dropped, and logged; nothing is shown.
 
+A console with HTTPS (HALO_CONSOLE_HTTPS: port/console/https/console_https.h)
+fetches the same two over its own TLS, the site by its pinned key and
+GitHub by its pinned roots, when its port asks (delta_legacy_refresh, on a
+thread of the port's: this file starts none there), and caches the table
+beside config.toml.
+
 A local, unsigned file (network.legacy_table, HALO_LEGACY_TABLE) replaces
 all of that, for tests and for admins: logged as a warning at start, never
 passed on, and no table is fetched or taken meanwhile.
@@ -45,6 +51,10 @@ skips what it does not know.
 #include "delta_key.h"
 #ifdef HALO_GAME_BROWSER
 #include "browser_http.h"
+#define DELTA_FETCHES
+#elif defined(HALO_CONSOLE_HTTPS)
+#include "console_https.h"
+#define DELTA_FETCHES
 #endif
 
 /* (network_rules.c reads the table's layouts through delta_legacy_layouts,
@@ -93,6 +103,7 @@ static const char *const delta_capability_names[] =
 {
 	"platform", "profile", "server_messages", "chat", "ce_maps", "md_maps", "coop", "ai_sync", "vote",
 	"console_slots", "moderation", "bomb", "ping", "bomb_movement", "bomb_traits", "team_change",
+	"server_badge", "object_sync",
 };
 _Static_assert(sizeof(delta_capability_names) / sizeof(*delta_capability_names) == NUMBER_OF_DELTA_CAPABILITIES,
 	"a name for each capability");
@@ -118,8 +129,10 @@ static pthread_mutex_t delta_lock = PTHREAD_MUTEX_INITIALIZER;
 game's, taken before delta_lock) */
 static pthread_mutex_t delta_cache_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_once_t delta_once = PTHREAD_ONCE_INIT;
+#ifdef HALO_GAME_BROWSER
 /* (the fetching thread waits on it for its next time) */
 static pthread_cond_t delta_wake = PTHREAD_COND_INITIALIZER;
+#endif
 
 static struct
 {
@@ -740,7 +753,13 @@ static void delta_use_layouts(const struct delta_table *table)
 
 static void delta_cache_path(char *path, size_t size)
 {
+#if defined(HALO_CONSOLE_HTTPS) && !defined(HALO_GAME_BROWSER)
+	/* (a console's: beside its config.toml) */
+	config_folder(path, size);
+	snprintf(path + strlen(path), size - strlen(path), "%s", DELTA_CACHE_NAME);
+#else
 	snprintf(path, size, "%s/%s", platform_save_root(), DELTA_CACHE_NAME);
+#endif
 }
 
 /* the signed table written to the cache: a new file beside it, then moved
@@ -965,22 +984,68 @@ static void delta_load(void)
 	}
 }
 
-/* ---------- fetching (a thread of this file's) */
+/* ---------- fetching (a thread of this file's; a console's port's) */
+
+#ifdef DELTA_FETCHES
 
 #ifdef HALO_GAME_BROWSER
+#define delta_get posix_browser_request
+#else
+/* (a console's answers are read whole, headers and all, into the buffer
+before the body is moved to its start: room for them) */
+#define DELTA_HEADER_ROOM 2048
+
+/* posix_browser_request's GET, over the console's HTTPS: https://host/path,
+the hosts console_https.c knows alone; the status, or 0 and the error */
+static int delta_get(const char *url, const char *form, const char *content_type, char *response,
+	int response_size, char *error, int error_size)
+{
+	char host[64];
+	const char *path;
+	size_t length;
+	int status = 0, result;
+
+	(void)form;
+	(void)content_type;
+	if (strncmp(url, "https://", 8) || !(path = strchr(url + 8, '/')) ||
+		(length = (size_t)(path - (url + 8))) >= sizeof(host))
+	{
+		snprintf(error, (size_t)error_size, "not an https:// address");
+		return 0;
+	}
+	memcpy(host, url + 8, length);
+	host[length] = 0;
+	result = console_https_call(host, path, NULL, &status, response, response_size, 20000);
+	if (result != CONSOLE_HTTPS_OK)
+	{
+		snprintf(error, (size_t)error_size, "%s", console_https_error_string(result));
+		return 0;
+	}
+	return status;
+}
+#endif
+
+#ifndef DELTA_HEADER_ROOM
+#define DELTA_HEADER_ROOM 0
+#endif
 
 /* the document at url and its signature (url.sig), from source; none there
 (the server says it has no document: absent set, nothing logged) is
 _delta_invalid too */
 static enum delta_result delta_fetch(const char *url, const char *source, int *absent)
 {
-	/* (one byte past the cap shows a document cut short) */
-	static char document[DELTA_LEGACY_DOCUMENT_SIZE + 2];
-	char signature[256], signature_url[600], error[256];
+	/* (one byte past the cap shows a document cut short; a console's is on
+	the port's thread's stack, so that its memory is not kept between
+	fetches) */
+#ifdef HALO_GAME_BROWSER
+	static
+#endif
+	char document[DELTA_LEGACY_DOCUMENT_SIZE + 2 + DELTA_HEADER_ROOM];
+	char signature[256 + DELTA_HEADER_ROOM], signature_url[600], error[256];
 	int status;
 
 	*absent = 0;
-	status = posix_browser_request(url, NULL, NULL, document, sizeof(document), error, sizeof(error));
+	status = delta_get(url, NULL, NULL, document, sizeof(document), error, sizeof(error));
 	if (status == 404)
 	{
 		*absent = 1;
@@ -992,7 +1057,7 @@ static enum delta_result delta_fetch(const char *url, const char *source, int *a
 		return _delta_invalid;
 	}
 	snprintf(signature_url, sizeof(signature_url), "%s.sig", url);
-	status = posix_browser_request(signature_url, NULL, NULL, signature, sizeof(signature), error, sizeof(error));
+	status = delta_get(signature_url, NULL, NULL, signature, sizeof(signature), error, sizeof(error));
 	if (status != 200)
 	{
 		platform_log("Delta: no legacy table's signature from %s (%s)", source,
@@ -1006,7 +1071,12 @@ static void delta_refresh(int *failed)
 {
 	/* (none published anywhere: said once a run, not at every retry) */
 	static int absence_said;
+#ifdef HALO_GAME_BROWSER
 	const char *base = config_string("network.browser_url");
+#else
+	/* (a console asks the site it pins, whatever network.browser_url says) */
+	const char *base = "https://" CONSOLE_HTTPS_SITE;
+#endif
 	char url[512];
 	size_t length = strlen(base);
 	int site_absent, github_absent;
@@ -1037,6 +1107,7 @@ static void delta_refresh(int *failed)
 		platform_log("Delta: no legacy table from GitHub (it has none)");
 }
 
+#ifdef HALO_GAME_BROWSER
 static void *delta_thread(void *unused)
 {
 	(void)unused;
@@ -1064,6 +1135,21 @@ static void *delta_thread(void *unused)
 	}
 	return NULL;
 }
+#else
+int delta_legacy_refresh(void)
+{
+	int failed = 0;
+
+	pthread_once(&delta_once, delta_load);
+	/* (no key, nothing to check a table with; no list server, the player's
+	choice to talk to none; no HTTPS yet) */
+	if (delta_legacy_override() || !delta_has_key() || !config_string("network.browser_url")[0] ||
+		!console_https_available())
+		return 0;
+	delta_refresh(&failed);
+	return !failed;
+}
+#endif
 
 #endif
 

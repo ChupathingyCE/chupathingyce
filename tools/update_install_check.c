@@ -13,7 +13,8 @@ itself the latest.
 Every line of its log is appended to the file HALO_UPDATE_TEST_LOG names,
 after the version and the executable's file name: "<version> <name> <line>".
 It exits once the check is answered (its update failed, or there is none);
-an update that succeeds ends it by starting the new one.
+an update that succeeds ends it by starting the new one. Started with
+APPIMAGE set, it is an AppImage, as the AppImage runtime would start it.
 */
 
 #define _GNU_SOURCE
@@ -137,6 +138,8 @@ int main(void)
 		return 1;
 	}
 	platform_log("started");
+	/* (what an update's AppImage was started with: update_launch) */
+	platform_log("library path: %s", getenv("LD_LIBRARY_PATH") ? getenv("LD_LIBRARY_PATH") : "(none)");
 	updater_start();
 	/* (as the game's frames do, until the check is answered) */
 	deadline = SDL_GetTicks() + 60000;

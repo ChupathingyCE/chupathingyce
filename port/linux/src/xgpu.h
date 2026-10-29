@@ -233,11 +233,13 @@ struct xgpu_render_target
 	float scale[2];
 	unsigned long gl_width, gl_height;
 	/* with multisampling, the multisampled renderbuffer draws go to, its
-	samples a pixel (0 when it has none), and whether it has been drawn into
+	samples a pixel (0 when it has none), the samples the GPU gave it (it
+	may give more than were asked for), and whether it has been drawn into
 	since the texture last had its pixels (d3d8_gl.c,
 	render_target_multisample) */
 	GLuint multisample;
 	int samples;
+	int gl_samples;
 	BOOL unresolved;
 	/* changes whenever the target is drawn into or cleared (d3d8_gl.c,
 	bind_targets) */

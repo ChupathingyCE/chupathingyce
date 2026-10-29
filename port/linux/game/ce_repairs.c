@@ -47,7 +47,10 @@ or reads past a tag's end:
     Chimera draws on Halo PC and Halo PC's engine refused): made DXT5's
     format, whose 4x4 blocks are its size, and marked so that its blocks are
     decoded as BC7's when it is drawn (ce_bitmap_is_bc7: xbox_texture_cache.c,
-    xbox_textures.c).
+    xbox_textures.c);
+  - an effect's flags, in Gearbox's layout ("must be deterministic" in bit
+    2, where the Xbox has it in bit 1: ce_effect_flags.h): read as the
+    Xbox's, so that its effects are deterministic where Halo PC's are.
 
 The repairs are made before the map is opened, to the image it is checked
 in (ce_map_checks.c, so that its checks see the map as it will play), and
@@ -63,6 +66,7 @@ way (cache_files_windows.c).
 #include "errors.h"
 #include "structures/structure_bsp_definitions.h"
 #include "ce_map_checks.h"
+#include "ce_effect_flags.h"
 
 #include <string.h>
 
@@ -145,6 +149,7 @@ struct ce_repair_counts
 	long node_links;
 	long parent_groups;
 	long bc7_bitmaps;
+	long deterministic_effects;
 };
 
 /* ---------- globals */
@@ -547,21 +552,38 @@ static void ce_bitmaps_repair(
 	}
 }
 
+/* an effect's flags read as the Xbox's (ce_effect_flags.h) */
+static void ce_effect_flags_repair(
+	struct ce_image const *image,
+	struct ce_tag_instance const *instance,
+	struct ce_repair_counts *counts)
+{
+	byte *effect = ce_image_pointer(image, instance->base_address, CE_EFFECT_FLAGS_OFFSET + 4);
+	unsigned long flags;
+
+	if (!effect)
+		return;
+	flags = ce_effect_flags_from_gearbox(ce_read_long(effect + CE_EFFECT_FLAGS_OFFSET));
+	ce_write_long(effect + CE_EFFECT_FLAGS_OFFSET, flags);
+	if (flags & CE_EFFECT_XBOX_MUST_BE_DETERMINISTIC)
+		counts->deterministic_effects++;
+}
+
 static void ce_repairs_log(
 	struct ce_repair_counts const *counts)
 {
 	if (ce_map_checking() || !(counts->predicted_resources_dropped | counts->predicted_resources_salted |
 		counts->object_types | counts->modifier_shaders | counts->model_shaders | counts->node_links |
-		counts->parent_groups | counts->bc7_bitmaps))
+		counts->parent_groups | counts->bc7_bitmaps | counts->deterministic_effects))
 	{
 		return;
 	}
 	error(_error_silent, "%s map: %ld predicted resources dropped and %ld given their tags' salts, %ld object "
 		"types, %ld modifier shaders and %ld model shaders repaired, %ld node links looping back or out of the nodes, "
-		"%ld tags' parent groups, %ld BC7 bitmaps", ce_map_family_name(),
+		"%ld tags' parent groups, %ld BC7 bitmaps; %ld effects deterministic", ce_map_family_name(),
 		counts->predicted_resources_dropped, counts->predicted_resources_salted, counts->object_types,
 		counts->modifier_shaders, counts->model_shaders, counts->node_links, counts->parent_groups,
-		counts->bc7_bitmaps);
+		counts->bc7_bitmaps, counts->deterministic_effects);
 }
 
 /* ---------- public code */
@@ -626,6 +648,8 @@ void ce_repairs_apply(
 		}
 		else if (instance->group_tag == 'bitm')
 			ce_bitmaps_repair(image, instance, &counts);
+		else if (instance->group_tag == 'effe')
+			ce_effect_flags_repair(image, instance, &counts);
 		else if (instance->group_tag == 'antr')
 		{
 			data = ce_image_pointer(image, instance->base_address, ANIMATION_GRAPH_NODES_OFFSET + 0xc);

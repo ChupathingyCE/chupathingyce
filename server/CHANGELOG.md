@@ -16,6 +16,12 @@ release notes.
   panel, instead of being hosted again every 5 seconds or stopping the
   server on the damaged disc error. When every entry is skipped, the server
   waits 5 seconds, then twice as long each round, up to 5 minutes.
+- GameSpy status queries, off by default (`gamespy_listing`,
+  `HALO_DEDICATED_GAMESPY_*`): the server answers `\basic\` and QR2 status
+  queries on UDP 2302 and sends QR2 heartbeats to the masters Halo Custom
+  Edition 1.0.10 reports to, with Xbox maps named `xbox_<map>` (naming from
+  the Custom Edition community, via ugoboom). It reports its own version, so
+  Custom Edition 1.0.10's browser does not show it.
 - Control panel hardening: `sv_welcome` needs the settings permission (an
   admin's) and is in the audit file; a command missing from the permission
   table is the console's alone. Wrong logins lock an account only for the

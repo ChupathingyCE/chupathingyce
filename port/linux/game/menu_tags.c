@@ -93,10 +93,10 @@ adds to */
 #define MULTIPLAYER_COLLECTION "ui\\shell\\multiplayer"
 /* a campaign map's pause screen, which pause_patch adds to */
 #define SOLO_PAUSE_SCREEN "ui\\shell\\solo_game\\pause_game\\pause_game"
-/* the tags pause_patch adds: four buttons and their texts, and the middle
+/* the tags pause_patch adds: five buttons and their texts, and the middle
 and bottom parts of the stock box's pieces, a widget and a bitmap each (the
 campaign's has six pieces) */
-#define PAUSE_PATCH_TAGS (8 + 4 * 6)
+#define PAUSE_PATCH_TAGS (10 + 4 * 6)
 /* what a frame of ui.map's is drawn as in a game map, which has not got it */
 #define BLANK_PNG "ce/port/blank__0.png"
 #define UI_WIDGET_DEFINITION_TAG 'DeLa'
@@ -380,6 +380,7 @@ static char const *const port_function_names[] =
 	"port map list back",
 	"port pause end game",
 	"port pause change teams",
+	"port pause moderation",
 	"port pause controls", "controller screen init", "controller screen defaults", "controller begin binding",
 	"port coop begin", "port coop player 2 list initialize", "port coop player 2",
 	"port lobby open", "port lobby add player", "port lobby join", "port lobby leave",
@@ -440,11 +441,21 @@ static char const *const port_game_data_input_names[] =
 	"port controls update",
 };
 
+struct menu_block_range
+{
+	unsigned long start;
+	unsigned long end;
+};
+
 static struct
 {
 	/* what is let go when the map unloads */
 	void **blocks;
 	long block_count;
+	/* where they are (as tags address them) and how large, sorted by
+	where once pc_menu_owns asks (sorted_count of them) */
+	struct menu_block_range *ranges;
+	long sorted_count;
 	struct bitmap_data **bitmaps;
 	long bitmap_count;
 	struct menu_frame_placement *placements;
@@ -454,6 +465,8 @@ static struct
 	struct pc_menu_setting *settings;
 	long setting_count;
 	boolean loaded;
+	/* the Xbox's menus: only the pause menu's buttons added (pause_patch_xbox) */
+	boolean pause_buttons;
 	/* (display.menus "chupathingy": its main menu, the Xbox's screens after a
 	network game) */
 	boolean chupathingy;
@@ -510,6 +523,20 @@ static void *allocate(long size)
 			return NULL;
 		}
 		menu_tags.blocks = blocks;
+	}
+	{
+		struct menu_block_range *ranges = realloc(menu_tags.ranges,
+			(menu_tags.block_count + 1) * sizeof(*menu_tags.ranges));
+
+		if (!ranges)
+		{
+			free(block);
+			build.failed = TRUE;
+			return NULL;
+		}
+		menu_tags.ranges = ranges;
+		ranges[menu_tags.block_count].start = (unsigned long)XBOX_ADDRESS(block);
+		ranges[menu_tags.block_count].end = ranges[menu_tags.block_count].start + (unsigned long)(size > 0 ? size : 1);
 	}
 	menu_tags.blocks[menu_tags.block_count++] = block;
 	return block;
@@ -1468,6 +1495,8 @@ static void menu_tags_release(void)
 		free(menu_tags.blocks[index]);
 	if (menu_tags.blocks)
 		free(menu_tags.blocks);
+	if (menu_tags.ranges)
+		free(menu_tags.ranges);
 	if (menu_tags.bitmaps)
 		free(menu_tags.bitmaps);
 	if (menu_tags.placements)
@@ -1482,13 +1511,15 @@ static void menu_tags_release(void)
 /* ---------- the in-game pause menus (a campaign map's, a multiplayer map's)
 
 Their list gets SETTINGS after RESUME GAME, the menus' settings (as the
-main menu's SETTINGS opens them), and a multiplayer map's, for the host,
-END GAME after it, which ends the game as its time limit would: its players
-stay, and the host picks the next map after the carnage report. A team
-game's gets CHANGE TEAMS right after RESUME GAME, as Halo PC's had it: the
-player asks the host to put them on the other team, and the menu closes
-(team_change.c). They are
-copies of RESUME GAME (its look), the rows after them moved down. The map's
+main menu's SETTINGS opens them), and CONTROLS; a multiplayer map's, for
+the host, MODERATION, the host's kick and ban of its players
+(moderation_screen.c, the builds with it), and END GAME, which ends the game
+as its time limit would: its players stay, and the host picks the next map
+after the carnage report. A team game's gets CHANGE TEAMS right after RESUME
+GAME, as Halo PC's had it: the player asks the host to put them on the other
+team, and the menu closes (team_change.c). Everyday rows come first, the
+map's own rows next, then the host's tools, and the map's quit row last
+(pause_list_patch). They are copies of RESUME GAME (its look). The map's
 pause screens grow to fit them: on the Xbox's own (its box of pausebox2
 pieces, and the campaign's objectives box beside it), the box is drawn as
 much taller, centred where it was, with what is in it, and what is below
@@ -1501,6 +1532,8 @@ the list moved down; on a custom map's, what is below the list moves down. */
 Gearbox menus' own */
 #define PAUSE_CONTROLS_SCREEN \
 	"main_menu/settings_select/player_setup/player_profile_edit/controls_setup/controls_settings_screen"
+/* (the Chupathingy menus': their own, in the Xbox's look) */
+#define PAUSE_CONTROLS_SCREEN_CHUPATHINGY "chupathingy/settings/controls_setup_screen"
 #define PAUSE_BUTTON_SPACING 35
 
 /* display.menus: the Xbox's menus, Gearbox's Halo PC menus, or Chupathingy's (the
@@ -1623,42 +1656,138 @@ static void *pause_button(struct cache_file_tag_instance *instances, struct ui_w
 }
 
 /* whether the pause menus have CONTROLS (Controls Setup, or the Xbox
-menus' Controls screen: controls_screen.c), as display.pause_controls says;
-the Chupathingy menus' never have it (their SETTINGS opens Controls) */
+menus' Controls screen: controls_screen.c), as display.pause_controls says,
+in every menu set */
 static boolean pause_controls_offered(void)
 {
 #if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_CONTROLS)
-	return menus_chosen() != _menus_chupathingy && config_boolean("display.pause_controls") != 0;
+	return config_boolean("display.pause_controls") != 0;
 #else
 	return FALSE;
 #endif
 }
 
-/* the list's buttons: a team game's CHANGE TEAMS (change_teams), SETTINGS
-(Gearbox's menus: settings), CONTROLS (pause_controls_offered) and the
-host's END GAME (end_game) put after RESUME GAME (resume), the rows after
-them moved down; returns how far the list grew, 0 if it was not */
-static short pause_list_patch(struct cache_file_tag_instance *instances, struct ui_widget_definition *list, long resume,
-	boolean change_teams, boolean settings, boolean end_game)
+/* whether a multiplayer game's pause menus have the host's MODERATION (the
+Moderation screen over them, moderation_screen.c: kick and ban): a game
+this machine hosts, in a build with the screen */
+static boolean pause_moderation_offered(boolean host)
 {
+#ifdef HALO_GAME_BROWSER
+	return host;
+#else
+	(void)host;
+	return FALSE;
+#endif
+}
+
+/* a Custom Edition map's stock row that this list replaces with its own:
+CHANGE SETTINGS (Halo PC's settings screen, which no map has: the menus'
+SETTINGS stands for it), and GAME OPTIONS while it opens Halo PC's stock
+list alone (CHOOSE TEAM, RESTART GAME, NEW GAME and BACK: CHANGE TEAMS and
+the host's END GAME stand for them, and Halo PC's functions behind them are
+not this engine's). A map's own rows are kept. */
+static boolean pause_row_replaced(long button_tag)
+{
+	static char const *const stock_options[] = { "\\choose_team_button", "\\restart_game_button",
+		"\\new_game_button", "\\back_button" };
+	struct ui_widget_definition const *button;
+	struct ui_widget_event_handler_reference const *handlers;
+	long handler;
+
+	if (button_tag == NONE)
+		return FALSE;
+	if (tag_name_ends(button_tag, "\\pause_game\\change_settings_button"))
+		return TRUE;
+	if (!tag_name_ends(button_tag, "\\pause_game\\game_options_button"))
+		return FALSE;
+	button = tag_get(UI_WIDGET_DEFINITION_TAG, button_tag);
+	handlers = xbox_pointer(button->event_handlers.address);
+	for (handler = 0; handler < button->event_handlers.count; handler++)
+	{
+		struct ui_widget_definition const *options;
+		struct ui_widget_child_reference const *parts;
+		long part;
+
+		if (handlers[handler].widget_tag.index == NONE ||
+			!tag_name_ends(handlers[handler].widget_tag.index, "\\pause_game\\game_options"))
+		{
+			continue;
+		}
+		options = tag_get(UI_WIDGET_DEFINITION_TAG, handlers[handler].widget_tag.index);
+		parts = xbox_pointer(options->child_widgets.address);
+		for (part = 0; part < options->child_widgets.count; part++)
+		{
+			struct ui_widget_definition const *list;
+			struct ui_widget_child_reference const *rows;
+			long row, stock;
+
+			if (parts[part].widget_tag.index == NONE)
+				continue;
+			list = tag_get(UI_WIDGET_DEFINITION_TAG, parts[part].widget_tag.index);
+			if (list->type != _widget_type_column_list)
+				continue;
+			rows = xbox_pointer(list->child_widgets.address);
+			for (row = 0; row < list->child_widgets.count; row++)
+			{
+				for (stock = 0; stock < (long)NUMBEROF(stock_options); stock++)
+				{
+					if (rows[row].widget_tag.index != NONE && tag_name_ends(rows[row].widget_tag.index, stock_options[stock]))
+						break;
+				}
+				if (stock == (long)NUMBEROF(stock_options))
+					return FALSE;
+			}
+			return TRUE;
+		}
+	}
+	return FALSE;
+}
+
+/* the list's buttons, in the order every menu set has them: RESUME GAME,
+then the everyday rows (a team game's CHANGE TEAMS, change_teams; SETTINGS,
+settings; CONTROLS, pause_controls_offered), then the map's own rows (a
+custom map's extras among them, but those pause_row_replaced takes out),
+then the host's tools (MODERATION, pause_moderation_offered; END GAME,
+end_game, which ends the game for everyone), and the map's quit row (the one
+that runs quit_function) last. The rows are as far apart as the map's were.
+*grow is how far the list grew (less than 0 if it shrank); FALSE if it was
+not patched */
+static boolean pause_list_patch(struct cache_file_tag_instance *instances, struct ui_widget_definition *list, long resume,
+	long quit_function, boolean change_teams, boolean settings, boolean end_game, short *grow)
+{
+	boolean moderation = pause_moderation_offered(end_game);
 	struct ui_widget_child_reference *children = xbox_pointer(list->child_widgets.address);
 	long count = list->child_widgets.count, child;
 	boolean controls = pause_controls_offered();
 	/* (the Xbox's menus have none of ours: the Controls screen, by code) */
-	long controls_widget = !controls || !build.menus ? NONE : widget_named(PAUSE_CONTROLS_SCREEN);
-	long added = (change_teams != FALSE) + (settings != FALSE) + (controls != FALSE) + (end_game != FALSE);
+	long controls_widget = !controls || !build.menus ? NONE :
+		widget_named(menus_chosen() == _menus_chupathingy ? PAUSE_CONTROLS_SCREEN_CHUPATHINGY : PAUSE_CONTROLS_SCREEN);
+	long everyday = (change_teams != FALSE) + (settings != FALSE) + (controls != FALSE);
+	long added = everyday + (end_game != FALSE) + (moderation != FALSE);
 	struct ui_widget_child_reference *grown = allocate((count + added) * sizeof(struct ui_widget_child_reference));
 	struct ui_widget_definition const *model = tag_get(UI_WIDGET_DEFINITION_TAG, children[resume].widget_tag.index);
 	long settings_widget = !settings ? NONE :
 		widget_named(menus_chosen() == _menus_chupathingy ? PAUSE_SETTINGS_SCREEN_CHUPATHINGY : PAUSE_SETTINGS_SCREEN);
 	short spacing = count >= 2 ? (short)(children[count - 1].vertical_offset - children[count - 2].vertical_offset) :
 		PAUSE_BUTTON_SPACING;
-	void *buttons[4];
-	long tags[4];
-	char const *names[4];
+	long quit = quit_function != NONE ? pause_quit_button(list, quit_function) : NONE;
+	long removed = 0, total;
+	void *buttons[5];
+	long tags[5];
+	char const *names[5];
 
-	if (!grown || !added || (settings && settings_widget == NONE) || spacing <= 0)
-		return 0;
+	*grow = 0;
+	for (child = resume + 1; child < count; child++)
+		removed += child != quit && pause_row_replaced(children[child].widget_tag.index);
+	if (!grown || (!added && !removed) || (settings && settings_widget == NONE) ||
+		(controls && build.menus && controls_widget == NONE) || spacing <= 0)
+	{
+		return FALSE;
+	}
+	/* (the quit row last, if it is not: a map's rows after it go before
+	the host's tools) */
+	if (quit <= resume)
+		quit = NONE;
 	added = 0;
 	if (change_teams)
 	{
@@ -1682,6 +1811,13 @@ static short pause_list_patch(struct cache_file_tag_instance *instances, struct 
 			function_index("port pause controls", "pause", 0),
 			controls_widget == NONE ? NONE : build.widget_tags[controls_widget], FALSE);
 	}
+	if (moderation)
+	{
+		names[added] = "pause/moderation_button";
+		tags[added] = next_tag();
+		buttons[added++] = pause_button(instances, model, "pause/moderation_button", "MODERATION",
+			function_index("port pause moderation", "pause", 0), NONE, FALSE);
+	}
 	if (end_game)
 	{
 		names[added] = "pause/end_game_button";
@@ -1692,36 +1828,51 @@ static short pause_list_patch(struct cache_file_tag_instance *instances, struct 
 	for (child = 0; child < added; child++)
 	{
 		if (!buttons[child])
-			return 0;
+			return FALSE;
 	}
 	for (child = 0; child < added; child++)
 		instance_set(instances, UI_WIDGET_DEFINITION_TAG, tags[child], names[child], "", buttons[child]);
-	memcpy(grown, children, (resume + 1) * sizeof(*grown));
-	for (child = 0; child < added; child++)
+	/* RESUME GAME and what is above it, the everyday rows, the map's rows,
+	the host's tools, the quit row (and anything after it) */
+	total = 0;
+	for (child = 0; child <= resume; child++)
+		grown[total++] = children[child];
+	for (child = 0; child < everyday; child++)
 	{
-		grown[resume + 1 + child] = children[resume];
-		reference_set(&grown[resume + 1 + child].widget_tag, UI_WIDGET_DEFINITION_TAG, tags[child]);
-		grown[resume + 1 + child].vertical_offset = (short)(children[resume].vertical_offset + (child + 1) * spacing);
+		grown[total] = children[resume];
+		reference_set(&grown[total++].widget_tag, UI_WIDGET_DEFINITION_TAG, tags[child]);
 	}
 	for (child = resume + 1; child < count; child++)
 	{
-		grown[child + added] = children[child];
-		grown[child + added].vertical_offset = (short)(children[child].vertical_offset + added * spacing);
+		if (child != quit && !pause_row_replaced(children[child].widget_tag.index))
+			grown[total++] = children[child];
 	}
+	for (child = everyday; child < added; child++)
+	{
+		grown[total] = children[resume];
+		reference_set(&grown[total++].widget_tag, UI_WIDGET_DEFINITION_TAG, tags[child]);
+	}
+	if (quit != NONE)
+		grown[total++] = children[quit];
+	for (child = resume + 1; child < total; child++)
+		grown[child].vertical_offset = (short)(children[resume].vertical_offset + (child - resume) * spacing);
+	*grow = (short)((total - count) * spacing);
 	list->child_widgets.address = XBOX_ADDRESS(grown);
-	list->child_widgets.count = count + added;
+	list->child_widgets.count = total;
 	/* (the list draws within its bounds) */
-	list->bounds.y1 = (short)(list->bounds.y1 + added * spacing);
-	return (short)(added * spacing);
+	list->bounds.y1 = (short)(list->bounds.y1 + *grow);
+	return TRUE;
 }
 
 /* the Xbox's own box: a widget of pausebox2 pieces (and, the campaign's,
-the objectives box's pausebox pieces) */
+the objectives box's pausebox pieces), or Halo PC's of pausebox4 pieces (a
+Custom Edition map's) */
 static boolean pause_box_stock(struct ui_widget_definition const *box)
 {
 	struct ui_widget_child_reference const *pieces = xbox_pointer(box->child_widgets.address);
 
-	return box->child_widgets.count >= 3 && tag_name_ends(pieces[0].widget_tag.index, "\\pausebox2_left");
+	return box->child_widgets.count >= 3 && (tag_name_ends(pieces[0].widget_tag.index, "\\pausebox2_left") ||
+		tag_name_ends(pieces[0].widget_tag.index, "\\pausebox4_left"));
 }
 
 /* the stock box drawn taller, once in a map (the screens share it): each
@@ -1887,8 +2038,7 @@ static void pause_screen_patch(struct cache_file_tag_instance *instances, long s
 			resume--;
 		if (resume < 0 || resume == NONE || *patched_list != NONE)
 			continue;
-		*grow = pause_list_patch(instances, candidate, resume, change_teams, settings, end_game);
-		if (!*grow)
+		if (!pause_list_patch(instances, candidate, resume, quit_function, change_teams, settings, end_game, grow))
 			return;
 		*patched_list = children[child].widget_tag.index;
 		list_child = child;
@@ -1937,7 +2087,7 @@ static void pause_screen_patch(struct cache_file_tag_instance *instances, long s
 		else
 			children[child].vertical_offset -= *grow / 2;
 	}
-	if (box_child != NONE && !*box_grown)
+	if (box_child != NONE && !*box_grown && *grow > 0)
 	{
 		/* (trimmed first: the box's taller parts are copies of its pieces) */
 		pause_box_trim(tag_get(UI_WIDGET_DEFINITION_TAG, children[box_child].widget_tag.index));
@@ -1984,8 +2134,10 @@ static void pause_patch(struct cache_file_tag_instance *instances, boolean setti
 	}
 	if (patched_list != NONE)
 	{
-		platform_log("menus: the pause menu has%s%s%s%s", change_teams ? " CHANGE TEAMS" : "", settings ? " SETTINGS" : "",
-			pause_controls_offered() ? " CONTROLS" : "", host && solo_screen == NONE ? " END GAME" : "");
+		platform_log("menus: the pause menu has%s%s%s%s%s", change_teams ? " CHANGE TEAMS" : "",
+			settings ? " SETTINGS" : "", pause_controls_offered() ? " CONTROLS" : "",
+			solo_screen == NONE && pause_moderation_offered(host) ? " MODERATION" : "",
+			host && solo_screen == NONE ? " END GAME" : "");
 	}
 }
 
@@ -2028,7 +2180,12 @@ static void pause_patch_xbox(void)
 		menu_tags_release();
 	}
 	else
+	{
 		cache_files_set_tag_instances(instances, build.first_index + build.next);
+		/* (its buttons are the port's tags, which may run the port's
+		functions: pc_menu_tag) */
+		menu_tags.pause_buttons = TRUE;
+	}
 	memset(&build, 0, sizeof(build));
 }
 
@@ -2325,8 +2482,48 @@ char const *pc_menus_root_name(
 boolean pc_menu_tag(
 	long tag_index)
 {
-	return menu_tags.loaded && tag_index != NONE &&
+	return (menu_tags.loaded || menu_tags.pause_buttons) && tag_index != NONE &&
 		DATUM_INDEX_TO_ABSOLUTE_INDEX(tag_index) >= menu_tags.original_count;
+}
+
+static int menu_block_range_compare(void const *a, void const *b)
+{
+	unsigned long first = ((struct menu_block_range const *)a)->start;
+	unsigned long second = ((struct menu_block_range const *)b)->start;
+
+	return first < second ? -1 : first > second;
+}
+
+/* whether size bytes at an address (as tags address them) are within one
+of the menus' own tag blocks: a Custom Edition map's reads of its tags stay
+within its tag cache (ce_map_checks.c's ce_tags_pointer) or these */
+boolean pc_menu_owns(
+	unsigned long address,
+	long size)
+{
+	long low = 0, high;
+
+	if (size < 0 || !menu_tags.block_count)
+		return FALSE;
+	if (menu_tags.sorted_count != menu_tags.block_count)
+	{
+		qsort(menu_tags.ranges, (size_t)menu_tags.block_count, sizeof(*menu_tags.ranges), menu_block_range_compare);
+		menu_tags.sorted_count = menu_tags.block_count;
+	}
+	high = menu_tags.block_count - 1;
+	while (low <= high)
+	{
+		long middle = low + (high - low) / 2;
+		struct menu_block_range const *range = &menu_tags.ranges[middle];
+
+		if (address < range->start)
+			high = middle - 1;
+		else if (address >= range->end)
+			low = middle + 1;
+		else
+			return (unsigned long)size <= range->end - address;
+	}
+	return FALSE;
 }
 
 /* where in its widget, and how large, a frame of ui.map's that a menu file
@@ -2495,9 +2692,14 @@ boolean pc_menu_button_key_cap(
 	float alpha)
 {
 #ifdef HALO_GAME_BROWSER
+	extern boolean moderation_screen_active(void);
 	int button = pc_menu_key_cap_button(bitmap_tag_index);
 
 	(void)x0;
+	/* (the Moderation screen over the menu: the menu's key caps hidden with
+	it, not drawn over the screen) */
+	if (button >= 0 && moderation_screen_active())
+		return TRUE;
 	if (button >= 0)
 	{
 		float size = (float)(y1 - y0) * 0.62f;

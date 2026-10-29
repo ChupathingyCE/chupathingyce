@@ -29,6 +29,12 @@ HALO_GAME_BROWSER; network.protocol = "opence" turns all of it off.
 #include "browser.h"
 #include "p2p.h"
 #endif
+#ifdef HALO_CONSOLE_PROFILE_ID
+/* (the port's: this console's player ID while its player linked it to a
+Delta profile, port/console/link/console_link.h, or put an identity file
+on it) */
+int console_profile_id(unsigned char *id);
+#endif
 #ifdef HALO_XBOX_CONSOLE
 /* (the console's memory class, as log2 of megabytes: port/xbox/src/
 xbox_memory.c) */
@@ -81,6 +87,9 @@ static struct
 	/* the host's game's player traits (delta_peer_game_set_traits) */
 	int has_traits;
 	struct delta_wire_traits traits;
+	/* the host's advertisement has had the old layout (released clients
+	before the tag read it): set once, kept */
+	int advertised_old;
 } delta_game = { 0 };
 
 /* whether two settings' words are the same, case aside (ASCII; no
@@ -106,6 +115,11 @@ static int local_platform(void)
 #if defined(HALO_XBOX_CONSOLE)
 	/* (before _WIN32: the console's build is a Windows target's too) */
 	return _delta_platform_xbox;
+#elif defined(HALO_XBOX360_CONSOLE)
+	/* (before _WIN32 too, for the same reason) */
+	return _delta_platform_xbox360;
+#elif defined(HALO_WIIU_CONSOLE)
+	return _delta_platform_wiiu;
 #elif defined(_WIN32)
 	/* (the Windows build under Proton on the Deck: Steam sets SteamDeck=1
 	there too) */
@@ -217,7 +231,12 @@ static int local_profile(struct delta_wire_profile *profile)
 	return 1;
 #else
 	memset(profile, 0, sizeof(*profile));
-#ifdef HALO_XBOX_CONSOLE
+#if defined(HALO_CONSOLE_PROFILE_ID)
+	/* (only a console its player linked (Link Profile) or gave an identity
+	file: on a console that is the player's consent, where a desktop build
+	asks for network.share_profile) */
+	return console_profile_id(profile->player_id);
+#elif defined(HALO_XBOX_CONSOLE)
 	/* (only a copy the player gave an identity file: on a console the file
 	being there is the player's consent, where a desktop build asks for
 	network.share_profile) */
@@ -261,18 +280,28 @@ static delta_u32 game_random(void *context)
 	return value;
 }
 
-#ifdef HALO_XBOX_CONSOLE
-/* (the console keeps no signed legacy table, nor relays one: delta.c, its
-thread and its fetch are not in its 64 MB, nor are the table buffers
-(delta_peer.h); nothing is disabled) */
+#if defined(HALO_XBOX_CONSOLE) && !defined(HALO_CONSOLE_HTTPS)
+/* (the console without HTTPS keeps no signed legacy table: nothing is
+disabled) */
 static int game_capability_disabled(void *context, int capability)
 {
 	(void)context;
 	(void)capability;
 	return 0;
 }
+#else
+/* the legacy table's kill switch (a console with HTTPS fetches the table
+itself: delta_legacy_refresh) */
+static int game_capability_disabled(void *context, int capability)
+{
+	(void)context;
+	return delta_capability_disabled(capability);
+}
+#endif
 
-/* the console takes no legacy table: it says so (TABLE_HAVE with
+#ifdef HALO_XBOX_CONSOLE
+/* the console takes no legacy table from a host, nor relays one (the table
+buffers, delta_peer.h, are not in its 64 MB): it says so (TABLE_HAVE with
 DELTA_WIRE_TABLE_NONE), and a host does not send it one */
 static delta_u32 game_legacy_table_serial(void *context)
 {
@@ -280,13 +309,6 @@ static delta_u32 game_legacy_table_serial(void *context)
 	return DELTA_WIRE_TABLE_NONE;
 }
 #else
-/* the legacy table's kill switch */
-static int game_capability_disabled(void *context, int capability)
-{
-	(void)context;
-	return delta_capability_disabled(capability);
-}
-
 /* the legacy table's relay: delta.c's table (none taken or sent with a
 local table in use, or no key) */
 static delta_u32 game_legacy_table_serial(void *context)
@@ -403,8 +425,8 @@ int delta_peer_protocol(void)
 		env.moderation_sign = game_moderation_sign;
 		env.moderation_binding = game_moderation_binding;
 		memset(&local, 0, sizeof(local));
-#ifdef HALO_XBOX_CONSOLE
-		/* (the console says what it is: no maps or moderation; its
+#ifdef HALO_CONSOLE_DELTA
+		/* (a console says what it is: no maps or moderation; its
 		profile only if the player gave it an identity file: added below) */
 		local.capabilities = (delta_u32)1 << _delta_capability_platform;
 #ifdef HALO_PORT_CHAT
@@ -423,6 +445,11 @@ int delta_peer_protocol(void)
 		host is set, team_change.c) */
 		local.capabilities |= (delta_u32)1 << _delta_capability_team_change;
 #endif
+#ifdef HALO_GAME_BROWSER
+		/* (units' shield and health and objects' names, as the host has
+		them: network_objects.c) */
+		local.capabilities |= (delta_u32)1 << _delta_capability_object_sync;
+#endif
 		/* (moderation: a client signs with its player key's moderator key; a
 		host offers it only with the dedicated server's moderation) */
 #ifdef HALO_GAME_BROWSER
@@ -438,13 +465,13 @@ int delta_peer_protocol(void)
 		table's layouts' newest) */
 		local.legacy_version = network_rules_layout_newest();
 		delta_peer_local_key(&local.key);
-#ifdef HALO_XBOX_CONSOLE
+#ifdef HALO_CONSOLE_DELTA
 		snprintf(local.build, sizeof(local.build), "Warthog %s", HALO_VERSION);
 #else
 		snprintf(local.build, sizeof(local.build), "ChupathingyCE %s", updater_version());
 #endif
 		local.has_profile = local_profile(&local.profile);
-#ifdef HALO_XBOX_CONSOLE
+#ifdef HALO_CONSOLE_DELTA
 		if (local.has_profile)
 			local.capabilities |= (delta_u32)1 << _delta_capability_profile;
 #endif
@@ -531,8 +558,8 @@ static void receive(void)
 
 /* the host's: the game's map, as MAP carries it, for the session to send
 (none while its file's hash is being made) */
-#ifdef HALO_XBOX_CONSOLE
-/* (the console takes no Halo PC maps' identities: it asks for no MAP) */
+#ifdef HALO_CONSOLE_DELTA
+/* (a console takes no Halo PC maps' identities: it asks for no MAP) */
 static void host_map(void)
 {
 }
@@ -757,7 +784,15 @@ void delta_peer_advertised_wire(unsigned char *reserved, int size, int engine)
 	of OpenCE's meanings: with the flag, a dedicated server's, and in a game
 	whose kind OpenCE's browsers do not read) */
 	if ((reserved[DELTA_ADVERTISED_FLAGS_OFFSET] & DELTA_ADVERTISED_FLAG) && engine != DELTA_ADVERTISED_KIND_ENGINE)
+	{
 		delta_compat_advertise_old(reserved, size, DELTA_MAJOR, DELTA_WIRE);
+		delta_game.advertised_old = 1;
+	}
+}
+
+int delta_peer_advertised_old_layout(void)
+{
+	return delta_game.advertised_old;
 }
 
 int delta_peer_advertised_speaks_delta(const unsigned char *reserved, int size)
@@ -1224,4 +1259,38 @@ unsigned int delta_peer_game_team_result(struct delta_wire_team_result *result)
 	if (!delta_game.ready)
 		return 0;
 	return delta_peer_client_team_result(&delta_game.peer, result);
+}
+
+/* ---------- object sync (port/linux/game/network_objects.c) */
+
+int delta_peer_game_objects_clients(void)
+{
+	if (!delta_game.ready || delta_game.role != _role_host)
+		return 0;
+	return delta_peer_objects_clients(&delta_game.peer);
+}
+
+int delta_peer_game_send_unit_vitals(int machine_index, const struct delta_wire_unit_vitals *vitals)
+{
+	if (!delta_game.ready || delta_game.role != _role_host)
+		return 0;
+	return delta_peer_send_unit_vitals(&delta_game.peer, machine_index, vitals);
+}
+
+int delta_peer_game_objects_ready(void)
+{
+	return delta_game.ready && delta_game.role == _role_client && delta_peer_client_objects_ready(&delta_game.peer);
+}
+
+int delta_peer_game_send_object_names(int machine_index, const struct delta_wire_object_names *names)
+{
+	if (!delta_game.ready || delta_game.role != _role_host)
+		return 0;
+	return delta_peer_send_object_names(&delta_game.peer, machine_index, names);
+}
+
+void delta_peer_game_set_objects_client(const struct delta_peer_objects_client *client)
+{
+	delta_peer_protocol();
+	delta_peer_set_objects_client(&delta_game.peer, client);
 }

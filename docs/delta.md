@@ -146,6 +146,8 @@ shares.
 | 13 | `bomb_movement` | TRAITS' movement and melee traits (jump, gravity, melee reach), for a player whose machine and host both agreed to it |
 | 14 | `bomb_traits` | TRAITS at 22 (Grifball test builds 2 and 3 sent it as 18, chat's CHAT_CONFIG). Room-wide with `bomb`: a host playing a Bomb game type drops every machine without both |
 | 15 | `team_change` | changing teams during a game: a client asks its host (TEAM_REQUEST), the host decides and answers (TEAM_RESULT); see "Team changes" |
+| 16 | `server_badge` | reserved for server badges (a draft); never set until that is built |
+| 17 | `object_sync` | what the game's messages leave out of the host's objects: every unit's shield and health (UNIT_VITALS) and the scenario names of the objects the host made (OBJECT_NAMES); see "Object sync" |
 
 The registry lives in the repository next to the compatibility table and is
 the single source for the bit numbers. Built so far: `platform`, `profile`,
@@ -205,6 +207,13 @@ The platform registry (`enum delta_platform`, one byte, never reused):
 8 `wiiu`, 9 `switch`, 10 `psp`, 11 `vita`, 12 `xbox_uwp` (the Xbox One and
 Series in developer mode). 10 to 12 are ports others build on ours; their
 policy rows are placeholders until those ports play, as the consoles' are.
+
+The original Xbox, Xbox 360 and Wii U builds are Delta Peer clients
+(`HALO_CONSOLE_DELTA`). Each sends its own platform (6, 7 or 8) and a
+console's capabilities: the platform key, text chat and the server's lines,
+and a profile only if its player set one up. They never host on Delta, and
+take no Halo PC maps, team changes or moderation. Their build is "Warthog"
+and the version.
 
 ### Platform policy
 
@@ -296,6 +305,9 @@ a later version may append):
 | 22 | TRAITS | host to client | kind (1: 0 none, 1 Bomb), reserved (3), everyone's then the carrier's player traits, 12 bytes each: health, damage, resistance, speed (2 each, percent), shields (1: 0 unchanged, 1 none, 2 normal, 3 overshield), highlight (1), reserved (2); values past their ranges ([bomb.md](bomb.md)) refused. Grifball test builds 2 and 3 sent it as 18, which is CHAT_CONFIG's (a host drops those builds from a Bomb game: `bomb_traits`) |
 | 23 | TEAM_REQUEST | client to host | sequence (4, above the session's last), player (1, the game's player list index), team (1: 0 red, 1 blue, 255 the other one), reserved (2) |
 | 24 | TEAM_RESULT | host to client | sequence (4, the TEAM_REQUEST's), result (1: 0 changed, 1 at the next respawn, 2 the host takes none, 3 the teams would be uneven, 4 no teams, 5 too soon, 6 not now, 7 no such player of the machine, 8 already on that team, 9 the last player of their team), team (1, the player's now), seconds until the player may change again (2; with 5) |
+| 25, 26 | | | kept for server badges (a draft) |
+| 27 | UNIT_VITALS | host to client | count (1, at most 98), flags (1: 0x01 the last datagram of a full pass), reserved (2), then 12-byte entries: the host's object (4, its datum index, which a client's copy shares), flags (1: 0x01 shield depleted, 0x02 shield charging, 0x04 shield over charging), reserved (1), body vitality (2), shield vitality (2), reserved (2); vitality in 16384ths, as the game's own unit states have it |
+| 28 | OBJECT_NAMES | host to client | total (2, the host's named objects and removed names in all, at most 512), first (2, this datagram's first entry's place among them), count (1, at most 98), reserved (3), then 12-byte entries: the host's object (4; 0xFFFFFFFF for a removed name), its scenario name index (2), flags (1: 0x01 removed, a name the host had an object of this game and has none of now; others ignored), and for a removed name its unit's last vitals: shield flags (1, as UNIT_VITALS's), body vitality (2), shield vitality (2) (full for an object that was not a unit; 0 for the others) |
 
 A roster covers every machine of the game, in as many datagrams as it takes
 (32 machines each). A client forgets a machine the roster has not named for
@@ -395,7 +407,9 @@ plays, with `ce_maps` agreed by both:
 A dedicated server's moderators act from the game over Delta Peer (the
 `moderation` capability). A host offers it only when it has moderation (the
 dedicated server registers its own, `delta_moderation.h`); a game a player
-hosts offers none. OpenCE players can be warned, kicked and banned like
+hosts offers none over the wire. Its host has the same Moderation screen
+for its own game (kick and ban, no sign-in), done on the host's machine
+with the console's kick and ban. OpenCE players can be warned, kicked and banned like
 anyone (the server acts through the game's own kick and ban), but only a
 Delta client can be an in-game moderator.
 
@@ -577,6 +591,73 @@ The game's side is `port/linux/game/team_change.c`, its pause menu row in
 all the menu sets (`port/linux/game/menu_tags.c`), and the dedicated
 server's settings and `sv_team` (`server/docs/settings.md`).
 
+### Object sync
+
+What the game's own messages leave out of the host's objects, over
+`object_sync` (bit 17). The game messages stay as they are; a host sends
+these only to the clients that agreed to it, so OpenCE's machines, older
+builds and the console builds that do not offer it play as they always
+did. Built for Halo PC maps whose client-side scripts read objects the
+game's messages never describe (Coldsnap 20th XL; credit to ugoboom for
+the map and the report):
+
+- **Unit vitals.** The game's messages carry shield and health only for
+  players' units and the AI's. A placed biped or an empty vehicle kept its
+  full shield on a client until the host deleted it, so a script that read
+  it there (`unit_get_shield`) decided otherwise than the host's. The host
+  sends UNIT_VITALS for every other unit: a change at once if a shield or
+  body fell from full, emptied, or the shield's flags changed, other
+  changes at most every 2 ticks, each change in 3 datagrams (one may be
+  lost), and every half second the next 32 of the rest in turn (a client
+  that came late, or lost all three). They go out before the tick's object
+  changes, so a client sees a shield drop before a delete the host's
+  scripts made of it. A client's copy takes the host's values (not its
+  own player's unit, which the game's messages carry).
+- **A client that comes late.** A client that joins, or loads the map
+  after the host, would learn of the host's deletes and the shields that
+  caused them at once, and a map's scripts would decide wrong. So when a
+  client asks for the host's objects, the host sends it every unit's
+  vitals first (a full pass, its last datagram marked), and the client
+  keeps its own copies of what the host deleted until a tick after that
+  pass came (a second at most; not at all with a host without
+  `object_sync`). Its scripts run that tick with the host's vitals on the
+  copies the map placed. In play, a client also applies the host's delete
+  of a named object two ticks late, so that the vitals heard with it (often
+  in the same frame) are there for one tick of its scripts first.
+- **Object names.** A client makes its copy of a host's object without the
+  scenario name (the creation message has none), so the names of objects
+  the host's scripts made (`object_create_anew`) found nothing there. The
+  host sends OBJECT_NAMES, all its named objects (by its name list, as its
+  scripts read them), when they change, when a client agrees or asks for
+  its objects, and every 5 seconds. A client names its copy as it comes,
+  if the scenario gives that name to an object of its type and nothing
+  else holds the name then (its own copy of the same name, which it
+  deletes as not the host's, frees it).
+- **Map-placed bipeds the scripts read.** A named biped that no player or
+  AI has (Coldsnap's game type detectors) is read by the map's scripts on
+  every machine. Each machine's scripts find the game type from these
+  bipeds and then delete the other types' ones themselves. A client that
+  only had the host's would find the host's deletes already done and read
+  a missing biped (-1), so it would pick the wrong game type. So while the
+  host has no object of that name (by OBJECT_NAMES), a client keeps its own:
+  the copy it placed with the map, or the map's placement again in its own
+  half of the object array after the host's delete (not after a death: a
+  body the host cleared up stays gone). Its own scripts may delete it. Once
+  the host names one of its objects so, the host's copy takes the name and
+  the client's own copy goes.
+- **Names the host removed.** OBJECT_NAMES also lists each name the host
+  had an object of this game and has none of now, with that unit's vitals
+  as the host last saw them. A client that came late would otherwise keep
+  standing copies of the bipeds the host's scripts deleted or that died
+  there. Its own copy of a removed name takes those vitals for a tick of
+  its scripts (so they decide as the host's did), then goes at the tick
+  after the next. A name the host never had an object of is not listed,
+  and the client keeps its own copy of it as above.
+
+It is offered by the builds with the game list (`HALO_GAME_BROWSER`: the
+desktop builds, Android, the Switch and the dedicated server), not by the
+original Xbox's. The game's side is `port/linux/game/network_objects.c`.
+
 ### The protocol setting
 
 `network.protocol` in config.toml (`HALO_NET_PROTOCOL`):
@@ -696,7 +777,14 @@ What each side checks, since 0.7.5a:
   its own; an OpenCE machine gets the announced number's. A host that
   announces 35 or later holds a joining machine's record until its HELLO or
   the handshake's 4 seconds have passed, as only then is it known which
-  (NETCODE.md, "Versions"). To serve OpenCE players of an older number
+  (NETCODE.md, "Versions"). It holds only a machine whose HELLO could
+  change the record: one that marked its join request (a Delta client
+  joining a Delta host puts a two-character mark past the end of its
+  machine name, which the host clears), or any machine when a build that
+  may still join without the mark could say an older version with another
+  record (a host that also advertises the old layout, or one announcing
+  past its own built-in number with a longer record). An OpenCE player
+  joining a host of ours otherwise starts at once. To serve OpenCE players of an older number
   and a newer one at once, run two hosts, one announcing each: a local
   table (`network.legacy_table`, below) sets a server's number.
 - **The next number is presumed additive.** Our client joins hosts of the
@@ -836,7 +924,7 @@ A chupa-32a console can't join a Slayer game on a server announcing 39 by
 number (it joins to 33), which is why servers announce 39 only by their own
 table. **The transition has no end date.** Hosts write the old layout where
 it fits for as long as released builds need it, and new builds read it.
-Stopping either needs the owner's decision ("Never drop an old protocol").
+Stopping either is a deliberate decision ("Never drop an old protocol").
 
 **The cost of one slot** (the old layout, for the record). A released client
 that checked the slot exactly saw the host's oldest compatible wire,
@@ -1496,6 +1584,40 @@ copy: every Halo profile on a copy counts for the same Delta profile.
   false` shows everyone by their game name.
 - **Consoles:** `HALO_CONSOLE_NO_DELTA_PROFILE` leaves all of it out. A
   console that has the game list keeps Online Games' Link Profile panel.
+
+### Link Profile on a console
+
+The original Xbox, the Xbox 360 and the Wii U link with a key of their own
+(`port/console/link`, the site's `console_link.py`). Their Online Games'
+Start opens a DELTA PROFILE panel: linked to whom, or a code to enter at
+stats.chupathingy.org/connect (and its QR code), then A to confirm.
+
+- **The key:** made on the console the first time its player asks for a
+  code (`delta_device.key` beside config.toml: an Ed25519 seed as 64 hex
+  digits). It never leaves the console and is never logged. The console's
+  player ID is the first 16 bytes of SHA-256("chupathingy console id v1\n"
+  + its public key), so no one can claim another console's ID.
+- **The code**, over the console list's plain HTTP (no TLS yet): the
+  console sends its public key and a commitment to a secret
+  (`/v1/console/link/start`), the site answers a nonce, the console sends
+  the secret (`/v1/console/link/code`). Both work out the code
+  (XXXX-XXXX, 10 minutes) from the key, the secret and the nonce, so a key
+  swapped on the way gives a code that isn't the one on the screen. The
+  console polls `/v1/console/link/status`, asks its player, and signs its
+  answer over the profile it showed (`/v1/console/link/confirm`). Nothing
+  sent can be used again by anyone who sees it.
+- **HTTPS later:** once a console has Mbed TLS (the site's key pinned, so no
+  clock is needed), its port sets the hook's `https_request` and the same
+  calls go to stats.chupathingy.org over TLS.
+- **Afterwards:** the console keeps the handle (`delta_link.txt`), and asks
+  `/v1/console/profile` (a signed one-use challenge) for its name and clan
+  tag when Online Games opens; unlinked on the site, it forgets it. A
+  linked console shares its ID in Delta Peer's PROFILE
+  (`HALO_CONSOLE_PROFILE_ID`), so its games count and Delta players see its
+  Delta name. A console that never asked for a code sends nothing.
+- **Unlinking** is on the site (`/profile#copies`). The original Xbox's
+  identity file (`D:\game_list_player.key`) still works, and wins when
+  present.
 
 ### Clans
 

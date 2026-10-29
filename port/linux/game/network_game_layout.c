@@ -56,8 +56,133 @@ static int index_fits(unsigned char value, int slots)
 	return value == NONE_BYTE || index_in(value, slots);
 }
 
+/* A player may name a machine the record has no entry for: a host's own
+players with no machine of their own (a modified host's bots name machines
+from #113 up), which the PC builds play with. One past the narrower layout's
+machines is given a free machine index of it, the highest first, the same
+one for each of its players: map[i] is the index a player naming machine i
+is given (i itself where it fits, or NONE). 0 when there are more such
+machines than free indices, or a player names a machine past the narrower
+layout's that has an entry (a real machine there, which is the machines'
+error). */
+static int machine_less_map(const unsigned char *from, int from_machines, int from_players, int to_machines,
+	int to_players, unsigned char *map, struct network_game_layout_machine_map *kept)
+{
+	const unsigned char *from_machine = from + NETWORK_GAME_LAYOUT_MACHINES_OFFSET;
+	const unsigned char *from_player = from_machine + from_machines * NETWORK_GAME_LAYOUT_MACHINE_SIZE + 2;
+	unsigned char present[256];
+	unsigned char taken[256];
+	int index, next, pass;
+
+	memset(present, 0, sizeof(present));
+	memset(taken, 0, sizeof(taken));
+	for (index = 0; index < 256; index++)
+		map[index] = (unsigned char)index;
+	for (index = 0; index < from_machines; index++)
+	{
+		unsigned char machine_index = from_machine[index * NETWORK_GAME_LAYOUT_MACHINE_SIZE + NETWORK_GAME_LAYOUT_MACHINE_INDEX];
+
+		if (index_in(machine_index, from_machines))
+		{
+			present[machine_index] = 1;
+			taken[machine_index] = 1;
+		}
+	}
+	/* (the indices the players that fit name are taken too) */
+	for (index = 0; index < from_players && index < to_players; index++)
+	{
+		const unsigned char *player = from_player + index * NETWORK_GAME_LAYOUT_PLAYER_SIZE;
+
+		if (index_in(player[NETWORK_GAME_LAYOUT_PLAYER_LIST_INDEX], from_players) &&
+			index_in(player[NETWORK_GAME_LAYOUT_PLAYER_MACHINE_INDEX], to_machines))
+		{
+			taken[player[NETWORK_GAME_LAYOUT_PLAYER_MACHINE_INDEX]] = 1;
+		}
+	}
+	/* (first the indices given before, while still free; then new ones) */
+	for (pass = 0; pass < 2; pass++)
+	{
+		next = to_machines - 1;
+		for (index = 0; index < from_players && index < to_players; index++)
+		{
+			const unsigned char *player = from_player + index * NETWORK_GAME_LAYOUT_PLAYER_SIZE;
+			unsigned char machine_index = player[NETWORK_GAME_LAYOUT_PLAYER_MACHINE_INDEX];
+			unsigned char before;
+
+			if (!index_in(player[NETWORK_GAME_LAYOUT_PLAYER_LIST_INDEX], from_players) ||
+				index_fits(machine_index, to_machines) || map[machine_index] != machine_index)
+			{
+				continue;
+			}
+			if (!index_in(machine_index, from_machines) || present[machine_index])
+				return 0;
+			before = kept && machine_index < NETWORK_GAME_LAYOUT_PC_SLOTS ? kept->machine[machine_index] : NONE_BYTE;
+			if (pass == 0)
+			{
+				if (index_in(before, to_machines) && !taken[before])
+				{
+					map[machine_index] = before;
+					taken[before] = 1;
+				}
+				continue;
+			}
+			while (next >= 0 && taken[next])
+				next--;
+			if (next < 0)
+				return 0;
+			map[machine_index] = (unsigned char)next;
+			taken[next] = 1;
+		}
+	}
+	if (kept)
+	{
+		for (index = 0; index < NETWORK_GAME_LAYOUT_PC_SLOTS; index++)
+		{
+			if (map[index] != index)
+				kept->machine[index] = map[index];
+		}
+	}
+	return 1;
+}
+
+void network_game_layout_machine_map_reset(struct network_game_layout_machine_map *map)
+{
+	if (map)
+		memset(map->machine, NONE_BYTE, sizeof(map->machine));
+}
+
+int network_game_layout_machine_map_index(struct network_game_layout_machine_map *map, int machine_index,
+	const unsigned char *used, int to_machines)
+{
+	int index;
+
+	if (machine_index >= 0 && machine_index < to_machines)
+		return machine_index;
+	if (!map || machine_index < 0 || machine_index >= NETWORK_GAME_LAYOUT_PC_SLOTS || !valid_slots(to_machines))
+		return -1;
+	index = map->machine[machine_index];
+	if (index_in((unsigned char)index, to_machines) && !used[index])
+		return index;
+	for (index = to_machines - 1; index >= 0; index--)
+	{
+		if (!used[index])
+		{
+			map->machine[machine_index] = (unsigned char)index;
+			return index;
+		}
+	}
+	return -1;
+}
+
 int network_game_layout_convert(const unsigned char *from, int from_machines, int from_players,
 	unsigned char *to, int to_machines, int to_players, int *clamped)
+{
+	return network_game_layout_convert_mapped(from, from_machines, from_players, to, to_machines, to_players, clamped,
+		NULL);
+}
+
+int network_game_layout_convert_mapped(const unsigned char *from, int from_machines, int from_players,
+	unsigned char *to, int to_machines, int to_players, int *clamped, struct network_game_layout_machine_map *kept)
 {
 	const unsigned char *from_machine = from + NETWORK_GAME_LAYOUT_MACHINES_OFFSET;
 	const unsigned char *from_player_count = from_machine + from_machines * NETWORK_GAME_LAYOUT_MACHINE_SIZE;
@@ -66,6 +191,7 @@ int network_game_layout_convert(const unsigned char *from, int from_machines, in
 	unsigned char *to_machine = to + NETWORK_GAME_LAYOUT_MACHINES_OFFSET;
 	unsigned char *to_player_count = to_machine + to_machines * NETWORK_GAME_LAYOUT_MACHINE_SIZE;
 	unsigned char *to_player = to_player_count + 2;
+	unsigned char machine_map[256];
 	int machine_count, player_count, index;
 
 	if (clamped)
@@ -94,6 +220,8 @@ int network_game_layout_convert(const unsigned char *from, int from_machines, in
 		if (!index_in(machine_index, to_machines))
 			return NETWORK_GAME_LAYOUT_INDEX;
 	}
+	if (!machine_less_map(from, from_machines, from_players, to_machines, to_players, machine_map, kept))
+		return NETWORK_GAME_LAYOUT_INDEX;
 	for (index = 0; index < from_players; index++)
 	{
 		const unsigned char *player = from_player + index * NETWORK_GAME_LAYOUT_PLAYER_SIZE;
@@ -103,7 +231,7 @@ int network_game_layout_convert(const unsigned char *from, int from_machines, in
 		if (index >= to_players)
 			return NETWORK_GAME_LAYOUT_PLAYER_SLOT;
 		if (!index_in(player[NETWORK_GAME_LAYOUT_PLAYER_LIST_INDEX], to_players) ||
-			!index_fits(player[NETWORK_GAME_LAYOUT_PLAYER_MACHINE_INDEX], to_machines) ||
+			!index_fits(machine_map[player[NETWORK_GAME_LAYOUT_PLAYER_MACHINE_INDEX]], to_machines) ||
 			!index_fits(player[NETWORK_GAME_LAYOUT_PLAYER_TEAM_INDEX], to_players))
 		{
 			return NETWORK_GAME_LAYOUT_INDEX;
@@ -130,7 +258,14 @@ int network_game_layout_convert(const unsigned char *from, int from_machines, in
 		unsigned char *player = to_player + index * NETWORK_GAME_LAYOUT_PLAYER_SIZE;
 
 		if (index < from_players)
+		{
 			memcpy(player, from_player + index * NETWORK_GAME_LAYOUT_PLAYER_SIZE, NETWORK_GAME_LAYOUT_PLAYER_SIZE);
+			if (index_in(player[NETWORK_GAME_LAYOUT_PLAYER_LIST_INDEX], to_players))
+			{
+				player[NETWORK_GAME_LAYOUT_PLAYER_MACHINE_INDEX] =
+					machine_map[player[NETWORK_GAME_LAYOUT_PLAYER_MACHINE_INDEX]];
+			}
+		}
 		else
 		{
 			memset(player, 0, NETWORK_GAME_LAYOUT_PLAYER_SIZE);
@@ -145,6 +280,56 @@ int network_game_layout_convert(const unsigned char *from, int from_machines, in
 			*clamped = 1;
 	}
 	return NETWORK_GAME_LAYOUT_OK;
+}
+
+int network_game_layout_failing_entry(const unsigned char *from, int from_machines, int from_players,
+	int to_machines, int to_players, unsigned char *entry)
+{
+	const unsigned char *from_machine;
+	const unsigned char *from_player;
+	unsigned char machine_map[256];
+	int index;
+
+	if (!from || !valid_slots(from_machines) || !valid_slots(from_players) || !valid_slots(to_machines) ||
+		!valid_slots(to_players))
+	{
+		return 0;
+	}
+	/* (a player of no machine is judged by the index it would be given) */
+	if (!machine_less_map(from, from_machines, from_players, to_machines, to_players, machine_map, NULL))
+	{
+		for (index = 0; index < 256; index++)
+			machine_map[index] = (unsigned char)index;
+	}
+	from_machine = from + NETWORK_GAME_LAYOUT_MACHINES_OFFSET;
+	from_player = from_machine + from_machines * NETWORK_GAME_LAYOUT_MACHINE_SIZE + 2;
+	for (index = 0; index < from_machines; index++)
+	{
+		unsigned char machine_index = from_machine[index * NETWORK_GAME_LAYOUT_MACHINE_SIZE + NETWORK_GAME_LAYOUT_MACHINE_INDEX];
+
+		if (index_in(machine_index, from_machines) && (index >= to_machines || !index_in(machine_index, to_machines)))
+		{
+			entry[0] = (unsigned char)index;
+			entry[1] = machine_index;
+			return 1;
+		}
+	}
+	for (index = 0; index < from_players; index++)
+	{
+		const unsigned char *player = from_player + index * NETWORK_GAME_LAYOUT_PLAYER_SIZE;
+
+		if (!index_in(player[NETWORK_GAME_LAYOUT_PLAYER_LIST_INDEX], from_players))
+			continue;
+		if (index >= to_players || !index_in(player[NETWORK_GAME_LAYOUT_PLAYER_LIST_INDEX], to_players) ||
+			!index_fits(machine_map[player[NETWORK_GAME_LAYOUT_PLAYER_MACHINE_INDEX]], to_machines) ||
+			!index_fits(player[NETWORK_GAME_LAYOUT_PLAYER_TEAM_INDEX], to_players))
+		{
+			entry[0] = (unsigned char)index;
+			memcpy(entry + 1, player + NETWORK_GAME_LAYOUT_PLAYER_MACHINE_INDEX, 4);
+			return 2;
+		}
+	}
+	return 0;
 }
 
 /* ---------- the game types' states */
