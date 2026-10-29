@@ -898,6 +898,11 @@ static const struct config_setting config_settings[] =
 		"took (game ticks, the render's parts, sound, network, present, the wait\n"
 		"for the screen), the draw calls and objects drawn, and a line when the\n"
 		"player zooms in or out. Read when the game starts." },
+	{ "console.widget_pool_log", _config_boolean, "false", NULL, _environment_value,
+		_platform_xbox | _platform_console_gl,
+		"For sizing the menus' memory: a line in debug.txt each time the\n"
+		"menus use a new high of their widget memory (by a KB or more), with\n"
+		"the pool's size. Read once the menus start." },
 	{ "console.perf_gpu_sync", _config_boolean, "false", NULL, _environment_value, _platform_xbox,
 		"With console.perf_log: wait for the graphics chip to finish at each\n"
 		"timed part of the render, so each part's time is what the chip spent\n"

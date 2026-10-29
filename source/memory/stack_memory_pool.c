@@ -419,6 +419,16 @@ void dispose_pointer(
 	return;
 }
 
+/* port: the pool's high-water marks (console.widget_pool_log) */
+void stack_memory_pool_usage(
+	struct stack_memory_pool *pool,
+	long *maximum_bytes_used,
+	unsigned long *maximum_blocks_used)
+{
+	*maximum_bytes_used = pool->maximum_bytes_used;
+	*maximum_blocks_used = pool->maximum_block_count_used;
+}
+
 /* Exact January reconstruction: 0x70 padded bytes and one relocation. */
 struct stack_memory_pool_block *pool_new_handle(
 	struct stack_memory_pool *pool,

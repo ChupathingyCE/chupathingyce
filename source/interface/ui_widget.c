@@ -736,8 +736,13 @@ boolean ui_widget_online_games_list(struct widget_instance *widget);
 enum
 {
 	/* port: 16 KB on the Xbox; the PC version's screens (port/assets/menus)
-	have many more widgets */
+	have many more widgets. A console that shows only the Xbox's menus sets
+	its own (halo_console_features.h) */
+#ifdef HALO_CONSOLE_WIDGET_POOL_SIZE
+	WIDGET_MEMORY_POOL_SIZE = HALO_CONSOLE_WIDGET_POOL_SIZE,
+#else
 	WIDGET_MEMORY_POOL_SIZE = 0x40000,
+#endif
 	MAXIMUM_WIDGET_MEMORY_POOL_BLOCKS = 4096
 };
 
@@ -9306,6 +9311,35 @@ static boolean ui_check_for_pause_game(
 	return pause_pressed;
 }
 
+/* port: console.widget_pool_log, a line in debug.txt each time the menus'
+widget memory reaches a new high, by a KB or more: what a console's pool
+size (HALO_CONSOLE_WIDGET_POOL_SIZE) has to hold */
+static void widget_pool_log_update(
+	void)
+{
+	static int enabled = -1;
+	static long logged_bytes;
+	long maximum_bytes;
+	unsigned long maximum_blocks;
+
+	if (enabled < 0)
+	{
+		enabled = config_boolean("console.widget_pool_log") ? 1 : 0;
+		if (enabled)
+			error(_error_log, "ui: the widget pool holds %ld KB", (long)WIDGET_MEMORY_POOL_SIZE / 1024);
+	}
+	if (!enabled)
+		return;
+	stack_memory_pool_usage(widget_memory_pool, &maximum_bytes, &maximum_blocks);
+	if (maximum_bytes >= logged_bytes + 1024)
+	{
+		logged_bytes = maximum_bytes;
+		error(_error_log, "ui: widget pool high-water %ld bytes of %ld (%ld%%), %lu of %d blocks", maximum_bytes,
+			(long)WIDGET_MEMORY_POOL_SIZE, maximum_bytes * 100 / (long)WIDGET_MEMORY_POOL_SIZE, maximum_blocks,
+			(int)MAXIMUM_WIDGET_MEMORY_POOL_BLOCKS);
+	}
+}
+
 void process_ui_widgets(
 	void)
 {
@@ -9321,6 +9355,7 @@ void process_ui_widgets(
 		644,
 		widget_globals.initialized);
 	widget_globals.current_system_milliseconds = system_milliseconds();
+	widget_pool_log_update();
 #ifndef HALO_XBOX_CONSOLE
 	ui_widgets_process_mouse();
 	if (ui_widget_port_press_controller != NONE)

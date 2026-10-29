@@ -30,6 +30,11 @@ HALO_CONSOLE_LIGHT_LIMITS
 	specular highlights (display.dynamic_light_limit and
 	display.specular_light_limit, source/objects/object_lights.c). The
 	desktop builds default both to 0, every light lit as before, and opt in
+HALO_CONSOLE_WIDGET_POOL_SIZE
+	the menus' widget memory, in bytes, for a console that shows only the
+	Xbox's menus: the desktop's 256 KB is for the PC menus' screens
+	(port/assets/menus), which have many more widgets (source/interface/
+	ui_widget.c; console.widget_pool_log logs what the menus use)
 HALO_CONSOLE_NO_WRITE_WATCH
 	a console that will not write-protect guest memory, so the renderer's
 	write watch cannot see the game write a resource: locks and file reads
@@ -187,6 +192,8 @@ compile lines: source/cseries/xbox_address.h).
 #ifdef HALO_XBOX_CONSOLE
 #define HALO_CONSOLE_PARTICLE_TICKS 1
 #define HALO_CONSOLE_LOG_BUFFER 1
+/* (the H1 Performance Build's 64 KB; the retail game had 16 KB) */
+#define HALO_CONSOLE_WIDGET_POOL_SIZE 0x10000
 #define HALO_CONSOLE_ONLINE_GAMES 1
 #define HALO_CONSOLE_OVERSIZED_MAPS 1
 #define HALO_CONSOLE_LIGHT_LIMITS 1
