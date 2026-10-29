@@ -1999,14 +1999,16 @@ HRESULT WINAPI Direct3D_CreateDevice(UINT adapter, D3DDEVTYPE device_type, void 
 			!browser_headless() &&
 #endif
 			platform_video_initialize(width, height))
-		{
 #ifdef HALO_BGFX
+		{
 			if (xgpu_bgfx)
 				bg_initialize();
 			else
-#endif
-			gl_initialize();
+				gl_initialize();
 		}
+#else
+			gl_initialize();
+#endif
 		else
 			platform_log("Direct3D: running without a window (nothing is displayed)");
 		device.created = TRUE;

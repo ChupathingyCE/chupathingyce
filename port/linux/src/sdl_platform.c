@@ -1286,10 +1286,10 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 	platform_window = SDL_CreateWindow(title, (int)platform_window_width, (int)platform_window_height,
 #ifdef HALO_BGFX
 		(xgpu_bgfx ? SDL_WINDOW_METAL : SDL_WINDOW_OPENGL) |
-#else
-		SDL_WINDOW_OPENGL |
-#endif
 		SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY |
+#else
+		SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY |
+#endif
 		(config_boolean("debug.hidden_window") ? SDL_WINDOW_HIDDEN : 0) |
 		(platform_fullscreen_setting() ? SDL_WINDOW_FULLSCREEN : 0));
 #endif
