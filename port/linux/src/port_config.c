@@ -378,6 +378,10 @@ static const struct config_setting config_settings[] =
 	{ "display.viewmodel_field_of_view", _config_real, "0.0", "HALO_VIEWMODEL_FIELD_OF_VIEW", _environment_value,
 		_platform_all | _platform_xbox,
 		"The weapon's field of view, 50 to 120. 0: display.field_of_view's." },
+	{ "display.reticle_scales_with_fov", _config_boolean, "true", "HALO_RETICLE_SCALES_WITH_FOV", _environment_value,
+		_platform_all | _platform_xbox,
+		"Size the reticle to the first-person field of view, so it matches the\n"
+		"weapon's spread on screen. No change at 70." },
 	{ "display.far_clip_distance", _config_real, "1024.0", "HALO_FAR_CLIP_DISTANCE", _environment_value, _platform_all,
 		"How far the world is drawn, up to 10000. 1024: the Xbox's." },
 	{ "display.match_timer", _config_boolean, "false", "HALO_MATCH_TIMER", _environment_value, _platform_all | _platform_xbox,
