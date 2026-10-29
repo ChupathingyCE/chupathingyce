@@ -22,6 +22,8 @@
 #include "mcc_ui_teams.h"
 #include "mcc_hud_draw.h"
 #include "mcc_loading.h"
+#include "mcc_precache.h"
+#include "mcc_validation.h"
 #include "mcc_errors.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -38,6 +40,50 @@ short mcc_geometry_part_palette(struct mcc_runtime *runtime, void const *buffer,
 static struct mcc_runtime mcc_loaded_cache;
 static FILE *mcc_stream;
 static boolean mcc_loaded;
+
+/* Menu selection, local admission and readiness ask about the same package.
+ * Retain only its small validation result, never an open file or converted tags. */
+static struct {
+    char name[64];
+    struct mcc_precache_snapshot files;
+    uint32_t checksum;
+} mcc_validation;
+
+void mcc_cache_validation_clear(void)
+{
+    memset(&mcc_validation, 0, sizeof(mcc_validation));
+}
+
+static int mcc_cache_probe(char const *name, struct mcc_cache_source const *source, uint32_t *checksum,
+    char *reason, size_t reason_size)
+{
+    struct mcc_precache_snapshot before, after;
+    int stamped = mcc_precache_snapshot(name, &before);
+    if (reason && reason_size) reason[0]=0;
+    if (mcc_validation_lookup(name, checksum, NULL)) return 1;
+    if (stamped && mcc_validation.checksum && !strcmp(name, mcc_validation.name) &&
+        !memcmp(&before, &mcc_validation.files, sizeof(before))) {
+        *checksum = mcc_validation.checksum;
+        return 1;
+    }
+    mcc_cache_validation_clear();
+    if (!mcc_resources_probe_explain(name, source, checksum, reason, reason_size)) return 0;
+    if (stamped) {
+        /* All candidates matter, including absent package/root overrides and
+         * both shared sets. Never publish a result from an in-flight install. */
+        if (!mcc_precache_snapshot(name, &after) || memcmp(&before, &after, sizeof(before))) {
+            if (reason && reason_size) snprintf(reason,reason_size,
+                "Its map or resources changed during validation. Finish installing and try again.");
+            return 0;
+        }
+        if (strlen(name) < sizeof(mcc_validation.name)) {
+            strcpy(mcc_validation.name, name);
+            mcc_validation.files = after;
+            mcc_validation.checksum = *checksum;
+        }
+    }
+    return 1;
+}
 
 static int mcc_prefix(char const *name)
 {
@@ -132,6 +178,8 @@ static FILE *mcc_open(char const *name, struct mcc_cache_source *source,
     return mcc_open_explain(name,source,identity,NULL,0);
 }
 
+#include "mcc_validation.inl"
+
 boolean mcc_cache_available(char const *name)
 {
     struct mcc_cache_identity identity;
@@ -144,15 +192,9 @@ boolean mcc_cache_available(char const *name)
 
 unsigned long mcc_cache_checksum(char const *name)
 {
-    struct mcc_cache_identity identity;
-    struct mcc_cache_source source;
-    FILE *stream;
     uint32_t checksum=0;
     name=mcc_identity_local_name(name);
-    stream=mcc_open(name,&source,&identity);
-    if (!stream) return 0;
-    if (!mcc_resources_probe(name,&source,&checksum)) checksum=0;
-    fclose(stream);
+    if (mcc_validation_request(name,&checksum,NULL)!=1) return 0;
     /* Initial host setup asks for the version before opening the lobby.
      * Prepare the identity with it, before the first settings send. Early
      * lobby map changes are deferred by mcc_ui_network until local admission.
@@ -263,6 +305,8 @@ boolean mcc_cache_contains(void const *address, long bytes)
 
 void mcc_cache_tags_unload(void)
 {
+    mcc_validation_cancel();
+    mcc_cache_validation_clear();
     mcc_cache_precache_clear();
     mcc_hud_glyphs_dispose();
     mcc_campaign_dispose();

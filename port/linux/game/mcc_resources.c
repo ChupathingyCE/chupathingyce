@@ -13,6 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+unsigned long system_milliseconds(void);
 
 /* Logging includes the game's allocation macros. This reader owns libc
  * allocations (including calloc), so keep their original matching frees. */
@@ -381,3 +382,5 @@ int mcc_resources_fingerprint_probe(char const *name,struct mcc_cache_source con
 {
     return mcc_resources_inspect(name,source,NULL,digest,NULL,0);
 }
+
+#include "mcc_resource_check.inl"
