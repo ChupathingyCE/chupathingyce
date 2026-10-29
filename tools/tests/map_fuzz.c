@@ -661,6 +661,11 @@ int ce_vorbis_decode(const unsigned char *data, int size, int *channels, int *sa
 	return -1;
 }
 
+int ce_vorbis_resample(short **samples, int frames, int channels, int rate, int wanted)
+{
+	return -1;
+}
+
 void ce_vorbis_free(short *samples)
 {
 }

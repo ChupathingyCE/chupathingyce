@@ -2,7 +2,7 @@
 
 A Halo: Combat Evolved server for Linux. It hosts games by itself, with no
 player of its own, around the clock, from a playlist of maps and game types.
-Its games show on [halo.milenko.org](https://halo.milenko.org), the
+Its games show on [stats.chupathingy.org](https://stats.chupathingy.org), the
 community's game list, and in the in-game Server Browser of Chupathingy
 and OpenCE. Finished games get carnage reports there.
 
@@ -47,7 +47,8 @@ small VPS will do.
    maps of the North American (NTSC) Xbox disc, as the players do. Halo PC
    maps go in folders beside `maps`: Custom Edition maps (with Custom
    Edition's `bitmaps.map`, `sounds.map` and `loc.map`) in `maps_ce`,
-   HaloMD maps in `maps_md`, Halo PC retail maps in `maps_pc`
+   HaloMD maps in `maps_md`, Halo PC retail maps in `maps_pc`, an Xbox map
+   pack's maps (Halo CE+'s) in its own folder (`maps_cex`)
    ([Playlists](docs/playlists.md)).
 3. Put a playlist in the data folder's `playlists` folder (the download's,
    or your own), and start the server:
@@ -59,7 +60,7 @@ HALO_DEDICATED=playlists/free_for_all.txt HALO_DEDICATED_NAME="My Server" \
 ```
 
 The server prints what it is doing; leave it running. It shows on
-halo.milenko.org within a few seconds. Ctrl+C stops it, and takes its game
+stats.chupathingy.org within a few seconds. Ctrl+C stops it, and takes its game
 off the lists as it goes.
 
 The data folder is the current folder, unless `HALO_DATA_ROOT` says
@@ -102,7 +103,7 @@ one machine, use [Docker or systemd](docs/docker.md).
 
 ## Run your own server: moderators and the control panel
 
-Everything here works without halo.milenko.org. Details, the roles table
+Everything here works without stats.chupathingy.org. Details, the roles table
 and the security notes: [docs/moderation.md](docs/moderation.md).
 
 1. **Turn on the control panel.** `HALO_DEDICATED_CONTROL=8080` keeps it on
@@ -138,7 +139,7 @@ link. On the loopback address unless told otherwise; HTTPS beyond it.
 Passwords as Argon2id hashes, guessing slowed per address and per account,
 codes good once, sessions in HttpOnly SameSite cookies with CSRF tokens.
 Moderators are known by a key their game proves, never by a name or
-hardware id. Linking to halo.milenko.org is optional (`sv_link`), outbound
+hardware id. Linking to stats.chupathingy.org is optional (`sv_link`), outbound
 only, capped at admin, and undone at once with `sv_unlink`.
 
 ## Who can join
@@ -155,8 +156,8 @@ is on.
 | --- | --- |
 | [docs/settings.md](docs/settings.md) | Every setting, the command line, exit statuses, and the files the server writes. |
 | [docs/admin.md](docs/admin.md) | Running a server: its commands, its console, startup commands, the control API and web admin page (and reaching them safely). |
-| [docs/moderation.md](docs/moderation.md) | Moderators and the control panel: roles, accounts, second factors, invitations, in-game moderation, HTTPS, the link to halo.milenko.org, and security notes. |
-| [docs/playlists.md](docs/playlists.md) | Playlists: the maps (Xbox, `@ce`, `@md`), the game types, and the ones included. |
+| [docs/moderation.md](docs/moderation.md) | Moderators and the control panel: roles, accounts, second factors, invitations, in-game moderation, HTTPS, the link to stats.chupathingy.org, and security notes. |
+| [docs/playlists.md](docs/playlists.md) | Playlists: the maps (Xbox, `@ce`, `@md`, the Xbox map packs' `@cex`), the game types, and the ones included. |
 | [docs/docker.md](docs/docker.md) | The container image, the systemd services, more servers on one host, and the game list's probe. |
 | [docs/building.md](docs/building.md) | Building the server: the targets, musl and glibc, and how it differs from the game. |
 | [CHANGELOG.md](CHANGELOG.md) | What changed in the server, release by release. |
@@ -172,7 +173,7 @@ blocks; `deploy/` the container and services.
 
 ## Stats (Delta Stats)
 
-A server can send each game's events to halo.milenko.org when it ends, for
+A server can send each game's events to stats.chupathingy.org when it ends, for
 the site's match pages, heatmaps, records and leaderboards: kills (weapon,
 how, where the killer and victim were), shots and hits by weapon, medals and
 sprees, flag, ball, hill and lap events, vehicle rides, weapon and powerup
@@ -207,7 +208,7 @@ and players can hide their stats from their profile.
 - **"cannot read the playlist".** `HALO_DEDICATED` is a path inside the data
   folder: `playlists/my_playlist.txt`, not a path from elsewhere.
 - **It doesn't show on the site.** The log is `logs/debug.txt` in the data folder.
-  The server needs to reach the internet (HTTPS to halo.milenko.org, and UDP).
+  The server needs to reach the internet (HTTPS to stats.chupathingy.org, and UDP).
 - **It shows, but nobody can join.** If the player sees a message, it
   probably names a version mismatch. If they just can't connect (the log
   says `could not connect` or `lost the connection` for their player), the
@@ -243,7 +244,7 @@ and players can hide their stats from their profile.
 
 ## The game list
 
-halo.milenko.org is run by Milenko for the community. It keeps the list of
+stats.chupathingy.org is run by Milenko for the community. It keeps the list of
 games being hosted, the carnage reports of finished games, players' service
 records and profiles. Its code is not in this repository. Please be kind to
 it: one listing per game, as the server does by itself.

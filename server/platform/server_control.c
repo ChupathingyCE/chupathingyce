@@ -100,10 +100,17 @@ enum
 {
 	/* commands waiting for the main thread, or running, at most */
 	QUEUE_SIZE = 32,
-	/* the API's connections at once, at most */
+	/* the API's connections at once, at most, and from one address (but the
+	loopback's or a trusted proxy's, which speak for many) */
 	MAXIMUM_CONNECTIONS = 16,
-	/* a connection's request, whole, within this long ... */
+	MAXIMUM_CONNECTIONS_PER_SOURCE = 8,
+	/* a connection's first bytes (its TLS handshake done, or its request
+	begun) within this long ... */
+	FIRST_BYTE_SECONDS = 3,
+	/* ... its request, whole, within this long ... */
 	REQUEST_SECONDS = 10,
+	/* the reverse proxies trusted to say who the client is, at most */
+	MAXIMUM_TRUSTED_PROXIES = 8,
 	/* ... its command's output within this long (a map loading holds the
 	main thread a few seconds) ... */
 	COMMAND_SECONDS = 20,
@@ -189,6 +196,13 @@ struct connection
 	hash of it, the run's (what the limits count: no address is kept) */
 	uint8_t address[16];
 	uint8_t tag[16];
+	/* the address that connected, and its tag (address and tag are the
+	client's a trusted proxy names, for a request through one) */
+	uint8_t peer_address[16];
+	uint8_t peer_tag[16];
+	/* when it connected, and whether it has sent anything yet */
+	int64_t accepted;
+	int heard;
 	/* its TLS, if the listener speaks it */
 	struct control_tls_connection *tls;
 	int64_t deadline;
@@ -252,6 +266,9 @@ static struct
 	int tls;
 	char fingerprint[CONTROL_TLS_FINGERPRINT_SIZE];
 	char listen_setting[96];
+	/* HALO_DEDICATED_CONTROL_TRUSTED_PROXY's addresses */
+	uint8_t trusted_proxies[MAXIMUM_TRUSTED_PROXIES][16];
+	int trusted_proxy_count;
 } control;
 
 /* the control panel's accounts (control_accounts.h), the control thread's */
@@ -542,7 +559,7 @@ static int remembered_credential(const char *token)
 /* the credential a token is (its index), checking it; -1 if none, -2 if it
 cannot be checked now (too many checks: 429), -3 if it could not be at all
 (no memory: 503) */
-static int authenticate(const char *token, int64_t now)
+static int authenticate(const char *token, const uint8_t source[16], int64_t now)
 {
 	uint8_t remembered[32];
 	int index;
@@ -552,7 +569,7 @@ static int authenticate(const char *token, int64_t now)
 		return found;
 	crypto_blake2b_keyed(remembered, sizeof(remembered), control.run_key, sizeof(control.run_key),
 		(const uint8_t *)token, strlen(token));
-	if (!control_limiter_take_check(&control.limiter, now))
+	if (!control_limiter_take_check_from(&control.limiter, source, now))
 		return -2;
 	for (index = 0; index < control.credential_count; index++)
 	{
@@ -1192,6 +1209,107 @@ static int address_private(const struct sockaddr_storage *address)
 	return 0;
 }
 
+/* an address as text (IPv4 or IPv6, no port) as 16 bytes (IPv4 as
+::ffff:a.b.c.d): 1, else 0 */
+static int address_bytes(const char *text, uint8_t out[16])
+{
+	struct in_addr ipv4;
+	struct in6_addr ipv6;
+
+	if (inet_pton(AF_INET, text, &ipv4) == 1)
+	{
+		memset(out, 0, 16);
+		out[10] = 0xff;
+		out[11] = 0xff;
+		memcpy(out + 12, &ipv4, 4);
+		return 1;
+	}
+	if (inet_pton(AF_INET6, text, &ipv6) == 1)
+	{
+		memcpy(out, &ipv6, 16);
+		return 1;
+	}
+	return 0;
+}
+
+/* HALO_DEDICATED_CONTROL_TRUSTED_PROXY: the reverse proxies (their
+addresses, comma separated) whose X-Forwarded-For names the client, so the
+limits count each client and not the proxy. Unset: none, and every request
+counts as the address that connected */
+static void read_trusted_proxies(void)
+{
+	const char *setting = getenv("HALO_DEDICATED_CONTROL_TRUSTED_PROXY");
+	char text[512];
+	char *cursor;
+
+	control.trusted_proxy_count = 0;
+	if (!setting || !setting[0])
+		return;
+	snprintf(text, sizeof(text), "%s", setting);
+	for (cursor = text; *cursor;)
+	{
+		char *end = strchr(cursor, ',');
+		char *item = cursor;
+		size_t length;
+
+		if (end)
+			*end = 0;
+		while (*item == ' ' || *item == '\t')
+			item++;
+		length = strlen(item);
+		while (length && (item[length - 1] == ' ' || item[length - 1] == '\t'))
+			item[--length] = 0;
+		if (item[0])
+		{
+			if (control.trusted_proxy_count < MAXIMUM_TRUSTED_PROXIES &&
+				address_bytes(item, control.trusted_proxies[control.trusted_proxy_count]))
+			{
+				control.trusted_proxy_count++;
+			}
+			else
+				notice("HALO_DEDICATED_CONTROL_TRUSTED_PROXY: %s is not an address (or too many): left out", item);
+		}
+		if (!end)
+			break;
+		cursor = end + 1;
+	}
+	if (control.trusted_proxy_count)
+	{
+		notice("the control panel trusts X-Forwarded-For from %d reverse prox%s (HALO_DEDICATED_CONTROL_TRUSTED_PROXY)",
+			control.trusted_proxy_count, control.trusted_proxy_count == 1 ? "y" : "ies");
+	}
+}
+
+static int trusted_proxy(const uint8_t address[16])
+{
+	int index;
+
+	for (index = 0; index < control.trusted_proxy_count; index++)
+	{
+		if (!memcmp(control.trusted_proxies[index], address, 16))
+			return 1;
+	}
+	return 0;
+}
+
+/* a request's client: the address that connected, or, from a trusted
+proxy, the one its X-Forwarded-For names (address and tag set for the
+limits and the log) */
+static void request_client(struct connection *connection, const struct control_request *request)
+{
+	uint8_t client[16];
+
+	memcpy(connection->address, connection->peer_address, 16);
+	memcpy(connection->tag, connection->peer_tag, 16);
+	if (request->forwarded_for[0] && trusted_proxy(connection->peer_address) &&
+		address_bytes(request->forwarded_for, client))
+	{
+		memcpy(connection->address, client, 16);
+		crypto_blake2b_keyed(connection->tag, sizeof(connection->tag), control.run_key, sizeof(control.run_key),
+			client, sizeof(client));
+	}
+}
+
 static int start_listener(const char *setting)
 {
 	struct sockaddr_storage address;
@@ -1526,7 +1644,7 @@ is the proxy's, and the admin is not locked out by someone guessing) */
 		respond_error(connection, 401, "the token is not right", challenge);
 		return -1;
 	}
-	credential = authenticate(token, now);
+	credential = authenticate(token, connection->tag, now);
 	if (credential == -2)
 	{
 		respond_error(connection, 429, "too many tokens checked: try again shortly", "Retry-After: 5\r\n");
@@ -1767,6 +1885,7 @@ static void handle_login(struct connection *connection, struct control_request *
 	int64_t retry_after;
 	int status;
 	int index;
+	int locked;
 
 	if (request->method != CONTROL_METHOD_POST)
 	{
@@ -1800,9 +1919,13 @@ static void handle_login(struct connection *connection, struct control_request *
 			now);
 		return;
 	}
-	/* an account's: the address's limits, then the account's own backoff,
-	then its password (Argon2id, within the checks a minute for everyone),
-	then its second factor */
+	/* an account's: the address's limits, then its password (Argon2id,
+	within the checks a minute for everyone, some kept for addresses with no
+	wrong tries), then its second factor. An account locked for this address
+	(too many wrong tries from it: control_accounts.h) is answered as a
+	wrong password is, after the same work, so the answer tells neither
+	that the account exists nor that it is locked; from anywhere else the
+	account is not locked */
 	if (!control_limiter_allowed(&control.limiter, connection->tag, now, &retry_after))
 	{
 		char headers[64];
@@ -1813,16 +1936,8 @@ static void handle_login(struct connection *connection, struct control_request *
 		return;
 	}
 	index = account_named(user);
-	if (index >= 0 && !control_backoff_allowed(&panel.backoff[index], now, &retry_after))
-	{
-		char headers[64];
-
-		crypto_wipe(password, sizeof(password));
-		snprintf(headers, sizeof(headers), "Retry-After: %lld\r\n", (long long)retry_after);
-		respond_error(connection, 429, "too many wrong logins for this account: try again later", headers);
-		return;
-	}
-	if (!control_limiter_take_check(&control.limiter, now))
+	locked = index >= 0 && !control_backoff_allowed(&panel.backoff[index], connection->tag, now, NULL);
+	if (!control_limiter_take_check_from(&control.limiter, connection->tag, now))
 	{
 		crypto_wipe(password, sizeof(password));
 		respond_error(connection, 429, "too many logins checked: try again shortly", "Retry-After: 5\r\n");
@@ -1832,7 +1947,11 @@ static void handle_login(struct connection *connection, struct control_request *
 		int right;
 
 		if (index >= 0)
+		{
 			right = control_account_check(&panel.accounts[index], password);
+			if (locked && right > 0)
+				right = 0;
+		}
 		else
 		{
 			/* (no such account: the same work, so the time taken does not
@@ -1856,8 +1975,9 @@ static void handle_login(struct connection *connection, struct control_request *
 		if (!right)
 		{
 			control_limiter_failed(&control.limiter, connection->tag, now);
-			if (index >= 0)
-				control_backoff_failed(&panel.backoff[index], now);
+			/* (a try while locked does not lengthen the lock) */
+			if (index >= 0 && !locked)
+				control_backoff_failed(&panel.backoff[index], connection->tag, now);
 			notice("a web login with a wrong name or password, from %s", address);
 			server_audit("web", index >= 0 ? panel.accounts[index].name : "", CONTROL_ROLE_NONE, "login", NULL,
 				"wrong name or password", 0, NULL);
@@ -1880,7 +2000,7 @@ static void handle_login(struct connection *connection, struct control_request *
 			&panel.accounts[index].totp_last_step))
 		{
 			control_limiter_failed(&control.limiter, connection->tag, now);
-			control_backoff_failed(&panel.backoff[index], now);
+			control_backoff_failed(&panel.backoff[index], connection->tag, now);
 			notice("a web login with a wrong second factor code: %s, from %s", panel.accounts[index].name, address);
 			server_audit("web", panel.accounts[index].name, panel.accounts[index].role, "login", NULL,
 				"wrong second factor code", 0, NULL);
@@ -1901,7 +2021,7 @@ static void handle_login(struct connection *connection, struct control_request *
 				notice("%s", problem);
 		}
 	}
-	control_backoff_succeeded(&panel.backoff[index]);
+	control_backoff_succeeded(&panel.backoff[index], connection->tag);
 	control_limiter_succeeded(&control.limiter, connection->tag);
 	notice("web login: %s %s (%s), from %s", panel.accounts[index].name, panel.accounts[index].id,
 		control_role_name(panel.accounts[index].role), address);
@@ -2065,7 +2185,7 @@ static void handle_invite(struct connection *connection, struct control_request 
 		}
 		crypto_wipe(&old, sizeof(old));
 		end_account_sessions(panel.accounts[account].id);
-		control_backoff_succeeded(&panel.backoff[account]);
+		control_backoff_clear(&panel.backoff[account]);
 		notice("an account's password was set again from a reset code: %s", user);
 		server_audit("web", user, panel.accounts[account].role, "password_reset", user, NULL, 1, NULL);
 		respond_ok(connection, "the password is set: log in with it, and set up a second factor again");
@@ -2280,8 +2400,8 @@ static void respond_accounts(struct connection *connection)
 		}
 		else
 			json_printf(&body, "null");
-		json_printf(&body, ", \"locked\": %s, \"created\": %lld}", panel.backoff[index].locked_until >
-			monotonic_seconds() ? "true" : "false", (long long)account->created);
+		json_printf(&body, ", \"locked\": %s, \"created\": %lld}", control_backoff_locked(&panel.backoff[index],
+			monotonic_seconds()) ? "true" : "false", (long long)account->created);
 	}
 	json_printf(&body, "], \"invites\": [");
 	for (index = 0; index < panel.invite_count; index++)
@@ -2351,6 +2471,14 @@ static void handle_account(struct connection *connection, struct control_request
 			respond_error(connection, 405, "POST only", "Allow: POST\r\n");
 			return;
 		}
+		/* (a second factor is replaced only by turning it off first, which
+		takes the password and a current code: a session alone is not enough) */
+		if (account->has_totp)
+		{
+			respond_error(connection, 409, "your second factor is on: turn it off first (your password and a code)",
+				NULL);
+			return;
+		}
 		if (!random_bytes(session->totp_secret, sizeof(session->totp_secret)))
 		{
 			respond_error(connection, 503, "no random bytes", NULL);
@@ -2388,6 +2516,14 @@ static void handle_account(struct connection *connection, struct control_request
 
 		if (!body_fields(connection, request, names, outs, sizes, 1, 0))
 			return;
+		if (account->has_totp)
+		{
+			session->totp_pending = 0;
+			crypto_wipe(session->totp_secret, sizeof(session->totp_secret));
+			respond_error(connection, 409, "your second factor is on: turn it off first (your password and a code)",
+				NULL);
+			return;
+		}
 		if (!session->totp_pending || !control_totp_check(session->totp_secret, code, (int64_t)time(NULL), &step))
 		{
 			respond_error(connection, 400, "the code is not right: check the app's time, or begin again", NULL);
@@ -2436,7 +2572,7 @@ static void handle_account(struct connection *connection, struct control_request
 		crypto_wipe(password, sizeof(password));
 		if (!right)
 		{
-			control_backoff_failed(&panel.backoff[auth->account], now);
+			control_backoff_failed(&panel.backoff[auth->account], connection->tag, now);
 			respond_error(connection, 403, "the password or code is not right", NULL);
 			return;
 		}
@@ -2486,7 +2622,7 @@ static void handle_account(struct connection *connection, struct control_request
 		{
 			crypto_wipe(fresh, sizeof(fresh));
 			if (!right)
-				control_backoff_failed(&panel.backoff[auth->account], now);
+				control_backoff_failed(&panel.backoff[auth->account], connection->tag, now);
 			respond_error(connection, right ? 503 : 403, right ? "no memory" : "the password is not right", NULL);
 			return;
 		}
@@ -3165,6 +3301,12 @@ static void read_request(struct connection *connection)
 			return;
 	}
 	connection->length += (size_t)count;
+	/* (its first bytes: the rest of the request's time) */
+	if (!connection->heard && count > 0)
+	{
+		connection->heard = 1;
+		connection->deadline = monotonic_seconds() + REQUEST_SECONDS;
+	}
 	result = control_parse_request(connection->request, connection->length, &request, &status, &reason);
 	if (result == CONTROL_PARSE_INCOMPLETE && connection->length >= sizeof(connection->request) - 1)
 	{
@@ -3182,6 +3324,7 @@ static void read_request(struct connection *connection)
 	/* (over TLS, the browser's cookie is marked Secure) */
 	if (connection->tls)
 		request.https = 1;
+	request_client(connection, &request);
 	handle_request(connection, &request);
 	/* (the request's bytes, its token among them, not kept) */
 	crypto_wipe(connection->request, sizeof(connection->request));
@@ -3238,7 +3381,9 @@ static void handshake(struct connection *connection)
 		return;
 	if (result == CONTROL_TLS_DONE)
 	{
+		/* (the handshake was its first bytes: then its request's own) */
 		connection->state = CONNECTION_READING;
+		connection->deadline = monotonic_seconds() + FIRST_BYTE_SECONDS;
 		return;
 	}
 	if (result == CONTROL_TLS_NOT_TLS)
@@ -3261,22 +3406,90 @@ static void handshake(struct connection *connection)
 	close_connection(connection);
 }
 
+/* whether an address speaks for many clients (the loopback's, a trusted
+proxy's): no cap on its connections */
+static int shared_source(const uint8_t address[16])
+{
+	static const uint8_t loopback4[13] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 127 };
+	static const uint8_t loopback6[16] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 };
+
+	return !memcmp(address, loopback4, sizeof(loopback4)) || !memcmp(address, loopback6, sizeof(loopback6)) ||
+		trusted_proxy(address);
+}
+
 static void accept_connection(void)
 {
 	struct sockaddr_storage address;
 	socklen_t length = sizeof(address);
 	int fd = accept(control.listener, (struct sockaddr *)&address, &length);
+	uint8_t peer[16];
+	uint8_t tag[16];
+	int64_t now = monotonic_seconds();
+	int from_source = 0;
 	int index;
 
 	if (fd < 0)
 		return;
 	fcntl(fd, F_SETFD, FD_CLOEXEC);
+	memset(peer, 0, sizeof(peer));
+	if (address.ss_family == AF_INET)
+	{
+		peer[10] = 0xff;
+		peer[11] = 0xff;
+		memcpy(peer + 12, &((struct sockaddr_in *)&address)->sin_addr, 4);
+	}
+	else if (address.ss_family == AF_INET6)
+		memcpy(peer, &((struct sockaddr_in6 *)&address)->sin6_addr, 16);
+	/* (the limits count a keyed hash of the address, the run's: no
+	address is kept in them) */
+	crypto_blake2b_keyed(tag, sizeof(tag), control.run_key, sizeof(control.run_key), peer, sizeof(peer));
+	/* (one address holds so many at most, idle or not) */
+	if (!shared_source(peer))
+	{
+		for (index = 0; index < MAXIMUM_CONNECTIONS; index++)
+		{
+			if (control.connections[index].state != CONNECTION_FREE &&
+				!memcmp(control.connections[index].peer_tag, tag, sizeof(tag)))
+			{
+				from_source++;
+			}
+		}
+		if (from_source >= MAXIMUM_CONNECTIONS_PER_SOURCE)
+		{
+			close(fd);
+			return;
+		}
+	}
 	for (index = 0; index < MAXIMUM_CONNECTIONS; index++)
 	{
 		if (control.connections[index].state == CONNECTION_FREE)
 			break;
 	}
-	if (index >= MAXIMUM_CONNECTIONS || fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK))
+	if (index >= MAXIMUM_CONNECTIONS)
+	{
+		/* (all taken: the one that has waited longest for its request is
+		let go, so slow senders cannot hold every slot) */
+		int oldest = -1;
+
+		for (index = 0; index < MAXIMUM_CONNECTIONS; index++)
+		{
+			const struct connection *candidate = &control.connections[index];
+
+			if ((candidate->state == CONNECTION_READING || candidate->state == CONNECTION_HANDSHAKING) &&
+				(oldest < 0 || candidate->accepted < control.connections[oldest].accepted))
+			{
+				oldest = index;
+			}
+		}
+		if (oldest < 0)
+		{
+			close(fd);
+			return;
+		}
+		close_connection(&control.connections[oldest]);
+		index = oldest;
+	}
+	if (fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK))
 	{
 		close(fd);
 		return;
@@ -3288,19 +3501,12 @@ static void accept_connection(void)
 		connection->fd = fd;
 		connection->ticket = -1;
 		connection->state = CONNECTION_READING;
-		connection->deadline = monotonic_seconds() + REQUEST_SECONDS;
-		if (address.ss_family == AF_INET)
-		{
-			connection->address[10] = 0xff;
-			connection->address[11] = 0xff;
-			memcpy(connection->address + 12, &((struct sockaddr_in *)&address)->sin_addr, 4);
-		}
-		else if (address.ss_family == AF_INET6)
-			memcpy(connection->address, &((struct sockaddr_in6 *)&address)->sin6_addr, 16);
-		/* (the limits count a keyed hash of the address, the run's: no
-		address is kept in them) */
-		crypto_blake2b_keyed(connection->tag, sizeof(connection->tag), control.run_key, sizeof(control.run_key),
-			connection->address, sizeof(connection->address));
+		connection->accepted = now;
+		connection->deadline = now + FIRST_BYTE_SECONDS;
+		memcpy(connection->peer_address, peer, sizeof(peer));
+		memcpy(connection->peer_tag, tag, sizeof(tag));
+		memcpy(connection->address, peer, sizeof(peer));
+		memcpy(connection->tag, tag, sizeof(tag));
 		if (control.tls)
 		{
 			connection->tls = control_tls_accept(fd);
@@ -3803,6 +4009,7 @@ void server_control_start(void)
 		else if (load_credentials())
 		{
 			control_web_sessions_initialize(&control.sessions, session_key);
+			read_trusted_proxies();
 			if (start_listener(setting))
 			{
 				/* the control panel's accounts, and the first owner's setup

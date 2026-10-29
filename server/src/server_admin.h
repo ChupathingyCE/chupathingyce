@@ -36,6 +36,17 @@ char const *server_commands_payload(void);
 /* (server_commands.c's: blocked names kicked or not, from now; the list
 read again when it is turned on) */
 void server_commands_set_name_filter(boolean name_filter);
+/* (server_commands.c's: the game's players for the status queries: each
+one's name (name_size bytes a name, in names), score, ping (NONE: not
+known) and team; how many, at most maximum) */
+long server_commands_player_rows(char *names, long name_size, long *scores, long *pings, long *teams, long maximum);
+
+/* (server_gamespy.c's: GameSpy-style status queries and master heartbeats,
+server/docs/settings.md; each frame, and as sv_set changes them) */
+void server_gamespy_update(void);
+void server_gamespy_configure(boolean enabled, long port);
+boolean server_gamespy_enabled(void);
+long server_gamespy_port(void);
 
 /* the commands (server/docs/admin.md) */
 boolean server_admin_playlists(struct command_line const *line, boolean json, struct command_output *output);

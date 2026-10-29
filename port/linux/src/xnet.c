@@ -339,7 +339,12 @@ static int winsock_result(int result)
 	return result;
 }
 
+#ifdef HALO_CONSOLE_NO_THREAD_LOCAL
+PLATFORM_THREAD_LOCAL_SLOT(int, winsock_last_error)
+#define winsock_last_error (*winsock_last_error_slot())
+#else
 static __thread int winsock_last_error;
+#endif
 
 int WSAAPI WSAGetLastError(void)
 {
@@ -1081,8 +1086,32 @@ int PASCAL __WSAFDIsSet(SOCKET socket, halo_ws_fd_set *set)
 	return 0;
 }
 
-/* ---------- byte order and addresses */
+/* ---------- byte order and addresses
 
+(network byte order is a big-endian host's own: HALO_BIG_ENDIAN, the
+consoles' PowerPC) */
+
+#ifdef HALO_BIG_ENDIAN
+u_long WSAAPI halo_ws_htonl(u_long value)
+{
+	return value;
+}
+
+u_long WSAAPI halo_ws_ntohl(u_long value)
+{
+	return value;
+}
+
+u_short WSAAPI halo_ws_htons(u_short value)
+{
+	return value;
+}
+
+u_short WSAAPI halo_ws_ntohs(u_short value)
+{
+	return value;
+}
+#else
 u_long WSAAPI halo_ws_htonl(u_long value)
 {
 	return __builtin_bswap32(value);
@@ -1102,6 +1131,7 @@ u_short WSAAPI halo_ws_ntohs(u_short value)
 {
 	return (u_short)((value << 8) | (value >> 8));
 }
+#endif
 
 unsigned long WSAAPI halo_ws_inet_addr(const char *text)
 {
@@ -1127,8 +1157,13 @@ unsigned long WSAAPI halo_ws_inet_addr(const char *text)
 	}
 	if (count != 4 || *text)
 		return INADDR_NONE;
+#ifdef HALO_BIG_ENDIAN
+	/* network byte order, a big-endian host's own */
+	return (parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3];
+#else
 	/* network byte order on a little-endian host */
 	return parts[0] | (parts[1] << 8) | (parts[2] << 16) | (parts[3] << 24);
+#endif
 }
 
 /* ---------- XNet */

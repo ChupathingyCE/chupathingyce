@@ -44,6 +44,10 @@ from .linux_build import (
     ZLIB_DEFINES,
     ZLIB_DIR,
     ZLIB_SOURCES,
+    COMPRESSED_MAP_DEFINES,
+    ZSTD_DEFINES,
+    ZSTD_DIR,
+    ZSTD_SOURCES,
     _quote,
     compile_launcher,
     game_sources,
@@ -144,6 +148,13 @@ class Lp64Host:
     # more platform units with the Xbox's ABI, rewritten and built as
     # port/linux/src's (the dedicated server's: tools/server_build.py)
     platform_sources: List[Path] = field(default_factory=list)
+    # the movies' FFmpeg (linux_build.ffmpeg_build): its define and headers, for
+    # the movies' units (port/linux/src/bink_ffmpeg.c and bink_null.c), or none
+    # for the stubs
+    ffmpeg_cflags: List[str] = field(default_factory=list)
+    # Halo PC maps compressed with Chimera's chimera-compress, and zstd
+    # (linux_build.py, COMPRESSED_MAP_DEFINES): the desktop builds'
+    compressed_maps: bool = False
 
 
 @dataclass
@@ -247,7 +258,9 @@ class Lp64Build:
         linux_config = load_json(LINUX_PORT_CONFIG)
         excluded = host.excluded
         release = ["-DHALO_RELEASE"] if getattr(sln, "port_release", False) else []
-        abi = " ".join([*host.target_flags, *LP64_ABI_FLAGS, *release, *game_browser_defines(sln)])
+        compressed_maps = COMPRESSED_MAP_DEFINES if host.compressed_maps else []
+        abi = " ".join([*host.target_flags, *LP64_ABI_FLAGS, *release, *game_browser_defines(sln),
+                        *compressed_maps])
         prefix_header = lp64(LINUX_PORT_DIR / "include" / "halo_linux_prefix.h")
         port_include = lp64(LINUX_PORT_DIR / "include")
         xdk = _quote(lp64(XDK_INCLUDE))
@@ -298,6 +311,8 @@ class Lp64Build:
             f"-I{MONOCYPHER_DIR}",
             # (the port's zlib's, likewise: its API is its own types)
             f"-I{ZLIB_DIR}",
+            # (and Zstandard's, likewise)
+            f"-I{ZSTD_DIR / 'lib'}",
             f"-I{_quote(lp64(Path('source')))} -I{_quote(lp64(Path('source/cseries')))}",
             host.host_include, f"-idirafter {xdk}",
         ])
@@ -317,6 +332,8 @@ class Lp64Build:
                 add(source, posix_cflags, native=True)
             elif source.name in VERSION_SOURCES:
                 add(lp64(source), f"{platform_cflags} {updater_defines(getattr(sln, 'port_release', False))}")
+            elif source.name in ("bink_ffmpeg.c", "bink_null.c"):
+                add(lp64(source), " ".join([platform_cflags, *host.ffmpeg_cflags]))
             elif source.name == "text_hires.c":
                 # (it includes stb_truetype by a path from its own folder: the
                 # copy's folder has no third_party beside it, the original's has)
@@ -360,6 +377,11 @@ class Lp64Build:
         # xgpu_post.c), with the host's ABI: its API is its own types (uLong)
         for name in ZLIB_SOURCES:
             add(ZLIB_DIR / name, " ".join([*native_third_party, *ZLIB_DEFINES]), native=True)
+        # Zstandard's decoder (port/third_party/zstd; map_compressed.c), with
+        # the host's ABI too: its API is size_t and its own types
+        if host.compressed_maps:
+            for name in ZSTD_SOURCES:
+                add(ZSTD_DIR / name, " ".join([*native_third_party, *ZSTD_DEFINES]), native=True)
         third_party = " ".join([abi, "-std=gnu11", "-w"])
         add(lp64(TOML_DIR / "tomlc17.c"), third_party)
         add(lp64(KCP_DIR / "ikcp.c"), third_party)

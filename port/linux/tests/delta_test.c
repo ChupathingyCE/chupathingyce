@@ -14,6 +14,7 @@ every parser and of both sides' sessions.
 
 #include "../src/delta_peer.h"
 #include "../src/delta_chat.h"
+#include "../src/delta_chat_bridge.h"
 
 #include "monocypher.h"
 #include "monocypher-ed25519.h"
@@ -38,9 +39,14 @@ static int failures;
 #define PROFILE_BIT ((delta_u32)1 << _delta_capability_profile)
 #define MODERATION_BIT ((delta_u32)1 << _delta_capability_moderation)
 #define MAPS_BIT ((delta_u32)1 << _delta_capability_ce_maps)
+/* (bomb and bomb_traits: this build's Bomb; bomb alone, a Grifball test
+build 2 or 3's) */
+#define OLD_BOMB_BIT ((delta_u32)1 << _delta_capability_bomb)
+#define BOMB_BIT (OLD_BOMB_BIT | (delta_u32)1 << _delta_capability_bomb_traits)
 #define CHAT_BIT ((delta_u32)1 << _delta_capability_chat)
 #define SERVER_MESSAGES_BIT ((delta_u32)1 << _delta_capability_server_messages)
 #define TEAM_CHANGE_BIT ((delta_u32)1 << _delta_capability_team_change)
+#define OBJECT_SYNC_BIT ((delta_u32)1 << _delta_capability_object_sync)
 
 /* ---------- a simulated network */
 
@@ -527,6 +533,264 @@ static void test_chat_rules(void)
 	CHECK(!delta_chat_hears(_delta_chat_scope_team, 0, 0, 0));
 }
 
+/* ---------- the bridge to OpenCE's chat (delta_chat_bridge.h) */
+
+/* whether text is what OpenCE's chat shows as it is: printable ASCII but
+"|", with no space at either end, at most 63 characters */
+static int opence_text(const char *text)
+{
+	int length = (int)strlen(text);
+	int index;
+
+	if (length < 1 || length > DELTA_CHAT_BRIDGE_TEXT_SIZE - 1 || text[0] == ' ' || text[length - 1] == ' ')
+		return 0;
+	for (index = 0; index < length; index++)
+	{
+		if (text[index] < ' ' || text[index] > '~' || text[index] == '|')
+			return 0;
+	}
+	return 1;
+}
+
+static void test_chat_bridge_wire(void)
+{
+	unsigned char entry[DELTA_CHAT_BRIDGE_LINE_SIZE];
+	struct delta_chat_bridge_line line, line_in;
+	int index;
+
+	/* (a line's entry, as OpenCE lays it out: player, flags, two bytes of 0,
+	the text and its end) */
+	memset(&line, 0, sizeof(line));
+	line.player = 3;
+	line.flags = DELTA_CHAT_BRIDGE_TEAM;
+	strcpy(line.text, "hello team");
+	memset(entry, 0xAA, sizeof(entry));
+	delta_chat_bridge_write_line(entry, &line);
+	CHECK(entry[0] == 3 && entry[1] == DELTA_CHAT_BRIDGE_TEAM && entry[2] == 0 && entry[3] == 0);
+	CHECK(!memcmp(entry + 4, "hello team", 11));
+	for (index = 4 + 10; index < DELTA_CHAT_BRIDGE_LINE_SIZE; index++)
+		CHECK(entry[index] == 0);
+	CHECK(delta_chat_bridge_read_line(entry, sizeof(entry), &line_in) && line_in.player == 3 &&
+		line_in.flags == DELTA_CHAT_BRIDGE_TEAM && !strcmp(line_in.text, "hello team"));
+	CHECK(!delta_chat_bridge_read_line(entry, sizeof(entry) - 1, &line_in));
+
+	/* (a text of 64 bytes with no end: 63 kept; "|", controls and bytes
+	past ASCII as "?"; the spaces at either end dropped) */
+	memset(entry, 0, sizeof(entry));
+	memset(entry + 4, 'x', DELTA_CHAT_BRIDGE_TEXT_SIZE);
+	CHECK(delta_chat_bridge_read_line(entry, sizeof(entry), &line_in) &&
+		(int)strlen(line_in.text) == DELTA_CHAT_BRIDGE_TEXT_SIZE - 1);
+	memset(entry, 0, sizeof(entry));
+	memcpy(entry + 4, "  a|b\x01" "c\xE9 ", 9);
+	CHECK(delta_chat_bridge_read_line(entry, sizeof(entry), &line_in) && !strcmp(line_in.text, "a?b?c?"));
+	memset(entry, 0, sizeof(entry));
+	memcpy(entry + 4, "   ", 3);
+	CHECK(!delta_chat_bridge_read_line(entry, sizeof(entry), &line_in));
+
+	/* (the settings: flags and three bytes of 0) */
+	memset(entry, 0xAA, sizeof(entry));
+	delta_chat_bridge_write_config(entry, DELTA_CHAT_BRIDGE_ALLOWED | DELTA_CHAT_BRIDGE_LINKS);
+	CHECK(entry[0] == 3 && entry[1] == 0 && entry[2] == 0 && entry[3] == 0 && entry[4] == 0xAA);
+	CHECK(delta_chat_bridge_read_config(entry, DELTA_CHAT_BRIDGE_CONFIG_SIZE) == 3);
+	CHECK(delta_chat_bridge_read_config(entry, DELTA_CHAT_BRIDGE_CONFIG_SIZE - 1) == -1);
+
+	/* (whatever an entry holds, what is read is OpenCE's text and Delta's) */
+	for (index = 0; index < 20000; index++)
+	{
+		int at;
+
+		for (at = 0; at < DELTA_CHAT_BRIDGE_LINE_SIZE; at++)
+			entry[at] = (unsigned char)next_random();
+		if (delta_chat_bridge_read_line(entry, sizeof(entry), &line_in))
+		{
+			CHECK(opence_text(line_in.text));
+			CHECK(delta_wire_chat_text_valid(line_in.text, (int)strlen(line_in.text),
+				DELTA_WIRE_CHAT_SAY_CHARACTERS) > 0);
+		}
+	}
+}
+
+static void test_chat_bridge_text(void)
+{
+	static const struct
+	{
+		const char *utf8;
+		const char *ascii;
+	} cases[] =
+	{
+		{ "hello", "hello" },
+		{ "caf\xC3\xA9 \xC3\x9C" "ber na\xC3\xAFve \xC3\x85sa", "cafe Uber naive Asa" },
+		{ "\xE2\x80\x9Cquoted\xE2\x80\x9D \xE2\x80\x93 it\xE2\x80\x99s fine\xE2\x80\xA6", "\"quoted\" - it's fine..." },
+		{ "\xE6\x97\xA5\xE6\x9C\xAC gg", "?? gg" },
+		{ "a|b", "a?b" },
+		{ "\xF0\x9F\x98\x80 nice", "? nice" },
+		{ "  padded  ", "padded" },
+		{ "cut \xC3", "cut ?" },
+	};
+	char out[DELTA_CHAT_BRIDGE_TEXT_SIZE];
+	char long_text[DELTA_WIRE_CHAT_SAY_TEXT_SIZE + 1];
+	size_t index;
+
+	for (index = 0; index < sizeof(cases) / sizeof(cases[0]); index++)
+	{
+		int length = delta_chat_bridge_to_ascii(cases[index].utf8, (int)strlen(cases[index].utf8), out);
+
+		CHECK(length == (int)strlen(out) && !strcmp(out, cases[index].ascii));
+		CHECK(opence_text(out));
+	}
+	/* (Delta's 80 characters: OpenCE's 63) */
+	memset(long_text, 'y', 80);
+	long_text[80] = 0;
+	CHECK(delta_chat_bridge_to_ascii(long_text, 80, out) == DELTA_CHAT_BRIDGE_TEXT_SIZE - 1 && opence_text(out));
+	/* (nothing left: no line) */
+	CHECK(delta_chat_bridge_to_ascii("   ", 3, out) == 0 && !out[0]);
+	CHECK(delta_chat_bridge_clean("ok\x7F", 3, out) == 3 && !strcmp(out, "ok?"));
+}
+
+static void test_chat_bridge_rules(void)
+{
+	struct delta_chat_bridge_budget budget;
+	int paused, index;
+
+	CHECK(delta_chat_bridge_scope(0) == _delta_chat_scope_all);
+	CHECK(delta_chat_bridge_scope(DELTA_CHAT_BRIDGE_TEAM) == _delta_chat_scope_team);
+	CHECK(delta_chat_bridge_scope(DELTA_CHAT_BRIDGE_VEHICLE) == _delta_chat_scope_team);
+	CHECK(delta_chat_bridge_scope(DELTA_CHAT_BRIDGE_NOTICE) == _delta_chat_scope_all);
+	CHECK(delta_chat_bridge_flags(_delta_chat_scope_all) == 0);
+	CHECK(delta_chat_bridge_flags(_delta_chat_scope_team) == DELTA_CHAT_BRIDGE_TEAM);
+
+	/* (off with the host's chat off, or its OpenCE players' chat off) */
+	CHECK(delta_chat_bridge_host_config(_delta_chat_mode_off, 1) == 0);
+	CHECK(delta_chat_bridge_host_config(_delta_chat_mode_on, 0) == 0);
+	CHECK(delta_chat_bridge_host_config(_delta_chat_mode_team, 0) == 0);
+	CHECK(delta_chat_bridge_host_config(_delta_chat_mode_on, 1) == (DELTA_CHAT_BRIDGE_ALLOWED | DELTA_CHAT_BRIDGE_LINKS));
+	CHECK(delta_chat_bridge_host_config(_delta_chat_mode_team, 1) & DELTA_CHAT_BRIDGE_ALLOWED);
+
+	CHECK(!delta_chat_bridge_client_allowed(0, DELTA_CHAT_BRIDGE_ALLOWED));
+	CHECK(!delta_chat_bridge_client_allowed(1, 0));
+	CHECK(delta_chat_bridge_client_allowed(1, DELTA_CHAT_BRIDGE_ALLOWED));
+
+	/* (Delta's budget: three at once, then paused for the cooldown) */
+	memset(&budget, 0, sizeof(budget));
+	for (index = 0; index < DELTA_PEER_CHAT_SAY_BURST; index++)
+	{
+		char text[8];
+
+		snprintf(text, sizeof(text), "line %d", index);
+		CHECK(delta_chat_bridge_take(&budget, 1000, 5000, text, (int)strlen(text), &paused) == 0);
+		delta_chat_bridge_said(&budget, 1000, text, (int)strlen(text));
+	}
+	CHECK(delta_chat_bridge_take(&budget, 1000, 5000, "more", 4, &paused) == _delta_chat_refused_too_fast &&
+		paused == 5);
+	CHECK(delta_chat_bridge_take(&budget, 3000, 5000, "more", 4, &paused) == _delta_chat_refused_too_fast &&
+		paused == 3);
+	CHECK(delta_chat_bridge_take(&budget, 6001, 5000, "more", 4, &paused) == 0);
+	delta_chat_bridge_said(&budget, 6001, "more", 4);
+	/* (the same line again too soon; then, past the time, taken) */
+	CHECK(delta_chat_bridge_take(&budget, 9000, 5000, "MORE ", 5, &paused) == _delta_chat_refused_too_fast &&
+		paused == 0);
+	CHECK(delta_chat_bridge_take(&budget, 6001 + DELTA_CHAT_REPEAT_TIME, 5000, "more", 4, &paused) == 0);
+	/* (no cooldown: refused, not paused) */
+	memset(&budget, 0, sizeof(budget));
+	for (index = 0; index < DELTA_PEER_CHAT_SAY_BURST; index++)
+		CHECK(delta_chat_bridge_take(&budget, 0, 0, "x", 1, &paused) == 0);
+	CHECK(delta_chat_bridge_take(&budget, 0, 0, "y", 1, &paused) == _delta_chat_refused_too_fast && paused == 0);
+	CHECK(delta_chat_bridge_take(&budget, 1000, 0, "y", 1, &paused) == 0);
+}
+
+/* both ways at the level of the messages, as the game's chat.c passes
+them: an OpenCE client's chat_up through the host's checks to a Delta line
+and to chat_down for its OpenCE machines; a Delta player's line to OpenCE's
+chat_down; an OpenCE host's chat_down to the line a Delta client shows */
+static void test_chat_bridge_messages(void)
+{
+	unsigned char up[DELTA_CHAT_BRIDGE_LINE_SIZE], down[DELTA_CHAT_BRIDGE_LINE_SIZE];
+	struct delta_chat_bridge_line line, out;
+	struct delta_chat_bridge_budget budget;
+	struct delta_chat_filter filter;
+	struct delta_wire_chat_line delta;
+	int length, scope, paused;
+
+	delta_chat_filter_clear(&filter);
+	delta_chat_filter_add(&filter, delta_chat_blocked_words, (int)strlen(delta_chat_blocked_words), 1);
+	memset(&budget, 0, sizeof(budget));
+
+	/* (OpenCE's client: its player 2's team line, as its chat_send lays it) */
+	memset(up, 0, sizeof(up));
+	up[0] = 2;
+	up[1] = DELTA_CHAT_BRIDGE_TEAM;
+	memcpy(up + 4, "push top mid", 12);
+	CHECK(delta_chat_bridge_read_line(up, sizeof(up), &line));
+	length = (int)strlen(line.text);
+	scope = delta_chat_bridge_scope(line.flags);
+	CHECK(scope == _delta_chat_scope_team);
+	CHECK(delta_wire_chat_text_valid(line.text, length, DELTA_WIRE_CHAT_SAY_CHARACTERS) > 0);
+	CHECK(delta_chat_bridge_take(&budget, 100, 5000, line.text, length, &paused) == 0);
+	CHECK(delta_chat_host_decide(_delta_chat_mode_on, scope, 1, 0,
+		delta_chat_filter_check(&filter, line.text, length, NULL, 0) > 0) == 0);
+	CHECK(delta_chat_host_decide(_delta_chat_mode_off, scope, 1, 0, 0) == _delta_chat_refused_off);
+	/* (... relayed to a Delta machine as CHAT_LINE, and back to OpenCE's) */
+	memset(&delta, 0, sizeof(delta));
+	delta.kind = _delta_chat_kind_player;
+	delta.scope = (unsigned char)scope;
+	delta.length = length;
+	memcpy(delta.text, line.text, (size_t)length);
+	{
+		unsigned char data[DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_CHAT_LINE_SIZE + DELTA_WIRE_CHAT_NAME_SIZE +
+			DELTA_WIRE_CHAT_TEXT_SIZE + 8];
+		struct delta_wire_header header;
+		struct delta_wire_chat_line in;
+		int size = delta_wire_write_chat_line(data, 7, &delta);
+
+		CHECK(size > 0 && delta_wire_read_header(data, size, &header) &&
+			delta_wire_read_chat_line(data + DELTA_WIRE_HEADER_SIZE, header.length, &in) && in.length == length &&
+			!memcmp(in.text, "push top mid", 12) && in.scope == _delta_chat_scope_team);
+	}
+	memset(&out, 0, sizeof(out));
+	out.player = 2;
+	out.flags = (unsigned char)delta_chat_bridge_flags(delta.scope);
+	CHECK(delta_chat_bridge_to_ascii(delta.text, delta.length, out.text) == length);
+	delta_chat_bridge_write_line(down, &out);
+	CHECK(!memcmp(down, up, sizeof(up)));
+
+	/* (a Delta player's line, accents and all, to an OpenCE machine) */
+	memset(&delta, 0, sizeof(delta));
+	delta.kind = _delta_chat_kind_player;
+	delta.scope = _delta_chat_scope_all;
+	strcpy(delta.text, "s\xC3\xAD, se\xC3\xB1or \xE2\x80\x94 gg");
+	delta.length = (int)strlen(delta.text);
+	memset(&out, 0, sizeof(out));
+	out.player = 0;
+	out.flags = (unsigned char)delta_chat_bridge_flags(delta.scope);
+	CHECK(delta_chat_bridge_to_ascii(delta.text, delta.length, out.text) > 0);
+	delta_chat_bridge_write_line(down, &out);
+	CHECK(down[1] == 0 && !strcmp((const char *)down + 4, "si, senor - gg") && opence_text((const char *)down + 4));
+
+	/* (the host's notice, as OpenCE's host sends a mute's) */
+	memset(down, 0, sizeof(down));
+	down[1] = DELTA_CHAT_BRIDGE_NOTICE;
+	memcpy(down + 4, "Bob muted for 20 minutes", 24);
+	CHECK(delta_chat_bridge_read_line(down, sizeof(down), &line) && (line.flags & DELTA_CHAT_BRIDGE_NOTICE) &&
+		delta_wire_chat_text_valid(line.text, (int)strlen(line.text), 0) > 0);
+
+	/* (a blocked word from OpenCE: refused like a Delta player's) */
+	{
+		char blocked[64];
+		int found = 0;
+		const char *candidates[] = { "nazi", "retard", "faggot" };
+		size_t index;
+
+		for (index = 0; index < sizeof(candidates) / sizeof(candidates[0]) && !found; index++)
+		{
+			snprintf(blocked, sizeof(blocked), "you %s", candidates[index]);
+			found = delta_chat_filter_check(&filter, blocked, (int)strlen(blocked), NULL, 0) > 0;
+		}
+		CHECK(found);
+		CHECK(delta_chat_host_decide(_delta_chat_mode_on, _delta_chat_scope_all, 1, 0, found) ==
+			_delta_chat_refused_blocked);
+	}
+}
+
 /* the host's chat for the tests: each machine's team, the mode, the filter,
 and every line routed as the game routes it */
 static struct
@@ -916,6 +1180,209 @@ static void test_team(void)
 	CHECK(!delta_peer_client_team_ready(&nodes[1].peer));
 }
 
+/* ---------- object sync */
+
+static void test_wire_objects(void)
+{
+	static struct delta_wire_unit_vitals vitals, vitals_in;
+	static struct delta_wire_object_names names, names_in;
+	struct delta_wire_header header;
+	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
+	int size;
+	int index;
+
+	CHECK(DELTA_WIRE_MAXIMUM_UNIT_VITALS == 98 && DELTA_WIRE_MAXIMUM_OBJECT_NAMES_ENTRIES == 98);
+	memset(&vitals, 0, sizeof(vitals));
+	vitals.count = DELTA_WIRE_MAXIMUM_UNIT_VITALS;
+	vitals.flags = DELTA_WIRE_UNIT_VITALS_PASS;
+	for (index = 0; index < vitals.count; index++)
+	{
+		vitals.entries[index].object = 0xE1A00000u + (delta_u32)index;
+		vitals.entries[index].flags = (unsigned char)(index & DELTA_WIRE_VITALS_FLAGS);
+		vitals.entries[index].body = (unsigned short)(16384 - index);
+		vitals.entries[index].shield = (unsigned short)index;
+	}
+	size = delta_wire_write_unit_vitals(data, 7, &vitals);
+	CHECK(size == DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_UNIT_VITALS_SIZE + 98 * DELTA_WIRE_UNIT_VITALS_ENTRY_SIZE &&
+		size <= DELTA_WIRE_MAXIMUM_DATAGRAM);
+	CHECK(delta_wire_read_header(data, size, &header) && header.type == _delta_message_unit_vitals &&
+		delta_wire_read_unit_vitals(data + DELTA_WIRE_HEADER_SIZE, header.length, &vitals_in) &&
+		vitals_in.count == 98 && vitals_in.flags == DELTA_WIRE_UNIT_VITALS_PASS && vitals_in.entries[97].object == 0xE1A00061u &&
+		vitals_in.entries[97].flags == (97 & DELTA_WIRE_VITALS_FLAGS) && vitals_in.entries[97].body == 16384 - 97 &&
+		vitals_in.entries[97].shield == 97);
+	/* (a count past the datagram, or flags this build does not know: refused) */
+	CHECK(!delta_wire_read_unit_vitals(data + DELTA_WIRE_HEADER_SIZE, header.length - 1, &vitals_in));
+	data[DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_UNIT_VITALS_SIZE + 4] = 0x80;
+	CHECK(!delta_wire_read_unit_vitals(data + DELTA_WIRE_HEADER_SIZE, header.length, &vitals_in));
+	vitals.count = DELTA_WIRE_MAXIMUM_UNIT_VITALS + 1;
+	CHECK(!delta_wire_write_unit_vitals(data, 7, &vitals));
+
+	memset(&names, 0, sizeof(names));
+	names.total = 200;
+	names.first = 147;
+	names.count = 53;
+	for (index = 0; index < names.count; index++)
+	{
+		names.entries[index].object = 0xE1A00100u + (delta_u32)index;
+		names.entries[index].name = (unsigned short)(index * 9);
+	}
+	/* (a name the host removed: no object, the unit's last vitals) */
+	names.entries[51].object = 0xFFFFFFFFu;
+	names.entries[51].flags = DELTA_WIRE_NAME_REMOVED;
+	names.entries[51].vitals_flags = DELTA_WIRE_VITALS_SHIELD_DEPLETED;
+	names.entries[51].body = 0;
+	names.entries[51].shield = 0;
+	size = delta_wire_write_object_names(data, 7, &names);
+	CHECK(size == DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_OBJECT_NAMES_SIZE + 53 * DELTA_WIRE_OBJECT_NAMES_ENTRY_SIZE);
+	CHECK(delta_wire_read_header(data, size, &header) && header.type == _delta_message_object_names &&
+		delta_wire_read_object_names(data + DELTA_WIRE_HEADER_SIZE, header.length, &names_in) &&
+		names_in.total == 200 && names_in.first == 147 && names_in.count == 53 &&
+		names_in.entries[52].object == 0xE1A00134u && names_in.entries[52].name == 52 * 9 &&
+		!names_in.entries[52].flags);
+	CHECK(names_in.entries[51].object == 0xFFFFFFFFu && names_in.entries[51].name == 51 * 9 &&
+		names_in.entries[51].flags == DELTA_WIRE_NAME_REMOVED &&
+		names_in.entries[51].vitals_flags == DELTA_WIRE_VITALS_SHIELD_DEPLETED && !names_in.entries[51].body &&
+		!names_in.entries[51].shield);
+	/* (a later build's entry flags: ignored; vitals flags this build does not
+	know: refused) */
+	data[DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_OBJECT_NAMES_SIZE + 52 * DELTA_WIRE_OBJECT_NAMES_ENTRY_SIZE + 6] = 0x80;
+	CHECK(delta_wire_read_object_names(data + DELTA_WIRE_HEADER_SIZE, header.length, &names_in) &&
+		!names_in.entries[52].flags);
+	data[DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_OBJECT_NAMES_SIZE + 52 * DELTA_WIRE_OBJECT_NAMES_ENTRY_SIZE + 7] = 0x80;
+	CHECK(!delta_wire_read_object_names(data + DELTA_WIRE_HEADER_SIZE, header.length, &names_in));
+	/* (past the total, or a name past a scenario's: refused) */
+	names.first = 148;
+	CHECK(!delta_wire_write_object_names(data, 7, &names));
+	names.first = 147;
+	names.entries[0].name = DELTA_WIRE_MAXIMUM_OBJECT_NAMES;
+	CHECK(!delta_wire_write_object_names(data, 7, &names));
+}
+
+static struct
+{
+	int vitals;
+	int names;
+	int removed;
+	struct delta_wire_unit_vital last_vital;
+	struct delta_wire_object_name last_name;
+	struct delta_wire_object_name last_removed;
+} client_objects;
+
+static void test_objects_vitals(void *context, const struct delta_wire_unit_vitals *vitals)
+{
+	(void)context;
+	client_objects.vitals++;
+	if (vitals->count)
+		client_objects.last_vital = vitals->entries[vitals->count - 1];
+}
+
+static void test_objects_names(void *context, const struct delta_wire_object_names *names)
+{
+	int index;
+
+	(void)context;
+	client_objects.names++;
+	if (names->count)
+		client_objects.last_name = names->entries[names->count - 1];
+	for (index = 0; index < names->count; index++)
+	{
+		if (names->entries[index].flags & DELTA_WIRE_NAME_REMOVED)
+		{
+			client_objects.removed++;
+			client_objects.last_removed = names->entries[index];
+		}
+	}
+}
+
+static const struct delta_peer_objects_client test_objects_client = { NULL, test_objects_vitals, test_objects_names };
+
+static void test_objects(void)
+{
+	int joined[3] = { 0, 1, 1 };
+	static struct delta_wire_unit_vitals vitals;
+	static struct delta_wire_object_names names;
+	delta_u32 now = 5000;
+	int step;
+
+	memset(&client_objects, 0, sizeof(client_objects));
+	node_start(0, HOST_IPV4, DELTA_PEER_PORT, OBJECT_SYNC_BIT, _delta_platform_pc_linux, 0, 0);
+	node_start(1, 0x0300007F, 40001, OBJECT_SYNC_BIT, _delta_platform_pc_linux, 0, 0);
+	/* (a Delta machine without object sync: an older build, or a console) */
+	node_start(2, 0x0400007F, 40002, 0, _delta_platform_xbox, 0, 0);
+	delta_peer_set_objects_client(&nodes[1].peer, &test_objects_client);
+	delta_peer_set_objects_client(&nodes[2].peer, &test_objects_client);
+	game_reset();
+	game_add(1);
+	game_add(2);
+	for (step = 0; step < 4; step++, now += 300)
+		frame(now, 3, joined, 1);
+	CHECK(delta_peer_objects_clients(&nodes[0].peer) == 1);
+	CHECK(delta_peer_client_objects_ready(&nodes[1].peer) && !delta_peer_client_objects_ready(&nodes[2].peer));
+
+	/* to the machine that agreed, and none other */
+	memset(&vitals, 0, sizeof(vitals));
+	vitals.count = 1;
+	vitals.entries[0].object = 0xE1A00004u;
+	vitals.entries[0].flags = DELTA_WIRE_VITALS_SHIELD_DEPLETED;
+	vitals.entries[0].shield = 0;
+	vitals.entries[0].body = 16384;
+	CHECK(delta_peer_send_unit_vitals(&nodes[0].peer, -1, &vitals) == 1);
+	CHECK(delta_peer_send_unit_vitals(&nodes[0].peer, 2, &vitals) == 0);
+	memset(&names, 0, sizeof(names));
+	names.total = names.count = 1;
+	names.entries[0].object = 0xE1A00009u;
+	names.entries[0].name = 17;
+	CHECK(delta_peer_send_object_names(&nodes[0].peer, -1, &names) == 1);
+	CHECK(delta_peer_send_object_names(&nodes[0].peer, 2, &names) == 0);
+	deliver(now);
+	CHECK(client_objects.vitals == 1 && client_objects.names == 1);
+	CHECK(client_objects.last_vital.object == 0xE1A00004u &&
+		client_objects.last_vital.flags == DELTA_WIRE_VITALS_SHIELD_DEPLETED && client_objects.last_vital.body == 16384);
+	CHECK(client_objects.last_name.object == 0xE1A00009u && client_objects.last_name.name == 17);
+
+	/* a client that comes late gets the host's pass alone: its names, and
+	the names it removed with their units' last vitals (Coldsnap's
+	detectors, killed or deleted before it came) */
+	{
+		int late_joined[4] = { 0, 1, 1, 1 };
+
+		node_start(3, 0x0500007F, 40003, OBJECT_SYNC_BIT, _delta_platform_pc_linux, 0, 0);
+		delta_peer_set_objects_client(&nodes[3].peer, &test_objects_client);
+		game_add(3);
+		for (step = 0; step < 4; step++, now += 300)
+			frame(now, 4, late_joined, 1);
+		CHECK(delta_peer_objects_clients(&nodes[0].peer) == 2 && delta_peer_client_objects_ready(&nodes[3].peer));
+		memset(&client_objects, 0, sizeof(client_objects));
+		memset(&names, 0, sizeof(names));
+		names.total = names.count = 3;
+		names.entries[0].object = 0xE1A00009u;
+		names.entries[0].name = 17;
+		names.entries[1].object = 0xFFFFFFFFu;
+		names.entries[1].name = 18;
+		names.entries[1].flags = DELTA_WIRE_NAME_REMOVED;
+		names.entries[1].body = 16384;
+		names.entries[1].shield = 16384;
+		names.entries[2].object = 0xFFFFFFFFu;
+		names.entries[2].name = 19;
+		names.entries[2].flags = DELTA_WIRE_NAME_REMOVED;
+		names.entries[2].vitals_flags = DELTA_WIRE_VITALS_SHIELD_DEPLETED;
+		CHECK(delta_peer_send_object_names(&nodes[0].peer, 3, &names) == 1);
+		deliver(now);
+		CHECK(client_objects.names == 1 && client_objects.removed == 2);
+		CHECK(client_objects.last_removed.name == 19 && client_objects.last_removed.object == 0xFFFFFFFFu &&
+			client_objects.last_removed.vitals_flags == DELTA_WIRE_VITALS_SHIELD_DEPLETED &&
+			!client_objects.last_removed.shield && !client_objects.last_removed.body);
+		/* (an older build's client, without object sync, gets none) */
+		CHECK(delta_peer_send_object_names(&nodes[0].peer, 2, &names) == 0);
+	}
+
+	/* a client without anywhere for them drops them */
+	delta_peer_set_objects_client(&nodes[1].peer, NULL);
+	CHECK(delta_peer_send_unit_vitals(&nodes[0].peer, 1, &vitals) == 1);
+	deliver(now);
+	CHECK(client_objects.vitals == 0);
+}
+
 /* ---------- the wire */
 
 static void test_wire_table(void)
@@ -1091,6 +1558,45 @@ static void test_wire_map(void)
 	CHECK(size > 0 && delta_wire_read_map(data + 12, size - 12, &back) && back.family == 200);
 }
 
+/* the wire's byte order: little-endian whatever the machine's, so that a
+big-endian console (the Xbox 360's and Wii U's PowerPC) writes the bytes a
+PC writes and reads them back (tools/test_delta_big_endian.py runs this on
+an emulated big-endian machine where it can) */
+static void test_wire_byte_order(void)
+{
+	static const unsigned char expected[] = {
+		'D', 'P', DELTA_MAJOR, _delta_message_hello, 0x1B, 0x00, 0x00, 0x00, 0x01, 0xEF, 0xCD, 0xAB,
+		0x04, 0x03, 0x02, 0x01, 0x27, 0x01, 0x07, 0x07, 0xD4, 0xC3, 0xB2, 0xA1,
+		_delta_platform_xbox360, DELTA_PLATFORM_KEY_VERSION, 0x00, 0x10, 0x10, 0x80, 0x09, 0x00,
+		'W', 'a', 'r', 't', 'h', 'o', 'g'
+	};
+	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
+	struct delta_wire_header header;
+	struct delta_wire_hello hello, hello_back;
+	int size;
+
+	memset(&hello, 0, sizeof(hello));
+	hello.capabilities = 0x01020304u;
+	hello.legacy_version = 0x0127;
+	hello.machine_index = 7;
+	hello.legacy_table_serial = 0xA1B2C3D4u;
+	hello.key.platform = _delta_platform_xbox360;
+	hello.key.version = DELTA_PLATFORM_KEY_VERSION;
+	hello.key.host_players = 16;
+	hello.key.join_players = 16;
+	hello.key.join_players_opt_in = 128;
+	hello.key.memory_class = 9;
+	strcpy(hello.build, "Warthog");
+	size = delta_wire_write_hello(data, 0xABCDEF01u, &hello);
+	CHECK(size == (int)sizeof(expected) && !memcmp(data, expected, sizeof(expected)));
+	CHECK(delta_wire_read_header(expected, (int)sizeof(expected), &header));
+	CHECK(header.session == 0xABCDEF01u && header.length == 0x1B);
+	CHECK(delta_wire_read_hello(expected + 12, header.length, &hello_back));
+	CHECK(hello_back.capabilities == 0x01020304u && hello_back.legacy_version == 0x0127);
+	CHECK(hello_back.legacy_table_serial == 0xA1B2C3D4u && hello_back.key.platform == _delta_platform_xbox360);
+	CHECK(hello_back.key.join_players_opt_in == 128 && !strcmp(hello_back.build, "Warthog"));
+}
+
 static void test_wire(void)
 {
 	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
@@ -1197,6 +1703,7 @@ static void test_wire(void)
 	CHECK(size == 12 && delta_wire_read_header(data, size, &header) && header.major == 2 && header.length == 0);
 
 	test_wire_table();
+	test_wire_byte_order();
 }
 
 static void test_rate(void)
@@ -1669,6 +2176,217 @@ static void test_maps(void)
 	joined[1] = 0;
 	frame(now, 4, joined, 1);
 	CHECK(delta_peer_host_map(&nodes[1].peer, NULL) == 0);
+	queued = 0;
+}
+
+/* ---------- Bomb game types: their traits, and machines without bomb */
+
+static void sample_traits(struct delta_wire_traits *traits, int health)
+{
+	memset(traits, 0, sizeof(*traits));
+	traits->kind = DELTA_WIRE_TRAITS_BOMB;
+	traits->everyone.health = (unsigned short)health;
+	traits->everyone.damage = 200;
+	traits->everyone.resistance = 100;
+	traits->everyone.speed = 100;
+	traits->everyone.shields = DELTA_WIRE_SHIELDS_NONE;
+	traits->carrier.health = 100;
+	traits->carrier.damage = 100;
+	traits->carrier.resistance = 150;
+	traits->carrier.speed = 150;
+	traits->carrier.shields = DELTA_WIRE_SHIELDS_OVERSHIELD;
+	traits->carrier.highlight = 1;
+}
+
+static void test_wire_traits(void)
+{
+	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
+	struct delta_wire_header header;
+	struct delta_wire_traits traits, read;
+	int size;
+
+	/* a round trip, and its layout */
+	sample_traits(&traits, 10);
+	size = delta_wire_write_traits(data, 0x1234, &traits);
+	CHECK(size == DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_TRAITS_MOVEMENT_SIZE);
+	CHECK(delta_wire_read_header(data, size, &header) && header.type == _delta_message_traits && header.length == 48);
+	/* (22: 18 to 21 are chat's) */
+	CHECK(data[3] == 22);
+	CHECK(data[12] == DELTA_WIRE_TRAITS_BOMB && data[16] == 10 && data[17] == 0 && data[18] == 200);
+	CHECK(data[24] == DELTA_WIRE_SHIELDS_NONE && data[28 + 8] == DELTA_WIRE_SHIELDS_OVERSHIELD && data[28 + 9] == 1);
+	CHECK(delta_wire_read_traits(data + DELTA_WIRE_HEADER_SIZE, header.length, &read) &&
+		!memcmp(&read, &traits, sizeof(read)));
+	/* (a longer payload, a later version's, is read for these fields) */
+	CHECK(delta_wire_read_traits(data + DELTA_WIRE_HEADER_SIZE, header.length + 8, &read) && read.everyone.health == 10);
+	/* short ones are refused */
+	CHECK(!delta_wire_read_traits(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_TRAITS_SIZE - 1, &read));
+	/* none: no sets */
+	memset(&traits, 0, sizeof(traits));
+	size = delta_wire_write_traits(data, 1, &traits);
+	CHECK(size && delta_wire_read_traits(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_TRAITS_SIZE, &read) &&
+		read.kind == DELTA_WIRE_TRAITS_NONE && read.everyone.health == 0);
+	/* out of range, or unknown, is refused each way, never mended */
+	sample_traits(&traits, DELTA_WIRE_TRAIT_HEALTH_MINIMUM - 1);
+	CHECK(!delta_wire_write_traits(data, 1, &traits));
+	sample_traits(&traits, 10);
+	traits.carrier.speed = DELTA_WIRE_TRAIT_SPEED_MAXIMUM + 1;
+	CHECK(!delta_wire_write_traits(data, 1, &traits));
+	sample_traits(&traits, 10);
+	traits.carrier.shields = NUMBER_OF_DELTA_WIRE_SHIELDS;
+	CHECK(!delta_wire_write_traits(data, 1, &traits));
+	sample_traits(&traits, 10);
+	size = delta_wire_write_traits(data, 1, &traits);
+	data[12] = 9;
+	CHECK(!delta_wire_read_traits(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_TRAITS_SIZE, &read));
+	data[12] = DELTA_WIRE_TRAITS_BOMB;
+	data[28 + 9] = 2;
+	CHECK(!delta_wire_read_traits(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_TRAITS_SIZE, &read));
+	data[28 + 9] = 1;
+	data[16] = 0xFF;
+	data[17] = 0xFF;
+	CHECK(!delta_wire_read_traits(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_TRAITS_SIZE, &read));
+	CHECK(read.kind == 0 && read.everyone.health == 0);
+
+	/* the movement traits, after the first 28 bytes (an earlier host's 28
+	alone read as unchanged), in their ranges or refused */
+	sample_traits(&traits, 10);
+	traits.everyone.jump = 125;
+	traits.everyone.gravity = 70;
+	traits.everyone.melee = 150;
+	traits.carrier.melee = 67;
+	size = delta_wire_write_traits(data, 1, &traits);
+	CHECK(size == DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_TRAITS_MOVEMENT_SIZE &&
+		data[12 + 28] == DELTA_WIRE_TRAITS_MOVEMENT_VERSION && data[12 + 32] == 125 && data[12 + 34] == 70 &&
+		data[12 + 36] == 150 && data[12 + 40] == 0 && data[12 + 44] == 67);
+	CHECK(delta_wire_read_traits(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_TRAITS_MOVEMENT_SIZE, &read) &&
+		!memcmp(&read, &traits, sizeof(read)));
+	CHECK(delta_wire_read_traits(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_TRAITS_SIZE, &read) &&
+		read.everyone.health == 10 && read.everyone.jump == 0 && read.everyone.gravity == 0 &&
+		read.everyone.melee == 0);
+	traits.everyone.jump = DELTA_WIRE_TRAIT_JUMP_MAXIMUM + 1;
+	CHECK(!delta_wire_write_traits(data, 1, &traits));
+	traits.everyone.jump = 125;
+	traits.carrier.gravity = DELTA_WIRE_TRAIT_GRAVITY_MINIMUM - 1;
+	CHECK(!delta_wire_write_traits(data, 1, &traits));
+}
+
+static void test_bomb(void)
+{
+	/* (node 3 never speaks Delta: an OpenCE machine) */
+	int joined[4] = { 0, 1, 1, 0 };
+	struct delta_wire_traits traits, heard;
+	delta_u32 generation;
+	delta_u32 now = 500000;
+	int step;
+
+	node_start(0, HOST_IPV4, DELTA_PEER_PORT, PLATFORM_BIT | BOMB_BIT, _delta_platform_pc_linux, 0, 0);
+	node_start(1, 0x0300007F, 40001, PLATFORM_BIT | BOMB_BIT, _delta_platform_pc_macos, 0, 0);
+	/* (an older build of ours: Delta, and bomb without bomb_traits) */
+	node_start(2, 0x0400007F, 40002, PLATFORM_BIT | OLD_BOMB_BIT, _delta_platform_pc_windows, 0, 0);
+	node_start(3, 0x0500007F, 40003, PLATFORM_BIT | BOMB_BIT, _delta_platform_pc_linux, 0, 0);
+	game_reset();
+	game_add(1);
+	game_add(2);
+	game_add(3);
+	frame(now, 4, joined, 1);
+	/* the first frame: every machine in its window, the host's own lacking
+	nothing */
+	CHECK(!delta_peer_machine_lacks(&nodes[0].peer, now, 0, _delta_capability_bomb));
+	CHECK(!delta_peer_machine_pending(&nodes[0].peer, now, 0));
+	CHECK(!delta_peer_machine_lacks(&nodes[0].peer, now, 3, _delta_capability_bomb));
+	CHECK(delta_peer_machine_pending(&nodes[0].peer, now, 3));
+	for (step = 0; step < 3; step++, now += 300)
+		frame(now, 4, joined, 1);
+	/* the handshakes: one agreed, one did not (at once), one silent */
+	CHECK(nodes[1].peer.agreed & BOMB_BIT);
+	CHECK(!delta_peer_machine_lacks(&nodes[0].peer, now, 1, _delta_capability_bomb));
+	CHECK(!delta_peer_machine_pending(&nodes[0].peer, now, 1));
+	CHECK(!delta_peer_machine_lacks(&nodes[0].peer, now, 2, _delta_capability_bomb));
+	CHECK(delta_peer_machine_lacks(&nodes[0].peer, now, 2, _delta_capability_bomb_traits));
+	CHECK(!delta_peer_machine_lacks(&nodes[0].peer, now, 3, _delta_capability_bomb));
+	CHECK(delta_peer_machine_pending(&nodes[0].peer, now, 3));
+	CHECK(!delta_peer_room_has(&nodes[0].peer, _delta_capability_bomb_traits));
+	/* the window over: the silent machine lacks it too */
+	for (step = 0; step < 12; step++, now += 300)
+		frame(now, 4, joined, 1);
+	CHECK(delta_peer_machine_lacks(&nodes[0].peer, now, 3, _delta_capability_bomb));
+	CHECK(!delta_peer_machine_pending(&nodes[0].peer, now, 3));
+	/* (machines not in the game, and nonsense, lack nothing) */
+	CHECK(!delta_peer_machine_lacks(&nodes[0].peer, now, 7, _delta_capability_bomb));
+	CHECK(!delta_peer_machine_lacks(&nodes[0].peer, now, -1, _delta_capability_bomb));
+	CHECK(!delta_peer_machine_lacks(&nodes[0].peer, now, 1, NUMBER_OF_DELTA_CAPABILITIES));
+	CHECK(!delta_peer_machine_lacks(&nodes[1].peer, now, 2, _delta_capability_bomb));
+	/* a machine leaving and another at its index: a window of its own */
+	game_remove(3);
+	frame(now, 4, joined, 1);
+	nodes[3].ipv4 = 0x0600007F;
+	game_add(3);
+	frame(now, 4, joined, 1);
+	CHECK(delta_peer_machine_pending(&nodes[0].peer, now, 3));
+	CHECK(!delta_peer_machine_lacks(&nodes[0].peer, now, 3, _delta_capability_bomb));
+	/* ... the room has bomb once every machine does */
+	game_remove(2);
+	game_remove(3);
+	for (step = 0; step < 4; step++, now += 300)
+		frame(now, 4, joined, 1);
+	CHECK(delta_peer_room_has(&nodes[0].peer, _delta_capability_bomb));
+	CHECK(delta_peer_room_has(&nodes[1].peer, _delta_capability_bomb));
+	game_add(2);
+	for (step = 0; step < 4; step++, now += 300)
+		frame(now, 4, joined, 1);
+
+	/* traits: to the client that agreed, at once, and again in a while */
+	CHECK(delta_peer_host_traits(&nodes[1].peer, NULL) == 0);
+	sample_traits(&traits, 10);
+	delta_peer_set_traits(&nodes[0].peer, &traits);
+	frame(now, 4, joined, 1);
+	generation = delta_peer_host_traits(&nodes[1].peer, &heard);
+	CHECK(generation && !memcmp(&heard, &traits, sizeof(traits)));
+	CHECK(delta_peer_host_traits(&nodes[2].peer, NULL) == 0);
+	delta_peer_set_traits(&nodes[0].peer, &traits);
+	for (step = 0; step < 30; step++, now += 300)
+		frame(now, 4, joined, 1);
+	CHECK(delta_peer_host_traits(&nodes[1].peer, NULL) == generation);
+	/* new traits, a lost datagram: sent again within the interval */
+	sample_traits(&traits, 25);
+	nodes[0].mute = 1;
+	delta_peer_set_traits(&nodes[0].peer, &traits);
+	frame(now, 4, joined, 1);
+	nodes[0].mute = 0;
+	CHECK(delta_peer_host_traits(&nodes[1].peer, NULL) == generation);
+	for (step = 0; step < 20; step++, now += 300)
+		frame(now, 4, joined, 1);
+	CHECK(delta_peer_host_traits(&nodes[1].peer, &heard) != generation && heard.everyone.health == 25);
+	/* traits from a stranger, of another session, or to a host are dropped */
+	{
+		unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
+		int size;
+
+		generation = delta_peer_host_traits(&nodes[1].peer, NULL);
+		sample_traits(&traits, 400);
+		size = delta_wire_write_traits(data, nodes[1].peer.session + 1, &traits);
+		delta_peer_receive(&nodes[1].peer, now, HOST_IPV4, DELTA_PEER_PORT, data, size);
+		size = delta_wire_write_traits(data, nodes[1].peer.session, &traits);
+		delta_peer_receive(&nodes[1].peer, now, 0x0900007F, DELTA_PEER_PORT, data, size);
+		CHECK(delta_peer_host_traits(&nodes[1].peer, &heard) == generation && heard.everyone.health == 25);
+		delta_peer_receive(&nodes[0].peer, now, nodes[1].ipv4, nodes[1].port, data, size);
+	}
+	/* none: the game is no Bomb game type any more */
+	delta_peer_set_traits(&nodes[0].peer, NULL);
+	for (step = 0; step < 30; step++, now += 300)
+		frame(now, 4, joined, 1);
+	CHECK(delta_peer_host_traits(&nodes[1].peer, NULL) == generation);
+	/* the host's table turns bomb off: it is not offered, and every other
+	machine lacks it */
+	nodes[0].disabled = BOMB_BIT;
+	for (step = 0; step < 4; step++, now += 300)
+		frame(now, 4, joined, 1);
+	CHECK(delta_peer_machine_lacks(&nodes[0].peer, now, 1, _delta_capability_bomb));
+	nodes[0].disabled = 0;
+	/* leaving forgets the host's traits */
+	joined[1] = 0;
+	frame(now, 4, joined, 1);
+	CHECK(delta_peer_host_traits(&nodes[1].peer, NULL) == 0);
 	queued = 0;
 }
 
@@ -2683,6 +3401,12 @@ static void test_random(long iterations)
 					CHECK(!map.family || (map.flags & DELTA_WIRE_MAP_HASHED));
 				}
 			}
+			{
+				struct delta_wire_traits traits;
+
+				if (delta_wire_read_traits(data + DELTA_WIRE_HEADER_SIZE, header.length, &traits))
+					CHECK(delta_wire_traits_valid(&traits));
+			}
 			if (delta_wire_read_roster(data + DELTA_WIRE_HEADER_SIZE, header.length, &roster))
 				CHECK(roster.count <= DELTA_WIRE_MAXIMUM_ROSTER_ENTRIES);
 			for (index = 0; index < DELTA_WIRE_BUILD_SIZE + 1 && hello.build[index]; index++)
@@ -2754,6 +3478,8 @@ int main(int argc, char **argv)
 	test_strangers();
 	test_kill_switch();
 	test_maps();
+	test_wire_traits();
+	test_bomb();
 	test_relay();
 	test_relay_refused();
 	test_wire_moderation();
@@ -2763,9 +3489,15 @@ int main(int argc, char **argv)
 	test_chat_text();
 	test_chat_filter();
 	test_chat_rules();
+	test_chat_bridge_wire();
+	test_chat_bridge_text();
+	test_chat_bridge_rules();
+	test_chat_bridge_messages();
 	test_chat();
 	test_wire_team();
 	test_team();
+	test_wire_objects();
+	test_objects();
 	test_random(iterations);
 	if (failures)
 	{

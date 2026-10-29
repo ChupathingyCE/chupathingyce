@@ -29,6 +29,12 @@ or cannot be reached. If it is newer, the game asks whether to update:
 - Do not ask again: after the player confirms it, update.auto = false is
   written to config.toml.
 
+A packaged install (packaged_install.h: the AUR's chupathingy-bin, marked
+by the build, HALO_PACKAGED or a file named "packaged" beside the
+executable) is its package manager's to update: nothing is downloaded or
+asked, and a newer release only puts "update Chupathingy with your package
+manager" on the main menu's version line and in the log.
+
 The system side (the HTTPS download, the files, starting the new game) is
 update.h's: posix_update.c on Linux, win32_update.c on Windows.
 
@@ -43,6 +49,9 @@ is built with it.
 #include "update.h"
 #include "update_manifest.h"
 #include "update_signature.h"
+
+#include <stdlib.h>
+#include <string.h>
 
 /* (given for this file by the build: tools/linux_build.py, windows_build.py,
 macos_build.py; the Android app's version is its own, build.gradle) */
@@ -647,7 +656,7 @@ static int updater_download_zip(const char *zip_path, char *error, size_t error_
 			SDL_RenderClear(renderer);
 			SDL_SetRenderDrawColor(renderer, 230, 230, 230, 255);
 			SDL_SetRenderScale(renderer, 2.0f, 2.0f);
-			SDL_RenderDebugText(renderer, 10.0f, 10.0f, "Downloading the new version...");
+			SDL_RenderDebugText(renderer, 10.0f, 10.0f, "Downloading the update...");
 			SDL_SetRenderScale(renderer, 1.0f, 1.0f);
 			snprintf(line, sizeof(line), "version %s  (%llu of %llu MB)", updater_latest_version, received >> 20,
 				total >> 20);
@@ -1002,10 +1011,11 @@ static void updater_clean_up(void)
 void updater_start(void)
 {
 	char *slash;
+	int packaged = platform_packaged();
 
-	/* (the macOS application only offers the download page: no files of its
-	own to find or clean up) */
-	if (UPDATER_DOWNLOAD_PAGE_ONLY)
+	/* (the macOS application only offers the download page, and a packaged
+	install the package manager: no files of their own to find or clean up) */
+	if (UPDATER_DOWNLOAD_PAGE_ONLY || packaged)
 	{
 		/* (the check's answer is kept in the save root while it is read) */
 		snprintf(updater_directory, sizeof(updater_directory), "%s", platform_save_root());
@@ -1022,8 +1032,11 @@ void updater_start(void)
 		updater_clean_up();
 	}
 	/* (not for builds other than a release's, the player's no, or runs nobody
-	is watching, but for a test with its answer) */
-	if (!(HALO_RELEASE_BUILD || UPDATER_TEST) || !config_boolean("update.auto") ||
+	is watching, but for a test with its answer; a packaged install's
+	update.auto is off, and its no is the one the file or the environment
+	gave: config_packaged_update_check) */
+	if (!(HALO_RELEASE_BUILD || UPDATER_TEST) ||
+		!(packaged ? config_packaged_update_check() : config_boolean("update.auto")) ||
 		(!config_string("debug.update_answer")[0] && (config_boolean("debug.hidden_window") ||
 			config_real("debug.exit_after") > 0.0 || config_string("debug.network_test")[0])))
 	{
@@ -1040,21 +1053,7 @@ void updater_start(void)
 	}
 }
 
-/* whether the game runs under gamescope (the Steam Deck's Game Mode), where
-a system dialog such as SDL's message box crashes the game. gamescope sets
-GAMESCOPE_WAYLAND_DISPLAY for the programs it runs and Game Mode's session
-XDG_CURRENT_DESKTOP; Steam sets SteamDeck and SteamGamepadUI there. Wine
-passes them on to the Windows build under Proton. */
-static int updater_gamescope(void)
-{
-	const char *wayland_display = getenv("GAMESCOPE_WAYLAND_DISPLAY");
-	const char *desktop = getenv("XDG_CURRENT_DESKTOP");
-	const char *steam_deck = getenv("SteamDeck");
-	const char *gamepad_ui = getenv("SteamGamepadUI");
-
-	return (wayland_display && wayland_display[0]) || (desktop && strstr(desktop, "gamescope")) ||
-		(steam_deck && !strcmp(steam_deck, "1") && gamepad_ui && !strcmp(gamepad_ui, "1"));
-}
+int updater_gamescope(void);
 
 /* every frame, on the game's thread (sdl_platform.c): asks the player once a
 new version is found */
@@ -1079,6 +1078,15 @@ void updater_poll(SDL_Window *window)
 	if (SDL_GetAtomicInt(&updater_state) != _updater_available)
 		return;
 	SDL_SetAtomicInt(&updater_state, _updater_handled);
+	/* (a packaged install: nothing asked or downloaded, whatever a test
+	answers) */
+	if (platform_packaged())
+	{
+		platform_log("update: %s is out (this is %s); a packaged install: update Chupathingy with your "
+			"package manager", updater_latest_version, HALO_VERSION);
+		build_identity_watermark_update(updater_latest_version, "Chupathingy with your package manager");
+		return;
+	}
 	/* (an automated test's answer: debug.update_answer) */
 	if (test_answer[0])
 	{
@@ -1091,12 +1099,14 @@ void updater_poll(SDL_Window *window)
 			config_write_boolean("update.auto", 0);
 		return;
 	}
-	/* (no question under gamescope: the player updates from the desktop, or
-	with debug.update_answer) */
+	/* (no question under gamescope: the main menu's version line says the
+	new version is out, and the player updates from the desktop, or with
+	debug.update_answer) */
 	if (updater_gamescope())
 	{
 		platform_log("update: %s is out (this is %s); not asking under gamescope (Steam Deck Game Mode)",
 			updater_latest_version, HALO_VERSION);
+		build_identity_watermark_update(updater_latest_version, "from Desktop Mode");
 		return;
 	}
 	/* (a dialog cannot show above a fullscreen game) */
@@ -1106,15 +1116,15 @@ void updater_poll(SDL_Window *window)
 	if (UPDATER_DOWNLOAD_PAGE_ONLY)
 	{
 		snprintf(message, sizeof(message),
-			"A new version of Chupathingy is out (%s; this is %s).\n\n"
-			"Do you want to open its download page? Your saves and settings stay as they are.",
+			"Chupathingy %s is out. You have %s.\n\n"
+			"Open the download page?",
 			updater_latest_version, HALO_VERSION);
 	}
 	else
 	{
 		snprintf(message, sizeof(message),
-			"A new version of Chupathingy is out (%s; this is %s).\n\n"
-			"Do you want to update? The game will close and start the new version.",
+			"Chupathingy %s is out. You have %s.\n\n"
+			"Update now? The game will restart.",
 			updater_latest_version, HALO_VERSION);
 	}
 	{
@@ -1128,7 +1138,7 @@ void updater_poll(SDL_Window *window)
 	{
 		SDL_MessageBoxData confirm = { SDL_MESSAGEBOX_WARNING, window, "Chupathingy: new version",
 			"Stop asking about new versions?\n\n"
-			"To ask again, set auto = true in the [update] section of config.toml.",
+			"Turn Check for Updates back on in Settings to ask again.",
 			2, confirm_buttons, NULL };
 		int confirmed = 0;
 
@@ -1161,6 +1171,23 @@ void updater_start(void)
 }
 
 #endif
+
+/* whether the game runs under gamescope (the Steam Deck's Game Mode), where
+a system dialog such as SDL's message box crashes the game: every dialog
+(sdl_platform.c, updater_poll) is left out there, its question kept for a
+run on the desktop. gamescope sets GAMESCOPE_WAYLAND_DISPLAY for the programs
+it runs and Game Mode's session XDG_CURRENT_DESKTOP; Steam sets SteamDeck and
+SteamGamepadUI there. Wine passes them on to the Windows build under Proton */
+int updater_gamescope(void)
+{
+	const char *wayland_display = getenv("GAMESCOPE_WAYLAND_DISPLAY");
+	const char *desktop = getenv("XDG_CURRENT_DESKTOP");
+	const char *steam_deck = getenv("SteamDeck");
+	const char *gamepad_ui = getenv("SteamGamepadUI");
+
+	return (wayland_display && wayland_display[0]) || (desktop && strstr(desktop, "gamescope")) ||
+		(steam_deck && !strcmp(steam_deck, "1") && gamepad_ui && !strcmp(gamepad_ui, "1"));
+}
 
 /* this build's version (HALO_VERSION: 0.5.0b, 0.5.0b-nightly.42, 0.5.0b-dev),
 for the window's title (sdl_platform.c) */

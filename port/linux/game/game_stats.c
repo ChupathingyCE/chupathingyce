@@ -87,7 +87,7 @@ enum
 	WEAPON_KEY_LENGTH = 64,
 };
 
-/* the medals, by the site's keys (halo.milenko.org's site.js, MEDALS) */
+/* the medals, by the site's keys (stats.chupathingy.org's site.js, MEDALS) */
 enum
 {
 	_medal_double_kill,
@@ -566,15 +566,19 @@ static void stats_client_report(
 		(int)variant->game_engine_index, (int)variant->universal_variant.score_to_win, host, name,
 		game_stats.first_tick / TICKS_PER_SECOND, updater_version(), delta_legacy_announce());
 	game_stats_game_extra(FALSE, extra + used, (long)sizeof(extra) - used);
-	browser_client_report(
+	/* (told only when one is sent: none without a list server, with
+	reports of joined games off, or for a game not joined by its invite) */
+	if (browser_client_report(
 		teams,
 		teams ? game_engine_get_team_score(0) : 0,
 		teams ? game_engine_get_team_score(1) : 0,
 		game_time_get() / TICKS_PER_SECOND,
 		players,
 		(int)count,
-		extra);
-	platform_log("Game list: the joined game's report is on its way (%ld players)", count);
+		extra))
+	{
+		platform_log("Game list: the joined game's report is on its way (%ld players)", count);
+	}
 }
 
 /* ---------- public code */
@@ -671,6 +675,21 @@ void game_stats_game_extra(
 	text[0] = 0;
 	if (!game_stats.recording)
 		return;
+	/* the game type: the host's engine (a client's report has it already),
+	the gametype's name, and a Bomb game's own members (docs/bomb.md,
+	Reports) */
+	{
+		char name[96];
+		char bomb[256];
+
+		browser_json_name(name, sizeof(name), (unsigned short const *)game_engine_get_variant()->human_readable_game_description,
+			12);
+		if (host)
+			used = stats_append(text, size, used, "\"engine\": %d, ", (int)game_engine_get_variant()->game_engine_index);
+		used = stats_append(text, size, used, "\"gametype\": %s, ", name);
+		if (game_engine_bomb_report_game(bomb, sizeof(bomb)))
+			used = stats_append(text, size, used, "%s, ", bomb);
+	}
 	used = stats_append(text, size, used,
 		"\"stats\": 1, \"sources\": {\"statistics\": \"%s\", \"team_scores\": \"%s\", \"medals\": \"%s\", "
 		"\"weapons\": \"%s\", \"departed\": \"%s\"}, \"departed\": [",

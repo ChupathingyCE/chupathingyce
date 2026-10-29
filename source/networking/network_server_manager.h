@@ -92,12 +92,29 @@ void network_game_server_port_set_cooperative_friendly_fire(
 PLAYER COLLISIONS), kept for the levels after */
 void network_game_server_port_set_cooperative_player_collisions(
 	boolean player_collisions);
+/* port: whether co-op's players' hits harm their AI allies (OpenCE's
+version 33, Server Setup's ALLY FRIENDLY FIRE; network.coop_ally_friendly_fire),
+kept for the levels after */
+void network_game_server_port_set_cooperative_ally_damage(
+	boolean ally_damage);
 boolean network_game_server_ban_player(
 	char const *text);
 /* port: the host's kick command: as the ban command, but nothing kept (no
 bans.txt line, the address not kept out): the player may join again at once */
 boolean network_game_server_kick_player(
 	char const *text);
+/* port: the host's kick and ban from its Moderation screen
+(port/linux/game/moderation_screen.c): another machine joined to the game,
+never the host's own; the kick lets it join again at once, the ban is
+bans.txt's line (minutes 0: for ever) as the commands' are; the reason may
+be NULL or empty. FALSE if the machine is not one to drop */
+boolean network_game_server_host_kick_machine(
+	long machine_index,
+	char const *reason);
+boolean network_game_server_host_ban_machine(
+	long machine_index,
+	long minutes,
+	char const *reason);
 short network_game_server_matching_player_names(
 	char const *text,
 	char (*names)[NETWORK_GAME_SERVER_NAME_TEXT_SIZE],

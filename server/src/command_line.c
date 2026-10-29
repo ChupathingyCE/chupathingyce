@@ -357,21 +357,66 @@ int command_line_map_name_valid(
 	if (length > 3 && (!strcmp(text + length - 3, "@ce") || !strcmp(text + length - 3, "@md") ||
 		!strcmp(text + length - 3, "@pc")))
 		base_length = length - 3;
+	/* (an Xbox map pack's map: <file>@<pack>, its pack 1 to 8 letters and
+	digits, none of the other families' suffixes nor the Xbox's language
+	folders: halo_map_families.h) */
+	else if (strchr(text, '@'))
+	{
+		static const char *const reserved[] = { "ce", "md", "pc", "de", "fr", "es", "it" };
+		const char *pack = strrchr(text, '@') + 1;
+		int pack_length = (int)strlen(pack);
+		int index;
+
+		if (pack_length < 1 || pack_length > 8)
+			return 0;
+		for (index = 0; index < pack_length; index++)
+		{
+			if (!((pack[index] >= 'a' && pack[index] <= 'z') || (pack[index] >= 'A' && pack[index] <= 'Z') ||
+				(pack[index] >= '0' && pack[index] <= '9')))
+			{
+				return 0;
+			}
+		}
+		for (index = 0; index < (int)(sizeof(reserved) / sizeof(reserved[0])); index++)
+		{
+			if (lower(pack[0]) == reserved[index][0] && pack_length == 2 && lower(pack[1]) == reserved[index][1])
+				return 0;
+		}
+		base_length = length - pack_length - 1;
+	}
 	if (!base_length)
 		return 0;
+	/* (a map file's name as Halo PC and Chimera take it, "bigassv2,104" and
+	"h3 foundry" too, as the game's clients do (network_client_manager.c):
+	printing ASCII but : < > ? * / \ | and the double quote, and no '@' but
+	the family's; no "." or "..", nor a name of dots and spaces, nor one
+	starting or ending in a space, that a playlist could not tell apart) */
 	for (length = 0; length < base_length; length++)
 	{
 		char character = text[length];
 
-		if (!((character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') ||
-			(character >= '0' && character <= '9') || character == '_' || character == '-' || character == '.'))
-		{
+		if (character < 0x20 || character > 0x7e || strchr(":<>?*/\\|\"@", character))
 			return 0;
+	}
+	if (text[0] == '.' || text[0] == ' ' || text[base_length - 1] == ' ')
+		return 0;
+	/* (nor one of Windows's devices, con, nul, com1..., that the clients
+	refuse) */
+	{
+		static const char *const devices[] = { "con", "prn", "aux", "nul", "com", "lpt" };
+		int stem = (int)strcspn(text, ".@ ");
+		int device;
+
+		for (device = 0; device < (int)(sizeof(devices) / sizeof(devices[0])); device++)
+		{
+			if (lower(text[0]) == devices[device][0] && lower(text[1]) == devices[device][1] &&
+				lower(text[2]) == devices[device][2] &&
+				(stem == 3 || (device >= 4 && stem == 4 && text[3] >= '0' && text[3] <= '9')))
+			{
+				return 0;
+			}
 		}
 	}
-	/* (no "." or ".." for a name) */
-	if (text[0] == '.')
-		return 0;
 	return 1;
 }
 

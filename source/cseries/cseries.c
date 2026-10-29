@@ -359,7 +359,11 @@ char *csprintf(
 }
 
 #ifdef HALO_RELEASE
+#if !defined(HALO_XBOX_CONSOLE) && !defined(HALO_CONSOLE_NO_THREAD_LOCAL)
 __thread boolean display_assert_skipped = FALSE;
+#else
+boolean display_assert_skipped = FALSE;
+#endif
 
 /* port: a release build carries on past a failed assertion (cseries.h),
 but notes it in debug.txt, as a debug build does before it stops: each

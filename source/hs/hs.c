@@ -2844,6 +2844,9 @@ symbols in this file:
 #include "units/units.h"
 #include "units/vehicles.h"
 #include "coop_scripts.h" /* port: port/linux/game/coop_scripts.c */
+#ifdef HALO_BIG_ENDIAN
+#include "console_endian.h" /* port: the maps' byte order (hs_syntax_data_byte_swap) */
+#endif
 
 /* ---------- constants */
 
@@ -3008,7 +3011,7 @@ static void evaluator( \
 	if (arguments) \
 	{ \
 		union hs_real_value result; \
-		result.real_value = function(arguments[0]); \
+		result.real_value = function(*HS_SLOT(unsigned short, arguments)); \
 		hs_return(thread_index, result.long_value); \
 	} \
 	return; \
@@ -3270,7 +3273,7 @@ static void evaluator( \
 struct hs_object_list_get_element_arguments
 {
 	long object_list_index;
-	unsigned short element_index;
+	HS_SLOT_MEMBER(unsigned short, element_index)
 };
 
 union hs_real_value
@@ -3281,7 +3284,7 @@ union hs_real_value
 
 union hs_short_result
 {
-	short short_value;
+	HS_UNION_SLOT(short, short_value)
 	long value;
 };
 
@@ -3289,9 +3292,9 @@ union hs_evaluation_argument
 {
 	long long_value;
 	real real_value;
-	short short_value;
-	unsigned short unsigned_short_value;
-	boolean boolean_value;
+	HS_UNION_SLOT(short, short_value)
+	HS_UNION_SLOT(unsigned short, unsigned_short_value)
+	HS_UNION_SLOT(boolean, boolean_value)
 	XPTR(char const) string_value; /* script values are 32 bits: an Xbox address */
 };
 
@@ -3301,7 +3304,7 @@ typedef char hs_evaluation_argument_size_assert[sizeof(union hs_evaluation_argum
 
 struct hs_arguments_boolean
 {
-	boolean value;
+	HS_SLOT_MEMBER(boolean, value)
 };
 
 struct hs_arguments_long
@@ -3311,20 +3314,20 @@ struct hs_arguments_long
 
 struct hs_arguments_word
 {
-	word value;
+	HS_SLOT_MEMBER(word, value)
 };
 
 struct hs_arguments_short_long
 {
-	short value0;
-	word pad0;
+	HS_SLOT_MEMBER(short, value0)
+	HS_SLOT_TRAILING_PAD(word pad0;)
 	long value1;
 };
 
 struct hs_arguments_long_word
 {
 	long value0;
-	word value1;
+	HS_SLOT_MEMBER(word, value1)
 };
 
 struct hs_arguments_string
@@ -3353,9 +3356,9 @@ struct hs_arguments_long_long_string
 
 struct hs_arguments_short_word
 {
-	short value0;
-	word pad0;
-	word value1;
+	HS_SLOT_MEMBER(short, value0)
+	HS_SLOT_TRAILING_PAD(word pad0;)
+	HS_SLOT_MEMBER(word, value1)
 };
 
 struct hs_arguments_long_long_long
@@ -3416,7 +3419,7 @@ struct hs_arguments_long_long_string_word
 	long value0;
 	long value1;
 	XPTR(char const) value2; /* script values are 32 bits: an Xbox address */
-	word value3;
+	HS_SLOT_MEMBER(word, value3)
 };
 
 struct hs_arguments_long_long_long_boolean
@@ -3424,7 +3427,7 @@ struct hs_arguments_long_long_long_boolean
 	long value0;
 	long value1;
 	XPTR(char const) value2; /* script values are 32 bits: an Xbox address */
-	boolean value3;
+	HS_SLOT_MEMBER(boolean, value3)
 };
 
 struct hs_arguments_long_long_long_boolean_word
@@ -3432,9 +3435,9 @@ struct hs_arguments_long_long_long_boolean_word
 	long value0;
 	long value1;
 	XPTR(char const) value2; /* script values are 32 bits: an Xbox address */
-	boolean value3;
-	byte pad3[3];
-	word value4;
+	HS_SLOT_MEMBER(boolean, value3)
+	HS_SLOT_TRAILING_PAD(byte pad3[3];)
+	HS_SLOT_MEMBER(word, value4)
 };
 
 struct hs_arguments_real
@@ -3465,21 +3468,21 @@ struct hs_arguments_real_real_real_real
 
 struct hs_arguments_word_word_word_real
 {
-	word value0;
-	word pad0;
-	word value1;
-	word pad1;
-	word value2;
-	word pad2;
+	HS_SLOT_MEMBER(word, value0)
+	HS_SLOT_TRAILING_PAD(word pad0;)
+	HS_SLOT_MEMBER(word, value1)
+	HS_SLOT_TRAILING_PAD(word pad1;)
+	HS_SLOT_MEMBER(word, value2)
+	HS_SLOT_TRAILING_PAD(word pad2;)
 	real value3;
 };
 
 struct hs_arguments_word_word_long_real
 {
-	word value0;
-	word pad0;
-	word value1;
-	word pad1;
+	HS_SLOT_MEMBER(word, value0)
+	HS_SLOT_TRAILING_PAD(word pad0;)
+	HS_SLOT_MEMBER(word, value1)
+	HS_SLOT_TRAILING_PAD(word pad1;)
 	long value2;
 	real value3;
 };
@@ -3490,8 +3493,8 @@ struct hs_arguments_real_real_real_real_boolean_real
 	real value1;
 	real value2;
 	real value3;
-	boolean value4;
-	byte pad4[3];
+	HS_SLOT_MEMBER(boolean, value4)
+	HS_SLOT_TRAILING_PAD(byte pad4[3];)
 	real value5;
 };
 
@@ -3499,7 +3502,7 @@ struct hs_arguments_long_real_word
 {
 	long value0;
 	real value1;
-	word value2;
+	HS_SLOT_MEMBER(word, value2)
 };
 
 struct hs_arguments_long_real_real
@@ -3514,15 +3517,15 @@ struct hs_arguments_real_real_real_word
 	real value0;
 	real value1;
 	real value2;
-	word value3;
+	HS_SLOT_MEMBER(word, value3)
 };
 
 struct hs_arguments_short_word_real_real_real
 {
-	short value0;
-	word pad0;
-	word value1;
-	word pad1;
+	HS_SLOT_MEMBER(short, value0)
+	HS_SLOT_TRAILING_PAD(word pad0;)
+	HS_SLOT_MEMBER(word, value1)
+	HS_SLOT_TRAILING_PAD(word pad1;)
 	real value2;
 	real value3;
 	real value4;
@@ -3530,33 +3533,33 @@ struct hs_arguments_short_word_real_real_real
 
 struct hs_arguments_word_word_word
 {
-	word value0;
-	word pad0;
-	word value1;
-	word pad1;
-	word value2;
+	HS_SLOT_MEMBER(word, value0)
+	HS_SLOT_TRAILING_PAD(word pad0;)
+	HS_SLOT_MEMBER(word, value1)
+	HS_SLOT_TRAILING_PAD(word pad1;)
+	HS_SLOT_MEMBER(word, value2)
 };
 
 struct hs_arguments_word_word_long
 {
-	word value0;
-	word pad0;
-	word value1;
-	word pad1;
+	HS_SLOT_MEMBER(word, value0)
+	HS_SLOT_TRAILING_PAD(word pad0;)
+	HS_SLOT_MEMBER(word, value1)
+	HS_SLOT_TRAILING_PAD(word pad1;)
 	long value2;
 };
 
 struct hs_arguments_long_word_boolean
 {
 	long value0;
-	word value1;
-	word pad1;
-	boolean value2;
+	HS_SLOT_MEMBER(word, value1)
+	HS_SLOT_TRAILING_PAD(word pad1;)
+	HS_SLOT_MEMBER(boolean, value2)
 };
 
 union hs_boolean_result
 {
-	boolean boolean;
+	HS_UNION_SLOT(boolean, boolean)
 	long value;
 };
 
@@ -3636,9 +3639,13 @@ static boolean hs_syntax_node_linked_twice(
 static short hs_syntax_node_refusal(
 	struct hs_syntax_node const *expression,
 	char const **name);
+struct hs_skipped_nodes;
 static short hs_expression_refusal(
 	long root_expression_index,
-	char const **name);
+	char const **name,
+	struct hs_skipped_nodes *skipped,
+	char const *owner,
+	char const *kind);
 static void hs_scenario_functions_check(
 	struct scenario *scenario);
 static boolean hs_rebuild_source(
@@ -3651,6 +3658,8 @@ boolean hs_scenario_postprocess(
 /* ---------- constants */
 
 #define MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO 19001
+/* port: the console's stand-in array (hs_allocate) */
+#define HS_SYNTAX_STAND_IN_NODES 2048
 /* port: the size of the "hs globals" array (hs_runtime_initialize), which
 holds the external globals and the map's */
 #define MAXIMUM_HS_GLOBALS 0x400
@@ -3678,6 +3687,22 @@ enum
 	_hs_node_refusal_downloaded_global,
 };
 
+/* port: a refusal for what a map may not do, not for a damaged node: the
+call or set is skipped and its script runs (hs_scenario_functions_check) */
+#define HS_NODE_REFUSAL_SKIPPABLE(refusal) \
+	((refusal)==_hs_node_refusal_function || (refusal)==_hs_node_refusal_global || \
+	(refusal)==_hs_node_refusal_downloaded_function || (refusal)==_hs_node_refusal_downloaded_global)
+
+/* port: the first call or set skipped (hs_expression_refusal), for the log */
+struct hs_skipped_nodes
+{
+	short count;
+	short first_refusal;
+	char const *first_name;
+	char const *first_owner;
+	char const *first_kind;
+};
+
 /* ---------- globals */
 
 static short hs_enumeration_result_count = 0;
@@ -3690,6 +3715,9 @@ static boolean hs_syntax_data_allocated = FALSE;
 maps may not (hs_scenario_functions_check) */
 static unsigned long hs_scenario_disabled_scripts[BIT_VECTOR_SIZE_IN_LONGS(MAXIMUM_HS_SCRIPTS_PER_SCENARIO)];
 static unsigned long hs_scenario_disabled_globals[BIT_VECTOR_SIZE_IN_LONGS(MAXIMUM_HS_GLOBALS)];
+/* port: the map's calls and sets a map's scripts may not make, skipped where
+they are while the rest of their scripts runs (hs_scenario_functions_check) */
+static unsigned long hs_scenario_skipped_nodes[BIT_VECTOR_SIZE_IN_LONGS(MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO)];
 /* port: the nodes linked to, then walked (hs_scenario_functions_check) */
 static unsigned long hs_syntax_nodes_marked[BIT_VECTOR_SIZE_IN_LONGS(MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO)];
 #define hs_token_enumerators hs_function_table.token_enumerators
@@ -13208,6 +13236,48 @@ data array too (which hs_scenario_postprocess and the data array code go by,
 the nodes' count above all): inside the tag cache, and the data array of
 script nodes it has room for. The shipped maps' all are, of 19001 nodes
 (their names differ: a30's is "static script node"). */
+#ifdef HALO_BIG_ENDIAN
+/* port: a map's script syntax (a data array in the scenario's tag data) in
+a big-endian console's byte order, once: the array's header and every node
+(its value as the 32-bit number it is: HS_SLOT) */
+static void hs_syntax_data_byte_swap(
+	struct data_array *data,
+	long size)
+{
+	struct hs_syntax_node *node;
+	long node_index;
+
+	if (size < (long)sizeof(struct data_array) || data->signature != CONSOLE_BSWAP32('d@t@'))
+	{
+		return;
+	}
+	data->maximum_count = (short)CONSOLE_BSWAP16(data->maximum_count);
+	data->size = (short)CONSOLE_BSWAP16(data->size);
+	data->signature = CONSOLE_BSWAP32(data->signature);
+	data->first_free_absolute_index = (short)CONSOLE_BSWAP16(data->first_free_absolute_index);
+	data->count = (short)CONSOLE_BSWAP16(data->count);
+	data->actual_count = (short)CONSOLE_BSWAP16(data->actual_count);
+	data->next_identifier = (short)CONSOLE_BSWAP16(data->next_identifier);
+	data->data = CONSOLE_BSWAP32(data->data);
+	node = (struct hs_syntax_node *)(data + 1);
+	for (node_index = 0;
+		node_index < data->maximum_count &&
+		(long)(sizeof(struct data_array) + (node_index + 1) * sizeof(struct hs_syntax_node)) <= size;
+		node_index++, node++)
+	{
+		node->datum_header = (short)CONSOLE_BSWAP16(node->datum_header);
+		node->index = (short)CONSOLE_BSWAP16(node->index);
+		node->type = (short)CONSOLE_BSWAP16(node->type);
+		node->flags = (short)CONSOLE_BSWAP16(node->flags);
+		node->next_node_index = CONSOLE_BSWAP32(node->next_node_index);
+		node->string_offset = CONSOLE_BSWAP32(node->string_offset);
+		node->data = CONSOLE_BSWAP32(node->data);
+	}
+
+	return;
+}
+#endif
+
 static boolean hs_scenario_syntax_data_valid(
 	struct scenario const *scenario)
 {
@@ -13228,6 +13298,9 @@ static boolean hs_scenario_syntax_data_valid(
 	{
 		return FALSE;
 	}
+#ifdef HALO_BIG_ENDIAN
+	hs_syntax_data_byte_swap((struct data_array *)address, scenario->hs_syntax_data.size);
+#endif
 
 #ifdef HALO_CUSTOM_EDITION
 	/* port: a Custom Edition or HaloMD map's array, which Halo PC's tools
@@ -13334,9 +13407,11 @@ download brought, or game.downloaded_maps names) may not call or set, on top
 of what no map's may (hs_function_allowed_in_maps,
 hs_external_global_settable_by_maps): what changes the player's settings
 (their profile's), other players' games (ending a game for everyone, the
-HUD text every player sees), and the globals that outlive the map (they
-keep their values into the maps played after it, a host's other players'
-among them) */
+HUD text every player sees), a cheat (deathless players), and the camera's
+clip distances (what the player sees of the world, kept into the maps
+played after it). The gameplay settings Halo PC lets a map set for its own
+games, rider_ejection and stun_enable, it may set: they are put back as
+they were when the map is unloaded (hs_downloaded_map_settings_restore) */
 static char const *const hs_functions_denied_to_downloaded_maps[]=
 {
 	"player0_look_invert_pitch",
@@ -13348,8 +13423,6 @@ static char const *const hs_functions_denied_to_downloaded_maps[]=
 static char const *const hs_globals_denied_to_downloaded_maps[]=
 {
 	"cheat_deathless_player",
-	"rider_ejection",
-	"stun_enable",
 	"rasterizer_near_clip_distance",
 	"rasterizer_far_clip_distance",
 	"rasterizer_first_person_weapon_near_clip_distance",
@@ -13360,6 +13433,49 @@ static char const *const hs_globals_denied_to_downloaded_maps[]=
 /* port: whether the map whose scripts are checked is a downloaded one
 (hs_scenario_functions_check) */
 static boolean hs_scenario_downloaded = FALSE;
+
+#ifdef HALO_CUSTOM_EDITION
+/* port: the gameplay settings a downloaded map may set, as they were before
+it was loaded: put back when it is unloaded, so the maps played after it play
+as they would have (hs_globals_denied_to_downloaded_maps) */
+extern boolean rider_ejection;
+extern boolean stun_enable;
+static struct
+{
+	boolean saved;
+	boolean rider_ejection;
+	boolean stun_enable;
+} hs_downloaded_map_settings;
+
+static void hs_downloaded_map_settings_save(
+	void)
+{
+	hs_downloaded_map_settings.saved = TRUE;
+	hs_downloaded_map_settings.rider_ejection = rider_ejection;
+	hs_downloaded_map_settings.stun_enable = stun_enable;
+
+	return;
+}
+
+static void hs_downloaded_map_settings_restore(
+	void)
+{
+	if (!hs_downloaded_map_settings.saved)
+		return;
+	hs_downloaded_map_settings.saved = FALSE;
+	rider_ejection = hs_downloaded_map_settings.rider_ejection;
+	stun_enable = hs_downloaded_map_settings.stun_enable;
+
+	return;
+}
+#endif
+
+/* port: whether the map whose scripts are checked is a known map pack's own
+ui.map, played with game.pack_menus (port/linux/game/map_packs.c): its menus
+may switch levels with map_name, as the pack's own release's do (the bonus
+level its menu opens), which no other map's scripts may. What it names goes
+through main_set_map_name, a level only the pack has being the pack's */
+static boolean hs_scenario_pack_menus = FALSE;
 
 static boolean hs_name_listed(
 	char const *name,
@@ -13419,8 +13535,11 @@ static short hs_syntax_node_refusal(
 		return _hs_node_refusal_damaged;
 	function = hs_function_get(function_index);
 	*name = function->name;
-	if (!hs_function_allowed_in_maps[function_index])
+	if (!hs_function_allowed_in_maps[function_index] &&
+		!(hs_scenario_pack_menus && !csstrcmp(function->name, "map_name")))
+	{
 		return _hs_node_refusal_function;
+	}
 	if (hs_scenario_downloaded && hs_name_listed(function->name, hs_functions_denied_to_downloaded_maps))
 		return _hs_node_refusal_downloaded_function;
 
@@ -13533,27 +13652,57 @@ static boolean hs_root_type_valid(
 
 /* port: why the map's expression may not run (hs_syntax_node_refusal; a node
 it links to twice, or a loop, is damaged), and the function or global it
-names. Each node is walked once, so the stack holds no more than the nodes
+names. A call or set a map may not make doesn't stop it: that node is marked
+skipped (hs_scenario_node_skipped) and its arguments, which never run, aren't
+walked. Each node is walked once, so the stack holds no more than the nodes
 there are */
+static long *hs_expression_refusal_stack = NULL;
+
 static short hs_expression_refusal(
 	long root_expression_index,
-	char const **name)
+	char const **name,
+	struct hs_skipped_nodes *skipped,
+	char const *owner,
+	char const *kind)
 {
-	static long stack[MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO+1];
 	long stack_count = 0;
+	long *stack = hs_expression_refusal_stack;
 
 	*name = NULL;
+	if (!stack)
+	{
+		/* (only a map whose nodes are not sound gets here: the stack, 74 KB on
+		the console, is made for the walk and given back by the check) */
+		stack = hs_expression_refusal_stack = (long *)debug_malloc(
+			sizeof(long) * (MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO+1), FALSE, "c:\\halo\\SOURCE\\hs\\hs.c", 13536);
+		if (!stack)
+			return _hs_node_refusal_damaged;
+	}
 	csmemset(hs_syntax_nodes_marked, 0, sizeof(hs_syntax_nodes_marked));
 	stack[stack_count++] = root_expression_index;
 	while (stack_count>0)
 	{
-		struct hs_syntax_node const *expression = hs_syntax_try_get(stack[--stack_count]);
+		long expression_index = stack[--stack_count];
+		struct hs_syntax_node const *expression = hs_syntax_try_get(expression_index);
 		long child_index;
 		short refusal;
 
 		if (!expression)
 			continue;
 		refusal = hs_syntax_node_refusal(expression, name);
+		if (HS_NODE_REFUSAL_SKIPPABLE(refusal))
+		{
+			BIT_VECTOR_SET_FLAG(hs_scenario_skipped_nodes, DATUM_INDEX_TO_ABSOLUTE_INDEX(expression_index), TRUE);
+			if (!skipped->count++)
+			{
+				skipped->first_refusal = refusal;
+				skipped->first_name = *name;
+				skipped->first_owner = owner;
+				skipped->first_kind = kind;
+			}
+			*name = NULL;
+			continue;
+		}
 		if (refusal != _hs_node_refusal_none)
 			return refusal;
 		if (TEST_FLAG(expression->flags, _hs_syntax_node_primitive_bit))
@@ -13584,9 +13733,44 @@ static short hs_expression_refusal(
 	return _hs_node_refusal_none;
 }
 
-/* port: a map's script that may not run (hs_syntax_node_refusal: one that
-calls a function a map may not, sets an external global it may not, or
-holds a node the runtime would go wrong on) doesn't: a startup, dormant or
+/* port: why a map's script node may not run, for the log
+(hs_scenario_functions_check) */
+static void hs_node_refusal_reason(
+	char reason[128],
+	short refusal,
+	char const *name)
+{
+	switch (refusal)
+	{
+	case _hs_node_refusal_function:
+		csprintf(reason, "calls %s, which a map's scripts may not", name);
+		break;
+	case _hs_node_refusal_global:
+		csprintf(reason, "sets %s, which a map's scripts may not", name);
+		break;
+	case _hs_node_refusal_downloaded_function:
+		csprintf(reason, "calls %s, which a downloaded map's scripts may not", name);
+		break;
+	case _hs_node_refusal_downloaded_global:
+		csprintf(reason, "sets %s, which a downloaded map's scripts may not", name);
+		break;
+	case _hs_node_refusal_arguments:
+		csprintf(reason, "calls %s with arguments it doesn't take", name);
+		break;
+	default:
+		csprintf(reason, "has a damaged script node");
+		break;
+	}
+
+	return;
+}
+
+/* port: a map's call of a function a map may not call, or set of an
+external global it may not set, is skipped where it is: it returns its type's
+default, its arguments unevaluated, and the rest of its script runs, as the
+map's own scripts on Halo PC go on past it (hs_scenario_node_skipped). A
+map's script that holds a node the runtime would go wrong on
+(hs_syntax_node_refusal) doesn't run: a startup, dormant or
 continuous script gets no thread, and a static one returns its type's
 default (hs_runtime.c). A global whose initializer may not run starts at its
 type's default. Every node is looked at once first; the shipped maps' are
@@ -13608,13 +13792,30 @@ static void hs_scenario_functions_check(
 	char const *first_kind = NULL;
 	short disabled_script_count = 0;
 	short disabled_global_count = 0;
+	struct hs_skipped_nodes skipped;
 	char reason[128];
+
+	csmemset(&skipped, 0, sizeof(skipped));
+	csmemset(hs_scenario_skipped_nodes, 0, sizeof(hs_scenario_skipped_nodes));
 
 #ifdef HALO_CUSTOM_EDITION
 	/* (a downloaded map's are held to tighter rules: halo_map_families.h) */
 	hs_scenario_downloaded = map_is_downloaded(cache_file_loaded_map_name());
 	if (hs_scenario_downloaded)
+	{
 		error(_error_silent, "%s is a downloaded map: its scripts may call and set less", cache_file_loaded_map_name());
+		hs_downloaded_map_settings_restore();
+		hs_downloaded_map_settings_save();
+	}
+#endif
+#ifdef HALO_MAP_LIST
+	{
+		boolean map_pack_menus_known(void);
+
+		hs_scenario_pack_menus = map_pack_menus_known() && !csstrcmp(cache_file_loaded_map_name(), "ui");
+		if (hs_scenario_pack_menus)
+			error(_error_silent, "ui is a known map pack's menus: its scripts may call map_name");
+	}
 #endif
 	csmemset(hs_syntax_nodes_marked, 0, sizeof(hs_syntax_nodes_marked));
 	for (script_index = 0; script_index<scenario->hs_scripts.count; script_index++)
@@ -13667,7 +13868,7 @@ static void hs_scenario_functions_check(
 			script_index,
 			struct hs_script);
 
-		refusal = hs_expression_refusal(script->root_expression_index, &name);
+		refusal = hs_expression_refusal(script->root_expression_index, &name, &skipped, script->name, "script");
 		if (refusal == _hs_node_refusal_none && !hs_root_type_valid(script->root_expression_index, script->return_type))
 		{
 			name = NULL;
@@ -13693,7 +13894,8 @@ static void hs_scenario_functions_check(
 			global_index,
 			struct hs_global);
 
-		refusal = hs_expression_refusal(global->initialization_expression_index, &name);
+		refusal = hs_expression_refusal(global->initialization_expression_index, &name, &skipped, global->name,
+			"global");
 		if (refusal == _hs_node_refusal_none && !hs_root_type_valid(global->initialization_expression_index, global->type))
 		{
 			name = NULL;
@@ -13713,35 +13915,30 @@ static void hs_scenario_functions_check(
 		}
 	}
 
+	if (skipped.count)
+	{
+		hs_node_refusal_reason(reason, skipped.first_refusal, skipped.first_name);
+		error(_error_silent, "the map's %s %.32s %s; skipped there, %d calls and sets skipped in all",
+			skipped.first_kind,
+			skipped.first_owner,
+			reason,
+			skipped.count);
+	}
 	if (first_owner)
 	{
-		switch (first_refusal)
-		{
-		case _hs_node_refusal_function:
-			csprintf(reason, "calls %s, which a map's scripts may not", first_name);
-			break;
-		case _hs_node_refusal_global:
-			csprintf(reason, "sets %s, which a map's scripts may not", first_name);
-			break;
-		case _hs_node_refusal_downloaded_function:
-			csprintf(reason, "calls %s, which a downloaded map's scripts may not", first_name);
-			break;
-		case _hs_node_refusal_downloaded_global:
-			csprintf(reason, "sets %s, which a downloaded map's scripts may not", first_name);
-			break;
-		case _hs_node_refusal_arguments:
-			csprintf(reason, "calls %s with arguments it doesn't take", first_name);
-			break;
-		default:
-			csprintf(reason, "has a damaged script node");
-			break;
-		}
+		hs_node_refusal_reason(reason, first_refusal, first_name);
 		error(_error_silent, "the map's %s %.32s %s; %d scripts won't run, %d globals start at their defaults",
 			first_kind,
 			first_owner,
 			reason,
 			disabled_script_count,
 			disabled_global_count);
+	}
+
+	if (hs_expression_refusal_stack)
+	{
+		debug_free(hs_expression_refusal_stack, "c:\\halo\\SOURCE\\hs\\hs.c", 13537);
+		hs_expression_refusal_stack = NULL;
 	}
 
 	return;
@@ -13761,6 +13958,25 @@ boolean hs_scenario_global_initializer_disabled(
 	return global_index>=0 &&
 		global_index<MAXIMUM_HS_GLOBALS &&
 		BIT_VECTOR_TEST_FLAG(hs_scenario_disabled_globals, global_index);
+}
+
+boolean hs_scenario_node_skipped(
+	long expression_index)
+{
+	long absolute_index = DATUM_INDEX_TO_ABSOLUTE_INDEX(expression_index);
+	struct hs_syntax_node const *expression;
+
+	if (expression_index == NONE ||
+		absolute_index<0 ||
+		absolute_index>=MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO ||
+		!BIT_VECTOR_TEST_FLAG(hs_scenario_skipped_nodes, absolute_index))
+	{
+		return FALSE;
+	}
+	/* (only the map's own nodes are marked; the console's are its own) */
+	expression = hs_syntax_try_get(expression_index);
+
+	return expression && TEST_FLAG(expression->flags, _hs_syntax_node_permanent_bit);
 }
 
 static void hs_allocate(
@@ -13795,10 +14011,20 @@ static void hs_allocate(
 		error(0, "the scenario's script data is missing or damaged; its scripts won't run");
 	}
 
+#ifdef HALO_XBOX_CONSOLE
+	/* port: this stand-in runs no map scripts (they are disabled above),
+	only the console's expressions, so it is small: the full 19001 nodes
+	were 371 KB of a 64 MB Xbox's heap at the menu */
+	hs_syntax_data = data_new(
+		"script node",
+		HS_SYNTAX_STAND_IN_NODES,
+		sizeof(struct hs_syntax_node));
+#else
 	hs_syntax_data = data_new(
 		"script node",
 		MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO,
 		sizeof(struct hs_syntax_node));
+#endif
 	if (hs_syntax_data)
 	{
 		data_make_valid(hs_syntax_data);
@@ -14118,9 +14344,13 @@ void hs_dispose_from_old_map(
 	}
 	/* port: the old map's disabled scripts and globals are not the next's
 	(whose scripts may not be postprocessed: hs_scenario_postprocess clears
-	them only then) */
+	them only then), nor are its skipped calls and sets */
 	csmemset(hs_scenario_disabled_scripts, 0, sizeof(hs_scenario_disabled_scripts));
 	csmemset(hs_scenario_disabled_globals, 0, sizeof(hs_scenario_disabled_globals));
+	csmemset(hs_scenario_skipped_nodes, 0, sizeof(hs_scenario_skipped_nodes));
+#ifdef HALO_CUSTOM_EDITION
+	hs_downloaded_map_settings_restore();
+#endif
 	hs_runtime_dispose_from_old_map();
 	object_lists_dispose_from_old_map();
 	return;
@@ -15714,6 +15944,7 @@ boolean hs_scenario_postprocess(
 	/* port: the last map's are let go of (hs_scenario_functions_check) */
 	csmemset(hs_scenario_disabled_scripts, 0, sizeof(hs_scenario_disabled_scripts));
 	csmemset(hs_scenario_disabled_globals, 0, sizeof(hs_scenario_disabled_globals));
+	csmemset(hs_scenario_skipped_nodes, 0, sizeof(hs_scenario_skipped_nodes));
 	hs_allocate();
 	/* port: script data that isn't sound isn't gone through (hs_allocate
 	has an empty array stand in for it, and the map runs no scripts) */
@@ -15771,7 +16002,7 @@ boolean hs_scenario_postprocess(
 			MAXIMUM_HS_SCRIPTS_PER_SCENARIO);
 		hs_scenario_scripts_disable(scenario);
 	}
-#ifdef HALO_64BIT
+#ifdef HALO_ADDRESS_TRANSLATED
 	hs_syntax_data = (struct data_array *)xbox_pointer(scenario->hs_syntax_data.address);
 	hs_syntax_data->data = xbox_address((char *)hs_syntax_data+sizeof(struct data_array));
 #else

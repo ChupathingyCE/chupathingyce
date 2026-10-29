@@ -1,16 +1,9 @@
 {
   "comment": "Native macOS build inputs; the game sources and the platform layer are the Linux build's (port/linux/port.json), compiled as 64-bit code (HALO_64BIT), less what its \"lp64\" excludes. See port/macos/README.md.",
-  "exclude_sources": [
-    "port/linux/src/bink_null.c"
-  ],
   "libraries": [
     "SDL3",
     "m",
-    "pthread",
-    "avcodec",
-    "avformat",
-    "swscale",
-    "avutil"
+    "pthread"
   ],
   "frameworks": [
     "OpenGL"

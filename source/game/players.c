@@ -4517,6 +4517,8 @@ void player_aiming_vector_from_facing(
 	return;
 }
 
+boolean determinism_check_actions(boolean dequeued, struct player_action *actions);
+
 void players_update_before_game(
 	void)
 {
@@ -4532,7 +4534,13 @@ void players_update_before_game(
 	profile_enter(PLAYERS_UPDATE_BEFORE_GAME_PROFILE);
 	players_coop_note_on_foot();
 	players_coop_rescue_stranded();
+	/* port: debug.determinism records the tick's actions or plays a
+	recording's back (port/linux/game/determinism_check.c) */
+#ifndef HALO_CONSOLE_NO_NETWORK_TEST
+	if (determinism_check_actions(update_client_dequeue(actions), actions))
+#else
 	if (update_client_dequeue(actions))
+#endif
 	{
 		data_iterator_new(&iterator, player_data);
 		while (player = data_iterator_next(&iterator))
@@ -4691,6 +4699,21 @@ void players_update_before_game(
 					control_data.grenade_index = action->desired_grenade_index;
 					control_data.zoom_level = action->desired_zoom_level;
 					control_data.aiming_speed = 0;
+#ifdef HALO_GAME_BROWSER
+					/* port: a melee-only Bomb game's unseen fists only strike
+					(game_engine_bomb.c) */
+					{
+						long held_index = unit_inventory_get_weapon(player->unit_index, unit->unit.current_weapon_index);
+
+						if (held_index != NONE && game_engine_bomb_hides_weapon(weapon_get(held_index)->definition_index))
+						{
+							control_data.control_flags &= ~(FLAG(_unit_control_weapon_primary_trigger_bit) |
+								FLAG(_unit_control_weapon_reload_bit));
+							control_data.primary_trigger = 0.f;
+							control_data.zoom_level = NONE;
+						}
+					}
+#endif
 
 					match_assert(
 						"c:\\halo\\SOURCE\\game\\players.c",
@@ -4878,6 +4901,13 @@ void players_update_after_game(
 								"!!!WARNING!!! teleported player triggering a bsp switch!!!");
 						}
 
+#ifdef HALO_CONSOLE_BRINGUP_LOG
+						/* port: bring-up (the console developer tools), the volume that asked for it */
+						error(_error_silent, "bsp switch trigger volume %d (volume %d): %d -> %d",
+							bsp_switch_trigger_volume_index, bsp_switch_trigger_volume->trigger_volume_index,
+							bsp_switch_trigger_volume->source_structure_bsp_index,
+							bsp_switch_trigger_volume->destination_structure_bsp_index);
+#endif
 						players_globals->bsp_check_recursive_switch_ticks = 0;
 						players_globals->local_player_triggered_switch =
 							player->local_player_index;

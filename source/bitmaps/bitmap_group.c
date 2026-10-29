@@ -942,12 +942,12 @@ short bitmap_group_add_bitmap(
 					0x34D,
 					!bitmap->hardware_format);
 				bitmap->base_address =
-#ifdef HALO_64BIT
+#ifdef HALO_ADDRESS_TRANSLATED
 					xbox_address((byte *)xbox_pointer(group->pixel_data.address) + bitmap->pixels_offset);
 #else
 					(byte *)group->pixel_data.address + bitmap->pixels_offset;
 #endif
-#ifdef HALO_64BIT
+#ifdef HALO_ADDRESS_TRANSLATED
 				match_assert(
 					"c:\\halo\\SOURCE\\bitmaps\\bitmap_group.c",
 					0x352,
@@ -958,7 +958,7 @@ short bitmap_group_add_bitmap(
 					0x352,
 					(byte*)bitmap->base_address>=(byte*)group->pixel_data.address);
 #endif
-#ifdef HALO_64BIT
+#ifdef HALO_ADDRESS_TRANSLATED
 				match_assert(
 					"c:\\halo\\SOURCE\\bitmaps\\bitmap_group.c",
 					0x354,
@@ -1005,7 +1005,7 @@ short bitmap_group_add_bitmap(
 				new_bitmap);
 			csmemcpy(new_bitmap, &fake_bitmap, sizeof(fake_bitmap));
 			new_bitmap->pixels_offset = pixels_end;
-#ifdef HALO_64BIT
+#ifdef HALO_ADDRESS_TRANSLATED
 			new_bitmap->base_address = xbox_address((byte *)xbox_pointer(group->pixel_data.address) + pixels_end);
 			csmemset(xbox_pointer(new_bitmap->base_address), 0, pixel_data_size);
 #else

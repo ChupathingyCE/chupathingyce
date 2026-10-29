@@ -10,6 +10,9 @@ the steps it is given, in order, and prints what each did:
 	state         "state A MI MA serial S override O disabled D signed N"
 	following     "following TEXT" (delta_legacy_following)
 	start         delta_legacy_start: the cache, and the fetching thread
+	layout V      network version V's layout, the table's facts applied
+	              (network_rules.c): "layout V settings S options O shield E
+	              dropped K,K learned L refused R facts F"
 	wait S        until the serial in use is S (up to ten seconds)
 	sleep MS      that many milliseconds
 
@@ -27,6 +30,7 @@ output, "log: " before each line.
 #include "halo_port_limits.h"
 #include "delta.h"
 #include "browser_http.h"
+#include "../port/linux/game/network_rules.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -162,6 +166,29 @@ int main(int count, char **arguments)
 		}
 		else if (!strcmp(arguments[index], "start"))
 			delta_legacy_start();
+		else if (!strcmp(arguments[index], "layout") && index + 1 < count)
+		{
+			struct delta_layout_fact facts[DELTA_LAYOUT_FACTS];
+			struct network_rules_layout layout;
+			unsigned version = (unsigned)strtoul(arguments[++index], NULL, 10);
+			unsigned kind;
+			int any = 0;
+
+			network_rules_set_layout_source(delta_legacy_layouts);
+			network_rules_layout(version, &layout);
+			printf("layout %u settings %d options %d shield %d dropped ", version, layout.settings_size,
+				layout.options_size, layout.shield_effects_maximum);
+			for (kind = 1; kind < 256; kind++)
+			{
+				if (network_rules_layout_drops(&layout, kind))
+				{
+					printf("%s%u", any ? "," : "", kind);
+					any = 1;
+				}
+			}
+			printf("%s learned %d refused %d facts %d\n", any ? "" : "-", layout.learned, layout.refused,
+				delta_legacy_layouts(facts, DELTA_LAYOUT_FACTS));
+		}
 		else if (!strcmp(arguments[index], "wait") && index + 1 < count)
 		{
 			unsigned int serial = (unsigned int)strtoul(arguments[++index], NULL, 10);

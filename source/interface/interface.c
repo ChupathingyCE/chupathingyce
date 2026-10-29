@@ -86,6 +86,7 @@ symbols in this file:
 #include "interface/first_person_weapons.h"
 #include "interface/hud.h"
 #include "interface/hud_definitions.h"
+#include "interface/hud_draw.h" /* port: hud_set_screen_effect_mask */
 #include "interface/interface.h"
 #include "interface/hud_messaging.h"
 #include "interface/terminal.h"
@@ -105,6 +106,7 @@ symbols in this file:
 #include "text/draw_string.h"
 #include "units/unit_definitions.h"
 #include "units/units.h"
+#include "halo_perf_log.h" /* port: console.perf_log */
 
 /* ---------- constants */
 
@@ -225,6 +227,7 @@ static void render_debug_profile_stall_tick(
 	real scale);
 /* ---------- globals */
 
+#ifndef HALO_CONSOLE_NO_DEBUG_TOOLS
 short profile_game_value_count = NUMBER_OF_PROFILE_GAME_VALUES;
 struct profile_value profile_game_values[MAXIMUM_PROFILE_VALUES] =
 {
@@ -257,6 +260,8 @@ struct profile_value profile_graph_values[MAXIMUM_PROFILE_VALUES] =
 	{ "pushbuffer", "pushbuffer", &global_real_argb_darkgreen, NONE, NONE, FALSE, TRUE },
 	{ "dt", "dt", &global_real_argb_grey, NONE, NONE, FALSE, TRUE },
 };
+
+#endif
 
 /* ---------- public code */
 
@@ -603,6 +608,9 @@ void interface_draw_screen(
 			struct rasterizer_cinematic_screen_effect_parameters parameters;
 
 			csmemset(&parameters, 0, sizeof(parameters));
+#ifdef HALO_CUSTOM_EDITION
+			hud_set_screen_effect_mask(NULL, NONE);
+#endif
 
 			if (zoomed ||
 				!TEST_FLAG(screen_effect->mask_flags,
@@ -618,6 +626,10 @@ void interface_draw_screen(
 						&bitmap_group_get(mask_tag_index)->bitmaps,
 						0,
 						struct bitmap_data);
+#ifdef HALO_CUSTOM_EDITION
+					/* port: drawn at its group's high resolution scale (hud_draw.c) */
+					hud_set_screen_effect_mask(parameters.convolution_mask, mask_tag_index);
+#endif
 					parameters.filter_light_enhancement_uses_convolution_mask =
 						TEST_FLAG(
 							screen_effect->light_enhancement_flags,
@@ -719,7 +731,9 @@ void interface_draw_screen(
 				}
 			}
 
+			HALO_PERF_RENDER_PART(_halo_perf_render_screen_effect);
 			rasterizer_screen_effect(&parameters);
+			HALO_PERF_RENDER_PART(_halo_perf_render_hud);
 		}
 		else
 		{
@@ -784,6 +798,7 @@ void interface_draw_bitmap_modulated_p32(
 	return;
 }
 
+#ifndef HALO_CONSOLE_NO_DEBUG_TOOLS
 void profile_graph_toggle(
 	char const *graph_name)
 {
@@ -1228,6 +1243,26 @@ static void render_debug_profile(
 
 	return;
 }
+
+#else
+
+void profile_graph_toggle(
+	char const *graph_name)
+{
+	console_debug_tools_unavailable("profile_graph_toggle");
+
+	return;
+}
+
+/* ---------- private code */
+
+static void render_debug_profile(
+	void)
+{
+	return;
+}
+
+#endif
 
 static void interface_splitscreen_render(
 	void)

@@ -3389,7 +3389,7 @@ boolean hs_parse_set(
 					}
 					else
 					{
-						match_vassert(
+						match_vassert_evaluated(
 							"c:\\halo\\source\\hs\\hs_library_internal_compile.h",
 							0x126,
 							hs_parse_variable(variable_expression_index),

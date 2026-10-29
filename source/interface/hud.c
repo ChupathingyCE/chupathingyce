@@ -114,7 +114,7 @@ symbols in this file:
 #include "follow_camera.h" /* port: port/linux/game/follow_camera.c */
 #include "powerup_timers.h" /* port: port/linux/game/powerup_timers.c */
 #include "network_coop.h" /* port: port/linux/game/network_coop.c */
-#ifdef HALO_GAME_BROWSER
+#ifdef HALO_PORT_CHAT
 #include "chat.h" /* port: port/linux/game/chat.c */
 #endif
 #include "text/font_group.h"
@@ -783,6 +783,11 @@ void hud_picked_up_weapon(
 	short local_player_index,
 	long weapon_definition_index)
 {
+#ifdef HALO_GAME_BROWSER
+	/* port: Bomb's bomb is the map's oddball ball: no "odd ball" line */
+	if (game_engine_bomb_hides_pickup(weapon_definition_index))
+		return;
+#endif
 	if (local_player_index != NONE)
 	{
 		hud_add_item_message(
@@ -978,8 +983,12 @@ static void hud_draw_players(
 
 	if (player_index != NONE)
 	{
+#ifndef HALO_XBOX_CONSOLE
 		/* the native builds' sessions hold more than 16 players */
 		long teammate_indices[HALO_PORT_MAXIMUM_NETWORK_PLAYERS];
+#else
+		long teammate_indices[16];
+#endif
 		long teammate_count = 0;
 		struct data_iterator iterator;
 		struct player_datum *player;
@@ -992,9 +1001,13 @@ static void hud_draw_players(
 				team_index == player->team_index &&
 				player->unit_index != NONE)
 			{
+#ifndef HALO_XBOX_CONSOLE
 				/* never write past the buffer, whatever the player data holds */
 				if (teammate_count < (long)NUMBEROF(teammate_indices))
 					teammate_indices[teammate_count++] = iterator.datum_index;
+#else
+				teammate_indices[teammate_count++] = iterator.datum_index;
+#endif
 			}
 		}
 
@@ -1114,6 +1127,37 @@ static real hud_player_name_enemy_range(
 	return hud_globals ? hud_globals->defaults.motion_sensor_range : 0.0f;
 }
 
+/* port: the line of sight to an enemy's head, tested once a tick for each
+local player's view rather than at every frame drawn: in a 64-player match
+the names' rays and head markers were a tenth of the HUD's time */
+static struct
+{
+	long player_index;
+	long tick;
+	boolean in_sight;
+} hud_player_name_sight[MAXIMUM_LOCAL_PLAYERS][HALO_PORT_MAXIMUM_NETWORK_PLAYERS];
+
+static boolean hud_player_name_in_sight_this_tick(
+	long player_index,
+	long unit_index,
+	real_point3d const *head_position)
+{
+	long slot = player_index & 0xFFFF;
+	short view = render.local_player_index;
+	long tick = game_time_get();
+
+	if (slot >= HALO_PORT_MAXIMUM_NETWORK_PLAYERS || !VALID_INDEX(view, MAXIMUM_LOCAL_PLAYERS))
+		return hud_player_name_in_sight(unit_index, head_position);
+	if (hud_player_name_sight[view][slot].player_index != player_index ||
+		hud_player_name_sight[view][slot].tick != tick)
+	{
+		hud_player_name_sight[view][slot].player_index = player_index;
+		hud_player_name_sight[view][slot].tick = tick;
+		hud_player_name_sight[view][slot].in_sight = hud_player_name_in_sight(unit_index, head_position);
+	}
+	return hud_player_name_sight[view][slot].in_sight;
+}
+
 static void hud_draw_player_name(
 	long player_index,
 	boolean ally,
@@ -1135,20 +1179,31 @@ static void hud_draw_player_name(
 
 	if (font_index == NONE)
 		return;
+	/* (port: an enemy whose body is well past the range has no head in it
+	either - the head is within a world unit of the body's origin - and is
+	not looked for) */
+	if (!ally &&
+		distance3d(&render.camera.position, &object_get(player->unit_index)->object.position) >= enemy_range + 2.0f)
+	{
+		return;
+	}
 	unit_get_head_position(player->unit_index, &head_position);
 	distance = distance3d(&render.camera.position, &head_position);
 	if (!ally && distance >= enemy_range)
 		return;
-	if (!ally &&
-		(unit_get(player->unit_index)->unit.active_camouflage > 0.5f ||
-		!hud_player_name_in_sight(player->unit_index, &head_position)))
-	{
+	if (!ally && unit_get(player->unit_index)->unit.active_camouflage > 0.5f)
 		return;
+	/* (where the game draws a teammate's triangle; off the screen, no line
+	of sight is tested) */
+	{
+		real_point3d above = head_position;
+
+		above.z += 0.30000001f;
+		matrix4x3_transform_point(&render.frustum.world_to_view, &above, &view_position);
 	}
-	/* (where the game draws a teammate's triangle) */
-	head_position.z += 0.30000001f;
-	matrix4x3_transform_point(&render.frustum.world_to_view, &head_position, &view_position);
 	if (!render_camera_view_to_screen(&render.camera, &render.frustum, &view_position, &screen_position))
+		return;
+	if (!ally && !hud_player_name_in_sight_this_tick(player_index, player->unit_index, &head_position))
 		return;
 	x = (short)fast_ftol(screen_position.x) - render.camera.viewport_bounds.x0;
 	y = (short)fast_ftol(screen_position.y) - render.camera.viewport_bounds.y0;
@@ -1414,7 +1469,7 @@ void hud_draw_screen(
 		/* port: the network co-op vote to skip a cinematic */
 		if (cinematic_in_progress())
 			coop_skip_vote_draw(render.local_player_index);
-#ifdef HALO_GAME_BROWSER
+#ifdef HALO_PORT_CHAT
 		/* port: text chat's lines (port/linux/game/chat.c) */
 		if (!cinematic_in_progress())
 			chat_draw(render.local_player_index);

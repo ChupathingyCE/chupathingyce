@@ -1722,7 +1722,7 @@ static void actor_input_update(
 		if (actor->meta.encounter_index != NONE)
 		{
 			struct actor_debug_info *actor_debug_info =
-				&actor_debug_array[DATUM_INDEX_TO_ABSOLUTE_INDEX(actor_index)];
+				ACTOR_DEBUG_INFO_GET(actor_index);
 			struct encounter_definition *encounter_definition =
 				TAG_BLOCK_GET_ELEMENT(
 					&global_scenario_get()->ai_encounters,
@@ -2367,7 +2367,7 @@ long actor_new(
 				actor->firing_positions.pursuit_prop_index = NONE;
 
 				actor_debug_info =
-					&actor_debug_array[DATUM_INDEX_TO_ABSOLUTE_INDEX(actor_index)];
+					ACTOR_DEBUG_INFO_GET(actor_index);
 				csmemset(actor_debug_info, 0, sizeof(*actor_debug_info));
 				actor_debug_info->last_path_refresh = NONE;
 				actor_debug_info->last_projectile_aiming_time = NONE;

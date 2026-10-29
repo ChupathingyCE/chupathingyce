@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 
 # root build script: writes build.ninja for the native ports (Linux, Windows,
-# Android, macOS) and the dedicated server (Linux)
+# Android, macOS) and the dedicated server (Linux), and for the console ports
+# given with --console-port (tools/console_build.py). Run from a console
+# repository, with the game as its submodule, it writes that repository's
+# build.ninja, with the console's targets only (docs/building.md)
 
 import argparse
 import io
@@ -13,12 +16,25 @@ from types import SimpleNamespace
 from tools import ninja_syntax
 from tools.android_build import android_configure_inputs, generate_android_build
 from tools.android64_build import android64_configure_inputs, generate_android64_build
+from tools.console_build import (GAME_ROOT, add_console_arguments, console_configure_inputs, load_console_port,
+                                 relative)
 from tools.linux_build import generate_linux_build, linux_configure_inputs
 from tools.linux64_build import generate_linux64_build, linux64_configure_inputs
 from tools.macos_build import generate_macos_build, macos_configure_inputs
 from tools.server_build import generate_server_build, server_configure_inputs
 from tools.version import commit_inputs
 from tools.windows_build import generate_windows_build, windows_configure_inputs
+
+# the console ports (--console-port), whose own options join the others
+console_arguments = argparse.ArgumentParser(add_help=False)
+console_arguments.add_argument("--console-port", type=Path, action="append", default=[])
+console_ports = [load_console_port(directory) for directory in console_arguments.parse_known_args()[0].console_port]
+# (run from outside the game's tree, a console repository's root: the
+# console's targets only, the desktop builds' paths being the game's own)
+console_only = relative(GAME_ROOT) != Path(".")
+if console_only and not console_ports:
+    sys.exit(f"configure.py: run it from the game's root ({relative(GAME_ROOT)}), or name a console port with "
+             "--console-port (docs/building.md)")
 
 # arguments
 parser = argparse.ArgumentParser()
@@ -43,7 +59,7 @@ parser.add_argument(
     "--game-browser",
     action=argparse.BooleanOptionalAction,
     default=True,
-    help="every build (Linux, Windows, macOS, Android; always the server's): the game list and server browser of halo.milenko.org "
+    help="every build (Linux, Windows, macOS, Android; always the server's): the game list and server browser of stats.chupathingy.org "
     "(HALO_GAME_BROWSER; port/linux/src/browser.c); on unless --no-game-browser",
 )
 parser.add_argument(
@@ -54,6 +70,27 @@ parser.add_argument(
     "the bgfx test backend (Metal; port/linux/src/d3d8_bgfx.inl), chosen at run time with display.renderer = "
     "\"bgfx\" or HALO_RENDERER=bgfx. It fetches bgfx, bx and bimg at pinned commits into build/macos/third_party "
     "and links Homebrew's shaderc and SPIRV-Cross",
+)
+parser.add_argument(
+    "--console-limits",
+    action="store_true",
+    help="native ports (Linux, macOS): the original Xbox build's network and object limits "
+    "(HALO_CONSOLE_LIMITS: 16 players and machines, 2,048 objects), to test the console's side of "
+    "cross-play against the PC builds on one computer (docs/cross-play.md); never a build to ship",
+)
+parser.add_argument(
+    "--window-rebase",
+    action="store_true",
+    help="the 32-bit Linux build (ninja linux) with its Xbox memory window wherever HALO_WINDOW_BASE puts it "
+    "(HALO_WINDOW_REBASE: source/cseries/xbox_address.h), to test on the desktop what the Switch's guest "
+    "does; never a build to ship",
+)
+parser.add_argument(
+    "--packaged",
+    action="store_true",
+    help="desktop builds: a package manager's build (HALO_PACKAGED; port/linux/src/packaged_install.h): "
+    "the game never updates itself, and on Linux keeps its data and settings in ~/.local/share/chupathingyce. "
+    "A package of a release's own executable sets HALO_PACKAGED=1 or puts a file named packaged beside it instead",
 )
 parser.add_argument(
     "--lto",
@@ -99,6 +136,21 @@ parser.add_argument(
     type=str,
     help="clang with the arm64_32 target for the Android guest (default: clang)",
 )
+parser.add_argument(
+    "--without-ffmpeg",
+    dest="with_ffmpeg",
+    action="store_false",
+    help="leave the movies' FFmpeg out (the Bink decoder behind the SDK's entry points: LGPL, "
+         "static, built for each target): the stubs build and the game skips the movies",
+)
+# (the default since every desktop build plays the movies; kept for the
+# scripts that still ask for it)
+parser.add_argument("--with-ffmpeg", dest="with_ffmpeg", action="store_true", help=argparse.SUPPRESS)
+parser.set_defaults(with_ffmpeg=True)
+add_console_arguments(parser)
+for port in console_ports:
+    if hasattr(port.module, "add_arguments"):
+        port.module.add_arguments(parser.add_argument_group(f"{port.name} ({port.root})"))
 args = parser.parse_args()
 
 # the settings the builds read
@@ -108,6 +160,9 @@ sln = SimpleNamespace(
     compiler_launcher=args.compiler_launcher,
     port_release=args.release,
     game_browser=args.game_browser,
+    console_limits=args.console_limits,
+    window_rebase=args.window_rebase,
+    packaged=args.packaged,
     port_lto=args.lto,
     renderer=args.renderer,
     port_portable=args.portable,
@@ -115,6 +170,12 @@ sln = SimpleNamespace(
     port_pgo_profile=args.pgo_profile,
     android_ndk=args.android_ndk,
     android_guest_cc=args.android_guest_cc,
+    with_ffmpeg=args.with_ffmpeg,
+    console_no_debug_asserts=args.console_no_debug_asserts,
+    console_debug_tools=args.console_debug_tools,
+    console_players=args.console_players,
+    # (every option, a console port's own too, by its name)
+    args=args,
 )
 
 
@@ -137,13 +198,16 @@ n.variable(
 n.variable("python", f'"{sys.executable}"')
 n.newline()
 
-generate_linux_build(n, sln)
-generate_linux64_build(n, sln)
-generate_android_build(n, sln)
-generate_android64_build(n, sln)
-generate_windows_build(n, sln)
-generate_macos_build(n, sln)
-generate_server_build(n, sln)
+if not console_only:
+    generate_linux_build(n, sln)
+    generate_linux64_build(n, sln)
+    generate_android_build(n, sln)
+    generate_android64_build(n, sln)
+    generate_windows_build(n, sln)
+    generate_macos_build(n, sln)
+    generate_server_build(n, sln)
+for port in console_ports:
+    port.module.generate(n, sln, port)
 
 n.comment("Reconfigure on change")
 n.rule(
@@ -157,14 +221,17 @@ n.build(
     rule="configure",
     implicit=[
         configure_script,
-        Path("tools/ninja_syntax.py"),
-        *linux_configure_inputs(),
-        *linux64_configure_inputs(),
-        *android_configure_inputs(),
-        *android64_configure_inputs(),
-        *windows_configure_inputs(),
-        *macos_configure_inputs(),
-        *server_configure_inputs(),
+        relative(GAME_ROOT / "tools" / "ninja_syntax.py"),
+        *([] if console_only else [
+            *linux_configure_inputs(),
+            *linux64_configure_inputs(),
+            *android_configure_inputs(),
+            *android64_configure_inputs(),
+            *windows_configure_inputs(),
+            *macos_configure_inputs(),
+            *server_configure_inputs(),
+        ]),
+        *(console_configure_inputs(console_ports) if console_ports else []),
         # (the commit the builds record: tools/version.py)
         *commit_inputs(),
     ],
@@ -172,8 +239,11 @@ n.build(
 n.newline()
 
 # the build for this computer, where it could be generated (the Windows
-# build is left out when SDL cannot be fetched, for instance)
+# build is left out when SDL cannot be fetched, for instance), or a console
+# repository's own port
 default = "windows" if is_windows() else "macos" if sys.platform == "darwin" else "linux"
+if console_only:
+    default = console_ports[0].name
 if f"\nbuild {default}: " in out.getvalue():
     n.comment("Default rule: the build for this computer")
     n.default(default)

@@ -667,6 +667,15 @@ void weapon_ready(
 	weapon_reset(weapon_index);
 	weapon_set_state(weapon_index, _weapon_state_ready, TRUE);
 	first_person_weapon_message_from_weapon(weapon_index, _first_person_weapon_message_ready);
+#ifdef HALO_GAME_BROWSER
+	/* port: a melee-only Bomb game's unseen fists are ready at once, with
+	none of the pistol's draw: no sound, no wait (game_engine_bomb.c) */
+	if (game_engine_bomb_hides_weapon(weapon->definition_index))
+	{
+		weapon->weapon.state_timer = 0;
+		return;
+	}
+#endif
 	weapon_effect_new(weapon_index, weapon_definition->weapon.ready_effect.index, 0.f, 0.f);
 	weapon->weapon.state_timer = weapon_get_first_person_animation_time(weapon_index, 0, _first_person_weapon_animation_ready, NONE);
 
@@ -773,6 +782,13 @@ char const *weapon_get_label(
 		struct weapon_definition *weapon_definition = weapon_definition_get(weapon->definition_index);
 
 		label = weapon_definition->weapon.label;
+#ifdef HALO_GAME_BROWSER
+		/* port: a melee-only Bomb game's unseen fists are held as no weapon
+		is: the unit stands, runs and strikes empty-handed
+		(game_engine_bomb.c) */
+		if (game_engine_bomb_hides_weapon(weapon->definition_index))
+			label = "unarmed";
+#endif
 	}
 
 	return label;
@@ -908,9 +924,17 @@ void weapon_set_total_rounds(
 void weapon_delete(
 	long weapon_index)
 {
-	if (game_engine_running())
+	/* port: not for a Custom Edition map's (objects.c, object_delete) */
+	if (game_engine_running() && !CACHE_FILE_TAGS_ARE_CE())
 	{
+#if defined(HALO_CONSOLE) || defined(HALO_XBOX_CONSOLE)
+		/* port: on the consoles a warning in debug.txt, and the game goes on:
+		a modded host's game that deleted the oddball stopped an Xbox here.
+		Nothing follows that the check protects */
+		match_warn("c:\\halo\\SOURCE\\items\\weapons.c", 234, !weapon_is_flag(weapon_index));
+#else
 		match_assert("c:\\halo\\SOURCE\\items\\weapons.c", 234, !weapon_is_flag(weapon_index));
+#endif
 	}
 
 	return;
@@ -2595,6 +2619,24 @@ static void trigger_create_projectiles(
 				normalize3d(perpendicular3d(&data.forward, &data.up));
 				projectile_distribute(&data.forward, &data.up, trigger_definition->projectile_distribution_function, trigger_definition->projectile_distribution_angle, projectile_index, projectile_count);
 				scale_vector3d(&data.forward, velocity, &data.translational_velocity);
+#ifdef HALO_CUSTOM_EDITION
+				/* port: Halo PC starts a projectile whose tag has "combine initial
+				velocity with parent velocity" with the whole velocity of what
+				fired it (the owner's ultimate parent: the vehicle the gun is on),
+				not only the part along its aim, and also when it cannot be aimed
+				(haloceded 1.0.10, trigger_create_projectiles). The Xbox's engine
+				never reads the flag. A Custom Edition map plays as Halo PC's, so
+				a bomb dropped from a moving aircraft keeps the aircraft's speed
+				(Coldsnap's nuke, Hugeass's) */
+				if (cache_file_tags_are_ce() &&
+					projectile_definition_combines_parent_velocity(projectile_definition_get(projectile_definition_index)))
+				{
+					long parent_index = object_get_ultimate_parent(
+						owner_object_index != NONE ? owner_object_index : weapon_index);
+
+					data.translational_velocity = object_get(parent_index)->object.translational_velocity;
+				}
+#endif
 
 				inside_bsp= unit && unit->unit.player_index!=NONE;
 				if (inside_bsp)

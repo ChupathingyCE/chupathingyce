@@ -3,7 +3,7 @@ BROWSER.H
 
 The game list (configure.py --game-browser,
 HALO_GAME_BROWSER): the system link games hosted by copies of the game
-anywhere, listed on network.browser_url (halo.milenko.org). A host's
+anywhere, listed on network.browser_url (stats.chupathingy.org). A host's
 game is listed with its invite (p2p.c); a player picks a listed game, which
 joins its invite, and the host's game then shows in System Link as any
 game reached through an invite. See browser.c.
@@ -102,7 +102,30 @@ struct browser_game
 	answers pings) */
 	char region[8];
 	unsigned long capabilities;
+	/* an Xbox map pack's map's name and its pack's, as its host announces
+	them (the list's fields 20 and 21: "Gothra", "Halo CE+"; empty for
+	another map, or a host that doesn't) */
+	char map_title[48];
+	char map_pack[48];
+	/* the playlist its host plays, as the list says (field 23: a verified
+	playlist's id, whose map set the join offers, docs/playlist-maps.md;
+	empty for none) */
+	char playlist[33];
+	/* the kind its public listing says (p2p_listing's; 0 when it has none
+	or isn't heard): OpenCE's game types and Hardcore, by name in the list */
+	unsigned char kind;
+	/* heard directly, not on the list: a public listing from the brokers
+	(p2p_lobby.c) that the list lacks (browser_get_games) */
+	unsigned char direct;
+	/* an OpenCE dedicated server's game, by its public listing's flags
+	(p2p_listing's opence_server): the lists' neutral label
+	(HOST_LABEL_OPENCE_SERVER), nothing more */
+	unsigned char opence_server;
 };
+
+/* the note a screen of listed games shows while the list is down and its
+games are those found directly (browser_list_status: BROWSER_LIST_FAILED) */
+#define BROWSER_LIST_OFFLINE_NOTE "The game list is offline; showing games found directly."
 
 /* one player's line of a finished game's carnage report */
 struct browser_report_player
@@ -172,8 +195,10 @@ list server with this copy's player key, whoever hosted the game (a host of
 the game list's own builds reports it too; one of other builds does not),
 so that the server can record the games of hosts that do not report
 (port/linux/game/game_stats.c). extra: the report's other JSON members (the
-map, the game type, the reporting player, ...). */
-void browser_client_report(int teams, int red_score, int blue_score, int duration_seconds,
+map, the game type, the reporting player, ...). 1 if it is to be sent, 0
+if not (no list server, reports of joined games off, or a game not joined
+through an invite). */
+int browser_client_report(int teams, int red_score, int blue_score, int duration_seconds,
 	const struct browser_report_player *players, int count, const char *extra);
 
 /* a player's name as a JSON string, appended to out (UTF-8, quoted and
@@ -187,18 +212,43 @@ void browser_host_update(const unsigned short *name, const char *map, short engi
 	short maximum_players, int open, short score_limit, int teams,
 	const struct browser_roster_player *roster, int roster_count);
 
-/* the game list's address as a player types it (halo.milenko.org: no
+/* the game list's address as a player types it (stats.chupathingy.org: no
 scheme), empty for none */
 void browser_server_name(char *text, int size);
 
 /* the listed games, asking the server for the list again if the last one
-is more than a few seconds old: those of this machine's network version,
-without this machine's own. Returns their count. */
+is more than a few seconds old: with games of other network versions
+(browser_game_version_state), without this machine's own. Returns their
+count. The list's games come first; then, while the public listings are
+followed (browser_follow_listings), each game heard on the brokers that the
+list lacks (direct): an OpenCE (legacy) game while the list answers, and
+any host's while it is down, so a list outage costs no game the brokers
+carry. */
 int browser_get_games(struct browser_game *games, int maximum_count);
+/* whether this build can join a game by its network version: 0 if it can
+(or may try), -1 if the game runs an older version, 1 a newer one */
+int browser_game_version_state(const struct browser_game *game);
+/* the same for a bare network version (a listing over the brokers has no
+game list entry): -1 older, 1 newer, 0 joinable. Every build */
+int browser_version_state(int version);
 /* whether a game's map (a scenario's name or path) is a campaign level: a
-co-op game, which no server browser lists (a direct join or an invite still
-reaches it) */
+co-op game */
 int browser_map_is_campaign(const char *map);
+/* the game lists' filter, kept for the session: all games, multiplayer
+games, or co-op games (a campaign level). Every build */
+enum
+{
+	BROWSER_LIST_FILTER_ALL,
+	BROWSER_LIST_FILTER_MULTIPLAYER,
+	BROWSER_LIST_FILTER_COOP,
+	BROWSER_LIST_FILTERS
+};
+int browser_list_filter(void);
+void browser_list_filter_cycle(void);
+/* its name for a button or a hint: ALL, MULTIPLAYER, CO-OP */
+const char *browser_list_filter_name(void);
+/* whether a game on this map (a scenario's name or path) passes it */
+int browser_list_filter_allows(const char *map);
 /* the public listings (OpenCE's, p2p_lobby.c) followed while a screen of
 listed games is up, for which of them have a password; and the games'
 pings measured (p2p_probe.c) and estimated (browser_ping.c) meanwhile,
@@ -259,7 +309,7 @@ own ID has a profile (asked once a run, from the first call on); the
 profile's handle in handle (empty when not linked). Never waits. */
 int browser_profile_linked(char *handle, int size);
 
-/* the profile page (halo.milenko.org/profile), signed in as this copy's
+/* the profile page (stats.chupathingy.org/profile), signed in as this copy's
 player, opened in the web browser (MY PROFILE) */
 void browser_open_profile(void);
 /* a restored key (halo://key/...): kept, then put in place of this copy's
@@ -302,7 +352,7 @@ struct browser_connect
 	int seconds;
 	/* the question answered, the answer on its way */
 	int answered;
-	/* where to type it, as a player types it (halo.milenko.org/connect) */
+	/* where to type it, as a player types it (stats.chupathingy.org/connect) */
 	char page[128];
 	/* who typed the code (confirm) and who the game was linked to before
 	(empty if none), then who it is linked to (connected); what went wrong
@@ -324,5 +374,73 @@ void browser_connect_stop(void);
 /* the player's answer to the confirm question */
 void browser_connect_answer(int accept);
 void browser_connect_get(struct browser_connect *connect);
+
+/* Delta Profile in the game (port/linux/game/profile_screen.c;
+delta_profile.h): this copy's own profile, as the site has it, kept in
+memory only. browser_profile_load asks the site for it (in the background:
+at once the first time, else when it is a minute old or force; never more
+often than every 10 seconds), browser_profile_get gives the last answer. */
+enum
+{
+	BROWSER_PROFILE_NOT_ASKED,
+	BROWSER_PROFILE_LOADING,
+	BROWSER_PROFILE_LOADED,
+	/* the site did not answer (a profile it gave before is kept) */
+	BROWSER_PROFILE_FAILED,
+	/* no HTTPS game list, or no player key */
+	BROWSER_PROFILE_NO_KEY,
+	/* no game list (network.browser_url empty) */
+	BROWSER_PROFILE_NO_LIST,
+};
+
+/* what the last action (unlinking this copy, a privacy setting) came to */
+enum
+{
+	BROWSER_PROFILE_ACTION_NONE,
+	BROWSER_PROFILE_ACTION_WORKING,
+	BROWSER_PROFILE_ACTION_DONE,
+	BROWSER_PROFILE_ACTION_FAILED,
+	/* this is the copy that made the profile: it can't be unlinked */
+	BROWSER_PROFILE_ACTION_FIRST_COPY,
+};
+
+struct browser_profile_status
+{
+	int state;
+	/* an answer is kept (profile), how old it is, and a count of the
+	answers kept (a new one: it changed) */
+	int has_profile;
+	unsigned long age_seconds;
+	int serial;
+	/* asked for, not answered yet */
+	int loading;
+	int action;
+	char message[128];
+};
+
+struct delta_profile;
+struct delta_profile_card;
+void browser_profile_load(int force);
+void browser_profile_get(struct browser_profile_status *status, struct delta_profile *profile);
+/* this copy unlinked from its profile (the site's /v1/game/unlink); a
+privacy setting of the site's changed ("hide_stats", "hide_heatmaps",
+"show_presence", "show_clan_tag"); the action's result shown (no longer kept) */
+void browser_profile_unlink(void);
+void browser_profile_privacy(const char *field, int value);
+void browser_profile_action_seen(void);
+/* a clan's invite answered ("accept" or "decline", clan its ID), or the
+clan left ("leave"): the site's /v1/game/clan, its result the action's */
+void browser_profile_clan(const char *action, int clan);
+
+/* another player's public profile card, by the player ID they shared in a
+game (32 hex digits): 1 with it in card, else 0 (asked of the site in the
+background, or they have none to show). Kept for the run */
+#define BROWSER_PLAYER_CARDS 64
+int browser_player_card(const char *player_id, struct delta_profile_card *card);
+
+/* a page of the site (path: "/profile"): its address as a player types it
+in page, and as a QR code in modules (BROWSER_CONNECT_QR_SIZE squared at
+most, nonzero for a dark one); the QR code's size, 0 for none */
+int browser_page_qr(const char *path, char *page, int page_size, unsigned char *modules);
 
 #endif

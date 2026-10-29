@@ -7,6 +7,7 @@ threads, asynchronous procedure calls, time, memory and debug output.
 
 #include "platform.h"
 #include "posix.h"
+#include "thread_stop.h"
 
 #include <errno.h>
 #include <sched.h>
@@ -31,7 +32,11 @@ void platform_log(const char *format, ...)
 	FILE *handle;
 #endif
 
+	/* (a console whose standard error is its debug channel gets the line
+	from console_debug_print below: HALO_CONSOLE_DEBUG_CHANNEL) */
+#ifndef HALO_CONSOLE_DEBUG_CHANNEL
 	fputs(PLATFORM_LOG_PREFIX, stderr);
+#endif
 	va_start(arguments, format);
 #ifdef HALO_64BIT
 	vsnprintf(buffer, sizeof(buffer), format, arguments);
@@ -39,10 +44,27 @@ void platform_log(const char *format, ...)
 	vfprintf(stderr, format, arguments);
 #endif
 	va_end(arguments);
-#ifdef HALO_64BIT
+#if defined(HALO_64BIT) && !defined(HALO_CONSOLE_DEBUG_CHANNEL)
 	fputs(buffer, stderr);
 #endif
+#ifndef HALO_CONSOLE_DEBUG_CHANNEL
 	fputc('\n', stderr);
+#endif
+#ifdef HALO_CONSOLE_DEBUG_CHANNEL
+	{
+		/* the console has no standard error: its debug channel and its own
+		log (the port's console_debug_print) */
+		void console_debug_print(const char *text);
+		char line[2048];
+
+		va_start(arguments, format);
+		snprintf(line, sizeof(line) - 2, "halo: ");
+		vsnprintf(line + 6, sizeof(line) - 8, format, arguments);
+		va_end(arguments);
+		strcat(line, "\r\n");
+		console_debug_print(line);
+	}
+#endif
 #ifdef HALO_SERVER
 	{
 		/* the dedicated server's recent log, for its control API
@@ -117,7 +139,12 @@ void platform_unimplemented(const char *name)
 
 /* ---------- last error */
 
+#ifdef HALO_CONSOLE_NO_THREAD_LOCAL
+PLATFORM_THREAD_LOCAL_SLOT(DWORD, platform_last_error)
+#define platform_last_error (*platform_last_error_slot())
+#else
 static __thread DWORD platform_last_error;
+#endif
 
 DWORD WINAPI GetLastError(void)
 {
@@ -233,8 +260,15 @@ struct platform_apc
 	void *context[3];
 };
 
+#ifdef HALO_CONSOLE_NO_THREAD_LOCAL
+PLATFORM_THREAD_LOCAL_SLOT(struct platform_apc *, platform_apc_head)
+PLATFORM_THREAD_LOCAL_SLOT(struct platform_apc *, platform_apc_tail)
+#define platform_apc_head (*platform_apc_head_slot())
+#define platform_apc_tail (*platform_apc_tail_slot())
+#else
 static __thread struct platform_apc *platform_apc_head;
 static __thread struct platform_apc *platform_apc_tail;
+#endif
 
 void platform_queue_apc(platform_apc_routine routine, void *context0, void *context1, void *context2)
 {
@@ -310,6 +344,9 @@ DWORD WINAPI WaitForSingleObjectEx(HANDLE object, DWORD milliseconds, BOOL alert
 	struct timespec deadline;
 	DWORD result = WAIT_OBJECT_0;
 
+#ifdef HALO_CONSOLE_WAIT_POLL
+	console_wait_poll();
+#endif
 	if (alertable && platform_run_apcs())
 		return WAIT_IO_COMPLETION;
 
@@ -335,6 +372,31 @@ DWORD WINAPI WaitForSingleObjectEx(HANDLE object, DWORD milliseconds, BOOL alert
 			result = WAIT_TIMEOUT;
 			break;
 		}
+#ifdef HALO_CONSOLE_WAIT_POLL
+		/* (in slices, the console served between them) */
+		if (milliseconds != 0)
+		{
+			struct timespec slice;
+
+			clock_gettime(CLOCK_REALTIME, &slice);
+			slice.tv_nsec += 16000000L;
+			if (slice.tv_nsec >= 1000000000L)
+			{
+				slice.tv_sec++;
+				slice.tv_nsec -= 1000000000L;
+			}
+			if (milliseconds == INFINITE ||
+				slice.tv_sec < deadline.tv_sec ||
+				(slice.tv_sec == deadline.tv_sec && slice.tv_nsec < deadline.tv_nsec))
+			{
+				pthread_cond_timedwait(&handle->condition, &handle->lock, &slice);
+				pthread_mutex_unlock(&handle->lock);
+				console_wait_poll();
+				pthread_mutex_lock(&handle->lock);
+				continue;
+			}
+		}
+#endif
 		if (milliseconds == INFINITE)
 		{
 			pthread_cond_wait(&handle->condition, &handle->lock);
@@ -558,13 +620,20 @@ static void *thread_main(void *context)
 	struct platform_handle *handle = thread->handle;
 	DWORD exit_code;
 	BOOL free_now;
+	char name[48];
+	int stop_slot;
 
 	pthread_mutex_lock(&handle->lock);
 	while (thread->suspended)
 		pthread_cond_wait(&handle->condition, &handle->lock);
 	pthread_mutex_unlock(&handle->lock);
 
+	/* (named in the log at the game's end if it is still there, by where
+	it starts: the game's threads do not see thread_stop.h's signal) */
+	snprintf(name, sizeof(name), "game thread at %p", (void *)thread->start);
+	stop_slot = thread_stop_enter(name, 0);
 	exit_code = thread->start(thread->parameter);
+	thread_stop_leave(stop_slot);
 
 	pthread_mutex_lock(&handle->lock);
 	thread->exit_code = exit_code;
@@ -678,6 +747,9 @@ DWORD WINAPI SleepEx(DWORD milliseconds, BOOL alertable)
 {
 	struct timespec duration;
 
+#ifdef HALO_CONSOLE_WAIT_POLL
+	console_wait_poll();
+#endif
 	if (alertable && platform_run_apcs())
 		return WAIT_IO_COMPLETION;
 	if (milliseconds == 0)
@@ -690,6 +762,20 @@ DWORD WINAPI SleepEx(DWORD milliseconds, BOOL alertable)
 		for (;;)
 			pause();
 	}
+#ifdef HALO_CONSOLE_WAIT_POLL
+	/* (in slices, the console served between them) */
+	while (milliseconds > 16)
+	{
+		duration.tv_sec = 0;
+		duration.tv_nsec = 16000000L;
+		while (nanosleep(&duration, &duration) == -1 && errno == EINTR)
+			;
+		milliseconds -= 16;
+		console_wait_poll();
+		if (alertable && platform_run_apcs())
+			return WAIT_IO_COMPLETION;
+	}
+#endif
 	duration.tv_sec = milliseconds / 1000;
 	duration.tv_nsec = (long)(milliseconds % 1000) * 1000000L;
 	while (nanosleep(&duration, &duration) == -1 && errno == EINTR)
@@ -992,6 +1078,13 @@ VOID WINAPI GlobalMemoryStatus(LPMEMORYSTATUS status)
 
 VOID WINAPI OutputDebugStringA(LPCSTR string)
 {
+#ifdef HALO_CONSOLE_DEBUG_CHANNEL
+	void console_debug_print(const char *text);
+
+	if (string)
+		console_debug_print(string);
+#else
 	if (string)
 		fputs(string, stderr);
+#endif
 }

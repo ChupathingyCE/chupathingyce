@@ -26,6 +26,16 @@ too. -->
 	</bitmap>
 	<widget name="chupathingy/prompts/y" controller="1" width="20" height="22" bitmap="chupathingy/prompts/y_butn">
 	</widget>
+	<bitmap name="chupathingy/prompts/white_butn">
+		<frame png="ce/port/blank__0.png" width="4" height="4"/>
+	</bitmap>
+	<widget name="chupathingy/prompts/white" controller="1" width="20" height="22" bitmap="chupathingy/prompts/white_butn">
+	</widget>
+	<bitmap name="chupathingy/prompts/black_butn">
+		<frame png="ce/port/blank__0.png" width="4" height="4"/>
+	</bitmap>
+	<widget name="chupathingy/prompts/black" controller="1" width="20" height="22" bitmap="chupathingy/prompts/black_butn">
+	</widget>
 	<widget name="chupathingy/prompts/cancel" type="text" controller="1" width="140" height="22" text="=CANCEL" font="ui\large_ui" color="#FF2896FF">
 	</widget>
 	<widget name="chupathingy/prompts/accept" type="text" controller="1" width="140" height="22" text="=ACCEPT" font="ui\large_ui" color="#FF2896FF">
@@ -42,6 +52,18 @@ too. -->
 	</widget>
 	<widget name="chupathingy/prompts/defaults" type="text" controller="1" width="140" height="22" text="=DEFAULTS" font="ui\large_ui" color="#FF2896FF">
 	</widget>
+	<widget name="chupathingy/prompts/refresh" type="text" controller="1" width="140" height="22" text="=REFRESH" font="ui\large_ui" color="#FF2896FF">
+	</widget>
 	<widget name="chupathingy/prompts/change" type="text" controller="1" width="140" height="22" text="=CHANGE" font="ui\large_ui" color="#FF2896FF">
+	</widget>
+	<widget name="chupathingy/prompts/keyboard" type="text" controller="1" width="140" height="22" text="=KEYBOARD" font="ui\large_ui" color="#FF2896FF">
+	</widget>
+	<widget name="chupathingy/prompts/buttons" type="text" controller="1" width="140" height="22" text="=BUTTONS" font="ui\large_ui" color="#FF2896FF">
+	</widget>
+	<widget name="chupathingy/prompts/edit_game_type" type="text" controller="1" width="180" height="22" text="=EDIT GAME TYPE" font="ui\large_ui" color="#FF2896FF">
+	</widget>
+	<widget name="chupathingy/prompts/page" type="text" controller="1" width="100" height="22" text="=PAGE" font="ui\large_ui" color="#FF2896FF">
+	</widget>
+	<widget name="chupathingy/prompts/save" type="text" controller="1" width="140" height="22" text="=SAVE" font="ui\large_ui" color="#FF2896FF">
 	</widget>
 </menus>

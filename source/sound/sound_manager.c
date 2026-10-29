@@ -1140,6 +1140,10 @@ static real sound_manager_port_volume(
 		read_at = config_changes();
 		music_volume = PIN((real)config_real("audio.music_volume"), 0.f, 1.f);
 		effects_volume = PIN((real)config_real("audio.effects_volume"), 0.f, 1.f);
+#ifdef HALO_XBOX_CONSOLE
+		error(_error_silent, "sound: music volume %.2f, effects volume %.2f",
+			music_volume, effects_volume);
+#endif
 	}
 	return class_index == _sound_class_music ? music_volume : effects_volume;
 }
@@ -3903,10 +3907,23 @@ static void refresh_listener(
 				&camera->position,
 				&camera->forward,
 				&camera->up);
+#ifndef HALO_XBOX_CONSOLE
+			/* (a tick's velocity, not the last frame's: observer.c) */
+			{
+				real_vector3d velocity;
+
+				observer_get_tick_velocity(local_player_index, &velocity);
+				matrix4x3_inverse_transform_vector(
+					&listener->matrix,
+					&velocity,
+					&listener->velocity);
+			}
+#else
 			matrix4x3_inverse_transform_vector(
 				&listener->matrix,
 				&camera->velocity,
 				&listener->velocity);
+#endif
 		}
 		else
 		{
@@ -3971,6 +3988,7 @@ void sound_render(
 				((real)render_time - sound_manager_globals.render_time) *
 				0.029999999f;
 			sound_manager_globals.render_time = render_time;
+#ifndef HALO_XBOX_CONSOLE
 			/* Sounds are rendered once a frame, and a frame is well under a
 			tick on the native builds, so the ticks truncate to none and
 			scripted sound class fades would never move: carry the
@@ -3984,6 +4002,9 @@ void sound_render(
 				leftover_ticks -= (real)ticks;
 				sound_classes_update(ticks);
 			}
+#else
+			sound_classes_update((long)sound_manager_globals.ticks_elapsed);
+#endif
 			refresh_listener();
 			process_looping_sounds();
 			refresh_sounds();

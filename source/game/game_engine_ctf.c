@@ -1680,3 +1680,20 @@ boolean game_engine_ctf_read_network_state(
 	}
 	return TRUE;
 }
+
+#ifdef HALO_BIG_ENDIAN
+/* port: (game_engine.h) the state in the wire's byte order, either way */
+void game_engine_ctf_network_state_byte_swap(
+	byte *buffer,
+	long size)
+{
+	struct ctf_network_state *state = (struct ctf_network_state *)buffer;
+
+	if (size != (long)sizeof(*state))
+		return;
+	GAME_ENGINE_NETWORK_STATE_SWAP(state, weapon_indices, scores, sizeof(long));
+	/* (the flags' warnings are booleans: bytes) */
+	GAME_ENGINE_NETWORK_STATE_SWAP(state, flag_warning_ticks, flag_indices, sizeof(long));
+	GAME_ENGINE_NETWORK_STATE_SWAP(state, flag_team_indices, flag_team_indices, sizeof(short));
+}
+#endif

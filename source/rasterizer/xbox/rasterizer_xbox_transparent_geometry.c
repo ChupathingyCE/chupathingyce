@@ -155,6 +155,7 @@ symbols in this file:
 #include "effects/decals.h"
 #include "game/game_globals.h"
 #include "math/periodic_functions.h"
+#include "models/models.h"
 #include "tag_files/tag_groups.h"
 
 /* January retains the stock XDK D3DINLINE out-of-line wrappers emitted by
@@ -2389,6 +2390,20 @@ void rasterizer_transparent_geometry_group_draw(
 								transparent_geometry_layer_draw(&layer_group, dirty);
 							}
 
+							/* port: a chicago shader without maps (a map's: cmt_fragment
+							has one) is not drawn, its layers are. Said once a shader:
+							shader_transparent_chicago_create failed on it every frame,
+							and each state set after it was logged as failed too */
+							if (shader_transparent_chicago->chicago.maps.count <= 0)
+							{
+								if (model_data_report_once(group->shader))
+								{
+									error(_error_silent,
+										"### ERROR a transparent chicago shader has no maps; it is not drawn");
+								}
+								continue;
+							}
+
 							rasterizer_set_vertex_shader_permutation(
 								TRANSPARENT_GEOMETRY_VERTEX_SHADER_GENERIC,
 								vertex_type,
@@ -3544,7 +3559,9 @@ void rasterizer_transparent_geometry_group_draw(
 			}
 		}
 
-		if (!success)
+		/* port: said once a shader (it fails again every frame; one that
+		said why already, a chicago shader without maps, is not said again) */
+		if (!success && model_data_report_once(group->shader))
 			error(
 				_error_silent,
 				"### ERROR rasterizer_transparent_geometry_group_draw failed");

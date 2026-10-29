@@ -34,6 +34,10 @@ const char *build_identity_architecture(void);
 "0.7.5a (5c1a363)", or "dev" for a build made without
 tools/version.py */
 const char *build_identity_watermark(void);
+/* the same, telling of a newer version where no dialog can ask about it
+(updater.c, under gamescope): "0.7.5a (5c1a363) - 0.7.6 is out: update
+from Desktop Mode" */
+void build_identity_watermark_update(const char *version, const char *where);
 
 /* the log's header, first in debug.txt for this run (before the game's own
 "halobeta xbox" line) and on standard error: build_identity, then the

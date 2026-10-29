@@ -17,6 +17,7 @@ No game assets needed. Usage: test_network_messages.py [--build macos|linux64]
 
 import argparse
 import os
+import platform
 import re
 import shlex
 import subprocess
@@ -81,7 +82,12 @@ REFERENCE = """
 
 def object_command(build, source):
 	"""The build's compile command for a source, as ninja runs it."""
+	# (a universal macOS build keeps one object folder per architecture,
+	# obj-arm64 and obj-x86_64: this machine's)
 	target = f"build/{build}/obj/{source[:-2]}.o"
+	native = f"build/{build}/obj-{platform.machine()}/{source[:-2]}.o"
+	if subprocess.run(["ninja", "-t", "query", target], cwd=ROOT, capture_output=True).returncode != 0:
+		target = native
 	subprocess.run(["ninja", target], cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
 	command = subprocess.run(["ninja", "-t", "commands", target], cwd=ROOT, check=True,
 		capture_output=True, text=True).stdout.strip().splitlines()[-1]

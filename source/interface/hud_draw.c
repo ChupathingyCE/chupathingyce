@@ -110,6 +110,10 @@ symbols in this file:
 enum
 {
 	_hud_dont_scale_offset_bit = 0,
+	/* port: Halo PC's "use high resolution scale" (port/linux/game/ce_hud.c),
+	which only a Custom Edition map's numbers keep: their digits are drawn
+	at half size, as Halo PC draws them (no Xbox map sets it) */
+	_hud_port_high_resolution_scale_bit = 2,
 };
 
 /* hud number and meter definitions (no shared header declares these yet;
@@ -420,6 +424,7 @@ static boolean hud_bad_bitmap_reported = FALSE;
 
 /* Inspect the guarded caller's frame, not the return site of this helper.
  * A normal prologue would replace EBP and defeat the paired stack check. */
+#ifndef HALO_XBOX_CONSOLE
 __attribute__((noinline)) long get_return_eip(
 	void)
 {
@@ -436,6 +441,17 @@ __attribute__((noinline)) long get_return_eip(
 	return (long)(__INTPTR_TYPE__)__builtin_return_address(1);
 #endif
 }
+#else
+__declspec(naked) long get_return_eip(
+	void)
+{
+	__asm
+	{
+		mov eax, [ebp+4]
+		ret
+	}
+}
+#endif
 
 real hud_globals_get_scale(
 	boolean in_multiplayer)
@@ -464,6 +480,28 @@ real hud_bitmap_group_scale(
 			scale *= 0.5f;
 	}
 	return scale;
+}
+
+/* port: the weapon's zoom mask (interface.c) and its group's high
+resolution scale. The screen effect draws a mask at its bitmap's size
+(rasterizer_xbox_screen_effect.c), so a Custom Edition map's high resolution
+mask is drawn at that scale, as Halo PC with Chimera draws it
+(fix/hud_bitmap_scale.cpp); any other mask (a cinematic's) at its size */
+static struct bitmap_data const *hud_screen_effect_mask;
+static real hud_screen_effect_mask_bitmap_scale = 1.0f;
+
+void hud_set_screen_effect_mask(
+	struct bitmap_data const *mask,
+	long bitmap_group_index)
+{
+	hud_screen_effect_mask = mask;
+	hud_screen_effect_mask_bitmap_scale = mask ? hud_bitmap_group_scale(bitmap_group_index) : 1.0f;
+}
+
+real hud_screen_effect_mask_scale(
+	struct bitmap_data const *mask)
+{
+	return mask && mask == hud_screen_effect_mask ? hud_screen_effect_mask_bitmap_scale : 1.0f;
 }
 #endif
 
@@ -1345,6 +1383,7 @@ void hud_draw_bitmap(
 	return;
 }
 
+#ifndef HALO_XBOX_CONSOLE
 /* port: a screen wider than 640 widens the HUD's window, which the HUD's
 elements keep to by their corners (the ammo counter to the left edge). The
 zoomed view's elements (the sniper rifle's angle ticks and range numbers)
@@ -1404,6 +1443,7 @@ void hud_zoomed_layout_end(
 	render.camera.window_bounds = *saved_window_bounds;
 }
 
+#endif
 void hud_draw_static_element(
 	short local_player_index,
 	struct hud_absolute_placement_definition const *absolute_placement,
@@ -1998,6 +2038,8 @@ void hud_draw_numbers(
 				scale = hud_globals_get_scale(
 					TEST_FLAG(draw_flags, _hud_draw_in_multiplayer_bit));
 			}
+			if (TEST_FLAG(numbers->placement.multiplayer_scaling_flags, _hud_port_high_resolution_scale_bit))
+				scale *= 0.5f;
 #ifdef HALO_CUSTOM_EDITION
 			/* port: the digits' bitmap drawn at its HUD scale, their spacing
 			(the HUD number's widths, in pixels of the screen) at the HUD's */

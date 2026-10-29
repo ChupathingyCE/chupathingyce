@@ -194,8 +194,32 @@ static void test_command_line(void)
 	CHECK(!command_line_map_name_valid("..@ce"));
 	CHECK(!command_line_map_name_valid("levels\\test\\x"));
 	CHECK(!command_line_map_name_valid("a/b"));
-	CHECK(!command_line_map_name_valid("a@xx"));
-	CHECK(!command_line_map_name_valid("a b"));
+	CHECK(command_line_map_name_valid("wizard@cex"));
+	CHECK(command_line_map_name_valid("a@xx"));
+	CHECK(!command_line_map_name_valid("a@de"));
+	CHECK(!command_line_map_name_valid("a@toolongid"));
+	CHECK(!command_line_map_name_valid("a@"));
+	CHECK(!command_line_map_name_valid("@cex"));
+	CHECK(!command_line_map_name_valid("a@c-x"));
+	CHECK(!command_line_map_name_valid("a@b@cex"));
+	/* (every name Halo PC takes: control_test's are HaloNet's) */
+	CHECK(command_line_map_name_valid("a b"));
+	CHECK(command_line_map_name_valid("bigassv2,104@ce"));
+	CHECK(command_line_map_name_valid("skedar v2@ce"));
+	CHECK(command_line_map_name_valid("[h3]_sandtrap@ce"));
+	CHECK(command_line_map_name_valid("h3 foundry@ce"));
+	CHECK(command_line_map_name_valid("a'b&c!#$%^~{}=+;@ce"));
+	CHECK(!command_line_map_name_valid(" a@ce"));
+	CHECK(!command_line_map_name_valid("a @ce"));
+	CHECK(!command_line_map_name_valid("a:b@ce"));
+	CHECK(!command_line_map_name_valid("a\"b@ce"));
+	CHECK(!command_line_map_name_valid("a|b"));
+	CHECK(!command_line_map_name_valid("a*b"));
+	CHECK(!command_line_map_name_valid("a\tb"));
+	CHECK(!command_line_map_name_valid(".."));
+	CHECK(!command_line_map_name_valid("con@ce"));
+	CHECK(!command_line_map_name_valid("com1"));
+	CHECK(command_line_map_name_valid("console@ce"));
 
 	CHECK(command_line_server_name_valid("[D] Slayer"));
 	CHECK(command_line_server_name_valid("123456789012345"));
@@ -698,6 +722,20 @@ static void test_limiter(void)
 	for (index = 0; index < 100; index++)
 		taken += control_limiter_take_check(&limiter, 9062);
 	CHECK(taken == CONTROL_LIMITER_CHECK_BURST);
+	/* the reserve: an address with wrong tries lately leaves the last few
+	checks to the others */
+	control_limiter_initialize(&limiter);
+	control_limiter_failed(&limiter, one, 20000);
+	taken = 0;
+	for (index = 0; index < 100; index++)
+		taken += control_limiter_take_check_from(&limiter, one, 20000);
+	CHECK(taken == CONTROL_LIMITER_CHECK_BURST - CONTROL_LIMITER_CHECK_RESERVE);
+	taken = 0;
+	for (index = 0; index < 100; index++)
+		taken += control_limiter_take_check_from(&limiter, two, 20000);
+	CHECK(taken == CONTROL_LIMITER_CHECK_RESERVE);
+	/* (once its window is over, it is clean again) */
+	CHECK(control_limiter_take_check_from(&limiter, one, 20000 + CONTROL_LIMITER_WINDOW_SECONDS));
 	/* many addresses: the table is not overrun, and the blocked stay so */
 	control_limiter_initialize(&limiter);
 	for (index = 0; index < CONTROL_LIMITER_FAILURES; index++)
@@ -727,6 +765,14 @@ static void test_log(void)
 	CHECK(!strcmp(out, "10.04.26 12:34:56  version 01.10.12.2276 v1.2.3.4 1.2.3.4.5"));
 	control_log_scrub("peer [2001:db8::1]:2302 and [::1]:5 and fe80::1 and 2001:db8:0:0:0:0:0:2", out, sizeof(out));
 	CHECK(!strcmp(out, "peer [addr#hidden]:2302 and [::1]:5 and fe80::1 and addr#hidden"));
+	/* (IPv4-mapped IPv6: hidden whole, unless the IPv4 address is local) */
+	control_log_scrub("from [::ffff:8.8.4.4]:2302 ::FFFF:203.0.113.9 ::ffff:192.168.1.5 ::ffff:127.0.0.1", out,
+		sizeof(out));
+	CHECK(!strcmp(out, "from [addr#hidden]:2302 addr#hidden ::ffff:192.168.1.5 ::ffff:127.0.0.1"));
+	control_log_scrub("::8.8.8.8 and 64:ff9b::8.8.8.8 and 2001:db8::1.2", out, sizeof(out));
+	CHECK(!strcmp(out, "addr#hidden and addr#hidden and addr#hidden.2"));
+	control_log_scrub("fe80::10.0.0.1 12:34:56.789", out, sizeof(out));
+	CHECK(!strcmp(out, "fe80::10.0.0.1 12:34:56.789"));
 	control_log_scrub("addr#3f2a9c joined; a\x01" "b\xc3\xa9", out, sizeof(out));
 	CHECK(!strcmp(out, "addr#3f2a9c joined; a?b??"));
 	control_log_scrub("1.2.3.4", out, 5);
@@ -808,6 +854,17 @@ static void test_web_requests(void)
 		&status) == CONTROL_PARSE_DONE && request.proxied && !request.https);
 	CHECK(parse("GET / HTTP/1.1\r\nHost: x\r\nX-Forwarded-For: 192.0.2.1\r\n\r\n", &request, &status) ==
 		CONTROL_PARSE_DONE && request.proxied && !request.https);
+	CHECK(!strcmp(request.forwarded_for, "192.0.2.1"));
+	/* (X-Forwarded-For's last address, the nearest proxy's: an earlier one
+	the client may have written itself) */
+	CHECK(parse("GET / HTTP/1.1\r\nHost: x\r\nX-Forwarded-For: 10.0.0.1, 203.0.113.7 \r\n\r\n", &request,
+		&status) == CONTROL_PARSE_DONE && !strcmp(request.forwarded_for, "203.0.113.7"));
+	CHECK(parse("GET / HTTP/1.1\r\nHost: x\r\nX-Forwarded-For: 1.1.1.1\r\nX-Forwarded-For: 2001:db8::5\r\n\r\n",
+		&request, &status) == CONTROL_PARSE_DONE && !strcmp(request.forwarded_for, "2001:db8::5"));
+	CHECK(parse("GET / HTTP/1.1\r\nHost: x\r\nX-Forwarded-For: 1.1.1.1, unknown\r\n\r\n", &request, &status) ==
+		CONTROL_PARSE_DONE && !request.forwarded_for[0]);
+	CHECK(parse("GET / HTTP/1.1\r\nHost: x\r\nX-Forwarded-For: 1.1.1.1,\r\n\r\n", &request, &status) ==
+		CONTROL_PARSE_DONE && !request.forwarded_for[0]);
 	CHECK(parse("GET / HTTP/1.1\r\nHost: x\r\nSec-Fetch-Site: cross-site\r\n\r\n", &request, &status) ==
 		CONTROL_PARSE_DONE && request.cross_site);
 	CHECK(parse("GET / HTTP/1.1\r\nHost: x\r\nSec-Fetch-Site: none\r\n\r\n", &request, &status) ==
@@ -1075,7 +1132,13 @@ static void test_roles(void)
 	CHECK(control_command_permission("sv_link", NULL) == CONTROL_PERMISSION_ROLES);
 	CHECK(control_command_permission("sv_admin_add x", NULL) == CONTROL_PERMISSION_CONSOLE);
 	CHECK(control_command_permission("sv_account_invite owner", NULL) == CONTROL_PERMISSION_CONSOLE);
-	CHECK(!control_command_permission("sv_nothing", NULL));
+	CHECK(control_command_permission("sv_welcome", &changes) == CONTROL_PERMISSION_VIEW && !changes);
+	CHECK(control_command_permission("sv_welcome \"hi there\"", &changes) == CONTROL_PERMISSION_SETTINGS && changes);
+	CHECK(control_command_permission("sv_welcome off", &changes) == CONTROL_PERMISSION_SETTINGS && changes);
+	/* (denied by default: a command the table leaves out is the console's) */
+	CHECK(control_command_permission("sv_nothing", &changes) == CONTROL_PERMISSION_CONSOLE && !changes);
+	CHECK(control_command_permission("sv_nothing x y", NULL) == CONTROL_PERMISSION_CONSOLE);
+	CHECK(!(control_role_permissions(CONTROL_ROLE_OWNER) & CONTROL_PERMISSION_CONSOLE));
 	CHECK(!control_command_permission("", NULL) && !control_command_permission("# a comment", NULL));
 	CHECK(!control_command_permission("sv_kick \"unclosed", NULL));
 
@@ -1318,21 +1381,53 @@ static void test_accounts(void)
 	/* one account's backoff: five wrong, a minute locked, doubling to an
 	hour; a right one clears it */
 	memset(&backoff, 0, sizeof(backoff));
-	for (index = 0; index < CONTROL_ACCOUNT_FAILURES - 1; index++)
 	{
-		control_backoff_failed(&backoff, 100);
-		CHECK(control_backoff_allowed(&backoff, 100, &retry));
+		static const uint8_t here[16] = { 1 };
+		static const uint8_t there[16] = { 2 };
+
+		for (index = 0; index < CONTROL_ACCOUNT_FAILURES - 1; index++)
+		{
+			control_backoff_failed(&backoff, here, 100);
+			CHECK(control_backoff_allowed(&backoff, here, 100, &retry));
+		}
+		control_backoff_failed(&backoff, here, 100);
+		CHECK(!control_backoff_allowed(&backoff, here, 100, &retry) && retry == CONTROL_ACCOUNT_LOCK_SECONDS);
+		CHECK(control_backoff_locked(&backoff, 100));
+		/* (locked for that source alone: the owner elsewhere still logs in) */
+		CHECK(control_backoff_allowed(&backoff, there, 100, &retry));
+		CHECK(control_backoff_allowed(&backoff, here, 100 + CONTROL_ACCOUNT_LOCK_SECONDS, &retry));
+		CHECK(!control_backoff_locked(&backoff, 100 + CONTROL_ACCOUNT_LOCK_SECONDS));
+		control_backoff_failed(&backoff, here, 200);
+		CHECK(!control_backoff_allowed(&backoff, here, 200, &retry) && retry == 2 * CONTROL_ACCOUNT_LOCK_SECONDS);
+		for (index = 0; index < 20; index++)
+			control_backoff_failed(&backoff, here, 300);
+		CHECK(!control_backoff_allowed(&backoff, here, 300, &retry) && retry == CONTROL_ACCOUNT_LOCK_MAXIMUM);
+		control_backoff_succeeded(&backoff, there);
+		CHECK(!control_backoff_allowed(&backoff, here, 300, &retry));
+		control_backoff_succeeded(&backoff, here);
+		CHECK(control_backoff_allowed(&backoff, here, 300, &retry));
+		/* failures decay: four, a quiet while, four more: never locked */
+		for (index = 0; index < CONTROL_ACCOUNT_FAILURES - 1; index++)
+			control_backoff_failed(&backoff, here, 1000);
+		for (index = 0; index < CONTROL_ACCOUNT_FAILURES - 1; index++)
+			control_backoff_failed(&backoff, here, 1000 + CONTROL_ACCOUNT_DECAY_SECONDS);
+		CHECK(control_backoff_allowed(&backoff, here, 1000 + CONTROL_ACCOUNT_DECAY_SECONDS, &retry));
+		/* many sources: the table is not overrun, and the locked stay so */
+		control_backoff_clear(&backoff);
+		for (index = 0; index < CONTROL_ACCOUNT_FAILURES; index++)
+			control_backoff_failed(&backoff, here, 5000);
+		for (index = 0; index < 500; index++)
+		{
+			uint8_t source[16] = { 9 };
+
+			source[14] = (uint8_t)(index >> 8);
+			source[15] = (uint8_t)index;
+			control_backoff_failed(&backoff, source, 5001);
+		}
+		CHECK(!control_backoff_allowed(&backoff, here, 5002, &retry));
+		control_backoff_clear(&backoff);
+		CHECK(control_backoff_allowed(&backoff, here, 5002, &retry) && !control_backoff_locked(&backoff, 5002));
 	}
-	control_backoff_failed(&backoff, 100);
-	CHECK(!control_backoff_allowed(&backoff, 100, &retry) && retry == CONTROL_ACCOUNT_LOCK_SECONDS);
-	CHECK(control_backoff_allowed(&backoff, 100 + CONTROL_ACCOUNT_LOCK_SECONDS, &retry));
-	control_backoff_failed(&backoff, 200);
-	CHECK(!control_backoff_allowed(&backoff, 200, &retry) && retry == 2 * CONTROL_ACCOUNT_LOCK_SECONDS);
-	for (index = 0; index < 20; index++)
-		control_backoff_failed(&backoff, 300);
-	CHECK(!control_backoff_allowed(&backoff, 300, &retry) && retry == CONTROL_ACCOUNT_LOCK_MAXIMUM);
-	control_backoff_succeeded(&backoff);
-	CHECK(control_backoff_allowed(&backoff, 300, &retry));
 }
 
 /* ---------- request bodies of string fields (control_parse_fields) */
@@ -1387,6 +1482,21 @@ static void test_server_config(int rounds)
 	CHECK(!server_playlist_parse("bloodgulch\n", 11, 1, &playlist, error, sizeof(error)) && strstr(error, "line 1"));
 	CHECK(!server_playlist_parse("../x slayer\n", 12, 1, &playlist, error, sizeof(error)));
 	CHECK(!server_playlist_parse("a b c\n", 6, 1, &playlist, error, sizeof(error)));
+	/* (a map's name with a space in quotes, written back so) */
+	{
+		const char *quoted = "\"skedar v2@ce\" slayer # HaloNet's\n\"a#b@ce\"\tctf\nbigassv2,104@ce king\n";
+
+		CHECK(server_playlist_parse(quoted, strlen(quoted), 1, &playlist, error, sizeof(error)) && playlist.count == 3 &&
+			!strcmp(playlist.entries[0].map, "skedar v2@ce") && !strcmp(playlist.entries[1].map, "a#b@ce") &&
+			!strcmp(playlist.entries[1].game_type, "ctf") && !strcmp(playlist.entries[2].map, "bigassv2,104@ce"));
+		CHECK(server_playlist_format(&playlist, "quoted", text, sizeof(text)) > 0 && strstr(text, "\"skedar v2@ce\""));
+		CHECK(server_playlist_parse(text, strlen(text), 1, &back, error, sizeof(error)) &&
+			!memcmp(&back, &playlist, sizeof(back)));
+		CHECK(!server_playlist_parse("\"skedar v2@ce slayer\n", 21, 1, &playlist, error, sizeof(error)));
+		CHECK(!server_playlist_parse("\"a\"b slayer\n", 12, 1, &playlist, error, sizeof(error)));
+		CHECK(server_playlist_parse("\"skedar v2@ce slayer\n", 21, 0, &playlist, error, sizeof(error)) &&
+			playlist.count == 0);
+	}
 	/* (not strict, as a playlist file has always been read: the rest of a
 	line left out) */
 	CHECK(server_playlist_parse("a b c\n", 6, 0, &playlist, error, sizeof(error)) && playlist.count == 1);
@@ -1414,6 +1524,113 @@ static void test_server_config(int rounds)
 		server_playlist_parse(text, (size_t)length, (int)(index & 1), &playlist, error, sizeof(error));
 		server_gametype_parse(text, (size_t)length, &gametype, error, sizeof(error));
 		server_settings_parse(text, (size_t)length, &settings, error, sizeof(error));
+	}
+}
+
+/* ---------- game type files, both ways (the game's gametype editor and the
+server write them with server_gametype_format, and read them with
+server_gametype_parse: port/linux/game/gametype_files.c) */
+
+/* a game type as an editor makes one: a base, a name of any printable
+characters, and settings of its engine's (and every engine's), each a value
+its setting takes */
+static void random_gametype(struct server_gametype *gametype)
+{
+	int engine;
+	int field;
+	int length;
+	int index;
+
+	memset(gametype, 0, sizeof(*gametype));
+	gametype->values[SERVER_GAMETYPE_BASE] = (int)(random_next() % (unsigned int)server_builtin_count);
+	gametype->set[SERVER_GAMETYPE_BASE] = 1;
+	engine = server_builtins[gametype->values[SERVER_GAMETYPE_BASE]].engine;
+	length = (int)(random_next() % SERVER_GAMETYPE_TITLE_SIZE);
+	for (index = 0; index < length; index++)
+		gametype->title[index] = (char)(0x20 + random_next() % (0x7F - 0x20));
+	gametype->set[SERVER_GAMETYPE_NAME] = length > 0;
+	for (field = SERVER_GAMETYPE_SCORE_LIMIT; field < SERVER_GAMETYPE_FIELDS; field++)
+	{
+		const struct server_gametype_field *description = &server_gametype_fields[field];
+
+		if ((description->engine && description->engine != engine) || random_next() % 3 == 0)
+			continue;
+		switch (description->kind)
+		{
+		case SERVER_FIELD_BOOLEAN:
+			gametype->values[field] = (int)(random_next() & 1);
+			break;
+		case SERVER_FIELD_CHOICE:
+			gametype->values[field] = description->choices[random_next() % (unsigned int)description->choice_count].value;
+			break;
+		default:
+			gametype->values[field] = description->minimum +
+				(int)(random_next() % (unsigned int)(description->maximum - description->minimum + 1));
+			break;
+		}
+		gametype->set[field] = 1;
+	}
+	/* (capture the flag is played in teams) */
+	if (engine == SERVER_ENGINE_CTF && gametype->set[SERVER_GAMETYPE_TEAMS])
+		gametype->values[SERVER_GAMETYPE_TEAMS] = 1;
+}
+
+static int gametypes_equal(const struct server_gametype *a, const struct server_gametype *b)
+{
+	int field;
+
+	if (strcmp(a->title, b->title))
+		return 0;
+	for (field = 0; field < SERVER_GAMETYPE_FIELDS; field++)
+	{
+		if (!a->set[field] != !b->set[field] || (a->set[field] && field != SERVER_GAMETYPE_NAME &&
+			a->values[field] != b->values[field]))
+		{
+			return 0;
+		}
+	}
+	return 1;
+}
+
+static void test_gametype_files(int rounds)
+{
+	static char text[SERVER_GAMETYPE_TEXT_SIZE];
+	static char again[SERVER_GAMETYPE_TEXT_SIZE];
+	struct server_gametype written, read, back;
+	char error[SERVER_CONFIG_ERROR_SIZE];
+	const char *server_file = "# ctf_pro\nbase = \"ctf\"\nname = \"CTF \\\"Pro\\\"\"\nscore_limit = 9999\n\n"
+		"[items]\nloadout = \"custom\"\nprimary_weapon = \"pistol\"\nsecondary_weapon = \"assault_rifle\"\n\n"
+		"[vehicles]\nred = \"pc\"\nblue = \"custom\"\nblue_ghost = 4\n";
+	int index;
+
+	/* a file a server wrote, as the game reads it, and written back by the
+	game, as the server reads that: the same settings */
+	CHECK(server_gametype_parse(server_file, strlen(server_file), &read, error, sizeof(error)));
+	CHECK(!strcmp(read.title, "CTF \"Pro\"") && read.values[SERVER_GAMETYPE_SCORE_LIMIT] == 9999);
+	CHECK(read.values[SERVER_GAMETYPE_RED_VEHICLES] == SERVER_VEHICLES_PC &&
+		read.values[SERVER_GAMETYPE_BLUE_VEHICLES] == SERVER_VEHICLES_CUSTOM &&
+		read.values[SERVER_GAMETYPE_BLUE_GHOST] == 4 && !read.set[SERVER_GAMETYPE_TIME_LIMIT]);
+	CHECK(server_gametype_format(&read, "ctf_pro", text, sizeof(text)) > 0);
+	CHECK(server_gametype_parse(text, strlen(text), &back, error, sizeof(error)) && gametypes_equal(&read, &back));
+	/* every setting, at its ends */
+	memset(&written, 0, sizeof(written));
+	written.set[SERVER_GAMETYPE_BASE] = 1;
+	written.values[SERVER_GAMETYPE_BASE] = 0;
+	written.set[SERVER_GAMETYPE_SCORE_LIMIT] = 1;
+	written.values[SERVER_GAMETYPE_SCORE_LIMIT] = SERVER_SCORE_LIMIT_MAXIMUM;
+	written.set[SERVER_GAMETYPE_TIME_LIMIT] = 1;
+	written.values[SERVER_GAMETYPE_TIME_LIMIT] = 0;
+	CHECK(server_gametype_format(&written, "ends", text, sizeof(text)) > 0);
+	CHECK(server_gametype_parse(text, strlen(text), &read, error, sizeof(error)) && gametypes_equal(&written, &read));
+	/* game types as the editors make them: written, read, written again,
+	the same text and settings each way */
+	for (index = 0; index < rounds; index++)
+	{
+		random_gametype(&written);
+		CHECK(server_gametype_format(&written, "random", text, sizeof(text)) > 0);
+		CHECK(server_gametype_parse(text, strlen(text), &read, error, sizeof(error)));
+		CHECK(gametypes_equal(&written, &read));
+		CHECK(server_gametype_format(&read, "random", again, sizeof(again)) > 0 && !strcmp(text, again));
 	}
 }
 
@@ -1602,6 +1819,46 @@ static void test_link(int rounds)
 		CHECK(!control_link_parse_status("{\"state\": \"linked\", \"server_id\": \"../x\"}", 42, state, sizeof(state),
 			server_id, sizeof(server_id), owner, sizeof(owner)));
 	}
+	/* sv_link_status's JSON: strings escaped, the code only when given */
+	{
+		struct control_link_status status;
+		char json[2048];
+
+		memset(&status, 0, sizeof(status));
+		status.enabled = 1;
+		status.state = "linking";
+		status.site = "https://stats.chupathingy.org";
+		status.server_id = "";
+		status.owner = "a\"b\\c";
+		status.code = "";
+		status.heard_seconds_ago = -1;
+		status.role_cap = "admin";
+		status.problem = "line\none";
+		status.roles_state = "none";
+		CHECK(control_link_status_json(&status, json, sizeof(json)) > 0);
+		CHECK(strstr(json, "\"code\": null") && strstr(json, "\"server_id\": null"));
+		CHECK(strstr(json, "\"owner\": \"a\\\"b\\\\c\"") && strstr(json, "\"problem\": \"line\\none\""));
+		status.code = "ABCD-1234";
+		CHECK(control_link_status_json(&status, json, sizeof(json)) > 0 && strstr(json, "\"code\": \"ABCD-1234\""));
+		CHECK(control_link_status_json(&status, json, 40) == -1);
+	}
+	/* the site's address: HTTPS, or plain HTTP to this machine alone */
+	CHECK(control_link_url_allowed("https://stats.chupathingy.org"));
+	CHECK(control_link_url_allowed("https://example.org:8443/x"));
+	CHECK(control_link_url_allowed("http://127.0.0.1"));
+	CHECK(control_link_url_allowed("http://127.0.0.1:8080"));
+	CHECK(control_link_url_allowed("http://localhost/"));
+	CHECK(control_link_url_allowed("http://[::1]:5000/site"));
+	CHECK(!control_link_url_allowed("http://127.0.0.1.example.org"));
+	CHECK(!control_link_url_allowed("http://localhost.example.org/"));
+	CHECK(!control_link_url_allowed("http://localhost@example.org"));
+	CHECK(!control_link_url_allowed("http://127.0.0.10"));
+	CHECK(!control_link_url_allowed("http://127.0.0.1:"));
+	CHECK(!control_link_url_allowed("http://127.0.0.1:80x"));
+	CHECK(!control_link_url_allowed("http://example.org"));
+	CHECK(!control_link_url_allowed("https://"));
+	CHECK(!control_link_url_allowed("ftp://localhost"));
+	CHECK(!control_link_url_allowed(""));
 	/* the commands the link takes, and their reasons */
 	CHECK(control_link_command_line("sv_kick 3", "camping", line, sizeof(line), &why) &&
 		!strcmp(line, "sv_kick 3 \"camping\""));
@@ -1732,6 +1989,7 @@ int main(int argc, char **argv)
 	test_accounts();
 	test_fields();
 	test_server_config(rounds);
+	test_gametype_files(rounds);
 	test_link(rounds);
 	test_roles_cache(rounds);
 	test_names();

@@ -39,10 +39,15 @@ clock runs on).
 
 #include "halo_menus.h"
 #include "halo_keyboard.h"
+#include "halo_map_packs.h"
 #ifdef HALO_GAME_BROWSER
 #include "../src/ui_overlay.h"
+#ifdef HALO_GAME_BROWSER
+#include "gametype_files.h"
+#endif
 #endif
 
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -57,6 +62,7 @@ int platform_audio_device_names(char const **names, int maximum);
 void *global_network_game_server_get(void);
 /* whether the pause menu has CHANGE TEAMS (team_change.c) */
 boolean team_change_pause_offered(void);
+int config_boolean(char const *name);
 
 /* cache_files.c's (port) */
 void *cache_files_tag_instances(long *count);
@@ -87,9 +93,10 @@ adds to */
 #define MULTIPLAYER_COLLECTION "ui\\shell\\multiplayer"
 /* a campaign map's pause screen, which pause_patch adds to */
 #define SOLO_PAUSE_SCREEN "ui\\shell\\solo_game\\pause_game\\pause_game"
-/* the tags pause_patch adds: three buttons and their texts, and the tops of
-the stock box's pieces (the campaign's has six) */
-#define PAUSE_PATCH_TAGS (6 + 2 * 6)
+/* the tags pause_patch adds: five buttons and their texts, and the middle
+and bottom parts of the stock box's pieces, a widget and a bitmap each (the
+campaign's has six pieces) */
+#define PAUSE_PATCH_TAGS (10 + 4 * 6)
 /* what a frame of ui.map's is drawn as in a game map, which has not got it */
 #define BLANK_PNG "ce/port/blank__0.png"
 #define UI_WIDGET_DEFINITION_TAG 'DeLa'
@@ -373,6 +380,8 @@ static char const *const port_function_names[] =
 	"port map list back",
 	"port pause end game",
 	"port pause change teams",
+	"port pause moderation",
+	"port pause controls", "controller screen init", "controller screen defaults", "controller begin binding",
 	"port coop begin", "port coop player 2 list initialize", "port coop player 2",
 	"port lobby open", "port lobby add player", "port lobby join", "port lobby leave",
 	"port lobby player list initialize", "port lobby player choose",
@@ -391,6 +400,16 @@ static char const *const port_function_names[] =
 	"player profile save changes",
 	/* (the server browser's password screen) */
 	"port password init", "port password edit", "port password join", "port password back",
+	/* (the Chupathingy menus' GAME SETUP and game type editor) */
+	"port host init", "port host row a", "port host row left", "port host row right", "port host defaults",
+	"port host edit", "port host back",
+	/* (Delta Profile: its sections' A, B, Y and X, and Gearbox's Select
+	Profile's DELTA) */
+	"port delta profile choose", "port delta profile back", "port delta profile refresh", "port delta profile copies",
+	"port delta profile open",
+	/* (the settings screens' nested lists, and Controls Setup's) */
+	"port settings views init", "port settings view", "port settings back", "port settings accept",
+	"port controls init", "port controls defaults", "port controls accept", "port controls closed",
 };
 
 /* the PC version's game data functions that the Xbox's have not, from
@@ -403,17 +422,23 @@ static char const *const port_game_data_input_names[] =
 	"server settings update", "audio menu update", "mp prof vehicles update", "solo map list update",
 	"mp map list update", "gt select list update", "gt edit list update", "load game list update",
 	"direct ip connect update", "network settings update",
-	"port settings help", "color picker update", "3wide player profile list update", "port lobby update",
-	"port lobby preview update",
+	"port settings help", "controller update menu", "color picker update", "3wide player profile list update",
+	"port lobby update", "port lobby preview update",
 	/* (the gametype editor's: the Xbox's stops the game on the buttons'
 	row; the Xbox's read only player_ui's gametype, not Server Setup's) */
 	"game settings lists text update", "get edit game settings name", "mp edit profile set rule text",
 	"port password update",
 	/* (the profile settings' picture: the Xbox's of the button settings,
-	on Gamepad Setup's row) */
+	on CONTROLS' row) */
 	"port gamepad layout preview",
 	/* (the Chupathingy menus' settings picture: the same, on its own frames) */
 	"chupathingy settings picture",
+	/* (its GAME SETUP's and game type editor's rows) */
+	"port host update",
+	/* (Delta Profile's sections: menu_functions.c) */
+	"port delta profile update",
+	/* (Controls Setup's rows and help) */
+	"port controls update",
 };
 
 static struct
@@ -1460,7 +1485,9 @@ static void menu_tags_release(void)
 Their list gets SETTINGS after RESUME GAME, the menus' settings (as the
 main menu's SETTINGS opens them), and a multiplayer map's, for the host,
 END GAME after it, which ends the game as its time limit would: its players
-stay, and the host picks the next map after the carnage report. A team
+stay, and the host picks the next map after the carnage report; and
+MODERATION, the host's kick and ban of its players (moderation_screen.c,
+the builds with it). A team
 game's gets CHANGE TEAMS right after RESUME GAME, as Halo PC's had it: the
 player asks the host to put them on the other team, and the menu closes
 (team_change.c). They are
@@ -1473,6 +1500,10 @@ the list moved down; on a custom map's, what is below the list moves down. */
 #define PAUSE_SETTINGS_SCREEN "main_menu/settings_select/player_setup/player_profile_edit/player_profile_edit_screen"
 /* (the Chupathingy menus': their own, in the Xbox's look) */
 #define PAUSE_SETTINGS_SCREEN_CHUPATHINGY "chupathingy/settings/profile_edit_screen"
+/* CONTROLS': Controls Setup (tools/port_settings.py's CONTROLS_SCREEN), the
+Gearbox menus' own */
+#define PAUSE_CONTROLS_SCREEN \
+	"main_menu/settings_select/player_setup/player_profile_edit/controls_setup/controls_settings_screen"
 #define PAUSE_BUTTON_SPACING 35
 
 /* display.menus: the Xbox's menus, Gearbox's Halo PC menus, or Chupathingy's (the
@@ -1594,25 +1625,56 @@ static void *pause_button(struct cache_file_tag_instance *instances, struct ui_w
 	return button;
 }
 
+/* whether the pause menus have CONTROLS (Controls Setup, or the Xbox
+menus' Controls screen: controls_screen.c), as display.pause_controls says;
+the Chupathingy menus' never have it (their SETTINGS opens Controls) */
+static boolean pause_controls_offered(void)
+{
+#if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_CONTROLS)
+	return menus_chosen() != _menus_chupathingy && config_boolean("display.pause_controls") != 0;
+#else
+	return FALSE;
+#endif
+}
+
+/* whether a multiplayer game's pause menus have the host's MODERATION (the
+Moderation screen over them, moderation_screen.c: kick and ban): a game
+this machine hosts, in a build with the screen */
+static boolean pause_moderation_offered(boolean host)
+{
+#ifdef HALO_GAME_BROWSER
+	return host;
+#else
+	(void)host;
+	return FALSE;
+#endif
+}
+
 /* the list's buttons: a team game's CHANGE TEAMS (change_teams), SETTINGS
-(Gearbox's menus: settings) and the host's END GAME (end_game) put after
-RESUME GAME (resume), the rows after them moved down; returns how far the
-list grew, 0 if it was not */
+(Gearbox's menus: settings), CONTROLS (pause_controls_offered) and the
+host's END GAME (end_game) and MODERATION (pause_moderation_offered) put
+after RESUME GAME (resume), the rows after them moved down; returns how far
+the list grew, 0 if it was not */
 static short pause_list_patch(struct cache_file_tag_instance *instances, struct ui_widget_definition *list, long resume,
 	boolean change_teams, boolean settings, boolean end_game)
 {
+	boolean moderation = pause_moderation_offered(end_game);
 	struct ui_widget_child_reference *children = xbox_pointer(list->child_widgets.address);
 	long count = list->child_widgets.count, child;
-	long added = (change_teams != FALSE) + (settings != FALSE) + (end_game != FALSE);
+	boolean controls = pause_controls_offered();
+	/* (the Xbox's menus have none of ours: the Controls screen, by code) */
+	long controls_widget = !controls || !build.menus ? NONE : widget_named(PAUSE_CONTROLS_SCREEN);
+	long added = (change_teams != FALSE) + (settings != FALSE) + (controls != FALSE) + (end_game != FALSE) +
+		(moderation != FALSE);
 	struct ui_widget_child_reference *grown = allocate((count + added) * sizeof(struct ui_widget_child_reference));
 	struct ui_widget_definition const *model = tag_get(UI_WIDGET_DEFINITION_TAG, children[resume].widget_tag.index);
 	long settings_widget = !settings ? NONE :
 		widget_named(menus_chosen() == _menus_chupathingy ? PAUSE_SETTINGS_SCREEN_CHUPATHINGY : PAUSE_SETTINGS_SCREEN);
 	short spacing = count >= 2 ? (short)(children[count - 1].vertical_offset - children[count - 2].vertical_offset) :
 		PAUSE_BUTTON_SPACING;
-	void *buttons[3];
-	long tags[3];
-	char const *names[3];
+	void *buttons[5];
+	long tags[5];
+	char const *names[5];
 
 	if (!grown || !added || (settings && settings_widget == NONE) || spacing <= 0)
 		return 0;
@@ -1631,12 +1693,27 @@ static short pause_list_patch(struct cache_file_tag_instance *instances, struct 
 		buttons[added++] = pause_button(instances, model, "pause/settings_button", "SETTINGS",
 			function_index("profile set edit begin", "pause", 0), build.widget_tags[settings_widget], FALSE);
 	}
+	if (controls)
+	{
+		names[added] = "pause/controls_button";
+		tags[added] = next_tag();
+		buttons[added++] = pause_button(instances, model, "pause/controls_button", "CONTROLS",
+			function_index("port pause controls", "pause", 0),
+			controls_widget == NONE ? NONE : build.widget_tags[controls_widget], FALSE);
+	}
 	if (end_game)
 	{
 		names[added] = "pause/end_game_button";
 		tags[added] = next_tag();
 		buttons[added++] = pause_button(instances, model, "pause/end_game_button", "END GAME",
 			function_index("port pause end game", "pause", 0), NONE, FALSE);
+	}
+	if (moderation)
+	{
+		names[added] = "pause/moderation_button";
+		tags[added] = next_tag();
+		buttons[added++] = pause_button(instances, model, "pause/moderation_button", "MODERATION",
+			function_index("port pause moderation", "pause", 0), NONE, FALSE);
 	}
 	for (child = 0; child < added; child++)
 	{
@@ -1674,16 +1751,21 @@ static boolean pause_box_stock(struct ui_widget_definition const *box)
 }
 
 /* the stock box drawn taller, once in a map (the screens share it): each
-piece drawn to PAUSE_BOX_SPLIT rows past grow (in its plain middle, below
-the objectives' header and above the buttons' key), then a copy of it from
-its row PAUSE_BOX_SPLIT on, so the box is as the Xbox draws it with its
-middle grow longer */
+piece drawn to PAUSE_BOX_SPLIT rows (below the objectives' header), then its
+plain middle, from that row to PAUSE_BOX_KEY, stretched grow rows longer,
+then the rest of it from its row PAUSE_BOX_KEY on (the buttons' key), so the
+box is as the Xbox draws it with its middle grow longer. (Drawing the top
+part grow rows further instead showed the key's line and dark band in the
+middle of the box once the menu grew by three rows or more.) */
 #define PAUSE_BOX_SPLIT 45
+#define PAUSE_BOX_KEY 120
 
-/* a piece's lower part: a copy of it, its bitmap drawn from row split on */
-static long pause_box_lower(struct cache_file_tag_instance *instances, long piece_tag, short split)
+/* a part of a piece: a copy of it, its bitmap drawn from row from, its rows
+rows of it drawn height rows tall */
+static long pause_box_part(struct cache_file_tag_instance *instances, long piece_tag, short from, short rows,
+	short height)
 {
-	struct ui_widget_definition *lower = allocate(sizeof(*lower));
+	struct ui_widget_definition *part = allocate(sizeof(*part));
 	struct bitmap_group *group = allocate(sizeof(*group));
 	struct bitmap_data *bitmap = allocate(sizeof(*bitmap));
 	struct menu_frame_placement *placements = realloc(menu_tags.placements,
@@ -1691,13 +1773,13 @@ static long pause_box_lower(struct cache_file_tag_instance *instances, long piec
 	struct bitmap_group const *source;
 	long widget_tag, bitmap_tag;
 
-	if (!lower || !group || !bitmap || !placements)
+	if (!part || !group || !bitmap || !placements || rows <= 0 || height <= 0)
 		return NONE;
 	menu_tags.placements = placements;
-	memcpy(lower, tag_get(UI_WIDGET_DEFINITION_TAG, piece_tag), sizeof(*lower));
-	if (lower->background_bitmap.index == NONE)
+	memcpy(part, tag_get(UI_WIDGET_DEFINITION_TAG, piece_tag), sizeof(*part));
+	if (part->background_bitmap.index == NONE)
 		return NONE;
-	source = bitmap_group_get(lower->background_bitmap.index);
+	source = bitmap_group_get(part->background_bitmap.index);
 	if (source->bitmaps.count < 1)
 		return NONE;
 	memcpy(group, source, sizeof(*group));
@@ -1708,24 +1790,48 @@ static long pause_box_lower(struct cache_file_tag_instance *instances, long piec
 	placements[menu_tags.placement_count].x = 0;
 	placements[menu_tags.placement_count].y = 0;
 	placements[menu_tags.placement_count].width = bitmap->width;
-	placements[menu_tags.placement_count].height = bitmap->height;
-	placements[menu_tags.placement_count].texel_y = split;
+	/* (the whole bitmap's height, as it is drawn: rows rows to height) */
+	placements[menu_tags.placement_count].height = (short)((long)height * bitmap->height / rows);
+	placements[menu_tags.placement_count].texel_y = from;
 	menu_tags.placement_count++;
 	bitmap_tag = next_tag();
-	instance_set(instances, BITMAP_GROUP_TAG, bitmap_tag, "pause/box_lower", "", group);
-	reference_set(&lower->background_bitmap, BITMAP_GROUP_TAG, bitmap_tag);
-	lower->bounds.y1 = (short)(lower->bounds.y1 - split);
+	instance_set(instances, BITMAP_GROUP_TAG, bitmap_tag, "pause/box_part", "", group);
+	reference_set(&part->background_bitmap, BITMAP_GROUP_TAG, bitmap_tag);
+	part->bounds.y1 = (short)(part->bounds.y0 + height);
 	widget_tag = next_tag();
-	instance_set(instances, UI_WIDGET_DEFINITION_TAG, widget_tag, "pause/box_lower", "", lower);
+	instance_set(instances, UI_WIDGET_DEFINITION_TAG, widget_tag, "pause/box_part", "", part);
 	return widget_tag;
+}
+
+/* the stock box's pieces cut to end where the next begins: the campaign's
+pause screen places pausebox2_right 8 units into pausebox2_left_center
+(the multiplayer maps' place them edge to edge), and the box's middle,
+drawn twice there, showed as a lighter bar down its right side */
+static void pause_box_trim(struct ui_widget_definition const *box)
+{
+	struct ui_widget_child_reference const *pieces = xbox_pointer(box->child_widgets.address);
+	long piece;
+
+	for (piece = 0; piece + 1 < box->child_widgets.count; piece++)
+	{
+		struct ui_widget_definition *definition;
+		short end;
+
+		if (pieces[piece].widget_tag.index == NONE || pieces[piece + 1].widget_tag.index == NONE)
+			continue;
+		definition = tag_get(UI_WIDGET_DEFINITION_TAG, pieces[piece].widget_tag.index);
+		end = (short)(pieces[piece + 1].horizontal_offset - pieces[piece].horizontal_offset);
+		if (end > definition->bounds.x0 && end < definition->bounds.x1)
+			definition->bounds.x1 = end;
+	}
 }
 
 static void pause_box_grow(struct cache_file_tag_instance *instances, struct ui_widget_definition *box, short grow)
 {
 	struct ui_widget_child_reference *pieces = xbox_pointer(box->child_widgets.address);
 	long count = box->child_widgets.count, piece;
-	struct ui_widget_child_reference *grown = allocate(2 * count * sizeof(struct ui_widget_child_reference));
-	short split = PAUSE_BOX_SPLIT;
+	struct ui_widget_child_reference *grown = allocate(3 * count * sizeof(struct ui_widget_child_reference));
+	short split = PAUSE_BOX_SPLIT, key = PAUSE_BOX_KEY;
 
 	if (!grown || count > 6)
 		return;
@@ -1737,22 +1843,30 @@ static void pause_box_grow(struct cache_file_tag_instance *instances, struct ui_
 		if (pieces[piece].widget_tag.index == NONE)
 			continue;
 		definition = tag_get(UI_WIDGET_DEFINITION_TAG, pieces[piece].widget_tag.index);
-		if (definition->bounds.y1 - definition->bounds.y0 < split + grow)
+		if (definition->bounds.y1 - definition->bounds.y0 <= key)
 			return;
 	}
 	memcpy(grown, pieces, count * sizeof(*grown));
 	for (piece = 0; piece < count; piece++)
 	{
-		grown[count + piece] = pieces[piece];
+		struct ui_widget_definition const *definition;
+		struct ui_widget_child_reference *middle = &grown[count + 2 * piece], *lower = middle + 1;
+
+		*middle = *lower = pieces[piece];
 		if (pieces[piece].widget_tag.index == NONE)
 			continue;
-		reference_set(&grown[count + piece].widget_tag, UI_WIDGET_DEFINITION_TAG,
-			pause_box_lower(instances, pieces[piece].widget_tag.index, split));
-		if (grown[count + piece].widget_tag.index == NONE)
+		definition = tag_get(UI_WIDGET_DEFINITION_TAG, pieces[piece].widget_tag.index);
+		reference_set(&middle->widget_tag, UI_WIDGET_DEFINITION_TAG,
+			pause_box_part(instances, pieces[piece].widget_tag.index, split, key - split, key - split + grow));
+		reference_set(&lower->widget_tag, UI_WIDGET_DEFINITION_TAG,
+			pause_box_part(instances, pieces[piece].widget_tag.index, key, definition->bounds.y1 - definition->bounds.y0 - key,
+				definition->bounds.y1 - definition->bounds.y0 - key));
+		if (middle->widget_tag.index == NONE || lower->widget_tag.index == NONE)
 			return;
-		grown[count + piece].vertical_offset = (short)(pieces[piece].vertical_offset + split + grow);
+		middle->vertical_offset = (short)(pieces[piece].vertical_offset + split);
+		lower->vertical_offset = (short)(pieces[piece].vertical_offset + key + grow);
 	}
-	/* (the upper parts cut short only once every lower part is made) */
+	/* (the top parts cut short only once every other part is made) */
 	for (piece = 0; piece < count; piece++)
 	{
 		struct ui_widget_definition *upper;
@@ -1760,10 +1874,10 @@ static void pause_box_grow(struct cache_file_tag_instance *instances, struct ui_
 		if (pieces[piece].widget_tag.index == NONE)
 			continue;
 		upper = tag_get(UI_WIDGET_DEFINITION_TAG, pieces[piece].widget_tag.index);
-		upper->bounds.y1 = (short)(upper->bounds.y0 + split + grow);
+		upper->bounds.y1 = (short)(upper->bounds.y0 + split);
 	}
 	box->child_widgets.address = XBOX_ADDRESS(grown);
-	box->child_widgets.count = 2 * count;
+	box->child_widgets.count = 3 * count;
 	box->bounds.y1 = (short)(box->bounds.y1 + grow);
 }
 
@@ -1851,6 +1965,8 @@ static void pause_screen_patch(struct cache_file_tag_instance *instances, long s
 	}
 	if (box_child != NONE && !*box_grown)
 	{
+		/* (trimmed first: the box's taller parts are copies of its pieces) */
+		pause_box_trim(tag_get(UI_WIDGET_DEFINITION_TAG, children[box_child].widget_tag.index));
 		pause_box_grow(instances, tag_get(UI_WIDGET_DEFINITION_TAG, children[box_child].widget_tag.index), *grow);
 		*box_grown = TRUE;
 	}
@@ -1873,8 +1989,8 @@ static void pause_patch(struct cache_file_tag_instance *instances, boolean setti
 	the multiplayer game engine's */
 	if (solo_screen != NONE)
 	{
-		if (settings)
-			pause_screen_patch(instances, solo_screen, NONE, FALSE, TRUE, FALSE, &patched_list, &grow, &box_grown);
+		if (settings || pause_controls_offered())
+			pause_screen_patch(instances, solo_screen, NONE, FALSE, settings, FALSE, &patched_list, &grow, &box_grown);
 	}
 	else if (collection != NONE)
 	{
@@ -1894,14 +2010,17 @@ static void pause_patch(struct cache_file_tag_instance *instances, boolean setti
 	}
 	if (patched_list != NONE)
 	{
-		platform_log("menus: the pause menu has%s%s%s", change_teams ? " CHANGE TEAMS" : "", settings ? " SETTINGS" : "",
-			host && solo_screen == NONE ? " END GAME" : "");
+		platform_log("menus: the pause menu has%s%s%s%s%s", change_teams ? " CHANGE TEAMS" : "",
+			settings ? " SETTINGS" : "", pause_controls_offered() ? " CONTROLS" : "",
+			host && solo_screen == NONE ? " END GAME" : "",
+			solo_screen == NONE && pause_moderation_offered(host) ? " MODERATION" : "");
 	}
 }
 
 /* the Xbox's menus: a multiplayer map's pause menu gets a team game's CHANGE
-TEAMS and the host's END GAME alone (its own tags, as the Gearbox menus'
-pause_patch makes them; let go by menu_tags_unloaded) */
+TEAMS and the host's END GAME alone, and every map's CONTROLS (its own
+tags, as the Gearbox menus' pause_patch makes them; let go by
+menu_tags_unloaded) */
 static void pause_patch_xbox(void)
 {
 	struct cache_file_tag_instance *instances;
@@ -1952,6 +2071,11 @@ static short menus_chosen(void)
 	char lower[16];
 	size_t index;
 
+	/* (a map pack's own menus, game.pack_menus, are its ui.map's as they
+	are: none of ours are built over them, map_packs.c) */
+	if (map_pack_menus())
+		return _menus_xbox;
+
 	for (index = 0; index + 1 < sizeof(lower) && value[index]; index++)
 		lower[index] = (char)(value[index] >= 'A' && value[index] <= 'Z' ? value[index] - 'A' + 'a' : value[index]);
 	lower[index] = 0;
@@ -1987,6 +2111,38 @@ boolean pc_menus_chupathingy(
 	return menu_tags.loaded && menu_tags.chupathingy;
 }
 
+/* ---------- the Chupathingy menus' GAME SETUP
+
+The host's gametype, chosen on the Xbox's Select Gametype for a new game
+(System Link's and Online Games'), goes on to GAME SETUP
+(chupathingy/host_setup.xml, menu_functions.c) rather than straight to the
+lobby, which its START GAME opens. */
+
+#define HOST_GAMETYPE_SELECT "ui\\shell\\main_menu\\multiplayer_type_select\\connected\\gametype_select_screen_wrapper"
+#define HOST_LOBBY "ui\\shell\\main_menu\\multiplayer_type_select\\connected\\pregame\\connected_pregame_screen"
+#define HOST_SETUP PC_MENU_TAG_PREFIX "chupathingy\\host\\setup_screen"
+
+static void host_setup_patch(void)
+{
+	long select = tag_loaded(UI_WIDGET_DEFINITION_TAG, HOST_GAMETYPE_SELECT);
+	long lobby = tag_loaded(UI_WIDGET_DEFINITION_TAG, HOST_LOBBY);
+	long setup = tag_loaded(UI_WIDGET_DEFINITION_TAG, HOST_SETUP);
+	long function = ui_function_named("mp profile set for game");
+	struct ui_widget_definition *definition;
+	struct ui_widget_event_handler_reference *handlers;
+	long index;
+
+	if (select == NONE || lobby == NONE || setup == NONE || function == NONE)
+		return;
+	definition = tag_get(UI_WIDGET_DEFINITION_TAG, select);
+	handlers = xbox_pointer(definition->event_handlers.address);
+	for (index = 0; index < definition->event_handlers.count; index++)
+	{
+		if (handlers[index].function == function && handlers[index].widget_tag.index == lobby)
+			reference_set(&handlers[index].widget_tag, UI_WIDGET_DEFINITION_TAG, setup);
+	}
+}
+
 void menu_tags_loaded(
 	char const *map_name)
 {
@@ -1996,6 +2152,13 @@ void menu_tags_loaded(
 
 	boolean game_map = strcmp(map_name, "ui") != 0;
 
+#ifdef HALO_GAME_BROWSER
+	/* (the save folder's game type files, in every menus' gametype lists:
+	gametype_files.c) */
+	if (!game_map)
+		gametype_files_import();
+#endif
+
 	/* (ui.map, and a multiplayer map: its pause menu's SETTINGS) */
 	if (game_map && tag_loaded('Soul', MULTIPLAYER_COLLECTION) == NONE &&
 		tag_loaded(UI_WIDGET_DEFINITION_TAG, SOLO_PAUSE_SCREEN) == NONE)
@@ -2003,11 +2166,11 @@ void menu_tags_loaded(
 		return;
 	}
 	/* the Xbox's menus: only a multiplayer game's CHANGE TEAMS and the host's
-	END GAME */
+	END GAME, and CONTROLS */
 	if (menus_chosen() == _menus_xbox)
 	{
-		if (game_map && tag_loaded(UI_WIDGET_DEFINITION_TAG, SOLO_PAUSE_SCREEN) == NONE &&
-			(global_network_game_server_get() != NULL || team_change_pause_offered()))
+		if (game_map && (pause_controls_offered() || (tag_loaded(UI_WIDGET_DEFINITION_TAG, SOLO_PAUSE_SCREEN) == NONE &&
+			(global_network_game_server_get() != NULL || team_change_pause_offered()))))
 		{
 			pause_patch_xbox();
 		}
@@ -2129,6 +2292,8 @@ void menu_tags_loaded(
 	}
 	menu_tags.loaded = TRUE;
 	menu_tags.chupathingy = menus_chosen() == _menus_chupathingy;
+	if (menu_tags.chupathingy && !game_map)
+		host_setup_patch();
 	platform_log("menus: %ld widgets, %ld string lists and %ld bitmaps added to the map's %ld tags",
 		widget_count, own_lists + menus->string_list_count, menus->bitmap_count, build.first_index);
 	goto done;
@@ -2166,6 +2331,8 @@ char const *pc_menus_root_name(
 		long index;
 
 		snprintf(name, sizeof(name), "%s%s", PC_MENU_TAG_PREFIX, open);
+		/* (after a #, what the screen shows: Controls Setup's "#rebind") */
+		name[strcspn(name, "#")] = 0;
 		for (index = 0; name[index]; index++)
 		{
 			if (name[index] == '/')
@@ -2288,21 +2455,19 @@ struct pc_menu_setting *pc_menu_setting_get(
 ui.map's pictures of the controller's buttons in the menus' prompts ("A =
 SELECT", "B = BACK": ui\shell\bitmaps\a_butn and the rest, and their
 smaller _sm), drawn as the keyboard's key caps while the keyboard or mouse
-was used last (halo_keyboard_prompts), and with the Chupathingy menus always
+was used last (halo_keyboard_prompts: xinput_sdl.c's platform_prompt_scheme,
+which every prompt follows), and with the Chupathingy menus always
 as the device last used names them (an Xbox-like pad's by snapchipper's
 icons, a PlayStation or Nintendo pad's own), as Online Games draws its
 prompts (ui_overlay.c: the keys xinput_sdl.c presses those buttons with), ending
 where the picture ends, so that the words after it stay clear. */
 
-boolean pc_menu_button_key_cap(
-	long bitmap_tag_index,
-	short x0,
-	short y0,
-	short x1,
-	short y1,
-	float alpha)
-{
 #ifdef HALO_GAME_BROWSER
+/* the button (UI_BUTTON_A...) a prompt's picture is drawn as a key cap
+for, or -1 when it is drawn as it is */
+static int pc_menu_key_cap_button(
+	long bitmap_tag_index)
+{
 	static struct
 	{
 		char const *name;
@@ -2314,6 +2479,7 @@ boolean pc_menu_button_key_cap(
 		{ "x_butn", UI_BUTTON_X },
 		{ "y_butn", UI_BUTTON_Y },
 		{ "black_butn", UI_BUTTON_RIGHT_SHOULDER },
+		{ "white_butn", UI_BUTTON_LEFT_SHOULDER },
 		{ "start_butn", UI_BUTTON_START },
 		{ "back_butn", UI_BUTTON_BACK },
 	};
@@ -2326,31 +2492,54 @@ boolean pc_menu_button_key_cap(
 	boolean modern = menu_tags.loaded && menu_tags.chupathingy;
 
 	if (bitmap_tag_index == NONE || (!halo_keyboard_prompts() && !modern))
-		return FALSE;
+		return -1;
 	name = tag_get_name(bitmap_tag_index);
 	if (!name)
-		return FALSE;
+		return -1;
 	/* (ui.map's, and the Chupathingy menus' own: chupathingy/prompts.xml) */
 	if (!strncmp(name, "ui\\shell\\bitmaps\\", 17))
 		last = name + 17;
 	else if (modern && !strncmp(name, CHUPATHINGY_PROMPTS, strlen(CHUPATHINGY_PROMPTS)))
 		last = name + strlen(CHUPATHINGY_PROMPTS);
 	else
-		return FALSE;
+		return -1;
 	for (index = 0; index < (long)(sizeof(buttons) / sizeof(buttons[0])); index++)
 	{
 		size_t length = strlen(buttons[index].name);
 
 		if (!strncmp(last, buttons[index].name, length) && (!last[length] || !strcmp(last + length, "_sm")))
-		{
-			float size = (float)(y1 - y0) * 0.62f;
-			float width = ui_overlay_button_width(buttons[index].button, size);
-			unsigned int shade = (unsigned int)(alpha < 0.f ? 0.f : alpha > 1.f ? 255.f : alpha * 255.f);
+			return buttons[index].button;
+	}
+	return -1;
+}
+#endif
 
-			ui_overlay_button(buttons[index].button, size, (float)x1 - width,
-				(float)y0 + ((float)(y1 - y0) - size) * 0.5f, 0xFFFFFF00 | shade);
-			return TRUE;
-		}
+boolean pc_menu_button_key_cap(
+	long bitmap_tag_index,
+	short x0,
+	short y0,
+	short x1,
+	short y1,
+	float alpha)
+{
+#ifdef HALO_GAME_BROWSER
+	extern boolean moderation_screen_active(void);
+	int button = pc_menu_key_cap_button(bitmap_tag_index);
+
+	(void)x0;
+	/* (the Moderation screen over the menu: the menu's key caps hidden with
+	it, not drawn over the screen) */
+	if (button >= 0 && moderation_screen_active())
+		return TRUE;
+	if (button >= 0)
+	{
+		float size = (float)(y1 - y0) * 0.62f;
+		float width = ui_overlay_button_width(button, size);
+		unsigned int shade = (unsigned int)(alpha < 0.f ? 0.f : alpha > 1.f ? 255.f : alpha * 255.f);
+
+		ui_overlay_button(button, size, (float)x1 - width,
+			(float)y0 + ((float)(y1 - y0) - size) * 0.5f, 0xFFFFFF00 | shade);
+		return TRUE;
 	}
 #else
 	(void)bitmap_tag_index;
@@ -2361,4 +2550,32 @@ boolean pc_menu_button_key_cap(
 	(void)alpha;
 #endif
 	return FALSE;
+}
+
+/* the left edge of the key cap pc_menu_button_key_cap draws for a prompt
+in these bounds (a wide one, ENTER's, reaches left of them), or x0 when
+the picture is drawn as it is */
+short pc_menu_button_key_cap_left(
+	long bitmap_tag_index,
+	short x0,
+	short y0,
+	short x1,
+	short y1)
+{
+#ifdef HALO_GAME_BROWSER
+	int button = pc_menu_key_cap_button(bitmap_tag_index);
+
+	if (button >= 0)
+	{
+		float left = (float)x1 - ui_overlay_button_width(button, (float)(y1 - y0) * 0.62f);
+
+		return (short)floorf(left);
+	}
+#else
+	(void)bitmap_tag_index;
+	(void)y0;
+	(void)x1;
+	(void)y1;
+#endif
+	return x0;
 }

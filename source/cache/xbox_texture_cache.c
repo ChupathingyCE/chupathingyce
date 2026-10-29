@@ -120,24 +120,57 @@ symbols in this file:
 #include "tag_files/tag_groups.h"
 #include "text/draw_string.h"
 #include <xtl.h>
+#include "halo_perf_log.h" /* port: console.perf_log */
 
 /* ---------- constants */
 
 enum
 {
+#if !defined(HALO_XBOX_CONSOLE) && !defined(HALO_PORT_TEXTURE_CACHE_SIZE_VARIES)
 	/* (the native builds' size: halo_port_capacity.h; the Xbox's 0x580
 	pages, 0x1600000 bytes) */
 	XBOX_TEXTURE_CACHE_PAGE_COUNT = HALO_PORT_TEXTURE_CACHE_SIZE >> 14,
+#endif
 	XBOX_TEXTURE_CACHE_PAGE_SIZE_BITS = 14,
 	XBOX_TEXTURE_CACHE_PAGE_SIZE = 1 << XBOX_TEXTURE_CACHE_PAGE_SIZE_BITS,
 	XBOX_TEXTURE_CACHE_STEAL_GUARD_SIZE = 0x104000,
+#if !defined(HALO_XBOX_CONSOLE) && !defined(HALO_PORT_TEXTURE_CACHE_SIZE_VARIES)
 	XBOX_TEXTURE_CACHE_STEALABLE_PAGE_COUNT =
 		XBOX_TEXTURE_CACHE_PAGE_COUNT -
 		2 * (XBOX_TEXTURE_CACHE_STEAL_GUARD_SIZE / XBOX_TEXTURE_CACHE_PAGE_SIZE),
+	/* (the arrays of a page each) */
+	XBOX_TEXTURE_CACHE_ARRAY_PAGE_COUNT = XBOX_TEXTURE_CACHE_PAGE_COUNT,
+#endif
 	XBOX_TEXTURE_CACHE_ENTRY_SIZE = 0x20,
+#if !defined(HALO_XBOX_CONSOLE) && !defined(HALO_PORT_TEXTURE_CACHE_SIZE_VARIES)
 	XBOX_TEXTURE_CACHE_SIZE = HALO_PORT_TEXTURE_CACHE_SIZE,
+#endif
 	XBOX_TEXTURE_CACHE_PROTECTION = 0x404,
 };
+
+#ifdef HALO_XBOX_CONSOLE
+/* port: the console's cache is the size its memory class gives it
+(port/xbox/src/xbox_memory.c: the Xbox's 22 MB on a 64 MB console, more on
+a bigger one, halo_console_memory.h's extras), known before the cache is made;
+the arrays of a page each are sized for the largest
+(HALO_PORT_TEXTURE_CACHE_MAXIMUM_SIZE) */
+unsigned long xbox_memory_texture_cache_size(void);
+
+#define XBOX_TEXTURE_CACHE_SIZE ((long)xbox_memory_texture_cache_size())
+#define XBOX_TEXTURE_CACHE_PAGE_COUNT (XBOX_TEXTURE_CACHE_SIZE >> XBOX_TEXTURE_CACHE_PAGE_SIZE_BITS)
+#define XBOX_TEXTURE_CACHE_STEALABLE_PAGE_COUNT (XBOX_TEXTURE_CACHE_PAGE_COUNT - \
+	2 * (XBOX_TEXTURE_CACHE_STEAL_GUARD_SIZE / XBOX_TEXTURE_CACHE_PAGE_SIZE))
+#define XBOX_TEXTURE_CACHE_ARRAY_PAGE_COUNT (HALO_PORT_TEXTURE_CACHE_MAXIMUM_SIZE >> 14)
+#elif defined(HALO_PORT_TEXTURE_CACHE_SIZE_VARIES)
+/* port: the Switch's cache follows the size of the window its host found
+room for (halo_port_capacity.h), known before the cache is made; the arrays
+of a page each are sized for the largest, as the console's are */
+#define XBOX_TEXTURE_CACHE_SIZE ((long)HALO_PORT_TEXTURE_CACHE_SIZE)
+#define XBOX_TEXTURE_CACHE_PAGE_COUNT (XBOX_TEXTURE_CACHE_SIZE >> XBOX_TEXTURE_CACHE_PAGE_SIZE_BITS)
+#define XBOX_TEXTURE_CACHE_STEALABLE_PAGE_COUNT (XBOX_TEXTURE_CACHE_PAGE_COUNT - \
+	2 * (XBOX_TEXTURE_CACHE_STEAL_GUARD_SIZE / XBOX_TEXTURE_CACHE_PAGE_SIZE))
+#define XBOX_TEXTURE_CACHE_ARRAY_PAGE_COUNT (HALO_PORT_TEXTURE_CACHE_MAXIMUM_SIZE >> 14)
+#endif
 
 enum
 {
@@ -334,9 +367,11 @@ static const long bitmap_d3d_format_tables
 		NONE,
 	},
 };
+#ifndef HALO_CONSOLE_NO_DEBUG_TOOLS
 /* provisional name: the January map leaves this .bss array unnamed; it holds the debug
  * listing's cached bitmaps */
-static struct bitmap_data *texture_cache_debug_bitmaps[XBOX_TEXTURE_CACHE_PAGE_COUNT];
+static struct bitmap_data *texture_cache_debug_bitmaps[XBOX_TEXTURE_CACHE_ARRAY_PAGE_COUNT];
+#endif
 static struct xbox_texture_cache_globals xbox_texture_cache_globals;
 struct texture_cache_debug_options texture_cache_debug_options = {0};
 boolean debug_texture_cache = FALSE;
@@ -771,6 +806,17 @@ void texture_cache_new(
 		105,
 		xbox_texture_cache_globals.base_address != NULL,
 		"xbox_texture_cache_globals.base_address");
+#ifdef HALO_PORT_TEXTURE_CACHE_SIZE_VARIES
+	{
+		void platform_log(char const *format, ...);
+
+		/* port: the cache's size follows the window's (halo_port_capacity.h),
+		so each run says what it got */
+		platform_log("texture cache: %ld MB, %ld pages of 16 KB, at %p",
+			XBOX_TEXTURE_CACHE_SIZE / (1024 * 1024), XBOX_TEXTURE_CACHE_PAGE_COUNT,
+			xbox_texture_cache_globals.base_address);
+	}
+#endif
 
 	return;
 }
@@ -787,6 +833,42 @@ void texture_cache_close(
 
 	return;
 }
+
+#ifdef HALO_XBOX_CONSOLE
+/* port: a linear bitmap whose rows are packed, a row's texels after the
+last's, though they are not whole steps of the pitch (a map pack's, its tags
+converted from Halo PC's: CE+'s ui.map's cex_grad, 10 texels wide): the
+hardware reads rows a pitch apart, so once read its rows are spread to the
+pitch, in place (its cache block holds the padded size:
+rasterizer_xbox_bitmap_get_pixel_data_size). Called on a bitmap whose sizes
+texture_cache_bitmap_valid has checked */
+static boolean texture_cache_bitmap_rows_packed(
+	struct bitmap_data *bitmap)
+{
+	long row_pitch = bitmap_mipmap_get_row_pitch(bitmap, 0);
+
+	return TEST_FLAG(bitmap->flags, _bitmap_linear_bit) &&
+		bitmap->type == _bitmap_type_2d &&
+		row_pitch % D3DTEXTURE_PITCH_ALIGNMENT != 0 &&
+		bitmap->pixels_size == row_pitch * bitmap->height;
+}
+
+static void texture_cache_bitmap_spread_rows(
+	struct bitmap_data *bitmap)
+{
+	long row_pitch = bitmap_mipmap_get_row_pitch(bitmap, 0);
+	long pitch = (row_pitch + D3DTEXTURE_PITCH_ALIGNMENT - 1) & ~(D3DTEXTURE_PITCH_ALIGNMENT - 1);
+	byte *pixels = xbox_pointer(bitmap->base_address);
+	long row;
+
+	for (row = bitmap->height - 1; row > 0; row--)
+	{
+		memmove(pixels + row * pitch, pixels + row * row_pitch, row_pitch);
+	}
+
+	return;
+}
+#endif
 
 /* port: whether a map's bitmap is one the hardware format can describe and
 the texture cache can size: a type and format the tables have, sizes up to
@@ -836,6 +918,10 @@ static boolean texture_cache_bitmap_valid(
 
 			any_pitch = cache_file_tags_are_ce();
 		}
+#endif
+#ifdef HALO_XBOX_CONSOLE
+		/* port: packed rows are spread to the pitch once read (above) */
+		any_pitch = any_pitch || texture_cache_bitmap_rows_packed(bitmap);
 #endif
 		valid =
 			row_pitch>0 &&
@@ -906,6 +992,7 @@ static boolean texture_cache_start_loading_bitmap(
 		bitmap->base_address = xbox_address(base_address);
 		texture->bitmap = bitmap;
 		texture_cache_initialize_hardware_format(bitmap, &texture->hardware_format);
+		HALO_PERF_COUNT(_halo_perf_texture_loads, 1);
 		texture->read_request_handle = cache_file_read(
 			bitmap->tag_index,
 			bitmap->pixels_offset,
@@ -920,12 +1007,13 @@ static boolean texture_cache_start_loading_bitmap(
 	return FALSE;
 }
 
+#ifndef HALO_CONSOLE_NO_DEBUG_TOOLS
 void texture_cache_debug_render(
 	void)
 {
 	if (texture_cache_debug_options.graph)
 	{
-		byte page_usage[XBOX_TEXTURE_CACHE_PAGE_COUNT];
+		byte page_usage[XBOX_TEXTURE_CACHE_ARRAY_PAGE_COUNT];
 		real_point3d world_positions[2];
 		real_point2d screen_positions[2];
 		real_point3d *world_position;
@@ -1052,6 +1140,16 @@ void texture_cache_debug_render(
 
 	return;
 }
+#else
+
+/* port: the texture cache listing and graph are developer tools
+(halo_xbox_prefix.h) */
+void texture_cache_debug_render(
+	void)
+{
+	return;
+}
+#endif
 
 void *_texture_cache_bitmap_get_hardware_format(
 	struct bitmap_data *bitmap,
@@ -1088,12 +1186,15 @@ void *_texture_cache_bitmap_get_hardware_format(
 			struct xbox_texture_cache_texture *texture = datum_get(
 				xbox_texture_cache_globals.textures,
 				bitmap->cache_block_index);
+			/* (port: console.perf_log's texture wait) */
+			boolean texture_was_loading = FALSE;
 
 			lruv_block_touch(
 				xbox_texture_cache_globals.cache,
 				bitmap->cache_block_index);
 			if (block && !texture->loaded)
 			{
+				texture_was_loading = TRUE;
 				if (debug_texture_cache)
 				{
 					console_warning(
@@ -1101,6 +1202,7 @@ void *_texture_cache_bitmap_get_hardware_format(
 						tag_get_name(bitmap->tag_index));
 				}
 				cache_file_promote_read(texture->read_request_handle);
+				HALO_PERF_BEGIN(_halo_perf_texture_wait);
 			}
 			do
 			{
@@ -1108,6 +1210,12 @@ void *_texture_cache_bitmap_get_hardware_format(
 				{
 					if (!texture->used)
 					{
+#ifdef HALO_XBOX_CONSOLE
+						if (texture_cache_bitmap_rows_packed(bitmap))
+						{
+							texture_cache_bitmap_spread_rows(bitmap);
+						}
+#endif
 						texture->used = TRUE;
 					}
 					hardware_format = &texture->hardware_format;
@@ -1118,10 +1226,21 @@ void *_texture_cache_bitmap_get_hardware_format(
 					{
 						sound_idle();
 					}
+#ifdef HALO_XBOX_CONSOLE
+					{
+						extern char const *volatile xbox_main_stage;
+						static char waiting[160];
+
+						sprintf(waiting, "texture cache: waiting for %.120s", tag_get_name(bitmap->tag_index));
+						xbox_main_stage = waiting;
+					}
+#endif
 					SwitchToThread();
 				}
 			}
 			while (!hardware_format && block);
+			if (texture_was_loading)
+				HALO_PERF_END(_halo_perf_texture_wait);
 		}
 	}
 	else

@@ -24,7 +24,9 @@ Conventions carried over from the Xbox:
 #include "xgpu.h"
 #include "sdl_platform.h"
 #include "halo_ui_pointer.h"
+#include "ui_point.h"
 #include "port_config.h"
+#include "thread_stop.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -64,6 +66,10 @@ and entry points used below that ES lacks */
 #ifndef GL_TEXTURE_MAX_ANISOTROPY_EXT
 #define GL_TEXTURE_MAX_ANISOTROPY_EXT 0x84fe
 #endif
+#ifndef GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT
+#define GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT 0x84ff
+#endif
+#define GL_MAX_TEXTURE_MAX_ANISOTROPY GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT
 #ifndef GL_TEXTURE_BORDER_COLOR
 #define GL_TEXTURE_BORDER_COLOR 0x1004
 #endif
@@ -193,6 +199,9 @@ static void screen_mode_choose(long *width, float scale[2])
 	/* display.screen_width, or 0 for the display's shape, which the app
 	passes (port/android/host/host_main.c) */
 	const char *display = getenv("HALO_DISPLAY_WIDTH");
+	const char *limit = config_string("display.resolution_limit");
+	int display_width = 0, display_height = 0;
+	long lines;
 
 	*width = config_integer("display.screen_width");
 	if (*width <= 0)
@@ -203,6 +212,25 @@ static void screen_mode_choose(long *width, float scale[2])
 		*width = 1600;
 	*width &= ~1L;
 	scale[0] = scale[1] = 1.0f;
+	/* display.resolution_limit: the screen's targets drawn at that many
+	lines (as the desktop draws them at the window's), no more than the
+	display has nor than the GPU's largest target takes; the display blit
+	scales the picture to the display */
+	platform_video_drawable_size(&display_width, &display_height);
+	lines = !strcmp(limit, "native") ? display_height : atol(limit);
+	if (display_height > 0 && lines > display_height)
+		lines = display_height;
+	if (lines > SCREEN_HEIGHT)
+	{
+		float factor = (float)lines / (float)SCREEN_HEIGHT;
+
+		if (maximum_target_size > 0 && *width * factor > (float)maximum_target_size)
+			factor = (float)maximum_target_size / (float)*width;
+		if (maximum_target_size > 0 && SCREEN_HEIGHT * factor > (float)maximum_target_size)
+			factor = (float)maximum_target_size / (float)SCREEN_HEIGHT;
+		if (factor > 1.0f)
+			scale[0] = scale[1] = factor;
+	}
 #else
 	long display_width, display_height;
 
@@ -258,6 +286,16 @@ float halo_screen_pixel_scale(void)
 	halo_screen_width();
 	return screen_scale[1];
 }
+
+#ifdef HALO_CONSOLE_MAP_LOAD_HOOKS
+/* a map has finished loading (scenario_load): a console's renderer gives
+its shaders priority (the first, the Switch's deko3d renderer:
+port/switch/guest/d3d8_dk.c); nothing to do here */
+void d3d8_gl_map_loaded(const char *name)
+{
+	(void)name;
+}
+#endif
 
 /* how many pixels the screen's targets draw to the Xbox's one, the larger
 of the two ways (the screen effects' convolutions: rasterizer_xbox_screen_effect.c) */
@@ -487,6 +525,12 @@ vertices. */
 #define STREAM_BUFFER_SIZE (16 * 1024 * 1024)
 #define INDEX_BUFFER_SIZE (2 * 1024 * 1024)
 #define STREAM_BUFFER_RING 3
+#elif defined(HALO_CONSOLE_GL_LAYER)
+/* A console's GL layer (the Xbox 360's, of its 512 MB 256 MB the Xbox's
+window): an orphaned buffer is new physical memory until the GPU is done
+with the old one two frames later, so these stay small. */
+#define STREAM_BUFFER_SIZE (8 * 1024 * 1024)
+#define INDEX_BUFFER_SIZE (2 * 1024 * 1024)
 #else
 #define STREAM_BUFFER_SIZE (32 * 1024 * 1024)
 #define INDEX_BUFFER_SIZE (8 * 1024 * 1024)
@@ -622,6 +666,7 @@ static struct
 	/* vertex and index bytes drawn from the mirror, and streamed */
 	unsigned long mirrored_bytes, streamed_bytes;
 } stats;
+#ifdef HALO_BGFX
 /* debug.gpu_stats's frame work timing (D3DDevice_Present) */
 static double stats_frame_start, stats_busy_total, stats_busy_worst;
 /* debug.gpu_stats's account of a slow frame (D3DDevice_Present): the
@@ -641,6 +686,7 @@ static double stats_seconds(void)
 	clock_gettime(CLOCK_MONOTONIC, &now);
 	return (double)now.tv_sec + (double)now.tv_nsec / 1e9;
 }
+#endif
 
 static D3DDevice *device_pointer(void)
 {
@@ -1040,7 +1086,9 @@ static void *vertical_blank_thread(void *unused)
 
 	(void)unused;
 	clock_gettime(CLOCK_MONOTONIC, &next);
-	for (;;)
+	/* (until the game's end asks the platform layer's threads to stop,
+	thread_stop.h) */
+	while (!thread_stop_requested())
 	{
 		D3DCALLBACK callback;
 
@@ -1067,6 +1115,10 @@ static void *vertical_blank_thread(void *unused)
 		if (callback)
 			callback(0);
 	}
+	/* (a wait for a vertical blank that will not come returns: below) */
+	pthread_mutex_lock(&vertical_blank_lock);
+	pthread_cond_broadcast(&vertical_blank_condition);
+	pthread_mutex_unlock(&vertical_blank_lock);
 	return NULL;
 }
 
@@ -1075,11 +1127,8 @@ static void vertical_blank_start(void)
 	pthread_mutex_lock(&vertical_blank_lock);
 	if (!vertical_blank_thread_started)
 	{
-		pthread_t thread;
-
-		if (pthread_create(&thread, NULL, vertical_blank_thread, NULL) == 0)
+		if (thread_stop_create("vertical blank", vertical_blank_thread, NULL) == 0)
 		{
-			pthread_detach(thread);
 			vertical_blank_thread_started = TRUE;
 		}
 		else
@@ -1112,7 +1161,7 @@ void WINAPI D3DDevice_BlockUntilVerticalBlank(void)
 	vertical_blank_start();
 	pthread_mutex_lock(&vertical_blank_lock);
 	count = vertical_blank_count;
-	while (vertical_blank_count == count)
+	while (vertical_blank_count == count && !thread_stop_requested())
 		pthread_cond_wait(&vertical_blank_condition, &vertical_blank_lock);
 	pthread_mutex_unlock(&vertical_blank_lock);
 }
@@ -1123,19 +1172,35 @@ GLuint xgpu_compile_shader(GLenum type, const char *source, const char *what)
 {
 	GLuint shader = glCreateShader(type);
 	GLint status = 0;
+#ifdef HALO_BGFX
 	double start = stats_seconds();
+#endif
 
 	glShaderSource(shader, 1, &source, NULL);
 	glCompileShader(shader);
 	glGetShaderiv(shader, GL_COMPILE_STATUS, &status);
+#ifdef HALO_BGFX
 	stats_frame.compiles++;
 	stats_frame.compile_seconds += stats_seconds() - start;
+#endif
 	if (!status)
 	{
 		char log[4096];
+#ifdef HALO_CONSOLE_GL_LAYER
+		static int reports;
+
+		glGetShaderInfoLog(shader, sizeof(log), NULL, log);
+		/* (the whole text for the first few: it is long, and a console's
+		log is slow) */
+		if (reports++ < 3)
+			platform_log("cannot compile the %s shader:\n%s\n%s", what, log, source);
+		else
+			platform_log("cannot compile the %s shader: %s", what, log);
+#else
 
 		glGetShaderInfoLog(shader, sizeof(log), NULL, log);
 		platform_log("cannot compile the %s shader:\n%s\n%s", what, log, source);
+#endif
 		glDeleteShader(shader);
 		return 0;
 	}
@@ -1146,13 +1211,17 @@ GLuint xgpu_link_program(GLuint vertex_shader, GLuint fragment_shader, const cha
 {
 	GLuint program = glCreateProgram();
 	GLint status = 0;
+#ifdef HALO_BGFX
 	double start = stats_seconds();
+#endif
 
 	glAttachShader(program, vertex_shader);
 	glAttachShader(program, fragment_shader);
 	glLinkProgram(program);
 	glGetProgramiv(program, GL_LINK_STATUS, &status);
+#ifdef HALO_BGFX
 	stats_frame.compile_seconds += stats_seconds() - start;
+#endif
 	if (!status)
 	{
 		char log[4096];
@@ -1422,10 +1491,22 @@ static void render_target_multisample(struct xgpu_render_target *target, int sam
 		samples ? (GLsizei)target->gl_width : 1, samples ? (GLsizei)target->gl_height : 1);
 	glBindRenderbuffer(GL_RENDERBUFFER, 0);
 	target->samples = samples;
+	target->gl_samples = samples;
 	if (!samples)
 		return;
 	draw = target->depth ? framebuffer_find(0, target->multisample, TRUE) :
 		framebuffer_find(target->multisample, 0, TRUE);
+	/* (the samples the GPU gave, which can be more than were asked for:
+	llvmpipe gives 4 for 2. The alpha test's coverage is of these, or
+	alpha-tested surfaces are left with samples they never cover) */
+	{
+		GLint given = 0;
+
+		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, draw);
+		glGetIntegerv(GL_SAMPLES, &given);
+		if (given > samples)
+			target->gl_samples = (int)given;
+	}
 #ifdef HALO_ANDROID
 	/* (ES blits into no multisampled framebuffer: it is cleared instead. A
 	change of the setting is taken up between frames, and the frame clears
@@ -1521,7 +1602,7 @@ static BOOL bind_targets(BOOL *has_depth)
 			color->target.unresolved = TRUE;
 		if (depth)
 			depth->target.unresolved = TRUE;
-		target_samples = samples;
+		target_samples = color ? color->target.gl_samples : depth->target.gl_samples;
 	}
 	else
 	{
@@ -1936,36 +2017,42 @@ HRESULT WINAPI Direct3D_CreateDevice(UINT adapter, D3DDEVTYPE device_type, void 
 
 /* ---------- the menus' pointer */
 
-/* a point in the window, as SDL reports it, in the menus' coordinates: the
-inverse of the letterboxed display blit at presentation, the screen's
-width and the menus' centering (halo_screen_ui_offset); x and y are -1 if
+/* the view the menus' points are mapped through (ui_point.c); FALSE if
 there is no back buffer or window yet */
-static void ui_point_from_window(float window_x, float window_y, short *x, short *y)
+static BOOL ui_point_view_get(struct ui_point_view *view)
 {
 	struct render_target_entry *back_buffer = render_target_get(&device.back_buffer);
-	int window_width, window_height, pixel_width, pixel_height, width, height, left, top;
-	float screen_x, screen_y;
+
+	if (!back_buffer)
+		return FALSE;
+	platform_video_window_size(&view->window_width, &view->window_height);
+	platform_video_drawable_size(&view->pixel_width, &view->pixel_height);
+	view->target_width = (int)back_buffer->target.width;
+	view->target_height = (int)back_buffer->target.height;
+	view->gl_width = (int)back_buffer->target.gl_width;
+	view->gl_height = (int)back_buffer->target.gl_height;
+	view->screen_width = halo_screen_width();
+	return TRUE;
+}
+
+/* a point in the window, as SDL reports it, in the menus' coordinates; x
+and y are -1 if there is no back buffer or window yet */
+static void ui_point_from_window_now(float window_x, float window_y, short *x, short *y)
+{
+	struct ui_point_view view;
 
 	*x = *y = -1;
-	if (!back_buffer)
-		return;
-	platform_video_window_size(&window_width, &window_height);
-	platform_video_drawable_size(&pixel_width, &pixel_height);
-	if (window_width <= 0 || window_height <= 0)
-		return;
-	width = pixel_width;
-	height = (int)((long)pixel_width * back_buffer->target.gl_height / back_buffer->target.gl_width);
-	if (height > pixel_height)
-	{
-		height = pixel_height;
-		width = (int)((long)pixel_height * back_buffer->target.gl_width / back_buffer->target.gl_height);
-	}
-	left = (pixel_width - width) / 2;
-	top = (pixel_height - height) / 2;
-	screen_x = (window_x * pixel_width / window_width - left) * (float)back_buffer->target.width / (float)width;
-	screen_y = (window_y * pixel_height / window_height - top) * (float)back_buffer->target.height / (float)height;
-	*x = (short)floorf(screen_x - (float)(halo_screen_width() - 640) / 2.0f);
-	*y = (short)floorf(screen_y);
+	if (ui_point_view_get(&view))
+		ui_point_from_window(&view, window_x, window_y, x, y);
+}
+
+/* where in the window a point of the menus is, for debug.test_input's
+clicks; FALSE if there is no back buffer or window yet */
+BOOL halo_ui_point_to_window(short x, short y, float *window_x, float *window_y)
+{
+	struct ui_point_view view;
+
+	return ui_point_view_get(&view) && ui_point_to_window(&view, x, y, window_x, window_y);
 }
 
 int halo_ui_pointer_update(int menus_active, struct halo_ui_pointer *pointer)
@@ -1977,15 +2064,15 @@ int halo_ui_pointer_update(int menus_active, struct halo_ui_pointer *pointer)
 	if (!menus_active || !device.gl_ready || !platform_ui_pointer_read(&state))
 		return 0;
 	memset(pointer, 0, sizeof(*pointer));
-	ui_point_from_window(state.x, state.y, &pointer->x, &pointer->y);
-	ui_point_from_window(state.click_x, state.click_y, &pointer->click_x, &pointer->click_y);
+	ui_point_from_window_now(state.x, state.y, &pointer->x, &pointer->y);
+	ui_point_from_window_now(state.click_x, state.click_y, &pointer->click_x, &pointer->click_y);
 	pointer->moved = state.moved != FALSE;
 	pointer->left_clicks = (unsigned char)(state.left_clicks < 255 ? state.left_clicks : 255);
 	pointer->right_clicks = (unsigned char)(state.right_clicks < 255 ? state.right_clicks : 255);
 	pointer->wheel_steps = (signed char)(state.wheel_steps < -8 ? -8 : state.wheel_steps > 8 ? 8 : state.wheel_steps);
 	pointer->touch = state.touch != FALSE;
 	pointer->downs = (unsigned char)(state.downs < 255 ? state.downs : 255);
-	ui_point_from_window(state.down_x, state.down_y, &pointer->down_x, &pointer->down_y);
+	ui_point_from_window_now(state.down_x, state.down_y, &pointer->down_x, &pointer->down_y);
 	return 1;
 }
 
@@ -2225,7 +2312,11 @@ HRESULT WINAPI D3DDevice_EndVisibilityTest(DWORD index)
 		unsigned long *count = &device.ring_test_count[device.buffer_ring];
 
 		/* (a slot tested twice in a frame is listed twice: the later
-		counter, resolved after, wins) */
+		counter, resolved after, wins). The counter counts the target's
+		pixels, once each however many samples it has: in the game's pixels
+		when it is resolved (visibility_unscaled), as display.resolution_limit
+		draws more of them */
+		device.query_area[index] = target_scale[0] * target_scale[1];
 		if (*count < VISIBILITY_TEST_SLOTS)
 		{
 			device.ring_tests[device.buffer_ring][*count][0] = (unsigned short)index;
@@ -2267,7 +2358,6 @@ HRESULT WINAPI D3DDevice_EndVisibilityTest(DWORD index)
 	return S_OK;
 }
 
-#ifndef HALO_ANDROID
 /* a count of pixels in the game's pixels */
 static GLuint visibility_unscaled(GLuint samples, DWORD index)
 {
@@ -2276,7 +2366,6 @@ static GLuint visibility_unscaled(GLuint samples, DWORD index)
 	return area > 1.0f ? (GLuint)(samples / area + 0.5f) : samples;
 }
 
-#endif
 HRESULT WINAPI D3DDevice_GetVisibilityTestResult(DWORD index, UINT *result, ULONGLONG *time_stamp)
 {
 	GLuint available = 0, samples = 0;
@@ -3051,6 +3140,38 @@ static GLuint sampler_get(int stage, const DWORD *inputs)
 	return sampler;
 }
 
+/* display.anisotropic_filtering: the anisotropy forced on the textures that
+have mip levels and are filtered (0: none, as the game asks), at most what
+the host can do. The game asks for it on none of its textures; the menus' and
+HUD's are drawn facing the screen, where it changes nothing. */
+static DWORD forced_anisotropy(void)
+{
+	static unsigned long read_at = (unsigned long)-1;
+	static DWORD level;
+
+	if (read_at != config_changes())
+	{
+		long value = config_integer("display.anisotropic_filtering");
+		/* (as an integer: the loaded GL functions have no glGetFloatv) */
+		GLint maximum = 0;
+
+		read_at = config_changes();
+		level = value >= 16 ? 16 : value >= 8 ? 8 : value >= 4 ? 4 : value >= 2 ? 2 : 0;
+#ifdef HALO_ANDROID
+		if (!xgpu_capabilities.anisotropy)
+			level = 0;
+		else
+#endif
+		if (level)
+			glGetIntegerv(GL_MAX_TEXTURE_MAX_ANISOTROPY, &maximum);
+		while (level > 1 && (GLint)level > maximum)
+			level /= 2;
+		if (level < 2)
+			level = 0;
+	}
+	return level;
+}
+
 /* hires: a high-res HUD texture (hud_hires.h), drawn smaller than it is, so
 filtered and from its mip levels whatever the game asks: the HUD's meters are
 point sampled for one player, to keep the Xbox bitmaps' texels sharp */
@@ -3073,6 +3194,17 @@ static void configure_sampler(int stage, BOOL mipmapped, BOOL hires)
 	inputs[8] = state[D3DTSS_MAXANISOTROPY];
 	inputs[9] = state[D3DTSS_BORDERCOLOR];
 	inputs[10] = hires;
+	if (mipmapped && !hires && inputs[0] != D3DTEXF_POINT && inputs[1] != D3DTEXF_NONE)
+	{
+		DWORD anisotropy = forced_anisotropy();
+
+		if (anisotropy)
+		{
+			inputs[0] = D3DTEXF_ANISOTROPIC;
+			if (inputs[8] < anisotropy)
+				inputs[8] = anisotropy;
+		}
+	}
 	if (!configured_sampler[stage] || memcmp(configured[stage], inputs, sizeof(inputs)))
 	{
 		memcpy(configured[stage], inputs, sizeof(inputs));
@@ -3108,7 +3240,7 @@ struct mip_composite
 
 static struct mip_composite *mip_composites;
 
-#if defined(HALO_ANDROID) || defined(__APPLE__)
+#if defined(HALO_ANDROID) || defined(__APPLE__) || defined(HALO_CONSOLE_GL_LAYER)
 #ifdef HALO_ANDROID
 #define HOST_GL_COPY_IMAGE xgpu_capabilities.copy_image
 #else
@@ -3116,8 +3248,8 @@ static struct mip_composite *mip_composites;
 #endif
 static GLuint framebuffer_get(GLuint color, GLuint depth);
 
-/* glCopyImageSubData for ES 3.0/3.1 contexts without the extension, and
-macOS's OpenGL 4.1 */
+/* glCopyImageSubData for ES 3.0/3.1 contexts without the extension,
+macOS's OpenGL 4.1 and a console's GL layer (HALO_CONSOLE_GL_LAYER) */
 static void copy_level_by_blit(GLuint source, GLuint destination, GLint level, GLsizei width, GLsizei height)
 {
 	static GLuint draw_framebuffer;
@@ -3212,7 +3344,7 @@ static GLuint mip_composite_get(const struct xgpu_texture_description *descripti
 		composite->level_sources[level] = target->texture;
 		composite->level_written[level] = target->written;
 		render_target_resolve(target);
-#if defined(HALO_ANDROID) || defined(__APPLE__)
+#if defined(HALO_ANDROID) || defined(__APPLE__) || defined(HALO_CONSOLE_GL_LAYER)
 		/* (OpenGL 4.3: macOS's 4.1 copies levels with a blit instead) */
 		if (!HOST_GL_COPY_IMAGE)
 		{
@@ -4042,9 +4174,12 @@ every write; after a few such rewrites a page counts as volatile for a
 while, and draws that use it stream their data as before. */
 
 #define MIRROR_SEGMENT_SIZE 0x400000UL
-#define MIRROR_SEGMENT_COUNT (PLATFORM_CONTIGUOUS_SIZE / MIRROR_SEGMENT_SIZE)
+#ifdef HALO_CONSOLE_GL_LAYER
+void console_gl_buffer_alias(GLenum target, void *memory, unsigned long size);
+#endif
+#define MIRROR_SEGMENT_COUNT (PLATFORM_CONTIGUOUS_MAXIMUM / MIRROR_SEGMENT_SIZE)
 #define MIRROR_PAGE_SIZE 0x1000UL
-#define MIRROR_PAGE_COUNT (PLATFORM_CONTIGUOUS_SIZE / MIRROR_PAGE_SIZE)
+#define MIRROR_PAGE_COUNT (PLATFORM_CONTIGUOUS_MAXIMUM / MIRROR_PAGE_SIZE)
 /* rewrites no more than this many frames apart ... */
 #define MIRROR_REWRITE_FRAMES 2
 /* ... this many times in a row make a page volatile ... */
@@ -4153,10 +4288,18 @@ static BOOL mirror_refresh(unsigned long first, unsigned long last)
 		{
 			glGenBuffers(1, &mirror.buffers[segment]);
 			glBindBuffer(GL_COPY_WRITE_BUFFER, mirror.buffers[segment]);
+#ifdef HALO_CONSOLE_GL_LAYER
+			/* (the console's GPU reads the window where it is: the segment's
+			buffer is the window's memory, and an upload only makes the CPU's
+			writes visible to it) */
+			console_gl_buffer_alias(GL_COPY_WRITE_BUFFER,
+				xbox_pointer(PLATFORM_CONTIGUOUS_BASE + segment * MIRROR_SEGMENT_SIZE), MIRROR_SEGMENT_SIZE);
+#else
 			glBufferData(GL_COPY_WRITE_BUFFER, MIRROR_SEGMENT_SIZE, NULL, GL_DYNAMIC_DRAW);
 #ifdef HALO_ANDROID
 			/* (no glBufferSubData yet: as if long enough ago) */
 			mirror.subdata_frame[segment] = device.frame - STREAM_BUFFER_RING;
+#endif
 #endif
 		}
 		glBindBuffer(GL_COPY_WRITE_BUFFER, mirror.buffers[segment]);
@@ -4494,7 +4637,7 @@ static void setup_streams(unsigned long first, unsigned long count)
 			continue;
 		placed[stream] = TRUE;
 		stream_buffers[stream] = 0;
-		base = (unsigned long)XBOX_ADDRESS(PLATFORM_PHYSICAL_TO_VIRTUAL(device.streams[stream].data)) + first * stride;
+		base = PLATFORM_WINDOW_ADDRESS(PLATFORM_PHYSICAL_TO_VIRTUAL(device.streams[stream].data)) + first * stride;
 #ifdef HALO_ANDROID
 		if (!stream_has_colors(declaration, stream))
 #endif
@@ -4683,7 +4826,7 @@ void WINAPI D3DDevice_DrawIndexedVertices(D3DPRIMITIVETYPE primitive_type, UINT 
 #ifdef HALO_ANDROID
 		xgpu_capabilities.base_vertex &&
 #endif
-		mirror_range((unsigned long)XBOX_ADDRESS(index_data), vertex_count * sizeof(WORD), &index_buffer, &index_offset, &generation);
+		mirror_range(PLATFORM_WINDOW_ADDRESS(index_data), vertex_count * sizeof(WORD), &index_buffer, &index_offset, &generation);
 	index_extent(index_data, vertex_count, generation, mirrored, &minimum, &maximum);
 	trace_draw("indexed", primitive_type, vertex_count, NULL);
 	/* (the streams from the base vertex on: index i is vertex base + i) */
@@ -5107,6 +5250,14 @@ void halo_draw_picture(const unsigned char *rgba, long width, long height)
 	gl_check_errors("picture");
 }
 
+/* debug.test_input's shot: the window as shown at the next present */
+static BOOL test_screenshot_requested;
+
+void halo_test_screenshot(void)
+{
+	test_screenshot_requested = TRUE;
+}
+
 void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destination_rectangle,
 	void *unused, void *unused2)
 {
@@ -5173,9 +5324,14 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 		glClear(GL_COLOR_BUFFER_BIT);
 		glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 #endif
-		/* (the window as shown, before it is swapped away) */
-		if (screenshot_every > 0 && screenshot_window && device.frame % (unsigned long)screenshot_every == 0)
+		/* (the window as shown, before it is swapped away; and the one
+		debug.test_input's shot asks for) */
+		if ((screenshot_every > 0 && screenshot_window && device.frame % (unsigned long)screenshot_every == 0) ||
+			test_screenshot_requested)
+		{
+			test_screenshot_requested = FALSE;
 			write_window_screenshot(window_width, window_height);
+		}
 		platform_video_swap();
 		xgpu_gl_state_invalidate();
 		xgpu_texture_cache_begin_frame();
@@ -5207,8 +5363,8 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 				device.counter_values);
 			for (test = 0; test < device.ring_test_count[ring]; test++)
 			{
-				device.visibility_latest[device.ring_tests[ring][test][0]] =
-					device.counter_values[device.ring_tests[ring][test][1]];
+				device.visibility_latest[device.ring_tests[ring][test][0]] = visibility_unscaled(
+					device.counter_values[device.ring_tests[ring][test][1]], device.ring_tests[ring][test][0]);
 			}
 			device.ring_test_count[ring] = 0;
 		}
@@ -5227,6 +5383,7 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 #endif
 	device.frame++;
 	stats.presents++;
+#ifdef HALO_BGFX
 	if (debug_settings.statistics)
 	{
 		/* a frame's work: from the end of the last frame's wait to this one
@@ -5253,11 +5410,14 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 		}
 		memset(&stats_frame, 0, sizeof(stats_frame));
 	}
+#endif
 	if (debug_settings.statistics && device.frame % 60 == 0)
 	{
+#ifdef HALO_BGFX
 		platform_log("frame %lu: work %.2f ms a frame, worst %.2f ms", device.frame, stats_busy_total * 1000.0 / 60.0,
 			stats_busy_worst * 1000.0);
 		stats_busy_total = stats_busy_worst = 0.0;
+#endif
 		platform_log("frame %lu: %lu draws, %lu immediate, %lu clears, %lu target changes; skipped %lu no program, %lu no target, %lu link; "
 			"%lu KB mirrored, %lu KB streamed",
 			device.frame, stats.draws / stats.presents, stats.immediate_draws / stats.presents, stats.clears / stats.presents,
@@ -5277,13 +5437,15 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 	}
 	else
 	{
-		while (pending_flips >= 2)
+		while (pending_flips >= 2 && !thread_stop_requested())
 			pthread_cond_wait(&vertical_blank_condition, &vertical_blank_lock);
 		pending_flips++;
 	}
 	pthread_mutex_unlock(&vertical_blank_lock);
+#ifdef HALO_BGFX
 	if (debug_settings.statistics)
 		stats_frame_start = stats_seconds();
+#endif
 }
 
 HRESULT WINAPI D3DDevice_PersistDisplay(void)

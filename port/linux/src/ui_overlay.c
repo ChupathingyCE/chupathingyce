@@ -30,7 +30,9 @@ are the controller's button icons (a texture array, a layer each).
 
 /* (xinput_sdl.c: the device the player last used: 0 keyboard, 1 Xbox-like,
 2 PlayStation, 3 Nintendo) */
-int platform_input_scheme(void);
+int platform_prompt_scheme(void);
+/* (interface/progress_bar.c: the loading screen is up) */
+extern unsigned char progress_bar_is_active(void);
 
 /* the controller's button icons (port/assets/prompts, generated with the
 fonts by tools/embed_assets.py --fonts): A, B, X, Y, Start, LT, RT, LB, RB,
@@ -162,7 +164,7 @@ static const int button_fonts[4] =
 
 static int scheme(void)
 {
-	int value = platform_input_scheme();
+	int value = platform_prompt_scheme();
 
 	return value >= 0 && value < 4 ? value : 1;
 }
@@ -480,6 +482,32 @@ static const char *const pill_labels[4][NUMBER_OF_UI_BUTTONS] =
 	{ "B", "A", "Y", "X", "+", "ZL", "ZR", "L", "R", "\xE2\x80\xB9", "\xE2\x80\xBA", "\xE2\x88\x92" },
 };
 
+/* a pill's or key cap's label: the d-pad's arrows only if a face draws them
+(the menus' face, else Noto Sans Bold: glyph_font), else "\u2039" and
+"\u203A", else "<" and ">", never a blank cap */
+static const char *pill_label(int device, int button)
+{
+	static const unsigned int arrows[2][3] = { { 0x2190, 0x2039, '<' }, { 0x2192, 0x203A, '>' } };
+	static const char *const texts[2][3] = { { "\xE2\x86\x90", "\xE2\x80\xB9", "<" },
+		{ "\xE2\x86\x92", "\xE2\x80\xBA", ">" } };
+	int side, choice;
+
+	if (button != UI_BUTTON_DPAD_LEFT && button != UI_BUTTON_DPAD_RIGHT)
+		return pill_labels[device][button];
+	side = button == UI_BUTTON_DPAD_RIGHT;
+	/* (the label's own first: the keyboard's arrow keys, the pads' chevrons) */
+	choice = device == 0 ? 0 : 1;
+	for (; choice < 2; choice++)
+	{
+		if (posix_ui_font_has(POSIX_UI_FONT_MENU, arrows[side][choice]) ||
+			posix_ui_font_has(POSIX_UI_FONT_BOLD, arrows[side][choice]))
+		{
+			return texts[side][choice];
+		}
+	}
+	return texts[side][2];
+}
+
 /* the Xbox's face buttons' colors, lit at the top and deep at the bottom */
 static const unsigned int face_colors[4][2] =
 {
@@ -632,7 +660,7 @@ float ui_overlay_button_width(int button, float size)
 		}
 		return size;
 	}
-	return pill_width(pill_labels[device][button], size);
+	return pill_width(pill_label(device, button), size);
 }
 
 float ui_overlay_button(int button, float size, float x, float y, unsigned int color)
@@ -644,7 +672,7 @@ float ui_overlay_button(int button, float size, float x, float y, unsigned int c
 
 	if (button < 0 || button >= NUMBER_OF_UI_BUTTONS)
 		return 0.0f;
-	label = pill_labels[device][button];
+	label = pill_label(device, button);
 	/* an Xbox-like pad's buttons: their icons (snapchipper's) */
 	if (device == 1 && button_icon(button) >= 0)
 		return draw_icon(button_icon(button), size, x, y, fade(0xFFFFFFFF, share));
@@ -1146,6 +1174,7 @@ static void put_vertex(struct vertex *vertex, float x, float y, float u, float v
 	vertex->color[3] = (unsigned char)color;
 }
 
+#ifdef HALO_BGFX
 /* the quads as triangles in window pixels, each layer's shapes, then its
 text, then the next layer's (shape_count of them shapes, the rest glyphs);
 how many vertices */
@@ -1224,6 +1253,7 @@ static int build_vertices(int shape_count, float scale, float origin_x, float or
 	}
 	return count;
 }
+#endif
 
 void ui_overlay_present(int x, int y, int width, int height, int window_width, int window_height)
 {
@@ -1238,7 +1268,10 @@ void ui_overlay_present(int x, int y, int width, int height, int window_width, i
 		overlay.cutout_count = 0;
 		return;
 	}
-	if (!set_up() || width <= 0 || height <= 0)
+	/* (the loading screen is drawn over the menus under it, as the game's
+	picture: the screens and button prompts those menus gathered here, Online
+	Games' and the Chupathingy menus', are not drawn over it) */
+	if (progress_bar_is_active() || !set_up() || width <= 0 || height <= 0)
 	{
 		overlay.quad_count = overlay.text_count = overlay.text_used = 0;
 		overlay.cutout_count = 0;
@@ -1332,7 +1365,79 @@ void ui_overlay_present(int x, int y, int width, int height, int window_width, i
 		lay_out_text(index, scale, origin_x, origin_y, &atlas_full);
 
 	/* each layer's shapes, then its text, then the next layer's */
-	count = build_vertices(shape_count, scale, origin_x, origin_y);
+	{
+	int layer, pass;
+
+	for (layer = 0; layer < MAXIMUM_LAYERS; layer++)
+	for (pass = 0; pass < 2; pass++)
+	for (index = pass ? shape_count : 0; index < (pass ? overlay.quad_count : shape_count) &&
+		count + 6 <= MAXIMUM_QUADS * 6; index++)
+	{
+		const struct quad *quad = &overlay.quads[index];
+		struct vertex *v = &overlay.vertices[count];
+		float left, top, right, bottom, half_width, half_height, radius, thickness, grow;
+		unsigned int top_color = quad->top, bottom_color = quad->bottom;
+
+		if (quad->layer != layer)
+			continue;
+		if (index < shape_count && (quad->radius == ICON_MARK || quad->radius == PICTURE_MARK))
+		{
+			/* an icon: layout to window pixels, its layer in shape.x (the
+			picture: the same, marked as the picture's) */
+			float layer_index = quad->thickness;
+			float mark = quad->radius;
+
+			left = origin_x + quad->x * scale;
+			top = origin_y + quad->y * scale;
+			right = left + quad->width * scale;
+			bottom = top + quad->height * scale;
+			put_vertex(&v[0], left, top, quad->u0, quad->v0, layer_index, 0, 0, 0, mark, 0, top_color);
+			put_vertex(&v[1], right, top, quad->u1, quad->v0, layer_index, 0, 0, 0, mark, 0, top_color);
+			put_vertex(&v[2], left, bottom, quad->u0, quad->v1, layer_index, 0, 0, 0, mark, 0, top_color);
+			put_vertex(&v[3], right, top, quad->u1, quad->v0, layer_index, 0, 0, 0, mark, 0, top_color);
+			put_vertex(&v[4], right, bottom, quad->u1, quad->v1, layer_index, 0, 0, 0, mark, 0, top_color);
+			put_vertex(&v[5], left, bottom, quad->u0, quad->v1, layer_index, 0, 0, 0, mark, 0, top_color);
+		}
+		else if (index < shape_count)
+		{
+			/* a shape: layout to window pixels, a pixel larger all round for
+			the smooth edge */
+			left = origin_x + quad->x * scale;
+			top = origin_y + quad->y * scale;
+			right = left + quad->width * scale;
+			bottom = top + quad->height * scale;
+			half_width = (right - left) * 0.5f;
+			half_height = (bottom - top) * 0.5f;
+			radius = quad->radius * scale;
+			thickness = quad->thickness > 0.0f ? fmaxf(1.0f, quad->thickness * scale) : 0.0f;
+			grow = 1.0f;
+			put_vertex(&v[0], left - grow, top - grow, -1.0f, 0.0f, -half_width - grow, -half_height - grow, half_width, half_height, radius, thickness, top_color);
+			put_vertex(&v[1], right + grow, top - grow, -1.0f, 0.0f, half_width + grow, -half_height - grow, half_width, half_height, radius, thickness, top_color);
+			put_vertex(&v[2], left - grow, bottom + grow, -1.0f, 0.0f, -half_width - grow, half_height + grow, half_width, half_height, radius, thickness, bottom_color);
+			put_vertex(&v[3], right + grow, top - grow, -1.0f, 0.0f, half_width + grow, -half_height - grow, half_width, half_height, radius, thickness, top_color);
+			put_vertex(&v[4], right + grow, bottom + grow, -1.0f, 0.0f, half_width + grow, half_height + grow, half_width, half_height, radius, thickness, bottom_color);
+			put_vertex(&v[5], left - grow, bottom + grow, -1.0f, 0.0f, -half_width - grow, half_height + grow, half_width, half_height, radius, thickness, bottom_color);
+		}
+		else
+		{
+			/* a glyph, already in window pixels (its top leaning right by
+			its skew) */
+			float lean = quad->thickness * quad->height;
+
+			left = quad->x;
+			top = quad->y;
+			right = left + quad->width;
+			bottom = top + quad->height;
+			put_vertex(&v[0], left + lean, top, quad->u0, quad->v0, 0, 0, 0, 0, 0, 0, top_color);
+			put_vertex(&v[1], right + lean, top, quad->u1, quad->v0, 0, 0, 0, 0, 0, 0, top_color);
+			put_vertex(&v[2], left, bottom, quad->u0, quad->v1, 0, 0, 0, 0, 0, 0, top_color);
+			put_vertex(&v[3], right + lean, top, quad->u1, quad->v0, 0, 0, 0, 0, 0, 0, top_color);
+			put_vertex(&v[4], right, bottom, quad->u1, quad->v1, 0, 0, 0, 0, 0, 0, top_color);
+			put_vertex(&v[5], left, bottom, quad->u0, quad->v1, 0, 0, 0, 0, 0, 0, top_color);
+		}
+		count += 6;
+	}
+	}
 
 	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
 	glViewport(0, 0, window_width, window_height);

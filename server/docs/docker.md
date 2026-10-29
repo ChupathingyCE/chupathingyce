@@ -4,7 +4,7 @@ The server needs nothing from the system it runs on, so a container is
 optional: the [quick start](../README.md#quick-start) runs it as it is. A
 container is the easy way to keep one running, restart it when it stops,
 and keep several apart on one machine; `server/deploy/` has what the `[D]`
-servers on halo.milenko.org run with.
+servers on stats.chupathingy.org run with.
 
 ## The image
 
@@ -66,7 +66,11 @@ with Docker, over SSH, as the `halo-dedicated` systemd service:
    `sounds.map` and `loc.map` to `/opt/halo-dedicated/data/maps_ce`,
    HaloMD maps to `/opt/halo-dedicated/data/maps_md`, Halo PC retail maps to
    `/opt/halo-dedicated/data/maps_pc` (the older `maps/ce/` and `md_maps`
-   are still read).
+   are still read). An Xbox map pack goes in its own folder there: Halo
+   CE+'s maps (its `maps` folder, `maplist.txt` included) in
+   `/opt/halo-dedicated/data/maps_cex`, played in playlists as
+   `<name>@cex` ([Playlists](playlists.md)). The data folder is mounted
+   whole, so a pack folder needs no mount of its own.
 2. Run `server/deploy/deploy.sh user@host path/to/chupathingyce-server`,
    with the server for the host's architecture. It copies the server and
    the playlists, builds the image for that architecture, and installs and
@@ -143,7 +147,7 @@ The server program is also the game list's probe when `HALO_PROBE` holds an
 invite (the digits after `halo://join/`). It reads the game the invite
 leads to, the way a joining player's copy sees it advertised, prints it as
 one line and exits, without joining the game or taking a place in it.
-halo.milenko.org uses it to list games hosted by copies without the game
+stats.chupathingy.org uses it to list games hosted by copies without the game
 list: a signed-in player gives their invite, and the site checks it before
 listing it and while it is listed.
 

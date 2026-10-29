@@ -200,6 +200,7 @@ symbols in this file:
 #include "networking/network_client_manager.h"
 #include "networking/network_client_message_handler.h"
 #include "networking/network_game_manager.h"
+#include "networking/network_game_protocol.h"
 #include "networking/network_messages.h"
 
 /* port/linux/game/network_distributed.c's */
@@ -292,6 +293,10 @@ struct message_server_game_advertise
 	byte join_game_token[JOIN_GAME_TOKEN_LENGTH];
 };
 
+#ifdef HALO_BIG_ENDIAN
+static void message_server_game_advertise_byte_swap(struct message_server_game_advertise *advertisement);
+#endif
+
 struct message_server_pong
 {
 	long timestamp;
@@ -367,6 +372,25 @@ struct message_server_graceful_game_exit_postgame
 };
 
 /* ---------- prototypes */
+
+#ifdef HALO_XBOX_CONSOLE
+/* port: the console's internet play (port/xbox/src/xbox_winsock_hooks.c):
+whether a message came through its tunnel, from a peer's virtual address
+in 100.64.0.0/10 */
+int xbox_trace_enabled(void);
+
+/* (port/xbox/game/xbox_coop.c; interface/ui_widget.c) */
+boolean xbox_coop_game(long engine_type);
+boolean xbox_coop_variant(long engine_type, wchar_t const *description);
+void display_error_text_deferred(wchar_t const *text, short local_player_index);
+
+static boolean network_game_client_from_tunnel(
+	struct transport_address const *source_address)
+{
+	return source_address && source_address->address_length == IPV4_ADDRESS_LENGTH &&
+		(source_address->address.long_words[0] & 0xFFC00000UL) == 0x64400000UL;
+}
+#endif
 
 static boolean network_game_client_handle_message_server_game_advertise(
 	struct network_game_client *client,
@@ -794,8 +818,81 @@ static boolean network_game_client_handle_message_server_game_advertise(
 			&packet_version,
 			_network_game_packet_class_advertisement))
 		{
-			if (transport_is_nonce(&advertisement, TRANSPORT_NONCE_LENGTH))
+#ifdef HALO_BIG_ENDIAN
+			message_server_game_advertise_byte_swap(&advertisement);
+#endif
+#ifdef HALO_XBOX_CONSOLE
+			/* port: with console.trace (port/xbox/src/xbox_port.c), each
+			host's advertisement, a few times then every 10 seconds (the
+			console's internet play: port/xbox/src/xbox_winsock_hooks.c
+			traces the hops before this) */
+			if (xbox_trace_enabled())
 			{
+				extern void platform_log(char const *format, ...);
+				static unsigned long logged_time;
+				static long logged;
+				unsigned long now = system_milliseconds();
+
+				if (logged < 4 || now - logged_time >= 10000)
+				{
+					extern char const *log_ethernet(unsigned char const *bytes, char *text, int size);
+					byte const *host = (byte const *)&advertisement.xnaddr + 2;
+					char tag[24];
+
+					logged++;
+					logged_time = now;
+					platform_log("tunnel: advertisement from host %s: version %d, %d of %d players, "
+						"%d machines, flags 0x%x, network version %d%s",
+						log_ethernet(host, tag, sizeof(tag)), (int)advertisement.version,
+						(int)advertisement.player_count, (int)advertisement.maximum_player_count,
+						(int)advertisement.machine_count, (int)advertisement.flags,
+						advertisement.reserved[0] | advertisement.reserved[1] << 8,
+						transport_is_nonce(&advertisement, TRANSPORT_NONCE_LENGTH) ? "" :
+							network_game_client_from_tunnel(source_address) ?
+								" (another machine's search's answer, through the tunnel: taken)" :
+								" (no nonce: ignored)");
+				}
+			}
+#endif
+			if (transport_is_nonce(&advertisement, TRANSPORT_NONCE_LENGTH)
+#ifdef HALO_XBOX_CONSOLE
+				/* port: or the advertisement comes through internet play's
+				tunnel (a virtual address of 100.64.0.0/10: port/xbox/src/
+				xbox_winsock_hooks.c), from a host this machine reached with
+				its invite and nothing else could pass for: a host answers
+				one search in each quarter second for everyone, and the
+				console's searches cross the internet, so the answer it
+				gets may be to another machine's search. The invite's host
+				is still found by its identifier (network_game_client_join_
+				invite_host); a LAN advertisement still needs this machine's
+				nonce */
+				|| network_game_client_from_tunnel(source_address)
+#endif
+				)
+			{
+#ifdef HALO_XBOX_CONSOLE
+				/* (its key is the tunnel's: not XNet's to register,
+				port/xbox/src/xbox_winsock_hooks.c) */
+				if (network_game_client_from_tunnel(source_address))
+				{
+					extern void xbox_winsock_tunnel_key(void const *key_identifier);
+
+					xbox_winsock_tunnel_key(&advertisement.key_id);
+				}
+				/* port: no network co-op on the console (port/xbox/game/
+				xbox_coop.c): a co-op game is not listed, so not joined */
+				if (xbox_coop_game(advertisement.engine_type))
+				{
+					static boolean told = FALSE;
+
+					if (!told)
+					{
+						told = TRUE;
+						network_event("co-op: a host's co-op game left out of the list (no network co-op on the original Xbox)");
+					}
+				}
+				else
+#endif
 				network_game_client_new_advertised_game(client, &advertisement);
 			}
 		}
@@ -857,6 +954,14 @@ static boolean network_game_client_handle_message_server_pong(
 	return TRUE;
 }
 
+#ifdef HALO_PORT_CONSOLE_LIMITS
+#include "../../port/linux/game/network_game_layout.h"
+
+/* port: the machine indices given to the host's players of no machine past
+this build's (a modified host's bots), one game's (network_game_layout.h) */
+static struct network_game_layout_machine_map network_game_client_machine_map;
+#endif
+
 static boolean network_game_client_handle_message_server_machine_accepted(
 	struct network_game_client *client,
 	word *message,
@@ -881,6 +986,10 @@ static boolean network_game_client_handle_message_server_machine_accepted(
 			&packet_version,
 			_network_game_packet_class_pregame))
 		{
+#ifdef HALO_PORT_CONSOLE_LIMITS
+			/* (a new game: no machine index given yet) */
+			network_game_layout_machine_map_reset(&network_game_client_machine_map);
+#endif
 			network_game_client_accepted_into_game(client, source_address, &acceptance);
 		}
 		else
@@ -948,18 +1057,139 @@ static boolean network_game_client_handle_message_server_machine_rejected(
 
 /* the game settings record as its pieces arrive; it is applied once the last
 piece is in */
-static struct network_game network_game_client_settings_staging;
+#ifdef HALO_PORT_CONSOLE_LIMITS
+/* port: the console's limits (halo_port_limits.h). The host's record comes
+at the network's slots, the PC builds' 128 and 128, and is folded into this
+build's 16 and 16 (port/linux/game/network_game_layout.c); a game with a
+machine or player past them is left, as a full game is, never half taken */
+
+/* (room for the record of network version 35 on, 16 bytes longer, and the
+most a signed table's layouts may add: network_rules.h's
+NETWORK_RULES_SETTINGS_MAXIMUM) */
+static byte network_game_client_settings_staging[HALO_PORT_WIRE_NETWORK_GAME_SIZE + 16 + 64];
+static struct network_game network_game_client_settings_folded;
+/* (the fold's offsets, network_game_layout.h's, against this build's record,
+network version 20's: co-op's cooperative_flags in the Xbox's padding byte
+at 0x10C, which the fold copies with the header) */
+typedef char network_game_layout_header_assert[
+	offsetof(struct network_game, cooperative_flags) == 0x10C &&
+	offsetof(struct network_game, maximum_players) == 0x10E &&
+	offsetof(struct network_game, machine_count) == 0x112 &&
+	offsetof(struct network_game, machines) == 0x114 ? 1 : -1];
+typedef char network_game_layout_size_assert[
+	sizeof(struct network_game) == 0x114 + MAXIMUM_NETWORK_MACHINE_COUNT * 0x44 + 2 +
+		MAXIMUM_NUMBER_OF_PLAYERS * 0x20 + 0x2A ? 1 : -1];
+typedef char network_game_layout_wire_assert[HALO_PORT_WIRE_NETWORK_GAME_SIZE == 13120 ? 1 : -1];
+static boolean network_game_client_settings_told_clamped = FALSE;
+#else
+/* (and room for the record of network version 35 on, 16 bytes longer, and
+the most a signed table's layouts may add: network_rules.h's
+NETWORK_RULES_SETTINGS_MAXIMUM) */
+static struct
+{
+	struct network_game game;
+	byte further[16 + 64];
+} network_game_client_settings_staging;
+#endif
 static long network_game_client_settings_staging_size = 0;
+
+/* port: OpenCE's network versions 35 on (port/linux/game/network_rules.c):
+the gametype's options grow from 0x1C to 0x2C bytes, and the record with
+them. A client takes the record's size from the host's advertised version,
+or, for a host not known (joined by an invitation), the size its pieces say,
+and makes a newer record the older layout before anything reads it; the
+further bytes are kept here, sanitized. A version past the ones this build
+knows has the layout a signed legacy table's facts give it (network_rules.h,
+"layouts"): its options may be longer and bytes may follow the local data,
+which this build has no use for. */
+int network_rules_settings_size_taken(unsigned version, unsigned total_size);
+int network_rules_settings_options_size(unsigned version, unsigned total_size);
+void network_rules_settings_fold(unsigned char *record, int total_size, int options_size, unsigned char *extended);
+void network_rules_extended_options_default(unsigned char *options);
+void network_rules_extended_options_sanitize(unsigned char *options);
+int network_rules_extended_options_mode(unsigned char const *options, int slayer, int teams, int *hardcore);
+void display_error_text_deferred(wchar_t const *text, short local_player_index);
+
+enum
+{
+	/* (network_rules.h's) */
+	NETWORK_GAME_CLIENT_SETTINGS_SIZE = 13120,
+	NETWORK_GAME_CLIENT_SETTINGS_EXTENDED_SIZE = 13120 + 16,
+	NETWORK_GAME_CLIENT_SETTINGS_MAXIMUM = 13120 + 16 + 64,
+	NETWORK_GAME_CLIENT_OPTIONS_SIZE = 0x1C,
+	NETWORK_GAME_CLIENT_EXTENDED_OPTIONS_VERSION = 35,
+};
+
+typedef char network_game_client_settings_size_assert[
+	HALO_PORT_WIRE_NETWORK_GAME_SIZE == NETWORK_GAME_CLIENT_SETTINGS_SIZE &&
+	sizeof(network_game_client_settings_staging) >= NETWORK_GAME_CLIENT_SETTINGS_MAXIMUM ? 1 : -1];
+
+static byte network_game_client_extended_options[16];
+
+/* the OpenCE game type the record plays that this build does not (its name
+for the player and the log), or NULL: Infection, Gun Game and SWAT on the
+Slayer engine, Hardcore on any (network_rules_extended_options_mode) */
+static wchar_t const *network_game_client_unsupported_game_type(
+	struct network_game const *game,
+	char const **name)
+{
+	int hardcore;
+	int mode = network_rules_extended_options_mode(network_game_client_extended_options,
+		game->variant.game_engine_index == game_engine_slayer, game->variant.universal_variant.teams != 0, &hardcore);
+
+	switch (mode)
+	{
+	case 1:
+		*name = "SWAT";
+		return L"Uses an OpenCE game type\r\nChupathingy doesn't have yet:\r\nSWAT.";
+	case 2:
+		*name = "Infection";
+		return L"Uses an OpenCE game type\r\nChupathingy doesn't have yet:\r\nInfection.";
+	case 3:
+		*name = "Gun Game";
+		return L"Uses an OpenCE game type\r\nChupathingy doesn't have yet:\r\nGun Game.";
+	}
+	if (hardcore)
+	{
+		*name = "Hardcore";
+		return L"Uses an OpenCE game type\r\nChupathingy doesn't have yet:\r\nHardcore.";
+	}
+	return NULL;
+}
+
+/* port: a game of one of OpenCE's game types this build does not play is
+left, and the player told which, rather than played out of step with its
+host (its state, its rules); Slayer, the other game types and co-op play */
+static boolean network_game_client_leave_unsupported_game_type(
+	struct network_game_client *client,
+	struct network_game const *game,
+	struct transport_address *source_address)
+{
+	char const *name = NULL;
+	wchar_t const *text = network_game_client_unsupported_game_type(game, &name);
+
+	if (!text)
+		return FALSE;
+	network_event("cross-play: leaving the host's game: it plays OpenCE's %s, which this build does not", name);
+	display_error_text_deferred(text, NONE);
+	network_game_client_rejected_by_game(client, source_address, _rejection_code_game_is_closed);
+	return TRUE;
+}
 
 static boolean network_game_client_receive_game_settings_piece(
 	struct network_game_client *client,
-	struct message_server_game_settings_update const *piece)
+	struct message_server_game_settings_update const *piece,
+	struct transport_address *source_address)
 {
 	boolean result = TRUE;
 
-	if (piece->total_size != sizeof(network_game_client_settings_staging) ||
+	/* port: the record's size by the host's version (13,120 bytes to 34,
+	13,136 from 35, a newer version's by the table's layouts), either of the
+	first two for a host not known */
+	if (!network_rules_settings_size_taken(network_game_client_host_network_version(), piece->total_size) ||
+		piece->total_size > NETWORK_GAME_CLIENT_SETTINGS_MAXIMUM ||
 		piece->length > sizeof(piece->data) ||
-		piece->offset + piece->length > sizeof(network_game_client_settings_staging))
+		piece->offset + piece->length > piece->total_size)
 	{
 		network_event("got a message_server_game_settings_update piece for a different game layout");
 		network_game_client_settings_staging_size = 0;
@@ -986,8 +1216,123 @@ static boolean network_game_client_receive_game_settings_piece(
 			network_game_client_settings_staging_size += piece->length;
 			if (network_game_client_settings_staging_size == piece->total_size)
 			{
+				int options_size;
+
 				network_game_client_settings_staging_size = 0;
-				result = network_game_client_game_settings_updated(client, &network_game_client_settings_staging);
+				/* port: a record of 35 on made the older layout, its further
+				options kept; an older one's are the defaults. A host not
+				known that sends the newer is taken for one of 35. */
+				options_size = network_rules_settings_options_size(network_game_client_host_network_version(),
+					piece->total_size);
+				if (options_size > NETWORK_GAME_CLIENT_OPTIONS_SIZE)
+				{
+					network_rules_settings_fold((byte *)&network_game_client_settings_staging, piece->total_size,
+						options_size, network_game_client_extended_options);
+					network_rules_extended_options_sanitize(network_game_client_extended_options);
+					{
+						static byte logged[2] = { 0xFF, 0xFF };
+
+						if (logged[0] != network_game_client_extended_options[0] ||
+							logged[1] != network_game_client_extended_options[1])
+						{
+							logged[0] = network_game_client_extended_options[0];
+							logged[1] = network_game_client_extended_options[1];
+							network_event("the host's gametype has OpenCE's options: mode %d, hardcore %d",
+								(int)logged[0], (int)logged[1]);
+						}
+					}
+					network_game_client_note_host_network_version(NETWORK_GAME_CLIENT_EXTENDED_OPTIONS_VERSION);
+				}
+				else
+				{
+					network_rules_extended_options_default(network_game_client_extended_options);
+				}
+#ifdef HALO_PORT_CONSOLE_LIMITS
+				{
+					int clamped;
+					/* (a player of no machine of the record past this build's,
+					as a modified host's bots, is given a free machine index:
+					the PCs play with them) */
+					int error = network_game_layout_convert_mapped(network_game_client_settings_staging,
+						HALO_PORT_WIRE_NETWORK_MACHINES, HALO_PORT_WIRE_NETWORK_PLAYERS,
+						(unsigned char *)&network_game_client_settings_folded, MAXIMUM_NETWORK_MACHINE_COUNT,
+						MAXIMUM_NUMBER_OF_PLAYERS, &clamped, &network_game_client_machine_map);
+
+					if (error)
+					{
+						unsigned char entry[5];
+						char detail[96];
+						int kind = network_game_layout_failing_entry(
+							(unsigned char const *)&network_game_client_settings_staging, HALO_PORT_WIRE_NETWORK_MACHINES,
+							HALO_PORT_WIRE_NETWORK_PLAYERS, MAXIMUM_NETWORK_MACHINE_COUNT, MAXIMUM_NUMBER_OF_PLAYERS, entry);
+
+						/* (which entry, so that a host's record the fold can't
+						take can be told from the console's log) */
+						if (kind == 1)
+							csprintf(detail, "; machine slot %d is machine #%d", (int)entry[0], (int)(signed char)entry[1]);
+						else if (kind == 2)
+							csprintf(detail, "; player slot %d names machine #%d, controller %d, team %d, slot %d",
+								(int)entry[0], (int)(signed char)entry[1], (int)(signed char)entry[2],
+								(int)(signed char)entry[3], (int)(signed char)entry[4]);
+						else
+							detail[0] = 0;
+						network_event("cross-play: leaving the host's game: its settings have %s%s (this build takes %d machines and %d players)",
+							network_game_layout_error_string(error), detail, (int)MAXIMUM_NETWORK_MACHINE_COUNT,
+							(int)MAXIMUM_NUMBER_OF_PLAYERS);
+						network_game_client_rejected_by_game(client, source_address, _rejection_code_game_is_full);
+						return TRUE;
+					}
+#ifdef HALO_BIG_ENDIAN
+					/* (folded as the wire has it, little-endian: then in this
+					machine's order) */
+					network_game_byte_swap(&network_game_client_settings_folded, TRUE);
+#endif
+					if (clamped && !network_game_client_settings_told_clamped)
+					{
+						network_game_client_settings_told_clamped = TRUE;
+						network_event("cross-play: the host's game takes more players than this build's %d; held to them",
+							(int)MAXIMUM_NUMBER_OF_PLAYERS);
+					}
+				}
+				{
+					extern void platform_log(char const *format, ...);
+					static long folds;
+
+					if (folds++ < 3)
+						platform_log("cross-play: the host's settings record folded (%d machines, %d players)",
+							(int)network_game_client_settings_folded.machine_count,
+							(int)network_game_client_settings_folded.player_count);
+				}
+				if (network_game_client_leave_unsupported_game_type(client, &network_game_client_settings_folded,
+					source_address))
+				{
+					return TRUE;
+				}
+				/* port: no network co-op on the console (port/xbox/game/
+				xbox_coop.c): a game that turns co-op (its host set it in the
+				lobby, or a listing missed it) is left, and the player told */
+#ifdef HALO_XBOX_CONSOLE
+				if (xbox_coop_variant(network_game_client_settings_folded.variant.game_engine_index,
+					network_game_client_settings_folded.variant.human_readable_game_description))
+				{
+					network_event("co-op: leaving the host's game: it is co-op, which the original Xbox does not play");
+					display_error_text_deferred(L"This game is network co-op,\r\nwhich the original Xbox\r\ndoesn't play yet.", NONE);
+					network_game_client_rejected_by_game(client, source_address, _rejection_code_game_is_closed);
+					return TRUE;
+				}
+#endif
+				result = network_game_client_game_settings_updated(client, &network_game_client_settings_folded);
+#else
+#ifdef HALO_BIG_ENDIAN
+				network_game_byte_swap(&network_game_client_settings_staging.game, TRUE);
+#endif
+				if (network_game_client_leave_unsupported_game_type(client, &network_game_client_settings_staging.game,
+					source_address))
+				{
+					return TRUE;
+				}
+				result = network_game_client_game_settings_updated(client, &network_game_client_settings_staging.game);
+#endif
 				if (!result)
 				{
 					network_event("network_game_client_game_settings_updated() failed");
@@ -1027,7 +1372,7 @@ static boolean network_game_client_handle_message_server_game_settings_update(
 				&packet_version,
 				_network_game_packet_class_pregame))
 			{
-				result = network_game_client_receive_game_settings_piece(client, &piece);
+				result = network_game_client_receive_game_settings_piece(client, &piece, source_address);
 			}
 			else
 			{
@@ -1354,6 +1699,50 @@ static boolean network_game_client_handle_message_server_add_player_ingame(
 				&packet_version,
 				_network_game_packet_class_ingame))
 			{
+#ifdef HALO_PORT_CONSOLE_LIMITS
+				/* port: the console's limits (halo_port_limits.h): a player the
+				PC host put in a slot past this build's (its datum, which every
+				machine shares) would not exist here, an invisible player; the
+				game is left as a full one is */
+				/* (a player of a machine past this build's that is not in the
+				game, as a modified host's bots, is given a free machine index,
+				as the settings record's fold gives it) */
+				if (!VALID_INDEX(player.machine_index, MAXIMUM_NETWORK_MACHINE_COUNT) && player.machine_index >= 0)
+				{
+					struct network_game *game = network_game_client_get_game(client);
+					unsigned char used[MAXIMUM_NETWORK_MACHINE_COUNT];
+					long index;
+					int given;
+
+					csmemset(used, 0, sizeof(used));
+					for (index = 0; game && index < MAXIMUM_NETWORK_MACHINE_COUNT; index++)
+					{
+						if (VALID_INDEX(game->machines[index].machine_index, MAXIMUM_NETWORK_MACHINE_COUNT))
+							used[game->machines[index].machine_index] = TRUE;
+					}
+					for (index = 0; game && index < MAXIMUM_NUMBER_OF_PLAYERS; index++)
+					{
+						if (game->players[index].player_list_index != NONE &&
+							VALID_INDEX(game->players[index].machine_index, MAXIMUM_NETWORK_MACHINE_COUNT))
+						{
+							used[game->players[index].machine_index] = TRUE;
+						}
+					}
+					given = network_game_layout_machine_map_index(&network_game_client_machine_map,
+						(int)player.machine_index, used, (int)MAXIMUM_NETWORK_MACHINE_COUNT);
+					if (given >= 0)
+						player.machine_index = (char)given;
+				}
+				if ((player.player_list_index != NONE && !VALID_INDEX(player.player_list_index, MAXIMUM_NUMBER_OF_PLAYERS)) ||
+					!VALID_INDEX(player.machine_index, MAXIMUM_NETWORK_MACHINE_COUNT))
+				{
+					network_event("cross-play: leaving the host's game: a player joined in slot %d from machine #%d, past this build's %d players and %d machines",
+						(int)player.player_list_index, (int)player.machine_index, (int)MAXIMUM_NUMBER_OF_PLAYERS,
+						(int)MAXIMUM_NETWORK_MACHINE_COUNT);
+					network_game_client_rejected_by_game(client, source_address, _rejection_code_game_is_full);
+					return TRUE;
+				}
+#endif
 				/* (the distributed netcode: a player this machine cannot add
 				does not end its game) */
 				if (!network_game_client_add_player_to_game(client, &player))
@@ -1566,3 +1955,28 @@ static boolean network_game_client_handle_message_server_graceful_game_exit_post
 
 	return result;
 }
+
+#ifdef HALO_BIG_ENDIAN
+/* port: a big-endian console: the advertisement is the raw bytes of the
+structure (message_server_game_advertise_packet), little-endian as the PCs
+and the original Xbox lay it out; between this machine's order and the
+wire's, either way. Its nonces, keys and address are bytes (the address and
+its port in network order, as the transport has them) */
+void distributed_wire_swap(void *data, long count, long size);
+
+static void message_server_game_advertise_byte_swap(
+	struct message_server_game_advertise *advertisement)
+{
+	distributed_wire_swap(&advertisement->port, 3, sizeof(word));
+	distributed_wire_swap(advertisement->game_name, NUMBEROF(advertisement->game_name), sizeof(wchar_t));
+	distributed_wire_swap(&advertisement->map.version, 1, sizeof(long));
+	/* (the engine type, the counts, the variant's setting and the flags) */
+	distributed_wire_swap(&advertisement->engine_type, 6, sizeof(short));
+}
+
+/* (the numbers turned together are side by side) */
+typedef char message_server_game_advertise_wire_assert[
+	offsetof(struct message_server_game_advertise, platform) == offsetof(struct message_server_game_advertise, port) + 4 &&
+	offsetof(struct message_server_game_advertise, flags) ==
+		offsetof(struct message_server_game_advertise, engine_type) + 10 ? 1 : -1];
+#endif

@@ -13,7 +13,9 @@ halo, then updates itself:
   - from a release without one (its zip's own .sig, as before the list),
   - not at all from a changed zip or a changed list, the folder left as it was,
   - from a zip that adds the game's executable by its later name, which
-    arrives executable and is started (the list's "main").
+    arrives executable and is started (the list's "main"),
+  - never in a packaged install (a file named "packaged" beside it, or
+    HALO_PACKAGED=1): the new version is only pointed out.
 
 Linux only (the updater finds itself in /proc/self/exe); the 32-bit build
 where the system's SDL 3 is the i386 one. It needs OpenSSL 3's openssl for
@@ -229,7 +231,7 @@ def snapshot(folder):
             for path in folder.iterdir() if path.is_file()}
 
 
-def run(tmp_path, folder, server, finished):
+def run(tmp_path, folder, server, finished, extra_environment=None):
     """the old version, started as the player would; its log once a line
     has finished in it (the last program's "done"), or it times out"""
     log = tmp_path / "update.log"
@@ -238,7 +240,8 @@ def run(tmp_path, folder, server, finished):
     (home / "saves").mkdir(parents=True, exist_ok=True)
     environment = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": str(home),
                    "HALO_SAVE_ROOT": str(home / "saves"), "HALO_UPDATE_TEST_SERVER": server.url,
-                   "HALO_UPDATE_TEST_CA": str(server.authority), "HALO_UPDATE_TEST_LOG": str(log)}
+                   "HALO_UPDATE_TEST_CA": str(server.authority), "HALO_UPDATE_TEST_LOG": str(log),
+                   **(extra_environment or {})}
     subprocess.run([str(folder / "halo")], cwd=folder, env=environment, timeout=120, capture_output=True)
     deadline = time.time() + 60
     while time.time() < deadline:
@@ -345,3 +348,27 @@ def test_new_executable_started(keys, builds, server, tmp_path):
         assert after[name][1] & 0o111, (name, oct(after[name][1]))
     assert not after["notes-new.txt"][1] & 0o111
     assert after["halo"][1] == 0o755 and after["SDL3-LICENSE.txt"][1] == 0o600
+
+
+@pytest.mark.parametrize("mark", ["file", "environment"])
+def test_packaged_install_not_updated(keys, builds, server, tmp_path, mark):
+    """(e) a packaged install (packaged_install.h) is its package manager's to
+    update: the newer release is found and pointed out, and nothing is
+    downloaded or changed, though the test answers yes"""
+    folder = install(tmp_path, builds)
+    environment = {}
+    if mark == "file":
+        (folder / "packaged").write_text("manager = \"pacman\"\n")
+    else:
+        environment["HALO_PACKAGED"] = "1"
+    before = snapshot(folder)
+    release = tmp_path / "release"
+    zip_path = release_zip(release, builds)
+    update_sign.manifest(keys[0][0], NEW, f"v{NEW}", f"v{NEW}-debug", "0" * 40, [zip_path])
+    server.release(NEW, release, [ASSET, "updates.json", "updates.json.sig"])
+    lines = run(tmp_path, folder, server, f"{OLD} halo", environment)
+    assert has(lines, f"{OLD} halo update: version {NEW} is available")
+    assert has(lines, "update Chupathingy with your package manager")
+    assert not has(lines, "downloading") and not any(line.startswith(NEW) for line in lines)
+    assert not any(path.startswith("/files/") or path.endswith("updates.json") for path in server.requests)
+    assert snapshot(folder) == before and not (folder / "update.partial").exists()
