@@ -790,7 +790,12 @@ long tag_loaded(
 void cache_files_enable_writes(
 	void)
 {
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+	/* port: (Stubbs mode's tag cache is lower: port/linux/game/stubbs_mode.c) */
+	XPhysicalProtect((void *)(__UINTPTR_TYPE__)stubbs_mode_tag_cache_base(0x803A6000), 0x01600000, PAGE_READWRITE);
+#else
 	XPhysicalProtect((void *)0x803A6000, 0x01600000, PAGE_READWRITE);
+#endif
 
 	return;
 }
@@ -798,7 +803,12 @@ void cache_files_enable_writes(
 void cache_files_disable_writes(
 	void)
 {
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+	/* port: (Stubbs mode's tag cache is lower: port/linux/game/stubbs_mode.c) */
+	XPhysicalProtect((void *)(__UINTPTR_TYPE__)stubbs_mode_tag_cache_base(0x803A6000), 0x01600000, PAGE_READONLY);
+#else
 	XPhysicalProtect((void *)0x803A6000, 0x01600000, PAGE_READONLY);
+#endif
 	XPhysicalProtect(
 		xbox_pointer(cache_file_globals.tag_header->vertex_buffers),
 		cache_file_globals.tag_header->vertex_buffer_count * 12,
