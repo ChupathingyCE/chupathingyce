@@ -20,6 +20,8 @@ differs: port/ios/build.py):
   platform layer reads Android's (port/linux/src/p2p.c);
 - internet play's broker list, from the app's bundle, is written beside
   config.toml;
+- on the Apple TV (HALO_TVOS), the Siri Remote is not a controller: player
+  one is the first real one;
 - the game's main() (renamed halo_main for this build: the app has its own)
   runs on the main thread, as SDL's video and events need on iOS, but on a
   stack of its own as large as the Android build's game thread
@@ -314,6 +316,11 @@ int halo_ios_run(const char *data_root, const char *hardware_id, char *error, in
 	/* the home bar hidden, and a swipe up from the bottom edge (where the
 	touch controls' Crouch and stick are) taken twice before iOS acts on it */
 	SDL_SetHint(SDL_HINT_IOS_HIDE_HOME_INDICATOR, "2");
+#ifdef HALO_TVOS
+	/* (the remote as a joystick would be port 0 ahead of the controller,
+	and has too few buttons to play with) */
+	SDL_SetHint(SDL_HINT_TV_REMOTE_AS_JOYSTICK, "0");
+#endif
 	describe_display();
 	write_brokers(save_root);
 	use_certificates();

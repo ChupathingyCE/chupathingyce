@@ -16,6 +16,13 @@ UIKit hands over the fingers, so nothing here needs a lock.
 
 Not yet Android's: the layout editor and its options, gyroscope aiming and
 the phone's rumble.
+
+On a large screen (an iPad, iPhone Duo's inner display) the controls keep
+about a phone's size and still spread to the corners, under the thumbs. On
+iPhone Duo held part open, the app tells the overlay where the fold is
+(halo_ios_set_fold_proc: app/Sources/iOS/Fold.swift) and no control sits on
+it. On the Apple TV (HALO_TVOS) there is no touch screen: the hooks are
+here, and answer nothing, and the game is played with a controller.
 */
 
 #import <UIKit/UIKit.h>
@@ -26,6 +33,49 @@ the phone's rumble.
 #include <stdint.h>
 #include <string.h>
 #include <time.h>
+
+#include "halo_ios.h"
+
+#ifdef HALO_TVOS
+
+/* ---------- the Apple TV: no overlay */
+
+void host_touch_read(int *state)
+{
+	memset(state, 0, 7 * sizeof(*state));
+}
+
+void host_touch_look_read(float *delta)
+{
+	delta[0] = delta[1] = 0.0f;
+}
+
+void host_touch_rumble(unsigned int low, unsigned int high)
+{
+	(void)low;
+	(void)high;
+}
+
+void host_touch_scene(int scene)
+{
+	(void)scene;
+}
+
+void host_gesture_insets(int *insets)
+{
+	insets[0] = insets[1] = insets[2] = insets[3] = 0;
+}
+
+void halo_ios_set_fold_proc(halo_ios_fold_proc proc)
+{
+	(void)proc;
+}
+
+void halo_ios_fold_changed(void)
+{
+}
+
+#else
 
 /* a press shorter than this still reaches the game: it reads the
 controller once a frame and acts at 30 ticks a second, and a quick tap can
@@ -124,6 +174,13 @@ static void touch_state_set(const int32_t *next)
 
 /* ---------- the overlay */
 
+/* points per logical unit at most (the 960x540 layout's): a third more
+than a big phone's in landscape (0.75), where an iPad's would be 1.25 and up */
+#define MAX_TOUCH_SCALE 1.0
+
+/* where iPhone Duo's fold is (halo_ios_set_fold_proc), or none */
+static halo_ios_fold_proc fold_proc;
+
 @interface HaloTouchControls : UIView
 - (void)sceneChanged;
 @end
@@ -191,8 +248,9 @@ connected */
 	[super layoutSubviews];
 	[self reset];
 	/* circles keep their proportions, the controls spread over the whole
-	safe area (TouchControls.java layoutControls) */
-	scale = MAX(0.01, MIN(width / 960.0, height / 540.0));
+	safe area (TouchControls.java layoutControls); no larger than a big
+	phone's, so that an iPad's are not a hand's width */
+	scale = MAX(0.01, MIN(MAX_TOUCH_SCALE, MIN(width / 960.0, height / 540.0)));
 	offset = CGPointMake(safe.left, safe.top);
 	logical = CGSizeMake(width / scale, height / scale);
 	for (index = 0; index < CONTROL_COUNT; index++)
@@ -202,7 +260,37 @@ connected */
 		position[index].x = MAX(radius, MIN(logical.width - radius, controls[index].x * logical.width / 960.0));
 		position[index].y = MAX(radius, MIN(logical.height - radius, controls[index].y * logical.height / 540.0));
 	}
+	[self avoidFold];
 	[self setNeedsDisplay];
+}
+
+/* iPhone Duo part open: a control over the fold moves off it, to the side
+its centre is on (the fold, in the overlay's points, from the app) */
+- (void)avoidFold
+{
+	double frame[4];
+	CGRect fold;
+	int index;
+
+	if (!fold_proc || !fold_proc((__bridge void *)self, frame))
+		return;
+	/* (in logical units, as the controls are) */
+	fold = CGRectMake((frame[0] - offset.x) / scale, (frame[1] - offset.y) / scale, frame[2] / scale, frame[3] / scale);
+	for (index = 0; index < CONTROL_COUNT; index++)
+	{
+		CGFloat radius = controls[index].radius;
+		CGPoint *at = &position[index];
+
+		if (!CGRectIntersectsRect(fold, CGRectMake(at->x - radius, at->y - radius, radius * 2, radius * 2)))
+			continue;
+		/* a fold up the screen moves controls sideways, one across it up or down */
+		if (fold.size.height >= fold.size.width)
+			at->x = at->x < CGRectGetMidX(fold) ? CGRectGetMinX(fold) - radius : CGRectGetMaxX(fold) + radius;
+		else
+			at->y = at->y < CGRectGetMidY(fold) ? CGRectGetMinY(fold) - radius : CGRectGetMaxY(fold) + radius;
+		at->x = MAX(radius, MIN(logical.width - radius, at->x));
+		at->y = MAX(radius, MIN(logical.height - radius, at->y));
+	}
 }
 
 - (CGPoint)logicalPoint:(UITouch *)touch
@@ -579,3 +667,18 @@ void host_gesture_insets(int *insets)
 {
 	insets[0] = insets[1] = insets[2] = insets[3] = 0;
 }
+
+/* ---------- iPhone Duo's fold (halo_ios.h) */
+
+void halo_ios_set_fold_proc(halo_ios_fold_proc proc)
+{
+	fold_proc = proc;
+	[overlay setNeedsLayout];
+}
+
+void halo_ios_fold_changed(void)
+{
+	[overlay setNeedsLayout];
+}
+
+#endif

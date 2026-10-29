@@ -1,5 +1,6 @@
 """The iOS port's build (configure.py --console-port: chupathingyce's
-tools/console_build.py), ``ninja ios``.
+tools/console_build.py), ``ninja ios``, and the same for the Apple TV,
+``ninja tvos``.
 
 The game and the platform layer are the native 64-bit Android build's
 (chupathingyce's tools/android64_build.py): the Linux port's (port/linux),
@@ -23,7 +24,15 @@ Run from the game's folder, which the 64-bit build's rules are written for:
     ninja ios
 
 --ios-sdl is SDL3 built and installed for iOS (.github/workflows/engine.yml
-builds it): its include/ and lib/libSDL3.a. The movies' FFmpeg is built here
+builds it): its include/ and lib/libSDL3.a.
+
+The Apple TV's is the same game, built against tvOS's SDK (OpenGL ES 3 is
+there too, deprecated as on iOS) into build/tvos/libhalo.a: --tvos-sdl in
+--ios-sdl's place, and ``ninja tvos``. HALO_IOS still holds, with HALO_TVOS
+beside it where the TV differs (no touch screen: ios_touch.m). The Vision
+Pro has no build of its own: visionOS has no OpenGL ES for its own apps
+(EAGLContext is unavailable there), so it runs the iPad build, as an iPad
+app. The movies' FFmpeg is built here
 too (chupathingyce's tools/ffmpeg_build.py, as for macOS) and goes into
 libhalo.a; --without-ffmpeg leaves it out, and the game skips the movies.
 """
@@ -47,10 +56,26 @@ from tools.lp64_build import (
 )
 
 IOS_MINIMUM = "16.4"
-IOS_TARGET = f"--target=arm64-apple-ios{IOS_MINIMUM}"
-# the SDK's compiler and archiver (xcrun picks the active Xcode's)
-IOS_CC = "xcrun --sdk iphoneos clang"
-IOS_LIBTOOL = "xcrun --sdk iphoneos libtool"
+
+
+class ApplePlatform:
+    """one Apple platform the game builds for: its ninja target and build
+    folder (name), xcrun's SDK, clang's target and its own defines"""
+
+    def __init__(self, name: str, sdk: str, target: str, defines: List[str]) -> None:
+        self.name = name
+        self.sdk = sdk
+        self.target = f"--target=arm64-apple-{target}{IOS_MINIMUM}"
+        self.defines = defines
+        # the SDK's compiler and archiver (xcrun picks the active Xcode's)
+        self.cc = f"xcrun --sdk {sdk} clang"
+        self.libtool = f"xcrun --sdk {sdk} libtool"
+
+
+PLATFORMS = [
+    ApplePlatform("ios", "iphoneos", "ios", []),
+    ApplePlatform("tvos", "appletvos", "tvos", ["-DHALO_TVOS=1"]),
+]
 
 # the game's units: the macOS build's (tools/macos_build.py), whose C library
 # is iOS's too
@@ -67,7 +92,7 @@ IOS_POSIX_FLAGS = [
     "-Werror=int-conversion",
 ]
 
-# what SDL3 (static) and the game need of iOS
+# what SDL3 (static) and the game need of iOS (and of tvOS, but CoreMotion)
 IOS_FRAMEWORKS = [
     "Foundation", "UIKit", "OpenGLES", "QuartzCore", "CoreGraphics", "CoreVideo", "Metal",
     "CoreAudio", "AudioToolbox", "AVFoundation", "GameController", "CoreMotion", "CoreHaptics",
@@ -79,9 +104,9 @@ IOS_LIBRARIES = ["iconv", "m"]
 ENTRY_SOURCE = "source/shell/shell_xbox.c"
 
 
-def ios_sdk(*arguments: str) -> str:
-    """what xcrun answers of the iPhone SDK (its compiler's path, the SDK's)"""
-    return subprocess.check_output(["xcrun", "--sdk", "iphoneos", *arguments], text=True).strip()
+def apple_sdk(sdk: str, *arguments: str) -> str:
+    """what xcrun answers of an SDK (its compiler's path, the SDK's)"""
+    return subprocess.check_output(["xcrun", "--sdk", sdk, *arguments], text=True).strip()
 
 
 def add_arguments(parser: Any) -> None:
@@ -90,6 +115,12 @@ def add_arguments(parser: Any) -> None:
         type=Path,
         metavar="DIR",
         help="the iOS port: SDL3 built and installed for iOS (include/ and lib/libSDL3.a)",
+    )
+    parser.add_argument(
+        "--tvos-sdl",
+        type=Path,
+        metavar="DIR",
+        help="the iOS port's Apple TV build: SDL3 built and installed for tvOS",
     )
 
 
@@ -111,26 +142,33 @@ class IosBuild(Lp64Build):
 
 def generate(n: Any, sln: Any, port: Any) -> None:
     if platform.system() != "Darwin" or not shutil.which("xcrun"):
-        n.comment("iOS build (ninja ios): needs macOS and Xcode")
+        n.comment("iOS build (ninja ios, ninja tvos): needs macOS and Xcode")
         return
     if not Path(ENTRY_SOURCE).is_file():
-        n.comment("iOS build (ninja ios): run configure.py from the game's folder (port/ios/build.py)")
+        n.comment("iOS build (ninja ios, ninja tvos): run configure.py from the game's folder (port/ios/build.py)")
         return
-    sdl = getattr(sln.args, "ios_sdl", None)
-    if not sdl or not (Path(sdl) / "lib" / "libSDL3.a").is_file():
-        n.comment("iOS build (ninja ios): no SDL3 for iOS (pass --ios-sdl)")
-        return
-    sdl = Path(sdl)
-    build_dir: Path = sln.build_dir / "ios"
+    for apple in PLATFORMS:
+        sdl = getattr(sln.args, f"{apple.name}_sdl", None)
+        if not sdl or not (Path(sdl) / "lib" / "libSDL3.a").is_file():
+            n.comment(f"iOS build (ninja {apple.name}): no SDL3 for it (pass --{apple.name}-sdl)")
+            continue
+        generate_platform(n, sln, port, apple, Path(sdl))
+
+
+def generate_platform(n: Any, sln: Any, port: Any, apple: ApplePlatform, sdl: Path) -> None:
+    name = apple.name
+    build_dir: Path = sln.build_dir / name
     library = build_dir / "libhalo.a"
     check = build_dir / "libhalo_check.dylib"
+    frameworks = [framework for framework in IOS_FRAMEWORKS if name == "ios" or framework != "CoreMotion"]
 
-    n.comment("iOS build (ninja ios); see port/ios/build.py")
-    lp64 = IosBuild(n, sln, "ios", IOS_CC)
+    n.comment(f"iOS build (ninja {name}); see port/ios/build.py")
+    lp64 = IosBuild(n, sln, name, apple.cc)
     target_flags = [
-        IOS_TARGET,
+        apple.target,
         "-DHALO_ANDROID=1",
         "-DHALO_IOS=1",
+        *apple.defines,
     ]
     # the movies' FFmpeg (configure.py --without-ffmpeg: the stubs). Its
     # configure takes a compiler, not xcrun's command line: the SDK's clang,
@@ -140,11 +178,11 @@ def generate(n: Any, sln: Any, port: Any) -> None:
     ffmpeg_inputs: List[Path] = []
     if getattr(sln, "with_ffmpeg", True):
         ffmpeg_cflags, _, ffmpeg_stamp, ffmpeg_archives = ffmpeg_build(
-            n, "ios", build_dir / "ffmpeg", ios_sdk("--find", "clang"), "darwin", "aarch64",
-            [IOS_TARGET, f"-isysroot {ios_sdk('--show-sdk-path')}"], group=False)
+            n, name, build_dir / "ffmpeg", apple_sdk(apple.sdk, "--find", "clang"), "darwin", "aarch64",
+            [apple.target, f"-isysroot {apple_sdk(apple.sdk, '--show-sdk-path')}"], group=False)
         ffmpeg_inputs = [ffmpeg_stamp, *ffmpeg_archives]
     host = Lp64Host(
-        name="ios",
+        name=name,
         target_flags=target_flags,
         game_flags=IOS_GAME_FLAGS,
         posix_flags=IOS_POSIX_FLAGS,
@@ -155,63 +193,64 @@ def generate(n: Any, sln: Any, port: Any) -> None:
         host_sources=sorted(port.path("src").glob("*.c")),
         ffmpeg_cflags=ffmpeg_cflags,
     )
-    generated_sources = (hud_assets_build(n, "ios", build_dir / "generated" / "hud_hires_assets.c")
-                         + ui_fonts_build(n, "ios", build_dir / "generated" / "ui_fonts.c", sln))
+    generated_sources = (hud_assets_build(n, name, build_dir / "generated" / "hud_hires_assets.c")
+                         + ui_fonts_build(n, name, build_dir / "generated" / "ui_fonts.c", sln))
     objects = lp64.objects(host, generated_sources, build_dir / "obj", implicit_inputs=ffmpeg_inputs)
 
     # the game's stack (ios_stack.S), assembled on its own: the C units'
     # flags are not an assembler's
-    n.rule(name="ios_as", command=f"{IOS_CC} {IOS_TARGET} -c $in -o $out", description="IOS AS $out")
+    label = name.upper()
+    n.rule(name=f"{name}_as", command=f"{apple.cc} {apple.target} -c $in -o $out", description=f"{label} AS $out")
     for source in sorted(port.path("src").glob("*.S")):
         obj = build_dir / "obj" / "port" / source.with_suffix(".o").name
-        n.build(outputs=obj, rule="ios_as", inputs=source)
+        n.build(outputs=obj, rule=f"{name}_as", inputs=source)
         objects.append(obj)
 
     # the touch controls' overlay (ios_touch.m), UIKit's: Objective-C with
-    # ARC, which needs only SDL's headers
+    # ARC, which needs only SDL's headers and the port's own
     n.rule(
-        name="ios_objc",
-        command=f"{IOS_CC} {IOS_TARGET} -fobjc-arc -std=gnu11 {OPTIMISATION} -g -Wall "
-        f"-I{_quote(sdl / 'include')} -c $in -o $out",
-        description="IOS OBJC $out",
+        name=f"{name}_objc",
+        command=f"{apple.cc} {apple.target} -fobjc-arc -std=gnu11 {OPTIMISATION} -g -Wall "
+        f"{' '.join(apple.defines)} -I{_quote(sdl / 'include')} -I{_quote(port.path('include'))} -c $in -o $out",
+        description=f"{label} OBJC $out",
     )
     for source in sorted(port.path("src").glob("*.m")):
         obj = build_dir / "obj" / "port" / source.with_suffix(".o").name
-        n.build(outputs=obj, rule="ios_objc", inputs=source)
+        n.build(outputs=obj, rule=f"{name}_objc", inputs=source)
         objects.append(obj)
 
     # Apple's -filelist reads each line as a path, as it is: ninja quotes
     # the ones with spaces (source/saved games), so the quotes come off first
     unquote = "sed -e \"s/^'//\" -e \"s/'$$//\" $out.rsp > $out.list"
     n.rule(
-        name="ios_library",
-        command=f"rm -f $out && {unquote} && {IOS_LIBTOOL} -static -no_warning_for_no_symbols -o $out -filelist $out.list $archives",
-        description="IOS LIBRARY $out",
+        name=f"{name}_library",
+        command=f"rm -f $out && {unquote} && {apple.libtool} -static -no_warning_for_no_symbols -o $out -filelist $out.list $archives",
+        description=f"{label} LIBRARY $out",
         rspfile="$out.rsp",
         rspfile_content="$in_newline",
     )
     # (FFmpeg's archives in it too: the app links the one library)
-    n.build(outputs=library, rule="ios_library", inputs=objects, implicit=ffmpeg_archives,
+    n.build(outputs=library, rule=f"{name}_library", inputs=objects, implicit=ffmpeg_archives,
             variables={"archives": " ".join(_quote(archive) for archive in ffmpeg_archives)})
 
     n.rule(
-        name="ios_check",
-        command=f"{unquote} && {IOS_CC} {IOS_TARGET} -dynamiclib -o $out -Wl,-filelist,$out.list $libs",
-        description="IOS LINK CHECK $out",
+        name=f"{name}_check",
+        command=f"{unquote} && {apple.cc} {apple.target} -dynamiclib -o $out -Wl,-filelist,$out.list $libs",
+        description=f"{label} LINK CHECK $out",
         rspfile="$out.rsp",
         rspfile_content="$in_newline",
     )
     n.build(
         outputs=check,
-        rule="ios_check",
+        rule=f"{name}_check",
         inputs=objects,
         implicit=[sdl / "lib" / "libSDL3.a", *ffmpeg_archives],
         variables={"libs": " ".join([
             *(_quote(archive) for archive in ffmpeg_archives),
             f"-L{_quote(sdl / 'lib')}", "-lSDL3",
             *(f"-l{name}" for name in IOS_LIBRARIES),
-            *(f"-framework {name}" for name in IOS_FRAMEWORKS),
+            *(f"-framework {framework}" for framework in frameworks),
         ])},
     )
-    n.build(outputs="ios", rule="phony", inputs=[library, check])
+    n.build(outputs=name, rule="phony", inputs=[library, check])
     n.newline()
