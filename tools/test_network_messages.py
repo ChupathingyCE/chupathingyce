@@ -171,6 +171,8 @@ def run(build, show):
 	ok = True
 	for line in lines:
 		words = line.split()
+		if words and words[0] == "join":
+			continue
 		if len(words) >= 2 and words[1] in ("failed", "decode"):
 			print(f"FAIL: {names[int(words[0])]}: {line}")
 			ok = False
@@ -182,6 +184,20 @@ def run(build, show):
 		actual = encoded.get(message_type)
 		if actual != expected:
 			print(f"FAIL: {names[message_type]} encodes to {actual}, upstream's to {expected}")
+			ok = False
+	# (the join request to an OpenCE host of 40 or later: the 0x70 bytes, 234
+	# zero bytes, the type; decoded, the 0x70 bytes alone, as an older host
+	# reads it; and the short request as before)
+	# (the machine name's 32 shorts go out in the wire's order, each pair of
+	# bytes swapped; the token and the hardware id as they are)
+	pattern = "".join(f"{0x40 + i:02x}" for i in range(0x70))
+	wire = "".join(f"{0x40 + (i ^ 1 if i < 0x40 else i):02x}" for i in range(0x70))
+	expected = {"join 0": "01" + wire + "0c", "join 0 decoded": pattern,
+		"join 234": "01" + wire + "00" * 234 + "0c", "join 234 decoded": pattern}
+	joins = {" ".join(line.split()[:-1]): line.split()[-1] for line in lines if line.startswith("join ")}
+	for key, value in expected.items():
+		if joins.get(key) != value:
+			print(f"FAIL: {key}: {joins.get(key)}, expected {value}")
 			ok = False
 	if ok:
 		print(f"ok: {len(encoded)} messages encode as upstream's, no out-of-bounds access ({build})")

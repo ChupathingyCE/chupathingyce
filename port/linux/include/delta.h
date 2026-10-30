@@ -277,8 +277,10 @@ bit is the host's), 0.8.0f and 0.8.0g said it too and play to 38. chupa-39a:
 the tagged advertisement (a Delta host's block at the reserved bytes' tail,
 no longer OpenCE's flag 0x04 and byte 3), hosts' message 91, co-op's ally
 switch honored, and 39's dedicated flag on dedicated servers that announce
-it. */
-#define DELTA_WIRE "chupa-39a"
+it. chupa-41a: the join request 234 bytes longer to hosts of 40 and later
+(network_rules_join_request_extra), the refusals 8 to 13 said plainly, and
+41's vote messages (78, 79, 94, 95) dropped quietly. */
+#define DELTA_WIRE "chupa-41a"
 
 /* Wire compatibility ranges: the oldest wire each one plays the game with,
 without a desync and without losing what the older wire has (a feature the
@@ -301,7 +303,8 @@ has shipped a newer wire. */
 	X("chupa-29a", "chupa-28a") /* maps by their own names: 29 also takes 28's hashed names and checksums */ \
 	X("chupa-32a", "chupa-28a") /* 30 to 32 are additive; a host of 32 plays with 28 to 31 (docs/delta.md) */ \
 	X("chupa-38a", "chupa-28a") /* 33 to 38 played by the host's number; a host announcing 32 plays as chupa-32a's */ \
-	X("chupa-39a", "chupa-28a") /* the tagged advertisement and 39's dedicated flag; the game's messages as chupa-38a's, a host announcing 32 plays as chupa-32a's */
+	X("chupa-39a", "chupa-28a") /* the tagged advertisement and 39's dedicated flag; the game's messages as chupa-38a's, a host announcing 32 plays as chupa-32a's */ \
+	X("chupa-41a", "chupa-28a") /* the longer join request to hosts of 40 on; the game's messages as chupa-39a's */
 
 /* Each wire's newest OpenCE network version that every build of it plays by
 its own rules (DELTA_LEGACY_NEWEST when it was made): the most a signed
@@ -314,7 +317,8 @@ version's rules has a new wire. */
 	X("chupa-29a", 29) \
 	X("chupa-32a", 33) \
 	X("chupa-38a", 38) \
-	X("chupa-39a", 39)
+	X("chupa-39a", 39) \
+	X("chupa-41a", 41)
 
 /* the oldest network version a build that reads the tagged advertisement
 says in its HELLO: chupa-39a's row above, the first such wire. A host whose
@@ -342,7 +346,7 @@ announces, for what that client reads: the game settings record of 35's
 layout, and whether it reports a static target's own damage
 (network_rules_host_settings_size). Builds before it said their
 HALO_PORT_NETWORK_VERSION there, 32 or older. */
-#define DELTA_LEGACY_NEWEST 39
+#define DELTA_LEGACY_NEWEST 41
 
 /* OpenCE's network versions (HALO_PORT_NETWORK_VERSION in its builds), the
 first of its releases with each, and whether the version's change is one the
@@ -389,7 +393,9 @@ first; the command repository's watch adds a row when it follows OpenCE's raise
 	X(36, "build-266", additive) /* the host's shield effects, a new message (91) a machine of 35 drops */ \
 	X(37, "build-268", additive) /* a listed game's kind (an OpenCE game type and Hardcore) in a byte that was zero: the advertisement's fourth reserved byte and the internet listing's stamp; this build shows the name in the list and marks the games it does not play; no message or record changed */ \
 	X(38, "build-268", additive) /* the shield effects message takes a seventh value, 6, for each machine's own look; this build draws stock for it, as for the others */ \
-	X(39, "build-294", additive) /* a dedicated server's game: the advertisement's flag 0x04 and the internet listing's flag 32; no message or record changed (first build: the oldest published release whose commit has the change, by git ancestry, 2026-10-27; older releases were removed, so an earlier one may have had it) */
+	X(39, "build-294", additive) /* a dedicated server's game: the advertisement's flag 0x04 and the internet listing's flag 32; no message or record changed (first build: the oldest published release whose commit has the change, by git ancestry, 2026-10-27; older releases were removed, so an earlier one may have had it) */ \
+	X(40, "build-334", additive) /* the join request 234 bytes longer (a pass and a proof for OpenCE's own servers, sent as zeros), which a host of 40 needs and an older one ignores; a dedicated server's refusals 8 to 12; in no release of OpenCE's alone */ \
+	X(41, "build-334", additive) /* a refusal 13 (too many machines from one address), messages 78 and 79 laid out anew and 94 and 95 (map votes) new, all dropped by this build; co-op's flags bit 2 (a dedicated host) ignored */
 
 /* ---------- the legacy table (port/linux/src/delta.c)
 
@@ -438,7 +444,8 @@ A wire from chupa-38a on reads "layouts" in its row: for a network version,
 the facts a host of it sends that this build reads by data, not code (the
 game settings record's size, the gametype's options' length, the distributed
 messages a machine that does not know them drops, the shield effects
-message's largest value; docs/delta.md, "Layouts"). A fact holds for its
+message's largest value, and from chupa-41a the join request's length past
+0x70 and its fill; docs/delta.md, "Layouts"). A fact holds for its
 version and every later one until the next fact, and is used only for
 versions past DELTA_LEGACY_NEWEST (the build's own rules are the built-in
 facts) and only within the limits network_rules.c sets (port/linux/game/
@@ -459,7 +466,18 @@ struct delta_layout_fact
 	machine that does not know them drops: a bit a kind (kind 8 is bit 0 of
 	byte 1) */
 	unsigned char dropped[DELTA_LAYOUT_KIND_BYTES];
+	/* (chupa-41a on) the bytes a client's join request carries after its
+	first 0x70 (the Xbox's and the hardware id) to a host of the version,
+	and how they are filled: join_request_said when the fact says it (0 is
+	a length too: none), join_request_fill DELTA_LAYOUT_FILL_ZEROS, the
+	only fill this build writes, or DELTA_LAYOUT_FILL_UNKNOWN for another
+	the fact names, whose length is then not taken */
+	unsigned short join_request_extra;
+	unsigned char join_request_said;
+	unsigned char join_request_fill;
 };
+#define DELTA_LAYOUT_FILL_ZEROS 0
+#define DELTA_LAYOUT_FILL_UNKNOWN 1
 
 /* the table in use's facts for this build's wire (its own row's, or the
 local override's), oldest first, into facts (at most count): how many */
