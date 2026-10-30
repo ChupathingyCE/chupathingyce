@@ -822,6 +822,9 @@ static struct
 known, the host's own game); a client has the host's policies of the versions
 that have them (network_distributed.c's aim assist policy, version 32) */
 static unsigned int network_game_client_joined_version = 0xFFFF;
+/* port/linux/game/network_rules.c's: the zero bytes a join request to a host
+of the version carries after the Xbox's and the hardware id */
+int network_rules_join_request_extra(unsigned version);
 
 unsigned int network_game_client_host_network_version(
 	void)
@@ -2406,7 +2409,39 @@ struct network_game_client *network_game_client_create(
 }
 
 /* port: network_game_client_refusal's (below) */
-static char network_game_client_refusal_text[64];
+static char network_game_client_refusal_text[96];
+
+/* port: the refusals an OpenCE dedicated server of network version 40 or 41
+sends past the Xbox's (network_game_protocol.h's codes end at 6, 7 is a name
+refused): said to the player plainly (halo_join_reasons.h), otherwise taken
+as the game being closed, as OpenCE's older builds take them */
+#define REJECTION_CODE_VPN_PASS_NEEDED 8
+#define REJECTION_CODE_NO_VPN 9
+#define REJECTION_CODE_PASS_REFUSED 10
+#define REJECTION_CODE_ACCOUNT_TOO_NEW 11
+#define REJECTION_CODE_ACCOUNT_IN_GAME 12
+#define REJECTION_CODE_ADDRESS_FULL 13
+
+/* the platform layer's (sdl_platform.c) */
+void platform_show_message(char const *title, char const *message);
+
+static char const *network_game_client_opence_refusal(
+	word rejection_code)
+{
+	switch (rejection_code)
+	{
+	case REJECTION_CODE_VPN_PASS_NEEDED:
+	case REJECTION_CODE_NO_VPN:
+		return JOIN_REASON_NO_VPN;
+	case REJECTION_CODE_PASS_REFUSED:
+	case REJECTION_CODE_ACCOUNT_TOO_NEW:
+	case REJECTION_CODE_ACCOUNT_IN_GAME:
+		return JOIN_REASON_DISCORD_LINK;
+	case REJECTION_CODE_ADDRESS_FULL:
+		return JOIN_REASON_ADDRESS_FULL;
+	}
+	return NULL;
+}
 
 void network_game_client_rejected_by_game(
 	struct network_game_client *client,
@@ -2466,12 +2501,20 @@ void network_game_client_rejected_by_game(
 		/* (too old: this machine's, as the host says it, network_game_server_delta_refusals) */
 		rejection_code == _rejection_code_version_too_old ? JOIN_REASON_NEEDS_UPDATE :
 		rejection_code == _rejection_code_version_too_new ? JOIN_REASON_HOST_OLDER : "");
+	/* port: an OpenCE server's own refusal, in plain words, and said at once
+	(the menu's message after it is the stock "closed") */
+	if (network_game_client_opence_refusal(rejection_code))
+	{
+		csprintf(network_game_client_refusal_text, "%s", network_game_client_opence_refusal(rejection_code));
+		platform_show_message(JOIN_FAILED_TITLE, network_game_client_refusal_text);
+	}
 	/* port: the join went to the pregame screen at once (and a machine
 	refused a game in progress, network_game_server_refuse_late_joiner, is in
 	it): with no game behind it, it is left for the main menu, which says
 	why, rather than sitting in a lobby that will never start */
 	display_error_when_main_menu_loaded(
-		rejection_code == _rejection_code_game_is_full || rejection_code == _rejection_code_game_is_closed ?
+		rejection_code == _rejection_code_game_is_full || rejection_code == _rejection_code_game_is_closed ||
+			network_game_client_opence_refusal(rejection_code) ?
 			_error_network_join_game_closed :
 			_error_network_failed_to_join_game);
 	/* port: the game being played is left for the menus at once, while its
@@ -3049,10 +3092,25 @@ static boolean network_game_client_idle_joining(
 				}
 #endif
 
-				message = create_network_game_message(
-					_message_client_join_game_request,
-					&join_game_request,
-					sizeof(join_game_request));
+				/* (port: to an OpenCE host of 40 or later, 234 zero bytes
+				after the hardware id, which such a host needs to read the
+				request: a pass and a proof for OpenCE's own servers, which
+				this build never has. A host of an older or unknown version
+				takes the request as the Xbox's was, 0x70 bytes) */
+				{
+					int extra = network_rules_join_request_extra(network_game_client_joined_version);
+
+					if (extra)
+					{
+						network_event("joining a host of network version %u: the join request carries %d more bytes",
+							network_game_client_joined_version, extra);
+					}
+					message = create_network_game_message_with_tail(
+						_message_client_join_game_request,
+						&join_game_request,
+						sizeof(join_game_request),
+						(short)extra);
+				}
 				if (message)
 				{
 					if (network_game_client_write(

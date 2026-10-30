@@ -194,8 +194,8 @@ int main(int count, char **arguments)
 					any = 1;
 				}
 			}
-			printf("%s learned %d refused %d facts %d\n", any ? "" : "-", layout.learned, layout.refused,
-				delta_legacy_layouts(facts, DELTA_LAYOUT_FACTS));
+			printf("%s learned %d refused %d facts %d join %d\n", any ? "" : "-", layout.learned, layout.refused,
+				delta_legacy_layouts(facts, DELTA_LAYOUT_FACTS), layout.join_request_extra);
 		}
 		else if (!strcmp(arguments[index], "wait") && index + 1 < count)
 		{

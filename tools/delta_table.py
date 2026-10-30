@@ -19,7 +19,8 @@ about OpenCE versions, by version, that its builds read by data:
                   "layouts": {"39": {"options_size": 48, "dropped_messages": [92]}}}
 
 each fact's fields optional ("settings_size", "options_size",
-"shield_effects_maximum", "dropped_messages"), a fact holding until the next,
+"shield_effects_maximum", "dropped_messages", and from chupa-41a
+"join_request_extra" with "join_request_fill": "zeros"), a fact holding until the next,
 and used by a build only past its own DELTA_LEGACY_NEWEST and within
 network_rules.h's limits (this tool refuses a fact past them).
 
@@ -96,8 +97,10 @@ FOLLOWS = re.compile(r"[A-Za-z0-9._-]{1,31}")
 # clients), oldest first, each once; delta.h's DELTA_HOSTING_MAXIMUM
 HOSTING_MAXIMUM = 8
 POLICY_MAXIMUM = 4096
-# the first wire whose builds read a row's layouts
+# the first wire whose builds read a row's layouts, and their join request's
+# length in them
 LAYOUT_WIRE = (38, "a")
+JOIN_LAYOUT_WIRE = (41, "a")
 WIRE_ID = re.compile(r"chupa-(\d{1,3})([a-z])")
 LAYOUT_FIELDS = ("settings_size", "options_size", "shield_effects_maximum")
 # (how deep the game's parser nests a document: delta.c's JSON_DEPTH, the
@@ -108,6 +111,11 @@ JSON_DEPTH = 8
 SETTINGS_SIZE, SETTINGS_EXTENDED_SIZE = 13120, 13136
 OPTIONS_SIZE, OPTIONS_EXTENDED_SIZE = 0x1C, 0x2C
 EXTENDED_OPTIONS_VERSION, SHIELD_EFFECTS_VERSION, SHIELD_EFFECTS_KIND = 35, 36, 91
+# version 41's vote messages, which a build of it drops (network_rules.h)
+VOTES_VERSION, VOTE_KINDS = 41, (78, 79, 94, 95)
+# version 40's join request: the bytes after its first 0x70 (network_rules.h),
+# and the one fill builds write
+JOIN_REQUEST_VERSION, JOIN_REQUEST_EXTRA, JOIN_REQUEST_FILL = 40, 234, "zeros"
 # (an Ed25519 public key's DER: this prefix, then its 32 bytes)
 ED25519_SPKI_PREFIX = bytes.fromhex("302a300506032b6570032100")
 
@@ -167,7 +175,14 @@ def limits() -> dict:
     growth = header_number(RULES, "NETWORK_RULES_LAYOUT_GROWTH_MAXIMUM")
     return {"settings": SETTINGS_EXTENDED_SIZE + growth, "shield": header_number(RULES, "NETWORK_RULES_SHIELD_EFFECTS_LIMIT"),
             "facts": header_number(DELTA, "DELTA_LAYOUT_FACTS"),
-            "shield_built_in": header_number(RULES, "NETWORK_RULES_SHIELD_EFFECTS_MAXIMUM")}
+            "shield_built_in": header_number(RULES, "NETWORK_RULES_SHIELD_EFFECTS_MAXIMUM"),
+            "join": header_number(RULES, "NETWORK_RULES_JOIN_REQUEST_EXTRA_LIMIT")}
+
+
+def reads_join_layouts(name: str) -> bool:
+    """whether a wire's builds read a layout's join request length (chupa-41a on)"""
+    match = WIRE_ID.fullmatch(name)
+    return bool(match) and (int(match.group(1)), match.group(2)) >= JOIN_LAYOUT_WIRE
 
 
 def reads_layouts(name: str) -> bool:
@@ -185,7 +200,9 @@ def built_in_layout(version: int, own_newest: int = None) -> dict:
     return {"settings_size": SETTINGS_EXTENDED_SIZE if rules >= EXTENDED_OPTIONS_VERSION else SETTINGS_SIZE,
             "options_size": OPTIONS_EXTENDED_SIZE if rules >= EXTENDED_OPTIONS_VERSION else OPTIONS_SIZE,
             "shield_effects_maximum": limits()["shield_built_in"],
-            "dropped_messages": [SHIELD_EFFECTS_KIND] if rules >= SHIELD_EFFECTS_VERSION else []}
+            "dropped_messages": sorted(([SHIELD_EFFECTS_KIND] if rules >= SHIELD_EFFECTS_VERSION else []) +
+                                       (list(VOTE_KINDS) if rules >= VOTES_VERSION else [])),
+            "join_request_extra": JOIN_REQUEST_EXTRA if rules >= JOIN_REQUEST_VERSION else 0}
 
 
 def apply_layouts(version: int, facts: dict, own_newest: int) -> tuple:
@@ -214,6 +231,12 @@ def apply_layouts(version: int, facts: dict, own_newest: int) -> tuple:
                 layout["shield_effects_maximum"] = fact["shield_effects_maximum"]
             else:
                 refused.append(f"{fact_version}: shield_effects_maximum {fact['shield_effects_maximum']}")
+        if "join_request_extra" in fact:
+            if fact.get("join_request_fill", JOIN_REQUEST_FILL) == JOIN_REQUEST_FILL and \
+                    fact["join_request_extra"] <= bounds["join"]:
+                layout["join_request_extra"] = fact["join_request_extra"]
+            else:
+                refused.append(f"{fact_version}: join_request_extra {fact['join_request_extra']}")
         layout["dropped_messages"] = sorted(set(layout["dropped_messages"]) | set(fact.get("dropped_messages", [])))
     return layout, refused
 
@@ -229,6 +252,9 @@ def built_in_facts() -> dict:
         if version >= SHIELD_EFFECTS_VERSION:
             fact["shield_effects_maximum"] = layout["shield_effects_maximum"]
             fact["dropped_messages"] = layout["dropped_messages"]
+        if version >= JOIN_REQUEST_VERSION:
+            fact["join_request_extra"] = layout["join_request_extra"]
+            fact["join_request_fill"] = JOIN_REQUEST_FILL
         facts[str(version)] = fact
     return facts
 
@@ -253,6 +279,11 @@ def parse_layout(text: str) -> tuple:
             fact[field] = sorted(set(kinds))
         elif field in LAYOUT_FIELDS and "+" not in value:
             fact[field] = int(value)
+        elif field == "join_request_extra" and "+" not in value:
+            if int(value) > limits()["join"]:
+                raise TableError(f"--layout {text}: join_request_extra is at most {limits()['join']}")
+            fact[field] = int(value)
+            fact["join_request_fill"] = JOIN_REQUEST_FILL
         else:
             raise TableError(f"--layout {text}: no field {field}={value}")
     return match.group(1), str(version), fact
@@ -352,6 +383,10 @@ def check_layouts(name: str, layouts) -> None:
         for field in LAYOUT_FIELDS:
             if field in fact:
                 _integer(fact[field], 0, MAXIMUM_VERSION, f"wire {name}'s layout {version}'s {field}")
+        if "join_request_extra" in fact:
+            _integer(fact["join_request_extra"], 0, MAXIMUM_VERSION, f"wire {name}'s layout {version}'s join_request_extra")
+        if "join_request_fill" in fact and not isinstance(fact["join_request_fill"], str):
+            raise TableError(f"wire {name}'s layout {version}'s join_request_fill is not a name")
         kinds = fact.get("dropped_messages", [])
         if not isinstance(kinds, list) or len(kinds) > 255:
             raise TableError(f"wire {name}'s layout {version}'s dropped_messages is not a list of kinds")
@@ -485,6 +520,9 @@ def make(serial: int, issued: int = None, previous: dict = None, rows: dict = No
             raise TableError(f"--layout {name}: not a wire of DELTA_WIRE_LEGACY_NEWEST")
         if int(version) <= own:
             raise TableError(f"--layout {name}={version}: {name}'s builds have {version}'s rules (to {own})")
+        if "join_request_extra" in fact and not reads_join_layouts(name):
+            raise TableError(f"--layout {name}: its builds read no join request length (wires from chupa-"
+                             f"{JOIN_LAYOUT_WIRE[0]}{JOIN_LAYOUT_WIRE[1]} on do)")
         facts = dict(wires[name].get("layouts") or {})
         facts[version] = dict(facts.get(version, {}), **fact)
         _, refused = apply_layouts(int(version), facts, own)
@@ -658,7 +696,8 @@ def main() -> int:
                               "the shipped numbers: a row below them makes every build of the wire drop the table")
     command.add_argument("--layout", action="append", default=[], metavar="WIRE=VERSION:FIELD=VALUE,...",
                          help="a layout fact for a wire's row (chupa-38a on): settings_size, options_size, "
-                              "shield_effects_maximum, dropped_messages (kinds joined by +), past the wire's own "
+                              "shield_effects_maximum, dropped_messages (kinds joined by +), join_request_extra "
+                              "(chupa-41a on: the join request's zero bytes past 0x70), past the wire's own "
                               "versions and within what its builds take")
     command.add_argument("--hosting", action="append", default=[], metavar="WIRE=VERSION[,VERSION...]",
                          help="versions the cross-play gate proved for hosting alone (our host, their clients) "
