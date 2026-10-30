@@ -685,6 +685,20 @@ void *create_network_game_message(
 	const void *message_struct,
 	short message_struct_size)
 {
+	return create_network_game_message_with_tail(message_type, message_struct, message_struct_size, 0);
+}
+
+/* port: as create_network_game_message, with tail_size zero bytes after the
+message's fields, before its type byte: what a newer host's longer message
+has there (the join request to an OpenCE host of 40 or later,
+network_rules_join_request_extra). The decoder reads the fields it knows and
+ignores bytes left after them, so an older host takes it too. */
+void *create_network_game_message_with_tail(
+	enum network_game_message_type message_type,
+	const void *message_struct,
+	short message_struct_size,
+	short tail_size)
+{
 	/* as large as the packet group lets the encoder write */
 	byte encoded_message[HALO_PORT_NETWORK_PACKET_SIZE];
 	union network_game_message_size encoded_message_size;
@@ -851,6 +865,22 @@ void *create_network_game_message(
 #if defined(__BIG_ENDIAN__) || (defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)
 		encoded_message_size.value = (word)encoded_message_size.encoded;
 #endif
+		/* (port: the tail, zeros between the fields and the type byte, the
+		encoded message's last) */
+		if (tail_size > 0 && encoded_message_size.value >= 1 &&
+			encoded_message_size.value + tail_size <= (long)sizeof(encoded_message))
+		{
+			long type_at = encoded_message_size.value - 1;
+
+			encoded_message[type_at + tail_size] = encoded_message[type_at];
+			csmemset(encoded_message + type_at, 0, tail_size);
+			encoded_message_size.value += tail_size;
+		}
+		else if (tail_size > 0)
+		{
+			network_event("create_network_game_message(): no room for the message's tail");
+			return NULL;
+		}
 		/* a message header holds lengths up to HALO_PORT_MAXIMUM_NETWORK_MESSAGE_SIZE-1,
 		header included: a longer message would go out with a wrong length and
 		derail the stream (create_message only asserts on it) */

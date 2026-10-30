@@ -542,10 +542,10 @@ static void test_layouts_built_in(void)
 	struct network_rules_layout layout;
 	unsigned version;
 
-	CHECK(DELTA_LEGACY_NEWEST == 39);
+	CHECK(DELTA_LEGACY_NEWEST == 41);
 	/* (today's: the record by version, 0 to 6 for message 91 from every
 	host, 91 a kind a machine without it drops from 36) */
-	for (version = 11; version <= 41; version++)
+	for (version = 11; version <= 43; version++)
 	{
 		network_rules_layout_built_in(version, &layout);
 		CHECK(layout.version == version && layout.learned == 0 && layout.refused == 0);
@@ -554,14 +554,27 @@ static void test_layouts_built_in(void)
 		CHECK(layout.shield_effects_maximum == 6);
 		CHECK(network_rules_layout_drops(&layout, 91) == (version >= 36));
 		CHECK(!network_rules_layout_drops(&layout, 92) && !network_rules_layout_drops(&layout, 0));
+		/* (41's votes, which this build drops; 40's longer join request) */
+		CHECK(network_rules_layout_drops(&layout, 78) == (version >= 41) &&
+			network_rules_layout_drops(&layout, 79) == (version >= 41) &&
+			network_rules_layout_drops(&layout, 94) == (version >= 41) &&
+			network_rules_layout_drops(&layout, 95) == (version >= 41));
+		CHECK(layout.join_request_extra == (version >= 40 ? 234 : 0));
 	}
 	network_rules_layout_built_in(NETWORK_RULES_VERSION_UNKNOWN, &layout);
 	CHECK(layout.settings_size == 0 && layout.options_size == 0 && layout.shield_effects_maximum == 6);
 	/* (no source: the built-in facts; the newest is the build's) */
 	network_rules_set_layout_source(NULL);
-	network_rules_layout(40, &layout);
+	network_rules_layout(42, &layout);
 	CHECK(layout.settings_size == 0x3350 && layout.learned == 0);
-	CHECK(network_rules_layout_newest() == 39);
+	CHECK(network_rules_layout_newest() == 41);
+	/* (the join request: 0x70 bytes to 39 and older, and to a host not
+	known; 234 zero bytes more from 40, and to a newer host than the build
+	knows) */
+	CHECK(network_rules_join_request_extra(39) == 0 && network_rules_join_request_extra(11) == 0);
+	CHECK(network_rules_join_request_extra(40) == 234 && network_rules_join_request_extra(41) == 234);
+	CHECK(network_rules_join_request_extra(42) == 234);
+	CHECK(network_rules_join_request_extra(NETWORK_RULES_VERSION_UNKNOWN) == 0);
 	CHECK(network_rules_settings_options_size(36, 0x3350) == 0x2C && network_rules_settings_options_size(34, 0x3340) == 0x1C);
 	CHECK(network_rules_settings_options_size(NETWORK_RULES_VERSION_UNKNOWN, 0x3350) == 0x2C);
 	CHECK(network_rules_settings_options_size(NETWORK_RULES_VERSION_UNKNOWN, 0x3340) == 0x1C);
@@ -581,46 +594,46 @@ static void test_layouts_from_the_table(void)
 	fact->shield_effects_maximum = 9;
 	fact = test_fact(36);
 	fact->dropped[92 >> 3] |= 1 << (92 & 7);
-	/* 40: four more option bytes, kinds 92 and 93 dropped, a seventh effect */
-	fact = test_fact(40);
+	/* 42: four more option bytes, kinds 92 and 93 dropped, a seventh effect */
+	fact = test_fact(42);
 	fact->options_size = 0x30;
 	fact->shield_effects_maximum = 7;
 	fact->dropped[92 >> 3] |= 1 << (92 & 7);
 	fact->dropped[93 >> 3] |= 1 << (93 & 7);
-	/* 42: six bytes after the local data */
-	fact = test_fact(42);
+	/* 44: six bytes after the local data */
+	fact = test_fact(44);
 	fact->settings_size = 0x3354 + 6;
 	network_rules_set_layout_source(test_source);
 
-	network_rules_layout(39, &layout);
+	network_rules_layout(41, &layout);
 	CHECK(layout.options_size == 0x2C && layout.settings_size == 0x3350 && layout.shield_effects_maximum == 6);
 	CHECK(!network_rules_layout_drops(&layout, 92) && layout.learned == 0);
-	network_rules_layout(40, &layout);
+	network_rules_layout(42, &layout);
 	CHECK(layout.options_size == 0x30 && layout.settings_size == 0x3354 && layout.shield_effects_maximum == 7);
 	CHECK(network_rules_layout_drops(&layout, 92) && network_rules_layout_drops(&layout, 93) &&
-		network_rules_layout_drops(&layout, 91) && !network_rules_layout_drops(&layout, 94));
+		network_rules_layout_drops(&layout, 91) && !network_rules_layout_drops(&layout, 96));
 	CHECK(layout.refused == 0);
 	/* (a fact holds until the next) */
-	network_rules_layout(41, &layout);
+	network_rules_layout(43, &layout);
 	CHECK(layout.options_size == 0x30 && layout.settings_size == 0x3354);
-	network_rules_layout(42, &layout);
+	network_rules_layout(44, &layout);
 	CHECK(layout.options_size == 0x30 && layout.settings_size == 0x335A && layout.shield_effects_maximum == 7);
-	network_rules_layout(61, &layout);
+	network_rules_layout(63, &layout);
 	CHECK(layout.settings_size == 0x335A);
 	network_rules_layout(NETWORK_RULES_VERSION_UNKNOWN, &layout);
 	CHECK(layout.settings_size == 0 && layout.learned == 0);
-	CHECK(network_rules_layout_newest() == 42);
+	CHECK(network_rules_layout_newest() == 44);
 
 	/* what the client and the host make of them */
-	CHECK(network_rules_settings_size(40) == 0x3354 && network_rules_settings_size(39) == 0x3350);
-	CHECK(network_rules_settings_size_taken(40, 0x3354) && !network_rules_settings_size_taken(40, 0x3350));
+	CHECK(network_rules_settings_size(42) == 0x3354 && network_rules_settings_size(41) == 0x3350);
+	CHECK(network_rules_settings_size_taken(42, 0x3354) && !network_rules_settings_size_taken(42, 0x3350));
 	CHECK(!network_rules_settings_size_taken(NETWORK_RULES_VERSION_UNKNOWN, 0x3354));
-	CHECK(network_rules_settings_options_size(40, 0x3354) == 0x30);
-	CHECK(network_rules_settings_options_size(42, 0x335A) == 0x30);
-	CHECK(network_rules_host_settings_size(40, 0, 0) == 0x3354 && network_rules_host_settings_options(40, 0) == 0x30);
-	CHECK(network_rules_host_settings_size(40, 39, 0) == 0x3350 && network_rules_host_settings_options(40, 39) == 0x2C);
-	CHECK(network_rules_host_settings_size(40, 42, 0) == 0x3354 && network_rules_host_settings_options(40, 42) == 0x30);
-	CHECK(network_rules_host_settings_size(42, 32, 0) == 0x3340 && network_rules_host_settings_options(42, 32) == 0x1C);
+	CHECK(network_rules_settings_options_size(42, 0x3354) == 0x30);
+	CHECK(network_rules_settings_options_size(44, 0x335A) == 0x30);
+	CHECK(network_rules_host_settings_size(42, 0, 0) == 0x3354 && network_rules_host_settings_options(42, 0) == 0x30);
+	CHECK(network_rules_host_settings_size(42, 41, 0) == 0x3350 && network_rules_host_settings_options(42, 41) == 0x2C);
+	CHECK(network_rules_host_settings_size(42, 44, 0) == 0x3354 && network_rules_host_settings_options(42, 44) == 0x30);
+	CHECK(network_rules_host_settings_size(44, 32, 0) == 0x3340 && network_rules_host_settings_options(44, 32) == 0x1C);
 	network_rules_set_layout_source(NULL);
 }
 
@@ -631,39 +644,39 @@ static void test_layouts_hostile(void)
 
 	/* sizes that shrink, past the limits, a lower largest effect, kind 0 */
 	test_fact_count = 0;
-	fact = test_fact(40);
+	fact = test_fact(42);
 	fact->options_size = 0x20;
 	fact->settings_size = 0x3300;
 	fact->shield_effects_maximum = 5;
 	fact->dropped[0] = 0x01;
-	fact = test_fact(41);
+	fact = test_fact(43);
 	fact->options_size = 0x2C + NETWORK_RULES_LAYOUT_GROWTH_MAXIMUM + 1;
 	fact->shield_effects_maximum = NETWORK_RULES_SHIELD_EFFECTS_LIMIT + 1;
-	fact = test_fact(42);
+	fact = test_fact(44);
 	fact->settings_size = NETWORK_RULES_SETTINGS_MAXIMUM + 1;
-	fact = test_fact(43);
+	fact = test_fact(45);
 	fact->options_size = 0x2C + 40;
 	fact->settings_size = 0x3350 + 40 + 2;
-	fact = test_fact(44);
+	fact = test_fact(46);
 	/* (the options grow, the bytes after the local data would shrink) */
 	fact->options_size = 0x2C + 44;
 	fact->settings_size = 0x3350 + 42;
-	fact = test_fact(45);
+	fact = test_fact(47);
 	fact->options_size = 0x2C + 64;
 	network_rules_set_layout_source(test_source);
 
-	network_rules_layout(40, &layout);
-	CHECK(layout.options_size == 0x2C && layout.settings_size == 0x3350 && layout.shield_effects_maximum == 6);
-	CHECK(layout.refused == 3 && !network_rules_layout_drops(&layout, 0));
 	network_rules_layout(42, &layout);
 	CHECK(layout.options_size == 0x2C && layout.settings_size == 0x3350 && layout.shield_effects_maximum == 6);
-	CHECK(layout.refused == 6);
-	network_rules_layout(43, &layout);
-	CHECK(layout.options_size == 0x2C + 40 && layout.settings_size == 0x3350 + 42);
+	CHECK(layout.refused == 3 && !network_rules_layout_drops(&layout, 0));
 	network_rules_layout(44, &layout);
+	CHECK(layout.options_size == 0x2C && layout.settings_size == 0x3350 && layout.shield_effects_maximum == 6);
+	CHECK(layout.refused == 6);
+	network_rules_layout(45, &layout);
+	CHECK(layout.options_size == 0x2C + 40 && layout.settings_size == 0x3350 + 42);
+	network_rules_layout(46, &layout);
 	CHECK(layout.options_size == 0x2C + 44 && layout.settings_size == 0x3350 + 46);
 	/* (past the record's limit with the bytes kept after the local data) */
-	network_rules_layout(45, &layout);
+	network_rules_layout(47, &layout);
 	CHECK(layout.options_size == 0x2C + 44 && layout.settings_size <= NETWORK_RULES_SETTINGS_MAXIMUM);
 	CHECK(layout.settings_size >= NETWORK_RULES_SETTINGS_HEAD_SIZE + layout.options_size + 4);
 	network_rules_set_layout_source(NULL);

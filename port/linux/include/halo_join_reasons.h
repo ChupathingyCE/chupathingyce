@@ -68,6 +68,13 @@ enum join_reason
 #define JOIN_REASON_PASSWORD "Password needed."
 #define JOIN_REASON_NO_ANSWER "The host didn't answer."
 #define JOIN_REASON_NO_CONNECTION "Couldn't connect to the host."
+/* an OpenCE dedicated server's refusals of network version 40 and 41 (codes 8
+to 13 of the host's refusal): a VPN, Tor or data center address (8, 9); a
+Discord link of OpenCE's own, which this build has none of (10 to 12); and
+the machines one address may have (13) */
+#define JOIN_REASON_NO_VPN "This server doesn't allow VPNs."
+#define JOIN_REASON_DISCORD_LINK "This server only lets in players who link a Discord account with OpenCE."
+#define JOIN_REASON_ADDRESS_FULL "Too many players from your address."
 /* a map of Halo: The Master Chief Collection (cache version 13) in a map
 folder: said in the map lists, in the log and when it is picked to play (no
 detail, and no join reason: a host never announces one) */
