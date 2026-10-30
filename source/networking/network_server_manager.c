@@ -1377,6 +1377,9 @@ void network_game_server_dispose(
 
 	/* port: a won co-op round's next level belongs to this server alone */
 	network_game_server_cooperative_next_map[0] = 0;
+	/* port: hosting ends, and with it the hold on the number announced (a
+newer one the legacy table proves is taken: port/linux/src/delta.c) */
+	delta_legacy_hold(FALSE);
 
 	switch (server->state)
 	{

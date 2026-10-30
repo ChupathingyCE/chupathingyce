@@ -82,6 +82,9 @@ test's build may give its own) */
 #ifndef DELTA_REFRESH_INTERVAL
 #define DELTA_REFRESH_INTERVAL (4 * 60 * 60 * 1000)
 #endif
+#ifndef DELTA_SERVER_REFRESH_INTERVAL
+#define DELTA_SERVER_REFRESH_INTERVAL (30 * 60 * 1000)
+#endif
 #ifndef DELTA_RETRY_INTERVAL
 #define DELTA_RETRY_INTERVAL (30 * 60 * 1000)
 #endif
@@ -118,6 +121,10 @@ struct delta_table
 	/* ... and the OpenCE build the cross-play gate proved it with
 	("build-145"; empty: not said) */
 	char follows[DELTA_FOLLOWS_SIZE];
+	/* ... and the versions it proves for hosting past announce ("hosting",
+	oldest first; none: announce alone) */
+	int hosting_count;
+	int hosting[DELTA_HOSTING_MAXIMUM];
 	unsigned long disabled;
 	/* ... and the row's layouts, oldest first */
 	int layout_count;
@@ -147,6 +154,14 @@ static struct
 	int signed_size;
 	/* a local, unsigned table is in use */
 	int override;
+	/* auto-announce: the newest version the table proves for hosting; the
+	number announced now; whether a hosted game holds it; network.announce's
+	pin (0: "latest"), and the last pin said to be refused (so said once) */
+	int hosting_newest;
+	int hosted;
+	int held;
+	int pin;
+	int pin_refused;
 } delta;
 
 /* ---------- the document (JSON, hostile) */
@@ -504,8 +519,30 @@ static int json_layouts(struct json *json, struct delta_table *table)
 	return json_take(json, '}');
 }
 
+/* a row's "hosting": [V, ...], the versions the cross-play gate proved for
+hosting (our host, their clients), oldest first, each once, at most
+DELTA_HOSTING_MAXIMUM */
+static int json_hosting(struct json *json, struct delta_table *table)
+{
+	if (!json_take(json, '['))
+		return 0;
+	if (json_take(json, ']'))
+		return 1;
+	do
+	{
+		long long value;
+
+		if (table->hosting_count == DELTA_HOSTING_MAXIMUM || !json_integer(json, 1, MAXIMUM_VERSION, &value))
+			return 0;
+		if (table->hosting_count && value <= table->hosting[table->hosting_count - 1])
+			return 0;
+		table->hosting[table->hosting_count++] = (int)value;
+	} while (json_take(json, ','));
+	return json_take(json, ']');
+}
+
 /* a wire's row: {"announce": A, "minimum": Mi, "maximum": Ma}, and
-optionally "follows": "build-N" and "layouts" */
+optionally "follows": "build-N", "hosting" and "layouts" */
 static int json_row(struct json *json, struct delta_table *table)
 {
 	int seen = 0;
@@ -542,6 +579,13 @@ static int json_row(struct json *json, struct delta_table *table)
 			if ((seen & 16) || !json_layouts(json, table))
 				return 0;
 			seen |= 16;
+			continue;
+		}
+		else if (!escaped && json_is(key, length, "hosting"))
+		{
+			if ((seen & 32) || !json_hosting(json, table))
+				return 0;
+			seen |= 32;
 			continue;
 		}
 		if (!field)
@@ -758,6 +802,7 @@ enum delta_result
 static void delta_use_built_in(void)
 {
 	delta.announce = HALO_PORT_NETWORK_VERSION;
+	delta.hosting_newest = HALO_PORT_NETWORK_VERSION;
 	delta.minimum = HALO_PORT_NETWORK_VERSION_MINIMUM;
 	delta.maximum = HALO_PORT_NETWORK_VERSION_MAXIMUM;
 	delta.follows[0] = 0;
@@ -770,6 +815,61 @@ static void delta_use_layouts(const struct delta_table *table)
 {
 	delta.layout_count = table->has_row ? table->layout_count : 0;
 	memcpy(delta.layouts, table->layouts, sizeof(delta.layouts));
+}
+
+/* the newest version a table's row proves for hosting */
+static int delta_row_hosting_newest(const struct delta_table *table)
+{
+	int newest = table->announce;
+
+	if (table->hosting_count && table->hosting[table->hosting_count - 1] > newest)
+		newest = table->hosting[table->hosting_count - 1];
+	return newest;
+}
+
+/* the number to announce now (delta_lock held): network.announce's pin if
+it is one this machine may announce (from the minimum to the newest the
+table proves for hosting), else that newest; refused set to a pin that is
+not */
+static int delta_announce_target(int *refused)
+{
+	*refused = 0;
+	if (!delta.pin)
+		return delta.hosting_newest;
+	if (delta.pin < delta.minimum || delta.pin > delta.hosting_newest)
+	{
+		*refused = delta.pin;
+		return delta.hosting_newest;
+	}
+	return delta.pin;
+}
+
+/* network.announce: "latest" (or empty) 0, a number its number, anything
+else 0 and said */
+static int delta_read_pin(void)
+{
+	const char *text = config_string("network.announce");
+	long value = 0;
+	int index;
+
+	if (!text[0] || !strcmp(text, "latest"))
+		return 0;
+	for (index = 0; text[index]; index++)
+	{
+		if (text[index] < '0' || text[index] > '9' || index >= 5)
+		{
+			platform_log("Delta: network.announce is \"%s\", not \"latest\" or a network version: following "
+				"the legacy table", text);
+			return 0;
+		}
+		value = value * 10 + (text[index] - '0');
+	}
+	if (value < 1 || value > MAXIMUM_VERSION)
+	{
+		platform_log("Delta: network.announce is %s, not a network version: following the legacy table", text);
+		return 0;
+	}
+	return (int)value;
 }
 
 static void delta_cache_path(char *path, size_t size)
@@ -881,6 +981,7 @@ static enum delta_result delta_take(const char *document, size_t size, const cha
 		additive, DELTA_LEGACY_PRESUMED, whatever the row says) */
 		if (delta.maximum < delta.announce + DELTA_LEGACY_PRESUMED)
 			delta.maximum = delta.announce + DELTA_LEGACY_PRESUMED > 65535 ? 65535 : delta.announce + DELTA_LEGACY_PRESUMED;
+		delta.hosting_newest = delta_row_hosting_newest(&table);
 		memcpy(delta.follows, table.follows, sizeof(delta.follows));
 	}
 	delta.disabled = table.disabled;
@@ -889,7 +990,7 @@ static enum delta_result delta_take(const char *document, size_t size, const cha
 	pthread_mutex_unlock(&delta_lock);
 
 	platform_log("Delta: legacy table %u from %s: announcing %d, joining %d to %d%s%s%s; %d layout facts", table.serial,
-		source, table.has_row ? table.announce : HALO_PORT_NETWORK_VERSION,
+		source, table.has_row ? delta_row_hosting_newest(&table) : HALO_PORT_NETWORK_VERSION,
 		table.has_row ? table.minimum : HALO_PORT_NETWORK_VERSION_MINIMUM,
 		maximum,
 		table.has_row ? "" : " (no row for " DELTA_WIRE ": the built-in numbers)",
@@ -961,6 +1062,7 @@ static int delta_load_override(void)
 	if (ok && table.has_row)
 	{
 		delta.announce = table.announce;
+		delta.hosting_newest = delta_row_hosting_newest(&table);
 		delta.minimum = table.minimum;
 		delta.maximum = table.maximum;
 		memcpy(delta.follows, table.follows, sizeof(delta.follows));
@@ -974,7 +1076,7 @@ static int delta_load_override(void)
 	{
 		platform_log("Delta: WARNING: a local, unsigned legacy table is in use (network.legacy_table, %s): "
 			"announcing %d, joining %d to %d, %d layout facts; no signed table is fetched or passed on", path,
-			delta.announce, delta.minimum, delta.maximum, delta.layout_count);
+			delta.hosting_newest, delta.minimum, delta.maximum, delta.layout_count);
 	}
 	else
 	{
@@ -991,18 +1093,32 @@ static void delta_load(void)
 	char *file;
 	size_t size = 0;
 
+	int pin = delta_read_pin();
+	int refused;
+
 	pthread_mutex_lock(&delta_lock);
 	delta_use_built_in();
+	delta.pin = pin;
 	pthread_mutex_unlock(&delta_lock);
-	if (delta_load_override())
-		return;
-	delta_cache_path(path, sizeof(path));
-	file = config_file_read(path, &size);
-	if (file)
+	if (!delta_load_override())
 	{
-		delta_take_signed(file, size, "the cache", 0);
-		free(file);
+		delta_cache_path(path, sizeof(path));
+		file = config_file_read(path, &size);
+		if (file)
+		{
+			delta_take_signed(file, size, "the cache", 0);
+			free(file);
+		}
 	}
+	pthread_mutex_lock(&delta_lock);
+	delta.hosted = delta_announce_target(&refused);
+	delta.pin_refused = refused;
+	pthread_mutex_unlock(&delta_lock);
+	if (pin && !refused)
+		platform_log("Delta: announcing OpenCE network version %d, pinned by network.announce", pin);
+	else if (refused)
+		platform_log("Delta: network.announce's %d is not one this machine announces (%d to %d): announcing %d, the "
+			"newest the legacy table proves for hosting", refused, delta.minimum, delta.hosted, delta.hosted);
 }
 
 /* ---------- fetching (a thread of this file's; a console's port's) */
@@ -1139,7 +1255,9 @@ static void *delta_thread(void *unused)
 
 		if (!delta_legacy_override())
 			delta_refresh(&failed);
-		interval = failed ? DELTA_RETRY_INTERVAL : DELTA_REFRESH_INTERVAL;
+		/* (a dedicated server sooner: its listing follows the table) */
+		interval = failed ? DELTA_RETRY_INTERVAL : getenv("HALO_DEDICATED") && getenv("HALO_DEDICATED")[0] ?
+			DELTA_SERVER_REFRESH_INTERVAL : DELTA_REFRESH_INTERVAL;
 		clock_gettime(CLOCK_REALTIME, &deadline);
 		deadline.tv_sec += interval / 1000;
 		deadline.tv_nsec += (long)(interval % 1000) * 1000000L;
@@ -1200,15 +1318,87 @@ void delta_legacy_start(void)
 #endif
 }
 
+/* the number announced, moved to the target when no hosted game holds it
+(delta_lock held); what to say in *was (0: nothing changed) and *refused */
+static int delta_settle(int *was, int *refused)
+{
+	int target = delta_announce_target(refused);
+
+	*was = 0;
+	if (*refused == delta.pin_refused)
+		*refused = 0;
+	else
+		delta.pin_refused = *refused;
+	if (!delta.held && delta.hosted != target)
+	{
+		*was = delta.hosted;
+		delta.hosted = target;
+	}
+	return delta.hosted;
+}
+
+static void delta_settle_said(int number, int was, int refused)
+{
+	if (refused)
+		platform_log("Delta: network.announce's %d is not one this machine announces now: announcing %d", refused,
+			number);
+	if (was)
+		platform_log("Delta: now announcing OpenCE network version %d (was %d)%s", number, was,
+			delta_legacy_pinned() ? ", pinned by network.announce" : ", the newest the legacy table proves for hosting");
+}
+
 int delta_legacy_announce(void)
+{
+	int number, was, refused;
+
+	pthread_once(&delta_once, delta_load);
+	pthread_mutex_lock(&delta_lock);
+	number = delta_settle(&was, &refused);
+	pthread_mutex_unlock(&delta_lock);
+	if (was || refused)
+		delta_settle_said(number, was, refused);
+	return number;
+}
+
+int delta_legacy_hosting_newest(void)
 {
 	int number;
 
 	pthread_once(&delta_once, delta_load);
 	pthread_mutex_lock(&delta_lock);
-	number = delta.announce;
+	number = delta.hosting_newest;
 	pthread_mutex_unlock(&delta_lock);
 	return number;
+}
+
+void delta_legacy_hold(int hold)
+{
+	int number, was, refused;
+
+	pthread_once(&delta_once, delta_load);
+	pthread_mutex_lock(&delta_lock);
+	if (delta.held == !!hold)
+	{
+		pthread_mutex_unlock(&delta_lock);
+		return;
+	}
+	delta.held = !!hold;
+	number = delta_settle(&was, &refused);
+	pthread_mutex_unlock(&delta_lock);
+	if (was || refused)
+		delta_settle_said(number, was, refused);
+}
+
+int delta_legacy_pinned(void)
+{
+	int pin, refused;
+
+	pthread_once(&delta_once, delta_load);
+	pthread_mutex_lock(&delta_lock);
+	pin = delta.pin;
+	delta_announce_target(&refused);
+	pthread_mutex_unlock(&delta_lock);
+	return pin && !refused ? pin : 0;
 }
 
 int delta_legacy_minimum(void)
@@ -1290,7 +1480,7 @@ void delta_legacy_following(char *text, int size)
 	pthread_mutex_lock(&delta_lock);
 	memcpy(follows, delta.follows, sizeof(follows));
 	serial = delta.serial;
-	announce = delta.announce;
+	announce = delta.hosting_newest;
 	override = delta.override;
 	pthread_mutex_unlock(&delta_lock);
 	if (size <= 0)

@@ -242,6 +242,12 @@ def document(serial=10, row=None, wire=None, extra=None, **fields):
     b'{"delta_legacy": 1, "serial": 3, "wires": {}, "platform_policy": {"xbox": {"host_players": true}}}',
     b'{"delta_legacy": 1, "serial": 3, "wires": {}, "platform_policy": {"xbox": {"host_players": 100000}}}',
     b'{"delta_legacy": 1, "serial": 3, "wires": {}, "platform_policy": {"Xbox 360": {}}}',
+    b'{"delta_legacy": 1, "serial": 3, "wires": {"w": {"announce": 5, "minimum": 1, "maximum": 7, "hosting": 6}}}',
+    b'{"delta_legacy": 1, "serial": 3, "wires": {"w": {"announce": 5, "minimum": 1, "maximum": 7, "hosting": [7, 6]}}}',
+    b'{"delta_legacy": 1, "serial": 3, "wires": {"w": {"announce": 5, "minimum": 1, "maximum": 7, "hosting": [6, 6]}}}',
+    b'{"delta_legacy": 1, "serial": 3, "wires": {"w": {"announce": 5, "minimum": 1, "maximum": 7, "hosting": [0]}}}',
+    b'{"delta_legacy": 1, "serial": 3, "wires": {"w": {"announce": 5, "minimum": 1, "maximum": 7, '
+    b'"hosting": [1, 2, 3, 4, 5, 6, 7, 8, 9]}}}',
 ])
 def test_bad_documents(bad):
     with pytest.raises(delta_table.TableError):
@@ -451,8 +457,10 @@ def checker(keys, recovery_keys, tmp_path_factory):
     return program
 
 
-def run_checker(program, root, *steps, override=None, url=""):
+def run_checker(program, root, *steps, override=None, url="", announce=None):
     environment = {"DELTA_CHECK_ROOT": str(root), "PATH": "/usr/bin:/bin", "DELTA_CHECK_URL": url}
+    if announce is not None:
+        environment["DELTA_CHECK_ANNOUNCE"] = announce
     if override:
         environment["DELTA_CHECK_OVERRIDE"] = str(override)
     result = subprocess.run([str(program), *map(str, steps)], capture_output=True, text=True, env=environment,
@@ -522,6 +530,9 @@ def test_loader_presumes_the_next_version(keys, checker, tmp_path):
     ("no serial", lambda: b'{"delta_legacy": 1, "wires": {}}'),
     ("serial of none", lambda: document(serial=0xFFFFFFFF)),
     ("nul", lambda: document().replace(b'"issued"', b'"\x00": 1, "issued"')),
+    ("hosting not ascending", lambda: document(row=dict(floor(), hosting=[floor()["maximum"] + 3,
+                                                                          floor()["maximum"] + 2]))),
+    ("hosting too long", lambda: document(row=dict(floor(), hosting=list(range(50, 59))))),
 ])
 def test_loader_drops_bad_tables(keys, checker, tmp_path, name, make):
     table = write_signed(keys, tmp_path / "bad", make())
@@ -964,3 +975,87 @@ def test_loader_override_layouts(checker, tmp_path):
     assert state_line(output)[0] == "state 38 11 42 serial 0 override 1 disabled 0 signed 0"
     assert "1 layout facts" in output
     assert layout_line(output, 42).startswith("layout 42 settings 13140 options 48 ")
+
+
+# ---------- auto-announce: the "hosting" list, network.announce, the hold
+
+
+def test_make_hosting(tmp_path):
+    """--hosting adds versions proved for hosting alone; the row is otherwise
+    kept, and later rows keep the list"""
+    old = tmp_path / "old.json"
+    old.write_bytes(document(serial=4, row=floor()))
+    own = delta_table.wire()
+    newer = floor()["maximum"] + 1
+    result = make_table(tmp_path, "--serial", "5", "--from", str(old), "--hosting", f"{own}={newer}")
+    assert result.returncode == 0, result.stderr
+    row = json.loads(result.stdout)["wires"][own]
+    assert row["hosting"] == [newer] and delta_table.numbers(row) == dict(floor(), hosting=[newer])
+    assert delta_table.hosting_newest(row) == newer
+    # (kept by a later --row that widens, and by a plain make --from)
+    old.write_bytes(result.stdout.encode())
+    wide = f"{floor()['announce']},{floor()['minimum']},{floor()['maximum'] + 1}"
+    result = make_table(tmp_path, "--serial", "6", "--from", str(old), "--row", f"{own}={wide}")
+    assert json.loads(result.stdout)["wires"][own]["hosting"] == [newer]
+    result = make_table(tmp_path, "--serial", "6", "--from", str(old))
+    assert json.loads(result.stdout)["wires"][own]["hosting"] == [newer]
+    # (a version at or below announce adds nothing; below the minimum, or not a version, is refused)
+    result = make_table(tmp_path, "--serial", "6", "--from", str(old), "--hosting", f"{own}={floor()['announce']}")
+    assert json.loads(result.stdout)["wires"][own]["hosting"] == [newer]
+    for bad in (f"{own}={floor()['minimum'] - 1}", f"{own}=", "chupa-99z=41", f"{own}=70000"):
+        assert make_table(tmp_path, "--serial", "6", "--from", str(old), "--hosting", bad).returncode == 1, bad
+
+
+def test_loader_announces_the_hosting_newest(keys, checker, tmp_path):
+    """a row's hosting list: this build announces its newest; the join range
+    is the row's"""
+    base = floor()
+    newest = base["maximum"] + 1
+    table = write_signed(keys, tmp_path / "t10", document(serial=10, row=dict(base, hosting=[newest])))
+    output = run_checker(checker, tmp_path, "offer", table, "state", "hosting")
+    assert "offer 1" in output
+    assert state_line(output)[0].startswith(f"state {newest} {base['minimum']} {base['maximum']} serial 10 ")
+    assert f"hosting {newest} pinned 0" in output
+    assert f"announcing {newest}, joining" in output
+
+
+def test_loader_holds_the_number_through_a_hosted_game(keys, checker, tmp_path):
+    """a newer number taken while a hosted game is under way waits for its end"""
+    base = floor()
+    newest = base["maximum"] + 1
+    table = write_signed(keys, tmp_path / "t10", document(serial=10, row=dict(base, hosting=[newest])))
+    output = run_checker(checker, tmp_path, "state", "hold", "1", "offer", table, "state", "hold", "0", "state")
+    states = state_line(output)
+    assert states[0].startswith(f"state {base['announce']} ")
+    assert states[1].startswith(f"state {base['announce']} ") and " serial 10 " in states[1]
+    assert states[2].startswith(f"state {newest} ")
+    assert f"now announcing OpenCE network version {newest} (was {base['announce']})" in output
+
+
+@pytest.mark.parametrize("pin,expect", [
+    ("latest", "newest"), ("", "newest"), ("announce", "announce"), ("minimum", "minimum"),
+    ("below", "newest"), ("above", "newest"), ("words", "newest"),
+])
+def test_loader_pin(keys, checker, tmp_path, pin, expect):
+    """network.announce: a number from the minimum to the newest proved for
+    hosting is announced; anything else follows the table"""
+    base = floor()
+    newest = base["maximum"] + 1
+    values = {"latest": "latest", "": "", "announce": str(base["announce"]), "minimum": str(base["minimum"]),
+              "below": str(base["minimum"] - 1), "above": str(newest + 1), "words": "newest please"}
+    table = write_signed(keys, tmp_path / "t10", document(serial=10, row=dict(base, hosting=[newest])))
+    run_checker(checker, tmp_path, "offer", table)
+    output = run_checker(checker, tmp_path, "state", "hosting", announce=values[pin])
+    number = {"newest": newest, "announce": base["announce"], "minimum": base["minimum"]}[expect]
+    assert state_line(output)[0].startswith(f"state {number} "), output
+    assert f"hosting {newest} pinned {number if expect != 'newest' else 0}" in output
+    if pin in ("below", "above", "words"):
+        assert "network.announce" in output
+
+
+def test_loader_override_hosting(checker, tmp_path):
+    """a local table's hosting list is followed as a signed one's"""
+    local = tmp_path / "local.json"
+    local.write_bytes(document(serial=1, row={"announce": 39, "minimum": 11, "maximum": 40, "hosting": [41]}))
+    output = run_checker(checker, tmp_path, "state", override=local)
+    assert state_line(output)[0] == "state 41 11 40 serial 0 override 1 disabled 0 signed 0"

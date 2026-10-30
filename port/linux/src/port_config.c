@@ -812,6 +812,11 @@ static const struct config_setting config_settings[] =
 		"HALO_NET_STUN", _environment_value, _platform_all | _platform_xbox,
 		"STUN servers that find this machine's internet address, as host:port,\n"
 		"separated by commas." },
+	{ "network.announce", _config_string, "\"latest\"", "HALO_NET_ANNOUNCE", _environment_value, _platform_all,
+		"The OpenCE network version the games you host announce. \"latest\"\n"
+		"follows the newest the signed legacy table proves, so OpenCE's newest\n"
+		"players see your games. A number pins it, like 32 for a server meant\n"
+		"for console players on older builds." },
 	{ "network.legacy_table", _config_string, "\"\"", "HALO_LEGACY_TABLE", _environment_value, _platform_all,
 		"For testing only: an unsigned legacy table file that sets the OpenCE\n"
 		"network versions (docs/delta.md). Leave it empty for none." },

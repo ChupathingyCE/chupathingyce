@@ -127,6 +127,9 @@ legacy table (docs/delta.md) widens them; code asks these, not the numbers */
 int delta_legacy_announce(void);
 int delta_legacy_minimum(void);
 int delta_legacy_maximum(void);
+/* ... and whether a game this machine hosts is under way, which holds the
+number announced until its end (delta.h, auto-announce) */
+void delta_legacy_hold(int hold);
 /* ... the advertisement's reserved bytes: the version (a little-endian word),
 then flags, then (version 37) the game's kind: an OpenCE game type in the low
 seven bits, Hardcore in bit 7; our hosts play none and send 0. A Delta host's

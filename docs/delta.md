@@ -2069,7 +2069,67 @@ and `HALO_LEGACY_TABLE=legacy-38.json` (or `network.legacy_table =
 "legacy-38.json"`). The server's log says "a local, unsigned legacy table is
 in use ... announcing 38", and `sv_status` "Following OpenCE network version
 38 (a local table)". It stops relaying signed tables meanwhile; remove the
-setting once a published table announces the number.
+setting once a published table announces the number. From auto-announce on (below),
+a server follows the signed table's newest hosting number by itself, and
+`HALO_NET_ANNOUNCE` pins an older one: a local table is for tests.
+
+### Auto-announce
+
+Hosts announce the newest OpenCE number they're proven to host, and they
+follow the signed table on their own. Nobody has to edit a file when OpenCE
+moves.
+
+- **Which number.** A wire's row may carry `"hosting"`, a list of numbers
+  the cross-play gate proved with our host and OpenCE's clients alone (the
+  gate's ours-host and server directions passed; their host may still need
+  a release for our clients). A build announces the newest of the row's
+  `announce` and that list (`delta_legacy_hosting_newest`). Older builds
+  skip the list and announce `announce`, as they always did. The join range
+  stays the row's `minimum` to `maximum`: hosting 41 doesn't make our
+  clients try OpenCE's 41 hosts.
+
+  ```json
+  "chupa-39a": {"announce": 39, "minimum": 11, "maximum": 40, "hosting": [41]}
+  ```
+
+  The list is oldest first, each number once, at most 8 (`DELTA_HOSTING_MAXIMUM`).
+  `tools/delta_table.py make --hosting chupa-39a=41` adds to it, and a later
+  `--row` keeps it.
+- **When it changes.** When a newer table arrives (every 4 hours, every 30
+  minutes on a dedicated server, at start, or from another machine over
+  Delta Peer), the new number is taken at once, unless a game this machine
+  hosts is under way. Then it waits for the lobby, so one game is played by
+  one number (`delta_legacy_hold`, from the advertisement's state). The log
+  says "now announcing OpenCE network version 41 (was 39)". The LAN
+  advertisement, the broker listing (published again at once with the new
+  number) and the game list all follow. No restart.
+- **Pinning.** `network.announce` (`HALO_NET_ANNOUNCE` for servers) is
+  `"latest"` by default. A number pins it, for example `32` for a server
+  that console players on older builds join. A pin has to be one this
+  machine may announce: from the row's minimum to the newest proven for
+  hosting. Anything else is logged and the table is followed instead.
+- **Our own players.** A Chupathingy client joins a Delta host by its wire,
+  whatever number the host announces (the tag in the advertisement; the
+  game list marks the host as Delta). So a `chupa-39a` client, whose window
+  tops out at 40, joins one of our hosts that announces 41. The broker
+  listing alone can't tell a Delta host from OpenCE's: without the game
+  list, a client sees such a game marked as another version.
+- **Local tables** (`network.legacy_table`) may carry `"hosting"` too, and
+  `network.announce` applies to them. Once a server's local table only
+  repeats the signed one, remove it and let the server follow the table.
+
+### One listing per host
+
+A host lists its game once, under the number it announces. OpenCE's
+browsers show only listings of their exact number, so during a change some
+of their players (those on the older build) don't see our hosts until they
+update. Listing the same game twice (once per number) was considered and
+left out for now. A listing's slot, its invite and the host's machine
+identifier (in its XNADDR) all come from one key, so a second listing needs
+a second key that joins end to end: a second identity in the signalling, an
+XNADDR alias on the host so that a client joined through the second invite
+reaches the game, and a second broker connection per broker for the slot's
+will. Our browsers already show such copies once (`p2p_listing_hidden_copy`).
 
 ### In the code
 
@@ -2155,6 +2215,13 @@ within hours when it doesn't.
      `delta-table` branch. With `AUTO_PUBLISH` (a repository variable, or
      the run's input) that happens at once; otherwise Donut posts the
      command and a person runs it.
+   - A hosting pass: our host and dedicated server passed with OpenCE's
+     clients, but our clients couldn't join OpenCE's host (a change only
+     their host needs, like 40's longer join request). The wire's row gets
+     the number in its `"hosting"` list (`delta-table.yml`'s `hosting`
+     input, `delta_table.py make --hosting`), so our hosts announce it
+     ("Auto-announce", above), and the release work for our clients starts
+     as for a fail.
    - A fail publishes nothing. An issue on chupathingyce ("OpenCE build-N
      needs a release") lists the failing steps, and Donut posts to
      #upstream-watch. The release work takes it from there: the smallest

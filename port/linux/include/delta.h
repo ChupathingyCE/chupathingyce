@@ -431,6 +431,27 @@ gate proved it with), "Following OpenCE network version 20 (built in)" */
 #define DELTA_FOLLOWS_SIZE 32
 void delta_legacy_following(char *text, int size);
 
+/* ---------- auto-announce: the number a host announces
+
+A host announces the newest OpenCE version the table in use proves for
+hosting: its row's announce, or a newer one its optional "hosting" list
+names (versions the cross-play gate proved with our host and their clients
+alone; docs/delta.md, "Auto-announce"). Older builds skip the list and go by
+announce. network.announce pins a number instead ("latest", the default,
+follows the table). A new number is taken at once, except while a game this
+machine hosts is under way (delta_legacy_hold): then at its end, so that one
+game is played by one number. */
+#define DELTA_HOSTING_MAXIMUM 8
+/* the newest version the table in use proves for hosting (its announce, or
+its hosting list's newest) */
+int delta_legacy_hosting_newest(void);
+/* (the game) a game this machine hosts is under way (1) or not (0): while
+it is, the number announced stays as it was */
+void delta_legacy_hold(int hold);
+/* whether network.announce pins the number announced (and the pin in use, or
+0 when it is not one this machine may announce) */
+int delta_legacy_pinned(void);
+
 /* whether a local, unsigned table (network.legacy_table) is in use */
 int delta_legacy_override(void);
 /* whether this machine relays signed tables (Delta Peer: takes them from
