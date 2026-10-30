@@ -713,16 +713,25 @@ C_LAYOUT = r'''
 #include <stdlib.h>
 #include <string.h>
 
-/* facts from the arguments: VERSION SETTINGS OPTIONS SHIELD KIND+KIND ... (0 not said) */
+/* facts from the arguments: VERSION SETTINGS OPTIONS SHIELD KIND+KIND JOIN ... (0 not said; JOIN "-" not
+said, N zeros, N:x another fill) */
 int main(int count, char **arguments)
 {
 	static struct delta_layout_fact facts[DELTA_LAYOUT_FACTS];
 	int used = 0, index;
 	unsigned version, kind;
 
-	for (index = 1; index + 4 < count && used < DELTA_LAYOUT_FACTS; index += 5, used++)
+	for (index = 1; index + 5 < count && used < DELTA_LAYOUT_FACTS; index += 6, used++)
 	{
 		char *kinds = arguments[index + 4];
+		char *join = arguments[index + 5];
+
+		if (strcmp(join, "-"))
+		{
+			facts[used].join_request_said = 1;
+			facts[used].join_request_extra = (unsigned short)strtoul(join, &join, 10);
+			facts[used].join_request_fill = *join == ':' ? DELTA_LAYOUT_FILL_UNKNOWN : DELTA_LAYOUT_FILL_ZEROS;
+		}
 
 		facts[used].version = (unsigned short)atoi(arguments[index]);
 		facts[used].settings_size = (unsigned short)atoi(arguments[index + 1]);
@@ -750,7 +759,7 @@ int main(int count, char **arguments)
 		for (kind = 1; kind < 256; kind++)
 			if (network_rules_layout_drops(&layout, kind))
 				printf(" %u", kind);
-		printf(" refused %d\n", layout.refused);
+		printf(" join %d refused %d\n", layout.join_request_extra, layout.refused);
 	}
 	return 0;
 }
@@ -779,14 +788,17 @@ def c_layouts(program, facts):
     for version, fact in facts.items():
         arguments += [version, str(fact.get("settings_size", 0)), str(fact.get("options_size", 0)),
                       str(fact.get("shield_effects_maximum", 0)),
-                      "+".join(str(kind) for kind in fact.get("dropped_messages", []))]
+                      "+".join(str(kind) for kind in fact.get("dropped_messages", [])),
+                      "-" if "join_request_extra" not in fact else
+                      f"{fact['join_request_extra']}" + ("" if fact.get("join_request_fill", "zeros") == "zeros" else ":x")]
     output = subprocess.run([str(program), *arguments], capture_output=True, text=True, check=True).stdout
     layouts = {}
     for line in output.splitlines():
         words = line.split()
         layouts[int(words[0])] = ({"settings_size": int(words[1]), "options_size": int(words[2]),
                                    "shield_effects_maximum": int(words[3]),
-                                   "dropped_messages": [int(word) for word in words[4:-2]]}, int(words[-1]))
+                                   "dropped_messages": [int(word) for word in words[4:-4]],
+                                   "join_request_extra": int(words[-3])}, int(words[-1]))
     return layouts
 
 
@@ -812,6 +824,10 @@ def test_tool_layouts_are_the_games(layout_program):
                 fact["shield_effects_maximum"] = generator.randint(1, 17)
             if generator.random() < 0.4:
                 fact["dropped_messages"] = sorted(generator.sample(range(1, 256), 3))
+            if generator.random() < 0.4:
+                fact["join_request_extra"] = generator.choice([0, 1, 234, 300, 1024, 1025, 5000])
+                if generator.random() < 0.3:
+                    fact["join_request_fill"] = generator.choice(["zeros", "pass"])
             facts[str(version)] = fact
         games = c_layouts(layout_program, facts)
         for version, (layout, refused) in games.items():
@@ -836,12 +852,16 @@ def test_make_layouts(tmp_path):
     old.write_bytes(delta_table.make(4, issued=1))
     result = make_table(tmp_path, "--serial", "5", "--from", str(old),
                         "--layout", f"{own}=42:options_size=48,dropped_messages=92+93",
-                        "--layout", f"{own}=43:shield_effects_maximum=7")
+                        "--layout", f"{own}=43:shield_effects_maximum=7",
+                        "--layout", f"{own}=44:join_request_extra=0")
     assert result.returncode == 0, result.stderr
     (tmp_path / "new.json").write_text(result.stdout)
     row = json.loads(result.stdout)["wires"][own]
     assert row["layouts"]["42"] == {"options_size": 48, "dropped_messages": [92, 93]}
     assert row["layouts"]["43"] == {"shield_effects_maximum": 7}
+    assert row["layouts"]["44"] == {"join_request_extra": 0, "join_request_fill": "zeros"}
+    # (this build's own facts say its join request too)
+    assert row["layouts"]["40"]["join_request_extra"] == 234 and row["layouts"]["40"]["join_request_fill"] == "zeros"
     # (made again, and with a --row for the wire: the facts past its own stay)
     wide = f"{floor()['announce'] + 6},{floor()['minimum']},{floor()['maximum'] + 2}"
     result = make_table(tmp_path, "--serial", "6", "--from", str(tmp_path / "new.json"), "--row", f"{own}={wide}")
@@ -853,6 +873,7 @@ def test_make_layouts(tmp_path):
                 f"{own}=42:shield_effects_maximum=16", f"{own}=42:shield_effects_maximum=5",
                 f"{own}=42:dropped_messages=0", f"{own}=42:dropped_messages=256", f"{own}=42:colour=1",
                 f"{own}=42:options_size=48,options_size=52", f"{own}=42", "chupa-32a=42:options_size=48",
+                f"{own}=42:join_request_extra=1025", "chupa-39a=42:join_request_extra=234",
                 "chupa-99z=100:options_size=48"):
         assert make_table(tmp_path, "--serial", "6", "--from", str(old), "--layout", bad).returncode == 1, bad
 
@@ -879,18 +900,23 @@ def test_loader_reads_layouts(keys, checker, tmp_path):
     versions within the limits; the built-in facts for its own versions"""
     row = dict(floor(), layouts={"35": {"options_size": 60}, "42": {"options_size": 48, "dropped_messages": [92, 93],
                                                                     "shield_effects_maximum": 7, "later": {"a": [1]}},
-                                  "44": {"settings_size": 13146}, "45": {"options_size": 20}})
+                                  "44": {"settings_size": 13146, "join_request_extra": 300, "join_request_fill": "zeros"},
+                                  "45": {"options_size": 20, "join_request_extra": 64, "join_request_fill": "pass"}})
     table = write_signed(keys, tmp_path / "t10", document(serial=10, row=row))
     output = run_checker(checker, tmp_path, "layout", 42, "offer", table, "layout", 35, "layout", 41, "layout", 42,
                          "layout", 44, "layout", 45, "state")
     assert "offer 1" in output and "4 layout facts" in output
     assert layout_line(output, 42).startswith("layout 42 settings 13136 options 44 shield 6 dropped 78,79,91,94,95 ")
     lines = [line for line in output.splitlines() if line.startswith("layout ")][1:]
-    assert lines[0] == "layout 35 settings 13136 options 44 shield 6 dropped - learned 0 refused 0 facts 4"
+    assert lines[0] == "layout 35 settings 13136 options 44 shield 6 dropped - learned 0 refused 0 facts 4 join 0"
     assert lines[1].startswith("layout 41 settings 13136 options 44 shield 6 dropped 78,79,91,94,95 learned 0 refused 0")
     assert lines[2].startswith("layout 42 settings 13140 options 48 shield 7 dropped 78,79,91,92,93,94,95 ")
     assert lines[3].startswith("layout 44 settings 13146 options 48 shield 7 ")
-    assert lines[4].startswith("layout 45 settings 13146 options 48 shield 7 ") and " refused 1 " in lines[4]
+    assert lines[4].startswith("layout 45 settings 13146 options 48 shield 7 ") and " refused 2 " in lines[4]
+    # (the join request: 234 zero bytes from 40, the table's 300 from 44; a
+    # fill this build does not write is not taken)
+    assert lines[1].endswith(" join 234") and lines[2].endswith(" join 234")
+    assert lines[3].endswith(" join 300") and lines[4].endswith(" join 300")
     # (the cached table, read again at the next start)
     output = run_checker(checker, tmp_path, "layout", 42)
     assert layout_line(output, 42).startswith("layout 42 settings 13140 options 48 ")

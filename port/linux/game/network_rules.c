@@ -512,6 +512,19 @@ void network_rules_layout_apply(struct network_rules_layout *layout, struct delt
 			else
 				layout->refused++;
 		}
+		if (fact->join_request_said)
+		{
+			/* (the join request's length past 0x70, longer or shorter, of
+			zeros: another fill, or past the limit, is not taken) */
+			if (fact->join_request_fill == DELTA_LAYOUT_FILL_ZEROS &&
+				fact->join_request_extra <= NETWORK_RULES_JOIN_REQUEST_EXTRA_LIMIT)
+			{
+				layout->join_request_extra = fact->join_request_extra;
+				layout->learned++;
+			}
+			else
+				layout->refused++;
+		}
 		for (byte = 0; byte < DELTA_LAYOUT_KIND_BYTES; byte++)
 		{
 			/* (kind 0 is none) */

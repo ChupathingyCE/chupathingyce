@@ -395,7 +395,8 @@ static int json_kinds(struct json *json, struct delta_layout_fact *fact)
 }
 
 /* a layout fact: {"settings_size": S, "options_size": O,
-"shield_effects_maximum": E, "dropped_messages": [K, ...]}, each optional,
+"shield_effects_maximum": E, "dropped_messages": [K, ...],
+"join_request_extra": J, "join_request_fill": "zeros"}, each optional,
 others passed over (a later build's) */
 static int json_fact(struct json *json, struct delta_layout_fact *fact)
 {
@@ -429,6 +430,26 @@ static int json_fact(struct json *json, struct delta_layout_fact *fact)
 		}
 		else if (!escaped && json_is(key, length, "dropped_messages"))
 			bit = 8, ok = json_kinds(json, fact);
+		else if (!escaped && json_is(key, length, "join_request_extra"))
+		{
+			bit = 16, ok = json_integer(json, 0, MAXIMUM_VERSION, &value);
+			if (ok)
+			{
+				fact->join_request_extra = (unsigned short)value;
+				fact->join_request_said = 1;
+			}
+		}
+		else if (!escaped && json_is(key, length, "join_request_fill"))
+		{
+			/* ("zeros", the only fill this build writes; another a later
+			build's, whose length this one does not take) */
+			const char *fill;
+			int fill_length, fill_escaped;
+
+			bit = 32, ok = json_string(json, &fill, &fill_length, &fill_escaped);
+			if (ok && (fill_escaped || !json_is(fill, fill_length, "zeros")))
+				fact->join_request_fill = DELTA_LAYOUT_FILL_UNKNOWN;
+		}
 		else
 			ok = json_skip(json);
 		/* (a key twice would read differently elsewhere) */

@@ -610,6 +610,9 @@ static void test_layouts_from_the_table(void)
 	/* 44: six bytes after the local data */
 	fact = test_fact(44);
 	fact->settings_size = 0x3354 + 6;
+	/* 44 also: the join request 300 zero bytes past 0x70 */
+	fact->join_request_said = 1;
+	fact->join_request_extra = 300;
 	network_rules_set_layout_source(test_source);
 
 	network_rules_layout(41, &layout);
@@ -630,6 +633,9 @@ static void test_layouts_from_the_table(void)
 	network_rules_layout(NETWORK_RULES_VERSION_UNKNOWN, &layout);
 	CHECK(layout.settings_size == 0 && layout.learned == 0);
 	CHECK(network_rules_layout_newest() == 44);
+	CHECK(network_rules_join_request_extra(43) == 234 && network_rules_join_request_extra(44) == 300);
+	CHECK(network_rules_join_request_extra(63) == 300 && network_rules_join_request_extra(41) == 234);
+	CHECK(network_rules_join_request_extra(NETWORK_RULES_VERSION_UNKNOWN) == 0);
 
 	/* what the client and the host make of them */
 	CHECK(network_rules_settings_size(42) == 0x3354 && network_rules_settings_size(41) == 0x3350);
@@ -707,6 +713,45 @@ static void test_layouts_hostile(void)
 	}
 }
 
+static void test_layouts_join_request(void)
+{
+	struct network_rules_layout layout;
+	struct delta_layout_fact *fact;
+
+	/* a table's join request length: none again (0), past the limit, of a
+	fill this build does not write, and for a version the build knows */
+	test_fact_count = 0;
+	fact = test_fact(40);
+	fact->join_request_said = 1;
+	fact->join_request_extra = 10;
+	fact = test_fact(42);
+	fact->join_request_said = 1;
+	fact->join_request_extra = 0;
+	fact = test_fact(43);
+	fact->join_request_said = 1;
+	fact->join_request_extra = NETWORK_RULES_JOIN_REQUEST_EXTRA_LIMIT + 1;
+	fact = test_fact(44);
+	fact->join_request_said = 1;
+	fact->join_request_extra = 64;
+	fact->join_request_fill = DELTA_LAYOUT_FILL_UNKNOWN;
+	fact = test_fact(45);
+	fact->join_request_said = 1;
+	fact->join_request_extra = NETWORK_RULES_JOIN_REQUEST_EXTRA_LIMIT;
+	/* (a fact that does not say it leaves it as it was) */
+	fact = test_fact(46);
+	fact->shield_effects_maximum = 7;
+	network_rules_set_layout_source(test_source);
+
+	CHECK(network_rules_join_request_extra(40) == 234 && network_rules_join_request_extra(41) == 234);
+	CHECK(network_rules_join_request_extra(42) == 0);
+	network_rules_layout(44, &layout);
+	CHECK(layout.join_request_extra == 0 && layout.refused == 2);
+	CHECK(network_rules_join_request_extra(45) == NETWORK_RULES_JOIN_REQUEST_EXTRA_LIMIT);
+	CHECK(network_rules_join_request_extra(46) == NETWORK_RULES_JOIN_REQUEST_EXTRA_LIMIT);
+	network_rules_set_layout_source(NULL);
+	CHECK(network_rules_join_request_extra(46) == 234);
+}
+
 static void test_layout_record(void)
 {
 	/* a record of 0x30 bytes of options and 6 after the local data, made
@@ -769,6 +814,7 @@ int main(void)
 	test_layouts_built_in();
 	test_layouts_from_the_table();
 	test_layouts_hostile();
+	test_layouts_join_request();
 	test_layout_record();
 	if (failures)
 	{

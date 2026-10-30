@@ -444,7 +444,8 @@ A wire from chupa-38a on reads "layouts" in its row: for a network version,
 the facts a host of it sends that this build reads by data, not code (the
 game settings record's size, the gametype's options' length, the distributed
 messages a machine that does not know them drops, the shield effects
-message's largest value; docs/delta.md, "Layouts"). A fact holds for its
+message's largest value, and from chupa-41a the join request's length past
+0x70 and its fill; docs/delta.md, "Layouts"). A fact holds for its
 version and every later one until the next fact, and is used only for
 versions past DELTA_LEGACY_NEWEST (the build's own rules are the built-in
 facts) and only within the limits network_rules.c sets (port/linux/game/
@@ -465,7 +466,18 @@ struct delta_layout_fact
 	machine that does not know them drops: a bit a kind (kind 8 is bit 0 of
 	byte 1) */
 	unsigned char dropped[DELTA_LAYOUT_KIND_BYTES];
+	/* (chupa-41a on) the bytes a client's join request carries after its
+	first 0x70 (the Xbox's and the hardware id) to a host of the version,
+	and how they are filled: join_request_said when the fact says it (0 is
+	a length too: none), join_request_fill DELTA_LAYOUT_FILL_ZEROS, the
+	only fill this build writes, or DELTA_LAYOUT_FILL_UNKNOWN for another
+	the fact names, whose length is then not taken */
+	unsigned short join_request_extra;
+	unsigned char join_request_said;
+	unsigned char join_request_fill;
 };
+#define DELTA_LAYOUT_FILL_ZEROS 0
+#define DELTA_LAYOUT_FILL_UNKNOWN 1
 
 /* the table in use's facts for this build's wire (its own row's, or the
 local override's), oldest first, into facts (at most count): how many */

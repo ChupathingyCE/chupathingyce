@@ -308,6 +308,9 @@ bytes and ignores the rest). This build never has a pass and sends zeros. */
 #define NETWORK_RULES_JOIN_REQUEST_VERSION 40
 #define NETWORK_RULES_JOIN_REQUEST_SIZE 0x70
 #define NETWORK_RULES_JOIN_REQUEST_EXTRA 234
+/* the most a table's fact may make it: the request, its version and type
+bytes well within a message (HALO_PORT_MAXIMUM_NETWORK_MESSAGE_SIZE) */
+#define NETWORK_RULES_JOIN_REQUEST_EXTRA_LIMIT 1024
 /* network version 41: the vote messages a machine of 41 sends (78 and 79
 laid out anew, 94 and 95 the map vote), none of which this build plays */
 #define NETWORK_RULES_VOTES_VERSION 41
@@ -339,7 +342,8 @@ struct network_rules_layout
 /* the built-in facts of a version */
 void network_rules_layout_built_in(unsigned version, struct network_rules_layout *layout);
 /* the zero bytes a client's join request carries after its first
-NETWORK_RULES_JOIN_REQUEST_SIZE to a host of the version: 234 from 40 on, none
+NETWORK_RULES_JOIN_REQUEST_SIZE to a host of the version (its layout's: built
+in, and past DELTA_LEGACY_NEWEST a signed table's facts): 234 from 40 on, none
 before and none to a host whose version is not known (a game joined by an
 invitation: an older host, a console's or the Xbox's, takes the short one) */
 int network_rules_join_request_extra(unsigned version);
@@ -347,7 +351,9 @@ int network_rules_join_request_extra(unsigned version);
 network_rules_layout_built_in: each fact of a version past DELTA_LEGACY_NEWEST,
 up to the layout's, in order; a size may only grow (the bytes after the local
 data never shrink), to the limits; the shield effects' largest value only
-rise, to NETWORK_RULES_SHIELD_EFFECTS_LIMIT; dropped kinds add */
+rise, to NETWORK_RULES_SHIELD_EFFECTS_LIMIT; dropped kinds add; the join
+request's length past 0x70 is set (to NETWORK_RULES_JOIN_REQUEST_EXTRA_LIMIT,
+zeros alone) */
 void network_rules_layout_apply(struct network_rules_layout *layout, struct delta_layout_fact const *facts,
 	int count);
 /* where the table's facts come from (delta.c's delta_legacy_layouts, told
