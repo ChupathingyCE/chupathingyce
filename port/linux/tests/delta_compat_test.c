@@ -402,7 +402,7 @@ static void dedicated(unsigned char *reserved, int announced, int slayer)
 		delta_compat_advertise_old(reserved, RESERVED, DELTA_MAJOR, "chupa-39a");
 }
 
-/* the neutral "OpenCE server" label: an OpenCE dedicated server of 39 or
+/* the neutral "OpenCE dedicated" label: an OpenCE dedicated server of 39 or
 later (its flag, no Delta), never one of ours (the tag, or the old layout's
 Delta flag), never a player's game; and by a listing's flags, OpenCE's
 dedicated bit without ours */

@@ -4815,14 +4815,15 @@ static void lobby_browser_host_text(struct p2p_listing const *game, wchar_t *tex
 		if (config_boolean("network.online") && config_boolean("network.public_lobby") &&
 			browser_list_status() == BROWSER_LIST_ANSWERED)
 		{
-			usnprintf(text, size - 1, L" (%sOPENCE LEGACY, NETWORK %d%s)", game->dedicated ? L"DEDICATED, " : L"",
+			usnprintf(text, size - 1, L" (%sOPENCE LEGACY, NETWORK %d%s)",
+				game->dedicated && !game->opence_server ? L"DEDICATED, " : L"",
 				game->version, game->opence_server ? L", " JOIN_WIDE(HOST_LABEL_OPENCE_SERVER) : L"");
 			text[size - 1] = 0;
 		}
 		/* (and with the list down, by its listing alone) */
 		else if (game->opence_server)
 		{
-			usnprintf(text, size - 1, L" (DEDICATED, %s)", JOIN_WIDE(HOST_LABEL_OPENCE_SERVER));
+			usnprintf(text, size - 1, L" (%s)", JOIN_WIDE(HOST_LABEL_OPENCE_SERVER));
 			text[size - 1] = 0;
 		}
 		return;
