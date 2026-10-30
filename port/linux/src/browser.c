@@ -1664,15 +1664,16 @@ static void parse_host(char **fields, struct browser_game *game)
 /* one line of /v1/games.txt: invite name map engine players
 maximum_players open version age score_limit teams roster, and (as asked:
 ?fields=22) region, platform, hosting, protocol, machines, gametype,
-capabilities, an Xbox map pack's map's name, pack and tag, and (?fields=23)
-the playlist (a list from before them sends 19, or 22) */
+capabilities, an Xbox map pack's map's name, pack and tag, (?fields=23)
+the playlist, and (?fields=24) "opence_server" for an OpenCE dedicated
+server's game (a list from before them sends 19, 22 or 23) */
 static int parse_game(char *line, struct browser_game *game)
 {
-	char *fields[23];
+	char *fields[24];
 	int count = 0;
 	char *cursor = line;
 
-	while (count < 23)
+	while (count < 24)
 	{
 		fields[count++] = cursor;
 		cursor = strchr(cursor, '\t');
@@ -1768,6 +1769,13 @@ static int parse_game(char *line, struct browser_game *game)
 			snprintf(game->playlist, sizeof(game->playlist), "%s", fields[22]);
 		}
 	}
+	/* (then an OpenCE dedicated server's label: the list knows it of a
+	server that publishes only to OpenCE's masters, which no broker hears) */
+	if (count >= 24)
+	{
+		fields[23][strcspn(fields[23], "\r\n")] = 0;
+		game->opence_server = !strcmp(fields[23], "opence_server");
+	}
 	return 1;
 }
 
@@ -1803,7 +1811,7 @@ static void update_list(void)
 	}
 	/* (with the host's fields: a list from before them sends what it has; and
 	co-op games, which the list sends only when asked, for the lists' filter) */
-	server_url("/v1/games.txt?fields=23&coop=1", url, sizeof(url));
+	server_url("/v1/games.txt?fields=24&coop=1", url, sizeof(url));
 	status = posix_browser_request(url, NULL, NULL, response, sizeof(response), error, sizeof(error));
 	if (!p2p_hosting_invite(own, sizeof(own)))
 		own[0] = 0;
@@ -2663,7 +2671,10 @@ static void add_known(struct browser_game *games, int count)
 		if (games[index].direct)
 			continue;
 		games[index].kind = 0;
-		games[index].opence_server = 0;
+		/* (the list's label, else a broker listing's; a Delta host is never
+		OpenCE's) */
+		if (games[index].protocol == BROWSER_PROTOCOL_DELTA)
+			games[index].opence_server = 0;
 		for (other = 0; other < listing_count; other++)
 		{
 			p2p_hex(listings[other].key_hash, P2P_KEY_HASH_SIZE, key_hash);
@@ -2672,8 +2683,8 @@ static void add_known(struct browser_game *games, int count)
 				games[index].locked = listings[other].locked;
 				games[index].kind = listings[other].kind;
 				/* (a Delta host is never OpenCE's, whatever its listing) */
-				games[index].opence_server = games[index].protocol != BROWSER_PROTOCOL_DELTA &&
-					listings[other].opence_server;
+				if (games[index].protocol != BROWSER_PROTOCOL_DELTA && listings[other].opence_server)
+					games[index].opence_server = 1;
 				break;
 			}
 		}
