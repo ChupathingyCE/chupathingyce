@@ -149,10 +149,10 @@ def test_the_version_and_the_wire():
     limits = (ROOT / "port/linux/include/halo_port_limits.h").read_text(encoding="utf-8")
     delta = (ROOT / "port/linux/include/delta.h").read_text(encoding="utf-8")
     assert "#define HALO_PORT_NETWORK_VERSION 32\n" in limits
-    assert '#define DELTA_WIRE "chupa-39a"' in delta
-    for number in (30, 31, 32, 33, 34, 35, 36, 37, 38, 39):
+    assert '#define DELTA_WIRE "chupa-41a"' in delta
+    for number in (30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41):
         assert re.search(rf'X\({number}, "build-\d+", additive\)', delta)
-    assert "#define HALO_PORT_NETWORK_VERSION_MAXIMUM 40\n" in limits
+    assert "#define HALO_PORT_NETWORK_VERSION_MAXIMUM 42\n" in limits
 
 
 def test_elevator_carry_of_the_tick_is_for_network_games_only():

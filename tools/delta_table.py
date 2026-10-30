@@ -94,6 +94,8 @@ JSON_DEPTH = 8
 SETTINGS_SIZE, SETTINGS_EXTENDED_SIZE = 13120, 13136
 OPTIONS_SIZE, OPTIONS_EXTENDED_SIZE = 0x1C, 0x2C
 EXTENDED_OPTIONS_VERSION, SHIELD_EFFECTS_VERSION, SHIELD_EFFECTS_KIND = 35, 36, 91
+# version 41's vote messages, which a build of it drops (network_rules.h)
+VOTES_VERSION, VOTE_KINDS = 41, (78, 79, 94, 95)
 # (an Ed25519 public key's DER: this prefix, then its 32 bytes)
 ED25519_SPKI_PREFIX = bytes.fromhex("302a300506032b6570032100")
 
@@ -171,7 +173,8 @@ def built_in_layout(version: int, own_newest: int = None) -> dict:
     return {"settings_size": SETTINGS_EXTENDED_SIZE if rules >= EXTENDED_OPTIONS_VERSION else SETTINGS_SIZE,
             "options_size": OPTIONS_EXTENDED_SIZE if rules >= EXTENDED_OPTIONS_VERSION else OPTIONS_SIZE,
             "shield_effects_maximum": limits()["shield_built_in"],
-            "dropped_messages": [SHIELD_EFFECTS_KIND] if rules >= SHIELD_EFFECTS_VERSION else []}
+            "dropped_messages": sorted(([SHIELD_EFFECTS_KIND] if rules >= SHIELD_EFFECTS_VERSION else []) +
+                                       (list(VOTE_KINDS) if rules >= VOTES_VERSION else []))}
 
 
 def apply_layouts(version: int, facts: dict, own_newest: int) -> tuple:

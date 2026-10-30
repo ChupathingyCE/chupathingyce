@@ -417,6 +417,25 @@ void network_rules_layout_built_in(unsigned version, struct network_rules_layout
 	}
 	if (rules >= NETWORK_RULES_SHIELD_EFFECTS_VERSION)
 		layout_drop(layout, NETWORK_RULES_SHIELD_EFFECTS_KIND);
+	if (rules >= NETWORK_RULES_JOIN_REQUEST_VERSION)
+		layout->join_request_extra = NETWORK_RULES_JOIN_REQUEST_EXTRA;
+	if (rules >= NETWORK_RULES_VOTES_VERSION)
+	{
+		layout_drop(layout, NETWORK_RULES_VOTE_REQUEST_KIND);
+		layout_drop(layout, NETWORK_RULES_VOTE_STATUS_KIND);
+		layout_drop(layout, NETWORK_RULES_MAP_VOTE_STATUS_KIND);
+		layout_drop(layout, NETWORK_RULES_MAP_VOTE_CHOICE_KIND);
+	}
+}
+
+int network_rules_join_request_extra(unsigned version)
+{
+	struct network_rules_layout layout;
+
+	if (version == NETWORK_RULES_VERSION_UNKNOWN)
+		return 0;
+	network_rules_layout(version, &layout);
+	return layout.join_request_extra;
 }
 
 void network_rules_layout_apply(struct network_rules_layout *layout, struct delta_layout_fact const *facts,

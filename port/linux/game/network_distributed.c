@@ -3303,6 +3303,14 @@ static void distributed_unknown_kind(
 	92") */
 	if (type == DISTRIBUTED_CLIENT_BUILD_KIND)
 		return;
+	/* (OpenCE's votes, a kick or the game's end (78, 79) and the map (94,
+	95): this build plays none, shows none and never votes; dropped unread
+	and unlogged, from a host or a client of any version) */
+	if (type == NETWORK_RULES_VOTE_REQUEST_KIND || type == NETWORK_RULES_VOTE_STATUS_KIND ||
+		type == NETWORK_RULES_MAP_VOTE_STATUS_KIND || type == NETWORK_RULES_MAP_VOTE_CHOICE_KIND)
+	{
+		return;
+	}
 	if (distributed_unknown_kinds_seen[type >> 3] & (1 << (type & 7)))
 		return;
 	distributed_unknown_kinds_seen[type >> 3] |= (byte)(1 << (type & 7));
