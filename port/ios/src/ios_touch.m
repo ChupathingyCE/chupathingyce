@@ -32,7 +32,10 @@ interaction says when to look again; both are reached through the
 Objective-C runtime, so the overlay builds with any SDK and does nothing
 where iOS has neither. On the inner display the game turns with the device
 (chooseOrientations): held like a laptop that display is taller than it is
-wide, and iOS scales a game held to landscape into the middle of it.
+wide, and iOS scales a game held to landscape into the middle of it. Started
+on the outer display and then opened, the game's window can stay the outer
+display's size in a corner of the inner one: each frame, it and its view are
+held to the scene (fillScene), and the launcher's window under them is hidden.
 
 On the Apple TV (HALO_TVOS) there is no touch screen: the hooks are here,
 and answer nothing, and the game is played with a controller.
@@ -307,6 +310,8 @@ static float present_area[4] = { 0.0f, 0.0f, 1.0f, 1.0f };
 	orientation (its inner display) rather than landscape alone */
 	BOOL has_hinge;
 	BOOL any_orientation;
+	/* when the window or its view first differed from the scene, or 0 */
+	CFTimeInterval unfilled_since;
 }
 
 - (instancetype)initWithFrame:(CGRect)frame
@@ -503,6 +508,40 @@ is told by its size: no phone's is 600 points across */
 	SDL_Log("touch: %s", any ? "iPhone Duo's inner display: the game turns with the device"
 		: "landscape only");
 	[self.window.rootViewController setNeedsUpdateOfSupportedInterfaceOrientations];
+}
+
+/* The window and its view (SDL's, which the game's drawable follows) at the
+scene's size, read each frame: after UIKit has had half a second, as they
+differ for a moment while the device turns */
+- (void)fillScene
+{
+	UIWindow *window = self.window;
+	UIView *view = window.rootViewController.view;
+	CGRect scene = window.windowScene.coordinateSpace.bounds;
+	BOOL window_fits = CGRectEqualToRect(window.frame, scene);
+	BOOL view_fits = CGSizeEqualToSize(view.bounds.size, scene.size);
+	CFTimeInterval now = CACurrentMediaTime();
+
+	if (!view || CGRectIsEmpty(scene) || (window_fits && view_fits))
+	{
+		unfilled_since = 0;
+		return;
+	}
+	if (unfilled_since == 0)
+		unfilled_since = now;
+	if (now - unfilled_since < 0.5)
+		return;
+	unfilled_since = 0;
+	SDL_Log("touch: the scene is %.0fx%.0f, the window %.0fx%.0f, its view %.0fx%.0f: filling the scene",
+		scene.size.width, scene.size.height, window.frame.size.width, window.frame.size.height,
+		view.bounds.size.width, view.bounds.size.height);
+	if (!window_fits)
+		window.frame = scene;
+	/* (bounds and center: a turning view's frame means nothing) */
+	view.bounds = CGRectMake(0, 0, scene.size.width, scene.size.height);
+	view.center = CGPointMake(CGRectGetMidX(scene), CGRectGetMidY(scene));
+	[view setNeedsLayout];
+	[view layoutIfNeeded];
 }
 
 /* (UIKit runs this again when the regions it read change) */
@@ -951,6 +990,11 @@ static void overlay_attach(void)
 	overlay = [[HaloTouchControls alloc] initWithFrame:view.bounds];
 	[view addSubview:overlay];
 	SDL_Log("touch: on-screen controls over SDL's view");
+	/* the launcher is done with (the process ends with the game): where the
+	game's window does not cover it, it would show */
+	id<UIWindowSceneDelegate> delegate = (id<UIWindowSceneDelegate>)window.windowScene.delegate;
+	if ([delegate respondsToSelector:@selector(window)] && delegate.window != window)
+		delegate.window.hidden = YES;
 }
 
 /* ---------- the game's hooks */
@@ -1020,6 +1064,7 @@ laptop posture, else all of it; read each frame, on the main thread */
 void host_present_area(float *area)
 {
 	overlay_attach();
+	[overlay fillScene];
 	memcpy(area, present_area, sizeof(present_area));
 }
 
