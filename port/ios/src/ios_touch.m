@@ -43,6 +43,7 @@ and answer nothing, and the game is played with a controller.
 
 #import <UIKit/UIKit.h>
 #import <GameController/GameController.h>
+#import <QuartzCore/QuartzCore.h>
 #include <SDL3/SDL.h>
 
 #include <math.h>
