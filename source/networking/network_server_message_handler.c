@@ -2257,6 +2257,10 @@ static boolean network_game_server_handle_message_client_join_game_request(
 		short packet_type = _message_client_join_game_request;
 		short packet_version = NETWORK_GAME_MESSAGE_VERSION;
 
+		/* (port: the request of 0x70 bytes, or OpenCE's of 40 on, 234 bytes
+		longer: the decoder reads the first 0x70 and leaves the rest, a pass
+		and a proof for OpenCE's own servers, which this host never reads,
+		logs or keeps) */
 		message_size -= sizeof(word);
 		if (network_game_server_client_machine_is_joined_to_game(server, server_client_machine))
 		{
