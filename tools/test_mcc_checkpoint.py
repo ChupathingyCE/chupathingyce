@@ -53,7 +53,7 @@ enum {_game_state_allocation_data,_game_state_allocation_memory_pool,_game_state
 struct game_state_allocation {int kind;void *address;long maximum_count,element_size,size;};
 static struct game_state_allocation game_state_allocations[1];
 static long game_state_allocation_count;
-static int native_valid=1;
+static int native_valid=1,checkpoint_notifications;
 ''' + '#include "' + (ROOT / "port/linux/game/mcc_checkpoint.c").as_posix() + '"\n' + r'''
 boolean mcc_cache_tags_loaded(void) {return loaded;}
 int mcc_script_threads_capture(void) {return 1;}
@@ -98,6 +98,7 @@ int mcc_grenades_restore(void const *in,uint32_t bytes) {
 void game_state_call_before_save_procs(void) {}
 void main_stop_time(void) {}
 void main_start_time(void) {}
+void network_coop_checkpoint_saved(void) {checkpoint_notifications++;}
 void game_state_note_event(char const *event) {(void)event;}
 int game_state_write_to_file(void) {memcpy(saved,live,sizeof(saved));writes++;return 1;}
 int game_state_write_core(char const *name,void const *data,long size) {
@@ -161,12 +162,12 @@ int main(int argc,char **argv) {
     if(!strcmp(argv[1],"stock")) {
         loaded=0;strcpy(header->map_name,"levels\\a10\\a10");
         game_state_save();result=game_state_image_accept(saved,sizeof(saved));
-        if(captures||restores||memcmp(tail,saved+(tail-live),MCC_CHECKPOINT_SLOT_BYTES))return 3;
+        if(checkpoint_notifications!=1||captures||restores||memcmp(tail,saved+(tail-live),MCC_CHECKPOINT_SLOT_BYTES))return 3;
     } else if(!strcmp(argv[1],"capacity")) {
         game_state_globals.cpu_allocation_size=GAME_STATE_CPU_SIZE-MCC_CHECKPOINT_SLOT_BYTES+1;
-        game_state_save();result=!writes&&!game_state_globals.saved_game_valid;
+        game_state_save();result=!writes&&!checkpoint_notifications&&!game_state_globals.saved_game_valid;
     } else if(!strcmp(argv[1],"capture_fail")) {
-        malformed=1;game_state_save();result=!writes&&!game_state_globals.saved_game_valid;
+        malformed=1;game_state_save();result=!writes&&!checkpoint_notifications&&!game_state_globals.saved_game_valid;
     } else if(!strcmp(argv[1],"maximum")) {
         payload_size=MCC_CHECKPOINT_PAYLOAD_LIMIT;
         result=mcc_checkpoint_capture(live,sizeof(live),used,GAME_STATE_CPU_SIZE);
@@ -176,7 +177,7 @@ int main(int argc,char **argv) {
         result=!mcc_checkpoint_capture(live,sizeof(live),used,GAME_STATE_CPU_SIZE);
     } else {
         if(!strcmp(argv[1],"core"))game_state_save_core("test");else game_state_save();
-        if(writes!=1||captures!=1)return 4;
+        if(writes!=1||captures!=1||checkpoint_notifications!=(strcmp(argv[1],"core")!=0))return 4;
         if(!strcmp(argv[1],"v1")) {
             unsigned char *f=saved+(footer-live),*p=saved+(tail-live);
             memmove(p+MCC_CAMPAIGN_SNAPSHOT_BYTES,p,payload_size);
