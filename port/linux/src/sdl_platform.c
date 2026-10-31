@@ -2145,6 +2145,20 @@ void platform_pump_events(void)
 	pthread_mutex_lock(&input_lock);
 	while (SDL_PollEvent(&event))
 	{
+#ifdef HALO_ANDROID
+		if (event.type >= SDL_EVENT_GAMEPAD_AXIS_MOTION && event.type <= SDL_EVENT_GAMEPAD_BUTTON_UP)
+		{
+			static Uint64 last_log_ns;
+			Uint64 now_ns = SDL_GetTicksNS();
+			if (now_ns - last_log_ns >= 50000000ULL) /* 50ms interval samples (20 Hz) */
+			{
+				Uint64 delta_us = (now_ns > event.common.timestamp) ? (now_ns - event.common.timestamp) / 1000 : 0;
+				platform_log("[RAW-HID-LATENCY] pad=%u event=%u delta=%llu us",
+					(unsigned)event.gaxis.which, (unsigned)event.type, (unsigned long long)delta_us);
+				last_log_ns = now_ns;
+			}
+		}
+#endif
 		switch (event.type)
 		{
 #ifdef __APPLE__

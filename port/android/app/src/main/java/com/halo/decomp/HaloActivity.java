@@ -267,26 +267,69 @@ public class HaloActivity extends SDLActivity {
 
     private static boolean isGamepadUsbDevice(UsbDevice device) {
         if (device == null) return false;
-        int vid = device.getVendorId();
-        // Known controller vendors
-        if (vid == 0x045e || // Microsoft
-            vid == 0x054c || // Sony
-            vid == 0x057e || // Nintendo
-            vid == 0x046d || // Logitech
-            vid == 0x1038 || // SteelSeries
-            vid == 0x1532 || // Razer
-            vid == 0x28de || // Valve
-            vid == 0x2dc8 || vid == 0x1d79) { // 8BitDo
-            return true;
+
+        // Exclude headsets, audio DACs, keyboards, and mice
+        String productName = device.getProductName();
+        if (productName != null) {
+            String lower = productName.toLowerCase();
+            if (lower.contains("arctis") || lower.contains("headset") || lower.contains("audio") ||
+                lower.contains("dac") || lower.contains("keyboard") || lower.contains("mouse")) {
+                return false;
+            }
         }
+
+        // Check if device has an Audio interface without an Xbox GIP interface
+        boolean hasAudio = false;
+        boolean hasXboxGip = false;
         for (int i = 0; i < device.getInterfaceCount(); i++) {
             UsbInterface iface = device.getInterface(i);
-            if (iface.getInterfaceClass() == 3) // HID
-                return true;
-            if (iface.getInterfaceClass() == 255 && iface.getInterfaceSubclass() == 71) // Xbox GIP / XInput
-                return true;
+            if (iface.getInterfaceClass() == 1) { // USB_CLASS_AUDIO
+                hasAudio = true;
+            }
+            if (iface.getInterfaceClass() == 255 && iface.getInterfaceSubclass() == 71) { // Xbox GIP / XInput
+                hasXboxGip = true;
+            }
         }
-        return false;
+        if (hasAudio && !hasXboxGip) {
+            return false;
+        }
+
+        int vid = device.getVendorId();
+        // Microsoft Xbox Controllers (Xbox 360, Xbox One, Xbox Series X|S)
+        if (vid == 0x045e) {
+            return true;
+        }
+        // Sony PlayStation (DualShock 3/4, DualSense)
+        if (vid == 0x054c) {
+            return true;
+        }
+        // Nintendo (Switch Pro, Joy-Con)
+        if (vid == 0x057e) {
+            return true;
+        }
+        // Logitech
+        if (vid == 0x046d) {
+            return true;
+        }
+        // Razer
+        if (vid == 0x1532) {
+            return true;
+        }
+        // Valve
+        if (vid == 0x28de) {
+            return true;
+        }
+        // 8BitDo
+        if (vid == 0x2dc8 || vid == 0x1d79) {
+            return true;
+        }
+        // SteelSeries - only specific controller PIDs, never headsets
+        if (vid == 0x1038) {
+            int pid = device.getProductId();
+            return pid == 0x1412 || pid == 0x1430 || pid == 0x1410;
+        }
+
+        return hasXboxGip;
     }
 
     private void requestUsbControllerPermissions() {
