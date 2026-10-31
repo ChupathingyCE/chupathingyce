@@ -551,6 +551,11 @@ static void hud_message_text_place(
 	draw_unicode_string_compute_bounds(bounds, text, text_bounds, cursor_bounds);
 	hud_message_icon_shift = 0;
 	hud_message_text_ink_valid = FALSE;
+#ifdef HALO_PS3
+	/* port: no high-res text on the PS3, so the Xbox's layout: the ink below spans
+	every line, and a "|n" before an icon gave a negative indent */
+	return;
+#endif
 	if (text_bounds->x1 > text_bounds->x0 &&
 		rasterizer_text_ink_span(bounds, text, &ink_x0, &ink_x1))
 	{
