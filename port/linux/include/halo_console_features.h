@@ -242,6 +242,7 @@ which copies a draw's vertices, so it keeps d3d8_resources.c's HALO_PS3 waits, n
 #define HALO_CONSOLE_HALT_TO_LAUNCHER 1
 #define HALO_CONSOLE_LOG_BUFFER 1
 #define HALO_CONSOLE_HIRES 1
+#define HALO_CONSOLE_ONLINE_GAMES 1
 #endif
 
 #ifdef HALO_CONSOLE_WAIT_POLL

@@ -4014,8 +4014,17 @@ static void distributed_address_text(
 	{
 		unsigned long network = (address >> 24) | ((address >> 8) & 0xFF00) | ((address << 8) & 0xFF0000) |
 			(address << 24);
-		unsigned long real = p2p_peer_endpoint_address(network);
+		unsigned long real;
 
+#ifdef HALO_BIG_ENDIAN
+		/* (network byte order is a big-endian machine's own; the real address
+		turned so that its first number is the lowest byte, as printed below) */
+		network = address;
+#endif
+		real = p2p_peer_endpoint_address(network);
+#ifdef HALO_BIG_ENDIAN
+		real = (real >> 24) | ((real >> 8) & 0xFF00) | ((real << 8) & 0xFF0000) | (real << 24);
+#endif
 		if (real)
 		{
 			snprintf(text, size, "%lu.%lu.%lu.%lu", real & 255, (real >> 8) & 255, (real >> 16) & 255,
