@@ -383,6 +383,17 @@ BOOL platform_sdl_initialize(void)
 	/* touching the screen must not aim or fire (the mouse drives the
 	controller emulation in xinput_sdl.c) */
 	SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");
+	/* raw USB HID controller input: bypasses Android's InputReader for
+	hardware polling rates and trigger impulse rumble */
+	if (config_boolean("input.raw_hid"))
+	{
+		SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI, "1");
+		SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_XBOX, "1");
+		SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_PS4, "1");
+		SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_PS5, "1");
+		SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_SWITCH, "1");
+		SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_WII, "1");
+	}
 #endif
 #ifdef HALO_GAME_BROWSER
 	/* the dedicated server and a probe play no sound and need no display
@@ -2134,6 +2145,20 @@ void platform_pump_events(void)
 	pthread_mutex_lock(&input_lock);
 	while (SDL_PollEvent(&event))
 	{
+#ifdef HALO_ANDROID
+		if (event.type >= SDL_EVENT_GAMEPAD_AXIS_MOTION && event.type <= SDL_EVENT_GAMEPAD_BUTTON_UP)
+		{
+			static Uint64 last_log_ns;
+			Uint64 now_ns = SDL_GetTicksNS();
+			if (now_ns - last_log_ns >= 50000000ULL) /* 50ms interval samples (20 Hz) */
+			{
+				Uint64 delta_us = (now_ns > event.common.timestamp) ? (now_ns - event.common.timestamp) / 1000 : 0;
+				platform_log("[RAW-HID-LATENCY] pad=%u event=%u delta=%llu us",
+					(unsigned)event.gaxis.which, (unsigned)event.type, (unsigned long long)delta_us);
+				last_log_ns = now_ns;
+			}
+		}
+#endif
 		switch (event.type)
 		{
 #ifdef __APPLE__

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Microsoft Xbox Controllers (Xbox 360, Xbox One, Xbox Series X|S) -->
+    <usb-device vendor-id="1118" />
+    <!-- Sony Interactive Entertainment (DualShock 3, DualShock 4, DualSense) -->
+    <usb-device vendor-id="1356" />
+    <!-- Nintendo (Switch Pro Controller, Joy-Con Charging Grip) -->
+    <usb-device vendor-id="1406" />
+    <!-- Logitech Gamepads -->
+    <usb-device vendor-id="1133" />
+    <!-- SteelSeries Controllers (Stratus XL, Stratus Duo) - specific PIDs only, excluding headsets/DACs -->
+    <usb-device vendor-id="4152" product-id="5138" />
+    <usb-device vendor-id="4152" product-id="5168" />
+    <usb-device vendor-id="4152" product-id="5136" />
+    <!-- Razer Controllers -->
+    <usb-device vendor-id="5426" />
+    <!-- Valve Steam Controller -->
+    <usb-device vendor-id="10462" />
+    <!-- 8BitDo Controllers -->
+    <usb-device vendor-id="11720" />
+    <usb-device vendor-id="7550" />
+    <!-- Vendor-specific controllers (Xbox GIP / XInput: Class 255 / Subclass 71) -->
+    <usb-device class="255" subclass="71" />
+</resources>

@@ -1,11 +1,18 @@
 package com.halo.decomp;
 
 import android.app.AlertDialog;
+import android.app.PendingIntent;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
+import android.hardware.usb.UsbDevice;
+import android.hardware.usb.UsbInterface;
+import android.hardware.usb.UsbManager;
 import android.net.Uri;
 import android.net.wifi.WifiManager;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.InputDevice;
 import android.view.KeyEvent;
 import android.view.ViewGroup;
@@ -40,6 +47,7 @@ public class HaloActivity extends SDLActivity {
     private volatile int[] gestureInsets = new int[] { 0, 0, 0, 0 };
     /** the on-screen touch controls, over SDL's surface */
     private TouchControls touchControls;
+    private BroadcastReceiver usbReceiver;
     private static final int EXPORT_LAYOUT = 401, IMPORT_LAYOUT = 402;
     private String pendingLayoutExport;
 
@@ -63,6 +71,8 @@ public class HaloActivity extends SDLActivity {
         preferHighestRefreshRate();
         trackGestureInsets();
         acquireMulticastLock();
+        registerUsbReceiver();
+        requestUsbControllerPermissions();
         // a new version looked for while the game starts
         Updater.start(this);
     }
@@ -177,8 +187,17 @@ public class HaloActivity extends SDLActivity {
     @Override protected void onResume() {
         super.onResume();
         hideSystemBars();
+        requestUsbControllerPermissions();
         if (touchControls != null && getWindow().getDecorView().hasWindowFocus())
             touchControls.startDeviceInput();
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        if (intent != null && UsbManager.ACTION_USB_DEVICE_ATTACHED.equals(intent.getAction())) {
+            requestUsbControllerPermissions();
+        }
     }
 
     @Override
@@ -235,11 +254,134 @@ public class HaloActivity extends SDLActivity {
 
     @Override
     protected void onDestroy() {
+        if (usbReceiver != null) {
+            try { unregisterReceiver(usbReceiver); } catch (Throwable ignored) {}
+            usbReceiver = null;
+        }
         if (touchControls != null) touchControls.stopDeviceInput();
         if (multicastLock != null && multicastLock.isHeld())
             multicastLock.release();
         multicastLock = null;
         super.onDestroy();
+    }
+
+    private static boolean isGamepadUsbDevice(UsbDevice device) {
+        if (device == null) return false;
+
+        // Exclude headsets, audio DACs, keyboards, and mice
+        String productName = device.getProductName();
+        if (productName != null) {
+            String lower = productName.toLowerCase();
+            if (lower.contains("arctis") || lower.contains("headset") || lower.contains("audio") ||
+                lower.contains("dac") || lower.contains("keyboard") || lower.contains("mouse")) {
+                return false;
+            }
+        }
+
+        // Check if device has an Audio interface without an Xbox GIP interface
+        boolean hasAudio = false;
+        boolean hasXboxGip = false;
+        for (int i = 0; i < device.getInterfaceCount(); i++) {
+            UsbInterface iface = device.getInterface(i);
+            if (iface.getInterfaceClass() == 1) { // USB_CLASS_AUDIO
+                hasAudio = true;
+            }
+            if (iface.getInterfaceClass() == 255 && iface.getInterfaceSubclass() == 71) { // Xbox GIP / XInput
+                hasXboxGip = true;
+            }
+        }
+        if (hasAudio && !hasXboxGip) {
+            return false;
+        }
+
+        int vid = device.getVendorId();
+        // Microsoft Xbox Controllers (Xbox 360, Xbox One, Xbox Series X|S)
+        if (vid == 0x045e) {
+            return true;
+        }
+        // Sony PlayStation (DualShock 3/4, DualSense)
+        if (vid == 0x054c) {
+            return true;
+        }
+        // Nintendo (Switch Pro, Joy-Con)
+        if (vid == 0x057e) {
+            return true;
+        }
+        // Logitech
+        if (vid == 0x046d) {
+            return true;
+        }
+        // Razer
+        if (vid == 0x1532) {
+            return true;
+        }
+        // Valve
+        if (vid == 0x28de) {
+            return true;
+        }
+        // 8BitDo
+        if (vid == 0x2dc8 || vid == 0x1d79) {
+            return true;
+        }
+        // SteelSeries - only specific controller PIDs, never headsets
+        if (vid == 0x1038) {
+            int pid = device.getProductId();
+            return pid == 0x1412 || pid == 0x1430 || pid == 0x1410;
+        }
+
+        return hasXboxGip;
+    }
+
+    private void requestUsbControllerPermissions() {
+        try {
+            UsbManager usbManager = (UsbManager) getSystemService(Context.USB_SERVICE);
+            if (usbManager == null) return;
+            java.util.HashMap<String, UsbDevice> deviceList = usbManager.getDeviceList();
+            if (deviceList == null || deviceList.isEmpty()) return;
+
+            for (UsbDevice device : deviceList.values()) {
+                if (isGamepadUsbDevice(device)) {
+                    if (!usbManager.hasPermission(device)) {
+                        Log.i("HaloActivity", "Requesting raw USB HID permission for " + device.getDeviceName() +
+                                String.format(" (VID: %04x, PID: %04x)", device.getVendorId(), device.getProductId()));
+                        Intent permissionIntent = new Intent("org.libsdl.app.USB_PERMISSION");
+                        permissionIntent.setPackage(getPackageName());
+                        int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                            flags |= PendingIntent.FLAG_MUTABLE;
+                        }
+                        PendingIntent pi = PendingIntent.getBroadcast(this, 0, permissionIntent, flags);
+                        usbManager.requestPermission(device, pi);
+                    } else {
+                        Log.i("HaloActivity", "Raw USB HID permission already granted for " + device.getDeviceName() +
+                                String.format(" (VID: %04x, PID: %04x)", device.getVendorId(), device.getProductId()));
+                    }
+                }
+            }
+        } catch (Throwable t) {
+            Log.w("HaloActivity", "USB permission check failed: " + t.getMessage());
+        }
+    }
+
+    private void registerUsbReceiver() {
+        IntentFilter filter = new IntentFilter();
+        filter.addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED);
+        filter.addAction(UsbManager.ACTION_USB_DEVICE_DETACHED);
+        usbReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                if (intent == null) return;
+                String action = intent.getAction();
+                if (UsbManager.ACTION_USB_DEVICE_ATTACHED.equals(action)) {
+                    requestUsbControllerPermissions();
+                }
+            }
+        };
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(usbReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            registerReceiver(usbReceiver, filter);
+        }
     }
 
     /**
