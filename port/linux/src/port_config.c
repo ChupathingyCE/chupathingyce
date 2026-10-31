@@ -506,6 +506,9 @@ static const struct config_setting config_settings[] =
 	{ "input.touch_controls", _config_string, "\"on\"", "HALO_TOUCH_CONTROLS", _environment_value, _platform_android,
 		"On-screen touch controls: \"on\" or \"off\". \"auto\" shows them only\n"
 		"when no controller is connected." },
+	{ "input.raw_hid", _config_boolean, "true", "HALO_RAW_HID", _environment_set_is_true, _platform_android | _platform_desktop,
+		"Raw USB HID input for controllers (HIDAPI): true bypasses the OS\n"
+		"gamepad abstraction for sub-millisecond polling and trigger rumble." },
 #ifdef HALO_SWITCH_CONSOLE
 	/* gyro aiming (port/linux/src/xinput_sdl.c): the controller's gyroscope,
 	each local player from their own */

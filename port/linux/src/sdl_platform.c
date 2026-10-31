@@ -383,6 +383,17 @@ BOOL platform_sdl_initialize(void)
 	/* touching the screen must not aim or fire (the mouse drives the
 	controller emulation in xinput_sdl.c) */
 	SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");
+	/* raw USB HID controller input: bypasses Android's InputReader for
+	hardware polling rates and trigger impulse rumble */
+	if (config_boolean("input.raw_hid"))
+	{
+		SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI, "1");
+		SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_XBOX, "1");
+		SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_PS4, "1");
+		SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_PS5, "1");
+		SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_SWITCH, "1");
+		SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_WII, "1");
+	}
 #endif
 #ifdef HALO_GAME_BROWSER
 	/* the dedicated server and a probe play no sound and need no display

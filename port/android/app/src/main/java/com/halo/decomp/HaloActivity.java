@@ -1,11 +1,18 @@
 package com.halo.decomp;
 
 import android.app.AlertDialog;
+import android.app.PendingIntent;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
+import android.hardware.usb.UsbDevice;
+import android.hardware.usb.UsbInterface;
+import android.hardware.usb.UsbManager;
 import android.net.Uri;
 import android.net.wifi.WifiManager;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.InputDevice;
 import android.view.KeyEvent;
 import android.view.ViewGroup;
@@ -40,6 +47,7 @@ public class HaloActivity extends SDLActivity {
     private volatile int[] gestureInsets = new int[] { 0, 0, 0, 0 };
     /** the on-screen touch controls, over SDL's surface */
     private TouchControls touchControls;
+    private BroadcastReceiver usbReceiver;
     private static final int EXPORT_LAYOUT = 401, IMPORT_LAYOUT = 402;
     private String pendingLayoutExport;
 
@@ -63,6 +71,8 @@ public class HaloActivity extends SDLActivity {
         preferHighestRefreshRate();
         trackGestureInsets();
         acquireMulticastLock();
+        registerUsbReceiver();
+        requestUsbControllerPermissions();
         // a new version looked for while the game starts
         Updater.start(this);
     }
@@ -177,8 +187,17 @@ public class HaloActivity extends SDLActivity {
     @Override protected void onResume() {
         super.onResume();
         hideSystemBars();
+        requestUsbControllerPermissions();
         if (touchControls != null && getWindow().getDecorView().hasWindowFocus())
             touchControls.startDeviceInput();
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        if (intent != null && UsbManager.ACTION_USB_DEVICE_ATTACHED.equals(intent.getAction())) {
+            requestUsbControllerPermissions();
+        }
     }
 
     @Override
@@ -235,11 +254,91 @@ public class HaloActivity extends SDLActivity {
 
     @Override
     protected void onDestroy() {
+        if (usbReceiver != null) {
+            try { unregisterReceiver(usbReceiver); } catch (Throwable ignored) {}
+            usbReceiver = null;
+        }
         if (touchControls != null) touchControls.stopDeviceInput();
         if (multicastLock != null && multicastLock.isHeld())
             multicastLock.release();
         multicastLock = null;
         super.onDestroy();
+    }
+
+    private static boolean isGamepadUsbDevice(UsbDevice device) {
+        if (device == null) return false;
+        int vid = device.getVendorId();
+        // Known controller vendors
+        if (vid == 0x045e || // Microsoft
+            vid == 0x054c || // Sony
+            vid == 0x057e || // Nintendo
+            vid == 0x046d || // Logitech
+            vid == 0x1038 || // SteelSeries
+            vid == 0x1532 || // Razer
+            vid == 0x28de || // Valve
+            vid == 0x2dc8 || vid == 0x1d79) { // 8BitDo
+            return true;
+        }
+        for (int i = 0; i < device.getInterfaceCount(); i++) {
+            UsbInterface iface = device.getInterface(i);
+            if (iface.getInterfaceClass() == 3) // HID
+                return true;
+            if (iface.getInterfaceClass() == 255 && iface.getInterfaceSubclass() == 71) // Xbox GIP / XInput
+                return true;
+        }
+        return false;
+    }
+
+    private void requestUsbControllerPermissions() {
+        try {
+            UsbManager usbManager = (UsbManager) getSystemService(Context.USB_SERVICE);
+            if (usbManager == null) return;
+            java.util.HashMap<String, UsbDevice> deviceList = usbManager.getDeviceList();
+            if (deviceList == null || deviceList.isEmpty()) return;
+
+            for (UsbDevice device : deviceList.values()) {
+                if (isGamepadUsbDevice(device)) {
+                    if (!usbManager.hasPermission(device)) {
+                        Log.i("HaloActivity", "Requesting raw USB HID permission for " + device.getDeviceName() +
+                                String.format(" (VID: %04x, PID: %04x)", device.getVendorId(), device.getProductId()));
+                        Intent permissionIntent = new Intent("org.libsdl.app.USB_PERMISSION");
+                        permissionIntent.setPackage(getPackageName());
+                        int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                            flags |= PendingIntent.FLAG_MUTABLE;
+                        }
+                        PendingIntent pi = PendingIntent.getBroadcast(this, 0, permissionIntent, flags);
+                        usbManager.requestPermission(device, pi);
+                    } else {
+                        Log.i("HaloActivity", "Raw USB HID permission already granted for " + device.getDeviceName() +
+                                String.format(" (VID: %04x, PID: %04x)", device.getVendorId(), device.getProductId()));
+                    }
+                }
+            }
+        } catch (Throwable t) {
+            Log.w("HaloActivity", "USB permission check failed: " + t.getMessage());
+        }
+    }
+
+    private void registerUsbReceiver() {
+        IntentFilter filter = new IntentFilter();
+        filter.addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED);
+        filter.addAction(UsbManager.ACTION_USB_DEVICE_DETACHED);
+        usbReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                if (intent == null) return;
+                String action = intent.getAction();
+                if (UsbManager.ACTION_USB_DEVICE_ATTACHED.equals(action)) {
+                    requestUsbControllerPermissions();
+                }
+            }
+        };
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(usbReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            registerReceiver(usbReceiver, filter);
+        }
     }
 
     /**

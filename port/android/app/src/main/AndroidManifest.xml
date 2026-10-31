@@ -84,7 +84,7 @@
         <activity
             android:name=".HaloActivity"
             android:process=":game"
-            android:exported="false"
+            android:exported="true"
             android:alwaysRetainTaskState="true"
             android:launchMode="singleInstance"
             android:screenOrientation="sensorLandscape"
@@ -94,6 +94,13 @@
             <meta-data
                 android:name="android.app.category"
                 android:value="game" />
+            <!-- raw USB HID input: receive USB controller connection events -->
+            <intent-filter>
+                <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
+                android:resource="@xml/device_filter" />
         </activity>
 
         <!-- the downloaded new version, for the package installer (Updater);
