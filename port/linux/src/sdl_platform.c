@@ -2087,6 +2087,12 @@ void platform_scoreboard_scroll(int open, long *notches, long *pages)
 	pthread_mutex_unlock(&input_lock);
 }
 
+#ifdef HALO_CONSOLE_PERFORMANCE_MODE
+/* the port's: performance mode's passes left out, and its switch read
+(halo_console_features.h) */
+void console_performance_update(void);
+#endif
+
 void platform_pump_events(void)
 {
 	/* debug.exit_after (seconds) ends the game that long after the window
@@ -2095,6 +2101,10 @@ void platform_pump_events(void)
 	SDL_Event event;
 	static BOOL looked_at_clipboard;
 	BOOL look_at_clipboard = !looked_at_clipboard;
+
+#ifdef HALO_CONSOLE_PERFORMANCE_MODE
+	console_performance_update();
+#endif
 
 #ifdef HALO_GAME_BROWSER
 	/* the dedicated server has no window, but stops as asked (SIGTERM or

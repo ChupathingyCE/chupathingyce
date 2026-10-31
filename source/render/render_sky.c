@@ -83,6 +83,11 @@ static void render_sky_data_error(
 
 static real render_sky_globals[MAXIMUM_SKIES_PER_SCENARIO] = {0.f};
 
+#ifdef HALO_CONSOLE_PERFORMANCE_MODE
+/* port: whether performance mode keeps the sky */
+boolean console_performance_sky(void);
+#endif
+
 /* ---------- public code */
 
 void render_sky(
@@ -98,6 +103,13 @@ void render_sky(
 	struct model *model;
 	struct animation_graph *animation_graph;
 	short i;
+
+#ifdef HALO_CONSOLE_PERFORMANCE_MODE
+	if (!console_performance_sky())
+	{
+		return;
+	}
+#endif
 
 	if (render.visible_sky_model)
 	{
