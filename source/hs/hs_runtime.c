@@ -3559,3 +3559,79 @@ static boolean script_error(
 
 	return FALSE;
 }
+
+#ifdef HALO_PS3
+/* (the stack of a waiting thread, innermost first, and the scenario's globals: what a branch can depend on) */
+static void hs_runtime_ps3_log_stack(
+	long thread_index,
+	struct hs_thread_datum *thread)
+{
+	char text[256];
+	struct hs_stack_frame *frame;
+	int length = 0, depth = 0;
+
+	text[0] = 0;
+	for (frame = thread->stack; frame && frame != (struct hs_stack_frame *)thread->stack_data && depth < 12;
+		frame = frame->previous, depth++)
+	{
+		length += snprintf(text + length, sizeof(text) - length, " < %s",
+			expression_get_function_name(thread_index, frame->expression_index));
+		if (length >= (int)sizeof(text) - 1)
+			break;
+	}
+	error(_error_silent, "    stack%s", text);
+}
+
+static void hs_runtime_ps3_log_globals(
+	void)
+{
+	struct scenario *scenario = global_scenario_get();
+	short global_index;
+
+	for (global_index = 0; global_index < scenario->hs_globals.count; global_index++)
+	{
+		struct hs_global *global = TAG_BLOCK_GET_ELEMENT(&scenario->hs_globals, global_index, struct hs_global);
+		long datum_index = HS_GLOBAL_DESIGNATOR_IS_EXTERNAL((word)global_index) ?
+			HS_GLOBAL_DESIGNATOR_TO_INDEX(global_index) :
+			HS_GLOBAL_DESIGNATOR_TO_INDEX(global_index) + hs_external_global_count;
+		struct hs_global_datum *datum = datum_get(hs_global_data, datum_index);
+
+		error(_error_silent, "  global %s (type %d) = %d", global->name, global->type, datum->value);
+	}
+}
+
+/* port: each script thread that waits, and on what, in the log (a diagnostic: a skipped cutscene's soft-lock,
+MIGRATION.md M3) */
+void hs_runtime_ps3_log_threads(
+	char const *why)
+{
+	boolean cinematic_in_progress(void);
+	boolean cinematic_can_be_skipped(void);
+	boolean player_input_enabled(void);
+	boolean game_state_reverted(void);
+	long thread_index;
+
+	if (!hs_runtime_globals.initialized || !hs_thread_data)
+		return;
+	error(_error_silent, "scripts (%s) at tick %d: cinematic %d, skippable %d, player input %d, reverted %d", why,
+		game_time_get(), cinematic_in_progress(), cinematic_can_be_skipped(), player_input_enabled(),
+		game_state_reverted());
+	for (thread_index = data_next_index(hs_thread_data, NONE); thread_index != NONE;
+		thread_index = data_next_index(hs_thread_data, thread_index))
+	{
+		struct hs_thread_datum *thread = hs_thread_get(thread_index);
+
+		if (thread->sleep_until >= 0)
+		{
+			error(_error_silent, "  %s: wakes in %d, in %s", hs_thread_format(thread_index),
+				thread->sleep_until ? thread->sleep_until - game_time_get() : 0,
+				thread->stack != (struct hs_stack_frame *)thread->stack_data && thread->sleep_until != -2 ?
+				expression_get_function_name(thread_index, thread->stack->expression_index) : "-");
+			if (thread->sleep_until != -2)
+				hs_runtime_ps3_log_stack(thread_index, thread);
+		}
+	}
+	if (game_time_get() == 450)
+		hs_runtime_ps3_log_globals();
+}
+#endif

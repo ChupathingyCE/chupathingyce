@@ -373,6 +373,14 @@ void game_state_revert(
 		main_reset_map();
 	}
 	game_state_call_after_load_procs();
+#ifdef HALO_PS3
+	/* port: (a diagnostic: the scripts' waits as the revert left them, MIGRATION.md M3) */
+	{
+		extern void hs_runtime_ps3_log_threads(char const *why);
+
+		hs_runtime_ps3_log_threads("revert");
+	}
+#endif
 
 	return;
 }

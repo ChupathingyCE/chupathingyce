@@ -412,6 +412,15 @@ void game_tick(
 	decisions that belong to the host. */
 	if (!(network_game_distributed_client() && network_coop_active()))
 		hs_update();
+#ifdef HALO_PS3
+	/* port: the scripts' waits in the log every 5 s (a diagnostic: a skipped cutscene's soft-lock, MIGRATION.md M3) */
+	if (game_time_get() % 150 == 0)
+	{
+		extern void hs_runtime_ps3_log_threads(char const *why);
+
+		hs_runtime_ps3_log_threads("tick");
+	}
+#endif
 	PS3_GAME_SPLIT(_ps3_timer_tick_scripts);
 	recorded_animations_update();
 	PS3_GAME_SPLIT(_ps3_timer_tick_other);
