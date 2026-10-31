@@ -965,6 +965,14 @@ with the old one two frames later, so these stay small. */
 #define STREAM_BUFFER_SIZE (32 * 1024 * 1024)
 #define INDEX_BUFFER_SIZE (8 * 1024 * 1024)
 #endif
+#if !defined(HALO_GL_ES) && !defined(HALO_CONSOLE_GL_LAYER) && !defined(HALO_CONSOLE) && \
+	!defined(HALO_SWITCH_CONSOLE) && !defined(HALO_XBOX_CONSOLE) && !defined(HALO_SERVER)
+/* the desktop builds: the stream and index buffers
+as a ring of this many, each reused once a fence says the GPU is done with
+it */
+#define DESKTOP_BUFFER_RING 3
+static BOOL buffer_ring_sync_look_up(void);
+#endif
 #define VISIBILITY_TEST_SLOTS 4096
 /* the copies of visibility counts the GPU may still be making (more are
 dropped, oldest first: their slots keep the numbers they had) */
@@ -1020,6 +1028,14 @@ struct gl_device
 	GLuint stream_buffers[STREAM_BUFFER_RING];
 	GLuint index_buffers[STREAM_BUFFER_RING];
 	unsigned long buffer_ring;
+#elif defined(DESKTOP_BUFFER_RING)
+	/* (the buffer ring) */
+	BOOL buffer_ring_on;
+	GLuint stream_rings[DESKTOP_BUFFER_RING];
+	GLuint index_rings[DESKTOP_BUFFER_RING];
+	GLsync stream_fences[DESKTOP_BUFFER_RING];
+	GLsync index_fences[DESKTOP_BUFFER_RING];
+	unsigned long stream_ring, index_ring;
 #endif
 	unsigned long stream_offset;
 	GLuint index_buffer;
@@ -2352,12 +2368,34 @@ static void gl_initialize(void)
 	}
 #endif
 #ifndef HALO_GL_ES
+#ifdef DESKTOP_BUFFER_RING
+	device.buffer_ring_on = buffer_ring_sync_look_up();
+	if (device.buffer_ring_on)
+	{
+		int ring;
+
+		glGenBuffers(DESKTOP_BUFFER_RING, device.stream_rings);
+		glGenBuffers(DESKTOP_BUFFER_RING, device.index_rings);
+		for (ring = 0; ring < DESKTOP_BUFFER_RING; ring++)
+		{
+			glBindBuffer(GL_ARRAY_BUFFER, device.stream_rings[ring]);
+			glBufferData(GL_ARRAY_BUFFER, STREAM_BUFFER_SIZE, NULL, GL_STREAM_DRAW);
+			glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, device.index_rings[ring]);
+			glBufferData(GL_ELEMENT_ARRAY_BUFFER, INDEX_BUFFER_SIZE, NULL, GL_STREAM_DRAW);
+		}
+		device.stream_buffer = device.stream_rings[0];
+		device.index_buffer = device.index_rings[0];
+	}
+	else
+#endif
+	{
 	glGenBuffers(1, &device.stream_buffer);
 	glBindBuffer(GL_ARRAY_BUFFER, device.stream_buffer);
 	glBufferData(GL_ARRAY_BUFFER, STREAM_BUFFER_SIZE, NULL, GL_STREAM_DRAW);
 	glGenBuffers(1, &device.index_buffer);
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, device.index_buffer);
 	glBufferData(GL_ELEMENT_ARRAY_BUFFER, INDEX_BUFFER_SIZE, NULL, GL_STREAM_DRAW);
+	}
 #endif
 	glGenSamplers(D3DTSS_MAXSTAGES, device.samplers);
 	visibility_queries_create();
@@ -5599,13 +5637,65 @@ static void buffer_append(GLenum target, unsigned long offset, unsigned long siz
 }
 #endif
 
+#ifdef DESKTOP_BUFFER_RING
+/* the next of a ring of stream (or index) buffers,
+once the GPU is done with it. Orphaning a full buffer, as each frame does,
+asks the driver for new storage every time (40 MB a frame here), the old
+kept until the GPU lets it go; with the GPU's memory full, Mesa crashed in
+that glBufferData. The ring allocates nothing after the device is made.
+The fences are OpenGL 3.2's, looked up here alone (gl.h's list is every
+build's, the consoles' layers too) */
+typedef GLsync (GLAPIENTRY *buffer_ring_fence_sync_proc)(GLenum condition, GLbitfield flags);
+typedef GLenum (GLAPIENTRY *buffer_ring_client_wait_sync_proc)(GLsync sync, GLbitfield flags, GLuint64 timeout);
+typedef void (GLAPIENTRY *buffer_ring_delete_sync_proc)(GLsync sync);
+
+static struct
+{
+	buffer_ring_fence_sync_proc fence_sync;
+	buffer_ring_client_wait_sync_proc client_wait_sync;
+	buffer_ring_delete_sync_proc delete_sync;
+} buffer_ring_sync;
+
+static BOOL buffer_ring_sync_look_up(void)
+{
+	buffer_ring_sync.fence_sync = (buffer_ring_fence_sync_proc)gl_function_extra("glFenceSync");
+	buffer_ring_sync.client_wait_sync = (buffer_ring_client_wait_sync_proc)gl_function_extra("glClientWaitSync");
+	buffer_ring_sync.delete_sync = (buffer_ring_delete_sync_proc)gl_function_extra("glDeleteSync");
+	if (buffer_ring_sync.fence_sync && buffer_ring_sync.client_wait_sync && buffer_ring_sync.delete_sync)
+		return TRUE;
+	platform_log("renderer: no fences, so no buffer ring: the buffers are orphaned");
+	return FALSE;
+}
+
+static void buffer_ring_next(GLuint const *buffers, GLsync *fences, unsigned long *ring, GLuint *active)
+{
+	fences[*ring] = buffer_ring_sync.fence_sync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+	*ring = (*ring + 1) % DESKTOP_BUFFER_RING;
+	if (fences[*ring])
+	{
+		/* (a second at most: a lost context must not hang the game) */
+		buffer_ring_sync.client_wait_sync(fences[*ring], GL_SYNC_FLUSH_COMMANDS_BIT, 1000000000ULL);
+		buffer_ring_sync.delete_sync(fences[*ring]);
+		fences[*ring] = 0;
+	}
+	*active = buffers[*ring];
+}
+#endif
+
 static void stream_reserve(unsigned long size)
 {
 	if (device.stream_offset + size > STREAM_BUFFER_SIZE)
 	{
+#ifdef DESKTOP_BUFFER_RING
+		if (device.buffer_ring_on)
+			buffer_ring_next(device.stream_rings, device.stream_fences, &device.stream_ring, &device.stream_buffer);
+		else
+#endif
+		{
 		/* orphan the buffer and start again */
 		state_array_buffer(device.stream_buffer);
 		glBufferData(GL_ARRAY_BUFFER, STREAM_BUFFER_SIZE, NULL, GL_STREAM_DRAW);
+		}
 		device.stream_offset = 0;
 	}
 }
@@ -5682,6 +5772,13 @@ static unsigned long index_upload(const void *data, unsigned long size)
 	unsigned long length = size;
 
 	size = (size + 15) & ~15UL;
+#ifdef DESKTOP_BUFFER_RING
+	if (device.buffer_ring_on && device.index_offset + size > INDEX_BUFFER_SIZE)
+	{
+		buffer_ring_next(device.index_rings, device.index_fences, &device.index_ring, &device.index_buffer);
+		device.index_offset = 0;
+	}
+#endif
 	state_element_array_buffer(device.index_buffer);
 	if (device.index_offset + size > INDEX_BUFFER_SIZE)
 	{
@@ -7454,7 +7551,8 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 		device.stream_offset = 0;
 		device.index_offset = 0;
 #else
-		device.stream_offset = STREAM_BUFFER_SIZE; /* orphan next frame */
+		/* orphan next frame (or the ring's next) */
+		device.stream_offset = STREAM_BUFFER_SIZE;
 		device.index_offset = INDEX_BUFFER_SIZE;
 #endif
 	}
