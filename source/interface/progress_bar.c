@@ -1502,8 +1502,19 @@ void tgaLoadHeader(
 	fread(&ignored_byte, 1, 1, file);
 	fread(&ignored_short, 2, 1, file);
 	fread(&ignored_short, 2, 1, file);
+#ifdef HALO_BIG_ENDIAN
+	{
+		unsigned char size[4];
+
+		/* port: the TGA file's shorts are little-endian */
+		fread(size, 1, 4, file);
+		image->width= (short)(size[0] | size[1]<<8);
+		image->height= (short)(size[2] | size[3]<<8);
+	}
+#else
 	fread(&image->width, 2, 1, file);
 	fread(&image->height, 2, 1, file);
+#endif
 	fread(&image->pixel_depth, 1, 1, file);
 	fread(&ignored_byte, 1, 1, file);
 
@@ -1529,7 +1540,12 @@ void tgaLoadImageData(
 
 			fread(color, 1, 3, file);
 			intensity= color[0];
+#ifdef HALO_PS3
+			/* port: the PS3's texture memory keeps the Xbox's little-endian texel order (port/ps3/xbox/d3d8_rsx.c) */
+			*pixel= __builtin_bswap32(((intensity<<9) | (intensity & ~1))<<7 | intensity>>2);
+#else
 			*pixel= ((intensity<<9) | (intensity & ~1))<<7 | intensity>>2;
+#endif
 			pixel++;
 		}
 	}

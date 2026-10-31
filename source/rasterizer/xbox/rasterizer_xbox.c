@@ -636,6 +636,14 @@ enum
 
 /* ---------- macros */
 
+/* port: on the PS3, texels and palettes keep the Xbox's little-endian byte order in texture memory (d3d8_rsx.c) */
+#ifdef HALO_PS3
+#define TEXEL16(value) ((word)__builtin_bswap16(value))
+#define TEXEL32(value) ((pixel32)__builtin_bswap32(value))
+#else
+#define TEXEL16(value) (value)
+#define TEXEL32(value) (value)
+#endif
 
 /* ---------- structures */
 
@@ -720,6 +728,10 @@ static void rasterizer_filthy_bitmap_defaults_initialize(
 
 void SetupSmartStates(
 	void);
+#ifdef HALO_PS3
+/* port: d3d8_rsx.c's */
+void d3d8_light_bounds_transform(const float *columns);
+#endif
 
 /* ---------- globals */
 
@@ -2819,6 +2831,10 @@ width; only its x and y, the depth as before */
 		-96,
 		vertex_constants,
 		8);
+#ifdef HALO_PS3
+	/* port: the lights' bounds project with the vertex shaders' transform */
+	d3d8_light_bounds_transform(&vertex_constants[0][0]);
+#endif
 	return;
 }
 
@@ -3036,7 +3052,16 @@ boolean _rasterizer_initialize(
 					result,
 					"IDirect3DPalette8_Lock(d3d_palette, &palette_data, 0)");
 			}
+#ifdef HALO_PS3
+			{
+				long entry_index;
+
+				for (entry_index = 0; entry_index < NUMBER_OF_ENTRIES_IN_PALETTE; entry_index++)
+					palette_data[entry_index] = TEXEL32(global_vector_palette[entry_index]);
+			}
+#else
 			csmemcpy(palette_data, global_vector_palette, sizeof(global_vector_palette));
+#endif
 			result = IDirect3DPalette8_Unlock(d3d_palette);
 			if (success && result >= 0)
 			{
@@ -3657,7 +3682,7 @@ static void rasterizer_filthy_bitmap_defaults_initialize(
 				"IDirect3DTexture8_LockRect((IDirect3DTexture8*)default_2d_hardware_format, 0, &d3d_locked_rect, NULL, 0)");
 		}
 		for (pixel_index = 0, pixel_count = DEFAULT_BITMAP_SIZE * DEFAULT_BITMAP_SIZE; pixel_count; pixel_index++, pixel_count--)
-			((word *)d3d_locked_rect.pBits)[pixel_index] = pixels[pixel_index & 1];
+			((word *)d3d_locked_rect.pBits)[pixel_index] = TEXEL16(pixels[pixel_index & 1]);
 		result = IDirect3DTexture8_UnlockRect(
 			default_2d_hardware_format,
 			0);
@@ -3690,7 +3715,7 @@ static void rasterizer_filthy_bitmap_defaults_initialize(
 				"IDirect3DVolumeTexture8_LockBox((IDirect3DVolumeTexture8*)default_3d_hardware_format, 0, &d3d_locked_box, NULL, 0)");
 		}
 		for (pixel_index = 0, pixel_count = DEFAULT_BITMAP_SIZE * DEFAULT_BITMAP_SIZE * DEFAULT_BITMAP_SIZE; pixel_count; pixel_index++, pixel_count--)
-			((word *)d3d_locked_box.pBits)[pixel_index] = pixels[pixel_index & 1];
+			((word *)d3d_locked_box.pBits)[pixel_index] = TEXEL16(pixels[pixel_index & 1]);
 		result = IDirect3DVolumeTexture8_UnlockBox(
 			default_3d_hardware_format,
 			0);
@@ -3726,7 +3751,7 @@ static void rasterizer_filthy_bitmap_defaults_initialize(
 					"IDirect3DCubeTexture8_LockRect((IDirect3DCubeTexture8*)default_cm_hardware_format, face_index, 0, &d3d_locked_rect, NULL, 0)");
 			}
 			for (pixel_index = 0, pixel_count = DEFAULT_BITMAP_SIZE * DEFAULT_BITMAP_SIZE; pixel_count; pixel_index++, pixel_count--)
-				((word *)d3d_locked_rect.pBits)[pixel_index] = pixels[pixel_index & 1];
+				((word *)d3d_locked_rect.pBits)[pixel_index] = TEXEL16(pixels[pixel_index & 1]);
 			result = IDirect3DCubeTexture8_UnlockRect(
 				default_cm_hardware_format,
 				face_index,

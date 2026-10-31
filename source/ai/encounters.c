@@ -751,7 +751,8 @@ void encounter_compute_activation_cluster_bit_vector(
 				else if (actor->state.mode == _actor_mode_alert &&
 					actor->state.action_data.alert.move_position_order)
 				{
-					SET_FLAG(active_squad_mask, actor->meta.squad_index, TRUE);
+					/* port: squads go to 63; x86 shifts by the count's low 5 bits, the PPC gives 0 from 32 */
+					SET_FLAG(active_squad_mask, actor->meta.squad_index & 31, TRUE);
 				}
 
 				if (actor->target.target_prop_index != NONE)
@@ -820,7 +821,7 @@ void encounter_compute_activation_cluster_bit_vector(
 			squad_index < encounter_definition->squads.count;
 			squad_index++)
 		{
-			if (TEST_FLAG(active_squad_mask, squad_index))
+			if (TEST_FLAG(active_squad_mask, squad_index & 31)) /* port: (as above) */
 			{
 				struct squad_definition *squad_definition = TAG_BLOCK_GET_ELEMENT(
 					&encounter_definition->squads,

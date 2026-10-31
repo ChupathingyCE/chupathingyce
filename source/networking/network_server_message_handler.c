@@ -449,7 +449,13 @@ struct message_client_settings_request
 
 struct message_client_game_start_request
 {
+#ifdef HALO_BIG_ENDIAN
+	/* port: the packet holds one short at offset 0 (network_messages.c), not the long the Xbox read the low half of */
+	short countdown_time;
+	short pad;
+#else
 	long countdown_time;
+#endif
 };
 
 struct message_client_graceful_game_exit_pregame

@@ -127,9 +127,14 @@ boolean server_browser_map_blocked(char const *map, wchar_t *message, short leng
 		/* (one of Halo PC's own maps: never downloaded, map_archive.h) */
 		if (family == _map_family_custom_edition && map_archive_stock_name(file))
 		{
+#ifdef HALO_CUSTOM_EDITION
 			char first[96], second[160];
 
 			map_family_stock_need(file, 0, first, sizeof(first), second, sizeof(second), text, sizeof(text));
+#else
+			/* (map_families.c has the stock maps' needs with Custom Edition only) */
+			snprintf(text, sizeof(text), JOIN_REASON_MAP_MISSING, display);
+#endif
 		}
 		/* (a pack's map: its pack's folder, maps_<pack>) */
 		else if (family == _map_family_pack)

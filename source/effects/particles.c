@@ -94,6 +94,21 @@ symbols in this file:
 #include "scenario/scenario.h"
 #include "sound/game_sound.h"
 #include "sound/sound_definitions.h"
+#ifdef HALO_PS3
+#include "ps3_timers.h"
+
+/* port: the timer build's particles, and their physics' time and calls (port/ps3/include/ps3_timers.h) */
+static uint64_t ps3_particles_physics_span;
+#define PS3_PARTICLES_COUNT(timer) (ps3_timer_counts[(timer)]++)
+#define PS3_PARTICLES_PHYSICS_BEGIN() (ps3_particles_physics_span = ps3_timer_now())
+#define PS3_PARTICLES_PHYSICS_END() \
+	(ps3_timer_add(_ps3_timer_particles_physics, ps3_particles_physics_span), \
+		ps3_timer_counts[_ps3_timer_particles_physics]++)
+#else
+#define PS3_PARTICLES_COUNT(timer) ((void)0)
+#define PS3_PARTICLES_PHYSICS_BEGIN() ((void)0)
+#define PS3_PARTICLES_PHYSICS_END() ((void)0)
+#endif
 
 /* ---------- constants */
 
@@ -1182,6 +1197,7 @@ void particles_update(
 			}
 			else
 			{
+				PS3_PARTICLES_COUNT(_ps3_timer_particles_update); /* port: (the timer build) */
 				if (particle_update_frame_time(particle_index, dt))
 				{
 #ifdef HALO_XBOX_CONSOLE
@@ -1193,7 +1209,9 @@ void particles_update(
 					if (particles_each_frame || particle->object_index != NONE ||
 						slot >= HALO_PORT_MAXIMUM_PARTICLES)
 					{
+						PS3_PARTICLES_PHYSICS_BEGIN(); /* port: (the timer build) */
 						particle_update_physics(particle_index, dt);
+						PS3_PARTICLES_PHYSICS_END(); /* port: (the timer build) */
 					}
 					/* (port: moved once a tick, the time of the ticks passed;
 					drawn between the two ticks' positions) */
@@ -1221,7 +1239,9 @@ void particles_update(
 							particle_tick_previous[slot] = particle->position;
 							particle_tick_owner[slot] = particle_index;
 							particle_tick_owed[slot] = 0;
+							PS3_PARTICLES_PHYSICS_BEGIN(); /* port: (the timer build) */
 							particle_update_physics(particle_index, (real)ticks / (real)TICKS_PER_SECOND);
+							PS3_PARTICLES_PHYSICS_END(); /* port: (the timer build) */
 						}
 					}
 #endif

@@ -578,9 +578,65 @@ static short collision_log_get_current_user(
 	return user;
 }
 
+#ifdef HALO_PS3
+typedef char ps3_collision_users_assert[NUMBER_OF_COLLISION_USER_TYPES == PS3_COLLISION_USERS ? 1 : -1];
+typedef char ps3_collision_functions_assert[NUMBER_OF_COLLISION_FUNCTION_TYPES == PS3_COLLISION_FUNCTIONS ? 1 : -1];
+
+/* port: the timer build's tests (collision_usage.h): each depth's start; a test inside another is in the outer
+one's time for its user and kind */
+#define PS3_COLLISION_DEPTH 16
+static long ps3_collision_depth;
+static uint64_t ps3_collision_starts[PS3_COLLISION_DEPTH];
+
+void ps3_collision_begin(
+	void)
+{
+	if (ps3_collision_depth < PS3_COLLISION_DEPTH)
+		ps3_collision_starts[ps3_collision_depth] = ps3_timer_now();
+	ps3_collision_depth++;
+}
+
+/* port: a logged function's time (NONE: no function); the user on top of the stack at the outermost test's end
+(move_pill and fix_pill push theirs) */
+void ps3_collision_end(
+	short kind,
+	short function)
+{
+	uint64_t elapsed;
+	short user = _collision_user_unknown;
+
+	if (ps3_collision_depth <= 0 || --ps3_collision_depth >= PS3_COLLISION_DEPTH)
+		return;
+	elapsed = ps3_timer_now() - ps3_collision_starts[ps3_collision_depth];
+	if (function >= 0 && function < NUMBER_OF_COLLISION_FUNCTION_TYPES)
+	{
+		ps3_collision_function_timers[function] += elapsed;
+		ps3_collision_function_calls[function]++;
+		if (PS3_COLLISION_LOS())
+		{
+			ps3_los_function_timers[function] += elapsed;
+			ps3_los_function_calls[function]++;
+		}
+	}
+	if (ps3_collision_depth)
+		return;
+	if (global_current_collision_user_depth > 0 &&
+		global_current_collision_user_depth <= MAXIMUM_COLLISION_USER_STACK_DEPTH)
+	{
+		user = global_current_collision_users[global_current_collision_user_depth - 1];
+	}
+	if (user < 0 || user >= NUMBER_OF_COLLISION_USER_TYPES)
+		user = _collision_user_unknown;
+	ps3_collision_timers[user] += elapsed;
+	ps3_collision_tests[user]++;
+	ps3_collision_kind_timers[kind] += elapsed;
+}
+#endif
+
 void collision_log_start_time(
 	LARGE_INTEGER *start_time)
 {
+	PS3_COLLISION_BEGIN(); /* port: (the timer build) */
 	QueryPerformanceCounter(start_time);
 
 	return;
@@ -593,6 +649,12 @@ void collision_log_end_time(
 	LARGE_INTEGER end_time;
 	short user;
 
+#ifdef HALO_PS3
+	/* port: features-in-sphere and the bsp sphere tests are sphere tests, the others vector tests */
+	ps3_collision_end(collision_function == _collision_function_vector_bounds_object ||
+		collision_function >= _collision_function_sphere_intersect_bsp_object ?
+		_ps3_collision_sphere : _ps3_collision_vector, collision_function);
+#endif
 	QueryPerformanceCounter(&end_time);
 	user = collision_log_get_current_user(collision_function);
 	if (user != NONE)

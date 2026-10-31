@@ -403,13 +403,24 @@ static void render_contrail(
 			first_vertex = vertices;
 			if (!(definition->flags & (1 << _contrail_first_point_unfaded_bit)))
 			{
+#ifdef HALO_BIG_ENDIAN
+				/* port: the alpha, the color's high byte (its byte 3 on the Xbox only) */
+				first_vertex[0].color &= 0x00FFFFFF;
+				first_vertex[1].color &= 0x00FFFFFF;
+#else
 				((byte *)&first_vertex[0].color)[3] = 0;
 				((byte *)&first_vertex[1].color)[3] = 0;
+#endif
 			}
 			if (!(definition->flags & (1 << _contrail_last_point_unfaded_bit)))
 			{
+#ifdef HALO_BIG_ENDIAN
+				vertices[vertex_count - 1].color &= 0x00FFFFFF;
+				vertices[vertex_count - 2].color &= 0x00FFFFFF;
+#else
 				((byte *)&vertices[vertex_count - 1].color)[3] = 0;
 				((byte *)&vertices[vertex_count - 2].color)[3] = 0;
+#endif
 			}
 			if (segment_count > 0)
 			{

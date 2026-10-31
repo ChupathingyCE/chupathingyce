@@ -121,6 +121,9 @@ symbols in this file:
 #include "text/draw_string.h"
 #include <xtl.h>
 #include "halo_perf_log.h" /* port: console.perf_log */
+#ifdef HALO_PS3
+#include "ps3_timers.h" /* port: the waits for a read, for the spike log */
+#endif
 
 /* ---------- constants */
 
@@ -224,6 +227,13 @@ enum
 };
 
 /* ---------- macros */
+
+#ifdef HALO_PS3
+/* port: unlike x86, the PPE can see the cache thread's loaded flag before the data it covers */
+#define CACHE_IO_BARRIER() __sync_synchronize()
+#else
+#define CACHE_IO_BARRIER()
+#endif
 
 /* ---------- structures */
 
@@ -581,6 +591,19 @@ static boolean compare(
 	return difference > 0;
 }
 
+#ifdef HALO_PS3
+/* port: qsort's comparator for texture_cache_debug_bitmaps, whose 8-byte pointers qsort_4byte would split */
+static int compare_bitmap_pointers(
+	void const *first,
+	void const *second)
+{
+	struct bitmap_data *const *first_bitmap = first;
+	struct bitmap_data *const *second_bitmap = second;
+
+	return compare(*first_bitmap, *second_bitmap) - compare(*second_bitmap, *first_bitmap);
+}
+#endif
+
 void texture_cache_flush(
 	void)
 {
@@ -616,6 +639,14 @@ static void texture_cache_delete_block_proc(
 		cache_entry = datum_get(
 			xbox_texture_cache_globals.textures,
 			block_index);
+#ifdef HALO_PS3
+		/* port: lv2 does not time-slice equal priorities, so let the cache thread finish the read */
+		if (!cache_entry->loaded ||
+			IDirect3DBaseTexture8_IsBusy(&cache_entry->hardware_format))
+		{
+			SwitchToThread();
+		}
+#endif
 	}
 	while (!cache_entry->loaded ||
 		IDirect3DBaseTexture8_IsBusy(&cache_entry->hardware_format));
@@ -1104,10 +1135,18 @@ void texture_cache_debug_render(
 				texture_cache_debug_bitmaps[bitmap_count++] = bitmap;
 			}
 		}
+#ifdef HALO_PS3
+		qsort(
+			texture_cache_debug_bitmaps,
+			bitmap_count,
+			sizeof(*texture_cache_debug_bitmaps),
+			compare_bitmap_pointers);
+#else
 		qsort_4byte(
 			(long *)texture_cache_debug_bitmaps,
 			bitmap_count,
 			(boolean (*)(long, long))compare);
+#endif
 
 		font_index = interface_get_tag_index(_interface_font_terminal);
 		tab_stops[0] = rasterizer_globals.reserved04.frame_bounds.x0;
@@ -1188,6 +1227,9 @@ void *_texture_cache_bitmap_get_hardware_format(
 				bitmap->cache_block_index);
 			/* (port: console.perf_log's texture wait) */
 			boolean texture_was_loading = FALSE;
+#ifdef HALO_PS3
+			uint64_t ps3_wait_span = block && !texture->loaded ? ps3_timer_now() : 0;
+#endif
 
 			lruv_block_touch(
 				xbox_texture_cache_globals.cache,
@@ -1208,6 +1250,7 @@ void *_texture_cache_bitmap_get_hardware_format(
 			{
 				if (texture->loaded)
 				{
+					CACHE_IO_BARRIER(); /* port: (the PS3's) */
 					if (!texture->used)
 					{
 #ifdef HALO_XBOX_CONSOLE
@@ -1241,6 +1284,19 @@ void *_texture_cache_bitmap_get_hardware_format(
 			while (!hardware_format && block);
 			if (texture_was_loading)
 				HALO_PERF_END(_halo_perf_texture_wait);
+#ifdef HALO_PS3
+			if (ps3_wait_span)
+			{
+				extern void platform_log(char const *format, ...);
+				uint64_t ps3_wait_end = ps3_timer_add(_ps3_timer_texture_cache_wait, ps3_wait_span);
+
+				ps3_timer_counts[_ps3_timer_texture_cache_wait]++;
+				/* the texture named, for the spike log's waits (the timebase is 79.8 MHz) */
+				platform_log("texture cache: %.1f ms waited for %s (%ld KB)",
+					(double)(ps3_wait_end - ps3_wait_span) / 79800.0, tag_get_name(bitmap->tag_index),
+					bitmap->pixels_size >> 10);
+			}
+#endif
 		}
 	}
 	else

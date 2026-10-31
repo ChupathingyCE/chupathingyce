@@ -257,7 +257,12 @@ char *tag_to_string(
 	tag t,
 	char *s)
 {
+#ifdef HALO_BIG_ENDIAN
+	/* port: a big-endian tag's first letter is its first byte already */
+	*(unsigned long *)s = t;
+#else
 	*(unsigned long *)s = SWAP4(t);
+#endif
 	s[4] = '\0';
 
 	return s;

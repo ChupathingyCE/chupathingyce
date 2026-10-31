@@ -101,6 +101,21 @@ symbols in this file:
 #include "structures/structure_bsp_definitions.h"
 #include "structures/structure_visibility.h"
 #include "tag_files/tag_groups.h"
+#ifdef HALO_PS3
+#include "ps3_timers.h"
+
+/* port: the timer build's parts of an object's shadow on the structure (render_objects.c's part), each with the game
+thread's Direct3D draws and constants in it (d3d8_rsx.c); a part's time added starts the next */
+#define PS3_STRUCTURE_D3D() (ps3_timers[_ps3_timer_front_draws] + ps3_timers[_ps3_timer_front_constants])
+#define PS3_STRUCTURE_SPAN(span, d3d) ((void)((span) = ps3_timer_now(), (d3d) = PS3_STRUCTURE_D3D()))
+#define PS3_STRUCTURE_ADD(timer, span, d3d) ((void)(ps3_timers[(timer)] += ps3_timer_now() - (span), \
+	ps3_render_d3d[(timer)] += PS3_STRUCTURE_D3D() - (d3d)), PS3_STRUCTURE_SPAN((span), (d3d)))
+#define PS3_STRUCTURE_COUNT(timer, count) ((void)(ps3_timer_counts[(timer)] += (uint32_t)(count)))
+#else
+#define PS3_STRUCTURE_SPAN(span, d3d) ((void)0)
+#define PS3_STRUCTURE_ADD(timer, span, d3d) ((void)0)
+#define PS3_STRUCTURE_COUNT(timer, count) ((void)0)
+#endif
 
 /* ---------- constants */
 
@@ -225,6 +240,29 @@ static struct profile_section render_structure_shadows_draw_section =
 
 static short report_dynamic_structure_triangle_failure = TRUE;
 boolean debug_leaf_portals;
+
+#ifdef HALO_PS3
+enum
+{
+	MAXIMUM_STRUCTURE_RENDER_CHUNKS = 4096,
+};
+
+/* port: structure_render_pass's chunks of the window's list (a lightmap's material, its triangles), found once a
+window (structure_render_preprocess) for the passes that draw that list; count NONE: none */
+static struct
+{
+	long *surface_indices;
+	long surface_count;
+	long count;
+	struct
+	{
+		short lightmap_index;
+		short material_index;
+		long first_triangle_index;
+		long triangle_count;
+	} chunks[MAXIMUM_STRUCTURE_RENDER_CHUNKS];
+} structure_render_chunks = { NULL, 0, NONE };
+#endif
 
 /* ---------- public code */
 
@@ -405,6 +443,187 @@ static long structure_render_build_dynamic_triangles(
 	return dynamic_triangles_index;
 }
 
+#ifdef HALO_PS3
+/* port: structure_render_pass's walk over the window's list once, its chunks kept; none past their room or when the
+walk leaves surfaces (each pass then walks, and says so as before) */
+static void structure_render_build_chunks(
+	long *surface_indices,
+	long surface_count)
+{
+	struct structure_bsp *structure_bsp = global_structure_bsp_get();
+	long *surface_index_cursor = surface_indices;
+	long *surface_index_end = surface_indices + surface_count;
+	long chunk_count = 0;
+	short lightmap_index;
+
+	structure_render_chunks.count = NONE;
+	structure_render_chunks.surface_indices = surface_indices;
+	structure_render_chunks.surface_count = surface_count;
+	for (lightmap_index = 0;
+		lightmap_index < structure_bsp->lightmaps.count && surface_index_cursor < surface_index_end;
+		lightmap_index++)
+	{
+		struct structure_lightmap *lightmap = TAG_BLOCK_GET_ELEMENT(
+			&structure_bsp->lightmaps,
+			lightmap_index,
+			struct structure_lightmap);
+		struct structure_material *last_material = TAG_BLOCK_GET_ELEMENT(
+			&lightmap->materials,
+			lightmap->materials.count - 1,
+			struct structure_material);
+		short material_index;
+
+		if (*surface_index_cursor >= last_material->first_surface_index + last_material->surface_count)
+		{
+			continue;
+		}
+		for (material_index = 0;
+			material_index < lightmap->materials.count && surface_index_cursor < surface_index_end;
+			material_index++)
+		{
+			struct structure_material *material = TAG_BLOCK_GET_ELEMENT(
+				&lightmap->materials,
+				material_index,
+				struct structure_material);
+			long *chunk_start = surface_index_cursor;
+
+			if (*surface_index_cursor >= material->first_surface_index + material->surface_count)
+			{
+				continue;
+			}
+			do
+			{
+				surface_index_cursor++;
+			}
+			while (surface_index_cursor < surface_index_end
+				&& *surface_index_cursor < material->first_surface_index + material->surface_count);
+			if (chunk_count >= MAXIMUM_STRUCTURE_RENDER_CHUNKS)
+			{
+				return;
+			}
+			structure_render_chunks.chunks[chunk_count].lightmap_index = lightmap_index;
+			structure_render_chunks.chunks[chunk_count].material_index = material_index;
+			structure_render_chunks.chunks[chunk_count].first_triangle_index = chunk_start - surface_indices;
+			structure_render_chunks.chunks[chunk_count].triangle_count = surface_index_cursor - chunk_start;
+			chunk_count++;
+		}
+	}
+	if (surface_index_cursor >= surface_index_end)
+	{
+		structure_render_chunks.count = chunk_count;
+	}
+
+	return;
+}
+
+/* port: structure_render_pass over the kept chunks: the same calls in the same order, without the walk */
+static void structure_render_pass_chunks(
+	long dynamic_triangles_index,
+	void (*begin_lightmap)(struct bitmap_data const *lightmap_bitmap),
+	void (*draw_triangles)(
+		struct shader const *shader,
+		short shader_permutation_index,
+		long dynamic_triangle_buffer_index,
+		long first_triangle_index,
+		long triangle_count,
+		struct vertex_buffer const *vertex_buffer),
+	void (*end_lightmap)(void),
+	void (*draw_transparent_triangles)(
+		struct shader const *shader,
+		short shader_permutation_index,
+		struct bitmap_data const *lightmap,
+		long dynamic_triangle_buffer_index,
+		long first_triangle_index,
+		long triangle_count,
+		struct vertex_buffer const *vertex_buffers,
+		real_point3d const *centroid,
+		real_plane3d const *plane,
+		real_vector3d const *offset,
+		void const *lighting,
+		unsigned long geometry_flags))
+{
+	struct structure_bsp *structure_bsp = global_structure_bsp_get();
+	long chunk_index = 0;
+
+	while (chunk_index < structure_render_chunks.count)
+	{
+		short lightmap_index = structure_render_chunks.chunks[chunk_index].lightmap_index;
+		struct structure_lightmap *lightmap = TAG_BLOCK_GET_ELEMENT(
+			&structure_bsp->lightmaps,
+			lightmap_index,
+			struct structure_lightmap);
+		struct bitmap_data *lightmap_bitmap = NULL;
+
+		if (structure_bsp->lightmap_group.index != NONE)
+		{
+			lightmap_bitmap = bitmap_group_try_and_get_bitmap(
+				structure_bsp->lightmap_group.index,
+				lightmap->bitmap_index);
+		}
+		if (begin_lightmap)
+		{
+			begin_lightmap(lightmap_bitmap);
+		}
+		do
+		{
+			struct structure_material *material = TAG_BLOCK_GET_ELEMENT(
+				&lightmap->materials,
+				structure_render_chunks.chunks[chunk_index].material_index,
+				struct structure_material);
+			struct shader *shader = shader_definition_get(material->shader.index);
+			long first_triangle_index = structure_render_chunks.chunks[chunk_index].first_triangle_index;
+			long chunk_count = structure_render_chunks.chunks[chunk_index].triangle_count;
+
+			if (breakable_surface_extant(material->breakable_surface_index))
+			{
+				if (!shader_type_is_transparent(shader->base.type))
+				{
+					if (draw_triangles)
+					{
+						draw_triangles(
+							shader,
+							material->permutation_index,
+							dynamic_triangles_index,
+							first_triangle_index,
+							chunk_count,
+							&material->vertices);
+					}
+				}
+				else if (draw_transparent_triangles)
+				{
+					draw_transparent_triangles(
+						shader,
+						material->permutation_index,
+						lightmap_bitmap,
+						dynamic_triangles_index,
+						first_triangle_index,
+						chunk_count,
+						&material->vertices,
+						&material->centroid,
+						TEST_FLAG(material->flags, _structure_material_coplanar_bit)
+							? &material->plane
+							: NULL,
+						TEST_FLAG(material->flags, _structure_material_fog_plane_bit)
+							? &structure_render_globals.fog_offset_vector
+							: global_zero_vector3d,
+						&material->lighting,
+						0);
+				}
+			}
+			chunk_index++;
+		}
+		while (chunk_index < structure_render_chunks.count &&
+			structure_render_chunks.chunks[chunk_index].lightmap_index == lightmap_index);
+		if (end_lightmap)
+		{
+			end_lightmap();
+		}
+	}
+
+	return;
+}
+#endif
+
 static void structure_render_pass(
 	long *surface_indices,
 	short surface_count,
@@ -437,6 +656,22 @@ static void structure_render_pass(
 	long *surface_index_end = surface_indices + surface_count;
 	long first_triangle_index = 0;
 	short lightmap_index;
+
+#ifdef HALO_PS3
+	/* port: the window's list through its kept chunks (structure_render_build_chunks) */
+	if (surface_indices == structure_render_chunks.surface_indices &&
+		surface_count == structure_render_chunks.surface_count &&
+		structure_render_chunks.count != NONE)
+	{
+		structure_render_pass_chunks(
+			dynamic_triangles_index,
+			begin_lightmap,
+			draw_triangles,
+			end_lightmap,
+			draw_transparent_triangles);
+		return;
+	}
+#endif
 
 	for (lightmap_index = 0;
 		lightmap_index < structure_bsp->lightmaps.count;
@@ -582,6 +817,9 @@ void structure_render_preprocess(
 
 	profile_enter(render_structure_build_triangle_arrays_section);
 
+#ifdef HALO_PS3
+	structure_render_chunks.count = NONE;
+#endif
 	structure_render_globals.environment_triangles_index =
 		structure_render_build_dynamic_triangles(
 			render.environment_surface_indices,
@@ -592,6 +830,13 @@ void structure_render_preprocess(
 
 	structure_render_globals.environment_geometry_valid =
 		structure_render_globals.environment_triangles_index != NONE;
+#ifdef HALO_PS3
+	/* port: the passes over the window's list walk it once here */
+	if (structure_render_globals.environment_geometry_valid)
+	{
+		structure_render_build_chunks(render.environment_surface_indices, render.environment_surface_count);
+	}
+#endif
 
 	if (debug_leaf_index >= 0 && debug_leaf_index < structure_bsp->leaf_map.leaves.count)
 	{
@@ -1023,9 +1268,13 @@ void structure_render_shadow(
 	long surface_indices[MAXIMUM_LOCALLY_RENDERED_SURFACES];
 	long surface_count;
 	long dynamic_triangles_index;
+#ifdef HALO_PS3
+	uint64_t ps3_span, ps3_d3d; /* port: (the timer build) */
+#endif
 
 	profile_enter(render_structure_shadows_section);
 
+	PS3_STRUCTURE_SPAN(ps3_span, ps3_d3d); /* port: (the timer build) */
 	surface_count = structure_visibility_build_surfaces(
 		surface_indices,
 		MAXIMUM_LOCALLY_RENDERED_SURFACES,
@@ -1036,11 +1285,15 @@ void structure_render_shadow(
 		bounding_surfaces,
 		0,
 		NULL);
+	/* port: (the timer build) */
+	PS3_STRUCTURE_ADD(_ps3_timer_shadow_surfaces, ps3_span, ps3_d3d);
+	PS3_STRUCTURE_COUNT(_ps3_timer_shadow_surfaces, surface_count);
 
 	dynamic_triangles_index = structure_render_build_dynamic_triangles(
 		surface_indices,
 		surface_count,
 		NULL);
+	PS3_STRUCTURE_ADD(_ps3_timer_shadow_triangles, ps3_span, ps3_d3d); /* port: (the timer build) */
 
 	if (dynamic_triangles_index != NONE)
 	{
@@ -1059,6 +1312,7 @@ void structure_render_shadow(
 
 		profile_exit(render_structure_shadows_draw_section);
 	}
+	PS3_STRUCTURE_ADD(_ps3_timer_shadow_draws, ps3_span, ps3_d3d); /* port: (the timer build) */
 
 	profile_exit(render_structure_shadows_section);
 

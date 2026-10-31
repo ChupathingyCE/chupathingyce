@@ -162,6 +162,10 @@ extern struct scenario *global_scenario;
 extern struct collision_bsp *global_collision_bsp;
 extern struct bsp3d *global_bsp3d;
 extern struct game_globals *global_game_globals;
+#ifdef HALO_PS3
+/* port: changed at each structure bsp's load and unload: the SPU keeps its data while it is the same (spu_game.c) */
+extern unsigned long scenario_structure_bsp_generation;
+#endif
 
 /* ---------- public code */
 

@@ -123,6 +123,21 @@ enum
 
 /* ---------- macros */
 
+#ifdef HALO_PS3
+#include "ps3_timers.h"
+
+/* port: the timer build's parts of the render (port/ps3/include/ps3_timers.h) */
+#define PS3_WEATHER_SPAN(span) ((span) = ps3_timer_now())
+#define PS3_WEATHER_ADD(timer, span) ((void)ps3_timer_add((timer), (span)))
+#define PS3_WEATHER_NEXT(timer, span) ((span) = ps3_timer_add((timer), (span)))
+#define PS3_WEATHER_COUNT(timer, count) (ps3_timer_counts[(timer)] += (uint32_t)(count))
+#else
+#define PS3_WEATHER_SPAN(span) ((void)0)
+#define PS3_WEATHER_ADD(timer, span) ((void)0)
+#define PS3_WEATHER_NEXT(timer, span) ((void)0)
+#define PS3_WEATHER_COUNT(timer, count) ((void)0)
+#endif
+
 /* ---------- structures */
 
 /*
@@ -569,8 +584,13 @@ static void weather_particle_system_render(
 	struct weather_particle_system_definition *definition = weather_particle_system_definition_get(system->definition_index);
 	struct structure_bsp *structure = global_structure_bsp_get();
 	short type_index;
+#ifdef HALO_PS3
+	uint64_t ps3_span;
+#endif
 
+	PS3_WEATHER_SPAN(ps3_span); /* port: (the timer build) */
 	weather_particle_system_update(local_player_index);
+	PS3_WEATHER_ADD(_ps3_timer_weather_update, ps3_span); /* port: (the timer build) */
 
 	for (type_index = 0; type_index<weather_particle_system_type_count(definition); type_index++)
 	{
@@ -580,6 +600,7 @@ static void weather_particle_system_render(
 			type_index,
 			struct weather_particle_type_definition);
 
+		PS3_WEATHER_COUNT(_ps3_timer_weather_update, type->particle_count); /* port: (the timer build) */
 		if (type->particle_count)
 		{
 			real_plane3d clip_planes[NUMBER_OF_WEATHER_PARTICLE_CLIPPING_PLANES];
@@ -730,6 +751,7 @@ static void weather_particle_system_render(
 								direction = global_up3d;
 							}
 
+							PS3_WEATHER_SPAN(ps3_span); /* port: (the timer build) */
 							build_sprite(
 								&sprite_data,
 								type_definition->render_mode,
@@ -742,12 +764,16 @@ static void weather_particle_system_render(
 								&particle->color,
 								fade_in*fade_out,
 								0);
+							PS3_WEATHER_ADD(_ps3_timer_weather_sprites, ps3_span); /* port: (the timer build) */
+							PS3_WEATHER_COUNT(_ps3_timer_weather_sprites, 1); /* port: (the timer build) */
 						}
 					}
 				}
 			}
 
+			PS3_WEATHER_SPAN(ps3_span); /* port: (the timer build) */
 			build_sprites_end(&sprite_data);
+			PS3_WEATHER_ADD(_ps3_timer_weather_draw, ps3_span); /* port: (the timer build) */
 		}
 	}
 
@@ -986,7 +1012,11 @@ static void weather_particle_update_physics(
 	struct weather_particle *particle = datum_get(weather_particle_data, particle_index);
 	unsigned long flags;
 	real_vector3d random_direction;
+#ifdef HALO_PS3
+	uint64_t ps3_span;
+#endif
 
+	PS3_WEATHER_SPAN(ps3_span); /* port: (the timer build) */
 #ifndef HALO_XBOX_CONSOLE
 	if ((type_definition->acceleration_lower_bound!=0.f || type_definition->acceleration_upper_bound!=0.f) &&
 		weather_particle_update_ticks<=0)
@@ -1009,6 +1039,7 @@ static void weather_particle_update_physics(
 		scale_vector3d(&particle->acceleration, magnitude, &particle->acceleration);
 		point_from_line3d((real_point3d *)&particle->velocity, &particle->acceleration, system->time_delta_sec, (real_point3d *)&particle->velocity);
 	}
+	PS3_WEATHER_NEXT(_ps3_timer_weather_acceleration, ps3_span); /* port: (the timer build) */
 
 	{
 		unsigned long seed = particle_index;
@@ -1028,6 +1059,7 @@ static void weather_particle_update_physics(
 			NULL,
 			particle->radius,
 			system->time_delta_sec);
+		PS3_WEATHER_NEXT(_ps3_timer_weather_point, ps3_span); /* port: (the timer build) */
 #ifndef HALO_XBOX_CONSOLE
 		point_from_line3d(&particle->position, seed_random_direction3d(&seed, &random_direction), 0.001f*system->time_delta_sec*TICKS_PER_SECOND, &particle->position);
 #else

@@ -363,6 +363,7 @@ boolean game_state_read_from_file(
 #ifndef HALO_XBOX_CONSOLE
 	unsigned long bytes_read;
 	void *image;
+	void *target; /* port: (the image, or the game state) */
 #endif
 
 	match_assert(
@@ -395,13 +396,19 @@ boolean game_state_read_from_file(
 #else
 	/* port: read beside the game state, and taken once checked */
 	image = malloc(xbox_game_state_globals.buffer_size);
-	if (image &&
+	target = image;
+#ifdef HALO_PS3
+	/* port: with no memory for the copy (after a long session), into the game state (a refusal resets the map) */
+	if (!target)
+		target = xbox_game_state_globals.buffer;
+#endif
+	if (target &&
 		SetFilePointer(xbox_game_state_globals.handle, 0, NULL, FILE_BEGIN) !=
 			INVALID_SET_FILE_POINTER &&
-		ReadFile(xbox_game_state_globals.handle, image,
+		ReadFile(xbox_game_state_globals.handle, target,
 			xbox_game_state_globals.buffer_size, &bytes_read, NULL) &&
 		bytes_read == xbox_game_state_globals.buffer_size &&
-		game_state_image_accept(image, xbox_game_state_globals.buffer_size))
+		game_state_image_accept(target, xbox_game_state_globals.buffer_size))
 	{
 		result = TRUE;
 	}
@@ -425,7 +432,9 @@ boolean game_state_read_from_file(
 #endif
 #line 415
 	}
-	free(image);
+	/* port: NULL when the read went into the game state; debug_free halts on NULL */
+	if (image)
+		free(image);
 #endif
 
 	return result;
@@ -512,6 +521,12 @@ void game_state_read_core(
 	HANDLE file;
 	unsigned long bytes_read;
 	void *image = malloc(buffer_size);
+#ifdef HALO_PS3
+	/* port: with no memory for the copy, into the game state (a refused one halts below, as before) */
+	void *target = image ? image : buffer;
+#else
+	void *target = image; /* port: (the image, or the game state) */
+#endif
 
 	sprintf(path, "d:\\core\\%s", name);
 	file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL,
@@ -520,14 +535,16 @@ void game_state_read_core(
 	match_vassert(
 		"c:\\halo\\SOURCE\\saved games\\game_state_xbox.c",
 		226,
-		image && file != INVALID_HANDLE_VALUE &&
-			ReadFile(file, image, buffer_size, &bytes_read, NULL) &&
+		target && file != INVALID_HANDLE_VALUE &&
+			ReadFile(file, target, buffer_size, &bytes_read, NULL) &&
 			bytes_read == buffer_size &&
-			game_state_image_accept(image, buffer_size),
+			game_state_image_accept(target, buffer_size),
 		"game state has been corrupted (thank you, come again)");
 	(void)buffer;
 	CloseHandle(file);
-	free(image);
+	/* port: NULL when the read went into the game state; debug_free halts on NULL */
+	if (image)
+		free(image);
 
 	return;
 #endif
@@ -790,12 +807,19 @@ void game_state_read_from_persistent_storage(
 #else
 		/* port: read beside the game state, and taken once checked */
 		void *image = malloc(buffer_size);
+#ifdef HALO_PS3
+		/* port: with no memory for the copy (after a long session), into the game state: the file's checksum already
+		passed (game_state_read_header_from_persistent_storage) */
+		void *target = image ? image : buffer;
+#else
+		void *target = image; /* port: (the image, or the game state) */
+#endif
 
-		if (!image ||
+		if (!target ||
 			SetFilePointer(file, 0, NULL, FILE_BEGIN) == INVALID_SET_FILE_POINTER ||
-			!ReadFile(file, image, buffer_size, &bytes_read, NULL) ||
+			!ReadFile(file, target, buffer_size, &bytes_read, NULL) ||
 			bytes_read != buffer_size ||
-			!game_state_image_accept(image, buffer_size))
+			!game_state_image_accept(target, buffer_size))
 		{
 			match_vassert(
 				"c:\\halo\\SOURCE\\saved games\\game_state_xbox.c",
@@ -806,7 +830,9 @@ void game_state_read_from_persistent_storage(
 			delete_persistent_storage();
 		}
 		(void)buffer;
-		free(image);
+		/* port: NULL when the read went into the game state; debug_free halts on NULL */
+		if (image)
+			free(image);
 #endif
 		CloseHandle(file);
 	}

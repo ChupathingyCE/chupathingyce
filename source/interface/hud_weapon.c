@@ -2035,6 +2035,17 @@ void hud_update_weapon(
 	return;
 }
 
+#ifdef HALO_PS3
+#include "ps3_timers.h"
+
+/* port: the timer build's parts of the weapon HUD, with their screen quads (port/ps3/include/ps3_timers.h) */
+#define PS3_WEAPON_HUD_BEGIN() ((void)(ps3_span = ps3_timer_now(), ps3_quads = ps3_timer_quads))
+#define PS3_WEAPON_HUD_PART(timer) ps3_timer_quad_part((timer), &ps3_span, &ps3_quads)
+#else
+#define PS3_WEAPON_HUD_BEGIN() ((void)0)
+#define PS3_WEAPON_HUD_PART(timer) ((void)0)
+#endif
+
 void hud_render_weapon_interface(
 	struct player_datum *player)
 {
@@ -2042,7 +2053,12 @@ void hud_render_weapon_interface(
 		player->unit_index,
 		unit_get(player->unit_index)->unit.current_weapon_index);
 	boolean seat_disallows_hud = FALSE;
+#ifdef HALO_PS3
+	uint64_t ps3_span;
+	uint32_t ps3_quads;
+#endif
 
+	PS3_WEAPON_HUD_BEGIN(); /* port: (the PS3's timer build; nothing elsewhere) */
 	if (weapon_index == NONE)
 	{
 		struct unit_datum *unit = unit_get(player->unit_index);
@@ -2099,6 +2115,7 @@ void hud_render_weapon_interface(
 		weapon_build_weapon_interface_state(
 			weapon_index,
 			&weapon_state);
+		PS3_WEAPON_HUD_PART(_ps3_timer_hud_weapon_state);
 		hud_index = definition->weapon.interface_definition.hud_interface.index;
 		if (hud_index != NONE)
 		{
@@ -2107,6 +2124,7 @@ void hud_render_weapon_interface(
 				weapon_index,
 				hud_index,
 				&weapon_state);
+			PS3_WEAPON_HUD_PART(_ps3_timer_hud_crosshairs);
 			render_weapon_hud(
 				hud_index,
 				player->local_player_index,
@@ -2115,26 +2133,32 @@ void hud_render_weapon_interface(
 				NULL,
 				NULL,
 				NULL);
+			PS3_WEAPON_HUD_PART(_ps3_timer_hud_weapon_panel);
 			play_weapon_hud_sounds(
 				player->local_player_index,
 				hud_index,
 				&weapon_state);
+			PS3_WEAPON_HUD_PART(_ps3_timer_hud_weapon_sounds);
 		}
 	}
 	else if (!seat_disallows_hud && !unit_get_weapon_count(player->unit_index))
 	{
 		struct weapon_interface_state weapon_state = { 0 };
 
+		PS3_WEAPON_HUD_PART(_ps3_timer_hud_weapon_state);
 		crosshairs_draw(
 			player,
 			NONE,
 			hud_globals->defaults.default_weapon_hud.index,
 			&weapon_state);
+		PS3_WEAPON_HUD_PART(_ps3_timer_hud_crosshairs);
 	}
 
+	PS3_WEAPON_HUD_PART(_ps3_timer_hud_weapon_state);
 	render_grenade_hud(
 		player->local_player_index,
 		player->unit_index);
+	PS3_WEAPON_HUD_PART(_ps3_timer_hud_grenades);
 	if (player->local_player_index != NONE)
 	{
 		get_hud_state(player->local_player_index)->last_weapon_index = weapon_index;

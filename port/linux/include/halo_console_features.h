@@ -233,6 +233,17 @@ larger maps take a campaign map's there as well) */
 #endif
 #endif
 
+/* the PS3 (Matt's halo-ps3): LP64 and big-endian, its own Direct3D on the RSX (port/ps3/xbox/d3d8_rsx.c),
+which copies a draw's vertices, so it keeps d3d8_resources.c's HALO_PS3 waits, not the GPU resource hooks */
+#ifdef HALO_PS3_CONSOLE
+#define HALO_CONSOLE_MAP_LOAD_HOOKS 1
+#define HALO_CONSOLE_XBOX_RENDER_SIZES 1
+#define HALO_CONSOLE_DEBUG_CHANNEL 1
+#define HALO_CONSOLE_HALT_TO_LAUNCHER 1
+#define HALO_CONSOLE_LOG_BUFFER 1
+#define HALO_CONSOLE_HIRES 1
+#endif
+
 #ifdef HALO_CONSOLE_WAIT_POLL
 /* (defined by the port) */
 void console_wait_poll(void);
