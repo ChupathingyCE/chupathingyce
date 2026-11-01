@@ -61,4 +61,29 @@ short structure_visibility_build_surfaces(
 void structure_visibility_compute(
 	void);
 
+#ifdef HALO_PS3
+#include "ps3_spu_game.h" /* port: port/ps3/src/ps3_spu.c */
+
+/* port: the structure bsp's blocks, and structure_visibility_build_surfaces's search, for an SPU's jobs
+(port/ps3/spu/spu_game.c) */
+void structure_visibility_spu_structure(
+	spu_game_structure *structure);
+boolean structure_visibility_build_surfaces_spu(
+	spu_game_shadow *job,
+	long *surface_indices,
+	short maximum_count,
+	real_point3d const *bounding_sphere_center,
+	real bounding_sphere_radius,
+	real_rectangle3d const *bounding_box,
+	short bounding_surface_count,
+	real_plane3d const *bounding_surfaces);
+/* port: the window's subcluster walk from the render SPU (structure_visibility_compute starts it): TRUE with the
+window's surfaces and their triangles; FALSE when the PPE walked them now */
+boolean structure_visibility_spu_take(
+	short const **triangles);
+/* port: FALSE when the window's surface flags changed after the render SPU's jobs before the take read them */
+boolean structure_visibility_spu_flags_final(
+	void);
+#endif
+
 #endif /* __STRUCTURE_VISIBILITY_H */

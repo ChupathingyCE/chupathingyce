@@ -1654,6 +1654,228 @@ short structure_visibility_build_surfaces(
 		0);
 }
 
+#ifdef HALO_PS3
+/* port: the layouts the SPU's jobs read by DMA (spu_game.c: the shadow, lights, visibility and particles jobs'
+structure walks); sizes and offsets the job does not carry are checked here */
+typedef char structure_visibility_spu_layout_check[(sizeof(long) == 4 && sizeof(struct tag_block) == 12 &&
+	offsetof(struct tag_block, count) == 0 && offsetof(struct tag_block, address) == 4 &&
+	sizeof(byte_rectangle3d) == 6 && sizeof(real_rectangle3d) == 24 && offsetof(real_rectangle3d, z1) == 20 &&
+	sizeof(real_plane3d) == 16 && offsetof(real_plane3d, d) == 12 &&
+	sizeof(struct structure_leaf) == 16 && offsetof(struct structure_leaf, bounds) == 0 &&
+	offsetof(struct structure_leaf, cluster_index) == 8 && offsetof(struct structure_leaf, surface_reference_count) == 10 &&
+	offsetof(struct structure_leaf, first_surface_reference_index) == 12 &&
+	sizeof(struct structure_visibility_surface_reference) == 8 &&
+	offsetof(struct structure_visibility_surface_reference, surface_index) == 0 &&
+	sizeof(struct structure_surface) == 6 && sizeof(struct structure_visibility_surface) == 6 &&
+	sizeof(struct bsp3d_node) == 12 && offsetof(struct bsp3d_node, plane_designator) == 0 &&
+	offsetof(struct bsp3d_node, children) == 4 &&
+	offsetof(struct structure_visibility_subcluster, world_bounds) == 0 &&
+	sizeof(render.environment_surface_flags[0]) == 4 && sizeof(render.environment_surface_indices[0]) == 4 &&
+	MAXIMUM_SURFACES_PER_STRUCTURE <= 0x20000) ? 1 : -1];
+
+void structure_visibility_spu_structure(
+	spu_game_structure *spu)
+{
+	struct structure_bsp *structure = global_structure_bsp_get();
+	struct collision_bsp *collision = TAG_BLOCK_GET_ELEMENT(&structure->collision_bsp, 0, struct collision_bsp);
+
+	spu->generation = (uint32_t)scenario_structure_bsp_generation;
+	spu->nodes = PS3_SPU_EA(xbox_pointer(structure->nodes.address));
+	spu->node_count = structure->nodes.count;
+	spu->bsp3d_nodes = PS3_SPU_EA(xbox_pointer(collision->bsp3d.nodes.address));
+	spu->bsp3d_node_count = collision->bsp3d.nodes.count;
+	spu->planes = PS3_SPU_EA(xbox_pointer(collision->bsp3d.planes.address));
+	spu->plane_count = collision->bsp3d.planes.count;
+	spu->leaves = PS3_SPU_EA(xbox_pointer(structure->leaves.address));
+	spu->leaf_count = structure->leaves.count;
+	spu->surface_references = PS3_SPU_EA(xbox_pointer(structure->surface_references.address));
+	spu->surface_reference_count = structure->surface_references.count;
+	spu->clusters = PS3_SPU_EA(xbox_pointer(structure->clusters.address));
+	spu->cluster_count = structure->clusters.count;
+	spu->cluster_size = sizeof(struct structure_visibility_cluster);
+	spu->cluster_subclusters_offset = offsetof(struct structure_visibility_cluster, subclusters);
+	spu->subcluster_size = sizeof(struct structure_visibility_subcluster);
+	spu->subcluster_surfaces_offset = offsetof(struct structure_visibility_subcluster, surface_indices);
+	spu->surface_count = structure->surfaces.count;
+	spu->world_bounds[0] = structure->world_bounds.x0;
+	spu->world_bounds[1] = structure->world_bounds.x1;
+	spu->world_bounds[2] = structure->world_bounds.y0;
+	spu->world_bounds[3] = structure->world_bounds.y1;
+	spu->world_bounds[4] = structure->world_bounds.z0;
+	spu->world_bounds[5] = structure->world_bounds.z1;
+	spu->surfaces = PS3_SPU_EA(xbox_pointer(structure->surfaces.address));
+}
+
+#include "bink/bink_playback.h" /* port: bink_playback_in_progress */
+
+/* port: the window's subcluster walk on the render SPU, from structure_visibility_compute to the take (step 8 of
+render_window); failed when the job did not end, and the PPE walked again after the SPU's other jobs read the flags */
+static struct
+{
+	spu_game_visibility job;
+	spu_game_answer answer;
+	short triangles[MAXIMUM_RENDERED_ENVIRONMENT_SURFACES * NUMBER_OF_VERTICES_PER_TRIANGLE];
+	uint32_t ticket;
+	boolean pending;
+	boolean failed;
+} structure_visibility_spu __attribute__((aligned(128)));
+
+static boolean structure_visibility_spu_submit(
+	void)
+{
+	spu_game_visibility *job = &structure_visibility_spu.job;
+	short rendered_cluster_index;
+
+	/* (a window a bink plays in draws no structure: nothing takes the job) */
+	if (!ps3_spu_render_running() || render.rendered_cluster_count > SPU_GAME_VISIBILITY_CLUSTERS ||
+		bink_playback_in_progress())
+	{
+		return FALSE;
+	}
+	structure_visibility_spu_structure(&job->structure);
+	job->flags = PS3_SPU_EA(render.environment_surface_flags);
+	job->indices = PS3_SPU_EA(render.environment_surface_indices);
+	job->triangles = PS3_SPU_EA(structure_visibility_spu.triangles);
+	job->maximum_count = MAXIMUM_RENDERED_ENVIRONMENT_SURFACES;
+	job->answer = PS3_SPU_EA(&structure_visibility_spu.answer);
+	job->cluster_count = render.rendered_cluster_count;
+	for (rendered_cluster_index = 0; rendered_cluster_index < render.rendered_cluster_count; rendered_cluster_index++)
+	{
+		struct rendered_cluster *rendered_cluster = rendered_cluster_get(rendered_cluster_index);
+		struct render_frustum const *frustum = structures_use_pvs_for_vs || render.cluster_index == NONE
+			? &render.frustum
+			: &rendered_cluster->frustum;
+		spu_game_visibility_cluster *cluster = &job->clusters[rendered_cluster_index];
+		short plane_index;
+
+		cluster->cluster_index = rendered_cluster->cluster_index;
+		cluster->world_bounds[0] = frustum->world_bounds.x0;
+		cluster->world_bounds[1] = frustum->world_bounds.x1;
+		cluster->world_bounds[2] = frustum->world_bounds.y0;
+		cluster->world_bounds[3] = frustum->world_bounds.y1;
+		cluster->world_bounds[4] = frustum->world_bounds.z0;
+		cluster->world_bounds[5] = frustum->world_bounds.z1;
+		for (plane_index = 0; plane_index < 4; plane_index++)
+		{
+			cluster->planes[plane_index][0] = frustum->world_planes[plane_index].n.i;
+			cluster->planes[plane_index][1] = frustum->world_planes[plane_index].n.j;
+			cluster->planes[plane_index][2] = frustum->world_planes[plane_index].n.k;
+			cluster->planes[plane_index][3] = frustum->world_planes[plane_index].d;
+		}
+	}
+	structure_visibility_spu.answer.status = 0;
+	structure_visibility_spu.ticket = ps3_spu_render_submit(SPU_GAME_VISIBILITY, sizeof(*job), PS3_SPU_EA(job), 0);
+	structure_visibility_spu.pending = structure_visibility_spu.ticket != 0;
+
+	return structure_visibility_spu.pending;
+}
+
+boolean structure_visibility_spu_take(
+	short const **triangles)
+{
+	struct structure_bsp *structure = global_structure_bsp_get();
+	boolean done;
+
+	if (!structure_visibility_spu.pending)
+	{
+		return FALSE;
+	}
+	structure_visibility_spu.pending = FALSE;
+	done = ps3_spu_render_wait(structure_visibility_spu.ticket) &&
+		structure_visibility_spu.answer.status == SPU_GAME_DONE &&
+		structure_visibility_spu.answer.value <= MAXIMUM_RENDERED_ENVIRONMENT_SURFACES;
+	structure_visibility_spu.ticket = 0;
+	if (done)
+	{
+		render.environment_surface_count = (short)structure_visibility_spu.answer.value;
+		*triangles = structure_visibility_spu.triangles;
+	}
+	else
+	{
+		/* (as structure_visibility_compute walks them) */
+		structure_visibility_spu.failed = TRUE;
+		render.environment_surface_count = 0;
+		csmemset(render.environment_surface_flags, 0, BIT_VECTOR_SIZE_IN_BYTES(structure->surfaces.count));
+		structure_visibility_traverse_subclusters(structure);
+	}
+
+	return done;
+}
+
+boolean structure_visibility_spu_flags_final(
+	void)
+{
+	return !structure_visibility_spu.failed;
+}
+
+/* port: structure_visibility_build_surfaces with no clusters given, the clusters in the sphere found here and the rest
+the SPU's: FALSE when it cannot take the search */
+boolean structure_visibility_build_surfaces_spu(
+	spu_game_shadow *job,
+	long *surface_indices,
+	short maximum_count,
+	real_point3d const *bounding_sphere_center,
+	real bounding_sphere_radius,
+	real_rectangle3d const *bounding_box,
+	short bounding_surface_count,
+	real_plane3d const *bounding_surfaces)
+{
+	struct structure_bsp *structure = global_structure_bsp_get();
+	struct location center_location;
+	short found_cluster_indices[MAXIMUM_CLUSTERS_PER_STRUCTURE];
+	short index;
+
+	if (!structure || !structure_bsp_port_verify(structure) || !bounding_box ||
+		bounding_surface_count > SPU_GAME_SHADOW_PLANES || maximum_count > 4096)
+	{
+		return FALSE;
+	}
+	structure_visibility_spu_structure(&job->structure);
+	job->environment_flags = PS3_SPU_EA(render.environment_surface_flags);
+	job->surfaces = PS3_SPU_EA(surface_indices);
+	job->maximum_count = maximum_count;
+	job->center[0] = bounding_sphere_center->x;
+	job->center[1] = bounding_sphere_center->y;
+	job->center[2] = bounding_sphere_center->z;
+	job->radius = bounding_sphere_radius;
+	job->bounds[0] = bounding_box->x0;
+	job->bounds[1] = bounding_box->x1;
+	job->bounds[2] = bounding_box->y0;
+	job->bounds[3] = bounding_box->y1;
+	job->bounds[4] = bounding_box->z0;
+	job->bounds[5] = bounding_box->z1;
+	job->plane_count = bounding_surface_count;
+	for (index = 0; index < bounding_surface_count; index++)
+	{
+		job->planes[index][0] = bounding_surfaces[index].n.i;
+		job->planes[index][1] = bounding_surfaces[index].n.j;
+		job->planes[index][2] = bounding_surfaces[index].n.k;
+		job->planes[index][3] = bounding_surfaces[index].d;
+	}
+	job->cluster_count = NONE;
+	if (bounding_sphere_radius >= structure_sphere_threshold)
+	{
+		scenario_location_from_point(&center_location, bounding_sphere_center);
+		if (center_location.cluster_index != NONE)
+		{
+			job->cluster_count = structure_clusters_in_sphere(
+				center_location.cluster_index,
+				bounding_sphere_center,
+				bounding_sphere_radius,
+				MAXIMUM_CLUSTERS_PER_STRUCTURE,
+				found_cluster_indices);
+			job->cluster_count = MIN(job->cluster_count, SPU_GAME_SHADOW_CLUSTERS);
+			for (index = 0; index < job->cluster_count; index++)
+			{
+				job->clusters[index] = found_cluster_indices[index];
+			}
+		}
+	}
+
+	return TRUE;
+}
+#endif
+
 static void structure_visibility_traverse_cluster(
 	short cluster_index,
 	struct portal_hull const *visible_region)
@@ -1893,6 +2115,16 @@ void structure_visibility_compute(
 {
 	struct structure_bsp *structure = global_structure_bsp_get();
 
+#ifdef HALO_PS3
+	/* port: a window's job that was never taken (no render after a bink) ends before the flags are used again */
+	if (structure_visibility_spu.pending)
+	{
+		ps3_spu_render_wait(structure_visibility_spu.ticket);
+		structure_visibility_spu.pending = FALSE;
+	}
+	structure_visibility_spu.failed = FALSE;
+#endif
+
 	/* port: a bsp (from the map) bigger than the engine's flags and arrays
 	of its clusters and surfaces hold, or without its clusters' pvs, has
 	nothing of it visible */
@@ -1987,6 +2219,10 @@ void structure_visibility_compute(
 		0,
 		struct structure_visibility_cluster)->subclusters.count)
 	{
+#ifdef HALO_PS3
+		/* port: on the render SPU while the window goes on; structure_render_preprocess takes it */
+		if (!structure_visibility_spu_submit())
+#endif
 		structure_visibility_traverse_subclusters(structure);
 	}
 	else

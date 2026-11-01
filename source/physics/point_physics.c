@@ -74,6 +74,17 @@ void point_physics_dispose_from_old_map(
 	return;
 }
 
+#ifdef HALO_PS3
+/* port: the air's and water's masses, for the SPU's weather and particles (weather_particle_systems.c, particles.c) */
+void point_physics_air_and_water_masses(
+	float *air,
+	float *water)
+{
+	*air = global_air_mass_over_radius_cubed;
+	*water = global_water_mass_over_radius_cubed;
+}
+#endif
+
 real point_physics_definition_get_mass(
 	struct point_physics_definition *definition,
 	real radius)
@@ -219,6 +230,15 @@ unsigned long point_physics_update(
 			delta.j = translational_velocity->j * dt;
 			delta.k = translational_velocity->k * dt;
 
+#ifdef HALO_PS3
+			/* port: a test of no surface (the weather's) gives the point plus delta, collision_test_vector's sum,
+			without its look-up of a location: the weather's shared one, set again before it is read */
+			if (TEST_FLAG(flags, _point_physics_force_no_collisions_bit))
+			{
+				add_vectors3d((real_vector3d const *)position, &delta, (real_vector3d *)position);
+				break;
+			}
+#endif
 			if (!collision_test_vector(collision_flags, position, &delta, NONE, &collision))
 			{
 				if (collision.location.leaf_index != NONE)

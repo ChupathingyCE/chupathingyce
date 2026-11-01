@@ -857,6 +857,83 @@ static void shadow_volume_plane_pair(
 	return;
 }
 
+#ifdef HALO_PS3
+/* port: the shadow's volume as render_object_shadow_end makes it, for its surfaces' search before its model draws
+(structure_render_shadow_take compares the two) */
+static void render_object_shadow_volume(
+	struct object_render_data *data,
+	real_plane3d *shadow_volume_planes,
+	real_rectangle3d *shadow_volume_bounds_result)
+{
+	real_rectangle3d shadow_volume_bounds;
+
+	shadow_volume_plane_pair(
+		&data->shadow_matrix.up,
+		&data->shadow_matrix.position,
+		&shadow_volume_planes[0],
+		&shadow_volume_planes[1]);
+	shadow_volume_planes[0].d -= data->shadow_bounding_radius * 0.5f;
+	shadow_volume_planes[1].d -= data->shadow_bounding_radius * 4.f;
+
+	shadow_volume_plane_pair(
+		&data->shadow_matrix.forward,
+		&data->shadow_matrix.position,
+		&shadow_volume_planes[2],
+		&shadow_volume_planes[3]);
+	shadow_volume_planes[2].d -= data->shadow_bounding_radius;
+	shadow_volume_planes[3].d -= data->shadow_bounding_radius;
+
+	shadow_volume_plane_pair(
+		&data->shadow_matrix.left,
+		&data->shadow_matrix.position,
+		&shadow_volume_planes[4],
+		&shadow_volume_planes[5]);
+	shadow_volume_planes[4].d -= data->shadow_bounding_radius;
+	shadow_volume_planes[5].d -= data->shadow_bounding_radius;
+
+	shadow_volume_bounds.x1 =
+		ABS(data->shadow_matrix.forward.i) + ABS(data->shadow_matrix.left.i);
+	shadow_volume_bounds.x0 = -shadow_volume_bounds.x1;
+	shadow_volume_bounds.y1 =
+		ABS(data->shadow_matrix.forward.j) + ABS(data->shadow_matrix.left.j);
+	shadow_volume_bounds.y0 = -shadow_volume_bounds.y1;
+	shadow_volume_bounds.z1 =
+		ABS(data->shadow_matrix.forward.k) + ABS(data->shadow_matrix.left.k);
+	shadow_volume_bounds.z0 = -shadow_volume_bounds.z1;
+
+	shadow_volume_bounds.x0 += (data->shadow_matrix.up.i <= 0.f)
+		? data->shadow_matrix.up.i * 4.f
+		: data->shadow_matrix.up.i * -0.5f;
+	shadow_volume_bounds.x1 += (data->shadow_matrix.up.i > 0.f)
+		? data->shadow_matrix.up.i * 4.f
+		: data->shadow_matrix.up.i * -0.5f;
+	shadow_volume_bounds.y0 += (data->shadow_matrix.up.j <= 0.f)
+		? data->shadow_matrix.up.j * 4.f
+		: data->shadow_matrix.up.j * -0.5f;
+	shadow_volume_bounds.y1 += (data->shadow_matrix.up.j > 0.f)
+		? data->shadow_matrix.up.j * 4.f
+		: data->shadow_matrix.up.j * -0.5f;
+	shadow_volume_bounds.z0 += data->shadow_matrix.up.k * 4.f;
+	shadow_volume_bounds.z1 -= data->shadow_matrix.up.k * 0.5f;
+
+	shadow_volume_bounds.x0 = shadow_volume_bounds.x0 * data->shadow_bounding_radius +
+		data->shadow_matrix.position.x;
+	shadow_volume_bounds.x1 = shadow_volume_bounds.x1 * data->shadow_bounding_radius +
+		data->shadow_matrix.position.x;
+	shadow_volume_bounds.y0 = shadow_volume_bounds.y0 * data->shadow_bounding_radius +
+		data->shadow_matrix.position.y;
+	shadow_volume_bounds.y1 = shadow_volume_bounds.y1 * data->shadow_bounding_radius +
+		data->shadow_matrix.position.y;
+	shadow_volume_bounds.z0 = shadow_volume_bounds.z0 * data->shadow_bounding_radius +
+		data->shadow_matrix.position.z;
+	shadow_volume_bounds.z1 = shadow_volume_bounds.z1 * data->shadow_bounding_radius +
+		data->shadow_matrix.position.z;
+	*shadow_volume_bounds_result = shadow_volume_bounds;
+
+	return;
+}
+#endif
+
 static void render_object_shadow_end(
 	struct object_render_data *data)
 {
@@ -1204,6 +1281,19 @@ static void render_object(
 				PS3_SHADOW_COUNT(_ps3_timer_shadow_begin); /* port: (the timer build) */
 				if (render_object_shadow_begin(data, darkness_fraction * size_fraction))
 				{
+#ifdef HALO_PS3
+					/* port: its surfaces searched by an SPU while its model draws (structure_render_shadow) */
+					real_plane3d shadow_volume_planes[NUMBER_OF_SHADOW_VOLUME_PLANES];
+					real_rectangle3d shadow_volume_bounds;
+
+					render_object_shadow_volume(data, shadow_volume_planes, &shadow_volume_bounds);
+					structure_render_shadow_prepare(
+						&data->shadow_matrix.position,
+						data->shadow_bounding_radius * 4.f,
+						&shadow_volume_bounds,
+						NUMBER_OF_SHADOW_VOLUME_PLANES,
+						shadow_volume_planes);
+#endif
 					PS3_SHADOW_PART(_ps3_timer_shadow_begin); /* port: (the timer build) */
 					render_object_list(data, NULL, data->object_index);
 					PS3_SHADOW_PART(_ps3_timer_shadow_model); /* port: (the timer build) */

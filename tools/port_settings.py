@@ -32,6 +32,11 @@ VOLUMES = [(str(step), f"{step / 10:g}") for step in range(11)]
 # would be (_console_places).
 CONSOLE = "console"
 NOT_CONSOLE = "desktop android switch"
+# (PS3: "console" is the PS3 too, as "ps3", and each console's rows are packed
+# on their own. PS3 rows are its alone; NOT_PS3, every platform but the PS3)
+CONSOLES = ["x360", "wiiu", "ps3"]
+PS3 = "ps3"
+NOT_PS3 = "desktop android switch x360 wiiu"
 
 # each screen: its folder below PE, its screen's widget (the name the profile
 # menu opens), its header (widget, bitmap), the row spacing, its rows:
@@ -50,17 +55,23 @@ SCREENS = {
         # Resolution's, port/linux/game/menu_functions.c showing the one the
         # display mode chosen uses; Android's resolution and anti-aliasing in
         # the desktop's)
-        "same_place": ["display.window_size", "resolution_android", "display.interpolation",
-                       "anti_aliasing_android"],
+        # (PS3: by the rows' keys; the PS3's rows in the places of desktop
+        # rows the consoles leave out)
+        "same_place": ["window_size", "resolution_android", "interpolation",
+                       "anti_aliasing_android", "screen_width", "preset", "frame_rate", "dynamic_resolution",
+                       "button_icons"],
         # (rows written but placed on no page: Smooth Motion, which Frame
         # Rate sets on every platform, kept so the rows after it keep their
         # strings)
-        "unplaced": ["display.interpolation"],
+        "unplaced": ["interpolation"],
         "rows": [
             ("DISPLAY MODE:", "display.mode",
              [("FULLSCREEN", "fullscreen"), ("BORDERLESS", "borderless"), ("WINDOWED", "windowed")],
              "Fullscreen, borderless or a window. F11 switches.",
              "desktop"),
+            # (PS3: 0 fills the display, 640 is 4:3; port/ps3/xbox/d3d8_rsx.c)
+            ("WIDESCREEN:", "display.screen_width", [("ON", "0"), ("OFF", "640")],
+             "Fill a 16:9 screen and see more at its sides.\nOff keeps the Xbox's 4:3 picture.", PS3),
             # (port/linux/game/menu_tags.c adds the display's resolutions)
             ("RESOLUTION:", "display.resolution", [("NATIVE", "native")],
              "The resolution for fullscreen and borderless.",
@@ -75,10 +86,21 @@ SCREENS = {
              [("480 (XBOX)", "480"), ("720", "720"), ("900", "900"), ("1080", "1080"), ("NATIVE", "native")],
              "Higher is sharper, but uses more battery.",
              "android", "resolution_android"),
+            # (PS3: QUALITY and PERFORMANCE set FRAME RATE and DYNAMIC
+            # RESOLUTION, shown with CUSTOM alone: menu_functions.c)
+            ("PRESET:", "display.preset",
+             [("CUSTOM", "custom"), ("QUALITY", "quality"), ("PERFORMANCE", "performance")],
+             "Quality: 30 frames, full resolution. Performance:\n60 frames, dynamic resolution. Custom: your own.", PS3),
             ("RESOLUTION SCALING:", "display.resolution_scaling", [("NATIVE", "native"), ("ORIGINAL", "original")],
              "Native draws at full resolution. Original draws at\n640x480 and scales it up.", "desktop"),
+            # (PS3: a key of its own, as SMOOTH MOTION sets display.interpolation too)
+            ("FRAME RATE:", "display.interpolation", [("60", "true"), ("30", "false")],
+             "60 blends between the game's 30 updates a second.\n30 is the Xbox's. Split screen always plays at 30.",
+             PS3, "frame_rate"),
             ("V-SYNC:", "display.vsync", ON_OFF,
              "Sync frames to the display.", NOT_CONSOLE),
+            ("DYNAMIC RESOLUTION:", "display.dynamic_resolution", ON_OFF,
+             "In heavy scenes, draw the world smaller and scale\nit up: steadier, a little softer.", PS3),
             # (port/linux/game/menu_functions.c: 30 also turns display.interpolation
             # off, the others on, on every platform. Instant Aim,
             # display.direct_camera, is in config.toml alone)
@@ -86,7 +108,7 @@ SCREENS = {
              [("30 (XBOX)", "30"), ("AUTO", "0"), ("60", "60"), ("120", "120"), ("144", "144"),
               ("165", "165"), ("240", "240"), ("NONE", "-1")],
              "The frame rate limit; 30 is the Xbox's. Auto is twice\nthe display's refresh rate.",
-             None),
+             NOT_PS3),
             ("SMOOTH MOTION:", "display.interpolation", ON_OFF,
              "Draw a frame for every display refresh.", "android"),
             ("ANTI-ALIASING:", "display.anti_aliasing",
@@ -115,14 +137,14 @@ SCREENS = {
                 ("SHADOW RESOLUTION:", "display.shadow_resolution",
                  [("128", "128"), ("256", "256"), ("512", "512"), ("1024", "1024")],
                  "The detail of object shadows.",
-                 None),
+                 NOT_PS3),
                 ("PER-PIXEL LIGHTING:", "display.per_pixel_lighting", ON_OFF,
-                 "Light models per pixel instead of per vertex.", None),
+                 "Light models per pixel instead of per vertex.", NOT_PS3),
                 ("FULL MODEL DETAIL:", "display.full_model_detail", ON_OFF,
                  "Always draw models at their highest detail.", None),
                 ("ANISOTROPIC FILTERING:", "display.anisotropic_filtering",
                  [("OFF", "0"), ("2X", "2"), ("4X", "4"), ("8X", "8"), ("16X", "16")],
-                 "Sharper textures seen at an angle.", None),
+                 "Sharper textures seen at an angle.", NOT_PS3),
                 ("FAR CLIP:", "display.far_clip_distance",
                  [("1024 (XBOX)", "1024"), ("2048", "2048"), ("4096", "4096"), ("8192", "8192"), ("10000", "10000")],
                  "How far the world is drawn.", None),
@@ -134,6 +156,10 @@ SCREENS = {
                 ("MENU STYLE:", "display.menus",
                  [("CHUPATHINGY", "chupathingy"), ("XBOX", "xbox"), ("GEARBOX", "gearbox")],
                  "Takes effect on restart.", NOT_CONSOLE),
+                # (PS3, in MENU STYLE's place: port/ps3/xbox/hud_hires_rsx.c)
+                ("BUTTON ICONS:", "display.button_icons",
+                 [("XBOX", "xbox"), ("STYLE A", "style_a"), ("STYLE B", "style_b")],
+                 "The buttons in the menus and messages: the\nXbox's, or the PS3's in color or in black.", PS3),
                 ("HIGH-RES HUD:", "display.high_res_hud", ON_OFF,
                  "Draw the HUD in high resolution.", NOT_CONSOLE),
                 ("HIGH-RES TEXT:", "display.high_res_text", ON_OFF,
@@ -178,11 +204,11 @@ SCREENS = {
             ("SPEAKERS:", "audio.channels", [("AUTO", "auto"), ("STEREO", "stereo"), ("5.1", "5.1"), ("7.1", "7.1")],
              "Stereo or surround. Takes effect on restart.", "desktop"),
             ("HEADPHONE 3D:", "audio.hrtf", [("OFF", "off"), ("ON", "on"), ("AUTO", "auto")],
-             "3D sound as on the Xbox. Turn off for speakers.", None),
+             "3D sound as on the Xbox. Turn off for speakers.", NOT_PS3),
             ("REVERB:", "audio.reverb", ON_OFF,
-             "Room echo, and muffled sound behind walls.", None),
+             "Room echo, and muffled sound behind walls.", NOT_PS3),
             ("DOPPLER:", "audio.doppler", ON_OFF,
-             "Pitch shift of moving sounds, as on the Xbox.", None),
+             "Pitch shift of moving sounds, as on the Xbox.", NOT_PS3),
             ("SOUND:", "audio.enabled", ON_OFF,
              "Turn all sound on or off. Takes effect on restart.", None),
         ],
@@ -267,6 +293,9 @@ GAMEPAD_ROWS = [
      "Change the thumbstick layout.", None),
     ("VIBRATION:", "profile.vibration", ON_OFF, "Rumble the controller.", None),
     ("IN-GAME HELP:", "profile.ingame_help", ON_OFF, "Show control hints during play.", None),
+    # (PS3: config.toml's, after the rows the others have: no place of theirs)
+    ("TOGGLE CROUCH:", "input.toggle_crouch", ON_OFF,
+     "Press crouch to crouch, and again to stand up.\nOff: hold it, as on the Xbox.", PS3),
 ]
 
 # Controls Setup: the keyboard and mouse's actions, in groups (the order of
@@ -298,8 +327,11 @@ def _widget(name: str, pairs: list, inner: list) -> list:
 
 
 def _strings(name: str, texts: list) -> list:
+    # (PS3: an entry that is [(text, platform), ...] has a string for each platform, at one index)
+    entries = [entry if isinstance(entry, list) else [(entry, None)] for entry in texts]
     return [f"\t<strings{attributes([('name', name)])}>",
-            *[f"\t\t<string{attributes([('text', text)])}/>" for text in texts], "\t</strings>"]
+            *[f"\t\t<string{attributes([('text', text), ('platform', platform)])}/>"
+              for entry in entries for text, platform in entry], "\t</strings>"]
 
 
 def _button(name: str, caption: int, handlers: list) -> list:
@@ -382,7 +414,7 @@ def _layout(spec: dict) -> list:
         place = -1
         for row in rows:
             key = _row_key(row)
-            if row[1] not in same and key not in same:
+            if key not in same:
                 place += 1
             entries.append(("row", row, key, place, len(labels)))
             labels.append(row[0])
@@ -446,15 +478,16 @@ def _mark(base: str, view: str) -> list:
     return _widget(f"{base}/view_{view}", [("width", 1), ("height", 1)], [])
 
 
-def _on_console(platform) -> bool:
-    return platform is None or CONSOLE in platform.split()
+def _on_console(platform, console: str) -> bool:
+    # (PS3: on the console by "console" or by its own name)
+    return platform is None or bool({CONSOLE, console} & set(platform.split()))
 
 
 def _off_console(platform) -> str:
     """the platform's names but the consoles'"""
     if platform is None:
         return NOT_CONSOLE
-    return " ".join(name for name in platform.split() if name != CONSOLE)
+    return " ".join(name for name in platform.split() if name != CONSOLE and name not in CONSOLES)
 
 
 def _console_places(rows: list) -> list:
@@ -483,13 +516,23 @@ def _console_places(rows: list) -> list:
         part = [row for other, row in enumerate(rows)
                 if not marks[other].startswith("view_") and view in views[other]]
         taken = {other_place for _, _, other_place in part}
-        shown = {other_place for _, other_platform, other_place in part if _on_console(other_platform)}
-        higher = sum(1 for empty in taken - shown if empty < place)
-        if higher and _on_console(platform):
-            packed.append((widget, _off_console(platform), place))
-            packed.append((widget, CONSOLE, place - higher))
-        else:
+        # (PS3: each console packed on its own; one child for the platforms
+        # of each place, "console" for all of them)
+        places = {place: _off_console(platform).split()}
+        for console in CONSOLES:
+            if _on_console(platform, console):
+                shown = {other_place for _, other_platform, other_place in part
+                         if _on_console(other_platform, console)}
+                higher = sum(1 for empty in taken - shown if empty < place)
+                places.setdefault(place - higher, []).append(console)
+        if len(places) == 1:
             packed.append((widget, platform, place))
+            continue
+        for at, names in places.items():
+            if set(CONSOLES) <= set(names):
+                names = [name for name in names if name not in CONSOLES] + [CONSOLE]
+            if names:
+                packed.append((widget, " ".join(names), at))
     return packed
 
 
@@ -507,12 +550,12 @@ def _setting_rows(base: str, spec: dict) -> tuple:
             extra += _mark(base, entry[1])
         elif entry[0] == "link":
             _, view, key, place, label_index = entry
-            shown = any(_on_console(row[4]) for row in views[view])
-            rows.append((f"{base}/op_{key}", None if shown else NOT_CONSOLE, place))
+            shown = [console for console in CONSOLES if any(_on_console(row[4], console) for row in views[view])]
+            rows.append((f"{base}/op_{key}", None if shown == CONSOLES else " ".join([NOT_CONSOLE, *shown]), place))
             extra += _link_row(base, key, label_index)
         else:
             _, row, key, place, label_index = entry
-            if row[1] not in spec.get("unplaced", ()):
+            if key not in spec.get("unplaced", ()):
                 rows.append((f"{base}/op_{key}", row[4], place))
             extra += _setting_row(base, row, key, label_index)
     # (the help of the row whose label is string n is n + 1: the buttons' is 0)
@@ -666,7 +709,8 @@ def _controls_rows() -> tuple:
     # (the settings' labels and helps, by label as the settings screens';
     # the other rows' helps are menu_functions.c's own)
     extra += _strings(f"{base}/labels", labels)
-    extra += _strings(f"{base}/help_strings", [""] + helps)
+    # (PS3: TOGGLE CROUCH's help is two lines)
+    extra += _strings(f"{base}/help_strings", [""] + [text.replace("\n", "\\n") for text in helps])
     return _console_places(rows), extra
 
 
@@ -1351,7 +1395,9 @@ def _server_settings() -> list:
                      [f'<on event="a" run="ss start game" open="{MT}/lobby/lobby_screen"/>',
                       f'<on event="start" run="ss start game" open="{MT}/lobby/lobby_screen"/>',
                       '<on event="left_mouse" run="mouse emit accept event"/>'])
-    extra += _strings(f"{base}/labels", ["GAME NAME:", "MAXIMUM PLAYERS:", "INVITE LINK:", "GAME TYPE:",
+    # (PS3: no clipboard; the invite's code, menu_functions.c's server_settings_update)
+    extra += _strings(f"{base}/labels", ["GAME NAME:", "MAXIMUM PLAYERS:",
+                                         [("INVITE LINK:", NOT_PS3), ("INVITE CODE:", PS3)], "GAME TYPE:",
                                          "PLAYER OPTIONS:", "ITEM OPTIONS:", "VEHICLE OPTIONS:", "INDICATOR OPTIONS:",
                                          "TEAMPLAY OPTIONS:", "LISTING:", "FRIENDLY FIRE:", "EXTRA ENEMIES:",
                                          "PER PLAYER:", "MULTIPLIER:", "PLAYER COLLISIONS:", "PASSWORD:",
@@ -1360,7 +1406,8 @@ def _server_settings() -> list:
         "",
         "The game's name in the game list.",
         "The most players allowed in the game.",
-        "Press %a-button to copy the invite link.",
+        [("Press %a-button to copy the invite link.", NOT_PS3),
+         ("A PS3 types it in DIRECT LINK. On a PC, the\\nInvite Codes page turns it into a link.", PS3)],
         "Choose the gametype.",
         "Lives, health, shields and respawning.",
         "Weapons, grenades and starting equipment.",
@@ -1369,7 +1416,8 @@ def _server_settings() -> list:
         "Friendly fire and team balance.",
         # (LISTING's, by its choice)
         "Anyone can join from the Server Browser.",
-        "Only players with your invite link can join.",
+        [("Only players with your invite link can join.", NOT_PS3),
+         ("Only players with your invite code can join.", PS3)],
         # (FRIENDLY FIRE's, by its choice, as Teamplay Options' words them)
         "Players can not be hurt by weapons and explosives\\nfired by the other players.",
         "Players can be hurt by weapons or explosives\\nfired by the other players.",

@@ -57,6 +57,27 @@ enum
 };
 int p2p_join_failure(void);
 
+#ifdef HALO_PS3
+/* ---- invite codes: P2P_CODE_DIGITS digits standing for an invite on the brokers (port/ps3/invite/index.html), for
+consoles that cannot paste or copy a link */
+
+enum
+{
+	P2P_CODE_DIGITS = 8,
+};
+
+/* the code of the internet game this machine hosts (P2P_CODE_DIGITS digits and an end), once a broker has it: 0
+until then, or when it hosts none. The p2p thread makes one for each invite (a fraction of a second) */
+int p2p_invite_code(char *code, int size);
+/* looks the code in text up on the brokers (its digits; spaces and dashes allowed): 1 if it is, 0 if text is no code,
+-1 if internet play is off. The p2p thread works out the code's key (a fraction of a second) */
+int p2p_look_up_code(const char *text);
+/* the code looked up: 0 while it is looked for (or none is), 1 found (its invite's link), -1 no game has it, -2 no
+broker answered; a result is given once */
+int p2p_code_found(char *link, int size);
+void p2p_stop_code_lookup(void);
+#endif
+
 /* this machine's identifier, which its XNADDR carries (6 bytes) */
 const unsigned char *p2p_identifier(void);
 /* the address the game reaches the machine with this identifier at, if it

@@ -403,6 +403,11 @@ static void render_window(
 	{
 		PS3_WINDOW_STEP(4);
 		build_sprite_prepare_for_window();
+#ifdef HALO_PS3
+		/* port: the weather on an SPU while the window draws (weather_particle_systems_render takes it) */
+		weather_particle_systems_render_begin();
+		PS3_TIMER_PART(_ps3_timer_effects_weather);
+#endif
 		render_sky();
 		PS3_TIMER_PART(_ps3_timer_render_sky);
 		HALO_PERF_RENDER_PART(_halo_perf_render_objects);
@@ -413,6 +418,11 @@ static void render_window(
 		PS3_WINDOW_STEP(6);
 		lights_preprocess_scene();
 		PS3_TIMER_PART(_ps3_timer_render_lights);
+#ifdef HALO_PS3
+		/* port: the dynamic lights' surfaces on the render SPU until the lights' passes (in the lights' part) */
+		lights_render_spu_begin();
+		PS3_TIMER_PART(_ps3_timer_lights_diffuse);
+#endif
 		HALO_PERF_RENDER_PART(_halo_perf_render_objects);
 		PS3_WINDOW_STEP(7);
 		render_objects();
@@ -456,6 +466,13 @@ static void render_window(
 		rasterizer_decals_end();
 		PS3_TIMER_PART(_ps3_timer_lights_decals);
 		PS3_TIMER_SPLIT(_ps3_timer_window_lights);
+#ifdef HALO_PS3
+		/* port: the particles' sprites and the contrails' strips on the render SPU until the effects (in their parts) */
+		render_particles_spu_begin();
+		PS3_TIMER_PART(_ps3_timer_effects_particles);
+		render_contrails_spu_begin();
+		PS3_TIMER_PART(_ps3_timer_effects_contrails);
+#endif
 
 		PS3_WINDOW_STEP(14);
 		structure_render_diffuse_texture();

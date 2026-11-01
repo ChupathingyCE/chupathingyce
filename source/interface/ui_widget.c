@@ -1457,6 +1457,15 @@ short pc_menu_button_key_cap_left(
 /* port: the row of the bitmap draw_bitmap_in_rect starts from (a frame the
 menus place, pc_menu_frame_placement): 0 but while one is drawn */
 static short draw_bitmap_texel_y = 0;
+#ifdef HALO_PS3
+/* port: the menus' PS3 message icons drawn this many units higher (render_state_bitmap) */
+#define PS3_MESSAGE_ICON_RAISE 3
+/* port: whether a sprite drawn from `drawn` (hud_hires_sprite_bitmap's) is a PS3 button's (hud_hires_tags.c) */
+boolean hud_hires_sprite_stencil(
+	struct bitmap_data const *drawn,
+	struct bitmap_data const *bitmap);
+#endif
+#line 1460
 static void widget_instance_initialize(
 	struct widget_instance *widget,
 	struct widget_instance *parent,
@@ -4467,9 +4476,33 @@ static void render_state_bitmap(
 	if (bitmap && _texture_cache_bitmap_get_hardware_format(
 		(struct bitmap_data *)bitmap, FALSE, TRUE))
 	{
+#ifdef HALO_PS3
+		/* port: the sprite from a high-res texture, if it has one (port/linux/game/hud_hires_tags.c) */
+		extern struct bitmap_data const *hud_hires_sprite_bitmap(struct bitmap_data const *sheet, short sequence_index);
+		struct bitmap_data const *sheet = bitmap;
+		boolean ps3_sprite;
+
+		bitmap = hud_hires_sprite_bitmap(bitmap, icon->sequence_index);
+		/* port: a PS3 button in its style's own colours (hud_msg_icons_sm's: tools/ps3_button_assets.py), the
+		text's alpha only, not tinted as the Xbox's button */
+		ps3_sprite = hud_hires_sprite_stencil(bitmap, sheet);
+		if (ps3_sprite)
+		{
+			unsigned long alpha = (color >> 24) & 0xFF;
+
+			color = alpha << 24 | alpha << 16 | alpha << 8 | alpha;
+		}
+#endif
+#line 4470
 		scale = hud_globals_get_scale(local_player_count() > 1);
 		point.x = (short)(icon->offset.x * scale + cursor_bounds->x0 + 1.0f);
 		point.y = (short)(cursor_bounds->y1 - icon->offset.y * scale - 2.0f);
+#ifdef HALO_PS3
+		/* port: and its circle level with the text's capitals (it sat lower than the Xbox's oval) */
+		if (ps3_sprite)
+			point.y -= PS3_MESSAGE_ICON_RAISE;
+#endif
+#line 4473
 		hud_draw_bitmap_direct(
 			bitmap,
 			_hud_anchor_bottom_left,
@@ -9619,5 +9652,16 @@ boolean ui_widget_port_open_screen(
 	while (widget->focused_child)
 		widget = widget->focused_child;
 	return ui_widget_port_open(widget, name, &deleted);
+}
+#endif
+
+#ifdef HALO_PS3
+/* port: the first player's screen's tag name, or NULL (the lobby's invite code: port/ps3/game/ps3_browser_screen.c) */
+char const *ui_widget_ps3_screen_name(
+	void)
+{
+	struct widget_instance *widget = widget_globals.active_widgets[0];
+
+	return widget ? tag_get_name(widget->definition_tag_index) : NULL;
 }
 #endif

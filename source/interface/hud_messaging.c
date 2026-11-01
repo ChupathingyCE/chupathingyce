@@ -477,6 +477,14 @@ static void render_state_bitmap(
 	rectangle2d *cursor_bounds,
 	pixel32 color,
 	struct icon_hud_element_definition const *icon);
+#ifdef HALO_PS3
+/* port: the PS3's button icons on the message sheets (port/linux/game/hud_hires_tags.c) */
+struct bitmap_data const *hud_hires_sprite_bitmap(struct bitmap_data const *bitmap, short sequence_index);
+boolean hud_hires_sprite_stencil(struct bitmap_data const *drawn, struct bitmap_data const *bitmap);
+boolean hud_hires_sprite_place(struct bitmap_data const *drawn, struct icon_hud_element_definition const *icon,
+	short frame_index, real_rectangle2d *clip, real *advance);
+#endif
+#line 480
 
 /* ---------- globals */
 
@@ -556,6 +564,7 @@ static void hud_message_text_place(
 	every line, and a "|n" before an icon gave a negative indent */
 	return;
 #endif
+#line 554
 	if (text_bounds->x1 > text_bounds->x0 &&
 		rasterizer_text_ink_span(bounds, text, &ink_x0, &ink_x1))
 	{
@@ -615,6 +624,14 @@ static void render_state_bitmap(
 	Edition map's: the weapons' pickup icons) */
 	real bitmap_scale = 1.0f;
 	point2d point;
+#ifdef HALO_PS3
+	struct bitmap_data const *drawn; /* port */
+	boolean stencil; /* port */
+	real_rectangle2d placed_clip; /* port */
+	real placed_width; /* port */
+	boolean placed = FALSE; /* port */
+#endif
+#line 613
 
 	if (icon->frame_rate)
 		frame_index = game_time_get() / icon->frame_rate;
@@ -635,6 +652,17 @@ static void render_state_bitmap(
 		if (!ce_hud_bitmap_is_xbox_button(bitmap))
 			bitmap_scale = hud_bitmap_group_scale(bitmap_group_index);
 #endif
+#ifdef HALO_PS3
+		/* port: a PS3 button stencil takes the message's colour (hud_hires_sprite_stencil), drawn from its own
+		cell, as wide as it is (hud_hires_sprite_place) */
+		drawn = hud_hires_sprite_bitmap(bitmap, icon->sequence_index);
+		stencil = hud_hires_sprite_stencil(drawn, bitmap);
+		bitmap = drawn;
+		placed = hud_hires_sprite_place(drawn, icon, (short)frame_index, &placed_clip, &placed_width);
+		if (placed)
+			clip = &placed_clip;
+#endif
+#line 633
 		scale = local_player_count() > 1 ? 0.75f : 1.0f;
 		point.x = (short)(icon->offset.x * scale + cursor_bounds->x0 + hud_message_icon_shift);
 		point.y = (short)(cursor_bounds->y1 - icon->offset.y * scale);
@@ -645,8 +673,20 @@ static void render_state_bitmap(
 			clip,
 			scale * bitmap_scale,
 			0.0f,
+#ifdef HALO_PS3
+			TEST_FLAG(icon->flags, _hud_icon_use_color_bit) && !stencil ? icon->color : color,
+#else
+#line 643
 			TEST_FLAG(icon->flags, _hud_icon_use_color_bit) ? icon->color : color,
+#endif
+#line 644
 			FALSE);
+#ifdef HALO_PS3
+		if (placed) /* port */
+			cursor_bounds->x0 = (short)(placed_width * scale + point.x);
+		else
+#endif
+#line 645
 		if (TEST_FLAG(icon->flags, _hud_icon_absolute_width_bit))
 			cursor_bounds->x0 = (short)(icon->width_offset * scale + point.x);
 		else if (clip)

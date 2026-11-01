@@ -357,6 +357,11 @@ static const struct config_setting config_settings[] =
 		"smaller (down to 5/8 of the width and height), then scale it up under\n"
 		"the HUD: steadier in heavy scenes, softer while it acts; false always\n"
 		"draws it whole." },
+	{ "display.preset", _config_string, "\"performance\"", "HALO_PRESET", _environment_value, _platform_android,
+		"DISPLAY's PRESET, which sets interpolation and dynamic_resolution\n"
+		"there: \"quality\" (30 frames a second, the full resolution),\n"
+		"\"performance\" (60, the dynamic resolution) or \"custom\" (as they are\n"
+		"set). Split screen always plays at 30 frames a second." },
 #endif
 	/* (every build's, after the Switch's rows above: inside them, the desktop,
 	server and Android builds had none of these four) */
@@ -576,6 +581,12 @@ static const struct config_setting config_settings[] =
 	{ "input.touch_controls", _config_string, "\"on\"", "HALO_TOUCH_CONTROLS", _environment_value, _platform_android,
 		"On-screen touch controls: \"on\", \"auto\" (only with no controller\n"
 		"connected) or \"off\"." },
+#ifdef HALO_PS3
+	/* (with the other input rows: config.toml has one [input] table) */
+	{ "input.toggle_crouch", _config_boolean, "false", "HALO_TOGGLE_CROUCH", _environment_value, _platform_android,
+		"CONTROLS' TOGGLE CROUCH: a press of the crouch button crouches, the\n"
+		"next stands up; false crouches while it is held, as on the Xbox." },
+#endif
 	{ "input.mouse_sensitivity", _config_real, "1.0", "HALO_MOUSE_SENSITIVITY", _environment_value, _platform_all,
 		"How fast the view turns with the mouse." },
 	{ "input.invert_mouse", _config_boolean, "false", "HALO_MOUSE_INVERT", _environment_set_is_true, _platform_all,
@@ -1930,7 +1941,12 @@ static const struct
 } config_old_defaults[] =
 {
 	/* upstream's, which ChupathingyCE kept until v0.5.2b */
+#ifdef HALO_PS3
+	/* (also the old PS3 tree's default, never a choice there: MENU STYLE is hidden, so it follows) */
+	{ "display.menus", "\"pc\"", 1, NULL, 0 },
+#else
 	{ "display.menus", "\"pc\"", 0, NULL, 0 },
+#endif
 	/* the Xbox's menus, the default until v0.8.0 (a file that names them
 	keeps them) */
 	{ "display.menus", "\"xbox\"", 0,
@@ -2702,6 +2718,11 @@ static const struct
 	{ "display.scoreboard_platforms", { "auto", "on", "off", NULL }, "\"auto\"" },
 	{ "display.follow_camera", { "long_waits", "always", "off", NULL }, "\"long_waits\"" },
 	{ "display.texture_decode", { "auto", "gpu", "cpu", NULL }, "\"auto\"" },
+#ifdef HALO_PS3
+	/* (another preset shows as CUSTOM: menu_functions.c's preset_rows_show) */
+	{ "display.button_icons", { "xbox", "style_a", "style_b", NULL }, "\"style_a\"" },
+	{ "display.preset", { "custom", "quality", "performance", NULL }, "\"custom\"" },
+#endif
 	{ "audio.resampling", { "sinc", "linear", NULL }, "\"sinc\"" },
 	{ "input.touch_controls", { "on", "auto", "off", NULL }, "\"on\"" },
 	{ "game.console_log", { "important", "all", "none", NULL }, "\"important\"" },

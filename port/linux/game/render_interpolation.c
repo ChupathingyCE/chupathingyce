@@ -51,6 +51,9 @@ unsigned long config_changes(void);
 #include <stdlib.h>
 #include <string.h>
 #ifdef HALO_PS3
+#include <stddef.h>
+
+#include "ps3_spu_game.h"
 #include "ps3_timers.h"
 #endif
 
@@ -398,6 +401,102 @@ static real distance_squared(real_point3d const *a, real_point3d const *b)
 
 /* ---------- ticks */
 
+#ifdef HALO_PS3
+/* port: the snapshots on the game SPU (spu_game.c), but of the objects whose records need more memory or draw a
+correction: those on the PPE after it, in the walk's order */
+static struct
+{
+	spu_game_interpolation job;
+	spu_game_answer answer;
+	int16_t deferred[MAXIMUM_INTERPOLATED_OBJECTS];
+} __attribute__((aligned(128))) snapshots_spu;
+/* whether the SPU walked this tick, and the next of the objects it left */
+static boolean snapshots_spu_walked;
+static long snapshots_spu_next;
+
+/* port: the layouts the job reads and writes: int16 identifiers and block references, 64-bit pointers, its records'
+fields (32-bit long, byte booleans), 16-aligned answer and deferred list */
+typedef char interpolation_spu_layout_check[(sizeof(long) == 4 && sizeof(short) == 2 && sizeof(boolean) == 1 &&
+	sizeof(byte) == 1 && sizeof(real_vector3d) == 12 && sizeof(real_matrix4x3 *) == 8 &&
+	offsetof(struct object_header_datum, identifier) == 0 && sizeof(((struct object_header_datum *)0)->identifier) == 2 &&
+	sizeof(struct object_header_datum) >= 8 && sizeof(struct object_header_datum) <= 24 &&
+	sizeof(((struct object_header_datum *)0)->datum) == 8 &&
+	offsetof(struct object_header_datum, datum) + 8 <= sizeof(struct object_header_datum) &&
+	offsetof(struct object_header_block_reference, size) == 0 && offsetof(struct object_header_block_reference, offset) == 2 &&
+	sizeof(struct object_header_block_reference) == 4 && MAXIMUM_INTERPOLATED_OBJECTS <= 8192 &&
+	offsetof(__typeof__(snapshots_spu), answer) % 16 == 0 && offsetof(__typeof__(snapshots_spu), deferred) % 16 == 0) ?
+	1 : -1];
+#ifdef HALO_CONSOLE_NO_SMOOTH_FUNCTIONS
+/* port: (the job takes records of 96 bytes at most) */
+typedef char interpolation_spu_record_check[sizeof(struct interpolated_object) <= 96 ? 1 : -1];
+#endif
+
+/* FALSE with the SPU off: the walk is the PPE's */
+static boolean object_snapshots_spu(long previous_tick)
+{
+#ifdef HALO_CONSOLE_NO_SMOOTH_FUNCTIONS
+	spu_game_interpolation *job = &snapshots_spu.job;
+	uint32_t ticket;
+
+	memset(job, 0, sizeof(*job));
+	job->headers = PS3_SPU_EA(XBOX_POINTER(void, object_header_data->data));
+	job->header_size = (uint32_t)object_header_data->size;
+	job->header_count = object_header_data->count;
+	job->datum_offset = (uint32_t)offsetof(struct object_header_datum, datum);
+	job->node_matrices_offset = (uint32_t)offsetof(struct object_datum, object.node_matrices);
+	job->node_size = (int32_t)sizeof(real_matrix4x3);
+	job->maximum_nodes = MAXIMUM_INTERPOLATED_NODES;
+	job->records = PS3_SPU_EA(interpolated_objects);
+	job->record_size = (uint32_t)sizeof(struct interpolated_object);
+	job->record_count = MAXIMUM_INTERPOLATED_OBJECTS;
+	job->object_index_offset = (uint16_t)offsetof(struct interpolated_object, object_index);
+	job->tick_offset = (uint16_t)offsetof(struct interpolated_object, tick);
+	job->node_count_offset = (uint16_t)offsetof(struct interpolated_object, node_count);
+	job->node_capacity_offset = (uint16_t)offsetof(struct interpolated_object, node_capacity);
+	job->has_previous_offset = (uint16_t)offsetof(struct interpolated_object, has_previous);
+	job->latest_offset = (uint16_t)offsetof(struct interpolated_object, latest);
+	job->blended_frame_offset = (uint16_t)offsetof(struct interpolated_object, blended_frame);
+	job->correction_offset = (uint16_t)offsetof(struct interpolated_object, correction);
+	job->pending_offset = (uint16_t)offsetof(struct interpolated_object, correction_pending);
+	job->nodes_offset = (uint16_t)offsetof(struct interpolated_object, nodes);
+	job->rotations_valid_offset = (uint16_t)offsetof(struct interpolated_object, rotations_valid);
+	job->previous_tick = previous_tick;
+	job->tick = interpolation_tick;
+	job->deferred = PS3_SPU_EA(snapshots_spu.deferred);
+	job->answer = PS3_SPU_EA(&snapshots_spu.answer);
+	snapshots_spu.answer.status = 0;
+	ticket = ps3_spu_game_submit(SPU_GAME_INTERPOLATION, sizeof(*job), PS3_SPU_EA(job), 0);
+	if (!ticket || !ps3_spu_game_wait(ticket) || snapshots_spu.answer.status != SPU_GAME_DONE)
+		return FALSE;
+	ps3_timer_counts[_ps3_timer_interpolation_objects] += (uint32_t)job->object_count;
+	ps3_timer_counts[_ps3_timer_interpolation_nodes] += (uint32_t)job->node_count;
+	return TRUE;
+#else
+	/* port: the job copies no outgoing functions (upstream's smooth functions): the walk stays the PPE's */
+	(void)previous_tick;
+	return FALSE;
+#endif
+}
+
+/* port: the walk's next object: the iterator's, or after the SPU's walk the next it left (its index in the
+iterator's, as object_iterator_next gives it) */
+static struct object_datum *object_snapshots_next(struct object_iterator *iterator)
+{
+	struct object_header_datum *header;
+	long absolute_index;
+
+	if (!snapshots_spu_walked)
+		return (struct object_datum *)object_iterator_next(iterator);
+	if (snapshots_spu_next >= (long)snapshots_spu.answer.value || snapshots_spu_next >= MAXIMUM_INTERPOLATED_OBJECTS)
+		return NULL;
+	absolute_index = snapshots_spu.deferred[snapshots_spu_next++];
+	header = (struct object_header_datum *)((byte *)XBOX_POINTER(void, object_header_data->data) +
+		object_header_data->size * absolute_index);
+	iterator->index = DATUM_INDEX_NEW(absolute_index, header->identifier);
+	return header->datum;
+}
+#endif
+
 void render_interpolation_tick(void)
 {
 	struct object_iterator iterator;
@@ -428,9 +527,18 @@ void render_interpolation_tick(void)
 		for (index = 0; index < MAXIMUM_INTERPOLATED_OBJECTS; index++)
 			interpolated_objects[index].object_index = NONE;
 	}
+#ifdef HALO_PS3
+	snapshots_spu_walked = object_snapshots_spu(previous_tick); /* port: the walk on the game SPU */
+	snapshots_spu_next = 0;
+#endif
 
 	object_iterator_new(&iterator, _object_mask_all, 0);
+#ifdef HALO_PS3
+	/* port: after the SPU's walk, only the objects it left */
+	while ((object = object_snapshots_next(&iterator)) != NULL)
+#else
 	while ((object = (struct object_datum *)object_iterator_next(&iterator)) != NULL)
+#endif
 	{
 		long absolute_index = DATUM_INDEX_TO_ABSOLUTE_INDEX(iterator.index);
 		struct interpolated_object *record;

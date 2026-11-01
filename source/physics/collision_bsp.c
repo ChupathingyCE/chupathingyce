@@ -219,6 +219,13 @@ typedef char collision_leaf_size_assert[
 	sizeof(struct collision_leaf) == 0x08 ? 1 : -1];
 typedef char bsp2d_reference_size_assert[
 	sizeof(struct bsp2d_reference) == 0x08 ? 1 : -1];
+#ifdef HALO_PS3
+/* port: the leaves and bsp2d references as the particles' rays read them by DMA (spu_game.c) */
+typedef char collision_leaf_spu_check[offsetof(struct collision_leaf, flags) == 0 &&
+	offsetof(struct collision_leaf, bsp2d_reference_count) == 2 &&
+	offsetof(struct collision_leaf, first_bsp2d_reference_index) == 4 &&
+	offsetof(struct bsp2d_reference, plane_designator) == 0 && offsetof(struct bsp2d_reference, root_index) == 4 ? 1 : -1];
+#endif
 
 struct collision_bsp_test_vector_context
 {

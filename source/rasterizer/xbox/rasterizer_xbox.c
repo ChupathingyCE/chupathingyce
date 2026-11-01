@@ -2893,6 +2893,19 @@ void rasterizer_set_vertex_shader(
 	return;
 }
 
+#ifdef HALO_PS3
+/* port: the loading screen (progress_bar.c) sets the device's vertex shader and states itself, past these caches:
+the next draw sets its vertex shader again, and the smart states' shadows are the device's */
+void rasterizer_forget_hardware_state(
+	void)
+{
+	rasterizer_state_cache.vertex_shader_index = INVALID_RASTERIZER_HARDWARE_STATE;
+	rasterizer_vertex_shader_runtime_forget();
+	SetupSmartStates();
+	return;
+}
+#endif
+
 
 
 typedef char verify_rasterizer_xbox_push_buffer_size_offset[

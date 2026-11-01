@@ -157,6 +157,10 @@ enum
 	UPNP_RETRY_INTERVAL = 5 * 60 * 1000,
 	/* how long the game's exit waits for a request under way */
 	UPNP_RELEASE_WAIT = 3000,
+#ifdef HALO_PS3
+	/* how long a code is looked for on the brokers, from asking them (p2p_look_up_code) */
+	CODE_LOOKUP_TIMEOUT = 20000,
+#endif
 
 	/* where a running copy of the game takes invites from another one
 	started to open a link (127.0.0.1), sealed with a key of the user's */
@@ -410,7 +414,39 @@ static struct
 	which the host's status needs to say "forward it" */
 	int host_port_wanted;
 	int port_fixed;
+#ifdef HALO_PS3
+	/* this machine's invite code (p2p_invite_code), for the token code_token: its digits, topic and sealed invite; its
+	version, the version on the brokers (0: none), and whether a broker connected has it */
+	int has_code;
+	unsigned char code_token[P2P_TOKEN_SIZE];
+	char code[P2P_CODE_DIGITS + 1];
+	char code_topic[P2P_CODE_TOPIC_SIZE];
+	unsigned char code_payload[P2P_CODE_PAYLOAD_SIZE];
+	int code_version;
+	int code_published;
+	int code_sent;
+	/* an invite code looked up (p2p_look_up_code): its state (_lookup_*), digits until the p2p thread made their key,
+	key and topic, since when the brokers are asked; the link found */
+	int lookup;
+	char lookup_digits[P2P_CODE_DIGITS + 1];
+	unsigned char lookup_key[P2P_SHA256_SIZE];
+	char lookup_topic[P2P_CODE_TOPIC_SIZE];
+	unsigned long lookup_time;
+	char lookup_link[P2P_LINK_SIZE];
+#endif
 } p2p = { 0, 0, -1, 0, -1, .hosting_socket = -1 };
+
+#ifdef HALO_PS3
+enum
+{
+	_lookup_none,
+	_lookup_keying,
+	_lookup_asking,
+	_lookup_found,
+	_lookup_not_found,
+	_lookup_no_broker,
+};
+#endif
 
 /* the router's answer to UPnP, as the host's status says it */
 enum
@@ -2801,6 +2837,192 @@ static void update_joining(void)
 	}
 }
 
+#ifdef HALO_PS3
+/* ---------- invite codes: digits for an invite, sealed on the brokers under a slow key of the digits, so that a
+script reading the brokers must work long for each code it tries */
+
+/* P2P_CODE_DIGITS random digits, each code as likely */
+static void code_make(char *digits)
+{
+	unsigned int value;
+
+	do
+	{
+		unsigned char bytes[4];
+
+		posix_random_bytes(bytes, sizeof(bytes));
+		value = (unsigned int)bytes[0] << 24 | (unsigned int)bytes[1] << 16 | (unsigned int)bytes[2] << 8 | bytes[3];
+	}
+	/* (the values past the last whole 10^8 would make the low codes likelier) */
+	while (value >= 4200000000u);
+	snprintf(digits, P2P_CODE_DIGITS + 1, "%08u", value % 100000000u);
+}
+
+/* whether the code made is the invite's of the internet game hosted now */
+static int invite_code_current(void)
+{
+	return p2p.hosting && p2p.has_token && p2p.has_code && !memcmp(p2p.code_token, p2p.token, P2P_TOKEN_SIZE);
+}
+
+int p2p_invite_code(char *code, int size)
+{
+	int result;
+
+	pthread_mutex_lock(&p2p_lock);
+	result = p2p.running && invite_code_current() && p2p.code_sent && size > P2P_CODE_DIGITS;
+	if (result)
+		memcpy(code, p2p.code, sizeof(p2p.code));
+	pthread_mutex_unlock(&p2p_lock);
+	return result;
+}
+
+/* the p2p thread's pass: a code for the invite of the internet game hosted (another when the invite changes), kept on
+the brokers while it hosts */
+static void update_invite_code(void)
+{
+	int current = invite_code_current();
+
+	if (p2p.hosting && p2p.has_token && !current)
+	{
+		unsigned char token[P2P_TOKEN_SIZE], invite[P2P_CODE_INVITE_SIZE], key[P2P_SHA256_SIZE];
+		unsigned char payload[P2P_CODE_PAYLOAD_SIZE];
+		char digits[P2P_CODE_DIGITS + 1], topic[P2P_CODE_TOPIC_SIZE];
+
+		memcpy(token, p2p.token, sizeof(token));
+		p2p_key_hash(p2p_public_key(), invite);
+		memcpy(invite + P2P_KEY_HASH_SIZE, token, P2P_TOKEN_SIZE);
+		/* (the key's work without the lock, as a code looked up's) */
+		pthread_mutex_unlock(&p2p_lock);
+		code_make(digits);
+		p2p_code_key(digits, key);
+		p2p_code_topic(key, topic);
+		p2p_code_seal(key, invite, payload);
+		pthread_mutex_lock(&p2p_lock);
+		/* (unless the invite changed meanwhile: the next pass makes another) */
+		if (!p2p.hosting || !p2p.has_token || memcmp(token, p2p.token, P2P_TOKEN_SIZE))
+			return;
+		memcpy(p2p.code_token, token, sizeof(token));
+		memcpy(p2p.code, digits, sizeof(digits));
+		memcpy(p2p.code_topic, topic, sizeof(topic));
+		memcpy(p2p.code_payload, payload, sizeof(payload));
+		p2p.code_version++;
+		p2p.has_code = 1;
+		current = 1;
+		platform_log("Internet play: a new invite code for the game hosted (%.2s...)", digits);
+	}
+	if ((current ? p2p.code_version : 0) != p2p.code_published)
+	{
+		p2p.code_published = current ? p2p.code_version : 0;
+		p2p_signal_code_host(current ? p2p.code_topic : NULL, p2p.code_payload, P2P_CODE_PAYLOAD_SIZE);
+	}
+	p2p.code_sent = current && p2p_signal_code_sent();
+}
+
+/* the code's digits in text (spaces and dashes allowed around them): 0 if it holds no code */
+static int code_parse(const char *text, char *digits)
+{
+	int count = 0;
+
+	for (; *text; text++)
+	{
+		if (*text >= '0' && *text <= '9' && count < P2P_CODE_DIGITS)
+			digits[count++] = *text;
+		else if (*text != ' ' && *text != '-')
+			return 0;
+	}
+	digits[count] = 0;
+	return count == P2P_CODE_DIGITS;
+}
+
+int p2p_look_up_code(const char *text)
+{
+	char digits[P2P_CODE_DIGITS + 1];
+
+	if (!code_parse(text, digits))
+		return 0;
+	if (!p2p.running)
+	{
+		platform_log("Internet play is off (network.online in config.toml): the code is not looked up");
+		return -1;
+	}
+	pthread_mutex_lock(&p2p_lock);
+	memcpy(p2p.lookup_digits, digits, sizeof(digits));
+	p2p.lookup = _lookup_keying;
+	pthread_mutex_unlock(&p2p_lock);
+	platform_log("Internet play: looking up the invite code %.2s...", digits);
+	return 1;
+}
+
+void p2p_code_heard(const unsigned char *payload, int size)
+{
+	unsigned char invite[P2P_CODE_INVITE_SIZE];
+	char text[2 * P2P_CODE_INVITE_SIZE + 1];
+	char shown[128];
+
+	/* (an empty message is a code cleared) */
+	if (p2p.lookup != _lookup_asking || !p2p_code_open(p2p.lookup_key, payload, size, invite))
+		return;
+	p2p_hex(invite, sizeof(invite), text);
+	snprintf(p2p.lookup_link, sizeof(p2p.lookup_link), "halo://join/%s", text);
+	p2p.lookup = _lookup_found;
+	platform_log("Internet play: the invite code leads to %s",
+		p2p_invite_log_text(p2p.lookup_link, shown, sizeof(shown)));
+}
+
+int p2p_code_found(char *link, int size)
+{
+	int result;
+
+	pthread_mutex_lock(&p2p_lock);
+	result = p2p.lookup == _lookup_found ? 1 : p2p.lookup == _lookup_not_found ? -1 :
+		p2p.lookup == _lookup_no_broker ? -2 : 0;
+	if (result > 0)
+		snprintf(link, (size_t)size, "%s", p2p.lookup_link);
+	if (result)
+		p2p.lookup = _lookup_none;
+	pthread_mutex_unlock(&p2p_lock);
+	return result;
+}
+
+void p2p_stop_code_lookup(void)
+{
+	pthread_mutex_lock(&p2p_lock);
+	p2p.lookup = _lookup_none;
+	pthread_mutex_unlock(&p2p_lock);
+}
+
+/* the p2p thread's pass: a code's key worked out, then its topic asked of the brokers for a while */
+static void update_code_lookup(void)
+{
+	if (p2p.lookup == _lookup_keying)
+	{
+		char digits[P2P_CODE_DIGITS + 1];
+		unsigned char key[P2P_SHA256_SIZE];
+
+		memcpy(digits, p2p.lookup_digits, sizeof(digits));
+		/* (about half a second on the PPE: without the lock, so the game's threads go on) */
+		pthread_mutex_unlock(&p2p_lock);
+		p2p_code_key(digits, key);
+		pthread_mutex_lock(&p2p_lock);
+		if (p2p.lookup == _lookup_keying && !strcmp(digits, p2p.lookup_digits))
+		{
+			memcpy(p2p.lookup_key, key, sizeof(key));
+			p2p_code_topic(key, p2p.lookup_topic);
+			p2p.lookup = _lookup_asking;
+			p2p.lookup_time = p2p_now();
+			p2p_signal_start();
+		}
+	}
+	else if (p2p.lookup == _lookup_asking && elapsed(p2p.lookup_time, CODE_LOOKUP_TIMEOUT))
+	{
+		p2p.lookup = p2p_signal_connected() ? _lookup_not_found : _lookup_no_broker;
+		platform_log(p2p.lookup == _lookup_not_found ? "Internet play: no game has the invite code looked up" :
+			"Internet play: no broker answered; the invite code was not looked up");
+	}
+	p2p_signal_code_lookup(p2p.lookup == _lookup_asking ? p2p.lookup_topic : NULL);
+}
+#endif
+
 static int connected_player_count(void)
 {
 	int count = 0;
@@ -3975,6 +4197,10 @@ static void *p2p_thread(void *unused)
 			}
 		}
 		update_joining();
+#ifdef HALO_PS3
+		update_invite_code();
+		update_code_lookup();
+#endif
 		update_probes();
 		update_upnp();
 		/* (a public game's invite is in everyone's server browser already:
