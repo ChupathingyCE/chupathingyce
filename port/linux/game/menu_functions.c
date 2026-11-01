@@ -4256,7 +4256,12 @@ static struct
 	/* what the last code came to, and when (NULL: nothing) */
 	wchar_t const *message;
 	unsigned long message_time;
+	/* the controller that asked (the server browser's join posts its A) */
+	short controller;
 } direct_code;
+
+/* (the server browser's join of a listed game, below: a code's game joins as one) */
+static boolean lobby_browser_join(struct p2p_listing const *game, short controller);
 
 static void direct_code_stop(wchar_t const *message)
 {
@@ -4268,11 +4273,15 @@ static void direct_code_stop(wchar_t const *message)
 	direct_code.message_time = system_milliseconds();
 }
 
-/* "direct ip connect go" (ENTER CODE) */
-static boolean direct_code_enter(void)
+/* "direct ip connect go" (ENTER CODE, and the server browser's Triangle) */
+static boolean direct_code_enter(short controller)
 {
-	if (direct_code.keyboard || direct_code.looking)
+	if (direct_code.keyboard || direct_code.looking ||
+		(multiplayer.mode != _multiplayer_mode_direct_link && multiplayer.mode != _multiplayer_mode_server_browser))
+	{
 		return TRUE;
+	}
+	direct_code.controller = controller;
 	if (!ps3_osk_open_digits("Invite code", DIRECT_CODE_CHARACTERS))
 	{
 		direct_code_stop(L"Could not open the keyboard.");
@@ -4284,7 +4293,7 @@ static boolean direct_code_enter(void)
 	return TRUE;
 }
 
-/* each frame of Direct Link: the code typed looked up, and its link joined once found */
+/* each frame of Direct Link and the server browser: the code typed looked up, and its link joined once found */
 static void direct_code_update(void)
 {
 	char text[TEXT_FIELD_LENGTH];
@@ -4306,7 +4315,28 @@ static void direct_code_update(void)
 	{
 		direct_code_stop(result == -2 ? L"Could not look up the code. Check your network settings." :
 			result < 0 ? L"No game has that code. Check it, or make a new one." : NULL);
-		if (result > 0 && p2p_join_invite(text))
+		if (result > 0 && multiplayer.mode == _multiplayer_mode_server_browser)
+		{
+			/* (the host's identifier: the link's key hash, as p2p_identifier_from_hash makes it) */
+			struct p2p_listing game;
+			char const *hex = strstr(text, "join/");
+			short index;
+
+			csmemset(&game, 0, sizeof(game));
+			csstrncpy(game.invite, text, sizeof(game.invite) - 1);
+			csstrncpy(game.name, "the invite code's game", sizeof(game.name) - 1);
+			for (index = 0; hex && index < 12; index++)
+			{
+				char digit = hex[5 + index];
+				int value = digit >= '0' && digit <= '9' ? digit - '0' : digit >= 'a' && digit <= 'f' ? digit - 'a' + 10 : 0;
+
+				game.identifier[index / 2] |= (unsigned char)(index % 2 ? value : value << 4);
+			}
+			game.identifier[0] = (unsigned char)((game.identifier[0] & 0xFC) | 0x02);
+			if (!lobby_browser_join(&game, direct_code.controller))
+				direct_code_stop(L"Internet play is off (SETTINGS).");
+		}
+		else if (result > 0 && p2p_join_invite(text))
 			direct_code.joined_time = system_milliseconds();
 	}
 	if (direct_code.joined_time && multiplayer.game_count)
@@ -4329,6 +4359,8 @@ static wchar_t const *direct_code_line(void)
 		return L"Connecting to the invite code's game...";
 	if (direct_code.message && system_milliseconds() - direct_code.message_time < DIRECT_CODE_MESSAGE_TIME)
 		return direct_code.message;
+	if (multiplayer.mode == _multiplayer_mode_server_browser)
+		return NULL;
 	return multiplayer.game_count ? NULL : L"Press ENTER CODE to type an invite code.";
 }
 #endif
@@ -4356,7 +4388,9 @@ static boolean browser_initialize(struct widget_instance *screen, struct event_r
 		visible_set(named(screen, unused[index], 0), FALSE);
 	visible_set(named(screen, "button_clipboard", 0), multiplayer.mode == _multiplayer_mode_direct_link);
 #ifdef HALO_PS3
-	text_set(named(screen, "button_clipboard", 0), L"ENTER CODE");
+	/* (the server browser's TRIANGLE, its label the PS3's button_clipboard's) */
+	visible_set(named(screen, "button_clipboard", 0), multiplayer.mode == _multiplayer_mode_direct_link ||
+		multiplayer.mode == _multiplayer_mode_server_browser);
 	direct_code_stop(NULL);
 #endif
 #line 4067
@@ -5347,6 +5381,12 @@ static void lobby_browser_update(struct widget_instance *list)
 		message = TRUE;
 		if (!config_boolean("network.online"))
 			usnprintf(text, NUMBEROF(text) - 1, L"Turn on Internet Play in Settings.");
+#ifdef HALO_PS3
+		/* (Triangle's invite code: the keyboard, its lookup, or what it came to) */
+		else if (direct_code_line())
+			usnprintf(text, NUMBEROF(text) - 1, L"%s", direct_code_line());
+#endif
+#line 5054
 		else if (!config_boolean("network.public_lobby"))
 			usnprintf(text, NUMBEROF(text) - 1, L"The server browser is off.");
 		else if (lobby_browser.joining)
@@ -5659,6 +5699,12 @@ static void browser_update(struct widget_instance *list)
 		text_to_wide(label, filter, NUMBEROF(filter));
 		text_set(named(screen_of(list), "join_game_button_filters", 0), filter);
 	}
+#ifdef HALO_PS3
+	/* (Triangle's invite code: its game then joins as a listed one's) */
+	if (multiplayer.mode == _multiplayer_mode_server_browser)
+		direct_code_update();
+#endif
+#line 5366
 	if (multiplayer.mode == _multiplayer_mode_server_browser)
 	{
 		lobby_browser_update(list);
@@ -9152,7 +9198,18 @@ boolean pc_menu_event_function_invoke(
 #ifdef HALO_PS3
 		else if (!strcmp(name, "direct ip connect go"))
 		{
-			return direct_code_enter();
+			/* (the A the server browser posts for its join, if INSERT CODE has the focus) */
+			if (multiplayer.mode == _multiplayer_mode_server_browser && lobby_browser.ready)
+				return lobby_browser_select(widget, controller, NONE, widget_deleted);
+			return direct_code_enter(controller);
+		}
+		else if (!strcmp(name, "port browser refresh") || !strcmp(name, "port browser filter"))
+		{
+			/* (the bar's button, as if chosen: none while hidden, as REFRESH is but in the server browser) */
+			struct widget_instance *button = named(widget, !strcmp(name, "port browser refresh") ?
+				"join_game_button_refresh" : "join_game_button_filters", 0);
+
+			return !button || !button->visible || browser_select(button, event, controller, widget_deleted);
 		}
 #endif
 #line 8782

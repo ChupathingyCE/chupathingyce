@@ -1873,6 +1873,20 @@ void hud_messaging_update(
 						{
 							short icon_index = NONE;
 							wchar_t key_text[48];
+#ifdef HALO_PS3
+							struct hud_state_message_element fixed_element; /* port */
+
+							/* port: a10's crouch tutorial names the zoom control and a30's sniper zoom tutorial the
+							crouch control (the maps' text, L3 and R3 swapped): each shows its own */
+							if ((element->data == _icon_zoom && !csstrcmp(message->name, "moving_crouch_1")) ||
+								(element->data == _icon_crouch && !csstrcmp(message->name, "tutorial_sniper_1")))
+							{
+								fixed_element = *element;
+								fixed_element.data = element->data == _icon_zoom ? _icon_crouch : _icon_zoom;
+								element = &fixed_element;
+							}
+#endif
+#line 1831
 
 							/* port: the keyboard's key, "[E]", in place of the
 							controller's button while the keyboard or mouse was

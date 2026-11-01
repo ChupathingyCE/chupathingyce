@@ -127,6 +127,17 @@ static unsigned char *swap_done_base;
 static unsigned long swap_done_size;
 static unsigned long *swap_done;
 
+/* cseries.h maps malloc and free to the game's heap but not calloc: newlib's
+block would fail free's pointer check */
+static void *zeroed_malloc(unsigned long size)
+{
+	void *memory = malloc(size);
+
+	if (memory)
+		csmemset(memory, 0, size);
+	return memory;
+}
+
 /* whether the op bytes at at were swapped already; marks them if not */
 static int swap_done_mark(const unsigned char *at, unsigned long op)
 {
@@ -521,7 +532,7 @@ no memory for it (every tag is then swapped, as before) */
 static unsigned char *shared_tags_find(const unsigned char *instances, unsigned long count)
 {
 	struct swap_root *roots = malloc((count ? count : 1) * sizeof(*roots));
-	unsigned char *shared = calloc(count ? count : 1, 1);
+	unsigned char *shared = zeroed_malloc(count ? count : 1);
 	unsigned long index;
 
 	if (!roots || !shared)
@@ -572,7 +583,7 @@ void tag_byte_swap_tags(void *base, unsigned long base_address, unsigned long si
 		return;
 	}
 	shared = shared_tags_find(region.base + (instances - base_address), count);
-	swap_done = calloc((size + 31) / 32, sizeof(*swap_done));
+	swap_done = zeroed_malloc((size + 31) / 32 * sizeof(*swap_done));
 	swap_done_base = region.base;
 	swap_done_size = size;
 	for (index = 0; index < count; index++)
@@ -661,7 +672,7 @@ void tag_byte_swap_structure_bsp(void *bsp, unsigned long bsp_address, unsigned 
 		error(_error_silent, "tag byte swap: the structure bsp cannot be swapped");
 		return;
 	}
-	swap_done = calloc((region_size + 31) / 32, sizeof(*swap_done));
+	swap_done = zeroed_malloc((region_size + 31) / 32 * sizeof(*swap_done));
 	swap_done_base = region.base;
 	swap_done_size = region_size;
 	swap_layout(&region, (unsigned long)layout, bsp_address, 0);

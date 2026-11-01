@@ -56,9 +56,14 @@
 	</widget>
 	<widget name="main_menu/multiplayer_type_select/join_game/header_direct_link" controller="1" left="35" top="11" width="363" height="59" bitmap="main_menu/multiplayer_type_select/join_game/header_direct_link">
 	</widget>
-	<widget name="main_menu/multiplayer_type_select/join_game/button_clipboard" type="text" width="128" height="24" bitmap="bitmaps/text_button_background" text="PASTE LINK" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">
+	<widget name="main_menu/multiplayer_type_select/join_game/button_clipboard" type="text" width="128" height="24" bitmap="bitmaps/text_button_background" text="PASTE LINK" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2" platform="desktop android switch x360 wiiu">
 		<on event="a" run="direct ip connect go"/>
 		<on event="start" run="direct ip connect go"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
+	<!-- (the PS3: no clipboard, TRIANGLE types an invite code) -->
+	<widget name="main_menu/multiplayer_type_select/join_game/button_clipboard" type="text" width="128" height="24" bitmap="bitmaps/text_button_background" text="%y-button INSERT CODE" font="ui\small_ui" color="#FFFFFFFF" align="left" text_x="14" text_y="2" platform="ps3">
+		<on event="a" run="direct ip connect go"/>
+		<on event="start" run="direct ip connect go"/>
 	</widget>
 </menus>

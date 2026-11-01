@@ -1769,10 +1769,24 @@ static void port_dynamic_lights_choose(
 	long limit, specular_limit;
 	short light_index, count = 0, rank;
 	long frame_first_person = 0;
+#ifdef HALO_PS3
+	/* port: each window chooses from its own scene's lights (split screen, a mirror's window); the log still
+	counts frames */
+	static long chosen_frame_index = NONE;
+
+	if (chosen_frame == render.scene_index)
+		return;
+	chosen_frame = render.scene_index;
+	counted_frames -= chosen_frame_index == render.frame_index;
+	chosen_frame_index = render.frame_index;
+#else
+#line 1772
 
 	if (chosen_frame == render.frame_index)
 		return;
 	chosen_frame = render.frame_index;
+#endif
+#line 1776
 	limit = config_integer("display.dynamic_light_limit");
 	specular_limit = config_integer("display.specular_light_limit");
 	for (light_index = 0; light_index < lights_globals.scene_point_light_count; light_index++)

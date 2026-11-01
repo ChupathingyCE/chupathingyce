@@ -499,6 +499,15 @@ boolean player_profile_get(
 	{
 		succeeded = player_profile_read(player_profile_index, profile);
 	}
+#ifdef PS3_DEBUG
+	/* port: a PS3 debug build (DEBUG=1) opens every campaign level on every difficulty */
+	{
+		long level;
+
+		for (level = 0; level < NUMBER_OF_SINGLE_PLAYER_LEVELS; level++)
+			profile->single_player_map_flags[level] |= (byte)(FLAG(NUMBER_OF_GAME_DIFFICULTY_LEVELS) - 1);
+	}
+#endif
 
 	return succeeded;
 }
