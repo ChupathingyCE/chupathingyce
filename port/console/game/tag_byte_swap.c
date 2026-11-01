@@ -119,12 +119,40 @@ static void write16(unsigned char *at, unsigned short value)
 #define TEST_COUNT(at, bytes) ((void)0)
 #endif
 
+/* a bit for each byte of the tags being swapped that has been (NULL when
+there is no memory for it: every field is then swapped as it is reached).
+Halo CE+'s maps store bytes that are another block's or tag's once, and
+point both at them: they are swapped once, as the first to reach them */
+static unsigned char *swap_done_base;
+static unsigned long swap_done_size;
+static unsigned long *swap_done;
+
+/* whether the op bytes at at were swapped already; marks them if not */
+static int swap_done_mark(const unsigned char *at, unsigned long op)
+{
+	unsigned long offset, index;
+
+	if (!swap_done || at < swap_done_base || (unsigned long)(at - swap_done_base) >= swap_done_size)
+		return 0;
+	offset = (unsigned long)(at - swap_done_base);
+	for (index = 0; index < op && offset + index < swap_done_size; index++)
+	{
+		if (swap_done[(offset + index) / 32] & (1UL << ((offset + index) % 32)))
+			return 1;
+	}
+	for (index = 0; index < op && offset + index < swap_done_size; index++)
+		swap_done[(offset + index) / 32] |= 1UL << ((offset + index) % 32);
+	return 0;
+}
+
 static void swap_fields(unsigned char *at, unsigned long op, unsigned long count)
 {
 	unsigned long index;
 
 	for (index = 0; index < count; index++, at += op)
 	{
+		if (swap_done_mark(at, op))
+			continue;
 		TEST_COUNT(at, op);
 		switch (op)
 		{
@@ -466,8 +494,65 @@ static void swap_tag_text(struct swap_region *region, unsigned long group_tag, u
 	}
 }
 
+/* a tag's root, for finding tags that share one (shared_tags_find) */
+struct swap_root
+{
+	unsigned long address;
+	unsigned long group_tag;
+	unsigned long index;
+};
+
+static int swap_root_compare(const void *a, const void *b)
+{
+	const struct swap_root *left = a, *right = b;
+
+	if (left->address != right->address)
+		return left->address < right->address ? -1 : 1;
+	if (left->group_tag != right->group_tag)
+		return left->group_tag < right->group_tag ? -1 : 1;
+	return left->index < right->index ? -1 : left->index > right->index;
+}
+
+/* a byte for each of count tags: 1 for a tag with the same group and root as
+one before it in the table. Halo CE+'s maps have such tags (its tools store
+a tag that is byte for byte another's once and point both at it); swapping
+both would swap their data twice, back to the map's order. NULL if there is
+no memory for it (every tag is then swapped, as before) */
+static unsigned char *shared_tags_find(const unsigned char *instances, unsigned long count)
+{
+	struct swap_root *roots = malloc((count ? count : 1) * sizeof(*roots));
+	unsigned char *shared = calloc(count ? count : 1, 1);
+	unsigned long index;
+
+	if (!roots || !shared)
+	{
+		free(roots);
+		free(shared);
+		return NULL;
+	}
+	for (index = 0; index < count; index++)
+	{
+		roots[index].address = read32(instances + index * TAG_INSTANCE_SIZE + TAG_INSTANCE_ADDRESS);
+		roots[index].group_tag = read32(instances + index * TAG_INSTANCE_SIZE + TAG_INSTANCE_GROUP);
+		roots[index].index = index;
+	}
+	qsort(roots, count, sizeof(*roots), swap_root_compare);
+	for (index = 1; index < count; index++)
+	{
+		if (roots[index].address && roots[index].address == roots[index - 1].address &&
+			roots[index].group_tag == roots[index - 1].group_tag)
+		{
+			shared[roots[index].index] = 1;
+		}
+	}
+	free(roots);
+	return shared;
+}
+
 void tag_byte_swap_tags(void *base, unsigned long base_address, unsigned long size)
 {
+	unsigned char *shared;
+	unsigned long shared_count = 0;
 	struct swap_region region;
 	unsigned long instances, count, index;
 	unsigned long missing_groups[16];
@@ -486,12 +571,23 @@ void tag_byte_swap_tags(void *base, unsigned long base_address, unsigned long si
 		error(_error_silent, "tag byte swap: the tag index is not in the tag data");
 		return;
 	}
+	shared = shared_tags_find(region.base + (instances - base_address), count);
+	swap_done = calloc((size + 31) / 32, sizeof(*swap_done));
+	swap_done_base = region.base;
+	swap_done_size = size;
 	for (index = 0; index < count; index++)
 	{
 		unsigned char *instance = region.base + (instances - base_address) + index * TAG_INSTANCE_SIZE;
 		unsigned long group_tag = read32(instance + TAG_INSTANCE_GROUP);
 		unsigned long address = read32(instance + TAG_INSTANCE_ADDRESS);
 		long layout = group_layout(group_tag);
+
+		/* (a tag that shares an earlier one's data was swapped as it) */
+		if (shared && shared[index])
+		{
+			shared_count++;
+			continue;
+		}
 
 		/* (a structure bsp's tag is read with its bsp) */
 		if (group_tag == STRUCTURE_BSP_GROUP || !region_holds(&region, address, 4))
@@ -526,8 +622,13 @@ void tag_byte_swap_tags(void *base, unsigned long base_address, unsigned long si
 		if (group_tag == ANIMATION_GRAPH_GROUP)
 			animation_graph_byte_swap_data(region.base + (address - region.address));
 	}
+	free(shared);
+	if (shared_count)
+		error(_error_silent, "tag byte swap: %lu tags share another's data, swapped once with it", shared_count);
 	/* (the models' indices, once all are known) */
 	model_index_ranges = swap_index_ranges(&region);
+	free(swap_done);
+	swap_done = NULL;
 	error(_error_silent, "tag byte swap: %lu of %lu tags, %lu blocks, %lu elements; %lu blocks not swapped",
 		region.tags, count, region.blocks, region.elements, region.bad_blocks);
 	error(_error_silent, "tag byte swap: %lu model parts' indices, in %lu ranges", model_parts, model_index_ranges);
@@ -560,9 +661,14 @@ void tag_byte_swap_structure_bsp(void *bsp, unsigned long bsp_address, unsigned 
 		error(_error_silent, "tag byte swap: the structure bsp cannot be swapped");
 		return;
 	}
+	swap_done = calloc((region_size + 31) / 32, sizeof(*swap_done));
+	swap_done_base = region.base;
+	swap_done_size = region_size;
 	swap_layout(&region, (unsigned long)layout, bsp_address, 0);
 	/* (the clusters' visibility: longs in tag data) */
 	swap_long_data(&region, (const unsigned char *)bsp + structure_bsp_cluster_data_offset());
+	free(swap_done);
+	swap_done = NULL;
 	error(_error_silent, "tag byte swap: structure bsp: %lu blocks, %lu elements; %lu blocks not swapped",
 		region.blocks, region.elements, region.bad_blocks);
 }

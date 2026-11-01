@@ -1,7 +1,7 @@
 # Linux
 
 `ninja linux` compiles the game with clang for 32-bit x86 Linux. The result
-is a native executable, `build/linux/halo`. The game shows its graphics with
+is a native executable, `build/linux/chupathingy`. The game shows its graphics with
 OpenGL 4.5. It plays sound through SDL3. It accepts keyboard, mouse and
 gamepad input.
 
@@ -63,7 +63,7 @@ from GitHub Actions need no SDL3 package: they bring their own
 ### Portable build
 
 The builds from GitHub Actions are portable builds (`--portable`; refer to
-"Build options" in the main [README](../../README.md)). The portable build
+"Useful `configure.py` options" in [docs/building.md](../../docs/building.md)). The portable build
 starts on more systems than the build machine's:
 
 - It is compiled and linked against the glibc 2.31 of Debian 11, the glibc
@@ -100,7 +100,7 @@ root's include folders from `pkg-config`, which splits a path at its spaces,
 so the portable build stops with a message there.
 
 To see the glibc version that a build needs, enter
-`readelf -V build/linux/halo | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1`.
+`readelf -V build/linux/chupathingy | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1`.
 `tools/linux_glibc_check.py`, which the GitHub Actions builds run on every
 Linux executable and library they make, fails on any version later than
 2.31.
@@ -130,7 +130,7 @@ Linux executable and library they make, fails on any version later than
 ### 64-bit
 
 `ninja linux64` builds the same game as native x86-64 code,
-`build/linux64/halo`, the way the macOS build does (the 64-bit build in
+`build/linux64/chupathingy`, the way the macOS build does (the 64-bit build in
 [port/macos/README.md](../macos/README.md): `HALO_64BIT` and the `long`
 rewrite, `tools/lp64_build.py`). It needs the 64-bit glibc and SDL3
 development files (`libsdl3-dev` on Debian 13 and Ubuntu 25.04 or later,
@@ -148,11 +148,12 @@ network, and it is a dedicated server too (`server/README.md`).
 
 ## Start the game
 
-Enter `build/linux/halo`.
+Enter `build/linux/chupathingy`. The small `halo` script beside it starts
+`chupathingy`, for shortcuts and scripts made before the rename in 0.9.0.
 
 The Steam Deck is not a supported platform yet. The Linux build may run
 on it: unpack `chupathingyce-linux64-release.zip` into a folder (in Desktop
-Mode), and add `halo` to Steam as a non-Steam game ("Add a Game" in the
+Mode), and add `chupathingy` to Steam as a non-Steam game ("Add a Game" in the
 Games menu of Steam). Reports are welcome in #bug-reports on the Discord.
 
 The game data is the folder that contains `maps/`, from an Xbox disc image
@@ -166,21 +167,41 @@ sequence:
    contains the executable.
 
 If the game finds no data (or finds an empty `maps/`), it asks where to
-get it. This occurs at the first start:
+get it. This occurs at the first start, on the setup screen's Welcome
+(launcher.c, in the game's window, before any map loads; builds without
+the game browser show the same choices in message boxes):
 
-- "Xbox disc image" (the default) opens a file picker. Select an Xbox disc
+- "Copy from my Xbox disc image" opens a file picker. Select an Xbox disc
   image (`.xiso` or `.iso`). The game copies `maps/` next to the executable
   and shows the progress. It also copies the disc's Bink movies (`bink/`,
   the `.bik` files), only the ones `bink/` lacks.
-- "Halo PC or Custom Edition" opens the same picker for optional extras: a
-  Halo PC CD image (`.iso`) fills `maps_pc/` (pc_disc.c), and Custom
-  Edition's installer (`halocesetup_en_1.00.exe`) fills `maps_ce/`
+- "Add Halo PC or Custom Edition too" opens the same picker for optional
+  extras: a Halo PC CD image (`.iso`) fills `maps_pc/` (pc_disc.c), and
+  Custom Edition's installer (`halocesetup_en_1.00.exe`) fills `maps_ce/`
   (ce_installer.c). Both read the Microsoft cabinets the maps are packed in
   (cabinet.c). Only maps the folder lacks are written. The game still needs
   the Xbox maps, so it asks again afterward.
 - "Make the folders" makes empty `maps/`, `maps_ce/`, `maps_pc/` and
-  `maps_md/`, says what goes in each, and checks again when you say so.
-- "Quit" stops the game.
+  `maps_md/`, each with a note saying what goes in it, and opens the folder.
+  "Check again" looks for the maps.
+- "I already have a maps folder" picks a folder elsewhere; `paths.data` is
+  set to it.
+- B (Backspace or Escape) quits.
+
+A maps folder that isn't the Xbox maps later (Halo PC's ui.map, or none)
+opens the setup screen on Maps instead of a message and a quit. Held Shift
+or a controller's Back at start, `--setup`, or `launcher.show_at_start =
+"always"` open it too; runs nobody watches (`debug.hidden_window`,
+`debug.exit_after`, the null renderer, Steam Deck Game Mode) never show it.
+`debug.launcher_test` scripts it for tests and screenshots.
+
+Its Play section picks the mode: vanilla, or a pack with its own `ui.map`,
+played as `game.pack_menus` for that run. With two or more installed, the
+game asks once (`launcher.mode_choice`: "ask" or "default", with
+`launcher.default_mode`); "ask" opens Play at every start. `--play` starts
+the default mode and `--mode <id>` that mode, neither asking. A player who
+never answered keeps what `game.pack_menus` says, and `HALO_PACK_MENUS` wins
+for its run.
 
 Either picker finds out what a file is from its contents, not its name.
 
@@ -243,7 +264,7 @@ The settings are in `config.toml` next to the executable. Refer to
 
 If the game stops because of a fatal signal, it writes the address and a
 backtrace to the standard error. To find the function at the address, enter
-`addr2line -e build/linux/halo <address>`.
+`addr2line -e build/linux/chupathingy <address>`.
 
 ### Crash reports
 
@@ -261,11 +282,11 @@ reports.
 A report has the same format as on Windows
 (`port/linux/src/crash_report.h`), without a minidump: the build, the
 system, the signal, up to 32 calls (each a module and an offset in it, for
-example `halo+0x2715b4`), and the last 200 lines of `debug.txt` from before
+example `chupathingy+0x2715b4`), and the last 200 lines of `debug.txt` from before
 the crash, with each public IP address replaced with `[address]`. To find
-the function of a call on macOS, enter `atos -o halo -l 0x100000000
+the function of a call on macOS, enter `atos -o chupathingy -l 0x100000000
 0x1002715b4` (the offset plus `0x100000000`); on Linux, enter
-`addr2line -e halo 0x2715b4`.
+`addr2line -e chupathingy 0x2715b4`.
 
 Local builds send no crash reports. To test the crash reports with such a
 build, set the `HALO_CRASH_REPORTS_ANY_BUILD` environment variable. Android
@@ -575,7 +596,7 @@ the setting for one start of the game. It has priority over the file.
 | `controls.<action>` | (the table in "Controls") | `HALO_KEY_<ACTION>` | The keys and mouse buttons of an action, up to two, separated by a comma: `move_forward`, `move_backward`, `strafe_left`, `strafe_right`, `jump`, `crouch`, `fire`, `throw_grenade`, `melee`, `reload`, `zoom`, `switch_weapon`, `switch_grenade`, `action`, `flashlight`, `scoreboard`, `pause`. Keys by their names (`"W"`, `"Space"`, `"Left Ctrl"`, `"F1"`), and `"Mouse Left"`, `"Mouse Right"`, `"Mouse Middle"`, `"Mouse 4"`, `"Mouse 5"`, `"Wheel"` (either way), `"Wheel Up"`, `"Wheel Down"`. |
 | `controls.controller_layout` | `""` | `HALO_CONTROLLER_LAYOUT` | The controller's Custom button layout, which Controller Buttons writes: `"action=button"` for each action, separated by commas (`jump`, `switch_grenade`, `action`, `switch_weapon`, `melee`, `flashlight`, `throw_grenade`, `fire`, `crouch`, `zoom`; `A`, `B`, `X`, `Y`, `LB`, `RB`, `LT`, `RT`, `LS`, `RS`, LB and RB being the Duke's White and Black). An action left out keeps its default button; no button is ever on two actions. Used by profiles whose button layout is Custom. Empty: the default layout. |
 | `game.downloaded_maps` | `""` | `HALO_DOWNLOADED_MAPS` | Maps to play as downloaded maps, until the game downloads maps itself: their names as the game names them (`bloodgulch`, `hugeass@ce`), separated by commas, or `"*"` for all the maps. The scripts of a downloaded map cannot change the settings of the player or the games of other players. `debug.txt` names what the game refused. |
-| `game.pack_menus` | `""` | `HALO_PACK_MENUS` | Play with an Xbox map pack's own menus, by the pack's folder name: `"cex"` loads `maps_cex/ui.map` (Halo CE+'s) in place of the game's `ui.map`, its multiplayer maps being the pack's (`<file>@cex`) and its scripts allowed to start the pack's own levels when the library knows the pack. Empty: the game's menus. Takes effect after a restart. Refer to "Xbox map packs" in the README. |
+| `game.pack_menus` | `""` | `HALO_PACK_MENUS` | Play with an Xbox map pack's own menus, by the pack's folder name: `"cex"` loads `maps_cex/ui.map` (Halo CE+'s) in place of the game's `ui.map`, its multiplayer maps being the pack's (`<file>@cex`) and its scripts allowed to start the pack's own levels when the library knows the pack. Empty: the game's menus. Takes effect after a restart. Refer to "Xbox map packs" in [docs/maps.md](../../docs/maps.md#xbox-map-packs). |
 | `game.bomb_spawns` | `""` | `HALO_BOMB_SPAWNS` | Where a Bomb or Grifball game you host puts the bomb on a map: `"<map> <x> <y> [<z>]"` (the map as a playlist names it: `bloodgulch`, `timberland@ce`), entries separated by commas. The bomb rests on the first ground under the point (from a little over its height, when given). A map not named has the game's own spot: Blood Gulch's halfway between its teleporters' exits, any other map's halfway between the goals. Only the host's setting counts. |
 | `game.bomb_open_pitch_speed` | `0` | `HALO_BOMB_OPEN_PITCH_SPEED` | Everyone's speed in a Grifball: Open Pitch game you host, in percent (50 to 200; the carrier's 115% on top stops at 200). `0`: the game type's own, 175. |
 | `game.bomb_open_pitch_carrier_health`, `game.bomb_open_pitch_carrier_resistance` | `0`, `0` | `HALO_BOMB_OPEN_PITCH_CARRIER_HEALTH`, `HALO_BOMB_OPEN_PITCH_CARRIER_RESISTANCE` | The bomb carrier in a Grifball: Open Pitch game you host: health in percent of everyone's, damage resistance in percent. `0`: the game type's own, 400 each (the carrier lives through one melee blow, not two). |
@@ -594,7 +615,7 @@ the setting for one start of the game. It has priority over the file.
 | `network.online` | `true` | `HALO_NET_ONLINE` | `true`: internet play. `false`: system link on the local network only. |
 | `network.join_from_clipboard` | `"never"` | `HALO_NET_JOIN_FROM_CLIPBOARD` | An invite link on the clipboard when the game comes to the front: `"ask"` asks over the menus whether to join its game (with its name and map when the game list knows them; No is kept for that invite), `"always"` joins it, `"never"` leaves it. `true` and `false`, from older versions, mean `"always"` and `"never"`. Network Settings in the Chupathingy and Gearbox menus. |
 | `network.copy_to_clipboard` | `false` | `HALO_NET_COPY_TO_CLIPBOARD` | `true`: when this copy starts to host a game, its invite link goes on the clipboard. `false`: the game leaves the clipboard alone; the link is in the log, and INVITE LINK in the Gearbox menus' Server Settings copies it. Network Settings in the Chupathingy and Gearbox menus. |
-| `network.map_downloads` | `"ask"` | `HALO_NET_MAP_DOWNLOADS` | A Custom Edition map a game you join needs and you don't have, from the community map repositories (maps.halonet.net and its mirrors, as Chimera downloads from them). `"ask"`: the Online Games screen offers to download it (Yes, No, Don't ask again, which writes `"always"` or `"never"` here). `"always"`: downloaded without asking. `"never"`: the game only says which map is missing. Network Settings in the PC menus. The map is checked before it goes in `maps_ce`: refer to "Halo PC maps" in the [README](../../README.md). Not on the dedicated server. |
+| `network.map_downloads` | `"ask"` | `HALO_NET_MAP_DOWNLOADS` | A Custom Edition map a game you join needs and you don't have, from the community map repositories (maps.halonet.net and its mirrors, as Chimera downloads from them). `"ask"`: the Online Games screen offers to download it (Yes, No, Don't ask again, which writes `"always"` or `"never"` here). `"always"`: downloaded without asking. `"never"`: the game only says which map is missing. Network Settings in the PC menus. The map is checked before it goes in `maps_ce`: refer to "Halo PC maps" in [docs/maps.md](../../docs/maps.md#halo-pc-maps). Not on the dedicated server. |
 | `network.playlist_downloads` | `"ask"` | `HALO_NET_PLAYLIST_DOWNLOADS` | When you join a game of a verified playlist, its map set (refer to [docs/playlist-maps.md](../../docs/playlist-maps.md)): `"ask"` says which of its maps you don't have and offers to download them (Yes, No, Don't ask again, which writes `"always"` or `"never"` here); `"always"` downloads them without asking; `"never"` doesn't check. Each file is checked against the signed list before it goes in its folder. Separate from `network.map_downloads`. Desktop and Android. |
 | `network.tunnel_port` | `2302` on the desktop and Android, `0` on the consoles and the server | `HALO_NET_TUNNEL_PORT` | The UDP port for internet play. At its default, every copy of the game starts on a port it selects, and moves to 2302 when it hosts an internet game (Server Setup, or the game's start); if another program has 2302, the next free port up to 2306; if all are taken, the selected port stays. The log names the port. A port that you set (in the file, Server Setup's PORT, or the environment variable) is used from the start, to join as well as to host, and no other is tried. `0`: the game selects a port each run, also to host. Refer to "Internet play". |
 | `network.allow_upnp` | `true` | `HALO_NET_ALLOW_UPNP` | `true`: internet play can ask the router to forward its port (UPnP). `false`: the game does not ask. Refer to "Internet play". |
@@ -620,6 +641,7 @@ the setting for one start of the game. It has priority over the file.
 | `network.coop_public` | `false` | `HALO_NET_COOP_PUBLIC` | `true`: an online co-op game (Create Game > Internet, a SINGLEPLAYER map) starts as PUBLIC. `false`: it starts as PRIVATE. LISTING in co-op's Server Setup writes its choice here. Refer to "Server browser". |
 | `network.brokers_file` | `"brokers.txt"` | `HALO_NET_BROKERS_FILE` | The file of the public MQTT brokers that let the machines of an invite find each other, and that carry the listings of the server browser: next to `config.toml`, unless a full path. One `host:port` on each line, up to 4; `#` starts a comment. |
 | `network.stun_servers` | Google and Cloudflare | `HALO_NET_STUN` | The public STUN servers (`host:port`, with commas between them) that give the internet address of a machine. |
+| `network.announce` | `"latest"` | `HALO_NET_ANNOUNCE` | The OpenCE network version that the games you host announce. `"latest"` follows the newest one the signed legacy table proves for hosting, between games and with no restart. A number pins it, such as `32`. Refer to `docs/delta.md`, "Auto-announce". |
 | `network.legacy_table` | `""` | `HALO_LEGACY_TABLE` | For testing, and for admins: a legacy table file, not signed, next to `config.toml` unless a full path. Its row for the wire of the build sets the OpenCE network versions that the game announces and joins, in place of the signed tables. The log shows a warning at start. Refer to `docs/delta.md`. Empty: none. |
 | `network.list_hosted_games` | `true` | `HALO_NET_LIST_GAMES` | `true`: the system link games this machine hosts are listed on `network.browser_url` (stats.chupathingy.org), where anyone can find and join them. Only public games without a password are listed. `false`: they are kept to invites and the local network, and no carnage report of them is sent. |
 | `network.report_hosted_games` | `true` | `HALO_NET_REPORT_HOSTED` | The stats of the games this machine hosts: a listed game's carnage report, its Delta Stats (`network.report_events`) and the host's own players' claims of their lines. `false`: none of them are sent, and the game stays listed (`network.list_hosted_games`). On the Privacy screen (Gearbox menus). |
@@ -645,7 +667,7 @@ the setting for one start of the game. It has priority over the file.
 | `debug.determinism`, `debug.determinism_hashes`, `debug.determinism_ticks`, `debug.determinism_seed` | off | `HALO_DETERMINISM`, `HALO_DETERMINISM_HASHES`, `HALO_DETERMINISM_TICKS`, `HALO_DETERMINISM_SEED` | The input-replay check of the simulation (`game/determinism_check.c`, `tools/test_determinism.py`): `record:<file>` writes every tick's player actions, `replay:<file>` plays them back, with a line of hashes of the game's state after each tick. |
 | `debug.chat_test` | `""` | `HALO_CHAT_TEST` | A script of text chat for the tests (`game/chat.c`): `"<seconds>:<what>[:<text>]"` steps separated by `;`, from when this copy is in a game: `all` and `team` say a line, `server` says one as the host's server, `mute` and `unmute` mute a machine as a moderator does (the host), `localmute` mutes one for this copy, `log` and `close` open and close the log, `type` shows a line being typed. |
 | `debug.touch_targets` | `false` | `HALO_TOUCH_TARGETS` | Outlines the tap targets of the menus (item green, value blue, list slot yellow, legend button red, the band beside the slots of a list orange, keys of the on-screen keyboard white), marks where the last finger went down and the last tap landed for 3 seconds, and logs each tap with the target that it hit (for a value, also where it splits into previous and next): to judge the accuracy of touch. |
-| `debug.solo_game` | `false` | `HALO_SOLO_GAME` | The older name of `game.start_with_one_player`, kept so old configs and scripts work: `true` turns it on too. |
+| `debug.solo_game` | retired | `HALO_SOLO_GAME` | The older name of `game.start_with_one_player`. An old config.toml that has it still loads: a `true` moves to `game.start_with_one_player` once, and the old line is taken out. `HALO_SOLO_GAME=1` still turns `game.start_with_one_player` on for one run. |
 | `debug.network_latency`, `debug.network_loss`, `debug.network_corrupt`, `debug.network_corrupt_stream`, `debug.network_corrupt_after` | `0` | `HALO_NETWORK_LATENCY`, `HALO_NETWORK_LOSS`, `HALO_NETWORK_CORRUPT`, `HALO_NETWORK_CORRUPT_STREAM`, `HALO_NETWORK_CORRUPT_AFTER` | The game holds all the data that it receives for this number of milliseconds, ignores this percentage of the datagrams, and damages this percentage of the datagrams it receives, and this percentage of its reads of streams, at random (bytes changed, cut short, stretched or replaced), from this many seconds after the start. Use the first two to test the netcode as on the internet, and the others to test that nothing another machine sends can crash the game (a damaged stream is closed, so a little goes a long way; a host's messages to its own client are damaged too, so start damaging once the game has started). |
 | `debug.telnet_console`, `debug.telnet_console_port` | `false`, `2323` | `HALO_TELNET_CONSOLE`, `HALO_TELNET_CONSOLE_PORT` | The game listens on 127.0.0.1, on this port, for a script console (connect with telnet). The console has no password, so only this computer can reach it. |
 
@@ -654,7 +676,7 @@ Mesa. To stop this, set the environment variable `mesa_glthread=false`.
 
 ## Updates
 
-The builds from GitHub Actions (refer to the main [README](../../README.md#download))
+The builds from GitHub Actions (refer to [docs/install.md](../../docs/install.md#download))
 can update themselves. At start-up, the game asks GitHub for the latest
 release. The game does not wait for the answer. If the latest release is not
 newer, the game does nothing.
@@ -806,9 +828,9 @@ broadcasts. Thus each copy must send its broadcasts to the other copies.
 For a host and two clients, enter these commands in three terminals:
 
 ```sh
-HALO_NET_ADDRESS=127.0.0.200 HALO_NET_BROADCAST=127.0.0.201,127.0.0.202 build/linux/halo
-HALO_NET_ADDRESS=127.0.0.201 HALO_NET_BROADCAST=127.0.0.200 build/linux/halo
-HALO_NET_ADDRESS=127.0.0.202 HALO_NET_BROADCAST=127.0.0.200 build/linux/halo
+HALO_NET_ADDRESS=127.0.0.200 HALO_NET_BROADCAST=127.0.0.201,127.0.0.202 build/linux/chupathingy
+HALO_NET_ADDRESS=127.0.0.201 HALO_NET_BROADCAST=127.0.0.200 build/linux/chupathingy
+HALO_NET_ADDRESS=127.0.0.202 HALO_NET_BROADCAST=127.0.0.200 build/linux/chupathingy
 ```
 
 Do not give 127.0.0.1 to a copy. Each copy gets to its own address through
@@ -854,7 +876,7 @@ To join a game, do one of these steps:
 - Copy the link and select PASTE LINK in Join Game's Direct Link. With
   `network.join_from_clipboard` set to `"ask"` or `"always"`, going to the
   game after copying the link is enough.
-- Enter `halo <link>`.
+- Enter `chupathingy <link>`.
 - Accept a Discord invite. Refer to "Discord".
 
 When the machines connect, the game of the host shows in Multiplayer,

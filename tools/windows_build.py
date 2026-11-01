@@ -4,11 +4,13 @@ windows64``).
 Like the Linux build (tools/linux_build.py), it compiles the game sources
 with clang for 32-bit x86 Windows (i686-pc-windows-msvc), adds the platform layer shared with
 Linux (``port/linux/src``) and the Windows parts in ``port/windows``, and
-links ``build/windows/halo.exe`` with lld. It is generated only when
+links ``build/windows/chupathingy.exe`` with lld (and the small
+``halo.exe`` beside it that starts it, for what started the game by its old
+name: port/linux/src/rename_stub.h). It is generated only when
 configure.py runs on Windows. See port/windows/README.md for the design.
 
 ``ninja windows64`` compiles the same units for x64 Windows
-(x86_64-pc-windows-msvc) into ``build/windows64/halo.exe``, with the 64-bit
+(x86_64-pc-windows-msvc) into ``build/windows64/chupathingy.exe``, with the 64-bit
 builds' code paths (HALO_64BIT: source/cseries/xbox_address.h), as
 ``ninja linux64`` and ``ninja macos`` have them. Both play Halo PC's Custom
 Edition maps (HALO_CUSTOM_EDITION).
@@ -400,7 +402,7 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
     build = target.build
     tags_header = build / "halo_msvc_tags.h"
     obj_dir = build / "obj"
-    output = build / "halo.exe"
+    output = build / "chupathingy.exe"
     sdl_dll = build / "SDL3.dll"
     sdl_lib = SDL_DIR / "lib" / target.sdl_arch
     cc = getattr(sln, "windows_cc", None) or "clang"
@@ -489,7 +491,7 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
         + ffmpeg_libs
         + [f"-l{lib}" for lib in config.get("libraries", [])]
     )
-    # (the linker's map beside the program, halo.map: its functions'
+    # (the linker's map beside the program, chupathingy.map: its functions'
     # addresses, kept with the symbols, tools/ci_build.py)
     base_ldflags = list(target.ldflags) + ["-Wl,/MAP"]
     if getattr(sln, "port_release", False):
@@ -675,7 +677,7 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
         n.build(outputs=obj, rule="windows_cc", inputs=PORT_DIR / "pgo" / "halo_profile_runtime.c",
                 variables={"cflags": runtime_cflags})
         runtime_objects.append(obj)
-        instrumented = generate_dir / "halo.exe"
+        instrumented = generate_dir / "chupathingy.exe"
         instrumented_dll = generate_dir / "SDL3.dll"
         # instrumented objects ask for LLVM's own runtime library, which
         # these objects replace
@@ -704,5 +706,29 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
     # internet play's MQTT brokers, a file beside the game (network.brokers_file)
     brokers = build / "brokers.txt"
     n.build(outputs=brokers, rule=f"{prefix}_copy", inputs=Path("port/assets/network/brokers.txt"))
-    n.build(outputs=prefix, rule="phony", inputs=[output, sdl_dll, brokers])
+    # halo.exe, which starts chupathingy.exe, for shortcuts, Steam entries and
+    # scripts made for the old name, and the updaters from before the rename,
+    # which start halo.exe again (port/rename_stub/halo_stub.c, with the game's
+    # icon; TODO(after 0.9.x): remove)
+    stub = build / "halo.exe"
+    stub_resource = build / "halo_stub.res"
+    stub_object = build / "stub" / "halo_stub.o"
+    n.rule(
+        name=f"{prefix}_stub_rc",
+        command=f"${prefix}_rc /nologo /D HALO_RENAME_STUB /I {build} /I {PORT_DIR} /FO $out $in",
+        description=f"{label} RC $out",
+    )
+    n.build(outputs=stub_resource, rule=f"{prefix}_stub_rc", inputs=PORT_DIR / "halo.rc",
+            implicit=[PORT_DIR / "halo.ico", resource_header])
+    n.build(outputs=stub_object, rule=f"{prefix}_cc", inputs=Path("port/rename_stub/halo_stub.c"),
+            variables={"cflags": " ".join([f"--target={target.triple}", "-O2", "-g", "-gcodeview", *WIN32_FLAGS,
+                                           "-DUNICODE", "-D_UNICODE", "-D_CRT_SECURE_NO_WARNINGS",
+                                           f"-I{LINUX_DIR / 'src'}"])})
+    stub_subsystem = "WINDOWS" if getattr(sln, "port_release", False) else "CONSOLE"
+    n.build(outputs=stub, rule=f"{prefix}_link", inputs=[stub_object, stub_resource],
+            variables={"ldflags": " ".join([f"--target={target.triple}", "-fuse-ld=lld", "-g",
+                                            f"-Wl,/SUBSYSTEM:{stub_subsystem}",
+                                            "-Wl,/ENTRY:wWinMainCRTStartup"]),
+                       "libs": "-luser32"})
+    n.build(outputs=prefix, rule="phony", inputs=[output, stub, sdl_dll, brokers])
     n.newline()

@@ -5777,6 +5777,43 @@ static boolean playlist_profile_change_player_options(
 	return result;
 }
 
+/* port: a select screen's list. The Xbox's menus make the screen a
+container of three, the spinner list first; a map pack's own menus (Halo
+CE+'s) add widgets of their own, so it is the screen's first spinner list,
+wherever it is (else its first child, as the Xbox's code took it, for the
+asserts that follow to name) */
+static struct widget_instance *select_screen_list(
+	struct widget_instance *screen)
+{
+	struct widget_instance *child;
+
+	for (child = screen->child; child; child = child->next)
+	{
+		if (ui_widget_definition_get(child->definition_tag_index)->type == 2)
+			return child;
+	}
+	return screen->child;
+}
+
+/* port: the select screen in its wrapper: the wrapper's one child on the
+Xbox's menus; a map pack's own (Halo CE+'s gametype select) add widgets
+beside it, so it is the first child with a spinner list (else the first
+child, as above) */
+static struct widget_instance *select_wrapper_screen(
+	struct widget_instance *wrapper)
+{
+	struct widget_instance *child;
+
+	for (child = wrapper->child; child; child = child->next)
+	{
+		struct widget_instance *list = select_screen_list(child);
+
+		if (list && ui_widget_definition_get(list->definition_tag_index)->type == 2)
+			return child;
+	}
+	return wrapper->child;
+}
+
 static boolean multiplayer_level_select(
 	struct widget_instance *widget,
 	struct event_record *event,
@@ -5792,14 +5829,16 @@ static boolean multiplayer_level_select(
 
 	definition = ui_widget_definition_get(widget->definition_tag_index);
 	match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 1280,
-		definition->child_count == 1,
+		definition->child_count >= 1,
 		"expected a wrapper widget around the multiplayer level select screen");
-	level_select_screen = widget->child;
+	level_select_screen = select_wrapper_screen(widget);
 	definition = ui_widget_definition_get(level_select_screen->definition_tag_index);
+	/* port: a container w/ the list (a map pack's own menus add children
+	of their own: select_screen_list) */
 	match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 1285,
-		definition->type == 0 && definition->child_count == 3,
-		"expected the multiplayer level select screen to be a container w/ 3 children");
-	level_list = level_select_screen->child;
+		definition->type == 0 && definition->child_count >= 1,
+		"expected the multiplayer level select screen to be a container w/ a list");
+	level_list = select_screen_list(level_select_screen);
 	definition = ui_widget_definition_get(level_list->definition_tag_index);
 	match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 1288,
 		definition->type == 2,
@@ -5807,7 +5846,6 @@ static boolean multiplayer_level_select(
 	match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 1289,
 		definition->child_count == 3,
 		"expected 3 list items for 'multiplayer level list' widget");
-	level_list = widget->child->child;
 #ifdef HALO_MAP_LIST
 	/* port: the menus' map list */
 	match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 1298,
@@ -5889,14 +5927,15 @@ static boolean multiplayer_profile_set_for_game(
 
 	definition = ui_widget_definition_get(widget->definition_tag_index);
 	match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 1465,
-		definition->child_count == 1,
+		definition->child_count >= 1,
 		"expected a wrapper widget around the multiplayer profile select screen");
-	profile_select_screen = widget->child;
+	profile_select_screen = select_wrapper_screen(widget);
 	definition = ui_widget_definition_get(profile_select_screen->definition_tag_index);
+	/* port: as the level select screen's */
 	match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 1470,
-		definition->type == 0 && definition->child_count == 3,
-		"expected the multiplayer profile select screen to be a container w/ 3 children");
-	profile_list = profile_select_screen->child;
+		definition->type == 0 && definition->child_count >= 1,
+		"expected the multiplayer profile select screen to be a container w/ a list");
+	profile_list = select_screen_list(profile_select_screen);
 	definition = ui_widget_definition_get(profile_list->definition_tag_index);
 	match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 1473,
 		definition->type == 2,
@@ -5904,7 +5943,6 @@ static boolean multiplayer_profile_set_for_game(
 	match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 1474,
 		definition->child_count == 3,
 		"expected 3 list items for 'multiplayer profile list' widget");
-	profile_list = widget->child->child;
 	match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 1483,
 		profile_list->parameters.list.selected_index >= 0 &&
 		profile_list->parameters.list.selected_index < (unsigned short)profile_list->parameters.list.number_of_items,

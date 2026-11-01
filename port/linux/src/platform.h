@@ -120,9 +120,11 @@ against what exists on disk, as the Xbox file system is case-insensitive. */
 void platform_translate_path(const char *xbox_path, char *host_path, unsigned long host_path_size);
 const char *platform_data_root(void);
 /* on the desktop, when the data root has no maps folder: offers to copy it
-out of an Xbox disc image into destination (sdl_platform.c), and quits if
-the player declines; nonzero once destination has one */
-BOOL platform_offer_game_data(const char *destination);
+out of an Xbox disc image into destination (sdl_platform.c; the launcher's
+Welcome, launcher.c), and quits if the player declines; nonzero once
+destination has one. The player may point at a maps folder elsewhere:
+destination (size bytes) is then that folder's */
+BOOL platform_offer_game_data(char *destination, unsigned long size);
 /* what the data root's maps folder holds, which should be the Xbox maps
 (sdl_platform.c tells the player when it is not, rather than the game
 failing on Halo PC's ui.map) */

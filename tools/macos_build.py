@@ -9,7 +9,7 @@ built here for each architecture (tools/ffmpeg_build.py, static: no
 Homebrew library in the application), and the macOS-only units in
 port/macos/src.
 
-The result is build/macos/halo and the application bundle
+The result is build/macos/chupathingy and the application bundle
 build/macos/ChupathingyCE.app. See port/macos/README.md.
 """
 
@@ -175,7 +175,7 @@ def generate_macos_build(n: Writer, sln: Any) -> None:
     config = load_json(PORT_CONFIG)
     build_dir: Path = sln.build_dir / "macos"
     obj_dir = build_dir / "obj"
-    output = build_dir / "halo"
+    output = build_dir / "chupathingy"
     cc = "clang"
     portable = getattr(sln, "port_portable", False)
     # the Mac's own architecture; an application for other Macs, both (Apple
@@ -276,8 +276,8 @@ def generate_macos_build(n: Writer, sln: Any) -> None:
         # (a universal application: each architecture's executable, joined)
         slices = []
         for arch in architectures:
-            emit(arch, build_dir / f"obj-{arch}", build_dir / f"halo-{arch}")
-            slices.append(build_dir / f"halo-{arch}")
+            emit(arch, build_dir / f"obj-{arch}", build_dir / f"chupathingy-{arch}")
+            slices.append(build_dir / f"chupathingy-{arch}")
         n.rule(name="macos_lipo", command="lipo -create -output $out $in", description="MACOS LIPO $out")
         n.build(outputs=output, rule="macos_lipo", inputs=slices)
 
@@ -289,7 +289,7 @@ def generate_macos_build(n: Writer, sln: Any) -> None:
                  + (f" --self-contained --library-path {PORTABLE_SDL_BUILD}" if portable else "")),
         description="MACOS BUNDLE $out",
     )
-    n.build(outputs=bundle / "Contents" / "MacOS" / "halo", rule="macos_bundle", inputs=output,
+    n.build(outputs=bundle / "Contents" / "MacOS" / "chupathingy", rule="macos_bundle", inputs=output,
             implicit=[PORT_DIR / "bundle.py", PORT_DIR / "Info.plist", PORT_DIR / "AppIcon.icns"])
-    n.build(outputs="macos", rule="phony", inputs=[output, bundle / "Contents" / "MacOS" / "halo"])
+    n.build(outputs="macos", rule="phony", inputs=[output, bundle / "Contents" / "MacOS" / "chupathingy"])
     n.newline()

@@ -61,7 +61,7 @@ def test_header_sentences():
 
 # the neutral label of an OpenCE dedicated server, as the site says it too
 # (puma web/site.js HOST_LABEL_OPENCE_SERVER)
-OPENCE_SERVER_LABEL = "OpenCE server"
+OPENCE_SERVER_LABEL = "OpenCE dedicated"
 
 
 def test_opence_server_label():

@@ -206,9 +206,11 @@ The platform registry (`enum delta_platform`, one byte, never reused):
 5 `steam_deck` (Linux with Steam's `SteamDeck=1`), 6 `xbox`, 7 `xbox360`,
 8 `wiiu`, 9 `switch`, 10 `psp`, 11 `vita`, 12 `xbox_uwp` (the Xbox One and
 Series in developer mode), 13 `pc_freebsd` (the PC build for FreeBSD,
-[port/unix](../port/unix/README.md)). 10 to 12 are ports others build on ours;
-their policy rows are placeholders until those ports play, as the consoles'
-are. 13's is a PC's.
+[port/unix](../port/unix/README.md)), 14 `ps3`, 15 `ps4`, 16 `ps5`, 17 `n64`,
+18 `pc_legacy` (DOS and Windows 9x PCs). 10 to 12 and 14 to 18 are ports
+others build on ours; their policy rows are placeholders until those ports
+play, as the consoles' are. 13's is a PC's. How a port gets a number: see
+"Platform numbers" below.
 
 The original Xbox, Xbox 360 and Wii U builds are Delta Peer clients
 (`HALO_CONSOLE_DELTA`). Each sends its own platform (6, 7 or 8) and a
@@ -231,11 +233,17 @@ defaults every machine's key starts from:
 | unknown | 128 | 128 | 128 | 0 | yes |
 | Xbox | 16 | 16 | 128 | 6 (64 MB) | no |
 | Xbox 360, Wii U, Switch | 16 | 16 | 128 | 9, 10, 12 (placeholders until their ports play) | yes |
+| PSP, Vita | 16 | 16 | 128 | 6, 9 (placeholders) | no |
+| Xbox Series (developer mode) | 128 | 128 | 128 | 12 | yes |
+| PS3 | 16 | 16 | 128 | 8 (256 MB; placeholder) | no |
+| PS4, PS5 | 16 | 16 | 128 | 12, 13 (placeholders) | yes |
+| Nintendo 64 | 0 (never hosts) | 8 | 16 | 3 (8 MB; placeholder) | no |
+| Legacy PC (DOS, Windows 9x) | 16 | 16 | 128 | 7 (128 MB; placeholder) | no |
 
 Co-op: a host offers no network co-op (the Map screen's campaign levels
 refuse, and say why in the log) while a machine of a platform without it is
-in its game, nor on such a platform itself (`delta_peer_room_coop`). Only
-the original Xbox is kept out today.
+in its game, nor on such a platform itself (`delta_peer_room_coop`). Of the
+platforms that play today, only the original Xbox is kept out.
 
 A host protects the weakest machine of its game: it takes no more players
 than the smallest of its own hosting limit and every Delta machine's join
@@ -260,6 +268,75 @@ Overrides, on purpose:
 The signed legacy table is to carry a `platform_policy` section that tunes
 the rows without a release; the hook is `delta_peer_platform_policy()` in
 `delta_peer_game.c` (not built yet: the defaults stand).
+
+### Platform numbers
+
+Every build that speaks Delta says what it runs on: one number from the
+registry above. The scoreboard picks its logo from it, the site sorts
+games by it, and hosts use its policy row to keep weaker machines safe.
+This section is for people who port Chupathingy to something new.
+
+**Numbers are never reused.** A number stays with its platform for good,
+even if that port stops. New platforms go at the end of the list.
+
+**Ask before you ship.** Don't pick a free number yourself: two ports could
+pick the same one. Open an issue on
+[ChupathingyCE/chupathingyce](https://github.com/ChupathingyCE/chupathingyce/issues),
+or ask on the Discord. Tell us the platform, your port, and roughly how much
+memory the game gets there. We add the number to `delta.h` and this page,
+and the site learns it too.
+
+**Identify your build.** Build with `-DHALO_DELTA_PLATFORM=_delta_platform_<name>`
+(`_delta_platform_ps3`, say). The game sends that number in its platform
+key. Without it, the game picks a number from what it's built for (Windows,
+Mac, Linux, Android, FreeBSD and our console builds), and `unknown` (0)
+otherwise. A build with no number of its own still plays;
+it just shows no logo and gets the unknown row.
+
+**What the policy row means.** Each platform has one row in
+`DELTA_PLATFORM_POLICY` (`delta.h`):
+
+- **Hosts at most:** the most players a game it hosts can have. 0 means it
+  doesn't host.
+- **Joins at most:** the most players a game it joins can have. A host
+  keeps its game at or under this.
+- **Opted in:** the limit when the player turns the caveats off
+  (`network.platform_limits = "off"`).
+- **Memory:** log2 of the megabytes the game gets. 6 is 64 MB, 8 is 256 MB,
+  12 is 4 GB.
+- **Co-op:** whether it plays network co-op. If not, a host offers no co-op
+  while it's in the game.
+
+A new port's row starts careful: 16 players, no co-op on small machines.
+Once the port plays well, tell us what it handles and we raise it. A port
+can also claim lower limits in its own key; a host takes the lower value.
+
+**The numbers today:**
+
+| Number | Name | Platform | Port |
+| --- | --- | --- | --- |
+| 0 | `unknown` | not known | |
+| 1 | `pc_windows` | Windows | ours |
+| 2 | `pc_macos` | macOS | ours |
+| 3 | `pc_linux` | Linux | ours |
+| 4 | `android` | Android | ours |
+| 5 | `steam_deck` | Steam Deck | ours |
+| 6 | `xbox` | original Xbox | ours (warthog-xbox) |
+| 7 | `xbox360` | Xbox 360 | ours (warthog-360) |
+| 8 | `wiiu` | Wii U | ours (warthog-wiiu) |
+| 9 | `switch` | Nintendo Switch | warthog-switch |
+| 10 | `psp` | PSP | Sheepdog01 |
+| 11 | `vita` | PS Vita | Lord BirchWood |
+| 12 | `xbox_uwp` | Xbox One and Series, developer mode | ReviveMe |
+| 13 | `pc_freebsd` | FreeBSD | Renkoto (port/unix) |
+| 14 | `ps3` | PlayStation 3 | Mayo |
+| 15 | `ps4` | PlayStation 4 | community port |
+| 16 | `ps5` | PlayStation 5 | community port |
+| 17 | `n64` | Nintendo 64 | JackT |
+| 18 | `pc_legacy` | DOS and Windows 9x PCs | JackT (Legacy PC) |
+
+The PSP, Vita, PS3, PS4 and PS5 share the PlayStation logo on the
+scoreboard. Nintendo 64 and Legacy PC have no logo yet.
 
 ### Wire format
 
@@ -1906,7 +1983,16 @@ sends that the build reads by number (`network_rules.h`, "layouts"):
 | `settings_size` | the game settings record's bytes at the network's 128 machines and players (13,120 to 34, 13,136 from 35); bytes past the options and the 4 of local data come after them, and a build has no use for them | at most 13,200 (`NETWORK_RULES_SETTINGS_MAXIMUM`: 35's and 64), and never fewer than the version before had, or than the options leave room for |
 | `options_size` | the gametype's options' bytes in it (0x1C to 34, 0x2C from 35); the record grows with them, in front of the local data; a build reads the 0x2C it knows and ignores the rest (a host sends zeros) | never shorter than before, the record within its limit |
 | `shield_effects_maximum` | the largest value the shield effects message (91) takes (6 built in); a value a build has no look for is drawn as stock | never lower than before, at most 15 |
-| `dropped_messages` | distributed message kinds a host of the version sends that a machine that doesn't know them drops (91 from 36 built in) | kinds 1 to 255; only kinds the build doesn't know are affected |
+| `dropped_messages` | distributed message kinds a host of the version sends that a machine that doesn't know them drops (91 from 36 built in; 78, 79, 94 and 95, OpenCE's votes, from 41) | kinds 1 to 255; only kinds the build doesn't know are affected |
+| `join_request_extra` | (`chupa-41a` on) the bytes a client's join request carries after its first 0x70 (the Xbox's 0x50 and the hardware id) to a host of the version: 234 from 40 built in (OpenCE's pass and proof, sent as zeros), none before. A host of 40 or later drops a request of another length without a reply; an older host reads the 0x70 and ignores the rest | 0 to 1,024; it may shrink as well as grow |
+| `join_request_fill` | what fills those bytes: `"zeros"`, the only fill a build writes (and the default). A fact naming another fill is not taken, and the build keeps the length before | `"zeros"` |
+
+So when OpenCE changes the join request's length again, a row like
+`"43": { "join_request_extra": 300, "join_request_fill": "zeros" }` for
+`chupa-41a` is the whole follow, without a release (`tools/delta_table.py make
+--layout chupa-41a=43:join_request_extra=300`). Builds of older wires pass
+over the field; a `chupa-41a` build reading a table without it goes by its
+built-in 234 from 40.
 
 A fact holds for its version and every later one until the next. A build
 uses facts only for versions past its own rules (`DELTA_LEGACY_NEWEST`, 38
@@ -1983,7 +2069,67 @@ and `HALO_LEGACY_TABLE=legacy-38.json` (or `network.legacy_table =
 "legacy-38.json"`). The server's log says "a local, unsigned legacy table is
 in use ... announcing 38", and `sv_status` "Following OpenCE network version
 38 (a local table)". It stops relaying signed tables meanwhile; remove the
-setting once a published table announces the number.
+setting once a published table announces the number. From auto-announce on (below),
+a server follows the signed table's newest hosting number by itself, and
+`HALO_NET_ANNOUNCE` pins an older one: a local table is for tests.
+
+### Auto-announce
+
+Hosts announce the newest OpenCE number they're proven to host, and they
+follow the signed table on their own. Nobody has to edit a file when OpenCE
+moves.
+
+- **Which number.** A wire's row may carry `"hosting"`, a list of numbers
+  the cross-play gate proved with our host and OpenCE's clients alone (the
+  gate's ours-host and server directions passed; their host may still need
+  a release for our clients). A build announces the newest of the row's
+  `announce` and that list (`delta_legacy_hosting_newest`). Older builds
+  skip the list and announce `announce`, as they always did. The join range
+  stays the row's `minimum` to `maximum`: hosting 41 doesn't make our
+  clients try OpenCE's 41 hosts.
+
+  ```json
+  "chupa-39a": {"announce": 39, "minimum": 11, "maximum": 40, "hosting": [41]}
+  ```
+
+  The list is oldest first, each number once, at most 8 (`DELTA_HOSTING_MAXIMUM`).
+  `tools/delta_table.py make --hosting chupa-39a=41` adds to it, and a later
+  `--row` keeps it.
+- **When it changes.** When a newer table arrives (every 4 hours, every 30
+  minutes on a dedicated server, at start, or from another machine over
+  Delta Peer), the new number is taken at once, unless a game this machine
+  hosts is under way. Then it waits for the lobby, so one game is played by
+  one number (`delta_legacy_hold`, from the advertisement's state). The log
+  says "now announcing OpenCE network version 41 (was 39)". The LAN
+  advertisement, the broker listing (published again at once with the new
+  number) and the game list all follow. No restart.
+- **Pinning.** `network.announce` (`HALO_NET_ANNOUNCE` for servers) is
+  `"latest"` by default. A number pins it, for example `32` for a server
+  that console players on older builds join. A pin has to be one this
+  machine may announce: from the row's minimum to the newest proven for
+  hosting. Anything else is logged and the table is followed instead.
+- **Our own players.** A Chupathingy client joins a Delta host by its wire,
+  whatever number the host announces (the tag in the advertisement; the
+  game list marks the host as Delta). So a `chupa-39a` client, whose window
+  tops out at 40, joins one of our hosts that announces 41. The broker
+  listing alone can't tell a Delta host from OpenCE's: without the game
+  list, a client sees such a game marked as another version.
+- **Local tables** (`network.legacy_table`) may carry `"hosting"` too, and
+  `network.announce` applies to them. Once a server's local table only
+  repeats the signed one, remove it and let the server follow the table.
+
+### One listing per host
+
+A host lists its game once, under the number it announces. OpenCE's
+browsers show only listings of their exact number, so during a change some
+of their players (those on the older build) don't see our hosts until they
+update. Listing the same game twice (once per number) was considered and
+left out for now. A listing's slot, its invite and the host's machine
+identifier (in its XNADDR) all come from one key, so a second listing needs
+a second key that joins end to end: a second identity in the signalling, an
+XNADDR alias on the host so that a client joined through the second invite
+reaches the game, and a second broker connection per broker for the slot's
+will. Our browsers already show such copies once (`p2p_listing_hidden_copy`).
 
 ### In the code
 
@@ -2069,6 +2215,13 @@ within hours when it doesn't.
      `delta-table` branch. With `AUTO_PUBLISH` (a repository variable, or
      the run's input) that happens at once; otherwise Donut posts the
      command and a person runs it.
+   - A hosting pass: our host and dedicated server passed with OpenCE's
+     clients, but our clients couldn't join OpenCE's host (a change only
+     their host needs, like 40's longer join request). The wire's row gets
+     the number in its `"hosting"` list (`delta-table.yml`'s `hosting`
+     input, `delta_table.py make --hosting`), so our hosts announce it
+     ("Auto-announce", above), and the release work for our clients starts
+     as for a fail.
    - A fail publishes nothing. An issue on chupathingyce ("OpenCE build-N
      needs a release") lists the failing steps, and Donut posts to
      #upstream-watch. The release work takes it from there: the smallest
@@ -2096,7 +2249,7 @@ with the NTSC Xbox maps:
 python3 tools/crossplay_test.py build --repo . --ref v0.7.0b --out /tmp/ours --server
 python3 tools/crossplay_test.py build --repo ../opence --ref build-145 --out /tmp/theirs
 echo '{"delta_legacy": 1, "serial": 1, "wires": {"chupa-20a": {"announce": 22, "minimum": 11, "maximum": 22}}}' > row.json
-python3 tools/crossplay_test.py run --ours /tmp/ours/build/linux/halo \
+python3 tools/crossplay_test.py run --ours /tmp/ours/build/linux/chupathingy \
     --server /tmp/ours/build/server-x86/chupathingyce-server \
     --theirs /tmp/theirs/build/linux/halo --maps ~/halo/maps \
     --ours-table row.json --work /tmp/crossplay --out result.json

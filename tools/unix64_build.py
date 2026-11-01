@@ -13,9 +13,11 @@ and in UNIX_HOSTS below: the C library's restriction to ISO C, where SDL3 is,
 the libraries to link, FFmpeg's target. A new host is an entry there, and what
 port/unix says for it.
 
-These builds are not published or tested by the project: they are built by
-hand, never update themselves (configure.py refuses a release build) and have
-no profile (the committed profiles are the 32-bit builds').
+A host's builds are published only when its entry says so (published):
+FreeBSD's are, built by the GitHub workflow in a FreeBSD virtual machine and
+released as freebsd64, which its updater downloads (updater.c). Another host's
+are built by hand and never update themselves (configure.py refuses a release
+build). None has a profile (the committed profiles are the 32-bit builds').
 """
 
 import os
@@ -28,7 +30,7 @@ from pathlib import Path
 from typing import Any, Callable, List, Optional
 
 from .embed_assets import hud_assets_build, hud_configure_inputs, ui_fonts_build
-from .linux_build import OPTIMISATION, ffmpeg_build, lto_flags, march_flag
+from .linux_build import OPTIMISATION, RENAME_STUB_SCRIPT, ffmpeg_build, lto_flags, march_flag
 from .lp64_build import (
     LINUX_PORT_CONFIG,
     Lp64Build,
@@ -72,6 +74,10 @@ class UnixHost:
     add_libraries: List[str] = field(default_factory=list)
     # how to install what the build needs, for the messages
     install_hint: str = ""
+    # whether the project publishes its builds (chupathingyce-<name>-<config>
+    # .zip, updater.c's UPDATE_PLATFORM for it): only then may a release
+    # build (HALO_RELEASE_BUILD=1, which updates itself) be made
+    published: bool = False
 
 
 UNIX_HOSTS = {
@@ -89,6 +95,9 @@ UNIX_HOSTS = {
         drop_libraries=["dl"],
         add_libraries=["execinfo"],
         install_hint="pkg install llvm",
+        # (built by the GitHub workflow in a FreeBSD virtual machine, and
+        # released and updated as "freebsd64")
+        published=True,
     ),
 }
 
@@ -165,14 +174,14 @@ def generate_unix64_build(n: Writer, sln: Any) -> None:
     if host is None or not LINUX_PORT_CONFIG.is_file():
         # another system, or a checkout without the port (or a test fixture)
         return
-    if release_build():
-        # (updater.c would download the Linux build, "linux64", over this one)
+    if release_build() and not host.published:
+        # (updater.c would download a build the project does not publish)
         sys.exit(f"configure.py: HALO_RELEASE_BUILD=1 makes a build that updates itself, and the project publishes "
                  f"none for {host.platform_name}: unset it")
     config = load_json(LINUX_PORT_CONFIG)
     name = host.name
     build_dir: Path = sln.build_dir / name
-    output = build_dir / "halo"
+    output = build_dir / "chupathingy"
     cc = sln.linux_cc or "clang"
     target = host_target(host, cc)
     # SDL3 is the ports' (devel/sdl3), under /usr/local, which the compiler
@@ -261,5 +270,9 @@ def generate_unix64_build(n: Writer, sln: Any) -> None:
     # internet play's MQTT brokers, a file beside the game (network.brokers_file)
     brokers = build_dir / "brokers.txt"
     n.build(outputs=brokers, rule=f"{name}_copy", inputs=Path("port/assets/network/brokers.txt"))
-    n.build(outputs=name, rule="phony", inputs=[output, brokers])
+    # halo, which starts chupathingy (port/linux/src/rename_stub.h; TODO(after
+    # 0.9.x): remove)
+    stub = build_dir / "halo"
+    n.build(outputs=stub, rule=f"{name}_copy", inputs=RENAME_STUB_SCRIPT)
+    n.build(outputs=name, rule="phony", inputs=[output, brokers, stub])
     n.newline()

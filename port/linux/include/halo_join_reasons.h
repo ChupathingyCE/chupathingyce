@@ -68,6 +68,13 @@ enum join_reason
 #define JOIN_REASON_PASSWORD "Password needed."
 #define JOIN_REASON_NO_ANSWER "The host didn't answer."
 #define JOIN_REASON_NO_CONNECTION "Couldn't connect to the host."
+/* an OpenCE dedicated server's refusals of network version 40 and 41 (codes 8
+to 13 of the host's refusal): a VPN, Tor or data center address (8, 9); a
+Discord link of OpenCE's own, which this build has none of (10 to 12); and
+the machines one address may have (13) */
+#define JOIN_REASON_NO_VPN "This server doesn't allow VPNs."
+#define JOIN_REASON_DISCORD_LINK "This server only lets in players who link a Discord account with OpenCE."
+#define JOIN_REASON_ADDRESS_FULL "Too many players from your address."
 /* a map of Halo: The Master Chief Collection (cache version 13) in a map
 folder: said in the map lists, in the log and when it is picked to play (no
 detail, and no join reason: a host never announces one) */
@@ -102,11 +109,12 @@ state: -1 older, 1 newer) */
 
 /* a host's neutral label, beside the OpenCE (legacy) marking: an OpenCE
 dedicated server, as its advertisement or public listing says it
-(delta_compat_opence_server, delta_compat_opence_server_listing). The same
+(delta_compat_opence_server, delta_compat_opence_server_listing), or the
+game list does (an OpenCE master lists it: browser.c, field 24). The same
 words in Online Games, the Server Browser and the site's game list (puma,
 web/site.js HOST_LABEL_OPENCE_SERVER); a description, never a badge or a
 judgment, and it grants nothing */
-#define HOST_LABEL_OPENCE_SERVER "OpenCE server"
+#define HOST_LABEL_OPENCE_SERVER "OpenCE dedicated"
 
 /* a reason as a wide string (menu_functions.c's text): JOIN_WIDE(JOIN_REASON_FULL) */
 #define JOIN_WIDE_TEXT(text) L##text

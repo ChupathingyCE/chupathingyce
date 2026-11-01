@@ -19,6 +19,10 @@ player's can have:
   lets them follow the new defaults; the question never comes again;
 - a file with a setting under its older name: a value the player chose
   goes on under the new one, and the old name's lines are taken out;
+- a file with a retired setting (debug.solo_game): it loads, its value
+  carries over to the setting that took its place once, and its lines go;
+- a new file's layout: the top block, each section once with its note, and
+  the Advanced part ([debug], [console]) last;
 - the per-platform defaults of each build (DEFAULTS below).
 
 Needs only a C compiler. Usage: test_port_config.py [--cc clang]
@@ -431,8 +435,8 @@ def test_answered_first_question(program, directory, defaults, kind):
 def test_start_alone(program, directory, defaults, kind):
 	"""Starting a hosted game alone (game.start_with_one_player): on for a new
 	file (not the server), asked about once for a file that had it off, kept
-	off by a player who wrote false, and turned on by the older
-	debug.solo_game."""
+	off by a player who wrote false (the older debug.solo_game:
+	test_retired_setting)."""
 	if "game.start_with_one_player" not in CHANGED[kind]:
 		case = Case(program, directory / "alone_server")
 		values, _ = case.get("game.start_with_one_player")
@@ -469,13 +473,6 @@ def test_start_alone(program, directory, defaults, kind):
 	check("Start a game you host alone" not in pending(case)[1], "alone/chosen: asked about a chosen false")
 	values, _ = case.get("game.start_with_one_player")
 	check(values["game.start_with_one_player"] == "false", f"alone/chosen: {values}")
-	# the older name, debug.solo_game / HALO_SOLO_GAME, still turns it on
-	case = Case(program, directory / "alone_old_name")
-	case.path.write_text("config_version = 2\n\n[game]\nstart_with_one_player = false\n\n[debug]\nsolo_game = true\n")
-	values, _ = case.get("game.start_with_one_player", "debug.solo_game")
-	check(values["debug.solo_game"] == "true", f"alone/old name: {values}")
-	values, _ = case.run("get", "debug.solo_game", environment_extra={"HALO_SOLO_GAME": "true"})
-	check(values["debug.solo_game"] == "true", f"alone/old environment name: {values}")
 
 
 def test_chosen_port_kept(program, directory, defaults, kind):
@@ -653,13 +650,115 @@ def test_renamed_setting(program, directory, defaults, kind):
 		check(values_lines == campaign_lines and len(commented) == (0 if campaign_lines else 1),
 			f"renamed/{name}: campaign's lines are {values_lines} {commented}")
 		# (the player's own line under the new name stays as they wrote it)
-		check(text.count("The least seconds the loading screen stays up when a campaign level") == (0 if name == "both" else 1),
+		check(text.count("The shortest time the loading screen stays up for a campaign level") == (0 if name == "both" else 1),
 			f"renamed/{name}: campaign's help text is not there once")
 		values_lines, commented = value_lines(text, "loading_screen_multiplayer_seconds")
 		check(not values_lines and len(commented) == 1, f"renamed/{name}: multiplayer's lines are {values_lines} {commented}")
 		before = text
 		case.get(*names)
 		check(case.text() == before, f"renamed/{name}: the file changed on the next start")
+
+
+def test_retired_setting(program, directory, defaults, kind):
+	"""A retired setting (config_renamed in port_config.c): debug.solo_game,
+	whose job game.start_with_one_player does. An older file that has it
+	loads without a word about an unknown setting. A true carries over to
+	game.start_with_one_player once, in [game], even over a false there, as
+	either one being true started the game alone; a false (its default) is
+	only taken out. The old name's lines, its help text too, are gone after
+	the first start, and the next start changes nothing. Its environment
+	variable, HALO_SOLO_GAME, still turns the new setting on."""
+	alone = defaults["game.start_with_one_player"]
+	old_block = ("\n# Old name for game.start_with_one_player.\n"
+		"# (for one run: HALO_SOLO_GAME=1 makes it true)\n")
+	cases = {
+		# (the solo_game line, the start_with_one_player line, the value after,
+		# and the [game] line the file has after)
+		"true": ("solo_game = true\n", None, "true", "start_with_one_player = true"),
+		"true_over_false": ("solo_game = true\n", "start_with_one_player = false", "true",
+			"start_with_one_player = true"),
+		"false": ("solo_game = false\n", None, alone, None),
+		"commented": ("# solo_game = false\n", None, alone, None),
+	}
+	for name, (old_line, new_line, expected, game_line) in cases.items():
+		case = Case(program, directory / f"retired_{name}")
+		case.get("display.vsync")
+		text = case.text()
+		# (the file as a version with the old setting wrote it)
+		text = text.replace("\n[debug]\n", "\n[debug]\n" + old_block + old_line, 1)
+		if new_line:
+			text = re.sub(r"^# start_with_one_player = .*$", new_line, text, flags=re.M)
+		case.path.write_text(text)
+		values, output = case.get("game.start_with_one_player")
+		check(values["game.start_with_one_player"] == expected,
+			f"retired/{name}: start_with_one_player is {values}, not {expected}")
+		check("unknown setting" not in output and "cannot be read" not in output, f"retired/{name}: {output}")
+		text = case.text()
+		check("solo_game" not in text and "HALO_SOLO_GAME" not in text, f"retired/{name}: the old lines stay")
+		lines, commented = value_lines(text, "start_with_one_player")
+		lines = [line.strip() for line in lines]
+		if game_line:
+			check(lines == [game_line] and not commented, f"retired/{name}: {lines} {commented}")
+			game = text[text.index("\n[game]\n"):]
+			game = game[:game.index("\n[", 1)]
+			check(game_line in game, f"retired/{name}: the value is not in [game]")
+		else:
+			check(not lines and len(commented) == 1, f"retired/{name}: {lines} {commented}")
+		before = text
+		case.get("game.start_with_one_player")
+		check(case.text() == before, f"retired/{name}: the file changed on the next start")
+	# (the environment variable, over the file's false and the server's default)
+	case = Case(program, directory / "retired_environment")
+	case.path.write_text("config_version = 2\n\n[game]\nstart_with_one_player = false\n")
+	values, _ = case.run("get", "game.start_with_one_player", environment_extra={"HALO_SOLO_GAME": "true"})
+	check(values["game.start_with_one_player"] == "true", f"retired/environment: {values}")
+	values, _ = case.run("get", "game.start_with_one_player", environment_extra={"HALO_SOLO_GAME": "0"})
+	check(values["game.start_with_one_player"] == "false", f"retired/environment 0: {values}")
+
+
+def test_layout(program, directory, defaults, kind):
+	"""A new file's layout: the top block, each section once with its note,
+	the everyday sections first, and the advanced ones ([debug], and
+	[console] on a console) last, after the Advanced block. A setting a newer
+	version adds to the section before that block goes above it."""
+	case = Case(program, directory / "layout")
+	case.get("display.vsync")
+	text = case.text()
+	check(text.startswith("# Chupathingy settings\n"), "layout: no top block")
+	check("Halo settings" not in text, "layout: the old title")
+	headers = re.findall(r"^\[([a-z_]+)\]$", text, re.M)
+	check(len(headers) == len(set(headers)), f"layout: a section twice: {headers}")
+	check(headers[0] == "display", f"layout: {headers[0]} first")
+	mark = text.find("\n# ---- Advanced")
+	check(mark > 0 and text.count("# ---- Advanced") == 1, "layout: no Advanced block")
+	advanced = re.findall(r"^\[([a-z_]+)\]$", text[mark:], re.M)
+	check(advanced and set(advanced) <= {"debug", "console"} and "debug" in advanced,
+		f"layout: after the Advanced block: {advanced}")
+	check(not set(headers[:len(headers) - len(advanced)]) & {"debug", "console"},
+		f"layout: an advanced section before the block: {headers}")
+	# (each section's note, under its header, then a blank line)
+	for header in headers:
+		check(re.search(rf"^\[{header}\]\n# [^\n]+\n(# [^\n]+\n)*\n", text, re.M), f"layout: [{header}] has no note")
+	# (the one-run lines, on the desktop: short and the same for each)
+	if kind != "android":
+		check("(for one run:" not in text, "layout: the old one-run lines")
+		check(re.search(r"^# \(one run: HALO_[A-Z_0-9]+=<value>\)$", text, re.M), "layout: no one-run line")
+		check(re.search(r"^# \(one run: HALO_NO_VSYNC=1 turns it off\)$", text, re.M), "layout: vsync's one-run line")
+	else:
+		check("one run:" not in text, "layout: one-run lines on Android")
+	# (every setting is in the file once, commented out at its default)
+	check(len(re.findall(r"^# vsync = ", text, re.M)) == 1, "layout: vsync not there once")
+	# the last setting of the section before the Advanced block taken out, as
+	# a file from before it: the next start writes it above the block
+	before = text[:mark]
+	last = list(re.finditer(r"\n\n(# [^\n]*\n)*# ([a-z_0-9]+) = [^\n]*\n", before))[-1]
+	key = last.group(2)
+	case.path.write_text(before[:last.start()] + "\n" + text[mark:])
+	_, output = case.get("display.vsync")
+	text = case.text()
+	where = text.find(f"\n# {key} = ")
+	check(0 < where < text.find("\n# ---- Advanced"), f"layout: {key} added after the Advanced block: {output}")
+	check(text.count(f"\n# {key} = ") == 1, f"layout: {key} not there once")
 
 
 def test_old_browser_address(program, directory, defaults, kind):
@@ -754,7 +853,7 @@ def main():
 			for test in (test_new_file, test_previous_release_file, test_answered_first_question,
 				test_start_alone, test_answered_earlier, test_chosen_port_kept, test_file_without_the_settings,
 				test_readded_by_older_version, test_before_config_version, test_renamed_setting,
-				test_old_browser_address, test_packaged_install):
+				test_retired_setting, test_layout, test_old_browser_address, test_packaged_install):
 				try:
 					test(program, directory / kind / "cases", DEFAULTS[kind], kind)
 					print(f"ok   {kind}: {test.__name__}")

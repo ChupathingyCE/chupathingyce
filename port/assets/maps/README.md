@@ -3,7 +3,7 @@
 `xbox_mod_maps.json` is the library of known Xbox-format map packs and their
 maps. Each pack lives in a folder of its own beside the game's `maps`,
 `maps_<id>` (Halo CE+ is `maps_cex`), and its maps are played as
-`<file>@<id>` (see "Xbox map packs" in the README). The game names a pack's
+`<file>@<id>` (see "Xbox map packs" in [docs/maps.md](../../../docs/maps.md#xbox-map-packs)). The game names a pack's
 map by the entry whose fingerprint is its file's, so a player who doesn't
 have the pack's `maplist.txt`, or the pack (a joining player without it,
 for one), still sees "Abyss" from "Halo CE+". Without an entry, the game

@@ -160,6 +160,10 @@ void posix_upnp_stop_forwarding_udp(unsigned short external_port);
 returns 0 if there is none (always, on Android) */
 int posix_command_line_argument(int index, char *buffer, posix_ulong size);
 posix_ulong posix_process_id(void);
+/* whether a Shift key is held now, asked of the system (no window needed):
+1 or 0, or -1 where the system can't tell (the launcher then asks SDL once
+its window has the keyboard) */
+int posix_shift_key_held(void);
 /* registers this executable as the desktop's handler of links with this
 scheme (scheme://...); returns 0 where there is no such thing (Android,
 whose app declares its links in its manifest). May wait for a program */

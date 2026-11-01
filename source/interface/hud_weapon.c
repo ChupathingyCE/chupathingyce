@@ -1778,13 +1778,6 @@ static void render_weapon_hud(
 			weapon_hud_state_index_valid(element->header.state_type, NUMBER_OF_WEAPON_HUD_FLASH_REFERENCES))
 		{
 			byte value;
-#ifndef HALO_XBOX_CONSOLE
-			rectangle2d window_bounds;
-			boolean zoomed_layout = hud_multitexture_overlays_follow_zoom(&element->meter_element.multitexture_overlays);
-
-			if (zoomed_layout)
-				hud_zoomed_layout_begin(&window_bounds);
-#endif
 
 			state_index = element->header.state_type;
 			value = (byte)number_values[state_index];
@@ -1797,10 +1790,6 @@ static void render_weapon_hud(
 				state_flags[state_index],
 				(real)hud_state->last_weapon_flash_time[state_index],
 				0.0f);
-#ifndef HALO_XBOX_CONSOLE
-			if (zoomed_layout)
-				hud_zoomed_layout_end(&window_bounds);
-#endif
 		}
 	}
 

@@ -4,8 +4,8 @@ WIN32_CRASH.C
 Crash reports. The game's own __try handler cannot catch a crash
 (port/windows/include/halo_windows_prefix.h); an unhandled exception filter
 does instead. It writes a backtrace of the EBP frame chain into debug.txt and
-the log, as before, and then has a second copy of halo.exe, the crash
-reporter ("halo.exe --crash-report <process> <thread> <exception pointers>"),
+the log, as before, and then has a second copy of chupathingy.exe, the crash
+reporter ("chupathingy.exe --crash-report <process> <thread> <exception pointers>"),
 write a minidump of the crashed game and walk its stack. A crashed process
 cannot be trusted to dump itself (its stack, heap or locks may be what
 broke), so the reporter reads it from outside, as breakpad and crashpad do.
@@ -24,8 +24,8 @@ the crashes and tells the developers. The PDBs of each build stay with its
 release (tools/ci_build.py), for the offsets' function names and lines
 (tools/symbolize_crash.py). Reports wait in crashes\ in the logs folder
 (beside maps\, or paths.logs) until they are sent (those from before 0.8.0,
-in crashes\ beside halo.exe, are sent from there); one that could not be sent (no network) goes the next time
-the game starts ("halo.exe --crash-upload", in the background).
+in crashes\ beside the program, are sent from there); one that could not be sent (no network) goes the next time
+the game starts ("chupathingy.exe --crash-upload", in the background).
 
 Only releases and nightlies (whose commits are known) report crashes; the
 HALO_CRASH_REPORTS_ANY_BUILD environment variable makes any build report
@@ -84,7 +84,7 @@ void write_to_error_file(char *string, unsigned char date);
 
 /* ---------- files */
 
-/* the folder of halo.exe (and of config.toml), with its separator */
+/* the folder of chupathingy.exe (and of config.toml), with its separator */
 static int crash_executable_folder(wchar_t *path, size_t size)
 {
 	DWORD length = GetModuleFileNameW(NULL, path, (DWORD)size);
@@ -125,7 +125,7 @@ static int crash_folder(wchar_t *path, size_t size)
 	return 1;
 }
 
-/* crashes\ beside halo.exe, where reports waited before 0.8.0, with its
+/* crashes\ beside the program (halo.exe then), where reports waited before 0.8.0, with its
 separator; 0 when it is the logs folder's own */
 static int crash_old_folder(wchar_t *path, size_t size)
 {
@@ -622,7 +622,7 @@ static void crash_os(char *text, size_t size)
 }
 
 /* a code address of the game's as a report's frame: the file name of the
-module it is in and the offset in it ("halo.exe+0x1a2b3c"), "?" and the
+module it is in and the offset in it ("chupathingy.exe+0x1a2b3c"), "?" and the
 address outside any */
 static void crash_frame(HANDLE process, DWORD64 address, char *line, size_t size)
 {
@@ -743,7 +743,7 @@ static void crash_signal_dumped(DWORD process_id)
 	}
 }
 
-/* "halo.exe --crash-report": dumps the crashed game, asks the first time,
+/* "chupathingy.exe --crash-report": dumps the crashed game, asks the first time,
 and sends */
 static void crash_reporter(DWORD process_id, DWORD thread_id, ULONG_PTR exception_pointers)
 {
@@ -837,7 +837,7 @@ static void crash_reporter(DWORD process_id, DWORD thread_id, ULONG_PTR exceptio
 		crash_upload_pending(folder);
 }
 
-/* "halo.exe --crash-upload": the reports a crash left unsent */
+/* "chupathingy.exe --crash-upload": the reports a crash left unsent */
 static void crash_uploader(void)
 {
 	wchar_t folders[2][PATH_SIZE], names[MAXIMUM_PENDING_REPORTS * 2][MAX_PATH];
@@ -849,7 +849,7 @@ static void crash_uploader(void)
 	CreateDirectoryW(folders[0], NULL);
 	crash_reporter_log(folders[0]);
 	consent = crash_consent();
-	/* (the logs folder's reports, and those from before it beside halo.exe) */
+	/* (the logs folder's reports, and those from before it beside the program) */
 	for (folder = 0; folder < 2; folder++)
 	{
 		if (folder && !crash_old_folder(folders[1], PATH_SIZE))
@@ -944,9 +944,9 @@ static void crash_line(const char *format, ...)
 	write_to_error_file(line, 1);
 }
 
-/* the game's executable's file name (halo.exe, or what it is renamed to), for
+/* the game's executable's file name (chupathingy.exe, or what it is renamed to), for
 the crash lines; found before a crash */
-static char crash_module_name[64] = "halo.exe";
+static char crash_module_name[64] = "chupathingy.exe";
 
 static void crash_find_module_name(void)
 {
@@ -977,7 +977,7 @@ static LONG WINAPI crash_filter(EXCEPTION_POINTERS *exception)
 		Sleep(INFINITE);
 	/* the minidump first, before anything here can fail */
 	dumped = crash_reports_armed() && crash_dump(exception);
-	/* (where the game's executable is, by its file name, halo.exe:
+	/* (where the game's executable is, by its file name, chupathingy.exe:
 	tools/symbolize_crash.py finds the lines of the addresses below from it
 	and its .pdb) */
 	crash_line("crash: %s at %p, %s", crash_module_name, (void *)GetModuleHandleW(NULL), build_identity());
@@ -993,7 +993,7 @@ static LONG WINAPI crash_filter(EXCEPTION_POINTERS *exception)
 			record->ExceptionCode, record->ExceptionAddress,
 			record->NumberParameters >= 2 ? (void *)record->ExceptionInformation[1] : NULL,
 			context->Rip, context->Rbp, context->Rsp);
-		/* (halo.exe's place this run: the addresses below, less it, are the
+		/* (chupathingy.exe's place this run: the addresses below, less it, are the
 		build's own) */
 		crash_line("crash: rip at +%llx", context->Rip - image);
 		if (!IsBadReadPtr(stack, 4 * sizeof(DWORD64)))

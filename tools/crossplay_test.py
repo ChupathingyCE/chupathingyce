@@ -12,7 +12,7 @@ an OpenCE client and one of ours (--server).
     python3 tools/crossplay_test.py build --repo . --ref v0.7.0b --out /tmp/ours --server
     python3 tools/crossplay_test.py build --repo ../opence --ref build-145 --out /tmp/theirs
     python3 tools/crossplay_test.py run \\
-        --ours /tmp/ours/build/linux/halo --theirs /tmp/theirs/build/linux/halo \\
+        --ours /tmp/ours/build/linux/chupathingy --theirs /tmp/theirs/build/linux/halo \\
         --server /tmp/ours/build/server-x86/chupathingyce-server \\
         --maps ~/halo/maps --ours-table table.json --work /tmp/crossplay --out result.json
     python3 tools/crossplay_test.py check --work /tmp/crossplay --out result.json
@@ -874,7 +874,11 @@ def build(args):
         stdout=subprocess.DEVNULL)
     targets = ["linux"] + (["server-x86"] if args.server else [])
     subprocess.run(["ninja", "-j", str(os.cpu_count() or 4)] + targets, cwd=out, check=True)
-    log(f"built {args.ref}: {os.path.join(out, 'build', 'linux', 'halo')}")
+    # (chupathingy from 0.9.0; halo before, and in OpenCE)
+    program = os.path.join(out, "build", "linux", "chupathingy")
+    if not os.path.exists(program):
+        program = os.path.join(out, "build", "linux", "halo")
+    log(f"built {args.ref}: {program}")
     return 0
 
 

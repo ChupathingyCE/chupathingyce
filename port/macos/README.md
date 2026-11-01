@@ -2,7 +2,7 @@
 
 `ninja macos` builds the game as a native 64-bit executable for this Mac
 (a universal arm64 and x86_64 one with `configure.py --portable`),
-`build/macos/halo`, and an application bundle,
+`build/macos/chupathingy`, and an application bundle,
 `build/macos/ChupathingyCE.app`. It is the Linux port (`port/linux`) compiled as
 64-bit code: the game sources, the platform layer and the settings are the
 Linux build's, and [port/linux/README.md](../linux/README.md) describes them.
@@ -13,12 +13,12 @@ Linux build's, and [port/linux/README.md](../linux/README.md) describes them.
 - The Xcode command line tools (`xcode-select --install`): clang and the SDK.
 - SDL3 and ninja from Homebrew: `brew install sdl3 ninja`. The movies' FFmpeg is
   built by the build itself (`tools/ffmpeg_build.py`).
-- The game data in `assets/maps` (see the [README](../../README.md)).
+- The game data in `assets/maps` (see [docs/install.md](../../docs/install.md)).
 
 ```sh
 python3 configure.py
 ninja macos
-build/macos/halo          # or open build/macos/ChupathingyCE.app
+build/macos/chupathingy          # or open build/macos/ChupathingyCE.app
 ```
 
 ## 64-bit

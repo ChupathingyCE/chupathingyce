@@ -51,6 +51,11 @@ int posix_command_line_argument(int index, char *buffer, posix_ulong size)
 	}
 }
 
+int posix_shift_key_held(void)
+{
+	return (GetAsyncKeyState(VK_SHIFT) & 0x8000) ? 1 : 0;
+}
+
 posix_ulong posix_process_id(void)
 {
 	return (posix_ulong)GetCurrentProcessId();

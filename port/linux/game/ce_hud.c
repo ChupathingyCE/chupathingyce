@@ -30,7 +30,11 @@ know, which are put right when the map's tags load:
     alpha. Every bitmap a unit or weapon HUD interface draws as a meter is
     listed (ce_hud_bitmap_is_meter), and the texture cache has the renderer
     sample its channels from where Halo PC keeps them (xbox_texture_cache.c,
-    D3DCOMMON_PORT_PC_METER; xbox_textures.c, a texture swizzle).
+    D3DCOMMON_PORT_PC_METER; xbox_textures.c, a texture swizzle). A meter
+    flagged "use Xbox shading" (MCC's flag, which Chimera reads too) has
+    its bitmap in the Xbox's order, as halopc-restored's Xbox order meters
+    and custom HUDs do, so its bitmap is not listed and is drawn as the
+    Xbox draws it.
 
 And for one thing Halo PC's HUD has not: a HUD message's controller
 buttons ("Hold %action to swap"). Its HUD globals name the Xbox's button
@@ -83,8 +87,12 @@ enum
 	PLACEMENT_SCALING_FLAGS_OFFSET = 0x0c,
 	PLACEMENT_HIGH_RESOLUTION_SCALE_FLAG = 1 << 2,
 	/* a static or meter element (static_hud_element_definition,
-	meter_hud_element_definition): its placement, then its bitmap */
+	meter_hud_element_definition): its placement, then its bitmap; a
+	meter's flags, and the one saying its bitmap is in the Xbox's order
+	(after the Xbox's five: MCC's "use Xbox shading") */
 	ELEMENT_BITMAP_OFFSET = 0x24,
+	METER_FLAGS_OFFSET = 0x44,
+	METER_USE_XBOX_SHADING_FLAG = 1 << 5,
 
 	/* the unit HUD interface (unit_hud_interface_definition) */
 	UNIT_HUD_BACKGROUND_OFFSET = 0x24,
@@ -344,15 +352,19 @@ static void ce_hud_items_placements(
 	}
 }
 
-/* the bitmap a meter element draws: each of its bitmaps listed (once) */
+/* the bitmap a meter element draws: each of its bitmaps listed (once),
+unless the meter says they are in the Xbox's order */
 static void ce_hud_meter_bitmap(
 	byte const *element)
 {
-	byte *bitmap_group = ce_hud_bitmap_group(element + ELEMENT_BITMAP_OFFSET);
+	byte *bitmap_group;
 	long count;
 	unsigned long address;
 	long index;
 
+	if (element[METER_FLAGS_OFFSET] & METER_USE_XBOX_SHADING_FLAG)
+		return;
+	bitmap_group = ce_hud_bitmap_group(element + ELEMENT_BITMAP_OFFSET);
 	if (!bitmap_group)
 		return;
 	count = (long)ce_hud_read_long(bitmap_group + BITMAP_GROUP_BITMAPS_OFFSET + TAG_BLOCK_COUNT_OFFSET);

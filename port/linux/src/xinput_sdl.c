@@ -262,6 +262,20 @@ static int scheme_of(SDL_Gamepad *gamepad)
 	}
 }
 
+void platform_input_scheme_used(void *gamepad)
+{
+	if (gamepad)
+	{
+		last_pad_scheme = scheme_of((SDL_Gamepad *)gamepad);
+		last_input_scheme = last_pad_scheme;
+	}
+	else
+	{
+		last_input_scheme = 0;
+	}
+	last_input_seen = TRUE;
+}
+
 /* collects the motion the game has not asked for yet; motion that nobody
 consumes for a few polls (menus, cutscenes) is dropped so it cannot jerk
 the view later */

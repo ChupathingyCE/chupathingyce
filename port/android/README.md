@@ -118,8 +118,8 @@ To make a copy of the saved games, enter
 `adb pull /sdcard/Android/data/dev.horrible.chupathingyce/files/save`.
 
 The app plays Halo PC (Custom Edition, HaloMD and retail) maps as the other
-builds do: refer to "Halo PC maps" in the main
-[README](../../README.md#halo-pc-maps).
+builds do: refer to "Halo PC maps" in
+[docs/maps.md](../../docs/maps.md#halo-pc-maps).
 
 To add maps on the device, use **Import maps**: hold the app's icon and
 choose Import Halo PC maps, or, in the game, open the touch controls'

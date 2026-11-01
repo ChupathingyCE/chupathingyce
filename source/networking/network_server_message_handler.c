@@ -2098,6 +2098,11 @@ static boolean network_game_server_handle_message_client_broadcast_game_search(
 			/* the native builds' network version and netcode (a client
 			refuses a host of another version, or of the lockstep netcode
 			older builds had: network_client_manager.c) */
+			/* (a game under way holds the number it is played by: a newer
+			one the legacy table proves is taken back in the lobby,
+			delta_legacy_hold) */
+			delta_legacy_hold(network_game_server_get_state(server, NULL) != _network_game_server_state_pregame ||
+				network_game_server_game_is_loading(server));
 			advertisement.reserved[HALO_PORT_ADVERTISED_VERSION_OFFSET] = (byte)(delta_legacy_announce() & 0xFF);
 			advertisement.reserved[HALO_PORT_ADVERTISED_VERSION_OFFSET + 1] = (byte)(delta_legacy_announce() >> 8);
 			advertisement.reserved[HALO_PORT_ADVERTISED_FLAGS_OFFSET] =
@@ -2263,6 +2268,10 @@ static boolean network_game_server_handle_message_client_join_game_request(
 		short packet_type = _message_client_join_game_request;
 		short packet_version = NETWORK_GAME_MESSAGE_VERSION;
 
+		/* (port: the request of 0x70 bytes, or OpenCE's of 40 on, 234 bytes
+		longer: the decoder reads the first 0x70 and leaves the rest, a pass
+		and a proof for OpenCE's own servers, which this host never reads,
+		logs or keeps) */
 		message_size -= sizeof(word);
 		if (network_game_server_client_machine_is_joined_to_game(server, server_client_machine))
 		{

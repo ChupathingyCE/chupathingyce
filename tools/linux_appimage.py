@@ -65,7 +65,7 @@ APP_RUN = """#!/bin/sh
 HERE="$(dirname "$(readlink -f "$0")")"
 export CHUPATHINGYCE_HOST_LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-}"
 export LD_LIBRARY_PATH="$HERE/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-exec "$HERE/usr/bin/halo" "$@"
+exec "$HERE/usr/bin/chupathingy" "$@"
 """
 
 DESKTOP_ENTRY = f"""[Desktop Entry]
@@ -96,7 +96,7 @@ def bundle_libraries(app: Path) -> int:
     library = app / "usr/lib"
     bundled = 0
     while True:
-        files = [app / "usr/bin/halo", *sorted((app / "usr/bin").glob("*.so*")), *sorted(library.glob("*.so*"))]
+        files = [app / "usr/bin/chupathingy", *sorted((app / "usr/bin").glob("*.so*")), *sorted(library.glob("*.so*"))]
         missing = {}
         for file in files:
             for name, path in libraries_needed(file).items():
@@ -129,8 +129,8 @@ def main() -> int:
     parser.add_argument("--output", type=Path, default=ROOT / f"dist/{NAME}-linux64-release.AppImage")
     parser.add_argument("--appimagetool", default=os.environ.get("APPIMAGETOOL", ""))
     args = parser.parse_args()
-    if not (args.build / "halo").is_file():
-        print(f"error: no halo in {args.build} (tools/ci_build.py linux64 release)", file=sys.stderr)
+    if not (args.build / "chupathingy").is_file():
+        print(f"error: no chupathingy in {args.build} (tools/ci_build.py linux64 release)", file=sys.stderr)
         return 1
 
     WORK.mkdir(parents=True, exist_ok=True)
@@ -138,10 +138,12 @@ def main() -> int:
     if app.exists():
         shutil.rmtree(app)
     (app / "usr/lib").mkdir(parents=True)
-    shutil.copytree(args.build, app / "usr/bin", symlinks=True)
+    # (not the halo stub beside the game in the zip, port/rename_stub/halo.sh:
+    # an AppImage is started by its own file's name)
+    shutil.copytree(args.build, app / "usr/bin", symlinks=True, ignore=shutil.ignore_patterns("halo"))
     # (an artifact loses its executable bit)
-    halo = app / "usr/bin/halo"
-    halo.chmod(halo.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    game = app / "usr/bin/chupathingy"
+    game.chmod(game.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
     if bundle_libraries(app):
         if not shutil.which("patchelf"):
