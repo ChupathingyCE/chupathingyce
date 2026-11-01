@@ -58,7 +58,15 @@ static int alike(const struct p2p_listing *a, const struct p2p_listing *b)
 		same_text(a->name, b->name, 1) && same_text(a->map, b->map, 0) && same_text(a->gametype, b->gametype, 0);
 }
 
-int p2p_listing_older_copy(const struct p2p_listing *games, const unsigned long *heard_times, int count, int index)
+static int inside(const struct p2p_listing *game, int minimum, int maximum)
+{
+	return game->version >= minimum && game->version <= maximum;
+}
+
+/* p2p_listing_older_copy among the copies on the same side of the window of
+versions this client joins (the others do not count) */
+static int older_among(const struct p2p_listing *games, const unsigned long *heard_times, int count, int index,
+	int minimum, int maximum)
 {
 	const struct p2p_listing *game = &games[index];
 	int older = 0, later = 0;
@@ -68,7 +76,8 @@ int p2p_listing_older_copy(const struct p2p_listing *games, const unsigned long 
 	{
 		const struct p2p_listing *copy = &games[other];
 
-		if (other == index || !alike(game, copy))
+		if (other == index || !alike(game, copy) ||
+			inside(copy, minimum, maximum) != inside(game, minimum, maximum))
 			continue;
 		if (copy->version > game->version)
 			return 1;
@@ -83,4 +92,26 @@ int p2p_listing_older_copy(const struct p2p_listing *games, const unsigned long 
 	}
 	/* (no other version: each its own game) */
 	return older && later;
+}
+
+int p2p_listing_older_copy(const struct p2p_listing *games, const unsigned long *heard_times, int count, int index)
+{
+	return older_among(games, heard_times, count, index, 0, 65535);
+}
+
+int p2p_listing_hidden_copy(const struct p2p_listing *games, const unsigned long *heard_times, int count, int index,
+	int minimum, int maximum)
+{
+	int other;
+
+	if (!inside(&games[index], minimum, maximum))
+	{
+		/* (a copy this client joins stands for it) */
+		for (other = 0; other < count; other++)
+		{
+			if (inside(&games[other], minimum, maximum) && alike(&games[index], &games[other]))
+				return 1;
+		}
+	}
+	return older_among(games, heard_times, count, index, minimum, maximum);
 }

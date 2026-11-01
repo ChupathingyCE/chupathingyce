@@ -39,7 +39,7 @@ from .android_build import (
     ndk_toolchain,
 )
 from .embed_assets import hud_assets_build, hud_configure_inputs, ui_fonts_build
-from .linux_build import OPTIMISATION, lto_flags
+from .linux_build import OPTIMISATION, ffmpeg_build, lto_flags
 from .lp64_build import (
     LINUX_PORT_CONFIG,
     Lp64Build,
@@ -117,6 +117,15 @@ def generate_android64_build(n: Writer, sln: Any) -> None:
         # it signed, as every other build does: tools/server_build.py)
         "-fsigned-char",
     ]
+    # the movies' FFmpeg, for this target (configure.py --without-ffmpeg: the
+    # stubs, and the game skips the movies)
+    ffmpeg_cflags: List[str] = []
+    ffmpeg_libs: List[str] = []
+    ffmpeg_inputs: List[Path] = []
+    if getattr(sln, "with_ffmpeg", True):
+        ffmpeg_cflags, ffmpeg_libs, ffmpeg_stamp, ffmpeg_archives = ffmpeg_build(
+            n, "android64", build_dir / "ffmpeg", _quote(cc), "android", "aarch64", [ANDROID64_TARGET, "-fPIC"])
+        ffmpeg_inputs = [ffmpeg_stamp, *ffmpeg_archives]
     host = Lp64Host(
         name="android64",
         target_flags=target_flags,
@@ -130,11 +139,12 @@ def generate_android64_build(n: Writer, sln: Any) -> None:
         # host library
         host_sources=[*sorted(NATIVE_DIR.glob("*.c")), PORT_DIR / "host" / "host_gl.c",
                       PORT_DIR / "host" / "host_touch.c"],
+        ffmpeg_cflags=ffmpeg_cflags,
     )
     generated_sources = (hud_assets_build(n, "android64", build_dir / "generated" / "hud_hires_assets.c")
                          + ui_fonts_build(n, "android64", build_dir / "generated" / "ui_fonts.c", sln))
     lto_cflags, lto_ldflags = lto_flags(sln, build_dir / "thinlto-cache")
-    objects = lp64.objects(host, generated_sources, build_dir / "obj", lto_cflags)
+    objects = lp64.objects(host, generated_sources, build_dir / "obj", lto_cflags, ffmpeg_inputs)
 
     n.rule(
         name="android64_link",
@@ -150,7 +160,7 @@ def generate_android64_build(n: Writer, sln: Any) -> None:
         outputs=libmain,
         rule="android64_link",
         inputs=objects,
-        implicit=[ANDROID_SDL, Path("tools/linux_link_check.py")],
+        implicit=[ANDROID_SDL, Path("tools/linux_link_check.py"), *ffmpeg_inputs],
         variables={
             "ldflags": " ".join([
                 ANDROID64_TARGET, "-shared", "-g", "-fuse-ld=lld", *lto_ldflags,
@@ -162,7 +172,7 @@ def generate_android64_build(n: Writer, sln: Any) -> None:
                 "-Wl,--no-undefined",
                 # (the C++ runtime is not needed: the game is C)
             ]),
-            "libs": " ".join([f"-L{ANDROID_SDL.parent}", *(f"-l{lib}" for lib in LIBRARIES)]),
+            "libs": " ".join([*ffmpeg_libs, f"-L{ANDROID_SDL.parent}", *(f"-l{lib}" for lib in LIBRARIES)]),
         },
     )
     n.rule(name="android64_copy", command="cp $in $out", description="ANDROID64 STAGE $out")

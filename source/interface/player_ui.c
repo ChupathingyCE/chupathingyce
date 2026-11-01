@@ -162,6 +162,11 @@ symbols in this file:
 #include "main/main.h"
 #include "tag_files/tag_groups.h"
 #include "player_ui.h"
+#ifndef HALO_CONSOLE_NO_CONTROLS
+#include "../../port/linux/src/controller_layout.h"
+
+const char *config_string(const char *name);
+#endif
 
 /* ---------- constants */
 
@@ -1205,6 +1210,51 @@ static void set_local_player_controls_from_player_profile(
 			preferences.game_control_to_xbox_buttons[10] = _gamepad_binary_button_left_thumb;
 			preferences.game_control_to_xbox_buttons[11] = _gamepad_analog_button_b;
 			break;
+
+		case _button_preset_bumper_jumper:
+			/* port: as Halo: The Master Chief Collection's Bumper Jumper.
+			The Xbox's white button is the left bumper and its black button
+			the right (port/linux/src/xinput_sdl.c) */
+			preferences.game_control_to_xbox_buttons[0] = _gamepad_analog_button_white;
+			preferences.game_control_to_xbox_buttons[1] = _gamepad_analog_button_a;
+			preferences.game_control_to_xbox_buttons[2] = _gamepad_analog_button_b;
+			preferences.game_control_to_xbox_buttons[3] = _gamepad_analog_button_y;
+			preferences.game_control_to_xbox_buttons[4] = _gamepad_analog_button_black;
+			preferences.game_control_to_xbox_buttons[5] = _gamepad_analog_button_x;
+			preferences.game_control_to_xbox_buttons[6] = _gamepad_analog_button_left_trigger;
+			preferences.game_control_to_xbox_buttons[7] = _gamepad_analog_button_right_trigger;
+			preferences.game_control_to_xbox_buttons[8] = _gamepad_binary_button_start;
+			preferences.game_control_to_xbox_buttons[9] = _gamepad_binary_button_back;
+			preferences.game_control_to_xbox_buttons[10] = _gamepad_binary_button_left_thumb;
+			preferences.game_control_to_xbox_buttons[11] = _gamepad_binary_button_right_thumb;
+			break;
+
+#ifndef HALO_CONSOLE_NO_CONTROLS
+		case _button_preset_custom:
+			/* port: the player's own layout (port/linux/src/controller_layout.c),
+			kept in config.toml; without one, the default */
+			controller_layout_preset(
+				_button_preset_custom,
+				config_string("controls.controller_layout"),
+				preferences.game_control_to_xbox_buttons);
+			break;
+
+#endif
+		default:
+			/* (a preset this build does not know, from a newer profile: the default) */
+			preferences.game_control_to_xbox_buttons[0] = _gamepad_analog_button_a;
+			preferences.game_control_to_xbox_buttons[1] = _gamepad_analog_button_black;
+			preferences.game_control_to_xbox_buttons[2] = _gamepad_analog_button_x;
+			preferences.game_control_to_xbox_buttons[3] = _gamepad_analog_button_y;
+			preferences.game_control_to_xbox_buttons[4] = _gamepad_analog_button_b;
+			preferences.game_control_to_xbox_buttons[5] = _gamepad_analog_button_white;
+			preferences.game_control_to_xbox_buttons[6] = _gamepad_analog_button_left_trigger;
+			preferences.game_control_to_xbox_buttons[7] = _gamepad_analog_button_right_trigger;
+			preferences.game_control_to_xbox_buttons[8] = _gamepad_binary_button_start;
+			preferences.game_control_to_xbox_buttons[9] = _gamepad_binary_button_back;
+			preferences.game_control_to_xbox_buttons[10] = _gamepad_binary_button_left_thumb;
+			preferences.game_control_to_xbox_buttons[11] = _gamepad_binary_button_right_thumb;
+			break;
 	}
 
 	preferences.invert_look = controls->invert_look;
@@ -1270,6 +1320,75 @@ void player0_look_invert_pitch(
 	}
 
 	set_local_player_controls_from_player_profile(0);
+	return;
+}
+
+/* port: a local player's button and stick layouts (the Controls screen,
+port/linux/game/controls_screen.c): kept in their profile, saved at once (as
+player0_look_invert_pitch saves), and in the profile being edited if it is
+that one, so that Settings' SAVE CHANGES keeps them; in force at once */
+void player_ui_set_local_player_layouts(
+	short local_player_index,
+	short button_preset,
+	short joystick_preset)
+{
+	struct player_ui_local_player *local_player;
+
+	if (local_player_index < 0 || local_player_index >= MAXIMUM_NUMBER_OF_LOCAL_PLAYERS ||
+		button_preset < 0 || button_preset >= NUMBER_OF_BUTTON_PRESETS ||
+		joystick_preset < 0 || joystick_preset >= NUMBER_OF_JOYSTICK_PRESETS)
+	{
+		return;
+	}
+	local_player = &player_ui_globals.local_players[local_player_index];
+	local_player->profile.controller_settings.button_preset = (byte)button_preset;
+	local_player->profile.controller_settings.joystick_preset = (byte)joystick_preset;
+	if (local_player->active_profile_index != NONE)
+	{
+		player_profile_save(local_player->active_profile_index, &local_player->profile);
+		if (player_ui_globals.edit_profile_index == local_player->active_profile_index &&
+			saved_game_file_get_type(player_ui_globals.edit_profile_index) == _saved_game_file_type_player_profile)
+		{
+			player_ui_globals.edit_profile.current.player.controller_settings.button_preset = (byte)button_preset;
+			player_ui_globals.edit_profile.current.player.controller_settings.joystick_preset = (byte)joystick_preset;
+			player_ui_globals.edit_profile.original.player.controller_settings.button_preset = (byte)button_preset;
+			player_ui_globals.edit_profile.original.player.controller_settings.joystick_preset = (byte)joystick_preset;
+		}
+	}
+	set_local_player_controls_from_player_profile(local_player_index);
+	return;
+}
+
+void player_ui_get_local_player_layouts(
+	short local_player_index,
+	short *button_preset,
+	short *joystick_preset)
+{
+	struct player_profile_controller_settings const *settings;
+
+	if (local_player_index < 0 || local_player_index >= MAXIMUM_NUMBER_OF_LOCAL_PLAYERS)
+		local_player_index = 0;
+	settings = &player_ui_globals.local_players[local_player_index].profile.controller_settings;
+	*button_preset = settings->button_preset;
+	*joystick_preset = settings->joystick_preset;
+	return;
+}
+
+/* port: the custom layout changed (config.toml's controls.controller_layout):
+every local player whose profile uses it takes it */
+void player_ui_custom_layout_changed(
+	void)
+{
+	short local_player_index;
+
+	for (local_player_index = 0; local_player_index < MAXIMUM_NUMBER_OF_LOCAL_PLAYERS; local_player_index++)
+	{
+		if (player_ui_globals.local_players[local_player_index].profile.controller_settings.button_preset ==
+			_button_preset_custom)
+		{
+			set_local_player_controls_from_player_profile(local_player_index);
+		}
+	}
 	return;
 }
 

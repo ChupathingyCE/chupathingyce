@@ -11,7 +11,27 @@ The table is a JSON document, legacy.json:
      "platform_policy": {"xbox": {"host_players": 16}}}
 
 ("platform_policy" is optional and reserved: per-platform limits Delta Peer
-is to read, each bounded by the build's own hard limits), and its signature,
+is to read, each bounded by the build's own hard limits). A row of a wire
+from chupa-38a on may carry "layouts" (docs/delta.md, "Layouts"): facts
+about OpenCE versions, by version, that its builds read by data:
+
+    "chupa-38a": {"announce": 32, "minimum": 11, "maximum": 39,
+                  "layouts": {"39": {"options_size": 48, "dropped_messages": [92]}}}
+
+each fact's fields optional ("settings_size", "options_size",
+"shield_effects_maximum", "dropped_messages", and from chupa-41a
+"join_request_extra" with "join_request_fill": "zeros"), a fact holding until the next,
+and used by a build only past its own DELTA_LEGACY_NEWEST and within
+network_rules.h's limits (this tool refuses a fact past them).
+
+A row may also carry "hosting" (docs/delta.md, "Auto-announce"): versions
+the cross-play gate proved for hosting alone, oldest first, past its
+announce; builds from auto-announce on announce the newest, older ones skip
+it:
+
+    "chupa-39a": {"announce": 39, "minimum": 11, "maximum": 40, "hosting": [41]}
+
+Its signature,
 legacy.json.sig: the Ed25519 signature of legacy.json's exact bytes, as 128
 hex digits and a line feed. A build reads only its own wire's row
 (DELTA_WIRE in port/linux/include/delta.h), and takes it only if it widens
@@ -25,7 +45,13 @@ the numbers the build was made with. At most 16384 bytes.
         OpenCE build it was proved against ("follows"), and may only
         widen that wire's row in --from and, for this build's wire, its
         built-in numbers; --take-back WIRE=A,MIN,MAX sets a wire's row back
-        to its release's own numbers
+        to its release's own numbers; a row keeps its layouts. This build's
+        wire's row has this build's own facts (its versions past the one it
+        announces); --layout WIRE=VERSION:FIELD=VALUE[,FIELD=VALUE...] adds
+        a fact past the wire's own versions (dropped_messages: kinds joined
+        by +), for a wire from chupa-38a on
+        --hosting WIRE=VERSION[,VERSION...] adds versions the gate proved
+        for hosting alone to a wire's row (its "hosting" list)
     delta_table.py sign --key KEY.pem legacy.json      writes legacy.json.sig
     delta_table.py verify [--public-key HEX [--last-epoch N]] legacy.json
         checks legacy.json.sig against the key (or delta_key.h's keys), and
@@ -55,6 +81,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 DELTA = ROOT / "port" / "linux" / "include" / "delta.h"
+RULES = ROOT / "port" / "linux" / "game" / "network_rules.h"
 LIMITS = ROOT / "port" / "linux" / "include" / "halo_port_limits.h"
 KEY_HEADER = ROOT / "port" / "linux" / "src" / "delta_key.h"
 
@@ -66,7 +93,29 @@ MAXIMUM_VERSION = 65535
 NAME = re.compile(r"[a-z0-9_]{1,32}")
 # a row's "follows": the OpenCE build the cross-play gate proved it with
 FOLLOWS = re.compile(r"[A-Za-z0-9._-]{1,31}")
+# a row's "hosting": the versions proved for hosting alone (our host, their
+# clients), oldest first, each once; delta.h's DELTA_HOSTING_MAXIMUM
+HOSTING_MAXIMUM = 8
 POLICY_MAXIMUM = 4096
+# the first wire whose builds read a row's layouts, and their join request's
+# length in them
+LAYOUT_WIRE = (38, "a")
+JOIN_LAYOUT_WIRE = (41, "a")
+WIRE_ID = re.compile(r"chupa-(\d{1,3})([a-z])")
+LAYOUT_FIELDS = ("settings_size", "options_size", "shield_effects_maximum")
+# (how deep the game's parser nests a document: delta.c's JSON_DEPTH, the
+# document itself 1, another wire's row 3)
+JSON_DEPTH = 8
+# the game settings record and the gametype's options (network_rules.h): to
+# 34, from 35; the record's bytes before the options
+SETTINGS_SIZE, SETTINGS_EXTENDED_SIZE = 13120, 13136
+OPTIONS_SIZE, OPTIONS_EXTENDED_SIZE = 0x1C, 0x2C
+EXTENDED_OPTIONS_VERSION, SHIELD_EFFECTS_VERSION, SHIELD_EFFECTS_KIND = 35, 36, 91
+# version 41's vote messages, which a build of it drops (network_rules.h)
+VOTES_VERSION, VOTE_KINDS = 41, (78, 79, 94, 95)
+# version 40's join request: the bytes after its first 0x70 (network_rules.h),
+# and the one fill builds write
+JOIN_REQUEST_VERSION, JOIN_REQUEST_EXTRA, JOIN_REQUEST_FILL = 40, 234, "zeros"
 # (an Ed25519 public key's DER: this prefix, then its 32 bytes)
 ED25519_SPKI_PREFIX = bytes.fromhex("302a300506032b6570032100")
 
@@ -98,6 +147,146 @@ def built_in() -> dict:
     return {"announce": define("HALO_PORT_NETWORK_VERSION"),
             "minimum": define("HALO_PORT_NETWORK_VERSION_MINIMUM"),
             "maximum": define("HALO_PORT_NETWORK_VERSION_MAXIMUM")}
+
+
+def header_number(path: Path, name: str) -> int:
+    match = re.search(rf"^#define {name} (\d+)", path.read_text(encoding="utf-8"), re.M)
+    if not match:
+        raise SystemExit(f"{name} is not a number in {path}")
+    return int(match.group(1))
+
+
+def newest() -> int:
+    """the newest OpenCE version whose rules this build has (DELTA_LEGACY_NEWEST)"""
+    return header_number(DELTA, "DELTA_LEGACY_NEWEST")
+
+
+def wire_newest() -> dict:
+    """each wire's newest version every build of it plays by its own rules
+    (DELTA_WIRE_LEGACY_NEWEST)"""
+    text = DELTA.read_text(encoding="utf-8")
+    block = text[text.index("#define DELTA_WIRE_LEGACY_NEWEST(X)"):]
+    block = block[:block.index("\n\n")]
+    return {name: int(number) for name, number in re.findall(r'X\("([^"]+)", (\d+)\)', block)}
+
+
+def limits() -> dict:
+    """network_rules.h's limits on a table's facts, and delta.h's count"""
+    growth = header_number(RULES, "NETWORK_RULES_LAYOUT_GROWTH_MAXIMUM")
+    return {"settings": SETTINGS_EXTENDED_SIZE + growth, "shield": header_number(RULES, "NETWORK_RULES_SHIELD_EFFECTS_LIMIT"),
+            "facts": header_number(DELTA, "DELTA_LAYOUT_FACTS"),
+            "shield_built_in": header_number(RULES, "NETWORK_RULES_SHIELD_EFFECTS_MAXIMUM"),
+            "join": header_number(RULES, "NETWORK_RULES_JOIN_REQUEST_EXTRA_LIMIT")}
+
+
+def reads_join_layouts(name: str) -> bool:
+    """whether a wire's builds read a layout's join request length (chupa-41a on)"""
+    match = WIRE_ID.fullmatch(name)
+    return bool(match) and (int(match.group(1)), match.group(2)) >= JOIN_LAYOUT_WIRE
+
+
+def reads_layouts(name: str) -> bool:
+    """whether a wire's builds read layouts (chupa-38a on)"""
+    match = WIRE_ID.fullmatch(name)
+    return bool(match) and (int(match.group(1)), match.group(2)) >= LAYOUT_WIRE
+
+
+# ---------- layouts (as network_rules.c reads them)
+
+
+def built_in_layout(version: int, own_newest: int = None) -> dict:
+    """a version's built-in layout (network_rules_layout_built_in)"""
+    rules = min(version, newest() if own_newest is None else own_newest)
+    return {"settings_size": SETTINGS_EXTENDED_SIZE if rules >= EXTENDED_OPTIONS_VERSION else SETTINGS_SIZE,
+            "options_size": OPTIONS_EXTENDED_SIZE if rules >= EXTENDED_OPTIONS_VERSION else OPTIONS_SIZE,
+            "shield_effects_maximum": limits()["shield_built_in"],
+            "dropped_messages": sorted(([SHIELD_EFFECTS_KIND] if rules >= SHIELD_EFFECTS_VERSION else []) +
+                                       (list(VOTE_KINDS) if rules >= VOTES_VERSION else [])),
+            "join_request_extra": JOIN_REQUEST_EXTRA if rules >= JOIN_REQUEST_VERSION else 0}
+
+
+def apply_layouts(version: int, facts: dict, own_newest: int) -> tuple:
+    """a version's layout with a row's facts (network_rules_layout_apply):
+    the layout, and the fields past the limits, not taken"""
+    layout = built_in_layout(version, own_newest)
+    bounds = limits()
+    refused = []
+    for fact_version in sorted(int(number) for number in facts):
+        if fact_version <= own_newest or fact_version > version:
+            continue
+        fact = facts[str(fact_version)]
+        if fact.get("options_size"):
+            settings = layout["settings_size"] + fact["options_size"] - layout["options_size"]
+            if fact["options_size"] >= layout["options_size"] and settings <= bounds["settings"]:
+                layout["options_size"], layout["settings_size"] = fact["options_size"], settings
+            else:
+                refused.append(f"{fact_version}: options_size {fact['options_size']}")
+        if fact.get("settings_size"):
+            if layout["settings_size"] <= fact["settings_size"] <= bounds["settings"]:
+                layout["settings_size"] = fact["settings_size"]
+            else:
+                refused.append(f"{fact_version}: settings_size {fact['settings_size']}")
+        if fact.get("shield_effects_maximum"):
+            if layout["shield_effects_maximum"] <= fact["shield_effects_maximum"] <= bounds["shield"]:
+                layout["shield_effects_maximum"] = fact["shield_effects_maximum"]
+            else:
+                refused.append(f"{fact_version}: shield_effects_maximum {fact['shield_effects_maximum']}")
+        if "join_request_extra" in fact:
+            if fact.get("join_request_fill", JOIN_REQUEST_FILL) == JOIN_REQUEST_FILL and \
+                    fact["join_request_extra"] <= bounds["join"]:
+                layout["join_request_extra"] = fact["join_request_extra"]
+            else:
+                refused.append(f"{fact_version}: join_request_extra {fact['join_request_extra']}")
+        layout["dropped_messages"] = sorted(set(layout["dropped_messages"]) | set(fact.get("dropped_messages", [])))
+    return layout, refused
+
+
+def built_in_facts() -> dict:
+    """this build's own facts, for its wire's row: each version past the one
+    it announces to the newest whose rules it has (informational: its builds
+    go by their own rules for them)"""
+    facts = {}
+    for version in range(built_in()["announce"] + 1, newest() + 1):
+        layout = built_in_layout(version)
+        fact = {"settings_size": layout["settings_size"], "options_size": layout["options_size"]}
+        if version >= SHIELD_EFFECTS_VERSION:
+            fact["shield_effects_maximum"] = layout["shield_effects_maximum"]
+            fact["dropped_messages"] = layout["dropped_messages"]
+        if version >= JOIN_REQUEST_VERSION:
+            fact["join_request_extra"] = layout["join_request_extra"]
+            fact["join_request_fill"] = JOIN_REQUEST_FILL
+        facts[str(version)] = fact
+    return facts
+
+
+def parse_layout(text: str) -> tuple:
+    """--layout's WIRE=VERSION:FIELD=VALUE[,FIELD=VALUE...]"""
+    match = re.fullmatch(r"([a-z0-9-]{1,31})=(\d{1,5}):([a-z_]+=[0-9+]+(?:,[a-z_]+=[0-9+]+)*)", text)
+    if not match:
+        raise TableError(f"--layout {text}: not WIRE=VERSION:FIELD=VALUE[,FIELD=VALUE...]")
+    version = int(match.group(2))
+    if not 1 <= version <= MAXIMUM_VERSION - 1:
+        raise TableError(f"--layout {text}: not a version")
+    fact = {}
+    for pair in match.group(3).split(","):
+        field, value = pair.split("=")
+        if field in fact:
+            raise TableError(f"--layout {text}: {field} twice")
+        if field == "dropped_messages":
+            kinds = [int(kind) for kind in value.split("+") if kind]
+            if not kinds or not all(1 <= kind <= 255 for kind in kinds):
+                raise TableError(f"--layout {text}: dropped_messages are kinds 1 to 255")
+            fact[field] = sorted(set(kinds))
+        elif field in LAYOUT_FIELDS and "+" not in value:
+            fact[field] = int(value)
+        elif field == "join_request_extra" and "+" not in value:
+            if int(value) > limits()["join"]:
+                raise TableError(f"--layout {text}: join_request_extra is at most {limits()['join']}")
+            fact[field] = int(value)
+            fact["join_request_fill"] = JOIN_REQUEST_FILL
+        else:
+            raise TableError(f"--layout {text}: no field {field}={value}")
+    return match.group(1), str(version), fact
 
 
 # ---------- the document
@@ -146,6 +335,10 @@ def parse(document: bytes, own_wire: str = None) -> dict:
             raise TableError(f"wire {name}'s row is not a range")
         if "follows" in row and not (isinstance(row["follows"], str) and FOLLOWS.fullmatch(row["follows"])):
             raise TableError(f"wire {name}'s follows is not an OpenCE build's tag")
+        if "hosting" in row:
+            check_hosting(name, row["hosting"])
+        if "layouts" in row:
+            check_layouts(name, row["layouts"])
     policy = table.get("platform_policy", {})
     if not isinstance(policy, dict):
         raise TableError("platform_policy is not an object")
@@ -156,12 +349,87 @@ def parse(document: bytes, own_wire: str = None) -> dict:
             if not NAME.fullmatch(name):
                 raise TableError(f"platform_policy's {platform} has a limit named {name!r}")
             _integer(value, 0, POLICY_MAXIMUM, f"platform_policy's {platform}.{name}")
+    if depth(table) > JSON_DEPTH:
+        raise TableError(f"it nests deeper than {JSON_DEPTH} (the game's parser drops it)")
     disabled = table.get("disabled_capabilities", [])
     if not isinstance(disabled, list) or len(disabled) > 64 or not all(isinstance(name, str) for name in disabled):
         raise TableError("disabled_capabilities is not a list of names")
     if own_wire is not None:
         check_widens(table, own_wire, built_in())
     return table
+
+
+def depth(value, level=1) -> int:
+    """how deep a value nests, the document 1 (as delta.c counts; another
+    wire's row is 3)"""
+    if isinstance(value, dict):
+        return max([level] + [depth(item, level + 1) for item in value.values()])
+    if isinstance(value, list):
+        return max([level] + [depth(item, level + 1) for item in value])
+    return level - 1
+
+
+def check_layouts(name: str, layouts) -> None:
+    """a row's layouts, as the game reads them (delta.c's json_layouts)"""
+    if not isinstance(layouts, dict):
+        raise TableError(f"wire {name}'s layouts is not an object")
+    if len(layouts) > limits()["facts"]:
+        raise TableError(f"wire {name} has more than {limits()['facts']} layout facts")
+    for version, fact in layouts.items():
+        if not re.fullmatch(r"[1-9]\d{0,4}", version) or int(version) > MAXIMUM_VERSION:
+            raise TableError(f"wire {name}'s layout {version!r} is not a version")
+        if not isinstance(fact, dict):
+            raise TableError(f"wire {name}'s layout {version} is not an object")
+        for field in LAYOUT_FIELDS:
+            if field in fact:
+                _integer(fact[field], 0, MAXIMUM_VERSION, f"wire {name}'s layout {version}'s {field}")
+        if "join_request_extra" in fact:
+            _integer(fact["join_request_extra"], 0, MAXIMUM_VERSION, f"wire {name}'s layout {version}'s join_request_extra")
+        if "join_request_fill" in fact and not isinstance(fact["join_request_fill"], str):
+            raise TableError(f"wire {name}'s layout {version}'s join_request_fill is not a name")
+        kinds = fact.get("dropped_messages", [])
+        if not isinstance(kinds, list) or len(kinds) > 255:
+            raise TableError(f"wire {name}'s layout {version}'s dropped_messages is not a list of kinds")
+        for kind in kinds:
+            _integer(kind, 1, 255, f"wire {name}'s layout {version}'s dropped message")
+
+
+def check_hosting(name: str, hosting) -> None:
+    """a row's hosting list, as the game reads it (delta.c's json_hosting)"""
+    if not isinstance(hosting, list) or len(hosting) > HOSTING_MAXIMUM:
+        raise TableError(f"wire {name}'s hosting is not a list of at most {HOSTING_MAXIMUM} versions")
+    for version in hosting:
+        _integer(version, 1, MAXIMUM_VERSION, f"wire {name}'s hosting version")
+    if any(later <= earlier for earlier, later in zip(hosting, hosting[1:])):
+        raise TableError(f"wire {name}'s hosting is not oldest first, each once")
+
+
+def hosting_newest(row: dict) -> int:
+    """the newest version a row proves for hosting (its announce, or its
+    hosting list's newest): what builds that read the list announce"""
+    return max([row["announce"], *row.get("hosting", [])])
+
+
+def add_hosting(row: dict, versions) -> dict:
+    """a row with versions proved for hosting added (past its announce only;
+    the newest HOSTING_MAXIMUM kept)"""
+    hosting = sorted(set(row.get("hosting", [])) | {version for version in versions if version > row["announce"]})
+    hosting = [version for version in hosting if version > row["announce"]][-HOSTING_MAXIMUM:]
+    row = {key: value for key, value in row.items() if key != "hosting"}
+    if hosting:
+        row["hosting"] = hosting
+    return row
+
+
+def parse_hosting(text: str) -> tuple:
+    """--hosting's WIRE=VERSION[,VERSION...]"""
+    match = re.fullmatch(r"([a-z0-9-]{1,31})=(\d{1,5}(?:,\d{1,5})*)", text)
+    if not match:
+        raise TableError(f"--hosting {text}: not WIRE=VERSION[,VERSION...]")
+    versions = [int(version) for version in match.group(2).split(",")]
+    if not all(1 <= version <= MAXIMUM_VERSION for version in versions):
+        raise TableError(f"--hosting {text}: not a version")
+    return match.group(1), versions
 
 
 def check_widens(table: dict, own_wire: str, floor: dict) -> None:
@@ -193,15 +461,32 @@ def widens(row: dict, floor: dict) -> bool:
         row["maximum"] >= floor["maximum"]
 
 
-def make(serial: int, issued: int = None, previous: dict = None, rows: dict = None, take_back: dict = None) -> bytes:
-    wires = dict(previous["wires"]) if previous else {}
+def numbers(row: dict) -> dict:
+    return {key: row[key] for key in ("announce", "minimum", "maximum", "follows", "hosting") if key in row}
+
+
+def make(serial: int, issued: int = None, previous: dict = None, rows: dict = None, take_back: dict = None,
+         layouts: list = None, hosting: list = None) -> bytes:
+    wires = {name: dict(row) for name, row in previous["wires"].items()} if previous else {}
+    old = wires.get(wire())
     wires[wire()] = built_in()
-    if previous and wire() in previous["wires"] and widens(previous["wires"][wire()], wires[wire()]):
-        wires[wire()] = previous["wires"][wire()]
+    if old and widens(old, wires[wire()]):
+        wires[wire()] = numbers(old)
+    # (this build's wire: its own facts, and the facts past them a table has)
+    if reads_layouts(wire()):
+        facts = {version: fact for version, fact in ((old or {}).get("layouts") or {}).items()
+                 if int(version) > newest()}
+        wires[wire()]["layouts"] = dict(built_in_facts(), **facts)
+    elif old and "layouts" in old:
+        wires[wire()]["layouts"] = old["layouts"]
     for name, row in (rows or {}).items():
         floor = wires.get(name)
         if floor and not widens(row, floor):
             raise TableError(f"--row {name}: {row} narrows {floor} (a table only widens)")
+        if floor and "layouts" in floor:
+            row = dict(row, layouts=floor["layouts"])
+        if floor and "hosting" in floor:
+            row = add_hosting(row, floor["hosting"])
         wires[name] = row
     # (a follow taken back: the row set to the wire's shipped numbers again,
     # which builds of that wire take, being no less than what they shipped
@@ -209,7 +494,41 @@ def make(serial: int, issued: int = None, previous: dict = None, rows: dict = No
     for name, row in (take_back or {}).items():
         if name == wire() and not widens(row, built_in()):
             raise TableError(f"--take-back {name}: {row} is below this build's own numbers {built_in()}")
+        if name in wires and "layouts" in wires[name]:
+            row = dict(row, layouts=wires[name]["layouts"])
         wires[name] = row
+    # (versions proved for hosting alone: builds that read the list announce
+    # the newest, older ones the row's announce, so the row is otherwise kept)
+    for name, versions in hosting or []:
+        if name not in wires:
+            raise TableError(f"--hosting {name}: the table has no row for it")
+        if not all(version >= wires[name]["minimum"] for version in versions):
+            raise TableError(f"--hosting {name}: a version below the row's minimum {wires[name]['minimum']}")
+        layouts_kept = wires[name].get("layouts")
+        wires[name] = add_hosting(wires[name], versions)
+        if layouts_kept is not None:
+            wires[name]["layouts"] = layouts_kept
+    # (a fact past a wire's own versions: what its builds read by data)
+    for name, version, fact in layouts or []:
+        if not reads_layouts(name):
+            raise TableError(f"--layout {name}: its builds read no layouts (wires from chupa-{LAYOUT_WIRE[0]}"
+                             f"{LAYOUT_WIRE[1]} on do)")
+        if name not in wires:
+            raise TableError(f"--layout {name}: the table has no row for it")
+        own = wire_newest().get(name)
+        if own is None:
+            raise TableError(f"--layout {name}: not a wire of DELTA_WIRE_LEGACY_NEWEST")
+        if int(version) <= own:
+            raise TableError(f"--layout {name}={version}: {name}'s builds have {version}'s rules (to {own})")
+        if "join_request_extra" in fact and not reads_join_layouts(name):
+            raise TableError(f"--layout {name}: its builds read no join request length (wires from chupa-"
+                             f"{JOIN_LAYOUT_WIRE[0]}{JOIN_LAYOUT_WIRE[1]} on do)")
+        facts = dict(wires[name].get("layouts") or {})
+        facts[version] = dict(facts.get(version, {}), **fact)
+        _, refused = apply_layouts(int(version), facts, own)
+        if refused:
+            raise TableError(f"--layout {name}={version}: past what its builds take: {', '.join(refused)}")
+        wires[name]["layouts"] = dict(sorted(facts.items(), key=lambda item: int(item[0])))
     table = {
         "delta_legacy": FORMAT,
         "serial": serial,
@@ -375,6 +694,15 @@ def main() -> int:
     command.add_argument("--take-back", action="append", default=[], metavar="WIRE=A,MIN,MAX",
                          help="a wire's row set back to its release's own numbers (a follow taken back); exactly "
                               "the shipped numbers: a row below them makes every build of the wire drop the table")
+    command.add_argument("--layout", action="append", default=[], metavar="WIRE=VERSION:FIELD=VALUE,...",
+                         help="a layout fact for a wire's row (chupa-38a on): settings_size, options_size, "
+                              "shield_effects_maximum, dropped_messages (kinds joined by +), join_request_extra "
+                              "(chupa-41a on: the join request's zero bytes past 0x70), past the wire's own "
+                              "versions and within what its builds take")
+    command.add_argument("--hosting", action="append", default=[], metavar="WIRE=VERSION[,VERSION...]",
+                         help="versions the cross-play gate proved for hosting alone (our host, their clients) "
+                              "for a wire's row: its builds from auto-announce on announce the newest; older "
+                              "builds skip the list")
     command.add_argument("--out", type=Path)
     command = commands.add_parser("sign")
     command.add_argument("--key", type=Path, required=True)
@@ -398,7 +726,9 @@ def main() -> int:
                 raise TableError(f"serial {arguments.serial} is not newer than {previous['serial']}")
             rows = dict(parse_row(row) for row in arguments.row)
             take_back = dict(parse_row(row) for row in arguments.take_back)
-            document = make(arguments.serial, arguments.issued, previous, rows, take_back)
+            layouts = [parse_layout(layout) for layout in arguments.layout]
+            hosting = [parse_hosting(text) for text in arguments.hosting]
+            document = make(arguments.serial, arguments.issued, previous, rows, take_back, layouts, hosting)
             if arguments.out:
                 arguments.out.write_bytes(document)
             else:

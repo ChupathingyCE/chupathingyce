@@ -81,6 +81,58 @@ int ce_vorbis_decode(const unsigned char *data, int size, int *channels, int *sa
 	return -1;
 }
 
+/* samples ce_vorbis_decode gave at twice the rate wanted, or half it (a
+sound some tools built: 44.1 kHz Ogg Vorbis in a 22 kHz sound, battlecraft_hd's),
+brought to that rate so they play at their pitch: each two averaged into
+one, or each drawn out into two (the second halfway to the next). The new
+count of samples per channel, or -1 (the samples are then as they were) */
+int ce_vorbis_resample(short **samples, int frames, int channels, int rate, int wanted)
+{
+	short *in = *samples;
+	int frame, channel;
+
+	if (frames <= 0 || channels < 1 || channels > CE_VORBIS_MAXIMUM_CHANNELS)
+		return -1;
+	if (rate == wanted)
+		return frames;
+	if (rate == wanted * 2)
+	{
+		int count = frames / 2;
+
+		for (frame = 0; frame < count; frame++)
+		{
+			for (channel = 0; channel < channels; channel++)
+			{
+				in[frame * channels + channel] = (short)(((int)in[(2 * frame) * channels + channel] +
+					(int)in[(2 * frame + 1) * channels + channel]) / 2);
+			}
+		}
+		return count > 0 ? count : -1;
+	}
+	if (rate * 2 == wanted && frames <= CE_VORBIS_MAXIMUM_FRAMES / 2)
+	{
+		short *out = malloc((size_t)frames * 2 * (size_t)channels * sizeof(*out));
+
+		if (!out)
+			return -1;
+		for (frame = 0; frame < frames; frame++)
+		{
+			for (channel = 0; channel < channels; channel++)
+			{
+				int here = in[frame * channels + channel];
+				int next = frame + 1 < frames ? in[(frame + 1) * channels + channel] : here;
+
+				out[(2 * frame) * channels + channel] = (short)here;
+				out[(2 * frame + 1) * channels + channel] = (short)((here + next) / 2);
+			}
+		}
+		free(in);
+		*samples = out;
+		return frames * 2;
+	}
+	return -1;
+}
+
 /* the samples ce_vorbis_decode gave (freed as stb_vorbis allocated them: the
 game's units free through its own allocator, which takes no NULL: debug_free) */
 void ce_vorbis_free(short *samples)

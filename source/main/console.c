@@ -382,6 +382,14 @@ static void console_complete(
 	return;
 }
 
+#ifdef HALO_CONSOLE_BRINGUP_LOG
+/* port: init.txt's "later" commands (console_startup, console_update), for
+a console's unattended test runs in its bring-up */
+static char console_later_commands[4][200];
+static short console_later_count;
+static long console_later_frames;
+#endif
+
 void console_startup(
 	void)
 {
@@ -411,6 +419,21 @@ void console_startup(
 			console_globals.previous_command_count = MIN(console_globals.previous_command_count + 1, MAXIMUM_NUMBER_OF_PREVIOUS_COMMANDS);
 
 			console_globals.selected_previous_command_index = NONE;
+#ifdef HALO_CONSOLE_BRINGUP_LOG
+			/* port: "later <command>" in init.txt runs the command once the
+			game has run 60 frames (after the map and its players exist, as
+			debug_camera_load needs), for unattended test runs */
+			if (!strncmp(buffer, "later ", 6))
+			{
+				if (console_later_count < NUMBEROF(console_later_commands))
+				{
+					strncpy(console_later_commands[console_later_count], buffer + 6,
+						NUMBEROF(console_later_commands[0]) - 1);
+					console_later_count++;
+				}
+				continue;
+			}
+#endif
 			if (hs_compile_and_evaluate(buffer))
 			{
 				error(_error_log, "init: %s", buffer);
@@ -438,6 +461,19 @@ boolean console_update(
 	boolean last_command;
 
 	short i;
+
+#ifdef HALO_CONSOLE_BRINGUP_LOG
+	if (console_later_count && ++console_later_frames == 60)
+	{
+		short later;
+
+		for (later = 0; later < console_later_count; later++)
+		{
+			if (hs_compile_and_evaluate(console_later_commands[later]))
+				error(_error_log, "init (later): %s", console_later_commands[later]);
+		}
+	}
+#endif
 
 	if (console_globals.active)
 	{

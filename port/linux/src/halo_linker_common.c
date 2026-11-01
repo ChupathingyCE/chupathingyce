@@ -151,7 +151,8 @@ HALO_COMMON(profile_display, 1); /* byte profile_display[] */
 HALO_COMMON(profile_graph, 1); /* byte profile_graph[] */
 HALO_COMMON(prop_data, 4); /* struct data_array *prop_data */
 HALO_COMMON(rasterizer_frame_statistics, 368); /* struct rasterizer_frame_statistics_globals rasterizer_frame_statistics */
-HALO_COMMON(rasterizer_lights, 7200); /* struct rasterizer_lights_globals_prefix rasterizer_lights */
+/* rasterizer_lights.c owns rasterizer_lights, sized by the native build's
+light limit: a stand-in of the Xbox's size was too small for it. */
 HALO_COMMON(rasterizer_model_cortana_hack, 16); /* boolean rasterizer_model_cortana_hack */
 HALO_COMMON(regular_shader, 240); /* struct pixel_shader_definition regular_shader */
 HALO_COMMON(render_model_index_counts, 1); /* byte render_model_index_counts[] */

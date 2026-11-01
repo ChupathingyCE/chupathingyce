@@ -18,6 +18,9 @@ boolean tag_index_is_group(long tag_index, long group_tag);
 cache_files.c) */
 extern boolean cache_file_is_ce;
 #endif
+/* port: (cache_files.c) */
+long tag_index_holding_address(void const *address, unsigned long *offset);
+unsigned long tag_get_group_tag(long tag_index);
 
 /* ---------- constants */
 
@@ -97,7 +100,7 @@ long verify_tag_reference(
 	if (cache_file_tags_are_ce())
 		return tag_index_is_group(reference->index, reference->group_tag) ? reference->index : NONE;
 #endif
-#ifdef HALO_64BIT
+#ifdef HALO_ADDRESS_TRANSLATED
 	index = tag_loaded(reference->group_tag, TAG_REFERENCE_NAME(reference));
 #else
 	index = tag_loaded(reference->group_tag, reference->name);
@@ -107,7 +110,7 @@ long verify_tag_reference(
 		"c:\\halo\\SOURCE\\tag_files\\tag_groups.c", 3061, reference->index==index,
 		csprintf(temporary,
 			"tag reference \"%s\" and actual index do not match: is %08lX but should be %08lX",
-#ifdef HALO_64BIT
+#ifdef HALO_ADDRESS_TRANSLATED
 			TAG_REFERENCE_NAME(reference),
 #else
 			reference->name,
@@ -139,7 +142,7 @@ void* tag_data_get_pointer(
 	if (cache_file_is_ce)
 		return ce_tags_pointer((unsigned long)data->address + offset, size);
 #endif
-#if defined(HALO_64BIT)
+#ifdef HALO_ADDRESS_TRANSLATED
 	return (void *)((byte *)TAG_DATA_ADDRESS(data) + offset);
 #else
 	return (void *)((byte *)data->address + offset);
@@ -178,6 +181,26 @@ void *tag_block_get_element_with_size(
 	if (index < 0 || index >= block->count || !block->address)
 	{
 		tag_index_error("block element", index, block->count);
+		/* port: a block that gives elements but no address has none from
+		here on, so that a loop over its elements ends after this one rather
+		than running on through its count (Halo PC maps' timberland and
+		infinity, in a release build: a block of 1065353216, 1.0f's bits, the
+		game asserting on it until it was closed as their games began) */
+		if (!block->address && block->count > 0)
+		{
+			/* (said once a block, naming the tag it is in and where: its
+			definition is not this executable's in a Custom Edition map, nor
+			on the 64-bit builds) */
+			unsigned long offset = 0;
+			long tag_index = tag_index_holding_address(block, &offset);
+			unsigned long group_tag = tag_index != NONE ? tag_get_group_tag(tag_index) : 0;
+
+			error(_error_silent, "tag block in %c%c%c%c %s (+0x%lx): %ld elements without an address, read as none",
+				tag_index != NONE ? (char)(group_tag >> 24) : '?', tag_index != NONE ? (char)(group_tag >> 16) : '?',
+				tag_index != NONE ? (char)(group_tag >> 8) : '?', tag_index != NONE ? (char)group_tag : '?',
+				tag_index != NONE ? tag_get_name(tag_index) : "<no tag>", offset, block->count);
+			((struct tag_block *)block)->count = 0;
+		}
 		return element_size <= TAG_EMPTY_DATA_SIZE ? tag_empty_data() : NULL;
 	}
 
@@ -187,7 +210,7 @@ void *tag_block_get_element_with_size(
 	if (cache_file_is_ce)
 		return ce_tags_pointer((unsigned long)block->address + index * element_size, element_size);
 #endif
-#if defined(HALO_64BIT)
+#ifdef HALO_ADDRESS_TRANSLATED
 	return (void *)((byte *)TAG_BLOCK_ADDRESS(block) + (index * element_size));
 #else
 	return (void *)((byte *)block->address + (index * element_size));

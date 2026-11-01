@@ -86,6 +86,7 @@ symbols in this file:
 
 #include "rasterizer/xbox/rasterizer_xbox.h"
 #include "rasterizer/xbox/rasterizer_xbox_pixel_shader.h"
+#include "halo_perf_log.h" /* port: console.perf_log */
 
 /* ---------- constants */
 
@@ -880,6 +881,7 @@ void _rasterizer_detail_objects_draw(
 							0,
 							"IDirect3DDevice8_SetVertexData4f(global_d3d_device, 3, cell->z_reference_vector->i, cell->z_reference_vector->j, cell->z_reference_vector->k, cell->z_reference_vector->l)");
 					}
+					HALO_PERF_COUNT(_halo_perf_draws, 1);
 					if (IDirect3DDevice8_DrawVertices(
 						global_d3d_device,
 						D3DPT_QUADLIST,

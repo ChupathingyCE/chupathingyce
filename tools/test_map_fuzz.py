@@ -74,6 +74,8 @@ CUSTOM_EDITION = [
     "port/linux/game/ce_functions.c",
     "source/bitmaps/bitmaps.c",
     "source/rasterizer/rasterizer_geometry.c",
+    # (ce_hud.c's PNG button icons)
+    *(f"port/third_party/zlib/{name}.c" for name in ("adler32", "crc32", "inffast", "inflate", "inftrees", "zutil")),
 ]
 TARGETS = {
     "xbox": ("MAP_FUZZ_XBOX", VALIDATOR),
@@ -161,23 +163,47 @@ def xbox_map(name=b"fuzz"):
     return bytes(data)
 
 
-def ce_map(name=b"fuzz"):
+def ce_map(name=b"fuzz", sound=None):
     """a Custom Edition map of a scenario and one empty structure BSP, its
-    scripts' syntax an empty data array"""
+    scripts' syntax an empty data array; with sound, a list of permutations
+    (compression, samples' size, flags, offset), a sound tag of its own (not
+    indexed) of one pitch range of them, mono 22 kHz"""
     base = TAG_CACHE["ce"]
+    tag_count = 3 if sound else 2
     tags = bytearray(0x28)
     instances = len(tags)
-    tags += bytes(0x40)
+    tags += bytes(0x20 * tag_count)
     names = len(tags)
     tags += name + b"\0"
     bsp_name = len(tags)
     tags += b"fuzz_bsp\0" + bytes((-(len(tags) + 9)) % 4)
+    if sound:
+        sound_name = len(tags)
+        tags += b"fuzz_sound\0" + bytes((-(len(tags) + 11)) % 4)
     scenario = len(tags)
     tags += bytes(0x5B0)
     bsps = len(tags)
     tags += bytes(0x20)
     syntax = len(tags)
     tags += bytes(0x38)
+    if sound:
+        # (sound_definitions.h: the header, its pitch range, its permutations)
+        sound_header = len(tags)
+        tags += bytes(0xA4)
+        sound_range = len(tags)
+        tags += bytes(0x48)
+        sound_permutations = len(tags)
+        tags += bytes(0x7C * len(sound))
+        struct.pack_into("<h", tags, sound_header + 0x6E, sound[0][0])
+        struct.pack_into("<iII", tags, sound_header + 0x98, 1, base + sound_range, 0)
+        struct.pack_into("<h", tags, sound_range + 0x2C, len(sound))
+        struct.pack_into("<iII", tags, sound_range + 0x3C, len(sound), base + sound_permutations, 0)
+        for index, (compression, size, flags, offset) in enumerate(sound):
+            permutation = sound_permutations + index * 0x7C
+            struct.pack_into("<hh", tags, permutation + 0x28, compression, -1)
+            struct.pack_into("<iIIII", tags, permutation + 0x40, size, flags, offset, 0, 0)
+        struct.pack_into("<4s4s4sIIIII", tags, instances + 0x40, b"!dns", b"\xff\xff\xff\xff", b"\xff\xff\xff\xff",
+                         0xE1760002, base + sound_name, base + sound_header, 0, 0)
     tags += bytes((-len(tags)) % 16)
     tag_data_size = len(tags)
     bsp_offset = 0x800 + tag_data_size
@@ -187,7 +213,8 @@ def ce_map(name=b"fuzz"):
     model_offset = bsp_offset + len(bsp)
     # the tag header: instances, the scenario, checksum, count, model parts,
     # model data offset, model parts, vertex data size, model data size
-    struct.pack_into("<IIIIIIIII4s", tags, 0, base + instances, 0xE1740000, 0, 2, 0, model_offset, 0, 0, 0, b"sgat")
+    struct.pack_into("<IIIIIIIII4s", tags, 0, base + instances, 0xE1740000, 0, tag_count, 0, model_offset, 0, 0, 0,
+                     b"sgat")
     struct.pack_into("<4s4s4sIIIII", tags, instances, b"rncs", b"\xff\xff\xff\xff", b"\xff\xff\xff\xff", 0xE1740000,
                      base + names, base + scenario, 0, 0)
     struct.pack_into("<4s4s4sIIIII", tags, instances + 0x20, b"psbs", b"\xff\xff\xff\xff", b"\xff\xff\xff\xff",
@@ -282,6 +309,41 @@ def test_long_tag_names(built, tmp_path):
         path.write_bytes(data)
         result = run(binaries[target], [path], environment={"MAP_FUZZ_VERBOSE": "1"})
         assert "has no name" not in result.stderr and "longer than" not in result.stderr, result.stderr[-4000:]
+
+
+def test_sound_samples_in_sounds_map(built, tmp_path):
+    """a Custom Edition map's own sound (not indexed): each permutation's
+    samples read from the file Halo PC's flag on them names, sounds.map's or
+    the map's, whatever the map's version, and checked to lie in it (Super
+    Campaign Refined's c10 has 912 such permutations, which were read from
+    the map at sounds.map's offsets); one with samples in both is copied
+    whole into the decoded sounds' file"""
+    binaries, _ = built
+    adpcm, external = 1, 1
+    map_size = len(ce_map(sound=[(adpcm, 36, 0, 0)]))
+    resources = tmp_path / "resources"
+    resources.mkdir()
+    # (an empty resource map of sounds, past the map's end)
+    (resources / "sounds.map").write_bytes(struct.pack("<IIII", 2, 16, 16, 0) + bytes(map_size + 0x2000))
+    in_sounds_map = map_size + 0x1000
+    cases = (
+        ("in_sounds_map", [(adpcm, 36, external, in_sounds_map)], None, "refused"),
+        ("in_map", [(adpcm, 36, 0, 0x800)], None, "refused"),
+        ("both", [(adpcm, 36, 0, 0x800), (adpcm, 36, external, in_sounds_map)],
+         "1 with samples in both the map and sounds.map copied", "refused"),
+        ("unflagged_past_map", [(adpcm, 36, 0, in_sounds_map)], "not in the map", None),
+        ("past_sounds_map", [(adpcm, 36, external, map_size + 0x3000)], "not in sounds.map", None),
+    )
+    for name, permutations, expected, unexpected in cases:
+        path = tmp_path / f"{name}.map"
+        path.write_bytes(ce_map(sound=permutations))
+        result = run(binaries["ce"], [path], environment={"MAP_FUZZ_VERBOSE": "1",
+                                                          "MAP_FUZZ_CE_RESOURCES": str(resources)})
+        assert result.returncode == 0, result.stderr[-4000:]
+        if expected:
+            assert expected in result.stderr, (name, result.stderr[-4000:])
+        if unexpected:
+            assert unexpected not in result.stderr, (name, result.stderr[-4000:])
 
 
 WIDE_FORMAT_TEST = r"""

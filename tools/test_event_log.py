@@ -61,6 +61,8 @@ def test_sample_batch(program):
     assert game["id"] == "00112233445566778899aabbccddeeff"
     assert game["part"] == 1 and game["final"] is True
     assert game["map"] == "levels\\test\\bloodgulch\\bloodgulch"
+    # (the map's facts, as game_events.c hands them over: map_report.c)
+    assert game["map_info"] == {"family": "xbox", "file": "bloodgulch", "spawns": 32}
     assert game["started"] == 1791234567 and game["ended"] == 1791234567 + 40
     assert game["team_scores"] == [3, 1] and game["end_reason"] == "score"
     walter, jo, guest = batch["players"]
@@ -111,6 +113,15 @@ def test_sample_batch(program):
     sessions = {s["player"]: s for s in batch["sessions"]}
     assert 2 not in sessions and sessions[0]["left"] is None
     assert batch["limits"]["dropped"] == {}
+
+
+def test_bomb_objectives(program):
+    sample = json.loads(run(program, "sample"))
+    assert "bomb_carry_time" not in sample["players"][0]["objectives"]
+    batch = json.loads(run(program, "bomb"))
+    objectives = batch["players"][0]["objectives"]
+    assert (objectives["flag_grabs"], objectives["flag_scores"]) == (3, 2)
+    assert (objectives["bomb_carry_time"], objectives["bomb_carrier_kills"], objectives["bomb_kills_as_carrier"]) == (42, 2, 1)
 
 
 def test_killjoy_from_the_grave_playlist_and_color(program):

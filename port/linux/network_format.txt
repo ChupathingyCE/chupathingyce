@@ -1,4 +1,4 @@
-version 29
+version 32
 bound DISCORD_ID_SIZE 24
 bound DISCORD_NAME_SIZE 40
 bound DISTRIBUTED_INPUT_HISTORY 4
@@ -25,6 +25,7 @@ bound NUMBER_OF_PLAYER_POWERUPS enum 43075f42087c
 bound NUMBER_OF_UNIT_GRENADE_TYPES enum a0462dbcbdd9
 bound OBJECT_NAME_BYTES MAXIMUM_OBJECT_NAMES_PER_SCENARIO / 8
 define DISTRIBUTED_ANGULAR_VELOCITY_SCALE 4096.0f
+define DISTRIBUTED_CLIENT_BUILD_KIND 92
 define DISTRIBUTED_TIME_WINDOW_TICKS (15 * TICKS_PER_SECOND)
 define DISTRIBUTED_UNIT_SCALE 32767.0f
 define DISTRIBUTED_VELOCITY_SCALE 1024.0f
@@ -38,7 +39,11 @@ enum _distributed_actor_shield_over_charging_bit 3
 enum _distributed_actor_super_camouflaged_bit 5
 enum _distributed_message_actor_damage 73
 enum _distributed_message_actor_states 64
+enum _distributed_message_aim_assist_policy 90
 enum _distributed_message_batch 16
+enum _distributed_message_chat_config 89
+enum _distributed_message_chat_down 88
+enum _distributed_message_chat_up 87
 enum _distributed_message_client_identity 18
 enum _distributed_message_client_ready 9
 enum _distributed_message_coop_device_groups 68
@@ -66,6 +71,7 @@ enum _distributed_message_player_inputs 14
 enum _distributed_message_player_prediction 1
 enum _distributed_message_player_statistics 3
 enum _distributed_message_relayed_actions 15
+enum _distributed_message_shield_effects 91
 enum _distributed_message_structure_bsp 65
 enum _distributed_message_unit_states 2
 enum _distributed_message_vehicle_prediction 12
@@ -207,6 +213,7 @@ struct distributed_actor_damage 96a57e13e2b8
 struct distributed_actor_damage_message f985e899a708
 struct distributed_actor_state 8bd5e771659d
 struct distributed_actor_state_message 51a56e04a536
+struct distributed_aim_assist_message 8d281470f55e
 struct distributed_client_identity 4d9e62025616
 struct distributed_coop_device_group 4aa3499be2cc
 struct distributed_coop_device_groups_message b96ad0030ccc
@@ -241,9 +248,10 @@ struct distributed_object_state 1b656bbda892
 struct distributed_object_state_message 004c4b7aa530
 struct distributed_pickup 46e6f981ac40
 struct distributed_pings_message 35c6009dee29
-struct distributed_player_input b8d724b59f5c
+struct distributed_player_input a0cf65a1197c
 struct distributed_player_ping 377e0e3045f4
 struct distributed_player_statistics 2a44afb8f96c
+struct distributed_shield_effects_message c15b7eca3894
 struct distributed_statistics_message 79134e6e9811
 struct distributed_structure_bsp 53f7d5067cc9
 struct distributed_structure_bsp_message 096278a05681

@@ -151,6 +151,13 @@ int halo_linux_snprintf(char *buffer, size_t count, char const *format, ...)
 	return result;
 }
 
+#ifdef HALO_WINDOW_REBASE
+/* (the window's base, which the game's address inlines read under
+configure.py --window-rebase: source/cseries/xbox_address.h. The validator
+maps no window, so the data is where it is linked) */
+unsigned long platform_contiguous_base = 0x80000000UL;
+#endif
+
 /* (the game's string functions, which its units call by these names:
 cseries.h) */
 void *csmemset(void *buffer, long c, unsigned long size)

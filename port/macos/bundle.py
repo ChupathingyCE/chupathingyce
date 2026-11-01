@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Package build/macos/halo as a macOS application bundle (ninja macos).
+"""Package build/macos/chupathingy as a macOS application bundle (ninja macos).
 
 The bundle holds the executable, port/macos/Info.plist (the name, the icon,
 the version, and the halo:// and Discord URL schemes internet play invites
@@ -117,8 +117,10 @@ def main() -> None:
     with open(contents / "Info.plist", "wb") as destination:
         plistlib.dump(info, destination)
     shutil.copy2(PORT_DIR / "AppIcon.icns", contents / "Resources" / "AppIcon.icns")
-    executable = contents / "MacOS" / "halo"
-    staged = executable.with_name("halo.new")
+    executable = contents / "MacOS" / "chupathingy"
+    # (the program was halo before 0.9.0: a bundle built before keeps no copy)
+    (contents / "MacOS" / "halo").unlink(missing_ok=True)
+    staged = executable.with_name("chupathingy.new")
     shutil.copy2(args.executable, staged)
     staged.chmod(0o755)
     if args.self_contained:

@@ -228,7 +228,10 @@ def test_menus_are_well_formed():
             where = f"{path.name}: <{element.tag} {element.get('name', '')}>"
             assert element.tag in MENU_ATTRIBUTES, where
             assert set(element.attrib) <= MENU_ATTRIBUTES[element.tag], where
-            assert element.get("platform") in (None, "desktop", "android"), where
+            # (the platforms it is on, separated by spaces: menu_files.c)
+            if element.get("platform") is not None:
+                names = element.get("platform").split(" ")
+                assert names and set(names) <= {"desktop", "android", "switch", "console", "x360", "wiiu"}, where
             # (menu_files.c's whole numbers, which the tags keep in shorts,
             # its true/false attributes, and no text but whitespace outside
             # <string>s)
@@ -301,7 +304,8 @@ def test_menu_settings_exist():
         for setting in re.findall(r'setting="([^"]+)"', path.read_text()):
             assert setting in known | profile, f"{path.name}: {setting}"
     controls = set(re.findall(r'"(controls\.[a-z_]+)"', (root / "port/linux/src/xinput_sdl.c").read_text()))
-    assert controls == {name for name in known if name.startswith("controls.")}
+    # (controls.controller_layout is the controller's, not a key's: controller_layout.c)
+    assert controls == {name for name in known if name.startswith("controls.")} - {"controls.controller_layout"}
     assert controls == set(re.findall(r'\{ "(controls\.[a-z_]+)", L"', functions))
 
 
@@ -314,20 +318,40 @@ def test_report_joined_games_stops_claims():
     root = MENUS.parent.parent.parent
     browser = (root / "port/linux/src/browser.c").read_text()
     for function in ("browser_client_report", "browser_claim_game"):
-        body = re.search(r"^void " + function + r"\(.*?^\}", browser, re.M | re.S).group(0)
+        # (browser_client_report says whether it sent: int, return 0)
+        body = re.search(r"^(?:void|int) " + function + r"\(.*?^\}", browser, re.M | re.S).group(0)
         gate = re.search(r'!config_boolean\("network\.report_joined_games"\)\s*\|\|\s*'
                          r'!p2p_joined_invite\(', body)
         assert gate, function
-        assert body.index("return;") > gate.start(), function
+        assert re.search(r"return( 0)?;", body[gate.start():]), function
     readme = (root / "port/linux/README.md").read_text()
     row = next(line for line in readme.splitlines() if line.startswith("| `network.report_joined_games`"))
     assert "/v1/claim" in row
 
 
+def test_joined_invite_follows_the_joined_host():
+    """Every join (a listed game, an invite, a direct address, the local
+    network, a server's change of game) goes through
+    network_game_client_initiate_join_game, which tells p2p the host it
+    joins (p2p_joining_host); an invite of another host is forgotten, so a
+    game's report never goes out under a previous game's invite. Hosting
+    has no joined invite."""
+    root = MENUS.parent.parent.parent
+    manager = (root / "source/networking/network_client_manager.c").read_text()
+    join = re.search(r"^boolean network_game_client_initiate_join_game\(.*?^\}", manager, re.M | re.S).group(0)
+    assert "p2p_joining_host(network_game_client_joined_host)" in join
+    p2p = (root / "port/linux/src/p2p.c").read_text()
+    forget = re.search(r"^void p2p_joining_host\(.*?^\}", p2p, re.M | re.S).group(0)
+    assert "p2p_identifier_from_hash(p2p.join_host_hash" in forget
+    assert "memset(p2p.join_host_hash" in forget and "memset(p2p.join_token" in forget
+    joined = re.search(r"^int p2p_joined_invite\(.*?^\}", p2p, re.M | re.S).group(0)
+    assert "!p2p.hosting" in joined
+
+
 def test_report_hosted_games_keeps_listing():
     """network.report_hosted_games = false stops what a host sends the game
     list about its games (the carnage report, the Delta Stats batch and its
-    own players' claims) and not the listing, and the Privacy screen sets
+    own players' claims) and not the listing, and Network Setup's PRIVACY sets
     it."""
     root = MENUS.parent.parent.parent
     browser = (root / "port/linux/src/browser.c").read_text()
@@ -338,7 +362,7 @@ def test_report_hosted_games_keeps_listing():
     assert "report_hosted_games" not in hosting
     upload = (root / "port/linux/src/event_upload.c").read_text()
     assert 'config_boolean("network.report_hosted_games")' in upload
-    privacy = (MENUS / "ce/main_menu.settings_select.player_setup.player_profile_edit.privacy_setup.xml").read_text()
+    privacy = (MENUS / "ce/main_menu.settings_select.player_setup.player_profile_edit.network_setup.xml").read_text()
     for setting in ("network.report_hosted_games", "network.report_events", "network.report_joined_games",
                     "crash_reports.upload"):
         assert f'setting="{setting}"' in privacy, setting
@@ -443,6 +467,7 @@ def test_p2p_signatures_and_listings(tmp_path):
     built = subprocess.run(["clang", *flags, "-O1", "-no-pie", "-Wl,--unresolved-symbols=ignore-all", "-o",
                             str(program), "tools/p2p_lobby_check.c", "port/linux/src/p2p_crypto.c",
                             "port/linux/src/p2p_lobby.c", "port/linux/src/p2p_copies.c",
+                            "port/linux/src/delta_compat.c",
                             "port/third_party/monocypher/monocypher.c",
                             "port/third_party/monocypher/monocypher-ed25519.c"],
                            capture_output=True, text=True)

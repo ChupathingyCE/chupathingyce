@@ -148,6 +148,11 @@ void director_save_camera(
 	void);
 void director_load_camera(
 	void);
+/* port: audio_probe.c's */
+void director_set_flying_camera(
+	short local_player_index,
+	real_point3d const *position,
+	real_vector3d const *forward);
 void director_initialize_for_new_map(
 	void);
 void director_script_camera(

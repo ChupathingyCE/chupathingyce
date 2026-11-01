@@ -27,7 +27,7 @@ struct leaf_map
 	struct tag_block leaves;
 	struct tag_block portals;
 };
-#ifdef HALO_64BIT
+#ifdef HALO_ADDRESS_TRANSLATED
 
 #define LEAF_MAP_BSP(map) XBOX_POINTER(const struct bsp3d, (map)->bsp)
 #endif

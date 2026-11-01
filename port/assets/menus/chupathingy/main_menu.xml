@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The Chupathingy menus' main menu (display.menus = "chupathingy"): the
+Xbox's, in its own look, with the PC version's PROFILES and QUIT added as
+rows like the others. CAMPAIGN and MULTIPLAYER open the Xbox's screens;
+PROFILES, SETTINGS and QUIT the PC version's, which the Xbox has not. -->
+<menus>
+	<widget name="chupathingy/main_menu" width="640" height="480" flags="pass_unhandled_to_focused_child">
+		<on event="created" run="main menu intialize" label="ring_loop"/>
+		<on event="back" open="chupathingy/quit_screen"/>
+		<on event="b" open="chupathingy/quit_screen"/>
+		<child widget="main_menu/halo_logo" y="28"/>
+		<child widget="chupathingy/main_menu_list"/>
+		<child widget="main_menu/build_number" x="450" y="400"/>
+	</widget>
+	<widget name="chupathingy/main_menu_list" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_items" description="main_menu/main_menu_list_ext_desc">
+		<data input="main menu fake animate"/>
+		<child widget="chupathingy/main_menu_campaign" x="194" y="247"/>
+		<child widget="chupathingy/main_menu_multiplayer" x="192" y="283"/>
+		<child widget="chupathingy/main_menu_profiles" x="192" y="319"/>
+		<child widget="chupathingy/main_menu_settings" x="192" y="355"/>
+		<child widget="chupathingy/main_menu_quit" x="192" y="391"/>
+	</widget>
+	<!-- (the Xbox's CAMPAIGN and MULTIPLAYER, as ui.map has them) -->
+	<widget name="chupathingy/main_menu_campaign" type="text" width="256" height="33" bitmap="main_menu/menu_load_campaign" string_list="main_menu/main_menu_options" string_index="1" font="ui\small_ui" color="#000080FF">
+		<on event="a" run="new game if no plyr profiles" label="load_campaign" open="ui\shell\main_menu\load_campaign_player_profile" branch="true"/>
+		<on event="start" run="new game if no plyr profiles" label="load_campaign" open="ui\shell\main_menu\load_campaign_player_profile" branch="true"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+		<conditional widget="ui\shell\main_menu\new_campaign_creating_profile" if_failed="true"/>
+	</widget>
+	<widget name="chupathingy/main_menu_multiplayer" type="text" width="256" height="33" bitmap="main_menu/menu_multiplayer" string_list="main_menu/main_menu_options" string_index="2" font="ui\small_ui" color="#000080FF">
+		<on event="a" label="multiplayer" open="ui\shell\main_menu\multiplayer_type_select\multiplayer_type_select_screen"/>
+		<on event="start" label="multiplayer" open="ui\shell\main_menu\multiplayer_type_select\multiplayer_type_select_screen"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
+	<!-- (the PC version's PROFILES and QUIT, their screens in the Xbox's look:
+	profiles.xml, quit.xml) -->
+	<widget name="chupathingy/main_menu_profiles" type="text" width="256" height="33" bitmap="main_menu/menu_profile" string_list="main_menu/main_menu_options" string_index="2" font="ui\small_ui" color="#000080FF">
+		<on event="a" run="new game if no plyr profiles" open="chupathingy/profiles/screen" branch="true"/>
+		<on event="start" run="new game if no plyr profiles" open="chupathingy/profiles/screen" branch="true"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+		<conditional widget="chupathingy/profiles/entry_creating_profile" if_failed="true"/>
+	</widget>
+	<widget name="chupathingy/main_menu_quit" type="text" width="256" height="33" bitmap="main_menu/menu_quit">
+		<on event="a" open="chupathingy/quit_screen"/>
+		<on event="start" open="chupathingy/quit_screen"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
+	<!-- (the PC version's SETTINGS, its screen in the Xbox's look) -->
+	<widget name="chupathingy/main_menu_settings" type="text" width="256" height="33" bitmap="main_menu/menu_settings" string_list="main_menu/main_menu_options" string_index="3" font="ui\small_ui" color="#000080FF">
+		<on event="a" run="profile set edit begin" label="settings" open="chupathingy/settings/profile_edit_screen" branch="true"/>
+		<on event="start" run="profile set edit begin" label="settings" open="chupathingy/settings/profile_edit_screen" branch="true"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+		<conditional widget="chupathingy/settings/entry_creating_profile" if_failed="true"/>
+	</widget>
+	<!-- (PROFILES and SETTINGS with no profile yet: one made, as the PC
+	version's are, then their own screens, not the PC version's) -->
+	<widget name="chupathingy/profiles/entry_creating_profile" width="640" height="480" flags="pass_unhandled_to_focused_child no_history" auto_close="1">
+		<on event="deleted" run="new campaign decision" open="chupathingy/profiles/entry_saving_profile"/>
+	</widget>
+	<widget name="chupathingy/profiles/entry_saving_profile" width="640" height="480" flags="pass_unhandled_to_focused_child no_history" auto_close="1000" auto_close_fade="500">
+		<on event="b" run="NULL"/>
+		<on event="back" run="NULL"/>
+		<on event="deleted" run="NULL" open="chupathingy/profiles/screen"/>
+		<child widget="error/warning_creating_player_profile_screen"/>
+	</widget>
+	<widget name="chupathingy/settings/entry_creating_profile" width="640" height="480" flags="pass_unhandled_to_focused_child no_history" auto_close="1">
+		<on event="deleted" run="new campaign decision" open="chupathingy/settings/entry_saving_profile"/>
+	</widget>
+	<widget name="chupathingy/settings/entry_saving_profile" width="640" height="480" flags="pass_unhandled_to_focused_child no_history" auto_close="1000" auto_close_fade="500">
+		<on event="b" run="NULL"/>
+		<on event="back" run="NULL"/>
+		<on event="deleted" run="NULL" open="chupathingy/settings/profile_edit_screen"/>
+		<child widget="error/warning_creating_player_profile_screen"/>
+	</widget>
+</menus>

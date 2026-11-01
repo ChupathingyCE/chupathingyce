@@ -345,6 +345,7 @@
       ['Uptime', duration(status.uptime_seconds)],
       ['Version', status.version + ' (network ' + status.network_version + ')'],
     ];
+    if (status.skipped) rows.push(['Last skipped', status.skipped]);
     facts.replaceChildren();
     rows.forEach(([name, value]) => {
       facts.append(element('dt', name), element('dd', value));
@@ -375,6 +376,11 @@
       if (can(0x002) && player.chat) {
         actions.append(player.chat === 'muted' ? button('Unmute chat', 'small', () => mute(player, false)) :
           button('Mute chat', 'small', () => mute(player, true)));
+      }
+      // (a team game: to the other team, as changing teams does)
+      if (can(0x004) && (player.team === 'red' || player.team === 'blue')) {
+        const other = player.team === 'red' ? 'blue' : 'red';
+        actions.append(button(other === 'red' ? 'To Red' : 'To Blue', 'small', () => moveTeam(player, other)));
       }
       if (can(0x004)) actions.append(button('Kick', 'small', () => kick(player)));
       if (can(0x008)) actions.append(button('Ban', 'small danger', () => ban(player)));
@@ -430,6 +436,20 @@
     }
   }
 
+  // a team game: the player to the other team; they respawn on it at once
+  async function moveTeam(player, team) {
+    const answer = await confirmAction('Move ' + player.name + ' to the ' + team + ' team? They respawn on it, with no penalty.',
+      'Move', false, false);
+    if (!answer) return;
+    try {
+      if (!(await stillThere(player))) return;
+      await command('sv_team ' + player.number + ' ' + team);
+      await loadPlayers(false);
+    } catch (error) {
+      failed(error);
+    }
+  }
+
   async function kick(player) {
     const answer = await confirmAction('Kick ' + player.name + '? Everyone on their machine is dropped; they may join again.', 'Kick', false, true);
     if (!answer) return;
@@ -456,6 +476,13 @@
 
   // ---------- maps
 
+  // an Xbox map pack's map as its pack names it ("wizard@cex: Gothra (CE+)",
+  // from /v1/maps's map_packs; a server before map packs sends none)
+  function mapLabel(name) {
+    const pack = maps && maps.map_packs && maps.map_packs[name];
+    return pack ? `${name}: ${pack.name} (${pack.tag})` : name;
+  }
+
   function option(value, text) {
     const node = element('option', text === undefined ? value : text);
     node.value = value;
@@ -469,7 +496,7 @@
     const [cycle, status] = await Promise.all([api('/v1/mapcycle'), api('/v1/status')]);
     if (!maps) {
       maps = await api('/v1/maps');
-      $('map-select').replaceChildren(...maps.maps.map((name) => option(name)));
+      $('map-select').replaceChildren(...maps.maps.map((name) => option(name, mapLabel(name))));
       $('type-select').replaceChildren(...maps.game_types.map((name) => option(name)));
     }
     if (maps.maps.includes(status.map)) $('map-select').value = status.map;
@@ -668,7 +695,7 @@
     const url = link.code ? link.site + '/servers/link?code=' + encodeURIComponent(link.code) : '';
     const states = {
       off: 'Not linked. Linking lets you manage this server, and give people roles here, from your profile on the Chupathingy site.',
-      linking: link.code ? 'Linking: the code is ' + link.code + '.' : 'Linking: asking the site for a code...',
+      linking: link.code ? 'Linking: the code is ' + link.code + '.' : 'Linking: the owner is finishing it on the site.',
       linked: 'Linked to ' + link.owner + '\'s account (site roles at most ' + link.role_cap + ').',
     };
     $('link-state').textContent = link.enabled ? (states[link.state] || '') + (link.problem ? ' ' + link.problem : '')
@@ -768,7 +795,7 @@
       body.append(row);
     });
     const typeNames = (types.builtins || []).map((type) => type.name).concat((types.gametypes || []).map((type) => type.name));
-    $('editor-map').replaceChildren(...maps.maps.map((name) => option(name)));
+    $('editor-map').replaceChildren(...maps.maps.map((name) => option(name, mapLabel(name))));
     $('editor-type').replaceChildren(...typeNames.map((name) => option(name)));
     $('gametype-new-base').replaceChildren(...typeNames.map((name) => option(name)));
     const typesBody = $('gametypes-body');

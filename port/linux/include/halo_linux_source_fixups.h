@@ -19,12 +19,15 @@ void render_interpolation_reset(void);
 void render_interpolation_frame_begin(void);
 void render_interpolation_frame_end(void);
 float render_interpolation_fraction(void);
+unsigned char render_interpolation_drawing(void);
 struct real_matrix4x3 *render_interpolation_object_node_matrices(long object_index);
+float *render_interpolation_object_function_values(long object_index);
 struct observer_result const *render_interpolation_camera(short local_player_index,
 	struct observer_result const *observer);
 void render_interpolation_first_person(short local_player_index, struct real_matrix4x3 *node_matrices,
 	short node_count, struct render_camera const *camera);
 float render_interpolation_game_time_sec(long ticks);
+float render_interpolation_ticks_since(long now, long then);
 
 /* the width of the screen the game draws, 480 lines tall: the device's or
 the display's shape, or 640 (port/linux/src/d3d8_gl.c) */
@@ -47,6 +50,17 @@ void halo_screen_anti_alias(short x0, short y0, short x1, short y1);
 /* the loading screen's picture, RGBA bytes with its top row first, over the
 whole back buffer (port/linux/src/d3d8_gl.c, port/linux/game/loading_screen.c) */
 void halo_draw_picture(const unsigned char *rgba, long width, long height);
+#ifdef HALO_SWITCH_CONSOLE
+/* whether the zoom's blur is drawn on a small copy of the screen and blended
+over it once (source/rasterizer/xbox/rasterizer_xbox_screen_effect.c), and
+that blend's shader on or off for the draws that follow: the Switch's
+renderer (port/switch/guest/d3d8_dk.c; debug.original_zoom) */
+unsigned char halo_screen_fast_warp(void);
+void halo_screen_warp_blend(unsigned char on);
+/* whether a blur screen effect is drawn on small targets (the same file;
+debug.original_blur) */
+unsigned char halo_screen_fast_blur(void);
+#endif
 /* the mouse in the menus (source/interface/ui_widget.c) */
 #include "halo_ui_pointer.h"
 

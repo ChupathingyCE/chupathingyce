@@ -230,6 +230,7 @@ struct render_sort_filth
 typedef char verify_render_model_effect_size[sizeof(struct render_model_effect) == 0x28 ? 1 : -1];
 typedef char verify_rasterizer_model_begin_parameters_size[sizeof(struct rasterizer_model_begin_parameters) == 0xCC ? 1 : -1];
 #endif
+#include "halo_perf_log.h" /* port: console.perf_log */
 
 /* ---------- prototypes */
 
@@ -953,6 +954,28 @@ static void model_data_error(
 	return;
 }
 
+/* port_config.c's */
+int config_boolean(const char *name);
+unsigned long config_changes(void);
+
+/* port: display.full_model_detail, every model drawn with its most detailed
+geometry wherever it is, not the coarser ones the game swaps in as it gets
+smaller on the screen. Drawing only: the game's state never reads it. */
+static boolean full_model_detail(
+	void)
+{
+	static unsigned long read_at = (unsigned long)-1;
+	static boolean full = FALSE;
+
+	if (read_at != config_changes())
+	{
+		read_at = config_changes();
+		full = config_boolean("display.full_model_detail") != 0;
+	}
+
+	return full;
+}
+
 void render_model(
 	long model_index,
 	real level_of_detail_pixels,
@@ -1045,6 +1068,10 @@ void render_model(
 		{
 			geometry_detail_level_index--;
 		}
+		if (full_model_detail())
+		{
+			geometry_detail_level_index = NUMBER_OF_DETAIL_LEVELS_PER_MODEL-1;
+		}
 		if (rasterizer_debug_options.debug_model_lod!=NONE)
 		{
 			geometry_detail_level_index = PIN(rasterizer_debug_options.debug_model_lod, 0, NUMBER_OF_DETAIL_LEVELS_PER_MODEL-1);
@@ -1056,6 +1083,10 @@ void render_model(
 
 		if (!TEST_FLAG(flags, _render_model_shadow_bit))
 		{
+			/* (the two highest of the five levels: high and super high) */
+			HALO_PERF_COUNT(_halo_perf_models, 1);
+			HALO_PERF_COUNT(_halo_perf_models_high_lod, geometry_detail_level_index>=NUMBER_OF_DETAIL_LEVELS_PER_MODEL-2);
+
 			if (render_model_nodes)
 			{
 				for (node_index = 0; node_index<node_count; node_index++)

@@ -55,6 +55,12 @@ boolean playlist_profile_get_from_path(
 boolean playlist_profile_get_display_name(
 	long playlist_profile_index,
 	wchar_t *display_name);
+/* port: a default gametype's name: the map's string list's (string_list_index:
+ui\default_multiplayer_game_setting_names), else the port's own built-ins'
+(Bomb, Grifball); NULL for none */
+wchar_t const *playlist_profile_default_name(
+	short profile_index,
+	long string_list_index);
 void playlist_profiles_enumerate_available_to_local_player_index(
 	short local_player_index,
 	word *number_of_profiles,

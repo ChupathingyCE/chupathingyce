@@ -1721,3 +1721,19 @@ boolean race_bot_next_checkpoint(
 	}
 	return found;
 }
+
+#ifdef HALO_BIG_ENDIAN
+/* port: (game_engine.h) the state in the wire's byte order, either way */
+void game_engine_race_network_state_byte_swap(
+	byte *buffer,
+	long size)
+{
+	struct race_network_state *state = (struct race_network_state *)buffer;
+
+	if (size != (long)sizeof(*state))
+		return;
+	GAME_ENGINE_NETWORK_STATE_SWAP(state, globals.lap_completed_value, globals.persistent_team_score, sizeof(long));
+	/* (the events are bytes) */
+	GAME_ENGINE_NETWORK_STATE_SWAP(state, last_lap_times, laps_completed, sizeof(short));
+}
+#endif

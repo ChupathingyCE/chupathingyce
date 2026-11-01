@@ -49,11 +49,17 @@ enum
 	/* a line of the file, at most, with its end */
 	CONTROL_ACCOUNT_LINE = 512,
 
-	/* one account's wrong passwords or codes: this many in a row ... */
+	/* one account's wrong passwords or codes from one source: this many in
+	a row ... */
 	CONTROL_ACCOUNT_FAILURES = 5,
-	/* ... lock it this long, doubled for each further one, up to the most */
+	/* ... lock it for that source this long, doubled for each further one,
+	up to the most ... */
 	CONTROL_ACCOUNT_LOCK_SECONDS = 60,
 	CONTROL_ACCOUNT_LOCK_MAXIMUM = 60 * 60,
+	/* ... and forgotten after this long with none */
+	CONTROL_ACCOUNT_DECAY_SECONDS = 15 * 60,
+	/* the sources one account's backoff keeps apart, at most */
+	CONTROL_BACKOFF_SOURCES = 8,
 };
 
 struct control_account
@@ -135,17 +141,34 @@ void control_base32(const uint8_t *bytes, size_t count, char *text, size_t size)
 int control_totp_uri(const uint8_t secret[CONTROL_TOTP_SECRET_BYTES], const char *issuer, const char *name,
 	char *out, size_t size);
 
-/* ---------- one account's wrong passwords */
+/* ---------- one account's wrong passwords
+
+Kept apart for each source (a keyed hash of the address the server sees):
+someone guessing from one place locks that place out of the account, never
+the account's owner from another. */
 
 struct control_account_backoff
 {
-	int failures;
-	int64_t locked_until;
+	struct
+	{
+		int used;
+		uint8_t source[16];
+		int failures;
+		int64_t last_failure;
+		int64_t locked_until;
+	} sources[CONTROL_BACKOFF_SOURCES];
 };
 
-/* whether the account may try now (seconds); if not, how long until */
-int control_backoff_allowed(const struct control_account_backoff *backoff, int64_t now, int64_t *retry_after);
-void control_backoff_failed(struct control_account_backoff *backoff, int64_t now);
-void control_backoff_succeeded(struct control_account_backoff *backoff);
+/* whether the account may be tried from a source now (seconds); if not, how
+long until */
+int control_backoff_allowed(const struct control_account_backoff *backoff, const uint8_t source[16], int64_t now,
+	int64_t *retry_after);
+void control_backoff_failed(struct control_account_backoff *backoff, const uint8_t source[16], int64_t now);
+/* a right password from a source: its count forgotten */
+void control_backoff_succeeded(struct control_account_backoff *backoff, const uint8_t source[16]);
+/* every source's count forgotten (a password set again) */
+void control_backoff_clear(struct control_account_backoff *backoff);
+/* whether some source is locked out of the account now */
+int control_backoff_locked(const struct control_account_backoff *backoff, int64_t now);
 
 #endif

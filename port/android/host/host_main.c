@@ -228,6 +228,11 @@ static uint32_t make_boot(const struct environment *environment)
 	boot->argv = (uint32_t)(uintptr_t)argv;
 	boot->environment = (uint32_t)(uintptr_t)environ_list;
 	boot->page_size = (uint32_t)getpagesize();
+	/* the window is where the game data is linked (host_memory.c), and so
+	is the image */
+	boot->contiguous_base = HALO_GUEST_WINDOW_BASE;
+	boot->contiguous_size = HALO_GUEST_WINDOW_SIZE;
+	boot->image_shift = 0;
 	return (uint32_t)(uintptr_t)boot;
 }
 
@@ -328,9 +333,20 @@ static void *game_main(void *unused)
 		host_memory_report_low_mappings(report);
 		if (report)
 			fclose(report);
+		/* (and the app, at its next start, offers the 64-bit build while
+		this file is there: LauncherActivity.java) */
 		host_fatal("The game cannot start: the memory it needs at 0x80000000 is taken by Android's "
-			"Java runtime on this device.\n\nRestarting the device may help. Please report it with "
-			"memory_map.txt from\n%s\n(or adb logcat -s " HOST_LOG_TAG ").", data_root);
+			"Java runtime on this device.\n\nThe 64-bit build (chupathingyce-android64 on the release page) "
+			"needs no fixed address: open the app again to install it over this one, keeping your data and "
+			"saves. Restarting the device may also help.\n\nThe memory map is in memory_map.txt in\n%s",
+			data_root);
+	}
+	/* (a start that works: the 64-bit build is no longer offered) */
+	{
+		char report_path[600];
+
+		snprintf(report_path, sizeof(report_path), "%s/memory_map.txt", data_root);
+		unlink(report_path);
 	}
 	SDL_free(image);
 

@@ -19,6 +19,7 @@ MONOCYPHER = ROOT / "port" / "third_party" / "monocypher"
 # (Monocypher checks the moderation messages' Ed25519 signatures)
 SESSIONS = [ROOT / "port" / "linux" / "src" / "delta_peer.c", ROOT / "port" / "linux" / "src" / "delta_wire.c",
             ROOT / "port" / "linux" / "src" / "delta_chat.c", ROOT / "port" / "linux" / "src" / "delta_chat_words.c",
+            ROOT / "port" / "linux" / "src" / "delta_chat_bridge.c",
             MONOCYPHER / "monocypher.c", MONOCYPHER / "monocypher-ed25519.c"]
 TEST = ROOT / "port" / "linux" / "tests" / "delta_test.c"
 FUZZ = ROOT / "port" / "linux" / "tests" / "delta_fuzz.c"

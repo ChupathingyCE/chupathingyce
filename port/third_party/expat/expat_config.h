@@ -4,7 +4,11 @@ files only, so no DTDs, no namespaces and no general entities. */
 #ifndef EXPAT_CONFIG_H
 #define EXPAT_CONFIG_H 1
 
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+#define BYTEORDER 4321
+#else
 #define BYTEORDER 1234
+#endif
 #define HAVE_MEMMOVE 1
 #define HAVE_STDINT_H 1
 #define HAVE_STDLIB_H 1

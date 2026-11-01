@@ -1064,7 +1064,7 @@ extern real sound_gain_under_dialog;
 extern boolean structures_use_pvs_for_vs;
 extern boolean stun_enable;
 extern boolean temporary_hud;
-extern boolean terminal_render_enable;
+extern short terminal_render_enable;
 extern byte texture_cache_debug_options[];
 
 static struct hs_external_global_definition screenshot_size_definition = { "screenshot_size", _hs_type_short_integer, 0, &global_screenshot_size };
@@ -1087,7 +1087,7 @@ static struct hs_external_global_definition display_precache_progress_definition
 
 static struct hs_external_global_definition debug_game_save_definition = { "debug_game_save", _hs_type_boolean, 0, &debug_game_save };
 
-static struct hs_external_global_definition terminal_render_definition = { "terminal_render", _hs_type_boolean, 0, &terminal_render_enable };
+static struct hs_external_global_definition terminal_render_definition = { "terminal_render", _hs_type_short_integer, 0, &terminal_render_enable };
 
 static struct hs_external_global_definition console_dump_to_file_definition = { "console_dump_to_file", _hs_type_boolean, 0, &console_dump_to_file };
 

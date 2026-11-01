@@ -128,6 +128,22 @@ extern boolean player_magnetism_flag;
 /* game_time.c's */
 boolean game_time_reset_speed(void);
 
+/* port: what the map's own scripts set rider_ejection to (TRUE until they
+set it, and again with each new map). A client in another's game keeps it,
+as Halo PC's clients do, which run the map's scripts too: a map that turns
+ejection off (Coldsnap's settings script) would otherwise have its clients
+throw their players out of an overturned vehicle the host keeps them in
+(cheats_network_client_enforce) */
+static boolean cheats_map_rider_ejection = TRUE;
+
+void cheats_map_set_rider_ejection(
+	boolean value)
+{
+	cheats_map_rider_ejection = value;
+
+	return;
+}
+
 /* port: what the machine draws of the world put back as it draws it for
 everyone: nothing seen through walls (wireframe, a drawing mode, the
 environment or its parts left out), past fog, or under grass and water;
@@ -181,10 +197,10 @@ void cheats_network_client_enforce(
 
 	if (!network_game_distributed_client())
 		return;
-	changed = csmemcmp(&cheat, &none, sizeof(cheat)) != 0 || !rider_ejection || !player_autoaim_flag ||
-		!player_magnetism_flag;
+	changed = csmemcmp(&cheat, &none, sizeof(cheat)) != 0 || rider_ejection != cheats_map_rider_ejection ||
+		!player_autoaim_flag || !player_magnetism_flag;
 	csmemset(&cheat, 0, sizeof(cheat));
-	rider_ejection = TRUE;
+	rider_ejection = cheats_map_rider_ejection;
 	player_autoaim_flag = TRUE;
 	player_magnetism_flag = TRUE;
 	changed |= game_time_reset_speed();
@@ -312,6 +328,8 @@ static long cheat_player_index(
 void cheats_initialize_for_new_map(
 	void)
 {
+	/* port: (the new map's scripts set their own) */
+	cheats_map_rider_ejection = TRUE;
 	cheats_load();
 
 	return;

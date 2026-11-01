@@ -47,6 +47,22 @@ boolean network_game_server_send_game_settings_to_all_machines(
 	long game_size);
 boolean network_game_server_flush_game_data_pregame(
 	struct network_game_server *server);
+/* port: the record to machines it was held back from (network version 35's
+longer record, sent by each machine's version once its HELLO or the
+handshake's window says which), each frame; whether any machine of the game
+still waits for one; whether a machine's players report the damage a static
+target deals (network version 34) */
+void network_game_server_settings_frame(
+	struct network_game_server *server);
+boolean network_game_server_settings_owed(
+	struct network_game_server *server);
+/* (and whether one machine's record waits so: a machine joining the game in
+progress is started once it does not) */
+boolean network_game_server_settings_waiting(
+	struct network_game_server *server,
+	struct network_game_server_client_machine *machine);
+boolean network_game_server_machine_reports_static_damage(
+	long machine_index);
 boolean network_game_server_handle_client_message(
 	struct network_game_server *server,
 	struct network_game_server_client_machine *machine,

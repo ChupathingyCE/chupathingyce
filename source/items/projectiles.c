@@ -1877,6 +1877,14 @@ real projectile_estimate_time_to_target(
 	return time_to_target;
 }
 
+/* port: the projectile's "combine initial velocity with parent velocity"
+(Halo PC's: weapons.c, trigger_create_projectiles) */
+boolean projectile_definition_combines_parent_velocity(
+	struct projectile_definition const *definition)
+{
+	return TEST_FLAG(definition->projectile.flags, _projectile_combine_initial_velocity_with_parent_velocity_bit);
+}
+
 boolean projectile_aim_ballistic(
 	real base_velocity,
 	real gravity_scale,

@@ -178,10 +178,13 @@ void material_effect_new_from_point(
 		{
 			long material_type;
 
-			/* The January build consumes the complete 32-bit material slot here. */
+			/* The January build consumes the complete 32-bit material slot here
+			(port: its two halves put together in the Xbox's order, for any byte
+			order). */
 			material_type = scenario_location_underwater(&collision.location, &collision.point, NULL)
 				? _material_effect_underwater_material_type
-				: *(long *)&collision.material_type;
+				: (long)((unsigned long)(word)collision.material_type |
+					((unsigned long)collision.material_type_pad << 16));
 			material_effect_new(
 				definition_index,
 				effect_index,

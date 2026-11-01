@@ -121,26 +121,48 @@ int posix_socket_accept(int socket, void *address, int *address_length)
 	return from_socket(result);
 }
 
+/* the bytes this process has sent and received on its sockets, for the
+server's health reports (game_events.c): every thread's, so added atomically */
+static struct
+{
+	unsigned long long sent;
+	unsigned long long received;
+} traffic;
+
+static int traffic_sent(int result)
+{
+	if (result > 0)
+		InterlockedExchangeAdd64((LONG64 volatile *)&traffic.sent, result);
+	return result;
+}
+
+static int traffic_received(int result)
+{
+	if (result > 0)
+		InterlockedExchangeAdd64((LONG64 volatile *)&traffic.received, result);
+	return result;
+}
+
 int posix_socket_send(int socket, const void *buffer, int length, int flags)
 {
-	return succeed(send((SOCKET)socket, buffer, length, flags));
+	return traffic_sent(succeed(send((SOCKET)socket, buffer, length, flags)));
 }
 
 int posix_socket_sendto(int socket, const void *buffer, int length, int flags,
 	const void *address, int address_length)
 {
-	return succeed(sendto((SOCKET)socket, buffer, length, flags, address, address_length));
+	return traffic_sent(succeed(sendto((SOCKET)socket, buffer, length, flags, address, address_length)));
 }
 
 int posix_socket_recv(int socket, void *buffer, int length, int flags)
 {
-	return succeed(recv((SOCKET)socket, buffer, length, flags));
+	return traffic_received(succeed(recv((SOCKET)socket, buffer, length, flags)));
 }
 
 int posix_socket_recvfrom(int socket, void *buffer, int length, int flags,
 	void *address, int *address_length)
 {
-	return succeed(recvfrom((SOCKET)socket, buffer, length, flags, address, address_length));
+	return traffic_received(succeed(recvfrom((SOCKET)socket, buffer, length, flags, address, address_length)));
 }
 
 int posix_socket_shutdown(int socket, int how)
@@ -387,4 +409,10 @@ posix_ulong posix_resolve_ipv4(const char *host)
 		address = ((struct sockaddr_in *)results->ai_addr)->sin_addr.s_addr;
 	freeaddrinfo(results);
 	return address;
+}
+
+void posix_socket_traffic(unsigned long long *sent, unsigned long long *received)
+{
+	*sent = (unsigned long long)InterlockedCompareExchange64((LONG64 volatile *)&traffic.sent, 0, 0);
+	*received = (unsigned long long)InterlockedCompareExchange64((LONG64 volatile *)&traffic.received, 0, 0);
 }

@@ -52,12 +52,46 @@ void platform_binding_capture_begin(void);
 (Delete), 3 if cancelled (Escape) */
 int platform_binding_capture_poll(int *input);
 
+/* the gamepads connected, and one's name and kind (controller_layout.h's
+CONTROLLER_KIND_*; index -1: the one last used, else the first; -1 if
+none): the Controls screen's (xinput_sdl.c) */
+int platform_gamepad_count(void);
+int platform_gamepad_describe(int index, char *name, size_t size);
+
 struct platform_keystroke
 {
 	BYTE virtual_key;
 	CHAR ascii;
 	BYTE flags;
 };
+
+/* the device the player used last, for the button prompts (xinput_sdl.c):
+a gamepad (an SDL_Gamepad), or NULL for the keyboard and mouse. The
+launcher's own input (launcher.c), which the controller emulation never
+sees */
+void platform_input_scheme_used(void *gamepad);
+
+/* whether the game runs without anyone to answer a question (a test run, a
+null renderer, the Steam Deck's Game Mode): no launcher, no message boxes */
+BOOL platform_run_is_quiet(void);
+
+/* the maps out of a file the player picked (the first start, the
+launcher's Add maps), on a thread of their own: the kind of file it is
+(an Xbox disc image, a Halo PC CD image, Custom Edition's installer), by
+what it holds; the copy started into destination (its maps/, or maps_pc/,
+maps_ce/); then, polled, how far it has got, and TRUE once it is done, with
+whether it worked (and why not in error) */
+enum
+{
+	PLATFORM_IMPORT_UNKNOWN,
+	PLATFORM_IMPORT_XBOX_DISC,
+	PLATFORM_IMPORT_HALO_PC_DISC,
+	PLATFORM_IMPORT_CE_INSTALLER,
+};
+int platform_import_kind(const char *path);
+BOOL platform_import_start(int kind, const char *image, const char *destination, char *error, int error_size);
+BOOL platform_import_poll(char *file, int file_size, unsigned long long *done, unsigned long long *total,
+	BOOL *succeeded, char *error, int error_size);
 
 BOOL platform_sdl_initialize(void);
 /* creates the window and makes its OpenGL context current on this thread */
@@ -116,6 +150,9 @@ void platform_ui_pointer_set_active(BOOL active);
 /* pointer receives what the pointer did since the last call; returns
 nonzero while a menu is up (platform_ui_pointer_set_active) */
 BOOL platform_ui_pointer_read(struct platform_ui_pointer *pointer);
+/* debug.test_input's mouse: a move (button 0), a click of an SDL button, or
+wheel notches, at a point of the window (desktop builds) */
+void platform_test_pointer_event(float x, float y, int button, int wheel);
 
 /* returns the window's size in the units that pointer positions come in,
 which differ from the drawable's pixels on displays that scale */

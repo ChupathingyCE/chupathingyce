@@ -528,7 +528,7 @@ boolean action_charge_perform(
 	{
 		boolean melee = FALSE;
 		struct actor_debug_info *debug_info =
-			&actor_debug_array[DATUM_INDEX_TO_ABSOLUTE_INDEX(actor_index)];
+			ACTOR_DEBUG_INFO_GET(actor_index);
 		real_vector3d direction;
 		real distance;
 
@@ -906,7 +906,7 @@ boolean action_charge_setup(
 		actor_definition_get(actor->meta.definition_index);
 	boolean result = TRUE;
 	struct actor_debug_info *debug_info =
-		&actor_debug_array[DATUM_INDEX_TO_ABSOLUTE_INDEX(actor_index)];
+		ACTOR_DEBUG_INFO_GET(actor_index);
 
 	debug_info->charge_last_time = game_time_get();
 

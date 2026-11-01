@@ -37,6 +37,10 @@ enum
 	_button_preset_swap_a_and_left_trigger,
 	_button_preset_swap_b_and_left_trigger,
 	_button_preset_swap_b_and_right_thumb,
+	_button_preset_bumper_jumper, /* port: jump on the left bumper (the white button) */
+	/* port: the player's own, from the Controls screen (config.toml's
+	controls.controller_layout); a build without it reads it as Default */
+	_button_preset_custom,
 	NUMBER_OF_BUTTON_PRESETS
 };
 

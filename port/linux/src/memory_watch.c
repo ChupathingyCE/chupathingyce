@@ -51,6 +51,8 @@ void backtrace_symbols_fd(void *const *frames, int count, int descriptor);
 #else
 #define WATCH_PAGE_SIZE 0x1000UL
 #define WATCH_PAGE_COUNT (PLATFORM_CONTIGUOUS_SIZE / WATCH_PAGE_SIZE)
+/* (the tables: as many as the largest window has, platform.h) */
+#define WATCH_PAGE_COUNT_MAXIMUM (PLATFORM_CONTIGUOUS_MAXIMUM / WATCH_PAGE_SIZE)
 #endif
 
 /* (each page: 0 not watched, 1 watched and read-only, 2 made writable by a
@@ -62,8 +64,8 @@ static unsigned char page_protected[WATCH_PAGE_COUNT_MAXIMUM];
 static unsigned int page_generation[WATCH_PAGE_COUNT_MAXIMUM];
 static volatile unsigned int current_generation = 1;
 #else
-static unsigned char page_protected[WATCH_PAGE_COUNT];
-static unsigned long page_generation[WATCH_PAGE_COUNT];
+static unsigned char page_protected[WATCH_PAGE_COUNT_MAXIMUM];
+static unsigned long page_generation[WATCH_PAGE_COUNT_MAXIMUM];
 static volatile unsigned long current_generation = 1;
 #endif
 static struct sigaction previous_segv_action;
@@ -165,6 +167,11 @@ static void segv_handler(int signal_number, siginfo_t *information, void *contex
 	pc = ucontext->uc_mcontext.gregs[REG_RIP];
 	frame = ucontext->uc_mcontext.gregs[REG_RBP];
 	stack = ucontext->uc_mcontext.gregs[REG_RSP];
+#elif defined(HALO_UNIX_CONTEXT_PC)
+	/* (the other Unix hosts': port/unix/include/halo_unix_host.h) */
+	pc = HALO_UNIX_CONTEXT_PC(ucontext);
+	frame = HALO_UNIX_CONTEXT_FRAME(ucontext);
+	stack = HALO_UNIX_CONTEXT_STACK(ucontext);
 #endif
 	length = snprintf(line, sizeof(line), PLATFORM_LOG_PREFIX "fault at %p, pc %llx fp %llx sp %llx\n",
 		information->si_addr, pc, frame, stack);

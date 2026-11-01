@@ -572,7 +572,7 @@ static void structure_visibility_traverse_surface_lists(
 				}
 
 				surface_index = *surface_index_buffer++;
-#ifdef HALO_64BIT
+#ifdef HALO_ADDRESS_TRANSLATED
 				match_assert(
 					"c:\\halo\\SOURCE\\structures\\structure_visibility.c",
 					0x1A0,

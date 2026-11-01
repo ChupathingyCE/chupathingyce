@@ -4,11 +4,13 @@ windows64``).
 Like the Linux build (tools/linux_build.py), it compiles the game sources
 with clang for 32-bit x86 Windows (i686-pc-windows-msvc), adds the platform layer shared with
 Linux (``port/linux/src``) and the Windows parts in ``port/windows``, and
-links ``build/windows/halo.exe`` with lld. It is generated only when
+links ``build/windows/chupathingy.exe`` with lld (and the small
+``halo.exe`` beside it that starts it, for what started the game by its old
+name: port/linux/src/rename_stub.h). It is generated only when
 configure.py runs on Windows. See port/windows/README.md for the design.
 
 ``ninja windows64`` compiles the same units for x64 Windows
-(x86_64-pc-windows-msvc) into ``build/windows64/halo.exe``, with the 64-bit
+(x86_64-pc-windows-msvc) into ``build/windows64/chupathingy.exe``, with the 64-bit
 builds' code paths (HALO_64BIT: source/cseries/xbox_address.h), as
 ``ninja linux64`` and ``ninja macos`` have them. Both play Halo PC's Custom
 Edition maps (HALO_CUSTOM_EDITION).
@@ -28,10 +30,10 @@ import urllib.request
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 from .version import VERSION_SOURCES, identity_defines, release_build, resource_version, version
-from .linux_build import (CUSTOM_EDITION_DEFINES, LINUX_PROFILE, MBEDTLS_DIR, MINIUPNPC_DIR, OPTIMISATION, STB_DIR, WINDOWS_PROFILE,
+from .linux_build import (COMPRESSED_MAP_DEFINES, CUSTOM_EDITION_DEFINES, ZSTD_DEFINES, ZSTD_DIR, ZSTD_SOURCES, LINUX_PROFILE, ffmpeg_build, MBEDTLS_DIR, MINIUPNPC_DIR, OPTIMISATION, STB_DIR, WINDOWS_PROFILE,
                           XDK_INCLUDE, game_browser_defines, lto_mode, march_flag, miniupnpc_sources, pgo_mode, compile_launcher, game_defines_and_includes,
                           game_sources, musl_math_cflags, musl_math_sources, pgo_profile, profile_use_flags,
                           xdk_headers)
@@ -179,6 +181,9 @@ class WindowsTarget:
     ldflags: List[str]
     # the comment above its rules
     comment: str
+    # FFmpeg's names for it (tools/ffmpeg_build.py: --target-os, --arch)
+    ffmpeg_os: str = "win32"
+    ffmpeg_arch: str = "x86"
     # optimised with a profile (pgo/): the committed ones are the 32-bit builds'
     pgo: bool = True
     # leaves out what the 64-bit builds do (port/linux/port.json "lp64")
@@ -196,7 +201,7 @@ WINDOWS32 = WindowsTarget(
     # Halo PC's Custom Edition maps (linux_build.py, CUSTOM_EDITION_DEFINES),
     # as the 32-bit Linux build has them: their tag cache is mapped at the
     # host address they are linked to (port/linux/src/xbox_memory.c)
-    abi_flags=[*WINDOWS_ABI_FLAGS, *CUSTOM_EDITION_DEFINES],
+    abi_flags=[*WINDOWS_ABI_FLAGS, *CUSTOM_EDITION_DEFINES, *COMPRESSED_MAP_DEFINES],
     game_flags=GAME_FLAGS,
     platform_flags=PLATFORM_FLAGS,
     win32_flags=WIN32_FLAGS,
@@ -225,6 +230,7 @@ WINDOWS64 = WindowsTarget(
         "-DHALO_64BIT",
         # Halo PC's Custom Edition maps (linux_build.py, CUSTOM_EDITION_DEFINES)
         *CUSTOM_EDITION_DEFINES,
+        *COMPRESSED_MAP_DEFINES,
     ],
     game_flags=[
         *(flag for flag in GAME_FLAGS if flag not in ("-w", "-Wno-error=int-conversion",
@@ -254,6 +260,8 @@ WINDOWS64 = WindowsTarget(
         "-Wl,/STACK:0x800000",
     ],
     comment="Native 64-bit Windows build (ninja windows64)",
+    ffmpeg_os="win64",
+    ffmpeg_arch="x86_64",
     pgo=False,
     lp64_exclusions=True,
 )
@@ -394,7 +402,7 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
     build = target.build
     tags_header = build / "halo_msvc_tags.h"
     obj_dir = build / "obj"
-    output = build / "halo.exe"
+    output = build / "chupathingy.exe"
     sdl_dll = build / "SDL3.dll"
     sdl_lib = SDL_DIR / "lib" / target.sdl_arch
     cc = getattr(sln, "windows_cc", None) or "clang"
@@ -467,11 +475,23 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
                                                            else ["-fstack-protector-strong"])
                    + game_browser_defines(sln))
     sdl_include = SDL_DIR / "include"
+    # the movies' FFmpeg (port/linux/src/bink_ffmpeg.c), static, built with
+    # the same clang for the same target (tools/ffmpeg_build.py); with
+    # configure.py --without-ffmpeg, bink_null.c's stubs skip the movies
+    ffmpeg_cflags: List[str] = []
+    ffmpeg_libs: List[str] = []
+    ffmpeg_inputs: List[Path] = []
+    if getattr(sln, "with_ffmpeg", True):
+        ffmpeg_cflags, ffmpeg_libs, ffmpeg_stamp, ffmpeg_archives = ffmpeg_build(
+            n, prefix, build / "ffmpeg", cc, target.ffmpeg_os, target.ffmpeg_arch,
+            [f"--target={target.triple}"], group=False)
+        ffmpeg_inputs = [ffmpeg_stamp, *ffmpeg_archives]
     libs = " ".join(
         [_quote(sdl_lib / "SDL3.lib")]
+        + ffmpeg_libs
         + [f"-l{lib}" for lib in config.get("libraries", [])]
     )
-    # (the linker's map beside the program, halo.map: its functions'
+    # (the linker's map beside the program, chupathingy.map: its functions'
     # addresses, kept with the symbols, tools/ci_build.py)
     base_ldflags = list(target.ldflags) + ["-Wl,/MAP"]
     if getattr(sln, "port_release", False):
@@ -488,7 +508,7 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
         extra = " ".join(extra_cflags)
         objects: List[Path] = []
 
-        def add_object(source: Path, cflags: str) -> None:
+        def add_object(source: Path, cflags: str, waits_for: Sequence[Path] = ()) -> None:
             obj = obj_dir / source.with_suffix(".o")
             objects.append(obj)
             compiled = inline_export_wrapper(source, build)
@@ -496,7 +516,7 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
                 outputs=obj,
                 rule=f"{prefix}_cc",
                 inputs=compiled,
-                implicit=[*xdk_headers(), prefix_header, tags_header, source, *implicit_inputs],
+                implicit=[*xdk_headers(), prefix_header, tags_header, source, *implicit_inputs, *waits_for],
                 variables={"cflags": f"{cflags} {extra}"},
             )
 
@@ -544,6 +564,7 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
             f"-I{QRCODEGEN_DIR}",
             f"-I{MONOCYPHER_DIR}",
             f"-I{ZLIB_DIR}",
+            f"-I{ZSTD_DIR / 'lib'}",
             # halo_linux_winsock_names.h, but not the Linux build's C runtime
             # wrappers next to it
             f"-iquote {LINUX_DIR / 'include'}",
@@ -568,6 +589,8 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
                 # (the game list's requests: on Winsock, with Mbed TLS, as
                 # on Linux)
                 add_object(source, f"{win32_cflags} -I{MBEDTLS_DIR / 'include'}")
+            elif source.name in ("bink_ffmpeg.c", "bink_null.c"):
+                add_object(source, " ".join([platform_cflags, *ffmpeg_cflags]), ffmpeg_inputs)
             elif source.name == "posix_ui_font.c":
                 # (the overlay's fonts: stb_truetype; their data, tools/embed_assets.py --fonts)
                 add_object(source, f"{platform_cflags} -I{STB_DIR}")
@@ -610,6 +633,9 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
         # the port's zlib
         for name in ZLIB_SOURCES:
             add_object(ZLIB_DIR / name, " ".join([abi, "-std=gnu11", *ZLIB_DEFINES, "-w"]))
+        # Zstandard's decoder, for compressed Halo PC maps (map_compressed.c)
+        for name in ZSTD_SOURCES:
+            add_object(ZSTD_DIR / name, " ".join([abi, "-std=gnu11", *ZSTD_DEFINES, "-w"]))
         # the game's sin, pow and the rest, the same on every port
         # (port/include/halo_math.h)
         for source in musl_math_sources():
@@ -619,6 +645,7 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
             outputs=output,
             rule=f"{prefix}_link",
             inputs=objects + extra_objects + [resource],
+            implicit=ffmpeg_inputs,
             variables={"ldflags": " ".join(base_ldflags + extra_ldflags), "libs": libs},
         )
 
@@ -650,7 +677,7 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
         n.build(outputs=obj, rule="windows_cc", inputs=PORT_DIR / "pgo" / "halo_profile_runtime.c",
                 variables={"cflags": runtime_cflags})
         runtime_objects.append(obj)
-        instrumented = generate_dir / "halo.exe"
+        instrumented = generate_dir / "chupathingy.exe"
         instrumented_dll = generate_dir / "SDL3.dll"
         # instrumented objects ask for LLVM's own runtime library, which
         # these objects replace
@@ -679,5 +706,29 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
     # internet play's MQTT brokers, a file beside the game (network.brokers_file)
     brokers = build / "brokers.txt"
     n.build(outputs=brokers, rule=f"{prefix}_copy", inputs=Path("port/assets/network/brokers.txt"))
-    n.build(outputs=prefix, rule="phony", inputs=[output, sdl_dll, brokers])
+    # halo.exe, which starts chupathingy.exe, for shortcuts, Steam entries and
+    # scripts made for the old name, and the updaters from before the rename,
+    # which start halo.exe again (port/rename_stub/halo_stub.c, with the game's
+    # icon; TODO(after 0.9.x): remove)
+    stub = build / "halo.exe"
+    stub_resource = build / "halo_stub.res"
+    stub_object = build / "stub" / "halo_stub.o"
+    n.rule(
+        name=f"{prefix}_stub_rc",
+        command=f"${prefix}_rc /nologo /D HALO_RENAME_STUB /I {build} /I {PORT_DIR} /FO $out $in",
+        description=f"{label} RC $out",
+    )
+    n.build(outputs=stub_resource, rule=f"{prefix}_stub_rc", inputs=PORT_DIR / "halo.rc",
+            implicit=[PORT_DIR / "halo.ico", resource_header])
+    n.build(outputs=stub_object, rule=f"{prefix}_cc", inputs=Path("port/rename_stub/halo_stub.c"),
+            variables={"cflags": " ".join([f"--target={target.triple}", "-O2", "-g", "-gcodeview", *WIN32_FLAGS,
+                                           "-DUNICODE", "-D_UNICODE", "-D_CRT_SECURE_NO_WARNINGS",
+                                           f"-I{LINUX_DIR / 'src'}"])})
+    stub_subsystem = "WINDOWS" if getattr(sln, "port_release", False) else "CONSOLE"
+    n.build(outputs=stub, rule=f"{prefix}_link", inputs=[stub_object, stub_resource],
+            variables={"ldflags": " ".join([f"--target={target.triple}", "-fuse-ld=lld", "-g",
+                                            f"-Wl,/SUBSYSTEM:{stub_subsystem}",
+                                            "-Wl,/ENTRY:wWinMainCRTStartup"]),
+                       "libs": "-luser32"})
+    n.build(outputs=prefix, rule="phony", inputs=[output, stub, sdl_dll, brokers])
     n.newline()

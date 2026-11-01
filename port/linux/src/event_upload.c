@@ -395,6 +395,9 @@ void event_upload_system_sample(int *cpu_permille, int *resident_kb)
 			fclose(file);
 		}
 	}
+#elif defined(HALO_UNIX_PLATFORM_NAME)
+	/* (the other Unix hosts': port/unix/src/unix_host.c) */
+	*resident_kb = halo_unix_resident_kb();
 #endif
 }
 

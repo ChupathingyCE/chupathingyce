@@ -180,6 +180,14 @@ int update_executable_path(char *path, int size)
 		WideCharToMultiByte(CP_UTF8, 0, wide, -1, path, size, NULL, NULL) > 0;
 }
 
+int update_appimage_path(char *path, int size)
+{
+	/* (AppImages are Linux's) */
+	(void)path;
+	(void)size;
+	return 0;
+}
+
 int update_replace_file(const char *path, const char *new_path, const char *old_path)
 {
 	wchar_t wide_path[MAX_PATH * 2], wide_new[MAX_PATH * 2], wide_old[MAX_PATH * 2];

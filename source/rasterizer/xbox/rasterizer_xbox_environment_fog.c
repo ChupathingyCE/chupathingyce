@@ -129,7 +129,9 @@ symbols in this file:
 #include "bitmaps/bitmaps_inlines.h"
 #include "effects/decals.h"
 #include "game/game_globals.h"
+#ifndef HALO_XBOX_CONSOLE
 #include "main/main.h"
+#endif
 #include "interface/hud_draw.h"
 #include "rasterizer/rasterizer.h"
 #include "rasterizer/rasterizer_console_vars.h"
@@ -197,6 +199,12 @@ enum
 {
 	MAXIMUM_ENVIRONMENT_FOG_SCREEN_LAYERS = 4,
 	MAXIMUM_ENVIRONMENT_FOG_SCREEN_OPAQUE_MODELS = 128,
+};
+
+/* (a model's geometry flags: rasterizer_xbox_models.c) */
+enum
+{
+	_rasterizer_geometry_first_person_bit = 7,
 };
 
 enum
@@ -376,6 +384,7 @@ static short cached_node_matrix_count = 0;
 static real_matrix4x3 const *cached_node_matrices = NULL;
 static real_matrix4x3 previous_camera_matrix[MAXIMUM_WINDOWS] = {0};
 
+#ifndef HALO_XBOX_CONSOLE
 /* rasterizer_environment_fog_screen_draw initializes a local pointer of the
 same name from this array; MSVC resolved the name in that initializer to
 the array, standard C to the new (uninitialized) local */
@@ -384,6 +393,7 @@ static real_matrix4x3 *previous_camera_matrix_for_window(
 {
 	return &previous_camera_matrix[window_index];
 }
+#endif
 static boolean local_environment_fog_screen_model_flag = FALSE;
 static boolean local_environment_fog_screen_flag = FALSE;
 static word local_fog_screen_layer_bitmap_indices[MAXIMUM_ENVIRONMENT_FOG_SCREEN_LAYERS] = {0};
@@ -393,6 +403,9 @@ static short local_fog_pass = 0;
 static struct rasterizer_environment_fog_screen_window windows[MAXIMUM_WINDOWS] = {0};
 static struct transparent_geometry_group *opaque_model_submit_parameters = NULL;
 static long opaque_model_count = 0;
+/* port: which of them are the first-person weapon's, drawn at its own view
+width (display.viewmodel_field_of_view) */
+static boolean opaque_model_first_person[MAXIMUM_ENVIRONMENT_FOG_SCREEN_OPAQUE_MODELS] = {0};
 static boolean fog_screen_active[MAXIMUM_WINDOWS] = {0};
 static unsigned __int64 last_frame_index[MAXIMUM_WINDOWS] = {0};
 static short atmosphere_dominant_warning_count = 0;
@@ -540,6 +553,9 @@ void rasterizer_environment_fog_screen_model_submit(
 			group->dynamic_vertex_buffer_index = dynamic_vertex_buffer_index;
 			group->vertex_buffer = vertex_buffer;
 			group->model_base_map_scale = model->base_map_scale;
+			opaque_model_first_person[opaque_model_count - 1] = TEST_FLAG(
+				model->geometry_flags,
+				_rasterizer_geometry_first_person_bit);
 			if (!model_parameters_cached)
 			{
 				cached_node_matrices =
@@ -903,6 +919,7 @@ static void rasterizer_environment_fog_screen_wind_update(
 	if (screen->wind_velocity.upper > 0.0f)
 	{
 		real_vector2d *target_direction = &wind->target_direction;
+#ifndef HALO_XBOX_CONSOLE
 		/* This runs once a frame, several frames per tick on the native
 		builds (port/linux/game/render_interpolation.c): turn toward the
 		target as far per 30 Hz tick as the Xbox turned per frame. */
@@ -914,6 +931,14 @@ static void rasterizer_environment_fog_screen_wind_update(
 		wind->direction.i *= weight;
 		wind->direction.j *= weight;
 		acceleration_weight = 1.0f - weight;
+#else
+		real weight = 1.0f - screen->wind_acceleration_weight;
+		real acceleration_weight;
+
+		wind->direction.i *= weight;
+		wind->direction.j *= weight;
+		acceleration_weight = screen->wind_acceleration_weight;
+#endif
 		wind->direction.i += target_direction->i * acceleration_weight;
 		wind->direction.j += target_direction->j * acceleration_weight;
 		if (normalize2d(&wind->direction) == 0.0f)
@@ -921,11 +946,19 @@ static void rasterizer_environment_fog_screen_wind_update(
 			wind->direction.i = 1.0f;
 			wind->direction.j = 0.0f;
 		}
+#ifndef HALO_XBOX_CONSOLE
 		scalars_interpolate(
 			wind->magnitude,
 			wind->target_magnitude,
 			acceleration_weight,
 			&wind->magnitude);
+#else
+		scalars_interpolate(
+			wind->magnitude,
+			wind->target_magnitude,
+			screen->wind_acceleration_weight,
+			&wind->magnitude);
+#endif
 		if (global_frame_parameters.game_time_sec - wind->change_time >= wind->change_period)
 		{
 			real_vector2d perpendicular;
@@ -991,8 +1024,14 @@ void _rasterizer_environment_fog_screen_begin(
 
 		if (pass == 0)
 		{
+#ifndef HALO_XBOX_CONSOLE
 			real_matrix4x3 *previous_camera_matrix =
 				previous_camera_matrix_for_window(global_window_parameters.window_index);
+#else
+			real_matrix4x3 *previous_camera_matrix =
+				&previous_camera_matrix[
+					global_window_parameters.window_index];
+#endif
 			real_matrix4x3 wind_matrix = *global_identity4x3;
 			real screen_constants[5][4];
 			real_matrix4x3 matrix;
@@ -1531,7 +1570,15 @@ void _rasterizer_environment_fog_screen_begin(
 					rasterizer_set_model_skinning(&skinning);
 					if (success)
 					{
+						if (opaque_model_first_person[group_index])
+						{
+							rasterizer_set_frustum_first_person_width(TRUE);
+						}
 						rasterizer_transparent_geometry_group_draw__internal(group, FALSE);
+						if (opaque_model_first_person[group_index])
+						{
+							rasterizer_set_frustum_first_person_width(FALSE);
+						}
 						if (rasterizer_debug_options.statistics_mode ==
 							_rasterizer_statistics_mode_enabled)
 						{

@@ -601,12 +601,18 @@ void update_client_add_player(
 /* The native builds draw several frames per 30 Hz tick
 (port/linux/game/render_interpolation.c) and build an action every frame, and
 only the last one before a tick reaches it: a button pressed and released
-between two ticks, or a press seen only on its first frame (zoom, grenade
-and weapon switches), would be lost. Every control held on any frame since
-the last tick stays held until a tick has run, and the trigger stays as far
-down as it went (weapons with an analog rate of fire read that, not the
-flag). */
-static unsigned long update_client_pending_control_flags[MAXIMUM_LOCAL_PLAYERS];
+between two ticks, or released and pressed again, would be lost. Each tick
+gets every button changed from what the last tick had if it changed on any
+frame since: held on any frame if it was up, let go on any frame if it was
+down. A tap is a press and a release a tick later however short it was, and
+taps a tick or more apart are each a press, as when the Xbox read the
+controller once a tick: holding a button through a let go (a plasma pistol's
+tap charging it, a pistol's or melee's next tap lost) did not happen there.
+The trigger stays as far down as it went while held (weapons with an analog
+rate of fire read that, not the flag). */
+static unsigned long update_client_tick_control_flags[MAXIMUM_LOCAL_PLAYERS];
+static unsigned long update_client_pending_down_flags[MAXIMUM_LOCAL_PLAYERS];
+static unsigned long update_client_pending_up_flags[MAXIMUM_LOCAL_PLAYERS];
 static real update_client_pending_primary_triggers[MAXIMUM_LOCAL_PLAYERS];
 static long update_client_pending_game_time = NONE;
 
@@ -625,18 +631,20 @@ void update_client_queue(
 	}
 	if (update_client_globals.current_local_player < MAXIMUM_LOCAL_PLAYERS)
 	{
-		struct player_action *saved = &update_client_globals.saved_action_collection.actions[
-			update_client_globals.current_local_player];
-		unsigned long *pending = &update_client_pending_control_flags[
-			update_client_globals.current_local_player];
-		real *pending_primary_trigger = &update_client_pending_primary_triggers[
-			update_client_globals.current_local_player];
+		long local_player_index = update_client_globals.current_local_player;
+		struct player_action *saved = &update_client_globals.saved_action_collection.actions[local_player_index];
+		unsigned long tick_flags = update_client_tick_control_flags[local_player_index];
+		real *pending_primary_trigger = &update_client_pending_primary_triggers[local_player_index];
 
 		*saved = *action;
-		*pending |= action->control_flags;
+		update_client_pending_down_flags[local_player_index] |= action->control_flags;
+		update_client_pending_up_flags[local_player_index] |= ~action->control_flags;
+		saved->control_flags =
+			(tick_flags & ~update_client_pending_up_flags[local_player_index]) |
+			(~tick_flags & update_client_pending_down_flags[local_player_index]);
 		*pending_primary_trigger = MAX(*pending_primary_trigger, action->primary_trigger);
-		saved->control_flags = *pending;
-		saved->primary_trigger = *pending_primary_trigger;
+		saved->primary_trigger = TEST_FLAG(saved->control_flags, _unit_control_weapon_primary_trigger_bit) ?
+			*pending_primary_trigger : 0.f;
 	}
 	++update_client_globals.current_local_player;
 
@@ -650,11 +658,23 @@ void update_client_queue_push(
 	if (update_client_pending_game_time != game_time_get() ||
 		game_time_get_paused() || game_time_held())
 	{
+		long local_player_index;
+
 		update_client_pending_game_time = game_time_get();
+		/* (what the last tick had: the last action built before it) */
+		for (local_player_index = 0; local_player_index < MAXIMUM_LOCAL_PLAYERS; local_player_index++)
+		{
+			update_client_tick_control_flags[local_player_index] =
+				update_client_globals.saved_action_collection.actions[local_player_index].control_flags;
+		}
 		csmemset(
-			update_client_pending_control_flags,
+			update_client_pending_down_flags,
 			0,
-			sizeof(update_client_pending_control_flags));
+			sizeof(update_client_pending_down_flags));
+		csmemset(
+			update_client_pending_up_flags,
+			0,
+			sizeof(update_client_pending_up_flags));
 		csmemset(
 			update_client_pending_primary_triggers,
 			0,

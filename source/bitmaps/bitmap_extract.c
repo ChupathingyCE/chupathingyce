@@ -232,6 +232,8 @@ symbols in this file:
 #include "memory/data_compress.h"
 #include "memory/texture_page.h"
 
+#ifndef HALO_CONSOLE_NO_DEBUG_TOOLS
+
 /* ---------- constants */
 
 enum
@@ -2740,3 +2742,34 @@ static boolean extract_sequences(
 
 	return result;
 }
+
+#else
+
+/* port: the console's build without the developer tools (halo_xbox_prefix.h)
+has none of this module; what the rest of the game calls answers with nothing */
+
+boolean bitmaps_extract(
+	struct bitmap_group *group,
+	long build_debug_plate)
+{
+	return 0;
+}
+
+boolean bitmaps_extract_from_plate(
+	struct bitmap_data *plate,
+	struct bitmap_group *group,
+	long build_debug_plate)
+{
+	return 0;
+}
+
+struct bitmap_data * extract_build_debug_plate(
+	struct bitmap_data *bitmap,
+	boolean alpha_to_rgb,
+	boolean include_mipmaps,
+	boolean border)
+{
+	return NULL;
+}
+
+#endif

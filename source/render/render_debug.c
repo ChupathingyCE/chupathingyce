@@ -175,6 +175,8 @@ symbols in this file:
 #include "cutscene/recorded_animations.h"
 #endif
 
+#ifndef HALO_CONSOLE_NO_DEBUG_TOOLS
+
 /* ---------- constants */
 
 enum
@@ -2169,3 +2171,258 @@ static void render_debug_add_cache_entry(
 
 	return;
 }
+
+#else
+
+/* port: the console's build without the developer tools (halo_xbox_prefix.h)
+has none of this module; what the rest of the game calls answers with nothing */
+
+/* (the switches the scripts set) */
+boolean debug_bsp;
+boolean debug_camera;
+boolean debug_input;
+boolean debug_permanent_decals;
+boolean debug_player;
+boolean debug_structure;
+
+void render_debug_triangle(
+	boolean immediate,
+	real_point3d const *point0,
+	real_point3d const *point1,
+	real_point3d const *point2,
+	real_argb_color const *color)
+{
+	return;
+}
+
+void render_debug_quadrilateral(
+	boolean immediate,
+	real_point3d const *point0,
+	real_point3d const *point1,
+	real_point3d const *point2,
+	real_point3d const *point3,
+	real_argb_color const *color)
+{
+	return;
+}
+
+void render_debug_polygon(
+	real_point3d const *points,
+	short point_count,
+	real_argb_color const *color)
+{
+	return;
+}
+
+void render_debug_box_outline(
+	boolean immediate,
+	real_rectangle3d const *bounds,
+	real_argb_color const *color)
+{
+	return;
+}
+
+void render_debug(
+	void)
+{
+	return;
+}
+
+void render_debug_point(
+	boolean immediate,
+	real_point3d const *point,
+	real size,
+	real_argb_color const *color)
+{
+	return;
+}
+
+void render_debug_line(
+	boolean immediate,
+	real_point3d const *point0,
+	real_point3d const *point1,
+	real_argb_color const *color)
+{
+	return;
+}
+
+void render_debug_vector(
+	boolean immediate,
+	real_point3d const *point,
+	real_vector3d const *vector,
+	real size,
+	real_argb_color const *color)
+{
+	return;
+}
+
+void render_debug_tick(
+	boolean immediate,
+	real_point3d const *point,
+	real_vector3d const *tick_vector,
+	real tick_size,
+	real_argb_color const *color)
+{
+	return;
+}
+
+void render_debug_line_offset(
+	boolean immediate,
+	real_point3d const *p0,
+	real_point3d const *p1,
+	real_argb_color const *color,
+	real offset)
+{
+	return;
+}
+
+void render_debug_matrix(
+	boolean immediate,
+	struct real_matrix4x3 const *matrix,
+	real size)
+{
+	return;
+}
+
+void render_debug_sphere(
+	boolean immediate,
+	real_point3d const *center,
+	real radius,
+	real_argb_color const *color)
+{
+	return;
+}
+
+void render_debug_cylinder(
+	boolean immediate,
+	real_point3d const *base,
+	real_vector3d const *height,
+	real width,
+	real_argb_color const *color)
+{
+	return;
+}
+
+void render_debug_pill(
+	boolean immediate,
+	real_point3d const *base,
+	real_vector3d const *height,
+	real width,
+	real_argb_color const *color)
+{
+	return;
+}
+
+void render_debug_box(
+	boolean immediate,
+	real_rectangle3d const *bounds,
+	real_argb_color const *color)
+{
+	return;
+}
+
+void render_debug_polygon_edges(
+	real_point3d const *points,
+	short point_count,
+	real_argb_color const *color)
+{
+	return;
+}
+
+void render_debug_string(
+	boolean immediate,
+	char const *string)
+{
+	return;
+}
+
+void render_debug_string_at_point(
+	boolean immediate,
+	real_point3d const *point,
+	char const *string,
+	real_argb_color const *color)
+{
+	return;
+}
+
+void render_debug_circle(
+	boolean immediate,
+	real_plane3d const *plane,
+	short projection,
+	boolean sign,
+	real_point2d const *center,
+	real radius,
+	real_argb_color const *color,
+	real offset)
+{
+	return;
+}
+
+void render_debug_vectors(
+	boolean immediate,
+	const real_point3d *point,
+	const real_vector3d *forward,
+	const real_vector3d *up,
+	real size)
+{
+	return;
+}
+
+void render_debug_quaternion(
+	boolean immediate,
+	const real_point3d *point,
+	const real_quaternion *quaternion,
+	real size)
+{
+	return;
+}
+
+void render_debug_box2d_outline(
+	boolean immediate,
+	real_rectangle2d const *bounds,
+	real_argb_color const *color)
+{
+	return;
+}
+
+void render_debug_point2d(
+	boolean immediate,
+	real_plane3d const *plane,
+	short projection,
+	boolean sign,
+	real_point2d const *point,
+	real size,
+	real_argb_color const *color,
+	real offset)
+{
+	return;
+}
+
+void render_debug_line2d(
+	boolean immediate,
+	real_plane3d const *plane,
+	short projection,
+	boolean sign,
+	real_point2d const *p0,
+	real_point2d const *p1,
+	real_argb_color const *color,
+	real offset)
+{
+	return;
+}
+
+void render_debug_vector2d(
+	boolean immediate,
+	real_plane3d const *plane,
+	short projection,
+	boolean sign,
+	real_point2d const *point,
+	real_vector2d const *vector,
+	real size,
+	real_argb_color const *color,
+	real offset)
+{
+	return;
+}
+
+#endif

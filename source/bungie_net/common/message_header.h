@@ -35,6 +35,14 @@ enum message_type
 #define GET_MESSAGE_SIZE(message) ((message) >> 4)
 #define SET_MESSAGE_FLAGS(message, flags) \
 	((message) = ((message) & ~MESSAGE_FLAG_BITS_MASK) | (flags))
+/* port: a header between this machine's order and the network's, which is
+big-endian: a little-endian machine (the original Xbox's x86) swaps it, a
+big-endian one (HALO_BIG_ENDIAN: the consoles' PowerPC) has it already */
+#ifdef HALO_BIG_ENDIAN
+#define MESSAGE_HEADER_SWAP(value) (value)
+#else
+#define MESSAGE_HEADER_SWAP(value) (((value) << 8) | ((value) >> 8))
+#endif
 
 /* ---------- structures */
 

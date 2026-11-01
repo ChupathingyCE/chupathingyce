@@ -1,0 +1,181 @@
+diff --git a/src/renderer_mtl.cpp b/src/renderer_mtl.cpp
+index 5433668..b4bf31b 100644
+--- a/src/renderer_mtl.cpp
++++ b/src/renderer_mtl.cpp
+@@ -20,7 +20,20 @@
+ #	include <IOKit/IOKitLib.h>
+ #endif // BX_PLATFORM_OSX
+ 
+-#define UNIFORM_BUFFER_SIZE (8*1024*1024)
++#ifndef BGFX_CONFIG_MTL_UNIFORM_BUFFER_SIZE
++#	define BGFX_CONFIG_MTL_UNIFORM_BUFFER_SIZE (8*1024*1024)
++#endif // BGFX_CONFIG_MTL_UNIFORM_BUFFER_SIZE
++#define UNIFORM_BUFFER_SIZE BGFX_CONFIG_MTL_UNIFORM_BUFFER_SIZE
++
++// Shader libraries and pipeline states Metal has compiled, and the time it
++// took, for the application to read (it declares the same struct).
++struct bgfx_mtl_stats_t
++{
++	uint32_t libraries, pipelines;
++	double library_seconds, pipeline_seconds;
++};
++extern "C" bgfx_mtl_stats_t bgfx_mtl_stats;
++bgfx_mtl_stats_t bgfx_mtl_stats;
+ 
+ namespace bgfx { namespace mtl
+ {
+@@ -197,7 +210,9 @@ namespace bgfx { namespace mtl
+ 		MTL::SamplerAddressModeRepeat,
+ 		MTL::SamplerAddressModeMirrorRepeat,
+ 		MTL::SamplerAddressModeClampToEdge,
+-		MTL::SamplerAddressModeClampToZero,
++		// Border: the color of BGFX_SAMPLER_BORDER_COLOR, one of Metal's three
++		// (0 transparent black, 1 opaque black, 2 opaque white).
++		MTL::SamplerAddressModeClampToBorderColor,
+ 	};
+ 
+ 	static const MTL::SamplerMinMagFilter s_textureFilterMinMag[] =
+@@ -2297,6 +2312,15 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
+ 				desc->setDepthCompareFunction( (MTL::CompareFunction)s_cmpFunc[func]);
+ 
+ 				uint32_t bstencil = unpackStencil(1, _stencil);
++				// A back stencil with no test but a read mask carries the
++				// write mask for both faces (the front's state for both).
++				uint32_t writeMask = 0xff;
++				if (BGFX_STENCIL_NONE != bstencil
++				&&  0 == (bstencil & BGFX_STENCIL_TEST_MASK) )
++				{
++					writeMask = (bstencil & BGFX_STENCIL_FUNC_RMASK_MASK) >> BGFX_STENCIL_FUNC_RMASK_SHIFT;
++					bstencil  = BGFX_STENCIL_NONE;
++				}
+ 				uint32_t frontAndBack = bstencil != BGFX_STENCIL_NONE && bstencil != fstencil;
+ 				bstencil = frontAndBack ? bstencil : fstencil;
+ 
+@@ -2306,7 +2330,6 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
+ 					MTL::StencilDescriptor* backfaceDesc  = m_backFaceStencilDescriptor;
+ 
+ 					uint32_t readMask  = (fstencil&BGFX_STENCIL_FUNC_RMASK_MASK)>>BGFX_STENCIL_FUNC_RMASK_SHIFT;
+-					uint32_t writeMask = 0xff;
+ 
+ 					frontFaceDesc->setStencilFailureOperation(   (MTL::StencilOperation)s_stencilOp[(fstencil&BGFX_STENCIL_OP_FAIL_S_MASK)>>BGFX_STENCIL_OP_FAIL_S_SHIFT]);
+ 					frontFaceDesc->setDepthFailureOperation(     (MTL::StencilOperation)s_stencilOp[(fstencil&BGFX_STENCIL_OP_FAIL_Z_MASK)>>BGFX_STENCIL_OP_FAIL_Z_SHIFT]);
+@@ -2805,7 +2828,10 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
+ 
+ 				{
+ 					MTL::RenderPipelineReflection* reflection = NULL;
++					const int64_t start = bx::getHPCounter();
+ 					pso->m_rps = newRenderPipelineStateWithDescriptor(m_device, pd, MTL::PipelineOptionBufferTypeInfo, &reflection);
++					bgfx_mtl_stats.pipelines++;
++					bgfx_mtl_stats.pipeline_seconds += double(bx::getHPCounter() - start) / double(bx::getHPFrequency() );
+ 
+ 					if (NULL != reflection)
+ 					{
+@@ -2884,7 +2910,7 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
+ 
+ 		MTL::SamplerState* getSamplerState(uint32_t _flags)
+ 		{
+-			_flags &= BGFX_SAMPLER_BITS_MASK;
++			_flags &= BGFX_SAMPLER_BITS_MASK|BGFX_SAMPLER_BORDER_COLOR_MASK;
+ 			MTL::SamplerState* sampler = m_samplerStateCache.find(_flags);
+ 
+ 			if (NULL == sampler)
+@@ -2897,6 +2923,15 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
+ 				desc->setMinFilter(s_textureFilterMinMag[(_flags & BGFX_SAMPLER_MIN_MASK) >> BGFX_SAMPLER_MIN_SHIFT]);
+ 				desc->setMagFilter(s_textureFilterMinMag[(_flags & BGFX_SAMPLER_MAG_MASK) >> BGFX_SAMPLER_MAG_SHIFT]);
+ 				desc->setMipFilter(   s_textureFilterMip[(_flags & BGFX_SAMPLER_MIP_MASK) >> BGFX_SAMPLER_MIP_SHIFT]);
++				{
++					const uint32_t border = (_flags & BGFX_SAMPLER_BORDER_COLOR_MASK) >> BGFX_SAMPLER_BORDER_COLOR_SHIFT;
++					desc->setBorderColor(1 == border
++						? MTL::SamplerBorderColorOpaqueBlack
++						: 2 == border
++						? MTL::SamplerBorderColorOpaqueWhite
++						: MTL::SamplerBorderColorTransparentBlack
++						);
++				}
+ 				desc->setLodMinClamp(0);
+ 				desc->setLodMaxClamp(FLT_MAX);
+ 				desc->setNormalizedCoordinates(TRUE);
+@@ -3150,6 +3185,7 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
+ 		const char* code = (const char*)reader.getDataPtr();
+ 		bx::skip(&reader, shaderSize+1);
+ 
++		const int64_t start = bx::getHPCounter();
+ 		MTL::Library* lib = newLibraryWithSource(s_renderMtl->m_device, code);
+ 
+ 		if (NULL != lib)
+@@ -3158,6 +3194,9 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
+ 			MTL_RELEASE_W(lib, 0);
+ 		}
+ 
++		bgfx_mtl_stats.libraries++;
++		bgfx_mtl_stats.library_seconds += double(bx::getHPCounter() - start) / double(bx::getHPFrequency() );
++
+ 		BGFX_FATAL(NULL != m_function
+ 			, bgfx::Fatal::InvalidShader
+ 			, "Failed to create %s shader."
+@@ -4373,8 +4412,9 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
+ 
+ 		Query& query = m_query[m_control.m_current];
+ 		query.m_handle  = _handle;
++		query.m_frame   = m_frame;
+ 		uint32_t offset = _handle.idx * 8;
+-		_rce->setVisibilityResultMode( (MTL::VisibilityResultMode)MTL::VisibilityResultModeBoolean, offset);
++		_rce->setVisibilityResultMode( (MTL::VisibilityResultMode)MTL::VisibilityResultModeCounting, offset);
+ 	}
+ 
+ 	void OcclusionQueryMTL::end(MTL::RenderCommandEncoder*& _rce)
+@@ -4387,12 +4427,16 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
+ 
+ 	void OcclusionQueryMTL::resolve(Frame* _render, bool _wait)
+ 	{
+-		BX_UNUSED(_wait);
+-
+ 		while (0 != m_control.getNumUsed() )
+ 		{
+ 			Query& query = m_query[m_control.m_read];
+ 
++			if (!_wait
++			&&  m_frame - query.m_frame < BGFX_CONFIG_MAX_FRAME_LATENCY)
++			{
++				break;
++			}
++
+ 			if (isValid(query.m_handle) )
+ 			{
+ 				uint64_t result = ( (uint64_t*)m_buffer->contents() )[query.m_handle.idx];
+@@ -4657,6 +4701,7 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
+ 			, s_viewName
+ 			);
+ 
++		m_occlusionQuery.m_frame++;
+ 		m_occlusionQuery.resolve(_render);
+ 
+ 		if (0 == (_render->m_debug&BGFX_DEBUG_IFH) )
+@@ -4865,6 +4910,9 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
+ 							m_renderCommandEncoder = rce;
+ 							m_renderCommandEncoderFrameBufferHandle = fbh;
+ 
++							// A new encoder starts with a zero blend color.
++							blendFactor = 0;
++
+ 							MTL_RELEASE(renderPassDescriptor, 0);
+ 
+ 							if (m_depthClamp)
+diff --git a/src/renderer_mtl.h b/src/renderer_mtl.h
+index 0465e06..4084bd8 100644
+--- a/src/renderer_mtl.h
++++ b/src/renderer_mtl.h
+@@ -693,9 +693,13 @@ namespace bgfx { namespace mtl
+ 		struct Query
+ 		{
+ 			OcclusionQueryHandle m_handle;
++			uint32_t m_frame;
+ 		};
+ 
+ 		MTL::Buffer* m_buffer;
++		// Frames submitted: a query's result is read only once the GPU is
++		// done with the frame that made it.
++		uint32_t m_frame = 0;
+ 		Query m_query[BGFX_CONFIG_MAX_OCCLUSION_QUERIES];
+ 		bx::RingBufferControl m_control;
+ 	};

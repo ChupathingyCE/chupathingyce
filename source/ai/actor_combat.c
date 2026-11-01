@@ -1102,7 +1102,7 @@ long actor_aim_projectile(
 	if (actor->control.fire_state == _actor_fire_state_bursting)
 	{
 		struct actor_debug_info *actor_debug_info =
-			&actor_debug_array[DATUM_INDEX_TO_ABSOLUTE_INDEX(actor_index)];
+			ACTOR_DEBUG_INFO_GET(actor_index);
 
 		actor_debug_info->last_projectile_aiming_time = game_time_get();
 
@@ -1636,7 +1636,7 @@ void actor_combat_update(
 	boolean hold_burst_start = FALSE;
 	long weapon_index = actor_get_weapon(actor_index);
 	struct actor_debug_info *actor_debug_info =
-		&actor_debug_array[DATUM_INDEX_TO_ABSOLUTE_INDEX(actor_index)];
+		ACTOR_DEBUG_INFO_GET(actor_index);
 	short firing_decision = NONE;
 	boolean fire;
 

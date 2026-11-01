@@ -506,3 +506,151 @@ def test_who_can_moderate(harness_binary, tmp_path):
         assert http(running, "GET", "/v1/moderators", grif).status == 403
     finally:
         running.stop()
+
+
+# ---------- what the permission table covers, logins, second factors, slow clients
+
+
+def test_every_command_has_a_permission():
+    """Each command in server_commands.c's table has a line in the permission
+    table (control_roles.c): one left out would be the console's alone, so
+    it is caught here instead of in a moderator's hands."""
+    commands_source = (ROOT / "server" / "src" / "server_commands.c").read_text()
+    table = commands_source[commands_source.index("static struct server_command const server_commands[] ="):]
+    table = table[:table.index("\n};")]
+    commands = re.findall(r'^\s*\{ "(\w+)",', table, re.M)
+    roles_source = (PLATFORM / "control_roles.c").read_text()
+    permissions = roles_source[roles_source.index("command_permissions[] ="):]
+    permissions = permissions[:permissions.index("\n};")]
+    listed = set(re.findall(r'\{ "(\w+)", CONTROL_PERMISSION_', permissions))
+    assert len(commands) > 50 and "sv_welcome" in commands
+    assert [name for name in commands if name not in listed] == []
+    assert sorted(listed - set(commands)) == []
+
+
+def owner_and_moderator(running):
+    """The first owner's account (milenko) and an invited moderator's (grif):
+    each's request headers (cookie, CSRF token, origin)."""
+    origin = {"Origin": f"http://127.0.0.1:{running.port}"}
+    setup = next(re.search(r"#setup=(\S+)", line).group(1) for line in running.lines if "#setup=" in line)
+    assert http(running, "POST", "/v1/setup", origin,
+                {"code": setup, "user": "milenko", "password": "correct horse battery"}).status == 200
+    response = http(running, "POST", "/v1/login", origin, {"user": "milenko", "password": "correct horse battery"})
+    assert response.status == 200, response.body
+    owner = dict(origin, **{"Cookie": f"chce_session={response.session}", "X-CSRF-Token": response.json()["csrf"]})
+    code = http(running, "POST", "/v1/accounts/invite", owner, {"role": "moderator"}).json()["code"]
+    assert http(running, "POST", "/v1/invite", origin,
+                {"code": code, "user": "grif", "password": "orange team forever"}).status == 200
+    response = http(running, "POST", "/v1/login", origin, {"user": "grif", "password": "orange team forever"})
+    assert response.status == 200, response.body
+    moderator = dict(origin, **{"Cookie": f"chce_session={response.session}", "X-CSRF-Token": response.json()["csrf"]})
+    return owner, moderator
+
+
+def test_unlisted_commands_are_the_consoles(harness):
+    """sv_welcome is a setting (an admin's, audited); a command the table does
+    not know is refused to every role and token, never let through."""
+    owner, moderator = owner_and_moderator(harness)
+    assert http(harness, "POST", "/v1/command", moderator, {"command": "sv_welcome \"hi\""}).status == 403
+    assert http(harness, "POST", "/v1/command", moderator, {"command": "sv_welcome"}).status == 200
+    assert http(harness, "POST", "/v1/command", moderator, {"command": "sv_nothing"}).status == 403
+    assert http(harness, "POST", "/v1/command", owner, {"command": "sv_nothing x"}).status == 403
+    bearer = {"Authorization": f"Bearer {harness.token}"}
+    assert http(harness, "POST", "/v1/command", bearer, {"command": "sv_nothing"}).status == 403
+    assert http(harness, "POST", "/v1/query", bearer, {"command": "sv_nothing"}).status == 403
+    start = len(harness.lines)
+    assert http(harness, "POST", "/v1/command", owner, {"command": "sv_welcome \"hi\""}).json()["ok"]
+    assert re.fullmatch(r"audit: web milenko [0-9a-f]{8}: sv_welcome \"hi\" \(owner [0-9a-f]+\)",
+                        harness.wait_for("sv_welcome", start))
+    assert not any("sv_nothing" in line for line in harness.lines)
+
+
+def test_login_lockout_is_per_source(harness_binary, tmp_path):
+    """Wrong passwords from one place (a client a trusted proxy names) do not
+    keep the owner out from another; a wrong password for an account and
+    for no account read the same."""
+    running = Harness(harness_binary, tmp_path, extra={"HALO_DEDICATED_CONTROL_TRUSTED_PROXY": "127.0.0.1"})
+    try:
+        running.wait_for("trusts X-Forwarded-For from 1 reverse proxy")
+        owner_and_moderator(running)
+        origin = {"Origin": f"http://127.0.0.1:{running.port}"}
+        attacker = dict(origin, **{"X-Forwarded-For": "198.51.100.1, 203.0.113.5"})
+        wrongs = 0
+        deadline = time.time() + 60
+        while wrongs < 5:
+            wrong = http(running, "POST", "/v1/login", attacker, {"user": "milenko", "password": f"guess {wrongs}"})
+            if wrong.status == 429:
+                # (an address with wrong tries lately leaves the last few checks
+                # of the minute to everyone else: it waits for them)
+                assert b"logins checked" in wrong.body and time.time() < deadline
+                time.sleep(1)
+                continue
+            assert wrong.status == 401
+            wrongs += 1
+        assert http(running, "POST", "/v1/login", attacker,
+                    {"user": "milenko", "password": "correct horse battery"}).status == 429
+        # (the owner, elsewhere, and the proxy's own address, are not locked out)
+        elsewhere = dict(origin, **{"X-Forwarded-For": "198.51.100.7"})
+        assert http(running, "POST", "/v1/login", elsewhere,
+                    {"user": "milenko", "password": "correct horse battery"}).status == 200
+        assert http(running, "POST", "/v1/login", origin,
+                    {"user": "milenko", "password": "correct horse battery"}).status == 200
+        # (no account and a wrong password: the same answer)
+        known = http(running, "POST", "/v1/login", dict(origin, **{"X-Forwarded-For": "2001:db8::9"}),
+                     {"user": "milenko", "password": "nope nope nope"})
+        unknown = http(running, "POST", "/v1/login", dict(origin, **{"X-Forwarded-For": "2001:db8::a"}),
+                       {"user": "nobody", "password": "nope nope nope"})
+        assert known.status == unknown.status == 401 and known.body == unknown.body
+    finally:
+        running.stop()
+
+
+def test_forwarded_for_needs_a_trusted_proxy(harness):
+    """With no trusted proxy, X-Forwarded-For is not believed: wrong logins
+    count against the address that connected, whatever it says."""
+    for attempt in range(5):
+        response = login(harness, "chce_" + f"{attempt:064x}", {"X-Forwarded-For": f"203.0.113.{attempt + 1}"})
+        assert response.status == 401
+    assert login(harness, "chce_" + "f" * 64, {"X-Forwarded-For": "203.0.113.99"}).status == 429
+
+
+def totp_code(secret, step):
+    import base64
+    import hashlib
+    import hmac
+    import struct
+    key = base64.b32decode(secret + "=" * (-len(secret) % 8))
+    digest = hmac.new(key, struct.pack(">Q", step), hashlib.sha1).digest()
+    offset = digest[-1] & 15
+    return f"{(struct.unpack('>I', digest[offset:offset + 4])[0] & 0x7FFFFFFF) % 1000000:06d}"
+
+
+def test_second_factor_is_not_replaced_by_a_session(harness):
+    """Once a second factor is on, a session alone cannot set up another: it
+    is turned off first, with the password and a current code."""
+    owner, _ = owner_and_moderator(harness)
+    begun = http(harness, "POST", "/v1/account/totp/begin", owner, {})
+    assert begun.status == 200
+    code = totp_code(begun.json()["secret"], int(time.time()) // 30)
+    assert http(harness, "POST", "/v1/account/totp/enable", owner, {"code": code}).status == 200
+    assert http(harness, "POST", "/v1/account/totp/begin", owner, {}).status == 409
+    assert http(harness, "POST", "/v1/account/totp/enable", owner, {"code": code}).status == 409
+
+
+def test_slow_clients_do_not_hold_the_panel(harness):
+    """Connections that send nothing are dropped within seconds, and when
+    every slot is taken the oldest waiting one makes room: a real request
+    is still answered."""
+    idle = []
+    try:
+        for _ in range(24):
+            idle.append(socket.create_connection(("127.0.0.1", harness.port), timeout=10))
+        time.sleep(0.3)
+        assert http(harness, "GET", "/v1/hello").status == 200
+        last = idle[-1]
+        started = time.time()
+        assert last.recv(1) == b""
+        assert time.time() - started < 8
+    finally:
+        for connection in idle:
+            connection.close()

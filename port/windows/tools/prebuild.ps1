@@ -147,6 +147,13 @@ function Embed-Assets
 		}
 	}
 
+	# the head-related impulse responses (port/assets/hrtf)
+	$hrtfFile = Join-Parts $Root 'port/assets/hrtf/sadie_d2_48k.hrtf'
+	if (Test-Path -LiteralPath $hrtfFile)
+	{
+		[void]$inputs.Add($hrtfFile)
+	}
+
 	# nothing to do when the output is newer than everything it is made from
 	if (Test-Path -LiteralPath $Output)
 	{
@@ -336,6 +343,25 @@ function Embed-Assets
 	}
 	[void]$text.Append("`n#endif`n")
 
+	# the mixer's head-related impulse responses (dsound_sdl.c), of size 0 if
+	# the checkout does not have them (tools/embed_assets.py's HRTF_FILE)
+	$data = New-Object byte[] 0
+	if (Test-Path -LiteralPath $hrtfFile)
+	{
+		$data = [System.IO.File]::ReadAllBytes($hrtfFile)
+	}
+	[void]$text.Append("`nconst unsigned int dsound_hrtf_data[] = {`n")
+	if ($data.Length -gt 0)
+	{
+		Add-Words $text $data
+	}
+	else
+	{
+		[void]$text.Append("`t0,`n")
+	}
+	[void]$text.Append("};`n")
+	[void]$text.Append("const unsigned long dsound_hrtf_data_size = $($data.Length);`n")
+
 	$folder = [System.IO.Path]::GetDirectoryName($Output)
 	if ($folder -and -not (Test-Path -LiteralPath $folder))
 	{
@@ -356,7 +382,8 @@ $uiFontFiles = @(
 	'port/linux/ui/fonts/input_keyboard.ttf',
 	'port/assets/fonts/CyborgInterfaceGothic-Regular.ttf',
 	'port/assets/fonts/CyborgInterfaceGothic-Regular.ttf',
-	'port/assets/fonts/OpenCE-Regular.ttf'
+	'port/assets/fonts/OpenCE-Regular.ttf',
+	'port/linux/ui/fonts/platform_icons.ttf'
 )
 # the controller's button icons the overlay's prompts draw, in ui_overlay.c's
 # order (tools/embed_assets.py's PROMPT_ICONS, checked the same way)

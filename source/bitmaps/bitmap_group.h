@@ -20,6 +20,17 @@ enum
 	BITMAP_GROUP_TAG = 'bitm',
 };
 
+#ifdef HALO_CUSTOM_EDITION
+/* port: bitmap group flags made after the Xbox's and Halo PC's tags, for
+the HUD: MCC's "0.5 HUD scale" and Chimera's "force HUD use high resolution
+scale" (hud_bitmap_group_scale, ce_hud.c) */
+enum
+{
+	_bitmap_group_half_hud_scale_bit = 4,
+	_bitmap_group_force_hud_high_resolution_scale_bit = 7,
+};
+#endif
+
 /* ---------- macros */
 
 #define bitmap_group_get(index) ((struct bitmap_group *)tag_get(BITMAP_GROUP_TAG, (index)))

@@ -1,0 +1,253 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The Chupathingy menus' DELTA PROFILE (Profiles' DELTA PROFILE row, and
+Online Games' Start): the player's own Delta profile (CLAN's emblem drawn
+over the panel by profile_screen.c), laid out as Profiles
+is: its sections on the left, the section in the Xbox's panel on the right,
+and its prompts (Y asks the site again, B goes back, A chooses). What each
+section says is port/linux/game/profile_screen.c's, put in these widgets by
+menu_functions.c ("port delta profile update"); its dialogs (Link Profile,
+Open on the Web, unlinking) are Online Games'. Privacy is a settings page
+(tools/port_settings.py). -->
+<menus>
+	<bitmap name="chupathingy/delta_profile/header_delta_profile">
+		<frame png="ce/port/chupathingy/delta_profile/header_delta_profile.png" width="512" height="64"/>
+	</bitmap>
+	<bitmap name="chupathingy/delta_profile/header_privacy">
+		<frame png="ce/port/chupathingy/delta_profile/header_privacy.png" width="512" height="64"/>
+	</bitmap>
+	<widget name="chupathingy/delta_profile/screen" width="640" height="480" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/gradient">
+		<on event="b" run="port delta profile back"/>
+		<on event="back" run="port delta profile back"/>
+		<on event="y" run="port delta profile refresh"/>
+		<on event="x" run="port delta profile copies"/>
+		<child widget="chupathingy/delta_profile/header"/>
+		<child widget="chupathingy/delta_profile/list"/>
+		<child widget="chupathingy/prompts/y" x="60" y="414"/>
+		<child widget="chupathingy/prompts/refresh" x="82" y="414"/>
+		<child widget="chupathingy/prompts/b" x="365" y="414"/>
+		<child widget="chupathingy/prompts/back" x="387" y="414"/>
+		<child widget="chupathingy/prompts/a" x="490" y="414"/>
+		<child widget="chupathingy/prompts/select" x="512" y="414"/>
+	</widget>
+	<widget name="chupathingy/delta_profile/header" controller="1" left="35" top="11" width="363" height="59" bitmap="chupathingy/delta_profile/header_delta_profile">
+	</widget>
+	<widget name="chupathingy/delta_profile/list" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_children" description="chupathingy/delta_profile/card">
+		<data input="port delta profile update"/>
+		<on event="custom_activation" run="port delta profile choose"/>
+		<child widget="chupathingy/profiles/list_item_0" x="51" y="78"/>
+		<child widget="chupathingy/profiles/list_item_1" x="51" y="108"/>
+		<child widget="chupathingy/profiles/list_item_2" x="51" y="138"/>
+		<child widget="chupathingy/profiles/list_item_3" x="51" y="168"/>
+		<child widget="chupathingy/profiles/list_item_4" x="51" y="198"/>
+		<child widget="chupathingy/profiles/list_item_5" x="51" y="242"/>
+		<child widget="chupathingy/profiles/list_item_6" x="51" y="272"/>
+	</widget>
+	<!-- (the section: its name; the overview's Spartan with the name, handle,
+	badges and record (GAMES to MEDALS) beside it; then its rows: a label, a place for a recent
+	game, and a value at the right) -->
+	<widget name="chupathingy/delta_profile/card" width="640" height="480">
+		<child widget="chupathingy/profiles/panel"/>
+		<child widget="chupathingy/delta_profile/kind" x="294" y="88"/>
+		<child widget="main_menu/multiplayer_type_select/connected/4way_profile_select/qtr_screen_profile_color_pic" x="280" y="118"/>
+		<child widget="chupathingy/delta_profile/title" x="400" y="124"/>
+		<child widget="chupathingy/delta_profile/clan_title" x="364" y="116"/>
+		<child widget="chupathingy/delta_profile/clan_side_0" x="364" y="142"/>
+		<child widget="chupathingy/delta_profile/clan_side_1" x="364" y="159"/>
+		<child widget="chupathingy/delta_profile/side_0" x="400" y="150"/>
+		<child widget="chupathingy/delta_profile/side_1" x="400" y="167"/>
+		<child widget="chupathingy/delta_profile/stat_label_0" x="400" y="188"/>
+		<child widget="chupathingy/delta_profile/stat_value_0" x="400" y="188"/>
+		<child widget="chupathingy/delta_profile/stat_label_1" x="400" y="205"/>
+		<child widget="chupathingy/delta_profile/stat_value_1" x="400" y="205"/>
+		<child widget="chupathingy/delta_profile/stat_label_2" x="400" y="222"/>
+		<child widget="chupathingy/delta_profile/stat_value_2" x="400" y="222"/>
+		<child widget="chupathingy/delta_profile/stat_label_3" x="400" y="239"/>
+		<child widget="chupathingy/delta_profile/stat_value_3" x="400" y="239"/>
+		<child widget="chupathingy/delta_profile/stat_label_4" x="400" y="256"/>
+		<child widget="chupathingy/delta_profile/stat_value_4" x="400" y="256"/>
+		<child widget="chupathingy/delta_profile/stat_label_5" x="400" y="273"/>
+		<child widget="chupathingy/delta_profile/stat_value_5" x="400" y="273"/>
+		<child widget="chupathingy/delta_profile/line_label_0" x="294" y="116"/>
+		<child widget="chupathingy/delta_profile/line_place_0" x="446" y="116"/>
+		<child widget="chupathingy/delta_profile/line_value_0" x="440" y="116"/>
+		<child widget="chupathingy/delta_profile/line_label_1" x="294" y="133"/>
+		<child widget="chupathingy/delta_profile/line_place_1" x="446" y="133"/>
+		<child widget="chupathingy/delta_profile/line_value_1" x="440" y="133"/>
+		<child widget="chupathingy/delta_profile/line_label_2" x="294" y="150"/>
+		<child widget="chupathingy/delta_profile/line_place_2" x="446" y="150"/>
+		<child widget="chupathingy/delta_profile/line_value_2" x="440" y="150"/>
+		<child widget="chupathingy/delta_profile/line_label_3" x="294" y="167"/>
+		<child widget="chupathingy/delta_profile/line_place_3" x="446" y="167"/>
+		<child widget="chupathingy/delta_profile/line_value_3" x="440" y="167"/>
+		<child widget="chupathingy/delta_profile/line_label_4" x="294" y="184"/>
+		<child widget="chupathingy/delta_profile/line_place_4" x="446" y="184"/>
+		<child widget="chupathingy/delta_profile/line_value_4" x="440" y="184"/>
+		<child widget="chupathingy/delta_profile/line_label_5" x="294" y="201"/>
+		<child widget="chupathingy/delta_profile/line_place_5" x="446" y="201"/>
+		<child widget="chupathingy/delta_profile/line_value_5" x="440" y="201"/>
+		<child widget="chupathingy/delta_profile/line_label_6" x="294" y="218"/>
+		<child widget="chupathingy/delta_profile/line_place_6" x="446" y="218"/>
+		<child widget="chupathingy/delta_profile/line_value_6" x="440" y="218"/>
+		<child widget="chupathingy/delta_profile/line_label_7" x="294" y="235"/>
+		<child widget="chupathingy/delta_profile/line_place_7" x="446" y="235"/>
+		<child widget="chupathingy/delta_profile/line_value_7" x="440" y="235"/>
+		<child widget="chupathingy/delta_profile/line_label_8" x="294" y="252"/>
+		<child widget="chupathingy/delta_profile/line_place_8" x="446" y="252"/>
+		<child widget="chupathingy/delta_profile/line_value_8" x="440" y="252"/>
+		<child widget="chupathingy/delta_profile/line_label_9" x="294" y="269"/>
+		<child widget="chupathingy/delta_profile/line_place_9" x="446" y="269"/>
+		<child widget="chupathingy/delta_profile/line_value_9" x="440" y="269"/>
+		<child widget="chupathingy/delta_profile/line_label_10" x="294" y="286"/>
+		<child widget="chupathingy/delta_profile/line_place_10" x="446" y="286"/>
+		<child widget="chupathingy/delta_profile/line_value_10" x="440" y="286"/>
+		<child widget="chupathingy/delta_profile/line_label_11" x="294" y="303"/>
+		<child widget="chupathingy/delta_profile/line_place_11" x="446" y="303"/>
+		<child widget="chupathingy/delta_profile/line_value_11" x="440" y="303"/>
+		<child widget="chupathingy/delta_profile/line_label_12" x="294" y="320"/>
+		<child widget="chupathingy/delta_profile/line_place_12" x="446" y="320"/>
+		<child widget="chupathingy/delta_profile/line_value_12" x="440" y="320"/>
+		<child widget="chupathingy/delta_profile/line_label_13" x="294" y="337"/>
+		<child widget="chupathingy/delta_profile/line_place_13" x="446" y="337"/>
+		<child widget="chupathingy/delta_profile/line_value_13" x="440" y="337"/>
+		<child widget="chupathingy/delta_profile/line_label_14" x="294" y="354"/>
+		<child widget="chupathingy/delta_profile/line_place_14" x="446" y="354"/>
+		<child widget="chupathingy/delta_profile/line_value_14" x="440" y="354"/>
+		<child widget="chupathingy/delta_profile/line_label_15" x="294" y="371"/>
+		<child widget="chupathingy/delta_profile/line_place_15" x="446" y="371"/>
+		<child widget="chupathingy/delta_profile/line_value_15" x="440" y="371"/>
+	</widget>
+	<widget name="chupathingy/delta_profile/kind" type="text" controller="1" width="290" height="22" font="ui\large_ui" color="#FF2896FF">
+	</widget>
+	<widget name="chupathingy/delta_profile/title" type="text" controller="1" width="180" height="24" font="ui\large_ui" color="#FFFFFFFF">
+	</widget>
+	<widget name="chupathingy/delta_profile/clan_title" type="text" controller="1" width="216" height="24" font="ui\large_ui" color="#FFFFFFFF">
+	</widget>
+	<widget name="chupathingy/delta_profile/clan_side_0" type="text" controller="1" width="216" height="18" font="ui\small_ui" color="#FF2896FF">
+	</widget>
+	<widget name="chupathingy/delta_profile/clan_side_1" type="text" controller="1" width="216" height="18" font="ui\small_ui" color="#FFFFFFFF">
+	</widget>
+	<widget name="chupathingy/delta_profile/side_0" type="text" controller="1" width="180" height="18" font="ui\small_ui" color="#FF2896FF">
+	</widget>
+	<widget name="chupathingy/delta_profile/side_1" type="text" controller="1" width="180" height="18" font="ui\small_ui" color="#FF2896FF">
+	</widget>
+	<widget name="chupathingy/delta_profile/stat_label_0" type="text" controller="1" width="100" height="18" font="ui\small_ui" color="#FF2896FF">
+	</widget>
+	<widget name="chupathingy/delta_profile/stat_value_0" type="text" controller="1" width="180" height="18" font="ui\small_ui" color="#FFFFFFFF" align="right">
+	</widget>
+	<widget name="chupathingy/delta_profile/stat_label_1" type="text" controller="1" width="100" height="18" font="ui\small_ui" color="#FF2896FF">
+	</widget>
+	<widget name="chupathingy/delta_profile/stat_value_1" type="text" controller="1" width="180" height="18" font="ui\small_ui" color="#FFFFFFFF" align="right">
+	</widget>
+	<widget name="chupathingy/delta_profile/stat_label_2" type="text" controller="1" width="100" height="18" font="ui\small_ui" color="#FF2896FF">
+	</widget>
+	<widget name="chupathingy/delta_profile/stat_value_2" type="text" controller="1" width="180" height="18" font="ui\small_ui" color="#FFFFFFFF" align="right">
+	</widget>
+	<widget name="chupathingy/delta_profile/stat_label_3" type="text" controller="1" width="100" height="18" font="ui\small_ui" color="#FF2896FF">
+	</widget>
+	<widget name="chupathingy/delta_profile/stat_value_3" type="text" controller="1" width="180" height="18" font="ui\small_ui" color="#FFFFFFFF" align="right">
+	</widget>
+	<widget name="chupathingy/delta_profile/stat_label_4" type="text" controller="1" width="100" height="18" font="ui\small_ui" color="#FF2896FF">
+	</widget>
+	<widget name="chupathingy/delta_profile/stat_value_4" type="text" controller="1" width="180" height="18" font="ui\small_ui" color="#FFFFFFFF" align="right">
+	</widget>
+	<widget name="chupathingy/delta_profile/stat_label_5" type="text" controller="1" width="100" height="18" font="ui\small_ui" color="#FF2896FF">
+	</widget>
+	<widget name="chupathingy/delta_profile/stat_value_5" type="text" controller="1" width="180" height="18" font="ui\small_ui" color="#FFFFFFFF" align="right">
+	</widget>
+	<widget name="chupathingy/delta_profile/line_label_0" type="text" controller="1" width="286" height="18" font="ui\small_ui" color="#FF2896FF">
+	</widget>
+	<widget name="chupathingy/delta_profile/line_place_0" type="text" controller="1" width="80" height="18" font="ui\small_ui" color="#FFFFFFFF">
+	</widget>
+	<widget name="chupathingy/delta_profile/line_value_0" type="text" controller="1" width="140" height="18" font="ui\small_ui" color="#FFFFFFFF" align="right">
+	</widget>
+	<widget name="chupathingy/delta_profile/line_label_1" type="text" controller="1" width="286" height="18" font="ui\small_ui" color="#FF2896FF">
+	</widget>
+	<widget name="chupathingy/delta_profile/line_place_1" type="text" controller="1" width="80" height="18" font="ui\small_ui" color="#FFFFFFFF">
+	</widget>
+	<widget name="chupathingy/delta_profile/line_value_1" type="text" controller="1" width="140" height="18" font="ui\small_ui" color="#FFFFFFFF" align="right">
+	</widget>
+	<widget name="chupathingy/delta_profile/line_label_2" type="text" controller="1" width="286" height="18" font="ui\small_ui" color="#FF2896FF">
+	</widget>
+	<widget name="chupathingy/delta_profile/line_place_2" type="text" controller="1" width="80" height="18" font="ui\small_ui" color="#FFFFFFFF">
+	</widget>
+	<widget name="chupathingy/delta_profile/line_value_2" type="text" controller="1" width="140" height="18" font="ui\small_ui" color="#FFFFFFFF" align="right">
+	</widget>
+	<widget name="chupathingy/delta_profile/line_label_3" type="text" controller="1" width="286" height="18" font="ui\small_ui" color="#FF2896FF">
+	</widget>
+	<widget name="chupathingy/delta_profile/line_place_3" type="text" controller="1" width="80" height="18" font="ui\small_ui" color="#FFFFFFFF">
+	</widget>
+	<widget name="chupathingy/delta_profile/line_value_3" type="text" controller="1" width="140" height="18" font="ui\small_ui" color="#FFFFFFFF" align="right">
+	</widget>
+	<widget name="chupathingy/delta_profile/line_label_4" type="text" controller="1" width="286" height="18" font="ui\small_ui" color="#FF2896FF">
+	</widget>
+	<widget name="chupathingy/delta_profile/line_place_4" type="text" controller="1" width="80" height="18" font="ui\small_ui" color="#FFFFFFFF">
+	</widget>
+	<widget name="chupathingy/delta_profile/line_value_4" type="text" controller="1" width="140" height="18" font="ui\small_ui" color="#FFFFFFFF" align="right">
+	</widget>
+	<widget name="chupathingy/delta_profile/line_label_5" type="text" controller="1" width="286" height="18" font="ui\small_ui" color="#FF2896FF">
+	</widget>
+	<widget name="chupathingy/delta_profile/line_place_5" type="text" controller="1" width="80" height="18" font="ui\small_ui" color="#FFFFFFFF">
+	</widget>
+	<widget name="chupathingy/delta_profile/line_value_5" type="text" controller="1" width="140" height="18" font="ui\small_ui" color="#FFFFFFFF" align="right">
+	</widget>
+	<widget name="chupathingy/delta_profile/line_label_6" type="text" controller="1" width="286" height="18" font="ui\small_ui" color="#FF2896FF">
+	</widget>
+	<widget name="chupathingy/delta_profile/line_place_6" type="text" controller="1" width="80" height="18" font="ui\small_ui" color="#FFFFFFFF">
+	</widget>
+	<widget name="chupathingy/delta_profile/line_value_6" type="text" controller="1" width="140" height="18" font="ui\small_ui" color="#FFFFFFFF" align="right">
+	</widget>
+	<widget name="chupathingy/delta_profile/line_label_7" type="text" controller="1" width="286" height="18" font="ui\small_ui" color="#FF2896FF">
+	</widget>
+	<widget name="chupathingy/delta_profile/line_place_7" type="text" controller="1" width="80" height="18" font="ui\small_ui" color="#FFFFFFFF">
+	</widget>
+	<widget name="chupathingy/delta_profile/line_value_7" type="text" controller="1" width="140" height="18" font="ui\small_ui" color="#FFFFFFFF" align="right">
+	</widget>
+	<widget name="chupathingy/delta_profile/line_label_8" type="text" controller="1" width="286" height="18" font="ui\small_ui" color="#FF2896FF">
+	</widget>
+	<widget name="chupathingy/delta_profile/line_place_8" type="text" controller="1" width="80" height="18" font="ui\small_ui" color="#FFFFFFFF">
+	</widget>
+	<widget name="chupathingy/delta_profile/line_value_8" type="text" controller="1" width="140" height="18" font="ui\small_ui" color="#FFFFFFFF" align="right">
+	</widget>
+	<widget name="chupathingy/delta_profile/line_label_9" type="text" controller="1" width="286" height="18" font="ui\small_ui" color="#FF2896FF">
+	</widget>
+	<widget name="chupathingy/delta_profile/line_place_9" type="text" controller="1" width="80" height="18" font="ui\small_ui" color="#FFFFFFFF">
+	</widget>
+	<widget name="chupathingy/delta_profile/line_value_9" type="text" controller="1" width="140" height="18" font="ui\small_ui" color="#FFFFFFFF" align="right">
+	</widget>
+	<widget name="chupathingy/delta_profile/line_label_10" type="text" controller="1" width="286" height="18" font="ui\small_ui" color="#FF2896FF">
+	</widget>
+	<widget name="chupathingy/delta_profile/line_place_10" type="text" controller="1" width="80" height="18" font="ui\small_ui" color="#FFFFFFFF">
+	</widget>
+	<widget name="chupathingy/delta_profile/line_value_10" type="text" controller="1" width="140" height="18" font="ui\small_ui" color="#FFFFFFFF" align="right">
+	</widget>
+	<widget name="chupathingy/delta_profile/line_label_11" type="text" controller="1" width="286" height="18" font="ui\small_ui" color="#FF2896FF">
+	</widget>
+	<widget name="chupathingy/delta_profile/line_place_11" type="text" controller="1" width="80" height="18" font="ui\small_ui" color="#FFFFFFFF">
+	</widget>
+	<widget name="chupathingy/delta_profile/line_value_11" type="text" controller="1" width="140" height="18" font="ui\small_ui" color="#FFFFFFFF" align="right">
+	</widget>
+	<widget name="chupathingy/delta_profile/line_label_12" type="text" controller="1" width="286" height="18" font="ui\small_ui" color="#FF2896FF">
+	</widget>
+	<widget name="chupathingy/delta_profile/line_place_12" type="text" controller="1" width="80" height="18" font="ui\small_ui" color="#FFFFFFFF">
+	</widget>
+	<widget name="chupathingy/delta_profile/line_value_12" type="text" controller="1" width="140" height="18" font="ui\small_ui" color="#FFFFFFFF" align="right">
+	</widget>
+	<widget name="chupathingy/delta_profile/line_label_13" type="text" controller="1" width="286" height="18" font="ui\small_ui" color="#FF2896FF">
+	</widget>
+	<widget name="chupathingy/delta_profile/line_place_13" type="text" controller="1" width="80" height="18" font="ui\small_ui" color="#FFFFFFFF">
+	</widget>
+	<widget name="chupathingy/delta_profile/line_value_13" type="text" controller="1" width="140" height="18" font="ui\small_ui" color="#FFFFFFFF" align="right">
+	</widget>
+	<widget name="chupathingy/delta_profile/line_label_14" type="text" controller="1" width="286" height="18" font="ui\small_ui" color="#FF2896FF">
+	</widget>
+	<widget name="chupathingy/delta_profile/line_place_14" type="text" controller="1" width="80" height="18" font="ui\small_ui" color="#FFFFFFFF">
+	</widget>
+	<widget name="chupathingy/delta_profile/line_value_14" type="text" controller="1" width="140" height="18" font="ui\small_ui" color="#FFFFFFFF" align="right">
+	</widget>
+	<widget name="chupathingy/delta_profile/line_label_15" type="text" controller="1" width="286" height="18" font="ui\small_ui" color="#FF2896FF">
+	</widget>
+	<widget name="chupathingy/delta_profile/line_place_15" type="text" controller="1" width="80" height="18" font="ui\small_ui" color="#FFFFFFFF">
+	</widget>
+	<widget name="chupathingy/delta_profile/line_value_15" type="text" controller="1" width="140" height="18" font="ui\small_ui" color="#FFFFFFFF" align="right">
+	</widget>
+</menus>

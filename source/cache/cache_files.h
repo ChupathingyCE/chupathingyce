@@ -68,6 +68,8 @@ boolean cache_files_give_time_to_precache(
 	char const *map_name);
 char const *cache_file_loaded_map_name(
 	void);
+void const *cache_file_loaded_header(
+	void);
 char const *cache_files_build_region(
 	char const *build);
 char const *cache_files_multiplayer_region(
@@ -75,11 +77,23 @@ char const *cache_files_multiplayer_region(
 boolean cache_files_map_plays_multiplayer(
 	char const *map_name,
 	char build[0x20]);
+boolean cache_files_map_needs_delta(
+	char const *map_name);
 void cache_files_show_multiplayer_unavailable(
 	char const *map_name,
 	char const *build);
 unsigned long cache_files_map_version(
 	char const *map_name);
+
+/* port: whether the loaded map is a Custom Edition or HaloMD map, whose
+tags Halo PC's engine let be what the Xbox's asserts against; FALSE in a
+build without them */
+#ifdef HALO_CUSTOM_EDITION
+boolean cache_file_tags_are_ce(void);
+#define CACHE_FILE_TAGS_ARE_CE() cache_file_tags_are_ce()
+#else
+#define CACHE_FILE_TAGS_ARE_CE() FALSE
+#endif
 unsigned long cache_files_map_choose(
 	char *map_name,
 	long size);

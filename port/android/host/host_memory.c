@@ -591,8 +591,16 @@ static int reserve_fixed(const char *when)
 	heap (dalvik.vm.heapsize), so on a device whose heap is larger than
 	about 700 MB it covers this range, and is left alone: only an idle
 	slice of the large object space is ever taken back (reserve) */
-	if (reserve(HALO_GUEST_CE_TAG_CACHE_BASE, HALO_GUEST_CE_TAG_CACHE_SIZE, 1) == 0)
+	if (reserve(HALO_GUEST_CE_TAG_CACHE_BASE, HALO_GUEST_CE_TAG_CACHE_SIZE + HALO_GUEST_CE_CONVERSION_ROOM_SIZE, 1) == 0)
 	{
+		ce_base = HALO_GUEST_CE_TAG_CACHE_BASE;
+		ce_end = ce_base + HALO_GUEST_CE_TAG_CACHE_SIZE + HALO_GUEST_CE_CONVERSION_ROOM_SIZE;
+	}
+	else if (reserve(HALO_GUEST_CE_TAG_CACHE_BASE, HALO_GUEST_CE_TAG_CACHE_SIZE, 1) == 0)
+	{
+		/* (the room above it taken: the largest maps are refused) */
+		host_logf(HOST_LOG_WARN, "cannot reserve the room above Custom Edition maps' tag cache at %08llx",
+			(unsigned long long)(HALO_GUEST_CE_TAG_CACHE_BASE + HALO_GUEST_CE_TAG_CACHE_SIZE));
 		ce_base = HALO_GUEST_CE_TAG_CACHE_BASE;
 		ce_end = ce_base + HALO_GUEST_CE_TAG_CACHE_SIZE;
 	}

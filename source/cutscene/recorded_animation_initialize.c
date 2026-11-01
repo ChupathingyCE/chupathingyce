@@ -184,6 +184,24 @@ void recorded_animation_initialize_unit_control(
 					(byte *)unit_control + field->unit_control_offset,
 					*stream,
 					field->size);
+#if defined(__BIG_ENDIAN__) || (defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)
+				/* port: the recording's fields are little-endian */
+				{
+					byte *bytes = (byte *)unit_control + field->unit_control_offset;
+					short element = field->size == 2 ? 2 : 4, at, i;
+
+					for (at = 0; field->size >= 2 && at + element <= field->size; at += element)
+					{
+						for (i = 0; i < element / 2; i++)
+						{
+							byte swapped = bytes[at + i];
+
+							bytes[at + i] = bytes[at + element - 1 - i];
+							bytes[at + element - 1 - i] = swapped;
+						}
+					}
+				}
+#endif
 			}
 
 			*stream += field->size;

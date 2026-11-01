@@ -1239,6 +1239,14 @@ void object_types_place_all(
 					{
 						continue;
 					}
+#ifdef HALO_GAME_BROWSER
+					/* port: a Bomb court's own ball (game_engine_bomb.c) */
+					if (object_type == _object_type_weapon &&
+						!game_engine_bomb_weapon_placement_allowed(scenario_object, scenario_palette))
+					{
+						continue;
+					}
+#endif
 					object_new_from_scenario(scenario_object, scenario_palette);
 					objects_garbage_collection();
 				}

@@ -4,7 +4,7 @@ SERVER_ROLES.H
 Delta Control's roles as the server keeps them (server/docs/moderation.md):
 whose moderator key has which role, from three places (the moderators file,
 moderators.txt in the data folder; the control panel's accounts bound to a
-game; the halo.milenko.org link's role list, when the server is linked),
+game; the stats.chupathingy.org link's role list, when the server is linked),
 the audit file every change is written to, and how often each person may
 act. Shared by the game's main thread (server_commands.c, the Delta Peer
 moderation hooks) and the control thread (server_control.c), under a lock

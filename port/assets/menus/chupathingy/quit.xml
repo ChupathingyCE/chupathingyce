@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The Chupathingy menus' QUIT: the PC version's question, as the Xbox's
+questions are (its box, its header, its small B and A prompts) -->
+<menus>
+	<widget name="chupathingy/quit_screen" width="640" height="480" flags="pass_unhandled_to_focused_child" bitmap="ui\shell\bitmaps\semi_transparent_grey">
+		<on event="a" run="main menu quit game"/>
+		<on event="start" run="main menu quit game"/>
+		<on event="b" back="true"/>
+		<on event="back" back="true"/>
+		<child widget="chupathingy/quit_text_box" x="192" y="176"/>
+		<child widget="error/header_are_you_sure" x="201" y="180"/>
+		<child widget="chupathingy/dialog_prompts"/>
+	</widget>
+	<widget name="chupathingy/quit_text_box" type="text" controller="1" width="239" height="159" bitmap="ui\shell\bitmaps\alert_bkd" string_list="chupathingy/quit_prompt" font="ui\large_ui" color="#FF2896FF" text_x="9" text_y="36">
+	</widget>
+	<strings name="chupathingy/quit_prompt">
+		<string text="Are you sure you want\nto quit Halo?"/>
+	</strings>
+	<!-- (the Xbox's question prompts: B=CANCEL and A=OK, small, in the box) -->
+	<widget name="chupathingy/dialog_prompts" width="640" height="480">
+		<child widget="ui\shell\main_menu\b_butn_sm" x="250" y="310"/>
+		<child widget="ui\shell\main_menu\=cancel_sm" x="266" y="310"/>
+		<child widget="ui\shell\main_menu\a_butn_sm" x="362" y="310"/>
+		<child widget="ui\shell\main_menu\=accept_sm" x="377" y="310"/>
+	</widget>
+</menus>

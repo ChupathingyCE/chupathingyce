@@ -1908,15 +1908,32 @@ void rasterizer_debug_model_vertices(
 	the compiler inlines it there: on the stack, the Windows build probed
 	the 128 KB the debug display rarely uses a page at a time (_chkstk) for
 	every model drawn */
+#ifdef HALO_XBOX_CONSOLE
+	/* (the console: never on the stack, whose 64 KB this would overrun on
+	every model drawn, and never static, which a 64 MB console can't spare:
+	made the first time the debug display asks for it, and only then) */
+	static struct rasterizer_debug_model_vertex *debug_vertices = NULL;
+#else
 	static struct rasterizer_debug_model_vertex debug_vertices[MAXIMUM_RASTERIZER_DEBUG_MODEL_VERTICES];
+#endif
 
 	match_assert(
 		"c:\\halo\\SOURCE\\rasterizer\\rasterizer.c",
 		830,
 		part);
 
+#ifdef HALO_XBOX_CONSOLE
+	if (rasterizer_debug_model_vertices_enabled && !debug_vertices)
+	{
+		debug_vertices = match_malloc("c:\\halo\\SOURCE\\rasterizer\\rasterizer.c", 0,
+			sizeof(struct rasterizer_debug_model_vertex) * MAXIMUM_RASTERIZER_DEBUG_MODEL_VERTICES);
+	}
+	if (rasterizer_debug_model_vertices_enabled && debug_vertices &&
+		object_index == rasterizer_model_obscurer_object_index)
+#else
 	if (rasterizer_debug_model_vertices_enabled &&
 		object_index == rasterizer_model_obscurer_object_index)
+#endif
 	{
 		debug_vertex_count = 0;
 		closest_debug_vertex_index = NONE;

@@ -24,6 +24,9 @@ enum
 	POSIX_UI_FONT_MENU,
 	POSIX_UI_FONT_MENU_SMALL,
 	POSIX_UI_FONT_TITLE,
+	/* the scoreboard's platform logos (one-color SVGs, Simple Icons and
+	Wikimedia Commons: tools/platform_icons_font.py) */
+	POSIX_UI_FONT_PLATFORMS,
 
 	POSIX_UI_FONT_COUNT
 };

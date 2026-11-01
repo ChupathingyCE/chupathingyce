@@ -552,6 +552,20 @@ def literal(value: int) -> str:
     return f"{value:#x}" if value > 0xFFFF else str(value)
 
 
+# The 64-bit integers' halves (LARGE_INTEGER, ULARGE_INTEGER): little-endian
+# on the Xbox, so on a big-endian console (the Xbox 360) the high half comes
+# first for QuadPart and its halves to agree
+HALVES = re.compile(
+    r"^(?P<indent>[ \t]*)struct \{\n(?P<low>[ \t]*unsigned long LowPart;\n)(?P<high>[ \t]*(?:unsigned )?long HighPart;\n)"
+    r"(?P=indent)\}", re.M)
+
+
+def big_endian_halves(text: str) -> str:
+    """the halves' order for HALO_BIG_ENDIAN"""
+    return HALVES.sub(lambda m: (f"{m['indent']}struct {{\n#ifdef HALO_BIG_ENDIAN\n{m['high']}{m['low']}#else\n"
+                                 f"{m['low']}{m['high']}#endif\n{m['indent']}}}"), text)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--pdb", type=Path, required=True, help="cachebeta.pdb of the January build")
@@ -567,7 +581,7 @@ def main() -> int:
     if missing:
         sys.exit("not in the PDB: " + " ".join(missing))
     writer.fix_layouts()
-    args.output.write_text(writer.write(), encoding="utf-8")
+    args.output.write_text(big_endian_halves(writer.write()), encoding="utf-8")
     for warning in writer.warnings:
         print("note:", warning, file=sys.stderr)
     print(f"{args.output}: {len(writer.enums)} enumerations, {len(writer.definitions)} structures and unions, "

@@ -58,6 +58,8 @@ final class Updater {
     /** the logcat tag, the native side's (port/android/host/host.h) */
     private static final String LOG_TAG = "chupathingyce";
     private static final int TIMEOUT_MILLISECONDS = 20000;
+    /** the native 64-bit build's release asset (build.gradle) */
+    static final String ASSET_64BIT = "chupathingyce-android64";
     /** the most a download (a release's zip, about 25 MB) or the app in it may be */
     private static final long MAXIMUM_UPDATE_SIZE = 256L * 1024 * 1024;
     /** the most the release's list of its update files, or a signature, may be */
@@ -238,7 +240,7 @@ final class Updater {
                 + BuildConfig.HALO_VERSION + ").\n\nDo you want to update? The game will close and start "
                 + "the new version.")
             .setCancelable(false)
-            .setPositiveButton("Yes", (dialog, which) -> update(activity, latest))
+            .setPositiveButton("Yes", (dialog, which) -> update(activity, latest, BuildConfig.HALO_UPDATE_ASSET))
             .setNegativeButton("No", null)
             .setNeutralButton("Do not ask again", (dialog, which) -> confirmNever(activity))
             .show();
@@ -262,10 +264,25 @@ final class Updater {
 
     /* ---------- updating */
 
-    private static void update(Activity activity, String latest) {
+    /** whether this is the native 64-bit build (build.gradle's native64) */
+    static boolean native64() {
+        return BuildConfig.HALO_UPDATE_ASSET.equals(ASSET_64BIT);
+    }
+
+    /**
+     * This version's native 64-bit build installed over this one (the same
+     * app, ID and key: the data and the saves stay), for a device whose
+     * Java runtime holds the fixed addresses the usual build needs
+     * (LauncherActivity). Release builds only: others have no release.
+     */
+    static void switchTo64Bit(Activity activity) {
+        update(activity, BuildConfig.HALO_VERSION, ASSET_64BIT);
+    }
+
+    private static void update(Activity activity, String latest, String assetBase) {
         // (the native 64-bit build's is chupathingyce-android64-*: build.gradle)
         String configuration = BuildConfig.DEBUG ? "debug" : "release";
-        String asset = BuildConfig.HALO_UPDATE_ASSET + "-" + configuration + ".zip";
+        String asset = assetBase + "-" + configuration + ".zip";
         File directory = new File(activity.getCacheDir(), UpdateProvider.DIRECTORY);
         LinearLayout layout = new LinearLayout(activity);
         TextView status = new TextView(activity);
@@ -291,7 +308,7 @@ final class Updater {
                 File zip = new File(directory, "update.zip");
                 File apk = new File(directory, UpdateProvider.APK);
 
-                UpdateManifest.Entry listed = listedFile(directory, latest, configuration);
+                UpdateManifest.Entry listed = listedFile(directory, latest, configuration, assetBase);
                 String address = listed != null
                     ? "https://github.com/" + REPOSITORY + "/releases/download/" + listed.tag + "/" + listed.name
                     : "https://github.com/" + REPOSITORY + "/releases/download/v" + latest + "/" + asset;
@@ -333,10 +350,10 @@ final class Updater {
      * signature checked; null when the release has no list or no such file
      * in it (the zip by its old name, then).
      */
-    private static UpdateManifest.Entry listedFile(File directory, String latest, String configuration)
-            throws IOException {
+    private static UpdateManifest.Entry listedFile(File directory, String latest, String configuration,
+            String assetBase) throws IOException {
         String base = "https://github.com/" + REPOSITORY + "/releases/download/v" + latest + "/";
-        String platform = BuildConfig.HALO_UPDATE_ASSET.substring("chupathingyce-".length());
+        String platform = assetBase.substring("chupathingyce-".length());
         File list = new File(directory, "updates.json"), signature = new File(directory, "updates.json.sig");
         byte[] document, signatureText;
 

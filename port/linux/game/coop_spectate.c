@@ -254,14 +254,14 @@ void coop_spectate_draw(
 	if (watched == NONE || !player_try_and_get(watched))
 	{
 		if (coop_spectate_nothing_to_watch(local_player_index))
-			draw_bottom_text(L"JOINING THE GAME\r\nYou spawn beside a teammate once it is safe");
+			draw_bottom_text(L"JOINING THE GAME");
 		return;
 	}
 	if (!players_coop_waiting_to_start(local_player_get_player_index(local_player_index)))
-		hint = L"You come back beside them once it is safe";
+		hint = L"Respawning when it is safe";
 	else
-		hint = L"You join them when they're on foot";
-	usnprintf(text, NUMBEROF(text) - 1, L"SPECTATING %.12s   (A: NEXT)\r\n%s", player_get(watched)->name, hint);
+		hint = L"Joining when they're on foot";
+	usnprintf(text, NUMBEROF(text) - 1, L"SPECTATING %.12s   A: NEXT\r\n%s", player_get(watched)->name, hint);
 	text[NUMBEROF(text) - 1] = 0;
 	draw_bottom_text(text);
 }

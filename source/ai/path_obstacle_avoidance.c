@@ -589,7 +589,7 @@ static short path_add_step(
 			path->best_goal_blocked_step_index= step_index;
 		}
 
-		match_vassert("c:\\halo\\SOURCE\\ai\\path_obstacle_avoidance.c", 420, heap_insert(path, step_index), NULL);
+		match_vassert_evaluated("c:\\halo\\SOURCE\\ai\\path_obstacle_avoidance.c", 420, heap_insert(path, step_index), NULL);
 	}
 
 done:

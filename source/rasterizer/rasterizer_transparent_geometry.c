@@ -161,8 +161,13 @@ static void rasterizer_sort_external(
 /* ---------- globals */
 
 static short transparent_geometry_group_index = 0;
+/* (port: sized for a console above its memory baseline's groups, 80 bytes
+more: halo_console_memory.h) */
 static unsigned long transparent_geometry_group_pending_flags[
-	BIT_VECTOR_SIZE_IN_LONGS(RASTERIZER_MAXIMUM_TRANSPARENT_GEOMETRY_GROUPS)] = { 0 };
+	BIT_VECTOR_SIZE_IN_LONGS(RASTERIZER_MAXIMUM_TRANSPARENT_GEOMETRY_GROUPS_EXTRAS)] = { 0 };
+/* port: the groups a frame may have: the Xbox's, or more on a console above
+its memory baseline, set as the arrays are made */
+static long transparent_geometry_group_maximum = RASTERIZER_MAXIMUM_TRANSPARENT_GEOMETRY_GROUPS;
 static struct transparent_geometry_group *transparent_geometry_groups = NULL;
 static struct transparent_geometry_group *transparent_geometry_groups2 = NULL;
 static long transparent_geometry_group_count = 0;
@@ -178,15 +183,17 @@ boolean rasterizer_transparent_geometry_initialize(
 {
 	boolean success = TRUE;
 
+	transparent_geometry_group_maximum = HALO_CONSOLE_MEMORY_EXTRAS(RASTERIZER_MAXIMUM_TRANSPARENT_GEOMETRY_GROUPS,
+		RASTERIZER_MAXIMUM_TRANSPARENT_GEOMETRY_GROUPS_EXTRAS);
 	transparent_geometry_groups = debug_malloc(
-		RASTERIZER_MAXIMUM_TRANSPARENT_GEOMETRY_GROUPS * sizeof(struct transparent_geometry_group),
+		transparent_geometry_group_maximum * sizeof(struct transparent_geometry_group),
 #ifdef HALO_64BIT
 		TRUE, "c:\\halo\\SOURCE\\rasterizer\\rasterizer_transparent_geometry.c", 0x29);
 #else
 		FALSE, "c:\\halo\\SOURCE\\rasterizer\\rasterizer_transparent_geometry.c", 0x29);
 #endif
 	transparent_geometry_group_sorted_indices = debug_malloc(
-		RASTERIZER_MAXIMUM_TRANSPARENT_GEOMETRY_GROUPS * sizeof(short),
+		transparent_geometry_group_maximum * sizeof(short),
 #ifdef HALO_64BIT
 		TRUE, "c:\\halo\\SOURCE\\rasterizer\\rasterizer_transparent_geometry.c", 0x2B);
 #else
@@ -370,7 +377,7 @@ struct transparent_geometry_group *rasterizer_transparent_geometry_new_group(
 	struct transparent_geometry_group *group = NULL;
 	long group_index = transparent_geometry_group_count;
 
-	if (group_index<RASTERIZER_MAXIMUM_TRANSPARENT_GEOMETRY_GROUPS)
+	if (group_index<transparent_geometry_group_maximum)
 	{
 		group = transparent_geometry_groups + group_index;
 #ifdef HALO_64BIT

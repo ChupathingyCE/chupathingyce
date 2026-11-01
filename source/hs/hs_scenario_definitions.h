@@ -59,6 +59,23 @@ struct hs_source_file
 	struct tag_data source;
 };
 
+/* port: a script value is a 32-bit slot; a short or boolean value is read
+and written both as the slot's number ((short)value) and through its first
+bytes (a short or boolean member over the slot, *(short *)&value). On the
+Xbox the two agree; on a big-endian console the first bytes are the
+number's high ones, so there a sub-32-bit view of a slot is moved to its
+last bytes, where the number's low ones are, and both agree again */
+#ifdef HALO_BIG_ENDIAN
+#define HS_SLOT_MEMBER(type, name) byte name##_slot_pad[4 - sizeof(type)]; type name;
+#define HS_SLOT_TRAILING_PAD(declaration)
+#define HS_SLOT(type, slot) ((type *)((byte *)(slot) + 4 - sizeof(type)))
+#else
+#define HS_SLOT_MEMBER(type, name) type name;
+#define HS_SLOT_TRAILING_PAD(declaration) declaration
+#define HS_SLOT(type, slot) ((type *)(slot))
+#endif
+#define HS_UNION_SLOT(type, name) struct { HS_SLOT_MEMBER(type, name) };
+
 struct hs_syntax_node
 {
 	short datum_header;
@@ -80,9 +97,9 @@ struct hs_syntax_node
 	union
 	{
 		long data;
-		boolean boolean_value;
+		HS_UNION_SLOT(boolean, boolean_value)
 		real real_value;
-		short short_value;
+		HS_UNION_SLOT(short, short_value)
 	};
 };
 

@@ -61,6 +61,15 @@ void write_to_error_file(
 	char *string,
 	boolean date);
 
+#ifdef HALO_CONSOLE_LOG_BUFFER
+/* port: the console's debug.txt lines wait in memory (errors.c): written out
+at once, and by the main loop once a second */
+void error_log_flush(
+	void);
+void error_log_update(
+	void);
+#endif
+
 /* ---------- globals */
 
 extern struct error_global_data error_globals;

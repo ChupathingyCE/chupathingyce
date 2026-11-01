@@ -13,6 +13,10 @@
 	<widget name="main_menu/profile_manager/player_profile_extended_desc" width="640" height="480">
 		<child widget="main_menu/current_profile_name"/>
 		<child widget="main_menu/player_profiles_select/player_profile_right_item" x="22" y="2"/>
+		<child widget="main_menu/profile_manager/delta_line" x="428" y="226"/>
+	</widget>
+	<!-- (the port's: a Halo profile's "Delta:" line, menu_functions.c) -->
+	<widget name="main_menu/profile_manager/delta_line" type="text" controller="1" width="150" height="20" font="ui\small_ui" color="#FF2896FF" align="center">
 	</widget>
 	<widget name="main_menu/profile_manager/player_profile_manager" width="640" height="480" flags="pass_unhandled_to_focused_child">
 		<child widget="main_menu/profile_manager/player_profile_manager_screen"/>
@@ -57,22 +61,30 @@
 	</widget>
 	<widget name="main_menu/profile_manager/profile_manager_button_bar" type="column_list" width="640" height="28" flags="pass_unhandled_to_focused_child left_right_tabs_items">
 		<data input="common button bar update"/>
-		<child widget="main_menu/profile_manager/profile_manager_button_new" y="1"/>
-		<child widget="main_menu/profile_manager/profile_manager_button_delete" x="130" y="1"/>
-		<child widget="main_menu/profile_manager/profile_manager_button_ok" x="380" y="1"/>
-		<child widget="common_button_back" x="510" y="1"/>
+		<child widget="main_menu/profile_manager/profile_manager_button_new" x="6" y="1"/>
+		<child widget="main_menu/profile_manager/profile_manager_button_delete" x="126" y="1"/>
+		<child widget="main_menu/profile_manager/profile_manager_button_delta" x="246" y="1"/>
+		<child widget="main_menu/profile_manager/profile_manager_button_ok" x="366" y="1"/>
+		<child widget="common_button_back" x="486" y="1"/>
 	</widget>
-	<widget name="main_menu/profile_manager/profile_manager_button_delete" type="text" width="128" height="24" bitmap="bitmaps/text_button_background" string_list="strings/common_button_captions" string_index="5" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">
+	<widget name="main_menu/profile_manager/profile_manager_button_delete" type="text" width="116" height="24" bitmap="bitmaps/text_button_background" string_list="strings/common_button_captions" string_index="5" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">
 		<on event="a" run="mouse emit x event"/>
 		<on event="start" run="mouse emit x event"/>
 		<on event="left_mouse" run="mouse emit x event"/>
 	</widget>
-	<widget name="main_menu/profile_manager/profile_manager_button_new" type="text" width="128" height="24" bitmap="bitmaps/text_button_background" string_list="strings/common_button_captions" string_index="4" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">
+	<!-- (the port's: Delta Profile, port/linux/game/profile_screen.c; hidden
+	with display.delta_profile or without a game list: menu_functions.c) -->
+	<widget name="main_menu/profile_manager/profile_manager_button_delta" type="text" width="116" height="24" bitmap="bitmaps/text_button_background" text="DELTA" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">
+		<on event="a" run="port delta profile open"/>
+		<on event="start" run="port delta profile open"/>
+		<on event="left_mouse" run="port delta profile open"/>
+	</widget>
+	<widget name="main_menu/profile_manager/profile_manager_button_new" type="text" width="116" height="24" bitmap="bitmaps/text_button_background" string_list="strings/common_button_captions" string_index="4" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">
 		<on event="a" run="new campaign chosen" open="main_menu/profile_manager/pm_empty_creating_profile"/>
 		<on event="start" run="new campaign chosen" open="main_menu/profile_manager/pm_empty_creating_profile"/>
 		<on event="left_mouse" run="new campaign chosen" open="main_menu/profile_manager/pm_empty_creating_profile"/>
 	</widget>
-	<widget name="main_menu/profile_manager/profile_manager_button_ok" type="text" width="128" height="24" bitmap="bitmaps/text_button_background" string_list="strings/common_button_captions" string_index="1" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">
+	<widget name="main_menu/profile_manager/profile_manager_button_ok" type="text" width="116" height="24" bitmap="bitmaps/text_button_background" string_list="strings/common_button_captions" string_index="1" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">
 		<on event="a" run="emit custom activation event"/>
 		<on event="start" run="emit custom activation event"/>
 		<on event="left_mouse" run="mouse emit accept event"/>

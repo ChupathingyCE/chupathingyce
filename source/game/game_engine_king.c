@@ -1244,3 +1244,20 @@ boolean king_bot_hill(
 	*center = king_globals.hill_center;
 	return TRUE;
 }
+
+#ifdef HALO_BIG_ENDIAN
+/* port: (game_engine.h) the state in the wire's byte order, either way */
+void game_engine_king_network_state_byte_swap(
+	byte *buffer,
+	long size)
+{
+	struct king_globals *state = (struct king_globals *)buffer;
+
+	if (size != (long)sizeof(*state))
+		return;
+	GAME_ENGINE_NETWORK_STATE_SWAP(state, score, score_tick, sizeof(long));
+	/* (who is on the hill: booleans, bytes; then the hill, every part of it
+	a long or a real) */
+	GAME_ENGINE_NETWORK_STATE_SWAP(state, hill_point_count, hill_timer, sizeof(long));
+}
+#endif

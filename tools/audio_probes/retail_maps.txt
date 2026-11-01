@@ -1,0 +1,35 @@
+# The retail maps (NTSC 01.10.12.2276) for the audio probe
+# (port/linux/game/audio_probe.c): Blood Gulch inside the red base by its flag
+# and outdoors on the open field in front of it, two rooms of Chiron TL-34
+# (putput), and Damnation's lower base and open hall. Each map is recorded
+# on its own: retail_maps-<map>-<platform>-final.wav and -events.txt beside
+# this file. Compare two recordings with tools/audio_probe_compare.py.
+
+# the sounds played at every spot: seconds after it settled, world units ahead
+# of the camera (a world unit is 10 feet), a label, the sound tag
+sound 0 2 pistol sound\sfx\weapons\pistol\fire
+sound 4 2 assault_rifle sound\sfx\weapons\assault rifle\fire
+sound 8 2 plasma_rifle sound\sfx\weapons\plasma rifle\fire
+sound 12 2 frag_grenade sound\sfx\weapons\frag grenade\expl
+sound 16 2 footstep sound\sfx\impulse\footsteps\cyborg\cleancement\walk
+sound 20 2 announcer sound\dialog\multiplayer1\slayer
+
+# every other sound of the map (its ambience, music, machinery) kept silent
+mute all
+settle 4
+tail 8
+
+# the spots of each map after it: name, x, y, z (the camera, at a standing
+# player's eye height), yaw and pitch in degrees
+
+map bloodgulch
+spot red_base_flag_room 95.69 -159.45 0.52 90
+spot field_outside_red 97.55 -148.04 0.70 124
+
+map putput
+spot room_west -0.59 -2.79 1.52 178
+spot blue_flag_room 35.18 -28.19 0.62 179
+
+map damnation
+spot lower_base -8.68 10.68 0.22 0
+spot hall -4.54 -7.36 4.02 0

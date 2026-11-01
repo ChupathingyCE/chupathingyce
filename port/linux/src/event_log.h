@@ -34,6 +34,8 @@ enum
 	EVENT_LOG_NAME_SIZE = 40,
 	/* a tag's path, or a short text (a reason, a medal's key) */
 	EVENT_LOG_TAG_SIZE = 96,
+	/* the map's facts (map_report.h's JSON object), with its end */
+	EVENT_LOG_MAP_INFO_SIZE = 1024,
 	/* the most of each a game keeps */
 	EVENT_LOG_MAXIMUM_PLAYERS = 64,
 	EVENT_LOG_MAXIMUM_TAGS = 384,
@@ -81,7 +83,8 @@ enum
 	/* the server's minute: value[0] the players, value[1] the frame's
 	milliseconds (x100, average), value[2] the longest (x100), value[3]
 	the process's resident memory (KB, -1 unknown); bits its CPU
-	(thousandths of a core, -1 unknown, as int) */
+	(thousandths of a core, -1 unknown, as int); position[0] and [1] the
+	traffic received and sent over the minute (kilobits a second) */
 	EVENT_LOG_HEALTH,
 	/* player (none: someone not in the game); value[0]
 	EVENT_LOG_MODERATION_*; tag[0] the reason, tag[1] by whom, tag[2] the
@@ -135,6 +138,11 @@ enum
 	EVENT_LOG_OBJECTIVE_HILL_ENTER,
 	EVENT_LOG_OBJECTIVE_HILL_EXIT,
 	EVENT_LOG_OBJECTIVE_RACE_LAP,
+	/* Bomb's (game_engine_bomb.c): the bomb picked up, dropped (or its
+	carrier killed), carried into the goal */
+	EVENT_LOG_OBJECTIVE_BOMB_GRAB,
+	EVENT_LOG_OBJECTIVE_BOMB_DROP,
+	EVENT_LOG_OBJECTIVE_BOMB_SCORE,
 	EVENT_LOG_NUMBER_OF_OBJECTIVES
 };
 
@@ -241,6 +249,12 @@ struct event_log_player_totals
 	int ball_kills;
 	int hill_time;
 	int laps;
+	/* Bomb's (set in a Bomb game): carry seconds, carriers killed, kills
+	while carrying */
+	int bomb;
+	int bomb_carry_time;
+	int bomb_carrier_kills;
+	int bomb_kills_as_carrier;
 };
 
 /* the game, as it starts */
@@ -283,6 +297,10 @@ void event_log_begin(struct event_log_game const *game, unsigned char const rand
 int event_log_recording(void);
 /* the game's ID (32 hexadecimal digits), "" if none */
 char const *event_log_game_id(void);
+/* the facts of the game's map (a JSON object: map_report.h), sent as its
+"map_info" from the next part on; "" or NULL none. Kept until the next
+game; one that does not fit is left out */
+void event_log_map_info(char const *json);
 
 /* a tag's path (or a short text) kept once, its index: EVENT_LOG_NONE for
 none, or once the game's table is full */

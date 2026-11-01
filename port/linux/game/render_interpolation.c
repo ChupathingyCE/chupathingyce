@@ -82,6 +82,10 @@ vehicle is corrected by (3 and 4 world units), short of a snap */
 /* a camera cut: a jump or turn no player or scripted camera makes in 33 ms */
 #define CAMERA_CUT_DISTANCE 3.0f
 #define CAMERA_CUT_COSINE 0.5f
+/* an object function's change in one tick past which it is a jump (a
+sawtooth starting over, a square wave, a function switched on or off), not
+a sweep: drawn at once, as at 30 Hz */
+#define FUNCTION_SNAP_CHANGE 0.5f
 
 /* ---------- structures */
 
@@ -116,6 +120,13 @@ struct interpolated_object
 	/* ... the two snapshots' rotations, found when first blended */
 	struct interpolation_rotation *rotations;
 	boolean rotations_valid[2];
+#ifndef HALO_CONSOLE_NO_SMOOTH_FUNCTIONS
+	/* its outgoing functions (A to D: the glows, lights and shaders that
+	pulse with them) in the two snapshots, and the blend drawn this frame */
+	real function_values[2][NUMBER_OF_OUTGOING_OBJECT_FUNCTIONS];
+	real blended_function_values[NUMBER_OF_OUTGOING_OBJECT_FUNCTIONS];
+	long functions_blended_frame;
+#endif
 };
 
 struct interpolated_camera
@@ -469,12 +480,21 @@ void render_interpolation_tick(void)
 			record->nodes + record->latest * record->node_capacity,
 			object_get_node_matrices(iterator.index),
 			node_count * sizeof(real_matrix4x3));
+#ifndef HALO_CONSOLE_NO_SMOOTH_FUNCTIONS
+		memcpy(
+			record->function_values[record->latest],
+			object->object.outgoing_function_values,
+			sizeof(record->function_values[0]));
+#endif
 		record->rotations_valid[record->latest] = FALSE;
 		record->object_index = iterator.index;
 		record->node_count = node_count;
 		record->tick = interpolation_tick;
 		record->has_previous = continuing;
 		record->blended_frame = NONE;
+#ifndef HALO_CONSOLE_NO_SMOOTH_FUNCTIONS
+		record->functions_blended_frame = NONE;
+#endif
 	}
 }
 
@@ -509,6 +529,12 @@ void render_interpolation_frame_begin(void)
 void render_interpolation_frame_end(void)
 {
 	interpolation_rendering = FALSE;
+}
+
+/* whether the frame drawn is between ticks (display.interpolation) */
+boolean render_interpolation_drawing(void)
+{
+	return interpolation_rendering;
 }
 
 real render_interpolation_fraction(void)
@@ -598,6 +624,49 @@ real_matrix4x3 *render_interpolation_object_node_matrices(long object_index)
 	return record->nodes + 2 * record->node_capacity;
 }
 
+/* the object's outgoing functions as drawn: between the last two ticks,
+as its pose. Functions are sampled once a tick, so a glow or light pulsing
+with one stepped at 30 Hz however fast the frames came. (NULL, the values
+of the tick, on a console: HALO_CONSOLE_NO_SMOOTH_FUNCTIONS) */
+real *render_interpolation_object_function_values(long object_index)
+{
+#ifdef HALO_CONSOLE_NO_SMOOTH_FUNCTIONS
+	(void)object_index;
+	return NULL;
+#else
+	struct interpolated_object *record;
+	long absolute_index;
+
+	if (!interpolation_rendering || !interpolated_objects || object_index == NONE)
+		return NULL;
+	absolute_index = DATUM_INDEX_TO_ABSOLUTE_INDEX(object_index);
+	if (absolute_index >= MAXIMUM_INTERPOLATED_OBJECTS)
+		return NULL;
+	record = &interpolated_objects[absolute_index];
+	if (record->object_index != object_index || record->tick != interpolation_tick || !record->has_previous)
+		return NULL;
+	if (record->functions_blended_frame != interpolation_frame)
+	{
+		real const *previous = record->function_values[record->latest ^ 1];
+		real const *latest = record->function_values[record->latest];
+		short function_index;
+
+		for (function_index = 0; function_index < NUMBER_OF_OUTGOING_OBJECT_FUNCTIONS; function_index++)
+		{
+			real change = latest[function_index] - previous[function_index];
+
+			/* (so written that a value not a number snaps) */
+			record->blended_function_values[function_index] =
+				fabsf(change) <= FUNCTION_SNAP_CHANGE ?
+				lerp(previous[function_index], latest[function_index], interpolation_fraction) :
+				latest[function_index];
+		}
+		record->functions_blended_frame = interpolation_frame;
+	}
+	return record->blended_function_values;
+#endif
+}
+
 /* ---------- corrections */
 
 /* the object (and what it carries) moved by the netcode from where it was,
@@ -678,16 +747,11 @@ turns every frame (player_control.c), but the observer keeps it as of the
 last tick and the blend above draws it a tick later still. On foot, the view
 points where the player aims now (display.direct_camera). In a vehicle's
 seat or a cinematic the view is the seat's or the script's: left as it is.
-Desktop only: display.direct_camera is not an Android setting, and its
-default would otherwise apply there. */
+Android's touch look and controllers turn it the same way. */
 static struct observer_result const *render_interpolation_direct_camera(
 	short local_player_index,
 	struct observer_result const *observer)
 {
-#ifdef HALO_ANDROID
-	(void)local_player_index;
-	return observer;
-#else
 	static int enabled;
 	static unsigned long read_at = (unsigned long)-1;
 	struct observer_result *direct;
@@ -714,7 +778,6 @@ static struct observer_result const *render_interpolation_direct_camera(
 	player_control_get_facing_direction(local_player_index, &direct->forward);
 	observer_up_from_forward(&direct->forward, &direct->up);
 	return direct;
-#endif
 }
 
 struct observer_result const *render_interpolation_camera(
@@ -936,6 +999,19 @@ void render_interpolation_first_person(
 }
 
 /* ---------- time */
+
+/* the ticks from a game time to the frame drawn, continuous between ticks
+(a tick behind the simulation, like the objects, and never before then),
+for fades and flashes timed in ticks; whole ticks when not interpolating */
+real render_interpolation_ticks_since(long now, long then)
+{
+	real ticks = (real)(now - then);
+
+	if (!interpolation_rendering)
+		return ticks;
+	ticks += interpolation_fraction - 1.0f;
+	return ticks > 0.0f ? ticks : 0.0f;
+}
 
 /* game time for animated shaders, continuous between ticks: the time of
 the frame drawn (a tick behind the simulation, like the objects) */

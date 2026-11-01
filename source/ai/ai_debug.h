@@ -22,10 +22,25 @@ enum
 	MAXIMUM_AI_DEBUG_IDLE_LOOK_PROPS = 32,
 	NUMBER_OF_AI_DEBUG_COMMUNICATION_TYPES = 57,
 	NUMBER_OF_AI_DEBUG_VOCALIZATION_TYPES = 209,
+#ifndef HALO_XBOX_CONSOLE
 	MAXIMUM_AI_DEBUG_LINEOFSIGHT_POINTS = 16384,
 	MAXIMUM_AI_DEBUG_LINEOFSIGHT_PAIRS = 8192,
+#else
+	/* port: the line of sight display's rays (ai_debug.render_lineofsight
+	only), few on the console: 300 KB of a 64 MB Xbox's image (the state's
+	later offsets differ from the Xbox game's there) */
+	MAXIMUM_AI_DEBUG_LINEOFSIGHT_POINTS = 256,
+	MAXIMUM_AI_DEBUG_LINEOFSIGHT_PAIRS = 128,
+#endif
 	NUMBER_OF_AI_DEBUG_ACTOR_RECORDS = 512,
+#ifndef HALO_XBOX_CONSOLE
 	MAXIMUM_AI_DEBUG_PATH_STORAGE = 32,
+#else
+	/* port: none on the console (ai_debug_get_path_storage gives the path
+	finder no copy to keep): each was 117 KB, 3.7 MB of a 64 MB Xbox's
+	heap, and its clearing on every path found */
+	MAXIMUM_AI_DEBUG_PATH_STORAGE = 0,
+#endif
 };
 
 enum
@@ -325,6 +340,7 @@ struct ai_debug_state
 	real field_4C814;
 	boolean field_4C818;
 	char __unknown4C819[3];
+#ifndef HALO_CONSOLE_NO_DEBUG_TOOLS
 	struct path_state path_state;
 	boolean field_608A8;
 	char __unknown608A9[91];
@@ -333,6 +349,12 @@ struct ai_debug_state
 	char __unknown7D381[3];
 	struct firing_position_evaluation_context evaluation_context;
 	struct ai_debug_actor_record actor_record[NUMBER_OF_AI_DEBUG_ACTOR_RECORDS];
+#else
+	/* port: the console's build without the developer tools
+	(halo_xbox_prefix.h) has none of the path, firing position and actor
+	displays' records (almost 200 KB); their only writers are the AI's
+	(actor_firing_position.c) and ai_debug.c's displays */
+#endif
 	long field_859F4;
 	boolean field_859F8;
 	boolean field_859F9;
@@ -363,11 +385,13 @@ typedef char ai_debug_state_render_offset_assert[
 	offsetof(struct ai_debug_state, render) == 0xA5 ? 1 : -1];
 typedef char ai_debug_state_last_render_id_offset_assert[
 	offsetof(struct ai_debug_state, last_render_id) == 0xF4 ? 1 : -1];
+#ifndef HALO_XBOX_CONSOLE
 typedef char ai_debug_state_ballistic_lineoffire_valid_offset_assert[
 	offsetof(struct ai_debug_state, ballistic_lineoffire_valid) == 0x4C2F4 ? 1 : -1];
 typedef char ai_debug_state_ballistic_lineoffire_point_count_offset_assert[
 	offsetof(struct ai_debug_state, ballistic_lineoffire_point_count) == 0x4C4D4 ? 1 : -1];
-#ifndef HALO_64BIT
+#endif
+#if !defined(HALO_64BIT) && !defined(HALO_XBOX_CONSOLE)
 typedef char ai_debug_state_field_859F4_offset_assert[
 	offsetof(struct ai_debug_state, field_859F4) == 0x859F4 ? 1 : -1];
 typedef char ai_debug_state_path_state_offset_assert[
@@ -613,6 +637,22 @@ void ai_debug_speak(
 
 extern struct ai_debug_state ai_debug;
 extern struct actor_debug_info *actor_debug_array;
+
+/* an actor's debug record. port: the console keeps one record that every
+actor writes to (they are only read by the AI debug displays and
+messages): one for each actor was 26 KB each, 6.5 MB of a 64 MB Xbox's
+heap */
+#ifndef HALO_XBOX_CONSOLE
+#define AI_DEBUG_ACTOR_RECORD_COUNT MAXIMUM_NUMBER_OF_ACTORS
+#define ACTOR_DEBUG_INFO_GET(actor_index) (&actor_debug_array[DATUM_INDEX_TO_ABSOLUTE_INDEX(actor_index)])
+#else
+#define AI_DEBUG_ACTOR_RECORD_COUNT 1
+/* (made when the first actor of a map needs it, and given back with the
+map: 25 KB the console's multiplayer games and menus never take) */
+#define HALO_CONSOLE_AI_DEBUG_ON_DEMAND
+struct actor_debug_info *ai_debug_actor_record(void);
+#define ACTOR_DEBUG_INFO_GET(actor_index) ai_debug_actor_record()
+#endif
 extern struct path_debug_storage *actor_path_debug_array;
 
 

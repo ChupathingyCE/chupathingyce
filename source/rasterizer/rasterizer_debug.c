@@ -189,10 +189,27 @@ long rasterizer_debug_new_primitive(
 	return primitive_index;
 }
 
+#ifdef HALO_XBOX_CONSOLE
+int config_boolean(const char *name); /* (port_config.h) */
+#endif
+
 boolean rasterizer_debug_initialize(
 	void)
 {
 	boolean success = TRUE;
+
+#ifdef HALO_XBOX_CONSOLE
+	/* port: the debug geometry's buffers (three of 480 KB) are the debug
+	build's, which the retail game did without: on the console they are made
+	only with console.debug_geometry = true, so a stock 64 MB console keeps
+	its room for the caches (the rasterizer works as before without them) */
+	if (!config_boolean("console.debug_geometry"))
+	{
+		error(_error_silent, "rasterizer: debug geometry off (console.debug_geometry), its 1440 KB of buffers kept free");
+		debug_data.initialized = FALSE;
+		return TRUE;
+	}
+#endif
 
 	debug_data.opaque_triangles = match_malloc(
 		"c:\\halo\\SOURCE\\rasterizer\\rasterizer_debug.c",
@@ -216,8 +233,22 @@ boolean rasterizer_debug_initialize(
 	else
 	{
 		error(_error_silent, "### ERROR failed to allocate debug buffers");
+#ifdef HALO_XBOX_CONSOLE
+		/* port: without them the console only draws no debug geometry,
+		so the rasterizer starts anyway, with what it got given back */
+		if (debug_data.opaque_triangles)
+			free(debug_data.opaque_triangles);
+		if (debug_data.opaque_lines)
+			free(debug_data.opaque_lines);
+		if (debug_data.non_opaque_primitives)
+			free(debug_data.non_opaque_primitives);
+		debug_data.opaque_triangles = NULL;
+		debug_data.opaque_lines = NULL;
+		debug_data.non_opaque_primitives = NULL;
+#else
 		success = FALSE;
-		debug_data.initialized = success;
+#endif
+		debug_data.initialized = FALSE;
 	}
 
 	return success;

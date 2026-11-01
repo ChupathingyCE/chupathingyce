@@ -9,6 +9,8 @@ platform (the desktops, Android, the dedicated server):
 	<data root>/logs/     debug.txt, halo.log (Windows), crashes/
 	<save root>/cache/    what the game can make again (safe to delete)
 	<save root>/private/  what is the player's alone, never shared
+	<save root>/gametypes/ the player's game type files (the dedicated
+	                      server's format: server/docs/playlists.md)
 
 The data root holds maps/ (paths.data, HALO_DATA_ROOT); the save root, the
 saves (paths.saves, HALO_SAVE_ROOT). logs/ and cache/ can be put elsewhere
@@ -29,15 +31,17 @@ enum port_folder
 	_port_folder_logs,
 	_port_folder_cache,
 	_port_folder_private,
+	_port_folder_gametypes,
 
 	k_port_folder_count
 };
 
-/* the folder's name in its root: "data", "logs", "cache" or "private" */
+/* the folder's name in its root: "data", "logs", "cache", "private" or
+"gametypes" */
 const char *port_folder_name(enum port_folder folder);
 
-/* whether the folder is in the save root (cache, private) rather than the
-data root (data, logs) */
+/* whether the folder is in the save root (cache, private, gametypes) rather
+than the data root (data, logs) */
 int port_folder_in_save_root(enum port_folder folder);
 
 /* the folder's path: override as it is when set (logs and cache only; the

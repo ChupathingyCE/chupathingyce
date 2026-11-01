@@ -259,6 +259,30 @@ short find_nav_point(
 	return nav_index;
 }
 
+#ifdef HALO_GAME_BROWSER
+/* port: a waypoint arrow's color (its tag's), for a game type's HUD to show
+a team in its arrows' colors (game_engine_bomb.c); FALSE for none */
+boolean hud_nav_point_color(
+	char const *name,
+	unsigned long *color)
+{
+	short index;
+
+	for (index = 0; hud_globals && index < hud_globals->waypoint.arrows.count; index++)
+	{
+		struct hud_waypoint_arrow *arrow = TAG_BLOCK_GET_ELEMENT(
+			&hud_globals->waypoint.arrows, index, struct hud_waypoint_arrow);
+
+		if (!_stricmp(name, arrow->name))
+		{
+			*color = arrow->color | 0xFF000000;
+			return TRUE;
+		}
+	}
+	return FALSE;
+}
+#endif
+
 struct hud_nav_point_player_datum *get_nav_point_datum(
 	short local_player_index)
 {
@@ -738,6 +762,9 @@ void custom_render_nav_point(
 			1.0f-distance*(1.0f/15.0f),
 			0.7) + 0.5f;
 	}
+#ifdef HALO_CUSTOM_EDITION
+	arrow_scale *= hud_bitmap_group_scale(hud_globals->waypoint.arrow_bitmap.index);
+#endif
 
 	matrix4x3_transform_point(
 		&render.frustum.world_to_view,

@@ -70,14 +70,14 @@ void byte_swap_message_header(
 	if (byte_order == _byte_order_network)
 	{
 		value = *header;
-		*header = (value << 8) | (value >> 8);
+		*header = MESSAGE_HEADER_SWAP(value);
 		return;
 	}
 
 	if (byte_order == _byte_order_host)
 	{
 		value = *header;
-		*header = (value << 8) | (value >> 8);
+		*header = MESSAGE_HEADER_SWAP(value);
 		return;
 	}
 

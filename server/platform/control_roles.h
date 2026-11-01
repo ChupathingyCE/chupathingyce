@@ -68,9 +68,10 @@ int control_role_parse(const char *text);
 
 /* the permission a command line needs (its first word, and for sv_ban its
 duration: BAN_TIMED for one of CONTROL_ROLES_TIMED_BAN_MINUTES at most,
-else BAN), and whether it changes something (audited, rate limited); 0 if
-the line is no command the table knows (the server answers it as it
-would: "no command") */
+else BAN), and whether it changes something (audited, rate limited);
+CONSOLE if its first word is no command the table knows (denied by
+default: only the console runs it, or answers "no command"); 0 for an
+empty line or one that does not parse */
 unsigned int control_command_permission(const char *line, int *changes);
 
 /* ---------- moderator keys */

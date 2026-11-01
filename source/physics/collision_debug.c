@@ -72,6 +72,8 @@ symbols in this file:
 #include "scenario/scenario.h"
 #include "tag_files/tag_groups.h"
 
+#ifndef HALO_CONSOLE_NO_DEBUG_TOOLS
+
 /* ---------- constants */
 
 enum
@@ -320,9 +322,11 @@ void collision_debug_render(
 					real_matrix4x3 const *matrix = NULL;
 					struct collision_surface const *surface = NULL;
 					char textstring[2048];
+#ifndef HALO_XBOX_CONSOLE
 					/* matrix points into it after the else if below, so it
 					has to outlive that block (see object_reconnect_to_map) */
 					struct collision_model_instance instance;
+#endif
 
 					render_debug_vector(TRUE, &point, &vector, collision.t, global_real_argb_red);
 					render_debug_point(TRUE, &collision.point, 0.125f, global_real_argb_red);
@@ -334,6 +338,10 @@ void collision_debug_render(
 					}
 					else if (collision.type == _collision_result_object && collision.node_index != NONE)
 					{
+#ifdef HALO_XBOX_CONSOLE
+						struct collision_model_instance instance;
+#endif
+
 						if (collision_model_instance_new(&instance, collision.object_index))
 						{
 							struct collision_node *node = TAG_BLOCK_GET_ELEMENT(
@@ -579,3 +587,27 @@ void collision_debug_render(
 }
 
 /* ---------- private code */
+
+#else
+
+/* port: the console's build without the developer tools (halo_xbox_prefix.h)
+has none of this module; what the rest of the game calls answers with nothing */
+
+/* (the flags and sizes the scripts set, which the debug display alone reads) */
+boolean collision_debug_flag_front_facing_surfaces = TRUE;
+boolean collision_debug_flag_ignore_invisible_surfaces = TRUE;
+boolean collision_debug_flag_structure = TRUE;
+boolean collision_debug_flag_media = TRUE;
+boolean collision_debug_flag_objects = TRUE;
+real collision_debug_length = 100.0f;
+real collision_debug_width = 0.0f;
+real collision_debug_height = 0.0f;
+boolean collision_debug_phantom_bsp = FALSE;
+
+void collision_debug_render(
+	void)
+{
+	return;
+}
+
+#endif

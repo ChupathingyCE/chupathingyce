@@ -25,6 +25,18 @@ enum
 #define SWAP2(q) (((q)>>8) | (((q)<<8)&0xff00))
 #define SWAP4(q) (((q)>>24) | (((q)>>8)&0xff00) | (((q)<<8)&0x00ff0000) | (((q)<<24)&0xff000000))
 
+/* port: between this machine's byte order and the network's, which is
+big-endian: a little-endian machine (the original Xbox's x86) swaps what it
+sends and receives, a big-endian one (HALO_BIG_ENDIAN: the consoles'
+PowerPC) has that order already */
+#ifdef HALO_BIG_ENDIAN
+#define NETWORK_ORDER_SWAPPED 0
+#else
+#define NETWORK_ORDER_SWAPPED 1
+#endif
+#define NETWORK_SWAP2(q) (NETWORK_ORDER_SWAPPED ? SWAP2(q) : (q))
+#define NETWORK_SWAP4(q) (NETWORK_ORDER_SWAPPED ? SWAP4(q) : (q))
+
 /* ---------- types */
 
 #ifdef HALO_64BIT

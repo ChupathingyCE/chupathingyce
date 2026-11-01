@@ -148,7 +148,7 @@ void generate_private_key(
 			p->dwords[i],
 			x->dwords[i]);
 
-		private_key->dwords[i] = SWAP4(private_key->dwords[i]);
+		private_key->dwords[i] = NETWORK_SWAP4(private_key->dwords[i]);
 	}
 
 	error(

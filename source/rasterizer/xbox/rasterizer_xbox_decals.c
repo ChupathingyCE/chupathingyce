@@ -139,6 +139,7 @@ symbols in this file:
 #include "rasterizer/xbox/rasterizer_xbox.h"
 #include "rasterizer/xbox/rasterizer_xbox_pixel_shader.h"
 #include "saved games/game_state.h"
+#include "halo_perf_log.h" /* port: console.perf_log */
 
 /* ---------- constants */
 
@@ -772,6 +773,7 @@ void _rasterizer_decals_draw(
 			color >> 8,
 			color,
 			PIXEL32_COMPONENT_MASK - intensity);
+		HALO_PERF_COUNT(_halo_perf_draws, 1);
 		IDirect3DDevice8_DrawPrimitive(
 			global_d3d_device,
 			D3DPT_QUADLIST,

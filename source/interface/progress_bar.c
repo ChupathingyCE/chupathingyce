@@ -173,6 +173,7 @@ symbols in this file:
 
 #include "interface/progress_bar.h"
 #include "cache/cache_files.h"
+#include "cseries/errors.h" /* port: error, for the loading screen with no memory */
 /* The January object retains out-of-line copies of the D3D and D3DX inline
  * wrappers.  The stock XDK definitions of D3DINLINE (static __forceinline) and
  * D3DXINLINE (_inline) reproduce every one of them, including
@@ -1826,7 +1827,7 @@ void progress_bar_display(
 
 	if (progress_bar_mode.active && progress>0.f)
 	{
-		if (!progress_bar_mode.texture0)
+		if (!progress_bar_mode.texture0 && progress_bar_rendering_enabled)
 		{
 			progress_bar_make_stuff_ready();
 			progress_bar_globals.initial_progress= progress;
@@ -2128,8 +2129,15 @@ static void progress_bar_create_mask_texture(
 	unsigned long *pixel;
 	long x, y;
 
-	IDirect3DDevice8_CreateTexture(global_d3d_device, 128, 16, 1, 0, D3DFMT_LIN_A8B8G8R8, 0,
-		&progress_bar_mode.texture1);
+	/* port: a console short of memory may not get it (a stock 64 MB
+	Xbox at its limit): the loading screen then goes without its glow */
+	progress_bar_mode.texture1= NULL;
+	if (IDirect3DDevice8_CreateTexture(global_d3d_device, 128, 16, 1, 0, D3DFMT_LIN_A8B8G8R8, 0,
+		&progress_bar_mode.texture1) < 0 || !progress_bar_mode.texture1)
+	{
+		progress_bar_mode.texture1= NULL;
+		return;
+	}
 	IDirect3DTexture8_LockRect(progress_bar_mode.texture1, 0, &locked_rect, NULL, 0);
 	pixel= locked_rect.pBits;
 	for (y= 0; y<16; y++)
@@ -2167,6 +2175,25 @@ static void progress_bar_make_stuff_ready(
 	progress_bar_load_loading_texture(&progress_bar_mode.texture0);
 	progress_bar_create_noise_texture();
 	progress_bar_create_mask_texture();
+	/* port: without its textures (no memory for them) the loading screen
+	is not drawn: the game loads behind a still frame, as it would with
+	the loading screen turned off */
+	if (!progress_bar_mode.texture0 || !progress_bar_mode.texture1)
+	{
+		if (progress_bar_mode.texture0)
+		{
+			IDirect3DTexture8_Release(progress_bar_mode.texture0);
+			progress_bar_mode.texture0= NULL;
+		}
+		if (progress_bar_mode.texture1)
+		{
+			IDirect3DTexture8_Release(progress_bar_mode.texture1);
+			progress_bar_mode.texture1= NULL;
+		}
+		error(_error_silent, "loading screen: no memory for its textures; loading without it");
+		progress_bar_rendering_enabled= FALSE;
+		return;
+	}
 	IDirect3DDevice8_SetRenderState(global_d3d_device, D3DRS_ALPHABLENDENABLE, TRUE);
 	IDirect3DDevice8_SetRenderState(global_d3d_device, D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
 	IDirect3DDevice8_SetRenderState(global_d3d_device, D3DRS_DESTBLEND, D3DBLEND_ONE);
@@ -2261,7 +2288,15 @@ static void progress_bar_load_loading_texture(
 	unsigned long *pixels;
 	FILE *file;
 
-	IDirect3DDevice8_CreateTexture(global_d3d_device, 320, 240, 1, 0, D3DFMT_LIN_A8B8G8R8, 0, texture);
+	/* port: a console short of memory may not get it: no loading picture,
+	and the loading screen drawn plainly (progress_bar_make_stuff_ready) */
+	*texture= NULL;
+	if (IDirect3DDevice8_CreateTexture(global_d3d_device, 320, 240, 1, 0, D3DFMT_LIN_A8B8G8R8, 0,
+		texture) < 0 || !*texture)
+	{
+		*texture= NULL;
+		return;
+	}
 	IDirect3DTexture8_LockRect(*texture, 0, &locked_rect, NULL, 0);
 	IDirect3DTexture8_GetLevelDesc(*texture, 0, &surface_description);
 	pixels= locked_rect.pBits;

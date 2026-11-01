@@ -31,4 +31,10 @@ void loading_screen_draw(
 	long mask_width,
 	long mask_height);
 
+/* whether the menus' accept (A on any controller, space or enter on the
+keyboard) was pressed this frame, while the loading screen is held for
+display.loading_screen's seconds (game.c): the rest of the wait is skipped */
+boolean loading_screen_skip_pressed(
+	void);
+
 #endif

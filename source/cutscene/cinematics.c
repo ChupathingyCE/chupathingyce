@@ -293,6 +293,16 @@ void cinematic_set_title_delayed(
 	return;
 }
 
+/* port: how far an edge of a title's bounds (in 640 columns) moves on a
+screen extra columns wider: one left of the middle keeps its distance to the
+left side, one right of it to the right side, one at the middle stays there */
+static short cinematic_title_edge_shift(
+	short x,
+	short extra)
+{
+	return x < 320 ? 0 : x > 320 ? extra : (short)(extra / 2);
+}
+
 void cinematic_render(
 	void)
 {
@@ -462,15 +472,18 @@ void cinematic_render(
 					(title->shadow_color & 0x00FFFFFF));
 
 				{
-					/* the bounds are for 640 columns: on a wider screen move
-					them so they keep their place relative to its sides */
+					/* port: the bounds are for 640 columns. On a wider screen
+					each side of them keeps its distance to the nearer side of
+					the screen, as the HUD's elements keep theirs to the corner
+					they are anchored to: the chapter titles (0 to 597, right
+					justified) stay at the lower right, the subtitles that are
+					left justified at the left */
 					static rectangle2d wide_bounds;
-					short shift = (short)(((title_bounds->x0 + title_bounds->x1) / 2) *
-						(halo_screen_width() - 640) / 640);
+					short extra = (short)(halo_screen_width() - 640);
 
 					wide_bounds = *title_bounds;
-					wide_bounds.x0 += shift;
-					wide_bounds.x1 += shift;
+					wide_bounds.x0 += cinematic_title_edge_shift(title_bounds->x0, extra);
+					wide_bounds.x1 += cinematic_title_edge_shift(title_bounds->x1, extra);
 					title_bounds = &wide_bounds;
 				}
 				rasterizer_draw_unicode_string(

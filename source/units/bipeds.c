@@ -284,10 +284,6 @@ boolean network_objects_may_delete(long object_index);
 /* port/linux/game/infection.c's */
 boolean infection_unit_is_flood_zombie(long unit_index);
 
-/* port: an unarmed player's melee's length, in ticks (a weapon's is about
-this: its first person melee animation, sped up a quarter) */
-#define UNARMED_MELEE_TICKS 16
-
 /* ---------- constants */
 
 enum
@@ -820,7 +816,13 @@ static void biped_falling_damage(
 	{
 		if (collision_velocity > falling_damage->runtime_minimum_damage_velocity)
 		{
+#ifdef HALO_GAME_BROWSER
+			/* port: a Grifball game's landings hurt no one
+			(game_engine_bomb.c) */
+			if (!immune && game_engine_bomb_landing_damage())
+#else
 			if (!immune)
+#endif
 			{
 				struct damage_data damage;
 
@@ -1891,6 +1893,11 @@ static boolean biped_jump(
 		}
 		if (cheat.super_jump && biped->unit.player_index!=NONE)
 			jump_magnitude *= 4.f;
+#ifdef HALO_GAME_BROWSER
+		/* port: a Bomb game type's jump trait (game_engine_bomb.c) */
+		if (biped->unit.player_index!=NONE)
+			jump_magnitude *= game_engine_traits_jump_multiplier(biped->unit.player_index);
+#endif
 
 		jump_velocity = biped->object.translational_velocity;
 		{
@@ -2369,6 +2376,20 @@ static void biped_find_nearby_support_surface(
 	return;
 }
 
+#ifdef HALO_GAME_BROWSER
+/* port: a Bomb game type's gravity trait (game_engine_bomb.c) on a player's
+biped in the air */
+static real biped_trait_gravity(
+	long biped_index)
+{
+	struct biped_datum *biped = biped_get(biped_index);
+
+	if (biped->unit.player_index==NONE)
+		return 1.f;
+	return game_engine_traits_gravity_multiplier(biped->unit.player_index);
+}
+#endif
+
 static void biped_update_physics(
 	struct biped_physics *physics)
 {
@@ -2451,7 +2472,11 @@ static void biped_update_physics(
 			velocity_change = acceleration;
 		physics->new_velocity.i = velocity_change.i + physics->velocity.i;
 		physics->new_velocity.j = velocity_change.j + physics->velocity.j;
+#ifdef HALO_GAME_BROWSER
+		physics->new_velocity.k = physics->velocity.k - global_gravity*biped_trait_gravity(physics->biped_index);
+#else
 		physics->new_velocity.k = physics->velocity.k - global_gravity;
+#endif
 		physics->out_flags = TEST_FLAG(in_flags, _biped_physics_in_slipping_bit) ?
 			FLAG(_biped_physics_out_slipping_bit) : 0;
 	}
@@ -4366,28 +4391,21 @@ boolean biped_update(
 						unit_melee_attack_begin(biped_index, FALSE, NULL);
 					}
 				}
-				/* (port: and with no weapon, which prevents it in the
-				Xbox game: a gametype's loadout of none; not from a
-				vehicle's seat, which holds no weapon either) */
-				else if (((weapon_index == NONE && biped->unit.parent_seat_index == NONE) ||
-					(weapon_index != NONE && !weapon_prevents_melee_attack(weapon_index))) &&
+				/* with no weapon, weapon_prevents_melee_attack(NONE) is TRUE:
+				an unarmed player cannot melee, as in the retail game */
+				else if (!weapon_prevents_melee_attack(weapon_index) &&
 					biped->unit.current_zoom_level==NONE)
 				{
 					short melee_speedup_ticks;
 
 					unit_animation_start_action(biped_index, _unit_animation_action_melee);
-					/* port: a player with no weapon (a gametype's loadout of
-					none) melees too: in a weapon's usual time, the hit
-					halfway (the Xbox game read the timing from the weapon's
-					animations, through a weapon it did not check) */
-					if (weapon_index == NONE)
-					{
-						biped->biped.player_melee_ticks = UNARMED_MELEE_TICKS;
-						biped->biped.player_melee_attack_tick = UNARMED_MELEE_TICKS / 2;
-					}
-					else
-					{
 					weapon_stop_reload(weapon_index);
+#ifdef HALO_GAME_BROWSER
+					/* (port: a melee-only Bomb game's unseen fists, held
+					unarmed, swing as no weapon does) */
+					if (game_engine_bomb_hides_weapon(weapon_get(weapon_index)->definition_index))
+						unit_animation_start_unarmed_melee(biped_index);
+#endif
 					first_person_weapon_message_from_unit(
 						biped_index,
 						_first_person_weapon_message_melee);
@@ -4402,7 +4420,6 @@ boolean biped_update(
 							_weapon_first_person_animation_time_private_key_frame,
 							_first_person_weapon_animation_melee,
 							NONE);
-					}
 
 					melee_speedup_ticks = biped->biped.player_melee_ticks >> 2;
 					biped->biped.player_melee_ticks -= melee_speedup_ticks;

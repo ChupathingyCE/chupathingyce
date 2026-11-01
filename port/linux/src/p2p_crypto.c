@@ -670,7 +670,9 @@ void p2p_password_key(const char *password, const unsigned char *salt, unsigned 
 	inputs.salt_size = P2P_KEY_SIZE;
 	if (!work_area)
 	{
-		/* (no key anyone could guess: nothing opens with it) */
+		/* (no key anyone could guess: nothing opens with it; the work area
+		of 4 MiB is more than a 64 MB console has) */
+		platform_log("Internet play: no memory (%d KB) for a password's key", PASSWORD_KEY_BLOCKS);
 		posix_random_bytes(key, P2P_PASSWORD_KEY_SIZE);
 		return;
 	}
@@ -692,6 +694,150 @@ int p2p_unseal_token(const unsigned char *key, const unsigned char *signing_key,
 {
 	return crypto_aead_unlock(token, sealed + 24, key, sealed, signing_key, P2P_KEY_SIZE, sealed + 24 + 16,
 		P2P_TOKEN_SIZE) == 0;
+}
+
+/* ---------- invites to a game with a password (p2p_internal.h) */
+
+void p2p_join_password_key(const char *password, const unsigned char *key_hash, unsigned char *key)
+{
+	static const char label[] = "chupathingy invite password";
+	unsigned char data[sizeof(label) - 1 + P2P_KEY_HASH_SIZE];
+	unsigned char salt[P2P_SHA256_SIZE];
+
+	memcpy(data, label, sizeof(label) - 1);
+	memcpy(data + sizeof(label) - 1, key_hash, P2P_KEY_HASH_SIZE);
+	p2p_sha256(data, (int)sizeof(data), salt);
+	p2p_password_key(password, salt, key);
+}
+
+void p2p_locked_invite_token(const unsigned char *key, const unsigned char *door, unsigned char *token,
+	unsigned char *check)
+{
+	unsigned char data[5 + P2P_TOKEN_SIZE];
+	unsigned char digest[P2P_SHA256_SIZE];
+
+	memcpy(data + 5, door, P2P_TOKEN_SIZE);
+	memcpy(data, "token", 5);
+	p2p_hmac_sha256(key, P2P_PASSWORD_KEY_SIZE, data, (int)sizeof(data), digest);
+	memcpy(token, digest, P2P_TOKEN_SIZE);
+	memcpy(data, "check", 5);
+	p2p_hmac_sha256(key, P2P_PASSWORD_KEY_SIZE, data, (int)sizeof(data), digest);
+	memcpy(check, digest, P2P_INVITE_CHECK_SIZE);
+	crypto_wipe(digest, sizeof(digest));
+}
+
+int p2p_locked_invite_open(const char *password, const unsigned char *key_hash, const unsigned char *door,
+	const unsigned char *check, unsigned char *token)
+{
+	unsigned char key[P2P_PASSWORD_KEY_SIZE];
+	unsigned char worked_out[P2P_TOKEN_SIZE];
+	unsigned char expected[P2P_INVITE_CHECK_SIZE];
+	int opened;
+
+	p2p_join_password_key(password ? password : "", key_hash, key);
+	p2p_locked_invite_token(key, door, worked_out, expected);
+	opened = p2p_equal(expected, check, P2P_INVITE_CHECK_SIZE);
+	if (opened)
+		memcpy(token, worked_out, P2P_TOKEN_SIZE);
+	crypto_wipe(key, sizeof(key));
+	crypto_wipe(worked_out, sizeof(worked_out));
+	return opened;
+}
+
+static void invite_hex(const unsigned char *bytes, int size, char *text)
+{
+	static const char digits[] = "0123456789abcdef";
+	int index;
+
+	for (index = 0; index < size; index++)
+	{
+		text[2 * index] = digits[bytes[index] >> 4];
+		text[2 * index + 1] = digits[bytes[index] & 15];
+	}
+	text[2 * size] = 0;
+}
+
+void p2p_locked_invite_text(const unsigned char *key_hash, const unsigned char *door, const unsigned char *check,
+	char *text)
+{
+	unsigned char bytes[P2P_KEY_HASH_SIZE + P2P_TOKEN_SIZE + P2P_INVITE_CHECK_SIZE];
+
+	memcpy(bytes, key_hash, P2P_KEY_HASH_SIZE);
+	memcpy(bytes + P2P_KEY_HASH_SIZE, door, P2P_TOKEN_SIZE);
+	memcpy(bytes + P2P_KEY_HASH_SIZE + P2P_TOKEN_SIZE, check, P2P_INVITE_CHECK_SIZE);
+	memcpy(text, "halo://join/p", 13);
+	invite_hex(bytes, (int)sizeof(bytes), text + 13);
+}
+
+static int invite_hex_value(char digit)
+{
+	if (digit >= '0' && digit <= '9')
+		return digit - '0';
+	if (digit >= 'a' && digit <= 'f')
+		return digit - 'a' + 10;
+	if (digit >= 'A' && digit <= 'F')
+		return digit - 'A' + 10;
+	return -1;
+}
+
+static int invite_space(char character)
+{
+	return character == ' ' || character == '\t' || character == '\r' || character == '\n';
+}
+
+int p2p_parse_invite(const char *text, unsigned char *host_hash, unsigned char *token, unsigned char *check)
+{
+	unsigned char bytes[P2P_KEY_HASH_SIZE + P2P_TOKEN_SIZE + P2P_INVITE_CHECK_SIZE];
+	const char *start = NULL;
+	const char *search;
+	int locked;
+	int digits;
+	int index;
+
+	for (search = text; *search && !start; search++)
+	{
+		static const char prefix[] = "halo://join/";
+		int length;
+
+		for (length = 0; prefix[length] && search[length] &&
+			(search[length] | 0x20) == prefix[length]; length++)
+			;
+		if (!prefix[length])
+			start = search + length;
+	}
+	if (!start)
+	{
+		/* a bare code: the text is its digits alone (a locked one's after
+		its p), spaces around them allowed */
+		start = text;
+		while (invite_space(*start))
+			start++;
+		search = start + ((*start | 0x20) == 'p');
+		for (; invite_hex_value(*search) >= 0; search++)
+			;
+		for (; *search; search++)
+		{
+			if (!invite_space(*search))
+				return 0;
+		}
+	}
+	/* (a locked invite's digits follow a p: an older version, reading
+	none, takes it for no invite at all) */
+	locked = (*start | 0x20) == 'p';
+	start += locked;
+	for (digits = 0; invite_hex_value(start[digits]) >= 0; digits++)
+		;
+	if (!locked && digits == 2 * (P2P_IDENTIFIER_SIZE + P2P_TOKEN_SIZE))
+		return -1;
+	if (digits != 2 * (P2P_KEY_HASH_SIZE + P2P_TOKEN_SIZE + (locked ? P2P_INVITE_CHECK_SIZE : 0)))
+		return 0;
+	for (index = 0; index < digits / 2; index++)
+		bytes[index] = (unsigned char)(invite_hex_value(start[index * 2]) << 4 | invite_hex_value(start[index * 2 + 1]));
+	memcpy(host_hash, bytes, P2P_KEY_HASH_SIZE);
+	memcpy(token, bytes + P2P_KEY_HASH_SIZE, P2P_TOKEN_SIZE);
+	if (locked && check)
+		memcpy(check, bytes + P2P_KEY_HASH_SIZE + P2P_TOKEN_SIZE, P2P_INVITE_CHECK_SIZE);
+	return locked ? 2 : 1;
 }
 
 int p2p_ed25519_verify(const unsigned char *public_key, const void *message, int size,

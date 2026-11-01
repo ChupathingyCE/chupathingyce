@@ -69,6 +69,7 @@ static char const *const damage_names[EVENT_LOG_NUMBER_OF_DAMAGES] = {
 
 static char const *const objective_names[EVENT_LOG_NUMBER_OF_OBJECTIVES] = {
 	"flag_grab", "flag_return", "flag_score", "ball_grab", "ball_drop", "hill_enter", "hill_exit", "race_lap",
+	"bomb_grab", "bomb_drop", "bomb_score",
 };
 
 static char const *const seat_names[EVENT_LOG_NUMBER_OF_SEATS] = { "driver", "gunner", "passenger" };
@@ -175,6 +176,7 @@ static struct
 	int recording;
 	struct event_log_game game;
 	char id[2 * 16 + 1];
+	char map_info[EVENT_LOG_MAP_INFO_SIZE];
 
 	int capacity;
 	int count;
@@ -835,6 +837,8 @@ static void write_rows(struct text *text)
 			text_append(text, ", \"cpu\": %.1f", cpu / 10.0);
 		if (record->value[3] >= 0)
 			text_append(text, ", \"memory_mb\": %.1f", record->value[3] / 1024.0);
+		text_append(text, ", \"net_in_kbps\": %.1f, \"net_out_kbps\": %.1f", record->position[0],
+			record->position[1]);
 		text_append(text, "}");
 		any = 1;
 	}
@@ -926,11 +930,17 @@ static void write_player(struct text *text, int slot, int end_tick)
 		json_number(player->damage_taken));
 	text_append(text, ", \"grenades\": {\"frag\": %d, \"plasma\": %d}", player->grenades[0], player->grenades[1]);
 	text_append(text, ", \"objectives\": {\"flag_grabs\": %d, \"flag_returns\": %d, \"flag_scores\": %d, "
-		"\"ball_time\": %d, \"ball_kills\": %d, \"hill_time\": %d, \"laps\": %d}",
+		"\"ball_time\": %d, \"ball_kills\": %d, \"hill_time\": %d, \"laps\": %d",
 		totals->flag_grabs < 0 ? 0 : totals->flag_grabs, totals->flag_returns < 0 ? 0 : totals->flag_returns,
 		totals->flag_scores < 0 ? 0 : totals->flag_scores, totals->ball_time < 0 ? 0 : totals->ball_time,
 		totals->ball_kills < 0 ? 0 : totals->ball_kills, totals->hill_time < 0 ? 0 : totals->hill_time,
 		totals->laps < 0 ? 0 : totals->laps);
+	if (totals->bomb)
+		text_append(text, ", \"bomb_carry_time\": %d, \"bomb_carrier_kills\": %d, \"bomb_kills_as_carrier\": %d",
+			totals->bomb_carry_time < 0 ? 0 : totals->bomb_carry_time,
+			totals->bomb_carrier_kills < 0 ? 0 : totals->bomb_carrier_kills,
+			totals->bomb_kills_as_carrier < 0 ? 0 : totals->bomb_kills_as_carrier);
+	text_append(text, "}");
 	text_append(text, ", \"weapons\": [");
 	for (index = 0, any = 0; index <= player->weapon_count; index++)
 	{
@@ -1040,6 +1050,7 @@ void event_log_begin(struct event_log_game const *game, unsigned char const rand
 	}
 	event_log.recording = 1;
 	event_log.game = *game;
+	event_log.map_info[0] = 0;
 	event_log.game.map[sizeof(event_log.game.map) - 1] = 0;
 	event_log.game.gametype[sizeof(event_log.game.gametype) - 1] = 0;
 	event_log.game.server_name[sizeof(event_log.game.server_name) - 1] = 0;
@@ -1073,6 +1084,19 @@ int event_log_recording(void)
 char const *event_log_game_id(void)
 {
 	return event_log.recording ? event_log.id : "";
+}
+
+void event_log_map_info(char const *json)
+{
+	size_t length = json ? strlen(json) : 0;
+
+	/* (an object whole, or nothing: a cut one would not be JSON) */
+	if (!json || length >= sizeof(event_log.map_info) || json[0] != '{' || json[length - 1] != '}')
+	{
+		event_log.map_info[0] = 0;
+		return;
+	}
+	memcpy(event_log.map_info, json, length + 1);
 }
 
 int event_log_tag(char const *text)
@@ -1329,6 +1353,8 @@ char *event_log_finish(struct event_log_end const *end, char const *invite, int 
 	}
 	text_append(&text, ", \"map\": ");
 	text_string(&text, event_log.game.map);
+	if (event_log.map_info[0])
+		text_append(&text, ", \"map_info\": %s", event_log.map_info);
 	text_append(&text, ", \"engine\": %d, \"gametype\": ", event_log.game.engine);
 	text_string(&text, event_log.game.gametype);
 	text_append(&text, ", \"teams\": %d, \"score_limit\": %d, \"started\": %u, \"ended\": %u, \"end_reason\": \"%s\"",

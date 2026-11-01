@@ -14,7 +14,7 @@ crashed:
 	architecture x64
 	os Windows 10.0.19045
 	exception c0000005            (a Windows exception's code, or SIGSEGV)
-	frame halo.exe+0x1a2b3c       (where it crashed, then its callers: a
+	frame chupathingy.exe+0x1a2b3c (where it crashed, then its callers: a
 	frame ntdll.dll+0x4f2a0        module and the offset in it, "?" for none)
 
 and crash_report_body makes the request's body of it, JSON:

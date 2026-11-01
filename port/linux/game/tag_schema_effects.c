@@ -1111,8 +1111,8 @@ static struct tag_schema_definition const optional_static_hud_element_schema =
 static struct tag_schema_field const meter_hud_element_fields[] =
 {
 	TAG_SCHEMA_REFERENCE(struct meter_hud_element_definition, meter_bitmap, TAG_SCHEMA_GROUPS('bitm')),
-	TAG_SCHEMA_BLOCK(struct meter_hud_element_definition, multitexture_overlays, multitexture_overlay_schema,
-		MAXIMUM_MULTITEXTURE_OVERLAYS_PER_HUD_ELEMENT),
+	/* (a meter has no multitexture overlays: its min alpha is where the
+	structure had them) */
 	TAG_SCHEMA_END
 };
 
@@ -2791,14 +2791,25 @@ struct widget_walk_frame
 	short height;
 };
 
-static struct
+struct widget_walk_storage
 {
 	byte states[MAXIMUM_WIDGET_WALK_TAGS];
 	byte heights[MAXIMUM_WIDGET_WALK_TAGS];
 	unsigned short seen[MAXIMUM_WIDGET_WALK_TAGS];
 	long seen_count;
 	struct widget_walk_frame frames[MAXIMUM_WIDGET_DEPTH + 1];
-} widget_walk;
+};
+
+#ifndef HALO_XBOX_CONSOLE
+static struct widget_walk_storage widget_walk;
+#else
+/* port: on the console, 256 KB of the heap made at the first check (only
+a console that checks its maps' tags: tag_validate.c's claims_ready), not
+of every console's image */
+static struct widget_walk_storage *widget_walk_storage;
+
+#define widget_walk (*widget_walk_storage)
+#endif
 
 /* a widget's reference_index-th reference to a widget loaded with it, or
 NULL past them */
@@ -2834,6 +2845,15 @@ static boolean ui_widget_check(
 	short depth = 0;
 	long index;
 
+#ifdef HALO_XBOX_CONSOLE
+	if (!widget_walk_storage)
+		widget_walk_storage = calloc(1, sizeof(*widget_walk_storage));
+	if (!widget_walk_storage)
+	{
+		tag_validate_refuse(validation, "cannot be checked: no memory for its widgets' check");
+		return FALSE;
+	}
+#endif
 	widget_walk.frames[0].widget = base;
 	widget_walk.frames[0].tag_index = NONE;
 	widget_walk.frames[0].reference_index = 0;

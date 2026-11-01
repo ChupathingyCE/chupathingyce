@@ -83,6 +83,7 @@ symbols in this file:
 /* ---------- headers */
 
 #include "cseries/cseries.h"
+#include "cseries/errors.h"
 #include "devices.h"
 #include "device_controls.h"
 #include "device_definitions.h"
@@ -92,6 +93,7 @@ symbols in this file:
 #include "effects/effects.h"
 #include "memory/data.h"
 #include "models/model_animation_definitions.h"
+#include "models/model_definitions.h"
 #include "render/render_debug.h"
 #include "saved games/game_state.h"
 #include "scenario/scenario.h"
@@ -349,6 +351,25 @@ void device_export_function_values(
 	return;
 }
 
+/* port: an animation of no more nodes than the device's model (reported
+once) */
+static boolean device_animation_fits(
+	struct animation const *animation,
+	short model_node_count)
+{
+	static boolean reported = FALSE;
+
+	if (animation->node_count <= model_node_count)
+		return TRUE;
+	if (!reported)
+	{
+		reported = TRUE;
+		error(_error_silent, "### ERROR device animation '%s' has %d nodes, more than its model's %d; it is skipped",
+			animation->name, animation->node_count, model_node_count);
+	}
+	return FALSE;
+}
+
 void device_preprocess_node_orientations(
 	long device_index,
 	struct real_orientation *node_orientations)
@@ -357,6 +378,11 @@ void device_preprocess_node_orientations(
 	struct device_definition *definition = device_definition_get(device->definition_index);
 	struct animation_graph *graph = animation_graph_definition_get(
 		definition->object.animation_graph.index);
+	/* port: the nodes node_orientations holds, the model's: a Halo PC map's
+	position or power animation may pose more (only a model with nodes gets
+	here: object_compute_node_matrices) */
+	short model_node_count = (short)MIN(model_definition_get(definition->object.model.index)->nodes.count,
+		MAXIMUM_NODES_PER_MODEL);
 
 	if (graph->device_animations.count != 0)
 	{
@@ -372,8 +398,11 @@ void device_preprocess_node_orientations(
 				short animation_index = animation_graph_animation_index_get(
 					&device_animations->animations)[_device_animation_position].animation_index;
 
-				/* port: an animation the graph has (a map's index) */
-				if (VALID_INDEX(animation_index, graph->animations.count))
+				/* port: an animation the graph has (a map's index), of no
+				more nodes than the model */
+				if (VALID_INDEX(animation_index, graph->animations.count) &&
+					device_animation_fits(TAG_BLOCK_GET_ELEMENT(&graph->animations, animation_index, struct animation),
+						model_node_count))
 				{
 					struct animation *animation = TAG_BLOCK_GET_ELEMENT(
 						&graph->animations,
@@ -403,8 +432,11 @@ void device_preprocess_node_orientations(
 				short animation_index = animation_graph_animation_index_get(
 					&device_animations->animations)[_device_animation_power].animation_index;
 
-				/* port: an animation the graph has (a map's index) */
-				if (VALID_INDEX(animation_index, graph->animations.count))
+				/* port: an animation the graph has (a map's index), of no
+				more nodes than the model */
+				if (VALID_INDEX(animation_index, graph->animations.count) &&
+					device_animation_fits(TAG_BLOCK_GET_ELEMENT(&graph->animations, animation_index, struct animation),
+						model_node_count))
 				{
 					struct animation *animation = TAG_BLOCK_GET_ELEMENT(
 						&graph->animations,
@@ -1032,12 +1064,21 @@ void device_add_scenario_information(
 	struct device_datum *device = device_get(device_index);
 
 	device_definition_get(device->definition_index);
-	device->device.power_group_index = scenario_device->power_group_index != NONE
+	/* port: a group the map names that was not made (an index past the
+	scenario's device groups, or past what device_groups_data holds) is
+	none, and the device gets a group of its own, as for none: datum_get
+	gave NULL and the read of its value crashed (Windows x64 crash report on
+	0.8.0e, a map loading as a game began) */
+	device->device.power_group_index =
+		scenario_device->power_group_index != NONE &&
+			datum_try_and_get(device_groups_data, scenario_device->power_group_index)
 		? scenario_device->power_group_index
 		: device_group_new(
 			TEST_FLAG(scenario_device->flags, _scenario_device_initially_off_bit) ? 0.0f : 1.0f,
 			FLAG(_device_group_runtime_bit));
-	device->device.position_group_index = scenario_device->position_group_index != NONE
+	device->device.position_group_index =
+		scenario_device->position_group_index != NONE &&
+			datum_try_and_get(device_groups_data, scenario_device->position_group_index)
 		? scenario_device->position_group_index
 		: device_group_new(
 			TEST_FLAG(scenario_device->flags, _scenario_device_initially_open_bit) ? 1.0f : 0.0f,

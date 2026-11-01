@@ -98,11 +98,21 @@ enum
 	push out (one each UNPROVEN_ANSWER_INTERVAL at most, after the first
 	few: about 11 seconds), so a joiner's proof, which follows its answer at
 	once, finds its own */
+#ifndef P2P_JOINER_ONLY
 	MAXIMUM_ASKERS = 256,
+#else
+	/* (a machine that only joins hosts no game on the internet: a few for
+	the requests that find it hosting on the local network only) */
+	MAXIMUM_ASKERS = 16,
+#endif
 	/* the requests a session was made from, which make none again (a
 	host takes at most a few new players a minute: this is hours of them;
 	one is not forgotten while its host nonce lasts: USED_REQUEST_TIME) */
+#ifndef P2P_JOINER_ONLY
 	MAXIMUM_USED_REQUESTS = 1024,
+#else
+	MAXIMUM_USED_REQUESTS = 64,
+#endif
 	/* (a slot's: hceu/3/lobby/s/ and a key hash in hex) */
 	TOPIC_SIZE = 64,
 	NONCE_SIZE = 8,
@@ -390,7 +400,11 @@ static int elapsed(unsigned long since, unsigned long time)
 
 static unsigned short network_short(unsigned short value)
 {
+#ifdef HALO_BIG_ENDIAN
+	return value;
+#else
 	return (unsigned short)(value << 8 | value >> 8);
+#endif
 }
 
 /* whether some of a budget is left now (maximum at once, one more each
@@ -1706,7 +1720,7 @@ static void broker_readable(struct broker *broker)
 beside its config.toml: the dedicated server's container, a macOS
 application (its config.toml in Application Support), a build run from its
 build folder. Keep it the same as that file */
-#define DEFAULT_BROKERS "opence.milenko.org:1883,broker.emqx.io:1883,broker.hivemq.com:1883,test.mosquitto.org:1883"
+#define DEFAULT_BROKERS "mqtt.chupathingy.org:1883,broker.emqx.io:1883,broker.hivemq.com:1883,test.mosquitto.org:1883"
 
 /* the brokers in network.brokers_file (beside config.toml, unless a full
 path: port/assets/network/brokers.txt, which the builds put there), one on

@@ -467,6 +467,28 @@ void director_load_camera(
 	return;
 }
 
+/* port: the debug camera of director_load_camera at a position and facing of
+the caller's, for the audio probe (port/linux/game/audio_probe.c) */
+void director_set_flying_camera(
+	short local_player_index,
+	real_point3d const *position,
+	real_vector3d const *forward)
+{
+	struct director *director = director_get(local_player_index);
+
+	flying_camera_new_from_point_and_vector(
+		(struct flying_camera *)director->camera_data,
+		position,
+		forward);
+	director_set_camera(
+		local_player_index,
+		(director_camera_update_proc)flying_camera_update,
+		FALSE);
+	director->camera_mode_index = _camera_flying;
+
+	return;
+}
+
 static void director_initialize_variables(
 	short local_player_index)
 {

@@ -6,7 +6,7 @@ port/linux/game/menu_functions.c) and the games on Halo PC (Custom Edition)
 maps among those it lists (port/linux/game/server_browser.c).
 
 The browser lists the public games' listings (p2p_lobby.c) and, with the
-game list (HALO_GAME_BROWSER), the games of halo.milenko.org's list. A game
+game list (HALO_GAME_BROWSER), the games of stats.chupathingy.org's list. A game
 on a Halo PC map has its map as <file>@ce (Custom Edition) or <file>@md
 (HaloMD) in either (halo_map_families.h). Such a game is named as the menus'
 map list names the map (ui_map_list.c), marked HALO PC or HALOMD, and joined

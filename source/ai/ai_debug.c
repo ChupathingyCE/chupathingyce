@@ -272,13 +272,35 @@ void ai_debug_initialize(
 	ai_debug.last_render_id = 1;
 	ai_debug.render = TRUE;
 
-	actor_debug_array = actor_debug_array==NULL ? (struct actor_debug_info *)debug_malloc(sizeof(*actor_debug_array) * MAXIMUM_NUMBER_OF_ACTORS, FALSE, "c:\\halo\\SOURCE\\ai\\ai_debug.c", 147) : actor_debug_array;
-	actor_path_debug_array = actor_path_debug_array==NULL ? (struct path_debug_storage *)debug_malloc(sizeof(*actor_path_debug_array) * MAXIMUM_NUMBER_OF_ACTOR_PATHS, FALSE, "c:\\halo\\SOURCE\\ai\\ai_debug.c", 148) : actor_path_debug_array;
+#ifndef HALO_CONSOLE_AI_DEBUG_ON_DEMAND
+	actor_debug_array = actor_debug_array==NULL ? (struct actor_debug_info *)debug_malloc(sizeof(*actor_debug_array) * AI_DEBUG_ACTOR_RECORD_COUNT, FALSE, "c:\\halo\\SOURCE\\ai\\ai_debug.c", 147) : actor_debug_array;
+#endif
+	actor_path_debug_array = actor_path_debug_array==NULL ? (struct path_debug_storage *)debug_malloc(sizeof(*actor_path_debug_array) * MAXIMUM_AI_DEBUG_PATH_STORAGE, FALSE, "c:\\halo\\SOURCE\\ai\\ai_debug.c", 148) : actor_path_debug_array;
 
+#ifndef HALO_CONSOLE_AI_DEBUG_ON_DEMAND
 	match_assert("c:\\halo\\SOURCE\\ai\\ai_debug.c", 150, actor_debug_array && actor_path_debug_array);
+#else
+	match_assert("c:\\halo\\SOURCE\\ai\\ai_debug.c", 150, actor_path_debug_array);
+#endif
 
 	return;
 }
+
+#ifdef HALO_CONSOLE_AI_DEBUG_ON_DEMAND
+/* the one record every actor writes to (ai_debug.h), made on first use */
+struct actor_debug_info *ai_debug_actor_record(
+	void)
+{
+	if (!actor_debug_array)
+	{
+		actor_debug_array = (struct actor_debug_info *)debug_malloc(sizeof(*actor_debug_array), FALSE, "c:\\halo\\SOURCE\\ai\\ai_debug.c", 147);
+		match_assert("c:\\halo\\SOURCE\\ai\\ai_debug.c", 150, actor_debug_array);
+		memset(actor_debug_array, 0, sizeof(*actor_debug_array));
+	}
+
+	return actor_debug_array;
+}
+#endif
 
 void ai_debug_dispose(
 	void)
@@ -324,12 +346,21 @@ void ai_debug_dispose_from_old_map(
 void ai_debug_clear_storage(
 	void)
 {
+#ifdef HALO_CONSOLE_AI_DEBUG_ON_DEMAND
+	/* (a new map's actors make their record again, zeroed) */
+	if (actor_debug_array)
+	{
+		debug_free(actor_debug_array, "c:\\halo\\SOURCE\\ai\\ai_debug.c", 160);
+		actor_debug_array = NULL;
+	}
+#else
 	match_assert("c:\\halo\\SOURCE\\ai\\ai_debug.c", 208, actor_debug_array);
 
-	memset(actor_debug_array, 0, sizeof(*actor_debug_array) * MAXIMUM_NUMBER_OF_ACTORS);
+	memset(actor_debug_array, 0, sizeof(*actor_debug_array) * AI_DEBUG_ACTOR_RECORD_COUNT);
+#endif
 	match_assert("c:\\halo\\SOURCE\\ai\\ai_debug.c", 211, actor_path_debug_array)
 
-	memset(actor_path_debug_array, 0, sizeof(*actor_path_debug_array) * MAXIMUM_NUMBER_OF_ACTOR_PATHS);
+	memset(actor_path_debug_array, 0, sizeof(*actor_path_debug_array) * MAXIMUM_AI_DEBUG_PATH_STORAGE);
 
 	return;
 }
@@ -339,7 +370,7 @@ void ai_debug_actor_deleted(
 {
 	short path_index;
 
-	for (path_index = 0; path_index<MAXIMUM_NUMBER_OF_ACTOR_PATHS; ++path_index)
+	for (path_index = 0; path_index<MAXIMUM_AI_DEBUG_PATH_STORAGE; ++path_index)
 	{
 		struct path_debug_storage *path = &actor_path_debug_array[path_index];
 
@@ -355,6 +386,8 @@ void ai_debug_actor_deleted(
 	return;
 }
 
+#ifndef HALO_CONSOLE_NO_DEBUG_TOOLS
+
 struct path_debug_storage *ai_debug_get_last_path(
 	long actor_index)
 {
@@ -363,7 +396,7 @@ struct path_debug_storage *ai_debug_get_last_path(
 	short found_path_index = NONE;
 	long found_path_time = NONE;
 
-	for (path_index = 0; path_index<MAXIMUM_NUMBER_OF_ACTOR_PATHS; ++path_index)
+	for (path_index = 0; path_index<MAXIMUM_AI_DEBUG_PATH_STORAGE; ++path_index)
 	{
 		struct path_debug_storage const *path = &actor_path_debug_array[path_index];
 	
@@ -768,7 +801,7 @@ static void ai_debug_render_actor(
 	long *history_start_time)
 {
 	struct actor_datum* actor = actor_get(actor_index);
-	struct actor_debug_info *actor_debug_info = &actor_debug_array[DATUM_INDEX_TO_ABSOLUTE_INDEX(actor_index)];
+	struct actor_debug_info *actor_debug_info = ACTOR_DEBUG_INFO_GET(actor_index);
 
 	if (actor_debug_info->last_render_id!=ai_debug.last_render_id)
 	{
@@ -6239,3 +6272,214 @@ static long ai_debug_get_this_actor(
 
 	return actor_index;
 }
+
+#else
+
+/* port: the console's build without the developer tools
+(halo_xbox_prefix.h) keeps the AI debug state (the flags the AI and the
+scripts read, all off) and the actor record, and has none of its displays:
+the calls the AI makes answer with nothing, the commands say so */
+
+void ai_debug_communication_suppress(
+	long name_count,
+	char const **names)
+{
+	console_debug_tools_unavailable("ai_debug_communication_suppress");
+
+	return;
+}
+
+void ai_debug_communication_ignore(
+	long name_count,
+	char const **names)
+{
+	console_debug_tools_unavailable("ai_debug_communication_ignore");
+
+	return;
+}
+
+void ai_debug_communication_focus(
+	long name_count,
+	char const **names)
+{
+	console_debug_tools_unavailable("ai_debug_communication_focus");
+
+	return;
+}
+
+struct path_debug_storage *ai_debug_get_last_path(
+	long actor_index)
+{
+	return NULL;
+}
+
+struct path_debug_storage *ai_debug_get_path_storage(
+	long actor_index)
+{
+	return NULL;
+}
+
+void ai_debug_initialize_for_new_map(
+	void)
+{
+#ifdef HALO_CONSOLE_AI_DEBUG_ON_DEMAND
+	/* (the last map's record goes; a map with actors makes one again) */
+	if (actor_debug_array)
+	{
+		debug_free(actor_debug_array, "c:\\halo\\SOURCE\\ai\\ai_debug.c", 160);
+		actor_debug_array = NULL;
+	}
+#endif
+
+	return;
+}
+
+void ai_debug_update(
+	void)
+{
+	return;
+}
+
+void ai_debug_render(
+	void)
+{
+	return;
+}
+
+void ai_debug_sound_point_set(
+	void)
+{
+	return;
+}
+
+void ai_debug_lineoffire_new(
+	real_point3d const *origin,
+	real_vector3d const *vector)
+{
+	return;
+}
+
+void ai_debug_lineoffire_addpill(
+	real_point3d const *base,
+	real_vector3d const *directedheight,
+	real width,
+	boolean hit)
+{
+	return;
+}
+
+void ai_debug_lineoffire_success(
+	boolean success)
+{
+	return;
+}
+
+boolean ai_debug_highlight_cluster(
+	short index,
+	real_argb_color const **highlight_color)
+{
+	return FALSE;
+}
+
+void ai_debug_lineofsight_reset(
+	void)
+{
+	return;
+}
+
+void ai_debug_lineofsight(
+	real_point3d const *start,
+	short start_key,
+	real_point3d const *end,
+	short end_key)
+{
+	return;
+}
+
+void ai_debug_idle_look_clear(
+	long unit_index)
+{
+	return;
+}
+
+void ai_debug_idle_look_addprop(
+	long prop_index,
+	real weight)
+{
+	return;
+}
+
+void ai_debug_speak(
+	char const *vocalization_type_name)
+{
+	return;
+}
+
+void ai_debug_vocalize(
+	char const *priority_name,
+	char const *vocalization_name)
+{
+	console_debug_tools_unavailable("ai_debug_vocalize");
+
+	return;
+}
+
+void ai_debug_speak_list(
+	char const *list_name)
+{
+	console_debug_tools_unavailable("ai_debug_speak_list");
+
+	return;
+}
+
+void ai_debug_change_selected_encounter(
+	boolean a1)
+{
+	console_debug_tools_unavailable("ai_debug_change_selected_encounter");
+
+	return;
+}
+
+void ai_debug_teleport_to(
+	long ai_index)
+{
+	console_debug_tools_unavailable("ai_debug_teleport_to");
+
+	return;
+}
+
+void ai_debug_change_selected_actor(
+	boolean a1)
+{
+	console_debug_tools_unavailable("ai_debug_change_selected_actor");
+
+	return;
+}
+
+void ai_debug_select_encounter(
+	long encounter_index)
+{
+	return;
+}
+
+void ai_debug_select_actor(
+	long encounter_index,
+	long actor_index)
+{
+	return;
+}
+
+char *ai_debug_describe_actor(
+	long actor_index,
+	long unit_index,
+	boolean include_squad,
+	char *buffer,
+	long bufsize)
+{
+	if (buffer && bufsize > 0)
+		buffer[0] = '\0';
+
+	return buffer;
+}
+
+#endif
