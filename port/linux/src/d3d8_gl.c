@@ -231,6 +231,74 @@ long console_performance_lines(void);
 
 static GLuint framebuffer_get(GLuint color, GLuint depth);
 
+#ifdef HALO_CONSOLE_CACHE_SCREEN
+/* (steamlink_cache_screen.c) */
+const unsigned char *console_ring_frame(float fraction, int with_sound);
+int console_ring_due(void);
+
+/* the ring while the shaders of earlier runs are made ready at start-up
+(xgpu_shader_cache_warm), before the game has a back buffer to draw into: each
+few steps, as they are the slow part and this must not make them slower */
+void console_warm_screen(unsigned long done, unsigned long total)
+{
+	static GLuint picture;
+	float fraction = total ? (float)done / (float)total : 1.0f;
+	const unsigned char *frame;
+	int window_width = 0, window_height = 0, width, height, x, y;
+	char percent[16];
+
+	if (!console_ring_due())
+		return;
+	frame = console_ring_frame(fraction, 1);
+	if (!frame)
+		return;
+	platform_video_drawable_size(&window_width, &window_height);
+	if (!picture)
+	{
+		glGenTextures(1, &picture);
+		glBindTexture(GL_TEXTURE_2D, picture);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 640, 480, 0, GL_RGBA, GL_UNSIGNED_BYTE, frame);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	}
+	else
+	{
+		glBindTexture(GL_TEXTURE_2D, picture);
+		glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 640, 480, GL_RGBA, GL_UNSIGNED_BYTE, frame);
+	}
+	glBindTexture(GL_TEXTURE_2D, 0);
+	height = window_height;
+	width = window_height * 640 / 480;
+	x = (window_width - width) / 2;
+	y = 0;
+	{
+		GLuint source = framebuffer_get(picture, 0);
+
+		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+		glDisable(GL_SCISSOR_TEST);
+		glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+		glClear(GL_COLOR_BUFFER_BIT);
+		glBindFramebuffer(GL_READ_FRAMEBUFFER, source);
+		/* (row 0 of a texture is the top of the picture) */
+		glBlitFramebuffer(0, 0, 640, 480, x, y + height, x + width, y, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+	}
+	xgpu_gl_state_invalidate();
+#ifdef HALO_GAME_BROWSER
+	snprintf(percent, sizeof(percent), "%d%%", (int)(fraction * 100.0f));
+	ui_overlay_text_glow(UI_FONT_TITLE, 21.0f, 320.0f, 338.0f, UI_ALIGN_CENTER, 0xa8ccffffu, 0x3c78ff80u, "CHUPATHINGYCE");
+	ui_overlay_text(UI_FONT_MENU, 24.0f, 320.0f, 376.0f, UI_ALIGN_CENTER, 0xffffffffu, percent);
+	ui_overlay_text(UI_FONT_MENU_SMALL, 15.0f, 320.0f, 420.0f, UI_ALIGN_CENTER, 0x8ca8d0ffu, "GETTING THE SHADERS READY.");
+	ui_overlay_present(x, y, width, height, window_width, window_height);
+	xgpu_gl_state_invalidate();
+#endif
+	platform_video_swap();
+}
+#endif
+
 static void screen_mode_choose(long *width, float scale[2])
 {
 #ifdef HALO_GL_ES
