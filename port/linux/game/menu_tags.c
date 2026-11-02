@@ -1762,8 +1762,11 @@ static boolean pause_list_patch(struct cache_file_tag_instance *instances, struc
 	boolean moderation = pause_moderation_offered(end_game);
 	/* (the host's BOTS: the bots of the game to add, take away and make
 	better or worse, on a screen of the menus', chupathingy/host_setup.xml) */
-	long bots_widget = end_game && build.menus ? widget_named(PAUSE_BOTS_SCREEN) : NONE;
-	boolean bots = bots_widget != NONE;
+	long bots_widget = end_game && build.menus && menus_chosen() == _menus_chupathingy ? widget_named(PAUSE_BOTS_SCREEN) :
+		NONE;
+	/* (the Xbox's and Gearbox's menus: a screen drawn by code, bots_screen.c,
+	which the row's function opens) */
+	boolean bots = end_game && (bots_widget != NONE || menus_chosen() != _menus_chupathingy);
 	struct ui_widget_child_reference *children = xbox_pointer(list->child_widgets.address);
 	long count = list->child_widgets.count, child;
 	boolean controls = pause_controls_offered();
@@ -1824,7 +1827,8 @@ static boolean pause_list_patch(struct cache_file_tag_instance *instances, struc
 		names[added] = "pause/bots_button";
 		tags[added] = next_tag();
 		buttons[added++] = pause_button(instances, model, "pause/bots_button", "BOTS",
-			function_index("port pause bots", "pause", 0), build.widget_tags[bots_widget], FALSE);
+			function_index("port pause bots", "pause", 0), bots_widget == NONE ? NONE : build.widget_tags[bots_widget],
+			FALSE);
 	}
 	if (moderation)
 	{
@@ -2149,8 +2153,9 @@ static void pause_patch(struct cache_file_tag_instance *instances, boolean setti
 	}
 	if (patched_list != NONE)
 	{
-		platform_log("menus: the pause menu has%s%s%s%s%s", change_teams ? " CHANGE TEAMS" : "",
+		platform_log("menus: the pause menu has%s%s%s%s%s%s", change_teams ? " CHANGE TEAMS" : "",
 			settings ? " SETTINGS" : "", pause_controls_offered() ? " CONTROLS" : "",
+			host && solo_screen == NONE ? " BOTS" : "",
 			solo_screen == NONE && pause_moderation_offered(host) ? " MODERATION" : "",
 			host && solo_screen == NONE ? " END GAME" : "");
 	}

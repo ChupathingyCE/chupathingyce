@@ -7325,7 +7325,7 @@ static long host_bots_most(void)
 	struct network_game *game = global_network_game_server_get() ?
 		network_game_server_get_game(global_network_game_server_get()) : NULL;
 
-	if (game && game->maximum_players > 0 && game_in_progress())
+	if (game && game->maximum_players > 0 && game_engine_running())
 		most = game->maximum_players;
 	/* (split screen's: the game's every player but the first) */
 	else if (host_setup.page == _host_page_split)
@@ -7471,7 +7471,7 @@ static wchar_t const *host_setup_help(short row)
 	case _host_row_bot_count:
 		if (bots_fill() > 0)
 			return L"FILL GAME TO decides the number of bots. Set it OFF to choose a number.";
-		return game_in_progress() ? L"Bots in the game. They join or leave one a second." :
+		return game_engine_running() ? L"Bots in the game. They join or leave one a second." :
 			L"Bots in the game. They make way for people who join a full game.";
 	case _host_row_bot_fill:
 		return bots_fill() > 0 ? L"Bots fill the game to this many players: one leaves as a person joins." :
@@ -9143,8 +9143,16 @@ boolean pc_menu_event_function_invoke(
 		else if (!strcmp(name, "port pause bots"))
 		{
 			/* (the host's pause menu's BOTS: its screen opens if this machine
-			hosts the game, menu_tags.c) */
-			return global_network_game_server_get() ? TRUE : campaign_fail();
+			hosts the game, menu_tags.c; the Chupathingy menus' own, the
+			others' drawn by code, bots_screen.c) */
+			extern short pc_menus_set(void);
+			extern boolean bots_screen_open(void);
+
+			if (!global_network_game_server_get())
+				return campaign_fail();
+			if (pc_menus_set() != 2)
+				bots_screen_open();
+			return TRUE;
 		}
 		else if (!strcmp(name, "port pause controls"))
 		{

@@ -15371,7 +15371,7 @@ boolean bots_console_command(char const *text)
 		if (value != NONE)
 			bots_set_count(value);
 		console_printf(FALSE, "bots: %ld in the games this machine hosts%s", bots_configured(),
-			value != NONE && game_in_progress() ? " (they join or leave the game one a second)" : "");
+			value != NONE && game_engine_running() ? " (they join or leave the game one a second)" : "");
 	}
 	else
 	{

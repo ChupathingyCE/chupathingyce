@@ -4037,6 +4037,14 @@
       <ForcedIncludeFiles>$(HaloGameForced)</ForcedIncludeFiles>
       <AdditionalOptions>$(HaloGameOptions) %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\bots_screen.c">
+      <ObjectFileName>$(IntDir)bots_screen_a6bff6df.obj</ObjectFileName>
+      <WarningLevel>$(HaloGameWarnings)</WarningLevel>
+      <PreprocessorDefinitions>$(HaloGameDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(HaloGameIncludes)</AdditionalIncludeDirectories>
+      <ForcedIncludeFiles>$(HaloGameForced)</ForcedIncludeFiles>
+      <AdditionalOptions>$(HaloGameOptions) %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
     <ClCompile Include="$(HaloRoot)port\linux\game\browser_screen.c">
       <ObjectFileName>$(IntDir)browser_screen_3c8ec341.obj</ObjectFileName>
       <WarningLevel>$(HaloGameWarnings)</WarningLevel>

@@ -1267,6 +1267,12 @@ The rows:
 | SKILL SPREAD | `NONE`, or a range below BOT SKILL | `bots.skill_spread` |
 | KEEP GAMES CLOSE | `ON`, `OFF` (only with a skill spread) | `bots.balance` |
 
+With the Xbox's menus (`display.menus = "xbox"`) or Gearbox's, which have no
+GAME SETUP, the same rows are on a BOTS screen of their own: the host
+presses Y in the lobby (split screen's and System Link's: the hint "Y BOTS"
+is under the button key), or chooses BOTS in the pause menu. A or B closes
+it and keeps the values in `config.toml`.
+
 X sets all the rows to the default values. A game ends when only one team
 is left, as when players quit: if you remove the last bot from a game that
 only you play, the game ends.

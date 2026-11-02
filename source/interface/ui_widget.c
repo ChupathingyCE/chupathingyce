@@ -703,6 +703,12 @@ boolean moderation_screen_active(void);
 void moderation_screen_update(boolean menu_open);
 void moderation_screen_process(void);
 void moderation_screen_render(void);
+/* port/linux/game/bots_screen.c: the host's BOTS, for the Xbox's and
+Gearbox's menus */
+boolean bots_screen_active(void);
+void bots_screen_update(char const *screen_name);
+void bots_screen_process(void);
+void bots_screen_render(void);
 /* the menus' pointer, while it is up (its own taps and clicks) */
 void browser_screen_pointer(struct halo_ui_pointer const *pointer);
 #ifndef HALO_CONSOLE_NO_CONTROLS
@@ -2244,7 +2250,8 @@ static boolean ui_widget_screens_of_code_active(
 	void)
 {
 #ifdef HALO_GAME_BROWSER
-	boolean active = invite_prompt_active() || browser_screen_active() || moderation_screen_active();
+	boolean active = invite_prompt_active() || browser_screen_active() || moderation_screen_active() ||
+		bots_screen_active();
 
 #ifndef HALO_CONSOLE_NO_CONTROLS
 	active = active || controls_screen_active();
@@ -8251,6 +8258,7 @@ void render_ui_widgets(
 		controls_screen_render();
 #endif
 		moderation_screen_render();
+		bots_screen_render();
 		invite_prompt_render();
 	}
 #endif
@@ -9494,6 +9502,15 @@ void process_ui_widgets(
 	if (moderation_screen_active())
 	{
 		moderation_screen_process();
+
+		return;
+	}
+	/* port: the host's BOTS, over the lobby or the pause menu (the Xbox's
+	and Gearbox's menus: bots_screen.c) */
+	bots_screen_update(widget_globals.active_widgets[0] ? widget_globals.active_widgets[0]->name : NULL);
+	if (bots_screen_active())
+	{
+		bots_screen_process();
 
 		return;
 	}
