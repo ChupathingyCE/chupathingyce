@@ -59,7 +59,7 @@ SCREENS = {
         # rows the consoles leave out)
         "same_place": ["window_size", "resolution_android", "interpolation",
                        "anti_aliasing_android", "screen_width", "preset", "frame_rate", "dynamic_resolution",
-                       "button_icons"],
+                       "brightness", "button_icons"],
         # (rows written but placed on no page: Smooth Motion, which Frame
         # Rate sets on every platform, kept so the rows after it keep their
         # strings)
@@ -120,6 +120,9 @@ SCREENS = {
              [("OFF", "off"), ("FXAA", "fxaa"), ("MSAA 2X", "msaa2x"), ("MSAA 4X", "msaa4x")],
              "Smooth jagged edges.",
              "android", "anti_aliasing_android"),
+            # (PS3, in ANTI-ALIASING's place: the present's blit, port/ps3/src/ps3_gpu.c)
+            ("BRIGHTNESS:", "display.brightness", [(str(step), str(step)) for step in range(11)],
+             "Lighten or darken the dark and middle tones.\n5 is the game's own picture.", PS3),
             ("FIELD OF VIEW:", "display.field_of_view",
              [(f"{value}" + (" (XBOX)" if value == 70 else ""), f"{value}")
               for value in (60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110, 120)],
@@ -141,13 +144,13 @@ SCREENS = {
                 ("PER-PIXEL LIGHTING:", "display.per_pixel_lighting", ON_OFF,
                  "Light models per pixel instead of per vertex.", NOT_PS3),
                 ("FULL MODEL DETAIL:", "display.full_model_detail", ON_OFF,
-                 "Always draw models at their highest detail.", None),
+                 "Always draw models at their highest detail.", NOT_PS3),
                 ("ANISOTROPIC FILTERING:", "display.anisotropic_filtering",
                  [("OFF", "0"), ("2X", "2"), ("4X", "4"), ("8X", "8"), ("16X", "16")],
                  "Sharper textures seen at an angle.", NOT_PS3),
                 ("FAR CLIP:", "display.far_clip_distance",
                  [("1024 (XBOX)", "1024"), ("2048", "2048"), ("4096", "4096"), ("8192", "8192"), ("10000", "10000")],
-                 "How far the world is drawn.", None),
+                 "How far the world is drawn.", NOT_PS3),
             ]),
             # (input.keyboard_prompts is in config.toml alone: the prompts
             # follow the device used last)

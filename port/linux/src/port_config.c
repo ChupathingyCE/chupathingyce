@@ -468,6 +468,10 @@ static const struct config_setting config_settings[] =
 		"there: \"quality\" (30 frames a second, the full resolution),\n"
 		"\"performance\" (60, the dynamic resolution) or \"custom\" (as they are\n"
 		"set). Split screen always plays at 30 frames a second." },
+	{ "display.brightness", _config_integer, "5", "HALO_BRIGHTNESS", _environment_value, _platform_android,
+		"DISPLAY's BRIGHTNESS, from 0 to 10: higher lifts the dark and middle\n"
+		"tones, lower darkens them, and black and white stay as they are. 5 is\n"
+		"the game's own picture. Changes at once." },
 #endif
 #ifdef HALO_BGFX
 	{ "display.renderer", _config_string, "\"gl\"", "HALO_RENDERER", _environment_value, _platform_desktop,
@@ -819,10 +823,18 @@ static const struct config_setting config_settings[] =
 		"How to talk to other Chupathingy machines. \"auto\" uses Delta where it\n"
 		"can and OpenCE otherwise. \"opence\" uses OpenCE only. \"delta\" is the\n"
 		"same as \"auto\" for now." },
+#ifdef HALO_PS3
+	/* (off: the PS3 joins Delta games of any size; it hosts 16 at most, menu_functions.c's HOSTED_PLAYERS_LIMIT) */
+	{ "network.platform_limits", _config_string, "\"off\"", "HALO_NET_PLATFORM_LIMITS", _environment_value,
+		_platform_all,
+		"Delta hosts keep games to this platform's player limit: \"on\" or\n"
+		"\"off\"." },
+#else
 	{ "network.platform_limits", _config_string, "\"on\"", "HALO_NET_PLATFORM_LIMITS", _environment_value,
 		_platform_all,
 		"Delta hosts keep games to this platform's player limit: \"on\" or\n"
 		"\"off\"." },
+#endif
 	{ "network.host_platform_limits", _config_boolean, "true", "HALO_NET_HOST_PLATFORM_LIMITS", _environment_value,
 		_platform_all,
 		"Games you host keep to their Delta players' platform limits. false is\n"

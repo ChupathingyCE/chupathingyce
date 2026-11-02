@@ -3264,6 +3264,20 @@ static short maximum_players_choices(void)
 #else
 #define maximum_players_choices() NUMBEROF(maximum_players)
 #endif
+#ifdef HALO_PS3
+/* port: the PS3 hosts 16 at most, its Delta row's host limit, which its opted-in key (port_config.c's
+network.platform_limits) leaves to the menus; the choices up to it, as the Switch's above */
+#undef maximum_players_choices
+#define HOSTED_PLAYERS_LIMIT 16
+static short maximum_players_choices(void)
+{
+	short count = 0;
+
+	while (count < NUMBEROF(maximum_players) && maximum_players[count] <= HOSTED_PLAYERS_LIMIT)
+		count++;
+	return count;
+}
+#endif
 #line 3097
 /* the most players a hosted game starts with (16), up to the list's 128 */
 #define HOST_DEFAULT_MAXIMUM_PLAYERS_INDEX 4
@@ -3874,8 +3888,31 @@ static void server_settings_private_set(boolean private_game)
 	}
 }
 
-/* "server settings init": the game's name (player 1's, else the one given
-last), the most players, the gametype's copy (once: the screen is made
+#ifdef HALO_PS3
+/* (port/ps3/src/ps3_system.c) */
+int ps3_user_name(unsigned short *name, int size);
+#endif
+
+/* the game's name when none is given: the PS3's user name, else player 1's */
+static void game_name_default(void)
+{
+	if (multiplayer.game_name[0])
+		return;
+#ifdef HALO_PS3
+	if (ps3_user_name((unsigned short *)multiplayer.game_name, NUMBEROF(multiplayer.game_name)))
+		return;
+#endif
+	if (player_ui_get_active_player_profile_index(0) != NONE)
+	{
+		struct player_profile profile;
+
+		player_ui_get_active_player_profile(0, &profile);
+		ustrncpy(multiplayer.game_name, profile.player_name, NUMBEROF(multiplayer.game_name) - 1);
+	}
+}
+
+/* "server settings init": the game's name (game_name_default, else the one
+given last), the most players, the gametype's copy (once: the screen is made
 again on coming back from an option's screen) */
 static boolean server_settings_initialize(struct widget_instance *list)
 {
@@ -3884,16 +3921,10 @@ static boolean server_settings_initialize(struct widget_instance *list)
 	/* (co-op has no gametype to edit) */
 	if (!hosting_cooperative())
 		gametype_setup_begin();
-	if (!multiplayer.game_name[0] && player_ui_get_active_player_profile_index(0) != NONE)
-	{
-		struct player_profile profile;
-
-		player_ui_get_active_player_profile(0, &profile);
-		ustrncpy(multiplayer.game_name, profile.player_name, NUMBEROF(multiplayer.game_name) - 1);
-	}
+	game_name_default();
 	if (spinner)
 	{
-#ifdef HALO_SWITCH_CONSOLE
+#if defined(HALO_SWITCH_CONSOLE) || defined(HALO_PS3)
 		/* port: the choices up to HOSTED_PLAYERS_LIMIT (the spinner's left and
 		right wrap at its count of items) */
 		spinner->parameters.list.number_of_items = (word)MIN(spinner->parameters.list.number_of_items,
@@ -8206,13 +8237,7 @@ static boolean host_initialize(struct widget_instance *list)
 			p2p_check_network();
 			multiplayer.game_private = !config_boolean("network.host_public");
 			multiplayer.game_password[0] = 0;
-			if (!multiplayer.game_name[0] && player_ui_get_active_player_profile_index(0) != NONE)
-			{
-				struct player_profile profile;
-
-				player_ui_get_active_player_profile(0, &profile);
-				ustrncpy(multiplayer.game_name, profile.player_name, NUMBEROF(multiplayer.game_name) - 1);
-			}
+			game_name_default();
 		}
 		/* (none chosen, as when the screen is opened on its own: the one used
 		last) */
