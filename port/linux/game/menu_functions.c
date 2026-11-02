@@ -7045,6 +7045,8 @@ update") fills them with the rows the screen shows, and their events
 gametype's choice did) */
 #define HOST_EDIT_SCREEN "pc\\chupathingy\\host\\edit_general"
 #define HOST_LOBBY_SCREEN "ui\\shell\\main_menu\\multiplayer_type_select\\connected\\pregame\\connected_pregame_screen"
+#define HOST_SPLIT_LOBBY_SCREEN \
+	"ui\\shell\\main_menu\\multiplayer_type_select\\split_screen\\pregame\\splitscreen_pregame_wrapper_normal"
 #define HOST_SETUP_ROWS 8
 #define HOST_EDIT_ROWS 10
 /* a message (a game type not saved) shows this long in place of the help */
@@ -7061,18 +7063,19 @@ enum
 	_host_row_password,
 	_host_row_port,
 	_host_row_game_type,
+	/* (the bots: port/linux/game/bots.c's settings, the lobby's and the
+	game's at once. How many and how good on GAME SETUP itself; the rest in
+	BOT OPTIONS' nested list) */
+	_host_row_bot_count,
+	_host_row_bot_skill,
 	_host_row_team_change,
 	_host_row_team_change_margin,
 	_host_row_chat_filter,
 	_host_row_aim_assist,
-	/* (the bots: port/linux/game/bots.c's settings, the lobby's and the
-	game's at once) */
-	_host_row_bot_count,
 	_host_row_bot_fill,
-	_host_row_bot_skill,
 	_host_row_bot_spread,
 	_host_row_bot_balance,
-	/* (the rows that open the bots' and the host's rules, the rows above) */
+	/* (the rows that open the bots' options and the host's rules) */
 	_host_row_bots,
 	_host_row_rules,
 	_host_row_start,
@@ -7081,9 +7084,9 @@ enum
 
 static wchar_t const *const host_row_labels[NUMBER_OF_HOST_ROWS] =
 {
-	L"GAME NAME:", L"MAX PLAYERS:", L"PUBLIC LOBBY:", L"PASSWORD:", L"PORT:", L"GAME TYPE:", L"TEAM SWITCHING:",
-	L"TEAM SWITCH MARGIN:", L"CHAT FILTER:", L"MOUSE AIM ASSIST:", L"BOTS:", L"FILL GAME TO:", L"BOT SKILL:",
-	L"SKILL SPREAD:", L"KEEP GAMES CLOSE:", L"BOTS", L"HOST RULES", L"START GAME",
+	L"GAME NAME:", L"MAX PLAYERS:", L"PUBLIC LOBBY:", L"PASSWORD:", L"PORT:", L"GAME TYPE:", L"BOTS:", L"BOT SKILL:",
+	L"TEAM SWITCHING:", L"TEAM SWITCH MARGIN:", L"CHAT FILTER:", L"MOUSE AIM ASSIST:", L"FILL GAME TO:",
+	L"SKILL SPREAD:", L"KEEP GAMES CLOSE:", L"BOT OPTIONS", L"HOST RULES", L"START GAME",
 };
 
 /* GAME SETUP's nested lists: the rows it shows (its own, the bots', the
@@ -7107,7 +7110,9 @@ enum
 	/* (GAME SETUP's) */
 	_host_page_setup = NUMBER_OF_HOST_PAGES,
 	/* (the host's pause menu's BOTS: GAME SETUP's bots alone) */
-	_host_page_bots
+	_host_page_bots,
+	/* (split screen's GAME SETUP: its game type and its bots, no network) */
+	_host_page_split
 };
 
 static char const *const host_page_screens[NUMBER_OF_HOST_PAGES] =
@@ -7132,8 +7137,10 @@ static struct
 	/* a message in place of the help, and when it was given */
 	wchar_t message[128];
 	unsigned long message_time;
-	/* the nested list GAME SETUP shows (_host_group_...: HOST RULES', BOTS') */
+	/* the nested list GAME SETUP shows (_host_group_...: HOST RULES', BOTS'),
+	and the screen the rows are of (_host_page_...) */
 	short group;
+	short page;
 #ifdef HALO_GAME_BROWSER
 	/* the game type being edited, and its base's values */
 	boolean editing;
@@ -7142,7 +7149,7 @@ static struct
 	struct game_variant base_variant;
 	struct game_variant_options base_options;
 #endif
-} host_setup = { NULL, 0, 1, TRUE, FALSE, 0, { 0 }, 0, 0, 0, { 0 }, 0, _host_group_main };
+} host_setup = { NULL, 0, 1, TRUE, FALSE, 0, { 0 }, 0, 0, 0, { 0 }, 0, _host_group_main, _host_page_setup };
 
 long config_integer(char const *name);
 
@@ -7152,6 +7159,8 @@ static short host_page(struct widget_instance *list)
 
 	if (list && list->parent && !strcmp(list->parent->name, "bots_screen"))
 		return _host_page_bots;
+	if (list && list->parent && !strcmp(list->parent->name, "split_setup_screen"))
+		return _host_page_split;
 	for (page = 0; list && list->parent && page < NUMBER_OF_HOST_PAGES; page++)
 	{
 		if (!strcmp(list->parent->name, host_page_screens[page]))
@@ -7220,16 +7229,32 @@ static short host_row_group(short row)
 {
 	if (row >= _host_row_team_change && row <= _host_row_aim_assist)
 		return _host_group_rules;
-	if (row >= _host_row_bot_count && row <= _host_row_bot_balance)
+	if (row >= _host_row_bot_fill && row <= _host_row_bot_balance)
 		return _host_group_bots;
 	return _host_group_main;
+}
+
+/* a row of the bots' (how many, how good, and BOT OPTIONS' rows) */
+static boolean host_bot_row(short row)
+{
+	return row == _host_row_bot_count || row == _host_row_bot_skill ||
+		(row >= _host_row_bot_fill && row <= _host_row_bot_balance);
+}
+
+/* a row split screen's GAME SETUP has no use for: a networked game's (its
+name, its listing, its port, the most players of other machines) and the
+host's rules over other people's machines */
+static boolean host_network_row(short row)
+{
+	return row == _host_row_name || row == _host_row_maximum_players || row == _host_row_public ||
+		row == _host_row_password || row == _host_row_port || row == _host_row_rules;
 }
 
 /* whether a page is GAME SETUP's rows (GAME SETUP, or the pause menu's
 BOTS), not the game type editor's */
 static boolean host_page_setup(short page)
 {
-	return page == _host_page_setup || page == _host_page_bots;
+	return page == _host_page_setup || page == _host_page_bots || page == _host_page_split;
 }
 
 static void host_setup_rows(void)
@@ -7239,7 +7264,15 @@ static void host_setup_rows(void)
 	host_setup.row_count = 0;
 	for (row = 0; row < NUMBER_OF_HOST_ROWS; row++)
 	{
-		if (host_row_group(row) != host_setup.group ||
+		/* (the pause menu's and the lobby's BOTS: every bot row, in one list) */
+		if (host_setup.page == _host_page_bots)
+		{
+			if (host_bot_row(row) && !(row == _host_row_bot_balance && bots_get_skill_spread() <= 0))
+				host_setup.rows[host_setup.row_count++] = row;
+			continue;
+		}
+		if ((host_setup.page == _host_page_split && host_network_row(row)) ||
+			host_row_group(row) != host_setup.group ||
 			/* (keeping the games close: a spread to keep them close with) */
 			(row == _host_row_bot_balance && bots_get_skill_spread() <= 0) ||
 			(row == _host_row_public && !host_listing_shown()) ||
@@ -7294,6 +7327,9 @@ static long host_bots_most(void)
 
 	if (game && game->maximum_players > 0 && game_in_progress())
 		most = game->maximum_players;
+	/* (split screen's: the game's every player but the first) */
+	else if (host_setup.page == _host_page_split)
+		most = 16;
 	return PIN(most - 1, 0, 15);
 }
 
@@ -7376,10 +7412,6 @@ static boolean host_setup_value(short row, wchar_t *text)
 	case _host_row_bots:
 		if (bots_fill() > 0)
 			usnprintf(text, ROW_TEXT_LENGTH - 1, L"FILL TO %ld", bots_fill());
-		else if (bots_configured() > 0)
-			usnprintf(text, ROW_TEXT_LENGTH - 1, L"%ld, SKILL %ld", bots_configured(), bots_get_skill());
-		else
-			ustrncpy(text, L"NONE", ROW_TEXT_LENGTH - 1);
 		return FALSE;
 	case _host_row_name:
 		wide_to_text(multiplayer.game_name, ascii, sizeof(ascii));
@@ -7451,7 +7483,7 @@ static wchar_t const *host_setup_help(short row)
 	case _host_row_bot_balance:
 		return L"Bots on a winning team play worse, and on a losing team better, within the spread.";
 	case _host_row_bots:
-		return L"Add bots to the game and choose how good they are.";
+		return L"Filling the game with bots, bots of mixed skill, and keeping games close.";
 	case _host_row_rules:
 		return L"Team switching, the chat filter and mouse aim assist.";
 	case _host_row_start:
@@ -7608,6 +7640,17 @@ static boolean host_setup_start(struct widget_instance *widget, boolean *widget_
 	host_bots_write();
 	ui_play_audio_feedback_sound(SOUND_FORWARD);
 	return ui_widget_port_open(widget, HOST_LOBBY_SCREEN, widget_deleted);
+}
+
+/* split screen's START GAME: the bots kept for the games to come, then
+split screen's own lobby (the Xbox's, as the gametype's choice opened it) */
+static boolean host_split_start(struct widget_instance *widget, boolean *widget_deleted)
+{
+	if (text_field_editing(NULL))
+		text_field_end(TRUE);
+	host_bots_write();
+	ui_play_audio_feedback_sound(SOUND_FORWARD);
+	return ui_widget_port_open(widget, HOST_SPLIT_LOBBY_SCREEN, widget_deleted);
 }
 
 /* X: the host's rules as config.toml has them by default */
@@ -8070,9 +8113,26 @@ static boolean host_initialize(struct widget_instance *list)
 	host_setup.first = 0;
 	host_setup.focused = 0;
 	host_setup.message[0] = 0;
-	host_setup.group = page == _host_page_bots ? _host_group_bots : _host_group_main;
+	host_setup.group = _host_group_main;
+	host_setup.page = page;
 	if (page == _host_page_bots)
 		return TRUE;
+	if (page == _host_page_split)
+	{
+		/* (split screen's: no network to look at; the game type the one
+		chosen, else the one used last) */
+		struct game_variant variant;
+
+		if (!player_ui_game_variant_specified(&variant))
+		{
+			long gametypes[MAXIMUM_GAMETYPES];
+			short last;
+
+			if (ui_widget_port_gametypes(gametypes, MAXIMUM_GAMETYPES, &last) > 0)
+				ui_widget_port_gametype_choose(gametypes[last]);
+		}
+		return TRUE;
+	}
 	if (page == _host_page_setup)
 	{
 		if (server != host_setup.server || !server)
@@ -8137,10 +8197,11 @@ static void host_update(struct widget_instance *list)
 	short slot, focused = NONE;
 	wchar_t text[ROW_TEXT_LENGTH * 3];
 
-	if (page == _host_page_bots)
-		host_setup.group = _host_group_bots;
 	if (host_page_setup(page))
+	{
+		host_setup.page = page;
 		host_setup_rows();
+	}
 #ifdef HALO_GAME_BROWSER
 	else
 		host_edit_rows(page);
@@ -8235,6 +8296,8 @@ static void host_group_show(struct widget_instance *list, short group)
 
 	host_setup.group = group;
 	host_setup.first = 0;
+	if (list)
+		host_setup.page = host_page(list);
 	host_setup_rows();
 	while (group == _host_group_main && slot < host_setup.row_count - 1 && host_setup.rows[slot] != opener)
 		slot++;
@@ -8261,7 +8324,8 @@ static boolean host_row_a(struct widget_instance *row, boolean *widget_deleted)
 {
 	short shown = host_row_of(row);
 	short page = host_page(row->parent);
-	boolean setup = page == _host_page_setup;
+	/* (GAME SETUP's, split screen's too) */
+	boolean setup = page == _host_page_setup || page == _host_page_split;
 	char text[TEXT_FIELD_LENGTH];
 
 	if (shown == NONE)
@@ -8315,6 +8379,8 @@ static boolean host_row_a(struct widget_instance *row, boolean *widget_deleted)
 	if (!setup)
 		return host_edit_save(row, widget_deleted);
 #endif
+	if (page == _host_page_split)
+		return host_split_start(row, widget_deleted);
 	return host_setup_start(row, widget_deleted);
 }
 
@@ -8351,7 +8417,7 @@ static boolean host_defaults(struct widget_instance *list)
 {
 	short page = host_page(list);
 
-	if (page == _host_page_bots || (page == _host_page_setup && host_setup.group == _host_group_bots))
+	if (page == _host_page_bots || page == _host_page_split || host_setup.group == _host_group_bots)
 		host_bots_defaults();
 	else if (page == _host_page_setup)
 		host_setup_defaults();

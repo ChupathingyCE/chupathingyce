@@ -162,6 +162,23 @@ are filled and changed by port/linux/game/menu_functions.c ("port host
 		<child widget="chupathingy/prompts/a" x="510" y="414"/>
 		<child widget="chupathingy/prompts/accept" x="532" y="414"/>
 	</widget>
+	<!-- Split screen's GAME SETUP (menu_tags.c points its gametype's choice
+	here): the game type and the bots, the same list as GAME SETUP's, with
+	none of a networked game's rows; START GAME opens split screen's lobby. -->
+	<widget name="chupathingy/host/split_setup_screen" width="640" height="480" flags="pass_unhandled_to_focused_child pause_game" bitmap="bitmaps/gradient">
+		<on event="b" run="port host back"/>
+		<on event="back" run="port host back"/>
+		<child widget="chupathingy/host/header_game_setup"/>
+		<child widget="chupathingy/host/setup_list"/>
+		<child widget="chupathingy/prompts/x" x="20" y="414"/>
+		<child widget="chupathingy/prompts/defaults" x="42" y="414"/>
+		<child widget="chupathingy/prompts/y" x="180" y="414"/>
+		<child widget="chupathingy/prompts/edit_game_type" x="202" y="414"/>
+		<child widget="chupathingy/prompts/b" x="400" y="414"/>
+		<child widget="chupathingy/prompts/back" x="422" y="414"/>
+		<child widget="chupathingy/prompts/a" x="510" y="414"/>
+		<child widget="chupathingy/prompts/accept" x="532" y="414"/>
+	</widget>
 	<widget name="chupathingy/host/setup_list" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_children" description="chupathingy/host/help">
 		<data input="port host update"/>
 		<on event="created" run="port host init"/>

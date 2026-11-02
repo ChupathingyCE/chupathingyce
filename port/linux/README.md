@@ -1243,9 +1243,13 @@ With the Chupathingy menus, the host sets the bots with a controller, the
 keyboard or the mouse. Up and down choose a row, and left and right change
 it:
 
-- **GAME SETUP** (after the game type, before the lobby): the **BOTS** row
-  opens the bots' rows. B goes back to GAME SETUP. START GAME keeps the
-  values in `config.toml` for the next games.
+- **GAME SETUP**, which comes after the game type and before the lobby, for
+  split screen and for System Link (and Online Games): **BOTS** and **BOT
+  SKILL** are rows of GAME SETUP. **BOT OPTIONS** opens the other rows (FILL
+  GAME TO, SKILL SPREAD, KEEP GAMES CLOSE), and B goes back to GAME SETUP.
+  START GAME keeps the values in `config.toml` for the next games and opens
+  the lobby. Split screen's GAME SETUP has only the game type, the bots and
+  START GAME: the other rows are for games on a network.
 - **The lobby**: the host presses Y (the hint "Y BOTS" is under the button
   key) to open the bots' rows. The lobby gets the new bots at once.
 - **The pause menu** of a game that this machine hosts: **BOTS** opens the

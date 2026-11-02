@@ -2265,6 +2265,11 @@ lobby, which its START GAME opens. */
 #define HOST_GAMETYPE_SELECT "ui\\shell\\main_menu\\multiplayer_type_select\\connected\\gametype_select_screen_wrapper"
 #define HOST_LOBBY "ui\\shell\\main_menu\\multiplayer_type_select\\connected\\pregame\\connected_pregame_screen"
 #define HOST_SETUP PC_MENU_TAG_PREFIX "chupathingy\\host\\setup_screen"
+/* split screen's: its gametype's choice goes on to its own GAME SETUP (the
+game type and the bots), whose START GAME opens its lobby */
+#define HOST_SPLIT_GAMETYPE_SELECT "ui\\shell\\main_menu\\multiplayer_type_select\\split_screen\\gametype_select_screen_wrapper"
+#define HOST_SPLIT_LOBBY "ui\\shell\\main_menu\\multiplayer_type_select\\split_screen\\pregame\\splitscreen_pregame_wrapper_normal"
+#define HOST_SPLIT_SETUP PC_MENU_TAG_PREFIX "chupathingy\\host\\split_setup_screen"
 /* the host's BOTS, which the lobby's Y opens, and the lobby's hint of it
 (chupathingy/host_setup.xml), under the lobby's own button key */
 #define HOST_BOTS PC_MENU_TAG_PREFIX "chupathingy\\host\\bots_screen"
@@ -2341,6 +2346,22 @@ static void host_setup_patch(void)
 			reference_set(&handlers[index].widget_tag, UI_WIDGET_DEFINITION_TAG, setup);
 	}
 	host_lobby_bots_patch(lobby);
+	/* (split screen's, the same way) */
+	{
+		long split_select = tag_loaded(UI_WIDGET_DEFINITION_TAG, HOST_SPLIT_GAMETYPE_SELECT);
+		long split_lobby = tag_loaded(UI_WIDGET_DEFINITION_TAG, HOST_SPLIT_LOBBY);
+		long split_setup = tag_loaded(UI_WIDGET_DEFINITION_TAG, HOST_SPLIT_SETUP);
+
+		if (split_select == NONE || split_lobby == NONE || split_setup == NONE)
+			return;
+		definition = tag_get(UI_WIDGET_DEFINITION_TAG, split_select);
+		handlers = xbox_pointer(definition->event_handlers.address);
+		for (index = 0; index < definition->event_handlers.count; index++)
+		{
+			if (handlers[index].function == function && handlers[index].widget_tag.index == split_lobby)
+				reference_set(&handlers[index].widget_tag, UI_WIDGET_DEFINITION_TAG, split_setup);
+		}
+	}
 }
 
 void menu_tags_loaded(
