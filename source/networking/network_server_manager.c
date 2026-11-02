@@ -2894,17 +2894,20 @@ static long network_game_server_bots_wanted(
 	return MAX(0, fill - people);
 }
 
-/* in the game, once a second, with bots.fill: a bot leaves when a person
-has joined, and one joins when a person has left, as players join and leave
-a game in progress (one a second) */
+/* in the game, once a second: as many bots as are wanted, one a second, as
+players join and leave a game in progress. With bots.fill a bot leaves when
+a person has joined and one joins when a person has left; and the host's
+BOTS (its pause menu's, the console's "bots <n>") adds or takes away bots in
+the game as in the lobby. Not with nobody left but bots: a dedicated server
+plays no games of bots alone. */
 static void network_game_server_sync_bots_ingame(
 	struct network_game_server *server)
 {
 	long wanted;
 	long have;
 
-	if (bots_fill() <= 0 || game_time_get() % TICKS_PER_SECOND != 0 || game_time_get() < 2 * TICKS_PER_SECOND ||
-		!game_engine_can_score())
+	if (game_time_get() % TICKS_PER_SECOND != 0 || game_time_get() < 2 * TICKS_PER_SECOND || !game_engine_can_score() ||
+		server->game.player_count <= network_game_server_bot_count(server))
 	{
 		return;
 	}
@@ -2942,7 +2945,7 @@ static void network_game_server_sync_bots_ingame(
 
 			remove_player.player = *bot;
 			remove_player.reason = game_time_get() + NETWORK_GAME_PLAYER_QUIT_DELAY;
-			network_event("a bot makes way for a person (machine #%d / controller #%d)", bot->machine_index,
+			network_event("a bot leaves the game (machine #%d / controller #%d)", bot->machine_index,
 				bot->controller_index);
 			/* (its machine stays, empty or not, for the bots to come) */
 			network_game_remove_player(&server->game, bot);

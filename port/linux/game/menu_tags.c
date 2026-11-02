@@ -381,6 +381,7 @@ static char const *const port_function_names[] =
 	"port pause end game",
 	"port pause change teams",
 	"port pause moderation",
+	"port pause bots",
 	"port pause controls", "controller screen init", "controller screen defaults", "controller begin binding",
 	"port coop begin", "port coop player 2 list initialize", "port coop player 2",
 	"port lobby open", "port lobby add player", "port lobby join", "port lobby leave",
@@ -433,8 +434,9 @@ static char const *const port_game_data_input_names[] =
 	"port gamepad layout preview",
 	/* (the Chupathingy menus' settings picture: the same, on its own frames) */
 	"chupathingy settings picture",
-	/* (its GAME SETUP's and game type editor's rows) */
-	"port host update",
+	/* (its GAME SETUP's and game type editor's rows, and the lobby's hint of
+	the host's BOTS) */
+	"port host update", "port lobby bots hint",
 	/* (Delta Profile's sections: menu_functions.c) */
 	"port delta profile update",
 	/* (Controls Setup's rows and help) */
@@ -1535,6 +1537,8 @@ Gearbox menus' own */
 /* (the Chupathingy menus': their own, in the Xbox's look) */
 #define PAUSE_CONTROLS_SCREEN_CHUPATHINGY "chupathingy/settings/controls_setup_screen"
 #define PAUSE_BUTTON_SPACING 35
+/* the host's BOTS (port/assets/menus/chupathingy/host_setup.xml) */
+#define PAUSE_BOTS_SCREEN "chupathingy/host/bots_screen"
 
 /* display.menus: the Xbox's menus, Gearbox's Halo PC menus, or Chupathingy's (the
 Xbox's, with the PC version's screens that the Xbox has not, in its look:
@@ -1756,6 +1760,10 @@ static boolean pause_list_patch(struct cache_file_tag_instance *instances, struc
 	long quit_function, boolean change_teams, boolean settings, boolean end_game, short *grow)
 {
 	boolean moderation = pause_moderation_offered(end_game);
+	/* (the host's BOTS: the bots of the game to add, take away and make
+	better or worse, on a screen of the menus', chupathingy/host_setup.xml) */
+	long bots_widget = end_game && build.menus ? widget_named(PAUSE_BOTS_SCREEN) : NONE;
+	boolean bots = bots_widget != NONE;
 	struct ui_widget_child_reference *children = xbox_pointer(list->child_widgets.address);
 	long count = list->child_widgets.count, child;
 	boolean controls = pause_controls_offered();
@@ -1763,7 +1771,7 @@ static boolean pause_list_patch(struct cache_file_tag_instance *instances, struc
 	long controls_widget = !controls || !build.menus ? NONE :
 		widget_named(menus_chosen() == _menus_chupathingy ? PAUSE_CONTROLS_SCREEN_CHUPATHINGY : PAUSE_CONTROLS_SCREEN);
 	long everyday = (change_teams != FALSE) + (settings != FALSE) + (controls != FALSE);
-	long added = everyday + (end_game != FALSE) + (moderation != FALSE);
+	long added = everyday + (end_game != FALSE) + (moderation != FALSE) + (bots != FALSE);
 	struct ui_widget_child_reference *grown = allocate((count + added) * sizeof(struct ui_widget_child_reference));
 	struct ui_widget_definition const *model = tag_get(UI_WIDGET_DEFINITION_TAG, children[resume].widget_tag.index);
 	long settings_widget = !settings ? NONE :
@@ -1772,9 +1780,9 @@ static boolean pause_list_patch(struct cache_file_tag_instance *instances, struc
 		PAUSE_BUTTON_SPACING;
 	long quit = quit_function != NONE ? pause_quit_button(list, quit_function) : NONE;
 	long removed = 0, total;
-	void *buttons[5];
-	long tags[5];
-	char const *names[5];
+	void *buttons[6];
+	long tags[6];
+	char const *names[6];
 
 	*grow = 0;
 	for (child = resume + 1; child < count; child++)
@@ -1810,6 +1818,13 @@ static boolean pause_list_patch(struct cache_file_tag_instance *instances, struc
 		buttons[added++] = pause_button(instances, model, "pause/controls_button", "CONTROLS",
 			function_index("port pause controls", "pause", 0),
 			controls_widget == NONE ? NONE : build.widget_tags[controls_widget], FALSE);
+	}
+	if (bots)
+	{
+		names[added] = "pause/bots_button";
+		tags[added] = next_tag();
+		buttons[added++] = pause_button(instances, model, "pause/bots_button", "BOTS",
+			function_index("port pause bots", "pause", 0), build.widget_tags[bots_widget], FALSE);
 	}
 	if (moderation)
 	{
@@ -2250,6 +2265,61 @@ lobby, which its START GAME opens. */
 #define HOST_GAMETYPE_SELECT "ui\\shell\\main_menu\\multiplayer_type_select\\connected\\gametype_select_screen_wrapper"
 #define HOST_LOBBY "ui\\shell\\main_menu\\multiplayer_type_select\\connected\\pregame\\connected_pregame_screen"
 #define HOST_SETUP PC_MENU_TAG_PREFIX "chupathingy\\host\\setup_screen"
+/* the host's BOTS, which the lobby's Y opens, and the lobby's hint of it
+(chupathingy/host_setup.xml), under the lobby's own button key */
+#define HOST_BOTS PC_MENU_TAG_PREFIX "chupathingy\\host\\bots_screen"
+#define HOST_BOTS_HINT PC_MENU_TAG_PREFIX "chupathingy\\host\\lobby_bots_hint"
+#define HOST_BOTS_HINT_X 86
+#define HOST_BOTS_HINT_Y 450
+/* (the lobby's Y: event_names' "y") */
+#define HOST_BOTS_EVENT 3
+
+/* the lobby's Y opens the host's BOTS (its function fails on a machine that
+does not host: nothing opens there), and its hint is under the lobby's
+button key (shown only on the host: "port lobby bots hint") */
+static void host_lobby_bots_patch(long lobby)
+{
+	long bots = tag_loaded(UI_WIDGET_DEFINITION_TAG, HOST_BOTS);
+	long hint = tag_loaded(UI_WIDGET_DEFINITION_TAG, HOST_BOTS_HINT);
+	struct ui_widget_definition *definition = tag_get(UI_WIDGET_DEFINITION_TAG, lobby);
+	struct ui_widget_event_handler_reference *handlers = xbox_pointer(definition->event_handlers.address);
+	struct ui_widget_child_reference *children = xbox_pointer(definition->child_widgets.address);
+	struct ui_widget_event_handler_reference *more_handlers;
+	struct ui_widget_child_reference *more_children;
+	long count = definition->event_handlers.count, index;
+
+	if (bots == NONE || hint == NONE)
+		return;
+	/* (once: the lobby's tags stay as they are while the menus' map is loaded) */
+	for (index = 0; index < count; index++)
+	{
+		if (handlers[index].event_type == HOST_BOTS_EVENT)
+			return;
+	}
+	more_handlers = allocate((count + 1) * sizeof(*more_handlers));
+	more_children = allocate((definition->child_widgets.count + 1) * sizeof(*more_children));
+	if (!more_handlers || !more_children)
+		return;
+	if (count)
+		memcpy(more_handlers, handlers, count * sizeof(*more_handlers));
+	memset(&more_handlers[count], 0, sizeof(more_handlers[count]));
+	more_handlers[count].event_type = HOST_BOTS_EVENT;
+	more_handlers[count].function = (short)function_index("port pause bots", "lobby", 0);
+	more_handlers[count].flags = FLAG(_event_handler_run_function_bit) | FLAG(_event_handler_open_widget_bit) |
+		FLAG(_event_handler_try_to_branch_on_failure_bit);
+	reference_set(&more_handlers[count].widget_tag, UI_WIDGET_DEFINITION_TAG, bots);
+	reference_clear(&more_handlers[count].sound_effect, SOUND_TAG);
+	definition->event_handlers.address = XBOX_ADDRESS(more_handlers);
+	definition->event_handlers.count = count + 1;
+	if (definition->child_widgets.count)
+		memcpy(more_children, children, definition->child_widgets.count * sizeof(*more_children));
+	memset(&more_children[definition->child_widgets.count], 0, sizeof(*more_children));
+	reference_set(&more_children[definition->child_widgets.count].widget_tag, UI_WIDGET_DEFINITION_TAG, hint);
+	more_children[definition->child_widgets.count].horizontal_offset = HOST_BOTS_HINT_X;
+	more_children[definition->child_widgets.count].vertical_offset = HOST_BOTS_HINT_Y;
+	definition->child_widgets.address = XBOX_ADDRESS(more_children);
+	definition->child_widgets.count++;
+}
 
 static void host_setup_patch(void)
 {
@@ -2270,6 +2340,7 @@ static void host_setup_patch(void)
 		if (handlers[index].function == function && handlers[index].widget_tag.index == lobby)
 			reference_set(&handlers[index].widget_tag, UI_WIDGET_DEFINITION_TAG, setup);
 	}
+	host_lobby_bots_patch(lobby);
 }
 
 void menu_tags_loaded(

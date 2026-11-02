@@ -15316,7 +15316,8 @@ long bots_navigation_bsp(void)
 
 /* the console's "bots [count]" and "bot_skill [1-10]" (hs.c): TRUE when the
 text was one of them. The count is the lobby's at once, and a game in
-progress keeps the bots it started with. */
+progress's too (its bots join or leave one a second:
+network_server_manager.c), as the host's BOTS screen does. */
 boolean bots_console_command(char const *text)
 {
 	void console_printf(boolean clear, const char *format, ...);
@@ -15370,7 +15371,7 @@ boolean bots_console_command(char const *text)
 		if (value != NONE)
 			bots_set_count(value);
 		console_printf(FALSE, "bots: %ld in the games this machine hosts%s", bots_configured(),
-			value != NONE ? " (from the next lobby on, if a game is running)" : "");
+			value != NONE && game_in_progress() ? " (they join or leave the game one a second)" : "");
 	}
 	else
 	{

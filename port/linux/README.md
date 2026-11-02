@@ -1237,6 +1237,38 @@ host moves. The bots play all the game types on all the multiplayer maps:
 they get weapons and powerups, drive and ride the vehicles, carry the flag
 and the ball, and hold the hill.
 
+### Bots in the menus
+
+With the Chupathingy menus, the host sets the bots with a controller, the
+keyboard or the mouse. Up and down choose a row, and left and right change
+it:
+
+- **GAME SETUP** (after the game type, before the lobby): the **BOTS** row
+  opens the bots' rows. B goes back to GAME SETUP. START GAME keeps the
+  values in `config.toml` for the next games.
+- **The lobby**: the host presses Y (the hint "Y BOTS" is under the button
+  key) to open the bots' rows. The lobby gets the new bots at once.
+- **The pause menu** of a game that this machine hosts: **BOTS** opens the
+  bots' rows. Bots join or leave the game one each second. A new skill
+  applies to all the bots at once. A or B closes the rows and keeps the
+  values in `config.toml`.
+
+The rows:
+
+| Row | Values | Setting |
+| --- | --- | --- |
+| BOTS | `NONE`, `1` to one less than MAX PLAYERS (15 at most); `AUTO` when FILL GAME TO is on | `bots.count` |
+| FILL GAME TO | `OFF`, `2` to MAX PLAYERS: bots fill the places that people do not have | `bots.fill` |
+| BOT SKILL | `1 EASY` to `10 NEAR PERFECT` | `bots.skill` |
+| SKILL SPREAD | `NONE`, or a range below BOT SKILL | `bots.skill_spread` |
+| KEEP GAMES CLOSE | `ON`, `OFF` (only with a skill spread) | `bots.balance` |
+
+X sets all the rows to the default values. A game ends when only one team
+is left, as when players quit: if you remove the last bot from a game that
+only you play, the game ends.
+
+### Bot settings
+
 - `bots.count` in `config.toml` gives the number of bots (`0` by default:
   no bots). `bots.skill` gives how good they are, from `1` to `10`
   (`5` by default). The ten levels are even steps from the easiest bot to
@@ -1245,8 +1277,8 @@ and the ball, and hold the hill.
   old `3` is between `5` and `6`, and the old `2` is near `3`. Change a
   value that you set for the old levels.
 - In the console, `bots <number>` and `bot_skill <1-10>` change these values
-  until the game stops. A new number of bots applies in the lobby. A game in
-  progress keeps its bots.
+  until the game stops. A new number of bots applies in the lobby at once,
+  and in a game in progress one bot each second.
 - `bots.skill_spread` gives the bots different skills. With a spread of
   `4` and a skill of `10`, each bot has a skill between 6 and 10 (not only
   whole levels: 7.3 is possible). A bot keeps its skill for the game and
