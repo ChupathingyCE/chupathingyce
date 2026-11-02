@@ -55,6 +55,18 @@
     <Filter Include="port\third_party\zlib">
       <UniqueIdentifier>{8608b3f6-50d3-857e-1666-ea1e81dd9122}</UniqueIdentifier>
     </Filter>
+    <Filter Include="port\third_party\zstd">
+      <UniqueIdentifier>{7adfbc0f-9e28-622c-90f2-4ac335ec66ce}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="port\third_party\zstd\lib">
+      <UniqueIdentifier>{0088a891-85b6-a6b1-3ca7-32e7bf785342}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="port\third_party\zstd\lib\common">
+      <UniqueIdentifier>{5c390517-1f4b-f463-cc62-e55955a9ea4f}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="port\third_party\zstd\lib\decompress">
+      <UniqueIdentifier>{9407bbd3-6871-7520-c575-9a55588dcab4}</UniqueIdentifier>
+    </Filter>
     <Filter Include="port\windows">
       <UniqueIdentifier>{51e6cd5e-f72a-ca70-2574-f634148915e3}</UniqueIdentifier>
     </Filter>
@@ -2537,6 +2549,36 @@
     </ClCompile>
     <ClCompile Include="$(HaloRoot)port\third_party\zlib\zutil.c">
       <Filter>port\third_party\zlib</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\zstd\lib\common\debug.c">
+      <Filter>port\third_party\zstd\lib\common</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\zstd\lib\common\entropy_common.c">
+      <Filter>port\third_party\zstd\lib\common</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\zstd\lib\common\error_private.c">
+      <Filter>port\third_party\zstd\lib\common</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\zstd\lib\common\fse_decompress.c">
+      <Filter>port\third_party\zstd\lib\common</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\zstd\lib\common\xxhash.c">
+      <Filter>port\third_party\zstd\lib\common</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\zstd\lib\common\zstd_common.c">
+      <Filter>port\third_party\zstd\lib\common</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\zstd\lib\decompress\huf_decompress.c">
+      <Filter>port\third_party\zstd\lib\decompress</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\zstd\lib\decompress\zstd_ddict.c">
+      <Filter>port\third_party\zstd\lib\decompress</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\zstd\lib\decompress\zstd_decompress.c">
+      <Filter>port\third_party\zstd\lib\decompress</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\zstd\lib\decompress\zstd_decompress_block.c">
+      <Filter>port\third_party\zstd\lib\decompress</Filter>
     </ClCompile>
     <ClCompile Include="$(HaloRoot)port\third_party\musl-math\src\__cos.c">
       <Filter>port\third_party\musl-math\src</Filter>

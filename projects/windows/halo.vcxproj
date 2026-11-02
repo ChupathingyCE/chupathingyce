@@ -84,19 +84,19 @@
     <HaloPlatformOptions Condition="'$(Platform)'!='x64'">$(HaloAbiOptions) /clang:-std=gnu11 /clang:-Wall /clang:-Wno-unused-function /clang:-Wno-unknown-pragmas /clang:-Wno-microsoft-anon-tag /clang:-Wno-pragma-pack /clang:-Wno-ignored-attributes /clang:-Wno-duplicate-decl-specifier /clang:-Wno-missing-braces /clang:-Wno-unused-variable /clang:-Wno-ignored-pragmas /clang:-Wno-microsoft-enum-forward-reference /clang:-Wno-language-extension-token "/clang:-iquote$(HaloRoot)port\linux\include"</HaloPlatformOptions>
     <HaloPlatformOptions Condition="'$(Platform)'=='x64'">$(HaloAbiOptions) /clang:-std=gnu11 /clang:-Wall /clang:-Wno-unused-function /clang:-Wno-unknown-pragmas /clang:-Wno-microsoft-anon-tag /clang:-Wno-pragma-pack /clang:-Wno-ignored-attributes /clang:-Wno-duplicate-decl-specifier /clang:-Wno-missing-braces /clang:-Wno-unused-variable /clang:-Wno-ignored-pragmas /clang:-Wno-microsoft-enum-forward-reference /clang:-Wno-language-extension-token /clang:-Werror=incompatible-pointer-types /clang:-Werror=int-to-pointer-cast /clang:-Werror=pointer-to-int-cast /clang:-Werror=void-pointer-to-int-cast /clang:-Werror=int-conversion "/clang:-iquote$(HaloRoot)port\linux\include"</HaloPlatformOptions>
     <HaloPlatformDefines>$(HaloAbiDefines);HALO_LINUX_PLATFORM_LAYER</HaloPlatformDefines>
-    <HaloPlatformIncludes>$(HaloRoot)port\windows\include\posix;$(HaloRoot)port\windows\include\crt;$(HaloRoot)port\linux\src;$(HaloRoot)port\windows\include;$(HaloRoot)port\third_party\tomlc17;$(HaloRoot)port\third_party\expat;$(HaloRoot)port\third_party\kcp;$(HaloRoot)port\third_party\qrcodegen;$(HaloRoot)port\third_party\monocypher;$(HaloRoot)port\third_party\zlib;$(HaloRoot)source;$(HaloRoot)source\cseries;$(HaloSDL)\include;$(HaloRoot)port\include\xdk</HaloPlatformIncludes>
+    <HaloPlatformIncludes>$(HaloRoot)port\windows\include\posix;$(HaloRoot)port\windows\include\crt;$(HaloRoot)port\linux\src;$(HaloRoot)port\windows\include;$(HaloRoot)port\third_party\tomlc17;$(HaloRoot)port\third_party\expat;$(HaloRoot)port\third_party\kcp;$(HaloRoot)port\third_party\qrcodegen;$(HaloRoot)port\third_party\monocypher;$(HaloRoot)port\third_party\zlib;$(HaloRoot)port\third_party\zstd\lib;$(HaloRoot)source;$(HaloRoot)source\cseries;$(HaloSDL)\include;$(HaloRoot)port\include\xdk</HaloPlatformIncludes>
     <HaloPlatformForced>$(HaloRoot)port\windows\include\halo_windows_prefix.h</HaloPlatformForced>
     <HaloPlatformWarnings>Level3</HaloPlatformWarnings>
     <HaloPlatformUpdaterOptions Condition="'$(Platform)'!='x64'">$(HaloAbiOptions) /clang:-std=gnu11 /clang:-Wall /clang:-Wno-unused-function /clang:-Wno-unknown-pragmas /clang:-Wno-microsoft-anon-tag /clang:-Wno-pragma-pack /clang:-Wno-ignored-attributes /clang:-Wno-duplicate-decl-specifier /clang:-Wno-missing-braces /clang:-Wno-unused-variable /clang:-Wno-ignored-pragmas /clang:-Wno-microsoft-enum-forward-reference /clang:-Wno-language-extension-token "/clang:-iquote$(HaloRoot)port\linux\include"</HaloPlatformUpdaterOptions>
     <HaloPlatformUpdaterOptions Condition="'$(Platform)'=='x64'">$(HaloAbiOptions) /clang:-std=gnu11 /clang:-Wall /clang:-Wno-unused-function /clang:-Wno-unknown-pragmas /clang:-Wno-microsoft-anon-tag /clang:-Wno-pragma-pack /clang:-Wno-ignored-attributes /clang:-Wno-duplicate-decl-specifier /clang:-Wno-missing-braces /clang:-Wno-unused-variable /clang:-Wno-ignored-pragmas /clang:-Wno-microsoft-enum-forward-reference /clang:-Wno-language-extension-token /clang:-Werror=incompatible-pointer-types /clang:-Werror=int-to-pointer-cast /clang:-Werror=pointer-to-int-cast /clang:-Werror=void-pointer-to-int-cast /clang:-Werror=int-conversion "/clang:-iquote$(HaloRoot)port\linux\include"</HaloPlatformUpdaterOptions>
     <HaloPlatformUpdaterDefines>$(HaloAbiDefines);HALO_LINUX_PLATFORM_LAYER</HaloPlatformUpdaterDefines>
-    <HaloPlatformUpdaterIncludes>$(HaloRoot)port\windows\include\posix;$(HaloRoot)port\windows\include\crt;$(HaloRoot)port\linux\src;$(HaloRoot)port\windows\include;$(HaloRoot)port\third_party\tomlc17;$(HaloRoot)port\third_party\expat;$(HaloRoot)port\third_party\kcp;$(HaloRoot)port\third_party\qrcodegen;$(HaloRoot)port\third_party\monocypher;$(HaloRoot)port\third_party\zlib;$(HaloRoot)source;$(HaloRoot)source\cseries;$(HaloSDL)\include;$(HaloRoot)port\include\xdk</HaloPlatformUpdaterIncludes>
+    <HaloPlatformUpdaterIncludes>$(HaloRoot)port\windows\include\posix;$(HaloRoot)port\windows\include\crt;$(HaloRoot)port\linux\src;$(HaloRoot)port\windows\include;$(HaloRoot)port\third_party\tomlc17;$(HaloRoot)port\third_party\expat;$(HaloRoot)port\third_party\kcp;$(HaloRoot)port\third_party\qrcodegen;$(HaloRoot)port\third_party\monocypher;$(HaloRoot)port\third_party\zlib;$(HaloRoot)port\third_party\zstd\lib;$(HaloRoot)source;$(HaloRoot)source\cseries;$(HaloSDL)\include;$(HaloRoot)port\include\xdk</HaloPlatformUpdaterIncludes>
     <HaloPlatformUpdaterForced>$(HaloRoot)port\windows\include\halo_windows_prefix.h;$(HaloGenerated)halo_version.h</HaloPlatformUpdaterForced>
     <HaloPlatformUpdaterWarnings>Level3</HaloPlatformUpdaterWarnings>
     <HaloPlatformFontOptions Condition="'$(Platform)'!='x64'">$(HaloAbiOptions) /clang:-std=gnu11 /clang:-Wall /clang:-Wno-unused-function /clang:-Wno-unknown-pragmas /clang:-Wno-microsoft-anon-tag /clang:-Wno-pragma-pack /clang:-Wno-ignored-attributes /clang:-Wno-duplicate-decl-specifier /clang:-Wno-missing-braces /clang:-Wno-unused-variable /clang:-Wno-ignored-pragmas /clang:-Wno-microsoft-enum-forward-reference /clang:-Wno-language-extension-token "/clang:-iquote$(HaloRoot)port\linux\include"</HaloPlatformFontOptions>
     <HaloPlatformFontOptions Condition="'$(Platform)'=='x64'">$(HaloAbiOptions) /clang:-std=gnu11 /clang:-Wall /clang:-Wno-unused-function /clang:-Wno-unknown-pragmas /clang:-Wno-microsoft-anon-tag /clang:-Wno-pragma-pack /clang:-Wno-ignored-attributes /clang:-Wno-duplicate-decl-specifier /clang:-Wno-missing-braces /clang:-Wno-unused-variable /clang:-Wno-ignored-pragmas /clang:-Wno-microsoft-enum-forward-reference /clang:-Wno-language-extension-token /clang:-Werror=incompatible-pointer-types /clang:-Werror=int-to-pointer-cast /clang:-Werror=pointer-to-int-cast /clang:-Werror=void-pointer-to-int-cast /clang:-Werror=int-conversion "/clang:-iquote$(HaloRoot)port\linux\include"</HaloPlatformFontOptions>
     <HaloPlatformFontDefines>$(HaloAbiDefines);HALO_LINUX_PLATFORM_LAYER</HaloPlatformFontDefines>
-    <HaloPlatformFontIncludes>$(HaloRoot)port\windows\include\posix;$(HaloRoot)port\windows\include\crt;$(HaloRoot)port\linux\src;$(HaloRoot)port\windows\include;$(HaloRoot)port\third_party\tomlc17;$(HaloRoot)port\third_party\expat;$(HaloRoot)port\third_party\kcp;$(HaloRoot)port\third_party\qrcodegen;$(HaloRoot)port\third_party\monocypher;$(HaloRoot)port\third_party\zlib;$(HaloRoot)source;$(HaloRoot)source\cseries;$(HaloSDL)\include;$(HaloRoot)port\include\xdk;$(HaloRoot)port\third_party\stb</HaloPlatformFontIncludes>
+    <HaloPlatformFontIncludes>$(HaloRoot)port\windows\include\posix;$(HaloRoot)port\windows\include\crt;$(HaloRoot)port\linux\src;$(HaloRoot)port\windows\include;$(HaloRoot)port\third_party\tomlc17;$(HaloRoot)port\third_party\expat;$(HaloRoot)port\third_party\kcp;$(HaloRoot)port\third_party\qrcodegen;$(HaloRoot)port\third_party\monocypher;$(HaloRoot)port\third_party\zlib;$(HaloRoot)port\third_party\zstd\lib;$(HaloRoot)source;$(HaloRoot)source\cseries;$(HaloSDL)\include;$(HaloRoot)port\include\xdk;$(HaloRoot)port\third_party\stb</HaloPlatformFontIncludes>
     <HaloPlatformFontForced>$(HaloRoot)port\windows\include\halo_windows_prefix.h</HaloPlatformFontForced>
     <HaloPlatformFontWarnings>Level3</HaloPlatformFontWarnings>
     <HaloWin32BrowserOptions Condition="'$(Platform)'!='x64'">$(HaloAbiOptions) /clang:-std=gnu11 /clang:-Wall</HaloWin32BrowserOptions>
@@ -137,6 +137,11 @@
     <HaloZlibIncludes></HaloZlibIncludes>
     <HaloZlibForced></HaloZlibForced>
     <HaloZlibWarnings>TurnOffAllWarnings</HaloZlibWarnings>
+    <HaloZstdOptions>$(HaloAbiOptions) /clang:-std=gnu11</HaloZstdOptions>
+    <HaloZstdDefines>$(HaloAbiDefines);ZSTD_DISABLE_ASM=1;ZSTD_LEGACY_SUPPORT=0;ZSTD_TRACE=0;DEBUGLEVEL=0</HaloZstdDefines>
+    <HaloZstdIncludes></HaloZstdIncludes>
+    <HaloZstdForced></HaloZstdForced>
+    <HaloZstdWarnings>TurnOffAllWarnings</HaloZstdWarnings>
     <HaloExpatOptions>$(HaloAbiOptions) /clang:-std=gnu11</HaloExpatOptions>
     <HaloExpatDefines>$(HaloAbiDefines)</HaloExpatDefines>
     <HaloExpatIncludes>$(HaloRoot)port\third_party\expat</HaloExpatIncludes>
@@ -6263,6 +6268,66 @@
       <WarningLevel>$(HaloZlibWarnings)</WarningLevel>
       <PreprocessorDefinitions>$(HaloZlibDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <AdditionalOptions>$(HaloZlibOptions) %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\zstd\lib\common\debug.c">
+      <ObjectFileName>$(IntDir)debug_ac2a8c01.obj</ObjectFileName>
+      <WarningLevel>$(HaloZstdWarnings)</WarningLevel>
+      <PreprocessorDefinitions>$(HaloZstdDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalOptions>$(HaloZstdOptions) %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\zstd\lib\common\entropy_common.c">
+      <ObjectFileName>$(IntDir)entropy_common_8ddbfc50.obj</ObjectFileName>
+      <WarningLevel>$(HaloZstdWarnings)</WarningLevel>
+      <PreprocessorDefinitions>$(HaloZstdDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalOptions>$(HaloZstdOptions) %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\zstd\lib\common\error_private.c">
+      <ObjectFileName>$(IntDir)error_private_eb9b3c44.obj</ObjectFileName>
+      <WarningLevel>$(HaloZstdWarnings)</WarningLevel>
+      <PreprocessorDefinitions>$(HaloZstdDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalOptions>$(HaloZstdOptions) %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\zstd\lib\common\fse_decompress.c">
+      <ObjectFileName>$(IntDir)fse_decompress_75d5dfe9.obj</ObjectFileName>
+      <WarningLevel>$(HaloZstdWarnings)</WarningLevel>
+      <PreprocessorDefinitions>$(HaloZstdDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalOptions>$(HaloZstdOptions) %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\zstd\lib\common\xxhash.c">
+      <ObjectFileName>$(IntDir)xxhash_d90d9916.obj</ObjectFileName>
+      <WarningLevel>$(HaloZstdWarnings)</WarningLevel>
+      <PreprocessorDefinitions>$(HaloZstdDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalOptions>$(HaloZstdOptions) %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\zstd\lib\common\zstd_common.c">
+      <ObjectFileName>$(IntDir)zstd_common_55937fb0.obj</ObjectFileName>
+      <WarningLevel>$(HaloZstdWarnings)</WarningLevel>
+      <PreprocessorDefinitions>$(HaloZstdDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalOptions>$(HaloZstdOptions) %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\zstd\lib\decompress\huf_decompress.c">
+      <ObjectFileName>$(IntDir)huf_decompress_6377138a.obj</ObjectFileName>
+      <WarningLevel>$(HaloZstdWarnings)</WarningLevel>
+      <PreprocessorDefinitions>$(HaloZstdDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalOptions>$(HaloZstdOptions) %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\zstd\lib\decompress\zstd_ddict.c">
+      <ObjectFileName>$(IntDir)zstd_ddict_71c5e25a.obj</ObjectFileName>
+      <WarningLevel>$(HaloZstdWarnings)</WarningLevel>
+      <PreprocessorDefinitions>$(HaloZstdDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalOptions>$(HaloZstdOptions) %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\zstd\lib\decompress\zstd_decompress.c">
+      <ObjectFileName>$(IntDir)zstd_decompress_be1b28ba.obj</ObjectFileName>
+      <WarningLevel>$(HaloZstdWarnings)</WarningLevel>
+      <PreprocessorDefinitions>$(HaloZstdDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalOptions>$(HaloZstdOptions) %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\third_party\zstd\lib\decompress\zstd_decompress_block.c">
+      <ObjectFileName>$(IntDir)zstd_decompress_block_969f86a4.obj</ObjectFileName>
+      <WarningLevel>$(HaloZstdWarnings)</WarningLevel>
+      <PreprocessorDefinitions>$(HaloZstdDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalOptions>$(HaloZstdOptions) %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <ClCompile Include="$(HaloRoot)port\third_party\musl-math\src\__cos.c">
       <ObjectFileName>$(IntDir)__cos_63395aba.obj</ObjectFileName>
