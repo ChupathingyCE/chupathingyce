@@ -1036,6 +1036,12 @@ enum
 	/* a good player's pressure: whoever it has hurt is finished, and whoever
 	   has just come back to life near it is gone after (the levels over 3) */
 	BOT_F_PRESS = 524288,
+	/* at the controls of a fixed gun: put, shooting, not driving it; at the
+	   wheel of something on its side: out, to put it back on its wheels */
+	BOT_F_DRIVE = 1048576,
+	/* a driver with nothing to shoot with and nobody on its gun: to a
+	   person of ours on foot nearby, to give them a ride (bot_drive_lone) */
+	BOT_F_PICKUP = 4194304,
 };
 static unsigned bot_off;
 
@@ -1047,7 +1053,8 @@ static unsigned bot_off_parse(char const *text)
 		{ "via", BOT_F_VIA }, { "teabag", BOT_F_TEABAG }, { "costslot", BOT_F_COSTSLOT }, { "pace", BOT_F_PACE },
 		{ "notice", BOT_F_NOTICE }, { "human", BOT_F_HUMAN }, { "fresh", BOT_F_FRESH }, { "wary", BOT_F_WARY },
 		{ "agile", BOT_F_AGILE }, { "camp", BOT_F_CAMP }, { "aware", BOT_F_AWARE }, { "timing", BOT_F_TIMING },
-		{ "hear", BOT_F_HEAR }, { "head", BOT_F_HEAD }, { "press", BOT_F_PRESS },
+		{ "hear", BOT_F_HEAR }, { "head", BOT_F_HEAD }, { "press", BOT_F_PRESS }, { "drive", BOT_F_DRIVE },
+		{ "pickup", BOT_F_PICKUP },
 		{ "all", 0xFFFFFFu },
 	};
 	unsigned mask = 0;
@@ -1454,6 +1461,15 @@ struct bot_state
 	int carrying_objective; /* the flag or the ball in hand */
 	int escorting; /* with one of ours who has their flag, round them (bot_escort_slot) */
 	long escort_tick; /* when it last was (0: never) */
+	long bail_noted_vehicle; /* the ride whose getting out of was counted (bot_stats.c), NONE none */
+	/* a lone driver's pick-up (bot_drive_lone): one of ours on foot it is
+	   off to give a ride to, and since when it has stood by them */
+	long pickup_unit;
+	long pickup_stood_since;
+	long pickup_given_up_until;
+	long turret_idle_ticks; /* on a fixed gun with no one to shoot, how long (bot_drive_turret) */
+	long flipped_ticks; /* at the wheel of something on its side or its roof, how long */
+	long parked_ticks; /* at the wheel, standing, going nowhere and nobody to shoot, how long */
 	real_point3d escort_guarded; /* ... and where the one it escorts was then */
 	long with_person_tick; /* when it was last a person's wingman (0: never) */
 	int with_person; /* helping a person of our side: on their gun, beside them, after them */
@@ -3092,6 +3108,16 @@ static void bot_ignore(struct bot_state *bot, long object_index, long ticks)
 	   may only be out of reach while it's in the air, or for the moment) */
 	if (bot_goal_is_game_object(object_index) && ticks > 3 * BOT_TICKS_PER_SECOND)
 		ticks = 3 * BOT_TICKS_PER_SECOND;
+	/* (already left be: that one's time made good, not a second place
+	   taken; one asked again each tick would else push out all the rest) */
+	for (i = 0; i < 6; i++)
+	{
+		if (bot->ignore_object[i] == object_index && bot->ignore_until[i] > game_time_get())
+		{
+			bot->ignore_until[i] = MAX(bot->ignore_until[i], game_time_get() + ticks);
+			return;
+		}
+	}
 	if (bot_logging() && object_index != NONE && object_try_and_get(object_index))
 		bot_log("bot%ld ignores %s for %lds", (long)(bot - bot_states), tag_get_name(object_get(object_index)->definition_index), ticks / BOT_TICKS_PER_SECOND);
 	for (i = 1; i < 6; i++)
@@ -3833,6 +3859,7 @@ static struct player_datum *bot_holder_player(long object_index)
 	}
 	return NULL;
 }
+
 
 static void bot_ctf_candidates(struct bot_state *bot, struct player_datum *player, struct unit_datum *unit,
 	real_point3d const *position, real held, struct bot_candidate *best)
@@ -6812,6 +6839,8 @@ static void bot_learn_from_score(struct bot_state *bot, struct player_datum cons
 	while (personality->kills_seen < kills)
 	{
 		personality->kills_seen++;
+		if (bot->last_vehicle != NONE && bot->last_vehicle != 0 && bot->last_seat_kind != 3)
+			bot_stats_note(_bot_stat_vehicle_kill);
 		personality->kill_streak++;
 		personality->death_streak = 0;
 		if (BOT_ON(BOT_F_TEABAG) && bot->last_fired_unit != NONE && game_time_get() - bot->last_fired_time < 3 * BOT_TICKS_PER_SECOND)
@@ -6826,6 +6855,8 @@ static void bot_learn_from_score(struct bot_state *bot, struct player_datum cons
 	while (personality->deaths_seen < deaths)
 	{
 		personality->deaths_seen++;
+		if (bot->last_vehicle != NONE && bot->last_vehicle != 0)
+			bot_stats_note(_bot_stat_vehicle_death);
 		personality->death_streak++;
 		personality->kill_streak = 0;
 		/* who did it: remembered (and the more often, the more it rankles) */
@@ -10204,6 +10235,25 @@ static void bot_drive_country_out_of_building(struct bot_think *t, struct bot_co
 		across->none = TRUE;
 }
 
+/* a vehicle on its side or upside down (its up nearer level than 70 degrees off) */
+static int bot_vehicle_flipped(long vehicle_index)
+{
+	real_vector3d forward, up;
+	object_get_orientation(vehicle_index, &forward, &up);
+	return up.k < 0.35f;
+}
+
+/* (how games go, HALO_BOT_STATS: a ride got out of, held up or stuck in, or
+to fight on foot; once a ride) */
+static void bot_note_bail(struct bot_state *bot, long vehicle_index, int stat)
+{
+	if (bot_stats_enabled() && bot->bail_noted_vehicle != vehicle_index)
+	{
+		bot->bail_noted_vehicle = vehicle_index;
+		bot_stats_note(stat);
+	}
+}
+
 static void bot_drive_country_give_up(struct bot_think *t, struct bot_country_result const *across)
 {
 	long player_absolute_index = t->player_absolute_index;
@@ -10216,6 +10266,7 @@ static void bot_drive_country_give_up(struct bot_think *t, struct bot_country_re
 	/* no way over the ground from here, or stuck time and again:
 	   out, and this one left be a while */
 	action->control_flags |= FLAG(_unit_control_action_bit);
+	bot_note_bail(bot, vehicle_index, _bot_stat_vehicle_bailout);
 	if (!bot_ignoring(bot, vehicle_index))
 	{
 		bot_vehicle_strand(vehicle_index, across->held_up ? BOT_SECONDS(90.f) : BOT_SECONDS(300.f));
@@ -10225,6 +10276,33 @@ static void bot_drive_country_give_up(struct bot_think *t, struct bot_country_re
 				tag_get_name(object_get(vehicle_index)->definition_index), across->held_up ? "held up" : "no way across",
 				position->x, position->y, position->z, far_place->x, far_place->y, far_place->z);
 	}
+}
+
+/* At the wheel of something that cannot move: a fixed gun. Nothing to
+   steer; it stays put and lets the aim and the trigger do the work, and
+   gets off when nobody has come within its reach for a while (and leaves
+   that gun be for a time, so as not to climb straight back on). */
+static void bot_drive_turret(struct bot_think *t)
+{
+	struct bot_state *bot = t->bot;
+	t->moving = FALSE;
+	t->drive_throttle = 0.f;
+	t->drive_held = TRUE;
+	t->drive_mode = 0;
+	if (t->target == NONE && bot->target_unit == NONE)
+	{
+		t->desired_yaw = bot_glance(bot, t->me, &t->position);
+		t->look_reason = _bot_look_glance;
+		if (++bot->turret_idle_ticks > 25 * BOT_TICKS_PER_SECOND)
+		{
+			if (game_time_get() % 6 < 3)
+				t->action->control_flags |= FLAG(_unit_control_action_bit);
+			if (!bot_ignoring(bot, t->vehicle_index))
+				bot_ignore(bot, t->vehicle_index, 30 * BOT_TICKS_PER_SECOND);
+		}
+	}
+	else
+		bot->turret_idle_ticks = 0;
 }
 
 static void bot_drive_cross_country(struct bot_think *t)
@@ -10594,6 +10672,7 @@ static void bot_drive_orbit_give_up(struct bot_think *t, struct bot_area_drive *
 		if (bot->drive_orbit_ticks > 2 * BOT_SECONDS(4.f))
 		{
 			action->control_flags |= FLAG(_unit_control_action_bit);
+			bot_note_bail(bot, vehicle_index, _bot_stat_vehicle_dismount);
 			bot_ignore(bot, vehicle_index, 20 * BOT_TICKS_PER_SECOND);
 			bot->drive_orbit_ticks = 0;
 			bot->drive_orbit_nearest = 1.0e9f;
@@ -10671,7 +10750,10 @@ static void bot_drive_follow_route(struct bot_think *t, struct bot_area_drive *d
 		/* (out, pressed until it is: on the one tick it was pressed a
 		   driver being knocked about stayed in, and was not asked again) */
 		if (across.held_up)
+		{
 			result->get_out = TRUE;
+			bot_note_bail(bot, vehicle_index, _bot_stat_vehicle_bailout);
+		}
 		if (across.held_up && !bot_ignoring(bot, vehicle_index))
 		{
 			bot_vehicle_strand(vehicle_index, BOT_SECONDS(90.f));
@@ -10700,7 +10782,11 @@ static void bot_drive_no_way(struct bot_think *t, struct bot_area_drive *d)
 		/* no way to drive there: close to something we're after, get
 		   out and walk; otherwise somewhere else next time */
 		if (result->get_out || (bot->goal_objective && bot_distance2d(position, &bot->goal) < 30.f))
+		{
 			action->control_flags |= FLAG(_unit_control_action_bit);
+			if (result->get_out)
+				bot_note_bail(bot, vehicle_index, _bot_stat_vehicle_bailout);
+		}
 		if (!d->circling)
 			bot->goal_ticks = 0;
 		/* an errand a vehicle can't get to (the flag inside their base):
@@ -10717,6 +10803,7 @@ static void bot_drive_no_way(struct bot_think *t, struct bot_area_drive *d)
 			if ((result->no_route || !result->moving) && ++bot->drive_stranded_ticks > BOT_TICKS_PER_SECOND)
 			{
 				action->control_flags |= FLAG(_unit_control_action_bit);
+				bot_note_bail(bot, vehicle_index, _bot_stat_vehicle_bailout);
 				bot_ignore(bot, vehicle_index, 45 * BOT_TICKS_PER_SECOND);
 				bot->drive_stranded_ticks = 0;
 			}
@@ -10778,6 +10865,95 @@ static void bot_drive_hold_count(struct bot_think *t, struct bot_area_drive *d)
 			(game_time_get() - bot->drive_since) / (real)BOT_TICKS_PER_SECOND);
 }
 
+/* A driver with nothing to shoot with (a Warthog's) and nobody on its gun,
+   and no fight near: to a person of ours on foot, to give them a ride:
+   stopped by them a few seconds, for them to get on its gun. (Not for the
+   bots: in test games it neither won nor lost them anything. Nor, near
+   them, the drivers' other ways that were tried: out to fight them on
+   foot, or a run at them; neither won.) TRUE when it has decided where
+   the vehicle goes (d->next). */
+#define BOT_LONE_PICKUP_FROM 80.f
+#define BOT_LONE_PICKUP_STAND 7.f
+static int bot_drive_lone(struct bot_think *t, struct bot_area_drive *d, int enemy_known, real enemy_distance)
+{
+	struct bot_state *bot = t->bot;
+	struct player_datum *me = t->me;
+	real_point3d const *position = &t->position;
+	long now = game_time_get();
+
+	if (!BOT_ON(BOT_F_PICKUP) || d->driver_shoots || d->has_gunner || game_engine == &race_engine || bot->carrying_objective ||
+		d->errand_on_foot || (bot->goal_objective && bot->goal_kind == _bot_goal_item))
+	{
+		bot->pickup_unit = NONE;
+		return FALSE;
+	}
+	/* (a fight: the drive's own way with them, bot_drive_circle) */
+	if (enemy_known && enemy_distance < 28.f)
+	{
+		bot->pickup_unit = NONE;
+		return FALSE;
+	}
+	/* one of ours on foot to give a ride to */
+	if (t->teams && now >= bot->pickup_given_up_until)
+	{
+		struct data_iterator iterator;
+		struct player_datum *other;
+		long best = NONE;
+		real best_distance = BOT_LONE_PICKUP_FROM;
+		struct unit_datum *current = bot->pickup_unit != NONE ? unit_try_and_get(bot->pickup_unit) : NULL;
+		/* (the one it is off to, while they are still on foot) */
+		if (current && bot_unit_alive(bot->pickup_unit) && current->object.parent_object_index == NONE)
+			best = bot->pickup_unit;
+		else
+		{
+			data_iterator_new(&iterator, player_data);
+			while ((other = (struct player_datum *)data_iterator_next(&iterator)) != NULL)
+			{
+				real distance;
+				if (other == me || other->team_index != me->team_index || other->unit_index == NONE || !bot_unit_alive(other->unit_index) ||
+					object_get(other->unit_index)->object.parent_object_index != NONE ||
+					bot_player_is_bot(DATUM_INDEX_TO_ABSOLUTE_INDEX(iterator.datum_index)))
+				{
+					continue;
+				}
+				distance = distance3d(&object_get(other->unit_index)->object.position, position);
+				if (distance < best_distance)
+				{
+					best_distance = distance;
+					best = other->unit_index;
+				}
+			}
+			if (best != bot->pickup_unit)
+				bot->pickup_stood_since = NONE;
+		}
+		bot->pickup_unit = best;
+		if (best != NONE)
+		{
+			real_point3d at = object_get(best)->object.position;
+			d->next = at;
+			bot->goal = at;
+			bot->goal_kind = _bot_goal_roam;
+			bot->goal_ticks = BOT_TICKS_PER_SECOND;
+			if (bot_distance2d(&at, position) < BOT_LONE_PICKUP_STAND)
+			{
+				/* (by them: stopped, a few seconds, for them to get on) */
+				if (bot->pickup_stood_since == NONE || now < bot->pickup_stood_since)
+					bot->pickup_stood_since = now;
+				if (now - bot->pickup_stood_since < BOT_SECONDS(5.f))
+					d->hold = TRUE;
+				else
+				{
+					/* (they are not coming: a while before asking anyone again) */
+					bot->pickup_given_up_until = now + BOT_SECONDS(20.f);
+					bot->pickup_unit = NONE;
+				}
+			}
+			return TRUE;
+		}
+	}
+	return FALSE;
+}
+
 static void bot_drive_by_areas(struct bot_think *t)
 {
 	long player_absolute_index = t->player_absolute_index;
@@ -10804,12 +10980,19 @@ static void bot_drive_by_areas(struct bot_think *t)
 	d.has_gunner = bot_drive_gunner_aboard(t);
 	bot_drive_hold_for_riders(t, &d);
 	bot_drive_find_enemy(t, &d);
-	bot_drive_race_checkpoint(t, &d);
-	bot_drive_flag_errand(t, &d);
-	if (d.know_enemy && d.enemy_distance < 28.f)
-		bot_drive_circle(t, &d);
-	else
-		bot_drive_roam_or_hunt(t, &d);
+	{
+		/* (the enemy itself, before an errand stands in for it) */
+		int enemy_known = d.know_enemy && (target != NONE || bot->target_unit != NONE || d.enemy_distance < 28.f);
+		real enemy_distance = d.enemy_distance;
+		bot_drive_race_checkpoint(t, &d);
+		bot_drive_flag_errand(t, &d);
+		if (bot_drive_lone(t, &d, enemy_known, enemy_distance))
+			;
+		else if (d.know_enemy && d.enemy_distance < 28.f)
+			bot_drive_circle(t, &d);
+		else
+			bot_drive_roam_or_hunt(t, &d);
+	}
 	bot_drive_orbit_give_up(t, &d);
 	bot_drive_follow_route(t, &d);
 	bot_drive_no_way(t, &d);
@@ -13138,6 +13321,9 @@ static void bot_first_think(long player_absolute_index, struct bot_state *bot)
 	bot->temperament = bot->personality;
 	bot->has_personality = TRUE;
 	bot->unit_index = NONE;
+	bot->pickup_unit = NONE;
+	bot->pickup_stood_since = NONE;
+	bot->bail_noted_vehicle = NONE;
 	if (bot_logging())
 		bot_log("bot%ld is a %s (%s): grudge %.1f temper %+.1f swagger %.1f trigger %.1f melee %.1f vengeful %.1f composure %.1f loyal %.1f sporting %.1f showboat %.1f camping %.1f herd %+.1f skill %.2f of 5 (bot_skill %.1f of 10)",
 			player_absolute_index, bot_style_names[bot->personality.style], bot_signature_names[bot->personality.signature],
@@ -13494,6 +13680,8 @@ static void bot_note_ride(long player_absolute_index, struct bot_state *bot, lon
 	/* (a different vehicle: its seat is worth trying for again) */
 	if (vehicle_index != bot->last_vehicle)
 	{
+		if (vehicle_index != NONE)
+			bot->bail_noted_vehicle = NONE;
 		bot->seat_retries = 0;
 		bot->seat_check_ticks = 0;
 	}
@@ -14889,10 +15077,32 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 	BOT_PROFILE_MARK("movement");
 	/* ---- movement */
 	t->move_yaw = bot->yaw;
+	if (t->vehicle_index == NONE)
+		bot->turret_idle_ticks = 0;
+	/* (at the wheel of something on its side or its roof, going nowhere:
+	   out, to put it back on its wheels, the button again from beside it,
+	   and in once more; not left be, as a ride got out of otherwise is) */
+	if (t->vehicle_index != NONE && t->driving && BOT_ON(BOT_F_DRIVE) && bot_vehicle_flipped(t->vehicle_index) &&
+		magnitude3d(&object_get(t->vehicle_index)->object.translational_velocity) * BOT_TICKS_PER_SECOND < 1.f &&
+		!bot_vehicle_flies(object_get(t->vehicle_index)->definition_index))
+	{
+		if (++bot->flipped_ticks > BOT_SECONDS(1.5f) && game_time_get() % 6 < 3)
+		{
+			t->action->control_flags |= FLAG(_unit_control_action_bit);
+			if (bot_logging() && bot->flipped_ticks % 30 == 0)
+				bot_log("bot%ld t%ld out of the %s, on its side", t->player_absolute_index, game_time_get(),
+					tag_get_name(object_get(t->vehicle_index)->definition_index));
+		}
+	}
+	else
+		bot->flipped_ticks = 0;
 	if (t->vehicle_index != NONE && !t->driving)
 		bot_passenger_act(t);
 	else if (t->vehicle_index != NONE && t->driving && bot_air_ready() && bot_vehicle_flies(object_get(t->vehicle_index)->definition_index))
 		bot_drive_aircraft(t);
+	else if (t->vehicle_index != NONE && t->driving && BOT_ON(BOT_F_DRIVE) &&
+		bot_vehicle_kind(object_get(t->vehicle_index)->definition_index) == _bot_vehicle_turret)
+		bot_drive_turret(t);
 	else if (t->vehicle_index != NONE && t->driving && game_engine != &race_engine &&
 		bot_drive_far(bot, me, &t->position, t->target, t->target_distance, t->teams, &t->far_place) && bot_drive_is_beyond(&t->position, &t->far_place))
 		bot_drive_cross_country(t);
@@ -14909,6 +15119,33 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 		bot_fight_move(t);
 	else
 		bot_travel_move(t);
+
+	/* (at the wheel of something on the ground that stands, not held for
+	   anyone, and nobody to shoot: a place it can't drive to that it has
+	   come as near as it will, a way it has no route for. Not for ever:
+	   out, on foot, and that one left be a while.) */
+	if (t->vehicle_index != NONE && t->driving && BOT_ON(BOT_F_DRIVE) && !t->moving && !t->drive_held && t->target == NONE &&
+		bot->target_unit == NONE && !bot->carrying_objective && game_engine != &race_engine &&
+		magnitude3d(&object_get(t->vehicle_index)->object.translational_velocity) * BOT_TICKS_PER_SECOND < 0.5f &&
+		!bot_vehicle_flies(object_get(t->vehicle_index)->definition_index) &&
+		bot_vehicle_kind(object_get(t->vehicle_index)->definition_index) != _bot_vehicle_turret)
+	{
+		if (++bot->parked_ticks > BOT_SECONDS(10.f))
+		{
+			if (game_time_get() % 6 < 3)
+				action->control_flags |= FLAG(_unit_control_action_bit);
+			bot_note_bail(bot, t->vehicle_index, _bot_stat_vehicle_bailout);
+			if (!bot_ignoring(bot, t->vehicle_index))
+			{
+				bot_ignore(bot, t->vehicle_index, 30 * BOT_TICKS_PER_SECOND);
+				if (bot_logging())
+					bot_log("bot%ld t%ld out of the %s, stood going nowhere", t->player_absolute_index, game_time_get(),
+						tag_get_name(object_get(t->vehicle_index)->definition_index));
+			}
+		}
+	}
+	else
+		bot->parked_ticks = 0;
 
 	BOT_PROFILE_MARK("flag juggling");
 	/* ---- flag juggling: running home with the flag (which slows its
@@ -15160,7 +15397,7 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 		bot_stats_bot_tick(player_absolute_index, &t->position,
 			t->vehicle_index == NONE ? 0 : t->driving ? 1 : t->gunner ? 2 : 3,
 			t->target != NONE || bot->goal_kind == _bot_goal_hold || bot->ambush_phase != 0 || bot->in_cover,
-			bot->escorting, bot->with_person);
+			bot->escorting, bot->with_person, t->vehicle_index != NONE && t->driving && bot_vehicle_flipped(t->vehicle_index));
 
 	bot_log_motion(t);
 	bot_log_engagement(t);

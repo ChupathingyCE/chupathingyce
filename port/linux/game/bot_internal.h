@@ -429,6 +429,10 @@ enum
 	_bot_stat_flag_pickup,
 	_bot_stat_flag_drop,
 	_bot_stat_flag_return,
+	_bot_stat_vehicle_kill, /* a bot's kill from a vehicle (at its wheel or on its gun) */
+	_bot_stat_vehicle_death, /* a bot killed in a vehicle */
+	_bot_stat_vehicle_bailout, /* a bot out of a vehicle it was held up or stuck in */
+	_bot_stat_vehicle_dismount, /* a bot out of a vehicle to fight on foot */
 	NUMBER_OF_BOT_STATS
 };
 
@@ -439,7 +443,8 @@ void bot_stats_note(int stat);
    on a gun, 3 riding), whether it has reason to stand (someone to shoot,
    a place it holds), and whether it is escorting a carrier of ours or
    helping a person of its side */
-void bot_stats_bot_tick(long index, real_point3d const *position, int seat_kind, int busy, int escorting, int with_people);
+void bot_stats_bot_tick(long index, real_point3d const *position, int seat_kind, int busy, int escorting, int with_people,
+	int flipped);
 void bot_stats_world_tick(long now);
 /* whether a player (its datum index) is one of the bots (bots.c) */
 int bot_player_is_bot(long player_index);

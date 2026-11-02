@@ -2142,7 +2142,8 @@ above). `HALO_BOT_REFINE=131071` turns the last one off,
 three, `HALO_BOT_REFINE=16383` the last four, `HALO_BOT_REFINE=1023` the
 last eight, and `HALO_BOT_REFINE=31` turns these thirteen off. The names
 `agile`, `camp`, `aware`, `timing`, `hear` (shots heard by the shot),
-`head` and `press` in `HALO_BOT_OFF`,
+`head`, `press`, `drive` and `pickup` (below, "The bots in a Warthog") in
+`HALO_BOT_OFF`,
 `HALO_BOT_OFF_T0` and `HALO_BOT_OFF_T1` turn these off for all bots or for
 one team, and
 `HALO_BOT_OFF_EVEN` does this for each second bot (for a game without
@@ -2521,6 +2522,40 @@ In five test games of capture the flag with 11 bots (Blood Gulch twice,
 Sidewinder, Death Island, Danger Canyon), 33 Warthogs went away: 11 with a
 gunner, 22 with only the driver. For 18 of those 22, nobody of the team was
 on foot less than 14 world units away.
+
+A bot that drives alone (nobody on the gun, and a vehicle whose driver has
+no gun of its own), with no enemy near, drives to the nearest person of
+its team on foot less than 80 world units away and stops beside them for
+5 seconds, for them to get on. When the person does not get on, the bot
+asks nobody for 20 seconds. (It does not do this for bots: in test games
+it did not change the score.)
+
+A bot at the controls of a fixed gun (the Covenant turret of Gephyrophobia)
+stays there and shoots. When it has no target for 25 seconds it gets off
+and leaves that gun alone for 30 seconds. Before, it tried to drive the
+gun, was stuck, and got off.
+
+A bot at the wheel of a vehicle on the ground that stands for 10 seconds,
+not waiting for anyone and with no enemy to shoot (the place that it goes
+to is somewhere a vehicle cannot go, or it has no way there), gets out and
+leaves that vehicle alone for 30 seconds. On Hugeass, bots stood in a
+Tachikoma by the place where it comes for 8 minutes.
+
+A bot that drives a vehicle on its side or on its roof gets out after 1.5
+seconds. It does not leave the vehicle alone: the action button beside a
+vehicle on its side puts the vehicle back on its wheels, and the bot then
+gets in again.
+
+`HALO_BOT_OFF=drive` turns off the fixed gun and the vehicle on its side,
+and `HALO_BOT_OFF=pickup` the ride for a person. In 30 test games
+(Blood Gulch, Sidewinder, Danger Canyon, Death Island, Gephyrophobia,
+Icefields, Timberland, Hugeass; capture the flag and team slayer; the same
+seeds as before the changes), the bots got out of a stuck vehicle 7.3 times
+each 10 minutes instead of 10.7 (on Gephyrophobia 1.7 instead of 21), and
+killed 14.3 players from a vehicle instead of 11.6. On Hugeass they drove
+a vehicle on its side for 4.7% of the time instead of 7.5%. In 40 games of
+team slayer with the fixed gun and the vehicle on its side on for one team,
+the score of that team did not change by more than chance.
 
 ### The bots in a Banshee
 
@@ -2920,6 +2955,13 @@ a game is the result of that game:
 - `kills`, `deaths`, `suicides`: the totals of the bots.
 - `stuck`: a bot that stops trying a way where it is stuck.
   `route_failed`: a way between two areas that a bot cannot use.
+- `vehicle_kills`, `vehicle_deaths`: kills by bots in a vehicle and
+  bots killed in one. `bailouts`: a bot that gets out of a vehicle because
+  it is stuck, or the vehicle cannot go where the bot goes. `dismounts`: a
+  bot that gets out to fight on foot. Each counts once a ride.
+- `drive_speed`: the mean speed of the bots that drive, in world units a
+  second. `flipped`: the percentage of the driving time in a vehicle on
+  its side or its roof.
 - `idle`, `driving`, `gunning`, `riding`, `escort`, `with_people`: the
   percentage of the time of the bots that they stand on foot with no
   target and no place to hold, drive, use a gun of a vehicle, ride in

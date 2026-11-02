@@ -50,9 +50,10 @@ RUNNING: List[subprocess.Popen] = []
 GAME_OVER = re.compile(r"network test: game [2-9]")
 
 # (figure, how it is shown, how it is made from a game's counts)
-PER_TEN_MINUTES = ["captures", "pickups", "drops", "returns", "carrier_rides", "kills"]
+PER_TEN_MINUTES = ["captures", "pickups", "drops", "returns", "carrier_rides", "kills", "vehicle_kills", "vehicle_deaths",
+                   "bailouts", "dismounts"]
 # (a game's own figures, not rates: how far apart the sides' scores ended)
-PER_GAME = ["score_gap"]
+PER_GAME = ["score_gap", "drive_speed", "flipped"]
 PER_BOT_HOUR = ["stuck", "route_failed"]
 SHARES = ["idle", "driving", "gunning", "riding", "escort", "with_people"]
 
@@ -186,7 +187,8 @@ def mean_and_error(values: List[float]) -> Tuple[float, float]:
 
 
 def unit(name: str) -> str:
-    return "/10 min" if name in PER_TEN_MINUTES else "/bot-hour" if name in PER_BOT_HOUR else "a game" if name in PER_GAME else "%"
+    return ("/10 min" if name in PER_TEN_MINUTES else "/bot-hour" if name in PER_BOT_HOUR else
+            "u/s" if name == "drive_speed" else "% driving" if name == "flipped" else "a game" if name in PER_GAME else "%")
 
 
 def report(title: str, first: List[Dict[str, float]], second: Optional[List[Dict[str, float]]]) -> None:

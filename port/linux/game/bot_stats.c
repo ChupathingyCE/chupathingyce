@@ -20,6 +20,13 @@ last line of a game is its whole). The figures:
 	drops           times a carried flag fell (its carrier killed, or out of a seat)
 	returns         times a flag went home without being captured
 	carrier_rides   times a bot got into a vehicle with the flag
+	vehicle_kills   the bots' kills from a vehicle (at its wheel or on its gun)
+	vehicle_deaths  the bots killed in a vehicle
+	bailouts        times a bot got out of a vehicle it was held up or stuck in
+	dismounts       times a bot got out of a vehicle to fight on foot
+	drive_speed     the bots' average speed at a wheel, world units a second
+	flipped         per cent of the bots' time at a wheel with the vehicle on
+	                its side or upside down
 	kills, deaths, suicides
 	                the bots' own, from the game's statistics
 	stuck           times a bot gave up on a way it was stuck on
@@ -64,6 +71,8 @@ static struct
 	long idle_ticks;
 	long seat_ticks[4]; /* on foot, driving, gunning, riding */
 	long escort_ticks;
+	long flipped_ticks;
+	real drive_distance;
 	long with_people_ticks;
 	/* each flag: who held it last tick (NONE nobody), and whether it was home */
 	long flag_holder[2];
@@ -105,7 +114,8 @@ void bot_stats_note(int stat)
 		bot_stats.counts[stat]++;
 }
 
-void bot_stats_bot_tick(long index, real_point3d const *position, int seat_kind, int busy, int escorting, int with_people)
+void bot_stats_bot_tick(long index, real_point3d const *position, int seat_kind, int busy, int escorting, int with_people,
+	int flipped)
 {
 	long now = game_time_get();
 
@@ -117,6 +127,17 @@ void bot_stats_bot_tick(long index, real_point3d const *position, int seat_kind,
 		bot_stats.escort_ticks++;
 	if (with_people)
 		bot_stats.with_people_ticks++;
+	if (seat_kind == 1 && flipped)
+		bot_stats.flipped_ticks++;
+	/* (at a wheel since the tick before: how far, a jump of more than a
+	vehicle's tick's worth being a respawn or a teleport, not driving) */
+	if (seat_kind == 1 && bot_stats.last_seen[index] == now - 1)
+	{
+		real moved = distance3d(position, &bot_stats.last_position[index]);
+
+		if (moved < 2.f)
+			bot_stats.drive_distance += moved;
+	}
 	/* (standing: less than a tenth of a walk's pace since the tick before) */
 	if (seat_kind == 0 && !busy && bot_stats.last_seen[index] == now - 1 &&
 		distance3d(position, &bot_stats.last_position[index]) < 0.02f)
@@ -188,7 +209,8 @@ static void bot_stats_report(long now, int over)
 	}
 	platform_log("bot stats: map=%s t=%ld bots=%ld bot_seconds=%ld caps0=%ld caps1=%ld score0=%ld score1=%ld pickups=%ld drops=%ld returns=%ld "
 		"carrier_rides=%ld kills=%ld deaths=%ld suicides=%ld stuck=%ld route_failed=%ld "
-		"idle=%.1f driving=%.1f gunning=%.1f riding=%.1f escort=%.1f with_people=%.1f%s",
+		"idle=%.1f driving=%.1f gunning=%.1f riding=%.1f escort=%.1f with_people=%.1f "
+		"vehicle_kills=%ld vehicle_deaths=%ld bailouts=%ld dismounts=%ld drive_speed=%.2f flipped=%.1f%s",
 		name ? name + 1 : map ? map : "?", (now - bot_stats.first_tick) / BOT_TICKS_PER_SECOND, bots,
 		bot_stats.alive_ticks / BOT_TICKS_PER_SECOND,
 		game_engine == &ctf_engine ? ctf_bot_score(0) : 0L, game_engine == &ctf_engine ? ctf_bot_score(1) : 0L,
@@ -198,6 +220,10 @@ static void bot_stats_report(long now, int over)
 		bot_stats.counts[_bot_stat_stuck], bot_stats.counts[_bot_stat_route_failed],
 		bot_stats_share(bot_stats.idle_ticks), bot_stats_share(bot_stats.seat_ticks[1]), bot_stats_share(bot_stats.seat_ticks[2]),
 		bot_stats_share(bot_stats.seat_ticks[3]), bot_stats_share(bot_stats.escort_ticks), bot_stats_share(bot_stats.with_people_ticks),
+		bot_stats.counts[_bot_stat_vehicle_kill], bot_stats.counts[_bot_stat_vehicle_death],
+		bot_stats.counts[_bot_stat_vehicle_bailout], bot_stats.counts[_bot_stat_vehicle_dismount],
+		bot_stats.seat_ticks[1] > 0 ? bot_stats.drive_distance * BOT_TICKS_PER_SECOND / (real)bot_stats.seat_ticks[1] : 0.f,
+		bot_stats.seat_ticks[1] > 0 ? 100.f * (real)bot_stats.flipped_ticks / (real)bot_stats.seat_ticks[1] : 0.f,
 		over ? " over=1" : "");
 }
 
