@@ -1080,6 +1080,9 @@ enum
 	/* a fight's mind kept made up: not in for the blow and back off from
 	   the same one in turn (bot_fight_range) */
 	BOT_F_STEADY = 1 << 29,
+	/* the top levels' look: at speed at once, onto where it means to look
+	   (bot_turn_look) */
+	BOT_F_MASTER = 1u << 30,
 };
 static unsigned bot_off;
 
@@ -1092,8 +1095,8 @@ static unsigned bot_off_parse(char const *text)
 		{ "notice", BOT_F_NOTICE }, { "human", BOT_F_HUMAN }, { "fresh", BOT_F_FRESH }, { "wary", BOT_F_WARY },
 		{ "agile", BOT_F_AGILE }, { "camp", BOT_F_CAMP }, { "aware", BOT_F_AWARE }, { "timing", BOT_F_TIMING },
 		{ "hear", BOT_F_HEAR }, { "head", BOT_F_HEAD }, { "press", BOT_F_PRESS }, { "drive", BOT_F_DRIVE },
-		{ "pickup", BOT_F_PICKUP }, { "neck", BOT_F_NECK }, { "seek", BOT_F_SEEK }, { "radar", BOT_F_RADAR }, { "hill", BOT_F_HILL }, { "standup", BOT_F_STANDUP }, { "hop", BOT_F_HOP }, { "direct", BOT_F_DIRECT }, { "steady", BOT_F_STEADY },
-		{ "all", 0x3FFFFFFFu },
+		{ "pickup", BOT_F_PICKUP }, { "neck", BOT_F_NECK }, { "seek", BOT_F_SEEK }, { "radar", BOT_F_RADAR }, { "hill", BOT_F_HILL }, { "standup", BOT_F_STANDUP }, { "hop", BOT_F_HOP }, { "direct", BOT_F_DIRECT }, { "steady", BOT_F_STEADY }, { "master", BOT_F_MASTER },
+		{ "all", 0x7FFFFFFFu },
 	};
 	unsigned mask = 0;
 	long i;
@@ -1104,6 +1107,24 @@ static unsigned bot_off_parse(char const *text)
 			mask |= names[i].bit;
 	return mask;
 }
+
+/* (testing: HALO_BOT_HUMANOFF_T0 / _T1, a mask of the parts of the human
+   movement to leave out for one team: 1 the look's easing, 2 the thumb,
+   4 the strafe's timing, 8 the stick flat out in a fight) */
+static unsigned bot_humanoff;
+static unsigned bot_humanoff_for_team(long team)
+{
+	static int read;
+	static unsigned masks[2];
+	if (!read)
+	{
+		read = TRUE;
+		masks[0] = getenv("HALO_BOT_HUMANOFF_T0") ? (unsigned)atoi(getenv("HALO_BOT_HUMANOFF_T0")) : 0;
+		masks[1] = getenv("HALO_BOT_HUMANOFF_T1") ? (unsigned)atoi(getenv("HALO_BOT_HUMANOFF_T1")) : 0;
+	}
+	return team == 0 || team == 1 ? masks[team] : 0;
+}
+#define BOT_HUMAN_PART(bit) (BOT_ON(BOT_F_HUMAN) && !(bot_humanoff & (bit)))
 
 static unsigned bot_off_for_team(long team)
 {
@@ -11524,7 +11545,7 @@ static void bot_fight_pick_strafe(struct bot_think *t, struct bot_fight *f)
 		   stolid one sidesteps one way a long while) */
 		real skill = f->skill_move * (0.3f + 0.7f * bot->personality.agility);
 		bot->strafe_ticks = BOT_SECONDS((0.3f + 0.9f * bot_random(bot)) * (2.2f - 1.6f * skill) * (threatened ? 0.7f : 1.f));
-		if (BOT_ON(BOT_F_HUMAN))
+		if (BOT_HUMAN_PART(4))
 		{
 			/* as a person strafes: a side held a good half second or
 			   more, most times; now and then a long run one way, now
@@ -11944,7 +11965,7 @@ static void bot_fight_strafe_move(struct bot_think *t, struct bot_fight *f)
 	   fire, flat out */
 	/* how fast: its agility; not shot at, slower (a steadier aim),
 	   under fire flat out (the nimble) or near it */
-	if (BOT_ON(BOT_F_HUMAN))
+	if (BOT_HUMAN_PART(8))
 		/* (the stick all the way over, as a person has it in a
 		   fight; a touch less with nobody shooting back) */
 		t->move_speed = f->forward > 0.f || threatened ? 1.f : 0.85f + 0.15f * bot->personality.agility;
@@ -14108,7 +14129,7 @@ static void bot_turn_look(struct bot_state *bot, struct bot_skill_parameters con
 	dy = bot_angle_difference(desired_yaw, bot->yaw);
 	real dp = desired_pitch - bot->pitch;
 
-	if (BOT_ON(BOT_F_HUMAN) && !look_forced && !driving_moved)
+	if (BOT_HUMAN_PART(1) && !look_forced && !driving_moved)
 	{
 		/* (never faster than a person's turn: the top levels' turn rate,
 		   twenty or more radians a second, is a whip round that no stick or
@@ -14123,14 +14144,22 @@ static void bot_turn_look(struct bot_state *bot, struct bot_skill_parameters con
 		   keeping on someone, nearly all, the more skilled the more).
 		   Not the whole turn at full speed from one tick to the next
 		   and a dead stop, which is a machine's. */
-		real gather = max_turn * (0.3f + 0.15f * bot_skill_fraction());
-		real keeping = 0.6f + 0.3f * bot_skill_fraction();
+		/* (the top levels: a master's hand, at speed in a tick or two and
+		   onto where it means to look without easing off short of it. Eased
+		   as the rest are, a team of them at skill 10 scored 9 points a game
+		   fewer than one without, and not for want of turning: the time it
+		   took to come onto someone. The most it turns is a person's still,
+		   BOT_HUMAN_TURN_MOST.) */
+		real mastery = BOT_ON(BOT_F_MASTER) ? bot_skill_mastery() : 0.f;
+		real gather = max_turn * (0.3f + 0.15f * bot_skill_fraction() + 0.55f * mastery);
+		real keeping = 0.6f + 0.3f * bot_skill_fraction() + 0.1f * mastery;
+		real big = 0.5f + 0.35f * mastery;
 		long axis;
 		for (axis = 0; axis < 2; axis++)
 		{
 			real left = axis ? dp : dy;
 			real *rate = axis ? &bot->pitch_rate : &bot->yaw_rate;
-			real part = keeping + (0.5f - keeping) * MIN(1.f, (real)fabs(left) / 0.6f);
+			real part = keeping + (big - keeping) * MIN(1.f, (real)fabs(left) / 0.6f);
 			real want = PIN(left * part, -max_turn, max_turn);
 			if (fabs(left) < 0.002f)
 				*rate = left;
@@ -14360,7 +14389,7 @@ static void bot_set_throttle(struct bot_think *t)
 			   hardly a move of it at all). Not where the route has a jump,
 			   a ladder or a ledge under way: there the feet go exactly
 			   where it says. */
-			if (BOT_ON(BOT_F_HUMAN) && vehicle_index == NONE && !t->committed && !t->look_forced &&
+			if (BOT_HUMAN_PART(2) && vehicle_index == NONE && !t->committed && !t->look_forced &&
 				!(t->moved && (result->travel != _aas_travel_walk || result->jump || result->crouch || result->exact || result->speed < 0.99f)))
 			{
 				/* (a master's thumb: on the way it means to go at once) */
@@ -15319,6 +15348,7 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 			me = player;
 	}
 	bot_off = me ? bot_off_for_team(me->team_index) : 0;
+	bot_humanoff = me ? bot_humanoff_for_team(me->team_index) : 0;
 	/* (testing, HALO_BOT_OFF_EVEN: the same for the bots whose place in the
 	   game is an even number, whatever side they are on: half of the bots of
 	   a game with no sides) */

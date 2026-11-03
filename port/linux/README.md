@@ -1418,6 +1418,18 @@ The bots move and look as a person with a controller or a mouse does:
   a snap onto its target that no stick or hand makes. Their aim and their
   reactions make the top levels good, not the speed of the turn.
   `HALO_BOT_OFF=neck` turns this limit off.
+- From skill 8 up the look eases less, and at 10 not at all: up to its
+  speed in a tick or two, and onto where it means to look without slowing
+  short of it (still no faster than 8 radians a second).
+  In 40 games of team slayer at skill 10 (Hang 'Em High, Battle Creek,
+  Damnation, Chill Out, Prisoner), a team whose look eased as before
+  scored 9.4 points a game fewer than one whose look did not (the parts of
+  the movement that are a person's otherwise cost nothing: the thumb, the
+  strafe's timing, the stick flat out); with this, 0.6 points (chance).
+  `HALO_BOT_HUMANOFF_T0` and `_T1` (a mask: 1 the look's easing, 2 the
+  thumb, 4 the strafe's timing, 8 the stick flat out) take a part away
+  from one team, for tests.
+  `HALO_BOT_OFF=master` gives the top levels the easing of the rest.
   In 40 games of team slayer at skill 10 (Hang 'Em High, Battle Creek,
   Damnation, Chill Out, Prisoner) with the limit on for one team, the
   score of that team did not change by more than chance.
