@@ -2258,7 +2258,15 @@ static long get_player_index_from_object_or_parents(
 			break;
 		}
 
-		object_index = object_get(object_index)->object.parent_object_index;
+		{
+			// the parent may be gone already (a projectile can outlive its owner)
+			struct object_datum *object = object_try_and_get(object_index);
+
+			if (!object)
+				break;
+
+			object_index = object->object.parent_object_index;
+		}
 	}
 
 	return player_index;
