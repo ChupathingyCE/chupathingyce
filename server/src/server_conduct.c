@@ -122,7 +122,7 @@ static void player_name(
 /* a message in a player's game: a Chupathingy game's moderation notice,
 else a line in their chat (an OpenCE game's, while it is bridged). Whether
 it was shown */
-static boolean tell(
+static boolean conduct_tell(
 	long machine_index,
 	char const *title,
 	char const *text)
@@ -186,7 +186,7 @@ static boolean kick(
 	{
 		snprintf(reason, sizeof(reason), "no input for %d minute%s", server_conduct.afk_minutes,
 			server_conduct.afk_minutes == 1 ? "" : "s");
-		tell(machine_index, "Kicked", "AFK: no input for too long");
+		conduct_tell(machine_index, "Kicked", "AFK: no input for too long");
 		if (!network_game_server_drop_machine(machine_index, _rejection_code_game_is_closed))
 			return FALSE;
 		server_audit("server", AFK_ACTOR, SERVER_ROLE_OWNER, "sv_kick", name, reason, TRUE, NULL);
@@ -202,7 +202,7 @@ static boolean kick(
 		/* (a second automatic kick within a day: a short ban, sv_ban's) */
 		if (repeat)
 		{
-			tell(machine_index, "Banned", "Too many betrayals, again: 30 minutes");
+			conduct_tell(machine_index, "Banned", "Too many betrayals, again: 30 minutes");
 			if (!network_game_server_drop_machine(machine_index, _rejection_code_blacklisted_machine))
 				return FALSE;
 			snprintf(ban_reason, sizeof(ban_reason), "banned by the %s for 30m: %s, the second kick in a day",
@@ -214,7 +214,7 @@ static boolean kick(
 		}
 		else
 		{
-			tell(machine_index, "Kicked", "Too many betrayals");
+			conduct_tell(machine_index, "Kicked", "Too many betrayals");
 			if (!network_game_server_drop_machine(machine_index, _rejection_code_game_is_closed))
 				return FALSE;
 			server_audit("server", BETRAYAL_ACTOR, SERVER_ROLE_OWNER, "sv_kick", name, reason, TRUE, NULL);
@@ -333,7 +333,7 @@ void server_conduct_update(
 				boolean shown;
 
 				player_name(player, name, sizeof(name));
-				shown = tell(machine_index, NULL, "Betrayals: one more and you are kicked");
+				shown = conduct_tell(machine_index, NULL, "Betrayals: one more and you are kicked");
 				snprintf(reason, sizeof(reason), "%d betrayals in a game (kicked at %d)",
 					server_conduct.slots[slot].betrayals, server_conduct.betrayal_limit);
 				server_audit("server", BETRAYAL_ACTOR, SERVER_ROLE_OWNER, "sv_warn", name, reason, TRUE,
@@ -379,7 +379,7 @@ void server_conduct_update(
 
 				server_conduct.slots[slot].afk_warned = TRUE;
 				player_name(player, name, sizeof(name));
-				shown = tell(machine_index, NULL, "AFK: move or you are kicked in 30 seconds");
+				shown = conduct_tell(machine_index, NULL, "AFK: move or you are kicked in 30 seconds");
 				server_audit("server", AFK_ACTOR, SERVER_ROLE_OWNER, "sv_warn", name, "no input", TRUE,
 					shown ? NULL : "their game cannot show it");
 				error(_error_silent, "dedicated: warned %s: no input", name);
