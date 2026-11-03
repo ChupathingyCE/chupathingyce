@@ -45,6 +45,23 @@ enum
 	CE_REJECT_BANNED = 6,
 };
 
+enum
+{
+	CE_EVENTS = 64,
+	/* a client asks to join (the game answers: ce_transport_accept or
+	ce_transport_refuse), has loaded the map, has gone */
+	CE_EVENT_JOIN = 1,
+	CE_EVENT_LOADED,
+	CE_EVENT_LEFT,
+};
+
+struct ce_event
+{
+	int peer;
+	int type;
+	char name[13];
+};
+
 /* what a client's join request carries */
 struct ce_join_request
 {
@@ -82,6 +99,22 @@ void ce_transport_update(unsigned int now_milliseconds);
 void ce_transport_stop(void);
 int ce_transport_peer_count(void);
 
+/* ---------- the game's side (any thread) */
+
+/* the next event: 1, else 0 */
+int ce_transport_next_event(struct ce_event *event);
+/* the join taken: its first payload (game settings and begin game) */
+void ce_transport_accept(int peer, const unsigned char *payload, int length);
+void ce_transport_refuse(int peer, int reason);
+/* a payload to a client in the game: 1 when sent */
+int ce_transport_send(int peer, const unsigned char *payload, int length, int reliable);
+/* the client's actions so far (struct ce_client_update, ce_messages.h):
+0 when it isn't in the game, else 1 + the updates it has sent */
+struct ce_client_update;
+int ce_transport_client_update(int peer, struct ce_client_update *update);
+/* the client told it's closed (a kick or the game leaving it) */
+void ce_transport_drop(int peer);
+
 /* ---------- the parts the tests use */
 
 /* a challenge meets the transport's rule (its characters' parities) */
@@ -111,7 +144,7 @@ int ce_payload_messages(const unsigned char *payload, int length,
 int ce_payload_from_message(const unsigned char *message, int message_length, unsigned char *out, int size);
 /* the server's first message (the challenge and the map's name): its
 length, or 0 */
-int ce_message_new_client_challenge(const char *challenge, const char *map, unsigned char *out, int size);
+int ce_message_new_client_challenge(const char *challenge, const char *map, int machine, unsigned char *out, int size);
 /* the join refused, with a reason (CE_REJECT_*): its length */
 int ce_message_machine_rejected(int reason, unsigned char *out, int size);
 /* a join request's message (type 14): 1 and its fields, else 0 */

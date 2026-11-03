@@ -213,10 +213,10 @@ static void put_orientation(struct ce_payload *payload, const struct ce_object_c
 	put_bits(payload, object->up[1], 20);
 }
 
-void ce_payload_put_player_add(struct ce_payload *payload, int player, unsigned int handle)
+void ce_payload_put_player_add(struct ce_payload *payload, int list_index, unsigned int handle, int player)
 {
 	put_delta_header(payload, CE_DELTA_PLAYER_ADD);
-	put_bits(payload, 0, 8);
+	put_bits(payload, (unsigned int)list_index, 8);
 	put_bits(payload, handle, 32);
 	put_bits(payload, (unsigned int)player, 5);
 	put_bits(payload, 0, 32);

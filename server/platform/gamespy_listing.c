@@ -672,14 +672,13 @@ static void *listing_thread(void *unused)
 	{
 		struct pollfd poll_socket;
 		time_t now = time(NULL);
-		int stop, changed;
+		int stop, changed, stop_joins;
 		int index;
 
 		pthread_mutex_lock(&listing_mutex);
 		stop = listing.stop;
 		changed = listing.changed;
-		if (joins && !listing.joins)
-			ce_transport_stop();
+		stop_joins = joins && !listing.joins;
 		joins = listing.joins;
 		if (listing.have_status)
 		{
@@ -695,6 +694,9 @@ static void *listing_thread(void *unused)
 			changed = 0;
 		pthread_mutex_unlock(&listing_mutex);
 
+		/* (outside the listing's lock: the transport's own lock may wait on it) */
+		if (stop_joins)
+			ce_transport_stop();
 		if (joins && have_status)
 		{
 			ce_transport_set_game(status.hostname, status.mapname, status.maxplayers);

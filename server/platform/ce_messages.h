@@ -179,8 +179,9 @@ void ce_payload_begin(struct ce_payload *payload, unsigned char *out, int size);
 void ce_payload_put_message(struct ce_payload *payload, const unsigned char *message, int length);
 /* the game settings delta, in full */
 void ce_payload_put_game_settings(struct ce_payload *payload, const struct ce_game_settings *settings);
-/* a player in the game: its index (5 bits) and its datum handle */
-void ce_payload_put_player_add(struct ce_payload *payload, int player, unsigned int handle);
+/* a player in the game: its slot in the game settings' players, its datum
+handle and its number on the wire (5 bits) */
+void ce_payload_put_player_add(struct ce_payload *payload, int list_index, unsigned int handle, int player);
 void ce_payload_put_weapon_create(struct ce_payload *payload, const struct ce_weapon_create *weapon);
 void ce_payload_put_biped_create(struct ce_payload *payload, const struct ce_biped_create *biped);
 void ce_payload_put_player_spawn(struct ce_payload *payload, const struct ce_player_spawn *spawn);

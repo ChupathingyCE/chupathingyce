@@ -139,6 +139,14 @@ boolean network_game_client_idle(
 boolean network_game_client_add_player(
 	struct network_game_client *client,
 	short local_player_index);
+/* port: a player of this machine's that no profile of its own names (the
+dedicated server's Custom Edition players: server/src/server_ce.c), asked
+for as network_game_client_add_player asks */
+boolean network_game_client_add_named_player(
+	struct network_game_client *client,
+	short local_player_index,
+	wchar_t const *name,
+	short primary_color_index);
 boolean network_game_client_address_matches_server(
 	struct network_game_client *client,
 	struct transport_address *address);

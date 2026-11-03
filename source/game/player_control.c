@@ -829,6 +829,21 @@ static void handle_one_player_input(
 		action.desired_zoom_level = player->zoom_level;
 		action.throttle = player->throttle;
 		action.primary_trigger = player->primary_trigger;
+#ifdef HALO_SERVER
+		/* port: a Custom Edition player's actions come from its client
+		(server/src/server_ce.c) */
+		{
+			boolean server_ce_local_action(short local_player_index, struct player_action *action);
+
+			if (server_ce_local_action(local_player_index, &action))
+			{
+				player->desired_angles = action.desired_facing;
+				player->control_flags = action.control_flags;
+				player->throttle = action.throttle;
+				player->primary_trigger = action.primary_trigger;
+			}
+		}
+#endif
 
 		match_assert_valid_real(
 			"c:\\halo\\SOURCE\\game\\player_control.c",
