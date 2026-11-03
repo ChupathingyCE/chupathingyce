@@ -32,6 +32,7 @@ enum
 	CE_DELTA_OBJECT_UPDATE = 5,
 	CE_DELTA_PLAYER_SPAWN = 8,
 	CE_DELTA_CLIENT_UPDATE = 13,
+	CE_DELTA_LOCAL_PLAYER_UPDATE = 35,
 	CE_DELTA_REMOTE_PLAYER_ACTIONS = 37,
 	CE_DELTA_REMOTE_PLAYER_POSITION = 39,
 	CE_DELTA_PLAYER_ADD = 7,
@@ -190,6 +191,11 @@ milliseconds, a flag) and its position, still, with its orientation */
 void ce_payload_put_object_update(struct ce_payload *payload, int object, unsigned int time, const float position[3],
 	const unsigned int forward[2], const unsigned int up[2]);
 void ce_payload_put_object_delete(struct ce_payload *payload, int object);
+/* a client's own player: the last of its updates the server took (6 bits),
+a sequence number (5 bits) and where its biped is (a client stops sending
+updates once 64 go untaken) */
+void ce_payload_put_local_player_update(struct ce_payload *payload, int sequence, int update_id,
+	const float position[3]);
 void ce_payload_put_remote_player_position(struct ce_payload *payload, int player, int update_id, int sequence,
 	const float position[3]);
 void ce_payload_put_remote_player_actions(struct ce_payload *payload, const struct ce_remote_actions *actions);

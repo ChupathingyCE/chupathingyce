@@ -801,13 +801,17 @@ static void client_challenge(const unsigned char *packet, int length, const stru
 
 	if (length < 7 + CE_CHALLENGE_SIZE)
 		return;
-	if (peer)
+	if (peer && peer->state == PEER_CHALLENGED)
 	{
 		/* (the client's challenge again: the same answer) */
-		if (peer->state == PEER_CHALLENGED && peer->handshake_length)
+		if (peer->handshake_length)
 			send_raw(peer, peer->handshake, peer->handshake_length);
 		return;
 	}
+	/* (a new connection from an address that had one: the client was
+	restarted without closing the old one, which is gone) */
+	if (peer)
+		forget(peer);
 	for (index = 0; index < CE_MAXIMUM_PEERS && transport.peers[index].state != PEER_FREE; index++)
 		;
 	if (index == CE_MAXIMUM_PEERS)
@@ -991,12 +995,23 @@ static int ce_transport_packet_locked(const unsigned char *packet, int length, c
 
 	if (length >= 3 && packet[0] == 0xfe && packet[1] == 0xfe)
 	{
-		/* (an unreliable payload that starts FE FE: not read yet) */
+		/* (an unreliable payload that starts FE FE, marked) */
 		if (length >= 4 && packet[2] == 0xfe && packet[3] == 0xfe)
 		{
 			peer = find_peer(from);
 			if (peer)
+			{
+				unsigned char payload[CE_PACKET_SIZE];
+				int payload_length;
+
 				peer->heard_time = now_milliseconds;
+				if (peer->state == PEER_ACCEPTED)
+				{
+					payload_length = ce_open(peer->key, packet + 2, length - 2, payload, sizeof(payload));
+					if (payload_length > 0)
+						peer->updates += ce_payload_read_client_updates(payload, payload_length, &peer->update);
+				}
+			}
 			return peer != NULL;
 		}
 		if (packet[2] == TYPE_CLIENT_CHALLENGE)

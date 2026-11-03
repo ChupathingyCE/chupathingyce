@@ -372,6 +372,15 @@ void ce_payload_put_object_delete(struct ce_payload *payload, int object)
 	put_bits(payload, (unsigned int)object, 9);
 }
 
+void ce_payload_put_local_player_update(struct ce_payload *payload, int sequence, int update_id,
+	const float position[3])
+{
+	put_delta_header(payload, CE_DELTA_LOCAL_PLAYER_UPDATE);
+	put_bits(payload, (unsigned int)sequence, 5);
+	put_bits(payload, (unsigned int)update_id, 6);
+	put_position(payload, position);
+}
+
 void ce_payload_put_remote_player_position(struct ce_payload *payload, int player, int update_id, int sequence,
 	const float position[3])
 {

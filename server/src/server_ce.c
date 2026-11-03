@@ -75,6 +75,8 @@ struct ce_client
 	long unit_sent[TRACKED_PLAYERS];
 	int update_id;
 	int sequence;
+	int local_sequence;
+	int updates_taken;
 };
 
 static struct
@@ -84,7 +86,10 @@ static struct
 	struct ce_client clients[CE_LOCAL_PLAYERS];
 	/* each wire number's object */
 	long objects[NETWORK_OBJECTS + 1];
-	unsigned long start_time;
+	/* joins waiting for a seat a leaving player still holds */
+	struct ce_event waiting[CE_LOCAL_PLAYERS];
+	unsigned long waiting_time[CE_LOCAL_PLAYERS];
+	int waiting_count;
 } ce;
 
 /* ---------- objects' wire numbers */
@@ -207,7 +212,8 @@ static struct ce_client *client_for_peer(
 	return NULL;
 }
 
-static void join(
+/* FALSE: no seat yet (one is still being given up) */
+static boolean join(
 	struct ce_event const *event)
 {
 	static const unsigned char begin_game[] = { 1, 0, 0, 0, 0, CE_MESSAGE_BEGIN_GAME };
@@ -225,15 +231,24 @@ static void join(
 		/* (between games: the lobby takes them later) */
 		ce_transport_refuse(event->peer, CE_REJECT_FULL);
 		error(_error_silent, "ce: a Custom Edition player was turned away: no game in progress");
-		return;
+		return TRUE;
 	}
-	for (index = 0; index < CE_LOCAL_PLAYERS && ce.clients[index].active; index++)
-		;
-	if (index == CE_LOCAL_PLAYERS || local_player_get_player_index(index) != NONE)
+	for (index = 0; index < CE_LOCAL_PLAYERS; index++)
 	{
+		if (!ce.clients[index].active && local_player_get_player_index(index) == NONE)
+			break;
+	}
+	if (index == CE_LOCAL_PLAYERS)
+	{
+		boolean leaving = FALSE;
+
+		for (index = 0; index < CE_LOCAL_PLAYERS; index++)
+			leaving |= !ce.clients[index].active;
+		if (leaving)
+			return FALSE;
 		ce_transport_refuse(event->peer, CE_REJECT_FULL);
 		error(_error_silent, "ce: a Custom Edition player was turned away: no seat");
-		return;
+		return TRUE;
 	}
 	{
 		int character;
@@ -254,7 +269,7 @@ static void join(
 	{
 		ce_transport_refuse(event->peer, CE_REJECT_UNKNOWN);
 		error(_error_silent, "ce: a Custom Edition player was turned away: the game did not add them");
-		return;
+		return TRUE;
 	}
 	csmemset(&ce.clients[index], 0, sizeof(ce.clients[index]));
 	ce.clients[index].active = TRUE;
@@ -276,6 +291,7 @@ static void join(
 	length = ce_payload_end(&payload);
 	ce_transport_accept(event->peer, out, length);
 	error(_error_silent, "ce: Custom Edition player \"%s\" joins as local player %d", event->name, index);
+	return TRUE;
 }
 
 static void leave(
@@ -444,6 +460,27 @@ static void update_client(
 			if (player->unit_index != NONE)
 				send_unit(client, player_index, player->unit_index);
 		}
+		if (player_index == own_player && player->unit_index != NONE)
+		{
+			struct ce_client_update update;
+			int updates = ce_transport_client_update(client->peer, &update);
+
+			/* (its updates taken, so it keeps sending them, and where its
+			biped is) */
+			if (updates > 1 && updates != client->updates_taken)
+			{
+				struct unit_datum *unit = unit_get(player->unit_index);
+				float position[3];
+
+				client->updates_taken = updates;
+				position[0] = unit->object.position.x;
+				position[1] = unit->object.position.y;
+				position[2] = unit->object.position.z;
+				ce_payload_put_local_player_update(&payload, client->local_sequence, update.update_id, position);
+				client->local_sequence = (client->local_sequence + 1) & 31;
+				any = TRUE;
+			}
+		}
 		if (player_index != own_player && player->unit_index != NONE)
 		{
 			struct unit_datum *unit = unit_get(player->unit_index);
@@ -508,7 +545,12 @@ void server_ce_update(
 		switch (event.type)
 		{
 		case CE_EVENT_JOIN:
-			join(&event);
+			if (!join(&event) && ce.waiting_count < CE_LOCAL_PLAYERS)
+			{
+				ce.waiting[ce.waiting_count] = event;
+				ce.waiting_time[ce.waiting_count] = system_milliseconds();
+				ce.waiting_count++;
+			}
 			break;
 		case CE_EVENT_LOADED:
 			if (client)
@@ -517,6 +559,17 @@ void server_ce_update(
 		case CE_EVENT_LEFT:
 			leave(event.peer);
 			break;
+		}
+	}
+	/* (joins waiting for a seat: tried again, for up to 8 seconds) */
+	for (index = 0; index < ce.waiting_count; index++)
+	{
+		if (join(&ce.waiting[index]) || system_milliseconds() - ce.waiting_time[index] > 8000)
+		{
+			ce.waiting[index] = ce.waiting[ce.waiting_count - 1];
+			ce.waiting_time[index] = ce.waiting_time[ce.waiting_count - 1];
+			ce.waiting_count--;
+			index--;
 		}
 	}
 	dedicated_server_get_status(&status);
