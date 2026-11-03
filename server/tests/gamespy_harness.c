@@ -8,9 +8,13 @@ the masters the last heartbeat). Its notices go to standard output.
 
   gamespy_harness <port> <masters> <gamever> <players> [joins]
   gamespy_harness map <map>     (the map's name as Custom Edition has it)
+  gamespy_harness keepalive     (the server's keep-alive payload, as hex)
+  gamespy_harness settings      (a game settings payload, as hex: the one
+                                 our capture of Custom Edition's server has)
 */
 
 #include "../platform/gamespy_listing.h"
+#include "../platform/ce_messages.h"
 
 #include <poll.h>
 #include <stdio.h>
@@ -32,6 +36,49 @@ int main(int argc, char **argv)
 
 		gamespy_map_name(argv[2], name, sizeof(name));
 		printf("%s\n", name);
+		return 0;
+	}
+	if (argc == 2 && !strcmp(argv[1], "keepalive"))
+	{
+		struct ce_payload payload;
+		unsigned char out[32];
+		int length;
+
+		ce_payload_begin(&payload, out, sizeof(out));
+		ce_payload_put_server_keep_alive(&payload, 0, 0);
+		length = ce_payload_end(&payload);
+		for (index = 0; index < length; index++)
+			printf("%02x", out[index]);
+		printf("\n");
+		return 0;
+	}
+	if (argc == 2 && !strcmp(argv[1], "settings"))
+	{
+		static const unsigned char begin_game[] = { 1, 0, 0, 0, 0, CE_MESSAGE_BEGIN_GAME };
+		struct ce_game_settings settings;
+		struct ce_payload payload;
+		unsigned char out[1400];
+		int length;
+
+		ce_game_settings_slayer(&settings);
+		snprintf(settings.name, sizeof(settings.name), "hcetest");
+		snprintf(settings.map, sizeof(settings.map), "bloodgulch");
+		settings.maximum_players = 4;
+		settings.player_count = 1;
+		settings.random_seed = 51721;
+		snprintf(settings.players[0].name, sizeof(settings.players[0].name), "Noodle");
+		settings.players[0].color = 0;
+		settings.players[0].machine = 0;
+		settings.players[0].controller = 0;
+		settings.players[0].team = 0;
+		settings.players[0].list_index = 0;
+		ce_payload_begin(&payload, out, sizeof(out));
+		ce_payload_put_game_settings(&payload, &settings);
+		ce_payload_put_message(&payload, begin_game, sizeof(begin_game));
+		length = ce_payload_end(&payload);
+		for (index = 0; index < length; index++)
+			printf("%02x", out[index]);
+		printf("\n");
 		return 0;
 	}
 	if (argc != 5 && !(argc == 6 && !strcmp(argv[5], "joins")))

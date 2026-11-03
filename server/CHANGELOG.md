@@ -27,7 +27,10 @@ release notes.
   answers a Custom Edition client's connection (its handshake, key
   agreement and enciphered messages), names the map, reads the join request
   and refuses it cleanly with Custom Edition's "Unable to join the game
-  server!" instead of a timeout. Playing comes in later steps.
+  server!" instead of a timeout. Playing comes in later steps. For
+  development, `HALO_DEDICATED_CE_ACCEPT=1` takes the join instead: game
+  settings, begin game and keep-alives, so the client loads the map and
+  stays connected (it doesn't see the game yet).
 - Control panel hardening: `sv_welcome` needs the settings permission (an
   admin's) and is in the audit file; a command missing from the permission
   table is the console's alone. Wrong logins lock an account only for the

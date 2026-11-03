@@ -67,8 +67,12 @@ typedef void (*ce_send_function)(void *context, const void *address, const unsig
 typedef void (*ce_notice_function)(const char *format, const char *a);
 
 void ce_transport_start(ce_send_function send, void *context, ce_notice_function notice);
-/* the map the server plays, as Custom Edition names it (gamespy_map_name) */
-void ce_transport_set_map(const char *map);
+/* the server's name, the map it plays, as Custom Edition names it
+(gamespy_map_name), and its most players */
+void ce_transport_set_game(const char *name, const char *map, int maximum_players);
+/* 1: a join is taken (game settings and begin game) instead of refused.
+Only for testing until Custom Edition players can play: off by default */
+void ce_transport_set_accept(int accept);
 /* a packet from address (a struct sockaddr_in): 1 when it is Custom
 Edition's join wire (handled), else 0 (the listing's to answer) */
 int ce_transport_packet(const unsigned char *packet, int length, const void *address, unsigned int now_milliseconds);

@@ -221,6 +221,32 @@ def test_cipher_matches_capture():
     assert seal(key, plain) == sealed
 
 
+# (our capture of Custom Edition 1.0.10's server answering a join: the game
+# settings delta, a test server's, then begin game)
+CAPTURED_SETTINGS = (
+    "54293ca0018c019401d0019401cc01d001000000002888b1bdbd919dd5b18da1992900368030803c8032003900010000"
+    "00000000030100000000000000000000000000005802000000000000000000fe64000000000000000049920000499200"
+    "201c00000400000000006504000808000000000000000000000000000000000000000000000000000000000000000000"
+    "000000000000000000000000000000000000000000084010001000604e006f006f0064006c0065000000ffff00000000"
+    "f0ffffffffffffff0ffffffffffffffffff0ffffffffffffff0ffffffffffffffffff0ffffffffffffff0fffffffffff"
+    "fffffff0ffffffffffffff0ffffffffffffffffff0ffffffffffffff0ffffffffffffffffff0ffffffffffffff0fffff"
+    "fffffffffffff0ffffffffffffff0ffffffffffffffffff0ffffffffffffff9fa00c0010000000100000008011200000"
+    "00004001")
+
+
+def test_game_settings_match_capture(harness):  # noqa: F811
+    import subprocess
+    out = subprocess.run([str(harness), "settings"], capture_output=True, text=True, check=True).stdout.strip()
+    assert out == CAPTURED_SETTINGS
+
+
+def test_keep_alive_matches_capture(harness):  # noqa: F811
+    import subprocess
+    out = subprocess.run([str(harness), "keepalive"], capture_output=True, text=True, check=True).stdout.strip()
+    # (the first keep-alive Custom Edition 1.0.10's server sent after a join)
+    assert out == "08a8060000000000"
+
+
 def test_response_matches_capture():
     # (a challenge and the answer Custom Edition 1.0.10's server gave to it)
     challenge = b".BUH5(RlWH%I[|W<+WS0KtIF]t%O7D{d"

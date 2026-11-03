@@ -43,6 +43,7 @@ Nothing here logs an address.
 */
 
 #include "ce_transport.h"
+#include "ce_messages.h"
 
 #include <netinet/in.h>
 #include <stdio.h>
@@ -72,6 +73,8 @@ enum
 	MODULUS = 65537,
 	GENERATOR = 3,
 
+	/* the server's keep-alive to a client in the game */
+	KEEP_ALIVE_MILLISECONDS = 3000,
 	/* reliable messages not yet acknowledged, at most, and their resends */
 	OUTGOING = 8,
 	RESEND_MILLISECONDS = 1000,
@@ -90,6 +93,8 @@ enum
 	PEER_CONNECTED,
 	/* the join refused: closed once acknowledged */
 	PEER_REFUSED,
+	/* the join accepted (only while testing: ce_transport_set_accept) */
+	PEER_ACCEPTED,
 };
 
 static const char transport_key[] = "3b8dd8995f7c40a9a5c5b7dd5b481341";
@@ -123,6 +128,8 @@ struct peer
 	struct outgoing outgoing[OUTGOING];
 	int joined;
 	int precached;
+	int loaded;
+	unsigned int keep_alive_time;
 	struct ce_join_request request;
 };
 
@@ -132,6 +139,9 @@ static struct
 	void *context;
 	ce_notice_function notice;
 	char map[CE_TEXT_SIZE];
+	char name[CE_TEXT_SIZE];
+	int maximum_players;
+	int accept;
 	unsigned int random;
 	struct peer peers[CE_MAXIMUM_PEERS];
 } transport;
@@ -592,12 +602,11 @@ static void send_control(struct peer *peer, int type)
 		send_raw(peer, packet, 3);
 }
 
-/* a game message, reliably */
-static int send_message(struct peer *peer, const unsigned char *message, int length, unsigned int now)
+/* a payload, reliably */
+static int send_payload(struct peer *peer, const unsigned char *payload, int payload_length, unsigned int now)
 {
-	unsigned char payload[CE_PACKET_SIZE];
 	struct outgoing *slot = NULL;
-	int payload_length, sealed, index;
+	int sealed, index;
 
 	for (index = 0; index < OUTGOING; index++)
 	{
@@ -607,8 +616,7 @@ static int send_message(struct peer *peer, const unsigned char *message, int len
 			break;
 		}
 	}
-	payload_length = ce_payload_from_message(message, length, payload, sizeof(payload));
-	if (!slot || !payload_length)
+	if (!slot || payload_length <= 0)
 		return 0;
 	sealed = ce_seal(peer->key, payload, payload_length, slot->packet + 7, CE_PACKET_SIZE);
 	if (!sealed)
@@ -625,6 +633,47 @@ static int send_message(struct peer *peer, const unsigned char *message, int len
 	peer->out_sequence = (peer->out_sequence + 1) & 0xffff;
 	send_raw(peer, slot->packet, slot->length);
 	return 1;
+}
+
+/* a payload, unreliably */
+static void send_unreliable(struct peer *peer, const unsigned char *payload, int payload_length)
+{
+	unsigned char packet[CE_PACKET_SIZE + 16];
+	int sealed;
+
+	if (payload_length <= 0)
+		return;
+	sealed = ce_seal(peer->key, payload, payload_length, packet + 2, CE_PACKET_SIZE);
+	if (!sealed)
+		return;
+	/* (one that would start FE FE is marked with FE FE first) */
+	if (packet[2] == 0xfe && packet[3] == 0xfe)
+	{
+		packet[0] = 0xfe;
+		packet[1] = 0xfe;
+		send_raw(peer, packet, sealed + 2);
+	}
+	else
+		send_raw(peer, packet + 2, sealed);
+}
+
+static void send_keep_alive(struct peer *peer, unsigned int now)
+{
+	unsigned char out[32];
+	struct ce_payload payload;
+
+	peer->keep_alive_time = now;
+	ce_payload_begin(&payload, out, sizeof(out));
+	ce_payload_put_server_keep_alive(&payload, 0, 0);
+	send_unreliable(peer, out, ce_payload_end(&payload));
+}
+
+/* a game message, reliably */
+static int send_message(struct peer *peer, const unsigned char *message, int length, unsigned int now)
+{
+	unsigned char payload[CE_PACKET_SIZE];
+
+	return send_payload(peer, payload, ce_payload_from_message(message, length, payload, sizeof(payload)), now);
 }
 
 static void forget(struct peer *peer)
@@ -669,6 +718,47 @@ static void refuse(struct peer *peer, int reason, unsigned int now)
 	peer->refused_time = now;
 }
 
+/* the game settings (the server's game, its Custom Edition players) and
+begin game: Custom Edition's own answer to a join it takes */
+static void accept_join(struct peer *joining, unsigned int now)
+{
+	static const unsigned char begin_game[] = { 1, 0, 0, 0, 0, CE_MESSAGE_BEGIN_GAME };
+	struct ce_game_settings settings;
+	struct ce_payload payload;
+	unsigned char out[CE_PACKET_SIZE];
+	int index, length;
+
+	joining->state = PEER_ACCEPTED;
+	ce_game_settings_slayer(&settings);
+	snprintf(settings.name, sizeof(settings.name), "%s", transport.name);
+	snprintf(settings.map, sizeof(settings.map), "%s", transport.map);
+	settings.maximum_players = transport.maximum_players > 0 && transport.maximum_players < CE_GAME_PLAYERS ?
+		transport.maximum_players : CE_GAME_PLAYERS;
+	settings.random_seed = next_random();
+	for (index = 0; index < CE_MAXIMUM_PEERS; index++)
+	{
+		struct peer *peer = &transport.peers[index];
+		struct ce_network_player *player;
+
+		if (peer->state != PEER_ACCEPTED)
+			continue;
+		player = &settings.players[settings.player_count];
+		snprintf(player->name, sizeof(player->name), "%s", peer->request.name[0] ? peer->request.name : "Player");
+		player->color = 0;
+		player->machine = index;
+		player->controller = 0;
+		player->team = 0;
+		player->list_index = settings.player_count;
+		settings.player_count++;
+	}
+	ce_payload_begin(&payload, out, sizeof(out));
+	ce_payload_put_game_settings(&payload, &settings);
+	ce_payload_put_message(&payload, begin_game, sizeof(begin_game));
+	length = ce_payload_end(&payload);
+	send_payload(joining, out, length, now);
+	say("ce: the join was accepted for testing: game settings and begin game sent%s", "");
+}
+
 static void message_received(void *context, const unsigned char *message, int length)
 {
 	struct peer *peer = context;
@@ -691,6 +781,11 @@ static void message_received(void *context, const unsigned char *message, int le
 	else if (type == MESSAGE_MAP_IS_PRECACHED)
 	{
 		peer->precached = 1;
+	}
+	else if (type == CE_MESSAGE_CLIENT_LOADED && !peer->loaded)
+	{
+		peer->loaded = 1;
+		say("ce: a Custom Edition player loaded the map%s", "");
 	}
 }
 
@@ -826,11 +921,19 @@ static void reliable_data(struct peer *peer, const unsigned char *packet, int le
 	if (payload_length < 0)
 		return;
 	peer->in_sequence = (peer->in_sequence + 1) & 0xffff;
+	if (peer->state == PEER_ACCEPTED)
+		ce_payload_messages(payload, payload_length, message_received, peer);
 	if (peer->state == PEER_CONNECTED)
 	{
 		ce_payload_messages(payload, payload_length, message_received, peer);
 		/* (the server answers the join request itself: a client asked for a
 		map that isn't one of its stock maps tells nothing more until then) */
+		if (peer->joined && transport.accept)
+		{
+			accept_join(peer, now);
+			send_control(peer, TYPE_ACK);
+			return;
+		}
 		if (peer->joined)
 		{
 			char reason[16];
@@ -857,9 +960,16 @@ void ce_transport_start(ce_send_function send, void *context, ce_notice_function
 	next_random();
 }
 
-void ce_transport_set_map(const char *map)
+void ce_transport_set_game(const char *name, const char *map, int maximum_players)
 {
+	snprintf(transport.name, sizeof(transport.name), "%s", name ? name : "");
 	snprintf(transport.map, sizeof(transport.map), "%s", map ? map : "");
+	transport.maximum_players = maximum_players;
+}
+
+void ce_transport_set_accept(int accept)
+{
+	transport.accept = accept ? 1 : 0;
 }
 
 int ce_transport_packet(const unsigned char *packet, int length, const void *address, unsigned int now_milliseconds)
@@ -934,6 +1044,8 @@ void ce_transport_update(unsigned int now_milliseconds)
 			forget(peer);
 			continue;
 		}
+		if (peer->state == PEER_ACCEPTED && now_milliseconds - peer->keep_alive_time >= KEEP_ALIVE_MILLISECONDS)
+			send_keep_alive(peer, now_milliseconds);
 		for (slot = 0; slot < OUTGOING; slot++)
 		{
 			struct outgoing *outgoing = &peer->outgoing[slot];

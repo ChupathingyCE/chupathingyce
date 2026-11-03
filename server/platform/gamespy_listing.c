@@ -662,6 +662,12 @@ static void *listing_thread(void *unused)
 
 	(void)unused;
 	ce_transport_start(send_to_peer, NULL, notice);
+	/* (testing only, until Custom Edition players can play: joins taken) */
+	{
+		const char *accept = getenv("HALO_DEDICATED_CE_ACCEPT");
+
+		ce_transport_set_accept(accept && !strcmp(accept, "1"));
+	}
 	for (;;)
 	{
 		struct pollfd poll_socket;
@@ -691,7 +697,7 @@ static void *listing_thread(void *unused)
 
 		if (joins && have_status)
 		{
-			ce_transport_set_map(status.mapname);
+			ce_transport_set_game(status.hostname, status.mapname, status.maxplayers);
 			ce_transport_update(milliseconds_now());
 		}
 		if (stop)

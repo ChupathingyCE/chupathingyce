@@ -157,6 +157,11 @@ the join: the player gets Custom Edition's own "Unable to join the game
 server!" message, not a timeout. Playing in the game comes later. At most 16 Custom
 Edition clients are handled at once.
 
+For development only, `HALO_DEDICATED_CE_ACCEPT=1` takes the join instead:
+the client gets the game settings (Custom Edition's own free-for-all Slayer
+with the server's name and map) and is told the game has begun. The game
+itself does not reach it yet, so leave this off on a real server.
+
 ## Folders
 
 | Variable | Default | What it does |
