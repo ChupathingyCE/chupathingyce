@@ -33,6 +33,7 @@ the body. --parse runs the response parser's own checks instead.
 #include <sys/select.h>
 #include <sys/socket.h>
 #include <sys/time.h>
+#include <time.h>
 #include <unistd.h>
 
 static unsigned short server_port;
@@ -185,10 +186,19 @@ static void test_log(const char *text)
 	fprintf(stderr, "%s\n", text);
 }
 
+/* (--clock: the console's clock reads this: seconds, or "now" (the host's),
+"build" (the build's day) or "behind" (the day before it)) */
+static long long clock_seconds;
+
+static long long test_clock(void)
+{
+	return clock_seconds;
+}
+
 static struct console_https_port test_port =
 {
 	test_connect, test_send, test_receive, test_close, test_random, now_ms, NULL, NULL, test_log, "Warthog/1 (test)",
-	test_plain_get, NULL,
+	test_plain_get, NULL, NULL,
 };
 
 static int hex_digit(char c)
@@ -300,6 +310,15 @@ int main(int argc, char **argv)
 			live = 1;
 		else if (!strcmp(argv[index], "--no-port"))
 			port_given = 0;
+		else if (!strcmp(argv[index], "--clock") && index + 1 < argc)
+		{
+			const char *value = argv[++index];
+
+			clock_seconds = !strcmp(value, "now") ? (long long)time(NULL) :
+				!strcmp(value, "build") ? console_https_build_seconds() :
+				!strcmp(value, "behind") ? console_https_build_seconds() - 86400 : atoll(value);
+			test_port.unix_seconds = test_clock;
+		}
 		else
 			return 2;
 	}
