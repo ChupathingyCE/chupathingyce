@@ -590,3 +590,42 @@ int network_rules_settings_options_size(unsigned version, unsigned total_size)
 	return total_size == NETWORK_RULES_SETTINGS_EXTENDED_SIZE ? NETWORK_RULES_OPTIONS_EXTENDED_SIZE :
 		NETWORK_RULES_OPTIONS_SIZE;
 }
+
+void network_rules_lobby_budget_reset(struct network_rules_lobby_budget *budget)
+{
+	memset(budget, 0, sizeof(*budget));
+}
+
+int network_rules_lobby_budget_take(struct network_rules_lobby_budget *budget, uint32_t now)
+{
+	const uint32_t full = NETWORK_RULES_LOBBY_BURST * 1000u;
+
+	if (!budget->started)
+	{
+		budget->started = 1;
+		budget->tokens = full;
+	}
+	else
+	{
+		/* (the time since, wrapping; a clock that went back adds none) */
+		uint32_t elapsed = now - budget->time;
+
+		if (elapsed > 0x7FFFFFFFu)
+			elapsed = 0;
+		/* (elapsed milliseconds at NETWORK_RULES_LOBBY_PER_SECOND a second
+		are that many thousandths each) */
+		if (elapsed >= full / NETWORK_RULES_LOBBY_PER_SECOND)
+			budget->tokens = full;
+		else
+		{
+			budget->tokens += elapsed * NETWORK_RULES_LOBBY_PER_SECOND;
+			if (budget->tokens > full)
+				budget->tokens = full;
+		}
+	}
+	budget->time = now;
+	if (budget->tokens < 1000u)
+		return 0;
+	budget->tokens -= 1000u;
+	return 1;
+}

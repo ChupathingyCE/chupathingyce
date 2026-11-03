@@ -831,6 +831,8 @@ static boolean network_game_server_countdown_slowed[MAXIMUM_NETWORK_MACHINE_COUN
 
 /* port/linux/game/network_distributed.c's (the host's bans: bans.txt) */
 boolean network_distributed_banned(unsigned long address, char const *hardware_id);
+/* (its budget for a client machine's lobby messages, full again) */
+void network_distributed_lobby_budget_reset(long machine_index);
 void network_distributed_ban(long machine_index, unsigned long address, char const *names);
 void network_distributed_ban_until(long machine_index, unsigned long address, char const *names, char const *reason,
 	unsigned long until);
@@ -2257,6 +2259,7 @@ boolean network_game_server_accept_client_machine_into_game(
 				network_game_server_client_machine_addresses[machine_index] = address.address.long_words[0];
 				network_game_server_client_machine_datagram_ports[machine_index] = 0;
 				network_game_server_client_machine_join_times[machine_index] = system_milliseconds();
+				network_distributed_lobby_budget_reset(machine_index);
 			}
 			else
 			{
@@ -2295,6 +2298,8 @@ boolean network_game_server_switch_machine_from_postgame_to_pregame(
 		"machine #%d has successfully switched to pregame",
 		machine->machine_index);
 	SET_FLAG(machine->flags, _network_client_machine_level_loaded_bit, FALSE);
+	/* port: a new lobby, a new budget for its lobby messages */
+	network_distributed_lobby_budget_reset(machine->machine_index);
 
 	return TRUE;
 }
