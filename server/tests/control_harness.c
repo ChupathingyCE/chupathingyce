@@ -97,6 +97,28 @@ static const char *answer(const char *line, int json)
 	}
 	if (json && !strcmp(line, "sv_maps"))
 		return "{\"maps\": [\"bloodgulch\", \"prisoner\"], \"game_types\": [\"slayer\", \"ctf\"]}";
+	/* (the first-run setup's form reads these two) */
+	if (json && !strcmp(line, "sv_settings"))
+	{
+		return "{\"file\": \"server_settings.txt\", \"file_problem\": null, \"settings\": [{\"key\": \"name\", "
+			"\"kind\": \"text\", \"minimum\": 0, \"maximum\": 15, \"label\": \"Server name\", \"value\": \"Dedicated\", "
+			"\"saved\": null, \"environment_variable\": \"HALO_DEDICATED_NAME\", \"environment\": null, \"source\": "
+			"\"default\", \"applies\": \"now\"}, {\"key\": \"maximum_players\", \"kind\": \"number\", \"minimum\": 1, "
+			"\"maximum\": 16, \"label\": \"Most players\", \"value\": \"16\", \"saved\": null, \"environment_variable\": "
+			"\"HALO_DEDICATED_MAXIMUM_PLAYERS\", \"environment\": null, \"source\": \"default\", \"applies\": \"lobby\"}, "
+			"{\"key\": \"public\", \"kind\": \"boolean\", \"minimum\": 0, \"maximum\": 1, \"label\": \"Listed\", "
+			"\"value\": \"true\", \"saved\": null, \"environment_variable\": \"HALO_DEDICATED_PUBLIC\", \"environment\": "
+			"null, \"source\": \"default\", \"applies\": \"restart\"}]}";
+	}
+	if (json && !strcmp(line, "sv_playlists"))
+	{
+		return "{\"playlists\": [{\"name\": \"free_for_all\", \"path\": \"playlists/free_for_all.txt\", \"entries\": 8, "
+			"\"editable\": false, \"shipped\": true, \"active\": true, \"next\": false}, {\"name\": \"team_slayer\", "
+			"\"path\": \"playlists/team_slayer.txt\", \"entries\": 6, \"editable\": false, \"shipped\": true, "
+			"\"active\": false, \"next\": false}, {\"name\": \"big_maps\", \"path\": \"playlists/big_maps.txt\", "
+			"\"entries\": 5, \"editable\": false, \"shipped\": true, \"active\": false, \"next\": false}], \"active\": "
+			"\"playlists/free_for_all.txt\", \"next\": null, \"folder\": \"playlists\"}";
+	}
 	snprintf(output, sizeof(output), "ran %s\n", line);
 	return output;
 }

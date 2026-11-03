@@ -6,6 +6,15 @@ release notes.
 
 ## Unreleased
 
+- First-run setup in the control panel. A server started with the panel on
+  (`HALO_DEDICATED_CONTROL`) and no playlist no longer exits: it waits
+  until its owner makes their account and picks a name, most players, a
+  playlist and Server Browser listing in the browser, then hosts and offers
+  to link the server to a Chupathingy account. The one-time setup code is
+  also written to `control_setup_code.txt` in the data folder (owner-only,
+  deleted once the account is made), for servers whose console nobody sees.
+  Servers started with `HALO_DEDICATED`, or with an owner already, start as
+  before.
 - Map names as Halo PC takes them: commas, brackets, spaces and the rest a
   Windows file name can have (`bigassv2,104@ce`, `[h3]_sandtrap@ce`), in
   `sv_map`, `sv_maps` and playlists. A name with a space goes in double
