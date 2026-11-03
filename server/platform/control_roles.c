@@ -172,6 +172,7 @@ static const struct command_permission command_permissions[] =
 	{ "sv_account_remove", CONTROL_PERMISSION_CONSOLE, 1, 0 },
 	{ "sv_account_reset", CONTROL_PERMISSION_CONSOLE, 1, 0 },
 	{ "sv_account_setup", CONTROL_PERMISSION_CONSOLE, 1, 0 },
+	{ "sv_setup_start", CONTROL_PERMISSION_CONSOLE, 1, 0 },
 };
 
 unsigned int control_command_permission(const char *line, int *changes)

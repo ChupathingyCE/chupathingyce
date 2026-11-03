@@ -79,6 +79,11 @@ played instead of HALO_DEDICATED's until HALO_DEDICATED is changed.
 #include "command_line.h"
 #include "server_admin.h"
 #include "server_config.h"
+#ifdef HALO_SERVER
+/* (the server program's control unit, built with the host's ABI: plain
+types only) */
+#include "../platform/server_control.h"
+#endif
 #ifdef HALO_GAME_BROWSER
 /* (text chat's, port/linux/game/chat.h) */
 void chat_host_set(int mode, int filter);
@@ -187,6 +192,8 @@ static struct
 	wchar_t name[16];
 	/* listed in the server browser (HALO_DEDICATED_PUBLIC) */
 	boolean public_game;
+	/* (the first-run setup held the server from hosting) */
+	boolean setup_waited;
 	/* blocked names kicked (sv_name_filter: server_commands.c) */
 	boolean name_filter;
 	/* the carnage report's seconds; and the lobby skipped after it when
@@ -904,6 +911,29 @@ void dedicated_server_update(
 		{
 			return;
 		}
+#ifdef HALO_SERVER
+		/* (a server started for the control panel's first-run setup hosts
+		once its owner has finished it, listed as the setup chose) */
+		if (server_control_setup_waiting())
+		{
+			dedicated.setup_waited = TRUE;
+			return;
+		}
+		if (dedicated.setup_waited)
+		{
+			char const *public_game = getenv("HALO_DEDICATED_PUBLIC");
+			static struct server_settings settings;
+
+			dedicated.setup_waited = FALSE;
+			if ((!public_game || !public_game[0]) && server_admin_read_settings(&settings) &&
+				settings.set[SERVER_SETTING_PUBLIC])
+			{
+				dedicated.public_game = settings.values[SERVER_SETTING_PUBLIC] ? TRUE : FALSE;
+			}
+			error(_error_silent, "dedicated: the first-run setup is finished: hosting %s game",
+				dedicated.public_game ? "a public" : "an unlisted");
+		}
+#endif
 		dedicated.tried = TRUE;
 		dedicated.tried_time = system_milliseconds();
 		host();

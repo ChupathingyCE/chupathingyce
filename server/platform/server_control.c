@@ -165,6 +165,9 @@ enum
 
 #define CREDENTIALS_FILE "control_credentials.txt"
 #define ACCOUNTS_FILE "control_accounts.txt"
+/* the setup code, for an owner who cannot see the console (a container's
+volume, a service): written while there is no owner, deleted once there is */
+#define SETUP_CODE_FILE "control_setup_code.txt"
 #define AUDIT_FILE "control_audit.log"
 
 /* ---------- structures */
@@ -289,6 +292,11 @@ static struct
 	int setup_active;
 	uint8_t setup_hash[32];
 	int64_t setup_expires;
+	/* the server started without a playlist for this setup
+	(server_control_setup_mode), and whether it still waits to host: until
+	the first owner finishes it (POST /v1/setup/start, sv_setup_start) */
+	int setup_mode;
+	int setup_waiting;
 	/* each account's bind request (server_roles.h), 0 none */
 	unsigned int bind_request[MAXIMUM_ACCOUNTS];
 } panel;
@@ -631,6 +639,30 @@ static int owner_count(void)
 	return count;
 }
 
+/* whether the first-run setup holds the server from hosting (read by the
+main thread too) */
+static int setup_waiting(void)
+{
+	return __atomic_load_n(&panel.setup_waiting, __ATOMIC_ACQUIRE);
+}
+
+static void set_setup_waiting(int waiting)
+{
+	__atomic_store_n(&panel.setup_waiting, waiting, __ATOMIC_RELEASE);
+}
+
+/* the first-run setup finished: the server hosts from now (1), or it was
+not waiting (0) */
+static int finish_setup(const char *source, const char *name, int role)
+{
+	if (!setup_waiting())
+		return 0;
+	set_setup_waiting(0);
+	notice("first-run setup finished (%s): the server starts hosting", source);
+	server_audit(source, name, role, "setup start", NULL, NULL, 1, NULL);
+	return 1;
+}
+
 static int account_named(const char *name)
 {
 	int index;
@@ -783,8 +815,49 @@ static int write_accounts(char *problem, size_t problem_size)
 	return 1;
 }
 
+static void setup_code_path(char *path, size_t size)
+{
+	const char *root = platform_data_root();
+
+	snprintf(path, size, "%s/%s", root && root[0] ? root : ".", SETUP_CODE_FILE);
+}
+
+/* the setup code's file deleted (there is an owner, or a new code) */
+static void forget_setup_code_file(void)
+{
+	char path[1024];
+
+	setup_code_path(path, sizeof(path));
+	unlink(path);
+}
+
+/* the setup code written to its file (only its owner may read it): for an
+owner who cannot see the console */
+static void write_setup_code_file(const char *code)
+{
+	char path[1024];
+	char text[1024];
+	int length;
+	int fd;
+
+	setup_code_path(path, sizeof(path));
+	forget_setup_code_file();
+	length = snprintf(text, sizeof(text),
+		"# The one-time code that makes the owner's account on this server's control panel.\n"
+		"# Open the panel, enter the code, and choose a name and a password.\n"
+		"# The server deletes this file once the account is made.\n"
+		"%s\n"
+		"%s://%s/#setup=%s\n", code, control.tls ? "https" : "http", control.listen_setting, code);
+	fd = open(path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
+	if (fd < 0 || length <= 0 || (size_t)length >= sizeof(text) || write(fd, text, (size_t)length) != length)
+		notice("cannot write %s in the data folder: the setup code is on the console only", SETUP_CODE_FILE);
+	if (fd >= 0)
+		close(fd);
+	crypto_wipe(text, sizeof(text));
+}
+
 /* the first owner's setup code: a new one made (and printed, on the
-console alone) while there is no owner */
+console alone, and in its file) while there is no owner */
 static void make_setup_code(void)
 {
 	uint8_t bytes[CONTROL_CODE_BYTES];
@@ -811,8 +884,9 @@ static void make_setup_code(void)
 		"\n"
 		"(through your SSH tunnel, or at the server's address) and make the owner's account\n"
 		"with this one-time code. It is good for 24 hours, and until the account is made;\n"
-		"sv_account_setup on this console makes a new one.\n"
-		"\n", control.tls ? "https" : "http", control.listen_setting, code);
+		"sv_account_setup on this console makes a new one. The code is also in\n"
+		"%s in the data folder, until the account is made.\n"
+		"\n", control.tls ? "https" : "http", control.listen_setting, code, SETUP_CODE_FILE);
 	if (control.tls)
 	{
 		printf("The panel's certificate is the server's own. Check that your browser shows this\n"
@@ -822,8 +896,10 @@ static void make_setup_code(void)
 			"\n", control.fingerprint);
 	}
 	fflush(stdout);
+	write_setup_code_file(code);
 	crypto_wipe(code, sizeof(code));
-	notice("the control panel's setup code was printed on the server's output (it has no owner yet)");
+	notice("the control panel's setup code was printed on the server's output and written to %s (it has no owner yet)",
+		SETUP_CODE_FILE);
 }
 
 /* an invitation made, its code printed into code (code_size bytes) for
@@ -978,6 +1054,13 @@ static int console_account(const char *line)
 
 	words[0][0] = words[1][0] = words[2][0] = 0;
 	count = sscanf(line, "%63s %63s %63s %1s", words[0], words[1], words[2], extra);
+	if (count == 1 && !strcmp(words[0], "sv_setup_start"))
+	{
+		notice("console: %s", line);
+		if (!finish_setup("console", "console", CONTROL_ROLE_OWNER))
+			printf("the server is not waiting for its setup\n");
+		return 1;
+	}
 	if (count < 1 || strncmp(words[0], "sv_account_", 11))
 		return 0;
 	notice("console: %s", line);
@@ -2094,6 +2177,7 @@ static void handle_setup(struct connection *connection, struct control_request *
 	crypto_wipe(password, sizeof(password));
 	panel.setup_active = 0;
 	crypto_wipe(panel.setup_hash, sizeof(panel.setup_hash));
+	forget_setup_code_file();
 	notice("the control panel's owner account was made: %s", user);
 	server_audit("web", user, CONTROL_ROLE_OWNER, "setup", user, NULL, 1, NULL);
 	respond_ok(connection, "the owner's account is made: log in with it, and set up a second factor");
@@ -2958,8 +3042,8 @@ static void respond_hello(struct connection *connection)
 	struct json_body body;
 
 	json_begin(&body);
-	json_printf(&body, "{\"setup\": %s, \"tls\": %s, \"fingerprint\": ", owner_count() ? "false" : "true",
-		control.tls ? "true" : "false");
+	json_printf(&body, "{\"setup\": %s, \"waiting\": %s, \"tls\": %s, \"fingerprint\": ",
+		owner_count() ? "false" : "true", setup_waiting() ? "true" : "false", control.tls ? "true" : "false");
 	json_string(&body, control.tls ? control.fingerprint : NULL);
 	json_printf(&body, "}");
 	respond_json(connection, 200, &body, NULL);
@@ -3067,6 +3151,20 @@ static void handle_request(struct connection *connection, struct control_request
 			control.credentials[credential].id);
 	}
 
+	if (!strcmp(request->path, "/v1/setup/start"))
+	{
+		/* the first-run setup finished, by an owner: the server hosts */
+		if (request->method != CONTROL_METHOD_POST)
+		{
+			respond_error(connection, 405, "POST only", "Allow: POST\r\n");
+			return;
+		}
+		if (!require(connection, &auth, CONTROL_PERMISSION_ROLES))
+			return;
+		respond_ok(connection, finish_setup("web", auth.name, auth.role) ? "the server starts hosting" :
+			"the server is hosting already");
+		return;
+	}
 	if (!strcmp(request->path, "/v1/session") || !strcmp(request->path, "/v1/logout"))
 	{
 		int logout = !strcmp(request->path, "/v1/logout");
@@ -3980,6 +4078,16 @@ static void *control_thread(void *argument)
 
 /* ---------- public code */
 
+void server_control_setup_mode(void)
+{
+	panel.setup_mode = 1;
+}
+
+int server_control_setup_waiting(void)
+{
+	return setup_waiting();
+}
+
 void server_control_start(void)
 {
 	const char *console = getenv("HALO_DEDICATED_CONSOLE");
@@ -4016,7 +4124,18 @@ void server_control_start(void)
 				code while there is none */
 				load_accounts();
 				publish_account_keys();
+				if (owner_count())
+					forget_setup_code_file();
 				make_setup_code();
+				/* (a server started for the first-run setup waits to host
+				until its owner finishes it; one with an owner already, or
+				whose panel did not start, hosts at once) */
+				if (panel.setup_mode && !owner_count())
+				{
+					set_setup_waiting(1);
+					notice("first-run setup: the server waits to host until its owner finishes the setup in the "
+						"control panel");
+				}
 			}
 		}
 		crypto_wipe(session_key, sizeof(session_key));

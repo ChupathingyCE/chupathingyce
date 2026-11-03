@@ -11,7 +11,10 @@ them).
 
 It takes server_control.c's settings (HALO_DEDICATED_CONTROL,
 HALO_DEDICATED_CONSOLE), HARNESS_DATA (the data folder) and
-HARNESS_SITE_ROLES (set: a site role list, as if from the role cache). On its standard
+HARNESS_SITE_ROLES (set: a site role list, as if from the role cache) and
+HARNESS_SETUP_MODE (set: started as a server with no playlist, for the
+first-run setup; "harness: waiting 1" and "harness: waiting 0" tell when
+the hold starts and ends). On its standard
 output: the token printed once, the console's output, and a line for each
 thing the main thread is handed:
   notice: <the control's own log line>
@@ -102,6 +105,7 @@ int main(void)
 {
 	struct timespec pause = { 0, 5 * 1000 * 1000 };
 	unsigned long frame = 0;
+	int waiting = 0;
 
 	signal(SIGPIPE, SIG_IGN);
 	setvbuf(stdout, NULL, _IOLBF, 0);
@@ -124,6 +128,8 @@ int main(void)
 		server_roles_set_site(3, keys, key_roles, key_names, 7);
 		server_roles_set_site_state(SERVER_SITE_ROLES_CACHED, (long long)time(NULL) - 3600, SERVER_ROLE_ADMIN, 24);
 	}
+	if (getenv("HARNESS_SETUP_MODE"))
+		server_control_setup_mode();
 	server_control_start();
 	printf("harness: started\n");
 	for (;;)
@@ -182,6 +188,11 @@ int main(void)
 			printf("bind: %s, player %d\n", account, player);
 			server_roles_bind_answer(request, player == 1 ? SERVER_BIND_ACCEPTED : player == 2 ? SERVER_BIND_DECLINED :
 				SERVER_BIND_NOT_DELTA, player == 1 ? key : NULL);
+		}
+		if (server_control_setup_waiting() != waiting)
+		{
+			waiting = server_control_setup_waiting();
+			printf("harness: waiting %d\n", waiting);
 		}
 		/* (a log line now and then, one with a public address) */
 		if (!(++frame % 200))
