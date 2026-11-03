@@ -19,7 +19,16 @@ game reached through an invite. See browser.c.
 /* a player's name (UTF-16, as the game's: 11 characters and a 0) */
 #define BROWSER_PLAYER_NAME_LENGTH 12
 #define BROWSER_MAP_LENGTH 64
-#define BROWSER_MAXIMUM_GAMES 64
+/* (as many as the brokers' listings the Server Browser shows, menu_functions.c's
+LOBBY_BROWSER_GAMES: the list sends every game it has, co-op too, and those
+past the cap were dropped, the emptiest first, before the games heard only
+on the brokers had any room; a console's memory takes fewer:
+halo_port_limits.h, force-included) */
+#ifdef HALO_PORT_CONSOLE_LIMITS
+#define BROWSER_MAXIMUM_GAMES 128
+#else
+#define BROWSER_MAXIMUM_GAMES 256
+#endif
 /* a host's roster: the players it announces (as many as a game takes), and
 those a listed game keeps (as many as the Online Games screen shows) */
 #define BROWSER_HOSTED_ROSTER 128
@@ -174,9 +183,10 @@ struct browser_report_player
 /* (the most a line's extra, and a report's, may be) */
 #define BROWSER_REPORT_EXTRA_SIZE 1024
 /* (room for every player who left a full game early, at about 500 bytes
-each; the original Xbox keeps the smaller one for its memory) */
-#ifdef HALO_XBOX_CONSOLE
-#define BROWSER_REPORT_GAME_EXTRA_SIZE 8192
+each; a console's report, a client's, has the few who left as scoreboard
+lines of about 80 bytes: port/console/reports) */
+#if defined(HALO_CONSOLE_GAME_REPORTS) && !defined(HALO_GAME_BROWSER)
+#define BROWSER_REPORT_GAME_EXTRA_SIZE 2048
 #else
 #define BROWSER_REPORT_GAME_EXTRA_SIZE 32768
 #endif
@@ -267,6 +277,12 @@ enum
 	BROWSER_LIST_NONE,
 };
 int browser_list_status(void);
+
+/* a listed game with a password (locked: one heard on the brokers, whose
+invite browser_get_games gives as its key hash alone) opened: its joinable
+invite in code (BROWSER_INVITE_LENGTH + 1 at least) when password is its
+own. 1 opened, 0 the wrong password, -1 its listing is no longer heard */
+int browser_unlock_game(const char *invite, const char *password, char *code, int size);
 
 /* whether a listed game's host is an internet play peer of this machine
 (joining it, or joined): its address in the game's network then */
