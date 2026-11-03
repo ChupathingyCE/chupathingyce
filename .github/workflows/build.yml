@@ -216,6 +216,7 @@ jobs:
           python3 tools/test_audio_doppler.py
           python3 tools/test_controller_layout.py
           python3 tools/test_button_mappings.py
+          python3 tools/test_menu_key_caps.py
           python3 tools/test_split_screen_input.py
           python3 tools/test_tag_byte_swap.py
           python3 tools/test_bitmap_byte_order.py
