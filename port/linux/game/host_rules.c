@@ -3,12 +3,14 @@ HOST_RULES.C
 
 The host's rules for its players' extras (docs/delta.md, Host rules). The
 game plays as the Xbox did by default; an extra that changes what a player
-sees of the others (names above heads) is the host's to allow, so that one
-rule holds for everyone in the game:
+sees of the others (names above heads, a follow camera on them while
+waiting to respawn) is the host's to allow, so that one rule holds for
+everyone in the game:
 
 - **A host** says its rules over Delta Peer (HOST_RULES) to each client
   that agreed to host_rules, when they change and every few seconds. A
-  player's host reads config.toml (network.allow_player_names); a dedicated
+  player's host reads config.toml (network.allow_player_names,
+  network.allow_follow_camera); a dedicated
   server its settings (host_rules_set_*).
 - **A client** plays by its host's rules as last heard. A host that says
   nothing (OpenCE's, an older Chupathingy, a console without Delta) gets
@@ -38,12 +40,27 @@ static struct
 	/* a dedicated server's rules (else config.toml's) */
 	boolean player_names_set;
 	boolean player_names;
+	boolean follow_camera_set;
+	boolean follow_camera;
 } host_rules;
 
 void host_rules_set_player_names(boolean allowed)
 {
 	host_rules.player_names_set = TRUE;
 	host_rules.player_names = allowed ? TRUE : FALSE;
+}
+
+void host_rules_set_follow_camera(boolean allowed)
+{
+	host_rules.follow_camera_set = TRUE;
+	host_rules.follow_camera = allowed ? TRUE : FALSE;
+}
+
+boolean host_rules_host_follow_camera(void)
+{
+	if (host_rules.follow_camera_set)
+		return host_rules.follow_camera;
+	return config_boolean("network.allow_follow_camera") ? TRUE : FALSE;
 }
 
 boolean host_rules_host_player_names(void)
@@ -83,6 +100,21 @@ boolean host_rules_player_names(void)
 	return FALSE;
 }
 
+boolean host_rules_follow_camera(void)
+{
+#ifdef HOST_RULES_DELTA
+	struct delta_wire_host_rules rules;
+#endif
+
+	if (!host_rules_joined())
+		return host_rules_host_follow_camera();
+#ifdef HOST_RULES_DELTA
+	if (host_rules_heard(&rules))
+		return (rules.flags & DELTA_WIRE_HOST_FOLLOW_CAMERA) != 0;
+#endif
+	return FALSE;
+}
+
 void host_rules_update(void)
 {
 #ifdef HOST_RULES_DELTA
@@ -93,6 +125,8 @@ void host_rules_update(void)
 	csmemset(&rules, 0, sizeof(rules));
 	if (host_rules_host_player_names())
 		rules.flags |= DELTA_WIRE_HOST_PLAYER_NAMES;
+	if (host_rules_host_follow_camera())
+		rules.flags |= DELTA_WIRE_HOST_FOLLOW_CAMERA;
 	rules.team_change = (unsigned char)(policy == _team_change_allow ? DELTA_WIRE_HOST_TEAM_CHANGE_ALLOW :
 		policy == _team_change_balanced ? DELTA_WIRE_HOST_TEAM_CHANGE_BALANCED : DELTA_WIRE_HOST_TEAM_CHANGE_OFF);
 	rules.team_change_margin = (unsigned char)(margin < 0 ? 0 : margin > DELTA_WIRE_HOST_TEAM_CHANGE_MAXIMUM_MARGIN ?

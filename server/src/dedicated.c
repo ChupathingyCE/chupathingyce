@@ -90,6 +90,7 @@ void chat_host_set_welcome(char const *text);
 void team_change_host_set(int policy, int margin);
 /* (the host's rules', port/linux/game/host_rules.h) */
 void host_rules_set_player_names(boolean allowed);
+void host_rules_set_follow_camera(boolean allowed);
 
 enum
 {
@@ -561,6 +562,24 @@ static void initialize(
 		host_rules_set_player_names(allowed);
 		if (allowed)
 			error(_error_silent, "dedicated: players may show names above heads");
+	}
+	{
+		char const *camera = getenv("HALO_DEDICATED_ALLOW_FOLLOW_CAMERA");
+		boolean allowed;
+
+		if (camera && camera[0])
+		{
+			allowed = !_stricmp(camera, "true") || !strcmp(camera, "1") || !_stricmp(camera, "yes") ||
+				!_stricmp(camera, "on");
+		}
+		else
+		{
+			allowed = settings.set[SERVER_SETTING_ALLOW_FOLLOW_CAMERA] &&
+				settings.values[SERVER_SETTING_ALLOW_FOLLOW_CAMERA];
+		}
+		host_rules_set_follow_camera(allowed);
+		if (allowed)
+			error(_error_silent, "dedicated: players may watch a follow camera while they wait to respawn");
 	}
 	dedicated.active = dedicated.entry_count > 0;
 }

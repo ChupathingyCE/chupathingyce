@@ -23,6 +23,7 @@ the file.
 | `HALO_DEDICATED_TEAM_CHANGE` | `balanced` | Players changing teams during a team game (the pause menu's CHANGE TEAMS, [below](#team-changes)): `balanced`, `allow` or `off` (`1`, `2` or `0`; the settings file's `team_change`). |
 | `HALO_DEDICATED_TEAM_CHANGE_MARGIN` | `1` | With `balanced`, the most players one team may have over the other after a change, 0 to 16 (`team_change_margin`). |
 | `HALO_DEDICATED_ALLOW_PLAYER_NAMES` | `false` | `true`: Chupathingy players may show names above other players' heads (their `display.player_names`). `false` plays as the Xbox did: a name shows only on the player aimed at (`allow_player_names`; the host's rules, [docs/delta.md](../../docs/delta.md#host-rules)). |
+| `HALO_DEDICATED_ALLOW_FOLLOW_CAMERA` | `false` | `true`: Chupathingy players may watch a living player's view while they wait to respawn (their `display.follow_camera`). `false` plays as the Xbox did: the death camera alone (`allow_follow_camera`). |
 | `HALO_DEDICATED_WELCOME` | (none) | A welcome: a server message each Chupathingy player gets in their chat as they join, up to 127 printable ASCII characters (`sv_welcome` sets it). OpenCE players get it as the host's notice in their chat, while they may chat. |
 | `HALO_DEDICATED_POSTGAME_SECONDS` | `20` | How long the carnage report shows after each game before the next game's lobby, 0 to 300 seconds. |
 | `HALO_DEDICATED_SKIP_LOBBY` | `false` | `true`: after the carnage report, if enough players stayed (`HALO_DEDICATED_MINIMUM_PLAYERS`, and teams as the game needs), the next game starts after a 3-second countdown instead of waiting out the lobby's. Otherwise the lobby opens as always. |
@@ -47,7 +48,7 @@ The settings file's keys (`sv_settings` lists them, with where each value
 comes from): `name`, `maximum_players`, `minimum_players`, `idle_limit`,
 `public` (from the next start), `name_filter`, `chat`, `chat_filter`,
 `welcome`, `postgame_seconds`, `skip_lobby`, `chat_cooldown`, `team_change`
-(0 off, 1 balanced, 2 allow), `team_change_margin`, `playlist_shuffle`, `chat_legacy`, `gamespy_listing`, `gamespy_port`, `ce_joins`, `allow_player_names`, and the playlist
+(0 off, 1 balanced, 2 allow), `team_change_margin`, `playlist_shuffle`, `chat_legacy`, `gamespy_listing`, `gamespy_port`, `ce_joins`, `allow_player_names`, `allow_follow_camera`, and the playlist
 `sv_playlist_use` chose. `sv_set welcome Hello and welcome` takes
 the rest of the line as the value (quotes optional).
 

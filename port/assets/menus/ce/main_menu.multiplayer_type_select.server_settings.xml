@@ -294,7 +294,8 @@
 		<child widget="main_menu/multiplayer_type_select/server_settings/host_options/op_chat_filter" x="54" y="133"/>
 		<child widget="main_menu/multiplayer_type_select/server_settings/host_options/op_block_mouse_aim_assist" x="54" y="163"/>
 		<child widget="main_menu/multiplayer_type_select/server_settings/host_options/op_allow_player_names" x="54" y="193"/>
-		<child widget="main_menu/multiplayer_type_select/server_settings/host_options/op_tunnel_port" x="54" y="223"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/host_options/op_allow_follow_camera" x="54" y="223"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/host_options/op_tunnel_port" x="54" y="253"/>
 		<child widget="main_menu/multiplayer_type_select/server_settings/host_options/button_bar" y="414"/>
 	</widget>
 	<widget name="main_menu/multiplayer_type_select/server_settings/host_options/button_bar" type="column_list" width="640" height="28" flags="pass_unhandled_to_focused_child left_right_tabs_items">
@@ -347,11 +348,20 @@
 	<widget name="main_menu/multiplayer_type_select/server_settings/host_options/allow_player_names_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="OFF|ALLOWED" setting="network.allow_player_names" values="false|true" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
 		<on event="created" run="port setting load"/>
 	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/host_options/op_allow_follow_camera" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+		<child widget="main_menu/multiplayer_type_select/server_settings/host_options/allow_follow_camera_label"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/host_options/allow_follow_camera_spinner" x="320" y="1"/>
+	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/host_options/allow_follow_camera_label" type="text" controller="1" width="300" height="22" string_list="main_menu/multiplayer_type_select/server_settings/host_options/labels" string_index="5" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/host_options/allow_follow_camera_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="OFF|ALLOWED" setting="network.allow_follow_camera" values="false|true" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
+		<on event="created" run="port setting load"/>
+	</widget>
 	<widget name="main_menu/multiplayer_type_select/server_settings/host_options/op_tunnel_port" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
 		<child widget="main_menu/multiplayer_type_select/server_settings/host_options/tunnel_port_label"/>
 		<child widget="main_menu/multiplayer_type_select/server_settings/host_options/tunnel_port_spinner" x="320" y="1"/>
 	</widget>
-	<widget name="main_menu/multiplayer_type_select/server_settings/host_options/tunnel_port_label" type="text" controller="1" width="300" height="22" string_list="main_menu/multiplayer_type_select/server_settings/host_options/labels" string_index="5" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	<widget name="main_menu/multiplayer_type_select/server_settings/host_options/tunnel_port_label" type="text" controller="1" width="300" height="22" string_list="main_menu/multiplayer_type_select/server_settings/host_options/labels" string_index="6" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 	</widget>
 	<widget name="main_menu/multiplayer_type_select/server_settings/host_options/tunnel_port_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="RANDOM|2302|2303|2304|2305|2306|2307|2308|2309|2310" setting="network.tunnel_port" values="0|2302|2303|2304|2305|2306|2307|2308|2309|2310" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
 		<on event="created" run="port setting load"/>
@@ -372,6 +382,7 @@
 		<string text="CHAT FILTER:"/>
 		<string text="MOUSE AIM ASSIST:"/>
 		<string text="PLAYER NAMES:"/>
+		<string text="FOLLOW CAMERA:"/>
 		<string text="PORT:"/>
 	</strings>
 	<strings name="main_menu/multiplayer_type_select/server_settings/host_options/help_strings">
@@ -381,6 +392,7 @@
 		<string text="Block chat lines with blocked words."/>
 		<string text="Allow or block aim assist for mouse players."/>
 		<string text="Let players show names above heads. Off: as on the Xbox."/>
+		<string text="Let players watch others while they wait to respawn."/>
 		<string text="The UDP port for hosting. Forward it on your router if friends can't join."/>
 	</strings>
 </menus>

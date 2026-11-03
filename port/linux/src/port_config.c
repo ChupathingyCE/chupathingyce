@@ -315,11 +315,12 @@ static const struct config_setting config_settings[] =
 	{ "display.powerup_timers", _config_boolean, "false", "HALO_POWERUP_TIMERS", _environment_value, _platform_all | _platform_xbox,
 		"Show the seconds left on your active camouflage, overshield and\n"
 		"full spectrum vision." },
-	{ "display.follow_camera", _config_string, "\"long_waits\"", "HALO_FOLLOW_CAMERA", _environment_value,
+	{ "display.follow_camera", _config_string, "\"off\"", "HALO_FOLLOW_CAMERA", _environment_value,
 		_platform_all | _platform_xbox,
-		"After you die, watch a living player's view. \"long_waits\" does it\n"
-		"only during a long respawn wait. \"always\" does it every time, and\n"
-		"\"off\" never. LB and RB, or Q and E, switch players." },
+		"After you die, watch a living player's view, where the host allows it\n"
+		"(network.allow_follow_camera). \"long_waits\" does it only during a\n"
+		"long respawn wait, \"always\" every time, and \"off\" never, as on the\n"
+		"Xbox. LB and RB, or Q and E, switch players." },
 	{ "display.follow_camera_after", _config_real, "5.0", "HALO_FOLLOW_CAMERA_AFTER", _environment_value,
 		_platform_all | _platform_xbox,
 		"For \"long_waits\": a respawn wait longer than this many seconds is a\n"
@@ -732,6 +733,11 @@ static const struct config_setting config_settings[] =
 		"In games you host, let players show names above heads\n"
 		"(display.player_names). Off plays as the Xbox did: a name shows only\n"
 		"on the player aimed at." },
+	{ "network.allow_follow_camera", _config_boolean, "false", "HALO_NET_ALLOW_FOLLOW_CAMERA", _environment_value,
+		_platform_all,
+		"In games you host, let players watch a living player's view while\n"
+		"they wait to respawn (display.follow_camera). Off plays as the Xbox\n"
+		"did: the death camera alone." },
 	{ "network.block_mouse_aim_assist", _config_boolean, "false", "HALO_NET_BLOCK_MOUSE_AIM_ASSIST", _environment_value,
 		_platform_all,
 		"Turn off mouse aim assist for everyone in games you host." },
@@ -1580,7 +1586,8 @@ version changed) */
 /* the defaults the game has asked about (game.defaults_answered): 1, the
 ones of v0.8.0; 2, network.tunnel_port's 2302 (v0.8.1b); 3, a game you host
 starting alone (game.start_with_one_player); 4, Headphone 3D on; 5, the
-Xbox's multiplayer by default (v0.9.0: no names above heads). A file
+Xbox's multiplayer by default (v0.9.0: no names above heads, no follow
+camera). A file
 answered for an earlier generation is asked about the later ones only */
 #define CONFIG_DEFAULTS_GENERATION 5
 #define CONFIG_VERSION_LINE "config_version = 2\n"
@@ -2271,6 +2278,9 @@ static const struct
 	hosts allow it; a console draws none) */
 	{ "display.player_names", "\"all\"", 0, "No names above heads, as on the Xbox (a host can allow them)", 5 },
 #endif
+	/* the follow camera during a long respawn wait, the default until
+	v0.9.0 (a file that names "long_waits" keeps it, where hosts allow it) */
+	{ "display.follow_camera", "\"long_waits\"", 0, "No follow camera while you wait to respawn, as on the Xbox", 5 },
 };
 
 #define NUMBER_OF_CONFIG_OLD_DEFAULTS (sizeof(config_old_defaults) / sizeof(config_old_defaults[0]))
@@ -3126,7 +3136,7 @@ static const struct
 	{ "display.player_names", { "all", "allies", "allys", "enemies", "none", NULL }, "\"none\"" },
 	{ "display.scoreboard_team_layout", { "teams", "score", NULL }, "\"teams\"" },
 	{ "display.scoreboard_platforms", { "auto", "on", "off", NULL }, "\"auto\"" },
-	{ "display.follow_camera", { "long_waits", "always", "off", NULL }, "\"long_waits\"" },
+	{ "display.follow_camera", { "long_waits", "always", "off", NULL }, "\"off\"" },
 	{ "display.texture_decode", { "auto", "gpu", "cpu", NULL }, "\"auto\"" },
 	{ "audio.resampling", { "sinc", "linear", NULL }, "\"sinc\"" },
 	{ "input.touch_controls", { "on", "auto", "off", NULL }, "\"on\"" },

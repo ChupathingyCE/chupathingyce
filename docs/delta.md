@@ -681,11 +681,15 @@ game, over `host_rules` (bit 18):
 - **The host says them.** HOST_RULES goes to each client that agreed to
   `host_rules`, at once when they change (a dedicated server's `sv_set`)
   and every 5 seconds. A player's host takes them from its config.toml
-  (`network.allow_player_names`, its Host Setup), a dedicated server from its
-  settings (`allow_player_names`, `server/docs/settings.md`).
+  (`network.allow_player_names`, `network.allow_follow_camera`, its Host
+  Setup), a dedicated server from its settings (`allow_player_names`,
+  `allow_follow_camera`, `server/docs/settings.md`).
 - **Names above heads.** A player's `display.player_names` ("all",
   "allies", "enemies") shows only while the host allows it. Without it a
   name shows only on the player aimed at, as on the Xbox.
+- **The follow camera.** A player's `display.follow_camera` (watching a
+  living player while they wait to respawn) works only while the host
+  allows it. Without it the death camera alone, as on the Xbox.
 - **Team changes.** The host's rule for CHANGE TEAMS ("Team changes"
   above) rides along, so a client knows whether to offer it.
 - **A host that says nothing** (OpenCE's, an older Chupathingy, a console

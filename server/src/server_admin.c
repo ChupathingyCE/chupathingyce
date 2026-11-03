@@ -58,6 +58,8 @@ int team_change_host_margin(void);
 /* (the host's rules', port/linux/game/host_rules.h) */
 void host_rules_set_player_names(boolean allowed);
 boolean host_rules_host_player_names(void);
+void host_rules_set_follow_camera(boolean allowed);
+boolean host_rules_host_follow_camera(void);
 
 #include <errno.h>
 #include <stdio.h>
@@ -1648,6 +1650,9 @@ static void setting_now(
 	case SERVER_SETTING_ALLOW_PLAYER_NAMES:
 		snprintf(text, (size_t)size, "%s", host_rules_host_player_names() ? "true" : "false");
 		break;
+	case SERVER_SETTING_ALLOW_FOLLOW_CAMERA:
+		snprintf(text, (size_t)size, "%s", host_rules_host_follow_camera() ? "true" : "false");
+		break;
 #ifdef HALO_SERVER
 	case SERVER_SETTING_GAMESPY_LISTING: snprintf(text, (size_t)size, "%s", server_gamespy_enabled() ? "true" : "false"); break;
 	case SERVER_SETTING_GAMESPY_PORT: snprintf(text, (size_t)size, "%ld", server_gamespy_port()); break;
@@ -1691,7 +1696,8 @@ static boolean setting_applies_now(
 		setting == SERVER_SETTING_PLAYLIST_SHUFFLE || setting == SERVER_SETTING_CHAT_LEGACY ||
 		setting == SERVER_SETTING_TEAM_CHANGE || setting == SERVER_SETTING_TEAM_CHANGE_MARGIN ||
 		setting == SERVER_SETTING_GAMESPY_LISTING || setting == SERVER_SETTING_GAMESPY_PORT ||
-		setting == SERVER_SETTING_CE_JOINS || setting == SERVER_SETTING_ALLOW_PLAYER_NAMES;
+		setting == SERVER_SETTING_CE_JOINS || setting == SERVER_SETTING_ALLOW_PLAYER_NAMES ||
+		setting == SERVER_SETTING_ALLOW_FOLLOW_CAMERA;
 }
 
 static char const *environment_value(
@@ -1806,7 +1812,7 @@ boolean server_admin_set(
 			command_output_printf(output, "(name, maximum_players, minimum_players, idle_limit, public, name_filter, "
 				"chat, chat_filter, welcome, postgame_seconds, skip_lobby, chat_cooldown, team_change, "
 				"team_change_margin, playlist_shuffle, chat_legacy, gamespy_listing, gamespy_port, ce_joins, "
-				"allow_player_names)\n");
+				"allow_player_names, allow_follow_camera)\n");
 		return FALSE;
 	}
 	environment = environment_value((short)setting);
@@ -1858,6 +1864,7 @@ boolean server_admin_set(
 		team_change_host_set(team_change_host_policy(), change.values[setting]);
 		break;
 	case SERVER_SETTING_ALLOW_PLAYER_NAMES: host_rules_set_player_names(change.values[setting] ? TRUE : FALSE); break;
+	case SERVER_SETTING_ALLOW_FOLLOW_CAMERA: host_rules_set_follow_camera(change.values[setting] ? TRUE : FALSE); break;
 #ifdef HALO_SERVER
 	case SERVER_SETTING_GAMESPY_LISTING:
 		server_gamespy_configure(change.values[setting] ? TRUE : FALSE, server_gamespy_port());

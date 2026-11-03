@@ -49,6 +49,7 @@ DEFAULTS = {
 		"game.start_with_one_player": "true",
 		"audio.hrtf": "on",
 		"display.player_names": "none",
+		"display.follow_camera": "off",
 	},
 	"desktop32": {
 		"display.anti_aliasing": "off",
@@ -58,6 +59,7 @@ DEFAULTS = {
 		"game.start_with_one_player": "true",
 		"audio.hrtf": "on",
 		"display.player_names": "none",
+		"display.follow_camera": "off",
 	},
 	"android": {
 		"display.anti_aliasing": "off",
@@ -67,6 +69,7 @@ DEFAULTS = {
 		"game.start_with_one_player": "true",
 		"audio.hrtf": "on",
 		"display.player_names": "none",
+		"display.follow_camera": "off",
 	},
 	"server": {
 		"display.anti_aliasing": "off",
@@ -74,6 +77,7 @@ DEFAULTS = {
 		"network.tunnel_port": "0",
 		"game.start_with_one_player": "false",
 		"display.player_names": "none",
+		"display.follow_camera": "off",
 	},
 	# (a console's build, one on the shared GL layer: Headphone 3D stays off,
 	# the original Xbox having its own hardware path, and the port random)
@@ -84,6 +88,7 @@ DEFAULTS = {
 		"game.start_with_one_player": "true",
 		"audio.hrtf": "off",
 		"display.player_names": "none",
+		"display.follow_camera": "off",
 	},
 }
 
@@ -99,13 +104,14 @@ OLD = {
 	"game.start_with_one_player": "false",
 	"audio.hrtf": "off",
 	"display.player_names": "all",
+	"display.follow_camera": "long_waits",
 }
 CHANGED = {
-	"desktop": ["display.menus", "display.anti_aliasing", "display.shadow_resolution", "network.tunnel_port", "game.start_with_one_player", "audio.hrtf", "display.player_names"],
-	"desktop32": ["display.menus", "display.shadow_resolution", "network.tunnel_port", "game.start_with_one_player", "audio.hrtf", "display.player_names"],
-	"android": ["display.menus", "display.shadow_resolution", "audio.buffer_frames", "network.tunnel_port", "game.start_with_one_player", "audio.hrtf", "display.player_names"],
+	"desktop": ["display.menus", "display.anti_aliasing", "display.shadow_resolution", "network.tunnel_port", "game.start_with_one_player", "audio.hrtf", "display.player_names", "display.follow_camera"],
+	"desktop32": ["display.menus", "display.shadow_resolution", "network.tunnel_port", "game.start_with_one_player", "audio.hrtf", "display.player_names", "display.follow_camera"],
+	"android": ["display.menus", "display.shadow_resolution", "audio.buffer_frames", "network.tunnel_port", "game.start_with_one_player", "audio.hrtf", "display.player_names", "display.follow_camera"],
 	"server": [],
-	"console": ["display.menus", "display.shadow_resolution", "game.start_with_one_player"],
+	"console": ["display.menus", "display.shadow_resolution", "game.start_with_one_player", "display.follow_camera"],
 }
 # the changes of the second question (game.defaults_answered = 2), the
 # third (3), the fourth (4) and the latest (CONFIG_DEFAULTS_GENERATION): a
@@ -113,7 +119,7 @@ CHANGED = {
 SECOND = ["network.tunnel_port"]
 THIRD = ["game.start_with_one_player"]
 FOURTH = ["audio.hrtf"]
-LATEST = ["display.player_names"]
+LATEST = ["display.player_names", "display.follow_camera"]
 GENERATION = "5"
 NEW = {"display.menus": "chupathingy"}
 
@@ -363,29 +369,35 @@ def test_answered_earlier(program, directory, defaults, kind):
 			f'# start_with_one_player = {defaults.get("game.start_with_one_player", "false")}', written, flags=re.M)
 		written = re.sub(r"^# defaults_answered = .*$", "defaults_answered = 3", written, flags=re.M)
 		case.path.write_text(written)
+		hrtf = "audio.hrtf" in latest
+		names = "display.player_names" in latest
 		values, _ = case.get("audio.hrtf", "display.shadow_resolution")
 		check(values["audio.hrtf"] == "off", f"earlier/{answer}: audio.hrtf is {values['audio.hrtf']} before the answer")
 		check(case.text() == written, f"earlier/{answer}: the file changed before the answer")
 		count, output = pending(case)
 		check(count == len(latest), f"earlier/{answer}: {count} changes, not {len(latest)}: {output}")
-		check("Headphone 3D on, as the original Xbox did" in output, f"earlier/{answer}: no words for Headphone 3D")
-		check("No names above heads, as on the Xbox" in output, f"earlier/{answer}: no words for names above heads")
+		check(("Headphone 3D on, as the original Xbox did" in output) == hrtf, f"earlier/{answer}: words for Headphone 3D")
+		check(("No names above heads, as on the Xbox" in output) == names, f"earlier/{answer}: words for names above heads")
+		check("No follow camera while you wait to respawn" in output, f"earlier/{answer}: no words for the follow camera")
 		check("Sharper shadows" not in output and "menus" not in output and "A fixed port" not in output and
 			"Start a game you host alone" not in output,
 			f"earlier/{answer}: asked again: {output}")
 		case.run("answer", answer)
 		values, _ = case.get("audio.hrtf", "display.shadow_resolution")
-		check(values["audio.hrtf"] == ("off" if answer == "keep" else "on"), f"earlier/{answer}: audio.hrtf {values}")
+		check(values["audio.hrtf"] == ("off" if answer == "keep" or not hrtf else "on"), f"earlier/{answer}: audio.hrtf {values}")
 		check(values["display.shadow_resolution"] == "128", f"earlier/{answer}: the kept shadows changed: {values}")
 		text = case.text()
 		check(re.search(rf"^defaults_answered = {GENERATION}$", text, re.M), f"earlier/{answer}: the answer is not written")
 		lines, _ = value_lines(text, "hrtf")
-		check(lines == (['hrtf = "off"'] if answer == "keep" else []), f"earlier/{answer}: hrtf lines {lines}")
-		values, _ = case.get("display.player_names")
-		check(values["display.player_names"] == ("all" if answer == "keep" else "none"),
-			f"earlier/{answer}: display.player_names {values}")
-		lines, _ = value_lines(text, "player_names")
-		check(lines == (['player_names = "all"'] if answer == "keep" else []), f"earlier/{answer}: player_names lines {lines}")
+		check(lines == (['hrtf = "off"'] if answer == "keep" and hrtf else []), f"earlier/{answer}: hrtf lines {lines}")
+		for name, old in (("display.player_names", "all"), ("display.follow_camera", "long_waits")):
+			if name not in latest:
+				continue
+			key = name.split(".")[1]
+			values, _ = case.get(name)
+			check(values[name] == (old if answer == "keep" else DEFAULTS[kind][name]), f"earlier/{answer}: {name} {values}")
+			lines, _ = value_lines(text, key)
+			check(lines == ([f'{key} = "{old}"'] if answer == "keep" else []), f"earlier/{answer}: {key} lines {lines}")
 		check(pending(case)[0] == 0, f"earlier/{answer}: asked again")
 	for chosen in ("off", "on", "auto"):
 		case = Case(program, directory / f"earlier_chosen_{chosen}")
