@@ -1008,6 +1008,14 @@ int delta_peer_platform_number(const char *name)
 	return -1;
 }
 
+int delta_peer_game_hosting_xbox(void)
+{
+	struct delta_peer_host_summary summary;
+
+	return delta_game.role == _role_host && delta_peer_game_host_summary(&summary) &&
+		summary.machines[_delta_platform_xbox] > 0;
+}
+
 int delta_peer_game_host_summary(struct delta_peer_host_summary *summary)
 {
 	const struct delta_peer *peer = &delta_game.peer;

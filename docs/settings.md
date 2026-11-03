@@ -49,6 +49,7 @@ A few people look for most:
 | `network.browser_url` | The game list Online Games shows (stats.chupathingy.org). |
 | `network.copy_to_clipboard` | `false` (the default) leaves the clipboard alone; `true` puts the invite link of a game you host on it. The link is also in the log and under INVITE LINK in the Gearbox menus' Server Settings. |
 | `network.host_public` | Whether games you host are listed for everyone (true) or only joinable by invite (false). |
+| `network.host_console_objects` | How many objects your console and cheats can make in each network game you host (`cheat_all_vehicles`, `object_create` and the like). Past it they're refused. 32 by default, 8 while an original Xbox is in the game; `0` means no limit. Objects the map's own scripts make don't count. |
 | `network.tunnel_port` | The UDP port for games you host, to forward on your router: 2302 by default (the next free one up to 2306 if 2302 is taken). A port you set here is used as is, also when you join. `0` picks a new port each run, as versions before 0.8.1b did. |
 | `update.auto` | Whether the game updates itself. |
 | `paths.data`, `paths.saves` | Where the maps and the saves are, if not the usual place. |
