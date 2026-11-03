@@ -19,7 +19,7 @@ import subprocess
 from pathlib import Path
 from typing import Any, List
 
-from .bgfx_build import BgfxTarget, bgfx_build, bgfx_include_flags, bgfx_wanted, fetch_bgfx
+from .bgfx_build import BgfxTarget, bgfx_build, bgfx_available, bgfx_include_flags
 from .embed_assets import hud_assets_build, hud_configure_inputs, ui_fonts_build
 from .linux_build import OPTIMISATION, compile_launcher, ffmpeg_build
 from .lp64_build import (
@@ -105,10 +105,7 @@ def generate_macos_build(n: Writer, sln: Any) -> None:
     portable_sdl = PORTABLE_SDL_BUILD / "libSDL3.0.dylib"
     sdl_include = f"-I{PORTABLE_SDL_DIR / 'include'} " if portable else ""
     # the bgfx renderer (display.renderer = "bgfx"; tools/bgfx_build.py)
-    use_bgfx = bgfx_wanted(sln)
-    if use_bgfx and not fetch_bgfx():
-        raise SystemExit("the bgfx renderer needs bgfx's, bx's and bimg's sources (git fetch failed; "
-                         "configure.py --without-bgfx builds without it)")
+    use_bgfx = bgfx_available(sln)
     # (the platform units' define and headers: d3d8_gl.c, sdl_platform.c)
     if use_bgfx:
         sdl_include += " ".join(bgfx_include_flags()) + " "

@@ -17,7 +17,7 @@ against this machine's glibc and SDL3.
 from pathlib import Path
 from typing import Any, List, Optional
 
-from .bgfx_build import BgfxTarget, bgfx_build, bgfx_include_flags, bgfx_wanted, fetch_bgfx
+from .bgfx_build import BgfxTarget, bgfx_build, bgfx_available, bgfx_include_flags
 from .embed_assets import hud_assets_build, hud_configure_inputs, ui_fonts_build
 from .linux_build import (OPTIMISATION, RENAME_STUB_SCRIPT, compile_launcher, ffmpeg_build, linux_sysroot, lto_flags, march_flag,
                           portable_sdl)
@@ -106,10 +106,7 @@ def generate_linux64_build(n: Writer, sln: Any) -> None:
         rspfile_content="$in_newline",
     )
     # the bgfx renderer (display.renderer = "bgfx": Vulkan; tools/bgfx_build.py)
-    use_bgfx = bgfx_wanted(sln)
-    if use_bgfx and not fetch_bgfx():
-        raise SystemExit("the bgfx renderer needs bgfx's, bx's and bimg's sources (git fetch failed; "
-                         "configure.py --without-bgfx builds without it)")
+    use_bgfx = bgfx_available(sln)
     bgfx_libraries = bgfx_build(n, BgfxTarget(
         name="linux64", platform="linux", cc=f"{compile_launcher(sln)}{cc}",
         target_flags=[LINUX64_TARGET, march_flag(sln), *([f"--sysroot={sysroot}"] if sysroot else [])],

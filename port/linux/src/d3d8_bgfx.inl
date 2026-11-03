@@ -786,6 +786,8 @@ static char *bg_vulkan_container(const unsigned int *words, unsigned long word_c
 			inside = TRUE;
 			continue;
 		}
+		if (inside && line[0] == '{')
+			continue;
 		if (inside && line[0] == '}')
 		{
 			inside = FALSE;

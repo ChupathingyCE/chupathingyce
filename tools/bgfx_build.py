@@ -75,20 +75,39 @@ def fetch_bgfx() -> bool:
         # (fresh sources: none of the patches)
         (directory / ".halo-patches").unlink(missing_ok=True)
     # (the patches once, in order, on the fetched sources: a stamp lists
-    # those applied; other patches, the sources again and all of them)
+    # those applied; other patches, the sources again and all of them. A
+    # patch is read with its lines' ends as made, LF, whatever a Windows
+    # checkout turned them into)
     bgfx = BGFX_SOURCES / "bgfx"
     stamp = bgfx / ".halo-patches"
-    wanted = "".join(f"{patch.name} {hashlib.sha256(patch.read_bytes()).hexdigest()}\n" for patch in BGFX_PATCHES)
+    patches = [(patch.name, patch.read_bytes().replace(b"\r\n", b"\n")) for patch in BGFX_PATCHES]
+    wanted = "".join(f"{name} {hashlib.sha256(text).hexdigest()}\n" for name, text in patches)
     if stamp.is_file() and stamp.read_text() == wanted:
         return True
     if subprocess.run(["git", "-C", str(bgfx), "-c", "core.autocrlf=false", "checkout", "-q", "-f", "--", "."]).returncode != 0:
         return False
-    for patch in BGFX_PATCHES:
-        print(f"Patching bgfx: {patch.name}")
-        if subprocess.run(["git", "-C", str(bgfx), "apply", str(patch.resolve())]).returncode != 0:
+    for name, text in patches:
+        print(f"Patching bgfx: {name}")
+        if subprocess.run(["git", "-C", str(bgfx), "apply", "-"], input=text).returncode != 0:
             return False
     stamp.write_text(wanted)
     return True
+
+
+def bgfx_available(sln: Any) -> bool:
+    """whether this build has the bgfx renderer: wanted (configure.py
+    --without-bgfx), and its sources fetched (a machine without git or the
+    network, such as the dedicated server's container, builds without it
+    and says so)"""
+    if not bgfx_wanted(sln):
+        return False
+    try:
+        if fetch_bgfx():
+            return True
+    except OSError as error:
+        print(f"bgfx: {error}")
+    print("the bgfx renderer is left out: its sources could not be fetched (tools/bgfx_build.py)")
+    return False
 
 
 @dataclass
@@ -156,11 +175,14 @@ def bgfx_build(n: Writer, target: BgfxTarget) -> List[Path]:
         source for source in [*(glslang / "glslang").rglob("*.cpp"), *(glslang / "SPIRV").rglob("*.cpp")]
         if "HLSL" not in source.parts and "OSDependent" not in source.parts)
     glslang_sources.append(glslang / "glslang/OSDependent" / glslang_os / "ossource.cpp")
+    # (bx's x86 code needs SSE 4.2, its minimum there: bx, bimg and bgfx only,
+    # which run only with the bgfx renderer; the game keeps its baseline)
+    simd = "-Xarch_x86_64 -msse4.2" if target.platform == "macos" else "-msse4.2"
     units = {
-        "bx": ([bx / "src/amalgamated.cpp"], "-x c++"),
+        "bx": ([bx / "src/amalgamated.cpp"], f"-x c++ {simd}"),
         "bimg": ([bimg / "src/image.cpp", bimg / "src/image_gnf.cpp",
-                  *sorted((bimg / "3rdparty/astc-encoder/source").glob("*.cpp"))], "-x c++"),
-        "bgfx": ([bgfx / "src/amalgamated.cpp"], bgfx_flags),
+                  *sorted((bimg / "3rdparty/astc-encoder/source").glob("*.cpp"))], f"-x c++ {simd}"),
+        "bgfx": ([bgfx / "src/amalgamated.cpp"], f"{bgfx_flags} {simd}"),
         "glslang": (glslang_sources, f"-x c++ -std=c++17 -fno-strict-aliasing -I{glslang} -I{glslang.parent}"),
     }
     if target.platform == "macos":

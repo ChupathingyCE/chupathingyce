@@ -37,7 +37,7 @@ from .linux_build import (COMPRESSED_MAP_DEFINES, CUSTOM_EDITION_DEFINES, ZSTD_D
                           XDK_INCLUDE, game_browser_defines, lto_mode, march_flag, miniupnpc_sources, pgo_mode, compile_launcher, game_defines_and_includes,
                           game_sources, musl_math_cflags, musl_math_sources, pgo_profile, profile_use_flags,
                           xdk_headers)
-from .bgfx_build import BgfxTarget, bgfx_build, bgfx_include_flags, bgfx_wanted, fetch_bgfx
+from .bgfx_build import BgfxTarget, bgfx_build, bgfx_available, bgfx_include_flags
 from .lp64_build import lp64_excluded
 from .embed_assets import hud_assets_build, hud_configure_inputs, ui_fonts_build
 from .ninja_syntax import Writer
@@ -494,10 +494,7 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
         ffmpeg_inputs = [ffmpeg_stamp, *ffmpeg_archives]
     # the bgfx renderer (tools/bgfx_build.py): its libraries, and the define
     # and headers of the platform units (d3d8_gl.c, sdl_platform.c)
-    use_bgfx = target.bgfx and bgfx_wanted(sln)
-    if use_bgfx and not fetch_bgfx():
-        raise SystemExit("the bgfx renderer needs bgfx's, bx's and bimg's sources (git fetch failed; "
-                         "configure.py --without-bgfx builds without it)")
+    use_bgfx = target.bgfx and bgfx_available(sln)
     bgfx_libraries = bgfx_build(n, BgfxTarget(
         name=prefix, platform="windows", cc=f"{compile_launcher(sln)}{cc}",
         target_flags=[f"--target={target.triple}", "-gcodeview", march_flag(sln)],
