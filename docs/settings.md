@@ -49,6 +49,7 @@ A few people look for most:
 | `network.browser_url` | The game list Online Games shows (stats.chupathingy.org). |
 | `network.copy_to_clipboard` | `false` (the default) leaves the clipboard alone; `true` puts the invite link of a game you host on it. The link is also in the log and under INVITE LINK in the Gearbox menus' Server Settings. |
 | `network.host_public` | Whether games you host are listed for everyone (true) or only joinable by invite (false). |
+| `network.max_machines_per_address` | In games you host, the most machines that may join from one internet address (1 to 16). `0`, the default, means no limit. A machine past it is told there are too many players from its address. Players on your local network are never limited. Dedicated servers have their own setting, 8 by default. |
 | `network.tunnel_port` | The UDP port for games you host, to forward on your router: 2302 by default (the next free one up to 2306 if 2302 is taken). A port you set here is used as is, also when you join. `0` picks a new port each run, as versions before 0.8.1b did. |
 | `update.auto` | Whether the game updates itself. |
 | `paths.data`, `paths.saves` | Where the maps and the saves are, if not the usual place. |

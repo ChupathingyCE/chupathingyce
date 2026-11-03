@@ -88,6 +88,8 @@ void chat_host_set_welcome(char const *text);
 #endif
 /* (team changes', port/linux/game/team_change.h: 0 off, 1 balanced, 2 allow) */
 void team_change_host_set(int policy, int margin);
+/* (the limit on machines of one address, port/linux/game/network_distributed.c) */
+void network_distributed_set_address_limit(long maximum);
 
 enum
 {
@@ -542,6 +544,21 @@ static void initialize(
 		team_change_host_set((int)policy, (int)margin);
 		error(_error_silent, "dedicated: team changes during a game %s", policy == 0 ? "off" : policy == 2 ? "allowed" :
 			"while the teams stay balanced");
+	}
+	/* the machines of one internet address a game takes: 8 unless set */
+	{
+		long maximum = setting_number("HALO_DEDICATED_MAX_MACHINES_PER_ADDRESS", &settings,
+			SERVER_SETTING_MAX_MACHINES_PER_ADDRESS, SERVER_SETTINGS_DEFAULT_MACHINES_PER_ADDRESS);
+
+		if (maximum < 0)
+			maximum = 0;
+		if (maximum > SERVER_SETTINGS_MAXIMUM_MACHINES_PER_ADDRESS)
+			maximum = SERVER_SETTINGS_MAXIMUM_MACHINES_PER_ADDRESS;
+		network_distributed_set_address_limit(maximum);
+		if (maximum)
+			error(_error_silent, "dedicated: at most %ld machines from one internet address", maximum);
+		else
+			error(_error_silent, "dedicated: no limit on the machines from one internet address");
 	}
 	dedicated.active = dedicated.entry_count > 0;
 }

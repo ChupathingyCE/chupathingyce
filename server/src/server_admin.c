@@ -55,6 +55,9 @@ char const *chat_host_welcome(void);
 void team_change_host_set(int policy, int margin);
 int team_change_host_policy(void);
 int team_change_host_margin(void);
+/* (the limit on machines of one address, port/linux/game/network_distributed.c) */
+void network_distributed_set_address_limit(long maximum);
+long network_distributed_address_limit(void);
 
 #include <errno.h>
 #include <stdio.h>
@@ -1642,6 +1645,9 @@ static void setting_now(
 	case SERVER_SETTING_PLAYLIST_SHUFFLE: snprintf(text, (size_t)size, "%s", status->playlist_shuffle ? "true" : "false"); break;
 	case SERVER_SETTING_TEAM_CHANGE: snprintf(text, (size_t)size, "%d", team_change_host_policy()); break;
 	case SERVER_SETTING_TEAM_CHANGE_MARGIN: snprintf(text, (size_t)size, "%d", team_change_host_margin()); break;
+	case SERVER_SETTING_MAX_MACHINES_PER_ADDRESS:
+		snprintf(text, (size_t)size, "%ld", network_distributed_address_limit());
+		break;
 #ifdef HALO_SERVER
 	case SERVER_SETTING_GAMESPY_LISTING: snprintf(text, (size_t)size, "%s", server_gamespy_enabled() ? "true" : "false"); break;
 	case SERVER_SETTING_GAMESPY_PORT: snprintf(text, (size_t)size, "%ld", server_gamespy_port()); break;
@@ -1685,7 +1691,7 @@ static boolean setting_applies_now(
 		setting == SERVER_SETTING_PLAYLIST_SHUFFLE || setting == SERVER_SETTING_CHAT_LEGACY ||
 		setting == SERVER_SETTING_TEAM_CHANGE || setting == SERVER_SETTING_TEAM_CHANGE_MARGIN ||
 		setting == SERVER_SETTING_GAMESPY_LISTING || setting == SERVER_SETTING_GAMESPY_PORT ||
-		setting == SERVER_SETTING_CE_JOINS;
+		setting == SERVER_SETTING_CE_JOINS || setting == SERVER_SETTING_MAX_MACHINES_PER_ADDRESS;
 }
 
 static char const *environment_value(
@@ -1799,7 +1805,8 @@ boolean server_admin_set(
 		if (setting < 0)
 			command_output_printf(output, "(name, maximum_players, minimum_players, idle_limit, public, name_filter, "
 				"chat, chat_filter, welcome, postgame_seconds, skip_lobby, chat_cooldown, team_change, "
-				"team_change_margin, playlist_shuffle, chat_legacy, gamespy_listing, gamespy_port, ce_joins)\n");
+				"team_change_margin, playlist_shuffle, chat_legacy, gamespy_listing, gamespy_port, ce_joins, "
+				"max_machines_per_address)\n");
 		return FALSE;
 	}
 	environment = environment_value((short)setting);
@@ -1850,6 +1857,7 @@ boolean server_admin_set(
 	case SERVER_SETTING_TEAM_CHANGE_MARGIN:
 		team_change_host_set(team_change_host_policy(), change.values[setting]);
 		break;
+	case SERVER_SETTING_MAX_MACHINES_PER_ADDRESS: network_distributed_set_address_limit(change.values[setting]); break;
 #ifdef HALO_SERVER
 	case SERVER_SETTING_GAMESPY_LISTING:
 		server_gamespy_configure(change.values[setting] ? TRUE : FALSE, server_gamespy_port());

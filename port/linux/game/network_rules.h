@@ -9,8 +9,10 @@ with, and what versions 33 to 38 changed (the game settings record's size by
 the host's version, the gametype's further options, the host's shield effects
 message, how near a static target's copy must be), and the layouts those
 versions' facts make, which a signed legacy table extends for newer versions
-(delta.h, "layouts"). network_distributed.c asks, the unit tests (port/linux/
-tests/network_rules_test.c) check the answers byte for byte. Nothing here has
+(delta.h, "layouts"), and which machines a host's limit on machines of one
+address refuses. network_distributed.c asks, the unit tests (port/linux/
+tests/network_rules_test.c, address_limit_test.c) check the answers byte for
+byte. Nothing here has
 a dependency but the C library and delta.h's numbers; multi-byte values are
 little-endian, as on every machine the game runs on.
 */
@@ -387,5 +389,23 @@ last 4, the further ones, zeros for options this build has none of, the 4
 bytes of local data, then zeros */
 void network_rules_settings_layout_copy(uint8_t const *record, uint8_t const *extended, int options_size,
 	int offset, int length, uint8_t *out);
+
+/* ---------- a host's limit on the machines of one address */
+
+/* the most a host's limit may be set to: a game's machines */
+#define NETWORK_RULES_ADDRESS_LIMIT_MAXIMUM 16
+
+/* whether an IPv4 address (host byte order: its first number the highest
+byte) is one the limit leaves alone, a local network's: 0 (unknown),
+loopback (127/8), the private ranges (10/8, 172.16/12, 192.168/16) and
+link-local (169.254/16). Carrier NAT's 100.64/10 is not: the players of an
+ISP's carrier NAT share a public address, and are counted by it */
+int network_rules_address_is_local(uint32_t address);
+
+/* whether a machine joining from address (host byte order) goes past the
+limit maximum (0 or less: no limit), the addresses of the count machines in
+the game already in others: 1 if maximum or more of them have its
+address, it not a local network's */
+int network_rules_address_full(uint32_t address, uint32_t const *others, int count, long maximum);
 
 #endif /* __NETWORK_RULES_H */

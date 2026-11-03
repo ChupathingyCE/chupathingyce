@@ -245,6 +245,9 @@ const struct server_setting server_settings_table[SERVER_SETTINGS] =
 		"The UDP port of the GameSpy status queries" },
 	{ "ce_joins", SERVER_FIELD_BOOLEAN, 0, 1, "HALO_DEDICATED_CE_JOINS",
 		"Answer Halo Custom Edition 1.0.10 join attempts on the GameSpy port (gamespy_listing must be on)" },
+	{ "max_machines_per_address", SERVER_FIELD_INTEGER, 0, SERVER_SETTINGS_MAXIMUM_MACHINES_PER_ADDRESS,
+		"HALO_DEDICATED_MAX_MACHINES_PER_ADDRESS",
+		"Most machines that may join from one internet address (0: no limit; local network addresses never limited)" },
 };
 
 /* ---------- private code */

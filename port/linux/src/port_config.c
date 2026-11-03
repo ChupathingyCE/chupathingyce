@@ -729,6 +729,11 @@ static const struct config_setting config_settings[] =
 	{ "network.block_mouse_aim_assist", _config_boolean, "false", "HALO_NET_BLOCK_MOUSE_AIM_ASSIST", _environment_value,
 		_platform_all,
 		"Turn off mouse aim assist for everyone in games you host." },
+	{ "network.max_machines_per_address", _config_integer, "0", "HALO_NET_MAX_MACHINES_PER_ADDRESS",
+		_environment_value, _platform_all,
+		"In games you host, the most machines that may join from one internet\n"
+		"address, from 1 to 16. 0 means no limit. Players on your local\n"
+		"network are never limited." },
 	{ "network.coop_friendly_fire", _config_string, "\"on\"", "HALO_NET_COOP_FRIENDLY_FIRE", _environment_value,
 		_platform_all,
 		"Friendly fire in online co-op: \"off\", \"on\", \"shields_only\" or\n"
