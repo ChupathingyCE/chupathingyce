@@ -438,6 +438,8 @@ static boolean write_settings(
 		csstrcpy(settings.playlist_environment, change->playlist_environment);
 	if (change->set[SERVER_SETTING_WELCOME])
 		csstrcpy(settings.welcome, change->welcome);
+	if (change->set[SERVER_SETTING_CE_WELCOME])
+		csstrcpy(settings.ce_welcome, change->ce_welcome);
 	if (server_settings_format(&settings, text, sizeof(text)) < 0)
 	{
 		command_output_printf(output, "the settings do not fit in %s\n", SETTINGS_FILE);
@@ -1646,6 +1648,7 @@ static void setting_now(
 	case SERVER_SETTING_GAMESPY_LISTING: snprintf(text, (size_t)size, "%s", server_gamespy_enabled() ? "true" : "false"); break;
 	case SERVER_SETTING_GAMESPY_PORT: snprintf(text, (size_t)size, "%ld", server_gamespy_port()); break;
 	case SERVER_SETTING_CE_JOINS: snprintf(text, (size_t)size, "%s", server_gamespy_joins() ? "true" : "false"); break;
+	case SERVER_SETTING_CE_WELCOME: snprintf(text, (size_t)size, "%s", server_ce_welcome()); break;
 #endif
 	default: text[0] = 0; break;
 	}
@@ -1668,6 +1671,8 @@ static void setting_saved(
 		snprintf(text, (size_t)size, "%s", settings->playlist_environment);
 	else if (setting == SERVER_SETTING_WELCOME)
 		snprintf(text, (size_t)size, "%s", settings->welcome);
+	else if (setting == SERVER_SETTING_CE_WELCOME)
+		snprintf(text, (size_t)size, "%s", settings->ce_welcome);
 	else if (server_settings_table[setting].kind == SERVER_FIELD_BOOLEAN)
 		snprintf(text, (size_t)size, "%s", settings->values[setting] ? "true" : "false");
 	else
@@ -1685,7 +1690,7 @@ static boolean setting_applies_now(
 		setting == SERVER_SETTING_PLAYLIST_SHUFFLE || setting == SERVER_SETTING_CHAT_LEGACY ||
 		setting == SERVER_SETTING_TEAM_CHANGE || setting == SERVER_SETTING_TEAM_CHANGE_MARGIN ||
 		setting == SERVER_SETTING_GAMESPY_LISTING || setting == SERVER_SETTING_GAMESPY_PORT ||
-		setting == SERVER_SETTING_CE_JOINS;
+		setting == SERVER_SETTING_CE_JOINS || setting == SERVER_SETTING_CE_WELCOME;
 }
 
 static char const *environment_value(
@@ -1735,7 +1740,7 @@ boolean server_admin_settings(
 	for (setting = 0; setting < SERVER_SETTINGS; setting++)
 	{
 		struct server_setting const *description = &server_settings_table[setting];
-		char now[SERVER_SETTINGS_PATH_SIZE + 8], saved[SERVER_SETTINGS_PATH_SIZE + 8];
+		char now[SERVER_SETTINGS_CE_WELCOME_SIZE + 8], saved[SERVER_SETTINGS_CE_WELCOME_SIZE + 8];
 		char const *environment = environment_value(setting);
 		char const *source;
 
@@ -1799,7 +1804,7 @@ boolean server_admin_set(
 		if (setting < 0)
 			command_output_printf(output, "(name, maximum_players, minimum_players, idle_limit, public, name_filter, "
 				"chat, chat_filter, welcome, postgame_seconds, skip_lobby, chat_cooldown, team_change, "
-				"team_change_margin, playlist_shuffle, chat_legacy, gamespy_listing, gamespy_port, ce_joins)\n");
+				"team_change_margin, playlist_shuffle, chat_legacy, gamespy_listing, gamespy_port, ce_joins, ce_welcome)\n");
 		return FALSE;
 	}
 	environment = environment_value((short)setting);
@@ -1856,6 +1861,7 @@ boolean server_admin_set(
 		break;
 	case SERVER_SETTING_GAMESPY_PORT: server_gamespy_configure(server_gamespy_enabled(), change.values[setting]); break;
 	case SERVER_SETTING_CE_JOINS: server_gamespy_set_joins(change.values[setting] ? TRUE : FALSE); break;
+	case SERVER_SETTING_CE_WELCOME: server_ce_set_welcome(change.ce_welcome); break;
 #endif
 	}
 	error(_error_silent, "dedicated: a command sets %s to %s", server_settings_table[setting].key, line->words[2]);

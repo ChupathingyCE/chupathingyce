@@ -304,6 +304,9 @@ enum
 	/* Halo Custom Edition 1.0.10's join wire answered on that port
 	(server/platform/ce_transport.h) */
 	SERVER_SETTING_CE_JOINS,
+	/* the line each Custom Edition player gets in their chat as they join
+	(server/src/server_ce.c; empty: none) */
+	SERVER_SETTING_CE_WELCOME,
 	SERVER_SETTINGS,
 	/* a game's players, at most (halo_port_limits.h's) */
 	SERVER_SETTINGS_MAXIMUM_PLAYERS = 128,
@@ -313,6 +316,8 @@ enum
 	SERVER_SETTINGS_MAXIMUM_TEAM_CHANGE_MARGIN = 16,
 	/* a welcome's characters, at most (a reason's: command_line.h) */
 	SERVER_SETTINGS_WELCOME_SIZE = 128,
+	/* a Custom Edition welcome's characters, at most (its chat line's) */
+	SERVER_SETTINGS_CE_WELCOME_SIZE = 256,
 };
 
 struct server_setting
@@ -336,6 +341,7 @@ struct server_settings
 	char playlist[SERVER_SETTINGS_PATH_SIZE];
 	char playlist_environment[SERVER_SETTINGS_PATH_SIZE];
 	char welcome[SERVER_SETTINGS_WELCOME_SIZE];
+	char ce_welcome[SERVER_SETTINGS_CE_WELCOME_SIZE];
 };
 
 /* whether text is a path a setting may name: a file in the data folder,

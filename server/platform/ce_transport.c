@@ -716,7 +716,9 @@ static void queue_update(void *context, const struct ce_client_update *update)
 	peer->queue_count++;
 }
 
-static void push_event(int peer, int type, const char *name)
+static int peer_number(const struct peer *peer);
+
+static void push_event(const struct peer *peer, int type)
 {
 	struct ce_event *event;
 
@@ -726,9 +728,10 @@ static void push_event(int peer, int type, const char *name)
 		transport.event_count--;
 	}
 	event = &transport.events[(transport.event_first + transport.event_count) % CE_EVENTS];
-	event->peer = peer;
+	event->peer = peer_number(peer);
 	event->type = type;
-	snprintf(event->name, sizeof(event->name), "%s", name ? name : "");
+	snprintf(event->name, sizeof(event->name), "%s", peer->request.name);
+	event->address = ntohl(peer->address.sin_addr.s_addr);
 	transport.event_count++;
 }
 
@@ -740,7 +743,7 @@ static int peer_number(const struct peer *peer)
 static void forget(struct peer *peer)
 {
 	if (peer->game_known)
-		push_event(peer_number(peer), CE_EVENT_LEFT, peer->request.name);
+		push_event(peer, CE_EVENT_LEFT);
 	memset(peer, 0, sizeof(*peer));
 	peer->state = PEER_FREE;
 }
@@ -809,7 +812,7 @@ static void message_received(void *context, const unsigned char *message, int le
 		peer->loaded = 1;
 		say("ce: a Custom Edition player loaded the map%s", "");
 		if (peer->game_known)
-			push_event(peer_number(peer), CE_EVENT_LOADED, peer->request.name);
+			push_event(peer, CE_EVENT_LOADED);
 	}
 }
 
@@ -966,7 +969,7 @@ static void reliable_data(struct peer *peer, const unsigned char *packet, int le
 			peer->game_known = 1;
 			peer->awaiting = 1;
 			peer->awaiting_time = now;
-			push_event(peer_number(peer), CE_EVENT_JOIN, peer->request.name);
+			push_event(peer, CE_EVENT_JOIN);
 			send_control(peer, TYPE_ACK);
 			return;
 		}

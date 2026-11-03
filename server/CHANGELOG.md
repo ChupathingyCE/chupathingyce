@@ -31,6 +31,10 @@ release notes.
   development, `HALO_DEDICATED_CE_ACCEPT=1` takes the join instead: game
   settings, begin game and keep-alives, so the client loads the map and
   stays connected (it doesn't see the game yet).
+- Custom Edition players (still behind the development switch): their own
+  position corrected to the server's, deaths, the scoreboard (kills, deaths,
+  Slayer's scores), a welcome line in their chat (`ce_welcome`), and
+  `sv_say`, `sv_kick` and `sv_ban` reaching them.
 - Control panel hardening: `sv_welcome` needs the settings permission (an
   admin's) and is in the audit file; a command missing from the permission
   table is the console's alone. Wrong logins lock an account only for the

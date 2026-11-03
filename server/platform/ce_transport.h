@@ -43,6 +43,7 @@ enum
 	CE_REJECT_FULL = 3,
 	CE_REJECT_CDKEY = 4,
 	CE_REJECT_BANNED = 6,
+	CE_REJECT_KICKED = 7,
 };
 
 enum
@@ -60,6 +61,8 @@ struct ce_event
 	int peer;
 	int type;
 	char name[13];
+	/* the client's IPv4 address, host byte order */
+	unsigned int address;
 };
 
 /* what a client's join request carries */

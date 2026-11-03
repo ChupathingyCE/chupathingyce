@@ -28,6 +28,7 @@ off by default and refuses the joins otherwise).
 #include "cseries/cseries_windows.h"
 #include "cseries/errors.h"
 #include "game/game.h"
+#include "game/game_engine.h"
 #include "game/players.h"
 #include "memory/data.h"
 #include "networking/network_client_manager.h"
@@ -51,6 +52,8 @@ off by default and refuses the joins otherwise).
 
 /* (network_server_manager_internal.h's) */
 struct network_game *network_game_server_get_game(struct network_game_server *server);
+/* (port/linux/game/network_distributed.c's: bans.txt) */
+boolean network_distributed_banned(unsigned long address, char const *hardware_id);
 
 enum
 {
@@ -69,15 +72,32 @@ struct ce_client
 	boolean active;
 	int peer;
 	char name[13];
+	unsigned long address;
 	boolean added;
 	boolean loaded;
 	/* what this client was told of each player (by absolute index):
 	added, and the unit created for it */
 	long announced[TRACKED_PLAYERS];
 	long unit_sent[TRACKED_PLAYERS];
+	/* each player's last unit it was told died: taken away once our game
+	takes the body away */
+	long body[TRACKED_PLAYERS];
 	int update_id;
 	int sequence;
 	int local_sequence;
+	/* where its biped was as the update being played began (Custom
+	Edition's own server tells a client that, every half second: its game
+	puts its biped there and plays its updates since again) */
+	float start_position[3];
+	int start_update_id;
+	boolean have_start;
+	/* the scores and numbers it was told last (by absolute index) */
+	int scores_sent[CE_GAME_PLAYERS];
+	int team_scores_sent[CE_GAME_PLAYERS];
+	struct ce_player_statistics statistics_sent[CE_GAME_PLAYERS];
+	boolean statistics_known[CE_GAME_PLAYERS];
+	boolean scores_known;
+	boolean welcomed;
 	/* the update being played (its ticks left), as the client's own game
 	plays it: each update holds for its tick count, in order */
 	struct ce_client_update current;
@@ -90,6 +110,10 @@ static struct
 {
 	boolean configured;
 	boolean enabled;
+	/* the line each Custom Edition player gets in their chat once in the
+	game (ce_welcome; empty: none) */
+	char welcome[CE_CHAT_SIZE + 1];
+	boolean welcome_set;
 	struct ce_client clients[CE_LOCAL_PLAYERS];
 	/* each wire number's object */
 	long objects[NETWORK_OBJECTS + 1];
@@ -232,6 +256,12 @@ static boolean join(
 	short index;
 	int length;
 
+	if (network_distributed_banned(event->address, NULL))
+	{
+		ce_transport_refuse(event->peer, CE_REJECT_BANNED);
+		error(_error_silent, "ce: a Custom Edition player was turned away: banned");
+		return TRUE;
+	}
 	dedicated_server_get_status(&status);
 	if (status.state != _dedicated_state_in_game)
 	{
@@ -281,6 +311,7 @@ static boolean join(
 	csmemset(&ce.clients[index], 0, sizeof(ce.clients[index]));
 	ce.clients[index].active = TRUE;
 	ce.clients[index].peer = event->peer;
+	ce.clients[index].address = event->address;
 	snprintf(ce.clients[index].name, sizeof(ce.clients[index].name), "%s", event->name);
 	{
 		long player;
@@ -289,6 +320,7 @@ static boolean join(
 		{
 			ce.clients[index].announced[player] = NONE;
 			ce.clients[index].unit_sent[player] = NONE;
+			ce.clients[index].body[player] = NONE;
 		}
 	}
 	game_settings_for(event->peer, event->name, &settings);
@@ -411,6 +443,113 @@ static int throttle_bits(
 	return bits;
 }
 
+static void send_delete(
+	struct ce_client *client,
+	long object_index)
+{
+	struct ce_payload payload;
+	unsigned char out[32];
+	int number = network_object(object_index, FALSE);
+
+	if (!number)
+		return;
+	ce_payload_begin(&payload, out, sizeof(out));
+	ce_payload_put_object_delete(&payload, number);
+	ce_transport_send(client->peer, out, ce_payload_end(&payload), TRUE);
+}
+
+static void send_chat(
+	struct ce_client *client,
+	char const *text)
+{
+	struct ce_payload payload;
+	unsigned char out[PAYLOAD_SIZE];
+
+	ce_payload_begin(&payload, out, sizeof(out));
+	ce_payload_put_chat(&payload, CE_CHAT_SERVER, CE_CHAT_NO_PLAYER, text);
+	ce_transport_send(client->peer, out, ce_payload_end(&payload), TRUE);
+}
+
+static void player_statistics(
+	struct player_datum const *player,
+	struct ce_player_statistics *statistics)
+{
+	int index;
+
+	csmemset(statistics, 0, sizeof(*statistics));
+	for (index = 0; index < 4; index++)
+	{
+		statistics->kills[index] = player->statistics.kills[index] & 0xffff;
+		statistics->assists[index] = player->statistics.assists[index] & 0xffff;
+	}
+	statistics->betrayals = player->statistics.friendly_fire_kills & 0xffff;
+	statistics->deaths = player->statistics.deaths & 0xffff;
+	statistics->suicides = player->statistics.suicides & 0xffff;
+	statistics->multiplayer_special = (int)player->multiplayer_special;
+	statistics->speed_multiplier = player->speed_multiplier;
+}
+
+/* (each player's numbers and, in Slayer, the scores, as they change: what
+the client's scoreboard and carnage report show) */
+static void send_scores(
+	struct ce_client *client)
+{
+	struct ce_payload payload;
+	unsigned char out[PAYLOAD_SIZE];
+	struct data_iterator iterator;
+	struct player_datum *player;
+	boolean any = FALSE;
+
+	ce_payload_begin(&payload, out, sizeof(out));
+	if (game_engine && game_engine->get_player_score && game_engine_get_variant()->game_engine_index == game_engine_slayer)
+	{
+		int scores[CE_GAME_PLAYERS], team_scores[CE_GAME_PLAYERS];
+		int index;
+
+		csmemset(scores, 0, sizeof(scores));
+		for (index = 0; index < CE_GAME_PLAYERS; index++)
+			team_scores[index] = (int)game_engine_get_team_score(index);
+		data_iterator_new(&iterator, player_data);
+		while ((player = data_iterator_next(&iterator)) != NULL)
+		{
+			long absolute = DATUM_INDEX_TO_ABSOLUTE_INDEX(iterator.datum_index);
+
+			if (absolute < CE_GAME_PLAYERS)
+				scores[absolute] = (int)game_engine->get_player_score(iterator.datum_index, _get_score_individual);
+		}
+		if (!client->scores_known || csmemcmp(scores, client->scores_sent, sizeof(scores)) ||
+			csmemcmp(team_scores, client->team_scores_sent, sizeof(team_scores)))
+		{
+			ce_payload_put_slayer_scores(&payload, scores, team_scores);
+			csmemcpy(client->scores_sent, scores, sizeof(scores));
+			csmemcpy(client->team_scores_sent, team_scores, sizeof(team_scores));
+			client->scores_known = TRUE;
+			any = TRUE;
+		}
+	}
+	data_iterator_new(&iterator, player_data);
+	while ((player = data_iterator_next(&iterator)) != NULL)
+	{
+		long absolute = DATUM_INDEX_TO_ABSOLUTE_INDEX(iterator.datum_index);
+		struct ce_player_statistics statistics;
+
+		if (absolute >= CE_GAME_PLAYERS || client->announced[absolute] != iterator.datum_index)
+			continue;
+		player_statistics(player, &statistics);
+		if (client->statistics_known[absolute] &&
+			!csmemcmp(&statistics, &client->statistics_sent[absolute], sizeof(statistics)))
+		{
+			continue;
+		}
+		ce_payload_put_player_statistics(&payload, network_player_number(iterator.datum_index), &statistics);
+		client->statistics_sent[absolute] = statistics;
+		client->statistics_known[absolute] = TRUE;
+		any = TRUE;
+	}
+	if (any)
+		ce_transport_send(client->peer, out, ce_payload_end(&payload), TRUE);
+}
+
 static void update_client(
 	struct ce_client *client,
 	short local_index)
@@ -448,38 +587,49 @@ static void update_client(
 				client->unit_sent[absolute] = NONE;
 			}
 		}
+		/* (a body our game took away: taken away on the client too) */
+		if (client->body[absolute] != NONE && !object_try_and_get(client->body[absolute]))
+		{
+			send_delete(client, client->body[absolute]);
+			client->body[absolute] = NONE;
+		}
 		if (player->unit_index != client->unit_sent[absolute])
 		{
-			if (client->unit_sent[absolute] != NONE)
-			{
-				struct ce_payload deleted;
-				unsigned char deleted_out[32];
-				int number = network_object(client->unit_sent[absolute], FALSE);
+			long old_unit = client->unit_sent[absolute];
 
-				if (number)
+			if (old_unit != NONE)
+			{
+				/* (a unit that is still there died: its client plays the
+				death and keeps the body until our game takes it away;
+				one that is gone is taken away at once) */
+				if (player->unit_index == NONE && object_try_and_get(old_unit) && network_object(old_unit, FALSE))
 				{
-					ce_payload_begin(&deleted, deleted_out, sizeof(deleted_out));
-					ce_payload_put_object_delete(&deleted, number);
-					ce_transport_send(client->peer, deleted_out, ce_payload_end(&deleted), TRUE);
+					struct ce_payload killed;
+					unsigned char killed_out[64];
+
+					if (client->body[absolute] != NONE)
+						send_delete(client, client->body[absolute]);
+					ce_payload_begin(&killed, killed_out, sizeof(killed_out));
+					ce_payload_put_unit_killed(&killed, network_object(old_unit, FALSE), (int)player->respawn_timer);
+					ce_transport_send(client->peer, killed_out, ce_payload_end(&killed), TRUE);
+					client->body[absolute] = old_unit;
 				}
+				else
+					send_delete(client, old_unit);
 			}
 			client->unit_sent[absolute] = player->unit_index;
 			if (player->unit_index != NONE)
 				send_unit(client, player_index, player->unit_index);
 		}
 		/* (its own biped, twice a second, as Custom Edition's server does:
-		the update being played and where the biped is after it, which its
-		game checks its own prediction against) */
-		if (player_index == own_player && player->unit_index != NONE && client->have_current &&
+		an update and where the biped was as that update began. Its game
+		puts the biped there and plays its own updates from that one on
+		again, so it ends where our game has it) */
+		if (player_index == own_player && player->unit_index != NONE && client->have_start &&
 			game_time_get() % LOCAL_UPDATE_TICKS == 0)
 		{
-			struct unit_datum *unit = unit_get(player->unit_index);
-			float position[3];
-
-			position[0] = unit->object.position.x;
-			position[1] = unit->object.position.y;
-			position[2] = unit->object.position.z;
-			ce_payload_put_local_player_update(&payload, client->local_sequence, client->current.update_id, position);
+			ce_payload_put_local_player_update(&payload, client->local_sequence, client->start_update_id,
+				client->start_position);
 			client->local_sequence = (client->local_sequence + 1) & 31;
 			any = TRUE;
 		}
@@ -515,6 +665,7 @@ static void update_client(
 		client->update_id = (client->update_id + 1) & 63;
 		client->sequence = (client->sequence + 1) & 7;
 	}
+	send_scores(client);
 }
 
 /* ---------- public code */
@@ -556,7 +707,12 @@ void server_ce_update(
 			break;
 		case CE_EVENT_LOADED:
 			if (client)
+			{
 				client->loaded = TRUE;
+				if (!client->welcomed && server_ce_welcome()[0])
+					send_chat(client, server_ce_welcome());
+				client->welcomed = TRUE;
+			}
 			break;
 		case CE_EVENT_LEFT:
 			leave(event.peer);
@@ -624,9 +780,25 @@ boolean server_ce_local_action(
 			client->ticks_left--;
 		if (client->ticks_left <= 0 && ce_transport_next_update(client->peer, &update))
 		{
+			long unit_index = local_player_get_player_index(local_player_index) == NONE ? NONE :
+				player_get(local_player_get_player_index(local_player_index))->unit_index;
+
 			client->current = update;
 			client->have_current = TRUE;
 			client->ticks_left = update.ticks > 0 ? update.ticks : 1;
+			/* (where its biped is now, before this tick moves it: where the
+			update begins) */
+			client->have_start = FALSE;
+			if (unit_index != NONE)
+			{
+				struct object_datum *object = object_get(unit_index);
+
+				client->start_position[0] = object->object.position.x;
+				client->start_position[1] = object->object.position.y;
+				client->start_position[2] = object->object.position.z;
+				client->start_update_id = update.update_id;
+				client->have_start = TRUE;
+			}
 		}
 	}
 	if (!client->have_current)
@@ -646,6 +818,80 @@ boolean server_ce_local_action(
 	action->throttle.j = left;
 	action->primary_trigger = update.primary_trigger ? 1.0f : 0.0f;
 	return TRUE;
+}
+
+
+void server_ce_set_welcome(
+	char const *text)
+{
+	static char const default_welcome[] = "Welcome to a Chupathingy cross-play server! You're playing with Chupathingy "
+		"players on PC, Mac, Linux, Android and Xbox. Info: chupathingy.org";
+
+	snprintf(ce.welcome, sizeof(ce.welcome), "%s", text ? text : default_welcome);
+	ce.welcome_set = TRUE;
+}
+
+char const *server_ce_welcome(
+	void)
+{
+	if (!ce.welcome_set)
+		server_ce_set_welcome(NULL);
+	return ce.welcome;
+}
+
+int server_ce_say(
+	char const *text)
+{
+	short index;
+	int count = 0;
+
+	for (index = 0; index < CE_LOCAL_PLAYERS; index++)
+	{
+		if (ce.clients[index].active && ce.clients[index].loaded)
+		{
+			send_chat(&ce.clients[index], text);
+			count++;
+		}
+	}
+	return count;
+}
+
+boolean server_ce_kick(
+	long machine_index,
+	long controller_index,
+	unsigned long *address)
+{
+	short index;
+
+	for (index = 0; index < CE_LOCAL_PLAYERS; index++)
+	{
+		struct ce_client *client = &ce.clients[index];
+		long player_index = local_player_get_player_index(index);
+		struct player_datum *player;
+
+		if (!client->active || player_index == NONE)
+			continue;
+		player = player_get(player_index);
+		if (player->network_player_data.machine_index != machine_index ||
+			player->network_player_data.controller_index != controller_index)
+		{
+			continue;
+		}
+		if (address)
+			*address = client->address;
+		{
+			unsigned char message[16], out[64];
+			int length = ce_message_machine_rejected(CE_REJECT_KICKED, message, sizeof(message));
+
+			length = length ? ce_payload_from_message(message, length, out, sizeof(out)) : 0;
+			if (length)
+				ce_transport_send(client->peer, out, length, TRUE);
+		}
+		ce_transport_drop(client->peer);
+		leave(client->peer);
+		return TRUE;
+	}
+	return FALSE;
 }
 
 #endif
