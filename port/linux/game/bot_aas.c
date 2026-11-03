@@ -67,7 +67,7 @@ there. Reachabilities that bots keep failing at cost more (learned).
 #define AAS_FOOT_SPEED 2.25f
 #define AAS_VEHICLE_SPEED 6.f
 #define AAS_CACHES 96
-#define AAS_CACHE_VERSION 32
+#define AAS_CACHE_VERSION 33 /* (33: teleporter pads reached from the floor round them) */
 #define AAS_DEAD_FAILURES 4 /* failed this often: not a way */
 #define AAS_CACHE_MAGIC 0x53414148UL /* HAAS */
 #define AAS_MAXIMUM_PLACES 256
@@ -1779,8 +1779,39 @@ static byte *aas_netgame_flag(struct scenario *scenario, long index)
 	return (byte *)xbox_pointer(scenario->netgame_flags.address) + index * 0x94;
 }
 
+/* where a teleporter's pad (or its way out) meets the areas: the area of
+   the floor under the flag; else, when that floor is somewhere of its own
+   that the areas do not reach (the pad set into a housing, on a step, with
+   too little room over it for the areas: a body walks onto it all the same,
+   as a person does), the area of the nearest floor round it that is in
+   one, a step or a few off. The pad itself is where the bot walks to from
+   there (bot_move.c, "right onto the pad"). NONE when none is near. */
+static long aas_teleporter_attach(long type, real_point3d const *at, long steps, long *found)
+{
+	static real const rings[] = { 0.f, 0.6f, 1.2f, 1.8f, 2.5f, 3.2f };
+	long ring;
+	long area = aas_attach(type, navm_span_at(at, 0.6f, 1.5f), steps, found);
+	if (area != NONE)
+		return area;
+	for (ring = 0; ring < (long)(sizeof(rings) / sizeof(rings[0])); ring++)
+	{
+		long k;
+		long count = ring == 0 ? 1 : 12;
+		for (k = 0; k < count; k++)
+		{
+			real_point3d p = *at;
+			p.x += rings[ring] * (real)cos(k * 0.5235988f);
+			p.y += rings[ring] * (real)sin(k * 0.5235988f);
+			area = aas_attach(type, navm_span_at(&p, 1.2f, 3.f), steps, found);
+			if (area != NONE)
+				return area;
+		}
+	}
+	return NONE;
+}
+
 /* teleporters (multiplayer flags: a source pad sends you to the target
-   on the same channel) */
+   on the same channel: one way, unless another pair goes back) */
 static void aas_teleporter_reaches(long type, struct aas_reaches *reaches)
 {
 	struct scenario *scenario = global_scenario_get();
@@ -1803,10 +1834,15 @@ static void aas_teleporter_reaches(long type, struct aas_reaches *reaches)
 			struct aas_reach *reach;
 			if (*(short *)(target + 0x10) != _netgame_flag_teleporter_target || *(short *)(target + 0x12) != channel)
 				continue;
-			a = aas_attach(type, navm_span_at(from, 0.6f, 1.5f), attach_steps, &a_span);
-			b = aas_attach(type, navm_span_at(to, 0.6f, 1.5f), attach_steps, &b_span);
+			a = aas_teleporter_attach(type, from, attach_steps, &a_span);
+			b = aas_teleporter_attach(type, to, attach_steps, &b_span);
 			if (a == NONE || b == NONE || a == b || !(reach = aas_reach_new(reaches, a, b, _aas_travel_teleport)))
+			{
+				if (bot_logging())
+					bot_log("aas: %s teleporter %.1f %.1f %.1f -> %.1f %.1f %.1f not taken (pad's area %ld, exit's area %ld)",
+						type == AAS_VEHICLE ? "vehicle" : "foot", from->x, from->y, from->z, to->x, to->y, to->z, a, b);
 				break;
+			}
 			navm_span_point(a_span, &reach->start);
 			reach->edge = *from;
 			navm_span_point(b_span, &reach->end);

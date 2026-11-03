@@ -1248,8 +1248,10 @@ it:
   SKILL** are rows of GAME SETUP. **BOT OPTIONS** opens the other rows (FILL
   GAME TO, SKILL SPREAD, KEEP GAMES CLOSE), and B goes back to GAME SETUP.
   START GAME keeps the values in `config.toml` for the next games and opens
-  the lobby. Split screen's GAME SETUP has only the game type, the bots and
-  START GAME: the other rows are for games on a network.
+  the lobby. Split screen's GAME SETUP has only the game type, MAX
+  PLAYERS (room for the bots: more than 15 bots need more than 16
+  players), the bots and START GAME: the other rows are for games on a
+  network.
 - **The lobby**: the host presses Y (the hint "Y BOTS" is under the button
   key) to open the bots' rows. The lobby gets the new bots at once.
 - **The pause menu** of a game that this machine hosts: **BOTS** opens the
@@ -1261,7 +1263,7 @@ The rows:
 
 | Row | Values | Setting |
 | --- | --- | --- |
-| BOTS | `NONE`, `1` to one less than MAX PLAYERS (15 at most); `AUTO` when FILL GAME TO is on | `bots.count` |
+| BOTS | `NONE`, `1` to one less than MAX PLAYERS (127 at most, in a game of 128); `AUTO` when FILL GAME TO is on | `bots.count` |
 | FILL GAME TO | `OFF`, `2` to MAX PLAYERS: bots fill the places that people do not have | `bots.fill` |
 | BOT SKILL | `1 EASY` to `10 NEAR PERFECT` | `bots.skill` |
 | SKILL SPREAD | `NONE`, or a range below BOT SKILL | `bots.skill_spread` |
@@ -1271,7 +1273,8 @@ With the Xbox's menus (`display.menus = "xbox"`) or Gearbox's, which have no
 GAME SETUP, the same rows are on a BOTS screen of their own: the host
 presses Y in the lobby (split screen's and System Link's: the hint "Y BOTS"
 is under the button key), or chooses BOTS in the pause menu. A or B closes
-it and keeps the values in `config.toml`.
+it and keeps the values in `config.toml`. These menus have no MAX PLAYERS: the
+game has room for 128 players, and BOTS goes up to 127.
 
 X sets all the rows to the default values. A game ends when only one team
 is left, as when players quit: if you remove the last bot from a game that
@@ -2873,6 +2876,60 @@ bot does. The character still decides how the bot fights on the way.
 
 With `HALO_BOT_LOG=1`, the log has one line for each bot with its
 character.
+
+### Bots that look for people, the motion tracker, the top level
+
+- **Quiet time.** The longer a bot sees nobody (no enemy seen, heard, on
+  its motion tracker, or shooting at it), the more it goes to find
+  someone: from 8 seconds of quiet (4 in a game of 6 players or fewer) to
+  30 seconds (15), when finding someone is its main goal. With more than
+  half of that, it goes to the nearest dot on its motion tracker first,
+  else the nearest enemy, and it looks again every 4 seconds; a bot that
+  usually hangs back, or has a poor weapon, goes after a dot too.
+  Not in capture the flag, King of the Hill, Oddball or Race, where the
+  objective is what to find. `HALO_BOT_OFF=seek` turns this off. (In
+  test games of bots only, the number of kills did not change: the bots
+  already went to find each other.)
+- **The motion tracker.** A bot keeps every dot on its motion tracker in
+  mind for 4 seconds (8 at most), not only the nearest, and tells its team
+  where they are. It does not turn to look at a dot that is more than 14
+  world units away while it goes somewhere: it knows they are there.
+  Hurt, with three or more dots near it, it breaks off the fight.
+  `HALO_BOT_OFF=radar` turns this off.
+- **The top level.** From skill 8 the traits that make mistakes are drawn
+  toward a master's, and at 10 they are a master's: no detours on a whim,
+  no jumps at nothing outside a fight, steady when hit, bursts where they
+  are best, and the objective first. The traits that give a bot its
+  character (how bold, how patient, its weapon, its love of vehicles)
+  stay. Its movement changes direction at once instead of over a few
+  ticks.
+- **Grenades up and down.** To a place more than 1.5 world units above or
+  below, a bot throws the high way first, which comes down on the place
+  and stays there; the low way comes in flat and bounced and rolled on
+  past the target, or over an edge. In test games on Chill Out, Hang 'Em
+  High, Prisoner and Damnation, grenades thrown down landed within 3 world
+  units of the place 80% of the time instead of 68%, and grenades thrown
+  up 57% of the time instead of 27%.
+- **Teleporters.** A teleporter (a one-way one too) is a way for the bots
+  when its pad is near floor that they walk on, also when the pad stands
+  on a housing (Death Island's, Icefields', Danger Canyon's were not used
+  before). Bake the navigation again (`AAS_CACHE_VERSION` 33 does this by
+  itself).
+- **Out of reach in a vehicle.** A driver whose enemy is somewhere that no
+  vehicle goes (up on rocks, over the water) drives as near them as it can
+  and shoots from there if its vehicle has a gun; with no gun, or still
+  nowhere after a few seconds, it gets out and goes after them on foot.
+  It no longer stands still below them.
+- **Team King of the Hill.** The hill comes before anything: a bot on the
+  hill stays on it and fights from it, and a bot off the hill goes back.
+  When the hill is the team's (players of the team on it, none of the
+  other team) and others hold it, a bot can guard just outside it, on the
+  side of the nearest enemy. A better weapon a few steps away (6 world
+  units or less, near the hill) is taken first. `HALO_BOT_OFF=hill`
+  turns this off.
+  In 15 games of team King of the Hill (Blood Gulch, Hang 'Em High, Chill
+  Out, Damnation, Battle Creek; 8 bots), a team held the hill alone (and
+  scored) 67% of the time instead of 55%.
 
 ### How the bots find their way, and what they cost
 

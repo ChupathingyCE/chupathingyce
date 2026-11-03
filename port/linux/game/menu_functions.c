@@ -7242,11 +7242,11 @@ static boolean host_bot_row(short row)
 }
 
 /* a row split screen's GAME SETUP has no use for: a networked game's (its
-name, its listing, its port, the most players of other machines) and the
-host's rules over other people's machines */
+name, its listing, its port) and the host's rules over other people's
+machines. (MAX PLAYERS stays: the room for the bots.) */
 static boolean host_network_row(short row)
 {
-	return row == _host_row_name || row == _host_row_maximum_players || row == _host_row_public ||
+	return row == _host_row_name || row == _host_row_public ||
 		row == _host_row_password || row == _host_row_port || row == _host_row_rules;
 }
 
@@ -7318,7 +7318,8 @@ static wchar_t const *host_bot_skill_name(long skill)
 }
 
 /* the most bots: one fewer than the game's players (the host's own takes
-one), as GAME SETUP's MAX PLAYERS has it before the game, else the game's */
+one), as GAME SETUP's MAX PLAYERS has it before the game (split screen's
+too), else the game's; up to the 127 a game of 128 has room for */
 static long host_bots_most(void)
 {
 	long most = maximum_players[PIN(multiplayer.maximum_players_index, 0, NUMBEROF(maximum_players) - 1)];
@@ -7327,10 +7328,7 @@ static long host_bots_most(void)
 
 	if (game && game->maximum_players > 0 && game_engine_running())
 		most = game->maximum_players;
-	/* (split screen's: the game's every player but the first) */
-	else if (host_setup.page == _host_page_split)
-		most = 16;
-	return PIN(most - 1, 0, 15);
+	return PIN(most - 1, 0, HALO_PORT_MAXIMUM_NETWORK_PLAYERS - 1);
 }
 
 /* a row's value (and whether left and right change it) */
@@ -7648,6 +7646,10 @@ static boolean host_split_start(struct widget_instance *widget, boolean *widget_
 {
 	if (text_field_editing(NULL))
 		text_field_end(TRUE);
+	/* (the most players: room for the bots, more than 16 of them too) */
+	if (global_network_game_server_get())
+		network_game_server_port_set_settings(multiplayer.game_name,
+			maximum_players[PIN(multiplayer.maximum_players_index, 0, NUMBEROF(maximum_players) - 1)]);
 	host_bots_write();
 	ui_play_audio_feedback_sound(SOUND_FORWARD);
 	return ui_widget_port_open(widget, HOST_SPLIT_LOBBY_SCREEN, widget_deleted);

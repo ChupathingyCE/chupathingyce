@@ -111,15 +111,15 @@ static boolean bots_screen_host(
 	return global_network_game_server_get() != NULL;
 }
 
-/* the most bots: the game's players but the host's own (15 at most) */
+/* the most bots: the game's players but the host's own (127 at most) */
 static long bots_screen_most(
 	void)
 {
 	void *server = global_network_game_server_get();
 	struct network_game *game = server ? network_game_server_get_game(server) : NULL;
-	long most = game && game->maximum_players > 0 ? game->maximum_players : 16;
+	long most = game && game->maximum_players > 0 ? game->maximum_players : HALO_PORT_MAXIMUM_NETWORK_PLAYERS;
 
-	return PIN(most - 1, 0, 15);
+	return PIN(most - 1, 0, HALO_PORT_MAXIMUM_NETWORK_PLAYERS - 1);
 }
 
 static void bots_screen_rows(
