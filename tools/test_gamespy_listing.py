@@ -39,7 +39,7 @@ def harness(tmp_path_factory):
         pytest.skip("no C compiler")
     out = tmp_path_factory.mktemp("gamespy") / "gamespy_harness"
     subprocess.run([cc, "-std=gnu99", "-Wall", "-Wextra", "-Werror", "-O1", "-g", "-o", str(out),
-                    *map(str, HARNESS_SOURCES), "-lpthread"], check=True)
+                    *map(str, HARNESS_SOURCES), "-lpthread", "-lm"], check=True)
     return out
 
 
