@@ -32,6 +32,9 @@ enum
 	CE_DELTA_OBJECT_UPDATE = 5,
 	CE_DELTA_PLAYER_SPAWN = 8,
 	CE_DELTA_CLIENT_UPDATE = 13,
+	CE_DELTA_CHAT = 15,
+	CE_DELTA_SLAYER_SCORES = 16,
+	CE_DELTA_PLAYER_STATISTICS = 21,
 	CE_DELTA_LOCAL_PLAYER_UPDATE = 35,
 	CE_DELTA_REMOTE_PLAYER_ACTIONS = 37,
 	CE_DELTA_REMOTE_PLAYER_POSITION = 39,
@@ -166,6 +169,34 @@ struct ce_remote_actions
 	int grenade;
 };
 
+/* a player's numbers, as the scoreboard and carnage report show them */
+struct ce_player_statistics
+{
+	int kills[4];
+	int assists[4];
+	int betrayals;
+	int deaths;
+	int suicides;
+	/* the game type's own (Capture the Flag, King, Oddball, Race) */
+	int game_specific[3];
+	int multiplayer_special;
+	int flag;
+	float speed_multiplier;
+};
+
+/* a chat line's kind: everyone, team, vehicle, or the server's (a server
+line names no player: CE_CHAT_NO_PLAYER) */
+enum
+{
+	CE_CHAT_ALL = 0,
+	CE_CHAT_TEAM = 1,
+	CE_CHAT_VEHICLE = 2,
+	CE_CHAT_SERVER = 3,
+	CE_CHAT_NO_PLAYER = 0xff,
+	/* a line's characters, at most */
+	CE_CHAT_SIZE = 255,
+};
+
 struct ce_payload
 {
 	unsigned char *data;
@@ -207,6 +238,15 @@ void ce_throttle(int bits, float *forward, float *left);
 how many were read */
 int ce_payload_read_client_updates(const unsigned char *payload, int length, struct ce_client_update *update,
 	void (*each)(void *context, const struct ce_client_update *update), void *context);
+/* a chat line (kind CE_CHAT_*, the player who said it or
+CE_CHAT_NO_PLAYER), printable ASCII */
+void ce_payload_put_chat(struct ce_payload *payload, int kind, int player, const char *text);
+/* Slayer's scores: each player's (by absolute index) and each team's */
+void ce_payload_put_slayer_scores(struct ce_payload *payload, const int players[CE_GAME_PLAYERS],
+	const int teams[CE_GAME_PLAYERS]);
+/* a player's numbers (its wire number, 5 bits), in full */
+void ce_payload_put_player_statistics(struct ce_payload *payload, int player,
+	const struct ce_player_statistics *statistics);
 /* the server's keep-alive delta: one entry */
 void ce_payload_put_server_keep_alive(struct ce_payload *payload, int index, unsigned int value);
 /* the payload's length in bytes (written in its first 11 bits), or 0 */

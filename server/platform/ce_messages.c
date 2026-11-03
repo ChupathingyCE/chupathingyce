@@ -417,6 +417,55 @@ void ce_payload_put_remote_player_actions(struct ce_payload *payload, const stru
 	put_bits(payload, (unsigned int)actions->grenade, 2);
 }
 
+/* ---------- chat and scores */
+
+void ce_payload_put_chat(struct ce_payload *payload, int kind, int player, const char *text)
+{
+	int length = (int)strnlen(text, CE_CHAT_SIZE);
+	int index;
+
+	put_delta_header(payload, CE_DELTA_CHAT);
+	put_bits(payload, (unsigned int)kind, 8);
+	put_bits(payload, (unsigned int)player, 8);
+	/* (the line: its length in 8 bits, then 16-bit characters) */
+	put_bits(payload, (unsigned int)length, 8);
+	for (index = 0; index < length; index++)
+		put_bits(payload, (unsigned char)text[index], 16);
+}
+
+void ce_payload_put_slayer_scores(struct ce_payload *payload, const int players[CE_GAME_PLAYERS],
+	const int teams[CE_GAME_PLAYERS])
+{
+	int index;
+
+	put_delta_header(payload, CE_DELTA_SLAYER_SCORES);
+	for (index = 0; index < CE_GAME_PLAYERS; index++)
+		put_bits(payload, (unsigned int)players[index], 32);
+	for (index = 0; index < CE_GAME_PLAYERS; index++)
+		put_bits(payload, (unsigned int)teams[index], 32);
+}
+
+void ce_payload_put_player_statistics(struct ce_payload *payload, int player,
+	const struct ce_player_statistics *statistics)
+{
+	int index;
+
+	put_delta_header(payload, CE_DELTA_PLAYER_STATISTICS);
+	put_bits(payload, (unsigned int)player, 5);
+	for (index = 0; index < 4; index++)
+		put_bits(payload, (unsigned int)statistics->kills[index], 16);
+	for (index = 0; index < 4; index++)
+		put_bits(payload, (unsigned int)statistics->assists[index], 16);
+	put_bits(payload, (unsigned int)statistics->betrayals, 16);
+	put_bits(payload, (unsigned int)statistics->deaths, 16);
+	put_bits(payload, (unsigned int)statistics->suicides, 16);
+	for (index = 0; index < 3; index++)
+		put_bits(payload, (unsigned int)statistics->game_specific[index], 16);
+	put_bits(payload, (unsigned int)statistics->multiplayer_special, 32);
+	put_bits(payload, (unsigned int)statistics->flag, 1);
+	put_real(payload, statistics->speed_multiplier);
+}
+
 /* ---------- reading a client's payload */
 
 struct reader

@@ -287,6 +287,71 @@ def test_keep_alive_matches_capture(harness):  # noqa: F811
     assert out == "08a8060000000000"
 
 
+def bits_of(hex_text):
+    """A payload's bits, least significant first (the wire's order)."""
+    return "".join(format(byte, "08b")[::-1] for byte in bytes.fromhex(hex_text))
+
+
+# (our capture of Custom Edition 1.0.10's server: a client's chat line as
+# the server passes it on, kind 0 (everyone), player 0; the last byte's
+# unused bits are whatever the server's buffer held)
+CAPTURED_CHAT = "22e80100704003280360036003780300012803b00328039003c80378037003280398"
+
+
+def test_chat_matches_capture(harness):  # noqa: F811
+    import subprocess
+    out = subprocess.run([str(harness), "chat", "0", "0", "hello everyone"], capture_output=True, text=True,
+                         check=True).stdout.strip()
+    used = 11 + 8 + 16 + 8 + 14 * 16
+    assert len(out) == len(CAPTURED_CHAT)
+    assert bits_of(out)[:used] == bits_of(CAPTURED_CHAT)[:used]
+
+
+def test_server_chat_line(harness):  # noqa: F811
+    """A server line (kind 3, no player: as Custom Edition's sv_say sends
+    it), read back."""
+    import subprocess
+    out = subprocess.run([str(harness), "chat", "3", "255", "Welcome!"], capture_output=True, text=True,
+                         check=True).stdout.strip()
+    bits = bits_of(out)
+    number = lambda start, width: int(bits[start:start + width][::-1], 2)  # noqa: E731
+    assert number(0, 11) == len(out) // 2
+    assert number(11, 1) == 1 and number(12, 1) == 0 and number(13, 6) == 15
+    assert number(19, 8) == 3 and number(27, 8) == 255 and number(35, 8) == 8
+    assert "".join(chr(number(43 + 16 * index, 16)) for index in range(8)) == "Welcome!"
+
+
+# (our capture of Custom Edition 1.0.10's server after a join: weapon
+# creations, Slayer's scores (bits 4763 to 5795), a player added, the
+# player's numbers in full (bits 5880 to 6182) and as a change)
+CAPTURED_WORLD = (
+    "11ebbb255831b7f0ff0f0000000000cc0140f3ff2cfedfffff0a5838fb0a81c0750c538a78ffdc774bb0627ee1ff1f00"
+    "00000000980380e6ff59fcbfffff15681ef915b228ed18a614f1feb9ef9660c51cc3ff3f0000000000300700cdffb3f8"
+    "7fffff2b70f50322a42b252a4c2de2fd73df2dc18a7986ff7f0000000000600e009aff67f1fffeff5760b3f84388443e"
+    "54985ac4fbe7be5b8215730dffff0000000000c01c0034ffcfe2fffdffaf003b3688502979a830b588f7cf7db7042be6"
+    "1bfeff010000000080390068fe9fc5fffbff5f01cf291021d1bc50616a11ef9ffb4e0936cc43fcff030000000000cd87"
+    "e7c63fa2c300f8e402451fda42fc8fd8c2ecaf0340f7f514c49a8bf8ff070000000000ec160f387ca44e267e06058eae"
+    "f184ea20378693a47d81eeeb2988351ff1ff0f0000000000d82d1e70f8489d4cfc0c0a9c26e109f5726d0caffbfd02dd"
+    "d753106b4ee2ff1f0000000000b05b3ce0f0913a99f81914d033cd139a02db181ece0306baafa720d6bcc4ff3f000000"
+    "000060b778c0e1237532f13328106f9127344fb3310c580f0c745f4f41acb989ff7f00000000002029eec2c8279888e2"
+    "4950a0419b5268669653983dee16e8be9e8258f313ffff00000000004052dc85914f3011c593a000674ea5104c1aa7b0"
+    "36f62dd07d3d05b1e628feff010000000080929dd3e61e8e475264410159a04a212e7d4e61c0485ca0fb7a0a62cd53fc"
+    "ff030000000000253ba7cd3d1c8fa4c882028fae95429fb69cc29b1bb940f771124098bbf8ff07000000000030978f24"
+    "8032faa044230506f6d784306bd385853ad77f0e02000000000000000000000000000000000000000000000000000000"
+    "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+    "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+    "00000000e800000080630f00000000550100000000000000000000000000000000000000000000000000000000000000"
+    "00000000c01500d0f0ffffff0f0000f823")
+
+
+def test_scores_match_capture(harness):  # noqa: F811
+    import subprocess
+    out = subprocess.run([str(harness), "scores"], capture_output=True, text=True, check=True).stdout.strip()
+    ours, captured = bits_of(out), bits_of(CAPTURED_WORLD)
+    assert ours[11:11 + 1032] == captured[4763:5795]
+    assert ours[11 + 1032:11 + 1032 + 302] == captured[5880:6182]
+
+
 def test_response_matches_capture():
     # (a challenge and the answer Custom Edition 1.0.10's server gave to it)
     challenge = b".BUH5(RlWH%I[|W<+WS0KtIF]t%O7D{d"

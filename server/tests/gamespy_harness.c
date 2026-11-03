@@ -12,6 +12,10 @@ the masters the last heartbeat). Its notices go to standard output.
   gamespy_harness keepalive     (the server's keep-alive payload, as hex)
   gamespy_harness settings      (a game settings payload, as hex: the one
                                  our capture of Custom Edition's server has)
+  gamespy_harness chat <kind> <player> <text>
+                                (a payload of one chat line, as hex)
+  gamespy_harness scores        (a payload of Slayer's scores and a player's
+                                 numbers, all zero as a new game's, as hex)
 */
 
 #include "../platform/gamespy_listing.h"
@@ -133,6 +137,40 @@ int main(int argc, char **argv)
 
 		ce_payload_begin(&payload, out, sizeof(out));
 		ce_payload_put_server_keep_alive(&payload, 0, 0);
+		length = ce_payload_end(&payload);
+		for (index = 0; index < length; index++)
+			printf("%02x", out[index]);
+		printf("\n");
+		return 0;
+	}
+	if (argc == 5 && !strcmp(argv[1], "chat"))
+	{
+		struct ce_payload payload;
+		unsigned char out[600];
+		int length;
+
+		ce_payload_begin(&payload, out, sizeof(out));
+		ce_payload_put_chat(&payload, atoi(argv[2]), atoi(argv[3]), argv[4]);
+		length = ce_payload_end(&payload);
+		for (index = 0; index < length; index++)
+			printf("%02x", out[index]);
+		printf("\n");
+		return 0;
+	}
+	if (argc == 2 && !strcmp(argv[1], "scores"))
+	{
+		struct ce_player_statistics statistics;
+		struct ce_payload payload;
+		int scores[CE_GAME_PLAYERS];
+		unsigned char out[300];
+		int length;
+
+		memset(scores, 0, sizeof(scores));
+		/* (a new player's first numbers: all zero) */
+		memset(&statistics, 0, sizeof(statistics));
+		ce_payload_begin(&payload, out, sizeof(out));
+		ce_payload_put_slayer_scores(&payload, scores, scores);
+		ce_payload_put_player_statistics(&payload, 1, &statistics);
 		length = ce_payload_end(&payload);
 		for (index = 0; index < length; index++)
 			printf("%02x", out[index]);
