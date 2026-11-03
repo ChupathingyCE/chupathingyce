@@ -16,6 +16,10 @@ HALO_CUSTOM_EDITION: Halo PC's Custom Edition and HaloMD maps (maps_ce,
 maps_pc, maps_md), their loaders and conversions
 HALO_GAME_BROWSER: the game list, text chat and the dedicated server
 (configure.py --no-game-browser)
+
+and one a console's build sets to have an extra the desktop's have:
+HALO_CONSOLE_GAME_REPORTS: the reports of the games it joins, sent to the
+site (port/console/reports), as the desktop builds' game list sends them
 */
 
 #ifndef __HALO_PORT_FEATURES_H
@@ -115,6 +119,14 @@ and a console's with Delta Peer as a client (HALO_CONSOLE_DELTA), the
 client's part only, unless it sets HALO_CONSOLE_NO_CHAT */
 #if defined(HALO_GAME_BROWSER) || (defined(HALO_CONSOLE_DELTA) && !defined(HALO_CONSOLE_NO_CHAT))
 #define HALO_PORT_CHAT
+#endif
+
+/* the statistics recorder and the report of a joined game
+(port/linux/game/game_stats.c): the desktop builds' (HALO_GAME_BROWSER,
+whose game list sends it), and a console's that sends its own reports
+(HALO_CONSOLE_GAME_REPORTS: port/console/reports/console_reports.h) */
+#if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_GAME_REPORTS)
+#define HALO_PORT_GAME_REPORTS
 #endif
 
 #endif /* __HALO_PORT_FEATURES_H */
