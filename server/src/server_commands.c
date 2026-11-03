@@ -132,6 +132,10 @@ boolean network_distributed_unban(long index);
 int team_change_move(long list_index, short team, char *text, int size);
 /* (the version: server_platform.c's, updater.c's in the game) */
 const char *updater_version(void);
+#ifdef HALO_SERVER
+/* whether people can join (server_platform.c) */
+int server_platform_reach(char *text, int size, int json);
+#endif
 char const *cache_files_map_directory(void);
 
 /* ---------- structures */
@@ -758,6 +762,15 @@ static void print_status(
 			command_output_json_string(output, status.skipped);
 		else
 			command_output_printf(output, "null");
+#ifdef HALO_SERVER
+		/* (additive: whether people can join, server/docs/admin.md) */
+		{
+			char reach[512];
+
+			if (server_platform_reach(reach, (int)sizeof(reach), TRUE))
+				command_output_printf(output, ", \"reach\": {%s}", reach);
+		}
+#endif
 		command_output_printf(output, "}");
 		return;
 	}
@@ -780,6 +793,14 @@ static void print_status(
 	command_output_printf(output, "uptime: %s\n", status.uptime_seconds < 60 ? "under a minute" : uptime);
 	if (status.skipped[0])
 		command_output_printf(output, "last skipped: %s\n", status.skipped);
+#ifdef HALO_SERVER
+	{
+		char reach[512];
+
+		if (server_platform_reach(reach, (int)sizeof(reach), FALSE))
+			command_output_printf(output, "%s", reach);
+	}
+#endif
 }
 
 /* ---------- the commands */
