@@ -533,6 +533,10 @@ def test_loader_presumes_the_next_version(keys, checker, tmp_path):
     ("hosting not ascending", lambda: document(row=dict(floor(), hosting=[floor()["maximum"] + 3,
                                                                           floor()["maximum"] + 2]))),
     ("hosting too long", lambda: document(row=dict(floor(), hosting=list(range(50, 59))))),
+    ("requires not a list", lambda: document(row=dict(floor(), requires="hit_report_checks"))),
+    ("requires twice", lambda: document(row=dict(floor(), requires=["hit_report_checks", "hit_report_checks"]))),
+    ("requires a number", lambda: document(row=dict(floor(), requires=[5]))),
+    ("requires too long", lambda: document(row=dict(floor(), requires=[f"p{index}" for index in range(17)]))),
 ])
 def test_loader_drops_bad_tables(keys, checker, tmp_path, name, make):
     table = write_signed(keys, tmp_path / "bad", make())
@@ -1059,3 +1063,134 @@ def test_loader_override_hosting(checker, tmp_path):
     local.write_bytes(document(serial=1, row={"announce": 39, "minimum": 11, "maximum": 40, "hosting": [41]}))
     output = run_checker(checker, tmp_path, "state", override=local)
     assert state_line(output)[0] == "state 41 11 40 serial 0 override 1 disabled 0 signed 0"
+
+
+# ---------- host protections: a row's "requires"
+
+
+def test_host_protections_are_honest():
+    """the names a row may require, and the ones this build has: never
+    line of sight, an address limit or votes until a build enforces them"""
+    protections = delta_table.host_protections()
+    assert protections, "delta.h's DELTA_HOST_PROTECTIONS has no names"
+    assert all(re.fullmatch(r"[a-z0-9_]{1,31}", name) for name in protections)
+    assert protections["hit_report_checks"] is True
+    for name in ("hit_line_of_sight", "address_machine_limit", "map_votes"):
+        assert protections[name] is False, f"{name} is in no build yet"
+
+
+def requires_row(**fields):
+    """this build's wire's row proving a number past its own for hosting"""
+    base = floor()
+    return dict(base, maximum=base["maximum"] + 1, hosting=[base["maximum"] + 1], **fields)
+
+
+@pytest.mark.parametrize("requires,why", [
+    (["no_such_protection"], "unknown host protection"),
+    (["hit_report_checks", "no_such_protection"], "unknown host protection"),
+    (["hit_report_checks", "hit_report_checks"], "twice"),
+    ("hit_report_checks", "not a list"),
+    ([7], "not a list"),
+])
+def test_tool_refuses_bad_requires(requires, why):
+    with pytest.raises(delta_table.TableError, match=why):
+        delta_table.parse(document(row=requires_row(requires=requires)))
+
+
+def test_tool_requires_only_where_builds_read_it():
+    """an older wire's builds read no requires; chupa-41a's 0.8.1d reads
+    announce alone, so a row that requires anything keeps its announce at
+    what those builds announce"""
+    old_wire = {"announce": 39, "minimum": 11, "maximum": 40, "requires": ["hit_report_checks"]}
+    with pytest.raises(delta_table.TableError, match="read no requires"):
+        delta_table.parse(document(extra={"chupa-39a": old_wire}))
+    delta_table.parse(document(extra={"chupa-39a": dict(old_wire, requires=[])}))
+    skipped = delta_table.REQUIRES_SKIPPED_ANNOUNCE["chupa-41a"]
+    row = {"announce": skipped, "minimum": 11, "maximum": 42, "hosting": [41, 42], "requires": ["hit_line_of_sight"]}
+    delta_table.parse(document(wire="chupa-41a", row=row))
+    with pytest.raises(delta_table.TableError, match="unchecked"):
+        delta_table.parse(document(wire="chupa-41a", row=dict(row, announce=41)))
+    # (without requires, as before)
+    delta_table.parse(document(wire="chupa-41a", row={"announce": 41, "minimum": 11, "maximum": 42}))
+
+
+def test_make_requires(tmp_path):
+    """--requires adds to a row's list; every later make keeps it; an
+    unknown name is refused"""
+    old = tmp_path / "old.json"
+    old.write_bytes(document(serial=4, row=floor()))
+    own = delta_table.wire()
+    result = make_table(tmp_path, "--serial", "5", "--from", str(old), "--requires", f"{own}=hit_line_of_sight")
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout)["wires"][own]["requires"] == ["hit_line_of_sight"]
+    old.write_bytes(result.stdout.encode())
+    wide = f"{floor()['announce']},{floor()['minimum']},{floor()['maximum'] + 1}"
+    for arguments in ((), ("--row", f"{own}={wide}"), ("--hosting", f"{own}={floor()['maximum'] + 1}"),
+                      ("--requires", f"{own}=hit_report_checks,hit_line_of_sight"),
+                      ("--take-back", f"{own}={floor()['announce']},{floor()['minimum']},{floor()['maximum']}")):
+        result = make_table(tmp_path, "--serial", "6", "--from", str(old), *arguments)
+        assert result.returncode == 0, (arguments, result.stderr)
+        assert "hit_line_of_sight" in json.loads(result.stdout)["wires"][own]["requires"], arguments
+    for bad in (f"{own}=no_such_protection", f"{own}=", "chupa-99z=hit_report_checks", f"{own}=Hit"):
+        result = make_table(tmp_path, "--serial", "6", "--from", str(old), "--requires", bad)
+        assert result.returncode == 1, bad
+
+
+def test_loader_hosts_only_with_the_protections(keys, checker, tmp_path):
+    """a row that requires a protection this build lacks: its own number
+    announced, one line says which protection, the join range the row's"""
+    base = floor()
+    table = write_signed(keys, tmp_path / "t10", document(serial=10, row=requires_row(
+        requires=["hit_report_checks", "hit_line_of_sight"])))
+    output = run_checker(checker, tmp_path, "offer", table, "state", "hosting")
+    assert "offer 1" in output
+    assert state_line(output)[0].startswith(f"state {base['announce']} {base['minimum']} {base['maximum'] + 1} "), \
+        output
+    assert f"hosting {base['announce']} pinned 0" in output
+    said = [line for line in output.splitlines() if "requires the host protection" in line]
+    assert len(said) == 1 and "hit_line_of_sight" in said[0] and f"version {base['maximum'] + 1}" in said[0], output
+
+
+@pytest.mark.parametrize("requires", [["future_protection"], ["hit_report_checks", "Not-Plain"]])
+def test_loader_lacks_what_it_does_not_know(keys, checker, tmp_path, requires):
+    """a name this build doesn't know is one it lacks"""
+    table = write_signed(keys, tmp_path / "t10", document(serial=10, row=requires_row(requires=requires)))
+    output = run_checker(checker, tmp_path, "offer", table, "state")
+    assert state_line(output)[0].startswith(f"state {floor()['announce']} "), output
+    assert "requires the host protection" in output
+
+
+def test_loader_hosts_with_the_protections(keys, checker, tmp_path):
+    """every protection required present (or none required): the newest
+    proved is announced, as before"""
+    newest = floor()["maximum"] + 1
+    for serial, requires in ((10, ["hit_report_checks"]), (11, [])):
+        table = write_signed(keys, tmp_path / f"t{serial}", document(serial=serial, row=requires_row(requires=requires)))
+        output = run_checker(checker, tmp_path, "offer", table, "state")
+        assert state_line(output)[0].startswith(f"state {newest} "), output
+        assert "requires the host protection" not in output
+
+
+def test_loader_pin_cannot_pass_a_missing_protection(keys, checker, tmp_path):
+    """network.announce can't pin a number the protections forbid"""
+    newest = floor()["maximum"] + 1
+    table = write_signed(keys, tmp_path / "t10", document(serial=10, row=requires_row(requires=["map_votes"])))
+    run_checker(checker, tmp_path, "offer", table)
+    output = run_checker(checker, tmp_path, "state", announce=str(newest))
+    assert state_line(output)[0].startswith(f"state {floor()['announce']} "), output
+    assert "network.announce" in output
+
+
+def test_loader_override_requires(checker, tmp_path):
+    """a local table's requires is followed as a signed one's; one without
+    it is as before"""
+    local = tmp_path / "local.json"
+    row = {"announce": 32, "minimum": 11, "maximum": 42, "hosting": [41], "requires": ["address_machine_limit"]}
+    local.write_bytes(document(serial=1, row=row))
+    output = run_checker(checker, tmp_path, "state", override=local)
+    assert state_line(output)[0] == f"state {floor()['announce']} 11 42 serial 0 override 1 disabled 0 signed 0"
+    assert "address_machine_limit" in output
+    del row["requires"]
+    local.write_bytes(document(serial=1, row=row))
+    output = run_checker(checker, tmp_path, "state", override=local)
+    assert state_line(output)[0] == "state 41 11 42 serial 0 override 1 disabled 0 signed 0"
