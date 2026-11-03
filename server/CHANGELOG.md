@@ -6,6 +6,11 @@ release notes.
 
 ## Unreleased
 
+- New [Host a server](docs/hosting.md) guide: Docker or Linux, ports, the
+  control panel (SSH tunnel or HTTPS), linking to your profile, and
+  moderators. It matches the site's stats.chupathingy.org/host page. The
+  compose file's control panel note now says where the setup code is and
+  how to reach the panel from your own computer.
 - Map names as Halo PC takes them: commas, brackets, spaces and the rest a
   Windows file name can have (`bigassv2,104@ce`, `[h3]_sandtrap@ce`), in
   `sv_map`, `sv_maps` and playlists. A name with a space goes in double
