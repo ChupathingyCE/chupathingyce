@@ -1,7 +1,7 @@
 {
   "delta_legacy": 1,
-  "serial": 9,
-  "issued": 1793207965,
+  "serial": 10,
+  "issued": 1793744786,
   "wires": {
     "chupa-20a": {
       "announce": 23,
@@ -108,6 +108,82 @@
           "dropped_messages": [
             91
           ]
+        }
+      }
+    },
+    "chupa-41a": {
+      "announce": 41,
+      "minimum": 11,
+      "maximum": 42,
+      "follows": "build-334",
+      "layouts": {
+        "33": {
+          "settings_size": 13120,
+          "options_size": 28
+        },
+        "34": {
+          "settings_size": 13120,
+          "options_size": 28
+        },
+        "35": {
+          "settings_size": 13136,
+          "options_size": 44
+        },
+        "36": {
+          "settings_size": 13136,
+          "options_size": 44,
+          "shield_effects_maximum": 6,
+          "dropped_messages": [
+            91
+          ]
+        },
+        "37": {
+          "settings_size": 13136,
+          "options_size": 44,
+          "shield_effects_maximum": 6,
+          "dropped_messages": [
+            91
+          ]
+        },
+        "38": {
+          "settings_size": 13136,
+          "options_size": 44,
+          "shield_effects_maximum": 6,
+          "dropped_messages": [
+            91
+          ]
+        },
+        "39": {
+          "settings_size": 13136,
+          "options_size": 44,
+          "shield_effects_maximum": 6,
+          "dropped_messages": [
+            91
+          ]
+        },
+        "40": {
+          "settings_size": 13136,
+          "options_size": 44,
+          "shield_effects_maximum": 6,
+          "dropped_messages": [
+            91
+          ],
+          "join_request_extra": 234,
+          "join_request_fill": "zeros"
+        },
+        "41": {
+          "settings_size": 13136,
+          "options_size": 44,
+          "shield_effects_maximum": 6,
+          "dropped_messages": [
+            78,
+            79,
+            91,
+            94,
+            95
+          ],
+          "join_request_extra": 234,
+          "join_request_fill": "zeros"
         }
       }
     }
