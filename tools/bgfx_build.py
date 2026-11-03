@@ -156,7 +156,9 @@ def bgfx_build(n: Writer, target: BgfxTarget) -> List[Path]:
         "windows": ["-D_CRT_SECURE_NO_WARNINGS", "-D_HAS_EXCEPTIONS=0", "-DNOMINMAX", "-DWIN32_LEAN_AND_MEAN"],
     }[target.platform]
     common = " ".join([
-        *target.target_flags, "-O2", "-g", "-std=c++20", "-fno-exceptions", "-fno-rtti", "-w",
+        # (line tables only: a crash's calls are named, and the executable,
+        # which keeps its debug information, stays near its size)
+        *target.target_flags, "-O2", "-gline-tables-only", "-std=c++20", "-fno-exceptions", "-fno-rtti", "-w",
         *platform_flags,
         "-DBX_CONFIG_DEBUG=0", f"-I{bx / 'include'}", f"-I{bx / 'include/compat' / compat}", f"-I{bx / '3rdparty'}",
         f"-I{bimg / 'include'}", f"-I{bimg / '3rdparty/astc-encoder/include'}",
