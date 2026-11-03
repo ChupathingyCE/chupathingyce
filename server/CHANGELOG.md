@@ -6,6 +6,9 @@ release notes.
 
 ## Unreleased
 
+- A new `config.toml` has only the settings the server uses. The display,
+  sound, controls and other game settings are left out. An existing file
+  is not changed and still works.
 - Map names as Halo PC takes them: commas, brackets, spaces and the rest a
   Windows file name can have (`bigassv2,104@ce`, `[h3]_sandtrap@ce`), in
   `sv_map`, `sv_maps` and playlists. A name with a space goes in double
