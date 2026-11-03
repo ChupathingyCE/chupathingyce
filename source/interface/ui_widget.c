@@ -1654,6 +1654,12 @@ static char const *scenario_paths[10] =
 	"levels\\d40\\d40"
 };
 
+/* port: a menu icon's sprite narrower than this many pixels is a placeholder
+(the small icons' Start and Back: render_state_bitmap); the HUD's icon is
+drawn at this scale when the two sheets' A buttons can't be compared */
+#define PLACEHOLDER_ICON_WIDTH 8.0f
+#define PLACEHOLDER_ICON_SCALE 0.69f
+
 static boolean icon_is_special[NUM_ICONS] =
 {
 	FALSE,	/* a-button */
@@ -4442,6 +4448,7 @@ static void render_state_bitmap(
 	struct bitmap_data const *bitmap;
 	real_rectangle2d const *clip;
 	real scale;
+	real glyph_scale;
 	point2d point;
 
 	global_scenario_get();
@@ -4464,10 +4471,50 @@ static void render_state_bitmap(
 		frame_index,
 		&bitmap,
 		&clip);
+	/* port: the menus' small icons (iface_map2) have no Start or Back: their
+	sprites there are 4-pixel placeholders, as the Xbox's menus never showed
+	those buttons, so "%start-button" drew a dot. A placeholder's button is
+	drawn from the HUD messages' icons instead, at the small icons' size
+	(their A's height to the HUD's A's). */
+	glyph_scale = 1.0f;
+	if (bitmap && clip && (clip->x1 - clip->x0) * bitmap->width < PLACEHOLDER_ICON_WIDTH &&
+		hud_globals && hud_globals->messaging.messaging_icons.index != NONE &&
+		hud_globals->messaging.button_icons.count > _icon_a_button)
+	{
+		long large_group_index = hud_globals->messaging.messaging_icons.index;
+		short a_sequence = TAG_BLOCK_GET_ELEMENT(
+			&hud_globals->messaging.button_icons,
+			_icon_a_button,
+			struct icon_hud_element_definition)->sequence_index;
+		struct bitmap_data const *large = NULL;
+		struct bitmap_data const *small_a = NULL;
+		struct bitmap_data const *large_a = NULL;
+		real_rectangle2d const *large_clip = NULL;
+		real_rectangle2d const *small_a_clip = NULL;
+		real_rectangle2d const *large_a_clip = NULL;
+
+		hud_retrieve_bitmap_and_bounding_rect(large_group_index, icon->sequence_index, frame_index, &large, &large_clip);
+		hud_retrieve_bitmap_and_bounding_rect(bitmap_group_index, a_sequence, 0, &small_a, &small_a_clip);
+		hud_retrieve_bitmap_and_bounding_rect(large_group_index, a_sequence, 0, &large_a, &large_a_clip);
+		if (large && large_clip)
+		{
+			glyph_scale = PLACEHOLDER_ICON_SCALE;
+			if (small_a && small_a_clip && large_a && large_a_clip &&
+				(large_a_clip->y1 - large_a_clip->y0) * large_a->height > 0.0f)
+			{
+				glyph_scale = PIN(
+					(small_a_clip->y1 - small_a_clip->y0) * small_a->height /
+						((large_a_clip->y1 - large_a_clip->y0) * large_a->height),
+					0.4f, 1.0f);
+			}
+			bitmap = large;
+			clip = large_clip;
+		}
+	}
 	if (bitmap && _texture_cache_bitmap_get_hardware_format(
 		(struct bitmap_data *)bitmap, FALSE, TRUE))
 	{
-		scale = hud_globals_get_scale(local_player_count() > 1);
+		scale = hud_globals_get_scale(local_player_count() > 1) * glyph_scale;
 		point.x = (short)(icon->offset.x * scale + cursor_bounds->x0 + 1.0f);
 		point.y = (short)(cursor_bounds->y1 - icon->offset.y * scale - 2.0f);
 		hud_draw_bitmap_direct(
@@ -4482,9 +4529,9 @@ static void render_state_bitmap(
 		if (TEST_FLAG(icon->flags, _hud_icon_absolute_width_bit))
 			cursor_bounds->x0 = icon->width_offset + point.x;
 		else if (clip)
-			cursor_bounds->x0 = (short)((clip->x1 - clip->x0) * bitmap->width + icon->width_offset + point.x);
+			cursor_bounds->x0 = (short)((clip->x1 - clip->x0) * bitmap->width * glyph_scale + icon->width_offset + point.x);
 		else
-			cursor_bounds->x0 = bitmap->width + icon->width_offset + point.x;
+			cursor_bounds->x0 = (short)(bitmap->width * glyph_scale + icon->width_offset + point.x);
 	}
 
 	return;

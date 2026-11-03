@@ -10,6 +10,8 @@ the steps it is given, in order, and prints what each did:
 	state         "state A MI MA serial S override O disabled D signed N"
 	following     "following TEXT" (delta_legacy_following)
 	start         delta_legacy_start: the cache, and the fetching thread
+	hold H        delta_legacy_hold(H): a hosted game under way (1) or not (0)
+	hosting       "hosting N pinned P" (delta_legacy_hosting_newest, _pinned)
 	layout V      network version V's layout, the table's facts applied
 	              (network_rules.c): "layout V settings S options O shield E
 	              dropped K,K learned L refused R facts F"
@@ -17,7 +19,8 @@ the steps it is given, in order, and prints what each did:
 	sleep MS      that many milliseconds
 
 The save root (where the cache is) is $DELTA_CHECK_ROOT, the local override
-(network.legacy_table) $DELTA_CHECK_OVERRIDE, and the list server
+(network.legacy_table) $DELTA_CHECK_OVERRIDE, network.announce
+$DELTA_CHECK_ANNOUNCE, and the list server
 (network.browser_url) $DELTA_CHECK_URL. The requests are answered from
 files in the save root's "served" folder, named by the URL with every
 character but letters, digits and dots made "_"; a request without one is
@@ -61,7 +64,8 @@ const char *platform_save_root(void)
 const char *config_string(const char *name)
 {
 	const char *value = !strcmp(name, "network.legacy_table") ? getenv("DELTA_CHECK_OVERRIDE") :
-		!strcmp(name, "network.browser_url") ? getenv("DELTA_CHECK_URL") : NULL;
+		!strcmp(name, "network.browser_url") ? getenv("DELTA_CHECK_URL") :
+		!strcmp(name, "network.announce") ? getenv("DELTA_CHECK_ANNOUNCE") : NULL;
 
 	return value ? value : "";
 }
@@ -164,6 +168,10 @@ int main(int count, char **arguments)
 			delta_legacy_following(text, (int)sizeof(text));
 			printf("following %s\n", text);
 		}
+		else if (!strcmp(arguments[index], "hold") && index + 1 < count)
+			delta_legacy_hold(atoi(arguments[++index]));
+		else if (!strcmp(arguments[index], "hosting"))
+			printf("hosting %d pinned %d\n", delta_legacy_hosting_newest(), delta_legacy_pinned());
 		else if (!strcmp(arguments[index], "start"))
 			delta_legacy_start();
 		else if (!strcmp(arguments[index], "layout") && index + 1 < count)
@@ -186,8 +194,8 @@ int main(int count, char **arguments)
 					any = 1;
 				}
 			}
-			printf("%s learned %d refused %d facts %d\n", any ? "" : "-", layout.learned, layout.refused,
-				delta_legacy_layouts(facts, DELTA_LAYOUT_FACTS));
+			printf("%s learned %d refused %d facts %d join %d\n", any ? "" : "-", layout.learned, layout.refused,
+				delta_legacy_layouts(facts, DELTA_LAYOUT_FACTS), layout.join_request_extra);
 		}
 		else if (!strcmp(arguments[index], "wait") && index + 1 < count)
 		{
