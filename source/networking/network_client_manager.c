@@ -1676,6 +1676,42 @@ boolean network_game_client_add_player(
 	return success;
 }
 
+boolean network_game_client_add_named_player(
+	struct network_game_client *client,
+	short local_player_index,
+	wchar_t const *name,
+	short primary_color_index)
+{
+	struct network_player player;
+	struct message_client_add_player_request add_player_request;
+	message_header *message;
+	short type;
+
+	if (!client || local_player_index < 0 || local_player_index >= MAXIMUM_NUMBER_OF_LOCAL_PLAYERS)
+		return FALSE;
+	if (client->state == _network_game_client_state_pregame)
+		type = _message_client_add_player_request_pregame;
+	else if (client->state == _network_game_client_state_ingame)
+		type = _message_client_add_player_request_ingame;
+	else
+		return FALSE;
+	csmemset(&player, 0, sizeof(player));
+	player.controller_index = (char)local_player_index;
+	player.machine_index = (char)client->machine_index;
+	ustrncpy(player.name, name, NETWORK_PLAYER_NAME_LENGTH - 1);
+	player.name[NETWORK_PLAYER_NAME_LENGTH - 1] = 0;
+	player.primary_color_index = primary_color_index;
+	player.icon_index = NONE;
+	player.team_index = NONE;
+	player.player_list_index = NONE;
+	network_event("requesting a named player addition (controller index #%d)", player.controller_index);
+	csmemcpy(&add_player_request, &player, sizeof(add_player_request));
+	message = create_network_game_message(type, &add_player_request, sizeof(add_player_request));
+	if (!message)
+		return FALSE;
+	return network_game_client_write(client->connection, message, GET_MESSAGE_SIZE(*message), NULL, 1);
+}
+
 boolean network_game_client_handle_game_update(
 	struct network_game_client *client,
 	struct message_server_game_update *message_packet)

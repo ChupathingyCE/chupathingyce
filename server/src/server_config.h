@@ -301,6 +301,9 @@ enum
 	gamespy_listing.h), and the UDP port they use */
 	SERVER_SETTING_GAMESPY_LISTING,
 	SERVER_SETTING_GAMESPY_PORT,
+	/* Halo Custom Edition 1.0.10's join wire answered on that port
+	(server/platform/ce_transport.h) */
+	SERVER_SETTING_CE_JOINS,
 	SERVER_SETTINGS,
 	/* a game's players, at most (halo_port_limits.h's) */
 	SERVER_SETTINGS_MAXIMUM_PLAYERS = 128,

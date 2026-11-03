@@ -30,6 +30,7 @@ the file.
 | `HALO_DEDICATED_GAMESPY_PORT` | `2302` | The UDP port of the GameSpy status queries (`gamespy_port`). |
 | `HALO_DEDICATED_GAMESPY_MASTERS` | `s1.master.hosthpc.com:27900` | The masters the heartbeats go to, `host:port`, comma separated (at most 4). Set but empty: none, the queries are answered alone. |
 | `HALO_DEDICATED_GAMESPY_VERSION` | the server's version | The version (`gamever`) the queries and heartbeats report. |
+| `HALO_DEDICATED_CE_JOINS` | `false` | `true`: answer Halo Custom Edition 1.0.10 join attempts on the GameSpy port ([below](#custom-edition-join-attempts)); needs `gamespy_listing`. |
 | `HALO_DEDICATED_COMMANDS` | (none) | A file of [commands](admin.md#startup-commands) in the data folder, run once the server first hosts. |
 | `HALO_DEDICATED_CONSOLE` | on in a terminal | Commands typed on the server's standard input ([the console](admin.md#the-console)). `true`: read them even when it is not a terminal; `false`: never. |
 | `HALO_DEDICATED_CONTROL` | (off) | The [control API](admin.md#the-control-api)'s address: a port (`8080`, on 127.0.0.1 only) or an address and port (`127.0.0.1:8080`, `[::1]:8080`, `0.0.0.0:8443`). Its token is made and printed the first time, and the first owner's setup link. The [control panel](moderation.md#the-control-panel) is on the same address: plain HTTP on the loopback address, HTTPS beyond it. |
@@ -45,7 +46,7 @@ The settings file's keys (`sv_settings` lists them, with where each value
 comes from): `name`, `maximum_players`, `minimum_players`, `idle_limit`,
 `public` (from the next start), `name_filter`, `chat`, `chat_filter`,
 `welcome`, `postgame_seconds`, `skip_lobby`, `chat_cooldown`, `team_change`
-(0 off, 1 balanced, 2 allow), `team_change_margin`, `playlist_shuffle`, `chat_legacy`, `gamespy_listing`, `gamespy_port`, and the playlist
+(0 off, 1 balanced, 2 allow), `team_change_margin`, `playlist_shuffle`, `chat_legacy`, `gamespy_listing`, `gamespy_port`, `ce_joins`, and the playlist
 `sv_playlist_use` chose. `sv_set welcome Hello and welcome` takes
 the rest of the line as the value (quotes optional).
 
@@ -131,7 +132,8 @@ Xbox map is `xbox_<map>` (`xbox_bloodgulch`; Custom Edition's own
 `bloodgulch` is the PC version, with other geometry), a Custom Edition or
 Halo PC map (`timberland@ce`, `icefields@pc`) its own name. Two keys of the
 server's own, `bridge` (`chupathingy`) and `bridge_version` (the server's
-version), let a client tell it from a Custom Edition server.
+version), let a client tell it from a Custom Edition server, and `chimera`
+(`optional`) says a Custom Edition player needs no Chimera here.
 
 The version reported is the server's own (`HALO_DEDICATED_GAMESPY_VERSION`
 sets another). Custom Edition 1.0.10's server browser shows only servers
@@ -143,6 +145,27 @@ join.
 The UDP port must be open (forwarded) for the queries to reach the server
 from outside. The naming of Xbox maps is the Custom Edition community's,
 passed on by ugoboom.
+
+### Custom Edition join attempts
+
+Off unless `ce_joins` is on too (`sv_set ce_joins true`). The same UDP port
+then answers a Halo Custom Edition 1.0.10 client that connects to it: the
+connection's handshake, its key agreement and its enciphered, reliable
+messages, as Custom Edition's own server does them. The server tells the
+client its map (by the name above), reads its join request (the player's
+name goes in the log; the CD key hash is not logged) and, for now, refuses
+the join: the player gets Custom Edition's own "Unable to join the game
+server!" message, not a timeout. Playing in the game comes later. At most 16 Custom
+Edition clients are handled at once.
+
+For development only, `HALO_DEDICATED_CE_ACCEPT=1` takes the join instead,
+while a game is being played on a map the Custom Edition player has too (a
+Custom Edition map, `bloodgulch@ce`: the same .map file on both sides). The
+player joins the game as one of the server's own players, moved by their
+client's input, and their client is shown the other players, their bipeds
+and weapons from the server's game. Up to 4 Custom Edition players at once
+for now. Still incomplete (no projectiles, vehicles or items shown to them,
+their own position not corrected), so leave this off on a real server.
 
 ## Folders
 

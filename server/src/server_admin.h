@@ -47,6 +47,11 @@ void server_gamespy_update(void);
 void server_gamespy_configure(boolean enabled, long port);
 boolean server_gamespy_enabled(void);
 long server_gamespy_port(void);
+/* (server_ce.c's: Custom Edition players in the game) */
+void server_ce_update(void);
+/* Halo Custom Edition 1.0.10's join wire answered on the same port */
+void server_gamespy_set_joins(boolean enabled);
+boolean server_gamespy_joins(void);
 
 /* the commands (server/docs/admin.md) */
 boolean server_admin_playlists(struct command_line const *line, boolean json, struct command_output *output);

@@ -2329,6 +2329,7 @@ void server_commands_update(
 	names_update();
 #ifdef HALO_SERVER
 	server_gamespy_update();
+	server_ce_update();
 #endif
 #ifdef HALO_SERVER
 	/* the console's and the control API's, as they came */
