@@ -7051,7 +7051,8 @@ gametype's choice did) */
 #define HOST_MESSAGE_DURATION 4000
 /* the internet play ports offered (0: the game picks one), and the one set */
 static long const host_ports[] = { 0, 2302, 2303, 2304, 2305, 2306, 2307, 2308, 2309, 2310 };
-static char const *const host_team_changes[] = { "balanced", "allow", "off" };
+/* (network.team_change's words: off first, the default, as on the Xbox) */
+static char const *const host_team_changes[] = { "off", "balanced", "allow" };
 
 enum
 {
@@ -7216,7 +7217,7 @@ static void host_setup_rows(void)
 		if (host_rules_row(row) != host_setup.rules_open ||
 			(row == _host_row_public && !host_listing_shown()) ||
 			(row == _host_row_password && (!host_listing_shown() || multiplayer.game_private)) ||
-			(row == _host_row_team_change_margin && host_setup.team_change != 0))
+			(row == _host_row_team_change_margin && host_setup.team_change != 1))
 		{
 			continue;
 		}
@@ -7274,7 +7275,7 @@ static boolean host_setup_value(short row, wchar_t *text)
 		host_game_type_text(text);
 		return TRUE;
 	case _host_row_team_change:
-		ustrncpy(text, host_setup.team_change == 0 ? L"BALANCED" : host_setup.team_change == 1 ? L"ALLOW" : L"OFF",
+		ustrncpy(text, host_setup.team_change == 1 ? L"BALANCED" : host_setup.team_change == 2 ? L"ALLOW" : L"OFF",
 			ROW_TEXT_LENGTH - 1);
 		return TRUE;
 	case _host_row_team_change_margin:
@@ -7337,9 +7338,9 @@ static wchar_t const *host_setup_help(short row)
 	case _host_row_game_type:
 		return L"Choose the game type. %a-button edits it.";
 	case _host_row_team_change:
-		return host_setup.team_change == 0 ? L"Players can change teams within the margin." :
-			host_setup.team_change == 1 ? L"Players can change teams at any time." :
-			L"Players keep the team they joined.";
+		return host_setup.team_change == 1 ? L"Players can change teams within the margin." :
+			host_setup.team_change == 2 ? L"Players can change teams at any time." :
+			L"Players keep the team they joined, as on the Xbox.";
 	case _host_row_team_change_margin:
 		return L"How uneven the teams can get.";
 	case _host_row_chat_filter:

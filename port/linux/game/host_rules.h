@@ -31,6 +31,10 @@ to respawn (display.follow_camera), by the same rule: FALSE where the host
 said nothing (the Xbox's death camera alone) */
 boolean host_rules_follow_camera(void);
 
+/* (a client's) its host's team change rule as HOST_RULES said it
+(team_change.h's policy): FALSE if the host said none */
+boolean host_rules_team_change(int *policy);
+
 /* each frame (main.c): a host says its rules to its Chupathingy clients
 over Delta Peer */
 void host_rules_update(void);

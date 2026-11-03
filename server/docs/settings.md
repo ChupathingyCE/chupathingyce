@@ -20,7 +20,7 @@ the file.
 | `HALO_DEDICATED_CHAT_FILTER` | `true` | A chat line with a word of `blocked_names.txt`'s list (the game has it built in) is not passed on; its sender's game says "Not sent: blocked words". Nobody is kicked. |
 | `HALO_DEDICATED_CHAT_LEGACY` | `true` | OpenCE players chat too, over their own text chat, bridged to ChupathingyCE's ([below](#text-chat)), while `HALO_DEDICATED_CHAT` is on. `false`: they get no chat here (`sv_set chat_legacy false`). |
 | `HALO_DEDICATED_CHAT_COOLDOWN` | `5` | Once a player says lines faster than the chat allows (1 a second, 3 at once), their chat pauses for this many seconds and their game says "Chat paused for 5 seconds" (an older game says "Not sent: slow down"). `0`: no pause, each line past the limit is refused alone. Up to 600. |
-| `HALO_DEDICATED_TEAM_CHANGE` | `balanced` | Players changing teams during a team game (the pause menu's CHANGE TEAMS, [below](#team-changes)): `balanced`, `allow` or `off` (`1`, `2` or `0`; the settings file's `team_change`). |
+| `HALO_DEDICATED_TEAM_CHANGE` | `off` | Players changing teams during a team game (the pause menu's CHANGE TEAMS, [below](#team-changes)): `off` (players keep their team, as on the Xbox), `balanced` or `allow` (`0`, `1` or `2`; the settings file's `team_change`). Chupathingy players see CHANGE TEAMS only when it is on. |
 | `HALO_DEDICATED_TEAM_CHANGE_MARGIN` | `1` | With `balanced`, the most players one team may have over the other after a change, 0 to 16 (`team_change_margin`). |
 | `HALO_DEDICATED_ALLOW_PLAYER_NAMES` | `false` | `true`: Chupathingy players may show names above other players' heads (their `display.player_names`). `false` plays as the Xbox did: a name shows only on the player aimed at (`allow_player_names`; the host's rules, [docs/delta.md](../../docs/delta.md#host-rules)). |
 | `HALO_DEDICATED_ALLOW_FOLLOW_CAMERA` | `false` | `true`: Chupathingy players may watch a living player's view while they wait to respawn (their `display.follow_camera`). `false` plays as the Xbox did: the death camera alone (`allow_follow_camera`). |
@@ -67,13 +67,17 @@ are left out anyway.
 
 ## Team changes
 
-In a team game a ChupathingyCE player can change teams from the pause menu
-(CHANGE TEAMS, as on Halo PC). Their game asks the server over Delta Peer
-([docs/delta.md](../../docs/delta.md#team-changes)) and the server decides:
+Players keep the team they joined, as on the Xbox, unless the server allows
+team changes. Then a ChupathingyCE player can change teams from the pause
+menu (CHANGE TEAMS, as on Halo PC). Their game asks the server over Delta
+Peer ([docs/delta.md](../../docs/delta.md#team-changes)) and the server
+decides:
 
-- `balanced` (the default): only when neither team ends up more than
+- `off` (the default): none (only `sv_team` moves players), and the pause
+  menu has no CHANGE TEAMS.
+- `balanced`: only when neither team ends up more than
   `HALO_DEDICATED_TEAM_CHANGE_MARGIN` players (1) bigger than the other.
-- `allow`: any change. `off`: none (only `sv_team` moves players).
+- `allow`: any change.
 - A player changes at most once every 10 seconds, and never leaves a team
   empty while others play (a team game with everyone on one team is over).
 

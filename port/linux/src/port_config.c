@@ -722,9 +722,10 @@ static const struct config_setting config_settings[] =
 	{ "network.chat_legacy", _config_boolean, "true", "HALO_NET_CHAT_LEGACY", _environment_value, _platform_all,
 		"In games you host, let OpenCE players chat too while network.chat is\n"
 		"on. Their own text chat is bridged in." },
-	{ "network.team_change", _config_string, "\"balanced\"", "HALO_NET_TEAM_CHANGE", _environment_value,
+	{ "network.team_change", _config_string, "\"off\"", "HALO_NET_TEAM_CHANGE", _environment_value,
 		_platform_all,
-		"Team changes in team games you host: \"balanced\", \"allow\" or \"off\"." },
+		"Team changes in team games you host: \"off\" (players keep their team,\n"
+		"as on the Xbox), \"balanced\" or \"allow\"." },
 	{ "network.team_change_margin", _config_integer, "1", "HALO_NET_TEAM_CHANGE_MARGIN", _environment_value,
 		_platform_all,
 		"For \"balanced\": how many more players one team may have, from 0 to\n"
@@ -1587,7 +1588,7 @@ version changed) */
 ones of v0.8.0; 2, network.tunnel_port's 2302 (v0.8.1b); 3, a game you host
 starting alone (game.start_with_one_player); 4, Headphone 3D on; 5, the
 Xbox's multiplayer by default (v0.9.0: no names above heads, no follow
-camera). A file
+camera, no team changes in games you host). A file
 answered for an earlier generation is asked about the later ones only */
 #define CONFIG_DEFAULTS_GENERATION 5
 #define CONFIG_VERSION_LINE "config_version = 2\n"
@@ -2281,6 +2282,9 @@ static const struct
 	/* the follow camera during a long respawn wait, the default until
 	v0.9.0 (a file that names "long_waits" keeps it, where hosts allow it) */
 	{ "display.follow_camera", "\"long_waits\"", 0, "No follow camera while you wait to respawn, as on the Xbox", 5 },
+	/* team changes while the teams stay balanced, the default of the games
+	a player hosted until v0.9.0 (a file that names a rule keeps it) */
+	{ "network.team_change", "\"balanced\"", 0, "No team changes in games you host, as on the Xbox", 5 },
 };
 
 #define NUMBER_OF_CONFIG_OLD_DEFAULTS (sizeof(config_old_defaults) / sizeof(config_old_defaults[0]))
@@ -3146,7 +3150,7 @@ static const struct
 	{ "network.map_downloads", { "ask", "always", "never", NULL }, "\"ask\"" },
 	{ "network.playlist_downloads", { "ask", "always", "never", NULL }, "\"ask\"" },
 	{ "network.join_from_clipboard", { "ask", "always", "never", NULL }, "\"never\"" },
-	{ "network.team_change", { "balanced", "allow", "off", NULL }, "\"balanced\"" },
+	{ "network.team_change", { "off", "balanced", "allow", NULL }, "\"off\"" },
 #ifndef HALO_CONSOLE_NO_DISCORD
 	{ "discord.presence", { "full", "minimal", "off", NULL }, "\"full\"" },
 #endif

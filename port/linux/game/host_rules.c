@@ -115,6 +115,22 @@ boolean host_rules_follow_camera(void)
 	return FALSE;
 }
 
+boolean host_rules_team_change(int *policy)
+{
+#ifdef HOST_RULES_DELTA
+	struct delta_wire_host_rules rules;
+
+	if (host_rules_joined() && host_rules_heard(&rules))
+	{
+		*policy = rules.team_change == DELTA_WIRE_HOST_TEAM_CHANGE_ALLOW ? _team_change_allow :
+			rules.team_change == DELTA_WIRE_HOST_TEAM_CHANGE_BALANCED ? _team_change_balanced : _team_change_off;
+		return TRUE;
+	}
+#endif
+	*policy = _team_change_off;
+	return FALSE;
+}
+
 void host_rules_update(void)
 {
 #ifdef HOST_RULES_DELTA

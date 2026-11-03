@@ -50,6 +50,7 @@ DEFAULTS = {
 		"audio.hrtf": "on",
 		"display.player_names": "none",
 		"display.follow_camera": "off",
+		"network.team_change": "off",
 	},
 	"desktop32": {
 		"display.anti_aliasing": "off",
@@ -60,6 +61,7 @@ DEFAULTS = {
 		"audio.hrtf": "on",
 		"display.player_names": "none",
 		"display.follow_camera": "off",
+		"network.team_change": "off",
 	},
 	"android": {
 		"display.anti_aliasing": "off",
@@ -70,6 +72,7 @@ DEFAULTS = {
 		"audio.hrtf": "on",
 		"display.player_names": "none",
 		"display.follow_camera": "off",
+		"network.team_change": "off",
 	},
 	"server": {
 		"display.anti_aliasing": "off",
@@ -78,6 +81,7 @@ DEFAULTS = {
 		"game.start_with_one_player": "false",
 		"display.player_names": "none",
 		"display.follow_camera": "off",
+		"network.team_change": "off",
 	},
 	# (a console's build, one on the shared GL layer: Headphone 3D stays off,
 	# the original Xbox having its own hardware path, and the port random)
@@ -89,6 +93,7 @@ DEFAULTS = {
 		"audio.hrtf": "off",
 		"display.player_names": "none",
 		"display.follow_camera": "off",
+		"network.team_change": "off",
 	},
 }
 
@@ -105,13 +110,14 @@ OLD = {
 	"audio.hrtf": "off",
 	"display.player_names": "all",
 	"display.follow_camera": "long_waits",
+	"network.team_change": "balanced",
 }
 CHANGED = {
-	"desktop": ["display.menus", "display.anti_aliasing", "display.shadow_resolution", "network.tunnel_port", "game.start_with_one_player", "audio.hrtf", "display.player_names", "display.follow_camera"],
-	"desktop32": ["display.menus", "display.shadow_resolution", "network.tunnel_port", "game.start_with_one_player", "audio.hrtf", "display.player_names", "display.follow_camera"],
-	"android": ["display.menus", "display.shadow_resolution", "audio.buffer_frames", "network.tunnel_port", "game.start_with_one_player", "audio.hrtf", "display.player_names", "display.follow_camera"],
+	"desktop": ["display.menus", "display.anti_aliasing", "display.shadow_resolution", "network.tunnel_port", "game.start_with_one_player", "audio.hrtf", "display.player_names", "display.follow_camera", "network.team_change"],
+	"desktop32": ["display.menus", "display.shadow_resolution", "network.tunnel_port", "game.start_with_one_player", "audio.hrtf", "display.player_names", "display.follow_camera", "network.team_change"],
+	"android": ["display.menus", "display.shadow_resolution", "audio.buffer_frames", "network.tunnel_port", "game.start_with_one_player", "audio.hrtf", "display.player_names", "display.follow_camera", "network.team_change"],
 	"server": [],
-	"console": ["display.menus", "display.shadow_resolution", "game.start_with_one_player", "display.follow_camera"],
+	"console": ["display.menus", "display.shadow_resolution", "game.start_with_one_player", "display.follow_camera", "network.team_change"],
 }
 # the changes of the second question (game.defaults_answered = 2), the
 # third (3), the fourth (4) and the latest (CONFIG_DEFAULTS_GENERATION): a
@@ -119,7 +125,7 @@ CHANGED = {
 SECOND = ["network.tunnel_port"]
 THIRD = ["game.start_with_one_player"]
 FOURTH = ["audio.hrtf"]
-LATEST = ["display.player_names", "display.follow_camera"]
+LATEST = ["display.player_names", "display.follow_camera", "network.team_change"]
 GENERATION = "5"
 NEW = {"display.menus": "chupathingy"}
 
@@ -379,6 +385,7 @@ def test_answered_earlier(program, directory, defaults, kind):
 		check(("Headphone 3D on, as the original Xbox did" in output) == hrtf, f"earlier/{answer}: words for Headphone 3D")
 		check(("No names above heads, as on the Xbox" in output) == names, f"earlier/{answer}: words for names above heads")
 		check("No follow camera while you wait to respawn" in output, f"earlier/{answer}: no words for the follow camera")
+		check("No team changes in games you host" in output, f"earlier/{answer}: no words for team changes")
 		check("Sharper shadows" not in output and "menus" not in output and "A fixed port" not in output and
 			"Start a game you host alone" not in output,
 			f"earlier/{answer}: asked again: {output}")
@@ -390,7 +397,7 @@ def test_answered_earlier(program, directory, defaults, kind):
 		check(re.search(rf"^defaults_answered = {GENERATION}$", text, re.M), f"earlier/{answer}: the answer is not written")
 		lines, _ = value_lines(text, "hrtf")
 		check(lines == (['hrtf = "off"'] if answer == "keep" and hrtf else []), f"earlier/{answer}: hrtf lines {lines}")
-		for name, old in (("display.player_names", "all"), ("display.follow_camera", "long_waits")):
+		for name, old in (("display.player_names", "all"), ("display.follow_camera", "long_waits"), ("network.team_change", "balanced")):
 			if name not in latest:
 				continue
 			key = name.split(".")[1]

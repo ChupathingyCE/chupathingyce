@@ -3,16 +3,21 @@ TEAM_CHANGE.C
 
 Changing teams during a team game (docs/delta.md, Team changes): Halo PC's
 in-game CHANGE TEAMS. The Xbox let a player choose a team only in the
-pregame lobby.
+pregame lobby, and so does a host by default: it is the host's to allow.
 
 - **The host decides.** A player asks (the pause menu's CHANGE TEAMS): on
   the host, its own rule says at once; on a client, the ask goes to the host
   over Delta Peer (TEAM_REQUEST), and the host answers (TEAM_RESULT). The
   host's rule (team_change_host_set; a player's host reads
-  network.team_change): off, balanced (the default: no change that leaves
-  one team more than the margin, 1 unless set, bigger than the other) or
-  allow; and one change every TEAM_CHANGE_COOLDOWN seconds a player. A
+  network.team_change): off (the default, as on the Xbox), balanced (no
+  change that leaves one team more than the margin, 1 unless set, bigger
+  than the other) or allow; and one change every TEAM_CHANGE_COOLDOWN
+  seconds a player. A
   dedicated server's admin moves anyone (sv_team: team_change_move).
+- **The pause menu offers it only where the host allows it.** A client
+  knows its host's rule from HOST_RULES (host_rules.c); an older
+  Chupathingy host, which says no rule but takes team changes, is asked as
+  before, and OpenCE's never.
 - **Through the game, as Halo PC did.** The host kills the player's unit at
   once, as nobody's kill: no death, suicide or betrayal is counted and no
   respawn penalty is added; their score stays theirs, and the team scores
@@ -49,6 +54,7 @@ A player already dead (waiting to respawn) changes at once.
 #include "../src/delta_peer.h"
 #include "chat.h"
 #endif
+#include "host_rules.h"
 
 #include "team_change.h"
 
@@ -122,7 +128,7 @@ static boolean same_word(char const *a, char const *b)
 void team_change_host_set(int policy, int margin)
 {
 	team_change.set = TRUE;
-	team_change.policy = policy < _team_change_off || policy > _team_change_allow ? _team_change_balanced : policy;
+	team_change.policy = policy < _team_change_off || policy > _team_change_allow ? _team_change_off : policy;
 	team_change.margin = margin < 0 ? 0 : margin > TEAM_CHANGE_MAXIMUM_MARGIN ? TEAM_CHANGE_MAXIMUM_MARGIN : margin;
 }
 
@@ -133,11 +139,11 @@ int team_change_host_policy(void)
 	if (team_change.set)
 		return team_change.policy;
 	value = config_string("network.team_change");
-	if (same_word(value, "off"))
-		return _team_change_off;
+	if (same_word(value, "balanced"))
+		return _team_change_balanced;
 	if (same_word(value, "allow"))
 		return _team_change_allow;
-	return _team_change_balanced;
+	return _team_change_off;
 }
 
 int team_change_host_margin(void)
@@ -407,6 +413,27 @@ static void team_change_show(int result, int team, int seconds)
 #endif
 }
 
+/* whether the game's host takes its players' team changes: this machine's
+rule when it hosts; a client's host's as HOST_RULES said it, or, from a host
+that says no rules, whether it takes them over Delta Peer at all (an older
+Chupathingy's; OpenCE's never) */
+static boolean team_change_host_allows(void)
+{
+#ifdef HALO_GAME_BROWSER
+	int policy;
+#endif
+
+	if (global_network_game_server_get())
+		return team_change_host_policy() != _team_change_off;
+#ifdef HALO_GAME_BROWSER
+	if (host_rules_team_change(&policy))
+		return policy != _team_change_off;
+	return delta_peer_game_team_ready() != 0;
+#else
+	return FALSE;
+#endif
+}
+
 boolean team_change_pause_offered(void)
 {
 	struct network_game_server *server = global_network_game_server_get();
@@ -415,7 +442,7 @@ boolean team_change_pause_offered(void)
 		client ? network_game_client_get_game(client) : NULL;
 
 	return game && game->variant.universal_variant.teams && !network_coop_active() &&
-		config_boolean("display.pause_change_teams");
+		config_boolean("display.pause_change_teams") && team_change_host_allows();
 }
 
 boolean team_change_ask(short local_player_index)

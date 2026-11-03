@@ -1409,7 +1409,7 @@ HOST_OPTIONS = {
     "header": ("header_host_options", f"{MT}/server_settings/header_host_options"),
     "spacing": 30,
     "rows": [
-        ("TEAM SWITCHING:", "network.team_change", [("BALANCED", "balanced"), ("ALLOW", "allow"), ("OFF", "off")],
+        ("TEAM SWITCHING:", "network.team_change", [("OFF", "off"), ("BALANCED", "balanced"), ("ALLOW", "allow")],
          "When players can change teams.",
          None),
         ("TEAM SWITCH MARGIN:", "network.team_change_margin", [(str(count), str(count)) for count in range(17)],

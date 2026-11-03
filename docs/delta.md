@@ -644,12 +644,13 @@ ask goes over Delta Peer and the change itself through the game:
   host checks the session, the rising sequence and its budget (1 a second,
   3 at once), that the player is the machine's, and its rule, then answers
   TEAM_RESULT. A host without `team_change` (OpenCE's, an older
-  Chupathingy) is never asked: the player is told the change needs a
-  Chupathingy host.
+  Chupathingy) is never asked, and its players' pause menus have no CHANGE
+  TEAMS. A host whose rule is off (HOST_RULES, "Host rules" below) is not
+  offered either.
 - **The host's rule.** `network.team_change` for a player's host,
-  `HALO_DEDICATED_TEAM_CHANGE` for a dedicated server: `balanced` (the
-  default: no change that leaves one team more than the margin, 1 unless
-  set, bigger than the other), `allow` or `off`; a player's changes at
+  `HALO_DEDICATED_TEAM_CHANGE` for a dedicated server: `off` (the default,
+  as on the Xbox), `balanced` (no change that leaves one team more than the
+  margin, 1 unless set, bigger than the other) or `allow`; a player's changes at
   least 10 seconds apart; never the last player of a team while others
   play (a team game with everyone on one team is over). A dedicated
   server's `sv_team` moves anyone, the rule aside.
@@ -691,7 +692,9 @@ game, over `host_rules` (bit 18):
   living player while they wait to respawn) works only while the host
   allows it. Without it the death camera alone, as on the Xbox.
 - **Team changes.** The host's rule for CHANGE TEAMS ("Team changes"
-  above) rides along, so a client knows whether to offer it.
+  above) rides along, so a client offers it in the pause menu only where
+  the host allows it. An older Chupathingy host that takes team changes
+  but says no rules is asked as before.
 - **A host that says nothing** (OpenCE's, an older Chupathingy, a console
   without Delta) gets the Xbox's rules: no extras. A game played alone
   (split screen) is its own host's.

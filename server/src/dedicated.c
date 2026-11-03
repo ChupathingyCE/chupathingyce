@@ -517,27 +517,27 @@ static void initialize(
 			error(_error_silent, "dedicated: a welcome message for each Chupathingy player");
 	}
 #endif
-	/* players changing teams during a game: balanced (within 1) unless set;
+	/* players changing teams during a game: off (the Xbox's) unless set;
 	the environment's as a word or a number */
 	{
 		char const *value = getenv("HALO_DEDICATED_TEAM_CHANGE");
-		long policy = settings.set[SERVER_SETTING_TEAM_CHANGE] ? settings.values[SERVER_SETTING_TEAM_CHANGE] : 1;
+		long policy = settings.set[SERVER_SETTING_TEAM_CHANGE] ? settings.values[SERVER_SETTING_TEAM_CHANGE] : 0;
 		long margin = setting_number("HALO_DEDICATED_TEAM_CHANGE_MARGIN", &settings, SERVER_SETTING_TEAM_CHANGE_MARGIN,
 			1);
 
 		if (value && value[0])
 		{
-			policy = !_stricmp(value, "off") || !strcmp(value, "0") ? 0 : !_stricmp(value, "allow") ||
-				!strcmp(value, "2") ? 2 : 1;
+			policy = !_stricmp(value, "balanced") || !strcmp(value, "1") ? 1 : !_stricmp(value, "allow") ||
+				!strcmp(value, "2") ? 2 : 0;
 			if (_stricmp(value, "off") && _stricmp(value, "balanced") && _stricmp(value, "allow") &&
 				strcmp(value, "0") && strcmp(value, "1") && strcmp(value, "2"))
 			{
 				error(_error_silent, "dedicated: HALO_DEDICATED_TEAM_CHANGE \"%s\" is not allow, balanced or off: "
-					"balanced", value);
+					"off", value);
 			}
 		}
 		if (policy < 0 || policy > 2)
-			policy = 1;
+			policy = 0;
 		if (margin < 0)
 			margin = 0;
 		if (margin > SERVER_SETTINGS_MAXIMUM_TEAM_CHANGE_MARGIN)
