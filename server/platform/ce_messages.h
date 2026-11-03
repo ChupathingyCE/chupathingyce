@@ -31,6 +31,7 @@ enum
 	CE_DELTA_OBJECT_DELETE = 0,
 	CE_DELTA_OBJECT_UPDATE = 5,
 	CE_DELTA_PLAYER_SPAWN = 8,
+	CE_DELTA_UNIT_KILLED = 12,
 	CE_DELTA_CLIENT_UPDATE = 13,
 	CE_DELTA_CHAT = 15,
 	CE_DELTA_SLAYER_SCORES = 16,
@@ -230,6 +231,10 @@ void ce_payload_put_local_player_update(struct ce_payload *payload, int sequence
 void ce_payload_put_remote_player_position(struct ce_payload *payload, int player, int update_id, int sequence,
 	const float position[3]);
 void ce_payload_put_remote_player_actions(struct ce_payload *payload, const struct ce_remote_actions *actions);
+/* a unit killed (its object number), as Custom Edition's server tells a
+death with no direction: the client plays the death itself and shows its
+own player the respawn countdown (ticks) */
+void ce_payload_put_unit_killed(struct ce_payload *payload, int object, int respawn_ticks);
 /* a direction (unit vector) as the wire's two 20-bit numbers */
 void ce_direction(const float vector[3], unsigned int out[2]);
 /* the throttle's two numbers (forward, left) from its 4 bits */

@@ -14,6 +14,8 @@ the masters the last heartbeat). Its notices go to standard output.
                                  our capture of Custom Edition's server has)
   gamespy_harness chat <kind> <player> <text>
                                 (a payload of one chat line, as hex)
+  gamespy_harness killed <object> <ticks>
+                                (a payload of one unit killed, as hex)
   gamespy_harness scores        (a payload of Slayer's scores and a player's
                                  numbers, all zero as a new game's, as hex)
 */
@@ -151,6 +153,20 @@ int main(int argc, char **argv)
 
 		ce_payload_begin(&payload, out, sizeof(out));
 		ce_payload_put_chat(&payload, atoi(argv[2]), atoi(argv[3]), argv[4]);
+		length = ce_payload_end(&payload);
+		for (index = 0; index < length; index++)
+			printf("%02x", out[index]);
+		printf("\n");
+		return 0;
+	}
+	if (argc == 4 && !strcmp(argv[1], "killed"))
+	{
+		struct ce_payload payload;
+		unsigned char out[64];
+		int length;
+
+		ce_payload_begin(&payload, out, sizeof(out));
+		ce_payload_put_unit_killed(&payload, atoi(argv[2]), atoi(argv[3]));
 		length = ce_payload_end(&payload);
 		for (index = 0; index < length; index++)
 			printf("%02x", out[index]);

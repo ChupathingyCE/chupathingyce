@@ -417,6 +417,28 @@ void ce_payload_put_remote_player_actions(struct ce_payload *payload, const stru
 	put_bits(payload, (unsigned int)actions->grenade, 2);
 }
 
+/* ---------- deaths */
+
+void ce_payload_put_unit_killed(struct ce_payload *payload, int object, int respawn_ticks)
+{
+	/* (the flags as Custom Edition's server sets them for a death with no
+	direction: the aftermath is there, the unit died, nothing else, no
+	direction) */
+	static const unsigned char flags[7] = { 1, 1, 0, 0, 0, 0, 1 };
+	int index;
+
+	put_delta_header(payload, CE_DELTA_UNIT_KILLED);
+	put_bits(payload, (unsigned int)object, 9);
+	for (index = 0; index < 7; index++)
+		put_bits(payload, flags[index], 1);
+	/* (no part of the body named; no force; no direction) */
+	put_bits(payload, 0xffff, 16);
+	put_real(payload, 0.0f);
+	put_real(payload, 0.0f);
+	put_real(payload, 0.0f);
+	put_bits(payload, (unsigned int)respawn_ticks, 32);
+}
+
 /* ---------- chat and scores */
 
 void ce_payload_put_chat(struct ce_payload *payload, int kind, int player, const char *text)

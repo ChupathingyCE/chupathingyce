@@ -321,6 +321,27 @@ def test_server_chat_line(harness):  # noqa: F811
     assert "".join(chr(number(43 + 16 * index, 16)) for index in range(8)) == "Welcome!"
 
 
+def test_unit_killed_fields(harness):  # noqa: F811
+    """A death as Custom Edition 1.0.10's server writes one with no
+    direction (its unit death message's definition read from the retail
+    binary): the object, seven flags, a 16-bit part, a real, two reals of
+    direction and the 32-bit respawn countdown."""
+    import struct
+    import subprocess
+    out = subprocess.run([str(harness), "killed", "50", "150"], capture_output=True, text=True,
+                         check=True).stdout.strip()
+    bits = bits_of(out)
+    number = lambda start, width: int(bits[start:start + width][::-1], 2)  # noqa: E731
+    assert number(0, 11) == len(out) // 2
+    assert number(11, 1) == 1 and number(12, 1) == 0 and number(13, 6) == 12
+    assert number(19, 9) == 50
+    assert [number(28 + index, 1) for index in range(7)] == [1, 1, 0, 0, 0, 0, 1]
+    assert number(35, 16) == 0xffff
+    assert [struct.unpack("<f", number(51 + 32 * index, 32).to_bytes(4, "little"))[0] for index in range(3)] == [0, 0, 0]
+    assert number(147, 32) == 150
+    assert len(out) // 2 == (147 + 32 + 7) // 8
+
+
 # (our capture of Custom Edition 1.0.10's server after a join: weapon
 # creations, Slayer's scores (bits 4763 to 5795), a player added, the
 # player's numbers in full (bits 5880 to 6182) and as a change)
