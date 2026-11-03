@@ -506,7 +506,7 @@ window opens, in a message box on the desktop and on Android: "Use the new
 settings" or "Keep mine" (Return and Escape). It lists the changes in words
 (smoother edges, sharper shadows, the Chupathingy menus, on Android a
 larger audio buffer, since 0.8.1b a fixed port for hosting, UDP 2302, a
-hosted game starting alone, and Headphone 3D). Until it is answered, the settings keep their old values and
+hosted game starting alone, Headphone 3D, and Chupathingy's own loading picture). Until it is answered, the settings keep their old values and
 the file is left as it is. "Keep mine" writes the old values into
 `config.toml`; "Use the new settings" lets them follow the new defaults. The
 answer is `game.defaults_answered` (the number of the last set of changes
@@ -557,6 +557,7 @@ the setting for one start of the game. It has priority over the file.
 | `display.loading_screen` | `true` | `HALO_LOADING_SCREEN` | Keep the original loading screen (the picture with the glow that crosses it) up for a while when a level loads, as loading from the Xbox's disc did; the port's loads are usually over before it shows. How long is set for each kind of game below; the default is no wait. Press A (Space or Enter on the keyboard) to skip the rest of the wait; a load that is still running finishes first. Also when the level is already loaded (a restart). Never for the main menu or a saved film. `false`: every level loads as fast as it can. |
 | `display.loading_screen_campaign_seconds` | `0.0` | `HALO_LOADING_SCREEN_CAMPAIGN_SECONDS` | The least seconds the loading screen stays up when a campaign level loads on this machine alone, split screen co-op too, up to 30. A load that takes longer shows for as long as it takes. `0`: no wait. A value set in 0.8.0's `display.loading_screen_min_seconds` is moved to this setting the first time the game starts. |
 | `display.loading_screen_multiplayer_seconds` | `0.0` | `HALO_LOADING_SCREEN_MULTIPLAYER_SECONDS` | The same for every other game: split screen multiplayer, system link, online and network co-op, on a machine that joins and on one that hosts and plays, up to 5: while the loading screen is held, the machine hears nothing from the network, and a host drops a machine it hears nothing from for 15 seconds. Machines already finish loading at their own times. Never on the dedicated server. `0`: no wait. |
+| `display.xbox_loading_picture` | `false` | `HALO_XBOX_LOADING_PICTURE` | The loading screen shows Chupathingy's own picture. To see the Xbox's own loading picture, set this to `true`: the game uses `xbox_loading.tga` in your maps folder (the disc's `loading.tga` works too). The setup screen's disc import saves the disc's picture as `maps/xbox_loading.tga`. A picture that is not an uncompressed 24-bit TGA of 320 by 240 is skipped. Players who already had a `config.toml` are asked once whether to keep the Xbox's picture. Not on the consoles, which show the disc's picture. |
 | `display.scoreboard_team_layout` | `"teams"` | `HALO_SCOREBOARD_TEAM_LAYOUT` | How the multiplayer scoreboard (hold BACK, or tab) lists a team game's players. `"teams"`: a column for each team, red on the left and blue on the right. `"score"`: all the players in order of score. With more players than fit, the mouse wheel and Page Up / Page Down scroll the scoreboard. |
 | `display.scoreboard_background` | `true` | `HALO_SCOREBOARD_BACKGROUND` | `true`: the multiplayer scoreboard (hold BACK, or tab) has a panel behind its text, for clearer text. |
 | `display.scoreboard_platforms` | `"auto"` | `HALO_SCOREBOARD_PLATFORMS` | A small logo of each player's platform (Windows, macOS, Linux, Android, Steam Deck, Xbox and so on) before their name on a network game's scoreboard, for players whose client sends it over Delta Peer; other players (OpenCE, retail) get no logo. `"auto"`: shown with the Chupathingy menus only, since the Xbox and Gearbox menus stay close to the originals. `"on"`: with any menus. `"off"`: never. |
@@ -1224,9 +1225,10 @@ tags or a tag's data that is out of range gets zeros (`tag_empty_data` in
 
 A map's name must be its file's: the cache file slots are found by the name
 in the map's header, so a map file whose header names another map (a
-renamed one) is refused, not copied again for ever. The `loading.tga` a map
-pack may put in the maps folder is read only if it is an uncompressed 24-bit
-picture of 320 by 240, the loading screen's texture.
+renamed one) is refused, not copied again for ever. The `loading.tga` (or
+`xbox_loading.tga`) a map pack may put in the maps folder, shown with
+`display.xbox_loading_picture` on, is read only if it is an uncompressed
+24-bit picture of 320 by 240, the loading screen's texture.
 
 A checkpoint (`savegame.bin`, in the profile's folder) and a core are
 images of the game state's memory: with the data arrays' pointers to their

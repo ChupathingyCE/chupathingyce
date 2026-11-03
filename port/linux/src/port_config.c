@@ -356,6 +356,13 @@ static const struct config_setting config_settings[] =
 		"The same for every other game, up to 5: split screen multiplayer,\n"
 		"system link, online and network co-op. The network waits while the\n"
 		"loading screen is up." },
+#ifndef HALO_CONSOLE_NO_LOADING_PICTURE
+	{ "display.xbox_loading_picture", _config_boolean, "false", "HALO_XBOX_LOADING_PICTURE", _environment_value,
+		_platform_all,
+		"The loading screen shows Chupathingy's picture. To see the Xbox's own\n"
+		"loading picture, set this to true: the game uses xbox_loading.tga in\n"
+		"your maps folder (the disc's loading.tga works too)." },
+#endif
 	{ "display.pause_change_teams", _config_boolean, "true", "HALO_PAUSE_CHANGE_TEAMS", _environment_value,
 		_platform_all,
 		"Show CHANGE TEAMS in the pause menu of a team game." },
@@ -1573,9 +1580,10 @@ version changed) */
 #define CONFIG_VERSION 2
 /* the defaults the game has asked about (game.defaults_answered): 1, the
 ones of v0.8.0; 2, network.tunnel_port's 2302 (v0.8.1b); 3, a game you host
-starting alone (game.start_with_one_player); 4, Headphone 3D on. A file
+starting alone (game.start_with_one_player); 4, Headphone 3D on; 5,
+Chupathingy's loading picture (display.xbox_loading_picture). A file
 answered for an earlier generation is asked about the later ones only */
-#define CONFIG_DEFAULTS_GENERATION 4
+#define CONFIG_DEFAULTS_GENERATION 5
 #define CONFIG_VERSION_LINE "config_version = 2\n"
 #define CONFIG_VERSION_LINES "# Chupathingy uses this line to update the file. Leave it as it is.\n" CONFIG_VERSION_LINE
 #define CONFIG_VERSION_TEXT "\n" CONFIG_VERSION_LINES
@@ -2257,6 +2265,11 @@ static const struct
 	/* the stereo pan, the default until Headphone 3D matched the Xbox (a
 	file that names "off" keeps it) */
 	{ "audio.hrtf", "\"off\"", 0, "Headphone 3D on, as the original Xbox did", 4 },
+#endif
+#ifndef HALO_CONSOLE_NO_LOADING_PICTURE
+	/* the disc's loading picture, the only one until Chupathingy's (a file
+	that names true keeps it) */
+	{ "display.xbox_loading_picture", "true", 0, "Chupathingy's own loading picture, not the Xbox's", 5 },
 #endif
 };
 

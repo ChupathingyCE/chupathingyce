@@ -48,6 +48,7 @@ DEFAULTS = {
 		"network.tunnel_port": "2302",
 		"game.start_with_one_player": "true",
 		"audio.hrtf": "on",
+		"display.xbox_loading_picture": "false",
 	},
 	"desktop32": {
 		"display.anti_aliasing": "off",
@@ -56,6 +57,7 @@ DEFAULTS = {
 		"network.tunnel_port": "2302",
 		"game.start_with_one_player": "true",
 		"audio.hrtf": "on",
+		"display.xbox_loading_picture": "false",
 	},
 	"android": {
 		"display.anti_aliasing": "off",
@@ -64,6 +66,7 @@ DEFAULTS = {
 		"network.tunnel_port": "2302",
 		"game.start_with_one_player": "true",
 		"audio.hrtf": "on",
+		"display.xbox_loading_picture": "false",
 	},
 	"server": {
 		"display.anti_aliasing": "off",
@@ -93,11 +96,12 @@ OLD = {
 	"network.tunnel_port": "0",
 	"game.start_with_one_player": "false",
 	"audio.hrtf": "off",
+	"display.xbox_loading_picture": "true",
 }
 CHANGED = {
-	"desktop": ["display.menus", "display.anti_aliasing", "display.shadow_resolution", "network.tunnel_port", "game.start_with_one_player", "audio.hrtf"],
-	"desktop32": ["display.menus", "display.shadow_resolution", "network.tunnel_port", "game.start_with_one_player", "audio.hrtf"],
-	"android": ["display.menus", "display.shadow_resolution", "audio.buffer_frames", "network.tunnel_port", "game.start_with_one_player", "audio.hrtf"],
+	"desktop": ["display.menus", "display.anti_aliasing", "display.shadow_resolution", "network.tunnel_port", "game.start_with_one_player", "audio.hrtf", "display.xbox_loading_picture"],
+	"desktop32": ["display.menus", "display.shadow_resolution", "network.tunnel_port", "game.start_with_one_player", "audio.hrtf", "display.xbox_loading_picture"],
+	"android": ["display.menus", "display.shadow_resolution", "audio.buffer_frames", "network.tunnel_port", "game.start_with_one_player", "audio.hrtf", "display.xbox_loading_picture"],
 	"server": [],
 	"console": ["display.menus", "display.shadow_resolution", "game.start_with_one_player"],
 }
@@ -106,8 +110,8 @@ CHANGED = {
 # an earlier one is asked about the later ones only
 SECOND = ["network.tunnel_port"]
 THIRD = ["game.start_with_one_player"]
-LATEST = ["audio.hrtf"]
-GENERATION = "4"
+LATEST = ["audio.hrtf", "display.xbox_loading_picture"]
+GENERATION = "5"
 NEW = {"display.menus": "chupathingy"}
 
 # the macros each kind of build is compiled with; the others are not macOS
