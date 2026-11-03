@@ -1066,6 +1066,10 @@ static const struct config_setting config_settings[] =
 	{ "debug.gpu_flush_draws", _config_integer, "-1", "HALO_GPU_FLUSH_DRAWS", _environment_value, _platform_desktop,
 		"Flush the GPU every this many draws. -1 means every 3 on Intel with\n"
 		"Mesa. 0 never does." },
+	{ "debug.gpu_query_buffer", _config_integer, "-1", "HALO_GPU_QUERY_BUFFER", _environment_value, _platform_desktop,
+		"How visibility tests (light glows, lens flares) get their results.\n"
+		"1: through a mapped buffer. 0: by reading their queries. -1 means 0\n"
+		"with AMD's own driver, whose buffer reads back zeros, and 1 elsewhere." },
 	{ "debug.gpu_stats", _config_boolean, "false", "HALO_GPU_STATS", _environment_set_is_true, _platform_all,
 		"Log the renderer's draw counts once a second." },
 	{ "debug.gpu_trace_frame", _config_integer, "-1", "HALO_GPU_TRACE", _environment_value, _platform_all,

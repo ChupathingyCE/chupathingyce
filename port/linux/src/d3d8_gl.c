@@ -1679,6 +1679,22 @@ static BOOL bind_targets(BOOL *has_depth)
 
 static void program_adopt(GLuint vertex_shader, GLuint fragment_shader, GLuint program);
 
+#ifndef HALO_ANDROID
+/* whether visibility tests take their results through a mapped buffer
+(debug.gpu_query_buffer: -1 everywhere but AMD's own driver, whose
+GL_VENDOR is "ATI Technologies Inc.": its query copies into the buffer
+read as zeros; 0 never, 1 always) */
+static BOOL visibility_query_buffer_wanted(void)
+{
+	long setting = config_integer("debug.gpu_query_buffer");
+	const char *vendor = (const char *)glGetString(GL_VENDOR);
+
+	if (setting >= 0)
+		return setting != 0;
+	return !(vendor && strstr(vendor, "ATI Technologies"));
+}
+#endif
+
 static void gl_initialize(void)
 {
 	GLint major = 0, minor = 0;
@@ -1791,8 +1807,10 @@ static void gl_initialize(void)
 	glGenQueries(VISIBILITY_TEST_SLOTS + 1, device.queries);
 #ifndef HALO_ANDROID
 	/* (OpenGL 4.4: without it, as on macOS, visibility tests read their
-	queries, D3DDevice_GetVisibilityTestResult) */
-	if (glBufferStorage)
+	queries, D3DDevice_GetVisibilityTestResult; so they do with AMD's own
+	driver, whose copies into the mapped buffer read back as zeros, which
+	hid light glows and lens flares: debug.gpu_query_buffer) */
+	if (glBufferStorage && visibility_query_buffer_wanted())
 	{
 	glGenBuffers(1, &device.visibility_results_buffer);
 	glBindBuffer(GL_QUERY_BUFFER, device.visibility_results_buffer);
@@ -1812,7 +1830,11 @@ static void gl_initialize(void)
 		glGenQueries(VISIBILITY_TEST_SLOTS, device.visibility_batches[1].queries);
 	}
 	}
-	if (!device.visibility_results)
+	if (device.visibility_results)
+		platform_log("visibility tests: their results through a mapped buffer");
+	else if (glBufferStorage && !visibility_query_buffer_wanted())
+		platform_log("visibility tests: they read their queries (debug.gpu_query_buffer)");
+	else
 		platform_log("cannot map the visibility test results; tests read their queries");
 	{
 		long every = config_integer("debug.gpu_flush_draws");
