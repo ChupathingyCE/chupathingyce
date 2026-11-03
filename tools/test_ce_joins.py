@@ -256,6 +256,30 @@ def test_spawn_matches_capture(harness):  # noqa: F811
     assert out == CAPTURED_SPAWN
 
 
+def test_client_updates_from_capture(harness):  # noqa: F811
+    """A 1.0.10 client's updates (our capture: idle, walking forward, a jump,
+    turning) read in order, each leaving out what didn't change."""
+    import subprocess
+    captured = ["0cb8290ca4da844f9fffff69", "06b889600f6c", "07b89970090160", "07b81980110042", "09b8a1d0a92a53f7a0"]
+    lines = subprocess.run([str(harness), "updates", *captured], capture_output=True, text=True,
+                           check=True).stdout.splitlines()
+    assert lines[0] == ("read 1 id 0 ticks 9 flags 0 yaw 0.3106 pitch 0.0000 throttle 0 trigger 0 weapon 0 grenade 3 "
+                        "medium 65535")
+    assert "ticks 3 flags 0" in lines[1] and "throttle 8" in lines[1]
+    assert "ticks 2 flags 2" in lines[2] and "throttle 0" in lines[2]
+    assert "ticks 4 flags 0" in lines[3]
+    assert "yaw 0.1039" in lines[4] and "throttle 8" in lines[4]
+
+
+def test_directions(harness):  # noqa: F811
+    import subprocess
+    lines = subprocess.run([str(harness), "direction"], capture_output=True, text=True, check=True).stdout.split()
+    # (forward along x, as Custom Edition's server wrote a weapon's; straight up; along y)
+    assert lines[0:2] == ["524288", "262144"]
+    assert lines[2] == "0"
+    assert lines[4:6] == ["524288", "524288"]
+
+
 def test_keep_alive_matches_capture(harness):  # noqa: F811
     import subprocess
     out = subprocess.run([str(harness), "keepalive"], capture_output=True, text=True, check=True).stdout.strip()

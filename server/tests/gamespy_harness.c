@@ -39,6 +39,43 @@ int main(int argc, char **argv)
 		printf("%s\n", name);
 		return 0;
 	}
+	if (argc >= 3 && !strcmp(argv[1], "updates"))
+	{
+		struct ce_client_update update;
+		int argument;
+
+		memset(&update, 0, sizeof(update));
+		for (argument = 2; argument < argc; argument++)
+		{
+			unsigned char payload[256];
+			int length = (int)strlen(argv[argument]) / 2;
+
+			for (index = 0; index < length && index < (int)sizeof(payload); index++)
+			{
+				unsigned int byte;
+
+				sscanf(argv[argument] + index * 2, "%2x", &byte);
+				payload[index] = (unsigned char)byte;
+			}
+			printf("read %d", ce_payload_read_client_updates(payload, length, &update));
+			printf(" id %d ticks %d flags %u yaw %.4f pitch %.4f throttle %d trigger %d weapon %d grenade %d medium %d\n",
+				update.update_id, update.ticks, update.control_flags, update.yaw, update.pitch, update.throttle,
+				update.primary_trigger, update.weapon, update.grenade, update.unknown_medium);
+		}
+		return 0;
+	}
+	if (argc == 2 && !strcmp(argv[1], "direction"))
+	{
+		static const float vectors[3][3] = { { 1.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 0.0f, 1.0f, 0.0f } };
+		unsigned int out[2];
+
+		for (index = 0; index < 3; index++)
+		{
+			ce_direction(vectors[index], out);
+			printf("%u %u\n", out[0], out[1]);
+		}
+		return 0;
+	}
 	if (argc == 2 && !strcmp(argv[1], "spawn"))
 	{
 		struct ce_weapon_create weapon;

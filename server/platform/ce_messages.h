@@ -28,7 +28,12 @@ enum
 	CE_MESSAGE_CLIENT_LOADED = 26,
 
 	/* message delta types */
+	CE_DELTA_OBJECT_DELETE = 0,
+	CE_DELTA_OBJECT_UPDATE = 5,
 	CE_DELTA_PLAYER_SPAWN = 8,
+	CE_DELTA_CLIENT_UPDATE = 13,
+	CE_DELTA_REMOTE_PLAYER_ACTIONS = 37,
+	CE_DELTA_REMOTE_PLAYER_POSITION = 39,
 	CE_DELTA_PLAYER_ADD = 7,
 	CE_DELTA_BIPED_CREATE = 29,
 	CE_DELTA_WEAPON_CREATE = 32,
@@ -127,6 +132,39 @@ struct ce_player_spawn
 	int unknown_mediums[3];
 };
 
+/* a client's actions (its update delta), as a unit's control: the fields
+an update leaves out keep their last values */
+struct ce_client_update
+{
+	int update_id;
+	int ticks;
+	/* the unit's control flags (units.h's bits) */
+	unsigned int control_flags;
+	float yaw;
+	float pitch;
+	/* 2 bits a direction: forward/back, then left/right (ce_messages.c) */
+	int throttle;
+	int primary_trigger;
+	int weapon;
+	int grenade;
+	int unknown_medium;
+};
+
+/* another player's actions, as a client animates them */
+struct ce_remote_actions
+{
+	int player;
+	int update_id;
+	int ticks;
+	unsigned int control_flags;
+	/* the facing, as the two 20-bit numbers of a direction (ce_direction) */
+	unsigned int facing[2];
+	int throttle;
+	int primary_trigger;
+	int weapon;
+	int grenade;
+};
+
 struct ce_payload
 {
 	unsigned char *data;
@@ -146,6 +184,21 @@ void ce_payload_put_player_add(struct ce_payload *payload, int player, unsigned 
 void ce_payload_put_weapon_create(struct ce_payload *payload, const struct ce_weapon_create *weapon);
 void ce_payload_put_biped_create(struct ce_payload *payload, const struct ce_biped_create *biped);
 void ce_payload_put_player_spawn(struct ce_payload *payload, const struct ce_player_spawn *spawn);
+/* an object's place: header (two 8-bit numbers, the object, a time in
+milliseconds, a flag) and its position, still, with its orientation */
+void ce_payload_put_object_update(struct ce_payload *payload, int object, unsigned int time, const float position[3],
+	const unsigned int forward[2], const unsigned int up[2]);
+void ce_payload_put_object_delete(struct ce_payload *payload, int object);
+void ce_payload_put_remote_player_position(struct ce_payload *payload, int player, int update_id, int sequence,
+	const float position[3]);
+void ce_payload_put_remote_player_actions(struct ce_payload *payload, const struct ce_remote_actions *actions);
+/* a direction (unit vector) as the wire's two 20-bit numbers */
+void ce_direction(const float vector[3], unsigned int out[2]);
+/* the throttle's two numbers (forward, left) from its 4 bits */
+void ce_throttle(int bits, float *forward, float *left);
+/* the client updates in a payload, onto update (what they leave out stays):
+how many were read */
+int ce_payload_read_client_updates(const unsigned char *payload, int length, struct ce_client_update *update);
 /* the server's keep-alive delta: one entry */
 void ce_payload_put_server_keep_alive(struct ce_payload *payload, int index, unsigned int value);
 /* the payload's length in bytes (written in its first 11 bits), or 0 */

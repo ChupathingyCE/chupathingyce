@@ -28,6 +28,7 @@ numbers (the random seed, games played, a local flag).
 
 #include "ce_messages.h"
 
+#include <math.h>
 #include <string.h>
 
 enum
@@ -272,6 +273,279 @@ void ce_payload_put_player_spawn(struct ce_payload *payload, const struct ce_pla
 		put_bits(payload, (unsigned int)spawn->weapons[index], 9);
 	for (index = 0; index < 3; index++)
 		put_bits(payload, (unsigned int)spawn->unknown_mediums[index], 16);
+}
+
+/* ---------- directions, positions, throttle */
+
+enum
+{
+	DIRECTION_BITS = 20,
+	POSITION_BITS = 31,
+	/* a whole position's range, each axis: -5000 to 5000 world units */
+	POSITION_RANGE = 10000,
+	POSITION_OFFSET = 5000,
+};
+
+void ce_direction(const float vector[3], unsigned int out[2])
+{
+	/* (a direction is two angles: from straight up, 0 to pi; around, from
+	the y axis's negative side, 0 to 2 pi) */
+	const double maximum = (double)((1u << DIRECTION_BITS) - 1);
+	const double pi = 3.14159265358979323846;
+	double z = vector[2] > 1.0f ? 1.0 : vector[2] < -1.0f ? -1.0 : vector[2];
+	double from_up = acos(z);
+	double around = atan2(vector[1], vector[0]) + pi / 2.0;
+
+	while (around < 0.0)
+		around += 2.0 * pi;
+	while (around >= 2.0 * pi)
+		around -= 2.0 * pi;
+	out[0] = (unsigned int)floor(from_up / pi * maximum + 0.5);
+	out[1] = (unsigned int)floor(around / (2.0 * pi) * maximum + 0.5) & ((1u << DIRECTION_BITS) - 1);
+}
+
+static void put_position_full(struct ce_payload *payload, const float position[3])
+{
+	const double maximum = (double)((1u << POSITION_BITS) - 1);
+	int axis;
+
+	for (axis = 0; axis < 3; axis++)
+	{
+		double value = ((double)position[axis] + POSITION_OFFSET) / POSITION_RANGE;
+
+		value = value < 0.0 ? 0.0 : value > 1.0 ? 1.0 : value;
+		put_bits(payload, (unsigned int)floor(value * maximum + 0.5), POSITION_BITS);
+	}
+}
+
+void ce_throttle(int bits, float *forward, float *left)
+{
+	float values[2] = { 0.0f, 0.0f };
+	float length;
+	int component;
+
+	/* (2 bits a component, left/right first: the low bit -1, the high +1) */
+	for (component = 1; component >= 0; component--)
+	{
+		if (bits & 1)
+			values[component] = -1.0f;
+		if (bits & 2)
+			values[component] = 1.0f;
+		bits >>= 2;
+	}
+	length = sqrtf(values[0] * values[0] + values[1] * values[1]);
+	if (length > 0.0001f)
+	{
+		values[0] /= length;
+		values[1] /= length;
+	}
+	*forward = values[0];
+	*left = values[1];
+}
+
+/* ---------- object and player updates */
+
+void ce_payload_put_object_update(struct ce_payload *payload, int object, unsigned int time, const float position[3],
+	const unsigned int forward[2], const unsigned int up[2])
+{
+	put_delta_header(payload, CE_DELTA_OBJECT_UPDATE);
+	/* (header: two 8-bit numbers as Custom Edition's server sends them, the
+	object, the time, a flag) */
+	put_bits(payload, 0, 8);
+	put_bits(payload, 2, 8);
+	put_bits(payload, (unsigned int)object, 9);
+	put_bits(payload, time, 32);
+	put_bits(payload, 1, 1);
+	put_bits(payload, 1, 1);
+	put_position_full(payload, position);
+	put_zero_velocity(payload);
+	put_zero_velocity(payload);
+	put_bits(payload, forward[0], DIRECTION_BITS);
+	put_bits(payload, forward[1], DIRECTION_BITS);
+	put_bits(payload, up[0], DIRECTION_BITS);
+	put_bits(payload, up[1], DIRECTION_BITS);
+}
+
+void ce_payload_put_object_delete(struct ce_payload *payload, int object)
+{
+	put_delta_header(payload, CE_DELTA_OBJECT_DELETE);
+	put_bits(payload, (unsigned int)object, 9);
+}
+
+void ce_payload_put_remote_player_position(struct ce_payload *payload, int player, int update_id, int sequence,
+	const float position[3])
+{
+	put_delta_header(payload, CE_DELTA_REMOTE_PLAYER_POSITION);
+	put_bits(payload, (unsigned int)player, 5);
+	put_bits(payload, (unsigned int)update_id, 6);
+	put_bits(payload, (unsigned int)sequence, 3);
+	put_position_full(payload, position);
+}
+
+/* the control flags a client sends (the others are the server's own) */
+static const unsigned char control_flags_sent[15] = { 1, 1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 1, 1, 1 };
+
+void ce_payload_put_remote_player_actions(struct ce_payload *payload, const struct ce_remote_actions *actions)
+{
+	int bit;
+
+	put_delta_header(payload, CE_DELTA_REMOTE_PLAYER_ACTIONS);
+	put_bits(payload, (unsigned int)actions->player, 5);
+	put_bits(payload, (unsigned int)actions->update_id, 6);
+	/* (no baseline) */
+	put_bits(payload, 0, 1);
+	put_bits(payload, (unsigned int)actions->ticks, 5);
+	for (bit = 0; bit < 15; bit++)
+	{
+		if (control_flags_sent[bit])
+			put_bits(payload, (actions->control_flags >> bit) & 1, 1);
+	}
+	put_bits(payload, actions->facing[0], DIRECTION_BITS);
+	put_bits(payload, actions->facing[1], DIRECTION_BITS);
+	put_bits(payload, (unsigned int)actions->throttle, 4);
+	put_bits(payload, (unsigned int)actions->primary_trigger, 1);
+	put_bits(payload, (unsigned int)actions->weapon, 3);
+	put_bits(payload, (unsigned int)actions->grenade, 2);
+}
+
+/* ---------- reading a client's payload */
+
+struct reader
+{
+	const unsigned char *data;
+	int size;
+	int position;
+};
+
+static int get_bits(struct reader *reader, int count, unsigned int *value)
+{
+	int index;
+
+	if (reader->position + count > reader->size * 8)
+		return 0;
+	*value = 0;
+	for (index = 0; index < count; index++, reader->position++)
+		*value |= (unsigned int)((reader->data[reader->position >> 3] >> (reader->position & 7)) & 1) << index;
+	return 1;
+}
+
+static int read_client_update(struct reader *reader, int every_field, struct ce_client_update *update)
+{
+	int present[9];
+	unsigned int value;
+	int index, bit;
+
+	for (index = 0; index < 9; index++)
+	{
+		present[index] = 1;
+		if (!every_field && !get_bits(reader, 1, &value))
+			return 0;
+		if (!every_field)
+			present[index] = (int)value;
+	}
+	if (!get_bits(reader, 6, &value))
+		return 0;
+	update->update_id = (int)value;
+	if (present[0])
+	{
+		if (!get_bits(reader, 5, &value))
+			return 0;
+		update->ticks = (int)value;
+	}
+	if (present[1])
+	{
+		for (bit = 0; bit < 15; bit++)
+		{
+			if (!control_flags_sent[bit])
+				continue;
+			if (!get_bits(reader, 1, &value))
+				return 0;
+			update->control_flags = (update->control_flags & ~(1u << bit)) | (value << bit);
+		}
+	}
+	if (present[2])
+	{
+		if (!get_bits(reader, 32, &value))
+			return 0;
+		memcpy(&update->yaw, &value, sizeof(value));
+	}
+	if (present[3])
+	{
+		if (!get_bits(reader, 32, &value))
+			return 0;
+		memcpy(&update->pitch, &value, sizeof(value));
+	}
+	if (present[4])
+	{
+		if (!get_bits(reader, 4, &value))
+			return 0;
+		update->throttle = (int)value;
+	}
+	if (present[5])
+	{
+		if (!get_bits(reader, 1, &value))
+			return 0;
+		update->primary_trigger = (int)value;
+	}
+	if (present[6])
+	{
+		if (!get_bits(reader, 3, &value))
+			return 0;
+		update->weapon = (int)value;
+	}
+	if (present[7])
+	{
+		if (!get_bits(reader, 2, &value))
+			return 0;
+		update->grenade = (int)value;
+	}
+	if (present[8])
+	{
+		if (!get_bits(reader, 16, &value))
+			return 0;
+		update->unknown_medium = (int)value;
+	}
+	return 1;
+}
+
+int ce_payload_read_client_updates(const unsigned char *payload, int length, struct ce_client_update *update)
+{
+	struct reader reader;
+	unsigned int value, kind, flag, type;
+	int count = 0;
+
+	reader.data = payload;
+	reader.size = length;
+	reader.position = 0;
+	if (!get_bits(&reader, 11, &value) || (int)value != length)
+		return 0;
+	while (reader.size * 8 - reader.position >= 8)
+	{
+		if (!get_bits(&reader, 1, &kind))
+			break;
+		if (!kind)
+		{
+			/* (a data packet: skipped) */
+			if (!get_bits(&reader, 16, &value) || (int)(value >> 4) < 2)
+				break;
+			reader.position += ((int)(value >> 4) - 2) * 8;
+			continue;
+		}
+		if (!get_bits(&reader, 1, &flag) || !get_bits(&reader, 6, &type))
+			break;
+		if (type == CE_DELTA_CLIENT_UPDATE)
+		{
+			if (!read_client_update(&reader, !flag, update))
+				break;
+			count++;
+		}
+		else if (type == CE_DELTA_CLIENT_KEEP_ALIVE && !flag)
+			reader.position += 8;
+		else
+			/* (another delta: its length isn't known here) */
+			break;
+	}
+	return count;
 }
 
 int ce_payload_end(struct ce_payload *payload)
