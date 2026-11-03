@@ -72,7 +72,9 @@ enum
 	listing's withdrawal (the list drops it by itself later otherwise) */
 	EXIT_WITHDRAW_WAIT = 2500,
 	EXIT_WITHDRAW_POLL = 50,
-	RESPONSE_SIZE = 32768,
+	/* (the list's answer: a line of 150 bytes or so a game, more with a
+	full roster, for BROWSER_MAXIMUM_GAMES of them) */
+	RESPONSE_SIZE = BROWSER_MAXIMUM_GAMES * 1024,
 	/* the player key (game_list_player.key in the save root) */
 	PLAYER_KEY_SIZE = 32,
 	/* the public player ID: the first bytes of the key's hash */
@@ -2524,6 +2526,9 @@ static int invite_identifier(const char *invite, unsigned char *identifier)
 followed, read again each LISTINGS_INTERVAL (the game's thread's alone) */
 enum { LISTINGS = 256, LISTINGS_INTERVAL = 1000 };
 static struct p2p_listing listings[LISTINGS];
+/* (each one's key hash in hexadecimal, as an invite starts: made once a
+reading, not for every game every frame) */
+static char listing_key_hashes[LISTINGS][2 * P2P_KEY_HASH_SIZE + 1];
 static int listing_count;
 
 static void read_listings(void)
@@ -2533,7 +2538,11 @@ static void read_listings(void)
 
 	if (!listings_read || elapsed(listings_time, LISTINGS_INTERVAL))
 	{
+		int index;
+
 		listing_count = p2p_lobby_browsing() ? p2p_lobby_games(listings, LISTINGS) : 0;
+		for (index = 0; index < listing_count; index++)
+			p2p_hex(listings[index].key_hash, P2P_KEY_HASH_SIZE, listing_key_hashes[index]);
 		listings_time = p2p_now();
 		listings_read = 1;
 	}
@@ -2591,12 +2600,25 @@ static int listing_on_list(const struct p2p_listing *listing, const char *code, 
 	return 0;
 }
 
+/* a locked listing's code until its password opens it: its key hash (the
+invite's first half, which names its host) and no token (zeros), so the
+lists can show it, ping its host and match it to its listing again
+(browser_unlock_game) */
+static void locked_code(const struct p2p_listing *listing, char *code)
+{
+	p2p_hex(listing->key_hash, P2P_KEY_HASH_SIZE, code);
+	memset(code + 2 * P2P_KEY_HASH_SIZE, '0', BROWSER_INVITE_LENGTH - 2 * P2P_KEY_HASH_SIZE);
+	code[BROWSER_INVITE_LENGTH] = 0;
+}
+
 /* the games heard on the brokers that the list lacks, after its count
 games (up to maximum_count): marked direct, and OpenCE (legacy) while the
 list answers (a Chupathingy host announces its game to the list too; the
 site marks a game it only hears there the same way). One with a password,
-whose invite is sealed (p2p_listing_unlock), is left to the Server Browser,
-which asks for it; and this machine's own is left out, as the list's is */
+whose invite is sealed (p2p_listing_unlock), is listed locked, by its key
+hash alone (locked_code), and joined once its password opens it
+(browser_unlock_game); the list never has one (a password game's invite is
+never sent to it). This machine's own is left out, as the list's is */
 static int add_direct(struct browser_game *games, int count, int maximum_count, int list_answered)
 {
 	char own[BROWSER_INVITE_LENGTH + 1];
@@ -2607,16 +2629,23 @@ static int add_direct(struct browser_game *games, int count, int maximum_count, 
 	for (index = 0; index < listing_count && count < maximum_count; index++)
 	{
 		const struct p2p_listing *listing = &listings[index];
+		char sealed[BROWSER_INVITE_LENGTH + 1];
 		const char *code = !SDL_strncasecmp(listing->invite, "halo://join/", 12) ? listing->invite + 12 : "";
 		struct browser_game *game = &games[count];
 
-		if (listing->locked || strlen(code) != BROWSER_INVITE_LENGTH || !text_compare_no_case(code, own) ||
-			listing_on_list(listing, code, games, listed))
+		if (listing->locked)
+		{
+			locked_code(listing, sealed);
+			code = sealed;
+		}
+		if (strlen(code) != BROWSER_INVITE_LENGTH ||
+			!SDL_strncasecmp(code, own, 2 * P2P_KEY_HASH_SIZE) || listing_on_list(listing, code, games, listed))
 		{
 			continue;
 		}
 		memset(game, 0, sizeof(*game));
 		snprintf(game->invite, sizeof(game->invite), "%s", code);
+		game->locked = listing->locked;
 		for (character = 0; character < BROWSER_NAME_LENGTH && listing->name[character]; character++)
 			game->name[character] = (unsigned char)listing->name[character];
 		snprintf(game->map, sizeof(game->map), "%s", listing->map);
@@ -2646,7 +2675,6 @@ static void add_known(struct browser_game *games, int count)
 	for (index = 0; index < count; index++)
 	{
 		unsigned char identifier[P2P_IDENTIFIER_SIZE];
-		char key_hash[2 * P2P_KEY_HASH_SIZE + 1];
 
 		/* the tunnel's (a game being joined or played), else a probe's (a host
 		that answers pings), else an estimate */
@@ -2667,9 +2695,10 @@ static void add_known(struct browser_game *games, int count)
 				games[index].ping_estimated = 1;
 			}
 		}
-		games[index].locked = 0;
+		/* (a listing's own lock stays: add_direct's) */
 		if (games[index].direct)
 			continue;
+		games[index].locked = 0;
 		games[index].kind = 0;
 		/* (the list's label, else a broker listing's; a Delta host is never
 		OpenCE's) */
@@ -2677,8 +2706,7 @@ static void add_known(struct browser_game *games, int count)
 			games[index].opence_server = 0;
 		for (other = 0; other < listing_count; other++)
 		{
-			p2p_hex(listings[other].key_hash, P2P_KEY_HASH_SIZE, key_hash);
-			if (!SDL_strncasecmp(key_hash, games[index].invite, 2 * P2P_KEY_HASH_SIZE))
+			if (!SDL_strncasecmp(listing_key_hashes[other], games[index].invite, 2 * P2P_KEY_HASH_SIZE))
 			{
 				games[index].locked = listings[other].locked;
 				games[index].kind = listings[other].kind;
@@ -2796,6 +2824,32 @@ int browser_get_games(struct browser_game *games, int maximum_count)
 	count = add_direct(games, count, maximum_count, browser_list_status() == BROWSER_LIST_ANSWERED);
 	add_known(games, count);
 	return count;
+}
+
+int browser_unlock_game(const char *invite, const char *password, char *code, int size)
+{
+	int index;
+
+	for (index = 0; index < listing_count; index++)
+	{
+		struct p2p_listing listing = listings[index];
+		char sealed[BROWSER_INVITE_LENGTH + 1];
+
+		if (!listing.locked)
+			continue;
+		locked_code(&listing, sealed);
+		if (text_compare_no_case(sealed, invite))
+			continue;
+		if (!p2p_listing_unlock(&listing, password) || SDL_strncasecmp(listing.invite, "halo://join/", 12) ||
+			strlen(listing.invite + 12) != BROWSER_INVITE_LENGTH)
+		{
+			return 0;
+		}
+		snprintf(code, (size_t)size, "%s", listing.invite + 12);
+		memset(&listing, 0, sizeof(listing));
+		return 1;
+	}
+	return -1;
 }
 
 int browser_list_status(void)
