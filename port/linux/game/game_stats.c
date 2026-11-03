@@ -2,7 +2,8 @@
 GAME_STATS.C
 
 The game list's statistics recorder (configure.py --game-browser,
-HALO_GAME_BROWSER; port/linux/src/browser.c). It watches the game and
+HALO_GAME_BROWSER; port/linux/src/browser.c; on a console,
+HALO_CONSOLE_GAME_REPORTS: port/console/reports). It watches the game and
 changes nothing in it, on the host and on every client alike:
 
 - Every kill as this machine's game has it (game_engine_player_killed:
@@ -27,12 +28,15 @@ was known ("sources").
 The host's report goes with the game's listing (game_engine_report_game). A
 client that joined through an invite sends its own report a few seconds
 after the game ends (browser_client_report), whoever hosted it, so that a
-game whose host does not report is recorded too.
+game whose host does not report is recorded too. A console sends only that
+one (console_reports_joined_game): it keeps fewer players who left
+(MAXIMUM_DEPARTED_PLAYERS), whose lines in a client's report are the
+scoreboard's numbers anyway.
 
 Called each frame from the main loop (main.c).
 */
 
-#ifdef HALO_GAME_BROWSER
+#ifdef HALO_PORT_GAME_REPORTS
 
 #include "cseries.h"
 #include "cseries/cseries_windows.h"
@@ -45,6 +49,7 @@ Called each frame from the main loop (main.c).
 #include "networking/network_client_manager.h"
 #include "tag_files/tag_files.h"
 #include "../src/browser.h"
+#include "../src/game_report.h"
 
 #include <limits.h>
 #include <stdarg.h>
@@ -54,9 +59,19 @@ Called each frame from the main loop (main.c).
 /* game_engine.c's */
 long game_engine_report_lines(struct browser_report_player *players, long maximum);
 struct game_variant *game_engine_get_variant(void);
+#ifdef HALO_GAME_BROWSER
 /* Delta Stats' recorder (game_events.c) */
 void game_events_update(void);
 void game_events_player_killed(long killing_player_index, long dead_player_index, boolean friendly_fire);
+#define stats_send_client_report browser_client_report
+#else
+/* a console's report of the game (port/console/reports/console_reports.h),
+as browser_client_report, and its build's name ("Warthog 0.8.1d") */
+int console_reports_joined_game(int teams, int red_score, int blue_score, int duration_seconds,
+	const struct browser_report_player *players, int count, const char *extra);
+const char *console_reports_build(void);
+#define stats_send_client_report console_reports_joined_game
+#endif
 /* Delta Peer's (delta_peer_game.c): a player's platform, 0 if their machine
 is not on Chupathingy */
 int delta_peer_player_platform(int player_index);
@@ -64,15 +79,22 @@ int delta_peer_player_platform(int player_index);
 void game_stats_game_extra(boolean host, char *text, long size);
 /* the platform layer's */
 void platform_log(char const *format, ...);
+#ifdef HALO_GAME_BROWSER
 const char *updater_version(void);
+#endif
 
 /* ---------- constants */
 
 enum
 {
 	MAXIMUM_STATS_PLAYERS = HALO_PORT_MAXIMUM_NETWORK_PLAYERS,
-	/* players who left before the end, kept */
+	/* players who left before the end, kept (a console's fewer: its
+memory, and a client's report has them as scoreboard lines) */
+#ifdef HALO_GAME_BROWSER
 	MAXIMUM_DEPARTED_PLAYERS = 32,
+#else
+	MAXIMUM_DEPARTED_PLAYERS = 8,
+#endif
 	/* the weapons (damage tags) a player's kills are counted by */
 	MAXIMUM_PLAYER_WEAPONS = 12,
 	/* the game's multikill window (game_statistics_record_kill's) */
@@ -501,7 +523,7 @@ static long stats_departed_json(
 {
 	char name[96];
 
-	browser_json_name(name, sizeof(name), (unsigned short const *)player->name, BROWSER_PLAYER_NAME_LENGTH);
+	game_report_json_name(name, sizeof(name), (unsigned short const *)player->name, BROWSER_PLAYER_NAME_LENGTH);
 	if (!full)
 	{
 		return stats_append(text, size, used, "{\"name\": %s, \"team\": %ld, \"kills\": %d, \"deaths\": %d}",
@@ -555,20 +577,26 @@ static void stats_client_report(
 	count = game_engine_report_lines(players, MAXIMUM_STATS_PLAYERS);
 	if (count <= 0)
 		return;
-	browser_json_name(name, sizeof(name), (unsigned short const *)reporter->name, BROWSER_PLAYER_NAME_LENGTH);
-	browser_json_name(host, sizeof(host), (unsigned short const *)game->name, 16);
+	game_report_json_name(name, sizeof(name), (unsigned short const *)reporter->name, BROWSER_PLAYER_NAME_LENGTH);
+	game_report_json_name(host, sizeof(host), (unsigned short const *)game->name, 16);
 	used = stats_append(extra, sizeof(extra), used,
 		"\"map\": \"");
 	used = stats_append_path(extra, sizeof(extra), used, game->map.name);
 	used = stats_append(extra, sizeof(extra), used,
 		"\", \"engine\": %d, \"score_limit\": %d, \"host\": %s, \"reporter\": %s, \"client_joined\": %ld, "
-		"\"build\": \"ChupathingyCE %s\", \"network_version\": %d, ",
+		"\"build\": \"%s%s\", \"network_version\": %d, ",
 		(int)variant->game_engine_index, (int)variant->universal_variant.score_to_win, host, name,
-		game_stats.first_tick / TICKS_PER_SECOND, updater_version(), delta_legacy_announce());
+		game_stats.first_tick / TICKS_PER_SECOND,
+#ifdef HALO_GAME_BROWSER
+		"ChupathingyCE ", updater_version(),
+#else
+		"", console_reports_build(),
+#endif
+		delta_legacy_announce());
 	game_stats_game_extra(FALSE, extra + used, (long)sizeof(extra) - used);
 	/* (told only when one is sent: none without a list server, with
 	reports of joined games off, or for a game not joined by its invite) */
-	if (browser_client_report(
+	if (stats_send_client_report(
 		teams,
 		teams ? game_engine_get_team_score(0) : 0,
 		teams ? game_engine_get_team_score(1) : 0,
@@ -604,8 +632,10 @@ void game_stats_player_killed(
 
 	if (!stats_network_game() || !game_engine_can_score())
 		return;
+#ifdef HALO_GAME_BROWSER
 	/* (Delta Stats' recorder, when this machine hosts: game_events.c) */
 	game_events_player_killed(killing_player_index, dead_player_index, friendly_fire);
+#endif
 	stats_check_game();
 	stats_track_players();
 	tick = game_time_get();
@@ -680,15 +710,19 @@ void game_stats_game_extra(
 	Reports) */
 	{
 		char name[96];
+#ifdef HALO_GAME_BROWSER
 		char bomb[256];
+#endif
 
-		browser_json_name(name, sizeof(name), (unsigned short const *)game_engine_get_variant()->human_readable_game_description,
+		game_report_json_name(name, sizeof(name), (unsigned short const *)game_engine_get_variant()->human_readable_game_description,
 			12);
 		if (host)
 			used = stats_append(text, size, used, "\"engine\": %d, ", (int)game_engine_get_variant()->game_engine_index);
 		used = stats_append(text, size, used, "\"gametype\": %s, ", name);
+#ifdef HALO_GAME_BROWSER
 		if (game_engine_bomb_report_game(bomb, sizeof(bomb)))
 			used = stats_append(text, size, used, "%s, ", bomb);
+#endif
 	}
 	used = stats_append(text, size, used,
 		"\"stats\": 1, \"sources\": {\"statistics\": \"%s\", \"team_scores\": \"%s\", \"medals\": \"%s\", "
@@ -720,7 +754,9 @@ void game_stats_update(
 {
 	boolean over;
 
+#ifdef HALO_GAME_BROWSER
 	game_events_update();
+#endif
 
 	if (!game_engine_running() || !stats_network_game())
 	{

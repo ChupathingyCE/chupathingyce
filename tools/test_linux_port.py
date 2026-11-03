@@ -382,14 +382,18 @@ def test_minimal_report_lines():
     scoreboard's numbers: name, team, place, score, kills, deaths (and the
     host's claim tag). Its recorded parts (medals, weapons, ...) never go."""
     root = MENUS.parent.parent.parent
-    browser = (root / "port/linux/src/browser.c").read_text()
-    body = re.search(r"^static char \*report_json\(.*?^\}", browser, re.M | re.S).group(0)
+    report = (root / "port/linux/src/game_report.c").read_text()
+    body = re.search(r"^char \*game_report_json\(.*?^\}", report, re.M | re.S).group(0)
     minimal = re.search(r"if \(player->minimal\)\s*\{.*?append\(report, size, used, \"(.*?)\",", body, re.S).group(1)
     line = json.loads('{"name": "Someone"' + c_format_json(minimal, [1, 2, 3, 4, 5]) + "}")
     assert set(line) == {"name", "team", "place", "score", "kills", "deaths"}
     # (the tag stays, so a Chupathingy player the handshake missed can still claim it)
     assert body.index("if (player->minimal)") < body.index('"tag\\"')
-    assert "!player->minimal && player->extra" in body
+    assert "if (line_has_extra(player))" in body
+    assert "return !player->minimal && player->extra" in report
+    # (the host's report alone tags its lines: browser.c's report_json)
+    browser = (root / "port/linux/src/browser.c").read_text()
+    assert "tag_invite ? report_line_tag : NULL" in browser
     stats = (root / "port/linux/game/game_stats.c").read_text()
     departed = re.search(r"if \(!full\)\s*\{\s*return stats_append\(text, size, used, \"(.*?)\",", stats, re.S).group(1)
     assert set(json.loads(c_format_json(departed, ['"Someone"', 1, 2, 3]))) == {"name", "team", "kills", "deaths"}
