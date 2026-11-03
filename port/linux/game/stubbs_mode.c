@@ -12,8 +12,8 @@ tag cache is placed there (physical_memory_map.c). The native builds keep
 their game state above the tag cache (halo_port_capacity.h), so the room
 below it is free.
 
-Everything here is for development builds only (not HALO_RELEASE) and only
-with the stubbs pack's own menus: stock Halo, Custom Edition and the other
+Everything here is a preliminary first look, in every build, and only with
+the stubbs pack's own menus: stock Halo, Custom Edition and the other
 packs never take these paths.
 */
 
@@ -35,7 +35,7 @@ packs never take these paths.
 boolean stubbs_mode_active(
 	void)
 {
-#if defined(HALO_RELEASE) || !defined(HALO_MAP_LIST)
+#if !defined(HALO_MAP_LIST)
 	return FALSE;
 #else
 	static int active = -1;
