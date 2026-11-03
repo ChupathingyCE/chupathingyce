@@ -19,6 +19,7 @@ platform.
 #ifdef HALO_GAME_BROWSER
 
 #include "browser_http.h"
+#include "http_url_rules.h"
 
 #include "mbedtls/error.h"
 #include "mbedtls/net_sockets.h"
@@ -717,6 +718,12 @@ int posix_browser_download_open(const char *url, const char *user_agent, int *st
 		connection_free(&download.connection);
 		if (*status >= 300 && *status < 400 && location[0])
 		{
+			/* (never from https:// to plain http://) */
+			if (!http_url_redirect_allowed(current, location))
+			{
+				set_error(error, error_size, "refused a redirect away from https://", 0);
+				break;
+			}
 			/* (an address on the same host, or another's) */
 			if (location[0] == '/')
 			{

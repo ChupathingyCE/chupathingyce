@@ -694,6 +694,9 @@ symbols in this file:
 #include "network_coop.h" /* port: port/linux/game/network_coop.c */
 #include "coop_scripts.h" /* port: port/linux/game/coop_scripts.c */
 #include "coop_enemies.h" /* port: port/linux/game/coop_enemies.c */
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+#include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
+#endif
 
 /* port: the control and animation impulses the host's actors give their
 units go to the clients' copies (port/linux/game/network_actors.c) */
@@ -2867,6 +2870,18 @@ static void unit_drop_grenades(
 	grenade_type_count = NUMBER_OF_UNIT_GRENADE_TYPES;
 	do
 	{
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+		/* port: in Stubbs mode, a grenade type the globals don't have
+		(Stubbs the Zombie's have none) is not dropped
+		(port/linux/game/stubbs_mode.c); Halo's globals have every one */
+		if (stubbs_mode_active() &&
+			(long)(grenade_count_negative_base + (unsigned long)POINTER_BITS(grenade_count)) >=
+				scenario_get_game_globals()->grenades.count)
+		{
+			grenade_count++;
+			continue;
+		}
+#endif
 		grenade = TAG_BLOCK_GET_ELEMENT(
 			&scenario_get_game_globals()->grenades,
 			grenade_count_negative_base + (unsigned long)POINTER_BITS(grenade_count),

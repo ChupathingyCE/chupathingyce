@@ -2579,7 +2579,6 @@ int p2p_join_failure(void)
 }
 
 #ifdef HALO_GAME_BROWSER
-#ifdef HALO_GAME_BROWSER
 /* the game list's confirmed players (browser.c): the public address a peer
 is heard from, for the game's address of it (its virtual address), 0 if
 it is not a peer's; this machine's own, as the STUN servers see it */
@@ -2611,6 +2610,10 @@ unsigned long p2p_public_address(void)
 	return result;
 }
 
+#endif
+
+/* (and a console's reports of the games it joins: port/console/reports) */
+#if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_GAME_REPORTS)
 /* a game is being joined, whichever way (a listed game, an invite, a direct
 address, the local network, a server's change of game): the invite stays
 only if the host is the invite's, its identifier the one p2p_identifier_from_hash
@@ -2653,6 +2656,7 @@ int p2p_joined_invite(char *text, int size)
 }
 
 #endif
+#ifdef HALO_GAME_BROWSER
 int p2p_hosting_invite(char *text, int size)
 {
 	int result;

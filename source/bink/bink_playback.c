@@ -525,6 +525,14 @@ void bink_playback_start(
 	  if (dedicated_server_active() || probe_active())
 		return; }
 #endif
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+	/* port: Stubbs mode plays no movies (Halo's intro and attract movies are
+	not Stubbs's, and its menu scene is fogged, which a frame drawn under a
+	movie leaves unfinished: port/linux/game/stubbs_mode.c) */
+	{ boolean stubbs_mode_active(void);
+	  if (stubbs_mode_active())
+		return; }
+#endif
 
 	if (!bink_globals.initialized)
 		return;

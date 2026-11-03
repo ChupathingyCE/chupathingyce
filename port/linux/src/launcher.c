@@ -962,6 +962,10 @@ static void modes_find(void)
 		pack = known_pack(suffix);
 		if (pack)
 			mode_add(pack->id, pack->name, pack->tag, name, 1);
+		/* (Stubbs the Zombie's maps, a preliminary first look:
+		port/linux/game/stubbs_mode.c) */
+		else if (!SDL_strcasecmp(suffix, "stubbs"))
+			mode_add("stubbs", "Stubbs the Zombie", "STUB", name, 1);
 		else
 		{
 			char tag[8];

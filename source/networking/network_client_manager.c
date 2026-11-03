@@ -2197,8 +2197,9 @@ boolean network_game_client_initiate_join_game(
 	/* (its host's identifier, its XNADDR's abEnet: the game joined again
 	once a map it needs is downloaded, browser_screen.c) */
 	csmemcpy(network_game_client_joined_host, game->xnaddr.data + 2, sizeof(network_game_client_joined_host));
-#ifdef HALO_GAME_BROWSER
-	/* (the invite's report: the desktop builds' game list, p2p.c) */
+#if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_GAME_REPORTS)
+	/* (the invite's report: the desktop builds' game list, a console's
+	reports, p2p.c) */
 	p2p_joining_host(network_game_client_joined_host);
 #endif
 #endif
