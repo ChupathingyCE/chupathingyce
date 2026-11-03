@@ -53,8 +53,8 @@ symbols in this file:
 #define GAME_STATE_VERIFY_SIZE HALO_PORT_GAME_STATE_CPU_SIZE
 #endif
 #if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
-/* port: Stubbs the Zombie's Xbox maps' tags are linked lower (Stubbs mode,
-development builds only: port/linux/game/stubbs_mode.c) */
+/* port: Stubbs the Zombie's Xbox maps' tags are linked lower (Stubbs mode:
+port/linux/game/stubbs_mode.c) */
 #include "stubbs_mode.h"
 #define TAG_CACHE_BASE_ADDRESS stubbs_mode_tag_cache_base(0x803A6000)
 #else
