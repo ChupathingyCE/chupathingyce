@@ -73,11 +73,19 @@ static const char *answer(const char *line, int json)
 
 	if (json && !strcmp(line, "sv_status"))
 	{
-		return "{\"name\": \"Harness\", \"version\": \"0.0.0\", \"network_version\": 11, \"state\": \"in_game\", "
+		/* (HARNESS_REACH: the reach fields, server_platform.c's; a reachable,
+		listed server's by default) */
+		const char *reach = getenv("HARNESS_REACH");
+
+		snprintf(output, sizeof(output), "{\"name\": \"Harness\", \"version\": \"0.0.0\", \"network_version\": 11, "
+			"\"state\": \"in_game\", "
 			"\"map\": \"bloodgulch\", \"game_type\": \"slayer\", \"chosen\": false, \"next_map\": null, "
 			"\"next_game_type\": null, \"playlist\": \"playlists/test.txt\", \"entry\": 1, \"entries\": 2, "
 			"\"players\": 1, \"maximum_players\": 16, \"minimum_players\": 1, \"public\": false, "
-			"\"idle_limit_minutes\": 0, \"uptime_seconds\": 90}";
+			"\"idle_limit_minutes\": 0, \"uptime_seconds\": 90, \"reach\": {%s}}", reach && reach[0] ? reach :
+			"\"internet\": true, \"port\": 2302, \"port_fixed\": true, \"upnp\": \"no_router\", "
+			"\"nat\": \"open\", \"listing\": \"listed\", \"listing_status\": 0");
+		return output;
 	}
 	if (json && !strcmp(line, "sv_players"))
 	{

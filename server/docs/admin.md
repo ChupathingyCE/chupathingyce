@@ -34,7 +34,7 @@ the duration.
 | Command | What it does |
 | --- | --- |
 | `help [command]` | Lists the commands, or tells what one does. |
-| `sv_status` | The server: name, version and network version, the OpenCE build it follows (the legacy table's, [Delta](../../docs/delta.md#following-opence)), state (lobby, loading, in game, carnage report), map and game type, playlist entry, players, whether it is public, uptime. |
+| `sv_status` | The server: name, version and network version, the OpenCE build it follows (the legacy table's, [Delta](../../docs/delta.md#following-opence)), state (lobby, loading, in game, carnage report), map and game type, playlist entry, players, whether it is public, uptime, and whether people can join: internet play's UDP port, the router's UPnP answer, the network's NAT as the STUN servers saw it, and whether the game is on the game list and why not (in JSON, `reach`; ports and states only, never an address). |
 | `sv_players` | The players: number, name, team, score and ping (in a game), and their machine's hardware id. |
 | `sv_warn <player> <reason>` | Warns the player: a ChupathingyCE game shows the reason (Delta Peer); the warning is in the audit file either way. |
 | `sv_say <text>` | A server message: a line in the chat of every ChupathingyCE player, in their HUD font, marked "Server". In double quotes for more than a word. OpenCE players see it as the host's notice in their own chat, while they may chat (`chat_legacy`). In the audit file. |

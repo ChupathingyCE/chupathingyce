@@ -6,6 +6,13 @@ release notes.
 
 ## Unreleased
 
+- The control panel's Status tab answers "Can people join?": internet play's
+  UDP port, whether the router forwarded it (UPnP), whether the network lets
+  most players in, whether the game is in the Server Browser and why not,
+  the OpenCE network version it announces, and players. When something is in
+  the way it says what to do, with a link to the site's ports guide.
+  `sv_status` has the same lines, and a `reach` object in JSON. Ports and
+  states only, never an address.
 - Map names as Halo PC takes them: commas, brackets, spaces and the rest a
   Windows file name can have (`bigassv2,104@ce`, `[h3]_sandtrap@ce`), in
   `sv_map`, `sv_maps` and playlists. A name with a space goes in double

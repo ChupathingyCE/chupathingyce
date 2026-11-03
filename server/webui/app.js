@@ -350,6 +350,116 @@
     rows.forEach(([name, value]) => {
       facts.append(element('dt', name), element('dd', value));
     });
+    showJoin(status);
+  }
+
+  // ---------- can people join? (sv_status's reach: ports and states only)
+
+  const HOST_GUIDE = 'https://stats.chupathingy.org/host#ports';
+
+  function joinFacts(status) {
+    const reach = status.reach;
+    const port = 'UDP ' + reach.port;
+    const rows = [];
+    if (!reach.internet) {
+      rows.push(['Internet play', 'Off (network.online)', 'no']);
+    } else {
+      rows.push(['Internet play', reach.port_fixed ? port : port + ' (a new port each start)', reach.port_fixed ? 'good' : 'maybe']);
+      rows.push(['Router (UPnP)', ...(({
+        forwarded: ['Forwarded the port', 'good'],
+        not_asked: ['Not asked yet', ''],
+        no_router: ['No router answered', ''],
+        refused: ['The router said no', 'maybe'],
+        off: ['Off (network.allow_upnp)', ''],
+      })[reach.upnp] || [reach.upnp, ''])]);
+      rows.push(['Network', ...(({
+        open: ['Most players can reach it', 'good'],
+        strict: ['Strict: players on strict networks can\'t get in', 'no'],
+        checking: ['Checking...', ''],
+        unknown: ['Couldn\'t check (no STUN server answered)', 'maybe'],
+      })[reach.nat] || [reach.nat, ''])]);
+    }
+    const failed = reach.listing_status ? 'the game list said no (HTTP ' + reach.listing_status + ')' :
+      'couldn\'t reach the game list';
+    rows.push(['Server Browser', ...(({
+      listed: ['Listed', 'good'],
+      not_hosting: ['Not yet: no game is up on the internet', 'maybe'],
+      private: ['Not listed: it\'s set to unlisted', ''],
+      off: ['Not listed (network.list_hosted_games is off)', ''],
+      no_list: ['Not listed (no game list in network.browser_url)', ''],
+      waiting: ['Being listed...', ''],
+      failed: ['Not listed: ' + failed, 'no'],
+    })[reach.listing] || [reach.listing, ''])]);
+    rows.push(['Announced as', 'OpenCE network ' + status.network_version + (status.following ? ' (' + status.following + ')' : ''), '']);
+    rows.push(['Players', status.players + ' of ' + status.maximum_players, '']);
+    return rows;
+  }
+
+  // the verdict: [text, kind, help lines]
+  function joinVerdict(status) {
+    const reach = status.reach;
+    const forward = reach.port_fixed
+      ? 'Forward UDP ' + reach.port + ' to this machine on your router, or open it in your cloud provider\'s firewall.'
+      : 'Give the server a fixed port first (HALO_NET_TUNNEL_PORT=2302, or network.tunnel_port in config.toml). Then forward that UDP port on your router, or open it in your cloud provider\'s firewall.';
+    if (!reach.internet) {
+      return ['Only players on your local network can join. Internet play is off.', 'no',
+        ['Turn it on with network.online = true in config.toml (or HALO_NET_ONLINE=1), then restart the server.']];
+    }
+    if (reach.nat === 'strict' && reach.upnp !== 'forwarded') {
+      return ['Some players can\'t. Your network is strict and the port isn\'t forwarded.', 'no', [forward,
+        'On a home connection, turning on UPnP in the router also works.']];
+    }
+    if (reach.nat === 'unknown') {
+      return ['Can\'t tell. The server got no answer from the internet.', 'maybe', [
+        'Check that this machine can reach the internet over UDP. Some hosts and firewalls block it.',
+        'With Docker, publish the UDP port too (ports: in docker-compose.yml).', forward]];
+    }
+    if (reach.nat === 'checking') return ['Checking your network...', 'maybe', []];
+    if (reach.listing === 'not_hosting') {
+      return ['Not yet. No game is up on the internet. This usually takes a few seconds after the server starts.', 'maybe', []];
+    }
+    const listed = reach.listing === 'listed';
+    const text = listed ? 'Yes. Players can find it in the Server Browser and join.' :
+      'Yes, with an invite link. It isn\'t in the Server Browser right now.';
+    const help = [];
+    if (reach.listing === 'private') help.push('To list it, turn on Listed in Settings, then restart the server.');
+    if (reach.listing === 'failed') help.push('The server tries again by itself. The log has the game list\'s answer.');
+    if (reach.upnp !== 'forwarded' && reach.port_fixed) {
+      help.push('If friends still can\'t get in: ' + forward.charAt(0).toLowerCase() + forward.slice(1));
+    }
+    return [text, listed ? 'good' : 'maybe', help];
+  }
+
+  function showJoin(status) {
+    const box = $('join');
+    // (a server from before the reach fields: no card)
+    if (!status.reach) {
+      box.hidden = true;
+      return;
+    }
+    box.hidden = false;
+    const [text, kind, help] = joinVerdict(status);
+    const verdict = $('join-verdict');
+    verdict.textContent = text;
+    verdict.className = 'join-verdict' + (kind === 'good' ? '' : ' ' + kind);
+    const facts = $('join-facts');
+    facts.replaceChildren();
+    joinFacts(status).forEach(([name, value, tone]) => {
+      facts.append(element('dt', name), element('dd', value, tone || undefined));
+    });
+    const helpBox = $('join-help');
+    helpBox.replaceChildren();
+    help.forEach((line) => helpBox.append(element('p', line)));
+    if (kind !== 'good') {
+      const more = element('p');
+      const link = element('a', 'Ports and firewalls, step by step');
+      link.href = HOST_GUIDE;
+      link.target = '_blank';
+      link.rel = 'noopener';
+      more.append(link);
+      helpBox.append(more);
+    }
+    helpBox.hidden = !helpBox.childNodes.length;
   }
 
   // ---------- players
