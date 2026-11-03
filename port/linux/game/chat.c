@@ -912,11 +912,26 @@ int chat_server_say(char const *text)
 	return route(&line, NO_TEAM, FALSE);
 }
 
+int chat_host_notice_to_machine(short machine, char const *text)
+{
+	if (!bridge_hosting() || !bridge_machine(machine) || !(bridge_host_flags() & DELTA_CHAT_BRIDGE_ALLOWED))
+		return 0;
+	bridge_notice(machine, text);
+	return 1;
+}
+
 #else
 /* (a console never hosts on Delta: its lines go to the host, and a
 dedicated server's settings are not its) */
 int chat_server_say(char const *text)
 {
+	(void)text;
+	return 0;
+}
+
+int chat_host_notice_to_machine(short machine, char const *text)
+{
+	(void)machine;
 	(void)text;
 	return 0;
 }
