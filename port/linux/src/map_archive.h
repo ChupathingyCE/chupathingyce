@@ -62,8 +62,9 @@ struct map_archive_io
 
 /* whether name is a map's file name the repositories are asked for: 1 to
 MAP_ARCHIVE_MAXIMUM_NAME_LENGTH letters, digits, '_', '-' and '.', not
-starting with '.' and holding no "..": nothing a path or a URL reads as
-more than a name */
+starting with '.' and holding no "..", and not a Windows device name
+(CON, PRN, AUX, NUL, COM1-COM9, LPT1-LPT9 in any case, before the first
+'.'): nothing a path or a URL reads as more than a name */
 int map_archive_name_valid(const char *name);
 
 /* <name>.map unpacked from the zip archive io reads, written through io's
