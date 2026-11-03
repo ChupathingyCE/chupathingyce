@@ -240,6 +240,22 @@ def test_game_settings_match_capture(harness):  # noqa: F811
     assert out == CAPTURED_SETTINGS
 
 
+# (our capture of Custom Edition 1.0.10's server spawning a player: player
+# added, its weapon, its biped and the spawn, the four messages a client
+# needs to be in the game)
+CAPTURED_SPAWN = (
+    "a2e800000080630f0000000081d20546e731feff010000000080ffff0300200000000080000000000000000000000000"
+    "80000000000000000040dd24c081b80c008000e0fffffc940900000000000000f0070000f0070000f0070000f0070000"
+    "f0070000f0070000f0070000f0070000f0070000f0070000f0070000f0c71f10d89c2a946e1b32fce6d0dd13782524c8"
+    "0000000000f0ff1f03000000000000000000")
+
+
+def test_spawn_matches_capture(harness):  # noqa: F811
+    import subprocess
+    out = subprocess.run([str(harness), "spawn"], capture_output=True, text=True, check=True).stdout.strip()
+    assert out == CAPTURED_SPAWN
+
+
 def test_keep_alive_matches_capture(harness):  # noqa: F811
     import subprocess
     out = subprocess.run([str(harness), "keepalive"], capture_output=True, text=True, check=True).stdout.strip()

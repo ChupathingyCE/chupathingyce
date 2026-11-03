@@ -8,6 +8,7 @@ the masters the last heartbeat). Its notices go to standard output.
 
   gamespy_harness <port> <masters> <gamever> <players> [joins]
   gamespy_harness map <map>     (the map's name as Custom Edition has it)
+  gamespy_harness spawn         (a player's first spawn, as hex)
   gamespy_harness keepalive     (the server's keep-alive payload, as hex)
   gamespy_harness settings      (a game settings payload, as hex: the one
                                  our capture of Custom Edition's server has)
@@ -36,6 +37,55 @@ int main(int argc, char **argv)
 
 		gamespy_map_name(argv[2], name, sizeof(name));
 		printf("%s\n", name);
+		return 0;
+	}
+	if (argc == 2 && !strcmp(argv[1], "spawn"))
+	{
+		struct ce_weapon_create weapon;
+		struct ce_biped_create biped;
+		struct ce_player_spawn spawn;
+		struct ce_payload payload;
+		unsigned char out[512];
+		int length;
+
+		/* (the values our capture of Custom Edition's server sent for a
+		player's first spawn on Blood Gulch) */
+		memset(&weapon, 0, sizeof(weapon));
+		weapon.object.definition = 0xe74605d2u;
+		weapon.object.object = 49;
+		weapon.object.owner = 0xffff;
+		weapon.object.forward[0] = 524287;
+		weapon.object.forward[1] = 262144;
+		weapon.unknown_small = 1;
+		memset(&biped, 0, sizeof(biped));
+		biped.object.definition = 0xe2070093u;
+		biped.object.object = 50;
+		biped.object.player = 1;
+		biped.object.forward[0] = 524287;
+		biped.object.forward[1] = 313982;
+		for (index = 0; index < 12; index++)
+			biped.change_colors[index] = 1.0f;
+		biped.unknown_6bits_a = 63;
+		biped.unknown_small = 1;
+		biped.object.position[0] = 84.90137481689453f;
+		biped.object.position[1] = -161.71449279785156f;
+		biped.object.position[2] = 0.10793768614530563f;
+		biped.unknown_3bits = 7;
+		biped.unknown_6bits_b = 21;
+		memset(&spawn, 0, sizeof(spawn));
+		spawn.player = 1;
+		spawn.biped = 50;
+		spawn.unknown_medium = 0xffff;
+		spawn.weapons[0] = 49;
+		ce_payload_begin(&payload, out, sizeof(out));
+		ce_payload_put_player_add(&payload, 1, 0xec700000u);
+		ce_payload_put_weapon_create(&payload, &weapon);
+		ce_payload_put_biped_create(&payload, &biped);
+		ce_payload_put_player_spawn(&payload, &spawn);
+		length = ce_payload_end(&payload);
+		for (index = 0; index < length; index++)
+			printf("%02x", out[index]);
+		printf("\n");
 		return 0;
 	}
 	if (argc == 2 && !strcmp(argv[1], "keepalive"))

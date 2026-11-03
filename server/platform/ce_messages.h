@@ -28,6 +28,10 @@ enum
 	CE_MESSAGE_CLIENT_LOADED = 26,
 
 	/* message delta types */
+	CE_DELTA_PLAYER_SPAWN = 8,
+	CE_DELTA_PLAYER_ADD = 7,
+	CE_DELTA_BIPED_CREATE = 29,
+	CE_DELTA_WEAPON_CREATE = 32,
 	CE_DELTA_GAME_SETTINGS = 33,
 	/* the client's word that it is there, about every 3 seconds */
 	CE_DELTA_CLIENT_KEEP_ALIVE = 52,
@@ -69,6 +73,60 @@ struct ce_game_settings
 	int local_data;
 };
 
+/* an object's creation: the fields every kind starts with */
+struct ce_object_create
+{
+	/* the object's tag: its datum handle in the map (salt 0xe174 + index) */
+	unsigned int definition;
+	/* 9 bits */
+	int object;
+	/* 0xffff: none */
+	int owner;
+	/* 5 bits, 0: none */
+	int player;
+	/* 9 bits, 0: none */
+	int parent;
+	/* the two orientation vectors, each two 20-bit numbers */
+	unsigned int forward[2];
+	unsigned int up[2];
+	float position[3];
+};
+
+struct ce_weapon_create
+{
+	struct ce_object_create object;
+	unsigned int unknown_large;
+	int unknown_small;
+	int ammunition[2];
+	int unknown_6bits;
+	int magazine[2];
+};
+
+struct ce_biped_create
+{
+	struct ce_object_create object;
+	float change_colors[12];
+	int unknown_boolean;
+	int unknown_6bits_a;
+	int unknown_small;
+	int grenades[2];
+	int unknown_3bits;
+	int unknown_6bits_b;
+	int unknown_boolean_b;
+};
+
+/* a player's biped and weapons, by object index (0: none) */
+struct ce_player_spawn
+{
+	int player;
+	int biped;
+	unsigned int unknown_large;
+	int unknown_object;
+	int unknown_medium;
+	int weapons[4];
+	int unknown_mediums[3];
+};
+
 struct ce_payload
 {
 	unsigned char *data;
@@ -83,6 +141,11 @@ void ce_payload_begin(struct ce_payload *payload, unsigned char *out, int size);
 void ce_payload_put_message(struct ce_payload *payload, const unsigned char *message, int length);
 /* the game settings delta, in full */
 void ce_payload_put_game_settings(struct ce_payload *payload, const struct ce_game_settings *settings);
+/* a player in the game: its index (5 bits) and its datum handle */
+void ce_payload_put_player_add(struct ce_payload *payload, int player, unsigned int handle);
+void ce_payload_put_weapon_create(struct ce_payload *payload, const struct ce_weapon_create *weapon);
+void ce_payload_put_biped_create(struct ce_payload *payload, const struct ce_biped_create *biped);
+void ce_payload_put_player_spawn(struct ce_payload *payload, const struct ce_player_spawn *spawn);
 /* the server's keep-alive delta: one entry */
 void ce_payload_put_server_keep_alive(struct ce_payload *payload, int index, unsigned int value);
 /* the payload's length in bytes (written in its first 11 bits), or 0 */

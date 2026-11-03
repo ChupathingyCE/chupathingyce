@@ -166,6 +166,114 @@ void ce_payload_put_server_keep_alive(struct ce_payload *payload, int index, uns
 	put_bits(payload, value, 32);
 }
 
+static void put_real(struct ce_payload *payload, float value)
+{
+	unsigned int bits;
+
+	memcpy(&bits, &value, sizeof(bits));
+	put_bits(payload, bits, 32);
+}
+
+static void put_delta_header(struct ce_payload *payload, int type)
+{
+	put_bits(payload, 1, 1);
+	put_bits(payload, 0, 1);
+	put_bits(payload, (unsigned int)type, 6);
+}
+
+/* (a velocity: 1, the delta's first preset, zero; other velocities are not
+written yet) */
+static void put_zero_velocity(struct ce_payload *payload)
+{
+	put_bits(payload, 1, 1);
+}
+
+static void put_position(struct ce_payload *payload, const float position[3])
+{
+	put_real(payload, position[0]);
+	put_real(payload, position[1]);
+	put_real(payload, position[2]);
+}
+
+static void put_object_start(struct ce_payload *payload, const struct ce_object_create *object)
+{
+	put_bits(payload, object->definition, 32);
+	put_bits(payload, (unsigned int)object->object, 9);
+	put_bits(payload, (unsigned int)object->owner, 16);
+	put_bits(payload, (unsigned int)object->player, 5);
+	put_bits(payload, (unsigned int)object->parent, 9);
+}
+
+static void put_orientation(struct ce_payload *payload, const struct ce_object_create *object)
+{
+	put_bits(payload, object->forward[0], 20);
+	put_bits(payload, object->forward[1], 20);
+	put_bits(payload, object->up[0], 20);
+	put_bits(payload, object->up[1], 20);
+}
+
+void ce_payload_put_player_add(struct ce_payload *payload, int player, unsigned int handle)
+{
+	put_delta_header(payload, CE_DELTA_PLAYER_ADD);
+	put_bits(payload, 0, 8);
+	put_bits(payload, handle, 32);
+	put_bits(payload, (unsigned int)player, 5);
+	put_bits(payload, 0, 32);
+}
+
+void ce_payload_put_weapon_create(struct ce_payload *payload, const struct ce_weapon_create *weapon)
+{
+	put_delta_header(payload, CE_DELTA_WEAPON_CREATE);
+	put_object_start(payload, &weapon->object);
+	put_bits(payload, weapon->unknown_large, 32);
+	put_orientation(payload, &weapon->object);
+	put_bits(payload, (unsigned int)weapon->unknown_small, 8);
+	put_position(payload, weapon->object.position);
+	put_zero_velocity(payload);
+	put_bits(payload, (unsigned int)weapon->ammunition[0], 16);
+	put_bits(payload, (unsigned int)weapon->ammunition[1], 16);
+	put_bits(payload, (unsigned int)weapon->unknown_6bits, 6);
+	put_bits(payload, (unsigned int)weapon->magazine[0], 16);
+	put_bits(payload, (unsigned int)weapon->magazine[1], 16);
+}
+
+void ce_payload_put_biped_create(struct ce_payload *payload, const struct ce_biped_create *biped)
+{
+	int index;
+
+	put_delta_header(payload, CE_DELTA_BIPED_CREATE);
+	put_object_start(payload, &biped->object);
+	put_orientation(payload, &biped->object);
+	for (index = 0; index < 12; index++)
+		put_real(payload, biped->change_colors[index]);
+	put_bits(payload, (unsigned int)biped->unknown_boolean, 1);
+	put_bits(payload, (unsigned int)biped->unknown_6bits_a, 6);
+	put_bits(payload, (unsigned int)biped->unknown_small, 8);
+	put_position(payload, biped->object.position);
+	put_zero_velocity(payload);
+	put_bits(payload, (unsigned int)biped->grenades[0], 3);
+	put_bits(payload, (unsigned int)biped->grenades[1], 3);
+	put_bits(payload, (unsigned int)biped->unknown_3bits, 3);
+	put_bits(payload, (unsigned int)biped->unknown_6bits_b, 6);
+	put_bits(payload, (unsigned int)biped->unknown_boolean_b, 1);
+}
+
+void ce_payload_put_player_spawn(struct ce_payload *payload, const struct ce_player_spawn *spawn)
+{
+	int index;
+
+	put_delta_header(payload, CE_DELTA_PLAYER_SPAWN);
+	put_bits(payload, (unsigned int)spawn->player, 5);
+	put_bits(payload, (unsigned int)spawn->biped, 9);
+	put_bits(payload, spawn->unknown_large, 32);
+	put_bits(payload, (unsigned int)spawn->unknown_object, 9);
+	put_bits(payload, (unsigned int)spawn->unknown_medium, 16);
+	for (index = 0; index < 4; index++)
+		put_bits(payload, (unsigned int)spawn->weapons[index], 9);
+	for (index = 0; index < 3; index++)
+		put_bits(payload, (unsigned int)spawn->unknown_mediums[index], 16);
+}
+
 int ce_payload_end(struct ce_payload *payload)
 {
 	int length = (payload->position + 7) / 8;
