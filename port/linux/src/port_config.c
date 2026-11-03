@@ -360,7 +360,7 @@ static const struct config_setting config_settings[] =
 	{ "display.xbox_loading_picture", _config_boolean, "true", "HALO_XBOX_LOADING_PICTURE", _environment_value,
 		_platform_all,
 		"true: the loading screen shows the Xbox's own picture, xbox_loading.tga\n"
-		"in your maps folder (the disc's loading.tga works too), and Chupathingy's\n"
+		"in your maps folder (a PAL disc's loading.tga works too), and Chupathingy's\n"
 		"when there is none (a manual install without the disc's file). false:\n"
 		"always Chupathingy's." },
 #endif
