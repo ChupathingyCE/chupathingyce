@@ -405,7 +405,7 @@
 		<string text="Smooth jagged edges."/>
 		<string text="Smooth jagged edges."/>
 		<string text="Adjust the field of view."/>
-		<string text="How wide your weapon is drawn. Same follows the view."/>
+		<string text="How wide your weapon is drawn.\nSame follows the view."/>
 		<string text="Size the reticle to the field of view, so it matches\nthe weapon's spread."/>
 		<string text="Shadows, lighting and detail."/>
 		<string text="The menus, HUD and scoreboard."/>
