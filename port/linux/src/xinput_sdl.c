@@ -420,6 +420,9 @@ static void keyboard_gamepad(const struct platform_input_state *input, XINPUT_GA
 	if (k[SDL_SCANCODE_LEFT]) pad->wButtons |= XINPUT_GAMEPAD_DPAD_LEFT;
 	if (k[SDL_SCANCODE_RIGHT]) pad->wButtons |= XINPUT_GAMEPAD_DPAD_RIGHT;
 	if (k[SDL_SCANCODE_F1]) pad->wButtons |= XINPUT_GAMEPAD_BACK;
+	/* (and F2 Start, beside it as the pad's two are: Online Games' My
+	Profile; escape is B) */
+	if (k[SDL_SCANCODE_F2]) pad->wButtons |= XINPUT_GAMEPAD_START;
 
 	/* (escape backs out, as backspace does: the pause menu's B resumes the
 	game, the main menu's asks to quit; Start would choose, as A does) */
@@ -437,6 +440,9 @@ static void keyboard_gamepad(const struct platform_input_state *input, XINPUT_GA
 	pad->bAnalogButtons[XINPUT_GAMEPAD_BLACK] |= analog(k[SDL_SCANCODE_C]);
 	/* (and Q, the left bumper's: the game type editor's pages, with C) */
 	pad->bAnalogButtons[XINPUT_GAMEPAD_WHITE] |= analog(k[SDL_SCANCODE_Q]);
+	/* (X, the right trigger's: Online Games' next sort, ui_overlay.c's key
+	cap for it) */
+	pad->bAnalogButtons[XINPUT_GAMEPAD_RIGHT_TRIGGER] |= analog(k[SDL_SCANCODE_X]);
 }
 
 static BOOL chat_typing;
