@@ -1408,6 +1408,16 @@ The bots move and look as a person with a controller or a mouse does:
 
 - The look starts to turn, gets faster, and slows before it stops. It does
   not go at full speed from one tick to the next and then stop dead.
+- The look never turns faster than a person turns: 8 radians (about 460
+  degrees) a second at the most, at every skill level. Before, the top
+  levels turned up to 22 radians a second, and a bot of skill 6 or more
+  turned more than 20 degrees in one tick about once a second in a fight,
+  a snap onto its target that no stick or hand makes. Their aim and their
+  reactions make the top levels good, not the speed of the turn.
+  `HALO_BOT_OFF=neck` turns this limit off.
+  In 40 games of team slayer at skill 10 (Hang 'Em High, Battle Creek,
+  Damnation, Chill Out, Prisoner) with the limit on for one team, the
+  score of that team did not change by more than chance.
 - The movement changes direction in 2 to 4 ticks, as a thumb moves a
   stick. Where the route has a jump, a gap, a ladder or a ledge, the feet
   go exactly where the route says.

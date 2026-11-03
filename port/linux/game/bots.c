@@ -1042,6 +1042,8 @@ enum
 	/* a driver with nothing to shoot with and nobody on its gun: to a
 	   person of ours on foot nearby, to give them a ride (bot_drive_lone) */
 	BOT_F_PICKUP = 4194304,
+	/* looking about no faster than a person turns (BOT_HUMAN_TURN_MOST) */
+	BOT_F_NECK = 2097152,
 };
 static unsigned bot_off;
 
@@ -1054,7 +1056,7 @@ static unsigned bot_off_parse(char const *text)
 		{ "notice", BOT_F_NOTICE }, { "human", BOT_F_HUMAN }, { "fresh", BOT_F_FRESH }, { "wary", BOT_F_WARY },
 		{ "agile", BOT_F_AGILE }, { "camp", BOT_F_CAMP }, { "aware", BOT_F_AWARE }, { "timing", BOT_F_TIMING },
 		{ "hear", BOT_F_HEAR }, { "head", BOT_F_HEAD }, { "press", BOT_F_PRESS }, { "drive", BOT_F_DRIVE },
-		{ "pickup", BOT_F_PICKUP },
+		{ "pickup", BOT_F_PICKUP }, { "neck", BOT_F_NECK },
 		{ "all", 0xFFFFFFu },
 	};
 	unsigned mask = 0;
@@ -13705,6 +13707,9 @@ static void bot_vehicle_gun(struct bot_weapon *weapon)
 	weapon->projectile_speed = 0.f;
 }
 
+/* the fastest a person turns to look, radians a second (about 460 degrees:
+   a quick flick of a stick turned all the way up, or of a mouse) */
+#define BOT_HUMAN_TURN_MOST 8.f
 static void bot_turn_look(struct bot_state *bot, struct bot_skill_parameters const *skill, real desired_yaw, real desired_pitch, int driving_moved, int look_forced)
 {
 	real max_turn = skill->turn_rate * BOT_TICK * (driving_moved ? 1.5f : 1.f);
@@ -13716,6 +13721,13 @@ static void bot_turn_look(struct bot_state *bot, struct bot_skill_parameters con
 
 	if (BOT_ON(BOT_F_HUMAN) && !look_forced && !driving_moved)
 	{
+		/* (never faster than a person's turn: the top levels' turn rate,
+		   twenty or more radians a second, is a whip round that no stick or
+		   wrist makes, a snap onto someone from one tick to the next, which
+		   is what gave them away as bots. Their aim and their reactions,
+		   not their neck, make them good.) */
+		if (BOT_ON(BOT_F_NECK))
+			max_turn = MIN(max_turn, BOT_HUMAN_TURN_MOST * BOT_TICK);
 		/* As a hand turns it: the turn starts, gathers speed over a
 		   few ticks, and slows into where it is looking: a part of
 		   what is left each tick (a big turn, half; the small ones of
