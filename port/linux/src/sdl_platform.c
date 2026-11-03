@@ -1296,6 +1296,11 @@ static void platform_gl_missing(const char *reason)
 }
 #endif
 
+#ifdef HALO_BGFX
+/* bgfx could not start (d3d8_bgfx.inl): the game draws with OpenGL */
+static BOOL platform_bgfx_refused;
+#endif
+
 BOOL platform_video_initialize(unsigned long width, unsigned long height)
 {
 	int version;
@@ -1306,9 +1311,10 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 	if (!platform_sdl_initialize())
 		return FALSE;
 #ifdef HALO_BGFX
-	/* the bgfx test backend draws instead (d3d8_bgfx.inl): a window without
-	an OpenGL context, whose Metal layer bgfx draws into */
-	xgpu_bgfx = strcmp(config_string("display.renderer"), "bgfx") == 0;
+	/* the bgfx renderer draws instead (d3d8_bgfx.inl): a window without an
+	OpenGL context, whose Metal layer (macOS) or Vulkan surface bgfx draws
+	into; unless it could not start before (platform_video_reopen_for_gl) */
+	xgpu_bgfx = !platform_bgfx_refused && strcmp(config_string("display.renderer"), "bgfx") == 0;
 #endif
 
 #ifdef HALO_ANDROID
@@ -1376,8 +1382,12 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 	(void)height;
 	platform_window_size_setting(&platform_window_width, &platform_window_height);
 	platform_window = SDL_CreateWindow(title, (int)platform_window_width, (int)platform_window_height,
-#ifdef HALO_BGFX
+#if defined(HALO_BGFX) && defined(__APPLE__)
 		(xgpu_bgfx ? SDL_WINDOW_METAL : SDL_WINDOW_OPENGL) |
+		SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY |
+#elif defined(HALO_BGFX)
+		/* (bgfx makes the Vulkan surface itself) */
+		(xgpu_bgfx ? 0 : SDL_WINDOW_OPENGL) |
 		SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY |
 #else
 		SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY |
@@ -1460,6 +1470,24 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 #endif
 	return TRUE;
 }
+
+#ifdef HALO_BGFX
+/* bgfx did not start (d3d8_bgfx.inl, bg_initialize): the window again,
+with an OpenGL context, for the OpenGL renderer, so that a computer whose
+Vulkan (or Metal) is missing or broken still shows the game */
+BOOL platform_video_reopen_for_gl(void)
+{
+	platform_log("renderer: bgfx did not start, so OpenGL");
+	platform_bgfx_refused = TRUE;
+	xgpu_bgfx = FALSE;
+	if (platform_window)
+	{
+		SDL_DestroyWindow(platform_window);
+		platform_window = NULL;
+	}
+	return platform_video_initialize(0, 0);
+}
+#endif
 
 /* display.mode, display.resolution (fullscreen's display mode),
 display.window_size (when it changes: the window can be resized) and

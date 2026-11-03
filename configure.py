@@ -64,14 +64,17 @@ parser.add_argument(
     "(HALO_GAME_BROWSER; port/linux/src/browser.c); on unless --no-game-browser",
 )
 parser.add_argument(
-    "--renderer",
-    choices=["gl", "bgfx"],
-    default="gl",
-    help="macOS: what draws the game. gl (the default) is OpenGL (port/linux/src/d3d8_gl.c); bgfx also builds "
-    "the bgfx test backend (Metal; port/linux/src/d3d8_bgfx.inl), chosen at run time with display.renderer = "
-    "\"bgfx\" or HALO_RENDERER=bgfx. It fetches bgfx, bx and bimg at pinned commits into build/macos/third_party "
-    "and links Homebrew's shaderc and SPIRV-Cross",
+    "--without-bgfx",
+    dest="with_bgfx",
+    action="store_false",
+    help="the 64-bit desktop builds (macOS, Linux, Windows) without the bgfx renderer (Metal on macOS, Vulkan "
+    "elsewhere; port/linux/src/d3d8_bgfx.inl, tools/bgfx_build.py), which display.renderer = \"bgfx\" or "
+    "HALO_RENDERER=bgfx chooses at run time (OpenGL is the default). It fetches bgfx, bx and bimg at pinned "
+    "commits into build/bgfx",
 )
+# (--renderer=bgfx, from when only a macOS build made for it had the renderer:
+# kept for the scripts that still ask for it; --renderer=gl leaves it out)
+parser.add_argument("--renderer", choices=["gl", "bgfx"], help=argparse.SUPPRESS)
 parser.add_argument(
     "--console-limits",
     action="store_true",
@@ -165,7 +168,7 @@ sln = SimpleNamespace(
     window_rebase=args.window_rebase,
     packaged=args.packaged,
     port_lto=args.lto,
-    renderer=args.renderer,
+    with_bgfx=args.with_bgfx and args.renderer != "gl",
     port_portable=args.portable,
     port_pgo=args.pgo,
     port_pgo_profile=args.pgo_profile,

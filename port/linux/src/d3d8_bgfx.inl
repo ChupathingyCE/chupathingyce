@@ -1,10 +1,12 @@
 /*
 D3D8_BGFX.INL
 
-A test backend: the Xbox Direct3D 8 device drawn with bgfx instead of OpenGL,
-so that each platform can draw with its own API (Metal on macOS here; Vulkan
-and Direct3D are bgfx's elsewhere). display.renderer = "bgfx" chooses it at
-start-up, in builds configured with --renderer=bgfx. It is part of
+A test renderer: the Xbox Direct3D 8 device drawn with bgfx instead of
+OpenGL, so that each platform can draw with its own API: Metal on macOS,
+Vulkan on Windows and Linux. display.renderer = "bgfx" (HALO_RENDERER=bgfx)
+chooses it at start-up, in every 64-bit desktop build (configure.py
+--without-bgfx leaves it out); when bgfx cannot start, the game draws with
+OpenGL as usual (platform_video_reopen_for_gl). It is part of
 d3d8_gl.c, included at its end, and shares the device's state: what the game
 sets through the XDK's inline functions and the entry points above is read at
 each draw, as the OpenGL path reads it. OpenGL is never initialized while it
@@ -15,10 +17,10 @@ Milenko (UIX Desktop), whose desktop renderer does it for the dashboard. The
 game cannot use Theseus's precompiled fixed-function shaders, though: its
 vertex shaders are Xbox microcode and its pixel shaders register combiner
 states, translated at run time (nv2a_vsh.c, nv2a_psh.c). Their GLSL is
-rewritten for Vulkan's rules (bg_vulkan_glsl), compiled to SPIR-V with
-shaderc, turned into Metal's shading language with SPIRV-Cross, and handed
-to bgfx in its shader container. The Metal source is kept on disk by the
-GLSL's hash, so a shader is translated once.
+rewritten for Vulkan's rules (bg_vulkan_glsl) and compiled to SPIR-V with
+glslang; Vulkan takes the SPIR-V, and on macOS SPIRV-Cross turns it into
+Metal's shading language. Either goes to bgfx in its shader container, which
+is kept on disk by the GLSL's hash, so a shader is translated once.
 
 The frame is bgfx views, in order: each target change, clear after draws,
 viewport move or copy into a texture starts the next view. Render targets
@@ -28,14 +30,17 @@ Visibility tests are bgfx occlusion queries (counting samples: a bgfx patch,
 tools/bgfx-patches). bgfx has no depth bias, depth range or stencil write
 mask of its own: the depth range is applied in the vertex shader, a biased
 draw's pixel shader writes its depth offset as polygon offset does, and the
-stencil write mask goes to Metal through the patch. The port's own pictures
+stencil write and read masks go to Metal and Vulkan through the patches. The port's own pictures
 (the high-res text and HUD, menu art, the overlay) are bgfx textures too.
 */
 
 #include <SDL3/SDL.h>
 #include <bgfx/c99/bgfx.h>
-#include <shaderc/shaderc.h>
-#include <spirv_cross/spirv_cross_c.h>
+#include <glslang/Include/glslang_c_interface.h>
+#include <glslang/Public/resource_limits_c.h>
+#ifdef __APPLE__
+#include "spirv_cross_c.h"
+#endif
 
 #include "hud_hires.h"
 #include "menu_files.h"
@@ -44,6 +49,10 @@ stencil write mask goes to Metal through the patch. The port's own pictures
 SDL_Window *platform_sdl_window(void);
 
 BOOL xgpu_bgfx;
+
+/* the backend bgfx draws with: Vulkan (Windows, Linux) takes SPIR-V and
+its uniforms' table, Metal (macOS) its own language, which it reflects */
+static BOOL bg_vulkan;
 
 #define BG_SHADER_BUCKETS 1024
 #define BG_TEXTURE_BUCKETS 4096
@@ -146,10 +155,12 @@ struct bg_shader
 	unsigned long uniform_size;
 	BOOL fragment, failed;
 	/* while a compiler thread makes it (bg_shader_ready): its job, and
-	(under bg_jobs.lock) the Metal source it made or why it failed */
+	(under bg_jobs.lock) the code it made (Metal source, or Vulkan's
+	shader container) and its bytes, or why it failed */
 	struct bg_shader_job *job;
 	BOOL done;
-	char *msl;
+	char *code;
+	unsigned long code_size;
 	char *error;
 };
 
@@ -232,8 +243,6 @@ static struct
 {
 	BOOL ready;
 	SDL_Window *window;
-	shaderc_compiler_t compiler;
-	shaderc_compile_options_t options;
 	bgfx_vertex_layout_t layout;
 	bgfx_uniform_handle_t uniforms[BG_UNIFORM_COUNT];
 	bgfx_uniform_handle_t samplers[4];
@@ -365,7 +374,14 @@ name. SPIR-V wants the uniforms in a block and the varyings at locations;
 bgfx wants the vertex inputs named as its attributes and the block's members
 as vec4s. Each line the translators write declares one thing, so the rewrite
 goes line by line. The clip-space fix for OpenGL without glClipControl comes
-out: Metal's clip space is Direct3D's, as the Xbox's is.
+out: Metal's clip space is Direct3D's, as the Xbox's is, and so is Vulkan's
+as bgfx sets its viewport (upside down).
+
+The bindings are each backend's: Metal's are given by SPIRV-Cross (bg_msl),
+Vulkan's are bgfx's own (its shader compiler's): the vertex shader's
+uniform block at 0, the pixel shader's at 1, and a sampler at its stage
+plus 2 as a texture and its stage plus 18 as a sampler, since bgfx's
+Vulkan renderer binds them apart.
 
 Two things OpenGL does in fixed function are added: a vertex shader maps
 its depth into the viewport's range (glDepthRange's), and a biased pixel
@@ -433,7 +449,8 @@ static char *bg_vulkan_glsl(const char *source, BOOL fragment, int flags, unsign
 	int sampler_next = 0;
 
 	xgpu_text_append(&block, "#version 450\n");
-	xgpu_text_append(&block, "layout(set = 0, binding = 8, std140) uniform Uniforms\n{\n");
+	xgpu_text_append(&block, "layout(set = 0, binding = %d, std140) uniform Uniforms\n{\n",
+		bg_vulkan ? (fragment ? 1 : 0) : 8);
 	while (*line)
 	{
 		const char *end = strchr(line, '\n');
@@ -466,7 +483,20 @@ static char *bg_vulkan_glsl(const char *source, BOOL fragment, int flags, unsign
 					name[3] - '0' : sampler_next;
 
 				sampler_next = binding + 1;
-				xgpu_text_append(&body, "layout(set = 0, binding = %d) %s\n", binding, text);
+				if (bg_vulkan)
+				{
+					/* (sampler2D tex0 as a texture2D and a sampler, and the
+					name for the two together) */
+					xgpu_text_append(&body,
+						"layout(set = 0, binding = %d) uniform texture%s %s_texture;\n"
+						"layout(set = 0, binding = %d) uniform sampler %s_sampler;\n"
+						"#define %s %s(%s_texture, %s_sampler)\n",
+						binding + 2, type + 7, name, binding + 18, name, name, type, name, name);
+				}
+				else
+				{
+					xgpu_text_append(&body, "layout(set = 0, binding = %d) %s\n", binding, text);
+				}
 				continue;
 			}
 			if (!fragment && strcmp(name, "c") == 0)
@@ -559,9 +589,65 @@ static char *bg_vulkan_glsl(const char *source, BOOL fragment, int flags, unsign
 
 /* ---------- shader compilation: GLSL, SPIR-V, Metal's language, bgfx's container */
 
+/* SPIR-V for Vulkan's GLSL (malloc'd words), or NULL with why (malloc'd):
+glslang, as bgfx's shader compiler has it, with the varyings and outputs
+given no location placed by it */
+static unsigned int *bg_spirv(const char *source, BOOL fragment, unsigned long *count, char **error)
+{
+	glslang_input_t input;
+	glslang_shader_t *shader;
+	glslang_program_t *program = NULL;
+	glslang_stage_t stage = fragment ? GLSLANG_STAGE_FRAGMENT : GLSLANG_STAGE_VERTEX;
+	int messages = GLSLANG_MSG_SPV_RULES_BIT | GLSLANG_MSG_VULKAN_RULES_BIT;
+	unsigned int *words = NULL;
+
+	memset(&input, 0, sizeof(input));
+	input.language = GLSLANG_SOURCE_GLSL;
+	input.stage = stage;
+	input.client = GLSLANG_CLIENT_VULKAN;
+	input.client_version = GLSLANG_TARGET_VULKAN_1_0;
+	input.target_language = GLSLANG_TARGET_SPV;
+	input.target_language_version = GLSLANG_TARGET_SPV_1_0;
+	input.code = source;
+	input.default_version = 450;
+	input.default_profile = GLSLANG_NO_PROFILE;
+	input.messages = (glslang_messages_t)messages;
+	input.resource = glslang_default_resource();
+	if ((shader = glslang_shader_create(&input)) == NULL)
+	{
+		*error = strdup("glslang");
+		return NULL;
+	}
+	glslang_shader_set_options(shader, GLSLANG_SHADER_AUTO_MAP_LOCATIONS);
+	if (!glslang_shader_preprocess(shader, &input) || !glslang_shader_parse(shader, &input))
+	{
+		*error = strdup(glslang_shader_get_info_log(shader));
+		goto done;
+	}
+	program = glslang_program_create();
+	glslang_program_add_shader(program, shader);
+	if (!glslang_program_link(program, messages) || !glslang_program_map_io(program))
+	{
+		*error = strdup(glslang_program_get_info_log(program));
+		goto done;
+	}
+	glslang_program_SPIRV_generate(program, stage);
+	*count = (unsigned long)glslang_program_SPIRV_get_size(program);
+	if (*count && (words = malloc(*count * sizeof(*words))) != NULL)
+		glslang_program_SPIRV_get(program, words);
+	else
+		*error = strdup("glslang made no SPIR-V");
+done:
+	if (program)
+		glslang_program_delete(program);
+	glslang_shader_delete(shader);
+	return words;
+}
+
+#ifdef __APPLE__
 /* Metal's shading language for the SPIR-V: the uniform block is bgfx's
 _mtl_u in buffer 0, each sampler at its binding, the entry point bgfx's */
-static char *bg_msl(const shaderc_compilation_result_t result, BOOL fragment, const char **error)
+static char *bg_msl(const unsigned int *words, unsigned long word_count, BOOL fragment, const char **error)
 {
 	spvc_context context = NULL;
 	spvc_parsed_ir ir;
@@ -577,8 +663,7 @@ static char *bg_msl(const shaderc_compilation_result_t result, BOOL fragment, co
 	*error = "SPIRV-Cross";
 	if (spvc_context_create(&context) != SPVC_SUCCESS)
 		return NULL;
-	if (spvc_context_parse_spirv(context, (const SpvId *)shaderc_result_get_bytes(result),
-			shaderc_result_get_length(result) / sizeof(SpvId), &ir) != SPVC_SUCCESS ||
+	if (spvc_context_parse_spirv(context, (const SpvId *)words, word_count, &ir) != SPVC_SUCCESS ||
 		spvc_context_create_compiler(context, SPVC_BACKEND_MSL, ir, SPVC_CAPTURE_MODE_TAKE_OWNERSHIP, &compiler) !=
 			SPVC_SUCCESS)
 		goto done;
@@ -625,6 +710,180 @@ done:
 	spvc_context_destroy(context);
 	return copy;
 }
+#endif
+
+/* bgfx's attributes' numbers in its shader container, in its attributes'
+order (bgfx's vertexlayout.cpp, which says they never change) */
+static const Uint16 bg_attribute_ids[XGPU_VERTEX_ATTRIBUTE_COUNT] =
+{
+	0x0001, 0x0002, 0x0003, 0x0004, 0x0005, 0x0006, 0x0018, 0x0019,
+	0x000e, 0x000f, 0x0010, 0x0011, 0x0012, 0x0013, 0x0014, 0x0015,
+};
+
+static void bg_put(unsigned char **bytes, unsigned long *size, unsigned long *capacity, const void *data,
+	unsigned long length)
+{
+	if (*size + length > *capacity)
+	{
+		unsigned char *grown;
+
+		*capacity = (*size + length) * 2 + 256;
+		if ((grown = realloc(*bytes, *capacity)) == NULL)
+		{
+			free(*bytes);
+			*bytes = NULL;
+		}
+		else
+		{
+			*bytes = grown;
+		}
+	}
+	if (*bytes)
+		memcpy(*bytes + *size, data, length);
+	*size += length;
+}
+
+/* bgfx's shader container for Vulkan (malloc'd, *size its bytes): the
+uniforms' table, the SPIR-V, the vertex inputs and the uniform block's
+size. bgfx's Vulkan renderer does not reflect the SPIR-V, so the table is
+read off the rewritten GLSL (bg_vulkan_glsl): the block's members, each a
+vec4 or an array of them, at their std140 offsets, and the samplers with
+their stages and kinds; the inputs are at the locations of bgfx's attributes
+(bg_attribute_names), which the list follows. Both hashes are 0 so that any
+vertex shader goes with any pixel shader. */
+static char *bg_vulkan_container(const unsigned int *words, unsigned long word_count, const char *source,
+	BOOL fragment, unsigned long *size)
+{
+	unsigned char *bytes = NULL;
+	unsigned long capacity = 0, offset = 0, block = 0, count_at;
+	const char *line, *end;
+	Uint16 count = 0, highest = 0, index;
+	Uint32 value;
+	BOOL inside = FALSE, used[XGPU_VERTEX_ATTRIBUTE_COUNT] = { FALSE };
+	unsigned char byte;
+
+	*size = 0;
+	byte = fragment ? 'F' : 'V';
+	bg_put(&bytes, &offset, &capacity, &byte, 1);
+	bg_put(&bytes, &offset, &capacity, "SH", 2);
+	byte = 11;
+	bg_put(&bytes, &offset, &capacity, &byte, 1);
+	value = 0;
+	bg_put(&bytes, &offset, &capacity, &value, 4); /* hash in */
+	bg_put(&bytes, &offset, &capacity, &value, 4); /* hash out */
+	count_at = offset;
+	bg_put(&bytes, &offset, &capacity, &count, 2);
+	for (line = source; line && *line; line = end ? end + 1 : NULL)
+	{
+		char name[64], type[32];
+		unsigned long elements = 1;
+		int location, binding;
+
+		end = strchr(line, '\n');
+		if (strncmp(line, "layout(set = 0, binding = ", 26) == 0 && strstr(line, "uniform Uniforms") &&
+			(!end || strstr(line, "uniform Uniforms") < end))
+		{
+			inside = TRUE;
+			continue;
+		}
+		if (inside && line[0] == '}')
+		{
+			inside = FALSE;
+			continue;
+		}
+		if (inside)
+		{
+			const char *bracket;
+			unsigned char entry[8];
+
+			if (sscanf(line, "\tvec4 %63[A-Za-z0-9_]", name) != 1)
+			{
+				free(bytes);
+				return NULL;
+			}
+			bracket = strchr(line, '[');
+			if (bracket && (!end || bracket < end))
+				elements = strtoul(bracket + 1, NULL, 10);
+			/* (the block's filler, not a uniform of bgfx's) */
+			if (strcmp(name, "unused_v4") != 0)
+			{
+				byte = (unsigned char)strlen(name);
+				bg_put(&bytes, &offset, &capacity, &byte, 1);
+				bg_put(&bytes, &offset, &capacity, name, byte);
+				/* vec4, the array's length, its offset, its registers, no
+				texture's component, kind or format */
+				entry[0] = (unsigned char)BGFX_UNIFORM_TYPE_VEC4;
+				entry[1] = (unsigned char)elements;
+				value = (Uint32)block;
+				memcpy(entry + 2, &value, 2);
+				value = (Uint32)elements;
+				memcpy(entry + 4, &value, 2);
+				entry[6] = entry[7] = 0;
+				bg_put(&bytes, &offset, &capacity, entry, 8);
+				value = 0;
+				bg_put(&bytes, &offset, &capacity, &value, 2);
+				count++;
+			}
+			block += 16 * elements;
+			continue;
+		}
+		if (sscanf(line, "layout(set = 0, binding = %d) uniform texture%31s %63[A-Za-z0-9_]", &binding, type,
+			name) == 3)
+		{
+			unsigned char entry[8];
+			size_t length = strlen(name);
+
+			/* (NAME_texture: the sampler's uniform is NAME) */
+			if (length > 8 && strcmp(name + length - 8, "_texture") == 0)
+				name[length - 8] = 0;
+			byte = (unsigned char)strlen(name);
+			bg_put(&bytes, &offset, &capacity, &byte, 1);
+			bg_put(&bytes, &offset, &capacity, name, byte);
+			/* a sampler (kUniformSamplerBit), at its texture's binding, of
+			its kind (bgfx's shader.cpp TextureDimension ids) */
+			entry[0] = (unsigned char)(BGFX_UNIFORM_TYPE_SAMPLER | 0x20 | (fragment ? 0x10 : 0));
+			entry[1] = 1;
+			value = (Uint32)binding;
+			memcpy(entry + 2, &value, 2);
+			entry[4] = entry[5] = 0;
+			entry[6] = 0;
+			entry[7] = strcmp(type, "Cube") == 0 ? 0x04 : strcmp(type, "3D") == 0 ? 0x06 :
+				strcmp(type, "2DArray") == 0 ? 0x03 : 0x02;
+			bg_put(&bytes, &offset, &capacity, entry, 8);
+			value = 0;
+			bg_put(&bytes, &offset, &capacity, &value, 2);
+			count++;
+			continue;
+		}
+		if (!fragment && sscanf(line, "layout(location = %d) in ", &location) == 1 && location >= 0 &&
+			location < XGPU_VERTEX_ATTRIBUTE_COUNT)
+		{
+			used[location] = TRUE;
+			if (location + 1 > highest)
+				highest = (Uint16)(location + 1);
+		}
+	}
+	if (bytes)
+		memcpy(bytes + count_at, &count, 2);
+	value = (Uint32)(word_count * sizeof(*words));
+	bg_put(&bytes, &offset, &capacity, &value, 4);
+	bg_put(&bytes, &offset, &capacity, words, value);
+	byte = 0;
+	bg_put(&bytes, &offset, &capacity, &byte, 1);
+	/* (the inputs by location: a location not read has no attribute) */
+	byte = (unsigned char)highest;
+	bg_put(&bytes, &offset, &capacity, &byte, 1);
+	for (index = 0; index < highest; index++)
+	{
+		Uint16 id = used[index] ? bg_attribute_ids[index] : 0xffff;
+
+		bg_put(&bytes, &offset, &capacity, &id, 2);
+	}
+	value = (Uint32)block;
+	bg_put(&bytes, &offset, &capacity, &value, 2);
+	*size = offset;
+	return (char *)bytes;
+}
 
 /* bgfx's shader container for Metal source: its uniforms are found by
 reflection, so the table is empty, and both hashes are 0 so that any vertex
@@ -656,8 +915,9 @@ static bgfx_shader_handle_t bg_container(const char *msl, BOOL fragment)
 
 /* ---------- the shader cache and the compiler threads
 
-A draw's shaders are made from the translators' GLSL: SPIR-V (shaderc),
-then Metal's language (SPIRV-Cross), a few milliseconds each. That is done
+A draw's shaders are made from the translators' GLSL: SPIR-V (glslang),
+then Metal's language (SPIRV-Cross) or Vulkan's container, a few
+milliseconds each. That is done
 on compiler threads, never in a frame: a draw whose shaders are not made
 yet is left out until they are (a frame or two, the first time a shader is
 seen). What they make is kept in the cache folder (paths.cache, safe to
@@ -668,9 +928,9 @@ ignored and made again), and each map's programs are listed there
 during its loading screen (bg_warm). Past BG_SHADER_CACHE_MAXIMUM the
 oldest entries are removed at start-up. */
 
-/* (a new number when what is cached changes: the Metal source's layout, the
-entries' format) */
-#define BG_SHADER_CACHE_FORMAT 1
+/* (a new number when what is cached changes: the Metal source's or the
+Vulkan container's layout, the entries' format) */
+#define BG_SHADER_CACHE_FORMAT 2
 #define BG_SHADER_CACHE_MAGIC "HXBS"
 #define BG_SHADER_CACHE_MAXIMUM (64UL << 20)
 #define BG_SHADER_CACHE_TRIMMED (48UL << 20)
@@ -718,7 +978,8 @@ static void bg_cache_entry_path(char *path, size_t size, Uint64 hash)
 }
 
 /* a cache entry: the magic, the format, the versions, the shader's hash,
-its uniform block's bytes, the source's length and hash, the source */
+its uniform block's bytes, the code's length and hash, the code (Metal
+source, or Vulkan's shader container) */
 struct bg_cache_header
 {
 	char magic[4];
@@ -728,8 +989,9 @@ struct bg_cache_header
 	Uint64 check;
 };
 
-/* the cached Metal source of a shader (malloc'd), or NULL */
-static char *bg_cache_read(Uint64 hash, unsigned long *uniform_size)
+/* the cached code of a shader (malloc'd, *size its bytes, followed by a
+0), or NULL */
+static char *bg_cache_read(Uint64 hash, unsigned long *uniform_size, unsigned long *size)
 {
 	char path[1100];
 	struct bg_cache_header header;
@@ -755,6 +1017,7 @@ static char *bg_cache_read(Uint64 hash, unsigned long *uniform_size)
 		else
 		{
 			msl[header.length] = 0;
+			*size = header.length;
 			if (uniform_size)
 				*uniform_size = header.uniform_size;
 		}
@@ -763,7 +1026,7 @@ static char *bg_cache_read(Uint64 hash, unsigned long *uniform_size)
 	return msl;
 }
 
-static void bg_cache_write(Uint64 hash, unsigned long uniform_size, const char *msl)
+static void bg_cache_write(Uint64 hash, unsigned long uniform_size, const char *msl, unsigned long size)
 {
 	char path[1100], temporary[1120];
 	struct bg_cache_header header;
@@ -778,7 +1041,7 @@ static void bg_cache_write(Uint64 hash, unsigned long uniform_size, const char *
 	header.versions = bg_jobs.versions;
 	header.hash = hash;
 	header.uniform_size = (Uint32)uniform_size;
-	header.length = (Uint32)strlen(msl);
+	header.length = (Uint32)size;
 	header.check = bg_hash(msl, header.length, 14695981039346656037ULL);
 	file = fopen(temporary, "wb");
 	if (!file)
@@ -790,25 +1053,36 @@ static void bg_cache_write(Uint64 hash, unsigned long uniform_size, const char *
 		remove(temporary);
 }
 
-/* Metal source for a shader's Vulkan GLSL (malloc'd), or NULL with why */
-static char *bg_compile(const char *source, BOOL fragment, const char *what, char **error)
+/* the backend's code for a shader's Vulkan GLSL (malloc'd, *size its
+bytes): Metal source, or Vulkan's shader container; or NULL with why */
+static char *bg_compile(const char *source, BOOL fragment, const char *what, char **error, unsigned long *size)
 {
-	shaderc_compilation_result_t result = shaderc_compile_into_spv(bg.compiler, source, strlen(source),
-		fragment ? shaderc_fragment_shader : shaderc_vertex_shader, what, "main", bg.options);
-	const char *why = NULL;
-	char *msl;
+	unsigned long count = 0;
+	unsigned int *words = bg_spirv(source, fragment, &count, error);
+	char *code = NULL;
 
-	if (shaderc_result_get_compilation_status(result) != shaderc_compilation_status_success)
-	{
-		*error = strdup(shaderc_result_get_error_message(result));
-		shaderc_result_release(result);
+	(void)what;
+	*size = 0;
+	if (!words)
 		return NULL;
+	if (bg_vulkan)
+	{
+		if ((code = bg_vulkan_container(words, count, source, fragment, size)) == NULL)
+			*error = strdup("its uniforms are not vec4s");
 	}
-	msl = bg_msl(result, fragment, &why);
-	shaderc_result_release(result);
-	if (!msl)
-		*error = strdup(why ? why : "SPIRV-Cross");
-	return msl;
+#ifdef __APPLE__
+	else
+	{
+		const char *why = NULL;
+
+		if ((code = bg_msl(words, count, fragment, &why)) != NULL)
+			*size = (unsigned long)strlen(code);
+		else
+			*error = strdup(why ? why : "SPIRV-Cross");
+	}
+#endif
+	free(words);
+	return code;
 }
 
 static void *bg_compiler_thread(void *unused)
@@ -819,6 +1093,7 @@ static void *bg_compiler_thread(void *unused)
 	{
 		struct bg_shader_job *job;
 		char *msl, *error = NULL;
+		unsigned long size = 0;
 
 		while (!bg_jobs.first)
 			pthread_cond_wait(&bg_jobs.wake, &bg_jobs.lock);
@@ -828,12 +1103,13 @@ static void *bg_compiler_thread(void *unused)
 			bg_jobs.last = NULL;
 		pthread_mutex_unlock(&bg_jobs.lock);
 
-		msl = bg_compile(job->source, job->shader->fragment, job->what, &error);
+		msl = bg_compile(job->source, job->shader->fragment, job->what, &error, &size);
 		if (msl)
-			bg_cache_write(job->shader->hash, job->shader->uniform_size, msl);
+			bg_cache_write(job->shader->hash, job->shader->uniform_size, msl, size);
 
 		pthread_mutex_lock(&bg_jobs.lock);
-		job->shader->msl = msl;
+		job->shader->code = msl;
+		job->shader->code_size = size;
 		job->shader->error = error;
 		job->shader->done = TRUE;
 		pthread_cond_broadcast(&bg_jobs.finished);
@@ -844,16 +1120,21 @@ static void *bg_compiler_thread(void *unused)
 /* the cache's folder, emptied of its oldest entries past its size */
 static void bg_cache_start(void)
 {
-	unsigned int shaderc_version = 0, shaderc_revision = 0, major = 0, minor = 0, patch = 0;
-	char versions[128];
+	unsigned int major = 0, minor = 0, patch = 0;
+	glslang_version_t glslang;
+	char versions[160];
 	int index;
 
-	shaderc_get_spv_version(&shaderc_version, &shaderc_revision);
+	glslang_get_version(&glslang);
+#ifdef __APPLE__
 	spvc_get_version(&major, &minor, &patch);
-	snprintf(versions, sizeof(versions), "metal %d shaderc %u.%u spirv-cross %u.%u.%u bgfx %d", BG_SHADER_CACHE_FORMAT,
-		shaderc_version, shaderc_revision, major, minor, patch, BGFX_API_VERSION);
+#endif
+	snprintf(versions, sizeof(versions), "%s %d glslang %d.%d.%d%s spirv-cross %u.%u.%u bgfx %d",
+		bg_vulkan ? "vulkan" : "metal", BG_SHADER_CACHE_FORMAT, glslang.major, glslang.minor, glslang.patch,
+		glslang.flavor ? glslang.flavor : "", major, minor, patch, BGFX_API_VERSION);
 	bg_jobs.versions = bg_hash(versions, strlen(versions), 14695981039346656037ULL);
-	snprintf(bg_jobs.folder, sizeof(bg_jobs.folder), "%s/bgfx/metal", platform_folder(_port_folder_cache));
+	snprintf(bg_jobs.folder, sizeof(bg_jobs.folder), "%s/bgfx/%s", platform_folder(_port_folder_cache),
+		bg_vulkan ? "vulkan" : "metal");
 	{
 		char parent[1100];
 
@@ -928,10 +1209,11 @@ static struct bg_shader *bg_shader_failed(struct bg_shader *shader, const char *
 	return shader;
 }
 
-/* a shader made from its Metal source (on this thread: bgfx's) */
-static void bg_shader_finish(struct bg_shader *shader, char *msl, const char *what)
+/* a shader made from its code (on this thread: bgfx's) */
+static void bg_shader_finish(struct bg_shader *shader, char *msl, unsigned long size, const char *what)
 {
-	shader->shader = bg_container(msl, shader->fragment);
+	shader->shader = bg_vulkan ? bgfx_create_shader(bgfx_copy(msl, (uint32_t)size)) :
+		bg_container(msl, shader->fragment);
 	if (!BGFX_HANDLE_IS_VALID(shader->shader))
 		bg_shader_failed(shader, what, "bgfx refused it");
 }
@@ -940,6 +1222,7 @@ static void bg_shader_finish(struct bg_shader *shader, char *msl, const char *wh
 static BOOL bg_shader_ready(struct bg_shader *shader)
 {
 	char *msl, *error;
+	unsigned long size;
 	struct bg_shader_job *job;
 
 	if (!shader || shader->failed)
@@ -954,13 +1237,14 @@ static BOOL bg_shader_ready(struct bg_shader *shader)
 		pthread_mutex_unlock(&bg_jobs.lock);
 		return FALSE;
 	}
-	msl = shader->msl, shader->msl = NULL;
+	msl = shader->code, shader->code = NULL;
+	size = shader->code_size;
 	error = shader->error, shader->error = NULL;
 	job = shader->job, shader->job = NULL;
 	pthread_mutex_unlock(&bg_jobs.lock);
 	bg.account.translated++;
 	if (msl)
-		bg_shader_finish(shader, msl, job->what);
+		bg_shader_finish(shader, msl, size, job->what);
 	else
 		bg_shader_failed(shader, job->what, error ? error : "it does not compile");
 	if (!msl && config_boolean("debug.gpu_stats"))
@@ -1004,7 +1288,7 @@ static struct bg_shader *bg_shader_get(const char *glsl, BOOL fragment, int flag
 {
 	struct bg_shader *shader;
 	char *source, *msl;
-	unsigned long uniform_size = 0;
+	unsigned long uniform_size = 0, size = 0;
 	double start = stats_seconds();
 	Uint64 hash;
 
@@ -1018,9 +1302,9 @@ static struct bg_shader *bg_shader_get(const char *glsl, BOOL fragment, int flag
 		return shader;
 	}
 	shader = bg_shader_add(hash, fragment, uniform_size);
-	if ((msl = bg_cache_read(hash, NULL)) != NULL)
+	if ((msl = bg_cache_read(hash, NULL, &size)) != NULL)
 	{
-		bg_shader_finish(shader, msl, what);
+		bg_shader_finish(shader, msl, size, what);
 		free(msl);
 		free(source);
 		bg.account.loaded++;
@@ -1031,11 +1315,11 @@ static struct bg_shader *bg_shader_get(const char *glsl, BOOL fragment, int flag
 	{
 		char *error = NULL;
 
-		msl = bg_compile(source, fragment, what, &error);
+		msl = bg_compile(source, fragment, what, &error, &size);
 		if (msl)
 		{
-			bg_cache_write(hash, uniform_size, msl);
-			bg_shader_finish(shader, msl, what);
+			bg_cache_write(hash, uniform_size, msl, size);
+			bg_shader_finish(shader, msl, size, what);
 		}
 		else
 		{
@@ -1238,13 +1522,13 @@ static void bg_warm(void)
 
 			if ((pair[which] = bg_shader_find(hash)) == NULL)
 			{
-				unsigned long uniform_size = 0;
-				char *msl = bg_cache_read(hash, &uniform_size);
+				unsigned long uniform_size = 0, size = 0;
+				char *msl = bg_cache_read(hash, &uniform_size, &size);
 
 				if (msl)
 				{
 					pair[which] = bg_shader_add(hash, which == 1, uniform_size);
-					bg_shader_finish(pair[which], msl, which ? "pixel" : "vertex");
+					bg_shader_finish(pair[which], msl, size, which ? "pixel" : "vertex");
 					free(msl);
 					bg.account.loaded++;
 				}
@@ -3154,6 +3438,11 @@ static BOOL bg_overlay_prepare(int atlas_size, const unsigned char *icons, int i
 	if (BGFX_HANDLE_IS_VALID(bg.overlay) || bg.overlay_failed)
 		return !bg.overlay_failed;
 	bg.overlay_failed = TRUE;
+	/* (its uniforms before its shaders, which Vulkan's finds them by) */
+	bg.overlay_uniforms[0] = bgfx_create_uniform("scale_v4", BGFX_UNIFORM_TYPE_VEC4, 1);
+	bg.overlay_uniforms[1] = bgfx_create_uniform("cutouts", BGFX_UNIFORM_TYPE_VEC4, 4);
+	for (index = 0; index < 3; index++)
+		bg.overlay_samplers[index] = bgfx_create_uniform(samplers[index], BGFX_UNIFORM_TYPE_SAMPLER, 1);
 	vertex = bg_shader_get(bg_overlay_vertex_source, FALSE, 0, "overlay vertex", TRUE);
 	fragment = bg_shader_get(bg_overlay_fragment_source, TRUE, 0, "overlay pixel", TRUE);
 	if (vertex->failed || fragment->failed)
@@ -3166,10 +3455,6 @@ static BOOL bg_overlay_prepare(int atlas_size, const unsigned char *icons, int i
 	bgfx_vertex_layout_add(&bg.overlay_layout, BGFX_ATTRIB_TEXCOORD1, 2, BGFX_ATTRIB_TYPE_FLOAT, false, false);
 	bgfx_vertex_layout_add(&bg.overlay_layout, BGFX_ATTRIB_COLOR0, 4, BGFX_ATTRIB_TYPE_UINT8, true, false);
 	bgfx_vertex_layout_end(&bg.overlay_layout);
-	bg.overlay_uniforms[0] = bgfx_create_uniform("scale_v4", BGFX_UNIFORM_TYPE_VEC4, 1);
-	bg.overlay_uniforms[1] = bgfx_create_uniform("cutouts", BGFX_UNIFORM_TYPE_VEC4, 4);
-	for (index = 0; index < 3; index++)
-		bg.overlay_samplers[index] = bgfx_create_uniform(samplers[index], BGFX_UNIFORM_TYPE_SAMPLER, 1);
 	bg.overlay_atlas = bgfx_create_texture_2d((uint16_t)atlas_size, (uint16_t)atlas_size, false, 1,
 		BGFX_TEXTURE_FORMAT_R8, BGFX_TEXTURE_NONE, NULL, 0);
 	/* (the icons, a layer each, premultiplied, with smaller levels for
@@ -3259,6 +3544,7 @@ void xgpu_bgfx_overlay_draw(const void *vertices, int count, int vertex_bytes, c
 static void bg_callback_screen_shot(bgfx_callback_interface_t *self, const char *path, uint32_t width,
 	uint32_t height, uint32_t pitch, bgfx_texture_format_t format, const void *data, uint32_t size, bool flip);
 
+#ifdef __APPLE__
 /* Metal's compiles (the bgfx patch, tools/bgfx-patches) */
 struct bgfx_mtl_stats_t
 {
@@ -3266,6 +3552,11 @@ struct bgfx_mtl_stats_t
 	double library_seconds, pipeline_seconds;
 };
 extern struct bgfx_mtl_stats_t bgfx_mtl_stats;
+#endif
+
+/* the GPU bgfx draws with, as its renderer names it (the bgfx patch,
+tools/bgfx-patches) */
+extern char bgfx_gpu_name[256];
 
 /* this frame's shader and vertex work, for debug.gpu_stats's slow frames
 (D3DDevice_Present, after the frame); the next frame's starts */
@@ -3380,13 +3671,17 @@ static void bg_present(void)
 	}
 	frame_start = stats_seconds();
 	{
+#ifdef __APPLE__
 		struct bgfx_mtl_stats_t before = bgfx_mtl_stats;
+#endif
 
 		frame_number = bgfx_frame(BGFX_FRAME_NONE);
+#ifdef __APPLE__
 		bg.account.libraries += bgfx_mtl_stats.libraries - before.libraries;
 		bg.account.pipelines += bgfx_mtl_stats.pipelines - before.pipelines;
 		bg.account.library_seconds += bgfx_mtl_stats.library_seconds - before.library_seconds;
 		bg.account.pipeline_seconds += bgfx_mtl_stats.pipeline_seconds - before.pipeline_seconds;
+#endif
 	}
 	frame_end = stats_seconds();
 	bg.stat_frame_wait += frame_end - frame_start;
@@ -3564,18 +3859,55 @@ static BOOL bg_initialize(void)
 	/* (drawn on this thread: bgfx renders as each frame is submitted) */
 	bgfx_render_frame(-1);
 	bgfx_init_ctor(&init);
-	init.type = BGFX_RENDERER_TYPE_METAL;
-	init.platformData.nwh = SDL_GetPointerProperty(SDL_GetWindowProperties(bg.window),
-		SDL_PROP_WINDOW_COCOA_WINDOW_POINTER, NULL);
+	{
+		SDL_PropertiesID properties = SDL_GetWindowProperties(bg.window);
+
+#if defined(__APPLE__)
+		init.type = BGFX_RENDERER_TYPE_METAL;
+		init.platformData.nwh = SDL_GetPointerProperty(properties, SDL_PROP_WINDOW_COCOA_WINDOW_POINTER, NULL);
+#elif defined(_WIN32)
+		init.type = BGFX_RENDERER_TYPE_VULKAN;
+		init.platformData.nwh = SDL_GetPointerProperty(properties, SDL_PROP_WINDOW_WIN32_HWND_POINTER, NULL);
+#else
+		init.type = BGFX_RENDERER_TYPE_VULKAN;
+		if (SDL_strcmp(SDL_GetCurrentVideoDriver(), "wayland") == 0)
+		{
+			init.platformData.type = BGFX_NATIVE_WINDOW_HANDLE_TYPE_WAYLAND;
+			init.platformData.ndt = SDL_GetPointerProperty(properties, SDL_PROP_WINDOW_WAYLAND_DISPLAY_POINTER, NULL);
+			init.platformData.nwh = SDL_GetPointerProperty(properties, SDL_PROP_WINDOW_WAYLAND_SURFACE_POINTER, NULL);
+		}
+		else
+		{
+			init.platformData.ndt = SDL_GetPointerProperty(properties, SDL_PROP_WINDOW_X11_DISPLAY_POINTER, NULL);
+			init.platformData.nwh = (void *)(uintptr_t)SDL_GetNumberProperty(properties,
+				SDL_PROP_WINDOW_X11_WINDOW_NUMBER, 0);
+		}
+#endif
+	}
+	bg_vulkan = init.type == BGFX_RENDERER_TYPE_VULKAN;
 	init.resolution.width = (uint32_t)width;
 	init.resolution.height = (uint32_t)height;
 	init.resolution.reset = config_boolean("display.vsync") ? BGFX_RESET_VSYNC : BGFX_RESET_NONE;
 	init.limits.maxTransientVbSize = 64u << 20;
 	init.limits.maxTransientIbSize = 8u << 20;
 	init.callback = &bg_callback;
+	if (!init.platformData.nwh)
+	{
+		platform_log("bgfx: the window has no handle for %s", bgfx_get_renderer_name(init.type));
+		return FALSE;
+	}
 	if (!bgfx_init(&init))
 	{
-		platform_log("bgfx: it does not start (nothing is displayed)");
+		platform_log("bgfx: %s does not start", bgfx_get_renderer_name(init.type));
+		return FALSE;
+	}
+	/* (bgfx tries its other renderers when the one asked for fails: the
+	shaders here are only the one's) */
+	if (bgfx_get_renderer_type() != init.type)
+	{
+		platform_log("bgfx: %s does not start (bgfx offered %s)", bgfx_get_renderer_name(init.type),
+			bgfx_get_renderer_name(bgfx_get_renderer_type()));
+		bgfx_shutdown();
 		return FALSE;
 	}
 	bg.window_width = width;
@@ -3589,12 +3921,15 @@ static BOOL bg_initialize(void)
 		for (color = 0; color < 3; color++)
 			bgfx_set_palette_color(color, colors[color]);
 	}
-	platform_log("bgfx: %s, window %dx%d", bgfx_get_renderer_name(bgfx_get_renderer_type()), width, height);
+	{
+		const bgfx_caps_t *caps = bgfx_get_caps();
 
-	bg.compiler = shaderc_compiler_initialize();
-	bg.options = shaderc_compile_options_initialize();
-	shaderc_compile_options_set_target_env(bg.options, shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_0);
-	shaderc_compile_options_set_auto_map_locations(bg.options, true);
+		platform_log("bgfx: %s on %s (vendor %04x, device %04x), window %dx%d",
+			bgfx_get_renderer_name(bgfx_get_renderer_type()), *bgfx_gpu_name ? bgfx_gpu_name : "an unnamed GPU",
+			(unsigned)caps->vendorId, (unsigned)caps->deviceId, width, height);
+	}
+
+	glslang_initialize_process();
 	bg_cache_start();
 	{
 		extern void (*cache_file_map_loaded_hook)(char const *map_name);

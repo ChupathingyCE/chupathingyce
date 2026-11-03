@@ -96,6 +96,10 @@ BOOL platform_import_poll(char *file, int file_size, unsigned long long *done, u
 BOOL platform_sdl_initialize(void);
 /* creates the window and makes its OpenGL context current on this thread */
 BOOL platform_video_initialize(unsigned long width, unsigned long height);
+#ifdef HALO_BGFX
+/* the window again for OpenGL, when bgfx does not start (d3d8_bgfx.inl) */
+BOOL platform_video_reopen_for_gl(void);
+#endif
 #ifndef HALO_ANDROID
 BOOL platform_screen_mode(long *width, long *height);
 #endif

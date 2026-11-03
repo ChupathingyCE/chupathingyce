@@ -17,8 +17,9 @@ against this machine's glibc and SDL3.
 from pathlib import Path
 from typing import Any, List, Optional
 
+from .bgfx_build import BgfxTarget, bgfx_build, bgfx_include_flags, bgfx_wanted, fetch_bgfx
 from .embed_assets import hud_assets_build, hud_configure_inputs, ui_fonts_build
-from .linux_build import (OPTIMISATION, RENAME_STUB_SCRIPT, ffmpeg_build, linux_sysroot, lto_flags, march_flag,
+from .linux_build import (OPTIMISATION, RENAME_STUB_SCRIPT, compile_launcher, ffmpeg_build, linux_sysroot, lto_flags, march_flag,
                           portable_sdl)
 from .lp64_build import (
     LINUX_PORT_CONFIG,
@@ -58,7 +59,7 @@ def linux64_configure_inputs() -> List[Path]:
     """Files whose change must re-run configure.py."""
     if not LINUX_PORT_CONFIG.is_file():
         return [Path(__file__)]
-    return [Path(__file__), *lp64_configure_inputs(), *hud_configure_inputs()]
+    return [Path(__file__), Path("tools/bgfx_build.py"), *lp64_configure_inputs(), *hud_configure_inputs()]
 
 
 def generate_linux64_build(n: Writer, sln: Any) -> None:
@@ -104,6 +105,17 @@ def generate_linux64_build(n: Writer, sln: Any) -> None:
         rspfile="$out.rsp",
         rspfile_content="$in_newline",
     )
+    # the bgfx renderer (display.renderer = "bgfx": Vulkan; tools/bgfx_build.py)
+    use_bgfx = bgfx_wanted(sln)
+    if use_bgfx and not fetch_bgfx():
+        raise SystemExit("the bgfx renderer needs bgfx's, bx's and bimg's sources (git fetch failed; "
+                         "configure.py --without-bgfx builds without it)")
+    bgfx_libraries = bgfx_build(n, BgfxTarget(
+        name="linux64", platform="linux", cc=f"{compile_launcher(sln)}{cc}",
+        target_flags=[LINUX64_TARGET, march_flag(sln), *([f"--sysroot={sysroot}"] if sysroot else [])],
+        build_dir=build_dir / "bgfx", archive_command="rm -f $out && ar crs $out $in",
+        implicit=[sysroot_stamp] if sysroot_stamp else [],
+    )) if use_bgfx else []
     generated_sources = (hud_assets_build(n, "linux64", build_dir / "generated" / "hud_hires_assets.c")
                          + ui_fonts_build(n, "linux64", build_dir / "generated" / "ui_fonts.c", sln))
     host = Lp64Host(
@@ -115,6 +127,7 @@ def generate_linux64_build(n: Writer, sln: Any) -> None:
         # (no loop in them turned into glibc's wcslen, which
         # linux_link_check.py rejects: the game's wchar_t is 16-bit)
         third_party_flags=["-fno-builtin-wcslen"],
+        host_include=" ".join(bgfx_include_flags()) if use_bgfx else "",
         excluded=set(lp64_excluded()),
         ffmpeg_cflags=ffmpeg_cflags,
     )
@@ -133,9 +146,12 @@ def generate_linux64_build(n: Writer, sln: Any) -> None:
             # of a crash report's calls, in debug.txt, are the executable's
             # own, the same from run to run)
             "ldflags": " ".join([LINUX64_TARGET, "-g", "-no-pie", *(sdl.ldflags if sdl else []), *lto_ldflags]),
-            "libs": " ".join([*ffmpeg_libs, *(f"-l{lib}" for lib in config.get("libraries", []))]),
+            # (bgfx's C++: the system's libstdc++, which every distribution has)
+            "libs": " ".join([*(str(library) for library in bgfx_libraries), *ffmpeg_libs,
+                              *(f"-l{lib}" for lib in config.get("libraries", [])),
+                              *(["-lstdc++"] if use_bgfx else [])]),
         },
-        implicit=[Path("tools/linux_link_check.py"), *([sdl.libsdl] if sdl else []), *ffmpeg_inputs],
+        implicit=[Path("tools/linux_link_check.py"), *([sdl.libsdl] if sdl else []), *ffmpeg_inputs, *bgfx_libraries],
     )
     # (the portable build's SDL3, beside the executable, and its license)
     sdl_outputs = []

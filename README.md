@@ -255,7 +255,10 @@ not be part of our community.
 - Libraries: SDL3, stb, Mbed TLS, miniupnpc, KCP, tomlc17, musl's maths,
   Expat, Monocypher, zlib, Zstandard, SMAA, and Project Nayuki's QR Code
   generator. Their licenses are
-  beside them in `port/third_party`.
+  beside them in `port/third_party`. The 64-bit desktop builds' test
+  renderer uses bgfx, bx and bimg by Branimir Karadžić (BSD-2-Clause), with
+  glslang and SPIRV-Cross (Khronos, BSD-3-Clause and Apache-2.0), fetched
+  at build time with their licenses (`tools/bgfx_build.py`).
 
 <details>
 <summary><b>Contributors</b></summary>
