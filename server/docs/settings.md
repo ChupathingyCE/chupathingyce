@@ -157,10 +157,14 @@ the join: the player gets Custom Edition's own "Unable to join the game
 server!" message, not a timeout. Playing in the game comes later. At most 16 Custom
 Edition clients are handled at once.
 
-For development only, `HALO_DEDICATED_CE_ACCEPT=1` takes the join instead:
-the client gets the game settings (Custom Edition's own free-for-all Slayer
-with the server's name and map) and is told the game has begun. The game
-itself does not reach it yet, so leave this off on a real server.
+For development only, `HALO_DEDICATED_CE_ACCEPT=1` takes the join instead,
+while a game is being played on a map the Custom Edition player has too (a
+Custom Edition map, `bloodgulch@ce`: the same .map file on both sides). The
+player joins the game as one of the server's own players, moved by their
+client's input, and their client is shown the other players, their bipeds
+and weapons from the server's game. Up to 4 Custom Edition players at once
+for now. Still incomplete (no projectiles, vehicles or items shown to them,
+their own position not corrected), so leave this off on a real server.
 
 ## Folders
 

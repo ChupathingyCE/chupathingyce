@@ -575,13 +575,14 @@ void server_ce_update(
 	dedicated_server_get_status(&status);
 	if (status.state != _dedicated_state_in_game)
 	{
-		/* (the game ended: its Custom Edition players go with it, for now) */
+		/* (the game ended: its Custom Edition players go with it, for now:
+		their clients told, their players taken out of the game) */
 		for (index = 0; index < CE_LOCAL_PLAYERS; index++)
 		{
 			if (ce.clients[index].active)
 			{
 				ce_transport_drop(ce.clients[index].peer);
-				csmemset(&ce.clients[index], 0, sizeof(ce.clients[index]));
+				leave(ce.clients[index].peer);
 			}
 		}
 		last_tick = NONE;
