@@ -155,6 +155,12 @@ enum delta_capability
 	objects the host made (OBJECT_NAMES), so that a client's scripts find
 	them by name */
 	_delta_capability_object_sync = 17,
+	/* the host's rules for its players' extras (docs/delta.md, Host
+	rules): HOST_RULES says whether its players may show names above heads,
+	watch a follow camera while they wait to respawn, and change teams. A
+	client whose host says nothing (OpenCE's, an older build) plays by the
+	Xbox's rules */
+	_delta_capability_host_rules = 18,
 
 	NUMBER_OF_DELTA_CAPABILITIES
 };

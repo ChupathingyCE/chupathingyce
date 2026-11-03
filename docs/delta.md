@@ -148,6 +148,7 @@ shares.
 | 15 | `team_change` | changing teams during a game: a client asks its host (TEAM_REQUEST), the host decides and answers (TEAM_RESULT); see "Team changes" |
 | 16 | `server_badge` | reserved for server badges (a draft); never set until that is built |
 | 17 | `object_sync` | what the game's messages leave out of the host's objects: every unit's shield and health (UNIT_VITALS) and the scenario names of the objects the host made (OBJECT_NAMES); see "Object sync" |
+| 18 | `host_rules` | the host's rules for its players' extras (HOST_RULES): names above heads, the follow camera, team changes; a client whose host says nothing plays by the Xbox's rules. See "Host rules" |
 
 The registry lives in the repository next to the compatibility table and is
 the single source for the bit numbers. Built so far: `platform`, `profile`,
@@ -387,6 +388,7 @@ a later version may append):
 | 25, 26 | | | kept for server badges (a draft) |
 | 27 | UNIT_VITALS | host to client | count (1, at most 98), flags (1: 0x01 the last datagram of a full pass), reserved (2), then 12-byte entries: the host's object (4, its datum index, which a client's copy shares), flags (1: 0x01 shield depleted, 0x02 shield charging, 0x04 shield over charging), reserved (1), body vitality (2), shield vitality (2), reserved (2); vitality in 16384ths, as the game's own unit states have it |
 | 28 | OBJECT_NAMES | host to client | total (2, the host's named objects and removed names in all, at most 512), first (2, this datagram's first entry's place among them), count (1, at most 98), reserved (3), then 12-byte entries: the host's object (4; 0xFFFFFFFF for a removed name), its scenario name index (2), flags (1: 0x01 removed, a name the host had an object of this game and has none of now; others ignored), and for a removed name its unit's last vitals: shield flags (1, as UNIT_VITALS's), body vitality (2), shield vitality (2) (full for an object that was not a unit; 0 for the others) |
+| 29 | HOST_RULES | host to client | version (1; 1 now, 0 refused, a later one read as far as this build knows it), flags (1: 0x01 names above heads allowed, 0x02 the follow camera allowed; others ignored), team changes (1: 0 off, 1 balanced, 2 allow), their margin (1, 0 to 16), reserved (4); values past their ranges refused. Sent at once when they change and every 5 seconds |
 
 A roster covers every machine of the game, in as many datagrams as it takes
 (32 machines each). A client forgets a machine the roster has not named for
@@ -669,6 +671,28 @@ ask goes over Delta Peer and the change itself through the game:
 The game's side is `port/linux/game/team_change.c`, its pause menu row in
 all the menu sets (`port/linux/game/menu_tags.c`), and the dedicated
 server's settings and `sv_team` (`server/docs/settings.md`).
+
+### Host rules
+
+Chupathingy plays multiplayer as the Xbox did. A few extras change what a
+player sees of the others, so the host decides them for everyone in its
+game, over `host_rules` (bit 18):
+
+- **The host says them.** HOST_RULES goes to each client that agreed to
+  `host_rules`, at once when they change (a dedicated server's `sv_set`)
+  and every 5 seconds. A player's host takes them from its config.toml
+  (`network.allow_player_names`, its Host Setup), a dedicated server from its
+  settings (`allow_player_names`, `server/docs/settings.md`).
+- **Names above heads.** A player's `display.player_names` ("all",
+  "allies", "enemies") shows only while the host allows it. Without it a
+  name shows only on the player aimed at, as on the Xbox.
+- **Team changes.** The host's rule for CHANGE TEAMS ("Team changes"
+  above) rides along, so a client knows whether to offer it.
+- **A host that says nothing** (OpenCE's, an older Chupathingy, a console
+  without Delta) gets the Xbox's rules: no extras. A game played alone
+  (split screen) is its own host's.
+
+The game's side is `port/linux/game/host_rules.c`.
 
 ### Object sync
 

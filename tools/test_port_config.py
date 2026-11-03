@@ -48,6 +48,7 @@ DEFAULTS = {
 		"network.tunnel_port": "2302",
 		"game.start_with_one_player": "true",
 		"audio.hrtf": "on",
+		"display.player_names": "none",
 	},
 	"desktop32": {
 		"display.anti_aliasing": "off",
@@ -56,6 +57,7 @@ DEFAULTS = {
 		"network.tunnel_port": "2302",
 		"game.start_with_one_player": "true",
 		"audio.hrtf": "on",
+		"display.player_names": "none",
 	},
 	"android": {
 		"display.anti_aliasing": "off",
@@ -64,12 +66,14 @@ DEFAULTS = {
 		"network.tunnel_port": "2302",
 		"game.start_with_one_player": "true",
 		"audio.hrtf": "on",
+		"display.player_names": "none",
 	},
 	"server": {
 		"display.anti_aliasing": "off",
 		"display.shadow_resolution": "128",
 		"network.tunnel_port": "0",
 		"game.start_with_one_player": "false",
+		"display.player_names": "none",
 	},
 	# (a console's build, one on the shared GL layer: Headphone 3D stays off,
 	# the original Xbox having its own hardware path, and the port random)
@@ -79,6 +83,7 @@ DEFAULTS = {
 		"network.tunnel_port": "0",
 		"game.start_with_one_player": "true",
 		"audio.hrtf": "off",
+		"display.player_names": "none",
 	},
 }
 
@@ -93,21 +98,23 @@ OLD = {
 	"network.tunnel_port": "0",
 	"game.start_with_one_player": "false",
 	"audio.hrtf": "off",
+	"display.player_names": "all",
 }
 CHANGED = {
-	"desktop": ["display.menus", "display.anti_aliasing", "display.shadow_resolution", "network.tunnel_port", "game.start_with_one_player", "audio.hrtf"],
-	"desktop32": ["display.menus", "display.shadow_resolution", "network.tunnel_port", "game.start_with_one_player", "audio.hrtf"],
-	"android": ["display.menus", "display.shadow_resolution", "audio.buffer_frames", "network.tunnel_port", "game.start_with_one_player", "audio.hrtf"],
+	"desktop": ["display.menus", "display.anti_aliasing", "display.shadow_resolution", "network.tunnel_port", "game.start_with_one_player", "audio.hrtf", "display.player_names"],
+	"desktop32": ["display.menus", "display.shadow_resolution", "network.tunnel_port", "game.start_with_one_player", "audio.hrtf", "display.player_names"],
+	"android": ["display.menus", "display.shadow_resolution", "audio.buffer_frames", "network.tunnel_port", "game.start_with_one_player", "audio.hrtf", "display.player_names"],
 	"server": [],
 	"console": ["display.menus", "display.shadow_resolution", "game.start_with_one_player"],
 }
 # the changes of the second question (game.defaults_answered = 2), the
-# third (3) and the latest (CONFIG_DEFAULTS_GENERATION): a file answered for
-# an earlier one is asked about the later ones only
+# third (3), the fourth (4) and the latest (CONFIG_DEFAULTS_GENERATION): a
+# file answered for an earlier one is asked about the later ones only
 SECOND = ["network.tunnel_port"]
 THIRD = ["game.start_with_one_player"]
-LATEST = ["audio.hrtf"]
-GENERATION = "4"
+FOURTH = ["audio.hrtf"]
+LATEST = ["display.player_names"]
+GENERATION = "5"
 NEW = {"display.menus": "chupathingy"}
 
 # the macros each kind of build is compiled with; the others are not macOS
@@ -332,11 +339,11 @@ def test_previous_release_file(program, directory, defaults, kind):
 
 
 def test_answered_earlier(program, directory, defaults, kind):
-	"""A file answered at the question before (defaults_answered = 3): asked
-	about the latest changes only (Headphone 3D), and a value kept then stays
-	whatever the answer now. A Headphone 3D the player set themselves, on,
-	off or auto, is never asked about nor changed."""
-	latest = [name for name in LATEST if name in CHANGED[kind]]
+	"""A file answered at the third question (defaults_answered = 3): asked
+	about the later changes only (Headphone 3D, no names above heads), and a
+	value kept then stays whatever the answer now. A Headphone 3D the player
+	set themselves, on, off or auto, is never asked about nor changed."""
+	latest = [name for name in FOURTH + LATEST if name in CHANGED[kind]]
 	if not latest:
 		return
 	for answer in ("keep", "new"):
@@ -362,6 +369,7 @@ def test_answered_earlier(program, directory, defaults, kind):
 		count, output = pending(case)
 		check(count == len(latest), f"earlier/{answer}: {count} changes, not {len(latest)}: {output}")
 		check("Headphone 3D on, as the original Xbox did" in output, f"earlier/{answer}: no words for Headphone 3D")
+		check("No names above heads, as on the Xbox" in output, f"earlier/{answer}: no words for names above heads")
 		check("Sharper shadows" not in output and "menus" not in output and "A fixed port" not in output and
 			"Start a game you host alone" not in output,
 			f"earlier/{answer}: asked again: {output}")
@@ -373,6 +381,11 @@ def test_answered_earlier(program, directory, defaults, kind):
 		check(re.search(rf"^defaults_answered = {GENERATION}$", text, re.M), f"earlier/{answer}: the answer is not written")
 		lines, _ = value_lines(text, "hrtf")
 		check(lines == (['hrtf = "off"'] if answer == "keep" else []), f"earlier/{answer}: hrtf lines {lines}")
+		values, _ = case.get("display.player_names")
+		check(values["display.player_names"] == ("all" if answer == "keep" else "none"),
+			f"earlier/{answer}: display.player_names {values}")
+		lines, _ = value_lines(text, "player_names")
+		check(lines == (['player_names = "all"'] if answer == "keep" else []), f"earlier/{answer}: player_names lines {lines}")
 		check(pending(case)[0] == 0, f"earlier/{answer}: asked again")
 	for chosen in ("off", "on", "auto"):
 		case = Case(program, directory / f"earlier_chosen_{chosen}")
@@ -388,7 +401,7 @@ def test_answered_first_question(program, directory, defaults, kind):
 	"""A file answered for v0.8.0's question (defaults_answered = 1): asked
 	about the later changes alone (the hosting port, starting alone, Headphone
 	3D), once; its other settings stay as they are."""
-	changed = [name for name in CHANGED[kind] if name in SECOND + THIRD + LATEST]
+	changed = [name for name in CHANGED[kind] if name in SECOND + THIRD + FOURTH + LATEST]
 	if not changed:
 		return
 	for answer in ("keep", "new"):
@@ -446,7 +459,7 @@ def test_start_alone(program, directory, defaults, kind):
 		return
 	# a file answered for the second question: this one is asked, with the
 	# later ones (Headphone 3D)
-	later = [name for name in CHANGED[kind] if name in THIRD + LATEST]
+	later = [name for name in CHANGED[kind] if name in THIRD + FOURTH + LATEST]
 	for answer in ("keep", "new"):
 		case = Case(program, directory / f"alone_{answer}")
 		text = previous_release_file(case, kind)

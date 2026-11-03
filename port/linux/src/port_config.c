@@ -302,9 +302,11 @@ static const struct config_setting config_settings[] =
 		"display.high_res_font. Leave it empty to use that one." },
 	{ "display.skip_intro", _config_boolean, "false", "HALO_SKIP_INTRO", _environment_set_is_true, _platform_all,
 		"Skip the intro movie and go straight to the main menu." },
-	{ "display.player_names", _config_string, "\"all\"", "HALO_PLAYER_NAMES", _environment_value, _platform_all,
+	{ "display.player_names", _config_string, "\"none\"", "HALO_PLAYER_NAMES", _environment_value, _platform_all,
 		"In multiplayer, whose names show above their heads: \"all\",\n"
-		"\"allies\", \"enemies\" or \"none\"." },
+		"\"allies\", \"enemies\" or \"none\". Only where the host allows it\n"
+		"(network.allow_player_names); elsewhere a name shows only on the player\n"
+		"you aim at, as on the Xbox." },
 	{ "display.player_name_scale", _config_real, "1.0", "HALO_PLAYER_NAME_SCALE", _environment_value, _platform_all,
 		"The size of player names, from 0.25 to 4." },
 	{ "display.match_timer", _config_boolean, "false", "HALO_MATCH_TIMER", _environment_value, _platform_all | _platform_xbox,
@@ -726,6 +728,10 @@ static const struct config_setting config_settings[] =
 		_platform_all,
 		"For \"balanced\": how many more players one team may have, from 0 to\n"
 		"16." },
+	{ "network.allow_player_names", _config_boolean, "false", "HALO_NET_ALLOW_PLAYER_NAMES", _environment_value, _platform_all,
+		"In games you host, let players show names above heads\n"
+		"(display.player_names). Off plays as the Xbox did: a name shows only\n"
+		"on the player aimed at." },
 	{ "network.block_mouse_aim_assist", _config_boolean, "false", "HALO_NET_BLOCK_MOUSE_AIM_ASSIST", _environment_value,
 		_platform_all,
 		"Turn off mouse aim assist for everyone in games you host." },
@@ -1573,9 +1579,10 @@ version changed) */
 #define CONFIG_VERSION 2
 /* the defaults the game has asked about (game.defaults_answered): 1, the
 ones of v0.8.0; 2, network.tunnel_port's 2302 (v0.8.1b); 3, a game you host
-starting alone (game.start_with_one_player); 4, Headphone 3D on. A file
+starting alone (game.start_with_one_player); 4, Headphone 3D on; 5, the
+Xbox's multiplayer by default (v0.9.0: no names above heads). A file
 answered for an earlier generation is asked about the later ones only */
-#define CONFIG_DEFAULTS_GENERATION 4
+#define CONFIG_DEFAULTS_GENERATION 5
 #define CONFIG_VERSION_LINE "config_version = 2\n"
 #define CONFIG_VERSION_LINES "# Chupathingy uses this line to update the file. Leave it as it is.\n" CONFIG_VERSION_LINE
 #define CONFIG_VERSION_TEXT "\n" CONFIG_VERSION_LINES
@@ -2257,6 +2264,12 @@ static const struct
 	/* the stereo pan, the default until Headphone 3D matched the Xbox (a
 	file that names "off" keeps it) */
 	{ "audio.hrtf", "\"off\"", 0, "Headphone 3D on, as the original Xbox did", 4 },
+#endif
+#ifndef HALO_CONSOLE
+	/* names above every player's head, the default until v0.9.0 played
+	multiplayer as the Xbox did (a file that names "all" keeps it, where
+	hosts allow it; a console draws none) */
+	{ "display.player_names", "\"all\"", 0, "No names above heads, as on the Xbox (a host can allow them)", 5 },
 #endif
 };
 
@@ -3110,7 +3123,7 @@ static const struct
 	{ "display.resolution_scaling", { "native", "original", NULL }, "\"native\"" },
 	{ "display.anti_aliasing", { "off", "fxaa", "smaa", "ssaa2x", "msaa2x", "msaa4x", "msaa8x", NULL }, NULL },
 	{ "display.menus", { "xbox", "gearbox", "pc", "chupathingy", NULL }, NULL },
-	{ "display.player_names", { "all", "allies", "allys", "enemies", "none", NULL }, "\"all\"" },
+	{ "display.player_names", { "all", "allies", "allys", "enemies", "none", NULL }, "\"none\"" },
 	{ "display.scoreboard_team_layout", { "teams", "score", NULL }, "\"teams\"" },
 	{ "display.scoreboard_platforms", { "auto", "on", "off", NULL }, "\"auto\"" },
 	{ "display.follow_camera", { "long_waits", "always", "off", NULL }, "\"long_waits\"" },

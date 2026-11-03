@@ -245,6 +245,8 @@ const struct server_setting server_settings_table[SERVER_SETTINGS] =
 		"The UDP port of the GameSpy status queries" },
 	{ "ce_joins", SERVER_FIELD_BOOLEAN, 0, 1, "HALO_DEDICATED_CE_JOINS",
 		"Answer Halo Custom Edition 1.0.10 join attempts on the GameSpy port (gamespy_listing must be on)" },
+	{ "allow_player_names", SERVER_FIELD_BOOLEAN, 0, 1, "HALO_DEDICATED_ALLOW_PLAYER_NAMES",
+		"Chupathingy players may show names above heads (off: only the player aimed at, as on the Xbox)" },
 };
 
 /* ---------- private code */

@@ -304,6 +304,9 @@ enum
 	/* Halo Custom Edition 1.0.10's join wire answered on that port
 	(server/platform/ce_transport.h) */
 	SERVER_SETTING_CE_JOINS,
+	/* the host's rules for its players' extras (port/linux/game/host_rules.h):
+	whether players may show names above heads */
+	SERVER_SETTING_ALLOW_PLAYER_NAMES,
 	SERVER_SETTINGS,
 	/* a game's players, at most (halo_port_limits.h's) */
 	SERVER_SETTINGS_MAXIMUM_PLAYERS = 128,

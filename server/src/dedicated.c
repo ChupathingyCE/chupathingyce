@@ -88,6 +88,8 @@ void chat_host_set_welcome(char const *text);
 #endif
 /* (team changes', port/linux/game/team_change.h: 0 off, 1 balanced, 2 allow) */
 void team_change_host_set(int policy, int margin);
+/* (the host's rules', port/linux/game/host_rules.h) */
+void host_rules_set_player_names(boolean allowed);
 
 enum
 {
@@ -542,6 +544,23 @@ static void initialize(
 		team_change_host_set((int)policy, (int)margin);
 		error(_error_silent, "dedicated: team changes during a game %s", policy == 0 ? "off" : policy == 2 ? "allowed" :
 			"while the teams stay balanced");
+	}
+	/* the host's rules for its players' extras: off (the Xbox's game)
+	unless true, 1, yes or on */
+	{
+		char const *names = getenv("HALO_DEDICATED_ALLOW_PLAYER_NAMES");
+		boolean allowed;
+
+		if (names && names[0])
+		{
+			allowed = !_stricmp(names, "true") || !strcmp(names, "1") || !_stricmp(names, "yes") ||
+				!_stricmp(names, "on");
+		}
+		else
+			allowed = settings.set[SERVER_SETTING_ALLOW_PLAYER_NAMES] && settings.values[SERVER_SETTING_ALLOW_PLAYER_NAMES];
+		host_rules_set_player_names(allowed);
+		if (allowed)
+			error(_error_silent, "dedicated: players may show names above heads");
 	}
 	dedicated.active = dedicated.entry_count > 0;
 }
