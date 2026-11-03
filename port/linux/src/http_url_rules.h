@@ -5,7 +5,8 @@ Which addresses the game's HTTP requests (posix_browser.c and its users)
 may send a secret to: a token or key goes only to an https:// server, or
 to a plain http:// one on this computer (127.0.0.1, localhost or [::1],
 for tests), the host compared exactly, so that no other host whose name
-merely starts the same way gets it.
+merely starts the same way gets it. And which redirects a download follows:
+one that started on https:// stays on https://.
 
 Header only, so that every build that has the requests has it; tested by
 port/linux/tests/http_url_rules_test.c (tools/test_http_url_rules.py).
@@ -64,6 +65,20 @@ static inline int http_url_safe_for_secret(const char *url)
 		return !*rest || *rest == '/';
 	}
 	return 0;
+}
+
+/* whether a download at from may follow a redirect to location: a path on
+the same server (it keeps from's scheme), or an absolute address, which
+must be https:// when from is */
+static inline int http_url_redirect_allowed(const char *from, const char *location)
+{
+	if (!from || !location || !location[0])
+		return 0;
+	if (location[0] == '/')
+		return 1;
+	if (http_url_starts_with(from, "https://"))
+		return http_url_starts_with(location, "https://");
+	return http_url_starts_with(location, "https://") || http_url_starts_with(location, "http://");
 }
 
 #endif

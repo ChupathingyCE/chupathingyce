@@ -53,9 +53,28 @@ static void test_safe_for_secret(void)
 	CHECK(!http_url_safe_for_secret("ftp://localhost/"));
 }
 
+static void test_redirects(void)
+{
+	CHECK(http_url_redirect_allowed("https://a.example.org/x", "https://b.example.org/y"));
+	CHECK(http_url_redirect_allowed("https://a.example.org/x", "HTTPS://b.example.org/y"));
+	CHECK(http_url_redirect_allowed("https://a.example.org/x", "/y"));
+	CHECK(http_url_redirect_allowed("http://a.example.org/x", "http://b.example.org/y"));
+	CHECK(http_url_redirect_allowed("http://a.example.org/x", "https://b.example.org/y"));
+	CHECK(http_url_redirect_allowed("http://a.example.org/x", "/y"));
+
+	CHECK(!http_url_redirect_allowed("https://a.example.org/x", "http://b.example.org/y"));
+	CHECK(!http_url_redirect_allowed("https://a.example.org/x", "HTTP://a.example.org/y"));
+	CHECK(!http_url_redirect_allowed("HTTPS://a.example.org/x", "http://a.example.org/y"));
+	CHECK(!http_url_redirect_allowed("https://a.example.org/x", "ftp://b.example.org/y"));
+	CHECK(!http_url_redirect_allowed("https://a.example.org/x", ""));
+	CHECK(!http_url_redirect_allowed("https://a.example.org/x", NULL));
+	CHECK(!http_url_redirect_allowed(NULL, "https://b.example.org/y"));
+}
+
 int main(void)
 {
 	test_safe_for_secret();
+	test_redirects();
 	if (failures)
 	{
 		printf("%d failure(s)\n", failures);
