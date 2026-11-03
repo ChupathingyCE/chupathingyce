@@ -23,12 +23,17 @@ One UDP socket, on its own thread:
     RC4 variant, its index stepped by each byte) in base64. As the server
     stops, a last heartbeat says it is gone (statechanged 2).
 
+With joins on (gamespy_listing_set_joins), the same port also answers
+Halo Custom Edition 1.0.10's join wire (ce_transport.c): its packets go
+there first.
+
 Replies are rate limited (a reply is many times its query's size).
 Nothing here logs an address: the log lines say what happened, not to
 whom.
 */
 
 #include "gamespy_listing.h"
+#include "ce_transport.h"
 
 #include <arpa/inet.h>
 #include <errno.h>
@@ -99,6 +104,8 @@ static struct
 	char notices[NOTICES][NOTICE_SIZE];
 	int notice_first;
 	int notice_count;
+	/* Custom Edition's join wire answered (ce_transport.h) */
+	int joins;
 } listing;
 
 /* ---------- text */
@@ -632,13 +639,29 @@ static int master_packet(const unsigned char *packet, int length, const struct s
 	return 0;
 }
 
+static unsigned int milliseconds_now(void)
+{
+	struct timespec now;
+
+	clock_gettime(CLOCK_MONOTONIC, &now);
+	return (unsigned int)now.tv_sec * 1000u + (unsigned int)(now.tv_nsec / 1000000);
+}
+
+static void send_to_peer(void *context, const void *address, const unsigned char *packet, int length)
+{
+	(void)context;
+	sendto(listing.socket, packet, (size_t)length, 0, (const struct sockaddr *)address, sizeof(struct sockaddr_in));
+}
+
 static void *listing_thread(void *unused)
 {
 	struct gamespy_status status;
 	int have_status = 0;
 	int first = 1;
+	int joins = 0;
 
 	(void)unused;
+	ce_transport_start(send_to_peer, NULL, notice);
 	for (;;)
 	{
 		struct pollfd poll_socket;
@@ -649,6 +672,9 @@ static void *listing_thread(void *unused)
 		pthread_mutex_lock(&listing_mutex);
 		stop = listing.stop;
 		changed = listing.changed;
+		if (joins && !listing.joins)
+			ce_transport_stop();
+		joins = listing.joins;
 		if (listing.have_status)
 		{
 			status = listing.status;
@@ -663,8 +689,14 @@ static void *listing_thread(void *unused)
 			changed = 0;
 		pthread_mutex_unlock(&listing_mutex);
 
+		if (joins && have_status)
+		{
+			ce_transport_set_map(status.mapname);
+			ce_transport_update(milliseconds_now());
+		}
 		if (stop)
 		{
+			ce_transport_stop();
 			for (index = 0; index < listing.master_count; index++)
 				send_heartbeat(&listing.masters[index], NULL, 2, now);
 			break;
@@ -704,6 +736,15 @@ static void *listing_thread(void *unused)
 				continue;
 			if (master_packet(packet, (int)length, &from))
 				continue;
+			/* (Custom Edition's join wire: its first packet, which is
+			answered, as limited as a query) */
+			if (joins && have_status)
+			{
+				if (length >= 3 && packet[0] == 0xfe && packet[1] == 0xfe && packet[2] == 0x01 && !reply_allowed())
+					continue;
+				if (ce_transport_packet(packet, (int)length, &from, milliseconds_now()))
+					continue;
+			}
 			if (!have_status || !reply_allowed())
 				continue;
 			reply_length = gamespy_reply(&status, listing.gamever, packet, (int)length, reply, sizeof(reply));
@@ -856,6 +897,13 @@ void gamespy_listing_stop(void)
 	close(listing.socket);
 	listing.socket = -1;
 	listing.running = 0;
+}
+
+void gamespy_listing_set_joins(int enabled)
+{
+	pthread_mutex_lock(&listing_mutex);
+	listing.joins = enabled ? 1 : 0;
+	pthread_mutex_unlock(&listing_mutex);
 }
 
 int gamespy_listing_running(void)

@@ -22,6 +22,12 @@ release notes.
   Edition 1.0.10 reports to, with Xbox maps named `xbox_<map>` (naming from
   the Custom Edition community, via ugoboom). It reports its own version, so
   Custom Edition 1.0.10's browser does not show it.
+- Halo Custom Edition 1.0.10 join attempts, off by default (`ce_joins`,
+  `HALO_DEDICATED_CE_JOINS`, with `gamespy_listing` on): the GameSpy port
+  answers a Custom Edition client's connection (its handshake, key
+  agreement and enciphered messages), names the map, reads the join request
+  and refuses it cleanly with Custom Edition's "Unable to join the game
+  server!" instead of a timeout. Playing comes in later steps.
 - Control panel hardening: `sv_welcome` needs the settings permission (an
   admin's) and is in the audit file; a command missing from the permission
   table is the console's alone. Wrong logins lock an account only for the

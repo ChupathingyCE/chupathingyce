@@ -6,7 +6,7 @@ the listing started on a port with a list of masters, given a made-up
 server's state, until its standard input ends (then stopped, which sends
 the masters the last heartbeat). Its notices go to standard output.
 
-  gamespy_harness <port> <masters> <gamever> <players>
+  gamespy_harness <port> <masters> <gamever> <players> [joins]
   gamespy_harness map <map>     (the map's name as Custom Edition has it)
 */
 
@@ -34,7 +34,7 @@ int main(int argc, char **argv)
 		printf("%s\n", name);
 		return 0;
 	}
-	if (argc != 5)
+	if (argc != 5 && !(argc == 6 && !strcmp(argv[5], "joins")))
 	{
 		fprintf(stderr, "usage: gamespy_harness <port> <masters> <gamever> <players>\n");
 		return 2;
@@ -69,6 +69,8 @@ int main(int argc, char **argv)
 		return 1;
 	}
 	gamespy_listing_publish(&status);
+	if (argc == 6)
+		gamespy_listing_set_joins(1);
 	printf("started\n");
 	fflush(stdout);
 	for (;;)

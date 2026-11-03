@@ -20,7 +20,8 @@ sys.path.insert(0, str(ROOT))
 from tools.gamespy_fake_master import (  # noqa: E402
     CAPTURED_CHALLENGE, CAPTURED_RESPONSE, FakeMaster, challenge_response, parse_pairs, parse_qr2_sections)
 
-HARNESS_SOURCES = [ROOT / "server" / "tests" / "gamespy_harness.c", ROOT / "server" / "platform" / "gamespy_listing.c"]
+HARNESS_SOURCES = [ROOT / "server" / "tests" / "gamespy_harness.c", ROOT / "server" / "platform" / "gamespy_listing.c",
+                   ROOT / "server" / "platform" / "ce_transport.c"]
 def compiler():
     for name in ("clang", "cc", "gcc"):
         path = shutil.which(name)
