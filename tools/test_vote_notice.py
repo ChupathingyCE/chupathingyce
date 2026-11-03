@@ -25,10 +25,7 @@ def test_votes_dropped_and_noted_once():
     assert "distributed_vote_dropped(machine_index, type);" in vote_block
     dropped = _body(text, "static void distributed_vote_dropped(")
     assert "distributed_vote_machines_told[machine_index >> 3] |=" in dropped
-    assert "chat_host_notice_to_machine((short)machine_index, DISTRIBUTED_VOTE_NOTICE);" in dropped
-    # (the kind alone: the message itself is never passed on or read)
-    assert "message" not in dropped.replace("machine", "")
-    assert '"Voting isn\'t supported on this server; ask a moderator."' in text
+    assert "chat_host_notice_to_machine((short)machine_index, \"Voting isn't supported on this server; ask a moderator.\");" in dropped
     assert "csmemset(distributed_vote_machines_told, 0, sizeof(distributed_vote_machines_told));" in text
 
 

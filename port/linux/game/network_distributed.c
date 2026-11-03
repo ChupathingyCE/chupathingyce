@@ -3278,8 +3278,6 @@ static byte distributed_unknown_kinds_seen[32];
 bit a machine: each told once, and logged once */
 static byte distributed_vote_machines_told[(HALO_PORT_MAXIMUM_NETWORK_MACHINES + 7) / 8];
 
-#define DISTRIBUTED_VOTE_NOTICE "Voting isn't supported on this server; ask a moderator."
-
 /* (the host) an OpenCE client's vote (its ask for a kick or the game's end,
 78, or its map choice, 95), dropped unread: the first from a machine this
 game is logged (its kind, nothing of what it says) and the machine's player
@@ -3296,7 +3294,7 @@ static void distributed_vote_dropped(
 	distributed_vote_machines_told[machine_index >> 3] |= (byte)(1 << (machine_index & 7));
 	error(_error_log, "network: machine %ld sent an OpenCE vote (kind %d), dropped: this host has no votes",
 		machine_index, (int)type);
-	chat_host_notice_to_machine((short)machine_index, DISTRIBUTED_VOTE_NOTICE);
+	chat_host_notice_to_machine((short)machine_index, "Voting isn't supported on this server; ask a moderator.");
 }
 
 /* whether this build knows a distributed message's kind (network_distributed.h) */
