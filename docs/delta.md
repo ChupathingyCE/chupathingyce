@@ -1809,6 +1809,9 @@ check it too):
   test of each wire still in use against the new OpenCE build; a pass adds
   that number to the wire's row and publishes a new serial. A fail means a
   release (merge the code, new wire ID), as today ("Following OpenCE").
+- **`requires`** (optional, in a row): the host protections a host needs
+  to announce anything the row proves past its build's own number ("Host
+  protections", below). Builds before 0.9.0 skip it as an unknown key.
 - **`follows`** (optional, in a row): the OpenCE build the cross-play test
   proved the row with (`"build-145"`: letters, digits, `.`, `-` and `_`, at
   most 31). Shown in the log and the server's status ("Following OpenCE
@@ -2118,6 +2121,53 @@ moves.
   `network.announce` applies to them. Once a server's local table only
   repeats the signed one, remove it and let the server follow the table.
 
+### Host protections
+
+The cross-play gate proves that games stay in sync. It doesn't prove that
+our host enforces what OpenCE's clients of that number expect a host to
+enforce. OpenCE's hosts check line of sight on reported hits since
+2026-10-23, and 41 added a limit on machines from one address and map
+votes. A table row that raised our announced number past what our host
+actually does would put their players in games that are softer than they
+expect, with no release and no review.
+
+So a row can say what hosting it takes:
+
+```json
+"chupa-41a": {"announce": 32, "minimum": 11, "maximum": 42, "hosting": [41, 42],
+              "requires": ["hit_line_of_sight"]}
+```
+
+- **The names** are `DELTA_HOST_PROTECTIONS` in `delta.h`, each with
+  whether the build has it. Today only `hit_report_checks` is there (the
+  host checks each client's hit report: its own player, a weapon of
+  theirs, the target where the host had it, within reach, no faster than
+  the weapon fires; `network_damage.c`). `hit_line_of_sight`,
+  `address_machine_limit` and `map_votes` are named so a row can require
+  them, and no build has them yet. A name is never renamed or reused.
+- **A build that lacks one** (or doesn't know the name) announces its own
+  number (`HALO_PORT_NETWORK_VERSION`), whatever the row's `announce` and
+  `hosting` say, and `network.announce` can't pin past it. It logs one
+  line: "not hosting OpenCE network version 42 ...: it requires the host
+  protection hit_line_of_sight, which this build does not have; announcing
+  32". It still joins the row's range as a client: clients enforce
+  nothing for a host.
+- **A row without `requires`** works as before. Old tables, and the
+  servers' local tables, are unchanged.
+- **Builds before 0.9.0 skip `requires`**, and 0.8.1d (`chupa-41a`) reads
+  `announce` alone. So a `chupa-41a` row that requires anything keeps
+  `announce` at 32, and newer numbers go in `hosting`, which only builds
+  that also read `requires` follow (nightlies from #615 to this change
+  read `hosting` without `requires`). Wires from `chupa-42a` on can raise
+  `announce` freely. `tools/delta_table.py` refuses a row that breaks this,
+  a `requires` on a wire older than `chupa-41a`, and any name `delta.h`
+  doesn't list, so `tools/test_delta.py` fails on an unknown name.
+- **Adding one**: `delta_table.py make --requires chupa-41a=hit_line_of_sight`
+  (`delta-table.yml`'s `requires` input). A make only ever adds to the list.
+  Taking a name away is a hand edit, and a person approving it.
+- **When a build gains one**, set its 1 in `DELTA_HOST_PROTECTIONS` in the
+  same change that enforces it, on listen hosts and dedicated servers alike.
+
 ### One listing per host
 
 A host lists its game once, under the number it announces. OpenCE's
@@ -2213,15 +2263,25 @@ within hours when it doesn't.
      `delta-table.yml`, which makes the table (`tools/delta_table.py make
      --row`, which only widens), signs it and commits it to the
      `delta-table` branch. With `AUTO_PUBLISH` (a repository variable, or
-     the run's input) that happens at once; otherwise Donut posts the
-     command and a person runs it.
+     the run's input) the join range (`maximum`) is published at once;
+     otherwise Donut posts the command and a person runs it.
+   - **What hosts announce always needs a person.** A change to any row's
+     announced number (`announce` or `hosting`), or a protection taken out
+     of `requires`, is published only by a run a person started (the
+     Actions page, `gh workflow run`, or the site's Quick Update panel),
+     never by the gate or the watch on their own: `delta-table.yml` checks
+     it (command's `tools/table_guard.py`) and fails a run the gate or the
+     watch started. The gate publishes the widened join range by itself and
+     posts the command for the rest; the person checks what OpenCE's hosts
+     of that number enforce ("Host protections") and adds `requires` if
+     ours lack it.
    - A hosting pass: our host and dedicated server passed with OpenCE's
      clients, but our clients couldn't join OpenCE's host (a change only
      their host needs, like 40's longer join request). The wire's row gets
      the number in its `"hosting"` list (`delta-table.yml`'s `hosting`
      input, `delta_table.py make --hosting`), so our hosts announce it
-     ("Auto-announce", above), and the release work for our clients starts
-     as for a fail.
+     ("Auto-announce", above), once a person publishes it, and the release
+     work for our clients starts as for a fail.
    - A fail publishes nothing. An issue on chupathingyce ("OpenCE build-N
      needs a release") lists the failing steps, and Donut posts to
      #upstream-watch. The release work takes it from there: the smallest
