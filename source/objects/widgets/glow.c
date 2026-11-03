@@ -836,6 +836,12 @@ static void get_particle_world_position(
 			break;
 		}
 	}
+	/* a particle at the final marker's end (t == end) belongs to the last segment */
+	if (marker_index == glow->number_of_markers - 1 && marker_index > 0 &&
+		glow->marker_time_index[marker_index] <= particle->t)
+	{
+		marker_index--;
+	}
 	match_vassert("c:\\halo\\SOURCE\\objects\\widgets\\glow.c", 1079, marker_index < glow->number_of_markers - 1, "marker_index<glow->number_of_markers-1");
 	particle->parent_marker_index = PIN(marker_index, 0, glow->number_of_markers - 1);
 

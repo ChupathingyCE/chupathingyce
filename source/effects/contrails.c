@@ -223,9 +223,19 @@ void contrails_initialize(
 	return;
 }
 
+#ifndef HALO_XBOX_CONSOLE
+/* the emission clock (contrails_update): reset with each map */
+static long last_point_game_time = NONE;
+static real pending_point_dt = 0.0f;
+#endif
+
 void contrails_initialize_for_new_map(
 	void)
 {
+#ifndef HALO_XBOX_CONSOLE
+	last_point_game_time = NONE;
+	pending_point_dt = 0.0f;
+#endif
 	data_make_valid(contrail_data);
 	data_make_valid(contrail_point_data);
 
@@ -235,6 +245,10 @@ void contrails_initialize_for_new_map(
 void contrails_dispose_from_old_map(
 	void)
 {
+#ifndef HALO_XBOX_CONSOLE
+	last_point_game_time = NONE;
+	pending_point_dt = 0.0f;
+#endif
 	data_make_invalid(contrail_point_data);
 	data_make_invalid(contrail_data);
 
@@ -385,9 +399,10 @@ void contrails_update(
 	tick (port/linux/game/render_interpolation.c), but objects and their
 	markers move only on ticks: points due on a frame that ran no tick would
 	land on the last point, be skipped and be lost. Emit on the first frame
-	after each tick, for all the time since the last emission. */
-	static long last_point_game_time = NONE;
-	static real pending_point_dt = 0.0f;
+	after each tick, for all the time since the last emission. The points
+	age by that same interval, not by frame time: the Xbox stepped both once
+	per tick, and aging every frame made trails thinner and dimmer above
+	30 fps. */
 	real point_dt;
 
 	pending_point_dt += dt;
@@ -486,7 +501,11 @@ void contrails_update(
 			texture_animation_v = texture_animation_v * contrail->density;
 		contrail->texture_offset_v = texture_animation_v * frame_dt + contrail->texture_offset_v;
 
+#ifndef HALO_XBOX_CONSOLE
+		contrail_update_points(contrail_index, point_dt);
+#else
 		contrail_update_points(contrail_index, dt);
+#endif
 
 		for (instance_index = 0;
 			instance_index < MAXIMUM_CONTRAIL_INSTANCES;
