@@ -466,8 +466,11 @@ static char *bg_vulkan_glsl(const char *source, BOOL fragment, int flags, unsign
 		memcpy(text, line, length);
 		text[length] = 0;
 		line += length + (end ? 1 : 0);
+		/* (Vulkan keeps the position invariant, as OpenGL does: the game
+		draws a surface again in passes that test for the same depth, from
+		vertex shaders that would otherwise round it apart) */
 		if (strncmp(text, "#version", 8) == 0 || strncmp(text, "precision ", 10) == 0 ||
-			strcmp(text, "invariant gl_Position;") == 0 ||
+			(!bg_vulkan && strcmp(text, "invariant gl_Position;") == 0) ||
 			strcmp(text, "\tgl_Position.y = -gl_Position.y;") == 0 ||
 			strcmp(text, "\tgl_Position.z = 2.0 * gl_Position.z - gl_Position.w;") == 0)
 			continue;

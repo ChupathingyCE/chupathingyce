@@ -35,8 +35,10 @@ BGFX_PATCHES = sorted(Path("tools/bgfx-patches").glob("*.patch"))
 # its limits for the game: views (each target change and clear after draws
 # is one), visibility tests (lens flares, The Library's lights) and Metal's
 # uniform space a frame
+# (and not its NvOptimusEnablement and AmdPowerXpressRequestHighPerformance:
+# the Windows builds export their own, port/windows/src)
 BGFX_DEFINES = ["-DBGFX_CONFIG_MAX_VIEWS=1024", "-DBGFX_CONFIG_MAX_OCCLUSION_QUERIES=4096",
-                "-DBGFX_CONFIG_MTL_UNIFORM_BUFFER_SIZE=33554432"]
+                "-DBGFX_CONFIG_MTL_UNIFORM_BUFFER_SIZE=33554432", "-DBGFX_CONFIG_PREFER_DISCRETE_GPU=0"]
 # bgfx's renderers, all off but the platform's
 BGFX_RENDERERS = ["AGC", "DIRECT3D11", "DIRECT3D12", "GNM", "METAL", "NVN", "OPENGL", "OPENGLES", "VULKAN",
                   "WEBGPU"]
