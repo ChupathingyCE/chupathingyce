@@ -67,7 +67,7 @@ there. Reachabilities that bots keep failing at cost more (learned).
 #define AAS_FOOT_SPEED 2.25f
 #define AAS_VEHICLE_SPEED 6.f
 #define AAS_CACHES 96
-#define AAS_CACHE_VERSION 33 /* (33: teleporter pads reached from the floor round them) */
+#define AAS_CACHE_VERSION 34 /* (33: teleporter pads reached from the floor round them; 34: no vehicle areas under deep water) */
 #define AAS_DEAD_FAILURES 4 /* failed this often: not a way */
 #define AAS_CACHE_MAGIC 0x53414148UL /* HAAS */
 #define AAS_MAXIMUM_PLACES 256
@@ -281,6 +281,39 @@ real aas_speed(long type)
 	return type == AAS_VEHICLE ? AAS_VEHICLE_SPEED : AAS_FOOT_SPEED;
 }
 
+/* a floor under water too deep for a vehicle to drive in (bot_floor_in_deep_water),
+   worked out once a span while the areas are built; HALO_BOT_OFF=water: none */
+int bot_floor_in_deep_water(real_point3d const *floor_point); /* bots.c */
+static unsigned char *aas_flooded; /* 0 not asked, 1 dry, 2 flooded */
+static long aas_flooded_count;
+static boolean aas_span_flooded(long s)
+{
+	static int asked, on = 1;
+	if (!asked)
+	{
+		char const *off = getenv("HALO_BOT_OFF");
+		asked = TRUE;
+		on = !(off && strstr(off, "water"));
+	}
+	if (!on || s < 0)
+		return FALSE;
+	if (aas_flooded_count != navm.span_count)
+	{
+		free(aas_flooded);
+		aas_flooded = (unsigned char *)calloc(MAX(1, navm.span_count), 1);
+		aas_flooded_count = aas_flooded ? navm.span_count : 0;
+	}
+	if (!aas_flooded || s >= aas_flooded_count)
+		return FALSE;
+	if (!aas_flooded[s])
+	{
+		real_point3d floor_point;
+		navm_span_point(s, &floor_point);
+		aas_flooded[s] = bot_floor_in_deep_water(&floor_point) ? 2 : 1;
+	}
+	return aas_flooded[s] == 2;
+}
+
 static boolean aas_eligible(long type, long s)
 {
 	struct navm_span const *span;
@@ -289,7 +322,9 @@ static boolean aas_eligible(long type, long s)
 	span = &navm.spans[s];
 	if (!(span->flags & _navm_span_walkable) || (span->flags & _navm_span_blocked))
 		return FALSE;
-	return type == AAS_VEHICLE ? span->vehicle_wall >= AAS_VEHICLE_CLEARANCE : span->wall >= AAS_FOOT_CLEARANCE;
+	if (type == AAS_VEHICLE)
+		return span->vehicle_wall >= AAS_VEHICLE_CLEARANCE && !aas_span_flooded(s);
+	return span->wall >= AAS_FOOT_CLEARANCE;
 }
 
 /* how far a span's floor is from the walls (hundredths) */

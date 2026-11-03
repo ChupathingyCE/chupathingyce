@@ -2931,6 +2931,53 @@ character.
   Out, Damnation, Battle Creek; 8 bots), a team held the hill alone (and
   scored) 67% of the time instead of 55%.
 
+### Crouching, ramps, gaps, the way to the flag, the road ahead
+
+- **Crouching.** A bot crouches in cover, in a jump (the legs tucked up to
+  clear a ledge, and only while it is in the air), and as its character
+  has it (a duck in a fight, now and then). It no longer crouches where it
+  lies in wait, and the tuck of a jump no longer goes on after it lands:
+  bots crouch-walked off from a short hop for half a second, and crouched
+  where they waited for someone, which looked like a bot gone wrong.
+  `HALO_BOT_OFF=standup` puts both back.
+- **Up a ramp.** On its way somewhere, straight on up a slope (or at a run
+  a step or two from the foot of one) with room over its head and the
+  floor going on, and nobody about, a bot hops, as players do. `HALO_BOT_OFF=hop` turns this
+  off. (In test games on Chill Out, Wizard, Hang 'Em High and Damnation
+  the hops were no quicker: the bots already ran up the ramps at their
+  full speed, about 2 world units a second along the slope, and a body in
+  the air does not speed up.)
+- **Gaps at a run.** A bot of skill 7 or more that comes to a gap already
+  running at it, in line with the jump, jumps it from the run instead of
+  going back for a run-up.
+- **The way to the flag.** A bot on its way to the flag, the hill or the
+  ball takes the quickest way most of the time, and a way round by one side
+  now and then (the patient more often), instead of nearly always. On
+  Wizard, the bots went round the sides to the flag; the quickest way from
+  one flag platform to the other is across the middle, by the gaps onto the
+  ring round the pillar and off it. In test games on Wizard the bots
+  captured a flag 0.58 times a minute instead of 0.47, and in 40 games of
+  capture the flag (Wizard, Battle Creek, Hang 'Em High, Blood Gulch, Chill
+  Out; skill 10) with this on for one team, that team captured 0.4 more
+  flags a game. `HALO_BOT_OFF=direct` puts the way it was back.
+- **In for the blow.** A bot that has made up its mind to go in for a melee
+  goes in; with a rocket launcher it used to go in and then back off from
+  the same one, in turn, every few ticks. `HALO_BOT_OFF=steady`.
+- **Water.** The vehicles' navigation (by the areas and across country)
+  leaves out floor under water deeper than about 0.8 world units, where
+  the game gives a vehicle no drive. (Bake the navigation again:
+  `AAS_CACHE_VERSION` 34 and the country's cache version 9 do this.)
+- **Driving: the road ahead.** A driver steers at a point further on along
+  its way the faster it goes (up to 14 world units by the vehicle areas,
+  and 18 world units or 2.2 seconds across country, from 14 or 1.6
+  seconds), so that it cuts the corners and turns early and gently instead
+  of at each corner as it comes to it. `HALO_BOT_OFF=lookahead` turns this
+  off.
+  In 21 test games on Death Island, Blood Gulch, Sidewinder, Icefields,
+  Timberland and Danger Canyon, the vehicles were on their side 0.24% less
+  of the driving time (0.75% before); the speed, the kills and the
+  deaths in vehicles did not change by more than chance.
+
 ### How the bots find their way, and what they cost
 
 A bot finds its way with a search that starts at its goal. The search goes

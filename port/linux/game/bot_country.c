@@ -341,6 +341,27 @@ static void country_floor_point(long f, real_point3d *point)
 	point->z = country.z[f];
 }
 
+/* the middle of a square, at a height (a floor's before it is kept) */
+static void country_floor_point_of(long c, real z, real_point3d *point)
+{
+	point->x = country.x0 + (c % country.width + 0.5f) * country.cell;
+	point->y = country.y0 + (c / country.width + 0.5f) * country.cell;
+	point->z = z;
+}
+
+/* (testing: HALO_BOT_OFF=water, the water as if it were floor) */
+static int country_water_counts(void)
+{
+	static int asked, on = 1;
+	if (!asked)
+	{
+		char const *off = getenv("HALO_BOT_OFF");
+		asked = TRUE;
+		on = !(off && strstr(off, "water"));
+	}
+	return on;
+}
+
 /* A floor with a side to it, crossed along x or y: in the square to one hand
    or the other there is no floor that carries its own on (by how it slopes).
    The edge of a ramp, of a bridge, of a ledge along a cliff. */
@@ -1753,7 +1774,7 @@ static void country_machines(void)
 /* ---------- the file */
 
 #define COUNTRY_CACHE_MAGIC 0x59544e43UL /* CNTY */
-#define COUNTRY_CACHE_VERSION 8
+#define COUNTRY_CACHE_VERSION 9 /* (9: floors under deep water left out) */
 
 struct country_cache_header
 {
@@ -2343,6 +2364,15 @@ static boolean country_floors_find(struct collision_bsp *bsp, long *total_out, l
 					country.room[floors] = room;
 					country.square[floors] = c;
 					country.steep[floors] = hits[h].up < COUNTRY_LEVEL;
+					/* (under water too deep to drive in: no ground for a
+					   vehicle, as a slope too steep is none) */
+					if (!country.steep[floors] && country_water_counts())
+					{
+						real_point3d at;
+						country_floor_point_of(c, hits[h].z, &at);
+						if (bot_floor_in_deep_water(&at))
+							country.steep[floors] = TRUE;
+					}
 					country.slope[floors] = country_slope_of(hits[h].up);
 					country.lean_x[floors] = hits[h].lean_x;
 					country.lean_y[floors] = hits[h].lean_y;
@@ -4837,6 +4867,18 @@ static void country_backing(struct country_drive *drive)
 	}
 }
 
+static int country_looks_far(void)
+{
+	static int asked, on = 1;
+	if (!asked)
+	{
+		char const *off = getenv("HALO_BOT_OFF");
+		asked = TRUE;
+		on = !(off && strstr(off, "lookahead"));
+	}
+	return on;
+}
+
 /* One tick of driving across country to a place: which way to steer and
    how hard to go. */
 void bot_country_drive(struct bot_traveller *traveller, struct bot_body const *body, real_point3d const *to, struct bot_country_result *result)
@@ -4866,7 +4908,11 @@ void bot_country_drive(struct bot_traveller *traveller, struct bot_body const *b
 		return;
 	if (country_drive_test(traveller, body, speed, heading, result))
 		return;
-	if (!bot_country_way(position, to, bot_country_portals_of(body->vehicle_index), TRUE, MAX(14.f, speed * 1.6f), &next, &soon, &off, NULL))
+	/* (how far on along the way it looks to steer by: further the faster
+	   it goes, as a driver looks up the road, not at the next bend of it;
+	   HALO_BOT_OFF=lookahead, as it was) */
+	if (!bot_country_way(position, to, bot_country_portals_of(body->vehicle_index), TRUE,
+		country_looks_far() ? MAX(18.f, speed * 2.2f) : MAX(14.f, speed * 1.6f), &next, &soon, &off, NULL))
 	{
 		country_without_way(traveller, body, speed, heading, soon, off, result);
 		return;

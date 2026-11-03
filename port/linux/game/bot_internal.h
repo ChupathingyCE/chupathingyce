@@ -413,6 +413,7 @@ real bot_wrap(real a);
 real bot_distance2d(real_point3d const *a, real_point3d const *b);
 real bot_yaw_to(real_point3d const *from, real_point3d const *to);
 int bot_ground(real_point3d const *point, real depth, long ignore, real *ground_z);
+int bot_floor_in_deep_water(real_point3d const *floor_point);
 real bot_ground_level(real_point3d const *point, real depth, long ignore);
 real bot_probe(real_point3d const *from, real yaw, real length, long ignore);
 int bot_unit_alive(long unit_index);

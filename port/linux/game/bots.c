@@ -192,6 +192,24 @@ real bot_probe(real_point3d const *from, real yaw, real length, long ignore)
 }
 
 /* the ground under a point, within depth; FALSE over a drop */
+/* Water too deep to drive in, over a floor at this point: the game gives a
+   vehicle no drive with its middle half a unit under the surface
+   (vehicles.c). From the floor up to about a Warthog's middle. (The
+   vehicles' navigation leaves such floors out: they drove out into Death
+   Island's sea and sat there.) */
+int bot_floor_in_deep_water(real_point3d const *floor_point)
+{
+	struct location location;
+	real_point3d middle = *floor_point;
+	real depth;
+	middle.z += 0.45f;
+	scenario_location_from_point(&location, &middle);
+	if (location.cluster_index == NONE)
+		return FALSE;
+	depth = scenario_location_water_depth(&location, &middle);
+	return depth > 0.35f;
+}
+
 int bot_ground(real_point3d const *point, real depth, long ignore, real *ground_z)
 {
 	struct collision_result collision;
@@ -1052,6 +1070,16 @@ enum
 	BOT_F_RADAR = 1 << 24,
 	/* team King of the Hill: the hill before anything (bot_king_candidates) */
 	BOT_F_HILL = 1 << 25,
+	/* no crouching but in the air (a tucked jump) and in cover */
+	BOT_F_STANDUP = 1 << 26,
+	/* a hop up a ramp on the way, as a person goes up one (bot_ramp_hop) */
+	BOT_F_HOP = 1 << 27,
+	/* to the objective mostly by the quickest way, the way round now and
+	   then (bot_plan_via) */
+	BOT_F_DIRECT = 1 << 28,
+	/* a fight's mind kept made up: not in for the blow and back off from
+	   the same one in turn (bot_fight_range) */
+	BOT_F_STEADY = 1 << 29,
 };
 static unsigned bot_off;
 
@@ -1064,8 +1092,8 @@ static unsigned bot_off_parse(char const *text)
 		{ "notice", BOT_F_NOTICE }, { "human", BOT_F_HUMAN }, { "fresh", BOT_F_FRESH }, { "wary", BOT_F_WARY },
 		{ "agile", BOT_F_AGILE }, { "camp", BOT_F_CAMP }, { "aware", BOT_F_AWARE }, { "timing", BOT_F_TIMING },
 		{ "hear", BOT_F_HEAR }, { "head", BOT_F_HEAD }, { "press", BOT_F_PRESS }, { "drive", BOT_F_DRIVE },
-		{ "pickup", BOT_F_PICKUP }, { "neck", BOT_F_NECK }, { "seek", BOT_F_SEEK }, { "radar", BOT_F_RADAR }, { "hill", BOT_F_HILL },
-		{ "all", 0x3FFFFFFu },
+		{ "pickup", BOT_F_PICKUP }, { "neck", BOT_F_NECK }, { "seek", BOT_F_SEEK }, { "radar", BOT_F_RADAR }, { "hill", BOT_F_HILL }, { "standup", BOT_F_STANDUP }, { "hop", BOT_F_HOP }, { "direct", BOT_F_DIRECT }, { "steady", BOT_F_STEADY },
+		{ "all", 0x3FFFFFFFu },
 	};
 	unsigned mask = 0;
 	long i;
@@ -7218,7 +7246,12 @@ static void bot_plan_via(struct bot_state *bot, struct bot_body const *body, lon
 	if (carrying)
 		chance = 0.15f + 0.2f * (1.f - bot->personality.daring), slack = 1.12f; /* (home quick: the danger map already steers round them) */
 	else if (objective)
-		chance = 0.45f + 0.35f * bot->personality.focus, slack = 1.3f;
+		/* (the way round now and then, the patient more often: not every
+		   time. Every time, and nobody came the quick way: the bots went
+		   round the sides of Wizard to the flag, never across the middle,
+		   which is the way) */
+		chance = BOT_ON(BOT_F_DIRECT) ? 0.2f + 0.25f * bot->personality.patience : 0.45f + 0.35f * bot->personality.focus,
+		slack = BOT_ON(BOT_F_DIRECT) ? 1.2f : 1.3f;
 	else if (flank)
 		/* on the way to someone, before the fight: often, the more skilled
 		   and the more of a team player the more; a real way round is worth
@@ -7714,6 +7747,39 @@ static void bots_test_area_at(void)
 	}
 }
 
+/* (testing, HALO_BOT_ROUTEDUMP=x,y,z,x2,y2,z2: the way on foot from one
+   point to another, a reachability at a time) */
+static void bots_log_route(void)
+{
+	char const *text = getenv("HALO_BOT_ROUTEDUMP");
+	real_point3d from, to;
+	long area, goal, steps;
+	float total = 0.f;
+	if (!text || sscanf(text, "%f,%f,%f,%f,%f,%f", &from.x, &from.y, &from.z, &to.x, &to.y, &to.z) != 6)
+		return;
+	area = aas_point_area(AAS_FOOT, &from);
+	goal = aas_point_area(AAS_FOOT, &to);
+	bot_log("routedump from area %ld to area %ld: %.1f s", area, goal, aas_travel_time(AAS_FOOT, &from, &to));
+	for (steps = 0; steps < 200 && area != NONE && area != goal; steps++)
+	{
+		float time = 0.f;
+		long r = aas_route_reach(AAS_FOOT, area, &from, goal, NULL, NULL, NONE, &time);
+		struct aas_reach const *reach;
+		if (r == NONE)
+		{
+			bot_log("routedump: no way on from area %ld", area);
+			break;
+		}
+		reach = aas_reach(AAS_FOOT, r);
+		if (reach->travel != _aas_travel_walk)
+			bot_log("routedump %ld: travel %d %ld -> %ld at %.1f %.1f %.1f -> %.1f %.1f %.1f (%.1f s to go)", steps, reach->travel, reach->from, reach->to,
+				reach->start.x, reach->start.y, reach->start.z, reach->end.x, reach->end.y, reach->end.z, time);
+		from = reach->end;
+		area = reach->to;
+	}
+	(void)total;
+}
+
 static void bots_log_reaches(void)
 {
 	long counts[NUMBER_OF_AAS_TRAVEL_TYPES] = { 0 };
@@ -7830,8 +7896,30 @@ static void nav_update(void)
 	}
 	if (getenv("HALO_BOT_AREAAT") && aas_ready())
 		bots_test_area_at();
+	/* (testing, HALO_BOT_WATERAT=x,y,z: the water over a floor there) */
+	if (getenv("HALO_BOT_WATERAT"))
+	{
+		real_point3d at;
+		struct location location;
+		if (sscanf(getenv("HALO_BOT_WATERAT"), "%f,%f,%f", &at.x, &at.y, &at.z) == 3)
+		{
+			long k;
+			for (k = 0; k < 8; k++)
+			{
+				real_point3d p = at;
+				p.z += k * 0.25f;
+				scenario_location_from_point(&location, &p);
+				bot_log("waterat %.1f %.1f %.2f: cluster %d depth %.2f underwater %d deep %d", p.x, p.y, p.z, (int)location.cluster_index,
+					location.cluster_index != NONE ? scenario_location_water_depth(&location, &p) : -1.f,
+					location.cluster_index != NONE ? (int)scenario_location_underwater(&location, &p, NULL) : -1, bot_floor_in_deep_water(&p));
+			}
+		}
+	}
 	if (bot_logging() && aas_ready())
+	{
 		bots_log_reaches();
+		bots_log_route();
+	}
 	/* Where a jump or a gap comes down: on something a body stands on, or
 	   on a bank it slides down. The areas take a slope of rock just short
 	   of too steep, a hand wide, for floor, and a jump onto it for a way:
@@ -11333,7 +11421,9 @@ static void bot_ambush_wait(struct bot_think *t)
 	real off = bot_distance2d(position, &bot->ambush_spot);
 	t->how = 3;
 	bot_ambush_to_spot(t, off);
-	if (off < 2.f)
+	/* (standing: crouched in wait it looked like a bot gone wrong, and
+	   standing is as hidden from the tracker as crouched, when still) */
+	if (off < 2.f && !BOT_ON(BOT_F_STANDUP))
 		action->control_flags |= FLAG(_unit_control_crouch_modifier_bit);
 	if (result->look)
 	{
@@ -11681,8 +11771,11 @@ static void bot_fight_cover_or_range(struct bot_think *t, struct bot_fight *f)
 		f->forward = 1.f;
 	/* too close for the gun: a sniper or a rocket backs off; anything
 	   else stands its ground (strafing), it doesn't turn tail */
+	/* (... not when it has made up its mind to go in for the blow: in, and
+	   back, and in again, every few ticks, it went with a rocket launcher,
+	   which is one too close and no reason to stop the melee) */
 	else if ((target_distance < f->preferred * 0.5f && f->preferred >= 15.f) ||
-		(weapon->kind == _bot_gun_rocket && target_distance < BOT_ROCKET_CLOSEST + 0.7f))
+		(weapon->kind == _bot_gun_rocket && target_distance < BOT_ROCKET_CLOSEST + 0.7f && !(f->closing && BOT_ON(BOT_F_STEADY))))
 		f->forward = -1.f;
 }
 
@@ -13463,6 +13556,69 @@ static void bot_get_unstuck(struct bot_state *bot, struct player_datum *me, real
 	}
 }
 
+/* Up a ramp, on its way: a hop, and another as it lands, as players go up
+   one. (Not quicker, in the test games: the hop sets off along the slope,
+   and a body in the air does not speed up. It is how people go up them.)
+   Only on the way somewhere, straight on (no corner to come to in the
+   air), with the floor going on ahead and room overhead; never where the
+   route wants the feet exactly (a jump, a ladder, an edge near). */
+#define BOT_HOP_AHEAD 2.5f
+static void bot_ramp_hop(struct bot_think *t)
+{
+	struct bot_state *bot = t->bot;
+	struct bot_body const *body = &t->body;
+	struct bot_move_result const *result = &t->result;
+	struct player_action *action = t->action;
+	real vh, vz;
+	real_point3d head, over;
+	if (!BOT_ON(BOT_F_HOP) || t->vehicle_index != NONE || !t->moving || !t->moved || t->committed || t->how != 2 ||
+		!body->can_jump || body->airborne || result->travel != _aas_travel_walk || result->jump || result->crouch || result->look ||
+		result->exact || result->delicate || result->speed < 0.99f || t->move_speed < 0.99f || bot->jump_cooldown > 0 ||
+		bot->carrying_objective || !aas_ready() ||
+		/* (not with someone about: in the air a body goes where it was
+		   going, and is easy to hit) */
+		t->target != NONE || bot->target_unit != NONE || (bot->tracked_unit != NONE && bot->tracked_age < BOT_SECONDS(2.f)))
+	{
+		return;
+	}
+	vh = (real)sqrt(body->velocity.i * body->velocity.i + body->velocity.j * body->velocity.j) * BOT_TICKS_PER_SECOND;
+	vz = body->velocity.k * BOT_TICKS_PER_SECOND;
+	/* (going up a slope, at a run; or at a run on the flat, the foot of a
+	   ramp a step or two on: from the flat the hop carries the whole of
+	   the run onto the slope) */
+	if (vh < 1.2f || vz < 0.2f * vh || vz > 1.5f * vh)
+	{
+		real_point3d one = body->position, two = body->position;
+		real z1, z2;
+		if (vh < 1.8f || fabs(vz) > 0.15f * vh)
+			return;
+		one.x += (real)cos(t->move_yaw) * 1.f, one.y += (real)sin(t->move_yaw) * 1.f, one.z += 1.2f;
+		two.x += (real)cos(t->move_yaw) * 2.2f, two.y += (real)sin(t->move_yaw) * 2.2f, two.z += 1.8f;
+		if (!bot_ground(&one, 2.f, t->me->unit_index, &z1) || !bot_ground(&two, 3.f, t->me->unit_index, &z2))
+			return;
+		z1 -= body->position.z, z2 -= body->position.z;
+		/* (rising, and steadily: a ramp, not a step or a wall) */
+		if (!(z1 > 0.12f && z2 > z1 + 0.2f && z2 < 1.4f && (z2 - z1) / 1.2f < 0.9f))
+			return;
+	}
+	/* (straight on, where the route goes, a way yet) */
+	if (fabs(bot_angle_difference(t->move_yaw, result->path_yaw)) > 0.25f ||
+		bot_distance2d(&body->position, &bot->goal) < BOT_HOP_AHEAD + 1.f ||
+		!bot_move_direction_safe(body, t->move_yaw, BOT_HOP_AHEAD))
+	{
+		return;
+	}
+	/* (room over its head for the hop) */
+	head = t->eye;
+	over = head;
+	over.z += 1.2f;
+	if (!bot_line_clear(bot_move_flags, &head, &over, t->me->unit_index))
+		return;
+	action->control_flags |= FLAG(_unit_control_jump_bit);
+	bot->jump_cooldown = 6;
+	bot_jump_cause = 10;
+}
+
 static void bot_press_jump(struct bot_think *t)
 {
 	struct player_action *action = t->action;
@@ -13480,7 +13636,11 @@ static void bot_press_jump(struct bot_think *t)
 		if (!t->jump)
 			bot_jump_cause = 9;
 	}
-	if (t->moved && result->crouch)
+	/* (in the air only: once the feet are down, up again. Held the
+	   whole of the tuck, it went on a good half second after a short hop
+	   landed, and the bot crouch-walked off from it, slow and for no
+	   reason anyone could see) */
+	if (t->moved && result->crouch && (t->body.airborne || !BOT_ON(BOT_F_STANDUP)))
 		action->control_flags |= FLAG(_unit_control_crouch_modifier_bit);
 	if (t->jump && bot->jump_cooldown <= 0 && !t->committed)
 	{
@@ -15526,7 +15686,10 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 	if (bot->attack_jump_cooldown > 0)
 		bot->attack_jump_cooldown--;
 	if (t->vehicle_index == NONE)
+	{
 		bot_press_jump(t);
+		bot_ramp_hop(t);
+	}
 
 	BOT_PROFILE_MARK("walking with nobod");
 	/* ---- walking with nobody in sight: eyes ahead, down the way it's going.

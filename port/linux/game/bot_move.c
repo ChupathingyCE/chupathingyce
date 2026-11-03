@@ -1350,6 +1350,15 @@ static boolean bot_move_gap_runup(struct bot_mover *bot, struct bot_body const *
 				break;
 		}
 		move->reach_no_room = back <= 0.3f;
+		/* (already at a run, in line with the jump and going at it, as a
+		   person comes to a gap: no going back for a run that it has. A
+		   good player only; the rest are careful) */
+		if (bot->fluency > 0.25f && bot_move_fluent(1) && across < 0.25f && past < -0.4f &&
+			bot_move_speed_along(body, run) > 0.85f * BOT_RUN_SPEED * (move->reach_pace > 0.f ? move->reach_pace : 1.f))
+		{
+			move->reach_phase = 1;
+			return FALSE;
+		}
 		if (bot_distance2d(position, &runup) > 0.25f && move->reach_ticks < BOT_SECONDS(3.f) && (past > -back + 0.2f || across > 0.3f))
 		{
 			result->yaw = bot_yaw_to(position, &runup);
@@ -3035,6 +3044,20 @@ static void bot_move_back_onto_areas(struct bot_move_state *move, struct bot_bod
 		move->spot_latched = FALSE;
 }
 
+/* (testing: HALO_BOT_OFF=lookahead, a driver steers at the next corner of
+   its route only) */
+static int bot_drive_looks_ahead(void)
+{
+	static int asked, on = 1;
+	if (!asked)
+	{
+		char const *off = getenv("HALO_BOT_OFF");
+		asked = TRUE;
+		on = !(off && strstr(off, "lookahead"));
+	}
+	return on;
+}
+
 /* driving the route: on to the first corner, or on over the edge of a drop or into a teleporter that is next */
 static void bot_move_drive_route(struct bot_mover *bot, struct bot_body const *body, struct bot_move_result *result, long area, real_point3d const *corners, long corner_count)
 {
@@ -3059,6 +3082,46 @@ static void bot_move_drive_route(struct bot_mover *bot, struct bot_body const *b
 		}
 	}
 	move->wait_ticks = 0;
+	/* Looking further on along the route, as a driver does: the point a
+	   way ahead on it (more the faster it goes), when the vehicle's areas
+	   go straight there from here; steered at, the corners before it are
+	   cut, and the turn comes on early and gently instead of at each
+	   corner as it is reached. (Only to the first corner, it turned hard at
+	   every one, braked, and set off again: slow, and looked it.) */
+	if (bot_drive_looks_ahead() && corner_count > 1)
+	{
+		real speed = bot_move_ground_speed(body);
+		real ahead = PIN(3.f + speed * 1.2f, 4.f, 14.f);
+		real_point3d from = *position;
+		real_point3d aim = corners[0];
+		long k, aim_index = -1;
+		for (k = 0; k < corner_count; k++)
+		{
+			real leg = bot_distance2d(&from, &corners[k]);
+			if (leg >= ahead)
+			{
+				real part = ahead / MAX(leg, 0.01f);
+				aim.x = from.x + (corners[k].x - from.x) * part;
+				aim.y = from.y + (corners[k].y - from.y) * part;
+				aim.z = from.z + (corners[k].z - from.z) * part;
+				aim_index = k;
+				break;
+			}
+			ahead -= leg;
+			from = corners[k];
+			aim = corners[k];
+			aim_index = k;
+		}
+		if (aim_index > 0 && aas_line_in_areas(AAS_VEHICLE, position, &aim))
+		{
+			/* (the turn after it: the corner it is on the way to, or the
+			   one after when it is that corner) */
+			real_point3d const *after = !bot_same_point(&aim, &corners[aim_index]) ? &corners[aim_index] :
+				aim_index + 1 < corner_count ? &corners[aim_index + 1] : NULL;
+			bot_move_drive(bot, body, &aim, after, result);
+			return;
+		}
+	}
 	/* (a straight way through gives its end twice: no corner after it.
 	   Taken for one, the turn there was reckoned from due east, and a
 	   vehicle bound any other way braked at the end of every straight.) */
