@@ -109,6 +109,11 @@ sv_kick 2
 kicked Odb718
 ```
 
+In a terminal, what you type stays on its own line at the bottom, after a
+`> ` prompt, while the server's log goes on above it. Backspace and Ctrl+U
+edit the line, Up and Down bring back earlier commands, Ctrl+C stops the
+server and Ctrl+D on an empty line closes the console.
+
 The console reads standard input only when it is a terminal. In a
 container, run it with `docker run -it` (and `docker attach` to it), or set
 `HALO_DEDICATED_CONSOLE=true` to read commands from a pipe; `false` turns

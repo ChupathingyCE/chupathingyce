@@ -6,6 +6,10 @@ release notes.
 
 ## Unreleased
 
+- The console keeps what you are typing on its own prompt line in a
+  terminal: log lines print above it instead of breaking it up. Up and
+  Down bring back earlier commands. Pipes and services see the same output
+  as before.
 - Map names as Halo PC takes them: commas, brackets, spaces and the rest a
   Windows file name can have (`bigassv2,104@ce`, `[h3]_sandtrap@ce`), in
   `sv_map`, `sv_maps` and playlists. A name with a space goes in double

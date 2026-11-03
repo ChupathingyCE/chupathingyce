@@ -50,6 +50,7 @@ HARNESS_SOURCES = [
     ROOT / "server" / "tests" / "control_harness.c",
     ROOT / "server" / "src" / "command_line.c",
     PLATFORM / "server_control.c",
+    PLATFORM / "server_terminal.c",
     PLATFORM / "server_roles.c",
     PLATFORM / "control_protocol.c",
     PLATFORM / "control_web.c",

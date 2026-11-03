@@ -11,7 +11,9 @@ them).
 
 It takes server_control.c's settings (HALO_DEDICATED_CONTROL,
 HALO_DEDICATED_CONSOLE), HARNESS_DATA (the data folder) and
-HARNESS_SITE_ROLES (set: a site role list, as if from the role cache). On its standard
+HARNESS_SITE_ROLES (set: a site role list, as if from the role cache), and
+HARNESS_STDERR_LINES (a number n: a line on standard error every n frames,
+as platform_log writes the server's log; tools/test_server_terminal.py). On its standard
 output: the token printed once, the console's output, and a line for each
 thing the main thread is handed:
   notice: <the control's own log line>
@@ -102,6 +104,8 @@ int main(void)
 {
 	struct timespec pause = { 0, 5 * 1000 * 1000 };
 	unsigned long frame = 0;
+	const char *stderr_lines = getenv("HARNESS_STDERR_LINES");
+	unsigned long stderr_every = stderr_lines ? strtoul(stderr_lines, NULL, 10) : 0;
 
 	signal(SIGPIPE, SIG_IGN);
 	setvbuf(stdout, NULL, _IOLBF, 0);
@@ -186,6 +190,8 @@ int main(void)
 		/* (a log line now and then, one with a public address) */
 		if (!(++frame % 200))
 			server_control_log(frame % 400 ? "a log line\n" : "joined from 8.8.8.8:2302\n");
+		if (stderr_every && !(frame % stderr_every))
+			fprintf(stderr, "halo: log line %lu\n", frame / stderr_every);
 		nanosleep(&pause, NULL);
 	}
 	return 0;
