@@ -121,6 +121,7 @@ void cheats_dispose_from_old_map(
 
 /* network_game_globals.c's */
 boolean network_game_distributed_client(void);
+boolean network_game_host_cheats_refused(void);
 /* bipeds.c's, player_control.c's */
 extern boolean rider_ejection;
 extern boolean player_autoaim_flag;
@@ -188,15 +189,24 @@ static boolean cheats_network_client_rasterizer_enforce(
 /* port: a client in another's game plays by the host's rules: none of its
 own cheats, its own game speed or its own changes to how players play, nor
 what its drawing shows it that others' does not, set before it joined too
-(after, hs_compile_and_evaluate refuses them); each frame and each tick */
+(after, hs_compile_and_evaluate refuses them); each frame and each tick. So
+does the host of a public internet game with others in it, unless
+network.host_cheats is on (network_game_host_cheats_refused): its cheats
+set before (init.txt, a game alone) are put back as the first player
+joins */
 void cheats_network_client_enforce(
 	void)
 {
 	static struct cheat_globals const none = { 0 };
 	boolean changed;
+	boolean host = FALSE;
 
 	if (!network_game_distributed_client())
-		return;
+	{
+		if (!network_game_host_cheats_refused())
+			return;
+		host = TRUE;
+	}
 	changed = csmemcmp(&cheat, &none, sizeof(cheat)) != 0 || rider_ejection != cheats_map_rider_ejection ||
 		!player_autoaim_flag || !player_magnetism_flag;
 	csmemset(&cheat, 0, sizeof(cheat));
@@ -205,7 +215,13 @@ void cheats_network_client_enforce(
 	player_magnetism_flag = TRUE;
 	changed |= game_time_reset_speed();
 	changed |= cheats_network_client_rasterizer_enforce();
-	if (changed)
+	if (changed && host)
+	{
+		console_warning("hosting a public game with other players: cheats, game speed and drawing put back "
+			"(network.host_cheats = true allows them, and Online Games shows it)");
+		error(_error_log, "hosting a public game with other players: cheats, game speed and drawing put back");
+	}
+	else if (changed)
 	{
 		console_warning("playing in another's game: its host's rules (cheats, game speed and drawing put back)");
 		error(_error_log, "playing in another's game: cheats, game speed and drawing put back to the host's");

@@ -155,6 +155,11 @@ enum delta_capability
 	objects the host made (OBJECT_NAMES), so that a client's scripts find
 	them by name */
 	_delta_capability_object_sync = 17,
+	/* not a capability but the host's word on its game: its console and
+	cheats may change a public game with others in it (network.host_cheats,
+	network_game_host_cheats_refused). Announced on Delta List alone, never
+	offered in a HELLO or WELCOME; Online Games shows "Host cheats on" */
+	_delta_capability_host_cheats = 18,
 
 	NUMBER_OF_DELTA_CAPABILITIES
 };

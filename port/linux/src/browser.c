@@ -1305,7 +1305,8 @@ static void host_fields(char *form, int size, const struct hosted_game *game)
 	/* (Delta Peer's, and whether this host answers Online Games' pings:
 	p2p_probe.c, announced here alone) */
 	snprintf(text, sizeof(text), "%08x", (unsigned int)game->delta.capabilities |
-		(delta_capability_disabled(_delta_capability_ping) ? 0u : 1u << _delta_capability_ping));
+		(delta_capability_disabled(_delta_capability_ping) ? 0u : 1u << _delta_capability_ping) |
+		(config_boolean("network.host_cheats") ? 1u << _delta_capability_host_cheats : 0u));
 	form_add(form, size, "capabilities", text);
 	if (!game->has_delta || !game->delta.delta)
 		return;
@@ -2690,6 +2691,11 @@ int browser_version_state(int version)
 }
 
 #ifdef HALO_GAME_BROWSER
+
+int browser_game_host_cheats(const struct browser_game *game)
+{
+	return (game->capabilities & 1ul << _delta_capability_host_cheats) != 0;
+}
 
 int browser_game_version_state(const struct browser_game *game)
 {
