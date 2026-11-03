@@ -21,14 +21,19 @@ name: Build
 # - compiles go through ccache, whose cache carries over from run to run, so
 #   a commit only recompiles what it changed; downloads (SDL, musl, Gradle,
 #   the Linux builds' system roots) are cached too;
-# - pushes build only main, release branches and tags; every other branch
-#   builds through its pull request, so a commit is not built twice;
+# - pushes build only release branches and tags, not main: a commit reaches
+#   main through a pull request whose Build passed, and the nightly, the
+#   releases and the test builds start their own run (workflow_dispatch);
+#   every other branch builds through its pull request;
+# - debug builds only in runs started with workflow_dispatch and on tags;
+#   pull requests build release only (BUILD_DEBUG);
 # - a newer commit to a pull request or a release branch cancels its run
-#   still going; main's runs are never canceled, so every commit of main
-#   has its Build (ChupathingyCE/command's nightly takes main's newest);
+#   still going; runs on main (started with workflow_dispatch) are never
+#   canceled;
 # - changes that only touch documentation do not build (no check is
 #   required to merge, so a pull request without a Build is not blocked);
-# - the compile caches are saved only on main (each run restores main's
+# - the compile caches are saved only by runs on main (the nightly's and
+#   the releases'; each run restores main's
 #   newest), so branches and pull requests do not crowd main's out of the
 #   repository's 10 GB of caches;
 # - Windows, whose minutes cost twice Linux's, builds only Windows;
@@ -36,7 +41,6 @@ name: Build
 on:
   push:
     branches:
-      - main
       - "release-*"
       - "release/**"
     tags:
@@ -85,6 +89,10 @@ env:
   # (empty unless started with a version: VERSION's -dev, tools/version.py)
   HALO_VERSION: ${{ inputs.version }}
   HALO_RELEASE_BUILD: ${{ inputs.release && '1' || '0' }}
+  # debug builds only for releases, nightlies and test builds (a run started
+  # with workflow_dispatch, as ChupathingyCE/command does) and tags; pull
+  # requests build release only
+  BUILD_DEBUG: ${{ (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')) && 'true' || 'false' }}
   CI_COMPILER_LAUNCHER: ccache
   CCACHE_DIR: ${{ github.workspace }}/.ccache
   CCACHE_BASEDIR: ${{ github.workspace }}
@@ -189,6 +197,7 @@ jobs:
           key: linux-third-party-${{ hashFiles('tools/linux_sysroot.py') }}
 
       - name: Debug
+        if: env.BUILD_DEBUG == 'true'
         run: python3 tools/ci_build.py linux debug
 
       - name: Release
@@ -197,7 +206,7 @@ jobs:
       # (no executable or library that needs a newer glibc than the system
       # root's: tools/linux_glibc_check.py)
       - name: glibc 2.31
-        run: python3 tools/linux_glibc_check.py dist/chupathingyce-linux-debug dist/chupathingyce-linux-release
+        run: python3 tools/linux_glibc_check.py $([ "$BUILD_DEBUG" = true ] && echo dist/chupathingyce-linux-debug) dist/chupathingyce-linux-release
 
       # (Delta's wire on a big-endian machine, as the Xbox 360 and Wii U are:
       # tools/test_delta_big_endian.py, under QEMU)
@@ -227,6 +236,7 @@ jobs:
         run: ccache --show-stats
 
       - uses: actions/upload-artifact@v4
+        if: env.BUILD_DEBUG == 'true'
         with:
           name: chupathingyce-linux-debug
           path: dist/chupathingyce-linux-debug
@@ -306,18 +316,20 @@ jobs:
           key: linux64-third-party-${{ hashFiles('tools/linux_sysroot.py') }}
 
       - name: Debug
+        if: env.BUILD_DEBUG == 'true'
         run: python3 tools/ci_build.py linux64 debug
 
       - name: Release
         run: python3 tools/ci_build.py linux64 release
 
       - name: glibc 2.31
-        run: python3 tools/linux_glibc_check.py dist/chupathingyce-linux64-debug dist/chupathingyce-linux64-release
+        run: python3 tools/linux_glibc_check.py $([ "$BUILD_DEBUG" = true ] && echo dist/chupathingyce-linux64-debug) dist/chupathingyce-linux64-release
 
       - name: Compile cache
         run: ccache --show-stats
 
       - uses: actions/upload-artifact@v4
+        if: env.BUILD_DEBUG == 'true'
         with:
           name: chupathingyce-linux64-debug
           path: dist/chupathingyce-linux64-debug
@@ -401,21 +413,21 @@ jobs:
           release: ${{ env.FREEBSD_RELEASE }}
           usesh: true
           sync: rsync
-          envs: "HALO_VERSION HALO_RELEASE_BUILD HALO_COMMIT CI_COMPILER_LAUNCHER CCACHE_DIR CCACHE_BASEDIR CCACHE_MAXSIZE"
+          envs: "BUILD_DEBUG HALO_VERSION HALO_RELEASE_BUILD HALO_COMMIT CI_COMPILER_LAUNCHER CCACHE_DIR CCACHE_BASEDIR CCACHE_MAXSIZE"
           prepare: |
             pkg install -y python3 ninja pkgconf sdl3 gmake llvm ccache
           run: |
             set -e
             freebsd-version
             cc --version | head -n 1
-            python3 tools/ci_build.py freebsd64 debug
+            if [ "$BUILD_DEBUG" = true ]; then python3 tools/ci_build.py freebsd64 debug; fi
             python3 tools/ci_build.py freebsd64 release
             ccache --show-stats
             # (only dist/, the compile cache and the downloads come back)
             rm -rf build/freebsd64
 
       - uses: actions/upload-artifact@v4
-        if: steps.has.outputs.freebsd64 == 'true'
+        if: steps.has.outputs.freebsd64 == 'true' && env.BUILD_DEBUG == 'true'
         with:
           name: chupathingyce-freebsd64-debug
           path: dist/chupathingyce-freebsd64-debug
@@ -641,6 +653,7 @@ jobs:
       # sign them again with ChupathingyCE's key, zipalign and apksigner
       # (port/android/README.md).
       - name: Debug
+        if: env.BUILD_DEBUG == 'true'
         run: python3 tools/ci_build.py android debug
 
       - name: Release
@@ -650,6 +663,7 @@ jobs:
         run: ccache --show-stats
 
       - uses: actions/upload-artifact@v4
+        if: env.BUILD_DEBUG == 'true'
         with:
           name: chupathingyce-android-debug-testkey
           path: dist/chupathingyce-android-debug
@@ -730,6 +744,7 @@ jobs:
       # (no keystore.properties here, as in the android job: the debug app
       # has the runner's debug key, the release app is unsigned)
       - name: Debug
+        if: env.BUILD_DEBUG == 'true'
         run: python3 tools/ci_build.py android64 debug
 
       - name: Release
@@ -739,6 +754,7 @@ jobs:
         run: ccache --show-stats
 
       - uses: actions/upload-artifact@v4
+        if: env.BUILD_DEBUG == 'true'
         with:
           name: chupathingyce-android64-debug-testkey
           path: dist/chupathingyce-android64-debug
@@ -822,6 +838,7 @@ jobs:
           key: windows-ffmpeg-${{ hashFiles('tools/ffmpeg_build.py') }}
 
       - name: Debug
+        if: env.BUILD_DEBUG == 'true'
         run: python tools/ci_build.py windows debug
 
       - name: Release
@@ -836,6 +853,7 @@ jobs:
         run: ccache --show-stats
 
       - uses: actions/upload-artifact@v4
+        if: env.BUILD_DEBUG == 'true'
         with:
           name: chupathingyce-windows-debug
           path: dist/chupathingyce-windows-debug
@@ -850,6 +868,7 @@ jobs:
       # (halo.exe's symbols and map, which ChupathingyCE's release keeps
       # privately for the crash reports; not published)
       - uses: actions/upload-artifact@v4
+        if: env.BUILD_DEBUG == 'true'
         with:
           name: symbols-windows-debug
           path: dist/chupathingyce-windows-debug-symbols
@@ -926,6 +945,7 @@ jobs:
           key: windows64-ffmpeg-${{ hashFiles('tools/ffmpeg_build.py') }}
 
       - name: Debug
+        if: env.BUILD_DEBUG == 'true'
         run: python tools/ci_build.py windows64 debug
 
       - name: Release
@@ -935,6 +955,7 @@ jobs:
         run: ccache --show-stats
 
       - uses: actions/upload-artifact@v4
+        if: env.BUILD_DEBUG == 'true'
         with:
           name: chupathingyce-windows64-debug
           path: dist/chupathingyce-windows64-debug
@@ -949,6 +970,7 @@ jobs:
       # (halo.exe's symbols and map, which ChupathingyCE's release keeps
       # privately for the crash reports; not published)
       - uses: actions/upload-artifact@v4
+        if: env.BUILD_DEBUG == 'true'
         with:
           name: symbols-windows64-debug
           path: dist/chupathingyce-windows64-debug-symbols
@@ -1002,6 +1024,7 @@ jobs:
           key: macos-sdl3-${{ hashFiles('tools/android_build.py', 'tools/macos_build.py', 'tools/ffmpeg_build.py') }}
 
       - name: Debug
+        if: env.BUILD_DEBUG == 'true'
         run: python3 tools/ci_build.py macos debug
 
       - name: Release
@@ -1009,10 +1032,11 @@ jobs:
 
       - name: Package
         run: |
-          tar -C dist -cf chupathingyce-macos-debug.tar chupathingyce-macos-debug
+          if [ "$BUILD_DEBUG" = true ]; then tar -C dist -cf chupathingyce-macos-debug.tar chupathingyce-macos-debug; fi
           tar -C dist -cf chupathingyce-macos-release.tar chupathingyce-macos-release
 
       - uses: actions/upload-artifact@v4
+        if: env.BUILD_DEBUG == 'true'
         with:
           name: chupathingyce-macos-debug
           path: chupathingyce-macos-debug.tar
