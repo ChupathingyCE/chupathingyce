@@ -289,3 +289,23 @@ def test_android_and_desktop_agree_on_shapes(checker, java_classes, tmp_path, in
     path = tmp_path / "updates.json"
     path.write_text(text)
     assert java(java_classes, "find", path, VERSION, "linux64", "release", "zip").split(" ")[0] == answer
+
+
+def test_release_builds_need_an_update_key(tmp_path):
+    """A release's build updates itself, so it must check signatures: the
+    keys it is built with are set, configure.py refuses a release build
+    whose keys are all zero, and the updater of one made some other way
+    never looks for updates."""
+    assert update_sign.header_keys(), "update_key.h has no release key"
+    zero = tmp_path / "update_key.h"
+    zero.write_text("static const unsigned char update_public_keys[][32] =\n{\n\t{\n"
+                    + "\t\t" + ", ".join(["0x00"] * 32) + ",\n\t},\n};\n#else\n{ { 1 } }\n")
+    assert update_sign.header_keys(zero) == []
+    root = Path(__file__).resolve().parent.parent
+    configure = (root / "configure.py").read_text()
+    check = configure.index("if release_build() and not header_keys():")
+    assert configure.index("args = parser.parse_args()") < check < configure.index("sln = SimpleNamespace(")
+    updater = (root / "port/linux/src/updater.c").read_text()
+    assert "if (HALO_RELEASE_BUILD && !UPDATER_TEST && !update_signature_required())" in updater
+    assert updater.index("!update_signature_required())\n\t{") < updater.index("SDL_CreateThread(updater_check_thread")
+
