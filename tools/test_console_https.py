@@ -8,8 +8,10 @@ What it checks:
 - the site (stats.chupathingy.org) by its pinned key: a pinned key is taken;
   another key refused, even under a valid chain; a certificate naming
   another host refused, even with the pinned key;
-- the clock never matters: certificates long expired, or not valid for
-  decades, are taken by their pinned key or root;
+- the clock: with no clock from the port, or one earlier than the build
+  (unset), certificates long expired or not valid for decades are taken by
+  their pinned key or root; with a clock at or after the build, an expired
+  or not yet valid certificate is refused, a current one taken;
 - GitHub's (raw.githubusercontent.com) by its chain: one to a pinned root is
   taken (an RSA chain, as GitHub's), one to another root refused, and one
   naming another host refused;
@@ -324,6 +326,21 @@ def main():
             serve(site_expired, site_key, "the pinned key, its certificate expired in 2001", SITE, pins, 0, 200)
             serve(site_future, site_key, "the pinned key, its certificate valid from 2090", SITE, pins, 0, 200)
             serve(site_self, site_key, "the pinned key, self-signed", SITE, pins, 0, 200)
+            # (the console's clock: unset, behind the build, then right)
+            serve(site_expired, site_key, "expired, the clock unset (1970)", SITE, pins + ["--clock", "0"], 0, 200)
+            serve(site_expired, site_key, "expired, the clock a day before the build", SITE,
+                  pins + ["--clock", "behind"], 0, 200)
+            server, fields = serve(site_expired, site_key, "expired, the clock right", SITE,
+                                   pins + ["--clock", "now"], 9)
+            if "its certificate is expired" not in fields["log"]:
+                failures.append(f"{tag}: an expired certificate was not said so")
+            serve(site_future, site_key, "not valid yet, the clock right", SITE, pins + ["--clock", "now"], 9)
+            serve(site_expired, site_key, "expired, the clock at the build's day", SITE, pins + ["--clock", "build"], 9)
+            serve(site, site_key, "current, the clock right", SITE, pins + ["--clock", "now"], 0, 200)
+            serve(github_expired, github_key, "GitHub's chain, expired, the clock right", GITHUB,
+                  ["--root", root_old_der, "--clock", "now"], 9)
+            serve(github, github_key, "GitHub's chain, current, the clock right", GITHUB,
+                  ["--root", root_der, "--clock", "now"], 0, 200)
             server, fields = serve(site, site_key, "a POST", SITE,
                                    pins + ["--path", "/v1/console/link/start", "--body", '{"key":"00"}'], 0, 200,
                                    'POST /v1/console/link/start HTTP/1.0|stats.chupathingy.org|Warthog/1 (test)|{"key":"00"}')

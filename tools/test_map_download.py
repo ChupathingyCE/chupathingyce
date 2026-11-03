@@ -152,6 +152,17 @@ def test_invalid_names(harness, name):
     assert run(harness, "name", name) == "invalid"
 
 
+@pytest.mark.parametrize("name", ["CON", "con", "Prn", "aux", "NUL", "nul.map", "com1", "COM9", "lpt1", "LpT9",
+                                  "con.x.y", "aux.v2"])
+def test_device_names(harness, name):
+    assert run(harness, "name", name) == "invalid"
+
+
+@pytest.mark.parametrize("name", ["cons", "con_v2", "com0", "com10", "lpt", "nul-1", "xcon", "acon.v2", "prism"])
+def test_names_like_device_names(harness, name):
+    assert run(harness, "name", name) == "valid"
+
+
 def test_empty_name(harness):
     assert run(harness, "name", "") == "invalid"
 
