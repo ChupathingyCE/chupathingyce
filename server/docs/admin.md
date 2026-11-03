@@ -36,6 +36,7 @@ the duration.
 | `help [command]` | Lists the commands, or tells what one does. |
 | `sv_status` | The server: name, version and network version, the OpenCE build it follows (the legacy table's, [Delta](../../docs/delta.md#following-opence)), state (lobby, loading, in game, carnage report), map and game type, playlist entry, players, whether it is public, uptime. |
 | `sv_players` | The players: number, name, team, score and ping (in a game), and their machine's hardware id. |
+| `sv_evidence [player]` | What the server refused of each player's machine this game, by kind: `movement` and `vehicle` (predictions out of bounds), `hit_report` (hit reports that failed validation), `clock` (two-second windows its game ran fast), `line_of_sight` and `malformed` (kept for checks to come). Moderators and up. Evidence, never a verdict ([moderation.md](moderation.md#evidence)). |
 | `sv_warn <player> <reason>` | Warns the player: a ChupathingyCE game shows the reason (Delta Peer); the warning is in the audit file either way. |
 | `sv_say <text>` | A server message: a line in the chat of every ChupathingyCE player, in their HUD font, marked "Server". In double quotes for more than a word. OpenCE players see it as the host's notice in their own chat, while they may chat (`chat_legacy`). In the audit file. |
 | `sv_chat [on\|team\|off]` | Shows or sets the players' text chat: `on`, `team` (team lines alone) or `off`. Saved in the settings file (`chat`: 2, 1 or 0), in effect at once. On unless set. |
@@ -177,6 +178,7 @@ Authorization: Bearer chce_4f0c...e91a
 | --- | --- |
 | `GET /v1/status` | `sv_status` as JSON. |
 | `GET /v1/players` | `sv_players` as JSON. |
+| `GET /v1/evidence` | `sv_evidence` as JSON: `{"kinds": ["movement", ...], "players": [{"number": 1, "name": "Player", "machine": 1, "total": 4, "evidence": {"movement": 3, "hit_report": 1, ...}}], "count": 1}`. Moderators and up (the warn permission). |
 | `POST /v1/command` with `{"command": "<command>"}` | `{"ok": true, "output": "..."}`: whether the command did what it was asked, and what it printed. Any command above. |
 | `GET /v1/bans` | `sv_banlist` as JSON: `{"bans": [{"number": 1, "when": "2026-10-05 02:18:03", "id": "c382...", "players": "Player", "reason": "...", "until": 1791182883, "seconds_left": 1793}], "count": 1}`. `until` and `seconds_left` are `null` for a ban for ever. |
 | `GET /v1/mapcycle` | `sv_mapcycle` as JSON: the playlist's `entries` (`number`, `map`, `game_type`), the `entry` playing, `state`, and what a command `chosen` now or set `next` (or `null`). |

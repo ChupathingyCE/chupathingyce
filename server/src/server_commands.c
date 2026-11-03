@@ -64,6 +64,7 @@ types only) */
 #include "server_config.h"
 #include "server_moderation.h"
 #include "server_names.h"
+#include "host_evidence.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -167,6 +168,7 @@ struct server_player
 static boolean command_help(struct command_line const *line, boolean json, struct command_output *output);
 static boolean command_status(struct command_line const *line, boolean json, struct command_output *output);
 static boolean command_players(struct command_line const *line, boolean json, struct command_output *output);
+static boolean command_evidence(struct command_line const *line, boolean json, struct command_output *output);
 static boolean command_kick(struct command_line const *line, boolean json, struct command_output *output);
 static boolean command_ban(struct command_line const *line, boolean json, struct command_output *output);
 static boolean command_unban(struct command_line const *line, boolean json, struct command_output *output);
@@ -208,6 +210,10 @@ static struct server_command const server_commands[] =
 		command_status },
 	{ "sv_players", "sv_players", "The players: number, name, team, score, ping and hardware id.", 1, 1, FALSE,
 		command_players },
+	{ "sv_evidence", "sv_evidence [player]", "What the server refused of each player's machine this game: "
+		"movement and vehicle predictions out of bounds, hit reports that failed validation, windows its clock ran "
+		"fast. Evidence for moderators, never a verdict: a bad connection makes some too.", 1, 2, FALSE,
+		command_evidence },
 	{ "sv_warn", "sv_warn <player> <reason>", "Warns a player: their game shows the reason, if it is a "
 		"ChupathingyCE game (Delta Peer); the warning is in the audit file either way.", 3, 3, TRUE, command_warn },
 	{ "sv_say", "sv_say <text>", "A server message: a line in the chat of every ChupathingyCE player (in quotes for "
@@ -916,6 +922,81 @@ static boolean command_players(
 		command_output_printf(output, "], \"count\": %ld, \"maximum_players\": %ld}", count,
 			game ? (long)game->maximum_players : 0);
 	}
+	return TRUE;
+}
+
+/* sv_evidence: the host's refusals of each player's machine this game
+(port/linux/game/host_evidence.h); counted by machine, so a machine's
+players share theirs. Nothing is kept past the game, nor any address */
+static boolean command_evidence(
+	struct command_line const *line,
+	boolean json,
+	struct command_output *output)
+{
+	static struct server_player players[HALO_PORT_MAXIMUM_NETWORK_PLAYERS];
+	struct server_player one;
+	struct server_player const *list = players;
+	long count;
+	long index;
+	int kind;
+
+	if (line->count == 2)
+	{
+		if (!find_player(line->words[1], &one, output))
+			return FALSE;
+		list = &one;
+		count = 1;
+	}
+	else
+		count = get_players(players, NUMBEROF(players));
+	if (json)
+		command_output_printf(output, "{\"kinds\": [");
+	for (kind = 0; json && kind < NUMBER_OF_HOST_EVIDENCE_KINDS; kind++)
+		command_output_printf(output, "%s\"%s\"", kind ? ", " : "", host_evidence_kind_name(kind));
+	if (json)
+		command_output_printf(output, "], \"players\": [");
+	else if (!count)
+		command_output_printf(output, "no players\n");
+	else
+	{
+		command_output_printf(output, "%3s  %-11s", "#", "name");
+		for (kind = 0; kind < NUMBER_OF_HOST_EVIDENCE_KINDS; kind++)
+			command_output_printf(output, "  %s", host_evidence_kind_name(kind));
+		command_output_printf(output, "\n");
+	}
+	for (index = 0; index < count; index++)
+	{
+		struct server_player const *player = &list[index];
+
+		if (json)
+		{
+			command_output_printf(output, "%s{\"number\": %ld, \"name\": ", index ? ", " : "", player->number);
+			command_output_json_string(output, player->name);
+			command_output_printf(output, ", \"machine\": %ld, \"total\": %lu, \"evidence\": {", player->machine_index,
+				host_evidence_total(player->machine_index));
+			for (kind = 0; kind < NUMBER_OF_HOST_EVIDENCE_KINDS; kind++)
+			{
+				command_output_printf(output, "%s\"%s\": %lu", kind ? ", " : "", host_evidence_kind_name(kind),
+					host_evidence_count(player->machine_index, (enum host_evidence_kind)kind));
+			}
+			command_output_printf(output, "}}");
+		}
+		else
+		{
+			command_output_printf(output, "%3ld  %-11s", player->number, player->name);
+			for (kind = 0; kind < NUMBER_OF_HOST_EVIDENCE_KINDS; kind++)
+			{
+				command_output_printf(output, "  %*lu", (int)strlen(host_evidence_kind_name(kind)),
+					host_evidence_count(player->machine_index, (enum host_evidence_kind)kind));
+			}
+			command_output_printf(output, "\n");
+		}
+	}
+	if (json)
+		command_output_printf(output, "], \"count\": %ld}", count);
+	else if (count)
+		command_output_printf(output, "(this game only; refusals happen on bad connections too: a pattern, not a "
+			"number, is the evidence)\n");
 	return TRUE;
 }
 

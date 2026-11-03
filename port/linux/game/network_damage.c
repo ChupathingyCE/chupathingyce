@@ -55,6 +55,7 @@ being hit looks and feels like on the clients).
 #include "items/projectile_definitions.h"
 #include "scenario/scenario.h"
 #include "units/units.h"
+#include "host_evidence.h"
 #include "network_distributed.h"
 #include "network_rules.h"
 
@@ -2072,6 +2073,8 @@ void network_damage_handle_reports(
 		if (!distributed_report_valid(machine_index, report, &damage))
 		{
 			damage_rejected_reports++;
+			/* (counted for the server's moderators: host_evidence.h) */
+			host_evidence_note(machine_index, _host_evidence_hit_report);
 			continue;
 		}
 		damage_dealt_reports++;
