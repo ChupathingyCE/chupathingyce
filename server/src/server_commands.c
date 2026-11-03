@@ -61,6 +61,7 @@ types only) */
 #include "../platform/server_control.h"
 #endif
 #include "server_admin.h"
+#include "server_conduct.h"
 #include "server_config.h"
 #include "server_moderation.h"
 #include "server_names.h"
@@ -2327,6 +2328,7 @@ void server_commands_update(
 	}
 	server_moderation_update();
 	names_update();
+	server_conduct_update();
 #ifdef HALO_SERVER
 	server_gamespy_update();
 	server_ce_update();

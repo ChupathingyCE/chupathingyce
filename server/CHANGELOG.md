@@ -6,6 +6,14 @@ release notes.
 
 ## Unreleased
 
+- Betrayal and AFK limits, both off by default: `betrayal_kick`
+  (`HALO_DEDICATED_BETRAYAL_KICK`) warns a player one betrayal short of the
+  limit and kicks them at it, and a second such kick within 24 hours is a
+  30-minute ban; `afk_kick_minutes` (`HALO_DEDICATED_AFK_KICK_MINUTES`)
+  kicks a player with no input for that long in a game in progress, warned
+  30 seconds before, moderators never. OpenCE players are warned through
+  the host's notice in their chat. Every warning, kick and ban is in the
+  audit file.
 - Map names as Halo PC takes them: commas, brackets, spaces and the rest a
   Windows file name can have (`bigassv2,104@ce`, `[h3]_sandtrap@ce`), in
   `sv_map`, `sv_maps` and playlists. A name with a space goes in double

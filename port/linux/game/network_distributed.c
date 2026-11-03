@@ -73,6 +73,7 @@ machine (their datum identifiers need not be).
 #include "units/biped_definitions.h"
 #include "units/bipeds.h"
 #include "network_coop.h"
+#include "conduct_rules.h"
 #include "network_distributed.h"
 #include "network_rules.h"
 #include "../src/delta_chat_bridge.h"
@@ -2445,6 +2446,52 @@ absolute index. Recorded as read; the host's own friendly fire setting
 decides what hurts. */
 static boolean distributed_coop_declined[MAXIMUM_TRACKED_PLAYERS];
 
+/* (the host) each client player's input as it last changed, and when
+(system_milliseconds), for a dedicated server's AFK limit
+(server/src/server_conduct.c): the same input again and again is none */
+static struct
+{
+	boolean valid;
+	struct conduct_input input;
+	unsigned long time;
+} distributed_input_activity[MAXIMUM_TRACKED_PLAYERS];
+
+/* (the host) when a client's player's input last was input (conduct_rules.h),
+system_milliseconds; 0 if it sent none this game */
+unsigned long network_distributed_player_input_time(
+	short player_index)
+{
+	if (player_index < 0 || player_index >= MAXIMUM_TRACKED_PLAYERS || !distributed_input_activity[player_index].valid)
+		return 0;
+	return distributed_input_activity[player_index].time ? distributed_input_activity[player_index].time : 1;
+}
+
+static void distributed_note_input_activity(
+	short player_index,
+	struct player_action const *action)
+{
+	struct conduct_input input;
+
+	csmemset(&input, 0, sizeof(input));
+	input.control_flags = action->control_flags;
+	input.yaw = action->desired_facing.yaw;
+	input.pitch = action->desired_facing.pitch;
+	input.throttle_i = action->throttle.i;
+	input.throttle_j = action->throttle.j;
+	input.primary_trigger = action->primary_trigger;
+	input.weapon_index = action->desired_weapon_index;
+	input.grenade_index = action->desired_grenade_index;
+	input.zoom_level = action->desired_zoom_level;
+	/* (the first: input, as the player just came) */
+	if (!distributed_input_activity[player_index].valid ||
+		conduct_input_active(&distributed_input_activity[player_index].input, &input))
+	{
+		distributed_input_activity[player_index].time = system_milliseconds();
+	}
+	distributed_input_activity[player_index].valid = TRUE;
+	distributed_input_activity[player_index].input = input;
+}
+
 /* (the host, in co-op) a client player's input counted in the scripts'
 action tests, as a local player's is (player_control_action_test_note) */
 static void distributed_note_input_actions(
@@ -2504,6 +2551,7 @@ static void distributed_handle_inputs(
 		/* (whether the player declined friendly fire: any value but 0; kept
 		for the player, which no rule of this host uses yet) */
 		distributed_coop_declined[input->player_index] = input->coop_no_friendly_fire != 0;
+		distributed_note_input_activity(input->player_index, &action);
 		update_server_handle_distributed_input(DATUM_INDEX_NEW(input->player_index, player->identifier), input->tick,
 			&action, input->control_flags, DISTRIBUTED_INPUT_HISTORY);
 		if (input->host_time != NONE && (host_time == NONE || input->host_time > host_time))
@@ -3638,6 +3686,7 @@ void network_distributed_new_game(
 	csmemset(distributed_round_trips, 0, sizeof(distributed_round_trips));
 	csmemset(distributed_input_facings, 0, sizeof(distributed_input_facings));
 	csmemset(distributed_coop_declined, 0, sizeof(distributed_coop_declined));
+	csmemset(distributed_input_activity, 0, sizeof(distributed_input_activity));
 	csmemset(distributed_client_clocks, 0, sizeof(distributed_client_clocks));
 	csmemset(distributed_client_identities, 0, sizeof(distributed_client_identities));
 	distributed_identity_sent = FALSE;

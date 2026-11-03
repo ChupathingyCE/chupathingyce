@@ -78,6 +78,7 @@ played instead of HALO_DEDICATED's until HALO_DEDICATED is changed.
 #include "dedicated.h"
 #include "command_line.h"
 #include "server_admin.h"
+#include "server_conduct.h"
 #include "server_config.h"
 #ifdef HALO_GAME_BROWSER
 /* (text chat's, port/linux/game/chat.h) */
@@ -542,6 +543,21 @@ static void initialize(
 		team_change_host_set((int)policy, (int)margin);
 		error(_error_silent, "dedicated: team changes during a game %s", policy == 0 ? "off" : policy == 2 ? "allowed" :
 			"while the teams stay balanced");
+	}
+	/* the betrayal and AFK limits (server_conduct.h): off unless set */
+	{
+		long betrayals = setting_number("HALO_DEDICATED_BETRAYAL_KICK", &settings, SERVER_SETTING_BETRAYAL_KICK, 0);
+		long minutes = setting_number("HALO_DEDICATED_AFK_KICK_MINUTES", &settings, SERVER_SETTING_AFK_KICK_MINUTES, 0);
+
+		server_conduct_set_betrayal_limit((int)PIN(betrayals, 0, SERVER_SETTINGS_MAXIMUM_BETRAYAL_KICK));
+		server_conduct_set_afk_minutes((int)PIN(minutes, 0, SERVER_SETTINGS_MAXIMUM_AFK_KICK_MINUTES));
+		if (server_conduct_betrayal_limit())
+			error(_error_silent, "dedicated: a player is kicked after %d betrayals in a game", server_conduct_betrayal_limit());
+		if (server_conduct_afk_minutes())
+		{
+			error(_error_silent, "dedicated: a player is kicked after %d minutes without input in a game",
+				server_conduct_afk_minutes());
+		}
 	}
 	dedicated.active = dedicated.entry_count > 0;
 }

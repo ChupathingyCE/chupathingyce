@@ -99,6 +99,33 @@ their game alone, as a notice, when they sign in and when it changes. OpenCE gam
 sign in (they cannot prove a key); they can be warned (in the audit file
 only), kicked and banned like anyone.
 
+### Betrayal and AFK limits
+
+Two limits a server can turn on, both off unless set (Halo's own rules
+have neither):
+
+- `betrayal_kick` (`HALO_DEDICATED_BETRAYAL_KICK`): a player who kills
+  this many teammates in one game is kicked. One short of it, their game is
+  warned: a Chupathingy game shows it as a server warning, an OpenCE game
+  as the host's notice in its chat (while its chat is bridged:
+  `chat_legacy`). The count starts over with each game. A second such kick
+  of the same player within 24 hours is a 30-minute ban instead, a line in
+  `bans.txt` as `sv_ban 30m` would make, by their machine's hardware id
+  (their moderator key, or their address, if their game told none). The
+  server keeps those 24 hours in memory: a restart forgets them.
+- `afk_kick_minutes` (`HALO_DEDICATED_AFK_KICK_MINUTES`): a player whose
+  game sends no input (no button, no turn, no move) for this many minutes
+  while a game is played is warned 30 seconds before and then kicked. Time
+  in the lobby, while loading and on the carnage report never counts; dead
+  or waiting to respawn counts only if they press nothing. Moderators (a
+  game that proved a key with a role here) are never kicked for it. An AFK
+  kick never leads to a ban.
+
+Every warning, kick and ban either limit makes is in the log and the audit
+file, by "betrayal limit" or "afk limit", with the player's name and why;
+no address. `sv_set betrayal_kick 3` and `sv_set afk_kick_minutes 5` (or the
+panel's Settings) change them at once.
+
 ### Who can moderate
 
 A key's role is the highest of three places: the moderators file, a

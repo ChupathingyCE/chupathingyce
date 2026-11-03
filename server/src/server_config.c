@@ -245,6 +245,12 @@ const struct server_setting server_settings_table[SERVER_SETTINGS] =
 		"The UDP port of the GameSpy status queries" },
 	{ "ce_joins", SERVER_FIELD_BOOLEAN, 0, 1, "HALO_DEDICATED_CE_JOINS",
 		"Answer Halo Custom Edition 1.0.10 join attempts on the GameSpy port (gamespy_listing must be on)" },
+	{ "betrayal_kick", SERVER_FIELD_INTEGER, 0, SERVER_SETTINGS_MAXIMUM_BETRAYAL_KICK, "HALO_DEDICATED_BETRAYAL_KICK",
+		"Betrayals in a game that kick a player, warned one short of it; a second kick in a day bans for 30 "
+		"minutes (0: off)" },
+	{ "afk_kick_minutes", SERVER_FIELD_INTEGER, 0, SERVER_SETTINGS_MAXIMUM_AFK_KICK_MINUTES,
+		"HALO_DEDICATED_AFK_KICK_MINUTES", "Minutes without input in a game that kick a player, moderators never "
+		"(0: off)" },
 };
 
 /* ---------- private code */
