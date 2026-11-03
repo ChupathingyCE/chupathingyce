@@ -452,6 +452,31 @@ void delta_legacy_hold(int hold);
 0 when it is not one this machine may announce) */
 int delta_legacy_pinned(void);
 
+/* ---------- host protections: what a host enforces for its clients
+
+The cross-play gate proves that games stay in agreement, not that our host
+enforces what OpenCE's clients of a number count on their host to enforce.
+A row may say what it takes: "requires": ["<name>", ...], the protections a
+host must have to announce any number the row proves past the build's own
+(HALO_PORT_NETWORK_VERSION). A build lacking one, or not knowing its name,
+announces its own number instead, whatever the row's announce and hosting
+list say, and logs which protection is missing; it still joins the row's
+range as a client. A row without "requires" is followed as before.
+(docs/delta.md, "Host protections".)
+
+The names, and whether this build has each (1) or not (0). A name is never
+renamed or reused: an older build reads the names it was made with. Add one
+with 0 when a row needs to name it before any build has it, and set it to 1
+in the build that enforces it, as a host and a dedicated server alike.
+tools/delta_table.py refuses a row that requires a name not listed here. */
+#define DELTA_HOST_PROTECTIONS(X) \
+	X(hit_report_checks, 1) /* each client's hit report checked before the host deals it (network_damage.c): the reporter's own player, damage of a weapon they hold or lately held, a grenade the host saw them throw or the vehicle they drive, the target near where the host had it when the shooter saw it (a second back at most), within the weapon's reach, no more hits than the weapon fires */ \
+	X(hit_line_of_sight, 0) /* a reported hit refused when the host sees the shot blocked between shooter and target: in no build yet */ \
+	X(address_machine_limit, 0) /* a limit on the machines joined from one address (OpenCE's refusal 13): in no build yet (a server takes at most two waiting connections from one address, which is not that) */ \
+	X(map_votes, 0) /* the host runs OpenCE's map votes (messages 94 and 95): in no build yet */
+/* the most names a row's "requires" may give */
+#define DELTA_REQUIRES_MAXIMUM 16
+
 /* whether a local, unsigned table (network.legacy_table) is in use */
 int delta_legacy_override(void);
 /* whether this machine relays signed tables (Delta Peer: takes them from
