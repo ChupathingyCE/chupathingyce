@@ -74,6 +74,9 @@ enum
 	MODULUS = 65537,
 	GENERATOR = 3,
 
+	/* client updates kept for the game, at most (a client sends at most 64
+	before one is taken) */
+	UPDATE_QUEUE = 64,
 	/* the game's answer to a join, at most this late */
 	AWAITING_MILLISECONDS = 10000,
 	/* the server's keep-alive to a client in the game */
@@ -143,6 +146,10 @@ struct peer
 	/* the client's actions so far (its update deltas) */
 	struct ce_client_update update;
 	int updates;
+	/* each update as it came, for the game to play in order */
+	struct ce_client_update queue[UPDATE_QUEUE];
+	int queue_first;
+	int queue_count;
 	struct ce_join_request request;
 };
 
@@ -696,6 +703,19 @@ static int send_message(struct peer *peer, const unsigned char *message, int len
 	return send_payload(peer, payload, ce_payload_from_message(message, length, payload, sizeof(payload)), now);
 }
 
+static void queue_update(void *context, const struct ce_client_update *update)
+{
+	struct peer *peer = context;
+
+	if (peer->queue_count == UPDATE_QUEUE)
+	{
+		peer->queue_first = (peer->queue_first + 1) % UPDATE_QUEUE;
+		peer->queue_count--;
+	}
+	peer->queue[(peer->queue_first + peer->queue_count) % UPDATE_QUEUE] = *update;
+	peer->queue_count++;
+}
+
 static void push_event(int peer, int type, const char *name)
 {
 	struct ce_event *event;
@@ -932,7 +952,7 @@ static void reliable_data(struct peer *peer, const unsigned char *packet, int le
 	if (peer->state == PEER_ACCEPTED)
 	{
 		ce_payload_messages(payload, payload_length, message_received, peer);
-		peer->updates += ce_payload_read_client_updates(payload, payload_length, &peer->update);
+		peer->updates += ce_payload_read_client_updates(payload, payload_length, &peer->update, queue_update, peer);
 	}
 	if (peer->state == PEER_CONNECTED)
 	{
@@ -1009,7 +1029,7 @@ static int ce_transport_packet_locked(const unsigned char *packet, int length, c
 				{
 					payload_length = ce_open(peer->key, packet + 2, length - 2, payload, sizeof(payload));
 					if (payload_length > 0)
-						peer->updates += ce_payload_read_client_updates(payload, payload_length, &peer->update);
+						peer->updates += ce_payload_read_client_updates(payload, payload_length, &peer->update, queue_update, peer);
 				}
 			}
 			return peer != NULL;
@@ -1055,7 +1075,7 @@ static int ce_transport_packet_locked(const unsigned char *packet, int length, c
 		{
 			payload_length = ce_open(peer->key, packet, length, payload, sizeof(payload));
 			if (payload_length > 0)
-				peer->updates += ce_payload_read_client_updates(payload, payload_length, &peer->update);
+				peer->updates += ce_payload_read_client_updates(payload, payload_length, &peer->update, queue_update, peer);
 		}
 		return 1;
 	}
@@ -1279,4 +1299,22 @@ void ce_transport_drop(int peer)
 		forget(dropped);
 	}
 	pthread_mutex_unlock(&transport_mutex);
+}
+
+int ce_transport_next_update(int peer, struct ce_client_update *update)
+{
+	struct peer *source;
+	int found = 0;
+
+	pthread_mutex_lock(&transport_mutex);
+	source = game_peer(peer);
+	if (source && source->state == PEER_ACCEPTED && source->queue_count)
+	{
+		*update = source->queue[source->queue_first];
+		source->queue_first = (source->queue_first + 1) % UPDATE_QUEUE;
+		source->queue_count--;
+		found = 1;
+	}
+	pthread_mutex_unlock(&transport_mutex);
+	return found;
 }

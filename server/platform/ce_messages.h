@@ -205,7 +205,8 @@ void ce_direction(const float vector[3], unsigned int out[2]);
 void ce_throttle(int bits, float *forward, float *left);
 /* the client updates in a payload, onto update (what they leave out stays):
 how many were read */
-int ce_payload_read_client_updates(const unsigned char *payload, int length, struct ce_client_update *update);
+int ce_payload_read_client_updates(const unsigned char *payload, int length, struct ce_client_update *update,
+	void (*each)(void *context, const struct ce_client_update *update), void *context);
 /* the server's keep-alive delta: one entry */
 void ce_payload_put_server_keep_alive(struct ce_payload *payload, int index, unsigned int value);
 /* the payload's length in bytes (written in its first 11 bits), or 0 */

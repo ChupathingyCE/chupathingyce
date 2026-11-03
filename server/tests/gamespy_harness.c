@@ -57,7 +57,7 @@ int main(int argc, char **argv)
 				sscanf(argv[argument] + index * 2, "%2x", &byte);
 				payload[index] = (unsigned char)byte;
 			}
-			printf("read %d", ce_payload_read_client_updates(payload, length, &update));
+			printf("read %d", ce_payload_read_client_updates(payload, length, &update, NULL, NULL));
 			printf(" id %d ticks %d flags %u yaw %.4f pitch %.4f throttle %d trigger %d weapon %d grenade %d medium %d\n",
 				update.update_id, update.ticks, update.control_flags, update.yaw, update.pitch, update.throttle,
 				update.primary_trigger, update.weapon, update.grenade, update.unknown_medium);

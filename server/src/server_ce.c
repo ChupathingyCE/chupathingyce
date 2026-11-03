@@ -60,6 +60,8 @@ enum
 	NETWORK_OBJECTS = 511,
 	TRACKED_PLAYERS = 32,
 	PAYLOAD_SIZE = 1200,
+	/* a client's own biped's place, this often */
+	LOCAL_UPDATE_TICKS = 15,
 };
 
 struct ce_client
@@ -76,7 +78,12 @@ struct ce_client
 	int update_id;
 	int sequence;
 	int local_sequence;
-	int updates_taken;
+	/* the update being played (its ticks left), as the client's own game
+	plays it: each update holds for its tick count, in order */
+	struct ce_client_update current;
+	boolean have_current;
+	int ticks_left;
+	long played_tick;
 };
 
 static struct
@@ -460,26 +467,21 @@ static void update_client(
 			if (player->unit_index != NONE)
 				send_unit(client, player_index, player->unit_index);
 		}
-		if (player_index == own_player && player->unit_index != NONE)
+		/* (its own biped, twice a second, as Custom Edition's server does:
+		the update being played and where the biped is after it, which its
+		game checks its own prediction against) */
+		if (player_index == own_player && player->unit_index != NONE && client->have_current &&
+			game_time_get() % LOCAL_UPDATE_TICKS == 0)
 		{
-			struct ce_client_update update;
-			int updates = ce_transport_client_update(client->peer, &update);
+			struct unit_datum *unit = unit_get(player->unit_index);
+			float position[3];
 
-			/* (its updates taken, so it keeps sending them, and where its
-			biped is) */
-			if (updates > 1 && updates != client->updates_taken)
-			{
-				struct unit_datum *unit = unit_get(player->unit_index);
-				float position[3];
-
-				client->updates_taken = updates;
-				position[0] = unit->object.position.x;
-				position[1] = unit->object.position.y;
-				position[2] = unit->object.position.z;
-				ce_payload_put_local_player_update(&payload, client->local_sequence, update.update_id, position);
-				client->local_sequence = (client->local_sequence + 1) & 31;
-				any = TRUE;
-			}
+			position[0] = unit->object.position.x;
+			position[1] = unit->object.position.y;
+			position[2] = unit->object.position.z;
+			ce_payload_put_local_player_update(&payload, client->local_sequence, client->current.update_id, position);
+			client->local_sequence = (client->local_sequence + 1) & 31;
+			any = TRUE;
 		}
 		if (player_index != own_player && player->unit_index != NONE)
 		{
@@ -613,8 +615,21 @@ boolean server_ce_local_action(
 	client = &ce.clients[local_player_index];
 	if (!client->active)
 		return FALSE;
-	csmemset(&update, 0, sizeof(update));
-	if (!ce_transport_client_update(client->peer, &update))
+	/* (each tick, the update being played goes on for its tick count; then
+	the next, in order. With none waiting, the last holds) */
+	if (client->played_tick != game_time_get())
+	{
+		client->played_tick = game_time_get();
+		if (client->ticks_left > 0)
+			client->ticks_left--;
+		if (client->ticks_left <= 0 && ce_transport_next_update(client->peer, &update))
+		{
+			client->current = update;
+			client->have_current = TRUE;
+			client->ticks_left = update.ticks > 0 ? update.ticks : 1;
+		}
+	}
+	if (!client->have_current)
 	{
 		csmemset(action, 0, sizeof(*action));
 		action->desired_weapon_index = NONE;
@@ -622,6 +637,7 @@ boolean server_ce_local_action(
 		action->desired_zoom_level = NONE;
 		return TRUE;
 	}
+	update = client->current;
 	ce_throttle(update.throttle, &forward, &left);
 	action->control_flags = update.control_flags;
 	action->desired_facing.yaw = update.yaw;

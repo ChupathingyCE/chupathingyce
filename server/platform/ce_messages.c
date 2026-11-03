@@ -517,7 +517,8 @@ static int read_client_update(struct reader *reader, int every_field, struct ce_
 	return 1;
 }
 
-int ce_payload_read_client_updates(const unsigned char *payload, int length, struct ce_client_update *update)
+int ce_payload_read_client_updates(const unsigned char *payload, int length, struct ce_client_update *update,
+	void (*each)(void *context, const struct ce_client_update *update), void *context)
 {
 	struct reader reader;
 	unsigned int value, kind, flag, type;
@@ -546,6 +547,8 @@ int ce_payload_read_client_updates(const unsigned char *payload, int length, str
 		{
 			if (!read_client_update(&reader, !flag, update))
 				break;
+			if (each)
+				each(context, update);
 			count++;
 		}
 		else if (type == CE_DELTA_CLIENT_KEEP_ALIVE && !flag)

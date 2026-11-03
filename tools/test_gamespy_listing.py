@@ -134,6 +134,7 @@ def test_classic_query(server, query):
     assert keys["fraglimit"] == "50"
     assert keys["bridge"] == "chupathingy"
     assert keys["bridge_version"] == "0.0.0-test"
+    assert keys["chimera"] == "optional"
     assert keys["player_0"] == "Player1" and keys["ping_0"] == "" and keys["team_0"] == "0"
     assert keys["player_2"] == "Player3" and keys["score_2"] == "6" and keys["team_2"] == "0"
     assert "player_3" not in keys

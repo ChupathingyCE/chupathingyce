@@ -132,7 +132,8 @@ Xbox map is `xbox_<map>` (`xbox_bloodgulch`; Custom Edition's own
 `bloodgulch` is the PC version, with other geometry), a Custom Edition or
 Halo PC map (`timberland@ce`, `icefields@pc`) its own name. Two keys of the
 server's own, `bridge` (`chupathingy`) and `bridge_version` (the server's
-version), let a client tell it from a Custom Edition server.
+version), let a client tell it from a Custom Edition server, and `chimera`
+(`optional`) says a Custom Edition player needs no Chimera here.
 
 The version reported is the server's own (`HALO_DEDICATED_GAMESPY_VERSION`
 sets another). Custom Edition 1.0.10's server browser shows only servers

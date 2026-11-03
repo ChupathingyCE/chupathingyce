@@ -249,6 +249,9 @@ static int status_pairs(const struct gamespy_status *status, const char *gamever
 	Custom Edition one */
 	PAIR_TEXT("bridge", "chupathingy");
 	PAIR_TEXT("bridge_version", status->version);
+	/* and that a Custom Edition player needs no Chimera here (up to 16
+	Custom Edition players, the game's own limit) */
+	PAIR_TEXT("chimera", "optional");
 #undef PAIR_TEXT
 #undef PAIR_NUMBER
 	return count;
