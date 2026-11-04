@@ -45,7 +45,7 @@ drive the controller.
 #include "../game/network_rules.h"
 
 #include <SDL3/SDL.h>
-#if defined(SDL_PLATFORM_LINUX)
+#if defined(SDL_PLATFORM_LINUX) && !defined(HALO_ANDROID)
 #include "halo_xbox_pad_buttons.h"
 #endif
 #include <math.h>
@@ -1606,7 +1606,7 @@ static void sdl_gamepad_state(SDL_Gamepad *gamepad, XINPUT_GAMEPAD *pad)
 	/* the Duke's white and black buttons sit where later pads have shoulders */
 	merge_button(pad, XINPUT_GAMEPAD_WHITE, SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER));
 	merge_button(pad, XINPUT_GAMEPAD_BLACK, SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER));
-#if defined(SDL_PLATFORM_LINUX)
+#if defined(SDL_PLATFORM_LINUX) && !defined(HALO_ANDROID)
 	/* an original Xbox pad's black and white are BTN_C and BTN_Z (halo_xbox_pad_buttons.h) */
 	if (xbox_pad_has_black_white_buttons(SDL_GetGamepadVendor(gamepad), SDL_GetGamepadProduct(gamepad)))
 	{
