@@ -148,8 +148,9 @@ def sign(key: Path, version: str, zips) -> None:
             print(f"{zip_path}.sig")
 
 
-def header_keys():
-    text = KEY_HEADER.read_text()
+def header_keys(header: Path = KEY_HEADER):
+    """update_key.h's release keys that are set (none when all are zero)"""
+    text = header.read_text()
     # (the release keys: the block before the test key's #else)
     text = text.split("#else", 1)[0]
     keys = []

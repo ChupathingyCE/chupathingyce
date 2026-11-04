@@ -2130,7 +2130,8 @@ static char const *machines_text(
 		{ "PC", { 1, 2, 3, 13, 18, -1 } }, { "Steam Deck", { 5, -1 } }, { "Android", { 4, -1 } },
 		{ "Xbox", { 6, -1 } }, { "Xbox 360", { 7, -1 } }, { "Wii U", { 8, -1 } }, { "Switch", { 9, -1 } },
 		{ "PSP", { 10, -1 } }, { "Vita", { 11, -1 } }, { "Xbox Series", { 12, -1 } }, { "PS3", { 14, -1 } },
-		{ "PS4", { 15, -1 } }, { "PS5", { 16, -1 } }, { "N64", { 17, -1 } }, { "other", { 0, -1 } },
+		{ "PS4", { 15, -1 } }, { "PS5", { 16, -1 } }, { "N64", { 17, -1 } }, { "Steam Link", { 19, -1 } },
+		{ "iOS", { 20, -1 } }, { "Apple TV", { 21, -1 } }, { "other", { 0, -1 } },
 		{ "OpenCE", { BROWSER_MACHINE_KINDS - 1, -1 } },
 	};
 	long used = 0, group;
@@ -2697,12 +2698,24 @@ static void draw_link_profile(
 	}
 }
 
+#ifdef HALO_CONSOLE_CACHE_SCREEN
+/* (steamlink_cache_screen.c: the first start's ring, behind a map's download) */
+void console_ring_picture(float fraction);
+#endif
+
 static void draw_map_offer(
 	void)
 {
 	struct map_download_progress const *progress = &browser_screen.offer_progress;
 	float center = CONNECT_X + CONNECT_WIDTH / 2;
 	char text[192];
+
+#ifdef HALO_CONSOLE_CACHE_SCREEN
+	if (browser_screen.offer == _offer_downloading)
+	{
+		console_ring_picture(progress->total ? (float)progress->received / (float)progress->total : 0.0f);
+	}
+#endif
 
 	dialog_frame(CONNECT_X, CONNECT_Y, CONNECT_WIDTH, CONNECT_HEIGHT,
 		browser_screen.offer == _offer_stock ? MAP_ARCHIVE_STOCK_TITLE : "MISSING MAP");
@@ -3343,6 +3356,13 @@ the map's name over its family's color (a custom map's) */
 	else
 		snprintf(text, sizeof(text), "%s%s", selected->open ? "Accepting players" : "In progress", selected->locked ? ", password" : "");
 	DETAIL_LINE("Status:", text);
+	/* (a host whose console and cheats may change its game, as it says:
+	network.host_cheats) */
+	if (browser_game_host_cheats(selected))
+	{
+		ui_overlay_text(UI_FONT_MENU_SMALL, DETAIL_SIZE, x + 6, line_y + 0.5f, UI_ALIGN_LEFT, COLOR_NEUTRAL,
+			"Host cheats on");
+	}
 	DETAIL_LINE("Map:", map_label);
 	/* (its family, spelled out beside its tag) */
 	draw_family_badge(family, selected->map, BADGE_SIZE, x + 6, line_y, DETAIL_SIZE, FALSE);

@@ -771,7 +771,12 @@ void hud_tick_shield(
 	long player_index,
 	real amount)
 {
-	short local_player_index = player_get(player_index)->local_player_index;
+	short local_player_index;
+
+	if (player_index == NONE)
+		return;
+
+	local_player_index = player_get(player_index)->local_player_index;
 
 	if (local_player_index != NONE)
 		get_hud_state(local_player_index)->last_shield_vitality -= amount;

@@ -390,6 +390,15 @@ static short *decode_adpcm(const unsigned char *source, unsigned long size, unsi
 	return samples;
 }
 
+#ifdef HALO_CONSOLE_CACHE_SCREEN
+/* (the first start's screens, before there is a mixer: steamlink_cache_screen.c) */
+short *console_decode_adpcm(const unsigned char *source, unsigned long size, unsigned long *frames);
+short *console_decode_adpcm(const unsigned char *source, unsigned long size, unsigned long *frames)
+{
+	return decode_adpcm(source, size, 1, frames);
+}
+#endif
+
 static short *decode_pcm(const unsigned char *source, unsigned long size, unsigned long channels,
 	unsigned long *frame_count)
 {
@@ -2488,6 +2497,12 @@ static unsigned long choose_output_channels(SDL_AudioDeviceID device)
 #endif
 }
 
+#ifdef HALO_CONSOLE_AUDIO_OUTPUT
+/* the port's: plays channels of float samples at rate from mix, called on
+an output thread of its own for each buffer it fills; FALSE if it cannot */
+int console_audio_start(int rate, int channels, void (*mix)(float *output, unsigned long frames));
+#endif
+
 static void audio_start(void)
 {
 	long buffer_frames;
@@ -2521,6 +2536,16 @@ static void audio_start(void)
 		SDL_SetHint(SDL_HINT_AUDIO_DEVICE_SAMPLE_FRAMES, frames);
 		if (audio_stream_open())
 			return;
+#ifdef HALO_CONSOLE_AUDIO_OUTPUT
+		/* the console's own output, where SDL has none (the Steam Link's:
+		its HDMI audio is the firmware's own SDL's) */
+		output_channels = 2;
+		if (console_audio_start(OUTPUT_RATE, (int)output_channels, mix))
+		{
+			platform_log("sound: the console's own output");
+			return;
+		}
+#endif
 		platform_log("cannot open an audio device (%s); sound is silent", SDL_GetError());
 		output_channels = 2;
 	}

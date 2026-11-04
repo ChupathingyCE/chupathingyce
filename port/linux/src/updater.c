@@ -87,6 +87,17 @@ macos_build.py; the Android app's version is its own, build.gradle) */
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef HALO_CONSOLE_SETUP_SCREENS
+/* the port's screens, for a console with no dialogs (halo_console_features.h):
+one shown while the update downloads, a notice read with the pad, and the
+question, answered 1 update, 2 never ask again, 0 not now */
+void *console_setup_screen_open(void);
+void console_setup_screen_progress(void *screen, float fraction, const char *title, const char *line);
+void console_setup_screen_close(void *screen);
+void console_setup_notice(const char *first, const char *second);
+int console_setup_update_question(const char *latest, const char *current);
+#endif
+
 #ifndef HALO_RELEASE_BUILD
 #define HALO_RELEASE_BUILD 0
 #endif
@@ -108,11 +119,24 @@ looks for a new version and offers its download page) */
 #define HALO_BUILD_FLAVOR "release"
 #endif
 
-/* ChupathingyCE's releases */
+/* ChupathingyCE's releases, or a console port's own (HALO_PORT_UPDATE_API on
+its compile line, its own key in its halo_port_update_keys.h: update_key.h),
+laid out as GitHub's addresses are */
+#ifdef HALO_PORT_UPDATE_API
+#define UPDATE_REPOSITORY HALO_PORT_UPDATE_REPOSITORY
+#define UPDATE_API HALO_PORT_UPDATE_API
+#define UPDATE_DOWNLOADS HALO_PORT_UPDATE_API "/releases/download"
+#else
 #define UPDATE_REPOSITORY "ChupathingyCE/chupathingyce"
 #define UPDATE_API "https://api.github.com/repos/" UPDATE_REPOSITORY
 #define UPDATE_DOWNLOADS "https://github.com/" UPDATE_REPOSITORY "/releases/download"
-#if defined(_WIN32) && defined(HALO_64BIT)
+#endif
+#if defined(HALO_PORT_UPDATE_PLATFORM)
+/* (a console port's own download: on the game's releases, signed with the
+release key, unless the port has releases of its own, HALO_PORT_UPDATE_API) */
+#define UPDATE_PLATFORM HALO_PORT_UPDATE_PLATFORM
+#define PATH_SEPARATOR "/"
+#elif defined(_WIN32) && defined(HALO_64BIT)
 /* (the 64-bit Windows build's own download, ninja windows64: tools/ci_build.py) */
 #define UPDATE_PLATFORM "windows64"
 #define PATH_SEPARATOR "\\"
@@ -382,6 +406,12 @@ static int updater_executable_name(const char *name)
 {
 	size_t index;
 
+#ifdef HALO_PORT_UPDATE_SCRIPT
+	/* (a console port that starts the game from a script, which an update
+	replaces too) */
+	if (!strcmp(name, HALO_PORT_UPDATE_SCRIPT))
+		return 1;
+#endif
 	for (index = 0; index < sizeof(updater_executable_names) / sizeof(*updater_executable_names); index++)
 	{
 		if (!strcmp(name, updater_executable_names[index]))
@@ -555,6 +585,16 @@ static int updater_latest_release(char *version, size_t size)
 		return 0;
 	/* "tag_name": "v<version>" */
 	tag = strstr(text, "\"tag_name\"");
+#if defined(HALO_PORT_UPDATE_PLATFORM) && !defined(HALO_PORT_UPDATE_API)
+	/* (a port's download on the game's releases: a release counts only once
+	its assets name the port's zip, so a release made before the port's
+	download is added is not offered) */
+	if (tag && !strstr(text, "\"" UPDATE_ASSET "\""))
+	{
+		platform_log("update: the latest release has no " UPDATE_ASSET " yet");
+		tag = NULL;
+	}
+#endif
 	if (tag)
 	{
 		tag = strchr(tag + 10, '"');
@@ -642,6 +682,9 @@ static int updater_download_zip(const char *zip_path, char *error, size_t error_
 	SDL_Renderer *renderer = NULL;
 	SDL_Thread *thread;
 	int finished = 0;
+#ifdef HALO_CONSOLE_SETUP_SCREENS
+	void *screen;
+#endif
 
 	memset(&download, 0, sizeof(download));
 	download.lock = SDL_CreateMutex();
@@ -658,9 +701,14 @@ static int updater_download_zip(const char *zip_path, char *error, size_t error_
 		snprintf(error, error_size, "could not start the download");
 		return 0;
 	}
+#ifdef HALO_CONSOLE_SETUP_SCREENS
+	window = NULL;
+	screen = console_setup_screen_open();
+#else
 	window = SDL_CreateWindow("Chupathingy", 640, 150, 0);
 	if (window)
 		renderer = SDL_CreateRenderer(window, SDL_SOFTWARE_RENDERER);
+#endif
 	while (!finished)
 	{
 		SDL_Event event;
@@ -675,6 +723,17 @@ static int updater_download_zip(const char *zip_path, char *error, size_t error_
 		received = download.received;
 		total = download.total;
 		SDL_UnlockMutex(download.lock);
+#ifdef HALO_CONSOLE_SETUP_SCREENS
+		if (screen)
+		{
+			char line[160];
+
+			snprintf(line, sizeof(line), "version %s  (%llu of %llu MB)", updater_latest_version, received >> 20,
+				total >> 20);
+			console_setup_screen_progress(screen, total ? (float)((double)received / (double)total) : 0.0f,
+				"Downloading the update...", line);
+		}
+#else
 		if (renderer)
 		{
 			char line[160];
@@ -697,9 +756,13 @@ static int updater_download_zip(const char *zip_path, char *error, size_t error_
 			SDL_RenderFillRect(renderer, &bar);
 			SDL_RenderPresent(renderer);
 		}
+#endif
 		SDL_Delay(16);
 	}
 	SDL_WaitThread(thread, NULL);
+#ifdef HALO_CONSOLE_SETUP_SCREENS
+	console_setup_screen_close(screen);
+#endif
 	if (renderer)
 		SDL_DestroyRenderer(renderer);
 	if (window)
@@ -1074,18 +1137,27 @@ static void updater_update(void)
 			updater_new_executable(names, name_count, start, sizeof(start));
 			platform_log("update: starting version %s (%s)", updater_latest_version,
 				strrchr(start, PATH_SEPARATOR[0]) ? strrchr(start, PATH_SEPARATOR[0]) + 1 : start);
+#ifdef HALO_PORT_UPDATE_RESTART_EXIT_CODE
+			/* (the port's script starts the new version itself when the game
+			exits with this code) */
+			exit(HALO_PORT_UPDATE_RESTART_EXIT_CODE);
+#endif
 			if (update_launch(start))
 				exit(EXIT_SUCCESS);
 			snprintf(error, sizeof(error), "the new version is in place, but could not be started: start it again");
 		}
 	}
 	platform_log("update: failed: %s", error);
+#ifdef HALO_CONSOLE_SETUP_SCREENS
+	console_setup_notice("The update failed, and the game goes on as it was:", error);
+#else
 	{
 		char message[800];
 
 		snprintf(message, sizeof(message), "The update failed:\n\n%s", error);
 		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Chupathingy", message, NULL);
 	}
+#endif
 }
 
 /* the game's program from before the rename, beside the renamed one: halo
@@ -1189,6 +1261,12 @@ void updater_start(void)
 	char *slash;
 	int packaged = platform_packaged();
 
+#ifdef HALO_CONSOLE_SETUP_SCREENS
+	/* (asked before the game's window opens, as the console has no dialogs:
+	updater_console_check, from the port's console_setup_after_data) */
+	return;
+#endif
+
 	/* (the macOS application only offers the download page, and a packaged
 	install the package manager: no files of their own to find or clean up) */
 	if (UPDATER_DOWNLOAD_PAGE_ONLY || packaged)
@@ -1215,6 +1293,14 @@ void updater_start(void)
 	is watching, but for a test with its answer; a packaged install's
 	update.auto is off, and its no is the one the file or the environment
 	gave: config_packaged_update_check) */
+	/* (a release's build with no update key, all zero in update_key.h, would
+	install unsigned updates: it never looks for any. configure.py refuses
+	to make one; this is for a build made some other way) */
+	if (HALO_RELEASE_BUILD && !UPDATER_TEST && !update_signature_required())
+	{
+		platform_log("update: this release build has no update key, so it does not look for updates");
+		return;
+	}
 	if (!(HALO_RELEASE_BUILD || UPDATER_TEST) ||
 		!(packaged ? config_packaged_update_check() : config_boolean("update.auto")) ||
 		(!config_string("debug.update_answer")[0] && (config_boolean("debug.hidden_window") ||
@@ -1232,6 +1318,69 @@ void updater_start(void)
 			SDL_SetAtomicInt(&updater_state, _updater_handled);
 	}
 }
+
+#ifdef HALO_CONSOLE_SETUP_SCREENS
+/* at start-up, before the game's window (the port's console_setup_after_data):
+a new version looked for, for as long as a player would not notice (no network
+must not hold the game up), and the player asked on the port's screen, with
+the pad. Downloaded, checked and put in place as on the desktop */
+void updater_console_check(void)
+{
+	/* (a slow console's first TLS takes seconds: its certificates, one core) */
+	const Uint64 patience = 8000;
+	Uint64 start = SDL_GetTicks();
+	const char *test_answer = config_string("debug.update_answer");
+	SDL_Thread *thread;
+	char *slash;
+	int answer = 0;
+
+	if (!update_executable_path(updater_executable, sizeof(updater_executable)))
+		return;
+	snprintf(updater_directory, sizeof(updater_directory), "%s", updater_executable);
+	slash = strrchr(updater_directory, PATH_SEPARATOR[0]);
+	if (!slash)
+		return;
+	*slash = 0;
+	updater_clean_up();
+	if (HALO_RELEASE_BUILD && !UPDATER_TEST && !update_signature_required())
+	{
+		platform_log("update: this release build has no update key, so it does not look for updates");
+		return;
+	}
+	if (!(HALO_RELEASE_BUILD || UPDATER_TEST) || !config_boolean("update.auto"))
+		return;
+	SDL_SetAtomicInt(&updater_state, _updater_checking);
+	thread = SDL_CreateThread(updater_check_thread, "update check", NULL);
+	if (!thread)
+	{
+		SDL_SetAtomicInt(&updater_state, _updater_handled);
+		return;
+	}
+	SDL_DetachThread(thread);
+	while (SDL_GetAtomicInt(&updater_state) == _updater_checking && SDL_GetTicks() - start < patience)
+		SDL_Delay(50);
+	if (SDL_GetAtomicInt(&updater_state) != _updater_available)
+	{
+		if (SDL_GetAtomicInt(&updater_state) == _updater_checking)
+			platform_log("update: no answer in time; the game starts without waiting");
+		return;
+	}
+	SDL_SetAtomicInt(&updater_state, _updater_handled);
+	if (test_answer[0])
+		answer = !strcmp(test_answer, "yes") ? 1 : !strcmp(test_answer, "never") ? 2 : 0;
+	else
+		answer = console_setup_update_question(updater_latest_version, HALO_VERSION);
+	if (answer == 1)
+	{
+		updater_update();
+	}
+	else if (answer == 2)
+	{
+		if (config_write_boolean("update.auto", 0))
+			platform_log("update: update.auto = false written to config.toml");
+	}
+}
+#endif
 
 int updater_gamescope(void);
 
@@ -1255,6 +1404,11 @@ void updater_poll(SDL_Window *window)
 	int fullscreen;
 	const char *test_answer = config_string("debug.update_answer");
 
+#ifdef HALO_CONSOLE_SETUP_SCREENS
+	/* (an answer too late for updater_console_check waits for the next start:
+	the console has no dialogs) */
+	return;
+#endif
 	if (SDL_GetAtomicInt(&updater_state) != _updater_available)
 		return;
 	SDL_SetAtomicInt(&updater_state, _updater_handled);

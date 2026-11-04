@@ -686,6 +686,9 @@ void network_test_update(boolean main_menu_loaded, real seconds);
 void audio_probe_update(unsigned char main_menu_loaded, float seconds);
 void team_change_update(void);
 #endif
+#ifdef HALO_GAME_BROWSER
+void host_rules_update(void);
+#endif
 #ifdef HALO_PORT_CHAT
 void chat_update(void);
 #endif
@@ -3709,6 +3712,10 @@ void main_loop(
 			/* changing teams during a game (port/linux/game/team_change.c) */
 			team_change_update();
 #endif
+#ifdef HALO_GAME_BROWSER
+			/* the host's rules for its players' extras (port/linux/game/host_rules.c) */
+			host_rules_update();
+#endif
 #ifdef HALO_PORT_CHAT
 			/* text chat (port/linux/game/chat.c; on a console, its client's
 			part) */
@@ -3768,7 +3775,6 @@ void main_loop(
 				void dedicated_server_update(void);
 				void probe_update(void);
 				void game_list_claims_update(void);
-				void game_stats_update(void);
 				void discord_game_update(void);
 
 				MAIN_STAGE("dedicated_server_update");
@@ -3777,8 +3783,18 @@ void main_loop(
 				probe_update();
 				MAIN_STAGE("game_list_claims_update");
 				game_list_claims_update();
-				game_stats_update();
 				discord_game_update();
+			}
+#endif
+#ifdef HALO_PORT_GAME_REPORTS
+			{
+				/* the statistics recorder and a joined game's report
+				(port/linux/game/game_stats.c): the desktop builds' game
+				list, or a console's reports (port/console/reports) */
+				void game_stats_update(void);
+
+				MAIN_STAGE("game_stats_update");
+				game_stats_update();
 			}
 #endif
 			MAIN_STAGE("bink_playback_update");

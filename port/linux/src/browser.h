@@ -35,7 +35,7 @@ those a listed game keeps (as many as the Online Games screen shows) */
 #define BROWSER_LISTED_ROSTER 16
 /* a listed game's machines by platform: Delta's registry
 (NUMBER_OF_DELTA_PLATFORMS), then those without Delta */
-#define BROWSER_MACHINE_KINDS 20
+#define BROWSER_MACHINE_KINDS 23
 
 /* how a listed game is hosted, and on what protocol, as the list says
 (docs/delta.md, Delta List): not known (an older host, or one listed by its
@@ -183,9 +183,10 @@ struct browser_report_player
 /* (the most a line's extra, and a report's, may be) */
 #define BROWSER_REPORT_EXTRA_SIZE 1024
 /* (room for every player who left a full game early, at about 500 bytes
-each; the original Xbox keeps the smaller one for its memory) */
-#ifdef HALO_XBOX_CONSOLE
-#define BROWSER_REPORT_GAME_EXTRA_SIZE 8192
+each; a console's report, a client's, has the few who left as scoreboard
+lines of about 80 bytes: port/console/reports) */
+#if defined(HALO_CONSOLE_GAME_REPORTS) && !defined(HALO_GAME_BROWSER)
+#define BROWSER_REPORT_GAME_EXTRA_SIZE 2048
 #else
 #define BROWSER_REPORT_GAME_EXTRA_SIZE 32768
 #endif
@@ -237,6 +238,9 @@ int browser_get_games(struct browser_game *games, int maximum_count);
 /* whether this build can join a game by its network version: 0 if it can
 (or may try), -1 if the game runs an older version, 1 a newer one */
 int browser_game_version_state(const struct browser_game *game);
+/* whether a listed game's host says its console and cheats may change it
+while others play (network.host_cheats: Delta List's capability bit 18) */
+int browser_game_host_cheats(const struct browser_game *game);
 /* the same for a bare network version (a listing over the brokers has no
 game list entry): -1 older, 1 newer, 0 joinable. Every build */
 int browser_version_state(int version);
@@ -276,6 +280,27 @@ enum
 	BROWSER_LIST_NONE,
 };
 int browser_list_status(void);
+
+/* whether the game this machine hosts is on the game list, and if not why:
+BROWSER_HOST_*. status: the list's HTTP answer when it refused (0: it did
+not answer), for BROWSER_HOST_FAILED */
+enum
+{
+	BROWSER_HOST_LISTED,
+	/* not hosting a game on the internet yet (or internet play is off) */
+	BROWSER_HOST_NOT_HOSTING,
+	/* hosted, but private or with a password: never listed */
+	BROWSER_HOST_PRIVATE,
+	/* network.list_hosted_games is off */
+	BROWSER_HOST_OFF,
+	/* network.browser_url is empty */
+	BROWSER_HOST_NO_LIST,
+	/* listable, and not offered to the list yet */
+	BROWSER_HOST_WAITING,
+	/* the list did not take it (offered again after a while) */
+	BROWSER_HOST_FAILED,
+};
+int browser_host_listing(int *status);
 
 /* a listed game with a password (locked: one heard on the brokers, whose
 invite browser_get_games gives as its key hash alone) opened: its joinable

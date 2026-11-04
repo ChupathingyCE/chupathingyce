@@ -77,6 +77,15 @@ boolean create_global_network_game_server(
 decides nothing the host does */
 boolean network_game_distributed_client(
 	void);
+/* port: whether this machine hosts a public internet game (open to anyone
+by its invite, no password: what the game list lists) with another machine
+in it, and network.host_cheats is off: the host's console then changes
+nothing of the game (hs.c) and its cheats are put back each tick
+(cheats_network_client_enforce). A LAN game, a private one, a password one
+or one with no one else in it keeps the host's console as ever. FALSE on a
+build without internet hosting */
+boolean network_game_host_cheats_refused(
+	void);
 /**
  * @brief Whether game.start_with_one_player (or its older name,
  * debug.solo_game) is on (port/linux/src/port_config.c): a game this

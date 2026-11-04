@@ -1,0 +1,13 @@
+# the game and SDL3, copied in to link the app (README.md)
+app/lib/
+app/lib-tvos/
+# what XcodeGen makes of app/project.yml, and the build
+app/ChupathingyCE.xcodeproj/
+app/Info.plist
+app/Info-tvOS.plist
+app/build/
+app/Payload/
+app/*.ipa
+# copied into the bundle (README.md)
+app/Resources/brokers.txt
+app/Resources/cacert.pem

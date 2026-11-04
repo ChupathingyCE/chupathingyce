@@ -246,6 +246,16 @@ int LLVMFuzzerTestOneInput(const unsigned char *data, size_t size)
 				__builtin_trap();
 		}
 		{
+			struct delta_wire_host_rules rules;
+
+			if (delta_wire_read_host_rules(data + DELTA_WIRE_HEADER_SIZE, header.length, &rules) &&
+				((rules.flags & ~DELTA_WIRE_HOST_KNOWN_FLAGS) || rules.team_change > DELTA_WIRE_HOST_TEAM_CHANGE_ALLOW ||
+					rules.team_change_margin > DELTA_WIRE_HOST_TEAM_CHANGE_MAXIMUM_MARGIN))
+			{
+				__builtin_trap();
+			}
+		}
+		{
 			static struct delta_wire_unit_vitals vitals;
 			static struct delta_wire_object_names names;
 			const unsigned char *payload = data + DELTA_WIRE_HEADER_SIZE;

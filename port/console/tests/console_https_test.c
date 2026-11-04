@@ -11,12 +11,13 @@ one).
 
   console_https_test PORT HOST [--pin HEX] [--root FILE.der] [--path PATH]
       [--body JSON] [--no-random] [--no-port] [--size BYTES] [--plain-port PORT]
-      [--pins FILE] [--live] [--parse]
+      [--pins FILE] [--live] [--stream] [--parse]
 
 --plain-port is where the pin document is asked for over plain HTTP, and
 --pins the file the newest one is kept in. --live asks the real host (PORT unused) with the real pins and roots. It
 prints the result's number and words, the HTTP status, the arena's peak and
-the body. --parse runs the response parser's own checks instead.
+the body. --stream asks by console_https_get_stream instead, and prints
+the size it was told, how many bytes came, and the body. --parse runs the response parser's own checks instead.
 */
 
 #include "console_https.h"
@@ -33,6 +34,7 @@ the body. --parse runs the response parser's own checks instead.
 #include <sys/select.h>
 #include <sys/socket.h>
 #include <sys/time.h>
+#include <time.h>
 #include <unistd.h>
 
 static unsigned short server_port;
@@ -185,10 +187,19 @@ static void test_log(const char *text)
 	fprintf(stderr, "%s\n", text);
 }
 
+/* (--clock: the console's clock reads this: seconds, or "now" (the host's),
+"build" (the build's day) or "behind" (the day before it)) */
+static long long clock_seconds;
+
+static long long test_clock(void)
+{
+	return clock_seconds;
+}
+
 static struct console_https_port test_port =
 {
 	test_connect, test_send, test_receive, test_close, test_random, now_ms, NULL, NULL, test_log, "Warthog/1 (test)",
-	test_plain_get, NULL,
+	test_plain_get, NULL, NULL,
 };
 
 static int hex_digit(char c)
@@ -200,6 +211,31 @@ static int hex_digit(char c)
 	if (c >= 'A' && c <= 'F')
 		return c - 'A' + 10;
 	return -1;
+}
+
+/* (--stream: the body, as console_https_get_stream passes it) */
+struct stream_result
+{
+	char *body;
+	unsigned long size, told;
+	int limit;
+};
+
+static void stream_size(unsigned long size, void *context)
+{
+	((struct stream_result *)context)->told = size;
+}
+
+static int stream_body(const char *data, unsigned long size, void *context)
+{
+	struct stream_result *result = (struct stream_result *)context;
+	unsigned long keep = size;
+
+	if (result->size + keep > (unsigned long)result->limit)
+		keep = result->size < (unsigned long)result->limit ? (unsigned long)result->limit - result->size : 0;
+	memcpy(result->body + result->size, data, keep);
+	result->size += keep;
+	return keep == size;
 }
 
 static int check(int condition, const char *what)
@@ -248,6 +284,7 @@ int main(int argc, char **argv)
 	int status = 0, result, index;
 	int reply_size = 4096;
 	int port_given = 1;
+	int stream = 0;
 	char *reply;
 
 	if (argc == 2 && !strcmp(argv[1], "--parse"))
@@ -298,8 +335,19 @@ int main(int argc, char **argv)
 			test_port.pins_path = argv[++index];
 		else if (!strcmp(argv[index], "--live"))
 			live = 1;
+		else if (!strcmp(argv[index], "--stream"))
+			stream = 1;
 		else if (!strcmp(argv[index], "--no-port"))
 			port_given = 0;
+		else if (!strcmp(argv[index], "--clock") && index + 1 < argc)
+		{
+			const char *value = argv[++index];
+
+			clock_seconds = !strcmp(value, "now") ? (long long)time(NULL) :
+				!strcmp(value, "build") ? console_https_build_seconds() :
+				!strcmp(value, "behind") ? console_https_build_seconds() - 86400 : atoll(value);
+			test_port.unix_seconds = test_clock;
+		}
 		else
 			return 2;
 	}
@@ -320,7 +368,21 @@ int main(int argc, char **argv)
 	if (port_given)
 		console_https_initialize(&test_port);
 	reply = malloc((size_t)reply_size + 1);
-	result = console_https_call(host, path, body, &status, reply, reply_size, 20000);
+	if (stream)
+	{
+		struct stream_result streamed;
+
+		streamed.body = reply;
+		streamed.size = streamed.told = 0;
+		streamed.limit = reply_size;
+		result = console_https_get_stream(host, path, "X-Test: 1\r\n", &status, stream_size, stream_body, &streamed,
+			20000);
+		reply[streamed.size] = 0;
+		printf("told %lu\n", streamed.told);
+		printf("received %lu\n", streamed.size);
+	}
+	else
+		result = console_https_call(host, path, body, &status, reply, reply_size, 20000);
 	printf("result %d %s\n", result, console_https_error_string(result));
 	printf("status %d\n", status);
 	printf("peak %lu\n", console_https_arena_peak());

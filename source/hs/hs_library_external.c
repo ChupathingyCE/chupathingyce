@@ -104,6 +104,7 @@ symbols in this file:
 #include "sound/sound_definitions.h"
 #include "units/units.h"
 #include "hs/hs.h"
+#include "game/cheats.h"
 #include "object_lists.h"
 #include "network_coop.h" /* port: port/linux/game/network_coop.c */
 #include "coop_scripts.h" /* port: port/linux/game/coop_scripts.c */
@@ -464,8 +465,10 @@ void hs_object_create(
 				"WARNING: object_create - '%s' already exists",
 				object_name->name);
 		}
-		else
-			object_new_by_name(object_name_index);
+		/* port: a network game's host, from its console: no more than its
+		quota (cheats.c; a map's own scripts are not counted) */
+		else if (cheats_console_object_allowed())
+			cheats_console_object_made(object_new_by_name(object_name_index));
 	}
 
 	return;

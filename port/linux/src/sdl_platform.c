@@ -213,6 +213,12 @@ static void new_defaults_offer(BOOL quiet)
 
 #ifndef HALO_ANDROID
 static BOOL data_has_xbox_maps(const char *destination);
+#ifdef HALO_CONSOLE_SETUP_SCREENS
+/* the port's start-up screens, for a console with no dialogs or file picker
+(halo_console_features.h); platform_offer_game_data is the port's too */
+void console_setup_start(void);
+void console_setup_after_data(const char *data_root);
+#endif
 
 /* the maps folder checked to hold the Xbox maps (platform_maps_folder_check).
 When it holds Halo PC's instead, or no ui.map, the player is told where each
@@ -399,6 +405,10 @@ BOOL platform_sdl_initialize(void)
 		return FALSE;
 	}
 	platform_sdl_started = TRUE;
+#ifdef HALO_CONSOLE_SETUP_SCREENS
+	/* (the port's: halo_console_features.h) */
+	console_setup_start();
+#endif
 	/* which build this is, first in its log (build_identity.c) */
 	build_identity_log();
 #ifndef HALO_ANDROID
@@ -406,6 +416,9 @@ BOOL platform_sdl_initialize(void)
 	game's window opens, and checked to be the Xbox maps */
 	platform_data_root();
 	data_check_maps();
+#ifdef HALO_CONSOLE_SETUP_SCREENS
+	console_setup_after_data(platform_data_root());
+#endif
 	/* (a new version looked for meanwhile, updater_poll asking about it) */
 	updater_start();
 #ifndef _WIN32
@@ -576,7 +589,7 @@ BOOL platform_import_poll(char *file, int file_size, unsigned long long *done, u
 	return finished;
 }
 
-#ifndef HALO_LAUNCHER
+#if !defined(HALO_LAUNCHER) && !defined(HALO_CONSOLE_SETUP_SCREENS)
 /* copies the maps, showing how far it has got; closing the window quits.
 The bytes written in written (0 when the folder had them all) */
 static BOOL data_extract(int kind, const char *image, const char *destination, unsigned long long *written,
@@ -719,7 +732,7 @@ static BOOL data_has_xbox_maps(const char *destination)
 	return posix_find_entry_case_insensitive(maps, "ui.map", on_disk, sizeof(on_disk)) != 0;
 }
 
-#ifndef HALO_LAUNCHER
+#if !defined(HALO_LAUNCHER) && !defined(HALO_CONSOLE_SETUP_SCREENS)
 /* "make the folders": the maps folders made empty, what goes where shown,
 and checked again when the player says so; TRUE once the Xbox maps are
 there, FALSE to go back to the choices */
@@ -871,7 +884,7 @@ BOOL platform_offer_game_data(char *destination, unsigned long size)
 		}
 	}
 }
-#else
+#elif defined(HALO_LAUNCHER)
 /* the launcher's Welcome (launcher.c), in the game's window */
 BOOL platform_offer_game_data(char *destination, unsigned long size)
 {
@@ -1321,6 +1334,12 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 2);
+#elif defined(HALO_CONSOLE_GLES2)
+	/* ES 2, which the port fills out to the ES 3 the renderer uses
+	(console_gles2_layer) */
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
 #elif defined(__APPLE__)
 	/* macOS stops at OpenGL 4.1, whose core contexts must be forward
 	compatible; the renderer does without what it uses from later versions
@@ -1446,7 +1465,7 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 #endif
 		return FALSE;
 	}
-#ifdef __APPLE__
+#if defined(__APPLE__) && !defined(HALO_IOS)
 	{
 		/* port/macos/src/macos_video.c */
 		void macos_set_swap_interval(int interval);
@@ -1516,7 +1535,7 @@ void platform_display_apply(void)
 	if (!platform_window)
 		return;
 #endif
-#ifdef __APPLE__
+#if defined(__APPLE__) && !defined(HALO_IOS)
 	{
 		/* (the context's own interval, as at start-up: SDL's stays off) */
 		void macos_set_swap_interval(int interval);
@@ -1532,6 +1551,45 @@ void platform_video_drawable_size(int *width, int *height)
 {
 	SDL_GetWindowSizeInPixels(platform_window, width, height);
 }
+
+#ifdef HALO_IOS
+/* the part of the window the picture goes in, as fractions of it (x, y,
+width, height from the top left): port/ios/src/ios_touch.m */
+void host_present_area(float *area);
+
+void platform_video_present_area(int *x, int *y, int *width, int *height)
+{
+	int drawable_width = 0, drawable_height = 0;
+	float area[4] = { 0.0f, 0.0f, 1.0f, 1.0f };
+
+	platform_video_drawable_size(&drawable_width, &drawable_height);
+	*x = *y = 0;
+	*width = drawable_width;
+	*height = drawable_height;
+	host_present_area(area);
+	if (area[2] > 0.0f && area[3] > 0.0f && area[0] >= 0.0f && area[1] >= 0.0f &&
+		area[0] + area[2] <= 1.0f && area[1] + area[3] <= 1.0f)
+	{
+		*x = (int)(area[0] * drawable_width);
+		*y = (int)(area[1] * drawable_height);
+		*width = (int)(area[2] * drawable_width);
+		*height = (int)(area[3] * drawable_height);
+	}
+	if (*width <= 0 || *height <= 0)
+	{
+		*x = *y = 0;
+		*width = drawable_width;
+		*height = drawable_height;
+	}
+}
+
+/* (SDL's view makes it with the context: xgpu.h) */
+unsigned int platform_window_framebuffer(void)
+{
+	return (unsigned int)SDL_GetNumberProperty(SDL_GetWindowProperties(platform_window),
+		SDL_PROP_WINDOW_UIKIT_OPENGL_FRAMEBUFFER_NUMBER, 0);
+}
+#endif
 
 /* with vsync off, the time between frames display.max_fps asks for (0:
 twice the display's refresh rate), or 0 for no limit. A GPU never left idle
@@ -2109,6 +2167,12 @@ void platform_scoreboard_scroll(int open, long *notches, long *pages)
 	pthread_mutex_unlock(&input_lock);
 }
 
+#ifdef HALO_CONSOLE_PERFORMANCE_MODE
+/* the port's: performance mode's passes left out, and its switch read
+(halo_console_features.h) */
+void console_performance_update(void);
+#endif
+
 void platform_pump_events(void)
 {
 	/* debug.exit_after (seconds) ends the game that long after the window
@@ -2117,6 +2181,10 @@ void platform_pump_events(void)
 	SDL_Event event;
 	static BOOL looked_at_clipboard;
 	BOOL look_at_clipboard = !looked_at_clipboard;
+
+#ifdef HALO_CONSOLE_PERFORMANCE_MODE
+	console_performance_update();
+#endif
 
 #ifdef HALO_GAME_BROWSER
 	/* the dedicated server has no window, but stops as asked (SIGTERM or
@@ -2368,7 +2436,7 @@ void platform_pump_events(void)
 			break;
 #endif
 		case SDL_EVENT_GAMEPAD_ADDED:
-#ifdef HALO_ANDROID
+#if defined(HALO_ANDROID) && !defined(HALO_IOS)
 			/* (the guest reaches SDL only through host_imports.list, which
 			has no SDL_GetGamepadName) */
 			SDL_OpenGamepad(event.gdevice.which);

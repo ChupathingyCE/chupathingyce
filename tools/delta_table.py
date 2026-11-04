@@ -31,6 +31,17 @@ it:
 
     "chupa-39a": {"announce": 39, "minimum": 11, "maximum": 40, "hosting": [41]}
 
+A row of a wire from chupa-41a on may also carry "requires" (docs/delta.md,
+"Host protections"): the host protections (delta.h's DELTA_HOST_PROTECTIONS)
+a host must have to announce any number the row proves past its build's
+own; a build without one announces its own number and still joins the row's
+range. This tool refuses a name delta.h does not list, and a chupa-41a row
+whose announce is past what its builds that skip "requires" announce (they
+read announce alone: put the newer number in "hosting"):
+
+    "chupa-41a": {"announce": 32, "minimum": 11, "maximum": 42, "hosting": [42],
+                  "requires": ["hit_line_of_sight"]}
+
 Its signature,
 legacy.json.sig: the Ed25519 signature of legacy.json's exact bytes, as 128
 hex digits and a line feed. A build reads only its own wire's row
@@ -52,6 +63,9 @@ the numbers the build was made with. At most 16384 bytes.
         by +), for a wire from chupa-38a on
         --hosting WIRE=VERSION[,VERSION...] adds versions the gate proved
         for hosting alone to a wire's row (its "hosting" list)
+        --requires WIRE=NAME[,NAME...] adds host protections a host must have
+        to announce past its own number (its "requires" list; only added to,
+        and kept by every later make)
     delta_table.py sign --key KEY.pem legacy.json      writes legacy.json.sig
     delta_table.py verify [--public-key HEX [--last-epoch N]] legacy.json
         checks legacy.json.sig against the key (or delta_key.h's keys), and
@@ -97,6 +111,13 @@ FOLLOWS = re.compile(r"[A-Za-z0-9._-]{1,31}")
 # clients), oldest first, each once; delta.h's DELTA_HOSTING_MAXIMUM
 HOSTING_MAXIMUM = 8
 POLICY_MAXIMUM = 4096
+# a row's "requires": host protections, each once, at most delta.h's
+# DELTA_REQUIRES_MAXIMUM; the first wire whose builds read it, and for a
+# wire some of whose released builds skip it, the newest number those
+# announce (0.8.1d: chupa-41a, its own 32), which the row's announce may not
+# pass while it requires anything
+REQUIRES_WIRE = (41, "a")
+REQUIRES_SKIPPED_ANNOUNCE = {"chupa-41a": 32}
 # the first wire whose builds read a row's layouts, and their join request's
 # length in them
 LAYOUT_WIRE = (38, "a")
@@ -168,6 +189,21 @@ def wire_newest() -> dict:
     block = text[text.index("#define DELTA_WIRE_LEGACY_NEWEST(X)"):]
     block = block[:block.index("\n\n")]
     return {name: int(number) for name, number in re.findall(r'X\("([^"]+)", (\d+)\)', block)}
+
+
+def host_protections() -> dict:
+    """the host protections a row may require, and whether this build has
+    each (delta.h's DELTA_HOST_PROTECTIONS)"""
+    text = DELTA.read_text(encoding="utf-8")
+    block = text[text.index("#define DELTA_HOST_PROTECTIONS(X)"):]
+    block = block[:block.index("\n/*")]
+    return {name: has == "1" for name, has in re.findall(r"X\((\w+), ([01])\)", block)}
+
+
+def reads_requires(name: str) -> bool:
+    """whether a wire's builds read a row's requires (chupa-41a on)"""
+    match = WIRE_ID.fullmatch(name)
+    return bool(match) and (int(match.group(1)), match.group(2)) >= REQUIRES_WIRE
 
 
 def limits() -> dict:
@@ -337,6 +373,8 @@ def parse(document: bytes, own_wire: str = None) -> dict:
             raise TableError(f"wire {name}'s follows is not an OpenCE build's tag")
         if "hosting" in row:
             check_hosting(name, row["hosting"])
+        if "requires" in row:
+            check_requires(name, row)
         if "layouts" in row:
             check_layouts(name, row["layouts"])
     policy = table.get("platform_policy", {})
@@ -404,6 +442,50 @@ def check_hosting(name: str, hosting) -> None:
         raise TableError(f"wire {name}'s hosting is not oldest first, each once")
 
 
+def check_requires(name: str, row: dict) -> None:
+    """a row's requires, as the game reads it (delta.c's json_requires), its
+    names the ones delta.h lists"""
+    requires = row["requires"]
+    maximum = header_number(DELTA, "DELTA_REQUIRES_MAXIMUM")
+    if not isinstance(requires, list) or len(requires) > maximum or not all(isinstance(item, str) for item in requires):
+        raise TableError(f"wire {name}'s requires is not a list of at most {maximum} names")
+    if len(set(requires)) != len(requires):
+        raise TableError(f"wire {name}'s requires names a protection twice")
+    known = host_protections()
+    for protection in requires:
+        if protection not in known:
+            raise TableError(f"wire {name} requires an unknown host protection {protection!r} (delta.h's "
+                             f"DELTA_HOST_PROTECTIONS: {', '.join(known)})")
+    if requires and not reads_requires(name):
+        raise TableError(f"wire {name}'s builds read no requires (wires from chupa-{REQUIRES_WIRE[0]}"
+                         f"{REQUIRES_WIRE[1]} on do)")
+    ceiling = REQUIRES_SKIPPED_ANNOUNCE.get(name)
+    if requires and ceiling is not None and row["announce"] > ceiling:
+        raise TableError(f"wire {name}'s announce {row['announce']} is past {ceiling}, which its builds that skip "
+                         f"requires announce: they would host it unchecked (put it in hosting)")
+
+
+def missing_protections(row: dict) -> list:
+    """the protections a row requires that this build lacks"""
+    known = host_protections()
+    return [protection for protection in row.get("requires", []) if not known.get(protection)]
+
+
+def add_requires(row: dict, names) -> dict:
+    """a row with protections added to its requires (each once, in order)"""
+    requires = list(row.get("requires", []))
+    requires += [name for name in names if name not in requires]
+    return dict(row, requires=requires) if requires else row
+
+
+def parse_requires(text: str) -> tuple:
+    """--requires's WIRE=NAME[,NAME...]"""
+    match = re.fullmatch(r"([a-z0-9-]{1,31})=([a-z0-9_]{1,31}(?:,[a-z0-9_]{1,31})*)", text)
+    if not match:
+        raise TableError(f"--requires {text}: not WIRE=NAME[,NAME...]")
+    return match.group(1), match.group(2).split(",")
+
+
 def hosting_newest(row: dict) -> int:
     """the newest version a row proves for hosting (its announce, or its
     hosting list's newest): what builds that read the list announce"""
@@ -462,16 +544,20 @@ def widens(row: dict, floor: dict) -> bool:
 
 
 def numbers(row: dict) -> dict:
-    return {key: row[key] for key in ("announce", "minimum", "maximum", "follows", "hosting") if key in row}
+    return {key: row[key] for key in ("announce", "minimum", "maximum", "follows", "hosting", "requires") if key in row}
 
 
 def make(serial: int, issued: int = None, previous: dict = None, rows: dict = None, take_back: dict = None,
-         layouts: list = None, hosting: list = None) -> bytes:
+         layouts: list = None, hosting: list = None, requires: list = None) -> bytes:
     wires = {name: dict(row) for name, row in previous["wires"].items()} if previous else {}
     old = wires.get(wire())
     wires[wire()] = built_in()
     if old and widens(old, wires[wire()]):
         wires[wire()] = numbers(old)
+    elif old and "requires" in old:
+        # (a protection required is never dropped by a make: only a person
+        # editing the table takes one away)
+        wires[wire()] = add_requires(wires[wire()], old["requires"])
     # (this build's wire: its own facts, and the facts past them a table has)
     if reads_layouts(wire()):
         facts = {version: fact for version, fact in ((old or {}).get("layouts") or {}).items()
@@ -487,6 +573,8 @@ def make(serial: int, issued: int = None, previous: dict = None, rows: dict = No
             row = dict(row, layouts=floor["layouts"])
         if floor and "hosting" in floor:
             row = add_hosting(row, floor["hosting"])
+        if floor and "requires" in floor:
+            row = add_requires(row, floor["requires"])
         wires[name] = row
     # (a follow taken back: the row set to the wire's shipped numbers again,
     # which builds of that wire take, being no less than what they shipped
@@ -496,6 +584,8 @@ def make(serial: int, issued: int = None, previous: dict = None, rows: dict = No
             raise TableError(f"--take-back {name}: {row} is below this build's own numbers {built_in()}")
         if name in wires and "layouts" in wires[name]:
             row = dict(row, layouts=wires[name]["layouts"])
+        if name in wires and "requires" in wires[name]:
+            row = add_requires(row, wires[name]["requires"])
         wires[name] = row
     # (versions proved for hosting alone: builds that read the list announce
     # the newest, older ones the row's announce, so the row is otherwise kept)
@@ -508,6 +598,11 @@ def make(serial: int, issued: int = None, previous: dict = None, rows: dict = No
         wires[name] = add_hosting(wires[name], versions)
         if layouts_kept is not None:
             wires[name]["layouts"] = layouts_kept
+    # (host protections a row requires: only ever added to)
+    for name, names in requires or []:
+        if name not in wires:
+            raise TableError(f"--requires {name}: the table has no row for it")
+        wires[name] = add_requires(wires[name], names)
     # (a fact past a wire's own versions: what its builds read by data)
     for name, version, fact in layouts or []:
         if not reads_layouts(name):
@@ -703,6 +798,10 @@ def main() -> int:
                          help="versions the cross-play gate proved for hosting alone (our host, their clients) "
                               "for a wire's row: its builds from auto-announce on announce the newest; older "
                               "builds skip the list")
+    command.add_argument("--requires", action="append", default=[], metavar="WIRE=NAME[,NAME...]",
+                         help="host protections (delta.h's DELTA_HOST_PROTECTIONS) a host must have to announce "
+                              "past its own number, added to a wire's row (chupa-41a on); a build without one "
+                              "announces its own number")
     command.add_argument("--out", type=Path)
     command = commands.add_parser("sign")
     command.add_argument("--key", type=Path, required=True)
@@ -728,7 +827,8 @@ def main() -> int:
             take_back = dict(parse_row(row) for row in arguments.take_back)
             layouts = [parse_layout(layout) for layout in arguments.layout]
             hosting = [parse_hosting(text) for text in arguments.hosting]
-            document = make(arguments.serial, arguments.issued, previous, rows, take_back, layouts, hosting)
+            requires = [parse_requires(text) for text in arguments.requires]
+            document = make(arguments.serial, arguments.issued, previous, rows, take_back, layouts, hosting, requires)
             if arguments.out:
                 arguments.out.write_bytes(document)
             else:
@@ -752,6 +852,10 @@ def main() -> int:
             row = table["wires"].get(wire())
             print(f"{arguments.document}: signed, serial {table['serial']} (epoch {epoch(table['serial'])}); "
                   f"{wire()}: {row or 'no row'}")
+            missing = missing_protections(row or {})
+            if missing:
+                print(f"this build hosts no more than its own {built_in()['announce']} by it: it lacks the host "
+                      f"protection{'s' if len(missing) > 1 else ''} {', '.join(missing)}")
         elif arguments.command == "next-serial":
             previous = parse(arguments.previous.read_bytes())["serial"] if arguments.previous else 0
             print(next_serial(previous, arguments.new_epoch))

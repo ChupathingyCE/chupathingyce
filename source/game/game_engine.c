@@ -598,8 +598,10 @@ struct network_game *network_game_server_get_game(struct network_game_server *se
 #include "main/console.h"
 #endif
 #ifdef HALO_GAME_BROWSER
-#include "../../port/linux/src/browser.h"
 #include "../../port/linux/src/ui_overlay.h"
+#endif
+#ifdef HALO_PORT_GAME_REPORTS
+#include "../../port/linux/src/browser.h"
 /* port/linux/game/game_stats.c's */
 void game_stats_player_killed(long killing_player_index, long dead_player_index, boolean friendly_fire);
 void game_stats_player_extra(long player_index, char *text, long size, short *multikills);
@@ -610,6 +612,9 @@ boolean game_stats_line_full(long player_index, boolean host);
 #ifdef HALO_CUSTOM_EDITION
 /* cache_files.c's */
 boolean cache_file_tags_are_ce(void);
+#endif
+#ifdef HALO_PORT_CONSOLE_LIMITS
+#include "../../port/linux/game/network_game_layout.h"
 #endif
 
 /* network_game_globals.c's */
@@ -3083,11 +3088,12 @@ long game_engine_remap_equipment(
 			break;
 		}
 
-		/* (port: whatever the number of players, as
-		game_engine_infinite_grenades_internal) */
-		if (game_engine_infinite_grenades_internal())
+		if (!TEST_FLAG(game_engine_globals.flags, _game_engine_5_or_more_players_bit))
 		{
-			weapon_list_index = NONE;
+			if (game_engine_infinite_grenades_internal())
+			{
+				weapon_list_index = NONE;
+			}
 		}
 
 		if (TEST_FLAG(game_engine_globals.flags, _game_engine_9_or_more_players_bit))
@@ -3615,9 +3621,13 @@ boolean match_game_type(
 static boolean game_engine_infinite_grenades_internal(
 	void)
 {
-	/* port: whatever the number of players (the Xbox game's had none with
-	five or more) */
-	return TEST_FLAG(global_variant.universal_variant.flags, _game_variant_infinite_grenades_bit);
+	boolean infinite_grenades = FALSE;
+
+	/* (none with five or more players, as on the Xbox) */
+	if (!TEST_FLAG(game_engine_globals.flags, _game_engine_5_or_more_players_bit))
+		infinite_grenades = TEST_FLAG(global_variant.universal_variant.flags, _game_variant_infinite_grenades_bit);
+
+	return infinite_grenades;
 }
 
 static boolean find_closest_player_callback(
@@ -5010,7 +5020,7 @@ void game_engine_player_killed(
 		return;
 	}
 #endif
-#ifdef HALO_GAME_BROWSER
+#ifdef HALO_PORT_GAME_REPORTS
 	/* the game list's statistics recorder (port/linux/game/game_stats.c):
 	who killed whom, as this machine's game has it; it changes nothing */
 	if (!team_change)
@@ -5065,7 +5075,11 @@ void game_engine_player_killed(
 		}
 	}
 
-	if (!player_kill && !team_change)
+	/* port: a betrayed player respawns on the normal timer: the suicide
+	penalty is for suicides and deaths nobody caused. The betrayer takes it
+	instead, on their next respawn (below). The Xbox gave it to the betrayed
+	player too (owner's call, 2026-11-03: someone killed them) */
+	if (!player_kill && !team_change && !(friendly_fire && valid_players && !same_player))
 		dead_player->respawn_timer += global_variant.universal_variant.suicide_penalty;
 
 	/* port: a team change waiting for the death (team_change.c): the player
@@ -5105,8 +5119,9 @@ void game_engine_player_killed(
 		}
 	}
 
-	/* port: the gametype's friendly fire penalty: the team killer's next
-	respawn later (the dead's own, if he has one waiting) */
+	/* port: the betrayer's penalty: the gametype's suicide penalty plus its
+	friendly fire penalty, on the team killer's next respawn (the dead's own,
+	if he has one waiting) */
 	{
 		long dead_absolute = DATUM_INDEX_TO_ABSOLUTE_INDEX(dead_player_index);
 
@@ -5118,8 +5133,11 @@ void game_engine_player_killed(
 		if (friendly_fire && valid_players && !same_player && global_variant.universal_variant.teams &&
 			DATUM_INDEX_TO_ABSOLUTE_INDEX(killing_player_index) < HALO_PORT_MAXIMUM_NETWORK_PLAYERS)
 		{
+			long penalty = global_variant.universal_variant.suicide_penalty +
+				(long)(game_variant_options_get()->friendly_fire_penalty * TICKS_PER_SECOND);
+
 			game_engine_betrayal_penalty[DATUM_INDEX_TO_ABSOLUTE_INDEX(killing_player_index)] =
-				(short)(game_variant_options_get()->friendly_fire_penalty * TICKS_PER_SECOND);
+				(short)MIN(penalty, 32767);
 		}
 	}
 
@@ -5722,7 +5740,7 @@ void game_engine_load_stage(
 	return;
 }
 
-#ifdef HALO_GAME_BROWSER
+#ifdef HALO_PORT_GAME_REPORTS
 /* the lines of a carnage report: the players in the postgame's order, as
 this machine's game has them (the host's own, or a client's copy of the
 host's statistics and scores, network_distributed.c), each with what the
@@ -5734,9 +5752,18 @@ long game_engine_report_lines(
 	long maximum)
 {
 	static struct statistic_buffer ranking[MULTIPLAYER_MAXIMUM_PLAYERS];
-	static char extras[MULTIPLAYER_MAXIMUM_PLAYERS][BROWSER_REPORT_EXTRA_SIZE];
+	/* (the recorder's parts of the lines that go in full: every player's
+	on a host; on a console, whose report is a client's, its own players'
+	alone, game_stats_line_full, so it keeps room for those) */
+#if defined(HALO_GAME_BROWSER)
+	enum { MAXIMUM_EXTRA_LINES = MULTIPLAYER_MAXIMUM_PLAYERS };
+#else
+	enum { MAXIMUM_EXTRA_LINES = MAXIMUM_LOCAL_PLAYERS };
+#endif
+	static char extras[MAXIMUM_EXTRA_LINES][BROWSER_REPORT_EXTRA_SIZE];
 	struct network_game_server *server = global_network_game_server_get();
 	long count = populate_statistic_buffer(ranking, _postgame_statistic_ranking, FALSE);
+	long extra_lines = 0;
 	long index;
 
 	if (count > maximum)
@@ -5765,6 +5792,9 @@ long game_engine_report_lines(
 		line->shots_hit = player->statistics.shots_hit;
 		line->color = player->network_player_data.primary_color_index;
 		line->minimal = !game_stats_line_full(ranking[index].player_index, server != NULL);
+#ifdef HALO_GAME_BROWSER
+		/* (the host's own report alone: its lines' tags, browser.c; the
+		address is never sent) */
 		if (server)
 		{
 			unsigned long network_game_server_machine_ipv4_address(struct network_game_server *server,
@@ -5773,6 +5803,7 @@ long game_engine_report_lines(
 			line->address = network_game_server_machine_ipv4_address(server,
 				player->network_player_data.machine_index);
 		}
+#endif
 		/* (the game type's statistics: the union's member for this game) */
 		switch (global_variant.game_engine_index)
 		{
@@ -5792,31 +5823,38 @@ long game_engine_report_lines(
 			line->laps = player->statistics.multiplayer_statistics.race_statistics.laps;
 			break;
 		}
+		/* (only a full line's go: game_report.c) */
+		if (!line->minimal && extra_lines < MAXIMUM_EXTRA_LINES)
 		{
+			char *extra = extras[extra_lines++];
 			short multikills = line->multikills;
 
-			extras[index][0] = 0;
-			if (!line->minimal)
-				game_stats_player_extra(ranking[index].player_index, extras[index], BROWSER_REPORT_EXTRA_SIZE,
-					&multikills);
+			extra[0] = 0;
+			game_stats_player_extra(ranking[index].player_index, extra, BROWSER_REPORT_EXTRA_SIZE, &multikills);
 			line->multikills = multikills;
-			/* (a Bomb game's own members: docs/bomb.md, Reports) */
+#ifdef HALO_GAME_BROWSER
+			/* (a Bomb game's own members: docs/bomb.md, Reports; Bomb is the
+			desktop builds') */
 			{
 				char bomb[192];
-				size_t used = strlen(extras[index]);
+				size_t used = strlen(extra);
 
 				if (game_engine_bomb_report_player(ranking[index].player_index, bomb, sizeof(bomb)) &&
 					used + strlen(bomb) + 3 < BROWSER_REPORT_EXTRA_SIZE)
 				{
-					snprintf(extras[index] + used, BROWSER_REPORT_EXTRA_SIZE - used, "%s%s", used ? ", " : "", bomb);
+					snprintf(extra + used, BROWSER_REPORT_EXTRA_SIZE - used, "%s%s", used ? ", " : "", bomb);
 				}
 			}
-			line->extra = extras[index];
+#endif
+			line->extra = extra;
 		}
 	}
 	return count;
 }
 
+#endif
+
+#ifdef HALO_GAME_BROWSER
 /* the carnage report of a game this machine hosts, as it ends, for the game
 list (port/linux/src/browser.c, which sends it if the game is listed). A
 game that is quit or crashes never gets here, so it is never reported. */
@@ -9994,6 +10032,98 @@ long game_engine_write_network_state(
 	return sizeof(postgame_state) + written;
 }
 
+#ifdef HALO_PORT_CONSOLE_LIMITS
+/* port: (game_engine.h) a PC host's state, at the network's 128 slots,
+into this build's */
+#define GAME_ENGINE_NETWORK_STATE_MAXIMUM_FIELDS 16
+
+static boolean game_engine_network_state_layout(
+	struct game_engine_network_state_field const *fields,
+	long field_count,
+	struct network_game_layout_field *layout)
+{
+	long field_index;
+
+	if (field_count <= 0 || field_count > GAME_ENGINE_NETWORK_STATE_MAXIMUM_FIELDS)
+		return FALSE;
+	for (field_index = 0; field_index < field_count; field_index++)
+	{
+		layout[field_index].element_size = fields[field_index].element_size;
+		layout[field_index].per_slot = fields[field_index].per_slot;
+		layout[field_index].blank = fields[field_index].blank;
+	}
+	return TRUE;
+}
+
+long game_engine_network_state_fold(
+	byte const *buffer,
+	long size,
+	void *state,
+	long state_size,
+	struct game_engine_network_state_field const *fields,
+	long field_count,
+	char const *name)
+{
+	struct network_game_layout_field layout[GAME_ENGINE_NETWORK_STATE_MAXIMUM_FIELDS];
+	int dropped;
+
+	if (!game_engine_network_state_layout(fields, field_count, layout) ||
+		size != (long)network_game_layout_fields_size(layout, (int)field_count, HALO_PORT_WIRE_NETWORK_PLAYERS))
+	{
+		return NONE;
+	}
+	if (state_size != (long)network_game_layout_fields_size(layout, (int)field_count, HALO_PORT_MAXIMUM_NETWORK_PLAYERS) ||
+		network_game_layout_fold_fields(buffer, (unsigned long)size, HALO_PORT_WIRE_NETWORK_PLAYERS,
+			(unsigned char *)state, (unsigned long)state_size, HALO_PORT_MAXIMUM_NETWORK_PLAYERS, layout,
+			(int)field_count, &dropped))
+	{
+		return FALSE;
+	}
+	if (dropped)
+	{
+		static long told_types = 0;
+		long type = game_engine_get_type();
+
+		if (type >= 0 && type < 32 && !(told_types & (1L << type)))
+		{
+			told_types |= 1L << type;
+			error(3, "cross-play: the host's %s state had %d entries past this build's %d players (dropped)",
+				name, dropped, (int)HALO_PORT_MAXIMUM_NETWORK_PLAYERS);
+		}
+	}
+	return TRUE;
+}
+
+#ifdef HALO_BIG_ENDIAN
+boolean game_engine_network_state_fields_byte_swap(
+	byte *buffer,
+	long size,
+	long state_size,
+	struct game_engine_network_state_field const *fields,
+	long field_count)
+{
+	struct network_game_layout_field layout[GAME_ENGINE_NETWORK_STATE_MAXIMUM_FIELDS];
+	long field_index;
+
+	if (size == state_size || !game_engine_network_state_layout(fields, field_count, layout) ||
+		size != (long)network_game_layout_fields_size(layout, (int)field_count, HALO_PORT_WIRE_NETWORK_PLAYERS))
+	{
+		return FALSE;
+	}
+	for (field_index = 0; field_index < field_count; field_index++)
+	{
+		struct game_engine_network_state_field const *field = &fields[field_index];
+		long bytes = (long)field->element_size * (field->per_slot ? HALO_PORT_WIRE_NETWORK_PLAYERS : 1);
+
+		if (field->swap_size > 1)
+			distributed_wire_swap(buffer, bytes / field->swap_size, field->swap_size);
+		buffer += bytes;
+	}
+	return TRUE;
+}
+#endif
+#endif
+
 /* a client: the host's */
 void game_engine_read_network_state(
 	byte const *buffer,
@@ -10026,10 +10156,10 @@ void game_engine_read_network_state(
 	if (!read)
 	{
 #ifdef HALO_PORT_CONSOLE_LIMITS
-		/* port: the console's limits (halo_port_limits.h): slayer's and
-		ctf's states from a PC host are read; the others' are the PCs' 128
-		slots, which this build does not yet fold, so their scores stay this
-		machine's own (told once a game type) */
+		/* port: the console's limits (halo_port_limits.h): a PC host's
+		states are folded into this build's slots (game_engine_network_state_
+		fold); one of a size neither the PCs' nor this build's is not read,
+		so its scores stay this machine's own (told once a game type) */
 		static long told_types = 0;
 		long type = game_engine_get_type();
 
