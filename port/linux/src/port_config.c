@@ -334,34 +334,36 @@ static const struct config_setting config_settings[] =
 		"Size the reticle to the field of view, so it matches the weapon's\n"
 		"spread on screen. It makes no difference at 70." },
 #ifdef HALO_CONSOLE_PERFORMANCE_MODE
-	{ "display.performance_mode", _config_boolean, "true", "HALO_PERFORMANCE_MODE", _environment_value, _platform_all,
+	/* (only a build with the capability has them: the Steam Link's, a desktop
+	build. Neither the other desktop builds nor Android write them) */
+	{ "display.performance_mode", _config_boolean, "true", "HALO_PERFORMANCE_MODE", _environment_value, _platform_desktop,
 		"Start in performance mode: the level drawn without its decals, dynamic lights, reflections and specular\n"
 		"highlights, and no lens flares, for the frame rate. Hold Back and press down on the d-pad (or F9) to switch\n"
 		"it in the game." },
 	{ "display.performance_lines", _config_integer, "240", "HALO_PERFORMANCE_LINES", _environment_value,
-		_platform_all,
+		_platform_desktop,
 		"The lines the picture is drawn with in performance mode, scaled up to the screen: 480 is the game's own,\n"
 		"240 a quarter of the pixels." },
 	{ "display.performance_view_distance", _config_real, "60.0", "HALO_PERFORMANCE_VIEW_DISTANCE",
-		_environment_value, _platform_all,
+		_environment_value, _platform_desktop,
 		"How far performance mode sees, in the game's units (about 3 m): fog thickens to the distance and nothing\n"
 		"is drawn beyond it, as the game does with its own thick fog, outside cutscenes. 0 sees as far as the level\n"
 		"does." },
 	{ "display.performance_model_detail", _config_real, "0.5", "HALO_PERFORMANCE_MODEL_DETAIL", _environment_value,
-		_platform_all,
+		_platform_desktop,
 		"What performance mode multiplies a model's size on the screen by when it chooses its detail: smaller goes\n"
 		"to coarser geometry sooner and leaves the smallest models out. 1 is the game's own." },
 	{ "display.performance_object_transparents", _config_boolean, "false", "HALO_PERFORMANCE_OBJECT_TRANSPARENTS",
-		_environment_value, _platform_all,
+		_environment_value, _platform_desktop,
 		"Whether performance mode draws the transparent parts of the level's objects, as glass and glows." },
-	{ "display.performance_sky", _config_boolean, "false", "HALO_PERFORMANCE_SKY", _environment_value, _platform_all,
+	{ "display.performance_sky", _config_boolean, "false", "HALO_PERFORMANCE_SKY", _environment_value, _platform_desktop,
 		"Whether performance mode draws the sky, outside cutscenes: without it the fog's color fills in." },
 	{ "display.performance_decoration_distance", _config_real, "1.0", "HALO_PERFORMANCE_DECORATION_DISTANCE",
-		_environment_value, _platform_all,
+		_environment_value, _platform_desktop,
 		"How far performance mode draws scenery nothing can touch, as plants, in the game's units, outside cutscenes. "
 		"0 draws it as far as everything else." },
 	{ "display.performance_hud_frames", _config_boolean, "false", "HALO_PERFORMANCE_HUD_FRAMES", _environment_value,
-		_platform_all,
+		_platform_desktop,
 		"Whether performance mode draws the HUD's frames and backgrounds, its static pictures." },
 #endif
 	{ "display.menus", _config_string, "\"chupathingy\"", "HALO_MENUS", _environment_value, _platform_all,
