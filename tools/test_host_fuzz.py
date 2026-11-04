@@ -6,6 +6,11 @@ fixed), then from its seeds (seeds/ beside it), then for a few seconds of fuzzin
 (HOST_FUZZ_SECONDS, 3 by default). Without a clang that has libFuzzer the
 tests are skipped (they fail where HALO_SANITIZERS_REQUIRED=1, as in CI).
 
+A target may also take game units (its "game_sources"), compiled with the
+game build's own commands (build.ninja: `python3 configure.py` first;
+HOST_FUZZ_BUILD names the build, macos or linux64 by default): without
+that build it is skipped.
+
 For longer runs (a crash's input is left in the working folder, crash-* or
 timeout-*; a fixed one goes in the regressions folder, if it holds nobody's
 data):
@@ -56,14 +61,74 @@ SANITIZE = ["-g", "-O1", "-fsanitize=fuzzer,address,undefined", "-fno-sanitize-r
             "-fno-omit-frame-pointer"]
 
 
+# the build whose units a target's "game_sources" are compiled as (ninja
+# macos, or linux64: `python3 configure.py` first)
+GAME_BUILD = os.environ.get("HOST_FUZZ_BUILD", "macos" if sys.platform == "darwin" else "linux64")
+# (the game reads unaligned on purpose: the wire has no alignment)
+GAME_SANITIZE = ["-fsanitize=fuzzer-no-link,address,undefined", "-fno-sanitize=alignment", "-fno-sanitize-recover=all",
+                 "-fno-omit-frame-pointer", "-O1", "-g"]
+
+
+def game_ready(target):
+    """whether the target's game units can be compiled as the build does
+    (build.ninja has the build, and ninja builds its first unit)"""
+    from tools.test_network_messages import object_command
+
+    if not target.get("game_sources"):
+        return True
+    if not (ROOT / "build.ninja").is_file():
+        return False
+    first = target["game_sources"][0]
+    try:
+        object_command(GAME_BUILD, first if isinstance(first, str) else first["source"])
+    except (subprocess.CalledProcessError, IndexError, OSError):
+        return False
+    return True
+
+
+def game_objects(target, directory, cc):
+    """a target's "game_sources", compiled with the game's own commands (from
+    build.ninja) and the sanitizers: each a unit's path, or {"source": unit,
+    "append": file}, the unit as the build has it with file after it (sizes
+    of its structures, say); their objects and the link's --target"""
+    from tools.test_network_messages import compile_command, object_command
+
+    objects = []
+    link_target = []
+    for entry in target.get("game_sources", []):
+        source = entry if isinstance(entry, str) else entry["source"]
+        words, _ = object_command(GAME_BUILD, source)
+        link_target = [word for word in words if word.startswith("--target=")]
+        extra = {"flags": GAME_SANITIZE}
+        if not isinstance(entry, str) and entry.get("append"):
+            # (the unit as the build compiles it, rewritten for LP64 where it is)
+            built = next(word for word in words if word.endswith(source))
+            wrapped = Path(directory) / f"{Path(source).stem}_with_{Path(entry['append']).stem}.c"
+            wrapped.write_text(f'#include "{(ROOT / built).as_posix()}"\n' +
+                               (ROOT / entry["append"]).read_text(encoding="utf-8"))
+            extra["source"] = str(wrapped)
+        output = Path(directory) / (Path(source).stem + ".o")
+        command = compile_command(GAME_BUILD, source, output, extra)
+        # (the build's compiler, after a launcher if it has one: ccache in CI)
+        if Path(command[0]).name in ("ccache", "sccache"):
+            command = command[1:]
+        command[0] = cc
+        result = subprocess.run(command, capture_output=True, text=True, cwd=ROOT)
+        if result.returncode != 0:
+            raise RuntimeError(f"{source}: the build failed\n{result.stdout}{result.stderr}")
+        objects.append(str(output))
+    return objects, link_target
+
+
 def build(name, directory, cc):
     """the target's fuzzer, built in directory: its path"""
     target = TARGETS[name]
     binary = Path(directory) / f"{name}_fuzz"
-    command = [cc, *SANITIZE, *target.get("flags", []), "-iquote", str(ROOT / "port" / "linux" / "include"),
+    objects, link_target = game_objects(target, directory, cc)
+    command = [cc, *link_target, *SANITIZE, *target.get("flags", []), "-iquote", str(ROOT / "port" / "linux" / "include"),
                *(f"-I{ROOT / folder}" for folder in target.get("includes", [])),
                str(ROOT / target["harness"]), *(str(ROOT / source) for source in target["sources"]),
-               *target.get("libraries", []), "-o", str(binary)]
+               *objects, *target.get("libraries", []), "-o", str(binary)]
     result = subprocess.run(command, capture_output=True, text=True, cwd=ROOT)
     if result.returncode != 0:
         raise RuntimeError(f"{name}: the build failed\n{result.stdout}{result.stderr}")
@@ -84,6 +149,8 @@ if pytest:
         cc = fuzz_support.libfuzzer_compiler()
         if not cc:
             fuzz_support.skip("no clang with libFuzzer")
+        if not game_ready(TARGETS[name]):
+            pytest.skip(f"the game's units: python3 configure.py first, with the {GAME_BUILD} build")
         result = fuzz(name, SECONDS, tmp_path, cc)
         assert result.returncode == 0, result.stdout[-4000:] + result.stderr[-8000:]
 
@@ -106,6 +173,9 @@ def main():
         return 2
     failed = 0
     for name in options.target or sorted(TARGETS):
+        if not game_ready(TARGETS[name]):
+            print(f"{name}: skipped (the game's units: python3 configure.py first, with the {GAME_BUILD} build)")
+            continue
         workdir = Path(tempfile.mkdtemp(prefix=f"host_fuzz_{name}_"))
         corpus = Path(options.corpus) / name if options.corpus else None
         result = fuzz(name, options.seconds, workdir, cc, corpus, options.jobs)
