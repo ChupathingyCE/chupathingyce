@@ -1174,7 +1174,20 @@ void update_server_set_player_action(
 		return;
 	queue = (struct update_server_queue_datum *)datum_try_and_get(update_server_globals.queues, player_index);
 	if (queue)
+	{
+		long absolute_index = DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index);
+
 		queue->current_action = *action;
+		/* (a bot sends no input of its own over the network: a slot it has
+		taken over from a machine's player who has left keeps nothing of that
+		player's input. Kept, the player's silence stood the bot still, its
+		stick and its trigger let go, every tick: update_server_next_update) */
+		if (absolute_index >= 0 && absolute_index < MAXIMUM_NUMBER_OF_PLAYERS)
+		{
+			update_server_distributed_inputs[absolute_index].valid = FALSE;
+			update_server_pending_control_flags[absolute_index] = 0;
+		}
+	}
 }
 
 long update_server_ticked_update_number(

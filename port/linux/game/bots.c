@@ -15021,6 +15021,100 @@ static void bot_set_throttle(struct bot_think *t)
 	}
 }
 
+/* Testing, HALO_BOT_PORTCHECK: whether the game does what the bots ask of
+   it. The first bot, from the fifth second, alone (the others stand), goes
+   through a script of steps, two seconds each: a turn of its look by a
+   radian; the stick forward; to the side; forward and to the side at once;
+   back. For each it logs how many ticks the game took to turn it (its
+   desired facing, and its aim), to start it moving, and the speed it got
+   to in that direction. */
+static void bot_port_check(struct bot_think *t, struct player_action *action)
+{
+	static long began = -1, step_tick, step = -1, turned_at, moved_at;
+	static real yaw0, top;
+	struct bot_state *bot = t->bot;
+	struct unit_datum *unit = t->unit;
+	long now = game_time_get();
+	long tick;
+	real aim_yaw, facing_yaw, along, speed;
+	real want_i = 0.f, want_j = 0.f, want_yaw;
+	if (!bot_env_set("HALO_BOT_PORTCHECK") || t->vehicle_index != NONE || !unit)
+		return;
+	if (t->player_absolute_index != 1)
+	{
+		/* (everyone else stands where they are, and holds their fire) */
+		action->throttle.i = action->throttle.j = 0.f;
+		action->control_flags = 0;
+		action->primary_trigger = 0.f;
+		return;
+	}
+	if (now < 5 * BOT_TICKS_PER_SECOND)
+		return;
+	if (began < 0)
+	{
+		began = now;
+		yaw0 = bot->yaw;
+	}
+	tick = now - began;
+	if (tick / 60 != step)
+	{
+		if (step >= 0)
+			bot_log("portcheck step %ld: turned in %ld ticks, moving in %ld ticks, top speed %.2f along the stick", step,
+				turned_at >= 0 ? turned_at - step_tick : -1L, moved_at >= 0 ? moved_at - step_tick : -1L, top);
+		step = tick / 60;
+		step_tick = now;
+		turned_at = moved_at = -1;
+		top = 0.f;
+		if (step > 11)
+		{
+			bot_log("portcheck done");
+			began = 1L << 30;
+		}
+	}
+	if (began > now)
+		return;
+	/* the steps: even ones stand and turn (a radian more each time); odd
+	   ones push the stick one way, the look held */
+	want_yaw = bot_wrap(yaw0 + (step / 2) * 1.f);
+	if (step % 2 == 1)
+	{
+		switch ((step / 2) % 4)
+		{
+		case 0: want_i = 1.f; break; /* forward */
+		case 1: want_j = 1.f; break; /* to the left */
+		case 2: want_i = 0.7071f; want_j = 0.7071f; break; /* forward and left */
+		case 3: want_i = -1.f; break; /* back */
+		}
+	}
+	action->control_flags = 0;
+	action->primary_trigger = 0.f;
+	action->throttle.i = want_i;
+	action->throttle.j = want_j;
+	action->desired_facing.yaw = want_yaw;
+	action->desired_facing.pitch = 0.f;
+	bot->yaw = want_yaw;
+	bot->pitch = 0.f;
+	aim_yaw = (real)atan2(unit->unit.aiming_vector.j, unit->unit.aiming_vector.i);
+	facing_yaw = (real)atan2(unit->unit.desired_facing_vector.j, unit->unit.desired_facing_vector.i);
+	if (turned_at < 0 && step % 2 == 0 && fabs(bot_angle_difference(aim_yaw, want_yaw)) < 0.02f)
+		turned_at = now;
+	speed = (real)sqrt(t->body.velocity.i * t->body.velocity.i + t->body.velocity.j * t->body.velocity.j) * BOT_TICKS_PER_SECOND;
+	if (step % 2 == 1)
+	{
+		/* (the stick's way in the world) */
+		real wi = want_i * (real)cos(want_yaw) - want_j * (real)sin(want_yaw);
+		real wj = want_i * (real)sin(want_yaw) + want_j * (real)cos(want_yaw);
+		real length = (real)sqrt(wi * wi + wj * wj);
+		along = (t->body.velocity.i * wi + t->body.velocity.j * wj) / MAX(length, 0.01f) * BOT_TICKS_PER_SECOND;
+		if (moved_at < 0 && speed > 0.2f)
+			moved_at = now;
+		top = MAX(top, along);
+	}
+	if (tick % 10 == 0)
+		bot_log("portcheck t%ld step %ld want yaw %.3f aim %.3f facing %.3f stick %.2f %.2f speed %.2f", now, step, want_yaw, aim_yaw, facing_yaw,
+			want_i, want_j, speed);
+}
+
 static void bot_test_jump(struct bot_think *t)
 {
 	struct bot_state *bot = t->bot;
@@ -16413,6 +16507,7 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 	bot_set_throttle(t);
 	if (bot_env_set("HALO_BOT_FOOTTRACE"))
 		bot_foot_trace(t);
+	bot_port_check(t, action);
 	bot_test_jump(t);
 
 	BOT_PROFILE_MARK("shoot");

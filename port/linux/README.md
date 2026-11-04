@@ -3199,6 +3199,14 @@ a game is the result of that game:
   another seat, escort a carrier, and help a person (their gun, their
   vehicle, or as a wingman).
 
+`HALO_BOT_PORTCHECK=1` checks that the game does what a bot asks of it: the
+first bot (the others stand) turns its look by a radian, and pushes its
+stick forward, to the side, forward and to the side, and back, two seconds
+each, and the log has how many ticks the game took to turn it and to start
+it moving, and its top speed in that direction. In this build the game
+turns a bot and starts it moving on the next tick, and the speeds are the
+game's own (2.25 world units a second forward, 2 to the side and back).
+
 `tools/bot_games.py` plays a set of games with no window and gives these
 values for each map and for all the maps: per 10 minutes of game,
 per hour of bot time, and as percentages. With `--compare`, it plays the
