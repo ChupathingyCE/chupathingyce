@@ -88,6 +88,9 @@ void chat_host_set_welcome(char const *text);
 #endif
 /* (team changes', port/linux/game/team_change.h: 0 off, 1 balanced, 2 allow) */
 void team_change_host_set(int policy, int margin);
+/* (the host's rules', port/linux/game/host_rules.h) */
+void host_rules_set_player_names(boolean allowed);
+void host_rules_set_follow_camera(boolean allowed);
 
 enum
 {
@@ -514,27 +517,27 @@ static void initialize(
 			error(_error_silent, "dedicated: a welcome message for each Chupathingy player");
 	}
 #endif
-	/* players changing teams during a game: balanced (within 1) unless set;
+	/* players changing teams during a game: off (the Xbox's) unless set;
 	the environment's as a word or a number */
 	{
 		char const *value = getenv("HALO_DEDICATED_TEAM_CHANGE");
-		long policy = settings.set[SERVER_SETTING_TEAM_CHANGE] ? settings.values[SERVER_SETTING_TEAM_CHANGE] : 1;
+		long policy = settings.set[SERVER_SETTING_TEAM_CHANGE] ? settings.values[SERVER_SETTING_TEAM_CHANGE] : 0;
 		long margin = setting_number("HALO_DEDICATED_TEAM_CHANGE_MARGIN", &settings, SERVER_SETTING_TEAM_CHANGE_MARGIN,
 			1);
 
 		if (value && value[0])
 		{
-			policy = !_stricmp(value, "off") || !strcmp(value, "0") ? 0 : !_stricmp(value, "allow") ||
-				!strcmp(value, "2") ? 2 : 1;
+			policy = !_stricmp(value, "balanced") || !strcmp(value, "1") ? 1 : !_stricmp(value, "allow") ||
+				!strcmp(value, "2") ? 2 : 0;
 			if (_stricmp(value, "off") && _stricmp(value, "balanced") && _stricmp(value, "allow") &&
 				strcmp(value, "0") && strcmp(value, "1") && strcmp(value, "2"))
 			{
 				error(_error_silent, "dedicated: HALO_DEDICATED_TEAM_CHANGE \"%s\" is not allow, balanced or off: "
-					"balanced", value);
+					"off", value);
 			}
 		}
 		if (policy < 0 || policy > 2)
-			policy = 1;
+			policy = 0;
 		if (margin < 0)
 			margin = 0;
 		if (margin > SERVER_SETTINGS_MAXIMUM_TEAM_CHANGE_MARGIN)
@@ -542,6 +545,41 @@ static void initialize(
 		team_change_host_set((int)policy, (int)margin);
 		error(_error_silent, "dedicated: team changes during a game %s", policy == 0 ? "off" : policy == 2 ? "allowed" :
 			"while the teams stay balanced");
+	}
+	/* the host's rules for its players' extras: off (the Xbox's game)
+	unless true, 1, yes or on */
+	{
+		char const *names = getenv("HALO_DEDICATED_ALLOW_PLAYER_NAMES");
+		boolean allowed;
+
+		if (names && names[0])
+		{
+			allowed = !_stricmp(names, "true") || !strcmp(names, "1") || !_stricmp(names, "yes") ||
+				!_stricmp(names, "on");
+		}
+		else
+			allowed = settings.set[SERVER_SETTING_ALLOW_PLAYER_NAMES] && settings.values[SERVER_SETTING_ALLOW_PLAYER_NAMES];
+		host_rules_set_player_names(allowed);
+		if (allowed)
+			error(_error_silent, "dedicated: players may show names above heads");
+	}
+	{
+		char const *camera = getenv("HALO_DEDICATED_ALLOW_FOLLOW_CAMERA");
+		boolean allowed;
+
+		if (camera && camera[0])
+		{
+			allowed = !_stricmp(camera, "true") || !strcmp(camera, "1") || !_stricmp(camera, "yes") ||
+				!_stricmp(camera, "on");
+		}
+		else
+		{
+			allowed = settings.set[SERVER_SETTING_ALLOW_FOLLOW_CAMERA] &&
+				settings.values[SERVER_SETTING_ALLOW_FOLLOW_CAMERA];
+		}
+		host_rules_set_follow_camera(allowed);
+		if (allowed)
+			error(_error_silent, "dedicated: players may watch a follow camera while they wait to respawn");
 	}
 	dedicated.active = dedicated.entry_count > 0;
 }

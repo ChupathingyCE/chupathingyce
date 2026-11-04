@@ -160,6 +160,12 @@ enum delta_capability
 	network_game_host_cheats_refused). Announced on Delta List alone, never
 	offered in a HELLO or WELCOME; Online Games shows "Host cheats on" */
 	_delta_capability_host_cheats = 18,
+	/* the host's rules for its players' extras (docs/delta.md, Host
+	rules): HOST_RULES says whether its players may show names above heads,
+	watch a follow camera while they wait to respawn, and change teams. A
+	client whose host says nothing (OpenCE's, an older build) plays by the
+	Xbox's rules */
+	_delta_capability_host_rules = 19,
 
 	NUMBER_OF_DELTA_CAPABILITIES
 };
