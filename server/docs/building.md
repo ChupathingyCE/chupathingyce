@@ -13,6 +13,7 @@ On Linux, `configure.py` adds the server targets this machine can link:
 | `ninja server-x86` | `build/server-x86/chupathingyce-server` | a 32-bit x86 machine, or an x86-64 one with 32-bit glibc (as `ninja linux` needs) |
 | `ninja server-arm64` | `build/server-arm64/chupathingyce-server` | a 64-bit ARM machine |
 | `ninja server` | each of the above this machine can link | |
+| `ninja server-windows64` | `build/server-windows64/chupathingyce-server.exe` | Windows, with the 64-bit Windows build's tools (`port/windows/README.md`); not part of `ninja server` |
 
 ```sh
 python3 configure.py --portable --release

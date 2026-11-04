@@ -69,30 +69,15 @@ platform_log) are kept in a ring here, any public address in them hidden
 #include "monocypher.h"
 #include "qrcodegen.h"
 
-#include <arpa/inet.h>
-#include <errno.h>
-#include <fcntl.h>
-#include <netinet/in.h>
-#include <poll.h>
+/* (the sockets, files and random bytes, on Linux and Windows) */
+#include "server_host.h"
+
 #include <pthread.h>
 #include <stdarg.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <strings.h>
-#include <sys/socket.h>
-#include <sys/stat.h>
-#include <time.h>
-#include <unistd.h>
-
-/* (Linux's; the tests' harness builds this unit on macOS too, which has
-neither: server/tests/control_harness.c) */
-#ifndef SOCK_CLOEXEC
-#define SOCK_CLOEXEC 0
-#endif
-#ifndef MSG_NOSIGNAL
-#define MSG_NOSIGNAL 0
-#endif
 
 /* the platform layer's (xbox_files.c, log_address.c): plain types */
 const char *platform_data_root(void);
@@ -319,26 +304,7 @@ static int64_t monotonic_seconds(void)
 
 static int random_bytes(void *buffer, size_t size)
 {
-	int fd = open("/dev/urandom", O_RDONLY | O_CLOEXEC);
-	size_t done = 0;
-
-	if (fd < 0)
-		return 0;
-	while (done < size)
-	{
-		ssize_t count = read(fd, (char *)buffer + done, size - done);
-
-		if (count <= 0)
-		{
-			if (count < 0 && errno == EINTR)
-				continue;
-			close(fd);
-			return 0;
-		}
-		done += (size_t)count;
-	}
-	close(fd);
-	return 1;
+	return host_random_bytes(buffer, size);
 }
 
 /* a free ticket (the queue's lock held): its index, or -1 */
@@ -458,7 +424,7 @@ static int load_credentials(void)
 	file = fopen(path, "r");
 	if (file)
 	{
-		if (!fstat(fileno(file), &information) && (information.st_mode & 077))
+		if (!fstat(fileno(file), &information) && host_file_shared(&information))
 			notice("%s can be read by others than its owner (chmod 600 it)", CREDENTIALS_FILE);
 		while (fgets(line, sizeof(line), file))
 		{
@@ -725,7 +691,7 @@ static void load_accounts(void)
 	file = fopen(path, "r");
 	if (!file)
 		return;
-	if (!fstat(fileno(file), &information) && (information.st_mode & 077))
+	if (!fstat(fileno(file), &information) && host_file_shared(&information))
 		notice("%s can be read by others than its owner (chmod 600 it)", ACCOUNTS_FILE);
 	while (fgets(line, sizeof(line), file))
 	{
@@ -1449,20 +1415,25 @@ static int start_listener(const char *setting)
 			notice("the control panel made its own certificate (%s, %s)", CONTROL_TLS_CERTIFICATE_FILE,
 				CONTROL_TLS_KEY_FILE);
 	}
-	fd = socket(address.ss_family, SOCK_STREAM | SOCK_CLOEXEC, 0);
+	fd = host_socket(address.ss_family, SOCK_STREAM, 0);
 	if (fd < 0)
 	{
-		notice("the control API cannot listen (%s): it is off", strerror(errno));
+		notice("the control API cannot listen (%s): it is off", strerror(host_socket_errno()));
 		return 0;
 	}
-	setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+#ifdef _WIN32
+	/* (Windows' SO_REUSEADDR lets another program take the port too: its
+	exclusive use instead) */
+	setsockopt(fd, SOL_SOCKET, SO_EXCLUSIVEADDRUSE, (const char *)&one, sizeof(one));
+#else
+	setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (const char *)&one, sizeof(one));
+#endif
 	if (address.ss_family == AF_INET6)
-		setsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY, &one, sizeof(one));
-	if (bind(fd, (struct sockaddr *)&address, length) || listen(fd, 16) ||
-		fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK))
+		setsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY, (const char *)&one, sizeof(one));
+	if (bind(fd, (struct sockaddr *)&address, length) || listen(fd, 16) || host_socket_nonblocking(fd))
 	{
-		notice("the control API cannot listen on %s (%s): it is off", setting, strerror(errno));
-		close(fd);
+		notice("the control API cannot listen on %s (%s): it is off", setting, strerror(host_socket_errno()));
+		host_socket_close(fd);
 		return 0;
 	}
 	control.listener = fd;
@@ -1510,7 +1481,7 @@ static void close_connection(struct connection *connection)
 		connection->tls = NULL;
 	}
 	if (connection->fd >= 0)
-		close(connection->fd);
+		host_socket_close(connection->fd);
 	free(connection->response);
 	if (connection->state == CONNECTION_WAITING && connection->ticket >= 0)
 	{
@@ -3377,6 +3348,7 @@ static void read_request(struct connection *connection)
 	const char *reason;
 	int status;
 	int result;
+	int error = 0;
 	ssize_t count;
 
 	if (connection->tls)
@@ -3397,7 +3369,9 @@ static void read_request(struct connection *connection)
 	{
 		count = recv(connection->fd, connection->request + connection->length,
 			sizeof(connection->request) - 1 - connection->length, 0);
-		if (count == 0 || (count < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR))
+		if (count < 0)
+			error = host_socket_errno();
+		if (count == 0 || (count < 0 && error != EAGAIN && error != EWOULDBLOCK && error != EINTR))
 		{
 			close_connection(connection);
 			return;
@@ -3456,9 +3430,12 @@ static void write_response(struct connection *connection)
 	}
 	else
 	{
+		int error;
+
 		count = send(connection->fd, connection->response + connection->sent,
 			connection->response_length - connection->sent, MSG_NOSIGNAL);
-		if (count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR))
+		error = count < 0 ? host_socket_errno() : 0;
+		if (count < 0 && (error == EAGAIN || error == EWOULDBLOCK || error == EINTR))
 			return;
 		if (count <= 0)
 		{
@@ -3526,7 +3503,7 @@ static void accept_connection(void)
 {
 	struct sockaddr_storage address;
 	socklen_t length = sizeof(address);
-	int fd = accept(control.listener, (struct sockaddr *)&address, &length);
+	int fd = host_accept(control.listener, (struct sockaddr *)&address, &length);
 	uint8_t peer[16];
 	uint8_t tag[16];
 	int64_t now = monotonic_seconds();
@@ -3535,7 +3512,7 @@ static void accept_connection(void)
 
 	if (fd < 0)
 		return;
-	fcntl(fd, F_SETFD, FD_CLOEXEC);
+	host_socket_cloexec(fd);
 	memset(peer, 0, sizeof(peer));
 	if (address.ss_family == AF_INET)
 	{
@@ -3561,7 +3538,7 @@ static void accept_connection(void)
 		}
 		if (from_source >= MAXIMUM_CONNECTIONS_PER_SOURCE)
 		{
-			close(fd);
+			host_socket_close(fd);
 			return;
 		}
 	}
@@ -3588,15 +3565,15 @@ static void accept_connection(void)
 		}
 		if (oldest < 0)
 		{
-			close(fd);
+			host_socket_close(fd);
 			return;
 		}
 		close_connection(&control.connections[oldest]);
 		index = oldest;
 	}
-	if (fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK))
+	if (host_socket_nonblocking(fd))
 	{
-		close(fd);
+		host_socket_close(fd);
 		return;
 	}
 	{
@@ -3886,23 +3863,21 @@ static void console_line(const char *line)
 	}
 }
 
-static void read_console(void)
+/* the console's bytes, a line at a time */
+static void console_bytes(const char *buffer, ssize_t count)
 {
-	char buffer[512];
-	ssize_t count = read(STDIN_FILENO, buffer, sizeof(buffer));
 	ssize_t index;
 
-	if (count < 0 && (errno == EAGAIN || errno == EINTR))
-		return;
-	if (count <= 0 || (control.console_editing && !server_terminal_input(buffer, (size_t)count, console_line)))
+	/* (edited on the terminal: server_terminal.c hands the lines) */
+	if (control.console_editing)
 	{
-		control.console_open = 0;
-		if (control.console_editing)
+		if (count > 0 && !server_terminal_input(buffer, (size_t)count, console_line))
+		{
+			control.console_open = 0;
 			server_terminal_stop();
+		}
 		return;
 	}
-	if (control.console_editing)
-		return;
 	for (index = 0; index < count; index++)
 	{
 		char character = buffer[index];
@@ -3932,6 +3907,82 @@ static void read_console(void)
 	}
 }
 
+#ifdef _WIN32
+/* Windows' standard input is no socket, which WSAPoll could wait on: a
+thread of its own reads it, and hands what it read to the control thread
+(console_pending), which it wakes */
+static pthread_mutex_t console_mutex = PTHREAD_MUTEX_INITIALIZER;
+static char console_pending[4096];
+static size_t console_pending_length;
+static int console_ended;
+
+static void *console_thread(void *argument)
+{
+	(void)argument;
+	for (;;)
+	{
+		char buffer[512];
+		int count = _read(0, buffer, sizeof(buffer));
+
+		pthread_mutex_lock(&console_mutex);
+		if (count <= 0)
+			console_ended = 1;
+		else
+		{
+			/* (a line longer than the room left waits for the control thread
+			to take what is there) */
+			while (console_pending_length + (size_t)count > sizeof(console_pending))
+			{
+				pthread_mutex_unlock(&console_mutex);
+				host_wake_signal(wake_pipe[1]);
+				Sleep(10);
+				pthread_mutex_lock(&console_mutex);
+			}
+			memcpy(console_pending + console_pending_length, buffer, (size_t)count);
+			console_pending_length += (size_t)count;
+		}
+		pthread_mutex_unlock(&console_mutex);
+		host_wake_signal(wake_pipe[1]);
+		if (count <= 0)
+			return NULL;
+	}
+}
+
+static void read_console(void)
+{
+	char buffer[sizeof(console_pending)];
+	size_t count;
+	int ended;
+
+	pthread_mutex_lock(&console_mutex);
+	count = console_pending_length;
+	memcpy(buffer, console_pending, count);
+	console_pending_length = 0;
+	ended = console_ended;
+	pthread_mutex_unlock(&console_mutex);
+	console_bytes(buffer, (ssize_t)count);
+	if (ended)
+		control.console_open = 0;
+}
+#else
+static void read_console(void)
+{
+	char buffer[512];
+	ssize_t count = read(STDIN_FILENO, buffer, sizeof(buffer));
+
+	if (count < 0 && (errno == EAGAIN || errno == EINTR))
+		return;
+	if (count <= 0)
+	{
+		control.console_open = 0;
+		if (control.console_editing)
+			server_terminal_stop();
+		return;
+	}
+	console_bytes(buffer, count);
+}
+#endif
+
 /* ---------- the control thread */
 
 static void *control_thread(void *argument)
@@ -3954,12 +4005,14 @@ static void *control_thread(void *argument)
 			fds[count].events = POLLIN;
 			map[count++] = -2;
 		}
+#ifndef _WIN32
 		if (control.console_open)
 		{
 			fds[count].fd = STDIN_FILENO;
 			fds[count].events = POLLIN;
 			map[count++] = -3;
 		}
+#endif
 		for (index = 0; index < MAXIMUM_CONNECTIONS; index++)
 		{
 			struct connection *connection = &control.connections[index];
@@ -3978,7 +4031,7 @@ static void *control_thread(void *argument)
 				map[count++] = index;
 			}
 		}
-		if (poll(fds, (nfds_t)count, 500) < 0 && errno != EINTR)
+		if (poll(fds, (nfds_t)count, 500) < 0 && host_socket_errno() != EINTR)
 			continue;
 		/* (a renewed certificate of the operator's taken, once a minute) */
 		if (control.tls)
@@ -4001,10 +4054,12 @@ static void *control_thread(void *argument)
 				continue;
 			if (map[index] == -1)
 			{
-				char drain[64];
-
-				while (read(wake_pipe[0], drain, sizeof(drain)) > 0)
-					;
+				host_wake_drain(wake_pipe[0]);
+#ifdef _WIN32
+				/* (the console thread's lines come with a wake-up) */
+				if (control.console_open)
+					read_console();
+#endif
 			}
 			else if (map[index] == -2)
 				accept_connection();
@@ -4118,7 +4173,7 @@ void server_control_start(void)
 	}
 	control_limiter_initialize(&control.limiter);
 	/* the console: standard input, when it is a terminal or when asked */
-	control.console = console && console[0] ? truthy(console) : isatty(STDIN_FILENO);
+	control.console = console && console[0] ? truthy(console) : isatty(0);
 	if (setting && !falsy(setting))
 	{
 		uint8_t session_key[32];
@@ -4153,18 +4208,14 @@ void server_control_start(void)
 	}
 	if (!control.console && control.listener < 0)
 		return;
-	if (pipe(wake_pipe))
+	if (host_wake_open(wake_pipe))
 	{
-		notice("the console and control API cannot start (%s)", strerror(errno));
+		notice("the console and control API cannot start (%s)", strerror(host_socket_errno()));
 		if (control.listener >= 0)
-			close(control.listener);
+			host_socket_close(control.listener);
 		control.listener = -1;
 		return;
 	}
-	fcntl(wake_pipe[0], F_SETFL, fcntl(wake_pipe[0], F_GETFL) | O_NONBLOCK);
-	fcntl(wake_pipe[1], F_SETFL, fcntl(wake_pipe[1], F_GETFL) | O_NONBLOCK);
-	fcntl(wake_pipe[0], F_SETFD, FD_CLOEXEC);
-	fcntl(wake_pipe[1], F_SETFD, FD_CLOEXEC);
 	control.console_open = control.console;
 	if (control.console)
 	{
@@ -4182,9 +4233,13 @@ void server_control_start(void)
 			server_terminal_stop();
 		notice("the console and control API cannot start");
 		if (control.listener >= 0)
-			close(control.listener);
+			host_socket_close(control.listener);
 		control.listener = -1;
 	}
+#ifdef _WIN32
+	else if (control.console && pthread_create(&thread, &attributes, console_thread, NULL))
+		control.console_open = 0;
+#endif
 	pthread_attr_destroy(&attributes);
 }
 
@@ -4269,11 +4324,7 @@ void server_control_finish(int ticket, int ok, const char *output)
 	}
 	pthread_mutex_unlock(&queue_mutex);
 	if (wake_pipe[1] >= 0)
-	{
-		ssize_t written = write(wake_pipe[1], "", 1);
-
-		(void)written;
-	}
+		host_wake_signal(wake_pipe[1]);
 }
 
 void server_control_log(const char *text)
