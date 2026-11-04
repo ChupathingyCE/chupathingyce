@@ -11,6 +11,8 @@ from pathlib import Path
 
 import pytest
 
+from tools import fuzz_support  # noqa: E402
+
 ROOT = Path(__file__).resolve().parent.parent
 INCLUDE = ROOT / "port" / "linux" / "include"
 DELTA = INCLUDE / "delta.h"
@@ -44,6 +46,7 @@ def test_rules(tmp_path):
              str(TEST), str(SOURCE), "-o", str(binary)], capture_output=True, text=True)
         if build.returncode == 0:
             break
+        fuzz_support.fallback("no sanitizer runtime")
     assert build.returncode == 0, build.stdout + build.stderr
     run = subprocess.run([str(binary)], capture_output=True, text=True)
     assert run.returncode == 0, run.stdout + run.stderr

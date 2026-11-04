@@ -26,6 +26,8 @@ from pathlib import Path
 
 import pytest
 
+from tools import fuzz_support  # noqa: E402
+
 ROOT = Path(__file__).resolve().parent.parent
 MBEDTLS = ROOT / "port" / "third_party" / "mbedtls"
 SOURCES = [ROOT / "server" / "tests" / "tls_test.c", ROOT / "server" / "platform" / "control_tls.c"]
@@ -83,6 +85,7 @@ def binary(tmp_path_factory):
     result = subprocess.run(base[:1] + SANITIZERS + base[1:], capture_output=True, text=True)
     if result.returncode != 0:
         # (a compiler without the sanitizers' runtime: unsanitized)
+        fuzz_support.fallback("no sanitizer runtime")
         result = subprocess.run(base, capture_output=True, text=True)
     assert result.returncode == 0, result.stdout + result.stderr
     return output

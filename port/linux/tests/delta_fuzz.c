@@ -4,9 +4,11 @@ DELTA_FUZZ.C
 libFuzzer's entry for Delta Peer (tools/test_delta_peer.py builds it with
 -fsanitize=fuzzer,address,undefined where clang has libFuzzer, and runs it
 for a bounded number of inputs): each input is one datagram, given to every
-parser and to a host's and a client's session (the client's HELLO unanswered,
-each with a legacy table to relay; the host with moderation, which takes
-any key's actions), with a frame of both now and then.
+parser and to a host's and a client's session (each with a legacy table to
+relay; the host with moderation, which takes any key's actions), which then
+hand each other what they sent, a few rounds, so they shake hands as two
+machines do and later inputs reach sessions under way; a frame of both now
+and then; and the traits, platform key and chat bridge entry readers.
 
     clang -fsanitize=fuzzer,address,undefined -iquote port/linux/include \
         -I port/third_party/monocypher port/linux/tests/delta_fuzz.c port/linux/src/delta_peer.c \
@@ -15,6 +17,7 @@ any key's actions), with a frame of both now and then.
 */
 
 #include "../src/delta_peer.h"
+#include "../src/delta_chat_bridge.h"
 
 #include <stddef.h>
 #include <string.h>
@@ -29,14 +32,55 @@ enum
 static struct delta_peer host, client;
 static int ready;
 
-/* (the sessions' replies are dropped: one input, one datagram) */
-static void drop(void *context, delta_u32 ipv4, unsigned short port, const unsigned char *data, int size)
+/* (each session's sends are kept, a few, and handed to the other after the
+input: the two shake hands, and inputs reach sessions under way) */
+enum
 {
-	(void)context;
+	QUEUED_MAXIMUM = 8
+};
+
+struct queue
+{
+	int count;
+	int sizes[QUEUED_MAXIMUM];
+	unsigned char datagrams[QUEUED_MAXIMUM][DELTA_WIRE_MAXIMUM_DATAGRAM];
+};
+
+static struct queue from_host, from_client;
+
+static void keep(void *context, delta_u32 ipv4, unsigned short port, const unsigned char *data, int size)
+{
+	struct queue *queue = context;
+
 	(void)ipv4;
 	(void)port;
-	(void)data;
-	(void)size;
+	if (queue->count < QUEUED_MAXIMUM && size > 0 && size <= DELTA_WIRE_MAXIMUM_DATAGRAM)
+	{
+		memcpy(queue->datagrams[queue->count], data, (size_t)size);
+		queue->sizes[queue->count++] = size;
+	}
+}
+
+static void deliver(delta_u32 now)
+{
+	struct queue host_sent, client_sent;
+	int round, index;
+
+	for (round = 0; round < 3 && (from_host.count || from_client.count); round++)
+	{
+		host_sent = from_host;
+		client_sent = from_client;
+		from_host.count = 0;
+		from_client.count = 0;
+		for (index = 0; index < client_sent.count; index++)
+			delta_peer_receive(&host, now, CLIENT_IPV4, CLIENT_PORT, client_sent.datagrams[index],
+				client_sent.sizes[index]);
+		for (index = 0; index < host_sent.count; index++)
+			delta_peer_receive(&client, now, HOST_IPV4, DELTA_PEER_PORT, host_sent.datagrams[index],
+				host_sent.sizes[index]);
+	}
+	from_host.count = 0;
+	from_client.count = 0;
 }
 
 static delta_u32 fixed_random(void *context)
@@ -122,7 +166,7 @@ static void start(void)
 	signed char players[DELTA_PEER_MAXIMUM_PLAYERS];
 
 	memset(&env, 0, sizeof(env));
-	env.send_datagram = drop;
+	env.send_datagram = keep;
 	env.random_number = fixed_random;
 	env.legacy_table_serial = table_serial;
 	env.legacy_table_signed = table_signed;
@@ -134,7 +178,9 @@ static void start(void)
 	local.legacy_version = 18;
 	delta_platform_policy_default(_delta_platform_pc_linux, &local.key);
 	local.has_profile = 1;
+	env.context = &from_host;
 	delta_peer_initialize(&host, &env, &local);
+	env.context = &from_client;
 	delta_peer_initialize(&client, &env, &local);
 	delta_peer_set_moderation_host(&host, &moderation_host);
 	delta_peer_set_chat_host(&host, &chat_host);
@@ -159,6 +205,7 @@ static void start(void)
 		delta_peer_set_map(&host, &map);
 	}
 	delta_peer_client_frame(&client, 1000, 1, HOST_IPV4, DELTA_PEER_PORT, 1, 1, players);
+	deliver(1000);
 }
 
 int LLVMFuzzerTestOneInput(const unsigned char *data, size_t size)
@@ -284,6 +331,32 @@ int LLVMFuzzerTestOneInput(const unsigned char *data, size_t size)
 				__builtin_trap();
 			}
 		}
+		{
+			struct delta_wire_traits traits;
+			unsigned char again[DELTA_WIRE_MAXIMUM_DATAGRAM];
+
+			/* (traits taken are traits that can be written again) */
+			if (delta_wire_read_traits(data + DELTA_WIRE_HEADER_SIZE, header.length, &traits) &&
+				!delta_wire_write_traits(again, header.session, &traits))
+			{
+				__builtin_trap();
+			}
+		}
+	}
+	/* (a chat line or chat settings entry, as the distributed chat messages
+	carry them from OpenCE's machines) */
+	{
+		struct delta_chat_bridge_line line;
+
+		delta_chat_bridge_read_line(data, (int)size, &line);
+		delta_chat_bridge_read_config(data, (int)size);
+	}
+	/* (a platform key's 8 bytes, of any version) */
+	if (size >= 8)
+	{
+		struct delta_platform_key key;
+
+		delta_wire_read_key(data, &key);
 	}
 	/* (time moves, so the rate limits refill) */
 	now += 50;
@@ -306,5 +379,6 @@ int LLVMFuzzerTestOneInput(const unsigned char *data, size_t size)
 		delta_peer_host_frame(&host, now, machines, 2, players);
 		delta_peer_client_frame(&client, now, 1, HOST_IPV4, DELTA_PEER_PORT, 1, 1, players);
 	}
+	deliver(now);
 	return 0;
 }

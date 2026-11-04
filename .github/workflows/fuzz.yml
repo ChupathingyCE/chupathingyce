@@ -1,0 +1,46 @@
+# Longer runs of the host's fuzz targets (tools/test_host_fuzz.py) than the
+# few seconds each gets in the Build workflow's tests: every night, and by
+# hand. A target that fails leaves its input (crash-*, timeout-*) as an
+# artifact, to fix and then keep in its regressions folder.
+name: Fuzz
+
+on:
+  schedule:
+    - cron: "17 7 * * *"
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: Seconds per target
+        type: string
+        default: "120"
+
+permissions:
+  contents: read
+
+jobs:
+  host:
+    if: github.repository == 'ChupathingyCE/chupathingyce'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install clang
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends clang libclang-rt-dev
+
+      - name: Fuzz
+        env:
+          HALO_FUZZ_SECONDS: ${{ inputs.seconds || '120' }}
+        run: |
+          mkdir -p fuzz-out
+          cd fuzz-out
+          python3 ../tools/test_host_fuzz.py --seconds "$HALO_FUZZ_SECONDS" --keep-failures .
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: fuzz-failures
+          path: fuzz-out
+          retention-days: 14
