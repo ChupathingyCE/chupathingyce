@@ -74,6 +74,9 @@ static struct
 	long flipped_ticks;
 	real drive_distance;
 	long with_people_ticks;
+	long air_ticks, air_up_ticks, air_pressed_ticks; /* at the controls of something that flies; up in it; held against something */
+	long air_trips;
+	real air_trip_seconds;
 	/* each flag: who held it last tick (NONE nobody), and whether it was home */
 	long flag_holder[2];
 	int flag_home[2];
@@ -148,6 +151,25 @@ void bot_stats_bot_tick(long index, real_point3d const *position, int seat_kind,
 	bot_stats.last_seen[index] = now;
 }
 
+void bot_stats_air_tick(int up, int pressed)
+{
+	if (!bot_stats_enabled())
+		return;
+	bot_stats.air_ticks++;
+	if (up)
+		bot_stats.air_up_ticks++;
+	if (pressed)
+		bot_stats.air_pressed_ticks++;
+}
+
+void bot_stats_air_trip(real seconds)
+{
+	if (!bot_stats_enabled())
+		return;
+	bot_stats.air_trips++;
+	bot_stats.air_trip_seconds += seconds;
+}
+
 /* the flags since the tick before: taken, dropped, home again */
 static void bot_stats_flags(void)
 {
@@ -210,7 +232,9 @@ static void bot_stats_report(long now, int over)
 	platform_log("bot stats: map=%s t=%ld bots=%ld bot_seconds=%ld caps0=%ld caps1=%ld score0=%ld score1=%ld pickups=%ld drops=%ld returns=%ld "
 		"carrier_rides=%ld kills=%ld deaths=%ld suicides=%ld stuck=%ld route_failed=%ld "
 		"idle=%.1f driving=%.1f gunning=%.1f riding=%.1f escort=%.1f with_people=%.1f "
-		"vehicle_kills=%ld vehicle_deaths=%ld bailouts=%ld dismounts=%ld drive_speed=%.2f flipped=%.1f%s",
+		"vehicle_kills=%ld vehicle_deaths=%ld bailouts=%ld dismounts=%ld drive_speed=%.2f flipped=%.1f "
+		"air_seconds=%ld air_up=%.1f air_pressed=%.1f air_kills=%ld air_deaths=%ld air_landings=%ld air_dropoffs=%ld air_bumps=%ld air_stuck=%ld "
+		"air_trips=%ld air_trip_seconds=%.1f%s",
 		name ? name + 1 : map ? map : "?", (now - bot_stats.first_tick) / BOT_TICKS_PER_SECOND, bots,
 		bot_stats.alive_ticks / BOT_TICKS_PER_SECOND,
 		game_engine == &ctf_engine ? ctf_bot_score(0) : 0L, game_engine == &ctf_engine ? ctf_bot_score(1) : 0L,
@@ -224,6 +248,12 @@ static void bot_stats_report(long now, int over)
 		bot_stats.counts[_bot_stat_vehicle_bailout], bot_stats.counts[_bot_stat_vehicle_dismount],
 		bot_stats.seat_ticks[1] > 0 ? bot_stats.drive_distance * BOT_TICKS_PER_SECOND / (real)bot_stats.seat_ticks[1] : 0.f,
 		bot_stats.seat_ticks[1] > 0 ? 100.f * (real)bot_stats.flipped_ticks / (real)bot_stats.seat_ticks[1] : 0.f,
+		bot_stats.air_ticks / BOT_TICKS_PER_SECOND,
+		bot_stats.air_ticks > 0 ? 100.f * (real)bot_stats.air_up_ticks / (real)bot_stats.air_ticks : 0.f,
+		bot_stats.air_ticks > 0 ? 100.f * (real)bot_stats.air_pressed_ticks / (real)bot_stats.air_ticks : 0.f,
+		bot_stats.counts[_bot_stat_air_kill], bot_stats.counts[_bot_stat_air_death], bot_stats.counts[_bot_stat_air_landing],
+		bot_stats.counts[_bot_stat_air_dropoff], bot_stats.counts[_bot_stat_air_bump], bot_stats.counts[_bot_stat_air_stuck],
+		bot_stats.air_trips, bot_stats.air_trips > 0 ? bot_stats.air_trip_seconds / (real)bot_stats.air_trips : 0.f,
 		over ? " over=1" : "");
 }
 

@@ -2990,6 +2990,111 @@ character.
   of the driving time (0.75% before); the speed, the kills and the
   deaths in vehicles did not change by more than chance.
 
+### Driving and flying: measured, and what changed
+
+**The driving benchmark.** `HALO_BOT_DRIVEBENCH=<kind>` (`any`, `ground`,
+`air`, or part of a vehicle's tag name: `warthog`, `ghost`, `banshee`...)
+turns a game into a test of the driving. Every bot leaves everyone alone,
+walks to the nearest free vehicle of that kind and gets in, and drives legs
+between places at least 40 world units apart (the places of
+`HALO_BOT_TOUR=x,y,z;x,y,z;...`, or the map's own places: the same ones
+for the same bot in every build). The log has a `drivetest` line for each
+leg: its length, its time, how often the vehicle stood (half a unit a
+second or less, for a second or more), how long it stood in all, how long
+it went backwards, and how it was driven (1 far across country, 2 by the
+ground, 3 by the vehicle areas, 4 flown). A leg ends `in`, `given up`
+(after 90 seconds, or a second for each 2 units of it), `out` (the driver
+got out) or `no way` (no route from where it is). `tools/bot_drivetest.py`
+adds the lines up per game and per vehicle.
+
+**On the ground.**
+
+- **The speed for the bends ahead.** A driver going across country works
+  out from the way ahead how sharp each bend of it is (the radius of each
+  six-unit stretch) and the speed it can take each one at, and brakes for
+  the first one it would be too fast for. Before, it took how far the whole
+  way ahead swung in all, so a long gentle curve slowed it as much as one
+  sharp corner.
+- **The grip.** Each vehicle learns how well it holds the ground from its
+  own turns: round a turn at speed with its nose where it is going, a
+  little more grip; with its tail out, a good deal less. The bend speeds go
+  with it (from 0.8 of what they were, on ice, to 1.8, a Ghost or dirt).
+  They were tuned for a Warthog on snow everywhere.
+- **Round in three.** With its way behind it, standing, and no room before
+  it to go round by a loop, a driver backs round with its wheels turned
+  away from the way, then drives on.
+- **Fewer stops for riders.** A driver with nobody of its own side on foot
+  near it, or on the way to it, drives off at once. The longest waits for
+  riders are 5 seconds and 3 seconds on the way (7 and 5 before).
+- **In a fight, by vehicle.** A Warthog with nobody on its gun runs people
+  down where they will be when it gets there and goes on past them for the
+  next turn at them; one with a gunner keeps out at the distance the gun is
+  good at, never on top of them; a tank backs off from someone close; a
+  Ghost goes past and round, never standing.
+- **Vehicles that do not get out of where they stand** (the Tachikomas'
+  bays at the ends of Hugeass): each time one is given up where it was
+  given up before, the bots leave it be twice as long, up to most of ten
+  minutes.
+- **The same vehicle again.** A bot that gets back into the vehicle it
+  just left drives (or flies) it afresh. It used to carry on the old
+  "held up" count, so a pilot got straight out of the jet it had landed.
+- `HALO_BOT_OFF=grip` puts back the bend speeds, the grip and the loop
+  round; `riders`, the waits; `vfight`, the fighting.
+- **Measured** with the benchmark (one game of each, 200 seconds at three
+  times the speed, eight bots, the same build with
+  `HALO_BOT_OFF=grip,riders,vfight,airsearch,airahead,airpull,evade` and
+  without; Blood Gulch, Sidewinder, Death Island, Danger Canyon, Icefields,
+  Hugeass): the mean speed over the ground did not change (1.38 world units
+  a second of progress, against 1.36), the time stood still came down from
+  4.1 seconds a leg to 2.6, and more legs ended with the driver out of the
+  vehicle (67 of 286, against 52 of 274: perhaps chance). The vehicles are
+  slow: about 2 world units a second over a leg, on maps where a Warthog
+  does 8 on a straight. The way across country and the corners still cost
+  the most; this is not solved.
+
+**In the air.**
+
+- **More route searches.** The pilots' ways round the high ground are
+  searched three a tick instead of one, so a pilot waits less for its turn
+  while it flies straight at the hill in front of it (`HALO_BOT_OFF=airsearch`).
+- **The ground further ahead.** A craft keeps the height for three seconds
+  of the way ahead instead of two, and past the turn it is steering for,
+  along the next leg of its way (`airahead`).
+- **Out of a dive** while there is still the height to pull out in, by how
+  fast it comes down and how fast it goes, for every craft
+  (`airpull`).
+- **Out of the way of a rocket.** A rocket or a fuel rod coming at a craft:
+  across its line and down (up, when it is low), whatever it was about.
+  Hit on its way somewhere, it weaves (`evade`). (A Banshee of Halo PC has
+  no boost to use for it.)
+- **A flag carrier does not take a craft that cannot get off** from where
+  it stands: a jet facing the wall of its bay, or one under a roof that
+  cannot rise on its jets out from under it. On Hugeass a carrier got into
+  a jet facing its bay's wall, held the throttle open for six seconds,
+  and got out again.
+- Measured as the driving was, the flying is as it was (6.35 world units a
+  second over a leg, against 6.31: nobody shoots in the benchmark, so it
+  does not try the dodging).
+- `HALO_BOT_STATS` has the flying in it: `air_seconds` (at the controls),
+  `air_up` and `air_pressed` (percent of that time up, and held where it
+  is against something), `air_kills`, `air_deaths`, `air_landings`,
+  `air_dropoffs`, `air_bumps` (flown into something), `air_stuck` (out of a
+  craft that was held up), and `air_trips` with `air_trip_seconds` (the
+  mean time from taking a craft to arriving).
+
+**On foot, the top level.** At skill 10 (the top of the scale, as
+`master`) a bot runs where it is going and looks where it runs. Its look
+about on the way is a short glance to a corner, about half as far round as
+before, less often, and never a turn right round with somewhere to be; a
+noise or someone gone out of sight pulls its look half as far off the way
+it runs. Lower skills look about as before. At skill 10 it also flicks
+round faster: 12.5 radians a second instead of 8. `HALO_BOT_OFF=purpose`.
+In 40 team games at skill 10 (Hang 'Em High, Battle Creek, Damnation,
+Chill Out, Prisoner) with this on for one team, that team scored 4.1
+more a game (± 2.2). In test games on Chill Out the bots of skill 10 ran
+with their look more than 0.7 radians off the way they ran 24% of the
+time, from 45%.
+
 ### How the bots find their way, and what they cost
 
 A bot finds its way with a search that starts at its goal. The search goes

@@ -207,6 +207,7 @@ void bot_move_debug(struct bot_mover *bot, struct bot_body const *body);
 struct bot_pilot
 {
 	long vehicle; /* the craft this is of (another: afresh) */
+	long evade_tick; /* (when it last dodged something) */
 	real_point3d route[BOT_PILOT_TURNS]; /* the turns of the way there, the last of them the place */
 	long route_count;
 	long route_next;
@@ -291,6 +292,9 @@ struct bot_flight_order
 	int stay; /* ... or down by it and not out: it is there to set people down, or to take them up */
 	real short_of; /* ... this far short of the place itself, on the way it comes at it */
 	int tail_to; /* ... and its tail to the place: the people in it leave by its tail */
+	int under_fire; /* its pilot has just been hit */
+	int dodge; /* a rocket, a fuel rod, coming at it: out of its way, */
+	real dodge_yaw; /* ... this way */
 };
 
 struct bot_flight_result
@@ -330,6 +334,11 @@ struct bot_traveller
 	real_vector3d carry_forward;
 	real swerve; /* round something in the way: to which side, for how long yet */
 	long swerve_ticks;
+	/* how well this vehicle holds the ground here, by how it has slid in
+	   its turns of late: 1 for a Warthog on snow, more on dirt (corners
+	   taken faster), less on ice (bot_country.c, country_grip_learn) */
+	real grip;
+	long turn_until; /* (backing round, a turn in three: until this tick) */
 };
 
 struct bot_country_result
@@ -434,6 +443,12 @@ enum
 	_bot_stat_vehicle_death, /* a bot killed in a vehicle */
 	_bot_stat_vehicle_bailout, /* a bot out of a vehicle it was held up or stuck in */
 	_bot_stat_vehicle_dismount, /* a bot out of a vehicle to fight on foot */
+	_bot_stat_air_kill, /* a bot's kill from something that flies */
+	_bot_stat_air_death, /* a bot killed in something that flies */
+	_bot_stat_air_landing, /* a craft put down where its pilot meant to put it */
+	_bot_stat_air_dropoff, /* ... with people set down there (a haul's drop) */
+	_bot_stat_air_bump, /* a craft flown into something (its speed nearly halved in a tick) */
+	_bot_stat_air_stuck, /* a pilot out of a craft held up against something */
 	NUMBER_OF_BOT_STATS
 };
 
@@ -447,6 +462,11 @@ void bot_stats_note(int stat);
 void bot_stats_bot_tick(long index, real_point3d const *position, int seat_kind, int busy, int escorting, int with_people,
 	int flipped);
 void bot_stats_world_tick(long now);
+/* a bot at the controls of something that flies this tick: whether it is up,
+   and whether it is held where it is against something (bot_flight.c) */
+void bot_stats_air_tick(int up, int pressed);
+/* a craft flown from where it was taken to where it was bound: how long */
+void bot_stats_air_trip(real seconds);
 /* whether a player (its datum index) is one of the bots (bots.c) */
 int bot_player_is_bot(long player_index);
 

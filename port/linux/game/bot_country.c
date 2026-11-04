@@ -3318,6 +3318,11 @@ static boolean country_way_dropping; /* (... or is over an edge the way goes dow
 /* (the way for the next stretch of it: how far round it bends, how far off
    the bend is, and how much room there is beside it: country_clear's least) */
 static real country_way_bend, country_way_bend_at;
+/* (... and the speed it may have now to be round every bend of it in time,
+   on snow: by how sharp each is, not how far the way has swung in all) */
+static real country_way_pace;
+#define COUNTRY_CORNER_PULL 4.f /* (units a second squared, sideways, a Warthog on snow keeps its line at) */
+#define COUNTRY_BRAKING 3.f /* (... and slows by, braking) */
 static long country_way_room;
 /* (... or is up a step, a kerb as high as is climbed: taken square, and at
    a run. How far before it the vehicle is, along its line, and which way
@@ -3405,7 +3410,7 @@ static void country_way_lie(struct country_field const *field, long start, real 
 {
 	long steps;
 	real_point3d mark, at;
-	real first_bearing = 0.f;
+	real first_bearing = 0.f, last_bearing = 0.f;
 	real gone = 0.f, since = 0.f;
 	long chords = 0;
 	long k = start;
@@ -3428,6 +3433,17 @@ static void country_way_lie(struct country_field const *field, long start, real 
 			real bearing;
 			country_floor_point(k, &at);
 			bearing = bot_yaw_to(&mark, &at);
+			if (chords > 0)
+			{
+				/* (this chord's turn from the last: the radius it is round, and
+				   the speed for that, braked for from here) */
+				real turn = (real)fabs(bot_angle_difference(bearing, last_bearing));
+				real radius = since / MAX(turn, 0.01f);
+				real corner = (real)sqrt(COUNTRY_CORNER_PULL * radius);
+				real before = MAX(gone - since - 2.f, 0.f);
+				country_way_pace = MIN(country_way_pace, (real)sqrt(corner * corner + 2.f * COUNTRY_BRAKING * before));
+			}
+			last_bearing = bearing;
 			if (chords++ == 0)
 				first_bearing = bearing;
 			else if (fabs(bot_angle_difference(bearing, first_bearing)) > country_way_bend)
@@ -3491,6 +3507,7 @@ static void country_way_reset(void)
 	country_way_dropping = FALSE;
 	country_way_bend = 0.f;
 	country_way_bend_at = 0.f;
+	country_way_pace = 1.0e9f;
 	country_way_room = 3;
 	country_way_step = FALSE;
 	country_way_before = 0.f;
@@ -4126,6 +4143,8 @@ static boolean country_drive_test(struct bot_traveller *traveller, struct bot_bo
 		static boolean second;
 		long given = sscanf(getenv("HALO_BOT_DRIVETEST"), "%f,%f,%f,%f,%f,%f,%f,%f,%f,%f", &from.x, &from.y, &from.z, &toward.x, &toward.y, &seconds, &full,
 			&then.x, &then.y, &within);
+		if (given < 5)
+			return FALSE; /* (not a place and a way: nothing to test) */
 		if (test_vehicle == NONE && bot_distance2d(position, &from) < 60.f)
 		{
 			test_vehicle = body->vehicle_index;
@@ -4220,18 +4239,24 @@ static void country_without_way(struct bot_traveller *traveller, struct bot_body
 /* How fast the way allows: a corner of it come to no faster than it is got
    round, an edge or a wall no faster than leaves time to mend a slide, and
    something narrow slowly. */
-static void country_pace_for_way(real_point3d const *position, real_point3d const *next, real speed, real turn, real *throttle)
+static int country_grips(void);
+static void country_pace_for_way(real_point3d const *position, real_point3d const *next, real speed, real turn, real grip, real *throttle)
 {
 	/* (a corner of the way: come to no faster than it is got round, on snow) */
 	if (!country_way_into_portal)
 	{
-		real bend = MAX(country_way_turn, country_way_bend);
+		real bend = country_grips() ? country_way_turn : MAX(country_way_turn, country_way_bend);
 		real pace = 1.0e9f;
+		/* (the bends further on, by how sharp each is) */
+		if (country_grips() && !(country_way_narrow && country_way_lined_up))
+			pace = country_way_pace * (real)sqrt(grip);
 		if (bend > 0.3f && !(country_way_narrow && country_way_lined_up))
 		{
-			real corner = bend > 1.f ? 4.f : bend > 0.6f ? 5.5f : 7.5f;
+			/* (a corner's speed goes as the root of the grip: the pull it
+			   takes is the speed's square over the turn's radius) */
+			real corner = (bend > 1.f ? 4.f : bend > 0.6f ? 5.5f : 7.5f) * (real)sqrt(grip);
 			real off = country_way_turn >= country_way_bend ? bot_distance2d(position, next) : country_way_bend_at;
-			pace = (real)sqrt(corner * corner + 2.f * 3.f * MAX(off - 2.f, 0.f));
+			pace = MIN(pace, (real)sqrt(corner * corner + 2.f * 3.f * grip * MAX(off - 2.f, 0.f)));
 		}
 		/* (... and by an edge, by a wall, no faster than leaves time to
 		   mend a slide) */
@@ -4629,6 +4654,76 @@ static void country_edge_stopped_at(struct country_drive *drive, real wanted)
    turn that needs more; easy down a steep hill; and, sliding (going one
    way and pointing another), off the throttle with the wheels the way
    it is going until it has hold again. */
+/* (HALO_BOT_OFF=grip: corners at a Warthog-on-snow's speed everywhere, and
+   round by a loop forward when the way is behind, as it was) */
+static int country_grips(void)
+{
+	static int asked, on = 1;
+	if (!asked)
+	{
+		char const *off = getenv("HALO_BOT_OFF");
+		asked = TRUE;
+		on = !(off && strstr(off, "grip"));
+	}
+	return on;
+}
+
+/* How well the vehicle holds the ground, learnt from its turns: going round
+   at speed with its nose where it is going, a little more; its tail out, a
+   good deal less. From 0.8 (ice) to 1.8 (dirt, a Ghost on anything). */
+static void country_grip_learn(struct bot_traveller *traveller, real speed, real wanted, real slide, boolean hovers)
+{
+	if (speed < 5.f || fabs(wanted) < 0.15f)
+		return;
+	if (slide > 0.45f && !hovers)
+		traveller->grip -= 0.02f;
+	else if (slide < 0.2f)
+		traveller->grip += 0.0025f;
+	traveller->grip = PIN(traveller->grip, 0.8f, 1.8f);
+}
+
+/* The way behind it, standing, and no room before it to go round by a loop:
+   round in three, backing with the wheels turned away from the way, until
+   its nose is half round to it, then on. TRUE while it is backing. */
+static boolean country_turn_in_three(struct country_drive *drive, real wanted)
+{
+	struct bot_traveller *traveller = drive->traveller;
+	struct bot_body const *body = drive->body;
+	long now = game_time_get();
+	if (now < traveller->escape_until || drive->result->into_portal || country_way_step)
+	{
+		traveller->turn_until = 0;
+		return FALSE;
+	}
+	if (traveller->turn_until <= now)
+	{
+		real_point3d eye = body->position;
+		eye.z += 0.6f;
+		if (fabs(wanted) < 2.f || drive->speed > 3.f || !country_grips())
+			return FALSE;
+		if (country_ray(&eye, drive->heading, 0.f, 8.f, body->vehicle_index) >= 7.f &&
+			country_ground_as_far(&body->position, drive->heading, 7.f, body->vehicle_index))
+			return FALSE; /* (room to go round forward) */
+		if (!country_ground_at(&body->position, bot_wrap(drive->heading + BOT_PI), 3.5f, body->vehicle_index))
+			return FALSE; /* (nothing to back onto) */
+		traveller->turn_until = now + BOT_SECONDS(2.5f);
+		if (bot_logging())
+			bot_log("country: unit %ld t%ld round in three at %.0f %.0f %.0f, the way %.2f off its nose", body->unit_index & 0xffff, now,
+				body->position.x, body->position.y, body->position.z, wanted);
+	}
+	if (fabs(wanted) < 1.1f)
+	{
+		traveller->turn_until = 0;
+		return FALSE;
+	}
+	drive->yaw = bot_wrap(drive->heading - PIN(wanted * 1.5f, -0.9f, 0.9f));
+	drive->throttle = -0.8f;
+	/* (backing round is not being held up) */
+	traveller->stuck_point = body->position;
+	traveller->stuck_tick = now;
+	return TRUE;
+}
+
 static void country_handling(struct country_drive *drive)
 {
 	struct bot_traveller *traveller = drive->traveller;
@@ -4648,6 +4743,10 @@ static void country_handling(struct country_drive *drive)
 	if (hovers && traveller->swerve_ticks <= 0 && speed > 2.f)
 		country_hover_drift(drive, going);
 	wanted = bot_angle_difference(drive->yaw, heading);
+	if (country_grips())
+		country_grip_learn(traveller, speed, wanted, slide, hovers);
+	if (!hovers && country_turn_in_three(drive, wanted))
+		return;
 	most = hovers ? 3.2f : speed > 11.f ? 0.22f : speed > 8.f ? 0.32f : speed > 5.f ? 0.5f : 3.2f;
 	/* (full lock under power is the tail round, on snow: round a tight
 	   turn on little of it) */
@@ -4924,7 +5023,9 @@ void bot_country_drive(struct bot_traveller *traveller, struct bot_body const *b
 	turn = bot_angle_difference(yaw, heading);
 	if (to_place < 10.f)
 		throttle = MIN(throttle, 0.6f);
-	country_pace_for_way(position, &next, speed, turn, &throttle);
+	if (traveller->grip <= 0.f)
+		traveller->grip = 1.f;
+	country_pace_for_way(position, &next, speed, turn, country_grips() ? traveller->grip : 1.f, &throttle);
 	if (result->into_portal && country_into_portal(traveller, body, speed, turn, result, &throttle))
 		return;
 	result->arrived = to_place < 5.f;

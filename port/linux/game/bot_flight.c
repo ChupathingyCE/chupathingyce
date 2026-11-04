@@ -768,6 +768,24 @@ static long air_route_turns(long goal, real_point3d const *from, real_point3d co
    `need` of room: the turns of it, the last of them the place itself (or
    the nearest square to it with room). -1: none, no way round; 0: none
    yet, the search's turn this tick taken (fly as before). */
+/* (how many pilots' ways are searched for in a tick: the rest fly on as
+   they are, straight at it, and try again the next. It was one, and with
+   six craft up a pilot could wait a good part of a second for its turn,
+   flying into the hill in front of it meanwhile. HALO_BOT_OFF=airsearch:
+   one, as it was) */
+#define AIR_SEARCHES_PER_TICK (air_flies_better("airsearch") ? 3 : 1)
+static int air_flies_better(char const *part)
+{
+	static int asked;
+	static char const *off;
+	if (!asked)
+	{
+		asked = TRUE;
+		off = getenv("HALO_BOT_OFF");
+	}
+	return !(off && strstr(off, part));
+}
+
 static long air_route(real_point3d const *from, real_point3d const *to, real need, real_point3d *points, long maximum)
 {
 	long start, goal;
@@ -800,7 +818,7 @@ static long air_route(real_point3d const *from, real_point3d const *to, real nee
 		air.search_tick = game_time_get();
 		air.searches_this_tick = 0;
 	}
-	if (air.searches_this_tick++ >= 1)
+	if (air.searches_this_tick++ >= AIR_SEARCHES_PER_TICK)
 		return 0;
 	if (!air_search(start, goal, need, limit))
 		return -1; /* (looked, and there is none: not "no search to be had this tick") */
@@ -1408,7 +1426,9 @@ static void air_flight_begin(struct air_flight *f, struct bot_pilot *pilot, stru
 	f->large = air_cruises() ? MAX(craft->object.bounding_sphere_radius - AIR_SMALL_CRAFT, 0.f) : 0.f;
 	f->need = MAX(3.f + 3.f * f->quick, f->large > 0.f ? MIN(craft->object.bounding_sphere_radius, 10.f) * 0.75f : 0.f);
 	f->clearance = 4.5f + 8.f * f->quick + f->large * 0.6f;
-	f->ahead = MAX(14.f, f->speed * 2.f); /* the stretch it looks over */
+	/* the stretch it looks over: two seconds of its speed; three, so that it
+	   is climbing before a ridge, not at it (HALO_BOT_OFF=airahead: two) */
+	f->ahead = MAX(14.f, f->speed * (air_flies_better("airahead") ? 3.f : 2.f));
 	f->to_place = bot_distance2d(position, &order->destination);
 	f->ground_here = bot_air_ground(position->x, position->y, 0.f);
 	f->over_ground = f->ground_here > AIR_NO_GROUND * 0.5f ? MAX(position->z - f->ground_here, -1.f) : 0.f;
@@ -1520,8 +1540,13 @@ static void air_run_ends(struct air_flight *f, real distance, real break_at, boo
 	   height on the way does: off while there is still the height to
 	   pull out in. A Pelican that left it to how near them it was
 	   went into the ground beside them.) */
-	else if (air_cruises() && !order->airborne && body->velocity.k * BOT_TICKS_PER_SECOND < -2.f && f->ground_here > AIR_NO_GROUND * 0.5f &&
-		f->over_ground < -body->velocity.k * BOT_TICKS_PER_SECOND * AIR_PULL_OUT + f->need + f->large)
+	/* (... by how fast it comes down and how fast it goes: a fast craft
+	   takes longer to come round level. HALO_BOT_OFF=airpull: only for
+	   the craft that keep their height, as it was) */
+	else if ((air_cruises() || air_flies_better("airpull")) && !order->airborne && body->velocity.k * BOT_TICKS_PER_SECOND < -2.f &&
+		f->ground_here > AIR_NO_GROUND * 0.5f &&
+		f->over_ground < -body->velocity.k * BOT_TICKS_PER_SECOND * AIR_PULL_OUT * (air_flies_better("airpull") ? 1.f + 0.5f * f->quick : 1.f) +
+			f->need + f->large)
 	{
 		air_begin_break(pilot, now, FALSE);
 		f->why = " (pulling out)";
@@ -1665,6 +1690,22 @@ static void air_height(struct air_flight *f)
 		real y = position->y + (real)sin(way) * along;
 		highest = MAX(highest, air_ground_to_clear(x, y, f->need * 0.5f, f->need, limit, &tops));
 		lowest_sky = MIN(lowest_sky, air_sky(x, y, 0.f));
+	}
+	/* (and past the turn it is steering for, along the next leg of its way,
+	   for as much of the stretch as is left: the hill after the corner) */
+	if (air_flies_better("airahead") && pilot->phase == _pilot_cruise && pilot->route_next + 1 < pilot->route_count)
+	{
+		real_point3d const *turn = &f->steer_to;
+		real_point3d const *after = &pilot->route[pilot->route_next + 1];
+		real left = f->ahead - bot_distance2d(position, turn);
+		real leg = bot_distance2d(turn, after);
+		for (along = step; along <= MIN(left, leg); along += step)
+		{
+			real x = turn->x + (after->x - turn->x) * along / MAX(leg, 0.01f);
+			real y = turn->y + (after->y - turn->y) * along / MAX(leg, 0.01f);
+			highest = MAX(highest, air_ground_to_clear(x, y, f->need * 0.5f, f->need, limit, &tops));
+			lowest_sky = MIN(lowest_sky, air_sky(x, y, 0.f));
+		}
 	}
 	if (highest <= AIR_NO_GROUND * 0.5f)
 		highest = position->z - f->clearance; /* (off the map's edge: as it is) */
@@ -2598,6 +2639,8 @@ static void air_log_bump(struct air_flight const *f)
 	real knock = (real)sqrt((body->velocity.i - pilot->velocity_before.i) * (body->velocity.i - pilot->velocity_before.i) +
 		(body->velocity.j - pilot->velocity_before.j) * (body->velocity.j - pilot->velocity_before.j) +
 		(body->velocity.k - pilot->velocity_before.k) * (body->velocity.k - pilot->velocity_before.k)) * BOT_TICKS_PER_SECOND;
+	if (pilot->speed_before > 3.f && f->speed < pilot->speed_before * 0.55f && f->now - pilot->taken_tick > BOT_SECONDS(1.f) && !f->result->landed)
+		bot_stats_note(_bot_stat_air_bump);
 	if (bot_logging() && pilot->speed_before > 2.f && f->now - pilot->taken_tick > BOT_SECONDS(1.f) &&
 		((pilot->speed_before > 3.f && f->speed < pilot->speed_before * 0.55f) || knock > 4.f))
 		bot_log("pilot %ld t%ld bump at %.1f %.1f %.1f (%.1f over the ground) speed %.1f from %.1f, knocked %.1f, phase %ld%s, %s (radius %.1f)", body->unit_index & 0xffff, f->now,
@@ -2661,6 +2704,34 @@ static void air_patrol(struct air_flight *f)
 
 /* The look and the throttle by the phase it is in (not under a roof: that
    has been seen to). */
+/* Shot at: a rocket or a fuel rod coming at it, out of its way, across its
+   line and up or down, whatever it was about (a Banshee that flies on
+   straight at a rocket launcher is a dead one); being hit on its way
+   somewhere, not in a straight line. Not on its jets, nor landing (HALO_BOT_OFF=evade). */
+static void air_evade(struct air_flight *f)
+{
+	struct bot_pilot *pilot = f->pilot;
+	struct bot_body const *body = f->body;
+	struct bot_flight_order const *order = f->order;
+	long now = f->now;
+	if (!air_flies_better("evade") || pilot->indoors || pilot->hovering || pilot->phase == _pilot_land || f->result->landed)
+		return;
+	if (order->dodge)
+	{
+		f->yaw = bot_wrap(order->dodge_yaw);
+		/* (down, with room under it; else up) */
+		f->pitch = f->over_ground > f->need * 2.5f ? -0.35f : 0.45f;
+		f->throttle = 1.f;
+		f->why = " (dodging)";
+		pilot->evade_tick = now;
+	}
+	else if (order->under_fire && pilot->phase == _pilot_cruise)
+	{
+		f->yaw = bot_wrap(f->yaw + 0.35f * (real)sin((now + (body->unit_index & 31) * 7) * 0.19f));
+		f->pitch += 0.1f * (real)sin((now + (body->unit_index & 31) * 3) * 0.27f);
+	}
+}
+
 static void air_steer_by_phase(struct air_flight *f)
 {
 	struct bot_pilot *pilot = f->pilot;
@@ -2725,6 +2796,7 @@ static void air_steer_by_phase(struct air_flight *f)
 	}
 	if (pilot->phase != _pilot_run)
 		pilot->over_tick = 0;
+	air_evade(f);
 }
 
 /* (testing: what the pilot did this tick, when its phase changes and now and
