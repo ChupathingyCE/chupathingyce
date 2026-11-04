@@ -1,0 +1,29 @@
+# H2 SWAT with the map's own starting weapons, for a HaloMD Halo 2 map that
+# starts players with the battle rifle (Beaver Creek: battle rifle and
+# magnum). No shields, no motion tracker, no weapons on the map. On a map
+# that starts with the SMG, h2_swat (the magnum) is closer.
+base = "team_slayer"
+name = "H2 SWAT"
+score_limit = 50
+time_limit = 15
+
+[players]
+shields = false
+respawn_time = 5
+
+[items]
+starting_equipment = "map"
+map_weapons = false
+
+[indicators]
+objectives = "none"
+players_on_radar = "none"
+friends_on_screen = true
+
+[team_play]
+friendly_fire = "off"
+auto_balance = true
+
+[vehicles]
+red = "none"
+blue = "none"
