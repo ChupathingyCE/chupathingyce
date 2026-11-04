@@ -114,7 +114,7 @@ def test_setup_and_accounts(panel, tmp_path):
     """No owner until the setup code makes one; the code is good once, and
     never in the log; the accounts file keeps hashes and is private."""
     hello = http(panel, "GET", "/v1/hello")
-    assert hello.status == 200 and hello.json() == {"setup": True, "tls": False, "fingerprint": None}
+    assert hello.status == 200 and hello.json() == {"setup": True, "tls": False, "fingerprint": None, "waiting": False}
     code = setup_code(panel)
     assert not any(code in line for line in panel.lines if line.startswith("notice:"))
     origin = {"Origin": f"http://127.0.0.1:{panel.port}"}
