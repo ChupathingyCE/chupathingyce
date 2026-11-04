@@ -5827,7 +5827,12 @@ static void widget_instance_render_text_box(
 		else if (ui_widget_map_browser_item(widget))
 			string = L"MAP BROWSER";
 		else if (online_games.map_browser_described && widget->definition_tag_index == online_games.description_text_tag)
-			string = L"Download community maps \r\nand map packs, from the \r\nxboxhomebrew.store archive.";
+		{
+			/* (the port's own words: it names where its maps come from) */
+			extern wchar_t const *maps_screen_description(void);
+
+			string = (wchar_t *)maps_screen_description();
+		}
 #endif
 		else if (online_games.described && widget->definition_tag_index == online_games.description_text_tag)
 			/* (broken in lines as the game's own: the text box does not wrap) */
