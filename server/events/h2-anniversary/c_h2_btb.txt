@@ -1,0 +1,16 @@
+# [C] H2 BTB: Halo 2 Big Team Battle on the HaloMD Halo 2 maps: CTF, Team
+# Slayer and Snipers on Coagulation, Zanzibar and Relic (Snipers not on
+# Relic: its sniper rifle is not in the map's weapon list, so Snipers starts
+# with the pistol there), with the map's own starting weapons. The last
+# entry is free for all, for a lone player.
+
+# map              game type
+coagulat_1@md      h2_ctf_map
+zanzibar_1@md      h2_slayer_map
+zanzibar_1@md      h2_ctf_map
+coagulat_1@md      h2_slayer_map
+relicv2_3@md       h2_ctf_map
+coagulat_1@md      h2_snipers
+zanzibar_1@md      h2_snipers
+relicv2_3@md       h2_slayer_map
+coagulat_1@md      h2_ffa_map
