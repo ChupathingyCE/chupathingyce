@@ -96,6 +96,8 @@ void team_change_host_set(int policy, int margin);
 /* (the host's rules', port/linux/game/host_rules.h) */
 void host_rules_set_player_names(boolean allowed);
 void host_rules_set_follow_camera(boolean allowed);
+/* (the limit on machines of one address, port/linux/game/network_distributed.c) */
+void network_distributed_set_address_limit(long maximum);
 
 enum
 {
@@ -587,6 +589,21 @@ static void initialize(
 		host_rules_set_follow_camera(allowed);
 		if (allowed)
 			error(_error_silent, "dedicated: players may watch a follow camera while they wait to respawn");
+	}
+	/* the machines of one internet address a game takes: 8 unless set */
+	{
+		long maximum = setting_number("HALO_DEDICATED_MAX_MACHINES_PER_ADDRESS", &settings,
+			SERVER_SETTING_MAX_MACHINES_PER_ADDRESS, SERVER_SETTINGS_DEFAULT_MACHINES_PER_ADDRESS);
+
+		if (maximum < 0)
+			maximum = 0;
+		if (maximum > SERVER_SETTINGS_MAXIMUM_MACHINES_PER_ADDRESS)
+			maximum = SERVER_SETTINGS_MAXIMUM_MACHINES_PER_ADDRESS;
+		network_distributed_set_address_limit(maximum);
+		if (maximum)
+			error(_error_silent, "dedicated: at most %ld machines from one internet address", maximum);
+		else
+			error(_error_silent, "dedicated: no limit on the machines from one internet address");
 	}
 	dedicated.active = dedicated.entry_count > 0;
 }
