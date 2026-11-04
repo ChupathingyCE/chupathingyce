@@ -1910,12 +1910,15 @@ boolean navm_line_arrives(real_point3d const *from, real_point3d const *to, real
 	return end_span != NONE && end_span == navm_span_at(to, 0.3f, 1.2f);
 }
 
+/* (bots.c: the debug view keeps the bots' log lines while it is open) */
+extern int bot_debug_capturing;
+
 int bot_logging(void)
 {
 	static int logging = -1;
 	if (logging < 0)
 		logging = getenv("HALO_BOT_LOG") != NULL;
-	return logging;
+	return logging || bot_debug_capturing;
 }
 
 int bot_env_set(char const *name)

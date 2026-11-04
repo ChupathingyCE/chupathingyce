@@ -685,6 +685,7 @@ typedef char screenshot_and_framerate_globals_size_assert[
 void network_test_update(boolean main_menu_loaded, real seconds);
 /* port/linux/game/bot_bake.c */
 void bot_bake_update(boolean main_menu_loaded, real seconds);
+void bot_debug_update(void);
 void audio_probe_update(unsigned char main_menu_loaded, float seconds);
 void team_change_update(void);
 #endif
@@ -3822,6 +3823,8 @@ void main_loop(
 				{
 					MAIN_STAGE("debug_keys_update");
 					debug_keys_update();
+					/* port: the bots' debug view (port/linux/game/bot_debug.c) */
+					bot_debug_update();
 					MAIN_STAGE("cheats_update");
 					cheats_update();
 					MAIN_STAGE("player_control_update");

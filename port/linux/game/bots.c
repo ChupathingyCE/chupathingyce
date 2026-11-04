@@ -66,6 +66,7 @@ bot_skill_now holds and what the comments here mean by "the level", "level
 #include "units/biped_definitions.h"
 #include "units/unit_definitions.h"
 #include "units/units.h"
+#include "render/render_debug.h"
 
 #include <ctype.h>
 #include <math.h>
@@ -1656,6 +1657,13 @@ enum
 };
 
 static struct bot_state bot_states[BOT_MAXIMUM_PLAYERS];
+/* (the debug view's: the bot whose lines are drawn in the world, bot_debug.c) */
+long bot_debug_marked = NONE;
+struct bot_think;
+static void bot_debug_snapshot_take(struct bot_think *t);
+static void bot_debug_event_note(char const *text);
+void bots_debug_markers(long index);
+extern int bot_debug_capturing;
 /* (whether what each rode last flies: for the flight's numbers, HALO_BOT_STATS) */
 static char bot_rode_flying[BOT_MAXIMUM_PLAYERS];
 
@@ -16508,6 +16516,9 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 	if (bot_env_set("HALO_BOT_FOOTTRACE"))
 		bot_foot_trace(t);
 	bot_port_check(t, action);
+	bot_debug_snapshot_take(t);
+	if (bot_debug_marked == player_absolute_index)
+		bots_debug_markers(player_absolute_index);
 	bot_test_jump(t);
 
 	BOT_PROFILE_MARK("shoot");
@@ -16625,10 +16636,19 @@ void bot_log(char const *format, ...)
 	char text[512];
 	va_list arguments;
 
+	static int to_log = -1;
+
 	va_start(arguments, format);
 	vsnprintf(text, sizeof(text), format, arguments);
 	va_end(arguments);
-	platform_log(strncmp(text, "bots: ", 6) ? "bots: %s" : "%s", text);
+	if (to_log < 0)
+		to_log = getenv("HALO_BOT_LOG") != NULL;
+	/* (kept for the debug view, and to the log only when it was asked for:
+	   the view turns the bots' logging on while it is open) */
+	if (bot_debug_capturing)
+		bot_debug_event_note(text);
+	if (to_log)
+		platform_log(strncmp(text, "bots: ", 6) ? "bots: %s" : "%s", text);
 }
 
 static void bots_settings_apply(void)
@@ -16884,4 +16904,506 @@ char const *bot_name(long slot)
 		snprintf(name, sizeof(names[0]), "%.4s%ld [Bot]", bot_names[slot % 16], (slot / 16 + 1) % 10);
 	name[11] = 0;
 	return name;
+}
+
+/* ---------- the debug view (bot_debug.c) */
+
+/* What each bot made of its last tick, kept for the debug view: the parts of
+   its think (struct bot_think) that live only for the length of a tick. */
+struct bot_debug_snapshot
+{
+	long tick;
+	long look_reason;
+	int how;
+	int drive_mode;
+	char drive_note[64];
+	long target;
+	real target_distance;
+	int moving, committed, driving, gunner, threatened, look_forced, zombie;
+	real move_yaw, move_speed, desired_yaw, desired_pitch, path_yaw;
+	long vehicle;
+	real_point3d position, eye, drive_to, far_place;
+	real_vector3d velocity;
+	long travel;
+	int no_route, arrived;
+	real throttle_i, throttle_j;
+	unsigned long control_flags;
+	real weapon_value;
+	int rounds_loaded, rounds_total;
+	long weapon_kind;
+	real drive_throttle;
+	int drive_held, drive_round;
+};
+static struct bot_debug_snapshot bot_debug_snapshots[BOT_MAXIMUM_PLAYERS];
+
+/* the bots' log lines kept for the debug view while it is open, each bot's
+   newest last (bot_debug.c: bot_debug_capturing makes bot_logging true) */
+#define BOT_DEBUG_EVENTS 40
+static struct
+{
+	long tick;
+	char text[200];
+} bot_debug_events[BOT_MAXIMUM_PLAYERS][BOT_DEBUG_EVENTS];
+static long bot_debug_event_count[BOT_MAXIMUM_PLAYERS];
+int bot_debug_capturing;
+
+static void bot_debug_snapshot_take(struct bot_think *t)
+{
+	struct bot_debug_snapshot *s;
+	if (t->player_absolute_index < 0 || t->player_absolute_index >= BOT_MAXIMUM_PLAYERS)
+		return;
+	s = &bot_debug_snapshots[t->player_absolute_index];
+	s->tick = game_time_get();
+	s->look_reason = t->look_reason;
+	s->how = t->how;
+	s->drive_mode = t->drive_mode;
+	snprintf(s->drive_note, sizeof(s->drive_note), "%s", t->drive_note ? t->drive_note : "");
+	s->target = t->target;
+	s->target_distance = t->target_distance;
+	s->moving = t->moving;
+	s->committed = t->committed;
+	s->driving = t->driving;
+	s->gunner = t->gunner;
+	s->threatened = t->threatened;
+	s->look_forced = t->look_forced;
+	s->zombie = t->zombie;
+	s->move_yaw = t->move_yaw;
+	s->move_speed = t->move_speed;
+	s->desired_yaw = t->desired_yaw;
+	s->desired_pitch = t->desired_pitch;
+	s->path_yaw = t->path_yaw;
+	s->vehicle = t->vehicle_index;
+	s->position = t->position;
+	s->eye = t->eye;
+	s->drive_to = t->drive_to;
+	s->far_place = t->far_place;
+	s->velocity = t->body.velocity;
+	s->travel = t->result.travel;
+	s->no_route = t->result.no_route;
+	s->arrived = t->result.arrived;
+	s->throttle_i = t->action->throttle.i;
+	s->throttle_j = t->action->throttle.j;
+	s->control_flags = t->action->control_flags;
+	s->weapon_value = t->weapon.value;
+	s->rounds_loaded = t->weapon.rounds_loaded;
+	s->rounds_total = t->weapon.rounds_total;
+	s->weapon_kind = t->weapon.kind;
+	s->drive_throttle = t->drive_throttle;
+	s->drive_held = t->drive_held;
+	s->drive_round = t->drive_round;
+}
+
+/* a log line, kept for the bot it is about: "bot<n>", or a unit's
+   ("pilot <n>", "unit <n>", "countrytrace <n>": a unit's index's low half) */
+static void bot_debug_event_note(char const *text)
+{
+	char const *at;
+	long index = NONE;
+	for (at = text; *at && index == NONE; at++)
+	{
+		if ((at == text || at[-1] == ' ' || at[-1] == '(') && !strncmp(at, "bot", 3) && at[3] >= '0' && at[3] <= '9')
+			index = atol(at + 3);
+		else if ((at == text || at[-1] == ' ') && (!strncmp(at, "pilot ", 6) || !strncmp(at, "unit ", 5) || !strncmp(at, "countrytrace ", 13)))
+		{
+			long unit = atol(strchr(at, ' ') + 1);
+			long i;
+			if (unit <= 0)
+				continue;
+			for (i = 0; i < BOT_MAXIMUM_PLAYERS; i++)
+				if (bot_states[i].unit_index != NONE && (bot_states[i].unit_index & 0xffff) == unit)
+					index = i;
+		}
+	}
+	if (index >= 0 && index < BOT_MAXIMUM_PLAYERS)
+	{
+		long slot = bot_debug_event_count[index]++ % BOT_DEBUG_EVENTS;
+		bot_debug_events[index][slot].tick = game_time_get();
+		snprintf(bot_debug_events[index][slot].text, sizeof(bot_debug_events[index][slot].text), "%s", text);
+	}
+}
+
+static char const *const bot_debug_look_names[] = { "ahead", "aim", "expect", "glance", "noise", "path", "scan", "steer", "move", "act", "lob" };
+static char const *const bot_debug_goal_names[] = { "none", "enemy", "item", "vehicle", "roam", "hold" };
+static char const *const bot_debug_drive_names[] = { "-", "far across country", "by the ground", "by the areas" };
+static char const *const bot_debug_pilot_names[] = { "cruise", "run", "break", "land" };
+
+/* (text added to a buffer, a line at a time) */
+struct bot_debug_text
+{
+	char *buffer;
+	long size, length;
+};
+
+static void bot_debug_add(struct bot_debug_text *out, char const *format, ...)
+{
+	va_list arguments;
+	int written;
+	if (out->length >= out->size - 2)
+		return;
+	va_start(arguments, format);
+	written = vsnprintf(out->buffer + out->length, (size_t)(out->size - out->length - 1), format, arguments);
+	va_end(arguments);
+	if (written < 0)
+		return;
+	out->length = MIN(out->length + written, out->size - 2);
+	out->buffer[out->length++] = '\n';
+	out->buffer[out->length] = 0;
+}
+
+static void bot_debug_name(long player_index, char *name, int size)
+{
+	struct player_datum *player = player_index != NONE ? player_try_and_get(player_index) : NULL;
+	int i;
+	name[0] = 0;
+	if (!player)
+	{
+		snprintf(name, size, "-");
+		return;
+	}
+	for (i = 0; i < 11 && i < size - 1 && player->name[i]; i++)
+		name[i] = player->name[i] < 128 && player->name[i] >= 32 ? (char)player->name[i] : '?';
+	name[i] = 0;
+}
+
+/* the player a unit is (its player's index), or NONE */
+static long bot_debug_player_of_unit(long unit_index)
+{
+	struct data_iterator iterator;
+	struct player_datum *player;
+	long root;
+	if (unit_index == NONE || !object_try_and_get(unit_index))
+		return NONE;
+	root = object_get_ultimate_parent(unit_index);
+	data_iterator_new(&iterator, player_data);
+	while ((player = (struct player_datum *)data_iterator_next(&iterator)) != NULL)
+		if (player->unit_index != NONE && (player->unit_index == unit_index || player->unit_index == root ||
+			object_get_ultimate_parent(player->unit_index) == unit_index))
+			return iterator.datum_index;
+	return NONE;
+}
+
+static void bot_debug_who(long unit_index, char *text, int size)
+{
+	char name[16];
+	long player = bot_debug_player_of_unit(unit_index);
+	if (unit_index == NONE)
+	{
+		snprintf(text, size, "nobody");
+		return;
+	}
+	bot_debug_name(player, name, sizeof(name));
+	snprintf(text, size, "%s", player != NONE ? name : object_try_and_get(unit_index) ? tag_get_name(object_get(unit_index)->definition_index) : "?");
+}
+
+static char const *bot_debug_short_tag(long definition_index)
+{
+	char const *name = definition_index != NONE ? tag_get_name(definition_index) : "-";
+	char const *slash = strrchr(name, '\\');
+	return slash ? slash + 1 : name;
+}
+
+/* the next bot after (or before) this one with a player, wrapping; NONE: none */
+long bots_debug_next(long after, int direction)
+{
+	long i, index;
+	for (i = 1; i <= BOT_MAXIMUM_PLAYERS; i++)
+	{
+		index = ((after < 0 ? (direction > 0 ? -1 : 0) : after) + direction * i + BOT_MAXIMUM_PLAYERS * 2) % BOT_MAXIMUM_PLAYERS;
+		if (bot_states[index].has_personality && bot_states[index].unit_index != NONE && bot_unit_alive(bot_states[index].unit_index))
+			return index;
+	}
+	for (i = 1; i <= BOT_MAXIMUM_PLAYERS; i++)
+	{
+		index = ((after < 0 ? 0 : after) + direction * i + BOT_MAXIMUM_PLAYERS * 2) % BOT_MAXIMUM_PLAYERS;
+		if (bot_states[index].has_personality)
+			return index;
+	}
+	return NONE;
+}
+
+/* the unit a bot has now (NONE: dead, or no bot) */
+long bots_debug_unit(long index)
+{
+	if (index < 0 || index >= BOT_MAXIMUM_PLAYERS || !bot_states[index].has_personality || bot_states[index].unit_index == NONE ||
+		!bot_unit_alive(bot_states[index].unit_index))
+		return NONE;
+	return bot_states[index].unit_index;
+}
+
+/* the bot nearest the middle of a view (from a point, along a way), NONE none */
+long bots_debug_nearest_to_view(real_point3d const *from, real_vector3d const *forward)
+{
+	long i, best = NONE;
+	real best_score = 0.95f;
+	for (i = 0; i < BOT_MAXIMUM_PLAYERS; i++)
+	{
+		long unit = bots_debug_unit(i);
+		real_point3d at;
+		real dx, dy, dz, length, along;
+		if (unit == NONE)
+			continue;
+		at = object_get(object_get_ultimate_parent(unit))->object.bounding_sphere_center;
+		dx = at.x - from->x, dy = at.y - from->y, dz = at.z - from->z;
+		length = (real)sqrt(dx * dx + dy * dy + dz * dz);
+		if (length < 0.5f)
+			continue;
+		along = (dx * forward->i + dy * forward->j + dz * forward->k) / length;
+		if (along > best_score)
+		{
+			best_score = along;
+			best = i;
+		}
+	}
+	return best;
+}
+
+/* one line of the table of every bot */
+void bots_debug_summary(char *buffer, long size, long selected)
+{
+	struct bot_debug_text out = { buffer, size, 0 };
+	long i;
+	buffer[0] = 0;
+	bot_debug_add(&out, "#  # name        tm sk  hp  sh  weapon          goal       far  target       dist  speed state");
+	for (i = 0; i < BOT_MAXIMUM_PLAYERS; i++)
+	{
+		struct bot_state *bot = &bot_states[i];
+		struct bot_debug_snapshot const *s = &bot_debug_snapshots[i];
+		struct player_datum *player;
+		struct object_datum *unit;
+		char name[16], target[16];
+		char const *weapon = "-";
+		long player_index = NONE;
+		struct data_iterator iterator;
+		real speed;
+		if (!bot->has_personality)
+			continue;
+		data_iterator_new(&iterator, player_data);
+		while ((player = (struct player_datum *)data_iterator_next(&iterator)) != NULL)
+			if (DATUM_INDEX_TO_ABSOLUTE_INDEX(iterator.datum_index) == i)
+				player_index = iterator.datum_index;
+		bot_debug_name(player_index, name, sizeof(name));
+		unit = bot->unit_index != NONE && bot_unit_alive(bot->unit_index) ? object_get(bot->unit_index) : NULL;
+		if (!unit)
+		{
+			bot_debug_add(&out, "%c%3ld %-11s %2ld  -   dead", i == selected ? '>' : '~', i, name, bot->team);
+			continue;
+		}
+		{
+			struct unit_datum *u = (struct unit_datum *)unit;
+			if (u->unit.current_weapon_index >= 0 && u->unit.weapon_object_indices[u->unit.current_weapon_index] != NONE &&
+				object_try_and_get(u->unit.weapon_object_indices[u->unit.current_weapon_index]))
+				weapon = bot_debug_short_tag(object_get(u->unit.weapon_object_indices[u->unit.current_weapon_index])->definition_index);
+		}
+		bot_debug_who(s->target, target, sizeof(target));
+		speed = (real)sqrt(s->velocity.i * s->velocity.i + s->velocity.j * s->velocity.j) * BOT_TICKS_PER_SECOND;
+		bot_debug_add(&out, "%c%3ld %-11s %2ld %2.0f %4.2f %4.2f %-15.15s %-8s %5.0f  %-11.11s %5.1f %5.1f %s%s%s%s",
+			i == selected ? '>' : ' ', i, name, bot->team, 1.f + (bot_skill_of(i) - 1.f) * 9.f / 4.f, unit->object.body_vitality, unit->object.shield_vitality,
+			s->vehicle != NONE && object_try_and_get(s->vehicle) ? bot_debug_short_tag(object_get(s->vehicle)->definition_index) : weapon,
+			bot->goal_kind >= 0 && bot->goal_kind <= 5 ? bot_debug_goal_names[bot->goal_kind] : "?", bot_distance2d(&s->position, &bot->goal),
+			s->target != NONE ? target : bot->target_unit != NONE ? "(lost)" : "-", s->target != NONE ? s->target_distance : 0.f, speed,
+			s->vehicle != NONE ? (s->driving ? "driving " : s->gunner ? "gunner " : "riding ") : "",
+			!s->moving ? "still " : speed < 0.3f && s->vehicle == NONE ? "STUCK? " : "",
+			bot->ambush_phase ? "ambush " : bot->in_cover ? "cover " : "", s->no_route ? "NO ROUTE" : "");
+	}
+}
+
+/* all there is to show of one bot */
+void bots_debug_describe(long index, char *buffer, long size)
+{
+	struct bot_debug_text out = { buffer, size, 0 };
+	struct bot_state *bot;
+	struct bot_debug_snapshot const *s;
+	struct bot_personality const *p;
+	struct unit_datum *unit;
+	struct player_datum *player;
+	struct data_iterator iterator;
+	long player_index = NONE, now = game_time_get(), i;
+	char name[16], who[32];
+	real speed, facing;
+	buffer[0] = 0;
+	if (index < 0 || index >= BOT_MAXIMUM_PLAYERS || !bot_states[index].has_personality)
+	{
+		bot_debug_add(&out, "~(no bot chosen: F8 for the next one)");
+		return;
+	}
+	bot = &bot_states[index];
+	s = &bot_debug_snapshots[index];
+	p = &bot->personality;
+	data_iterator_new(&iterator, player_data);
+	while ((player = (struct player_datum *)data_iterator_next(&iterator)) != NULL)
+		if (DATUM_INDEX_TO_ABSOLUTE_INDEX(iterator.datum_index) == index)
+			player_index = iterator.datum_index;
+	bot_debug_name(player_index, name, sizeof(name));
+	{
+		real level = bot_skill_of(index);
+		real fraction = (level - 1.f) / 4.f;
+		bot_debug_add(&out, ">BOT %ld  \"%s\"  team %ld  skill %.1f of 10 (inner %.2f, mastery %.2f)  role %s", index, name, bot->team,
+			1.f + (level - 1.f) * 9.f / 4.f, level, PIN((fraction - 0.75f) / 0.25f, 0.f, 1.f), bot->role >= 0 && bot->role < NUMBER_OF_BOT_ROLES ? bot_role_names[bot->role] : "?");
+	}
+	unit = bot->unit_index != NONE && bot_unit_alive(bot->unit_index) ? unit_get(bot->unit_index) : NULL;
+	if (!unit)
+	{
+		bot_debug_add(&out, "!dead (waiting to respawn)");
+	}
+	else
+	{
+		speed = (real)sqrt(s->velocity.i * s->velocity.i + s->velocity.j * s->velocity.j) * BOT_TICKS_PER_SECOND;
+		facing = bot->yaw;
+		bot_debug_add(&out, " health %.2f  shield %.2f  %s", unit->object.body_vitality, unit->object.shield_vitality,
+			bot->hit_ticks > 0 ? "(just hit)" : "");
+		bot_debug_add(&out, " at %.1f %.1f %.1f  speed %.2f u/s (up %.2f)  facing %.2f  pitch %.2f  turning %.1f rad/s", s->position.x, s->position.y, s->position.z,
+			speed, s->velocity.k * BOT_TICKS_PER_SECOND, facing, bot->pitch, bot->yaw_rate * BOT_TICKS_PER_SECOND);
+		{
+			char const *weapon = unit->unit.current_weapon_index >= 0 && unit->unit.weapon_object_indices[unit->unit.current_weapon_index] != NONE &&
+				object_try_and_get(unit->unit.weapon_object_indices[unit->unit.current_weapon_index]) ?
+				bot_debug_short_tag(object_get(unit->unit.weapon_object_indices[unit->unit.current_weapon_index])->definition_index) : "-";
+			bot_debug_add(&out, " weapon %s  rounds %d/%d  worth %.1f  grenades %d frag %d plasma  aim error %.3f %.3f", weapon, s->rounds_loaded, s->rounds_total,
+				s->weapon_value, unit->unit.grenade_counts[0], unit->unit.grenade_counts[1], bot->aim_error_yaw, bot->aim_error_pitch);
+		}
+		bot_debug_add(&out, " controls: stick %.2f forward %.2f left  buttons %04lx%s%s%s%s", s->throttle_i, s->throttle_j, s->control_flags,
+			s->control_flags & FLAG(_unit_control_jump_bit) ? " JUMP" : "", s->control_flags & FLAG(_unit_control_crouch_modifier_bit) ? " CROUCH" : "",
+			s->control_flags & FLAG(_unit_control_weapon_primary_trigger_bit) ? " FIRE" : "", s->control_flags & FLAG(_unit_control_action_bit) ? " ACTION" : "");
+	}
+	bot_debug_add(&out, "#MIND (tick %ld, %ld ago)", s->tick, now - s->tick);
+	bot_debug_add(&out, " goal %s  at %.1f %.1f %.1f  %.1f away  %.1f s left  score %.1f%s%s%s  object %s", bot->goal_kind >= 0 && bot->goal_kind <= 5 ? bot_debug_goal_names[bot->goal_kind] : "?",
+		bot->goal.x, bot->goal.y, bot->goal.z, bot_distance2d(&s->position, &bot->goal), bot->goal_ticks / (real)BOT_TICKS_PER_SECOND, bot->goal_score,
+		bot->goal_objective ? " objective" : "", bot->goal_trip ? " trip" : "", bot->goal_squad ? " squad" : "",
+		bot->goal_object != NONE && object_try_and_get(bot->goal_object) ? bot_debug_short_tag(object_get(bot->goal_object)->definition_index) : "-");
+	bot_debug_add(&out, " progress: best distance %.1f, %ld ticks without getting nearer%s", bot->goal_best_distance, bot->goal_progress_ticks,
+		bot->via_valid ? "  (going round by a flank)" : "");
+	bot_debug_who(s->target, who, sizeof(who));
+	if (s->target != NONE)
+		bot_debug_add(&out, " TARGET %s  %.1f away  in sight %.1f s%s", who, s->target_distance, bot->seen_ticks / (real)BOT_TICKS_PER_SECOND,
+			s->threatened ? "  (threatened)" : "");
+	else
+		bot_debug_add(&out, " target: none in sight");
+	if (bot->target_unit != NONE)
+	{
+		bot_debug_who(bot->target_unit, who, sizeof(who));
+		bot_debug_add(&out, " after %s, last seen at %.1f %.1f %.1f, %.1f s ago", who, bot->last_seen.x, bot->last_seen.y, bot->last_seen.z,
+			bot->lost_ticks / (real)BOT_TICKS_PER_SECOND);
+	}
+	if (bot->tracked_unit != NONE)
+	{
+		bot_debug_who(bot->tracked_unit, who, sizeof(who));
+		bot_debug_add(&out, " tracker/heard: %s at %.1f %.1f %.1f, %.1f s old", who, bot->tracked_at.x, bot->tracked_at.y, bot->tracked_at.z,
+			bot->tracked_age / (real)BOT_TICKS_PER_SECOND);
+	}
+	{
+		long blips = 0;
+		for (i = 0; i < BOT_BLIPS; i++)
+			if (bot->blips[i].unit != NONE && bot->blips[i].tick > 0 && now - bot->blips[i].tick < BOT_BLIP_KEPT)
+				blips++;
+		bot_debug_add(&out, " radar dots kept %ld   quiet for %.1f s", blips, bot->quiet_since > 0 ? (now - bot->quiet_since) / (real)BOT_TICKS_PER_SECOND : 0.f);
+	}
+	bot_debug_add(&out, " look: %s%s  wants yaw %.2f pitch %.2f (%.2f off where it faces)  look-about %ld", s->look_reason >= 0 && s->look_reason <= 10 ? bot_debug_look_names[s->look_reason] : "?",
+		s->look_forced ? " (forced)" : "", s->desired_yaw, s->desired_pitch, bot_angle_difference(s->desired_yaw, bot->yaw), bot->look_about_ticks);
+	bot_debug_add(&out, " move: %s  %s  speed asked %.2f  way %.2f (%.2f off its facing)  path %.2f  %s%s%s", s->how == 1 ? "fight" : s->how == 2 ? "travel" : s->how == 3 ? "ambush" : "other",
+		s->moving ? "moving" : "STILL", s->move_speed, s->move_yaw, bot_angle_difference(s->move_yaw, bot->yaw), s->path_yaw,
+		s->committed ? "committed " : "", s->no_route ? "NO ROUTE " : "", s->arrived ? "arrived" : "");
+	bot_debug_add(&out, " route: area %ld  reach %ld  corridor %ld  stuck %ld  held %ld  travel kind %ld  fluency %.2f", bot->mover.move.area, bot->mover.move.reach,
+		bot->mover.move.corridor_count, bot->mover.move.stuck_count, bot->mover.move.held_count, s->travel, bot->mover.fluency);
+	bot_debug_add(&out, " fight: cover %s  ambush phase %ld  grenade %s  foe close %d  charge %ld  burst %ld/%ld  strafe %.0f (%ld)",
+		bot->in_cover ? "yes" : "no", bot->ambush_phase, bot->grenade_pending_ticks > 0 ? "lining one up" : "-", bot->foe_close, bot->charge_ticks,
+		bot->burst_ticks, bot->burst_pause, bot->strafe_sign, bot->strafe_ticks);
+	if (s->vehicle != NONE && object_try_and_get(s->vehicle))
+	{
+		struct object_datum *ride = object_get(s->vehicle);
+		bot_debug_add(&out, "#VEHICLE %s as %s", bot_debug_short_tag(ride->definition_index), s->driving ? "driver" : s->gunner ? "gunner" : "passenger");
+		if (s->driving && !bot_vehicle_flies(ride->definition_index))
+		{
+			bot_debug_add(&out, " drive: %s  to %.0f %.0f %.0f (%.0f away)  throttle %.2f%s%s  %s", s->drive_mode >= 0 && s->drive_mode <= 3 ? bot_debug_drive_names[s->drive_mode] : "?",
+				s->drive_to.x, s->drive_to.y, s->drive_to.z, bot_distance2d(&s->position, &s->drive_to), s->drive_throttle, s->drive_held ? " (waiting for riders)" : "",
+				s->drive_round ? " (circling)" : "", s->drive_note);
+			bot_debug_add(&out, " ground driving: grip %.2f  stuck count %ld  getting clear %s  turning in three %s  swerve %ld", bot->traveller.grip,
+				bot->traveller.stuck_count, now < bot->traveller.escape_until ? "yes" : "no", now < bot->traveller.turn_until ? "yes" : "no", bot->traveller.swerve_ticks);
+			bot_debug_add(&out, " parked %.1f s  flipped %.1f s  stranded ticks %ld", bot->parked_ticks / (real)BOT_TICKS_PER_SECOND,
+				bot->flipped_ticks / (real)BOT_TICKS_PER_SECOND, bot->drive_stranded_ticks);
+		}
+		else if (s->driving)
+		{
+			bot_debug_add(&out, " flight: %s  route turn %ld of %ld  %s%s  haul %s  taken %.1f s ago", bot->pilot.phase >= 0 && bot->pilot.phase <= 3 ? bot_debug_pilot_names[bot->pilot.phase] : "?",
+				bot->pilot.route_next + 1, bot->pilot.route_count, bot->pilot.hovering ? "on its jets " : "", bot->pilot.indoors ? "indoors " : "",
+				bot->haul_job >= 0 && bot->haul_job <= 5 ? bot_haul_names[bot->haul_job] : "?", (now - bot->pilot.taken_tick) / (real)BOT_TICKS_PER_SECOND);
+		}
+	}
+	bot_debug_add(&out, "#CHARACTER");
+	bot_debug_add(&out, " aggression %.2f accuracy %.2f reaction %.2f patience %.2f focus %.2f daring %.2f agility %.2f teamwork %.2f",
+		p->aggression, p->accuracy, p->reaction, p->patience, p->focus, p->daring, p->agility, p->teamwork);
+	bot_debug_add(&out, " composure %.2f discipline %.2f whim %.2f jumpiness %.2f camping %.2f greed %.2f vehicles %.2f grenades %.2f",
+		p->composure, p->discipline, p->whim, p->jumpiness, p->camping, p->greed, p->vehicle_love, p->grenade_happy);
+	bot_debug_add(&out, " luck: accuracy %.2f reaction %.2f agility %.2f   mood %.2f  streak %ld kills %ld deaths", p->accuracy_luck, p->reaction_luck,
+		p->agility_luck, p->mood, p->kill_streak, p->death_streak);
+	{
+		static struct { char const *name; unsigned bit; } const features[] =
+		{
+			{ "switch", BOT_F_SWITCH }, { "melee", BOT_F_MELEE }, { "threat", BOT_F_THREAT }, { "via", BOT_F_VIA }, { "notice", BOT_F_NOTICE },
+			{ "human", BOT_F_HUMAN }, { "agile", BOT_F_AGILE }, { "camp", BOT_F_CAMP }, { "aware", BOT_F_AWARE }, { "drive", BOT_F_DRIVE },
+			{ "neck", BOT_F_NECK }, { "seek", BOT_F_SEEK }, { "radar", BOT_F_RADAR }, { "master", BOT_F_MASTER }, { "purpose", BOT_F_PURPOSE },
+		};
+		char off[256] = "";
+		long k;
+		unsigned mask = bot_off_for_team(bot->team);
+		for (k = 0; k < (long)(sizeof(features) / sizeof(features[0])); k++)
+			if (mask & features[k].bit)
+				snprintf(off + strlen(off), sizeof(off) - strlen(off), " %s", features[k].name);
+		bot_debug_add(&out, " features off:%s", off[0] ? off : " none");
+	}
+	bot_debug_add(&out, "#RECENT (newest first; with HALO_BOT_LOG or the window open)");
+	for (i = 0; i < BOT_DEBUG_EVENTS && i < bot_debug_event_count[index]; i++)
+	{
+		long slot = (bot_debug_event_count[index] - 1 - i) % BOT_DEBUG_EVENTS;
+		char const *text = bot_debug_events[index][slot].text;
+		if (!strncmp(text, "bots: ", 6))
+			text += 6;
+		bot_debug_add(&out, "%c %5.1f s ago  %s", i < 3 ? ' ' : '~', (now - bot_debug_events[index][slot].tick) / (real)BOT_TICKS_PER_SECOND, text);
+	}
+}
+
+/* lines in the world for one bot (drawn the tick they are made): its goal
+   green, who it is after red, where it was last seen orange, the radar's dots
+   yellow, where it drives cyan, and the way it means to move white */
+void bots_debug_markers(long index)
+{
+	static real_argb_color const green = { 1.f, 0.2f, 1.f, 0.2f }, red = { 1.f, 1.f, 0.2f, 0.2f }, orange = { 1.f, 1.f, 0.6f, 0.1f },
+		yellow = { 1.f, 1.f, 1.f, 0.2f }, cyan = { 1.f, 0.2f, 1.f, 1.f }, white = { 1.f, 1.f, 1.f, 1.f };
+	struct bot_state *bot;
+	struct bot_debug_snapshot const *s;
+	real_point3d from, to;
+	long i, now = game_time_get();
+	if (index < 0 || index >= BOT_MAXIMUM_PLAYERS || bots_debug_unit(index) == NONE)
+		return;
+	bot = &bot_states[index];
+	s = &bot_debug_snapshots[index];
+	from = s->position;
+	from.z += 0.3f;
+	if (bot->goal_kind != _bot_goal_none)
+	{
+		to = bot->goal;
+		to.z += 0.1f;
+		render_debug_line(FALSE, &from, &to, &green);
+		render_debug_point(FALSE, &to, 0.6f, &green);
+	}
+	if (s->target != NONE && object_try_and_get(s->target))
+	{
+		to = object_get(object_get_ultimate_parent(s->target))->object.bounding_sphere_center;
+		render_debug_line(FALSE, &s->eye, &to, &red);
+	}
+	else if (bot->target_unit != NONE)
+		render_debug_point(FALSE, &bot->last_seen, 0.8f, &orange);
+	for (i = 0; i < BOT_BLIPS; i++)
+		if (bot->blips[i].unit != NONE && bot->blips[i].tick > 0 && now - bot->blips[i].tick < BOT_BLIP_KEPT)
+			render_debug_point(FALSE, &bot->blips[i].at, 0.5f, &yellow);
+	if (s->vehicle != NONE && s->driving)
+	{
+		to = s->drive_to;
+		render_debug_line(FALSE, &from, &to, &cyan);
+	}
+	else if (s->moving)
+	{
+		to.x = from.x + (real)cos(s->move_yaw) * 2.f;
+		to.y = from.y + (real)sin(s->move_yaw) * 2.f;
+		to.z = from.z;
+		render_debug_line(FALSE, &from, &to, &white);
+	}
 }

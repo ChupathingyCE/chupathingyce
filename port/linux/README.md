@@ -3171,6 +3171,34 @@ gunner first, as before.
 first n places of the game as persons. Thus a game with only bots shows
 what the bots do for persons.
 
+### Watch the bots: the debug window, the panel and the cameras
+
+On the machine that runs the bots (your own game, or the one you host):
+
+| Key | What it does |
+|---|---|
+| F7 | Opens (and closes) the bots' window: a second window beside the game's. It has a table of every bot (team, skill, health, shield, weapon or vehicle, goal and how far, who it shoots at, speed, and what it is doing), then all of the bot chosen: its health, place, speed and facing, weapon and rounds, the controls it pressed; its goal, who it is after and where they were last seen, the motion tracker's dots it keeps, what it looks at and why, how it moves and why it stands still, its route; its vehicle and how it drives or flies it; its character; and its last 40 log lines. Its mouse wheel, Page Up, Page Down and Home scroll it; + and - make its text larger and smaller. (Release the mouse with F12 to use it.) |
+| Shift+F7 | The chosen bot's part on the game's own screen, on the left (for a game that fills the one screen) |
+| Ctrl+F7 | Saves all of it, of every bot, to `bot_debug_<date>_<time>.txt` in the logs folder: a file to send with a report |
+| F8 | The next bot (Shift+F8: the one before; Ctrl+F8: the bot in the middle of your view) |
+| F10 | The camera: through the chosen bot's eyes, then from behind it, then free, then your own again. The free camera (noclip) flies with W, A, S, D, R (up) and F (down), the mouse looks about, and the wheel changes its speed. Your own player stands still while the camera is not yours. |
+| Shift+F10 | Back to your own view |
+
+While the window or the panel is open, the chosen bot has lines in the
+world: its goal green, who it shoots at red (where they were last seen
+orange), the motion tracker's dots it keeps yellow, where it drives cyan, and
+the way it moves white. The bots keep their log lines for the window while
+it is open (as `HALO_BOT_LOG=1` would, without writing them to the log).
+
+`HALO_BOT_DEBUG` starts the game with any of them: `window`, `panel`, `eyes`,
+`behind`, `fly`, `bot=<number>` (the bot chosen), and `save=<seconds>` (the
+file of every bot after that many seconds of the game), for example
+`HALO_BOT_DEBUG=window,behind,bot=3`.
+
+The window draws with SDL's own software renderer and its built-in font, so
+it does not touch the game's OpenGL; there is none on Android, the consoles
+or the dedicated server (Shift+F7's panel works everywhere there are bots).
+
 ### Measure the bots
 
 `HALO_BOT_STATS=<seconds>` writes a line that starts with `bot stats:` to the

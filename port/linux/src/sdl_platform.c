@@ -1565,6 +1565,299 @@ static void frame_delay_ns(Uint64 nanoseconds)
 }
 #endif
 
+
+/* ---------- the bots' debug window (port/linux/game/bot_debug.c) */
+
+/* A second window, beside the game's, of text: what the bots are thinking
+(bot_debug.c writes it, F7 opens it). It draws with SDL's software renderer
+and its built-in 8 pixel font, so it takes nothing of the game's OpenGL. The
+mouse wheel (or Page Up, Page Down, Home) scrolls it, + and - change the
+size of the text; closing it closes only it. Not on Android. */
+#ifndef HALO_ANDROID
+/* (as bot_debug.c has it) */
+struct bot_debug_window_ops
+{
+	int (*toggle)(void);
+	int (*is_open)(void);
+	void (*set_text)(char const *text);
+};
+void bot_debug_window_register(struct bot_debug_window_ops const *ops);
+
+static struct
+{
+	SDL_Window *window;
+	SDL_Renderer *renderer;
+	SDL_WindowID id;
+	char text[96 * 1024];
+	SDL_Mutex *lock;
+	int scroll; /* lines down */
+	int scale; /* 1 or 2 */
+	Uint64 drawn_ms;
+	int dirty;
+} debug_window;
+
+/* (the game's OpenGL the one in use: whatever the window's making took) */
+static void debug_window_restore_gl(void)
+{
+	if (platform_gl_context && SDL_GL_GetCurrentContext() != platform_gl_context)
+		SDL_GL_MakeCurrent(platform_window, platform_gl_context);
+}
+
+static int debug_window_is_open(void)
+{
+	return debug_window.window != NULL;
+}
+
+static void debug_window_close(void)
+{
+	if (debug_window.renderer)
+		SDL_DestroyRenderer(debug_window.renderer);
+	if (debug_window.window)
+		SDL_DestroyWindow(debug_window.window);
+	debug_window.renderer = NULL;
+	debug_window.window = NULL;
+	debug_window.id = 0;
+	debug_window_restore_gl();
+	/* (back to the game's window, for its keys) */
+	if (platform_window)
+		SDL_RaiseWindow(platform_window);
+}
+
+static int debug_window_open(void)
+{
+	int x = SDL_WINDOWPOS_UNDEFINED, y = SDL_WINDOWPOS_UNDEFINED, width = 820, height = 940;
+
+	if (debug_window.window)
+		return 1;
+	if (!platform_window)
+		return 0;
+	if (!debug_window.lock)
+		debug_window.lock = SDL_CreateMutex();
+	if (!debug_window.scale)
+		debug_window.scale = 1;
+	/* (beside the game's window, on its right, when it is not fullscreen) */
+	if (!platform_window_fullscreen())
+	{
+		int game_x, game_y, game_width, game_height;
+
+		if (SDL_GetWindowPosition(platform_window, &game_x, &game_y) && SDL_GetWindowSize(platform_window, &game_width, &game_height))
+		{
+			x = game_x + game_width + 8;
+			y = game_y;
+		}
+	}
+	/* (its surface the system's own, not one SDL would make with an OpenGL
+	renderer of its own: that would take the game's OpenGL from it) */
+	SDL_SetHint(SDL_HINT_FRAMEBUFFER_ACCELERATION, "0");
+	debug_window.window = SDL_CreateWindow("ChupathingyCE: bots", width, height, SDL_WINDOW_RESIZABLE);
+	if (!debug_window.window)
+	{
+		platform_log("bot debug window: %s", SDL_GetError());
+		return 0;
+	}
+	if (x != SDL_WINDOWPOS_UNDEFINED)
+		SDL_SetWindowPosition(debug_window.window, x, y);
+	debug_window.renderer = SDL_CreateRenderer(debug_window.window, "software");
+	if (!debug_window.renderer)
+	{
+		platform_log("bot debug window: %s", SDL_GetError());
+		debug_window_close();
+		return 0;
+	}
+	debug_window.id = SDL_GetWindowID(debug_window.window);
+	debug_window.dirty = 1;
+	debug_window_restore_gl();
+	/* (the game keeps the keys: the window is to be read, not typed in) */
+	SDL_RaiseWindow(platform_window);
+	return 1;
+}
+
+static int debug_window_toggle(void)
+{
+	if (debug_window_is_open())
+	{
+		debug_window_close();
+		return 0;
+	}
+	return debug_window_open();
+}
+
+static void debug_window_set_text(char const *text)
+{
+	if (!debug_window.lock)
+		debug_window.lock = SDL_CreateMutex();
+	SDL_LockMutex(debug_window.lock);
+	SDL_strlcpy(debug_window.text, text ? text : "", sizeof(debug_window.text));
+	debug_window.dirty = 1;
+	SDL_UnlockMutex(debug_window.lock);
+}
+
+/* (each line's colour by its first character: '#' a heading, '!' a
+warning, '>' the bot chosen, '~' faint; the character itself not drawn) */
+static void debug_window_draw(void)
+{
+	Uint64 now = SDL_GetTicks();
+	int width = 0, height = 0, line = 0;
+	float step;
+	char const *at;
+
+	if (!debug_window.renderer || (!debug_window.dirty && now - debug_window.drawn_ms < 500) || now - debug_window.drawn_ms < 80)
+		return;
+	debug_window.drawn_ms = now;
+	debug_window.dirty = 0;
+	SDL_GetRenderOutputSize(debug_window.renderer, &width, &height);
+	SDL_SetRenderScale(debug_window.renderer, (float)debug_window.scale, (float)debug_window.scale);
+	SDL_SetRenderDrawColor(debug_window.renderer, 14, 17, 21, 255);
+	SDL_RenderClear(debug_window.renderer);
+	step = 10.f;
+	SDL_LockMutex(debug_window.lock);
+	for (at = debug_window.text; *at; line++)
+	{
+		char row[256];
+		char const *end = strchr(at, '\n');
+		size_t length = end ? (size_t)(end - at) : strlen(at);
+		char kind = length ? at[0] : 0;
+		size_t skip = (kind == '#' || kind == '!' || kind == '>' || kind == '~') ? 1 : 0;
+		float y = 4.f + (float)(line - debug_window.scroll) * step;
+
+		if (line >= debug_window.scroll && y < (float)height / (float)debug_window.scale)
+		{
+			size_t copy = SDL_min(length - skip, sizeof(row) - 1);
+
+			memcpy(row, at + skip, copy);
+			row[copy] = 0;
+			switch (kind)
+			{
+			case '#': SDL_SetRenderDrawColor(debug_window.renderer, 240, 200, 90, 255); break;
+			case '!': SDL_SetRenderDrawColor(debug_window.renderer, 255, 110, 100, 255); break;
+			case '>': SDL_SetRenderDrawColor(debug_window.renderer, 120, 230, 140, 255); break;
+			case '~': SDL_SetRenderDrawColor(debug_window.renderer, 130, 140, 150, 255); break;
+			default: SDL_SetRenderDrawColor(debug_window.renderer, 215, 220, 225, 255); break;
+			}
+			SDL_RenderDebugText(debug_window.renderer, 4.f, y, row);
+		}
+		at = end ? end + 1 : at + length;
+	}
+	SDL_UnlockMutex(debug_window.lock);
+	/* (testing, HALO_BOT_DEBUG_SHOT=<folder>: the window as a picture there
+	every few seconds, bot_debug_<n>.bmp) */
+	{
+		static Uint64 shot_ms;
+		static int shots;
+		char const *folder = getenv("HALO_BOT_DEBUG_SHOT");
+
+		if (folder && now - shot_ms > 3000)
+		{
+			SDL_Surface *surface = SDL_RenderReadPixels(debug_window.renderer, NULL);
+
+			shot_ms = now;
+			if (surface)
+			{
+				char path[1024];
+
+				snprintf(path, sizeof(path), "%s/bot_debug_%d.bmp", folder, shots++);
+				SDL_SaveBMP(surface, path);
+				SDL_DestroySurface(surface);
+			}
+		}
+	}
+	/* (the lines past the end are not scrolled to) */
+	if (debug_window.scroll > line - 4)
+		debug_window.scroll = SDL_max(0, line - 4);
+	SDL_RenderPresent(debug_window.renderer);
+	debug_window_restore_gl();
+}
+
+/* the window's own events: TRUE when it was one of them (not the game's) */
+static int debug_window_event(SDL_Event const *event)
+{
+	SDL_WindowID id = 0;
+
+	switch (event->type)
+	{
+	case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
+	case SDL_EVENT_WINDOW_RESIZED:
+	case SDL_EVENT_WINDOW_EXPOSED:
+	case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
+		id = event->window.windowID;
+		break;
+	case SDL_EVENT_MOUSE_WHEEL:
+		id = event->wheel.windowID;
+		break;
+	case SDL_EVENT_KEY_DOWN:
+	case SDL_EVENT_KEY_UP:
+		id = event->key.windowID;
+		break;
+	case SDL_EVENT_MOUSE_MOTION:
+		id = event->motion.windowID;
+		break;
+	case SDL_EVENT_MOUSE_BUTTON_DOWN:
+	case SDL_EVENT_MOUSE_BUTTON_UP:
+		id = event->button.windowID;
+		break;
+	default:
+		return 0;
+	}
+	if (!debug_window.window)
+		return 0;
+	/* (the game's window closed while this is open: SDL quits only when the
+	last window closes, so the game is ended here, as with the one window) */
+	if (event->type == SDL_EVENT_WINDOW_CLOSE_REQUESTED && platform_window && id == SDL_GetWindowID(platform_window))
+	{
+#ifndef __APPLE__
+		SDL_Event quit;
+
+		debug_window_close();
+		SDL_zero(quit);
+		quit.type = SDL_EVENT_QUIT;
+		SDL_PushEvent(&quit);
+		return 1;
+#else
+		return 0;
+#endif
+	}
+	if (id != debug_window.id)
+		return 0;
+	switch (event->type)
+	{
+	case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
+		debug_window_close();
+		break;
+	case SDL_EVENT_MOUSE_WHEEL:
+		debug_window.scroll = SDL_max(0, debug_window.scroll - (int)(event->wheel.y * 3.f));
+		debug_window.dirty = 1;
+		break;
+	case SDL_EVENT_KEY_DOWN:
+		if (event->key.scancode == SDL_SCANCODE_PAGEDOWN)
+			debug_window.scroll += 30;
+		else if (event->key.scancode == SDL_SCANCODE_PAGEUP)
+			debug_window.scroll = SDL_max(0, debug_window.scroll - 30);
+		else if (event->key.scancode == SDL_SCANCODE_HOME)
+			debug_window.scroll = 0;
+		else if (event->key.scancode == SDL_SCANCODE_EQUALS || event->key.scancode == SDL_SCANCODE_KP_PLUS)
+			debug_window.scale = 2;
+		else if (event->key.scancode == SDL_SCANCODE_MINUS || event->key.scancode == SDL_SCANCODE_KP_MINUS)
+			debug_window.scale = 1;
+		else if (event->key.scancode == SDL_SCANCODE_F7)
+			debug_window_close();
+		debug_window.dirty = 1;
+		break;
+	default:
+		debug_window.dirty = 1;
+		break;
+	}
+	return 1;
+}
+
+/* the game's side of it (bot_debug.c) */
+static struct bot_debug_window_ops const debug_window_ops =
+{
+	debug_window_toggle,
+	debug_window_is_open,
+	debug_window_set_text,
+};
+#endif
+
 void platform_video_swap(void)
 {
 	static Uint64 next_frame;
@@ -1575,6 +1868,9 @@ void platform_video_swap(void)
 	if (!xgpu_bgfx)
 #endif
 	SDL_GL_SwapWindow(platform_window);
+#ifndef HALO_ANDROID
+	debug_window_draw();
+#endif
 	interval = frame_interval_ns();
 	if (!interval)
 		return;
@@ -2131,9 +2427,27 @@ void platform_pump_events(void)
 #ifndef HALO_ANDROID
 	updater_poll(platform_window);
 #endif
+#ifndef HALO_ANDROID
+	{
+		/* (the bots' debug window offered to the game, once there is a
+		window to put it beside) */
+		static BOOL debug_window_offered;
+
+		if (!debug_window_offered)
+		{
+			debug_window_offered = TRUE;
+			bot_debug_window_register(&debug_window_ops);
+		}
+	}
+#endif
 	pthread_mutex_lock(&input_lock);
 	while (SDL_PollEvent(&event))
 	{
+#ifndef HALO_ANDROID
+		/* (the bots' debug window's own: not the game's input) */
+		if (debug_window_event(&event))
+			continue;
+#endif
 		switch (event.type)
 		{
 #ifdef __APPLE__

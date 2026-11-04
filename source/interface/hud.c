@@ -112,6 +112,7 @@ symbols in this file:
 #include "text/draw_string.h"
 #include "coop_spectate.h" /* port: port/linux/game/coop_spectate.c */
 #include "follow_camera.h" /* port: port/linux/game/follow_camera.c */
+#include "bot_debug.h" /* port: port/linux/game/bot_debug.c */
 #include "powerup_timers.h" /* port: port/linux/game/powerup_timers.c */
 #include "network_coop.h" /* port: port/linux/game/network_coop.c */
 #ifdef HALO_PORT_CHAT
@@ -1459,6 +1460,10 @@ void hud_draw_screen(
 		/* port: who a dead network co-op player is watching */
 		if (player->unit_index == NONE && coop_spectating() && !cinematic_in_progress())
 			coop_spectate_draw(render.local_player_index);
+		/* port: the bots' debug view: its panel, and which camera
+		(port/linux/game/bot_debug.c) */
+		if (game_engine_running() && !cinematic_in_progress())
+			bot_debug_draw(render.local_player_index);
 		/* port: who a dead multiplayer player's camera follows */
 		if (player->unit_index == NONE && game_engine_running() && !cinematic_in_progress())
 			follow_camera_draw(render.local_player_index);
