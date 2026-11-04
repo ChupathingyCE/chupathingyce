@@ -50,7 +50,7 @@
 
   <section id="setup" class="panel login" hidden>
     <h1 id="setup-title">Make the owner's account</h1>
-    <p class="hint" id="setup-hint">The server printed this one-time code on its console. Choose a name and a password of at least 12 characters; set up a second factor after you log in.</p>
+    <p class="hint" id="setup-hint">Enter the one-time code from the server's output, or from control_setup_code.txt in its data folder. Then choose a name and a password of at least 12 characters.</p>
     <form id="setup-form" autocomplete="on">
       <label for="setup-code">Code</label>
       <input id="setup-code" spellcheck="false" autocapitalize="off" required>
@@ -61,6 +61,34 @@
       <button type="submit" class="primary" id="setup-submit">Make the account</button>
       <p class="error" id="setup-error" role="alert"></p>
     </form>
+  </section>
+
+  <section id="first-run" class="panel login" hidden>
+    <div id="first-run-server">
+      <h1>Set up your server</h1>
+      <p class="hint">You can change all of this later in Settings and Playlists.</p>
+      <form id="first-run-form" class="stack">
+        <label for="first-run-name">Server name</label>
+        <input id="first-run-name" maxlength="15" required>
+        <label for="first-run-players">Most players</label>
+        <input id="first-run-players" type="number" min="1" max="128" required>
+        <label for="first-run-playlist">Playlist</label>
+        <select id="first-run-playlist" required></select>
+        <label class="check"><input type="checkbox" id="first-run-public" checked> Show it in the Server Browser</label>
+        <p class="hint" id="first-run-fixed" hidden></p>
+        <button type="submit" class="primary">Start the server</button>
+        <p class="error" id="first-run-error" role="alert"></p>
+      </form>
+    </div>
+    <div id="first-run-link" hidden>
+      <h1>Your server is starting</h1>
+      <p>Link it to your account on the Chupathingy site. Then you can manage it and give people roles from your profile.</p>
+      <div class="stack">
+        <button type="button" class="primary" id="first-run-link-go">Link to my Chupathingy account</button>
+        <button type="button" class="quiet" id="first-run-done">Not now</button>
+      </div>
+      <p class="hint">Next, set up a second factor in My account.</p>
+    </div>
   </section>
 
   <div id="app" hidden>

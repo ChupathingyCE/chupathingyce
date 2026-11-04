@@ -170,7 +170,9 @@ button.danger { background: var(--danger); border-color: var(--danger); color: v
 button.quiet { background: none; padding: 4px 10px; font-size: 13px; }
 button.small { padding: 4px 10px; font-size: 13px; }
 
-#login-form { display: flex; flex-direction: column; gap: 10px; }
+#login-form, #setup-form, .stack { display: flex; flex-direction: column; gap: 10px; }
+.stack .check { margin-top: 4px; color: var(--text); }
+#first-run-link p { margin: 0 0 12px; }
 
 .row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; margin-bottom: 12px; }
 .row.end { justify-content: flex-end; margin: 12px 0 0; }

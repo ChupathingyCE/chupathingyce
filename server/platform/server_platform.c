@@ -16,7 +16,9 @@ game's dedicated mode does on SDL's quit event.
 Before the game starts (a constructor, so nothing has been loaded yet), the
 program checks what it was given: --version and --help answer and exit; a
 run with neither HALO_DEDICATED (a playlist) nor HALO_PROBE (an invite) is
-told how to start a server; a data folder without maps, or a playlist that
+told how to start a server, unless its control panel is on (it then
+starts for the panel's first-run setup, which chooses the playlist: one
+included with the server until then); a data folder without maps, or a playlist that
 cannot be read, is a clear error (exit status 1) instead of a server that
 never hosts.
 */
@@ -28,11 +30,14 @@ never hosts.
 #include "browser.h"
 #include "halo_port_limits.h"
 #include "delta.h"
+#include "server_control.h"
 
+#include <dirent.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <unistd.h>
 
 /* (given for this file by the build, as for updater.c: tools/server_build.py) */
@@ -61,7 +66,8 @@ static void print_usage(FILE *stream)
 		"maps) and the playlist.\n"
 		"\n"
 		"Settings (environment variables):\n"
-		"  HALO_DEDICATED                  the playlist, in the data folder\n"
+		"  HALO_DEDICATED                  the playlist, in the data folder (with the control\n"
+		"                                  panel on, the panel's first-run setup chooses it)\n"
 		"  HALO_DEDICATED_NAME             the server's name (15 characters at most)\n"
 		"  HALO_DEDICATED_MINIMUM_PLAYERS  players a game waits for (1)\n"
 		"  HALO_DEDICATED_MAXIMUM_PLAYERS  players a game takes (12)\n"
@@ -134,6 +140,71 @@ static void server_check_data(void)
 	}
 }
 
+/* the playlist a server started for the first-run setup hosts until its
+owner chooses one (the setup's choice is kept, as sv_playlist_use's, while
+HALO_DEDICATED is this): free_for_all.txt, else the first of the data
+folder's playlists by name; 0 if there is none */
+static int setup_playlist(char *playlist, unsigned long size)
+{
+	char folder[1024];
+	char path[1024];
+	DIR *directory;
+	struct dirent *entry;
+
+	playlist_path("playlists/free_for_all.txt", path, sizeof(path));
+	if (readable(path))
+	{
+		snprintf(playlist, size, "playlists/free_for_all.txt");
+		return 1;
+	}
+	playlist[0] = 0;
+	playlist_path("playlists", folder, sizeof(folder));
+	directory = opendir(folder);
+	if (!directory)
+		return 0;
+	while ((entry = readdir(directory)) != NULL)
+	{
+		size_t length = strlen(entry->d_name);
+		char candidate[300];
+
+		if (length < 5 || length > 200 || entry->d_name[0] == '.' || strcmp(entry->d_name + length - 4, ".txt"))
+			continue;
+		snprintf(candidate, sizeof(candidate), "playlists/%s", entry->d_name);
+		if (playlist[0] && strcmp(candidate, playlist) >= 0)
+			continue;
+		snprintf(path, sizeof(path), "%s/%s", folder, entry->d_name);
+		if (readable(path))
+			snprintf(playlist, size, "%s", candidate);
+	}
+	closedir(directory);
+	return playlist[0] != 0;
+}
+
+/* no playlist given, and the control panel on: the server starts for the
+panel's first-run setup (1), else 0 */
+static int start_for_setup(void)
+{
+	const char *control = getenv("HALO_DEDICATED_CONTROL");
+	char playlist[300];
+
+	if (!control || !control[0] || !strcmp(control, "0") || !strcasecmp(control, "false") ||
+		!strcasecmp(control, "no") || !strcasecmp(control, "off"))
+	{
+		return 0;
+	}
+	if (!setup_playlist(playlist, sizeof(playlist)))
+	{
+		fprintf(stderr, "\nNo playlist: HALO_DEDICATED is not set, and the data folder's playlists folder has none.\n"
+			"Copy the server's playlists folder into the data folder.\n\n");
+		return 0;
+	}
+	setenv("HALO_DEDICATED", playlist, 1);
+	server_control_setup_mode();
+	printf("No playlist given (HALO_DEDICATED): the control panel's setup chooses one. Until then: %s\n", playlist);
+	fflush(stdout);
+	return 1;
+}
+
 static void stop_handler(int signal_number)
 {
 	(void)signal_number;
@@ -169,7 +240,7 @@ static void server_arguments(void)
 	}
 	/* (no sound to open: dsound_sdl.c's mixer runs on its own clock) */
 	setenv("HALO_NO_AUDIO", "1", 0);
-	if (!browser_dedicated() && !browser_probe())
+	if (!browser_dedicated() && !browser_probe() && !start_for_setup())
 	{
 		print_version();
 		fprintf(stderr, "\nNo playlist: set HALO_DEDICATED to a playlist in the data folder.\n\n");

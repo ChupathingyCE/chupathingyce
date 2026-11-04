@@ -16,6 +16,9 @@
   let logNext = 0;
   let maps = null;
   let linkState = '';
+  // (GET /v1/hello: whether the server has an owner yet, and whether it
+  // waits for its first-run setup)
+  let hello = {};
   // (how often the link's state is asked for while it waits for the site)
   const POLL_LINK_MS = 2000;
   const NUDGE_KEY = 'chupathingy-totp-later';
@@ -139,6 +142,7 @@
     $('app').hidden = true;
     $('who').hidden = true;
     $('setup').hidden = true;
+    $('first-run').hidden = true;
     $('login').hidden = false;
     $('login-error').textContent = message || '';
     $('user').focus();
@@ -151,6 +155,7 @@
     $('who').hidden = false;
     $('login').hidden = true;
     $('setup').hidden = true;
+    $('first-run').hidden = true;
     $('app').hidden = false;
     // (the tabs a role has)
     document.querySelectorAll('.tabs button').forEach((node) => {
@@ -160,6 +165,119 @@
     show(data.restricted ? 'The owner requires a second factor: set one up under My account first.' : '');
     nudge();
     select(data.restricted ? 'account' : (location.hash.slice(1) || 'status'));
+    // (a server waiting for its first-run setup: the owner finishes it first)
+    getHello().then(() => {
+      if (hello.waiting && session === data && can(0x100) && !data.restricted) showFirstRun();
+    });
+  }
+
+  async function getHello() {
+    try {
+      const response = await fetch('/v1/hello', { cache: 'no-store' });
+      hello = (await response.json()) || {};
+    } catch (error) {
+      hello = {};
+    }
+    return hello;
+  }
+
+  // ---------- first-run setup (a server started with no playlist waits to
+  // host until its owner has chosen its name, players and playlist)
+
+  function playlistLabel(name) {
+    const words = String(name).replace(/[_-]+/g, ' ').trim();
+    return words.charAt(0).toUpperCase() + words.slice(1);
+  }
+
+  async function showFirstRun() {
+    stopPolling();
+    $('app').hidden = true;
+    $('first-run').hidden = false;
+    $('first-run-server').hidden = false;
+    $('first-run-link').hidden = true;
+    $('first-run-error').textContent = '';
+    try {
+      const [settings, lists] = await Promise.all([api('/v1/settings'), api('/v1/playlists')]);
+      const entries = settings.settings || [];
+      const find = (key) => entries.find((entry) => entry.key === key) || {};
+      const name = find('name');
+      const most = find('maximum_players');
+      const shown = find('public');
+      $('first-run-name').value = name.value && name.value !== 'Dedicated' ? name.value : '';
+      $('first-run-players').value = most.value || '12';
+      if (most.maximum) $('first-run-players').max = most.maximum;
+      $('first-run-public').checked = shown.value !== 'false';
+      // (a value from the server's environment wins when it starts)
+      const fixed = [name, most, shown].filter((entry) => entry.environment);
+      fixed.forEach((entry) => {
+        const field = { name: 'first-run-name', maximum_players: 'first-run-players', public: 'first-run-public' }[entry.key];
+        $(field).disabled = true;
+      });
+      $('first-run-fixed').hidden = !fixed.length;
+      $('first-run-fixed').textContent = fixed.length
+        ? fixed.map((entry) => entry.label || entry.key).join(' and ') + ': set in the server\'s environment (' +
+          fixed.map((entry) => entry.environment_variable).join(', ') + ').'
+        : '';
+      const playlists = (lists.playlists || []).filter((list) => list.entries > 0);
+      $('first-run-playlist').replaceChildren(...playlists.map((list) => {
+        return option(list.name, playlistLabel(list.name) + ' (' + list.entries + (list.entries === 1 ? ' game)' : ' games)'));
+      }));
+      const active = playlists.find((list) => list.active);
+      if (active) $('first-run-playlist').value = active.name;
+      $('first-run-name').focus();
+    } catch (error) {
+      if (error instanceof Unauthorized) return loggedOut(error.message);
+      $('first-run-error').textContent = error.message;
+    }
+  }
+
+  async function firstRunStart(event) {
+    event.preventDefault();
+    $('first-run-error').textContent = '';
+    const name = $('first-run-name').value.trim();
+    const most = parseInt($('first-run-players').value, 10);
+    const maximum = parseInt($('first-run-players').max, 10) || 128;
+    if (!(most >= 1 && most <= maximum)) {
+      $('first-run-error').textContent = 'Most players is a number from 1 to ' + maximum + '.';
+      return;
+    }
+    const lines = [];
+    if (!$('first-run-name').disabled) lines.push('sv_name ' + quote(name));
+    if (!$('first-run-players').disabled) lines.push('sv_maxplayers ' + most);
+    if (!$('first-run-public').disabled) lines.push('sv_set public ' + ($('first-run-public').checked ? 'true' : 'false'));
+    if ($('first-run-playlist').value) lines.push('sv_playlist_use ' + $('first-run-playlist').value);
+    try {
+      for (const line of lines) {
+        const result = await api('/v1/command', { body: { command: line } });
+        if (!result.ok) throw new Error(result.output.trim() || 'it failed');
+      }
+      await api('/v1/setup/start', { body: {} });
+      hello.waiting = false;
+      $('first-run-server').hidden = true;
+      $('first-run-link').hidden = false;
+      $('first-run-link-go').focus();
+    } catch (error) {
+      if (error instanceof Unauthorized) return loggedOut(error.message);
+      $('first-run-error').textContent = error.message;
+    }
+  }
+
+  function firstRunDone(next) {
+    $('first-run').hidden = true;
+    $('app').hidden = false;
+    select(next || 'status');
+  }
+
+  async function firstRunLink() {
+    try {
+      await command('sv_link');
+      linkState = 'linking';
+      firstRunDone('settings');
+    } catch (error) {
+      if (error instanceof Unauthorized) return loggedOut(error.message);
+      firstRunDone('settings');
+      failed(error);
+    }
   }
 
   // an owner's account without a second factor is reminded on every page
@@ -241,10 +359,10 @@
     $('setup-form').dataset.kind = kind;
     $('setup-title').textContent = kind === 'setup' ? 'Make the owner\'s account' : 'Accept an invitation';
     $('setup-hint').textContent = kind === 'setup'
-      ? 'The server printed this one-time code on its console. Choose a name and a password of at least 12 characters; set up a second factor after you log in.'
+      ? 'Enter the one-time code from the server\'s output, or from control_setup_code.txt in its data folder. Then choose a name and a password of at least 12 characters.'
       : 'Choose a name and a password of at least 12 characters (for a password reset, your account\'s name).';
     history.replaceState(null, '', location.pathname);
-    $('setup-user').focus();
+    $(code ? 'setup-user' : 'setup-code').focus();
   }
 
   async function setup(event) {
@@ -256,8 +374,13 @@
         code: $('setup-code').value.trim(), user: $('setup-user').value.trim(), password: $('setup-password').value,
       });
       if (!response.ok) throw new Error((data && data.error) || 'it failed');
+      const user = $('setup-user').value.trim();
+      const password = $('setup-password').value;
       $('setup-password').value = '';
-      $('user').value = $('setup-user').value.trim();
+      $('user').value = user;
+      // (the new account logged in at once; else the login form)
+      const login = await post('/v1/login', { user: user, password: password });
+      if (login.response.ok && login.data) return loggedIn(login.data);
       loggedOut(data.message);
     } catch (error) {
       $('setup-error').textContent = error.message;
@@ -1149,6 +1272,9 @@
     $('login-form').addEventListener('submit', login);
     $('token-form').addEventListener('submit', tokenLogin);
     $('setup-form').addEventListener('submit', setup);
+    $('first-run-form').addEventListener('submit', firstRunStart);
+    $('first-run-link-go').addEventListener('click', firstRunLink);
+    $('first-run-done').addEventListener('click', () => firstRunDone('status'));
     $('set-form').addEventListener('submit', saveSetting);
     $('say-form').addEventListener('submit', async (event) => {
       event.preventDefault();
@@ -1240,7 +1366,7 @@
     });
     // (the certificate's fingerprint, to check against the one the server
     // printed; whether there is an owner yet)
-    fetch('/v1/hello', { cache: 'no-store' }).then((response) => response.json()).then((hello) => {
+    const helloAsked = getHello().then((hello) => {
       if (hello.tls) {
         $('fingerprint-hint').textContent = 'This panel\'s certificate is the server\'s own. Check that your browser shows the SHA-256 fingerprint the server printed: ' + hello.fingerprint;
         $('fingerprint-hint').hidden = false;
@@ -1251,8 +1377,11 @@
       showSetup(hash.startsWith('setup=') ? 'setup' : 'invite', hash.slice(hash.indexOf('=') + 1));
       return;
     }
-    api('/v1/session').then(loggedIn).catch((error) => {
+    api('/v1/session').then(loggedIn).catch(async (error) => {
       loggedOut(error instanceof Unauthorized ? '' : error.message);
+      // (no owner yet: the setup's form, for the code the server printed)
+      await helloAsked;
+      if (hello.setup && !csrf) showSetup('setup', '');
     });
   });
 })();

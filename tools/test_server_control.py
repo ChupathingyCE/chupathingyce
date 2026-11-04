@@ -509,6 +509,65 @@ def test_who_can_moderate(harness_binary, tmp_path):
         running.stop()
 
 
+def test_first_run_setup(harness_binary, tmp_path):
+    """A server started with no playlist for the first-run setup: the setup
+    code is on the console and in control_setup_code.txt (its owner's alone),
+    the server waits to host until an owner finishes the setup, and the file
+    goes once the owner's account is made."""
+    data = tmp_path / "data"
+    running = Harness(harness_binary, data, extra={"HARNESS_SETUP_MODE": "1"})
+    try:
+        origin = {"Origin": f"http://127.0.0.1:{running.port}"}
+        running.wait_for("harness: waiting 1")
+        hello = http(running, "GET", "/v1/hello").json()
+        assert hello["setup"] is True and hello["waiting"] is True
+        code_file = data / "control_setup_code.txt"
+        assert code_file.stat().st_mode & 0o777 == 0o600
+        setup = next(re.search(r"#setup=(\S+)", line).group(1) for line in running.lines if "#setup=" in line)
+        written = code_file.read_text()
+        assert setup in written and f"#setup={setup}" in written
+        assert not any(setup in line for line in running.lines if line.startswith("notice:"))
+        # (a new code replaces the file's)
+        running.console("sv_account_setup", "#setup=")
+        setup = [re.search(r"#setup=(\S+)", line).group(1) for line in running.lines if "#setup=" in line][-1]
+        assert setup in code_file.read_text()
+        # (not before there is an owner)
+        assert http(running, "POST", "/v1/setup/start", origin, {}).status == 401
+        owner, moderator = owner_and_moderator(running)
+        assert not code_file.exists()
+        hello = http(running, "GET", "/v1/hello").json()
+        assert hello["setup"] is False and hello["waiting"] is True
+        assert http(running, "POST", "/v1/setup/start", moderator, {}).status == 403
+        assert "harness: waiting 0" not in running.lines
+        response = http(running, "POST", "/v1/setup/start", owner, {})
+        assert response.status == 200 and response.json()["message"] == "the server starts hosting"
+        running.wait_for("harness: waiting 0")
+        assert http(running, "GET", "/v1/hello").json()["waiting"] is False
+        assert http(running, "POST", "/v1/setup/start", owner, {}).json()["message"] == "the server is hosting already"
+        assert "setup start" in (data / "control_audit.log").read_text()
+    finally:
+        running.stop()
+
+
+def test_setup_mode_with_an_owner_hosts_at_once(harness_binary, tmp_path):
+    """A server with an owner already, started with no playlist, hosts at once;
+    the console's sv_setup_start says it is not waiting."""
+    data = tmp_path / "data"
+    first = Harness(harness_binary, data, extra={"HARNESS_SETUP_MODE": "1"})
+    try:
+        owner_and_moderator(first)
+    finally:
+        first.stop()
+    running = Harness(harness_binary, data, extra={"HARNESS_SETUP_MODE": "1"})
+    try:
+        assert http(running, "GET", "/v1/hello").json()["waiting"] is False
+        assert "harness: waiting 1" not in running.lines
+        assert not (data / "control_setup_code.txt").exists()
+        assert "not waiting" in "\n".join(running.console("sv_setup_start", "not waiting"))
+    finally:
+        running.stop()
+
+
 # ---------- what the permission table covers, logins, second factors, slow clients
 
 
@@ -533,7 +592,8 @@ def owner_and_moderator(running):
     """The first owner's account (milenko) and an invited moderator's (grif):
     each's request headers (cookie, CSRF token, origin)."""
     origin = {"Origin": f"http://127.0.0.1:{running.port}"}
-    setup = next(re.search(r"#setup=(\S+)", line).group(1) for line in running.lines if "#setup=" in line)
+    # (the newest code printed)
+    setup = [re.search(r"#setup=(\S+)", line).group(1) for line in running.lines if "#setup=" in line][-1]
     assert http(running, "POST", "/v1/setup", origin,
                 {"code": setup, "user": "milenko", "password": "correct horse battery"}).status == 200
     response = http(running, "POST", "/v1/login", origin, {"user": "milenko", "password": "correct horse battery"})

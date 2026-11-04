@@ -11,9 +11,12 @@ them).
 
 It takes server_control.c's settings (HALO_DEDICATED_CONTROL,
 HALO_DEDICATED_CONSOLE), HARNESS_DATA (the data folder) and
-HARNESS_SITE_ROLES (set: a site role list, as if from the role cache), and
+HARNESS_SITE_ROLES (set: a site role list, as if from the role cache),
 HARNESS_STDERR_LINES (a number n: a line on standard error every n frames,
-as platform_log writes the server's log; tools/test_server_terminal.py). On its standard
+as platform_log writes the server's log; tools/test_server_terminal.py) and
+HARNESS_SETUP_MODE (set: started as a server with no playlist, for the
+first-run setup; "harness: waiting 1" and "harness: waiting 0" tell when
+the hold starts and ends). On its standard
 output: the token printed once, the console's output, and a line for each
 thing the main thread is handed:
   notice: <the control's own log line>
@@ -96,6 +99,28 @@ static const char *answer(const char *line, int json)
 	}
 	if (json && !strcmp(line, "sv_maps"))
 		return "{\"maps\": [\"bloodgulch\", \"prisoner\"], \"game_types\": [\"slayer\", \"ctf\"]}";
+	/* (the first-run setup's form reads these two) */
+	if (json && !strcmp(line, "sv_settings"))
+	{
+		return "{\"file\": \"server_settings.txt\", \"file_problem\": null, \"settings\": [{\"key\": \"name\", "
+			"\"kind\": \"text\", \"minimum\": 0, \"maximum\": 15, \"label\": \"Server name\", \"value\": \"Dedicated\", "
+			"\"saved\": null, \"environment_variable\": \"HALO_DEDICATED_NAME\", \"environment\": null, \"source\": "
+			"\"default\", \"applies\": \"now\"}, {\"key\": \"maximum_players\", \"kind\": \"number\", \"minimum\": 1, "
+			"\"maximum\": 16, \"label\": \"Most players\", \"value\": \"16\", \"saved\": null, \"environment_variable\": "
+			"\"HALO_DEDICATED_MAXIMUM_PLAYERS\", \"environment\": null, \"source\": \"default\", \"applies\": \"lobby\"}, "
+			"{\"key\": \"public\", \"kind\": \"boolean\", \"minimum\": 0, \"maximum\": 1, \"label\": \"Listed\", "
+			"\"value\": \"true\", \"saved\": null, \"environment_variable\": \"HALO_DEDICATED_PUBLIC\", \"environment\": "
+			"null, \"source\": \"default\", \"applies\": \"restart\"}]}";
+	}
+	if (json && !strcmp(line, "sv_playlists"))
+	{
+		return "{\"playlists\": [{\"name\": \"free_for_all\", \"path\": \"playlists/free_for_all.txt\", \"entries\": 8, "
+			"\"editable\": false, \"shipped\": true, \"active\": true, \"next\": false}, {\"name\": \"team_slayer\", "
+			"\"path\": \"playlists/team_slayer.txt\", \"entries\": 6, \"editable\": false, \"shipped\": true, "
+			"\"active\": false, \"next\": false}, {\"name\": \"big_maps\", \"path\": \"playlists/big_maps.txt\", "
+			"\"entries\": 5, \"editable\": false, \"shipped\": true, \"active\": false, \"next\": false}], \"active\": "
+			"\"playlists/free_for_all.txt\", \"next\": null, \"folder\": \"playlists\"}";
+	}
 	snprintf(output, sizeof(output), "ran %s\n", line);
 	return output;
 }
@@ -106,6 +131,7 @@ int main(void)
 	unsigned long frame = 0;
 	const char *stderr_lines = getenv("HARNESS_STDERR_LINES");
 	unsigned long stderr_every = stderr_lines ? strtoul(stderr_lines, NULL, 10) : 0;
+	int waiting = 0;
 
 	signal(SIGPIPE, SIG_IGN);
 	setvbuf(stdout, NULL, _IOLBF, 0);
@@ -128,6 +154,8 @@ int main(void)
 		server_roles_set_site(3, keys, key_roles, key_names, 7);
 		server_roles_set_site_state(SERVER_SITE_ROLES_CACHED, (long long)time(NULL) - 3600, SERVER_ROLE_ADMIN, 24);
 	}
+	if (getenv("HARNESS_SETUP_MODE"))
+		server_control_setup_mode();
 	server_control_start();
 	printf("harness: started\n");
 	for (;;)
@@ -186,6 +214,11 @@ int main(void)
 			printf("bind: %s, player %d\n", account, player);
 			server_roles_bind_answer(request, player == 1 ? SERVER_BIND_ACCEPTED : player == 2 ? SERVER_BIND_DECLINED :
 				SERVER_BIND_NOT_DELTA, player == 1 ? key : NULL);
+		}
+		if (server_control_setup_waiting() != waiting)
+		{
+			waiting = server_control_setup_waiting();
+			printf("harness: waiting %d\n", waiting);
 		}
 		/* (a log line now and then, one with a public address) */
 		if (!(++frame % 200))
