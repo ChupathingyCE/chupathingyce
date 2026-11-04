@@ -539,6 +539,43 @@ def test_off_by_default(harness):  # noqa: F811
         server.stop()
 
 
+def _function(source, name):
+    start = source.index("\n" + name + "(\n")
+    return source[start:source.index("\n}\n", start) + 3]
+
+
+def test_server_side_off_without_the_switch():
+    """the game side (server/src/server_ce.c) does nothing without the
+    development switch: no events read, no player's input taken, no player
+    found to kick, tell or time"""
+    source = (ROOT / "server/src/server_ce.c").read_text(encoding="utf-8")
+    update = _function(source, "void server_ce_update")
+    assert 'ce.enabled = accept && !strcmp(accept, "1");' in update
+    assert update.index("if (!ce.enabled)\n\t\treturn;") < update.index("ce_transport_next_event(")
+    assert "if (!ce.enabled ||" in _function(source, "boolean server_ce_local_action")
+    assert "if (!ce.enabled)\n\t\treturn NULL;" in _function(source, "static struct ce_client *client_for_player")
+
+
+def test_joins_held_to_host_limits():
+    """a Custom Edition join is checked against the bans and the limit on
+    the machines of one address before it takes a seat"""
+    source = (ROOT / "server/src/server_ce.c").read_text(encoding="utf-8")
+    join = _function(source, "static boolean join")
+    assert join.index("network_distributed_banned(event->address, NULL)") < join.index("address_full(event->address)")
+    assert join.index("address_full(event->address)") < join.index("network_game_client_add_named_player(")
+    assert "network_distributed_address_full(address, others, count)" in \
+        _function(source, "static boolean address_full")
+
+
+def test_welcome_line():
+    """the default welcome line fits Custom Edition's chat"""
+    source = (ROOT / "server/src/server_ce.c").read_text(encoding="utf-8")
+    body = _function(source, "void server_ce_set_welcome")
+    text = "".join(part for part in __import__("re").findall(r'"((?:[^"\\]|\\.)*)"', body.split("snprintf")[0]))
+    assert text.startswith("Welcome to our Chupathingy Cross-Play Server.")
+    assert len(text) <= 255 and text.isascii()
+
+
 class JoinServer(Server):
     """the harness with Custom Edition's join wire on"""
 

@@ -59,6 +59,13 @@ int server_ce_say(char const *text);
 dropped (their client told they were kicked) and TRUE, and their IPv4
 address (host byte order) */
 boolean server_ce_kick(long machine_index, long controller_index, unsigned long *address);
+/* (server_conduct.c's, for the betrayal and AFK limits) whether the player
+of this machine and controller is a Custom Edition player, and their
+address; a server line in their chat (TRUE: sent); when their actions last
+changed (0: not yet, or not a Custom Edition player) */
+boolean server_ce_player(long machine_index, long controller_index, unsigned long *address);
+boolean server_ce_tell(long machine_index, long controller_index, char const *text);
+unsigned long server_ce_input_time(long machine_index, long controller_index);
 /* Halo Custom Edition 1.0.10's join wire answered on the same port */
 void server_gamespy_set_joins(boolean enabled);
 boolean server_gamespy_joins(void);

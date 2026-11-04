@@ -34,6 +34,7 @@ off by default and refuses the joins otherwise).
 #include "networking/network_client_manager.h"
 #include "networking/network_game_globals.h"
 #include "networking/network_game_manager.h"
+#include "networking/network_server_manager.h"
 #include "items/weapons.h"
 #include "objects/objects.h"
 #include "units/units.h"
@@ -55,6 +56,9 @@ off by default and refuses the joins otherwise).
 struct network_game *network_game_server_get_game(struct network_game_server *server);
 /* (port/linux/game/network_distributed.c's: bans.txt) */
 boolean network_distributed_banned(unsigned long address, char const *hardware_id);
+/* (and its limit on the machines of one address: max_machines_per_address) */
+boolean network_distributed_address_full(unsigned long address, unsigned long const *others, short count);
+long network_distributed_address_limit(void);
 
 enum
 {
@@ -146,6 +150,9 @@ struct ce_client
 	to replay from our corrections) */
 	struct ce_client_update current;
 	boolean have_current;
+	/* when its actions last changed (system_milliseconds; 0: not yet), for
+	the AFK limit (server_conduct.c) */
+	unsigned long input_time;
 	int ticks_left;
 	long played_tick;
 };
@@ -290,6 +297,43 @@ static struct ce_client *client_for_peer(
 static void leave(int peer);
 
 /* FALSE: no seat yet (one is still being given up) */
+/* whether a Custom Edition client joining from this address (host byte
+order) goes past max_machines_per_address: the other machines in the game
+and the other Custom Edition clients counted by theirs */
+static boolean address_full(
+	unsigned long address)
+{
+	unsigned long others[HALO_PORT_MAXIMUM_NETWORK_MACHINES];
+	boolean counted[HALO_PORT_MAXIMUM_NETWORK_MACHINES];
+	struct data_iterator iterator;
+	struct player_datum *player;
+	short count = 0;
+	short index;
+
+	if (network_distributed_address_limit() <= 0 || !player_data)
+		return FALSE;
+	csmemset(counted, 0, sizeof(counted));
+	data_iterator_new(&iterator, player_data);
+	while ((player = (struct player_datum *)data_iterator_next(&iterator)) != NULL && count < HALO_PORT_MAXIMUM_NETWORK_MACHINES)
+	{
+		long machine_index = player->network_player_data.machine_index;
+		unsigned long other;
+
+		if (machine_index < 0 || machine_index >= HALO_PORT_MAXIMUM_NETWORK_MACHINES || counted[machine_index])
+			continue;
+		counted[machine_index] = TRUE;
+		other = network_game_server_machine_address(machine_index);
+		if (other)
+			others[count++] = other;
+	}
+	for (index = 0; index < CE_LOCAL_PLAYERS && count < HALO_PORT_MAXIMUM_NETWORK_MACHINES; index++)
+	{
+		if (ce.clients[index].active)
+			others[count++] = ce.clients[index].address;
+	}
+	return network_distributed_address_full(address, others, count);
+}
+
 static boolean join(
 	struct ce_event const *event)
 {
@@ -309,6 +353,14 @@ static boolean join(
 	{
 		ce_transport_refuse(event->peer, CE_REJECT_BANNED);
 		error(_error_silent, "ce: a Custom Edition player was turned away: banned");
+		return TRUE;
+	}
+	/* (and held to the limit on the machines of one address, as a
+	Chupathingy machine is: each Custom Edition client counts as one) */
+	if (address_full(event->address))
+	{
+		ce_transport_refuse(event->peer, CE_REJECT_FULL);
+		error(_error_silent, "ce: a Custom Edition player was turned away: too many players from their address");
 		return TRUE;
 	}
 	dedicated_server_get_status(&status);
@@ -1337,6 +1389,13 @@ boolean server_ce_local_action(
 			long unit_index = local_player_get_player_index(local_player_index) == NONE ? NONE :
 				player_get(local_player_get_player_index(local_player_index))->unit_index;
 
+			/* (its actions changed: it is not away) */
+			if (!client->have_current || update.control_flags != client->current.control_flags ||
+				update.throttle != client->current.throttle || update.yaw != client->current.yaw ||
+				update.pitch != client->current.pitch || update.primary_trigger != client->current.primary_trigger)
+			{
+				client->input_time = system_milliseconds() ? system_milliseconds() : 1;
+			}
 			client->current = update;
 			client->have_current = TRUE;
 			client->ticks_left = update.ticks > 0 ? update.ticks : 1;
@@ -1381,8 +1440,8 @@ boolean server_ce_local_action(
 void server_ce_set_welcome(
 	char const *text)
 {
-	static char const default_welcome[] = "Welcome to a Chupathingy cross-play server! You're playing with Chupathingy "
-		"players on PC, Mac, Linux, Android and Xbox. Info: chupathingy.org";
+	static char const default_welcome[] = "Welcome to our Chupathingy Cross-Play Server. You're playing with "
+		"Chupathingy players on PC, Mac, Linux, Android and Xbox. More at chupathingy.org";
 
 	snprintf(ce.welcome, sizeof(ce.welcome), "%s", text ? text : default_welcome);
 	ce.welcome_set = TRUE;
@@ -1413,13 +1472,16 @@ int server_ce_say(
 	return count;
 }
 
-boolean server_ce_kick(
+/* the Custom Edition client of this machine's and controller's player, if
+one */
+static struct ce_client *client_for_player(
 	long machine_index,
-	long controller_index,
-	unsigned long *address)
+	long controller_index)
 {
 	short index;
 
+	if (!ce.enabled)
+		return NULL;
 	for (index = 0; index < CE_LOCAL_PLAYERS; index++)
 	{
 		struct ce_client *client = &ce.clients[index];
@@ -1429,18 +1491,63 @@ boolean server_ce_kick(
 		if (!client->active || player_index == NONE)
 			continue;
 		player = player_get(player_index);
-		if (player->network_player_data.machine_index != machine_index ||
-			player->network_player_data.controller_index != controller_index)
+		if (player->network_player_data.machine_index == machine_index &&
+			player->network_player_data.controller_index == controller_index)
 		{
-			continue;
+			return client;
 		}
-		if (address)
-			*address = client->address;
-		ce_transport_kick(client->peer, CE_REJECT_KICKED);
-		leave(client->peer);
-		return TRUE;
 	}
-	return FALSE;
+	return NULL;
+}
+
+boolean server_ce_kick(
+	long machine_index,
+	long controller_index,
+	unsigned long *address)
+{
+	struct ce_client *client = client_for_player(machine_index, controller_index);
+
+	if (!client)
+		return FALSE;
+	if (address)
+		*address = client->address;
+	ce_transport_kick(client->peer, CE_REJECT_KICKED);
+	leave(client->peer);
+	return TRUE;
+}
+
+boolean server_ce_player(
+	long machine_index,
+	long controller_index,
+	unsigned long *address)
+{
+	struct ce_client *client = client_for_player(machine_index, controller_index);
+
+	if (client && address)
+		*address = client->address;
+	return client != NULL;
+}
+
+boolean server_ce_tell(
+	long machine_index,
+	long controller_index,
+	char const *text)
+{
+	struct ce_client *client = client_for_player(machine_index, controller_index);
+
+	if (!client || !client->loaded)
+		return FALSE;
+	send_chat(client, text);
+	return TRUE;
+}
+
+unsigned long server_ce_input_time(
+	long machine_index,
+	long controller_index)
+{
+	struct ce_client *client = client_for_player(machine_index, controller_index);
+
+	return client ? client->input_time : 0;
 }
 
 #endif

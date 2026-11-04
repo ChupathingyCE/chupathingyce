@@ -44,6 +44,22 @@ id, to know a second kick from a first.
 #define server_roles_key_role(key, permissions, who, who_size) 0
 #endif
 
+#ifdef HALO_SERVER
+/* (server_ce.c's: Custom Edition players, the server machine's own players
+to the game: kicked, told and timed by their own client) */
+boolean server_ce_player(long machine_index, long controller_index, unsigned long *address);
+boolean server_ce_kick(long machine_index, long controller_index, unsigned long *address);
+boolean server_ce_tell(long machine_index, long controller_index, char const *text);
+unsigned long server_ce_input_time(long machine_index, long controller_index);
+#define CE_PLAYER(player, address) server_ce_player((player)->network_player_data.machine_index, \
+	(player)->network_player_data.controller_index, address)
+#else
+#define server_ce_kick(machine, controller, address) ((void)(machine), (void)(controller), (void)(address), FALSE)
+#define server_ce_tell(machine, controller, text) ((void)(machine), (void)(controller), (void)(text), FALSE)
+#define server_ce_input_time(machine, controller) ((void)(machine), (void)(controller), 0UL)
+#define CE_PLAYER(player, address) ((void)(player), (void)(address), FALSE)
+#endif
+
 /* (chat.c's: a server message to one machine) */
 int chat_host_notice(int machine_index, char const *text);
 /* (network_distributed.c's: when a player's input last changed, and the
@@ -120,18 +136,21 @@ static void player_name(
 }
 
 /* a message in a player's game: a Chupathingy game's moderation notice,
-else a line in their chat (an OpenCE game's, while it is bridged). Whether
-it was shown */
+else a line in their chat (an OpenCE game's, while it is bridged; a Custom
+Edition player's own). Whether it was shown */
 static boolean conduct_tell(
+	struct player_datum const *player,
 	long machine_index,
 	char const *title,
 	char const *text)
 {
 	char line[128];
 
+	snprintf(line, sizeof(line), "%s%s%s", title ? title : "Server warning", ": ", text);
+	if (CE_PLAYER(player, NULL))
+		return server_ce_tell(machine_index, player->network_player_data.controller_index, line);
 	if (server_moderation_notice(machine_index, TRUE, title, text))
 		return TRUE;
-	snprintf(line, sizeof(line), "%s%s%s", title ? title : "Server warning", ": ", text);
 	return chat_host_notice((int)machine_index, line) != 0;
 }
 
@@ -139,15 +158,21 @@ static boolean conduct_tell(
 hardware id, else the moderator key its game proved, else its address
 (kept here alone: never logged, never shown) */
 static void machine_key(
+	struct player_datum const *player,
 	long machine_index,
 	char *key,
 	long size)
 {
 	char const *hardware_id = network_game_server_machine_hardware_id(machine_index);
 	unsigned char moderator_key[32];
+	unsigned long ce_address = 0;
 
 	key[0] = 0;
-	if (hardware_id && hardware_id[0])
+	/* (a Custom Edition player: by their client's address, the server
+	machine's being everyone's of theirs) */
+	if (CE_PLAYER(player, &ce_address))
+		snprintf(key, (size_t)size, "c:%08lx", ce_address);
+	else if (hardware_id && hardware_id[0])
 		snprintf(key, (size_t)size, "h:%s", hardware_id);
 	else if (server_moderation_machine_key(machine_index, moderator_key))
 	{
@@ -181,13 +206,21 @@ static boolean kick(
 	char name[16];
 	char reason[96];
 
+	unsigned long ce_address = 0;
+	boolean ce_player = CE_PLAYER(player, &ce_address);
+	long controller_index = player->network_player_data.controller_index;
+
 	player_name(player, name, sizeof(name));
 	if (afk)
 	{
 		snprintf(reason, sizeof(reason), "no input for %d minute%s", server_conduct.afk_minutes,
 			server_conduct.afk_minutes == 1 ? "" : "s");
-		conduct_tell(machine_index, "Kicked", "AFK: no input for too long");
-		if (!network_game_server_drop_machine(machine_index, _rejection_code_game_is_closed))
+		conduct_tell(player, machine_index, "Kicked", "AFK: no input for too long");
+		/* (a Custom Edition player: their client alone, never the server
+		machine whose player they are) */
+		if (ce_player)
+			(void)server_ce_kick(machine_index, controller_index, NULL);
+		else if (!network_game_server_drop_machine(machine_index, _rejection_code_game_is_closed))
 			return FALSE;
 		server_audit("server", AFK_ACTOR, SERVER_ROLE_OWNER, "sv_kick", name, reason, TRUE, NULL);
 		error(_error_silent, "dedicated: kicked %s: %s", name, reason);
@@ -195,27 +228,31 @@ static boolean kick(
 	}
 	snprintf(reason, sizeof(reason), "%d betrayals in a game", server_conduct.slots[slot].betrayals);
 	{
-		unsigned long address = network_game_server_machine_address(machine_index);
+		unsigned long address = ce_player ? ce_address : network_game_server_machine_address(machine_index);
 		char ban_reason[128];
 		boolean repeat = server_conduct.slots[slot].kick_ban;
 
 		/* (a second automatic kick within a day: a short ban, sv_ban's) */
 		if (repeat)
 		{
-			conduct_tell(machine_index, "Banned", "Too many betrayals, again: 30 minutes");
-			if (!network_game_server_drop_machine(machine_index, _rejection_code_blacklisted_machine))
+			conduct_tell(player, machine_index, "Banned", "Too many betrayals, again: 30 minutes");
+			if (ce_player)
+				(void)server_ce_kick(machine_index, controller_index, NULL);
+			else if (!network_game_server_drop_machine(machine_index, _rejection_code_blacklisted_machine))
 				return FALSE;
 			snprintf(ban_reason, sizeof(ban_reason), "banned by the %s for 30m: %s, the second kick in a day",
 				BETRAYAL_ACTOR, reason);
-			network_distributed_ban_until(machine_index, address, name, ban_reason,
+			network_distributed_ban_until(ce_player ? NONE : machine_index, address, name, ban_reason,
 				(unsigned long)time(NULL) + CONDUCT_BAN_SECONDS);
 			server_audit("server", BETRAYAL_ACTOR, SERVER_ROLE_OWNER, "sv_ban", name, reason, TRUE,
 				"30m: the second automatic kick within 24 hours");
 		}
 		else
 		{
-			conduct_tell(machine_index, "Kicked", "Too many betrayals");
-			if (!network_game_server_drop_machine(machine_index, _rejection_code_game_is_closed))
+			conduct_tell(player, machine_index, "Kicked", "Too many betrayals");
+			if (ce_player)
+				(void)server_ce_kick(machine_index, controller_index, NULL);
+			else if (!network_game_server_drop_machine(machine_index, _rejection_code_game_is_closed))
 				return FALSE;
 			server_audit("server", BETRAYAL_ACTOR, SERVER_ROLE_OWNER, "sv_kick", name, reason, TRUE, NULL);
 		}
@@ -333,7 +370,7 @@ void server_conduct_update(
 				boolean shown;
 
 				player_name(player, name, sizeof(name));
-				shown = conduct_tell(machine_index, NULL, "Betrayals: one more and you are kicked");
+				shown = conduct_tell(player, machine_index, NULL, "Betrayals: one more and you are kicked");
 				snprintf(reason, sizeof(reason), "%d betrayals in a game (kicked at %d)",
 					server_conduct.slots[slot].betrayals, server_conduct.betrayal_limit);
 				server_audit("server", BETRAYAL_ACTOR, SERVER_ROLE_OWNER, "sv_warn", name, reason, TRUE,
@@ -346,7 +383,7 @@ void server_conduct_update(
 
 				/* (remembered once, as it is decided: whom, for a second
 				kick's ban) */
-				machine_key(machine_index, key, sizeof(key));
+				machine_key(player, machine_index, key, sizeof(key));
 				server_conduct.slots[slot].kick_ban =
 					conduct_note_automatic_kick(&server_conduct.history, key, (long long)time(NULL)) ? TRUE : FALSE;
 				server_conduct.slots[slot].kick_time = now ? now : 1;
@@ -359,11 +396,16 @@ void server_conduct_update(
 		players' inputs: network_distributed.c), and never a moderator */
 		if (server_conduct.afk_minutes && !server_conduct.slots[slot].kick_time)
 		{
-			unsigned long input_time = network_distributed_player_input_time((short)absolute);
+			boolean ce_player = CE_PLAYER(player, NULL);
+			unsigned long input_time = ce_player ?
+				server_ce_input_time(machine_index, player->network_player_data.controller_index) :
+				network_distributed_player_input_time((short)absolute);
 			unsigned long since;
 			int action;
 
-			if (!input_time || machine_moderator(machine_index))
+			/* (a Custom Edition player: by their client's actions; they
+			cannot prove a moderator's key) */
+			if (!input_time || (!ce_player && machine_moderator(machine_index)))
 				continue;
 			since = (long)(input_time - server_conduct.slots[slot].seen_time) > 0 ? input_time :
 				server_conduct.slots[slot].seen_time;
@@ -379,7 +421,7 @@ void server_conduct_update(
 
 				server_conduct.slots[slot].afk_warned = TRUE;
 				player_name(player, name, sizeof(name));
-				shown = conduct_tell(machine_index, NULL, "AFK: move or you are kicked in 30 seconds");
+				shown = conduct_tell(player, machine_index, NULL, "AFK: move or you are kicked in 30 seconds");
 				server_audit("server", AFK_ACTOR, SERVER_ROLE_OWNER, "sv_warn", name, "no input", TRUE,
 					shown ? NULL : "their game cannot show it");
 				error(_error_silent, "dedicated: warned %s: no input", name);

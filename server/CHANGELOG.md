@@ -124,10 +124,12 @@ release notes.
   local network addresses are never limited. The log names the refused
   machine with its address hidden. Games hosted by players have the same
   limit as `network.max_machines_per_address`, off by default.
-- Custom Edition players (still behind the development switch): their own
-  position corrected to the server's, deaths, the scoreboard (kills, deaths,
-  Slayer's scores), a welcome line in their chat (`ce_welcome`), and
-  `sv_say`, `sv_kick` and `sv_ban` reaching them.
+- Custom Edition players (still behind the development switch, off by
+  default): their own position corrected to the server's, shield and
+  health, deaths, the scoreboard, weapons and equipment on the ground,
+  vehicles and seats, a welcome line in their chat (`ce_welcome`), and
+  `sv_say`, `sv_kick` and `sv_ban` reaching them. Bans, the limit on
+  players from one address and the betrayal and AFK limits apply to them.
 - Control panel hardening: `sv_welcome` needs the settings permission (an
   admin's) and is in the audit file; a command missing from the permission
   table is the console's alone. Wrong logins lock an account only for the

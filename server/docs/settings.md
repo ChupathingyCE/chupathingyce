@@ -172,15 +172,34 @@ For development only, `HALO_DEDICATED_CE_ACCEPT=1` takes the join instead,
 while a game is being played on a map the Custom Edition player has too (a
 Custom Edition map, `bloodgulch@ce`: the same .map file on both sides). The
 player joins the game as one of the server's own players, moved by their
-client's input, and their client is shown the other players, their bipeds
-and weapons from the server's game, their own position corrected to the
-server's twice a second, deaths, the scoreboard (kills, deaths, Slayer's
-scores) and a welcome line in their chat (`ce_welcome`). `sv_say` reaches
-them, `sv_kick` drops them and `sv_ban` bans their address. Up to 4 Custom
-Edition players at once for now. Still incomplete (no projectiles,
-vehicles or items shown to them; a join between games waits up to 12
-seconds for the next game, and the game's end still drops them), so
-leave this off on a real server.
+client's input. Leave this off on a real server: it is still incomplete.
+
+What works so far:
+
+- Moving, aiming and shooting, both ways. Their own position is corrected
+  to the server's twice a second, so their shots land at range.
+- The other players, their weapons and their shots, as the server's game
+  has them.
+- Shield and health on their HUD, deaths and the respawn countdown.
+- The scoreboard: kills, assists, betrayals, deaths, suicides and Slayer's
+  scores.
+- Weapons and equipment on the ground, picking them up and dropping them.
+- Vehicles: getting in and out of seats, and driving.
+- A welcome line in their chat as they join (`ce_welcome`), and `sv_say`.
+- `sv_kick` and `sv_ban` (a ban is by their address). The bans, the limit
+  on players from one address (`max_machines_per_address`) and the
+  betrayal and AFK limits apply to them too: warnings go in their chat. The
+  host's line of sight check is not needed for them, since the server's
+  game fires their shots itself.
+
+Not yet:
+
+- At most 4 Custom Edition players at once.
+- The end of a game drops them; they join again in the next one. A join
+  between games waits up to 12 seconds for the next game.
+- Weapons and equipment coming back (respawning) on the ground.
+- Checked live only in part: a Chupathingy player in a vehicle as Custom
+  Edition players see it, and swapping weapons.
 
 ## Folders
 
