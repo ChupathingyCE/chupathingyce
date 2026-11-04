@@ -315,6 +315,13 @@ jobs:
           path: build/linux64/third_party
           key: linux64-third-party-${{ hashFiles('tools/linux_sysroot.py') }}
 
+      # bgfx's, bx's and bimg's sources, which the build fetches for the bgfx
+      # renderer (tools/bgfx_build.py): kept so most runs fetch nothing
+      - uses: actions/cache@v4
+        with:
+          path: build/bgfx
+          key: bgfx-source-${{ hashFiles('tools/bgfx_build.py') }}
+
       - name: Debug
         if: env.BUILD_DEBUG == 'true'
         run: python3 tools/ci_build.py linux64 debug
@@ -1061,6 +1068,13 @@ jobs:
           path: build/windows/third_party
           key: windows-third-party-${{ hashFiles('tools/windows_build.py') }}
 
+      # bgfx's, bx's and bimg's sources, which the build fetches for the bgfx
+      # renderer (tools/bgfx_build.py): kept so most runs fetch nothing
+      - uses: actions/cache@v4
+        with:
+          path: build/bgfx
+          key: bgfx-source-${{ hashFiles('tools/bgfx_build.py') }}
+
       # the movies' FFmpeg (tools/ffmpeg_build.py), built once and cached:
       # its configure and make run under the runner's MSYS2, which needs make
       - name: MSYS2 make
@@ -1149,6 +1163,13 @@ jobs:
         with:
           path: build/macos/third_party
           key: macos-sdl3-${{ hashFiles('tools/android_build.py', 'tools/macos_build.py', 'tools/ffmpeg_build.py') }}
+
+      # bgfx's, bx's and bimg's sources, which the build fetches for the bgfx
+      # renderer (tools/bgfx_build.py): kept so most runs fetch nothing
+      - uses: actions/cache@v4
+        with:
+          path: build/bgfx
+          key: bgfx-source-${{ hashFiles('tools/bgfx_build.py') }}
 
       - name: Debug
         if: env.BUILD_DEBUG == 'true'

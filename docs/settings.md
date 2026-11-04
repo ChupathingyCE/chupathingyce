@@ -71,3 +71,37 @@ environment variable for one run (the file lists each one's name), which
 overrides the file.
 
 Every setting, with its environment variable and default, is in [port/linux/README.md](../port/linux/README.md#settings).
+
+## A new renderer to test
+
+The 64-bit Windows, Mac and Linux builds have a second renderer, bgfx, for
+testing. It uses Metal on a Mac and Vulkan on Windows and Linux. OpenGL is
+still the default, and nothing changes unless you turn bgfx on.
+
+To try it:
+
+1. Open `config.toml` and find `renderer` under `[display]`.
+2. Remove the `#` in front of it and set it to `"bgfx"`.
+3. Start the game.
+
+To go back, set it to `"gl"` or put the `#` back. For one run only, start
+the game with the environment variable `HALO_RENDERER=bgfx`. If bgfx can't
+start, for example with no working Vulkan driver, the game uses OpenGL and
+says so in `logs/debug.txt`.
+
+What we know is different from OpenGL:
+
+- FXAA, SMAA and supersampling are OpenGL only. With bgfx they become MSAA 2x.
+- The Halo PC ammo and health meters look different.
+- The first-person pistol is a little brighter, and water looks grainy.
+- On Linux with a software Vulkan driver, some cliffs looked flatter than
+  with OpenGL. We don't know yet if real graphics cards do this.
+- There's no menu option for it yet. It's in `config.toml` only.
+- The 32-bit builds, Android, FreeBSD and the consoles don't have it.
+
+Tell us how it runs. Post in the Discord with your system and graphics card,
+and what looks wrong or slow next to OpenGL. Send your logs with **Logs &
+help** in the setup screen. It uploads `logs/debug.txt` to
+dump.chupathingy.org and gives you a code to paste with your report. The line
+starting `bgfx:` in `debug.txt` names the backend and the graphics card.
+Screenshots of the same spot with each renderer help a lot.

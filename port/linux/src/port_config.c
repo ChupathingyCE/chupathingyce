@@ -539,8 +539,9 @@ static const struct config_setting config_settings[] =
 #endif
 #ifdef HALO_BGFX
 	{ "display.renderer", _config_string, "\"gl\"", "HALO_RENDERER", _environment_value, _platform_desktop,
-		"What draws the game. \"gl\" is OpenGL. \"bgfx\" is the bgfx test\n"
-		"backend, which uses Metal on macOS. It is a work in progress.\n"
+		"What draws the game. \"gl\" is OpenGL, the default. \"bgfx\" is a new\n"
+		"renderer we are testing: Metal on macOS, Vulkan on Windows and Linux.\n"
+		"If it can't start, the game draws with OpenGL. Set \"gl\" to go back.\n"
 		"Read when Chupathingy starts." },
 	{ "display.crt_filter", _config_boolean, "false", "HALO_CRT_FILTER", _environment_set_is_true, _platform_desktop,
 		"Put a CRT look over the picture: scanlines, curvature and a phosphor\n"

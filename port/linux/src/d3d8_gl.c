@@ -2211,9 +2211,10 @@ HRESULT WINAPI Direct3D_CreateDevice(UINT adapter, D3DDEVTYPE device_type, void 
 			platform_video_initialize(width, height))
 #ifdef HALO_BGFX
 		{
-			if (xgpu_bgfx)
-				bg_initialize();
-			else
+			/* (OpenGL when bgfx does not start: a window of its own) */
+			if (!xgpu_bgfx)
+				gl_initialize();
+			else if (!bg_initialize() && platform_video_reopen_for_gl())
 				gl_initialize();
 		}
 #else
