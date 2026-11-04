@@ -3306,9 +3306,12 @@ the map's name over its family's color (a custom map's) */
 			}
 		}
 #endif
-		/* (a map pack's map has its stock file's name, not its art: a card) */
+		/* (a map pack's map has its stock file's name, not its art: a card;
+		a custom map's is the site's own picture of it, if it has one) */
 		if (!drawn && family != _map_family_pack &&
-			map_art_site_path(family == _map_family_xbox, file, art_path, (int)sizeof(art_path)))
+			(map_art_site_path(family == _map_family_xbox, file, art_path, (int)sizeof(art_path)) ||
+			((family == _map_family_halomd || family == _map_family_custom_edition) &&
+			map_art_custom_site_path(family == _map_family_halomd, file, art_path, (int)sizeof(art_path)))))
 		{
 			unsigned char const *pixels;
 			int width, height, serial;
