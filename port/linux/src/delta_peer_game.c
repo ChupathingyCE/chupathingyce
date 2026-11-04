@@ -87,6 +87,9 @@ static struct
 	/* the host's game's player traits (delta_peer_game_set_traits) */
 	int has_traits;
 	struct delta_wire_traits traits;
+	/* the host's rules (delta_peer_game_set_host_rules) */
+	int has_rules;
+	struct delta_wire_host_rules rules;
 	/* the host's advertisement has had the old layout (released clients
 	before the tag read it): set once, kept */
 	int advertised_old;
@@ -456,6 +459,9 @@ int delta_peer_protocol(void)
 		/* (units' shield and health and objects' names, as the host has
 		them: network_objects.c) */
 		local.capabilities |= (delta_u32)1 << _delta_capability_object_sync;
+		/* (the host's rules for its players' extras: host_rules.c; a host
+		sends them, a client plays by them) */
+		local.capabilities |= (delta_u32)1 << _delta_capability_host_rules;
 #endif
 		/* (moderation: a client signs with its player key's moderator key; a
 		host offers it only with the dedicated server's moderation) */
@@ -714,6 +720,7 @@ void delta_peer_game_host_frame(const struct delta_peer_game_machine *machines, 
 	delta_peer_host_frame(&delta_game.peer, GetTickCount(), machines, count, player_machines);
 	host_map();
 	delta_peer_set_traits(&delta_game.peer, delta_game.has_traits ? &delta_game.traits : NULL);
+	delta_peer_set_host_rules(&delta_game.peer, delta_game.has_rules ? &delta_game.rules : NULL);
 }
 
 void delta_peer_game_client_frame(int joined, delta_u32 host_ipv4, int host_speaks_delta, int machine_index,
@@ -925,6 +932,22 @@ delta_u32 delta_peer_game_host_traits(struct delta_wire_traits *traits)
 	return delta_peer_host_traits(&delta_game.peer, traits);
 }
 
+/* ---------- the host's rules (host_rules.c) */
+
+void delta_peer_game_set_host_rules(const struct delta_wire_host_rules *rules)
+{
+	delta_game.has_rules = rules != NULL;
+	if (rules)
+		delta_game.rules = *rules;
+}
+
+delta_u32 delta_peer_game_host_rules(struct delta_wire_host_rules *rules)
+{
+	if (!delta_game.ready || delta_game.role != _role_client)
+		return 0;
+	return delta_peer_host_rules(&delta_game.peer, rules);
+}
+
 int delta_peer_game_machine_lacks(int machine_index, int capability)
 {
 	/* (a host without Delta now: no other machine can agree to anything) */
@@ -1006,6 +1029,14 @@ int delta_peer_platform_number(const char *name)
 			return platform;
 	}
 	return -1;
+}
+
+int delta_peer_game_hosting_xbox(void)
+{
+	struct delta_peer_host_summary summary;
+
+	return delta_game.role == _role_host && delta_peer_game_host_summary(&summary) &&
+		summary.machines[_delta_platform_xbox] > 0;
 }
 
 int delta_peer_game_host_summary(struct delta_peer_host_summary *summary)

@@ -3343,6 +3343,13 @@ the map's name over its family's color (a custom map's) */
 	else
 		snprintf(text, sizeof(text), "%s%s", selected->open ? "Accepting players" : "In progress", selected->locked ? ", password" : "");
 	DETAIL_LINE("Status:", text);
+	/* (a host whose console and cheats may change its game, as it says:
+	network.host_cheats) */
+	if (browser_game_host_cheats(selected))
+	{
+		ui_overlay_text(UI_FONT_MENU_SMALL, DETAIL_SIZE, x + 6, line_y + 0.5f, UI_ALIGN_LEFT, COLOR_NEUTRAL,
+			"Host cheats on");
+	}
 	DETAIL_LINE("Map:", map_label);
 	/* (its family, spelled out beside its tag) */
 	draw_family_badge(family, selected->map, BADGE_SIZE, x + 6, line_y, DETAIL_SIZE, FALSE);

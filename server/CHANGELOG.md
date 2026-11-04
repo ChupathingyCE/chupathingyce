@@ -6,6 +6,16 @@ release notes.
 
 ## Unreleased
 
+- A betrayed player respawns on the normal timer; the betrayer takes the game type's suicide penalty (plus any friendly fire penalty) on their next respawn. Suicides and deaths nobody caused keep the suicide penalty.
+- Hits through walls are refused: a client's reported hit counts only when
+  the shot had a clear line to its target from where the server had the
+  shooter (their view, head, or the gun of their vehicle seat), or, for an
+  explosion, from where it went off. Glass, what the projectile goes
+  through, and projectiles that home in or arc are allowed for; melee and
+  vehicle hits are not checked. The log counts these refusals with the
+  other refused hits. On by default; `network.hit_line_of_sight = false`
+  (`HALO_NET_HIT_LINE_OF_SIGHT=false`) turns it off if good hits are
+  refused. The players' builds need nothing new.
 - Map names as Halo PC takes them: commas, brackets, spaces and the rest a
   Windows file name can have (`bigassv2,104@ce`, `[h3]_sandtrap@ce`), in
   `sv_map`, `sv_maps` and playlists. A name with a space goes in double
@@ -31,6 +41,12 @@ release notes.
   development, `HALO_DEDICATED_CE_ACCEPT=1` takes the join instead: game
   settings, begin game and keep-alives, so the client loads the map and
   stays connected (it doesn't see the game yet).
+- Lobby message limit: a player's machine may send the lobby's settings,
+  player settings and add or remove player requests in a burst of 32 and
+  16 a second after it, more than four players on one machine holding a
+  menu key send. Past that, the extra requests are dropped and the log says
+  so once per machine per lobby (its machine number only). OpenCE and Xbox
+  players are held to the same limit; nothing on the wire changes.
 - Control panel hardening: `sv_welcome` needs the settings permission (an
   admin's) and is in the audit file; a command missing from the permission
   table is the console's alone. Wrong logins lock an account only for the

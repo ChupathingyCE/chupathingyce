@@ -238,6 +238,9 @@ int browser_get_games(struct browser_game *games, int maximum_count);
 /* whether this build can join a game by its network version: 0 if it can
 (or may try), -1 if the game runs an older version, 1 a newer one */
 int browser_game_version_state(const struct browser_game *game);
+/* whether a listed game's host says its console and cheats may change it
+while others play (network.host_cheats: Delta List's capability bit 18) */
+int browser_game_host_cheats(const struct browser_game *game);
 /* the same for a bare network version (a listing over the brokers has no
 game list entry): -1 older, 1 newer, 0 joinable. Every build */
 int browser_version_state(int version);

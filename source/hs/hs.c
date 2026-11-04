@@ -16309,6 +16309,18 @@ static boolean hs_compile_and_evaluate_command(
 			return kick ? network_game_server_kick_player(name) : network_game_server_ban_player(name);
 		}
 	}
+	/* port: the host of a public internet game with other players in it
+	changes nothing of the game from its console either (no cheats, no
+	objects, no game speed), unless network.host_cheats is on, which Online
+	Games shows its players; its kick and ban above, and what changes no
+	game, stay. A LAN, private or password game keeps the console as ever */
+	if (network_game_host_cheats_refused() && !hs_expression_changes_no_game(expression))
+	{
+		console_warning("not while hosting a public game with other players: set network.host_cheats = true in "
+			"config.toml to allow it (Online Games then shows \"Host cheats on\")");
+		error(_error_log, "the host's console: a command that changes the game refused (a public game)");
+		return FALSE;
+	}
 	csstrncpy(buffer, expression, sizeof(buffer));
 	buffer[sizeof(buffer)-1] = 0;
 	if (strchr(buffer, ';'))

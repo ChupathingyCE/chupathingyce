@@ -219,7 +219,8 @@ them. The setting `input.touch_controls` changes this (refer to
 
 The buttons at the top of the screen:
 
-- "Hide" removes the controls until you push "Touch".
+- "Hide" removes the controls, and the "Options" button with them, until
+  you push "Touch".
 - "Options" opens these items:
   - "General": the phone's vibration (on by default; it follows the
     vibration setting of the game's profile), aiming with the gyroscope

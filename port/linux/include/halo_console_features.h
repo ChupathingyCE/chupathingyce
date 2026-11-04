@@ -161,6 +161,11 @@ HALO_CONSOLE_XBOX_MAP_SIZES
 	is b40's 74): 39 KB less. A map past either limit loses only what is
 	past it: the lens flares past it (said once in debug.txt), or those
 	vehicles' respawn
+HALO_CONSOLE_NO_LOADING_PICTURE
+	the disc's loading.tga on the loading screen, as the Xbox showed it,
+	instead of Chupathingy's picture (port/linux/game/loading_picture.c,
+	display.xbox_loading_picture): every console, whose packaging has no
+	step for the picture
 
 A big-endian console (HALO_BIG_ENDIAN, its prefix header) reads the maps,
 which are the Xbox's, little-endian, through port/console/game's byte swap
@@ -231,6 +236,11 @@ larger maps take a campaign map's there as well) */
 #ifdef HALO_CONSOLE_DEBUG_TOOLS
 #define HALO_CONSOLE_BRINGUP_LOG 1
 #endif
+#endif
+
+#if (defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
+	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE)) && !defined(HALO_CONSOLE_NO_LOADING_PICTURE)
+#define HALO_CONSOLE_NO_LOADING_PICTURE 1
 #endif
 
 #ifdef HALO_CONSOLE_WAIT_POLL

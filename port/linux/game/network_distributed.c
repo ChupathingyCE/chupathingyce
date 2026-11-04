@@ -3274,6 +3274,28 @@ sends and drops unread */
 /* the distributed message kinds this game has seen that this build does not
 know, a bit a kind (each said in the log once a game) */
 static byte distributed_unknown_kinds_seen[32];
+/* (the host) the client machines whose OpenCE vote this game has dropped, a
+bit a machine: each told once, and logged once */
+static byte distributed_vote_machines_told[(HALO_PORT_MAXIMUM_NETWORK_MACHINES + 7) / 8];
+
+/* (the host) an OpenCE client's vote (its ask for a kick or the game's end,
+78, or its map choice, 95), dropped unread: the first from a machine this
+game is logged (its kind, nothing of what it says) and the machine's player
+told, over OpenCE's chat, that this host has no votes */
+static void distributed_vote_dropped(
+	long machine_index,
+	byte type)
+{
+	if (machine_index < 0 || machine_index >= HALO_PORT_MAXIMUM_NETWORK_MACHINES ||
+		(distributed_vote_machines_told[machine_index >> 3] & (1 << (machine_index & 7))))
+	{
+		return;
+	}
+	distributed_vote_machines_told[machine_index >> 3] |= (byte)(1 << (machine_index & 7));
+	error(_error_log, "network: machine %ld sent an OpenCE vote (kind %d), dropped: this host has no votes",
+		machine_index, (int)type);
+	chat_host_notice_to_machine((short)machine_index, "Voting isn't supported on this server; ask a moderator.");
+}
 
 /* whether this build knows a distributed message's kind (network_distributed.h) */
 static boolean distributed_kind_known(
@@ -3304,11 +3326,17 @@ static void distributed_unknown_kind(
 	if (type == DISTRIBUTED_CLIENT_BUILD_KIND)
 		return;
 	/* (OpenCE's votes, a kick or the game's end (78, 79) and the map (94,
-	95): this build plays none, shows none and never votes; dropped unread
-	and unlogged, from a host or a client of any version) */
+	95): this build plays none, shows none and never votes; dropped unread,
+	from a host or a client of any version. A client's own vote (78, 95)
+	is noted once a game and its player told: distributed_vote_dropped) */
 	if (type == NETWORK_RULES_VOTE_REQUEST_KIND || type == NETWORK_RULES_VOTE_STATUS_KIND ||
 		type == NETWORK_RULES_MAP_VOTE_STATUS_KIND || type == NETWORK_RULES_MAP_VOTE_CHOICE_KIND)
 	{
+		if (machine_index != NONE &&
+			(type == NETWORK_RULES_VOTE_REQUEST_KIND || type == NETWORK_RULES_MAP_VOTE_CHOICE_KIND))
+		{
+			distributed_vote_dropped(machine_index, type);
+		}
 		return;
 	}
 	if (distributed_unknown_kinds_seen[type >> 3] & (1 << (type & 7)))
@@ -3703,6 +3731,7 @@ void network_distributed_new_game(
 	distributed_shield_effects = 0;
 	distributed_shield_effects_heard = FALSE;
 	csmemset(distributed_unknown_kinds_seen, 0, sizeof(distributed_unknown_kinds_seen));
+	csmemset(distributed_vote_machines_told, 0, sizeof(distributed_vote_machines_told));
 	distributed_statistics_due = FALSE;
 	distributed_pickup_count = 0;
 	/* (each player's latest input: player_queues_new.c) */
@@ -4190,6 +4219,59 @@ static boolean distributed_ban_line(
 	char const *line)
 {
 	return line[0] != '#' && (strstr(line, "ip=") || strstr(line, "hwid="));
+}
+
+/* (the host's) each client machine's budget for its lobby messages
+(network_rules.h), and whether its going over has been logged since it
+joined or came back to the lobby */
+static struct
+{
+	struct network_rules_lobby_budget budget;
+	boolean logged;
+} distributed_lobby_budgets[HALO_PORT_MAXIMUM_NETWORK_MACHINES];
+
+/* (the host: network_server_manager.c) a machine joined the game, or came
+back to its lobby from the carnage report: its budget full again */
+void network_distributed_lobby_budget_reset(
+	long machine_index)
+{
+	if (machine_index < 0 || machine_index >= HALO_PORT_MAXIMUM_NETWORK_MACHINES)
+		return;
+	network_rules_lobby_budget_reset(&distributed_lobby_budgets[machine_index].budget);
+	distributed_lobby_budgets[machine_index].logged = FALSE;
+}
+
+/* (the host's) a client machine's lobby message dropped, over its budget:
+logged once (the machine's index, nothing of the message or of its
+address). The one place a refused message of a machine's is counted: a
+count of each player's refusals, as evidence for the host, is fed from
+here (not yet) */
+static void distributed_lobby_message_refused(
+	long machine_index)
+{
+	if (!distributed_lobby_budgets[machine_index].logged)
+	{
+		distributed_lobby_budgets[machine_index].logged = TRUE;
+		error(_error_silent, "machine #%ld sends lobby messages faster than %d a second: the ones past that dropped",
+			machine_index, NETWORK_RULES_LOBBY_PER_SECOND);
+	}
+}
+
+/* (the host: network_server_message_handler.c) whether a client machine's
+lobby message (its settings, a player's settings, a player added or
+removed) is in its budget: FALSE to drop it */
+boolean network_distributed_lobby_message_allowed(
+	long machine_index)
+{
+	if (machine_index < 0 || machine_index >= HALO_PORT_MAXIMUM_NETWORK_MACHINES)
+		return TRUE;
+	if (network_rules_lobby_budget_take(&distributed_lobby_budgets[machine_index].budget,
+		(uint32_t)system_milliseconds()))
+	{
+		return TRUE;
+	}
+	distributed_lobby_message_refused(machine_index);
+	return FALSE;
 }
 
 /* (the host: network_server_manager.c) whether a machine of this address
