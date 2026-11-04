@@ -113,7 +113,7 @@ lights the diffuse color for each pixel (nv2a_pixel_shader_key
 per_pixel_lighting). Returns a malloc'd string. */
 /* OpenGL ES and macOS's OpenGL 4.1 have no glClipControl: vertex shaders
 convert D3D's clip space themselves (nv2a_vsh.c) */
-#if defined(HALO_GL_ES) || defined(__APPLE__)
+#ifdef HALO_GL_BEFORE_43
 #define HALO_GL_NO_CLIP_CONTROL 1
 #endif
 

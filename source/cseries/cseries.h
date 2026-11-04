@@ -17,6 +17,17 @@ CSERIES.H
 
 #include "xbox_address.h"
 
+/* port: the pragma pair around some of the decomp's BSS globals. It is left
+out on Android and Apple targets, whose section names differ; the default
+is .bss anyway. */
+#if !defined(HALO_ANDROID) && !defined(__APPLE__)
+#define HALO_BSS_SEG_BEGIN _Pragma("bss_seg(\".bss\")")
+#define HALO_BSS_SEG_END _Pragma("bss_seg()")
+#else
+#define HALO_BSS_SEG_BEGIN
+#define HALO_BSS_SEG_END
+#endif
+
 /* ---------- constants */
 
 #ifndef TRUE

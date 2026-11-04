@@ -269,13 +269,9 @@ enum
 
 /* ---------- globals */
 
-#if !defined(HALO_ANDROID) && !defined(__APPLE__) /* Mach-O section names differ; the default is .bss anyway */
-#pragma bss_seg(".bss")
-#endif
+HALO_BSS_SEG_BEGIN
 static wchar_t bss_004c1a08[0x100];
-#if !defined(HALO_ANDROID) && !defined(__APPLE__)
-#pragma bss_seg()
-#endif
+HALO_BSS_SEG_END
 
 /* ---------- public code */
 

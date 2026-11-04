@@ -25,6 +25,14 @@ Windows it is __stdcall too, and SDL would include windows.h without it) */
 #endif
 #pragma pop_macro("APIENTRY")
 
+/* OpenGL ES, or macOS's OpenGL 4.1: a context without what desktop OpenGL
+4.3 and later added (vertex attribute binding, multi-bind, the debug
+callback, glClipControl). The renderer works around each where it uses it
+(d3d8_gl.c, xgpu.h). */
+#if defined(HALO_GL_ES) || defined(__APPLE__)
+#define HALO_GL_BEFORE_43 1
+#endif
+
 #ifdef HALO_GL_ES
 /* OpenGL ES 3.2 (port/android/README.md); tools/android_gl_stubs.py reads
 this list to generate the guest's entry points */
