@@ -54,7 +54,8 @@ static void say(struct delta_peer *peer, const char *format, ...)
 /* (delta.h's registry, in its order) */
 static const char *const platform_names[] = {
 	"unknown", "pc_windows", "pc_macos", "pc_linux", "android", "steam_deck", "xbox", "xbox360", "wiiu",
-	"switch", "psp", "vita", "xbox_uwp", "pc_freebsd", "ps3", "ps4", "ps5", "n64", "pc_legacy"
+	"switch", "psp", "vita", "xbox_uwp", "pc_freebsd", "ps3", "ps4", "ps5", "n64", "pc_legacy",
+	"steamlink", "ios", "tvos"
 };
 typedef char platform_names_check[sizeof(platform_names) / sizeof(platform_names[0]) == NUMBER_OF_DELTA_PLATFORMS ?
 	1 : -1];
@@ -200,6 +201,8 @@ static void forget_all(struct delta_peer *peer)
 	peer->host_map_generation = 0;
 	memset(&peer->host_traits, 0, sizeof(peer->host_traits));
 	peer->host_traits_generation = 0;
+	memset(&peer->host_rules, 0, sizeof(peer->host_rules));
+	peer->host_rules_generation = 0;
 	memset(peer->machine_seen, 0, sizeof(peer->machine_seen));
 	memset(peer->machine_seen_ipv4, 0, sizeof(peer->machine_seen_ipv4));
 	memset(peer->machine_seen_time, 0, sizeof(peer->machine_seen_time));
@@ -1853,6 +1856,62 @@ delta_u32 delta_peer_host_traits(const struct delta_peer *peer, struct delta_wir
 	return peer->host_traits_generation;
 }
 
+/* the host's rules to each client that agreed to host_rules: at once when
+they changed (or the client is new), then every DELTA_PEER_HOST_RULES_INTERVAL */
+static void host_send_rules(struct delta_peer *peer, delta_u32 now)
+{
+	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
+	int index;
+
+	if (!peer->rules_generation || !(offered(peer) & CAPABILITY(_delta_capability_host_rules)))
+		return;
+	for (index = 0; index < DELTA_PEER_MAXIMUM_MACHINES; index++)
+	{
+		struct delta_peer_host_peer *client = &peer->peers[index];
+		int size;
+
+		if (!client->used || !(client->agreed & CAPABILITY(_delta_capability_host_rules)))
+			continue;
+		if (client->rules_sent_generation == peer->rules_generation &&
+			!elapsed(now, client->rules_time, DELTA_PEER_HOST_RULES_INTERVAL))
+		{
+			continue;
+		}
+		size = delta_wire_write_host_rules(data, client->session, &peer->rules);
+		if (!size)
+			return;
+		peer_send(peer, client->ipv4, client->port, data, size);
+		client->rules_sent_generation = peer->rules_generation;
+		client->rules_time = now;
+	}
+}
+
+void delta_peer_set_host_rules(struct delta_peer *peer, const struct delta_wire_host_rules *rules)
+{
+	int index;
+
+	if (!rules)
+	{
+		memset(&peer->rules, 0, sizeof(peer->rules));
+		peer->rules_generation = 0;
+		return;
+	}
+	if (peer->rules_generation && !memcmp(&peer->rules, rules, sizeof(peer->rules)))
+		return;
+	peer->rules = *rules;
+	/* (never 0, which is none; each client is sent them at once) */
+	peer->rules_generation = peer->rules_generation + 1 ? peer->rules_generation + 1 : 1;
+	for (index = 0; index < DELTA_PEER_MAXIMUM_MACHINES; index++)
+		peer->peers[index].rules_sent_generation = 0;
+}
+
+delta_u32 delta_peer_host_rules(const struct delta_peer *peer, struct delta_wire_host_rules *rules)
+{
+	if (rules)
+		*rules = peer->host_rules;
+	return peer->host_rules_generation;
+}
+
 /* (the game machine at the index, or NULL: the host's view) */
 static const struct delta_peer_game_machine *host_game_machine(const struct delta_peer *peer, int machine_index)
 {
@@ -2025,6 +2084,7 @@ void delta_peer_host_frame(struct delta_peer *peer, delta_u32 now, const struct 
 	}
 	host_send_maps(peer, now);
 	host_send_traits(peer, now);
+	host_send_rules(peer, now);
 
 	{
 		int sends = 0;
@@ -2096,6 +2156,8 @@ static void client_legacy(struct delta_peer *peer, const char *why)
 	peer->host_map_generation = 0;
 	memset(&peer->host_traits, 0, sizeof(peer->host_traits));
 	peer->host_traits_generation = 0;
+	memset(&peer->host_rules, 0, sizeof(peer->host_rules));
+	peer->host_rules_generation = 0;
 	memset(peer->machines, 0, sizeof(peer->machines));
 	if (valid_machine(own))
 		peer->machines[own] = local;
@@ -2637,6 +2699,30 @@ static void client_receive(struct delta_peer *peer, delta_u32 now, delta_u32 ipv
 				peer->host_traits_generation + 1 ? peer->host_traits_generation + 1 : 1;
 			say(peer, "Delta Peer: the host's player traits: %s", traits.kind == DELTA_WIRE_TRAITS_BOMB ? "Bomb's" :
 				"none");
+		}
+		break;
+	}
+	case _delta_message_host_rules:
+	{
+		struct delta_wire_host_rules rules;
+
+		if (peer->client_state != _delta_peer_client_delta ||
+			!(peer->agreed & offered(peer) & CAPABILITY(_delta_capability_host_rules)) ||
+			!delta_wire_read_host_rules(payload, header.length, &rules))
+		{
+			peer->dropped++;
+			break;
+		}
+		if (!peer->host_rules_generation || memcmp(&peer->host_rules, &rules, sizeof(rules)))
+		{
+			peer->host_rules = rules;
+			peer->host_rules_generation =
+				peer->host_rules_generation + 1 ? peer->host_rules_generation + 1 : 1;
+			say(peer, "Delta Peer: the host's rules: names above heads %s, follow camera %s, team changes %s",
+				rules.flags & DELTA_WIRE_HOST_PLAYER_NAMES ? "allowed" : "off",
+				rules.flags & DELTA_WIRE_HOST_FOLLOW_CAMERA ? "allowed" : "off",
+				rules.team_change == DELTA_WIRE_HOST_TEAM_CHANGE_ALLOW ? "allowed" :
+				rules.team_change == DELTA_WIRE_HOST_TEAM_CHANGE_BALANCED ? "balanced" : "off");
 		}
 		break;
 	}

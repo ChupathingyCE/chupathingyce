@@ -330,7 +330,7 @@ BOOL nv2a_vertex_shader_lighting(const DWORD *instructions, unsigned long instru
 /* ---------- translation */
 
 static const char shader_prologue[] =
-#ifdef HALO_ANDROID
+#ifdef HALO_GL_ES
 	/* the #version line comes first, from the context's capabilities */
 	"precision highp float;\n"
 	"precision highp int;\n"
@@ -392,7 +392,7 @@ char *nv2a_vertex_shader_to_glsl(const DWORD *instructions, unsigned long instru
 	struct xgpu_text text = { 0 };
 	unsigned long index;
 
-#ifdef HALO_ANDROID
+#ifdef HALO_GL_ES
 	xgpu_text_append(&text, "#version %s\n", xgpu_capabilities.shading_language);
 #endif
 	xgpu_text_append(&text, "%s", shader_prologue);

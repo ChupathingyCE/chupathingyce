@@ -648,6 +648,27 @@ static int get_bits(struct reader *reader, int count, unsigned int *value)
 	return 1;
 }
 
+static int refused_facings;
+
+/* a client's yaw or pitch (a float's bits): a number the game can turn by.
+A real client sends angles in radians; one that is not a number, or is
+absurdly large, is refused with its update */
+static int facing_valid(unsigned int bits)
+{
+	float angle;
+
+	memcpy(&angle, &bits, sizeof(angle));
+	if (isfinite(angle) && fabsf(angle) <= 1000.0f)
+		return 1;
+	refused_facings++;
+	return 0;
+}
+
+int ce_refused_facings(void)
+{
+	return refused_facings;
+}
+
 static int read_client_update(struct reader *reader, int every_field, struct ce_client_update *update)
 {
 	int present[9];
@@ -684,13 +705,13 @@ static int read_client_update(struct reader *reader, int every_field, struct ce_
 	}
 	if (present[2])
 	{
-		if (!get_bits(reader, 32, &value))
+		if (!get_bits(reader, 32, &value) || !facing_valid(value))
 			return 0;
 		memcpy(&update->yaw, &value, sizeof(value));
 	}
 	if (present[3])
 	{
-		if (!get_bits(reader, 32, &value))
+		if (!get_bits(reader, 32, &value) || !facing_valid(value))
 			return 0;
 		memcpy(&update->pitch, &value, sizeof(value));
 	}
@@ -755,8 +776,12 @@ int ce_payload_read_client_updates(const unsigned char *payload, int length, str
 			break;
 		if (type == CE_DELTA_CLIENT_UPDATE)
 		{
-			if (!read_client_update(&reader, !flag, update))
+			/* (an update refused part way leaves the last one as it was) */
+			struct ce_client_update next = *update;
+
+			if (!read_client_update(&reader, !flag, &next))
 				break;
+			*update = next;
 			if (each)
 				each(context, update);
 			count++;

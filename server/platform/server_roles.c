@@ -10,17 +10,14 @@ actors' limits, under one lock.
 #include "control_roles.h"
 #include "control_protocol.h"
 
-#include <errno.h>
+/* (the files, on Linux and Windows) */
+#include "server_host.h"
+
 #include <stdarg.h>
-#include <fcntl.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <strings.h>
-#include <sys/stat.h>
-#include <time.h>
-#include <unistd.h>
 
 /* the platform layer's (xbox_files.c): plain types */
 const char *platform_data_root(void);

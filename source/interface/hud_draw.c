@@ -1460,6 +1460,11 @@ void hud_zoomed_layout_end(
 }
 
 #endif
+#ifdef HALO_CONSOLE_PERFORMANCE_MODE
+/* port: whether performance mode keeps the HUD's frames and backgrounds */
+boolean console_performance_hud_frames(void);
+#endif
+
 void hud_draw_static_element(
 	short local_player_index,
 	struct hud_absolute_placement_definition const *absolute_placement,
@@ -1472,6 +1477,13 @@ void hud_draw_static_element(
 	struct bitmap_group *bitmap_group;
 	struct bitmap_data *bitmap;
 	short overlay_index;
+
+#ifdef HALO_CONSOLE_PERFORMANCE_MODE
+	if (!console_performance_hud_frames())
+	{
+		return;
+	}
+#endif
 
 	csmemset(stack_buffer, 0x62, sizeof(stack_buffer));
 

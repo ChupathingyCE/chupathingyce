@@ -88,6 +88,9 @@ symbols in this file:
 #include "main/main.h"
 #include "structures/structures.h"
 #include "halo_perf_log.h" /* port: console.perf_log */
+#ifdef HALO_CONSOLE_PERFORMANCE_MODE
+#include "cutscene/cinematics.h"
+#endif
 
 /* ---------- constants */
 
@@ -123,6 +126,13 @@ enum
 /* ---------- structures */
 
 /* ---------- prototypes */
+
+#ifdef HALO_CONSOLE_PERFORMANCE_MODE
+/* port: how far performance mode sees, 0 for as far as the level does
+(halo_console_features.h) */
+real console_performance_view_distance(
+	void);
+#endif
 
 static void render_nonplayer_frame(
 	const struct render_window *window,
@@ -504,6 +514,47 @@ static void render_player_frame(
 	{
 		render.fog.planar_maximum_distance = render.fog.atmospheric_maximum_distance;
 	}
+
+#ifdef HALO_CONSOLE_PERFORMANCE_MODE
+	/* port: performance mode sees no further than its distance, as the
+	game's own thick fog does: the atmospheric fog thickens from half the
+	distance to opaque at it (in the sky's fog color; black indoors, where
+	the level has none), and the camera's far plane comes in to it below,
+	so the level's clusters and objects past it are not drawn. Not in a
+	cutscene, whose shots are framed for what is far away (a10's ship, a
+	black shape in the fog) */
+	{
+		real distance = console_performance_view_distance();
+
+		if (distance > 0.0f && !cinematic_in_progress() &&
+			(render.fog.atmospheric_maximum_distance == 0.0f ||
+			render.fog.atmospheric_maximum_distance > distance ||
+			render.fog.atmospheric_maximum_density < 1.0f))
+		{
+			if (render.fog.atmospheric_maximum_distance == 0.0f ||
+				render.fog.atmospheric_maximum_density <= 0.0f)
+			{
+				if (render.visible_sky_index == NONE)
+				{
+					render.fog.atmospheric_color.red = 0.0f;
+					render.fog.atmospheric_color.green = 0.0f;
+					render.fog.atmospheric_color.blue = 0.0f;
+				}
+				render.fog.atmospheric_minimum_distance = distance * 0.5f;
+			}
+			else
+			{
+				render.fog.atmospheric_minimum_distance = MIN(
+					render.fog.atmospheric_minimum_distance,
+					distance * 0.5f);
+			}
+			render.fog.atmospheric_maximum_distance = MIN(
+				render.fog.atmospheric_maximum_distance == 0.0f ? distance : render.fog.atmospheric_maximum_distance,
+				distance);
+			render.fog.atmospheric_maximum_density = 1.0f;
+		}
+	}
+#endif
 
 	if (render.fog.atmospheric_maximum_density == 1.0f &&
 		render.fog.atmospheric_maximum_distance != 0.0f)

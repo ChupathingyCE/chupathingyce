@@ -177,6 +177,11 @@ static struct
 	char listed_invite[BROWSER_INVITE_LENGTH + 1];
 	unsigned long announce_time;
 	struct hosted_game announced;
+	/* whether the hosted game was offered to the list since it was last
+	listed or withdrawn, and the answer's HTTP status (0: no answer), for
+	browser_host_listing */
+	int announce_tried;
+	int announce_status;
 
 	/* a finished game's carnage report, waiting to be sent (JSON, without
 	the invite, which is the listing's) */
@@ -1229,6 +1234,7 @@ static void withdraw(void)
 	platform_log("Game list: the game is no longer listed");
 	pthread_mutex_lock(&browser_lock);
 	browser.listed_invite[0] = 0;
+	browser.announce_tried = 0;
 	pthread_mutex_unlock(&browser_lock);
 }
 
@@ -1262,10 +1268,12 @@ static const char *build_architecture(void)
 	return "arm64";
 #elif defined(__x86_64__) || defined(_M_X64)
 	return "x64";
-#elif defined(__i386__) || defined(_M_IX86)
-	return "x86";
+/* (32-bit ARM ahead of _M_IX86, which halo_linux_prefix.h defines for the
+XDK's headers on every 32-bit build) */
 #elif defined(__arm__) || defined(_M_ARM)
 	return "arm";
+#elif defined(__i386__) || defined(_M_IX86)
+	return "x86";
 #else
 	return "";
 #endif
@@ -1305,7 +1313,8 @@ static void host_fields(char *form, int size, const struct hosted_game *game)
 	/* (Delta Peer's, and whether this host answers Online Games' pings:
 	p2p_probe.c, announced here alone) */
 	snprintf(text, sizeof(text), "%08x", (unsigned int)game->delta.capabilities |
-		(delta_capability_disabled(_delta_capability_ping) ? 0u : 1u << _delta_capability_ping));
+		(delta_capability_disabled(_delta_capability_ping) ? 0u : 1u << _delta_capability_ping) |
+		(config_boolean("network.host_cheats") ? 1u << _delta_capability_host_cheats : 0u));
 	form_add(form, size, "capabilities", text);
 	if (!game->has_delta || !game->delta.delta)
 		return;
@@ -1380,6 +1389,10 @@ static void announce(const char *invite, const struct hosted_game *game)
 	status = posix_browser_request(url, form, NULL, response, sizeof(response), error, sizeof(error));
 	browser.announce_time = p2p_now();
 	browser.announced = *game;
+	pthread_mutex_lock(&browser_lock);
+	browser.announce_tried = 1;
+	browser.announce_status = status;
+	pthread_mutex_unlock(&browser_lock);
 	if (status == 200)
 	{
 		if (strcmp(browser.listed_invite, invite))
@@ -2691,6 +2704,11 @@ int browser_version_state(int version)
 
 #ifdef HALO_GAME_BROWSER
 
+int browser_game_host_cheats(const struct browser_game *game)
+{
+	return (game->capabilities & 1ul << _delta_capability_host_cheats) != 0;
+}
+
 int browser_game_version_state(const struct browser_game *game)
 {
 	/* (a Delta host's other number may still be joined, as above) */
@@ -2739,6 +2757,34 @@ int browser_unlock_game(const char *invite, const char *password, char *code, in
 		return 1;
 	}
 	return -1;
+}
+
+int browser_host_listing(int *status)
+{
+	char invite[BROWSER_INVITE_LENGTH + 1];
+	int reported, listed, tried, answer;
+
+	*status = 0;
+	if (!config_string("network.browser_url")[0])
+		return BROWSER_HOST_NO_LIST;
+	if (!config_boolean("network.list_hosted_games"))
+		return BROWSER_HOST_OFF;
+	pthread_mutex_lock(&browser_lock);
+	reported = browser.host_reported && !elapsed(browser.host_report_time, HOST_TIMEOUT);
+	listed = browser.listed_invite[0] != 0;
+	tried = browser.announce_tried;
+	answer = browser.announce_status;
+	pthread_mutex_unlock(&browser_lock);
+	if (!reported || !p2p_hosting_invite(invite, sizeof(invite)))
+		return BROWSER_HOST_NOT_HOSTING;
+	if (!p2p_hosting_listable_invite(invite, sizeof(invite)))
+		return BROWSER_HOST_PRIVATE;
+	if (listed)
+		return BROWSER_HOST_LISTED;
+	if (!tried)
+		return BROWSER_HOST_WAITING;
+	*status = answer;
+	return BROWSER_HOST_FAILED;
 }
 
 int browser_list_status(void)

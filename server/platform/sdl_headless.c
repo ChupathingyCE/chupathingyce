@@ -6,21 +6,40 @@ call (port_config.c, menu_files.c, browser.c, dsound_sdl.c, gl_functions.c),
 for a server built without SDL (tools/server_build.py): files and folders
 with the C library, and no audio device or OpenGL to open. Each behaves as
 SDL 3's does for what those units ask of it. Built with the host's ABI, as
-SDL is; only SDL's headers are needed, for the declarations.
+SDL is; only SDL's headers are needed, for the declarations. On Windows
+(the Windows server, tools/windows_build.py) the folders are the C
+runtime's and a search is FindFirstFile's.
 */
 
 #include <SDL3/SDL.h>
 
 #include <errno.h>
-#include <glob.h>
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <strings.h>
 #include <sys/stat.h>
 #include <time.h>
+
+#ifdef _WIN32
+#include <direct.h>
+#include <windows.h>
+/* (port/windows/include/posix: clock_gettime, readlink of /proc/self/exe) */
 #include <unistd.h>
+#define strncasecmp _strnicmp
+#define mkdir(path, mode) _mkdir(path)
+#ifndef PATH_MAX
+#define PATH_MAX 1024
+#endif
+#ifndef S_ISREG
+#define S_ISREG(mode) (((mode) & _S_IFMT) == _S_IFREG)
+#define S_ISDIR(mode) (((mode) & _S_IFMT) == _S_IFDIR)
+#endif
+#else
+#include <glob.h>
+#include <strings.h>
+#include <unistd.h>
+#endif
 
 static char headless_error[128] = "";
 
@@ -165,6 +184,12 @@ const char *SDL_GetBasePath(void)
 	return base;
 }
 
+#ifdef _WIN32
+#define SEPARATOR_BACKSLASH 1
+#else
+#define SEPARATOR_BACKSLASH 0
+#endif
+
 /* the folder, and the ones above it that it needs */
 bool SDL_CreateDirectory(const char *path)
 {
@@ -174,11 +199,16 @@ bool SDL_CreateDirectory(const char *path)
 	snprintf(partial, sizeof(partial), "%s", path);
 	for (index = 1; partial[index]; index++)
 	{
-		if (partial[index] == '/')
+		char separator = partial[index];
+
+		/* (on Windows a backslash too, and not the one after a drive letter) */
+		if (separator == '/' || (separator == '\\' && SEPARATOR_BACKSLASH))
 		{
+			if (index == 2 && partial[1] == ':')
+				continue;
 			partial[index] = 0;
 			mkdir(partial, 0755);
-			partial[index] = '/';
+			partial[index] = separator;
 		}
 	}
 	if (mkdir(partial, 0755) != 0 && errno != EEXIST)
@@ -189,6 +219,121 @@ bool SDL_CreateDirectory(const char *path)
 	return true;
 }
 
+#ifdef _WIN32
+struct found_names
+{
+	char **names;
+	size_t used;
+	size_t capacity;
+	size_t bytes;
+};
+
+static void found_add(struct found_names *found, const char *name)
+{
+	if (found->used == found->capacity)
+	{
+		size_t capacity = found->capacity ? found->capacity * 2 : 32;
+		char **grown = realloc(found->names, capacity * sizeof(char *));
+
+		if (!grown)
+			return;
+		found->names = grown;
+		found->capacity = capacity;
+	}
+	found->names[found->used] = _strdup(name);
+	if (!found->names[found->used])
+		return;
+	found->bytes += sizeof(char *) + strlen(name) + 1;
+	found->used++;
+}
+
+/* the names in path/folder that match pattern (no folder in it), each as
+folder + name; folders only, or anything */
+static void found_search(struct found_names *found, const char *path, const char *folder, const char *pattern,
+	int folders_only)
+{
+	char full[PATH_MAX];
+	WIN32_FIND_DATAA entry;
+	HANDLE search;
+
+	snprintf(full, sizeof(full), "%s/%s%s", path, folder, pattern);
+	search = FindFirstFileA(full, &entry);
+	if (search == INVALID_HANDLE_VALUE)
+		return;
+	do
+	{
+		char name[PATH_MAX];
+
+		if (!strcmp(entry.cFileName, ".") || !strcmp(entry.cFileName, ".."))
+			continue;
+		if (folders_only && !(entry.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
+			continue;
+		snprintf(name, sizeof(name), "%s%s", folder, entry.cFileName);
+		found_add(found, name);
+	}
+	while (FindNextFileA(search, &entry));
+	FindClose(search);
+}
+
+/* the names under path that match pattern (relative to path; * does not
+cross a /), as one block SDL_free frees: the pointers, NULL, the names.
+FindFirstFile matches one folder's names, so a pattern with folders in it
+("*" + "/" + "*.xml", as menu_files.c asks) is matched a folder at a time */
+char **SDL_GlobDirectory(const char *path, const char *pattern, SDL_GlobFlags flags, int *count)
+{
+	struct found_names found = { NULL, 0, 0, sizeof(char *) };
+	struct found_names folders = { NULL, 0, 0, sizeof(char *) };
+	char first[PATH_MAX];
+	const char *slash = strchr(pattern, '/');
+	size_t index;
+	char **names;
+	char *text;
+
+	(void)flags;
+	if (count)
+		*count = 0;
+	if (!slash)
+		found_search(&found, path, "", pattern, 0);
+	else
+	{
+		/* (one folder deep, as the units ask: "folder pattern/name pattern") */
+		snprintf(first, sizeof(first), "%.*s", (int)(slash - pattern), pattern);
+		found_search(&folders, path, "", first, 1);
+		for (index = 0; index < folders.used; index++)
+		{
+			char folder[PATH_MAX];
+
+			snprintf(folder, sizeof(folder), "%s/", folders.names[index]);
+			found_search(&found, path, folder, slash + 1, 0);
+			free(folders.names[index]);
+		}
+		free(folders.names);
+	}
+	if (!found.used)
+	{
+		free(found.names);
+		return NULL;
+	}
+	names = malloc(found.bytes);
+	if (names)
+	{
+		text = (char *)(names + found.used + 1);
+		for (index = 0; index < found.used; index++)
+		{
+			names[index] = text;
+			strcpy(text, found.names[index]);
+			text += strlen(found.names[index]) + 1;
+		}
+		names[found.used] = NULL;
+		if (count)
+			*count = (int)found.used;
+	}
+	for (index = 0; index < found.used; index++)
+		free(found.names[index]);
+	free(found.names);
+	return names;
+}
+#else
 /* the names under path that match pattern (relative to path; * does not
 cross a /), as one block SDL_free frees: the pointers, NULL, the names */
 char **SDL_GlobDirectory(const char *path, const char *pattern, SDL_GlobFlags flags, int *count)
@@ -234,6 +379,7 @@ char **SDL_GlobDirectory(const char *path, const char *pattern, SDL_GlobFlags fl
 	globfree(&found);
 	return names;
 }
+#endif
 
 /* ---------- no devices */
 

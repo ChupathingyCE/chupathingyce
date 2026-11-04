@@ -245,6 +245,19 @@ const struct server_setting server_settings_table[SERVER_SETTINGS] =
 		"The UDP port of the GameSpy status queries" },
 	{ "ce_joins", SERVER_FIELD_BOOLEAN, 0, 1, "HALO_DEDICATED_CE_JOINS",
 		"Answer Halo Custom Edition 1.0.10 join attempts on the GameSpy port (gamespy_listing must be on)" },
+	{ "allow_player_names", SERVER_FIELD_BOOLEAN, 0, 1, "HALO_DEDICATED_ALLOW_PLAYER_NAMES",
+		"Chupathingy players may show names above heads (off: only the player aimed at, as on the Xbox)" },
+	{ "allow_follow_camera", SERVER_FIELD_BOOLEAN, 0, 1, "HALO_DEDICATED_ALLOW_FOLLOW_CAMERA",
+		"Chupathingy players may watch a follow camera while they wait to respawn (off: as on the Xbox)" },
+	{ "max_machines_per_address", SERVER_FIELD_INTEGER, 0, SERVER_SETTINGS_MAXIMUM_MACHINES_PER_ADDRESS,
+		"HALO_DEDICATED_MAX_MACHINES_PER_ADDRESS",
+		"Most machines that may join from one internet address (0: no limit; local network addresses never limited)" },
+	{ "betrayal_kick", SERVER_FIELD_INTEGER, 0, SERVER_SETTINGS_MAXIMUM_BETRAYAL_KICK, "HALO_DEDICATED_BETRAYAL_KICK",
+		"Betrayals in a game that kick a player, warned one short of it; a second kick in a day bans for 30 "
+		"minutes (0: off)" },
+	{ "afk_kick_minutes", SERVER_FIELD_INTEGER, 0, SERVER_SETTINGS_MAXIMUM_AFK_KICK_MINUTES,
+		"HALO_DEDICATED_AFK_KICK_MINUTES", "Minutes without input in a game that kick a player, moderators never "
+		"(0: off)" },
 	{ "ce_welcome", SERVER_FIELD_STRING, 0, SERVER_SETTINGS_CE_WELCOME_SIZE - 1, "HALO_DEDICATED_CE_WELCOME",
 		"Chat line each Custom Edition player gets as they join (empty: none)" },
 };

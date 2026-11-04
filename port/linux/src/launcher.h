@@ -13,13 +13,15 @@ time with launcher.show_at_start = "always". A run nobody watches
 (platform_run_is_quiet), the dedicated server and Android never show it.
 
 The desktop builds with the overlay (HALO_GAME_BROWSER) have it; the others
-keep the message boxes (sdl_platform.c).
+keep the message boxes (sdl_platform.c), and a console with screens of its
+own for the start (HALO_CONSOLE_SETUP_SCREENS) has those.
 */
 
 #ifndef __HALO_LAUNCHER_H
 #define __HALO_LAUNCHER_H
 
-#if defined(HALO_GAME_BROWSER) && !defined(HALO_ANDROID) && !defined(HALO_SERVER)
+#if defined(HALO_GAME_BROWSER) && !defined(HALO_ANDROID) && !defined(HALO_SERVER) && \
+	!defined(HALO_CONSOLE_SETUP_SCREENS)
 #define HALO_LAUNCHER 1
 #endif
 
