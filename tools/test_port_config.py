@@ -289,7 +289,8 @@ OLD_SERVER_DEFAULTS = {"anti_aliasing": '"off"', "shadow_resolution": "128", "tu
 # the settings a dedicated server's new file has (a few of each section), and
 # the game's it leaves out
 SERVER_WRITTEN = ["game.bomb_spawns", "game.downloaded_maps", "network.tunnel_port", "network.browser_url",
-	"network.events_token", "network.announce", "network.address", "paths.data", "paths.saves",
+	"network.events_token", "network.announce", "network.address", "network.host_cheats",
+	"network.host_console_objects", "paths.data", "paths.saves",
 	"debug.log_addresses", "debug.network_latency"]
 SERVER_LEFT_OUT = ["display.vsync", "display.interpolation", "display.anti_aliasing", "display.shadow_resolution", "audio.volume",
 	"input.mouse_sensitivity", "controls.move_forward", "chat.enabled", "game.start_with_one_player",
@@ -945,6 +946,13 @@ def test_server_file(program, directory, defaults, kind):
 	check(values["display.interpolation"] == "true" and float(values["audio.volume"]) == 1.0,
 		f"server: a left-out setting lost its default: {values}")
 	check("Server Setup in the menus" not in text, "server: the game's note for [network]")
+	# (the server's own help where the game's speaks to a player)
+	for words in ("the debug telnet console (debug.telnet_console)", "HALO_DEDICATED_PUBLIC decides",
+			"false keeps the\n# server to the local network", "holds maps/ and playlists/"):
+		check(words in text, f"server: the server's help is missing: {words}")
+	for words in ("Lets your console and cheats", "Online Games (the Server Browser", "keeps\n# you to the local",
+			"holds the maps folder"):
+		check(words not in text, f"server: the game's help for a player: {words}")
 	before = case.text()
 	case.get("display.vsync")
 	check(case.text() == before and pending(case)[0] == 0, "server: changed or asked on the next start")

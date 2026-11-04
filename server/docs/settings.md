@@ -190,8 +190,8 @@ the program if it can (an image's or a system folder's program cannot, which
 is fine). Settings in the environment override it. A new file has only the
 settings the server uses: internet play, the game list, Delta Stats, the
 Bomb and Grifball games, downloaded maps, the folders, and a few debug
-settings (full addresses in the log, the telnet console and the network
-tests). The game's display, sound and control settings are left out. The
+settings (full addresses in the log, the telnet console and its limits in
+a public game, and the network tests). The game's display, sound and control settings are left out. The
 server's own settings (name, players, chat and the rest) are not in it:
 they are in `admin/settings.toml`. An older file that has the game's
 settings is left as it is and still works.
