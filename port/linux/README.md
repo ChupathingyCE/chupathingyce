@@ -3171,6 +3171,27 @@ gunner first, as before.
 first n places of the game as persons. Thus a game with only bots shows
 what the bots do for persons.
 
+### What the bots know of someone out of sight
+
+A bot that has lost sight of someone it was fighting, while they are still
+on its motion tracker or it hears them, knows where they are as a tracker's
+dot tells it: about there (within a third of the distance), a little more
+than once a second, and not which way they are going. It knew where they were
+to the inch every tick, and its look followed them along behind the wall.
+Where it expects them to come out is where they were last seen, carried on
+for at most a second of how they were going. The tracker's other dots are
+looked at as seldom, as roughly, and not at their exact height.
+`HALO_BOT_OFF=fair` puts back the way it was.
+
+`HALO_BOT_SIGHTCHECK=1` measures it: each tick a bot has someone in its
+sights, whether the map is between them by a stricter test than its own
+(back faces as well), and the share of the time with nobody in sight that
+it looks straight at someone moving behind a wall. In test games on Hang 'Em
+High and Chill Out at skill 10, no bot saw through the map (0 of some 15,000
+ticks); it looked straight at someone moving behind a wall 16.9% of the time
+it had nobody in sight, from 18.2% (most of that is the place it lost them,
+where they still are).
+
 ### Watch the bots: the debug window, the panel and the cameras
 
 On the machine that runs the bots (your own game, or the one you host):

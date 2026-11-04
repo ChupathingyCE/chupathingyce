@@ -44,6 +44,7 @@ bot's last tick (bot_debug_snapshot) and log lines.
 #include "main/console.h"
 #include "main/main.h"
 #include "objects/objects.h"
+#include "physics/collisions.h"
 #include "rasterizer/rasterizer.h"
 #include "render/render.h"
 #include "text/draw_string.h"
@@ -373,11 +374,25 @@ void bot_debug_camera_update(void *data, struct camera_control const *controls, 
 	forward.i /= length, forward.j /= length, forward.k /= length;
 	if (mode == _bot_debug_camera_eyes)
 	{
-		/* (a little in front of its eyes: out of its helmet) */
+		/* (a little in front of its eyes, out of its helmet: as far as there
+		   is room for, short of a wall in front of its face. Pushed on into
+		   the wall, the camera saw through it) */
+		struct collision_result collision;
+		real_vector3d ahead;
+		real room = 0.25f;
+
 		unit_get_camera_position(unit_index, &result->focus_position);
-		result->focus_position.x += forward.i * 0.25f;
-		result->focus_position.y += forward.j * 0.25f;
-		result->focus_position.z += forward.k * 0.25f;
+		ahead.i = forward.i * 0.45f, ahead.j = forward.j * 0.45f, ahead.k = forward.k * 0.45f;
+		if (collision_test_vector(FLAG(_collision_test_front_facing_surfaces_bit) | FLAG(_collision_test_structure_bit) |
+			FLAG(_collision_test_objects_bit) | FLAG(_collision_test_objects_scenery_bit), &result->focus_position, &ahead,
+			object_get_ultimate_parent(unit_index), &collision))
+		{
+			room = MAX(0.f, collision.t * 0.45f - 0.2f);
+		}
+		room = MIN(room, 0.25f);
+		result->focus_position.x += forward.i * room;
+		result->focus_position.y += forward.j * room;
+		result->focus_position.z += forward.k * room;
 		result->focus_distance = 0.f;
 	}
 	else

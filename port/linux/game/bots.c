@@ -7217,9 +7217,27 @@ static int bot_point_worth_risk(struct bot_state const *bot, real_point3d const 
    sight plus ahead: on along the way they were going (no further than they
    could go over the floor: not through walls, not off into the air). The
    bounding sphere's centre, like last_seen */
+/* (HALO_BOT_OFF=fair: the bots know where someone out of sight is to the
+   inch, and keep up with them behind a wall, as they did) */
+static int bot_fair_sight(void)
+{
+	static int asked, on = 1;
+	if (!asked)
+	{
+		char const *off = getenv("HALO_BOT_OFF");
+		asked = TRUE;
+		on = !(off && strstr(off, "fair"));
+	}
+	return on;
+}
+
 static real_point3d bot_predict_enemy(struct bot_state const *bot, real ahead)
 {
-	real seconds = bot->lost_ticks / (real)BOT_TICKS_PER_SECOND + ahead;
+	/* (on from where they were seen as far as a second of going on takes
+	   them, no further: past that it is guessing, and a guess that follows
+	   them round the far side of a wall is not one) */
+	real seconds = bot_fair_sight() ? MIN(bot->lost_ticks / (real)BOT_TICKS_PER_SECOND, 1.f) + ahead :
+		bot->lost_ticks / (real)BOT_TICKS_PER_SECOND + ahead;
 	real_point3d feet = bot->last_seen_feet;
 	real_point3d result = bot->last_seen;
 	real dx = bot->last_seen_velocity.i * BOT_TICKS_PER_SECOND * seconds;
@@ -12482,9 +12500,10 @@ static void bot_travel_look(struct bot_think *t)
 		   there without turning its head; a near one, it looks) */
 		!(BOT_ON(BOT_F_RADAR) && t->moving && distance3d(&bot->tracked_at, eye) > 14.f && bot->goal_kind != _bot_goal_enemy))
 	{
-		/* someone on the tracker, or heard: looking their way */
+		/* someone on the tracker, or heard: looking their way (not at their
+		   height to the inch: a dot says above or below, not how far) */
 		t->desired_yaw = bot_yaw_to(eye, &bot->tracked_at);
-		t->desired_pitch = (real)atan2(bot->tracked_at.z - eye->z, MAX(0.5f, bot_distance2d(&bot->tracked_at, eye)));
+		t->desired_pitch = (real)atan2(bot->tracked_at.z - eye->z, MAX(0.5f, bot_distance2d(&bot->tracked_at, eye))) * (bot_fair_sight() ? 0.5f : 1.f);
 		t->look_reason = _bot_look_noise;
 	}
 	else if (target == NONE && bot->target_unit == NONE)
@@ -15036,6 +15055,86 @@ static void bot_set_throttle(struct bot_think *t)
    back. For each it logs how many ticks the game took to turn it (its
    desired facing, and its aim), to start it moving, and the speed it got
    to in that direction. */
+/* (testing, HALO_BOT_SIGHTCHECK: each tick a bot has someone in its sights,
+   whether the map stands between its eyes and them by a stricter test than
+   its own (the backs of surfaces as well as their fronts, and the invisible
+   ones): how often it sees through the world, and where. Then where it looks
+   with nobody in sight, and why, a second at a time) */
+static void bot_sight_check(struct bot_think *t)
+{
+	static long seen_ticks, through_ticks, logged;
+	static long hidden_ticks, aimed_ticks, aimed_by[11];
+	static long reported = -1;
+	static unsigned long const strict = FLAG(_collision_test_front_facing_surfaces_bit) | FLAG(_collision_test_back_facing_surfaces_bit) |
+		FLAG(_collision_test_structure_bit);
+	if (t->target != NONE && object_try_and_get(t->target))
+	{
+		real_point3d center = object_get(object_get_ultimate_parent(t->target))->object.bounding_sphere_center;
+		real_point3d head;
+		boolean center_clear, head_clear;
+		unit_get_camera_position(t->target, &head);
+		center_clear = bot_line_clear(strict, &t->eye, &center, NONE);
+		head_clear = bot_line_clear(strict, &t->eye, &head, NONE);
+		seen_ticks++;
+		if (!center_clear && !head_clear)
+		{
+			through_ticks++;
+			if (logged++ < 40 || logged % 50 == 0)
+				bot_log("sightcheck bot%ld t%ld sees through the map: from %.2f %.2f %.2f to %.2f %.2f %.2f (%.1f away); its own test %s; look %ld",
+					t->player_absolute_index, game_time_get(), t->eye.x, t->eye.y, t->eye.z, center.x, center.y, center.z, distance3d(&t->eye, &center),
+					bot_line_clear(bot_sight_flags, &t->eye, &center, object_get_ultimate_parent(t->me->unit_index)) ? "clear" : "blocked", t->look_reason);
+		}
+	}
+	else if (t->vehicle_index == NONE)
+	{
+		/* (nobody in sight: is it looking right at someone behind a wall,
+		   as if it saw them; and why) */
+		struct data_iterator iterator;
+		struct player_datum *other;
+		hidden_ticks++;
+		data_iterator_new(&iterator, player_data);
+		while ((other = (struct player_datum *)data_iterator_next(&iterator)) != NULL)
+		{
+			real_point3d at;
+			real yaw_to, pitch_to, d;
+			if (other == t->me || other->unit_index == NONE || !bot_unit_alive(other->unit_index) || !bot_is_enemy((short)t->me->team_index, other))
+				continue;
+			at = object_get(object_get_ultimate_parent(other->unit_index))->object.bounding_sphere_center;
+			d = distance3d(&t->eye, &at);
+			if (d < 3.f || d > 60.f)
+				continue;
+			/* (someone moving: a bot that keeps its look on them behind a wall
+			   is one that sees through it) */
+			{
+				struct object_datum *root = object_get(object_get_ultimate_parent(other->unit_index));
+				if ((real)sqrt(root->object.translational_velocity.i * root->object.translational_velocity.i +
+					root->object.translational_velocity.j * root->object.translational_velocity.j) * BOT_TICKS_PER_SECOND < 1.2f)
+					continue;
+			}
+			yaw_to = bot_yaw_to(&t->eye, &at);
+			pitch_to = (real)atan2(at.z - t->eye.z, MAX(bot_distance2d(&t->eye, &at), 0.5f));
+			if (fabs(bot_angle_difference(yaw_to, t->bot->yaw)) < 0.6f / d + 0.05f && fabs(pitch_to - t->bot->pitch) < 0.15f &&
+				!bot_line_clear(FLAG(_collision_test_front_facing_surfaces_bit) | FLAG(_collision_test_structure_bit), &t->eye, &at, NONE))
+			{
+				aimed_ticks++;
+				if (t->look_reason >= 0 && t->look_reason <= 10)
+					aimed_by[t->look_reason]++;
+				break;
+			}
+		}
+
+	}
+	if (game_time_get() % 900 == 0 && t->player_absolute_index == 1)
+	bot_log("sightcheck hidden: %ld ticks with nobody in sight, %ld of them looking straight at someone hidden (%.1f%%): ahead %ld aim %ld expect %ld glance %ld noise %ld path %ld scan %ld act %ld",
+		hidden_ticks, aimed_ticks, 100.f * aimed_ticks / MAX(hidden_ticks, 1), aimed_by[0], aimed_by[1], aimed_by[2], aimed_by[3], aimed_by[4], aimed_by[5], aimed_by[6], aimed_by[9]);
+	if (game_time_get() % 900 == 0 && reported != game_time_get())
+	{
+		reported = game_time_get();
+		bot_log("sightcheck totals: %ld ticks with a target, %ld of them through the map (%.1f%%)", seen_ticks, through_ticks,
+			100.f * through_ticks / MAX(seen_ticks, 1));
+	}
+}
+
 static void bot_port_check(struct bot_think *t, struct player_action *action)
 {
 	static long began = -1, step_tick, step = -1, turned_at, moved_at;
@@ -15475,8 +15574,29 @@ static void bot_track_unseen(struct bot_think *t)
 	{
 		/* (where they are, not how long since we saw them: a blip on the
 		   tracker doesn't keep us on someone for ever) */
-		bot->last_seen = object_get(bot->target_unit)->object.bounding_sphere_center;
-		bot->last_seen_feet = object_get(object_get_ultimate_parent(bot->target_unit))->object.position;
+		/* (... as a tracker's dot or a noise tells it: about there, a few
+		   times a second, and no more of which way they are going than
+		   that. It was where they were to the inch, every tick, and the
+		   way they went on from there: a bot that looked round the wall
+		   with them as they walked behind it) */
+		if (bot_fair_sight())
+		{
+			if ((game_time_get() + t->player_absolute_index) % 40 == 0)
+			{
+				real_point3d at = object_get(bot->target_unit)->object.bounding_sphere_center;
+				real off = distance3d(&at, eye) * 0.3f;
+				at.x += (bot_random(bot) - 0.5f) * off;
+				at.y += (bot_random(bot) - 0.5f) * off;
+				bot->last_seen = at;
+				bot->last_seen_feet = object_get(object_get_ultimate_parent(bot->target_unit))->object.position;
+				bot->last_seen_velocity.i = bot->last_seen_velocity.j = bot->last_seen_velocity.k = 0.f;
+			}
+		}
+		else
+		{
+			bot->last_seen = object_get(bot->target_unit)->object.bounding_sphere_center;
+			bot->last_seen_feet = object_get(object_get_ultimate_parent(bot->target_unit))->object.position;
+		}
 	}
 	bot->tracked_age++;
 	if (--bot->tracked_check_ticks <= 0)
@@ -15487,7 +15607,8 @@ static void bot_track_unseen(struct bot_think *t)
 		long found = NONE;
 		real_point3d found_at;
 		long now_tick = game_time_get();
-		bot->tracked_check_ticks = 8 + (long)(bot_random(bot) * 6.f);
+		/* (a look at the tracker now and then, not every moment of it) */
+		bot->tracked_check_ticks = bot_fair_sight() ? 24 + (long)(bot_random(bot) * 18.f) : 8 + (long)(bot_random(bot) * 6.f);
 		data_iterator_new(&others, player_data);
 		while ((other = (struct player_datum *)data_iterator_next(&others)) != NULL)
 		{
@@ -15520,14 +15641,14 @@ static void bot_track_unseen(struct bot_think *t)
 				real_point3d at = object_get(other->unit_index)->object.bounding_sphere_center;
 				if (noise)
 				{
-					at.x += (bot_random(bot) - 0.5f) * distance * 0.15f;
-					at.y += (bot_random(bot) - 0.5f) * distance * 0.15f;
+					at.x += (bot_random(bot) - 0.5f) * distance * (bot_fair_sight() ? 0.3f : 0.15f);
+					at.y += (bot_random(bot) - 0.5f) * distance * (bot_fair_sight() ? 0.3f : 0.15f);
 				}
 				else if (BOT_ON(BOT_F_NOTICE))
 				{
 					/* (a dot on the tracker: about there) */
-					at.x += (bot_random(bot) - 0.5f) * distance * 0.2f;
-					at.y += (bot_random(bot) - 0.5f) * distance * 0.2f;
+					at.x += (bot_random(bot) - 0.5f) * distance * (bot_fair_sight() ? 0.3f : 0.2f);
+					at.y += (bot_random(bot) - 0.5f) * distance * (bot_fair_sight() ? 0.3f : 0.2f);
 				}
 				if (BOT_ON(BOT_F_RADAR))
 				{
@@ -16517,6 +16638,8 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 		bot_foot_trace(t);
 	bot_port_check(t, action);
 	bot_debug_snapshot_take(t);
+	if (bot_env_set("HALO_BOT_SIGHTCHECK"))
+		bot_sight_check(t);
 	if (bot_debug_marked == player_absolute_index)
 		bots_debug_markers(player_absolute_index);
 	bot_test_jump(t);
