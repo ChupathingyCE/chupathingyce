@@ -1,6 +1,6 @@
 # Chupathingy Dedicated Server
 
-A Halo: Combat Evolved server for Linux. It hosts games by itself, with no
+A Halo: Combat Evolved server for Linux and Windows. It hosts games by itself, with no
 player of its own, around the clock, from a playlist of maps and game types.
 Its games show on [stats.chupathingy.org](https://stats.chupathingy.org), the
 community's game list, and in the in-game Server Browser of Chupathingy
@@ -28,6 +28,7 @@ not sure.
 | `chupathingyce-server-linux-x64` | `x86_64` | Most VPSes and PCs: Intel and AMD 64-bit. |
 | `chupathingyce-server-linux-arm64` | `aarch64` | 64-bit ARM: Oracle Cloud's free tier (Ampere A1), other Ampere and Graviton servers, Raspberry Pi 4 and 5 with a 64-bit OS. |
 | `chupathingyce-server-linux-x86` | `i686`, `i386` | Older 32-bit PCs. It runs on a 64-bit x86 Linux too, and uses a little less memory there. |
+| `chupathingyce-server-windows-x64` | | 64-bit Windows 10 and 11, and Windows Server. Its `README.txt` ([windows/README.txt](windows/README.txt)) covers `start-server.bat` and running it as a Windows service; the rest of this page holds for it too. |
 
 Halo PC (Custom Edition) and HaloMD maps: use the x64 or arm64 server. The
 x86 one is for the Xbox maps (it can load the others, with less room for
@@ -92,7 +93,8 @@ ready image, `ghcr.io/chupathingyce/server`: see
   everyone has left it.
 - Plays a team entry's next entry without teams while a single player waits
   (a team game needs a player on each team).
-- Stops on SIGTERM or SIGINT, and withdraws its game from the lists.
+- Stops on SIGTERM or SIGINT (on Windows: Ctrl+C, its window closed, or
+  its service stopped), and withdraws its game from the lists.
 - Takes commands, named after Halo PC's (`sv_players`, `sv_kick`, `sv_ban`,
   `sv_map`, `sv_mapcycle_next`, ...): typed on its console, from a startup
   file, or through its control API (off unless turned on) and the control
@@ -171,7 +173,8 @@ the server's own platform layer, with no window, input or sound, and its
 console, control API and web admin page; `webui/` that page's files;
 `tests/` the control API's tests; `docs/` the server's documents;
 `playlists/` the playlists; `blocked_names.txt` the names `sv_name_filter`
-blocks; `deploy/` the container and services.
+blocks; `deploy/` the container and services; `windows/` the Windows
+server's `start-server.bat` and README.
 
 ## Stats (Delta Stats)
 

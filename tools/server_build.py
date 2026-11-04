@@ -72,6 +72,9 @@ SERVER_NATIVE_SOURCES = [SERVER_PLATFORM_DIR / "sdl_headless.c", SERVER_PLATFORM
                          SERVER_PLATFORM_DIR / "control_link.c", SERVER_PLATFORM_DIR / "server_events.c",
                          SERVER_PLATFORM_DIR / "gamespy_listing.c", SERVER_PLATFORM_DIR / "ce_transport.c",
                          SERVER_PLATFORM_DIR / "ce_messages.c"]
+# the Windows server's own (tools/windows_build.py, ninja server-windows64):
+# Ctrl+C, and the Windows service
+SERVER_WINDOWS_SOURCES = [SERVER_PLATFORM_DIR / "server_windows.c"]
 SERVER_WEBUI_DIR = SERVER_DIR / "webui"
 # the window, input and self-updater the server has none of
 SERVER_EXCLUDED = {

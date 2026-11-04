@@ -11,7 +11,9 @@ there yet: no video (d3d8_gl.c draws nothing), no input (server_input.c),
 no clipboard, no message boxes (a message is logged). Stopping is SIGTERM's
 or SIGINT's (a service stopped, Ctrl+C): the next frame's event pump ends
 the program, which withdraws its game from the lists on the way out, as the
-game's dedicated mode does on SDL's quit event.
+game's dedicated mode does on SDL's quit event. On Windows the same are
+Ctrl+C, Ctrl+Break, the console window closed, and a service's Stop
+(server_windows.c, which also installs the server as a service).
 
 Before the game starts (a constructor, so nothing has been loaded yet), the
 program checks what it was given: --version and --help answer and exit; a
@@ -33,7 +35,9 @@ never hosts.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifndef _WIN32
 #include <unistd.h>
+#endif
 
 /* (given for this file by the build, as for updater.c: tools/server_build.py) */
 #ifndef HALO_VERSION
@@ -42,6 +46,14 @@ never hosts.
 
 /* SIGTERM or SIGINT arrived: the next pump stops the server */
 static volatile sig_atomic_t stop_requested;
+
+#ifdef _WIN32
+/* server_windows.c's: plain types */
+void server_windows_console_handlers(void (*stop)(void));
+int server_windows_service_start(void (*stop)(void));
+int server_windows_install_service(const char *name);
+int server_windows_uninstall_service(const char *name);
+#endif
 
 /* ---------- start-up checks */
 
@@ -76,6 +88,11 @@ static void print_usage(FILE *stream)
 		"\n"
 		"  --version  prints the version\n"
 		"  --help     prints this\n"
+#ifdef _WIN32
+		"  --install-service [name]    makes a Windows service of this server, with the\n"
+		"                              HALO_* settings set now (ChupathingyServer unless named)\n"
+		"  --uninstall-service [name]  stops the service and takes it out\n"
+#endif
 		"\n"
 		"More: server/README.md, https://github.com/ChupathingyCE/chupathingyce\n");
 }
@@ -140,17 +157,43 @@ static void stop_handler(int signal_number)
 	stop_requested = 1;
 }
 
+#ifdef _WIN32
+static void stop_now(void)
+{
+	stop_requested = 1;
+}
+#endif
+
 /* after the Xbox address space is reserved (xbox_memory.c, priority 101),
 before the game starts */
 __attribute__((constructor(102)))
 static void server_arguments(void)
 {
+#ifndef _WIN32
 	struct sigaction action;
+#else
+	BOOL service = FALSE;
+#endif
 	char argument[256];
 	int index;
 
 	for (index = 1; posix_command_line_argument(index, argument, sizeof(argument)); index++)
 	{
+#ifdef _WIN32
+		if (!strcmp(argument, "--install-service") || !strcmp(argument, "--uninstall-service"))
+		{
+			char name[128] = "";
+
+			posix_command_line_argument(index + 1, name, sizeof(name));
+			exit(!strcmp(argument, "--install-service") ? server_windows_install_service(name)
+				: server_windows_uninstall_service(name));
+		}
+		if (!strcmp(argument, "--service"))
+		{
+			service = TRUE;
+			continue;
+		}
+#endif
 		if (!strcmp(argument, "--version") || !strcmp(argument, "-v"))
 		{
 			print_version();
@@ -167,8 +210,18 @@ static void server_arguments(void)
 		print_usage(stderr);
 		exit(2);
 	}
+#ifdef _WIN32
+	/* (the service manager answered first: it waits only so long) */
+	if (service && !server_windows_service_start(stop_now))
+		exit(2);
+#endif
 	/* (no sound to open: dsound_sdl.c's mixer runs on its own clock) */
+#ifdef _WIN32
+	if (!getenv("HALO_NO_AUDIO"))
+		_putenv("HALO_NO_AUDIO=1");
+#else
 	setenv("HALO_NO_AUDIO", "1", 0);
+#endif
 	if (!browser_dedicated() && !browser_probe())
 	{
 		print_version();
@@ -181,6 +234,12 @@ static void server_arguments(void)
 	server_check_data();
 	/* (the legacy table: a newer one fetched meanwhile) */
 	delta_legacy_start();
+#ifdef _WIN32
+	/* Ctrl+C, Ctrl+Break and the window closed stop it at the next frame
+	(Windows has no SIGPIPE: a closed connection's write fails) */
+	server_windows_console_handlers(stop_now);
+	(void)stop_handler;
+#else
 	/* a write to a connection the other end closed fails instead of ending
 	the server (as sdl_platform.c); SIGTERM and SIGINT stop it at the next
 	frame */
@@ -190,6 +249,7 @@ static void server_arguments(void)
 	sigemptyset(&action.sa_mask);
 	sigaction(SIGTERM, &action, NULL);
 	sigaction(SIGINT, &action, NULL);
+#endif
 }
 
 /* ---------- the platform layer's start (all done above) */
