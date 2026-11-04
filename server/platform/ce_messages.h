@@ -203,6 +203,8 @@ void ce_payload_put_remote_player_actions(struct ce_payload *payload, const stru
 void ce_direction(const float vector[3], unsigned int out[2]);
 /* the throttle's two numbers (forward, left) from its 4 bits */
 void ce_throttle(int bits, float *forward, float *left);
+/* client updates refused so far for a yaw or pitch that is not a usable number */
+int ce_refused_facings(void);
 /* the client updates in a payload, onto update (what they leave out stays):
 how many were read */
 int ce_payload_read_client_updates(const unsigned char *payload, int length, struct ce_client_update *update,
