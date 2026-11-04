@@ -134,6 +134,21 @@ HALO_CONSOLE_HUD_ON_DEMAND
 	the high-res HUD's pictures decoded each when first drawn, as Android's
 	are, rather than a map's all at its load (hud_hires.c): about 40 MB less
 	at once, on a console with little memory (the Steam Link's 256 MB)
+HALO_CONSOLE_PERFORMANCE_MODE
+	a console too slow for the full picture: display.performance_mode, and
+	console_performance_update, defined by the port, called each pass of
+	the event pump (sdl_platform.c), which leaves passes out while it is on
+	and switches it on a button of the port's; console_performance_lines,
+	the lines the picture is drawn with while it is on (0 for the game's
+	480: screen_mode_choose, d3d8_gl.c), and
+	console_performance_view_distance, how far the camera sees (0 for as
+	far as the level does: render.c fogs and clips the view at it), and
+	console_performance_model_detail, what a model's size on the screen is
+	multiplied by when its detail is chosen (1 for the game's own: models.c),
+	and console_performance_sky, console_performance_object_transparents,
+	console_performance_decoration_distance and
+	console_performance_hud_frames, what else it leaves out (render_sky.c,
+	render_objects.c, hud_draw.c)
 HALO_CONSOLE_WAIT_POLL
 	a console whose system must be served by the thread that runs the game
 	(the Wii U's HOME button): console_wait_poll, defined by the port, is

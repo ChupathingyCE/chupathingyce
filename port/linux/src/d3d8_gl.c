@@ -224,6 +224,11 @@ static int anti_aliasing(void)
 	return anti_aliasing_values[anti_aliasing_value].mode;
 }
 
+#ifdef HALO_CONSOLE_PERFORMANCE_MODE
+/* the port's (halo_console_features.h) */
+long console_performance_lines(void);
+#endif
+
 static GLuint framebuffer_get(GLuint color, GLuint depth);
 
 static void screen_mode_choose(long *width, float scale[2])
@@ -264,6 +269,16 @@ static void screen_mode_choose(long *width, float scale[2])
 		if (factor > 1.0f)
 			scale[0] = scale[1] = factor;
 	}
+#ifdef HALO_CONSOLE_PERFORMANCE_MODE
+	/* performance mode's fewer lines: the screen's targets drawn smaller,
+	and the present's blit scales the back buffer up to the window */
+	{
+		long lines = console_performance_lines();
+
+		if (lines > 0 && lines < SCREEN_HEIGHT)
+			scale[0] = scale[1] = (float)lines / (float)SCREEN_HEIGHT;
+	}
+#endif
 #else
 	long display_width, display_height;
 
