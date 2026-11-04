@@ -1,0 +1,7 @@
+{
+  "about": "what a host sends its clients, as network_rules.c checks it: messages 90 and 91, the settings record and its layouts",
+  "harness": "port/linux/tests/network_rules_fuzz.c",
+  "sources": ["port/linux/game/network_rules.c"],
+  "flags": ["-std=c11"],
+  "max_len": 14000
+}
