@@ -4491,10 +4491,12 @@ boolean unit_throw_grenade_begin(
 			break;
 
 		default:
-			/* port: and with no weapon (a loadout of none), as melee
-			(bipeds.c), which weapon_prevents_grenade_throwing(NONE) prevents;
-			not from a vehicle's seat, which holds no weapon either */
-			if ((weapon_index == NONE && unit->unit.parent_seat_index == NONE) ||
+			/* with no weapon, weapon_prevents_grenade_throwing(NONE) is TRUE:
+			an unarmed unit cannot throw, as in the retail game. port: except
+			on foot in a game type with a custom loadout (the PC version's
+			option), whose loadout of none throws grenades */
+			if ((weapon_index == NONE && unit->unit.parent_seat_index == NONE &&
+					game_engine_running() && game_variant_options_get()->loadout == _loadout_custom) ||
 				(weapon_index != NONE && !weapon_prevents_grenade_throwing(weapon_index)))
 			{
 				struct animation_graph *animation_graph;

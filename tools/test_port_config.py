@@ -24,6 +24,8 @@ player's can have:
 - a new file's layout: the top block, each section once with its note, and
   the Advanced part ([debug], [console]) last;
 - the per-platform defaults of each build (DEFAULTS below).
+- the dedicated server's file: only the settings it reads; the game's
+  settings it leaves out still load from an older file, which stays as it is.
 
 Needs only a C compiler. Usage: test_port_config.py [--cc clang]
 """
@@ -277,11 +279,50 @@ def old_value_text(name):
 	return OLD[name] if OLD[name].isdigit() or OLD[name] in ("true", "false") else f'"{OLD[name]}"'
 
 
+# the whole file a dedicated server wrote before it left out the game's
+# settings it has no use for (main makes it): every section of a Linux
+# game's, at the server's defaults
+OLD_SERVER_FILE = None
+OLD_SERVER_DEFAULTS = {"anti_aliasing": '"off"', "shadow_resolution": "128", "tunnel_port": "0",
+	"start_with_one_player": "false"}
+
+# the settings a dedicated server's new file has (a few of each section), and
+# the game's it leaves out
+SERVER_WRITTEN = ["game.bomb_spawns", "game.downloaded_maps", "network.tunnel_port", "network.browser_url",
+	"network.events_token", "network.announce", "network.address", "paths.data", "paths.saves",
+	"debug.log_addresses", "debug.network_latency"]
+SERVER_LEFT_OUT = ["display.vsync", "display.interpolation", "display.anti_aliasing", "display.shadow_resolution", "audio.volume",
+	"input.mouse_sensitivity", "controls.move_forward", "chat.enabled", "game.start_with_one_player",
+	"game.language", "network.chat", "network.team_change", "network.copy_to_clipboard", "launcher.show_at_start",
+	"update.auto", "discord.presence", "crash_reports.upload", "debug.null_renderer", "debug.gpu_stats",
+	"display.player_names", "display.follow_camera"]
+SERVER_SECTIONS = ["game", "network", "paths", "debug"]
+
+
+def make_old_server_file(program, directory):
+	"""OLD_SERVER_FILE, from a Linux game's new file (program, desktop32)."""
+	case = Case(program, directory / "old_server")
+	case.get("display.vsync")
+	text = case.text()
+	for key, value in OLD_SERVER_DEFAULTS.items():
+		text = re.sub(rf"^# {key} = .*$", f"# {key} = {value}", text, flags=re.M)
+	return text
+
+
+def fresh_file(case, kind):
+	"""The file a test starts from: a new one, but for the server the whole
+	file an earlier server wrote (OLD_SERVER_FILE), the one a running server
+	has, for the tests of the game's sections"""
+	case.get("display.vsync")
+	if kind == "server":
+		case.path.write_text(OLD_SERVER_FILE)
+	return case.text()
+
+
 def previous_release_file(case, kind):
 	"""A file as the previous release wrote it: every setting commented out,
 	at that release's defaults."""
-	case.get("display.vsync")
-	text = case.text()
+	text = fresh_file(case, kind)
 	for name in CHANGED["android" if kind == "server" else kind]:
 		key = name.split(".")[1]
 		text = re.sub(rf"^# {key} = .*$", f"# {key} = {old_value_text(name)}", text, flags=re.M)
@@ -299,6 +340,10 @@ def test_new_file(program, directory, defaults, kind):
 	for name, expected in defaults.items():
 		key = name.split(".")[1]
 		lines, commented = value_lines(text, key)
+		# (the server's file has only the settings it reads: test_server_file)
+		if kind == "server" and name in SERVER_LEFT_OUT:
+			check(not lines and not commented, f"new file: {key} is in the server's file: {lines} {commented}")
+			continue
 		check(not lines and len(commented) == 1, f"new file: {key} is not commented out once: {lines} {commented}")
 	# (a new file is not asked about anything, then or on the next start)
 	check(pending(case)[0] == 0, "new file: something to ask about")
@@ -555,8 +600,7 @@ def test_readded_by_older_version(program, directory, defaults, kind):
 	changed = CHANGED[kind]
 	for answer in ("new", "keep"):
 		case = Case(program, directory / f"readded_{answer}")
-		case.get("display.vsync")
-		text = case.text()
+		text = fresh_file(case, kind)
 		# what that older build appends to [display]: its default (the old one
 		# for each setting this version changed) and one the player chose
 		old = {"shadow_resolution": "128", "anti_aliasing": "\"off\"", "interpolation": "true", "vsync": "true",
@@ -614,8 +658,7 @@ def test_before_config_version(program, directory, defaults, kind):
 	being possibly the player's choice (existing players keep their
 	settings: the new defaults are for new files)."""
 	case = Case(program, directory / "version1")
-	case.get("display.vsync")
-	text = case.text()
+	text = fresh_file(case, kind)
 	# every commented-out setting as a value, the way version 1 wrote them,
 	# at the old defaults for those this version changed
 	old = {"shadow_resolution": "128", "anti_aliasing": "\"off\""}
@@ -661,8 +704,7 @@ def test_renamed_setting(program, directory, defaults, kind):
 	}
 	for name, (lines, campaign, campaign_lines) in cases.items():
 		case = Case(program, directory / f"renamed_{name}")
-		case.get("display.vsync")
-		text = case.text()
+		text = fresh_file(case, kind)
 		# (the file as 0.8.0 had it: the new settings not there yet, the old one)
 		for key in ("loading_screen", "loading_screen_campaign_seconds", "loading_screen_multiplayer_seconds"):
 			text = re.sub(rf"\n(# [^\n]*\n)*# {key} = [^\n]*\n", "\n", text)
@@ -677,15 +719,20 @@ def test_renamed_setting(program, directory, defaults, kind):
 		check("unknown setting" not in output, f"renamed/{name}: the old name is reported: {output}")
 		text = case.text()
 		check("loading_screen_min_seconds" not in text, f"renamed/{name}: the old name's lines stay")
+		# (the new settings are added to the file commented out, but not to
+		# the server's: it leaves the display out)
+		added = 0 if kind == "server" else 1
 		values_lines, commented = value_lines(text, "loading_screen_campaign_seconds")
 		values_lines = [line.strip() for line in values_lines]
-		check(values_lines == campaign_lines and len(commented) == (0 if campaign_lines else 1),
+		check(values_lines == campaign_lines and len(commented) == (0 if campaign_lines else added),
 			f"renamed/{name}: campaign's lines are {values_lines} {commented}")
 		# (the player's own line under the new name stays as they wrote it)
-		check(text.count("The shortest time the loading screen stays up for a campaign level") == (0 if name == "both" else 1),
-			f"renamed/{name}: campaign's help text is not there once")
+		help_count = 0 if name == "both" else 1 if name == "chosen" else added
+		check(text.count("The shortest time the loading screen stays up for a campaign level") == help_count,
+			f"renamed/{name}: campaign's help text is not there {help_count} times")
 		values_lines, commented = value_lines(text, "loading_screen_multiplayer_seconds")
-		check(not values_lines and len(commented) == 1, f"renamed/{name}: multiplayer's lines are {values_lines} {commented}")
+		check(not values_lines and len(commented) == added,
+			f"renamed/{name}: multiplayer's lines are {values_lines} {commented}")
 		before = text
 		case.get(*names)
 		check(case.text() == before, f"renamed/{name}: the file changed on the next start")
@@ -714,8 +761,7 @@ def test_retired_setting(program, directory, defaults, kind):
 	}
 	for name, (old_line, new_line, expected, game_line) in cases.items():
 		case = Case(program, directory / f"retired_{name}")
-		case.get("display.vsync")
-		text = case.text()
+		text = fresh_file(case, kind)
 		# (the file as a version with the old setting wrote it)
 		text = text.replace("\n[debug]\n", "\n[debug]\n" + old_block + old_line, 1)
 		if new_line:
@@ -756,11 +802,12 @@ def test_layout(program, directory, defaults, kind):
 	case = Case(program, directory / "layout")
 	case.get("display.vsync")
 	text = case.text()
-	check(text.startswith("# Chupathingy settings\n"), "layout: no top block")
+	title = "# Chupathingy server settings\n" if kind == "server" else "# Chupathingy settings\n"
+	check(text.startswith(title), "layout: no top block")
 	check("Halo settings" not in text, "layout: the old title")
 	headers = re.findall(r"^\[([a-z_]+)\]$", text, re.M)
 	check(len(headers) == len(set(headers)), f"layout: a section twice: {headers}")
-	check(headers[0] == "display", f"layout: {headers[0]} first")
+	check(headers[0] == ("game" if kind == "server" else "display"), f"layout: {headers[0]} first")
 	mark = text.find("\n# ---- Advanced")
 	check(mark > 0 and text.count("# ---- Advanced") == 1, "layout: no Advanced block")
 	advanced = re.findall(r"^\[([a-z_]+)\]$", text[mark:], re.M)
@@ -775,11 +822,13 @@ def test_layout(program, directory, defaults, kind):
 	if kind != "android":
 		check("(for one run:" not in text, "layout: the old one-run lines")
 		check(re.search(r"^# \(one run: HALO_[A-Z_0-9]+=<value>\)$", text, re.M), "layout: no one-run line")
-		check(re.search(r"^# \(one run: HALO_NO_VSYNC=1 turns it off\)$", text, re.M), "layout: vsync's one-run line")
+		if kind != "server":
+			check(re.search(r"^# \(one run: HALO_NO_VSYNC=1 turns it off\)$", text, re.M), "layout: vsync's one-run line")
 	else:
 		check("one run:" not in text, "layout: one-run lines on Android")
 	# (every setting is in the file once, commented out at its default)
-	check(len(re.findall(r"^# vsync = ", text, re.M)) == 1, "layout: vsync not there once")
+	key = "tunnel_port" if kind == "server" else "vsync"
+	check(len(re.findall(rf"^# {key} = ", text, re.M)) == 1, f"layout: {key} not there once")
 	# the last setting of the section before the Advanced block taken out, as
 	# a file from before it: the next start writes it above the block
 	before = text[:mark]
@@ -873,6 +922,64 @@ def test_packaged_install(program, directory, defaults, kind):
 			check(own.exists() and not case.path.exists(), "read-only folder: config.toml not in the save root's place")
 
 
+def test_server_file(program, directory, defaults, kind):
+	"""The dedicated server's file: only the settings it reads, in the
+	game's layout (its own top block, each section's note, commented-out
+	defaults). The game's settings it leaves out still work: an older file's
+	lines and their environment variables set them, the file's lines stay as
+	they are, and nothing is said about them in the log."""
+	if kind != "server":
+		return
+	case = Case(program, directory / "server_new")
+	values, output = case.get(*SERVER_WRITTEN, *SERVER_LEFT_OUT)
+	text = case.text()
+	headers = re.findall(r"^\[([a-z_]+)\]$", text, re.M)
+	check(headers == SERVER_SECTIONS, f"server: sections {headers}")
+	check("admin/settings.toml" in text, "server: the top block does not name the server's own settings file")
+	for name in SERVER_WRITTEN:
+		lines, commented = value_lines(text, name.split(".")[1])
+		check(not lines and len(commented) == 1, f"server: {name} is not commented out once: {lines} {commented}")
+	for name in SERVER_LEFT_OUT:
+		lines, commented = value_lines(text, name.split(".")[1])
+		check(not lines and not commented, f"server: {name} is in the file: {lines} {commented}")
+	check(values["display.interpolation"] == "true" and float(values["audio.volume"]) == 1.0,
+		f"server: a left-out setting lost its default: {values}")
+	check("Server Setup in the menus" not in text, "server: the game's note for [network]")
+	before = case.text()
+	case.get("display.vsync")
+	check(case.text() == before and pending(case)[0] == 0, "server: changed or asked on the next start")
+	# (the environment still sets a setting the file leaves out)
+	values, _ = case.run("get", "display.interpolation", "audio.volume",
+		environment_extra={"HALO_INTERPOLATION": "false", "HALO_VOLUME": "0.25"})
+	check(values["display.interpolation"] == "false" and float(values["audio.volume"]) == 0.25,
+		f"server: the environment is ignored for a left-out setting: {values}")
+	# a short file with only the game's sections: they are read and kept; the
+	# server's own settings are added, the game's are not
+	case = Case(program, directory / "server_short")
+	short = "config_version = 2\n\n[display]\ninterpolation = false\n\n[audio]\nvolume = 0.5\n"
+	case.path.write_text(short)
+	values, output = case.get("display.interpolation", "audio.volume", "network.tunnel_port")
+	check(values["display.interpolation"] == "false" and float(values["audio.volume"]) == 0.5,
+		f"server/short: the file's values are not read: {values}")
+	check("unknown setting" not in output, f"server/short: {output}")
+	text = case.text()
+	check(text.startswith(short), f"server/short: the file's own lines changed: {text[:200]}")
+	check(re.search(r"^# tunnel_port = 0$", text, re.M), "server/short: the server's settings were not added")
+	check(not re.search(r"^# vsync = ", text, re.M) and not re.search(r"^# move_forward = ", text, re.M),
+		"server/short: the game's settings were added")
+	# the whole file an earlier server wrote: left as it is, its values read
+	case = Case(program, directory / "server_old")
+	old = OLD_SERVER_FILE.replace("# volume = 1.0", "volume = 0.5", 1)
+	old = re.sub(r"^# interpolation = .*$", "interpolation = false", old, count=1, flags=re.M)
+	case.path.write_text(old)
+	values, output = case.get("display.interpolation", "audio.volume", "network.tunnel_port")
+	check(values["display.interpolation"] == "false" and float(values["audio.volume"]) == 0.5 and
+		values["network.tunnel_port"] == "0", f"server/old: {values}")
+	check("unknown setting" not in output and "cannot be read" not in output, f"server/old: {output}")
+	check(case.text() == old, "server/old: an earlier server's file was changed")
+	check(pending(case)[0] == 0, "server/old: asked about something")
+
+
 def main():
 	parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
 	parser.add_argument("--cc", default=os.environ.get("CC", "cc"))
@@ -882,10 +989,14 @@ def main():
 		directory = Path(directory)
 		for kind in DEFAULTS:
 			program = build(arguments.cc, kind, directory / kind)
+			if kind == "desktop32":
+				global OLD_SERVER_FILE
+				OLD_SERVER_FILE = make_old_server_file(program, directory / kind / "cases")
 			for test in (test_new_file, test_previous_release_file, test_answered_first_question,
 				test_start_alone, test_answered_earlier, test_chosen_port_kept, test_file_without_the_settings,
 				test_readded_by_older_version, test_before_config_version, test_renamed_setting,
-				test_retired_setting, test_layout, test_old_browser_address, test_packaged_install):
+				test_retired_setting, test_layout, test_old_browser_address, test_packaged_install,
+				test_server_file):
 				try:
 					test(program, directory / kind / "cases", DEFAULTS[kind], kind)
 					print(f"ok   {kind}: {test.__name__}")

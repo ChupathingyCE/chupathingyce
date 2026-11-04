@@ -45,13 +45,18 @@ Nothing here logs an address.
 #include "ce_transport.h"
 #include "ce_messages.h"
 
-#include <netinet/in.h>
+/* (the sockets' addresses, on Linux and Windows) */
+#include "server_host.h"
+
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <unistd.h>
+
+#ifdef _WIN32
+#define getpid _getpid
+#endif
 
 enum
 {
