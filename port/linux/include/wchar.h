@@ -11,6 +11,14 @@ MSVC (pre-C99) signatures are kept: wcstok() takes two arguments and
 swprintf()/vswprintf() take no buffer size.
 */
 
+/* glibc 2.25 and older (the Steam Link's 2.19): its <stdio.h> asks
+<wchar.h> for __mbstate_t alone (__need_mbstate_t, from _G_config.h), which
+glibc's own gives without its wide functions; the rest of this header is
+for the game's own includes */
+#if defined(__need_mbstate_t) && !defined(_WCHAR_H)
+#include_next <wchar.h>
+#else
+
 #ifndef __HALO_LINUX_WCHAR_H
 #define __HALO_LINUX_WCHAR_H
 
@@ -190,6 +198,8 @@ FILE *msvc_wfopen(const wchar_t *path, const wchar_t *mode);
 /* implemented in platform/src/msvc_wide.c under their MSVC names */
 FILE *_wfreopen(const wchar_t *path, const wchar_t *mode, FILE *stream);
 FILE *_wfdopen(int handle, const wchar_t *mode);
+#endif
+
 #endif
 
 #endif

@@ -23,21 +23,13 @@ already open keep the one they began with until they are freed.
 #include "mbedtls/ssl.h"
 #include "mbedtls/x509_crt.h"
 
-#include <errno.h>
-#include <fcntl.h>
-#include <poll.h>
+/* (the sockets and files, on Linux and Windows; macOS has SO_NOSIGPIPE
+instead of MSG_NOSIGNAL, set on each socket) */
+#include "server_host.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/socket.h>
-#include <sys/stat.h>
-#include <time.h>
-#include <unistd.h>
-
-/* (Linux's; macOS has SO_NOSIGPIPE instead, set on each socket) */
-#ifndef MSG_NOSIGNAL
-#define MSG_NOSIGNAL 0
-#endif
 
 enum
 {
@@ -169,7 +161,7 @@ static int write_file(const char *path, const char *text, mode_t mode)
 	if (fd < 0)
 		return 0;
 	/* (whatever the umask) */
-	if (fchmod(fd, mode))
+	if (host_restrict_file(fd, mode))
 	{
 		close(fd);
 		unlink(temporary);
@@ -519,7 +511,7 @@ int control_tls_start(const char *data_root, const char *cert_path, const char *
 				*made = 1;
 		}
 		else
-			chmod(own_key, 0600);
+			host_restrict_path(own_key, 0600);
 		tls.self_signed = 1;
 	}
 	use_context(context);
@@ -584,11 +576,13 @@ int control_tls_reload_if_changed(int64_t now, char *error, size_t error_size)
 static int bio_send(void *argument, const unsigned char *data, size_t size)
 {
 	struct control_tls_connection *connection = argument;
-	ssize_t count = send(connection->fd, data, size, MSG_NOSIGNAL);
+	ssize_t count = send(connection->fd, (const char *)data, size, MSG_NOSIGNAL);
 
 	if (count < 0)
 	{
-		if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)
+		int error = host_socket_errno();
+
+		if (error == EAGAIN || error == EWOULDBLOCK || error == EINTR)
 			return MBEDTLS_ERR_SSL_WANT_WRITE;
 		return MBEDTLS_ERR_NET_SEND_FAILED;
 	}
@@ -598,11 +592,13 @@ static int bio_send(void *argument, const unsigned char *data, size_t size)
 static int bio_receive(void *argument, unsigned char *buffer, size_t size)
 {
 	struct control_tls_connection *connection = argument;
-	ssize_t count = recv(connection->fd, buffer, size, 0);
+	ssize_t count = recv(connection->fd, (char *)buffer, size, 0);
 
 	if (count < 0)
 	{
-		if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)
+		int error = host_socket_errno();
+
+		if (error == EAGAIN || error == EWOULDBLOCK || error == EINTR)
 			return MBEDTLS_ERR_SSL_WANT_READ;
 		return MBEDTLS_ERR_NET_RECV_FAILED;
 	}
@@ -667,13 +663,15 @@ int control_tls_handshake(struct control_tls_connection *connection)
 	if (!connection->checked)
 	{
 		unsigned char first;
-		ssize_t count = recv(connection->fd, &first, 1, MSG_PEEK);
+		ssize_t count = recv(connection->fd, (char *)&first, 1, MSG_PEEK);
 
 		if (count == 0)
 			return CONTROL_TLS_CLOSED;
 		if (count < 0)
 		{
-			if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)
+			int error = host_socket_errno();
+
+			if (error == EAGAIN || error == EWOULDBLOCK || error == EINTR)
 			{
 				connection->events = POLLIN;
 				return CONTROL_TLS_WANT_READ;

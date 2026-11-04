@@ -11,6 +11,7 @@ fonts, no images but the icon: everything is this file and app.js. */
   --accent-text: #ffffff;
   --danger: #a3332b;
   --danger-text: #ffffff;
+  --warn: #9a6a00;
   --field: #f7f9f8;
   --bar: #1e2a24;
   --bar-text: #e3ebe6;
@@ -29,6 +30,7 @@ fonts, no images but the icon: everything is this file and app.js. */
     --accent-text: #0d130f;
     --danger: #d4574c;
     --danger-text: #140a09;
+    --warn: #d9a63a;
     --field: #111815;
     --bar: #0a0e0c;
     --bar-text: #cfdad3;
@@ -170,7 +172,9 @@ button.danger { background: var(--danger); border-color: var(--danger); color: v
 button.quiet { background: none; padding: 4px 10px; font-size: 13px; }
 button.small { padding: 4px 10px; font-size: 13px; }
 
-#login-form { display: flex; flex-direction: column; gap: 10px; }
+#login-form, #setup-form, .stack { display: flex; flex-direction: column; gap: 10px; }
+.stack .check { margin-top: 4px; color: var(--text); }
+#first-run-link p { margin: 0 0 12px; }
 
 .row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; margin-bottom: 12px; }
 .row.end { justify-content: flex-end; margin: 12px 0 0; }
@@ -178,6 +182,19 @@ button.small { padding: 4px 10px; font-size: 13px; }
 .facts { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; }
 .facts dt { color: var(--muted); font-size: 13px; }
 .facts dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+
+.join { margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
+.join-verdict { margin: 0 0 12px; padding: 10px 12px; border-left: 3px solid var(--accent); background: var(--field);
+  border-radius: 4px; font-weight: 600; }
+.join-verdict.maybe { border-left-color: var(--warn); }
+.join-verdict.no { border-left-color: var(--danger); }
+.facts dd.good { color: var(--accent); }
+.facts dd.maybe { color: var(--warn); }
+.facts dd.no { color: var(--danger); }
+.join-help { margin-top: 12px; font-size: 14px; }
+.join-help p { margin: 0 0 8px; }
+.join-help ul { margin: 0 0 8px; padding-left: 20px; }
+.join-help li { margin-bottom: 4px; }
 
 .table-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-size: 14px; }

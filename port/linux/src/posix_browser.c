@@ -24,6 +24,7 @@ platform.
 #include "mbedtls/error.h"
 #include "mbedtls/net_sockets.h"
 #include "mbedtls/psa_util.h"
+#include "mbedtls/platform.h"
 #include "mbedtls/ssl.h"
 #include "mbedtls/x509_crt.h"
 #include "psa/crypto.h"
@@ -82,6 +83,15 @@ static void load_certificates(void)
 	const char *environment = getenv("SSL_CERT_FILE");
 	size_t index;
 
+#if defined(__GLIBC__) && defined(MBEDTLS_PLATFORM_HAVE_DEV_RANDOM)
+#if !__GLIBC_PREREQ(2, 25)
+	/* (glibc before 2.25 on a kernel without getrandom, the Steam Link's 2.19
+	on Linux 3.8: its /dev/random holds so little that this waited half a
+	minute for it before the first connection; /dev/urandom is what
+	getrandom would have drawn from) */
+	mbedtls_platform_dev_random = "/dev/urandom";
+#endif
+#endif
 	crypto_ready = psa_crypto_init() == PSA_SUCCESS;
 	mbedtls_x509_crt_init(&certificates);
 	if (environment && *environment && mbedtls_x509_crt_parse_file(&certificates, environment) >= 0)

@@ -180,6 +180,9 @@ static void context_registers(void *context, uintptr_t *pc, uintptr_t *frame)
 #elif defined(__linux__) && defined(__i386__)
 	*pc = (uintptr_t)ucontext->uc_mcontext.gregs[REG_EIP];
 	*frame = (uintptr_t)ucontext->uc_mcontext.gregs[REG_EBP];
+#elif defined(__linux__) && defined(__arm__)
+	*pc = (uintptr_t)ucontext->uc_mcontext.arm_pc;
+	*frame = (uintptr_t)ucontext->uc_mcontext.arm_fp;
 #else
 	(void)ucontext;
 	*pc = 0;

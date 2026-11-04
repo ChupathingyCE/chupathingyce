@@ -2698,12 +2698,24 @@ static void draw_link_profile(
 	}
 }
 
+#ifdef HALO_CONSOLE_CACHE_SCREEN
+/* (steamlink_cache_screen.c: the first start's ring, behind a map's download) */
+void console_ring_picture(float fraction);
+#endif
+
 static void draw_map_offer(
 	void)
 {
 	struct map_download_progress const *progress = &browser_screen.offer_progress;
 	float center = CONNECT_X + CONNECT_WIDTH / 2;
 	char text[192];
+
+#ifdef HALO_CONSOLE_CACHE_SCREEN
+	if (browser_screen.offer == _offer_downloading)
+	{
+		console_ring_picture(progress->total ? (float)progress->received / (float)progress->total : 0.0f);
+	}
+#endif
 
 	dialog_frame(CONNECT_X, CONNECT_Y, CONNECT_WIDTH, CONNECT_HEIGHT,
 		browser_screen.offer == _offer_stock ? MAP_ARCHIVE_STOCK_TITLE : "MISSING MAP");

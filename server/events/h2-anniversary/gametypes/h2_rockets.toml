@@ -1,0 +1,23 @@
+# H2 Rockets: Halo 2 Rockets. Rocket launchers from the weapon set, free for
+# all. CE's rocket launcher locks on to nothing; it is the unguided one.
+base = "slayer"
+name = "H2 Rockets"
+score_limit = 25
+time_limit = 10
+
+[players]
+shields = true
+respawn_time = 5
+
+[items]
+weapon_set = "rocket_launchers"
+starting_equipment = "map"
+
+[indicators]
+objectives = "motion_tracker"
+players_on_radar = "all"
+friends_on_screen = true
+
+[vehicles]
+red = "none"
+blue = "none"

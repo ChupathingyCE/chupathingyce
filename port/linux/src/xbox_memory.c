@@ -39,6 +39,12 @@ Xbox kernel does.
 
 #include "platform.h"
 
+/* (Linux 4.17's; glibc before 2.28 has no name for it, and an older kernel
+takes the address as a hint, which every caller here checks it got) */
+#ifndef MAP_FIXED_NOREPLACE
+#define MAP_FIXED_NOREPLACE 0x100000
+#endif
+
 #include <errno.h>
 #ifdef HALO_ANDROID
 #include <stdio.h>
