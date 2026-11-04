@@ -339,11 +339,16 @@ int posix_crash_install(const char *folder, const char *log_path, const char *ol
 		fcntl(probe_pipe[index], F_SETFL, fcntl(probe_pipe[index], F_GETFL) | O_NONBLOCK);
 		fcntl(probe_pipe[index], F_SETFD, FD_CLOEXEC);
 	}
-	/* (room for the handler after a stack overflow, on this thread) */
+	/* (room for the handler after a stack overflow, on this thread; tvOS
+	has no alternate signal stack, and handles it on the thread's own) */
+#ifndef HALO_TVOS
 	stack.ss_sp = alternate_stack;
 	stack.ss_size = sizeof(alternate_stack);
 	stack.ss_flags = 0;
 	sigaltstack(&stack, NULL);
+#else
+	(void)stack;
+#endif
 	/* (dladdr's first call can take locks a crash may hold: made now) */
 	{
 		Dl_info information;

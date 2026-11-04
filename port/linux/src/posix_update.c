@@ -682,6 +682,15 @@ int update_make_directory(const char *path)
 	return mkdir(path, 0755) == 0 || errno == EEXIST;
 }
 
+#ifdef HALO_TVOS
+/* tvOS starts no other process: an Apple TV app is updated by installing it
+again */
+int update_launch(const char *path)
+{
+	(void)path;
+	return 0;
+}
+#else
 int update_launch(const char *path)
 {
 	/* (the environment for the new game, made before the fork: an AppImage's
@@ -734,3 +743,4 @@ int update_launch(const char *path)
 	}
 	return child > 0;
 }
+#endif
