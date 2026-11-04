@@ -91,5 +91,10 @@ def run_fuzzer(binary, workdir, seconds, seeds=(), regressions=None, max_len=409
                f"-max_len={max_len}", "-rss_limit_mb=2048", "-print_final_stats=1", *extra]
     if jobs > 1:
         command += [f"-fork={jobs}", "-ignore_crashes=0"]
-    return subprocess.run([*command, *folders], capture_output=True, text=True, cwd=workdir, env=environment,
-                          timeout=int(seconds) + 300)
+    result = subprocess.run([*command, *folders], capture_output=True, text=True, cwd=workdir, env=environment,
+                            timeout=int(seconds) + 300)
+    # (with -fork, libFuzzer ends with a failed job's status shifted, which exit() cuts to 0:
+    # the input it saved is what says a job failed)
+    if result.returncode == 0 and any(workdir.glob(f"{kind}-*") for kind in ("crash", "timeout", "oom", "leak")):
+        result.returncode = 1
+    return result

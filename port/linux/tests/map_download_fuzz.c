@@ -88,8 +88,10 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 		io.write = memory_write;
 		io.stop = memory_stop;
 		map_archive_extract(&io, names[index % 6], &map_size, error, sizeof(error));
-		map_archive_check_header(copy, memory.size, names[index % 6], (unsigned int)index * 0x01010101u, error,
-			sizeof(error));
+		/* (the header is the file's first MAP_ARCHIVE_HEADER_SIZE bytes, which the caller read) */
+		if (memory.size >= MAP_ARCHIVE_HEADER_SIZE)
+			map_archive_check_header(copy, memory.size, names[index % 6], (unsigned int)index * 0x01010101u, error,
+				sizeof(error));
 		memory.written = 0;
 		map_archive_map_hash(memory_read, NULL, &memory, memory.size, hash);
 	}

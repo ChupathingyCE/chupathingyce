@@ -56,9 +56,53 @@ SANITIZE = ["-g", "-O1", "-fsanitize=fuzzer,address,undefined", "-fno-sanitize-r
             "-fno-omit-frame-pointer"]
 
 
+def build_game(name, directory, cc):
+    """a target of the game's own sources (target.json's game_sources, built
+    with the build's flags as tools/test_network_messages.py builds them,
+    through ninja: `python3 configure.py` first), and its harness: the
+    fuzzer's path. game_sizes names the source that also gets the size of
+    each network message's structure (network_messages_test_sizes)."""
+    from tools import test_network_messages as messages
+
+    target = TARGETS[name]
+    directory = Path(directory)
+    build_name = "macos" if sys.platform == "darwin" else "linux64"
+    # (the encoder reads unaligned on purpose: the wire has no alignment)
+    flags = ["-g", "-O1", "-fsanitize=fuzzer-no-link,address,undefined", "-fno-sanitize=alignment",
+             "-fno-sanitize-recover=all", "-fno-omit-frame-pointer"]
+    objects = []
+    for source in target["game_sources"]:
+        output = directory / (Path(source).stem + ".o")
+        extra = {"flags": flags}
+        if source == target.get("game_sizes"):
+            words, _ = messages.object_command(build_name, source)
+            rewritten = next(word for word in words if word.endswith(source))
+            sizes = directory / "sizes.c"
+            sizes.write_text(f'#include "{(ROOT / rewritten).as_posix()}"\n'
+                             "const int network_messages_test_sizes[] =\n{\n"
+                             + "".join(f"\tsizeof({entry}),\n" for entry in messages.message_names()) + "};\n")
+            extra["source"] = str(sizes)
+        command = messages.compile_command(build_name, source, output, extra)
+        command[0] = cc
+        result = subprocess.run(command, capture_output=True, text=True, cwd=ROOT)
+        if result.returncode != 0:
+            raise RuntimeError(f"{name}: the build failed\n{result.stdout}{result.stderr}")
+        objects.append(str(output))
+    words, _ = messages.object_command(build_name, target["game_sources"][0])
+    binary = directory / f"{name}_fuzz"
+    command = [cc, *(word for word in words if word.startswith("--target=")), *SANITIZE, "-o", str(binary),
+               str(ROOT / target["harness"]), *objects]
+    result = subprocess.run(command, capture_output=True, text=True, cwd=ROOT)
+    if result.returncode != 0:
+        raise RuntimeError(f"{name}: the build failed\n{result.stdout}{result.stderr}")
+    return binary
+
+
 def build(name, directory, cc):
     """the target's fuzzer, built in directory: its path"""
     target = TARGETS[name]
+    if "game_sources" in target:
+        return build_game(name, directory, cc)
     binary = Path(directory) / f"{name}_fuzz"
     command = [cc, *SANITIZE, *target.get("flags", []), "-iquote", str(ROOT / "port" / "linux" / "include"),
                *(f"-I{ROOT / folder}" for folder in target.get("includes", [])),
@@ -84,6 +128,8 @@ if pytest:
         cc = fuzz_support.libfuzzer_compiler()
         if not cc:
             fuzz_support.skip("no clang with libFuzzer")
+        if "game_sources" in TARGETS[name] and not (ROOT / "build.ninja").exists():
+            fuzz_support.skip("the game's sources need build.ninja (python3 configure.py)")
         result = fuzz(name, SECONDS, tmp_path, cc)
         assert result.returncode == 0, result.stdout[-4000:] + result.stderr[-8000:]
 
