@@ -41,9 +41,13 @@ Or start it yourself from a command prompt in the data folder:
     set HALO_DEDICATED_NAME=My Server
     chupathingyce-server.exe
 
-The log is logs\debug.txt in the data folder. Settings are environment
-variables, the same as on Linux: the full list is in the server's
-docs/settings.md, at
+The log is logs\debug.txt in the data folder. start-server.bat keeps the
+server's saves in the data folder's "saves" folder, apart from your own
+game's. Started without it, the server saves in %APPDATA%\ChupathingyCE,
+the game's folder, unless HALO_SAVE_ROOT says otherwise.
+
+Settings are environment variables, the same as on Linux: the full list is
+in the server's docs/settings.md, at
 https://github.com/ChupathingyCE/chupathingyce/blob/main/server/docs/settings.md
 
 

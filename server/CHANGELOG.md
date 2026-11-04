@@ -83,7 +83,8 @@ release notes.
   Ctrl+C or closing its window stops it and takes its game off the lists.
   `start-server.bat install` (or `--install-service`) makes it a Windows
   service that starts with Windows, restarts after a crash and runs as its
-  own account, not SYSTEM; `--uninstall-service` takes it out.
+  own account, not SYSTEM; `--uninstall-service` takes it out. Both keep
+  the server's saves in `saves` in the data folder, apart from the game's.
 - Map names as Halo PC takes them: commas, brackets, spaces and the rest a
   Windows file name can have (`bigassv2,104@ce`, `[h3]_sandtrap@ce`), in
   `sv_map`, `sv_maps` and playlists. A name with a space goes in double

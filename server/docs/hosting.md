@@ -103,6 +103,9 @@ It is for 64-bit Windows 10, Windows 11 and Windows Server.
 4. Double-click `start-server.bat`. If Windows Firewall asks, allow the
    server.
 
+The server keeps its saves in a `saves` folder in the data folder, apart
+from your own game's. A service uses the same folder.
+
 Ctrl+C or closing the window stops it. To run it as a Windows service
 that starts with Windows, open a command prompt as administrator in the
 data folder and run `start-server.bat install`. The zip's `README.txt`
