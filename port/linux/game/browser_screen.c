@@ -87,6 +87,7 @@ the right button is B.
 #include "halo_join_reasons.h"
 #include "network_rules.h"
 #include "../src/browser_ping.h"
+#include "../src/campaign_levels.h"
 #include "../src/map_art.h"
 #include "../src/map_download.h"
 #include "../src/playlist_download.h"
@@ -323,26 +324,20 @@ static short map_family(
 }
 
 /* the campaign's levels in the menus' words, for the co-op games the list
-shows (a level's scenario is its file's name) */
-static char const *const campaign_names[][2] =
+shows (a level's scenario is its file's name), in campaign_levels.h's order */
+static char const *const campaign_names[CAMPAIGN_LEVEL_COUNT] =
 {
-	{ "a10", "The Pillar of Autumn" }, { "a30", "Halo" }, { "a50", "The Truth and Reconciliation" },
-	{ "b30", "The Silent Cartographer" }, { "b40", "Assault on the Control Room" }, { "c10", "343 Guilty Spark" },
-	{ "c20", "The Library" }, { "c40", "Two Betrayals" }, { "d20", "Keyes" }, { "d40", "The Maw" },
+	"The Pillar of Autumn", "Halo", "The Truth and Reconciliation", "The Silent Cartographer",
+	"Assault on the Control Room", "343 Guilty Spark", "The Library", "Two Betrayals", "Keyes", "The Maw",
 };
 
 /* a campaign level's name from its file's, or NULL for a map that is not one */
 static char const *campaign_name(
 	char const *file)
 {
-	long index;
+	int level = campaign_level_index(file);
 
-	for (index = 0; index < NUMBEROF(campaign_names); index++)
-	{
-		if (!csstrcmp(file, campaign_names[index][0]))
-			return campaign_names[index][1];
-	}
-	return NULL;
+	return level >= 0 ? campaign_names[level] : NULL;
 }
 
 /* a game's map as players name it: an Xbox map's name in the menus, or a
@@ -3290,6 +3285,13 @@ the map's name over its family's color (a custom map's) */
 			{
 				drawn = draw_picture("ui\\shell\\bitmaps\\mp_map_grafix", map_frame, 140, 116, MAP_PICTURE_X, PICTURE_Y,
 					MAP_PICTURE_X + MAP_PICTURE_WIDTH, PICTURE_Y + PICTURE_HEIGHT);
+			}
+			/* (a co-op game's level: the level select menus' picture of it,
+			its frame the level's place) */
+			else if (campaign_level_index(file) >= 0)
+			{
+				drawn = draw_picture("ui\\shell\\bitmaps\\sp_levels", (short)campaign_level_index(file), 140, 116,
+					MAP_PICTURE_X, PICTURE_Y, MAP_PICTURE_X + MAP_PICTURE_WIDTH, PICTURE_Y + PICTURE_HEIGHT);
 			}
 		}
 #ifdef HALO_CUSTOM_EDITION
