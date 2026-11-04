@@ -45,13 +45,18 @@ Nothing here logs an address.
 #include "ce_transport.h"
 #include "ce_messages.h"
 
-#include <netinet/in.h>
+/* (the sockets' addresses, on Linux and Windows) */
+#include "server_host.h"
+
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <unistd.h>
+
+#ifdef _WIN32
+#define getpid _getpid
+#endif
 
 enum
 {
@@ -932,6 +937,22 @@ static void client_response(struct peer *peer, const unsigned char *packet, int 
 	send_message(peer, challenge_message, message_length, now);
 }
 
+/* the client's updates in a payload; an update with an impossible facing is
+refused (counted in ce_messages.c, noted once) */
+static int read_updates(struct peer *peer, const unsigned char *payload, int payload_length)
+{
+	static int noted;
+	int before = ce_refused_facings();
+	int count = ce_payload_read_client_updates(payload, payload_length, &peer->update, queue_update, peer);
+
+	if (ce_refused_facings() != before && !noted)
+	{
+		noted = 1;
+		say("ce: a Custom Edition client's update with an impossible facing was refused%s", "");
+	}
+	return count;
+}
+
 static void reliable_data(struct peer *peer, const unsigned char *packet, int length, unsigned int now)
 {
 	unsigned char payload[CE_PACKET_SIZE];
@@ -952,7 +973,7 @@ static void reliable_data(struct peer *peer, const unsigned char *packet, int le
 	if (peer->state == PEER_ACCEPTED)
 	{
 		ce_payload_messages(payload, payload_length, message_received, peer);
-		peer->updates += ce_payload_read_client_updates(payload, payload_length, &peer->update, queue_update, peer);
+		peer->updates += read_updates(peer, payload, payload_length);
 	}
 	if (peer->state == PEER_CONNECTED)
 	{
@@ -1029,7 +1050,7 @@ static int ce_transport_packet_locked(const unsigned char *packet, int length, c
 				{
 					payload_length = ce_open(peer->key, packet + 2, length - 2, payload, sizeof(payload));
 					if (payload_length > 0)
-						peer->updates += ce_payload_read_client_updates(payload, payload_length, &peer->update, queue_update, peer);
+						peer->updates += read_updates(peer, payload, payload_length);
 				}
 			}
 			return peer != NULL;
@@ -1075,7 +1096,7 @@ static int ce_transport_packet_locked(const unsigned char *packet, int length, c
 		{
 			payload_length = ce_open(peer->key, packet, length, payload, sizeof(payload));
 			if (payload_length > 0)
-				peer->updates += ce_payload_read_client_updates(payload, payload_length, &peer->update, queue_update, peer);
+				peer->updates += read_updates(peer, payload, payload_length);
 		}
 		return 1;
 	}

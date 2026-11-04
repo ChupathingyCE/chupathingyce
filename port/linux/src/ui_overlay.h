@@ -63,6 +63,10 @@ enum
 /* a filled rectangle (radius: rounded corners); with two colors, from the
 top's to the bottom's */
 void ui_overlay_rect(float x, float y, float width, float height, float radius, unsigned int color);
+/* what is gathered drawn into a framebuffer, the game's picture, in place of
+the window */
+void ui_overlay_present_to(unsigned int framebuffer, int width, int height);
+int ui_overlay_pending(void);
 void ui_overlay_gradient(float x, float y, float width, float height, float radius, unsigned int top,
 	unsigned int bottom);
 /* a rectangle's outline, thickness wide, inside it */

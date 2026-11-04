@@ -11,7 +11,12 @@ them).
 
 It takes server_control.c's settings (HALO_DEDICATED_CONTROL,
 HALO_DEDICATED_CONSOLE), HARNESS_DATA (the data folder) and
-HARNESS_SITE_ROLES (set: a site role list, as if from the role cache). On its standard
+HARNESS_SITE_ROLES (set: a site role list, as if from the role cache),
+HARNESS_STDERR_LINES (a number n: a line on standard error every n frames,
+as platform_log writes the server's log; tools/test_server_terminal.py) and
+HARNESS_SETUP_MODE (set: started as a server with no playlist, for the
+first-run setup; "harness: waiting 1" and "harness: waiting 0" tell when
+the hold starts and ends). On its standard
 output: the token printed once, the console's output, and a line for each
 thing the main thread is handed:
   notice: <the control's own log line>
@@ -73,16 +78,31 @@ static const char *answer(const char *line, int json)
 
 	if (json && !strcmp(line, "sv_status"))
 	{
-		return "{\"name\": \"Harness\", \"version\": \"0.0.0\", \"network_version\": 11, \"state\": \"in_game\", "
+		/* (HARNESS_REACH: the reach fields, server_platform.c's; a reachable,
+		listed server's by default) */
+		const char *reach = getenv("HARNESS_REACH");
+
+		snprintf(output, sizeof(output), "{\"name\": \"Harness\", \"version\": \"0.0.0\", \"network_version\": 11, "
+			"\"state\": \"in_game\", "
 			"\"map\": \"bloodgulch\", \"game_type\": \"slayer\", \"chosen\": false, \"next_map\": null, "
 			"\"next_game_type\": null, \"playlist\": \"playlists/test.txt\", \"entry\": 1, \"entries\": 2, "
 			"\"players\": 1, \"maximum_players\": 16, \"minimum_players\": 1, \"public\": false, "
-			"\"idle_limit_minutes\": 0, \"uptime_seconds\": 90}";
+			"\"idle_limit_minutes\": 0, \"uptime_seconds\": 90, \"reach\": {%s}}", reach && reach[0] ? reach :
+			"\"internet\": true, \"port\": 2302, \"port_fixed\": true, \"upnp\": \"no_router\", "
+			"\"nat\": \"open\", \"listing\": \"listed\", \"listing_status\": 0");
+		return output;
 	}
 	if (json && !strcmp(line, "sv_players"))
 	{
 		return "{\"players\": [{\"number\": 1, \"name\": \"<b>x</b>\", \"machine\": 0, \"team\": null, \"score\": 3, "
 			"\"ping\": 20, \"id\": null}], \"count\": 1, \"maximum_players\": 16}";
+	}
+	if (json && !strcmp(line, "sv_evidence"))
+	{
+		return "{\"kinds\": [\"movement\", \"vehicle\", \"hit_report\", \"clock\", \"line_of_sight\", "
+			"\"malformed\"], \"players\": [{\"number\": 1, \"name\": \"<b>x</b>\", \"machine\": 0, \"total\": 4, "
+			"\"evidence\": {\"movement\": 3, \"vehicle\": 0, \"hit_report\": 1, \"clock\": 0, \"line_of_sight\": 0, "
+			"\"malformed\": 0}}], \"count\": 1}";
 	}
 	if (json && !strcmp(line, "sv_banlist"))
 		return "{\"bans\": [], \"count\": 0}";
@@ -94,6 +114,28 @@ static const char *answer(const char *line, int json)
 	}
 	if (json && !strcmp(line, "sv_maps"))
 		return "{\"maps\": [\"bloodgulch\", \"prisoner\"], \"game_types\": [\"slayer\", \"ctf\"]}";
+	/* (the first-run setup's form reads these two) */
+	if (json && !strcmp(line, "sv_settings"))
+	{
+		return "{\"file\": \"server_settings.txt\", \"file_problem\": null, \"settings\": [{\"key\": \"name\", "
+			"\"kind\": \"text\", \"minimum\": 0, \"maximum\": 15, \"label\": \"Server name\", \"value\": \"Dedicated\", "
+			"\"saved\": null, \"environment_variable\": \"HALO_DEDICATED_NAME\", \"environment\": null, \"source\": "
+			"\"default\", \"applies\": \"now\"}, {\"key\": \"maximum_players\", \"kind\": \"number\", \"minimum\": 1, "
+			"\"maximum\": 16, \"label\": \"Most players\", \"value\": \"16\", \"saved\": null, \"environment_variable\": "
+			"\"HALO_DEDICATED_MAXIMUM_PLAYERS\", \"environment\": null, \"source\": \"default\", \"applies\": \"lobby\"}, "
+			"{\"key\": \"public\", \"kind\": \"boolean\", \"minimum\": 0, \"maximum\": 1, \"label\": \"Listed\", "
+			"\"value\": \"true\", \"saved\": null, \"environment_variable\": \"HALO_DEDICATED_PUBLIC\", \"environment\": "
+			"null, \"source\": \"default\", \"applies\": \"restart\"}]}";
+	}
+	if (json && !strcmp(line, "sv_playlists"))
+	{
+		return "{\"playlists\": [{\"name\": \"free_for_all\", \"path\": \"playlists/free_for_all.txt\", \"entries\": 8, "
+			"\"editable\": false, \"shipped\": true, \"active\": true, \"next\": false}, {\"name\": \"team_slayer\", "
+			"\"path\": \"playlists/team_slayer.txt\", \"entries\": 6, \"editable\": false, \"shipped\": true, "
+			"\"active\": false, \"next\": false}, {\"name\": \"big_maps\", \"path\": \"playlists/big_maps.txt\", "
+			"\"entries\": 5, \"editable\": false, \"shipped\": true, \"active\": false, \"next\": false}], \"active\": "
+			"\"playlists/free_for_all.txt\", \"next\": null, \"folder\": \"playlists\"}";
+	}
 	snprintf(output, sizeof(output), "ran %s\n", line);
 	return output;
 }
@@ -102,6 +144,9 @@ int main(void)
 {
 	struct timespec pause = { 0, 5 * 1000 * 1000 };
 	unsigned long frame = 0;
+	const char *stderr_lines = getenv("HARNESS_STDERR_LINES");
+	unsigned long stderr_every = stderr_lines ? strtoul(stderr_lines, NULL, 10) : 0;
+	int waiting = 0;
 
 	signal(SIGPIPE, SIG_IGN);
 	setvbuf(stdout, NULL, _IOLBF, 0);
@@ -124,6 +169,8 @@ int main(void)
 		server_roles_set_site(3, keys, key_roles, key_names, 7);
 		server_roles_set_site_state(SERVER_SITE_ROLES_CACHED, (long long)time(NULL) - 3600, SERVER_ROLE_ADMIN, 24);
 	}
+	if (getenv("HARNESS_SETUP_MODE"))
+		server_control_setup_mode();
 	server_control_start();
 	printf("harness: started\n");
 	for (;;)
@@ -183,9 +230,16 @@ int main(void)
 			server_roles_bind_answer(request, player == 1 ? SERVER_BIND_ACCEPTED : player == 2 ? SERVER_BIND_DECLINED :
 				SERVER_BIND_NOT_DELTA, player == 1 ? key : NULL);
 		}
+		if (server_control_setup_waiting() != waiting)
+		{
+			waiting = server_control_setup_waiting();
+			printf("harness: waiting %d\n", waiting);
+		}
 		/* (a log line now and then, one with a public address) */
 		if (!(++frame % 200))
 			server_control_log(frame % 400 ? "a log line\n" : "joined from 8.8.8.8:2302\n");
+		if (stderr_every && !(frame % stderr_every))
+			fprintf(stderr, "halo: log line %lu\n", frame / stderr_every);
 		nanosleep(&pause, NULL);
 	}
 	return 0;

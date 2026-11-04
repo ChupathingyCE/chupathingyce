@@ -140,6 +140,26 @@ static void test_input_entry(void)
 	CHECK(tick == 5 && host_time == -1);
 }
 
+/* a hit report's stamp of the host's tick (network_damage.c,
+REPORT_MAXIMUM_AGE_TICKS of 90 there) */
+static void test_report_stamp(void)
+{
+	/* now, and up to the age before it, are taken; later, older or none not */
+	CHECK(network_rules_report_stamp_taken(1000, 1000, 90));
+	CHECK(network_rules_report_stamp_taken(1000, 910, 90));
+	CHECK(!network_rules_report_stamp_taken(1000, 909, 90));
+	CHECK(!network_rules_report_stamp_taken(1000, 1001, 90));
+	CHECK(!network_rules_report_stamp_taken(1000, -1, 90));
+	/* (the first ticks of a game, as before: a stamp before 0 within the age) */
+	CHECK(network_rules_report_stamp_taken(10, 0, 90));
+	CHECK(network_rules_report_stamp_taken(10, -5, 90));
+	/* one long before the game began is refused (its age wrapped, it was
+	taken) */
+	CHECK(!network_rules_report_stamp_taken(1000, -2147483647 - 1, 90));
+	CHECK(!network_rules_report_stamp_taken(1000, -2147482700, 90));
+	CHECK(!network_rules_report_stamp_taken(2147483647, -2147483647 - 1, 90));
+}
+
 static void test_stamp_window(void)
 {
 	int32_t latest = -1;
@@ -801,6 +821,7 @@ int main(void)
 	test_aim_assist_message();
 	test_input_entry();
 	test_stamp_window();
+	test_report_stamp();
 	test_elevator_correction();
 	test_riding();
 	test_aim_assist_policy();

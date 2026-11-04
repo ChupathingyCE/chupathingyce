@@ -16,6 +16,9 @@
   let logNext = 0;
   let maps = null;
   let linkState = '';
+  // (GET /v1/hello: whether the server has an owner yet, and whether it
+  // waits for its first-run setup)
+  let hello = {};
   // (how often the link's state is asked for while it waits for the site)
   const POLL_LINK_MS = 2000;
   const NUDGE_KEY = 'chupathingy-totp-later';
@@ -139,6 +142,7 @@
     $('app').hidden = true;
     $('who').hidden = true;
     $('setup').hidden = true;
+    $('first-run').hidden = true;
     $('login').hidden = false;
     $('login-error').textContent = message || '';
     $('user').focus();
@@ -151,6 +155,7 @@
     $('who').hidden = false;
     $('login').hidden = true;
     $('setup').hidden = true;
+    $('first-run').hidden = true;
     $('app').hidden = false;
     // (the tabs a role has)
     document.querySelectorAll('.tabs button').forEach((node) => {
@@ -160,6 +165,119 @@
     show(data.restricted ? 'The owner requires a second factor: set one up under My account first.' : '');
     nudge();
     select(data.restricted ? 'account' : (location.hash.slice(1) || 'status'));
+    // (a server waiting for its first-run setup: the owner finishes it first)
+    getHello().then(() => {
+      if (hello.waiting && session === data && can(0x100) && !data.restricted) showFirstRun();
+    });
+  }
+
+  async function getHello() {
+    try {
+      const response = await fetch('/v1/hello', { cache: 'no-store' });
+      hello = (await response.json()) || {};
+    } catch (error) {
+      hello = {};
+    }
+    return hello;
+  }
+
+  // ---------- first-run setup (a server started with no playlist waits to
+  // host until its owner has chosen its name, players and playlist)
+
+  function playlistLabel(name) {
+    const words = String(name).replace(/[_-]+/g, ' ').trim();
+    return words.charAt(0).toUpperCase() + words.slice(1);
+  }
+
+  async function showFirstRun() {
+    stopPolling();
+    $('app').hidden = true;
+    $('first-run').hidden = false;
+    $('first-run-server').hidden = false;
+    $('first-run-link').hidden = true;
+    $('first-run-error').textContent = '';
+    try {
+      const [settings, lists] = await Promise.all([api('/v1/settings'), api('/v1/playlists')]);
+      const entries = settings.settings || [];
+      const find = (key) => entries.find((entry) => entry.key === key) || {};
+      const name = find('name');
+      const most = find('maximum_players');
+      const shown = find('public');
+      $('first-run-name').value = name.value && name.value !== 'Dedicated' ? name.value : '';
+      $('first-run-players').value = most.value || '12';
+      if (most.maximum) $('first-run-players').max = most.maximum;
+      $('first-run-public').checked = shown.value !== 'false';
+      // (a value from the server's environment wins when it starts)
+      const fixed = [name, most, shown].filter((entry) => entry.environment);
+      fixed.forEach((entry) => {
+        const field = { name: 'first-run-name', maximum_players: 'first-run-players', public: 'first-run-public' }[entry.key];
+        $(field).disabled = true;
+      });
+      $('first-run-fixed').hidden = !fixed.length;
+      $('first-run-fixed').textContent = fixed.length
+        ? fixed.map((entry) => entry.label || entry.key).join(' and ') + ': set in the server\'s environment (' +
+          fixed.map((entry) => entry.environment_variable).join(', ') + ').'
+        : '';
+      const playlists = (lists.playlists || []).filter((list) => list.entries > 0);
+      $('first-run-playlist').replaceChildren(...playlists.map((list) => {
+        return option(list.name, playlistLabel(list.name) + ' (' + list.entries + (list.entries === 1 ? ' game)' : ' games)'));
+      }));
+      const active = playlists.find((list) => list.active);
+      if (active) $('first-run-playlist').value = active.name;
+      $('first-run-name').focus();
+    } catch (error) {
+      if (error instanceof Unauthorized) return loggedOut(error.message);
+      $('first-run-error').textContent = error.message;
+    }
+  }
+
+  async function firstRunStart(event) {
+    event.preventDefault();
+    $('first-run-error').textContent = '';
+    const name = $('first-run-name').value.trim();
+    const most = parseInt($('first-run-players').value, 10);
+    const maximum = parseInt($('first-run-players').max, 10) || 128;
+    if (!(most >= 1 && most <= maximum)) {
+      $('first-run-error').textContent = 'Most players is a number from 1 to ' + maximum + '.';
+      return;
+    }
+    const lines = [];
+    if (!$('first-run-name').disabled) lines.push('sv_name ' + quote(name));
+    if (!$('first-run-players').disabled) lines.push('sv_maxplayers ' + most);
+    if (!$('first-run-public').disabled) lines.push('sv_set public ' + ($('first-run-public').checked ? 'true' : 'false'));
+    if ($('first-run-playlist').value) lines.push('sv_playlist_use ' + $('first-run-playlist').value);
+    try {
+      for (const line of lines) {
+        const result = await api('/v1/command', { body: { command: line } });
+        if (!result.ok) throw new Error(result.output.trim() || 'it failed');
+      }
+      await api('/v1/setup/start', { body: {} });
+      hello.waiting = false;
+      $('first-run-server').hidden = true;
+      $('first-run-link').hidden = false;
+      $('first-run-link-go').focus();
+    } catch (error) {
+      if (error instanceof Unauthorized) return loggedOut(error.message);
+      $('first-run-error').textContent = error.message;
+    }
+  }
+
+  function firstRunDone(next) {
+    $('first-run').hidden = true;
+    $('app').hidden = false;
+    select(next || 'status');
+  }
+
+  async function firstRunLink() {
+    try {
+      await command('sv_link');
+      linkState = 'linking';
+      firstRunDone('settings');
+    } catch (error) {
+      if (error instanceof Unauthorized) return loggedOut(error.message);
+      firstRunDone('settings');
+      failed(error);
+    }
   }
 
   // an owner's account without a second factor is reminded on every page
@@ -241,10 +359,10 @@
     $('setup-form').dataset.kind = kind;
     $('setup-title').textContent = kind === 'setup' ? 'Make the owner\'s account' : 'Accept an invitation';
     $('setup-hint').textContent = kind === 'setup'
-      ? 'The server printed this one-time code on its console. Choose a name and a password of at least 12 characters; set up a second factor after you log in.'
+      ? 'Enter the one-time code from the server\'s output, or from control_setup_code.txt in its data folder. Then choose a name and a password of at least 12 characters.'
       : 'Choose a name and a password of at least 12 characters (for a password reset, your account\'s name).';
     history.replaceState(null, '', location.pathname);
-    $('setup-user').focus();
+    $(code ? 'setup-user' : 'setup-code').focus();
   }
 
   async function setup(event) {
@@ -256,8 +374,13 @@
         code: $('setup-code').value.trim(), user: $('setup-user').value.trim(), password: $('setup-password').value,
       });
       if (!response.ok) throw new Error((data && data.error) || 'it failed');
+      const user = $('setup-user').value.trim();
+      const password = $('setup-password').value;
       $('setup-password').value = '';
-      $('user').value = $('setup-user').value.trim();
+      $('user').value = user;
+      // (the new account logged in at once; else the login form)
+      const login = await post('/v1/login', { user: user, password: password });
+      if (login.response.ok && login.data) return loggedIn(login.data);
       loggedOut(data.message);
     } catch (error) {
       $('setup-error').textContent = error.message;
@@ -350,20 +473,137 @@
     rows.forEach(([name, value]) => {
       facts.append(element('dt', name), element('dd', value));
     });
+    showJoin(status);
+  }
+
+  // ---------- can people join? (sv_status's reach: ports and states only)
+
+  const HOST_GUIDE = 'https://stats.chupathingy.org/host#ports';
+
+  function joinFacts(status) {
+    const reach = status.reach;
+    const port = 'UDP ' + reach.port;
+    const rows = [];
+    if (!reach.internet) {
+      rows.push(['Internet play', 'Off (network.online)', 'no']);
+    } else {
+      rows.push(['Internet play', reach.port_fixed ? port : port + ' (a new port each start)', reach.port_fixed ? 'good' : 'maybe']);
+      rows.push(['Router (UPnP)', ...(({
+        forwarded: ['Forwarded the port', 'good'],
+        not_asked: ['Not asked yet', ''],
+        no_router: ['No router answered', ''],
+        refused: ['The router said no', 'maybe'],
+        off: ['Off (network.allow_upnp)', ''],
+      })[reach.upnp] || [reach.upnp, ''])]);
+      rows.push(['Network', ...(({
+        open: ['Most players can reach it', 'good'],
+        strict: ['Strict: players on strict networks can\'t get in', 'no'],
+        checking: ['Checking...', ''],
+        unknown: ['Couldn\'t check (no STUN server answered)', 'maybe'],
+      })[reach.nat] || [reach.nat, ''])]);
+    }
+    const failed = reach.listing_status ? 'the game list said no (HTTP ' + reach.listing_status + ')' :
+      'couldn\'t reach the game list';
+    rows.push(['Server Browser', ...(({
+      listed: ['Listed', 'good'],
+      not_hosting: ['Not yet: no game is up on the internet', 'maybe'],
+      private: ['Not listed: it\'s set to unlisted', ''],
+      off: ['Not listed (network.list_hosted_games is off)', ''],
+      no_list: ['Not listed (no game list in network.browser_url)', ''],
+      waiting: ['Being listed...', ''],
+      failed: ['Not listed: ' + failed, 'no'],
+    })[reach.listing] || [reach.listing, ''])]);
+    rows.push(['Announced as', 'OpenCE network ' + status.network_version + (status.following ? ' (' + status.following + ')' : ''), '']);
+    rows.push(['Players', status.players + ' of ' + status.maximum_players, '']);
+    return rows;
+  }
+
+  // the verdict: [text, kind, help lines]
+  function joinVerdict(status) {
+    const reach = status.reach;
+    const forward = reach.port_fixed
+      ? 'Forward UDP ' + reach.port + ' to this machine on your router, or open it in your cloud provider\'s firewall.'
+      : 'Give the server a fixed port first (HALO_NET_TUNNEL_PORT=2302, or network.tunnel_port in config.toml). Then forward that UDP port on your router, or open it in your cloud provider\'s firewall.';
+    if (!reach.internet) {
+      return ['Only players on your local network can join. Internet play is off.', 'no',
+        ['Turn it on with network.online = true in config.toml (or HALO_NET_ONLINE=1), then restart the server.']];
+    }
+    if (reach.nat === 'strict' && reach.upnp !== 'forwarded') {
+      return ['Some players can\'t. Your network is strict and the port isn\'t forwarded.', 'no', [forward,
+        'On a home connection, turning on UPnP in the router also works.']];
+    }
+    if (reach.nat === 'unknown') {
+      return ['Can\'t tell. The server got no answer from the internet.', 'maybe', [
+        'Check that this machine can reach the internet over UDP. Some hosts and firewalls block it.',
+        'With Docker, publish the UDP port too (ports: in docker-compose.yml).', forward]];
+    }
+    if (reach.nat === 'checking') return ['Checking your network...', 'maybe', []];
+    if (reach.listing === 'not_hosting') {
+      return ['Not yet. No game is up on the internet. This usually takes a few seconds after the server starts.', 'maybe', []];
+    }
+    const listed = reach.listing === 'listed';
+    const text = listed ? 'Yes. Players can find it in the Server Browser and join.' :
+      'Yes, with an invite link. It isn\'t in the Server Browser right now.';
+    const help = [];
+    if (reach.listing === 'private') help.push('To list it, turn on Listed in Settings, then restart the server.');
+    if (reach.listing === 'failed') help.push('The server tries again by itself. The log has the game list\'s answer.');
+    if (reach.upnp !== 'forwarded' && reach.port_fixed) {
+      help.push('If friends still can\'t get in: ' + forward.charAt(0).toLowerCase() + forward.slice(1));
+    }
+    return [text, listed ? 'good' : 'maybe', help];
+  }
+
+  function showJoin(status) {
+    const box = $('join');
+    // (a server from before the reach fields: no card)
+    if (!status.reach) {
+      box.hidden = true;
+      return;
+    }
+    box.hidden = false;
+    const [text, kind, help] = joinVerdict(status);
+    const verdict = $('join-verdict');
+    verdict.textContent = text;
+    verdict.className = 'join-verdict' + (kind === 'good' ? '' : ' ' + kind);
+    const facts = $('join-facts');
+    facts.replaceChildren();
+    joinFacts(status).forEach(([name, value, tone]) => {
+      facts.append(element('dt', name), element('dd', value, tone || undefined));
+    });
+    const helpBox = $('join-help');
+    helpBox.replaceChildren();
+    help.forEach((line) => helpBox.append(element('p', line)));
+    if (kind !== 'good') {
+      const more = element('p');
+      const link = element('a', 'Ports and firewalls, step by step');
+      link.href = HOST_GUIDE;
+      link.target = '_blank';
+      link.rel = 'noopener';
+      more.append(link);
+      helpBox.append(more);
+    }
+    helpBox.hidden = !helpBox.childNodes.length;
   }
 
   // ---------- players
 
   async function loadPlayers(background) {
-    const data = await api('/v1/players', { background: background });
+    // (what the server refused of each player's machine this game: a
+    // moderator's evidence, never a verdict; by player number)
+    const moderator = can(0x002);
+    const [data, evidence] = await Promise.all([api('/v1/players', { background: background }),
+      moderator ? api('/v1/evidence', { background: background }).catch(() => null) : null]);
+    const refused = {};
+    if (evidence && evidence.players) evidence.players.forEach((entry) => { refused[entry.number] = entry; });
     const body = $('players-body');
-    $('say-form').hidden = !can(0x002);
+    $('say-form').hidden = !moderator;
+    $('evidence-head').hidden = !moderator;
     $('players-count').textContent = data.count + ' of ' + data.maximum_players;
     body.replaceChildren();
     if (!data.players.length) {
       const row = element('tr');
       const cell = element('td', 'No players', 'empty');
-      cell.colSpan = 7;
+      cell.colSpan = moderator ? 8 : 7;
       row.append(cell);
       body.append(row);
       return;
@@ -391,10 +631,19 @@
         element('td', player.score === null ? '-' : player.score, 'num'),
         element('td', player.ping === null ? '-' : player.ping, 'num'),
         element('td', player.role && player.role !== 'none' ? player.role : player.moderator_key ? 'key proved' : '-'),
-        actions,
       );
+      if (moderator) row.append(evidenceCell(refused[player.number]));
+      row.append(actions);
       body.append(row);
     });
+  }
+
+  // a player's refusals: the total, and each kind it has any of
+  function evidenceCell(entry) {
+    if (!entry || !entry.total) return element('td', entry ? '0' : '-', 'num');
+    const parts = Object.keys(entry.evidence).filter((kind) => entry.evidence[kind])
+      .map((kind) => kind.replace(/_/g, ' ') + ' ' + entry.evidence[kind]);
+    return element('td', entry.total + ': ' + parts.join(', '));
   }
 
   // the player still at that number, by name (they may have left, and
@@ -1149,6 +1398,9 @@
     $('login-form').addEventListener('submit', login);
     $('token-form').addEventListener('submit', tokenLogin);
     $('setup-form').addEventListener('submit', setup);
+    $('first-run-form').addEventListener('submit', firstRunStart);
+    $('first-run-link-go').addEventListener('click', firstRunLink);
+    $('first-run-done').addEventListener('click', () => firstRunDone('status'));
     $('set-form').addEventListener('submit', saveSetting);
     $('say-form').addEventListener('submit', async (event) => {
       event.preventDefault();
@@ -1240,7 +1492,7 @@
     });
     // (the certificate's fingerprint, to check against the one the server
     // printed; whether there is an owner yet)
-    fetch('/v1/hello', { cache: 'no-store' }).then((response) => response.json()).then((hello) => {
+    const helloAsked = getHello().then((hello) => {
       if (hello.tls) {
         $('fingerprint-hint').textContent = 'This panel\'s certificate is the server\'s own. Check that your browser shows the SHA-256 fingerprint the server printed: ' + hello.fingerprint;
         $('fingerprint-hint').hidden = false;
@@ -1251,8 +1503,11 @@
       showSetup(hash.startsWith('setup=') ? 'setup' : 'invite', hash.slice(hash.indexOf('=') + 1));
       return;
     }
-    api('/v1/session').then(loggedIn).catch((error) => {
+    api('/v1/session').then(loggedIn).catch(async (error) => {
       loggedOut(error instanceof Unauthorized ? '' : error.message);
+      // (no owner yet: the setup's form, for the code the server printed)
+      await helloAsked;
+      if (hello.setup && !csrf) showSetup('setup', '');
     });
   });
 })();

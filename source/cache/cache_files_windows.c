@@ -1243,6 +1243,38 @@ short cache_files_precache_map_status(
 
 /* ---------- private code */
 
+#ifdef HALO_CONSOLE_CACHE_SCREEN
+/* port: a new cache file made long a little at a time, with a screen between
+(halo_console_features.h): on the Steam Link's FAT32 one long step is a minute
+of zeros written with nothing shown */
+void console_cache_screen(unsigned long long done, unsigned long long total);
+void console_cache_screen_done(void);
+
+static unsigned long long cache_screen_done;
+static unsigned long long cache_screen_total;
+static boolean cache_screen_shown = FALSE;
+
+static void cache_screen_extend(
+	HANDLE file,
+	long size)
+{
+	const long step = 0x200000;
+	long length;
+
+	for (length = step; length < size; length += step)
+	{
+		if (SetFilePointer(file, length, NULL, FILE_BEGIN) == INVALID_SET_FILE_POINTER ||
+			!SetEndOfFile(file))
+		{
+			break;
+		}
+		cache_screen_shown = TRUE;
+		console_cache_screen(cache_screen_done + (unsigned long long)length, cache_screen_total);
+	}
+	return;
+}
+#endif
+
 static void cached_map_files_delete(
 	short map_file_index)
 {
@@ -1333,6 +1365,14 @@ static void cache_files_open_cache_files(
 	short map_file_index;
 
 	cached_map_files_delete(NUMBER_OF_CACHED_MAP_FILES);
+#ifdef HALO_CONSOLE_CACHE_SCREEN
+	for (map_file_index = 0;
+		map_file_index < NUMBER_OF_CACHED_MAP_FILES;
+		map_file_index++)
+	{
+		cache_screen_total += (unsigned long long)cached_map_file_get_size(map_file_index);
+	}
+#endif
 	for (map_file_index = 0;
 		map_file_index < NUMBER_OF_CACHED_MAP_FILES;
 		map_file_index++)
@@ -1382,6 +1422,12 @@ static void cache_files_open_cache_files(
 					cache_file_blocking_io_completion_routine);
 				cached_map_block_on_async_request(&completion_flag);
 				CACHE_FILE_TRACE("cache file %d: header write done (%d)", map_file_index, (int)completion_flag);
+#ifdef HALO_CONSOLE_CACHE_SCREEN
+				if (completion_flag)
+				{
+					cache_screen_extend(file, size);
+				}
+#endif
 				if (completion_flag &&
 					SetFilePointer(file, size, NULL, FILE_BEGIN) != INVALID_SET_FILE_POINTER &&
 					(CACHE_FILE_TRACE("cache file %d: SetEndOfFile", map_file_index), SetEndOfFile(file)))
@@ -1416,6 +1462,9 @@ static void cache_files_open_cache_files(
 		}
 
 		map_file->file = file;
+#ifdef HALO_CONSOLE_CACHE_SCREEN
+		cache_screen_done += (unsigned long long)size;
+#endif
 		if (valid)
 		{
 #ifdef HALO_64BIT
@@ -1456,6 +1505,13 @@ static void cache_files_open_cache_files(
 			0,
 			sizeof(struct cache_file_header));
 	}
+
+#ifdef HALO_CONSOLE_CACHE_SCREEN
+	if (cache_screen_shown)
+	{
+		console_cache_screen_done();
+	}
+#endif
 
 	return;
 }

@@ -2683,6 +2683,20 @@ int p2p_hosting_listable_invite(char *text, int size)
 	return result;
 }
 
+/* (network_game_globals.c's network_game_host_cheats_refused) whether this
+copy hosts an internet game anyone may join: public, without a password, as
+the game list lists it (whether or not network.list_hosted_games lists it
+there) */
+int p2p_hosting_public_game(void)
+{
+	int result;
+
+	pthread_mutex_lock(&p2p_lock);
+	result = p2p.running && p2p.hosting && p2p_lobby_hosting_open();
+	pthread_mutex_unlock(&p2p_lock);
+	return result;
+}
+
 void p2p_hosting_invite_announced(const char *invite)
 {
 	pthread_mutex_lock(&p2p_lock);
@@ -3281,6 +3295,42 @@ int p2p_hosting_status(char *text, int size)
 			"router to this computer.", port);
 	else
 		snprintf(text, (size_t)size, "Can't check your network: the STUN servers didn't answer.");
+	return 1;
+}
+
+int p2p_hosting_reach(struct p2p_reach *reach)
+{
+	int index;
+
+	memset(reach, 0, sizeof(*reach));
+	if (!p2p.running)
+		return 0;
+	pthread_mutex_lock(&p2p_lock);
+	reach->port = network_short(p2p.tunnel_port);
+	reach->port_fixed = p2p.port_fixed;
+	for (index = 0; index < p2p.stun_count; index++)
+	{
+		int other;
+
+		if (!p2p.stun[index].has_mapped)
+			continue;
+		reach->stun_answers++;
+		for (other = 0; other < index; other++)
+		{
+			if (p2p.stun[other].has_mapped && p2p.stun[other].mapped.port != p2p.stun[index].mapped.port)
+				reach->strict = 1;
+		}
+	}
+	reach->settled = p2p.stun_started && stun_settled();
+	switch (p2p.upnp_forwarded ? _upnp_forwarded : p2p.upnp_status)
+	{
+	case _upnp_forwarded: reach->upnp = P2P_UPNP_FORWARDED; break;
+	case _upnp_no_router: reach->upnp = P2P_UPNP_NO_ROUTER; break;
+	case _upnp_refused: reach->upnp = P2P_UPNP_REFUSED; break;
+	default: reach->upnp = P2P_UPNP_NOT_ASKED; break;
+	}
+	pthread_mutex_unlock(&p2p_lock);
+	reach->upnp_allowed = config_boolean("network.allow_upnp");
 	return 1;
 }
 

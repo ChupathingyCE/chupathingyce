@@ -10,8 +10,8 @@ byte-for-byte identical to what the matching MSVC build compiles.
 #ifndef __HALO_LINUX_PREFIX_H
 #define __HALO_LINUX_PREFIX_H
 
-#if !defined(__i386__) && !defined(HALO_ANDROID) && !defined(HALO_64BIT)
-#error the Linux port targets 32-bit x86: game data structures assume 32-bit pointers
+#if !defined(__i386__) && !defined(__arm__) && !defined(HALO_ANDROID) && !defined(HALO_64BIT)
+#error the Linux port targets 32-bit x86 or ARM: game data structures assume 32-bit pointers
 #endif
 
 /* ---------- musl's wide characters (the static dedicated servers,
@@ -35,6 +35,17 @@ typedef unsigned short wint_t;
 32-bit ones) */
 
 #include "../../../source/cseries/xbox_address.h"
+
+/* ---------- the renderer's OpenGL ES path
+
+OpenGL ES rather than desktop OpenGL (port/linux/src/d3d8_gl.c and the
+rest of the renderer): Android's ES 3, and a console whose ES 2 the port
+fills out to the ES 3 the renderer uses (HALO_CONSOLE_GLES2, the Steam
+Link's: console_gles2_layer) */
+
+#if (defined(HALO_ANDROID) || defined(HALO_CONSOLE_GLES2)) && !defined(HALO_GL_ES)
+#define HALO_GL_ES 1
+#endif
 
 /* ---------- XDK architecture selection (MSVC predefines these) */
 

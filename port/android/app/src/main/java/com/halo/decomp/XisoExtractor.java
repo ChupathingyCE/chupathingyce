@@ -63,6 +63,15 @@ final class XisoExtractor {
         }
     }
 
+    /* the name a maps folder entry is written as: the disc's loading picture
+    is kept as xbox_loading.tga (the game shows Chupathingy's own unless
+    display.xbox_loading_picture is on: port/linux/game/loading_picture.c) */
+    private static String outputName(Entry entry) {
+        if (!entry.directory && entry.path.equalsIgnoreCase("loading.tga"))
+            return "xbox_loading.tga";
+        return entry.path;
+    }
+
     private static final class Entry {
         /* the path below the directory listed, '/'-separated */
         final String path;
@@ -321,7 +330,7 @@ final class XisoExtractor {
         ByteBuffer buffer = ByteBuffer.allocateDirect(COPY_BUFFER_SIZE);
         long done = 0;
         for (Entry entry : entries) {
-            File path = new File(partial, entry.path);
+            File path = new File(partial, outputName(entry));
             if (entry.directory) {
                 if (!path.isDirectory() && !path.mkdirs())
                     throw new ExtractException("Could not create " + path + ".");
@@ -334,8 +343,8 @@ final class XisoExtractor {
         if (!finished.isDirectory() && !finished.mkdirs())
             throw new ExtractException("Could not create " + finished + ".");
         for (Entry entry : entries) {
-            File from = new File(partial, entry.path);
-            File to = new File(finished, entry.path);
+            File from = new File(partial, outputName(entry));
+            File to = new File(finished, outputName(entry));
 
             if (entry.directory) {
                 if (!to.isDirectory() && !to.mkdirs())

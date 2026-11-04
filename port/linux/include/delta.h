@@ -155,6 +155,17 @@ enum delta_capability
 	objects the host made (OBJECT_NAMES), so that a client's scripts find
 	them by name */
 	_delta_capability_object_sync = 17,
+	/* not a capability but the host's word on its game: its console and
+	cheats may change a public game with others in it (network.host_cheats,
+	network_game_host_cheats_refused). Announced on Delta List alone, never
+	offered in a HELLO or WELCOME; Online Games shows "Host cheats on" */
+	_delta_capability_host_cheats = 18,
+	/* the host's rules for its players' extras (docs/delta.md, Host
+	rules): HOST_RULES says whether its players may show names above heads,
+	watch a follow camera while they wait to respawn, and change teams. A
+	client whose host says nothing (OpenCE's, an older build) plays by the
+	Xbox's rules */
+	_delta_capability_host_rules = 19,
 
 	NUMBER_OF_DELTA_CAPABILITIES
 };
@@ -191,6 +202,12 @@ enum delta_platform
 	/* old PCs: DOS and Windows 9x, with a software renderer (JackT's Legacy
 	PC port) */
 	_delta_platform_pc_legacy = 18,
+	/* the 2015 Steam Link (Jizzy's port: armv7, 256 MB, OpenGL ES 2) */
+	_delta_platform_steamlink = 19,
+	/* iPhone and iPad, and the Vision Pro, which runs the iPad build
+	(Jizzy's iOS port, port/ios); and the Apple TV */
+	_delta_platform_ios = 20,
+	_delta_platform_tvos = 21,
 
 	NUMBER_OF_DELTA_PLATFORMS
 };
@@ -260,7 +277,10 @@ legacy table's "platform_policy" section is to tune them without a release
 	X(_delta_platform_ps4, 16, 16, 128, 12, 1) \
 	X(_delta_platform_ps5, 16, 16, 128, 13, 1) \
 	X(_delta_platform_n64, 0, 8, 16, 3, 0) \
-	X(_delta_platform_pc_legacy, 16, 16, 128, 7, 0)
+	X(_delta_platform_pc_legacy, 16, 16, 128, 7, 0) \
+	X(_delta_platform_steamlink, 0, 16, 128, 8, 0) \
+	X(_delta_platform_ios, 128, 128, 128, 11, 1) \
+	X(_delta_platform_tvos, 128, 128, 128, 11, 1)
 
 /* ---------- the legacy number */
 

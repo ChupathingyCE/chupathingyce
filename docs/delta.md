@@ -148,6 +148,8 @@ shares.
 | 15 | `team_change` | changing teams during a game: a client asks its host (TEAM_REQUEST), the host decides and answers (TEAM_RESULT); see "Team changes" |
 | 16 | `server_badge` | reserved for server badges (a draft); never set until that is built |
 | 17 | `object_sync` | what the game's messages leave out of the host's objects: every unit's shield and health (UNIT_VITALS) and the scenario names of the objects the host made (OBJECT_NAMES); see "Object sync" |
+| 18 | `host_cheats` | not a feature: the host's console and cheats may change its public game while others are in it (`network.host_cheats`); announced on Delta List only, never in a HELLO, and Online Games shows "Host cheats on" |
+| 19 | `host_rules` | the host's rules for its players' extras (HOST_RULES): names above heads, the follow camera, team changes; a client whose host says nothing plays by the Xbox's rules. See "Host rules" |
 
 The registry lives in the repository next to the compatibility table and is
 the single source for the bit numbers. Built so far: `platform`, `profile`,
@@ -207,7 +209,9 @@ The platform registry (`enum delta_platform`, one byte, never reused):
 8 `wiiu`, 9 `switch`, 10 `psp`, 11 `vita`, 12 `xbox_uwp` (the Xbox One and
 Series in developer mode), 13 `pc_freebsd` (the PC build for FreeBSD,
 [port/unix](../port/unix/README.md)), 14 `ps3`, 15 `ps4`, 16 `ps5`, 17 `n64`,
-18 `pc_legacy` (DOS and Windows 9x PCs). 10 to 12 and 14 to 18 are ports
+18 `pc_legacy` (DOS and Windows 9x PCs), 19 `steamlink` (the 2015 Steam
+Link), 20 `ios` (iPhone and iPad, and the Vision Pro in iPad compatibility
+mode), 21 `tvos` (the Apple TV). 10 to 12 and 14 to 21 are ports
 others build on ours; their policy rows are placeholders until those ports
 play, as the consoles' are. 13's is a PC's. How a port gets a number: see
 "Platform numbers" below.
@@ -236,6 +240,8 @@ defaults every machine's key starts from:
 | PSP, Vita | 16 | 16 | 128 | 6, 9 (placeholders) | no |
 | Xbox Series (developer mode) | 128 | 128 | 128 | 12 | yes |
 | PS3 | 16 | 16 | 128 | 8 (256 MB; placeholder) | no |
+| Steam Link | 0 (does not host yet) | 16 | 128 | 8 (256 MB) | no |
+| iOS, Apple TV | 128 | 128 | 128 | 11 (2 GB) | yes |
 | PS4, PS5 | 16 | 16 | 128 | 12, 13 (placeholders) | yes |
 | Nintendo 64 | 0 (never hosts) | 8 | 16 | 3 (8 MB; placeholder) | no |
 | Legacy PC (DOS, Windows 9x) | 16 | 16 | 128 | 7 (128 MB; placeholder) | no |
@@ -289,7 +295,7 @@ and the site learns it too.
 **Identify your build.** Build with `-DHALO_DELTA_PLATFORM=_delta_platform_<name>`
 (`_delta_platform_ps3`, say). The game sends that number in its platform
 key. Without it, the game picks a number from what it's built for (Windows,
-Mac, Linux, Android, FreeBSD and our console builds), and `unknown` (0)
+Mac, Linux, Android, FreeBSD, iOS, Apple TV and our console builds), and `unknown` (0)
 otherwise. A build with no number of its own still plays;
 it just shows no logo and gets the unknown row.
 
@@ -334,9 +340,13 @@ can also claim lower limits in its own key; a host takes the lower value.
 | 16 | `ps5` | PlayStation 5 | community port |
 | 17 | `n64` | Nintendo 64 | JackT |
 | 18 | `pc_legacy` | DOS and Windows 9x PCs | JackT (Legacy PC) |
+| 19 | `steamlink` | Steam Link (2015) | Jizzy |
+| 20 | `ios` | iPhone, iPad, Vision Pro (iPad compatibility mode) | Jizzy (port/ios) |
+| 21 | `tvos` | Apple TV | Jizzy (port/ios) |
 
 The PSP, Vita, PS3, PS4 and PS5 share the PlayStation logo on the
-scoreboard. Nintendo 64 and Legacy PC have no logo yet.
+scoreboard. Nintendo 64, Legacy PC, Steam Link, iOS and Apple TV have no
+logo yet.
 
 ### Wire format
 
@@ -387,6 +397,7 @@ a later version may append):
 | 25, 26 | | | kept for server badges (a draft) |
 | 27 | UNIT_VITALS | host to client | count (1, at most 98), flags (1: 0x01 the last datagram of a full pass), reserved (2), then 12-byte entries: the host's object (4, its datum index, which a client's copy shares), flags (1: 0x01 shield depleted, 0x02 shield charging, 0x04 shield over charging), reserved (1), body vitality (2), shield vitality (2), reserved (2); vitality in 16384ths, as the game's own unit states have it |
 | 28 | OBJECT_NAMES | host to client | total (2, the host's named objects and removed names in all, at most 512), first (2, this datagram's first entry's place among them), count (1, at most 98), reserved (3), then 12-byte entries: the host's object (4; 0xFFFFFFFF for a removed name), its scenario name index (2), flags (1: 0x01 removed, a name the host had an object of this game and has none of now; others ignored), and for a removed name its unit's last vitals: shield flags (1, as UNIT_VITALS's), body vitality (2), shield vitality (2) (full for an object that was not a unit; 0 for the others) |
+| 29 | HOST_RULES | host to client | version (1; 1 now, 0 refused, a later one read as far as this build knows it), flags (1: 0x01 names above heads allowed, 0x02 the follow camera allowed; others ignored), team changes (1: 0 off, 1 balanced, 2 allow), their margin (1, 0 to 16), reserved (4); values past their ranges refused. Sent at once when they change and every 5 seconds |
 
 A roster covers every machine of the game, in as many datagrams as it takes
 (32 machines each). A client forgets a machine the roster has not named for
@@ -642,12 +653,13 @@ ask goes over Delta Peer and the change itself through the game:
   host checks the session, the rising sequence and its budget (1 a second,
   3 at once), that the player is the machine's, and its rule, then answers
   TEAM_RESULT. A host without `team_change` (OpenCE's, an older
-  Chupathingy) is never asked: the player is told the change needs a
-  Chupathingy host.
+  Chupathingy) is never asked, and its players' pause menus have no CHANGE
+  TEAMS. A host whose rule is off (HOST_RULES, "Host rules" below) is not
+  offered either.
 - **The host's rule.** `network.team_change` for a player's host,
-  `HALO_DEDICATED_TEAM_CHANGE` for a dedicated server: `balanced` (the
-  default: no change that leaves one team more than the margin, 1 unless
-  set, bigger than the other), `allow` or `off`; a player's changes at
+  `HALO_DEDICATED_TEAM_CHANGE` for a dedicated server: `off` (the default,
+  as on the Xbox), `balanced` (no change that leaves one team more than the
+  margin, 1 unless set, bigger than the other) or `allow`; a player's changes at
   least 10 seconds apart; never the last player of a team while others
   play (a team game with everyone on one team is over). A dedicated
   server's `sv_team` moves anyone, the rule aside.
@@ -669,6 +681,34 @@ ask goes over Delta Peer and the change itself through the game:
 The game's side is `port/linux/game/team_change.c`, its pause menu row in
 all the menu sets (`port/linux/game/menu_tags.c`), and the dedicated
 server's settings and `sv_team` (`server/docs/settings.md`).
+
+### Host rules
+
+Chupathingy plays multiplayer as the Xbox did. A few extras change what a
+player sees of the others, so the host decides them for everyone in its
+game, over `host_rules` (bit 19):
+
+- **The host says them.** HOST_RULES goes to each client that agreed to
+  `host_rules`, at once when they change (a dedicated server's `sv_set`)
+  and every 5 seconds. A player's host takes them from its config.toml
+  (`network.allow_player_names`, `network.allow_follow_camera`, its Host
+  Setup), a dedicated server from its settings (`allow_player_names`,
+  `allow_follow_camera`, `server/docs/settings.md`).
+- **Names above heads.** A player's `display.player_names` ("all",
+  "allies", "enemies") shows only while the host allows it. Without it a
+  name shows only on the player aimed at, as on the Xbox.
+- **The follow camera.** A player's `display.follow_camera` (watching a
+  living player while they wait to respawn) works only while the host
+  allows it. Without it the death camera alone, as on the Xbox.
+- **Team changes.** The host's rule for CHANGE TEAMS ("Team changes"
+  above) rides along, so a client offers it in the pause menu only where
+  the host allows it. An older Chupathingy host that takes team changes
+  but says no rules is asked as before.
+- **A host that says nothing** (OpenCE's, an older Chupathingy, a console
+  without Delta) gets the Xbox's rules: no extras. A game played alone
+  (split screen) is its own host's.
+
+The game's side is `port/linux/game/host_rules.c`.
 
 ### Object sync
 
