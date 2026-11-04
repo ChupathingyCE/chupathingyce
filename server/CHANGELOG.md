@@ -58,6 +58,14 @@ release notes.
   30 seconds before, moderators never. OpenCE players are warned through
   the host's notice in their chat. Every warning, kick and ban is in the
   audit file.
+- A Windows server: `chupathingyce-server-windows-x64.zip`, for 64-bit
+  Windows 10, Windows 11 and Windows Server. The same server, settings,
+  playlists, game types, commands and control panel as on Linux, as a
+  console program with `start-server.bat` and a README (`server/windows`).
+  Ctrl+C or closing its window stops it and takes its game off the lists.
+  `start-server.bat install` (or `--install-service`) makes it a Windows
+  service that starts with Windows, restarts after a crash and runs as its
+  own account, not SYSTEM; `--uninstall-service` takes it out.
 - Map names as Halo PC takes them: commas, brackets, spaces and the rest a
   Windows file name can have (`bigassv2,104@ce`, `[h3]_sandtrap@ce`), in
   `sv_map`, `sv_maps` and playlists. A name with a space goes in double

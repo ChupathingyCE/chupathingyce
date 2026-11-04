@@ -11,13 +11,26 @@ console reads its input as it always has.
 
 server_terminal.c is POSIX's (termios, and the program's output through a
 pipe of its own to the terminal). A Windows console would give the same
-three functions.
+three functions; until then, a Windows server reads its console as it
+always has (these stand in, and server_terminal.c is not built there).
 */
 
 #ifndef SERVER_TERMINAL_H
 #define SERVER_TERMINAL_H
 
 #include <stddef.h>
+
+#ifdef _WIN32
+static inline int server_terminal_start(size_t line_size) { (void)line_size; return 0; }
+static inline int server_terminal_input(const char *bytes, size_t count, void (*line)(const char *text))
+{
+	(void)bytes;
+	(void)count;
+	(void)line;
+	return 1;
+}
+static inline void server_terminal_stop(void) {}
+#else
 
 /* line editing started, its lines at most line_size - 1 bytes: whether it
 did (stdin and stdout a terminal, the program in its foreground) */
@@ -29,5 +42,6 @@ int server_terminal_input(const char *bytes, size_t count, void (*line)(const ch
 /* line editing stopped: the terminal as it was, the program's output
 straight to it again (also at exit, and on a crash) */
 void server_terminal_stop(void);
+#endif
 
 #endif

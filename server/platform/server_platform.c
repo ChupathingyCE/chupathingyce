@@ -11,7 +11,9 @@ there yet: no video (d3d8_gl.c draws nothing), no input (server_input.c),
 no clipboard, no message boxes (a message is logged). Stopping is SIGTERM's
 or SIGINT's (a service stopped, Ctrl+C): the next frame's event pump ends
 the program, which withdraws its game from the lists on the way out, as the
-game's dedicated mode does on SDL's quit event.
+game's dedicated mode does on SDL's quit event. On Windows the same are
+Ctrl+C, Ctrl+Break, the console window closed, and a service's Stop
+(server_windows.c, which also installs the server as a service).
 
 Before the game starts (a constructor, so nothing has been loaded yet), the
 program checks what it was given: --version and --help answer and exit; a
@@ -33,13 +35,13 @@ never hosts.
 #include "delta.h"
 #include "server_control.h"
 
-#include <dirent.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <strings.h>
+#ifndef _WIN32
 #include <unistd.h>
+#endif
 
 /* (given for this file by the build, as for updater.c: tools/server_build.py) */
 #ifndef HALO_VERSION
@@ -48,6 +50,14 @@ never hosts.
 
 /* SIGTERM or SIGINT arrived: the next pump stops the server */
 static volatile sig_atomic_t stop_requested;
+
+#ifdef _WIN32
+/* server_windows.c's: plain types */
+void server_windows_console_handlers(void (*stop)(void));
+int server_windows_service_start(void (*stop)(void));
+int server_windows_install_service(const char *name);
+int server_windows_uninstall_service(const char *name);
+#endif
 
 /* ---------- start-up checks */
 
@@ -83,6 +93,11 @@ static void print_usage(FILE *stream)
 		"\n"
 		"  --version  prints the version\n"
 		"  --help     prints this\n"
+#ifdef _WIN32
+		"  --install-service [name]    makes a Windows service of this server, with the\n"
+		"                              HALO_* settings set now (ChupathingyServer unless named)\n"
+		"  --uninstall-service [name]  stops the service and takes it out\n"
+#endif
 		"\n"
 		"More: server/README.md, https://github.com/ChupathingyCE/chupathingyce\n");
 }
@@ -149,8 +164,8 @@ static int setup_playlist(char *playlist, unsigned long size)
 {
 	char folder[1024];
 	char path[1024];
-	DIR *directory;
-	struct dirent *entry;
+	char name[256];
+	void *directory;
 
 	playlist_path("playlists/free_for_all.txt", path, sizeof(path));
 	if (readable(path))
@@ -160,36 +175,52 @@ static int setup_playlist(char *playlist, unsigned long size)
 	}
 	playlist[0] = 0;
 	playlist_path("playlists", folder, sizeof(folder));
-	directory = opendir(folder);
+	directory = posix_directory_open(folder);
 	if (!directory)
 		return 0;
-	while ((entry = readdir(directory)) != NULL)
+	while (posix_directory_next(directory, name, sizeof(name)))
 	{
-		size_t length = strlen(entry->d_name);
+		size_t length = strlen(name);
 		char candidate[300];
 
-		if (length < 5 || length > 200 || entry->d_name[0] == '.' || strcmp(entry->d_name + length - 4, ".txt"))
+		if (length < 5 || length > 200 || name[0] == '.' || strcmp(name + length - 4, ".txt"))
 			continue;
-		snprintf(candidate, sizeof(candidate), "playlists/%s", entry->d_name);
+		snprintf(candidate, sizeof(candidate), "playlists/%s", name);
 		if (playlist[0] && strcmp(candidate, playlist) >= 0)
 			continue;
-		snprintf(path, sizeof(path), "%s/%s", folder, entry->d_name);
+		snprintf(path, sizeof(path), "%s/%s", folder, name);
 		if (readable(path))
 			snprintf(playlist, size, "%s", candidate);
 	}
-	closedir(directory);
+	posix_directory_close(directory);
 	return playlist[0] != 0;
 }
 
 /* no playlist given, and the control panel on: the server starts for the
 panel's first-run setup (1), else 0 */
+static int setting_off(const char *value)
+{
+	static const char *const words[] = { "0", "false", "no", "off" };
+	size_t word;
+
+	for (word = 0; word < sizeof(words) / sizeof(words[0]); word++)
+	{
+		size_t index;
+
+		for (index = 0; words[word][index] && (value[index] | 0x20) == words[word][index]; index++)
+			;
+		if (!words[word][index] && !value[index])
+			return 1;
+	}
+	return 0;
+}
+
 static int start_for_setup(void)
 {
 	const char *control = getenv("HALO_DEDICATED_CONTROL");
 	char playlist[300];
 
-	if (!control || !control[0] || !strcmp(control, "0") || !strcasecmp(control, "false") ||
-		!strcasecmp(control, "no") || !strcasecmp(control, "off"))
+	if (!control || !control[0] || setting_off(control))
 	{
 		return 0;
 	}
@@ -199,7 +230,16 @@ static int start_for_setup(void)
 			"Copy the server's playlists folder into the data folder.\n\n");
 		return 0;
 	}
+#ifdef _WIN32
+	{
+		char variable[320];
+
+		snprintf(variable, sizeof(variable), "HALO_DEDICATED=%s", playlist);
+		_putenv(variable);
+	}
+#else
 	setenv("HALO_DEDICATED", playlist, 1);
+#endif
 	server_control_setup_mode();
 	printf("No playlist given (HALO_DEDICATED): the control panel's setup chooses one. Until then: %s\n", playlist);
 	fflush(stdout);
@@ -212,17 +252,43 @@ static void stop_handler(int signal_number)
 	stop_requested = 1;
 }
 
+#ifdef _WIN32
+static void stop_now(void)
+{
+	stop_requested = 1;
+}
+#endif
+
 /* after the Xbox address space is reserved (xbox_memory.c, priority 101),
 before the game starts */
 __attribute__((constructor(102)))
 static void server_arguments(void)
 {
+#ifndef _WIN32
 	struct sigaction action;
+#else
+	BOOL service = FALSE;
+#endif
 	char argument[256];
 	int index;
 
 	for (index = 1; posix_command_line_argument(index, argument, sizeof(argument)); index++)
 	{
+#ifdef _WIN32
+		if (!strcmp(argument, "--install-service") || !strcmp(argument, "--uninstall-service"))
+		{
+			char name[128] = "";
+
+			posix_command_line_argument(index + 1, name, sizeof(name));
+			exit(!strcmp(argument, "--install-service") ? server_windows_install_service(name)
+				: server_windows_uninstall_service(name));
+		}
+		if (!strcmp(argument, "--service"))
+		{
+			service = TRUE;
+			continue;
+		}
+#endif
 		if (!strcmp(argument, "--version") || !strcmp(argument, "-v"))
 		{
 			print_version();
@@ -239,8 +305,18 @@ static void server_arguments(void)
 		print_usage(stderr);
 		exit(2);
 	}
+#ifdef _WIN32
+	/* (the service manager answered first: it waits only so long) */
+	if (service && !server_windows_service_start(stop_now))
+		exit(2);
+#endif
 	/* (no sound to open: dsound_sdl.c's mixer runs on its own clock) */
+#ifdef _WIN32
+	if (!getenv("HALO_NO_AUDIO"))
+		_putenv("HALO_NO_AUDIO=1");
+#else
 	setenv("HALO_NO_AUDIO", "1", 0);
+#endif
 	if (!browser_dedicated() && !browser_probe() && !start_for_setup())
 	{
 		print_version();
@@ -253,6 +329,12 @@ static void server_arguments(void)
 	server_check_data();
 	/* (the legacy table: a newer one fetched meanwhile) */
 	delta_legacy_start();
+#ifdef _WIN32
+	/* Ctrl+C, Ctrl+Break and the window closed stop it at the next frame
+	(Windows has no SIGPIPE: a closed connection's write fails) */
+	server_windows_console_handlers(stop_now);
+	(void)stop_handler;
+#else
 	/* a write to a connection the other end closed fails instead of ending
 	the server (as sdl_platform.c); SIGTERM and SIGINT stop it at the next
 	frame */
@@ -262,6 +344,7 @@ static void server_arguments(void)
 	sigemptyset(&action.sa_mask);
 	sigaction(SIGTERM, &action, NULL);
 	sigaction(SIGINT, &action, NULL);
+#endif
 }
 
 /* ---------- the platform layer's start (all done above) */

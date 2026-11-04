@@ -186,6 +186,21 @@ int pthread_detach(pthread_t thread)
 	return 0;
 }
 
+/* (the thread by its identifier: one that has ended already is not there
+to open, and is joined) */
+int pthread_join(pthread_t thread, void **value)
+{
+	HANDLE handle = OpenThread(SYNCHRONIZE, FALSE, (DWORD)thread);
+
+	if (value)
+		*value = NULL;
+	if (!handle)
+		return 0;
+	WaitForSingleObject(handle, INFINITE);
+	CloseHandle(handle);
+	return 0;
+}
+
 pthread_t pthread_self(void)
 {
 	return GetCurrentThreadId();
