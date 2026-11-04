@@ -1,0 +1,30 @@
+# H2 Slayer: Halo 2 Team Slayer, as close as Halo CE goes.
+# Halo 2 starts with a battle rifle and a pistol; CE has no battle rifle, so
+# everyone starts with the assault rifle and the pistol. Shields, motion
+# tracker, 5 second respawn, friendly fire off, 50 kills.
+base = "team_slayer"
+name = "H2 Slayer"
+score_limit = 50
+time_limit = 15
+
+[players]
+shields = true
+respawn_time = 5
+suicide_penalty = 5
+
+[items]
+starting_equipment = "generic"
+weapon_set = "normal"
+
+[indicators]
+objectives = "motion_tracker"
+players_on_radar = "all"
+friends_on_screen = true
+
+[team_play]
+friendly_fire = "off"
+auto_balance = true
+
+[vehicles]
+red = "none"
+blue = "none"
