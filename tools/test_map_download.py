@@ -28,6 +28,8 @@ from pathlib import Path
 
 import pytest
 
+from tools import fuzz_support  # noqa: E402
+
 ROOT = Path(__file__).resolve().parent.parent
 SOURCE = ROOT / "port" / "linux" / "src"
 ZLIB = ROOT / "port" / "third_party" / "zlib"
@@ -74,6 +76,7 @@ def harness(tmp_path_factory):
         result = subprocess.run([cc, "-c", "-O1", "-g", "-w", "-DZ_PREFIX", "-Dz_errmsg=z_port_errmsg",
                                  str(source), "-o", str(obj), *sanitize], capture_output=True, text=True)
         if result.returncode != 0 and sanitize:
+            fuzz_support.fallback("no sanitizer runtime")
             sanitize = []
             result = subprocess.run([cc, "-c", "-O1", "-g", "-w", "-DZ_PREFIX", "-Dz_errmsg=z_port_errmsg",
                                      str(source), "-o", str(obj)], capture_output=True, text=True)

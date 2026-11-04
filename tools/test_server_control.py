@@ -25,6 +25,8 @@ from pathlib import Path
 
 import pytest
 
+from tools import fuzz_support  # noqa: E402
+
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from tools.embed_webui import generate as generate_webui  # noqa: E402
@@ -105,6 +107,7 @@ def build_sanitized(cc, binary, sources=None, standard="c11"):
     result = build(cc, binary, SANITIZERS, sources, standard)
     if result.returncode != 0:
         # (a compiler without the sanitizers' runtime: unsanitized)
+        fuzz_support.fallback("no sanitizer runtime")
         result = build(cc, binary, [], sources, standard)
     assert result.returncode == 0, result.stdout + result.stderr
 

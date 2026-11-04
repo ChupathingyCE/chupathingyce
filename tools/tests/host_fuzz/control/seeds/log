@@ -1,0 +1,4 @@
+GET /api/log?since=123 HTTP/1.0
+X-Real-IP: 1.2.3.4
+Forwarded: for=1.2.3.4;proto=https
+
