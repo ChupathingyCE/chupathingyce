@@ -286,7 +286,10 @@ static size_t service_environment(const wchar_t *data_folder, wchar_t *block, si
 	{
 		size_t length = wcslen(entry);
 
-		if (_wcsnicmp(entry, L"HALO_", 5) || used + length + 2 > size)
+		const wchar_t *equals = wcschr(entry, L'=');
+
+		/* (a variable set to nothing is left out, as it means nothing) */
+		if (_wcsnicmp(entry, L"HALO_", 5) || !equals || !equals[1] || used + length + 2 > size)
 			continue;
 		has_data |= !_wcsnicmp(entry, L"HALO_DATA_ROOT=", 15);
 		has_save |= !_wcsnicmp(entry, L"HALO_SAVE_ROOT=", 15);
