@@ -305,7 +305,8 @@ The keyboard and the mouse are a control scheme of their own for the player
 of controller 1: each action has up to two keys or mouse buttons, which
 Settings > Controls > Keyboard (or `[controls]` in `config.toml`) changes. The
 game adds the input of the first gamepad to controller 1. The other
-gamepads operate controllers 2 to 4. With two or more players on this
+gamepads operate controllers 2 to 4. While one person plays, every gamepad
+drives their player in the game as in the menus. With two or more players on this
 computer (co-op, or split screen in a network game) and only one gamepad,
 that gamepad is controller 2 (player 2) and the keyboard and mouse stay
 controller 1. The gamepad changes controller only when none of its buttons
