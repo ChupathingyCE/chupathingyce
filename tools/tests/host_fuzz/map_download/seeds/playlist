@@ -1,0 +1,47 @@
+{
+ "playlist_maps": 1,
+ "playlist": "c_cex",
+ "name": "[C] CE+ X",
+ "serial": 1,
+ "issued": 1793145600,
+ "packs": {
+  "cex-1.01": {
+   "name": "Halo CE+ X 1.01",
+   "author": "VKMT",
+   "credits": "Credits",
+   "permission": "Mirrored with permission"
+  },
+  "xbox": {
+   "name": "Xbox",
+   "author": "Bungie"
+  }
+ },
+ "files": [
+  {
+   "map": "bloodgulch@cex",
+   "title": "Abyss",
+   "folder": "maps_cex",
+   "file": "bloodgulch.map",
+   "size": 24887296,
+   "sha256": "7d6edf513925439c74f78e86670d6287cdc03417cd83225f774e7ecc41935d72",
+   "source": "chupathingy",
+   "path": "packs/cex/1.01/bloodgulch.map",
+   "pack": "cex-1.01"
+  },
+  {
+   "map": "sanctuary@ce",
+   "folder": "maps_ce",
+   "file": "sanctuary.map",
+   "size": 19000000,
+   "sha256": "7d6edf513925439c74f78e86670d6287cdc03417cd83225f774e7ecc41935d72",
+   "source": "halonet"
+  },
+  {
+   "map": "prisoner",
+   "folder": "maps",
+   "file": "prisoner.map",
+   "source": "own",
+   "pack": "xbox"
+  }
+ ]
+}
