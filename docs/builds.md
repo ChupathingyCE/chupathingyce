@@ -6,7 +6,7 @@ What each build of the game has. The downloads are in [docs/install.md](install.
 | --- | --- | --- | --- | --- |
 | The game | Yes | Yes, Apple silicon and Intel | Yes | Yes |
 | Online Games, hosting, stats | Yes | Yes | Yes | Yes |
-| Dedicated server | The game, for a test | The game, for a test | Yes: x86, x64 and arm64, and Docker | |
+| Dedicated server | Yes: 64-bit, its own download | The game, for a test | Yes: x86, x64 and arm64, and Docker | |
 | Updates itself | Yes | Opens the download page | Yes, the AppImage too | Yes |
 | Halo PC (Custom Edition) maps | Yes | Yes | Yes | Yes, see [docs/maps.md](maps.md#halo-pc-maps) |
 | HaloMD maps | Yes | Yes | Yes | Yes, see [docs/maps.md](maps.md#halo-pc-maps) |

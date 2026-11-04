@@ -1317,6 +1317,45 @@ int delta_wire_write_team_result(unsigned char *data, delta_u32 session, const s
 	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_TEAM_RESULT_SIZE;
 }
 
+/* ---------- the host's rules */
+
+static int host_rules_valid(const struct delta_wire_host_rules *rules)
+{
+	return rules->team_change <= DELTA_WIRE_HOST_TEAM_CHANGE_ALLOW &&
+		rules->team_change_margin <= DELTA_WIRE_HOST_TEAM_CHANGE_MAXIMUM_MARGIN;
+}
+
+int delta_wire_read_host_rules(const unsigned char *payload, int size, struct delta_wire_host_rules *rules)
+{
+	clear(rules, (int)sizeof(*rules));
+	if (!payload || size < DELTA_WIRE_HOST_RULES_SIZE || size > DELTA_WIRE_MAXIMUM_PAYLOAD || !payload[0])
+		return 0;
+	rules->flags = (unsigned char)(payload[1] & DELTA_WIRE_HOST_KNOWN_FLAGS);
+	rules->team_change = payload[2];
+	rules->team_change_margin = payload[3];
+	if (!host_rules_valid(rules))
+	{
+		clear(rules, (int)sizeof(*rules));
+		return 0;
+	}
+	return 1;
+}
+
+int delta_wire_write_host_rules(unsigned char *data, delta_u32 session, const struct delta_wire_host_rules *rules)
+{
+	unsigned char *payload = data + DELTA_WIRE_HEADER_SIZE;
+
+	if (!host_rules_valid(rules) || (rules->flags & ~DELTA_WIRE_HOST_KNOWN_FLAGS))
+		return 0;
+	clear(payload, DELTA_WIRE_HOST_RULES_SIZE);
+	payload[0] = DELTA_WIRE_HOST_RULES_VERSION;
+	payload[1] = rules->flags;
+	payload[2] = rules->team_change;
+	payload[3] = rules->team_change_margin;
+	delta_wire_write_header(data, DELTA_MAJOR, _delta_message_host_rules, DELTA_WIRE_HOST_RULES_SIZE, session);
+	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_HOST_RULES_SIZE;
+}
+
 /* ---------- object sync */
 
 int delta_wire_read_unit_vitals(const unsigned char *payload, int size, struct delta_wire_unit_vitals *vitals)

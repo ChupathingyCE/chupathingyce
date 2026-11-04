@@ -239,7 +239,8 @@ public final class TouchControls extends View implements SensorEventListener, In
     }
 
     private int hit(float x, float y) {
-        if (inside(x, y, optionsX(), toolbarY(), 34)) return EDIT;
+        // (hidden controls leave only the "Touch" button: Options comes back with the controls)
+        if ((visible || editing) && inside(x, y, optionsX(), toolbarY(), 34)) return EDIT;
         if (editing && inside(x, y, optionsX()-156, toolbarY(), 34)) return EXPORT;
         if (editing && inside(x, y, optionsX()-78, toolbarY(), 34)) return IMPORT;
         if (inside(x, y, logicalWidth/2, toolbarY(), 28)) return TOGGLE;
@@ -410,6 +411,7 @@ public final class TouchControls extends View implements SensorEventListener, In
     private float optionsX() { return logicalWidth-Math.max(42, insetRight/scale+42); }
 
     private void editorButton(Canvas canvas) {
+        if (!visible && !editing) return;
         circle(canvas, optionsX(), toolbarY(), 34, editing ? "Save" : "Options", false);
         if (editing) {
             circle(canvas, optionsX()-156, toolbarY(), 34, "Export", false);

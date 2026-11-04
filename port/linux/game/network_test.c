@@ -102,6 +102,8 @@ network_test_update, which does nothing there */
 #include "items/projectile_definitions.h"
 #include "items/items.h"
 #include "objects/damage.h"
+#include "physics/collisions.h"
+#include "physics/collision_usage.h"
 #include "scenario/scenario.h"
 #include "tag_files/tag_files.h"
 #include "camera/observer.h"
@@ -133,6 +135,7 @@ void damage_kill_object_for_player(long object_index, long player_index);
 void network_distributed_statistics(long *sent, long *received, long *corrections);
 void network_distributed_item_statistics(long *creates, long *deletes, long *failures, long *removed);
 void network_damage_statistics(long *sent_reports, long *dealt_reports, long *rejected_reports, long *replayed_events);
+long network_damage_line_of_sight_refusals(void);
 /* xinput_sdl.c's */
 void test_input_hold_action(int hold);
 void test_input_hold_melee(int hold);
@@ -181,6 +184,7 @@ static struct
 	boolean team_set;
 	real kill_interval;
 	real shoot_interval;
+	boolean shoot_walls;
 	real vehicle_time;
 	real pickup_time;
 	real bomb_interval;
@@ -303,6 +307,7 @@ static void network_test_read_settings(
 	network_test.start_delay = (real)config_real("debug.network_test_start");
 	network_test.kill_interval = (real)config_real("debug.network_test_kill");
 	network_test.shoot_interval = (real)config_real("debug.network_test_shoot");
+	network_test.shoot_walls = config_boolean("debug.network_test_shoot_walls") != 0;
 	network_test.vehicle_time = (real)config_real("debug.network_test_vehicle");
 	network_test.pickup_time = (real)config_real("debug.network_test_pickup");
 	network_test.bomb_interval = (real)config_real("debug.network_test_bomb");
@@ -503,7 +508,7 @@ static void network_test_log_players(
 		struct observer_result const *camera = observer_get_camera(0);
 
 		platform_log("network test: tick %ld%s | items %ld (+%ld -%ld !%ld x%ld) | %s to %ld | sent %ld received %ld corrected %ld"
-			" | hits %ld dealt %ld rejected %ld replayed %ld | local %ld camera (%.1f %.1f %.1f) respawn %ld",
+			" | hits %ld dealt %ld rejected %ld replayed %ld | local %ld camera (%.1f %.1f %.1f) respawn %ld | sight %ld",
 			game_time_get(), line, ground_items, creates, deletes, failures, removed,
 			game_engine_can_score() ? "playing" : "game over",
 			game_engine_running() ? (long)game_engine_get_variant()->universal_variant.score_to_win : 0L,
@@ -511,7 +516,8 @@ static void network_test_log_players(
 			sent_reports, dealt_reports, rejected_reports, replayed_events,
 			local_player_index == NONE ? -1L : (long)DATUM_INDEX_TO_ABSOLUTE_INDEX(local_player_index),
 			camera ? camera->position.x : 0.0f, camera ? camera->position.y : 0.0f, camera ? camera->position.z : 0.0f,
-			local_player_index == NONE ? 0L : (long)player_get(local_player_index)->respawn_timer);
+			local_player_index == NONE ? 0L : (long)player_get(local_player_index)->respawn_timer,
+			network_damage_line_of_sight_refusals());
 	}
 }
 
@@ -540,6 +546,7 @@ static void network_test_shoot(
 		struct damage_data damage;
 		struct object_datum *target_object;
 		real_vector3d direction;
+		boolean in_sight;
 
 		if (player->local_player_index == NONE || player->unit_index == NONE)
 			continue;
@@ -610,6 +617,23 @@ static void network_test_shoot(
 			if (dx * dx + dy * dy + dz * dz > 0.9f * reach * 0.9f * reach)
 				continue;
 		}
+		/* (a shot only with a clear line from the shooter's camera to the
+		target, as a player's is; with debug.network_test_shoot_walls through
+		what is between too, which the host refuses: network.hit_line_of_sight) */
+		in_sight = TRUE;
+		if (!melee && global_current_collision_user_depth < MAXIMUM_COLLISION_USER_STACK_DEPTH)
+		{
+			struct collision_result collision;
+			real_point3d camera;
+
+			unit_get_camera_position(player->unit_index, &camera);
+			global_current_collision_users[global_current_collision_user_depth++] = _collision_user_debugging;
+			in_sight = !collision_test_line(_collision_test_for_line_of_sight_flags, &camera,
+				&target_object->object.bounding_sphere_center, object_get_ultimate_parent(player->unit_index), &collision);
+			--global_current_collision_user_depth;
+		}
+		if (!in_sight && !network_test.shoot_walls)
+			continue;
 		damage_data_new(&damage, damage_index);
 		damage.owner_player_index = iterator.datum_index;
 		damage.owner_object_index = player->unit_index;
@@ -624,8 +648,9 @@ static void network_test_shoot(
 		damage.scale = 1.0f;
 		scenario_location_from_point(&damage.location, &damage.epicenter);
 		object_cause_damage(&damage, target->unit_index, NONE, NONE, NONE, NULL);
-		platform_log("network test: player %ld shoots player %ld",
-			(long)DATUM_INDEX_TO_ABSOLUTE_INDEX(iterator.datum_index), (long)(target - (struct player_datum *)xbox_pointer(player_data->data)));
+		platform_log("network test: player %ld shoots player %ld%s",
+			(long)DATUM_INDEX_TO_ABSOLUTE_INDEX(iterator.datum_index), (long)(target - (struct player_datum *)xbox_pointer(player_data->data)),
+			in_sight ? "" : " through a wall");
 	}
 }
 
@@ -1640,7 +1665,12 @@ void network_test_update(
 			{
 				network_test.team_set = network_game_client_split_teams();
 			}
-			if (network_test.setup_seconds >= network_test.start_delay)
+			/* (and not before the map and the game variant are set: a host
+			whose server could not be made, its port taken by another program,
+			started the fast setup's game, of no game type, where the players
+			spawn with no weapons or grenades; it now waits, and the test
+			fails on its time limit) */
+			if (network_test.setup_seconds >= network_test.start_delay && network_test.map_set)
 			{
 				network_test.started = TRUE;
 				network_test.setup_seconds = 0.0f;

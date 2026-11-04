@@ -557,6 +557,9 @@ class Linux32Units:
     excluded: Set[str] = field(default_factory=set)
     # more platform units, with the platform layer's flags (after port/linux/src's)
     platform_sources: List[Path] = field(default_factory=list)
+    # more units that see the game as its own sources do, as port/linux/game's
+    # (a console port's own, after those)
+    game_unit_sources: List[Path] = field(default_factory=list)
     # more units with the host's ABI, as posix_*.c (after the platform units)
     native_sources: List[Path] = field(default_factory=list)
     # (the movies' FFmpeg: its compiler flags and its libraries, for the build
@@ -568,12 +571,25 @@ class Linux32Units:
     # the portable build's system root and SDL's headers, after the
     # instruction set, for every unit (PortableSdl.cflags)
     sysroot_flags: List[str] = field(default_factory=list)
+    # the instruction set, in place of march_flag's x86 one (a 32-bit ARM
+    # console's: the Steam Link's)
+    instruction_set: Optional[List[str]] = None
+
+
+# the ABI flags only x86 has, which clang rejects for another target: the
+# 32-bit ARM ABI already aligns doubles as MSVC does, and returns a structure
+# of 4 bytes or less in r0
+X86_ABI_FLAGS = ("-malign-double", "-freg-struct-return")
 
 
 def _retarget(flags: List[str], target_flags: List[str]) -> List[str]:
     """flags (LINUX_ABI_FLAGS or POSIX_FLAGS) for another target"""
     assert flags[:len(LINUX_TARGET_FLAGS)] == LINUX_TARGET_FLAGS
-    return [*target_flags, *flags[len(LINUX_TARGET_FLAGS):]]
+    rest = flags[len(LINUX_TARGET_FLAGS):]
+    if not any(flag.startswith(("--target=i686", "--target=i386", "--target=x86")) or flag == "-m32"
+               for flag in target_flags):
+        rest = [flag for flag in rest if flag not in X86_ABI_FLAGS]
+    return [*target_flags, *rest]
 
 
 def linux32_objects(n: Writer, units: Linux32Units, obj_dir: Path, extra_cflags: List[str],
@@ -586,7 +602,8 @@ def linux32_objects(n: Writer, units: Linux32Units, obj_dir: Path, extra_cflags:
     platform_semantics_header = units.platform_semantics_header
     browser_defines = ["-DHALO_GAME_BROWSER"] if units.game_browser else []
     # the instruction set, and the portable build's system root
-    target = [march_flag(sln), *units.sysroot_flags]
+    target = [*(units.instruction_set if units.instruction_set is not None else [march_flag(sln)]),
+              *units.sysroot_flags]
     # (a debug build checks its stack frames, and stops at the first one
     # overrun, as it stops at the first failed assertion; a release build
     # does not, so that an overrun nobody has met cannot end a game)
@@ -635,6 +652,8 @@ def linux32_objects(n: Writer, units: Linux32Units, obj_dir: Path, extra_cflags:
     # Port-specific units that must see the game exactly as its own
     # sources do (port/linux/game).
     for source in sorted(Path(config["game_sources"]).glob("*.c")):
+        add_object(source, game_cflags)
+    for source in units.game_unit_sources:
         add_object(source, game_cflags)
     # the dedicated server's director, with the game browser (server/)
     if units.game_browser:

@@ -10,11 +10,14 @@ team game, the killer (or the leader) in a game without teams. LB and RB
 (Q and E, or the mouse wheel, on the keyboard) switch who. The death camera
 of a short respawn stays the original game's.
 
-display.follow_camera picks when ("long_waits", "always" or "off") and
-display.follow_camera_after how long a wait counts as long. It is this
-machine's view only: nothing is sent, so it works in any host's game.
-director.c and hud.c call in here; the camera itself is the network co-op
-spectator's (coop_spectate_camera).
+display.follow_camera picks when ("long_waits", "always" or "off", the
+default: the Xbox had the death camera alone) and display.follow_camera_after
+how long a wait counts as long. It shows only where the game's host allows
+it (host_rules.c: its network.allow_follow_camera, a dedicated server's
+allow_follow_camera; a host that says nothing allows none), so the host's
+rule holds for everyone in its game. Nothing is sent: it is this machine's
+view only. director.c and hud.c call in here; the camera itself is the
+network co-op spectator's (coop_spectate_camera).
 */
 
 #include "cseries.h"
@@ -23,6 +26,7 @@ spectator's (coop_spectate_camera).
 #include "game/game_engine.h"
 #include "game/players.h"
 #include "input/input.h"
+#include "networking/network_game_globals.h"
 #include "memory/data.h"
 #include "interface/hud_messaging.h"
 #include "rasterizer/rasterizer.h"
@@ -77,12 +81,30 @@ unsigned long config_changes(void);
 /* input_abstraction.c: Q back, E or the mouse wheel on, held this tick */
 short input_abstraction_port_follow_cycle(short controller_index);
 
+#ifdef HALO_GAME_BROWSER
+/* host_rules.c */
+boolean host_rules_follow_camera(void);
+#endif
+
+/* whether the game's host allows the follow camera: without the host's
+rules (a build without Delta Peer's), only in a game this machine hosts or
+plays alone */
+static boolean follow_camera_allowed(
+	void)
+{
+#ifdef HALO_GAME_BROWSER
+	return host_rules_follow_camera();
+#else
+	return global_network_game_server_get() != NULL || global_network_game_client_get() == NULL;
+#endif
+}
+
 /* ---------- private code */
 
 static short follow_camera_setting(
 	void)
 {
-	static short setting = _follow_camera_long_waits;
+	static short setting = _follow_camera_off;
 	static unsigned long read_at = (unsigned long)-1;
 
 	/* (read again when Settings changes it) */
@@ -91,13 +113,16 @@ static short follow_camera_setting(
 		char const *value = config_string("display.follow_camera");
 
 		read_at = config_changes();
-		setting = _follow_camera_long_waits;
+		setting = _follow_camera_off;
 		if (!csstrcmp(value, "always"))
 			setting = _follow_camera_always;
-		else if (!csstrcmp(value, "off"))
-			setting = _follow_camera_off;
+		else if (!csstrcmp(value, "long_waits"))
+			setting = _follow_camera_long_waits;
 	}
 
+	/* (the host's to allow: the Xbox's death camera where it does not) */
+	if (setting != _follow_camera_off && !follow_camera_allowed())
+		return _follow_camera_off;
 	return setting;
 }
 

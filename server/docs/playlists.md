@@ -85,9 +85,9 @@ name is 1 to 8 letters and digits, other than `ce`, `md`, `pc`, `de`, `fr`,
 
 The older folders still work: `maps/ce/` (ChupathingyCE 0.7.0b and before),
 `md_maps/`, and OpenCE's `custom_maps/` for Custom Edition maps. A file
-named `<name>@ce.map` (`@md`, `@pc`) in `maps/` plays too. The server never
-moves folders itself unless `HALO_MOVE_OLD_MAP_FOLDERS=yes` (see
-[Settings](settings.md)).
+named `<name>@ce.map` (`@md`, `@pc`) in `maps/` plays too. The server reads
+the old folders where they are and never moves them (the game's
+`HALO_MOVE_OLD_MAP_FOLDERS` does nothing on the server).
 
 ## The playlist's map set
 
@@ -152,8 +152,21 @@ game; if there isn't one, that player waits for a second.
 | `slayer.txt` | Slayer and Team Slayer, every map. |
 | `bloodgulch.txt` | Blood Gulch only, Team Slayer and Slayer in turn, for the biggest games. |
 | `gearbox.txt` | Halo PC's stock maps as Custom Edition has them (`@ce`), Slayer and Team Slayer in turn. |
-| `gearbox.txt` | Halo PC's own maps (`@ce`), Slayer and Team Slayer in turn. |
 | `grifball.txt` | Grifball: Open Pitch on Blood Gulch, then Grifball on the smaller CTF maps. Chupathingy clients only. |
+
+## Event playlists
+
+`server/events/` in the repository has playlists and game types for
+one-off events. They are not in the server's download. To use one, copy
+its game types into the data folder's `admin/gametypes/` and its playlist
+into `playlists/`.
+
+`server/events/h2-anniversary/` is for the Halo 2 anniversary weekend:
+seven game types after Halo 2's classic playlists (`h2_slayer`, `h2_swat`,
+`h2_snipers`, `h2_ctf`, `h2_rockets`, `h2_oddball`, `h2_ffa`) and a
+12-entry playlist, `c_h2_anniversary.txt`, on the stock Xbox maps. They use
+only options the game already has, so every player can join. Its last
+entry is free for all, so a lone player is not left waiting.
 
 ## Playlists made on the server
 

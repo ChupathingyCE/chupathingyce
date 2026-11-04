@@ -1070,13 +1070,20 @@ def test_loader_override_hosting(checker, tmp_path):
 
 def test_host_protections_are_honest():
     """the names a row may require, and the ones this build has: never
-    line of sight, an address limit or votes until a build enforces them"""
+    an address limit or votes until a build enforces them on every host"""
     protections = delta_table.host_protections()
     assert protections, "delta.h's DELTA_HOST_PROTECTIONS has no names"
     assert all(re.fullmatch(r"[a-z0-9_]{1,31}", name) for name in protections)
     assert protections["hit_report_checks"] is True
-    for name in ("hit_line_of_sight", "address_machine_limit", "map_votes"):
-        assert protections[name] is False, f"{name} is in no build yet"
+    # 0.9.0's hosts and dedicated servers refuse hits with no line of sight
+    # by default (network.hit_line_of_sight)
+    assert protections["hit_line_of_sight"] is True
+    config = (ROOT / "port/linux/src/port_config.c").read_text(encoding="utf-8")
+    assert re.search(r'"network\.hit_line_of_sight", _config_boolean, "true"', config)
+    # the address limit is off by default on a player's host
+    assert re.search(r'"network\.max_machines_per_address", _config_integer, "0"', config)
+    for name in ("address_machine_limit", "map_votes"):
+        assert protections[name] is False, f"{name} is not enforced on every host yet"
 
 
 def requires_row(**fields):
@@ -1141,14 +1148,14 @@ def test_loader_hosts_only_with_the_protections(keys, checker, tmp_path):
     announced, one line says which protection, the join range the row's"""
     base = floor()
     table = write_signed(keys, tmp_path / "t10", document(serial=10, row=requires_row(
-        requires=["hit_report_checks", "hit_line_of_sight"])))
+        requires=["hit_report_checks", "hit_line_of_sight", "address_machine_limit"])))
     output = run_checker(checker, tmp_path, "offer", table, "state", "hosting")
     assert "offer 1" in output
     assert state_line(output)[0].startswith(f"state {base['announce']} {base['minimum']} {base['maximum'] + 1} "), \
         output
     assert f"hosting {base['announce']} pinned 0" in output
     said = [line for line in output.splitlines() if "requires the host protection" in line]
-    assert len(said) == 1 and "hit_line_of_sight" in said[0] and f"version {base['maximum'] + 1}" in said[0], output
+    assert len(said) == 1 and "address_machine_limit" in said[0] and f"version {base['maximum'] + 1}" in said[0], output
 
 
 @pytest.mark.parametrize("requires", [["future_protection"], ["hit_report_checks", "Not-Plain"]])
@@ -1164,7 +1171,7 @@ def test_loader_hosts_with_the_protections(keys, checker, tmp_path):
     """every protection required present (or none required): the newest
     proved is announced, as before"""
     newest = floor()["maximum"] + 1
-    for serial, requires in ((10, ["hit_report_checks"]), (11, [])):
+    for serial, requires in ((10, ["hit_report_checks"]), (11, []), (12, ["hit_report_checks", "hit_line_of_sight"])):
         table = write_signed(keys, tmp_path / f"t{serial}", document(serial=serial, row=requires_row(requires=requires)))
         output = run_checker(checker, tmp_path, "offer", table, "state")
         assert state_line(output)[0].startswith(f"state {newest} "), output

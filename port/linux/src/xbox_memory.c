@@ -39,6 +39,12 @@ Xbox kernel does.
 
 #include "platform.h"
 
+/* (Linux 4.17's; glibc before 2.28 has no name for it, and an older kernel
+takes the address as a hint, which every caller here checks it got) */
+#ifndef MAP_FIXED_NOREPLACE
+#define MAP_FIXED_NOREPLACE 0x100000
+#endif
+
 #include <errno.h>
 #ifdef HALO_ANDROID
 #include <stdio.h>
@@ -191,7 +197,36 @@ static void contiguous_arena_reserve(void)
 #ifdef HALO_64BIT
 	if (host_page_size > 0)
 		platform_host_page_size = (unsigned int)host_page_size;
-#ifdef HALO_ANDROID
+#ifdef HALO_IOS
+	/* iOS gives an app without the extended virtual addressing entitlement
+	(a paid developer account's) about 6 GB in one reservation, too little
+	for the 8 GB below. So 4 GB is asked for at each 4 GB-aligned address
+	from 8 GB up, as a hint the system takes where there is room, and else
+	taken wherever it comes: the conversions (xbox_address.h) add and
+	subtract the base, which need not be aligned */
+	{
+		uintptr_t hint;
+
+		result = MAP_FAILED;
+		for (hint = 2 * XBOX_ADDRESS_SPACE_SIZE; hint <= 64 * XBOX_ADDRESS_SPACE_SIZE; hint += XBOX_ADDRESS_SPACE_SIZE)
+		{
+			result = mmap((void *)hint, XBOX_ADDRESS_SPACE_SIZE, PROT_NONE,
+				MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
+			if (result == (void *)hint || result == MAP_FAILED)
+				break;
+			munmap(result, XBOX_ADDRESS_SPACE_SIZE);
+			result = MAP_FAILED;
+		}
+		if (result == MAP_FAILED)
+			result = mmap(NULL, XBOX_ADDRESS_SPACE_SIZE, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
+		/* (the entry point logs where it is: the log is not open yet) */
+		if (result != MAP_FAILED)
+		{
+			xbox_address_space_base = (uintptr_t)result;
+			wanted = result;
+		}
+	}
+#elif defined(HALO_ANDROID)
 	/* anywhere the system has room (xbox_address.h): twice the size,
 	of which the 4 GB-aligned part is kept, so that Xbox address X is host
 	address base + X with X in the low 32 bits, as at the desktop's fixed
