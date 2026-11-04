@@ -57,6 +57,7 @@ being hit looks and feels like on the clients).
 #include "units/units.h"
 #include "physics/collisions.h"
 #include "physics/collision_usage.h"
+#include "host_evidence.h"
 #include "network_distributed.h"
 #include "network_rules.h"
 #include "line_of_sight.h"
@@ -2477,6 +2478,9 @@ void network_damage_handle_reports(
 			damage_rejected_reports++;
 			if (damage_report_refused_line_of_sight)
 				damage_line_of_sight_reports++;
+			/* (counted for the server's moderators: host_evidence.h) */
+			host_evidence_note(machine_index,
+				damage_report_refused_line_of_sight ? _host_evidence_line_of_sight : _host_evidence_hit_report);
 			continue;
 		}
 		damage_dealt_reports++;

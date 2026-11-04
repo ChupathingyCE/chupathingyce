@@ -729,6 +729,9 @@ void moderation_screen_pointer(struct halo_ui_pointer const *pointer);
 void invite_prompt_render(void);
 /* (ONLINE GAMES, below: its list moves focus item by item) */
 boolean ui_widget_online_games_list(struct widget_instance *widget);
+#ifdef HALO_CONSOLE_MAP_BROWSER
+boolean ui_widget_map_browser_item(struct widget_instance *widget);
+#endif
 #endif
 
 /* ---------- constants */
@@ -3524,6 +3527,14 @@ enum
 	ONLINE_GAMES_SYSTEM_LINK = 2,
 	ONLINE_GAMES_POSITION = 3,
 	ONLINE_GAMES_MENU_ITEMS = 4,
+#ifdef HALO_CONSOLE_MAP_BROWSER
+	/* MAP BROWSER, a second copy of System Link's, under ONLINE GAMES
+	(port/xbox/game/xbox_maps_screen.c) */
+	MAP_BROWSER_POSITION = ONLINE_GAMES_POSITION + 1,
+	ONLINE_GAMES_ITEMS_ADDED = 2,
+#else
+	ONLINE_GAMES_ITEMS_ADDED = 1,
+#endif
 	/* the items' spacing (their vertical offset, -33) */
 	ONLINE_GAMES_ROW = 33,
 };
@@ -3534,6 +3545,9 @@ static struct
 	long description_text_tag;
 	struct ui_widget_child_reference *children;
 	boolean described;
+#ifdef HALO_CONSOLE_MAP_BROWSER
+	boolean map_browser_described;
+#endif
 } online_games = { NONE, NONE, NULL, FALSE };
 
 void ui_widget_online_games_tags_loaded(
@@ -3558,21 +3572,24 @@ void ui_widget_online_games_tags_loaded(
 	/* (the tags are loaded again with each map: the last copy goes) */
 	if (online_games.children)
 		system_free(online_games.children);
-	children = system_malloc((ONLINE_GAMES_MENU_ITEMS + 1) * sizeof(*children));
+	children = system_malloc((ONLINE_GAMES_MENU_ITEMS + ONLINE_GAMES_ITEMS_ADDED) * sizeof(*children));
 	online_games.children = children;
 	if (!children)
 		return;
 	old_children = (struct ui_widget_child_reference *)xbox_pointer(list->child_widgets.address);
 	csmemcpy(children, old_children, ONLINE_GAMES_POSITION * sizeof(*children));
 	children[ONLINE_GAMES_POSITION] = old_children[ONLINE_GAMES_SYSTEM_LINK];
-	csmemcpy(&children[ONLINE_GAMES_POSITION + 1], &old_children[ONLINE_GAMES_POSITION],
+#ifdef HALO_CONSOLE_MAP_BROWSER
+	children[MAP_BROWSER_POSITION] = old_children[ONLINE_GAMES_SYSTEM_LINK];
+#endif
+	csmemcpy(&children[ONLINE_GAMES_POSITION + ONLINE_GAMES_ITEMS_ADDED], &old_children[ONLINE_GAMES_POSITION],
 		(ONLINE_GAMES_MENU_ITEMS - ONLINE_GAMES_POSITION) * sizeof(*children));
-	/* (each item's place is its own tag's bounds: the copy, and the items
-	after it, a row lower) */
-	for (index = ONLINE_GAMES_POSITION; index <= ONLINE_GAMES_MENU_ITEMS; index++)
-		children[index].vertical_offset += ONLINE_GAMES_ROW;
+	/* (each item's place is its own tag's bounds: the copies, and the items
+	after them, each a row lower than the last) */
+	for (index = ONLINE_GAMES_POSITION; index < ONLINE_GAMES_MENU_ITEMS + ONLINE_GAMES_ITEMS_ADDED; index++)
+		children[index].vertical_offset += ONLINE_GAMES_ROW * (short)MIN(index - ONLINE_GAMES_POSITION + 1, ONLINE_GAMES_ITEMS_ADDED);
 	list->child_widgets.address = XBOX_ADDRESS(children);
-	list->child_widgets.count = ONLINE_GAMES_MENU_ITEMS + 1;
+	list->child_widgets.count = ONLINE_GAMES_MENU_ITEMS + ONLINE_GAMES_ITEMS_ADDED;
 	online_games.list_tag = list_tag;
 
 	/* the line under the items, a row lower */
@@ -3585,7 +3602,7 @@ void ui_widget_online_games_tags_loaded(
 		for (index = 0; index < screen->child_widgets.count; index++)
 		{
 			if (screen_children[index].widget_tag.index == line_tag)
-				screen_children[index].vertical_offset += ONLINE_GAMES_ROW;
+				screen_children[index].vertical_offset += ONLINE_GAMES_ROW * ONLINE_GAMES_ITEMS_ADDED;
 		}
 	}
 }
@@ -3616,6 +3633,16 @@ boolean ui_widget_online_games_item(
 }
 
 #ifdef HALO_CONSOLE_ONLINE_GAMES
+#ifdef HALO_CONSOLE_MAP_BROWSER
+boolean ui_widget_map_browser_item(
+	struct widget_instance *widget)
+{
+	return online_games.list_tag != NONE && widget && widget->parent &&
+		widget->parent->definition_tag_index == online_games.list_tag &&
+		ui_widget_list_position(widget) == MAP_BROWSER_POSITION;
+}
+#endif
+
 /* the menu's fonts, for the console's ONLINE GAMES screen
 (port/xbox/game/xbox_browser_screen.c), so it reads as the menus do: the
 items' (System Link's) for headings, the description's for the rest; NONE
@@ -3673,6 +3700,9 @@ short ui_widget_online_games_description(
 	short index)
 {
 	online_games.described = FALSE;
+#ifdef HALO_CONSOLE_MAP_BROWSER
+	online_games.map_browser_described = FALSE;
+#endif
 	if (online_games.list_tag == NONE || list_widget->definition_tag_index != online_games.list_tag)
 		return index;
 	if (index == ONLINE_GAMES_POSITION)
@@ -3680,7 +3710,14 @@ short ui_widget_online_games_description(
 		online_games.described = TRUE;
 		return ONLINE_GAMES_SYSTEM_LINK;
 	}
-	return index > ONLINE_GAMES_POSITION ? (short)(index - 1) : index;
+#ifdef HALO_CONSOLE_MAP_BROWSER
+	if (index == MAP_BROWSER_POSITION)
+	{
+		online_games.map_browser_described = TRUE;
+		return ONLINE_GAMES_SYSTEM_LINK;
+	}
+#endif
+	return index > ONLINE_GAMES_POSITION ? (short)(index - ONLINE_GAMES_ITEMS_ADDED) : index;
 }
 #endif
 
@@ -3709,6 +3746,23 @@ static void event_handler_dispatch(
 		browser_screen_open();
 		return;
 	}
+#ifdef HALO_CONSOLE_MAP_BROWSER
+	/* MAP BROWSER (the same copy): its own screen, and none of System Link's
+	other buttons */
+	if (ui_widget_map_browser_item(widget))
+	{
+		if (handler->event_type == _gamepad_analog_button_a || handler->event_type == _gamepad_binary_button_start)
+		{
+			extern void maps_screen_open(void);
+
+			ui_play_audio_feedback_sound(_ui_audio_feedback_forward);
+			maps_screen_open();
+			return;
+		}
+		if (handler->event_type == _gamepad_analog_button_y || handler->event_type == _gamepad_analog_button_x)
+			return;
+	}
+#endif
 #endif
 	if (TEST_FLAG(handler->flags, _event_handler_run_scenario_script_bit) &&
 		handler->script[0])
@@ -5769,6 +5823,17 @@ static void widget_instance_render_text_box(
 		/* (ONLINE GAMES' item and description share System Link's tags) */
 		if (ui_widget_online_games_item(widget))
 			string = L"ONLINE GAMES";
+#ifdef HALO_CONSOLE_MAP_BROWSER
+		else if (ui_widget_map_browser_item(widget))
+			string = L"MAP BROWSER";
+		else if (online_games.map_browser_described && widget->definition_tag_index == online_games.description_text_tag)
+		{
+			/* (the port's own words: it names where its maps come from) */
+			extern wchar_t const *maps_screen_description(void);
+
+			string = (wchar_t *)maps_screen_description();
+		}
+#endif
 		else if (online_games.described && widget->definition_tag_index == online_games.description_text_tag)
 			/* (broken in lines as the game's own: the text box does not wrap) */
 #ifdef HALO_CONSOLE_ONLINE_GAMES

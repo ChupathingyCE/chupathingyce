@@ -624,14 +624,17 @@ int map_archive_map_hash(map_archive_read_proc read, map_archive_stop_proc stop,
 	enum
 	{
 		PIECE_SIZE = 0x40000,
+		/* (each piece hashed as it's read, a chunk at a time: the same hash, without
+		256 KB in one block, which a 64 MB Xbox in the menus hasn't to spare) */
+		CHUNK_SIZE = 0x4000,
 	};
 	static const char tag[] = "OpenCE map 1";
 	unsigned char size_bytes[4];
 	unsigned char piece_hash[MAP_ARCHIVE_HASH_SIZE];
-	crypto_blake2b_ctx whole;
-	unsigned char *piece = (unsigned char *)malloc(PIECE_SIZE);
+	crypto_blake2b_ctx whole, piece_context;
+	unsigned char piece[CHUNK_SIZE];
 	unsigned int offset;
-	int ok = piece != NULL;
+	int ok = 1;
 
 	size_bytes[0] = (unsigned char)size;
 	size_bytes[1] = (unsigned char)(size >> 8);
@@ -643,16 +646,25 @@ int map_archive_map_hash(map_archive_read_proc read, map_archive_stop_proc stop,
 	for (offset = 0; ok && offset < size; offset += PIECE_SIZE)
 	{
 		unsigned int count = size - offset < PIECE_SIZE ? size - offset : PIECE_SIZE;
+		unsigned int done;
 
-		ok = (!stop || !stop(context)) && read(context, offset, piece, count);
+		ok = !stop || !stop(context);
+		crypto_blake2b_init(&piece_context, sizeof(piece_hash));
+		for (done = 0; ok && done < count; done += CHUNK_SIZE)
+		{
+			unsigned int chunk = count - done < CHUNK_SIZE ? count - done : CHUNK_SIZE;
+
+			ok = read(context, offset + done, piece, chunk);
+			if (ok)
+				crypto_blake2b_update(&piece_context, piece, chunk);
+		}
 		if (ok)
 		{
-			crypto_blake2b(piece_hash, sizeof(piece_hash), piece, count);
+			crypto_blake2b_final(&piece_context, piece_hash);
 			crypto_blake2b_update(&whole, piece_hash, sizeof(piece_hash));
 		}
 	}
 	crypto_blake2b_final(&whole, hash);
-	free(piece);
 	return ok;
 }
 

@@ -19,7 +19,9 @@ ninja            # the game for the computer you're on
 | `ninja windows64` | `build/windows64/chupathingy.exe`, the 64-bit game | [port/windows/README.md](../port/windows/README.md#64-bit) |
 | `ninja freebsd64` | `build/freebsd64/chupathingy`, on FreeBSD | [port/unix/README.md](../port/unix/README.md) |
 | `ninja android_apk` | the Android app | [port/android/README.md](../port/android/README.md) |
+| `ninja android64_apk` | the native 64-bit Android app (experimental) | [port/android/README.md](../port/android/README.md#the-native-64-bit-build-experimental) |
 | `ninja server` | `build/server-<arch>/chupathingyce-server`, the dedicated server (Linux) | [server/docs/building.md](../server/docs/building.md) |
+| `ninja server-windows64` | `build/server-windows64/chupathingyce-server.exe`, the dedicated server for 64-bit Windows, on Windows | [server/docs/building.md](../server/docs/building.md) |
 
 Useful `configure.py` options:
 
@@ -28,14 +30,23 @@ Useful `configure.py` options:
 | `--release` | A release build, as players get. Without it, a failed check stops the game. |
 | `--portable` | A Linux or Windows build that runs on any x86-64 computer, or a universal Mac application, to give to others. The Linux builds also run on older distributions and on SteamOS: refer to "Portable build" in [port/linux/README.md](../port/linux/README.md#portable-build). |
 | `--no-game-browser` | Leaves out the server list, stats and dedicated servers. |
+| `--packaged` | A build for a package manager: it never updates itself, and on Linux keeps its data and settings in `~/.local/share/chupathingyce` ([docs/install.md](install.md#package-managers)). |
 | `--pgo=off`, `--lto=off` | Faster builds, without profile-guided or link-time optimisation. |
 
 The console ports (original Xbox, Xbox 360, Switch, Wii U) are built from their own
 repositories, with this one as a submodule: [Console ports](#console-ports), below.
 
+The iPhone, iPad and Apple TV builds come from `port/ios` (`ninja ios` and
+`ninja tvos`, with `configure.py --console-port port/ios`), on a Mac with
+Xcode: see [port/ios/README.md](../port/ios/README.md). They aren't in the
+nightlies or releases yet.
+
 The version being made is in `VERSION`. Releases are built and published by
 the project's release workflow; the builds on this repository's Actions page
-are for checking changes.
+are for checking changes. A pull request builds every platform in its release
+configuration, and one that changes only documentation doesn't build. Pushes
+to `main` don't build: the nightly checks it. Debug builds are made only for
+releases, nightlies, test builds and tags.
 
 ## Console ports
 
@@ -46,7 +57,7 @@ the build's generic side (`tools/console_build.py`).
 
 | Repository | Console | Status | Maintained by |
 | --- | --- | --- | --- |
-| [ChupathingyCE/warthog-xbox](https://github.com/ChupathingyCE/warthog-xbox) | original Xbox | Test builds: plays online, up to 32 players, with Halo CE+ maps | Milenko |
+| [ChupathingyCE/warthog-xbox](https://github.com/ChupathingyCE/warthog-xbox) | original Xbox | Test builds: plays online, up to 32 players, with Halo CE+ maps, and Custom Edition maps from its Map Browser | Milenko |
 | [ChupathingyCE/warthog-360](https://github.com/ChupathingyCE/warthog-360) | Xbox 360 | Plays and joins servers on RGH hardware; test builds on Discord | Milenko |
 | [ChupathingyCE/warthog-switch](https://github.com/ChupathingyCE/warthog-switch) | Switch | Working: boots and plays on Switch hardware; CI builds it | [thelinkin3000](https://github.com/thelinkin3000) |
 | [ChupathingyCE/warthog-wiiu](https://github.com/ChupathingyCE/warthog-wiiu) | Wii U | Plays on hardware and joins servers online; [public test builds](https://github.com/ChupathingyCE/warthog-wiiu/releases) | Milenko |
@@ -134,6 +145,10 @@ and what each hook asks of the port, or on its compile lines:
 | `HALO_CONSOLE_LOG_BUFFER`, `HALO_CONSOLE_LOG_THROTTLE` | a log whose writes are slow |
 | `HALO_CONSOLE_GPU_RESOURCE_HOOKS`, `HALO_CONSOLE_NO_WRITE_WATCH`, `HALO_CONSOLE_HOST_ART`, `HALO_CONSOLE_MAP_LOAD_HOOKS`, `HALO_CONSOLE_STATUS_LINE` | a console renderer of its own |
 | `HALO_CONSOLE_GL_LAYER` | a console whose OpenGL is the port's own layer over another graphics API |
+| `HALO_CONSOLE_GLES2` | a console with OpenGL ES 2 only (the Steam Link): the renderer's ES path, filled out by the port's `console_gles2_layer` |
+| `HALO_CONSOLE_SETUP_SCREENS`, `HALO_CONSOLE_CACHE_SCREEN`, `HALO_CONSOLE_PERFORMANCE_MODE` | a console on a television with no dialogs: the port's own start-up screens, a progress screen while the cache files are made, and a lighter picture for a slow console |
+| `HALO_CONSOLE_GAME_REPORTS` | the reports of the games the console joins, sent to the site (`port/console/reports`) |
+| `HALO_CONSOLE_CE_SHARED_TAG_CACHE`, `HALO_CONSOLE_CE_BITMAPS` | Custom Edition maps on a console: the console's own tag cache lent to the map, and its bitmaps made the console's as they are read (`halo_port_features.h`) |
 | `HALO_CONSOLE_XBOX_RENDER_SIZES` | the Xbox's texture cache and frame draw limits on a build that otherwise has the desktop's |
 | `HALO_CONSOLE_DEBUG_CHANNEL`, `HALO_CONSOLE_HALT_TO_LAUNCHER` | a console without a standard error, whose halts go back to its launcher |
 | `HALO_CONSOLE_BRINGUP_LOG` | with the developer tools, a console's bring-up logs (frame stages, the main loop's pulse, init.txt's `later` commands) |

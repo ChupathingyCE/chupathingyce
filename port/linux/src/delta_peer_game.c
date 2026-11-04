@@ -133,6 +133,14 @@ static int local_platform(void)
 	const char *deck = getenv("SteamDeck");
 
 	return deck && deck[0] == '1' ? _delta_platform_steam_deck : _delta_platform_pc_windows;
+#elif defined(HALO_TVOS)
+	/* (the iOS port's Apple TV build: HALO_IOS too, and an Apple target,
+	so before both) */
+	return _delta_platform_tvos;
+#elif defined(HALO_IOS)
+	/* (iPhone and iPad: an Apple target built as the Android guest is,
+	HALO_ANDROID too, so before both) */
+	return _delta_platform_ios;
 #elif defined(__APPLE__)
 	return _delta_platform_pc_macos;
 #elif defined(HALO_ANDROID)
@@ -1009,7 +1017,8 @@ int delta_peer_game_client_state(void)
 /* (delta.h's registry, in its order) */
 static const char *const platform_names[] = {
 	"unknown", "pc_windows", "pc_macos", "pc_linux", "android", "steam_deck", "xbox", "xbox360", "wiiu", "switch",
-	"psp", "vita", "xbox_uwp", "pc_freebsd", "ps3", "ps4", "ps5", "n64", "pc_legacy"
+	"psp", "vita", "xbox_uwp", "pc_freebsd", "ps3", "ps4", "ps5", "n64", "pc_legacy",
+	"steamlink", "ios", "tvos"
 };
 typedef char platform_names_check[sizeof(platform_names) / sizeof(platform_names[0]) == NUMBER_OF_DELTA_PLATFORMS ?
 	1 : -1];

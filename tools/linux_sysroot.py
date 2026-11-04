@@ -167,7 +167,8 @@ PACKAGES: List[Tuple[str, str, str]] = [
 ]
 
 # The 64-bit build's (tools/linux64_build.py): the same packages, amd64, in
-# the same order (the architecture-independent ones, _all, are the same files)
+# the same order (the architecture-independent ones, _all, are the same files),
+# and the C++ library
 PACKAGES_AMD64: List[Tuple[str, str, str]] = [
     ("pool/main/g/glibc/libc6_2.31-13+deb11u11_amd64.deb",
      "05f7264da867b37f4c5ce49266b558ea1e81e05a9464f623152fca70f3550282", "20240817T023924Z"),
@@ -179,6 +180,12 @@ PACKAGES_AMD64: List[Tuple[str, str, str]] = [
      "e478f2709d8474165bb664de42e16950c391f30eaa55bc9b3573281d83a29daf", "20210111T024320Z"),
     ("pool/main/g/gcc-10/libgcc-10-dev_10.2.1-6_amd64.deb",
      "3b711374092b84e732c4e73cf33e02cff02e34a5f105eb6467de8d9038e4cd9d", "20210111T024320Z"),
+    # (the C++ library, which the bgfx renderer's units are built and linked
+    # against: tools/bgfx_build.py; only the 64-bit build has it)
+    ("pool/main/g/gcc-10/libstdc++6_10.2.1-6_amd64.deb",
+     "5c155c58935870bf3b4bfe769116841c0d286a74f59eccfd5645693ac23f06b1", "20210111T024320Z"),
+    ("pool/main/g/gcc-10/libstdc++-10-dev_10.2.1-6_amd64.deb",
+     "20b1f56863dcc5f187d6cb53b2aa6149bd013be4ec67e10c2c31a22fda619a01", "20210111T024320Z"),
     ("pool/main/libx/libx11/libx11-6_1.7.2-1+deb11u2_amd64.deb",
      "2b3b959cb10c07be065eb638a8577fe20f282045aaef76425dbd7310d1244b8c", "20231012T085604Z"),
     ("pool/main/libx/libx11/libx11-dev_1.7.2-1+deb11u2_amd64.deb",

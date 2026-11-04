@@ -1,0 +1,28 @@
+# H2 Snipers: Halo 2 Team Snipers. Sniper rifles from the weapon set, the
+# rest of the rules as H2 Slayer. CE's sniper rifle has no battle rifle or
+# beam rifle choice; this is the CE one.
+base = "team_slayer"
+name = "H2 Snipers"
+score_limit = 50
+time_limit = 15
+
+[players]
+shields = true
+respawn_time = 5
+
+[items]
+weapon_set = "sniping"
+starting_equipment = "map"
+
+[indicators]
+objectives = "motion_tracker"
+players_on_radar = "all"
+friends_on_screen = true
+
+[team_play]
+friendly_fire = "off"
+auto_balance = true
+
+[vehicles]
+red = "none"
+blue = "none"

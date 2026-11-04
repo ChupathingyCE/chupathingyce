@@ -15,10 +15,10 @@ glyphs from U+E000, so a prompt names the button of what the player holds.
 
 `platform_icons.ttf` draws the scoreboard's platform logos, one glyph per
 platform at U+E100 plus its number in delta.h's registry (Windows U+E101 up
-to Legacy PC U+E112). One logo can serve several platforms: the PlayStation
+to the Apple TV U+E115). One logo can serve several platforms: the PlayStation
 logo is the PSP's, the Vita's, the PS3's, the PS4's and the PS5's. A player
 whose platform isn't known, or has no logo yet (the Nintendo 64, the Legacy
-PC), gets none. The sources are the SVGs in `platform_icons/`, and
+PC, the Steam Link, iOS and the Apple TV), gets none. The sources are the SVGs in `platform_icons/`, and
 `tools/platform_icons_font.py` builds the font from them (its `PLATFORMS`
 says which numbers each SVG draws):
 

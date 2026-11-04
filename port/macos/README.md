@@ -78,6 +78,8 @@ treats an Xbox address as a pointer, or the reverse, does not compile.
   unreadable movie is skipped, as on the Xbox.
 - The application bundle (`port/macos/bundle.py`, `Info.plist`) registers the
   `halo://` and Discord URL schemes that internet play invites use.
+- The application does not replace itself yet. A release build that finds
+  a newer release offers its download page (`updater.c`).
 - Command-W (the Window menu's Close) does not close the game, as W moves
   the player forward. Command-Q quits on a second press within two seconds
   (Q is the flashlight); the window's close button, the menus' Quit and the

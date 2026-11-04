@@ -2,7 +2,7 @@ name: Build
 
 # Debug and release builds of the native ports (Linux and Windows, 32- and
 # 64-bit, Android and its native 64-bit app, macOS, FreeBSD), and release builds of the dedicated server (Linux
-# x86, x64 and arm64) and its container, for every pushed commit and pull
+# x86, x64 and arm64, and Windows x64) and its container, for every pushed commit and pull
 # request, uploaded as artifacts: whether a change builds. tools/ci_build.py does each build; see it for the options.
 #
 # These builds are VERSION's -dev, and never look for updates. Releases and
@@ -222,7 +222,7 @@ jobs:
         env:
           HALO_SANITIZERS_REQUIRED: "1"
         run: |
-          python3 -m pytest -q tools/test_host_fuzz.py tools/test_linux_port.py tools/test_android_asm_convert.py tools/test_touch_menu.py tools/test_ui_point.py tools/test_p2p_copies.py tools/test_p2p_host_port.py tools/test_ping.py tools/test_save_folder.py tools/test_packaged_install.py tools/test_server_control.py tools/test_delta.py tools/test_delta_peer.py tools/test_delta_compat.py tools/test_network_rules.py tools/test_map_download.py tools/test_playlist_maps.py tools/test_map_families.py tools/test_map_packs.py tools/test_map_report.py tools/test_event_log.py tools/test_update_manifest.py tools/test_rename_stub.py tools/test_gamespy_listing.py tools/test_ce_joins.py tools/test_determinism.py tools/test_ce_effect_flags.py tools/test_online_games_list.py tools/test_http_url_rules.py tools/test_host_cheats.py tools/test_vote_notice.py tools/test_lobby_budget.py tools/test_line_of_sight.py tools/test_host_console_objects.py
+          python3 -m pytest -q tools/test_host_fuzz.py tools/test_linux_port.py tools/test_android_asm_convert.py tools/test_touch_menu.py tools/test_ui_point.py tools/test_p2p_copies.py tools/test_p2p_host_port.py tools/test_ping.py tools/test_save_folder.py tools/test_packaged_install.py tools/test_server_control.py tools/test_delta.py tools/test_delta_peer.py tools/test_delta_compat.py tools/test_network_rules.py tools/test_map_download.py tools/test_playlist_maps.py tools/test_map_families.py tools/test_map_packs.py tools/test_map_report.py tools/test_event_log.py tools/test_update_manifest.py tools/test_rename_stub.py tools/test_gamespy_listing.py tools/test_ce_joins.py tools/test_determinism.py tools/test_ce_effect_flags.py tools/test_online_games_list.py tools/test_http_url_rules.py tools/test_host_cheats.py tools/test_vote_notice.py tools/test_lobby_budget.py tools/test_line_of_sight.py tools/test_host_console_objects.py tools/test_host_evidence.py tools/test_address_limit.py tools/test_conduct_rules.py tools/test_tricks.py
           python3 tools/test_light_storage.py
           python3 tools/test_rendered_lights_storage.py
           python3 tools/test_port_config.py
@@ -319,6 +319,13 @@ jobs:
         with:
           path: build/linux64/third_party
           key: linux64-third-party-${{ hashFiles('tools/linux_sysroot.py') }}
+
+      # bgfx's, bx's and bimg's sources, which the build fetches for the bgfx
+      # renderer (tools/bgfx_build.py): kept so most runs fetch nothing
+      - uses: actions/cache@v4
+        with:
+          path: build/bgfx
+          key: bgfx-source-${{ hashFiles('tools/bgfx_build.py') }}
 
       - name: Debug
         if: env.BUILD_DEBUG == 'true'
@@ -598,6 +605,133 @@ jobs:
             test "$(docker image inspect -f '{{.Config.User}}' chupathingyce-server:$platform)" = 1000:1000
           done
           docker image ls chupathingyce-server
+
+  server-windows:
+    # The dedicated server for 64-bit Windows (ninja server-windows64;
+    # tools/windows_build.py), a console program with no SDL, packaged as
+    # chupathingyce-server-windows-x64 with start-server.bat and its README
+    # (server/windows); then started as the server job starts the Linux
+    # ones, and installed, started and taken out once as a Windows service
+    # (the runner's user is an administrator). Release only, as the Linux
+    # servers.
+    runs-on: windows-2025
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Install the toolchain
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -OutFile ninja.zip https://github.com/ninja-build/ninja/releases/download/v1.12.1/ninja-win.zip
+          Invoke-WebRequest -OutFile ccache.zip https://github.com/ccache/ccache/releases/download/v4.10.2/ccache-4.10.2-windows-x86_64.zip
+          # (each download checked against the hash it had when it was pinned)
+          if ((Get-FileHash ninja.zip -Algorithm SHA256).Hash -ne "F550FEC705B6D6FF58F2DB3C374C2277A37691678D6ABA463ADCBB129108467A") { throw "ninja.zip: unexpected SHA-256" }
+          if ((Get-FileHash ccache.zip -Algorithm SHA256).Hash -ne "6252F081876A9A9F700FAE13A5AEC5D0D486B28261D7F1F72AC11C7AD9DF4DA9") { throw "ccache.zip: unexpected SHA-256" }
+          Expand-Archive ninja.zip -DestinationPath "$env:RUNNER_TEMP\tools"
+          Expand-Archive ccache.zip -DestinationPath $env:RUNNER_TEMP
+          Copy-Item "$env:RUNNER_TEMP\ccache-4.10.2-windows-x86_64\ccache.exe" "$env:RUNNER_TEMP\tools"
+          Remove-Item ninja.zip, ccache.zip
+          "$env:RUNNER_TEMP\tools" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit }}
+
+      # (restored on every run, saved only on main: other branches' and pull
+      # requests' runs start from main's and keep nothing of their own)
+      - uses: actions/cache/restore@v4
+        with:
+          path: .ccache
+          key: ccache-server-windows64-${{ github.sha }}
+          restore-keys: ccache-server-windows64-
+
+      # SDL's development package, which configure.py fetches (its headers
+      # only, for the server)
+      - uses: actions/cache@v4
+        with:
+          path: build/windows/third_party
+          key: windows-third-party-${{ hashFiles('tools/windows_build.py') }}
+
+      - name: Release
+        run: python tools/ci_build.py server-windows64 release
+
+      - name: Compile cache
+        run: ccache --show-stats
+
+      - name: Start it
+        run: |
+          smoke="$RUNNER_TEMP/smoke"
+          server="$smoke/chupathingyce-server.exe"
+          mkdir -p "$smoke/data/playlists"
+          cp dist/chupathingyce-server-windows-x64/chupathingyce-server.exe "$server"
+          ls dist/chupathingyce-server-windows-x64
+          test -f dist/chupathingyce-server-windows-x64/start-server.bat
+          test -f dist/chupathingyce-server-windows-x64/README.txt
+          # (no SDL, nothing beside it to load)
+          if objdump -p "$server" 2>/dev/null | grep -i "DLL Name" | grep -i sdl; then echo "links SDL"; exit 1; fi
+          "$server" --version
+          # no playlist: how to start one, and status 2
+          status=0; "$server" || status=$?
+          test "$status" = 2
+          # --service, not started by the service manager: status 2
+          status=0; "$server" --service 2> "$smoke/service.txt" || status=$?
+          cat "$smoke/service.txt"
+          test "$status" = 2
+          # a playlist, but no maps: a clear error, and status 1
+          echo "bloodgulch slayer" > "$smoke/data/playlists/test.txt"
+          status=0
+          HALO_DATA_ROOT="$(cygpath -w "$smoke/data")" HALO_SAVE_ROOT="$(cygpath -w "$smoke/saves")" \
+            HALO_DEDICATED=playlists/test.txt HALO_NET_ONLINE=false HALO_NET_LIST_GAMES=false \
+            timeout 60 "$server" 2> "$smoke/error.txt" < /dev/null || status=$?
+          cat "$smoke/error.txt"
+          test "$status" = 1
+          grep -q "no maps" "$smoke/error.txt"
+
+      - name: As a service
+        shell: pwsh
+        run: |
+          $data = Join-Path $env:RUNNER_TEMP "service-data"
+          New-Item -ItemType Directory -Force (Join-Path $data "playlists") | Out-Null
+          Copy-Item dist/chupathingyce-server-windows-x64/chupathingyce-server.exe $data
+          Set-Content (Join-Path $data "playlists/test.txt") "bloodgulch slayer"
+          Set-Location $data
+          $env:HALO_DEDICATED = "playlists\test.txt"
+          $env:HALO_NET_ONLINE = "false"
+          $env:HALO_NET_LIST_GAMES = "false"
+          & .\chupathingyce-server.exe --install-service ChupathingySmoke
+          if ($LASTEXITCODE -ne 0) { throw "--install-service: $LASTEXITCODE" }
+          sc.exe qc ChupathingySmoke
+          if (-not ((sc.exe qc ChupathingySmoke) -match "NT SERVICE\\ChupathingySmoke")) { throw "not its own account" }
+          # (no maps: it starts, says so in its output file, and stops)
+          $output = Join-Path $data "logs/server-output.txt"
+          for ($i = 0; $i -lt 30 -and -not ((Test-Path $output) -and (Select-String -Quiet "no maps" $output)); $i++) { Start-Sleep 1 }
+          Get-Content $output -ErrorAction SilentlyContinue
+          if (-not (Select-String -Quiet "no maps" $output)) { throw "the service did not run the server" }
+          & .\chupathingyce-server.exe --uninstall-service ChupathingySmoke
+          if ($LASTEXITCODE -ne 0) { throw "--uninstall-service: $LASTEXITCODE" }
+          sc.exe query ChupathingySmoke
+          if ($LASTEXITCODE -eq 0) { throw "the service is still there" }
+          exit 0
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chupathingyce-server-windows-x64
+          path: dist/chupathingyce-server-windows-x64
+          retention-days: 3
+
+      # (kept by ChupathingyCE's release, not a download)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: symbols-server-windows-x64-release
+          path: dist/chupathingyce-server-windows-x64-release-symbols
+          retention-days: 3
+
+      - uses: actions/cache/save@v4
+        if: ${{ success() && github.ref == 'refs/heads/main' }}
+        with:
+          path: .ccache
+          key: ccache-server-windows64-${{ github.sha }}
 
   android:
     # The runner image has the Android SDK and NDK, a JDK and CMake.
@@ -939,6 +1073,13 @@ jobs:
           path: build/windows/third_party
           key: windows-third-party-${{ hashFiles('tools/windows_build.py') }}
 
+      # bgfx's, bx's and bimg's sources, which the build fetches for the bgfx
+      # renderer (tools/bgfx_build.py): kept so most runs fetch nothing
+      - uses: actions/cache@v4
+        with:
+          path: build/bgfx
+          key: bgfx-source-${{ hashFiles('tools/bgfx_build.py') }}
+
       # the movies' FFmpeg (tools/ffmpeg_build.py), built once and cached:
       # its configure and make run under the runner's MSYS2, which needs make
       - name: MSYS2 make
@@ -1027,6 +1168,13 @@ jobs:
         with:
           path: build/macos/third_party
           key: macos-sdl3-${{ hashFiles('tools/android_build.py', 'tools/macos_build.py', 'tools/ffmpeg_build.py') }}
+
+      # bgfx's, bx's and bimg's sources, which the build fetches for the bgfx
+      # renderer (tools/bgfx_build.py): kept so most runs fetch nothing
+      - uses: actions/cache@v4
+        with:
+          path: build/bgfx
+          key: bgfx-source-${{ hashFiles('tools/bgfx_build.py') }}
 
       - name: Debug
         if: env.BUILD_DEBUG == 'true'

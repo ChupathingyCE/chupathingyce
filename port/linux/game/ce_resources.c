@@ -511,6 +511,9 @@ silent (no pitch ranges: sound_manager.c does not play it). */
 
 /* every bitmap in Custom Edition's bitmaps.map (CE_BITMAP_DATA_SIZE each),
 read once, for stand-ins */
+#ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
+void *platform_ce_heap_realloc(void *address, size_t size);
+#endif
 static byte *ce_retail_stand_ins;
 static long ce_retail_stand_in_count;
 static boolean ce_retail_stand_ins_read;
@@ -615,7 +618,13 @@ static void ce_retail_read_stand_ins(
 		bitmaps = ce_retail_resource_bitmaps(map, (long)index, &count);
 		if (!bitmaps)
 			continue;
+#ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
+		/* (kept for good: the heap's, not what a 64 MB console's load borrows,
+		port/xbox's xbox_ce_files.c) */
+		grown = platform_ce_heap_realloc(ce_retail_stand_ins, (ce_retail_stand_in_count + count) * CE_BITMAP_DATA_SIZE);
+#else
 		grown = realloc(ce_retail_stand_ins, (ce_retail_stand_in_count + count) * CE_BITMAP_DATA_SIZE);
+#endif
 		if (grown)
 		{
 			memcpy(grown + ce_retail_stand_in_count * CE_BITMAP_DATA_SIZE, bitmaps, count * CE_BITMAP_DATA_SIZE);

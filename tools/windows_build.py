@@ -14,6 +14,11 @@ configure.py runs on Windows. See port/windows/README.md for the design.
 builds' code paths (HALO_64BIT: source/cseries/xbox_address.h), as
 ``ninja linux64`` and ``ninja macos`` have them. Both play Halo PC's Custom
 Edition maps (HALO_CUSTOM_EDITION).
+
+``ninja server-windows64`` builds the dedicated server for x64 Windows
+(build/server-windows64/chupathingyce-server.exe; server/windows/README.txt):
+the 64-bit units with the server's (tools/server_build.py's) in place of
+SDL's window, input and sound, a console program that links no SDL.
 Windows keeps `long` 32 bits wide on x64 (LLP64), as the Xbox's compiler
 did, so the sources need none of the LP64 builds' `long` rewrite
 (tools/lp64_build.py).
@@ -28,8 +33,9 @@ import subprocess
 import sys
 import urllib.request
 import zipfile
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Dict, List, Optional, Sequence
 
 from .version import VERSION_SOURCES, identity_defines, release_build, resource_version, version
@@ -37,9 +43,12 @@ from .linux_build import (COMPRESSED_MAP_DEFINES, CUSTOM_EDITION_DEFINES, ZSTD_D
                           XDK_INCLUDE, game_browser_defines, lto_mode, march_flag, miniupnpc_sources, pgo_mode, compile_launcher, game_defines_and_includes,
                           game_sources, musl_math_cflags, musl_math_sources, pgo_profile, profile_use_flags,
                           xdk_headers)
+from .bgfx_build import BgfxTarget, bgfx_build, bgfx_available, bgfx_include_flags
 from .lp64_build import lp64_excluded
 from .embed_assets import hud_assets_build, hud_configure_inputs, ui_fonts_build
 from .ninja_syntax import Writer
+from .server_build import (OUTPUT_NAME as SERVER_OUTPUT_NAME, SERVER_EXCLUDED, SERVER_NATIVE_SOURCES,
+                           SERVER_PLATFORM_SOURCES, SERVER_WINDOWS_SOURCES, webui_build)
 
 LINUX_DIR = Path("port/linux")
 PORT_DIR = Path("port/windows")
@@ -188,6 +197,11 @@ class WindowsTarget:
     pgo: bool = True
     # leaves out what the 64-bit builds do (port/linux/port.json "lp64")
     lp64_exclusions: bool = False
+    # has the bgfx renderer (display.renderer = "bgfx": Vulkan;
+    # tools/bgfx_build.py), as every 64-bit desktop build
+    bgfx: bool = False
+    # the dedicated server (tools/server_build.py's units, no SDL)
+    server: bool = False
 
     @property
     def build(self) -> Path:
@@ -264,6 +278,19 @@ WINDOWS64 = WindowsTarget(
     ffmpeg_arch="x86_64",
     pgo=False,
     lp64_exclusions=True,
+    bgfx=True,
+)
+
+
+# the dedicated server for x64 Windows (ninja server-windows64): the 64-bit
+# build's units, with the server's
+WINDOWS64_SERVER = replace(
+    WINDOWS64,
+    name="server-windows64",
+    abi_flags=[*WINDOWS64.abi_flags, "-DHALO_SERVER"],
+    comment="The dedicated server for 64-bit Windows (ninja server-windows64)",
+    server=True,
+    bgfx=False,
 )
 
 
@@ -274,7 +301,10 @@ def _load_config() -> Dict[str, Any]:
 
 def windows_configure_inputs() -> List[Path]:
     """Files whose change must re-run configure.py."""
-    return [Path(__file__), PORT_CONFIG, PORT_DIR / "src", LINUX_DIR / "src", LINUX_DIR / "game", *hud_configure_inputs()]
+    return [Path(__file__), Path("tools/bgfx_build.py"), PORT_CONFIG, PORT_DIR / "src", LINUX_DIR / "src",
+            LINUX_DIR / "game", *hud_configure_inputs(),
+            # (the server's: ninja server-windows64)
+            Path("tools/server_build.py"), Path("tools/embed_webui.py"), Path("server/platform"), Path("server/webui")]
 
 
 def _quote(path: Any) -> str:
@@ -388,7 +418,7 @@ def generate_windows_build(n: Writer, sln: Any) -> None:
     except OSError as error:
         print(f"Windows build disabled: cannot fetch SDL3 ({error})", file=sys.stderr)
         return
-    for target in (WINDOWS32, WINDOWS64):
+    for target in (WINDOWS32, WINDOWS64, WINDOWS64_SERVER):
         generate_windows_target(n, sln, target)
 
 
@@ -397,12 +427,17 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
     linux_config: Dict[str, Any] = json.loads((LINUX_DIR / "port.json").read_text(encoding="utf-8"))
     config = _load_config()
 
+    # (the server always has the game list and the dedicated server's
+    # director, as tools/server_build.py's)
+    if target.server:
+        sln = SimpleNamespace(**vars(sln))
+        sln.game_browser = True
     prefix = target.name
     label = prefix.upper()
     build = target.build
     tags_header = build / "halo_msvc_tags.h"
     obj_dir = build / "obj"
-    output = build / "chupathingy.exe"
+    output = build / (f"{SERVER_OUTPUT_NAME}.exe" if target.server else "chupathingy.exe")
     sdl_dll = build / "SDL3.dll"
     sdl_lib = SDL_DIR / "lib" / target.sdl_arch
     cc = getattr(sln, "windows_cc", None) or "clang"
@@ -411,6 +446,8 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
     crt_include = PORT_DIR / "include" / "crt"
     posix_include = PORT_DIR / "include" / "posix"
     excluded = set(lp64_excluded()) if target.lp64_exclusions else set()
+    if target.server:
+        excluded |= SERVER_EXCLUDED
 
     n.comment(target.comment)
     n.variable(f"{prefix}_cc", cc)
@@ -465,6 +502,16 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
     # the high-res HUD's textures (port/assets/hud; port/linux/src/hud_hires.c)
     embedded_assets = (hud_assets_build(n, prefix, build / "generated" / "hud_hires_assets.c")
                        + ui_fonts_build(n, prefix, build / "generated" / "ui_fonts.c", sln))
+    # the server's: its web admin page's files (tools/embed_webui.py)
+    server_native_sources: List[Path] = []
+    if target.server:
+        server_native_sources = [
+            # (glibc's backtrace, for musl, and the POSIX terminal's line
+            # editing: not Windows')
+            *(source for source in SERVER_NATIVE_SOURCES if source.name not in ("backtrace.c", "server_terminal.c")),
+            *SERVER_WINDOWS_SOURCES,
+            *webui_build(n, prefix, build / "generated" / "webui_assets.c"),
+        ]
 
     # (the game browser, the game list and dedicated servers, as every
     # desktop build has them: HALO_GAME_BROWSER, configure.py; a debug build
@@ -481,20 +528,33 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
     ffmpeg_cflags: List[str] = []
     ffmpeg_libs: List[str] = []
     ffmpeg_inputs: List[Path] = []
-    if getattr(sln, "with_ffmpeg", True):
+    # (the server plays no movies: bink_null.c's stubs)
+    if getattr(sln, "with_ffmpeg", True) and not target.server:
         ffmpeg_cflags, ffmpeg_libs, ffmpeg_stamp, ffmpeg_archives = ffmpeg_build(
             n, prefix, build / "ffmpeg", cc, target.ffmpeg_os, target.ffmpeg_arch,
             [f"--target={target.triple}"], group=False)
         ffmpeg_inputs = [ffmpeg_stamp, *ffmpeg_archives]
+    # the bgfx renderer (tools/bgfx_build.py): its libraries, and the define
+    # and headers of the platform units (d3d8_gl.c, sdl_platform.c)
+    use_bgfx = target.bgfx and not target.server and bgfx_available(sln)
+    bgfx_libraries = bgfx_build(n, BgfxTarget(
+        name=prefix, platform="windows", cc=f"{compile_launcher(sln)}{cc}",
+        target_flags=[f"--target={target.triple}", "-gcodeview", march_flag(sln)],
+        build_dir=build / "bgfx", archive_command="llvm-ar rcs $out $in",
+    )) if use_bgfx else []
+    bgfx_cflags = " ".join(bgfx_include_flags()) if use_bgfx else ""
+    # (the server links no SDL: server/platform/sdl_headless.c has the few
+    # functions it calls)
     libs = " ".join(
-        [_quote(sdl_lib / "SDL3.lib")]
+        ([] if target.server else [_quote(sdl_lib / "SDL3.lib")])
+        + [str(library) for library in bgfx_libraries]
         + ffmpeg_libs
         + [f"-l{lib}" for lib in config.get("libraries", [])]
     )
     # (the linker's map beside the program, chupathingy.map: its functions'
     # addresses, kept with the symbols, tools/ci_build.py)
     base_ldflags = list(target.ldflags) + ["-Wl,/MAP"]
-    if getattr(sln, "port_release", False):
+    if getattr(sln, "port_release", False) and not target.server:
         # no console window (the port's log goes to halo.log instead,
         # win32_posix.c): under Wine (Proton, gamescope) the console window
         # can hide the game's window
@@ -571,6 +631,7 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
             "-Isource -Isource/cseries",
             f"-I{_quote(sdl_include)}",
             f"-I{XDK_INCLUDE}",
+            bgfx_cflags,
         ])
         win32_cflags = " ".join([
             abi,
@@ -581,7 +642,7 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
         ])
         replaced = set(config.get("replaced_platform_sources", []))
         for source in sorted(linux_platform.glob("*.c")):
-            if source.name in replaced:
+            if source.name in replaced or source.as_posix() in excluded:
                 continue
             if source.name in VERSION_SOURCES:
                 add_object(source, f"{platform_cflags} {updater_defines(getattr(sln, 'port_release', False))}")
@@ -615,6 +676,19 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
                                          "-D_CRT_SECURE_NO_WARNINGS", "-D_WINSOCK_DEPRECATED_NO_WARNINGS", "-w"]))
         for source in embedded_assets:
             add_object(source, platform_cflags)
+        # the dedicated server's platform units (server_platform.c and
+        # server_input.c, with the platform layer's ABI), and the console,
+        # control API, web admin page and the rest with Windows' (as
+        # tools/server_build.py's, with the host's)
+        if target.server:
+            for source in SERVER_PLATFORM_SOURCES:
+                add_object(source, f"{platform_cflags} {updater_defines(getattr(sln, 'port_release', False))}")
+            server_host_cflags = " ".join([
+                win32_cflags, "-Wno-unused-function", "-Wno-unused-variable", "-Wno-missing-braces",
+                f"-I{MONOCYPHER_DIR}", f"-I{MBEDTLS_DIR / 'include'}", f"-I{QRCODEGEN_DIR}",
+            ])
+            for source in server_native_sources:
+                add_object(source, server_host_cflags)
         # the settings file's parser (port/third_party/tomlc17), with the
         # platform layer's ABI and nothing else
         add_object(TOML_DIR / "tomlc17.c", " ".join([abi, "-std=gnu11", "-w"]))
@@ -645,7 +719,7 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
             outputs=output,
             rule=f"{prefix}_link",
             inputs=objects + extra_objects + [resource],
-            implicit=ffmpeg_inputs,
+            implicit=[*ffmpeg_inputs, *bgfx_libraries],
             variables={"ldflags": " ".join(base_ldflags + extra_ldflags), "libs": libs},
         )
 
@@ -702,6 +776,10 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
     lto_cflags = [] if lto == "off" else ["-flto=thin" if lto == "thin" else "-flto=full"]
     emit(obj_dir, output, lto_cflags + profile_use_flags(profile),
          lto_cflags + [OPTIMISATION] if lto_cflags else [], [], [profile] if profile else [])
+    if target.server:
+        n.build(outputs=prefix, rule="phony", inputs=[output])
+        n.newline()
+        return
     n.build(outputs=sdl_dll, rule=f"{prefix}_copy", inputs=sdl_lib / "SDL3.dll")
     # internet play's MQTT brokers, a file beside the game (network.brokers_file)
     brokers = build / "brokers.txt"

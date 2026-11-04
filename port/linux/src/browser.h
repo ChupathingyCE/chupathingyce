@@ -35,7 +35,7 @@ those a listed game keeps (as many as the Online Games screen shows) */
 #define BROWSER_LISTED_ROSTER 16
 /* a listed game's machines by platform: Delta's registry
 (NUMBER_OF_DELTA_PLATFORMS), then those without Delta */
-#define BROWSER_MACHINE_KINDS 20
+#define BROWSER_MACHINE_KINDS 23
 
 /* how a listed game is hosted, and on what protocol, as the list says
 (docs/delta.md, Delta List): not known (an older host, or one listed by its
@@ -280,6 +280,27 @@ enum
 	BROWSER_LIST_NONE,
 };
 int browser_list_status(void);
+
+/* whether the game this machine hosts is on the game list, and if not why:
+BROWSER_HOST_*. status: the list's HTTP answer when it refused (0: it did
+not answer), for BROWSER_HOST_FAILED */
+enum
+{
+	BROWSER_HOST_LISTED,
+	/* not hosting a game on the internet yet (or internet play is off) */
+	BROWSER_HOST_NOT_HOSTING,
+	/* hosted, but private or with a password: never listed */
+	BROWSER_HOST_PRIVATE,
+	/* network.list_hosted_games is off */
+	BROWSER_HOST_OFF,
+	/* network.browser_url is empty */
+	BROWSER_HOST_NO_LIST,
+	/* listable, and not offered to the list yet */
+	BROWSER_HOST_WAITING,
+	/* the list did not take it (offered again after a while) */
+	BROWSER_HOST_FAILED,
+};
+int browser_host_listing(int *status);
 
 /* a listed game with a password (locked: one heard on the brokers, whose
 invite browser_get_games gives as its key hash alone) opened: its joinable

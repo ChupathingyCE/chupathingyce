@@ -27,6 +27,7 @@ Built with the host's ABI, as the other posix_*.c.
 #include "mbedtls/error.h"
 #include "mbedtls/net_sockets.h"
 #include "mbedtls/psa_util.h"
+#include "mbedtls/platform.h"
 #include "mbedtls/ssl.h"
 #include "mbedtls/x509_crt.h"
 #include "psa/crypto.h"
@@ -71,6 +72,15 @@ static void load_certificates(void)
 	const char *environment = getenv("SSL_CERT_FILE");
 	size_t index;
 
+#if defined(__GLIBC__) && defined(MBEDTLS_PLATFORM_HAVE_DEV_RANDOM)
+#if !__GLIBC_PREREQ(2, 25)
+	/* (glibc before 2.25 on a kernel without getrandom, the Steam Link's 2.19
+	on Linux 3.8: its /dev/random holds so little that this waited half a
+	minute for it before the first connection; /dev/urandom is what
+	getrandom would have drawn from) */
+	mbedtls_platform_dev_random = "/dev/urandom";
+#endif
+#endif
 	crypto_ready = psa_crypto_init() == PSA_SUCCESS;
 	mbedtls_x509_crt_init(&certificates);
 #ifdef HALO_UPDATE_TEST
@@ -78,6 +88,18 @@ static void load_certificates(void)
 	certificates_loaded = environment && *environment && mbedtls_x509_crt_parse_file(&certificates, environment) >= 0 &&
 		certificates.version;
 	return;
+#endif
+#ifdef HALO_CONSOLE_APP_CERTIFICATES
+	/* a console whose own bundle is too old for today's servers: the app's,
+	which its launch script names in SSL_CERT_FILE, trusted ahead of the
+	system's (the app is what an update replaces, and the update is signed
+	besides) */
+	if (environment && *environment && mbedtls_x509_crt_parse_file(&certificates, environment) >= 0 &&
+		certificates.version)
+	{
+		certificates_loaded = 1;
+		return;
+	}
 #endif
 	for (index = 0; index < sizeof(certificate_bundles) / sizeof(*certificate_bundles); index++)
 	{
@@ -660,6 +682,15 @@ int update_make_directory(const char *path)
 	return mkdir(path, 0755) == 0 || errno == EEXIST;
 }
 
+#ifdef HALO_TVOS
+/* tvOS starts no other process: an Apple TV app is updated by installing it
+again */
+int update_launch(const char *path)
+{
+	(void)path;
+	return 0;
+}
+#else
 int update_launch(const char *path)
 {
 	/* (the environment for the new game, made before the fork: an AppImage's
@@ -712,3 +743,4 @@ int update_launch(const char *path)
 	}
 	return child > 0;
 }
+#endif

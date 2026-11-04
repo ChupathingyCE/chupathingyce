@@ -1,0 +1,24 @@
+# H2 FFA: Halo 2 Slayer (free for all), the fallback when a team game cannot
+# start. Same rules as H2 Slayer without teams, 25 kills.
+base = "slayer"
+name = "H2 FFA"
+score_limit = 25
+time_limit = 10
+
+[players]
+shields = true
+respawn_time = 5
+suicide_penalty = 5
+
+[items]
+starting_equipment = "generic"
+weapon_set = "normal"
+
+[indicators]
+objectives = "motion_tracker"
+players_on_radar = "all"
+friends_on_screen = true
+
+[vehicles]
+red = "none"
+blue = "none"

@@ -28,6 +28,12 @@ boolean virtual_keyboard_launch(
 	wchar_t *text_buffer,
 	word buffer_size,
 	short caption_index);
+#ifdef HALO_CONSOLE_MAP_BROWSER
+boolean virtual_keyboard_launch_plain(
+	wchar_t *text_buffer,
+	word buffer_size,
+	wchar_t const *caption);
+#endif
 boolean virtual_keyboard_active(
 	void);
 void virtual_keyboard_close(

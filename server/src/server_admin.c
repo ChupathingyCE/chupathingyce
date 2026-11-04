@@ -39,6 +39,7 @@ given both (dedicated.c). Nothing a client is sent is new.
 #include "dedicated.h"
 #include "server_admin.h"
 #include "server_config.h"
+#include "server_conduct.h"
 #include "server_gametype_variant.h"
 
 /* (text chat's, port/linux/game/chat.h) */
@@ -60,6 +61,9 @@ void host_rules_set_player_names(boolean allowed);
 boolean host_rules_host_player_names(void);
 void host_rules_set_follow_camera(boolean allowed);
 boolean host_rules_host_follow_camera(void);
+/* (the limit on machines of one address, port/linux/game/network_distributed.c) */
+void network_distributed_set_address_limit(long maximum);
+long network_distributed_address_limit(void);
 
 #include <errno.h>
 #include <stdio.h>
@@ -1653,6 +1657,11 @@ static void setting_now(
 	case SERVER_SETTING_ALLOW_FOLLOW_CAMERA:
 		snprintf(text, (size_t)size, "%s", host_rules_host_follow_camera() ? "true" : "false");
 		break;
+	case SERVER_SETTING_MAX_MACHINES_PER_ADDRESS:
+		snprintf(text, (size_t)size, "%ld", network_distributed_address_limit());
+		break;
+	case SERVER_SETTING_BETRAYAL_KICK: snprintf(text, (size_t)size, "%d", server_conduct_betrayal_limit()); break;
+	case SERVER_SETTING_AFK_KICK_MINUTES: snprintf(text, (size_t)size, "%d", server_conduct_afk_minutes()); break;
 #ifdef HALO_SERVER
 	case SERVER_SETTING_GAMESPY_LISTING: snprintf(text, (size_t)size, "%s", server_gamespy_enabled() ? "true" : "false"); break;
 	case SERVER_SETTING_GAMESPY_PORT: snprintf(text, (size_t)size, "%ld", server_gamespy_port()); break;
@@ -1697,7 +1706,8 @@ static boolean setting_applies_now(
 		setting == SERVER_SETTING_TEAM_CHANGE || setting == SERVER_SETTING_TEAM_CHANGE_MARGIN ||
 		setting == SERVER_SETTING_GAMESPY_LISTING || setting == SERVER_SETTING_GAMESPY_PORT ||
 		setting == SERVER_SETTING_CE_JOINS || setting == SERVER_SETTING_ALLOW_PLAYER_NAMES ||
-		setting == SERVER_SETTING_ALLOW_FOLLOW_CAMERA;
+		setting == SERVER_SETTING_ALLOW_FOLLOW_CAMERA || setting == SERVER_SETTING_MAX_MACHINES_PER_ADDRESS ||
+		setting == SERVER_SETTING_BETRAYAL_KICK || setting == SERVER_SETTING_AFK_KICK_MINUTES;
 }
 
 static char const *environment_value(
@@ -1812,7 +1822,8 @@ boolean server_admin_set(
 			command_output_printf(output, "(name, maximum_players, minimum_players, idle_limit, public, name_filter, "
 				"chat, chat_filter, welcome, postgame_seconds, skip_lobby, chat_cooldown, team_change, "
 				"team_change_margin, playlist_shuffle, chat_legacy, gamespy_listing, gamespy_port, ce_joins, "
-				"allow_player_names, allow_follow_camera)\n");
+				"allow_player_names, allow_follow_camera, max_machines_per_address, betrayal_kick, "
+				"afk_kick_minutes)\n");
 		return FALSE;
 	}
 	environment = environment_value((short)setting);
@@ -1865,6 +1876,9 @@ boolean server_admin_set(
 		break;
 	case SERVER_SETTING_ALLOW_PLAYER_NAMES: host_rules_set_player_names(change.values[setting] ? TRUE : FALSE); break;
 	case SERVER_SETTING_ALLOW_FOLLOW_CAMERA: host_rules_set_follow_camera(change.values[setting] ? TRUE : FALSE); break;
+	case SERVER_SETTING_MAX_MACHINES_PER_ADDRESS: network_distributed_set_address_limit(change.values[setting]); break;
+	case SERVER_SETTING_BETRAYAL_KICK: server_conduct_set_betrayal_limit(change.values[setting]); break;
+	case SERVER_SETTING_AFK_KICK_MINUTES: server_conduct_set_afk_minutes(change.values[setting]); break;
 #ifdef HALO_SERVER
 	case SERVER_SETTING_GAMESPY_LISTING:
 		server_gamespy_configure(change.values[setting] ? TRUE : FALSE, server_gamespy_port());

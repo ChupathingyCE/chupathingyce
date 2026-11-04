@@ -636,3 +636,28 @@ int network_rules_lobby_budget_take(struct network_rules_lobby_budget *budget, u
 	budget->tokens -= 1000u;
 	return 1;
 }
+
+int network_rules_address_is_local(uint32_t address)
+{
+	return address == 0 ||
+		(address & 0xFF000000u) == 0x7F000000u ||
+		(address & 0xFF000000u) == 0x0A000000u ||
+		(address & 0xFFF00000u) == 0xAC100000u ||
+		(address & 0xFFFF0000u) == 0xC0A80000u ||
+		(address & 0xFFFF0000u) == 0xA9FE0000u;
+}
+
+int network_rules_address_full(uint32_t address, uint32_t const *others, int count, long maximum)
+{
+	int index;
+	long same = 0;
+
+	if (maximum <= 0 || network_rules_address_is_local(address))
+		return 0;
+	for (index = 0; index < count; index++)
+	{
+		if (others[index] == address)
+			same++;
+	}
+	return same >= maximum;
+}
