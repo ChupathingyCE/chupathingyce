@@ -37,6 +37,11 @@ the game's.
   site and about 50 KB with GitHub's longer RSA chain (measured on a 64-bit
   host; less on the consoles). A thread that calls in needs
   `CONSOLE_HTTPS_STACK_SIZE` (112 KB) of stack beyond its own use.
+- **Streams.** `console_https_get_stream` passes an answer's body to a
+  callback as it comes, for answers larger than a buffer (a map browser's
+  lists and pictures). It needs 8 KB more stack, and it holds the
+  one-request lock while it runs, so keep it to small answers: large files
+  come over plain HTTP, checked against a hash fetched over HTTPS.
 - **Random numbers.** `MBEDTLS_ENTROPY_HARDWARE_ALT`: the port's `random`
   hook is the only entropy source. It seeds PSA's CTR-DRBG at the start of
   every request. If the hook fails, the request fails.
@@ -59,6 +64,7 @@ the game's.
 | --- | --- |
 | stats.chupathingy.org | its public key (SHA-256 of the certificate's SubjectPublicKeyInfo): one of the built-in pins, or of the newest signed pin document's; failing those, a chain to ISRG Root X1 or X2 (the backstop) |
 | raw.githubusercontent.com | its chain: it must lead to one of the roots in `console_https_roots.c` (ISRG Root X1 and X2, USERTrust RSA and ECC, DigiCert Global Root G2) |
+| api.xboxhomebrew.store | its chain: it must lead to ISRG Root X1 or X2. A console's map browser asks it for its map lists and their BLAKE2b hashes; the map files themselves come over plain HTTP and are checked against those hashes |
 
 The certificate must name the host in every case. The server's own
 certificate must also be in date when the console's clock is set (above);
