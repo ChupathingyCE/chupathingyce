@@ -131,9 +131,9 @@ with ideas from VALORANT's netcode articles, keeping the 30 Hz tick:
   down, and they meet where it stops.
 - **Shooter's hits.** A client reports what its own players hit; the host
   checks the report (the player's, a weapon they carry, fired from within
-  its reach, the target where the host had it when the shooter saw it, no
-  faster than weapons fire) and deals the damage. What the shooter saw
-  hit, hits.
+  its reach, the target where the host had it when the shooter saw it, a
+  clear line to it, no faster than weapons fire) and deals the damage.
+  What the shooter saw hit, hits.
 
 A host's game advertisement says that it plays this netcode. A client does
 not join a host that does not (one of network version 4 built before the
@@ -559,11 +559,41 @@ a pregame keep-alive every five seconds from the host
      the client's round trip and a second before the report came; not checked for what the tags do
      not bound: a projectile that sticks, which what it sticks to carries,
      one whose timer starts once it bounces or rests, a weapon's own
-     detonation; no line of sight); the target within a few world units of
+     detonation); the target within a few world units of
      where the host had it at the tick the report was made at (a player's
      unit or vehicle: the host keeps a second of where they were) or of
      where it is (more for a fast one; also for one that is no longer a
-     player's, a body or a vehicle left);
+     player's, a body or a vehicle left); a line of sight to the target
+     where the shooter saw it (`network.hit_line_of_sight`, on by default):
+     for a shot, from where the host had the shooter between the tick the
+     report was made at and now, and before that for as long as the
+     projectile flies (their view, their head, or the gun of the vehicle
+     seat they drive or gun, each tick of the history and every third of
+     the trail; a little to either side and above too), to the target's
+     center, the impact or the edges of its bounding sphere and a little
+     more; for an explosion, from its epicenter to the target's center or
+     sphere's edges, or from a point its core reaches (as the game spreads
+     an explosion with a core), whoever threw it and from wherever, so a
+     grenade around a corner hits what it sees. The test is the game's own
+     collision test against what every machine has the same: the map's
+     structure and scenery, front faces only; never units, vehicles or
+     machines (doors, lifts), which each machine has where it last heard,
+     nor glass that breaks. For a shot, surfaces that cannot be seen or are
+     two-sided (fences, grates), and any material the projectile goes
+     through (overpenetrate in its material responses), do not block it; a
+     projectile that homes in is also taken along a path through a point
+     beside the middle of the line, as far as it turns over that distance
+     (and half that), and one that falls through a point above it, as high
+     as its arc at its slowest speed rises. What does not come from the
+     shooter's gun has no line looked for: a grenade's hit (it is thrown,
+     and bounces), what an explosion fires, a detonation on what a
+     projectile stuck to. Melee blows and collisions are at hand and are
+     not looked at, nor hits on the map's scenery and devices (a light set
+     in a wall). A ricochet around a corner is refused. Each report takes
+     a thousand collision tests at most (a refused one a few hundred); one
+     the tests run out on is taken. The host's log counts these refusals
+     with the others ("N with no line of sight"); no message changes, and
+     a client of any build is checked the same way;
      and no more reports than the weapon that deals them fires (its rate of
      fire and projectiles a shot, with a margin; an explosion's hits count
      as one, when its damage has a reach, and no object is hit twice by

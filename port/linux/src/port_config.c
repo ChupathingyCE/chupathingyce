@@ -741,6 +741,11 @@ static const struct config_setting config_settings[] =
 	{ "network.block_mouse_aim_assist", _config_boolean, "false", "HALO_NET_BLOCK_MOUSE_AIM_ASSIST", _environment_value,
 		_platform_all,
 		"Turn off mouse aim assist for everyone in games you host." },
+	{ "network.hit_line_of_sight", _config_boolean, "true", "HALO_NET_HIT_LINE_OF_SIGHT", _environment_value,
+		_platform_all,
+		"In games you host, refuse a player's hits through walls: the shot (or\n"
+		"the explosion) needs a clear line to its target. Turn it off if good\n"
+		"hits are refused." },
 	{ "network.coop_friendly_fire", _config_string, "\"on\"", "HALO_NET_COOP_FRIENDLY_FIRE", _environment_value,
 		_platform_all,
 		"Friendly fire in online co-op: \"off\", \"on\", \"shields_only\" or\n"
@@ -947,6 +952,9 @@ static const struct config_setting config_settings[] =
 	{ "debug.network_test_shoot", _config_real, "0.0", "HALO_NETWORK_TEST_SHOOT", _environment_value, _platform_all,
 		"Each test player hits the next one every this many seconds. 0 never\n"
 		"does." },
+	{ "debug.network_test_shoot_walls", _config_boolean, "false", "HALO_NETWORK_TEST_SHOOT_WALLS", _environment_value,
+		_platform_all,
+		"The test players' hits also go through walls (the host refuses them)." },
 	{ "debug.network_test_vehicle", _config_real, "0.0", "HALO_NETWORK_TEST_VEHICLE", _environment_value, _platform_all,
 		"Seconds into a test game to seat the last player in a vehicle. 0 never\n"
 		"does." },
