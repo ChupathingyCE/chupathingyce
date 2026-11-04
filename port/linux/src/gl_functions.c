@@ -13,7 +13,7 @@ Run-time resolution of the OpenGL entry points listed in gl.h.
 
 #define GL_DEFINE_FUNCTION(name) __typeof__(&name) halo_##name;
 GL_FUNCTIONS(GL_DEFINE_FUNCTION)
-#ifdef HALO_ANDROID
+#ifdef HALO_GL_ES
 GL_OPTIONAL_FUNCTIONS(GL_DEFINE_FUNCTION)
 #endif
 
@@ -43,7 +43,7 @@ int gl_functions_load(void)
 	}
 	GL_FUNCTIONS(GL_LOAD_FUNCTION)
 #undef GL_LOAD_FUNCTION
-#ifdef HALO_ANDROID
+#ifdef HALO_GL_ES
 	/* a missing one is no failure: the renderer uses each only where the
 	context lists its extension (gl_initialize, d3d8_gl.c) */
 #define GL_LOAD_OPTIONAL_FUNCTION(name) \
