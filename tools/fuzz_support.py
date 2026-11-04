@@ -95,6 +95,6 @@ def run_fuzzer(binary, workdir, seconds, seeds=(), regressions=None, max_len=409
                             timeout=int(seconds) + 300)
     # (with -fork, libFuzzer ends with a failed job's status shifted, which exit() cuts to 0:
     # the input it saved is what says a job failed)
-    if result.returncode == 0 and any(workdir.glob(f"{kind}-*") for kind in ("crash", "timeout", "oom", "leak")):
+    if result.returncode == 0 and any(list(workdir.glob(f"{kind}-*")) for kind in ("crash", "timeout", "oom", "leak")):
         result.returncode = 1
     return result
