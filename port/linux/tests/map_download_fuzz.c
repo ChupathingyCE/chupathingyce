@@ -99,7 +99,9 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 	{
 		struct map_compressed_io io;
 
-		map_compressed_version(copy);
+		/* (the header, at least, is read before the file is) */
+		if (memory.size >= MAP_COMPRESSED_HEADER_SIZE)
+			map_compressed_version(copy);
 		io.context = &memory;
 		io.compressed_size = memory.size;
 		io.read = memory_read;

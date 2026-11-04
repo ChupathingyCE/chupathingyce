@@ -222,14 +222,15 @@ unsigned long p2p_resolve(const char *host)
 
 int p2p_probe_request_heard(const unsigned char *message, int size, unsigned char *answer, unsigned char *reply)
 {
-	unsigned char id[P2P_PROBE_ID_SIZE];
+	unsigned char id[P2P_PROBE_ID_SIZE], key[P2P_PROBE_KEY_SIZE];
 	struct p2p_probe_address addresses[P2P_PROBE_MAXIMUM_ADDRESSES];
 	int count;
 
 	if (!p2p_probe_get_request(message, size, id, reply, addresses, &count))
 		return 0;
+	memset(key, 0x77, sizeof(key));
 	memset(answer, 0, P2P_PROBE_MAXIMUM_MESSAGE);
-	return p2p_probe_put_answer(answer, id, id, addresses, count);
+	return p2p_probe_put_answer(answer, id, key, addresses, count);
 }
 
 int p2p_probe_asking_tokens(unsigned char (*tokens)[P2P_TOKEN_SIZE], int maximum)
