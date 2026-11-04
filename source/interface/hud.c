@@ -983,12 +983,10 @@ static void hud_draw_players(
 
 	if (player_index != NONE)
 	{
-#ifndef HALO_XBOX_CONSOLE
-		/* the native builds' sessions hold more than 16 players */
+		/* port: a session holds as many players as the build's network
+		tables (the Xbox's 16; more on the consoles' 32-player builds and on
+		the desktop) */
 		long teammate_indices[HALO_PORT_MAXIMUM_NETWORK_PLAYERS];
-#else
-		long teammate_indices[16];
-#endif
 		long teammate_count = 0;
 		struct data_iterator iterator;
 		struct player_datum *player;
@@ -1001,13 +999,10 @@ static void hud_draw_players(
 				team_index == player->team_index &&
 				player->unit_index != NONE)
 			{
-#ifndef HALO_XBOX_CONSOLE
-				/* never write past the buffer, whatever the player data holds */
+				/* port: never write past the buffer, whatever the player
+				data holds (the original had no bound, safe at 16 players) */
 				if (teammate_count < (long)NUMBEROF(teammate_indices))
 					teammate_indices[teammate_count++] = iterator.datum_index;
-#else
-				teammate_indices[teammate_count++] = iterator.datum_index;
-#endif
 			}
 		}
 
