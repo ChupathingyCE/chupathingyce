@@ -78,7 +78,13 @@ played instead of HALO_DEDICATED's until HALO_DEDICATED is changed.
 #include "dedicated.h"
 #include "command_line.h"
 #include "server_admin.h"
+#include "server_conduct.h"
 #include "server_config.h"
+#ifdef HALO_SERVER
+/* (the server program's control unit, built with the host's ABI: plain
+types only) */
+#include "../platform/server_control.h"
+#endif
 #ifdef HALO_GAME_BROWSER
 /* (text chat's, port/linux/game/chat.h) */
 void chat_host_set(int mode, int filter);
@@ -91,6 +97,8 @@ void team_change_host_set(int policy, int margin);
 /* (the host's rules', port/linux/game/host_rules.h) */
 void host_rules_set_player_names(boolean allowed);
 void host_rules_set_follow_camera(boolean allowed);
+/* (the limit on machines of one address, port/linux/game/network_distributed.c) */
+void network_distributed_set_address_limit(long maximum);
 
 enum
 {
@@ -190,6 +198,8 @@ static struct
 	wchar_t name[16];
 	/* listed in the server browser (HALO_DEDICATED_PUBLIC) */
 	boolean public_game;
+	/* (the first-run setup held the server from hosting) */
+	boolean setup_waited;
 	/* blocked names kicked (sv_name_filter: server_commands.c) */
 	boolean name_filter;
 	/* the carnage report's seconds; and the lobby skipped after it when
@@ -581,6 +591,36 @@ static void initialize(
 		if (allowed)
 			error(_error_silent, "dedicated: players may watch a follow camera while they wait to respawn");
 	}
+	/* the machines of one internet address a game takes: 8 unless set */
+	{
+		long maximum = setting_number("HALO_DEDICATED_MAX_MACHINES_PER_ADDRESS", &settings,
+			SERVER_SETTING_MAX_MACHINES_PER_ADDRESS, SERVER_SETTINGS_DEFAULT_MACHINES_PER_ADDRESS);
+
+		if (maximum < 0)
+			maximum = 0;
+		if (maximum > SERVER_SETTINGS_MAXIMUM_MACHINES_PER_ADDRESS)
+			maximum = SERVER_SETTINGS_MAXIMUM_MACHINES_PER_ADDRESS;
+		network_distributed_set_address_limit(maximum);
+		if (maximum)
+			error(_error_silent, "dedicated: at most %ld machines from one internet address", maximum);
+		else
+			error(_error_silent, "dedicated: no limit on the machines from one internet address");
+	}
+	/* the betrayal and AFK limits (server_conduct.h): off unless set */
+	{
+		long betrayals = setting_number("HALO_DEDICATED_BETRAYAL_KICK", &settings, SERVER_SETTING_BETRAYAL_KICK, 0);
+		long minutes = setting_number("HALO_DEDICATED_AFK_KICK_MINUTES", &settings, SERVER_SETTING_AFK_KICK_MINUTES, 0);
+
+		server_conduct_set_betrayal_limit((int)PIN(betrayals, 0, SERVER_SETTINGS_MAXIMUM_BETRAYAL_KICK));
+		server_conduct_set_afk_minutes((int)PIN(minutes, 0, SERVER_SETTINGS_MAXIMUM_AFK_KICK_MINUTES));
+		if (server_conduct_betrayal_limit())
+			error(_error_silent, "dedicated: a player is kicked after %d betrayals in a game", server_conduct_betrayal_limit());
+		if (server_conduct_afk_minutes())
+		{
+			error(_error_silent, "dedicated: a player is kicked after %d minutes without input in a game",
+				server_conduct_afk_minutes());
+		}
+	}
 	dedicated.active = dedicated.entry_count > 0;
 }
 
@@ -942,6 +982,29 @@ void dedicated_server_update(
 		{
 			return;
 		}
+#ifdef HALO_SERVER
+		/* (a server started for the control panel's first-run setup hosts
+		once its owner has finished it, listed as the setup chose) */
+		if (server_control_setup_waiting())
+		{
+			dedicated.setup_waited = TRUE;
+			return;
+		}
+		if (dedicated.setup_waited)
+		{
+			char const *public_game = getenv("HALO_DEDICATED_PUBLIC");
+			static struct server_settings settings;
+
+			dedicated.setup_waited = FALSE;
+			if ((!public_game || !public_game[0]) && server_admin_read_settings(&settings) &&
+				settings.set[SERVER_SETTING_PUBLIC])
+			{
+				dedicated.public_game = settings.values[SERVER_SETTING_PUBLIC] ? TRUE : FALSE;
+			}
+			error(_error_silent, "dedicated: the first-run setup is finished: hosting %s game",
+				dedicated.public_game ? "a public" : "an unlisted");
+		}
+#endif
 		dedicated.tried = TRUE;
 		dedicated.tried_time = system_milliseconds();
 		host();

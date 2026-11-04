@@ -13,7 +13,7 @@ device itself (d3d8_gl.c).
 #include "platform.h"
 #include "gl.h"
 
-#ifdef HALO_ANDROID
+#ifdef HALO_GL_ES
 /* OpenGL ES features that are optional (d3d8_gl.c gl_initialize) */
 struct xgpu_capabilities
 {
@@ -113,7 +113,7 @@ lights the diffuse color for each pixel (nv2a_pixel_shader_key
 per_pixel_lighting). Returns a malloc'd string. */
 /* OpenGL ES and macOS's OpenGL 4.1 have no glClipControl: vertex shaders
 convert D3D's clip space themselves (nv2a_vsh.c) */
-#if defined(HALO_ANDROID) || defined(__APPLE__)
+#if defined(HALO_GL_ES) || defined(__APPLE__)
 #define HALO_GL_NO_CLIP_CONTROL 1
 #endif
 
@@ -170,7 +170,7 @@ struct nv2a_pixel_shader_key
 
 char *nv2a_pixel_shader_to_glsl(const struct nv2a_pixel_shader_key *key);
 
-#ifdef HALO_ANDROID
+#ifdef HALO_GL_ES
 /* ES samplers have no LOD bias of their own */
 #define XGPU_PIXEL_UNIFORMS_ES "uniform vec4 texture_lod_bias;\n"
 #else

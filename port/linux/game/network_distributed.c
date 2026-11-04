@@ -73,6 +73,8 @@ machine (their datum identifiers need not be).
 #include "units/biped_definitions.h"
 #include "units/bipeds.h"
 #include "network_coop.h"
+#include "host_evidence.h"
+#include "conduct_rules.h"
 #include "network_distributed.h"
 #include "network_rules.h"
 #include "../src/delta_chat_bridge.h"
@@ -114,6 +116,7 @@ unsigned long p2p_peer_endpoint_address(unsigned long virtual_address);
 boolean network_connection_last_read_was_unreliable(void);
 boolean main_menu_is_active(void);
 int config_boolean(char const *name);
+long config_integer(char const *name);
 unsigned int network_game_client_host_network_version(void);
 unsigned long system_milliseconds(void);
 void console_warning(const char *format, ...);
@@ -1289,6 +1292,7 @@ static boolean distributed_machine_loaded(
 	csmemset(&distributed_client_clocks[machine_index], 0, sizeof(distributed_client_clocks[machine_index]));
 	distributed_client_clocks[machine_index].window_tick = NONE;
 	csmemset(&distributed_client_identities[machine_index], 0, sizeof(distributed_client_identities[machine_index]));
+	host_evidence_reset_machine(machine_index);
 	for (player_index = 0; player_index < MAXIMUM_TRACKED_PLAYERS; player_index++)
 		distributed_seen[machine_index][player_index] = FALSE;
 	return TRUE;
@@ -2121,8 +2125,12 @@ static void distributed_take_prediction(
 	dx = position.x - object->object.position.x;
 	dy = position.y - object->object.position.y;
 	dz = position.z - object->object.position.z;
+	/* (each refusal counted for the server's moderators: host_evidence.h) */
 	if (!(dx * dx + dy * dy + dz * dz <= HOST_ACCEPT_TOLERANCE * HOST_ACCEPT_TOLERANCE))
+	{
+		host_evidence_note(distributed_player_machine(player_index), _host_evidence_movement);
 		return;
+	}
 	if (distributed_accepted[player_index].valid)
 	{
 		long ticks = MIN(distributed_predictions[player_index].time - distributed_accepted[player_index].time,
@@ -2142,6 +2150,7 @@ static void distributed_take_prediction(
 		else if (ticks <= 0 || !distributed_on_foot_move_valid(bound, &distributed_accepted[player_index].position,
 			&position, ticks))
 		{
+			host_evidence_note(distributed_player_machine(player_index), _host_evidence_movement);
 			return;
 		}
 	}
@@ -2151,6 +2160,7 @@ static void distributed_take_prediction(
 	if (!(position.z - distributed_host_speeds[player_index].ground_height <=
 		distributed_on_foot_ceiling(player_index, bound)))
 	{
+		host_evidence_note(distributed_player_machine(player_index), _host_evidence_movement);
 		return;
 	}
 	/* (the client told which of its ticks the host has it at) */
@@ -2445,6 +2455,52 @@ absolute index. Recorded as read; the host's own friendly fire setting
 decides what hurts. */
 static boolean distributed_coop_declined[MAXIMUM_TRACKED_PLAYERS];
 
+/* (the host) each client player's input as it last changed, and when
+(system_milliseconds), for a dedicated server's AFK limit
+(server/src/server_conduct.c): the same input again and again is none */
+static struct
+{
+	boolean valid;
+	struct conduct_input input;
+	unsigned long time;
+} distributed_input_activity[MAXIMUM_TRACKED_PLAYERS];
+
+/* (the host) when a client's player's input last was input (conduct_rules.h),
+system_milliseconds; 0 if it sent none this game */
+unsigned long network_distributed_player_input_time(
+	short player_index)
+{
+	if (player_index < 0 || player_index >= MAXIMUM_TRACKED_PLAYERS || !distributed_input_activity[player_index].valid)
+		return 0;
+	return distributed_input_activity[player_index].time ? distributed_input_activity[player_index].time : 1;
+}
+
+static void distributed_note_input_activity(
+	short player_index,
+	struct player_action const *action)
+{
+	struct conduct_input input;
+
+	csmemset(&input, 0, sizeof(input));
+	input.control_flags = action->control_flags;
+	input.yaw = action->desired_facing.yaw;
+	input.pitch = action->desired_facing.pitch;
+	input.throttle_i = action->throttle.i;
+	input.throttle_j = action->throttle.j;
+	input.primary_trigger = action->primary_trigger;
+	input.weapon_index = action->desired_weapon_index;
+	input.grenade_index = action->desired_grenade_index;
+	input.zoom_level = action->desired_zoom_level;
+	/* (the first: input, as the player just came) */
+	if (!distributed_input_activity[player_index].valid ||
+		conduct_input_active(&distributed_input_activity[player_index].input, &input))
+	{
+		distributed_input_activity[player_index].time = system_milliseconds();
+	}
+	distributed_input_activity[player_index].valid = TRUE;
+	distributed_input_activity[player_index].input = input;
+}
+
 /* (the host, in co-op) a client player's input counted in the scripts'
 action tests, as a local player's is (player_control_action_test_note) */
 static void distributed_note_input_actions(
@@ -2504,6 +2560,7 @@ static void distributed_handle_inputs(
 		/* (whether the player declined friendly fire: any value but 0; kept
 		for the player, which no rule of this host uses yet) */
 		distributed_coop_declined[input->player_index] = input->coop_no_friendly_fire != 0;
+		distributed_note_input_activity(input->player_index, &action);
 		update_server_handle_distributed_input(DATUM_INDEX_NEW(input->player_index, player->identifier), input->tick,
 			&action, input->control_flags, DISTRIBUTED_INPUT_HISTORY);
 		if (input->host_time != NONE && (host_time == NONE || input->host_time > host_time))
@@ -3646,6 +3703,10 @@ static void distributed_send_game_state(
 		_distributed_to_clients_reliably);
 }
 
+/* (host_evidence.h counts every machine there may be) */
+typedef char distributed_evidence_machines_assert[
+	HALO_PORT_MAXIMUM_NETWORK_MACHINES <= HOST_EVIDENCE_MACHINES ? 1 : -1];
+
 /* ---------- the game */
 
 /* a new map loading (game.c), before any of the new game's messages can
@@ -3666,8 +3727,10 @@ void network_distributed_new_game(
 	csmemset(distributed_round_trips, 0, sizeof(distributed_round_trips));
 	csmemset(distributed_input_facings, 0, sizeof(distributed_input_facings));
 	csmemset(distributed_coop_declined, 0, sizeof(distributed_coop_declined));
+	csmemset(distributed_input_activity, 0, sizeof(distributed_input_activity));
 	csmemset(distributed_client_clocks, 0, sizeof(distributed_client_clocks));
 	csmemset(distributed_client_identities, 0, sizeof(distributed_client_identities));
+	host_evidence_reset();
 	distributed_identity_sent = FALSE;
 	{
 		short machine_index;
@@ -4037,31 +4100,39 @@ void distributed_client_send_identity(
 		_distributed_to_host_reliably);
 }
 
+/* (the host) a client machine's address (host byte order) as the internet
+has it: an internet play peer's stand-in (100.64.0.0/10, p2p.c) its real
+one, the address the peer's tunnel is heard from, when that is known; any
+other as it is */
+static unsigned long distributed_real_address(
+	unsigned long address)
+{
+	/* (network byte order for p2p.c: its first number the lowest byte) */
+	if ((address & 0xFFC00000) == 0x64400000)
+	{
+		/* (32 bits, also where a long has 64) */
+		unsigned long network = ((address >> 24) & 0xFF) | ((address >> 8) & 0xFF00) | ((address << 8) & 0xFF0000) |
+			((address << 24) & 0xFF000000UL);
+		unsigned long real = p2p_peer_endpoint_address(network) & 0xFFFFFFFFUL;
+
+		if (real)
+			return (real >> 24) | ((real >> 8) & 0xFF00) | ((real << 8) & 0xFF0000) | ((real << 24) & 0xFF000000UL);
+	}
+	return address;
+}
+
 /* (the host) a client machine's address as text: its real one, for an
-internet play peer's stand-in (p2p.c). Whole, for the host's own CHEATERS_FILE
-and BANS_FILE, which match on it: never for the log (log_address.h) */
+internet play peer's stand-in (distributed_real_address). Whole, for the
+host's own CHEATERS_FILE and BANS_FILE, which match on it: never for the log
+(log_address.h) */
 static void distributed_address_text(
 	unsigned long address,
 	char *text,
 	long size)
 {
-	/* 100.64.0.0/10: an internet play peer's, by its real address (network
-	byte order: its first number the lowest byte) */
-	if ((address & 0xFFC00000) == 0x64400000)
-	{
-		unsigned long network = (address >> 24) | ((address >> 8) & 0xFF00) | ((address << 8) & 0xFF0000) |
-			(address << 24);
-		unsigned long real = p2p_peer_endpoint_address(network);
-
-		if (real)
-		{
-			snprintf(text, size, "%lu.%lu.%lu.%lu", real & 255, (real >> 8) & 255, (real >> 16) & 255,
-				(real >> 24) & 255);
-			return;
-		}
-	}
 	if (address)
 	{
+		address = distributed_real_address(address);
 		snprintf(text, size, "%lu.%lu.%lu.%lu", (address >> 24) & 255, (address >> 16) & 255, (address >> 8) & 255,
 			address & 255);
 	}
@@ -4069,6 +4140,57 @@ static void distributed_address_text(
 	{
 		snprintf(text, size, "unknown");
 	}
+}
+
+/* (the host's) the most machines of one address its games take, a
+dedicated server's setting's once it is set (network_distributed_set_
+address_limit), else network.max_machines_per_address; 0 for no limit */
+static boolean distributed_address_limit_set;
+static long distributed_address_limit;
+
+void network_distributed_set_address_limit(
+	long maximum)
+{
+	distributed_address_limit_set = TRUE;
+	distributed_address_limit = maximum < 0 ? 0 : maximum > NETWORK_RULES_ADDRESS_LIMIT_MAXIMUM ?
+		NETWORK_RULES_ADDRESS_LIMIT_MAXIMUM : maximum;
+}
+
+long network_distributed_address_limit(
+	void)
+{
+	long maximum;
+
+	if (distributed_address_limit_set)
+		return distributed_address_limit;
+	maximum = config_integer("network.max_machines_per_address");
+	return maximum < 0 ? 0 : maximum > NETWORK_RULES_ADDRESS_LIMIT_MAXIMUM ? NETWORK_RULES_ADDRESS_LIMIT_MAXIMUM :
+		maximum;
+}
+
+/* (the host: network_server_manager.c) whether a machine joining from
+address (host byte order, the game's address of it) goes past the limit,
+the game's addresses of the count machines in the game already in others:
+each counted by its real address (distributed_real_address), so the
+machines behind one public address are counted together, and a local
+network's left alone (network_rules_address_is_local) */
+boolean network_distributed_address_full(
+	unsigned long address,
+	unsigned long const *others,
+	short count)
+{
+	uint32_t real_others[HALO_PORT_MAXIMUM_NETWORK_MACHINES];
+	long maximum = network_distributed_address_limit();
+	short index;
+
+	if (maximum <= 0 || !address)
+		return FALSE;
+	if (count > HALO_PORT_MAXIMUM_NETWORK_MACHINES)
+		count = HALO_PORT_MAXIMUM_NETWORK_MACHINES;
+	for (index = 0; index < count; index++)
+		real_others[index] = (uint32_t)distributed_real_address(others[index]);
+	return network_rules_address_full((uint32_t)distributed_real_address(address), real_others, count, maximum) ?
+		TRUE : FALSE;
 }
 
 /* (the host) a client machine's address as text (distributed_address_text) */
@@ -4589,6 +4711,9 @@ static void distributed_note_client_clock(
 		long ahead = clock->latest_tick - game_time_get();
 
 		clock->fast = rate > CLIENT_CLOCK_FAST_RATE && ahead > CLIENT_CLOCK_AHEAD_TICKS;
+		/* (each window it ran fast, counted for the server's moderators) */
+		if (clock->fast)
+			host_evidence_note(machine_index, _host_evidence_clock);
 		if (!clock->fast)
 		{
 			clock->fast_windows = 0;

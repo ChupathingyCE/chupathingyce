@@ -114,7 +114,7 @@ def test_setup_and_accounts(panel, tmp_path):
     """No owner until the setup code makes one; the code is good once, and
     never in the log; the accounts file keeps hashes and is private."""
     hello = http(panel, "GET", "/v1/hello")
-    assert hello.status == 200 and hello.json() == {"setup": True, "tls": False, "fingerprint": None}
+    assert hello.status == 200 and hello.json() == {"setup": True, "tls": False, "fingerprint": None, "waiting": False}
     code = setup_code(panel)
     assert not any(code in line for line in panel.lines if line.startswith("notice:"))
     origin = {"Origin": f"http://127.0.0.1:{panel.port}"}
@@ -188,6 +188,9 @@ def test_roles_and_permissions(panel, tmp_path):
     assert moderator.session["role"] == "moderator"
     # a moderator: the players and kicks, timed bans up to 7 days; no more
     assert moderator.get("/v1/players").status == 200
+    # (and what the server refused of each player: a moderator's evidence)
+    evidence = moderator.get("/v1/evidence")
+    assert evidence.status == 200 and evidence.json()["players"][0]["evidence"]["movement"] == 3
     assert moderator.command("sv_kick 1").json()["ok"] is True
     assert moderator.command("sv_ban 1 2h").json()["ok"] is True
     for line in ("sv_ban 1 30d", "sv_ban 1", "sv_unban 1", "sv_map bloodgulch ctf", "sv_name x", "sv_mod_add 1 owner",

@@ -54,6 +54,10 @@ HALO_BUILD_FLAVOR.
 #define BUILD_IDENTITY_ARCHITECTURE "arm64"
 #elif defined(__x86_64__) || defined(_M_X64)
 #define BUILD_IDENTITY_ARCHITECTURE "x64"
+/* (32-bit ARM ahead of _M_IX86, which halo_linux_prefix.h defines for the
+XDK's headers on every 32-bit build) */
+#elif defined(__arm__)
+#define BUILD_IDENTITY_ARCHITECTURE "arm"
 #elif defined(__i386__) || defined(_M_IX86)
 #define BUILD_IDENTITY_ARCHITECTURE "x86"
 #else

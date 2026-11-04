@@ -9,7 +9,10 @@ their output. Nothing here touches the game: it is built with the host's
 ABI, and what crosses to the game's units is plain types.
 
 The console: commands typed on standard input, when it is a terminal (or
-HALO_DEDICATED_CONSOLE says so), their output on standard output.
+HALO_DEDICATED_CONSOLE says so), their output on standard output. When
+standard input and output are both a terminal, the line being typed is
+edited on a prompt line that the server's output goes above
+(server_terminal.c); otherwise its bytes are read as they come.
 
 The control API: HTTP/1.1 and JSON on a TCP listener of its own, off unless
 HALO_DEDICATED_CONTROL gives an address (127.0.0.1 unless it says another,
@@ -59,36 +62,22 @@ platform_log) are kept in a ring here, any public address in them hidden
 #include "control_roles.h"
 #include "control_accounts.h"
 #include "control_tls.h"
+#include "server_terminal.h"
 #include "../src/server_roles.h"
 #include "../src/server_link.h"
 
 #include "monocypher.h"
 #include "qrcodegen.h"
 
-#include <arpa/inet.h>
-#include <errno.h>
-#include <fcntl.h>
-#include <netinet/in.h>
-#include <poll.h>
+/* (the sockets, files and random bytes, on Linux and Windows) */
+#include "server_host.h"
+
 #include <pthread.h>
 #include <stdarg.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <strings.h>
-#include <sys/socket.h>
-#include <sys/stat.h>
-#include <time.h>
-#include <unistd.h>
-
-/* (Linux's; the tests' harness builds this unit on macOS too, which has
-neither: server/tests/control_harness.c) */
-#ifndef SOCK_CLOEXEC
-#define SOCK_CLOEXEC 0
-#endif
-#ifndef MSG_NOSIGNAL
-#define MSG_NOSIGNAL 0
-#endif
 
 /* the platform layer's (xbox_files.c, log_address.c): plain types */
 const char *platform_data_root(void);
@@ -165,6 +154,9 @@ enum
 
 #define CREDENTIALS_FILE "control_credentials.txt"
 #define ACCOUNTS_FILE "control_accounts.txt"
+/* the setup code, for an owner who cannot see the console (a container's
+volume, a service): written while there is no owner, deleted once there is */
+#define SETUP_CODE_FILE "control_setup_code.txt"
 #define AUDIT_FILE "control_audit.log"
 
 /* ---------- structures */
@@ -240,6 +232,8 @@ static struct
 	int started;
 	int console;
 	int console_open;
+	/* the line edited on the terminal (server_terminal.c) */
+	int console_editing;
 	char console_line[CONSOLE_LINE_SIZE];
 	size_t console_length;
 	int console_overlong;
@@ -289,6 +283,11 @@ static struct
 	int setup_active;
 	uint8_t setup_hash[32];
 	int64_t setup_expires;
+	/* the server started without a playlist for this setup
+	(server_control_setup_mode), and whether it still waits to host: until
+	the first owner finishes it (POST /v1/setup/start, sv_setup_start) */
+	int setup_mode;
+	int setup_waiting;
 	/* each account's bind request (server_roles.h), 0 none */
 	unsigned int bind_request[MAXIMUM_ACCOUNTS];
 } panel;
@@ -305,26 +304,7 @@ static int64_t monotonic_seconds(void)
 
 static int random_bytes(void *buffer, size_t size)
 {
-	int fd = open("/dev/urandom", O_RDONLY | O_CLOEXEC);
-	size_t done = 0;
-
-	if (fd < 0)
-		return 0;
-	while (done < size)
-	{
-		ssize_t count = read(fd, (char *)buffer + done, size - done);
-
-		if (count <= 0)
-		{
-			if (count < 0 && errno == EINTR)
-				continue;
-			close(fd);
-			return 0;
-		}
-		done += (size_t)count;
-	}
-	close(fd);
-	return 1;
+	return host_random_bytes(buffer, size);
 }
 
 /* a free ticket (the queue's lock held): its index, or -1 */
@@ -444,7 +424,7 @@ static int load_credentials(void)
 	file = fopen(path, "r");
 	if (file)
 	{
-		if (!fstat(fileno(file), &information) && (information.st_mode & 077))
+		if (!fstat(fileno(file), &information) && host_file_shared(&information))
 			notice("%s can be read by others than its owner (chmod 600 it)", CREDENTIALS_FILE);
 		while (fgets(line, sizeof(line), file))
 		{
@@ -631,6 +611,30 @@ static int owner_count(void)
 	return count;
 }
 
+/* whether the first-run setup holds the server from hosting (read by the
+main thread too) */
+static int setup_waiting(void)
+{
+	return __atomic_load_n(&panel.setup_waiting, __ATOMIC_ACQUIRE);
+}
+
+static void set_setup_waiting(int waiting)
+{
+	__atomic_store_n(&panel.setup_waiting, waiting, __ATOMIC_RELEASE);
+}
+
+/* the first-run setup finished: the server hosts from now (1), or it was
+not waiting (0) */
+static int finish_setup(const char *source, const char *name, int role)
+{
+	if (!setup_waiting())
+		return 0;
+	set_setup_waiting(0);
+	notice("first-run setup finished (%s): the server starts hosting", source);
+	server_audit(source, name, role, "setup start", NULL, NULL, 1, NULL);
+	return 1;
+}
+
 static int account_named(const char *name)
 {
 	int index;
@@ -687,7 +691,7 @@ static void load_accounts(void)
 	file = fopen(path, "r");
 	if (!file)
 		return;
-	if (!fstat(fileno(file), &information) && (information.st_mode & 077))
+	if (!fstat(fileno(file), &information) && host_file_shared(&information))
 		notice("%s can be read by others than its owner (chmod 600 it)", ACCOUNTS_FILE);
 	while (fgets(line, sizeof(line), file))
 	{
@@ -783,8 +787,49 @@ static int write_accounts(char *problem, size_t problem_size)
 	return 1;
 }
 
+static void setup_code_path(char *path, size_t size)
+{
+	const char *root = platform_data_root();
+
+	snprintf(path, size, "%s/%s", root && root[0] ? root : ".", SETUP_CODE_FILE);
+}
+
+/* the setup code's file deleted (there is an owner, or a new code) */
+static void forget_setup_code_file(void)
+{
+	char path[1024];
+
+	setup_code_path(path, sizeof(path));
+	unlink(path);
+}
+
+/* the setup code written to its file (only its owner may read it): for an
+owner who cannot see the console */
+static void write_setup_code_file(const char *code)
+{
+	char path[1024];
+	char text[1024];
+	int length;
+	int fd;
+
+	setup_code_path(path, sizeof(path));
+	forget_setup_code_file();
+	length = snprintf(text, sizeof(text),
+		"# The one-time code that makes the owner's account on this server's control panel.\n"
+		"# Open the panel, enter the code, and choose a name and a password.\n"
+		"# The server deletes this file once the account is made.\n"
+		"%s\n"
+		"%s://%s/#setup=%s\n", code, control.tls ? "https" : "http", control.listen_setting, code);
+	fd = open(path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
+	if (fd < 0 || length <= 0 || (size_t)length >= sizeof(text) || write(fd, text, (size_t)length) != length)
+		notice("cannot write %s in the data folder: the setup code is on the console only", SETUP_CODE_FILE);
+	if (fd >= 0)
+		close(fd);
+	crypto_wipe(text, sizeof(text));
+}
+
 /* the first owner's setup code: a new one made (and printed, on the
-console alone) while there is no owner */
+console alone, and in its file) while there is no owner */
 static void make_setup_code(void)
 {
 	uint8_t bytes[CONTROL_CODE_BYTES];
@@ -811,8 +856,9 @@ static void make_setup_code(void)
 		"\n"
 		"(through your SSH tunnel, or at the server's address) and make the owner's account\n"
 		"with this one-time code. It is good for 24 hours, and until the account is made;\n"
-		"sv_account_setup on this console makes a new one.\n"
-		"\n", control.tls ? "https" : "http", control.listen_setting, code);
+		"sv_account_setup on this console makes a new one. The code is also in\n"
+		"%s in the data folder, until the account is made.\n"
+		"\n", control.tls ? "https" : "http", control.listen_setting, code, SETUP_CODE_FILE);
 	if (control.tls)
 	{
 		printf("The panel's certificate is the server's own. Check that your browser shows this\n"
@@ -822,8 +868,10 @@ static void make_setup_code(void)
 			"\n", control.fingerprint);
 	}
 	fflush(stdout);
+	write_setup_code_file(code);
 	crypto_wipe(code, sizeof(code));
-	notice("the control panel's setup code was printed on the server's output (it has no owner yet)");
+	notice("the control panel's setup code was printed on the server's output and written to %s (it has no owner yet)",
+		SETUP_CODE_FILE);
 }
 
 /* an invitation made, its code printed into code (code_size bytes) for
@@ -978,6 +1026,13 @@ static int console_account(const char *line)
 
 	words[0][0] = words[1][0] = words[2][0] = 0;
 	count = sscanf(line, "%63s %63s %63s %1s", words[0], words[1], words[2], extra);
+	if (count == 1 && !strcmp(words[0], "sv_setup_start"))
+	{
+		notice("console: %s", line);
+		if (!finish_setup("console", "console", CONTROL_ROLE_OWNER))
+			printf("the server is not waiting for its setup\n");
+		return 1;
+	}
 	if (count < 1 || strncmp(words[0], "sv_account_", 11))
 		return 0;
 	notice("console: %s", line);
@@ -1360,20 +1415,25 @@ static int start_listener(const char *setting)
 			notice("the control panel made its own certificate (%s, %s)", CONTROL_TLS_CERTIFICATE_FILE,
 				CONTROL_TLS_KEY_FILE);
 	}
-	fd = socket(address.ss_family, SOCK_STREAM | SOCK_CLOEXEC, 0);
+	fd = host_socket(address.ss_family, SOCK_STREAM, 0);
 	if (fd < 0)
 	{
-		notice("the control API cannot listen (%s): it is off", strerror(errno));
+		notice("the control API cannot listen (%s): it is off", strerror(host_socket_errno()));
 		return 0;
 	}
-	setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+#ifdef _WIN32
+	/* (Windows' SO_REUSEADDR lets another program take the port too: its
+	exclusive use instead) */
+	setsockopt(fd, SOL_SOCKET, SO_EXCLUSIVEADDRUSE, (const char *)&one, sizeof(one));
+#else
+	setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (const char *)&one, sizeof(one));
+#endif
 	if (address.ss_family == AF_INET6)
-		setsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY, &one, sizeof(one));
-	if (bind(fd, (struct sockaddr *)&address, length) || listen(fd, 16) ||
-		fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK))
+		setsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY, (const char *)&one, sizeof(one));
+	if (bind(fd, (struct sockaddr *)&address, length) || listen(fd, 16) || host_socket_nonblocking(fd))
 	{
-		notice("the control API cannot listen on %s (%s): it is off", setting, strerror(errno));
-		close(fd);
+		notice("the control API cannot listen on %s (%s): it is off", setting, strerror(host_socket_errno()));
+		host_socket_close(fd);
 		return 0;
 	}
 	control.listener = fd;
@@ -1421,7 +1481,7 @@ static void close_connection(struct connection *connection)
 		connection->tls = NULL;
 	}
 	if (connection->fd >= 0)
-		close(connection->fd);
+		host_socket_close(connection->fd);
 	free(connection->response);
 	if (connection->state == CONNECTION_WAITING && connection->ticket >= 0)
 	{
@@ -2094,6 +2154,7 @@ static void handle_setup(struct connection *connection, struct control_request *
 	crypto_wipe(password, sizeof(password));
 	panel.setup_active = 0;
 	crypto_wipe(panel.setup_hash, sizeof(panel.setup_hash));
+	forget_setup_code_file();
 	notice("the control panel's owner account was made: %s", user);
 	server_audit("web", user, CONTROL_ROLE_OWNER, "setup", user, NULL, 1, NULL);
 	respond_ok(connection, "the owner's account is made: log in with it, and set up a second factor");
@@ -2958,8 +3019,8 @@ static void respond_hello(struct connection *connection)
 	struct json_body body;
 
 	json_begin(&body);
-	json_printf(&body, "{\"setup\": %s, \"tls\": %s, \"fingerprint\": ", owner_count() ? "false" : "true",
-		control.tls ? "true" : "false");
+	json_printf(&body, "{\"setup\": %s, \"waiting\": %s, \"tls\": %s, \"fingerprint\": ",
+		owner_count() ? "false" : "true", setup_waiting() ? "true" : "false", control.tls ? "true" : "false");
 	json_string(&body, control.tls ? control.fingerprint : NULL);
 	json_printf(&body, "}");
 	respond_json(connection, 200, &body, NULL);
@@ -3067,6 +3128,20 @@ static void handle_request(struct connection *connection, struct control_request
 			control.credentials[credential].id);
 	}
 
+	if (!strcmp(request->path, "/v1/setup/start"))
+	{
+		/* the first-run setup finished, by an owner: the server hosts */
+		if (request->method != CONTROL_METHOD_POST)
+		{
+			respond_error(connection, 405, "POST only", "Allow: POST\r\n");
+			return;
+		}
+		if (!require(connection, &auth, CONTROL_PERMISSION_ROLES))
+			return;
+		respond_ok(connection, finish_setup("web", auth.name, auth.role) ? "the server starts hosting" :
+			"the server is hosting already");
+		return;
+	}
 	if (!strcmp(request->path, "/v1/session") || !strcmp(request->path, "/v1/logout"))
 	{
 		int logout = !strcmp(request->path, "/v1/logout");
@@ -3153,6 +3228,7 @@ static void handle_request(struct connection *connection, struct control_request
 		{
 			{ "/v1/status", "sv_status", CONTROL_PERMISSION_VIEW },
 			{ "/v1/players", "sv_players", CONTROL_PERMISSION_VIEW },
+			{ "/v1/evidence", "sv_evidence", CONTROL_PERMISSION_WARN },
 			{ "/v1/bans", "sv_banlist", CONTROL_PERMISSION_VIEW },
 			{ "/v1/mapcycle", "sv_mapcycle", CONTROL_PERMISSION_VIEW },
 			{ "/v1/maps", "sv_maps", CONTROL_PERMISSION_VIEW },
@@ -3272,6 +3348,7 @@ static void read_request(struct connection *connection)
 	const char *reason;
 	int status;
 	int result;
+	int error = 0;
 	ssize_t count;
 
 	if (connection->tls)
@@ -3292,7 +3369,9 @@ static void read_request(struct connection *connection)
 	{
 		count = recv(connection->fd, connection->request + connection->length,
 			sizeof(connection->request) - 1 - connection->length, 0);
-		if (count == 0 || (count < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR))
+		if (count < 0)
+			error = host_socket_errno();
+		if (count == 0 || (count < 0 && error != EAGAIN && error != EWOULDBLOCK && error != EINTR))
 		{
 			close_connection(connection);
 			return;
@@ -3351,9 +3430,12 @@ static void write_response(struct connection *connection)
 	}
 	else
 	{
+		int error;
+
 		count = send(connection->fd, connection->response + connection->sent,
 			connection->response_length - connection->sent, MSG_NOSIGNAL);
-		if (count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR))
+		error = count < 0 ? host_socket_errno() : 0;
+		if (count < 0 && (error == EAGAIN || error == EWOULDBLOCK || error == EINTR))
 			return;
 		if (count <= 0)
 		{
@@ -3421,7 +3503,7 @@ static void accept_connection(void)
 {
 	struct sockaddr_storage address;
 	socklen_t length = sizeof(address);
-	int fd = accept(control.listener, (struct sockaddr *)&address, &length);
+	int fd = host_accept(control.listener, (struct sockaddr *)&address, &length);
 	uint8_t peer[16];
 	uint8_t tag[16];
 	int64_t now = monotonic_seconds();
@@ -3430,7 +3512,7 @@ static void accept_connection(void)
 
 	if (fd < 0)
 		return;
-	fcntl(fd, F_SETFD, FD_CLOEXEC);
+	host_socket_cloexec(fd);
 	memset(peer, 0, sizeof(peer));
 	if (address.ss_family == AF_INET)
 	{
@@ -3456,7 +3538,7 @@ static void accept_connection(void)
 		}
 		if (from_source >= MAXIMUM_CONNECTIONS_PER_SOURCE)
 		{
-			close(fd);
+			host_socket_close(fd);
 			return;
 		}
 	}
@@ -3483,15 +3565,15 @@ static void accept_connection(void)
 		}
 		if (oldest < 0)
 		{
-			close(fd);
+			host_socket_close(fd);
 			return;
 		}
 		close_connection(&control.connections[oldest]);
 		index = oldest;
 	}
-	if (fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK))
+	if (host_socket_nonblocking(fd))
 	{
-		close(fd);
+		host_socket_close(fd);
 		return;
 	}
 	{
@@ -3781,17 +3863,19 @@ static void console_line(const char *line)
 	}
 }
 
-static void read_console(void)
+/* the console's bytes, a line at a time */
+static void console_bytes(const char *buffer, ssize_t count)
 {
-	char buffer[512];
-	ssize_t count = read(STDIN_FILENO, buffer, sizeof(buffer));
 	ssize_t index;
 
-	if (count < 0 && (errno == EAGAIN || errno == EINTR))
-		return;
-	if (count <= 0)
+	/* (edited on the terminal: server_terminal.c hands the lines) */
+	if (control.console_editing)
 	{
-		control.console_open = 0;
+		if (count > 0 && !server_terminal_input(buffer, (size_t)count, console_line))
+		{
+			control.console_open = 0;
+			server_terminal_stop();
+		}
 		return;
 	}
 	for (index = 0; index < count; index++)
@@ -3823,6 +3907,82 @@ static void read_console(void)
 	}
 }
 
+#ifdef _WIN32
+/* Windows' standard input is no socket, which WSAPoll could wait on: a
+thread of its own reads it, and hands what it read to the control thread
+(console_pending), which it wakes */
+static pthread_mutex_t console_mutex = PTHREAD_MUTEX_INITIALIZER;
+static char console_pending[4096];
+static size_t console_pending_length;
+static int console_ended;
+
+static void *console_thread(void *argument)
+{
+	(void)argument;
+	for (;;)
+	{
+		char buffer[512];
+		int count = _read(0, buffer, sizeof(buffer));
+
+		pthread_mutex_lock(&console_mutex);
+		if (count <= 0)
+			console_ended = 1;
+		else
+		{
+			/* (a line longer than the room left waits for the control thread
+			to take what is there) */
+			while (console_pending_length + (size_t)count > sizeof(console_pending))
+			{
+				pthread_mutex_unlock(&console_mutex);
+				host_wake_signal(wake_pipe[1]);
+				Sleep(10);
+				pthread_mutex_lock(&console_mutex);
+			}
+			memcpy(console_pending + console_pending_length, buffer, (size_t)count);
+			console_pending_length += (size_t)count;
+		}
+		pthread_mutex_unlock(&console_mutex);
+		host_wake_signal(wake_pipe[1]);
+		if (count <= 0)
+			return NULL;
+	}
+}
+
+static void read_console(void)
+{
+	char buffer[sizeof(console_pending)];
+	size_t count;
+	int ended;
+
+	pthread_mutex_lock(&console_mutex);
+	count = console_pending_length;
+	memcpy(buffer, console_pending, count);
+	console_pending_length = 0;
+	ended = console_ended;
+	pthread_mutex_unlock(&console_mutex);
+	console_bytes(buffer, (ssize_t)count);
+	if (ended)
+		control.console_open = 0;
+}
+#else
+static void read_console(void)
+{
+	char buffer[512];
+	ssize_t count = read(STDIN_FILENO, buffer, sizeof(buffer));
+
+	if (count < 0 && (errno == EAGAIN || errno == EINTR))
+		return;
+	if (count <= 0)
+	{
+		control.console_open = 0;
+		if (control.console_editing)
+			server_terminal_stop();
+		return;
+	}
+	console_bytes(buffer, count);
+}
+#endif
+
 /* ---------- the control thread */
 
 static void *control_thread(void *argument)
@@ -3845,12 +4005,14 @@ static void *control_thread(void *argument)
 			fds[count].events = POLLIN;
 			map[count++] = -2;
 		}
+#ifndef _WIN32
 		if (control.console_open)
 		{
 			fds[count].fd = STDIN_FILENO;
 			fds[count].events = POLLIN;
 			map[count++] = -3;
 		}
+#endif
 		for (index = 0; index < MAXIMUM_CONNECTIONS; index++)
 		{
 			struct connection *connection = &control.connections[index];
@@ -3869,7 +4031,7 @@ static void *control_thread(void *argument)
 				map[count++] = index;
 			}
 		}
-		if (poll(fds, (nfds_t)count, 500) < 0 && errno != EINTR)
+		if (poll(fds, (nfds_t)count, 500) < 0 && host_socket_errno() != EINTR)
 			continue;
 		/* (a renewed certificate of the operator's taken, once a minute) */
 		if (control.tls)
@@ -3892,10 +4054,12 @@ static void *control_thread(void *argument)
 				continue;
 			if (map[index] == -1)
 			{
-				char drain[64];
-
-				while (read(wake_pipe[0], drain, sizeof(drain)) > 0)
-					;
+				host_wake_drain(wake_pipe[0]);
+#ifdef _WIN32
+				/* (the console thread's lines come with a wake-up) */
+				if (control.console_open)
+					read_console();
+#endif
 			}
 			else if (map[index] == -2)
 				accept_connection();
@@ -3980,6 +4144,16 @@ static void *control_thread(void *argument)
 
 /* ---------- public code */
 
+void server_control_setup_mode(void)
+{
+	panel.setup_mode = 1;
+}
+
+int server_control_setup_waiting(void)
+{
+	return setup_waiting();
+}
+
 void server_control_start(void)
 {
 	const char *console = getenv("HALO_DEDICATED_CONSOLE");
@@ -3999,7 +4173,7 @@ void server_control_start(void)
 	}
 	control_limiter_initialize(&control.limiter);
 	/* the console: standard input, when it is a terminal or when asked */
-	control.console = console && console[0] ? truthy(console) : isatty(STDIN_FILENO);
+	control.console = console && console[0] ? truthy(console) : isatty(0);
 	if (setting && !falsy(setting))
 	{
 		uint8_t session_key[32];
@@ -4016,28 +4190,38 @@ void server_control_start(void)
 				code while there is none */
 				load_accounts();
 				publish_account_keys();
+				if (owner_count())
+					forget_setup_code_file();
 				make_setup_code();
+				/* (a server started for the first-run setup waits to host
+				until its owner finishes it; one with an owner already, or
+				whose panel did not start, hosts at once) */
+				if (panel.setup_mode && !owner_count())
+				{
+					set_setup_waiting(1);
+					notice("first-run setup: the server waits to host until its owner finishes the setup in the "
+						"control panel");
+				}
 			}
 		}
 		crypto_wipe(session_key, sizeof(session_key));
 	}
 	if (!control.console && control.listener < 0)
 		return;
-	if (pipe(wake_pipe))
+	if (host_wake_open(wake_pipe))
 	{
-		notice("the console and control API cannot start (%s)", strerror(errno));
+		notice("the console and control API cannot start (%s)", strerror(host_socket_errno()));
 		if (control.listener >= 0)
-			close(control.listener);
+			host_socket_close(control.listener);
 		control.listener = -1;
 		return;
 	}
-	fcntl(wake_pipe[0], F_SETFL, fcntl(wake_pipe[0], F_GETFL) | O_NONBLOCK);
-	fcntl(wake_pipe[1], F_SETFL, fcntl(wake_pipe[1], F_GETFL) | O_NONBLOCK);
-	fcntl(wake_pipe[0], F_SETFD, FD_CLOEXEC);
-	fcntl(wake_pipe[1], F_SETFD, FD_CLOEXEC);
 	control.console_open = control.console;
 	if (control.console)
+	{
 		notice("the console reads commands on standard input (help lists them)");
+		control.console_editing = server_terminal_start(CONSOLE_LINE_SIZE);
+	}
 	pthread_attr_init(&attributes);
 	pthread_attr_setdetachstate(&attributes, PTHREAD_CREATE_DETACHED);
 	/* (a stack of its own size: musl's default is small, and a response is
@@ -4045,11 +4229,17 @@ void server_control_start(void)
 	pthread_attr_setstacksize(&attributes, 1024 * 1024);
 	if (pthread_create(&thread, &attributes, control_thread, NULL))
 	{
+		if (control.console_editing)
+			server_terminal_stop();
 		notice("the console and control API cannot start");
 		if (control.listener >= 0)
-			close(control.listener);
+			host_socket_close(control.listener);
 		control.listener = -1;
 	}
+#ifdef _WIN32
+	else if (control.console && pthread_create(&thread, &attributes, console_thread, NULL))
+		control.console_open = 0;
+#endif
 	pthread_attr_destroy(&attributes);
 }
 
@@ -4134,11 +4324,7 @@ void server_control_finish(int ticket, int ok, const char *output)
 	}
 	pthread_mutex_unlock(&queue_mutex);
 	if (wake_pipe[1] >= 0)
-	{
-		ssize_t written = write(wake_pipe[1], "", 1);
-
-		(void)written;
-	}
+		host_wake_signal(wake_pipe[1]);
 }
 
 void server_control_log(const char *text)
