@@ -3298,6 +3298,42 @@ int p2p_hosting_status(char *text, int size)
 	return 1;
 }
 
+int p2p_hosting_reach(struct p2p_reach *reach)
+{
+	int index;
+
+	memset(reach, 0, sizeof(*reach));
+	if (!p2p.running)
+		return 0;
+	pthread_mutex_lock(&p2p_lock);
+	reach->port = network_short(p2p.tunnel_port);
+	reach->port_fixed = p2p.port_fixed;
+	for (index = 0; index < p2p.stun_count; index++)
+	{
+		int other;
+
+		if (!p2p.stun[index].has_mapped)
+			continue;
+		reach->stun_answers++;
+		for (other = 0; other < index; other++)
+		{
+			if (p2p.stun[other].has_mapped && p2p.stun[other].mapped.port != p2p.stun[index].mapped.port)
+				reach->strict = 1;
+		}
+	}
+	reach->settled = p2p.stun_started && stun_settled();
+	switch (p2p.upnp_forwarded ? _upnp_forwarded : p2p.upnp_status)
+	{
+	case _upnp_forwarded: reach->upnp = P2P_UPNP_FORWARDED; break;
+	case _upnp_no_router: reach->upnp = P2P_UPNP_NO_ROUTER; break;
+	case _upnp_refused: reach->upnp = P2P_UPNP_REFUSED; break;
+	default: reach->upnp = P2P_UPNP_NOT_ASKED; break;
+	}
+	pthread_mutex_unlock(&p2p_lock);
+	reach->upnp_allowed = config_boolean("network.allow_upnp");
+	return 1;
+}
+
 /* ---------- invites from elsewhere */
 
 /* the first command line argument holding an invite (or an older

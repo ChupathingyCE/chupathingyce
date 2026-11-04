@@ -28,6 +28,7 @@ never hosts.
 #include "port_config.h"
 #include "posix.h"
 #include "browser.h"
+#include "p2p.h"
 #include "halo_port_limits.h"
 #include "delta.h"
 #include "server_control.h"
@@ -458,4 +459,72 @@ void updater_start(void)
 const char *updater_version(void)
 {
 	return HALO_VERSION;
+}
+
+/* whether people can join, for sv_status (server_commands.c): internet
+play's port and UPnP, the NAT as the STUN servers saw it, and the game
+list's listing. As JSON, an object's fields (no braces); else lines. Never
+an address: only the port, and states */
+int server_platform_reach(char *text, int size, int json)
+{
+	struct p2p_reach reach;
+	int internet = 0;
+	int listing, status = 0;
+	const char *upnp, *nat, *listed;
+	static const char *const listings[] = { "listed", "not_hosting", "private", "off", "no_list", "waiting", "failed" };
+
+	if (size <= 0)
+		return 0;
+	text[0] = 0;
+#ifdef HALO_GAME_BROWSER
+	internet = p2p_hosting_reach(&reach);
+	listing = browser_host_listing(&status);
+#else
+	memset(&reach, 0, sizeof(reach));
+	listing = BROWSER_HOST_NO_LIST;
+#endif
+	upnp = !internet ? "off" : reach.upnp == P2P_UPNP_FORWARDED ? "forwarded" : !reach.upnp_allowed ? "off" :
+		reach.upnp == P2P_UPNP_NO_ROUTER ? "no_router" : reach.upnp == P2P_UPNP_REFUSED ? "refused" : "not_asked";
+	nat = !internet ? "off" : reach.strict ? "strict" : reach.stun_answers >= 2 || (reach.settled && reach.stun_answers) ?
+		"open" : !reach.settled ? "checking" : "unknown";
+	listed = listing >= 0 && listing < (int)(sizeof(listings) / sizeof(listings[0])) ? listings[listing] : "no_list";
+	if (json)
+	{
+		snprintf(text, (size_t)size, "\"internet\": %s, \"port\": %u, \"port_fixed\": %s, \"upnp\": \"%s\", "
+			"\"nat\": \"%s\", \"listing\": \"%s\", \"listing_status\": %d", internet ? "true" : "false",
+			(unsigned)reach.port, reach.port_fixed ? "true" : "false", upnp, nat, listed, status);
+		return 1;
+	}
+	if (!internet)
+		snprintf(text, (size_t)size, "internet play: off (network.online)\n");
+	else
+	{
+		snprintf(text, (size_t)size, "internet play: UDP %u%s; %s; %s\n", (unsigned)reach.port,
+			reach.port_fixed ? "" : " (a new port each run)",
+			!strcmp(upnp, "forwarded") ? "forwarded by the router (UPnP)" : !strcmp(upnp, "no_router") ?
+			"UPnP found no router" : !strcmp(upnp, "refused") ? "the router refused UPnP" : !strcmp(upnp, "off") ?
+			"UPnP off" : "UPnP not asked yet",
+			!strcmp(nat, "open") ? "most players can reach it" : !strcmp(nat, "strict") ?
+			"strict NAT: forward the port" : !strcmp(nat, "checking") ? "checking the network" :
+			"the STUN servers did not answer");
+	}
+	{
+		size_t used = strlen(text);
+		static const char *const reasons[] = { "listed", "not hosting on the internet yet", "not public",
+			"off (network.list_hosted_games)", "no game list (network.browser_url)", "waiting for the game list",
+			"the game list did not take it" };
+
+		snprintf(text + used, (size_t)size - used, "game list: %s", reasons[listing >= 0 && listing < 7 ? listing : 4]);
+		used = strlen(text);
+		if (listing == BROWSER_HOST_FAILED)
+		{
+			if (status)
+				snprintf(text + used, (size_t)size - used, " (HTTP %d)", status);
+			else
+				snprintf(text + used, (size_t)size - used, " (no answer)");
+		}
+		used = strlen(text);
+		snprintf(text + used, (size_t)size - used, "\n");
+	}
+	return 1;
 }
