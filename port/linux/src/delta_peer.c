@@ -54,7 +54,8 @@ static void say(struct delta_peer *peer, const char *format, ...)
 /* (delta.h's registry, in its order) */
 static const char *const platform_names[] = {
 	"unknown", "pc_windows", "pc_macos", "pc_linux", "android", "steam_deck", "xbox", "xbox360", "wiiu",
-	"switch", "psp", "vita", "xbox_uwp", "pc_freebsd", "ps3", "ps4", "ps5", "n64", "pc_legacy"
+	"switch", "psp", "vita", "xbox_uwp", "pc_freebsd", "ps3", "ps4", "ps5", "n64", "pc_legacy",
+	"steamlink", "ios", "tvos"
 };
 typedef char platform_names_check[sizeof(platform_names) / sizeof(platform_names[0]) == NUMBER_OF_DELTA_PLATFORMS ?
 	1 : -1];

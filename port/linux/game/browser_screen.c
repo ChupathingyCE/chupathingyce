@@ -2130,7 +2130,8 @@ static char const *machines_text(
 		{ "PC", { 1, 2, 3, 13, 18, -1 } }, { "Steam Deck", { 5, -1 } }, { "Android", { 4, -1 } },
 		{ "Xbox", { 6, -1 } }, { "Xbox 360", { 7, -1 } }, { "Wii U", { 8, -1 } }, { "Switch", { 9, -1 } },
 		{ "PSP", { 10, -1 } }, { "Vita", { 11, -1 } }, { "Xbox Series", { 12, -1 } }, { "PS3", { 14, -1 } },
-		{ "PS4", { 15, -1 } }, { "PS5", { 16, -1 } }, { "N64", { 17, -1 } }, { "other", { 0, -1 } },
+		{ "PS4", { 15, -1 } }, { "PS5", { 16, -1 } }, { "N64", { 17, -1 } }, { "Steam Link", { 19, -1 } },
+		{ "iOS", { 20, -1 } }, { "Apple TV", { 21, -1 } }, { "other", { 0, -1 } },
 		{ "OpenCE", { BROWSER_MACHINE_KINDS - 1, -1 } },
 	};
 	long used = 0, group;

@@ -209,7 +209,9 @@ The platform registry (`enum delta_platform`, one byte, never reused):
 8 `wiiu`, 9 `switch`, 10 `psp`, 11 `vita`, 12 `xbox_uwp` (the Xbox One and
 Series in developer mode), 13 `pc_freebsd` (the PC build for FreeBSD,
 [port/unix](../port/unix/README.md)), 14 `ps3`, 15 `ps4`, 16 `ps5`, 17 `n64`,
-18 `pc_legacy` (DOS and Windows 9x PCs). 10 to 12 and 14 to 18 are ports
+18 `pc_legacy` (DOS and Windows 9x PCs), 19 `steamlink` (the 2015 Steam
+Link), 20 `ios` (iPhone and iPad, and the Vision Pro in iPad compatibility
+mode), 21 `tvos` (the Apple TV). 10 to 12 and 14 to 21 are ports
 others build on ours; their policy rows are placeholders until those ports
 play, as the consoles' are. 13's is a PC's. How a port gets a number: see
 "Platform numbers" below.
@@ -238,6 +240,8 @@ defaults every machine's key starts from:
 | PSP, Vita | 16 | 16 | 128 | 6, 9 (placeholders) | no |
 | Xbox Series (developer mode) | 128 | 128 | 128 | 12 | yes |
 | PS3 | 16 | 16 | 128 | 8 (256 MB; placeholder) | no |
+| Steam Link | 0 (does not host yet) | 16 | 128 | 8 (256 MB) | no |
+| iOS, Apple TV | 128 | 128 | 128 | 11 (2 GB) | yes |
 | PS4, PS5 | 16 | 16 | 128 | 12, 13 (placeholders) | yes |
 | Nintendo 64 | 0 (never hosts) | 8 | 16 | 3 (8 MB; placeholder) | no |
 | Legacy PC (DOS, Windows 9x) | 16 | 16 | 128 | 7 (128 MB; placeholder) | no |
@@ -291,7 +295,7 @@ and the site learns it too.
 **Identify your build.** Build with `-DHALO_DELTA_PLATFORM=_delta_platform_<name>`
 (`_delta_platform_ps3`, say). The game sends that number in its platform
 key. Without it, the game picks a number from what it's built for (Windows,
-Mac, Linux, Android, FreeBSD and our console builds), and `unknown` (0)
+Mac, Linux, Android, FreeBSD, iOS, Apple TV and our console builds), and `unknown` (0)
 otherwise. A build with no number of its own still plays;
 it just shows no logo and gets the unknown row.
 
@@ -336,9 +340,13 @@ can also claim lower limits in its own key; a host takes the lower value.
 | 16 | `ps5` | PlayStation 5 | community port |
 | 17 | `n64` | Nintendo 64 | JackT |
 | 18 | `pc_legacy` | DOS and Windows 9x PCs | JackT (Legacy PC) |
+| 19 | `steamlink` | Steam Link (2015) | Jizzy |
+| 20 | `ios` | iPhone, iPad, Vision Pro (iPad compatibility mode) | Jizzy (port/ios) |
+| 21 | `tvos` | Apple TV | Jizzy (port/ios) |
 
 The PSP, Vita, PS3, PS4 and PS5 share the PlayStation logo on the
-scoreboard. Nintendo 64 and Legacy PC have no logo yet.
+scoreboard. Nintendo 64, Legacy PC, Steam Link, iOS and Apple TV have no
+logo yet.
 
 ### Wire format
 
