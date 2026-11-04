@@ -73,6 +73,7 @@ machine (their datum identifiers need not be).
 #include "units/biped_definitions.h"
 #include "units/bipeds.h"
 #include "network_coop.h"
+#include "host_evidence.h"
 #include "network_distributed.h"
 #include "network_rules.h"
 #include "../src/delta_chat_bridge.h"
@@ -1289,6 +1290,7 @@ static boolean distributed_machine_loaded(
 	csmemset(&distributed_client_clocks[machine_index], 0, sizeof(distributed_client_clocks[machine_index]));
 	distributed_client_clocks[machine_index].window_tick = NONE;
 	csmemset(&distributed_client_identities[machine_index], 0, sizeof(distributed_client_identities[machine_index]));
+	host_evidence_reset_machine(machine_index);
 	for (player_index = 0; player_index < MAXIMUM_TRACKED_PLAYERS; player_index++)
 		distributed_seen[machine_index][player_index] = FALSE;
 	return TRUE;
@@ -2121,8 +2123,12 @@ static void distributed_take_prediction(
 	dx = position.x - object->object.position.x;
 	dy = position.y - object->object.position.y;
 	dz = position.z - object->object.position.z;
+	/* (each refusal counted for the server's moderators: host_evidence.h) */
 	if (!(dx * dx + dy * dy + dz * dz <= HOST_ACCEPT_TOLERANCE * HOST_ACCEPT_TOLERANCE))
+	{
+		host_evidence_note(distributed_player_machine(player_index), _host_evidence_movement);
 		return;
+	}
 	if (distributed_accepted[player_index].valid)
 	{
 		long ticks = MIN(distributed_predictions[player_index].time - distributed_accepted[player_index].time,
@@ -2142,6 +2148,7 @@ static void distributed_take_prediction(
 		else if (ticks <= 0 || !distributed_on_foot_move_valid(bound, &distributed_accepted[player_index].position,
 			&position, ticks))
 		{
+			host_evidence_note(distributed_player_machine(player_index), _host_evidence_movement);
 			return;
 		}
 	}
@@ -2151,6 +2158,7 @@ static void distributed_take_prediction(
 	if (!(position.z - distributed_host_speeds[player_index].ground_height <=
 		distributed_on_foot_ceiling(player_index, bound)))
 	{
+		host_evidence_note(distributed_player_machine(player_index), _host_evidence_movement);
 		return;
 	}
 	/* (the client told which of its ticks the host has it at) */
@@ -3646,6 +3654,10 @@ static void distributed_send_game_state(
 		_distributed_to_clients_reliably);
 }
 
+/* (host_evidence.h counts every machine there may be) */
+typedef char distributed_evidence_machines_assert[
+	HALO_PORT_MAXIMUM_NETWORK_MACHINES <= HOST_EVIDENCE_MACHINES ? 1 : -1];
+
 /* ---------- the game */
 
 /* a new map loading (game.c), before any of the new game's messages can
@@ -3668,6 +3680,7 @@ void network_distributed_new_game(
 	csmemset(distributed_coop_declined, 0, sizeof(distributed_coop_declined));
 	csmemset(distributed_client_clocks, 0, sizeof(distributed_client_clocks));
 	csmemset(distributed_client_identities, 0, sizeof(distributed_client_identities));
+	host_evidence_reset();
 	distributed_identity_sent = FALSE;
 	{
 		short machine_index;
@@ -4589,6 +4602,9 @@ static void distributed_note_client_clock(
 		long ahead = clock->latest_tick - game_time_get();
 
 		clock->fast = rate > CLIENT_CLOCK_FAST_RATE && ahead > CLIENT_CLOCK_AHEAD_TICKS;
+		/* (each window it ran fast, counted for the server's moderators) */
+		if (clock->fast)
+			host_evidence_note(machine_index, _host_evidence_clock);
 		if (!clock->fast)
 		{
 			clock->fast_windows = 0;

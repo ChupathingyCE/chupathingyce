@@ -188,6 +188,9 @@ def test_roles_and_permissions(panel, tmp_path):
     assert moderator.session["role"] == "moderator"
     # a moderator: the players and kicks, timed bans up to 7 days; no more
     assert moderator.get("/v1/players").status == 200
+    # (and what the server refused of each player: a moderator's evidence)
+    evidence = moderator.get("/v1/evidence")
+    assert evidence.status == 200 and evidence.json()["players"][0]["evidence"]["movement"] == 3
     assert moderator.command("sv_kick 1").json()["ok"] is True
     assert moderator.command("sv_ban 1 2h").json()["ok"] is True
     for line in ("sv_ban 1 30d", "sv_ban 1", "sv_unban 1", "sv_map bloodgulch ctf", "sv_name x", "sv_mod_add 1 owner",

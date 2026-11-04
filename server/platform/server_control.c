@@ -3257,6 +3257,7 @@ static void handle_request(struct connection *connection, struct control_request
 		{
 			{ "/v1/status", "sv_status", CONTROL_PERMISSION_VIEW },
 			{ "/v1/players", "sv_players", CONTROL_PERMISSION_VIEW },
+			{ "/v1/evidence", "sv_evidence", CONTROL_PERMISSION_WARN },
 			{ "/v1/bans", "sv_banlist", CONTROL_PERMISSION_VIEW },
 			{ "/v1/mapcycle", "sv_mapcycle", CONTROL_PERMISSION_VIEW },
 			{ "/v1/maps", "sv_maps", CONTROL_PERMISSION_VIEW },

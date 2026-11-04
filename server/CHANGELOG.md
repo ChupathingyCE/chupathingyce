@@ -44,6 +44,12 @@ release notes.
   moderators. It matches the site's stats.chupathingy.org/host page. The
   compose file's control panel note now says where the setup code is and
   how to reach the panel from your own computer.
+- Evidence for moderators: `sv_evidence [player]`, `GET /v1/evidence` and a
+  Refused column in the panel's Players count what the server refused of
+  each player's machine this game (movement and vehicle predictions out of
+  bounds, hit reports that failed validation, windows its clock ran fast).
+  Moderators and up; reset each game; never sent anywhere, never an
+  automatic ban.
 - Map names as Halo PC takes them: commas, brackets, spaces and the rest a
   Windows file name can have (`bigassv2,104@ce`, `[h3]_sandtrap@ce`), in
   `sv_map`, `sv_maps` and playlists. A name with a space goes in double
