@@ -2973,8 +2973,9 @@ static void *hs_stack_allocate(
 		return NULL;
 	}
 
-#if defined(__powerpc__) || defined(__ppc__) || defined(_M_PPC)
-	/* port: a PowerPC faults on a misaligned float (a script's arithmetic
+#if defined(__powerpc__) || defined(__ppc__) || defined(_M_PPC) || defined(__arm__)
+	/* port: a PowerPC (and 32-bit ARM, whose VFP loads fault the same)
+	faults on a misaligned float (a script's arithmetic
 	put its reals after a short): allocations start on 4 bytes there; the
 	Xbox's layout is kept elsewhere */
 	{

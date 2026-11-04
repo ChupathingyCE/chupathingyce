@@ -25,6 +25,17 @@ with the host ABI.
 #include <crt_externs.h>
 #include <uuid/uuid.h>
 #include <stdlib.h>
+#elif defined(__GLIBC__)
+/* (in two steps: without glibc, __GLIBC_PREREQ is no macro, and the
+preprocessor cannot read the test) */
+#if !__GLIBC_PREREQ(2, 25)
+/* glibc before 2.25 (the Steam Link's 2.19) has no getrandom, and its
+kernel (3.8) no system call for it: /dev/urandom, below */
+#include <errno.h>
+#define getrandom(buffer, size, flags) (errno = ENOSYS, (ssize_t)-1)
+#else
+#include <sys/random.h>
+#endif
 #else
 #include <sys/random.h>
 #include <sys/random.h>
