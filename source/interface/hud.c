@@ -1024,7 +1024,11 @@ static void hud_draw_players(
 
 #ifndef HALO_CONSOLE_NO_PLAYER_NAMES
 /* port: in multiplayer and network co-op, players' names above their heads
-(display.player_names: "all", "allies", "enemies" or "none"). An ally's goes
+(display.player_names: "all", "allies", "enemies" or "none", the default:
+the Xbox named only the player under the reticle), where the game's host
+allows them (port/linux/game/host_rules.c: its network.allow_player_names, or a
+dedicated server's allow_player_names; a host that says nothing allows none, as
+the Xbox's game had none). An ally's goes
 above the triangle the game draws over teammates; an enemy's only within the
 motion sensor's reach, while the view sees them and they are not
 camouflaged, so that it never gives away where they hide. Whose names show
@@ -1035,6 +1039,8 @@ allies' if it shows only friends (game_engine_draw_object_in_motion_sensor). */
 const char *config_string(const char *name);
 double config_real(const char *name);
 unsigned long config_changes(void);
+/* (port/linux/game/host_rules.c) */
+boolean host_rules_player_names(void);
 
 enum
 {
@@ -1056,11 +1062,11 @@ static short hud_player_names_setting(
 		const char *value = config_string("display.player_names");
 
 		read_at = config_changes();
-		setting = _player_names_all;
+		setting = _player_names_none;
 		if (value)
 		{
-			if (!csstrcmp(value, "none"))
-				setting = _player_names_none;
+			if (!csstrcmp(value, "all"))
+				setting = _player_names_all;
 			else if (!csstrcmp(value, "allies") || !csstrcmp(value, "allys"))
 				setting = _player_names_allies;
 			else if (!csstrcmp(value, "enemies"))
@@ -1068,6 +1074,9 @@ static short hud_player_names_setting(
 		}
 	}
 
+	/* (the host's to allow: none where it does not) */
+	if (setting != _player_names_none && !host_rules_player_names())
+		return _player_names_none;
 	return setting;
 }
 

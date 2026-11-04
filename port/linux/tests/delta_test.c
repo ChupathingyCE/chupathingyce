@@ -47,6 +47,7 @@ build 2 or 3's) */
 #define SERVER_MESSAGES_BIT ((delta_u32)1 << _delta_capability_server_messages)
 #define TEAM_CHANGE_BIT ((delta_u32)1 << _delta_capability_team_change)
 #define OBJECT_SYNC_BIT ((delta_u32)1 << _delta_capability_object_sync)
+#define HOST_RULES_BIT ((delta_u32)1 << _delta_capability_host_rules)
 
 /* ---------- a simulated network */
 
@@ -1178,6 +1179,95 @@ static void test_team(void)
 	for (step = 0; step < 4; step++, now += 300)
 		frame(now, 3, joined, 1);
 	CHECK(!delta_peer_client_team_ready(&nodes[1].peer));
+}
+
+/* ---------- the host's rules */
+
+static void test_wire_host_rules(void)
+{
+	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
+	struct delta_wire_header header;
+	struct delta_wire_host_rules rules, read;
+	int size;
+
+	memset(&rules, 0, sizeof(rules));
+	rules.flags = DELTA_WIRE_HOST_PLAYER_NAMES;
+	rules.team_change = DELTA_WIRE_HOST_TEAM_CHANGE_BALANCED;
+	rules.team_change_margin = 2;
+	size = delta_wire_write_host_rules(data, 0x1234, &rules);
+	CHECK(size == DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_HOST_RULES_SIZE);
+	CHECK(delta_wire_read_header(data, size, &header) && header.type == _delta_message_host_rules &&
+		header.length == DELTA_WIRE_HOST_RULES_SIZE && header.session == 0x1234);
+	CHECK(data[DELTA_WIRE_HEADER_SIZE] == DELTA_WIRE_HOST_RULES_VERSION);
+	CHECK(delta_wire_read_host_rules(data + DELTA_WIRE_HEADER_SIZE, header.length, &read) &&
+		!memcmp(&read, &rules, sizeof(read)));
+	/* (a later version's: longer, unknown flags ignored) */
+	data[DELTA_WIRE_HEADER_SIZE] = 7;
+	data[DELTA_WIRE_HEADER_SIZE + 1] |= 0x80;
+	CHECK(delta_wire_read_host_rules(data + DELTA_WIRE_HEADER_SIZE, header.length + 8, &read) &&
+		read.flags == DELTA_WIRE_HOST_PLAYER_NAMES && read.team_change_margin == 2);
+	/* too short, version 0, a team change or margin past its range: refused */
+	CHECK(!delta_wire_read_host_rules(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_HOST_RULES_SIZE - 1, &read));
+	data[DELTA_WIRE_HEADER_SIZE] = 0;
+	CHECK(!delta_wire_read_host_rules(data + DELTA_WIRE_HEADER_SIZE, header.length, &read));
+	data[DELTA_WIRE_HEADER_SIZE] = 1;
+	data[DELTA_WIRE_HEADER_SIZE + 2] = 3;
+	CHECK(!delta_wire_read_host_rules(data + DELTA_WIRE_HEADER_SIZE, header.length, &read) && !read.flags);
+	data[DELTA_WIRE_HEADER_SIZE + 2] = 0;
+	data[DELTA_WIRE_HEADER_SIZE + 3] = DELTA_WIRE_HOST_TEAM_CHANGE_MAXIMUM_MARGIN + 1;
+	CHECK(!delta_wire_read_host_rules(data + DELTA_WIRE_HEADER_SIZE, header.length, &read));
+	rules.team_change = 3;
+	CHECK(!delta_wire_write_host_rules(data, 1, &rules));
+	rules.team_change = 0;
+	rules.flags = 0x80;
+	CHECK(!delta_wire_write_host_rules(data, 1, &rules));
+}
+
+static void test_host_rules(void)
+{
+	int joined[3] = { 0, 1, 1 };
+	struct delta_wire_host_rules rules, heard;
+	delta_u32 now = 5000, generation;
+	int step;
+
+	node_start(0, HOST_IPV4, DELTA_PEER_PORT, HOST_RULES_BIT, _delta_platform_pc_linux, 0, 0);
+	node_start(1, 0x0300007F, 40001, HOST_RULES_BIT, _delta_platform_pc_linux, 0, 0);
+	/* (a Delta machine without host rules: an older build) */
+	node_start(2, 0x0400007F, 40002, 0, _delta_platform_pc_macos, 0, 0);
+	game_reset();
+	game_add(1);
+	game_add(2);
+	/* (a host that says nothing: none heard, the Xbox's rules) */
+	for (step = 0; step < 4; step++, now += 300)
+		frame(now, 3, joined, 1);
+	CHECK(!delta_peer_host_rules(&nodes[1].peer, &heard));
+	memset(&rules, 0, sizeof(rules));
+	rules.flags = DELTA_WIRE_HOST_PLAYER_NAMES;
+	rules.team_change = DELTA_WIRE_HOST_TEAM_CHANGE_OFF;
+	delta_peer_set_host_rules(&nodes[0].peer, &rules);
+	frame(now, 3, joined, 1);
+	generation = delta_peer_host_rules(&nodes[1].peer, &heard);
+	CHECK(generation && heard.flags == DELTA_WIRE_HOST_PLAYER_NAMES && heard.team_change == 0);
+	CHECK(!delta_peer_host_rules(&nodes[2].peer, NULL));
+	/* the same rules again: nothing new; changed: sent at once */
+	now += 300;
+	delta_peer_set_host_rules(&nodes[0].peer, &rules);
+	frame(now, 3, joined, 1);
+	CHECK(delta_peer_host_rules(&nodes[1].peer, NULL) == generation);
+	now += 300;
+	rules.flags = 0;
+	rules.team_change = DELTA_WIRE_HOST_TEAM_CHANGE_ALLOW;
+	delta_peer_set_host_rules(&nodes[0].peer, &rules);
+	frame(now, 3, joined, 1);
+	CHECK(delta_peer_host_rules(&nodes[1].peer, &heard) == generation + 1 && !heard.flags &&
+		heard.team_change == DELTA_WIRE_HOST_TEAM_CHANGE_ALLOW);
+	/* a client that left forgets them */
+	node_start(1, 0x0300007F, 40001, HOST_RULES_BIT, _delta_platform_pc_linux, 0, 0);
+	CHECK(!delta_peer_host_rules(&nodes[1].peer, NULL));
+	for (step = 0; step < 4; step++, now += 300)
+		frame(now, 3, joined, 1);
+	CHECK(delta_peer_host_rules(&nodes[1].peer, &heard) && heard.team_change == DELTA_WIRE_HOST_TEAM_CHANGE_ALLOW);
+	delta_peer_set_host_rules(&nodes[0].peer, NULL);
 }
 
 /* ---------- object sync */
@@ -3496,6 +3586,8 @@ int main(int argc, char **argv)
 	test_chat();
 	test_wire_team();
 	test_team();
+	test_wire_host_rules();
+	test_host_rules();
 	test_wire_objects();
 	test_objects();
 	test_random(iterations);

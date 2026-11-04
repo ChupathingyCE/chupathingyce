@@ -1558,7 +1558,9 @@ static void first_person_weapon_build_node_matrices(
 			local_player_index,
 			first_person_weapon->node_matrices,
 			(short)MIN(animation_graph->nodes.count, MAXIMUM_NODES_PER_ANIMATION),
-			&render.camera);
+			&render.camera,
+			first_person_weapon->weapon_index,
+			weapon_definition->weapon.interface_definition.first_person_animations.index);
 #endif
 	}
 

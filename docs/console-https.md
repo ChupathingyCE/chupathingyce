@@ -37,12 +37,24 @@ the game's.
   site and about 50 KB with GitHub's longer RSA chain (measured on a 64-bit
   host; less on the consoles). A thread that calls in needs
   `CONSOLE_HTTPS_STACK_SIZE` (112 KB) of stack beyond its own use.
+- **Streams.** `console_https_get_stream` passes an answer's body to a
+  callback as it comes, for answers larger than a buffer (a map browser's
+  lists and pictures). It needs 8 KB more stack, and it holds the
+  one-request lock while it runs, so keep it to small answers: large files
+  come over plain HTTP, checked against a hash fetched over HTTPS.
 - **Random numbers.** `MBEDTLS_ENTROPY_HARDWARE_ALT`: the port's `random`
   hook is the only entropy source. It seeds PSA's CTR-DRBG at the start of
   every request. If the hook fails, the request fails.
-- **No clock.** `MBEDTLS_HAVE_TIME_DATE` is off, so certificate dates are
-  never checked. Many consoles never set their clock, and a wrong one would
-  otherwise lock them out.
+- **Clock only when it is set.** `MBEDTLS_HAVE_TIME_DATE` is off on
+  purpose: the site's key is pinned, and many consoles never set their
+  clock, so Mbed TLS never looks at dates. `console_https.c` checks the
+  server's certificate's dates itself, but only when the port gives a clock
+  (the `unix_seconds` hook) and that clock reads no earlier than the day the
+  client was built (`CONSOLE_HTTPS_BUILD_SECONDS`, else the compiler's
+  `__DATE__`). Then an expired or not yet valid certificate is refused. A
+  clock earlier than the build is clearly unset (it often reads 1970 or
+  2000), so the dates are skipped and the console is not locked out. A port
+  with no `unix_seconds` hook skips the dates, as before.
 
 ## What it trusts
 
@@ -52,8 +64,11 @@ the game's.
 | --- | --- |
 | stats.chupathingy.org | its public key (SHA-256 of the certificate's SubjectPublicKeyInfo): one of the built-in pins, or of the newest signed pin document's; failing those, a chain to ISRG Root X1 or X2 (the backstop) |
 | raw.githubusercontent.com | its chain: it must lead to one of the roots in `console_https_roots.c` (ISRG Root X1 and X2, USERTrust RSA and ECC, DigiCert Global Root G2) |
+| api.xboxhomebrew.store | its chain: it must lead to ISRG Root X1 or X2. A console's map browser asks it for its map lists and their BLAKE2b hashes; the map files themselves come over plain HTTP and are checked against those hashes |
 
-The certificate must name the host in every case. Dates are never checked.
+The certificate must name the host in every case. The server's own
+certificate must also be in date when the console's clock is set (above);
+a chain's roots and intermediates are judged by the pins, not their dates.
 The check runs after the handshake and before a byte of the request is
 sent. The handshake itself proves the server holds the certificate's key.
 
@@ -181,7 +196,8 @@ consoles' configuration and runs it against a local TLS server, over TLS 1.2
 and 1.3. It checks that a pinned key is taken, another key refused (even
 under a root it does not have), the backstop taking a key under the site's
 root, a certificate for another host refused, expired and future
-certificates taken, GitHub-style RSA chains taken only to a pinned
+certificates taken when the console has no clock or one earlier than the
+build, and refused when its clock is set, GitHub-style RSA chains taken only to a pinned
 root, unknown hosts refused, a failed random source refused, an answer
 larger than the buffer refused, and that the arena stays under its size and
 is empty after every request.

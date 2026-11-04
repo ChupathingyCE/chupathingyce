@@ -36,7 +36,7 @@ A few people look for most:
 | `display.field_of_view` | How wide the first-person view is, in degrees: 70 (the Xbox's) by default, 50 to 120. |
 | `display.far_clip_distance` | How far the world is drawn: 1024 (the Xbox's) by default, up to 10000, for large maps that cut off in the distance. Drawing only. |
 | `display.match_timer` | `true` shows a timed multiplayer game's time left at the top of the screen (off by default). |
-| `display.player_names` | Names over players' heads: `"all"`, `"allies"`, `"enemies"` or `"none"`. |
+| `display.player_names` | Names over players' heads: `"all"`, `"allies"`, `"enemies"` or `"none"` (the default, as on the Xbox). Only where the host allows them (`network.allow_player_names`). |
 | `game.unlock_all_levels` | `true` gives new profiles every campaign level. By default a new profile starts at The Pillar of Autumn, as on the Xbox. Profiles made by earlier versions had every level open; `profile_reset_campaign` in the console starts one over. |
 | `audio.volume`, `audio.music_volume`, `audio.effects_volume` | Volumes, from 0.0 to 1.0. |
 | `audio.device` | The output the sound plays on, by name (Audio Setup lists them); `"default"` follows the system's default output. |
@@ -49,6 +49,9 @@ A few people look for most:
 | `network.browser_url` | The game list Online Games shows (stats.chupathingy.org). |
 | `network.copy_to_clipboard` | `false` (the default) leaves the clipboard alone; `true` puts the invite link of a game you host on it. The link is also in the log and under INVITE LINK in the Gearbox menus' Server Settings. |
 | `network.host_public` | Whether games you host are listed for everyone (true) or only joinable by invite (false). |
+| `network.host_cheats` | `false` (the default): while others are in a public internet game you host, your console can't change the game (no cheats, objects or game speed; kick, ban and display commands still work) and cheats set earlier are turned off. `true` allows them, and Online Games shows "Host cheats on" for your game. LAN, private and password games always allow them. |
+| `network.host_console_objects` | How many objects your console and cheats can make in each network game you host (`cheat_all_vehicles`, `object_create` and the like). Past it they're refused. 32 by default, 8 while an original Xbox is in the game; `0` means no limit. Objects the map's own scripts make don't count. |
+| `network.max_machines_per_address` | In games you host, the most machines that may join from one internet address (1 to 16). `0`, the default, means no limit. A machine past it is told there are too many players from its address. Players on your local network are never limited. Dedicated servers have their own setting, 8 by default. |
 | `network.tunnel_port` | The UDP port for games you host, to forward on your router: 2302 by default (the next free one up to 2306 if 2302 is taken). A port you set here is used as is, also when you join. `0` picks a new port each run, as versions before 0.8.1b did. |
 | `update.auto` | Whether the game updates itself. |
 | `paths.data`, `paths.saves` | Where the maps and the saves are, if not the usual place. |

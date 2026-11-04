@@ -15,9 +15,11 @@ the desktop builds keep).
   no files, no sockets (console_https.c gives the library the console's own
   through its BIO), no threads (console_https.c lets one request in at a
   time).
-- No clock: MBEDTLS_HAVE_TIME and MBEDTLS_HAVE_TIME_DATE are left out, so
-  certificates' dates are never checked (a console's clock is often unset);
-  console_https.c pins keys and roots instead.
+- No clock: MBEDTLS_HAVE_TIME and MBEDTLS_HAVE_TIME_DATE are left out on
+  purpose, so Mbed TLS never checks certificates' dates (a console's clock
+  is often unset); console_https.c pins keys and roots instead, and checks
+  the server's certificate's dates itself only when the port's clock is
+  set (no earlier than the build's day).
 - Entropy from the console's hardware (MBEDTLS_ENTROPY_HARDWARE_ALT:
   mbedtls_hardware_poll in console_https.c asks the port).
 - Memory: every allocation comes from an arena on the requesting thread's

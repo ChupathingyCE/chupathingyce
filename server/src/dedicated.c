@@ -78,7 +78,13 @@ played instead of HALO_DEDICATED's until HALO_DEDICATED is changed.
 #include "dedicated.h"
 #include "command_line.h"
 #include "server_admin.h"
+#include "server_conduct.h"
 #include "server_config.h"
+#ifdef HALO_SERVER
+/* (the server program's control unit, built with the host's ABI: plain
+types only) */
+#include "../platform/server_control.h"
+#endif
 #ifdef HALO_GAME_BROWSER
 /* (text chat's, port/linux/game/chat.h) */
 void chat_host_set(int mode, int filter);
@@ -88,6 +94,11 @@ void chat_host_set_welcome(char const *text);
 #endif
 /* (team changes', port/linux/game/team_change.h: 0 off, 1 balanced, 2 allow) */
 void team_change_host_set(int policy, int margin);
+/* (the host's rules', port/linux/game/host_rules.h) */
+void host_rules_set_player_names(boolean allowed);
+void host_rules_set_follow_camera(boolean allowed);
+/* (the limit on machines of one address, port/linux/game/network_distributed.c) */
+void network_distributed_set_address_limit(long maximum);
 
 enum
 {
@@ -187,6 +198,8 @@ static struct
 	wchar_t name[16];
 	/* listed in the server browser (HALO_DEDICATED_PUBLIC) */
 	boolean public_game;
+	/* (the first-run setup held the server from hosting) */
+	boolean setup_waited;
 	/* blocked names kicked (sv_name_filter: server_commands.c) */
 	boolean name_filter;
 	/* the carnage report's seconds; and the lobby skipped after it when
@@ -514,27 +527,27 @@ static void initialize(
 			error(_error_silent, "dedicated: a welcome message for each Chupathingy player");
 	}
 #endif
-	/* players changing teams during a game: balanced (within 1) unless set;
+	/* players changing teams during a game: off (the Xbox's) unless set;
 	the environment's as a word or a number */
 	{
 		char const *value = getenv("HALO_DEDICATED_TEAM_CHANGE");
-		long policy = settings.set[SERVER_SETTING_TEAM_CHANGE] ? settings.values[SERVER_SETTING_TEAM_CHANGE] : 1;
+		long policy = settings.set[SERVER_SETTING_TEAM_CHANGE] ? settings.values[SERVER_SETTING_TEAM_CHANGE] : 0;
 		long margin = setting_number("HALO_DEDICATED_TEAM_CHANGE_MARGIN", &settings, SERVER_SETTING_TEAM_CHANGE_MARGIN,
 			1);
 
 		if (value && value[0])
 		{
-			policy = !_stricmp(value, "off") || !strcmp(value, "0") ? 0 : !_stricmp(value, "allow") ||
-				!strcmp(value, "2") ? 2 : 1;
+			policy = !_stricmp(value, "balanced") || !strcmp(value, "1") ? 1 : !_stricmp(value, "allow") ||
+				!strcmp(value, "2") ? 2 : 0;
 			if (_stricmp(value, "off") && _stricmp(value, "balanced") && _stricmp(value, "allow") &&
 				strcmp(value, "0") && strcmp(value, "1") && strcmp(value, "2"))
 			{
 				error(_error_silent, "dedicated: HALO_DEDICATED_TEAM_CHANGE \"%s\" is not allow, balanced or off: "
-					"balanced", value);
+					"off", value);
 			}
 		}
 		if (policy < 0 || policy > 2)
-			policy = 1;
+			policy = 0;
 		if (margin < 0)
 			margin = 0;
 		if (margin > SERVER_SETTINGS_MAXIMUM_TEAM_CHANGE_MARGIN)
@@ -542,6 +555,71 @@ static void initialize(
 		team_change_host_set((int)policy, (int)margin);
 		error(_error_silent, "dedicated: team changes during a game %s", policy == 0 ? "off" : policy == 2 ? "allowed" :
 			"while the teams stay balanced");
+	}
+	/* the host's rules for its players' extras: off (the Xbox's game)
+	unless true, 1, yes or on */
+	{
+		char const *names = getenv("HALO_DEDICATED_ALLOW_PLAYER_NAMES");
+		boolean allowed;
+
+		if (names && names[0])
+		{
+			allowed = !_stricmp(names, "true") || !strcmp(names, "1") || !_stricmp(names, "yes") ||
+				!_stricmp(names, "on");
+		}
+		else
+			allowed = settings.set[SERVER_SETTING_ALLOW_PLAYER_NAMES] && settings.values[SERVER_SETTING_ALLOW_PLAYER_NAMES];
+		host_rules_set_player_names(allowed);
+		if (allowed)
+			error(_error_silent, "dedicated: players may show names above heads");
+	}
+	{
+		char const *camera = getenv("HALO_DEDICATED_ALLOW_FOLLOW_CAMERA");
+		boolean allowed;
+
+		if (camera && camera[0])
+		{
+			allowed = !_stricmp(camera, "true") || !strcmp(camera, "1") || !_stricmp(camera, "yes") ||
+				!_stricmp(camera, "on");
+		}
+		else
+		{
+			allowed = settings.set[SERVER_SETTING_ALLOW_FOLLOW_CAMERA] &&
+				settings.values[SERVER_SETTING_ALLOW_FOLLOW_CAMERA];
+		}
+		host_rules_set_follow_camera(allowed);
+		if (allowed)
+			error(_error_silent, "dedicated: players may watch a follow camera while they wait to respawn");
+	}
+	/* the machines of one internet address a game takes: 8 unless set */
+	{
+		long maximum = setting_number("HALO_DEDICATED_MAX_MACHINES_PER_ADDRESS", &settings,
+			SERVER_SETTING_MAX_MACHINES_PER_ADDRESS, SERVER_SETTINGS_DEFAULT_MACHINES_PER_ADDRESS);
+
+		if (maximum < 0)
+			maximum = 0;
+		if (maximum > SERVER_SETTINGS_MAXIMUM_MACHINES_PER_ADDRESS)
+			maximum = SERVER_SETTINGS_MAXIMUM_MACHINES_PER_ADDRESS;
+		network_distributed_set_address_limit(maximum);
+		if (maximum)
+			error(_error_silent, "dedicated: at most %ld machines from one internet address", maximum);
+		else
+			error(_error_silent, "dedicated: no limit on the machines from one internet address");
+	}
+	/* the betrayal and AFK limits (server_conduct.h): off unless set */
+	{
+		long betrayals = setting_number("HALO_DEDICATED_BETRAYAL_KICK", &settings, SERVER_SETTING_BETRAYAL_KICK, 0);
+		long minutes = setting_number("HALO_DEDICATED_AFK_KICK_MINUTES", &settings, SERVER_SETTING_AFK_KICK_MINUTES, 0);
+
+		server_conduct_set_betrayal_limit((int)PIN(betrayals, 0, SERVER_SETTINGS_MAXIMUM_BETRAYAL_KICK));
+		server_conduct_set_afk_minutes((int)PIN(minutes, 0, SERVER_SETTINGS_MAXIMUM_AFK_KICK_MINUTES));
+		if (server_conduct_betrayal_limit())
+			error(_error_silent, "dedicated: a player is kicked after %d betrayals in a game", server_conduct_betrayal_limit());
+		if (server_conduct_afk_minutes())
+		{
+			error(_error_silent, "dedicated: a player is kicked after %d minutes without input in a game",
+				server_conduct_afk_minutes());
+		}
 	}
 	dedicated.active = dedicated.entry_count > 0;
 }
@@ -904,6 +982,29 @@ void dedicated_server_update(
 		{
 			return;
 		}
+#ifdef HALO_SERVER
+		/* (a server started for the control panel's first-run setup hosts
+		once its owner has finished it, listed as the setup chose) */
+		if (server_control_setup_waiting())
+		{
+			dedicated.setup_waited = TRUE;
+			return;
+		}
+		if (dedicated.setup_waited)
+		{
+			char const *public_game = getenv("HALO_DEDICATED_PUBLIC");
+			static struct server_settings settings;
+
+			dedicated.setup_waited = FALSE;
+			if ((!public_game || !public_game[0]) && server_admin_read_settings(&settings) &&
+				settings.set[SERVER_SETTING_PUBLIC])
+			{
+				dedicated.public_game = settings.values[SERVER_SETTING_PUBLIC] ? TRUE : FALSE;
+			}
+			error(_error_silent, "dedicated: the first-run setup is finished: hosting %s game",
+				dedicated.public_game ? "a public" : "an unlisted");
+		}
+#endif
 		dedicated.tried = TRUE;
 		dedicated.tried_time = system_milliseconds();
 		host();

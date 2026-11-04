@@ -3085,11 +3085,12 @@ long game_engine_remap_equipment(
 			break;
 		}
 
-		/* (port: whatever the number of players, as
-		game_engine_infinite_grenades_internal) */
-		if (game_engine_infinite_grenades_internal())
+		if (!TEST_FLAG(game_engine_globals.flags, _game_engine_5_or_more_players_bit))
 		{
-			weapon_list_index = NONE;
+			if (game_engine_infinite_grenades_internal())
+			{
+				weapon_list_index = NONE;
+			}
 		}
 
 		if (TEST_FLAG(game_engine_globals.flags, _game_engine_9_or_more_players_bit))
@@ -3617,9 +3618,13 @@ boolean match_game_type(
 static boolean game_engine_infinite_grenades_internal(
 	void)
 {
-	/* port: whatever the number of players (the Xbox game's had none with
-	five or more) */
-	return TEST_FLAG(global_variant.universal_variant.flags, _game_variant_infinite_grenades_bit);
+	boolean infinite_grenades = FALSE;
+
+	/* (none with five or more players, as on the Xbox) */
+	if (!TEST_FLAG(game_engine_globals.flags, _game_engine_5_or_more_players_bit))
+		infinite_grenades = TEST_FLAG(global_variant.universal_variant.flags, _game_variant_infinite_grenades_bit);
+
+	return infinite_grenades;
 }
 
 static boolean find_closest_player_callback(
@@ -5067,7 +5072,11 @@ void game_engine_player_killed(
 		}
 	}
 
-	if (!player_kill && !team_change)
+	/* port: a betrayed player respawns on the normal timer: the suicide
+	penalty is for suicides and deaths nobody caused. The betrayer takes it
+	instead, on their next respawn (below). The Xbox gave it to the betrayed
+	player too (owner's call, 2026-11-03: someone killed them) */
+	if (!player_kill && !team_change && !(friendly_fire && valid_players && !same_player))
 		dead_player->respawn_timer += global_variant.universal_variant.suicide_penalty;
 
 	/* port: a team change waiting for the death (team_change.c): the player
@@ -5107,8 +5116,9 @@ void game_engine_player_killed(
 		}
 	}
 
-	/* port: the gametype's friendly fire penalty: the team killer's next
-	respawn later (the dead's own, if he has one waiting) */
+	/* port: the betrayer's penalty: the gametype's suicide penalty plus its
+	friendly fire penalty, on the team killer's next respawn (the dead's own,
+	if he has one waiting) */
 	{
 		long dead_absolute = DATUM_INDEX_TO_ABSOLUTE_INDEX(dead_player_index);
 
@@ -5120,8 +5130,11 @@ void game_engine_player_killed(
 		if (friendly_fire && valid_players && !same_player && global_variant.universal_variant.teams &&
 			DATUM_INDEX_TO_ABSOLUTE_INDEX(killing_player_index) < HALO_PORT_MAXIMUM_NETWORK_PLAYERS)
 		{
+			long penalty = global_variant.universal_variant.suicide_penalty +
+				(long)(game_variant_options_get()->friendly_fire_penalty * TICKS_PER_SECOND);
+
 			game_engine_betrayal_penalty[DATUM_INDEX_TO_ABSOLUTE_INDEX(killing_player_index)] =
-				(short)(game_variant_options_get()->friendly_fire_penalty * TICKS_PER_SECOND);
+				(short)MIN(penalty, 32767);
 		}
 	}
 

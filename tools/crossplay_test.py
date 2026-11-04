@@ -53,6 +53,7 @@ game ticks on every machine):
 | end_of_game | both machines reach the end (scores shown), then both play the next game (CTF) |
 | rejoin | the client leaves; a new copy joins the game in progress, plays with both players and sees a death |
 | stability | no copy stops by itself (assertions a release build logs and goes on from are warnings) |
+| line_of_sight | (control-ours only, where the first client's test shots also go through walls, `debug.network_test_shoot_walls`) the host refuses some of the shots through walls for want of a line of sight, and no more refusals than shots through walls (`network.hit_line_of_sight`); counted even though it is a baseline |
 
 A Grifball direction (grifball; docs/bomb.md) has our host play Grifball, a
 game type only machines with Delta Peer's bomb capability play, with an
@@ -129,6 +130,7 @@ PLAYER = re.compile(r" player (\d+): (dead|\((-?[\d.]+) (-?[\d.]+) (-?[\d.]+)\) 
     r"s(-?\d+) k(-?\d+) d(-?\d+) f(-?\d+) t(-?\d+) m(-?\d+)(?= player \d+:|$)")
 VERSION_LINES = re.compile(r"(network version|legacy table: |legacy table is|joining a host|newer version of the network|"
     r"older version of the network|does not speak Delta)", re.I)
+SIGHT_COUNTER = re.compile(r"network test: tick .*\| sight (\d+)")
 WARNING_LINES = re.compile(r"(EXCEPTION|assert)", re.I)
 TROUBLE_LINES = re.compile(r"(Segmentation fault|SIGSEGV|SIGABRT|Aborted|stack trace|crashed)", re.I)
 
@@ -476,6 +478,18 @@ def check_direction(host, client, late, back, variants):
     sent = sum(max((entry[4]["hits"] for game in games for entry in game.ticks), default=0) for _, games in clients)
     steps["client_damage"] = step(dealt > 0, f"the clients reported {sent} hits; the host dealt {dealt}, refused {rejected}")
 
+    # hits through walls (our clients' test shots with debug.network_test_shoot_walls)
+    # refused for want of a line of sight, and no more than them (network.hit_line_of_sight)
+    if host.kind == "ours" and all(copy.kind == "ours" for copy, _ in clients):
+        counts = [int(match.group(1)) for line in host.out() for match in [SIGHT_COUNTER.search(line)] if match]
+        shots = [line for copy, _ in clients for line in copy.out() if "network test: player" in line and "shoots player" in line]
+        walled = sum("through a wall" in line for line in shots)
+        if counts and walled:
+            sight = max(counts)
+            steps["line_of_sight"] = step(0 < sight <= walled,
+                f"the clients' test shots: {len(shots) - walled} in sight, {walled} through walls; the host refused "
+                f"{sight} for want of a line of sight")
+
     # the first game's end, on the host and the client there then
     first = host_games[0]
     host_end = first.end()
@@ -653,6 +667,9 @@ def plan(args):
         late = dict(join_test, HALO_NET_ADDRESS=late_address, HALO_NET_BROADCAST=host_address,
             HALO_TEST_INPUT=f"bot:{29 + number}")
         back = dict(client, HALO_TEST_INPUT=f"bot:{37 + number}")
+        # (our own baseline's first client also shoots through walls: the line_of_sight step)
+        if name == "control-ours":
+            client["HALO_NETWORK_TEST_SHOOT_WALLS"] = "true"
         directions.append({"name": name, "variants": variants, "copies": [
             (f"{name}/host-{host_kind}", host_kind, host, 0, HARD_LIMIT),
             (f"{name}/client-{client_kind}", client_kind, client, JOIN_DELAY, HARD_LIMIT),
@@ -828,6 +845,9 @@ def report(args, directions, seconds):
                 passed = False
         if not name.startswith("control-"):
             result["pass"] = result["pass"] and passed
+        elif "line_of_sight" in steps and not steps["line_of_sight"]["pass"]:
+            # (the host's line of sight is checked in our baseline alone)
+            result["pass"] = False
         result["directions"].append({"name": name, "pass": passed, "steps": steps, "warnings": warnings,
             "versions": versions[:16], "logs": os.path.join(os.path.abspath(args.work), name)})
         log(f"{name}: {'PASS' if passed else 'FAIL'}")

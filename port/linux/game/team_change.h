@@ -10,7 +10,7 @@ Changing teams during a team game (team_change.c).
 /* the host's rule for its players' own changes */
 enum team_change_policy
 {
-	/* none: only an admin's sv_team moves a player */
+	/* none, the default (the Xbox's): only an admin's sv_team moves a player */
 	_team_change_off = 0,
 	/* only while the teams stay within the margin of each other */
 	_team_change_balanced,
@@ -31,7 +31,8 @@ what came of it shown to them. FALSE if it could not be asked */
 boolean team_change_ask(short local_player_index);
 
 /* whether a game map's pause menu has CHANGE TEAMS: a multiplayer game
-with teams (not co-op), unless display.pause_change_teams is off */
+with teams (not co-op) whose host allows team changes (this machine's rule,
+or its host's: host_rules.c), unless display.pause_change_teams is off */
 boolean team_change_pause_offered(void);
 
 /* (the host's) an admin moves the player in the slot of the game's player

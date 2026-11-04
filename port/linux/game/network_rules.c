@@ -60,6 +60,13 @@ int network_rules_stamp_window(int32_t *latest, int32_t stamp, int from_stream, 
 	return 1;
 }
 
+int network_rules_report_stamp_taken(int32_t now, int32_t stamp, int32_t maximum_age)
+{
+	if (stamp == -1 || stamp > now)
+		return 0;
+	return (int64_t)now - (int64_t)stamp <= (int64_t)maximum_age;
+}
+
 static void put16(uint8_t *at, unsigned value)
 {
 	at[0] = (uint8_t)(value & 0xFF);
@@ -589,4 +596,68 @@ int network_rules_settings_options_size(unsigned version, unsigned total_size)
 		return layout.options_size;
 	return total_size == NETWORK_RULES_SETTINGS_EXTENDED_SIZE ? NETWORK_RULES_OPTIONS_EXTENDED_SIZE :
 		NETWORK_RULES_OPTIONS_SIZE;
+}
+
+void network_rules_lobby_budget_reset(struct network_rules_lobby_budget *budget)
+{
+	memset(budget, 0, sizeof(*budget));
+}
+
+int network_rules_lobby_budget_take(struct network_rules_lobby_budget *budget, uint32_t now)
+{
+	const uint32_t full = NETWORK_RULES_LOBBY_BURST * 1000u;
+
+	if (!budget->started)
+	{
+		budget->started = 1;
+		budget->tokens = full;
+	}
+	else
+	{
+		/* (the time since, wrapping; a clock that went back adds none) */
+		uint32_t elapsed = now - budget->time;
+
+		if (elapsed > 0x7FFFFFFFu)
+			elapsed = 0;
+		/* (elapsed milliseconds at NETWORK_RULES_LOBBY_PER_SECOND a second
+		are that many thousandths each) */
+		if (elapsed >= full / NETWORK_RULES_LOBBY_PER_SECOND)
+			budget->tokens = full;
+		else
+		{
+			budget->tokens += elapsed * NETWORK_RULES_LOBBY_PER_SECOND;
+			if (budget->tokens > full)
+				budget->tokens = full;
+		}
+	}
+	budget->time = now;
+	if (budget->tokens < 1000u)
+		return 0;
+	budget->tokens -= 1000u;
+	return 1;
+}
+
+int network_rules_address_is_local(uint32_t address)
+{
+	return address == 0 ||
+		(address & 0xFF000000u) == 0x7F000000u ||
+		(address & 0xFF000000u) == 0x0A000000u ||
+		(address & 0xFFF00000u) == 0xAC100000u ||
+		(address & 0xFFFF0000u) == 0xC0A80000u ||
+		(address & 0xFFFF0000u) == 0xA9FE0000u;
+}
+
+int network_rules_address_full(uint32_t address, uint32_t const *others, int count, long maximum)
+{
+	int index;
+	long same = 0;
+
+	if (maximum <= 0 || network_rules_address_is_local(address))
+		return 0;
+	for (index = 0; index < count; index++)
+	{
+		if (others[index] == address)
+			same++;
+	}
+	return same >= maximum;
 }

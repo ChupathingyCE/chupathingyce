@@ -141,6 +141,17 @@ enum
 	/* TEAM_REQUEST's team: whichever team the player is not on */
 	DELTA_WIRE_TEAM_OTHER = 0xFF,
 
+	/* the host's rules (docs/delta.md, Host rules): version, flags, team
+	changes, their margin, reserved; a later version may append fields */
+	DELTA_WIRE_HOST_RULES_SIZE = 8,
+	DELTA_WIRE_HOST_RULES_VERSION = 1,
+	/* HOST_RULES's team changes (team_change.h's policies), and the most
+	their margin may be */
+	DELTA_WIRE_HOST_TEAM_CHANGE_OFF = 0,
+	DELTA_WIRE_HOST_TEAM_CHANGE_BALANCED = 1,
+	DELTA_WIRE_HOST_TEAM_CHANGE_ALLOW = 2,
+	DELTA_WIRE_HOST_TEAM_CHANGE_MAXIMUM_MARGIN = 16,
+
 	/* object sync (docs/delta.md, Object sync): UNIT_VITALS's count and
 	reserved bytes, then 12-byte entries, as many as a datagram holds */
 	DELTA_WIRE_UNIT_VITALS_SIZE = 4,
@@ -386,7 +397,22 @@ enum delta_message_type
 	_delta_message_unit_vitals = 27,
 	/* host to client: the scenario names of the host's objects, whenever
 	they change and every few seconds */
-	_delta_message_object_names = 28
+	_delta_message_object_names = 28,
+	/* host to client, if both agreed to host_rules: the host's rules for
+	its players' extras, whenever they change and every few seconds */
+	_delta_message_host_rules = 29
+};
+
+/* HOST_RULES's flags: what the host lets its players turn on (a flag a
+build does not know is ignored) */
+enum
+{
+	/* names above other players' heads (display.player_names): without it
+	a name shows only on the player aimed at, as on the Xbox */
+	DELTA_WIRE_HOST_PLAYER_NAMES = 0x01,
+	/* a follow camera while waiting to respawn (display.follow_camera) */
+	DELTA_WIRE_HOST_FOLLOW_CAMERA = 0x02,
+	DELTA_WIRE_HOST_KNOWN_FLAGS = 0x03
 };
 
 /* TRAITS's game kinds: what the traits are for */
@@ -684,6 +710,16 @@ struct delta_wire_team_request
 	unsigned char team;
 };
 
+/* the host's rules (HOST_RULES) */
+struct delta_wire_host_rules
+{
+	/* DELTA_WIRE_HOST_* flags (those this build knows) */
+	unsigned char flags;
+	/* DELTA_WIRE_HOST_TEAM_CHANGE_*, and its margin (balanced's) */
+	unsigned char team_change;
+	unsigned char team_change_margin;
+};
+
 struct delta_wire_team_result
 {
 	/* the TEAM_REQUEST's */
@@ -847,6 +883,10 @@ int delta_wire_read_team_result(const unsigned char *payload, int size, struct d
 int delta_wire_write_team_request(unsigned char *data, delta_u32 session,
 	const struct delta_wire_team_request *request);
 int delta_wire_write_team_result(unsigned char *data, delta_u32 session, const struct delta_wire_team_result *result);
+/* the host's rules: a version past this build's is read as far as it
+knows; a team change or margin past their ranges is refused */
+int delta_wire_read_host_rules(const unsigned char *payload, int size, struct delta_wire_host_rules *rules);
+int delta_wire_write_host_rules(unsigned char *data, delta_u32 session, const struct delta_wire_host_rules *rules);
 /* object sync's messages. A count past what the datagram holds, unknown
 flags, or names past DELTA_WIRE_MAXIMUM_OBJECT_NAMES are refused */
 int delta_wire_read_unit_vitals(const unsigned char *payload, int size, struct delta_wire_unit_vitals *vitals);

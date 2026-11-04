@@ -218,6 +218,18 @@ Custom Edition's resource maps, port/linux/game/ce_resources.c) */
 	((version) == CACHE_FILE_CE_VERSION || (version) == CACHE_FILE_RETAIL_VERSION)
 #define CE_TAG_CACHE_BASE 0x40440000U
 #define CE_TAG_CACHE_SIZE 0x01700000U
+#ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
+/* a 64 MB console's Custom Edition tag cache, the Xbox's (port/xbox's
+xbox_ce_files.c) */
+#define CE_SHARED_TAG_CACHE_SIZE 0x01600000U
+extern int platform_ce_alias;
+void platform_ce_load_begin(void);
+void platform_ce_load_end(void);
+void platform_ce_alias_whole(void);
+unsigned long platform_ce_room_end(unsigned long end_free);
+void *platform_ce_scratch_malloc(size_t size);
+void platform_ce_scratch_free(void *address);
+#endif
 
 struct cache_file_ce_tag_header
 {
@@ -1666,6 +1678,28 @@ long scenario_tags_load(
 			struct cache_file_ce_tag_header *ce_header;
 
 			tag_cache_base_address = xbox_pointer(CE_TAG_CACHE_BASE);
+#ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
+			/* port: a 64 MB console's tag cache is the Xbox's, by the page
+			tables, and the memory the load needs a while the texture cache's,
+			lent (port/xbox's xbox_ce_files.c); the map checked here, in it,
+			not as it opened (the menus' map was in it then) */
+			if (platform_ce_alias)
+			{
+				extern boolean ce_map_check_deferred(void);
+
+				platform_ce_load_begin();
+				if (!ce_map_check_deferred())
+				{
+					platform_ce_load_end();
+					cache_file_close();
+					return NONE;
+				}
+				platform_ce_alias_whole();
+				/* (its 22 MB: the range's last megabyte is no memory) */
+				csmemset(tag_cache_base_address, 0xCD, CE_SHARED_TAG_CACHE_SIZE);
+			}
+			else
+#endif
 			csmemset(tag_cache_base_address, 0xCD, CE_TAG_CACHE_SIZE);
 			cache_file_read(NONE, cache_file_globals.header.tag_data_offset, cache_file_globals.header.tag_data_size,
 				tag_cache_base_address, &read_complete, TRUE);
@@ -1707,6 +1741,10 @@ long scenario_tags_load(
 
 					ce_map_cache_version = cache_file_globals.header.version;
 				}
+#ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
+				/* (the BSPs' window made, and the room below what isn't memory) */
+				end_free = platform_ce_room_end(end_free);
+#endif
 				if (!ce_resources_tags_loaded(global_tag_instances, ce_header->tag_count,
 					CE_TAG_CACHE_BASE + cache_file_globals.header.tag_data_size, end_free))
 				{
@@ -1728,7 +1766,12 @@ long scenario_tags_load(
 			{
 				extern boolean ce_models_tags_loaded(void *tag_instances, long tag_count, byte const *model_data,
 					unsigned long vertex_data_size);
+#ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
+				byte *model_data = platform_ce_alias ? platform_ce_scratch_malloc(ce_header->model_data_size) :
+					system_malloc(ce_header->model_data_size);
+#else
 				byte *model_data = system_malloc(ce_header->model_data_size);
+#endif
 
 				if (model_data)
 				{
@@ -1754,6 +1797,11 @@ long scenario_tags_load(
 
 						ce_shaders_tags_loaded(global_tag_instances, ce_header->tag_count);
 					}
+#ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
+					if (platform_ce_alias)
+						platform_ce_scratch_free(model_data);
+					else
+#endif
 					system_free(model_data);
 				}
 				else
@@ -1763,6 +1811,11 @@ long scenario_tags_load(
 				}
 			}
 
+#ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
+			/* (what the load borrowed given back, before anything of it is drawn) */
+			if (platform_ce_alias)
+				platform_ce_load_end();
+#endif
 			/* (none of the high-res HUD: Halo PC's HUD bitmaps are laid out
 			otherwise than the Xbox's it was drawn for, so a Custom Edition map
 			draws its own) */

@@ -416,8 +416,16 @@ void xgpu_shader_cache_linked(GLuint vertex_shader, GLuint fragment_shader)
 		file_flush();
 }
 
+#ifdef HALO_CONSOLE_CACHE_SCREEN
+/* (d3d8_gl.c: the ring, for the seconds the box takes over these) */
+void console_warm_screen(unsigned long done, unsigned long total);
+#endif
+
 void xgpu_shader_cache_warm(void (*linked)(GLuint vertex_shader, GLuint fragment_shader, GLuint program))
 {
+#ifdef HALO_CONSOLE_CACHE_SCREEN
+	unsigned long total_steps = 0;
+#endif
 	unsigned long long start = milliseconds();
 	unsigned long bucket, shaders = 0, programs = 0, failed = 0, pair_count = 0, index;
 	struct
@@ -428,6 +436,23 @@ void xgpu_shader_cache_warm(void (*linked)(GLuint vertex_shader, GLuint fragment
 
 	cache_initialize();
 	/* every text compiled, none of them asked about yet */
+#ifdef HALO_CONSOLE_CACHE_SCREEN
+	for (bucket = 0; bucket < SHADER_BUCKETS; bucket++)
+	{
+		struct cached_shader *entry;
+
+		for (entry = cache.shaders[bucket]; entry; entry = entry->next)
+			if (entry->source)
+				total_steps++;
+	}
+	for (bucket = 0; bucket < PAIR_BUCKETS; bucket++)
+	{
+		struct cached_pair *counted;
+
+		for (counted = cache.pairs[bucket]; counted; counted = counted->next)
+			total_steps++;
+	}
+#endif
 	for (bucket = 0; bucket < SHADER_BUCKETS; bucket++)
 	{
 		struct cached_shader *entry;
@@ -442,6 +467,9 @@ void xgpu_shader_cache_warm(void (*linked)(GLuint vertex_shader, GLuint fragment
 			glShaderSource(entry->shader, 1, &text, NULL);
 			glCompileShader(entry->shader);
 			shaders++;
+#ifdef HALO_CONSOLE_CACHE_SCREEN
+			console_warm_screen(shaders, total_steps);
+#endif
 		}
 	}
 	for (bucket = 0; bucket < PAIR_BUCKETS; bucket++)
@@ -474,6 +502,9 @@ void xgpu_shader_cache_warm(void (*linked)(GLuint vertex_shader, GLuint fragment
 			glAttachShader(pending[programs].program, fragment->shader);
 			glLinkProgram(pending[programs].program);
 			programs++;
+#ifdef HALO_CONSOLE_CACHE_SCREEN
+			console_warm_screen(shaders + programs, total_steps);
+#endif
 		}
 	}
 	/* then the results, in turn: the driver has had all of them to work on */

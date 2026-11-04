@@ -2,7 +2,7 @@
 STUBBS_FUNCTIONS.C
 
 Stubbs the Zombie's script functions that Halo lacks, as a table of their own
-(Stubbs mode only, development builds: stubbs_mode.c). The game looks them up
+(Stubbs mode only: stubbs_mode.c). The game looks them up
 by name after Halo's (hs.c): their indices follow Halo's table, which is
 unchanged, and outside Stubbs mode there are none, so Halo's console never
 lists them.

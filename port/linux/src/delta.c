@@ -11,7 +11,9 @@ Ed25519 key (delta_key.h), with a row of numbers for each wire (DELTA_WIRE,
 delta.h). This build reads its own wire's row alone, and takes it only if it
 widens the built-in numbers (announces a newer number, joins a wider range).
 The row may also carry "layouts" (delta.h): facts about newer OpenCE versions
-that network_rules.c reads them by (delta_legacy_layouts), within its limits.
+that network_rules.c reads them by (delta_legacy_layouts), within its limits;
+and "requires": the host protections (DELTA_HOST_PROTECTIONS) a host must
+have to announce more than this build's own number.
 
 Where tables come from, the newest serial winning (an equal or older one is
 never taken, so an old copy cannot roll a machine back):
@@ -106,10 +108,23 @@ static const char *const delta_capability_names[] =
 {
 	"platform", "profile", "server_messages", "chat", "ce_maps", "md_maps", "coop", "ai_sync", "vote",
 	"console_slots", "moderation", "bomb", "ping", "bomb_movement", "bomb_traits", "team_change",
-	"server_badge", "object_sync",
+	"server_badge", "object_sync", "host_cheats", "host_rules",
 };
 _Static_assert(sizeof(delta_capability_names) / sizeof(*delta_capability_names) == NUMBER_OF_DELTA_CAPABILITIES,
 	"a name for each capability");
+
+/* the host protections (delta.h), as the table spells them, and whether
+this build has each */
+static const struct
+{
+	const char *name;
+	int has;
+} delta_host_protections[] =
+{
+#define DELTA_HOST_PROTECTION_ENTRY(name, has) { #name, has },
+	DELTA_HOST_PROTECTIONS(DELTA_HOST_PROTECTION_ENTRY)
+#undef DELTA_HOST_PROTECTION_ENTRY
+};
 
 struct delta_table
 {
@@ -125,6 +140,10 @@ struct delta_table
 	oldest first; none: announce alone) */
 	int hosting_count;
 	int hosting[DELTA_HOSTING_MAXIMUM];
+	/* ... and the host protections it requires that this build lacks
+	("requires": how many, and the first one's name, for the log) */
+	int requires_missing;
+	char requires_missing_name[32];
 	unsigned long disabled;
 	/* ... and the row's layouts, oldest first */
 	int layout_count;
@@ -541,8 +560,66 @@ static int json_hosting(struct json *json, struct delta_table *table)
 	return json_take(json, ']');
 }
 
+/* a row's "requires": ["<name>", ...], the host protections a host must
+have to announce what the row proves past this build's own number, each
+once, at most DELTA_REQUIRES_MAXIMUM; the ones this build lacks (or does not
+know) counted, the first named for the log */
+static int json_requires(struct json *json, struct delta_table *table)
+{
+	const char *names[DELTA_REQUIRES_MAXIMUM];
+	int lengths[DELTA_REQUIRES_MAXIMUM];
+	int count = 0;
+
+	if (!json_take(json, '['))
+		return 0;
+	if (json_take(json, ']'))
+		return 1;
+	do
+	{
+		const char *name;
+		int length, escaped, index, has = 0, plain = 1;
+
+		if (count == DELTA_REQUIRES_MAXIMUM || !json_string(json, &name, &length, &escaped) || length < 1)
+			return 0;
+		for (index = 0; index < count; index++)
+		{
+			if (lengths[index] == length && !memcmp(names[index], name, (size_t)length))
+				return 0;
+		}
+		names[count] = name;
+		lengths[count++] = length;
+		for (index = 0; !escaped && index < (int)(sizeof(delta_host_protections) / sizeof(*delta_host_protections));
+			index++)
+		{
+			if (json_is(name, length, delta_host_protections[index].name))
+				has = delta_host_protections[index].has;
+		}
+		if (has)
+			continue;
+		if (!table->requires_missing++)
+		{
+			/* (the name for the log as it is only when it is a plain one) */
+			for (index = 0; index < length; index++)
+			{
+				char c = name[index];
+
+				if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_'))
+					plain = 0;
+			}
+			if (escaped || !plain || length >= (int)sizeof(table->requires_missing_name))
+				snprintf(table->requires_missing_name, sizeof(table->requires_missing_name), "(an unreadable name)");
+			else
+			{
+				memcpy(table->requires_missing_name, name, (size_t)length);
+				table->requires_missing_name[length] = 0;
+			}
+		}
+	} while (json_take(json, ','));
+	return json_take(json, ']');
+}
+
 /* a wire's row: {"announce": A, "minimum": Mi, "maximum": Ma}, and
-optionally "follows": "build-N", "hosting" and "layouts" */
+optionally "follows": "build-N", "hosting", "requires" and "layouts" */
 static int json_row(struct json *json, struct delta_table *table)
 {
 	int seen = 0;
@@ -586,6 +663,13 @@ static int json_row(struct json *json, struct delta_table *table)
 			if ((seen & 32) || !json_hosting(json, table))
 				return 0;
 			seen |= 32;
+			continue;
+		}
+		else if (!escaped && json_is(key, length, "requires"))
+		{
+			if ((seen & 64) || !json_requires(json, table))
+				return 0;
+			seen |= 64;
 			continue;
 		}
 		if (!field)
@@ -817,14 +901,41 @@ static void delta_use_layouts(const struct delta_table *table)
 	memcpy(delta.layouts, table->layouts, sizeof(delta.layouts));
 }
 
-/* the newest version a table's row proves for hosting */
-static int delta_row_hosting_newest(const struct delta_table *table)
+/* the newest version a table's row proves for hosting, whatever this build
+may host */
+static int delta_row_proves_newest(const struct delta_table *table)
 {
 	int newest = table->announce;
 
 	if (table->hosting_count && table->hosting[table->hosting_count - 1] > newest)
 		newest = table->hosting[table->hosting_count - 1];
 	return newest;
+}
+
+/* the newest version a table's row proves for hosting that this build may
+announce: past the build's own number only with every host protection the
+row requires (delta.h, DELTA_HOST_PROTECTIONS) */
+static int delta_row_hosting_newest(const struct delta_table *table)
+{
+	int newest = delta_row_proves_newest(table);
+
+	if (table->requires_missing && newest > HALO_PORT_NETWORK_VERSION)
+		newest = HALO_PORT_NETWORK_VERSION;
+	return newest;
+}
+
+/* said once a table is taken: a row that proves a number this build may
+not host, for want of a protection */
+static void delta_row_requires_said(const struct delta_table *table, const char *source)
+{
+	int proves = delta_row_proves_newest(table);
+
+	if (!table->has_row || !table->requires_missing || proves <= HALO_PORT_NETWORK_VERSION)
+		return;
+	platform_log("Delta: not hosting OpenCE network version %d (legacy table from %s): it requires the host "
+		"protection %s, which this build does not have%s; announcing %d, this build's own, and joining as the "
+		"table says", proves, source, table->requires_missing_name,
+		table->requires_missing > 1 ? " (and others)" : "", HALO_PORT_NETWORK_VERSION);
 }
 
 /* the number to announce now (delta_lock held): network.announce's pin if
@@ -996,6 +1107,7 @@ static enum delta_result delta_take(const char *document, size_t size, const cha
 		table.has_row ? "" : " (no row for " DELTA_WIRE ": the built-in numbers)",
 		table.has_row && table.follows[0] ? "; following OpenCE " : "", table.has_row ? table.follows : "",
 		table.has_row ? table.layout_count : 0);
+	delta_row_requires_said(&table, source);
 	/* (from the cache's own copy, and only while the table is still the
 	one in use: another thread may take a newer one, and free this one,
 	meanwhile) */
@@ -1077,6 +1189,7 @@ static int delta_load_override(void)
 		platform_log("Delta: WARNING: a local, unsigned legacy table is in use (network.legacy_table, %s): "
 			"announcing %d, joining %d to %d, %d layout facts; no signed table is fetched or passed on", path,
 			delta.hosting_newest, delta.minimum, delta.maximum, delta.layout_count);
+		delta_row_requires_said(&table, "network.legacy_table");
 	}
 	else
 	{
