@@ -302,9 +302,11 @@ static const struct config_setting config_settings[] =
 		"display.high_res_font. Leave it empty to use that one." },
 	{ "display.skip_intro", _config_boolean, "false", "HALO_SKIP_INTRO", _environment_set_is_true, _platform_all,
 		"Skip the intro movie and go straight to the main menu." },
-	{ "display.player_names", _config_string, "\"all\"", "HALO_PLAYER_NAMES", _environment_value, _platform_all,
+	{ "display.player_names", _config_string, "\"none\"", "HALO_PLAYER_NAMES", _environment_value, _platform_all,
 		"In multiplayer, whose names show above their heads: \"all\",\n"
-		"\"allies\", \"enemies\" or \"none\"." },
+		"\"allies\", \"enemies\" or \"none\". Only where the host allows it\n"
+		"(network.allow_player_names); elsewhere a name shows only on the player\n"
+		"you aim at, as on the Xbox." },
 	{ "display.player_name_scale", _config_real, "1.0", "HALO_PLAYER_NAME_SCALE", _environment_value, _platform_all,
 		"The size of player names, from 0.25 to 4." },
 	{ "display.match_timer", _config_boolean, "false", "HALO_MATCH_TIMER", _environment_value, _platform_all | _platform_xbox,
@@ -313,11 +315,12 @@ static const struct config_setting config_settings[] =
 	{ "display.powerup_timers", _config_boolean, "false", "HALO_POWERUP_TIMERS", _environment_value, _platform_all | _platform_xbox,
 		"Show the seconds left on your active camouflage, overshield and\n"
 		"full spectrum vision." },
-	{ "display.follow_camera", _config_string, "\"long_waits\"", "HALO_FOLLOW_CAMERA", _environment_value,
+	{ "display.follow_camera", _config_string, "\"off\"", "HALO_FOLLOW_CAMERA", _environment_value,
 		_platform_all | _platform_xbox,
-		"After you die, watch a living player's view. \"long_waits\" does it\n"
-		"only during a long respawn wait. \"always\" does it every time, and\n"
-		"\"off\" never. LB and RB, or Q and E, switch players." },
+		"After you die, watch a living player's view, where the host allows it\n"
+		"(network.allow_follow_camera). \"long_waits\" does it only during a\n"
+		"long respawn wait, \"always\" every time, and \"off\" never, as on the\n"
+		"Xbox. LB and RB, or Q and E, switch players." },
 	{ "display.follow_camera_after", _config_real, "5.0", "HALO_FOLLOW_CAMERA_AFTER", _environment_value,
 		_platform_all | _platform_xbox,
 		"For \"long_waits\": a respawn wait longer than this many seconds is a\n"
@@ -356,6 +359,14 @@ static const struct config_setting config_settings[] =
 		"The same for every other game, up to 5: split screen multiplayer,\n"
 		"system link, online and network co-op. The network waits while the\n"
 		"loading screen is up." },
+#ifndef HALO_CONSOLE_NO_LOADING_PICTURE
+	{ "display.xbox_loading_picture", _config_boolean, "true", "HALO_XBOX_LOADING_PICTURE", _environment_value,
+		_platform_all,
+		"true: the loading screen shows the Xbox's own picture, xbox_loading.tga\n"
+		"in your maps folder (a PAL disc's loading.tga works too), and Chupathingy's\n"
+		"when there is none (a manual install without the disc's file). false:\n"
+		"always Chupathingy's." },
+#endif
 	{ "display.pause_change_teams", _config_boolean, "true", "HALO_PAUSE_CHANGE_TEAMS", _environment_value,
 		_platform_all,
 		"Show CHANGE TEAMS in the pause menu of a team game." },
@@ -684,6 +695,15 @@ static const struct config_setting config_settings[] =
 		"PRIVATE." },
 	{ "network.coop_public", _config_boolean, "false", "HALO_NET_COOP_PUBLIC", _environment_value, _platform_all,
 		"New online co-op games start as PUBLIC. false starts them as PRIVATE." },
+	{ "network.host_cheats", _config_boolean, "false", "HALO_NET_HOST_CHEATS", _environment_value, _platform_all,
+		"Lets your console and cheats change a PUBLIC internet game you host\n"
+		"while others are in it. Off by default; when on, Online Games shows\n"
+		"\"Host cheats on\" for your game. LAN and private games always allow them." },
+	{ "network.host_console_objects", _config_integer, "32", "HALO_NET_HOST_CONSOLE_OBJECTS", _environment_value,
+		_platform_all,
+		"How many objects your console and cheats may make in each network game\n"
+		"you host (cheat_all_vehicles, object_create, ...); past it they are\n"
+		"refused. 8 while an original Xbox plays. 0: no limit." },
 	{ "network.tunnel_port", _config_integer, DEFAULT_TUNNEL_PORT, "HALO_NET_TUNNEL_PORT", _environment_value,
 		_platform_all | _platform_xbox,
 		"The UDP port for internet play. Forward it on your router if players\n"
@@ -719,16 +739,31 @@ static const struct config_setting config_settings[] =
 	{ "network.chat_legacy", _config_boolean, "true", "HALO_NET_CHAT_LEGACY", _environment_value, _platform_all,
 		"In games you host, let OpenCE players chat too while network.chat is\n"
 		"on. Their own text chat is bridged in." },
-	{ "network.team_change", _config_string, "\"balanced\"", "HALO_NET_TEAM_CHANGE", _environment_value,
+	{ "network.team_change", _config_string, "\"off\"", "HALO_NET_TEAM_CHANGE", _environment_value,
 		_platform_all,
-		"Team changes in team games you host: \"balanced\", \"allow\" or \"off\"." },
+		"Team changes in team games you host: \"off\" (players keep their team,\n"
+		"as on the Xbox), \"balanced\" or \"allow\"." },
 	{ "network.team_change_margin", _config_integer, "1", "HALO_NET_TEAM_CHANGE_MARGIN", _environment_value,
 		_platform_all,
 		"For \"balanced\": how many more players one team may have, from 0 to\n"
 		"16." },
+	{ "network.allow_player_names", _config_boolean, "false", "HALO_NET_ALLOW_PLAYER_NAMES", _environment_value, _platform_all,
+		"In games you host, let players show names above heads\n"
+		"(display.player_names). Off plays as the Xbox did: a name shows only\n"
+		"on the player aimed at." },
+	{ "network.allow_follow_camera", _config_boolean, "false", "HALO_NET_ALLOW_FOLLOW_CAMERA", _environment_value,
+		_platform_all,
+		"In games you host, let players watch a living player's view while\n"
+		"they wait to respawn (display.follow_camera). Off plays as the Xbox\n"
+		"did: the death camera alone." },
 	{ "network.block_mouse_aim_assist", _config_boolean, "false", "HALO_NET_BLOCK_MOUSE_AIM_ASSIST", _environment_value,
 		_platform_all,
 		"Turn off mouse aim assist for everyone in games you host." },
+	{ "network.hit_line_of_sight", _config_boolean, "true", "HALO_NET_HIT_LINE_OF_SIGHT", _environment_value,
+		_platform_all,
+		"In games you host, refuse a player's hits through walls: the shot (or\n"
+		"the explosion) needs a clear line to its target. Turn it off if good\n"
+		"hits are refused." },
 	{ "network.coop_friendly_fire", _config_string, "\"on\"", "HALO_NET_COOP_FRIENDLY_FIRE", _environment_value,
 		_platform_all,
 		"Friendly fire in online co-op: \"off\", \"on\", \"shields_only\" or\n"
@@ -935,6 +970,9 @@ static const struct config_setting config_settings[] =
 	{ "debug.network_test_shoot", _config_real, "0.0", "HALO_NETWORK_TEST_SHOOT", _environment_value, _platform_all,
 		"Each test player hits the next one every this many seconds. 0 never\n"
 		"does." },
+	{ "debug.network_test_shoot_walls", _config_boolean, "false", "HALO_NETWORK_TEST_SHOOT_WALLS", _environment_value,
+		_platform_all,
+		"The test players' hits also go through walls (the host refuses them)." },
 	{ "debug.network_test_vehicle", _config_real, "0.0", "HALO_NETWORK_TEST_VEHICLE", _environment_value, _platform_all,
 		"Seconds into a test game to seat the last player in a vehicle. 0 never\n"
 		"does." },
@@ -1573,9 +1611,11 @@ version changed) */
 #define CONFIG_VERSION 2
 /* the defaults the game has asked about (game.defaults_answered): 1, the
 ones of v0.8.0; 2, network.tunnel_port's 2302 (v0.8.1b); 3, a game you host
-starting alone (game.start_with_one_player); 4, Headphone 3D on. A file
+starting alone (game.start_with_one_player); 4, Headphone 3D on; 5, the
+Xbox's multiplayer by default (v0.9.0: no names above heads, no follow
+camera, no team changes in games you host). A file
 answered for an earlier generation is asked about the later ones only */
-#define CONFIG_DEFAULTS_GENERATION 4
+#define CONFIG_DEFAULTS_GENERATION 5
 #define CONFIG_VERSION_LINE "config_version = 2\n"
 #define CONFIG_VERSION_LINES "# Chupathingy uses this line to update the file. Leave it as it is.\n" CONFIG_VERSION_LINE
 #define CONFIG_VERSION_TEXT "\n" CONFIG_VERSION_LINES
@@ -2258,6 +2298,18 @@ static const struct
 	file that names "off" keeps it) */
 	{ "audio.hrtf", "\"off\"", 0, "Headphone 3D on, as the original Xbox did", 4 },
 #endif
+#ifndef HALO_CONSOLE
+	/* names above every player's head, the default until v0.9.0 played
+	multiplayer as the Xbox did (a file that names "all" keeps it, where
+	hosts allow it; a console draws none) */
+	{ "display.player_names", "\"all\"", 0, "No names above heads, as on the Xbox (a host can allow them)", 5 },
+#endif
+	/* the follow camera during a long respawn wait, the default until
+	v0.9.0 (a file that names "long_waits" keeps it, where hosts allow it) */
+	{ "display.follow_camera", "\"long_waits\"", 0, "No follow camera while you wait to respawn, as on the Xbox", 5 },
+	/* team changes while the teams stay balanced, the default of the games
+	a player hosted until v0.9.0 (a file that names a rule keeps it) */
+	{ "network.team_change", "\"balanced\"", 0, "No team changes in games you host, as on the Xbox", 5 },
 };
 
 #define NUMBER_OF_CONFIG_OLD_DEFAULTS (sizeof(config_old_defaults) / sizeof(config_old_defaults[0]))
@@ -3110,10 +3162,10 @@ static const struct
 	{ "display.resolution_scaling", { "native", "original", NULL }, "\"native\"" },
 	{ "display.anti_aliasing", { "off", "fxaa", "smaa", "ssaa2x", "msaa2x", "msaa4x", "msaa8x", NULL }, NULL },
 	{ "display.menus", { "xbox", "gearbox", "pc", "chupathingy", NULL }, NULL },
-	{ "display.player_names", { "all", "allies", "allys", "enemies", "none", NULL }, "\"all\"" },
+	{ "display.player_names", { "all", "allies", "allys", "enemies", "none", NULL }, "\"none\"" },
 	{ "display.scoreboard_team_layout", { "teams", "score", NULL }, "\"teams\"" },
 	{ "display.scoreboard_platforms", { "auto", "on", "off", NULL }, "\"auto\"" },
-	{ "display.follow_camera", { "long_waits", "always", "off", NULL }, "\"long_waits\"" },
+	{ "display.follow_camera", { "long_waits", "always", "off", NULL }, "\"off\"" },
 	{ "display.texture_decode", { "auto", "gpu", "cpu", NULL }, "\"auto\"" },
 	{ "audio.resampling", { "sinc", "linear", NULL }, "\"sinc\"" },
 	{ "input.touch_controls", { "on", "auto", "off", NULL }, "\"on\"" },
@@ -3123,7 +3175,7 @@ static const struct
 	{ "network.map_downloads", { "ask", "always", "never", NULL }, "\"ask\"" },
 	{ "network.playlist_downloads", { "ask", "always", "never", NULL }, "\"ask\"" },
 	{ "network.join_from_clipboard", { "ask", "always", "never", NULL }, "\"never\"" },
-	{ "network.team_change", { "balanced", "allow", "off", NULL }, "\"balanced\"" },
+	{ "network.team_change", { "off", "balanced", "allow", NULL }, "\"off\"" },
 #ifndef HALO_CONSOLE_NO_DISCORD
 	{ "discord.presence", { "full", "minimal", "off", NULL }, "\"full\"" },
 #endif

@@ -271,6 +271,45 @@ def test_client_updates_from_capture(harness):  # noqa: F811
     assert "yaw 0.1039" in lines[4] and "throttle 8" in lines[4]
 
 
+def update_payload(yaw, pitch):
+    """a client's update (every field present) as the bytes of a payload"""
+    bits = []
+
+    def put(value, count):
+        bits.extend((value >> i) & 1 for i in range(count))
+    put(0, 11)
+    put(1, 1)
+    put(0, 1)
+    put(13, 6)
+    put(5, 6)
+    put(3, 5)
+    put(0b1010101010, 10)
+    put(struct.unpack("<I", struct.pack("<f", yaw))[0], 32)
+    put(struct.unpack("<I", struct.pack("<f", pitch))[0], 32)
+    put(8, 4)
+    put(0, 1)
+    put(0, 3)
+    put(0, 2)
+    put(0, 16)
+    total = (len(bits) + 7) // 8
+    bits[0:11] = [(total >> i) & 1 for i in range(11)]
+    bits += [0] * (total * 8 - len(bits))
+    return bytes(sum(bits[i * 8 + j] << j for j in range(8)) for i in range(total)).hex()
+
+
+def test_impossible_facing_is_refused(harness):  # noqa: F811
+    """An update whose yaw or pitch is not a number the game can turn by is
+    refused whole, and leaves the last update as it was."""
+    import subprocess
+    sane = update_payload(1.5, -0.25)
+    for bad in (float("nan"), float("inf"), -float("inf"), 3.0e38):
+        for yaw, pitch in ((bad, 0.0), (0.0, bad)):
+            lines = subprocess.run([str(harness), "updates", sane, update_payload(yaw, pitch)],
+                                   capture_output=True, text=True, check=True).stdout.splitlines()
+            assert lines[0].startswith("read 1 id 5 ticks 3") and "yaw 1.5000 pitch -0.2500" in lines[0]
+            assert lines[1].startswith("read 0 id 5 ticks 3") and "yaw 1.5000 pitch -0.2500" in lines[1]
+
+
 def test_directions(harness):  # noqa: F811
     import subprocess
     lines = subprocess.run([str(harness), "direction"], capture_output=True, text=True, check=True).stdout.split()
