@@ -1001,4 +1001,40 @@ int console_link_player_id(unsigned char *id)
 	return linked;
 }
 
+/* (the device key's seed while linked: 1, or 0) */
+static int linked_seed(unsigned char *seed)
+{
+	int linked;
+
+	if (!port)
+		return 0;
+	port->lock();
+	linked = linking.linked;
+	port->unlock();
+	return linked && read_seed(seed);
+}
+
+int console_link_linked_key(char *public_hex)
+{
+	unsigned char seed[CONSOLE_LINK_SEED_SIZE], public_key[CONSOLE_LINK_KEY_SIZE];
+
+	if (!linked_seed(seed))
+		return 0;
+	console_link_public_key(seed, public_key);
+	console_link_hex(public_key, CONSOLE_LINK_KEY_SIZE, public_hex);
+	wipe(seed, (int)sizeof(seed));
+	return 1;
+}
+
+int console_link_sign_linked(const void *message, int size, char *signature_hex)
+{
+	unsigned char seed[CONSOLE_LINK_SEED_SIZE];
+
+	if (!linked_seed(seed))
+		return 0;
+	console_link_sign(seed, message, size, signature_hex);
+	wipe(seed, (int)sizeof(seed));
+	return 1;
+}
+
 #endif

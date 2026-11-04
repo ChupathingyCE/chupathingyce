@@ -39,8 +39,9 @@ Automated system link sessions for testing the netcode without the menus
   Multiplayer menu's ONLINE GAMES does, and logs each listed game's ping
   every few seconds (measured or estimated, never an address) with its
   invite's first digits (as the host's log has them), whether it
-  came from the game list or was heard directly (the brokers), and the
-  list's state, for the pings before joining and a list outage to be seen.
+  came from the game list or was heard directly (the brokers), whether it
+  has a password, and the list's state, for the pings before joining and a
+  list outage to be seen.
 
 Once the game runs, every second each machine logs where every player's
 unit is, so the machines' views of the game can be compared.
@@ -1230,8 +1231,9 @@ void network_test_update(
 						name[character] = games[index].name[character] < 127 ? (char)games[index].name[character] : '?';
 					name[character] = 0;
 					/* (the invite's first digits, as the host's own log shows them) */
-					platform_log("network test: browse: %s (%.8s...) ping %s%d (%s)", name, games[index].invite,
-						games[index].ping_estimated ? "~" : "", games[index].ping, games[index].direct ? "direct" : "list");
+					platform_log("network test: browse: %s (%.8s...) ping %s%d (%s%s)", name, games[index].invite,
+						games[index].ping_estimated ? "~" : "", games[index].ping, games[index].direct ? "direct" : "list",
+						games[index].locked ? ", password" : "");
 				}
 			}
 		}

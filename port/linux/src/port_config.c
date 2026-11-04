@@ -773,9 +773,14 @@ static const struct config_setting config_settings[] =
 	{ "network.report_hosted_games", _config_boolean, "true", "HALO_NET_REPORT_HOSTED", _environment_value,
 		_platform_all,
 		"Send the stats of games you host to the game list." },
+#endif
+	/* (a console's reports of the games it joins too: port/console/reports) */
+#if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_GAME_REPORTS)
 	{ "network.report_joined_games", _config_boolean, "true", "HALO_NET_REPORT_GAMES", _environment_value,
 		_platform_all,
 		"Send the scores of internet games you join to the game list." },
+#endif
+#ifdef HALO_GAME_BROWSER
 	{ "network.report_events", _config_boolean, "true", "HALO_NET_REPORT_EVENTS", _environment_value, _platform_all,
 		"Delta Stats: record the games you host for the site's match pages." },
 	{ "network.events_token", _config_string, "\"\"", "HALO_EVENTS_TOKEN", _environment_value, _platform_all,

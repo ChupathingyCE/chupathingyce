@@ -36,9 +36,11 @@ with it under the lock.
 #include "posix.h"
 #include "port_config.h"
 #include "browser_http.h"
+#include "http_url_rules.h"
 #include "p2p.h"
 #include "p2p_internal.h"
 #include "browser.h"
+#include "game_report.h"
 #include "delta_peer.h"
 #include "browser_ping.h"
 #include "qrcodegen.h"
@@ -72,7 +74,9 @@ enum
 	listing's withdrawal (the list drops it by itself later otherwise) */
 	EXIT_WITHDRAW_WAIT = 2500,
 	EXIT_WITHDRAW_POLL = 50,
-	RESPONSE_SIZE = 32768,
+	/* (the list's answer: a line of 150 bytes or so a game, more with a
+	full roster, for BROWSER_MAXIMUM_GAMES of them) */
+	RESPONSE_SIZE = BROWSER_MAXIMUM_GAMES * 1024,
 	/* the player key (game_list_player.key in the save root) */
 	PLAYER_KEY_SIZE = 32,
 	/* the public player ID: the first bytes of the key's hash */
@@ -104,8 +108,6 @@ enum
 	could not be reached, a few times */
 	PROFILE_CHECK_INTERVAL = 60000,
 	PROFILE_CHECK_ATTEMPTS = 4,
-	/* a report's line: its fixed members, and the most the recorder adds */
-	REPORT_LINE_SIZE = 640 + BROWSER_REPORT_EXTRA_SIZE,
 	/* Delta Profile: the site takes a key's requests 6 a minute
 	(list_server.py's GAME_REQUESTS_PER_KEY), so the profile is asked for
 	this often at most (a request sooner waits), and asked again when a
@@ -289,43 +291,10 @@ static int elapsed(unsigned long since, unsigned long interval)
 	return !since || p2p_now() - since >= interval;
 }
 
-/* UTF-16 to UTF-8 */
+/* UTF-16 to UTF-8 (game_report.c's) */
 static void utf8_from_name(const unsigned short *name, int length, char *text, int size)
 {
-	int used = 0;
-	int index;
-
-	for (index = 0; index < length && name[index]; index++)
-	{
-		unsigned int character = name[index];
-		char bytes[3];
-		int count;
-
-		/* (no surrogate pairs in the game's names) */
-		if (character < 0x80)
-		{
-			bytes[0] = (char)character;
-			count = 1;
-		}
-		else if (character < 0x800)
-		{
-			bytes[0] = (char)(0xC0 | (character >> 6));
-			bytes[1] = (char)(0x80 | (character & 0x3F));
-			count = 2;
-		}
-		else
-		{
-			bytes[0] = (char)(0xE0 | (character >> 12));
-			bytes[1] = (char)(0x80 | ((character >> 6) & 0x3F));
-			bytes[2] = (char)(0x80 | (character & 0x3F));
-			count = 3;
-		}
-		if (used + count >= size)
-			break;
-		memcpy(text + used, bytes, (size_t)count);
-		used += count;
-	}
-	text[used] = 0;
+	game_report_utf8(name, length, text, size);
 }
 
 /* UTF-8 to UTF-16, into a name of the game's length */
@@ -527,8 +496,7 @@ static unsigned long public_address(unsigned long game_address)
 /* the key goes to an HTTPS server, or one on this machine (a test) */
 static int safe_for_key(const char *url)
 {
-	return !strncmp(url, "https://", 8) || !strncmp(url, "http://127.0.0.1", 16) ||
-		!strncmp(url, "http://localhost", 16);
+	return http_url_safe_for_secret(url);
 }
 
 static void send_claims(void)
@@ -2062,28 +2030,10 @@ void browser_host_update(const unsigned short *name, const char *map, short engi
 	pthread_mutex_unlock(&browser_lock);
 }
 
-/* appends a JSON string of a name */
+/* appends a JSON string of a name (game_report.c's) */
 static int json_name(char *out, int size, const unsigned short *name, int length)
 {
-	char text[64];
-	int used = 0;
-	const char *cursor;
-
-	utf8_from_name(name, length, text, sizeof(text));
-	used += snprintf(out + used, (size_t)(size - used), "\"");
-	for (cursor = text; *cursor && used < size - 8; cursor++)
-	{
-		unsigned char character = (unsigned char)*cursor;
-
-		if (character == '"' || character == '\\')
-			used += snprintf(out + used, (size_t)(size - used), "\\%c", character);
-		else if (character < 0x20)
-			used += snprintf(out + used, (size_t)(size - used), "\\u%04x", character);
-		else
-			out[used++] = (char)character;
-	}
-	used += snprintf(out + used, (size_t)(size - used), "\"");
-	return used;
+	return game_report_json_name(out, size, name, length);
 }
 
 int browser_json_name(char *out, int size, const unsigned short *name, int length)
@@ -2091,85 +2041,26 @@ int browser_json_name(char *out, int size, const unsigned short *name, int lengt
 	return json_name(out, size, name, length);
 }
 
-/* text appended to a report of size bytes at used, as far as it fits:
-where its end is now (never past the buffer, whatever snprintf says it
-would have written) */
-static int clamped(int used, size_t size)
+/* a line's tag: its player's address's hash with the invite (the host's
+own report) */
+static int report_line_tag(const struct browser_report_player *player, void *context, char *tag)
 {
-	return used < 0 ? 0 : (size_t)used >= size ? (int)size - 1 : used;
+	unsigned long address = public_address(player->address);
+
+	if (!address)
+		return 0;
+	address_tag((const char *)context, address, tag);
+	return 1;
 }
 
-static int append(char *report, size_t size, int used, const char *format, ...)
-{
-	va_list arguments;
-	int written;
-
-	if ((size_t)used >= size - 1)
-		return used;
-	va_start(arguments, format);
-	written = vsnprintf(report + used, size - (size_t)used, format, arguments);
-	va_end(arguments);
-	return written < 0 ? used : clamped(used + written, size);
-}
-
-/* a report as JSON: the teams, the scores, the length and the lines (each
-tagged with its player's address's hash when tag_invite is given: the
-host's own report), then extra's members */
+/* a report as JSON (game_report.c): the teams, the scores, the length and
+the lines (each tagged with its player's address's hash when tag_invite is
+given: the host's own report), then extra's members */
 static char *report_json(int teams, int red_score, int blue_score, int duration_seconds,
 	const struct browser_report_player *players, int count, const char *extra, const char *tag_invite)
 {
-	size_t size = 256 + (size_t)count * REPORT_LINE_SIZE + (extra ? strlen(extra) : 0);
-	char *report = malloc(size);
-	int used = 0;
-	int index;
-
-	if (!report || count <= 0)
-	{
-		free(report);
-		return NULL;
-	}
-	used = append(report, size, used,
-		"{\"teams\": %d, \"duration\": %d, \"team_scores\": [%d, %d], \"players\": [",
-		teams != 0, duration_seconds, teams ? red_score : 0, teams ? blue_score : 0);
-	for (index = 0; index < count && (size_t)used < size - REPORT_LINE_SIZE; index++)
-	{
-		const struct browser_report_player *player = &players[index];
-		unsigned long address = tag_invite ? public_address(player->address) : 0;
-
-		used = append(report, size, used, "%s{\"name\": ", index ? ", " : "");
-		used = clamped(used + json_name(report + used, (int)(size - (size_t)used), player->name, BROWSER_PLAYER_NAME_LENGTH), size);
-		if (player->minimal)
-		{
-			/* (a player not on Chupathingy: this game's scoreboard, no more) */
-			used = append(report, size, used, ", \"team\": %d, \"place\": %d, \"score\": %d, \"kills\": %d, \"deaths\": %d",
-				player->team, player->place, player->score, player->kills, player->deaths);
-		}
-		else used = append(report, size, used,
-			", \"team\": %d, \"place\": %d, \"score\": %d, \"kills\": %d, \"assists\": %d, \"deaths\": %d, "
-			"\"betrayals\": %d, \"suicides\": %d, \"shots_fired\": %d, \"shots_hit\": %d, \"multikills\": %d, "
-			"\"color\": %d, \"flag_grabs\": %d, \"flag_returns\": %d, \"flag_scores\": %d, \"ball_time\": %d, "
-			"\"ball_carrier_kills\": %d, \"hill_time\": %d, \"laps\": %d",
-			player->team, player->place, player->score, player->kills, player->assists, player->deaths,
-			player->betrayals, player->suicides, player->shots_fired, player->shots_hit, player->multikills,
-			player->color, player->flag_grabs, player->flag_returns, player->flag_scores, player->ball_time,
-			player->ball_carrier_kills, player->hill_time, player->laps);
-		/* (the line's tag: who may confirm it) */
-		if (address)
-		{
-			char tag[2 * P2P_SHA256_SIZE + 1];
-
-			address_tag(tag_invite, address, tag);
-			used = append(report, size, used, ", \"tag\": \"%s\"", tag);
-		}
-		if (!player->minimal && player->extra && player->extra[0] && strlen(player->extra) < BROWSER_REPORT_EXTRA_SIZE)
-			used = append(report, size, used, ", %s", player->extra);
-		used = append(report, size, used, "}");
-	}
-	used = append(report, size, used, "]");
-	if (extra && extra[0])
-		used = append(report, size, used, ", %s", extra);
-	append(report, size, used, "}");
-	return report;
+	return game_report_json(NULL, teams, red_score, blue_score, duration_seconds, players, count, extra,
+		tag_invite ? report_line_tag : NULL, (void *)tag_invite);
 }
 
 void browser_report_game(int teams, int red_score, int blue_score, int duration_seconds,
@@ -2524,6 +2415,9 @@ static int invite_identifier(const char *invite, unsigned char *identifier)
 followed, read again each LISTINGS_INTERVAL (the game's thread's alone) */
 enum { LISTINGS = 256, LISTINGS_INTERVAL = 1000 };
 static struct p2p_listing listings[LISTINGS];
+/* (each one's key hash in hexadecimal, as an invite starts: made once a
+reading, not for every game every frame) */
+static char listing_key_hashes[LISTINGS][2 * P2P_KEY_HASH_SIZE + 1];
 static int listing_count;
 
 static void read_listings(void)
@@ -2533,7 +2427,11 @@ static void read_listings(void)
 
 	if (!listings_read || elapsed(listings_time, LISTINGS_INTERVAL))
 	{
+		int index;
+
 		listing_count = p2p_lobby_browsing() ? p2p_lobby_games(listings, LISTINGS) : 0;
+		for (index = 0; index < listing_count; index++)
+			p2p_hex(listings[index].key_hash, P2P_KEY_HASH_SIZE, listing_key_hashes[index]);
 		listings_time = p2p_now();
 		listings_read = 1;
 	}
@@ -2591,12 +2489,25 @@ static int listing_on_list(const struct p2p_listing *listing, const char *code, 
 	return 0;
 }
 
+/* a locked listing's code until its password opens it: its key hash (the
+invite's first half, which names its host) and no token (zeros), so the
+lists can show it, ping its host and match it to its listing again
+(browser_unlock_game) */
+static void locked_code(const struct p2p_listing *listing, char *code)
+{
+	p2p_hex(listing->key_hash, P2P_KEY_HASH_SIZE, code);
+	memset(code + 2 * P2P_KEY_HASH_SIZE, '0', BROWSER_INVITE_LENGTH - 2 * P2P_KEY_HASH_SIZE);
+	code[BROWSER_INVITE_LENGTH] = 0;
+}
+
 /* the games heard on the brokers that the list lacks, after its count
 games (up to maximum_count): marked direct, and OpenCE (legacy) while the
 list answers (a Chupathingy host announces its game to the list too; the
 site marks a game it only hears there the same way). One with a password,
-whose invite is sealed (p2p_listing_unlock), is left to the Server Browser,
-which asks for it; and this machine's own is left out, as the list's is */
+whose invite is sealed (p2p_listing_unlock), is listed locked, by its key
+hash alone (locked_code), and joined once its password opens it
+(browser_unlock_game); the list never has one (a password game's invite is
+never sent to it). This machine's own is left out, as the list's is */
 static int add_direct(struct browser_game *games, int count, int maximum_count, int list_answered)
 {
 	char own[BROWSER_INVITE_LENGTH + 1];
@@ -2607,16 +2518,23 @@ static int add_direct(struct browser_game *games, int count, int maximum_count, 
 	for (index = 0; index < listing_count && count < maximum_count; index++)
 	{
 		const struct p2p_listing *listing = &listings[index];
+		char sealed[BROWSER_INVITE_LENGTH + 1];
 		const char *code = !SDL_strncasecmp(listing->invite, "halo://join/", 12) ? listing->invite + 12 : "";
 		struct browser_game *game = &games[count];
 
-		if (listing->locked || strlen(code) != BROWSER_INVITE_LENGTH || !text_compare_no_case(code, own) ||
-			listing_on_list(listing, code, games, listed))
+		if (listing->locked)
+		{
+			locked_code(listing, sealed);
+			code = sealed;
+		}
+		if (strlen(code) != BROWSER_INVITE_LENGTH ||
+			!SDL_strncasecmp(code, own, 2 * P2P_KEY_HASH_SIZE) || listing_on_list(listing, code, games, listed))
 		{
 			continue;
 		}
 		memset(game, 0, sizeof(*game));
 		snprintf(game->invite, sizeof(game->invite), "%s", code);
+		game->locked = listing->locked;
 		for (character = 0; character < BROWSER_NAME_LENGTH && listing->name[character]; character++)
 			game->name[character] = (unsigned char)listing->name[character];
 		snprintf(game->map, sizeof(game->map), "%s", listing->map);
@@ -2646,7 +2564,6 @@ static void add_known(struct browser_game *games, int count)
 	for (index = 0; index < count; index++)
 	{
 		unsigned char identifier[P2P_IDENTIFIER_SIZE];
-		char key_hash[2 * P2P_KEY_HASH_SIZE + 1];
 
 		/* the tunnel's (a game being joined or played), else a probe's (a host
 		that answers pings), else an estimate */
@@ -2667,9 +2584,10 @@ static void add_known(struct browser_game *games, int count)
 				games[index].ping_estimated = 1;
 			}
 		}
-		games[index].locked = 0;
+		/* (a listing's own lock stays: add_direct's) */
 		if (games[index].direct)
 			continue;
+		games[index].locked = 0;
 		games[index].kind = 0;
 		/* (the list's label, else a broker listing's; a Delta host is never
 		OpenCE's) */
@@ -2677,8 +2595,7 @@ static void add_known(struct browser_game *games, int count)
 			games[index].opence_server = 0;
 		for (other = 0; other < listing_count; other++)
 		{
-			p2p_hex(listings[other].key_hash, P2P_KEY_HASH_SIZE, key_hash);
-			if (!SDL_strncasecmp(key_hash, games[index].invite, 2 * P2P_KEY_HASH_SIZE))
+			if (!SDL_strncasecmp(listing_key_hashes[other], games[index].invite, 2 * P2P_KEY_HASH_SIZE))
 			{
 				games[index].locked = listings[other].locked;
 				games[index].kind = listings[other].kind;
@@ -2796,6 +2713,32 @@ int browser_get_games(struct browser_game *games, int maximum_count)
 	count = add_direct(games, count, maximum_count, browser_list_status() == BROWSER_LIST_ANSWERED);
 	add_known(games, count);
 	return count;
+}
+
+int browser_unlock_game(const char *invite, const char *password, char *code, int size)
+{
+	int index;
+
+	for (index = 0; index < listing_count; index++)
+	{
+		struct p2p_listing listing = listings[index];
+		char sealed[BROWSER_INVITE_LENGTH + 1];
+
+		if (!listing.locked)
+			continue;
+		locked_code(&listing, sealed);
+		if (text_compare_no_case(sealed, invite))
+			continue;
+		if (!p2p_listing_unlock(&listing, password) || SDL_strncasecmp(listing.invite, "halo://join/", 12) ||
+			strlen(listing.invite + 12) != BROWSER_INVITE_LENGTH)
+		{
+			return 0;
+		}
+		snprintf(code, (size_t)size, "%s", listing.invite + 12);
+		memset(&listing, 0, sizeof(listing));
+		return 1;
+	}
+	return -1;
 }
 
 int browser_list_status(void)

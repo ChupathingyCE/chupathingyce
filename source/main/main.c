@@ -3772,7 +3772,6 @@ void main_loop(
 				void dedicated_server_update(void);
 				void probe_update(void);
 				void game_list_claims_update(void);
-				void game_stats_update(void);
 				void discord_game_update(void);
 
 				MAIN_STAGE("dedicated_server_update");
@@ -3781,8 +3780,18 @@ void main_loop(
 				probe_update();
 				MAIN_STAGE("game_list_claims_update");
 				game_list_claims_update();
-				game_stats_update();
 				discord_game_update();
+			}
+#endif
+#ifdef HALO_PORT_GAME_REPORTS
+			{
+				/* the statistics recorder and a joined game's report
+				(port/linux/game/game_stats.c): the desktop builds' game
+				list, or a console's reports (port/console/reports) */
+				void game_stats_update(void);
+
+				MAIN_STAGE("game_stats_update");
+				game_stats_update();
 			}
 #endif
 			MAIN_STAGE("bink_playback_update");

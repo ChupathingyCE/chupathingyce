@@ -243,6 +243,8 @@ const struct server_setting server_settings_table[SERVER_SETTINGS] =
 		"Answer GameSpy status queries and send heartbeats to GameSpy masters" },
 	{ "gamespy_port", SERVER_FIELD_INTEGER, 1, 65535, "HALO_DEDICATED_GAMESPY_PORT",
 		"The UDP port of the GameSpy status queries" },
+	{ "ce_joins", SERVER_FIELD_BOOLEAN, 0, 1, "HALO_DEDICATED_CE_JOINS",
+		"Answer Halo Custom Edition 1.0.10 join attempts on the GameSpy port (gamespy_listing must be on)" },
 };
 
 /* ---------- private code */

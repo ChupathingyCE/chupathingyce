@@ -313,6 +313,36 @@ static int unpack_entry(const struct map_archive_io *io, int method, unsigned in
 	return 1;
 }
 
+/* (a Windows device name, in any case, before the first '.': CON, PRN, AUX,
+NUL, COM1-COM9, LPT1-LPT9. Refused on every platform, since a map named so
+here travels to players on Windows) */
+static int device_name(const char *name)
+{
+	static const char *const devices[] = { "CON", "PRN", "AUX", "NUL" };
+	char base[8];
+	size_t length = strcspn(name, "."), index;
+
+	if (length < 3 || length > 4)
+		return 0;
+	for (index = 0; index < length; index++)
+	{
+		char character = name[index];
+
+		base[index] = (character >= 'a' && character <= 'z') ? (char)(character - 'a' + 'A') : character;
+	}
+	base[length] = 0;
+	if (length == 3)
+	{
+		for (index = 0; index < sizeof(devices) / sizeof(devices[0]); index++)
+		{
+			if (!strcmp(base, devices[index]))
+				return 1;
+		}
+		return 0;
+	}
+	return (!strncmp(base, "COM", 3) || !strncmp(base, "LPT", 3)) && base[3] >= '1' && base[3] <= '9';
+}
+
 /* ---------- public code */
 
 int map_archive_name_valid(const char *name)
@@ -334,7 +364,7 @@ int map_archive_name_valid(const char *name)
 			return 0;
 		}
 	}
-	return 1;
+	return !device_name(name);
 }
 
 int map_archive_extract(const struct map_archive_io *io, const char *name, unsigned int *map_size, char *error,

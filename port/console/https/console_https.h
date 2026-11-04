@@ -8,16 +8,21 @@ console_https_port. The Switch is a desktop build and keeps
 port/linux/src/posix_browser.c.
 
 Only the hosts this file names are asked, and each one's certificate is
-checked without the console's clock (consoles often have none set):
+checked by its key or its chain, which never needs the console's clock
+(consoles often have none set). The certificate's own dates are checked
+too, but only when the port gives a clock (unix_seconds) and that clock is
+not earlier than the day this file was built: a console whose clock is
+unset (it reads 1970, 2000 or so) or plainly behind is not refused for it.
+The dates are those of the server's own certificate; a chain's roots and
+intermediates are judged by the pins, not by their dates:
 - stats.chupathingy.org by its public key: the certificate's key must be
   one of the pinned keys (built in, console_https_trust.c, or from the
   newest signed pin document, console_pins.h), and the certificate must
   name the host. A key it does not pin makes it ask for the pin document
   and try again; failing that, a chain to Let's Encrypt's ISRG roots is
-  taken as a backstop. Dates are never checked.
+  taken as a backstop.
 - raw.githubusercontent.com (the signed legacy table's copy) by its chain:
-  it must lead to one of a few pinned roots and name the host. Its dates are
-  not checked.
+  it must lead to one of a few pinned roots and name the host.
 docs/console-https.md says how the keys are rotated.
 
 A request is HTTP/1.0 (no chunked answers), never redirected, at most the
@@ -97,6 +102,9 @@ struct console_https_port
 	/* the newest pin document's file, beside config.toml; NULL: kept in
 	memory alone */
 	const char *pins_path;
+	/* the console's clock: seconds since 1970-01-01 UTC. NULL: the console
+	has no clock it can read, and certificates' dates are not checked */
+	long long (*unix_seconds)(void);
 };
 
 enum
@@ -124,6 +132,10 @@ every request fails with CONSOLE_HTTPS_ERROR_UNAVAILABLE */
 void console_https_initialize(const struct console_https_port *port);
 int console_https_available(void);
 const char *console_https_error_string(int error);
+/* the start of the day this file was built, seconds since 1970 (UTC;
+CONSOLE_HTTPS_BUILD_SECONDS when the build gives it): a console clock
+earlier than this is taken as unset, and certificates' dates are skipped */
+long long console_https_build_seconds(void);
 
 /* GET (body NULL) or POST body (content_type, "application/json" if NULL)
 https://host/path: the whole response, headers and all, into response (at

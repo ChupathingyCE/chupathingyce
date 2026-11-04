@@ -1215,6 +1215,14 @@ void updater_start(void)
 	is watching, but for a test with its answer; a packaged install's
 	update.auto is off, and its no is the one the file or the environment
 	gave: config_packaged_update_check) */
+	/* (a release's build with no update key, all zero in update_key.h, would
+	install unsigned updates: it never looks for any. configure.py refuses
+	to make one; this is for a build made some other way) */
+	if (HALO_RELEASE_BUILD && !UPDATER_TEST && !update_signature_required())
+	{
+		platform_log("update: this release build has no update key, so it does not look for updates");
+		return;
+	}
 	if (!(HALO_RELEASE_BUILD || UPDATER_TEST) ||
 		!(packaged ? config_packaged_update_check() : config_boolean("update.auto")) ||
 		(!config_string("debug.update_answer")[0] && (config_boolean("debug.hidden_window") ||

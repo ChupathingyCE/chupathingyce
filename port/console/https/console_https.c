@@ -12,9 +12,14 @@ How a request goes:
 2. A TCP connection through the port; the TLS handshake (1.3, else 1.2) with
    the host's name sent (SNI) and checked against the certificate.
 3. The certificate is judged before a byte of the request is sent: the
-   name must match; then a pinned key, or a chain to a pinned root. Dates
-   are never looked at (MBEDTLS_HAVE_TIME_DATE is off), so a console with
-   its clock unset or wrong is not refused.
+   name must match; its dates, when the console's clock can be trusted
+   (below); then a pinned key, or a chain to a pinned root. Mbed TLS never
+   looks at dates here (MBEDTLS_HAVE_TIME_DATE is off), on purpose: the
+   site's key is pinned, and consoles' clocks are often unset. So this file
+   checks the server's certificate's dates itself, only when the port gives
+   a clock (unix_seconds) reading no earlier than the day this file was
+   built (CONSOLE_HTTPS_BUILD_SECONDS, else __DATE__). A clock earlier than
+   that is clearly unset, and the dates are skipped as before.
 4. The request, the response read to the server's close or its
    Content-Length, never past the caller's buffer.
 5. Everything freed: PSA's state too, so the arena is empty when the stack
@@ -49,7 +54,8 @@ not one it pins, and otherwise */
 #define PINS_DAY (24ul * 60 * 60 * 1000)
 #define SITE_TIMEOUT 15000
 /* the flags a certificate's dates set (never, as built: kept apart all the
-same, in case a build turns the clock on) */
+same, in case a build turns the clock on; the dates are judged by
+certificate_dates instead) */
 #define DATE_FLAGS (MBEDTLS_X509_BADCERT_EXPIRED | MBEDTLS_X509_BADCERT_FUTURE)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -194,8 +200,89 @@ static int key_pinned(const struct console_https_trust *trust, const mbedtls_x50
 	return 0;
 }
 
+/* ---------- the certificate's dates */
+
+/* days since 1970-01-01 of a date (proleptic Gregorian) */
+static long long days_from_civil(long long year, int month, int day)
+{
+	long long era, year_of_era, day_of_year, day_of_era;
+
+	year -= month <= 2;
+	era = (year >= 0 ? year : year - 399) / 400;
+	year_of_era = year - era * 400;
+	day_of_year = (153 * (month + (month > 2 ? -3 : 9)) + 2) / 5 + day - 1;
+	day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+	return era * 146097 + day_of_era - 719468;
+}
+
+static long long x509_seconds(const mbedtls_x509_time *time)
+{
+	return days_from_civil(time->year, time->mon, time->day) * 86400 + time->hour * 3600 + time->min * 60 +
+		time->sec;
+}
+
+/* the start of the day this file was built, in seconds since 1970 (UTC):
+a console clock earlier than this is unset or plainly wrong */
+long long console_https_build_seconds(void)
+{
+#ifdef CONSOLE_HTTPS_BUILD_SECONDS
+	return (long long)CONSOLE_HTTPS_BUILD_SECONDS;
+#else
+	static const char months[] = "JanFebMarAprMayJunJulAugSepOctNovDec";
+	const char *date = __DATE__;
+	const char *found = NULL;
+	int month = 0, day = 0, year = 0, index;
+
+	for (index = 0; index < 12; index++)
+	{
+		if (!strncmp(date, months + index * 3, 3))
+		{
+			found = months + index * 3;
+			month = index + 1;
+			break;
+		}
+	}
+	for (index = 4; index < 6; index++)
+	{
+		if (date[index] >= '0' && date[index] <= '9')
+			day = day * 10 + (date[index] - '0');
+	}
+	for (index = 7; index < 11; index++)
+		year = year * 10 + (date[index] - '0');
+	if (!found || !day || year < 2000)
+		return 0;
+	return days_from_civil(year, month, day) * 86400;
+#endif
+}
+
+/* whether the server's certificate is out of date by the console's clock:
+never when the port has no clock, or its clock is earlier than the build
+(unset: skipped, as consoles' clocks often are) */
+static int certificate_out_of_date(const struct console_https_trust *trust, const mbedtls_x509_crt *certificate)
+{
+	long long now, from, to;
+
+	if (!https_port->unix_seconds)
+		return 0;
+	now = https_port->unix_seconds();
+	if (now < console_https_build_seconds())
+		return 0;
+	from = x509_seconds(&certificate->valid_from);
+	to = x509_seconds(&certificate->valid_to);
+	if (now >= from && now <= to)
+		return 0;
+	{
+		char line[160];
+
+		snprintf(line, sizeof(line), "https: %s: its certificate is %s by this console's clock", trust->host,
+			now > to ? "expired" : "not valid yet");
+		log_line(line);
+	}
+	return 1;
+}
+
 /* the certificate's verdict, from the handshake's own check (name and,
-for a host checked by roots, the chain) and the pins */
+for a host checked by roots, the chain), its dates and the pins */
 static int judge(const struct console_https_trust *trust, mbedtls_ssl_context *ssl)
 {
 	const mbedtls_x509_crt *certificate = mbedtls_ssl_get_peer_cert(ssl);
@@ -206,6 +293,8 @@ static int judge(const struct console_https_trust *trust, mbedtls_ssl_context *s
 	flags &= ~(uint32_t)DATE_FLAGS;
 	if (flags & MBEDTLS_X509_BADCERT_CN_MISMATCH)
 		return CONSOLE_HTTPS_ERROR_NAME;
+	if (certificate_out_of_date(trust, certificate))
+		return CONSOLE_HTTPS_ERROR_KEY;
 	if (!trust->pin_count)
 		return flags ? CONSOLE_HTTPS_ERROR_KEY : CONSOLE_HTTPS_OK;
 	/* a pinned host: its pins first; then, for a host with a backstop, a

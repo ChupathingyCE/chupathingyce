@@ -62,14 +62,16 @@ SERVER_PLATFORM_SOURCES = [SERVER_PLATFORM_DIR / "server_platform.c", SERVER_PLA
 # and with the host's ABI: SDL's few utility functions, glibc's backtrace,
 # and the console, control API and web admin page, and their HTTPS (server/docs/admin.md;
 # the page's files are embedded by tools/embed_webui.py), and the GameSpy-style
-# status queries and heartbeats (gamespy_listing.c)
+# status queries and heartbeats (gamespy_listing.c) and Custom Edition's join
+# wire on the same port (ce_transport.c, ce_messages.c)
 SERVER_NATIVE_SOURCES = [SERVER_PLATFORM_DIR / "sdl_headless.c", SERVER_PLATFORM_DIR / "backtrace.c",
                          SERVER_PLATFORM_DIR / "control_protocol.c", SERVER_PLATFORM_DIR / "control_web.c",
                          SERVER_PLATFORM_DIR / "control_tls.c", SERVER_PLATFORM_DIR / "server_control.c",
                          SERVER_PLATFORM_DIR / "control_roles.c", SERVER_PLATFORM_DIR / "control_accounts.c",
                          SERVER_PLATFORM_DIR / "server_roles.c", SERVER_PLATFORM_DIR / "control_link_protocol.c",
                          SERVER_PLATFORM_DIR / "control_link.c", SERVER_PLATFORM_DIR / "server_events.c",
-                         SERVER_PLATFORM_DIR / "gamespy_listing.c"]
+                         SERVER_PLATFORM_DIR / "gamespy_listing.c", SERVER_PLATFORM_DIR / "ce_transport.c",
+                         SERVER_PLATFORM_DIR / "ce_messages.c"]
 SERVER_WEBUI_DIR = SERVER_DIR / "webui"
 # the window, input and self-updater the server has none of
 SERVER_EXCLUDED = {

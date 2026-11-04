@@ -23,7 +23,8 @@ from tools.linux64_build import generate_linux64_build, linux64_configure_inputs
 from tools.macos_build import generate_macos_build, macos_configure_inputs
 from tools.server_build import generate_server_build, server_configure_inputs
 from tools.unix64_build import generate_unix64_build, unix64_configure_inputs, unix_host
-from tools.version import commit_inputs
+from tools.update_sign import header_keys
+from tools.version import commit_inputs, release_build
 from tools.windows_build import generate_windows_build, windows_configure_inputs
 
 # the console ports (--console-port), whose own options join the others
@@ -153,6 +154,12 @@ for port in console_ports:
     if hasattr(port.module, "add_arguments"):
         port.module.add_arguments(parser.add_argument_group(f"{port.name} ({port.root})"))
 args = parser.parse_args()
+
+# (a release's build updates itself, so it must check the updates'
+# signatures: never one whose update keys are all zero)
+if release_build() and not header_keys():
+    sys.exit("configure.py: HALO_RELEASE_BUILD=1, but port/linux/src/update_key.h has no update key "
+             "(all zero): a release build would install unsigned updates")
 
 # the settings the builds read
 sln = SimpleNamespace(

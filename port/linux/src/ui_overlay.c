@@ -143,10 +143,10 @@ static struct
 
 static const unsigned int button_glyphs[4][NUMBER_OF_UI_BUTTONS] =
 {
-	/* keyboard: Enter, Backspace, E, Tab, Esc, Q, X, Q, C (the game's keys
-	for them, xinput_sdl.c; C is Online Games' Link Profile), Left, Right,
-	F1 */
-	{ 0xE05E, 0xE038, 0xE05A, 0xE0D1, 0xE062, 0xE0B3, 0xE0E3, 0xE0B3, 0xE046, 0xE020, 0xE022, 0xE067 },
+	/* keyboard: Enter, Backspace, E, Tab, F2, Q, X, Q, C (the game's keys
+	for them, xinput_sdl.c; C is Online Games' Link Profile, F2 its My
+	Profile: escape is B), Left, Right, F1 */
+	{ 0xE05E, 0xE038, 0xE05A, 0xE0D1, 0xE06F, 0xE0B3, 0xE0E3, 0xE0B3, 0xE046, 0xE020, 0xE022, 0xE067 },
 	/* Xbox: A, B, X, Y, menu, LT, RT, LB, RB, -, -, view */
 	{ 0xE004, 0xE006, 0xE01E, 0xE020, 0xE014, 0xE047, 0xE04D, 0xE043, 0xE049, 0, 0, 0xE01C },
 	/* PlayStation: cross, circle, square, triangle, options, L2, R2, L1, R1,
@@ -473,8 +473,8 @@ other buttons as dark pills with a label, the keyboard's as light key caps */
 static const char *const pill_labels[4][NUMBER_OF_UI_BUTTONS] =
 {
 	/* (the keyboard's keys for them: xinput_sdl.c; C is Online Games' Link
-	Profile, F1 Back) */
-	{ "ENTER", "BKSP", "E", "TAB", "ESC", "Q", "X", "Q", "C", "\xE2\x86\x90", "\xE2\x86\x92", "F1" },
+	Profile, F1 Back, F2 Start) */
+	{ "ENTER", "BKSP", "E", "TAB", "F2", "Q", "X", "Q", "C", "\xE2\x86\x90", "\xE2\x86\x92", "F1" },
 	{ "A", "B", "X", "Y", "START", "LT", "RT", "LB", "RB", "\xE2\x80\xB9", "\xE2\x80\xBA", "BACK" },
 	{ "", "", "", "", "OPTIONS", "L2", "R2", "L1", "R1", "\xE2\x80\xB9", "\xE2\x80\xBA", "SHARE" },
 	/* (Nintendo's south and east are B and A where the Xbox's are A and B,

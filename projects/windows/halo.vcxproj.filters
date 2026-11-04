@@ -1797,6 +1797,12 @@
     <ClCompile Include="$(HaloRoot)port\linux\game\server_browser.c">
       <Filter>port\linux\game</Filter>
     </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\stubbs_functions.c">
+      <Filter>port\linux\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\stubbs_mode.c">
+      <Filter>port\linux\game</Filter>
+    </ClCompile>
     <ClCompile Include="$(HaloRoot)port\linux\game\tag_import.c">
       <Filter>port\linux\game</Filter>
     </ClCompile>
@@ -1846,6 +1852,9 @@
       <Filter>server\src</Filter>
     </ClCompile>
     <ClCompile Include="$(HaloRoot)server\src\server_admin.c">
+      <Filter>server\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)server\src\server_ce.c">
       <Filter>server\src</Filter>
     </ClCompile>
     <ClCompile Include="$(HaloRoot)server\src\server_commands.c">
@@ -1945,6 +1954,9 @@
       <Filter>port\linux\src</Filter>
     </ClCompile>
     <ClCompile Include="$(HaloRoot)port\linux\src\event_upload.c">
+      <Filter>port\linux\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\src\game_report.c">
       <Filter>port\linux\src</Filter>
     </ClCompile>
     <ClCompile Include="$(HaloRoot)port\linux\src\gametype_folder.c">
