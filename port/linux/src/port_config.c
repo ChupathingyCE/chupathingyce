@@ -498,13 +498,23 @@ static const struct config_setting config_settings[] =
 	{ "audio.doppler", _config_boolean, "true", "HALO_AUDIO_DOPPLER", _environment_value, _platform_all,
 		"Shift the pitch of moving sounds, like a Warthog or a projectile going\n"
 		"past, as the Xbox did. false keeps every sound at its own pitch." },
+#ifdef HALO_CONSOLE_LIGHT_AUDIO
+	/* (a console with one slow core: the sinc resampler and the reverb were
+	two fifths of the Steam Link's processor) */
+	{ "audio.reverb", _config_boolean, "false", "HALO_REVERB", _environment_value, _platform_all,
+#else
 	{ "audio.reverb", _config_boolean, "true", "HALO_REVERB", _environment_value, _platform_all,
+#endif
 		"Echo sounds to match the place you are in." },
 	{ "audio.buffer_frames", _config_integer, DEFAULT_AUDIO_BUFFER_FRAMES, "HALO_AUDIO_BUFFER_FRAMES", _environment_value,
 		_platform_all,
 		"The audio buffer in sample frames, from 64 to 8192. Raise it if the\n"
 		"sound cuts out. Lower it for less delay." },
+#ifdef HALO_CONSOLE_LIGHT_AUDIO
+	{ "audio.resampling", _config_string, "\"linear\"", "HALO_AUDIO_RESAMPLING", _environment_value, _platform_all,
+#else
 	{ "audio.resampling", _config_string, "\"sinc\"", "HALO_AUDIO_RESAMPLING", _environment_value, _platform_all,
+#endif
 		"How sounds are converted to 48 kHz: \"sinc\" or \"linear\"." },
 
 	/* ---- input */
