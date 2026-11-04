@@ -25,7 +25,8 @@ enum
 
 /* the site's picture of a stock map by its file's name ("icefields"): of
 the Xbox's set (xbox_set nonzero), "maps/<file>", else Halo PC's,
-"maps/ce/<file>"; 0 if the site has none of it */
+"maps/ce/<file>"; a campaign level's ("a10"), of the Xbox's set only; 0 if
+the site has none of it */
 int map_art_site_path(int xbox_set, const char *file, char *path, int size);
 
 /* the site's picture of a custom map by its file's name ("coagulat_1"):
