@@ -65,6 +65,8 @@ enum
 	PAYLOAD_SIZE = 1200,
 	/* a client's own biped's place, this often */
 	LOCAL_UPDATE_TICKS = 15,
+	/* a client's updates waiting, at most, before they are played faster */
+	CAUGHT_UP_UPDATES = 2,
 };
 
 struct ce_client
@@ -99,7 +101,9 @@ struct ce_client
 	boolean scores_known;
 	boolean welcomed;
 	/* the update being played (its ticks left), as the client's own game
-	plays it: each update holds for its tick count, in order */
+	plays it: each update holds for its tick count, in order (but a client
+	that got ahead is caught up: its game keeps only its last few updates
+	to replay from our corrections) */
 	struct ce_client_update current;
 	boolean have_current;
 	int ticks_left;
@@ -778,6 +782,8 @@ boolean server_ce_local_action(
 		client->played_tick = game_time_get();
 		if (client->ticks_left > 0)
 			client->ticks_left--;
+		if (client->ticks_left > 0 && ce_transport_pending_updates(client->peer) > CAUGHT_UP_UPDATES)
+			client->ticks_left = 0;
 		if (client->ticks_left <= 0 && ce_transport_next_update(client->peer, &update))
 		{
 			long unit_index = local_player_get_player_index(local_player_index) == NONE ? NONE :

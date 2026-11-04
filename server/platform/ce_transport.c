@@ -1321,3 +1321,16 @@ int ce_transport_next_update(int peer, struct ce_client_update *update)
 	pthread_mutex_unlock(&transport_mutex);
 	return found;
 }
+
+int ce_transport_pending_updates(int peer)
+{
+	struct peer *source;
+	int count = 0;
+
+	pthread_mutex_lock(&transport_mutex);
+	source = game_peer(peer);
+	if (source && source->state == PEER_ACCEPTED)
+		count = source->queue_count;
+	pthread_mutex_unlock(&transport_mutex);
+	return count;
+}

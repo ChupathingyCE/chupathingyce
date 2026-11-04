@@ -118,6 +118,8 @@ int ce_transport_client_update(int peer, struct ce_client_update *update);
 /* the client's next update, in the order sent (each the whole state, what
 it left out filled in): 1, else 0 */
 int ce_transport_next_update(int peer, struct ce_client_update *update);
+/* how many of the client's updates wait to be played */
+int ce_transport_pending_updates(int peer);
 /* the client told it's closed (a kick or the game leaving it) */
 void ce_transport_drop(int peer);
 
