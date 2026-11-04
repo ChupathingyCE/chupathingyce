@@ -184,7 +184,10 @@ their own position not corrected), so leave this off on a real server.
 
 The server also writes `config.toml`, its settings at their defaults, beside
 the program if it can (an image's or a system folder's program cannot, which
-is fine). Settings in the environment override it.
+is fine). Settings in the environment override it. The file has only the settings the
+server uses (internet play, the game list, Delta Stats, the bomb games, the
+folders and the logs); the game's display, sound and control settings are
+left out. An older file that has them is left as it is and still works.
 
 ## The network
 
