@@ -169,7 +169,9 @@ server's twice a second, deaths, the scoreboard (kills, deaths, Slayer's
 scores) and a welcome line in their chat (`ce_welcome`). `sv_say` reaches
 them, `sv_kick` drops them and `sv_ban` bans their address. Up to 4 Custom
 Edition players at once for now. Still incomplete (no projectiles,
-vehicles or items shown to them), so leave this off on a real server.
+vehicles or items shown to them; a join between games waits up to 12
+seconds for the next game, and the game's end still drops them), so
+leave this off on a real server.
 
 ## Folders
 

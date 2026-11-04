@@ -67,6 +67,9 @@ enum
 	LOCAL_UPDATE_TICKS = 15,
 	/* a client's updates waiting, at most, before they are played faster */
 	CAUGHT_UP_UPDATES = 2,
+	/* a join waiting for a game to start or a seat, at most (a client gives
+	up on an unanswered join after about 15 seconds) */
+	JOIN_WAIT_MILLISECONDS = 12000,
 };
 
 struct ce_client
@@ -121,9 +124,9 @@ static struct
 	struct ce_client clients[CE_LOCAL_PLAYERS];
 	/* each wire number's object */
 	long objects[NETWORK_OBJECTS + 1];
-	/* joins waiting for a seat a leaving player still holds */
-	struct ce_event waiting[CE_LOCAL_PLAYERS];
-	unsigned long waiting_time[CE_LOCAL_PLAYERS];
+	/* joins waiting for a game to start, or for a seat a leaving player still holds */
+	struct ce_event waiting[CE_GAME_PLAYERS];
+	unsigned long waiting_time[CE_GAME_PLAYERS];
 	int waiting_count;
 } ce;
 
@@ -267,13 +270,9 @@ static boolean join(
 		return TRUE;
 	}
 	dedicated_server_get_status(&status);
+	/* (between games: it waits for the next game to start) */
 	if (status.state != _dedicated_state_in_game)
-	{
-		/* (between games: the lobby takes them later) */
-		ce_transport_refuse(event->peer, CE_REJECT_FULL);
-		error(_error_silent, "ce: a Custom Edition player was turned away: no game in progress");
-		return TRUE;
-	}
+		return FALSE;
 	for (index = 0; index < CE_LOCAL_PLAYERS; index++)
 	{
 		if (!ce.clients[index].active && local_player_get_player_index(index) == NONE)
@@ -702,7 +701,7 @@ void server_ce_update(
 		switch (event.type)
 		{
 		case CE_EVENT_JOIN:
-			if (!join(&event) && ce.waiting_count < CE_LOCAL_PLAYERS)
+			if (!join(&event) && ce.waiting_count < CE_GAME_PLAYERS)
 			{
 				ce.waiting[ce.waiting_count] = event;
 				ce.waiting_time[ce.waiting_count] = system_milliseconds();
@@ -723,10 +722,19 @@ void server_ce_update(
 			break;
 		}
 	}
-	/* (joins waiting for a seat: tried again, for up to 8 seconds) */
+	/* (joins waiting for a game or a seat: tried again, for as long as a
+	client waits for its answer; then refused) */
 	for (index = 0; index < ce.waiting_count; index++)
 	{
-		if (join(&ce.waiting[index]) || system_milliseconds() - ce.waiting_time[index] > 8000)
+		boolean answered = join(&ce.waiting[index]);
+
+		if (!answered && system_milliseconds() - ce.waiting_time[index] > JOIN_WAIT_MILLISECONDS)
+		{
+			ce_transport_refuse(ce.waiting[index].peer, CE_REJECT_FULL);
+			error(_error_silent, "ce: a Custom Edition player was turned away: no game started in time");
+			answered = TRUE;
+		}
+		if (answered)
 		{
 			ce.waiting[index] = ce.waiting[ce.waiting_count - 1];
 			ce.waiting_time[index] = ce.waiting_time[ce.waiting_count - 1];
