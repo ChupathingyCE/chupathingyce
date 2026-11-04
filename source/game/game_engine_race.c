@@ -1604,6 +1604,29 @@ struct race_network_state
 typedef char verify_race_network_state_size[
 	sizeof(struct race_network_state) <= GAME_ENGINE_MAXIMUM_NETWORK_STATE_SIZE ? 1 : -1];
 
+#ifdef HALO_PORT_CONSOLE_LIMITS
+/* port: the console's limits: a PC host's state, by its fields
+(game_engine_network_state_fold) */
+static struct game_engine_network_state_field const race_network_state_fields[] =
+{
+	{ sizeof(long), FALSE, 0, sizeof(long) }, /* globals.lap_completed_value */
+	{ sizeof(long), TRUE, 0, sizeof(long) }, /* globals.first_flag */
+	{ sizeof(long), TRUE, 0, sizeof(long) }, /* globals.lap_bit_vector */
+	{ sizeof(long), FALSE, 0, sizeof(long) }, /* globals.rally_flag */
+	{ sizeof(long), TRUE, 0, sizeof(long) }, /* globals.team_laps (by team: a player's in free for all) */
+	{ sizeof(long), FALSE, 0, sizeof(long) }, /* globals.persistent_team_score */
+	{ sizeof(long), FALSE, 0, 0 }, /* globals.vehicles_have_been_added and its padding */
+	{ sizeof(byte), TRUE, 0, 0 }, /* touches */
+	{ sizeof(byte), TRUE, 0, 0 }, /* laps */
+	{ sizeof(byte), TRUE, 0, 0 }, /* best_laps */
+	{ sizeof(short), TRUE, 0, sizeof(short) }, /* last_lap_times */
+	{ sizeof(short), TRUE, 0, sizeof(short) }, /* best_lap_times */
+	{ sizeof(short), TRUE, 0, sizeof(short) }, /* laps_completed */
+};
+
+#define RACE_NETWORK_STATE_FIELDS ((long)(sizeof(race_network_state_fields) / sizeof(race_network_state_fields[0])))
+#endif
+
 long game_engine_race_write_network_state(
 	byte *buffer,
 	long size)
@@ -1646,9 +1669,18 @@ boolean game_engine_race_read_network_state(
 	struct data_iterator iterator;
 	struct player_datum *player;
 
+#ifdef HALO_PORT_CONSOLE_LIMITS
+	long folded = game_engine_network_state_fold(buffer, size, &state, sizeof(state), race_network_state_fields,
+		RACE_NETWORK_STATE_FIELDS, "race");
+
+	if (folded == FALSE)
+		return FALSE;
+	if (folded == NONE)
+#endif
 	if (size != (long)sizeof(state))
 		return FALSE;
-	csmemcpy(&state, buffer, sizeof(state));
+	else
+		csmemcpy(&state, buffer, sizeof(state));
 	race_globals = state.globals;
 	race_globals.vehicles_have_been_added = vehicles_have_been_added;
 	race_globals.lap_completed_value = lap_completed_value;
@@ -1694,6 +1726,14 @@ void game_engine_race_network_state_byte_swap(
 {
 	struct race_network_state *state = (struct race_network_state *)buffer;
 
+#ifdef HALO_PORT_CONSOLE_LIMITS
+	/* (a PC host's, at the network's 128 slots, which the read folds) */
+	if (game_engine_network_state_fields_byte_swap(buffer, size, sizeof(*state), race_network_state_fields,
+		RACE_NETWORK_STATE_FIELDS))
+	{
+		return;
+	}
+#endif
 	if (size != (long)sizeof(*state))
 		return;
 	GAME_ENGINE_NETWORK_STATE_SWAP(state, globals.lap_completed_value, globals.persistent_team_score, sizeof(long));

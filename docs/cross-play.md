@@ -217,11 +217,14 @@ and leaving cleanly what doesn't fold:
   slot or from a machine past 16 (`message_server_add_player_ingame`),
   leaves the game the same way; before, the first waited in "joining" for
   nothing and the second made an invisible player.
-- **Game type states.** Slayer's (the [D] servers' only game type: 1,408
-  bytes from a PC, 176 on the console) is folded field by field
-  (`network_game_layout_fold_fields`); CTF's is the same size on both.
-  Oddball's, King's and Race's are not folded yet: their scores stay the
-  console's own, told once in `debug.txt`.
+- **Game type states.** Slayer's (1,408 bytes from a PC, 176 on a
+  16-player console), Oddball's (1,108 and 212), King's (1,436 and 428) and Race's
+  (2,704 and 352) are folded field by field
+  (`network_game_layout_fold_fields`, through
+  `game_engine_network_state_fold` in `game_engine.c`): the per-player
+  arrays by slot, the team and game fields as they are. CTF's and Bomb's
+  are the same size on both. A state of any other size is not read (told
+  once in `debug.txt`) and its scores stay the console's own.
 - **Objects: measured, not translated.** The client logs how high the
   host's object indices go (each time they pass another 256), and each
   game's highest index, the creates that landed in the console's own half
