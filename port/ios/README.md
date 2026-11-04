@@ -22,7 +22,8 @@ Xcode).
 You need a Mac with Xcode (not just the command line tools), and
 `brew install ninja cmake xcodegen`. Run these from the repository's root.
 For the Apple TV, use `tvos`, `tvOS`, `lib-tvos` and the `ChupathingyCE-tvOS`
-scheme in place of `ios`, `iOS`, `lib` and `ChupathingyCE`.
+scheme in place of `ios`, `iOS`, `lib` and `ChupathingyCE`, and the
+`appletvos` SDK (`Release-appletvos`) in place of `iphoneos`.
 
 1. SDL3, the version `tools/android_build.py` pins, built for iOS:
 
