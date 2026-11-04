@@ -2201,22 +2201,24 @@ So a row can say what hosting it takes:
 ```
 
 - **The names** are `DELTA_HOST_PROTECTIONS` in `delta.h`, each with
-  whether the build has it. Today only `hit_report_checks` is marked as
-  had (the host checks each client's hit report: its own player, a weapon
-  of theirs, the target where the host had it, within reach, no faster
-  than the weapon fires; `network_damage.c`). `hit_line_of_sight`,
-  `address_machine_limit` and `map_votes` are named so a row can require
-  them, and no build marks them as had yet. 0.9.0's hosts do refuse hits
-  with no line of sight (`network.hit_line_of_sight`, on by default) and
-  can limit the machines from one address (`network.max_machines_per_address`,
-  off by default on a player's host, 8 on a dedicated server), but those two
-  names stay at 0 in it, so a row that requires either still makes 0.9.0
-  announce its own number. A name is never renamed or reused.
+  whether the build has it. A build marks a name as had when its hosts
+  and dedicated servers enforce it by default. 0.9.0 marks two:
+  `hit_report_checks` (the host checks each client's hit report: its own
+  player, a weapon of theirs, the target where the host had it, within
+  reach, no faster than the weapon fires; `network_damage.c`) and
+  `hit_line_of_sight` (the host refuses hits with no line of sight,
+  `network.hit_line_of_sight`, on by default). `address_machine_limit` and
+  `map_votes` are named so a row can require them, and no build marks them
+  as had yet. 0.9.0 can limit the machines from one address
+  (`network.max_machines_per_address`), but that is off by default on a
+  player's host (8 on a dedicated server), so the name stays at 0 and a
+  row that requires it still makes 0.9.0 announce its own number. A name
+  is never renamed or reused.
 - **A build that lacks one** (or doesn't know the name) announces its own
   number (`HALO_PORT_NETWORK_VERSION`), whatever the row's `announce` and
   `hosting` say, and `network.announce` can't pin past it. It logs one
   line: "not hosting OpenCE network version 42 ...: it requires the host
-  protection hit_line_of_sight, which this build does not have; announcing
+  protection address_machine_limit, which this build does not have; announcing
   32". It still joins the row's range as a client: clients enforce
   nothing for a host.
 - **A row without `requires`** works as before. Old tables, and the
