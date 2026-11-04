@@ -1376,6 +1376,11 @@ static const struct config_setting config_settings[] =
 	{ "paths.cache", _config_string, "\"\"", "HALO_CACHE_ROOT", _environment_value, _platform_desktop | _platform_server,
 		"Where Chupathingy keeps its cache. Leave it empty for cache/ in the\n"
 		"save folder." },
+	{ "paths.steam", _config_string, "\"\"", "HALO_STEAM_ROOT", _environment_value, _platform_desktop,
+		"A Steam folder (or Steam library) to look in for subscribed Halo CE\n"
+		"Workshop items, as well as the usual Steam folders and the libraries\n"
+		"they name; empty for just those. Windows paths are easiest in single\n"
+		"quotes: 'D:\\Steam'." },
 
 #ifdef HALO_SWITCH_CONSOLE
 	/* ---- performance (the Switch host's: port/switch/host/host_main.c) */
