@@ -150,7 +150,7 @@ if pytest:
         if not cc:
             fuzz_support.skip("no clang with libFuzzer")
         if not game_ready(TARGETS[name]):
-            pytest.skip(f"the game's units: python3 configure.py first, with the {GAME_BUILD} build")
+            fuzz_support.skip(f"the game's units: python3 configure.py first, with the {GAME_BUILD} build")
         result = fuzz(name, SECONDS, tmp_path, cc)
         assert result.returncode == 0, result.stdout[-4000:] + result.stderr[-8000:]
 
