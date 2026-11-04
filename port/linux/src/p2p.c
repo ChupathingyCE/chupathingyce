@@ -2683,6 +2683,20 @@ int p2p_hosting_listable_invite(char *text, int size)
 	return result;
 }
 
+/* (network_game_globals.c's network_game_host_cheats_refused) whether this
+copy hosts an internet game anyone may join: public, without a password, as
+the game list lists it (whether or not network.list_hosted_games lists it
+there) */
+int p2p_hosting_public_game(void)
+{
+	int result;
+
+	pthread_mutex_lock(&p2p_lock);
+	result = p2p.running && p2p.hosting && p2p_lobby_hosting_open();
+	pthread_mutex_unlock(&p2p_lock);
+	return result;
+}
+
 void p2p_hosting_invite_announced(const char *invite)
 {
 	pthread_mutex_lock(&p2p_lock);

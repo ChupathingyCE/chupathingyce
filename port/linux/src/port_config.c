@@ -692,6 +692,10 @@ static const struct config_setting config_settings[] =
 		"PRIVATE." },
 	{ "network.coop_public", _config_boolean, "false", "HALO_NET_COOP_PUBLIC", _environment_value, _platform_all,
 		"New online co-op games start as PUBLIC. false starts them as PRIVATE." },
+	{ "network.host_cheats", _config_boolean, "false", "HALO_NET_HOST_CHEATS", _environment_value, _platform_all,
+		"Lets your console and cheats change a PUBLIC internet game you host\n"
+		"while others are in it. Off by default; when on, Online Games shows\n"
+		"\"Host cheats on\" for your game. LAN and private games always allow them." },
 	{ "network.tunnel_port", _config_integer, DEFAULT_TUNNEL_PORT, "HALO_NET_TUNNEL_PORT", _environment_value,
 		_platform_all | _platform_xbox,
 		"The UDP port for internet play. Forward it on your router if players\n"

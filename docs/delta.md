@@ -148,6 +148,7 @@ shares.
 | 15 | `team_change` | changing teams during a game: a client asks its host (TEAM_REQUEST), the host decides and answers (TEAM_RESULT); see "Team changes" |
 | 16 | `server_badge` | reserved for server badges (a draft); never set until that is built |
 | 17 | `object_sync` | what the game's messages leave out of the host's objects: every unit's shield and health (UNIT_VITALS) and the scenario names of the objects the host made (OBJECT_NAMES); see "Object sync" |
+| 18 | `host_cheats` | not a feature: the host's console and cheats may change its public game while others are in it (`network.host_cheats`); announced on Delta List only, never in a HELLO, and Online Games shows "Host cheats on" |
 
 The registry lives in the repository next to the compatibility table and is
 the single source for the bit numbers. Built so far: `platform`, `profile`,
