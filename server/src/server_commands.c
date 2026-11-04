@@ -326,6 +326,8 @@ static struct server_command const server_commands[] =
 		"second factor), printed once (console only).", 2, 2, FALSE, command_console_only },
 	{ "sv_account_setup", "sv_account_setup", "A new setup code for the first owner's account, while there is none "
 		"(console only).", 1, 1, FALSE, command_console_only },
+	{ "sv_setup_start", "sv_setup_start", "Starts hosting a server that waits for its first-run setup, with the "
+		"settings it has (console only).", 1, 1, FALSE, command_console_only },
 };
 
 /* the game types sv_map takes (game_engine_get_variant_by_name's) */

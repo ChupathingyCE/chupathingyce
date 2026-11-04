@@ -142,12 +142,43 @@ ChupathingyCE Dedicated Server: the control panel has no owner yet. Open
 
 (through your SSH tunnel, or at the server's address) and make the owner's account
 with this one-time code. It is good for 24 hours, and until the account is made;
-sv_account_setup on this console makes a new one.
+sv_account_setup on this console makes a new one. The code is also in
+control_setup_code.txt in the data folder, until the account is made.
 ```
 
-Open it, choose a name and a password (12 characters or more), log in, and
-set up a second factor (My account: scan the QR code with an authenticator
-app). No file to edit.
+Can't see the console (a container, a service)? The same code and link are
+in `control_setup_code.txt` in the data folder, readable by the server's
+user alone. The server deletes the file once the account is made. There is
+never a default password.
+
+Open the link, choose a name and a password (12 characters or more), and
+you are logged in. Then set up a second factor (My account: scan the QR
+code with an authenticator app). No file to edit.
+
+### First-run setup, no console needed
+
+Start a server with the panel on and no playlist (`HALO_DEDICATED` not
+set), and it starts for the setup instead of exiting:
+
+```sh
+HALO_DEDICATED_CONTROL=8080 ./chupathingy-server
+```
+
+It waits, not hosting, until you finish the setup in the panel. Make the
+owner's account (above), then pick the server's name, most players, one of
+the included playlists, and whether it shows in the Server Browser. Press
+"Start the server" and it hosts. Then you can link it to your Chupathingy
+account (the [Host a server](https://stats.chupathingy.org/host) page on
+the site explains linking), or skip that for now.
+
+Everything you pick is saved like any other setting and can be changed
+later in Settings and Playlists. A setting fixed in the server's
+environment (`HALO_DEDICATED_NAME`, say) is shown but not changed here.
+A server that already has an owner, or one started with `HALO_DEDICATED`,
+starts as before. `sv_setup_start` on the console ends the wait too.
+
+Join passwords are not a setting: Halo's join request has no password
+field, so one would break every other build that joins.
 
 ### Accounts and invitations
 
