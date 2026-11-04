@@ -1463,8 +1463,9 @@ newer one the legacy table proves is taken: port/linux/src/delta.c) */
 
 #ifdef xbox
 	/* port: native transports flush before closing sockets, and unregistering
-	an XNet key is a stub. Preserve the original grace period on other builds. */
-#if !defined(HALO_WINDOWS) && !defined(HALO_ANDROID) && !defined(__linux__)
+	an XNet key is a stub. The original grace period stays on a console on
+	the XDK's XNet (halo_console_features.h). */
+#ifdef HALO_CONSOLE_SERVER_CLOSE_GRACE
 	SleepEx(MILLISECONDS_PER_SECOND, FALSE);
 #endif
 	transport_server_terminate();

@@ -241,6 +241,12 @@ HALO_CONSOLE_NO_LOADING_PICTURE
 	instead of Chupathingy's picture (port/linux/game/loading_picture.c,
 	display.xbox_loading_picture): every console, whose packaging has no
 	step for the picture
+HALO_CONSOLE_SERVER_CLOSE_GRACE
+	the original game's one-second wait when a hosted game ends, before the
+	host's transport closes (network_game_server_dispose, source/
+	networking/network_server_manager.c): for a console on the XDK's XNet,
+	whose sockets need it. The native transports flush before they close
+	and need no wait
 
 A big-endian console (HALO_BIG_ENDIAN, its prefix header) reads the maps,
 which are the Xbox's, little-endian, through port/console/game's byte swap
@@ -289,6 +295,7 @@ compile lines: source/cseries/xbox_address.h).
 #define HALO_CONSOLE_OVERSIZED_MAPS 1
 #define HALO_CONSOLE_LIGHT_LIMITS 1
 #define HALO_CONSOLE_XBOX_MAP_SIZES 1
+#define HALO_CONSOLE_SERVER_CLOSE_GRACE 1
 #endif
 
 /* (the desktop builds copy maps to the Xbox's cache files too: a map pack's
