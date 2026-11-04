@@ -513,7 +513,7 @@ void texture_cache_return_memory(
 	return;
 }
 
-#ifdef HALO_CUSTOM_EDITION
+#if defined(HALO_CUSTOM_EDITION) && defined(HALO_CONSOLE_CE_SHARED_TAG_CACHE)
 /* (a 64 MB console's Custom Edition load borrows the cache: port/xbox's
 xbox_ce_files.c) */
 unsigned char texture_cache_memory_stolen(
@@ -1259,18 +1259,18 @@ void *_texture_cache_bitmap_get_hardware_format(
 						{
 							texture_cache_bitmap_spread_rows(bitmap);
 						}
-#ifdef HALO_CUSTOM_EDITION
-						/* port: a Custom Edition map's pixels made the Xbox's, which
-						the desktop builds' renderer does as it draws them
-						(port/xbox/game/xbox_ce.c) */
+#endif
+#if defined(HALO_CUSTOM_EDITION) && defined(HALO_CONSOLE_CE_BITMAPS)
+						/* port: a Custom Edition map's pixels made the console's, which
+						the desktop builds' renderer does as it draws them (the
+						console's hook: port/xbox/game/xbox_ce.c on the Xbox) */
 						{
 							extern boolean cache_file_tags_are_ce(void);
-							extern void xbox_ce_bitmap_loaded(struct bitmap_data *bitmap);
+							extern void platform_ce_bitmap_loaded(struct bitmap_data *bitmap);
 
 							if (cache_file_tags_are_ce())
-								xbox_ce_bitmap_loaded(bitmap);
+								platform_ce_bitmap_loaded(bitmap);
 						}
-#endif
 #endif
 						texture->used = TRUE;
 					}

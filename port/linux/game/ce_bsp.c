@@ -72,7 +72,7 @@ typedef char verify_ce_structure_lightmap_size[sizeof(struct structure_lightmap)
 /* ---------- prototypes */
 
 unsigned long ce_resources_allocate(unsigned long size);
-#ifdef HALO_XBOX_CONSOLE
+#ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
 extern int platform_ce_alias;
 #endif
 unsigned long ce_resources_free_mark(void);
@@ -242,7 +242,7 @@ than sphere_intersects_cluster_portal projects into an array on the stack */
 					data_size, needed);
 			}
 			*bytes += (lightmap_vertex_count ? 2 : 1) * CE_BUFFER_HEADER_ROOM;
-#ifdef HALO_XBOX_CONSOLE
+#ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
 			/* (on a 64 MB console the compressed vertices are in the tag cache
 			too: port/xbox's xbox_ce_files.c) */
 			if (platform_ce_alias)

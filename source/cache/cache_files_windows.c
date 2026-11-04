@@ -473,7 +473,7 @@ static unsigned long ce_refused_map_checksum;
 /* and what the game tells the player about it (ce_map_check's message) */
 static char ce_refused_map_message[320];
 char const *ce_map_refusal_message(void);
-#ifdef HALO_XBOX_CONSOLE
+#ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
 /* a 64 MB console's: its tag cache the Xbox's (port/xbox's xbox_ce_files.c),
 a map opened unchecked, and one refused as it loaded */
 extern int platform_ce_alias;
@@ -501,7 +501,7 @@ static boolean ce_map_open(
 	HANDLE file;
 	short family;
 
-#ifdef HALO_XBOX_CONSOLE
+#ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
 	/* (one refused as it loaded: its slot let go of) */
 	if (ce_map_refused_open && ce_map_file.file)
 	{
@@ -576,7 +576,7 @@ static boolean ce_map_open(
 	as it loads instead (ce_map_check_deferred): its tag cache is the Xbox's,
 	which the menus' map is in until then */
 	else if ((ce_map_cache_version = header.version,
-#ifdef HALO_XBOX_CONSOLE
+#ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
 		(platform_ce_alias && (ce_map_unchecked = TRUE)) ||
 #endif
 		ce_map_check(file, map_name, header.file_length, header.tag_data_offset, header.tag_data_size)))
@@ -608,7 +608,7 @@ static boolean ce_map_open(
 	return FALSE;
 }
 
-#ifdef HALO_XBOX_CONSOLE
+#ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
 /* the map open in its slot checked, if it was opened unchecked (a 64 MB
 console: above), as it loads (cache_files.c, its tag cache made the Xbox's):
 FALSE, and the map refused as ce_map_open refuses one, if it is refused */

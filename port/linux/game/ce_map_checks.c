@@ -63,7 +63,7 @@ rest of a map's tags as it reads the Xbox's maps, trusting them.
 #include <stdlib.h>
 #include <string.h>
 
-#ifdef HALO_XBOX_CONSOLE
+#ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
 /* a 64 MB console's tag cache, the Xbox's own (port/xbox's xbox_ce_files.c):
 22 MB of it, and the end of the room below a map's BSPs */
 #define CE_ALIAS_CACHE_SIZE 0x01600000UL
@@ -463,7 +463,7 @@ static boolean ce_map_check_tags(
 	in after the tags, as they are when the map loads) */
 	image.base = CE_IMAGE_TAG_CACHE_BASE;
 	image.size = tag_data_size;
-#ifdef HALO_XBOX_CONSOLE
+#ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
 	/* (a 64 MB console's: no room for an image, the map checked in the tag
 	cache itself as it loads, which is then read again: cache_files.c. Its
 	first 22 MB, the Xbox tag cache's pages: port/xbox's xbox_ce_files.c) */
@@ -520,7 +520,7 @@ static boolean ce_map_check_tags(
 	{
 		goto done;
 	}
-#ifdef HALO_XBOX_CONSOLE
+#ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
 	/* (and on a 64 MB console, below what isn't memory beneath the BSPs) */
 	end_free = platform_ce_room_end(end_free);
 	if (end_free < CE_IMAGE_TAG_CACHE_BASE + tag_data_size)
@@ -587,7 +587,7 @@ static boolean ce_map_check_tags(
 done:
 	if (model_data)
 		free(model_data);
-#ifdef HALO_XBOX_CONSOLE
+#ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
 	if (platform_ce_alias)
 		image.data = NULL;
 #endif
