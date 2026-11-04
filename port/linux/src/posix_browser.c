@@ -19,10 +19,12 @@ platform.
 #ifdef HALO_GAME_BROWSER
 
 #include "browser_http.h"
+#include "http_url_rules.h"
 
 #include "mbedtls/error.h"
 #include "mbedtls/net_sockets.h"
 #include "mbedtls/psa_util.h"
+#include "mbedtls/platform.h"
 #include "mbedtls/ssl.h"
 #include "mbedtls/x509_crt.h"
 #include "psa/crypto.h"
@@ -81,6 +83,15 @@ static void load_certificates(void)
 	const char *environment = getenv("SSL_CERT_FILE");
 	size_t index;
 
+#if defined(__GLIBC__) && defined(MBEDTLS_PLATFORM_HAVE_DEV_RANDOM)
+#if !__GLIBC_PREREQ(2, 25)
+	/* (glibc before 2.25 on a kernel without getrandom, the Steam Link's 2.19
+	on Linux 3.8: its /dev/random holds so little that this waited half a
+	minute for it before the first connection; /dev/urandom is what
+	getrandom would have drawn from) */
+	mbedtls_platform_dev_random = "/dev/urandom";
+#endif
+#endif
 	crypto_ready = psa_crypto_init() == PSA_SUCCESS;
 	mbedtls_x509_crt_init(&certificates);
 	if (environment && *environment && mbedtls_x509_crt_parse_file(&certificates, environment) >= 0)
@@ -717,6 +728,12 @@ int posix_browser_download_open(const char *url, const char *user_agent, int *st
 		connection_free(&download.connection);
 		if (*status >= 300 && *status < 400 && location[0])
 		{
+			/* (never from https:// to plain http://) */
+			if (!http_url_redirect_allowed(current, location))
+			{
+				set_error(error, error_size, "refused a redirect away from https://", 0);
+				break;
+			}
 			/* (an address on the same host, or another's) */
 			if (location[0] == '/')
 			{

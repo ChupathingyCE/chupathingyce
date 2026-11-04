@@ -1110,6 +1110,9 @@ static void test_roles(void)
 	CHECK(control_command_permission("sv_status", &changes) == CONTROL_PERMISSION_VIEW && !changes);
 	CHECK(control_command_permission("sv_kick 3", &changes) == CONTROL_PERMISSION_KICK && changes);
 	CHECK(control_command_permission("sv_warn 3 \"stop that\"", &changes) == CONTROL_PERMISSION_WARN && changes);
+	/* (what the server refused of a player: a moderator's to read, changing nothing) */
+	CHECK(control_command_permission("sv_evidence", &changes) == CONTROL_PERMISSION_WARN && !changes);
+	CHECK(control_command_permission("sv_evidence 3", &changes) == CONTROL_PERMISSION_WARN && !changes);
 	CHECK(control_command_permission("sv_ban 3 2h", NULL) == CONTROL_PERMISSION_BAN_TIMED);
 	CHECK(control_command_permission("sv_ban 3 7d", NULL) == CONTROL_PERMISSION_BAN_TIMED);
 	CHECK(control_command_permission("sv_ban 3 1w", NULL) == CONTROL_PERMISSION_BAN_TIMED);

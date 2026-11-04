@@ -54,8 +54,9 @@ a bink folder, or a movie that cannot be copied, does not fail the
 extraction: the game skips movies it cannot find.
 */
 
-/* (the desktop ports only: the Android app imports the game data itself) */
-#ifndef HALO_ANDROID
+/* (the desktop ports and iOS's launcher: the Android app imports the game
+data itself) */
+#if !defined(HALO_ANDROID) || defined(HALO_IOS)
 
 #ifdef HALO_EXTRACTOR_STANDALONE
 /* Built for the Switch host, which calls this from its own start-up rather
@@ -580,6 +581,11 @@ int xiso_extract_maps(const char *image_path, const char *destination, xiso_prog
 			continue;
 		total += files.entries[index].size;
 		has_ui |= same_name(files.entries[index].path, "ui.map");
+		/* (the disc's loading picture is kept as xbox_loading.tga: the game
+		shows Chupathingy's own unless display.xbox_loading_picture is on,
+		port/linux/game/loading_picture.c) */
+		if (same_name(files.entries[index].path, "loading.tga"))
+			strcpy(files.entries[index].path, "xbox_loading.tga");
 	}
 	if (!has_ui)
 	{

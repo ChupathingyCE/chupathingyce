@@ -69,6 +69,9 @@ void gamespy_listing_publish(const struct gamespy_status *status);
 /* the masters told the server is gone, and the socket closed */
 void gamespy_listing_stop(void);
 int gamespy_listing_running(void);
+/* Halo Custom Edition 1.0.10's join wire answered on the same port
+(ce_transport.h): 1 on, 0 off (the default) */
+void gamespy_listing_set_joins(int enabled);
 /* the next line for the server's log, if any: 1, else 0 */
 int gamespy_listing_next_notice(char *text, int size);
 

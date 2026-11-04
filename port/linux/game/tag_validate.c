@@ -43,6 +43,7 @@ runs it alone on a map file.
 #include "cseries/errors.h"
 #include "cache/physical_memory_map.h"
 #include "tag_schema.h"
+#include "stubbs_mode.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -959,6 +960,10 @@ static void validate_data_extent(
 		}
 		return;
 	}
+	/* (Stubbs mode: animation frame data the port read from the map file
+	into a block of its own, stubbs_mode.c) */
+	if (data->size && stubbs_mode_owns_data(xbox_pointer(data->address), data->size))
+		return;
 	if (data->size &&
 		(!region_contains(validation, xbox_pointer(data->address), data->size) ||
 			(!shared_extent_claim(xbox_pointer(data->address), data->size, field, TRUE) &&

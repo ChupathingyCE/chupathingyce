@@ -1345,8 +1345,10 @@ static struct tag_schema_field const scenario_fields[] =
 	TAG_SCHEMA_BLOCK(struct scenario, cutscene_flags, cutscene_flag_schema, MAXIMUM_CUTSCENE_FLAGS_PER_SCENARIO),
 	TAG_SCHEMA_BLOCK(struct scenario, cutscene_camera_points, cutscene_camera_point_schema,
 		MAXIMUM_CUTSCENE_CAMERA_POINTS_PER_SCENARIO),
+	/* port: 256 where the game made 64 (Stubbs the Zombie's a10 has 88;
+	nothing is sized by the count: cinematics.c reads the block) */
 	TAG_SCHEMA_BLOCK(struct scenario, cutscene_chapter_titles, cutscene_title_schema,
-		MAXIMUM_CUTSCENE_TITLES_PER_SCENARIO),
+		4 * MAXIMUM_CUTSCENE_TITLES_PER_SCENARIO),
 	TAG_SCHEMA_REFERENCE(struct scenario, custom_object_names, TAG_SCHEMA_GROUPS('ustr')),
 	TAG_SCHEMA_REFERENCE(struct scenario, ingame_help_text, TAG_SCHEMA_GROUPS('ustr')),
 	TAG_SCHEMA_REFERENCE(struct scenario, hud_messages, TAG_SCHEMA_GROUPS('hmt ')),

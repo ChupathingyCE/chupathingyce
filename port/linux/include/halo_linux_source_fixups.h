@@ -25,7 +25,7 @@ float *render_interpolation_object_function_values(long object_index);
 struct observer_result const *render_interpolation_camera(short local_player_index,
 	struct observer_result const *observer);
 void render_interpolation_first_person(short local_player_index, struct real_matrix4x3 *node_matrices,
-	short node_count, struct render_camera const *camera);
+	short node_count, struct render_camera const *camera, long weapon_index, long graph_index);
 float render_interpolation_game_time_sec(long ticks);
 float render_interpolation_ticks_since(long now, long then);
 

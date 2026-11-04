@@ -12,9 +12,14 @@ How a request goes:
 2. A TCP connection through the port; the TLS handshake (1.3, else 1.2) with
    the host's name sent (SNI) and checked against the certificate.
 3. The certificate is judged before a byte of the request is sent: the
-   name must match; then a pinned key, or a chain to a pinned root. Dates
-   are never looked at (MBEDTLS_HAVE_TIME_DATE is off), so a console with
-   its clock unset or wrong is not refused.
+   name must match; its dates, when the console's clock can be trusted
+   (below); then a pinned key, or a chain to a pinned root. Mbed TLS never
+   looks at dates here (MBEDTLS_HAVE_TIME_DATE is off), on purpose: the
+   site's key is pinned, and consoles' clocks are often unset. So this file
+   checks the server's certificate's dates itself, only when the port gives
+   a clock (unix_seconds) reading no earlier than the day this file was
+   built (CONSOLE_HTTPS_BUILD_SECONDS, else __DATE__). A clock earlier than
+   that is clearly unset, and the dates are skipped as before.
 4. The request, the response read to the server's close or its
    Content-Length, never past the caller's buffer.
 5. Everything freed: PSA's state too, so the arena is empty when the stack
@@ -49,7 +54,8 @@ not one it pins, and otherwise */
 #define PINS_DAY (24ul * 60 * 60 * 1000)
 #define SITE_TIMEOUT 15000
 /* the flags a certificate's dates set (never, as built: kept apart all the
-same, in case a build turns the clock on) */
+same, in case a build turns the clock on; the dates are judged by
+certificate_dates instead) */
 #define DATE_FLAGS (MBEDTLS_X509_BADCERT_EXPIRED | MBEDTLS_X509_BADCERT_FUTURE)
 
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -92,6 +98,7 @@ static const char *const error_strings[NUMBER_OF_CONSOLE_HTTPS_ERRORS] =
 	"timed out",
 	"the answer is too large",
 	"the answer is not HTTP",
+	"stopped",
 };
 
 const char *console_https_error_string(int error)
@@ -194,8 +201,89 @@ static int key_pinned(const struct console_https_trust *trust, const mbedtls_x50
 	return 0;
 }
 
+/* ---------- the certificate's dates */
+
+/* days since 1970-01-01 of a date (proleptic Gregorian) */
+static long long days_from_civil(long long year, int month, int day)
+{
+	long long era, year_of_era, day_of_year, day_of_era;
+
+	year -= month <= 2;
+	era = (year >= 0 ? year : year - 399) / 400;
+	year_of_era = year - era * 400;
+	day_of_year = (153 * (month + (month > 2 ? -3 : 9)) + 2) / 5 + day - 1;
+	day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+	return era * 146097 + day_of_era - 719468;
+}
+
+static long long x509_seconds(const mbedtls_x509_time *time)
+{
+	return days_from_civil(time->year, time->mon, time->day) * 86400 + time->hour * 3600 + time->min * 60 +
+		time->sec;
+}
+
+/* the start of the day this file was built, in seconds since 1970 (UTC):
+a console clock earlier than this is unset or plainly wrong */
+long long console_https_build_seconds(void)
+{
+#ifdef CONSOLE_HTTPS_BUILD_SECONDS
+	return (long long)CONSOLE_HTTPS_BUILD_SECONDS;
+#else
+	static const char months[] = "JanFebMarAprMayJunJulAugSepOctNovDec";
+	const char *date = __DATE__;
+	const char *found = NULL;
+	int month = 0, day = 0, year = 0, index;
+
+	for (index = 0; index < 12; index++)
+	{
+		if (!strncmp(date, months + index * 3, 3))
+		{
+			found = months + index * 3;
+			month = index + 1;
+			break;
+		}
+	}
+	for (index = 4; index < 6; index++)
+	{
+		if (date[index] >= '0' && date[index] <= '9')
+			day = day * 10 + (date[index] - '0');
+	}
+	for (index = 7; index < 11; index++)
+		year = year * 10 + (date[index] - '0');
+	if (!found || !day || year < 2000)
+		return 0;
+	return days_from_civil(year, month, day) * 86400;
+#endif
+}
+
+/* whether the server's certificate is out of date by the console's clock:
+never when the port has no clock, or its clock is earlier than the build
+(unset: skipped, as consoles' clocks often are) */
+static int certificate_out_of_date(const struct console_https_trust *trust, const mbedtls_x509_crt *certificate)
+{
+	long long now, from, to;
+
+	if (!https_port->unix_seconds)
+		return 0;
+	now = https_port->unix_seconds();
+	if (now < console_https_build_seconds())
+		return 0;
+	from = x509_seconds(&certificate->valid_from);
+	to = x509_seconds(&certificate->valid_to);
+	if (now >= from && now <= to)
+		return 0;
+	{
+		char line[160];
+
+		snprintf(line, sizeof(line), "https: %s: its certificate is %s by this console's clock", trust->host,
+			now > to ? "expired" : "not valid yet");
+		log_line(line);
+	}
+	return 1;
+}
+
 /* the certificate's verdict, from the handshake's own check (name and,
-for a host checked by roots, the chain) and the pins */
+for a host checked by roots, the chain), its dates and the pins */
 static int judge(const struct console_https_trust *trust, mbedtls_ssl_context *ssl)
 {
 	const mbedtls_x509_crt *certificate = mbedtls_ssl_get_peer_cert(ssl);
@@ -206,6 +294,8 @@ static int judge(const struct console_https_trust *trust, mbedtls_ssl_context *s
 	flags &= ~(uint32_t)DATE_FLAGS;
 	if (flags & MBEDTLS_X509_BADCERT_CN_MISMATCH)
 		return CONSOLE_HTTPS_ERROR_NAME;
+	if (certificate_out_of_date(trust, certificate))
+		return CONSOLE_HTTPS_ERROR_KEY;
 	if (!trust->pin_count)
 		return flags ? CONSOLE_HTTPS_ERROR_KEY : CONSOLE_HTTPS_OK;
 	/* a pinned host: its pins first; then, for a host with a backstop, a
@@ -427,8 +517,94 @@ static int tls_read_all(mbedtls_ssl_context *ssl, char *response, unsigned long 
 	}
 }
 
+/* a streamed answer's (console_https_get_stream): its callbacks, and the
+status once the headers came */
+struct stream
+{
+	console_https_size_proc size_proc;
+	console_https_body_proc body_proc;
+	void *context;
+	int status;
+};
+
+/* a streamed answer: its headers into buffer (size bytes, which they must
+fit), then its body to the stream's callback as it comes, a buffer at a time;
+each piece that comes gives the session idle_ms more. Only a 2xx answer's body
+is passed on: another's status is the answer */
+static int tls_read_stream(mbedtls_ssl_context *ssl, struct session *session, struct stream *stream, char *buffer,
+	unsigned long size, unsigned long idle_ms)
+{
+	unsigned long have = 0, end = 0, delivered = 0;
+	long length = -1;
+
+	stream->status = 0;
+	for (;;)
+	{
+		int count;
+
+		if (have >= size)
+			return CONSOLE_HTTPS_ERROR_TOO_LARGE;
+		count = mbedtls_ssl_read(ssl, (unsigned char *)buffer + have, size - have);
+		if (count == MBEDTLS_ERR_SSL_WANT_READ || count == MBEDTLS_ERR_SSL_WANT_WRITE ||
+			count == MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET)
+		{
+			continue;
+		}
+		if (count == 0 || count == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY || count == MBEDTLS_ERR_SSL_CONN_EOF)
+		{
+			/* (the end: the whole body, if its length was given) */
+			if (!end || (length >= 0 && delivered < (unsigned long)length))
+				return CONSOLE_HTTPS_ERROR_RESPONSE;
+			return CONSOLE_HTTPS_OK;
+		}
+		if (count == MBEDTLS_ERR_SSL_TIMEOUT)
+			return CONSOLE_HTTPS_ERROR_TIMEOUT;
+		if (count < 0)
+			return CONSOLE_HTTPS_ERROR_RECEIVE;
+		session->deadline = https_port->milliseconds() + idle_ms;
+		have += (unsigned long)count;
+		if (!end)
+		{
+			int digit;
+
+			end = header_end(buffer, have);
+			if (!end)
+				continue;
+			/* (the status line, as console_https_parse_response reads it) */
+			if (end < 12 || memcmp(buffer, "HTTP/1.", 7) || buffer[8] != ' ')
+				return CONSOLE_HTTPS_ERROR_RESPONSE;
+			for (digit = 9; digit < 12; digit++)
+			{
+				if (buffer[digit] < '0' || buffer[digit] > '9')
+					return CONSOLE_HTTPS_ERROR_RESPONSE;
+				stream->status = stream->status * 10 + (buffer[digit] - '0');
+			}
+			if (stream->status < 200 || stream->status > 299)
+				return CONSOLE_HTTPS_OK;
+			length = content_length(buffer, end);
+			if (stream->size_proc)
+				stream->size_proc(length >= 0 ? (unsigned long)length : 0, stream->context);
+			have -= end;
+			memmove(buffer, buffer + end, have);
+		}
+		if (have)
+		{
+			unsigned long give = have;
+
+			if (length >= 0 && delivered + give > (unsigned long)length)
+				give = (unsigned long)length - delivered;
+			if (give && !stream->body_proc(buffer, give, stream->context))
+				return CONSOLE_HTTPS_ERROR_STOPPED;
+			delivered += give;
+			have = 0;
+		}
+		if (length >= 0 && delivered >= (unsigned long)length)
+			return CONSOLE_HTTPS_OK;
+	}
+}
+
 static int request_locked(const struct console_https_trust *trust, const char *request, int request_length,
-	char *response, unsigned long size, unsigned long *received, unsigned long timeout_ms)
+	char *response, unsigned long size, unsigned long *received, unsigned long timeout_ms, struct stream *stream)
 {
 	mbedtls_ssl_context ssl;
 	mbedtls_ssl_config config;
@@ -525,7 +701,8 @@ static int request_locked(const struct console_https_trust *trust, const char *r
 	if (result == CONSOLE_HTTPS_OK)
 		result = tls_write(&ssl, (const unsigned char *)request, (unsigned long)request_length);
 	if (result == CONSOLE_HTTPS_OK)
-		result = tls_read_all(&ssl, response, size, received);
+		result = stream ? tls_read_stream(&ssl, &session, stream, response, size, timeout_ms) :
+			tls_read_all(&ssl, response, size, received);
 	if (result == CONSOLE_HTTPS_OK)
 	{
 		char line[128];
@@ -594,7 +771,7 @@ static int pins_get(int plain, const char *path, char *buffer, unsigned long siz
 		int length;
 
 		if (!github || !(length = build_get(request, sizeof(request), CONSOLE_HTTPS_GITHUB, path)) ||
-			request_locked(github, request, length, buffer, size, &received, timeout_ms) != CONSOLE_HTTPS_OK)
+			request_locked(github, request, length, buffer, size, &received, timeout_ms, NULL) != CONSOLE_HTTPS_OK)
 			return 0;
 	}
 	return console_https_parse_response(buffer, received, &status, body, body_size) && status == 200;
@@ -751,14 +928,14 @@ int console_https_request(const char *host, const char *path, const char *body, 
 		https_port->lock();
 	mbedtls_memory_buffer_alloc_init(arena.bytes, sizeof(arena.bytes));
 	pin_missed = 0;
-	result = request_locked(trust, request, length, response, size, received, timeout_ms);
+	result = request_locked(trust, request, length, response, size, received, timeout_ms, NULL);
 	/* (the site's key not pinned, or a day since the pin document was last
 	asked for: asked for now, and with new pins the request tried again) */
 	if (!strcmp(trust->host, CONSOLE_HTTPS_SITE) && pins_due(pin_missed) && pins_refresh(timeout_ms) &&
 		result == CONSOLE_HTTPS_ERROR_KEY)
 	{
 		*received = 0;
-		result = request_locked(trust, request, length, response, size, received, timeout_ms);
+		result = request_locked(trust, request, length, response, size, received, timeout_ms, NULL);
 	}
 #ifdef CONSOLE_HTTPS_TESTS
 	{
@@ -813,4 +990,61 @@ int console_https_site_request(const char *path, const char *body, int *status, 
 {
 	return console_https_call(CONSOLE_HTTPS_SITE, path, body, status, reply, reply_size, SITE_TIMEOUT) ==
 		CONSOLE_HTTPS_OK;
+}
+
+int console_https_get_stream(const char *host, const char *path, const char *headers, int *status,
+	console_https_size_proc size_proc, console_https_body_proc body_proc, void *context, unsigned long timeout_ms)
+{
+	union
+	{
+		unsigned char bytes[CONSOLE_HTTPS_ARENA_SIZE];
+		long long align_integer;
+		double align_double;
+		void *align_pointer;
+	} arena;
+	char request[REQUEST_SIZE];
+	/* (the headers, then each piece of the body, read into it) */
+	char buffer[CONSOLE_HTTPS_STREAM_BUFFER_SIZE];
+	struct stream stream;
+	const struct console_https_trust *trust;
+	unsigned long received = 0;
+	int length;
+	int result;
+
+	*status = 0;
+	if (!https_port)
+		return CONSOLE_HTTPS_ERROR_UNAVAILABLE;
+	trust = find_trust(host);
+	if (!trust)
+		return CONSOLE_HTTPS_ERROR_HOST;
+	length = snprintf(request, sizeof(request),
+		"GET %s HTTP/1.0\r\nHost: %s\r\nUser-Agent: %s\r\nAccept-Encoding: identity\r\n%s"
+		"Connection: close\r\n\r\n", path, host, https_port->user_agent ? https_port->user_agent : "Warthog/1",
+		headers ? headers : "");
+	if (length <= 0 || length >= (int)sizeof(request))
+		return CONSOLE_HTTPS_ERROR_REQUEST;
+	stream.size_proc = size_proc;
+	stream.body_proc = body_proc;
+	stream.context = context;
+	stream.status = 0;
+
+	if (https_port->lock)
+		https_port->lock();
+	mbedtls_memory_buffer_alloc_init(arena.bytes, sizeof(arena.bytes));
+	pin_missed = 0;
+	result = request_locked(trust, request, length, buffer, sizeof(buffer), &received, timeout_ms, &stream);
+#ifdef CONSOLE_HTTPS_TESTS
+	{
+		size_t used = 0, blocks = 0;
+
+		mbedtls_memory_buffer_alloc_max_get(&used, &blocks);
+		arena_peak = (unsigned long)used;
+	}
+#endif
+	mbedtls_memory_buffer_alloc_free();
+	if (https_port->unlock)
+		https_port->unlock();
+	mbedtls_platform_zeroize(arena.bytes, sizeof(arena.bytes));
+	*status = stream.status;
+	return result;
 }

@@ -1,0 +1,17 @@
+# [C] H2 Classic: the Halo 2 style playlist on the stock Xbox maps, so
+# console players (Warthog) play too. c_h2_anniversary.txt without Oddball
+# (a console build does not read a PC host's Oddball state yet). The last
+# entry is free for all, for a lone player.
+
+# map            game type
+bloodgulch       h2_ctf
+hangemhigh       h2_slayer
+chillout         h2_swat
+prisoner         h2_rockets
+damnation        h2_snipers
+sidewinder       h2_ctf
+beavercreek      h2_slayer
+hangemhigh       h2_swat
+damnation        h2_slayer
+bloodgulch       h2_slayer
+prisoner         h2_ffa

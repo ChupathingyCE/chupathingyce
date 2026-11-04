@@ -1,0 +1,19 @@
+# Halo 2 anniversary weekend: Halo 2's classic playlists as close as CE goes
+# (the h2_* game types in gametypes/). Maps are the stock ones with a similar
+# feel, not remakes. The last entry is free for all, so a lone player is
+# not left waiting when every team game is skipped. Install the game types in
+# the server's admin/gametypes/ and this file in playlists/.
+
+# map            game type
+bloodgulch       h2_ctf
+hangemhigh       h2_slayer
+chillout         h2_swat
+prisoner         h2_rockets
+damnation        h2_snipers
+sidewinder       h2_ctf
+beavercreek      h2_slayer
+chillout         h2_oddball
+hangemhigh       h2_swat
+damnation        h2_slayer
+bloodgulch       h2_slayer
+prisoner         h2_ffa

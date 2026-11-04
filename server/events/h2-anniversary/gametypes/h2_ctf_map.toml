@@ -1,0 +1,30 @@
+# H2 CTF for the HaloMD Halo 2 maps: H2 CTF with the map's own starting
+# weapons (most of these maps give a battle rifle in CTF), as
+# h2_slayer_map.
+base = "ctf"
+name = "H2 CTF"
+score_limit = 5
+time_limit = 15
+
+[players]
+shields = true
+respawn_time = 5
+
+[items]
+starting_equipment = "map"
+weapon_set = "normal"
+
+[indicators]
+objectives = "nav_points"
+players_on_radar = "all"
+friends_on_screen = true
+
+[team_play]
+friendly_fire = "off"
+auto_balance = true
+
+[ctf]
+assault = false
+single_flag_time = 0
+flag_at_home_to_score = false
+reset_on_capture = true

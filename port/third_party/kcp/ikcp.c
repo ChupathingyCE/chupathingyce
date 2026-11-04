@@ -556,6 +556,10 @@ int ikcp_send(ikcpcb *kcp, const char *buffer, int len)
 static void ikcp_update_ack(ikcpcb *kcp, IINT32 rtt)
 {
 	IINT32 rto = 0;
+	/* (port: the time an ACK echoes is the peer's to set, so that the difference could be
+	any 31-bit number, which the arithmetic below overflows with; no round trip is
+	longer than the longest RTO) */
+	if (rtt > IKCP_RTO_MAX) rtt = IKCP_RTO_MAX;
 	if (kcp->rx_srtt == 0) {
 		kcp->rx_srtt = rtt;
 		kcp->rx_rttval = rtt / 2;

@@ -28,6 +28,8 @@ from pathlib import Path
 
 import pytest
 
+from tools import fuzz_support  # noqa: E402
+
 ROOT = Path(__file__).resolve().parent.parent
 SOURCE = ROOT / "port" / "linux" / "src"
 ZLIB = ROOT / "port" / "third_party" / "zlib"
@@ -74,6 +76,7 @@ def harness(tmp_path_factory):
         result = subprocess.run([cc, "-c", "-O1", "-g", "-w", "-DZ_PREFIX", "-Dz_errmsg=z_port_errmsg",
                                  str(source), "-o", str(obj), *sanitize], capture_output=True, text=True)
         if result.returncode != 0 and sanitize:
+            fuzz_support.fallback("no sanitizer runtime")
             sanitize = []
             result = subprocess.run([cc, "-c", "-O1", "-g", "-w", "-DZ_PREFIX", "-Dz_errmsg=z_port_errmsg",
                                      str(source), "-o", str(obj)], capture_output=True, text=True)
@@ -150,6 +153,17 @@ def test_valid_names(harness, name):
                                   "bigassv2,104", "a?b", "a&type=halor"])
 def test_invalid_names(harness, name):
     assert run(harness, "name", name) == "invalid"
+
+
+@pytest.mark.parametrize("name", ["CON", "con", "Prn", "aux", "NUL", "nul.map", "com1", "COM9", "lpt1", "LpT9",
+                                  "con.x.y", "aux.v2"])
+def test_device_names(harness, name):
+    assert run(harness, "name", name) == "invalid"
+
+
+@pytest.mark.parametrize("name", ["cons", "con_v2", "com0", "com10", "lpt", "nul-1", "xcon", "acon.v2", "prism"])
+def test_names_like_device_names(harness, name):
+    assert run(harness, "name", name) == "valid"
 
 
 def test_empty_name(harness):

@@ -1,0 +1,30 @@
+# H2 Oddball: Halo 2 Oddball, free for all. Hold the ball for 3 minutes in
+# all. Halo 2's skull carrier cannot shoot; in CE the carrier can, and the
+# engine has no rule to stop that. The ball is a nav point for everyone.
+base = "oddball"
+name = "H2 Oddball"
+score_limit = 3
+time_limit = 15
+
+[players]
+shields = true
+respawn_time = 5
+
+[items]
+starting_equipment = "generic"
+weapon_set = "normal"
+
+[indicators]
+objectives = "nav_points"
+players_on_radar = "all"
+friends_on_screen = true
+
+[vehicles]
+red = "none"
+blue = "none"
+
+[oddball]
+random_start = true
+spawn_delay = false
+speed_with_ball = "normal"
+balls = 1

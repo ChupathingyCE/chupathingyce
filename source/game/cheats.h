@@ -52,6 +52,14 @@ void cheats_update(
 	void);
 void cheats_network_client_enforce(
 	void);
+/* port: a network game's host's objects from its console (the cheats,
+hs_object_create): whether one more may be made, and the one made (NONE
+for none), which is deleted again if an original Xbox could not keep it;
+FALSE then */
+boolean cheats_console_object_allowed(
+	void);
+boolean cheats_console_object_made(
+	long object_index);
 void cheats_load(
 	void);
 void cheat_active_camouflage_local_player(

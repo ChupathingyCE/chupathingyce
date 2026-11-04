@@ -1,0 +1,33 @@
+# H2 SWAT: Halo 2 SWAT, as close as Halo CE goes.
+# Halo 2 gives everyone a battle rifle, no shields, no radar and makes
+# headshots count. CE has no battle rifle and no headshots-only rule: the
+# pistol is the nearest precise starter. No shields, no motion tracker, no
+# weapons on the map.
+base = "team_slayer"
+name = "H2 SWAT"
+score_limit = 50
+time_limit = 15
+
+[players]
+shields = false
+respawn_time = 5
+
+[items]
+starting_equipment = "generic"
+map_weapons = false
+loadout = "custom"
+primary_weapon = "pistol"
+secondary_weapon = "none"
+
+[indicators]
+objectives = "none"
+players_on_radar = "none"
+friends_on_screen = true
+
+[team_play]
+friendly_fire = "off"
+auto_balance = true
+
+[vehicles]
+red = "none"
+blue = "none"

@@ -11,7 +11,8 @@ drives them:
 - the gamepads' ports (port/linux/src/xinput_sdl.c's gamepad_ports_assign):
   the order controllers were connected in while one person plays, and while
   two or more do, a port kept for each controller as others are plugged in
-  and out.
+  and out; and while one person plays the game, the other ports' gamepads
+  also driving their player (gamepad_shares_first_port).
 
 Where SDL3 is installed (pkg-config sdl3, or Homebrew's), the ports are also
 taken from SDL's own virtual gamepads, attached, unplugged and plugged back.
@@ -399,6 +400,18 @@ int main(void)
 	/* back to one person: the ports follow the connection order again */
 	unplug(0);
 	CHECK(port_of_pad(1, FALSE) == 0, "one person: the first connected pad on port 1");
+
+	/* one person in the game: a pad on port 2 (another device listed
+	first, as Windows can) also drives player 1, joining at rest */
+	CHECK(gamepad_shares_first_port(1, TRUE, TRUE, TRUE), "one person in the game: port 2's pad drives player 1");
+	CHECK(gamepad_shares_first_port(1, TRUE, TRUE, FALSE), "one person in the game: and keeps to it while pressed");
+	CHECK(!gamepad_shares_first_port(1, FALSE, TRUE, TRUE), "a menu up: port 2's pad is its own");
+	CHECK(!gamepad_shares_first_port(1, TRUE, TRUE, FALSE),
+		"back in the game with a button held: port 2's pad waits to be let go");
+	CHECK(gamepad_shares_first_port(1, TRUE, TRUE, TRUE), "let go: port 2's pad drives player 1 again");
+	CHECK(!gamepad_shares_first_port(2, TRUE, FALSE, TRUE), "no pad on port 3: nothing shared");
+	CHECK(!gamepad_shares_first_port(1, FALSE, TRUE, TRUE), "split screen: port 2's pad is player 2's alone");
+	CHECK(!gamepad_shares_first_port(0, TRUE, TRUE, TRUE), "port 1's own pad is not shared with itself");
 #ifdef WITH_SDL
 	printf("ports (SDL virtual gamepads): %s\n", failures ? "FAILED" : "each controller keeps its player's port");
 	SDL_Quit();
@@ -423,15 +436,25 @@ def routing_code(old):
     return ROUTING_PRELUDE + code + ROUTING_DRIVER
 
 
-def ports_code(old):
+def ports_code(old, sharing=False):
     source = XINPUT.read_text()
     start = source.index("/* ---------- gamepad ports")
     end = source.index("/* ---------- SDL gamepads */", start)
     code = source[start:end]
-    if old:
+    if old and not sharing:
         # main before: the ports in connection order always
         code = code.replace("\tif (!keep)\n", "\t(void)keep;\n\tif (TRUE)\n", 1)
+    if old and sharing:
+        # main before: in the game, player 1 read port 1's gamepad alone (a
+        # pad on port 2 drove the menus, not the game)
+        code, count = re.subn(r"(static BOOL gamepad_shares_first_port\([^)]*\)\n\{\n)", r"\1\treturn FALSE;\n", code)
+        if count != 1:
+            raise SystemExit("negative control: gamepad_shares_first_port not found where expected")
     return PORTS_PRELUDE + code + PORTS_DRIVER
+
+
+def sharing_code(old):
+    return ports_code(old, sharing=True)
 
 
 def sdl_flags():
@@ -462,7 +485,7 @@ def main():
     args = parser.parse_args()
     failed = False
     with tempfile.TemporaryDirectory() as folder:
-        runs = [("routing", routing_code), ("ports", ports_code)]
+        runs = [("routing", routing_code), ("ports", ports_code), ("sharing", sharing_code)]
         for name, make in runs:
             code, output = build_and_run(args.cc, folder, name, make(old=False))
             print(output, end="")
