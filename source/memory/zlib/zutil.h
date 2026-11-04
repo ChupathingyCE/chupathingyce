@@ -16,6 +16,16 @@
 #include "cseries.h"
 #include "zlib.h"
 
+/* port: the game's code is built with DEBUG (port/linux/port.json), and with
+it this library's checks: a failed Assert ends the game (z_error, zutil.c).
+A release build (configure.py --release, a console's
+--console-no-debug-asserts) builds the library without them, as zlib is
+released; the game's headers above keep DEBUG as they were. Every unit of
+the library includes this header first (deflate.h includes it). */
+#if defined(DEBUG) && (defined(HALO_RELEASE) || defined(HALO_CONSOLE_NO_DEBUG_ASSERTS))
+#undef DEBUG
+#endif
+
 #ifdef STDC
 #  include <stddef.h>
 #  include <string.h>
