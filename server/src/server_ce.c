@@ -34,6 +34,7 @@ off by default and refuses the joins otherwise).
 #include "networking/network_client_manager.h"
 #include "networking/network_game_globals.h"
 #include "networking/network_game_manager.h"
+#include "items/weapons.h"
 #include "objects/objects.h"
 #include "units/units.h"
 #include "dedicated.h"
@@ -67,6 +68,9 @@ enum
 	LOCAL_UPDATE_TICKS = 15,
 	/* a client's updates waiting, at most, before they are played faster */
 	CAUGHT_UP_UPDATES = 2,
+	/* a biped's vitality and grenades, at most this often */
+	BIPED_UPDATE_TICKS = 3,
+	BIPED_REFRESH_TICKS = 30,
 	/* a join waiting for a game to start or a seat, at most (a client gives
 	up on an unanswered join after about 15 seconds) */
 	JOIN_WAIT_MILLISECONDS = 12000,
@@ -87,6 +91,11 @@ struct ce_client
 	/* each player's last unit it was told died: taken away once our game
 	takes the body away */
 	long body[TRACKED_PLAYERS];
+	/* each player's biped as it was told last (biped_state), that
+	update's baseline number and tick */
+	int biped_sent[TRACKED_PLAYERS];
+	int biped_baseline[TRACKED_PLAYERS];
+	long biped_tick[TRACKED_PLAYERS];
 	int update_id;
 	int sequence;
 	int local_sequence;
@@ -377,6 +386,36 @@ static void put_object_start(
 	create->position[2] = object->object.position.z;
 }
 
+/* a weapon's rounds (each magazine's left and loaded) and its age, 6 bits
+of 1 (what a client's game needs to fire it as its holder's actions say) */
+static void put_weapon_state(
+	struct ce_weapon_create *create,
+	long weapon_index)
+{
+	struct weapon_datum *weapon = weapon_get(weapon_index);
+	int index;
+	real age = weapon->weapon.age;
+
+	create->unknown_small = 1;
+	for (index = 0; index < 2; index++)
+	{
+		create->ammunition[index] = weapon->weapon.magazines[index].rounds_total & 0xffff;
+		create->magazine[index] = weapon->weapon.magazines[index].rounds_loaded & 0xffff;
+	}
+	age = age < 0.0f ? 0.0f : age > 1.0f ? 1.0f : age;
+	create->age = (int)(age * 63.0f + 0.5f);
+}
+
+/* what a biped update carries, as one number (to see a change) */
+static int biped_state(
+	long unit_index)
+{
+	struct unit_datum *unit = unit_get(unit_index);
+
+	return (unit->unit.grenade_counts[0] & 7) | (unit->unit.grenade_counts[1] & 7) << 3 |
+		ce_body_bits(unit->object.body_vitality) << 6 | ce_shield_bits(unit->object.shield_vitality) << 9;
+}
+
 static void send_unit(
 	struct ce_client *client,
 	long player_index,
@@ -408,7 +447,7 @@ static void send_unit(
 		put_object_start(&weapon.object, weapon_index, number);
 		/* (a held weapon goes with its biped: no place of its own) */
 		csmemset(weapon.object.position, 0, sizeof(weapon.object.position));
-		weapon.unknown_small = 1;
+		put_weapon_state(&weapon, weapon_index);
 		ce_payload_put_weapon_create(&payload, &weapon);
 		spawn.weapons[index] = number;
 	}
@@ -422,12 +461,54 @@ static void send_unit(
 	biped.unknown_small = 1;
 	biped.grenades[0] = unit->unit.grenade_counts[0] & 7;
 	biped.grenades[1] = unit->unit.grenade_counts[1] & 7;
-	biped.unknown_3bits = 7;
-	biped.unknown_6bits_b = 21;
+	biped.body = ce_body_bits(unit->object.body_vitality);
+	biped.shield = ce_shield_bits(unit->object.shield_vitality);
 	ce_payload_put_biped_create(&payload, &biped);
 	ce_payload_put_player_spawn(&payload, &spawn);
 	length = ce_payload_end(&payload);
 	ce_transport_send(client->peer, out, length, TRUE);
+	{
+		long absolute = DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index);
+
+		client->biped_sent[absolute] = biped_state(unit_index);
+		client->biped_baseline[absolute] = 1;
+		client->biped_tick[absolute] = game_time_get();
+	}
+}
+
+/* (a player's biped as its HUD shows it, as it changes: vitality and
+grenades) */
+static void put_biped_update(
+	struct ce_client *client,
+	struct ce_payload *payload,
+	long absolute,
+	long unit_index)
+{
+	struct unit_datum *unit = unit_get(unit_index);
+	struct ce_biped_update update;
+	int state = biped_state(unit_index);
+
+	/* (and again once a second: a client's own guesses of its damage
+	are put right) */
+	if (game_time_get() - client->biped_tick[absolute] < BIPED_UPDATE_TICKS ||
+		(state == client->biped_sent[absolute] && game_time_get() - client->biped_tick[absolute] < BIPED_REFRESH_TICKS))
+	{
+		return;
+	}
+	client->biped_baseline[absolute] = (client->biped_baseline[absolute] + 1) & 0xff;
+	client->biped_sent[absolute] = state;
+	client->biped_tick[absolute] = game_time_get();
+	csmemset(&update, 0, sizeof(update));
+	update.object = network_object(unit_index, FALSE);
+	update.baseline = client->biped_baseline[absolute];
+	/* (our game's shield is the one: a client's own guess of it is put
+	right) */
+	update.apply_shield = TRUE;
+	update.grenades[0] = unit->unit.grenade_counts[0] & 7;
+	update.grenades[1] = unit->unit.grenade_counts[1] & 7;
+	update.body = ce_body_bits(unit->object.body_vitality);
+	update.shield = ce_shield_bits(unit->object.shield_vitality);
+	ce_payload_put_biped_update(payload, &update);
 }
 
 static int throttle_bits(
@@ -559,13 +640,14 @@ static void update_client(
 {
 	struct data_iterator iterator;
 	struct player_datum *player;
-	struct ce_payload payload;
-	unsigned char out[PAYLOAD_SIZE];
+	struct ce_payload payload, reliable;
+	unsigned char out[PAYLOAD_SIZE], reliable_out[PAYLOAD_SIZE];
 	long own_player = local_player_get_player_index(local_index);
 	boolean any = FALSE;
 	int length;
 
 	ce_payload_begin(&payload, out, sizeof(out));
+	ce_payload_begin(&reliable, reliable_out, sizeof(reliable_out));
 	data_iterator_new(&iterator, player_data);
 	while ((player = data_iterator_next(&iterator)) != NULL)
 	{
@@ -624,6 +706,8 @@ static void update_client(
 			if (player->unit_index != NONE)
 				send_unit(client, player_index, player->unit_index);
 		}
+		if (player->unit_index != NONE && player->unit_index == client->unit_sent[absolute])
+			put_biped_update(client, &reliable, absolute, player->unit_index);
 		/* (its own biped, twice a second, as Custom Edition's server does:
 		an update and where the biped was as that update began. Its game
 		puts the biped there and plays its own updates from that one on
@@ -668,6 +752,8 @@ static void update_client(
 		client->update_id = (client->update_id + 1) & 63;
 		client->sequence = (client->sequence + 1) & 7;
 	}
+	if (reliable.position > 11)
+		ce_transport_send(client->peer, reliable_out, ce_payload_end(&reliable), TRUE);
 	send_scores(client);
 }
 
