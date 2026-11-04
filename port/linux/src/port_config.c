@@ -3663,6 +3663,9 @@ static void config_load(void)
 					char old[64];
 
 					config_unquote(config_pending_old[index], old, sizeof(old));
+					/* (the string read a moment ago: no caller holds it yet) */
+					if (config_settings[index].type == _config_string)
+						free(config_values[index].string);
 					config_set_from_text(&config_values[index], config_settings[index].type, old);
 				}
 			}
