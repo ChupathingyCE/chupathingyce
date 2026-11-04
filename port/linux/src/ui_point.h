@@ -27,6 +27,10 @@ struct ui_point_view
 	int gl_width, gl_height;
 	/* the game's screen width: 640, or more for a wide screen */
 	long screen_width;
+	/* the part of the window's pixels the picture is shown in, from the
+	top left (platform_video_present_area); a width or height of 0 is the
+	whole window */
+	int area_left, area_top, area_width, area_height;
 };
 
 /* a point of the window in the menus' coordinates; 0 and -1, -1 when the

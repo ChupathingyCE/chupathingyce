@@ -9,23 +9,33 @@ The menus' points and the window's (ui_point.h).
 #include <math.h>
 
 /* where the picture is drawn in the window's pixels: letterboxed to the
-back buffer's shape */
+back buffer's shape, in the area it is shown in (all of the window, unless
+the view says otherwise) */
 static int picture_rectangle(struct ui_point_view const *view, int *left, int *top, int *width, int *height)
 {
+	int area_left = 0, area_top = 0, area_width = view->pixel_width, area_height = view->pixel_height;
+
 	if (view->window_width <= 0 || view->window_height <= 0 || view->pixel_width <= 0 || view->pixel_height <= 0 ||
 		view->target_width <= 0 || view->target_height <= 0 || view->gl_width <= 0 || view->gl_height <= 0)
 	{
 		return 0;
 	}
-	*width = view->pixel_width;
-	*height = (int)((long)view->pixel_width * view->gl_height / view->gl_width);
-	if (*height > view->pixel_height)
+	if (view->area_width > 0 && view->area_height > 0)
 	{
-		*height = view->pixel_height;
-		*width = (int)((long)view->pixel_height * view->gl_width / view->gl_height);
+		area_left = view->area_left;
+		area_top = view->area_top;
+		area_width = view->area_width;
+		area_height = view->area_height;
 	}
-	*left = (view->pixel_width - *width) / 2;
-	*top = (view->pixel_height - *height) / 2;
+	*width = area_width;
+	*height = (int)((long)area_width * view->gl_height / view->gl_width);
+	if (*height > area_height)
+	{
+		*height = area_height;
+		*width = (int)((long)area_height * view->gl_width / view->gl_height);
+	}
+	*left = area_left + (area_width - *width) / 2;
+	*top = area_top + (area_height - *height) / 2;
 	return 1;
 }
 

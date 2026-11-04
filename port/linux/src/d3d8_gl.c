@@ -310,6 +310,20 @@ static void screen_mode_choose(long *width, float scale[2])
 	long lines;
 
 	*width = config_integer("display.screen_width");
+#ifdef HALO_IOS
+	/* on iOS, the window's shape once it is open: it changes as iPhone Duo
+	folds and unfolds, and with an iPad's or a Vision Pro's window; or the
+	part of it the picture is shown in (iPhone Duo part open like a laptop:
+	the half above the fold) */
+	if (*width <= 0)
+	{
+		int area_x, area_y, window_width = 0, window_height = 0;
+
+		platform_video_present_area(&area_x, &area_y, &window_width, &window_height);
+		if (window_width > 0 && window_height > 0)
+			*width = (SCREEN_HEIGHT * window_width + window_height / 2) / window_height;
+	}
+#endif
 	if (*width <= 0)
 		*width = display ? atol(display) : 640;
 	if (*width < 640)
@@ -2137,12 +2151,12 @@ HRESULT WINAPI Direct3D_CreateDevice(UINT adapter, D3DDEVTYPE device_type, void 
 			device.presentation = *presentation_parameters;
 		width = device.presentation.BackBufferWidth ? device.presentation.BackBufferWidth : 640;
 		height = device.presentation.BackBufferHeight ? device.presentation.BackBufferHeight : 480;
-#ifdef HALO_GL_ES
+#if defined(HALO_GL_ES) && !defined(HALO_IOS)
 		d3d8_surface_initialize(&device.back_buffer, D3DFMT_LIN_A8R8G8B8, width, height);
 		d3d8_surface_initialize(&device.depth_buffer, D3DFMT_LIN_D24S8, width, height);
 #else
 		/* room for the widest screen, which F11 can switch to (the screen's
-		width, above) */
+		width, above), or iOS's window can take */
 		d3d8_surface_initialize(&device.back_buffer, D3DFMT_LIN_A8R8G8B8, SCREEN_MAXIMUM_WIDTH, height);
 		d3d8_surface_initialize(&device.depth_buffer, D3DFMT_LIN_D24S8, SCREEN_MAXIMUM_WIDTH, height);
 		d3d8_surface_resize(&device.back_buffer, D3DFMT_LIN_A8R8G8B8, width, height);
@@ -2225,6 +2239,9 @@ static BOOL ui_point_view_get(struct ui_point_view *view)
 		return FALSE;
 	platform_video_window_size(&view->window_width, &view->window_height);
 	platform_video_drawable_size(&view->pixel_width, &view->pixel_height);
+#ifdef HALO_IOS
+	platform_video_present_area(&view->area_left, &view->area_top, &view->area_width, &view->area_height);
+#endif
 	view->target_width = (int)back_buffer->target.width;
 	view->target_height = (int)back_buffer->target.height;
 	view->gl_width = (int)back_buffer->target.gl_width;
@@ -2309,7 +2326,7 @@ long halo_screen_commit(void)
 		screen_width = width;
 		screen_scale[0] = scale[0];
 		screen_scale[1] = scale[1];
-#ifndef HALO_GL_ES
+#if !defined(HALO_GL_ES) || defined(HALO_IOS)
 		if (device.created)
 		{
 			device.presentation.BackBufferWidth = (UINT)width;
@@ -5603,6 +5620,9 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 		struct render_target_entry *back_buffer = render_target_get(&device.back_buffer);
 		int window_width, window_height, width, height, x, y;
 		GLuint read_framebuffer;
+#ifdef HALO_IOS
+		int area_x, area_y, area_width, area_height;
+#endif
 #if defined(HALO_GAME_BROWSER) && defined(HALO_CONSOLE_GLES2)
 		/* (the picture's size: the back buffer's, or the screens' below) */
 		GLint picture_width = (GLint)back_buffer->target.gl_width;
@@ -5623,6 +5643,24 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 			write_screenshot(back_buffer);
 
 		platform_video_drawable_size(&window_width, &window_height);
+#ifdef HALO_IOS
+		/* letterbox to the back buffer's aspect ratio, in the part of the
+		window the picture is shown in (all of it, but on iPhone Duo part
+		open like a laptop: port/ios/src/ios_touch.m) */
+		platform_video_present_area(&area_x, &area_y, &area_width, &area_height);
+		width = area_width;
+		height = (int)((long)area_width * back_buffer->target.gl_height / back_buffer->target.gl_width);
+		if (height > area_height)
+		{
+			height = area_height;
+			width = (int)((long)area_height * back_buffer->target.gl_width / back_buffer->target.gl_height);
+		}
+		x = area_x + (area_width - width) / 2;
+		/* (GL's rows count up from the bottom, the area's down from the top:
+		the area's bottom row, then the picture centered above it, rounded as
+		the whole window's is) */
+		y = window_height - (area_y + area_height) + (area_height - height) / 2;
+#else
 		/* letterbox to the back buffer's aspect ratio */
 		width = window_width;
 		height = (int)((long)window_width * back_buffer->target.gl_height / back_buffer->target.gl_width);
@@ -5633,6 +5671,7 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 		}
 		x = (window_width - width) / 2;
 		y = (window_height - height) / 2;
+#endif
 		/* (the lookup can create a framebuffer and bind it to both targets,
 		so it comes before the window is bound as the draw target) */
 		read_framebuffer = framebuffer_get(back_buffer->target.texture, 0);

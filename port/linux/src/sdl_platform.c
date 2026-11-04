@@ -1525,6 +1525,36 @@ void platform_video_drawable_size(int *width, int *height)
 }
 
 #ifdef HALO_IOS
+/* the part of the window the picture goes in, as fractions of it (x, y,
+width, height from the top left): port/ios/src/ios_touch.m */
+void host_present_area(float *area);
+
+void platform_video_present_area(int *x, int *y, int *width, int *height)
+{
+	int drawable_width = 0, drawable_height = 0;
+	float area[4] = { 0.0f, 0.0f, 1.0f, 1.0f };
+
+	platform_video_drawable_size(&drawable_width, &drawable_height);
+	*x = *y = 0;
+	*width = drawable_width;
+	*height = drawable_height;
+	host_present_area(area);
+	if (area[2] > 0.0f && area[3] > 0.0f && area[0] >= 0.0f && area[1] >= 0.0f &&
+		area[0] + area[2] <= 1.0f && area[1] + area[3] <= 1.0f)
+	{
+		*x = (int)(area[0] * drawable_width);
+		*y = (int)(area[1] * drawable_height);
+		*width = (int)(area[2] * drawable_width);
+		*height = (int)(area[3] * drawable_height);
+	}
+	if (*width <= 0 || *height <= 0)
+	{
+		*x = *y = 0;
+		*width = drawable_width;
+		*height = drawable_height;
+	}
+}
+
 /* (SDL's view makes it with the context: xgpu.h) */
 unsigned int platform_window_framebuffer(void)
 {
