@@ -1085,6 +1085,11 @@ static const struct config_setting config_settings[] =
 		_platform_all,
 		"With debug.determinism: a file that gets a line of hashes of the game's\n"
 		"state after each tick. Leave it empty for none." },
+	{ "debug.determinism_positions", _config_string, "\"\"", "HALO_DETERMINISM_POSITIONS", _environment_value,
+		_platform_all,
+		"With debug.determinism: a file that gets each player's unit position,\n"
+		"velocity and vitality after each tick (tools/test_tricks.py). Leave it\n"
+		"empty for none." },
 	{ "debug.determinism_ticks", _config_integer, "0", "HALO_DETERMINISM_TICKS", _environment_value, _platform_all,
 		"With debug.determinism: quit after this many game ticks. 0 never does." },
 	{ "debug.determinism_seed", _config_integer, "1", "HALO_DETERMINISM_SEED", _environment_value, _platform_all,
