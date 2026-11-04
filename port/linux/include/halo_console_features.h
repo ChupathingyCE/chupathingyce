@@ -155,6 +155,43 @@ HALO_CONSOLE_CACHE_SCREEN
 	console_cache_screen, defined by the port, shows how far they have got
 	(source/cache/cache_files_windows.c), and console_cache_screen_done when
 	they are made
+HALO_CONSOLE_SETUP_SCREENS
+	a console with no dialogs or file picker, on a television: the start-up's
+	screens are the port's. console_setup_start, right after SDL starts
+	(sdl_platform.c), and console_setup_after_data, once the maps are
+	checked; platform_offer_game_data is the port's too, with
+	platform_import_start and platform_import_poll for the copy. The
+	updater asks nothing on its own (updater_start, updater_poll): the
+	port calls updater_console_check, which asks with
+	console_setup_update_question and shows the download with
+	console_setup_screen_open, console_setup_screen_progress and
+	console_setup_screen_close, and a failure with console_setup_notice
+	(updater.c)
+HALO_CONSOLE_APP_CERTIFICATES
+	a console whose own certificate authorities are too old for today's
+	servers: the app's bundle, which its launch script names in
+	SSL_CERT_FILE, trusted ahead of the system's for updates
+	(posix_update.c)
+HALO_CONSOLE_CONFIG_IN_DATA_ROOT
+	config.toml in the data folder the launch script names (HALO_DATA_ROOT),
+	as on Android, not beside the executable (port_config.c)
+HALO_PORT_UPDATE_PLATFORM
+	a console port's own download on the game's releases, on its compile
+	line: chupathingyce-<platform>-release.zip, listed in the release's
+	updates.json and signed with the release key as the desktop builds'
+	are. A release is offered only once its assets have that zip
+	(updater.c)
+HALO_PORT_UPDATE_API, HALO_PORT_UPDATE_REPOSITORY
+	a console port with releases of its own instead, on its compile line:
+	the address of its release list, laid out as GitHub's API (and its
+	downloads under /releases/download), and its name. Its releases are
+	signed with its own key, update_public_keys in the port's
+	halo_port_update_keys.h (update_key.h); the game's release key signs
+	nothing the port's server sends
+HALO_PORT_UPDATE_SCRIPT, HALO_PORT_UPDATE_RESTART_EXIT_CODE
+	the launch script an update replaces with the game, and the code the
+	game exits with after an update for that script to start the new
+	version (updater.c)
 HALO_CONSOLE_WAIT_POLL
 	a console whose system must be served by the thread that runs the game
 	(the Wii U's HOME button): console_wait_poll, defined by the port, is

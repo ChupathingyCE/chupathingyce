@@ -213,6 +213,12 @@ static void new_defaults_offer(BOOL quiet)
 
 #ifndef HALO_ANDROID
 static BOOL data_has_xbox_maps(const char *destination);
+#ifdef HALO_CONSOLE_SETUP_SCREENS
+/* the port's start-up screens, for a console with no dialogs or file picker
+(halo_console_features.h); platform_offer_game_data is the port's too */
+void console_setup_start(void);
+void console_setup_after_data(const char *data_root);
+#endif
 
 /* the maps folder checked to hold the Xbox maps (platform_maps_folder_check).
 When it holds Halo PC's instead, or no ui.map, the player is told where each
@@ -399,6 +405,10 @@ BOOL platform_sdl_initialize(void)
 		return FALSE;
 	}
 	platform_sdl_started = TRUE;
+#ifdef HALO_CONSOLE_SETUP_SCREENS
+	/* (the port's: halo_console_features.h) */
+	console_setup_start();
+#endif
 	/* which build this is, first in its log (build_identity.c) */
 	build_identity_log();
 #ifndef HALO_ANDROID
@@ -406,6 +416,9 @@ BOOL platform_sdl_initialize(void)
 	game's window opens, and checked to be the Xbox maps */
 	platform_data_root();
 	data_check_maps();
+#ifdef HALO_CONSOLE_SETUP_SCREENS
+	console_setup_after_data(platform_data_root());
+#endif
 	/* (a new version looked for meanwhile, updater_poll asking about it) */
 	updater_start();
 #ifndef _WIN32
@@ -576,7 +589,7 @@ BOOL platform_import_poll(char *file, int file_size, unsigned long long *done, u
 	return finished;
 }
 
-#ifndef HALO_LAUNCHER
+#if !defined(HALO_LAUNCHER) && !defined(HALO_CONSOLE_SETUP_SCREENS)
 /* copies the maps, showing how far it has got; closing the window quits.
 The bytes written in written (0 when the folder had them all) */
 static BOOL data_extract(int kind, const char *image, const char *destination, unsigned long long *written,
@@ -719,7 +732,7 @@ static BOOL data_has_xbox_maps(const char *destination)
 	return posix_find_entry_case_insensitive(maps, "ui.map", on_disk, sizeof(on_disk)) != 0;
 }
 
-#ifndef HALO_LAUNCHER
+#if !defined(HALO_LAUNCHER) && !defined(HALO_CONSOLE_SETUP_SCREENS)
 /* "make the folders": the maps folders made empty, what goes where shown,
 and checked again when the player says so; TRUE once the Xbox maps are
 there, FALSE to go back to the choices */
@@ -871,7 +884,7 @@ BOOL platform_offer_game_data(char *destination, unsigned long size)
 		}
 	}
 }
-#else
+#elif defined(HALO_LAUNCHER)
 /* the launcher's Welcome (launcher.c), in the game's window */
 BOOL platform_offer_game_data(char *destination, unsigned long size)
 {

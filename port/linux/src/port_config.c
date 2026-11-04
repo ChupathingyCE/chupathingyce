@@ -1615,8 +1615,11 @@ static void config_path(char *path, size_t size)
 #if defined(HALO_XBOX_CONSOLE)
 	/* beside default.xbe */
 	snprintf(path, size, "d:\\config.toml");
-#elif defined(HALO_ANDROID)
-	/* the data folder, which the app names (port/android/host/host_main.c) */
+#elif defined(HALO_ANDROID) || defined(HALO_CONSOLE_CONFIG_IN_DATA_ROOT)
+	/* the data folder, which the app names (port/android/host/host_main.c),
+	or a console's launch script (the Steam Link's, on its USB stick: the box
+	puts the app back as it was each time it boots with the package on the
+	stick, and anything beside the executable with it) */
 	const char *root = getenv("HALO_DATA_ROOT");
 
 	snprintf(path, size, "%s/config.toml", root && *root ? root : ".");
