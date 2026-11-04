@@ -212,6 +212,36 @@ enum delta_platform
 	NUMBER_OF_DELTA_PLATFORMS
 };
 
+/* The platforms' names: one row a platform, in the registry's order, the
+one table every place that names a platform reads (a new platform gets its
+row here): its number, its key on the wire and the list (never changed),
+its short tag on an Online Games row, its name in Online Games' details, and
+its name in the PC menus' capitals. The unknown platform's tag and names are
+empty. delta_test.c checks the rows against the registry. */
+#define DELTA_PLATFORM_NAMES(X) \
+	X(_delta_platform_unknown, "unknown", "", "", "") \
+	X(_delta_platform_pc_windows, "pc_windows", "WIN", "Windows", "WINDOWS") \
+	X(_delta_platform_pc_macos, "pc_macos", "MAC", "Mac", "MAC") \
+	X(_delta_platform_pc_linux, "pc_linux", "LNX", "Linux", "LINUX") \
+	X(_delta_platform_android, "android", "AND", "Android", "ANDROID") \
+	X(_delta_platform_steam_deck, "steam_deck", "DECK", "Steam Deck", "STEAM DECK") \
+	X(_delta_platform_xbox, "xbox", "XBOX", "Xbox", "XBOX") \
+	X(_delta_platform_xbox360, "xbox360", "360", "Xbox 360", "XBOX 360") \
+	X(_delta_platform_wiiu, "wiiu", "WIIU", "Wii U", "WII U") \
+	X(_delta_platform_switch, "switch", "NX", "Switch", "SWITCH") \
+	X(_delta_platform_psp, "psp", "PSP", "PSP", "PSP") \
+	X(_delta_platform_vita, "vita", "VITA", "Vita", "VITA") \
+	X(_delta_platform_xbox_uwp, "xbox_uwp", "XBS", "Xbox Series", "XBOX SERIES") \
+	X(_delta_platform_pc_freebsd, "pc_freebsd", "BSD", "FreeBSD", "FREEBSD") \
+	X(_delta_platform_ps3, "ps3", "PS3", "PS3", "PS3") \
+	X(_delta_platform_ps4, "ps4", "PS4", "PS4", "PS4") \
+	X(_delta_platform_ps5, "ps5", "PS5", "PS5", "PS5") \
+	X(_delta_platform_n64, "n64", "N64", "N64", "N64") \
+	X(_delta_platform_pc_legacy, "pc_legacy", "LGCY", "Legacy PC", "LEGACY PC") \
+	X(_delta_platform_steamlink, "steamlink", "LINK", "Steam Link", "STEAM LINK") \
+	X(_delta_platform_ios, "ios", "IOS", "iOS", "IOS") \
+	X(_delta_platform_tvos, "tvos", "ATV", "Apple TV", "APPLE TV")
+
 /* A machine's platform key: its platform and what it can take, 8 bytes on
 the wire in this order (delta_wire.c). Claims, never trusted for game state,
 but what a host uses to protect weaker machines: a host keeps its game's
