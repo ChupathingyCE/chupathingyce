@@ -434,6 +434,9 @@ static struct
 } damage_event_destinations[MAXIMUM_DAMAGE_EVENTS_PER_TICK];
 /* for the automated tests' reports (network_test.c) */
 static long damage_rejected_reports;
+/* hit reports refused as malformed (a stamp no tick of the game has), among
+the rejected */
+static long damage_malformed_reports;
 static long damage_dealt_reports;
 static long damage_sent_reports;
 static long damage_replayed_events;
@@ -1877,8 +1880,23 @@ static boolean distributed_report_valid(
 	held back is refused, as a burst after the network was lost is), and
 	looked back over from then: however long it took to come (sent again,
 	reliably), where the shooter saw the target */
-	if (report->host_time == NONE || report->host_time > now || now - report->host_time > REPORT_MAXIMUM_AGE_TICKS)
+	if (!network_rules_report_stamp_taken(now, report->host_time, REPORT_MAXIMUM_AGE_TICKS))
+	{
+		/* (one stamped from before the game began: counted, and said in the
+		log once) */
+		if (report->host_time < 0 && report->host_time != NONE)
+		{
+			static boolean logged;
+
+			damage_malformed_reports++;
+			if (!logged)
+			{
+				error(_error_log, "a client's hit report stamped before the game began; refused (counted)");
+				logged = TRUE;
+			}
+		}
 		return FALSE;
+	}
 	ticks = MIN(now - report->host_time + TARGET_HISTORY_SLACK_TICKS, TARGET_HISTORY_TICKS - 1);
 	/* damage that player could deal, and how they deal it */
 	rate = distributed_player_deals(player_index, report->damage.definition_index, &kinds, &fired_reach,

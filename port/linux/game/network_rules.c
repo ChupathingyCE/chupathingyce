@@ -60,6 +60,13 @@ int network_rules_stamp_window(int32_t *latest, int32_t stamp, int from_stream, 
 	return 1;
 }
 
+int network_rules_report_stamp_taken(int32_t now, int32_t stamp, int32_t maximum_age)
+{
+	if (stamp == -1 || stamp > now)
+		return 0;
+	return (int64_t)now - (int64_t)stamp <= (int64_t)maximum_age;
+}
+
 static void put16(uint8_t *at, unsigned value)
 {
 	at[0] = (uint8_t)(value & 0xFF);
