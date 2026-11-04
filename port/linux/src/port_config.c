@@ -356,6 +356,14 @@ static const struct config_setting config_settings[] =
 		"The same for every other game, up to 5: split screen multiplayer,\n"
 		"system link, online and network co-op. The network waits while the\n"
 		"loading screen is up." },
+#ifndef HALO_CONSOLE_NO_LOADING_PICTURE
+	{ "display.xbox_loading_picture", _config_boolean, "true", "HALO_XBOX_LOADING_PICTURE", _environment_value,
+		_platform_all,
+		"true: the loading screen shows the Xbox's own picture, xbox_loading.tga\n"
+		"in your maps folder (a PAL disc's loading.tga works too), and Chupathingy's\n"
+		"when there is none (a manual install without the disc's file). false:\n"
+		"always Chupathingy's." },
+#endif
 	{ "display.pause_change_teams", _config_boolean, "true", "HALO_PAUSE_CHANGE_TEAMS", _environment_value,
 		_platform_all,
 		"Show CHANGE TEAMS in the pause menu of a team game." },
