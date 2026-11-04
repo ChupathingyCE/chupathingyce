@@ -90,6 +90,12 @@ only. A message over the stream is taken whatever its stamp. The distance
 is measured unsigned. */
 int network_rules_stamp_window(int32_t *latest, int32_t stamp, int from_stream, uint32_t window);
 
+/* whether a client's stamp of the host's tick (a hit report's) is one the
+host can take at its tick now: not NONE (-1), not after now, and no more than
+maximum_age ticks before it. The age is measured without wrapping, so a
+stamp from long before the game began is refused as any old one is. */
+int network_rules_report_stamp_taken(int32_t now, int32_t stamp, int32_t maximum_age);
+
 /* writes the aim assist policy message (NETWORK_RULES_AIM_ASSIST_SIZE bytes,
 a reliable data message of one entry): block is 0 or 1 */
 void network_rules_aim_assist_write(uint8_t *message, int block, int32_t game_time);
