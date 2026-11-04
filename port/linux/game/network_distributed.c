@@ -4221,6 +4221,59 @@ static boolean distributed_ban_line(
 	return line[0] != '#' && (strstr(line, "ip=") || strstr(line, "hwid="));
 }
 
+/* (the host's) each client machine's budget for its lobby messages
+(network_rules.h), and whether its going over has been logged since it
+joined or came back to the lobby */
+static struct
+{
+	struct network_rules_lobby_budget budget;
+	boolean logged;
+} distributed_lobby_budgets[HALO_PORT_MAXIMUM_NETWORK_MACHINES];
+
+/* (the host: network_server_manager.c) a machine joined the game, or came
+back to its lobby from the carnage report: its budget full again */
+void network_distributed_lobby_budget_reset(
+	long machine_index)
+{
+	if (machine_index < 0 || machine_index >= HALO_PORT_MAXIMUM_NETWORK_MACHINES)
+		return;
+	network_rules_lobby_budget_reset(&distributed_lobby_budgets[machine_index].budget);
+	distributed_lobby_budgets[machine_index].logged = FALSE;
+}
+
+/* (the host's) a client machine's lobby message dropped, over its budget:
+logged once (the machine's index, nothing of the message or of its
+address). The one place a refused message of a machine's is counted: a
+count of each player's refusals, as evidence for the host, is fed from
+here (not yet) */
+static void distributed_lobby_message_refused(
+	long machine_index)
+{
+	if (!distributed_lobby_budgets[machine_index].logged)
+	{
+		distributed_lobby_budgets[machine_index].logged = TRUE;
+		error(_error_silent, "machine #%ld sends lobby messages faster than %d a second: the ones past that dropped",
+			machine_index, NETWORK_RULES_LOBBY_PER_SECOND);
+	}
+}
+
+/* (the host: network_server_message_handler.c) whether a client machine's
+lobby message (its settings, a player's settings, a player added or
+removed) is in its budget: FALSE to drop it */
+boolean network_distributed_lobby_message_allowed(
+	long machine_index)
+{
+	if (machine_index < 0 || machine_index >= HALO_PORT_MAXIMUM_NETWORK_MACHINES)
+		return TRUE;
+	if (network_rules_lobby_budget_take(&distributed_lobby_budgets[machine_index].budget,
+		(uint32_t)system_milliseconds()))
+	{
+		return TRUE;
+	}
+	distributed_lobby_message_refused(machine_index);
+	return FALSE;
+}
+
 /* (the host: network_server_manager.c) whether a machine of this address
 (host byte order; an internet play peer's by its real one) is banned: its
 address one of BANS_FILE's (each line's "ip=", which a host may add or

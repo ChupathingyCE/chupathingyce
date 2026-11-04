@@ -32,6 +32,12 @@ release notes.
   development, `HALO_DEDICATED_CE_ACCEPT=1` takes the join instead: game
   settings, begin game and keep-alives, so the client loads the map and
   stays connected (it doesn't see the game yet).
+- Lobby message limit: a player's machine may send the lobby's settings,
+  player settings and add or remove player requests in a burst of 32 and
+  16 a second after it, more than four players on one machine holding a
+  menu key send. Past that, the extra requests are dropped and the log says
+  so once per machine per lobby (its machine number only). OpenCE and Xbox
+  players are held to the same limit; nothing on the wire changes.
 - Control panel hardening: `sv_welcome` needs the settings permission (an
   admin's) and is in the audit file; a command missing from the permission
   table is the console's alone. Wrong logins lock an account only for the
