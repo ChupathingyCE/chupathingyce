@@ -78,6 +78,7 @@ played instead of HALO_DEDICATED's until HALO_DEDICATED is changed.
 #include "dedicated.h"
 #include "command_line.h"
 #include "server_admin.h"
+#include "server_conduct.h"
 #include "server_config.h"
 #ifdef HALO_SERVER
 /* (the server program's control unit, built with the host's ABI: plain
@@ -604,6 +605,21 @@ static void initialize(
 			error(_error_silent, "dedicated: at most %ld machines from one internet address", maximum);
 		else
 			error(_error_silent, "dedicated: no limit on the machines from one internet address");
+	}
+	/* the betrayal and AFK limits (server_conduct.h): off unless set */
+	{
+		long betrayals = setting_number("HALO_DEDICATED_BETRAYAL_KICK", &settings, SERVER_SETTING_BETRAYAL_KICK, 0);
+		long minutes = setting_number("HALO_DEDICATED_AFK_KICK_MINUTES", &settings, SERVER_SETTING_AFK_KICK_MINUTES, 0);
+
+		server_conduct_set_betrayal_limit((int)PIN(betrayals, 0, SERVER_SETTINGS_MAXIMUM_BETRAYAL_KICK));
+		server_conduct_set_afk_minutes((int)PIN(minutes, 0, SERVER_SETTINGS_MAXIMUM_AFK_KICK_MINUTES));
+		if (server_conduct_betrayal_limit())
+			error(_error_silent, "dedicated: a player is kicked after %d betrayals in a game", server_conduct_betrayal_limit());
+		if (server_conduct_afk_minutes())
+		{
+			error(_error_silent, "dedicated: a player is kicked after %d minutes without input in a game",
+				server_conduct_afk_minutes());
+		}
 	}
 	dedicated.active = dedicated.entry_count > 0;
 }

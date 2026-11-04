@@ -312,6 +312,11 @@ enum
 	/* the most machines of one internet address a game takes (port/linux/
 	game/network_distributed.c's limit) */
 	SERVER_SETTING_MAX_MACHINES_PER_ADDRESS,
+	/* a player kicked after this many betrayals in a game (warned one short
+	of it), and after this many minutes without input in a game in
+	progress (server_conduct.h); 0 off */
+	SERVER_SETTING_BETRAYAL_KICK,
+	SERVER_SETTING_AFK_KICK_MINUTES,
 	SERVER_SETTINGS,
 	/* a game's players, at most (halo_port_limits.h's) */
 	SERVER_SETTINGS_MAXIMUM_PLAYERS = 128,
@@ -321,6 +326,9 @@ enum
 	SERVER_SETTINGS_MAXIMUM_TEAM_CHANGE_MARGIN = 16,
 	SERVER_SETTINGS_MAXIMUM_MACHINES_PER_ADDRESS = 16,
 	SERVER_SETTINGS_DEFAULT_MACHINES_PER_ADDRESS = 8,
+	/* (conduct_rules.h's CONDUCT_MAXIMUM_BETRAYALS, CONDUCT_MAXIMUM_AFK_MINUTES) */
+	SERVER_SETTINGS_MAXIMUM_BETRAYAL_KICK = 100,
+	SERVER_SETTINGS_MAXIMUM_AFK_KICK_MINUTES = 120,
 	/* a welcome's characters, at most (a reason's: command_line.h) */
 	SERVER_SETTINGS_WELCOME_SIZE = 128,
 };
