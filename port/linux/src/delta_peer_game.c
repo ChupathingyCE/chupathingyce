@@ -669,7 +669,8 @@ static void stop(void)
 void delta_peer_game_host_frame(const struct delta_peer_game_machine *machines, int count,
 	const signed char *player_machines)
 {
-	if (delta_peer_protocol() == _delta_peer_protocol_opence)
+	/* (a game that only bakes the bots' navigation is nobody's to join) */
+	if (delta_peer_protocol() == _delta_peer_protocol_opence || config_baking_navigation())
 		return;
 	if (delta_game.role != _role_host)
 	{

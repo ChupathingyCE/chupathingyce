@@ -4189,6 +4189,13 @@ int config_packaged_update_check(void)
 }
 #endif
 
+/* whether this run bakes the bots' navigation (no window, no sound, not on
+the network: delta_peer_game.c) */
+int config_baking_navigation(void)
+{
+	return config_baking();
+}
+
 int config_boolean(const char *name)
 {
 	/* a run that bakes the bots' navigation has no window and no sound, and

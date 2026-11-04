@@ -54,6 +54,7 @@ Called each frame from game_stats_update (main.c).
 #include "units/unit_definitions.h"
 #include "tag_files/tag_files.h"
 #include "cache/cache_files.h"
+#include "bots.h"
 #include "main/main.h"
 #include "scenario/scenario.h"
 #include "scenario/scenario_definitions.h"
@@ -1237,7 +1238,8 @@ void game_events_update(
 		send_game(TRUE, EVENT_LOG_END_OTHER), game_events.recording = FALSE;
 	if (!game_events.recording)
 	{
-		if (!event_upload_enabled() || !game_engine_can_score())
+		/* (nor a game that only bakes the bots' navigation: bot_bake.c) */
+		if (!event_upload_enabled() || !game_engine_can_score() || bot_bake_enabled())
 			return;
 		begin_game(tick);
 	}

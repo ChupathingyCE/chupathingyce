@@ -19,6 +19,7 @@ Settings are named "section.key", as in the file: "display.vsync".
 #include <stddef.h>
 
 int config_boolean(const char *name);
+int config_baking_navigation(void);
 long config_integer(const char *name);
 double config_real(const char *name);
 /* never NULL; "" when unset */
