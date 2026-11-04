@@ -117,6 +117,10 @@ HALO_CONSOLE_XBOX_RENDER_SIZES
 	the Xbox's texture cache and the Xbox's structure surfaces and dynamic
 	triangles in a frame (halo_port_capacity.h), on a console whose build
 	otherwise has the desktop's
+HALO_CONSOLE_GLES2
+	a console with OpenGL ES 2 only: the renderer's ES path (HALO_GL_ES,
+	halo_linux_prefix.h) on an ES 2 context, which console_gles2_layer,
+	defined by the port, fills out to the ES 3 it uses (gl_functions.c)
 HALO_CONSOLE_WAIT_POLL
 	a console whose system must be served by the thread that runs the game
 	(the Wii U's HOME button): console_wait_poll, defined by the port, is

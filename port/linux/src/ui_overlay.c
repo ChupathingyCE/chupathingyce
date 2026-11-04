@@ -31,8 +31,13 @@ are the controller's button icons (a texture array, a layer each).
 /* the button icons' texture: on ES 2, with no texture arrays, one 2D texture
 with the icons one above the other (and no smaller levels: its size may not
 be a power of two) */
+#ifdef HALO_CONSOLE_GLES2
+#define ICONS_TARGET GL_TEXTURE_2D
+#define ICONS_BINDING GL_TEXTURE_BINDING_2D
+#else
 #define ICONS_TARGET GL_TEXTURE_2D_ARRAY
 #define ICONS_BINDING GL_TEXTURE_BINDING_2D_ARRAY
+#endif
 
 /* (xinput_sdl.c: the device the player last used: 0 keyboard, 1 Xbox-like,
 2 PlayStation, 3 Nintendo) */
@@ -100,6 +105,10 @@ static struct
 {
 	int ready, failed;
 	GLuint program, vertex_array, vertex_buffer, atlas, icons, picture;
+#ifdef HALO_CONSOLE_GLES2
+	GLint icon_count_location;
+	GLint y_flip_location;
+#endif
 	GLint scale_location, atlas_location, icons_location, picture_location, cutouts_location, window_height_location;
 	/* the picture (ui_overlay_picture): the serial and pixels last given,
 	and the serial in the texture */
@@ -757,6 +766,9 @@ static const char vertex_source[] =
 	"in vec2 edge;\n"
 	"in vec4 color;\n"
 	"uniform vec2 scale;\n"
+#ifdef HALO_CONSOLE_GLES2
+	"uniform float y_flip;\n"
+#endif
 	"out vec2 v_texture_coordinate;\n"
 	"out vec4 v_shape;\n"
 	"out vec2 v_edge;\n"
@@ -768,6 +780,9 @@ static const char vertex_source[] =
 	"\tv_edge = edge;\n"
 	"\tv_color = color;\n"
 	"\tgl_Position = vec4(position * scale - vec2(1.0, -1.0), 0.0, 1.0);\n"
+#ifdef HALO_CONSOLE_GLES2
+	"\tgl_Position.y *= y_flip;\n"
+#endif
 	"}\n";
 
 static const char fragment_source[] =
@@ -776,17 +791,29 @@ static const char fragment_source[] =
 	"in vec2 v_edge;\n"
 	"in vec4 v_color;\n"
 	"uniform sampler2D atlas;\n"
+#ifdef HALO_CONSOLE_GLES2
+	"uniform sampler2D icons;\n"
+	"uniform float icon_count;\n"
+#else
 	"uniform sampler2DArray icons;\n"
+#endif
 	"uniform sampler2D picture;\n"
 	"uniform vec4 cutouts[4];\n"
 	"uniform float window_height;\n"
+#ifdef HALO_CONSOLE_GLES2
+	"uniform float y_flip;\n"
+#endif
 	"out vec4 fragment;\n"
 	"void main()\n"
 	"{\n"
 	"\tfloat alpha;\n"
 	/* (the game's own pictures show through: x0, y0, x1, y1 in window pixels
 	from the top) */
+#ifdef HALO_CONSOLE_GLES2
+	"\tvec2 p = vec2(gl_FragCoord.x, y_flip < 0.0 ? gl_FragCoord.y : window_height - gl_FragCoord.y);\n"
+#else
 	"\tvec2 p = vec2(gl_FragCoord.x, window_height - gl_FragCoord.y);\n"
+#endif
 	"\tfor (int i = 0; i < 4; i++)\n"
 	"\t\tif (p.x >= cutouts[i].x && p.y >= cutouts[i].y && p.x < cutouts[i].z && p.y < cutouts[i].w)\n"
 	"\t\t\tdiscard;\n"
@@ -799,7 +826,11 @@ static const char fragment_source[] =
 	/* an icon (premultiplied: its color undone after filtering) */
 	"\tif (v_edge.x < -1.5)\n"
 	"\t{\n"
+#ifdef HALO_CONSOLE_GLES2
+	"\t\tvec4 texel = texture(icons, vec2(v_texture_coordinate.x, (v_texture_coordinate.y + v_shape.x) / icon_count));\n"
+#else
 	"\t\tvec4 texel = texture(icons, vec3(v_texture_coordinate, v_shape.x));\n"
+#endif
 	"\t\tfragment = vec4(texel.rgb / max(texel.a, 0.001), texel.a) * v_color;\n"
 	"\t\treturn;\n"
 	"\t}\n"
@@ -925,6 +956,10 @@ static int set_up(void)
 	overlay.scale_location = glGetUniformLocation(overlay.program, "scale");
 	overlay.atlas_location = glGetUniformLocation(overlay.program, "atlas");
 	overlay.icons_location = glGetUniformLocation(overlay.program, "icons");
+#ifdef HALO_CONSOLE_GLES2
+	overlay.icon_count_location = glGetUniformLocation(overlay.program, "icon_count");
+	overlay.y_flip_location = glGetUniformLocation(overlay.program, "y_flip");
+#endif
 	overlay.picture_location = glGetUniformLocation(overlay.program, "picture");
 	overlay.cutouts_location = glGetUniformLocation(overlay.program, "cutouts");
 	overlay.window_height_location = glGetUniformLocation(overlay.program, "window_height");
@@ -990,10 +1025,16 @@ static int set_up(void)
 				}
 			}
 		}
+#ifdef HALO_CONSOLE_GLES2
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, size, size * NUMBER_OF_ICONS, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+		free(pixels);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+#else
 		glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_RGBA8, size, size, NUMBER_OF_ICONS, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
 		free(pixels);
 		glGenerateMipmap(GL_TEXTURE_2D_ARRAY);
 		glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+#endif
 		glTexParameteri(ICONS_TARGET, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 		glTexParameteri(ICONS_TARGET, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 		glTexParameteri(ICONS_TARGET, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
@@ -1260,6 +1301,27 @@ static int build_vertices(int shape_count, float scale, float origin_x, float or
 	return count;
 }
 #endif
+#ifdef HALO_CONSOLE_GLES2
+/* where the overlay draws: the window, or the game's picture, to be scaled up
+with it, on an ES 2 console whose picture is drawn small (d3d8_gl.c) */
+static GLuint overlay_target_framebuffer;
+
+/* whether anything is gathered to draw */
+int ui_overlay_pending(void)
+{
+	return overlay.quad_count || overlay.text_count;
+}
+
+void ui_overlay_present_to(unsigned int framebuffer, int width, int height)
+{
+	overlay_target_framebuffer = framebuffer;
+	ui_overlay_present(0, 0, width, height, width, height);
+	overlay_target_framebuffer = 0;
+}
+#else
+/* (the window's) */
+#define overlay_target_framebuffer 0
+#endif
 
 void ui_overlay_present(int x, int y, int width, int height, int window_width, int window_height)
 {
@@ -1445,7 +1507,7 @@ void ui_overlay_present(int x, int y, int width, int height, int window_width, i
 	}
 	}
 
-	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, overlay_target_framebuffer);
 	glViewport(0, 0, window_width, window_height);
 	glDisable(GL_SCISSOR_TEST);
 	glDisable(GL_DEPTH_TEST);
@@ -1457,12 +1519,20 @@ void ui_overlay_present(int x, int y, int width, int height, int window_width, i
 	glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
 	glUseProgram(overlay.program);
 	glUniform2f(overlay.scale_location, 2.0f / (float)window_width, -2.0f / (float)window_height);
+#ifdef HALO_CONSOLE_GLES2
+	/* (a render target's row 0 is the top of the picture; the window's, its
+	bottom) */
+	glUniform1f(overlay.y_flip_location, overlay_target_framebuffer ? -1.0f : 1.0f);
+#endif
 	glActiveTexture(GL_TEXTURE1);
 	glGetIntegerv(ICONS_BINDING, &saved_icons);
 	glGetIntegerv(GL_SAMPLER_BINDING, &saved_icons_sampler);
 	glBindSampler(1, 0);
 	glBindTexture(ICONS_TARGET, overlay.icons);
 	glUniform1i(overlay.icons_location, 1);
+#ifdef HALO_CONSOLE_GLES2
+	glUniform1f(overlay.icon_count_location, (float)NUMBER_OF_ICONS);
+#endif
 	glActiveTexture(GL_TEXTURE2);
 	glGetIntegerv(GL_TEXTURE_BINDING_2D, &saved_picture);
 	glGetIntegerv(GL_SAMPLER_BINDING, &saved_picture_sampler);

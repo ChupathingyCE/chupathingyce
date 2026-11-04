@@ -224,6 +224,8 @@ static int anti_aliasing(void)
 	return anti_aliasing_values[anti_aliasing_value].mode;
 }
 
+static GLuint framebuffer_get(GLuint color, GLuint depth);
+
 static void screen_mode_choose(long *width, float scale[2])
 {
 #ifdef HALO_GL_ES
@@ -546,7 +548,15 @@ static struct framebuffer_entry *framebuffers;
 
 /* ---------- the device */
 
-#if   defined(HALO_GL_ES)
+#if defined(HALO_CONSOLE_GLES2)
+/* A console whose ES 2 layer keeps buffers in the process's memory and
+draws from them as client arrays (the Steam Link's 256 MB): the driver
+copies what each draw reads as it draws, so a buffer is free to be written
+again at once, and one small one serves (written over when full) */
+#define STREAM_BUFFER_SIZE (4 * 1024 * 1024)
+#define INDEX_BUFFER_SIZE (1 * 1024 * 1024)
+#define STREAM_BUFFER_RING 1
+#elif defined(HALO_GL_ES)
 /* Mobile drivers (Mali) keep every orphaned copy of a buffer until the GPU
 is done with it, so a large buffer orphaned each frame costs its size per
 frame in flight and more. Instead each frame streams into the next of a few
@@ -1428,6 +1438,18 @@ static struct render_target_entry *render_target_get(const D3DSurface *surface)
 		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, (GLsizei)entry->target.gl_width, (GLsizei)entry->target.gl_height,
 			0, GL_BGRA, GL_UNSIGNED_BYTE, NULL);
 	entry->screen_buffer = surface->Data == (depth ? device.depth_buffer.Data : device.back_buffer.Data);
+#ifdef HALO_CONSOLE_GLES2
+	/* (black until it is drawn: its memory holds whatever was last there, the
+	Steam Link's own screen, and the first present shows it) */
+	if (!depth)
+	{
+		glBindFramebuffer(GL_FRAMEBUFFER, framebuffer_get(entry->target.texture, 0));
+		glDisable(GL_SCISSOR_TEST);
+		glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+		glClear(GL_COLOR_BUFFER_BIT);
+	}
+#endif
 	xgpu_gl_state_invalidate();
 	entry->next = render_targets;
 	render_targets = entry;
@@ -1875,6 +1897,24 @@ static void gl_initialize(void)
 		if (renderbuffer_size < maximum_target_size)
 			maximum_target_size = renderbuffer_size;
 	}
+#ifdef HALO_CONSOLE_GLES2
+	/* the window's buffers black before anything is shown: they hold what was
+	last in that memory, the Steam Link's own screen, in another layout, which
+	the television would show in garbled blocks until the first frame */
+	{
+		int buffer;
+
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+		glDisable(GL_SCISSOR_TEST);
+		glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+		for (buffer = 0; buffer < 3; buffer++)
+		{
+			glClear(GL_COLOR_BUFFER_BIT);
+			platform_video_swap();
+		}
+	}
+#endif
 	/* the shaders and programs of earlier runs, made now rather than in the
 	middle of the frames that first draw with them (xgpu_shader_cache.c) */
 	xgpu_shader_cache_warm(program_adopt);
@@ -4254,7 +4294,7 @@ every write; after a few such rewrites a page counts as volatile for a
 while, and draws that use it stream their data as before. */
 
 #define MIRROR_SEGMENT_SIZE 0x400000UL
-#ifdef HALO_CONSOLE_GL_LAYER
+#if defined(HALO_CONSOLE_GL_LAYER) || defined(HALO_CONSOLE_GLES2)
 void console_gl_buffer_alias(GLenum target, void *memory, unsigned long size);
 #endif
 #define MIRROR_SEGMENT_COUNT (PLATFORM_CONTIGUOUS_MAXIMUM / MIRROR_SEGMENT_SIZE)
@@ -4368,10 +4408,11 @@ static BOOL mirror_refresh(unsigned long first, unsigned long last)
 		{
 			glGenBuffers(1, &mirror.buffers[segment]);
 			glBindBuffer(GL_COPY_WRITE_BUFFER, mirror.buffers[segment]);
-#ifdef HALO_CONSOLE_GL_LAYER
+#if defined(HALO_CONSOLE_GL_LAYER) || defined(HALO_CONSOLE_GLES2)
 			/* (the console's GPU reads the window where it is: the segment's
 			buffer is the window's memory, and an upload only makes the CPU's
-			writes visible to it) */
+			writes visible to it; an ES 2 layer's client arrays read it as
+			they draw) */
 			console_gl_buffer_alias(GL_COPY_WRITE_BUFFER,
 				xbox_pointer(PLATFORM_CONTIGUOUS_BASE + segment * MIRROR_SEGMENT_SIZE), MIRROR_SEGMENT_SIZE);
 #else
@@ -5479,6 +5520,14 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 		struct render_target_entry *back_buffer = render_target_get(&device.back_buffer);
 		int window_width, window_height, width, height, x, y;
 		GLuint read_framebuffer;
+#if defined(HALO_GAME_BROWSER) && defined(HALO_CONSOLE_GLES2)
+		/* (the picture's size: the back buffer's, or the screens' below) */
+		GLint picture_width = (GLint)back_buffer->target.gl_width;
+		GLint picture_height = (GLint)back_buffer->target.gl_height;
+#else
+#define picture_width ((GLint)back_buffer->target.gl_width)
+#define picture_height ((GLint)back_buffer->target.gl_height)
+#endif
 
 		if (trace_frame())
 			platform_log("present back buffer %08lx texture %u", (unsigned long)device.back_buffer.Data,
@@ -5504,6 +5553,55 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 		/* (the lookup can create a framebuffer and bind it to both targets,
 		so it comes before the window is bound as the draw target) */
 		read_framebuffer = framebuffer_get(back_buffer->target.texture, 0);
+#if defined(HALO_GAME_BROWSER) && defined(HALO_CONSOLE_GLES2)
+		/* the overlay's screens, when there are any, at the game's own 640x480:
+		soft, as the picture they are over, and with text that can still be read,
+		which performance mode's 240 lines cannot draw; and with a quarter of the
+		window's pixels for the GPU to fill */
+		if (ui_overlay_pending())
+		{
+			static GLuint screens;
+			static BOOL screens_cleared;
+			GLuint screens_framebuffer;
+
+			if (!screens)
+			{
+				GLint bound = 0;
+
+				glGetIntegerv(GL_TEXTURE_BINDING_2D, &bound);
+				glGenTextures(1, &screens);
+				glBindTexture(GL_TEXTURE_2D, screens);
+				glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 640, 480, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+				/* (not left bound where the next draw into it would sample it) */
+				glBindTexture(GL_TEXTURE_2D, (GLuint)bound);
+			}
+			glDisable(GL_SCISSOR_TEST);
+			glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+			/* (asked for after the picture's: making a framebuffer binds it
+			for both) */
+			screens_framebuffer = framebuffer_get(screens, 0);
+			if (!screens_cleared)
+			{
+				/* (its memory holds whatever was last there) */
+				screens_cleared = TRUE;
+				glBindFramebuffer(GL_DRAW_FRAMEBUFFER, screens_framebuffer);
+				glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+				glClear(GL_COLOR_BUFFER_BIT);
+			}
+			glBindFramebuffer(GL_READ_FRAMEBUFFER, read_framebuffer);
+			glBindFramebuffer(GL_DRAW_FRAMEBUFFER, screens_framebuffer);
+			glBlitFramebuffer(0, 0, picture_width, picture_height, 0, 0, 640, 480, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+			ui_overlay_present_to(screens_framebuffer, 640, 480);
+			xgpu_gl_state_invalidate();
+			read_framebuffer = screens_framebuffer;
+			picture_width = 640;
+			picture_height = 480;
+		}
+#endif
 		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
 		glDisable(GL_SCISSOR_TEST);
 		glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
@@ -5511,9 +5609,11 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 		glClear(GL_COLOR_BUFFER_BIT);
 		glBindFramebuffer(GL_READ_FRAMEBUFFER, read_framebuffer);
 		/* row 0 of the render target is the top of the picture */
-		glBlitFramebuffer(0, 0, (GLint)back_buffer->target.gl_width, (GLint)back_buffer->target.gl_height,
+		glBlitFramebuffer(0, 0, picture_width, picture_height,
 			x, y + height, x + width, y, GL_COLOR_BUFFER_BIT, GL_LINEAR);
-#ifdef HALO_GAME_BROWSER
+#undef picture_width
+#undef picture_height
+#if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_GLES2)
 		/* the overlay's screens, over the picture at the window's resolution
 		(ui_overlay.c) */
 		ui_overlay_present(x, y, width, height, window_width, window_height);

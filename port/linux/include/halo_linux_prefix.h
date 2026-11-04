@@ -39,9 +39,11 @@ typedef unsigned short wint_t;
 /* ---------- the renderer's OpenGL ES path
 
 OpenGL ES rather than desktop OpenGL (port/linux/src/d3d8_gl.c and the
-rest of the renderer): Android's ES 3 */
+rest of the renderer): Android's ES 3, and a console whose ES 2 the port
+fills out to the ES 3 the renderer uses (HALO_CONSOLE_GLES2, the Steam
+Link's: console_gles2_layer) */
 
-#if defined(HALO_ANDROID) && !defined(HALO_GL_ES)
+#if (defined(HALO_ANDROID) || defined(HALO_CONSOLE_GLES2)) && !defined(HALO_GL_ES)
 #define HALO_GL_ES 1
 #endif
 
