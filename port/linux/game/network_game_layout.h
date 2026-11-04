@@ -18,7 +18,7 @@ folds them the same way, field by field.
 Plain C on bytes, little-endian, built on the host too (port/xbox/tests).
 A build with the console's limits (HALO_PORT_CONSOLE_LIMITS) folds what a
 PC host sends with these (network_client_message_handler.c,
-game_engine_slayer.c).
+game_engine.c's game_engine_network_state_fold).
 */
 
 #ifndef __NETWORK_GAME_LAYOUT_H
