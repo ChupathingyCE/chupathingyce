@@ -1,8 +1,8 @@
 /*
 MAP_ART.C
 
-The site's pictures of the stock multiplayer maps (map_art.h), for Online
-Games' details: read from the save root's map_art folder if they were had
+The site's pictures of the stock multiplayer maps, and of the custom maps
+it has one of (map_art.h), for Online Games' details: read from the save root's map_art folder if they were had
 before, else downloaded from the site over HTTPS while online play is on,
 checked to be a JPEG picture of a sensible size, and kept there. One
 picture is loaded at a time, on a thread of its own, so the screen never
@@ -36,6 +36,8 @@ enum
 	/* the pictures kept decoded */
 	KEPT = 8,
 	PATH_SIZE = 48,
+	/* a custom map's file name, at most (maps/md/ and it fit PATH_SIZE) */
+	CUSTOM_FILE_LENGTH = 36,
 	/* (the site's are about 8 KB) */
 	LARGEST_FILE = 256 * 1024,
 	/* seconds before a failed download is asked for again */
@@ -97,6 +99,30 @@ int map_art_site_path(int xbox_set, const char *file, char *path, int size)
 		return 1;
 	}
 	return 0;
+}
+
+int map_art_custom_site_path(int halomd, const char *file, char *path, int size)
+{
+	char name[CUSTOM_FILE_LENGTH + 1];
+	int length = 0;
+
+	/* (a plain file name only: it goes into the site's address) */
+	for (; file[length]; length++)
+	{
+		char character = file[length];
+
+		if (character >= 'A' && character <= 'Z')
+			character = (char)(character | 0x20);
+		if (length >= CUSTOM_FILE_LENGTH ||
+			!((character >= 'a' && character <= 'z') || (character >= '0' && character <= '9') || character == '_' ||
+			character == '-' || character == '.'))
+			return 0;
+		name[length] = character;
+	}
+	name[length] = 0;
+	if (!length || name[0] == '.' || strstr(name, ".."))
+		return 0;
+	return snprintf(path, (size_t)size, halomd ? "maps/md/%s" : "maps/ce/%s", name) < size;
 }
 
 /* the cache file of a site path ("maps/ce/icefields": map_art/maps_ce_icefields.jpg) */

@@ -1652,6 +1652,35 @@ static void test_wire_map(void)
 big-endian console (the Xbox 360's and Wii U's PowerPC) writes the bytes a
 PC writes and reads them back (tools/test_delta_big_endian.py runs this on
 an emulated big-endian machine where it can) */
+/* every platform of delta.h's registry has its row of names, in the
+registry's order: a key, and a tag and names on every platform but the
+unknown one (Online Games and the PC menus read them) */
+static void test_platform_names(void)
+{
+#define PLATFORM_ROW(platform, key, tag, name, caps_name) { platform, key, tag, name, caps_name },
+	static const struct
+	{
+		int platform;
+		const char *key, *tag, *name, *caps_name;
+	} rows[] = { DELTA_PLATFORM_NAMES(PLATFORM_ROW) };
+#undef PLATFORM_ROW
+	int index, other;
+
+	CHECK(sizeof(rows) / sizeof(rows[0]) == NUMBER_OF_DELTA_PLATFORMS);
+	for (index = 0; index < (int)(sizeof(rows) / sizeof(rows[0])); index++)
+	{
+		CHECK(rows[index].platform == index);
+		CHECK(rows[index].key[0] != 0);
+		CHECK((index == 0) == (rows[index].tag[0] == 0));
+		CHECK((index == 0) == (rows[index].name[0] == 0));
+		CHECK((index == 0) == (rows[index].caps_name[0] == 0));
+		/* (a row's tag is short: four letters at most) */
+		CHECK(strlen(rows[index].tag) <= 4);
+		for (other = 0; other < index; other++)
+			CHECK(strcmp(rows[index].key, rows[other].key) != 0);
+	}
+}
+
 static void test_wire_byte_order(void)
 {
 	static const unsigned char expected[] = {
@@ -1794,6 +1823,7 @@ static void test_wire(void)
 
 	test_wire_table();
 	test_wire_byte_order();
+	test_platform_names();
 }
 
 static void test_rate(void)
