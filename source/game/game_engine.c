@@ -613,6 +613,9 @@ boolean game_stats_line_full(long player_index, boolean host);
 /* cache_files.c's */
 boolean cache_file_tags_are_ce(void);
 #endif
+#ifdef HALO_PORT_CONSOLE_LIMITS
+#include "../../port/linux/game/network_game_layout.h"
+#endif
 
 /* network_game_globals.c's */
 boolean network_game_distributed_client(void);
@@ -8203,8 +8206,12 @@ long game_engine_remap_weapon(
 	}
 
 	/* (port: and the gravity rifle, a cut weapon, as the flamethrower,
-	which the Xbox's maps have unfinished: neither is a multiplayer weapon) */
-	if (weapon_list_index == _weapon_list_flamethrower || weapon_list_index == _weapon_list_gravity_rifle)
+	which the Xbox's maps have unfinished: neither is a multiplayer weapon.
+	The Xbox's maps only: on a Halo PC map the flamethrower is one, and HaloMD
+	maps put weapons of their own in those slots, such as Halo 2's battle
+	rifle) */
+	if (!CACHE_FILE_TAGS_ARE_CE() &&
+		(weapon_list_index == _weapon_list_flamethrower || weapon_list_index == _weapon_list_gravity_rifle))
 		weapon_list_index = _weapon_list_rocket_launcher;
 
 	/* port: a custom loadout (game_variant_options) has no weapon set */
@@ -10029,6 +10036,98 @@ long game_engine_write_network_state(
 	return sizeof(postgame_state) + written;
 }
 
+#ifdef HALO_PORT_CONSOLE_LIMITS
+/* port: (game_engine.h) a PC host's state, at the network's 128 slots,
+into this build's */
+#define GAME_ENGINE_NETWORK_STATE_MAXIMUM_FIELDS 16
+
+static boolean game_engine_network_state_layout(
+	struct game_engine_network_state_field const *fields,
+	long field_count,
+	struct network_game_layout_field *layout)
+{
+	long field_index;
+
+	if (field_count <= 0 || field_count > GAME_ENGINE_NETWORK_STATE_MAXIMUM_FIELDS)
+		return FALSE;
+	for (field_index = 0; field_index < field_count; field_index++)
+	{
+		layout[field_index].element_size = fields[field_index].element_size;
+		layout[field_index].per_slot = fields[field_index].per_slot;
+		layout[field_index].blank = fields[field_index].blank;
+	}
+	return TRUE;
+}
+
+long game_engine_network_state_fold(
+	byte const *buffer,
+	long size,
+	void *state,
+	long state_size,
+	struct game_engine_network_state_field const *fields,
+	long field_count,
+	char const *name)
+{
+	struct network_game_layout_field layout[GAME_ENGINE_NETWORK_STATE_MAXIMUM_FIELDS];
+	int dropped;
+
+	if (!game_engine_network_state_layout(fields, field_count, layout) ||
+		size != (long)network_game_layout_fields_size(layout, (int)field_count, HALO_PORT_WIRE_NETWORK_PLAYERS))
+	{
+		return NONE;
+	}
+	if (state_size != (long)network_game_layout_fields_size(layout, (int)field_count, HALO_PORT_MAXIMUM_NETWORK_PLAYERS) ||
+		network_game_layout_fold_fields(buffer, (unsigned long)size, HALO_PORT_WIRE_NETWORK_PLAYERS,
+			(unsigned char *)state, (unsigned long)state_size, HALO_PORT_MAXIMUM_NETWORK_PLAYERS, layout,
+			(int)field_count, &dropped))
+	{
+		return FALSE;
+	}
+	if (dropped)
+	{
+		static long told_types = 0;
+		long type = game_engine_get_type();
+
+		if (type >= 0 && type < 32 && !(told_types & (1L << type)))
+		{
+			told_types |= 1L << type;
+			error(3, "cross-play: the host's %s state had %d entries past this build's %d players (dropped)",
+				name, dropped, (int)HALO_PORT_MAXIMUM_NETWORK_PLAYERS);
+		}
+	}
+	return TRUE;
+}
+
+#ifdef HALO_BIG_ENDIAN
+boolean game_engine_network_state_fields_byte_swap(
+	byte *buffer,
+	long size,
+	long state_size,
+	struct game_engine_network_state_field const *fields,
+	long field_count)
+{
+	struct network_game_layout_field layout[GAME_ENGINE_NETWORK_STATE_MAXIMUM_FIELDS];
+	long field_index;
+
+	if (size == state_size || !game_engine_network_state_layout(fields, field_count, layout) ||
+		size != (long)network_game_layout_fields_size(layout, (int)field_count, HALO_PORT_WIRE_NETWORK_PLAYERS))
+	{
+		return FALSE;
+	}
+	for (field_index = 0; field_index < field_count; field_index++)
+	{
+		struct game_engine_network_state_field const *field = &fields[field_index];
+		long bytes = (long)field->element_size * (field->per_slot ? HALO_PORT_WIRE_NETWORK_PLAYERS : 1);
+
+		if (field->swap_size > 1)
+			distributed_wire_swap(buffer, bytes / field->swap_size, field->swap_size);
+		buffer += bytes;
+	}
+	return TRUE;
+}
+#endif
+#endif
+
 /* a client: the host's */
 void game_engine_read_network_state(
 	byte const *buffer,
@@ -10061,10 +10160,10 @@ void game_engine_read_network_state(
 	if (!read)
 	{
 #ifdef HALO_PORT_CONSOLE_LIMITS
-		/* port: the console's limits (halo_port_limits.h): slayer's and
-		ctf's states from a PC host are read; the others' are the PCs' 128
-		slots, which this build does not yet fold, so their scores stay this
-		machine's own (told once a game type) */
+		/* port: the console's limits (halo_port_limits.h): a PC host's
+		states are folded into this build's slots (game_engine_network_state_
+		fold); one of a size neither the PCs' nor this build's is not read,
+		so its scores stay this machine's own (told once a game type) */
 		static long told_types = 0;
 		long type = game_engine_get_type();
 

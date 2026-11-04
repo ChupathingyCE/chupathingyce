@@ -65,14 +65,17 @@ parser.add_argument(
     "(HALO_GAME_BROWSER; port/linux/src/browser.c); on unless --no-game-browser",
 )
 parser.add_argument(
-    "--renderer",
-    choices=["gl", "bgfx"],
-    default="gl",
-    help="macOS: what draws the game. gl (the default) is OpenGL (port/linux/src/d3d8_gl.c); bgfx also builds "
-    "the bgfx test backend (Metal; port/linux/src/d3d8_bgfx.inl), chosen at run time with display.renderer = "
-    "\"bgfx\" or HALO_RENDERER=bgfx. It fetches bgfx, bx and bimg at pinned commits into build/macos/third_party "
-    "and links Homebrew's shaderc and SPIRV-Cross",
+    "--without-bgfx",
+    dest="with_bgfx",
+    action="store_false",
+    help="the 64-bit desktop builds (macOS, Linux, Windows) without the bgfx renderer (Metal on macOS, Vulkan "
+    "elsewhere; port/linux/src/d3d8_bgfx.inl, tools/bgfx_build.py), which display.renderer = \"bgfx\" or "
+    "HALO_RENDERER=bgfx chooses at run time (OpenGL is the default). It fetches bgfx, bx and bimg at pinned "
+    "commits into build/bgfx",
 )
+# (--renderer=bgfx, from when only a macOS build made for it had the renderer:
+# kept for the scripts that still ask for it; --renderer=gl leaves it out)
+parser.add_argument("--renderer", choices=["gl", "bgfx"], help=argparse.SUPPRESS)
 parser.add_argument(
     "--console-limits",
     action="store_true",
@@ -104,8 +107,10 @@ parser.add_argument(
 parser.add_argument(
     "--portable",
     action="store_true",
-    help="x86 builds (Linux, Windows): code for any x86-64 processor (SSE2) rather than for this "
-    "machine's (-march=native, the default); use it for builds that run on other computers. On Linux (32- and "
+    help="builds that run on other computers. Linux and Windows: code for any x86-64 processor (SSE2) rather "
+    "than for this machine's (-march=native, the default); an arm64 server, for any 64-bit ARM (a Raspberry Pi 3 "
+    "or 4) rather than this machine's. macOS: a universal application (Apple silicon and Intel) with its own SDL 3 "
+    "(built from source, which needs CMake), copied into it and signed, that runs without Homebrew. On Linux (32- and "
     "64-bit) it also builds against Debian 11's glibc 2.31 rather than this machine's, and brings its own SDL 3 "
     "(libSDL3.so.0, beside the executable), so that it starts on SteamOS and older distributions: the first build "
     "downloads the Debian packages and SDL's source (build/linux*/third_party, tools/linux_sysroot.py), and needs "
@@ -172,7 +177,7 @@ sln = SimpleNamespace(
     window_rebase=args.window_rebase,
     packaged=args.packaged,
     port_lto=args.lto,
-    renderer=args.renderer,
+    with_bgfx=args.with_bgfx and args.renderer != "gl",
     port_portable=args.portable,
     port_pgo=args.pgo,
     port_pgo_profile=args.pgo_profile,

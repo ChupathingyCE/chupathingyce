@@ -166,7 +166,7 @@ Thus the build also includes the declarations of the Linux build
 
 A crash writes the faulting address and the calls that led to it to
 `debug.txt` and to the log. Releases and nightlies also send a crash report
-to the ChupathingyCE site (`network.browser_url`, `POST /v1/crash`), which
+to the Chupathingy site (`network.browser_url`, `POST /v1/crash`), which
 groups the crashes and tells the developers:
 
 1. The game starts a second copy of `chupathingy.exe` (`chupathingy.exe --crash-report`).

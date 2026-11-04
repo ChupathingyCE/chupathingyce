@@ -1,0 +1,8 @@
+{
+  "about": "Halo Custom Edition's join wire: a client's packets (the handshake done as a real client does it, then sealed payloads) and the game's side",
+  "harness": "server/tests/ce_transport_fuzz.c",
+  "sources": ["server/platform/ce_transport.c", "server/platform/ce_messages.c"],
+  "flags": ["-std=gnu11"],
+  "libraries": ["-lpthread", "-lm"],
+  "max_len": 3000
+}

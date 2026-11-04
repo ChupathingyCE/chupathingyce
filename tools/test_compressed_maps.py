@@ -30,6 +30,8 @@ sys.path.insert(0, str(ROOT / "tools"))
 
 import chimera_compress  # noqa: E402
 
+from tools import fuzz_support  # noqa: E402
+
 SOURCE = ROOT / "port" / "linux" / "src"
 ZSTD = ROOT / "port" / "third_party" / "zstd"
 TEST = ROOT / "port" / "linux" / "tests" / "map_compressed_test.c"
@@ -63,6 +65,7 @@ def harness(tmp_path_factory):
         command = [cc, "-c", "-O1", "-g", "-w", "-std=gnu11", *ZSTD_DEFINES, str(source), "-o", str(obj)]
         result = subprocess.run(command + sanitize, capture_output=True, text=True)
         if result.returncode != 0 and sanitize:
+            fuzz_support.fallback("no sanitizer runtime")
             sanitize = []
             result = subprocess.run(command, capture_output=True, text=True)
         assert result.returncode == 0, result.stderr

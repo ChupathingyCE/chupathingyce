@@ -34,6 +34,7 @@ the file.
 | `HALO_DEDICATED_GAMESPY_VERSION` | the server's version | The version (`gamever`) the queries and heartbeats report. |
 | `HALO_DEDICATED_MAX_MACHINES_PER_ADDRESS` | `8` | The most machines that may join from one internet address, 0 to 16 (`max_machines_per_address`; 0: no limit). A machine past it is told there are too many players from its address. Local network addresses (10/8, 172.16/12, 192.168/16, 127/8, 169.254/16) are never limited. Players behind one carrier-grade NAT (100.64/10) can share an address, which is why the default is generous. Internet play counts each player by the address their connection comes from. |
 | `HALO_DEDICATED_CE_JOINS` | `false` | `true`: answer Halo Custom Edition 1.0.10 join attempts on the GameSpy port ([below](#custom-edition-join-attempts)); needs `gamespy_listing`. |
+| `HALO_DEDICATED_CE_WELCOME` | a line about cross-play | The chat line each Custom Edition player gets as they join (`ce_welcome`, up to 255 characters). Set but empty: none. |
 | `HALO_DEDICATED_BETRAYAL_KICK` | `0` | Betrayals (teammates killed) in one game that kick a player, 1 to 100; they are warned one short of it, and a second such kick within 24 hours bans them for 30 minutes ([moderation.md](moderation.md#betrayal-and-afk-limits)). `0`: off. `sv_set betrayal_kick 3` sets it while the server runs. |
 | `HALO_DEDICATED_AFK_KICK_MINUTES` | `0` | Minutes without input in a game in progress that kick a player, 1 to 120, warned 30 seconds before; never in the lobby or the carnage report, never a moderator ([moderation.md](moderation.md#betrayal-and-afk-limits)). `0`: off (`afk_kick_minutes`). |
 | `HALO_DEDICATED_COMMANDS` | (none) | A file of [commands](admin.md#startup-commands) in the data folder, run once the server first hosts. |
@@ -171,26 +172,55 @@ For development only, `HALO_DEDICATED_CE_ACCEPT=1` takes the join instead,
 while a game is being played on a map the Custom Edition player has too (a
 Custom Edition map, `bloodgulch@ce`: the same .map file on both sides). The
 player joins the game as one of the server's own players, moved by their
-client's input, and their client is shown the other players, their bipeds
-and weapons from the server's game. Up to 4 Custom Edition players at once
-for now. Still incomplete (no projectiles, vehicles or items shown to them,
-their own position not corrected), so leave this off on a real server.
+client's input. Leave this off on a real server: it is still incomplete.
+
+What works so far:
+
+- Moving, aiming and shooting, both ways. Their own position is corrected
+  to the server's twice a second, so their shots land at range.
+- The other players, their weapons and their shots, as the server's game
+  has them.
+- Shield and health on their HUD, deaths and the respawn countdown.
+- The scoreboard: kills, assists, betrayals, deaths, suicides and Slayer's
+  scores.
+- Weapons and equipment on the ground, picking them up and dropping them.
+- Vehicles: getting in and out of seats, and driving.
+- A welcome line in their chat as they join (`ce_welcome`), and `sv_say`.
+- `sv_kick` and `sv_ban` (a ban is by their address). The bans, the limit
+  on players from one address (`max_machines_per_address`) and the
+  betrayal and AFK limits apply to them too: warnings go in their chat. The
+  host's line of sight check is not needed for them, since the server's
+  game fires their shots itself.
+
+Not yet:
+
+- At most 4 Custom Edition players at once.
+- They join a game in progress only: the end of a game drops them, and a
+  join between games waits up to 12 seconds for the next one. An empty
+  server doesn't start a game for them.
+- Weapons and equipment coming back (respawning) on the ground.
+- Checked live only in part: a Chupathingy player in a vehicle as Custom
+  Edition players see it, and swapping weapons.
 
 ## Folders
 
 | Variable | Default | What it does |
 | --- | --- | --- |
 | `HALO_DATA_ROOT` | the current folder, else the program's | The data folder: `maps/` (with `ui.map`), `maps_ce/`, `maps_md/`, `maps_pc/`, the Xbox map packs' `maps_<pack>/` (`maps_cex/`), `playlists/` (the older `maps/ce/`, `md_maps/` and OpenCE's `custom_maps/` are read too). The server's log goes in `logs/` here (`logs/debug.txt`). |
-| `HALO_SAVE_ROOT` | `~/.local/share/chupathingyce` | Where the server keeps its saves (the game's profile and scratch files, about 33 MB). Give each server on a machine its own. |
+| `HALO_SAVE_ROOT` | `~/.local/share/chupathingyce` (Windows: `%APPDATA%\ChupathingyCE`; `start-server.bat` and a Windows service: `saves` in the data folder) | Where the server keeps its saves (the game's profile and scratch files, about 33 MB). Give each server on a machine its own. |
 | `HALO_LOG_ROOT` | `logs/` in the data folder | Where the server's log (`debug.txt`) goes. |
 | `HALO_CACHE_ROOT` | `cache/` in the save folder (`/data/cache` in the Docker image) | Where the server keeps what it can make again. |
 
 The server also writes `config.toml`, its settings at their defaults, beside
 the program if it can (an image's or a system folder's program cannot, which
-is fine). Settings in the environment override it. The file has only the settings the
-server uses (internet play, the game list, Delta Stats, the bomb games, the
-folders and the logs); the game's display, sound and control settings are
-left out. An older file that has them is left as it is and still works.
+is fine). Settings in the environment override it. A new file has only the
+settings the server uses: internet play, the game list, Delta Stats, the
+Bomb and Grifball games, downloaded maps, the folders, and a few debug
+settings (full addresses in the log, the telnet console and its limits in
+a public game, and the network tests). The game's display, sound and control settings are left out. The
+server's own settings (name, players, chat and the rest) are not in it:
+they are in `admin/settings.toml`. An older file that has the game's
+settings is left as it is and still works.
 
 ## The network
 
@@ -203,13 +233,15 @@ left out. An older file that has them is left as it is and still works.
 | `HALO_NET_TUNNEL_PORT` | `0` (any) | The UDP port internet play uses. A fixed one can be forwarded, for networks whose NAT stops connections. |
 | `HALO_NET_ALLOW_UPNP` | `true` | Let internet play ask the router to forward its port (UPnP). |
 | `HALO_NET_BROKERS_FILE` | `brokers.txt` | The file of internet play's MQTT brokers (one `host:port` on each line), beside the program unless a full path. Without one, the server uses the game's own list, the same as `port/assets/network/brokers.txt`. |
-| `HALO_NET_ANNOUNCE` | `latest` | The OpenCE network version the server announces. `latest` follows the newest one Chupathingy's signed table says our servers host well, so OpenCE's newest players see the server. It changes by itself between games, with no restart. A number pins it, for example `32` for a server meant for console players on older builds ([Delta](../../docs/delta.md#auto-announce)). |
+| `HALO_NET_ANNOUNCE` | `latest` | The OpenCE network version the server announces. `latest` follows the newest one Chupathingy's signed table says our servers host well, so OpenCE's newest players see the server. The server checks for a new table every 30 minutes, and changes by itself between games, with no restart. A table row may name host protections a server needs for a number; a build without them announces its own number (32) and logs why. A number pins it, for example `32` for a server meant for console players on older builds ([Delta](../../docs/delta.md#auto-announce)). |
 | `HALO_LEGACY_TABLE` | (none) | A legacy table file, not signed, used in place of the signed ones: its row for the build's wire sets the OpenCE network versions the server announces and its range. For tests, and for an admin who knows better; the log warns at start, and the server neither fetches nor passes on signed tables meanwhile ([Delta](../../docs/delta.md#local-override)). To announce a newer or older number, use `HALO_NET_ANNOUNCE` instead. |
 | `HALO_NET_ADDRESS` | (any) | The IPv4 address system link uses. Several servers on one machine each need their own: `127.0.0.2`, `127.0.0.3`, ... ([Docker](docker.md#more-servers-on-the-same-host)). |
 | `HALO_NET_BROADCAST` | (the local network's) | Comma-separated addresses system link announces games to, instead of the local network's broadcast. |
 | `HALO_NET_PROTOCOL` | `auto` | Delta Peer ([docs/delta.md](../../docs/delta.md)), ChupathingyCE's messages beside OpenCE's protocol, on UDP port 5160 beside the game's 5150: `auto` speaks it with the machines that do (the rest play plain OpenCE); `opence` turns it off; `delta` is `auto` for now. |
 | `HALO_NET_HOST_PLATFORM_LIMITS` | `true` | Keep the game to the players its Delta machines' platforms take (an original Xbox: 16, unless its player opted out); `false` ignores them, for testing. |
+| `HALO_NET_HIT_LINE_OF_SIGHT` | `true` | Refuse a client's reported hit through a wall: the shot needs a clear line to its target from where the server had the shooter (their view, head or vehicle seat's gun), or, for an explosion, from where it went off. Glass, what the projectile passes through, and homing or arcing projectiles are allowed for; melee and vehicle hits are not checked. `false` turns it off if good hits are refused (`network.hit_line_of_sight`). Players need nothing new. |
 | `HALO_NET_BLOCK_MOUSE_AIM_ASSIST` | `false` | The server's policy on aiming assist for the mouse and keyboard: `false` leaves each player's own setting (`input.mouse_aim_assist`); `true` turns the view's magnetism off for players aiming with the mouse, in every game of the server. Clients are told when they join and when it changes (network version 32). |
+| `HALO_PLAYLIST_ID` | (none) | The id of the playlist's verified map set on the Chupathingy site (`c_ce_maps`), sent with the game list entry so joining players can get missing maps ([Playlists](playlists.md#the-playlists-map-set)). |
 | `SSL_CERT_FILE` | the system's | The certificates the server checks stats.chupathingy.org's against, when they are somewhere unusual. |
 
 Players' addresses are left out of `debug.txt` and the output, as in the
@@ -219,16 +251,37 @@ problem (the log then says so at the first one). `0`, `false`, `no` and
 written with it on hold everyone's address: delete them once the problem is
 found.
 
+The settings for hosts in `config.toml`, `network.host_cheats`
+(`HALO_NET_HOST_CHEATS`, `false`) and `network.host_console_objects`
+(`HALO_NET_HOST_CONSOLE_OBJECTS`, `32`), are about a player's own console
+and cheats in a game they host. On the server they touch only the debug
+telnet console below: in a public game with players in it, its commands
+that change the game are refused unless `HALO_NET_HOST_CHEATS=true`, and
+it may make at most that many objects a game. The `sv_*` commands are
+not affected.
+
+### Debug settings
+
+For testing and support. Leave them off on a real server.
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `HALO_TELNET_CONSOLE` | `false` | Debug: opens the game's script console on 127.0.0.1, at `HALO_TELNET_CONSOLE_PORT` (`2323`). It has no password. |
+| `HALO_NETWORK_LATENCY`, `HALO_NETWORK_LOSS`, `HALO_NETWORK_CORRUPT`, `HALO_NETWORK_CORRUPT_STREAM`, `HALO_NETWORK_CORRUPT_AFTER` | `0` | Debug: delay what is received (milliseconds), drop or damage a percent of it, after so many seconds. |
+
 ## The command line
 
 ```
 chupathingyce-server [--version | --help]
+chupathingyce-server.exe [--install-service [name] | --uninstall-service [name]]   (Windows)
 ```
 
 | | |
 | --- | --- |
 | `--version`, `-v` | Prints the version, architecture and network version, and exits. |
 | `--help`, `-h` | Prints a summary of the settings, and exits. |
+| `--install-service [name]` | Windows: makes a Windows service of the server (`ChupathingyServer` unless named), with the `HALO_*` settings set in that command prompt, and starts it. Run as administrator. `start-server.bat install` does it for you ([windows/README.txt](../windows/README.txt)). |
+| `--uninstall-service [name]` | Windows: stops the service and takes it out. |
 
 Commands for a running server (kick, ban, change the map, ...) are typed
 on its console or sent to its control API: [admin.md](admin.md).

@@ -227,9 +227,11 @@ decides friendly fire by its own setting. Messages 87 to 89 are OpenCE's
 text chat, which Delta chat bridges (`docs/delta.md`, Chat): a build without
 them drops them as unknown, so they take no version of their own.
 
-Versions 33 to 38 are OpenCE's, which this build's clients play while its
-hosts still announce 32 (`network_rules_of_version`, by the version the host
-advertised; a host not known plays by the older rules). Version 33 adds a
+Versions 33 to 41 are OpenCE's, which this build's clients play by the
+version the host advertised (`network_rules_of_version`; a host not known
+plays by the older rules). Its hosts announce the built-in 32, or the newest
+number the signed legacy table proves for hosting (docs/delta.md,
+"Auto-announce"). Version 33 adds a
 second bit to the settings' co-op byte (bit 1: the players' hits do their AI
 allies no harm), which only a host acts on. Version 34 changes no message:
 scenery and devices that are a shield alone (Rat Race's energy shields, a
@@ -257,7 +259,16 @@ listing's stamp. Our readers take any value there (the listing's signature
 covers the stamp as sent) and the game list names the game types this build
 doesn't play, marking them like a game of a newer build; our own hosts send
 a stock game's kind, 0. Version 38 lets message 91 carry 6, each machine's
-own look, which this build draws as stock too.
+own look, which this build draws as stock too. Version 39 marks a dedicated
+server's game: the advertisement's flag 0x04 and the internet listing's flag
+32. Version 40 makes the client's join request 234 bytes longer after the
+hardware id; this build sends those bytes as zeros to a host of 40 or later
+(`network_rules_join_request_extra`), and the plain request of 0x70 bytes to
+an older one. Version 41 adds a refusal 13 (too many machines from one
+address), lays out the vote messages 78 and 79 anew, and adds 94 and 95 (map
+votes); this build drops all four unread, and its hosts tell an OpenCE player
+who votes, the first time in a game, that the host has no votes. Refusals 8 to 13 are said
+plainly to the player.
 
 A host plays by the number it announces (`delta_legacy_announce()`: the
 built-in one, or a legacy table's), which is the number of every OpenCE
@@ -303,12 +314,13 @@ A host never checks a joining client's version: the client reads the
 host's from its advertisement and joins only a version it plays with. That
 is its own, or one of a range (HALO_PORT_NETWORK_VERSION_MINIMUM to
 HALO_PORT_NETWORK_VERSION_MAXIMUM, halo_port_limits.h) of versions that
-differ from it only in messages the other machine drops, not knowing them:
-version 10 (OpenCE's build-73) adds the host's message of the players'
-pings, which a machine of version 9 drops. This build has version 10, as
-OpenCE's current builds (so their clients join its hosts), without that
-message (its hosts do not send it, its clients drop it), and joins hosts of
-9 and 10. The game browser lists the range's games.
+differ from it only in messages the other machine drops, not knowing them,
+or whose rules it plays by the host's version (above). This build has
+version 32 built in and joins hosts of 11 to 42: back to version 11, the
+newest breaking one, and one past the newest it knows (41), which it
+presumes additive. A signed legacy table widens the range without a
+release (docs/delta.md, "The legacy number"). The game browser lists the
+range's games.
 
 `port/linux/network_format.txt` records the wire format of the current
 version (`tools/network_format.py`): `test_linux_port.py` fails when the
@@ -333,7 +345,17 @@ rider ejection are put back to the host's, and what it draws of the world
 to what everyone's draws (no wireframe, debug drawing mode, environment
 left out, fog, grass or water off), as set before joining too
 (`cheats_network_client_enforce`); its camera stays the player's own
-(no flying or following camera). The host keeps its own.
+(no flying or following camera). The host keeps its own in a LAN game, a
+private or password game, or a game with no one else in it. The host of a
+public internet game with other players in it plays by the same rules as
+its clients unless `network.host_cheats` is on: its console runs only
+commands that change nothing of the game (kick and ban stay), and its
+cheats, game speed and drawing are put back each tick
+(`network_game_host_cheats_refused`). With it on, the host's listing says
+so and Online Games shows "Host cheats on". In any network game, the
+objects a host makes from its console are capped per game
+(`network.host_console_objects`, 32 unless set, 8 while an original Xbox
+plays); a map's own scripts are not counted.
 
 The host also finds a client whose game runs faster than time (a speed
 hack, which speeds up the machine's own clock, so that nothing on it can
@@ -377,6 +399,22 @@ machine tells them: anyone with administrator or root access can change
 them, and players behind one address share it. The console's `kick <player
 name>` drops a player as `ban` does (every machine told), but adds no line
 and keeps no address out: the player may join again at once.
+
+A host keeps each client machine's lobby requests (machine and player
+settings, players added and removed) to a budget: a burst of 32, then 16 a
+second, enough for four players on one machine holding a menu key.
+Requests past it are dropped, and the first drop is logged by machine
+number alone. The budget fills again when a machine joins and when it
+comes back to the lobby. The host's own machine is never limited, and the
+wire is unchanged (`network_rules.c`).
+
+A host can also limit the machines that join from one internet address
+(`network.max_machines_per_address`, off by default; a dedicated server's
+`max_machines_per_address`, 8 by default). A machine past it is refused
+with refusal 13, "too many players from your address". Internet play's
+peers are counted by the address their tunnel is heard from; local network
+addresses are never limited, and neither are the host's own machine and a
+machine taking back its old slot.
 A speed hack of less than a tenth is let be: the host's bounds on how far
 and how fast a client's player moves and fires hold it to the host's time
 anyway.
@@ -599,7 +637,8 @@ a pregame keep-alive every five seconds from the host
      as one, when its damage has a reach, and no object is hit twice by
      one, the explosions of each player's reports told apart on their
      own). A report made more than three seconds ago (a burst of them held
-     back while the network was out) is refused. A report is paid for
+     back while the network was out) is refused, as is one stamped with a
+     tick from before the game began. A report is paid for
      before the host looks through its history, so a flood of them costs
      the sender its hits. The damage is dealt as a client's own hit can
      be: only the flags such a hit has, area damage as the game deals that
@@ -736,7 +775,12 @@ Unity's Netcode for Entities, lightyear, netfox and the Ares source):
   against where it is now with a wide margin: however long the report
   took to come (the reliable channel's resending holds it up), that is
   when the shooter saw the target (as far back as the host keeps). A
-  report made more than three seconds ago is refused.
+  report made more than three seconds ago, or stamped with a tick from
+  before the game began, is refused.
+- **Internet play's streams.** Over the internet a game's connections go
+  as KCP streams inside the tunnel (`p2p.c`, `port/third_party/kcp`). The
+  round trip an acknowledgement reports is the other machine's to set, so
+  it is capped at KCP's longest timeout (60 seconds) before it is used.
 
 ## Testing
 

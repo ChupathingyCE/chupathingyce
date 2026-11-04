@@ -1,0 +1,7 @@
+POST /api/login HTTP/1.1
+Host: x
+Content-Type: application/json
+Transfer-Encoding: chunked
+Expect: 100-continue
+
+{"token":"aa\u0041"}

@@ -43,6 +43,7 @@ from .linux_build import (COMPRESSED_MAP_DEFINES, CUSTOM_EDITION_DEFINES, ZSTD_D
                           XDK_INCLUDE, game_browser_defines, lto_mode, march_flag, miniupnpc_sources, pgo_mode, compile_launcher, game_defines_and_includes,
                           game_sources, musl_math_cflags, musl_math_sources, pgo_profile, profile_use_flags,
                           xdk_headers)
+from .bgfx_build import BgfxTarget, bgfx_build, bgfx_available, bgfx_include_flags
 from .lp64_build import lp64_excluded
 from .embed_assets import hud_assets_build, hud_configure_inputs, ui_fonts_build
 from .ninja_syntax import Writer
@@ -196,6 +197,9 @@ class WindowsTarget:
     pgo: bool = True
     # leaves out what the 64-bit builds do (port/linux/port.json "lp64")
     lp64_exclusions: bool = False
+    # has the bgfx renderer (display.renderer = "bgfx": Vulkan;
+    # tools/bgfx_build.py), as every 64-bit desktop build
+    bgfx: bool = False
     # the dedicated server (tools/server_build.py's units, no SDL)
     server: bool = False
 
@@ -274,6 +278,7 @@ WINDOWS64 = WindowsTarget(
     ffmpeg_arch="x86_64",
     pgo=False,
     lp64_exclusions=True,
+    bgfx=True,
 )
 
 
@@ -285,6 +290,7 @@ WINDOWS64_SERVER = replace(
     abi_flags=[*WINDOWS64.abi_flags, "-DHALO_SERVER"],
     comment="The dedicated server for 64-bit Windows (ninja server-windows64)",
     server=True,
+    bgfx=False,
 )
 
 
@@ -295,7 +301,8 @@ def _load_config() -> Dict[str, Any]:
 
 def windows_configure_inputs() -> List[Path]:
     """Files whose change must re-run configure.py."""
-    return [Path(__file__), PORT_CONFIG, PORT_DIR / "src", LINUX_DIR / "src", LINUX_DIR / "game", *hud_configure_inputs(),
+    return [Path(__file__), Path("tools/bgfx_build.py"), PORT_CONFIG, PORT_DIR / "src", LINUX_DIR / "src",
+            LINUX_DIR / "game", *hud_configure_inputs(),
             # (the server's: ninja server-windows64)
             Path("tools/server_build.py"), Path("tools/embed_webui.py"), Path("server/platform"), Path("server/webui")]
 
@@ -527,10 +534,20 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
             n, prefix, build / "ffmpeg", cc, target.ffmpeg_os, target.ffmpeg_arch,
             [f"--target={target.triple}"], group=False)
         ffmpeg_inputs = [ffmpeg_stamp, *ffmpeg_archives]
+    # the bgfx renderer (tools/bgfx_build.py): its libraries, and the define
+    # and headers of the platform units (d3d8_gl.c, sdl_platform.c)
+    use_bgfx = target.bgfx and not target.server and bgfx_available(sln)
+    bgfx_libraries = bgfx_build(n, BgfxTarget(
+        name=prefix, platform="windows", cc=f"{compile_launcher(sln)}{cc}",
+        target_flags=[f"--target={target.triple}", "-gcodeview", march_flag(sln)],
+        build_dir=build / "bgfx", archive_command="llvm-ar rcs $out $in",
+    )) if use_bgfx else []
+    bgfx_cflags = " ".join(bgfx_include_flags()) if use_bgfx else ""
     # (the server links no SDL: server/platform/sdl_headless.c has the few
     # functions it calls)
     libs = " ".join(
         ([] if target.server else [_quote(sdl_lib / "SDL3.lib")])
+        + [str(library) for library in bgfx_libraries]
         + ffmpeg_libs
         + [f"-l{lib}" for lib in config.get("libraries", [])]
     )
@@ -614,6 +631,7 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
             "-Isource -Isource/cseries",
             f"-I{_quote(sdl_include)}",
             f"-I{XDK_INCLUDE}",
+            bgfx_cflags,
         ])
         win32_cflags = " ".join([
             abi,
@@ -701,7 +719,7 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
             outputs=output,
             rule=f"{prefix}_link",
             inputs=objects + extra_objects + [resource],
-            implicit=ffmpeg_inputs,
+            implicit=[*ffmpeg_inputs, *bgfx_libraries],
             variables={"ldflags": " ".join(base_ldflags + extra_ldflags), "libs": libs},
         )
 

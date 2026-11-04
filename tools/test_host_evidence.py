@@ -65,7 +65,8 @@ def test_module_needs_no_game():
 
 def test_refusals_counted():
     """each refusal of a client's prediction, vehicle prediction, hit report
-    and fast clock counts it for the sender's machine"""
+    (its line of sight apart) and fast clock counts it for the sender's
+    machine"""
     distributed = DISTRIBUTED_C.read_text(encoding="utf-8")
     take = function(distributed, "static void distributed_take_prediction")
     # (the tolerance, the anchor's reach and the ceiling: every return that refuses)
@@ -75,7 +76,10 @@ def test_refusals_counted():
     vehicles = function(OBJECTS_C.read_text(encoding="utf-8"), "void network_objects_apply_vehicle_predictions")
     assert vehicles.count("_host_evidence_vehicle);") == 4
     reports = function(DAMAGE_C.read_text(encoding="utf-8"), "void network_damage_handle_reports")
-    assert "host_evidence_note(machine_index, _host_evidence_hit_report);" in reports
+    # (a refusal for want of a line of sight is counted as that, the others
+    # as hit reports)
+    assert re.search(r"host_evidence_note\(machine_index,\s*damage_report_refused_line_of_sight \? "
+                     r"_host_evidence_line_of_sight : _host_evidence_hit_report\);", reports)
 
 
 def test_counts_start_over():

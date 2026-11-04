@@ -39,7 +39,7 @@ static void test_counts(void)
 	CHECK(host_evidence_total(3) == 3);
 	CHECK(host_evidence_count(4, _host_evidence_clock) == 1);
 	CHECK(host_evidence_total(4) == 1);
-	/* (the kinds kept for later checks count the same) */
+	/* (line of sight, and the kind kept for later checks, count the same) */
 	host_evidence_note(5, _host_evidence_line_of_sight);
 	host_evidence_note(5, _host_evidence_malformed);
 	CHECK(host_evidence_count(5, _host_evidence_line_of_sight) == 1);

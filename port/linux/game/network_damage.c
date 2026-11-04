@@ -2479,7 +2479,8 @@ void network_damage_handle_reports(
 			if (damage_report_refused_line_of_sight)
 				damage_line_of_sight_reports++;
 			/* (counted for the server's moderators: host_evidence.h) */
-			host_evidence_note(machine_index, _host_evidence_hit_report);
+			host_evidence_note(machine_index,
+				damage_report_refused_line_of_sight ? _host_evidence_line_of_sight : _host_evidence_hit_report);
 			continue;
 		}
 		damage_dealt_reports++;

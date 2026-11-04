@@ -219,6 +219,18 @@ def main() -> int:
     # the menus' XML parser (port/third_party/expat), in every build, whose
     # MIT license asks copies to carry its notice
     shutil.copy2(ROOT / "port/third_party/expat/COPYING", dist / "expat-COPYING.txt")
+    # the bgfx renderer of the 64-bit desktop builds (tools/bgfx_build.py):
+    # bgfx's, bx's and bimg's BSD licenses ask binaries to carry their
+    # notices, as do glslang's and, on macOS, SPIRV-Cross's
+    if (ROOT / "build" / args.platform / "bgfx").is_dir():
+        bgfx_sources = ROOT / "build/bgfx"
+        bgfx_licenses = [("bgfx/LICENSE", "bgfx-LICENSE.txt"), ("bx/LICENSE", "bx-LICENSE.txt"),
+                         ("bimg/LICENSE", "bimg-LICENSE.txt"),
+                         ("bgfx/3rdparty/glslang/LICENSE.txt", "glslang-LICENSE.txt")]
+        if args.platform == "macos":
+            bgfx_licenses.append(("bgfx/3rdparty/spirv-cross/LICENSE", "SPIRV-Cross-LICENSE.txt"))
+        for source, name in bgfx_licenses:
+            shutil.copy2(bgfx_sources / source, dist / name)
     # internet play's MQTT brokers, a file beside the game (network.brokers_file;
     # Android's APK has its own copy; the macOS application reads its settings
     # folder in Application Support, never beside the app, so it uses the

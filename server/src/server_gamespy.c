@@ -101,6 +101,18 @@ static void configure_from_settings(
 		gamespy.joins = text_true(joins);
 	else if (settings.set[SERVER_SETTING_CE_JOINS])
 		gamespy.joins = settings.values[SERVER_SETTING_CE_JOINS] ? TRUE : FALSE;
+	/* (the Custom Edition welcome: the environment's even when empty, which
+	turns it off; else the file's; else the default) */
+	{
+		char const *welcome = getenv(server_settings_table[SERVER_SETTING_CE_WELCOME].environment);
+
+		if (welcome)
+			server_ce_set_welcome(welcome);
+		else if (settings.set[SERVER_SETTING_CE_WELCOME])
+			server_ce_set_welcome(settings.ce_welcome);
+		else
+			server_ce_set_welcome(NULL);
+	}
 	gamespy.port = GAMESPY_DEFAULT_PORT;
 	if (port && port[0])
 		gamespy.port = atol(port);

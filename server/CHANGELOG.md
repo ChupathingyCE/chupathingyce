@@ -6,6 +6,23 @@ release notes.
 
 ## Unreleased
 
+- Host rules, off by default as on the Xbox: `allow_player_names`
+  (`HALO_DEDICATED_ALLOW_PLAYER_NAMES`) lets Chupathingy players show names
+  above heads, and `allow_follow_camera`
+  (`HALO_DEDICATED_ALLOW_FOLLOW_CAMERA`) lets them watch a follow camera
+  while they wait to respawn. Team changes during a game (`team_change`)
+  are now `off` unless set; `balanced` and `allow` work as before, and
+  players see CHANGE TEAMS only where the server allows it. The rules reach
+  Chupathingy players over Delta Peer; OpenCE players play as before.
+- Auto-announce: with `HALO_NET_ANNOUNCE=latest` (the default), the server
+  announces the newest OpenCE network version the signed table proves for
+  hosting, checks for a new table every 30 minutes, and moves to a newer
+  number between games without a restart. A table row may name host
+  protections a number needs; a server without them keeps announcing its
+  own number and logs why. A number in `HALO_NET_ANNOUNCE` pins it.
+- Halo 2 anniversary game types and playlist in `server/events/h2-anniversary`
+  (not in the download): seven game types and a 12-entry playlist on the
+  stock maps, from options the game already has.
 - A betrayed player respawns on the normal timer; the betrayer takes the game type's suicide penalty (plus any friendly fire penalty) on their next respawn. Suicides and deaths nobody caused keep the suicide penalty.
 - Hits through walls are refused: a client's reported hit counts only when
   the shot had a clear line to its target from where the server had the
@@ -47,7 +64,8 @@ release notes.
 - Evidence for moderators: `sv_evidence [player]`, `GET /v1/evidence` and a
   Refused column in the panel's Players count what the server refused of
   each player's machine this game (movement and vehicle predictions out of
-  bounds, hit reports that failed validation, windows its clock ran fast).
+  bounds, hit reports that failed validation, hits through walls, windows
+  its clock ran fast).
   Moderators and up; reset each game; never sent anywhere, never an
   automatic ban.
 - Betrayal and AFK limits, both off by default: `betrayal_kick`
@@ -65,7 +83,8 @@ release notes.
   Ctrl+C or closing its window stops it and takes its game off the lists.
   `start-server.bat install` (or `--install-service`) makes it a Windows
   service that starts with Windows, restarts after a crash and runs as its
-  own account, not SYSTEM; `--uninstall-service` takes it out.
+  own account, not SYSTEM; `--uninstall-service` takes it out. Both keep
+  the server's saves in `saves` in the data folder, apart from the game's.
 - Map names as Halo PC takes them: commas, brackets, spaces and the rest a
   Windows file name can have (`bigassv2,104@ce`, `[h3]_sandtrap@ce`), in
   `sv_map`, `sv_maps` and playlists. A name with a space goes in double
@@ -105,6 +124,12 @@ release notes.
   local network addresses are never limited. The log names the refused
   machine with its address hidden. Games hosted by players have the same
   limit as `network.max_machines_per_address`, off by default.
+- Custom Edition players (still behind the development switch, off by
+  default): their own position corrected to the server's, shield and
+  health, deaths, the scoreboard, weapons and equipment on the ground,
+  vehicles and seats, a welcome line in their chat (`ce_welcome`), and
+  `sv_say`, `sv_kick` and `sv_ban` reaching them. Bans, the limit on
+  players from one address and the betrayal and AFK limits apply to them.
 - Control panel hardening: `sv_welcome` needs the settings permission (an
   admin's) and is in the audit file; a command missing from the permission
   table is the console's alone. Wrong logins lock an account only for the
