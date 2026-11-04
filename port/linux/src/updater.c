@@ -132,7 +132,8 @@ laid out as GitHub's addresses are */
 #define UPDATE_DOWNLOADS "https://github.com/" UPDATE_REPOSITORY "/releases/download"
 #endif
 #if defined(HALO_PORT_UPDATE_PLATFORM)
-/* (a console port's own download) */
+/* (a console port's own download: on the game's releases, signed with the
+release key, unless the port has releases of its own, HALO_PORT_UPDATE_API) */
 #define UPDATE_PLATFORM HALO_PORT_UPDATE_PLATFORM
 #define PATH_SEPARATOR "/"
 #elif defined(_WIN32) && defined(HALO_64BIT)
@@ -584,6 +585,16 @@ static int updater_latest_release(char *version, size_t size)
 		return 0;
 	/* "tag_name": "v<version>" */
 	tag = strstr(text, "\"tag_name\"");
+#if defined(HALO_PORT_UPDATE_PLATFORM) && !defined(HALO_PORT_UPDATE_API)
+	/* (a port's download on the game's releases: a release counts only once
+	its assets name the port's zip, so a release made before the port's
+	download is added is not offered) */
+	if (tag && !strstr(text, "\"" UPDATE_ASSET "\""))
+	{
+		platform_log("update: the latest release has no " UPDATE_ASSET " yet");
+		tag = NULL;
+	}
+#endif
 	if (tag)
 	{
 		tag = strchr(tag + 10, '"');

@@ -175,13 +175,19 @@ HALO_CONSOLE_APP_CERTIFICATES
 HALO_CONSOLE_CONFIG_IN_DATA_ROOT
 	config.toml in the data folder the launch script names (HALO_DATA_ROOT),
 	as on Android, not beside the executable (port_config.c)
-HALO_PORT_UPDATE_API, HALO_PORT_UPDATE_REPOSITORY, HALO_PORT_UPDATE_PLATFORM
-	a console port's own releases, on its compile line: the address of its
-	release list, laid out as GitHub's API (and its downloads under
-	/releases/download), its name, and its download's platform. Its
-	releases are signed with its own key, update_public_keys in the
-	port's halo_port_update_keys.h (update_key.h); the game's release key
-	signs nothing the port's server sends
+HALO_PORT_UPDATE_PLATFORM
+	a console port's own download on the game's releases, on its compile
+	line: chupathingyce-<platform>-release.zip, listed in the release's
+	updates.json and signed with the release key as the desktop builds'
+	are. A release is offered only once its assets have that zip
+	(updater.c)
+HALO_PORT_UPDATE_API, HALO_PORT_UPDATE_REPOSITORY
+	a console port with releases of its own instead, on its compile line:
+	the address of its release list, laid out as GitHub's API (and its
+	downloads under /releases/download), and its name. Its releases are
+	signed with its own key, update_public_keys in the port's
+	halo_port_update_keys.h (update_key.h); the game's release key signs
+	nothing the port's server sends
 HALO_PORT_UPDATE_SCRIPT, HALO_PORT_UPDATE_RESTART_EXIT_CODE
 	the launch script an update replaces with the game, and the code the
 	game exits with after an update for that script to start the new
