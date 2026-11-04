@@ -1,0 +1,112 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- ChupathingyCE for iOS: an original drawing, from the side (a made-up
+  "boss" leaning out of a made-up armoured buggy, a concrete wall behind),
+  no likeness of anyone real -->
+  <defs>
+    <linearGradient id="wall" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4a5257"/>
+      <stop offset="1" stop-color="#2a3034"/>
+    </linearGradient>
+    <linearGradient id="hull" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#7a9655"/>
+      <stop offset="1" stop-color="#3f5428"/>
+    </linearGradient>
+    <linearGradient id="jacket" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#34343a"/>
+      <stop offset="1" stop-color="#141416"/>
+    </linearGradient>
+  </defs>
+
+  <!-- the wall, in poured slabs -->
+  <rect width="1024" height="1024" fill="url(#wall)"/>
+  <g stroke="#262b2f" stroke-width="6" opacity="0.7">
+    <line x1="300" y1="0" x2="300" y2="620"/><line x1="680" y1="0" x2="680" y2="620"/>
+    <line x1="0" y1="250" x2="1024" y2="250"/>
+  </g>
+  <g fill="#262b2f" opacity="0.6">
+    <circle cx="150" cy="120" r="7"/><circle cx="460" cy="130" r="7"/><circle cx="840" cy="120" r="7"/>
+    <circle cx="150" cy="380" r="7"/><circle cx="460" cy="390" r="7"/><circle cx="840" cy="380" r="7"/>
+  </g>
+
+  <!-- the cab's frame, behind him: a slanted windshield pillar, the roof bar
+  and the rear post -->
+  <g stroke="#2d3a20" stroke-linejoin="round" stroke-linecap="round" fill="none">
+    <path d="M250 600 L400 250 L880 250 L930 560" stroke-width="38"/>
+    <path d="M400 250 L880 250" stroke="#4c6233" stroke-width="18"/>
+  </g>
+  <!-- the windshield, a faint pane -->
+  <path d="M262 590 L404 262 L470 262 L340 590 Z" fill="#9fb3bd" opacity="0.18"/>
+
+  <!-- the boss, in the seat, turned to look at you -->
+  <g>
+    <!-- his back and shoulders in a leather jacket -->
+    <path d="M500 700 Q500 520 640 500 Q800 500 820 640 L820 720 Z" fill="url(#jacket)"/>
+    <path d="M560 520 L640 610 L700 515" fill="none" stroke="#45454c" stroke-width="10" stroke-linejoin="round"/>
+    <!-- the open collar and a gold chain -->
+    <path d="M598 512 L640 572 L684 512 Z" fill="#c9b8a3"/>
+    <path d="M604 520 Q640 590 680 520" fill="none" stroke="#e2b13c" stroke-width="9" stroke-linecap="round"/>
+    <!-- the head, as the front-on drawing's, smaller -->
+    <g transform="translate(640 410) scale(0.78) translate(-512 -455)">
+      <ellipse cx="512" cy="455" rx="128" ry="150" fill="#d9a77f"/>
+      <path d="M388 440 Q392 340 440 318 L432 470 Q398 470 388 440 Z" fill="#2b211c"/>
+      <path d="M636 440 Q632 340 584 318 L592 470 Q626 470 636 440 Z" fill="#2b211c"/>
+      <ellipse cx="512" cy="330" rx="96" ry="34" fill="#e4b590"/>
+      <ellipse cx="384" cy="470" rx="18" ry="34" fill="#c99470"/>
+      <ellipse cx="640" cy="470" rx="18" ry="34" fill="#c99470"/>
+      <path d="M440 420 Q470 404 500 418" fill="none" stroke="#2b211c" stroke-width="16" stroke-linecap="round"/>
+      <path d="M524 418 Q554 404 584 420" fill="none" stroke="#2b211c" stroke-width="16" stroke-linecap="round"/>
+      <ellipse cx="470" cy="452" rx="20" ry="13" fill="#f6efe6"/>
+      <ellipse cx="554" cy="452" rx="20" ry="13" fill="#f6efe6"/>
+      <circle cx="472" cy="455" r="9" fill="#3b2a1e"/>
+      <circle cx="552" cy="455" r="9" fill="#3b2a1e"/>
+      <path d="M448 446 L492 446" stroke="#c99470" stroke-width="14" stroke-linecap="round"/>
+      <path d="M532 446 L576 446" stroke="#c99470" stroke-width="14" stroke-linecap="round"/>
+      <path d="M448 440 L492 440" stroke="#1a1410" stroke-width="5" stroke-linecap="round"/>
+      <path d="M532 440 L576 440" stroke="#1a1410" stroke-width="5" stroke-linecap="round"/>
+      <path d="M512 452 Q500 500 512 512 Q526 512 530 500" fill="none" stroke="#b17e5c" stroke-width="8" stroke-linecap="round"/>
+      <path d="M466 560 Q512 538 558 560" fill="none" stroke="#7a4a36" stroke-width="10" stroke-linecap="round"/>
+      <path d="M410 520 Q512 640 614 520 Q600 600 512 606 Q424 600 410 520 Z" fill="#7d6556" opacity="0.25"/>
+    </g>
+  </g>
+
+  <!-- the hull, from the side: the nose to the left, a low door at the cab,
+  armour panels and vents -->
+  <path d="M-20 700 L60 640 L250 600 L470 640 L840 640 L900 560 L1044 540 L1044 1044 L-20 1044 Z" fill="url(#hull)"/>
+  <!-- the door's top edge -->
+  <path d="M470 640 L840 640" stroke="#93ad6a" stroke-width="12" stroke-linecap="round"/>
+  <!-- panel lines -->
+  <g stroke="#2d3a20" stroke-width="7" fill="none" stroke-linejoin="round">
+    <path d="M60 760 L460 740 L470 900 L40 920"/>
+    <path d="M500 700 L830 700 L840 900 L510 900"/>
+  </g>
+  <!-- the side vents -->
+  <g fill="#232b18">
+    <path d="M110 790 L190 782 L196 860 L114 866 Z"/>
+    <path d="M220 780 L300 774 L306 852 L224 858 Z"/>
+    <path d="M880 620 L1000 600 L1008 660 L884 680 Z"/>
+    <path d="M884 700 L1010 682 L1018 742 L888 760 Z"/>
+  </g>
+  <!-- a stencilled number on the door -->
+  <text x="675" y="820" text-anchor="middle" font-family="Arial Black, Arial, sans-serif" font-weight="900"
+    font-size="74" fill="#2d3a20" opacity="0.85">CE-61</text>
+  <!-- the headlight at the nose -->
+  <path d="M-20 700 L60 640 L80 690 L-20 740 Z" fill="#f2e9a6"/>
+
+  <!-- his forearm on the door, a watch on the wrist -->
+  <path d="M520 600 Q500 650 440 652 L380 650 Q362 640 380 626 L460 618 Q500 600 520 600 Z" fill="url(#jacket)"/>
+  <ellipse cx="368" cy="640" rx="34" ry="22" fill="#d9a77f"/>
+  <rect x="396" y="624" width="30" height="32" rx="7" fill="#cfd4d8" stroke="#8a9096" stroke-width="5"/>
+
+  <!-- the front wheel, under the nose -->
+  <circle cx="230" cy="990" r="150" fill="#161a1c"/>
+  <circle cx="230" cy="990" r="70" fill="#3a4246"/>
+  <circle cx="230" cy="990" r="26" fill="#22282b"/>
+
+  <!-- mud -->
+  <g fill="#4a3b2a" opacity="0.75">
+    <circle cx="90" cy="720" r="14"/><circle cx="330" cy="700" r="18"/><circle cx="420" cy="880" r="22"/>
+    <circle cx="560" cy="760" r="13"/><circle cx="760" cy="880" r="20"/><circle cx="930" cy="800" r="16"/>
+    <circle cx="980" cy="900" r="24"/><circle cx="600" cy="940" r="15"/><circle cx="140" cy="900" r="12"/>
+    <circle cx="880" cy="660" r="9"/>
+  </g>
+</svg>
