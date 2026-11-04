@@ -82,6 +82,7 @@ the right button is B.
 #include "networking/network_game_globals.h"
 #include "networking/network_client_manager.h"
 #include "../src/browser.h"
+#include "delta.h"
 #include "halo_port_limits.h"
 #include "halo_join_reasons.h"
 #include "network_rules.h"
@@ -2055,12 +2056,12 @@ List: a ChupathingyCE host's own word; nothing of an older or OpenCE host) */
 
 /* its platform (delta.h's registry), short for the row's tag and in full
 for the details */
-static char const *const platform_tags[] = { "", "WIN", "MAC", "LNX", "AND", "DECK", "XBOX", "360", "WIIU", "NX",
-	"PSP", "VITA", "XBS" };
-static char const *const platform_names[] = {
-	"", "Windows", "Mac", "Linux", "Android", "Steam Deck", "Xbox", "Xbox 360", "Wii U", "Switch",
-	"PSP", "Vita", "Xbox Series",
-};
+#define PLATFORM_TAG(platform, key, tag, name, caps_name) tag,
+#define PLATFORM_NAME(platform, key, tag, name, caps_name) name,
+static char const *const platform_tags[] = { DELTA_PLATFORM_NAMES(PLATFORM_TAG) };
+static char const *const platform_names[] = { DELTA_PLATFORM_NAMES(PLATFORM_NAME) };
+#undef PLATFORM_TAG
+#undef PLATFORM_NAME
 
 /* the row's tag before the name: the host's platform, SRV for a dedicated
 server; "" when the list does not say */

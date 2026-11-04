@@ -94,6 +94,7 @@ their handlers open opens.
 #include "networking/network_connection.h"
 /* (the game list's filter and the campaign levels: every build) */
 #include "../src/browser.h"
+#include "delta.h"
 #ifdef HALO_GAME_BROWSER
 #include "halo_port_limits.h"
 #endif
@@ -4801,9 +4802,9 @@ static int lobby_browser_version_state(struct p2p_listing const *game, short *ve
 32)"; a listing the list lacks while it answers is OpenCE's; "" if not known */
 static void lobby_browser_host_text(struct p2p_listing const *game, wchar_t *text, short size)
 {
-	static wchar_t const *const platforms[] = {
-		L"", L"WINDOWS", L"MAC", L"LINUX", L"ANDROID", L"STEAM DECK", L"XBOX", L"XBOX 360", L"WII U", L"SWITCH",
-	};
+#define PLATFORM_CAPS_NAME(platform, key, tag, name, caps_name) JOIN_WIDE(caps_name),
+	static wchar_t const *const platforms[] = { DELTA_PLATFORM_NAMES(PLATFORM_CAPS_NAME) };
+#undef PLATFORM_CAPS_NAME
 	struct browser_game const *listed = lobby_browser_listed_game(game);
 	boolean dedicated;
 	wchar_t const *platform;
