@@ -745,8 +745,12 @@ void interface_draw_screen(
 		rasterizer_screen_effect(NULL);
 	}
 
+	/* port: the HUD in the interface's units, after the screen effect
+	(render_interface_begin) */
+	render_interface_begin(FALSE);
 	hud_draw_screen();
 	game_engine_post_rasterize();
+	render_interface_end(FALSE);
 
 	return;
 }

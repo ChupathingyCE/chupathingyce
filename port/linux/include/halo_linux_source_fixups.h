@@ -41,6 +41,18 @@ two (display.shadow_resolution) */
 long halo_shadow_map_scale(void);
 /* while TRUE, drawing shifts right to center 640-column layouts */
 void halo_screen_ui_offset(unsigned char centered);
+#ifdef HALO_CONSOLE_ANAMORPHIC_SCREEN
+/* a console's 640 pixels stretched to a 16:9 television (halo_console_features.h):
+the present flags that ask for the mode, the interface's units for one of the
+pixels' columns and back, and the mode in debug.txt once the device is made */
+unsigned long halo_screen_present_flags(void);
+long halo_screen_interface_x(long physical_x);
+long halo_screen_physical_x(long interface_x);
+void halo_screen_device_report(void);
+/* the stretched picture's width for each of the 640 pixels' columns, 1 while
+the interface is drawn in its own wider units (rasterizer_xbox.c) */
+float rasterizer_screen_pixel_aspect(void);
+#endif
 /* names a model lighting vertex program, whose draws can be lit for each
 pixel (port/linux/src/d3d8_gl.c, display.per_pixel_lighting) */
 void halo_vertex_shader_lighting(unsigned long handle);

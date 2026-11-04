@@ -819,7 +819,86 @@ extern unsigned long renderstate_table[D3DRS_MAX];
 extern unsigned long texturestagestate_table[D3DTSS_MAXSTAGES][D3DTSS_MAX];
 extern D3DBaseTexture *texture_table[D3DTSS_MAXSTAGES];
 
+#ifdef HALO_CONSOLE_ANAMORPHIC_SCREEN
+/* port: a console's 640 pixels stretched to a 16:9 television
+(halo_console_features.h). The 3D view and everything drawn into it stay in
+the pixels; the interface (the HUD, the menus and their text) is laid out in
+the stretched picture's units, halo_screen_width() of them across, while it
+draws: rasterizer_interface_begin gives the window and the screen those
+units, and rasterizer_set_target turns them back into pixels for the
+viewport, so that the interface's quads, whose screen constants come from the
+window's width, land narrower by as much as the television widens them. The
+menus' 640 columns are centered in the wider screen, as the desktop centers
+them (halo_screen_ui_offset): their quads and text shift right by
+rasterizer_interface_offset_x. */
+static struct
+{
+	boolean active;
+	boolean centered;
+	rectangle2d viewport_bounds;
+	rectangle2d window_bounds;
+	rectangle2d screen_bounds;
+	rectangle2d frame_bounds;
+} rasterizer_interface;
+#endif
+
 /* ---------- public code */
+
+#ifdef HALO_CONSOLE_ANAMORPHIC_SCREEN
+static void rasterizer_interface_rectangle(
+	rectangle2d *bounds)
+{
+	bounds->x0 = (short)halo_screen_interface_x(bounds->x0);
+	bounds->x1 = (short)halo_screen_interface_x(bounds->x1);
+}
+
+void rasterizer_interface_begin(
+	boolean centered)
+{
+	if (rasterizer_interface.active)
+		rasterizer_interface_end();
+	rasterizer_interface.active = TRUE;
+	rasterizer_interface.centered = centered;
+	rasterizer_interface.viewport_bounds = global_window_parameters.camera.viewport_bounds;
+	rasterizer_interface.window_bounds = global_window_parameters.camera.window_bounds;
+	rasterizer_interface.screen_bounds = rasterizer_globals.reserved04.screen_bounds;
+	rasterizer_interface.frame_bounds = rasterizer_globals.reserved04.frame_bounds;
+	rasterizer_interface_rectangle(&global_window_parameters.camera.viewport_bounds);
+	rasterizer_interface_rectangle(&global_window_parameters.camera.window_bounds);
+	rasterizer_interface_rectangle(&rasterizer_globals.reserved04.screen_bounds);
+	rasterizer_interface_rectangle(&rasterizer_globals.reserved04.frame_bounds);
+}
+
+void rasterizer_interface_end(
+	void)
+{
+	if (!rasterizer_interface.active)
+		return;
+	global_window_parameters.camera.viewport_bounds = rasterizer_interface.viewport_bounds;
+	global_window_parameters.camera.window_bounds = rasterizer_interface.window_bounds;
+	rasterizer_globals.reserved04.screen_bounds = rasterizer_interface.screen_bounds;
+	rasterizer_globals.reserved04.frame_bounds = rasterizer_interface.frame_bounds;
+	rasterizer_interface.active = FALSE;
+	rasterizer_interface.centered = FALSE;
+}
+
+real rasterizer_interface_offset_x(
+	void)
+{
+	return rasterizer_interface.centered ?
+		0.5f * (real)(halo_screen_width() - RASTERIZER_SCREEN_WIDTH) :
+		0.0f;
+}
+
+float rasterizer_screen_pixel_aspect(
+	void)
+{
+	return rasterizer_interface.active ?
+		1.0f :
+		(float)halo_screen_width() / (float)RASTERIZER_SCREEN_WIDTH;
+}
+#endif
+
 
 void _rasterizer_reset_state(
 	void)
@@ -1566,6 +1645,15 @@ void rasterizer_set_target(
 		viewport.Y = global_window_parameters.camera.viewport_bounds.y0;
 		viewport.Width = global_window_parameters.camera.viewport_bounds.x1 -
 			global_window_parameters.camera.viewport_bounds.x0;
+#ifdef HALO_CONSOLE_ANAMORPHIC_SCREEN
+		/* (the interface's units back to pixels) */
+		if (rasterizer_interface.active)
+		{
+			viewport.X = halo_screen_physical_x(global_window_parameters.camera.viewport_bounds.x0);
+			viewport.Width = halo_screen_physical_x(global_window_parameters.camera.viewport_bounds.x1) -
+				viewport.X;
+		}
+#endif
 		viewport.Height = global_window_parameters.camera.viewport_bounds.y1 -
 			global_window_parameters.camera.viewport_bounds.y0;
 	}
@@ -1818,6 +1906,10 @@ boolean rasterizer_preinitialize__fill_you_up_with_the_devils_cock(
 #endif
 		d3d_present_parameters.BackBufferHeight = RASTERIZER_SCREEN_HEIGHT;
 		d3d_present_parameters.FullScreen_PresentationInterval = D3DPRESENT_INTERVAL_DEFAULT;
+#ifdef HALO_CONSOLE_ANAMORPHIC_SCREEN
+		/* (the mode rasterizer_initialize asks for, so that it stays) */
+		d3d_present_parameters.Flags |= halo_screen_present_flags();
+#endif
 
 		result = IDirect3D8_CreateDevice(
 			d3d,
@@ -2949,6 +3041,12 @@ boolean _rasterizer_initialize(
 			rasterizer_globals.reserved04.screen_bounds.x0;
 		d3d_present_parameters.BackBufferHeight = rasterizer_globals.reserved04.screen_bounds.y1 -
 			rasterizer_globals.reserved04.screen_bounds.y0;
+#ifdef HALO_CONSOLE_ANAMORPHIC_SCREEN
+		/* port: widescreen when the dashboard has it (display.widescreen):
+		Direct3D then picks the mode's 16:9 row, at 480p where the
+		dashboard allows it and the cable is component, as without */
+		d3d_present_parameters.Flags |= halo_screen_present_flags();
+#endif
 		switch (rasterizer_globals.framerate_throttle_target)
 		{
 		case NONE:
@@ -3009,6 +3107,9 @@ boolean _rasterizer_initialize(
 		{
 			D3DCOLOR *palette_data;
 
+#ifdef HALO_CONSOLE_ANAMORPHIC_SCREEN
+			halo_screen_device_report();
+#endif
 			IDirect3DDevice8_GetDeviceCaps(global_d3d_device, &global_d3d_caps);
 			SetupSmartStates();
 			palette_data = NULL;

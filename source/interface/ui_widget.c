@@ -8284,7 +8284,7 @@ void render_ui_widgets(
 		{
 			real alpha;
 
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_WIDE_INTERFACE
 			/* the whole screen, around the centered 640 columns */
 			bounds.x0 = (short)(-(halo_screen_width() - 640) / 2);
 			bounds.x1 = (short)(640 + (halo_screen_width() - 640) / 2);

@@ -88,7 +88,7 @@ void hud_calculate_point(
 	boolean in_multiplayer,
 	real override_scale,
 	point2d *result);
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_WIDE_INTERFACE
 boolean hud_multitexture_overlays_follow_zoom(
 	struct tag_block const *multitexture_overlays);
 boolean hud_number_shows_only_when_zoomed(
