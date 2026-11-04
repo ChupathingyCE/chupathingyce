@@ -29,12 +29,14 @@ enum host_evidence_kind
 	_host_evidence_movement,
 	/* a vehicle prediction out of the vehicle bounds (network_objects.c) */
 	_host_evidence_vehicle,
-	/* a hit report that failed validation (network_damage.c) */
+	/* a hit report that failed validation (network_damage.c), a line of
+	sight's refusal aside */
 	_host_evidence_hit_report,
 	/* a window (two seconds) the machine's clock ran fast, its predictions
 	refused (distributed_note_client_clock) */
 	_host_evidence_clock,
-	/* a hit refused because the shooter could not see the target */
+	/* a hit report refused because the shooter could not see the target
+	(network_damage.c, network.hit_line_of_sight) */
 	_host_evidence_line_of_sight,
 	/* a client message refused as malformed (size, count, values) */
 	_host_evidence_malformed,

@@ -181,7 +181,7 @@ their own position not corrected), so leave this off on a real server.
 | Variable | Default | What it does |
 | --- | --- | --- |
 | `HALO_DATA_ROOT` | the current folder, else the program's | The data folder: `maps/` (with `ui.map`), `maps_ce/`, `maps_md/`, `maps_pc/`, the Xbox map packs' `maps_<pack>/` (`maps_cex/`), `playlists/` (the older `maps/ce/`, `md_maps/` and OpenCE's `custom_maps/` are read too). The server's log goes in `logs/` here (`logs/debug.txt`). |
-| `HALO_SAVE_ROOT` | `~/.local/share/chupathingyce` (Windows: `%APPDATA%\ChupathingyCE`; a Windows service: `saves` in the data folder) | Where the server keeps its saves (the game's profile and scratch files, about 33 MB). Give each server on a machine its own. |
+| `HALO_SAVE_ROOT` | `~/.local/share/chupathingyce` (Windows: `%APPDATA%\ChupathingyCE`; `start-server.bat` and a Windows service: `saves` in the data folder) | Where the server keeps its saves (the game's profile and scratch files, about 33 MB). Give each server on a machine its own. |
 | `HALO_LOG_ROOT` | `logs/` in the data folder | Where the server's log (`debug.txt`) goes. |
 | `HALO_CACHE_ROOT` | `cache/` in the save folder (`/data/cache` in the Docker image) | Where the server keeps what it can make again. |
 
@@ -190,8 +190,8 @@ the program if it can (an image's or a system folder's program cannot, which
 is fine). Settings in the environment override it. A new file has only the
 settings the server uses: internet play, the game list, Delta Stats, the
 Bomb and Grifball games, downloaded maps, the folders, and a few debug
-settings (full addresses in the log, the telnet console and the network
-tests). The game's display, sound and control settings are left out. The
+settings (full addresses in the log, the telnet console and its limits in
+a public game, and the network tests). The game's display, sound and control settings are left out. The
 server's own settings (name, players, chat and the rest) are not in it:
 they are in `admin/settings.toml`. An older file that has the game's
 settings is left as it is and still works.

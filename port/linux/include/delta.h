@@ -491,8 +491,8 @@ in the build that enforces it, as a host and a dedicated server alike.
 tools/delta_table.py refuses a row that requires a name not listed here. */
 #define DELTA_HOST_PROTECTIONS(X) \
 	X(hit_report_checks, 1) /* each client's hit report checked before the host deals it (network_damage.c): the reporter's own player, damage of a weapon they hold or lately held, a grenade the host saw them throw or the vehicle they drive, the target near where the host had it when the shooter saw it (a second back at most), within the weapon's reach, no more hits than the weapon fires */ \
-	X(hit_line_of_sight, 0) /* a reported hit refused when the host sees the shot blocked between shooter and target: in no build yet */ \
-	X(address_machine_limit, 0) /* a limit on the machines joined from one address (OpenCE's refusal 13): in no build yet (a server takes at most two waiting connections from one address, which is not that) */ \
+	X(hit_line_of_sight, 1) /* a reported hit refused when the host sees the shot blocked between shooter and target (network_damage.c, network.hit_line_of_sight, on by default on hosts and dedicated servers): from 0.9.0 */ \
+	X(address_machine_limit, 0) /* a limit on the machines joined from one address (OpenCE's refusal 13): 0.9.0 has it (network.max_machines_per_address), off by default on a player's host, so 0 until hosts and dedicated servers alike enforce it */ \
 	X(map_votes, 0) /* the host runs OpenCE's map votes (messages 94 and 95): in no build yet */
 /* the most names a row's "requires" may give */
 #define DELTA_REQUIRES_MAXIMUM 16

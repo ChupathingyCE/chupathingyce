@@ -64,7 +64,8 @@ release notes.
 - Evidence for moderators: `sv_evidence [player]`, `GET /v1/evidence` and a
   Refused column in the panel's Players count what the server refused of
   each player's machine this game (movement and vehicle predictions out of
-  bounds, hit reports that failed validation, windows its clock ran fast).
+  bounds, hit reports that failed validation, hits through walls, windows
+  its clock ran fast).
   Moderators and up; reset each game; never sent anywhere, never an
   automatic ban.
 - Betrayal and AFK limits, both off by default: `betrayal_kick`
@@ -82,7 +83,8 @@ release notes.
   Ctrl+C or closing its window stops it and takes its game off the lists.
   `start-server.bat install` (or `--install-service`) makes it a Windows
   service that starts with Windows, restarts after a crash and runs as its
-  own account, not SYSTEM; `--uninstall-service` takes it out.
+  own account, not SYSTEM; `--uninstall-service` takes it out. Both keep
+  the server's saves in `saves` in the data folder, apart from the game's.
 - Map names as Halo PC takes them: commas, brackets, spaces and the rest a
   Windows file name can have (`bigassv2,104@ce`, `[h3]_sandtrap@ce`), in
   `sv_map`, `sv_maps` and playlists. A name with a space goes in double

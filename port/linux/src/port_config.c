@@ -222,6 +222,50 @@ a phone, a handheld console's own 720 on the Switch, which has no "native" */
 	"display has. More is sharper and uses more battery. Changes at once."
 #endif
 
+/* The help of a few settings the dedicated server writes, where the game's
+speaks to a player: the server's own words for them */
+#ifdef HALO_SERVER
+#define ONLINE_HELP \
+	"Host games over the internet with invite links. false keeps the\n" \
+	"server to the local network."
+#define HOST_CHEATS_HELP \
+	"Lets the debug telnet console (debug.telnet_console) change a PUBLIC\n" \
+	"internet game while players are in it. Off by default. The sv_\n" \
+	"commands are not affected."
+#define HOST_CONSOLE_OBJECTS_HELP \
+	"How many objects the debug telnet console may make in each game\n" \
+	"(cheat_all_vehicles, object_create, ...); past it they are refused.\n" \
+	"0: no limit."
+#define PUBLIC_LOBBY_HELP \
+	"List the server's public games in the in-game Server Browser.\n" \
+	"HALO_DEDICATED_PUBLIC decides whether a game is public. false keeps\n" \
+	"even public games out of the browser."
+#define DATA_ROOT_HELP \
+	"The data folder, which holds maps/ and playlists/. Leave it empty for\n" \
+	"the working folder. Use single quotes for Windows paths, like\n" \
+	"'C:\\Servers\\Halo'."
+#else
+#define ONLINE_HELP \
+	"Host and join games over the internet with invite links. false keeps\n" \
+	"you to the local network."
+#define HOST_CHEATS_HELP \
+	"Lets your console and cheats change a PUBLIC internet game you host\n" \
+	"while others are in it. Off by default; when on, Online Games shows\n" \
+	"\"Host cheats on\" for your game. LAN games, private games and games\n" \
+	"with a password always allow them."
+#define HOST_CONSOLE_OBJECTS_HELP \
+	"How many objects your console and cheats may make in each network game\n" \
+	"you host (cheat_all_vehicles, object_create, ...); past it they are\n" \
+	"refused. 8 while an original Xbox plays. 0: no limit."
+#define PUBLIC_LOBBY_HELP \
+	"List public games in Online Games (the Server Browser in the Gearbox\n" \
+	"menus), and show others' games there."
+#define DATA_ROOT_HELP \
+	"The folder that holds the maps folder. Leave it empty for the working\n" \
+	"folder and its assets folder. Use single quotes for Windows paths, like\n" \
+	"'C:\\Games\\Halo'."
+#endif
+
 /* The settings, by section in the order the file has them (config_sections),
 each section's everyday ones first. A setting's comment is its help text in
 the file, and on the setup screen: short plain sentences, what it does and
@@ -736,24 +780,16 @@ static const struct config_setting config_settings[] =
 
 	/* ---- network */
 	{ "network.online", _config_boolean, "true", "HALO_NET_ONLINE", _environment_value,
-		_platform_all | _platform_xbox | _platform_server,
-		"Host and join games over the internet with invite links. false keeps\n"
-		"you to the local network." },
+		_platform_all | _platform_xbox | _platform_server, ONLINE_HELP },
 	{ "network.host_public", _config_boolean, "true", "HALO_NET_HOST_PUBLIC", _environment_value, _platform_all,
 		"New internet games you host start as PUBLIC. false starts them as\n"
 		"PRIVATE." },
 	{ "network.coop_public", _config_boolean, "false", "HALO_NET_COOP_PUBLIC", _environment_value, _platform_all,
 		"New online co-op games start as PUBLIC. false starts them as PRIVATE." },
-	{ "network.host_cheats", _config_boolean, "false", "HALO_NET_HOST_CHEATS", _environment_value, _platform_all,
-		"Lets your console and cheats change a PUBLIC internet game you host\n"
-		"while others are in it. Off by default; when on, Online Games shows\n"
-		"\"Host cheats on\" for your game. LAN games, private games and games\n"
-		"with a password always allow them." },
+	{ "network.host_cheats", _config_boolean, "false", "HALO_NET_HOST_CHEATS", _environment_value,
+		_platform_all | _platform_server, HOST_CHEATS_HELP },
 	{ "network.host_console_objects", _config_integer, "32", "HALO_NET_HOST_CONSOLE_OBJECTS", _environment_value,
-		_platform_all,
-		"How many objects your console and cheats may make in each network game\n"
-		"you host (cheat_all_vehicles, object_create, ...); past it they are\n"
-		"refused. 8 while an original Xbox plays. 0: no limit." },
+		_platform_all | _platform_server, HOST_CONSOLE_OBJECTS_HELP },
 	{ "network.tunnel_port", _config_integer, DEFAULT_TUNNEL_PORT, "HALO_NET_TUNNEL_PORT", _environment_value,
 		_platform_all | _platform_xbox | _platform_server,
 		"The UDP port for internet play. Forward it on your router if players\n"
@@ -779,9 +815,7 @@ static const struct config_setting config_settings[] =
 		"With false, the log has the link, and the Gearbox menus' Server\n"
 		"Settings copy it." },
 	{ "network.public_lobby", _config_boolean, "true", "HALO_NET_PUBLIC_LOBBY", _environment_value,
-		_platform_all | _platform_server,
-		"List public games in Online Games (the Server Browser in the Gearbox\n"
-		"menus), and show others' games there." },
+		_platform_all | _platform_server, PUBLIC_LOBBY_HELP },
 	{ "network.ping_games", _config_boolean, "true", "HALO_NET_PING_GAMES", _environment_value, _platform_all,
 		"Ping the hosts listed in Online Games. false shows estimated pings\n"
 		"only." },
@@ -979,9 +1013,7 @@ static const struct config_setting config_settings[] =
 
 	/* ---- paths */
 	{ "paths.data", _config_string, "\"\"", "HALO_DATA_ROOT", _environment_value, _platform_desktop | _platform_server,
-		"The folder that holds the maps folder. Leave it empty for the working\n"
-		"folder and its assets folder. Use single quotes for Windows paths, like\n"
-		"'C:\\Games\\Halo'." },
+		DATA_ROOT_HELP },
 	{ "paths.saves", _config_string, "\"\"", "HALO_SAVE_ROOT", _environment_value, _platform_desktop | _platform_server,
 		"Where saved games and profiles go. Leave it empty for the usual place." },
 	{ "paths.logs", _config_string, "\"\"", "HALO_LOG_ROOT", _environment_value, _platform_desktop | _platform_server,

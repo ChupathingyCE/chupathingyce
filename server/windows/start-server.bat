@@ -7,7 +7,7 @@ rem   start-server.bat install [name]   makes a Windows service of it, with
 rem                                     these settings (as administrator)
 rem   start-server.bat uninstall [name] takes the service out again
 
-rem the data folder: this file's (maps\, playlists\, logs\)
+rem the data folder: this file's (maps\, playlists\, logs\, saves\)
 cd /d "%~dp0"
 
 rem ---------- your settings
@@ -26,6 +26,9 @@ rem the control panel, on this machine only (http://127.0.0.1:8080)
 rem set HALO_DEDICATED_CONTROL=8080
 rem a fixed UDP port for internet play, for a firewall rule
 rem set HALO_NET_TUNNEL_PORT=2302
+rem the server's saves: the saves folder here, as a service's, not your
+rem own game's (%APPDATA%\ChupathingyCE)
+set "HALO_SAVE_ROOT=%~dp0saves"
 
 rem ---------- the end of the settings
 

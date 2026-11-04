@@ -15,7 +15,7 @@ else the disc's loading.tga, else Chupathingy's. A picture is used only if
 progress_bar.c can read it (an uncompressed 24-bit TGA of 320 by 240).
 
 A console's build leaves this out (HALO_CONSOLE_NO_LOADING_PICTURE,
-halo_port_features.h): it shows the disc's picture, as the Xbox did.
+halo_console_features.h): it shows the disc's picture, as the Xbox did.
 */
 
 #ifndef HALO_CONSOLE_NO_LOADING_PICTURE
