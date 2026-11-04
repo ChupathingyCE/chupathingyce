@@ -6,8 +6,7 @@ The game and the platform layer are the native 64-bit Android build's
 (chupathingyce's tools/android64_build.py): the Linux port's (port/linux),
 compiled as 64-bit code (tools/lp64_build.py: HALO_64BIT and the `long`
 rewrite) with HALO_ANDROID, which gives it OpenGL ES 3, the touch controls'
-hooks and the mobile storage, and HALO_IOS where iOS differs
-(patches/chupathingyce). What the Android build's host does around the game
+hooks and the mobile storage, and HALO_IOS where iOS differs. What the Android build's host does around the game
 is port/ios/src: the entry point (ios_main.c), the OpenGL ES helpers
 (ios_gl.c), the touch controls and their hooks (ios_touch.m) and the stack
 the game runs on (ios_stack.S).
@@ -17,14 +16,14 @@ The result is build/ios/libhalo.a, a static library the app links
 objects linked with SDL3 and iOS's frameworks, which fails if anything the
 game calls is missing.
 
-Run from the game's folder, which the 64-bit build's rules are written for:
+Run from the repository's root, which the 64-bit build's rules are written
+for (port/ios/README.md):
 
-    cd chupathingyce
-    python3 configure.py --release --console-port ../port/ios --ios-sdl ../build/sdl3-ios
+    python3 configure.py --release --console-port port/ios --ios-sdl build/sdl3-ios
     ninja ios
 
---ios-sdl is SDL3 built and installed for iOS (.github/workflows/engine.yml
-builds it): its include/ and lib/libSDL3.a.
+--ios-sdl is SDL3 built and installed for iOS (port/ios/README.md): its
+include/ and lib/libSDL3.a.
 
 The Apple TV's is the same game, built against tvOS's SDK (OpenGL ES 3 is
 there too, deprecated as on iOS) into build/tvos/libhalo.a: --tvos-sdl in

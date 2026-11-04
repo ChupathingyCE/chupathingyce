@@ -1,5 +1,5 @@
-# The app, as XcodeGen makes its Xcode project (`xcodegen generate` in app/,
-# which .github/workflows/ios.yml runs on the macOS runner): a UIKit launcher
+# The app, as XcodeGen makes its Xcode project (`xcodegen generate` in
+# port/ios/app: port/ios/README.md): a UIKit launcher
 # in Swift that imports the game's data and starts the game, linked in from
 # lib/libhalo.a (port/ios/build.py) with lib/libSDL3.a.
 #
@@ -84,7 +84,7 @@ targets:
         SWIFT_OBJC_BRIDGING_HEADER: Sources/Shared/Bridging.h
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         GENERATE_INFOPLIST_FILE: NO
-        # the game and SDL3 (the workflow puts them in lib/); -ObjC for the
+        # the game and SDL3 (port/ios/README.md puts them in lib/); -ObjC for the
         # Objective-C classes of both, which nothing names until they run
         LIBRARY_SEARCH_PATHS: "$(PROJECT_DIR)/lib"
         OTHER_LDFLAGS: ["-lhalo", "-lSDL3", "-ObjC"]
@@ -115,7 +115,7 @@ targets:
       - Sources/Shared
       - Sources/tvOS
       - ResourcesTV
-      # (the iPhone's art and internet play's files, the workflow's copies)
+      # (the iPhone's art and internet play's files, copied in by port/ios/README.md's steps)
       - path: Resources/background.png
       - path: Resources/brokers.txt
         optional: true

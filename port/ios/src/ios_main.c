@@ -162,7 +162,7 @@ static void write_brokers(const char *save_root)
 /* the certificate authorities HTTPS is checked against (the game list, the
 Delta table: posix_browser.c, through SSL_CERT_FILE): iOS keeps its own
 where no app reads them, so the bundle carries Mozilla's, as curl publishes
-them (.github/workflows/ios.yml) */
+them (port/ios/README.md) */
 static void use_certificates(void)
 {
 	char path[1024];
