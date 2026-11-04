@@ -18,7 +18,7 @@ and OpenCE players are kicked and banned like anyone else.
 | | moderator | admin | owner |
 | --- | --- | --- | --- |
 | Status, players, bans, the log, the audit file, playlists, settings | yes | yes | yes |
-| Warn a player (`sv_warn`) | yes | yes | yes |
+| Warn a player (`sv_warn`), see the evidence (`sv_evidence`) | yes | yes | yes |
 | Mute a player's chat (`sv_mute`, `sv_unmute`), a server message (`sv_say`) | yes | yes | yes |
 | Kick (`sv_kick`), move a player to a team (`sv_team`) | yes | yes | yes |
 | Ban for up to 7 days (`sv_ban <player> 2h`) | yes | yes | yes |
@@ -207,7 +207,7 @@ Start a server with the panel on and no playlist (`HALO_DEDICATED` not
 set), and it starts for the setup instead of exiting:
 
 ```sh
-HALO_DEDICATED_CONTROL=8080 ./chupathingy-server
+HALO_DEDICATED_CONTROL=8080 ./chupathingyce-server
 ```
 
 It waits, not hosting, until you finish the setup in the panel. Make the
@@ -292,8 +292,9 @@ behind any router.
 1. On the server's console (or the panel's Settings, as owner): `sv_link`.
    The server prints a link, `https://stats.chupathingy.org/servers/link?code=<code>`
    (the panel shows it too, with a button to copy it).
-2. Open it, signed in to the site, and confirm (the code is good for 10
-   minutes; it can also be typed in at Servers, Link a server). The panel
+2. Open it, signed in to the site, and confirm (the code is good once, for
+   30 minutes, as the console says; it can also be typed in at Servers, Link
+   a server). The panel
    shows "Linked" by itself.
 3. On the server's page on the site, give other accounts a role: moderator
    or admin. Their games' moderator keys (from Link Profile) come with the

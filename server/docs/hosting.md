@@ -33,7 +33,7 @@ Halo PC maps go in folders next to `maps`: `maps_ce` for Custom Edition,
 |-----|----------|
 | [Docker](#docker) | A Linux server or VPS. It restarts by itself and updates with one command. |
 | [Linux](#linux) | Any Linux machine. One file, nothing to install. |
-| Windows | Not yet. A Windows server is planned. |
+| [Windows](#windows) | A 64-bit Windows 10 or 11 PC, or Windows Server. |
 
 ## Docker
 
@@ -88,6 +88,26 @@ Leave it running. Ctrl+C stops it. The log is `logs/debug.txt` in the data
 folder. To keep it running after you log out, use Docker or the systemd
 service in [Docker and systemd](docker.md).
 
+## Windows
+
+Get `chupathingyce-server-windows-x64.zip` from the
+[latest release](https://github.com/ChupathingyCE/chupathingyce/releases/latest).
+It is for 64-bit Windows 10, Windows 11 and Windows Server.
+
+1. Unpack it into a folder of its own. That folder is your data folder. It
+   already has `chupathingyce-server.exe`, `start-server.bat` and the
+   `playlists` folder.
+2. Make a `maps` folder in it and copy in your maps, as above.
+3. Open `start-server.bat` in Notepad. Set your playlist and your
+   server's name, then save it.
+4. Double-click `start-server.bat`. If Windows Firewall asks, allow the
+   server.
+
+Ctrl+C or closing the window stops it. To run it as a Windows service
+that starts with Windows, open a command prompt as administrator in the
+data folder and run `start-server.bat install`. The zip's `README.txt`
+has the details.
+
 ## Ports
 
 On a home connection you usually don't need to forward any ports. Players
@@ -123,6 +143,13 @@ The first time it starts, the server prints a one-time setup link on its
 console (`docker compose logs` with Docker) and writes the same code to
 `control_setup_code.txt` in the data folder. Open the link, choose a name
 and a password, then set up a second factor in My account.
+
+You can also do the whole setup in the browser. Start the server with the
+panel on and no playlist (no `HALO_DEDICATED`). It waits instead of
+hosting. Make your account, then pick the server's name, how many players
+it takes, a playlist and whether it shows in the Server Browser. Press
+Start the server and it hosts. More in
+[First-run setup](moderation.md#first-run-setup-no-console-needed).
 
 To reach a panel on `127.0.0.1` from your own computer, use an SSH tunnel:
 

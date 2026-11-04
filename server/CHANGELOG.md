@@ -6,6 +6,23 @@ release notes.
 
 ## Unreleased
 
+- Host rules, off by default as on the Xbox: `allow_player_names`
+  (`HALO_DEDICATED_ALLOW_PLAYER_NAMES`) lets Chupathingy players show names
+  above heads, and `allow_follow_camera`
+  (`HALO_DEDICATED_ALLOW_FOLLOW_CAMERA`) lets them watch a follow camera
+  while they wait to respawn. Team changes during a game (`team_change`)
+  are now `off` unless set; `balanced` and `allow` work as before, and
+  players see CHANGE TEAMS only where the server allows it. The rules reach
+  Chupathingy players over Delta Peer; OpenCE players play as before.
+- Auto-announce: with `HALO_NET_ANNOUNCE=latest` (the default), the server
+  announces the newest OpenCE network version the signed table proves for
+  hosting, checks for a new table every 30 minutes, and moves to a newer
+  number between games without a restart. A table row may name host
+  protections a number needs; a server without them keeps announcing its
+  own number and logs why. A number in `HALO_NET_ANNOUNCE` pins it.
+- Halo 2 anniversary game types and playlist in `server/events/h2-anniversary`
+  (not in the download): seven game types and a 12-entry playlist on the
+  stock maps, from options the game already has.
 - A betrayed player respawns on the normal timer; the betrayer takes the game type's suicide penalty (plus any friendly fire penalty) on their next respawn. Suicides and deaths nobody caused keep the suicide penalty.
 - Hits through walls are refused: a client's reported hit counts only when
   the shot had a clear line to its target from where the server had the
