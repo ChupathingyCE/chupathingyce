@@ -747,7 +747,8 @@ static const struct config_setting config_settings[] =
 	{ "network.host_cheats", _config_boolean, "false", "HALO_NET_HOST_CHEATS", _environment_value, _platform_all,
 		"Lets your console and cheats change a PUBLIC internet game you host\n"
 		"while others are in it. Off by default; when on, Online Games shows\n"
-		"\"Host cheats on\" for your game. LAN and private games always allow them." },
+		"\"Host cheats on\" for your game. LAN games, private games and games\n"
+		"with a password always allow them." },
 	{ "network.host_console_objects", _config_integer, "32", "HALO_NET_HOST_CONSOLE_OBJECTS", _environment_value,
 		_platform_all,
 		"How many objects your console and cheats may make in each network game\n"
@@ -779,7 +780,8 @@ static const struct config_setting config_settings[] =
 		"Settings copy it." },
 	{ "network.public_lobby", _config_boolean, "true", "HALO_NET_PUBLIC_LOBBY", _environment_value,
 		_platform_all | _platform_server,
-		"List public games in the Server Browser, and show others' games there." },
+		"List public games in Online Games (the Server Browser in the Gearbox\n"
+		"menus), and show others' games there." },
 	{ "network.ping_games", _config_boolean, "true", "HALO_NET_PING_GAMES", _environment_value, _platform_all,
 		"Ping the hosts listed in Online Games. false shows estimated pings\n"
 		"only." },
@@ -921,7 +923,8 @@ static const struct config_setting config_settings[] =
 		"The OpenCE network version the games you host announce. \"latest\"\n"
 		"follows the newest the signed legacy table proves, so OpenCE's newest\n"
 		"players see your games. A number pins it, like 32 for a server meant\n"
-		"for console players on older builds." },
+		"for console players on older builds. A number the table does not allow\n"
+		"for hosting is ignored, and \"latest\" is used." },
 	{ "network.legacy_table", _config_string, "\"\"", "HALO_LEGACY_TABLE", _environment_value,
 		_platform_all | _platform_server,
 		"For testing only: an unsigned legacy table file that sets the OpenCE\n"
