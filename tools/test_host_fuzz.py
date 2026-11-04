@@ -83,7 +83,7 @@ def build_game(name, directory, cc):
                              + "".join(f"\tsizeof({entry}),\n" for entry in messages.message_names()) + "};\n")
             extra["source"] = str(sizes)
         command = messages.compile_command(build_name, source, output, extra)
-        command[0] = cc
+        command = [cc, *command[command.index("clang") + 1:]] if "clang" in command[:2] else [cc, *command[1:]]
         result = subprocess.run(command, capture_output=True, text=True, cwd=ROOT)
         if result.returncode != 0:
             raise RuntimeError(f"{name}: the build failed\n{result.stdout}{result.stderr}")

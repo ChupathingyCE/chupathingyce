@@ -387,6 +387,12 @@ static struct peer *set_up(int is_host)
 	struct p2p_candidate candidate = { 0x0200007F, 0x3412 };
 	int index;
 
+	/* (the last run's streams let go, so that nothing is left allocated) */
+	for (index = 0; index < MAXIMUM_STREAMS; index++)
+	{
+		if (p2p.streams[index].used && p2p.streams[index].kcp)
+			ikcp_release(p2p.streams[index].kcp);
+	}
 	memset(&p2p, 0, sizeof(p2p));
 	next_socket = 10;
 	clock_now = 7000000;
