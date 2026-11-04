@@ -294,7 +294,8 @@ SERVER_WRITTEN = ["game.bomb_spawns", "game.downloaded_maps", "network.tunnel_po
 SERVER_LEFT_OUT = ["display.vsync", "display.interpolation", "display.anti_aliasing", "display.shadow_resolution", "audio.volume",
 	"input.mouse_sensitivity", "controls.move_forward", "chat.enabled", "game.start_with_one_player",
 	"game.language", "network.chat", "network.team_change", "network.copy_to_clipboard", "launcher.show_at_start",
-	"update.auto", "discord.presence", "crash_reports.upload", "debug.null_renderer", "debug.gpu_stats"]
+	"update.auto", "discord.presence", "crash_reports.upload", "debug.null_renderer", "debug.gpu_stats",
+	"display.player_names", "display.follow_camera"]
 SERVER_SECTIONS = ["game", "network", "paths", "debug"]
 
 
