@@ -694,7 +694,7 @@ static struct peer *find_peer_by_address(unsigned long address)
 
 /* ---------- this machine's hardware id */
 
-#if defined(_WIN32) || defined(__APPLE__)
+#if defined(_WIN32) || (defined(__APPLE__) && !defined(HALO_IOS))
 /* win32_p2p.c's: the SMBIOS system UUID, else the registry's MachineGuid;
 posix_net.c's on macOS: the hardware UUID */
 int posix_hardware_id_source(char *text, int size);
@@ -703,10 +703,11 @@ int posix_hardware_id_source(char *text, int size);
 /* what this machine is known by, as text (none: 0): Windows' SMBIOS UUID or
 MachineGuid (win32_p2p.c); the Mac's hardware UUID (posix_net.c); Linux's
 /etc/machine-id; Android's ANDROID_ID, which only the app's Java can read
-and puts in hardware_id.txt (LauncherActivity.java) */
+and puts in hardware_id.txt (LauncherActivity.java), and iOS's vendor
+identifier, which the iOS port's entry point puts there */
 static int hardware_id_source(char *text, int size)
 {
-#if defined(_WIN32) || defined(__APPLE__)
+#if defined(_WIN32) || (defined(__APPLE__) && !defined(HALO_IOS))
 	return posix_hardware_id_source(text, size);
 #else
 	static const char *const linux_paths[] = { "/etc/machine-id", "/var/lib/dbus/machine-id" };

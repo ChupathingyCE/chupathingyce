@@ -1455,7 +1455,7 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 #endif
 		return FALSE;
 	}
-#ifdef __APPLE__
+#if defined(__APPLE__) && !defined(HALO_IOS)
 	{
 		/* port/macos/src/macos_video.c */
 		void macos_set_swap_interval(int interval);
@@ -1507,7 +1507,7 @@ void platform_display_apply(void)
 	if (!platform_window)
 		return;
 #endif
-#ifdef __APPLE__
+#if defined(__APPLE__) && !defined(HALO_IOS)
 	{
 		/* (the context's own interval, as at start-up: SDL's stays off) */
 		void macos_set_swap_interval(int interval);
@@ -1523,6 +1523,15 @@ void platform_video_drawable_size(int *width, int *height)
 {
 	SDL_GetWindowSizeInPixels(platform_window, width, height);
 }
+
+#ifdef HALO_IOS
+/* (SDL's view makes it with the context: xgpu.h) */
+unsigned int platform_window_framebuffer(void)
+{
+	return (unsigned int)SDL_GetNumberProperty(SDL_GetWindowProperties(platform_window),
+		SDL_PROP_WINDOW_UIKIT_OPENGL_FRAMEBUFFER_NUMBER, 0);
+}
+#endif
 
 /* with vsync off, the time between frames display.max_fps asks for (0:
 twice the display's refresh rate), or 0 for no limit. A GPU never left idle
@@ -2369,7 +2378,7 @@ void platform_pump_events(void)
 			break;
 #endif
 		case SDL_EVENT_GAMEPAD_ADDED:
-#ifdef HALO_ANDROID
+#if defined(HALO_ANDROID) && !defined(HALO_IOS)
 			/* (the guest reaches SDL only through host_imports.list, which
 			has no SDL_GetGamepadName) */
 			SDL_OpenGamepad(event.gdevice.which);

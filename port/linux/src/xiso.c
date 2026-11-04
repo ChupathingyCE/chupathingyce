@@ -54,8 +54,9 @@ a bink folder, or a movie that cannot be copied, does not fail the
 extraction: the game skips movies it cannot find.
 */
 
-/* (the desktop ports only: the Android app imports the game data itself) */
-#ifndef HALO_ANDROID
+/* (the desktop ports and iOS's launcher: the Android app imports the game
+data itself) */
+#if !defined(HALO_ANDROID) || defined(HALO_IOS)
 
 #ifdef HALO_EXTRACTOR_STANDALONE
 /* Built for the Switch host, which calls this from its own start-up rather

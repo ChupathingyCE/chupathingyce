@@ -1319,8 +1319,8 @@ void ui_overlay_present_to(unsigned int framebuffer, int width, int height)
 	overlay_target_framebuffer = 0;
 }
 #else
-/* (the window's) */
-#define overlay_target_framebuffer 0
+/* (the window's: iOS's is SDL's view's own, 0 elsewhere) */
+#define overlay_target_framebuffer platform_window_framebuffer()
 #endif
 
 void ui_overlay_present(int x, int y, int width, int height, int window_width, int window_height)

@@ -39,6 +39,15 @@ void host_gl_fence_frame(unsigned int slot);
 void host_gl_wait_frame(unsigned int slot);
 #endif
 
+/* the window's framebuffer, which the frame is presented into: 0 but on
+iOS, which has no default framebuffer, and draws the window from the one
+SDL makes for it (sdl_platform.c) */
+#ifdef HALO_IOS
+unsigned int platform_window_framebuffer(void);
+#else
+#define platform_window_framebuffer() 0
+#endif
+
 /* ---------- GL state
 
 The device caches the GL state it sets for draws (d3d8_gl.c); code that
