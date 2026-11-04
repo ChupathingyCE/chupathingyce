@@ -1,0 +1,30 @@
+# H2 Slayer for the HaloMD Halo 2 maps: H2 Slayer with the map's own
+# starting weapons (the battle rifle and magnum where the map gives them, the
+# SMG where it gives that). On these maps the generic start is no weapons at
+# all, so h2_slayer is for the Xbox maps only.
+base = "team_slayer"
+name = "H2 Slayer"
+score_limit = 50
+time_limit = 15
+
+[players]
+shields = true
+respawn_time = 5
+suicide_penalty = 5
+
+[items]
+starting_equipment = "map"
+weapon_set = "normal"
+
+[indicators]
+objectives = "motion_tracker"
+players_on_radar = "all"
+friends_on_screen = true
+
+[team_play]
+friendly_fire = "off"
+auto_balance = true
+
+[vehicles]
+red = "none"
+blue = "none"

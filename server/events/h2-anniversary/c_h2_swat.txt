@@ -1,0 +1,13 @@
+# [C] H2 SWAT: Halo 2 SWAT on the small HaloMD Halo 2 maps. The battle
+# rifle and magnum where the map starts with them (Beaver Creek,
+# h2_swat_map), the magnum on the others (h2_swat). The last entry is free
+# for all, for a lone player.
+
+# map              game type
+sanctuary_7@md     h2_swat
+ivorytower_1@md    h2_swat
+beaverc_2@md       h2_swat_map
+sanctuary_7@md     h2_swat
+ivorytower_1@md    h2_swat
+beaverc_2@md       h2_swat_map
+beaverc_2@md       h2_swat_ffa

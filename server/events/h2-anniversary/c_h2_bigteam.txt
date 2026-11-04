@@ -1,0 +1,10 @@
+# [C] H2 Big Team: Coagulation (the HaloMD Halo 2 map), Team Slayer and CTF
+# in turn, with the map's own starting weapons. The last entry is free for
+# all, for a lone player.
+
+# map              game type
+coagulat_1@md      h2_slayer_map
+coagulat_1@md      h2_ctf_map
+coagulat_1@md      h2_slayer_map
+coagulat_1@md      h2_ctf_map
+coagulat_1@md      h2_ffa_map

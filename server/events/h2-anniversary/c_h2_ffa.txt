@@ -1,0 +1,10 @@
+# [C] H2 FFA: Halo 2 Slayer and Rockets, free for all, on the small HaloMD
+# Halo 2 maps, with the map's own starting weapons.
+
+# map              game type
+beaverc_2@md       h2_ffa_map
+sanctuary_7@md     h2_rockets
+ivorytower_1@md    h2_ffa_map
+beaverc_2@md       h2_rockets
+sanctuary_7@md     h2_ffa_map
+ivorytower_1@md    h2_rockets
