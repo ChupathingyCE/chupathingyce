@@ -258,7 +258,7 @@ not be part of our community.
   beside them in `port/third_party`. The 64-bit desktop builds' test
   renderer uses bgfx, bx and bimg by Branimir Karadžić (BSD-2-Clause), with
   glslang and SPIRV-Cross (Khronos, BSD-3-Clause and Apache-2.0), fetched
-  at build time with their licenses (`tools/bgfx_build.py`).
+  at build time (`tools/bgfx_build.py`). Their licenses ship with those builds.
 
 <details>
 <summary><b>Contributors</b></summary>
