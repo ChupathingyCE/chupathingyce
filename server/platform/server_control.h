@@ -27,6 +27,12 @@ enum
 
 /* the console's and the API's thread started */
 void server_control_start(void);
+/* the server was started without a playlist, for the control panel's
+first-run setup (before server_control_start): with no owner yet, it waits
+to host until the owner finishes the setup */
+void server_control_setup_mode(void);
+/* whether the first-run setup still holds the server from hosting */
+int server_control_setup_waiting(void);
 /* the next command queued, in line, where it came from, in source, its
 flags, and the permissions and role of the account or key it came with:
 its ticket, which server_control_finish takes, or 0 for none */

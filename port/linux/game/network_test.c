@@ -1665,7 +1665,12 @@ void network_test_update(
 			{
 				network_test.team_set = network_game_client_split_teams();
 			}
-			if (network_test.setup_seconds >= network_test.start_delay)
+			/* (and not before the map and the game variant are set: a host
+			whose server could not be made, its port taken by another program,
+			started the fast setup's game, of no game type, where the players
+			spawn with no weapons or grenades; it now waits, and the test
+			fails on its time limit) */
+			if (network_test.setup_seconds >= network_test.start_delay && network_test.map_set)
 			{
 				network_test.started = TRUE;
 				network_test.setup_seconds = 0.0f;

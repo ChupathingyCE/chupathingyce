@@ -99,6 +99,52 @@ their game alone, as a notice, when they sign in and when it changes. OpenCE gam
 sign in (they cannot prove a key); they can be warned (in the audit file
 only), kicked and banned like anyone.
 
+### Evidence
+
+The server checks what each player's game tells it, and refuses what does
+not add up: a position further than the player could have moved, a vehicle
+where it cannot be, a hit with a weapon they do not carry or out of reach, a
+game whose clock runs fast. `sv_evidence`, and the Refused column of the
+panel's Players (moderators and up), count those refusals for each player's
+machine in the game being played. The counts start over with each game and
+when a player's machine leaves; they are not sent to the site, not written
+to any file, and show no address. OpenCE players in games this server hosts
+are counted the same way: it is the server's own checks.
+
+The counts are evidence, never a verdict, and nothing bans or kicks on them.
+A bad connection makes refusals too (a game frozen for a few seconds and
+catching up counts as a fast clock once), so look for a pattern: one player
+with hundreds of refusals while everyone else has a few is worth a look,
+a few on a laggy player are not. The clock check already drops a game that
+keeps running fast by its own rule, as it always has.
+
+### Betrayal and AFK limits
+
+Two limits a server can turn on, both off unless set (Halo's own rules
+have neither):
+
+- `betrayal_kick` (`HALO_DEDICATED_BETRAYAL_KICK`): a player who kills
+  this many teammates in one game is kicked. One short of it, their game is
+  warned: a Chupathingy game shows it as a server warning, an OpenCE game
+  as the host's notice in its chat (while its chat is bridged:
+  `chat_legacy`). The count starts over with each game. A second such kick
+  of the same player within 24 hours is a 30-minute ban instead, a line in
+  `bans.txt` as `sv_ban 30m` would make, by their machine's hardware id
+  (their moderator key, or their address, if their game told none). The
+  server keeps those 24 hours in memory: a restart forgets them.
+- `afk_kick_minutes` (`HALO_DEDICATED_AFK_KICK_MINUTES`): a player whose
+  game sends no input (no button, no turn, no move) for this many minutes
+  while a game is played is warned 30 seconds before and then kicked. Time
+  in the lobby, while loading and on the carnage report never counts; dead
+  or waiting to respawn counts only if they press nothing. Moderators (a
+  game that proved a key with a role here) are never kicked for it. An AFK
+  kick never leads to a ban.
+
+Every warning, kick and ban either limit makes is in the log and the audit
+file, by "betrayal limit" or "afk limit", with the player's name and why;
+no address. `sv_set betrayal_kick 3` and `sv_set afk_kick_minutes 5` (or the
+panel's Settings) change them at once.
+
 ### Who can moderate
 
 A key's role is the highest of three places: the moderators file, a
@@ -142,12 +188,43 @@ ChupathingyCE Dedicated Server: the control panel has no owner yet. Open
 
 (through your SSH tunnel, or at the server's address) and make the owner's account
 with this one-time code. It is good for 24 hours, and until the account is made;
-sv_account_setup on this console makes a new one.
+sv_account_setup on this console makes a new one. The code is also in
+control_setup_code.txt in the data folder, until the account is made.
 ```
 
-Open it, choose a name and a password (12 characters or more), log in, and
-set up a second factor (My account: scan the QR code with an authenticator
-app). No file to edit.
+Can't see the console (a container, a service)? The same code and link are
+in `control_setup_code.txt` in the data folder, readable by the server's
+user alone. The server deletes the file once the account is made. There is
+never a default password.
+
+Open the link, choose a name and a password (12 characters or more), and
+you are logged in. Then set up a second factor (My account: scan the QR
+code with an authenticator app). No file to edit.
+
+### First-run setup, no console needed
+
+Start a server with the panel on and no playlist (`HALO_DEDICATED` not
+set), and it starts for the setup instead of exiting:
+
+```sh
+HALO_DEDICATED_CONTROL=8080 ./chupathingy-server
+```
+
+It waits, not hosting, until you finish the setup in the panel. Make the
+owner's account (above), then pick the server's name, most players, one of
+the included playlists, and whether it shows in the Server Browser. Press
+"Start the server" and it hosts. Then you can link it to your Chupathingy
+account (the [Host a server](https://stats.chupathingy.org/host) page on
+the site explains linking), or skip that for now.
+
+Everything you pick is saved like any other setting and can be changed
+later in Settings and Playlists. A setting fixed in the server's
+environment (`HALO_DEDICATED_NAME`, say) is shown but not changed here.
+A server that already has an owner, or one started with `HALO_DEDICATED`,
+starts as before. `sv_setup_start` on the console ends the wait too.
+
+Join passwords are not a setting: Halo's join request has no password
+field, so one would break every other build that joins.
 
 ### Accounts and invitations
 

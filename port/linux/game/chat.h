@@ -26,6 +26,11 @@ welcome is sent): 0 if it could not be sent (not hosting a game in
 progress, a Chupathingy machine, or OpenCE's chat off here) */
 int chat_host_notice_to_machine(short machine, char const *text);
 
+/* (the host) a server message to one machine alone: a Chupathingy game's
+chat line, an OpenCE game's host notice (while its chat is bridged); 0 if
+that game cannot be told */
+int chat_host_notice(int machine_index, char const *text);
+
 /* a note of this machine's own in the chat (as its refusals are): what
 came of the player's ask to change teams (team_change.c) */
 void chat_note(char const *text);
