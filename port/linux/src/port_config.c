@@ -2245,8 +2245,10 @@ static void config_set_from_text(struct config_value *value, enum config_type ty
 		break;
 	case _config_string:
 		/* (the old string is kept, not freed: config_string's callers hold
-		its pointer, and Settings writes few, seldom) */
-		value->string = strdup(text);
+		its pointer, and Settings writes few, seldom. The new copy is
+		published with release order, so that a reader on another thread,
+		which takes no lock, sees its text whole) */
+		__atomic_store_n(&value->string, strdup(text), __ATOMIC_RELEASE);
 		break;
 	}
 }
@@ -3821,13 +3823,22 @@ static const struct config_value *config_value(const char *name, enum config_typ
 	static const struct config_value none = { 0, 0, 0.0, "" };
 	long index;
 
-	pthread_mutex_lock(&config_lock);
-	if (!config_loaded)
+	/* (the file is read once, under the lock; after that a read takes no
+	lock: config_loaded is set, with release order, only once config_load
+	has filled every value, so a reader that sees it set sees them. A value
+	changed later is written under the lock as one store (a string's new
+	copy, published with release order; the old one is never freed), so a
+	reader gets the old value or the new, never a freed string) */
+	if (!__atomic_load_n(&config_loaded, __ATOMIC_ACQUIRE))
 	{
-		config_load();
-		config_loaded = 1;
+		pthread_mutex_lock(&config_lock);
+		if (!config_loaded)
+		{
+			config_load();
+			__atomic_store_n(&config_loaded, 1, __ATOMIC_RELEASE);
+		}
+		pthread_mutex_unlock(&config_lock);
 	}
-	pthread_mutex_unlock(&config_lock);
 	index = config_setting_index(name);
 	if (index < 0 || config_settings[index].type != type)
 	{
@@ -4219,7 +4230,8 @@ static void config_follow_file(void)
 	size_t live;
 	int changed = 0;
 
-	if (!config_loaded || (looked && now - looked_at < CONFIG_FOLLOW_INTERVAL_SECONDS))
+	if (!__atomic_load_n(&config_loaded, __ATOMIC_ACQUIRE) ||
+		(looked && now - looked_at < CONFIG_FOLLOW_INTERVAL_SECONDS))
 		return;
 	looked_at = now;
 	if (!path[0])
@@ -4354,7 +4366,7 @@ double config_real(const char *name)
 
 const char *config_string(const char *name)
 {
-	const char *string = config_value(name, _config_string)->string;
+	const char *string = __atomic_load_n(&config_value(name, _config_string)->string, __ATOMIC_ACQUIRE);
 
 	return string ? string : "";
 }
