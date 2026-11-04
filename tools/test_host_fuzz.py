@@ -109,6 +109,9 @@ def game_objects(target, directory, cc):
             extra["source"] = str(wrapped)
         output = Path(directory) / (Path(source).stem + ".o")
         command = compile_command(GAME_BUILD, source, output, extra)
+        # (the build's compiler, after a launcher if it has one: ccache in CI)
+        if Path(command[0]).name in ("ccache", "sccache"):
+            command = command[1:]
         command[0] = cc
         result = subprocess.run(command, capture_output=True, text=True, cwd=ROOT)
         if result.returncode != 0:
