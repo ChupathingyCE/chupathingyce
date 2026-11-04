@@ -113,8 +113,8 @@ int main(int argc, char **argv)
 		biped.object.position[0] = 84.90137481689453f;
 		biped.object.position[1] = -161.71449279785156f;
 		biped.object.position[2] = 0.10793768614530563f;
-		biped.unknown_3bits = 7;
-		biped.unknown_6bits_b = 21;
+		biped.body = 7;
+		biped.shield = 21;
 		memset(&spawn, 0, sizeof(spawn));
 		spawn.player = 1;
 		spawn.biped = 50;
@@ -167,6 +167,28 @@ int main(int argc, char **argv)
 
 		ce_payload_begin(&payload, out, sizeof(out));
 		ce_payload_put_unit_killed(&payload, atoi(argv[2]), atoi(argv[3]));
+		length = ce_payload_end(&payload);
+		for (index = 0; index < length; index++)
+			printf("%02x", out[index]);
+		printf("\n");
+		return 0;
+	}
+	if (argc == 3 && !strcmp(argv[1], "biped"))
+	{
+		struct ce_biped_update update;
+		struct ce_payload payload;
+		unsigned char out[32];
+		int length;
+
+		/* (a full-health biped, as our capture of Custom Edition's server
+		has it) */
+		memset(&update, 0, sizeof(update));
+		update.object = 50;
+		update.baseline = atoi(argv[2]);
+		update.body = ce_body_bits(1.0f);
+		update.shield = ce_shield_bits(1.0f);
+		ce_payload_begin(&payload, out, sizeof(out));
+		ce_payload_put_biped_update(&payload, &update);
 		length = ce_payload_end(&payload);
 		for (index = 0; index < length; index++)
 			printf("%02x", out[index]);

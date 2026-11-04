@@ -342,6 +342,18 @@ def test_unit_killed_fields(harness):  # noqa: F811
     assert len(out) // 2 == (147 + 32 + 7) // 8
 
 
+def test_biped_update_matches_capture(harness):  # noqa: F811
+    """A biped's update (version 3, full health and shield), as our capture
+    of Custom Edition 1.0.10's server sent it for a client's own biped; the
+    last byte's 3 unused bits are whatever the server's buffer held."""
+    import subprocess
+    out = subprocess.run([str(harness), "biped", "3"], capture_output=True, text=True, check=True).stdout.strip()
+    captured = "088890310010f0ca"
+    used = 61
+    assert len(out) == len(captured)
+    assert bits_of(out)[:used] == bits_of(captured)[:used]
+
+
 # (our capture of Custom Edition 1.0.10's server after a join: weapon
 # creations, Slayer's scores (bits 4763 to 5795), a player added, the
 # player's numbers in full (bits 5880 to 6182) and as a change)

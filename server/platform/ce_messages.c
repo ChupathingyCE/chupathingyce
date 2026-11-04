@@ -233,7 +233,7 @@ void ce_payload_put_weapon_create(struct ce_payload *payload, const struct ce_we
 	put_zero_velocity(payload);
 	put_bits(payload, (unsigned int)weapon->ammunition[0], 16);
 	put_bits(payload, (unsigned int)weapon->ammunition[1], 16);
-	put_bits(payload, (unsigned int)weapon->unknown_6bits, 6);
+	put_bits(payload, (unsigned int)weapon->age, 6);
 	put_bits(payload, (unsigned int)weapon->magazine[0], 16);
 	put_bits(payload, (unsigned int)weapon->magazine[1], 16);
 }
@@ -254,8 +254,8 @@ void ce_payload_put_biped_create(struct ce_payload *payload, const struct ce_bip
 	put_zero_velocity(payload);
 	put_bits(payload, (unsigned int)biped->grenades[0], 3);
 	put_bits(payload, (unsigned int)biped->grenades[1], 3);
-	put_bits(payload, (unsigned int)biped->unknown_3bits, 3);
-	put_bits(payload, (unsigned int)biped->unknown_6bits_b, 6);
+	put_bits(payload, (unsigned int)biped->body, 3);
+	put_bits(payload, (unsigned int)biped->shield, 6);
 	put_bits(payload, (unsigned int)biped->unknown_boolean_b, 1);
 }
 
@@ -370,6 +370,36 @@ void ce_payload_put_object_delete(struct ce_payload *payload, int object)
 {
 	put_delta_header(payload, CE_DELTA_OBJECT_DELETE);
 	put_bits(payload, (unsigned int)object, 9);
+}
+
+void ce_payload_put_biped_update(struct ce_payload *payload, const struct ce_biped_update *update)
+{
+	put_delta_header(payload, CE_DELTA_BIPED_UPDATE);
+	put_bits(payload, (unsigned int)update->object, 9);
+	put_bits(payload, (unsigned int)update->baseline, 8);
+	/* (the update's own number within the baseline; a full update) */
+	put_bits(payload, 0, 8);
+	/* (the client keeps it as its baseline) */
+	put_bits(payload, 1, 1);
+	put_bits(payload, update->apply_shield ? 1 : 0, 1);
+	put_bits(payload, (unsigned int)update->grenades[0], 3);
+	put_bits(payload, (unsigned int)update->grenades[1], 3);
+	put_bits(payload, (unsigned int)update->body, 3);
+	put_bits(payload, (unsigned int)update->shield, 6);
+	put_bits(payload, (unsigned int)update->unknown_boolean, 1);
+}
+
+int ce_body_bits(float vitality)
+{
+	vitality = vitality < 0.0f ? 0.0f : vitality > 1.0f ? 1.0f : vitality;
+	return (int)(vitality * 7.0f + 0.5f);
+}
+
+int ce_shield_bits(float vitality)
+{
+	/* (an overshield's up to 3) */
+	vitality = vitality < 0.0f ? 0.0f : vitality > 3.0f ? 3.0f : vitality;
+	return (int)(vitality * 21.0f + 0.5f);
 }
 
 void ce_payload_put_local_player_update(struct ce_payload *payload, int sequence, int update_id,

@@ -29,6 +29,7 @@ enum
 
 	/* message delta types */
 	CE_DELTA_OBJECT_DELETE = 0,
+	CE_DELTA_BIPED_UPDATE = 4,
 	CE_DELTA_OBJECT_UPDATE = 5,
 	CE_DELTA_PLAYER_SPAWN = 8,
 	CE_DELTA_UNIT_KILLED = 12,
@@ -107,8 +108,11 @@ struct ce_weapon_create
 	struct ce_object_create object;
 	unsigned int unknown_large;
 	int unknown_small;
+	/* each magazine's rounds left (not loaded) */
 	int ammunition[2];
-	int unknown_6bits;
+	/* the weapon's age (a battery's use), 6 bits of 1 */
+	int age;
+	/* each magazine's rounds loaded */
 	int magazine[2];
 };
 
@@ -120,9 +124,27 @@ struct ce_biped_create
 	int unknown_6bits_a;
 	int unknown_small;
 	int grenades[2];
-	int unknown_3bits;
-	int unknown_6bits_b;
+	/* its vitality (ce_body_bits, ce_shield_bits) */
+	int body;
+	int shield;
 	int unknown_boolean_b;
+};
+
+/* a biped's state as it changes (what its player's HUD shows): the
+object; a baseline number (8 bits, Custom Edition's server goes up from 2)
+that the client keeps; grenades, body vitality in 3 bits of 1 and shield
+vitality in 6 bits of 3 (ce_body_bits, ce_shield_bits). A client takes
+the body vitality always, the shield only with apply_shield (Custom
+Edition's server leaves it to the client's own damage) */
+struct ce_biped_update
+{
+	int object;
+	int baseline;
+	int apply_shield;
+	int grenades[2];
+	int body;
+	int shield;
+	int unknown_boolean;
 };
 
 /* a player's biped and weapons, by object index (0: none) */
@@ -223,6 +245,11 @@ milliseconds, a flag) and its position, still, with its orientation */
 void ce_payload_put_object_update(struct ce_payload *payload, int object, unsigned int time, const float position[3],
 	const unsigned int forward[2], const unsigned int up[2]);
 void ce_payload_put_object_delete(struct ce_payload *payload, int object);
+void ce_payload_put_biped_update(struct ce_payload *payload, const struct ce_biped_update *update);
+/* a vitality as the biped messages carry it: body (0 to 1) in 3 bits,
+shield (0 to 3, 1 full) in 6 */
+int ce_body_bits(float vitality);
+int ce_shield_bits(float vitality);
 /* a client's own player: the last of its updates the server took (6 bits),
 a sequence number (5 bits) and where its biped is (a client stops sending
 updates once 64 go untaken) */
