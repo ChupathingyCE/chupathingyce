@@ -513,6 +513,22 @@ void texture_cache_return_memory(
 	return;
 }
 
+#ifdef HALO_CUSTOM_EDITION
+/* (a 64 MB console's Custom Edition load borrows the cache: port/xbox's
+xbox_ce_files.c) */
+unsigned char texture_cache_memory_stolen(
+	void)
+{
+	return xbox_texture_cache_globals.stolen_memory;
+}
+
+long texture_cache_stealable_size(
+	void)
+{
+	return (XBOX_TEXTURE_CACHE_STEALABLE_PAGE_COUNT - 2) * XBOX_TEXTURE_CACHE_PAGE_SIZE;
+}
+#endif
+
 static const char *texture_cache_name_block_proc(
 	long block_index)
 {

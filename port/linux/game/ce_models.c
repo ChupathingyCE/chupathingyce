@@ -140,6 +140,9 @@ struct xbox_vertex
 /* ---------- prototypes */
 
 unsigned long ce_resources_allocate(unsigned long size);
+#ifdef HALO_XBOX_CONSOLE
+extern int platform_ce_alias;
+#endif
 unsigned long ce_resources_free_mark(void);
 unsigned long compress_real_vector3d_to_int32_clamp(union real_vector3d const *v);
 short compress_real_to_int16_clamp(real z);
@@ -818,6 +821,12 @@ static boolean ce_part_check(
 		}
 	}
 	*bytes += CE_ALIGNED(index_count * sizeof(word)) + 2 * CE_BUFFER_HEADER_ROOM;
+#ifdef HALO_XBOX_CONSOLE
+	/* (on a 64 MB console its vertices are in the tag cache too: port/xbox's
+	xbox_ce_files.c) */
+	if (platform_ce_alias)
+		*bytes += CE_ALIGNED((unsigned long)vertex_count * XBOX_VERTEX_SIZE);
+#endif
 	return TRUE;
 }
 

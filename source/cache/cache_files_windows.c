@@ -473,6 +473,13 @@ static unsigned long ce_refused_map_checksum;
 /* and what the game tells the player about it (ce_map_check's message) */
 static char ce_refused_map_message[320];
 char const *ce_map_refusal_message(void);
+#ifdef HALO_XBOX_CONSOLE
+/* a 64 MB console's: its tag cache the Xbox's (port/xbox's xbox_ce_files.c),
+a map opened unchecked, and one refused as it loaded */
+extern int platform_ce_alias;
+static boolean ce_map_unchecked;
+static boolean ce_map_refused_open;
+#endif
 
 static boolean ce_map_name_is(
 	const char *map_name)
@@ -494,6 +501,16 @@ static boolean ce_map_open(
 	HANDLE file;
 	short family;
 
+#ifdef HALO_XBOX_CONSOLE
+	/* (one refused as it loaded: its slot let go of) */
+	if (ce_map_refused_open && ce_map_file.file)
+	{
+		CloseHandle(ce_map_file.file);
+		ce_map_file.file = NULL;
+		ce_map_name[0] = 0;
+	}
+	ce_map_refused_open = FALSE;
+#endif
 	if (ce_map_file.file && !_stricmp(ce_map_name, map_name))
 		return TRUE;
 	if (strlen(map_name) >= sizeof(ce_map_name) - 1)
@@ -555,8 +572,13 @@ static boolean ce_map_open(
 			"The %s map %.63s can't be played: it isn't a map this game can read.", map_family_kind(family), file_name);
 	}
 	/* every offset, count and size in it that the port reads checked, before
-	it has a slot (port/linux/game/ce_map_checks.c) */
+	it has a slot (port/linux/game/ce_map_checks.c). A 64 MB console checks it
+	as it loads instead (ce_map_check_deferred): its tag cache is the Xbox's,
+	which the menus' map is in until then */
 	else if ((ce_map_cache_version = header.version,
+#ifdef HALO_XBOX_CONSOLE
+		(platform_ce_alias && (ce_map_unchecked = TRUE)) ||
+#endif
 		ce_map_check(file, map_name, header.file_length, header.tag_data_offset, header.tag_data_size)))
 	{
 		if (ce_map_file.file)
@@ -585,6 +607,36 @@ static boolean ce_map_open(
 	CloseHandle(file);
 	return FALSE;
 }
+
+#ifdef HALO_XBOX_CONSOLE
+/* the map open in its slot checked, if it was opened unchecked (a 64 MB
+console: above), as it loads (cache_files.c, its tag cache made the Xbox's):
+FALSE, and the map refused as ce_map_open refuses one, if it is refused */
+boolean ce_map_check_deferred(
+	void)
+{
+	struct cache_file_header const *header = &ce_map_file.header;
+
+	if (!ce_map_unchecked || !ce_map_file.file)
+		return TRUE;
+	ce_map_unchecked = FALSE;
+	ce_map_cache_version = header->version;
+	if (ce_map_check(ce_map_file.file, ce_map_name, header->file_length, header->tag_data_offset,
+		header->tag_data_size))
+	{
+		return TRUE;
+	}
+	strncpy(ce_refused_map_message, ce_map_refusal_message(), sizeof(ce_refused_map_message) - 1);
+	ce_refused_map_message[sizeof(ce_refused_map_message) - 1] = 0;
+	memset(ce_refused_map_name, 0, sizeof(ce_refused_map_name));
+	strncpy(ce_refused_map_name, ce_map_name, sizeof(ce_refused_map_name) - 1);
+	ce_refused_map_size = GetFileSize(ce_map_file.file, NULL);
+	ce_refused_map_checksum = header->checksum;
+	/* (closed once the load lets go of it: cache_file_close, then the next open) */
+	ce_map_refused_open = TRUE;
+	return FALSE;
+}
+#endif
 
 /* the map open in that slot, or NULL: its own sounds' samples are read
 from it as its tags load (port/linux/game/ce_resources.c) */

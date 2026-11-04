@@ -63,6 +63,14 @@ rest of a map's tags as it reads the Xbox's maps, trusting them.
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef HALO_XBOX_CONSOLE
+/* a 64 MB console's tag cache, the Xbox's own (port/xbox's xbox_ce_files.c):
+22 MB of it, and the end of the room below a map's BSPs */
+#define CE_ALIAS_CACHE_SIZE 0x01600000UL
+extern int platform_ce_alias;
+unsigned long platform_ce_room_end(unsigned long end_free);
+#endif
+
 /* ---------- constants */
 
 enum
@@ -455,10 +463,23 @@ static boolean ce_map_check_tags(
 	in after the tags, as they are when the map loads) */
 	image.base = CE_IMAGE_TAG_CACHE_BASE;
 	image.size = tag_data_size;
-	image.data = malloc(CE_IMAGE_TAG_CACHE_SIZE);
-	if (!image.data)
-		return ce_refuse("no memory to check it");
-	memset(image.data, 0xcd, CE_IMAGE_TAG_CACHE_SIZE);
+#ifdef HALO_XBOX_CONSOLE
+	/* (a 64 MB console's: no room for an image, the map checked in the tag
+	cache itself as it loads, which is then read again: cache_files.c. Its
+	first 22 MB, the Xbox tag cache's pages: port/xbox's xbox_ce_files.c) */
+	if (platform_ce_alias)
+	{
+		image.data = (byte *)CE_IMAGE_TAG_CACHE_BASE;
+		memset(image.data, 0xcd, CE_ALIAS_CACHE_SIZE);
+	}
+	else
+#endif
+	{
+		image.data = malloc(CE_IMAGE_TAG_CACHE_SIZE);
+		if (!image.data)
+			return ce_refuse("no memory to check it");
+		memset(image.data, 0xcd, CE_IMAGE_TAG_CACHE_SIZE);
+	}
 	if (!ce_file_read(file, tag_data_offset, image.data, tag_data_size))
 	{
 		ce_refuse("its tag data could not be read");
@@ -499,6 +520,17 @@ static boolean ce_map_check_tags(
 	{
 		goto done;
 	}
+#ifdef HALO_XBOX_CONSOLE
+	/* (and on a 64 MB console, below what isn't memory beneath the BSPs) */
+	end_free = platform_ce_room_end(end_free);
+	if (end_free < CE_IMAGE_TAG_CACHE_BASE + tag_data_size)
+	{
+		ce_refusal_explain("It is too big for the game's tag cache.");
+		ce_refuse("its tags and structure BSPs (from %08lx) need more of the tag cache than a 64 MB console has",
+			end_free);
+		goto done;
+	}
+#endif
 	/* the resource maps' tags copied in and relocated, and every bitmap and
 	sound checked (ce_resources.c); the image then reaches past them */
 	/* (the map's own tags, in the tag data: what follows is the resource
@@ -555,6 +587,10 @@ static boolean ce_map_check_tags(
 done:
 	if (model_data)
 		free(model_data);
+#ifdef HALO_XBOX_CONSOLE
+	if (platform_ce_alias)
+		image.data = NULL;
+#endif
 	if (image.data)
 		free(image.data);
 	return valid;

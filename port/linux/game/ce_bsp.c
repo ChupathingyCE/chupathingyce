@@ -72,6 +72,9 @@ typedef char verify_ce_structure_lightmap_size[sizeof(struct structure_lightmap)
 /* ---------- prototypes */
 
 unsigned long ce_resources_allocate(unsigned long size);
+#ifdef HALO_XBOX_CONSOLE
+extern int platform_ce_alias;
+#endif
 unsigned long ce_resources_free_mark(void);
 void ce_resources_free_to(unsigned long mark);
 void rasterizer_geometry_compress_vertices(short type, long count, void *compressed, long compressed_size,
@@ -239,6 +242,15 @@ than sphere_intersects_cluster_portal projects into an array on the stack */
 					data_size, needed);
 			}
 			*bytes += (lightmap_vertex_count ? 2 : 1) * CE_BUFFER_HEADER_ROOM;
+#ifdef HALO_XBOX_CONSOLE
+			/* (on a 64 MB console the compressed vertices are in the tag cache
+			too: port/xbox's xbox_ce_files.c) */
+			if (platform_ce_alias)
+			{
+				*bytes += ((unsigned long)vertex_count * ENVIRONMENT_VERTEX_COMPRESSED_SIZE +
+					(unsigned long)lightmap_vertex_count * LIGHTMAP_VERTEX_COMPRESSED_SIZE + 15) & ~15UL;
+			}
+#endif
 		}
 	}
 	return TRUE;
