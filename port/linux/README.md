@@ -1185,8 +1185,10 @@ nothing measures a host before you join it. Sorted by ping, such games come
 last. The details show the map's picture from the menus, or from Halo PC's
 `ui.map`. Without either, a stock map's picture comes from the site
 (stats.chupathingy.org/art/maps), downloaded in the background only while
-`network.online` is on and kept in the save root's `map_art` folder. Any
-other map gets a card with its name in its family's color. RB (Link Profile)
+`network.online` is on and kept in the save root's `map_art` folder. So
+does a HaloMD or Custom Edition map's picture, when the site has one
+(art/maps/md, art/maps/ce). Any other map gets a card with its name in its
+family's color. RB (Link Profile)
 shows only while this copy is not linked to a profile: linked on this copy
 (kept in the save root's `game_list_profile.txt`), or a profile the site
 has for this copy's player ID. Once linked, Start's prompt names the
