@@ -118,6 +118,30 @@ when internet play is off. check_network starts the STUN servers' look,
 which hosting does anyway, so the status is known before the game starts */
 int p2p_hosting_status(char *text, int size);
 void p2p_check_network(void);
+/* the same facts as fields, for the dedicated server's status (sv_status,
+its control panel): 0 when internet play is off (reach zeroed) */
+enum
+{
+	P2P_UPNP_NOT_ASKED,
+	P2P_UPNP_FORWARDED,
+	P2P_UPNP_NO_ROUTER,
+	P2P_UPNP_REFUSED,
+};
+struct p2p_reach
+{
+	/* the tunnel's UDP port, and whether it stays from run to run */
+	unsigned short port;
+	int port_fixed;
+	/* P2P_UPNP_*, and whether network.allow_upnp lets it ask */
+	int upnp;
+	int upnp_allowed;
+	/* the STUN servers that answered, whether two of them saw different
+	ports (a strict NAT), and whether the look is over */
+	int stun_answers;
+	int strict;
+	int settled;
+};
+int p2p_hosting_reach(struct p2p_reach *reach);
 
 /* text for the clipboard (a new invite link), once; NULL if none. Called
 from the main thread, which copies it only with network.copy_to_clipboard */

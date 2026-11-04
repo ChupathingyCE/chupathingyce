@@ -302,6 +302,11 @@ def test_web_session_lifecycle(harness):
     assert http(harness, "GET", "/v1/session", jar).json()["csrf"] == csrf
     status = http(harness, "GET", "/v1/status", jar)
     assert status.status == 200 and status.json()["map"] == "bloodgulch"
+    # (whether people can join, as the panel's Status shows it: states and a
+    # port, never an address)
+    reach = status.json()["reach"]
+    assert reach["listing"] == "listed" and reach["nat"] == "open" and reach["port"] == 2302
+    assert not re.search(r"\d+\.\d+\.\d+\.\d+", json.dumps(reach))
     for path in ("/v1/players", "/v1/bans", "/v1/mapcycle", "/v1/maps", "/v1/log?since=0"):
         assert http(harness, "GET", path, jar).status == 200, path
 
