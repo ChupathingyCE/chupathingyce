@@ -31,8 +31,9 @@ enum
 	CE_DELTA_OBJECT_DELETE = 0,
 	CE_DELTA_WEAPON_UPDATE = 3,
 	CE_DELTA_BIPED_UPDATE = 4,
-	CE_DELTA_OBJECT_UPDATE = 5,
+	CE_DELTA_VEHICLE_UPDATE = 5,
 	CE_DELTA_PLAYER_SPAWN = 8,
+	CE_DELTA_UNIT_EXIT = 9,
 	CE_DELTA_ACTION_RESULT = 10,
 	CE_DELTA_UNIT_KILLED = 12,
 	CE_DELTA_CLIENT_UPDATE = 13,
@@ -43,6 +44,7 @@ enum
 	CE_DELTA_REMOTE_PLAYER_ACTIONS = 37,
 	CE_DELTA_REMOTE_PLAYER_POSITION = 39,
 	CE_DELTA_PLAYER_ADD = 7,
+	CE_DELTA_VEHICLE_CREATE = 28,
 	CE_DELTA_BIPED_CREATE = 29,
 	CE_DELTA_EQUIPMENT_CREATE = 31,
 	CE_DELTA_WEAPON_CREATE = 32,
@@ -180,6 +182,30 @@ struct ce_action_result
 	int dropped;
 };
 
+/* a vehicle, still, with its weapons (made first, their parent this
+vehicle), by object number (0: none); its first baseline number (1) */
+struct ce_vehicle_create
+{
+	struct ce_object_create object;
+	int weapons[4];
+	int baseline;
+};
+
+/* a vehicle's place and motion (velocities per tick), a full update with
+the next baseline number, at the server's time in milliseconds */
+struct ce_vehicle_update
+{
+	int object;
+	int baseline;
+	unsigned int time;
+	int at_rest;
+	float position[3];
+	float velocity[3];
+	float angular_velocity[3];
+	unsigned int forward[2];
+	unsigned int up[2];
+};
+
 /* a player's biped and weapons, by object index (0: none) */
 struct ce_player_spawn
 {
@@ -278,10 +304,11 @@ void ce_payload_put_equipment_create(struct ce_payload *payload, const struct ce
 void ce_payload_put_weapon_update(struct ce_payload *payload, const struct ce_weapon_update *update);
 void ce_payload_put_action_result(struct ce_payload *payload, const struct ce_action_result *result);
 void ce_payload_put_player_spawn(struct ce_payload *payload, const struct ce_player_spawn *spawn);
-/* an object's place: header (two 8-bit numbers, the object, a time in
-milliseconds, a flag) and its position, still, with its orientation */
-void ce_payload_put_object_update(struct ce_payload *payload, int object, unsigned int time, const float position[3],
-	const unsigned int forward[2], const unsigned int up[2]);
+void ce_payload_put_vehicle_create(struct ce_payload *payload, const struct ce_vehicle_create *vehicle);
+void ce_payload_put_vehicle_update(struct ce_payload *payload, const struct ce_vehicle_update *update);
+/* a unit out of its vehicle (its object number), as the retail client
+plays it */
+void ce_payload_put_unit_exit(struct ce_payload *payload, int unit, int flag);
 void ce_payload_put_object_delete(struct ce_payload *payload, int object);
 void ce_payload_put_biped_update(struct ce_payload *payload, const struct ce_biped_update *update);
 /* a vitality as the biped messages carry it: body (0 to 1) in 3 bits,

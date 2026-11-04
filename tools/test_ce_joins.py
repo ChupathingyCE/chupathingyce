@@ -375,6 +375,25 @@ def test_items_match_captures(harness):  # noqa: F811
     assert len(lines[2]) // 2 == (106 + 7) // 8
 
 
+# (our capture of Custom Edition 1.0.10's server after a join: its first
+# vehicle's creation, the message's 301 bits)
+CAPTURED_VEHICLE = (
+    "10001110000001100100000000101011110001110100000001111111111111111000000000000001000000000000000000000"
+    "00000000000000100000001001101100111010100111000100001000010110011001101000000101000011010111101011101"
+    "100101011111111001111111111111111111000010100010100111000000000000000000000000000000000000000000011")
+
+
+def test_vehicles_match_captures(harness):  # noqa: F811
+    """A vehicle's creation and its first update (still), as our captures
+    of Custom Edition 1.0.10's server sent them, bit for bit."""
+    import subprocess
+    lines = subprocess.run([str(harness), "vehicles"], capture_output=True, text=True, check=True).stdout.split()
+    assert bits_of(lines[0])[11:11 + 301] == CAPTURED_VEHICLE
+    captured_update = "20a8001010509004f43403eb25d01374e5878b4d001cba0a0db4a31a19a8ef9d"
+    assert len(lines[1]) == len(captured_update)
+    assert bits_of(lines[1])[:253] == bits_of(captured_update)[:253]
+
+
 # (our capture of Custom Edition 1.0.10's server after a join: weapon
 # creations, Slayer's scores (bits 4763 to 5795), a player added, the
 # player's numbers in full (bits 5880 to 6182) and as a change)

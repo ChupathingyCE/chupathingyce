@@ -252,6 +252,54 @@ int main(int argc, char **argv)
 		printf("\n");
 		return 0;
 	}
+	if (argc == 2 && !strcmp(argv[1], "vehicles"))
+	{
+		struct ce_vehicle_create vehicle;
+		struct ce_vehicle_update update;
+		struct ce_payload payload;
+		unsigned char out[128];
+		int length;
+
+		/* (the first vehicle of our capture of Custom Edition's server
+		after a join, on Blood Gulch, and its first update) */
+		memset(&vehicle, 0, sizeof(vehicle));
+		vehicle.object.definition = 3822322272u;
+		vehicle.object.object = 2;
+		vehicle.object.owner = 0xffff;
+		vehicle.object.forward[0] = 524287;
+		vehicle.object.forward[1] = 117288;
+		vehicle.object.position[0] = 46.34067153930664f;
+		vehicle.object.position[1] = -64.70001220703125f;
+		vehicle.object.position[2] = 1.6630089282989502f;
+		vehicle.weapons[0] = 1;
+		vehicle.baseline = 1;
+		ce_payload_begin(&payload, out, sizeof(out));
+		ce_payload_put_vehicle_create(&payload, &vehicle);
+		length = ce_payload_end(&payload);
+		for (index = 0; index < length; index++)
+			printf("%02x", out[index]);
+		printf("\n");
+		memset(&update, 0, sizeof(update));
+		update.object = 2;
+		update.baseline = 2;
+		update.time = 1329613061u;
+		update.at_rest = 1;
+		/* (the captured place, as its 31-bit numbers) */
+		update.position[0] = (float)(1083681804.0 / 2147483647.0 * 10000.0 - 5000.0);
+		update.position[1] = (float)(1059823774.0 / 2147483647.0 * 10000.0 - 5000.0);
+		update.position[2] = (float)(1074059448.0 / 2147483647.0 * 10000.0 - 5000.0);
+		update.forward[0] = 546256;
+		update.forward[1] = 121350;
+		update.up[0] = 51413;
+		update.up[1] = 980948;
+		ce_payload_begin(&payload, out, sizeof(out));
+		ce_payload_put_vehicle_update(&payload, &update);
+		length = ce_payload_end(&payload);
+		for (index = 0; index < length; index++)
+			printf("%02x", out[index]);
+		printf("\n");
+		return 0;
+	}
 	if (argc == 2 && !strcmp(argv[1], "scores"))
 	{
 		struct ce_player_statistics statistics;

@@ -383,25 +383,67 @@ void ce_throttle(int bits, float *forward, float *left)
 
 /* ---------- object and player updates */
 
-void ce_payload_put_object_update(struct ce_payload *payload, int object, unsigned int time, const float position[3],
-	const unsigned int forward[2], const unsigned int up[2])
+/* (a velocity: 1, the first preset, for none; else 0 and each component
+in 16 bits over -limit to limit) */
+static void put_velocity(struct ce_payload *payload, const float velocity[3], float limit)
 {
-	put_delta_header(payload, CE_DELTA_OBJECT_UPDATE);
-	/* (header: two 8-bit numbers as Custom Edition's server sends them, the
-	object, the time, a flag) */
+	int axis;
+
+	if (velocity[0] == 0.0f && velocity[1] == 0.0f && velocity[2] == 0.0f)
+	{
+		put_zero_velocity(payload);
+		return;
+	}
+	put_bits(payload, 0, 1);
+	for (axis = 0; axis < 3; axis++)
+	{
+		double value = ((double)velocity[axis] + limit) / (2.0 * limit);
+
+		value = value < 0.0 ? 0.0 : value > 1.0 ? 1.0 : value;
+		put_bits(payload, (unsigned int)floor(value * 65535.0 + 0.5), 16);
+	}
+}
+
+void ce_payload_put_vehicle_create(struct ce_payload *payload, const struct ce_vehicle_create *vehicle)
+{
+	int index;
+
+	put_delta_header(payload, CE_DELTA_VEHICLE_CREATE);
+	put_object_start(payload, &vehicle->object);
+	for (index = 0; index < 4; index++)
+		put_bits(payload, (unsigned int)vehicle->weapons[index], 9);
+	put_bits(payload, (unsigned int)vehicle->baseline, 8);
+	put_position(payload, vehicle->object.position);
+	put_orientation(payload, &vehicle->object);
+	put_zero_velocity(payload);
+	put_zero_velocity(payload);
+}
+
+void ce_payload_put_vehicle_update(struct ce_payload *payload, const struct ce_vehicle_update *update)
+{
+	put_delta_header(payload, CE_DELTA_VEHICLE_UPDATE);
+	/* (header: the update's number in its baseline (0: a full update), the
+	baseline, the object, the time, kept as the baseline) */
 	put_bits(payload, 0, 8);
-	put_bits(payload, 2, 8);
-	put_bits(payload, (unsigned int)object, 9);
-	put_bits(payload, time, 32);
+	put_bits(payload, (unsigned int)update->baseline, 8);
+	put_bits(payload, (unsigned int)update->object, 9);
+	put_bits(payload, update->time, 32);
 	put_bits(payload, 1, 1);
-	put_bits(payload, 1, 1);
-	put_position_full(payload, position);
-	put_zero_velocity(payload);
-	put_zero_velocity(payload);
-	put_bits(payload, forward[0], DIRECTION_BITS);
-	put_bits(payload, forward[1], DIRECTION_BITS);
-	put_bits(payload, up[0], DIRECTION_BITS);
-	put_bits(payload, up[1], DIRECTION_BITS);
+	put_bits(payload, update->at_rest ? 1 : 0, 1);
+	put_position_full(payload, update->position);
+	put_velocity(payload, update->velocity, 100.0f);
+	put_velocity(payload, update->angular_velocity, 8.0f);
+	put_bits(payload, update->forward[0], DIRECTION_BITS);
+	put_bits(payload, update->forward[1], DIRECTION_BITS);
+	put_bits(payload, update->up[0], DIRECTION_BITS);
+	put_bits(payload, update->up[1], DIRECTION_BITS);
+}
+
+void ce_payload_put_unit_exit(struct ce_payload *payload, int unit, int flag)
+{
+	put_delta_header(payload, CE_DELTA_UNIT_EXIT);
+	put_bits(payload, (unsigned int)unit, 9);
+	put_bits(payload, flag ? 1 : 0, 1);
 }
 
 void ce_payload_put_object_delete(struct ce_payload *payload, int object)
