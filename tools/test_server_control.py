@@ -307,7 +307,7 @@ def test_web_session_lifecycle(harness):
     reach = status.json()["reach"]
     assert reach["listing"] == "listed" and reach["nat"] == "open" and reach["port"] == 2302
     assert not re.search(r"\d+\.\d+\.\d+\.\d+", json.dumps(reach))
-    for path in ("/v1/players", "/v1/bans", "/v1/mapcycle", "/v1/maps", "/v1/log?since=0"):
+    for path in ("/v1/players", "/v1/evidence", "/v1/bans", "/v1/mapcycle", "/v1/maps", "/v1/log?since=0"):
         assert http(harness, "GET", path, jar).status == 200, path
 
     # a change: refused without the CSRF token, with a wrong one, from another

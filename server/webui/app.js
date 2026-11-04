@@ -588,15 +588,22 @@
   // ---------- players
 
   async function loadPlayers(background) {
-    const data = await api('/v1/players', { background: background });
+    // (what the server refused of each player's machine this game: a
+    // moderator's evidence, never a verdict; by player number)
+    const moderator = can(0x002);
+    const [data, evidence] = await Promise.all([api('/v1/players', { background: background }),
+      moderator ? api('/v1/evidence', { background: background }).catch(() => null) : null]);
+    const refused = {};
+    if (evidence && evidence.players) evidence.players.forEach((entry) => { refused[entry.number] = entry; });
     const body = $('players-body');
-    $('say-form').hidden = !can(0x002);
+    $('say-form').hidden = !moderator;
+    $('evidence-head').hidden = !moderator;
     $('players-count').textContent = data.count + ' of ' + data.maximum_players;
     body.replaceChildren();
     if (!data.players.length) {
       const row = element('tr');
       const cell = element('td', 'No players', 'empty');
-      cell.colSpan = 7;
+      cell.colSpan = moderator ? 8 : 7;
       row.append(cell);
       body.append(row);
       return;
@@ -624,10 +631,19 @@
         element('td', player.score === null ? '-' : player.score, 'num'),
         element('td', player.ping === null ? '-' : player.ping, 'num'),
         element('td', player.role && player.role !== 'none' ? player.role : player.moderator_key ? 'key proved' : '-'),
-        actions,
       );
+      if (moderator) row.append(evidenceCell(refused[player.number]));
+      row.append(actions);
       body.append(row);
     });
+  }
+
+  // a player's refusals: the total, and each kind it has any of
+  function evidenceCell(entry) {
+    if (!entry || !entry.total) return element('td', entry ? '0' : '-', 'num');
+    const parts = Object.keys(entry.evidence).filter((kind) => entry.evidence[kind])
+      .map((kind) => kind.replace(/_/g, ' ') + ' ' + entry.evidence[kind]);
+    return element('td', entry.total + ': ' + parts.join(', '));
   }
 
   // the player still at that number, by name (they may have left, and

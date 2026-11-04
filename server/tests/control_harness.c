@@ -97,6 +97,13 @@ static const char *answer(const char *line, int json)
 		return "{\"players\": [{\"number\": 1, \"name\": \"<b>x</b>\", \"machine\": 0, \"team\": null, \"score\": 3, "
 			"\"ping\": 20, \"id\": null}], \"count\": 1, \"maximum_players\": 16}";
 	}
+	if (json && !strcmp(line, "sv_evidence"))
+	{
+		return "{\"kinds\": [\"movement\", \"vehicle\", \"hit_report\", \"clock\", \"line_of_sight\", "
+			"\"malformed\"], \"players\": [{\"number\": 1, \"name\": \"<b>x</b>\", \"machine\": 0, \"total\": 4, "
+			"\"evidence\": {\"movement\": 3, \"vehicle\": 0, \"hit_report\": 1, \"clock\": 0, \"line_of_sight\": 0, "
+			"\"malformed\": 0}}], \"count\": 1}";
+	}
 	if (json && !strcmp(line, "sv_banlist"))
 		return "{\"bans\": [], \"count\": 0}";
 	if (json && !strcmp(line, "sv_mapcycle"))

@@ -99,6 +99,25 @@ their game alone, as a notice, when they sign in and when it changes. OpenCE gam
 sign in (they cannot prove a key); they can be warned (in the audit file
 only), kicked and banned like anyone.
 
+### Evidence
+
+The server checks what each player's game tells it, and refuses what does
+not add up: a position further than the player could have moved, a vehicle
+where it cannot be, a hit with a weapon they do not carry or out of reach, a
+game whose clock runs fast. `sv_evidence`, and the Refused column of the
+panel's Players (moderators and up), count those refusals for each player's
+machine in the game being played. The counts start over with each game and
+when a player's machine leaves; they are not sent to the site, not written
+to any file, and show no address. OpenCE players in games this server hosts
+are counted the same way: it is the server's own checks.
+
+The counts are evidence, never a verdict, and nothing bans or kicks on them.
+A bad connection makes refusals too (a game frozen for a few seconds and
+catching up counts as a fast clock once), so look for a pattern: one player
+with hundreds of refusals while everyone else has a few is worth a look,
+a few on a laggy player are not. The clock check already drops a game that
+keeps running fast by its own rule, as it always has.
+
 ### Who can moderate
 
 A key's role is the highest of three places: the moderators file, a
