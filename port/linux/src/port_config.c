@@ -696,6 +696,11 @@ static const struct config_setting config_settings[] =
 		"Lets your console and cheats change a PUBLIC internet game you host\n"
 		"while others are in it. Off by default; when on, Online Games shows\n"
 		"\"Host cheats on\" for your game. LAN and private games always allow them." },
+	{ "network.host_console_objects", _config_integer, "32", "HALO_NET_HOST_CONSOLE_OBJECTS", _environment_value,
+		_platform_all,
+		"How many objects your console and cheats may make in each network game\n"
+		"you host (cheat_all_vehicles, object_create, ...); past it they are\n"
+		"refused. 8 while an original Xbox plays. 0: no limit." },
 	{ "network.tunnel_port", _config_integer, DEFAULT_TUNNEL_PORT, "HALO_NET_TUNNEL_PORT", _environment_value,
 		_platform_all | _platform_xbox,
 		"The UDP port for internet play. Forward it on your router if players\n"

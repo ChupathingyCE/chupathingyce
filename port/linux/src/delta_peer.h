@@ -892,6 +892,10 @@ struct delta_peer_host_summary
 /* the hosted game's summary (on the game's thread, as the hooks); 0 if
 this machine is not hosting */
 int delta_peer_game_host_summary(struct delta_peer_host_summary *summary);
+/* (the host: cheats.c's object quota) whether an original Xbox (Warthog)
+machine is in the game, whose object array is the PC's eighth: 0 when not
+hosting with Delta, or none */
+int delta_peer_game_hosting_xbox(void);
 /* a platform's registry name ("pc_linux"; "unknown" for a number this
 build does not know), and a name's number (-1 for none) */
 const char *delta_peer_platform_name(int platform);
