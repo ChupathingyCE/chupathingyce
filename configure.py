@@ -104,8 +104,10 @@ parser.add_argument(
 parser.add_argument(
     "--portable",
     action="store_true",
-    help="x86 builds (Linux, Windows): code for any x86-64 processor (SSE2) rather than for this "
-    "machine's (-march=native, the default); use it for builds that run on other computers. On Linux (32- and "
+    help="builds that run on other computers. Linux and Windows: code for any x86-64 processor (SSE2) rather "
+    "than for this machine's (-march=native, the default); an arm64 server, for any 64-bit ARM (a Raspberry Pi 3 "
+    "or 4) rather than this machine's. macOS: a universal application (Apple silicon and Intel) with its own SDL 3 "
+    "(built from source, which needs CMake), copied into it and signed, that runs without Homebrew. On Linux (32- and "
     "64-bit) it also builds against Debian 11's glibc 2.31 rather than this machine's, and brings its own SDL 3 "
     "(libSDL3.so.0, beside the executable), so that it starts on SteamOS and older distributions: the first build "
     "downloads the Debian packages and SDL's source (build/linux*/third_party, tools/linux_sysroot.py), and needs "
