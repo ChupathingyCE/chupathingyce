@@ -287,6 +287,8 @@ static struct ce_client *client_for_peer(
 	return NULL;
 }
 
+static void leave(int peer);
+
 /* FALSE: no seat yet (one is still being given up) */
 static boolean join(
 	struct ce_event const *event)
@@ -300,6 +302,9 @@ static boolean join(
 	short index;
 	int length;
 
+	/* (a join that went while it waited: nothing to answer) */
+	if (!ce_transport_awaiting(event->peer))
+		return TRUE;
 	if (network_distributed_banned(event->address, NULL))
 	{
 		ce_transport_refuse(event->peer, CE_REJECT_BANNED);
@@ -372,7 +377,13 @@ static boolean join(
 	ce_payload_put_game_settings(&payload, &settings);
 	ce_payload_put_message(&payload, begin_game, sizeof(begin_game));
 	length = ce_payload_end(&payload);
-	ce_transport_accept(event->peer, out, length);
+	if (!ce_transport_accept(event->peer, out, length))
+	{
+		/* (the join went while it waited: its player taken out again) */
+		leave(event->peer);
+		error(_error_silent, "ce: a Custom Edition player's join was gone before the game took it");
+		return TRUE;
+	}
 	error(_error_silent, "ce: Custom Edition player \"%s\" joins as local player %d", event->name, index);
 	return TRUE;
 }
@@ -1425,15 +1436,7 @@ boolean server_ce_kick(
 		}
 		if (address)
 			*address = client->address;
-		{
-			unsigned char message[16], out[64];
-			int length = ce_message_machine_rejected(CE_REJECT_KICKED, message, sizeof(message));
-
-			length = length ? ce_payload_from_message(message, length, out, sizeof(out)) : 0;
-			if (length)
-				ce_transport_send(client->peer, out, length, TRUE);
-		}
-		ce_transport_drop(client->peer);
+		ce_transport_kick(client->peer, CE_REJECT_KICKED);
 		leave(client->peer);
 		return TRUE;
 	}

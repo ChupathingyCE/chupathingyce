@@ -77,8 +77,10 @@ enum
 	/* client updates kept for the game, at most (a client sends at most 64
 	before one is taken) */
 	UPDATE_QUEUE = 64,
-	/* the game's answer to a join, at most this late */
-	AWAITING_MILLISECONDS = 10000,
+	/* the game's answer to a join, at most this late (a client gives up
+	on an unanswered join after about 15 seconds; the game waits up to 12
+	for a game to start, server_ce.c) */
+	AWAITING_MILLISECONDS = 14000,
 	/* the server's keep-alive to a client in the game */
 	KEEP_ALIVE_MILLISECONDS = 3000,
 	/* reliable messages not yet acknowledged, at most, and their resends */
@@ -1222,9 +1224,10 @@ static struct peer *game_peer(int peer)
 	return &transport.peers[peer];
 }
 
-void ce_transport_accept(int peer, const unsigned char *payload, int length)
+int ce_transport_accept(int peer, const unsigned char *payload, int length)
 {
 	struct peer *accepted;
+	int taken = 0;
 
 	pthread_mutex_lock(&transport_mutex);
 	accepted = game_peer(peer);
@@ -1234,8 +1237,22 @@ void ce_transport_accept(int peer, const unsigned char *payload, int length)
 		accepted->state = PEER_ACCEPTED;
 		send_payload(accepted, payload, length, transport.now);
 		say("ce: a Custom Edition player was taken into the game%s", "");
+		taken = 1;
 	}
 	pthread_mutex_unlock(&transport_mutex);
+	return taken;
+}
+
+int ce_transport_awaiting(int peer)
+{
+	struct peer *joining;
+	int awaiting;
+
+	pthread_mutex_lock(&transport_mutex);
+	joining = game_peer(peer);
+	awaiting = joining && joining->awaiting;
+	pthread_mutex_unlock(&transport_mutex);
+	return awaiting;
 }
 
 void ce_transport_refuse(int peer, int reason)
@@ -1301,6 +1318,22 @@ void ce_transport_drop(int peer)
 		dropped->game_known = 0;
 		send_control(dropped, TYPE_CLOSED);
 		forget(dropped);
+	}
+	pthread_mutex_unlock(&transport_mutex);
+}
+
+void ce_transport_kick(int peer, int reason)
+{
+	struct peer *kicked;
+
+	pthread_mutex_lock(&transport_mutex);
+	kicked = game_peer(peer);
+	if (kicked)
+	{
+		/* (the game asked: no event back; closed once the reason is taken,
+		as a refusal is) */
+		kicked->game_known = 0;
+		refuse(kicked, reason, transport.now);
 	}
 	pthread_mutex_unlock(&transport_mutex);
 }

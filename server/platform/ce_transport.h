@@ -106,9 +106,12 @@ int ce_transport_peer_count(void);
 
 /* the next event: 1, else 0 */
 int ce_transport_next_event(struct ce_event *event);
-/* the join taken: its first payload (game settings and begin game) */
-void ce_transport_accept(int peer, const unsigned char *payload, int length);
+/* the join taken: its first payload (game settings and begin game); 0
+when the join is gone (refused for waiting too long, or the client left) */
+int ce_transport_accept(int peer, const unsigned char *payload, int length);
 void ce_transport_refuse(int peer, int reason);
+/* 1 while a join waits for the game's answer */
+int ce_transport_awaiting(int peer);
 /* a payload to a client in the game: 1 when sent */
 int ce_transport_send(int peer, const unsigned char *payload, int length, int reliable);
 /* the client's actions so far (struct ce_client_update, ce_messages.h):
@@ -122,6 +125,9 @@ int ce_transport_next_update(int peer, struct ce_client_update *update);
 int ce_transport_pending_updates(int peer);
 /* the client told it's closed (a kick or the game leaving it) */
 void ce_transport_drop(int peer);
+/* a client in the game sent away with a reason (CE_REJECT_*: its game
+shows why), closed once it has the reason */
+void ce_transport_kick(int peer, int reason);
 
 /* ---------- the parts the tests use */
 
