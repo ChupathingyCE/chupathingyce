@@ -9,7 +9,10 @@ their output. Nothing here touches the game: it is built with the host's
 ABI, and what crosses to the game's units is plain types.
 
 The console: commands typed on standard input, when it is a terminal (or
-HALO_DEDICATED_CONSOLE says so), their output on standard output.
+HALO_DEDICATED_CONSOLE says so), their output on standard output. When
+standard input and output are both a terminal, the line being typed is
+edited on a prompt line that the server's output goes above
+(server_terminal.c); otherwise its bytes are read as they come.
 
 The control API: HTTP/1.1 and JSON on a TCP listener of its own, off unless
 HALO_DEDICATED_CONTROL gives an address (127.0.0.1 unless it says another,
@@ -59,6 +62,7 @@ platform_log) are kept in a ring here, any public address in them hidden
 #include "control_roles.h"
 #include "control_accounts.h"
 #include "control_tls.h"
+#include "server_terminal.h"
 #include "../src/server_roles.h"
 #include "../src/server_link.h"
 
@@ -240,6 +244,8 @@ static struct
 	int started;
 	int console;
 	int console_open;
+	/* the line edited on the terminal (server_terminal.c) */
+	int console_editing;
 	char console_line[CONSOLE_LINE_SIZE];
 	size_t console_length;
 	int console_overlong;
@@ -3789,11 +3795,15 @@ static void read_console(void)
 
 	if (count < 0 && (errno == EAGAIN || errno == EINTR))
 		return;
-	if (count <= 0)
+	if (count <= 0 || (control.console_editing && !server_terminal_input(buffer, (size_t)count, console_line)))
 	{
 		control.console_open = 0;
+		if (control.console_editing)
+			server_terminal_stop();
 		return;
 	}
+	if (control.console_editing)
+		return;
 	for (index = 0; index < count; index++)
 	{
 		char character = buffer[index];
@@ -4037,7 +4047,10 @@ void server_control_start(void)
 	fcntl(wake_pipe[1], F_SETFD, FD_CLOEXEC);
 	control.console_open = control.console;
 	if (control.console)
+	{
 		notice("the console reads commands on standard input (help lists them)");
+		control.console_editing = server_terminal_start(CONSOLE_LINE_SIZE);
+	}
 	pthread_attr_init(&attributes);
 	pthread_attr_setdetachstate(&attributes, PTHREAD_CREATE_DETACHED);
 	/* (a stack of its own size: musl's default is small, and a response is
@@ -4045,6 +4058,8 @@ void server_control_start(void)
 	pthread_attr_setstacksize(&attributes, 1024 * 1024);
 	if (pthread_create(&thread, &attributes, control_thread, NULL))
 	{
+		if (control.console_editing)
+			server_terminal_stop();
 		notice("the console and control API cannot start");
 		if (control.listener >= 0)
 			close(control.listener);
