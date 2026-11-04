@@ -322,11 +322,15 @@ short sound_definition_next_permutation(
 	{
 		try_to_reset_permutations(range);
 
-		if (!TEST_FLAG(range->played_permutation_mask, selected_permutation_index))
+		/* port: the mask has 32 bits; a Custom Edition sound may have more
+		permutations, and those past the 32nd are not tracked (they may repeat) */
+		if (selected_permutation_index >= 32 ||
+			!TEST_FLAG(range->played_permutation_mask, selected_permutation_index))
 		{
 			struct sound_permutation *permutation;
 
-			SET_FLAG(range->played_permutation_mask, selected_permutation_index, TRUE);
+			if (selected_permutation_index < 32)
+				SET_FLAG(range->played_permutation_mask, selected_permutation_index, TRUE);
 			if (attempt_count++ == 16)
 				break;
 
