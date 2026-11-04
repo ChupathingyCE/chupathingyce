@@ -5072,7 +5072,11 @@ void game_engine_player_killed(
 		}
 	}
 
-	if (!player_kill && !team_change)
+	/* port: a betrayed player respawns on the normal timer: the suicide
+	penalty is for suicides and deaths nobody caused. The betrayer takes it
+	instead, on their next respawn (below). The Xbox gave it to the betrayed
+	player too (owner's call, 2026-11-03: someone killed them) */
+	if (!player_kill && !team_change && !(friendly_fire && valid_players && !same_player))
 		dead_player->respawn_timer += global_variant.universal_variant.suicide_penalty;
 
 	/* port: a team change waiting for the death (team_change.c): the player
@@ -5112,8 +5116,9 @@ void game_engine_player_killed(
 		}
 	}
 
-	/* port: the gametype's friendly fire penalty: the team killer's next
-	respawn later (the dead's own, if he has one waiting) */
+	/* port: the betrayer's penalty: the gametype's suicide penalty plus its
+	friendly fire penalty, on the team killer's next respawn (the dead's own,
+	if he has one waiting) */
 	{
 		long dead_absolute = DATUM_INDEX_TO_ABSOLUTE_INDEX(dead_player_index);
 
@@ -5125,8 +5130,11 @@ void game_engine_player_killed(
 		if (friendly_fire && valid_players && !same_player && global_variant.universal_variant.teams &&
 			DATUM_INDEX_TO_ABSOLUTE_INDEX(killing_player_index) < HALO_PORT_MAXIMUM_NETWORK_PLAYERS)
 		{
+			long penalty = global_variant.universal_variant.suicide_penalty +
+				(long)(game_variant_options_get()->friendly_fire_penalty * TICKS_PER_SECOND);
+
 			game_engine_betrayal_penalty[DATUM_INDEX_TO_ABSOLUTE_INDEX(killing_player_index)] =
-				(short)(game_variant_options_get()->friendly_fire_penalty * TICKS_PER_SECOND);
+				(short)MIN(penalty, 32767);
 		}
 	}
 

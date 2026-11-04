@@ -6,6 +6,7 @@ release notes.
 
 ## Unreleased
 
+- A betrayed player respawns on the normal timer; the betrayer takes the game type's suicide penalty (plus any friendly fire penalty) on their next respawn. Suicides and deaths nobody caused keep the suicide penalty.
 - Map names as Halo PC takes them: commas, brackets, spaces and the rest a
   Windows file name can have (`bigassv2,104@ce`, `[h3]_sandtrap@ce`), in
   `sv_map`, `sv_maps` and playlists. A name with a space goes in double
