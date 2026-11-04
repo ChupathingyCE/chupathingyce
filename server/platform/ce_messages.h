@@ -41,8 +41,10 @@ enum
 	CE_DELTA_SLAYER_SCORES = 16,
 	CE_DELTA_PLAYER_STATISTICS = 21,
 	CE_DELTA_LOCAL_PLAYER_UPDATE = 35,
+	CE_DELTA_LOCAL_VEHICLE_UPDATE = 36,
 	CE_DELTA_REMOTE_PLAYER_ACTIONS = 37,
 	CE_DELTA_REMOTE_PLAYER_POSITION = 39,
+	CE_DELTA_REMOTE_VEHICLE_POSITION = 40,
 	CE_DELTA_PLAYER_ADD = 7,
 	CE_DELTA_VEHICLE_CREATE = 28,
 	CE_DELTA_BIPED_CREATE = 29,
@@ -191,19 +193,26 @@ struct ce_vehicle_create
 	int baseline;
 };
 
-/* a vehicle's place and motion (velocities per tick), a full update with
-the next baseline number, at the server's time in milliseconds */
+/* a vehicle's place and motion (velocities per tick) */
+struct ce_vehicle_motion
+{
+	float position[3];
+	float velocity[3];
+	float angular_velocity[3];
+	unsigned int forward[2];
+	unsigned int up[2];
+};
+
+/* a vehicle's place and motion, a full update with the next baseline
+number, at the server's time in milliseconds (velocities in 31 bits a
+component over the ranges the definitions give) */
 struct ce_vehicle_update
 {
 	int object;
 	int baseline;
 	unsigned int time;
 	int at_rest;
-	float position[3];
-	float velocity[3];
-	float angular_velocity[3];
-	unsigned int forward[2];
-	unsigned int up[2];
+	struct ce_vehicle_motion motion;
 };
 
 /* a player's biped and weapons, by object index (0: none) */
@@ -306,6 +315,14 @@ void ce_payload_put_action_result(struct ce_payload *payload, const struct ce_ac
 void ce_payload_put_player_spawn(struct ce_payload *payload, const struct ce_player_spawn *spawn);
 void ce_payload_put_vehicle_create(struct ce_payload *payload, const struct ce_vehicle_create *vehicle);
 void ce_payload_put_vehicle_update(struct ce_payload *payload, const struct ce_vehicle_update *update);
+/* a client's own player in a vehicle's seat, as ce_payload_put_local_player_update:
+the vehicle (its object number) and its motion as that update began */
+void ce_payload_put_local_vehicle_update(struct ce_payload *payload, int sequence, int update_id, int vehicle,
+	const struct ce_vehicle_motion *motion);
+/* another player driving a vehicle: the vehicle and its motion, in place
+of the player's position */
+void ce_payload_put_remote_vehicle_position(struct ce_payload *payload, int player, int update_id, int sequence,
+	int vehicle, const struct ce_vehicle_motion *motion);
 /* a unit out of its vehicle (its object number), as the retail client
 plays it */
 void ce_payload_put_unit_exit(struct ce_payload *payload, int unit, int flag);

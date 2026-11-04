@@ -73,6 +73,8 @@ enum
 	BIPED_REFRESH_TICKS = 30,
 	/* a moving or changed item's place and rounds, at most this often */
 	ITEM_UPDATE_TICKS = 5,
+	/* a still vehicle's place, again, this often */
+	VEHICLE_REFRESH_TICKS = 90,
 	/* a join waiting for a game to start or a seat, at most (a client gives
 	up on an unanswered join after about 15 seconds) */
 	JOIN_WAIT_MILLISECONDS = 12000,
@@ -116,6 +118,9 @@ struct ce_client
 	float item_position[NETWORK_OBJECTS + 1][3];
 	int item_rounds[NETWORK_OBJECTS + 1];
 	long item_tick[NETWORK_OBJECTS + 1];
+	/* each player's vehicle and seat as it was told (NONE: on foot) */
+	long vehicle_sent[TRACKED_PLAYERS];
+	short seat_sent[TRACKED_PLAYERS];
 	int update_id;
 	int sequence;
 	int local_sequence;
@@ -125,6 +130,9 @@ struct ce_client
 	float start_position[3];
 	int start_update_id;
 	boolean have_start;
+	/* or, in a vehicle's seat, the vehicle and its motion then */
+	long start_vehicle;
+	struct ce_vehicle_motion start_motion;
 	/* the scores and numbers it was told last (by absolute index) */
 	int scores_sent[CE_GAME_PLAYERS];
 	int team_scores_sent[CE_GAME_PLAYERS];
@@ -344,6 +352,7 @@ static boolean join(
 	ce.clients[index].active = TRUE;
 	ce.clients[index].peer = event->peer;
 	ce.clients[index].address = event->address;
+	ce.clients[index].start_vehicle = NONE;
 	snprintf(ce.clients[index].name, sizeof(ce.clients[index].name), "%s", event->name);
 	{
 		long player;
@@ -353,6 +362,7 @@ static boolean join(
 			ce.clients[index].announced[player] = NONE;
 			ce.clients[index].unit_sent[player] = NONE;
 			ce.clients[index].body[player] = NONE;
+			ce.clients[index].vehicle_sent[player] = NONE;
 		}
 		for (player = 0; player <= NETWORK_OBJECTS; player++)
 			ce.clients[index].item[player] = NONE;
@@ -870,6 +880,161 @@ static void update_items(
 	}
 }
 
+static void vehicle_motion(
+	long vehicle_index,
+	struct ce_vehicle_motion *motion)
+{
+	struct object_datum *vehicle = object_get(vehicle_index);
+
+	csmemset(motion, 0, sizeof(*motion));
+	motion->position[0] = vehicle->object.position.x;
+	motion->position[1] = vehicle->object.position.y;
+	motion->position[2] = vehicle->object.position.z;
+	motion->velocity[0] = vehicle->object.translational_velocity.i;
+	motion->velocity[1] = vehicle->object.translational_velocity.j;
+	motion->velocity[2] = vehicle->object.translational_velocity.k;
+	motion->angular_velocity[0] = vehicle->object.angular_velocity.i;
+	motion->angular_velocity[1] = vehicle->object.angular_velocity.j;
+	motion->angular_velocity[2] = vehicle->object.angular_velocity.k;
+	ce_direction(&vehicle->object.forward.i, motion->forward);
+	ce_direction(&vehicle->object.up.i, motion->up);
+}
+
+static void put_vehicle_update(
+	struct ce_client *client,
+	struct ce_payload *payload,
+	int number,
+	long vehicle_index)
+{
+	struct object_datum *vehicle = object_get(vehicle_index);
+	struct ce_vehicle_update update;
+
+	csmemset(&update, 0, sizeof(update));
+	update.object = number;
+	update.baseline = (client->item_baseline[number] + 1) & 0xff;
+	update.time = (unsigned int)system_milliseconds();
+	update.at_rest = TEST_FLAG(vehicle->object.flags, _object_at_rest_bit) ? 1 : 0;
+	vehicle_motion(vehicle_index, &update.motion);
+	ce_payload_put_vehicle_update(payload, &update);
+}
+
+/* the vehicles: made with their weapons, then their place and motion each
+tick while they move (and again now and then while still) */
+static void update_vehicles(
+	struct ce_client *client,
+	struct ce_payload *reliable,
+	struct ce_payload *moving)
+{
+	struct object_iterator iterator;
+	struct unit_datum *vehicle;
+
+	object_iterator_new(&iterator, _object_mask_vehicle, 0);
+	while ((vehicle = object_iterator_next(&iterator)) != NULL)
+	{
+		int number, index;
+
+		if (reliable->position > (PAYLOAD_SIZE - 160) * 8)
+			break;
+		number = network_object(iterator.index, TRUE);
+		if (!number)
+			continue;
+		if (client->item[number] != iterator.index || client->item_state[number] == ITEM_UNKNOWN)
+		{
+			struct ce_vehicle_create create;
+
+			csmemset(&create, 0, sizeof(create));
+			put_object_start(&create.object, iterator.index, number);
+			/* (its weapons first, their parent it) */
+			for (index = 0; index < 4 && index < MAXIMUM_WEAPONS_PER_UNIT; index++)
+			{
+				long weapon_index = vehicle->unit.weapon_object_indices[index];
+				struct ce_weapon_create weapon;
+				int weapon_number;
+
+				if (weapon_index == NONE || !object_try_and_get(weapon_index) ||
+					(weapon_number = network_object(weapon_index, TRUE)) == 0)
+				{
+					continue;
+				}
+				csmemset(&weapon, 0, sizeof(weapon));
+				put_object_start(&weapon.object, weapon_index, weapon_number);
+				weapon.object.parent = number;
+				put_weapon_state(&weapon, weapon_index);
+				weapon.baseline = 2;
+				ce_payload_put_weapon_create(reliable, &weapon);
+				item_told(client, weapon_number, weapon_index, ITEM_HELD, iterator.index, 2);
+				create.weapons[index] = weapon_number;
+			}
+			create.baseline = 1;
+			ce_payload_put_vehicle_create(reliable, &create);
+			item_told(client, number, iterator.index, ITEM_WORLD, NONE, 1);
+			continue;
+		}
+		/* (moving: each tick, as Custom Edition's server sends them; still:
+		once as it stops, then now and then) */
+		{
+			boolean still = TEST_FLAG(vehicle->object.flags, _object_at_rest_bit);
+			float dx = vehicle->object.position.x - client->item_position[number][0];
+			float dy = vehicle->object.position.y - client->item_position[number][1];
+			float dz = vehicle->object.position.z - client->item_position[number][2];
+			boolean moved = dx * dx + dy * dy + dz * dz > 0.01f * 0.01f;
+
+			/* (one a player drives: that player's messages carry it) */
+			if (vehicle->unit.driver_object_index != NONE && unit_player_number(client, vehicle->unit.driver_object_index))
+				continue;
+			if (!still && moving->position < (PAYLOAD_SIZE - 64) * 8)
+			{
+				put_vehicle_update(client, moving, number, iterator.index);
+				item_told(client, number, iterator.index, ITEM_WORLD, NONE, (client->item_baseline[number] + 1) & 0xff);
+			}
+			else if (still && (moved || game_time_get() - client->item_tick[number] >= VEHICLE_REFRESH_TICKS))
+			{
+				put_vehicle_update(client, reliable, number, iterator.index);
+				item_told(client, number, iterator.index, ITEM_WORLD, NONE, (client->item_baseline[number] + 1) & 0xff);
+			}
+		}
+	}
+}
+
+/* (a player into or out of a vehicle's seat, as its client's game plays
+it: the action of getting in, or the unit out) */
+static void update_seat(
+	struct ce_client *client,
+	struct ce_payload *reliable,
+	long player_index,
+	struct player_datum *player)
+{
+	long absolute = DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index);
+	struct unit_datum *unit = player->unit_index == NONE ? NULL : unit_get(player->unit_index);
+	long vehicle_index = unit ? unit->object.parent_object_index : NONE;
+	short seat = unit ? unit->unit.parent_seat_index : NONE;
+	int vehicle_number = vehicle_index == NONE ? 0 : network_object(vehicle_index, FALSE);
+
+	if (player->unit_index != client->unit_sent[absolute])
+		return;
+	if (vehicle_number && client->item[vehicle_number] != vehicle_index)
+		vehicle_number = 0;
+	if (!vehicle_number)
+		vehicle_index = NONE;
+	if (vehicle_index == client->vehicle_sent[absolute] && (vehicle_index == NONE || seat == client->seat_sent[absolute]))
+		return;
+	if (client->vehicle_sent[absolute] != NONE && network_object(player->unit_index, FALSE))
+		ce_payload_put_unit_exit(reliable, network_object(player->unit_index, FALSE), TRUE);
+	if (vehicle_index != NONE)
+	{
+		struct ce_action_result result;
+
+		csmemset(&result, 0, sizeof(result));
+		result.player = network_player_number(player_index);
+		result.object = vehicle_number;
+		result.result = _player_action_result_enter_vehicle;
+		result.seat = seat & 0xffff;
+		ce_payload_put_action_result(reliable, &result);
+	}
+	client->vehicle_sent[absolute] = vehicle_index;
+	client->seat_sent[absolute] = seat;
+}
+
 static void update_client(
 	struct ce_client *client,
 	short local_index)
@@ -951,8 +1116,19 @@ static void update_client(
 		if (player_index == own_player && player->unit_index != NONE && client->have_start &&
 			game_time_get() % LOCAL_UPDATE_TICKS == 0)
 		{
-			ce_payload_put_local_player_update(&payload, client->local_sequence, client->start_update_id,
-				client->start_position);
+			int vehicle_number = client->start_vehicle == NONE ? 0 : network_object(client->start_vehicle, FALSE);
+
+			/* (in a vehicle's seat: the vehicle, as it was then) */
+			if (vehicle_number && object_try_and_get(client->start_vehicle))
+			{
+				ce_payload_put_local_vehicle_update(&payload, client->local_sequence, client->start_update_id,
+					vehicle_number, &client->start_motion);
+			}
+			else
+			{
+				ce_payload_put_local_player_update(&payload, client->local_sequence, client->start_update_id,
+					client->start_position);
+			}
 			client->local_sequence = (client->local_sequence + 1) & 31;
 			any = TRUE;
 		}
@@ -973,14 +1149,38 @@ static void update_client(
 			actions.weapon = unit->unit.current_weapon_index < 0 ? 0 : unit->unit.current_weapon_index & 7;
 			actions.grenade = unit->unit.current_grenade_index < 0 ? 0 : unit->unit.current_grenade_index & 3;
 			ce_payload_put_remote_player_actions(&payload, &actions);
-			position[0] = unit->object.position.x;
-			position[1] = unit->object.position.y;
-			position[2] = unit->object.position.z;
-			ce_payload_put_remote_player_position(&payload, actions.player, client->update_id, client->sequence,
-				position);
+			/* (driving: the vehicle's place and motion; riding in another
+			seat: the vehicle's own updates carry it) */
+			if (unit->object.parent_object_index != NONE)
+			{
+				long vehicle_index = unit->object.parent_object_index;
+				int vehicle_number = network_object(vehicle_index, FALSE);
+
+				if (vehicle_number && client->item[vehicle_number] == vehicle_index &&
+					TEST_FLAG(_object_mask_vehicle, object_get(vehicle_index)->object.type) &&
+					unit_get(vehicle_index)->unit.driver_object_index == player->unit_index)
+				{
+					struct ce_vehicle_motion motion;
+
+					vehicle_motion(vehicle_index, &motion);
+					ce_payload_put_remote_vehicle_position(&payload, actions.player, client->update_id,
+						client->sequence, vehicle_number, &motion);
+				}
+			}
+			else
+			{
+				position[0] = unit->object.position.x;
+				position[1] = unit->object.position.y;
+				position[2] = unit->object.position.z;
+				ce_payload_put_remote_player_position(&payload, actions.player, client->update_id, client->sequence,
+					position);
+			}
 			any = TRUE;
 		}
 	}
+	update_vehicles(client, &reliable, &payload);
+	if (payload.position > 11)
+		any = TRUE;
 	if (any)
 	{
 		length = ce_payload_end(&payload);
@@ -989,6 +1189,12 @@ static void update_client(
 		client->sequence = (client->sequence + 1) & 7;
 	}
 	update_items(client, &reliable);
+	data_iterator_new(&iterator, player_data);
+	while ((player = data_iterator_next(&iterator)) != NULL)
+	{
+		if (DATUM_INDEX_TO_ABSOLUTE_INDEX(iterator.datum_index) < TRACKED_PLAYERS)
+			update_seat(client, &reliable, iterator.datum_index, player);
+	}
 	if (reliable.position > 11)
 		ce_transport_send(client->peer, reliable_out, ce_payload_end(&reliable), TRUE);
 	send_scores(client);
@@ -1130,6 +1336,9 @@ boolean server_ce_local_action(
 			{
 				struct object_datum *object = object_get(unit_index);
 
+				client->start_vehicle = object->object.parent_object_index;
+				if (client->start_vehicle != NONE)
+					vehicle_motion(client->start_vehicle, &client->start_motion);
 				client->start_position[0] = object->object.position.x;
 				client->start_position[1] = object->object.position.y;
 				client->start_position[2] = object->object.position.z;

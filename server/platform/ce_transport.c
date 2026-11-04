@@ -513,7 +513,7 @@ int ce_payload_from_message(const unsigned char *message, int message_length, un
 
 /* ---------- messages */
 
-int ce_message_new_client_challenge(const char *challenge, const char *map, int machine, unsigned char *out, int size)
+int ce_message_new_client_challenge(const char *challenge, const char *map, unsigned char *out, int size)
 {
 	int map_length = (int)strnlen(map, 127);
 	int length = 1 + 8 + 1 + 4 + 4 + map_length + 1 + 1;
@@ -524,9 +524,10 @@ int ce_message_new_client_challenge(const char *challenge, const char *map, int 
 	out[0] = MESSAGE_VERSION;
 	/* (8 bytes: the challenge's text and a NUL; then a byte, two longs) */
 	memcpy(out + 1, challenge, strnlen(challenge, 7));
-	/* (the byte after: the machine the client will be, as the game settings
-	name it) */
-	out[9] = (unsigned char)machine;
+	/* (the byte after: 1 asks the client for the compact motion (the
+	retail client's 0x4c6460: 16-bit velocities); Custom Edition's own
+	server sends 0, the full motion ce_messages.c writes) */
+	out[9] = 0;
 	memcpy(out + 18, map, (size_t)map_length);
 	out[length - 1] = MESSAGE_NEW_CLIENT_CHALLENGE;
 	return length;
@@ -931,7 +932,7 @@ static void client_response(struct peer *peer, const unsigned char *packet, int 
 		challenge_text[index] = (char)('a' + next_random() % 26);
 	challenge_text[7] = 0;
 	message_length = ce_message_new_client_challenge(challenge_text, transport.map[0] ? transport.map : "unknown",
-		peer_number(peer), challenge_message, sizeof(challenge_message));
+		challenge_message, sizeof(challenge_message));
 	send_message(peer, challenge_message, message_length, now);
 }
 

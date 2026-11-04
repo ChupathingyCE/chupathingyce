@@ -319,6 +319,7 @@ enum
 {
 	DIRECTION_BITS = 20,
 	POSITION_BITS = 31,
+	VELOCITY_BITS = 31,
 	/* a whole position's range, each axis: -5000 to 5000 world units */
 	POSITION_RANGE = 10000,
 	POSITION_OFFSET = 5000,
@@ -384,9 +385,11 @@ void ce_throttle(int bits, float *forward, float *left)
 /* ---------- object and player updates */
 
 /* (a velocity: 1, the first preset, for none; else 0 and each component
-in 16 bits over -limit to limit) */
+in 31 bits over -limit to limit, the full motion (the retail binary's
+0x4d8120; 16 bits only for a client asked for the compact motion)) */
 static void put_velocity(struct ce_payload *payload, const float velocity[3], float limit)
 {
+	const double maximum = (double)((1u << VELOCITY_BITS) - 1);
 	int axis;
 
 	if (velocity[0] == 0.0f && velocity[1] == 0.0f && velocity[2] == 0.0f)
@@ -400,7 +403,7 @@ static void put_velocity(struct ce_payload *payload, const float velocity[3], fl
 		double value = ((double)velocity[axis] + limit) / (2.0 * limit);
 
 		value = value < 0.0 ? 0.0 : value > 1.0 ? 1.0 : value;
-		put_bits(payload, (unsigned int)floor(value * 65535.0 + 0.5), 16);
+		put_bits(payload, (unsigned int)floor(value * maximum + 0.5), VELOCITY_BITS);
 	}
 }
 
@@ -419,6 +422,38 @@ void ce_payload_put_vehicle_create(struct ce_payload *payload, const struct ce_v
 	put_zero_velocity(payload);
 }
 
+static void put_vehicle_motion(struct ce_payload *payload, const struct ce_vehicle_motion *motion)
+{
+	put_position_full(payload, motion->position);
+	put_velocity(payload, motion->velocity, 100.0f);
+	put_velocity(payload, motion->angular_velocity, 8.0f);
+	put_bits(payload, motion->forward[0], DIRECTION_BITS);
+	put_bits(payload, motion->forward[1], DIRECTION_BITS);
+	put_bits(payload, motion->up[0], DIRECTION_BITS);
+	put_bits(payload, motion->up[1], DIRECTION_BITS);
+}
+
+void ce_payload_put_local_vehicle_update(struct ce_payload *payload, int sequence, int update_id, int vehicle,
+	const struct ce_vehicle_motion *motion)
+{
+	put_delta_header(payload, CE_DELTA_LOCAL_VEHICLE_UPDATE);
+	put_bits(payload, (unsigned int)sequence, 5);
+	put_bits(payload, (unsigned int)update_id, 6);
+	put_bits(payload, (unsigned int)vehicle, 9);
+	put_vehicle_motion(payload, motion);
+}
+
+void ce_payload_put_remote_vehicle_position(struct ce_payload *payload, int player, int update_id, int sequence,
+	int vehicle, const struct ce_vehicle_motion *motion)
+{
+	put_delta_header(payload, CE_DELTA_REMOTE_VEHICLE_POSITION);
+	put_bits(payload, (unsigned int)player, 5);
+	put_bits(payload, (unsigned int)update_id, 6);
+	put_bits(payload, (unsigned int)sequence, 3);
+	put_bits(payload, (unsigned int)vehicle, 9);
+	put_vehicle_motion(payload, motion);
+}
+
 void ce_payload_put_vehicle_update(struct ce_payload *payload, const struct ce_vehicle_update *update)
 {
 	put_delta_header(payload, CE_DELTA_VEHICLE_UPDATE);
@@ -430,13 +465,7 @@ void ce_payload_put_vehicle_update(struct ce_payload *payload, const struct ce_v
 	put_bits(payload, update->time, 32);
 	put_bits(payload, 1, 1);
 	put_bits(payload, update->at_rest ? 1 : 0, 1);
-	put_position_full(payload, update->position);
-	put_velocity(payload, update->velocity, 100.0f);
-	put_velocity(payload, update->angular_velocity, 8.0f);
-	put_bits(payload, update->forward[0], DIRECTION_BITS);
-	put_bits(payload, update->forward[1], DIRECTION_BITS);
-	put_bits(payload, update->up[0], DIRECTION_BITS);
-	put_bits(payload, update->up[1], DIRECTION_BITS);
+	put_vehicle_motion(payload, &update->motion);
 }
 
 void ce_payload_put_unit_exit(struct ce_payload *payload, int unit, int flag)

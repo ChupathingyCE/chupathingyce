@@ -392,6 +392,23 @@ def test_vehicles_match_captures(harness):  # noqa: F811
     captured_update = "20a8001010509004f43403eb25d01374e5878b4d001cba0a0db4a31a19a8ef9d"
     assert len(lines[1]) == len(captured_update)
     assert bits_of(lines[1])[:253] == bits_of(captured_update)[:253]
+    # (a driver's vehicle, its own and another's: the fields their
+    # definitions in the retail binary give; the vehicle's motion as the
+    # update above, but moving)
+    bits = bits_of(lines[2])
+    number = lambda start, width: int(bits[start:start + width][::-1], 2)  # noqa: E731
+    motion = bits_of(captured_update)[78:78 + 93]
+    assert number(11, 1) == 1 and number(13, 6) == 36
+    assert number(19, 5) == 9 and number(24, 6) == 33 and number(30, 9) == 2
+    full = (1 << 31) - 1
+    assert bits[39:39 + 93] == motion
+    assert number(132, 1) == 0 and number(133, 31) == int((0.5 + 100) / 200 * full + 0.5)
+    assert number(164, 31) == int(full / 2 + 0.5) and number(195, 31) == int(full / 2 + 0.5)
+    assert number(226, 1) == 0 and number(289, 31) == int((-0.25 + 8) / 16 * full + 0.5)
+    second = 320 + 80
+    assert number(second, 1) == 1 and number(second + 2, 6) == 40
+    assert number(second + 8, 5) == 3 and number(second + 13, 6) == 12 and number(second + 19, 3) == 5
+    assert number(second + 22, 9) == 2 and bits[second + 31:second + 31 + 93] == motion
 
 
 # (our capture of Custom Edition 1.0.10's server after a join: weapon

@@ -152,7 +152,7 @@ int ce_payload_messages(const unsigned char *payload, int length,
 int ce_payload_from_message(const unsigned char *message, int message_length, unsigned char *out, int size);
 /* the server's first message (the challenge and the map's name): its
 length, or 0 */
-int ce_message_new_client_challenge(const char *challenge, const char *map, int machine, unsigned char *out, int size);
+int ce_message_new_client_challenge(const char *challenge, const char *map, unsigned char *out, int size);
 /* the join refused, with a reason (CE_REJECT_*): its length */
 int ce_message_machine_rejected(int reason, unsigned char *out, int size);
 /* a join request's message (type 14): 1 and its fields, else 0 */

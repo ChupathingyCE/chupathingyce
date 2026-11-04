@@ -285,15 +285,25 @@ int main(int argc, char **argv)
 		update.time = 1329613061u;
 		update.at_rest = 1;
 		/* (the captured place, as its 31-bit numbers) */
-		update.position[0] = (float)(1083681804.0 / 2147483647.0 * 10000.0 - 5000.0);
-		update.position[1] = (float)(1059823774.0 / 2147483647.0 * 10000.0 - 5000.0);
-		update.position[2] = (float)(1074059448.0 / 2147483647.0 * 10000.0 - 5000.0);
-		update.forward[0] = 546256;
-		update.forward[1] = 121350;
-		update.up[0] = 51413;
-		update.up[1] = 980948;
+		update.motion.position[0] = (float)(1083681804.0 / 2147483647.0 * 10000.0 - 5000.0);
+		update.motion.position[1] = (float)(1059823774.0 / 2147483647.0 * 10000.0 - 5000.0);
+		update.motion.position[2] = (float)(1074059448.0 / 2147483647.0 * 10000.0 - 5000.0);
+		update.motion.forward[0] = 546256;
+		update.motion.forward[1] = 121350;
+		update.motion.up[0] = 51413;
+		update.motion.up[1] = 980948;
 		ce_payload_begin(&payload, out, sizeof(out));
 		ce_payload_put_vehicle_update(&payload, &update);
+		length = ce_payload_end(&payload);
+		for (index = 0; index < length; index++)
+			printf("%02x", out[index]);
+		printf("\n");
+		/* (a driver's own vehicle, then another's, moving) */
+		update.motion.velocity[0] = 0.5f;
+		update.motion.angular_velocity[2] = -0.25f;
+		ce_payload_begin(&payload, out, sizeof(out));
+		ce_payload_put_local_vehicle_update(&payload, 9, 33, 2, &update.motion);
+		ce_payload_put_remote_vehicle_position(&payload, 3, 12, 5, 2, &update.motion);
 		length = ce_payload_end(&payload);
 		for (index = 0; index < length; index++)
 			printf("%02x", out[index]);
