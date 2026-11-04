@@ -127,7 +127,7 @@ def build(name, directory, cc):
     objects, link_target = game_objects(target, directory, cc)
     command = [cc, *link_target, *SANITIZE, *target.get("flags", []), "-iquote", str(ROOT / "port" / "linux" / "include"),
                *(f"-I{ROOT / folder}" for folder in target.get("includes", [])),
-               str(ROOT / target["harness"]), *(str(ROOT / source) for source in target["sources"]),
+               str(ROOT / target["harness"]), *(str(ROOT / source) for source in target.get("sources", [])),
                *objects, *target.get("libraries", []), "-o", str(binary)]
     result = subprocess.run(command, capture_output=True, text=True, cwd=ROOT)
     if result.returncode != 0:
