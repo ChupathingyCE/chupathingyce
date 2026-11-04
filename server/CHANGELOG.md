@@ -64,7 +64,8 @@ release notes.
 - Evidence for moderators: `sv_evidence [player]`, `GET /v1/evidence` and a
   Refused column in the panel's Players count what the server refused of
   each player's machine this game (movement and vehicle predictions out of
-  bounds, hit reports that failed validation, windows its clock ran fast).
+  bounds, hit reports that failed validation, hits through walls, windows
+  its clock ran fast).
   Moderators and up; reset each game; never sent anywhere, never an
   automatic ban.
 - Betrayal and AFK limits, both off by default: `betrayal_kick`
