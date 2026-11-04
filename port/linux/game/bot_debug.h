@@ -25,6 +25,16 @@ struct bot_debug_window_ops
 	int (*toggle)(void); /* open or close it: whether it is open now */
 	int (*is_open)(void);
 	void (*set_text)(char const *text); /* what it shows */
+	int (*key_held)(int key); /* a key of the view's held now (_bot_debug_key_...) */
+};
+
+enum
+{
+	_bot_debug_key_f7 = 0,
+	_bot_debug_key_f8,
+	_bot_debug_key_f10,
+	_bot_debug_key_shift,
+	_bot_debug_key_control,
 };
 
 void bot_debug_window_register(struct bot_debug_window_ops const *ops);

@@ -3181,7 +3181,7 @@ On the machine that runs the bots (your own game, or the one you host):
 | Shift+F7 | The chosen bot's part on the game's own screen, on the left (for a game that fills the one screen) |
 | Ctrl+F7 | Saves all of it, of every bot, to `bot_debug_<date>_<time>.txt` in the logs folder: a file to send with a report |
 | F8 | The next bot (Shift+F8: the one before; Ctrl+F8: the bot in the middle of your view) |
-| F10 | The camera: through the chosen bot's eyes, then from behind it, then free, then your own again. The free camera (noclip) flies with W, A, S, D, R (up) and F (down), the mouse looks about, and the wheel changes its speed. Your own player stands still while the camera is not yours. |
+| F10 | The camera: through the chosen bot's eyes, then from behind it, then free, then your own again. The free camera (noclip) flies as you move: the movement keys (or the left stick) move it, the mouse (or the right stick) looks about, fire rises, the grenade button sinks, and the d-pad's up and down change its speed. Your own player stands still while the camera is not yours. |
 | Shift+F10 | Back to your own view |
 
 While the window or the panel is open, the chosen bot has lines in the

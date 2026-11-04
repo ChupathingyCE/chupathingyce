@@ -1580,6 +1580,7 @@ struct bot_debug_window_ops
 	int (*toggle)(void);
 	int (*is_open)(void);
 	void (*set_text)(char const *text);
+	int (*key_held)(int key);
 };
 void bot_debug_window_register(struct bot_debug_window_ops const *ops);
 
@@ -1849,12 +1850,30 @@ static int debug_window_event(SDL_Event const *event)
 	return 1;
 }
 
+/* The view's keys, held now: F7, F8, F10, Shift, Ctrl (bot_debug.c,
+_bot_debug_key_...). From the keyboard itself: the game's own keys reach it
+only while the console, chat or a text field has them (xinput_sdl.c,
+XInputDebugGetKeystroke). */
+static int debug_window_key_held(int key)
+{
+	switch (key)
+	{
+	case 0: return input_state.keys[SDL_SCANCODE_F7] != 0;
+	case 1: return input_state.keys[SDL_SCANCODE_F8] != 0;
+	case 2: return input_state.keys[SDL_SCANCODE_F10] != 0;
+	case 3: return input_state.keys[SDL_SCANCODE_LSHIFT] || input_state.keys[SDL_SCANCODE_RSHIFT];
+	case 4: return input_state.keys[SDL_SCANCODE_LCTRL] || input_state.keys[SDL_SCANCODE_RCTRL];
+	}
+	return 0;
+}
+
 /* the game's side of it (bot_debug.c) */
 static struct bot_debug_window_ops const debug_window_ops =
 {
 	debug_window_toggle,
 	debug_window_is_open,
 	debug_window_set_text,
+	debug_window_key_held,
 };
 #endif
 

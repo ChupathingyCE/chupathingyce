@@ -17,8 +17,10 @@ and why, and to tell about it.
   F8          the next bot (Shift+F8 the one before; Ctrl+F8 the one in
               the middle of the view)
   F10         the camera: through the chosen bot's eyes, then from behind
-              it, then free (fly about: W A S D, R up, F down, the mouse to
-              look, the wheel for speed), then back to your own
+              it, then free (flown as a player moves: the movement keys or the
+              left stick, the mouse or the right stick to look, fire to rise,
+              the grenade button to sink, the d-pad up and down for speed),
+              then back to your own
   Shift+F10   back to your own view
 
 The bot chosen has lines drawn in the world while the window or the panel is
@@ -108,24 +110,34 @@ static boolean bot_debug_window_open(void)
 	return bot_debug_window && bot_debug_window->is_open();
 }
 
-/* a key's press (not its holding), by its slot in keys_down */
-static boolean bot_debug_pressed(short key, short slot)
+/* a key held now: the keyboard's own, from the platform (the game's keys
+   reach the game only while the console or a text field has them); the
+   game's, on a build with no platform keys */
+static boolean bot_debug_key(short which, short key)
 {
-	boolean down = input_key_is_down(key) ? TRUE : FALSE;
-	boolean pressed = down && !bot_debug.keys_down[slot];
+	if (bot_debug_window && bot_debug_window->key_held)
+		return bot_debug_window->key_held(which) ? TRUE : FALSE;
+	return input_key_is_down(key) ? TRUE : FALSE;
+}
 
-	bot_debug.keys_down[slot] = down;
+/* a key's press (not its holding), by its slot in keys_down */
+static boolean bot_debug_pressed(short which, short key)
+{
+	boolean down = bot_debug_key(which, key);
+	boolean pressed = down && !bot_debug.keys_down[which];
+
+	bot_debug.keys_down[which] = down;
 	return pressed;
 }
 
 static boolean bot_debug_shift(void)
 {
-	return input_key_is_down(_key_left_shift) || input_key_is_down(_key_right_shift);
+	return bot_debug_key(_bot_debug_key_shift, _key_shift);
 }
 
 static boolean bot_debug_control(void)
 {
-	return input_key_is_down(_key_left_control) || input_key_is_down(_key_control);
+	return bot_debug_key(_bot_debug_key_control, _key_control);
 }
 
 static void bot_debug_build(void)
@@ -265,9 +277,9 @@ void bot_debug_update(void)
 
 	bot_debug_from_environment();
 
-	window_key = bot_debug_pressed(_key_f7, 0);
-	next_key = bot_debug_pressed(_key_f8, 1);
-	camera_key = bot_debug_pressed(_key_f10, 2);
+	window_key = bot_debug_pressed(_bot_debug_key_f7, _key_f7);
+	next_key = bot_debug_pressed(_bot_debug_key_f8, _key_f8);
+	camera_key = bot_debug_pressed(_bot_debug_key_f10, _key_f10);
 	if (window_key)
 	{
 		if (control)
@@ -421,7 +433,7 @@ void bot_debug_draw(short local_player_index)
 		snprintf(top, sizeof(top), "%s%s%ld   (F10 next, Shift+F10 own view, F8 next bot)", names[bot_debug.camera],
 			bot_debug.camera == _bot_debug_camera_fly ? "" : " OF BOT ", bot_debug.camera == _bot_debug_camera_fly ? 0L : bot_debug.selected);
 		if (bot_debug.camera == _bot_debug_camera_fly)
-			snprintf(top, sizeof(top), "FREE CAMERA: W A S D, R up, F down, mouse to look   (F10 own view)");
+			snprintf(top, sizeof(top), "FREE CAMERA: move and look as you play, fire to rise, grenade to sink   (F10 own view)");
 		bounds = render.camera.window_bounds;
 		bounds.y0 = (short)(bounds.y0 + 8);
 		bounds.y1 = (short)(bounds.y0 + 20);
