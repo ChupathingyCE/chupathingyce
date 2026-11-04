@@ -195,8 +195,9 @@ What works so far:
 Not yet:
 
 - At most 4 Custom Edition players at once.
-- The end of a game drops them; they join again in the next one. A join
-  between games waits up to 12 seconds for the next game.
+- They join a game in progress only: the end of a game drops them, and a
+  join between games waits up to 12 seconds for the next one. An empty
+  server doesn't start a game for them.
 - Weapons and equipment coming back (respawning) on the ground.
 - Checked live only in part: a Chupathingy player in a vehicle as Custom
   Edition players see it, and swapping weapons.

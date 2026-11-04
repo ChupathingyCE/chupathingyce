@@ -573,7 +573,7 @@ def test_welcome_line():
     body = _function(source, "void server_ce_set_welcome")
     text = "".join(part for part in __import__("re").findall(r'"((?:[^"\\]|\\.)*)"', body.split("snprintf")[0]))
     assert text.startswith("Welcome to our Chupathingy Cross-Play Server.")
-    assert len(text) <= 255 and text.isascii()
+    assert len(text) <= 80 and text.isascii()
 
 
 class JoinServer(Server):

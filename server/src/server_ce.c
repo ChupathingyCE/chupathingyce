@@ -1440,8 +1440,9 @@ boolean server_ce_local_action(
 void server_ce_set_welcome(
 	char const *text)
 {
-	static char const default_welcome[] = "Welcome to our Chupathingy Cross-Play Server. You're playing with "
-		"Chupathingy players on PC, Mac, Linux, Android and Xbox. More at chupathingy.org";
+	/* (short: Custom Edition's chat doesn't wrap, and a 640-wide screen
+	shows about 90 characters of a line) */
+	static char const default_welcome[] = "Welcome to our Chupathingy Cross-Play Server. More at chupathingy.org";
 
 	snprintf(ce.welcome, sizeof(ce.welcome), "%s", text ? text : default_welcome);
 	ce.welcome_set = TRUE;
