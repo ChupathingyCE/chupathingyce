@@ -34,6 +34,7 @@ the file.
 | `HALO_DEDICATED_GAMESPY_VERSION` | the server's version | The version (`gamever`) the queries and heartbeats report. |
 | `HALO_DEDICATED_MAX_MACHINES_PER_ADDRESS` | `8` | The most machines that may join from one internet address, 0 to 16 (`max_machines_per_address`; 0: no limit). A machine past it is told there are too many players from its address. Local network addresses (10/8, 172.16/12, 192.168/16, 127/8, 169.254/16) are never limited. Players behind one carrier-grade NAT (100.64/10) can share an address, which is why the default is generous. Internet play counts each player by the address their connection comes from. |
 | `HALO_DEDICATED_CE_JOINS` | `false` | `true`: answer Halo Custom Edition 1.0.10 join attempts on the GameSpy port ([below](#custom-edition-join-attempts)); needs `gamespy_listing`. |
+| `HALO_DEDICATED_CE_WELCOME` | a line about cross-play | The chat line each Custom Edition player gets as they join (`ce_welcome`, up to 255 characters). Set but empty: none. |
 | `HALO_DEDICATED_BETRAYAL_KICK` | `0` | Betrayals (teammates killed) in one game that kick a player, 1 to 100; they are warned one short of it, and a second such kick within 24 hours bans them for 30 minutes ([moderation.md](moderation.md#betrayal-and-afk-limits)). `0`: off. `sv_set betrayal_kick 3` sets it while the server runs. |
 | `HALO_DEDICATED_AFK_KICK_MINUTES` | `0` | Minutes without input in a game in progress that kick a player, 1 to 120, warned 30 seconds before; never in the lobby or the carnage report, never a moderator ([moderation.md](moderation.md#betrayal-and-afk-limits)). `0`: off (`afk_kick_minutes`). |
 | `HALO_DEDICATED_COMMANDS` | (none) | A file of [commands](admin.md#startup-commands) in the data folder, run once the server first hosts. |
@@ -171,10 +172,35 @@ For development only, `HALO_DEDICATED_CE_ACCEPT=1` takes the join instead,
 while a game is being played on a map the Custom Edition player has too (a
 Custom Edition map, `bloodgulch@ce`: the same .map file on both sides). The
 player joins the game as one of the server's own players, moved by their
-client's input, and their client is shown the other players, their bipeds
-and weapons from the server's game. Up to 4 Custom Edition players at once
-for now. Still incomplete (no projectiles, vehicles or items shown to them,
-their own position not corrected), so leave this off on a real server.
+client's input. Leave this off on a real server: it is still incomplete.
+
+What works so far:
+
+- Moving, aiming and shooting, both ways. Their own position is corrected
+  to the server's twice a second, so their shots land at range.
+- The other players, their weapons and their shots, as the server's game
+  has them.
+- Shield and health on their HUD, deaths and the respawn countdown.
+- The scoreboard: kills, assists, betrayals, deaths, suicides and Slayer's
+  scores.
+- Weapons and equipment on the ground, picking them up and dropping them.
+- Vehicles: getting in and out of seats, and driving.
+- A welcome line in their chat as they join (`ce_welcome`), and `sv_say`.
+- `sv_kick` and `sv_ban` (a ban is by their address). The bans, the limit
+  on players from one address (`max_machines_per_address`) and the
+  betrayal and AFK limits apply to them too: warnings go in their chat. The
+  host's line of sight check is not needed for them, since the server's
+  game fires their shots itself.
+
+Not yet:
+
+- At most 4 Custom Edition players at once.
+- They join a game in progress only: the end of a game drops them, and a
+  join between games waits up to 12 seconds for the next one. An empty
+  server doesn't start a game for them.
+- Weapons and equipment coming back (respawning) on the ground.
+- Checked live only in part: a Chupathingy player in a vehicle as Custom
+  Edition players see it, and swapping weapons.
 
 ## Folders
 

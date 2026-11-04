@@ -1800,7 +1800,8 @@ the emblem are on the site (`/profile#clan`, `/clans/TAG`).
 - **Halo Custom Edition 1.0.10 players:** outside Delta. A dedicated
   server can list itself on the GameSpy masters (`gamespy_listing`), and
   with `ce_joins` (off by default) it answers a Custom Edition client's
-  join with the handshake and a clean refusal, as a first step
+  join with the handshake and a clean refusal. Playing in the game is
+  still a development test
   ([server settings](../server/docs/settings.md#custom-edition-join-attempts)).
   Nothing of it reaches Delta Peer or the legacy number.
 - **Android and the 64-bit builds:** the same Delta as every other build.

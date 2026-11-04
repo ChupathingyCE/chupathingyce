@@ -162,6 +162,7 @@ struct server_player
 	long number;
 	char name[NETWORK_GAME_SERVER_NAME_TEXT_SIZE];
 	long machine_index;
+	long controller_index;
 	long team_index;
 	boolean scored;
 	long score;
@@ -475,6 +476,7 @@ static long get_players(
 		}
 		player->name[character] = 0;
 		player->machine_index = network_player->machine_index;
+		player->controller_index = network_player->controller_index;
 		player->team_index = network_player->team_index;
 		player->ping = NONE;
 		/* (in a game: the score and ping of the player it made of them) */
@@ -1037,6 +1039,16 @@ static boolean command_kick(
 		return FALSE;
 	machine_names(player.machine_index, names, sizeof(names));
 	note_target(names, line->count == 3 ? line->words[2] : NULL);
+#ifdef HALO_SERVER
+	/* (a Custom Edition player: one of the server's own players, their
+	client dropped alone) */
+	if (server_ce_kick(player.machine_index, player.controller_index, NULL))
+	{
+		error(_error_silent, "dedicated: kicked %s (Custom Edition)", player.name);
+		command_output_printf(output, "kicked %s\n", player.name);
+		return TRUE;
+	}
+#endif
 	/* (a ChupathingyCE game is told why before it goes) */
 	if (line->count == 3)
 		server_moderation_notice(player.machine_index, TRUE, "Kicked", line->words[2]);
@@ -1079,6 +1091,21 @@ static boolean command_ban(
 		duration ? duration_text : "", line->count == 4 ? ": " : "", line->count == 4 ? line->words[3] : "");
 	if (duration)
 		until = (unsigned long)time(NULL) + (unsigned long)duration;
+#ifdef HALO_SERVER
+	/* (a Custom Edition player: banned by their address, which their next
+	join is checked against) */
+	{
+		unsigned long address = 0;
+
+		if (server_ce_kick(player.machine_index, player.controller_index, &address))
+		{
+			network_distributed_ban_until(NONE, address, player.name, reason, until);
+			error(_error_silent, "dedicated: banned %s (Custom Edition, %s)", player.name, duration_text);
+			command_output_printf(output, "banned %s %s%s\n", player.name, duration ? "for " : "", duration_text);
+			return TRUE;
+		}
+	}
+#endif
 	server_moderation_notice(player.machine_index, TRUE, "Banned", line->count == 4 ? line->words[3] : duration_text);
 	hardware_id = network_game_server_machine_hardware_id(player.machine_index);
 	if (!network_game_server_drop_machine(player.machine_index, _rejection_code_blacklisted_machine))
@@ -1606,6 +1633,12 @@ static boolean command_say(
 #ifdef HALO_GAME_BROWSER
 	{
 		int sent = chat_server_say(line->words[1]);
+#ifdef HALO_SERVER
+		int sent_ce = server_ce_say(line->words[1]);
+
+		if (sent_ce)
+			command_output_printf(output, "said to %d Custom Edition player%s\n", sent_ce, sent_ce == 1 ? "" : "s");
+#endif
 
 		error(_error_silent, "dedicated: a server message to %d machines", sent);
 		command_output_printf(output, "said to %d ChupathingyCE machine%s\n", sent, sent == 1 ? "" : "s");

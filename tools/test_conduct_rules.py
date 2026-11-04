@@ -83,12 +83,25 @@ def test_moderators_and_input():
     this game; the host notes each player's input as it changes"""
     source = CONDUCT_C.read_text(encoding="utf-8")
     update = function(source, "void server_conduct_update")
-    assert "if (!input_time || machine_moderator(machine_index))" in update
+    assert "if (!input_time || (!ce_player && machine_moderator(machine_index)))" in update
     distributed = DISTRIBUTED_C.read_text(encoding="utf-8")
     assert "distributed_note_input_activity(input->player_index, &action);" in \
         function(distributed, "static void distributed_handle_inputs")
     assert "csmemset(distributed_input_activity, 0, sizeof(distributed_input_activity));" in \
         function(distributed, "void network_distributed_new_game")
+
+
+def test_custom_edition_players():
+    """a Custom Edition player (one of the server machine's own players) is
+    warned in their chat, timed by their client's actions and kicked or
+    banned alone: never the server's machine"""
+    source = CONDUCT_C.read_text(encoding="utf-8")
+    kick = function(source, "static boolean kick")
+    assert kick.count("if (ce_player)\n") == 3
+    assert kick.count("(void)server_ce_kick(machine_index, controller_index, NULL);") == 3
+    assert "network_distributed_ban_until(ce_player ? NONE : machine_index, address," in kick
+    assert "server_ce_tell(" in function(source, "static boolean conduct_tell")
+    assert "server_ce_input_time(" in function(source, "void server_conduct_update")
 
 
 def test_audited_and_no_address():

@@ -82,8 +82,10 @@ enum
 	/* client updates kept for the game, at most (a client sends at most 64
 	before one is taken) */
 	UPDATE_QUEUE = 64,
-	/* the game's answer to a join, at most this late */
-	AWAITING_MILLISECONDS = 10000,
+	/* the game's answer to a join, at most this late (a client gives up
+	on an unanswered join after about 15 seconds; the game waits up to 12
+	for a game to start, server_ce.c) */
+	AWAITING_MILLISECONDS = 14000,
 	/* the server's keep-alive to a client in the game */
 	KEEP_ALIVE_MILLISECONDS = 3000,
 	/* reliable messages not yet acknowledged, at most, and their resends */
@@ -518,7 +520,7 @@ int ce_payload_from_message(const unsigned char *message, int message_length, un
 
 /* ---------- messages */
 
-int ce_message_new_client_challenge(const char *challenge, const char *map, int machine, unsigned char *out, int size)
+int ce_message_new_client_challenge(const char *challenge, const char *map, unsigned char *out, int size)
 {
 	int map_length = (int)strnlen(map, 127);
 	int length = 1 + 8 + 1 + 4 + 4 + map_length + 1 + 1;
@@ -529,9 +531,10 @@ int ce_message_new_client_challenge(const char *challenge, const char *map, int 
 	out[0] = MESSAGE_VERSION;
 	/* (8 bytes: the challenge's text and a NUL; then a byte, two longs) */
 	memcpy(out + 1, challenge, strnlen(challenge, 7));
-	/* (the byte after: the machine the client will be, as the game settings
-	name it) */
-	out[9] = (unsigned char)machine;
+	/* (the byte after: 1 asks the client for the compact motion (the
+	retail client's 0x4c6460: 16-bit velocities); Custom Edition's own
+	server sends 0, the full motion ce_messages.c writes) */
+	out[9] = 0;
 	memcpy(out + 18, map, (size_t)map_length);
 	out[length - 1] = MESSAGE_NEW_CLIENT_CHALLENGE;
 	return length;
@@ -721,7 +724,9 @@ static void queue_update(void *context, const struct ce_client_update *update)
 	peer->queue_count++;
 }
 
-static void push_event(int peer, int type, const char *name)
+static int peer_number(const struct peer *peer);
+
+static void push_event(const struct peer *peer, int type)
 {
 	struct ce_event *event;
 
@@ -731,9 +736,10 @@ static void push_event(int peer, int type, const char *name)
 		transport.event_count--;
 	}
 	event = &transport.events[(transport.event_first + transport.event_count) % CE_EVENTS];
-	event->peer = peer;
+	event->peer = peer_number(peer);
 	event->type = type;
-	snprintf(event->name, sizeof(event->name), "%s", name ? name : "");
+	snprintf(event->name, sizeof(event->name), "%s", peer->request.name);
+	event->address = ntohl(peer->address.sin_addr.s_addr);
 	transport.event_count++;
 }
 
@@ -745,7 +751,7 @@ static int peer_number(const struct peer *peer)
 static void forget(struct peer *peer)
 {
 	if (peer->game_known)
-		push_event(peer_number(peer), CE_EVENT_LEFT, peer->request.name);
+		push_event(peer, CE_EVENT_LEFT);
 	memset(peer, 0, sizeof(*peer));
 	peer->state = PEER_FREE;
 }
@@ -814,7 +820,7 @@ static void message_received(void *context, const unsigned char *message, int le
 		peer->loaded = 1;
 		say("ce: a Custom Edition player loaded the map%s", "");
 		if (peer->game_known)
-			push_event(peer_number(peer), CE_EVENT_LOADED, peer->request.name);
+			push_event(peer, CE_EVENT_LOADED);
 	}
 }
 
@@ -933,7 +939,7 @@ static void client_response(struct peer *peer, const unsigned char *packet, int 
 		challenge_text[index] = (char)('a' + next_random() % 26);
 	challenge_text[7] = 0;
 	message_length = ce_message_new_client_challenge(challenge_text, transport.map[0] ? transport.map : "unknown",
-		peer_number(peer), challenge_message, sizeof(challenge_message));
+		challenge_message, sizeof(challenge_message));
 	send_message(peer, challenge_message, message_length, now);
 }
 
@@ -987,7 +993,7 @@ static void reliable_data(struct peer *peer, const unsigned char *packet, int le
 			peer->game_known = 1;
 			peer->awaiting = 1;
 			peer->awaiting_time = now;
-			push_event(peer_number(peer), CE_EVENT_JOIN, peer->request.name);
+			push_event(peer, CE_EVENT_JOIN);
 			send_control(peer, TYPE_ACK);
 			return;
 		}
@@ -1239,9 +1245,10 @@ static struct peer *game_peer(int peer)
 	return &transport.peers[peer];
 }
 
-void ce_transport_accept(int peer, const unsigned char *payload, int length)
+int ce_transport_accept(int peer, const unsigned char *payload, int length)
 {
 	struct peer *accepted;
+	int taken = 0;
 
 	pthread_mutex_lock(&transport_mutex);
 	accepted = game_peer(peer);
@@ -1251,8 +1258,22 @@ void ce_transport_accept(int peer, const unsigned char *payload, int length)
 		accepted->state = PEER_ACCEPTED;
 		send_payload(accepted, payload, length, transport.now);
 		say("ce: a Custom Edition player was taken into the game%s", "");
+		taken = 1;
 	}
 	pthread_mutex_unlock(&transport_mutex);
+	return taken;
+}
+
+int ce_transport_awaiting(int peer)
+{
+	struct peer *joining;
+	int awaiting;
+
+	pthread_mutex_lock(&transport_mutex);
+	joining = game_peer(peer);
+	awaiting = joining && joining->awaiting;
+	pthread_mutex_unlock(&transport_mutex);
+	return awaiting;
 }
 
 void ce_transport_refuse(int peer, int reason)
@@ -1322,6 +1343,22 @@ void ce_transport_drop(int peer)
 	pthread_mutex_unlock(&transport_mutex);
 }
 
+void ce_transport_kick(int peer, int reason)
+{
+	struct peer *kicked;
+
+	pthread_mutex_lock(&transport_mutex);
+	kicked = game_peer(peer);
+	if (kicked)
+	{
+		/* (the game asked: no event back; closed once the reason is taken,
+		as a refusal is) */
+		kicked->game_known = 0;
+		refuse(kicked, reason, transport.now);
+	}
+	pthread_mutex_unlock(&transport_mutex);
+}
+
 int ce_transport_next_update(int peer, struct ce_client_update *update)
 {
 	struct peer *source;
@@ -1338,4 +1375,17 @@ int ce_transport_next_update(int peer, struct ce_client_update *update)
 	}
 	pthread_mutex_unlock(&transport_mutex);
 	return found;
+}
+
+int ce_transport_pending_updates(int peer)
+{
+	struct peer *source;
+	int count = 0;
+
+	pthread_mutex_lock(&transport_mutex);
+	source = game_peer(peer);
+	if (source && source->state == PEER_ACCEPTED)
+		count = source->queue_count;
+	pthread_mutex_unlock(&transport_mutex);
+	return count;
 }
