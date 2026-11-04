@@ -2238,6 +2238,9 @@ static BOOL ui_point_view_get(struct ui_point_view *view)
 
 	if (!back_buffer)
 		return FALSE;
+	/* (the present area only iOS has: 0 elsewhere, the whole window; left
+	unset, a click landed wherever the stack's leftovers put it) */
+	memset(view, 0, sizeof(*view));
 	platform_video_window_size(&view->window_width, &view->window_height);
 	platform_video_drawable_size(&view->pixel_width, &view->pixel_height);
 #ifdef HALO_IOS
