@@ -17,6 +17,10 @@ What goes over it:
   safe over plain HTTP too; TLS just keeps it private.
 - The console link calls (`port/console/link`), through the link's
   `https_request` hook (`console_https_site_request`).
+- The reports of the games a console joins (`/v1/client_report`, on a
+  build with `HALO_CONSOLE_GAME_REPORTS`: `port/console/reports`).
+- A console's map browser: its map lists and their hashes from
+  api.xboxhomebrew.store (below).
 
 ## How it works
 

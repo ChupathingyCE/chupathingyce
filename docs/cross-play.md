@@ -1,5 +1,10 @@
 # Cross-play: the console and the PC builds on one network
 
+This is the design record from October 2026, kept for its reasoning. The
+console builds have played online with the PC builds since then, and the
+original Xbox's builds now hold 32 players. What a console does today is in
+its own repository's README ([docs/building.md](building.md#console-ports)).
+
 Warthog is to play system link with the PC builds (network version 11 when
 this was written; 28 since the October 13 merge, with the same layout) on
 one LAN, then internet games. The PCs' protocol is fixed: the console
