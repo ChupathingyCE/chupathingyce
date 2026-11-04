@@ -71,9 +71,19 @@ enum
 	/* a biped's vitality and grenades, at most this often */
 	BIPED_UPDATE_TICKS = 3,
 	BIPED_REFRESH_TICKS = 30,
+	/* a moving or changed item's place and rounds, at most this often */
+	ITEM_UPDATE_TICKS = 5,
 	/* a join waiting for a game to start or a seat, at most (a client gives
 	up on an unanswered join after about 15 seconds) */
 	JOIN_WAIT_MILLISECONDS = 12000,
+};
+
+/* where a client was told an item is */
+enum
+{
+	ITEM_UNKNOWN = 0,
+	ITEM_WORLD,
+	ITEM_HELD,
 };
 
 struct ce_client
@@ -96,6 +106,16 @@ struct ce_client
 	int biped_sent[TRACKED_PLAYERS];
 	int biped_baseline[TRACKED_PLAYERS];
 	long biped_tick[TRACKED_PLAYERS];
+	/* the items (weapons, equipment) it was told of, by wire number: the
+	object, where it is (ITEM_*), on whom, its baseline number, where it
+	was and its rounds as told last, and when */
+	long item[NETWORK_OBJECTS + 1];
+	char item_state[NETWORK_OBJECTS + 1];
+	long item_holder[NETWORK_OBJECTS + 1];
+	unsigned char item_baseline[NETWORK_OBJECTS + 1];
+	float item_position[NETWORK_OBJECTS + 1][3];
+	int item_rounds[NETWORK_OBJECTS + 1];
+	long item_tick[NETWORK_OBJECTS + 1];
 	int update_id;
 	int sequence;
 	int local_sequence;
@@ -334,6 +354,8 @@ static boolean join(
 			ce.clients[index].unit_sent[player] = NONE;
 			ce.clients[index].body[player] = NONE;
 		}
+		for (player = 0; player <= NETWORK_OBJECTS; player++)
+			ce.clients[index].item[player] = NONE;
 	}
 	game_settings_for(event->peer, event->name, &settings);
 	ce_payload_begin(&payload, out, sizeof(out));
@@ -406,6 +428,37 @@ static void put_weapon_state(
 	create->age = (int)(age * 63.0f + 0.5f);
 }
 
+/* a weapon's rounds left, as one number (to see a change) */
+static int weapon_rounds(
+	long weapon_index)
+{
+	struct weapon_datum *weapon = weapon_get(weapon_index);
+
+	return (weapon->weapon.magazines[0].rounds_total & 0xffff) | (weapon->weapon.magazines[1].rounds_total & 0xffff) << 16;
+}
+
+/* (what a client was told of an item) */
+static void item_told(
+	struct ce_client *client,
+	int number,
+	long object_index,
+	int state,
+	long holder,
+	int baseline)
+{
+	struct object_datum *object = object_get(object_index);
+
+	client->item[number] = object_index;
+	client->item_state[number] = (char)state;
+	client->item_holder[number] = holder;
+	client->item_baseline[number] = (unsigned char)baseline;
+	client->item_position[number][0] = object->object.position.x;
+	client->item_position[number][1] = object->object.position.y;
+	client->item_position[number][2] = object->object.position.z;
+	client->item_rounds[number] = TEST_FLAG(_object_mask_weapon, object->object.type) ? weapon_rounds(object_index) : 0;
+	client->item_tick[number] = game_time_get();
+}
+
 /* what a biped update carries, as one number (to see a change) */
 static int biped_state(
 	long unit_index)
@@ -450,6 +503,7 @@ static void send_unit(
 		put_weapon_state(&weapon, weapon_index);
 		ce_payload_put_weapon_create(&payload, &weapon);
 		spawn.weapons[index] = number;
+		item_told(client, number, weapon_index, ITEM_HELD, unit_index, weapon.baseline);
 	}
 	csmemset(&biped, 0, sizeof(biped));
 	put_object_start(&biped.object, unit_index, biped_number);
@@ -634,6 +688,188 @@ static void send_scores(
 		ce_transport_send(client->peer, out, ce_payload_end(&payload), TRUE);
 }
 
+/* the wire number of the player whose unit this is (0: none, or one the
+client was not told of) */
+static int unit_player_number(
+	struct ce_client *client,
+	long unit_index)
+{
+	struct data_iterator iterator;
+	struct player_datum *player;
+
+	if (unit_index == NONE)
+		return 0;
+	data_iterator_new(&iterator, player_data);
+	while ((player = data_iterator_next(&iterator)) != NULL)
+	{
+		long absolute = DATUM_INDEX_TO_ABSOLUTE_INDEX(iterator.datum_index);
+
+		if (player->unit_index == unit_index && absolute < TRACKED_PLAYERS && client->unit_sent[absolute] == unit_index)
+			return network_player_number(iterator.datum_index);
+	}
+	return 0;
+}
+
+static void put_item_update(
+	struct ce_client *client,
+	struct ce_payload *payload,
+	int number,
+	long weapon_index)
+{
+	struct weapon_datum *weapon = weapon_get(weapon_index);
+	struct ce_weapon_update update;
+	int index;
+	real age = weapon->weapon.age;
+
+	csmemset(&update, 0, sizeof(update));
+	update.object = number;
+	update.baseline = (client->item_baseline[number] + 1) & 0xff;
+	update.position[0] = weapon->object.position.x;
+	update.position[1] = weapon->object.position.y;
+	update.position[2] = weapon->object.position.z;
+	for (index = 0; index < 2; index++)
+		update.ammunition[index] = weapon->weapon.magazines[index].rounds_total & 0xffff;
+	age = age < 0.0f ? 0.0f : age > 1.0f ? 1.0f : age;
+	update.age = (int)(age * 63.0f + 0.5f);
+	ce_payload_put_weapon_update(payload, &update);
+}
+
+/* the items in the world (weapons and equipment) as they appear, move and
+go, and as players pick weapons up and let them go: a weapon picked up is
+the action its client's game plays (a pickup, or a swap for the weapon
+held); one let go is put where our game has it */
+static void update_items(
+	struct ce_client *client,
+	struct ce_payload *reliable)
+{
+	struct object_iterator iterator;
+	struct object_datum *object;
+	int number;
+
+	/* (items gone: taken away) */
+	for (number = 1; number <= NETWORK_OBJECTS; number++)
+	{
+		if (client->item[number] != NONE && client->item_state[number] != ITEM_UNKNOWN &&
+			(!object_try_and_get(client->item[number]) || ce.objects[number] != client->item[number]))
+		{
+			ce_payload_put_object_delete(reliable, number);
+			client->item[number] = NONE;
+			client->item_state[number] = ITEM_UNKNOWN;
+		}
+	}
+	/* (pickups first, so a weapon let go for another is known as a swap) */
+	object_iterator_new(&iterator, _object_mask_weapon, 0);
+	while ((object = object_iterator_next(&iterator)) != NULL)
+	{
+		long holder = object->object.parent_object_index;
+		int holder_player = holder == NONE ? 0 : unit_player_number(client, holder);
+		struct ce_action_result result;
+		int dropped = 0, other;
+
+		number = network_object(iterator.index, FALSE);
+		if (!number || !holder_player || client->item[number] != iterator.index ||
+			client->item_state[number] != ITEM_WORLD)
+		{
+			continue;
+		}
+		/* (the weapon this player let go for it, this tick: a swap) */
+		for (other = 1; other <= NETWORK_OBJECTS; other++)
+		{
+			struct object_datum *let_go;
+
+			if (client->item_state[other] != ITEM_HELD || client->item_holder[other] != holder ||
+				(let_go = object_try_and_get(client->item[other])) == NULL || let_go->object.parent_object_index != NONE)
+			{
+				continue;
+			}
+			dropped = other;
+			/* (its client's game lets it go itself: where it lands is told
+			as it moves) */
+			client->item_state[other] = ITEM_WORLD;
+			client->item_holder[other] = NONE;
+			break;
+		}
+		csmemset(&result, 0, sizeof(result));
+		result.player = holder_player;
+		result.weapon_pickup = 1;
+		result.object = number;
+		result.result = dropped ? _player_action_result_swap_for_weapon : _player_action_result_add_weapon_to_inventory;
+		result.seat = 0xffff;
+		result.dropped = dropped;
+		ce_payload_put_action_result(reliable, &result);
+		item_told(client, number, iterator.index, ITEM_HELD, holder, client->item_baseline[number]);
+	}
+	object_iterator_new(&iterator, _object_mask_weapon | _object_mask_equipment, 0);
+	while ((object = object_iterator_next(&iterator)) != NULL)
+	{
+		long holder = object->object.parent_object_index;
+		boolean weapon = TEST_FLAG(_object_mask_weapon, object->object.type);
+		int holder_player = holder == NONE ? 0 : unit_player_number(client, holder);
+
+		/* (a full payload: the rest next tick) */
+		if (reliable->position > (PAYLOAD_SIZE - 80) * 8)
+			break;
+		number = network_object(iterator.index, holder == NONE || (weapon && holder_player));
+		if (!number)
+			continue;
+		if (client->item[number] != iterator.index || client->item_state[number] == ITEM_UNKNOWN)
+		{
+			struct ce_object_create create;
+
+			/* (one in a vehicle's hands waits for vehicles; one that came
+			to a player's hands but from the world waits for its player's
+			next spawn) */
+			if (holder != NONE)
+				continue;
+			put_object_start(&create, iterator.index, number);
+			if (weapon)
+			{
+				struct ce_weapon_create created;
+
+				csmemset(&created, 0, sizeof(created));
+				created.object = create;
+				put_weapon_state(&created, iterator.index);
+				created.baseline = 2;
+				ce_payload_put_weapon_create(reliable, &created);
+			}
+			else
+				ce_payload_put_equipment_create(reliable, &create, 2);
+			item_told(client, number, iterator.index, ITEM_WORLD, NONE, 2);
+			continue;
+		}
+		if (!weapon)
+			continue;
+		/* (picked up by a player its client doesn't know: told at that
+		player's spawn) */
+		if (client->item_state[number] == ITEM_WORLD && holder != NONE)
+			continue;
+		if (client->item_state[number] == ITEM_HELD && holder == NONE)
+		{
+			/* (let go, not for another: put where it fell) */
+			put_item_update(client, reliable, number, iterator.index);
+			item_told(client, number, iterator.index, ITEM_WORLD, NONE, (client->item_baseline[number] + 1) & 0xff);
+			continue;
+		}
+		if (client->item_state[number] == ITEM_HELD && holder != client->item_holder[number])
+			continue;
+		/* (moving, or its rounds changed: its place and rounds) */
+		if (game_time_get() - client->item_tick[number] >= ITEM_UPDATE_TICKS)
+		{
+			float dx = object->object.position.x - client->item_position[number][0];
+			float dy = object->object.position.y - client->item_position[number][1];
+			float dz = object->object.position.z - client->item_position[number][2];
+			boolean moved = holder == NONE && dx * dx + dy * dy + dz * dz > 0.05f * 0.05f;
+
+			if (moved || weapon_rounds(iterator.index) != client->item_rounds[number])
+			{
+				put_item_update(client, reliable, number, iterator.index);
+				item_told(client, number, iterator.index, client->item_state[number], client->item_holder[number],
+					(client->item_baseline[number] + 1) & 0xff);
+			}
+		}
+	}
+}
+
 static void update_client(
 	struct ce_client *client,
 	short local_index)
@@ -752,6 +988,7 @@ static void update_client(
 		client->update_id = (client->update_id + 1) & 63;
 		client->sequence = (client->sequence + 1) & 7;
 	}
+	update_items(client, &reliable);
 	if (reliable.position > 11)
 		ce_transport_send(client->peer, reliable_out, ce_payload_end(&reliable), TRUE);
 	send_scores(client);
