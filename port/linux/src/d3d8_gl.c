@@ -3359,10 +3359,15 @@ static GLuint sampler_get(int stage, const DWORD *inputs)
 	return sampler;
 }
 
-/* display.anisotropic_filtering: the anisotropy forced on the textures that
-have mip levels and are filtered (0: none, as the game asks), at most what
-the host can do. The game asks for it on none of its textures; the menus' and
-HUD's are drawn facing the screen, where it changes nothing. */
+/* display.anisotropic_filtering: the anisotropy forced on the 2D textures
+that have mip levels and are filtered (0: none, as the game asks), at most
+what the host can do. The game asks for it on none of its textures; the
+menus' and HUD's are drawn facing the screen, where it changes nothing. Cube
+and 3D textures never get it: the game looks things up in them by direction
+(the vector normalization cube map of the lightmap pass), where it sharpens
+nothing, and Mesa's llvmpipe drew such lookups black with it (walls seen at
+a slant on the Custom Edition and HaloMD maps, whose normalization cube map
+has mip levels). */
 static DWORD forced_anisotropy(void)
 {
 	static unsigned long read_at = (unsigned long)-1;
@@ -3393,8 +3398,9 @@ static DWORD forced_anisotropy(void)
 
 /* hires: a high-res HUD texture (hud_hires.h), drawn smaller than it is, so
 filtered and from its mip levels whatever the game asks: the HUD's meters are
-point sampled for one player, to keep the Xbox bitmaps' texels sharp */
-static void configure_sampler(int stage, BOOL mipmapped, BOOL hires)
+point sampled for one player, to keep the Xbox bitmaps' texels sharp; flat: a
+2D texture (not a cube or 3D one), the only kind given forced anisotropy */
+static void configure_sampler(int stage, BOOL mipmapped, BOOL hires, BOOL flat)
 {
 	/* the texture stage state each stage's sampler was last chosen by */
 	static DWORD configured[D3DTSS_MAXSTAGES][SAMPLER_STATE_WORDS];
@@ -3413,7 +3419,7 @@ static void configure_sampler(int stage, BOOL mipmapped, BOOL hires)
 	inputs[8] = state[D3DTSS_MAXANISOTROPY];
 	inputs[9] = state[D3DTSS_BORDERCOLOR];
 	inputs[10] = hires;
-	if (mipmapped && !hires && inputs[0] != D3DTEXF_POINT && inputs[1] != D3DTEXF_NONE)
+	if (mipmapped && flat && !hires && inputs[0] != D3DTEXF_POINT && inputs[1] != D3DTEXF_NONE)
 	{
 		DWORD anisotropy = forced_anisotropy();
 
@@ -3646,7 +3652,7 @@ static void bind_textures(struct nv2a_pixel_shader_key *key, float texture_scale
 			}
 			gl_targets[stage] = gl_target;
 			gl_textures[stage] = gl_texture;
-			configure_sampler(stage, description.levels > 1, description.hires);
+			configure_sampler(stage, description.levels > 1, description.hires, gl_target == GL_TEXTURE_2D);
 			if (stage == 0)
 			{
 				key->coverage_alpha = description.hires_coverage != FALSE;
