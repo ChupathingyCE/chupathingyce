@@ -32,6 +32,7 @@ the file.
 | `HALO_DEDICATED_GAMESPY_PORT` | `2302` | The UDP port of the GameSpy status queries (`gamespy_port`). |
 | `HALO_DEDICATED_GAMESPY_MASTERS` | `s1.master.hosthpc.com:27900` | The masters the heartbeats go to, `host:port`, comma separated (at most 4). Set but empty: none, the queries are answered alone. |
 | `HALO_DEDICATED_GAMESPY_VERSION` | the server's version | The version (`gamever`) the queries and heartbeats report. |
+| `HALO_DEDICATED_MAX_MACHINES_PER_ADDRESS` | `8` | The most machines that may join from one internet address, 0 to 16 (`max_machines_per_address`; 0: no limit). A machine past it is told there are too many players from its address. Local network addresses (10/8, 172.16/12, 192.168/16, 127/8, 169.254/16) are never limited. Players behind one carrier-grade NAT (100.64/10) can share an address, which is why the default is generous. Internet play counts each player by the address their connection comes from. |
 | `HALO_DEDICATED_CE_JOINS` | `false` | `true`: answer Halo Custom Edition 1.0.10 join attempts on the GameSpy port ([below](#custom-edition-join-attempts)); needs `gamespy_listing`. |
 | `HALO_DEDICATED_COMMANDS` | (none) | A file of [commands](admin.md#startup-commands) in the data folder, run once the server first hosts. |
 | `HALO_DEDICATED_CONSOLE` | on in a terminal | Commands typed on the server's standard input ([the console](admin.md#the-console)). `true`: read them even when it is not a terminal; `false`: never. |
@@ -48,7 +49,7 @@ The settings file's keys (`sv_settings` lists them, with where each value
 comes from): `name`, `maximum_players`, `minimum_players`, `idle_limit`,
 `public` (from the next start), `name_filter`, `chat`, `chat_filter`,
 `welcome`, `postgame_seconds`, `skip_lobby`, `chat_cooldown`, `team_change`
-(0 off, 1 balanced, 2 allow), `team_change_margin`, `playlist_shuffle`, `chat_legacy`, `gamespy_listing`, `gamespy_port`, `ce_joins`, `allow_player_names`, `allow_follow_camera`, and the playlist
+(0 off, 1 balanced, 2 allow), `team_change_margin`, `playlist_shuffle`, `chat_legacy`, `gamespy_listing`, `gamespy_port`, `ce_joins`, `allow_player_names`, `allow_follow_camera`, `max_machines_per_address`, and the playlist
 `sv_playlist_use` chose. `sv_set welcome Hello and welcome` takes
 the rest of the line as the value (quotes optional).
 

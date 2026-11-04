@@ -81,6 +81,14 @@ release notes.
   menu key send. Past that, the extra requests are dropped and the log says
   so once per machine per lobby (its machine number only). OpenCE and Xbox
   players are held to the same limit; nothing on the wire changes.
+- Machines per address: `max_machines_per_address`
+  (`HALO_DEDICATED_MAX_MACHINES_PER_ADDRESS`, default 8, 0 for no limit).
+  A machine joining from an internet address that already has that many in
+  the game is refused with OpenCE's "too many players from your address"
+  code (13). Internet play players are counted by their real address, and
+  local network addresses are never limited. The log names the refused
+  machine with its address hidden. Games hosted by players have the same
+  limit as `network.max_machines_per_address`, off by default.
 - Control panel hardening: `sv_welcome` needs the settings permission (an
   admin's) and is in the audit file; a command missing from the permission
   table is the console's alone. Wrong logins lock an account only for the
