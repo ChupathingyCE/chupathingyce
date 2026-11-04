@@ -1,8 +1,8 @@
 /*
 MAP_ART.C
 
-The site's pictures of the stock multiplayer maps, and of the custom maps
-it has one of (map_art.h), for Online Games' details: read from the save root's map_art folder if they were had
+The site's pictures of the stock multiplayer maps and campaign levels, and
+of the custom maps it has one of (map_art.h), for Online Games' details: read from the save root's map_art folder if they were had
 before, else downloaded from the site over HTTPS while online play is on,
 checked to be a JPEG picture of a sensible size, and kept there. One
 picture is loaded at a time, on a thread of its own, so the screen never
@@ -21,6 +21,7 @@ have (404) is not asked for again this run. The log says nothing of them
 #include "build_identity.h"
 #include "ui_font.h"
 #include "map_art.h"
+#include "campaign_levels.h"
 
 #include <pthread.h>
 #include <stdio.h>
@@ -85,7 +86,16 @@ static struct
 int map_art_site_path(int xbox_set, const char *file, char *path, int size)
 {
 	size_t index;
+	int level = campaign_level_index(file);
 
+	/* (and of each campaign level, for co-op games: the Xbox's only) */
+	if (level >= 0)
+	{
+		if (!xbox_set)
+			return 0;
+		snprintf(path, (size_t)size, "maps/%s", campaign_level_files[level]);
+		return 1;
+	}
 	for (index = 0; index < sizeof(stock_maps) / sizeof(stock_maps[0]); index++)
 	{
 		const char *a = stock_maps[index].file, *b = file;
