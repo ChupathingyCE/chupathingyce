@@ -8235,6 +8235,55 @@ static boolean host_back(struct widget_instance *widget, boolean *widget_deleted
 	return TRUE;
 }
 
+/* "port host page previous" and "next" (the editor's bumpers and
+triggers), and "port host page" (a tab's A, which a click on it sends: its
+page): the page opened in the screen's place, with no history of its own,
+so that B goes back to GAME SETUP from any page. (The tags' replace swaps a
+widget among its parent's children: a screen has none, and the editor
+closed, back to GAME SETUP) */
+static boolean host_page_open(struct widget_instance *widget, short direction, boolean *widget_deleted)
+{
+	struct widget_instance *screen = widget;
+	char name[64];
+	short shown;
+	short page;
+
+	while (screen->parent)
+		screen = screen->parent;
+	for (shown = 0; shown < NUMBER_OF_HOST_PAGES && strcmp(screen->name, host_page_screens[shown]); shown++)
+		;
+	if (shown == NUMBER_OF_HOST_PAGES)
+		return FALSE;
+	if (direction)
+	{
+		page = (short)((shown + direction + NUMBER_OF_HOST_PAGES) % NUMBER_OF_HOST_PAGES);
+	}
+	else
+	{
+		/* (the tab's name: tab_players_off is edit_players') */
+		for (page = 0; page < NUMBER_OF_HOST_PAGES; page++)
+		{
+			snprintf(name, sizeof(name), "tab_%s_", host_page_screens[page] + strlen("edit_"));
+			if (!strncmp(widget->name, name, strlen(name)))
+				break;
+		}
+		if (page == NUMBER_OF_HOST_PAGES)
+			return FALSE;
+		if (page == shown)
+			return TRUE;
+	}
+	if (text_field_editing(NULL))
+		text_field_end(TRUE);
+	snprintf(name, sizeof(name), "pc\\chupathingy\\host\\%s", host_page_screens[page]);
+	/* (as a screen opens with nothing before it: the screen shown is
+	deleted, and the history is left as it is) */
+	if (!ui_widget_load_by_name_or_tag(name, NONE, NULL, NONE, NONE, NONE, 0))
+		return FALSE;
+	ui_play_audio_feedback_sound(SOUND_FORWARD);
+	*widget_deleted = TRUE;
+	return TRUE;
+}
+
 /* ---------- Delta Profile (port/linux/game/profile_screen.c): the
 Chupathingy menus' screen of it (chupathingy/delta_profile.xml), filled
 with what profile_screen.c says of each section; Profiles' DELTA
@@ -8830,6 +8879,13 @@ boolean pc_menu_event_function_invoke(
 		else if (!strcmp(name, "port host back"))
 		{
 			return host_back(widget, widget_deleted);
+		}
+		else if (!strcmp(name, "port host page previous") || !strcmp(name, "port host page next") ||
+			!strcmp(name, "port host page"))
+		{
+			return host_page_open(widget,
+				(short)(!strcmp(name, "port host page previous") ? -1 : !strcmp(name, "port host page next") ? 1 : 0),
+				widget_deleted);
 		}
 		else if (!strcmp(name, "port setup edit"))
 		{
