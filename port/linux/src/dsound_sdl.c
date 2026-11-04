@@ -390,6 +390,15 @@ static short *decode_adpcm(const unsigned char *source, unsigned long size, unsi
 	return samples;
 }
 
+#ifdef HALO_CONSOLE_CACHE_SCREEN
+/* (the first start's screens, before there is a mixer: steamlink_cache_screen.c) */
+short *console_decode_adpcm(const unsigned char *source, unsigned long size, unsigned long *frames);
+short *console_decode_adpcm(const unsigned char *source, unsigned long size, unsigned long *frames)
+{
+	return decode_adpcm(source, size, 1, frames);
+}
+#endif
+
 static short *decode_pcm(const unsigned char *source, unsigned long size, unsigned long channels,
 	unsigned long *frame_count)
 {

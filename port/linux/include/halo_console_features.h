@@ -149,6 +149,12 @@ HALO_CONSOLE_PERFORMANCE_MODE
 	console_performance_decoration_distance and
 	console_performance_hud_frames, what else it leaves out (render_sky.c,
 	render_objects.c, hud_draw.c)
+HALO_CONSOLE_CACHE_SCREEN
+	a console whose cache files are slow to make (a FAT32 stick, which writes
+	them full of zeros): they are made long a little at a time, and
+	console_cache_screen, defined by the port, shows how far they have got
+	(source/cache/cache_files_windows.c), and console_cache_screen_done when
+	they are made
 HALO_CONSOLE_WAIT_POLL
 	a console whose system must be served by the thread that runs the game
 	(the Wii U's HOME button): console_wait_poll, defined by the port, is
