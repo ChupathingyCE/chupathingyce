@@ -29,9 +29,11 @@ enum
 
 	/* message delta types */
 	CE_DELTA_OBJECT_DELETE = 0,
+	CE_DELTA_WEAPON_UPDATE = 3,
 	CE_DELTA_BIPED_UPDATE = 4,
 	CE_DELTA_OBJECT_UPDATE = 5,
 	CE_DELTA_PLAYER_SPAWN = 8,
+	CE_DELTA_ACTION_RESULT = 10,
 	CE_DELTA_UNIT_KILLED = 12,
 	CE_DELTA_CLIENT_UPDATE = 13,
 	CE_DELTA_CHAT = 15,
@@ -42,6 +44,7 @@ enum
 	CE_DELTA_REMOTE_PLAYER_POSITION = 39,
 	CE_DELTA_PLAYER_ADD = 7,
 	CE_DELTA_BIPED_CREATE = 29,
+	CE_DELTA_EQUIPMENT_CREATE = 31,
 	CE_DELTA_WEAPON_CREATE = 32,
 	CE_DELTA_GAME_SETTINGS = 33,
 	/* the client's word that it is there, about every 3 seconds */
@@ -107,7 +110,9 @@ struct ce_weapon_create
 {
 	struct ce_object_create object;
 	unsigned int unknown_large;
-	int unknown_small;
+	/* the first baseline number of its updates (Custom Edition's server:
+	1 for a weapon made in a player's hands, 2 for one in the world) */
+	int baseline;
 	/* each magazine's rounds left (not loaded) */
 	int ammunition[2];
 	/* the weapon's age (a battery's use), 6 bits of 1 */
@@ -122,7 +127,8 @@ struct ce_biped_create
 	float change_colors[12];
 	int unknown_boolean;
 	int unknown_6bits_a;
-	int unknown_small;
+	/* the first baseline number of its updates (1) */
+	int baseline;
 	int grenades[2];
 	/* its vitality (ce_body_bits, ce_shield_bits) */
 	int body;
@@ -145,6 +151,33 @@ struct ce_biped_update
 	int body;
 	int shield;
 	int unknown_boolean;
+};
+
+/* a weapon's place (in the world, or on its holder), rounds left in each
+magazine and age (6 bits of 1), as it changes: a full update with the
+next baseline number */
+struct ce_weapon_update
+{
+	int object;
+	int baseline;
+	float position[3];
+	int ammunition[2];
+	int age;
+};
+
+/* a player's action as its client's game is to play it (players.h's
+player_action_result, on the player's action object and seat): a weapon
+pickup (weapon_pickup 1; result 7: added, 6: swapped for the one held,
+named in dropped) or another action (weapon_pickup 0; 8: into a vehicle's
+seat) */
+struct ce_action_result
+{
+	int player;
+	int weapon_pickup;
+	int object;
+	int result;
+	int seat;
+	int dropped;
 };
 
 /* a player's biped and weapons, by object index (0: none) */
@@ -239,6 +272,11 @@ handle and its number on the wire (5 bits) */
 void ce_payload_put_player_add(struct ce_payload *payload, int list_index, unsigned int handle, int player);
 void ce_payload_put_weapon_create(struct ce_payload *payload, const struct ce_weapon_create *weapon);
 void ce_payload_put_biped_create(struct ce_payload *payload, const struct ce_biped_create *biped);
+/* equipment (grenades, powerups) in the world, still; its first baseline
+number (2) */
+void ce_payload_put_equipment_create(struct ce_payload *payload, const struct ce_object_create *equipment, int baseline);
+void ce_payload_put_weapon_update(struct ce_payload *payload, const struct ce_weapon_update *update);
+void ce_payload_put_action_result(struct ce_payload *payload, const struct ce_action_result *result);
 void ce_payload_put_player_spawn(struct ce_payload *payload, const struct ce_player_spawn *spawn);
 /* an object's place: header (two 8-bit numbers, the object, a time in
 milliseconds, a flag) and its position, still, with its orientation */

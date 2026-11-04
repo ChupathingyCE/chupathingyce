@@ -396,7 +396,7 @@ static void put_weapon_state(
 	int index;
 	real age = weapon->weapon.age;
 
-	create->unknown_small = 1;
+	create->baseline = 1;
 	for (index = 0; index < 2; index++)
 	{
 		create->ammunition[index] = weapon->weapon.magazines[index].rounds_total & 0xffff;
@@ -458,7 +458,7 @@ static void send_unit(
 	for (index = 0; index < 12; index++)
 		biped.change_colors[index] = 1.0f;
 	biped.unknown_6bits_a = 63;
-	biped.unknown_small = 1;
+	biped.baseline = 1;
 	biped.grenades[0] = unit->unit.grenade_counts[0] & 7;
 	biped.grenades[1] = unit->unit.grenade_counts[1] & 7;
 	biped.body = ce_body_bits(unit->object.body_vitality);

@@ -228,7 +228,7 @@ void ce_payload_put_weapon_create(struct ce_payload *payload, const struct ce_we
 	put_object_start(payload, &weapon->object);
 	put_bits(payload, weapon->unknown_large, 32);
 	put_orientation(payload, &weapon->object);
-	put_bits(payload, (unsigned int)weapon->unknown_small, 8);
+	put_bits(payload, (unsigned int)weapon->baseline, 8);
 	put_position(payload, weapon->object.position);
 	put_zero_velocity(payload);
 	put_bits(payload, (unsigned int)weapon->ammunition[0], 16);
@@ -236,6 +236,44 @@ void ce_payload_put_weapon_create(struct ce_payload *payload, const struct ce_we
 	put_bits(payload, (unsigned int)weapon->age, 6);
 	put_bits(payload, (unsigned int)weapon->magazine[0], 16);
 	put_bits(payload, (unsigned int)weapon->magazine[1], 16);
+}
+
+void ce_payload_put_equipment_create(struct ce_payload *payload, const struct ce_object_create *equipment, int baseline)
+{
+	put_delta_header(payload, CE_DELTA_EQUIPMENT_CREATE);
+	put_object_start(payload, equipment);
+	put_bits(payload, 0, 32);
+	put_orientation(payload, equipment);
+	put_bits(payload, (unsigned int)baseline, 8);
+	put_position(payload, equipment->position);
+	put_zero_velocity(payload);
+	put_zero_velocity(payload);
+}
+
+void ce_payload_put_weapon_update(struct ce_payload *payload, const struct ce_weapon_update *update)
+{
+	put_delta_header(payload, CE_DELTA_WEAPON_UPDATE);
+	put_bits(payload, (unsigned int)update->object, 9);
+	put_bits(payload, (unsigned int)update->baseline, 8);
+	/* (a full update: its own number 0, kept as the baseline) */
+	put_bits(payload, 0, 8);
+	put_bits(payload, 1, 1);
+	put_position(payload, update->position);
+	put_zero_velocity(payload);
+	put_bits(payload, (unsigned int)update->ammunition[0], 16);
+	put_bits(payload, (unsigned int)update->ammunition[1], 16);
+	put_bits(payload, (unsigned int)update->age, 6);
+}
+
+void ce_payload_put_action_result(struct ce_payload *payload, const struct ce_action_result *result)
+{
+	put_delta_header(payload, CE_DELTA_ACTION_RESULT);
+	put_bits(payload, (unsigned int)result->player, 5);
+	put_bits(payload, (unsigned int)result->weapon_pickup, 32);
+	put_bits(payload, (unsigned int)result->object, 9);
+	put_bits(payload, (unsigned int)result->result, 16);
+	put_bits(payload, (unsigned int)result->seat, 16);
+	put_bits(payload, (unsigned int)result->dropped, 9);
 }
 
 void ce_payload_put_biped_create(struct ce_payload *payload, const struct ce_biped_create *biped)
@@ -249,7 +287,7 @@ void ce_payload_put_biped_create(struct ce_payload *payload, const struct ce_bip
 		put_real(payload, biped->change_colors[index]);
 	put_bits(payload, (unsigned int)biped->unknown_boolean, 1);
 	put_bits(payload, (unsigned int)biped->unknown_6bits_a, 6);
-	put_bits(payload, (unsigned int)biped->unknown_small, 8);
+	put_bits(payload, (unsigned int)biped->baseline, 8);
 	put_position(payload, biped->object.position);
 	put_zero_velocity(payload);
 	put_bits(payload, (unsigned int)biped->grenades[0], 3);

@@ -354,6 +354,27 @@ def test_biped_update_matches_capture(harness):  # noqa: F811
     assert bits_of(out)[:used] == bits_of(captured)[:used]
 
 
+def test_items_match_captures(harness):  # noqa: F811
+    """Equipment lying in the world (the first message of our capture of
+    Custom Edition 1.0.10's server after a join, 297 bits) and a dropped
+    weapon's update (our capture of a plasma pistol let go: baseline 3, its
+    place, no rounds, age 14), bit for bit; and a weapon swap's action
+    result, field by field (its definition read from the retail binary)."""
+    import subprocess
+    lines = subprocess.run([str(harness), "items"], capture_output=True, text=True, check=True).stdout.split()
+    assert bits_of(lines[0])[11:11 + 297] == bits_of(CAPTURED_WORLD)[11:11 + 297]
+    captured_update = "1768883100d0273958c8742064b8ceb2d13700000080e3"
+    assert len(lines[1]) == len(captured_update)
+    assert bits_of(lines[1])[:180] == bits_of(captured_update)[:180]
+    bits = bits_of(lines[2])
+    number = lambda start, width: int(bits[start:start + width][::-1], 2)  # noqa: E731
+    assert number(0, 11) == len(lines[2]) // 2
+    assert number(11, 1) == 1 and number(12, 1) == 0 and number(13, 6) == 10
+    assert number(19, 5) == 2 and number(24, 32) == 1 and number(56, 9) == 30
+    assert number(65, 16) == 6 and number(81, 16) == 0xffff and number(97, 9) == 49
+    assert len(lines[2]) // 2 == (106 + 7) // 8
+
+
 # (our capture of Custom Edition 1.0.10's server after a join: weapon
 # creations, Slayer's scores (bits 4763 to 5795), a player added, the
 # player's numbers in full (bits 5880 to 6182) and as a change)

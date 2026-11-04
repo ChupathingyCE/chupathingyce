@@ -99,7 +99,7 @@ int main(int argc, char **argv)
 		weapon.object.owner = 0xffff;
 		weapon.object.forward[0] = 524287;
 		weapon.object.forward[1] = 262144;
-		weapon.unknown_small = 1;
+		weapon.baseline = 1;
 		memset(&biped, 0, sizeof(biped));
 		biped.object.definition = 0xe2070093u;
 		biped.object.object = 50;
@@ -109,7 +109,7 @@ int main(int argc, char **argv)
 		for (index = 0; index < 12; index++)
 			biped.change_colors[index] = 1.0f;
 		biped.unknown_6bits_a = 63;
-		biped.unknown_small = 1;
+		biped.baseline = 1;
 		biped.object.position[0] = 84.90137481689453f;
 		biped.object.position[1] = -161.71449279785156f;
 		biped.object.position[2] = 0.10793768614530563f;
@@ -189,6 +189,63 @@ int main(int argc, char **argv)
 		update.shield = ce_shield_bits(1.0f);
 		ce_payload_begin(&payload, out, sizeof(out));
 		ce_payload_put_biped_update(&payload, &update);
+		length = ce_payload_end(&payload);
+		for (index = 0; index < length; index++)
+			printf("%02x", out[index]);
+		printf("\n");
+		return 0;
+	}
+	if (argc == 2 && !strcmp(argv[1], "items"))
+	{
+		struct ce_object_create equipment;
+		struct ce_weapon_update update;
+		struct ce_action_result result;
+		struct ce_payload payload;
+		unsigned char out[128];
+		int length;
+
+		/* (the first equipment of our capture of Custom Edition's server
+		after a join, on Blood Gulch; a dropped plasma pistol's update;
+		a weapon swap) */
+		memset(&equipment, 0, sizeof(equipment));
+		equipment.definition = 3861578935u;
+		equipment.object = 22;
+		equipment.owner = 0xffff;
+		equipment.forward[0] = 115;
+		equipment.forward[1] = 262093;
+		equipment.up[0] = 524171;
+		equipment.up[1] = 786431;
+		equipment.position[0] = 95.40251159667969f;
+		equipment.position[1] = -157.43798828125f;
+		equipment.position[2] = 1.7354302406311035f;
+		ce_payload_begin(&payload, out, sizeof(out));
+		ce_payload_put_equipment_create(&payload, &equipment, 2);
+		length = ce_payload_end(&payload);
+		for (index = 0; index < length; index++)
+			printf("%02x", out[index]);
+		printf("\n");
+		memset(&update, 0, sizeof(update));
+		update.object = 49;
+		update.baseline = 3;
+		update.position[0] = 96.89305114746094f;
+		update.position[1] = -161.01425170898438f;
+		update.position[2] = -0.27653852105140686f;
+		update.age = 14;
+		ce_payload_begin(&payload, out, sizeof(out));
+		ce_payload_put_weapon_update(&payload, &update);
+		length = ce_payload_end(&payload);
+		for (index = 0; index < length; index++)
+			printf("%02x", out[index]);
+		printf("\n");
+		memset(&result, 0, sizeof(result));
+		result.player = 2;
+		result.weapon_pickup = 1;
+		result.object = 30;
+		result.result = 6;
+		result.seat = 0xffff;
+		result.dropped = 49;
+		ce_payload_begin(&payload, out, sizeof(out));
+		ce_payload_put_action_result(&payload, &result);
 		length = ce_payload_end(&payload);
 		for (index = 0; index < length; index++)
 			printf("%02x", out[index]);
