@@ -770,7 +770,7 @@ static const struct config_setting config_settings[] =
 		_platform_all | _platform_server,
 		"Turn off mouse aim assist for everyone in games you host." },
 	{ "network.hit_line_of_sight", _config_boolean, "true", "HALO_NET_HIT_LINE_OF_SIGHT", _environment_value,
-		_platform_all,
+		_platform_all | _platform_server,
 		"In games you host, refuse a player's hits through walls: the shot (or\n"
 		"the explosion) needs a clear line to its target. Turn it off if good\n"
 		"hits are refused." },
