@@ -908,6 +908,11 @@ void ui_map_list_refresh(
 		platform layer could not map: port/linux/src/xbox_memory.c) */
 		if (!platform_ce_tag_cache_ready)
 			break;
+#ifdef HALO_CONSOLE_NO_HALOMD_MAPS
+		/* (HaloMD's maps, which this console doesn't play: not listed) */
+		if (family == _map_family_halomd)
+			continue;
+#endif
 		found.count = 0;
 		map_family_list(family, file_found, &found);
 		if (found.count)
