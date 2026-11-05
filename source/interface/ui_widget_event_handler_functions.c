@@ -1975,6 +1975,10 @@ static boolean network_game_join_game_from_server_list(
 			if ((word)generated_count > (word)zero)
 			{
 				server = ((byte **)widget->parameters.list.list_items)[widget->parameters.list.selected_index];
+				/* (an entry can have no server behind it, as seen with some other
+				LAN games on an unknown level; pressing A on it does nothing) */
+				if (!server)
+					return FALSE;
 				if (server[0xE0] == TRUE)
 				{
 					if (*(short *)(server + 0xDE) == zero)
