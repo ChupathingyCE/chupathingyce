@@ -154,6 +154,13 @@ function Embed-Assets
 		[void]$inputs.Add($hrtfFile)
 	}
 
+	# Chupathingy's loading picture (port/assets/loading)
+	$loadingFile = Join-Parts $Root 'port/assets/loading/chupathingy_loading.tga'
+	if (Test-Path -LiteralPath $loadingFile)
+	{
+		[void]$inputs.Add($loadingFile)
+	}
+
 	# nothing to do when the output is newer than everything it is made from
 	if (Test-Path -LiteralPath $Output)
 	{
@@ -361,6 +368,25 @@ function Embed-Assets
 	}
 	[void]$text.Append("};`n")
 	[void]$text.Append("const unsigned long dsound_hrtf_data_size = $($data.Length);`n")
+
+	# Chupathingy's loading picture (loading_picture.c), of size 0 if the
+	# checkout does not have it (tools/embed_assets.py's LOADING_PICTURE_FILE)
+	$data = New-Object byte[] 0
+	if (Test-Path -LiteralPath $loadingFile)
+	{
+		$data = [System.IO.File]::ReadAllBytes($loadingFile)
+	}
+	[void]$text.Append("`nconst unsigned int loading_picture_data[] = {`n")
+	if ($data.Length -gt 0)
+	{
+		Add-Words $text $data
+	}
+	else
+	{
+		[void]$text.Append("`t0,`n")
+	}
+	[void]$text.Append("};`n")
+	[void]$text.Append("const unsigned long loading_picture_data_size = $($data.Length);`n")
 
 	$folder = [System.IO.Path]::GetDirectoryName($Output)
 	if ($folder -and -not (Test-Path -LiteralPath $folder))
