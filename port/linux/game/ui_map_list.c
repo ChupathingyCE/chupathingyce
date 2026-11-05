@@ -206,6 +206,9 @@ enum
 	UI_MAP_LIST_STRINGS_PER_ROW = 4,
 	/* bitmap frames from here are Halo PC's map pictures */
 	UI_MAP_LIST_PICTURE_BASE = 0x4000,
+	/* and from here the campaign's level pictures (ui.map's sp_levels, a
+	frame for each level) */
+	UI_MAP_LIST_CAMPAIGN_PICTURE_BASE = 0x6000,
 };
 
 #ifdef HALO_CUSTOM_EDITION
@@ -236,6 +239,9 @@ struct ui_map_entry
 	/* its row among the Xbox's (their strings and bitmap frames), or NONE */
 	short xbox_index;
 	short picture_index;
+	/* its game's type in the lobby, for a row that has one of its own (a
+	campaign level's: co-op), else NULL */
+	wchar_t const *game_type;
 };
 
 /* ---------- globals */
@@ -243,6 +249,9 @@ struct ui_map_entry
 static struct ui_map_entry ui_map_list[MAXIMUM_MAP_LIST];
 static char *ui_map_list_names_array[MAXIMUM_MAP_LIST];
 static long ui_map_list_count_value;
+/* the rows that are multiplayer maps (the campaign's levels come after
+them, for hosting network co-op: ui_map_list_count_with_campaign) */
+static long ui_map_list_multiplayer_count;
 
 #ifdef HALO_CUSTOM_EDITION
 /* ---------- prototypes */
@@ -563,6 +572,7 @@ static void add_entry(
 	wide_copy(entry->description, DESCRIPTION_LENGTH, description);
 	entry->xbox_index = xbox_index;
 	entry->picture_index = picture_index;
+	entry->game_type = NULL;
 	ui_map_list_names_array[ui_map_list_count_value] = entry->map_name;
 	ui_map_list_count_value++;
 }
@@ -858,6 +868,45 @@ static int pack_map_compare(
 	return order ? order : _stricmp(first, second);
 }
 
+/* the campaign's levels, after the maps, for a network co-op game hosted
+from the Xbox's map list (the Chupathingy menus' Select Map, as the Gearbox
+menus' map list offers them): named as the server browser names them, with
+the level select menus' picture of each. Counted apart from the maps:
+only that list shows them (ui_map_list_count_with_campaign) */
+#ifdef HALO_GAME_BROWSER
+char const *main_get_solo_level_name(short level_index);
+long tag_loaded(long group_tag, char const *name);
+struct bitmap_data *bitmap_group_get_bitmap_from_sequence(long bitmap_group_index, short sequence_index,
+	short frame_index);
+
+static wchar_t const *const campaign_level_names[] =
+{
+	L"The Pillar of Autumn", L"Halo", L"The Truth and Reconciliation", L"The Silent Cartographer",
+	L"Assault on the Control Room", L"343 Guilty Spark", L"The Library", L"Two Betrayals", L"Keyes", L"The Maw",
+};
+#endif
+
+static void add_campaign_entries(
+	void)
+{
+#ifdef HALO_GAME_BROWSER
+	short level;
+
+	for (level = 0; level < (short)NUMBEROF(campaign_level_names); level++)
+	{
+		char const *map_name = main_get_solo_level_name(level);
+
+		if (map_name)
+		{
+			add_entry(map_name, campaign_level_names[level], campaign_level_names[level],
+				L"Campaign co-op\r\n\r\nPlay this level with\r\nfriends", NONE,
+				(short)(UI_MAP_LIST_CAMPAIGN_PICTURE_BASE + level));
+			ui_map_list[ui_map_list_count_value - 1].game_type = L"Co-op";
+		}
+	}
+#endif
+}
+
 /* ---------- public code */
 
 /* the list anew: the Xbox's maps (the game's thirteen names, in its order),
@@ -946,6 +995,8 @@ void ui_map_list_refresh(
 	}
 	counts[_map_family_pack] = found.count;
 	(void)family;
+	ui_map_list_multiplayer_count = ui_map_list_count_value;
+	add_campaign_entries();
 	if (memcmp(counts, logged_counts, sizeof(counts)))
 	{
 		memcpy(logged_counts, counts, sizeof(counts));
@@ -958,7 +1009,21 @@ void ui_map_list_refresh(
 long ui_map_list_count(
 	void)
 {
+	return ui_map_list_multiplayer_count;
+}
+
+/* the rows with the campaign's levels after the maps */
+long ui_map_list_count_with_campaign(
+	void)
+{
 	return ui_map_list_count_value;
+}
+
+/* whether a row is one of the campaign's levels */
+boolean ui_map_list_row_is_campaign(
+	long row)
+{
+	return row >= ui_map_list_multiplayer_count && row < ui_map_list_count_value;
 }
 
 /* the rows' map names, for the list widget's items */
@@ -1011,6 +1076,16 @@ NULL for any other */
 struct bitmap_data *ui_map_list_picture(
 	short frame_index)
 {
+#ifdef HALO_GAME_BROWSER
+	if (frame_index >= UI_MAP_LIST_CAMPAIGN_PICTURE_BASE &&
+		frame_index < UI_MAP_LIST_CAMPAIGN_PICTURE_BASE + (short)NUMBEROF(campaign_level_names))
+	{
+		long bitmap_index = tag_loaded('bitm', "ui\\shell\\bitmaps\\sp_levels");
+
+		return bitmap_index == NONE ? NULL :
+			bitmap_group_get_bitmap_from_sequence(bitmap_index, 0, frame_index - UI_MAP_LIST_CAMPAIGN_PICTURE_BASE);
+	}
+#endif
 #ifdef HALO_CUSTOM_EDITION
 	if (frame_index < UI_MAP_LIST_PICTURE_BASE || frame_index - UI_MAP_LIST_PICTURE_BASE >= ce_ui.picture_count)
 		return NULL;
@@ -1039,6 +1114,8 @@ wchar_t const *ui_map_list_text(
 		return ui_map_list[row].description;
 	case _ui_map_list_string_lobby_name:
 		return ui_map_list[row].lobby_name;
+	case _ui_map_list_string_game_type:
+		return ui_map_list[row].game_type;
 	default:
 		return ui_map_list[row].display_name;
 	}

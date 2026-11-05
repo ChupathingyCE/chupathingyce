@@ -939,6 +939,13 @@ boolean playlist_profile_get_options(long playlist_profile_index, struct game_va
 
 #ifdef HALO_MAP_LIST
 #include "halo_ui_map_list.h"
+#ifdef HALO_GAME_BROWSER
+/* port: network co-op from the Chupathingy menus' Select Map
+(port/linux/game/menu_functions.c) */
+boolean pc_menus_host_cooperative_shown(void);
+boolean pc_menus_host_cooperative_choose(struct widget_instance *widget, char const *map_name,
+	boolean *widget_deleted);
+#endif
 #endif
 
 /* ---------- constants */
@@ -3065,6 +3072,12 @@ static boolean multiplayer_level_list_initialize(
 	ui_map_list_refresh(event_handler_functions.multiplayer_levels);
 	level_count = (short)ui_map_list_count();
 	level_names = ui_map_list_names();
+#ifdef HALO_GAME_BROWSER
+	/* (and the campaign's levels after them, for network co-op, when this
+	machine hosts with the Chupathingy menus: menu_functions.c) */
+	if (pc_menus_host_cooperative_shown())
+		level_count = (short)ui_map_list_count_with_campaign();
+#endif
 #else
 	short level_count = 13;
 	char **level_names = event_handler_functions.multiplayer_levels;
@@ -5850,9 +5863,16 @@ static boolean multiplayer_level_select(
 #ifdef HALO_MAP_LIST
 	/* port: the menus' map list */
 	match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 1298,
-		level_list->parameters.list.selected_index >= 0 && level_list->parameters.list.selected_index < ui_map_list_count(),
+		level_list->parameters.list.selected_index >= 0 &&
+			level_list->parameters.list.selected_index < ui_map_list_count_with_campaign(),
 		"invalid multiplayer level specified from 'multiplayer level list' list widget");
 	map_name = ui_map_list_names()[level_list->parameters.list.selected_index];
+#ifdef HALO_GAME_BROWSER
+	/* (a campaign level: a network co-op game, which goes on to GAME SETUP
+	rather than the gametypes: menu_functions.c) */
+	if (ui_map_list_row_is_campaign(level_list->parameters.list.selected_index))
+		return pc_menus_host_cooperative_choose(widget, map_name, widget_deleted);
+#endif
 #else
 	match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 1298,
 		level_list->parameters.list.selected_index >= 0 && level_list->parameters.list.selected_index < 13,
