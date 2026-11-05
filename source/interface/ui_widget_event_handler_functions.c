@@ -5883,7 +5883,13 @@ static boolean multiplayer_level_select(
 		"invalid multiplayer level specified from 'multiplayer level list' list widget");
 	map_name = event_handler_functions.multiplayer_levels[level_list->parameters.list.selected_index];
 #endif
+	/* port: the developers' automation file, which a console reads only
+	with its developer tools (a failed open at each map's start) */
+#ifndef HALO_CONSOLE_NO_DEBUG_TOOLS
 	file = fopen("d:\\map_automation.txt", "r");
+#else
+	file = NULL;
+#endif
 	if (file)
 	{
 		fgets(automation_map_name, sizeof(automation_map_name), file);
@@ -5989,7 +5995,12 @@ static boolean multiplayer_profile_set_for_game(
 		server = global_network_game_server_get();
 		if (saved_game_file_get_path_to_enclosing_directory(profile_index, directory_path))
 			saved_game_file_remember_last_used_multiplayer_variant_directory(directory_path);
+		/* port: as map_automation.txt */
+#ifndef HALO_CONSOLE_NO_DEBUG_TOOLS
 		file = fopen("d:\\variant_automation.txt", "r");
+#else
+		file = NULL;
+#endif
 		if (file)
 		{
 			fgets(variant_name, sizeof(variant_name), file);

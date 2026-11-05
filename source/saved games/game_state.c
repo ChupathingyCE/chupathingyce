@@ -561,11 +561,16 @@ static void game_state_allocation_record(
 	// retaining one out-of-line copy under its private address-derived name.
 	FILE *file = bss_004d27b0;
 
+	/* port: a developer's list of the allocations, which a console builds
+	only with its developer tools (each line a write and a flush, and the
+	file kept open) */
+#ifndef HALO_CONSOLE_NO_DEBUG_TOOLS
 	if (!file)
 	{
 		file = fopen("d:\\gamestate.txt", "w");
 		bss_004d27b0 = file;
 	}
+#endif
 
 	if (file)
 	{
