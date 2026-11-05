@@ -636,6 +636,23 @@ static void ce_retail_read_stand_ins(
 	}
 }
 
+/* a bitmap given another's shape, format and pixels (in bitmaps.map) */
+static void ce_retail_bitmap_take(
+	byte *data,
+	byte const *other)
+{
+	unsigned short flags, other_flags;
+
+	memcpy(&flags, data + 0x0e, 2);
+	memcpy(&other_flags, other + 0x0e, 2);
+	flags = (unsigned short)((flags & ~CE_BITMAP_XBOX_FORMAT_FLAGS) | (other_flags & CE_BITMAP_XBOX_FORMAT_FLAGS) |
+		CE_BITMAP_EXTERNAL_FLAG);
+	memcpy(data + 0x04, other + 0x04, 10);
+	memcpy(data + 0x0e, &flags, 2);
+	memcpy(data + 0x14, other + 0x14, 2);
+	memcpy(data + 0x18, other + 0x18, 8);
+}
+
 /* a bitmap given the pixels of one in Custom Edition's bitmaps.map: of its
 shape, else of its type and format, else of its type; FALSE if none is */
 static boolean ce_retail_bitmap_stand_in(
@@ -668,16 +685,7 @@ static boolean ce_retail_bitmap_stand_in(
 			}
 			if (fits)
 			{
-				unsigned short flags, stand_in_flags;
-
-				memcpy(&flags, data + 0x0e, 2);
-				memcpy(&stand_in_flags, stand_in + 0x0e, 2);
-				flags = (unsigned short)((flags & ~CE_BITMAP_XBOX_FORMAT_FLAGS) |
-					(stand_in_flags & CE_BITMAP_XBOX_FORMAT_FLAGS) | CE_BITMAP_EXTERNAL_FLAG);
-				memcpy(data + 0x04, stand_in + 0x04, 10);
-				memcpy(data + 0x0e, &flags, 2);
-				memcpy(data + 0x14, stand_in + 0x14, 2);
-				memcpy(data + 0x18, stand_in + 0x18, 8);
+				ce_retail_bitmap_take(data, stand_in);
 				return TRUE;
 			}
 		}
@@ -686,13 +694,16 @@ static boolean ce_retail_bitmap_stand_in(
 }
 
 /* a retail map's bitmap tag: its external bitmaps' pixels found in Custom
-Edition's bitmaps.map (or stood in for), and the tag's pixels read from
-there (*type) */
+Edition's bitmaps.map, and the tag's pixels read from there (*type). A bitmap
+of its path there of another size or format (a bitmaps.map not as Custom
+Edition shipped it: an HD or repacked one) is drawn as that one is (*resized);
+one not there at all is stood in for (*stood_in) */
 static boolean ce_retail_bitmaps(
 	struct ce_image *image,
 	struct ce_tag_instance const *instance,
 	byte *type,
-	long *stood_in)
+	long *stood_in,
+	long *resized)
 {
 	byte *group = ce_image_pointer(image, instance->base_address, CE_BITMAP_GROUP_SIZE);
 	char const *name = ce_image_tag_name(image, instance);
@@ -727,8 +738,26 @@ static boolean ce_retail_bitmaps(
 		{
 			memcpy(data + 0x18, their + 0x18, 4);
 		}
+		/* (the same bitmap, of its type, at another size or format: its own
+		pixels rather than another bitmap's) */
+		else if (their && !memcmp(data + 0x0a, their + 0x0a, 2))
+		{
+			if (!ce_map_checking() && *resized < 8)
+			{
+				error(_error_silent, "HaloMD map: bitmap %ld of %s is another size or format in bitmaps.map "
+					"(%dx%d format %d there, %dx%d format %d in the map)", index, name, *(short const *)(their + 0x04),
+					*(short const *)(their + 0x06), *(short const *)(their + 0x0c), *(short const *)(data + 0x04),
+					*(short const *)(data + 0x06), *(short const *)(data + 0x0c));
+			}
+			ce_retail_bitmap_take(data, their);
+			(*resized)++;
+		}
 		else if (ce_retail_bitmap_stand_in(map, data))
+		{
+			if (!ce_map_checking() && *stood_in < 16)
+				error(_error_silent, "HaloMD map: bitmap %ld of %s is not in bitmaps.map: stood in for", index, name);
 			(*stood_in)++;
+		}
 		else
 		{
 			if (theirs)
@@ -952,7 +981,7 @@ static boolean ce_resources_place(
 	unsigned long tags_end = image->base + image->size;
 	unsigned long next = (tags_end + 15) & ~15UL;
 	long index;
-	long stood_in = 0, silenced = 0;
+	long stood_in = 0, silenced = 0, resized = 0, reindexed = 0;
 
 	*copied = 0;
 	csmemset(types, 0, tag_count);
@@ -978,7 +1007,7 @@ static boolean ce_resources_place(
 				boolean found = TRUE;
 
 				if (instance->group_tag == 'bitm')
-					found = ce_retail_bitmaps(image, instance, &types[index], &stood_in);
+					found = ce_retail_bitmaps(image, instance, &types[index], &stood_in, &resized);
 				else if (instance->group_tag == 'snd!')
 					found = ce_retail_sound(image, instance, &types[index], &silenced);
 				if (!found)
@@ -1008,7 +1037,30 @@ static boolean ce_resources_place(
 			instance->base_address = (unsigned long)found;
 		}
 		/* (strings and fonts are indexed by their resource, bitmaps the
-		same: the resource after their pixels) */
+		same: the resource after their pixels. A resource map whose
+		resources are in another order than the one the map was built
+		with, a repacked one, has the tag's resource by its path) */
+		else if (map->paths && instance->base_address < map->count &&
+			(map->resources[instance->base_address].path_offset >= map->paths_size ||
+			_stricmp(map->paths + map->resources[instance->base_address].path_offset, name)))
+		{
+			long found = ce_resource_by_path(map, name);
+
+			if (found == NONE)
+			{
+				ce_refusal_explain("Its %s.map doesn't match: copy Custom Edition's own into maps_ce.",
+					ce_resource_map_names[type]);
+				return ce_refuse("%s is not in %s.map (its resource %lu there is another's)", name,
+					ce_resource_map_names[type], instance->base_address);
+			}
+			if (!ce_map_checking() && reindexed < 8)
+			{
+				error(_error_silent, "Custom Edition map: %s's resource %lu in %s.map is another's: %ld, by its path", name,
+					instance->base_address, ce_resource_map_names[type], found);
+			}
+			reindexed++;
+			instance->base_address = (unsigned long)found;
+		}
 		if (instance->base_address >= map->count)
 		{
 			return ce_refuse("%s's resource %lu is not in %s.map (%lu)", name, instance->base_address,
@@ -1042,7 +1094,32 @@ static boolean ce_resources_place(
 	if (ce_map_cache_version == CE_CACHE_VERSION_RETAIL && !ce_map_checking())
 	{
 		error(_error_silent, "HaloMD map: %ld bitmaps stood in for, %ld sounds silent (not in Custom Edition's "
-			"resource maps)", stood_in, silenced);
+			"resource maps), %ld bitmaps of another size or format in bitmaps.map", stood_in, silenced, resized);
+		/* (Custom Edition's own bitmaps.map has every stock bitmap at the
+		size Halo PC's maps expect: one that doesn't is another file) */
+		if (resized)
+		{
+			char path[256];
+
+			map_family_resource("bitmaps", path, sizeof(path));
+			error(_error_silent, "HaloMD map: %s isn't the bitmaps.map Custom Edition shipped (an HD or repacked one?): "
+				"its %ld bitmaps of another size are drawn as they are there", path, resized);
+		}
+		/* (a map's own few bitmaps aren't in it, as HaloMD's own bitmaps.map
+		had them; many is a bitmaps.map without Custom Edition's stock ones) */
+		if (stood_in > 16)
+		{
+			char path[256];
+
+			map_family_resource("bitmaps", path, sizeof(path));
+			error(_error_silent, "HaloMD map: %s lacks %ld of the map's bitmaps: is it Custom Edition's own?", path,
+				stood_in);
+		}
+	}
+	if (reindexed && !ce_map_checking())
+	{
+		error(_error_silent, "Custom Edition map: %ld resources found by their paths: a resource map isn't in the order "
+			"Custom Edition's own is (a repacked one?)", reindexed);
 	}
 	*next_free = next;
 	return TRUE;
