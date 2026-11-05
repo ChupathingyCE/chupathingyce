@@ -233,6 +233,7 @@ jobs:
           python3 tools/test_button_mappings.py
           python3 tools/test_menu_key_caps.py
           python3 tools/test_split_screen_input.py
+          python3 tools/test_local_player_quit.py
           python3 tools/test_tag_byte_swap.py
           python3 tools/test_bitmap_byte_order.py
           python3 -m pytest -q tools/test_console_link.py
