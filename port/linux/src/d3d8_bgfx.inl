@@ -930,8 +930,9 @@ delete: bgfx/<backend>/<hash>.shader, by a hash of the shader's GLSL, the
 backend and the compilers' versions; an entry that does not match is
 ignored and made again), and each map's programs are listed there
 (map-<name>.programs) so that the next time the map loads they are all made
-during its loading screen (bg_warm). Past BG_SHADER_CACHE_MAXIMUM the
-oldest entries are removed at start-up. */
+during its loading screen (bg_warm). Vulkan's pipelines are kept there
+too (<hash>.pipeline: bg_callback_cache_write). Past
+BG_SHADER_CACHE_MAXIMUM the oldest entries are removed at start-up. */
 
 /* (a new number when what is cached changes: the Metal source's or the
 Vulkan container's layout, the entries' format) */
@@ -3786,21 +3787,67 @@ static void bg_callback_profiler_end(bgfx_callback_interface_t *self)
 	(void)self;
 }
 
+/* bgfx's own cache: Vulkan's pipelines (each draw state's, made the first
+time it is drawn, a hitch of tens of milliseconds on some drivers), kept
+beside the shaders as <hash>.pipeline so that the next run makes them from
+what the driver made the last time. The driver checks the data is its own
+(the device's and the driver's versions are in it) and makes the pipeline
+from scratch when it is not. */
+static void bg_pipeline_path(char *path, size_t size, uint64_t id)
+{
+	snprintf(path, size, "%s/%016llx.pipeline", bg_jobs.folder, (unsigned long long)id);
+}
+
 static uint32_t bg_callback_cache_read_size(bgfx_callback_interface_t *self, uint64_t id)
 {
-	(void)self, (void)id;
-	return 0;
+	char path[1100];
+	SDL_PathInfo info;
+
+	(void)self;
+	if (!*bg_jobs.folder)
+		return 0;
+	bg_pipeline_path(path, sizeof(path), id);
+	return SDL_GetPathInfo(path, &info) && info.type == SDL_PATHTYPE_FILE && info.size < (64U << 20) ?
+		(uint32_t)info.size : 0;
 }
 
 static bool bg_callback_cache_read(bgfx_callback_interface_t *self, uint64_t id, void *data, uint32_t size)
 {
-	(void)self, (void)id, (void)data, (void)size;
-	return false;
+	char path[1100];
+	FILE *file;
+	bool read;
+
+	(void)self;
+	if (!*bg_jobs.folder)
+		return false;
+	bg_pipeline_path(path, sizeof(path), id);
+	if (!(file = fopen(path, "rb")))
+		return false;
+	read = fread(data, 1, size, file) == size;
+	fclose(file);
+	return read;
 }
 
 static void bg_callback_cache_write(bgfx_callback_interface_t *self, uint64_t id, const void *data, uint32_t size)
 {
-	(void)self, (void)id, (void)data, (void)size;
+	char path[1100], temporary[1120];
+	FILE *file;
+
+	(void)self;
+	if (!*bg_jobs.folder || !size)
+		return;
+	bg_pipeline_path(path, sizeof(path), id);
+	snprintf(temporary, sizeof(temporary), "%s.tmp", path);
+	if (!(file = fopen(temporary, "wb")))
+		return;
+	{
+		BOOL written = fwrite(data, 1, size, file) == size;
+
+		if (fclose(file) == 0 && written)
+			rename(temporary, path);
+		else
+			remove(temporary);
+	}
 }
 
 static void bg_callback_screen_shot(bgfx_callback_interface_t *self, const char *path, uint32_t width,
