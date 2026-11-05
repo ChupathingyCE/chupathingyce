@@ -988,6 +988,27 @@ def test_server_file(program, directory, defaults, kind):
 	check(pending(case)[0] == 0, "server/old: asked about something")
 
 
+def test_follow_file(program, directory, defaults, kind):
+	"""config.toml edited while the game runs: a live setting (the volumes)
+	is seen within about a second even though config_changes is called
+	for every glyph drawn, and that call stays cheap."""
+	case = Case(program, directory / "follow")
+	case.path.write_text("[audio]\n# effects_volume = 1.0\n")
+	values, output = case.run("follow", str(case.path))
+	match = re.search(r"follow_ms=(\d+) moved=(\d)", output)
+	if kind == "console":
+		return
+	check(match is not None, f"follow/{kind}: no answer: {output!r}")
+	check(match.group(2) == "1", f"follow/{kind}: an edit of config.toml was not seen")
+	check(int(match.group(1)) <= 2500, f"follow/{kind}: an edit took {match.group(1)} ms to be seen")
+	_, output = case.run("bench", "2000000")
+	match = re.search(r"bench_ns_per_call=([0-9.]+)", output)
+	check(match is not None, f"follow/{kind}: no timing: {output!r}")
+	# (generous: a call is a few nanoseconds; a clock call or a file look
+	# on every call would be many times this)
+	check(float(match.group(1)) < 200.0, f"follow/{kind}: config_changes takes {match.group(1)} ns a call")
+
+
 def main():
 	parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
 	parser.add_argument("--cc", default=os.environ.get("CC", "cc"))
@@ -1004,7 +1025,7 @@ def main():
 				test_start_alone, test_answered_earlier, test_chosen_port_kept, test_file_without_the_settings,
 				test_readded_by_older_version, test_before_config_version, test_renamed_setting,
 				test_retired_setting, test_layout, test_old_browser_address, test_packaged_install,
-				test_server_file):
+				test_server_file, test_follow_file):
 				try:
 					test(program, directory / kind / "cases", DEFAULTS[kind], kind)
 					print(f"ok   {kind}: {test.__name__}")

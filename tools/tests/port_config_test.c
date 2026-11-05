@@ -23,6 +23,8 @@ the C library (the test's SDL3/SDL.h and platform.h declare them).
 #include <string.h>
 #include <strings.h>
 #include <sys/stat.h>
+#include <time.h>
+#include <unistd.h>
 
 void platform_log(const char *format, ...)
 {
@@ -140,6 +142,46 @@ int main(int argc, char **argv)
 		printf("pending=%d\n", count);
 		if (count)
 			printf("changes=%s\n", changes);
+		return 0;
+	}
+	else if (argc >= 3 && !strcmp(argv[1], "bench"))
+	{
+		/* config_changes called as the menus' glyph checks call it */
+		unsigned long calls = strtoul(argv[2], NULL, 10), call, sum = 0;
+		struct timespec begin, end;
+
+		config_text("audio.effects_volume", text, sizeof(text));
+		clock_gettime(CLOCK_MONOTONIC, &begin);
+		for (call = 0; call < calls; call++)
+			sum += config_changes();
+		clock_gettime(CLOCK_MONOTONIC, &end);
+		printf("bench_ns_per_call=%.2f sum=%lu\n", ((end.tv_sec - begin.tv_sec) * 1e9 + (end.tv_nsec - begin.tv_nsec)) / calls, sum);
+		return 0;
+	}
+	else if (argc >= 3 && !strcmp(argv[1], "follow"))
+	{
+		/* config.toml edited while config_changes is called in a loop (as
+		the draw code calls it): how long until it moves, in milliseconds */
+		struct timespec begin, now;
+		unsigned long first;
+		double wait;
+		FILE *file;
+
+		config_text("audio.effects_volume", text, sizeof(text));
+		first = config_changes();
+		file = fopen(argv[2], "w");
+		if (!file)
+			return 2;
+		fputs("[audio]\neffects_volume = 0.123\n", file);
+		fclose(file);
+		clock_gettime(CLOCK_MONOTONIC, &begin);
+		do
+		{
+			usleep(1000);
+			clock_gettime(CLOCK_MONOTONIC, &now);
+			wait = (now.tv_sec - begin.tv_sec) * 1e3 + (now.tv_nsec - begin.tv_nsec) / 1e6;
+		} while (config_changes() == first && wait < 5000.0);
+		printf("follow_ms=%.0f moved=%d\n", wait, config_changes() != first);
 		return 0;
 	}
 	else if (argc >= 3 && !strcmp(argv[1], "answer"))

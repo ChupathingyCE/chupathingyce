@@ -4199,8 +4199,28 @@ enum
 {
 	/* config.toml's time looked at no more often than this (seconds; the
 	C library's clock, which the dedicated server, without SDL, has too) */
-	CONFIG_FOLLOW_INTERVAL_SECONDS = 1
+	CONFIG_FOLLOW_INTERVAL_SECONDS = 1,
+	/* the clock read once in this many calls to config_changes */
+	CONFIG_FOLLOW_CLOCK_CALLS = 16
 };
+
+/* the clock the follow check reads: seconds, from the cheapest clock the
+system has (the draw code asks config_changes for every glyph) */
+static time_t config_follow_clock(void)
+{
+#if defined(CLOCK_MONOTONIC_RAW_APPROX)
+	struct timespec now;
+
+	if (clock_gettime(CLOCK_MONOTONIC_RAW_APPROX, &now) == 0)
+		return now.tv_sec;
+#elif defined(CLOCK_MONOTONIC_COARSE)
+	struct timespec now;
+
+	if (clock_gettime(CLOCK_MONOTONIC_COARSE, &now) == 0)
+		return now.tv_sec;
+#endif
+	return time(NULL);
+}
 
 /* config.toml changed on disk since it was last looked at: its live
 settings read again from it (one given by the environment kept), and
@@ -4210,8 +4230,9 @@ static void config_follow_file(void)
 	static time_t looked_at;
 	static posix_ulong modified, modified_nanoseconds, modified_size;
 	static int looked;
+	static unsigned calls_since_clock;
 	static char path[1024];
-	time_t now = time(NULL);
+	time_t now;
 	struct posix_file_information info;
 	size_t size = 0;
 	char *text;
@@ -4219,7 +4240,16 @@ static void config_follow_file(void)
 	size_t live;
 	int changed = 0;
 
-	if (!config_loaded || (looked && now - looked_at < CONFIG_FOLLOW_INTERVAL_SECONDS))
+	if (!config_loaded)
+		return;
+	/* (config_changes is called for every glyph drawn: the clock is read
+	only every few calls, and a second's wait still ends within about a
+	second, the draw code calling it many times each frame) */
+	if (looked && ++calls_since_clock < CONFIG_FOLLOW_CLOCK_CALLS)
+		return;
+	calls_since_clock = 0;
+	now = config_follow_clock();
+	if (looked && now - looked_at < CONFIG_FOLLOW_INTERVAL_SECONDS)
 		return;
 	looked_at = now;
 	if (!path[0])
