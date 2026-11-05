@@ -3411,8 +3411,8 @@ python3 tools/bot_games.py --build build/linux64/halo --compare old/halo \
 you baked the navigation). The two builds must both write `bot stats:`
 lines.
 
-`tools/bot_levels` makes 20 small test maps, one for each thing the bots
-do (jumps, ramps, teleporters, mazes, open ground to drive, a loop like
+`tools/bot_levels` makes 23 small test maps, one for each thing the bots
+do (jumps, chains of jumps upward, ramps, teleporters, mazes, open ground to drive, a loop like
 Sidewinder). The maps are built with the Halo CE Editing Kit and Invader,
 and `tools/bot_levels/test.py` runs the bots on them and sums up the
 results. See `tools/bot_levels/README.md`.

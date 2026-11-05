@@ -172,6 +172,96 @@ def climb():
 
 
 @level
+def jump_spiral():
+    """five running jumps up round a pillar, each a gap and higher, turning as it goes"""
+    g = Grid(-14, -14, 14, 14, ceiling=12, cell=4)
+    L = Level("bot_jump_spiral", "Jump Spiral", g,
+              "A ledge 0.7 up, then five running jumps round a pillar: gaps of about 1.5, each 0.45 higher, a turn before each; a flag on the last. A fall is to the floor, and the climb starts again.")
+    g.wall(-2, -2, 2, 2)  # (the pillar: no jumping across the middle)
+    h = 0.7
+    platforms = []
+    for k in range(6):
+        angle = math.radians(-90 + 45 * k)
+        cx, cy = round(5.5 * math.cos(angle), 2), round(5.5 * math.sin(angle), 2)
+        g.box(cx - 1.2, cy - 1.2, cx + 1.2, cy + 1.2, round(h, 3))
+        platforms.append((cx, cy))
+        h += 0.45
+    start = platforms[0]
+    top = platforms[-1]
+    L.flag(0, 0, -11)
+    L.flag(1, top[0], top[1])
+    for k in range(6):
+        L.spawn(-10 + k * 4, -11.5, 90, 0)
+        L.spawn(-10 + k * 4, 11.5, 270, 1)
+    L.stop(0, -11)
+    for x, y in platforms:
+        L.stop(x, y)
+    return L
+
+
+@level
+def jump_zigzag():
+    """jumps up from side to side of a run, from one small block to the next"""
+    g = Grid(-26, -10, 26, 10, ceiling=12, cell=4)
+    L = Level("bot_jump_zigzag", "Jump Zigzag", g,
+              "A ledge 0.7 up, then five jumps up from side to side, block to block (1.8 across, gaps of about 1.6), each 0.35 to 0.5 higher; a flag on a wider block at the top.")
+    rises = [0.4, 0.5, 0.35, 0.5, 0.45]
+    h = 0.7
+    blocks = []
+    x = -12.0
+    for k in range(6):
+        y = -1.6 if k % 2 == 0 else 1.6
+        g.box(x - 0.9, y - 0.9, x + 0.9, y + 0.9, round(h, 3))
+        blocks.append((x, y))
+        if k < len(rises):
+            h += rises[k]
+            x += 2.6
+    # (the top: a wider block past the last, a step down from it, with the flag)
+    last_x, last_y = blocks[-1]
+    g.box(last_x + 0.9, last_y - 0.9, last_x + 4.9, last_y + 0.9, round(h - 0.3, 3))
+    L.flag(0, -21, 0)
+    L.flag(1, last_x + 3.5, last_y)
+    for k in range(6):
+        L.spawn(-22, -6 + k * 2.4, 0, 0)
+        L.spawn(22, -6 + k * 2.4, 180, 1)
+    L.stop(-21, 0)
+    for bx, by in blocks:
+        L.stop(bx, by)
+    L.stop(last_x + 3.5, last_y)
+    return L
+
+
+@level
+def jump_mixed():
+    """six jumps upward, each a different kind: a high ledge, a long gap, a gap up, a narrow beam, two gaps up with turns"""
+    g = Grid(-24, -8, 4, 20, ceiling=12, cell=4)
+    L = Level("bot_jump_mixed", "Jump Mix", g,
+              "Six jumps up, each a different one: a ledge 0.74 high, a level gap of 2.3, a gap of 1.4 up 0.48 with a turn, a ledge 0.72 up onto a beam a unit wide, a gap of 1.7 up 0.45, and a gap of 1.5 up 0.45 with a turn; a flag on the last. All over a pit a unit deep, with a ramp out of it at each end.")
+    # (a pit a unit down all round, so that each block is got to from the one
+    # before it and not from the floor; the two ends where the sides start
+    # are at 0, with a ramp up to each out of the pit)
+    g.floor(-1.0, "ground")
+    g.box(-23, -7, -17, 7, 0.0, material="floor")
+    g.box(-2, -7, 3, 7, 0.0, material="floor")
+    g.ramp(-17, -7, -13, -4, 0.0, -1.0, "x")
+    g.ramp(-6, -7, -2, -4, -1.0, 0.0, "x")
+    g.box(-17, -2, -13, 2, 0.74)          # 1: a ledge, from the start (against it)
+    g.box(-10.7, -2, -8.3, 2, 0.74)       # 2: a level gap of 2.3
+    g.box(-10.7, 3.4, -8.3, 5.8, 1.22)    # 3: north, a gap of 1.4 up 0.48 (a running jump lands 0.5 up at most)
+    g.box(-10.0, 5.8, -9.0, 10.8, 1.94)   # 4: a beam a unit wide, 0.72 up from 3
+    g.box(-11.2, 12.5, -7.8, 15.9, 2.39)  # 5: a gap of 1.7 off the beam's end, up 0.45
+    g.box(-6.3, 12.5, -3.3, 15.9, 2.84)   # 6: east, a gap of 1.5 up 0.45
+    L.flag(0, -20, 0)
+    L.flag(1, -4.8, 14.2)
+    for k in range(6):
+        L.spawn(-21, -5 + k * 2, 0, 0)
+        L.spawn(0, -5 + k * 2, 180, 1)
+    for x, y in [(-20, 0), (-14.5, 0), (-9.5, 0), (-9.5, 4.6), (-9.5, 9.5), (-9.5, 14.2), (-4.8, 14.2)]:
+        L.stop(x, y)
+    return L
+
+
+@level
 def ledges():
     """blocks of every height across a field, to step onto, jump onto, or go round"""
     g = Grid(-30, -30, 30, 30, ceiling=10, cell=4)

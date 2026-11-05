@@ -1,6 +1,6 @@
 # The bots' test levels
 
-Twenty small multiplayer maps, each made to test one thing the bots do.
+Twenty-three small multiplayer maps, each made to test one thing the bots do.
 `levels.py` describes them, `geometry.py` turns each into a closed mesh,
 `build.py` writes the meshes as JMS files with a list of what each level has
 placed in it, and `windows.py` writes the batch file that makes them into
@@ -11,6 +11,9 @@ Custom Edition maps with the MCC Halo CE Editing Kit and Invader.
 | `bot_steps` | Jumping up again and again: blocks 0.4, 0.55 and 0.7 higher each, to a flag on top |
 | `bot_jump_gaps` | Running jumps over gaps of 1, 1.5, 2, 2.5 and 2.8 units; a fall is into a pit with a ramp back up |
 | `bot_climb` | A tower climbed by eleven ledges round it, each 0.6 above the last |
+| `bot_jump_spiral` | A ledge, then five running jumps up round a pillar: gaps of about 1.5, each 0.45 higher, a turn before each |
+| `bot_jump_zigzag` | A ledge, then five jumps up from side to side between small blocks (1.8 across), each 0.35 to 0.5 higher |
+| `bot_jump_mixed` | Six different jumps up over a pit: a 0.74 ledge, a level gap of 2.3, a gap up 0.48 with a turn, onto a beam a unit wide, two gaps up 0.45 |
 | `bot_ledges` | Blocks 0.1 to 1.2 high over a field: which are stepped up, which jumped, which gone round |
 | `bot_ramps` | Ramps of 10, 20, 30, 40, 48 and 55 degrees up to a platform; the steepest are too steep to walk |
 | `bot_hills` | Rolling hills, nothing flat: on foot and in a Warthog |
