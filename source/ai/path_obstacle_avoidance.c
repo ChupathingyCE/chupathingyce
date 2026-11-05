@@ -329,6 +329,10 @@ static boolean heap_verify(
 {
 	short heap_index;
 
+	/* (a walk over the whole heap at each insert and remove, which made
+	them linear: debug builds only, HALO_VERIFY_WALKS) */
+	if (!HALO_VERIFY_WALKS)
+		return TRUE;
 	for (heap_index= 1; heap_index<path->heap_count; ++heap_index)
 	{
 		if (heap_cost(path, heap_parent_index(heap_index))>heap_cost(path, heap_index))

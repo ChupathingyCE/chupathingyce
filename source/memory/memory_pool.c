@@ -351,6 +351,9 @@ static void memory_pool_verify(
 	match_assert("c:\\halo\\SOURCE\\memory\\memory_pool.c", 340, pool->signature==POOL_SIGNATURE);
 	match_assert("c:\\halo\\SOURCE\\memory\\memory_pool.c", 341, pool->size>0);
 
+	/* (the walk over every block: debug builds only, HALO_VERIFY_WALKS) */
+	if (!HALO_VERIFY_WALKS)
+		return;
 	previous_block = NULL;
 	for (block = pool->first_block; block; block = block->next_block)
 	{
@@ -381,9 +384,14 @@ static struct memory_pool_block *memory_pool_block_get(
 		block->reference==reference,
 		csprintf(temporary, "expected reference %08x but got %08x", block->reference, reference));
 
-	for (other_block = pool->first_block; other_block && block != other_block; other_block = other_block->next_block)
+	/* (that the block is the pool's, by a walk to it: debug builds only;
+	the reference check above stays) */
+	if (HALO_VERIFY_WALKS)
 	{
+		for (other_block = pool->first_block; other_block && block != other_block; other_block = other_block->next_block)
+		{
+		}
+		match_assert("c:\\halo\\SOURCE\\memory\\memory_pool.c", 388, other_block);
 	}
-	match_assert("c:\\halo\\SOURCE\\memory\\memory_pool.c", 388, other_block);
 	return block;
 }

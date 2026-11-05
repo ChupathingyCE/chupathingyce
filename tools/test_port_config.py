@@ -26,6 +26,9 @@ player's can have:
 - the per-platform defaults of each build (DEFAULTS below).
 - the dedicated server's file: only the settings it reads; the game's
   settings it leaves out still load from an older file, which stays as it is.
+- the performance mode settings (display.performance_*): only a build with
+  HALO_CONSOLE_PERFORMANCE_MODE (the Steam Link's) has them; no other
+  build's file does, and a file that has them still loads.
 
 Needs only a C compiler. Usage: test_port_config.py [--cc clang]
 """
@@ -139,6 +142,22 @@ DEFINES = {
 	"android": ["-U__APPLE__", "-DHALO_ANDROID", "-DHALO_GAME_BROWSER"],
 	"server": ["-U__APPLE__", "-DHALO_SERVER", "-DHALO_64BIT", "-DHALO_GAME_BROWSER"],
 	"console": ["-U__APPLE__", "-DHALO_CONSOLE", "-DHALO_CONSOLE_GL_LAYER", "-DHALO_GAME_BROWSER"],
+	# (only for test_performance_settings: a 32-bit Linux build with the
+	# Steam Link's performance mode)
+	"performance": ["-U__APPLE__", "-DHALO_GAME_BROWSER", "-DHALO_CONSOLE_PERFORMANCE_MODE"],
+}
+
+# the performance mode settings, as they are written: a build with
+# HALO_CONSOLE_PERFORMANCE_MODE has them, no other
+PERFORMANCE_SETTINGS = {
+	"display.performance_mode": "true",
+	"display.performance_lines": "240",
+	"display.performance_view_distance": "60.0",
+	"display.performance_model_detail": "0.5",
+	"display.performance_object_transparents": "false",
+	"display.performance_sky": "false",
+	"display.performance_decoration_distance": "1.0",
+	"display.performance_hud_frames": "false",
 }
 
 STUB_PLATFORM = """#include <stddef.h>
@@ -988,6 +1007,36 @@ def test_server_file(program, directory, defaults, kind):
 	check(pending(case)[0] == 0, "server/old: asked about something")
 
 
+def test_performance_settings(program, directory, defaults, kind):
+	"""No build without the capability writes the performance settings."""
+	case = Case(program, directory / "performance")
+	case.get("display.vsync")
+	check("performance_" not in case.text(), f"new file: has performance settings without the capability")
+
+
+def test_performance_build(cc, directory):
+	"""A build with the capability: each setting written once, commented out
+	at its default; a file that sets them is read and kept as it is."""
+	program = build(cc, "performance", directory)
+	case = Case(program, directory / "cases" / "new")
+	values, _ = case.get(*PERFORMANCE_SETTINGS)
+	text = case.text()
+	for name, default in PERFORMANCE_SETTINGS.items():
+		key = name.split(".")[1]
+		lines, commented = value_lines(text, key)
+		check(not lines and len(commented) == 1, f"performance: {key} is not commented out once: {lines} {commented}")
+		check(float(values[name]) == float(default) if default[0].isdigit() else values[name] == default,
+			f"performance: {name} is {values[name]}, not {default}")
+	chosen = text.replace("# performance_mode = true", "performance_mode = false").replace(
+		"# performance_lines = 240", "performance_lines = 480")
+	case.path.write_text(chosen)
+	values, output = case.get("display.performance_mode", "display.performance_lines")
+	check(values["display.performance_mode"] == "false" and values["display.performance_lines"] == "480",
+		f"performance: a file's values not read: {values}")
+	check(case.text() == chosen, "performance: a file that sets them was changed")
+	check("unknown setting" not in output, f"performance: {output}")
+
+
 def main():
 	parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
 	parser.add_argument("--cc", default=os.environ.get("CC", "cc"))
@@ -995,6 +1044,12 @@ def main():
 	failures = 0
 	with tempfile.TemporaryDirectory() as directory:
 		directory = Path(directory)
+		try:
+			test_performance_build(arguments.cc, directory / "performance")
+			print("ok   performance: test_performance_build")
+		except AssertionError as error:
+			print(f"FAIL performance: test_performance_build: {error}")
+			failures += 1
 		for kind in DEFAULTS:
 			program = build(arguments.cc, kind, directory / kind)
 			if kind == "desktop32":
@@ -1004,7 +1059,7 @@ def main():
 				test_start_alone, test_answered_earlier, test_chosen_port_kept, test_file_without_the_settings,
 				test_readded_by_older_version, test_before_config_version, test_renamed_setting,
 				test_retired_setting, test_layout, test_old_browser_address, test_packaged_install,
-				test_server_file):
+				test_server_file, test_performance_settings):
 				try:
 					test(program, directory / kind / "cases", DEFAULTS[kind], kind)
 					print(f"ok   {kind}: {test.__name__}")

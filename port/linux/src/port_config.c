@@ -334,34 +334,36 @@ static const struct config_setting config_settings[] =
 		"Size the reticle to the field of view, so it matches the weapon's\n"
 		"spread on screen. It makes no difference at 70." },
 #ifdef HALO_CONSOLE_PERFORMANCE_MODE
-	{ "display.performance_mode", _config_boolean, "true", "HALO_PERFORMANCE_MODE", _environment_value, _platform_all,
+	/* (only a build with the capability has them: the Steam Link's, a desktop
+	build. Neither the other desktop builds nor Android write them) */
+	{ "display.performance_mode", _config_boolean, "true", "HALO_PERFORMANCE_MODE", _environment_value, _platform_desktop,
 		"Start in performance mode: the level drawn without its decals, dynamic lights, reflections and specular\n"
 		"highlights, and no lens flares, for the frame rate. Hold Back and press down on the d-pad (or F9) to switch\n"
 		"it in the game." },
 	{ "display.performance_lines", _config_integer, "240", "HALO_PERFORMANCE_LINES", _environment_value,
-		_platform_all,
+		_platform_desktop,
 		"The lines the picture is drawn with in performance mode, scaled up to the screen: 480 is the game's own,\n"
 		"240 a quarter of the pixels." },
 	{ "display.performance_view_distance", _config_real, "60.0", "HALO_PERFORMANCE_VIEW_DISTANCE",
-		_environment_value, _platform_all,
+		_environment_value, _platform_desktop,
 		"How far performance mode sees, in the game's units (about 3 m): fog thickens to the distance and nothing\n"
 		"is drawn beyond it, as the game does with its own thick fog, outside cutscenes. 0 sees as far as the level\n"
 		"does." },
 	{ "display.performance_model_detail", _config_real, "0.5", "HALO_PERFORMANCE_MODEL_DETAIL", _environment_value,
-		_platform_all,
+		_platform_desktop,
 		"What performance mode multiplies a model's size on the screen by when it chooses its detail: smaller goes\n"
 		"to coarser geometry sooner and leaves the smallest models out. 1 is the game's own." },
 	{ "display.performance_object_transparents", _config_boolean, "false", "HALO_PERFORMANCE_OBJECT_TRANSPARENTS",
-		_environment_value, _platform_all,
+		_environment_value, _platform_desktop,
 		"Whether performance mode draws the transparent parts of the level's objects, as glass and glows." },
-	{ "display.performance_sky", _config_boolean, "false", "HALO_PERFORMANCE_SKY", _environment_value, _platform_all,
+	{ "display.performance_sky", _config_boolean, "false", "HALO_PERFORMANCE_SKY", _environment_value, _platform_desktop,
 		"Whether performance mode draws the sky, outside cutscenes: without it the fog's color fills in." },
 	{ "display.performance_decoration_distance", _config_real, "1.0", "HALO_PERFORMANCE_DECORATION_DISTANCE",
-		_environment_value, _platform_all,
+		_environment_value, _platform_desktop,
 		"How far performance mode draws scenery nothing can touch, as plants, in the game's units, outside cutscenes. "
 		"0 draws it as far as everything else." },
 	{ "display.performance_hud_frames", _config_boolean, "false", "HALO_PERFORMANCE_HUD_FRAMES", _environment_value,
-		_platform_all,
+		_platform_desktop,
 		"Whether performance mode draws the HUD's frames and backgrounds, its static pictures." },
 #endif
 	{ "display.menus", _config_string, "\"chupathingy\"", "HALO_MENUS", _environment_value, _platform_all,
@@ -2245,8 +2247,10 @@ static void config_set_from_text(struct config_value *value, enum config_type ty
 		break;
 	case _config_string:
 		/* (the old string is kept, not freed: config_string's callers hold
-		its pointer, and Settings writes few, seldom) */
-		value->string = strdup(text);
+		its pointer, and Settings writes few, seldom. The new copy is
+		published with release order, so that a reader on another thread,
+		which takes no lock, sees its text whole) */
+		__atomic_store_n(&value->string, strdup(text), __ATOMIC_RELEASE);
 		break;
 	}
 }
@@ -3821,13 +3825,22 @@ static const struct config_value *config_value(const char *name, enum config_typ
 	static const struct config_value none = { 0, 0, 0.0, "" };
 	long index;
 
-	pthread_mutex_lock(&config_lock);
-	if (!config_loaded)
+	/* (the file is read once, under the lock; after that a read takes no
+	lock: config_loaded is set, with release order, only once config_load
+	has filled every value, so a reader that sees it set sees them. A value
+	changed later is written under the lock as one store (a string's new
+	copy, published with release order; the old one is never freed), so a
+	reader gets the old value or the new, never a freed string) */
+	if (!__atomic_load_n(&config_loaded, __ATOMIC_ACQUIRE))
 	{
-		config_load();
-		config_loaded = 1;
+		pthread_mutex_lock(&config_lock);
+		if (!config_loaded)
+		{
+			config_load();
+			__atomic_store_n(&config_loaded, 1, __ATOMIC_RELEASE);
+		}
+		pthread_mutex_unlock(&config_lock);
 	}
-	pthread_mutex_unlock(&config_lock);
 	index = config_setting_index(name);
 	if (index < 0 || config_settings[index].type != type)
 	{
@@ -4219,7 +4232,8 @@ static void config_follow_file(void)
 	size_t live;
 	int changed = 0;
 
-	if (!config_loaded || (looked && now - looked_at < CONFIG_FOLLOW_INTERVAL_SECONDS))
+	if (!__atomic_load_n(&config_loaded, __ATOMIC_ACQUIRE) ||
+		(looked && now - looked_at < CONFIG_FOLLOW_INTERVAL_SECONDS))
 		return;
 	looked_at = now;
 	if (!path[0])
@@ -4354,7 +4368,7 @@ double config_real(const char *name)
 
 const char *config_string(const char *name)
 {
-	const char *string = config_value(name, _config_string)->string;
+	const char *string = __atomic_load_n(&config_value(name, _config_string)->string, __ATOMIC_ACQUIRE);
 
 	return string ? string : "";
 }

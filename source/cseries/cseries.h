@@ -159,6 +159,17 @@ never define it. */
 #define match_assert_evaluated(file, line, expr) match_assert(file, line, expr)
 #define match_vassert_evaluated(file, line, expr, string) match_vassert(file, line, expr, string)
 #endif
+/* port: the debug decomp's checks that walk a whole structure at each
+operation (memory_pool_verify at every block allocated and freed,
+heap_verify at every step of an obstacle path): a release build, and a
+console's release-style build, leave the walks out, as the retail game did
+(lruv_cache.c's is left out the same way). The checks of the one block or
+step at hand stay. The code is still compiled, so it keeps building. */
+#if defined(HALO_RELEASE) || defined(HALO_CONSOLE_NO_DEBUG_ASSERTS)
+#define HALO_VERIFY_WALKS FALSE
+#else
+#define HALO_VERIFY_WALKS TRUE
+#endif
 #define match_dassert(file, line, expr, diagnostic) do { match_vassert(file, line, expr, diagnostic); } while (FALSE)
 #define match_dwarn(file, line, expr, diagnostic) do { match_vwarn(file, line, expr, diagnostic); } while (FALSE)
 #define match_dhalt(file, line, diagnostic) do { match_vhalt(file, line, diagnostic); } while (FALSE)
