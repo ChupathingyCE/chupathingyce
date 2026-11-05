@@ -39,6 +39,7 @@ upload, which have threads of their own.
 #include <ctype.h>
 #include <math.h>
 #include <stdarg.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -640,6 +641,100 @@ static void append_name(char *names, size_t size, const char *name)
 		snprintf(names + length, size - length, "%s%s", length ? ", " : "", name);
 }
 
+/* whether a family's maps read Custom Edition's resource maps (every family
+past the Xbox's: halo_map_families.h) */
+static int family_needs_resources(const struct family *family)
+{
+	return family->kind == _family_custom_edition || family->kind == _family_halo_pc ||
+		family->kind == _family_halomd;
+}
+
+/* whether a resource map's paths name one ending with ending: Custom
+Edition's bitmaps.map has <path>__pixels, its sounds.map
+<path>__permutations; Halo PC retail's are named <path>_0 and <path>__0__0
+(map_families.c's map_family_resources_ready, which the game asks) */
+static int resource_map_is_custom_edition(const char *path, uint32_t type, const char *ending)
+{
+	uint32_t header[4];
+	FILE *file = fopen(path, "rb");
+	int result = 0;
+
+	if (!file)
+		return 0;
+	if (fread(header, sizeof(header), 1, file) == 1 && header[0] == type && header[3] && header[1] >= sizeof(header) &&
+		header[1] <= header[2] && (!ending || header[2] - header[1] <= 0x400000))
+	{
+		uint32_t size = header[2] - header[1];
+		char *paths = ending ? malloc((size_t)size + 1) : NULL;
+
+		if (!ending)
+			result = 1;
+		else if (paths && fseek(file, (long)header[1], SEEK_SET) == 0 && fread(paths, 1, size, file) == size)
+		{
+			size_t ending_length = strlen(ending);
+			uint32_t start = 0, at;
+
+			paths[size] = '\0';
+			for (at = 0; at <= size && !result; at++)
+			{
+				if (paths[at])
+					continue;
+				result = at - start >= ending_length && !memcmp(paths + at - ending_length, ending, ending_length);
+				start = at + 1;
+			}
+		}
+		free(paths);
+	}
+	fclose(file);
+	return result;
+}
+
+/* Custom Edition's resource maps a family's maps need: each one missing from
+maps_ce (and its older places, maps/ce and custom_maps), or not Custom
+Edition's, counted, named in the family's missing_names and, with list,
+given an entry */
+static void family_check_resources(struct family *family, int list)
+{
+	static const char *const resources[] = { "bitmaps.map", "sounds.map", "loc.map" };
+	static const char *const endings[] = { "__pixels", "__permutations", NULL };
+	static const char *const places[] = { "maps_ce", "maps/ce", "custom_maps" };
+	size_t index, place;
+	int first_entry = launcher.map_entry_count;
+
+	for (index = 0; index < sizeof(resources) / sizeof(*resources); index++)
+	{
+		char folder[PATH_SIZE], name[256], path[PATH_SIZE + 256];
+		int found = 0, good = 0;
+
+		for (place = 0; place < sizeof(places) / sizeof(*places) && !found; place++)
+		{
+			snprintf(folder, sizeof(folder), "%s/%s", launcher.root, places[place]);
+			if (posix_find_entry_case_insensitive(folder, resources[index], name, sizeof(name)))
+			{
+				found = 1;
+				snprintf(path, sizeof(path), "%s/%s", folder, name);
+				good = resource_map_is_custom_edition(path, (uint32_t)index + 1, endings[index]);
+			}
+		}
+		if (good)
+			continue;
+		family->missing++;
+		append_name(family->missing_names, sizeof(family->missing_names), resources[index]);
+		if (list)
+			map_entry_add(resources[index], found ? "Not Custom Edition's" : "Missing", COLOR_AMBER);
+	}
+	/* (listed first, above the maps that need them) */
+	if (list && launcher.map_entry_count > first_entry && first_entry > 0)
+	{
+		struct map_entry moved[3];
+		int count = launcher.map_entry_count - first_entry;
+
+		memcpy(moved, &launcher.map_entries[first_entry], count * sizeof(*moved));
+		memmove(&launcher.map_entries[count], &launcher.map_entries[0], first_entry * sizeof(*moved));
+		memcpy(&launcher.map_entries[0], moved, count * sizeof(*moved));
+	}
+}
+
 /* a family's folder read: its maps counted by their headers; with list,
 each one's entry for the map list */
 static void family_scan(struct family *family, int list)
@@ -700,23 +795,10 @@ static void family_scan(struct family *family, int list)
 		}
 	}
 	posix_directory_close(directory);
-	/* what the folder should have and doesn't */
-	if (family->kind == _family_custom_edition && family->good)
-	{
-		static const char *const resources[] = { "bitmaps.map", "sounds.map", "loc.map" };
-		size_t index;
-
-		for (index = 0; index < sizeof(resources) / sizeof(*resources); index++)
-		{
-			if (!posix_find_entry_case_insensitive(folder, resources[index], name, sizeof(name)))
-			{
-				family->missing++;
-				append_name(family->missing_names, sizeof(family->missing_names), resources[index]);
-				if (list)
-					map_entry_add(resources[index], "Missing", COLOR_AMBER);
-			}
-		}
-	}
+	/* what the folder should have and doesn't (Custom Edition's resource
+	maps, for its maps, HaloMD's and Halo PC's) */
+	if (family_needs_resources(family) && family->good)
+		family_check_resources(family, list);
 	if (family->kind == _family_pack && family->pack_id[0])
 	{
 		size_t index;
@@ -813,6 +895,10 @@ static void scan(void)
 		posix_directory_close(directory);
 	for (index = 0; index < launcher.family_count; index++)
 		family_scan(&launcher.families[index], 0);
+	/* (Custom Edition's folder says so too when only HaloMD's or Halo PC's
+	maps need its resource maps) */
+	if (!launcher.families[1].good && (launcher.families[2].good || launcher.families[3].good))
+		family_check_resources(&launcher.families[1], 0);
 	/* (the older folders: never while the data root is still being found) */
 	launcher.old_folders = launcher.welcome ? 0 : platform_old_map_folders(NULL, 0);
 	modes_find();
@@ -850,14 +936,16 @@ static void family_state(const struct family *family, char *text, size_t size, u
 	}
 	if (!family->good && !family->broken && !family->unsupported)
 	{
-		if (family->missing)
+		if (family_needs_resources(family) && family->missing)
+			snprintf(text, size, "Resource maps missing");
+		else if (family->missing)
 			snprintf(text, size, "%d maps missing", family->missing);
 		else
 			snprintf(text, size, "Not added yet");
 		*color = family->missing ? COLOR_AMBER : COLOR_GREY;
 		return;
 	}
-	if (family->kind == _family_custom_edition && family->missing)
+	if (family_needs_resources(family) && family->missing)
 	{
 		snprintf(text, size, "Resource maps missing");
 		*color = COLOR_AMBER;
@@ -886,6 +974,11 @@ static void family_check_text(const struct family *family, char *text, size_t si
 	{
 		snprintf(text, size, "No maps yet");
 		*color = COLOR_GREY;
+	}
+	else if (family_needs_resources(family) && family->missing)
+	{
+		snprintf(text, size, "Resource maps missing");
+		*color = COLOR_AMBER;
 	}
 	else if (family->broken)
 	{
@@ -1197,7 +1290,7 @@ static void build_rows(void)
 				snprintf(row->help, sizeof(row->help), "The maps from your Halo PC disc.");
 				break;
 			case _family_halomd:
-				snprintf(row->help, sizeof(row->help), "HaloMD's maps.");
+				snprintf(row->help, sizeof(row->help), "HaloMD's maps. They need Custom Edition's bitmaps.map, sounds.map and loc.map in maps_ce.");
 				break;
 			default:
 				snprintf(row->help, sizeof(row->help), "A pack of Xbox maps. It plays beside the Xbox maps.");
@@ -1227,7 +1320,11 @@ static void build_rows(void)
 		row = row_add(_action_check_family, "CHECK MY MAPS");
 		family_check_text(family, row->value, sizeof(row->value), &row->value_color);
 		if (family->kind == _family_custom_edition && family->missing)
-			snprintf(row->help, sizeof(row->help), "Custom Edition maps need %s here too.", family->missing_names);
+			snprintf(row->help, sizeof(row->help), "Custom Edition and HaloMD maps need Custom Edition's %s here too.",
+				family->missing_names);
+		else if (family_needs_resources(family) && family->missing)
+			snprintf(row->help, sizeof(row->help), "These maps need Custom Edition's %s in maps_ce. Add the CE installer under Custom Edition.",
+				family->missing_names);
 		else if (family->kind == _family_pack && family->missing)
 			snprintf(row->help, sizeof(row->help), "Missing: %s.", family->missing_names);
 		else if (family->broken)

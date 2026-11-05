@@ -1461,7 +1461,14 @@ boolean cache_files_map_present(
 	else
 #endif
 #ifdef HALO_CUSTOM_EDITION
-	if (family != _map_family_xbox)
+	/* (Custom Edition's resource maps, which every map past the Xbox's reads:
+	without them the map is refused as it loads, so the join is given up here,
+	before it is downloaded or loaded, saying what is needed) */
+	if (family != _map_family_xbox && !map_family_resources_ready(message, sizeof(message)))
+	{
+		platform_log("map %s: Custom Edition's resource maps are missing or not Custom Edition's", map_name);
+	}
+	else if (family != _map_family_xbox)
 	{
 		char path[256];
 
