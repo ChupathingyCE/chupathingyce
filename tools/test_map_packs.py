@@ -46,6 +46,7 @@ typedef struct { unsigned long dwFileAttributes; char cFileName[260]; } WIN32_FI
 #define INVALID_FILE_SIZE 0xFFFFFFFFUL
 #define FILE_ATTRIBUTE_DIRECTORY 0x10
 #define GENERIC_READ 1
+#define FILE_SHARE_READ 1
 #define GENERIC_WRITE 2
 #define OPEN_EXISTING 3
 #define OPEN_ALWAYS 4
