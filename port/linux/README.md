@@ -3095,6 +3095,67 @@ more a game (± 2.2). In test games on Chill Out the bots of skill 10 ran
 with their look more than 0.7 radians off the way they ran 24% of the
 time, from 45%.
 
+**More for the vehicles.**
+
+- **Each vehicle's own handling.** The speed limits for turning, the
+  steering limit, and the braking that a driver plans with (for corners and
+  for something in the way) were the Warthog's for every vehicle. Now they
+  scale with the top speed in the vehicle's tag, against the Warthog's tag
+  (about 8: the tag holds the throttle's speed, not the speed on the
+  ground). A Tachikoma (16.5) takes its turns faster, and a slow vehicle
+  slower. The log has each vehicle's values once.
+  `HALO_BOT_OFF=handling` gives every vehicle the Warthog's.
+- **The driving by the areas only under a roof.** A driver held up
+  repeatedly on the ground changed to the areas for 12 seconds, everywhere.
+  Now it does so only under a roof (something solid within 8 units above it:
+  a building, a tunnel). In the open, the ground's own way out is used.
+  `HALO_BOT_OFF=inside`.
+- **Round something by a clear way, not braking for it.** A driver that
+  steers round a tree or a rock by a way that is clear now brakes for that
+  way, not for the thing it is going round. The way round is measured again
+  each tick. `HALO_BOT_OFF=swerve`.
+- **Getting clear ends when it is clear.** After it is held up, a driver
+  backs or turns away for two seconds. Now it stops after about half a
+  second if it is 3 units from where it was held and the way it goes is
+  open. `HALO_BOT_OFF=clearsoon`.
+- **Dead ends where a vehicle stands.** A ground vehicle that stands empty
+  is checked once for a way out over the ground to where the map's other
+  ground vehicles stand. It checks the ground's ways and then, under a
+  roof, the areas. A vehicle with no way out is left alone where it stands
+  (the log has `bays:`). A vehicle that strands twice at the place where it
+  stood when first seen is a dead end too. Those places go in
+  `<map>_<bsp>.bays` beside the map's navigation (one line each: the tag
+  and the place), so later games know them. A baked `.bays` file is read
+  first. On Hugeass, the check found the two Kagotank bays at the ends.
+  `HALO_BOT_OFF=bays`.
+- **Pilots share their ways.** A way that one pilot found is used for ten
+  seconds by any pilot that sets off from near there to the same place
+  with no more room needed. There are only a few searches each tick, and
+  two craft that left the same pad waited a second each for the same
+  search. `HALO_BOT_OFF=airshare`.
+- **A hold before a Pelican or a Longsword lands.** A large craft slows all
+  the way in and hangs steady over the place for most of a second before it
+  goes down. Before, it came down still sliding, and landed at an angle
+  across the place or past it. `HALO_BOT_OFF=airhold`.
+- **Kills and deaths in vehicles.** `HALO_BOT_STATS` already had
+  `vehicle_kills`, `vehicle_deaths`, `air_kills` and `air_deaths`.
+- `HALO_BOT_DRIVELIMIT=1` writes to the log, every 900 driving ticks, which
+  step of the driving lowered the throttle on each tick: the way (corners,
+  narrow places), the place near, things in the way, a wall, the handling,
+  held up, getting clear, a run-up, backing. It also gives how many of those
+  ticks the speed was under 2.5.
+
+Measured with the driving benchmark (`HALO_BOT_DRIVEBENCH`, 200 seconds a
+map on Blood Gulch, Sidewinder, Death Island, Danger Canyon, Ice Fields and
+Hugeass), against the same build with all of these off: the ground
+vehicles made 3.22 world units a second toward their places, from
+2.24, and 3.00 over a finished leg, from 2.35. The
+flying is the same as before (10.9, from 11.2 over a leg). The share of
+driving ticks slowed by things in the way went from 9.1% to 7.6%. A first
+version ended the getting clear too early, after the short getting clear
+that a wall starts. Vehicles on Ice Fields then stood for up to 90
+seconds, swerving with the throttle shut. That is fixed.
+
 ### How the bots find their way, and what they cost
 
 A bot finds its way with a search that starts at its goal. The search goes
@@ -3192,6 +3253,84 @@ ticks); it looked straight at someone moving behind a wall 16.9% of the time
 it had nobody in sight, from 18.2% (most of that is the place it lost them,
 where they still are).
 
+### Everyone for themselves: the free-for-all
+
+In a game without teams, a bot of skill 4 and up (fully at 10) plays some
+habits of a good free-for-all player. Each habit has a name, and
+`HALO_BOT_OFF2=<names>` turns it off for all bots (`all` turns off all of
+them). `HALO_BOT_OFF2_T0` and `_T1` turn it off for one team.
+`HALO_BOT_OFF2_EVEN` and `_ODD` turn it off for the bots in the even or the
+odd player slots. This compares half the bots of a game with the other half.
+
+- `third`: a target with its shields down (from any player) or busy with
+  someone else is taken first. This adds to the bot's earlier preference
+  for a busy target.
+- `focus`: the target nearest to death comes before the nearest target.
+  While the bot sees its target, it changes to a new one only for a real
+  threat (near, with its gun on the bot).
+- `leader`: the player who leads alone is a more likely target. A bot that
+  leads plays carefully: it hunts less, does not go to fights it hears, and
+  values items and its own places more.
+- `reset`: after a kill, with its shields under three quarters, the bot
+  goes to cover near it for up to 5 seconds until its shields are full. The
+  cover is out of sight of the nearest enemy, and no more enemies see it
+  than see where the bot stands.
+- `spots`: each map keeps a count for each part of it. A kill from a place
+  adds one, and a death there takes one off. The count lasts until the map
+  changes, so it carries over from one game on a map to the next. Every 30
+  seconds, a bot replaces its worst place (bot_goal_haunts) with one where
+  the count is good. A place with a good count is worth more to go to and
+  to hold.
+- `spawnwise`: with no shields, the bot does not start a fight with a player
+  who spawned less than 4 seconds ago with full shields. If one comes at it
+  first, it goes to cover.
+- `crowd`: a grenade into a fight. The bot looks for players further from
+  its target than before, and two players who shoot at each other count as
+  a fight.
+- `range`: each gun at the range where it wins. The shotgun and the
+  flamethrower go in close. A gun with a scope keeps its own range, whatever
+  the bot's aggression. The assault rifle stays close and melees a target
+  whose shields are gone.
+- `disengage`: a fight that the bot is losing (no shields, its health going,
+  the enemy in much better shape) makes it go for health further off, up
+  to 30 units.
+- `combo`: the bot throws a grenade at a near enemy (5 to 9 units) with some
+  shield left, then melees when the shields are gone.
+- `sounds`: with full shields and health, a fight the bot hears is worth
+  more (to take the winner). Hurt, the bot does not go to it.
+- `behind`: the bot looks behind after a kill, and every few seconds while
+  it stands still. It does not do this while it moves to a place.
+- `routes`: hurt, the bot takes the ways that enemies watch least (the
+  danger map that the flag carrier uses).
+- `style`: each bot has a free-for-all style for the match. The `roamer`
+  hunts and explores. The `controller` takes weapons and knows when they
+  come back. The `camper` holds a good place. The `opportunist` goes to the
+  fights of other players. The debug panel shows the style.
+- `powertime`: the time when power weapons and powerups come back (as
+  before) counts for more.
+
+`HALO_BOT_STATS` gives these figures for each half of the bots in a game
+without teams: `e0_` for the even slots and `e1_` for the odd slots. The
+figures are `kills`, `deaths`, `suicides`, `score`, `trades` (deaths within
+2 seconds of a kill by the bot) and `unseen` (deaths to a player the bot had
+not seen in the 3 seconds before). There is also `contact`: the mean time in
+seconds from a spawn to the first enemy in sight.
+
+Measured with all the habits on for half the bots and off for the other
+half, 60 games of slayer at skill 10 (5 minutes each, 8 bots: Chill Out,
+Hang 'Em High, Prisoner, Damnation, Battle Creek, Wizard), both ways
+round: the half with them scored 1.1 (± 1.0) more a game. That is not more
+than chance. In groups of habits (24 games each, the score of the half
+with them less that of the half without): the targeting habits (`third`,
+`focus`, `leader`, `spawnwise`) +1.0 ± 2.4; `reset`, `spots`, `sounds`,
+`style`, `powertime` +0.9 ± 2.2; `crowd`, `range`, `disengage`, `combo`
++0.3 ± 2.3 (1.0 fewer deaths ± 1.1); `behind` +2.7 ± 2.5; `routes`
++0.9 ± 2.6.
+`tools/bot_ffa_ab.py` makes this comparison for any habits (turned off for
+one half of the bots, then for the other half, with the same seeds). It
+needs many more games than these to show a difference of a kill or two in
+about 90 kills a game.
+
 ### Watch the bots: the debug window, the panel and the cameras
 
 On the machine that runs the bots (your own game, or the one you host):
@@ -3271,6 +3410,12 @@ python3 tools/bot_games.py --build build/linux64/halo --compare old/halo \
 `--data` is a folder with the `maps` folder (and a `navcache` folder, if
 you baked the navigation). The two builds must both write `bot stats:`
 lines.
+
+`tools/bot_levels` makes 20 small test maps, one for each thing the bots
+do (jumps, ramps, teleporters, mazes, open ground to drive, a loop like
+Sidewinder). The maps are built with the Halo CE Editing Kit and Invader,
+and `tools/bot_levels/test.py` runs the bots on them and sums up the
+results. See `tools/bot_levels/README.md`.
 
 ## Infection
 

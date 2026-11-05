@@ -39,6 +39,18 @@ last line of a game is its whole). The figures:
 	with_people     per cent of bot_seconds helping a person of their side
 	                (on their gun, beside them, following them in)
 	over=1          on the line written as the game ends (its scores shown)
+
+In a game with no sides, the bots in two halves (those whose place in the
+game is an even number, e0_, and an odd one, e1_: HALO_BOT_OFF2_EVEN and
+_ODD leave a part out of one half, to be weighed against the other):
+
+	e0_kills, e0_deaths, e0_suicides, e0_score
+	                the half's own, from the game's statistics and score
+	e0_trades       deaths within two seconds of the bot's own kill
+	e0_unseen       deaths to someone the bot had not seen in the three
+	                seconds before
+	e0_contact      seconds, on average, from a life's start to the first
+	                enemy in its sights
 */
 
 #include "bot_internal.h"
@@ -84,6 +96,9 @@ static struct
 	/* where each bot was last tick */
 	real_point3d last_position[BOT_MAXIMUM_PLAYERS];
 	long last_seen[BOT_MAXIMUM_PLAYERS];
+	/* the free-for-all's, each half of the bots */
+	real ffa[2][NUMBER_OF_BOT_FFA];
+	long ffa_count[2][NUMBER_OF_BOT_FFA];
 } bot_stats = { 0, 0, NONE };
 
 int bot_stats_enabled(void)
@@ -151,6 +166,14 @@ void bot_stats_bot_tick(long index, real_point3d const *position, int seat_kind,
 	bot_stats.last_seen[index] = now;
 }
 
+void bot_stats_ffa(long index, int what, real value)
+{
+	if (!bot_stats_enabled() || index < 0 || what < 0 || what >= NUMBER_OF_BOT_FFA)
+		return;
+	bot_stats.ffa[index & 1][what] += value;
+	bot_stats.ffa_count[index & 1][what]++;
+}
+
 void bot_stats_air_tick(int up, int pressed)
 {
 	if (!bot_stats_enabled())
@@ -216,6 +239,8 @@ static void bot_stats_report(long now, int over)
 	struct data_iterator iterator;
 	struct player_datum *player;
 	long bots = 0, kills = 0, deaths = 0, suicides = 0;
+	long half_kills[2] = { 0, 0 }, half_deaths[2] = { 0, 0 }, half_suicides[2] = { 0, 0 }, half_score[2] = { 0, 0 };
+	char halves[512] = "";
 	char const *map = main_get_multiplayer_map_name();
 	char const *name = map ? strrchr(map, '\\') : NULL;
 
@@ -228,13 +253,35 @@ static void bot_stats_report(long now, int over)
 		kills += player->statistics.kills[0];
 		deaths += player->statistics.deaths;
 		suicides += player->statistics.suicides;
+		{
+			long half = DATUM_INDEX_TO_ABSOLUTE_INDEX(iterator.datum_index) & 1;
+			half_kills[half] += player->statistics.kills[0];
+			half_deaths[half] += player->statistics.deaths;
+			half_suicides[half] += player->statistics.suicides;
+			if (game_engine && game_engine->get_player_score)
+				half_score[half] += game_engine->get_player_score(iterator.datum_index, FALSE);
+		}
+	}
+	if (!game_engine_has_teams())
+	{
+		long half;
+		for (half = 0; half < 2; half++)
+		{
+			size_t length = strlen(halves);
+			snprintf(halves + length, sizeof(halves) - length,
+				" e%ld_kills=%ld e%ld_deaths=%ld e%ld_suicides=%ld e%ld_score=%ld e%ld_trades=%ld e%ld_unseen=%ld e%ld_contact=%.1f",
+				half, half_kills[half], half, half_deaths[half], half, half_suicides[half], half, half_score[half],
+				half, bot_stats.ffa_count[half][_bot_ffa_trade], half, bot_stats.ffa_count[half][_bot_ffa_unseen],
+				half, bot_stats.ffa_count[half][_bot_ffa_contact] > 0 ?
+					bot_stats.ffa[half][_bot_ffa_contact] / (real)bot_stats.ffa_count[half][_bot_ffa_contact] : 0.f);
+		}
 	}
 	platform_log("bot stats: map=%s t=%ld bots=%ld bot_seconds=%ld caps0=%ld caps1=%ld score0=%ld score1=%ld pickups=%ld drops=%ld returns=%ld "
 		"carrier_rides=%ld kills=%ld deaths=%ld suicides=%ld stuck=%ld route_failed=%ld "
 		"idle=%.1f driving=%.1f gunning=%.1f riding=%.1f escort=%.1f with_people=%.1f "
 		"vehicle_kills=%ld vehicle_deaths=%ld bailouts=%ld dismounts=%ld drive_speed=%.2f flipped=%.1f "
 		"air_seconds=%ld air_up=%.1f air_pressed=%.1f air_kills=%ld air_deaths=%ld air_landings=%ld air_dropoffs=%ld air_bumps=%ld air_stuck=%ld "
-		"air_trips=%ld air_trip_seconds=%.1f%s",
+		"air_trips=%ld air_trip_seconds=%.1f%s%s",
 		name ? name + 1 : map ? map : "?", (now - bot_stats.first_tick) / BOT_TICKS_PER_SECOND, bots,
 		bot_stats.alive_ticks / BOT_TICKS_PER_SECOND,
 		game_engine == &ctf_engine ? ctf_bot_score(0) : 0L, game_engine == &ctf_engine ? ctf_bot_score(1) : 0L,
@@ -254,7 +301,7 @@ static void bot_stats_report(long now, int over)
 		bot_stats.counts[_bot_stat_air_kill], bot_stats.counts[_bot_stat_air_death], bot_stats.counts[_bot_stat_air_landing],
 		bot_stats.counts[_bot_stat_air_dropoff], bot_stats.counts[_bot_stat_air_bump], bot_stats.counts[_bot_stat_air_stuck],
 		bot_stats.air_trips, bot_stats.air_trips > 0 ? bot_stats.air_trip_seconds / (real)bot_stats.air_trips : 0.f,
-		over ? " over=1" : "");
+		halves, over ? " over=1" : "");
 }
 
 void bot_stats_world_tick(long now)
