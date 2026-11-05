@@ -351,6 +351,12 @@ static struct virtual_keyboard_globals virtual_keyboard_globals= {0};
 
 /* Keep the computer keyboard's input mode in sync with every open/close
    path. The UI stops processing the virtual keyboard once it is inactive. */
+#ifdef HALO_CONSOLE_MAP_BROWSER
+/* (a search's launch: virtual_keyboard_launch_plain) */
+static boolean virtual_keyboard_plain;
+static wchar_t const *virtual_keyboard_plain_caption;
+#endif
+
 static void virtual_keyboard_set_active(boolean active)
 {
 	extern void platform_text_typing(int typing);
@@ -471,12 +477,33 @@ boolean virtual_keyboard_launch(
 			MAXIMUM_VIRTUAL_KEYBOARD_SAVED_TEXT_LENGTH);
 		virtual_keyboard_globals.saved_text[MAXIMUM_VIRTUAL_KEYBOARD_SAVED_TEXT_LENGTH - 1] = L'\0';
 		virtual_keyboard_globals.last_exit_saved_text = FALSE;
+#ifdef HALO_CONSOLE_MAP_BROWSER
+		virtual_keyboard_plain = FALSE;
+#endif
 		ui_play_audio_feedback_sound(_ui_audio_feedback_forward);
 		result = TRUE;
 	}
 
 	return result;
 }
+
+#ifdef HALO_CONSOLE_MAP_BROWSER
+/* port: a launch for a search (the Map Browser's, port/xbox/game/xbox_maps_screen.c):
+its own caption, and whatever is typed done as it is, empty too (a name's
+checks are a saved game's) */
+
+boolean virtual_keyboard_launch_plain(
+	wchar_t *text_buffer,
+	word buffer_size,
+	wchar_t const *caption)
+{
+	if (!virtual_keyboard_launch(text_buffer, buffer_size, FIRST_VIRTUAL_KEYBOARD_CAPTION_STRING_INDEX + 2))
+		return FALSE;
+	virtual_keyboard_plain = TRUE;
+	virtual_keyboard_plain_caption = caption;
+	return TRUE;
+}
+#endif
 
 boolean virtual_keyboard_active(
 	void)
@@ -684,6 +711,10 @@ static void virtual_keyboard_render_internal(
 		wchar_t *caption = unicode_string_list_get_string(
 			virtual_keyboard_globals.keyboard->special_key_labels_string_list_tag.index,
 			virtual_keyboard_globals.caption_index);
+#ifdef HALO_CONSOLE_MAP_BROWSER
+		if (virtual_keyboard_plain && virtual_keyboard_plain_caption)
+			caption = (wchar_t *)virtual_keyboard_plain_caption;
+#endif
 
 		bounds.y0 = 78;
 		bounds.x0 = 114;
@@ -985,6 +1016,17 @@ static boolean virtual_keyboard_select(
 	switch (keycode)
 	{
 	case _vkey_done:
+#ifdef HALO_CONSOLE_MAP_BROWSER
+		/* port: a search's words, as they are */
+		if (virtual_keyboard_plain)
+		{
+			virtual_keyboard_globals.last_exit_saved_text = TRUE;
+			ui_play_audio_feedback_sound(_ui_audio_feedback_back);
+			virtual_keyboard_set_active(FALSE);
+			event_manager_flush();
+			break;
+		}
+#endif
 		/* port: a name kept to one the host's ban command can name: its
 		spaces before and after dropped, and one without a character it can
 		type (player_name_clean) empty, which is refused below */

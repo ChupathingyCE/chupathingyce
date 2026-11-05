@@ -113,7 +113,10 @@ The image:
 - runs the server as user 1000, not root (`--user` to choose another: the
   owner of your data folder);
 - has the data folder at `/data` (`HALO_DATA_ROOT`), the saves in
-  `/data/saves`;
+  `/data/saves` (`HALO_SAVE_ROOT`), the cache in `/data/cache`
+  (`HALO_CACHE_ROOT`) and the log in `/data/logs`;
+- writes no `config.toml` beside the program: its settings come from the
+  environment and `admin/settings.toml` in the data folder;
 - stops the server with SIGTERM, which withdraws its game from the lists.
 
 ```sh

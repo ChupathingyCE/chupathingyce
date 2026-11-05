@@ -155,6 +155,17 @@ Halo PC's ui), in maps_ce or its older places: FALSE if there is none (path
 then the place it goes) */
 boolean map_family_resource(char const *name, char *path, long size);
 
+/* whether Custom Edition's resource maps (bitmaps.map, sounds.map, loc.map),
+which every family past the Xbox's reads, are in maps_ce or its older places
+and are Custom Edition's: FALSE if one is missing, is not a resource map of
+its kind, or is Halo PC retail's own (whose resources are named for their
+pixels' and permutations' numbers, not Custom Edition's <path>__pixels and
+<path>__permutations). message (size bytes; NULL for none) is then what the
+player is told (MAP_REASON_CE_RESOURCES, halo_join_reasons.h). Each place
+looked at is logged when the answer changes; the files are read again only
+when one of them changes */
+boolean map_family_resources_ready(char *message, long size);
+
 /* the file of a map of a family past the Xbox's (its file's name without
 the suffix), as cache_files_windows.c opens it: the path (for CreateFileA)
 of the first of the family's places that is a cache file of the family's

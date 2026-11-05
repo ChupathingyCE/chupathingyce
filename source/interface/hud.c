@@ -984,12 +984,10 @@ static void hud_draw_players(
 
 	if (player_index != NONE)
 	{
-#ifndef HALO_XBOX_CONSOLE
-		/* the native builds' sessions hold more than 16 players */
+		/* port: a session holds as many players as the build's network
+		tables (the Xbox's 16; more on the consoles' 32-player builds and on
+		the desktop) */
 		long teammate_indices[HALO_PORT_MAXIMUM_NETWORK_PLAYERS];
-#else
-		long teammate_indices[16];
-#endif
 		long teammate_count = 0;
 		struct data_iterator iterator;
 		struct player_datum *player;
@@ -1002,13 +1000,10 @@ static void hud_draw_players(
 				team_index == player->team_index &&
 				player->unit_index != NONE)
 			{
-#ifndef HALO_XBOX_CONSOLE
-				/* never write past the buffer, whatever the player data holds */
+				/* port: never write past the buffer, whatever the player
+				data holds (the original had no bound, safe at 16 players) */
 				if (teammate_count < (long)NUMBEROF(teammate_indices))
 					teammate_indices[teammate_count++] = iterator.datum_index;
-#else
-				teammate_indices[teammate_count++] = iterator.datum_index;
-#endif
 			}
 		}
 
@@ -1025,7 +1020,11 @@ static void hud_draw_players(
 
 #ifndef HALO_CONSOLE_NO_PLAYER_NAMES
 /* port: in multiplayer and network co-op, players' names above their heads
-(display.player_names: "all", "allies", "enemies" or "none"). An ally's goes
+(display.player_names: "all", "allies", "enemies" or "none", the default:
+the Xbox named only the player under the reticle), where the game's host
+allows them (port/linux/game/host_rules.c: its network.allow_player_names, or a
+dedicated server's allow_player_names; a host that says nothing allows none, as
+the Xbox's game had none). An ally's goes
 above the triangle the game draws over teammates; an enemy's only within the
 motion sensor's reach, while the view sees them and they are not
 camouflaged, so that it never gives away where they hide. Whose names show
@@ -1036,6 +1035,8 @@ allies' if it shows only friends (game_engine_draw_object_in_motion_sensor). */
 const char *config_string(const char *name);
 double config_real(const char *name);
 unsigned long config_changes(void);
+/* (port/linux/game/host_rules.c) */
+boolean host_rules_player_names(void);
 
 enum
 {
@@ -1057,11 +1058,11 @@ static short hud_player_names_setting(
 		const char *value = config_string("display.player_names");
 
 		read_at = config_changes();
-		setting = _player_names_all;
+		setting = _player_names_none;
 		if (value)
 		{
-			if (!csstrcmp(value, "none"))
-				setting = _player_names_none;
+			if (!csstrcmp(value, "all"))
+				setting = _player_names_all;
 			else if (!csstrcmp(value, "allies") || !csstrcmp(value, "allys"))
 				setting = _player_names_allies;
 			else if (!csstrcmp(value, "enemies"))
@@ -1069,6 +1070,9 @@ static short hud_player_names_setting(
 		}
 	}
 
+	/* (the host's to allow: none where it does not) */
+	if (setting != _player_names_none && !host_rules_player_names())
+		return _player_names_none;
 	return setting;
 }
 

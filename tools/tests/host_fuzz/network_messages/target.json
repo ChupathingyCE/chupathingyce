@@ -1,0 +1,16 @@
+{
+  "about": "the game's network messages as a host or a client decodes them: every type, every packet class, the join request with its reserved tail",
+  "harness": "tools/tests/network_messages_fuzz.c",
+  "game_sources": [
+    "source/memory/data_packet_groups.c",
+    "source/memory/data_packets.c",
+    "source/memory/data_encoding.c",
+    "source/memory/byte_swapping.c",
+    {
+      "source": "source/networking/network_messages.c",
+      "append": "tools/tests/host_fuzz/game_messages/messages_sizes.c"
+    }
+  ],
+  "max_len": 1500,
+  "sources": []
+}

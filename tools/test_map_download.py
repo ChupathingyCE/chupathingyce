@@ -28,6 +28,8 @@ from pathlib import Path
 
 import pytest
 
+from tools import fuzz_support  # noqa: E402
+
 ROOT = Path(__file__).resolve().parent.parent
 SOURCE = ROOT / "port" / "linux" / "src"
 ZLIB = ROOT / "port" / "third_party" / "zlib"
@@ -74,6 +76,7 @@ def harness(tmp_path_factory):
         result = subprocess.run([cc, "-c", "-O1", "-g", "-w", "-DZ_PREFIX", "-Dz_errmsg=z_port_errmsg",
                                  str(source), "-o", str(obj), *sanitize], capture_output=True, text=True)
         if result.returncode != 0 and sanitize:
+            fuzz_support.fallback("no sanitizer runtime")
             sanitize = []
             result = subprocess.run([cc, "-c", "-O1", "-g", "-w", "-DZ_PREFIX", "-Dz_errmsg=z_port_errmsg",
                                      str(source), "-o", str(obj)], capture_output=True, text=True)
@@ -579,15 +582,16 @@ def test_real_hashed_map(harness, tmp_path):
 # a Custom Edition map the client doesn't have (port/linux/game/network_test.c,
 # "host:bloodgulch+<map>@ce"); the client, as network.map_downloads says,
 # leaves, downloads it from the real repository and joins the same host again
-# (browser_screen.c), or says the map is missing. Each copy's home, save root
-# and data are folders of the test's own.
+# (browser_screen.c), or says the map is missing. A client without Custom
+# Edition's resource maps says it needs them, and neither downloads nor loads
+# the map. Each copy's home, save root and data are folders of the test's own.
 
 E2E_BINARY = os.environ.get("HALO_MAP_DOWNLOAD_E2E")
 E2E_DATA = os.environ.get("HALO_MAP_DOWNLOAD_E2E_DATA")
 E2E_SECONDS = 80
 
 
-def e2e_copy(folder, address, other, test, setting, ce_map, ce_source, changed=False):
+def e2e_copy(folder, address, other, test, setting, ce_map, ce_source, changed=False, resources=True):
     data = folder / "data"
     for sub in ("home", "saves", "data/maps", "data/maps_ce"):
         (folder / sub).mkdir(parents=True)
@@ -595,7 +599,7 @@ def e2e_copy(folder, address, other, test, setting, ce_map, ce_source, changed=F
     for entry in maps.glob("*.map"):
         if entry.name != "putput.map":
             (data / "maps" / entry.name).symlink_to(entry)
-    for name in ("bitmaps.map", "sounds.map", "loc.map"):
+    for name in ("bitmaps.map", "sounds.map", "loc.map") if resources else ():
         (data / "maps_ce" / name).symlink_to(maps / "ce" / name)
     if ce_map:
         target = data / "maps_ce" / f"{ce_map}.map"
@@ -621,7 +625,7 @@ def e2e_copy(folder, address, other, test, setting, ce_map, ce_source, changed=F
 
 @pytest.mark.skipif(not E2E_BINARY or not E2E_DATA, reason="HALO_MAP_DOWNLOAD_E2E and _DATA not set")
 @pytest.mark.parametrize("scenario,setting", [("download", "always"), ("never", "never"), ("other_version", "always"),
-                                              ("stock", "always")])
+                                              ("stock", "always"), ("no_resources", "always")])
 def test_host_changes_map(tmp_path, scenario, setting):
     import signal
     import time
@@ -634,7 +638,8 @@ def test_host_changes_map(tmp_path, scenario, setting):
     host = e2e_copy(tmp_path / "host", "127.0.0.2", "127.0.0.3", f"host:bloodgulch+{ce_map}@ce:slayer,slayer,slayer",
                     setting, ce_map, ce_source, changed=scenario == "other_version")
     time.sleep(3)
-    client = e2e_copy(tmp_path / "client", "127.0.0.3", "127.0.0.2", "join", setting, None, None)
+    client = e2e_copy(tmp_path / "client", "127.0.0.3", "127.0.0.2", "join", setting,
+                      ce_map if scenario == "no_resources" else None, ce_source, resources=scenario != "no_resources")
     try:
         time.sleep(E2E_SECONDS)
     finally:
@@ -652,6 +657,11 @@ def test_host_changes_map(tmp_path, scenario, setting):
         assert f"(host's checksum {ONLINE_CHECKSUM})" in log
         assert f"map download: {ce_map}.map in place: joining the game again" in log
         assert f"Delta Peer: map identity: {ce_map}@ce is the host's" in log
+    elif scenario == "no_resources":
+        assert "Custom Edition resource maps: bitmaps.map is missing: looked in" in log
+        assert "map missing: This map needs Halo Custom Edition's bitmaps.map, sounds.map and loc.map in maps_ce." in log
+        assert "map download: GET" not in log
+        assert f"precaching map '{ce_map}@ce'" not in log
     elif scenario == "never":
         assert f"map missing: You don't have the HALO PC map {ce_map}." in log
         assert "map download: GET" not in log

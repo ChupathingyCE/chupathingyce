@@ -64,6 +64,7 @@ same datum index (identifier and all), so that any message can name one:
 #include "camera/observer.h"
 #include "cutscene/cinematics.h"
 #include "network_coop.h"
+#include "host_evidence.h"
 #include "network_distributed.h"
 #ifdef HALO_PORT_CONSOLE_LIMITS
 #include "cseries/errors.h"
@@ -2033,13 +2034,20 @@ void network_objects_apply_vehicle_predictions(
 		dx = state->position.x - vehicle->object.position.x;
 		dy = state->position.y - vehicle->object.position.y;
 		dz = state->position.z - vehicle->object.position.z;
-		/* (so written that a position not a number is not taken) */
+		/* (so written that a position not a number is not taken; each
+		refusal counted for the server's moderators: host_evidence.h) */
 		if (!(dx * dx + dy * dy + dz * dz <= HOST_VEHICLE_ACCEPT_TOLERANCE * HOST_VEHICLE_ACCEPT_TOLERANCE))
+		{
+			host_evidence_note(objects_host_vehicle_predictions[player_index].machine_index, _host_evidence_vehicle);
 			continue;
+		}
 		/* (no higher in the air than it was thrown up leaving the ground,
 		falling since: past that the host's copy falls as its ticks have it) */
 		if (!network_objects_vehicle_below_ceiling(player_index, state->object_index, &state->position))
+		{
+			host_evidence_note(objects_host_vehicle_predictions[player_index].machine_index, _host_evidence_vehicle);
 			continue;
+		}
 		/* (how fast it may go, a tick) */
 		{
 			struct vehicle_definition const *definition = vehicle_specific_definition_get(vehicle->definition_index);
@@ -2112,7 +2120,11 @@ void network_objects_apply_vehicle_predictions(
 				dy = state->position.y - from->y;
 				dz = state->position.z - from->z;
 				if (ticks <= 0 || !(dx * dx + dy * dy + dz * dz <= reach * reach))
+				{
+					host_evidence_note(objects_host_vehicle_predictions[player_index].machine_index,
+						_host_evidence_vehicle);
 					continue;
+				}
 			}
 		}
 		distributed_object_state_unpack(state, &forward, &up, &velocity, &angular_velocity);
@@ -2121,7 +2133,10 @@ void network_objects_apply_vehicle_predictions(
 		distributed_vector_clamp(&velocity, speed);
 		distributed_vector_clamp(&angular_velocity, MAXIMUM_PREDICTED_VEHICLE_ANGULAR_SPEED);
 		if (!distributed_transform_valid(&state->position, &forward, &up, &velocity, &angular_velocity, &forward, &up))
+		{
+			host_evidence_note(objects_host_vehicle_predictions[player_index].machine_index, _host_evidence_vehicle);
 			continue;
+		}
 		{
 			real_point3d previous_position = vehicle->object.position;
 

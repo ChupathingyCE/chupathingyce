@@ -236,40 +236,51 @@ are filled and changed by port/linux/game/menu_functions.c ("port host
 		<child widget="chupathingy/host/row_6" x="54" y="253"/>
 		<child widget="chupathingy/host/row_7" x="54" y="283"/>
 	</widget>
+	<!-- (the editor's tabs: a click on one opens its page, as its A, which
+	only the mouse sends a tab (ui_widget.c's tab targets: a widget named
+	tab_...). The page's bumpers and triggers open the next and previous ones
+	in its place, so that B goes back to GAME SETUP from any of them. The
+	pages have them after their list, which a screen gives the focus as its
+	first child that takes events) -->
 	<widget name="chupathingy/host/tab_general_on" type="text" controller="1" width="100" height="22" bitmap="chupathingy/host/tab_on" text="GENERAL" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="4" text_flags="no_focus_test">
 	</widget>
 	<widget name="chupathingy/host/tab_general_off" type="text" controller="1" width="100" height="22" bitmap="chupathingy/host/tab_off" text="GENERAL" font="ui\small_ui" color="#FF8FA6C8" align="center" text_y="4" text_flags="no_focus_test">
+		<on event="a" run="port host page"/>
 	</widget>
 	<widget name="chupathingy/host/tab_players_on" type="text" controller="1" width="100" height="22" bitmap="chupathingy/host/tab_on" text="PLAYERS" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="4" text_flags="no_focus_test">
 	</widget>
 	<widget name="chupathingy/host/tab_players_off" type="text" controller="1" width="100" height="22" bitmap="chupathingy/host/tab_off" text="PLAYERS" font="ui\small_ui" color="#FF8FA6C8" align="center" text_y="4" text_flags="no_focus_test">
+		<on event="a" run="port host page"/>
 	</widget>
 	<widget name="chupathingy/host/tab_weapons_on" type="text" controller="1" width="100" height="22" bitmap="chupathingy/host/tab_on" text="WEAPONS" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="4" text_flags="no_focus_test">
 	</widget>
 	<widget name="chupathingy/host/tab_weapons_off" type="text" controller="1" width="100" height="22" bitmap="chupathingy/host/tab_off" text="WEAPONS" font="ui\small_ui" color="#FF8FA6C8" align="center" text_y="4" text_flags="no_focus_test">
+		<on event="a" run="port host page"/>
 	</widget>
 	<widget name="chupathingy/host/tab_vehicles_on" type="text" controller="1" width="100" height="22" bitmap="chupathingy/host/tab_on" text="VEHICLES" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="4" text_flags="no_focus_test">
 	</widget>
 	<widget name="chupathingy/host/tab_vehicles_off" type="text" controller="1" width="100" height="22" bitmap="chupathingy/host/tab_off" text="VEHICLES" font="ui\small_ui" color="#FF8FA6C8" align="center" text_y="4" text_flags="no_focus_test">
+		<on event="a" run="port host page"/>
 	</widget>
 	<widget name="chupathingy/host/tab_indicators_on" type="text" controller="1" width="100" height="22" bitmap="chupathingy/host/tab_on" text="INDICATORS" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="4" text_flags="no_focus_test">
 	</widget>
 	<widget name="chupathingy/host/tab_indicators_off" type="text" controller="1" width="100" height="22" bitmap="chupathingy/host/tab_off" text="INDICATORS" font="ui\small_ui" color="#FF8FA6C8" align="center" text_y="4" text_flags="no_focus_test">
+		<on event="a" run="port host page"/>
 	</widget>
 	<widget name="chupathingy/host/edit_general" width="640" height="480" flags="pass_unhandled_to_focused_child pause_game" bitmap="bitmaps/gradient">
 		<on event="b" run="port host back"/>
 		<on event="back" run="port host back"/>
-		<on event="white" replace="chupathingy/host/edit_indicators"/>
-		<on event="left_trigger" replace="chupathingy/host/edit_indicators"/>
-		<on event="black" replace="chupathingy/host/edit_players"/>
-		<on event="right_trigger" replace="chupathingy/host/edit_players"/>
+		<on event="white" run="port host page previous"/>
+		<on event="left_trigger" run="port host page previous"/>
+		<on event="black" run="port host page next"/>
+		<on event="right_trigger" run="port host page next"/>
 		<child widget="chupathingy/host/header_edit_game_type"/>
+		<child widget="chupathingy/host/edit_list"/>
 		<child widget="chupathingy/host/tab_general_on" x="54" y="72"/>
 		<child widget="chupathingy/host/tab_players_off" x="157" y="72"/>
 		<child widget="chupathingy/host/tab_weapons_off" x="260" y="72"/>
 		<child widget="chupathingy/host/tab_vehicles_off" x="363" y="72"/>
 		<child widget="chupathingy/host/tab_indicators_off" x="466" y="72"/>
-		<child widget="chupathingy/host/edit_list"/>
 		<child widget="chupathingy/prompts/x" x="40" y="414"/>
 		<child widget="chupathingy/prompts/defaults" x="62" y="414"/>
 		<child widget="chupathingy/prompts/white" x="196" y="414"/>
@@ -283,17 +294,17 @@ are filled and changed by port/linux/game/menu_functions.c ("port host
 	<widget name="chupathingy/host/edit_players" width="640" height="480" flags="pass_unhandled_to_focused_child pause_game" bitmap="bitmaps/gradient">
 		<on event="b" run="port host back"/>
 		<on event="back" run="port host back"/>
-		<on event="white" replace="chupathingy/host/edit_general"/>
-		<on event="left_trigger" replace="chupathingy/host/edit_general"/>
-		<on event="black" replace="chupathingy/host/edit_weapons"/>
-		<on event="right_trigger" replace="chupathingy/host/edit_weapons"/>
+		<on event="white" run="port host page previous"/>
+		<on event="left_trigger" run="port host page previous"/>
+		<on event="black" run="port host page next"/>
+		<on event="right_trigger" run="port host page next"/>
 		<child widget="chupathingy/host/header_edit_game_type"/>
+		<child widget="chupathingy/host/edit_list"/>
 		<child widget="chupathingy/host/tab_general_off" x="54" y="72"/>
 		<child widget="chupathingy/host/tab_players_on" x="157" y="72"/>
 		<child widget="chupathingy/host/tab_weapons_off" x="260" y="72"/>
 		<child widget="chupathingy/host/tab_vehicles_off" x="363" y="72"/>
 		<child widget="chupathingy/host/tab_indicators_off" x="466" y="72"/>
-		<child widget="chupathingy/host/edit_list"/>
 		<child widget="chupathingy/prompts/x" x="40" y="414"/>
 		<child widget="chupathingy/prompts/defaults" x="62" y="414"/>
 		<child widget="chupathingy/prompts/white" x="196" y="414"/>
@@ -307,17 +318,17 @@ are filled and changed by port/linux/game/menu_functions.c ("port host
 	<widget name="chupathingy/host/edit_weapons" width="640" height="480" flags="pass_unhandled_to_focused_child pause_game" bitmap="bitmaps/gradient">
 		<on event="b" run="port host back"/>
 		<on event="back" run="port host back"/>
-		<on event="white" replace="chupathingy/host/edit_players"/>
-		<on event="left_trigger" replace="chupathingy/host/edit_players"/>
-		<on event="black" replace="chupathingy/host/edit_vehicles"/>
-		<on event="right_trigger" replace="chupathingy/host/edit_vehicles"/>
+		<on event="white" run="port host page previous"/>
+		<on event="left_trigger" run="port host page previous"/>
+		<on event="black" run="port host page next"/>
+		<on event="right_trigger" run="port host page next"/>
 		<child widget="chupathingy/host/header_edit_game_type"/>
+		<child widget="chupathingy/host/edit_list"/>
 		<child widget="chupathingy/host/tab_general_off" x="54" y="72"/>
 		<child widget="chupathingy/host/tab_players_off" x="157" y="72"/>
 		<child widget="chupathingy/host/tab_weapons_on" x="260" y="72"/>
 		<child widget="chupathingy/host/tab_vehicles_off" x="363" y="72"/>
 		<child widget="chupathingy/host/tab_indicators_off" x="466" y="72"/>
-		<child widget="chupathingy/host/edit_list"/>
 		<child widget="chupathingy/prompts/x" x="40" y="414"/>
 		<child widget="chupathingy/prompts/defaults" x="62" y="414"/>
 		<child widget="chupathingy/prompts/white" x="196" y="414"/>
@@ -331,17 +342,17 @@ are filled and changed by port/linux/game/menu_functions.c ("port host
 	<widget name="chupathingy/host/edit_vehicles" width="640" height="480" flags="pass_unhandled_to_focused_child pause_game" bitmap="bitmaps/gradient">
 		<on event="b" run="port host back"/>
 		<on event="back" run="port host back"/>
-		<on event="white" replace="chupathingy/host/edit_weapons"/>
-		<on event="left_trigger" replace="chupathingy/host/edit_weapons"/>
-		<on event="black" replace="chupathingy/host/edit_indicators"/>
-		<on event="right_trigger" replace="chupathingy/host/edit_indicators"/>
+		<on event="white" run="port host page previous"/>
+		<on event="left_trigger" run="port host page previous"/>
+		<on event="black" run="port host page next"/>
+		<on event="right_trigger" run="port host page next"/>
 		<child widget="chupathingy/host/header_edit_game_type"/>
+		<child widget="chupathingy/host/edit_list"/>
 		<child widget="chupathingy/host/tab_general_off" x="54" y="72"/>
 		<child widget="chupathingy/host/tab_players_off" x="157" y="72"/>
 		<child widget="chupathingy/host/tab_weapons_off" x="260" y="72"/>
 		<child widget="chupathingy/host/tab_vehicles_on" x="363" y="72"/>
 		<child widget="chupathingy/host/tab_indicators_off" x="466" y="72"/>
-		<child widget="chupathingy/host/edit_list"/>
 		<child widget="chupathingy/prompts/x" x="40" y="414"/>
 		<child widget="chupathingy/prompts/defaults" x="62" y="414"/>
 		<child widget="chupathingy/prompts/white" x="196" y="414"/>
@@ -355,17 +366,17 @@ are filled and changed by port/linux/game/menu_functions.c ("port host
 	<widget name="chupathingy/host/edit_indicators" width="640" height="480" flags="pass_unhandled_to_focused_child pause_game" bitmap="bitmaps/gradient">
 		<on event="b" run="port host back"/>
 		<on event="back" run="port host back"/>
-		<on event="white" replace="chupathingy/host/edit_vehicles"/>
-		<on event="left_trigger" replace="chupathingy/host/edit_vehicles"/>
-		<on event="black" replace="chupathingy/host/edit_general"/>
-		<on event="right_trigger" replace="chupathingy/host/edit_general"/>
+		<on event="white" run="port host page previous"/>
+		<on event="left_trigger" run="port host page previous"/>
+		<on event="black" run="port host page next"/>
+		<on event="right_trigger" run="port host page next"/>
 		<child widget="chupathingy/host/header_edit_game_type"/>
+		<child widget="chupathingy/host/edit_list"/>
 		<child widget="chupathingy/host/tab_general_off" x="54" y="72"/>
 		<child widget="chupathingy/host/tab_players_off" x="157" y="72"/>
 		<child widget="chupathingy/host/tab_weapons_off" x="260" y="72"/>
 		<child widget="chupathingy/host/tab_vehicles_off" x="363" y="72"/>
 		<child widget="chupathingy/host/tab_indicators_on" x="466" y="72"/>
-		<child widget="chupathingy/host/edit_list"/>
 		<child widget="chupathingy/prompts/x" x="40" y="414"/>
 		<child widget="chupathingy/prompts/defaults" x="62" y="414"/>
 		<child widget="chupathingy/prompts/white" x="196" y="414"/>

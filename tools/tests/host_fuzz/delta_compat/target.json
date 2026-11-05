@@ -1,0 +1,7 @@
+{
+  "about": "the join's reserved bytes: an advertisement's Delta tag, old range and slot, the join decision, and the join mark in a machine name",
+  "harness": "port/linux/tests/delta_compat_fuzz.c",
+  "sources": ["port/linux/src/delta_compat.c"],
+  "flags": ["-std=gnu11"],
+  "max_len": 64
+}

@@ -87,7 +87,7 @@ Where your maps, settings and saves go: [docs/install.md](docs/install.md#where-
 - **Invite a friend.** Send them your game's invite link.
 - **Play the campaign together.** Host it online from Create Game. [Here's how](docs/online.md#online-co-op).
 
-Chupathingy players on every platform play together. **Compatible with OpenCE build-314 (network version 39) for online play:** their players can join your games, and you can join theirs.
+Chupathingy players on every platform play together. **Compatible with OpenCE build-334 (network version 41) for online play:** their players can join your games, and you can join theirs.
 
 Friends can't get into your game? See [docs/online.md](docs/online.md#if-friends-cant-join).
 
@@ -151,7 +151,7 @@ Chupathingy also runs as homebrew on consoles, in the same online games as every
 | Wii U | [warthog-wiiu](https://github.com/ChupathingyCE/warthog-wiiu/releases) |
 | Nintendo Switch | [warthog-switch](https://github.com/ChupathingyCE/warthog-switch/releases), by thelinkin3000 |
 
-Other developers have ported it to the PSP, PS Vita, PS3, PS4, PS5 and Xbox Series (UWP). They play in the same games.
+Other developers have ported it to the PSP, PS Vita, PS3, PS4, PS5, Xbox Series (UWP), the Steam Link, and the iPhone, iPad and Apple TV. They play in the same games.
 
 <p align="center">
 <img src="docs/screenshots/xbox-360.jpg" width="49%" alt="Xbox 360">
@@ -160,7 +160,7 @@ Other developers have ported it to the PSP, PS Vita, PS3, PS4, PS5 and Xbox Seri
 
 ## Run a server
 
-The dedicated server runs a playlist of games around the clock. It runs on Linux (x86, x64 or arm64, Raspberry Pi too) or in Docker, and needs no port forwarding. Start with [server/README.md](server/README.md).
+The dedicated server runs a playlist of games around the clock. It runs on Linux (x86, x64 or arm64, Raspberry Pi too), on 64-bit Windows, or in Docker, and needs no port forwarding. Start with [server/README.md](server/README.md).
 
 ## Builds
 
@@ -259,7 +259,10 @@ not be part of our community.
 - Libraries: SDL3, stb, Mbed TLS, miniupnpc, KCP, tomlc17, musl's maths,
   Expat, Monocypher, zlib, Zstandard, SMAA, and Project Nayuki's QR Code
   generator. Their licenses are
-  beside them in `port/third_party`.
+  beside them in `port/third_party`. The 64-bit desktop builds' test
+  renderer uses bgfx, bx and bimg by Branimir Karadžić (BSD-2-Clause), with
+  glslang and SPIRV-Cross (Khronos, BSD-3-Clause and Apache-2.0), fetched
+  at build time (`tools/bgfx_build.py`). Their licenses ship with those builds.
 
 <details>
 <summary><b>Contributors</b></summary>

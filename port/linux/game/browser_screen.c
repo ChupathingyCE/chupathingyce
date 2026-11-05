@@ -82,10 +82,12 @@ the right button is B.
 #include "networking/network_game_globals.h"
 #include "networking/network_client_manager.h"
 #include "../src/browser.h"
+#include "delta.h"
 #include "halo_port_limits.h"
 #include "halo_join_reasons.h"
 #include "network_rules.h"
 #include "../src/browser_ping.h"
+#include "../src/campaign_levels.h"
 #include "../src/map_art.h"
 #include "../src/map_download.h"
 #include "../src/playlist_download.h"
@@ -139,6 +141,10 @@ enum
 	_ce_map_missing,
 	/* a Halo PC map, on a build without HALO_CUSTOM_EDITION */
 	_ce_map_unsupported,
+	/* a Halo PC map, without Custom Edition's resource maps here
+	(map_family_resources_ready): never downloaded, since it could not be
+	played */
+	_ce_map_no_resources,
 };
 
 /* a Custom Edition map offered for the game being joined (map_download.c) */
@@ -322,26 +328,20 @@ static short map_family(
 }
 
 /* the campaign's levels in the menus' words, for the co-op games the list
-shows (a level's scenario is its file's name) */
-static char const *const campaign_names[][2] =
+shows (a level's scenario is its file's name), in campaign_levels.h's order */
+static char const *const campaign_names[CAMPAIGN_LEVEL_COUNT] =
 {
-	{ "a10", "The Pillar of Autumn" }, { "a30", "Halo" }, { "a50", "The Truth and Reconciliation" },
-	{ "b30", "The Silent Cartographer" }, { "b40", "Assault on the Control Room" }, { "c10", "343 Guilty Spark" },
-	{ "c20", "The Library" }, { "c40", "Two Betrayals" }, { "d20", "Keyes" }, { "d40", "The Maw" },
+	"The Pillar of Autumn", "Halo", "The Truth and Reconciliation", "The Silent Cartographer",
+	"Assault on the Control Room", "343 Guilty Spark", "The Library", "Two Betrayals", "Keyes", "The Maw",
 };
 
 /* a campaign level's name from its file's, or NULL for a map that is not one */
 static char const *campaign_name(
 	char const *file)
 {
-	long index;
+	int level = campaign_level_index(file);
 
-	for (index = 0; index < NUMBEROF(campaign_names); index++)
-	{
-		if (!csstrcmp(file, campaign_names[index][0]))
-			return campaign_names[index][1];
-	}
-	return NULL;
+	return level >= 0 ? campaign_names[level] : NULL;
 }
 
 /* a game's map as players name it: an Xbox map's name in the menus, or a
@@ -416,7 +416,8 @@ static short ce_map_state(
 	{
 		csstrncpy(browser_screen.ce_map, game->map, sizeof(browser_screen.ce_map) - 1);
 		browser_screen.ce_map[sizeof(browser_screen.ce_map) - 1] = 0;
-		browser_screen.ce_map_answer = ui_map_list_map_present(game->map) ? _ce_map_present : _ce_map_missing;
+		browser_screen.ce_map_answer = family != _map_family_pack && !map_family_resources_ready(NULL, 0) ?
+			_ce_map_no_resources : ui_map_list_map_present(game->map) ? _ce_map_present : _ce_map_missing;
 		browser_screen.ce_map_time = system_milliseconds();
 	}
 	return browser_screen.ce_map_answer;
@@ -1169,6 +1170,14 @@ static void wait_for_host(
 			char file[BROWSER_MAP_LENGTH];
 			short family = map_family_parse(advertisement.map_name, file, sizeof(file));
 
+			/* (a map past the Xbox's without Custom Edition's resource
+			maps here: given up now, before it is downloaded or loaded) */
+			if (!map_family_is_xbox_format(family) && !map_family_resources_ready(NULL, 0))
+			{
+				browser_screen.connecting = FALSE;
+				set_status(JOIN_REASON_CE_RESOURCES);
+				return;
+			}
 			if (family == _map_family_custom_edition && !ui_map_list_family_present(family, file) &&
 				map_archive_stock_name(file))
 			{
@@ -1390,6 +1399,9 @@ static char const *ce_map_blocker(
 		return text;
 	case _ce_map_unsupported:
 		snprintf(text, (size_t)size, JOIN_REASON_MAPS_UNSUPPORTED, family == _map_family_halomd ? "HaloMD" : "Halo PC");
+		return text;
+	case _ce_map_no_resources:
+		snprintf(text, (size_t)size, "%s", JOIN_REASON_CE_RESOURCES);
 		return text;
 	default:
 		return NULL;
@@ -2055,12 +2067,12 @@ List: a ChupathingyCE host's own word; nothing of an older or OpenCE host) */
 
 /* its platform (delta.h's registry), short for the row's tag and in full
 for the details */
-static char const *const platform_tags[] = { "", "WIN", "MAC", "LNX", "AND", "DECK", "XBOX", "360", "WIIU", "NX",
-	"PSP", "VITA", "XBS" };
-static char const *const platform_names[] = {
-	"", "Windows", "Mac", "Linux", "Android", "Steam Deck", "Xbox", "Xbox 360", "Wii U", "Switch",
-	"PSP", "Vita", "Xbox Series",
-};
+#define PLATFORM_TAG(platform, key, tag, name, caps_name) tag,
+#define PLATFORM_NAME(platform, key, tag, name, caps_name) name,
+static char const *const platform_tags[] = { DELTA_PLATFORM_NAMES(PLATFORM_TAG) };
+static char const *const platform_names[] = { DELTA_PLATFORM_NAMES(PLATFORM_NAME) };
+#undef PLATFORM_TAG
+#undef PLATFORM_NAME
 
 /* the row's tag before the name: the host's platform, SRV for a dedicated
 server; "" when the list does not say */
@@ -2130,7 +2142,8 @@ static char const *machines_text(
 		{ "PC", { 1, 2, 3, 13, 18, -1 } }, { "Steam Deck", { 5, -1 } }, { "Android", { 4, -1 } },
 		{ "Xbox", { 6, -1 } }, { "Xbox 360", { 7, -1 } }, { "Wii U", { 8, -1 } }, { "Switch", { 9, -1 } },
 		{ "PSP", { 10, -1 } }, { "Vita", { 11, -1 } }, { "Xbox Series", { 12, -1 } }, { "PS3", { 14, -1 } },
-		{ "PS4", { 15, -1 } }, { "PS5", { 16, -1 } }, { "N64", { 17, -1 } }, { "other", { 0, -1 } },
+		{ "PS4", { 15, -1 } }, { "PS5", { 16, -1 } }, { "N64", { 17, -1 } }, { "Steam Link", { 19, -1 } },
+		{ "iOS", { 20, -1 } }, { "Apple TV", { 21, -1 } }, { "other", { 0, -1 } },
 		{ "OpenCE", { BROWSER_MACHINE_KINDS - 1, -1 } },
 	};
 	long used = 0, group;
@@ -2697,12 +2710,24 @@ static void draw_link_profile(
 	}
 }
 
+#ifdef HALO_CONSOLE_CACHE_SCREEN
+/* (steamlink_cache_screen.c: the first start's ring, behind a map's download) */
+void console_ring_picture(float fraction);
+#endif
+
 static void draw_map_offer(
 	void)
 {
 	struct map_download_progress const *progress = &browser_screen.offer_progress;
 	float center = CONNECT_X + CONNECT_WIDTH / 2;
 	char text[192];
+
+#ifdef HALO_CONSOLE_CACHE_SCREEN
+	if (browser_screen.offer == _offer_downloading)
+	{
+		console_ring_picture(progress->total ? (float)progress->received / (float)progress->total : 0.0f);
+	}
+#endif
 
 	dialog_frame(CONNECT_X, CONNECT_Y, CONNECT_WIDTH, CONNECT_HEIGHT,
 		browser_screen.offer == _offer_stock ? MAP_ARCHIVE_STOCK_TITLE : "MISSING MAP");
@@ -3277,6 +3302,13 @@ the map's name over its family's color (a custom map's) */
 				drawn = draw_picture("ui\\shell\\bitmaps\\mp_map_grafix", map_frame, 140, 116, MAP_PICTURE_X, PICTURE_Y,
 					MAP_PICTURE_X + MAP_PICTURE_WIDTH, PICTURE_Y + PICTURE_HEIGHT);
 			}
+			/* (a co-op game's level: the level select menus' picture of it,
+			its frame the level's place) */
+			else if (campaign_level_index(file) >= 0)
+			{
+				drawn = draw_picture("ui\\shell\\bitmaps\\sp_levels", (short)campaign_level_index(file), 140, 116,
+					MAP_PICTURE_X, PICTURE_Y, MAP_PICTURE_X + MAP_PICTURE_WIDTH, PICTURE_Y + PICTURE_HEIGHT);
+			}
 		}
 #ifdef HALO_CUSTOM_EDITION
 		else
@@ -3292,9 +3324,12 @@ the map's name over its family's color (a custom map's) */
 			}
 		}
 #endif
-		/* (a map pack's map has its stock file's name, not its art: a card) */
+		/* (a map pack's map has its stock file's name, not its art: a card;
+		a custom map's is the site's own picture of it, if it has one) */
 		if (!drawn && family != _map_family_pack &&
-			map_art_site_path(family == _map_family_xbox, file, art_path, (int)sizeof(art_path)))
+			(map_art_site_path(family == _map_family_xbox, file, art_path, (int)sizeof(art_path)) ||
+			((family == _map_family_halomd || family == _map_family_custom_edition) &&
+			map_art_custom_site_path(family == _map_family_halomd, file, art_path, (int)sizeof(art_path)))))
 		{
 			unsigned char const *pixels;
 			int width, height, serial;
@@ -3343,6 +3378,13 @@ the map's name over its family's color (a custom map's) */
 	else
 		snprintf(text, sizeof(text), "%s%s", selected->open ? "Accepting players" : "In progress", selected->locked ? ", password" : "");
 	DETAIL_LINE("Status:", text);
+	/* (a host whose console and cheats may change its game, as it says:
+	network.host_cheats) */
+	if (browser_game_host_cheats(selected))
+	{
+		ui_overlay_text(UI_FONT_MENU_SMALL, DETAIL_SIZE, x + 6, line_y + 0.5f, UI_ALIGN_LEFT, COLOR_NEUTRAL,
+			"Host cheats on");
+	}
 	DETAIL_LINE("Map:", map_label);
 	/* (its family, spelled out beside its tag) */
 	draw_family_badge(family, selected->map, BADGE_SIZE, x + 6, line_y, DETAIL_SIZE, FALSE);

@@ -79,6 +79,16 @@ the machines one address may have (13) */
 folder: said in the map lists, in the log and when it is picked to play (no
 detail, and no join reason: a host never announces one) */
 #define MAP_REASON_MCC_UNSUPPORTED "MCC map: not supported yet"
+/* a map past the Xbox's (Custom Edition's, HaloMD's, Halo PC's) on a machine
+without Custom Edition's resource maps in maps_ce, or with others in their
+place (Halo PC's own): the lists' short reason, and what the player is told
+when the map is picked, hosted or joined (map_family_resources_ready), then
+what to do on a desktop build (its setup screen imports the installer) or on
+another */
+#define JOIN_REASON_CE_RESOURCES "Needs Custom Edition's bitmaps.map, sounds.map and loc.map in maps_ce."
+#define MAP_REASON_CE_RESOURCES "This map needs Halo Custom Edition's bitmaps.map, sounds.map and loc.map in maps_ce."
+#define MAP_REASON_CE_RESOURCES_SETUP "Use the setup screen to import the Custom Edition installer."
+#define MAP_REASON_CE_RESOURCES_COPY "Copy them from a Custom Edition install."
 
 /* a reason without a detail as its sentence ("" for none, or one with a
 detail) */

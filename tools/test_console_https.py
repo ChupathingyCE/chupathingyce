@@ -349,6 +349,19 @@ def main():
 
             serve(github, github_key, "GitHub's chain to a pinned root", GITHUB, ["--root", root_der], 0, 200,
                   f"GET /index.txt HTTP/1.0|{GITHUB}|")
+            # (a streamed GET: its body as it comes, the extra header sent;
+            # one its callback stops)
+            server, fields = serve(github, github_key, "a streamed GET", GITHUB, ["--root", root_der, "--stream"], 0,
+                                   200, f"GET /index.txt HTTP/1.0|{GITHUB}|")
+            if not server.seen or server.seen[-1][1].get("X-Test") != "1":
+                failures.append(f"{tag}: a streamed GET: its extra header was not sent")
+            server, fields = serve(github, github_key, "a streamed GET of 6000 bytes", GITHUB,
+                                   ["--root", root_der, "--stream", "--path", "/big", "--size", "7000"], 0, 200)
+            if fields.get("told") != "6000" or fields.get("received") != "6000":
+                failures.append(f"{tag}: a streamed GET of 6000 bytes: told {fields.get('told')}, "
+                                f"received {fields.get('received')}")
+            serve(github, github_key, "a streamed GET its callback stops", GITHUB,
+                  ["--root", root_der, "--stream", "--path", "/big", "--size", "1000"], 15)
             serve(github_expired, github_key, "GitHub's chain, expired, to an expired root", GITHUB,
                   ["--root", root_old_der], 0, 200)
             serve(github_stranger, github_key, "GitHub's chain to another root", GITHUB, ["--root", root_der], 9)

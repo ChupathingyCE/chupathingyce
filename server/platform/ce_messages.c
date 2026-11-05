@@ -228,14 +228,52 @@ void ce_payload_put_weapon_create(struct ce_payload *payload, const struct ce_we
 	put_object_start(payload, &weapon->object);
 	put_bits(payload, weapon->unknown_large, 32);
 	put_orientation(payload, &weapon->object);
-	put_bits(payload, (unsigned int)weapon->unknown_small, 8);
+	put_bits(payload, (unsigned int)weapon->baseline, 8);
 	put_position(payload, weapon->object.position);
 	put_zero_velocity(payload);
 	put_bits(payload, (unsigned int)weapon->ammunition[0], 16);
 	put_bits(payload, (unsigned int)weapon->ammunition[1], 16);
-	put_bits(payload, (unsigned int)weapon->unknown_6bits, 6);
+	put_bits(payload, (unsigned int)weapon->age, 6);
 	put_bits(payload, (unsigned int)weapon->magazine[0], 16);
 	put_bits(payload, (unsigned int)weapon->magazine[1], 16);
+}
+
+void ce_payload_put_equipment_create(struct ce_payload *payload, const struct ce_object_create *equipment, int baseline)
+{
+	put_delta_header(payload, CE_DELTA_EQUIPMENT_CREATE);
+	put_object_start(payload, equipment);
+	put_bits(payload, 0, 32);
+	put_orientation(payload, equipment);
+	put_bits(payload, (unsigned int)baseline, 8);
+	put_position(payload, equipment->position);
+	put_zero_velocity(payload);
+	put_zero_velocity(payload);
+}
+
+void ce_payload_put_weapon_update(struct ce_payload *payload, const struct ce_weapon_update *update)
+{
+	put_delta_header(payload, CE_DELTA_WEAPON_UPDATE);
+	put_bits(payload, (unsigned int)update->object, 9);
+	put_bits(payload, (unsigned int)update->baseline, 8);
+	/* (a full update: its own number 0, kept as the baseline) */
+	put_bits(payload, 0, 8);
+	put_bits(payload, 1, 1);
+	put_position(payload, update->position);
+	put_zero_velocity(payload);
+	put_bits(payload, (unsigned int)update->ammunition[0], 16);
+	put_bits(payload, (unsigned int)update->ammunition[1], 16);
+	put_bits(payload, (unsigned int)update->age, 6);
+}
+
+void ce_payload_put_action_result(struct ce_payload *payload, const struct ce_action_result *result)
+{
+	put_delta_header(payload, CE_DELTA_ACTION_RESULT);
+	put_bits(payload, (unsigned int)result->player, 5);
+	put_bits(payload, (unsigned int)result->weapon_pickup, 32);
+	put_bits(payload, (unsigned int)result->object, 9);
+	put_bits(payload, (unsigned int)result->result, 16);
+	put_bits(payload, (unsigned int)result->seat, 16);
+	put_bits(payload, (unsigned int)result->dropped, 9);
 }
 
 void ce_payload_put_biped_create(struct ce_payload *payload, const struct ce_biped_create *biped)
@@ -249,13 +287,13 @@ void ce_payload_put_biped_create(struct ce_payload *payload, const struct ce_bip
 		put_real(payload, biped->change_colors[index]);
 	put_bits(payload, (unsigned int)biped->unknown_boolean, 1);
 	put_bits(payload, (unsigned int)biped->unknown_6bits_a, 6);
-	put_bits(payload, (unsigned int)biped->unknown_small, 8);
+	put_bits(payload, (unsigned int)biped->baseline, 8);
 	put_position(payload, biped->object.position);
 	put_zero_velocity(payload);
 	put_bits(payload, (unsigned int)biped->grenades[0], 3);
 	put_bits(payload, (unsigned int)biped->grenades[1], 3);
-	put_bits(payload, (unsigned int)biped->unknown_3bits, 3);
-	put_bits(payload, (unsigned int)biped->unknown_6bits_b, 6);
+	put_bits(payload, (unsigned int)biped->body, 3);
+	put_bits(payload, (unsigned int)biped->shield, 6);
 	put_bits(payload, (unsigned int)biped->unknown_boolean_b, 1);
 }
 
@@ -281,6 +319,7 @@ enum
 {
 	DIRECTION_BITS = 20,
 	POSITION_BITS = 31,
+	VELOCITY_BITS = 31,
 	/* a whole position's range, each axis: -5000 to 5000 world units */
 	POSITION_RANGE = 10000,
 	POSITION_OFFSET = 5000,
@@ -345,31 +384,131 @@ void ce_throttle(int bits, float *forward, float *left)
 
 /* ---------- object and player updates */
 
-void ce_payload_put_object_update(struct ce_payload *payload, int object, unsigned int time, const float position[3],
-	const unsigned int forward[2], const unsigned int up[2])
+/* (a velocity: 1, the first preset, for none; else 0 and each component
+in 31 bits over -limit to limit, the full motion (the retail binary's
+0x4d8120; 16 bits only for a client asked for the compact motion)) */
+static void put_velocity(struct ce_payload *payload, const float velocity[3], float limit)
 {
-	put_delta_header(payload, CE_DELTA_OBJECT_UPDATE);
-	/* (header: two 8-bit numbers as Custom Edition's server sends them, the
-	object, the time, a flag) */
+	const double maximum = (double)((1u << VELOCITY_BITS) - 1);
+	int axis;
+
+	if (velocity[0] == 0.0f && velocity[1] == 0.0f && velocity[2] == 0.0f)
+	{
+		put_zero_velocity(payload);
+		return;
+	}
+	put_bits(payload, 0, 1);
+	for (axis = 0; axis < 3; axis++)
+	{
+		double value = ((double)velocity[axis] + limit) / (2.0 * limit);
+
+		value = value < 0.0 ? 0.0 : value > 1.0 ? 1.0 : value;
+		put_bits(payload, (unsigned int)floor(value * maximum + 0.5), VELOCITY_BITS);
+	}
+}
+
+void ce_payload_put_vehicle_create(struct ce_payload *payload, const struct ce_vehicle_create *vehicle)
+{
+	int index;
+
+	put_delta_header(payload, CE_DELTA_VEHICLE_CREATE);
+	put_object_start(payload, &vehicle->object);
+	for (index = 0; index < 4; index++)
+		put_bits(payload, (unsigned int)vehicle->weapons[index], 9);
+	put_bits(payload, (unsigned int)vehicle->baseline, 8);
+	put_position(payload, vehicle->object.position);
+	put_orientation(payload, &vehicle->object);
+	put_zero_velocity(payload);
+	put_zero_velocity(payload);
+}
+
+static void put_vehicle_motion(struct ce_payload *payload, const struct ce_vehicle_motion *motion)
+{
+	put_position_full(payload, motion->position);
+	put_velocity(payload, motion->velocity, 100.0f);
+	put_velocity(payload, motion->angular_velocity, 8.0f);
+	put_bits(payload, motion->forward[0], DIRECTION_BITS);
+	put_bits(payload, motion->forward[1], DIRECTION_BITS);
+	put_bits(payload, motion->up[0], DIRECTION_BITS);
+	put_bits(payload, motion->up[1], DIRECTION_BITS);
+}
+
+void ce_payload_put_local_vehicle_update(struct ce_payload *payload, int sequence, int update_id, int vehicle,
+	const struct ce_vehicle_motion *motion)
+{
+	put_delta_header(payload, CE_DELTA_LOCAL_VEHICLE_UPDATE);
+	put_bits(payload, (unsigned int)sequence, 5);
+	put_bits(payload, (unsigned int)update_id, 6);
+	put_bits(payload, (unsigned int)vehicle, 9);
+	put_vehicle_motion(payload, motion);
+}
+
+void ce_payload_put_remote_vehicle_position(struct ce_payload *payload, int player, int update_id, int sequence,
+	int vehicle, const struct ce_vehicle_motion *motion)
+{
+	put_delta_header(payload, CE_DELTA_REMOTE_VEHICLE_POSITION);
+	put_bits(payload, (unsigned int)player, 5);
+	put_bits(payload, (unsigned int)update_id, 6);
+	put_bits(payload, (unsigned int)sequence, 3);
+	put_bits(payload, (unsigned int)vehicle, 9);
+	put_vehicle_motion(payload, motion);
+}
+
+void ce_payload_put_vehicle_update(struct ce_payload *payload, const struct ce_vehicle_update *update)
+{
+	put_delta_header(payload, CE_DELTA_VEHICLE_UPDATE);
+	/* (header: the update's number in its baseline (0: a full update), the
+	baseline, the object, the time, kept as the baseline) */
 	put_bits(payload, 0, 8);
-	put_bits(payload, 2, 8);
-	put_bits(payload, (unsigned int)object, 9);
-	put_bits(payload, time, 32);
+	put_bits(payload, (unsigned int)update->baseline, 8);
+	put_bits(payload, (unsigned int)update->object, 9);
+	put_bits(payload, update->time, 32);
 	put_bits(payload, 1, 1);
-	put_bits(payload, 1, 1);
-	put_position_full(payload, position);
-	put_zero_velocity(payload);
-	put_zero_velocity(payload);
-	put_bits(payload, forward[0], DIRECTION_BITS);
-	put_bits(payload, forward[1], DIRECTION_BITS);
-	put_bits(payload, up[0], DIRECTION_BITS);
-	put_bits(payload, up[1], DIRECTION_BITS);
+	put_bits(payload, update->at_rest ? 1 : 0, 1);
+	put_vehicle_motion(payload, &update->motion);
+}
+
+void ce_payload_put_unit_exit(struct ce_payload *payload, int unit, int flag)
+{
+	put_delta_header(payload, CE_DELTA_UNIT_EXIT);
+	put_bits(payload, (unsigned int)unit, 9);
+	put_bits(payload, flag ? 1 : 0, 1);
 }
 
 void ce_payload_put_object_delete(struct ce_payload *payload, int object)
 {
 	put_delta_header(payload, CE_DELTA_OBJECT_DELETE);
 	put_bits(payload, (unsigned int)object, 9);
+}
+
+void ce_payload_put_biped_update(struct ce_payload *payload, const struct ce_biped_update *update)
+{
+	put_delta_header(payload, CE_DELTA_BIPED_UPDATE);
+	put_bits(payload, (unsigned int)update->object, 9);
+	put_bits(payload, (unsigned int)update->baseline, 8);
+	/* (the update's own number within the baseline; a full update) */
+	put_bits(payload, 0, 8);
+	/* (the client keeps it as its baseline) */
+	put_bits(payload, 1, 1);
+	put_bits(payload, update->apply_shield ? 1 : 0, 1);
+	put_bits(payload, (unsigned int)update->grenades[0], 3);
+	put_bits(payload, (unsigned int)update->grenades[1], 3);
+	put_bits(payload, (unsigned int)update->body, 3);
+	put_bits(payload, (unsigned int)update->shield, 6);
+	put_bits(payload, (unsigned int)update->unknown_boolean, 1);
+}
+
+int ce_body_bits(float vitality)
+{
+	vitality = vitality < 0.0f ? 0.0f : vitality > 1.0f ? 1.0f : vitality;
+	return (int)(vitality * 7.0f + 0.5f);
+}
+
+int ce_shield_bits(float vitality)
+{
+	/* (an overshield's up to 3) */
+	vitality = vitality < 0.0f ? 0.0f : vitality > 3.0f ? 3.0f : vitality;
+	return (int)(vitality * 21.0f + 0.5f);
 }
 
 void ce_payload_put_local_player_update(struct ce_payload *payload, int sequence, int update_id,
@@ -417,6 +556,77 @@ void ce_payload_put_remote_player_actions(struct ce_payload *payload, const stru
 	put_bits(payload, (unsigned int)actions->grenade, 2);
 }
 
+/* ---------- deaths */
+
+void ce_payload_put_unit_killed(struct ce_payload *payload, int object, int respawn_ticks)
+{
+	/* (the flags as Custom Edition's server sets them for a death with no
+	direction: the aftermath is there, the unit died, nothing else, no
+	direction) */
+	static const unsigned char flags[7] = { 1, 1, 0, 0, 0, 0, 1 };
+	int index;
+
+	put_delta_header(payload, CE_DELTA_UNIT_KILLED);
+	put_bits(payload, (unsigned int)object, 9);
+	for (index = 0; index < 7; index++)
+		put_bits(payload, flags[index], 1);
+	/* (no part of the body named; no force; no direction) */
+	put_bits(payload, 0xffff, 16);
+	put_real(payload, 0.0f);
+	put_real(payload, 0.0f);
+	put_real(payload, 0.0f);
+	put_bits(payload, (unsigned int)respawn_ticks, 32);
+}
+
+/* ---------- chat and scores */
+
+void ce_payload_put_chat(struct ce_payload *payload, int kind, int player, const char *text)
+{
+	int length = (int)strnlen(text, CE_CHAT_SIZE);
+	int index;
+
+	put_delta_header(payload, CE_DELTA_CHAT);
+	put_bits(payload, (unsigned int)kind, 8);
+	put_bits(payload, (unsigned int)player, 8);
+	/* (the line: its length in 8 bits, then 16-bit characters) */
+	put_bits(payload, (unsigned int)length, 8);
+	for (index = 0; index < length; index++)
+		put_bits(payload, (unsigned char)text[index], 16);
+}
+
+void ce_payload_put_slayer_scores(struct ce_payload *payload, const int players[CE_GAME_PLAYERS],
+	const int teams[CE_GAME_PLAYERS])
+{
+	int index;
+
+	put_delta_header(payload, CE_DELTA_SLAYER_SCORES);
+	for (index = 0; index < CE_GAME_PLAYERS; index++)
+		put_bits(payload, (unsigned int)players[index], 32);
+	for (index = 0; index < CE_GAME_PLAYERS; index++)
+		put_bits(payload, (unsigned int)teams[index], 32);
+}
+
+void ce_payload_put_player_statistics(struct ce_payload *payload, int player,
+	const struct ce_player_statistics *statistics)
+{
+	int index;
+
+	put_delta_header(payload, CE_DELTA_PLAYER_STATISTICS);
+	put_bits(payload, (unsigned int)player, 5);
+	for (index = 0; index < 4; index++)
+		put_bits(payload, (unsigned int)statistics->kills[index], 16);
+	for (index = 0; index < 4; index++)
+		put_bits(payload, (unsigned int)statistics->assists[index], 16);
+	put_bits(payload, (unsigned int)statistics->betrayals, 16);
+	put_bits(payload, (unsigned int)statistics->deaths, 16);
+	put_bits(payload, (unsigned int)statistics->suicides, 16);
+	for (index = 0; index < 3; index++)
+		put_bits(payload, (unsigned int)statistics->game_specific[index], 16);
+	put_bits(payload, (unsigned int)statistics->multiplayer_special, 32);
+	put_bits(payload, (unsigned int)statistics->flag, 1);
+	put_real(payload, statistics->speed_multiplier);
+}
+
 /* ---------- reading a client's payload */
 
 struct reader
@@ -436,6 +646,27 @@ static int get_bits(struct reader *reader, int count, unsigned int *value)
 	for (index = 0; index < count; index++, reader->position++)
 		*value |= (unsigned int)((reader->data[reader->position >> 3] >> (reader->position & 7)) & 1) << index;
 	return 1;
+}
+
+static int refused_facings;
+
+/* a client's yaw or pitch (a float's bits): a number the game can turn by.
+A real client sends angles in radians; one that is not a number, or is
+absurdly large, is refused with its update */
+static int facing_valid(unsigned int bits)
+{
+	float angle;
+
+	memcpy(&angle, &bits, sizeof(angle));
+	if (isfinite(angle) && fabsf(angle) <= 1000.0f)
+		return 1;
+	refused_facings++;
+	return 0;
+}
+
+int ce_refused_facings(void)
+{
+	return refused_facings;
 }
 
 static int read_client_update(struct reader *reader, int every_field, struct ce_client_update *update)
@@ -474,13 +705,13 @@ static int read_client_update(struct reader *reader, int every_field, struct ce_
 	}
 	if (present[2])
 	{
-		if (!get_bits(reader, 32, &value))
+		if (!get_bits(reader, 32, &value) || !facing_valid(value))
 			return 0;
 		memcpy(&update->yaw, &value, sizeof(value));
 	}
 	if (present[3])
 	{
-		if (!get_bits(reader, 32, &value))
+		if (!get_bits(reader, 32, &value) || !facing_valid(value))
 			return 0;
 		memcpy(&update->pitch, &value, sizeof(value));
 	}
@@ -545,8 +776,12 @@ int ce_payload_read_client_updates(const unsigned char *payload, int length, str
 			break;
 		if (type == CE_DELTA_CLIENT_UPDATE)
 		{
-			if (!read_client_update(&reader, !flag, update))
+			/* (an update refused part way leaves the last one as it was) */
+			struct ce_client_update next = *update;
+
+			if (!read_client_update(&reader, !flag, &next))
 				break;
+			*update = next;
 			if (each)
 				each(context, update);
 			count++;

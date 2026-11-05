@@ -37,7 +37,10 @@ Alpine's Docker container of the server's architecture (an x86 one runs on
 an x86-64 machine, an arm64 one on an arm64 machine); it goes into
 dist/chupathingyce-server-linux-<arch> (-debug for a debug build), with
 its README and playlists. A release's server there is stripped of its debug
-information; a debug build's keeps it.
+information; a debug build's keeps it. The Windows server
+(server-windows64: tools/windows_build.py, on Windows) goes into
+dist/chupathingyce-server-windows-x64, with start-server.bat and its README
+(server/windows); its symbols are its PDB, apart.
 """
 
 import argparse
@@ -81,6 +84,8 @@ OUTPUTS = {
     "server-x86": ["build/server-x86/chupathingyce-server"],
     "server-x64": ["build/server-x64/chupathingyce-server"],
     "server-arm64": ["build/server-arm64/chupathingyce-server"],
+    # the Windows one (ninja server-windows64; tools/windows_build.py)
+    "server-windows64": ["build/server-windows64/chupathingyce-server.exe"],
 }
 # the servers' Alpine Linux (--alpine), and Docker's name for each one's
 # architecture
@@ -214,6 +219,18 @@ def main() -> int:
     # the menus' XML parser (port/third_party/expat), in every build, whose
     # MIT license asks copies to carry its notice
     shutil.copy2(ROOT / "port/third_party/expat/COPYING", dist / "expat-COPYING.txt")
+    # the bgfx renderer of the 64-bit desktop builds (tools/bgfx_build.py):
+    # bgfx's, bx's and bimg's BSD licenses ask binaries to carry their
+    # notices, as do glslang's and, on macOS, SPIRV-Cross's
+    if (ROOT / "build" / args.platform / "bgfx").is_dir():
+        bgfx_sources = ROOT / "build/bgfx"
+        bgfx_licenses = [("bgfx/LICENSE", "bgfx-LICENSE.txt"), ("bx/LICENSE", "bx-LICENSE.txt"),
+                         ("bimg/LICENSE", "bimg-LICENSE.txt"),
+                         ("bgfx/3rdparty/glslang/LICENSE.txt", "glslang-LICENSE.txt")]
+        if args.platform == "macos":
+            bgfx_licenses.append(("bgfx/3rdparty/spirv-cross/LICENSE", "SPIRV-Cross-LICENSE.txt"))
+        for source, name in bgfx_licenses:
+            shutil.copy2(bgfx_sources / source, dist / name)
     # internet play's MQTT brokers, a file beside the game (network.brokers_file;
     # Android's APK has its own copy; the macOS application reads its settings
     # folder in Application Support, never beside the app, so it uses the
@@ -295,25 +312,40 @@ def strip_debug(program: Path) -> None:
 def server_dist(platform: str, config: str, output: str) -> int:
     """dist/chupathingyce-server-linux-<arch>[-debug]: the server, its
     README, its playlists, its blocked names list, its license and the notices
-    its parts' licenses ask for"""
-    arch = platform[len("server-"):]
-    dist = ROOT / "dist" / f"chupathingyce-server-linux-{arch}{'' if config == 'release' else '-debug'}"
+    its parts' licenses ask for. The Windows one,
+    dist/chupathingyce-server-windows-x64[-debug], also has start-server.bat
+    and its own README.txt (server/windows), and the server's README as
+    README-server.md"""
+    windows = platform == "server-windows64"
+    name = "chupathingyce-server-windows-x64" if windows else f"chupathingyce-server-linux-{platform[len('server-'):]}"
+    dist = ROOT / "dist" / f"{name}{'' if config == 'release' else '-debug'}"
     if dist.exists():
         shutil.rmtree(dist)
     (dist / "playlists").mkdir(parents=True)
     shutil.copy2(ROOT / output, dist)
     # the full program (debug information and all), apart, for crash reports
-    symbols = ROOT / "dist" / f"chupathingyce-server-linux-{arch}-{config}-symbols"
+    # (Windows': its PDB and the linker's map)
+    symbols = ROOT / "dist" / f"{name}-{config}-symbols"
     if symbols.exists():
         shutil.rmtree(symbols)
     symbols.mkdir(parents=True)
     shutil.copy2(ROOT / output, symbols)
-    if config == "release":
-        # a release's download without its debug information (about 20 MB
-        # of 33); build/server-<arch>/ keeps the full program, and a debug
-        # build ships it
-        strip_debug(dist / Path(output).name)
-    shutil.copy2(ROOT / "server/README.md", dist / "README.md")
+    if windows:
+        for extra in (".pdb", ".map"):
+            shutil.copy2((ROOT / output).with_suffix(extra), symbols)
+        # (Windows' line ends, which cmd.exe's labels need)
+        for source, copy in (("server/windows/start-server.bat", "start-server.bat"),
+                             ("server/windows/README.txt", "README.txt")):
+            text = (ROOT / source).read_text(encoding="utf-8").replace("\r\n", "\n")
+            (dist / copy).write_bytes(text.replace("\n", "\r\n").encode("utf-8"))
+        shutil.copy2(ROOT / "server/README.md", dist / "README-server.md")
+    else:
+        if config == "release":
+            # a release's download without its debug information (about 20 MB
+            # of 33); build/server-<arch>/ keeps the full program, and a debug
+            # build ships it
+            strip_debug(dist / Path(output).name)
+        shutil.copy2(ROOT / "server/README.md", dist / "README.md")
     for playlist in sorted((ROOT / "server/playlists").glob("*.txt")):
         shutil.copy2(playlist, dist / "playlists")
     # (sv_name_filter's list, read from the data folder)

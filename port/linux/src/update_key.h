@@ -23,7 +23,13 @@ recovery key (the command repository's keys/update.pub.json lists both).
 #ifndef UPDATE_KEY_H
 #define UPDATE_KEY_H
 
-#ifndef HALO_UPDATE_TEST_KEY
+#if defined(HALO_PORT_UPDATE_API) && !defined(HALO_UPDATE_TEST_KEY)
+/* a console port's own releases (HALO_PORT_UPDATE_API: updater.c) are signed
+with its own key, which its halo_port_update_keys.h gives as
+update_public_keys, in the port's include folder: the release key above signs
+nothing a port's own release server sends */
+#include "halo_port_update_keys.h"
+#elif !defined(HALO_UPDATE_TEST_KEY)
 static const unsigned char update_public_keys[][32] =
 {
 	/* the release key (primary), 2026-10-06 */

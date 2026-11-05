@@ -958,6 +958,12 @@ static void model_data_error(
 int config_boolean(const char *name);
 unsigned long config_changes(void);
 
+#ifdef HALO_CONSOLE_PERFORMANCE_MODE
+/* port: what performance mode multiplies a model's size on the screen by, 1
+while it is off (halo_console_features.h) */
+real console_performance_model_detail(void);
+#endif
+
 /* port: display.full_model_detail, every model drawn with its most detailed
 geometry wherever it is, not the coarser ones the game swaps in as it gets
 smaller on the screen. Drawing only: the game's state never reads it. */
@@ -1006,6 +1012,12 @@ void render_model(
 	{
 		rasterizer_model_cortana_hack = FALSE;
 	}
+
+#ifdef HALO_CONSOLE_PERFORMANCE_MODE
+	/* port: models count as smaller, so that they go to their coarser
+	geometry sooner and the smallest are not drawn at all */
+	level_of_detail_pixels *= console_performance_model_detail();
+#endif
 
 	if (level_of_detail_pixels>=model->detail_cutoff_pixels[0] || TEST_FLAG(flags, _render_model_shadow_bit))
 	{

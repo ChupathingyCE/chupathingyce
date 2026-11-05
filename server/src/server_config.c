@@ -245,6 +245,21 @@ const struct server_setting server_settings_table[SERVER_SETTINGS] =
 		"The UDP port of the GameSpy status queries" },
 	{ "ce_joins", SERVER_FIELD_BOOLEAN, 0, 1, "HALO_DEDICATED_CE_JOINS",
 		"Answer Halo Custom Edition 1.0.10 join attempts on the GameSpy port (gamespy_listing must be on)" },
+	{ "allow_player_names", SERVER_FIELD_BOOLEAN, 0, 1, "HALO_DEDICATED_ALLOW_PLAYER_NAMES",
+		"Chupathingy players may show names above heads (off: only the player aimed at, as on the Xbox)" },
+	{ "allow_follow_camera", SERVER_FIELD_BOOLEAN, 0, 1, "HALO_DEDICATED_ALLOW_FOLLOW_CAMERA",
+		"Chupathingy players may watch a follow camera while they wait to respawn (off: as on the Xbox)" },
+	{ "max_machines_per_address", SERVER_FIELD_INTEGER, 0, SERVER_SETTINGS_MAXIMUM_MACHINES_PER_ADDRESS,
+		"HALO_DEDICATED_MAX_MACHINES_PER_ADDRESS",
+		"Most machines that may join from one internet address (0: no limit; local network addresses never limited)" },
+	{ "betrayal_kick", SERVER_FIELD_INTEGER, 0, SERVER_SETTINGS_MAXIMUM_BETRAYAL_KICK, "HALO_DEDICATED_BETRAYAL_KICK",
+		"Betrayals in a game that kick a player, warned one short of it; a second kick in a day bans for 30 "
+		"minutes (0: off)" },
+	{ "afk_kick_minutes", SERVER_FIELD_INTEGER, 0, SERVER_SETTINGS_MAXIMUM_AFK_KICK_MINUTES,
+		"HALO_DEDICATED_AFK_KICK_MINUTES", "Minutes without input in a game that kick a player, moderators never "
+		"(0: off)" },
+	{ "ce_welcome", SERVER_FIELD_STRING, 0, SERVER_SETTINGS_CE_WELCOME_SIZE - 1, "HALO_DEDICATED_CE_WELCOME",
+		"Chat line each Custom Edition player gets as they join (empty: none)" },
 };
 
 /* ---------- private code */
@@ -326,7 +341,7 @@ enum
 	TOML_BOOLEAN,
 	TOML_STRING,
 	TOML_KEY_SIZE = 64,
-	TOML_STRING_SIZE = SERVER_SETTINGS_PATH_SIZE,
+	TOML_STRING_SIZE = SERVER_SETTINGS_CE_WELCOME_SIZE,
 	TOML_TABLES = 16,
 };
 
@@ -1160,24 +1175,27 @@ static int setting_value(int setting, const struct toml_value *value, int line, 
 			}
 			snprintf(settings->name, sizeof(settings->name), "%s", value->string);
 		}
-		else if (setting == SERVER_SETTING_WELCOME)
+		else if (setting == SERVER_SETTING_WELCOME || setting == SERVER_SETTING_CE_WELCOME)
 		{
+			char *welcome = setting == SERVER_SETTING_WELCOME ? settings->welcome : settings->ce_welcome;
+			size_t size = setting == SERVER_SETTING_WELCOME ? sizeof(settings->welcome) : sizeof(settings->ce_welcome);
 			size_t index, length = strlen(value->string);
 
-			if (length >= sizeof(settings->welcome))
+			if (length >= size)
 			{
-				set_error(error, error_size, line, "welcome is 127 characters at most%s", NULL, NULL);
+				set_error(error, error_size, line, setting == SERVER_SETTING_WELCOME ?
+					"welcome is 127 characters at most%s" : "ce_welcome is 255 characters at most%s", NULL, NULL);
 				return 0;
 			}
 			for (index = 0; index < length; index++)
 			{
 				if ((unsigned char)value->string[index] < 0x20 || (unsigned char)value->string[index] > 0x7e)
 				{
-					set_error(error, error_size, line, "welcome is printable ASCII%s", NULL, NULL);
+					set_error(error, error_size, line, "%s is printable ASCII%s", description->key, NULL);
 					return 0;
 				}
 			}
-			snprintf(settings->welcome, sizeof(settings->welcome), "%s", value->string);
+			snprintf(welcome, size, "%s", value->string);
 		}
 		else
 		{
@@ -1288,7 +1306,7 @@ int server_settings_format(const struct server_settings *settings, char *out, si
 	{
 		const struct server_setting *description = &server_settings_table[setting];
 		/* (a string's every character may be escaped) */
-		char value[2 * SERVER_SETTINGS_PATH_SIZE + 8];
+		char value[2 * SERVER_SETTINGS_CE_WELCOME_SIZE + 8];
 
 		if (!settings->set[setting])
 			continue;
@@ -1297,7 +1315,8 @@ int server_settings_format(const struct server_settings *settings, char *out, si
 		else if (description->kind == SERVER_FIELD_BOOLEAN)
 			snprintf(value, sizeof(value), "%s", settings->values[setting] ? "true" : "false");
 		else if (!quoted(setting == SERVER_SETTING_NAME ? settings->name : setting == SERVER_SETTING_PLAYLIST ?
-			settings->playlist : setting == SERVER_SETTING_WELCOME ? settings->welcome : settings->playlist_environment,
+			settings->playlist : setting == SERVER_SETTING_WELCOME ? settings->welcome :
+			setting == SERVER_SETTING_CE_WELCOME ? settings->ce_welcome : settings->playlist_environment,
 			value, sizeof(value)))
 		{
 			return -1;

@@ -23,6 +23,7 @@ play it); the files are looked for only on the builds that play such maps
 #include "map_stock_pairs.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 /* ---------- constants */
@@ -828,6 +829,103 @@ static boolean file_name_valid(
 		!strchr(file, ':');
 }
 
+/* what a resource map is, as map_family_resources_ready finds it */
+enum
+{
+	_resource_map_ready,
+	_resource_map_missing,
+	/* not a resource map of its kind (its type, its table) */
+	_resource_map_unreadable,
+	/* Halo PC retail's own (its resources not named as Custom Edition's) */
+	_resource_map_halo_pc,
+};
+
+/* whether a resource map's paths (size bytes) name one resource ending with
+ending: Custom Edition's bitmaps.map names each bitmap's pixels
+<path>__pixels and its sounds.map each sound's <path>__permutations, where
+Halo PC retail's name them <path>_0 and <path>__0__0 */
+static boolean resource_paths_end_with(
+	char const *paths,
+	unsigned long size,
+	char const *ending)
+{
+	size_t ending_length = strlen(ending);
+	unsigned long start = 0, at;
+
+	for (at = 0; at < size; at++)
+	{
+		if (paths[at])
+			continue;
+		if (at - start >= ending_length && !memcmp(paths + at - ending_length, ending, ending_length))
+			return TRUE;
+		start = at + 1;
+	}
+	return FALSE;
+}
+
+/* a resource map (type: 1 bitmaps, 2 sounds, 3 strings and fonts) at path:
+its header (its type, its paths' and its table's offsets, how many
+resources), its table in the file, and its paths those of Custom Edition's */
+static short resource_map_state(
+	char const *path,
+	unsigned long type,
+	char const *ending)
+{
+	unsigned long header[4], bytes_read = 0, file_size;
+	short state = _resource_map_unreadable;
+	HANDLE file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+
+	if (file == INVALID_HANDLE_VALUE)
+		return _resource_map_missing;
+	file_size = GetFileSize(file, NULL);
+	if (file_size != INVALID_FILE_SIZE && ReadFile(file, header, sizeof(header), &bytes_read, NULL) &&
+		bytes_read == sizeof(header) && header[0] == type && header[3] && header[3] <= 0x10000 &&
+		header[1] >= sizeof(header) && header[1] <= header[2] && header[2] <= file_size &&
+		header[3] * 12 <= file_size - header[2])
+	{
+		unsigned long paths_size = header[2] - header[1];
+		char *paths;
+
+		state = _resource_map_ready;
+		/* (no more than 4 MB of paths: Custom Edition's are under 100 KB) */
+		if (ending && paths_size && paths_size <= 0x400000 && (paths = malloc(paths_size)) != NULL)
+		{
+			bytes_read = 0;
+			if (SetFilePointer(file, (long)header[1], NULL, FILE_BEGIN) == INVALID_SET_FILE_POINTER ||
+				!ReadFile(file, paths, paths_size, &bytes_read, NULL) || bytes_read != paths_size)
+			{
+				state = _resource_map_unreadable;
+			}
+			else if (!resource_paths_end_with(paths, paths_size, ending))
+				state = _resource_map_halo_pc;
+			free(paths);
+		}
+		else if (ending)
+			state = _resource_map_unreadable;
+	}
+	CloseHandle(file);
+	return state;
+}
+
+/* a resource map's path (as the game names it) as the host names it, after
+separator, into text */
+static void resource_host_path(
+	char const *path,
+	char *text,
+	size_t size,
+	char const *separator)
+{
+#ifndef HALO_CONSOLE
+	void platform_translate_path(const char *xbox_path, char *host_path, unsigned long host_path_size);
+	char host[256];
+
+	platform_translate_path(path, host, sizeof(host));
+	snprintf(text, size, "%s%s", separator, host);
+#else
+	snprintf(text, size, "%s%s", separator, path);
+#endif
+}
+
 /* ---------- public code */
 
 long map_family_cache_version(
@@ -860,6 +958,101 @@ boolean map_family_resource(
 	/* (where it goes: the first place) */
 	snprintf(path, (size_t)size, "d:\\%s%s.map", resource_places[0].folder, name);
 	return FALSE;
+}
+
+boolean map_family_resources_ready(
+	char *message,
+	long size)
+{
+	static char const *const names[] = { "bitmaps", "sounds", "loc" };
+	static char const *const endings[] = { "__pixels", "__permutations", NULL };
+	static char const *const states[] = { "Custom Edition's", "missing", "not a resource map of its kind",
+		"Halo PC's own, not Custom Edition's" };
+	/* (the last answer, and the files it was of: each one's path and size) */
+	static boolean answered, ready;
+	static char last_paths[NUMBEROF(names)][256];
+	static unsigned long last_sizes[NUMBEROF(names)];
+	char paths[NUMBEROF(names)][256];
+	unsigned long sizes[NUMBEROF(names)];
+	short index;
+	boolean changed = !answered;
+
+	for (index = 0; index < (short)NUMBEROF(names); index++)
+	{
+		sizes[index] = 0;
+		if (map_family_resource(names[index], paths[index], sizeof(paths[index])))
+		{
+			HANDLE file = CreateFileA(paths[index], GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL,
+				NULL);
+
+			if (file != INVALID_HANDLE_VALUE)
+			{
+				sizes[index] = GetFileSize(file, NULL);
+				CloseHandle(file);
+			}
+		}
+		else
+			paths[index][0] = 0;
+		changed |= strcmp(paths[index], last_paths[index]) || sizes[index] != last_sizes[index];
+	}
+	if (changed)
+	{
+		short states_found[NUMBEROF(names)];
+
+		ready = TRUE;
+		for (index = 0; index < (short)NUMBEROF(names); index++)
+		{
+			states_found[index] = paths[index][0] ?
+				resource_map_state(paths[index], (unsigned long)index + 1, endings[index]) : _resource_map_missing;
+			ready &= states_found[index] == _resource_map_ready;
+			memcpy(last_paths[index], paths[index], sizeof(paths[index]));
+			last_sizes[index] = sizes[index];
+		}
+		answered = TRUE;
+		/* (the file found, or every place looked at, as the host names them) */
+		for (index = 0; index < (short)NUMBEROF(names); index++)
+		{
+			char looked[800];
+			long place;
+
+			looked[0] = 0;
+			for (place = 0; place < NUMBEROF(resource_places); place++)
+			{
+				char folder[256], at[256];
+				size_t length = strlen(looked);
+
+				if (paths[index][0])
+					snprintf(at, sizeof(at), "%s", paths[index]);
+				else
+				{
+					place_folder(&resource_places[place], folder, sizeof(folder));
+					snprintf(at, sizeof(at), "%s%s.map", folder, names[index]);
+				}
+				resource_host_path(at, looked + length, sizeof(looked) - length, length ? ", " : "");
+				if (paths[index][0])
+					break;
+			}
+			if (paths[index][0])
+				platform_log("Custom Edition resource maps: %s.map is %s: %s", names[index], states[states_found[index]],
+					looked);
+			else
+				platform_log("Custom Edition resource maps: %s.map is missing: looked in %s", names[index], looked);
+		}
+		if (!ready)
+			platform_log("Custom Edition resource maps: Custom Edition, HaloMD and Halo PC maps can't be played "
+				"until bitmaps.map, sounds.map and loc.map from Custom Edition are in maps_ce");
+	}
+	if (!ready && message && size > 0)
+	{
+		snprintf(message, (size_t)size, "%s %s", MAP_REASON_CE_RESOURCES,
+#if defined(HALO_CONSOLE) || defined(HALO_ANDROID) || defined(HALO_IOS) || defined(HALO_SERVER)
+			MAP_REASON_CE_RESOURCES_COPY
+#else
+			MAP_REASON_CE_RESOURCES_SETUP
+#endif
+		);
+	}
+	return ready;
 }
 
 long map_family_stock_need(

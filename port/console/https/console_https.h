@@ -46,6 +46,9 @@ extern "C" {
 
 #define CONSOLE_HTTPS_SITE "stats.chupathingy.org"
 #define CONSOLE_HTTPS_GITHUB "raw.githubusercontent.com"
+/* the Xbox Homebrew Store's API (a console's map browser: its lists and
+their BLAKE2b hashes), checked by its chain to Let's Encrypt's ISRG roots */
+#define CONSOLE_HTTPS_MAP_STORE "api.xboxhomebrew.store"
 #define CONSOLE_HTTPS_PORT_NUMBER 443
 /* the pin document (console_pins.h): over plain HTTP from the console
 list's host, else over HTTPS from GitHub's raw files */
@@ -61,6 +64,9 @@ the stack a requesting thread needs for it and Mbed TLS's own frames */
 #define CONSOLE_HTTPS_ARENA_SIZE (80 * 1024)
 #endif
 #define CONSOLE_HTTPS_STACK_SIZE (CONSOLE_HTTPS_ARENA_SIZE + 32 * 1024)
+/* console_https_get_stream's buffer, on the stack too (beyond
+CONSOLE_HTTPS_STACK_SIZE): the answer's headers must fit in it */
+#define CONSOLE_HTTPS_STREAM_BUFFER_SIZE (8 * 1024)
 
 /* a port's receive and send: no byte in the time given */
 #define CONSOLE_HTTPS_IO_TIMEOUT (-2)
@@ -124,6 +130,8 @@ enum
 	CONSOLE_HTTPS_ERROR_TIMEOUT,
 	CONSOLE_HTTPS_ERROR_TOO_LARGE,
 	CONSOLE_HTTPS_ERROR_RESPONSE,
+	/* (a stream's body callback said stop) */
+	CONSOLE_HTTPS_ERROR_STOPPED,
 	NUMBER_OF_CONSOLE_HTTPS_ERRORS
 };
 
@@ -154,6 +162,21 @@ int console_https_call(const char *host, const char *path, const char *body, int
 JSON call to CONSOLE_HTTPS_SITE within 15 seconds; 1 if an answer came */
 int console_https_site_request(const char *path, const char *body, int *status, char *reply, int reply_size);
 
+/* a streamed GET of https://host/path, for answers too large for a buffer
+(a map browser's lists and pictures): headers (NULL, or lines each ending
+in \r\n) added to the request; the answer's status into *status; for a 2xx
+answer, size_proc told the body's length (0 when the answer does not say;
+NULL for none), then the body passed to body_proc as it comes (0 from it
+stops the transfer: CONSOLE_HTTPS_ERROR_STOPPED). timeout_ms is the
+handshake's, then the most to wait for each piece. It holds the one-request
+lock while it runs, so the other requests wait for it: keep it to answers of
+a few hundred KB, and fetch large files some other way (by a hash got over
+HTTPS). The calling thread needs CONSOLE_HTTPS_STACK_SIZE +
+CONSOLE_HTTPS_STREAM_BUFFER_SIZE of stack. The host is one of the hosts above */
+typedef void (*console_https_size_proc)(unsigned long size, void *context);
+typedef int (*console_https_body_proc)(const char *data, unsigned long size, void *context);
+int console_https_get_stream(const char *host, const char *path, const char *headers, int *status,
+	console_https_size_proc size_proc, console_https_body_proc body_proc, void *context, unsigned long timeout_ms);
 /* an HTTP/1.x response, size bytes (no terminator needed): its status, and
 its body (pointing into data) as Content-Length says, else to the end; 1, or
 0 if it is not whole */

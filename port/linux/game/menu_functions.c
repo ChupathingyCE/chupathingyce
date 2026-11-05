@@ -94,6 +94,7 @@ their handlers open opens.
 #include "networking/network_connection.h"
 /* (the game list's filter and the campaign levels: every build) */
 #include "../src/browser.h"
+#include "delta.h"
 #ifdef HALO_GAME_BROWSER
 #include "halo_port_limits.h"
 #endif
@@ -1875,11 +1876,72 @@ a frame for each of its eight rows, then the Xbox's five button settings,
 which CONTROLS' row shows for the edited profile */
 #define CHUPATHINGY_FIRST_LAYOUT_FRAME 8
 
+/* ABOUT's row (the picture's frame for it is blank): this build and the
+project, in the picture's place (its about_text) */
+#define CHUPATHINGY_ABOUT_FRAME 6
+#define CHUPATHINGY_ABOUT_LENGTH 512
+
+static void chupathingy_settings_about(struct widget_instance *picture)
+{
+	extern char const *build_identity_watermark(void);
+#ifdef HALO_GAME_BROWSER
+	extern char const *build_identity_user_agent(void);
+#endif
+	struct widget_instance *about = named(picture, "about_text", 0);
+	wchar_t wide[CHUPATHINGY_ABOUT_LENGTH];
+	char text[CHUPATHINGY_ABOUT_LENGTH], version[64], platform[64];
+	char const *watermark, *agent, *open, *close, *notice;
+	long index;
+
+	if (!about)
+		return;
+	if (picture->animation.current_frame_index != CHUPATHINGY_ABOUT_FRAME)
+	{
+		text_set_length(about, L"", CHUPATHINGY_ABOUT_LENGTH);
+		return;
+	}
+	/* (lines end in "\r\n", as the menus' strings do; the version and
+	commit, without an update's notice after them; the platform as the
+	build's requests name it, "ChupathingyCE/0.9.0 (macOS arm64)", where
+	it makes them) */
+	watermark = build_identity_watermark();
+	notice = strstr(watermark, " - ");
+	snprintf(version, sizeof(version), "%.*s", notice ? (int)(notice - watermark) : (int)strlen(watermark), watermark);
+#ifdef HALO_GAME_BROWSER
+	agent = build_identity_user_agent();
+#else
+	agent = "";
+#endif
+	open = strchr(agent, '(');
+	close = open ? strchr(open, ')') : NULL;
+	if (open && close)
+		snprintf(platform, sizeof(platform), "%.*s, %d-bit", (int)(close - open - 1), open + 1, (int)sizeof(void *) * 8);
+	else
+		snprintf(platform, sizeof(platform), "%d-bit", (int)sizeof(void *) * 8);
+	snprintf(text, sizeof(text),
+		"Chupathingy %s\r\n"
+		"%s\r\n"
+		"\r\n"
+		"A fan-made port of the Halo: Combat\r\n"
+		"Evolved decompilation. Not affiliated\r\n"
+		"with Microsoft or Bungie.\r\n"
+		"\r\n"
+		"Free software under the GPL-3.0.\r\n"
+		"chupathingy.org\r\n"
+		"discord.gg/chupathingy",
+		version, platform);
+	for (index = 0; text[index] && index < CHUPATHINGY_ABOUT_LENGTH - 1; index++)
+		wide[index] = (wchar_t)(unsigned char)text[index];
+	wide[index] = 0;
+	text_set_length(about, wide, CHUPATHINGY_ABOUT_LENGTH);
+}
+
 /* "chupathingy settings picture" (the picture's own) */
 static void chupathingy_settings_picture(struct widget_instance *picture)
 {
 	struct player_profile *profile = player_ui_get_edit_player_profile();
 
+	chupathingy_settings_about(picture);
 	if (picture->animation.current_frame_index == PROFILE_GAMEPAD_FRAME)
 	{
 		if (profile && profile->controller_settings.button_preset >= _button_preset_bumper_jumper)
@@ -4802,9 +4864,9 @@ static int lobby_browser_version_state(struct p2p_listing const *game, short *ve
 32)"; a listing the list lacks while it answers is OpenCE's; "" if not known */
 static void lobby_browser_host_text(struct p2p_listing const *game, wchar_t *text, short size)
 {
-	static wchar_t const *const platforms[] = {
-		L"", L"WINDOWS", L"MAC", L"LINUX", L"ANDROID", L"STEAM DECK", L"XBOX", L"XBOX 360", L"WII U", L"SWITCH",
-	};
+#define PLATFORM_CAPS_NAME(platform, key, tag, name, caps_name) JOIN_WIDE(caps_name),
+	static wchar_t const *const platforms[] = { DELTA_PLATFORM_NAMES(PLATFORM_CAPS_NAME) };
+#undef PLATFORM_CAPS_NAME
 	struct browser_game const *listed = lobby_browser_listed_game(game);
 	boolean dedicated;
 	wchar_t const *platform;
@@ -7023,7 +7085,8 @@ name, its most players, its listing and password (Server Setup's, shared
 with it), the internet play port, the game type (left and right choose
 another, Y or A edits it), and the host's rules of config.toml
 (network.team_change and its margin, network.chat_filter,
-network.block_mouse_aim_assist), written as START GAME (A) opens the lobby.
+network.block_mouse_aim_assist, network.allow_player_names,
+network.allow_follow_camera), written as START GAME (A) opens the lobby.
 The host's rules are a nested list, as the settings screens' are: HOST
 RULES opens it, and B goes back out of it. B leaves them as they were.
 
@@ -7053,7 +7116,8 @@ gametype's choice did) */
 #define HOST_MESSAGE_DURATION 4000
 /* the internet play ports offered (0: the game picks one), and the one set */
 static long const host_ports[] = { 0, 2302, 2303, 2304, 2305, 2306, 2307, 2308, 2309, 2310 };
-static char const *const host_team_changes[] = { "balanced", "allow", "off" };
+/* (network.team_change's words: off first, the default, as on the Xbox) */
+static char const *const host_team_changes[] = { "off", "balanced", "allow" };
 
 enum
 {
@@ -7072,6 +7136,8 @@ enum
 	_host_row_team_change_margin,
 	_host_row_chat_filter,
 	_host_row_aim_assist,
+	_host_row_player_names,
+	_host_row_follow_camera,
 	_host_row_bot_fill,
 	_host_row_bot_spread,
 	_host_row_bot_balance,
@@ -7085,7 +7151,8 @@ enum
 static wchar_t const *const host_row_labels[NUMBER_OF_HOST_ROWS] =
 {
 	L"GAME NAME:", L"MAX PLAYERS:", L"PUBLIC LOBBY:", L"PASSWORD:", L"PORT:", L"GAME TYPE:", L"BOTS:", L"BOT SKILL:",
-	L"TEAM SWITCHING:", L"TEAM SWITCH MARGIN:", L"CHAT FILTER:", L"MOUSE AIM ASSIST:", L"FILL GAME TO:",
+	L"TEAM SWITCHING:", L"TEAM SWITCH MARGIN:", L"CHAT FILTER:", L"MOUSE AIM ASSIST:", L"PLAYER NAMES:",
+	L"FOLLOW CAMERA:", L"FILL GAME TO:",
 	L"SKILL SPREAD:", L"KEEP GAMES CLOSE:", L"BOT OPTIONS", L"HOST RULES", L"START GAME",
 };
 
@@ -7128,6 +7195,8 @@ static struct
 	short team_change_margin;
 	boolean chat_filter;
 	boolean block_aim_assist;
+	boolean player_names;
+	boolean follow_camera;
 	long port;
 	/* the rows shown, in their places */
 	short rows[64];
@@ -7149,7 +7218,7 @@ static struct
 	struct game_variant base_variant;
 	struct game_variant_options base_options;
 #endif
-} host_setup = { NULL, 0, 1, TRUE, FALSE, 0, { 0 }, 0, 0, 0, { 0 }, 0, _host_group_main, _host_page_setup };
+} host_setup = { NULL, 0, 1, TRUE, FALSE, FALSE, FALSE, 0, { 0 }, 0, 0, 0, { 0 }, 0, _host_group_main, _host_page_setup };
 
 long config_integer(char const *name);
 
@@ -7215,6 +7284,8 @@ static void host_setup_read(void)
 	host_setup.team_change_margin = (short)PIN(config_integer("network.team_change_margin"), 0, 16);
 	host_setup.chat_filter = config_boolean("network.chat_filter") != 0;
 	host_setup.block_aim_assist = config_boolean("network.block_mouse_aim_assist") != 0;
+	host_setup.player_names = config_boolean("network.allow_player_names") != 0;
+	host_setup.follow_camera = config_boolean("network.allow_follow_camera") != 0;
 	host_setup.port = PIN(config_integer("network.tunnel_port"), 0, 65535);
 }
 
@@ -7227,7 +7298,7 @@ static boolean host_listing_shown(void)
 /* the nested list a row is in (_host_group_...) */
 static short host_row_group(short row)
 {
-	if (row >= _host_row_team_change && row <= _host_row_aim_assist)
+	if (row >= _host_row_team_change && row <= _host_row_follow_camera)
 		return _host_group_rules;
 	if (row >= _host_row_bot_fill && row <= _host_row_bot_balance)
 		return _host_group_bots;
@@ -7277,7 +7348,7 @@ static void host_setup_rows(void)
 			(row == _host_row_bot_balance && bots_get_skill_spread() <= 0) ||
 			(row == _host_row_public && !host_listing_shown()) ||
 			(row == _host_row_password && (!host_listing_shown() || multiplayer.game_private)) ||
-			(row == _host_row_team_change_margin && host_setup.team_change != 0))
+			(row == _host_row_team_change_margin && host_setup.team_change != 1))
 		{
 			continue;
 		}
@@ -7364,7 +7435,7 @@ static boolean host_setup_value(short row, wchar_t *text)
 		host_game_type_text(text);
 		return TRUE;
 	case _host_row_team_change:
-		ustrncpy(text, host_setup.team_change == 0 ? L"BALANCED" : host_setup.team_change == 1 ? L"ALLOW" : L"OFF",
+		ustrncpy(text, host_setup.team_change == 1 ? L"BALANCED" : host_setup.team_change == 2 ? L"ALLOW" : L"OFF",
 			ROW_TEXT_LENGTH - 1);
 		return TRUE;
 	case _host_row_team_change_margin:
@@ -7411,6 +7482,12 @@ static boolean host_setup_value(short row, wchar_t *text)
 		if (bots_fill() > 0)
 			usnprintf(text, ROW_TEXT_LENGTH - 1, L"FILL TO %ld", bots_fill());
 		return FALSE;
+	case _host_row_player_names:
+		ustrncpy(text, host_setup.player_names ? L"ALLOWED" : L"OFF", ROW_TEXT_LENGTH - 1);
+		return TRUE;
+	case _host_row_follow_camera:
+		ustrncpy(text, host_setup.follow_camera ? L"ALLOWED" : L"OFF", ROW_TEXT_LENGTH - 1);
+		return TRUE;
 	case _host_row_name:
 		wide_to_text(multiplayer.game_name, ascii, sizeof(ascii));
 		for (index = 0; ascii[index] && index < ROW_TEXT_LENGTH - 1; index++)
@@ -7456,9 +7533,9 @@ static wchar_t const *host_setup_help(short row)
 	case _host_row_game_type:
 		return L"Choose the game type. %a-button edits it.";
 	case _host_row_team_change:
-		return host_setup.team_change == 0 ? L"Players can change teams within the margin." :
-			host_setup.team_change == 1 ? L"Players can change teams at any time." :
-			L"Players keep the team they joined.";
+		return host_setup.team_change == 1 ? L"Players can change teams within the margin." :
+			host_setup.team_change == 2 ? L"Players can change teams at any time." :
+			L"Players keep the team they joined, as on the Xbox.";
 	case _host_row_team_change_margin:
 		return L"How uneven the teams can get.";
 	case _host_row_chat_filter:
@@ -7482,8 +7559,14 @@ static wchar_t const *host_setup_help(short row)
 		return L"Bots on a winning team play worse, and on a losing team better, within the spread.";
 	case _host_row_bots:
 		return L"Filling the game with bots, bots of mixed skill, and keeping games close.";
+	case _host_row_player_names:
+		return host_setup.player_names ? L"Players can show names above heads." :
+			L"Names show only on the player aimed at, as on the Xbox.";
+	case _host_row_follow_camera:
+		return host_setup.follow_camera ? L"Players can watch a teammate while they wait to respawn." :
+			L"Only the death camera while waiting to respawn, as on the Xbox.";
 	case _host_row_rules:
-		return L"Team switching, the chat filter and mouse aim assist.";
+		return L"Team switching, chat filter, aim assist, player names, follow camera.";
 	case _host_row_start:
 		return host_help_with_status(L"Open the lobby.", with_status, NUMBEROF(with_status));
 	}
@@ -7573,6 +7656,12 @@ static boolean host_setup_change(short row, short direction)
 	case _host_row_bot_balance:
 		bots_set_balance(!bots_get_balance());
 		return TRUE;
+	case _host_row_player_names:
+		host_setup.player_names = !host_setup.player_names;
+		return TRUE;
+	case _host_row_follow_camera:
+		host_setup.follow_camera = !host_setup.follow_camera;
+		return TRUE;
 	}
 	return FALSE;
 }
@@ -7633,6 +7722,8 @@ static boolean host_setup_start(struct widget_instance *widget, boolean *widget_
 	host_write("network.team_change_margin", text);
 	host_write("network.chat_filter", host_setup.chat_filter ? "true" : "false");
 	host_write("network.block_mouse_aim_assist", host_setup.block_aim_assist ? "true" : "false");
+	host_write("network.allow_player_names", host_setup.player_names ? "true" : "false");
+	host_write("network.allow_follow_camera", host_setup.follow_camera ? "true" : "false");
 	snprintf(text, sizeof(text), "%ld", host_setup.port);
 	host_write("network.tunnel_port", text);
 	host_bots_write();
@@ -7674,6 +7765,9 @@ static void host_setup_defaults(void)
 		(short)PIN(atoi(text), 0, 16) : 1;
 	host_setup.chat_filter = !config_default("network.chat_filter", text, sizeof(text)) || !strcmp(text, "true");
 	host_setup.block_aim_assist = config_default("network.block_mouse_aim_assist", text, sizeof(text)) &&
+		!strcmp(text, "true");
+	host_setup.player_names = config_default("network.allow_player_names", text, sizeof(text)) && !strcmp(text, "true");
+	host_setup.follow_camera = config_default("network.allow_follow_camera", text, sizeof(text)) &&
 		!strcmp(text, "true");
 	host_setup.port = config_default("network.tunnel_port", text, sizeof(text)) ? atol(text) : 0;
 	multiplayer.maximum_players_index = HOST_DEFAULT_MAXIMUM_PLAYERS_INDEX;
@@ -8488,6 +8582,55 @@ static boolean host_back(struct widget_instance *widget, boolean *widget_deleted
 	return TRUE;
 }
 
+/* "port host page previous" and "next" (the editor's bumpers and
+triggers), and "port host page" (a tab's A, which a click on it sends: its
+page): the page opened in the screen's place, with no history of its own,
+so that B goes back to GAME SETUP from any page. (The tags' replace swaps a
+widget among its parent's children: a screen has none, and the editor
+closed, back to GAME SETUP) */
+static boolean host_page_open(struct widget_instance *widget, short direction, boolean *widget_deleted)
+{
+	struct widget_instance *screen = widget;
+	char name[64];
+	short shown;
+	short page;
+
+	while (screen->parent)
+		screen = screen->parent;
+	for (shown = 0; shown < NUMBER_OF_HOST_PAGES && strcmp(screen->name, host_page_screens[shown]); shown++)
+		;
+	if (shown == NUMBER_OF_HOST_PAGES)
+		return FALSE;
+	if (direction)
+	{
+		page = (short)((shown + direction + NUMBER_OF_HOST_PAGES) % NUMBER_OF_HOST_PAGES);
+	}
+	else
+	{
+		/* (the tab's name: tab_players_off is edit_players') */
+		for (page = 0; page < NUMBER_OF_HOST_PAGES; page++)
+		{
+			snprintf(name, sizeof(name), "tab_%s_", host_page_screens[page] + strlen("edit_"));
+			if (!strncmp(widget->name, name, strlen(name)))
+				break;
+		}
+		if (page == NUMBER_OF_HOST_PAGES)
+			return FALSE;
+		if (page == shown)
+			return TRUE;
+	}
+	if (text_field_editing(NULL))
+		text_field_end(TRUE);
+	snprintf(name, sizeof(name), "pc\\chupathingy\\host\\%s", host_page_screens[page]);
+	/* (as a screen opens with nothing before it: the screen shown is
+	deleted, and the history is left as it is) */
+	if (!ui_widget_load_by_name_or_tag(name, NONE, NULL, NONE, NONE, NONE, 0))
+		return FALSE;
+	ui_play_audio_feedback_sound(SOUND_FORWARD);
+	*widget_deleted = TRUE;
+	return TRUE;
+}
+
 /* ---------- Delta Profile (port/linux/game/profile_screen.c): the
 Chupathingy menus' screen of it (chupathingy/delta_profile.xml), filled
 with what profile_screen.c says of each section; Profiles' DELTA
@@ -9083,6 +9226,13 @@ boolean pc_menu_event_function_invoke(
 		else if (!strcmp(name, "port host back"))
 		{
 			return host_back(widget, widget_deleted);
+		}
+		else if (!strcmp(name, "port host page previous") || !strcmp(name, "port host page next") ||
+			!strcmp(name, "port host page"))
+		{
+			return host_page_open(widget,
+				(short)(!strcmp(name, "port host page previous") ? -1 : !strcmp(name, "port host page next") ? 1 : 0),
+				widget_deleted);
 		}
 		else if (!strcmp(name, "port setup edit"))
 		{

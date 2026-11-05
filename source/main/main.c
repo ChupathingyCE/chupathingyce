@@ -689,6 +689,9 @@ void bot_debug_update(void);
 void audio_probe_update(unsigned char main_menu_loaded, float seconds);
 void team_change_update(void);
 #endif
+#ifdef HALO_GAME_BROWSER
+void host_rules_update(void);
+#endif
 #ifdef HALO_PORT_CHAT
 void chat_update(void);
 #endif
@@ -3713,6 +3716,10 @@ void main_loop(
 			bot_bake_update(main_globals.main_menu_scenario_loaded, main_globals.seconds_elapsed);
 			/* changing teams during a game (port/linux/game/team_change.c) */
 			team_change_update();
+#endif
+#ifdef HALO_GAME_BROWSER
+			/* the host's rules for its players' extras (port/linux/game/host_rules.c) */
+			host_rules_update();
 #endif
 #ifdef HALO_PORT_CHAT
 			/* text chat (port/linux/game/chat.c; on a console, its client's

@@ -155,6 +155,17 @@ enum delta_capability
 	objects the host made (OBJECT_NAMES), so that a client's scripts find
 	them by name */
 	_delta_capability_object_sync = 17,
+	/* not a capability but the host's word on its game: its console and
+	cheats may change a public game with others in it (network.host_cheats,
+	network_game_host_cheats_refused). Announced on Delta List alone, never
+	offered in a HELLO or WELCOME; Online Games shows "Host cheats on" */
+	_delta_capability_host_cheats = 18,
+	/* the host's rules for its players' extras (docs/delta.md, Host
+	rules): HOST_RULES says whether its players may show names above heads,
+	watch a follow camera while they wait to respawn, and change teams. A
+	client whose host says nothing (OpenCE's, an older build) plays by the
+	Xbox's rules */
+	_delta_capability_host_rules = 19,
 
 	NUMBER_OF_DELTA_CAPABILITIES
 };
@@ -191,9 +202,45 @@ enum delta_platform
 	/* old PCs: DOS and Windows 9x, with a software renderer (JackT's Legacy
 	PC port) */
 	_delta_platform_pc_legacy = 18,
+	/* the 2015 Steam Link (Jizzy's port: armv7, 256 MB, OpenGL ES 2) */
+	_delta_platform_steamlink = 19,
+	/* iPhone and iPad, and the Vision Pro, which runs the iPad build
+	(Jizzy's iOS port, port/ios); and the Apple TV */
+	_delta_platform_ios = 20,
+	_delta_platform_tvos = 21,
 
 	NUMBER_OF_DELTA_PLATFORMS
 };
+
+/* The platforms' names: one row a platform, in the registry's order, the
+one table every place that names a platform reads (a new platform gets its
+row here): its number, its key on the wire and the list (never changed),
+its short tag on an Online Games row, its name in Online Games' details, and
+its name in the PC menus' capitals. The unknown platform's tag and names are
+empty. delta_test.c checks the rows against the registry. */
+#define DELTA_PLATFORM_NAMES(X) \
+	X(_delta_platform_unknown, "unknown", "", "", "") \
+	X(_delta_platform_pc_windows, "pc_windows", "WIN", "Windows", "WINDOWS") \
+	X(_delta_platform_pc_macos, "pc_macos", "MAC", "Mac", "MAC") \
+	X(_delta_platform_pc_linux, "pc_linux", "LNX", "Linux", "LINUX") \
+	X(_delta_platform_android, "android", "AND", "Android", "ANDROID") \
+	X(_delta_platform_steam_deck, "steam_deck", "DECK", "Steam Deck", "STEAM DECK") \
+	X(_delta_platform_xbox, "xbox", "XBOX", "Xbox", "XBOX") \
+	X(_delta_platform_xbox360, "xbox360", "360", "Xbox 360", "XBOX 360") \
+	X(_delta_platform_wiiu, "wiiu", "WIIU", "Wii U", "WII U") \
+	X(_delta_platform_switch, "switch", "NX", "Switch", "SWITCH") \
+	X(_delta_platform_psp, "psp", "PSP", "PSP", "PSP") \
+	X(_delta_platform_vita, "vita", "VITA", "Vita", "VITA") \
+	X(_delta_platform_xbox_uwp, "xbox_uwp", "XBS", "Xbox Series", "XBOX SERIES") \
+	X(_delta_platform_pc_freebsd, "pc_freebsd", "BSD", "FreeBSD", "FREEBSD") \
+	X(_delta_platform_ps3, "ps3", "PS3", "PS3", "PS3") \
+	X(_delta_platform_ps4, "ps4", "PS4", "PS4", "PS4") \
+	X(_delta_platform_ps5, "ps5", "PS5", "PS5", "PS5") \
+	X(_delta_platform_n64, "n64", "N64", "N64", "N64") \
+	X(_delta_platform_pc_legacy, "pc_legacy", "LGCY", "Legacy PC", "LEGACY PC") \
+	X(_delta_platform_steamlink, "steamlink", "LINK", "Steam Link", "STEAM LINK") \
+	X(_delta_platform_ios, "ios", "IOS", "iOS", "IOS") \
+	X(_delta_platform_tvos, "tvos", "ATV", "Apple TV", "APPLE TV")
 
 /* A machine's platform key: its platform and what it can take, 8 bytes on
 the wire in this order (delta_wire.c). Claims, never trusted for game state,
@@ -260,7 +307,10 @@ legacy table's "platform_policy" section is to tune them without a release
 	X(_delta_platform_ps4, 16, 16, 128, 12, 1) \
 	X(_delta_platform_ps5, 16, 16, 128, 13, 1) \
 	X(_delta_platform_n64, 0, 8, 16, 3, 0) \
-	X(_delta_platform_pc_legacy, 16, 16, 128, 7, 0)
+	X(_delta_platform_pc_legacy, 16, 16, 128, 7, 0) \
+	X(_delta_platform_steamlink, 0, 16, 128, 8, 0) \
+	X(_delta_platform_ios, 128, 128, 128, 11, 1) \
+	X(_delta_platform_tvos, 128, 128, 128, 11, 1)
 
 /* ---------- the legacy number */
 
@@ -471,8 +521,8 @@ in the build that enforces it, as a host and a dedicated server alike.
 tools/delta_table.py refuses a row that requires a name not listed here. */
 #define DELTA_HOST_PROTECTIONS(X) \
 	X(hit_report_checks, 1) /* each client's hit report checked before the host deals it (network_damage.c): the reporter's own player, damage of a weapon they hold or lately held, a grenade the host saw them throw or the vehicle they drive, the target near where the host had it when the shooter saw it (a second back at most), within the weapon's reach, no more hits than the weapon fires */ \
-	X(hit_line_of_sight, 0) /* a reported hit refused when the host sees the shot blocked between shooter and target: in no build yet */ \
-	X(address_machine_limit, 0) /* a limit on the machines joined from one address (OpenCE's refusal 13): in no build yet (a server takes at most two waiting connections from one address, which is not that) */ \
+	X(hit_line_of_sight, 1) /* a reported hit refused when the host sees the shot blocked between shooter and target (network_damage.c, network.hit_line_of_sight, on by default on hosts and dedicated servers): from 0.9.0 */ \
+	X(address_machine_limit, 0) /* a limit on the machines joined from one address (OpenCE's refusal 13): 0.9.0 has it (network.max_machines_per_address), off by default on a player's host, so 0 until hosts and dedicated servers alike enforce it */ \
 	X(map_votes, 0) /* the host runs OpenCE's map votes (messages 94 and 95): in no build yet */
 /* the most names a row's "requires" may give */
 #define DELTA_REQUIRES_MAXIMUM 16

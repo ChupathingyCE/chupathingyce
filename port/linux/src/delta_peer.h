@@ -93,6 +93,8 @@ enum
 	DELTA_PEER_MAP_INTERVAL = 5000,
 	/* ... and the game's player traits (TRAITS) the same way */
 	DELTA_PEER_TRAITS_INTERVAL = 5000,
+	/* ... and the host's rules (HOST_RULES) */
+	DELTA_PEER_HOST_RULES_INTERVAL = 5000,
 
 	/* moderation (milliseconds where a time): the host takes MOD_ACTION
 	from a machine at most this often (and at once); checks a machine's
@@ -409,6 +411,9 @@ struct delta_peer_host_peer
 	/* the game's traits as last sent to it (traits_generation), and when */
 	delta_u32 traits_sent_generation;
 	delta_u32 traits_time;
+	/* the host's rules as last sent to it (rules_generation), and when */
+	delta_u32 rules_sent_generation;
+	delta_u32 rules_time;
 	struct delta_peer_host_moderation moderation;
 	struct delta_peer_host_chat chat;
 	/* team changes: the last TEAM_REQUEST's sequence, and their rate */
@@ -468,6 +473,10 @@ struct delta_peer
 	each time they change (0: none set) */
 	struct delta_wire_traits traits;
 	delta_u32 traits_generation;
+	/* the host's rules (delta_peer_set_host_rules), and a number raised
+	each time they change (0: none set) */
+	struct delta_wire_host_rules rules;
+	delta_u32 rules_generation;
 	/* each game machine's address and when the host first saw it in the
 	game with it (0 address: not in the game): its handshake's window starts
 	there (delta_peer_machine_lacks) */
@@ -495,6 +504,10 @@ struct delta_peer
 	(0: none heard) */
 	struct delta_wire_traits host_traits;
 	delta_u32 host_traits_generation;
+	/* the host's rules (HOST_RULES), and a number raised each time they
+	change (0: none heard) */
+	struct delta_wire_host_rules host_rules;
+	delta_u32 host_rules_generation;
 
 	/* both: the legacy table relayed; this machine's signed table as it
 	goes out (its serial: 0 not read yet), and one coming in */
@@ -586,6 +599,14 @@ void delta_peer_set_traits(struct delta_peer *peer, const struct delta_wire_trai
 /* the client's: the host's traits as TRAITS said them last, and the number
 raised each time they changed (0 if none heard) */
 delta_u32 delta_peer_host_traits(const struct delta_peer *peer, struct delta_wire_traits *traits);
+/* the host's: its rules for its players' extras, sent to each client that
+agreed to host_rules (NULL: none, nothing sent). Called each frame; rules
+the same as the last change nothing */
+void delta_peer_set_host_rules(struct delta_peer *peer, const struct delta_wire_host_rules *rules);
+/* the client's: the host's rules as HOST_RULES said them last, and the
+number raised each time they changed (0 if none heard: a host without
+Delta, or an older one, whose players play by the Xbox's rules) */
+delta_u32 delta_peer_host_rules(const struct delta_peer *peer, struct delta_wire_host_rules *rules);
 /* the host's: whether a machine of its game lacks a capability: it speaks
 Delta and did not agree to it (at once), or it has said nothing for the
 handshake's window (DELTA_PEER_HANDSHAKE_TIME) since the host first saw it
@@ -832,6 +853,11 @@ machine does while this host has no Delta), and whether it is still in its
 handshake's window */
 void delta_peer_game_set_traits(const struct delta_wire_traits *traits);
 delta_u32 delta_peer_game_host_traits(struct delta_wire_traits *traits);
+/* the host's rules (port/linux/game/host_rules.c): the host's, sent to the
+clients that agreed to host_rules; the client's, its host's as last heard
+(0: none, or not a client) */
+void delta_peer_game_set_host_rules(const struct delta_wire_host_rules *rules);
+delta_u32 delta_peer_game_host_rules(struct delta_wire_host_rules *rules);
 int delta_peer_game_machine_lacks(int machine_index, int capability);
 /* whether a player's machine agreed to a capability with the host, as this
 machine knows it (its own, the host's, the roster's); none for a player
@@ -892,6 +918,10 @@ struct delta_peer_host_summary
 /* the hosted game's summary (on the game's thread, as the hooks); 0 if
 this machine is not hosting */
 int delta_peer_game_host_summary(struct delta_peer_host_summary *summary);
+/* (the host: cheats.c's object quota) whether an original Xbox (Warthog)
+machine is in the game, whose object array is the PC's eighth: 0 when not
+hosting with Delta, or none */
+int delta_peer_game_hosting_xbox(void);
 /* a platform's registry name ("pc_linux"; "unknown" for a number this
 build does not know), and a name's number (-1 for none) */
 const char *delta_peer_platform_name(int platform);

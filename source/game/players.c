@@ -3514,9 +3514,11 @@ boolean unit_should_autopick_weapon(
 	if ((unit_approve_weapon_pickup(unit_index, weapon_index) &&
 		TEST_FLAG(weapon_definition->weapon.flags, _weapon_doesnt_count_toward_maximum_bit)) ||
 		weapon_count == 0 ||
-		/* port: and in multiplayer (campaign's only), a second weapon into
-		the empty slot, readied (unit_add_weapon_to_inventory) */
-		(unit_approve_weapon_pickup(unit_index, weapon_index) &&
+		/* (in campaign only, a second weapon into the empty slot; in
+		multiplayer the player picks it up with the action button, as on
+		the Xbox) */
+		(!game_engine_running() &&
+			unit_approve_weapon_pickup(unit_index, weapon_index) &&
 			weapon_count < 2) ||
 		game_engine_force_autopickup(unit_index, weapon_index))
 	{
@@ -3576,7 +3578,13 @@ static boolean player_handle_weapon_swap(
 	switch (player->action_result)
 	{
 	case _player_action_result_swap_for_weapon:
-		if (unit_drop_selected_weapon(player->unit_index) &&
+		/* port: a player of this machine swaps out the weapon in hand, as on
+		the Xbox (mid-switch, the one still being put away); another
+		machine's player the one they selected, whose choice reaches the host
+		before its copy of them has finished switching */
+		if ((player->local_player_index != NONE ?
+				unit_drop_current_weapon(player->unit_index, TRUE) :
+				unit_drop_selected_weapon(player->unit_index)) &&
 			unit_add_weapon_to_inventory(
 				player->unit_index,
 				player->action_object_index,

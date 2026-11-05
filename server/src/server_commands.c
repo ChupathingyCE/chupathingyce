@@ -61,9 +61,11 @@ types only) */
 #include "../platform/server_control.h"
 #endif
 #include "server_admin.h"
+#include "server_conduct.h"
 #include "server_config.h"
 #include "server_moderation.h"
 #include "server_names.h"
+#include "host_evidence.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -132,6 +134,10 @@ boolean network_distributed_unban(long index);
 int team_change_move(long list_index, short team, char *text, int size);
 /* (the version: server_platform.c's, updater.c's in the game) */
 const char *updater_version(void);
+#ifdef HALO_SERVER
+/* whether people can join (server_platform.c) */
+int server_platform_reach(char *text, int size, int json);
+#endif
 char const *cache_files_map_directory(void);
 
 /* ---------- structures */
@@ -156,6 +162,7 @@ struct server_player
 	long number;
 	char name[NETWORK_GAME_SERVER_NAME_TEXT_SIZE];
 	long machine_index;
+	long controller_index;
 	long team_index;
 	boolean scored;
 	long score;
@@ -167,6 +174,7 @@ struct server_player
 static boolean command_help(struct command_line const *line, boolean json, struct command_output *output);
 static boolean command_status(struct command_line const *line, boolean json, struct command_output *output);
 static boolean command_players(struct command_line const *line, boolean json, struct command_output *output);
+static boolean command_evidence(struct command_line const *line, boolean json, struct command_output *output);
 static boolean command_kick(struct command_line const *line, boolean json, struct command_output *output);
 static boolean command_ban(struct command_line const *line, boolean json, struct command_output *output);
 static boolean command_unban(struct command_line const *line, boolean json, struct command_output *output);
@@ -208,6 +216,10 @@ static struct server_command const server_commands[] =
 		command_status },
 	{ "sv_players", "sv_players", "The players: number, name, team, score, ping and hardware id.", 1, 1, FALSE,
 		command_players },
+	{ "sv_evidence", "sv_evidence [player]", "What the server refused of each player's machine this game: "
+		"movement and vehicle predictions out of bounds, hit reports that failed validation, windows its clock ran "
+		"fast. Evidence for moderators, never a verdict: a bad connection makes some too.", 1, 2, FALSE,
+		command_evidence },
 	{ "sv_warn", "sv_warn <player> <reason>", "Warns a player: their game shows the reason, if it is a "
 		"ChupathingyCE game (Delta Peer); the warning is in the audit file either way.", 3, 3, TRUE, command_warn },
 	{ "sv_say", "sv_say <text>", "A server message: a line in the chat of every ChupathingyCE player (in quotes for "
@@ -326,6 +338,8 @@ static struct server_command const server_commands[] =
 		"second factor), printed once (console only).", 2, 2, FALSE, command_console_only },
 	{ "sv_account_setup", "sv_account_setup", "A new setup code for the first owner's account, while there is none "
 		"(console only).", 1, 1, FALSE, command_console_only },
+	{ "sv_setup_start", "sv_setup_start", "Starts hosting a server that waits for its first-run setup, with the "
+		"settings it has (console only).", 1, 1, FALSE, command_console_only },
 };
 
 /* the game types sv_map takes (game_engine_get_variant_by_name's) */
@@ -462,6 +476,7 @@ static long get_players(
 		}
 		player->name[character] = 0;
 		player->machine_index = network_player->machine_index;
+		player->controller_index = network_player->controller_index;
 		player->team_index = network_player->team_index;
 		player->ping = NONE;
 		/* (in a game: the score and ping of the player it made of them) */
@@ -758,6 +773,15 @@ static void print_status(
 			command_output_json_string(output, status.skipped);
 		else
 			command_output_printf(output, "null");
+#ifdef HALO_SERVER
+		/* (additive: whether people can join, server/docs/admin.md) */
+		{
+			char reach[512];
+
+			if (server_platform_reach(reach, (int)sizeof(reach), TRUE))
+				command_output_printf(output, ", \"reach\": {%s}", reach);
+		}
+#endif
 		command_output_printf(output, "}");
 		return;
 	}
@@ -780,6 +804,14 @@ static void print_status(
 	command_output_printf(output, "uptime: %s\n", status.uptime_seconds < 60 ? "under a minute" : uptime);
 	if (status.skipped[0])
 		command_output_printf(output, "last skipped: %s\n", status.skipped);
+#ifdef HALO_SERVER
+	{
+		char reach[512];
+
+		if (server_platform_reach(reach, (int)sizeof(reach), FALSE))
+			command_output_printf(output, "%s", reach);
+	}
+#endif
 }
 
 /* ---------- the commands */
@@ -919,6 +951,81 @@ static boolean command_players(
 	return TRUE;
 }
 
+/* sv_evidence: the host's refusals of each player's machine this game
+(port/linux/game/host_evidence.h); counted by machine, so a machine's
+players share theirs. Nothing is kept past the game, nor any address */
+static boolean command_evidence(
+	struct command_line const *line,
+	boolean json,
+	struct command_output *output)
+{
+	static struct server_player players[HALO_PORT_MAXIMUM_NETWORK_PLAYERS];
+	struct server_player one;
+	struct server_player const *list = players;
+	long count;
+	long index;
+	int kind;
+
+	if (line->count == 2)
+	{
+		if (!find_player(line->words[1], &one, output))
+			return FALSE;
+		list = &one;
+		count = 1;
+	}
+	else
+		count = get_players(players, NUMBEROF(players));
+	if (json)
+		command_output_printf(output, "{\"kinds\": [");
+	for (kind = 0; json && kind < NUMBER_OF_HOST_EVIDENCE_KINDS; kind++)
+		command_output_printf(output, "%s\"%s\"", kind ? ", " : "", host_evidence_kind_name(kind));
+	if (json)
+		command_output_printf(output, "], \"players\": [");
+	else if (!count)
+		command_output_printf(output, "no players\n");
+	else
+	{
+		command_output_printf(output, "%3s  %-11s", "#", "name");
+		for (kind = 0; kind < NUMBER_OF_HOST_EVIDENCE_KINDS; kind++)
+			command_output_printf(output, "  %s", host_evidence_kind_name(kind));
+		command_output_printf(output, "\n");
+	}
+	for (index = 0; index < count; index++)
+	{
+		struct server_player const *player = &list[index];
+
+		if (json)
+		{
+			command_output_printf(output, "%s{\"number\": %ld, \"name\": ", index ? ", " : "", player->number);
+			command_output_json_string(output, player->name);
+			command_output_printf(output, ", \"machine\": %ld, \"total\": %lu, \"evidence\": {", player->machine_index,
+				host_evidence_total(player->machine_index));
+			for (kind = 0; kind < NUMBER_OF_HOST_EVIDENCE_KINDS; kind++)
+			{
+				command_output_printf(output, "%s\"%s\": %lu", kind ? ", " : "", host_evidence_kind_name(kind),
+					host_evidence_count(player->machine_index, (enum host_evidence_kind)kind));
+			}
+			command_output_printf(output, "}}");
+		}
+		else
+		{
+			command_output_printf(output, "%3ld  %-11s", player->number, player->name);
+			for (kind = 0; kind < NUMBER_OF_HOST_EVIDENCE_KINDS; kind++)
+			{
+				command_output_printf(output, "  %*lu", (int)strlen(host_evidence_kind_name(kind)),
+					host_evidence_count(player->machine_index, (enum host_evidence_kind)kind));
+			}
+			command_output_printf(output, "\n");
+		}
+	}
+	if (json)
+		command_output_printf(output, "], \"count\": %ld}", count);
+	else if (count)
+		command_output_printf(output, "(this game only; refusals happen on bad connections too: a pattern, not a "
+			"number, is the evidence)\n");
+	return TRUE;
+}
+
 static boolean command_kick(
 	struct command_line const *line,
 	boolean json,
@@ -932,6 +1039,16 @@ static boolean command_kick(
 		return FALSE;
 	machine_names(player.machine_index, names, sizeof(names));
 	note_target(names, line->count == 3 ? line->words[2] : NULL);
+#ifdef HALO_SERVER
+	/* (a Custom Edition player: one of the server's own players, their
+	client dropped alone) */
+	if (server_ce_kick(player.machine_index, player.controller_index, NULL))
+	{
+		error(_error_silent, "dedicated: kicked %s (Custom Edition)", player.name);
+		command_output_printf(output, "kicked %s\n", player.name);
+		return TRUE;
+	}
+#endif
 	/* (a ChupathingyCE game is told why before it goes) */
 	if (line->count == 3)
 		server_moderation_notice(player.machine_index, TRUE, "Kicked", line->words[2]);
@@ -974,6 +1091,21 @@ static boolean command_ban(
 		duration ? duration_text : "", line->count == 4 ? ": " : "", line->count == 4 ? line->words[3] : "");
 	if (duration)
 		until = (unsigned long)time(NULL) + (unsigned long)duration;
+#ifdef HALO_SERVER
+	/* (a Custom Edition player: banned by their address, which their next
+	join is checked against) */
+	{
+		unsigned long address = 0;
+
+		if (server_ce_kick(player.machine_index, player.controller_index, &address))
+		{
+			network_distributed_ban_until(NONE, address, player.name, reason, until);
+			error(_error_silent, "dedicated: banned %s (Custom Edition, %s)", player.name, duration_text);
+			command_output_printf(output, "banned %s %s%s\n", player.name, duration ? "for " : "", duration_text);
+			return TRUE;
+		}
+	}
+#endif
 	server_moderation_notice(player.machine_index, TRUE, "Banned", line->count == 4 ? line->words[3] : duration_text);
 	hardware_id = network_game_server_machine_hardware_id(player.machine_index);
 	if (!network_game_server_drop_machine(player.machine_index, _rejection_code_blacklisted_machine))
@@ -1501,6 +1633,12 @@ static boolean command_say(
 #ifdef HALO_GAME_BROWSER
 	{
 		int sent = chat_server_say(line->words[1]);
+#ifdef HALO_SERVER
+		int sent_ce = server_ce_say(line->words[1]);
+
+		if (sent_ce)
+			command_output_printf(output, "said to %d Custom Edition player%s\n", sent_ce, sent_ce == 1 ? "" : "s");
+#endif
 
 		error(_error_silent, "dedicated: a server message to %d machines", sent);
 		command_output_printf(output, "said to %d ChupathingyCE machine%s\n", sent, sent == 1 ? "" : "s");
@@ -2327,6 +2465,7 @@ void server_commands_update(
 	}
 	server_moderation_update();
 	names_update();
+	server_conduct_update();
 #ifdef HALO_SERVER
 	server_gamespy_update();
 	server_ce_update();

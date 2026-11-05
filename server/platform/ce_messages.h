@@ -29,14 +29,26 @@ enum
 
 	/* message delta types */
 	CE_DELTA_OBJECT_DELETE = 0,
-	CE_DELTA_OBJECT_UPDATE = 5,
+	CE_DELTA_WEAPON_UPDATE = 3,
+	CE_DELTA_BIPED_UPDATE = 4,
+	CE_DELTA_VEHICLE_UPDATE = 5,
 	CE_DELTA_PLAYER_SPAWN = 8,
+	CE_DELTA_UNIT_EXIT = 9,
+	CE_DELTA_ACTION_RESULT = 10,
+	CE_DELTA_UNIT_KILLED = 12,
 	CE_DELTA_CLIENT_UPDATE = 13,
+	CE_DELTA_CHAT = 15,
+	CE_DELTA_SLAYER_SCORES = 16,
+	CE_DELTA_PLAYER_STATISTICS = 21,
 	CE_DELTA_LOCAL_PLAYER_UPDATE = 35,
+	CE_DELTA_LOCAL_VEHICLE_UPDATE = 36,
 	CE_DELTA_REMOTE_PLAYER_ACTIONS = 37,
 	CE_DELTA_REMOTE_PLAYER_POSITION = 39,
+	CE_DELTA_REMOTE_VEHICLE_POSITION = 40,
 	CE_DELTA_PLAYER_ADD = 7,
+	CE_DELTA_VEHICLE_CREATE = 28,
 	CE_DELTA_BIPED_CREATE = 29,
+	CE_DELTA_EQUIPMENT_CREATE = 31,
 	CE_DELTA_WEAPON_CREATE = 32,
 	CE_DELTA_GAME_SETTINGS = 33,
 	/* the client's word that it is there, about every 3 seconds */
@@ -102,9 +114,14 @@ struct ce_weapon_create
 {
 	struct ce_object_create object;
 	unsigned int unknown_large;
-	int unknown_small;
+	/* the first baseline number of its updates (Custom Edition's server:
+	1 for a weapon made in a player's hands, 2 for one in the world) */
+	int baseline;
+	/* each magazine's rounds left (not loaded) */
 	int ammunition[2];
-	int unknown_6bits;
+	/* the weapon's age (a battery's use), 6 bits of 1 */
+	int age;
+	/* each magazine's rounds loaded */
 	int magazine[2];
 };
 
@@ -114,11 +131,88 @@ struct ce_biped_create
 	float change_colors[12];
 	int unknown_boolean;
 	int unknown_6bits_a;
-	int unknown_small;
+	/* the first baseline number of its updates (1) */
+	int baseline;
 	int grenades[2];
-	int unknown_3bits;
-	int unknown_6bits_b;
+	/* its vitality (ce_body_bits, ce_shield_bits) */
+	int body;
+	int shield;
 	int unknown_boolean_b;
+};
+
+/* a biped's state as it changes (what its player's HUD shows): the
+object; a baseline number (8 bits, Custom Edition's server goes up from 2)
+that the client keeps; grenades, body vitality in 3 bits of 1 and shield
+vitality in 6 bits of 3 (ce_body_bits, ce_shield_bits). A client takes
+the body vitality always, the shield only with apply_shield (Custom
+Edition's server leaves it to the client's own damage) */
+struct ce_biped_update
+{
+	int object;
+	int baseline;
+	int apply_shield;
+	int grenades[2];
+	int body;
+	int shield;
+	int unknown_boolean;
+};
+
+/* a weapon's place (in the world, or on its holder), rounds left in each
+magazine and age (6 bits of 1), as it changes: a full update with the
+next baseline number */
+struct ce_weapon_update
+{
+	int object;
+	int baseline;
+	float position[3];
+	int ammunition[2];
+	int age;
+};
+
+/* a player's action as its client's game is to play it (players.h's
+player_action_result, on the player's action object and seat): a weapon
+pickup (weapon_pickup 1; result 7: added, 6: swapped for the one held,
+named in dropped) or another action (weapon_pickup 0; 8: into a vehicle's
+seat) */
+struct ce_action_result
+{
+	int player;
+	int weapon_pickup;
+	int object;
+	int result;
+	int seat;
+	int dropped;
+};
+
+/* a vehicle, still, with its weapons (made first, their parent this
+vehicle), by object number (0: none); its first baseline number (1) */
+struct ce_vehicle_create
+{
+	struct ce_object_create object;
+	int weapons[4];
+	int baseline;
+};
+
+/* a vehicle's place and motion (velocities per tick) */
+struct ce_vehicle_motion
+{
+	float position[3];
+	float velocity[3];
+	float angular_velocity[3];
+	unsigned int forward[2];
+	unsigned int up[2];
+};
+
+/* a vehicle's place and motion, a full update with the next baseline
+number, at the server's time in milliseconds (velocities in 31 bits a
+component over the ranges the definitions give) */
+struct ce_vehicle_update
+{
+	int object;
+	int baseline;
+	unsigned int time;
+	int at_rest;
+	struct ce_vehicle_motion motion;
 };
 
 /* a player's biped and weapons, by object index (0: none) */
@@ -166,6 +260,34 @@ struct ce_remote_actions
 	int grenade;
 };
 
+/* a player's numbers, as the scoreboard and carnage report show them */
+struct ce_player_statistics
+{
+	int kills[4];
+	int assists[4];
+	int betrayals;
+	int deaths;
+	int suicides;
+	/* the game type's own (Capture the Flag, King, Oddball, Race) */
+	int game_specific[3];
+	int multiplayer_special;
+	int flag;
+	float speed_multiplier;
+};
+
+/* a chat line's kind: everyone, team, vehicle, or the server's (a server
+line names no player: CE_CHAT_NO_PLAYER) */
+enum
+{
+	CE_CHAT_ALL = 0,
+	CE_CHAT_TEAM = 1,
+	CE_CHAT_VEHICLE = 2,
+	CE_CHAT_SERVER = 3,
+	CE_CHAT_NO_PLAYER = 0xff,
+	/* a line's characters, at most */
+	CE_CHAT_SIZE = 255,
+};
+
 struct ce_payload
 {
 	unsigned char *data;
@@ -185,12 +307,31 @@ handle and its number on the wire (5 bits) */
 void ce_payload_put_player_add(struct ce_payload *payload, int list_index, unsigned int handle, int player);
 void ce_payload_put_weapon_create(struct ce_payload *payload, const struct ce_weapon_create *weapon);
 void ce_payload_put_biped_create(struct ce_payload *payload, const struct ce_biped_create *biped);
+/* equipment (grenades, powerups) in the world, still; its first baseline
+number (2) */
+void ce_payload_put_equipment_create(struct ce_payload *payload, const struct ce_object_create *equipment, int baseline);
+void ce_payload_put_weapon_update(struct ce_payload *payload, const struct ce_weapon_update *update);
+void ce_payload_put_action_result(struct ce_payload *payload, const struct ce_action_result *result);
 void ce_payload_put_player_spawn(struct ce_payload *payload, const struct ce_player_spawn *spawn);
-/* an object's place: header (two 8-bit numbers, the object, a time in
-milliseconds, a flag) and its position, still, with its orientation */
-void ce_payload_put_object_update(struct ce_payload *payload, int object, unsigned int time, const float position[3],
-	const unsigned int forward[2], const unsigned int up[2]);
+void ce_payload_put_vehicle_create(struct ce_payload *payload, const struct ce_vehicle_create *vehicle);
+void ce_payload_put_vehicle_update(struct ce_payload *payload, const struct ce_vehicle_update *update);
+/* a client's own player in a vehicle's seat, as ce_payload_put_local_player_update:
+the vehicle (its object number) and its motion as that update began */
+void ce_payload_put_local_vehicle_update(struct ce_payload *payload, int sequence, int update_id, int vehicle,
+	const struct ce_vehicle_motion *motion);
+/* another player driving a vehicle: the vehicle and its motion, in place
+of the player's position */
+void ce_payload_put_remote_vehicle_position(struct ce_payload *payload, int player, int update_id, int sequence,
+	int vehicle, const struct ce_vehicle_motion *motion);
+/* a unit out of its vehicle (its object number), as the retail client
+plays it */
+void ce_payload_put_unit_exit(struct ce_payload *payload, int unit, int flag);
 void ce_payload_put_object_delete(struct ce_payload *payload, int object);
+void ce_payload_put_biped_update(struct ce_payload *payload, const struct ce_biped_update *update);
+/* a vitality as the biped messages carry it: body (0 to 1) in 3 bits,
+shield (0 to 3, 1 full) in 6 */
+int ce_body_bits(float vitality);
+int ce_shield_bits(float vitality);
 /* a client's own player: the last of its updates the server took (6 bits),
 a sequence number (5 bits) and where its biped is (a client stops sending
 updates once 64 go untaken) */
@@ -199,14 +340,29 @@ void ce_payload_put_local_player_update(struct ce_payload *payload, int sequence
 void ce_payload_put_remote_player_position(struct ce_payload *payload, int player, int update_id, int sequence,
 	const float position[3]);
 void ce_payload_put_remote_player_actions(struct ce_payload *payload, const struct ce_remote_actions *actions);
+/* a unit killed (its object number), as Custom Edition's server tells a
+death with no direction: the client plays the death itself and shows its
+own player the respawn countdown (ticks) */
+void ce_payload_put_unit_killed(struct ce_payload *payload, int object, int respawn_ticks);
 /* a direction (unit vector) as the wire's two 20-bit numbers */
 void ce_direction(const float vector[3], unsigned int out[2]);
 /* the throttle's two numbers (forward, left) from its 4 bits */
 void ce_throttle(int bits, float *forward, float *left);
+/* client updates refused so far for a yaw or pitch that is not a usable number */
+int ce_refused_facings(void);
 /* the client updates in a payload, onto update (what they leave out stays):
 how many were read */
 int ce_payload_read_client_updates(const unsigned char *payload, int length, struct ce_client_update *update,
 	void (*each)(void *context, const struct ce_client_update *update), void *context);
+/* a chat line (kind CE_CHAT_*, the player who said it or
+CE_CHAT_NO_PLAYER), printable ASCII */
+void ce_payload_put_chat(struct ce_payload *payload, int kind, int player, const char *text);
+/* Slayer's scores: each player's (by absolute index) and each team's */
+void ce_payload_put_slayer_scores(struct ce_payload *payload, const int players[CE_GAME_PLAYERS],
+	const int teams[CE_GAME_PLAYERS]);
+/* a player's numbers (its wire number, 5 bits), in full */
+void ce_payload_put_player_statistics(struct ce_payload *payload, int player,
+	const struct ce_player_statistics *statistics);
 /* the server's keep-alive delta: one entry */
 void ce_payload_put_server_keep_alive(struct ce_payload *payload, int index, unsigned int value);
 /* the payload's length in bytes (written in its first 11 bits), or 0 */

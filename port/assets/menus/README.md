@@ -127,8 +127,9 @@ and what to do.
 | `label` | Kept as the script's name, not run (as the tags keep it) |
 | `sound` | A sound tag of the map to play |
 
-On the keyboard, A is Enter or Space, B is Backspace or F, Start is Escape and
-Back is F1. The mouse picks the item under it, clicks A, right-clicks B and
+On the keyboard, A is Enter or Space, B is Escape or Backspace, X is Delete
+or E, Y is Tab, Back is F1, Start is F2, black is C, white is Q and the
+right trigger is X. The mouse picks the item under it, clicks A, right-clicks B and
 scrolls lists.
 
 The port's functions: `port quit game` quits; `port setting load` (on a
