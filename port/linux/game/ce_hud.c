@@ -664,7 +664,7 @@ static boolean ce_hud_xbox_button_icons(
 		return ce_xbox_button_icons.ready;
 	ce_xbox_button_icons.read = TRUE;
 	snprintf(path, sizeof(path), "%sui.map", cache_files_map_directory());
-	file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
+	file = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
 	if (file == INVALID_HANDLE_VALUE)
 	{
 		error(_error_silent, "Custom Edition maps: no %s; HUD messages draw no controller buttons", path);

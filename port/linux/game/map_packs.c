@@ -134,7 +134,7 @@ static boolean folder_file_path(
 static boolean file_exists(
 	char const *path)
 {
-	HANDLE handle = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+	HANDLE handle = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 
 	if (handle == INVALID_HANDLE_VALUE)
 		return FALSE;
@@ -173,7 +173,7 @@ static unsigned long folder_fingerprint(
 	{
 		return 0;
 	}
-	handle = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+	handle = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 	if (handle == INVALID_HANDLE_VALUE)
 		return 0;
 	size = GetFileSize(handle, NULL);
@@ -396,7 +396,7 @@ static char const *maplist_text(
 		for (index = 0; file == INVALID_HANDLE_VALUE && pack_folder_candidate(pack, index, name, sizeof(name)); index++)
 		{
 			snprintf(path, sizeof(path), "d:\\maps_%s\\maplist.txt", name);
-			file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+			file = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 		}
 		if (file != INVALID_HANDLE_VALUE)
 		{
@@ -468,7 +468,7 @@ static void list_pack(
 		snprintf(file, sizeof(file), "%.*s", (int)(length - 4), data.cFileName);
 		if (!_stricmp(file, "ui") || !folder_file_path(folder, file, path, sizeof(path)))
 			continue;
-		handle = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+		handle = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 		if (handle == INVALID_HANDLE_VALUE)
 			continue;
 		/* (an Xbox cache file's header, as bytes: 'head' and the version
