@@ -7,8 +7,9 @@
 For each level, three games with no window:
   - the tour: every bot sent round the level's places in turn
     (HALO_BOT_GOTO=tour), each leg timed (given up after a minute);
-  - a game of the level's own (capture the flag, or slayer): the captures,
-    kills, and how often bots were stuck (HALO_BOT_STATS);
+  - a game of the level's own (capture the flag, or slayer) with nobody shot at
+    (HALO_BOT_PEACE; --fights: as in a real game): the captures, and how often
+    bots were stuck (HALO_BOT_STATS);
   - on the driving levels, the driving benchmark (HALO_BOT_DRIVEBENCH=ground).
 It prints a line for each and writes them all to --json (bot_levels_results.json).
 With --compare, a file another build wrote: the two side by side, and what is
@@ -27,7 +28,7 @@ import tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
-def run(game, data, level, variant, seconds, speed, extra, octet):
+def run(game, data, level, variant, seconds, speed, extra, octet, seed=5):
     work = tempfile.mkdtemp(prefix="botlevel_")
     try:
         env = dict(os.environ)
@@ -36,7 +37,7 @@ def run(game, data, level, variant, seconds, speed, extra, octet):
             "HALO_NET_ONLINE": "false", "HALO_UPDATE_AUTO": "false", "HALO_DATA_ROOT": data,
             "HALO_SAVE_ROOT": os.path.join(work, "save"), "HALO_NET_ADDRESS": "127.0.0.%d" % octet,
             "HALO_NET_BROADCAST": "127.0.0.%d" % octet, "HALO_NETWORK_TEST": "local:%s@ce:%s" % (level, variant),
-            "HALO_NETWORK_TEST_START": "3", "HALO_BOTS": "8", "HALO_RANDOM_SEED": "5", "HALO_BOT_SKILL": "10",
+            "HALO_NETWORK_TEST_START": "3", "HALO_BOTS": "8", "HALO_RANDOM_SEED": str(seed), "HALO_BOT_SKILL": "10",
             "HALO_GAME_SPEED": str(speed), "HALO_BOT_STATS": "30", "HALO_BOT_LOG": "1",
         })
         env.update(extra)
@@ -88,15 +89,18 @@ def one_level(arguments, level, octet):
         return {"level": level.name, "missing": True}
     tour = ";".join("%.2f,%.2f,%.2f" % p for p in level.tour)
     out = run(arguments.game, arguments.data, level.name, "slayer", arguments.seconds, arguments.speed,
-              {"HALO_BOT_GOTO": "tour", "HALO_BOT_TOUR": tour}, octet)
+              {"HALO_BOT_GOTO": "tour", "HALO_BOT_TOUR": tour}, octet, arguments.seed)
     entry = {"level": level.name, "tour": tour_numbers(out)}
     if "EXCEPTION" in out or "segmentation fault" in out.lower():
         entry["crashed"] = True
-    out = run(arguments.game, arguments.data, level.name, level.game, arguments.seconds, arguments.speed, {}, octet)
+    # (the level's own game with nobody shot at, unless --fights: how they get
+    # about and get the flag home, not who shoots best)
+    out = run(arguments.game, arguments.data, level.name, level.game, arguments.seconds, arguments.speed,
+              {} if arguments.fights else {"HALO_BOT_PEACE": "1"}, octet, arguments.seed)
     entry["game"] = stats(out)
     if level.drive:
         out = run(arguments.game, arguments.data, level.name, "ctf", arguments.seconds, arguments.speed,
-                  {"HALO_BOT_DRIVEBENCH": "ground"}, octet)
+                  {"HALO_BOT_DRIVEBENCH": "ground"}, octet, arguments.seed)
         entry["drive"] = drive_numbers(out)
     return entry
 
@@ -128,6 +132,9 @@ def compare(new, old):
         gs, go = e.get("game", {}), o.get("game", {})
         if float(gs.get("stuck", 0)) > float(go.get("stuck", 0)) * 1.5 + 3:
             worse.append("stuck more")
+        caps = lambda g: float(g.get("caps0", 0)) + float(g.get("caps1", 0))
+        if caps(go) >= 2 and caps(gs) < caps(go) * 0.6:
+            worse.append("fewer captures")
         if "drive" in e and "drive" in o and o["drive"]["speed"] and e["drive"]["speed"] and e["drive"]["speed"] < o["drive"]["speed"] * 0.8:
             worse.append("slower driving")
         if e.get("crashed") and not o.get("crashed"):
@@ -146,6 +153,8 @@ def main():
     parser.add_argument("--parallel", type=int, default=1)
     parser.add_argument("--json", default="bot_levels_results.json")
     parser.add_argument("--compare", default="")
+    parser.add_argument("--seed", type=int, default=5)
+    parser.add_argument("--fights", action="store_true", help="the level's own game with the bots shooting each other")
     arguments = parser.parse_args()
     sys.path.insert(0, HERE)
     import levels as level_definitions

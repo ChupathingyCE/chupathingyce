@@ -131,11 +131,13 @@ def jump_gaps():
         g.box(x, -3, x + 4, 3, 0.0)
         x += 4
     g.box(x + 2.0, -6, 40, 6, 0.0)
-    # (out of the pit at either end)
-    g.ramp(-30, 8, -20, 12, -3.0, 0.0, "x")
-    g.box(-34, 8, -30, 12, 0.0)
-    g.ramp(20, 8, 30, 12, 0.0, -3.0, "x")
-    g.box(30, 8, 36, 12, 0.0)
+    # (out of the pit at either end: up a ramp to a landing joined to the
+    # start, the ramp's top at the landing; they were the wrong way round,
+    # their tops out over the pit and their feet against the landings)
+    g.ramp(-30, 8, -20, 12, 0.0, -3.0, "x")
+    g.box(-34, 6, -30, 12, 0.0)
+    g.ramp(20, 8, 30, 12, -3.0, 0.0, "x")
+    g.box(30, 6, 36, 12, 0.0)
     L.flag(0, -35, 0)
     L.flag(1, 36, 0)
     for k in range(6):
@@ -204,8 +206,8 @@ def jump_zigzag():
     """jumps up from side to side of a run, from one small block to the next"""
     g = Grid(-26, -10, 26, 10, ceiling=12, cell=4)
     L = Level("bot_jump_zigzag", "Jump Zigzag", g,
-              "A ledge 0.7 up, then five jumps up from side to side, block to block (1.8 across, gaps of about 1.6), each 0.35 to 0.5 higher; a flag on a wider block at the top.")
-    rises = [0.4, 0.5, 0.35, 0.5, 0.45]
+              "A ledge 0.7 up, then five jumps up from side to side, block to block (1.8 across, gaps of about 1.6), each 0.35 to 0.45 higher; a flag on a wider block at the top.")
+    rises = [0.4, 0.45, 0.35, 0.45, 0.4]  # (no more than 0.45: a running jump lands 0.5 up at most, and at that it fails)
     h = 0.7
     blocks = []
     x = -12.0

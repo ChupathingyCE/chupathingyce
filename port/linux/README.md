@@ -3204,6 +3204,52 @@ version ended the getting clear too early, after the short getting clear
 that a wall starts. Vehicles on Ice Fields then stood for up to 90
 seconds, swerving with the throttle shut. That is fixed.
 
+### What the test levels found
+
+The bots were run on the test levels (`tools/bot_levels/test.py`) with this
+build and with a build from before the free-for-all and vehicle work, with
+nobody shot at (`HALO_BOT_PEACE=1`: no targets, and no weapons, power item
+timing, hunting or fights heard as goals; the level test plays its games so
+unless `--fights` is given). What was wrong, and what changed:
+
+- **Jumps onto a ledge came down on its corner.** Of the places to jump up
+  or drop between two areas, the first that stood was kept, and along a
+  straight ledge, where they all cost the same, the first was the end of
+  the edge. A bot jumped onto a block at its corner, and the next jump began
+  at the next corner, with a fall on two sides. Now the places a body's
+  width or more in from the ends come first. On the climbing tower, deaths
+  went from 26 to 1, and the samples with a bot at the top from 1 to 1458
+  (the older build had 528). `HALO_BOT_OFF=ledgeends`.
+- **No running jump up over a dip.** A gap whose landing is higher than the
+  takeoff was not a way when the floor under the gap is only a hop down: the
+  bot was to drop and jump up instead. When the landing is higher than a
+  jump from that floor, that way does not exist, and the blocks of a chain
+  of running jumps were reached from nowhere. Now the jump over the gap is
+  a way then. On the jump spiral, the tour went from 21 legs (50 given up)
+  to 649 (none given up). `HALO_BOT_OFF=gapup`.
+- **Back and forth into a sliver of an area.** On the ramp up to the flag of
+  Hang 'Em High at 32.7, -16.5, a bot strayed into a narrow area beside its
+  way, whose way on is back into the area it left. From that one, the way
+  went on into the sliver again. Now, for a second and a half after it
+  leaves an area, a bot whose way goes back there plans from that area, as
+  if still in it. The bot's stalls on the way between the flags fell from
+  55 to 26 samples. `HALO_BOT_OFF=sticky`.
+- **The way round to the flag was always the shortest.** In capture the flag,
+  the ways round to the enemy's flag were scored by length alone, and the
+  bots took the same one every time. Going to the hill (not scored as an
+  objective) they took any of them. Now any way round within the detour
+  allowed is about as likely as any other (`HALO_BOT_OFF=routemix`). A
+  carrier still goes home the quickest way.
+- **Going to find someone, to where they were.** A bot hunting someone went
+  to where they stood when it set off, for up to half a minute on a big map.
+  Now the goal follows them as they move, and the trip (its way, its lane,
+  its way round) is kept. `HALO_BOT_OFF=follow`.
+- **The levels:** the jump gaps level's ramps out of the pit ran the wrong
+  way, and the zigzag's jumps up of 0.5 were at the limit of a running jump
+  (they are 0.45 at most now). The levels whose legs are longer than the
+  test's minute (the big mazes, the loop on foot) give up most of their legs
+  in both builds.
+
 ### How the bots find their way, and what they cost
 
 A bot finds its way with a search that starts at its goal. The search goes
