@@ -39,7 +39,7 @@ the default. `--play` starts the default mode without asking, and `--mode cex` (
 Every Chupathingy build also plays Halo PC multiplayer maps: Windows
 (32-bit and 64-bit), Mac, Linux (32-bit and 64-bit), Android and the
 dedicated server. The original Xbox test builds play Custom Edition maps too,
-and their Map Browser, under Online Games, downloads them. Each kind has a folder of its own beside the game's
+and their Map Browser (Multiplayer > MAP BROWSER) downloads them. Each kind has a folder of its own beside the game's
 `maps` folder:
 
 | Folder | What goes in it | Played online as |
