@@ -702,6 +702,30 @@ long find_unused_local_player_index(
 void player_delete(
 	long player_index)
 {
+	short local_player_index;
+
+	/* port: a local player who quit the game in progress, whose slot
+	another machine's player takes (network_game_spawn_player), is no longer
+	this machine's local player. His handle left in the table was read by the
+	next input update (player_control.c), a halt on a datum that is gone or
+	another player's, and by a player joining again for that controller
+	(local_player_set_player_index). */
+	if (players_globals && player_index != NONE)
+	{
+		for (local_player_index = 0;
+			local_player_index < MAXIMUM_LOCAL_PLAYERS;
+			local_player_index++)
+		{
+			if (players_globals->local_players[local_player_index] != NONE &&
+				DATUM_INDEX_TO_ABSOLUTE_INDEX(players_globals->local_players[local_player_index]) ==
+					DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index))
+			{
+				players_globals->local_players[local_player_index] = NONE;
+				player_control_new_unit(local_player_index, NONE);
+			}
+		}
+	}
+
 	datum_delete(
 		player_data,
 		player_index);
