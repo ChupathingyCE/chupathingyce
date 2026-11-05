@@ -1875,11 +1875,72 @@ a frame for each of its eight rows, then the Xbox's five button settings,
 which CONTROLS' row shows for the edited profile */
 #define CHUPATHINGY_FIRST_LAYOUT_FRAME 8
 
+/* ABOUT's row (the picture's frame for it is blank): this build and the
+project, in the picture's place (its about_text) */
+#define CHUPATHINGY_ABOUT_FRAME 6
+#define CHUPATHINGY_ABOUT_LENGTH 512
+
+static void chupathingy_settings_about(struct widget_instance *picture)
+{
+	extern char const *build_identity_watermark(void);
+#ifdef HALO_GAME_BROWSER
+	extern char const *build_identity_user_agent(void);
+#endif
+	struct widget_instance *about = named(picture, "about_text", 0);
+	wchar_t wide[CHUPATHINGY_ABOUT_LENGTH];
+	char text[CHUPATHINGY_ABOUT_LENGTH], version[64], platform[64];
+	char const *watermark, *agent, *open, *close, *notice;
+	long index;
+
+	if (!about)
+		return;
+	if (picture->animation.current_frame_index != CHUPATHINGY_ABOUT_FRAME)
+	{
+		text_set_length(about, L"", CHUPATHINGY_ABOUT_LENGTH);
+		return;
+	}
+	/* (lines end in "\r\n", as the menus' strings do; the version and
+	commit, without an update's notice after them; the platform as the
+	build's requests name it, "ChupathingyCE/0.9.0 (macOS arm64)", where
+	it makes them) */
+	watermark = build_identity_watermark();
+	notice = strstr(watermark, " - ");
+	snprintf(version, sizeof(version), "%.*s", notice ? (int)(notice - watermark) : (int)strlen(watermark), watermark);
+#ifdef HALO_GAME_BROWSER
+	agent = build_identity_user_agent();
+#else
+	agent = "";
+#endif
+	open = strchr(agent, '(');
+	close = open ? strchr(open, ')') : NULL;
+	if (open && close)
+		snprintf(platform, sizeof(platform), "%.*s, %d-bit", (int)(close - open - 1), open + 1, (int)sizeof(void *) * 8);
+	else
+		snprintf(platform, sizeof(platform), "%d-bit", (int)sizeof(void *) * 8);
+	snprintf(text, sizeof(text),
+		"Chupathingy %s\r\n"
+		"%s\r\n"
+		"\r\n"
+		"A fan-made port of the Halo: Combat\r\n"
+		"Evolved decompilation. Not affiliated\r\n"
+		"with Microsoft or Bungie.\r\n"
+		"\r\n"
+		"Free software under the GPL-3.0.\r\n"
+		"chupathingy.org\r\n"
+		"discord.gg/chupathingy",
+		version, platform);
+	for (index = 0; text[index] && index < CHUPATHINGY_ABOUT_LENGTH - 1; index++)
+		wide[index] = (wchar_t)(unsigned char)text[index];
+	wide[index] = 0;
+	text_set_length(about, wide, CHUPATHINGY_ABOUT_LENGTH);
+}
+
 /* "chupathingy settings picture" (the picture's own) */
 static void chupathingy_settings_picture(struct widget_instance *picture)
 {
 	struct player_profile *profile = player_ui_get_edit_player_profile();
 
+	chupathingy_settings_about(picture);
 	if (picture->animation.current_frame_index == PROFILE_GAMEPAD_FRAME)
 	{
 		if (profile && profile->controller_settings.button_preset >= _button_preset_bumper_jumper)
