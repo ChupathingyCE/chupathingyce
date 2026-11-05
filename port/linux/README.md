@@ -558,7 +558,7 @@ the setting for one start of the game. It has priority over the file.
 | `display.high_res_font` | `""` | `HALO_HIGH_RES_FONT` | The player's own font file (`.ttf` or `.otf`) for the high-res text and the menu text of Online Games, in place of the built-in fonts (`port/assets/fonts/fonts.json`). A relative path is in `data/fonts/` in the data root (a path that leaves that folder is refused); an absolute path is used as it is. A file that is missing or is not a font is logged, and the built-in font is drawn. A change applies while the game runs. |
 | `display.high_res_font_large` | `""` | `HALO_HIGH_RES_FONT_LARGE` | As `display.high_res_font`, for the large text only (the font tags with the role `large` in `fonts.json`: `ui\large_ui`, `ui\interstate`; Online Games' large menu text). Empty: `display.high_res_font`. |
 | `display.shadow_resolution` | `256` (the server: `128`) | `HALO_SHADOW_RESOLUTION` | The size of the maps that the shadows of the objects are drawn in, in pixels each way: `128`, `256`, `512` or `1024` (other values go down to one of these). The game draws the shadow of each object into a map of 128x128 pixels, blurs it and projects it onto the ground. On a large screen, the edges of these shadows show steps that move when the object moves. A larger map makes the edges smooth; the blur is made wider to match, so the shadows are as soft as on the Xbox. Each doubling adds two passes of the blur. `128`: as on the Xbox. |
-| `display.anisotropic_filtering` | `0` | `HALO_ANISOTROPIC_FILTERING` | Sharper textures on surfaces seen at a slant, such as floors and walls in the distance: `0` (off, as on the Xbox), `2`, `4`, `8` or `16` (other values go down to one of these, and to the most the graphics can do). Applies to the textures that have mip levels; the menus and HUD look the same. |
+| `display.anisotropic_filtering` | `0` | `HALO_ANISOTROPIC_FILTERING` | Sharper textures on surfaces seen at a slant, such as floors and walls in the distance: `0` (off, as on the Xbox), `2`, `4`, `8` or `16` (other values go down to one of these, and to the most the graphics can do). Applies to the flat textures that have mip levels (not to the cube maps the game looks up by direction); the menus and HUD look the same. |
 | `display.full_model_detail` | `false` | `HALO_FULL_MODEL_DETAIL` | `true`: every model (characters, vehicles, weapons, scenery) is drawn with its most detailed geometry at any distance, instead of the simpler versions the game uses for models far away. Drawing only: the game itself is unchanged. `false`: as on the Xbox. |
 | `display.menus` | `"chupathingy"` | `HALO_MENUS` | `"chupathingy"` (the default): the Xbox's menus with Halo PC's PROFILES, SETTINGS and QUIT, the settings pages, and Online Games, in the Xbox's look. `"xbox"`: the Xbox's menus, as close to the console as can be, with Online Games. `"gearbox"` (or the older `"pc"`): Gearbox's Halo PC menus. The Halo PC screens are built from the files in `port/assets/menus` and a `menus` folder next to `config.toml`. A file that sets `"xbox"` (the default before 0.8.0) keeps it. Refer to "Menus". |
 | `display.version_watermark` | `false` | `HALO_VERSION_WATERMARK` | `true`: the build's version ("0.7.5a (5c1a363)"), which the main menu shows small and faint in the bottom right corner, is shown there while playing too: handy for screenshots and bug reports. |
@@ -1185,8 +1185,10 @@ nothing measures a host before you join it. Sorted by ping, such games come
 last. The details show the map's picture from the menus, or from Halo PC's
 `ui.map`. Without either, a stock map's picture comes from the site
 (stats.chupathingy.org/art/maps), downloaded in the background only while
-`network.online` is on and kept in the save root's `map_art` folder. Any
-other map gets a card with its name in its family's color. RB (Link Profile)
+`network.online` is on and kept in the save root's `map_art` folder. So
+does a HaloMD or Custom Edition map's picture, when the site has one
+(art/maps/md, art/maps/ce). Any other map gets a card with its name in its
+family's color. RB (Link Profile)
 shows only while this copy is not linked to a profile: linked on this copy
 (kept in the save root's `game_list_profile.txt`), or a profile the site
 has for this copy's player ID. Once linked, Start's prompt names the

@@ -69,7 +69,7 @@ int map_file_hash_prefix(const char *path, unsigned int *prefix)
 
 	if (!path || strlen(path) >= MAP_FILE_HASH_PATH_SIZE)
 		return 0;
-	file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+	file = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 	if (file == INVALID_HANDLE_VALUE)
 		return 0;
 	memset(&entry, 0, sizeof(entry));

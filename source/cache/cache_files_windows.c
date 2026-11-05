@@ -542,7 +542,23 @@ static boolean ce_map_open(
 		}
 		return FALSE;
 	}
-	file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL);
+	/* (Custom Edition's resource maps, which every such map reads: without
+	them, or with Halo PC's own in their place, it is refused before it is
+	read, saying what it needs, and asked again the next time, since the
+	player may have added them since: map_family_resources_ready logs each
+	place it looked) */
+	if (!map_family_resources_ready(ce_refused_map_message, sizeof(ce_refused_map_message)))
+	{
+		error(_error_silent, "%s map %s refused: Custom Edition's resource maps are missing or not Custom Edition's",
+			map_family_kind(family), map_name);
+		console_warning("%s map %s: %s", map_family_kind(family), map_name, MAP_REASON_CE_RESOURCES);
+		memset(ce_refused_map_name, 0, sizeof(ce_refused_map_name));
+		strncpy(ce_refused_map_name, map_name, sizeof(ce_refused_map_name) - 1);
+		ce_refused_map_size = 0;
+		ce_refused_map_checksum = 0;
+		return FALSE;
+	}
+	file = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL);
 	if (file == INVALID_HANDLE_VALUE)
 		return FALSE;
 	memset(&header, 0, sizeof(header));
@@ -1530,7 +1546,7 @@ static boolean cached_map_file_current(
 	boolean current = TRUE;
 
 	cache_file_get_map_path(cache_map_name, path);
-	file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
+	file = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
 	if (file != INVALID_HANDLE_VALUE)
 	{
 		FILETIME written;

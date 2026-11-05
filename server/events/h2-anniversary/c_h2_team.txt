@@ -1,0 +1,20 @@
+# [C] H2 Team: the Halo 2 anniversary main rotation on the HaloMD Halo 2
+# maps (maps_md): Team Slayer, CTF, King of the Hill and Snipers, Rockets to
+# finish. The map's own starting weapons (h2_*_map). Rockets is free for
+# all, so a lone player is not left waiting when every team game is skipped.
+
+# map              game type
+beaverc_2@md       h2_slayer_map
+coagulat_1@md      h2_ctf_map
+ivorytower_1@md    h2_king
+zanzibar_1@md      h2_slayer_map
+sanctuary_7@md     h2_ctf_map
+turf2_1@md         h2_king
+zanzibar_1@md      h2_snipers
+coagulat_1@md      h2_slayer_map
+zanzibar_1@md      h2_ctf_map
+ivorytower_1@md    h2_slayer_map
+beaverc_2@md       h2_ctf_map
+sanctuary_7@md     h2_slayer_map
+relicv2_3@md       h2_ctf_map
+coagulat_1@md      h2_rockets

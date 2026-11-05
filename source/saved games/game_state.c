@@ -104,6 +104,7 @@ symbols in this file:
 #include "tag_files.h"
 #include "cache_files.h"
 #include "scenario.h"
+#include "scenario_definitions.h"
 #include "main.h"
 #include "objects.h"
 #include "game_sound.h"
@@ -124,6 +125,9 @@ symbols in this file:
 #include "cluster_partitions.h"
 /* port: object_bounds_cache.c's */
 void object_bounds_cache_invalidate(void);
+/* port: hs_runtime.c's and hs_globals_external.c's (game_state_image_accept) */
+extern struct data_array *hs_global_data;
+extern short const hs_external_global_count;
 
 void platform_log(const char *format, ...);
 
@@ -879,6 +883,22 @@ static boolean game_state_image_lruv_cache_valid(
 	return game_state_image_data_valid(image, blocks_live, allocation->maximum_count, sizeof(struct lruv_cache_block));
 }
 
+/* whether a saved game's "hs globals" array (its count: one past the last
+datum) is laid out as this build lays it out for the map: the game's own
+globals first (hs_external_global_count of them, which differs from build to
+build: the desktop builds have the Custom Edition's 14 more than the Xbox's,
+and a build may add more), then the map's (hs_runtime_initialize_for_new_map).
+An image of another build's layout passes every other check, and its scripts
+would read the map's globals at the wrong places, or past the last one (a
+crash in hs_global_evaluate) */
+static boolean game_state_image_hs_globals_valid(
+	long image_count,
+	long external_count,
+	long scenario_count)
+{
+	return image_count == external_count + scenario_count;
+}
+
 boolean game_state_image_accept(
 	void *image,
 	long size)
@@ -910,6 +930,21 @@ boolean game_state_image_accept(
 		}
 		if (!valid)
 			return FALSE;
+	}
+	if (global_scenario_index != NONE && hs_global_data && hs_global_data->valid)
+	{
+		struct data_array const *globals = game_state_image_pointer(image, hs_global_data);
+		long scenario_count = global_scenario_get()->hs_globals.count;
+
+		if (!game_state_image_hs_globals_valid(globals->count, hs_external_global_count, scenario_count))
+		{
+			error(2, "the saved game is not taken: it was saved by a different build (its script globals "
+				"take %d places, this build's %ld: %d of the game's and %ld of the map's)",
+				globals->count, hs_external_global_count + scenario_count, hs_external_global_count,
+				scenario_count);
+
+			return FALSE;
+		}
 	}
 	/* (the console reads straight into the game state: nothing to copy) */
 	if (image != game_state_globals.base_address)

@@ -1291,6 +1291,10 @@ static boolean network_game_server_machine_may_add_player_ingame(
 	return TRUE;
 }
 
+/* port: (port/linux/game/network_distributed.h) */
+boolean network_damage_host_tables_allocate(void);
+void network_damage_host_tables_free(void);
+
 /* ---------- public code */
 
 struct network_game_server *network_game_server_create(
@@ -1321,6 +1325,10 @@ struct network_game_server *network_game_server_create(
 			transport_server_initialize();
 #endif
 
+			/* port: the host's damage tables (network_damage.c), which a
+			machine that only joins doesn't carry; a host without them
+			deals none of its clients' hits, and says so */
+			network_damage_host_tables_allocate();
 			server->state = _network_game_server_state_pregame;
 			server->flags = FLAG(_network_game_server_game_valid_bit);
 			csmemset(&server->game, 0, sizeof(server->game));
@@ -1460,11 +1468,14 @@ newer one the legacy table proves is taken: port/linux/src/delta.c) */
 
 	if (server->connection)
 		network_connection_delete(server->connection);
+	/* port: and its damage tables */
+	network_damage_host_tables_free();
 
 #ifdef xbox
 	/* port: native transports flush before closing sockets, and unregistering
-	an XNet key is a stub. Preserve the original grace period on other builds. */
-#if !defined(HALO_WINDOWS) && !defined(HALO_ANDROID) && !defined(__linux__)
+	an XNet key is a stub. The original grace period stays on a console on
+	the XDK's XNet (halo_console_features.h). */
+#ifdef HALO_CONSOLE_SERVER_CLOSE_GRACE
 	SleepEx(MILLISECONDS_PER_SECOND, FALSE);
 #endif
 	transport_server_terminate();
@@ -2977,6 +2988,32 @@ that announces 35 or later waits for a joining machine's HELLO first,
 network_server_message_handler.c); started by
 network_game_server_start_waiting_late_joiners once it is known */
 static boolean network_game_server_late_joiner_waiting[MAXIMUM_NETWORK_MACHINE_COUNT];
+/* port: ... and for the rest of its players: a machine's first player joins
+the game in progress, and its pregame screen stays up a few seconds more,
+long enough for the players on its other controllers to press A and join
+too (split screen); started at once when all four are in. When its first
+player was added (system_milliseconds, 0 for not yet) */
+#define LATE_JOINER_ADD_PLAYERS_MILLISECONDS 5000
+static unsigned long network_game_server_late_joiner_first_added[MAXIMUM_NETWORK_MACHINE_COUNT];
+
+/* the players of the machine in the game */
+static short network_game_server_machine_player_count(
+	struct network_game_server *server,
+	long machine_index)
+{
+	long index;
+	short count = 0;
+
+	for (index = 0; index < MAXIMUM_NETWORK_PLAYER_COUNT; index++)
+	{
+		if (network_player_is_valid(&server->game.players[index]) &&
+			server->game.players[index].machine_index == machine_index)
+		{
+			count++;
+		}
+	}
+	return count;
+}
 
 /* the settings (with the machine's players) and the start, to the machine
 alone, the start with the host's game time */
@@ -2989,7 +3026,25 @@ static void network_game_server_start_late_joiner(
 
 	{
 		long slot = machine - server->client_machines;
+		unsigned long now = system_milliseconds();
 
+		/* (the time for its other players to join: above) */
+		if (slot >= 0 && slot < MAXIMUM_NETWORK_MACHINE_COUNT)
+		{
+			if (!network_game_server_late_joiner_first_added[slot])
+				network_game_server_late_joiner_first_added[slot] = now ? now : 1;
+			if (now - network_game_server_late_joiner_first_added[slot] < LATE_JOINER_ADD_PLAYERS_MILLISECONDS &&
+				network_game_server_machine_player_count(server, machine->machine_index) < MAXIMUM_NUMBER_OF_LOCAL_PLAYERS)
+			{
+				if (!network_game_server_late_joiner_waiting[slot])
+				{
+					network_game_server_late_joiner_waiting[slot] = TRUE;
+					network_event("machine #%d joins the game in progress in %d seconds, or when its other players are in",
+						machine->machine_index, LATE_JOINER_ADD_PLAYERS_MILLISECONDS / 1000);
+				}
+				return;
+			}
+		}
 		if (network_game_server_settings_waiting(server, machine))
 		{
 			if (slot >= 0 && slot < MAXIMUM_NETWORK_MACHINE_COUNT && !network_game_server_late_joiner_waiting[slot])
@@ -3001,7 +3056,10 @@ static void network_game_server_start_late_joiner(
 			return;
 		}
 		if (slot >= 0 && slot < MAXIMUM_NETWORK_MACHINE_COUNT)
+		{
 			network_game_server_late_joiner_waiting[slot] = FALSE;
+			network_game_server_late_joiner_first_added[slot] = 0;
+		}
 	}
 
 	/* (the message carries 16 bits: the client has the rest from its first
@@ -3046,9 +3104,11 @@ static void network_game_server_start_waiting_late_joiners(
 			TEST_FLAG(machine->flags, _network_client_machine_started_late_bit))
 		{
 			network_game_server_late_joiner_waiting[slot] = FALSE;
+			network_game_server_late_joiner_first_added[slot] = 0;
 			continue;
 		}
-		if (!network_game_server_settings_waiting(server, machine))
+		/* (a player of it still being added starts it when it is in) */
+		if (!network_game_server_machine_has_waiting_players(server, machine->machine_index))
 			network_game_server_start_late_joiner(server, machine);
 	}
 }

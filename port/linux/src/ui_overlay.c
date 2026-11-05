@@ -1103,30 +1103,40 @@ static struct glyph *glyph(int font, int pixel_size, unsigned int codepoint, int
 	entry->advance = posix_ui_font_advance(font, (float)pixel_size, codepoint, 0);
 	entry->atlas_x = (short)overlay.shelf_x;
 	entry->atlas_y = (short)overlay.shelf_y;
-#ifdef HALO_BGFX
-	if (xgpu_bgfx && bitmap && width > 0 && height > 0)
-	{
-		int row;
-
-		for (row = 0; row < height; row++)
-			memcpy(overlay.atlas_texels + (overlay.shelf_y + row) * ATLAS_SIZE + overlay.shelf_x,
-				bitmap + row * width, (size_t)width);
-		if (overlay.shelf_y < overlay.dirty_top)
-			overlay.dirty_top = overlay.shelf_y;
-		if (overlay.shelf_y + height > overlay.dirty_bottom)
-			overlay.dirty_bottom = overlay.shelf_y + height;
-		overlay.shelf_x += width + 2;
-		if (height > overlay.shelf_height)
-			overlay.shelf_height = height;
-	}
-	else
-#endif
 	if (bitmap && width > 0 && height > 0)
 	{
-		glBindTexture(GL_TEXTURE_2D, overlay.atlas);
-		glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-		glTexSubImage2D(GL_TEXTURE_2D, 0, overlay.shelf_x, overlay.shelf_y, width, height, GL_RED, GL_UNSIGNED_BYTE,
-			bitmap);
+		/* the glyph with a clear texel all around: a quad at a fraction of a
+		pixel filters in the texels beside its glyph, which hold whatever was
+		there before (a glyph from before the atlas started over, or a new
+		texture's undefined texels), drawn as lines at the glyph's sides */
+		int bordered_width = width + 2, bordered_height = height + 2, row;
+		unsigned char *bordered = calloc((size_t)bordered_width * (size_t)bordered_height, 1);
+
+		if (bordered)
+		{
+			for (row = 0; row < height; row++)
+				memcpy(bordered + (row + 1) * bordered_width + 1, bitmap + row * width, (size_t)width);
+#ifdef HALO_BGFX
+			if (xgpu_bgfx)
+			{
+				for (row = 0; row < bordered_height; row++)
+					memcpy(overlay.atlas_texels + (overlay.shelf_y - 1 + row) * ATLAS_SIZE + overlay.shelf_x - 1,
+						bordered + row * bordered_width, (size_t)bordered_width);
+				if (overlay.shelf_y - 1 < overlay.dirty_top)
+					overlay.dirty_top = overlay.shelf_y - 1;
+				if (overlay.shelf_y + height + 1 > overlay.dirty_bottom)
+					overlay.dirty_bottom = overlay.shelf_y + height + 1;
+			}
+			else
+#endif
+			{
+				glBindTexture(GL_TEXTURE_2D, overlay.atlas);
+				glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+				glTexSubImage2D(GL_TEXTURE_2D, 0, overlay.shelf_x - 1, overlay.shelf_y - 1, bordered_width,
+					bordered_height, GL_RED, GL_UNSIGNED_BYTE, bordered);
+			}
+			free(bordered);
+		}
 		overlay.shelf_x += width + 2;
 		if (height > overlay.shelf_height)
 			overlay.shelf_height = height;

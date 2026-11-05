@@ -6308,7 +6308,11 @@ enum ui_mouse_target_kind
 	_ui_mouse_target_list_forward,
 	/* a setting's row around its value (ui_mouse_merge_setting_rows): the
 	pointer gives the value the focus, and a click does nothing more */
-	_ui_mouse_target_row
+	_ui_mouse_target_row,
+	/* a tab of a screen of ours, which the d-pad never reaches (the
+	Chupathingy menus' game type editor's, named tab_...): a click sends
+	its A to it, which opens its page */
+	_ui_mouse_target_tab
 };
 
 struct ui_mouse_target
@@ -6472,10 +6476,10 @@ static void ui_debug_draw_targets(
 			/* in the order of enum ui_mouse_target_kind; the band's two sides
 			share orange, which no other kind uses */
 			static pixel32 const colors[] = { 0xc000ff00, 0xc04080ff, 0xc0ffff00, 0xc0ff0000, 0xc0ff8000, 0xc0ff8000,
-				0x8000ffff };
+				0x8000ffff, 0xc0ff00ff };
 			short kind = ui_mouse_targets[index].kind;
 
-			ui_debug_draw_outline(&ui_mouse_targets[index].bounds, colors[PIN(kind, 0, 6)]);
+			ui_debug_draw_outline(&ui_mouse_targets[index].bounds, colors[PIN(kind, 0, 7)]);
 		}
 	}
 	ui_debug_draw_mark(&ui_debug_down_mark, 0xffff00ff);
@@ -6642,6 +6646,31 @@ static boolean ui_mouse_widget_is_item(
 		TEST_FLAG(definition->flags, _widget_pass_unhandled_events_to_children_bit) ||
 		widget->type == _ui_widget_type_spinner_list ||
 		widget->type == _ui_widget_type_column_list;
+}
+
+/* whether a widget is a tab of a screen of ours (port/assets/menus): one
+named tab_... with an A of its own, which the d-pad never gives the focus */
+static boolean ui_mouse_widget_is_tab(
+	struct widget_instance *widget)
+{
+	struct ui_widget_definition *definition = ui_widget_definition_get(widget->definition_tag_index);
+	long handler_index;
+
+	if (!widget->parent || !widget->visible || !widget->name || strncmp(widget->name, "tab_", 4) ||
+		!pc_menu_tag(widget->definition_tag_index))
+	{
+		return FALSE;
+	}
+	for (handler_index = 0; handler_index < definition->event_handlers.count; handler_index++)
+	{
+		struct ui_widget_event_handler_reference *handler =
+			(struct ui_widget_event_handler_reference *)xbox_pointer(definition->event_handlers.address) + handler_index;
+
+		if (handler->event_type == _gamepad_analog_button_a)
+			return TRUE;
+	}
+
+	return FALSE;
 }
 
 /* notes a target that steps a list by one, unless it is empty or the
@@ -6836,6 +6865,10 @@ static void ui_mouse_note_target(
 	else if (ui_mouse_widget_is_item(widget))
 	{
 		kind = _ui_mouse_target_item;
+	}
+	else if (ui_mouse_widget_is_tab(widget))
+	{
+		kind = _ui_mouse_target_tab;
 	}
 	else
 	{
@@ -7442,11 +7475,12 @@ static void ui_debug_log_click(
 	long frames)
 {
 	/* in the order of enum ui_mouse_target_kind */
-	static char const *const kinds[] = { "item", "value", "list slot", "button", "list back", "list forward", "row" };
+	static char const *const kinds[] = { "item", "value", "list slot", "button", "list back", "list forward", "row",
+		"tab" };
 
 	if (target)
 	{
-		char const *kind = kinds[PIN(target->kind, 0, 6)];
+		char const *kind = kinds[PIN(target->kind, 0, 7)];
 		char const *name = tag_get_name(target->widget->definition_tag_index);
 
 		/* a value steps by the side of its split the tap is on, and once
@@ -7477,7 +7511,8 @@ count change, to read a screen's targets against a screenshot */
 static void ui_debug_log_targets(
 	void)
 {
-	static char const *const kinds[] = { "item", "value", "list slot", "button", "list back", "list forward", "row" };
+	static char const *const kinds[] = { "item", "value", "list slot", "button", "list back", "list forward", "row",
+		"tab" };
 	static long last_screen = NONE;
 	static long last_count = NONE;
 	struct widget_instance *screen;
@@ -7500,7 +7535,7 @@ static void ui_debug_log_targets(
 	{
 		struct ui_mouse_target const *target = &ui_mouse_targets[index];
 
-		platform_log("touch targets:   %s %s [%d,%d,%d,%d]", kinds[PIN(target->kind, 0, 6)],
+		platform_log("touch targets:   %s %s [%d,%d,%d,%d]", kinds[PIN(target->kind, 0, 7)],
 			tag_get_name(target->widget->definition_tag_index),
 			target->bounds.x0, target->bounds.y0, target->bounds.x1, target->bounds.y1);
 	}
@@ -7793,6 +7828,17 @@ static void ui_widgets_process_mouse(
 				case _ui_mouse_target_button:
 					ui_mouse_press(target->button_index);
 					break;
+				case _ui_mouse_target_tab:
+				{
+					/* (straight to the tab: a press goes to the focus, which
+					is the screen's list) */
+					boolean deleted;
+
+					ui_widget_port_dispatch_event(target->widget, _gamepad_analog_button_a,
+						target->widget->local_player_index != NONE ? target->widget->local_player_index : controller_index,
+						&deleted);
+					break;
+				}
 				case _ui_mouse_target_list_back:
 				case _ui_mouse_target_list_forward:
 				{

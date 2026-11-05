@@ -236,6 +236,12 @@ HALO_CONSOLE_XBOX_MAP_SIZES
 	is b40's 74): 39 KB less. A map past either limit loses only what is
 	past it: the lens flares past it (said once in debug.txt), or those
 	vehicles' respawn
+HALO_CONSOLE_NO_HALOMD_MAPS
+	a console that plays Custom Edition maps but not HaloMD's, named in
+	the message a HaloMD map gets ("the Xbox"): the menus' map list leaves
+	maps_md out (port/linux/game/ui_map_list.c), and a game on a HaloMD
+	map says it can't be played here rather than that the map is missing
+	(source/cache/cache_files.c)
 HALO_CONSOLE_NO_LOADING_PICTURE
 	the disc's loading.tga on the loading screen, as the Xbox showed it,
 	instead of Chupathingy's picture (port/linux/game/loading_picture.c,
@@ -258,6 +264,12 @@ HALO_PORT_WIDE_INTERFACE
 	columns: every native build, and a console with
 	HALO_CONSOLE_ANAMORPHIC_SCREEN. The HUD's zoomed view and the menus'
 	full-screen fades have code for it (hud_draw.c, ui_widget.c)
+HALO_CONSOLE_SERVER_CLOSE_GRACE
+	the original game's one-second wait when a hosted game ends, before the
+	host's transport closes (network_game_server_dispose, source/
+	networking/network_server_manager.c): for a console on the XDK's XNet,
+	whose sockets need it. The native transports flush before they close
+	and need no wait
 
 A big-endian console (HALO_BIG_ENDIAN, its prefix header) reads the maps,
 which are the Xbox's, little-endian, through port/console/game's byte swap
@@ -306,6 +318,8 @@ compile lines: source/cseries/xbox_address.h).
 #define HALO_CONSOLE_OVERSIZED_MAPS 1
 #define HALO_CONSOLE_LIGHT_LIMITS 1
 #define HALO_CONSOLE_XBOX_MAP_SIZES 1
+#define HALO_CONSOLE_NO_HALOMD_MAPS "the Xbox"
+#define HALO_CONSOLE_SERVER_CLOSE_GRACE 1
 #define HALO_CONSOLE_ANAMORPHIC_SCREEN 1
 #endif
 

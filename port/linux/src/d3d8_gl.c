@@ -52,6 +52,7 @@ static void bg_frame_account(char *text, size_t size);
 static void bg_visibility_begin(void);
 static void bg_visibility_end(DWORD index);
 static UINT bg_visibility_result(DWORD index);
+static BOOL bg_back_buffer_size(int *width, int *height, int *pixel_width, int *pixel_height);
 #endif
 
 void d3d8_surface_initialize(D3DSurface *surface, D3DFORMAT format, unsigned long width, unsigned long height);
@@ -2234,9 +2235,24 @@ HRESULT WINAPI Direct3D_CreateDevice(UINT adapter, D3DDEVTYPE device_type, void 
 there is no back buffer or window yet */
 static BOOL ui_point_view_get(struct ui_point_view *view)
 {
-	struct render_target_entry *back_buffer = render_target_get(&device.back_buffer);
+	struct render_target_entry *back_buffer;
 
-	if (!back_buffer)
+	/* (the present area only iOS has: 0 elsewhere, the whole window; left
+	unset, a click landed wherever the stack's leftovers put it) */
+	memset(view, 0, sizeof(*view));
+#ifdef HALO_BGFX
+	/* (bgfx's back buffer is its own: OpenGL has none while it draws) */
+	if (bg_active())
+	{
+		if (!bg_back_buffer_size(&view->target_width, &view->target_height, &view->gl_width, &view->gl_height))
+			return FALSE;
+		platform_video_window_size(&view->window_width, &view->window_height);
+		platform_video_drawable_size(&view->pixel_width, &view->pixel_height);
+		view->screen_width = halo_screen_width();
+		return TRUE;
+	}
+#endif
+	if (!(back_buffer = render_target_get(&device.back_buffer)))
 		return FALSE;
 	platform_video_window_size(&view->window_width, &view->window_height);
 	platform_video_drawable_size(&view->pixel_width, &view->pixel_height);
@@ -2277,7 +2293,11 @@ int halo_ui_pointer_update(int menus_active, struct halo_ui_pointer *pointer)
 
 	platform_menus_set_active(menus_active != 0);
 	platform_ui_pointer_set_active(menus_active != 0);
+#ifdef HALO_BGFX
+	if (!menus_active || !(device.gl_ready || bg_active()) || !platform_ui_pointer_read(&state))
+#else
 	if (!menus_active || !device.gl_ready || !platform_ui_pointer_read(&state))
+#endif
 		return 0;
 	memset(pointer, 0, sizeof(*pointer));
 	ui_point_from_window_now(state.x, state.y, &pointer->x, &pointer->y);
@@ -3356,10 +3376,15 @@ static GLuint sampler_get(int stage, const DWORD *inputs)
 	return sampler;
 }
 
-/* display.anisotropic_filtering: the anisotropy forced on the textures that
-have mip levels and are filtered (0: none, as the game asks), at most what
-the host can do. The game asks for it on none of its textures; the menus' and
-HUD's are drawn facing the screen, where it changes nothing. */
+/* display.anisotropic_filtering: the anisotropy forced on the 2D textures
+that have mip levels and are filtered (0: none, as the game asks), at most
+what the host can do. The game asks for it on none of its textures; the
+menus' and HUD's are drawn facing the screen, where it changes nothing. Cube
+and 3D textures never get it: the game looks things up in them by direction
+(the vector normalization cube map of the lightmap pass), where it sharpens
+nothing, and Mesa's llvmpipe drew such lookups black with it (walls seen at
+a slant on the Custom Edition and HaloMD maps, whose normalization cube map
+has mip levels). */
 static DWORD forced_anisotropy(void)
 {
 	static unsigned long read_at = (unsigned long)-1;
@@ -3390,8 +3415,9 @@ static DWORD forced_anisotropy(void)
 
 /* hires: a high-res HUD texture (hud_hires.h), drawn smaller than it is, so
 filtered and from its mip levels whatever the game asks: the HUD's meters are
-point sampled for one player, to keep the Xbox bitmaps' texels sharp */
-static void configure_sampler(int stage, BOOL mipmapped, BOOL hires)
+point sampled for one player, to keep the Xbox bitmaps' texels sharp; flat: a
+2D texture (not a cube or 3D one), the only kind given forced anisotropy */
+static void configure_sampler(int stage, BOOL mipmapped, BOOL hires, BOOL flat)
 {
 	/* the texture stage state each stage's sampler was last chosen by */
 	static DWORD configured[D3DTSS_MAXSTAGES][SAMPLER_STATE_WORDS];
@@ -3410,7 +3436,7 @@ static void configure_sampler(int stage, BOOL mipmapped, BOOL hires)
 	inputs[8] = state[D3DTSS_MAXANISOTROPY];
 	inputs[9] = state[D3DTSS_BORDERCOLOR];
 	inputs[10] = hires;
-	if (mipmapped && !hires && inputs[0] != D3DTEXF_POINT && inputs[1] != D3DTEXF_NONE)
+	if (mipmapped && flat && !hires && inputs[0] != D3DTEXF_POINT && inputs[1] != D3DTEXF_NONE)
 	{
 		DWORD anisotropy = forced_anisotropy();
 
@@ -3643,7 +3669,7 @@ static void bind_textures(struct nv2a_pixel_shader_key *key, float texture_scale
 			}
 			gl_targets[stage] = gl_target;
 			gl_textures[stage] = gl_texture;
-			configure_sampler(stage, description.levels > 1, description.hires);
+			configure_sampler(stage, description.levels > 1, description.hires, gl_target == GL_TEXTURE_2D);
 			if (stage == 0)
 			{
 				key->coverage_alpha = description.hires_coverage != FALSE;

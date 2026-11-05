@@ -1157,7 +1157,7 @@ static boolean cache_files_map_xbox_header(
 	/* port: (a pack's map, <file>@<pack>, in maps_<pack>) */
 	if (!map_family_xbox_path(tag_name_strip_path(map_name), path, sizeof(path)))
 		return FALSE;
-	file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
+	file = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
 	if (file != INVALID_HANDLE_VALUE)
 	{
 		unsigned long bytes_read;
@@ -1304,7 +1304,7 @@ unsigned long cache_files_map_version(
 		return 0;
 	if (family == _map_family_custom_edition)
 		return map_file_hash_version(path, &hash_version) ? hash_version : 0;
-	handle = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
+	handle = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
 	if (handle == INVALID_HANDLE_VALUE)
 		return 0;
 	if (!ReadFile(handle, &header, sizeof(header), &bytes_read, NULL) || bytes_read != sizeof(header))
@@ -1386,7 +1386,7 @@ static boolean cache_files_map_pack_present(
 		/* (its header checked, as an Xbox map's is: precaching one that does
 		not verify stops the game on the header's assert) */
 		if (map_family_xbox_path(map_name, path, sizeof(path)) &&
-			(handle = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL)) != INVALID_HANDLE_VALUE)
+			(handle = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL)) != INVALID_HANDLE_VALUE)
 		{
 			verified = ReadFile(handle, &header, sizeof(header), &bytes_read, NULL) && bytes_read == sizeof(header) &&
 				cache_file_header_verify(&header, path, FALSE) && header.version == 5;
@@ -1461,7 +1461,30 @@ boolean cache_files_map_present(
 	else
 #endif
 #ifdef HALO_CUSTOM_EDITION
-	if (family != _map_family_xbox)
+#ifdef HALO_CONSOLE_NO_HALOMD_MAPS
+	/* (a HaloMD map, which this console doesn't play: said so, and the map
+	the next game opens on is the first one again, not this one, which the
+	menus' list leaves out and could not change from) */
+	if (family == _map_family_halomd)
+	{
+		void game_engine_override_map_name(char const *map_name);
+		void main_set_multiplayer_map_name(char const *map_name);
+
+		snprintf(message, sizeof(message), "%.63s is a HaloMD map. HaloMD maps can't be played on %s.", file,
+			HALO_CONSOLE_NO_HALOMD_MAPS);
+		game_engine_override_map_name("levels\\test\\carousel\\carousel");
+		main_set_multiplayer_map_name("levels\\test\\carousel\\carousel");
+	}
+	else
+#endif
+	/* (Custom Edition's resource maps, which every map past the Xbox's reads:
+	without them the map is refused as it loads, so the join is given up here,
+	before it is downloaded or loaded, saying what is needed) */
+	if (family != _map_family_xbox && !map_family_resources_ready(message, sizeof(message)))
+	{
+		platform_log("map %s: Custom Edition's resource maps are missing or not Custom Edition's", map_name);
+	}
+	else if (family != _map_family_xbox)
 	{
 		char path[256];
 
@@ -1554,7 +1577,7 @@ boolean cache_files_map_present(
 			if (cache_files_precache_map_loaded(map_name))
 				return TRUE;
 			snprintf(path, sizeof(path), "%s%s.map", cache_files_map_directory(), file);
-			handle = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
+			handle = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
 			if (handle != INVALID_HANDLE_VALUE)
 			{
 #ifdef HALO_XBOX_CONSOLE
@@ -1706,8 +1729,24 @@ long scenario_tags_load(
 			while (!read_complete)
 				SwitchToThread();
 			ce_header = tag_cache_base_address;
-			match_vassert("c:\\halo\\SOURCE\\cache\\cache_files.c", 0x94,
-				ce_header->signature == CACHE_FILE_TAG_HEADER_SIGNATURE, "a Custom Edition map's tag header");
+			/* port: tags that did not all read, or whose header is not a tag
+			header (a damaged map, or one in a format this build does not
+			read), are not loaded: the map is refused, as an Xbox map's are
+			(below), and closed for the next to open. A release build went
+			on past the assert and faulted on the header's counts */
+			if (read_complete != TRUE || ce_header->signature != CACHE_FILE_TAG_HEADER_SIGNATURE)
+			{
+				error(_error_silent, "Custom Edition map %s: %s: the map is not loaded", scenario_name,
+					read_complete != TRUE ? "its tags could not be read" : "its tag header is damaged");
+#ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
+				/* (what the load borrowed given back) */
+				if (platform_ce_alias)
+					platform_ce_load_end();
+#endif
+				cache_file_close();
+
+				return NONE;
+			}
 			cache_file_globals.tag_header = tag_cache_base_address;
 			global_tag_instances = xbox_pointer(ce_header->tag_instances);
 			cache_file_globals.tags_loaded = TRUE;
