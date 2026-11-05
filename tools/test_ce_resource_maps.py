@@ -38,6 +38,7 @@ typedef struct { char cFileName[260]; } WIN32_FIND_DATAA;
 #define INVALID_FILE_SIZE 0xffffffffUL
 #define INVALID_SET_FILE_POINTER 0xffffffffUL
 #define GENERIC_READ 1
+#define FILE_SHARE_READ 1
 #define GENERIC_WRITE 2
 #define OPEN_EXISTING 3
 #define OPEN_ALWAYS 4

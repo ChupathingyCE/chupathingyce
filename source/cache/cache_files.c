@@ -1157,7 +1157,7 @@ static boolean cache_files_map_xbox_header(
 	/* port: (a pack's map, <file>@<pack>, in maps_<pack>) */
 	if (!map_family_xbox_path(tag_name_strip_path(map_name), path, sizeof(path)))
 		return FALSE;
-	file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
+	file = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
 	if (file != INVALID_HANDLE_VALUE)
 	{
 		unsigned long bytes_read;
@@ -1304,7 +1304,7 @@ unsigned long cache_files_map_version(
 		return 0;
 	if (family == _map_family_custom_edition)
 		return map_file_hash_version(path, &hash_version) ? hash_version : 0;
-	handle = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
+	handle = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
 	if (handle == INVALID_HANDLE_VALUE)
 		return 0;
 	if (!ReadFile(handle, &header, sizeof(header), &bytes_read, NULL) || bytes_read != sizeof(header))
@@ -1386,7 +1386,7 @@ static boolean cache_files_map_pack_present(
 		/* (its header checked, as an Xbox map's is: precaching one that does
 		not verify stops the game on the header's assert) */
 		if (map_family_xbox_path(map_name, path, sizeof(path)) &&
-			(handle = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL)) != INVALID_HANDLE_VALUE)
+			(handle = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL)) != INVALID_HANDLE_VALUE)
 		{
 			verified = ReadFile(handle, &header, sizeof(header), &bytes_read, NULL) && bytes_read == sizeof(header) &&
 				cache_file_header_verify(&header, path, FALSE) && header.version == 5;
@@ -1577,7 +1577,7 @@ boolean cache_files_map_present(
 			if (cache_files_precache_map_loaded(map_name))
 				return TRUE;
 			snprintf(path, sizeof(path), "%s%s.map", cache_files_map_directory(), file);
-			handle = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
+			handle = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
 			if (handle != INVALID_HANDLE_VALUE)
 			{
 #ifdef HALO_XBOX_CONSOLE

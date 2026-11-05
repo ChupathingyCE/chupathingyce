@@ -558,7 +558,7 @@ static boolean ce_map_open(
 		ce_refused_map_checksum = 0;
 		return FALSE;
 	}
-	file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL);
+	file = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL);
 	if (file == INVALID_HANDLE_VALUE)
 		return FALSE;
 	memset(&header, 0, sizeof(header));
@@ -1546,7 +1546,7 @@ static boolean cached_map_file_current(
 	boolean current = TRUE;
 
 	cache_file_get_map_path(cache_map_name, path);
-	file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
+	file = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
 	if (file != INVALID_HANDLE_VALUE)
 	{
 		FILETIME written;

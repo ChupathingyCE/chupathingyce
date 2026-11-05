@@ -533,7 +533,7 @@ static boolean cache_file_is(
 {
 	unsigned long header[(CACHE_HEADER_TYPE_OFFSET + 4) / 4];
 	unsigned long bytes_read = 0;
-	HANDLE file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+	HANDLE file = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 	boolean result = FALSE;
 
 	if (file == INVALID_HANDLE_VALUE)
@@ -645,7 +645,7 @@ static boolean version_matches(
 
 	if (!version)
 		return TRUE;
-	file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+	file = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 	if (file == INVALID_HANDLE_VALUE)
 		return FALSE;
 	if (ReadFile(file, header, sizeof(header), &bytes_read, NULL) && bytes_read == sizeof(header))
@@ -873,7 +873,7 @@ static short resource_map_state(
 {
 	unsigned long header[4], bytes_read = 0, file_size;
 	short state = _resource_map_unreadable;
-	HANDLE file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+	HANDLE file = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 
 	if (file == INVALID_HANDLE_VALUE)
 		return _resource_map_missing;
@@ -915,7 +915,9 @@ static void resource_host_path(
 	size_t size,
 	char const *separator)
 {
-#ifndef HALO_CONSOLE
+	/* (a console names its paths as the game does: HALO_CONSOLE_PLAYERS is
+	every console port's, console_build.py) */
+#if !defined(HALO_CONSOLE) && !defined(HALO_CONSOLE_PLAYERS)
 	void platform_translate_path(const char *xbox_path, char *host_path, unsigned long host_path_size);
 	char host[256];
 
@@ -948,7 +950,7 @@ boolean map_family_resource(
 
 		place_folder(&resource_places[index], folder, sizeof(folder));
 		snprintf(path, (size_t)size, "%s%s.map", folder, name);
-		file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+		file = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 		if (file != INVALID_HANDLE_VALUE)
 		{
 			CloseHandle(file);
@@ -982,7 +984,7 @@ boolean map_family_resources_ready(
 		sizes[index] = 0;
 		if (map_family_resource(names[index], paths[index], sizeof(paths[index])))
 		{
-			HANDLE file = CreateFileA(paths[index], GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL,
+			HANDLE file = CreateFileA(paths[index], GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL,
 				NULL);
 
 			if (file != INVALID_HANDLE_VALUE)
@@ -1045,7 +1047,8 @@ boolean map_family_resources_ready(
 	if (!ready && message && size > 0)
 	{
 		snprintf(message, (size_t)size, "%s %s", MAP_REASON_CE_RESOURCES,
-#if defined(HALO_CONSOLE) || defined(HALO_ANDROID) || defined(HALO_IOS) || defined(HALO_SERVER)
+#if defined(HALO_CONSOLE) || defined(HALO_CONSOLE_PLAYERS) || defined(HALO_ANDROID) || defined(HALO_IOS) || \
+	defined(HALO_SERVER)
 			MAP_REASON_CE_RESOURCES_COPY
 #else
 			MAP_REASON_CE_RESOURCES_SETUP
