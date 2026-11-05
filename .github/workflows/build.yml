@@ -151,13 +151,26 @@ jobs:
     timeout-minutes: 40
     steps:
       - name: Install the toolchain
+        timeout-minutes: 15
         run: |
+          # (apt fails fast and retries: a mirror that stalls has hung a run
+          # for more than 15 minutes; each try is also cut off by timeout)
+          printf '%s\n' 'Acquire::Retries "3";' 'Acquire::http::Timeout "30";' 'Acquire::https::Timeout "30";' \
+            | sudo tee /etc/apt/apt.conf.d/80-ci-fail-fast > /dev/null
+          apt_try() {
+            for attempt in 1 2 3; do
+              sudo timeout 300 "$@" && return 0
+              echo "apt: try $attempt of $* failed" >&2
+              sleep 10
+            done
+            return 1
+          }
           sudo install -d -m 0755 /etc/apt/keyrings
-          curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/keyrings/apt.llvm.org.asc > /dev/null
+          curl -fsSL --retry 3 --max-time 60 https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/keyrings/apt.llvm.org.asc > /dev/null
           echo "deb [signed-by=/etc/apt/keyrings/apt.llvm.org.asc] http://apt.llvm.org/noble/ llvm-toolchain-noble-$LLVM_MAJOR main" \
             | sudo tee /etc/apt/sources.list.d/llvm.list
-          sudo apt-get update -q
-          sudo apt-get install -y -q --no-install-recommends clang-$LLVM_MAJOR lld-$LLVM_MAJOR llvm-$LLVM_MAJOR \
+          apt_try apt-get update -q
+          apt_try apt-get install -y -q --no-install-recommends clang-$LLVM_MAJOR lld-$LLVM_MAJOR llvm-$LLVM_MAJOR \
             libclang-rt-$LLVM_MAJOR-dev gcc gcc-multilib libc6-dev-i386 cmake pkg-config libwayland-bin \
             ninja-build ccache python3-pytest zstd
           echo "/usr/lib/llvm-$LLVM_MAJOR/bin" >> "$GITHUB_PATH"
@@ -211,8 +224,21 @@ jobs:
       # (Delta's wire on a big-endian machine, as the Xbox 360 and Wii U are:
       # tools/test_delta_big_endian.py, under QEMU)
       - name: Delta on big-endian
+        timeout-minutes: 15
         run: |
-          sudo apt-get install -y -q --no-install-recommends gcc-s390x-linux-gnu libc6-dev-s390x-cross qemu-user
+          # (apt fails fast and retries: a mirror that stalls has hung a run
+          # for more than 15 minutes; each try is also cut off by timeout)
+          printf '%s\n' 'Acquire::Retries "3";' 'Acquire::http::Timeout "30";' 'Acquire::https::Timeout "30";' \
+            | sudo tee /etc/apt/apt.conf.d/80-ci-fail-fast > /dev/null
+          apt_try() {
+            for attempt in 1 2 3; do
+              sudo timeout 300 "$@" && return 0
+              echo "apt: try $attempt of $* failed" >&2
+              sleep 10
+            done
+            return 1
+          }
+          apt_try apt-get install -y -q --no-install-recommends gcc-s390x-linux-gnu libc6-dev-s390x-cross qemu-user
           DELTA_BE_REQUIRED=1 python3 -m pytest -q tools/test_delta_big_endian.py -rs
 
       # (HALO_SANITIZERS_REQUIRED: a test without its sanitizers' runtime or
@@ -277,13 +303,26 @@ jobs:
     timeout-minutes: 40
     steps:
       - name: Install the toolchain
+        timeout-minutes: 15
         run: |
+          # (apt fails fast and retries: a mirror that stalls has hung a run
+          # for more than 15 minutes; each try is also cut off by timeout)
+          printf '%s\n' 'Acquire::Retries "3";' 'Acquire::http::Timeout "30";' 'Acquire::https::Timeout "30";' \
+            | sudo tee /etc/apt/apt.conf.d/80-ci-fail-fast > /dev/null
+          apt_try() {
+            for attempt in 1 2 3; do
+              sudo timeout 300 "$@" && return 0
+              echo "apt: try $attempt of $* failed" >&2
+              sleep 10
+            done
+            return 1
+          }
           sudo install -d -m 0755 /etc/apt/keyrings
-          curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/keyrings/apt.llvm.org.asc > /dev/null
+          curl -fsSL --retry 3 --max-time 60 https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/keyrings/apt.llvm.org.asc > /dev/null
           echo "deb [signed-by=/etc/apt/keyrings/apt.llvm.org.asc] http://apt.llvm.org/noble/ llvm-toolchain-noble-$LLVM_MAJOR main" \
             | sudo tee /etc/apt/sources.list.d/llvm.list
-          sudo apt-get update -q
-          sudo apt-get install -y -q --no-install-recommends clang-$LLVM_MAJOR lld-$LLVM_MAJOR llvm-$LLVM_MAJOR \
+          apt_try apt-get update -q
+          apt_try apt-get install -y -q --no-install-recommends clang-$LLVM_MAJOR lld-$LLVM_MAJOR llvm-$LLVM_MAJOR \
             gcc cmake pkg-config libwayland-bin ninja-build ccache zstd
           echo "/usr/lib/llvm-$LLVM_MAJOR/bin" >> "$GITHUB_PATH"
         env:
