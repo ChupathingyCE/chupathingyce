@@ -141,6 +141,10 @@ enum
 	_ce_map_missing,
 	/* a Halo PC map, on a build without HALO_CUSTOM_EDITION */
 	_ce_map_unsupported,
+	/* a Halo PC map, without Custom Edition's resource maps here
+	(map_family_resources_ready): never downloaded, since it could not be
+	played */
+	_ce_map_no_resources,
 };
 
 /* a Custom Edition map offered for the game being joined (map_download.c) */
@@ -412,7 +416,8 @@ static short ce_map_state(
 	{
 		csstrncpy(browser_screen.ce_map, game->map, sizeof(browser_screen.ce_map) - 1);
 		browser_screen.ce_map[sizeof(browser_screen.ce_map) - 1] = 0;
-		browser_screen.ce_map_answer = ui_map_list_map_present(game->map) ? _ce_map_present : _ce_map_missing;
+		browser_screen.ce_map_answer = family != _map_family_pack && !map_family_resources_ready(NULL, 0) ?
+			_ce_map_no_resources : ui_map_list_map_present(game->map) ? _ce_map_present : _ce_map_missing;
 		browser_screen.ce_map_time = system_milliseconds();
 	}
 	return browser_screen.ce_map_answer;
@@ -1165,6 +1170,14 @@ static void wait_for_host(
 			char file[BROWSER_MAP_LENGTH];
 			short family = map_family_parse(advertisement.map_name, file, sizeof(file));
 
+			/* (a map past the Xbox's without Custom Edition's resource
+			maps here: given up now, before it is downloaded or loaded) */
+			if (!map_family_is_xbox_format(family) && !map_family_resources_ready(NULL, 0))
+			{
+				browser_screen.connecting = FALSE;
+				set_status(JOIN_REASON_CE_RESOURCES);
+				return;
+			}
 			if (family == _map_family_custom_edition && !ui_map_list_family_present(family, file) &&
 				map_archive_stock_name(file))
 			{
@@ -1386,6 +1399,9 @@ static char const *ce_map_blocker(
 		return text;
 	case _ce_map_unsupported:
 		snprintf(text, (size_t)size, JOIN_REASON_MAPS_UNSUPPORTED, family == _map_family_halomd ? "HaloMD" : "Halo PC");
+		return text;
+	case _ce_map_no_resources:
+		snprintf(text, (size_t)size, "%s", JOIN_REASON_CE_RESOURCES);
 		return text;
 	default:
 		return NULL;
