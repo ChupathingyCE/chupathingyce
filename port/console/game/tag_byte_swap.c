@@ -501,12 +501,14 @@ blocks the game's free refuses: debug_memory.c's "Signature is incorrect") */
 static void *swap_calloc(unsigned long count, unsigned long size)
 {
 	void *block;
+	unsigned long bytes;
 
 	if (size && count > (unsigned long)-1 / size)
 		return NULL;
-	block = malloc(count * size ? count * size : 1);
+	bytes = count * size;
+	block = malloc(bytes ? bytes : 1);
 	if (block)
-		csmemset(block, 0, count * size);
+		csmemset(block, 0, bytes);
 	return block;
 }
 
