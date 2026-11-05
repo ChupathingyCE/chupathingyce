@@ -269,6 +269,8 @@ static void rasterizer_screen_effect_set_texture_transforms(
 		struct bitmap_data const *convolution_bitmap;
 		short x_offset;
 		short y_offset;
+		/* (port: the mask's columns for each pixel's) */
+		real mask_aspect = 1.0f;
 
 		if (parameters->convolution_mask &&
 			(pass > 0 ||
@@ -367,6 +369,21 @@ static void rasterizer_screen_effect_set_texture_transforms(
 		constants[7][2] = 0.0f;
 		constants[7][3] = (screen_size.j + 1.0f - viewport_map.height) * screen_scale.j * 0.5f;
 
+#ifdef HALO_CONSOLE_ANAMORPHIC_SCREEN
+		/* port: the zoom's mask (the sniper rifle's and the pistol's scope)
+		is laid out texel for pixel. A 16:9 television stretches the 640
+		pixels, so the mask is read that much wider across them, narrower on
+		the screen, and round again once stretched; the sides past its
+		texels repeat its edge (clamped), as on the desktop's wide screen */
+		if (convolution_bitmap == parameters->convolution_mask)
+		{
+			mask_aspect = rasterizer_screen_pixel_aspect();
+			constants[0][0] *= mask_aspect;
+			constants[0][3] = (convolution_size.i + 1.0f - viewport_map.width * mask_aspect) *
+				convolution_scale.i * 0.5f;
+		}
+#endif
+
 		x_offset = (global_window_parameters.camera.viewport_bounds.x0 +
 			global_window_parameters.camera.viewport_bounds.x1) / 2 -
 			(global_window_parameters.camera.window_bounds.x1 +
@@ -383,7 +400,7 @@ static void rasterizer_screen_effect_set_texture_transforms(
 		}
 		else if (convolution_bitmap == parameters->convolution_mask)
 		{
-			constants[0][3] += x_offset * convolution_scale.i;
+			constants[0][3] += x_offset * convolution_scale.i * mask_aspect;
 			constants[1][3] += y_offset * convolution_scale.j;
 		}
 
