@@ -948,4 +948,15 @@ extern struct rasterizer_frame_statistics_globals rasterizer_frame_statistics;
 
 /* ---------- public code */
 
+#ifdef HALO_CONSOLE_ANAMORPHIC_SCREEN
+/* port: the interface drawn in a 16:9 television's units over the console's
+640 pixels (rasterizer_xbox.c); centered for the menus' 640 columns */
+void rasterizer_interface_begin(
+	boolean centered);
+void rasterizer_interface_end(
+	void);
+real rasterizer_interface_offset_x(
+	void);
+#endif
+
 #endif // __RASTERIZER_H
