@@ -49,6 +49,8 @@ struct bot_move_state
 	int human; /* corners rounded, and looked round before they are come to, as a person takes them */
 	long area; /* the area we're in (or last were) */
 	long area_before; /* ... and the one before it */
+	long area_left_tick; /* when it left area_before for area */
+	long sticky_until; /* (planning from area_before since, back into which the way from here goes: bot_move_to_goal) */
 	/* the reachability being travelled, when it's more than a walk */
 	long reach;
 	long reach_type;

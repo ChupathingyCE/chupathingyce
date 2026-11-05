@@ -3228,6 +3228,7 @@ void bot_move_to_goal(struct bot_mover *bot, struct bot_body const *body, struct
 	{
 		move->area_before = move->area;
 		move->area = area;
+		move->area_left_tick = game_time_get();
 	}
 
 	bot_move_landed_check(bot, body, type);
@@ -3266,6 +3267,25 @@ void bot_move_to_goal(struct bot_mover *bot, struct bot_body const *body, struct
 
 	/* the route */
 	bot_move_plan(move, area, &spot, goal_area);
+	/* (Strayed a step into a sliver of an area beside the way, whose way
+	   on is back into the one just left: from that one, as if still in it,
+	   for a second and a half, and on along its way, which goes on past the
+	   sliver. Planned from the sliver it was back, and from the one before
+	   it on again into the sliver, back and forth for six seconds on the
+	   ramp to the flag of Hang 'Em High. HALO_BOT_OFF=sticky: as it was) */
+	if (type == AAS_FOOT && move->corridor_count > 0 && move->area_before != NONE && move->area_before != area &&
+		aas_reach(type, move->corridor[0])->to == move->area_before && aas_reach(type, move->corridor[0])->travel == _aas_travel_walk &&
+		game_time_get() - move->area_left_tick < BOT_SECONDS(1.5f) && game_time_get() >= move->area_left_tick && !bot_env_off("sticky"))
+	{
+		long first_back = move->corridor[0];
+		bot_move_plan(move, move->area_before, &spot, goal_area);
+		/* (unless the way from there is back through here: then here's) */
+		if (move->corridor_count == 0 || aas_reach(type, move->corridor[0])->to == area)
+		{
+			bot_move_plan(move, area, &spot, goal_area);
+			(void)first_back;
+		}
+	}
 	if (type == AAS_FOOT && area != goal_area && move->corridor_count == 0 && bot_move_foot_across(position, &goal->origin, to_goal, result))
 		goto finish;
 	if (area != goal_area && move->corridor_count == 0)

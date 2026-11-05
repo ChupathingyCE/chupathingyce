@@ -67,7 +67,7 @@ there. Reachabilities that bots keep failing at cost more (learned).
 #define AAS_FOOT_SPEED 2.25f
 #define AAS_VEHICLE_SPEED 6.f
 #define AAS_CACHES 96
-#define AAS_CACHE_VERSION 34 /* (33: teleporter pads reached from the floor round them; 34: no vehicle areas under deep water) */
+#define AAS_CACHE_VERSION 36 /* (33: teleporter pads reached from the floor round them; 34: no vehicle areas under deep water; 35: ledges away from their ends; 36: up across a dip) */
 #define AAS_DEAD_FAILURES 4 /* failed this often: not a way */
 #define AAS_CACHE_MAGIC 0x53414148UL /* HAAS */
 #define AAS_MAXIMUM_PLACES 256
@@ -1169,6 +1169,17 @@ static boolean aas_gap_jumpable(long d, long k, real rise)
 /* one span of a column k cells out from edge span s, in direction d: whether
    it is a floor at our height or below, and a ledge to jump up to, a drop or a
    gap to it (column->found; a later span can replace a jump) */
+static boolean aas_gap_up_off(void)
+{
+	static int asked, off;
+	if (!asked)
+	{
+		asked = TRUE;
+		off = getenv("HALO_BOT_OFF") && strstr(getenv("HALO_BOT_OFF"), "gapup");
+	}
+	return off;
+}
+
 static void aas_ledge_classify(long type, long s, long d, long k, long u, struct aas_ledge_state const *state, struct aas_ledge_column *column)
 {
 	struct navm_span const *span = &navm.spans[s];
@@ -1220,7 +1231,16 @@ static void aas_ledge_classify(long type, long s, long d, long k, long u, struct
 		column->found = u;
 		column->travel = _aas_travel_drop;
 	}
-	else if (type == AAS_FOOT && k >= gap_cells && (!state->below || (rise >= -NAVM_JUMP && !state->step_below)) && rise <= AAS_GAP_RISE &&
+	else if (type == AAS_FOOT && k >= gap_cells &&
+		(!state->below || (rise >= -NAVM_JUMP && !state->step_below) ||
+		 /* (up across a dip: a block higher than the floor under the gap
+		    is jumped up onto from that floor, and that floor is only a hop
+		    down, but this is higher than a jump from it. Up to it over
+		    the gap, then, or not at all: the blocks of a staircase of
+		    running jumps were each got to from nowhere. HALO_BOT_OFF=gapup:
+		    as it was) */
+		 (rise > NAVM_STEP && state->dropped && other->floor > state->dropped_floor + aas_jump_rise() && !aas_gap_up_off())) &&
+		rise <= AAS_GAP_RISE &&
 		rise >= -3.5f && (!state->dropped || rise >= -NAVM_JUMP || other->floor > state->dropped_floor + NAVM_JUMP) && column->found == NONE &&
 		other->wall >= 20)
 	{
@@ -1632,6 +1652,56 @@ static boolean aas_ledge_add_reach(long type, struct aas_reaches *reaches, struc
 	return TRUE;
 }
 
+/* The ways up, down or over between the same two areas: the one tried first
+   is the one kept. All the places along a straight ledge cost the same, and
+   the first of them was its end, at the corner: a jump onto a block came
+   down on its corner, and the next jump up from it began at the next corner,
+   with a fall off two sides of it (on the test tower, from six units up,
+   that killed). So the places a body's width or more in from the ends of
+   the edge come first, where the edge is long enough to have them, and
+   among them the cheapest. HALO_BOT_OFF=ledgeends: as it was. */
+static real aas_ledge_group_key[256];
+static int aas_ledge_group_compare(void const *a, void const *b)
+{
+	long ia = *(long const *)a, ib = *(long const *)b;
+	if (aas_ledge_group_key[ia] != aas_ledge_group_key[ib])
+		return aas_ledge_group_key[ia] < aas_ledge_group_key[ib] ? -1 : 1;
+	return ia < ib ? -1 : ia > ib ? 1 : 0;
+}
+
+static void aas_ledge_away_from_ends(struct aas_candidate *items, long count)
+{
+	static real_point3d points[256];
+	static long order[256];
+	static struct aas_candidate copy[256];
+	real longest = 0.f;
+	long e1 = 0, e2 = 0, k, m;
+	if (count < 3 || count > 256 || (getenv("HALO_BOT_OFF") && strstr(getenv("HALO_BOT_OFF"), "ledgeends")))
+		return;
+	for (k = 0; k < count; k++)
+		navm_span_point(items[k].edge_span, &points[k]);
+	for (k = 0; k < count; k++)
+		for (m = k + 1; m < count; m++)
+			if (aas_distance2d(&points[k], &points[m]) > longest)
+			{
+				longest = aas_distance2d(&points[k], &points[m]);
+				e1 = k;
+				e2 = m;
+			}
+	if (longest < 1.6f)
+		return;
+	for (k = 0; k < count; k++)
+	{
+		real in = MIN(aas_distance2d(&points[k], &points[e1]), aas_distance2d(&points[k], &points[e2]));
+		aas_ledge_group_key[k] = items[k].cost + 4.f * MAX(0.f, MIN(0.8f, longest * 0.5f) - in);
+		order[k] = k;
+	}
+	qsort(order, count, sizeof(long), aas_ledge_group_compare);
+	memcpy(copy, items, count * sizeof(struct aas_candidate));
+	for (k = 0; k < count; k++)
+		items[k] = copy[order[k]];
+}
+
 /* the ledges: up with a jump, down off them, and across gaps (on foot) */
 static void aas_ledge_reaches(long type, struct aas_reaches *reaches)
 {
@@ -1659,6 +1729,13 @@ static void aas_ledge_reaches(long type, struct aas_reaches *reaches)
 		long j = i;
 		long tries = 0;
 		boolean made = FALSE;
+		{
+			long end = i;
+			while (end < list.count && list.items[end].from == list.items[i].from && list.items[end].to == list.items[i].to &&
+				list.items[end].travel == list.items[i].travel)
+				end++;
+			aas_ledge_away_from_ends(&list.items[i], end - i);
+		}
 		/* (sorted by cost among equal keys: only the key2.. ties matter
 		   for walks; for these, the cheapest comes first) */
 		while (j < list.count && list.items[j].from == list.items[i].from && list.items[j].to == list.items[i].to &&
