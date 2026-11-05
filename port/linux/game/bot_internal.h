@@ -246,6 +246,7 @@ struct bot_pilot
 	int down; /* ... and over the place: straight down now */
 	long down_tick;
 	long still_ticks; /* ... and for how long it has not moved */
+	long hold_ticks; /* a large craft over where it lands: how long it has hung there steady (air_hover_landing) */
 	long gate; /* the way out of where it stands that the map's script gives it (bot_country.c: NONE none) */
 	long gate_tick;
 	real_point3d gate_entry;
@@ -324,6 +325,9 @@ struct bot_traveller
 	long stand_tick; /* when it last began from a stand (waited, was put down somewhere, got clear) */
 	long escape_until; /* getting clear of what holds it: until when, and which way */
 	real escape_yaw;
+	real_point3d escape_from; /* where getting clear of being held up began, and when */
+	long escape_began;
+	real swerve_clear; /* the way round something it is swerving by: clear for so far */
 	long run_up_until; /* (backing off along a step's line for a run at it, until this tick) */
 	/* carried up something too narrow for it (bot_country.c, a lift): from
 	   when until when, by which points, and how its nose lay when it began */
@@ -362,6 +366,7 @@ void bot_country_dispose(void);
 boolean bot_country_ready(void);
 void bot_country_update(void); /* once a tick: its searches carried on */
 boolean bot_country_nearest(real_point3d const *point, long rings, real_point3d *ground);
+void bot_country_bays_path(boolean baked, char *path, long size); /* <map>_<bsp>.bays in navcache: the bays learnt to be dead ends */
 long bot_country_portals_of(long vehicle_index); /* the ways the map's script carries this vehicle (a set of them) */
 /* (for a craft: the one of them in sight from where it stands, and into it) */
 long bot_country_gate(long vehicle_index, real_point3d const *from, real facing_yaw, real within, long keep, real_point3d *entry, real_point3d *exit_point,
@@ -467,6 +472,19 @@ void bot_stats_world_tick(long now);
 void bot_stats_air_tick(int up, int pressed);
 /* a craft flown from where it was taken to where it was bound: how long */
 void bot_stats_air_trip(real seconds);
+/* the free-for-all's figures, each half of the bots (an even place in the
+   game, an odd one) counted on its own: a death within two seconds of the
+   bot's own kill (a trade: third-partied), a death to someone the bot had
+   not seen in the three seconds before, and the seconds from a life's
+   start to the first enemy in its sights */
+enum
+{
+	_bot_ffa_trade = 0,
+	_bot_ffa_unseen,
+	_bot_ffa_contact,
+	NUMBER_OF_BOT_FFA
+};
+void bot_stats_ffa(long index, int what, real value);
 /* whether a player (its datum index) is one of the bots (bots.c) */
 int bot_player_is_bot(long player_index);
 

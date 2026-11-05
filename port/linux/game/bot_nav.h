@@ -168,5 +168,6 @@ long aas_random_area(long type, unsigned long seed); /* a playable area, bigger 
    and the bots ask every tick) */
 int bot_logging(void); /* HALO_BOT_LOG */
 int bot_env_set(char const *name);
+int bot_env_off(char const *part);
 
 #endif

@@ -2170,6 +2170,16 @@ static boolean country_cache_read(FILE *file)
 	return ok;
 }
 
+/* where the map's ground vehicles' dead-end bays are kept (bots.c,
+   bot_vehicle_dead_bay): beside its country, baked or this machine's own */
+void bot_country_bays_path(boolean baked, char *path, long size)
+{
+	char map[128];
+	unsigned long signature[4];
+	navm_signature(map, signature);
+	navm_cache_path(map, "bays", baked, path, size);
+}
+
 static boolean country_cache_load(void)
 {
 	char map[128];
@@ -3323,6 +3333,67 @@ static real country_way_bend, country_way_bend_at;
 static real country_way_pace;
 #define COUNTRY_CORNER_PULL 4.f /* (units a second squared, sideways, a Warthog on snow keeps its line at) */
 #define COUNTRY_BRAKING 3.f /* (... and slows by, braking) */
+/* What a vehicle's tag says of it (the vehicle part of it, past the unit's:
+   the top speed forward, the acceleration and the braking, world units a
+   tick and a tick a tick), as a second's: what each driver's handling is
+   worked from, against a Warthog's (HALO_BOT_OFF=handling: a Warthog's for
+   every one, as it was). */
+struct country_handling_of
+{
+	long definition_index;
+	real top; /* units a second */
+	real accelerate, brake; /* units a second, each second */
+	real pace; /* top over a Warthog's, 0.5 .. 2 */
+	real stops; /* brake over a Warthog's, 0.5 .. 2 */
+};
+#define COUNTRY_WARTHOG_TOP 8.f /* (what a Warthog's tag says, 7.6 to 8.2: its own speed is twice that, the tag's being the throttle's, but each vehicle's against it is what is wanted) */
+static int country_handles(void)
+{
+	static int asked, on = 1;
+	if (!asked)
+	{
+		char const *off = getenv("HALO_BOT_OFF");
+		asked = TRUE;
+		on = !(off && strstr(off, "handling"));
+	}
+	return on;
+}
+
+static struct country_handling_of const *country_handling_of(long definition_index)
+{
+	static struct country_handling_of known[16];
+	static long count;
+	static struct country_handling_of warthog = { NONE, COUNTRY_WARTHOG_TOP, 2.5f, 9.9f, 1.f, 1.f };
+	struct country_handling_of *it;
+	char const *definition;
+	long i;
+	if (definition_index == NONE || !country_handles())
+		return &warthog;
+	for (i = 0; i < count; i++)
+		if (known[i].definition_index == definition_index)
+			return &known[i];
+	it = &known[count < 16 ? count++ : 15];
+	definition = (char const *)object_definition_get(definition_index);
+	it->definition_index = definition_index;
+	it->top = *(real const *)(definition + 0x2F8) * BOT_TICKS_PER_SECOND;
+	it->accelerate = *(real const *)(definition + 0x300) * BOT_TICKS_PER_SECOND * BOT_TICKS_PER_SECOND;
+	it->brake = *(real const *)(definition + 0x304) * BOT_TICKS_PER_SECOND * BOT_TICKS_PER_SECOND;
+	/* (a tag that says nothing, or nonsense: a Warthog's) */
+	if (!(it->top > 1.f && it->top < 200.f))
+		it->top = COUNTRY_WARTHOG_TOP;
+	it->pace = PIN(it->top / COUNTRY_WARTHOG_TOP, 0.5f, 2.f);
+	it->stops = PIN(it->pace, 0.6f, 1.6f); /* (the brakes go with the speed: a tag's braking is the throttle's, not the wheels') */
+	if (bot_logging())
+		bot_log("country: %s handles: top %.1f a second, accelerates %.1f, brakes %.1f (tag)", tag_get_name(definition_index),
+			it->top, it->accelerate, it->brake);
+	return it;
+}
+
+/* (the vehicle being driven now: NONE's, a Warthog's, otherwise) */
+static struct country_handling_of const *country_now;
+#define COUNTRY_STOPS (country_now ? country_now->stops : 1.f)
+#define COUNTRY_PACE (country_now ? country_now->pace : 1.f)
+
 static long country_way_room;
 /* (... or is up a step, a kerb as high as is climbed: taken square, and at
    a run. How far before it the vehicle is, along its line, and which way
@@ -3441,7 +3512,7 @@ static void country_way_lie(struct country_field const *field, long start, real 
 				real radius = since / MAX(turn, 0.01f);
 				real corner = (real)sqrt(COUNTRY_CORNER_PULL * radius);
 				real before = MAX(gone - since - 2.f, 0.f);
-				country_way_pace = MIN(country_way_pace, (real)sqrt(corner * corner + 2.f * COUNTRY_BRAKING * before));
+				country_way_pace = MIN(country_way_pace, (real)sqrt(corner * corner + 2.f * COUNTRY_BRAKING * COUNTRY_STOPS * before));
 			}
 			last_bearing = bearing;
 			if (chords++ == 0)
@@ -4256,7 +4327,7 @@ static void country_pace_for_way(real_point3d const *position, real_point3d cons
 			   takes is the speed's square over the turn's radius) */
 			real corner = (bend > 1.f ? 4.f : bend > 0.6f ? 5.5f : 7.5f) * (real)sqrt(grip);
 			real off = country_way_turn >= country_way_bend ? bot_distance2d(position, next) : country_way_bend_at;
-			pace = MIN(pace, (real)sqrt(corner * corner + 2.f * 3.f * grip * MAX(off - 2.f, 0.f)));
+			pace = MIN(pace, (real)sqrt(corner * corner + 2.f * 3.f * COUNTRY_STOPS * grip * MAX(off - 2.f, 0.f)));
 		}
 		/* (... and by an edge, by a wall, no faster than leaves time to
 		   mend a slide) */
@@ -4430,7 +4501,7 @@ static void country_see_things(struct country_drive *drive)
 	real slope = (real)asin(PIN(vehicle->object.forward.k, -1.f, 1.f));
 	real half = PIN(vehicle->object.bounding_sphere_radius * 0.4f, 0.8f, 1.7f);
 	real going = speed > 3.f ? (real)atan2(body->velocity.j, body->velocity.i) : heading;
-	real reach = MIN(PIN(speed * speed / (2.f * COUNTRY_BRAKING) * 1.5f + speed * 0.5f + 5.f, 6.f, COUNTRY_SEE_FURTHEST), MAX(bot_distance2d(position, next) + 1.5f, 4.f));
+	real reach = MIN(PIN(speed * speed / (2.f * COUNTRY_BRAKING * COUNTRY_STOPS) * 1.5f + speed * 0.5f + 5.f, 6.f, COUNTRY_SEE_FURTHEST), MAX(bot_distance2d(position, next) + 1.5f, 4.f));
 	boolean looks = !result->into_portal && !(country_way_narrow && country_way_lined_up);
 	real ahead = reach;
 	boolean ours = FALSE;
@@ -4443,6 +4514,7 @@ static void country_see_things(struct country_drive *drive)
 			bot_log("countrysaw %ld t%ld %s at %.1f of %.1f, speed %.1f", body->unit_index & 0xffff, now, country_lane_saw, ahead, reach, speed);
 		ours = bot_body_friendly_ahead(body, position, going, MIN(reach, 4.f + speed * 1.2f), half + 0.7f);
 	}
+	boolean found_now = FALSE;
 	seen->ahead = ahead, seen->reach = reach, seen->ours = ours;
 	if ((ahead < reach * 0.95f || ours) && traveller->swerve_ticks <= 0)
 	{
@@ -4477,6 +4549,8 @@ static void country_see_things(struct country_drive *drive)
 		{
 			traveller->swerve = best_yaw;
 			traveller->swerve_ticks = BOT_SECONDS(0.35f);
+			traveller->swerve_clear = country_lane(&eye, best_yaw, slope, half, past, body->vehicle_index);
+			found_now = TRUE;
 		}
 		else if (ours)
 			drive->throttle = MIN(drive->throttle, speed > 1.f ? -0.6f : 0.f); /* (no way round them: stopped for) */
@@ -4486,9 +4560,22 @@ static void country_see_things(struct country_drive *drive)
 		/* (a Warthog on its brakes loses three units a second each second:
 		   from twelve it is twenty-four units stopping, and from six,
 		   six. Within what it stops in and a length: the brake; within
-		   half as much again: off the throttle) */
-		real off = (ours ? MIN(ahead, 4.f) : ahead) - half - 1.2f;
-		real stops_in = speed * speed / (2.f * COUNTRY_BRAKING);
+		   half as much again: off the throttle. ... Going round it by a
+		   way that is clear, it is that way that is braked for, not the
+		   thing it is going round: braking for a tree it was already
+		   steering past was the most of what slowed the driving.
+		   HALO_BOT_OFF=swerve: braked for, as it was) */
+		real by = ahead;
+		if (!ours && traveller->swerve_ticks > 0 && !bot_env_off("swerve") &&
+			fabs(bot_angle_difference(traveller->swerve, going)) < 1.f)
+		{
+			/* (as it is now, not as it was when the way round was chosen) */
+			if (!found_now)
+				traveller->swerve_clear = country_lane(&eye, traveller->swerve, slope, half, reach, body->vehicle_index);
+			by = MAX(ahead, traveller->swerve_clear * (real)cos(bot_angle_difference(traveller->swerve, going)));
+		}
+		real off = (ours ? MIN(ahead, 4.f) : by) - half - 1.2f;
+		real stops_in = speed * speed / (2.f * COUNTRY_BRAKING * COUNTRY_STOPS);
 		drive->throttle = MIN(drive->throttle, off < stops_in + 1.f ? (speed > 2.5f ? -1.f : 0.3f) : off < stops_in * 1.5f + 2.f ? 0.f : 0.6f);
 	}
 	if (traveller->swerve_ticks > 0)
@@ -4747,16 +4834,19 @@ static void country_handling(struct country_drive *drive)
 		country_grip_learn(traveller, speed, wanted, slide, hovers);
 	if (!hovers && country_turn_in_three(drive, wanted))
 		return;
-	most = hovers ? 3.2f : speed > 11.f ? 0.22f : speed > 8.f ? 0.32f : speed > 5.f ? 0.5f : 3.2f;
+	/* (the speeds a Warthog's: so much more for a faster one, less for a
+	   slower, as its tag has it: country_handling_of) */
+	real pace = COUNTRY_PACE;
+	most = hovers ? 3.2f : speed > 11.f * pace ? 0.22f : speed > 8.f * pace ? 0.32f : speed > 5.f * pace ? 0.5f : 3.2f;
 	/* (full lock under power is the tail round, on snow: round a tight
 	   turn on little of it) */
 	if (fabs(wanted) > 1.2f)
-		drive->throttle = MIN(drive->throttle, speed > 4.5f ? -0.4f : speed > 2.5f ? 0.15f : 0.5f);
+		drive->throttle = MIN(drive->throttle, speed > 4.5f * pace ? -0.4f : speed > 2.5f * pace ? 0.15f : 0.5f);
 	else if (fabs(wanted) > 0.6f)
-		drive->throttle = MIN(drive->throttle, speed > 7.f ? -0.2f : speed > 4.5f ? 0.3f : 0.6f);
-	else if (fabs(wanted) > 0.3f && speed > 10.f)
+		drive->throttle = MIN(drive->throttle, speed > 7.f * pace ? -0.2f : speed > 4.5f * pace ? 0.3f : 0.6f);
+	else if (fabs(wanted) > 0.3f && speed > 10.f * pace)
 		drive->throttle = MIN(drive->throttle, 0.3f);
-	if (fall < -0.25f && speed > 8.f)
+	if (fall < -0.25f && speed > 8.f * pace)
 		drive->throttle = MIN(drive->throttle, 0.f);
 	if (fabs(wanted) > most)
 		drive->yaw = bot_wrap(heading + (wanted > 0.f ? most : -most));
@@ -4838,6 +4928,8 @@ static void country_held_up(struct country_drive *drive)
 			}
 		}
 		traveller->escape_until = now + BOT_SECONDS(2.f);
+		traveller->escape_from = *position;
+		traveller->escape_began = now;
 		traveller->stuck_tick = now + BOT_SECONDS(2.f);
 		traveller->stuck_last = now;
 		traveller->stuck_count++;
@@ -4858,6 +4950,25 @@ static void country_getting_clear(struct country_drive *drive)
 	   clear, and the stopping for it stands) */
 	if (now < traveller->escape_until && result->edge && speed > 3.f)
 		traveller->escape_until = now;
+	/* (clear already: a few units from where it was held, a second into
+	   it, and room the way it was bound: on its way, not the rest of the
+	   two seconds out the other way. The getting clear was a tenth of all
+	   the driving, and most of each of them was after it was clear.
+	   HALO_BOT_OFF=clearsoon: the two seconds, as it was) */
+	if (now < traveller->escape_until && traveller->escape_until - traveller->escape_began == BOT_SECONDS(2.f) &&
+		now - traveller->escape_began > BOT_SECONDS(0.6f) && !bot_env_off("clearsoon") &&
+		bot_distance2d(&drive->body->position, &traveller->escape_from) > 3.f)
+	{
+		real_point3d eye = drive->body->position;
+		eye.z += 0.6f;
+		if (country_ray(&eye, drive->yaw, 0.f, 8.f, drive->body->vehicle_index) >= 7.5f &&
+			country_ground_that_way(&drive->body->position, drive->yaw, drive->body->vehicle_index))
+		{
+			traveller->escape_until = now;
+			traveller->stuck_point = drive->body->position;
+			traveller->stuck_tick = now;
+		}
+	}
 	if (now < traveller->escape_until)
 	{
 		real to_it = bot_angle_difference(traveller->escape_yaw, heading);
@@ -4996,6 +5107,7 @@ void bot_country_drive(struct bot_traveller *traveller, struct bot_body const *b
 	struct country_drive drive;
 
 	memset(result, 0, sizeof(*result));
+	country_now = country_handling_of(vehicle->definition_index);
 	if (traveller->vehicle != body->vehicle_index)
 	{
 		memset(traveller, 0, sizeof(*traveller));
@@ -5041,16 +5153,57 @@ void bot_country_drive(struct bot_traveller *traveller, struct bot_body const *b
 	drive.yaw = yaw;
 	drive.throttle = throttle;
 	drive.seen.ahead = -1.f, drive.seen.reach = 0.f, drive.seen.found = -1, drive.seen.ours = 0; /* (testing: what the driver saw ahead, of how far it looked) */
-	if (bot_refined_is(64) && bot_vehicle_kind(vehicle->definition_index) != _bot_vehicle_turret)
-		country_see_things(&drive);
-	else
-		country_see_things_plain(&drive);
-	country_nose_to_wall(&drive);
-	country_handling(&drive);
-	country_held_up(&drive);
-	country_getting_clear(&drive);
-	country_run_up(&drive);
-	country_backing(&drive);
+	/* (testing, HALO_BOT_DRIVELIMIT: which part of the driving took the
+	   throttle down, each tick, counted: what keeps the vehicles slow) */
+	{
+		static char const *const stage_names[] = { "the way (corners, room, narrow)", "the place near", "things in the way", "a wall before it",
+			"its handling (turn, slope, slide)", "held up", "getting clear", "a run-up", "backing", "full" };
+		static long limit_counts[10], slow_counts[10], limit_ticks;
+		int limited = 9;
+		real before;
+		if (to_place < 10.f)
+			limited = 1;
+		else if (throttle < 0.99f)
+			limited = 0;
+		before = drive.throttle;
+		if (bot_refined_is(64) && bot_vehicle_kind(vehicle->definition_index) != _bot_vehicle_turret)
+			country_see_things(&drive);
+		else
+			country_see_things_plain(&drive);
+		if (drive.throttle < before - 0.01f) limited = 2;
+		before = drive.throttle;
+		country_nose_to_wall(&drive);
+		if (drive.throttle < before - 0.01f) limited = 3;
+		before = drive.throttle;
+		country_handling(&drive);
+		if (drive.throttle < before - 0.01f) limited = 4;
+		before = drive.throttle;
+		country_held_up(&drive);
+		if (drive.throttle < before - 0.01f) limited = 5;
+		before = drive.throttle;
+		country_getting_clear(&drive);
+		if (drive.throttle != before) limited = 6;
+		before = drive.throttle;
+		country_run_up(&drive);
+		if (drive.throttle != before) limited = 7;
+		before = drive.throttle;
+		country_backing(&drive);
+		if (drive.throttle != before) limited = 8;
+		if (getenv("HALO_BOT_DRIVELIMIT"))
+		{
+			limit_counts[limited]++;
+			if (speed < 2.5f)
+				slow_counts[limited]++;
+			if (++limit_ticks % 900 == 0)
+			{
+				long k;
+				for (k = 0; k < 10; k++)
+					if (limit_counts[k])
+						bot_log("drivelimit %s: %.1f%% of ticks, %.1f%% slow (under 2.5)", stage_names[k], 100.f * limit_counts[k] / limit_ticks,
+							100.f * slow_counts[k] / limit_ticks);
+			}
+		}
+	}
 	yaw = drive.yaw;
 	throttle = drive.throttle;
 	result->held_up = traveller->stuck_count >= 4;

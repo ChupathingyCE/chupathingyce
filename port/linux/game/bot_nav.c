@@ -1921,6 +1921,13 @@ int bot_logging(void)
 	return logging || bot_debug_capturing;
 }
 
+/* a part named in HALO_BOT_OFF (testing: the ones not in bots.c's own list) */
+int bot_env_off(char const *part)
+{
+	char const *off = getenv("HALO_BOT_OFF");
+	return off && strstr(off, part) != NULL;
+}
+
 int bot_env_set(char const *name)
 {
 	/* (the debugging switches: read once each, kept by their names, copied:

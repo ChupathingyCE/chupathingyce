@@ -786,6 +786,72 @@ static int air_flies_better(char const *part)
 	return !(off && strstr(off, part));
 }
 
+/* Ways found lately, for any pilot to have: one going from about where
+   another set off from to the same place, with as much room needed, flies
+   the way that one found (the searches are few a tick, and two craft off
+   the same pad for the same base waited a second each for the same search).
+   Kept ten seconds. HALO_BOT_OFF=airshare: each its own, as it was. */
+#define AIR_SHARED 8
+#define AIR_SHARED_TURNS 16
+static struct
+{
+	long tick;
+	long goal;
+	real need;
+	real_point3d from;
+	real_point3d points[AIR_SHARED_TURNS];
+	long count;
+} air_shared[AIR_SHARED];
+
+static long air_shared_find(real_point3d const *from, long goal, real need, real_point3d *points, long maximum)
+{
+	long now = game_time_get();
+	long i;
+	if (!air_flies_better("airshare"))
+		return 0;
+	for (i = 0; i < AIR_SHARED; i++)
+	{
+		long count, first = 0, k;
+		real nearest = 1.0e9f;
+		if (air_shared[i].count <= 0 || air_shared[i].goal != goal || now - air_shared[i].tick > BOT_SECONDS(10.f) || now < air_shared[i].tick ||
+			air_shared[i].need < need - 0.5f || bot_distance2d(&air_shared[i].from, from) > 25.f)
+		{
+			continue;
+		}
+		/* (from the turn of it nearest where this one is) */
+		for (k = 0; k < air_shared[i].count; k++)
+		{
+			real distance = bot_distance2d(&air_shared[i].points[k], from);
+			if (distance < nearest)
+			{
+				nearest = distance;
+				first = k;
+			}
+		}
+		count = MIN(air_shared[i].count - first, maximum);
+		memcpy(points, &air_shared[i].points[first], count * sizeof(real_point3d));
+		return count;
+	}
+	return 0;
+}
+
+static void air_shared_keep(real_point3d const *from, long goal, real need, real_point3d const *points, long count)
+{
+	long now = game_time_get();
+	long i, oldest = 0;
+	if (count <= 0 || !air_flies_better("airshare"))
+		return;
+	for (i = 0; i < AIR_SHARED; i++)
+		if (air_shared[i].tick < air_shared[oldest].tick || now < air_shared[i].tick)
+			oldest = i;
+	air_shared[oldest].tick = now;
+	air_shared[oldest].goal = goal;
+	air_shared[oldest].need = need;
+	air_shared[oldest].from = *from;
+	air_shared[oldest].count = MIN(count, AIR_SHARED_TURNS);
+	memcpy(air_shared[oldest].points, points, air_shared[oldest].count * sizeof(real_point3d));
+}
+
 static long air_route(real_point3d const *from, real_point3d const *to, real need, real_point3d *points, long maximum)
 {
 	long start, goal;
@@ -818,11 +884,20 @@ static long air_route(real_point3d const *from, real_point3d const *to, real nee
 		air.search_tick = game_time_get();
 		air.searches_this_tick = 0;
 	}
+	{
+		long shared = air_shared_find(from, goal, need, points, maximum);
+		if (shared > 0)
+			return shared;
+	}
 	if (air.searches_this_tick++ >= AIR_SEARCHES_PER_TICK)
 		return 0;
 	if (!air_search(start, goal, need, limit))
 		return -1; /* (looked, and there is none: not "no search to be had this tick") */
-	return air_route_turns(goal, from, &goal_point, need, limit, points, maximum);
+	{
+		long count = air_route_turns(goal, from, &goal_point, need, limit, points, maximum);
+		air_shared_keep(from, goal, need, points, count);
+		return count;
+	}
 }
 
 /* ---------- the craft */
@@ -2383,8 +2458,22 @@ static void air_hover_landing(struct air_flight const *f, real level, struct air
 				left = 0.f;
 			}
 		}
-		if ((left < 3.f && level < 2.5f) || (left < 8.f && level < 1.f) || now - pilot->land_tick > BOT_SECONDS(40.f))
+		/* (a Pelican, a Longsword: slowing all the way in, as it nears,
+		   and then a hold over the place, hung there steady for most of a
+		   second before it starts down, rather than coming down still
+		   sliding on, and setting down on a slant across the place, or
+		   past it. HALO_BOT_OFF=airhold: as the small ones do) */
+		boolean hold = f->large > 0.f && air_flies_better("airhold");
+		if (hold && pilot->way_in != 3)
 		{
+			h->limit = MIN(h->limit, 1.5f + 0.3f * left);
+			pilot->hold_ticks = left < 4.f && level < 1.5f && f->speed < 1.5f ? pilot->hold_ticks + 1 : 0;
+		}
+		if ((hold && pilot->hold_ticks > BOT_SECONDS(0.75f)) ||
+			(!hold && ((left < 3.f && level < 2.5f) || (left < 8.f && level < 1.f))) ||
+			now - pilot->land_tick > BOT_SECONDS(40.f))
+		{
+			pilot->hold_ticks = 0;
 			pilot->down = TRUE;
 			pilot->down_tick = now;
 			pilot->still_ticks = 0;
