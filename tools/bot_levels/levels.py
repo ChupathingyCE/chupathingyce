@@ -206,13 +206,16 @@ def jump_zigzag():
     """jumps up from side to side of a run, from one small block to the next"""
     g = Grid(-26, -10, 26, 10, ceiling=12, cell=4)
     L = Level("bot_jump_zigzag", "Jump Zigzag", g,
-              "A ledge 0.7 up, then five jumps up from side to side, block to block (1.8 across, gaps of about 1.6), each 0.35 to 0.45 higher; a flag on a wider block at the top.")
+              "A ledge 0.7 up, then five jumps up from side to side, block to block (1.8 across, gaps of about 1.3), each 0.35 to 0.45 higher; a flag on a wider block at the top.")
     rises = [0.4, 0.45, 0.35, 0.45, 0.4]  # (no more than 0.45: a running jump lands 0.5 up at most, and at that it fails)
     h = 0.7
     blocks = []
     x = -12.0
     for k in range(6):
-        y = -1.6 if k % 2 == 0 else 1.6
+        # (1.4 to either side: from 1.6, the way between two blocks went
+        # cornerwise, two units from corner to corner, and up 0.45 that is
+        # past a running jump; at 1.4 it is 1.4)
+        y = -1.4 if k % 2 == 0 else 1.4
         g.box(x - 0.9, y - 0.9, x + 0.9, y + 0.9, round(h, 3))
         blocks.append((x, y))
         if k < len(rises):
@@ -674,6 +677,11 @@ def loop():
     for team, sy in ((0, -1), (1, 1)):
         L.vehicle("warthog", -75, sy * 30, 0)
         L.vehicle("ghost", -75, sy * 45, 0)
+    # (weapons round the bend, as Sidewinder has: what is fought over there,
+    # and so in the navigation, which goes only as far as the places that
+    # are played in, and stopped 30 units past the bases without them)
+    for kind, x, y in (("rocket", 85, 0), ("sniper", 10, -35), ("sniper", 10, 35), ("shotgun", 60, -30), ("shotgun", 60, 30)):
+        L.weapon(kind, x, y)
     L.stop(-88, -35)
     L.stop(85, 0)
     L.stop(-88, 35)
