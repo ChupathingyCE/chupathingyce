@@ -1729,8 +1729,24 @@ long scenario_tags_load(
 			while (!read_complete)
 				SwitchToThread();
 			ce_header = tag_cache_base_address;
-			match_vassert("c:\\halo\\SOURCE\\cache\\cache_files.c", 0x94,
-				ce_header->signature == CACHE_FILE_TAG_HEADER_SIGNATURE, "a Custom Edition map's tag header");
+			/* port: tags that did not all read, or whose header is not a tag
+			header (a damaged map, or one in a format this build does not
+			read), are not loaded: the map is refused, as an Xbox map's are
+			(below), and closed for the next to open. A release build went
+			on past the assert and faulted on the header's counts */
+			if (read_complete != TRUE || ce_header->signature != CACHE_FILE_TAG_HEADER_SIGNATURE)
+			{
+				error(_error_silent, "Custom Edition map %s: %s: the map is not loaded", scenario_name,
+					read_complete != TRUE ? "its tags could not be read" : "its tag header is damaged");
+#ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
+				/* (what the load borrowed given back) */
+				if (platform_ce_alias)
+					platform_ce_load_end();
+#endif
+				cache_file_close();
+
+				return NONE;
+			}
 			cache_file_globals.tag_header = tag_cache_base_address;
 			global_tag_instances = xbox_pointer(ce_header->tag_instances);
 			cache_file_globals.tags_loaded = TRUE;
