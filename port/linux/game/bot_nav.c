@@ -476,12 +476,39 @@ static void navm_play_bounds(real *minimum_x, real *minimum_y, real *maximum_x, 
 		y0 = MIN(y0, point->y), y1 = MAX(y1, point->y);
 		count++;
 	}
+	/* (and the vehicles where they are put down, as the parts of a very
+	   large map count them: a vehicle out past everything else is driven
+	   from there, and was in no navigation at all) */
+	for (i = 0; i < scenario->vehicles.count; i++)
+	{
+		struct scenario_object_datum const *vehicle = (struct scenario_object_datum const *)((byte *)xbox_pointer(scenario->vehicles.address) + i * 0x78);
+		x0 = MIN(x0, vehicle->position.x), x1 = MAX(x1, vehicle->position.x);
+		y0 = MIN(y0, vehicle->position.y), y1 = MAX(y1, vehicle->position.y);
+	}
 	if (count < 4)
 		return;
 	*minimum_x = MAX(*minimum_x, x0 - NAVM_PLAY_MARGIN);
 	*minimum_y = MAX(*minimum_y, y0 - NAVM_PLAY_MARGIN);
 	*maximum_x = MIN(*maximum_x, x1 + NAVM_PLAY_MARGIN);
 	*maximum_y = MIN(*maximum_y, y1 + NAVM_PLAY_MARGIN);
+}
+
+/* whether the grid read from a cache has every vehicle's placement in it (a
+   cache made before the play bounds counted them may not) */
+static boolean navm_cache_has_vehicles(void)
+{
+	struct scenario *scenario = global_scenario_get();
+	long i;
+	if (!scenario || scenario->type != _scenario_type_multiplayer || navm.wanted)
+		return TRUE;
+	for (i = 0; i < scenario->vehicles.count; i++)
+	{
+		struct scenario_object_datum const *vehicle = (struct scenario_object_datum const *)((byte *)xbox_pointer(scenario->vehicles.address) + i * 0x78);
+		if (vehicle->position.x < navm.x0 || vehicle->position.y < navm.y0 ||
+			vehicle->position.x > navm.x0 + navm.width * NAVM_CELL || vehicle->position.y > navm.y0 + navm.height * NAVM_CELL)
+			return FALSE;
+	}
+	return TRUE;
 }
 
 /* the way round each place that is worked out, world units: first, and
@@ -1709,8 +1736,15 @@ boolean navm_build(void)
 		return FALSE;
 	if (navm_cache_load())
 	{
-		navm.ready = TRUE;
-		return TRUE;
+		if (navm_cache_has_vehicles())
+		{
+			navm.ready = TRUE;
+			return TRUE;
+		}
+		/* (made before the vehicles counted in the play bounds, and one
+		   of them out past its grid: made again) */
+		bot_log("navm: the navigation kept for this map leaves out where a vehicle is put down: made again");
+		navm_dispose();
 	}
 	navm_vertex_bounds(bsp, &minimum_x, &minimum_y, &maximum_x, &maximum_y);
 	/* a multiplayer map: only as far as people go, which is round where
