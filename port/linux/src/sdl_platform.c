@@ -401,8 +401,37 @@ BOOL platform_sdl_initialize(void)
 #endif
 	if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMEPAD | SDL_INIT_EVENTS))
 	{
-		platform_log("SDL_Init failed: %s", SDL_GetError());
+		char reason[256];
+
+		snprintf(reason, sizeof(reason), "%s", SDL_GetError());
+		platform_log("SDL_Init failed: %s", reason);
+#ifdef HALO_ANDROID
+		/* (a phone always has its screen) */
 		return FALSE;
+#else
+		/* (the window first: without a display there is no game, and the
+		renderer would only crash on the window it never got; without sound
+		or gamepads there still is one) */
+		if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS))
+		{
+			char message[512];
+
+			snprintf(reason, sizeof(reason), "%s", SDL_GetError());
+			snprintf(message, sizeof(message),
+				"Chupathingy couldn't open a window: %s.\n\n"
+				"It needs a display to run on. Check that one is connected and turned on.", reason);
+			platform_log("video: no window (%s): quitting", reason);
+			fprintf(stderr, "Chupathingy: %s\n", message);
+			if (!config_boolean("debug.hidden_window") && config_real("debug.exit_after") <= 0.0)
+				SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Chupathingy", message, NULL);
+			SDL_Quit();
+			exit(EXIT_FAILURE);
+		}
+		if (!SDL_InitSubSystem(SDL_INIT_AUDIO))
+			platform_log("audio: could not start (%s): playing without sound", SDL_GetError());
+		if (!SDL_InitSubSystem(SDL_INIT_GAMEPAD))
+			platform_log("gamepads: could not start (%s)", SDL_GetError());
+#endif
 	}
 	platform_sdl_started = TRUE;
 #ifdef HALO_CONSOLE_SETUP_SCREENS

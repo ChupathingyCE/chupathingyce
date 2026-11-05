@@ -362,6 +362,8 @@ symbols in this file:
 
 #ifdef HALO_MAP_LIST
 #include "halo_ui_map_list.h"
+/* (main.c's: a campaign level's index by its map's name, or NONE) */
+short main_get_solo_level_from_name(char const *name);
 #endif
 
 /* port: a player who shares their Delta profile, by its name on the
@@ -2521,8 +2523,9 @@ static void multiplayer_game_set_text_box_for_map_name(
 	{
 		map_name = game->map.name;
 #ifdef HALO_MAP_LIST
-	/* port: a map past the Xbox's is named as the menus' map list names it */
-	if (strchr(map_name, '@'))
+	/* port: a map past the Xbox's is named as the menus' map list names it
+	(a network co-op game's campaign level too) */
+	if (strchr(map_name, '@') || main_get_solo_level_from_name(map_name) != NONE)
 	{
 		long row = ui_map_list_lookup(map_name);
 
@@ -2676,6 +2679,20 @@ static void multiplayer_game_set_text_box_for_game_ruleset(
 		default:
 			widget->parameters.text_box.string_list_index =
 				_multiplayer_game_text_string_unknown_game_type;
+#if defined(HALO_MAP_LIST) && defined(HALO_GAME_BROWSER)
+			/* port: a network co-op game (no game engine, a campaign level):
+			co-op, as the menus' map list names its game */
+			if (!game->variant.game_engine_index && main_get_solo_level_from_name(game->map.name) != NONE)
+			{
+				long row = ui_map_list_lookup(game->map.name);
+
+				if (row != NONE && ui_map_list_row_is_campaign(row))
+				{
+					widget->parameters.text_box.string_list_index =
+						ui_map_list_string_index(row, _ui_map_list_string_game_type);
+				}
+			}
+#endif
 			break;
 		}
 		return;
@@ -2803,8 +2820,9 @@ static void multiplayer_game_set_bitmap_for_map(
 	{
 		map_name = game->map.name;
 #ifdef HALO_MAP_LIST
-	/* port: a map past the Xbox's shows the menus' map list's picture for it */
-	if (strchr(map_name, '@'))
+	/* port: a map past the Xbox's shows the menus' map list's picture for it
+	(a network co-op game's campaign level too) */
+	if (strchr(map_name, '@') || main_get_solo_level_from_name(map_name) != NONE)
 	{
 		long row = ui_map_list_lookup(map_name);
 
