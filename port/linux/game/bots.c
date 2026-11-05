@@ -1723,6 +1723,7 @@ struct bot_state
 	long behind_ticks;
 	real behind_yaw;
 	long still_since; /* standing about since then (0: moving) */
+	long goal_hunted; /* the one its goal is to go and find (NONE: none), followed as they go */
 };
 
 
@@ -3001,6 +3002,7 @@ static void bot_set_goal(struct bot_state *bot, long kind, real_point3d const *p
 		/* a new trip: a lane of its own, and maybe a way round of its own
 		   (and dying on it says nothing about the last one's way) */
 		bot->on_objective_route = FALSE;
+		bot->goal_hunted = NONE;
 		bot->mover.move.lane = 0.1f + 0.8f * bot_random(bot);
 		bot->mover.move.lane_set = TRUE;
 		/* (flanking someone who's moved a little: still the same flank) */
@@ -4315,6 +4317,7 @@ struct bot_candidate
 	int squad; /* team slayer: with the team */
 	int explore; /* somewhere to explore */
 	int trip; /* a far map: off to where the others are */
+	long hunted; /* going to find someone: whose unit (NONE: nobody's) */
 };
 
 /* the choice being weighed: whose, and how loosely. Every candidate's score
@@ -4417,6 +4420,7 @@ static int bot_consider(struct bot_candidate *best, real score, long kind, real_
 		best->squad = FALSE;
 		best->explore = FALSE;
 		best->trip = FALSE;
+		best->hunted = NONE;
 		return TRUE;
 	}
 	return FALSE;
@@ -6624,6 +6628,7 @@ static void bot_goal_hunt(struct bot_goal_pass *g)
 		real total = 0.f;
 		real pick;
 		real_point3d chosen;
+		long chosen_unit = NONE;
 		int found = FALSE;
 		data_iterator_new(&others, player_data);
 		while ((other = (struct player_datum *)data_iterator_next(&others)) != NULL)
@@ -6652,6 +6657,7 @@ static void bot_goal_hunt(struct bot_goal_pass *g)
 				{
 					nearest = distance3d(&bot->blips[i].at, position);
 					chosen = bot->blips[i].at;
+					chosen_unit = bot->blips[i].unit;
 					found = TRUE;
 				}
 			}
@@ -6671,6 +6677,7 @@ static void bot_goal_hunt(struct bot_goal_pass *g)
 				{
 					nearest = distance3d(&at, position);
 					chosen = at;
+					chosen_unit = other->unit_index;
 					found = TRUE;
 				}
 			}
@@ -6690,6 +6697,7 @@ static void bot_goal_hunt(struct bot_goal_pass *g)
 			if (pick <= 0.f)
 			{
 				chosen = at;
+				chosen_unit = other->unit_index;
 				found = TRUE;
 				break;
 			}
@@ -6709,12 +6717,13 @@ static void bot_goal_hunt(struct bot_goal_pass *g)
 			/* (a long while with nobody about: off to find them, alone if
 			   need be, the longer the more) */
 			real quiet = bot_quiet(bot);
-			bot_consider(best, (5.f + 6.f * bot->personality.aggression + (held >= 7.f ? 3.f : 0.f)) * advantage / (1.f + distance / 150.f) *
+			if (bot_consider(best, (5.f + 6.f * bot->personality.aggression + (held >= 7.f ? 3.f : 0.f)) * advantage / (1.f + distance / 150.f) *
 				(bot_is_team_slayer() ? 0.5f + 0.5f * quiet : 1.f) * /* (team slayer: the squad hunts together) */
 				(objective_game ? BOT_OBJECTIVE_HUNT : 1.f) * (1.f + 3.f * quiet),
 				/* (and looked for again every few seconds, where they are by
 				   then, not where they were when it set off) */
-				_bot_goal_roam, &chosen, NONE, (long)((quiet > 0.5f ? 4.f : 6.f + distance / 2.f) * BOT_TICKS_PER_SECOND), FALSE);
+				_bot_goal_roam, &chosen, NONE, (long)((quiet > 0.5f ? 4.f : 6.f + distance / 2.f) * BOT_TICKS_PER_SECOND), FALSE))
+				best->hunted = chosen_unit;
 		}
 	}
 }
@@ -7188,6 +7197,26 @@ static void bot_goal_ride(struct bot_goal_pass *g)
 	}
 }
 
+/* the one it went to find, moved on: the goal after them, a few units at a
+   time (not a new trip each time: its way there, its lane and its way round
+   kept) */
+static void bot_goal_follow_hunted(struct bot_state *bot)
+{
+	struct object_datum *them = bot_unit_alive(bot->goal_hunted) ? object_try_and_get(bot->goal_hunted) : NULL;
+	real_point3d at;
+	if (!them)
+	{
+		bot->goal_hunted = NONE;
+		return;
+	}
+	at = object_get(object_get_ultimate_parent(bot->goal_hunted))->object.position;
+	if (distance3d(&at, &bot->goal) > 5.f)
+	{
+		bot->goal = at;
+		bot_goal_snap(bot);
+	}
+}
+
 static int bot_goal_commit(struct bot_goal_pass *g)
 {
 	struct bot_state *bot = g->bot;
@@ -7224,6 +7253,12 @@ static int bot_goal_commit(struct bot_goal_pass *g)
 		!best->squad && !best->objective && !(best->trip && !bot->goal_trip) && /* (a trip is something else altogether) */
 		best->object == NONE && bot_distance2d(position, &bot->goal) > 2.f)
 	{
+		/* (going to find someone: to where they are now, not where they were
+		   when it set off, up to half a minute ago on a big map; the same
+		   trip, its way and its lane kept, the goal moved along as they go.
+		   HALO_BOT_OFF=follow: where they were, as it was) */
+		if (bot->goal_hunted != NONE && !bot_env_off("follow"))
+			bot_goal_follow_hunted(bot);
 		return TRUE;
 	}
 	/* keep at what we're doing unless the best is clearly better */
@@ -7258,6 +7293,7 @@ static int bot_goal_commit(struct bot_goal_pass *g)
 		else if (best->kind != _bot_goal_item)
 			bot->item_streak = 0;
 		bot_set_goal(bot, best->kind, &best->point, best->object, best->ticks);
+		bot->goal_hunted = best->hunted;
 		bot->goal_score = best->score;
 		bot->goal_objective = best->objective;
 		bot->goal_squad = best->squad;
@@ -7576,6 +7612,7 @@ static void bot_choose_goal(struct bot_state *bot, long me, struct player_datum 
 	memset(&g.best, 0, sizeof(g.best));
 	g.best.kind = _bot_goal_none;
 	g.best.object = NONE;
+	g.best.hunted = NONE;
 	bot_hunches_begin(bot, me);
 	/* (a very large map: the part we are in, or were last, in the air) */
 	bot_consider_region = NONE;
@@ -7618,26 +7655,33 @@ static void bot_choose_goal(struct bot_state *bot, long me, struct player_datum 
 
 	/* items: power weapons and powerups first, better weapons, grenades,
 	   health when hurt */
+	/* (testing, HALO_BOT_PEACE: no guns to get, nobody to go after) */
+	int peace = bot_env_set("HALO_BOT_PEACE");
 	bot_consider_scale = bot_ffa_goal_scale(bot, me, unit, _bot_ffa_goal_items);
-	bot_goal_items(&g);
+	if (!peace)
+		bot_goal_items(&g);
 
 	/* (and what is not lying there yet, but will be) */
 	bot_consider_scale = bot_ffa_goal_scale(bot, me, unit, _bot_ffa_goal_spawns);
-	bot_consider_spawns(bot, me, player, unit, position, teams, held, &g.best);
+	if (!peace)
+		bot_consider_spawns(bot, me, player, unit, position, teams, held, &g.best);
 	bot_consider_scale = 1.f;
 
 	bot_goal_vehicles(&g);
 	bot_goal_trip(&g);
 	bot_consider_scale = bot_ffa_goal_scale(bot, me, unit, _bot_ffa_goal_hunt);
-	bot_goal_hunt(&g);
+	if (!peace)
+		bot_goal_hunt(&g);
 	bot_consider_scale = 1.f;
-	bot_goal_quarry(&g);
+	if (!peace)
+		bot_goal_quarry(&g);
 	bot_consider_scale = bot_ffa_goal_scale(bot, me, unit, _bot_ffa_goal_haunts);
 	bot_goal_haunts(&g);
 	bot_consider_scale = 1.f;
 	bot_goal_herd(&g);
 	bot_consider_scale = bot_ffa_goal_scale(bot, me, unit, _bot_ffa_goal_heard);
-	bot_goal_heard_fight(&g);
+	if (!peace)
+		bot_goal_heard_fight(&g);
 	bot_consider_scale = bot_ffa_goal_scale(bot, me, unit, _bot_ffa_goal_explore);
 	bot_goal_explore(&g);
 	bot_consider_scale = 1.f;
@@ -8177,6 +8221,14 @@ static void bot_plan_via_step(struct bot_state *bot, struct bot_body const *body
 	/* the shorter the better; then a change from last time, never the
 	   way it died, and not where teammates are already going */
 	score = (first + second) / direct + 0.3f * bot_random(bot) * bot->personality.whim;
+	/* (to the flag, not with it: any way round within its slack about as
+	   likely as any other, as a trip's is. Scored by length alone, the way
+	   round to the flag was the same one every time, the shortest of them:
+	   on Chill Out the bots took one way to the enemy's flag in a game of
+	   flags and every way there was to the hill, whose trips are no
+	   objective's. HALO_BOT_OFF=routemix: the shortest, as it was) */
+	if (objective && !bot->via_plan.carrying && !bot_env_off("routemix"))
+		score += (0.2f + 0.25f * bot->personality.whim) * bot_random(bot);
 	if (flank)
 	{
 		/* come at them from where they can't see us coming: out of
@@ -15179,6 +15231,7 @@ personality.field = PIN(personality.field + swing, low, high))
 	bot->goal_object = NONE;
 	bot->region = NONE;
 	bot->target_player = NONE;
+	bot->goal_hunted = NONE;
 	bot_move_reset(&bot->mover.move);
 	bot->tracked_unit = NONE;
 	bot->aim_velocity_unit = NONE;
@@ -17084,6 +17137,10 @@ static void bot_think_inner(long player_absolute_index, struct player_action *ac
 	   reaction time); in between, keep on whoever we're shooting while
 	   they're in sight. It is the bots' steadiest cost. */
 	t->target = bot_look_round(t);
+	/* (testing, HALO_BOT_PEACE: nobody shot at, so that how they move and
+	   how they get the flag home is measured without the fights) */
+	if (bot_env_set("HALO_BOT_PEACE"))
+		t->target = NONE;
 	if (t->target != NONE)
 		bot_target_seen(bot, me, skill, t->target);
 	else if (bot->target_unit != NONE)
