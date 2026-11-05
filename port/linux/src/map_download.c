@@ -6,7 +6,9 @@ repositories (map_download.h): the public repositories Halo PC's players
 have downloaded missing maps from for years, as Chimera uses them
 (maps.halonet.net, then its mirrors maps2 and maps1), asked by the map's
 name for its zip archive (locator.php?format=zip&map=<name>&type=halom),
-over HTTPS. Never for one of Halo PC's own maps or files (bloodgulch, ui,
+over HTTPS; one the locator does not know, by its file
+(maps/<name>.zip, the host's name as the host has it: the files' names
+keep their case). Never for one of Halo PC's own maps or files (bloodgulch, ui,
 ...: map_archive_stock_name), which the repositories also have: those are
 the player's to copy from their own install.
 
@@ -445,6 +447,31 @@ static void *download_thread(void *argument)
 			platform_log("map download: %s", error);
 			DeleteFileA(archive_path);
 			missing = missing && status == 404;
+		}
+	}
+	/* (a map the locator doesn't know may still be among the repositories'
+	files, as <repository>/maps/<name>.zip, a name they match by its case:
+	asked for by the host's name as the host has it, its base for a hashed
+	name. HaloNet's BattleCraft.zip is one: the locator has no battlecraft) */
+	if (!received && missing && !map_download.cancel)
+	{
+		char direct[sizeof(name)];
+
+		snprintf(direct, sizeof(direct), "%.*s", (int)strlen(asked), name);
+		for (index = 0; index < sizeof(map_download_repositories) / sizeof(map_download_repositories[0]) &&
+			!received && !map_download.cancel; index++)
+		{
+			char url[384];
+
+			snprintf(url, sizeof(url), "%s/maps/%s.zip", map_download_repositories[index], direct);
+			platform_log("map download: GET %s", url);
+			received = receive(url, archive_path, &status, error, sizeof(error));
+			if (!received)
+			{
+				platform_log("map download: %s", error);
+				DeleteFileA(archive_path);
+				missing = missing && status == 404;
+			}
 		}
 	}
 	if (!received && missing && !map_download.cancel)
