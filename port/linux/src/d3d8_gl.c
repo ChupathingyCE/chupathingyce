@@ -52,6 +52,7 @@ static void bg_frame_account(char *text, size_t size);
 static void bg_visibility_begin(void);
 static void bg_visibility_end(DWORD index);
 static UINT bg_visibility_result(DWORD index);
+static BOOL bg_back_buffer_size(int *width, int *height, int *pixel_width, int *pixel_height);
 #endif
 
 void d3d8_surface_initialize(D3DSurface *surface, D3DFORMAT format, unsigned long width, unsigned long height);
@@ -2234,13 +2235,25 @@ HRESULT WINAPI Direct3D_CreateDevice(UINT adapter, D3DDEVTYPE device_type, void 
 there is no back buffer or window yet */
 static BOOL ui_point_view_get(struct ui_point_view *view)
 {
-	struct render_target_entry *back_buffer = render_target_get(&device.back_buffer);
+	struct render_target_entry *back_buffer;
 
-	if (!back_buffer)
-		return FALSE;
 	/* (the present area only iOS has: 0 elsewhere, the whole window; left
 	unset, a click landed wherever the stack's leftovers put it) */
 	memset(view, 0, sizeof(*view));
+#ifdef HALO_BGFX
+	/* (bgfx's back buffer is its own: OpenGL has none while it draws) */
+	if (bg_active())
+	{
+		if (!bg_back_buffer_size(&view->target_width, &view->target_height, &view->gl_width, &view->gl_height))
+			return FALSE;
+		platform_video_window_size(&view->window_width, &view->window_height);
+		platform_video_drawable_size(&view->pixel_width, &view->pixel_height);
+		view->screen_width = halo_screen_width();
+		return TRUE;
+	}
+#endif
+	if (!(back_buffer = render_target_get(&device.back_buffer)))
+		return FALSE;
 	platform_video_window_size(&view->window_width, &view->window_height);
 	platform_video_drawable_size(&view->pixel_width, &view->pixel_height);
 #ifdef HALO_IOS
@@ -2280,7 +2293,11 @@ int halo_ui_pointer_update(int menus_active, struct halo_ui_pointer *pointer)
 
 	platform_menus_set_active(menus_active != 0);
 	platform_ui_pointer_set_active(menus_active != 0);
+#ifdef HALO_BGFX
+	if (!menus_active || !(device.gl_ready || bg_active()) || !platform_ui_pointer_read(&state))
+#else
 	if (!menus_active || !device.gl_ready || !platform_ui_pointer_read(&state))
+#endif
 		return 0;
 	memset(pointer, 0, sizeof(*pointer));
 	ui_point_from_window_now(state.x, state.y, &pointer->x, &pointer->y);

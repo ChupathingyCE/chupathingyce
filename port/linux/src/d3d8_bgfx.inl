@@ -1847,6 +1847,21 @@ static struct bg_target *bg_target_get(const D3DSurface *surface)
 	return entry;
 }
 
+/* the back buffer's size in the game's units and in pixels, for the menus'
+pointer (ui_point_view_get); FALSE before there is one */
+static BOOL bg_back_buffer_size(int *width, int *height, int *pixel_width, int *pixel_height)
+{
+	struct bg_target *back_buffer = bg.ready ? bg_target_get(&device.back_buffer) : NULL;
+
+	if (!back_buffer)
+		return FALSE;
+	*width = (int)back_buffer->width;
+	*height = (int)back_buffer->height;
+	*pixel_width = (int)back_buffer->pixel_width;
+	*pixel_height = (int)back_buffer->pixel_height;
+	return TRUE;
+}
+
 /* the color target last drawn into at this address, or NULL */
 static struct bg_target *bg_target_find(DWORD data)
 {
@@ -3634,6 +3649,15 @@ static void bg_present(void)
 		ui_overlay_present(letterbox[0], bg.window_height - (letterbox[1] + letterbox[3]), letterbox[2], letterbox[3],
 			bg.window_width, bg.window_height);
 #endif
+	}
+	/* (debug.test_input's shot too, as the window: xinput_sdl.c) */
+	if (test_screenshot_requested && *config_string("debug.screenshot_directory"))
+	{
+		char path[512];
+
+		test_screenshot_requested = FALSE;
+		snprintf(path, sizeof(path), "%s/window%05lu.bmp", config_string("debug.screenshot_directory"), device.frame);
+		bgfx_request_screen_shot((bgfx_frame_buffer_handle_t)BGFX_INVALID_HANDLE, path);
 	}
 	if (screenshot_every > 0 && device.frame % (unsigned long)screenshot_every == 0)
 	{
