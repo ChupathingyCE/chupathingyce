@@ -1461,6 +1461,22 @@ boolean cache_files_map_present(
 	else
 #endif
 #ifdef HALO_CUSTOM_EDITION
+#ifdef HALO_CONSOLE_NO_HALOMD_MAPS
+	/* (a HaloMD map, which this console doesn't play: said so, and the map
+	the next game opens on is the first one again, not this one, which the
+	menus' list leaves out and could not change from) */
+	if (family == _map_family_halomd)
+	{
+		void game_engine_override_map_name(char const *map_name);
+		void main_set_multiplayer_map_name(char const *map_name);
+
+		snprintf(message, sizeof(message), "%.63s is a HaloMD map. HaloMD maps can't be played on %s.", file,
+			HALO_CONSOLE_NO_HALOMD_MAPS);
+		game_engine_override_map_name("levels\\test\\carousel\\carousel");
+		main_set_multiplayer_map_name("levels\\test\\carousel\\carousel");
+	}
+	else
+#endif
 	if (family != _map_family_xbox)
 	{
 		char path[256];

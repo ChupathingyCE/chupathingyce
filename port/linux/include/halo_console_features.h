@@ -236,6 +236,12 @@ HALO_CONSOLE_XBOX_MAP_SIZES
 	is b40's 74): 39 KB less. A map past either limit loses only what is
 	past it: the lens flares past it (said once in debug.txt), or those
 	vehicles' respawn
+HALO_CONSOLE_NO_HALOMD_MAPS
+	a console that plays Custom Edition maps but not HaloMD's, named in
+	the message a HaloMD map gets ("the Xbox"): the menus' map list leaves
+	maps_md out (port/linux/game/ui_map_list.c), and a game on a HaloMD
+	map says it can't be played here rather than that the map is missing
+	(source/cache/cache_files.c)
 HALO_CONSOLE_NO_LOADING_PICTURE
 	the disc's loading.tga on the loading screen, as the Xbox showed it,
 	instead of Chupathingy's picture (port/linux/game/loading_picture.c,
@@ -307,6 +313,7 @@ compile lines: source/cseries/xbox_address.h).
 #define HALO_CONSOLE_LIGHT_LIMITS 1
 #define HALO_CONSOLE_XBOX_MAP_SIZES 1
 #define HALO_CONSOLE_ANAMORPHIC_SCREEN 1
+#define HALO_CONSOLE_NO_HALOMD_MAPS "the Xbox"
 #endif
 
 #if !defined(HALO_XBOX_CONSOLE) || defined(HALO_CONSOLE_ANAMORPHIC_SCREEN)
