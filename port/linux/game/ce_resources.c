@@ -842,6 +842,8 @@ static boolean ce_retail_bitmaps(
 		}
 		else if (ce_retail_bitmap_stand_in(map, data))
 		{
+			/* (another bitmap's pixels: what the weather leaves out) */
+			*(unsigned short *)(group + 0x06) |= (unsigned short)FLAG(_bitmap_group_port_stood_in_bit);
 			if (!ce_map_checking() && *stood_in < 16)
 				error(_error_silent, "HaloMD map: bitmap %ld of %s is not in bitmaps.map: stood in for", index, name);
 			(*stood_in)++;
