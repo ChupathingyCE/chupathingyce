@@ -17,7 +17,7 @@ Custom Edition maps with the MCC Halo CE Editing Kit and Invader.
 | `bot_teleport` | Four walled rooms joined only by one-way teleporters, round in a ring |
 | `bot_teleport_chain` | Six rooms in a row with no doors, each left by a teleporter to the next |
 | `bot_obstacles` | Pillars and wall pieces across an open field: the way round them |
-| `bot_forest` | Dense trunks over gentle ground: weaving through on foot and in vehicles |
+| `bot_forest` | Dense trunks over flat ground: weaving through on foot and in vehicles |
 | `bot_open_drive` | A flat valley 240 long, a base at each end and vehicles: driving for the flag |
 | `bot_badlands` | Wide hilly ground with rock walls: driving the long way round |
 | `bot_maze` | A maze of 16 by 16 cells, one way through |
@@ -67,7 +67,11 @@ gbxmodel tags (`invader-refactor -g model gbxmodel`): the kit's tags refer
 to models as `model` tags, and a Custom Edition map's are `gbxmodel`; and
 it fixes the data in the kit's tags that Invader will not build with (an
 index out of bounds in the Scorpion's lens flare, among others) with
-`invader-bludgeon -b "*" -T everything`, as Invader's README says to. Each
+`invader-bludgeon -b "*" -T everything`, as Invader's README says to.
+`build.py` fixes one more tag that bludgeon does not: the Scorpion's
+headlight lens flare names bitmap 2 of a bitmap that has only one, and
+every map has the Scorpion through the globals. It points the flare at
+bitmap 0 and keeps the original tag in `bot_levels\old`. Each
 level's log is `bot_levels\logs\<name>.txt`.
 
 The maps go in the game's `maps` folder (a Custom Edition map: `<name>@ce`

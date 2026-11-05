@@ -342,9 +342,9 @@ def obstacles():
 def forest():
     """a dense wood of thin trunks, and Ghosts to weave through it"""
     g = Grid(-60, -40, 60, 40, ceiling=16, cell=6)
-    L = Level("bot_forest", "Forest", g, "Dense trunks a unit across over gentle ground: weaving through on foot and in Ghosts and Warthogs.")
-    f = lambda x, y: round(0.6 * math.sin(x / 13.0) + 0.4 * math.cos(y / 9.0), 3)
-    g.terrain(-59, -39, 59, 39, f, step=6)
+    L = Level("bot_forest", "Forest", g, "Dense trunks a unit across over flat ground: weaving through on foot and in Ghosts and Warthogs.")
+    # (flat: rolling ground cut up by every trunk's edges was more planes than
+    # tool.exe's collision tree is allowed to be deep, and it stopped)
     rng = random.Random(5)
     taken = set()
     for k in range(70):
