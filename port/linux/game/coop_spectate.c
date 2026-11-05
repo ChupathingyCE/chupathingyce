@@ -5,7 +5,9 @@ Spectating in network co-op. A dead player watches a living teammate
 until they respawn (players.c respawns them beside a teammate once it is
 safe). The campaign's dead camera would watch the body; instead this
 follows a teammate from behind, and A (jump on the keyboard) switches to
-the next one. director.c and hud.c call in here.
+the next one. First, for as long as the campaign's dead camera would wait
+before switching (3 seconds), the player sees their own body fall, as in
+retail. director.c and hud.c call in here.
 
 It also draws the line telling players about the vote to skip a cutscene
 (network_coop.c counts the votes).
@@ -53,10 +55,27 @@ in front, far enough back to see all of what holds them */
 #define SPECTATE_HELD_DISTANCE 2.0f
 #define SPECTATE_HELD_PITCH -0.1f
 
+/* how long the dead camera stays on the player's own body before watching a
+teammate (dead_camera.c's singleplayer switch timer) */
+#define SPECTATE_DEATH_TICKS (3 * TICKS_PER_SECOND)
+
+/* ---------- structures */
+
+/* the death a local player's dead camera is showing */
+struct coop_spectate_death
+{
+	long dead_unit_index;
+	long dead_since;
+};
+
 /* ---------- globals */
 
 /* the player each local player is watching, or NONE */
 static long coop_spectate_watched[MAXIMUM_LOCAL_PLAYERS] = { NONE, NONE, NONE, NONE };
+
+/* when each local player's latest death started */
+static struct coop_spectate_death coop_spectate_deaths[MAXIMUM_LOCAL_PLAYERS] = {
+	{ NONE, NONE }, { NONE, NONE }, { NONE, NONE }, { NONE, NONE } };
 
 /* input_abstraction.c: how many ticks the keyboard's jump key has been held */
 byte input_abstraction_port_accept(short controller_index);
@@ -111,6 +130,26 @@ static boolean next_pressed(short controller_index)
 	return pressed;
 }
 
+/* Whether the dead camera is still on the player's own body: the first
+SPECTATE_DEATH_TICKS of each death. A new body (players.c's dead_unit_index)
+is a new death; with no body (a player who hasn't spawned yet) there is
+nothing to show, so the spectating starts at once. */
+static boolean showing_own_body(
+	struct coop_spectate_death *death,
+	long dead_unit_index,
+	long now)
+{
+	if (dead_unit_index == NONE)
+		return FALSE;
+	/* (a clock behind the start is a new game) */
+	if (death->dead_unit_index != dead_unit_index || now < death->dead_since)
+	{
+		death->dead_unit_index = dead_unit_index;
+		death->dead_since = now;
+	}
+	return now - death->dead_since < SPECTATE_DEATH_TICKS;
+}
+
 /* whether the unit rides in a vehicle it isn't driving */
 static boolean unit_is_passenger(
 	long unit_index)
@@ -145,6 +184,9 @@ long coop_spectate_unit(
 	next = next_pressed(player->network_player_data.controller_index);
 	/* alive: keep `watched`, so the next death starts on the same teammate */
 	if (player->unit_index != NONE)
+		return NONE;
+	/* the retail dead camera on the player's own body first */
+	if (showing_own_body(&coop_spectate_deaths[local_player_index], player->dead_unit_index, game_time_get()))
 		return NONE;
 	if (*watched == NONE || !player_try_and_get(*watched) || player_get(*watched)->unit_index == NONE || next)
 	{
@@ -249,6 +291,12 @@ void coop_spectate_draw(
 	wchar_t text[96];
 	wchar_t const *hint;
 
+	/* still watching the player's own body: nothing to say yet */
+	if (showing_own_body(&coop_spectate_deaths[local_player_index],
+		player_get(local_player_get_player_index(local_player_index))->dead_unit_index, game_time_get()))
+	{
+		return;
+	}
 	/* nobody to watch yet (still joining): network_coop.c shows the host's
 	view from behind instead */
 	if (watched == NONE || !player_try_and_get(watched))
