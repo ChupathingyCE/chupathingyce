@@ -168,6 +168,9 @@ game_state_create_or_open_file passes 0xC0000000, 4 (OPEN_ALWAYS) and
 0x28000000 (no buffering, sequential scan) */
 #define GENERIC_READ 0x80000000UL
 #define GENERIC_WRITE 0x40000000UL
+/* (a file others may read while it is open: the Xbox's kernel, as Windows,
+refuses a second open of a file opened without it) */
+#define FILE_SHARE_READ 0x00000001
 
 #define CREATE_NEW 1
 #define CREATE_ALWAYS 2

@@ -466,7 +466,7 @@ static void ce_pictures_read(
 				char path[512];
 
 				map_family_resource("bitmaps", path, sizeof(path));
-				bitmaps_file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+				bitmaps_file = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 				if (bitmaps_file == INVALID_HANDLE_VALUE)
 					break;
 			}
@@ -518,7 +518,7 @@ static void ce_ui_read(
 		return;
 	ce_ui.read = TRUE;
 	map_family_resource("ui", path, sizeof(path));
-	file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+	file = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 	if (file == INVALID_HANDLE_VALUE)
 		return;
 	/* ('head', its version, its size, ..., its tags' offset and size) */

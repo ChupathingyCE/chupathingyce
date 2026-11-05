@@ -188,7 +188,7 @@ static boolean ce_resource_map_open(
 		return TRUE;
 	/* (in maps_ce, or its older places: halo_map_families.h) */
 	map_family_resource(ce_resource_map_names[type], path, sizeof(path));
-	file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
+	file = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
 	if (file == INVALID_HANDLE_VALUE)
 	{
 		ce_refusal_explain("It needs Custom Edition's %s.map: copy it into maps_ce.", ce_resource_map_names[type]);
