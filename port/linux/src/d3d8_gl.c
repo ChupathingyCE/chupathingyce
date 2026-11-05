@@ -5890,6 +5890,12 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 	}
 	platform_pump_events();
 
+	/* (the wait below is for vertical blanks, which come from their own
+	thread: it is started here too, since the game can present more than two
+	frames before it sets its vertical blank callback or waits for a vertical
+	blank itself. A slow machine's loading screen did, and waited forever) */
+	if (!halo_interpolation_enabled())
+		vertical_blank_start();
 	pthread_mutex_lock(&vertical_blank_lock);
 	/* the Xbox keeps at most two frames queued behind its 60 Hz display;
 	with interpolation, frames come at the real display's rate instead,
