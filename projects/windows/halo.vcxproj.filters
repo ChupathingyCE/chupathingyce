@@ -1689,6 +1689,9 @@
     <ClCompile Include="$(HaloRoot)port\linux\game\chat.c">
       <Filter>port\linux\game</Filter>
     </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\conduct_rules.c">
+      <Filter>port\linux\game</Filter>
+    </ClCompile>
     <ClCompile Include="$(HaloRoot)port\linux\game\controls_screen.c">
       <Filter>port\linux\game</Filter>
     </ClCompile>
@@ -1722,6 +1725,12 @@
     <ClCompile Include="$(HaloRoot)port\linux\game\gametype_files.c">
       <Filter>port\linux\game</Filter>
     </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\host_evidence.c">
+      <Filter>port\linux\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\host_rules.c">
+      <Filter>port\linux\game</Filter>
+    </ClCompile>
     <ClCompile Include="$(HaloRoot)port\linux\game\hud_hires_tags.c">
       <Filter>port\linux\game</Filter>
     </ClCompile>
@@ -1729,6 +1738,12 @@
       <Filter>port\linux\game</Filter>
     </ClCompile>
     <ClCompile Include="$(HaloRoot)port\linux\game\invite_prompt.c">
+      <Filter>port\linux\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\line_of_sight.c">
+      <Filter>port\linux\game</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)port\linux\game\loading_picture.c">
       <Filter>port\linux\game</Filter>
     </ClCompile>
     <ClCompile Include="$(HaloRoot)port\linux\game\loading_screen.c">
@@ -1861,6 +1876,9 @@
       <Filter>server\src</Filter>
     </ClCompile>
     <ClCompile Include="$(HaloRoot)server\src\server_commands.c">
+      <Filter>server\src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(HaloRoot)server\src\server_conduct.c">
       <Filter>server\src</Filter>
     </ClCompile>
     <ClCompile Include="$(HaloRoot)server\src\server_config.c">

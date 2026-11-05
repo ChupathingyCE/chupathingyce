@@ -477,6 +477,7 @@ struct game_allegiance_globals;
 struct game_allegiance_record;
 struct game_engine;
 struct game_engine_globals;
+struct game_engine_network_state_field;
 struct game_engine_place;
 struct game_engine_stage;
 union game_engine_variant;
