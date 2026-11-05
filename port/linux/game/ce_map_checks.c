@@ -733,14 +733,21 @@ char const *ce_map_family_name(
 tags were checked only as far as the port reads them, not read outside its
 tag cache (where its tags, resources, models and BSP are), but from zeroed
 bytes of their own, and logged; else, as always, the address */
+#define CE_TAGS_SCRATCH_LIMIT 0x40000UL
+
 void *ce_tags_pointer(
 	unsigned long address,
 	long size)
 {
 	extern boolean cache_file_tags_are_ce(void);
 	extern boolean pc_menu_owns(unsigned long address, long size);
-	static byte scratch[0x40000];
+	/* (the zeroes: most reads are a block's few elements, so a little here;
+	a longer one, up to CE_TAGS_SCRATCH_LIMIT, from memory taken the first
+	time one comes and kept, which a console spares only then) */
+	static byte scratch[0x4000];
+	static byte *large_scratch;
 	static long misses;
+	byte *zeroes = scratch;
 
 	/* (the bounds first: they pass for nearly every read; then the menus'
 	own tags, added to the map's: menu_tags.c) */
@@ -756,13 +763,24 @@ void *ce_tags_pointer(
 		error(_error_silent, "Custom Edition map: its tags name %ld bytes at %08lx, outside them (read as zeroes)",
 			size, address);
 	}
-	if (size < 0 || (unsigned long)size > sizeof(scratch))
+	if (size < 0 || (unsigned long)size > CE_TAGS_SCRATCH_LIMIT)
 	{
 		error(_error_silent, "Custom Edition map: its tags are damaged; stopping");
 		system_exit(-1);
 	}
-	memset(scratch, 0, (size_t)size);
-	return scratch;
+	if ((unsigned long)size > sizeof(scratch))
+	{
+		if (!large_scratch)
+			large_scratch = (byte *)system_malloc(CE_TAGS_SCRATCH_LIMIT);
+		if (!large_scratch)
+		{
+			error(_error_silent, "Custom Edition map: no memory for %ld bytes of its tags read as zeroes; stopping", size);
+			system_exit(-1);
+		}
+		zeroes = large_scratch;
+	}
+	memset(zeroes, 0, (size_t)size);
+	return zeroes;
 }
 
 /* the length of a map's name without its family's suffix (@ce, @md or @pc),
