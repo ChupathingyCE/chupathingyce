@@ -390,6 +390,10 @@ void _rasterizer_widget_begin(
 			vertex_constants[0][1] = 0.0f;
 			vertex_constants[0][2] = 0.0f;
 			vertex_constants[0][3] = -1.0f - 1.0f / viewport_width;
+#ifdef HALO_CONSOLE_ANAMORPHIC_SCREEN
+			/* (the menus' columns centered: rasterizer_interface_begin) */
+			vertex_constants[0][3] += 2.0f * rasterizer_interface_offset_x() / viewport_width;
+#endif
 			vertex_constants[1][0] = 0.0f;
 			vertex_constants[1][1] = 1.0f / viewport_height * -2.0f;
 			vertex_constants[1][2] = 0.0f;
@@ -481,6 +485,10 @@ void _rasterizer_widget_begin(
 			vertex_constants[0][1] = 0.0f;
 			vertex_constants[0][2] = 0.0f;
 			vertex_constants[0][3] = -1.0f - 1.0f / viewport_width;
+#ifdef HALO_CONSOLE_ANAMORPHIC_SCREEN
+			/* (the menus' columns centered: rasterizer_interface_begin) */
+			vertex_constants[0][3] += 2.0f * rasterizer_interface_offset_x() / viewport_width;
+#endif
 			vertex_constants[1][0] = 0.0f;
 			vertex_constants[1][1] = 1.0f / viewport_height * -2.0f;
 			vertex_constants[1][2] = 0.0f;
