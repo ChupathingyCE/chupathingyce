@@ -40,6 +40,7 @@ by their tags' paths (below).
 #include "bitmaps/bitmaps.h"
 #include "ce_map_checks.h"
 #include "halo_map_families.h"
+#include "halopc_bitmap_offsets.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -505,7 +506,13 @@ bitmaps.map and sounds.map, which are laid out unlike Custom Edition's. The
 same stock tags are in Custom Edition's resource maps, by the same paths
 (HaloMD's maps add '+'s to copies of them): each external bitmap or sound
 takes the offsets of its namesake there, when its pixels or samples are the
-same size. A bitmap with no namesake borrows the pixels of one of the same
+same size. A bitmap is found there first by where its pixels are in Halo
+PC's bitmaps.map (halopc_bitmap_offsets.h: which tag's bitmap each offset
+holds), as Halo PC and HaloMD found it, and only then by its tag's path: the
+tools that made some of HaloMD's maps left stock bitmaps renamed (Halo 2
+anniversary maps' copy of the HUD's reticles is named after the Warthog's
+tires, the fuel rod gun's after a hunter's), which drew another bitmap's
+pixels. A bitmap with no namesake borrows the pixels of one of the same
 type (and format, if there is one) there; a sound with none is made
 silent (no pitch ranges: sound_manager.c does not play it). */
 
@@ -693,6 +700,66 @@ static boolean ce_retail_bitmap_stand_in(
 	return FALSE;
 }
 
+/* a tag's path's hash, as halopc_bitmap_offsets.h has them (FNV-1a, 32
+bits, of the path in lowercase) */
+static unsigned long ce_path_hash(
+	char const *path)
+{
+	unsigned long hash = 0x811c9dc5UL;
+
+	for (; *path; path++)
+	{
+		unsigned char character = (unsigned char)*path;
+
+		if (character >= 'A' && character <= 'Z')
+			character = (unsigned char)(character - 'A' + 'a');
+		hash = ((hash ^ character) * 0x01000193UL) & 0xffffffffUL;
+	}
+	return hash;
+}
+
+/* the bitmap whose pixels are at `offset` in Halo PC's bitmaps.map: its
+tag's resource in Custom Edition's bitmaps.map (NONE if the offset is none of
+Halo PC's stock bitmaps', or its tag is not there) and its index in the tag */
+static long ce_retail_resource_at(
+	struct ce_resource_map const *map,
+	unsigned long offset,
+	long *bitmap_index)
+{
+	long low = 0, high = (long)NUMBEROF(halopc_bitmap_offsets) - 1;
+	unsigned long index;
+
+	while (low <= high)
+	{
+		long middle = low + (high - low) / 2;
+		unsigned long here = halopc_bitmap_offsets[middle].offset;
+
+		if (here == offset)
+		{
+			unsigned long hash = halopc_bitmap_offsets[middle].path_hash;
+
+			if (!map->paths)
+				return NONE;
+			for (index = 0; index < map->count; index++)
+			{
+				unsigned long path_offset = map->resources[index].path_offset;
+
+				if (path_offset < map->paths_size && ce_path_hash(map->paths + path_offset) == hash)
+				{
+					*bitmap_index = halopc_bitmap_offsets[middle].index;
+					return (long)index;
+				}
+			}
+			return NONE;
+		}
+		if (here < offset)
+			low = middle + 1;
+		else
+			high = middle - 1;
+	}
+	return NONE;
+}
+
 /* a retail map's bitmap tag: its external bitmaps' pixels found in Custom
 Edition's bitmaps.map, and the tag's pixels read from there (*type). A bitmap
 of its path there of another size or format (a bitmaps.map not as Custom
@@ -703,13 +770,14 @@ static boolean ce_retail_bitmaps(
 	struct ce_tag_instance const *instance,
 	byte *type,
 	long *stood_in,
-	long *resized)
+	long *resized,
+	long *renamed)
 {
 	byte *group = ce_image_pointer(image, instance->base_address, CE_BITMAP_GROUP_SIZE);
 	char const *name = ce_image_tag_name(image, instance);
 	struct ce_resource_map *map = &ce_resource_maps[_ce_resource_bitmaps];
-	byte *bitmaps, *theirs;
-	long count, their_count = 0, index, found;
+	byte *bitmaps, *theirs, *at_offset = NULL;
+	long count, their_count = 0, index, found, at_offset_resource = NONE, at_offset_count = 0;
 	boolean external = FALSE;
 
 	/* (ce_bitmaps_check refuses a bitmap whose blocks are not in the tags) */
@@ -730,9 +798,29 @@ static boolean ce_retail_bitmaps(
 	{
 		byte *data = bitmaps + index * CE_BITMAP_DATA_SIZE;
 		byte const *their = theirs && index < their_count ? theirs + index * CE_BITMAP_DATA_SIZE : NULL;
+		long resource, their_index = 0;
 
 		if (!(*(unsigned short *)(data + 0x0e) & CE_BITMAP_EXTERNAL_FLAG))
 			continue;
+		/* (the bitmap its pixels' offset in Halo PC's bitmaps.map names,
+		before its tag's path's: a renamed stock tag's) */
+		resource = ce_retail_resource_at(map, ce_read_long(data + 0x18), &their_index);
+		if (resource != NONE)
+		{
+			if (resource != at_offset_resource)
+			{
+				if (at_offset)
+					free(at_offset);
+				at_offset = ce_retail_resource_bitmaps(map, resource, &at_offset_count);
+				at_offset_resource = resource;
+			}
+			if (at_offset && their_index < at_offset_count)
+			{
+				if (resource != found)
+					(*renamed)++;
+				their = at_offset + their_index * CE_BITMAP_DATA_SIZE;
+			}
+		}
 		if (their && !memcmp(data + 0x04, their + 0x04, 10) && !memcmp(data + 0x14, their + 0x14, 2) &&
 			!memcmp(data + 0x1c, their + 0x1c, 4))
 		{
@@ -754,6 +842,8 @@ static boolean ce_retail_bitmaps(
 		}
 		else if (ce_retail_bitmap_stand_in(map, data))
 		{
+			/* (another bitmap's pixels: what the weather leaves out) */
+			*(unsigned short *)(group + 0x06) |= (unsigned short)FLAG(_bitmap_group_port_stood_in_bit);
 			if (!ce_map_checking() && *stood_in < 16)
 				error(_error_silent, "HaloMD map: bitmap %ld of %s is not in bitmaps.map: stood in for", index, name);
 			(*stood_in)++;
@@ -762,11 +852,15 @@ static boolean ce_retail_bitmaps(
 		{
 			if (theirs)
 				free(theirs);
+			if (at_offset)
+				free(at_offset);
 			return ce_refuse("bitmap %ld of %s is in Halo PC's bitmaps.map, not in Custom Edition's", index, name);
 		}
 	}
 	if (theirs)
 		free(theirs);
+	if (at_offset)
+		free(at_offset);
 	*type = (byte)(_ce_resource_bitmaps + 1);
 	return TRUE;
 }
@@ -981,7 +1075,7 @@ static boolean ce_resources_place(
 	unsigned long tags_end = image->base + image->size;
 	unsigned long next = (tags_end + 15) & ~15UL;
 	long index;
-	long stood_in = 0, silenced = 0, resized = 0, reindexed = 0;
+	long stood_in = 0, silenced = 0, resized = 0, reindexed = 0, renamed = 0;
 
 	*copied = 0;
 	csmemset(types, 0, tag_count);
@@ -1007,7 +1101,7 @@ static boolean ce_resources_place(
 				boolean found = TRUE;
 
 				if (instance->group_tag == 'bitm')
-					found = ce_retail_bitmaps(image, instance, &types[index], &stood_in, &resized);
+					found = ce_retail_bitmaps(image, instance, &types[index], &stood_in, &resized, &renamed);
 				else if (instance->group_tag == 'snd!')
 					found = ce_retail_sound(image, instance, &types[index], &silenced);
 				if (!found)
@@ -1094,7 +1188,8 @@ static boolean ce_resources_place(
 	if (ce_map_cache_version == CE_CACHE_VERSION_RETAIL && !ce_map_checking())
 	{
 		error(_error_silent, "HaloMD map: %ld bitmaps stood in for, %ld sounds silent (not in Custom Edition's "
-			"resource maps), %ld bitmaps of another size or format in bitmaps.map", stood_in, silenced, resized);
+			"resource maps), %ld bitmaps of another size or format in bitmaps.map, %ld found by their pixels' "
+			"offset under another tag's name", stood_in, silenced, resized, renamed);
 		/* (Custom Edition's own bitmaps.map has every stock bitmap at the
 		size Halo PC's maps expect: one that doesn't is another file) */
 		if (resized)
