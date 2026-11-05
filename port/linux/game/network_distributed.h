@@ -374,6 +374,11 @@ short network_objects_send_period(long machine_index, real_point3d const *positi
 /* ---------- prototypes/NETWORK_DAMAGE.C */
 
 void network_damage_new_game(void);
+/* the host's tables (history, trails, rates): allocated while this machine
+hosts (network_game_server_create), FALSE with no memory for them; freed
+when it stops (network_game_server_dispose) */
+boolean network_damage_host_tables_allocate(void);
+void network_damage_host_tables_free(void);
 /* the host: a grenade a player's unit threw (units.c), whose damage that
 player's machine reports */
 void network_damage_note_grenade(long unit_index, short grenade_type);
