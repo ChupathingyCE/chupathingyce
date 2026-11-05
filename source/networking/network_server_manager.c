@@ -1291,6 +1291,10 @@ static boolean network_game_server_machine_may_add_player_ingame(
 	return TRUE;
 }
 
+/* port: (port/linux/game/network_distributed.h) */
+boolean network_damage_host_tables_allocate(void);
+void network_damage_host_tables_free(void);
+
 /* ---------- public code */
 
 struct network_game_server *network_game_server_create(
@@ -1321,6 +1325,10 @@ struct network_game_server *network_game_server_create(
 			transport_server_initialize();
 #endif
 
+			/* port: the host's damage tables (network_damage.c), which a
+			machine that only joins doesn't carry; a host without them
+			deals none of its clients' hits, and says so */
+			network_damage_host_tables_allocate();
 			server->state = _network_game_server_state_pregame;
 			server->flags = FLAG(_network_game_server_game_valid_bit);
 			csmemset(&server->game, 0, sizeof(server->game));
@@ -1460,6 +1468,8 @@ newer one the legacy table proves is taken: port/linux/src/delta.c) */
 
 	if (server->connection)
 		network_connection_delete(server->connection);
+	/* port: and its damage tables */
+	network_damage_host_tables_free();
 
 #ifdef xbox
 	/* port: native transports flush before closing sockets, and unregistering
