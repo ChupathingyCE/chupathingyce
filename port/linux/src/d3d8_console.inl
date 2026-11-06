@@ -111,6 +111,8 @@ static struct
 	unsigned long drawn, skipped_program, skipped_target, skipped_shader, skipped_copy, copied_bytes, in_place_bytes;
 	/* attributes copied to a stream of their own (not on a word) */
 	unsigned long split_attributes;
+	/* textures freed for not being drawn */
+	unsigned long textures_freed;
 	/* console.native_in_place: the map's vertices read where they are */
 	BOOL in_place;
 } cr;
@@ -1278,6 +1280,38 @@ static UINT cr_visibility_result(DWORD index)
 
 /* ---------- the frame */
 
+/* textures not drawn for this many frames give their memory back (made
+again from the game's texels at their next use) */
+#define CR_TEXTURE_IDLE_FRAMES 900
+#define CR_TEXTURE_SWEEP_BUCKETS 64
+
+/* The game's texture cache loads a level's textures as they come into
+view, often into memory another texture had: the console's copy of one no
+longer drawn stays made, so a long level (The Silent Cartographer) used up
+the console's memory a few MB at a time. A few buckets a frame are looked
+through, every one in about two seconds. */
+static void cr_texture_sweep(void)
+{
+	static unsigned long next;
+	unsigned long count;
+
+	for (count = 0; count < CR_TEXTURE_SWEEP_BUCKETS; count++, next++)
+	{
+		struct cr_texture *entry;
+
+		for (entry = cr.textures[next % CR_TEXTURE_BUCKETS]; entry; entry = entry->next)
+		{
+			if (entry->texture && cr.frame - entry->used_frame > CR_TEXTURE_IDLE_FRAMES)
+			{
+				console_texture_delete(entry->texture);
+				entry->texture = NULL;
+				entry->generation = 0;
+				cr.textures_freed++;
+			}
+		}
+	}
+}
+
 static void cr_present(void)
 {
 	struct cr_target *back_buffer = cr_target_get(&device.back_buffer);
@@ -1292,7 +1326,14 @@ static void cr_present(void)
 			cr.copied_bytes >> 10, cr.split_attributes);
 		cr.drawn = cr.skipped_program = cr.skipped_target = cr.skipped_shader = cr.skipped_copy = cr.copied_bytes = cr.in_place_bytes = 0;
 		cr.split_attributes = 0;
+		if (cr.textures_freed)
+		{
+			platform_log("native renderer: %lu textures not drawn for %d frames freed", cr.textures_freed,
+				CR_TEXTURE_IDLE_FRAMES);
+			cr.textures_freed = 0;
+		}
 	}
+	cr_texture_sweep();
 
 	if (back_buffer)
 		console_present(back_buffer->target);
