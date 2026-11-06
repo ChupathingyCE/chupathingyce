@@ -1437,6 +1437,11 @@ static const struct config_setting config_settings[] =
 		"With display.renderer = \"native\": textures in the GPU's tiled layout,\n"
 		"which it samples faster. A test: false keeps them linear, as the\n"
 		"other renderer makes them. Read when Chupathingy starts." },
+	{ "console.native_in_place", _config_boolean, "true", NULL, _environment_value, _platform_console_gl,
+		"With display.renderer = \"native\": the graphics chip reads the map's\n"
+		"vertices where they are in memory. false copies every vertex for each\n"
+		"frame instead, as the other renderer does: slower, for comparing when\n"
+		"models look broken. Read when Chupathingy starts." },
 	{ "console.picture_frame", _config_integer, "0", NULL, _environment_value, _platform_console_gl,
 		"For comparing the renderers: the picture of this frame, and of the\n"
 		"frame three times as late, written beside the game as pictureN.raw\n"
