@@ -479,6 +479,12 @@ void platform_request_quit(void)
 	stop_requested = 1;
 }
 
+/* (the server plays no movies: bink_playback.c) */
+int platform_movie_skip_pressed(void)
+{
+	return 0;
+}
+
 void platform_scoreboard_scroll(int open, long *notches, long *pages)
 {
 	(void)open;
