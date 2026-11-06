@@ -4035,9 +4035,15 @@ static void *p2p_thread(void *unused)
 		update_probes();
 		update_upnp();
 		/* (a public game's invite is in everyone's server browser already:
-		its Join game button on Discord) */
-		p2p_discord_set_join(p2p.hosting && p2p.has_token && p2p_lobby_open() ?
-			p2p.invite + strlen("halo://join/") : NULL);
+		its join secret on Discord; a password game's never) */
+		{
+			int count = 0, maximum = 0;
+			int joinable = p2p.hosting && p2p.has_token && !p2p.has_join_key && p2p_lobby_open();
+
+			if (joinable)
+				hosted_player_counts(&count, &maximum);
+			p2p_discord_set_join(joinable ? p2p.invite + strlen("halo://join/") : NULL, count, maximum);
+		}
 		p2p_discord_update();
 #if defined(HALO_ANDROID) && !defined(HALO_SWITCH_CONSOLE)
 		poll_invite_file();
