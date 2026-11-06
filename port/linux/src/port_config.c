@@ -1418,6 +1418,10 @@ static const struct config_setting config_settings[] =
 		"each test keeps the first one's state and is only a query and a draw\n"
 		"call. The picture is the same. false draws each test in full, to\n"
 		"compare. Read when Chupathingy starts." },
+	{ "console.picture_frame", _config_integer, "0", NULL, _environment_value, _platform_console_gl,
+		"For comparing the renderers: the picture of this frame, and of the\n"
+		"frame three times as late, written beside the game as pictureN.raw\n"
+		"(the console's own pixels, untiled). 0, the default, writes none." },
 	{ "console.widget_pool_log", _config_boolean, "false", NULL, _environment_value,
 		_platform_xbox | _platform_console_gl,
 		"For sizing the menus' memory: write a line to debug.txt each time the\n"
