@@ -171,15 +171,23 @@ role sees what it may do.
 
 ### Turning it on
 
+The panel is on by default at `127.0.0.1:8080`: this machine only (from
+elsewhere, use an SSH tunnel). Our Docker image keeps it off until you set
+it. If the port is taken, the server logs one line and keeps hosting
+without the panel.
+
 ```sh
-HALO_DEDICATED_CONTROL=8080            # 127.0.0.1:8080: this machine only (an SSH tunnel)
+HALO_DEDICATED_CONTROL=9090            # 127.0.0.1:9090: another port, this machine only
 HALO_DEDICATED_CONTROL=0.0.0.0:8443    # every address: HTTPS (below)
+HALO_DEDICATED_CONTROL=off             # no panel
 ```
 
 ### The first owner
 
 The first time the panel is on, with no owner yet, the server prints a
-setup link, once, on its console (never in `debug.txt`):
+setup link, once, on its console (never in `debug.txt`). On Windows it also
+opens the link in your browser, when the panel is on this machine and the
+server runs in a console window (not as a service):
 
 ```
 ChupathingyCE Dedicated Server: the control panel has no owner yet. Open
@@ -203,11 +211,11 @@ code with an authenticator app). No file to edit.
 
 ### First-run setup, no console needed
 
-Start a server with the panel on and no playlist (`HALO_DEDICATED` not
-set), and it starts for the setup instead of exiting:
+Start a server with no playlist (`HALO_DEDICATED` not set), and it starts
+for the setup instead of exiting (the panel is on by default):
 
 ```sh
-HALO_DEDICATED_CONTROL=8080 ./chupathingyce-server
+./chupathingyce-server
 ```
 
 It waits, not hosting, until you finish the setup in the panel. Make the
