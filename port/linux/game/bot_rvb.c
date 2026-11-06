@@ -198,7 +198,6 @@ static struct
 	boolean level_read;
 	long last_tick;
 	long next_line;
-	long next_ambient;
 	boolean started, ended;
 	unsigned long random;
 } bot_rvb;
@@ -227,11 +226,30 @@ static unsigned long bot_rvb_next(void)
 	return bot_rvb.random;
 }
 
-static boolean bot_rvb_chance(real full, real light)
+/* the chance of a line at "full"; "light" has half of it */
+static boolean bot_rvb_chance(real full)
 {
-	real chance = bot_rvb.level == _chatter_full ? full : light;
+	real chance = bot_rvb.level == _chatter_full ? full : full * 0.5f;
 
 	return (real)(bot_rvb_next() % 10000) < chance * 10000.f;
+}
+
+/* whether this character has a line about that one for this event */
+static boolean bot_rvb_has_pair(long character, int event, long other_character)
+{
+	long index;
+
+	if (character == NONE || other_character == NONE)
+		return FALSE;
+	for (index = 0; index < BOT_RVB_LINE_COUNT; index++)
+	{
+		if (bot_rvb_lines[index].character == character && bot_rvb_lines[index].event == event &&
+			bot_rvb_lines[index].other == other_character)
+		{
+			return TRUE;
+		}
+	}
+	return FALSE;
 }
 
 static void bot_rvb_ascii_name(wchar_t const *name, char *out, int size)
@@ -436,10 +454,15 @@ static long bot_rvb_any_bot(long not_this)
 	return count ? candidates[bot_rvb_next() % (unsigned long)count] : NONE;
 }
 
-/* (bots.c, as a player dies: who, and who killed them, NONE for nobody) */
+/* (bots.c, as a player dies: who, and who killed them, NONE for nobody)
+Only real events speak, and seldom: a spree about 60% of the time, a line
+about the other one of a pair (Sarge and Grif, Church and Caboose) about 80%,
+an ordinary kill about 30% and an ordinary death about 20% ("light": half). */
 void bot_rvb_death(long victim, long killer)
 {
 	long now = game_time_get();
+	long victim_character = NONE, killer_character = NONE;
+	struct player_datum *player;
 
 	if (bot_rvb_level() == _chatter_off)
 		return;
@@ -447,32 +470,43 @@ void bot_rvb_death(long victim, long killer)
 	{
 		bot_rvb_bots[victim].streak = 0;
 		bot_rvb_bots[victim].last_action = now;
+		victim_character = bot_rvb_bot_character(victim, &player);
 	}
+	if (killer != NONE && killer >= 0 && killer < BOT_MAXIMUM_PLAYERS)
+		killer_character = bot_rvb_bot_character(killer, &player);
 	if (killer != NONE && killer != victim && killer >= 0 && killer < BOT_MAXIMUM_PLAYERS &&
 		bot_player_is_bot(killer))
 	{
 		long streak = ++bot_rvb_bots[killer].streak;
-		struct player_datum *dead = bot_rvb_player(victim);
-		boolean pair = dead && bot_player_is_bot(victim) &&
-			bot_rvb_character_of_name(dead->name) != NONE;
+		boolean pair = bot_rvb_has_pair(killer_character, _say_kill, victim_character);
 
 		bot_rvb_bots[killer].last_action = now;
 		if (streak == 3 || streak == 5 || streak == 8 || streak == 12)
-			bot_rvb_queue(killer, _say_spree, NONE, 2);
-		else if ((pair && bot_rvb_chance(0.85f, 0.4f)) || bot_rvb_chance(0.55f, 0.15f))
+		{
+			if (bot_rvb_chance(0.6f))
+				bot_rvb_queue(killer, _say_spree, NONE, 2);
+		}
+		else if (pair ? bot_rvb_chance(0.8f) : bot_rvb_chance(0.3f))
 			bot_rvb_queue(killer, _say_kill, victim, pair ? 1 : 0);
 	}
-	if (victim >= 0 && bot_player_is_bot(victim))
+	if (victim >= 0 && victim < BOT_MAXIMUM_PLAYERS && bot_player_is_bot(victim))
 	{
 		boolean by_person = killer != NONE && killer != victim && !bot_player_is_bot(killer);
 		boolean by_bot = killer != NONE && killer != victim && !by_person;
+		boolean pair = by_bot && bot_rvb_has_pair(victim_character, _say_died_to, killer_character);
 
-		if (by_bot && bot_rvb_chance(0.7f, 0.3f))
-			bot_rvb_queue(victim, _say_died_to, killer, 1);
-		else if (by_person && bot_rvb_chance(0.6f, 0.25f))
-			bot_rvb_queue(victim, _say_killed_by_person, killer, 1);
-		else if (bot_rvb_chance(0.35f, 0.1f))
-			bot_rvb_queue(victim, _say_death, NONE, 0);
+		if (pair)
+		{
+			if (bot_rvb_chance(0.8f))
+				bot_rvb_queue(victim, _say_died_to, killer, 1);
+		}
+		else if (bot_rvb_chance(0.2f))
+		{
+			if (by_person)
+				bot_rvb_queue(victim, _say_killed_by_person, killer, 0);
+			else
+				bot_rvb_queue(victim, _say_death, NONE, 0);
+		}
 	}
 }
 
@@ -516,7 +550,7 @@ static void bot_rvb_roster(long now)
 			long speaker = bot_rvb_any_bot(NONE);
 
 			bot_rvb_people[absolute].told = TRUE;
-			if (speaker != NONE && bot_rvb_chance(1.f, 0.5f))
+			if (speaker != NONE && bot_rvb_chance(0.5f))
 				bot_rvb_queue(speaker, _say_join, absolute, 1);
 		}
 	}
@@ -529,7 +563,7 @@ static void bot_rvb_roster(long now)
 		{
 			long speaker = bot_rvb_any_bot(NONE);
 
-			if (bot_rvb_people[index].told && speaker != NONE && bot_rvb_chance(0.9f, 0.4f))
+			if (bot_rvb_people[index].told && speaker != NONE && bot_rvb_chance(0.5f))
 			{
 				/* (the name, the player gone: said by hand) */
 				char text[96];
@@ -554,8 +588,10 @@ void bot_rvb_tick(void)
 {
 	long now = game_time_get();
 	long index, best = NONE;
-	long per_bot = bot_rvb_level() == _chatter_full ? SECONDS(6) : SECONDS(20);
-	long server_wide = bot_rvb.level == _chatter_full ? SECONDS(2) : SECONDS(8);
+	/* (at most a line from each bot every 30 s, and one from all of them every
+	8 s; "light": 60 s and 20 s) */
+	long per_bot = bot_rvb_level() == _chatter_full ? SECONDS(30) : SECONDS(60);
+	long server_wide = bot_rvb.level == _chatter_full ? SECONDS(8) : SECONDS(20);
 
 	if (bot_rvb.level == _chatter_off || !player_data)
 		return;
@@ -577,57 +613,26 @@ void bot_rvb_tick(void)
 	bot_rvb.last_tick = now;
 	if (now % BOT_TICKS_PER_SECOND == 0)
 		bot_rvb_roster(now);
-	/* the start, the end */
+	/* the start, the end: a line each ("light": now and then) */
 	if (!bot_rvb.started && now >= SECONDS(4))
 	{
 		long first = bot_rvb_any_bot(NONE);
 
 		bot_rvb.started = TRUE;
-		bot_rvb.next_ambient = now + (bot_rvb.level == _chatter_full ? SECONDS(25) : SECONDS(120));
-		if (first != NONE)
-		{
+		if (first != NONE && bot_rvb_chance(1.f))
 			bot_rvb_queue(first, _say_start, NONE, 2);
-			if (bot_rvb.level == _chatter_full)
-				bot_rvb_queue(bot_rvb_any_bot(first), _say_start, NONE, 2);
-		}
 	}
 	if (!bot_rvb.ended && game_engine_showing_postgame())
 	{
-		long first = bot_rvb_any_bot(NONE), second;
+		long first = bot_rvb_any_bot(NONE);
 
 		bot_rvb.ended = TRUE;
-		if (first != NONE)
-		{
+		if (first != NONE && bot_rvb_chance(1.f))
 			bot_rvb_queue(first, _say_end, NONE, 3);
-			second = bot_rvb_any_bot(first);
-			if (second != NONE && bot_rvb.level == _chatter_full)
-				bot_rvb_queue(second, _say_end, NONE, 3);
-		}
 	}
+	/* (no idle or ambient lines: the bots speak only when something happens) */
 	if (bot_rvb.ended)
 		per_bot = 0;
-	/* a while with nothing to do; now and then a word for no reason */
-	if (bot_rvb.started && !bot_rvb.ended && now % BOT_TICKS_PER_SECOND == 15)
-	{
-		for (index = 0; index < BOT_MAXIMUM_PLAYERS; index++)
-		{
-			if (bot_rvb_bots[index].present && now - bot_rvb_bots[index].last_action > SECONDS(50))
-			{
-				bot_rvb_bots[index].last_action = now;
-				if (bot_rvb_chance(0.8f, 0.3f))
-					bot_rvb_queue(index, _say_idle, NONE, 0);
-			}
-		}
-		if (now >= bot_rvb.next_ambient)
-		{
-			long speaker = bot_rvb_any_bot(NONE);
-
-			bot_rvb.next_ambient = now + (bot_rvb.level == _chatter_full ? SECONDS(20 + bot_rvb_next() % 20) :
-				SECONDS(100 + bot_rvb_next() % 80));
-			if (speaker != NONE)
-				bot_rvb_queue(speaker, _say_ambient, NONE, 0);
-		}
-	}
 	/* one line at a time, the server's pace and each bot's */
 	if (now < bot_rvb.next_line)
 		return;

@@ -1033,6 +1033,10 @@ static const struct config_setting config_settings[] =
 		"a bot leaves when a person joins and comes back when one leaves, in\n"
 		"the lobby and in the game. 0: bots.count bots, whoever joins (the\n"
 		"console's \"bots_fill <n>\")." },
+	{ "bots.play_empty", _config_boolean, "false", "HALO_BOTS_PLAY_EMPTY", _environment_value, _platform_all,
+		"A dedicated server's bots play with nobody else there: its games\n"
+		"start and go on with no people in them, so whoever looks finds a game\n"
+		"in progress. Off: a game waits for people, and ends when they leave." },
 	{ "bots.skill", _config_integer, "5", "HALO_BOT_SKILL", _environment_value, _platform_all,
 		"How good the bots are, from 1 to 10: 1 easy, 3 normal, 5 hard, 8\n"
 		"legendary, 10 near perfect (the console's \"bot_skill <n>\"). The\n"
@@ -1050,9 +1054,12 @@ static const struct config_setting config_settings[] =
 		"top, the further ahead or behind the more (the console's\n"
 		"\"bots_balance <0|1>\"). Nothing to move with a spread of 0." },
 	{ "bots.chatter", _config_string, "\"light\"", "HALO_BOT_CHATTER", _environment_value, _platform_all,
-		"How much the bots talk in the game's chat, in character: \"off\",\n"
-		"\"light\" (now and then) or \"full\" (all the time). At most a line\n"
-		"from each bot every 6 seconds, and one from all of them every 2." },
+		"How much the bots talk in the game's chat, in character, and only on\n"
+		"something that happens (a kill, a death, a spree, a person joining or\n"
+		"leaving, a game's start and end): \"off\", \"light\" (at most a line\n"
+		"from each bot a minute, and one from all of them every 20 seconds) or\n"
+		"\"full\" (twice as likely; a line from each every 30 seconds, and one\n"
+		"from all of them every 8)." },
 #endif
 
 	{ "infection.rounds", _config_integer, "3", "HALO_INFECTION_ROUNDS", _environment_value, _platform_all,

@@ -22,6 +22,7 @@ long bots_configured(void) { return 0; }
 void bots_set_count(long count) { (void)count; }
 long bots_fill(void) { return 0; }
 void bots_set_fill(long fill) { (void)fill; }
+int bots_play_empty(void) { return 0; }
 void bots_set_skill(long skill) { (void)skill; }
 long bots_get_skill(void) { return 5; }
 void bots_set_skill_spread(long spread) { (void)spread; }

@@ -25,6 +25,9 @@ void bots_set_count(long count);
 making way for people who join (0: off) */
 long bots_fill(void);
 void bots_set_fill(long fill);
+/* bots.play_empty, with bots set: a dedicated server's game starts and
+goes on with no people in it, the bots playing it alone */
+int bots_play_empty(void);
 void bots_set_skill(long skill);
 long bots_get_skill(void);
 void bots_set_skill_spread(long spread);

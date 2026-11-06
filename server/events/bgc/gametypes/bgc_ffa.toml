@@ -1,0 +1,12 @@
+# RvB Slayer: free for all Slayer for "[C] Red vs Blue" (Blood Gulch
+# Chronicles, the bots' server). The classic Halo CE start: an assault rifle
+# and a pistol, with the map's weapons on the map.
+base = "slayer"
+name = "RvB Slayer"
+
+[items]
+weapon_set = "normal"
+map_weapons = true
+loadout = "custom"
+primary_weapon = "assault_rifle"
+secondary_weapon = "pistol"

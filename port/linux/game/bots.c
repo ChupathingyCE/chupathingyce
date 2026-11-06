@@ -17734,6 +17734,14 @@ void bots_set_fill(long fill)
 	bots_fill_setting = PIN(fill, 0, BOT_MAXIMUM_PLAYERS - 1);
 }
 
+/* bots.play_empty: the bots play a dedicated server's games with nobody
+   else in them (dedicated.c, network_server_manager.c), when there are
+   bots to play */
+int bots_play_empty(void)
+{
+	return config_boolean("bots.play_empty") && (bots_configured() > 0 || bots_fill() > 0);
+}
+
 void bots_set_skill(long skill)
 {
 	bot_skill_set = TRUE;

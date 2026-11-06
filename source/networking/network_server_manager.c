@@ -754,6 +754,7 @@ static void network_game_server_bot_actions(
 	struct network_game_server *server);
 long bots_configured(void);
 long bots_fill(void);
+int bots_play_empty(void);
 char const *bot_name(long slot);
 void bot_think(long player_absolute_index, struct player_action *action);
 /* (the cast, port/linux/game/bot_rvb.c: a name's character, its side and
@@ -2987,7 +2988,7 @@ static void network_game_server_sync_bots_ingame(
 	long have;
 
 	if (game_time_get() % TICKS_PER_SECOND != 0 || game_time_get() < 2 * TICKS_PER_SECOND || !game_engine_can_score() ||
-		server->game.player_count <= network_game_server_bot_count(server))
+		(server->game.player_count <= network_game_server_bot_count(server) && !bots_play_empty()))
 	{
 		return;
 	}
@@ -3051,8 +3052,8 @@ static void network_game_server_sync_bots(
 	network_game_server_bots_in_game = FALSE;
 	/* (after the first person's player: the host's own leads the list. A
 	dedicated server has no player of its own, so its bots come when its
-	first player does: it plays no games of bots alone) */
-	if (server->game.player_count > network_game_server_bot_count(server))
+	first player does: it plays no games of bots alone, unless bots.play_empty) */
+	if (server->game.player_count > network_game_server_bot_count(server) || bots_play_empty())
 		wanted = network_game_server_bots_wanted(server);
 	have = network_game_server_bot_count(server);
 	while (have < wanted && network_game_server_add_bot(server, NULL))

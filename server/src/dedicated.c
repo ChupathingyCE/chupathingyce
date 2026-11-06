@@ -154,6 +154,7 @@ long game_engine_total_score(void);
 long network_game_server_people_count(struct network_game_server *server);
 long bots_configured(void);
 long bots_fill(void);
+int bots_play_empty(void);
 boolean main_menu_is_active(void);
 boolean bink_playback_active(void);
 boolean network_game_server_lobby_is_open(struct network_game_server *server);
@@ -1068,9 +1069,10 @@ void dedicated_server_update(
 			}
 			/* the countdown, started once it may (enough players, teams): a
 			lobby's players start it, and the server has none of its own */
-			/* (people: the bots are none of the players a game waits for) */
+			/* (people: the bots are none of the players a game waits for,
+			unless bots.play_empty has them play alone) */
 			network_game_server_pause_countdown(server,
-				!game || network_game_server_people_count(server) < dedicated.minimum_players);
+				!game || (!bots_play_empty() && network_game_server_people_count(server) < dedicated.minimum_players));
 			/* (after a carnage report, with the lobby skipped: the next game at
 			once if enough players stayed, else the lobby as always) */
 			if (dedicated.skip_lobby_now)
@@ -1104,9 +1106,10 @@ void dedicated_server_update(
 			error(_error_silent, "dedicated: a command ends the game");
 			game_engine_end_game();
 		}
-		/* everyone left (the bots play no game on their own): the game ends
+		/* everyone left (the bots play no game on their own, unless
+		bots.play_empty): the game ends
 		(as the score limit ends it) and the next entry's lobby opens */
-		if (game && network_game_server_people_count(server) <= 0)
+		if (game && network_game_server_people_count(server) <= 0 && !bots_play_empty())
 		{
 			if (!dedicated.empty_time)
 				dedicated.empty_time = now;

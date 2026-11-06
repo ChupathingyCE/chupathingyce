@@ -1,0 +1,8 @@
+# [C] Red vs Blue (Blood Gulch Chronicles, halo-dedicated@bloodgulch): Blood
+# Gulch only, free for all Slayer with the classic start (assault rifle and
+# pistol), with the Reds and the Blues as bots (HALO_BOTS in
+# instances/bloodgulch.env). The game type file is admin/gametypes/bgc_ffa.toml
+# in the instance's folder.
+
+# map            game type
+bloodgulch       bgc_ffa
