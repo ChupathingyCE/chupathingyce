@@ -148,9 +148,10 @@ version), let a client tell it from a Custom Edition server, and `chimera`
 The version reported is the server's own (`HALO_DEDICATED_GAMESPY_VERSION`
 sets another). Custom Edition 1.0.10's server browser shows only servers
 reporting its own version, `01.00.10.0621`, so by default the server is in
-the masters' list but that browser does not show it. Its players cannot join
-this server, so reporting `01.00.10.0621` would show them a game they cannot
-join.
+the masters' list but that browser does not show it. Report
+`01.00.10.0621` only on a server that takes Custom Edition players
+(`ce_joins`, below) and plays Custom Edition maps, or the browser shows its
+players a game they cannot join.
 
 The UDP port must be open (forwarded) for the queries to reach the server
 from outside. The naming of Xbox maps is the Custom Edition community's,
@@ -162,19 +163,17 @@ Off unless `ce_joins` is on too (`sv_set ce_joins true`). The same UDP port
 then answers a Halo Custom Edition 1.0.10 client that connects to it: the
 connection's handshake, its key agreement and its enciphered, reliable
 messages, as Custom Edition's own server does them. The server tells the
-client its map (by the name above), reads its join request (the player's
-name goes in the log; the CD key hash is not logged) and, for now, refuses
-the join: the player gets Custom Edition's own "Unable to join the game
-server!" message, not a timeout. Playing in the game comes later. At most 16 Custom
-Edition clients are handled at once.
+client its map (by the name above) and reads its join request (the
+player's name goes in the log; the CD key hash is not logged).
 
-For development only, `HALO_DEDICATED_CE_ACCEPT=1` takes the join instead,
-while a game is being played on a map the Custom Edition player has too (a
-Custom Edition map, `bloodgulch@ce`: the same .map file on both sides). The
-player joins the game as one of the server's own players, moved by their
-client's input. Leave this off on a real server: it is still incomplete.
+The player joins while a game is being played on a map they have too: a
+Custom Edition map (`bloodgulch@ce`, the same .map file on both sides). They
+play as one of the server's own players, moved by their client's input.
+On any other map, or with no seat left, the join is refused with Custom
+Edition's own message, not a timeout. This is new: test it on your server
+before you rely on it.
 
-What works so far:
+What works:
 
 - Moving, aiming and shooting, both ways. Their own position is corrected
   to the server's twice a second, so their shots land at range.
@@ -186,6 +185,11 @@ What works so far:
 - Weapons and equipment on the ground, picking them up and dropping them.
 - Vehicles: getting in and out of seats, and driving.
 - A welcome line in their chat as they join (`ce_welcome`), and `sv_say`.
+- The end of a game and the next one: the scores come up on their screen,
+  and when the next game starts they join it again by themselves (their
+  client reconnects, as it does on Custom Edition's own servers) and keep
+  their seat. They are let go when the next map is not a Custom Edition
+  map, or when they don't come back within 45 seconds.
 - `sv_kick` and `sv_ban` (a ban is by their address). The bans, the limit
   on players from one address (`max_machines_per_address`) and the
   betrayal and AFK limits apply to them too: warnings go in their chat. The
@@ -194,9 +198,11 @@ What works so far:
 
 Not yet:
 
-- At most 4 Custom Edition players at once.
-- They join a game in progress only: the end of a game drops them, and a
-  join between games waits up to 12 seconds for the next one. An empty
+- At most 4 Custom Edition players at once (they are seats of the server's
+  own machine); a fifth is told the server is full.
+- Their client is told the game is Slayer, free for all: play Slayer with
+  them. Other game types and teams are not shown right on their side.
+- A join between games waits up to 12 seconds for the next one. An empty
   server doesn't start a game for them.
 - Weapons and equipment coming back (respawning) on the ground.
 - Checked live only in part: a Chupathingy player in a vehicle as Custom
