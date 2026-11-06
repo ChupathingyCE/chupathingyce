@@ -332,7 +332,24 @@ static BOOL cr_bind_targets(BOOL *has_depth)
 		depth = NULL;
 	}
 	if (!color && !depth)
+	{
+		/* (the OpenGL path leaves these out too: say what the game had bound,
+		the first few times) */
+		static int said;
+
+		if (said < 8)
+		{
+			said++;
+			platform_log("native renderer: a draw without targets at frame %lu: color surface %08lx (data %08lx, format %08lx, "
+				"size %08lx), depth surface %08lx (data %08lx)", cr.frame, (unsigned long)(uintptr_t)device.render_target,
+				device.render_target ? (unsigned long)device.render_target->Data : 0UL,
+				device.render_target ? (unsigned long)device.render_target->Format : 0UL,
+				device.render_target ? (unsigned long)device.render_target->Size : 0UL,
+				(unsigned long)(uintptr_t)device.depth_stencil,
+				device.depth_stencil ? (unsigned long)device.depth_stencil->Data : 0UL);
+		}
 		return FALSE;
+	}
 	if (color)
 		color->last_rendered = cr.frame + 1;
 	cr.target_color = color;
