@@ -1087,6 +1087,15 @@ static const struct config_setting config_settings[] =
 		_platform_all,
 		"The weapon for debug.network_test_pickup, by part of its tag name.\n"
 		"Leave it empty for any." },
+	{ "debug.network_test_pickup_every", _config_real, "0.0", "HALO_NETWORK_TEST_PICKUP_EVERY", _environment_value,
+		_platform_all,
+		"Repeats debug.network_test_pickup this many seconds after each one (for\n"
+		"the map's items to be taken and come back). 0 picks up once." },
+	{ "debug.network_test_items", _config_real, "0.0", "HALO_NETWORK_TEST_ITEMS", _environment_value, _platform_all,
+		"Every this many seconds of a test game, each machine logs every weapon,\n"
+		"equipment and vehicle it has, where it is and who holds it (the host\n"
+		"also the map's item spawns, once a game), for the machines' items to be\n"
+		"compared (tools/item_sync_check.py). 0 never does." },
 	{ "debug.network_test_bomb", _config_real, "0.0", "HALO_NETWORK_TEST_BOMB", _environment_value, _platform_all,
 		"For an automated test Bomb game (host:<map>:grifball). After this many\n"
 		"seconds, and again each time that long after, the last player is stood\n"
