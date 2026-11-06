@@ -857,6 +857,12 @@ static const struct config_setting config_settings[] =
 		"In games you host, the most machines that may join from one internet\n"
 		"address, from 1 to 16. 0 means no limit. Players on your local\n"
 		"network are never limited." },
+	{ "network.late_join_wait", _config_integer, "5", "HALO_NET_LATE_JOIN_WAIT", _environment_value,
+		_platform_all | _platform_server | _platform_xbox | _platform_console_gl,
+		"In games you host, how many seconds a machine that joins a game in\n"
+		"progress waits after its first player is in, so the players on its\n"
+		"other controllers can join too (split screen), from 0 to 30. It starts\n"
+		"sooner when it has four players. 0 starts it at once." },
 	{ "network.coop_friendly_fire", _config_string, "\"on\"", "HALO_NET_COOP_FRIENDLY_FIRE", _environment_value,
 		_platform_all,
 		"Friendly fire in online co-op: \"off\", \"on\", \"shields_only\" or\n"
