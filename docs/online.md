@@ -6,7 +6,7 @@ The short version is on the [front page](../README.md#play-online).
 
 Chupathingy players on every platform always play together.
 
-Chupathingy also plays with OpenCE players when the network versions match. The Xbox 360, Wii U and Switch builds join on network version 32 until their next updates, and our console servers announce 32 for them.
+Chupathingy also plays with OpenCE players when the network versions match. The current console builds join hosts up to network version 41, OpenCE's newest. Our console servers still announce 32, so older console builds can join them too.
 
 Browser builds can't join our games, and we can't join theirs.
 
