@@ -1318,6 +1318,14 @@ void dedicated_server_set_maximum_players(
 	dedicated.maximum_players = maximum_players;
 }
 
+/* the lobby's game started after the short countdown, as with the lobby
+skipped (a Custom Edition player waiting for a game: server_ce.c) */
+void dedicated_server_start_soon(
+	void)
+{
+	dedicated.skip_lobby_now = TRUE;
+}
+
 void dedicated_server_set_minimum_players(
 	long minimum_players)
 {
