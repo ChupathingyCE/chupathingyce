@@ -1570,6 +1570,7 @@ static void distributed_host_send_states(
 		long object_index = distributed_host_placed_object(absolute_index);
 		boolean was_moving = objects_host_state_moving[absolute_index];
 		boolean at_rest;
+		boolean new_item;
 
 		objects_host_state_moving[absolute_index] = FALSE;
 		if (object_index == NONE)
@@ -1578,12 +1579,17 @@ static void distributed_host_send_states(
 			continue;
 		}
 		at_rest = TEST_FLAG(object_get(object_index)->object.flags, _object_at_rest_bit);
+		/* (an item new here and at rest at once, as a map's item spawn often
+		is, goes out as one come to rest does: older clients took no rest
+		from its creation, and let it fall from there, through the floor) */
+		new_item = objects_host_last_objects[absolute_index] != object_index &&
+			TEST_FLAG(_object_mask_item, object_get(object_index)->object.type);
 		/* (one at rest that moved goes out as a moving one; its state still
 		says at rest, so a client puts it there at once) */
 		if (distributed_host_moved_at_rest(absolute_index, object_index))
 			at_rest = FALSE;
 		objects_host_state_moving[absolute_index] = !at_rest;
-		if (at_rest && was_moving)
+		if (at_rest && (was_moving || new_item))
 			objects_host_rest_times[absolute_index] = game_time_get();
 		if (at_rest && !distributed_host_rest_state_due(absolute_index))
 			continue;
