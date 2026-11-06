@@ -3,8 +3,9 @@ HALO_PERF_LOG.H
 
 The frame timing log (console.perf_log): once a second, one line in
 debug.txt with the frame time (average and worst), the time each part of the
-main loop took (game ticks, the render's parts, sound, network, present and
-the wait for the vertical blank), the draw calls and objects drawn, and a
+main loop took (game ticks and their parts, the distributed netcode's
+per-tick state, the render's parts, sound, network, present and the wait
+for the vertical blank), the draw calls and objects drawn, and a
 line when the player zooms in or out. For finding what a slow scene spends
 its time on, on hardware with no profiler attached.
 
@@ -60,6 +61,22 @@ enum halo_perf_phase
 	before drawing */
 	_halo_perf_occlusion_wait,
 	_halo_perf_texture_wait,
+	/* the game tick's parts (game_tick, game.c), each inside tick: the
+	units' and players' updates, the AI (or, on a client of the distributed
+	netcode, the host's actors driven), the effects, the game type's update
+	and the objects' update; inside that last, the vehicles' physics
+	(physics_update). The collision tests (collision_test_vector) are timed
+	wherever in the tick they are made, and nest in the others. The
+	distributed netcode's per-tick state (network_distributed_tick) runs
+	after each tick, outside it */
+	_halo_perf_tick_units,
+	_halo_perf_tick_ai,
+	_halo_perf_tick_effects,
+	_halo_perf_tick_game_engine,
+	_halo_perf_tick_objects,
+	_halo_perf_tick_physics,
+	_halo_perf_tick_collision,
+	_halo_perf_tick_netcode,
 	NUMBER_OF_HALO_PERF_PHASES
 };
 
@@ -83,6 +100,8 @@ enum halo_perf_counter
 extern int halo_perf_log_on;
 extern unsigned long halo_perf_counters[NUMBER_OF_HALO_PERF_COUNTERS];
 
+/* (a phase may nest in itself, as a collision test made inside another:
+only the outermost is timed) */
 void halo_perf_begin(int phase);
 void halo_perf_end(int phase);
 /* the render's parts follow each other: the one now running (NONE: none) */
