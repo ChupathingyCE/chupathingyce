@@ -4074,6 +4074,35 @@ int bot_player_is_bot(long player_index)
 	return index >= 0 && index < BOT_MAXIMUM_PLAYERS && bot_states[index].has_personality;
 }
 
+/* (bot_rvb.c) whether a player is in a Warthog: 2 driving it, 1 in another
+   seat, 0 not in one */
+int bot_player_warthog(long absolute_index)
+{
+	struct data_iterator iterator;
+	struct player_datum *player;
+	data_iterator_new(&iterator, player_data);
+	while ((player = (struct player_datum *)data_iterator_next(&iterator)) != NULL)
+	{
+		long vehicle_index;
+		struct object_datum *vehicle;
+		if (DATUM_INDEX_TO_ABSOLUTE_INDEX(iterator.datum_index) != absolute_index)
+			continue;
+		if (player->unit_index == NONE || !bot_unit_alive(player->unit_index))
+			return 0;
+		vehicle_index = object_get_ultimate_parent(player->unit_index);
+		if (vehicle_index == NONE || vehicle_index == player->unit_index)
+			return 0;
+		vehicle = object_get(vehicle_index);
+		if (!vehicle || !(bot_name_has(vehicle->definition_index, "warthog") ||
+			bot_name_has(vehicle->definition_index, "rwarthog")))
+		{
+			return 0;
+		}
+		return unit_scripting_unit_driver(vehicle_index) == player->unit_index ? 2 : 1;
+	}
+	return 0;
+}
+
 static int bot_unit_is_bot(long unit_index)
 {
 	struct unit_datum *unit = unit_try_and_get(unit_index);

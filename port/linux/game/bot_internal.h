@@ -489,6 +489,7 @@ enum
 void bot_stats_ffa(long index, int what, real value);
 /* whether a player (its datum index) is one of the bots (bots.c) */
 int bot_player_is_bot(long player_index);
+int bot_player_warthog(long absolute_index);
 /* the cast (bot_rvb.c): a name's character (NONE: none), its skill offset,
 and the chatter's events */
 long bot_rvb_character_of(wchar_t const *name);

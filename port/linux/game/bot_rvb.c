@@ -145,6 +145,17 @@ enum bot_rvb_event
 	_say_start,
 	_say_end,
 	_say_ambient,
+	/* (the Chupathingy's, the Reds' jeep, and the program's: in place of a
+	start, a join, a spree, a kill or a death in or by a Warthog; on a
+	long run of kills ending; on getting into a Warthog's driver's seat.
+	bot_rvb_flavor) */
+	_say_chupa_start,
+	_say_chupa_join,
+	_say_chupa_spree,
+	_say_chupa_streak_end,
+	_say_chupa_drive,
+	_say_chupa_hog_kill,
+	_say_chupa_hog_death,
 	NUMBER_OF_BOT_RVB_EVENTS
 };
 
@@ -180,6 +191,8 @@ static struct
 	/* the kills since its last death, and when it last killed or died */
 	long streak;
 	long last_action;
+	/* (driving a Warthog, as of the last second) */
+	boolean driving;
 	wchar_t name[12];
 	boolean present;
 } bot_rvb_bots[BOT_MAXIMUM_PLAYERS];
@@ -232,6 +245,39 @@ static boolean bot_rvb_chance(real full)
 	real chance = bot_rvb.level == _chatter_full ? full : full * 0.5f;
 
 	return (real)(bot_rvb_next() % 10000) < chance * 10000.f;
+}
+
+/* now and then a Chupathingy line (the jeep, or the program) in place of this event's: at "full", 40%
+of starts and a third of joins and sprees; at "light" only a start, one in
+ten. The same limits hold: it is one line in place of another */
+static int bot_rvb_flavor(int event)
+{
+	boolean full = bot_rvb.level == _chatter_full;
+	unsigned long roll = bot_rvb_next() % 100;
+
+	switch (event)
+	{
+	case _say_start: return roll < (full ? 40u : 10u) ? _say_chupa_start : event;
+	case _say_join: return full && roll < 33u ? _say_chupa_join : event;
+	case _say_spree: return full && roll < 33u ? _say_chupa_spree : event;
+	default: return event;
+	}
+}
+
+/* the event a Chupathingy line stands in for (a character without one says
+that one's instead) */
+static int bot_rvb_base_event(int event)
+{
+	switch (event)
+	{
+	case _say_chupa_start: return _say_start;
+	case _say_chupa_join: return _say_join;
+	case _say_chupa_spree: return _say_spree;
+	case _say_chupa_streak_end: return _say_death;
+	case _say_chupa_hog_kill: return _say_kill;
+	case _say_chupa_hog_death: return _say_death;
+	default: return NONE;
+	}
 }
 
 /* whether this character has a line about that one for this event */
@@ -426,9 +472,13 @@ static void bot_rvb_queue(long absolute_index, int event, long other_index, int 
 	{
 		return;
 	}
+	event = bot_rvb_flavor(event);
 	if (!bot_rvb_pick(character, event, other_character, other ? other->name : NULL, text, (int)sizeof(text)) &&
 		(event != _say_died_to ||
-			!bot_rvb_pick(character, _say_death, NONE, other ? other->name : NULL, text, (int)sizeof(text))))
+			!bot_rvb_pick(character, _say_death, NONE, other ? other->name : NULL, text, (int)sizeof(text))) &&
+		(bot_rvb_base_event(event) == NONE ||
+			!bot_rvb_pick(character, bot_rvb_base_event(event), NONE, other ? other->name : NULL, text,
+				(int)sizeof(text))))
 	{
 		return;
 	}
@@ -462,12 +512,14 @@ void bot_rvb_death(long victim, long killer)
 {
 	long now = game_time_get();
 	long victim_character = NONE, killer_character = NONE;
+	long run = 0;
 	struct player_datum *player;
 
 	if (bot_rvb_level() == _chatter_off)
 		return;
 	if (victim >= 0 && victim < BOT_MAXIMUM_PLAYERS)
 	{
+		run = bot_rvb_bots[victim].streak;
 		bot_rvb_bots[victim].streak = 0;
 		bot_rvb_bots[victim].last_action = now;
 		victim_character = bot_rvb_bot_character(victim, &player);
@@ -486,6 +538,9 @@ void bot_rvb_death(long victim, long killer)
 			if (bot_rvb_chance(0.6f))
 				bot_rvb_queue(killer, _say_spree, NONE, 2);
 		}
+		/* (from a Warthog, at "full": now and then a word on the jeep) */
+		else if (bot_rvb.level == _chatter_full && bot_player_warthog(killer) && bot_rvb_chance(0.5f))
+			bot_rvb_queue(killer, _say_chupa_hog_kill, victim, 1);
 		else if (pair ? bot_rvb_chance(0.8f) : bot_rvb_chance(0.3f))
 			bot_rvb_queue(killer, _say_kill, victim, pair ? 1 : 0);
 	}
@@ -495,7 +550,16 @@ void bot_rvb_death(long victim, long killer)
 		boolean by_bot = killer != NONE && killer != victim && !by_person;
 		boolean pair = by_bot && bot_rvb_has_pair(victim_character, _say_died_to, killer_character);
 
-		if (pair)
+		/* (at "full": a long run of kills ended, now and then a joke about
+		the program; killed from a Warthog, now and then a word on the jeep) */
+		if (run >= 5 && bot_rvb.level == _chatter_full && bot_rvb_chance(0.5f))
+			bot_rvb_queue(victim, _say_chupa_streak_end, NONE, 1);
+		else if ((by_bot || by_person) && bot_rvb.level == _chatter_full && bot_player_warthog(killer) &&
+			bot_rvb_chance(0.5f))
+		{
+			bot_rvb_queue(victim, _say_chupa_hog_death, killer, 1);
+		}
+		else if (pair)
 		{
 			if (bot_rvb_chance(0.8f))
 				bot_rvb_queue(victim, _say_died_to, killer, 1);
@@ -531,6 +595,18 @@ static void bot_rvb_roster(long now)
 		if (bot_player_is_bot(absolute))
 		{
 			seen_bot[absolute] = bot_rvb_character_of_name(player->name) != NONE;
+			/* (into a Warthog's driver's seat, at "full": now and then a
+			word on the jeep) */
+			{
+				boolean driving = bot_player_warthog(absolute) == 2;
+
+				if (driving && !bot_rvb_bots[absolute].driving && seen_bot[absolute] &&
+					bot_rvb.level == _chatter_full && bot_rvb_chance(0.25f))
+				{
+					bot_rvb_queue(absolute, _say_chupa_drive, NONE, 0);
+				}
+				bot_rvb_bots[absolute].driving = driving;
+			}
 			if (!bot_rvb_bots[absolute].present && seen_bot[absolute])
 				bot_rvb_bots[absolute].last_action = now;
 			continue;
