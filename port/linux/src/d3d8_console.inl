@@ -25,7 +25,8 @@ What it does at each draw, and what it leaves out:
   CPU's cache written back when a page is first used or after the game
   writes it; pages the game rewrites frame after frame (dynamic vertices)
   are copied for the frame, as the OpenGL path's mirror does, and so is
-  everything with console.native_in_place off;
+  everything with console.native_in_place off; an element the GPU cannot
+  fetch where it is (not on a word) is copied to a stream of its own;
 - indices are copied for the frame on a console without a write watch, as
   the OpenGL path copies them;
 - visibility tests (lens flares) are the console's queries, read a frame or
@@ -108,6 +109,8 @@ static struct
 	float test_area[VISIBILITY_TEST_SLOTS];
 	UINT test_known[VISIBILITY_TEST_SLOTS];
 	unsigned long drawn, skipped_program, skipped_target, skipped_shader, skipped_copy, copied_bytes, in_place_bytes;
+	/* attributes copied to a stream of their own (not on a word) */
+	unsigned long split_attributes;
 	/* console.native_in_place: the map's vertices read where they are */
 	BOOL in_place;
 } cr;
@@ -873,6 +876,46 @@ static int cr_vertex_format(const struct vertex_element *element)
 	}
 }
 
+/* the bytes the console's fetch of an element's format reads (some read
+more than the Xbox type has: a NORMSHORT1 is fetched as two) */
+static unsigned long cr_fetch_bytes(int format)
+{
+	switch (format)
+	{
+	case _console_vertex_float2: case _console_vertex_short4: case _console_vertex_short4n: return 8;
+	case _console_vertex_float3: return 12;
+	case _console_vertex_float4: return 16;
+	default: return 4;
+	}
+}
+
+/* An element the console cannot fetch where it is: its GPU fetches whole
+words at word offsets, so an element not on a word of its vertex (a model
+vertex's node weight, at byte 30 of 32), in a stream whose stride is not
+whole words, or whose fetch runs past its vertex, is copied for the frame
+to a stream of its own, a slot of whole words a vertex, as x360_gl.c's
+setup_vertices does. Its bytes keep their order. */
+static const void *cr_split_element(const unsigned char *vertices, unsigned long stride, unsigned long count,
+	const struct vertex_element *element, unsigned long slot)
+{
+	unsigned long *copy = console_frame_copy(NULL, slot * count);
+	unsigned long index, bytes = element->bytes < slot ? element->bytes : slot;
+
+	if (!copy)
+		return NULL;
+	for (index = 0; index < count; index++)
+	{
+		unsigned long words[4] = { 0, 0, 0, 0 };
+		unsigned long word;
+
+		memcpy(words, vertices + index * stride + element->offset, bytes);
+		for (word = 0; word < slot / 4; word++)
+			copy[index * (slot / 4) + word] = words[word];
+	}
+	cr.split_attributes++;
+	return copy;
+}
+
 static int cr_primitive(D3DPRIMITIVETYPE type)
 {
 	switch (type)
@@ -979,7 +1022,13 @@ static void cr_draw(D3DPRIMITIVETYPE type, BOOL immediate, unsigned long first, 
 	{
 		unsigned long index, stream;
 		BOOL placed[CONSOLE_VERTEX_STREAMS] = { FALSE };
-		unsigned long element_count = 0;
+		/* the elements copied to streams of their own, placed after the rest */
+		struct
+		{
+			const struct vertex_element *element;
+			unsigned long element_index, slot;
+		} split[CONSOLE_VERTEX_REGISTERS];
+		unsigned long split_count = 0, element_count = 0;
 
 		for (index = 0; index < declaration->element_count; index++)
 		{
@@ -1028,12 +1077,44 @@ static void cr_draw(D3DPRIMITIVETYPE type, BOOL immediate, unsigned long first, 
 			elements[element_count].stream = (unsigned char)stream;
 			elements[element_count].format = (unsigned char)format;
 			elements[element_count].offset = element->offset;
+			if (stride && ((element->offset & 3) || (stride & 3) || element->offset + cr_fetch_bytes(format) > stride) &&
+				split_count < CONSOLE_VERTEX_REGISTERS)
+			{
+				split[split_count].element = element;
+				split[split_count].element_index = element_count;
+				split[split_count].slot = (cr_fetch_bytes(format) + 3) & ~3UL;
+				split_count++;
+			}
 			element_count++;
 		}
 		for (stream = 0; stream < draw.stream_count; stream++)
 		{
 			if (!placed[stream])
 				memset(&streams[stream], 0, sizeof(streams[stream]));
+		}
+		for (index = 0; index < split_count; index++)
+		{
+			const struct vertex_element *element = split[index].element;
+			unsigned long source = element->stream, slot = split[index].slot;
+			unsigned long target = draw.stream_count;
+			const unsigned char *vertices = PLATFORM_PHYSICAL_TO_VIRTUAL(device.streams[source].data);
+
+			if (target >= CONSOLE_VERTEX_STREAMS)
+				break;
+			streams[target].data = cr_split_element(vertices + first * streams[source].stride, streams[source].stride,
+				vertex_count, element, slot);
+			if (!streams[target].data)
+			{
+				cr.skipped_copy++;
+				return;
+			}
+			streams[target].size = slot * vertex_count;
+			streams[target].stride = slot;
+			streams[target].little_endian = streams[source].little_endian;
+			cr.copied_bytes += streams[target].size;
+			elements[split[index].element_index].stream = (unsigned char)target;
+			elements[split[index].element_index].offset = 0;
+			draw.stream_count = target + 1;
 		}
 		draw.element_count = element_count;
 		/* (the elements follow from the declaration, which streams it has and
@@ -1206,9 +1287,11 @@ static void cr_present(void)
 	if (cr.frame % 300 == 299)
 	{
 		platform_log("native renderer: in 300 frames, %lu draws; left out %lu without a program, %lu without targets, %lu without shaders, "
-			"%lu without copy space; %lu KB read in place, %lu KB copied", cr.drawn, cr.skipped_program, cr.skipped_target,
-			cr.skipped_shader, cr.skipped_copy, cr.in_place_bytes >> 10, cr.copied_bytes >> 10);
+			"%lu without copy space; %lu KB read in place, %lu KB copied (%lu attributes off a word)", cr.drawn,
+			cr.skipped_program, cr.skipped_target, cr.skipped_shader, cr.skipped_copy, cr.in_place_bytes >> 10,
+			cr.copied_bytes >> 10, cr.split_attributes);
 		cr.drawn = cr.skipped_program = cr.skipped_target = cr.skipped_shader = cr.skipped_copy = cr.copied_bytes = cr.in_place_bytes = 0;
+		cr.split_attributes = 0;
 	}
 
 	if (back_buffer)
