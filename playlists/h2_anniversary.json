@@ -1,93 +1,92 @@
 {
   "playlist_maps": 1,
   "playlist": "h2_anniversary",
-  "name": "Halo 2 Anniversary",
-  "serial": 1,
-  "issued": 1793818422,
+  "name": "Halo 2 Anniversary Celebration",
+  "serial": 2,
+  "issued": 1794006364,
   "packs": {
-    "h2a-md-1": {
-      "name": "Halo 2 Anniversary map pack",
-      "credits": "Halo 2's maps by Bungie, rebuilt for Halo PC by the HaloMD community. The same files as HaloMD's map list.",
-      "permission": "Mirrored with permission (2026-11)"
+    "h2a-ce-1": {
+      "name": "Halo 2 Anniversary Celebration map pack",
+      "credits": "The Custom Edition community's versions of Halo 2's maps. TanFlo, Yana Waddle and OpenRift found and tested them on Chupathingy."
     }
   },
   "files": [
     {
-      "map": "beaverc_2@md",
-      "title": "Beaver Creek",
-      "folder": "maps_md",
-      "file": "beaverc_2.map",
-      "size": 84456774,
-      "sha256": "cc1e55e69a7b413968dab5b966bfddbefa3c9ee04f49acd9412eaa758592c196",
+      "map": "h2_ascension@ce",
+      "title": "Ascension",
+      "folder": "maps_ce",
+      "file": "h2_ascension.map",
+      "size": 95136246,
+      "sha256": "c6b88e1d082fdc2017eb44809372a7eb0a650b39b466dc914c65f314231e0f20",
       "source": "chupathingy",
-      "path": "packs/halo2-anniversary/1/beaverc_2.map",
-      "pack": "h2a-md-1"
+      "path": "packs/halo2-anniversary/2/h2_ascension.map",
+      "pack": "h2a-ce-1"
     },
     {
-      "map": "coagulat_1@md",
+      "map": "h2_coagulation@ce",
       "title": "Coagulation",
-      "folder": "maps_md",
-      "file": "coagulat_1.map",
-      "size": 111990849,
-      "sha256": "b2281ae3be312b9d3edacd5b8eef0fbe0a788fc6fc9f15a1035277b2000b99cc",
+      "folder": "maps_ce",
+      "file": "h2_coagulation.map",
+      "size": 107964790,
+      "sha256": "ad92aad650a9a252cc96d23cfb0a88ae20999c50c6f2b31f14bbac6f9603f8c1",
       "source": "chupathingy",
-      "path": "packs/halo2-anniversary/1/coagulat_1.map",
-      "pack": "h2a-md-1"
+      "path": "packs/halo2-anniversary/2/h2_coagulation.map",
+      "pack": "h2a-ce-1"
     },
     {
-      "map": "ivorytower_1@md",
-      "title": "Ivory Tower",
-      "folder": "maps_md",
-      "file": "ivorytower_1.map",
-      "size": 130907017,
-      "sha256": "0e1c6a038aceb99e10f43313edd77ef25d2f0253401580be0b3f735421b2f5d1",
+      "map": "h2_lockout@ce",
+      "title": "Lockout",
+      "folder": "maps_ce",
+      "file": "h2_lockout.map",
+      "size": 86738698,
+      "sha256": "a1dc959669aea6c58e2b8e237b4d05b0fd30e0bc23ffbcf650efc513403372ca",
       "source": "chupathingy",
-      "path": "packs/halo2-anniversary/1/ivorytower_1.map",
-      "pack": "h2a-md-1"
+      "path": "packs/halo2-anniversary/2/h2_lockout.map",
+      "pack": "h2a-ce-1"
     },
     {
-      "map": "relicv2_3@md",
-      "title": "Relic",
-      "folder": "maps_md",
-      "file": "relicv2_3.map",
-      "size": 90639373,
-      "sha256": "f8c973c3a0d1a051ac2b810c8b056bef98bae88ae83eb93f8dfb2dc46f840810",
-      "source": "chupathingy",
-      "path": "packs/halo2-anniversary/1/relicv2_3.map",
-      "pack": "h2a-md-1"
-    },
-    {
-      "map": "sanctuary_7@md",
+      "map": "h2_sanctuary@ce",
       "title": "Sanctuary",
-      "folder": "maps_md",
-      "file": "sanctuary_7.map",
-      "size": 112310687,
-      "sha256": "86dccc9efdc3f38a1a06e72b42d436b25dd1b19a1270ba05fe13bbbf535c9c64",
+      "folder": "maps_ce",
+      "file": "h2_sanctuary.map",
+      "size": 109509622,
+      "sha256": "1f33b3b7ff18b7bdcc461642b8dbabb6c0a2b5b0400589593eeb06640717b4da",
       "source": "chupathingy",
-      "path": "packs/halo2-anniversary/1/sanctuary_7.map",
-      "pack": "h2a-md-1"
+      "path": "packs/halo2-anniversary/2/h2_sanctuary.map",
+      "pack": "h2a-ce-1"
     },
     {
-      "map": "turf2_1@md",
+      "map": "h2_turf@ce",
       "title": "Turf",
-      "folder": "maps_md",
-      "file": "turf2_1.map",
-      "size": 110843457,
-      "sha256": "bc19d1400c5186bf20a495b4b6a5fd990ce1afde0cf8904a622dfb2ccdedce56",
+      "folder": "maps_ce",
+      "file": "h2_turf.map",
+      "size": 110411058,
+      "sha256": "271cba349938ba8d34333f87a462edbb3f136d73a403cebc27bc574231b447d9",
       "source": "chupathingy",
-      "path": "packs/halo2-anniversary/1/turf2_1.map",
-      "pack": "h2a-md-1"
+      "path": "packs/halo2-anniversary/2/h2_turf.map",
+      "pack": "h2a-ce-1"
     },
     {
-      "map": "zanzibar_1@md",
-      "title": "Zanzibar",
-      "folder": "maps_md",
-      "file": "zanzibar_1.map",
-      "size": 100561625,
-      "sha256": "5c6496f1844e6e89a6dae48f23bb8e40a42d792e58352822fafa09243e98c91a",
+      "map": "h2_warlock@ce",
+      "title": "Warlock",
+      "folder": "maps_ce",
+      "file": "h2_warlock.map",
+      "size": 95434882,
+      "sha256": "b06ee921da7d553ffa9eed71e2970c26c82fdd9d2e2309239d981b9662f9b254",
       "source": "chupathingy",
-      "path": "packs/halo2-anniversary/1/zanzibar_1.map",
-      "pack": "h2a-md-1"
+      "path": "packs/halo2-anniversary/2/h2_warlock.map",
+      "pack": "h2a-ce-1"
+    },
+    {
+      "map": "h2_zanzibar@ce",
+      "title": "Zanzibar",
+      "folder": "maps_ce",
+      "file": "h2_zanzibar.map",
+      "size": 121732478,
+      "sha256": "d08180ef271640f9119aadf9804d48d069485e7f8655b69b2ec07fe8e2d082d7",
+      "source": "chupathingy",
+      "path": "packs/halo2-anniversary/2/h2_zanzibar.map",
+      "pack": "h2a-ce-1"
     }
   ]
 }
