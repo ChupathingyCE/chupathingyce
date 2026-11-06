@@ -198,7 +198,10 @@ or a controller's Back at start, `--setup`, or `launcher.show_at_start =
 Its Play section picks the mode: vanilla, or a pack with its own `ui.map`,
 played as `game.pack_menus` for that run. With two or more installed, the
 game asks once (`launcher.mode_choice`: "ask" or "default", with
-`launcher.default_mode`); "ask" opens Play at every start. `--play` starts
+`launcher.default_mode`); "ask" opens Play at every start. Once a mode
+skips the setup screen (Halo CE+'s menus have no way back of their own),
+held Shift or a controller's Back at start opens it again, and the screen
+says so. `--play` starts
 the default mode and `--mode <id>` that mode, neither asking. A player who
 never answered keeps what `game.pack_menus` says, and `HALO_PACK_MENUS` wins
 for its run.
