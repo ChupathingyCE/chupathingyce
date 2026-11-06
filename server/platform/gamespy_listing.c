@@ -481,8 +481,10 @@ static void base64(const unsigned char *data, int length, char *out, int size)
 			value |= data[index + 2];
 		out[used++] = alphabet[(value >> 18) & 63];
 		out[used++] = alphabet[(value >> 12) & 63];
-		out[used++] = index + 1 < length ? alphabet[(value >> 6) & 63] : '=';
-		out[used++] = index + 2 < length ? alphabet[value & 63] : '=';
+		/* (a short last group zero-filled and written whole, with no '='
+		padding: as Custom Edition 1.0.10's server encodes it) */
+		out[used++] = alphabet[(value >> 6) & 63];
+		out[used++] = alphabet[value & 63];
 	}
 	if (size > 0)
 		out[used < size ? used : size - 1] = 0;
