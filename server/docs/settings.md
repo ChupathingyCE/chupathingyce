@@ -202,8 +202,9 @@ Not yet:
   own machine); a fifth is told the server is full.
 - Their client is told the game is Slayer, free for all: play Slayer with
   them. Other game types and teams are not shown right on their side.
-- A join between games waits up to 12 seconds for the next one. An empty
-  server doesn't start a game for them.
+- A join between games waits up to 12 seconds for the next one. On an
+  empty server, their player goes into the lobby and a game starts after a
+  short countdown.
 - Weapons and equipment coming back (respawning) on the ground.
 - Checked live only in part: a Chupathingy player in a vehicle as Custom
   Edition players see it, and swapping weapons.
