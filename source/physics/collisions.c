@@ -113,6 +113,9 @@ symbols in this file:
 #include "scenario/scenario.h"
 #include "structures/structure_bsp_definitions.h"
 #include "units/bipeds.h"
+
+#include "halo_perf_log.h" /* port: console.perf_log */
+
 /* port: object_bounds_cache.c's */
 boolean object_bounds_cache_out_of_reach(long object_index, real_point3d const *point, real radius);
 
@@ -487,6 +490,7 @@ boolean collision_test_vector(
 		TEST_FLAG(flags, _collision_test_media_bit) ||
 		TEST_FLAG(flags, _collision_test_objects_bit);
 
+	HALO_PERF_BEGIN(_halo_perf_tick_collision);
 	if (debug_collision_skip_vectors)
 	{
 		test_environment = FALSE;
@@ -733,6 +737,7 @@ boolean collision_test_vector(
 		scenario_location_from_point(&collision->location, &collision->point);
 	}
 
+	HALO_PERF_END(_halo_perf_tick_collision);
 	return hit;
 }
 
