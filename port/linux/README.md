@@ -684,6 +684,7 @@ the setting for one start of the game. It has priority over the file.
 | `discord.show_server_name` | `true` | `HALO_DISCORD_SHOW_SERVER_NAME` | `true`: Discord shows the name of the network game. |
 | `discord.show_join` | `true` | `HALO_DISCORD_SHOW_JOIN` | `true`: while this machine hosts a public game (in the server browser, no password), Discord friends can join it: Join and Ask to Join on your profile, and a Join card for an invite sent in a chat. |
 | `discord.accept_join_requests` | `false` | `HALO_DISCORD_ACCEPT_JOIN_REQUESTS` | `true`: the game accepts every Ask to Join for the public game you host. `false`: Discord handles the request. |
+| `discord.register_launch` | `true` | `HALO_DISCORD_REGISTER_LAUNCH` | `true`: once connected to Discord, the game tells it how to start Chupathingy, as Discord's own SDK does. Then Discord shows Join to friends whose game is closed, and starts the game for it. Windows: `HKEY_CURRENT_USER\Software\Classes\discord-<application>`. Linux and FreeBSD: `discord-<application>.desktop` in `~/.local/share/applications`. macOS: the app becomes the handler of `discord-<application>://`. An entry of another program's is left alone. `false`: nothing is registered. |
 | `update.auto` | `true` | `HALO_UPDATE_AUTO` | `true`: at start-up, the game looks for a new version. Refer to "Updates". `false`: the game does not look. |
 | `crash_reports.upload` | `"ask"` | `HALO_CRASH_REPORTS` | Desktop builds (releases and nightlies). `"yes"`: the game sends a report of each crash to the developers, through `network.browser_url`. `"no"`: the game sends no reports. `"ask"`: the game asks after the next crash (on Linux and macOS, when it starts the next time) and writes the answer here. On the Privacy screen (Gearbox menus). Refer to "Crash reports" below and in [port/windows/README.md](../windows/README.md#crash-reports). |
 | `debug.update_answer` | `""` | `HALO_UPDATE_ANSWER` | The answer to the update question, for automatic tests: `yes`, `no` or `never`. Empty: the game asks. |
@@ -1172,8 +1173,9 @@ shows up as a card with a Join button. When someone picks Join, their game
 joins yours as if they had opened the invite link. This works between
 Chupathingy players only: Discord hands the secret only to players of the
 same Discord application, so OpenCE players still use the invite link or
-the server browser. The game has to be running for now; Discord can't start
-it from an invite yet. A password game never sends its invite, and the
+the server browser. If a friend's game is closed, Discord starts it
+(`discord.register_launch`), and the join waits until the game is up. A
+password game never sends its invite, and the
 invite is a code, never an address. Discord allows no buttons with an
 invite, so the big picture's hover text says "Free at chupathingy.org"
 instead. Otherwise the activity has buttons to the project's site and

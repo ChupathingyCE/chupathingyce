@@ -168,6 +168,11 @@ int posix_shift_key_held(void);
 scheme (scheme://...); returns 0 where there is no such thing (Android,
 whose app declares its links in its manifest). May wait for a program */
 int posix_register_url_scheme(const char *scheme, const char *description);
+/* registers how Discord starts this executable for a Join of the Discord
+application (digits): discord-<application>, as discord_register.h says
+for each system. Returns a DISCORD_REGISTER_* (DISCORD_REGISTER_NONE where
+there is no such thing: Android, iOS). May wait for a program */
+int posix_register_discord_launch(const char *application);
 /* a random secret of this user's, the same for all their processes, from a
 file that only they can read (made the first time); 1 on success, 0 where
 there is none (always, on Android) */
