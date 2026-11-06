@@ -21,10 +21,12 @@ What it does at each draw, and what it leaves out:
 - the vertex constants the game changed since the last draw are the only
   ones sent (every shader has them at the same registers), and the pixel
   shader's uniforms only when they change;
-- vertex and index data in the Xbox window are read by the GPU where they
-  are, the CPU's cache written back when a page is first used or after the
-  game writes it; pages the game rewrites frame after frame (dynamic
-  vertices) are copied for the frame, as the OpenGL path's mirror does;
+- vertex data in the Xbox window are read by the GPU where they are, the
+  CPU's cache written back when a page is first used or after the game
+  writes it; pages the game rewrites frame after frame (dynamic vertices)
+  are copied for the frame, as the OpenGL path's mirror does;
+- indices are copied for the frame on a console without a write watch, as
+  the OpenGL path copies them;
 - visibility tests (lens flares) are the console's queries, read a frame or
   more later and never waited for.
 */
@@ -979,33 +981,34 @@ static void cr_draw(D3DPRIMITIVETYPE type, BOOL immediate, unsigned long first, 
 		for (index = 0; index < declaration->element_count; index++)
 		{
 			const struct vertex_element *element = &declaration->elements[index];
+			unsigned long stride;
 			int format;
 
 			stream = element->stream;
 			if (stream >= CONSOLE_VERTEX_STREAMS || !device.streams[stream].data || element->type == D3DVSDT_NONE ||
 				element->reg >= CONSOLE_VERTEX_REGISTERS || !(format = cr_vertex_format(element)))
 				continue;
+			stride = device.streams[stream].stride;
 			if (!placed[stream])
 			{
-				unsigned long stride = device.streams[stream].stride;
 				unsigned long bytes = stride ? stride * vertex_count : 64;
 				unsigned long address = PLATFORM_WINDOW_ADDRESS(PLATFORM_PHYSICAL_TO_VIRTUAL(device.streams[stream].data)) +
 					first * stride;
+				/* (the map's own vertices: little-endian, as loaded) */
+				BOOL resident = !(address & 3) && !(stride & 3) && cr_resident(address, bytes);
 
 				placed[stream] = TRUE;
 				streams[stream].stride = stride;
 				streams[stream].size = bytes;
-				if (!(address & 3) && !(stride & 3) && cr_resident(address, bytes))
+				streams[stream].little_endian = (unsigned char)resident;
+				if (resident)
 				{
-					/* (the map's own vertices: little-endian, as loaded) */
 					streams[stream].data = xbox_pointer(address);
-					streams[stream].little_endian = TRUE;
 					cr.in_place_bytes += bytes;
 				}
 				else
 				{
 					streams[stream].data = console_frame_copy(xbox_pointer(address), bytes);
-					streams[stream].little_endian = FALSE;
 					cr.copied_bytes += bytes;
 					if (!streams[stream].data)
 					{
@@ -1040,10 +1043,19 @@ static void cr_draw(D3DPRIMITIVETYPE type, BOOL immediate, unsigned long first, 
 	draw.vertex_first = lowest;
 	if (indices)
 	{
-		unsigned long address = (unsigned long)XBOX_ADDRESS(indices);
+#ifdef HALO_CONSOLE_NO_WRITE_WATCH
+		/* (copied, as the OpenGL path copies them: a console without a write
+		watch sees the game's index writes only through a lock, and the
+		dynamic triangles are rewritten in place frame after frame while the
+		GPU may still be reading the last frame's) */
+		BOOL in_place = FALSE;
+#else
+		BOOL in_place = !((uintptr_t)indices & 3) &&
+			cr_resident((unsigned long)XBOX_ADDRESS(indices), index_count * sizeof(WORD));
+#endif
 
 		draw.index_count = index_count;
-		if (!((uintptr_t)indices & 3) && cr_resident(address, index_count * sizeof(WORD)))
+		if (in_place)
 		{
 			draw.indices = (const unsigned short *)indices;
 			draw.indices_resident = TRUE;
@@ -1086,15 +1098,21 @@ static void cr_draw_vertices(D3DPRIMITIVETYPE type, unsigned long start, unsigne
 
 static void cr_draw_indexed(D3DPRIMITIVETYPE type, unsigned long count, const WORD *indices)
 {
-	unsigned long minimum, maximum;
+	unsigned long minimum, maximum, address;
+	BOOL watched;
 
 	if (!count || !indices)
 		return;
 	/* (the same ranges are drawn frame after frame: index_extent keeps
 	their extents; vertices count from the base vertex, and the indices
 	are drawn as they are, from it) */
-	index_extent(indices, count, memory_watch_generation((unsigned long)XBOX_ADDRESS(indices), count * sizeof(WORD)),
-		TRUE, &minimum, &maximum);
+	/* (kept by write generation only where there is one: in the window;
+	indices elsewhere are read again each time) */
+	address = (unsigned long)XBOX_ADDRESS(indices);
+	watched = address >= PLATFORM_CONTIGUOUS_BASE &&
+		address - PLATFORM_CONTIGUOUS_BASE + count * sizeof(WORD) <= PLATFORM_CONTIGUOUS_SIZE;
+	index_extent(indices, count, watched ? memory_watch_generation(address, count * sizeof(WORD)) : 0, watched,
+		&minimum, &maximum);
 	cr_draw(type, FALSE, device.base_vertex_index, maximum + 1, indices, count, minimum);
 }
 
