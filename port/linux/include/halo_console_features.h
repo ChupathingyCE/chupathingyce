@@ -247,6 +247,23 @@ HALO_CONSOLE_NO_LOADING_PICTURE
 	instead of Chupathingy's picture (port/linux/game/loading_picture.c,
 	display.xbox_loading_picture): every console, whose packaging has no
 	step for the picture
+HALO_CONSOLE_ANAMORPHIC_SCREEN
+	a console that draws 640x480 and can show it on a 16:9 television,
+	which stretches the picture to fit (display.widescreen). The port says
+	how wide the interface is in the stretched picture (halo_screen_width:
+	640, or 852 for 16:9), the present flags that ask for the mode
+	(halo_screen_present_flags) and how its units and the 640 pixels
+	convert (halo_screen_interface_x, halo_screen_physical_x). The 3D view
+	is drawn at the wider aspect in the same 640 pixels (render_cameras.c),
+	and the HUD, the menus and their text are laid out as the desktop's
+	wide screen lays them out, in the wider units, between
+	rasterizer_interface_begin and rasterizer_interface_end (render.c,
+	rasterizer_xbox.c), so that they look right once stretched
+HALO_PORT_WIDE_INTERFACE
+	(not set by a port) a build whose interface can be wider than 640
+	columns: every native build, and a console with
+	HALO_CONSOLE_ANAMORPHIC_SCREEN. The HUD's zoomed view and the menus'
+	full-screen fades have code for it (hud_draw.c, ui_widget.c)
 HALO_CONSOLE_SERVER_CLOSE_GRACE
 	the original game's one-second wait when a hosted game ends, before the
 	host's transport closes (network_game_server_dispose, source/
@@ -303,6 +320,11 @@ compile lines: source/cseries/xbox_address.h).
 #define HALO_CONSOLE_XBOX_MAP_SIZES 1
 #define HALO_CONSOLE_NO_HALOMD_MAPS "the Xbox"
 #define HALO_CONSOLE_SERVER_CLOSE_GRACE 1
+#define HALO_CONSOLE_ANAMORPHIC_SCREEN 1
+#endif
+
+#if !defined(HALO_XBOX_CONSOLE) || defined(HALO_CONSOLE_ANAMORPHIC_SCREEN)
+#define HALO_PORT_WIDE_INTERFACE 1
 #endif
 
 /* (the desktop builds copy maps to the Xbox's cache files too: a map pack's

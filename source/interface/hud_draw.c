@@ -1399,7 +1399,7 @@ void hud_draw_bitmap(
 	return;
 }
 
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_WIDE_INTERFACE
 /* port: a screen wider than 640 widens the HUD's window, which the HUD's
 elements keep to by their corners (the ammo counter to the left edge). The
 zoomed view's elements (the sniper rifle's angle ticks and range numbers)
