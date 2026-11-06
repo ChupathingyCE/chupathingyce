@@ -1,0 +1,493 @@
+/*
+BOT_INTERNAL.H
+
+What the bot modules share: bots.c (the bots: what to do) and
+bot_move.c (movement over the area awareness system: how to get
+there).
+*/
+
+#ifndef __BOT_INTERNAL_H
+#define __BOT_INTERNAL_H
+
+#include <stddef.h>
+
+#include "bot_port.h"
+#include "bot_nav.h"
+
+#define BOT_PI 3.14159265f
+#define BOT_TWO_PI 6.2831853f
+#define BOT_TICK (1.f / BOT_TICKS_PER_SECOND)
+#define BOT_SECONDS(s) ((long)((s) * BOT_TICKS_PER_SECOND))
+
+/* ---------- goals (for movement) */
+
+enum
+{
+	_bot_move_goal_position = 0, /* somewhere */
+	_bot_move_goal_item, /* walk over it */
+	_bot_move_goal_vehicle, /* a door: slow at the end */
+};
+
+struct bot_goal
+{
+	long kind;
+	real_point3d origin;
+	real radius; /* there, within this */
+	long area; /* foot area (worked out by movement) */
+};
+
+/* ---------- movement (bot_move.c) */
+
+#define BOT_AVOID_REACHES 8
+#define BOT_CORRIDOR 24
+
+struct bot_move_state
+{
+	long type; /* AAS_FOOT or AAS_VEHICLE */
+	long cost_slot; /* whose danger to route round (NONE: none) */
+	int careful; /* no gaps or long drops unless there's no other way */
+	int human; /* corners rounded, and looked round before they are come to, as a person takes them */
+	long area; /* the area we're in (or last were) */
+	long area_before; /* ... and the one before it */
+	long area_left_tick; /* when it left area_before for area */
+	long sticky_until; /* (planning from area_before since, back into which the way from here goes: bot_move_to_goal) */
+	/* the reachability being travelled, when it's more than a walk */
+	long reach;
+	long reach_type;
+	long reach_ticks;
+	int reach_started; /* the move itself (the jump, the climb) has begun */
+	int reach_phase; /* a gap: 0 the run-up, 1 the run */
+	long reach_runup_ticks; /* a gap: how long getting to the start of the run took */
+	real reach_peak;
+	real reach_pace; /* a gap: how fast it is run at (0: not worked out yet; 1: flat out) */
+	int reach_no_jump; /* ... and run off the edge of, not jumped from (it lands near, and well below) */
+	real reach_beyond; /* ... and how far on from the near end of where it lands it is meant to come down */
+	int reach_hole; /* a gap that is walked over: 0 not looked at, 1 walked, 2 a hole a body goes down (jumped) */
+	int reach_no_room; /* a gap with nowhere behind its edge to take a run from */
+	long reach_settle_ticks; /* held back from a jump it was going across the line of */
+	long slip_reach; /* a jump or a gap it fell off the start of before beginning (NONE none), */
+	long slip_tick; /* ... and when */
+	long called_tick; /* when the way was last asked: a gap in that, and what was under way is over */
+	long held_count; /* how many times running it has been held up in one place, */
+	long held_tick; /* ... when last, */
+	real_point3d held_point; /* ... and where */
+	real reach_slowest, reach_off_speed; /* (testing: the slowest it went before it left the ground, and how fast it left it) */
+	long reach_off_ticks; /* (... and how long after it set about it) */
+	long jump_hold; /* ticks more the jump button is held, for a jump the game has not taken yet */
+	long stand_ticks; /* how long it has been standing up (its legs not tucked) */
+	real progress_path; /* the furthest it has been from where it was last looked at for being stuck */
+	long landed_reach; /* a jump or a gap just made (NONE: none), watched a moment for whether it stays there */
+	long landed_until;
+	real landed_z;
+	long reach_rise_ticks; /* a ladder: when we last got higher */
+	real reach_rise_z;
+	/* reachabilities failed at: not taken again for a while */
+	long avoid_reach[BOT_AVOID_REACHES];
+	long avoid_type[BOT_AVOID_REACHES];
+	long avoid_until[BOT_AVOID_REACHES];
+	/* the route ahead, from the last planning */
+	long corridor[BOT_CORRIDOR];
+	long corridor_count;
+	long last_first_reach; /* the way out of our area last time (to stick with it) */
+	long last_goal_area;
+	/* the goal the route is to: its area, the spot in it and where the
+	   goal was then (a goal a long way off that has moved a little, someone
+	   being chased, keeps its route: bot_move_to_goal) */
+	long route_goal_area;
+	long route_goal_type;
+	real_point3d route_goal_spot;
+	real_point3d route_goal_origin;
+	int corridor_complete; /* to the goal's area, or to a reachability that's more than a walk */
+	/* stuck */
+	real_point3d progress_point;
+	long progress_ticks;
+	long stuck_count;
+	long unstick_ticks;
+	real unstick_yaw;
+	/* held up: where we were last tick, and how many ticks hardly moving */
+	real_point3d stall_point;
+	int stall_valid;
+	long stall_ticks;
+	long reach_stall_ticks;
+	long jump_cooldown;
+	long crouch_ticks;
+	long reverse_ticks;
+	real reverse_steer;
+	long off_mesh_ticks;
+	real progress_goal_distance; /* how far from the goal at the last stuck check */
+	int unstick_check; /* the next stuck check comes after a sidestep: that moving isn't getting anywhere */
+	real exit_yaw; /* just off a ladder: on this way a moment (exit_ticks) */
+	long exit_ticks;
+	real_point3d circle_goal; /* going round in circles: the goal, the nearest we've got to it, and for how long not */
+	real circle_best;
+	long circle_ticks;
+	long circle_check;
+	/* just up a ladder: not straight back down to its foot (until back_until) */
+	real_point3d back_point;
+	long back_until;
+	int spot_latched; /* off the areas: over the nearest spot of them already (as near as it gets) */
+	long wait_ticks; /* waiting a turn at a ladder */
+	long dodge_ticks;
+	real dodge_sign;
+	real_point3d corner; /* where we last headed (testing) */
+	real lane; /* this trip's way through doorways and open ground: 0 the left side .. 1 the right */
+	int lane_set;
+};
+
+/* what movement needs of a bot */
+struct bot_mover
+{
+	long index; /* player absolute index */
+	long unit_index;
+	unsigned long random;
+	real yaw;
+	real teamwork;
+	/* how much in its stride it takes a jump: 0 (level 3 and under: to the
+	   foot of it, round to face it, and up) to 1 (level 5: at a run, from
+	   where the run brings it) */
+	real fluency;
+	struct bot_move_state move;
+};
+
+struct bot_body
+{
+	long unit_index;
+	long vehicle_index; /* NONE on foot */
+	int driving;
+	real_point3d position; /* the unit's (on foot) or the vehicle's */
+	real_vector3d velocity;
+	real facing_yaw; /* where the vehicle points (driving) */
+	long team;
+	int teams; /* a team game */
+	real speed_scale; /* how fast it runs, of the usual (slayer's bonus for dying, penalty for killing) */
+	int can_jump; /* on its feet, on something it stands on, and not just down from a jump: the game takes a jump from it this tick */
+	int airborne; /* off the ground */
+};
+
+struct bot_move_result
+{
+	int moving;
+	real yaw; /* which way to move */
+	real speed; /* 0..1 */
+	int jump;
+	int crouch;
+	int look; /* the move needs us to look somewhere (a ladder): look_yaw, look_pitch */
+	real look_yaw;
+	real look_pitch;
+	real path_yaw; /* which way the route goes (to look along it) */
+	int exact; /* close to where a jump, a gap, a ladder or a drop starts: the feet exactly where it says */
+	int delicate; /* a jump, a gap, a ladder or a drop a few steps on by the way: along the way, and no stepping off it to be harder to hit */
+	int arrived;
+	int no_route; /* can't get there from here */
+	long travel; /* what we're doing (_aas_travel_*) */
+	/* driving */
+	real throttle;
+	real steer_yaw;
+	int get_out;
+};
+
+
+void bot_move_reset(struct bot_move_state *move);
+/* one tick's movement toward goal (on foot, or driving) */
+void bot_move_to_goal(struct bot_mover *bot, struct bot_body const *body, struct bot_goal *goal, struct bot_move_result *result);
+/* would moving this way (a strafe, a dodge) keep us on the areas (not
+   into a wall, not off a ledge)? */
+boolean bot_move_direction_safe(struct bot_body const *body, real yaw, real distance);
+/* travel time on foot (or driving) from here to a point; <0 no way */
+float bot_travel_time(struct bot_body const *body, long type, real_point3d const *to);
+float bot_travel_time_soon(struct bot_body const *body, long type, real_point3d const *to, int *soon);
+/* a reachability that's more than a walk under way (a jump, a ladder):
+   not to be interrupted */
+boolean bot_move_committed(struct bot_mover const *bot);
+void bot_move_debug(struct bot_mover *bot, struct bot_body const *body);
+
+/* ---------- flying (bot_flight.c) */
+
+#define BOT_PILOT_TURNS 12
+
+/* what a bot keeps of a craft it is flying */
+struct bot_pilot
+{
+	long vehicle; /* the craft this is of (another: afresh) */
+	long evade_tick; /* (when it last dodged something) */
+	real_point3d route[BOT_PILOT_TURNS]; /* the turns of the way there, the last of them the place */
+	long route_count;
+	long route_next;
+	long route_tick; /* when it was found */
+	long route_none_tick; /* when a search for a new one last found none */
+	real_point3d route_to; /* ... and where to */
+	long phase; /* on the way, a run at someone, off from one, landing */
+	long phase_tick;
+	real break_yaw;
+	long sight_tick; /* when it last saw who it is after */
+	long land_tick;
+	int indoors; /* under a roof: on the way out */
+	real rest_z; /* how high it stood when it was taken */
+	int hovering; /* a plane on its jets (slow, held up by the button), not yet on its wings */
+	int exit_valid;
+	real_point3d exit_point;
+	long exit_tick;
+	real_point3d stuck_point; /* held up: where it was, since when */
+	long stuck_tick;
+	real speed_before; /* how fast it was going a tick ago */
+	real_vector3d velocity_before; /* ... and which way */
+	real bomb_before; /* a bombing pass: how far off them its bomb would have fallen, let go a tick ago */
+	long bomb_tick; /* ... when that was reckoned */
+	int bomb_pass; /* off from a pass: out as far as the next one needs */
+	real cruise_over; /* how far over the least height the ground lets it have it likes to fly, on its way */
+	long cruise_until; /* ... until it thinks again */
+	long heavy_tick; /* its other gun (a Banshee's fuel rod): when it last let go of the trigger */
+	long heavy_press; /* ... and for how many ticks more it holds it */
+	real swerve; /* round something in its way: to which hand, until when */
+	long swerve_until;
+	int away; /* off from them hurt, to mend: not round for another run until it has */
+	long over_tick; /* at the end of a run, over them with its guns on them: since when (0: not yet) */
+	real trim; /* how far off its pilot's look the craft really climbs or sinks: found as it flies */
+	real rest_over; /* how far over the ground under it its middle was, standing where it was taken */
+	real hover_yaw; /* a plane on its jets, close over where it is going: the way it faces, kept */
+	int down; /* ... and over the place: straight down now */
+	long down_tick;
+	long still_ticks; /* ... and for how long it has not moved */
+	long hold_ticks; /* a large craft over where it lands: how long it has hung there steady (air_hover_landing) */
+	long gate; /* the way out of where it stands that the map's script gives it (bot_country.c: NONE none) */
+	long gate_tick;
+	real_point3d gate_entry;
+	real gate_across; /* how wide its volume is: a frame to be put into, or a mouth to fly into */
+	int wings_out; /* a plane under a roof with a long clear way before it: on its wings, not its jets */
+	long taken_tick; /* when the craft was taken */
+	int gate_from_rest; /* the gate is the one before where it stood: for it, roof or no roof */
+	real exit_open; /* how far the way out it has found is clear */
+	/* down at a place under a roof (a hangar in a hillside): the way in to it */
+	int way_in; /* 0 none; 1 known, and making for the open air outside its mouth; 2 in along it; 3 in, and to the place */
+	long way_in_tick;
+	real_point3d way_in_for; /* the place it is the way in to */
+	real_point3d way_in_outside; /* out in the open, in line with the way in */
+	long way_in_trail; /* the way some craft came out by, gone back along (NONE: straight in) */
+	long way_in_next; /* ... the turn of it being made for, */
+	long way_in_last; /* ... and the last of them, the one nearest the place */
+};
+
+/* where a pilot is to go, and what for */
+struct bot_flight_order
+{
+	real_point3d destination; /* the place, or who it is after */
+	real_vector3d velocity; /* ... and how they move (a tick's) */
+	int attack; /* someone to shoot at */
+	int airborne; /* ... who is in the air */
+	int armed; /* the craft has a gun that fires where it points */
+	real range; /* ... which reaches this far */
+	real shot_speed; /* ... at this speed, world units a second */
+	int heavy; /* it has another gun as well, on the other trigger (a fuel rod, a bomb) */
+	int heavy_ready; /* ... which will fire now (it has cooled from its last) */
+	int heavy_bomb; /* ... and is let go, not fired: it has the craft's speed and no other */
+	real heavy_kills; /* ... whose blast kills someone unhurt this far off, */
+	real heavy_hurts; /* ... and hurts this far off */
+	int bomb; /* a bombing pass: over the place, high, and the bomb let go to fall on it (a bomb with a great blast, and none of ours by the place) */
+	real heavy_speed; /* ... whose shot leaves at this speed (a tick's), */
+	real heavy_slowing; /* ... loses this much of it each tick, */
+	real heavy_slowest; /* ... down to this, */
+	real heavy_gravity; /* ... and falls: of the world's gravity, this much */
+	real look_yaw, look_pitch; /* where its pilot is looking now: its shots go there */
+	int patrol; /* nobody to shoot at there now: round over the place, not down at it */
+	int hurt; /* its pilot's shields are down: no time to be flying at anyone */
+	real vitality; /* (testing: how whoever it is after stands, shields and health together) */
+	int land; /* the craft is only the way there: down by the place, and out */
+	int stay; /* ... or down by it and not out: it is there to set people down, or to take them up */
+	real short_of; /* ... this far short of the place itself, on the way it comes at it */
+	int tail_to; /* ... and its tail to the place: the people in it leave by its tail */
+	int under_fire; /* its pilot has just been hit */
+	int dodge; /* a rocket, a fuel rod, coming at it: out of its way, */
+	real dodge_yaw; /* ... this way */
+};
+
+struct bot_flight_result
+{
+	real yaw, pitch; /* where to look: the craft goes there */
+	real throttle; /* -1..1 */
+	int fire;
+	int fire_heavy; /* its other gun as well */
+	int climb; /* (a plane, slow: its jets up) */
+	int descend;
+	int get_out;
+	int stuck; /* ... because it is wedged: not this craft again for a while */
+	int arrived;
+	int landed; /* down on the ground, and still */
+};
+
+/* the map from above, for flying over: made when the map's navigation is */
+/* across country on the ground (bot_country.c) */
+struct bot_traveller
+{
+	long vehicle; /* what it is in (another: afresh) */
+	real_point3d next; /* where it is making for now */
+	real_point3d stuck_point; /* held up: where it was, since when, how often of late */
+	long stuck_tick;
+	long stuck_last;
+	long stuck_count;
+	long stand_tick; /* when it last began from a stand (waited, was put down somewhere, got clear) */
+	long escape_until; /* getting clear of what holds it: until when, and which way */
+	real escape_yaw;
+	real_point3d escape_from; /* where getting clear of being held up began, and when */
+	long escape_began;
+	real swerve_clear; /* the way round something it is swerving by: clear for so far */
+	long run_up_until; /* (backing off along a step's line for a run at it, until this tick) */
+	/* carried up something too narrow for it (bot_country.c, a lift): from
+	   when until when, by which points, and how its nose lay when it began */
+	long carry_from;
+	long carry_until;
+	long carry_count;
+	real_point3d carry[4];
+	real_vector3d carry_forward;
+	real swerve; /* round something in the way: to which side, for how long yet */
+	long swerve_ticks;
+	/* how well this vehicle holds the ground here, by how it has slid in
+	   its turns of late: 1 for a Warthog on snow, more on dirt (corners
+	   taken faster), less on ice (bot_country.c, country_grip_learn) */
+	real grip;
+	long turn_until; /* (backing round, a turn in three: until this tick) */
+};
+
+struct bot_country_result
+{
+	real yaw; /* steer this way */
+	real throttle;
+	real_point3d next; /* the point it is making for */
+	boolean moving;
+	boolean arrived;
+	boolean soon; /* the way is still being worked out */
+	boolean off; /* not on the country (under a roof, in a building) */
+	boolean none; /* the country does not join here to there */
+	boolean held_up; /* stuck time and again: out */
+	boolean into_portal; /* the point is the way into a portal: straight into it */
+	boolean edge; /* going at an edge with nothing under it: stopping */
+	char const *note; /* (testing: why it does what it does, when that is not driving on) */
+};
+
+void bot_country_build(void);
+void bot_country_dispose(void);
+boolean bot_country_ready(void);
+void bot_country_update(void); /* once a tick: its searches carried on */
+boolean bot_country_nearest(real_point3d const *point, long rings, real_point3d *ground);
+void bot_country_bays_path(boolean baked, char *path, long size); /* <map>_<bsp>.bays in navcache: the bays learnt to be dead ends */
+long bot_country_portals_of(long vehicle_index); /* the ways the map's script carries this vehicle (a set of them) */
+/* (for a craft: the one of them in sight from where it stands, and into it) */
+long bot_country_gate(long vehicle_index, real_point3d const *from, real facing_yaw, real within, long keep, real_point3d *entry, real_point3d *exit_point,
+	real *across);
+boolean bot_country_gate_enter(long vehicle_index, long gate);
+boolean bot_country_walk(real_point3d const *from, real_point3d const *to, real_point3d *next, boolean *soon, boolean *off);
+boolean bot_country_way(real_point3d const *from, real_point3d const *to, long portals, boolean drops, real ahead, real_point3d *next,
+	boolean *soon, boolean *off, real *left);
+boolean bot_nav_in_parts(void); /* (bot_nav.c: a map too large for its floors to be worked out whole) */
+void bot_country_drive(struct bot_traveller *traveller, struct bot_body const *body, real_point3d const *to, struct bot_country_result *result);
+
+void bot_air_build(void);
+void bot_air_trails_update(void); /* once a tick: the ways craft come out from under roofs, kept */
+void bot_air_dispose(void);
+boolean bot_air_ready(void);
+/* the highest ground, and the lowest sky, within radius of a point */
+real bot_air_ground(real x, real y, real radius);
+boolean bot_air_open(real_point3d const *point); /* under the sky there, not under a roof */
+/* a vehicle's kind, as its physics are (vehicles.c: the tank, the jeep, the
+   boat, the plane, the scout (a Ghost), the fighter (a Banshee), a turret) */
+enum
+{
+	_bot_vehicle_tank = 0,
+	_bot_vehicle_jeep,
+	_bot_vehicle_boat,
+	_bot_vehicle_plane,
+	_bot_vehicle_scout,
+	_bot_vehicle_fighter,
+	_bot_vehicle_turret,
+	NUMBER_OF_BOT_VEHICLE_KINDS
+};
+long bot_vehicle_kind(long definition_index);
+boolean bot_vehicle_flies(long definition_index);
+/* (testing, HALO_BOT_REFINE=<a sum>: each of the later changes to how the
+   bots move, on or off. 1, 2, 4, 8, 16: on foot (bot_move.c). 32: a craft
+   keeps its height on its way, and is as large as it is. 64: a driver sees
+   what stands in its way from further off, across its vehicle's width.
+   128: with a long way to go, the nearest vehicle. 256: grenades thrown
+   by reckoning, further, and kept away from. 512: jumps taken at a run by
+   the better bots, and the legs tucked up only for a ledge that wants it.
+   1024: a good player's movement in a fight. 2048: lying in wait. 4096:
+   everyone in a room kept track of. 8192: off to where a thing comes back
+   before it does. 16384: landing by a gap no faster than it can stop from,
+   and a gap fallen off the start of twice held against it. 32768: what a
+   reading of the code found: gunfire heard by the shot, one bot to a
+   one-seat vehicle, and the rest of that list.) */
+int bot_refined_is(int which);
+/* (sorted, with what compares equal left as it was: the same on every C library) */
+void bot_sort_stable(void *base, size_t count, size_t size, int (*compare)(void const *, void const *));
+void bot_fly(struct bot_pilot *pilot, struct bot_body const *body, struct bot_flight_order const *order, struct bot_flight_result *result);
+
+/* ---------- shared helpers (bot_states.c) */
+
+struct bot_mover *bot_mover_get(long index); /* NULL: no bot there */
+real bot_mover_random(struct bot_mover *bot);
+real bot_angle_difference(real a, real b);
+real bot_wrap(real a);
+real bot_distance2d(real_point3d const *a, real_point3d const *b);
+real bot_yaw_to(real_point3d const *from, real_point3d const *to);
+int bot_ground(real_point3d const *point, real depth, long ignore, real *ground_z);
+int bot_floor_in_deep_water(real_point3d const *floor_point);
+real bot_ground_level(real_point3d const *point, real depth, long ignore);
+real bot_probe(real_point3d const *from, real yaw, real length, long ignore);
+int bot_unit_alive(long unit_index);
+/* one of our side on foot in the lane ahead */
+int bot_body_friendly_ahead(struct bot_body const *body, real_point3d const *from, real yaw, real length, real half_width);
+
+/* ---------- how a game went (bot_stats.c; HALO_BOT_STATS) */
+
+enum
+{
+	_bot_stat_stuck = 0, /* a bot gave up on a way it was stuck on */
+	_bot_stat_route_failed, /* a way between two areas found wanting */
+	_bot_stat_carrier_ride, /* a bot got into a vehicle with the flag */
+	_bot_stat_flag_pickup,
+	_bot_stat_flag_drop,
+	_bot_stat_flag_return,
+	_bot_stat_vehicle_kill, /* a bot's kill from a vehicle (at its wheel or on its gun) */
+	_bot_stat_vehicle_death, /* a bot killed in a vehicle */
+	_bot_stat_vehicle_bailout, /* a bot out of a vehicle it was held up or stuck in */
+	_bot_stat_vehicle_dismount, /* a bot out of a vehicle to fight on foot */
+	_bot_stat_air_kill, /* a bot's kill from something that flies */
+	_bot_stat_air_death, /* a bot killed in something that flies */
+	_bot_stat_air_landing, /* a craft put down where its pilot meant to put it */
+	_bot_stat_air_dropoff, /* ... with people set down there (a haul's drop) */
+	_bot_stat_air_bump, /* a craft flown into something (its speed nearly halved in a tick) */
+	_bot_stat_air_stuck, /* a pilot out of a craft held up against something */
+	NUMBER_OF_BOT_STATS
+};
+
+int bot_stats_enabled(void);
+void bot_stats_reset(void);
+void bot_stats_note(int stat);
+/* a bot alive this tick: where it is, its seat (0 on foot, 1 driving, 2
+   on a gun, 3 riding), whether it has reason to stand (someone to shoot,
+   a place it holds), and whether it is escorting a carrier of ours or
+   helping a person of its side */
+void bot_stats_bot_tick(long index, real_point3d const *position, int seat_kind, int busy, int escorting, int with_people,
+	int flipped);
+void bot_stats_world_tick(long now);
+/* a bot at the controls of something that flies this tick: whether it is up,
+   and whether it is held where it is against something (bot_flight.c) */
+void bot_stats_air_tick(int up, int pressed);
+/* a craft flown from where it was taken to where it was bound: how long */
+void bot_stats_air_trip(real seconds);
+/* the free-for-all's figures, each half of the bots (an even place in the
+   game, an odd one) counted on its own: a death within two seconds of the
+   bot's own kill (a trade: third-partied), a death to someone the bot had
+   not seen in the three seconds before, and the seconds from a life's
+   start to the first enemy in its sights */
+enum
+{
+	_bot_ffa_trade = 0,
+	_bot_ffa_unseen,
+	_bot_ffa_contact,
+	NUMBER_OF_BOT_FFA
+};
+void bot_stats_ffa(long index, int what, real value);
+/* whether a player (its datum index) is one of the bots (bots.c) */
+int bot_player_is_bot(long player_index);
+
+#endif

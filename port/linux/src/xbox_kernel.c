@@ -24,31 +24,45 @@ threads, asynchronous procedure calls, time, memory and debug output.
 
 /* ---------- logging */
 
+/* a run that bakes the bots' navigation (HALO_BAKE_NAVIGATION:
+port/linux/game/bot_bake.c) shows only its own "bake:" lines: the rest of
+each map's game (its menus, its hosting, its stats) goes to the log alone */
+static int platform_log_quiet(const char *line)
+{
+	static int baking = -1;
+
+	if (baking < 0)
+	{
+		const char *setting = getenv("HALO_BAKE_NAVIGATION");
+
+		baking = setting && setting[0] && strcmp(setting, "false") && strcmp(setting, "0");
+	}
+	return baking && strncmp(line, "bake:", 5) != 0;
+}
+
 void platform_log(const char *format, ...)
 {
 	va_list arguments;
-#ifdef HALO_64BIT
 	char buffer[2048];
+#ifdef HALO_64BIT
 	FILE *handle;
 #endif
+	int quiet;
+
+	va_start(arguments, format);
+	vsnprintf(buffer, sizeof(buffer), format, arguments);
+	va_end(arguments);
+	quiet = platform_log_quiet(buffer);
 
 	/* (a console whose standard error is its debug channel gets the line
 	from console_debug_print below: HALO_CONSOLE_DEBUG_CHANNEL) */
 #ifndef HALO_CONSOLE_DEBUG_CHANNEL
-	fputs(PLATFORM_LOG_PREFIX, stderr);
-#endif
-	va_start(arguments, format);
-#ifdef HALO_64BIT
-	vsnprintf(buffer, sizeof(buffer), format, arguments);
-#else
-	vfprintf(stderr, format, arguments);
-#endif
-	va_end(arguments);
-#if defined(HALO_64BIT) && !defined(HALO_CONSOLE_DEBUG_CHANNEL)
-	fputs(buffer, stderr);
-#endif
-#ifndef HALO_CONSOLE_DEBUG_CHANNEL
-	fputc('\n', stderr);
+	if (!quiet)
+	{
+		fputs(PLATFORM_LOG_PREFIX, stderr);
+		fputs(buffer, stderr);
+		fputc('\n', stderr);
+	}
 #endif
 #ifdef HALO_CONSOLE_DEBUG_CHANNEL
 	{

@@ -718,6 +718,14 @@ static const struct config_setting config_settings[] =
 		"is on. false waits for a second player, as on the Xbox." },
 	{ "game.unlock_all_levels", _config_boolean, "false", "HALO_UNLOCK_ALL_LEVELS", _environment_value, _platform_all | _platform_xbox,
 		"New profiles start with every campaign level unlocked." },
+	{ "game.vehicle_multiplier", _config_integer, "1", "HALO_VEHICLE_MULTIPLIER", _environment_value, _platform_all,
+		"How many of each of a map's vehicles the multiplayer games this\n"
+		"machine hosts have: 1 as the map has them, 2 to 4 that many of each,\n"
+		"the others put beside the map's own where there is room for them." },
+	{ "game.vehicle_multiplier_maps", _config_string, "\"\"", "HALO_VEHICLE_MULTIPLIER_MAPS", _environment_value, _platform_all,
+		"The maps game.vehicle_multiplier is for, by their files' names with\n"
+		"commas between (\"hugeass,coldsnap\"); empty for every map." },
+
 	{ "game.language", _config_string, "\"\"", "HALO_LANGUAGE", _environment_value, _platform_all,
 		"The game's language: \"ja\", \"de\", \"fr\", \"es\" or \"it\". Leave it\n"
 		"empty for English." },
@@ -1011,6 +1019,52 @@ static const struct config_setting config_settings[] =
 		"The Discord application Chupathingy shows as. Leave it empty for none." },
 #endif
 
+	{ "bots.count", _config_integer, "0", "HALO_BOTS", _environment_value, _platform_all,
+		"Bots in the multiplayer games this machine hosts (split screen, system\n"
+		"link, internet play, a dedicated server): players the host drives\n"
+		"itself, in the lobby on machines named \"Bots\". 0 for none; they make\n"
+		"way for people when the lobby is full. The console's \"bots <n>\"\n"
+		"changes it in the lobby." },
+	{ "bots.fill", _config_integer, "0", "HALO_BOTS_FILL", _environment_value, _platform_all,
+		"Fill the games this machine hosts up to this many players with bots:\n"
+		"a bot leaves when a person joins and comes back when one leaves, in\n"
+		"the lobby and in the game. 0: bots.count bots, whoever joins (the\n"
+		"console's \"bots_fill <n>\")." },
+	{ "bots.skill", _config_integer, "5", "HALO_BOT_SKILL", _environment_value, _platform_all,
+		"How good the bots are, from 1 to 10: 1 easy, 3 normal, 5 hard, 8\n"
+		"legendary, 10 near perfect (the console's \"bot_skill <n>\"). The\n"
+		"levels went from 1 to 5 before: what was 5 is 10, and what was 3 is\n"
+		"between 5 and 6." },
+	{ "bots.skill_spread", _config_integer, "0", "HALO_BOT_SKILL_SPREAD", _environment_value, _platform_all,
+		"How many levels under bots.skill a bot may be: each bot's skill is\n"
+		"drawn for the game from that many levels under bots.skill up to it\n"
+		"(skill 10 with a spread of 4: bots from 6 to 10). 0: every bot at\n"
+		"bots.skill (the console's \"bot_skill_spread <n>\")." },
+	{ "bots.balance", _config_boolean, "false", "HALO_BOTS_BALANCE", _environment_value, _platform_all,
+		"Keep the games close: true moves each bot's skill within\n"
+		"bots.skill_spread as the score goes, the bots of a side that is ahead\n"
+		"toward the bottom of the spread and those of one behind toward its\n"
+		"top, the further ahead or behind the more (the console's\n"
+		"\"bots_balance <0|1>\"). Nothing to move with a spread of 0." },
+
+	{ "infection.rounds", _config_integer, "3", "HALO_INFECTION_ROUNDS", _environment_value, _platform_all,
+		"Infection (the game type \"infection\": a dedicated server's playlist,\n"
+		"or the console's \"gametype infection\" in a host's lobby): the rounds\n"
+		"of a game." },
+	{ "infection.round_minutes", _config_integer, "4", "HALO_INFECTION_ROUND_MINUTES", _environment_value, _platform_all,
+		"The minutes the living have to hold out for: a round still going then\n"
+		"is theirs. 0 for a round that lasts until everyone is infected." },
+	{ "infection.countdown", _config_integer, "10", "HALO_INFECTION_COUNTDOWN", _environment_value, _platform_all,
+		"The seconds of a round before one of its players is infected." },
+	{ "infection.zombie_speed", _config_real, "1.3", "HALO_INFECTION_ZOMBIE_SPEED", _environment_value, _platform_all,
+		"How fast a zombie runs, a player's own speed being 1." },
+	{ "infection.zombie_damage", _config_real, "8.0", "HALO_INFECTION_ZOMBIE_DAMAGE", _environment_value, _platform_all,
+		"How hard a zombie hits: a multiple of the Flood's own blow (at 8, one\n"
+		"blow kills; at 4, two)." },
+	{ "infection.zombie_health", _config_real, "1.5", "HALO_INFECTION_ZOMBIE_HEALTH", _environment_value, _platform_all,
+		"How much a zombie takes to kill: a multiple of the Flood's own health\n"
+		"(a round's first zombie, while it is the only one, has twice this)." },
+
 	/* ---- crash_reports */
 	{ "crash_reports.upload", _config_string, "\"ask\"", "HALO_CRASH_REPORTS", _environment_value, _platform_desktop,
 		"Send crash reports to the developers: \"ask\", \"yes\" or \"no\"." },
@@ -1041,6 +1095,10 @@ static const struct config_setting config_settings[] =
 		_platform_all | _platform_server,
 		"Write full internet addresses in debug.txt and the console. Don't\n"
 		"post a debug.txt written with this on." },
+	{ "debug.random_seed", _config_integer, "0", "HALO_RANDOM_SEED", _environment_value,
+		_platform_all | _platform_server,
+		"A hosted game's random seed, and its bots': the same game every time\n"
+		"with nobody but bots in it, to compare two builds; 0 a new one each game." },
 	{ "debug.telnet_console", _config_boolean, "false", "HALO_TELNET_CONSOLE", _environment_set_is_true,
 		_platform_all | _platform_server,
 		"Open a console on 127.0.0.1, at debug.telnet_console_port. It has no\n"
@@ -4362,6 +4420,19 @@ int config_default(const char *name, char *text, size_t size)
 	return 1;
 }
 
+/* baking the bots' navigation (HALO_BAKE_NAVIGATION: port/linux/game/bot_bake.c) */
+static int config_baking(void)
+{
+	static int baking = -1;
+
+	if (baking < 0)
+	{
+		const char *setting = getenv("HALO_BAKE_NAVIGATION");
+
+		baking = setting && setting[0] && strcmp(setting, "false") && strcmp(setting, "0");
+	}
+	return baking;
+}
 #ifndef HALO_CONSOLE_NO_UPDATER
 int config_packaged_update_check(void)
 {
@@ -4370,8 +4441,25 @@ int config_packaged_update_check(void)
 }
 #endif
 
+/* whether this run bakes the bots' navigation (no window, no sound, not on
+the network: delta_peer_game.c) */
+int config_baking_navigation(void)
+{
+	return config_baking();
+}
+
 int config_boolean(const char *name)
 {
+	/* a run that bakes the bots' navigation has no window and no sound, and
+	nothing of it is on the network */
+	if (config_baking())
+	{
+		if (!strcmp(name, "debug.null_renderer"))
+			return 1;
+		if (!strcmp(name, "audio.enabled") || !strcmp(name, "update.auto") || !strcmp(name, "network.online") ||
+			!strcmp(name, "network.allow_upnp"))
+			return 0;
+	}
 	return config_value(name, _config_boolean)->boolean;
 }
 
@@ -4389,5 +4477,10 @@ const char *config_string(const char *name)
 {
 	const char *string = config_value(name, _config_string)->string;
 
+	/* baking the bots' navigation hosts its games on this machine alone: on
+	the loopback address, where no other machine finds them (and no firewall
+	asks) */
+	if (config_baking() && !strcmp(name, "network.address") && !(string && string[0]))
+		return "127.0.0.1";
 	return string ? string : "";
 }

@@ -1,0 +1,326 @@
+/*
+BOT_STATS.C
+
+How a game of bots went, counted as it is played, for comparing two
+builds over a batch of games (tools/bot_games.py). Off unless
+HALO_BOT_STATS is set: then every HALO_BOT_STATS seconds of game time (60
+when it is not a number) one line of the game so far goes to the log,
+
+	bot stats: map=bloodgulch t=600 bots=12 ...
+
+each figure name=value, every one counted from the start of the game (the
+last line of a game is its whole). The figures:
+
+	t               seconds of game time
+	bots            bots in the game
+	bot_seconds     seconds the bots were alive, all of them together
+	caps0, caps1    each team's captures in a game of flags
+	score0, score1  each team's score in a game with sides
+	pickups         times a flag was taken up (from its stand or the ground)
+	drops           times a carried flag fell (its carrier killed, or out of a seat)
+	returns         times a flag went home without being captured
+	carrier_rides   times a bot got into a vehicle with the flag
+	vehicle_kills   the bots' kills from a vehicle (at its wheel or on its gun)
+	vehicle_deaths  the bots killed in a vehicle
+	bailouts        times a bot got out of a vehicle it was held up or stuck in
+	dismounts       times a bot got out of a vehicle to fight on foot
+	drive_speed     the bots' average speed at a wheel, world units a second
+	flipped         per cent of the bots' time at a wheel with the vehicle on
+	                its side or upside down
+	kills, deaths, suicides
+	                the bots' own, from the game's statistics
+	stuck           times a bot gave up on a way it was stuck on
+	route_failed    times a way between two areas was found wanting
+	idle            per cent of bot_seconds on foot, standing still, with
+	                nobody to shoot and not holding a place on purpose
+	driving, gunning, riding
+	                per cent of bot_seconds at a wheel, on a gun, in another seat
+	escort          per cent of bot_seconds escorting one of ours with the flag
+	with_people     per cent of bot_seconds helping a person of their side
+	                (on their gun, beside them, following them in)
+	over=1          on the line written as the game ends (its scores shown)
+
+In a game with no sides, the bots in two halves (those whose place in the
+game is an even number, e0_, and an odd one, e1_: HALO_BOT_OFF2_EVEN and
+_ODD leave a part out of one half, to be weighed against the other):
+
+	e0_kills, e0_deaths, e0_suicides, e0_score
+	                the half's own, from the game's statistics and score
+	e0_trades       deaths within two seconds of the bot's own kill
+	e0_unseen       deaths to someone the bot had not seen in the three
+	                seconds before
+	e0_contact      seconds, on average, from a life's start to the first
+	                enemy in its sights
+*/
+
+#include "bot_internal.h"
+
+#include "game/game.h"
+#include "game/game_engine.h"
+#include "game/players.h"
+#include "objects/objects.h"
+#include "main/main.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+void platform_log(char const *format, ...);
+
+boolean ctf_bot_flag(long team_index, long *weapon_index, real_point3d *base); /* game_engine_ctf.c */
+long ctf_bot_score(long team_index); /* game_engine_ctf.c */
+extern struct game_engine ctf_engine;
+
+static struct
+{
+	int read; /* HALO_BOT_STATS read */
+	long every; /* ticks between lines (0: off) */
+	long first_tick; /* the game's first tick counted (NONE: none yet) */
+	long last_tick;
+	int over; /* the end of the game told (its scores shown) */
+	long counts[NUMBER_OF_BOT_STATS];
+	long alive_ticks;
+	long idle_ticks;
+	long seat_ticks[4]; /* on foot, driving, gunning, riding */
+	long escort_ticks;
+	long flipped_ticks;
+	real drive_distance;
+	long with_people_ticks;
+	long air_ticks, air_up_ticks, air_pressed_ticks; /* at the controls of something that flies; up in it; held against something */
+	long air_trips;
+	real air_trip_seconds;
+	/* each flag: who held it last tick (NONE nobody), and whether it was home */
+	long flag_holder[2];
+	int flag_home[2];
+	long scores[2];
+	/* where each bot was last tick */
+	real_point3d last_position[BOT_MAXIMUM_PLAYERS];
+	long last_seen[BOT_MAXIMUM_PLAYERS];
+	/* the free-for-all's, each half of the bots */
+	real ffa[2][NUMBER_OF_BOT_FFA];
+	long ffa_count[2][NUMBER_OF_BOT_FFA];
+} bot_stats = { 0, 0, NONE };
+
+int bot_stats_enabled(void)
+{
+	if (!bot_stats.read)
+	{
+		char const *every = getenv("HALO_BOT_STATS");
+
+		bot_stats.read = TRUE;
+		bot_stats.every = every ? (atol(every) > 0 ? atol(every) : 60) * BOT_TICKS_PER_SECOND : 0;
+	}
+	return bot_stats.every > 0;
+}
+
+void bot_stats_reset(void)
+{
+	int read = bot_stats.read;
+	long every = bot_stats.every;
+
+	memset(&bot_stats, 0, sizeof(bot_stats));
+	bot_stats.read = read;
+	bot_stats.every = every;
+	bot_stats.first_tick = NONE;
+	bot_stats.flag_holder[0] = bot_stats.flag_holder[1] = NONE;
+	bot_stats.flag_home[0] = bot_stats.flag_home[1] = TRUE;
+}
+
+void bot_stats_note(int stat)
+{
+	if (bot_stats_enabled() && stat >= 0 && stat < NUMBER_OF_BOT_STATS)
+		bot_stats.counts[stat]++;
+}
+
+void bot_stats_bot_tick(long index, real_point3d const *position, int seat_kind, int busy, int escorting, int with_people,
+	int flipped)
+{
+	long now = game_time_get();
+
+	if (!bot_stats_enabled() || index < 0 || index >= BOT_MAXIMUM_PLAYERS)
+		return;
+	bot_stats.alive_ticks++;
+	bot_stats.seat_ticks[seat_kind >= 0 && seat_kind < 4 ? seat_kind : 0]++;
+	if (escorting)
+		bot_stats.escort_ticks++;
+	if (with_people)
+		bot_stats.with_people_ticks++;
+	if (seat_kind == 1 && flipped)
+		bot_stats.flipped_ticks++;
+	/* (at a wheel since the tick before: how far, a jump of more than a
+	vehicle's tick's worth being a respawn or a teleport, not driving) */
+	if (seat_kind == 1 && bot_stats.last_seen[index] == now - 1)
+	{
+		real moved = distance3d(position, &bot_stats.last_position[index]);
+
+		if (moved < 2.f)
+			bot_stats.drive_distance += moved;
+	}
+	/* (standing: less than a tenth of a walk's pace since the tick before) */
+	if (seat_kind == 0 && !busy && bot_stats.last_seen[index] == now - 1 &&
+		distance3d(position, &bot_stats.last_position[index]) < 0.02f)
+	{
+		bot_stats.idle_ticks++;
+	}
+	bot_stats.last_position[index] = *position;
+	bot_stats.last_seen[index] = now;
+}
+
+void bot_stats_ffa(long index, int what, real value)
+{
+	if (!bot_stats_enabled() || index < 0 || what < 0 || what >= NUMBER_OF_BOT_FFA)
+		return;
+	bot_stats.ffa[index & 1][what] += value;
+	bot_stats.ffa_count[index & 1][what]++;
+}
+
+void bot_stats_air_tick(int up, int pressed)
+{
+	if (!bot_stats_enabled())
+		return;
+	bot_stats.air_ticks++;
+	if (up)
+		bot_stats.air_up_ticks++;
+	if (pressed)
+		bot_stats.air_pressed_ticks++;
+}
+
+void bot_stats_air_trip(real seconds)
+{
+	if (!bot_stats_enabled())
+		return;
+	bot_stats.air_trips++;
+	bot_stats.air_trip_seconds += seconds;
+}
+
+/* the flags since the tick before: taken, dropped, home again */
+static void bot_stats_flags(void)
+{
+	long scores[2];
+	long team;
+
+	if (game_engine != &ctf_engine)
+		return;
+	scores[0] = ctf_bot_score(0);
+	scores[1] = ctf_bot_score(1);
+	for (team = 0; team < 2; team++)
+	{
+		long flag = NONE;
+		real_point3d base;
+		struct object_datum *object;
+		long holder;
+		int home;
+
+		if (!ctf_bot_flag(team, &flag, &base) || flag == NONE || !(object = object_try_and_get(flag)))
+			continue;
+		holder = object->object.parent_object_index != NONE ? object_get_ultimate_parent(flag) : NONE;
+		home = holder == NONE && distance3d(&object->object.position, &base) < 1.f;
+		if (holder != NONE && bot_stats.flag_holder[team] == NONE)
+			bot_stats.counts[_bot_stat_flag_pickup]++;
+		else if (holder == NONE && bot_stats.flag_holder[team] != NONE && !home)
+			bot_stats.counts[_bot_stat_flag_drop]++;
+		/* (home again, and not because the other side scored with it) */
+		if (home && !bot_stats.flag_home[team] && scores[1 - team] == bot_stats.scores[1 - team])
+			bot_stats.counts[_bot_stat_flag_return]++;
+		bot_stats.flag_holder[team] = holder;
+		bot_stats.flag_home[team] = home;
+	}
+	bot_stats.scores[0] = scores[0];
+	bot_stats.scores[1] = scores[1];
+}
+
+static real bot_stats_share(long ticks)
+{
+	return bot_stats.alive_ticks > 0 ? 100.f * (real)ticks / (real)bot_stats.alive_ticks : 0.f;
+}
+
+static void bot_stats_report(long now, int over)
+{
+	struct data_iterator iterator;
+	struct player_datum *player;
+	long bots = 0, kills = 0, deaths = 0, suicides = 0;
+	long half_kills[2] = { 0, 0 }, half_deaths[2] = { 0, 0 }, half_suicides[2] = { 0, 0 }, half_score[2] = { 0, 0 };
+	char halves[512] = "";
+	char const *map = main_get_multiplayer_map_name();
+	char const *name = map ? strrchr(map, '\\') : NULL;
+
+	data_iterator_new(&iterator, player_data);
+	while ((player = (struct player_datum *)data_iterator_next(&iterator)) != NULL)
+	{
+		if (!bot_player_is_bot(iterator.datum_index))
+			continue;
+		bots++;
+		kills += player->statistics.kills[0];
+		deaths += player->statistics.deaths;
+		suicides += player->statistics.suicides;
+		{
+			long half = DATUM_INDEX_TO_ABSOLUTE_INDEX(iterator.datum_index) & 1;
+			half_kills[half] += player->statistics.kills[0];
+			half_deaths[half] += player->statistics.deaths;
+			half_suicides[half] += player->statistics.suicides;
+			if (game_engine && game_engine->get_player_score)
+				half_score[half] += game_engine->get_player_score(iterator.datum_index, FALSE);
+		}
+	}
+	if (!game_engine_has_teams())
+	{
+		long half;
+		for (half = 0; half < 2; half++)
+		{
+			size_t length = strlen(halves);
+			snprintf(halves + length, sizeof(halves) - length,
+				" e%ld_kills=%ld e%ld_deaths=%ld e%ld_suicides=%ld e%ld_score=%ld e%ld_trades=%ld e%ld_unseen=%ld e%ld_contact=%.1f",
+				half, half_kills[half], half, half_deaths[half], half, half_suicides[half], half, half_score[half],
+				half, bot_stats.ffa_count[half][_bot_ffa_trade], half, bot_stats.ffa_count[half][_bot_ffa_unseen],
+				half, bot_stats.ffa_count[half][_bot_ffa_contact] > 0 ?
+					bot_stats.ffa[half][_bot_ffa_contact] / (real)bot_stats.ffa_count[half][_bot_ffa_contact] : 0.f);
+		}
+	}
+	platform_log("bot stats: map=%s t=%ld bots=%ld bot_seconds=%ld caps0=%ld caps1=%ld score0=%ld score1=%ld pickups=%ld drops=%ld returns=%ld "
+		"carrier_rides=%ld kills=%ld deaths=%ld suicides=%ld stuck=%ld route_failed=%ld "
+		"idle=%.1f driving=%.1f gunning=%.1f riding=%.1f escort=%.1f with_people=%.1f "
+		"vehicle_kills=%ld vehicle_deaths=%ld bailouts=%ld dismounts=%ld drive_speed=%.2f flipped=%.1f "
+		"air_seconds=%ld air_up=%.1f air_pressed=%.1f air_kills=%ld air_deaths=%ld air_landings=%ld air_dropoffs=%ld air_bumps=%ld air_stuck=%ld "
+		"air_trips=%ld air_trip_seconds=%.1f%s%s",
+		name ? name + 1 : map ? map : "?", (now - bot_stats.first_tick) / BOT_TICKS_PER_SECOND, bots,
+		bot_stats.alive_ticks / BOT_TICKS_PER_SECOND,
+		game_engine == &ctf_engine ? ctf_bot_score(0) : 0L, game_engine == &ctf_engine ? ctf_bot_score(1) : 0L,
+		game_engine_has_teams() ? game_engine_get_team_score(0) : 0L, game_engine_has_teams() ? game_engine_get_team_score(1) : 0L,
+		bot_stats.counts[_bot_stat_flag_pickup], bot_stats.counts[_bot_stat_flag_drop], bot_stats.counts[_bot_stat_flag_return],
+		bot_stats.counts[_bot_stat_carrier_ride], kills, deaths, suicides,
+		bot_stats.counts[_bot_stat_stuck], bot_stats.counts[_bot_stat_route_failed],
+		bot_stats_share(bot_stats.idle_ticks), bot_stats_share(bot_stats.seat_ticks[1]), bot_stats_share(bot_stats.seat_ticks[2]),
+		bot_stats_share(bot_stats.seat_ticks[3]), bot_stats_share(bot_stats.escort_ticks), bot_stats_share(bot_stats.with_people_ticks),
+		bot_stats.counts[_bot_stat_vehicle_kill], bot_stats.counts[_bot_stat_vehicle_death],
+		bot_stats.counts[_bot_stat_vehicle_bailout], bot_stats.counts[_bot_stat_vehicle_dismount],
+		bot_stats.seat_ticks[1] > 0 ? bot_stats.drive_distance * BOT_TICKS_PER_SECOND / (real)bot_stats.seat_ticks[1] : 0.f,
+		bot_stats.seat_ticks[1] > 0 ? 100.f * (real)bot_stats.flipped_ticks / (real)bot_stats.seat_ticks[1] : 0.f,
+		bot_stats.air_ticks / BOT_TICKS_PER_SECOND,
+		bot_stats.air_ticks > 0 ? 100.f * (real)bot_stats.air_up_ticks / (real)bot_stats.air_ticks : 0.f,
+		bot_stats.air_ticks > 0 ? 100.f * (real)bot_stats.air_pressed_ticks / (real)bot_stats.air_ticks : 0.f,
+		bot_stats.counts[_bot_stat_air_kill], bot_stats.counts[_bot_stat_air_death], bot_stats.counts[_bot_stat_air_landing],
+		bot_stats.counts[_bot_stat_air_dropoff], bot_stats.counts[_bot_stat_air_bump], bot_stats.counts[_bot_stat_air_stuck],
+		bot_stats.air_trips, bot_stats.air_trips > 0 ? bot_stats.air_trip_seconds / (real)bot_stats.air_trips : 0.f,
+		halves, over ? " over=1" : "");
+}
+
+void bot_stats_world_tick(long now)
+{
+	if (!bot_stats_enabled())
+		return;
+	if (bot_stats.first_tick == NONE || now < bot_stats.last_tick)
+	{
+		bot_stats_reset();
+		bot_stats.first_tick = now;
+	}
+	bot_stats.last_tick = now;
+	bot_stats_flags();
+	if (now > bot_stats.first_tick && (now - bot_stats.first_tick) % bot_stats.every == 0)
+		bot_stats_report(now, FALSE);
+	/* (and once more as it ends) */
+	if (!bot_stats.over && game_engine_showing_postgame())
+	{
+		bot_stats.over = TRUE;
+		bot_stats_report(now, TRUE);
+	}
+}

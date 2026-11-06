@@ -162,11 +162,71 @@ are filled and changed by port/linux/game/menu_functions.c ("port host
 		<child widget="chupathingy/prompts/a" x="510" y="414"/>
 		<child widget="chupathingy/prompts/accept" x="532" y="414"/>
 	</widget>
+	<!-- Split screen's GAME SETUP (menu_tags.c points its gametype's choice
+	here): the game type and the bots, the same list as GAME SETUP's, with
+	none of a networked game's rows; START GAME opens split screen's lobby. -->
+	<widget name="chupathingy/host/split_setup_screen" width="640" height="480" flags="pass_unhandled_to_focused_child pause_game" bitmap="bitmaps/gradient">
+		<on event="b" run="port host back"/>
+		<on event="back" run="port host back"/>
+		<child widget="chupathingy/host/header_game_setup"/>
+		<child widget="chupathingy/host/setup_list"/>
+		<child widget="chupathingy/prompts/x" x="20" y="414"/>
+		<child widget="chupathingy/prompts/defaults" x="42" y="414"/>
+		<child widget="chupathingy/prompts/y" x="180" y="414"/>
+		<child widget="chupathingy/prompts/edit_game_type" x="202" y="414"/>
+		<child widget="chupathingy/prompts/b" x="400" y="414"/>
+		<child widget="chupathingy/prompts/back" x="422" y="414"/>
+		<child widget="chupathingy/prompts/a" x="510" y="414"/>
+		<child widget="chupathingy/prompts/accept" x="532" y="414"/>
+	</widget>
 	<widget name="chupathingy/host/setup_list" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_children" description="chupathingy/host/help">
 		<data input="port host update"/>
 		<on event="created" run="port host init"/>
 		<on event="x" run="port host defaults"/>
 		<on event="y" run="port host edit"/>
+		<child widget="chupathingy/host/row_0" x="54" y="73"/>
+		<child widget="chupathingy/host/row_1" x="54" y="103"/>
+		<child widget="chupathingy/host/row_2" x="54" y="133"/>
+		<child widget="chupathingy/host/row_3" x="54" y="163"/>
+		<child widget="chupathingy/host/row_4" x="54" y="193"/>
+		<child widget="chupathingy/host/row_5" x="54" y="223"/>
+		<child widget="chupathingy/host/row_6" x="54" y="253"/>
+		<child widget="chupathingy/host/row_7" x="54" y="283"/>
+	</widget>
+	<!-- The host's pause menu's BOTS (menu_tags.c adds it to a game's pause
+	menu on the machine that hosts it): GAME SETUP's bots alone, the game's
+	bots added or taken away and made better or worse as the game goes on.
+	Left and right change a row; A or B is done, and keeps them for the games
+	to come (config.toml's bots.*); X sets them as config.toml has them by
+	default. -->
+	<widget name="chupathingy/host/header_bots" type="text" controller="1" left="54" top="32" width="400" height="30" text="BOTS" font="ui\large_ui" color="#FFFFFFFF" text_flags="no_focus_test">
+	</widget>
+	<!-- (the lobby's "Y BOTS", under its button key: menu_tags.c adds it
+	and the Y that opens BOTS; shown on the host alone) -->
+	<widget name="chupathingy/host/bots_prompt" type="text" controller="1" width="140" height="22" text="=BOTS" font="ui\large_ui" color="#FF2896FF">
+	</widget>
+	<widget name="chupathingy/host/lobby_bots_hint" width="200" height="22">
+		<data input="port lobby bots hint"/>
+		<child widget="chupathingy/prompts/y"/>
+		<child widget="chupathingy/host/bots_prompt" x="22" y="0"/>
+	</widget>
+	<widget name="chupathingy/host/bots_screen" width="640" height="480" flags="pass_unhandled_to_focused_child pause_game" bitmap="bitmaps/gradient">
+		<on event="b" run="port host back"/>
+		<on event="back" run="port host back"/>
+		<on event="start" run="port host back"/>
+		<child widget="chupathingy/host/header_bots"/>
+		<child widget="chupathingy/host/bots_list"/>
+		<child widget="chupathingy/prompts/x" x="40" y="414"/>
+		<child widget="chupathingy/prompts/defaults" x="62" y="414"/>
+		<child widget="chupathingy/prompts/b" x="372" y="414"/>
+		<child widget="chupathingy/prompts/back" x="394" y="414"/>
+		<child widget="chupathingy/prompts/a" x="478" y="414"/>
+		<child widget="chupathingy/prompts/ok" x="500" y="414"/>
+	</widget>
+	<widget name="chupathingy/host/bots_list" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_children" description="chupathingy/host/help">
+		<data input="port host update"/>
+		<on event="created" run="port host init"/>
+		<on event="x" run="port host defaults"/>
 		<child widget="chupathingy/host/row_0" x="54" y="73"/>
 		<child widget="chupathingy/host/row_1" x="54" y="103"/>
 		<child widget="chupathingy/host/row_2" x="54" y="133"/>

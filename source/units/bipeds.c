@@ -281,6 +281,9 @@ symbols in this file:
 objects on the host's word alone) */
 boolean network_objects_may_delete(long object_index);
 
+/* port/linux/game/infection.c's */
+boolean infection_unit_is_flood_zombie(long unit_index);
+
 /* ---------- constants */
 
 enum
@@ -4375,9 +4378,22 @@ boolean biped_update(
 					biped_index,
 					unit_get(biped_index)->unit.current_weapon_index);
 
+				/* port: a zombie of infection with nothing in hand, in the
+				Flood's body, hits as its unit does (port/linux/game/infection.c:
+				the unit's own attack, as the game's creatures make it) */
+				if (weapon_index==NONE && infection_unit_is_flood_zombie(biped_index))
+				{
+					/* (on the ground: the Flood has no attack for the air but its
+					leap, and a unit set to one it has not stays in it; nor from
+					a vehicle's seat, as below) */
+					if (!TEST_FLAG(biped->biped.flags, _biped_airborne_bit) && biped->unit.parent_seat_index == NONE)
+					{
+						unit_melee_attack_begin(biped_index, FALSE, NULL);
+					}
+				}
 				/* with no weapon, weapon_prevents_melee_attack(NONE) is TRUE:
 				an unarmed player cannot melee, as in the retail game */
-				if (!weapon_prevents_melee_attack(weapon_index) &&
+				else if (!weapon_prevents_melee_attack(weapon_index) &&
 					biped->unit.current_zoom_level==NONE)
 				{
 					short melee_speedup_ticks;

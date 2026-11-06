@@ -123,6 +123,7 @@ symbols in this file:
 #include "dead_camera.h"
 #include "coop_spectate.h" /* port: port/linux/game/coop_spectate.c */
 #include "follow_camera.h" /* port: port/linux/game/follow_camera.c */
+#include "bot_debug.h" /* port: port/linux/game/bot_debug.c */
 #include "editor_flying_camera.h"
 #include "first_person_camera.h"
 #include "flying_camera.h"
@@ -733,6 +734,51 @@ static void director_choose_camera_game(
 		corners) */
 		if (key && !network_game_distributed_client())
 			director_rotate_cameras(local_player_index, director_game_camera_modes, 3);
+		/* port: the bots' debug view's cameras (port/linux/game/bot_debug.c):
+		through a bot's eyes, behind it, or free; the player's own unit
+		stands meanwhile */
+		{
+			static boolean debug_camera_was[MAXIMUM_NUMBER_OF_LOCAL_PLAYERS];
+			long debug_unit_index;
+			short debug_camera = network_game_distributed_client() ? _bot_debug_camera_own :
+				bot_debug_camera_mode(local_player_index, &debug_unit_index);
+
+			if (debug_camera == _bot_debug_camera_fly)
+			{
+				if (director->camera_proc != (director_camera_update_proc)flying_camera_update)
+				{
+					flying_camera_new_from_point_and_vector(
+						(struct flying_camera *)director->camera_data,
+						&director->command.focus_position,
+						&director->command.forward);
+					director_set_camera(local_player_index, (director_camera_update_proc)flying_camera_update, FALSE);
+				}
+				director->debug_controls = TRUE;
+				debug_camera_was[local_player_index] = TRUE;
+				director_inhibit_input(local_player_index);
+				return;
+			}
+			if (debug_camera != _bot_debug_camera_own)
+			{
+				if (director->camera_proc != (director_camera_update_proc)bot_debug_camera_update)
+					director_set_camera(local_player_index, (director_camera_update_proc)bot_debug_camera_update, FALSE);
+				debug_camera_was[local_player_index] = TRUE;
+				director_inhibit_input(local_player_index);
+				return;
+			}
+			if (debug_camera_was[local_player_index])
+			{
+				/* (back to the player's own) */
+				debug_camera_was[local_player_index] = FALSE;
+				director_choose_game_perspective(local_player_index, TRUE);
+				if (director->camera_proc == (director_camera_update_proc)flying_camera_update ||
+					director->camera_proc == (director_camera_update_proc)bot_debug_camera_update)
+				{
+					first_person_camera_new((struct first_person_camera *)director->camera_data);
+					director_set_camera(local_player_index, (director_camera_update_proc)first_person_camera_update, FALSE);
+				}
+			}
+		}
 		if (!*director_camera_scripted)
 		{
 			director_choose_game_perspective(local_player_index, initialize);
@@ -909,7 +955,8 @@ static boolean director_update_controls(
 		switch_camera = input_key_is_down(_key_backspace) == TRUE;
 		if ((director->camera_proc !=
 				(director_camera_update_proc)first_person_camera_update &&
-			mouse->buttons[1]) || input_key_is_down(_key_tab))
+			mouse->buttons[1]) || input_key_is_down(_key_tab) ||
+			bot_debug_flying(local_player_index)) /* (port: the bots' debug view's free camera, bot_debug.c) */
 		{
 			SET_FLAG(control_flags, _camera_control_forward_bit,
 				input_key_is_down(_key_w));

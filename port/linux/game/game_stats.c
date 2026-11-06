@@ -192,6 +192,8 @@ static struct
 	boolean over;
 	unsigned long over_time;
 	boolean client_reported;
+	/* port (bots): the host's bots were in the game this machine joined */
+	boolean bots_seen;
 } game_stats = { .recording = FALSE, .kill_damage = NONE };
 
 /* ---------- private code */
@@ -213,6 +215,7 @@ static void stats_reset(
 	game_stats.last_tick = tick;
 	game_stats.over = FALSE;
 	game_stats.client_reported = FALSE;
+	game_stats.bots_seen = FALSE;
 }
 
 /* a new game (the game's time went back: a new map, or the next game) */
@@ -257,11 +260,34 @@ static struct stats_player *stats_player(
 	return &game_stats.players[absolute_index];
 }
 
+/* port (bots): whether a player is one of a host's bots, as a client can
+tell: on a machine of the name the host gives its bots' machines
+(network_server_manager.c) */
+static boolean stats_player_is_bot(
+	struct network_game *game,
+	struct player_datum const *player)
+{
+	static wchar_t const name[] = { 'B', 'o', 't', 's', 0 };
+	long machine_index = player->network_player_data.machine_index;
+	long character;
+
+	if (!game || machine_index < 0 || machine_index >= NUMBEROF(game->machines))
+		return FALSE;
+	for (character = 0; character < NUMBEROF(name); character++)
+	{
+		if (game->machines[machine_index].name[character] != name[character])
+			return FALSE;
+	}
+	return TRUE;
+}
+
 /* the players as they are now: new ones taken, those gone kept as departed */
 static void stats_track_players(
 	void)
 {
 	boolean seen[MAXIMUM_STATS_PLAYERS];
+	struct network_game_client *client = global_network_game_client_get();
+	struct network_game *game = client ? network_game_client_get_game(client) : NULL;
 	struct data_iterator iterator;
 	struct player_datum *player;
 	long tick = game_time_get();
@@ -273,6 +299,8 @@ static void stats_track_players(
 	{
 		struct stats_player *tracked = stats_player(iterator.datum_index);
 
+		if (stats_player_is_bot(game, player))
+			game_stats.bots_seen = TRUE;
 		if (!tracked)
 			continue;
 		/* (another player in the same place: the one before left) */
@@ -577,6 +605,19 @@ static void stats_client_report(
 	count = game_engine_report_lines(players, MAXIMUM_STATS_PLAYERS);
 	if (count <= 0)
 		return;
+	/* port: nor of a game the bots played in, or of infection, as the
+	host's own report (game_engine_report_game): the game list keeps the
+	scores of people, at the game types it knows */
+	{
+		extern boolean infection_active(void);
+
+		if (game_stats.bots_seen || infection_active())
+		{
+			platform_log("Game list: no report of the joined game (%s)",
+				game_stats.bots_seen ? "bots played in it" : "infection");
+			return;
+		}
+	}
 	game_report_json_name(name, sizeof(name), (unsigned short const *)reporter->name, BROWSER_PLAYER_NAME_LENGTH);
 	game_report_json_name(host, sizeof(host), (unsigned short const *)game->name, 16);
 	used = stats_append(extra, sizeof(extra), used,

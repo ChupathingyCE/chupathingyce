@@ -75,6 +75,72 @@ and the other ports over the network, and it is a dedicated server too
 (`server/README.md`). Its releases are a separate download,
 `chupathingyce-windows64-release.zip`, which its self-updater asks for.
 
+## Build the game with Visual Studio
+
+Visual Studio can build the game with no other tool: no Python, no ninja
+and no separate LLVM.
+
+1. In the Visual Studio Installer, add the workload "Desktop development
+   with C++" and the component "C++ Clang tools for Windows". A Windows 10
+   or 11 SDK is part of the workload.
+2. Open `projects\windows\halo.sln`.
+3. Select the configuration `Release` and the platform `x86` or `x64`.
+4. Build the solution.
+
+| Platform | Result | Contents |
+| --- | --- | --- |
+| `x86` | `build\windows\Release\halo.exe` | The 32-bit game, as `ninja windows`. It plays the Xbox maps. |
+| `x64` | `build\windows64\Release\halo.exe` | The 64-bit game, as `ninja windows64` (refer to "64-bit" above). It also plays the Custom Edition maps and the HaloMD maps. |
+
+`SDL3.dll` is next to each `halo.exe`. The first build needs a network
+connection: it downloads the Visual C++ development package of SDL to
+`build\windows\third_party` and compares its SHA-256 hash with the hash in
+the project. The package has the libraries of the two platforms. To use a
+package that is on the computer, set the environment variable `HALO_SDL3`
+to its folder.
+
+For the `x64` game, put the Custom Edition maps in `maps\ce` and the HaloMD
+maps in `md_maps`, in the data root (the folder that contains `maps\`).
+Refer to "Halo PC maps" in [README.md](../../README.md#halo-pc-maps). The
+two games play together over the network on the Xbox maps.
+
+The build also puts `bake-navigation.cmd` next to `halo.exe`. It makes the
+navigation data of the bots for all the multiplayer maps in the `maps`
+folder, before a game: refer to
+[Baked navigation](../linux/README.md#baked-navigation).
+
+| Configuration | Contents |
+| --- | --- |
+| `Release` | Optimized (`-O2`), as the ninja build with `--portable --lto=off --pgo=off`. |
+| `Debug` | Not optimized, for the debugger. |
+
+The debugger starts the game in the folder of `halo.exe`. Put the game data
+there (`build\windows\Release\maps`, or `build\windows64\Release\maps`),
+or give its folder in `paths.data` in the `config.toml` next to `halo.exe`.
+One data folder can serve the two games.
+
+The build has the game browser, the game list and the dedicated server, as
+the ninja builds have them. Its version is the version of the `VERSION` file
+with `-dev`, and it does not look for updates. To start a dedicated server,
+refer to [docs/dedicated-server.md](../../docs/dedicated-server.md).
+
+The project compiles the same sources with the same flags as
+`ninja windows` (platform `x86`) and `ninja windows64` (platform `x64`),
+through the `ClangCL` toolset (`clang-cl`). The `x64` platform does not
+compile libtiff, as the other 64-bit builds:
+
+- `tools/visual_studio.py` writes `projects\windows\halo.sln`,
+  `halo.vcxproj` and `halo.vcxproj.filters`, and the files that the ninja
+  build generates from the sources: `generated\halo_msvc_tags.h` and
+  `generated\inline_exports`. All these files are in the repository. When
+  you add, remove or rename a source file, enter
+  `python tools/visual_studio.py` and commit the result.
+- Before the build compiles, `tools\prebuild.ps1` (PowerShell) embeds the
+  assets of `port\assets` in `build\windows\generated\hud_hires_assets.c`
+  and the fonts of `port\linux\ui\fonts` in `ui_fonts.c`, writes the
+  version to `halo_version.h`, and downloads SDL. These files are the same
+  for the two platforms.
+
 ## Start the game
 
 Enter `build\windows\chupathingy.exe`. The small `halo.exe` beside it starts

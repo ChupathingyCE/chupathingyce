@@ -458,6 +458,33 @@ path replaces one of the game's, and another `.xml` file is added.
 the game uses the Xbox's menus and the log names the file, the line and the
 problem.
 
+### Vehicles on Halo PC maps
+
+On a Halo PC (Custom Edition) map, the game puts the vehicles where Halo PC
+puts them. Each vehicle of such a map has a list of the gametypes that it is
+for (slayer, capture the flag, king of the hill, oddball), with two marks for
+each gametype: the vehicle is there by default, or the vehicle can be there.
+
+- The gametypes of the game (their vehicle setting is Warthogs) and the
+  setting `Default` put all the vehicles that are there by default for the
+  gametype. These are the vehicles of the map, also the vehicles that only
+  this map has (a jet, a walker).
+- The settings Ghosts and Scorpions put only the vehicles of that type that
+  can be there.
+- With a number for each type, the game puts that number of each type, at
+  the places of the vehicles that can be there. A vehicle that only this map
+  has is there when it is there by default.
+- The setting None puts no vehicles.
+- A vehicle that the script of the map makes is always made.
+
+For only Warthogs on such a map, set the number of each type in the gametype
+editor.
+
+`HALO_HS_DUMP=1` writes the scripts of a map to the standard error stream
+when the map loads. `HALO_NETWORK_TEST_BANSHEES=<n>`,
+`HALO_NETWORK_TEST_VEHICLES=<set>` and `HALO_NETWORK_TEST_WEAPONS=<set>` set
+the vehicles and the weapons of a test game (`game/network_test.c`).
+
 ## Settings
 
 The settings are in `config.toml` next to the executable
@@ -628,6 +655,8 @@ the setting for one start of the game. It has priority over the file.
 | `launcher.hold_to_open` | `true` | `HALO_LAUNCHER_HOLD` | `true`: Shift or a controller's Back held at start opens the setup screen. |
 | `launcher.mode_choice`, `launcher.default_mode` | `"ask"`, `"vanilla"` | `HALO_LAUNCHER_MODE_CHOICE`, `HALO_LAUNCHER_DEFAULT_MODE` | With more than one way to play (a pack with its own menus): `"ask"` picks on the setup screen at each start, `"default"` starts `launcher.default_mode` (`"vanilla"`, or a pack's id such as `"cex"`). Refer to "Start the game". |
 | `game.language` | `""` | `HALO_LANGUAGE` | The language of the menus: `ja`, `de`, `fr`, `es` or `it`. Empty: English. |
+| `game.vehicle_multiplier` | `1` | `HALO_VEHICLE_MULTIPLIER` | The number of each vehicle of a map in the multiplayer games that this machine hosts: `1` to `4`. Refer to "More vehicles". |
+| `game.vehicle_multiplier_maps` | `""` | `HALO_VEHICLE_MULTIPLIER_MAPS` | The maps that `game.vehicle_multiplier` is for: the names of their files, with commas between them (`"hugeass,coldsnap"`). Empty: all maps. |
 | `game.unlock_all_levels` | `false` | `HALO_UNLOCK_ALL_LEVELS` | `true`: a profile created afterward starts with all the campaign levels finished on all the difficulties. `false`: a new profile starts at The Pillar of Autumn, and each level opens when you finish the level before it, as on the Xbox. Existing profiles keep their progress. To start a profile over, type `profile_reset_campaign` in the console. |
 | `game.start_with_one_player` | `true` (`false` on the dedicated server) | `HALO_START_WITH_ONE_PLAYER` | A system link, internet or split screen game you host can start with you alone: press START GAME in the lobby. Others can join it in progress. `false` waits for a second machine (split screen: a second player), as on the Xbox. Network Setup's Start With One Player sets it. Players who had it off are asked once, after an update, whether to use the new default. First written by Mootjuh as `debug.solo_game`. |
 | `paths.data` | `""` | `HALO_DATA_ROOT` | The data root. Refer to "Start the game". |
@@ -672,6 +701,13 @@ the setting for one start of the game. It has priority over the file.
 | `network.browser_url` | `"https://stats.chupathingy.org"` | `HALO_NET_BROWSER` | The game list server: Online Games, the Server Browser's listed games, Link Profile, stats and crash reports. Empty: none. A file that still names `https://halo.milenko.org`, the old default, follows the new one. |
 | `network.brokers_file` | `"brokers.txt"` | `HALO_NET_BROKERS_FILE` | The file of the public MQTT brokers that let the machines of an invite find each other, and that carry the listings of the server browser: next to `config.toml`, unless a full path. One `host:port` on each line, up to 4; `#` starts a comment. |
 | `network.stun_servers` | Google and Cloudflare | `HALO_NET_STUN` | The public STUN servers (`host:port`, with commas between them) that give the internet address of a machine. |
+| `bots.count` | `0` | `HALO_BOTS` | The number of bots in the multiplayer games that this machine hosts. `0`: no bots. Refer to "Bots". |
+| `bots.fill` | `0` | `HALO_BOTS_FILL` | The games that this machine hosts have this number of players: bots fill the places that people do not have. A bot goes when a person joins and comes back when a person goes. `0`: `bots.count` bots. Refer to "Bots". |
+| `bots.skill` | `5` | `HALO_BOT_SKILL` | How good the bots are, from `1` to `10`: `1` easy, `3` normal, `5` hard, `8` legendary, `10` near perfect. The levels went from `1` to `5` before: the old `5` is `10`, and the old `3` is between `5` and `6`. |
+| `bots.balance` | `false` | `HALO_BOTS_BALANCE` | `true`: the score moves the skill of each bot in the range of `bots.skill_spread`, down for a team that is ahead and up for a team that is behind. Refer to "Bots". |
+| `bots.skill_spread` | `0` | `HALO_BOT_SKILL_SPREAD` | How many levels below `bots.skill` a bot can be, from `0` to `9`. Each bot gets its skill for the game from that range: `bots.skill = 10` with a spread of `4` gives bots from `6` to `10`. `0`: all the bots have `bots.skill`. Refer to "Bots". |
+| `infection.rounds`, `infection.round_minutes`, `infection.countdown` | `3`, `4`, `10` | `HALO_INFECTION_ROUNDS`, `HALO_INFECTION_ROUND_MINUTES`, `HALO_INFECTION_COUNTDOWN` | The rounds of a game of infection, the minutes of a round (`0`: no limit) and the seconds before the first zombie. Refer to "Infection". |
+| `infection.zombie_speed`, `infection.zombie_damage`, `infection.zombie_health` | `1.3`, `8.0`, `1.5` | `HALO_INFECTION_ZOMBIE_SPEED`, `HALO_INFECTION_ZOMBIE_DAMAGE`, `HALO_INFECTION_ZOMBIE_HEALTH` | How fast a zombie moves (a player is `1`), how hard it hits and how much damage it can take (the Flood of the campaign is `1`). |
 | `network.announce` | `"latest"` | `HALO_NET_ANNOUNCE` | The OpenCE network version that the games you host announce. `"latest"` follows the newest one the signed legacy table proves for hosting, between games and with no restart. A number pins it, such as `32`. Refer to `docs/delta.md`, "Auto-announce". |
 | `network.legacy_table` | `""` | `HALO_LEGACY_TABLE` | For testing, and for admins: a legacy table file, not signed, next to `config.toml` unless a full path. Its row for the wire of the build sets the OpenCE network versions that the game announces and joins, in place of the signed tables. The log shows a warning at start. Refer to `docs/delta.md`. Empty: none. |
 | `network.list_hosted_games` | `true` | `HALO_NET_LIST_GAMES` | `true`: the system link games this machine hosts are listed on `network.browser_url` (stats.chupathingy.org), where anyone can find and join them. Only public games without a password are listed. `false`: they are kept to invites and the local network, and no carnage report of them is sent. |
@@ -686,6 +722,7 @@ the setting for one start of the game. It has priority over the file.
 | `update.auto` | `true` | `HALO_UPDATE_AUTO` | `true`: at start-up, the game looks for a new version. Refer to "Updates". `false`: the game does not look. |
 | `crash_reports.upload` | `"ask"` | `HALO_CRASH_REPORTS` | Desktop builds (releases and nightlies). `"yes"`: the game sends a report of each crash to the developers, through `network.browser_url`. `"no"`: the game sends no reports. `"ask"`: the game asks after the next crash (on Linux and macOS, when it starts the next time) and writes the answer here. On the Privacy screen (Gearbox menus). Refer to "Crash reports" below and in [port/windows/README.md](../windows/README.md#crash-reports). |
 | `debug.update_answer` | `""` | `HALO_UPDATE_ANSWER` | The answer to the update question, for automatic tests: `yes`, `no` or `never`. Empty: the game asks. |
+| `debug.random_seed` | `0` | `HALO_RANDOM_SEED` | The random seed of the games that this machine hosts, and of their bots. With the same seed, a game with only bots is the same each time. Use this setting to compare two builds. `0`: a new seed for each game. |
 | `debug.exit_after` | `0.0` | `HALO_EXIT_AFTER` | The game stops after this number of seconds. `0`: never. |
 | `debug.screenshot_directory`, `debug.screenshot_every` | `""`, `0` | `HALO_SCREENSHOT_DIR`, `HALO_SCREENSHOT_EVERY` | The game writes each Nth frame to this folder as a BMP file. |
 | `debug.screenshot_window` | `false` | `HALO_SCREENSHOT_WINDOW` | `true`: those screenshots are of the window as shown, with the overlay's screens (Online Games and others) on the frame. |
@@ -818,6 +855,12 @@ half a second.
 The Xbox game lets 16 players on 4 machines play a system link game. This
 port lets up to 128 players on up to 128 machines play. Each machine can
 have up to 4 players (split screen).
+
+One player can start a split screen game or a system link game: the lobby
+does not wait for a second player or a second machine (the Xbox game did),
+and other machines can join the game in progress. A player who is alone can
+also start a team game. A dedicated server keeps its own rules. Refer to
+[docs/dedicated-server.md](../../docs/dedicated-server.md).
 
 - `include/halo_port_limits.h` sets the limits.
 - `include/halo_port_capacity.h` sets the memory for the limits. The game
@@ -1244,6 +1287,2308 @@ name of the profile) gives `ok <code> <seconds> <token>`.
 `POST /v1/connect/confirm` with the token and the answer gives
 `connected <name>`, `declined` or `expired`. The QR code is from
 `port/third_party/qrcodegen`.
+
+## Bots
+
+The host of a multiplayer game can add bots. A bot is a player that the
+host moves. The bots play all the game types on all the multiplayer maps:
+they get weapons and powerups, drive and ride the vehicles, carry the flag
+and the ball, and hold the hill.
+
+### Bots in the menus
+
+With the Chupathingy menus, the host sets the bots with a controller, the
+keyboard or the mouse. Up and down choose a row, and left and right change
+it:
+
+- **GAME SETUP**, which comes after the game type and before the lobby, for
+  split screen and for System Link (and Online Games): **BOTS** and **BOT
+  SKILL** are rows of GAME SETUP. **BOT OPTIONS** opens the other rows (FILL
+  GAME TO, SKILL SPREAD, KEEP GAMES CLOSE), and B goes back to GAME SETUP.
+  START GAME keeps the values in `config.toml` for the next games and opens
+  the lobby. Split screen's GAME SETUP has only the game type, MAX
+  PLAYERS (room for the bots: more than 15 bots need more than 16
+  players), the bots and START GAME: the other rows are for games on a
+  network.
+- **The lobby**: the host presses Y (the hint "Y BOTS" is under the button
+  key) to open the bots' rows. The lobby gets the new bots at once.
+- **The pause menu** of a game that this machine hosts: **BOTS** opens the
+  bots' rows. Bots join or leave the game one each second. A new skill
+  applies to all the bots at once. A or B closes the rows and keeps the
+  values in `config.toml`.
+
+The rows:
+
+| Row | Values | Setting |
+| --- | --- | --- |
+| BOTS | `NONE`, `1` to one less than MAX PLAYERS (127 at most, in a game of 128); `AUTO` when FILL GAME TO is on | `bots.count` |
+| FILL GAME TO | `OFF`, `2` to MAX PLAYERS: bots fill the places that people do not have | `bots.fill` |
+| BOT SKILL | `1 EASY` to `10 NEAR PERFECT` | `bots.skill` |
+| SKILL SPREAD | `NONE`, or a range below BOT SKILL | `bots.skill_spread` |
+| KEEP GAMES CLOSE | `ON`, `OFF` (only with a skill spread) | `bots.balance` |
+
+With the Xbox's menus (`display.menus = "xbox"`) or Gearbox's, which have no
+GAME SETUP, the same rows are on a BOTS screen of their own: the host
+presses Y in the lobby (split screen's and System Link's: the hint "Y BOTS"
+is under the button key), or chooses BOTS in the pause menu. A or B closes
+it and keeps the values in `config.toml`. These menus have no MAX PLAYERS: the
+game has room for 128 players, and BOTS goes up to 127.
+
+X sets all the rows to the default values. A game ends when only one team
+is left, as when players quit: if you remove the last bot from a game that
+only you play, the game ends.
+
+### Bot settings
+
+- `bots.count` in `config.toml` gives the number of bots (`0` by default:
+  no bots). `bots.skill` gives how good they are, from `1` to `10`
+  (`5` by default). The ten levels are even steps from the easiest bot to
+  the best one. The levels went from `1` to `5` before, with the same
+  easiest and best bots: the old `5` is `10`, the old `4` is near `8`, the
+  old `3` is between `5` and `6`, and the old `2` is near `3`. Change a
+  value that you set for the old levels.
+- In the console, `bots <number>` and `bot_skill <1-10>` change these values
+  until the game stops. A new number of bots applies in the lobby at once,
+  and in a game in progress one bot each second.
+- `bots.skill_spread` gives the bots different skills. With a spread of
+  `4` and a skill of `10`, each bot has a skill between 6 and 10 (not only
+  whole levels: 7.3 is possible). A bot keeps its skill for the game and
+  gets a different one in the next game. In the console, `bot_skill_spread
+  <0-9>` changes the value.
+- `bots.balance = true` keeps the games close. The skill of each bot then
+  moves in the range of `bots.skill_spread` as the score changes: the bots
+  of a team that is ahead play near the bottom of the range, and the bots
+  of a team that is behind play near the top. The move is full when a team
+  is ahead by a third of the score to win (2 at least). In a game with no
+  teams, each bot compares its score with the best score of the other
+  players. With a spread of `0`, nothing changes. In the console,
+  `bots_balance <0|1>` changes the value.
+- The name of a bot ends with `[Bot]`: `Anvil [Bot]`. The lobby, the
+  scores, the kill messages and the names above the players show this
+  name. A name has 11 letters at most, thus the names of the bots have 5
+  letters or fewer.
+- `bots.fill` gives a number of players, not a number of bots: the bots
+  fill the places that people do not have. A bot goes when a person joins,
+  and a bot comes back when a person goes, in the lobby and during the
+  game. In the console, `bots_fill <number>` changes the value. `0` stops
+  this, and the game has `bots.count` bots.
+- The bots are in split screen games, system link games, internet games
+  and the games of a dedicated server. Only the settings of the host apply.
+
+The bots are players of the lobby. They are on machines with the name
+"Bots", four bots to a machine, and the lobby and the scores show them as
+other players. They come when the first person is in the lobby. When the
+lobby is full, a bot goes for each person who joins. In team games, each
+bot goes to the smaller team, and a bot changes teams when a team is larger
+by two players or more.
+
+To the netcode, a bot is one of the host's own players: the host calculates
+the input of each bot in each tick and sends the other machines the bots as
+it sends its own player. The other machines need no settings, and no build
+with bots: a machine with OpenCE, or with a ChupathingyCE without bots,
+plays with the bots of a host. Refer to [NETCODE.md](NETCODE.md#bots).
+
+A game that had bots in it sends no carnage report to the game list
+(halo.milenko.org): the scores there are the scores of people. This applies
+to the report of the host and to the report of a player who joined the
+game. A player with a build that has no bots (OpenCE, or a ChupathingyCE
+without them) does not know which players are bots, and that build sends
+its report.
+
+The first time that a map has bots, the host makes the navigation data of
+the map (the places where a player can walk, jump, drop and climb). This
+takes 1 to 10 seconds. The host keeps the data in `navcache` in the save
+root, and reads it from there in about a second or less. The host does this
+while the machines load the map. Thus the game does not stop at its start.
+
+### Baked navigation
+
+The navigation data of all the maps can be made before a game (baked). The
+game then reads it from a `navcache` folder next to `maps`, on each machine
+that has a copy of that folder, and the first game with bots on a map does
+not wait.
+
+- **Windows:** start `bake-navigation.cmd`, which is next to `halo.exe`.
+  `bake-navigation.cmd new` bakes only the maps that have no baked data.
+- **Linux and macOS:** start the game with `HALO_BAKE_NAVIGATION=all` (or
+  `new`) in the environment.
+
+The game then has no window and no sound, and it is not on the network. It
+loads each multiplayer map that it finds in the `maps` folder (a campaign
+map has none of this data) and, on the builds that play them, each Custom
+Edition map (`<name>@ce`) and each HaloMD map (`<name>@md`). For each map it writes two files,
+`navcache/<map>_0.height` and `navcache/<map>_0.aas`, and a line that starts
+with `bake:`. The 13 maps of the game take 1 to 2 minutes and 200 MB. The
+exit code is `0` when each map has its data.
+
+The files of a Custom Edition map or a HaloMD map have the name that the
+map is played under: `navcache/timberland_ce_0.aas` for `timberland@ce`.
+
+A map with more than one structure BSP (Hugeass and Coldsnap each have two)
+has two files for each: `<map>_1.height` and `<map>_1.aas` for the second.
+Without baked files the game makes the data for a structure BSP when the
+map's script changes to it, and the game stops for that time (10 to 30
+seconds) a moment after it starts. Bake such a map.
+
+The bake makes the data for each structure BSP of a map, and a map is baked
+only when all of them are. A structure BSP that the game cannot change to is
+a failure for that map. When the last one is done, the bake writes
+`navcache/<map>.bsps`, which has the number of structure BSPs of the map.
+`new` uses this number: a map is baked when the files of each of its
+structure BSPs are complete and of this build. A `navcache` folder from an
+earlier build has no `.bsps` files. For such a map, `new` examines the files
+of the first structure BSP and of each subsequent one that has files, so it
+cannot find a second structure BSP whose files were not written at all. Bake
+with `all` one time to write the `.bsps` files.
+
+A very large map (more than about 1,300 world units across: Coldsnap is
+1,800, Hugeass is 2,200) has navigation data only for the parts where the
+game is played. These parts are the ground near the player starting points,
+the weapons and equipment, the flags and the vehicles. The game finds how
+far from these points it can make the data within a limit on the size
+(21 world units on Coldsnap, 34 on Hugeass) and writes one line that starts
+with `navm: a very large map`. A bot moves with full navigation in the part
+that it is in. It does not choose a place in a different part as a place to
+walk to, because there is no route on foot between the parts. The files of
+such a map are 100 to 150 MB for each structure BSP.
+
+The game reads a file only when the file is complete and correct. It makes
+the data again when a file is damaged. When the game does not have
+sufficient memory to make the data for a map, it gives a line that says so,
+and the bots play that map without navigation. It does not use or keep data
+that is not complete.
+
+A baked file is for the map that it was made from, and for the build that
+made it: the game makes the data again, into the save root, when the map
+file is a different one or when a later build has another format. Bake the
+maps again after such a change. The code is in `game/bot_bake.c`.
+
+### How the bots move and fight
+
+The bots move and look as a person with a controller or a mouse does:
+
+- The look starts to turn, gets faster, and slows before it stops. It does
+  not go at full speed from one tick to the next and then stop dead.
+- The look never turns faster than a person turns: 8 radians (about 460
+  degrees) a second at the most, at every skill level. Before, the top
+  levels turned up to 22 radians a second, and a bot of skill 6 or more
+  turned more than 20 degrees in one tick about once a second in a fight,
+  a snap onto its target that no stick or hand makes. Their aim and their
+  reactions make the top levels good, not the speed of the turn.
+  `HALO_BOT_OFF=neck` turns this limit off.
+- From skill 8 up the look eases less, and at 10 not at all: up to its
+  speed in a tick or two, and onto where it means to look without slowing
+  short of it (still no faster than 8 radians a second).
+  In 40 games of team slayer at skill 10 (Hang 'Em High, Battle Creek,
+  Damnation, Chill Out, Prisoner), a team whose look eased as before
+  scored 9.4 points a game fewer than one whose look did not (the parts of
+  the movement that are a person's otherwise cost nothing: the thumb, the
+  strafe's timing, the stick flat out); with this, 0.6 points (chance).
+  `HALO_BOT_HUMANOFF_T0` and `_T1` (a mask: 1 the look's easing, 2 the
+  thumb, 4 the strafe's timing, 8 the stick flat out) take a part away
+  from one team, for tests.
+  `HALO_BOT_OFF=master` gives the top levels the easing of the rest.
+  In 40 games of team slayer at skill 10 (Hang 'Em High, Battle Creek,
+  Damnation, Chill Out, Prisoner) with the limit on for one team, the
+  score of that team did not change by more than chance.
+- The movement changes direction in 2 to 4 ticks, as a thumb moves a
+  stick. Where the route has a jump, a gap, a ladder or a ledge, the feet
+  go exactly where the route says.
+- In a fight a bot strafes at full speed. It keeps one direction for about
+  half a second, sometimes for more than a second, and sometimes it makes a
+  quick step to one side and back.
+- A bot goes around a corner of its route in a curve, and it looks around
+  the corner before it gets there. It keeps a little distance from the
+  corners of walls, so that it does not catch on their edges.
+- When a bot walks and hardly moves for 0.2 seconds (a lip, a seam between
+  two surfaces), it jumps at once and steps to the side with more room.
+- When a bot starts a jump, a drop or a ladder and does not move for 0.5
+  seconds, it takes a different route at once.
+- A bot goes to the place where an item is now, also when the item moved.
+  If the game does not give it the item there, the bot steps onto the item,
+  jumps for it, and goes on to a different goal after 1.2 seconds. Before a
+  bot gets to a weapon that it will swap for, it takes the weapon that it
+  will drop in its hands, and it makes the swap when it gets there.
+- A bot that taunts goes to a body that is less than 6 world units away
+  and crouches down and up 2 or 3 times, for about 1 second.
+- A bot that walks with no enemy in view looks along its route. From time
+  to time it looks to one side, and less frequently behind it, for about
+  half a second.
+- A bot goes only to a weapon that lies in the world. A weapon that a
+  player has put away has no place in the world, and no bot goes to it.
+- A bot is at an item only when it is on the same floor as the item. A bot
+  that is on the roof over an item, or under it, goes on along its route to
+  the item.
+- While the route to an item continues (for example, a jump up to the
+  platform that the item is on), the bot follows the route. The 1.2 seconds
+  start when the route ends. Where the route ends before the item, the bot
+  goes straight to the item when nothing is between them.
+
+For the route, a jump up costs only the time of the jump, and a jump across
+a gap costs the same as the floor next to it. Thus the bots jump when that
+is the quickest way, also up to a place and then across from it. A jump
+that fails costs more each time it fails, and the bots keep what they
+learned in the save root.
+
+**Jumps across gaps.** The navigation calls each place a gap where a jump
+at a full run gets to the other side or farther: a break in a walkway, and
+also a ledge that is 3 world units away and 2 below. The bots took all of
+them at a full run with a jump. These are the changes:
+
+- A bot keeps its full speed where the jump comes down on floor at the
+  height of the other side. Where it does not (a ledge with nothing behind
+  it), the bot runs at the speed that puts it 0.05 to 0.5 world units onto
+  the ledge. When the ledge is more than 0.5 world units below and near,
+  the bot runs off the edge and does not jump.
+- In the air, a bot steers to the place where it must come down. The game
+  lets a body in the air change its speed by about 1 world unit a second
+  each second. The bot computes where it comes down with the speed that it
+  has, and pushes against the difference.
+- A bot jumps only when it moves toward the other side (the speed along
+  the line of the jump, not the speed in a different direction). Without
+  that speed at the edge, it goes back for its run. Before, a bot that
+  came to the edge sideways or backward jumped and fell into the gap.
+- Some gaps that the navigation says a bot walks across (a slot less than
+  0.2 world units wide) are as wide as a body where a bot crosses them
+  (between two decks of Boarding Action, across a corner). A bot looks at
+  three points of the gap. If one has no floor 0.6 world units below, the
+  bot jumps the gap.
+- A bot that pushes at something on its way to a jump or a gap, with the
+  next point of the way more than 0.12 world units above its feet (the
+  bank of the stream of Beaver Creek), hops after 0.17 seconds.
+- A bot that stands 0.6 world units or more below the two ends of a jump
+  or a gap stops that jump at once and plans its route again. Before, it
+  made the run and the jump on the floor below, against the wall, for 3
+  seconds. The time for a way that goes down includes the time of the
+  fall.
+
+These are games of 5 minutes of slayer on eight maps (Beaver Creek,
+Boarding Action, Chill Out, Damnation, Longest, Prisoner, Chiron TL-34,
+Hang 'Em High), 6 to 10 bots:
+
+| | Before | After |
+| --- | --- | --- |
+| Jumps, gaps, drops and ladders that failed, for each 10 minutes of a bot (seed 5) | 5.0 | 3.0 |
+| The same (seed 7) | 5.9 | 3.2 |
+| Gaps that failed (seed 5) | 72 of 592 | 38 of 522 |
+| Gaps that failed (seed 7) | 84 | 35 of 542 |
+| Kills in the eight games (seed 7) | 602 | 588 |
+
+With `HALO_BOT_LOG` set, the log has a line for each jump, gap, drop and
+ladder that a bot makes or does not make. `HALO_BOT_REACHTRACE=1` adds a
+line for each second tick of one, and `HALO_BOT_WALKTRACE=1` a line for
+each third tick of a walk that does not get on.
+
+**Jumps up onto ledges and rocks.** These are the changes:
+
+- A bot jumps onto a ledge that is 0.76 world units above it or less. The
+  limit was 0.6, and then 0.72 (see "Jumps at a run" below for the test
+  of 0.76). The jump of a player gets 0.69 world units high. When a
+  body folds its legs in the air, the game lifts it 0.16 world units more,
+  and the bots fold their legs. In a test, a bot got onto a ledge 0.69
+  world units above it each time that it left the ground in front of the
+  ledge. The navigation data has the new jumps (the host makes the data of
+  each map again one time, in 1 to 10 seconds).
+- The navigation also finds a ledge that is to one side of the place where
+  a bot stands (a diagonal jump), not only one that is straight in front.
+- A bot starts the jump only when the game will make it: the body is on
+  the ground, it stands on a surface that it can stand on, and its legs
+  are straight. The legs lift a body only when they fold in the air. A
+  bot that jumped again one tick after it came down, with its legs folded,
+  made a low jump or no jump.
+- A bot holds the jump button for up to 8 ticks, until its body goes up.
+  Before, the button was down for one tick. The game does not jump in a
+  tick in which the body is in the air, and a body that runs across a
+  rough rock is in the air on each second step.
+- A bot goes to the front of a ledge before it jumps. A bot that came
+  along the side of a ledge jumped from there, went up along the side and
+  came down past the end of the ledge.
+- A bot does not jump while it moves across the line of the jump at more
+  than 0.6 world units a second (0.3 for a ledge 0.55 or more above it).
+  It slows down for up to 0.8 seconds first.
+- When the ledge is small (no floor 0.7 world units behind its edge, as on
+  the top of a rock), the bot comes to it at half speed and steers in the
+  air to come down 0.15 world units behind the edge.
+- A bot that comes to the start of a jump or a gap with no floor behind
+  the start goes the last 0.8 world units at 65 % and then 45 % of its
+  speed.
+
+**The cost of a gap.** The navigation gave a gap the time of the run
+across it and no more. In games on eight maps, a gap took 1.5 seconds
+more than that (the middle value): the bot comes to the edge, goes back
+for its run, and jumps. Thus the bots made a jump of 3 seconds to walk
+1 world unit less. These are the changes:
+
+- A gap costs 1 second more than its run. After each gap that a bot makes,
+  the route planner corrects the cost of that gap by half of the
+  difference from the time that it took, in steps of 0.5 seconds, up to 6
+  seconds. The host keeps these costs with the data of the map, as it
+  keeps the jumps that fail.
+- The run before a gap starts 1 world unit behind the edge. It was 1.6. A
+  body gets its full speed in 0.65 world units. For a gap that the bot
+  takes at less than its full speed, the run is shorter (0.5 world units
+  or more).
+- The run does not go up across a bump of 0.2 world units or more. A body
+  that runs across the top of a rock is in the air there, and the game
+  does not jump.
+- A bot jumps up to 0.8 world units before the edge when the jump from
+  there gets to the other side. The last part of a rock is round, and the
+  game does not jump from a slope.
+- A jump or a gap that comes down on a slope of more than 47 degrees, with
+  no flat ground 0.15 world units to each side, is not a way. A body
+  slides off such a slope.
+- When a bot is 1.2 world units or more below the end of a jump or a gap
+  less than 1.5 seconds after it made it, the jump counts as failed.
+
+**Hops.** A bot hops when a step 0.2 to 0.75 world units high is in front
+of it. It now computes where the hop comes down, with the speed that it
+has and the speed that it gets in the air. It does not hop when the hop
+comes down more than 0.9 world units below the place where it started, or
+when no floor is there to stop on. Before, a bot on a narrow rock hopped
+across the rock and came down on its other side.
+
+**Sharp turns.** A bot slows down for a turn of more than 50 degrees when
+no floor is 0.5 world units behind the corner in the direction that it
+moves (the end of a ledge, the shoulder of a rock). It goes at 65 % of
+its speed from 0.8 world units and at 45 % from 0.4. On other floors a
+bot takes its corners at full speed.
+
+**The big items.** A rocket launcher, a sniper rifle, an overshield and an
+active camouflage are worth half of their value at 30 world units of
+walking (20 for the other weapons that the bots value). These are the
+changes:
+
+- A bot stops for 45 seconds from an item that it does not get nearer to.
+  It measured this in a straight line. A way to an item can go away from
+  the item first, thus the bot now measures the walking distance.
+- A bot keeps an item as its goal for the time of the walk to it and half
+  as long again (20 seconds or more). It was 20 seconds.
+- An item that the bot already goes to is worth 1.5 times its value.
+  Before, a bot on its way to a rocket launcher changed its goal when a
+  different goal was worth a little more for one second.
+- A bot that goes to an item does not turn to a weapon that is worth less
+  on its way.
+
+These are tests on Battle Creek with bots of skill 10. In the first test
+one bot goes to the rocket launcher on the arch (the way goes up a rock, a
+ledge and a ridge). In the next tests one bot goes to the roofs of the
+bases. The way to the east roof is a rock, a strip 0.7 world units above
+the rock, the roof of the porch 0.66 above the strip, and a gap to the
+main roof. The way to the roof of the west porch is a rock, a gap of 2
+world units to the top of a wall, and the roof 0.69 above the wall.
+
+| | Before | After |
+| --- | --- | --- |
+| Bots that got to the rocket launcher in 90 seconds | 10 of 12 | 16 of 16 |
+| Time to the rocket launcher (the bots that got there) | 10 to 71 s, mean 39 s | 10 to 28 s, mean 18 s |
+| Bots that got to the main roof of the east base | no way | 8 of 8, in 13 to 24 s |
+| Bots that got to the roof of the east porch | no way | 8 of 8, in 10 to 17 s |
+| Bots that got to the roof of the west porch | no way | 6 of 8, in 12 to 19 s (one in 63 s) |
+| Two games of slayer, 7 minutes, 8 bots: samples of a bot with the rocket launcher in its hands | 0 of 456 | 12 of 476 |
+
+In the next test, four bots go around the items of a map, one item after
+the other, for 5 minutes (`HALO_BOT_GOTO=tour` with `HALO_BOT_TOUR`). A
+bot stops a leg after 60 seconds. The maps are Battle Creek, Chill Out,
+Damnation, Hang 'Em High, Prisoner, Longest, Boarding Action, Wizard, Rat
+Race and Derelict:
+
+| | Before | After |
+| --- | --- | --- |
+| Legs that the bots completed | 849 | 929 |
+| The mean time of a leg | 12.5 s | 11.9 s |
+| Legs that a bot stopped after 60 seconds | 20 | 15 |
+
+In games of 5 minutes of slayer on eight maps (8 bots, skill 10), the
+jumps, gaps, drops and ladders that failed went from 2.8 to 2.4 for each
+10 minutes of a bot. The bots took 222 gaps (467 before) and 167 jumps up
+(99 before).
+
+**The barricades of Longest.** On Longest, a barricade stands 1.3 world
+units in front of each flag. Its middle is 0.4 world units high, and the
+navigation has a hop across the middle. A bot that went to a flag, or
+came home with one, ran straight at the barricade. The hop took 2.2
+seconds, and the walk around the barricade takes 1.2 seconds. With the
+cost of a gap (see above), the route of a bot goes around the barricade.
+In a game of capture the flag of 7 minutes with 8 bots, no bot hopped
+across a barricade.
+
+**Hops at nothing.** In games on six maps, a bot of skill 10 jumped 6 times
+a minute with no enemy in view. Most of these jumps had no cause that a
+person can see. These are the changes:
+
+- A bot that walks and hardly moves is "held up": it hops and steps to one
+  side. A body in the air moves slowly (more so with its legs folded), and
+  the bot counted that as held up. It hopped again in the tick in which it
+  came down, and went along a ledge in hops. A bot in the air is now not
+  held up. A bot that slips on a slope is.
+- A bot hops at a step in front of it only when it is on the ground.
+- A bot that moved less than 0.35 world units in a second is stuck: it
+  jumps, and steps to one side the second time. A bot that turned around
+  and came back to the same place was stuck by this rule. It is now not
+  stuck when it was 0.9 world units or more away in that second.
+- Near a corner of its route, a bot steers to a point on the next part of
+  the route when the floor to that point is clear. When it was not clear,
+  the bot steered at the corner, and it changed between the two from one
+  tick to the next. It now tries a point half as far along, and then a
+  quarter.
+- Across a step that the navigation calls a walk (floor on both sides, 0.12
+  world units or more up), a bot hops when it is at the step and on the
+  ground. Before, it hopped each 20 ticks.
+
+These are six games of 5 minutes with 8 bots of skill 10 (Battle Creek,
+Chill Out, Damnation, Prisoner, Hang 'Em High: slayer; Longest: capture the
+flag), with `HALO_BOT_REFINE=0` (before) and without it. The numbers are
+for each 10 minutes of a bot on foot:
+
+| | Before | After |
+| --- | --- | --- |
+| Jumps with no enemy in view | 61 | 27 |
+| Jumps with an enemy in view | 66 | 39 |
+| Hops because the bot was "held up" (all six games) | 691 | 132 |
+| Hops at a step (all six games) | 240 | 58 |
+| Times that a bot was "stuck" (all six games) | 104 | 76 |
+| Times that a bot came back to a place 3 to 8 seconds later, no enemy in view | 21 | 14 |
+| Seconds without movement, with an enemy in view | 19 | 15 |
+| Kills in the six games | 512 | 502 |
+
+In the test with four bots that go around the items of a map (nine maps:
+the ten maps above without Derelict), the bots completed 877 legs in a
+mean time of 11.9 seconds. With `HALO_BOT_REFINE=0` they completed 844 in
+12.3 seconds.
+
+`HALO_BOT_MOTION=<ticks>` writes the position, the speed and the controls
+of each bot on foot to the log each so many ticks. `HALO_BOT_REFINE=0`
+turns these five changes off (a sum of 1, 2, 4, 8 and 16 turns on the
+change for held up, corners, walked steps, stuck and hops at a step).
+
+**Aircraft.** These are the changes:
+
+- On its way to a place, a craft keeps the height that it has. Before, it
+  came down to its least height above the ground (10 world units for a
+  Pelican) and followed each rise of the ground. It now comes down only
+  along a slope of 1 in 4 to the place where it lands or fights. Each
+  pilot also likes some more height than the least (4 to 70 world units,
+  drawn again each half minute).
+- The room that a craft keeps is by its size. The obstacle rays came from
+  a wing 2 world units out, and a Pelican is 11 world units across (a
+  Longsword is 24). The rays now come from the ends of the craft, and the
+  least height above the ground is more for a large craft.
+- A run down at someone ends when the ground is nearer than the craft
+  sinks in 1.3 seconds.
+- A Longsword with a bomb bombs. It was a craft that carries people,
+  because it has seats, and thus it did not attack. Its bomb kills 71
+  world units away and hurts 80 world units away. The pilot now goes for
+  the place where the bomb kills the most enemies, with no player of its
+  own team within 95 world units. It does not choose enemies under a roof
+  that is more than 35 world units above them. It flies level over the
+  place, higher than the blast reaches (125 world units above where the
+  bomb lands). It lets the bomb go when the game's own arithmetic for the
+  fall puts it within 21 world units of the place. Then it flies on at
+  that height for 11 seconds, the way that has no cliff in it. The bots do
+  not get into a Longsword that a bot flies.
+
+These are two games of capture the flag on Hugeass with 11 bots, with
+`HALO_BOT_CRAFT=pelican` (the bots prefer Pelicans), with
+`HALO_BOT_REFINE=31` (before) and without it:
+
+| | Before | After |
+| --- | --- | --- |
+| Height of a Pelican above the ground on its way (median) | 15 | 70 |
+| Part of that time under 6 world units | 16% | 2% |
+| Bombs from Longswords, and kills from Longswords | 0 and 10 | 15 and 22 |
+
+The count of bombs before is from two games of the same kind before
+this change.
+
+**Drivers.** These are the changes:
+
+- The driving data now has the trees and the rocks of a map. A floor
+  with one of them within 1.8 world units costs four times as much, and a
+  straight line of the route does not go through it.
+- A driver looks down three lines (the middle and the two sides of the
+  vehicle) as far as the vehicle goes before it stops, and half as much
+  again. Before, it looked down one line in the middle for 0.9 seconds of
+  its speed. When there is something on a line (scenery, a vehicle, a wall
+  or a steep bank), the driver steers to the nearest side that is clear,
+  and uses the brake when the thing is nearer than the vehicle stops in.
+- A driver goes around a player of its own team who is on foot in its
+  way, or stops.
+- A driver did not go back when there was a wall behind it, because it
+  found no ground there and thought that it was an edge. With a wall
+  before it as well, it stood there for the rest of the game. On Ice
+  Fields, the drivers stood like this for 40% of their time. A wall is
+  now not an edge.
+- A vehicle with an edge before it and an edge behind it is now stuck,
+  and its driver gets out.
+
+These are eight games of capture the flag with 12 bots (Blood Gulch,
+Sidewinder, Timberland, Danger Canyon, Ice Fields, Death Island, Hugeass,
+Coldsnap), with `HALO_BOT_REFINE=31` (before) and without it. A "knock" is
+a change of more than 2 world units a second in the speed of a vehicle in
+one tick:
+
+| | Before | After |
+| --- | --- | --- |
+| Knocks with a tree, a rock or a barricade in front | 20 | 9 |
+| Knocks with a wall or a bank in front | 85 | 56 |
+| All knocks in a minute of driving | 0.97 | 0.72 |
+| Time on foot | 77% | 72% |
+| Time at a wheel | 16% | 19% |
+
+**The nearest vehicle.** On a large map, a bot with more than 40 world
+units to walk takes a vehicle when one is nearer than half of that
+distance. It takes the nearest one that it can get into: one with nobody
+at the wheel, or one that a player of its team drives and that stands
+still within 25 world units (the gun first, then a passenger seat). A bot
+on its way to a vehicle changes to a different empty vehicle when that
+one is a quarter nearer. The stock capture the flag game of Blood Gulch
+has two Warthogs for 12 players, so most bots walk there.
+
+**Grenades.** These are the changes:
+
+- A bot keeps away from a live grenade. It sees one that is in its view
+  within 14 world units, and hears one within 6. When the grenade is
+  within reach of its blast, the bot moves away from it, and jumps when
+  it is very near. When the grenade is ahead on the bot's way, the bot
+  does not go nearer until it has gone off. A bot of skill 10 starts 2
+  ticks after it sees the grenade, and a bot of skill 1 after 12 ticks. A
+  bot of skill 1 notices one grenade in three.
+- A bot that sees its target hold a grenade and look at it moves back or
+  to the side until the grenade has landed.
+- The look of a bot stays on the throw until the grenade leaves the
+  hand. Before, the look went back to the target one tick after the
+  button, and the grenade went where the look was.
+- The pitch of a throw is from the speed of the throw and the fall of
+  the grenade. The bot uses the flat way when it is clear, and the high
+  way when it is not (through a door to a floor above, over a wall).
+- A bot throws into a fight from as far as the hand throws (28 world
+  units on level ground). The limit was 17.
+- A bot that has an enemy on the motion tracker, 5 to 17 world units
+  away, out of sight and coming nearer, can throw a grenade to the place
+  where that enemy comes into view. The chance is much higher where that
+  place has walls close on the two sides.
+
+In two team games with 8 bots of skill 10, a grenade went off a median of
+1.6 world units from the place that it was thrown at (4.6 before), and
+57% of them within 2 world units (18% before).
+
+In six team games with 8 bots of skill 10, the bots of one team did not
+keep away from grenades (`HALO_BOT_OFF_T0=wary`). Bots of that team were
+in a blast 165 times, 120 of them within 2 world units. Bots of the
+other team were in a blast 87 times, 57 of them within 2 world units.
+
+**Jumps at a run.** These are the changes:
+
+- A bot of skill 6 or more that runs at a ledge jumps from the distance at
+  which its feet are above the top when it gets there. Before, each bot
+  went to the foot of the ledge, turned to it and jumped. The bot must
+  come within 45 degrees of square to the ledge, and the ledge must be
+  0.65 world units high or less. A bot of skill 10 does this most.
+- A bot of skill 6 or more also jumps a gap from its run when it is 0.45
+  world units or less from the line of the jump (0.25 before).
+- A bot folds its legs in a jump only for a ledge higher than 0.55 world
+  units. Before, it folded them in each jump up, and in some jumps in a
+  fight.
+- A bot jumps onto a ledge 0.76 world units high (0.72 before). In
+  tests with a higher limit, bots made 72 of 81 jumps onto ledges 0.72
+  to 0.76 high, and 19 of 26 onto ledges 0.76 to 0.80 high. Bake the maps
+  again after this change.
+
+These are six games with 8 bots of skill 10 (the six maps of the table
+above), with `HALO_BOT_REFINE=31` (before) and without it:
+
+| | Before | After |
+| --- | --- | --- |
+| Jumps up that left the ground at more than 1.9 world units a second | 27% | 38% |
+| Time that a jump up took more than its walk (median) | 0.53 s | 0.35 s |
+| Jumped gaps that were jumped from the run | 27% | 37% |
+| Jumps up that failed | 5.1% | 3.8% |
+
+**Skill 10 sees sooner.** The time before a bot notices an enemy in view
+is half as long at skill 10 as it was (0.3 seconds for an enemy at the
+edge of the view 40 world units away). The change is from skill 8 to
+skill 10.
+
+**How a good player moves in a fight.** These are the changes for bots of
+skill 6 or more (all of the change at skill 10, about half of it at
+skill 8, a tenth of it at skill 6):
+
+- The bot always moves to a side in a fight. Before, a bot of skill 10
+  with little agility did not move to a side for a third of the time.
+- Each time the bot changes its side, it most often goes the other way
+  (85% at skill 10). It does not choose the side that has a wall or a drop
+  one step away when the other side is free.
+- The bot holds a side for about 0.4 to 1.4 seconds. A body needs a third of a
+  second to stop and a third more to be at speed the other way, so a
+  shorter hold moves the bot nowhere.
+- When the bot is hit after 0.45 seconds or more on one side, it can turn
+  to the other side at once.
+- The bot jumps a fifth as often in a fight. A bot in the air cannot turn.
+- When the bot goes nearer to the enemy or back from it, it goes more
+  across than along.
+- The bot goes back from an enemy with a shotgun, a flamethrower or no
+  weapon who is less than 8.5 world units away, when its own weapon is
+  not one of these.
+- The bot goes into cover sooner when its shields are gone and it is
+  losing.
+- On a walkway or a beam with no room for a full step, the bot takes
+  short steps to the sides. Before, it stood still.
+- The bot moves out of the way of a rocket or a fuel rod bolt that it
+  sees coming, across its path, and jumps when it is close.
+
+One fault is fixed for all bots: a bot that stepped quickly from side to
+side was taken for a bot that was stuck, and was turned away and made to
+jump.
+
+In eight games without teams on eight maps (8 bots of skill 10, each
+second bot without these changes, `HALO_BOT_OFF_EVEN=agile`), a bot with
+the changes moved across its enemy for 46% of the time that it fought on
+its own feet (29% without), was in the air for 19% of that time (32%
+without), and lost 0.116 of its shields and health a second (0.131
+without). The kills were the same (1501 and 1469).
+
+**All the enemies in a room.** A bot started to notice an enemy only when
+that enemy was the best one to shoot at. The second enemy in a room was
+not noticed while the bot fought the first. A bot of skill 6 or more now
+notices each enemy in its view within 40 world units. It also notices an
+enemy outside its view who is on its motion tracker, 1.5 times slower at
+skill 10 and up to 2.4 times slower at skill 6. An enemy who aims at the bot counts for more when the bot chooses
+its target. In eight games without teams (each second bot without the
+change, `HALO_BOT_OFF_EVEN=aware`), a bot with the change died 65 times of
+1318 to an enemy that it had not noticed (5%), and a bot without it 390
+times of 1377 (28%).
+
+**Lying in wait.** A bot can wait out of sight for an enemy who comes its
+way and has not seen it:
+
+- The enemy is on the motion tracker, 5 to 22 world units away and not
+  in sight, or the enemy is in sight 8 to 30 world units away, does not
+  look at the bot, and the bot has a shotgun or a flamethrower (in its
+  hands or on its back).
+- A bot with a shotgun or a flamethrower does this 85% of the times at
+  skill 10. Other bots do it by their character (10% to 55%, more for a
+  bot that holds a place, less for a bot that rushes), and less at a
+  lower skill.
+- The bot goes to a place near it that the enemy cannot see, or stays
+  where it is when the enemy cannot see it there. It crouches (a player
+  who crouches is not on a motion tracker), takes the shotgun from its
+  back, looks to where the enemy comes from, and does not shoot or throw
+  a grenade.
+- The bot comes out when the enemy is in sight and in reach (4.5 world
+  units for a shotgun or a flamethrower, in sight at all for another
+  weapon), when the enemy is 3 world units away round the corner, or when
+  the enemy has seen it. It sees that enemy at once, and shoots at once.
+  With a shotgun, it goes in to 1.2 world units.
+- The bot gives up when the enemy goes away, when another enemy comes in
+  sight, or after 5 to 13 seconds (by its patience).
+
+In 16 games without teams (each second bot without this,
+`HALO_BOT_OFF_EVEN=camp`), bots lay in wait 877 times and came out on the
+enemy 291 times. Of the fights between the two that ended in the next 8
+seconds, the bot that had waited won 99 and lost 56. When the enemy came
+into reach before it saw the bot, the bot won 55 and lost 15. With a
+shotgun or a flamethrower the bot won 17 and lost 16: it is seen too often
+before the enemy is in reach. The bots that lay in wait had as many kills
+(2814 and 2841) and died a little less (2792 and 2863 times).
+
+**When things come back.** The game puts a new item at each item place of
+the map every so many seconds of the game clock. A bot of skill 6 or more
+knows these times for the power weapons and the powerups (a bot of skill 6,
+7 or 8 only for the rocket launcher, the sniper rifle, the fuel rod gun,
+the overshield and the camouflage). When nothing lies at such a place and the
+next item is due in the time of the walk plus 3 seconds (plus 5 at skill
+8 and plus 6.5 at skill 6), the bot goes there and waits, up to a walk of 22 seconds. It does not
+go for a weapon that it has, for a weapon that is not better than its
+worse one, or for a powerup when it has one. In a team game it leaves the
+place to a bot of its team that is nearer. On the way it shoots but stops
+only for an enemy who is near.
+
+In 16 team games (8 bots of skill 10, one team without the four changes of
+this section), the team with them took 26% of its power items in the 3
+seconds after they came (15% for the other team), and an item lay 8.9
+seconds before that team took it (12.9 seconds, the median).
+
+The four changes together did not change who wins between bots: in 32
+team games the teams with them had 5298 kills and the teams without them
+5211.
+
+**Jumps across gaps, and the way up to high places.** These rules are for
+a bot on foot near a jump:
+
+- A bot does not come to the start of a gap faster than it can stop. It
+  slows down when there is no floor behind the start, unless it runs on
+  the line of the jump already.
+- Where the floor goes down or is steep before the edge (the top of a
+  rock, a rounded edge), the bot jumps before it comes to the edge. A body
+  that runs across such an edge is in the air, and the game does not let
+  it jump from there.
+- A gap of 1.9 world units or less, to a floor that is not higher, needs
+  0.35 world units of floor for the run (0.7 before). Longest has such
+  gaps from each powerup to the shotgun on the other side.
+- A bot that falls off the start of the same jump two times in 20 seconds
+  uses another way for some time. Before, it fell there again and again.
+- A bot that comes down past the place where a jump ends is at the end of
+  the jump. Before, it went back to do the jump again.
+- Near a jump (3 world units), a bot does not sidestep and does not hop,
+  also in a fight.
+- A bot that is held up two times in 3 seconds at one place makes a larger
+  step to the side with more room.
+- A bot does not give up a place because it did not come nearer during a
+  fight. A bot waits 7 seconds longer before it gives up a rocket
+  launcher, a sniper rifle or a powerup.
+- In a race, a bot fights only an enemy that is 2.5 world units away or
+  less (4.5 when that enemy shoots at it), does not lie in wait, and does
+  not stop at a checkpoint to fight there.
+
+The tests are with bots of skill 10:
+
+| Test | Before | After |
+|---|---|---|
+| Battle Creek, one bot to the roof of the west base (16 games) | 12 of 16 got there | 16 of 16, 26 seconds |
+| Battle Creek, one bot to two places on the roof of the east base | 16 of 16 | 16 of 16, 14 and 16 seconds |
+| Battle Creek, one bot to the rocket launcher | | 16 of 16, 18 seconds |
+| Battle Creek, 16 games of 4 bots: the rocket launcher was taken | 55 of 68 times, 50 seconds after it came (the median) | 83 of 90 times, 41 seconds |
+| The same games: bots gave the rocket launcher up | 121 times | 17 times |
+| Longest, two bots go round the overshield, a shotgun, the camouflage and the other shotgun | 167 places in 4 games, 11.6 seconds for each, 12 jumps failed | 556 places in 12 games, 10.5 seconds for each, 17 jumps or ladders failed |
+| Longest, from a powerup to the shotgun | a drop and a ladder, 7.2 to 7.6 seconds | a jump, 5.3 to 5.6 seconds |
+| Longest, from a shotgun up the ramp and across to the powerup | 14.2 and 18.0 seconds | 15.3 seconds |
+| Race on Wizard, score for each bot in a minute | 2.0 (5.0 without the changes of the section before this) | 11.6 |
+| Race on Chiron TL-34 | 12 to 13 | 12 to 13 |
+| 11 maps, four bots go round the items of each | 831 places, 11.8 seconds for each, 10 given up | 862 places, 11.7 seconds, 10 given up |
+
+In the Battle Creek games with 8 bots, the rocket launcher was taken 42 of
+50 times and 46 seconds after it came (27 of 34 times and 41 seconds
+before). A bot of skill 10 lives about 20 seconds in such a game, and most bots
+that go to the rocket launcher die on the way. In ordinary games the bots
+are almost never on the roofs of the bases: nothing lies there. On
+Longest, most bots stop for a run before the jump to a powerup, and do not
+jump from the run up the ramp.
+
+The navigation data has a new version for the shorter run. Bake the maps
+again (`bake-navigation.cmd`), or the game makes the data in the first
+game on each map.
+
+**What a reading of the code found.** These faults were in the code before,
+and are corrected:
+
+- A bot did not hear shots. It took the time that a player got a weapon in
+  the hands for the time of a shot. Thus it "heard" a player who changed
+  weapons or got a new body, saw a player with active camouflage who
+  changed weapons, and saw such a player sooner. Now it uses the time of
+  the last shot of the weapon (or of the weapon of the vehicle, for its
+  gunner). In 32 team games, the team with the correction had 3855 kills
+  and the team without it 4143: the fault let a bot shoot sooner at an
+  enemy with a new body.
+- More than one bot went to the same empty vehicle with one seat.
+- A bot at the wheel with a person of its team next to the vehicle, who
+  did not get in, waited as long as the person stood there. Now it
+  drives away after some seconds.
+- A bot that drove by the navigation areas took the end of each straight
+  part for a corner, and slowed down there unless it drove to the east.
+- A bot that could not get out of a vehicle on the one tick that it tried
+  stayed in the vehicle.
+- A flag carrier or a ball carrier in a vehicle seat was not known as an
+  enemy or as a teammate.
+- A flag carrier on a very large map went again and again to a vehicle
+  that it could not get to.
+- A squad on a small map could have the centre of the world as its place
+  to go.
+- A bot that stood off the navigation areas, and went in circles or was
+  held up there, marked a way as bad that it was not on. All bots then
+  did not use that way.
+- A sidestep that a bot started before a fight or before a jump continued
+  after it, in the old direction.
+- The time that the bots add to a jump that was slow one time did not go
+  back to zero.
+- A vehicle that the bots gave up stayed given up in the next game on the
+  same map.
+- A weapon that a player took and put on the back counted as a weapon
+  that lies at its place, thus the bots did not go there for the next
+  one.
+- A bot that goes makes its place free for a person: the person then
+  counted as a bot for the jobs of the team (driver, sniper).
+- A pilot that found no route looked for one again on each tick for 4
+  seconds, and the other pilots got no route in that time.
+- The order of ways with the same cost was the order of the C library,
+  which is not the same on Windows and on Linux. Now the order is the
+  same on all systems. The data on Linux did not change (all 97 files of
+  22 maps are the same, byte for byte).
+- A damaged file of navigation data could make the game write outside its
+  memory. The game now examines the numbers in the file first.
+
+The code of the bots was also compiled with the undefined behaviour
+sanitizer of the compiler. In 22 games on 21 maps (all game types, with
+vehicles and aircraft) it found nothing. The address sanitizer cannot run
+with the 64-bit build, which needs a fixed address that the sanitizer also
+uses.
+
+These faults are known and not corrected: the test for a bot that goes in
+circles uses a route without the ways that the bot avoids; a bot that
+stands still against an edge for half a second gives the jump up before
+its other rules for that jump can act; on a gap with no room for a run,
+the bot goes to a point behind the edge that can be in a wall; the search
+of a driver across open country stops after a time on the clock, thus two
+games with the same seed are not always the same; a floor square next to
+the end of a wall counts as next to a drop.
+
+**How quickly a good bot kills.** Measured at skill 10, the time from an
+enemy in view to the bot seeing it, the time to the first shot and the kill
+rate between bots had not changed since the bots of the section before
+this one. Two things made the bots slow with a gun that fires a shot a
+click:
+
+- A bot clicked its pistol, sniper rifle or shotgun on a clock of its own,
+  and a click while the gun was still working the last shot does nothing.
+  One click in three fired: the pistol fired at half its rate and the
+  sniper rifle at half its rate. Now a bot of a level over 5 clicks when
+  the gun is ready (the top level at once, with the pistol a little later
+  at a distance, for its spread).
+- A bot aimed for the head only when the shield was gone. A head hit kills
+  when the shot also takes the rest of the shield: with the sniper rifle
+  always, and with the pistol on the third shot. Now a bot aims for the
+  head for that shot as well.
+
+At skill 10, in 8 games without teams: a bot with the sniper rifle killed
+someone with full shields in 1.0 seconds (1.5 before, the median), and a
+bot with the pistol took 4% more off whoever it shot at in a second. With
+half the bots without the change, the bots with it made 53% of the kills
+in 8 games without teams, and 57% in 32 team games. A bot of skill 5 or
+lower clicks as before. `HALO_BOT_OFF=head` turns both off, and so does
+`HALO_BOT_REFINE=65535`. `HALO_BOT_ENGAGELOG=1` writes to the log each
+time that a bot went after someone, and how that ended.
+
+A player who stands still and does not shoot is killed less often than
+with the bots of two sections before this one (1.3 times a minute in place
+of 1.9, with 8 bots of skill 10). The bots kill each other as often as
+before. The cause was not found.
+
+**Pressure.** A bot of a level over 5 (all of it at 10) also does this:
+
+- It finishes whoever it has hurt. When the target that it shot in the
+  last 1.5 seconds has less than three quarters of its shield and health,
+  the bot changes to another enemy only when that enemy is a good deal
+  better, or is less than 12 world units away and aims at it. In a game
+  without teams, when the hurt target goes behind something, the bot goes
+  after it.
+- It knows of an enemy who came back to life less than 2 seconds ago and
+  less than 30 to 45 world units away (a sporting bot does not), and goes
+  after an enemy that it knows of also when it is on its way to an
+  ordinary weapon.
+- It lies in wait less with a gun that is not for close in.
+
+Not in a race. In 8 games without teams, the bots with this saw the
+target dead at the end of 44% of their fights (35% without), and changed
+to someone else in 46% (56%). The kills between bots with and without it
+were even: 50% without teams, 49% in 32 team games, and 49% in duels of
+two bots (47% for two bots that are the same). `HALO_BOT_OFF=press` turns
+it off, and so does `HALO_BOT_REFINE=131071`.
+
+**A second reading of the code.** These faults were corrected:
+
+- A bot that lay in wait was taken for a bot that was stuck, and it
+  jumped about once a second where it lay (139 jumps in 118 waits in two
+  test games, 0 now).
+- A bot that came back to life a moment ago was taken for a person in
+  the choice of a squad's leader, and so it was made the leader.
+- On a new life, some values that mean "nothing" were 0 in place of
+  NONE. With some test switches, a good player's dodge of a rocket was off
+  until the first grenade.
+- A bot's grenade hit rate and its last bad route went on into the next
+  game. A bot that had changed its seat in a vehicle twice did not try
+  again in the next vehicle.
+- A gunner's shots were heard as far as the weapon in the gunner's hands
+  carries, not as far as the vehicle's gun carries.
+- The places that bots run to at random could include places that were
+  removed from the map's list.
+- On the tick that a jump or a ladder ended, the fight took the bot to be
+  still on it, and the bot did not strafe.
+- A Longsword whose bomb went while its gun was not ready again flew on
+  over the place that it had bombed.
+- A route search that ran out of memory could be taken for a finished
+  search. A damaged navigation file could make the game read past the
+  name of the map.
+
+Some code that nothing used was taken out, and the test switches of
+finished work were set to their values. The kills between bots, the time
+to each item on 11 maps, the race on Wizard and the vehicle maps are as
+before. The undefined behaviour sanitizer found nothing in 22 games.
+
+`HALO_BOT_REFINE` has more parts: 32 (the height and the size of craft),
+64 (the drivers), 128 (the nearest vehicle), 256 (the grenades), 512
+(the jumps at a run and the legs), 1024 (how a good player moves in a
+fight), 2048 (lying in wait), 4096 (all the enemies in a room), 8192
+(when things come back), 16384 (the rules near a jump, above) and 32768
+(the corrections from the reading of the code that change what a bot
+does), 65536 (the click and the head, above) and 131072 (the pressure,
+above). `HALO_BOT_REFINE=131071` turns the last one off,
+`HALO_BOT_REFINE=65535` the last two, `HALO_BOT_REFINE=32767` the last
+three, `HALO_BOT_REFINE=16383` the last four, `HALO_BOT_REFINE=1023` the
+last eight, and `HALO_BOT_REFINE=31` turns these thirteen off. The names
+`agile`, `camp`, `aware`, `timing`, `hear` (shots heard by the shot),
+`head`, `press`, `drive` and `pickup` (below, "The bots in a Warthog") in
+`HALO_BOT_OFF`,
+`HALO_BOT_OFF_T0` and `HALO_BOT_OFF_T1` turn these off for all bots or for
+one team, and
+`HALO_BOT_OFF_EVEN` does this for each second bot (for a game without
+teams). `HALO_NETWORK_TEST_SCORE=<n>` sets the score that ends a test
+game. `HALO_BOT_TUCKRISE=<world units>` sets the ledge above which a bot
+folds its legs, and `HALO_BOT_FLUENT=<1, 2 or 3>` turns on the jumps from
+the run for gaps (1) and for ledges (2).
+
+These settings are for tests: `HALO_BOT_GAPCOST=0` (a gap costs its run
+only), `HALO_BOT_STEEP=0` (jumps onto steep slopes stay ways),
+`HALO_BOT_RUNUP=<world units>` (the run before a gap) and
+`HALO_BOT_JUMPRISE=<world units>` (the highest ledge; the host makes the
+navigation data again). `HALO_BOT_BOXTRACE=x0,y0,x1,y1` writes each second
+tick of the bots in a box to the log. `HALO_BOT_JUMPTEST=x,y,z,yaw,pace,
+ticks` puts the first bot at a place, lets it run in a direction and jump.
+
+With a rocket launcher, a bot shoots at the floor at the feet of an enemy
+who is on the ground and less than 22 world units away, and it shoots from
+2.8 world units or more (the blast is 2 world units). In a game without
+teams, a bot prefers an enemy who is busy with another player, goes to a
+fight that it hears, and throws a grenade into a fight or into a group of
+enemies.
+
+The bots rate the weapons in this order: the power weapons, the pistol, the
+assault rifle, the plasma rifle, the needler, the plasma pistol. The needler,
+the plasma pistol and a weapon that is almost empty are weak weapons. A bot
+with a weak weapon goes to a pistol, an assault rifle or a power weapon that
+lies near and takes it in place of the weak weapon:
+
+- When the bot has only weak weapons, it goes up to 12 world units for the
+  better weapon, also during a fight, unless the enemy is less than 2.5
+  world units away.
+- When the bot also has a good weapon, it goes up to 7 world units, and
+  only when it has no enemy in view.
+- When the bot goes to the hill, a checkpoint or a flag carrier, it goes up
+  to 7 world units. When it goes to a flag or a ball, or carries one, it
+  does not go.
+
+In a fight, a bot with a weak weapon in its hands and a better weapon on
+its back changes to the better weapon. No bot has the needler as its
+favourite weapon.
+
+A bot does not walk past a rocket launcher, a sniper rifle or a fuel rod
+gun. When one lies less than 8 world units away, the bot takes it if it is
+better than the worse of its two weapons. It does not do this when an enemy
+is less than 12 world units away, when it was hit a moment ago, or when the
+swap takes its favourite weapon. On a far map (the next section), a bot on
+its trip goes to a power weapon or a powerup when the way by the item is
+not more than 9 to 27 world units longer than the way straight to the
+enemies (4 to 12 seconds on foot, by the character of the bot). In four
+test games of 5 minutes on Gephyrophobia, no bot had a sniper rifle in its
+hands before this, and bots had one 3 to 11 times in each game after it.
+`HALO_BOT_OLDITEMS=1` turns these two rules off, for a comparison.
+
+**Weapons that a map adds.** The bots know the weapons, the powerups and
+the vehicles of the game by the names of their tags. For a tag with a
+different name, and for all the tags of a map whose names are removed (a
+protected map: each name is `<protected>`), the bots use what the tag
+says, and treat the thing as the thing of the game that it is most like:
+
+| The tag says | The bots use it as |
+|---|---|
+| a weapon with no trigger | the flag or the ball |
+| more than 3 projectiles in each shot | a shotgun |
+| a projectile that turns to its target and is slow | a needler |
+| a range of 20 world units or less, slow, 6 shots or more a second | a flamethrower |
+| a trigger that charges for 1.5 seconds or more, and a fast projectile | a sniper rifle. The bot holds the trigger until the weapon fires. |
+| a trigger that charges for 0.25 seconds or more | a plasma pistol |
+| 2 zoom levels, or 1 zoom level with 2.5 shots a second or fewer and a fast projectile | a sniper rifle |
+| a slow projectile that explodes, 4 shots a second or fewer | a rocket launcher. If the projectile falls: a fuel rod gun. |
+| 6 shots or more a second | an assault rifle if it has rounds, a plasma rifle if not |
+| all others | a pistol |
+| 30 shots or more a second with no damage (a charge that a player puts down) | nothing: the bots do not go to it |
+
+A powerup gets its kind from the type in its tag (overshield, active
+camouflage, health, grenades), and a vehicle with no name gets its kind
+from its physics and its seats. A tag with a name that the bots know stays
+what its name says, thus the maps of the game are not changed. In a test
+with the names of Yoyorast Island hidden (`HALO_BOT_NONAMES=1`), each
+weapon of the game got its own kind. On Snow Grove, a protected map, all
+weapons were unknown before this. In two test games there, the bots had a
+sniper rifle or the laser in their hands 69 and 77 times and fired the
+laser 53 and 64 times. `HALO_BOT_WEAPONS=1` writes each weapon of a map to
+the log, with its kind.
+
+**How quickly a bot sees an enemy.** A bot sees only an enemy in its view,
+and not at once: the time is longer for an enemy that is far, at the side
+of the view, or not moving, and shorter for one that shoots. An enemy that
+got a new body less than 3 seconds ago takes 0.01 to 0.2 seconds more, and
+so does each enemy for a bot that got a new body less than 3 seconds ago.
+This time is half as long when the enemy moves or shoots. In a test game
+on Chill Out (8 bots of the old skill 3, between 5 and 6 now), the middle
+time from in view to seen, for
+these enemies, went from 0.23 to 0.33 seconds; the shortest stayed at 0.1
+seconds. The number of kills did not change (91 and 91).
+`HALO_BOT_OFF=fresh` turns the added time off, and `HALO_BOT_NOTICELOG=1`
+writes each time to the log.
+
+**How far a bot sees.** A bot on foot sees an enemy that is 90 world units
+away or less, and 150 with a weapon that has a scope. On the large maps,
+vehicles fight from farther than this:
+
+- A bot in a vehicle (the driver, the gunner, a passenger, a pilot) sees
+  1.5 times as far: 135 world units, and 225 with a scoped weapon.
+- An enemy in a vehicle is seen from two times as far, up to 300 world
+  units. A Warthog on a hill is easier to see than a person.
+
+The view must be clear in all cases: a bot does not see through the
+ground or a wall. A bot keeps a target to the same distances.
+
+`HALO_BOT_OFF=human` gives the bots their movement without the first list
+above, for a comparison.
+
+### Far maps
+
+The bots measure each map when its navigation is ready. The measure is the
+time on foot between the places where players start: 85 of each 100 pairs of
+these places are not farther apart than this time. A map with a time of 20
+seconds or less is a near map. A map with a time of 40 seconds or more is a
+far map, and a map between the two is partly a far map. Blood Gulch has 39
+seconds, Sidewinder has 52, Boarding Action has 31, and Hang 'Em High has
+18. With `HALO_BOT_LOG` set, the game writes the measure in a line that
+starts with `bots: this map's reach`.
+
+A map that has no navigation (not sufficient memory, or a map too large for
+it) has a measure also. The game then uses the player starting points of the
+map and straight lines, each multiplied by 1.5. This measure is less
+accurate (the line that follows `this map's reach` in the log gives it for
+each map: 67 seconds for Blood Gulch, 47 for Sidewinder, 20 for Hang 'Em
+High), but a far map is not played as a near one.
+
+On a far map, a bot that has no enemy within 30 world units goes to the
+place where the enemies are. This is its trip:
+
+- The bot starts the trip with the weapon that it has. It takes a better
+  weapon that lies near its way, as the list of weapons above tells.
+- The bot does not stop the trip for an ordinary item, for one of its own
+  places, or to hold a place. It stops for a power weapon or a powerup that
+  is near, for a vehicle, for the objective of the game, and for its squad.
+- A vehicle that is less than 30 world units away is worth more to the bot
+  when the enemies are more than 60 world units away.
+- The trip goes to the place where the enemies are now. It ends when an
+  enemy is less than 30 world units away.
+
+On all maps:
+
+- A driver who has no weapon on the vehicle and no gunner gets out and
+  fights on foot when the vehicle has been near an enemy for 4 seconds
+  without a view of the enemy, or for 8 seconds with one. Only the time in
+  which the vehicle does not get nearer to the enemy than it was is in this
+  count. The time in which the driver waits for bots of its team to get in
+  is not. The count starts again for a different vehicle or a different
+  enemy.
+- A person who has not gone 6 world units from one place in 6 seconds does
+  not lead the squad of the team. The bots of the team then follow one of
+  the bots. This is a measure of travel: a person who fights in one place
+  does not lead the squad to a different place. The count starts when the
+  person gets a new body.
+
+### Very large maps
+
+Some Halo PC maps are about 2000 world units across (Coldsnap, Hugeass).
+The navigation of such a map is made only for the parts where the game is
+played: the bases, the weapons, the vehicles. It has no way between the
+parts. `port/linux/game/bot_country.c` takes the bots between them, in
+ground vehicles and on foot. The game makes this map of the ground on each
+map, and the drivers of ground vehicles use it on each map (see [Ground
+vehicles on all maps](#ground-vehicles-on-all-maps)). On foot, and to go
+between the parts, the bots use it only on a map whose navigation is made
+in parts.
+
+- **The ground.** The game makes a map of squares of 2 world units. A
+  square has the floors that are below its middle: a floor is a surface of
+  45 degrees or less that has 1.6 world units of room above it.
+- **The steps.** A vehicle can go from a floor to a floor of the next
+  square when the step is not steeper than 40 degrees. If the height of
+  the step agrees with the slopes of the two floors, the game accepts it.
+  If not, or if the floor has a side (a ramp, a bridge, a road along a
+  cliff), the game looks at the ground with rays: the ground must not jump
+  more than 0.6 world units, and it must be 2 world units wide. Thus a
+  Warthog does not go onto the top of a low wall, and not into a rut. (The
+  limit was 1 world unit. In 16 tests, a Warthog that went straight at two
+  steps of 0.84 and 0.96 world units at 5 to 6 world units a second did
+  not get up one time.)
+- **Lifts.** A ramp that is 0.5 to 2 world units wide, that goes up 0.9
+  world units or more, and whose top the ground at its foot does not join
+  in a different way, is a lift. A Warthog is 1.7 world units wide. A bot
+  drives to the foot of a lift. When the vehicle is less than 3.5 world
+  units from the foot, slower than 5 world units a second, and nothing of
+  the map is between, the game moves the vehicle up the ramp at 4.5 world
+  units a second and puts it down at the top. The ten Warthogs of the
+  south-east base of Coldsnap stand 1.8 world units below the platform
+  that their gate is behind, and the two ramps up are 0.8 world units
+  wide. In test drives, a Warthog got up such a ramp one time in three
+  (the wheels of one side on the ramp). Before, no route went up: the
+  Warthogs went off the edge of the base, and the script of the map put
+  them back on the platform. The game makes lifts only on a map whose
+  navigation is made in parts.
+- **Walls.** A ray at 0.75 world units above the ground goes from the
+  middle of each square to the middle of the next. If it hits the map, a
+  machine or a piece of scenery, there is no step. This finds a wall, a
+  railing or a rock that is thinner than a square.
+- **Bridges, scenery and gates.** One second into the game, the game adds
+  the tops of the machines and of the scenery that join the ground (the
+  two bridges that go up from each hangar of Hugeass), and looks again at
+  the steps near them. A script of a map that moves a vehicle from a
+  trigger volume to a flag (the gates of Coldsnap) is a way for the
+  vehicles that the script names. A bot drives to the volume, and the game
+  puts its vehicle into the volume when the vehicle is less than 3.5 world
+  units from it and nothing of the map is between.
+- **Down a cliff.** A vehicle can go off an edge to a lower floor. This is
+  a way in one direction. The bases of Hugeass have no other way down.
+- **The file.** The first time that a map is played with bots, the game
+  looks at all the steps of the map: 3.5 seconds on Coldsnap and 5.9
+  seconds on Hugeass, after 2.6 and 2.2 seconds for the squares (measured
+  with two games on a computer of 2 processor cores). It writes the result
+  to `navcache/<map>_0.country` (36 MB for each of these maps). After
+  that, the game reads the file in 0.03 seconds. `HALO_BAKE_NAVIGATION`
+  writes this file with the other files of the map.
+- **The route.** For each destination, the game searches from the
+  destination across all the map and keeps, in each floor, the next step.
+  All the bots that go to the same end of the map use the same search. The
+  search gets 6 milliseconds of each tick and is complete in 2 to 4
+  seconds. A driver stops and waits for it.
+- **Room.** A square at the edge of the ground (at a wall, at a cliff, at
+  the side of a bridge) costs 4 times a square in the open. A square next
+  to such a square costs 1.5 times, and 4 times if one of 8 rays of 1.8
+  world units from its middle hits something. Thus the route goes along
+  the middle of a bridge and round the end of a wall.
+- **The driving.** The driver steers to the farthest point of the route
+  that it can go to in a straight line that does not touch the edge of the
+  ground. Before a bend of the route it slows down to 7.5, 5.5 or 4 world
+  units each second, by the angle of the bend. Near an edge or a wall it
+  does not go faster than 9.5 or 6.5. It goes onto a narrow ramp, and up a
+  step, along the line of the ramp or the step and at full speed. If it
+  stops at a step, it reverses 10 world units along that line and comes
+  again. It brakes when there is no ground at the place where the vehicle
+  will be in the next second, and it reverses from an edge at which it has
+  stopped. A ray finds a tree, a rock or a different vehicle in front, and
+  the driver goes round it. The driver of a Ghost points the nose against
+  the direction in which the Ghost slides.
+- **Edges.** A driver that reverses stops when there is no ground 2.5 or
+  3.5 world units behind the vehicle, and reverses slowly when there is
+  none 5 or 7.5 world units behind it. A driver that goes forward to get
+  clear of something does not go faster than 5 world units a second,
+  prefers a direction that has ground for 12.5 world units, and stops for
+  an edge. A vehicle that starts to move after it stood (it waited for its
+  route or for its team) is not stuck while it moves faster than 0.5 world
+  units a second in the first 4 seconds. Before these changes, the
+  Warthogs of the south-east base of Coldsnap went off the edge of the
+  base in two ways: forward when the game took a slow start for a stuck
+  vehicle, and backward when they reversed for a run at a step. In a test
+  game of 7 minutes (11 bots that prefer Warthogs), drivers were below the
+  base for 37 seconds before the changes and for 0 seconds after them, and
+  9 vehicles went up the lifts and 8 went into the gate of that base.
+- **The fight.** When an enemy is less than 28 world units away and the
+  vehicle is not on the navigation, the driver goes round the enemy across
+  the ground in the same way.
+- **On foot.** A bot on foot that is not on the navigation, or whose
+  destination the navigation does not join, walks across the same squares
+  to a destination that is less than 220 world units away. It does not go
+  off edges and does not use the gates. The search for it stops at the
+  place where the bot is. Where it must walk in a straight line, it does
+  not take a step if there is no ground in the next 2.4 world units.
+- **The flag.** A driver stops 16 world units from the flag of the enemy
+  and walks to it. A bot that has the flag does not take the wheel or the
+  gun of a vehicle, because the game then drops the flag. It gets into a
+  passenger seat next to a driver of its team. A bot of its team that is
+  less than 120 world units away takes the wheel of a vehicle that has a
+  free passenger seat, drives to the bot that has the flag, waits, and
+  drives to the base. The bot with the flag gets out 16 world units from
+  the base.
+- **When it stops.** A driver whose vehicle did not move 4 times, or that
+  has no way from the place where it is, gets out. No bot gets into that
+  vehicle while it is in that place: for 90 seconds if it did not move,
+  for 5 minutes if it has no way.
+
+These are games of 10 minutes of capture the flag with 11 bots, with
+`HALO_RANDOM_SEED=5`. Before this, a driver had no route between the parts
+of these maps.
+
+| | Hugeass | Coldsnap |
+| --- | --- | --- |
+| Kills | 15 | 3 |
+| Deaths with no killer (a fall, or under a vehicle) | 1 | 6 |
+| Drivers that got to less than 100 world units from their destination | 5 | 7 |
+| Longest time that one bot drove | 261 seconds | 267 seconds |
+| Gates used | 1 | 23 |
+| Times a driver got out because the vehicle did not move | 10 | 6 |
+| Times a driver got out because there was no way | 1 | 5 |
+| Flags captured | 0 | 0 |
+
+On Hugeass, the Ghosts and the Warthogs leave the hangars, go down from the
+bases, cross the basin and fight. On Coldsnap, the two teams leave their
+bases through the gates, meet in the middle of the map and at the flags,
+and fight there. These things do not operate well:
+
+- **The flags of Coldsnap.** No flag was captured. In a test with two
+  Warthogs put near the flag of the south-east base, a bot took the flag,
+  got into a passenger seat, and a bot of its team drove it 2000 world
+  units to 21 world units from its own flag. There the Warthog went into
+  the canyon (the driver now stops at the flag and does not go round it;
+  this was not tested again). The flag of the north-west base is on a
+  platform above a canyon that the map of the ground does not have: 3 of
+  the 6 deaths with no killer were bots on foot there.
+- **The aircraft.** See [The bots in a Pelican, a Longsword and a
+  jet](#the-bots-in-a-pelican-a-longsword-and-a-jet). The flag of the
+  south-east base of Coldsnap is under a roof, and no aircraft goes to it.
+- **On foot, far from all.** A bot on foot whose destination is more than
+  220 world units away does not walk to it.
+- **Hugeass.** Some drivers of Warthogs stop at the top of the hangar
+  bridges and get out.
+
+With `HALO_BOT_LOG` set, the lines that start with `bots: country:` give
+the size of the map of the ground, each gate, each lift, each search, and
+where each driver is every 3 seconds. A line that starts with `bots: drv`
+gives each driver of a ground vehicle each second: its place, its speed,
+its throttle and how it drives (`mode 1`: far across the map, `mode 2`: by
+the map of the ground, `mode 3`: by the navigation). `HALO_BOT_COUNTRYTRACE=1`
+adds a line for each driver every third of a second.
+
+### Ground vehicles on all maps
+
+On each map, the driver of a Warthog, a Ghost or a Scorpion drives by the
+map of the ground of the section above: the same route, the same steering
+and the same speeds as on the very large maps. Before, a driver on an
+ordinary map followed the areas of the navigation. A driver uses the areas
+where the map of the ground has no way or the vehicle is not on it, and for
+12 seconds after the vehicle did not move 4 times. A turret is not driven.
+On a map whose navigation is whole, the map of the ground is made only for
+the part that the navigation has, and 30 world units round it (the shell of
+Death Island goes out to the horizon). The game makes it in 0.1 seconds or
+less on these maps and keeps it in `navcache/<map>_0.country`.
+
+These are games of 7 minutes of capture the flag with 11 bots that prefer
+vehicles (`HALO_BOT_CRAFT=vehicles`), with `HALO_RANDOM_SEED=5`, each one
+time by the areas (`HALO_BOT_COUNTRY=0`) and one time by the map of the
+ground. The speed is the mean speed of a driver that is on its way (not
+when it waits for its team and not when it goes round an enemy), in world
+units a second. Slow is the part of that time below 1.5 world units a
+second.
+
+| Map | Speed, areas | Speed, ground | Slow, areas | Slow, ground | Kills from vehicles, areas | Kills from vehicles, ground |
+| --- | --- | --- | --- | --- | --- | --- |
+| Blood Gulch | 3.3 | 3.6 | 24% | 25% | 13 | 13 |
+| Sidewinder | 2.7 | 3.9 | 37% | 20% | 12 | 14 |
+| Danger Canyon | 3.8 | 3.7 | 21% | 23% | 10 | 13 |
+| Death Island | 3.5 | 4.3 | 24% | 12% | 4 | 11 |
+| Ice Fields | 1.0 | 2.1 | 81% | 53% | 9 | 25 |
+| Timberland | 2.7 | 3.2 | 29% | 21% | 1 | 8 |
+
+A driver that has a gunner and goes round an enemy that nobody in the
+vehicle sees can go round for a long time. This is not changed.
+
+### The bots in a Warthog
+
+In a team game, a bot that drives a vehicle with more than one seat does
+not go immediately:
+
+- It waits 1.5 seconds at the wheel when a seat is empty.
+- It waits up to 3.5 seconds when nobody is on the gun and one of its team
+  is on foot less than 14 world units away.
+- It waits up to 7 seconds while a bot of its team comes to the vehicle
+  from less than 12 world units away, or a person of its team stands less
+  than 9 world units away.
+- It goes immediately when somebody is on the gun and nobody of its team is
+  near, and when all the seats are full.
+- It does not wait when an enemy that it sees is less than 25 world units
+  away, or when it was hit a moment ago.
+
+A vehicle that stands with a driver of the team and nobody on the gun is
+worth more to a bot on foot that is less than 16 world units away. The
+nearest bot gets on the gun, whatever its job is.
+
+In five test games of capture the flag with 11 bots (Blood Gulch twice,
+Sidewinder, Death Island, Danger Canyon), 33 Warthogs went away: 11 with a
+gunner, 22 with only the driver. For 18 of those 22, nobody of the team was
+on foot less than 14 world units away.
+
+A bot that drives alone (nobody on the gun, and a vehicle whose driver has
+no gun of its own), with no enemy near, drives to the nearest person of
+its team on foot less than 80 world units away and stops beside them for
+5 seconds, for them to get on. When the person does not get on, the bot
+asks nobody for 20 seconds. (It does not do this for bots: in test games
+it did not change the score.)
+
+A bot at the controls of a fixed gun (the Covenant turret of Gephyrophobia)
+stays there and shoots. When it has no target for 25 seconds it gets off
+and leaves that gun alone for 30 seconds. Before, it tried to drive the
+gun, was stuck, and got off.
+
+A bot at the wheel of a vehicle on the ground that stands for 10 seconds,
+not waiting for anyone and with no enemy to shoot (the place that it goes
+to is somewhere a vehicle cannot go, or it has no way there), gets out and
+leaves that vehicle alone for 30 seconds. On Hugeass, bots stood in a
+Tachikoma by the place where it comes for 8 minutes.
+
+A bot that drives a vehicle on its side or on its roof gets out after 1.5
+seconds. It does not leave the vehicle alone: the action button beside a
+vehicle on its side puts the vehicle back on its wheels, and the bot then
+gets in again.
+
+`HALO_BOT_OFF=drive` turns off the fixed gun and the vehicle on its side,
+and `HALO_BOT_OFF=pickup` the ride for a person. In 30 test games
+(Blood Gulch, Sidewinder, Danger Canyon, Death Island, Gephyrophobia,
+Icefields, Timberland, Hugeass; capture the flag and team slayer; the same
+seeds as before the changes), the bots got out of a stuck vehicle 7.3 times
+each 10 minutes instead of 10.7 (on Gephyrophobia 1.7 instead of 21), and
+killed 14.3 players from a vehicle instead of 11.6. On Hugeass they drove
+a vehicle on its side for 4.7% of the time instead of 7.5%. In 40 games of
+team slayer with the fixed gun and the vehicle on its side on for one team,
+the score of that team did not change by more than chance.
+
+### The bots in a Banshee
+
+`port/linux/game/bot_flight.c` flies each vehicle that has the physics of
+the Banshee (the type `alien fighter`; the jets of some Halo PC maps have
+this type also).
+
+- **The map from above.** When the map loads, the game makes a map of
+  squares of 2 world units: the top of the ground in each square, the
+  lowest thing above it, and the top of each tree or large rock that stands
+  there (scenery that has a collision model and a radius of 1.5 world units
+  or more). The game finds these tops with rays. This took 0.03 seconds on
+  Death Island (29 trees and rocks) and 0.06 seconds on Timberland (43).
+- **The height.** A pilot flies 4.5 world units above the highest ground of
+  the next 2 seconds of its way, and 1.5 world units above the trees there.
+  It goes round a thing that is more than 30 world units higher than the
+  two ends of its way (a tower). Three rays along its way, one from the
+  middle and one from each wing, find the things that the map does not
+  show. The pilot climbs over such a thing or turns away from it.
+- **The look.** A Banshee does not go exactly where its pilot looks: its
+  nose is 15 degrees above the look, and it sinks. A pilot that looks 25
+  degrees down flies 6 degrees down. The pilot corrects its look each tick
+  by the direction in which the Banshee moves.
+- **Where it goes.** At full speed to the nearest enemy that is under the
+  sky. If no enemy is under the sky: in capture the flag, to the base of
+  the enemy; in the other games, to the nearest enemy. It flies circles
+  there. A pilot that has guns does not land to take the flag. In capture
+  the flag, the enemy that carries the flag of the team comes first.
+- **The attack.** The pilot starts a run when it sees the enemy at less
+  than 45 world units. It first comes down to a little above the enemy,
+  then it looks at the place where the enemy will be and shoots. The shots
+  go where the pilot looks only when the nose of the Banshee is less than
+  50 degrees from the look (the game turns a shot of a player that far and
+  no more). At less than 15 world units, the pilot stays in the air near
+  the enemy for up to 5.5 seconds and continues to shoot. Then it flies
+  away past the enemy and comes back.
+- **The fuel rod.** The second trigger of the Banshee fires it. It is slow
+  and it falls. The pilot calculates where to look from the speed of the
+  Banshee, the speed and the fall of the fuel rod, and the movement of the
+  enemy. It fires when the fuel rod will land less than 1 world unit from
+  the enemy and the enemy is less than 17 world units away. The gun fires
+  one fuel rod in about 4 seconds.
+- **When it is hurt.** A pilot whose shields are below 30% flies away from
+  the enemy, to a place that the enemy does not see if there is one in the
+  next 30 world units. It comes back when the shields are above 30% again,
+  or after 9 seconds.
+- **To get in.** A bot presses the button when the game offers the seat
+  that the bot wants. Before, a bot pressed it only when it stood less than
+  0.55 world units from the door of the seat. The door of a Banshee is
+  under its wing, and the bot stood 0.6 world units away and did not get
+  in. A bot also does not stop its way to a vehicle because the straight
+  line to it does not get shorter (a Banshee on a roof, or behind a
+  teleporter), if the route gets shorter.
+
+Four sets of six test games of 5 minutes with 11 bots (capture the flag
+and slayer on Death Island and Gephyrophobia; the last two sets with the
+code as it is now):
+
+| | Each set |
+|---|---|
+| Bots that got into a Banshee | 21 to 25 (1 to 7 in a game) |
+| Time in the air for each flight | 42 to 54 seconds |
+| Hits against something | 0 or 1 in 16 minutes in the air |
+| Kills from a Banshee, for each minute in the air | 0.6 to 0.7 |
+| Pilots shot down, for each minute in the air | 0.8 to 1.3 |
+
+With the code of the build before this one for getting in, 2, 3 and 2 bots
+got into a Banshee in three games of 5 minutes on the same maps, and 27, 11
+and 29 times a bot stopped at the door or on the way. The other numbers
+were not measured for that build.
+
+A bot on foot aims well at a Banshee, and most pilots are shot down when
+they fly away from an enemy that is near. The hits that remain are against
+the wall of a building next to which the Banshee starts, and against a
+second Banshee.
+
+### The bots in a Pelican, a Longsword and a jet
+
+These are the aircraft of some Halo PC maps (Hugeass, Coldsnap). The numbers
+in this section are from test games of capture the flag with 11 bots on
+these two maps.
+
+**The Pelican and the Longsword** have the physics of the Pelican (the type
+`human plane`). Such an aircraft flies in two ways. With the throttle
+closed, its jets hold it up: the jump button gives a little more than its
+weight, the crouch button much less, and it moves the way it leans. With
+the throttle open, it goes along its nose at its top speed and its wings
+hold it up. The air stops it quickly: about 2 percent of its speed in each
+tick.
+
+- **Up.** A pilot goes up 3 world units on the jets, turns to its route,
+  and opens the throttle. Under a roof, it stays on the jets, 1.6 world
+  units above the floor below it and the floor 7 world units ahead, at 6
+  to 9 world units a second, until it is out. Under a roof it does not go
+  forward until its nose is less than 0.5 radians from the way out (the
+  Longsword of Hugeass stands with its tail to the door of the hangar; it
+  went forward during the turn, into the wall, and stayed at the ceiling:
+  4 of 5 Longswords in one test game, none of 3 and none of 2 in two games
+  after this). A pilot that has something above it (the bottom of a
+  bridge) does not go up on the jets: it flies out on its wings from the
+  height where it is.
+- **Down.** A pilot closes the throttle at a distance of 2.5 seconds of
+  flight plus 20 world units from the place, comes over it on the jets, and
+  goes down at 4 world units a second or less. In one test game, 14
+  landings out of 14 were 3.5 world units or less from the place.
+- **Under a roof.** The game keeps the way that each aircraft takes out of
+  a place under a roof (a point each 6 world units, for aircraft that bots
+  fly and aircraft that people fly). An aircraft that must land under a
+  roof goes to the open end of the nearest such way and follows it back.
+  Thus a Pelican of Hugeass goes back into its hangar and lands on its
+  pad. A place under a roof that no aircraft came out of has no way in.
+- **To get in.** The doors of the seats of these aircraft are in the hold
+  and at the cockpit, more than 1 world unit from where a body can stand,
+  and the game lets a player in only from 1 world unit. A bot that stands
+  less than 3.5 world units from the door of its seat, next to an aircraft
+  that does not move, is put into the seat (with the function that the
+  action button calls). A bot takes the seat whose door is nearest.
+
+**To carry people.** In a team game, the pilot of an aircraft with more
+seats than its own does these things:
+
+- It stays on the ground where it took the aircraft: 4 seconds always, up
+  to 30 seconds while a bot of its team comes to the aircraft from less
+  than 80 world units, up to 20 seconds while a person of its team stands
+  less than 14 world units away, and up to 14 seconds while fewer than 2
+  are in it and one of its team is on foot less than 70 world units away.
+  Bots on foot that are not defenders come to such an aircraft from up to
+  80 world units.
+- With people in it, it flies to the flag of the other team (in King of
+  the Hill, to the hill; in other team games, to 45 world units from the
+  nearest enemy). It lands short of the flag by its own size plus 5 world
+  units, with its tail to the flag, and the bots in seats that are not
+  guns get out.
+- It stays there on the ground, up to 50 seconds, while one of its team is
+  on foot less than 90 world units from the flag. It leaves when its pilot
+  has no shields after 8 seconds.
+- When one of its team takes the flag, that bot gets into a seat in which
+  the map lets a player hold the flag, and the pilot flies to the flag of
+  its own team, lands, and the bot gets out and walks to it. If the bot
+  with the flag is on foot more than 150 world units from its base, a
+  pilot with an empty seat flies to it and lands next to it.
+- With nobody in it and 2 or more of its team on foot at the place where
+  it took the aircraft, it flies back there for them. It starts back only
+  when it is more than 200 world units from that place.
+
+A bot that just got out of such an aircraft and is still next to it walks
+first the way that is open the farthest (rays at the height of the chest),
+because the hull is between it and its route.
+
+**Which seats keep the flag** is different on each map. The game asks the
+same question that it asks when a player sits down (the animations of the
+player for that seat and the flag). On Hugeass, all the seats of the
+Pelican and the seat of the jet keep the flag. On Coldsnap, no seat of the
+Pelican keeps it, four seats of the Longsword do, and the seat of the jet
+does. A bot with the flag takes only a seat that keeps it. When the seat of
+a pilot keeps the flag, a pilot that is alone lands at a flag that is under
+the open sky, gets out, takes it, gets in again, and flies it to its base.
+The pilot nearest the flag does this, and only when nobody of its team is
+on foot less than 40 world units from the flag.
+
+**The jets** have the physics of the Banshee, and the code of the Banshee
+flies them. A jet goes 30 world units a second (the game does not let a
+vehicle go faster than 1 world unit a tick, whatever its tag says). A pilot
+of a jet keeps the throttle open in a turn, and leaves a hangar at full
+throttle when the way out is clear for more than 70 world units and the
+nose is on it.
+
+**The gates of Coldsnap.** A jet of Coldsnap stands in front of a tube in
+the wall of its hangar, and the script of the map moves a jet that is in
+the tube to the sky. The tube is 6 world units wide and 3.3 high at one
+base, and 4.2 wide and 1.6 high at the other. A pilot goes to the tube
+level along the floor, and the game puts the jet into the trigger volume
+when the jet is less than 24 world units from the middle of the volume,
+points at it, and nothing of the map is between. In one test game all 8
+jets left their hangars this way in the first 35 seconds. Before this, no
+jet left.
+
+The Longswords of Coldsnap leave through two larger volumes (62 and 60
+world units across) that put them on top of the mountain. A pilot of a
+Longsword flies into its volume on its wings. Volumes that are larger than
+90 world units are parts of a base, not gates, and no pilot flies to them.
+In a test game of 5 minutes with bots that prefer the Longsword, two
+Longswords left their hangars and killed 16. Before this, a Longsword
+stayed in its hangar with its pilot and the bots in its seats.
+
+**The guns of the jets.** A gun whose projectile goes 5 world units a tick
+or faster has a range of 15 ticks of its projectile (150 world units at
+most), whatever range its tag gives. A pilot shoots missiles that do not
+fall at aircraft also. In a test game of 10 minutes on Hugeass, the jets
+killed 8.
+
+A pilot that leaves an aircraft because the aircraft is stuck does not
+take it again, and no other bot takes it, for 180 seconds.
+
+In a test game of 9.5 minutes on Hugeass, two Pelicans took 3 and 5 bots
+to the flags, a bot of each team took the flag and got in again, and one
+Pelican landed 12.5 world units from its own flag and the team scored.
+These things are not complete:
+
+- A pilot lets a bomb of the Longsword go when the game computes that it
+  falls less than 5 world units from the enemy. The pilots of the jets of
+  Coldsnap get few kills.
+- A jet does not land at a flag that is under a roof.
+- A pilot that carries people does not shoot.
+
+With `HALO_BOT_LOG` set, a line with `the <vehicle>: <job>` tells each
+change of what a pilot that carries people does (`load`, `drop`, `pick
+up`, `deliver`, `home`). `HALO_BOT_AIRTRACE=1` adds two lines a second for
+an aircraft on its jets or under a roof.
+
+### Vehicles that come back
+
+When the game type has a time for vehicles to come back, the game puts
+back a vehicle that is destroyed, or that is empty and away from its
+place, after that time. A vehicle that the map names comes back as the
+vehicle of that name, made as the script of the map makes it. Before, it
+came back as a copy with no name: the scripts of a map did not know the
+copy (a gate of Coldsnap did not move it), and a script that makes a
+vehicle again when it is gone made a second one. The game now does this
+for 256 vehicles of a map, not 64 (Coldsnap has 65).
+
+In a test, all the empty vehicles of Coldsnap and Hugeass were killed at
+10 seconds. With a time of 30 seconds, all of them were back with their
+names at the end of the test, 80 seconds later. With no time (the setting `never`), only the
+vehicles that the scripts of the maps make again came back (the Longsword,
+and two kinds of walker); the wrecks of the others stayed.
+
+### More vehicles
+
+With `game.vehicle_multiplier` set to 2, 3 or 4, the host makes that
+number of each vehicle of the map. For Hugeass with three of each vehicle,
+put these lines in the `[game]` section of `config.toml`:
+
+```
+vehicle_multiplier = 3
+vehicle_multiplier_maps = "hugeass"
+```
+
+- Half a second into the game, the host makes the other vehicles. It puts
+  each one next to a vehicle of the map: to its sides, behind it or in
+  front of it, up to 3 widths or 3 lengths away. The place must have level
+  ground at about the same height (1.2 world units or less higher or
+  lower), nothing of the map between it and the vehicle of the map,
+  nothing of the map around it or 1.2 world units above it, and no other
+  vehicle. If no place is free, the host does not make that vehicle, and
+  `debug.txt` has the number.
+- The clients get these vehicles from the host, as they get each vehicle
+  that the host makes.
+- When the game type has a time for vehicles to come back, these vehicles
+  come back to their places also.
+- These vehicles have no names. A script of the map that moves a vehicle
+  by its name (a gate of Coldsnap) does not move them.
+
+On Hugeass the map has 36 vehicles, and with the setting 3 the host made
+all 72 others. In a test game of 7 minutes of capture the flag with 11
+bots, 12 jets, 6 Pelicans and 3 Longswords were flown.
+
+### The characters of the bots
+
+Each bot has a character for the full game. The bots do not keep it from
+one game to the next.
+
+- **A way to fight.** A duelist stays at the range of its weapon and
+  strafes. A rusher goes close. A lurker stays a little farther away, holds
+  a place, and does not follow an enemy that it lost. A hit-and-run bot
+  goes to cover when its shields are low and comes back when they are full.
+- **A habit.** One of: it crouches while it strafes, it jumps while it
+  shoots, it goes in for a melee hit when the shields of the enemy are
+  down, it throws a grenade first, or it moves back while it shoots when it
+  is hit.
+- **A grudge.** A bot remembers the players that killed it. It prefers
+  such a player as a target and goes to find a player that killed it two
+  times or more.
+- **Its run.** After some kills without a death, a bot becomes more
+  aggressive and taunts more. After some deaths without a kill, it becomes
+  more reckless or more careful, as its temper is.
+- **Its places.** A bot has 2 or 3 places on the map. It goes back to them
+  and stays there for a time.
+- **The trigger.** Some bots hold the trigger and shoot when the aim is
+  near the target. Others wait for the aim and shoot in short bursts.
+- **Melee.** Some bots go in for a melee hit when the back of an enemy is
+  to them.
+- **Vengeance** (team games). When an enemy kills a teammate near a bot,
+  the bot can go after that enemy for 5 to 13 seconds.
+- **Composure.** A hit moves the aim of some bots more than that of others.
+- **Loyalty.** A bot keeps its favourite weapon longer, and goes farther to
+  get it.
+- **Sportsmanship.** A sporting bot does not prefer an enemy who is busy
+  with another player, and it gives a player who came back to life 2
+  seconds. Other bots take each kill that they can get.
+- **Play.** Some bots turn around and jump after a kill, or crouch at a
+  teammate when they have nothing to do.
+- **Camping.** How long a bot stays in one place.
+- **The herd** (team games). Some bots follow the nearest teammate. Others
+  seldom do.
+
+In a game with an objective (capture the flag, king of the hill, oddball,
+race), the objective comes before the character. The flag, the hill, the
+ball and the checkpoint are worth almost the same to each bot. The grudge,
+the vengeance, the places and the herd count for about one third of their
+value in a slayer game, and a bot stays at one of its places for a shorter
+time. A bot that goes to the objective or carries it does not taunt, does
+not turn around after a kill, and does not go to cover as a hit-and-run
+bot does. The character still decides how the bot fights on the way.
+
+With `HALO_BOT_LOG=1`, the log has one line for each bot with its
+character.
+
+### Bots that look for people, the motion tracker, the top level
+
+- **Quiet time.** The longer a bot sees nobody (no enemy seen, heard, on
+  its motion tracker, or shooting at it), the more it goes to find
+  someone: from 8 seconds of quiet (4 in a game of 6 players or fewer) to
+  30 seconds (15), when finding someone is its main goal. With more than
+  half of that, it goes to the nearest dot on its motion tracker first,
+  else the nearest enemy, and it looks again every 4 seconds; a bot that
+  usually hangs back, or has a poor weapon, goes after a dot too.
+  Not in capture the flag, King of the Hill, Oddball or Race, where the
+  objective is what to find. `HALO_BOT_OFF=seek` turns this off. (In
+  test games of bots only, the number of kills did not change: the bots
+  already went to find each other.)
+- **The motion tracker.** A bot keeps every dot on its motion tracker in
+  mind for 4 seconds (8 at most), not only the nearest, and tells its team
+  where they are. It does not turn to look at a dot that is more than 14
+  world units away while it goes somewhere: it knows they are there.
+  Hurt, with three or more dots near it, it breaks off the fight.
+  `HALO_BOT_OFF=radar` turns this off.
+- **The top level.** From skill 8 the traits that make mistakes are drawn
+  toward a master's, and at 10 they are a master's: no detours on a whim,
+  no jumps at nothing outside a fight, steady when hit, bursts where they
+  are best, and the objective first. The traits that give a bot its
+  character (how bold, how patient, its weapon, its love of vehicles)
+  stay. Its movement changes direction at once instead of over a few
+  ticks.
+- **Grenades up and down.** To a place more than 1.5 world units above or
+  below, a bot throws the high way first, which comes down on the place
+  and stays there; the low way comes in flat and bounced and rolled on
+  past the target, or over an edge. In test games on Chill Out, Hang 'Em
+  High, Prisoner and Damnation, grenades thrown down landed within 3 world
+  units of the place 80% of the time instead of 68%, and grenades thrown
+  up 57% of the time instead of 27%.
+- **Teleporters.** A teleporter (a one-way one too) is a way for the bots
+  when its pad is near floor that they walk on, also when the pad stands
+  on a housing (Death Island's, Icefields', Danger Canyon's were not used
+  before). Bake the navigation again (`AAS_CACHE_VERSION` 33 does this by
+  itself).
+- **Out of reach in a vehicle.** A driver whose enemy is somewhere that no
+  vehicle goes (up on rocks, over the water) drives as near them as it can
+  and shoots from there if its vehicle has a gun; with no gun, or still
+  nowhere after a few seconds, it gets out and goes after them on foot.
+  It no longer stands still below them.
+- **Team King of the Hill.** The hill comes before anything: a bot on the
+  hill stays on it and fights from it, and a bot off the hill goes back.
+  When the hill is the team's (players of the team on it, none of the
+  other team) and others hold it, a bot can guard just outside it, on the
+  side of the nearest enemy. A better weapon a few steps away (6 world
+  units or less, near the hill) is taken first. `HALO_BOT_OFF=hill`
+  turns this off.
+  In 15 games of team King of the Hill (Blood Gulch, Hang 'Em High, Chill
+  Out, Damnation, Battle Creek; 8 bots), a team held the hill alone (and
+  scored) 67% of the time instead of 55%.
+
+### Crouching, ramps, gaps, the way to the flag, the road ahead
+
+- **Crouching.** A bot crouches in cover, in a jump (the legs tucked up to
+  clear a ledge, and only while it is in the air), and as its character
+  has it (a duck in a fight, now and then). It no longer crouches where it
+  lies in wait, and the tuck of a jump no longer goes on after it lands:
+  bots crouch-walked off from a short hop for half a second, and crouched
+  where they waited for someone, which looked like a bot gone wrong.
+  `HALO_BOT_OFF=standup` puts both back.
+- **Up a ramp.** On its way somewhere, straight on up a slope (or at a run
+  a step or two from the foot of one) with room over its head and the
+  floor going on, and nobody about, a bot hops, as players do. `HALO_BOT_OFF=hop` turns this
+  off. (In test games on Chill Out, Wizard, Hang 'Em High and Damnation
+  the hops were no quicker: the bots already ran up the ramps at their
+  full speed, about 2 world units a second along the slope, and a body in
+  the air does not speed up.)
+- **Gaps at a run.** A bot of skill 7 or more that comes to a gap already
+  running at it, in line with the jump, jumps it from the run instead of
+  going back for a run-up.
+- **The way to the flag.** A bot on its way to the flag, the hill or the
+  ball takes the quickest way most of the time, and a way round by one side
+  now and then (the patient more often), instead of nearly always. On
+  Wizard, the bots went round the sides to the flag; the quickest way from
+  one flag platform to the other is across the middle, by the gaps onto the
+  ring round the pillar and off it. In test games on Wizard the bots
+  captured a flag 0.58 times a minute instead of 0.47, and in 40 games of
+  capture the flag (Wizard, Battle Creek, Hang 'Em High, Blood Gulch, Chill
+  Out; skill 10) with this on for one team, that team captured 0.4 more
+  flags a game. `HALO_BOT_OFF=direct` puts the way it was back.
+- **In for the blow.** A bot that has made up its mind to go in for a melee
+  goes in; with a rocket launcher it used to go in and then back off from
+  the same one, in turn, every few ticks. `HALO_BOT_OFF=steady`.
+- **Water.** The vehicles' navigation (by the areas and across country)
+  leaves out floor under water deeper than about 0.8 world units, where
+  the game gives a vehicle no drive. (Bake the navigation again:
+  `AAS_CACHE_VERSION` 34 and the country's cache version 9 do this.)
+- **Driving: the road ahead.** A driver steers at a point further on along
+  its way the faster it goes (up to 14 world units by the vehicle areas,
+  and 18 world units or 2.2 seconds across country, from 14 or 1.6
+  seconds), so that it cuts the corners and turns early and gently instead
+  of at each corner as it comes to it. `HALO_BOT_OFF=lookahead` turns this
+  off.
+  In 21 test games on Death Island, Blood Gulch, Sidewinder, Icefields,
+  Timberland and Danger Canyon, the vehicles were on their side 0.24% less
+  of the driving time (0.75% before); the speed, the kills and the
+  deaths in vehicles did not change by more than chance.
+
+### Driving and flying: measured, and what changed
+
+**The driving benchmark.** `HALO_BOT_DRIVEBENCH=<kind>` (`any`, `ground`,
+`air`, or part of a vehicle's tag name: `warthog`, `ghost`, `banshee`...)
+turns a game into a test of the driving. Every bot leaves everyone alone,
+walks to the nearest free vehicle of that kind and gets in, and drives legs
+between places at least 40 world units apart (the places of
+`HALO_BOT_TOUR=x,y,z;x,y,z;...`, or the map's own places: the same ones
+for the same bot in every build). The log has a `drivetest` line for each
+leg: its length, its time, how often the vehicle stood (half a unit a
+second or less, for a second or more), how long it stood in all, how long
+it went backwards, and how it was driven (1 far across country, 2 by the
+ground, 3 by the vehicle areas, 4 flown). A leg ends `in`, `given up`
+(after 90 seconds, or a second for each 2 units of it), `out` (the driver
+got out) or `no way` (no route from where it is). `tools/bot_drivetest.py`
+adds the lines up per game and per vehicle.
+
+**On the ground.**
+
+- **The speed for the bends ahead.** A driver going across country works
+  out from the way ahead how sharp each bend of it is (the radius of each
+  six-unit stretch) and the speed it can take each one at, and brakes for
+  the first one it would be too fast for. Before, it took how far the whole
+  way ahead swung in all, so a long gentle curve slowed it as much as one
+  sharp corner.
+- **The grip.** Each vehicle learns how well it holds the ground from its
+  own turns: round a turn at speed with its nose where it is going, a
+  little more grip; with its tail out, a good deal less. The bend speeds go
+  with it (from 0.8 of what they were, on ice, to 1.8, a Ghost or dirt).
+  They were tuned for a Warthog on snow everywhere.
+- **Round in three.** With its way behind it, standing, and no room before
+  it to go round by a loop, a driver backs round with its wheels turned
+  away from the way, then drives on.
+- **Fewer stops for riders.** A driver with nobody of its own side on foot
+  near it, or on the way to it, drives off at once. The longest waits for
+  riders are 5 seconds and 3 seconds on the way (7 and 5 before).
+- **In a fight, by vehicle.** A Warthog with nobody on its gun runs people
+  down where they will be when it gets there and goes on past them for the
+  next turn at them; one with a gunner keeps out at the distance the gun is
+  good at, never on top of them; a tank backs off from someone close; a
+  Ghost goes past and round, never standing.
+- **Vehicles that do not get out of where they stand** (the Tachikomas'
+  bays at the ends of Hugeass): each time one is given up where it was
+  given up before, the bots leave it be twice as long, up to most of ten
+  minutes.
+- **The same vehicle again.** A bot that gets back into the vehicle it
+  just left drives (or flies) it afresh. It used to carry on the old
+  "held up" count, so a pilot got straight out of the jet it had landed.
+- `HALO_BOT_OFF=grip` puts back the bend speeds, the grip and the loop
+  round; `riders`, the waits; `vfight`, the fighting.
+- **Measured** with the benchmark (one game of each, 200 seconds at three
+  times the speed, eight bots, the same build with
+  `HALO_BOT_OFF=grip,riders,vfight,airsearch,airahead,airpull,evade` and
+  without; Blood Gulch, Sidewinder, Death Island, Danger Canyon, Icefields,
+  Hugeass): the mean speed over the ground did not change (1.38 world units
+  a second of progress, against 1.36), the time stood still came down from
+  4.1 seconds a leg to 2.6, and more legs ended with the driver out of the
+  vehicle (67 of 286, against 52 of 274: perhaps chance). The vehicles are
+  slow: about 2 world units a second over a leg, on maps where a Warthog
+  does 8 on a straight. The way across country and the corners still cost
+  the most; this is not solved.
+
+**In the air.**
+
+- **More route searches.** The pilots' ways round the high ground are
+  searched three a tick instead of one, so a pilot waits less for its turn
+  while it flies straight at the hill in front of it (`HALO_BOT_OFF=airsearch`).
+- **The ground further ahead.** A craft keeps the height for three seconds
+  of the way ahead instead of two, and past the turn it is steering for,
+  along the next leg of its way (`airahead`).
+- **Out of a dive** while there is still the height to pull out in, by how
+  fast it comes down and how fast it goes, for every craft
+  (`airpull`).
+- **Out of the way of a rocket.** A rocket or a fuel rod coming at a craft:
+  across its line and down (up, when it is low), whatever it was about.
+  Hit on its way somewhere, it weaves (`evade`). (A Banshee of Halo PC has
+  no boost to use for it.)
+- **A flag carrier does not take a craft that cannot get off** from where
+  it stands: a jet facing the wall of its bay, or one under a roof that
+  cannot rise on its jets out from under it. On Hugeass a carrier got into
+  a jet facing its bay's wall, held the throttle open for six seconds,
+  and got out again.
+- Measured as the driving was, the flying is as it was (6.35 world units a
+  second over a leg, against 6.31: nobody shoots in the benchmark, so it
+  does not try the dodging).
+- `HALO_BOT_STATS` has the flying in it: `air_seconds` (at the controls),
+  `air_up` and `air_pressed` (percent of that time up, and held where it
+  is against something), `air_kills`, `air_deaths`, `air_landings`,
+  `air_dropoffs`, `air_bumps` (flown into something), `air_stuck` (out of a
+  craft that was held up), and `air_trips` with `air_trip_seconds` (the
+  mean time from taking a craft to arriving).
+
+**On foot, the top level.** At skill 10 (the top of the scale, as
+`master`) a bot runs where it is going and looks where it runs. Its look
+about on the way is a short glance to a corner, about half as far round as
+before, less often, and never a turn right round with somewhere to be; a
+noise or someone gone out of sight pulls its look half as far off the way
+it runs. Lower skills look about as before. At skill 10 it also flicks
+round faster: 12.5 radians a second instead of 8. `HALO_BOT_OFF=purpose`.
+In 40 team games at skill 10 (Hang 'Em High, Battle Creek, Damnation,
+Chill Out, Prisoner) with this on for one team, that team scored 4.1
+more a game (± 2.2). In test games on Chill Out the bots of skill 10 ran
+with their look more than 0.7 radians off the way they ran 24% of the
+time, from 45%.
+
+**More for the vehicles.**
+
+- **Each vehicle's own handling.** The speed limits for turning, the
+  steering limit, and the braking that a driver plans with (for corners and
+  for something in the way) were the Warthog's for every vehicle. Now they
+  scale with the top speed in the vehicle's tag, against the Warthog's tag
+  (about 8: the tag holds the throttle's speed, not the speed on the
+  ground). A Tachikoma (16.5) takes its turns faster, and a slow vehicle
+  slower. The log has each vehicle's values once.
+  `HALO_BOT_OFF=handling` gives every vehicle the Warthog's.
+- **The driving by the areas only under a roof.** A driver held up
+  repeatedly on the ground changed to the areas for 12 seconds, everywhere.
+  Now it does so only under a roof (something solid within 8 units above it:
+  a building, a tunnel). In the open, the ground's own way out is used.
+  `HALO_BOT_OFF=inside`.
+- **Round something by a clear way, not braking for it.** A driver that
+  steers round a tree or a rock by a way that is clear now brakes for that
+  way, not for the thing it is going round. The way round is measured again
+  each tick. `HALO_BOT_OFF=swerve`.
+- **Getting clear ends when it is clear.** After it is held up, a driver
+  backs or turns away for two seconds. Now it stops after about half a
+  second if it is 3 units from where it was held and the way it goes is
+  open. `HALO_BOT_OFF=clearsoon`.
+- **Dead ends where a vehicle stands.** A ground vehicle that stands empty
+  is checked once for a way out over the ground to where the map's other
+  ground vehicles stand. It checks the ground's ways and then, under a
+  roof, the areas. A vehicle with no way out is left alone where it stands
+  (the log has `bays:`). A vehicle that strands twice at the place where it
+  stood when first seen is a dead end too. Those places go in
+  `<map>_<bsp>.bays` beside the map's navigation (one line each: the tag
+  and the place), so later games know them. A baked `.bays` file is read
+  first. On Hugeass, the check found the two Kagotank bays at the ends.
+  `HALO_BOT_OFF=bays`.
+- **Pilots share their ways.** A way that one pilot found is used for ten
+  seconds by any pilot that sets off from near there to the same place
+  with no more room needed. There are only a few searches each tick, and
+  two craft that left the same pad waited a second each for the same
+  search. `HALO_BOT_OFF=airshare`.
+- **A hold before a Pelican or a Longsword lands.** A large craft slows all
+  the way in and hangs steady over the place for most of a second before it
+  goes down. Before, it came down still sliding, and landed at an angle
+  across the place or past it. `HALO_BOT_OFF=airhold`.
+- **Kills and deaths in vehicles.** `HALO_BOT_STATS` already had
+  `vehicle_kills`, `vehicle_deaths`, `air_kills` and `air_deaths`.
+- `HALO_BOT_DRIVELIMIT=1` writes to the log, every 900 driving ticks, which
+  step of the driving lowered the throttle on each tick: the way (corners,
+  narrow places), the place near, things in the way, a wall, the handling,
+  held up, getting clear, a run-up, backing. It also gives how many of those
+  ticks the speed was under 2.5.
+
+Measured with the driving benchmark (`HALO_BOT_DRIVEBENCH`, 200 seconds a
+map on Blood Gulch, Sidewinder, Death Island, Danger Canyon, Ice Fields and
+Hugeass), against the same build with all of these off: the ground
+vehicles made 3.22 world units a second toward their places, from
+2.24, and 3.00 over a finished leg, from 2.35. The
+flying is the same as before (10.9, from 11.2 over a leg). The share of
+driving ticks slowed by things in the way went from 9.1% to 7.6%. A first
+version ended the getting clear too early, after the short getting clear
+that a wall starts. Vehicles on Ice Fields then stood for up to 90
+seconds, swerving with the throttle shut. That is fixed.
+
+### What the test levels found
+
+The bots were run on the test levels (`tools/bot_levels/test.py`) with this
+build and with a build from before the free-for-all and vehicle work, with
+nobody shot at (`HALO_BOT_PEACE=1`: no targets, and no weapons, power item
+timing, hunting or fights heard as goals; the level test plays its games so
+unless `--fights` is given). What was wrong, and what changed:
+
+- **Jumps onto a ledge came down on its corner.** Of the places to jump up
+  or drop between two areas, the first that stood was kept, and along a
+  straight ledge, where they all cost the same, the first was the end of
+  the edge. A bot jumped onto a block at its corner, and the next jump began
+  at the next corner, with a fall on two sides. Now the places a body's
+  width or more in from the ends come first. On the climbing tower, deaths
+  went from 26 to 1, and the samples with a bot at the top from 1 to 1458
+  (the older build had 528). `HALO_BOT_OFF=ledgeends`.
+- **No running jump up over a dip.** A gap whose landing is higher than the
+  takeoff was not a way when the floor under the gap is only a hop down: the
+  bot was to drop and jump up instead. When the landing is higher than a
+  jump from that floor, that way does not exist, and the blocks of a chain
+  of running jumps were reached from nowhere. Now the jump over the gap is
+  a way then. On the jump spiral, the tour went from 21 legs (50 given up)
+  to 649 (none given up). `HALO_BOT_OFF=gapup`.
+- **Back and forth into a sliver of an area.** On the ramp up to the flag of
+  Hang 'Em High at 32.7, -16.5, a bot strayed into a narrow area beside its
+  way, whose way on is back into the area it left. From that one, the way
+  went on into the sliver again. Now, for a second and a half after it
+  leaves an area, a bot whose way goes back there plans from that area, as
+  if still in it. The bot's stalls on the way between the flags fell from
+  55 to 26 samples. `HALO_BOT_OFF=sticky`.
+- **The way round to the flag was always the shortest.** In capture the flag,
+  the ways round to the enemy's flag were scored by length alone, and the
+  bots took the same one every time. Going to the hill (not scored as an
+  objective) they took any of them. Now any way round within the detour
+  allowed is about as likely as any other (`HALO_BOT_OFF=routemix`). A
+  carrier still goes home the quickest way.
+- **Going to find someone, to where they were.** A bot hunting someone went
+  to where they stood when it set off, for up to half a minute on a big map.
+  Now the goal follows them as they move, and the trip (its way, its lane,
+  its way round) is kept. `HALO_BOT_OFF=follow`.
+- **The levels:** the jump gaps level's ramps out of the pit ran the wrong
+  way, and the zigzag's jumps up of 0.5 were at the limit of a running jump
+  (they are 0.45 at most now). The levels whose legs are longer than the
+  test's minute (the big mazes, the loop on foot) give up most of their legs
+  in both builds.
+
+### How the bots find their way, and what they cost
+
+A bot finds its way with a search that starts at its goal. The search goes
+only as far as the bot is from the goal. If a bot farther away asks for the
+same goal, the search continues from that point. The result is the same as
+that of a search of the full map.
+
+The bots do their heavy work in small parts, so that one tick is not much
+longer than the others:
+
+- Each team has a map of the places where its bots saw enemies, and its
+  routes go around those places. The game makes this map a part in each
+  tick, and each team has a new one every 2 seconds.
+- A bot that looks for a way around (a flank, another way into a base)
+  tries one place in each tick.
+- A bot that selects a thing to get asks for the way to a thing only when
+  that thing can be the best one. It selects the same thing.
+- The bots start a maximum of 3 new searches in one tick for the things
+  that they only compare. After that, a thing that has no search has its
+  straight-line distance in that tick, and its search in a subsequent tick.
+  A bot that walks to a place always gets its route in the same tick.
+- A place in a part of the map that has no connection to the part of the bot
+  (a part of a very large map, a ledge that nothing goes to) has no route.
+  The game knows this without a search.
+- In a game with 12 players or more, a bot looks at all the players every
+  second tick (every third tick with 24 players or more). In the other
+  ticks it looks only at its target.
+- A bot far from a target that moves keeps its route until the target has
+  moved a fifth of the distance between them (4 world units at most).
+
+`HALO_GAME_SPEED=<n>` runs a test game at n times its speed (the game
+does more ticks for each frame; each tick is the same as at the usual
+speed). A game with only bots runs 6 to 9 times as fast on one processor
+core, and a game on a very large map about 2 times.
+
+`HALO_BOT_PROFILE=1` writes the time that the parts of the bots use to the
+log every 5 seconds, with the longest tick, and a line for each bot that
+used 2 ms or more in one tick. `HALO_BOT_ROUTE_CHECK=1` compares each
+result with a search of the full map. The code is in `game/bots.c` (what a
+bot does), `game/bot_move.c` (how it moves), and `game/bot_nav.c` and
+`game/bot_aas.c` (the navigation data).
+
+### The flag carrier, escorts and wingmen
+
+In a game of capture the flag:
+
+- A bot with the flag of the other team gets into a vehicle of its team that
+  is near (30 world units or less), next to the driver, when home is 40 world
+  units away or more. It uses only a seat where the map lets it keep the
+  flag. If the map lets it keep the flag at the wheel (a jet on some maps),
+  it drives a vehicle that nobody has. It gets out near its own flag, or
+  when the vehicle stops for 3 seconds before it is home.
+- A bot that drives near a team member with the flag (30 world units or
+  less) goes to them, waits for them to get in, and then drives home.
+- The attackers that are nearest to a team member with the flag go with
+  them: one bot for a team of 3 players or fewer, two bots for 6 or fewer,
+  three bots for more. One goes ahead on the way home, one goes behind
+  (between the carrier and the players who chase them), and one goes at the
+  side. If the carrier is in a vehicle, they get in it if it has a seat. If
+  the carrier dies, an escort that is near takes the flag. The defenders
+  stay with their flag.
+- A person of the team who goes forward (closer to the other base than
+  one and a half times the distance to their own base) on foot, without
+  the flag, gets a wingman: the nearest attacking bot (45 world units or
+  less) goes with them, a few steps behind and to the side.
+
+In all the team games, a bot drives a vehicle of its team that has nobody
+at the wheel and a person in another seat (the gun, or next to the driver):
+from 80 world units or less, before it does other things (but not before a
+fight, and not a defender in capture the flag). A person who drives gets a
+gunner first, as before.
+
+`HALO_BOT_STAND_IN=<n>` is for tests: the other bots treat the bots in the
+first n places of the game as persons. Thus a game with only bots shows
+what the bots do for persons.
+
+### What the bots know of someone out of sight
+
+A bot that has lost sight of someone it was fighting, while they are still
+on its motion tracker or it hears them, knows where they are as a tracker's
+dot tells it: about there (within a third of the distance), a little more
+than once a second, and not which way they are going. It knew where they were
+to the inch every tick, and its look followed them along behind the wall.
+Where it expects them to come out is where they were last seen, carried on
+for at most a second of how they were going. The tracker's other dots are
+looked at as seldom, as roughly, and not at their exact height.
+`HALO_BOT_OFF=fair` puts back the way it was.
+
+`HALO_BOT_SIGHTCHECK=1` measures it: each tick a bot has someone in its
+sights, whether the map is between them by a stricter test than its own
+(back faces as well), and the share of the time with nobody in sight that
+it looks straight at someone moving behind a wall. In test games on Hang 'Em
+High and Chill Out at skill 10, no bot saw through the map (0 of some 15,000
+ticks); it looked straight at someone moving behind a wall 16.9% of the time
+it had nobody in sight, from 18.2% (most of that is the place it lost them,
+where they still are).
+
+### Everyone for themselves: the free-for-all
+
+In a game without teams, a bot of skill 4 and up (fully at 10) plays some
+habits of a good free-for-all player. Each habit has a name, and
+`HALO_BOT_OFF2=<names>` turns it off for all bots (`all` turns off all of
+them). `HALO_BOT_OFF2_T0` and `_T1` turn it off for one team.
+`HALO_BOT_OFF2_EVEN` and `_ODD` turn it off for the bots in the even or the
+odd player slots. This compares half the bots of a game with the other half.
+
+- `third`: a target with its shields down (from any player) or busy with
+  someone else is taken first. This adds to the bot's earlier preference
+  for a busy target.
+- `focus`: the target nearest to death comes before the nearest target.
+  While the bot sees its target, it changes to a new one only for a real
+  threat (near, with its gun on the bot).
+- `leader`: the player who leads alone is a more likely target. A bot that
+  leads plays carefully: it hunts less, does not go to fights it hears, and
+  values items and its own places more.
+- `reset`: after a kill, with its shields under three quarters, the bot
+  goes to cover near it for up to 5 seconds until its shields are full. The
+  cover is out of sight of the nearest enemy, and no more enemies see it
+  than see where the bot stands.
+- `spots`: each map keeps a count for each part of it. A kill from a place
+  adds one, and a death there takes one off. The count lasts until the map
+  changes, so it carries over from one game on a map to the next. Every 30
+  seconds, a bot replaces its worst place (bot_goal_haunts) with one where
+  the count is good. A place with a good count is worth more to go to and
+  to hold.
+- `spawnwise`: with no shields, the bot does not start a fight with a player
+  who spawned less than 4 seconds ago with full shields. If one comes at it
+  first, it goes to cover.
+- `crowd`: a grenade into a fight. The bot looks for players further from
+  its target than before, and two players who shoot at each other count as
+  a fight.
+- `range`: each gun at the range where it wins. The shotgun and the
+  flamethrower go in close. A gun with a scope keeps its own range, whatever
+  the bot's aggression. The assault rifle stays close and melees a target
+  whose shields are gone.
+- `disengage`: a fight that the bot is losing (no shields, its health going,
+  the enemy in much better shape) makes it go for health further off, up
+  to 30 units.
+- `combo`: the bot throws a grenade at a near enemy (5 to 9 units) with some
+  shield left, then melees when the shields are gone.
+- `sounds`: with full shields and health, a fight the bot hears is worth
+  more (to take the winner). Hurt, the bot does not go to it.
+- `behind`: the bot looks behind after a kill, and every few seconds while
+  it stands still. It does not do this while it moves to a place.
+- `routes`: hurt, the bot takes the ways that enemies watch least (the
+  danger map that the flag carrier uses).
+- `style`: each bot has a free-for-all style for the match. The `roamer`
+  hunts and explores. The `controller` takes weapons and knows when they
+  come back. The `camper` holds a good place. The `opportunist` goes to the
+  fights of other players. The debug panel shows the style.
+- `powertime`: the time when power weapons and powerups come back (as
+  before) counts for more.
+
+`HALO_BOT_STATS` gives these figures for each half of the bots in a game
+without teams: `e0_` for the even slots and `e1_` for the odd slots. The
+figures are `kills`, `deaths`, `suicides`, `score`, `trades` (deaths within
+2 seconds of a kill by the bot) and `unseen` (deaths to a player the bot had
+not seen in the 3 seconds before). There is also `contact`: the mean time in
+seconds from a spawn to the first enemy in sight.
+
+Measured with all the habits on for half the bots and off for the other
+half, 60 games of slayer at skill 10 (5 minutes each, 8 bots: Chill Out,
+Hang 'Em High, Prisoner, Damnation, Battle Creek, Wizard), both ways
+round: the half with them scored 1.1 (± 1.0) more a game. That is not more
+than chance. In groups of habits (24 games each, the score of the half
+with them less that of the half without): the targeting habits (`third`,
+`focus`, `leader`, `spawnwise`) +1.0 ± 2.4; `reset`, `spots`, `sounds`,
+`style`, `powertime` +0.9 ± 2.2; `crowd`, `range`, `disengage`, `combo`
++0.3 ± 2.3 (1.0 fewer deaths ± 1.1); `behind` +2.7 ± 2.5; `routes`
++0.9 ± 2.6.
+`tools/bot_ffa_ab.py` makes this comparison for any habits (turned off for
+one half of the bots, then for the other half, with the same seeds). It
+needs many more games than these to show a difference of a kill or two in
+about 90 kills a game.
+
+### Watch the bots: the debug window, the panel and the cameras
+
+On the machine that runs the bots (your own game, or the one you host):
+
+| Key | What it does |
+|---|---|
+| F7 | Opens (and closes) the bots' window: a second window beside the game's. It has a table of every bot (team, skill, health, shield, weapon or vehicle, goal and how far, who it shoots at, speed, and what it is doing), then all of the bot chosen: its health, place, speed and facing, weapon and rounds, the controls it pressed; its goal, who it is after and where they were last seen, the motion tracker's dots it keeps, what it looks at and why, how it moves and why it stands still, its route; its vehicle and how it drives or flies it; its character; and its last 40 log lines. Its mouse wheel, Page Up, Page Down and Home scroll it; + and - make its text larger and smaller. (Release the mouse with F12 to use it.) |
+| Shift+F7 | The chosen bot's part on the game's own screen, on the left (for a game that fills the one screen) |
+| Ctrl+F7 | Saves all of it, of every bot, to `bot_debug_<date>_<time>.txt` in the logs folder: a file to send with a report |
+| F8 | The next bot (Shift+F8: the one before; Ctrl+F8: the bot in the middle of your view) |
+| F10 | The camera: through the chosen bot's eyes, then from behind it, then free, then your own again. The free camera (noclip) flies as you move: the movement keys (or the left stick) move it, the mouse (or the right stick) looks about, fire rises, the grenade button sinks, and the d-pad's up and down change its speed. Your own player stands still while the camera is not yours. |
+| Shift+F10 | Back to your own view |
+
+While the window or the panel is open, the chosen bot has lines in the
+world: its goal green, who it shoots at red (where they were last seen
+orange), the motion tracker's dots it keeps yellow, where it drives cyan, and
+the way it moves white. The bots keep their log lines for the window while
+it is open (as `HALO_BOT_LOG=1` would, without writing them to the log).
+
+`HALO_BOT_DEBUG` starts the game with any of them: `window`, `panel`, `eyes`,
+`behind`, `fly`, `bot=<number>` (the bot chosen), and `save=<seconds>` (the
+file of every bot after that many seconds of the game), for example
+`HALO_BOT_DEBUG=window,behind,bot=3`.
+
+The window draws with SDL's own software renderer and its built-in font, so
+it does not touch the game's OpenGL; there is none on Android, the consoles
+or the dedicated server (Shift+F7's panel works everywhere there are bots).
+
+### Measure the bots
+
+`HALO_BOT_STATS=<seconds>` writes a line that starts with `bot stats:` to the
+log at that interval of game time (60 seconds when the value is not a
+number). Each value counts from the start of the game, thus the last line of
+a game is the result of that game:
+
+- `caps0`, `caps1`: the captures of each team (capture the flag), and
+  `score0`, `score1`: the score of each team (all the team games).
+- `pickups`, `drops`, `returns`: a flag that a player takes, a flag that a
+  carrier drops, and a flag that goes home without a capture.
+- `carrier_rides`: a bot that gets into a vehicle with the flag.
+- `kills`, `deaths`, `suicides`: the totals of the bots.
+- `stuck`: a bot that stops trying a way where it is stuck.
+  `route_failed`: a way between two areas that a bot cannot use.
+- `vehicle_kills`, `vehicle_deaths`: kills by bots in a vehicle and
+  bots killed in one. `bailouts`: a bot that gets out of a vehicle because
+  it is stuck, or the vehicle cannot go where the bot goes. `dismounts`: a
+  bot that gets out to fight on foot. Each counts once a ride.
+- `drive_speed`: the mean speed of the bots that drive, in world units a
+  second. `flipped`: the percentage of the driving time in a vehicle on
+  its side or its roof.
+- `idle`, `driving`, `gunning`, `riding`, `escort`, `with_people`: the
+  percentage of the time of the bots that they stand on foot with no
+  target and no place to hold, drive, use a gun of a vehicle, ride in
+  another seat, escort a carrier, and help a person (their gun, their
+  vehicle, or as a wingman).
+
+`HALO_BOT_PORTCHECK=1` checks that the game does what a bot asks of it: the
+first bot (the others stand) turns its look by a radian, and pushes its
+stick forward, to the side, forward and to the side, and back, two seconds
+each, and the log has how many ticks the game took to turn it and to start
+it moving, and its top speed in that direction. In this build the game
+turns a bot and starts it moving on the next tick, and the speeds are the
+game's own (2.25 world units a second forward, 2 to the side and back).
+
+`tools/bot_games.py` plays a set of games with no window and gives these
+values for each map and for all the maps: per 10 minutes of game,
+per hour of bot time, and as percentages. With `--compare`, it plays the
+same games with a second build (the same seeds) and gives the difference
+and its standard errors (2 or more: the difference is probably not
+chance). For example:
+
+```
+python3 tools/bot_games.py --build build/linux64/halo --compare old/halo \
+    --data ~/halo --games bloodgulch:ctf:12,sidewinder:ctf:14 --seeds 1-6
+```
+
+`--data` is a folder with the `maps` folder (and a `navcache` folder, if
+you baked the navigation). The two builds must both write `bot stats:`
+lines.
+
+`tools/bot_levels` makes 23 small test maps, one for each thing the bots
+do (jumps, chains of jumps upward, ramps, teleporters, mazes, open ground to drive, a loop like
+Sidewinder). The maps are built with the Halo CE Editing Kit and Invader,
+and `tools/bot_levels/test.py` runs the bots on them and sums up the
+results. See `tools/bot_levels/README.md`.
+
+## Infection
+
+Infection is a game type of the port for the multiplayer maps. The name of
+the game type is `infection`:
+
+- A dedicated server plays it from its playlist (`bloodgulch infection`).
+  Refer to [docs/dedicated-server.md](../../docs/dedicated-server.md).
+- A host that plays types `gametype infection` in the console while the
+  lobby shows. The menus do not show the game type. `gametype <name>` sets
+  each game type that a playlist can name.
+
+The rules:
+
+- All the players start a round alive. After `infection.countdown` seconds,
+  the game infects one player. This player is the first zombie. A game
+  needs two players.
+- A zombie has no weapon, no grenades and no shield, and cannot get them. It
+  moves faster than a player, and it kills with a blow of its hands (the
+  melee button).
+- A player who dies while there is a zombie comes back as a zombie. Zombies
+  come back as zombies.
+- The players of a side cannot hurt each other.
+- The round stops when no player is alive. The last player who was alive
+  wins the round. If `infection.round_minutes` minutes go by first, the
+  players who are still alive win the round.
+- A game has `infection.rounds` rounds. A player gets 1 point for each
+  zombie that they kill, 1 point for each player that they infect, and 3
+  points for a round that they win. The team scores show how many players
+  are alive (blue) and how many are zombies (red).
+- A zombie that is alone takes two times as much damage to kill, so that
+  the first zombie of a round can get to the other players.
+
+The zombies are the Flood of the campaign (the combat form). The
+multiplayer maps do not have the Flood. When a game of infection loads its
+map, the game takes the Flood from a campaign map in the `maps` folder
+(`c20`, `d20`, `c40`, `c10` or `d40`, the first that it finds) and adds it
+to the multiplayer map in memory: the model, the animations, the textures
+and the sounds. The first game of infection after the game starts takes
+approximately one second longer to load, because the game decompresses the
+campaign map. The map files do not change.
+
+The host makes its zombies of the Flood only while all the machines of the
+game have it. Each machine with a build that has infection tells the host,
+when it has loaded the map, whether its map has the Flood. If one machine
+has no campaign map with the Flood, or has a build without infection
+(OpenCE, a ChupathingyCE without infection), the zombies are players as
+they are, with no shield and no weapon: they hit with their hands, as a
+player with no weapon does in each build of this network version. The
+zombies that are the Flood at that time come back so.
+
+On the network, a game of infection is a game of team slayer, and a machine
+with a build without infection can be in it. That machine does not know the
+sides: it shows the teams of the lobby, and its player, as a zombie, has
+no weapon and sees no other change. The host applies the rules for all the
+players. Refer to [NETCODE.md](NETCODE.md#infection).
+
+The game adds the Flood only to the Xbox's multiplayer maps. On a Custom
+Edition map (`<name>@ce`), the zombies are players with no weapon.
+
+A game of infection sends no carnage report to the game list, from the
+host or from a player who joined it.
+
+The bots play infection. A bot that is a zombie runs to the nearest player
+who is alive and hits them. The other bots fight the zombies as they fight
+the players of the other team.
+
+The code is in `game/infection.c` (the rules) and `game/tag_import.c` (the
+Flood in a multiplayer map).
 
 ## Map checks
 

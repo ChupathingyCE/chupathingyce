@@ -458,6 +458,15 @@ short game_difficulty_level_get(
 	return game_globals->options.difficulty;
 }
 
+/* port: the map this game was made with, as it was asked for (a scenario's
+path, or a Halo PC map's name with its family's suffix: <name>@ce); for the
+bots' navigation's files (port/linux/game/bot_nav.c) */
+char const *game_options_map_name(
+	void)
+{
+	return game_globals ? game_globals->options.map_name : "";
+}
+
 short game_difficulty_level_get_ignore_easy(
 	void)
 {
@@ -634,6 +643,9 @@ boolean game_load(
 
 void network_distributed_new_game(void);
 void network_objects_placed(void);
+/* port/linux/game/bots.c */
+void bots_map_disposed(void);
+void bots_map_loaded(void);
 
 void game_initialize_for_new_map(
 	void)
@@ -702,6 +714,10 @@ void game_initialize_for_new_map(
 	/* (the map's objects, placed as on the host: a distributed client's own
 	from now on go elsewhere, port/linux/game/network_objects.c) */
 	network_objects_placed();
+	/* port: a host with bots works out the map's navigation now, while every
+	machine loads the map, not in the game's first tick
+	(port/linux/game/bots.c) */
+	bots_map_loaded();
 	ui_widgets_safe_to_load(TRUE);
 #ifdef HALO_XBOX_CONSOLE
 	/* port: a test build of more than 16 players logs its memory at each
@@ -968,6 +984,9 @@ void game_precache_new_map(
 void game_dispose_from_old_map(
 	void)
 {
+	/* port: the bots' navigation of the map, and what they knew of its game
+	(port/linux/game/bots.c) */
+	bots_map_disposed();
 #ifdef HALO_XBOX_CONSOLE
 	/* port: and at its end, with the objects' peaks over it */
 	{

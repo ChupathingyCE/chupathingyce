@@ -1257,6 +1257,53 @@ boolean game_engine_king_read_network_state(
 	return TRUE;
 }
 
+/* port: the bots (port/linux/game/bots.c): the hill's middle, when a king of
+the hill game is running and has a hill */
+boolean king_bot_hill(
+	real_point3d *center)
+{
+	extern struct game_engine *game_engine;
+
+	if (game_engine != &king_engine || king_globals.hill_point_count <= 0)
+		return FALSE;
+	*center = king_globals.hill_center;
+	return TRUE;
+}
+
+/* port: (port/linux/game/bots.c) how far the hill reaches from its middle
+(its farthest corner), and whether a player (absolute index) is on it */
+boolean king_bot_hill_reach(
+	real *radius)
+{
+	extern struct game_engine *game_engine;
+	long point_index;
+	real most = 0.f;
+
+	if (game_engine != &king_engine || king_globals.hill_point_count <= 0)
+		return FALSE;
+	for (point_index = 0; point_index < king_globals.hill_point_count; point_index++)
+	{
+		real dx = king_globals.hill_points[point_index].x - king_globals.hill_center.x;
+		real dy = king_globals.hill_points[point_index].y - king_globals.hill_center.y;
+		real reach = (real)sqrt(dx*dx + dy*dy);
+
+		if (reach > most)
+			most = reach;
+	}
+	*radius = most;
+	return TRUE;
+}
+
+boolean king_bot_player_on_hill(
+	long player_absolute_index)
+{
+	extern struct game_engine *game_engine;
+
+	return game_engine == &king_engine && player_absolute_index >= 0 &&
+		player_absolute_index < (long)NUMBEROF(king_globals.on_the_hill) &&
+		king_globals.on_the_hill[player_absolute_index];
+}
+
 #ifdef HALO_BIG_ENDIAN
 /* port: (game_engine.h) the state in the wire's byte order, either way */
 void game_engine_king_network_state_byte_swap(

@@ -120,6 +120,9 @@ long config_integer(char const *name);
 unsigned int network_game_client_host_network_version(void);
 unsigned long system_milliseconds(void);
 void console_warning(const char *format, ...);
+/* port/linux/game/infection.c's */
+void infection_handle_message(long machine_index, long type, long count, void const *data, long size);
+void infection_machine_ready(long machine_index, boolean new_machine);
 
 /* the host: a client's game run faster than its clock (a speed hack, which
 speeds up the machine's own clock: nothing on it can tell), found by its
@@ -4039,6 +4042,17 @@ static void distributed_send_notice(
 		_distributed_to_clients_reliably);
 }
 
+/* a text for everyone in the game (infection's: port/linux/game/infection.c):
+the host's notice in a network game, the console's own line in any other */
+void network_distributed_notice(
+	char const *text)
+{
+	if (game_in_progress() && game_connection() == _game_connection_network_server)
+		distributed_send_notice(text);
+	else if (game_connection() != _game_connection_network_client)
+		console_warning("%s", text);
+}
+
 /* (the host) the names of a client machine's players, in ASCII, for a
 notice ("?" for what is not ASCII) */
 static void distributed_machine_player_names(
@@ -4858,6 +4872,12 @@ void network_distributed_handle_message(
 		}
 		return;
 	}
+	/* (infection's own, which are none of the kinds below) */
+	if (header.type == _distributed_message_infection_state || header.type == _distributed_message_infection_hello)
+	{
+		infection_handle_message(machine_index, header.type, header.count, entries, (long)(size - sizeof(header)));
+		return;
+	}
 	/* (a kind this build does not know: dropped before anything reads it) */
 	if (!distributed_kind_known(header.type))
 	{
@@ -5175,6 +5195,8 @@ void network_distributed_handle_message(
 		/* (its count 1: the client asks again, having failed to make one of
 		the host's objects) */
 		network_objects_client_asked(machine_index, header.count != 0);
+		/* (what the machine's build knows of infection is not known yet) */
+		infection_machine_ready(machine_index, loaded);
 		/* (and the host's policy on aiming assist, and its shield effects) */
 		distributed_tell_aim_assist(machine_index);
 		distributed_tell_shield_effects(machine_index);

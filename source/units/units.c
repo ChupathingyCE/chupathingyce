@@ -6516,6 +6516,19 @@ static void unit_ping_animation(
 	unit = unit_get(unit_index);
 	unit_definition = unit_definition_get(unit->definition_index);
 
+	/* port: infection's zombies are not staggered by what hits them: the
+	Flood is by every shot and every limb lost, and a player in its body
+	could never hit back (port/linux/game/infection.c) */
+	{
+		extern boolean infection_player_is_zombie(long player_index);
+
+		if (!killed && infection_player_is_zombie(unit->unit.player_index))
+		{
+			suppress_hard_ping = TRUE;
+			force_hard_ping = FALSE;
+		}
+	}
+
 	if (killed)
 	{
 		feign_death = FALSE;
@@ -8865,6 +8878,16 @@ void unit_cause_melee_damage(
 	struct unit_datum *unit = unit_get(unit_index);
 	struct unit_definition *unit_definition =
 		unit_definition_get(unit->definition_index);
+
+	/* port: a zombie of infection hits whoever is before it, squarely: the
+	Flood's blow is damage about its hand, which falls away with distance
+	and seldom kills (port/linux/game/infection.c) */
+	if (target_object_index==NONE)
+	{
+		extern long infection_zombie_melee_target(long unit_index);
+
+		target_object_index = infection_zombie_melee_target(unit_index);
+	}
 
 	if (unit_definition->unit.melee_damage.index!=NONE)
 	{
@@ -12172,6 +12195,21 @@ void unit_network_forget_weapon(
 		unit->unit.current_weapon_index = NONE;
 	if (unit->unit.desired_weapon_index == slot || unit->unit.desired_weapon_index == NONE)
 		unit->unit.desired_weapon_index = unit_weapon_next_index(unit_index, NONE, 0);
+}
+
+/* would a unit sitting in a seat with this label have this weapon in hand
+there (as unit_can_use_weapon says of the seat it is in): for the bots,
+which ask before they sit down with a flag */
+boolean unit_seat_label_allows_weapon(
+	long unit_index,
+	char const *seat_label,
+	long weapon_index)
+{
+	return unit_set_or_test_seat_and_weapon_label(
+		unit_index,
+		seat_label,
+		weapon_get_label(weapon_index),
+		FALSE);
 }
 
 /* port: a weapon a unit holds, let go of before a script moves it

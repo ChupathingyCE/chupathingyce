@@ -16070,6 +16070,23 @@ boolean hs_scenario_postprocess(
 				scenario->hs_string_constants.size + 0x400);
 		}
 	}
+#ifdef HALO_CUSTOM_EDITION
+	/* port: a Halo PC map whose scripts name something this game does not
+	have (a function of Halo PC's own; its variables have stand-ins:
+	hs_compile.c, hs_parse_variable). The error below stops the game, and a
+	map file has no script source to compile again, nor tags to resize. The
+	map is played without its scripts. */
+	else if (!recompile)
+	{
+		error(_error_silent, "Custom Edition maps: this map's scripts are left out (%s%s%s)",
+			error_source ? error_source : "", error_source ? ": " : "",
+			error_message ? error_message : "an unspecified error occurred loading scripts");
+		data_delete_all(hs_syntax_data);
+		scenario->hs_globals.count = 0;
+		scenario->hs_scripts.count = 0;
+		success = FALSE;
+	}
+#endif
 	else
 	{
 		/* port: a Custom Edition map's scripts that do not load are
@@ -16101,6 +16118,13 @@ boolean hs_scenario_postprocess(
 		data_delete_all(hs_syntax_data);
 		hs_scenario_scripts_disable(scenario);
 		success = FALSE;
+	}
+	/* port, testing: HALO_HS_DUMP, the map's scripts in the log (hs_runtime.c) */
+	if (success && getenv("HALO_HS_DUMP"))
+	{
+		extern void hs_debug_dump_scripts(void);
+
+		hs_debug_dump_scripts();
 	}
 	if (restore_syntax_data)
 		hs_syntax_data = saved_syntax_data;
@@ -16320,6 +16344,22 @@ static boolean hs_compile_and_evaluate_command(
 			"config.toml to allow it (Online Games then shows \"Host cheats on\")");
 		error(_error_log, "the host's console: a command that changes the game refused (a public game)");
 		return FALSE;
+	}
+	/* port: the bots' commands ("bots <count>", "bot_skill <1-10>":
+	port/linux/game/bots.c), which are no script's either */
+	{
+		boolean bots_console_command(char const *text);
+
+		if (bots_console_command(expression))
+			return TRUE;
+	}
+	/* port: and "gametype <name>" for a host's lobby, infection's way in
+	(port/linux/game/infection.c) */
+	{
+		boolean infection_console_command(char const *text);
+
+		if (infection_console_command(expression))
+			return TRUE;
 	}
 	csstrncpy(buffer, expression, sizeof(buffer));
 	buffer[sizeof(buffer)-1] = 0;

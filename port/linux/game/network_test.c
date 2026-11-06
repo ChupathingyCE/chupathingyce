@@ -17,6 +17,8 @@ Automated system link sessions for testing the netcode without the menus
   "+" (bloodgulch+putput@ce) are the games' maps in turn, the
   last for the games past them, as a dedicated server's playlist moves its
   players to the next map;
+- "local:<map>[:<variant>...]" is "host" for a split screen game: the same
+  lobby, closed to other machines (the bots are in it: bots.c);
 - "join" searches for games and joins the first it finds, as picking it in
   the system link list does;
 - "watch" (a dedicated server's) logs the game each second and plays the
@@ -159,6 +161,8 @@ static struct
 {
 	boolean checked;
 	short mode;
+	/* (a host: its lobby closed to other machines, as split screen's is) */
+	boolean local;
 	char map_name[64];
 	char variant_name[64];
 	/* ... the variant of this game, of variant_name's list; and the seconds
@@ -260,12 +264,13 @@ static void network_test_read_settings(
 	char const *setting = config_string("debug.network_test");
 
 	network_test.checked = TRUE;
-	if (!strncmp(setting, "host:", 5) && setting[5])
+	if ((!strncmp(setting, "host:", 5) && setting[5]) || (!strncmp(setting, "local:", 6) && setting[6]))
 	{
 		char *colon;
 
 		network_test.mode = _network_test_host;
-		snprintf(network_test.map_name, sizeof(network_test.map_name), "%s", setting + 5);
+		network_test.local = setting[0] == 'l';
+		snprintf(network_test.map_name, sizeof(network_test.map_name), "%s", strchr(setting, ':') + 1);
 		snprintf(network_test.variant_name, sizeof(network_test.variant_name), "slayer");
 		colon = strchr(network_test.map_name, ':');
 		if (colon)
@@ -325,6 +330,9 @@ static void network_test_read_settings(
 	snprintf(network_test.pickup_weapon, sizeof(network_test.pickup_weapon), "%s",
 		config_string("debug.network_test_pickup_weapon"));
 	network_test.score_to_win = (long)config_integer("debug.network_test_score");
+	/* (HALO_NETWORK_TEST_SCORE: the same, for a run without a settings file) */
+	if (getenv("HALO_NETWORK_TEST_SCORE"))
+		network_test.score_to_win = atol(getenv("HALO_NETWORK_TEST_SCORE"));
 	if (network_test.mode != _network_test_off)
 		platform_log("network test: %s", setting);
 }
@@ -1599,7 +1607,9 @@ void network_test_update(
 			network_test_map(0, map, sizeof(map));
 			main_set_multiplayer_map_name(map);
 			player_ui_fast_setup_network_server();
-			platform_log("network test: hosting %s", map);
+			if (network_test.local)
+				network_game_accept_remote_connections(FALSE);
+			platform_log("network test: hosting %s%s", map, network_test.local ? " (split screen)" : "");
 		}
 		else if (!network_test.started)
 		{
@@ -1638,7 +1648,36 @@ void network_test_update(
 					/* debug.network_test_score: a short game, to test the next */
 					if (network_test.score_to_win > 0)
 						variant.universal_variant.score_to_win = network_test.score_to_win;
+					/* HALO_NETWORK_TEST_VEHICLES, HALO_NETWORK_TEST_WEAPONS: the
+					variant's vehicle set and weapon set by number (0 the map's
+					own, all of them: a map's aircraft are only in that one) */
+					if (getenv("HALO_NETWORK_TEST_VEHICLES"))
+						variant.universal_variant.vehicle_set = atol(getenv("HALO_NETWORK_TEST_VEHICLES"));
+					if (getenv("HALO_NETWORK_TEST_WEAPONS"))
+						variant.universal_variant.weapon_set = atol(getenv("HALO_NETWORK_TEST_WEAPONS"));
 					player_ui_set_game_variant(&variant);
+					/* HALO_NETWORK_TEST_BANSHEES=n: each team's vehicles by count
+					(the gametype's PC options): n Banshees, two Warthogs, a
+					Ghost and a Scorpion, where the map has places for them */
+					if (getenv("HALO_NETWORK_TEST_BANSHEES"))
+					{
+						struct game_variant_options options;
+						short side;
+
+						game_variant_options_default(&variant, &options);
+						for (side = 0; side < 2; side++)
+						{
+							options.vehicle_set[side] = VARIANT_VEHICLE_SET_CUSTOM;
+							options.vehicle_counts[side][_variant_vehicle_warthog] = 2;
+							options.vehicle_counts[side][_variant_vehicle_ghost] = 1;
+							options.vehicle_counts[side][_variant_vehicle_scorpion] = 1;
+							options.vehicle_counts[side][_variant_vehicle_banshee] = (byte)atol(getenv("HALO_NETWORK_TEST_BANSHEES"));
+						}
+						/* (as the gametype editor leaves the variant's own set) */
+						variant.universal_variant.vehicle_set = 0;
+						player_ui_set_game_variant(&variant);
+						player_ui_set_game_variant_options(&options);
+					}
 					network_game_server_change_game_variant(global_network_game_server_get(), &variant);
 				}
 				network_test.map_set = TRUE;

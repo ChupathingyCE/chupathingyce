@@ -111,6 +111,10 @@ Friends can't get into your game? See [docs/online.md](docs/online.md#if-friends
 - Missing Custom Edition maps download when you join
 - Community Xbox map packs, like Halo CE+
 
+**Bots and infection**
+- Bots: a host can fill its games with players it drives itself, on every map and game type ([how](port/linux/README.md#bots))
+- Infection, a new game type: one player starts as a zombie (the campaign's Flood), and everyone they kill joins them ([how](port/linux/README.md#infection))
+
 **Your stats**
 - A carnage report with medals for every finished game
 - Service records and leaderboards on [stats.chupathingy.org](https://stats.chupathingy.org)

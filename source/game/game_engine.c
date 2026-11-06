@@ -577,6 +577,7 @@ struct network_game *network_game_server_get_game(struct network_game_server *se
 #include "objects.h"
 #include "objects/damage_effect_definitions.h"
 #include "physics/collision_features.h"
+#include "physics/collisions.h"
 #include "player_rumble.h"
 #include "players.h"
 #include "players_runtime.h"
@@ -4612,6 +4613,234 @@ static struct
 } game_engine_vehicle_homes[MAXIMUM_VEHICLE_HOMES];
 static short game_engine_vehicle_home_count = NONE;
 
+/* port: more of each of a map's vehicles (the settings
+game.vehicle_multiplier and game.vehicle_multiplier_maps): the host makes
+the others when the game starts, each beside the map's own where there is
+room for it (ground about as high and as level, nothing of the map between
+or about it, clear of every other vehicle), and they come back as the
+map's own do. The clients get them as they get anything the host makes
+(the distributed netcode). They have no names: a map's script that names a
+vehicle means the map's own. */
+static long game_engine_vehicle_multiplier(
+	void)
+{
+	extern long config_integer(char const *name);
+	extern char const *game_options_map_name(void);
+	long multiplier = config_integer("game.vehicle_multiplier");
+	char const *maps = config_string("game.vehicle_multiplier_maps");
+
+	multiplier = PIN(multiplier, 1, 4);
+	if (multiplier > 1 && maps && *maps)
+	{
+		/* (the map by its file's name: without its folder, and without
+		the @ce or @md it is played under) */
+		char const *played = game_options_map_name();
+		char name[64];
+		char const *cut;
+		long length;
+		boolean found = FALSE;
+
+		if (!played)
+			return 1;
+		for (cut = played; *cut; cut++)
+		{
+			if (*cut == '\\' || *cut == '/')
+				played = cut + 1;
+		}
+		for (length = 0; played[length] && played[length] != '@' && played[length] != '.' && length < (long)sizeof(name) - 1; length++)
+			name[length] = (char)(played[length] >= 'A' && played[length] <= 'Z' ? played[length] + 32 : played[length]);
+		name[length] = 0;
+		while (*maps && !found)
+		{
+			long k = 0;
+
+			while (*maps == ',' || *maps == ' ')
+				maps++;
+			while (maps[k] && maps[k] != ',' && maps[k] != ' ' && maps[k] != '@' && maps[k] != '.')
+				k++;
+			if (k == length && k > 0)
+			{
+				long c;
+
+				found = TRUE;
+				for (c = 0; c < k; c++)
+				{
+					char letter = (char)(maps[c] >= 'A' && maps[c] <= 'Z' ? maps[c] + 32 : maps[c]);
+
+					if (letter != name[c])
+						found = FALSE;
+				}
+			}
+			maps += k;
+			while (*maps && *maps != ',')
+				maps++;
+		}
+		if (!found)
+			multiplier = 1;
+	}
+	return multiplier;
+}
+
+static boolean game_engine_vehicle_spot(
+	short home,
+	long copy,
+	real_point3d *spot)
+{
+	/* (to its hands, behind it and before it, and further out: so many
+	of its widths to the left, so many of its lengths forward) */
+	static signed char const offsets[24][2] =
+	{
+		{ 1, 0 }, { -1, 0 }, { 0, -1 }, { 0, 1 }, { 1, -1 }, { -1, -1 }, { 1, 1 }, { -1, 1 },
+		{ 2, 0 }, { -2, 0 }, { 0, -2 }, { 0, 2 }, { 2, -1 }, { -2, -1 }, { 2, 1 }, { -2, 1 },
+		{ 1, -2 }, { -1, -2 }, { 1, 2 }, { -1, 2 }, { 3, 0 }, { -3, 0 }, { 0, -3 }, { 0, 3 },
+	};
+	unsigned long const solid = FLAG(_collision_test_front_facing_surfaces_bit) | FLAG(_collision_test_structure_bit) |
+		FLAG(_collision_test_objects_bit) | FLAG(_collision_test_objects_scenery_bit) | FLAG(_collision_test_objects_machines_bit);
+	long object_index = game_engine_vehicle_homes[home].object_index;
+	struct object_datum *object = object_get(object_index);
+	real_point3d const *origin = &game_engine_vehicle_homes[home].position;
+	real_vector3d forward = game_engine_vehicle_homes[home].forward;
+	real_vector3d left;
+	real radius = MAX(object->object.bounding_sphere_radius, 0.6f);
+	real ground = origin->z - 0.5f;
+	struct collision_result collision;
+	real_vector3d ray;
+	real_point3d from;
+	long tried;
+
+	forward.k = 0.0f;
+	if (normalize3d(&forward) <= 0.0f)
+	{
+		forward.i = 1.0f;
+		forward.j = 0.0f;
+	}
+	left.i = -forward.j;
+	left.j = forward.i;
+	left.k = 0.0f;
+	from = *origin;
+	from.z += 0.5f;
+	ray.i = ray.j = 0.0f;
+	ray.k = -4.0f;
+	if (collision_test_vector(solid, &from, &ray, object_index, &collision))
+		ground = collision.point.z;
+	for (tried = 0; tried < 24; tried++)
+	{
+		real across = offsets[tried][0] * (radius * 1.3f + 0.3f);
+		real along = offsets[tried][1] * (radius * 2.1f + 0.3f);
+		real_point3d at;
+		struct object_iterator iterator;
+		boolean clear = TRUE;
+		long k;
+
+		at.x = origin->x + left.i * across + forward.i * along;
+		at.y = origin->y + left.j * across + forward.j * along;
+		at.z = origin->z;
+		/* (in the same room: nothing of the map from the one to the place) */
+		from = *origin;
+		from.z += 1.0f;
+		ray.i = at.x - from.x;
+		ray.j = at.y - from.y;
+		ray.k = 0.0f;
+		if (collision_test_vector(solid, &from, &ray, object_index, &collision))
+			continue;
+		/* (ground there, about as high, and level) */
+		from = at;
+		from.z = origin->z + 2.0f;
+		ray.i = ray.j = 0.0f;
+		ray.k = -5.0f;
+		if (!collision_test_vector(solid, &from, &ray, object_index, &collision) || fabs(collision.point.z - ground) > 1.2f ||
+			collision.plane.n.k < 0.85f)
+		{
+			continue;
+		}
+		at.z = origin->z + (collision.point.z - ground);
+		/* (room about it, and over it) */
+		from = at;
+		from.z += 0.6f;
+		for (k = 0; k < 8 && clear; k++)
+		{
+			ray.i = (real)cos(k * 0.7853982f) * radius * 0.9f;
+			ray.j = (real)sin(k * 0.7853982f) * radius * 0.9f;
+			ray.k = 0.0f;
+			if (collision_test_vector(solid, &from, &ray, object_index, &collision))
+				clear = FALSE;
+		}
+		ray.i = ray.j = 0.0f;
+		ray.k = 1.2f;
+		if (clear && collision_test_vector(solid, &from, &ray, object_index, &collision))
+			clear = FALSE;
+		/* (clear of every other vehicle, the ones just made too) */
+		object_iterator_new(&iterator, _object_mask_vehicle, 0);
+		while (clear && object_iterator_next(&iterator))
+		{
+			struct object_datum *other = object_get(iterator.index);
+			real dx = other->object.position.x - at.x;
+			real dy = other->object.position.y - at.y;
+			real dz = other->object.position.z - at.z;
+			real apart = 0.6f * (radius + MAX(other->object.bounding_sphere_radius, 0.6f));
+
+			if (dx * dx + dy * dy + dz * dz < apart * apart)
+				clear = FALSE;
+		}
+		if (clear)
+		{
+			*spot = at;
+			return TRUE;
+		}
+	}
+	return FALSE;
+}
+
+static void game_engine_vehicles_multiply(
+	void)
+{
+	long multiplier = game_engine_vehicle_multiplier();
+	short originals = game_engine_vehicle_home_count;
+	long made = 0, no_room = 0;
+	long copy;
+	short home;
+
+	if (multiplier <= 1)
+		return;
+	for (copy = 1; copy < multiplier; copy++)
+	{
+		for (home = 0; home < originals && game_engine_vehicle_home_count < MAXIMUM_VEHICLE_HOMES; home++)
+		{
+			struct object_placement_data placement_data;
+			real_point3d spot;
+			long new_index;
+			short added;
+
+			if (!object_try_and_get(game_engine_vehicle_homes[home].object_index))
+				continue;
+			if (!game_engine_vehicle_spot(home, copy, &spot))
+			{
+				no_room++;
+				continue;
+			}
+			object_placement_data_new(&placement_data, game_engine_vehicle_homes[home].definition_index, NONE);
+			placement_data.position = spot;
+			placement_data.forward = game_engine_vehicle_homes[home].forward;
+			placement_data.up = game_engine_vehicle_homes[home].up;
+			new_index = object_new(&placement_data);
+			if (new_index == NONE)
+			{
+				no_room++;
+				continue;
+			}
+			added = game_engine_vehicle_home_count++;
+			game_engine_vehicle_homes[added] = game_engine_vehicle_homes[home];
+			game_engine_vehicle_homes[added].object_index = new_index;
+			game_engine_vehicle_homes[added].position = spot;
+			game_engine_vehicle_homes[added].idle_since = NONE;
+			game_engine_vehicle_homes[added].name_index = NONE;
+			made++;
+		}
+	}
+	error(_error_log, "vehicles: %ld of each of the map's %d: %ld more made, %ld with no room beside the map's own",
+		multiplier, (int)originals, made, no_room);
+}
+
 /* still on the pad the map put it on: further than this, and empty, it can
 come back */
 #define VEHICLE_HOME_AWAY_SQUARED 4.0f
@@ -4717,9 +4946,27 @@ static void game_engine_update_vehicle_respawn(
 	long now = game_time_get();
 	short index;
 
-	if (respawn_ticks <= 0 || network_game_distributed_client() || now % TICKS_PER_SECOND)
+	/* (testing, HALO_VEHICLE_RESPAWN_SECONDS: the time, whatever the gametype's) */
+	{
+		static long forced = NONE;
+
+		if (forced == NONE)
+			forced = getenv("HALO_VEHICLE_RESPAWN_SECONDS") ? atol(getenv("HALO_VEHICLE_RESPAWN_SECONDS")) : -2;
+		if (forced >= 0)
+			respawn_ticks = forced * TICKS_PER_SECOND;
+	}
+
+	if (network_game_distributed_client())
 		return;
-	/* (where the map put them: the vehicles there at the first look) */
+	/* (where the map put them: the vehicles there at the first look, half a
+	second into the game, when they have come to rest; and the others of
+	them the settings ask for) */
+	if (game_engine_vehicle_home_count == NONE && now < TICKS_PER_SECOND / 2 && game_engine_vehicle_multiplier() > 1)
+		return;
+	if (game_engine_vehicle_home_count != NONE && (respawn_ticks <= 0 || now % TICKS_PER_SECOND))
+		return;
+	if (game_engine_vehicle_home_count == NONE && game_engine_vehicle_multiplier() <= 1 && (respawn_ticks <= 0 || now % TICKS_PER_SECOND))
+		return;
 	if (game_engine_vehicle_home_count == NONE)
 	{
 		struct object_iterator iterator;
@@ -4739,7 +4986,10 @@ static void game_engine_update_vehicle_respawn(
 			game_engine_vehicle_homes[home].idle_since = NONE;
 			game_engine_vehicle_homes[home].name_index = object->object.name_index;
 		}
+		game_engine_vehicles_multiply();
 	}
+	if (respawn_ticks <= 0 || now % TICKS_PER_SECOND)
+		return;
 	for (index = 0; index < game_engine_vehicle_home_count; index++)
 	{
 		long object_index = game_engine_vehicle_home_current(index);
@@ -5345,6 +5595,13 @@ boolean game_engine_has_shield(
 	if (game_engine && player_index != NONE && game_engine_traits_shields(player_index) != NONE)
 		has_shield = (boolean)game_engine_traits_shields(player_index);
 #endif
+	/* port: infection's zombies have none (port/linux/game/infection.c) */
+	{
+		extern boolean infection_player_is_zombie(long player_index);
+
+		if (has_shield && infection_player_is_zombie(player_index))
+			has_shield = FALSE;
+	}
 
 	return has_shield;
 }
@@ -5643,6 +5900,14 @@ boolean game_engine_should_end_game(
 	{
 		should_end_game = TRUE;
 	}
+	/* port: infection's sides come and go: its rounds end its game
+	(port/linux/game/infection.c) */
+	{
+		extern boolean infection_active(void);
+
+		if (infection_active())
+			should_end_game = FALSE;
+	}
 
 	return should_end_game;
 }
@@ -5869,6 +6134,16 @@ static void game_engine_report_game(
 	/* (a game everyone left, the dedicated server's to end: no report) */
 	if (count == 0)
 		return;
+	/* port: nor of a game the bots played in, or of infection: the game list
+	keeps the scores of people, at the game types it knows
+	(network_server_manager.c, port/linux/game/infection.c) */
+	{
+		extern boolean network_game_server_bots_played(void);
+		extern boolean infection_active(void);
+
+		if (network_game_server_bots_played() || infection_active())
+			return;
+	}
 	game_stats_game_extra(TRUE, extra, sizeof(extra));
 	browser_report_game(
 		teams,
@@ -7382,6 +7657,22 @@ struct game_variant *game_engine_get_variant_by_name(
 		result = *build_game_variant_slayer(&temporary);
 	else if (csstrcmp(name, "team_slayer") == 0)
 		result = *build_game_variant_team_slayer(&temporary);
+	/* port: infection (port/linux/game/infection.c): slayer with teams, the
+	living and the infected; "playing to" is the rounds of a game */
+	else if (csstrcmp(name, "infection") == 0)
+	{
+		extern long config_integer(char const *name);
+
+		result = *build_game_variant_team_slayer(&temporary);
+		result.game_engine_variant.slayer.infection = TRUE;
+		ustrncpy(result.human_readable_game_description, L"Infection", NUMBEROF(result.human_readable_game_description) - 1);
+		result.game_engine_variant.slayer.no_death_bonus = TRUE;
+		result.game_engine_variant.slayer.no_kill_penalty = TRUE;
+		result.universal_variant.respawn_time = 3 * TICKS_PER_SECOND;
+		result.universal_variant.suicide_penalty = 0;
+		result.universal_variant.vehicle_set = _game_engine_vehicles_none;
+		result.universal_variant.score_to_win = MAX(1, config_integer("infection.rounds"));
+	}
 	else if (csstrcmp(name, "elimination") == 0)
 		result = *build_game_variant_elimination(&temporary);
 	else if (csstrcmp(name, "stalker") == 0)
@@ -7576,6 +7867,8 @@ void game_engine_variant_cleanup(
 		variant->game_engine_variant.slayer.no_death_bonus = !!variant->game_engine_variant.slayer.no_death_bonus;
 		variant->game_engine_variant.slayer.no_kill_penalty = !!variant->game_engine_variant.slayer.no_kill_penalty;
 		variant->game_engine_variant.slayer.kill_in_order = !!variant->game_engine_variant.slayer.kill_in_order;
+		/* port: infection (port/linux/game/infection.c) */
+		variant->game_engine_variant.slayer.infection = !!variant->game_engine_variant.slayer.infection;
 		break;
 
 	case game_engine_oddball:
@@ -8021,6 +8314,52 @@ boolean game_engine_vehicle_placement_allowed(
 
 	if (!game_engine || placement->palette_entry_index == NONE)
 		return TRUE;
+#ifdef HALO_CUSTOM_EDITION
+	/* port: a Custom Edition map. Each vehicle placement of a Halo PC
+	scenario says which gametypes it is for (its multiplayer spawn flags,
+	a word 0x5a into the placement: for slayer, capture the flag, king and
+	oddball, a bit that it is there by default, and eight bits up a bit
+	that it may be there) and whose it is (its team, a byte at 0x58). A
+	placement with no bit is made by the map's script or not at all.
+	- The map's own vehicles (the default set; and the Warthogs set, which
+	  is what this game's stock gametypes have, as Halo PC's have the
+	  default): the placements that are there by default.
+	- One type alone, or each type by count: of that type, the placements
+	  that may be there; a vehicle that is none of the six types (a map's
+	  jet, its walker) as by default. */
+	{
+		extern boolean cache_file_tags_are_ce(void);
+
+		if (cache_file_tags_are_ce())
+		{
+			word spawn_flags = *(word const *)((byte const *)placement + 0x5a);
+			signed char team = *(signed char const *)((byte const *)placement + 0x58);
+			short bit =
+				global_variant.game_engine_index == game_engine_ctf ? 1 :
+				global_variant.game_engine_index == game_engine_king ? 2 :
+				global_variant.game_engine_index == game_engine_oddball ? 3 : 0;
+			boolean by_default = (spawn_flags >> bit) & 1;
+			boolean may_be = (spawn_flags >> (8 + bit)) & 1;
+
+			side = global_variant.universal_variant.teams && team == 1 ? 1 : 0;
+			set = options->vehicle_set[side];
+			type = game_engine_variant_vehicle_type(TAG_BLOCK_GET_ELEMENT(palette, placement->palette_entry_index,
+				struct scenario_object_palette_entry)->reference.index);
+			if (set == _game_engine_vehicles_none)
+				return FALSE;
+			if (set == _game_engine_vehicles_default || set == _game_engine_vehicles_warthog || type == NONE)
+				return by_default;
+			if (set == VARIANT_VEHICLE_SET_CUSTOM)
+			{
+				if (!may_be || game_engine_vehicles_placed[side][type] >= options->vehicle_counts[side][type])
+					return FALSE;
+				game_engine_vehicles_placed[side][type]++;
+				return TRUE;
+			}
+			return may_be && set - _game_engine_vehicles_warthog == type;
+		}
+	}
+#endif
 	side = global_variant.universal_variant.teams ? game_engine_nearest_team(&placement->position) : 0;
 	set = options->vehicle_set[side];
 	if (set == VARIANT_VEHICLE_SET_PC)
@@ -8104,6 +8443,13 @@ real game_engine_get_damage_multiplier(
 
 	if (game_engine)
 		result /= PIN(global_variant.universal_variant.health, 0.25f, 4.0f);
+	/* port: infection (port/linux/game/infection.c): nobody hurts their own
+	side, and a zombie hits hard */
+	{
+		extern real infection_damage_multiplier(long damaging_player_index, long damaged_player_index);
+
+		result *= infection_damage_multiplier(damaging_player_index, damaged_player_index);
+	}
 
 	if (damaging_player_index != NONE &&
 		damaged_player_index != NONE)
@@ -8151,6 +8497,20 @@ long game_engine_remap_vehicle(
 		long vehicle1 = game_engine_multiplayer_vehicle(1);
 		long vehicle2 = game_engine_multiplayer_vehicle(2);
 
+#ifdef HALO_CUSTOM_EDITION
+		/* port: a Custom Edition map's vehicles are placed by Halo PC's
+		rule, which is the placement's own (its multiplayer spawn flags:
+		game_engine_vehicle_placement_allowed). The rule below is the Xbox
+		game's (the globals' three vehicles and no others): it took away a
+		map's own vehicles (its jets, its tanks, its walkers), those its
+		placements have, and those its scripts make. */
+		{
+			extern boolean cache_file_tags_are_ce(void);
+
+			if (cache_file_tags_are_ce())
+				return result;
+		}
+#endif
 		/* (port: and the other types a gametype's sets name, which a map may
 		have: game_engine_variant_vehicle_type) */
 		if (result != vehicle0 &&
@@ -9518,6 +9878,14 @@ void game_engine_postspawn_player_update(
 
 	if (!game_engine)
 		return;
+
+	/* port: infection's zombies start with nothing (port/linux/game/infection.c) */
+	{
+		extern boolean infection_player_spawned(long player_index);
+
+		if (infection_player_spawned(player_index))
+			return;
+	}
 
 	if (game_engine->player_update)
 	{
