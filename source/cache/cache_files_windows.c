@@ -1723,7 +1723,7 @@ static boolean cache_file_read_header_from_dvd(
 	file = CreateFileA(
 		path,
 		GENERIC_READ,
-		0,
+		FILE_SHARE_READ,
 		NULL,
 		OPEN_EXISTING,
 		0,
