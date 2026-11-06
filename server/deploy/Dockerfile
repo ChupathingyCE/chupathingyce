@@ -31,8 +31,11 @@ WORKDIR /data
 # the data and saves in /data, the log in /data/logs (the data folder's
 # logs/) and what the server can make again in /data/cache; the run's key in
 # /tmp (it goes with the container); no settings file beside the program
-# (the environment's)
+# (the environment's); the control panel off until the operator sets
+# HALO_DEDICATED_CONTROL (in a container, 127.0.0.1 is the container's own,
+# or with the host's network, one port every server on the host would want)
 ENV HALO_DATA_ROOT=/data \
+	HALO_DEDICATED_CONTROL=off \
 	HALO_SAVE_ROOT=/data/saves \
 	HALO_CACHE_ROOT=/data/cache \
 	XDG_RUNTIME_DIR=/tmp

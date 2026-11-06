@@ -98,7 +98,7 @@ ready image, `ghcr.io/chupathingyce/server`: see
   its service stopped), and withdraws its game from the lists.
 - Takes commands, named after Halo PC's (`sv_players`, `sv_kick`, `sv_ban`,
   `sv_map`, `sv_mapcycle_next`, ...): typed on its console, from a startup
-  file, or through its control API (off unless turned on) and the control
+  file, or through its control API (on this machine only by default) and the control
   panel on the same port. See [docs/admin.md](docs/admin.md).
 - Checks what players' games tell it, for OpenCE players too: it refuses
   moves and hits that don't add up, hits through walls
@@ -118,8 +118,9 @@ ready image, `ghcr.io/chupathingyce/server`: see
 Everything here works without stats.chupathingy.org. Details, the roles table
 and the security notes: [docs/moderation.md](docs/moderation.md).
 
-1. **Turn on the control panel.** `HALO_DEDICATED_CONTROL=8080` keeps it on
-   this machine (reach it with `ssh -N -L 8080:127.0.0.1:8080 you@server`);
+1. **Open the control panel.** It is on by default at 127.0.0.1:8080, this
+   machine only (reach it with `ssh -N -L 8080:127.0.0.1:8080 you@server`;
+   in Docker, set `HALO_DEDICATED_CONTROL=8080`);
    `HALO_DEDICATED_CONTROL=0.0.0.0:8443` opens it to the network, HTTPS
    only. The server prints the certificate's SHA-256 fingerprint: check the
    browser shows the same, once.

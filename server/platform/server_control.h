@@ -25,6 +25,11 @@ enum
 	CONTROL_QUIET = 4
 };
 
+/* the control panel's address when HALO_DEDICATED_CONTROL is not set: on,
+for this machine only */
+#define SERVER_CONTROL_DEFAULT "127.0.0.1:8080"
+/* HALO_DEDICATED_CONTROL, else SERVER_CONTROL_DEFAULT */
+const char *server_control_setting(void);
 /* the console's and the API's thread started */
 void server_control_start(void);
 /* the server was started without a playlist, for the control panel's
