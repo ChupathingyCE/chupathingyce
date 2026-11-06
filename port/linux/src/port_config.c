@@ -185,7 +185,9 @@ dedicated server keeps waiting for a second player: it never needs this. */
 /* The particles, and the dynamic lights that light the level: the consoles
 keep fewer (the Switch's particles, HALO_CONSOLE_PARTICLE_TICKS and
 HALO_CONSOLE_LIGHT_LIMITS); the desktop has the Xbox's look, unlimited */
-#ifdef HALO_SWITCH_CONSOLE
+#if defined(HALO_CONSOLE_PARTICLE_LIMIT)
+#define DEFAULT_PARTICLE_LIMIT HALO_CONSOLE_PARTICLE_LIMIT
+#elif defined(HALO_SWITCH_CONSOLE)
 #define DEFAULT_PARTICLE_LIMIT "2048"
 #else
 #define DEFAULT_PARTICLE_LIMIT "4096"
@@ -536,6 +538,19 @@ static const struct config_setting config_settings[] =
 		"second for half a second: 1080 to 900, 900 to 720, 720 to 480, and\n"
 		"never lower. Go back up once a frame fits in 90% of a 60 Hz frame for\n"
 		"a second. Changes at once." },
+#endif
+#ifdef HALO_CONSOLE_NATIVE_RENDERER
+#ifdef HALO_CONSOLE_NATIVE_RENDERER_FIRST
+#define HALO_CONSOLE_NATIVE_RENDERER_DEFAULT "\"native\""
+#else
+#define HALO_CONSOLE_NATIVE_RENDERER_DEFAULT "\"gl\""
+#endif
+	{ "display.renderer", _config_string, HALO_CONSOLE_NATIVE_RENDERER_DEFAULT, "HALO_RENDERER", _environment_value,
+		_platform_console_gl,
+		"What draws the game. \"native\" is the console's own renderer, which we\n"
+		"are testing. \"gl\" is the renderer over the OpenGL layer, as before.\n"
+		"If the native one can't start, the game draws with \"gl\".\n"
+		"Read when Chupathingy starts." },
 #endif
 #ifdef HALO_BGFX
 	{ "display.renderer", _config_string, "\"gl\"", "HALO_RENDERER", _environment_value, _platform_desktop,
@@ -1418,6 +1433,14 @@ static const struct config_setting config_settings[] =
 		"each test keeps the first one's state and is only a query and a draw\n"
 		"call. The picture is the same. false draws each test in full, to\n"
 		"compare. Read when Chupathingy starts." },
+	{ "console.native_tiled_textures", _config_boolean, "false", NULL, _environment_value, _platform_console_gl,
+		"With display.renderer = \"native\": textures in the GPU's tiled layout,\n"
+		"which it samples faster. A test: false keeps them linear, as the\n"
+		"other renderer makes them. Read when Chupathingy starts." },
+	{ "console.picture_frame", _config_integer, "0", NULL, _environment_value, _platform_console_gl,
+		"For comparing the renderers: the picture of this frame, and of the\n"
+		"frame three times as late, written beside the game as pictureN.raw\n"
+		"(the console's own pixels, untiled). 0, the default, writes none." },
 	{ "console.widget_pool_log", _config_boolean, "false", NULL, _environment_value,
 		_platform_xbox | _platform_console_gl,
 		"For sizing the menus' memory: write a line to debug.txt each time the\n"

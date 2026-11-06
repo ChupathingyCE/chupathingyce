@@ -391,6 +391,16 @@ char *nv2a_vertex_shader_to_glsl(const DWORD *instructions, unsigned long instru
 {
 	struct xgpu_text text = { 0 };
 	unsigned long index;
+	/* each register's packed bit, read from memory at each test: the Xbox
+	360's compiler unrolled both loops, kept each test's result in a saved
+	condition register field across the calls between them, and read the
+	second loop's from a field three along (bits 12 higher), so inputs were
+	declared unpacked and then unpacked, and every vertex shader with
+	NORMPACKED3 inputs failed to compile there */
+	volatile unsigned char packed[XGPU_VERTEX_ATTRIBUTE_COUNT];
+
+	for (index = 0; index < XGPU_VERTEX_ATTRIBUTE_COUNT; index++)
+		packed[index] = (unsigned char)((packed_attribute_mask >> index) & 1);
 
 #ifdef HALO_GL_ES
 	xgpu_text_append(&text, "#version %s\n", xgpu_capabilities.shading_language);
@@ -403,7 +413,7 @@ char *nv2a_vertex_shader_to_glsl(const DWORD *instructions, unsigned long instru
 		xgpu_text_append(&text, "out vec3 xWorldPosition;\n");
 	for (index = 0; index < XGPU_VERTEX_ATTRIBUTE_COUNT; index++)
 	{
-		if (packed_attribute_mask & (1UL << index))
+		if (packed[index])
 			xgpu_text_append(&text, "layout(location = %lu) in uint v%lu_packed;\n", index, index);
 		else
 			xgpu_text_append(&text, "layout(location = %lu) in vec4 v%lu_in;\n", index, index);
@@ -412,7 +422,7 @@ char *nv2a_vertex_shader_to_glsl(const DWORD *instructions, unsigned long instru
 	xgpu_text_append(&text, "void main()\n{\n");
 	for (index = 0; index < XGPU_VERTEX_ATTRIBUTE_COUNT; index++)
 	{
-		if (packed_attribute_mask & (1UL << index))
+		if (packed[index])
 			xgpu_text_append(&text, "\tvec4 v%lu = unpack_normpacked3(v%lu_packed);\n", index, index);
 		else
 			xgpu_text_append(&text, "\tvec4 v%lu = v%lu_in;\n", index, index);
