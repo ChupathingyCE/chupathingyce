@@ -1418,6 +1418,10 @@ static const struct config_setting config_settings[] =
 		"each test keeps the first one's state and is only a query and a draw\n"
 		"call. The picture is the same. false draws each test in full, to\n"
 		"compare. Read when Chupathingy starts." },
+	{ "console.native_tiled_textures", _config_boolean, "false", NULL, _environment_value, _platform_console_gl,
+		"With display.renderer = \"native\": textures in the GPU's tiled layout,\n"
+		"which it samples faster. A test: false keeps them linear, as the\n"
+		"other renderer makes them. Read when Chupathingy starts." },
 	{ "console.picture_frame", _config_integer, "0", NULL, _environment_value, _platform_console_gl,
 		"For comparing the renderers: the picture of this frame, and of the\n"
 		"frame three times as late, written beside the game as pictureN.raw\n"
