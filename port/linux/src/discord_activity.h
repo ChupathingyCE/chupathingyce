@@ -107,8 +107,10 @@ does not fit. party is this machine's party id (hex); join_secret the
 invite of the public game this machine hosts (DISCORD_JOIN_PREFIX and its
 code), or NULL for none. With a joinable invite (discord_activity_joinable),
 discord.show_join and presence "full", the activity carries it as its join
-secret, with the party's size, and no buttons (Discord takes one or the
-other); otherwise the project's buttons. DISCORD_PRESENCE_OFF clears the
+secret, with the party's size, no buttons (Discord takes one or the
+other) and "Free at chupathingy.org" as the large picture's hover text;
+otherwise the project's buttons (and that hover text only where there
+would be none). DISCORD_PRESENCE_OFF clears the
 activity. */
 int discord_activity_json(char *json, int size, unsigned long nonce, unsigned long process_id,
 	const struct discord_activity_game *game, const struct discord_activity_options *options, const char *party,

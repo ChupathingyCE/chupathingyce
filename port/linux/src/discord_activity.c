@@ -37,6 +37,9 @@ Join, and who asks to join.
 
 #define ART_URL "https://stats.chupathingy.org/art/"
 #define LOGO_URL ART_URL "icon.png"
+/* the large picture's hover text with a join secret (which takes no
+buttons: the site's word in their place) */
+#define JOIN_HOVER_TEXT "Free at chupathingy.org"
 #define SITE_URL "https://chupathingy.org"
 #define DISCORD_URL "https://discord.gg/chupathingy"
 
@@ -394,6 +397,10 @@ int discord_activity_json(char *json, int size, unsigned long nonce, unsigned lo
 			snprintf(large_text, sizeof(large_text), "Chupathingy");
 			break;
 		}
+		/* (with a join secret, no buttons say where the game comes from:
+		the picture's hover text does; never empty) */
+		if (joinable || !large_text[0])
+			snprintf(large_text, sizeof(large_text), "%s", JOIN_HOVER_TEXT);
 		if (small_text[0] && game->platform[0])
 			snprintf(small_text + strlen(small_text), sizeof(small_text) - strlen(small_text), " (%s)",
 				game->platform);
