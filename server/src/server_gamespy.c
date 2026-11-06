@@ -10,9 +10,8 @@ Halo PC map by its own name: the naming the Custom Edition community uses,
 as ugoboom passed on), its game type, its seats and its players.
 
 With ce_joins on as well, the same port answers Halo Custom Edition
-1.0.10's join wire (server/platform/ce_transport.c). For now that reads a
-Custom Edition player's join request and refuses it cleanly: their game
-can't play in ours yet.
+1.0.10's join wire (server/platform/ce_transport.c), and Custom Edition
+players join the game (server_ce.c) while it plays a Custom Edition map.
 
 The version reported (gamever) is this server's own unless
 HALO_DEDICATED_GAMESPY_VERSION sets another. Custom Edition 1.0.10's server
@@ -237,7 +236,7 @@ static void start(
 	gamespy.failed = FALSE;
 	gamespy_listing_set_joins(gamespy.joins);
 	if (gamespy.joins)
-		error(_error_silent, "gamespy: answering Halo Custom Edition 1.0.10 join attempts (refused for now)");
+		error(_error_silent, "gamespy: taking Halo Custom Edition 1.0.10 players on Custom Edition maps");
 	if (!exit_registered)
 	{
 		exit_registered = TRUE;

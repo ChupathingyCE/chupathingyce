@@ -594,6 +594,12 @@ void ce_payload_put_chat(struct ce_payload *payload, int kind, int player, const
 		put_bits(payload, (unsigned char)text[index], 16);
 }
 
+void ce_payload_put_postgame_mode(struct ce_payload *payload, int mode)
+{
+	put_delta_header(payload, CE_DELTA_POSTGAME_MODE);
+	put_bits(payload, (unsigned int)mode, 32);
+}
+
 void ce_payload_put_slayer_scores(struct ce_payload *payload, const int players[CE_GAME_PLAYERS],
 	const int teams[CE_GAME_PLAYERS])
 {
