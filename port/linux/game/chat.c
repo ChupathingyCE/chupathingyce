@@ -915,6 +915,7 @@ int chat_server_say(char const *text)
 /* (the host's bots, bot_rvb.c) a line said by one of the game's players,
 found by name, to everyone, as a player's own line goes: Delta machines and
 OpenCE's (while its chat is bridged) show it as that player's */
+#ifdef HALO_SERVER
 int chat_bot_say(wchar_t const *name, char const *text)
 {
 	struct network_game *game = chat_game();
@@ -951,6 +952,15 @@ int chat_bot_say(wchar_t const *name, char const *text)
 		return 0;
 	return route(&line, player_team(game, player), teams);
 }
+#else
+/* (a player's build has no bots) */
+int chat_bot_say(wchar_t const *name, char const *text)
+{
+	(void)name;
+	(void)text;
+	return 0;
+}
+#endif
 
 int chat_host_notice_to_machine(short machine, char const *text)
 {

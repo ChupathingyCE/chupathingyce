@@ -83,5 +83,11 @@ boolean bot_debug_flying(short local_player_index)
 	return FALSE;
 }
 void bot_debug_draw(short local_player_index) { (void)local_player_index; }
+void bot_debug_camera_update(void *data, struct camera_control const *controls, struct observer_command *result)
+{
+	(void)data;
+	(void)controls;
+	(void)result;
+}
 
 #endif /* HALO_SERVER */
