@@ -1066,15 +1066,15 @@ static void cr_draw(D3DPRIMITIVETYPE type, BOOL immediate, unsigned long first, 
 				unsigned long address = PLATFORM_WINDOW_ADDRESS(PLATFORM_PHYSICAL_TO_VIRTUAL(device.streams[stream].data)) +
 					first * stride;
 				/* (the map's own vertices: little-endian, as loaded; the GPU reads
-				them where they are, or a copy of them with console.native_in_place
-				off, the same bytes) */
-				BOOL resident = !(address & 3) && !(stride & 3) && cr_resident(address, bytes);
+				them where they are when they are on words, or a copy of them,
+				the same bytes, with console.native_in_place off) */
+				BOOL resident = cr_resident(address, bytes);
 
 				placed[stream] = TRUE;
 				streams[stream].stride = stride;
 				streams[stream].size = bytes;
 				streams[stream].little_endian = (unsigned char)resident;
-				if (resident && cr.in_place)
+				if (resident && cr.in_place && !(address & 3) && !(stride & 3))
 				{
 					streams[stream].data = xbox_pointer(address);
 					cr.in_place_bytes += bytes;
