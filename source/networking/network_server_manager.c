@@ -3488,6 +3488,17 @@ boolean server_has_enough_machines(
 	long machine_count = 0;
 	long client_machine_index;
 
+#ifdef HALO_SERVER
+	{
+		/* port: a dedicated server's Custom Edition players are seats of its
+		own machine, so with one there its machine is enough
+		(server/src/server_ce.c) */
+		boolean server_ce_players_present(void);
+
+		if (server_ce_players_present())
+			minimum_machine_count = 1;
+	}
+#endif
 	for (client_machine_index = 0;
 		client_machine_index < MAXIMUM_NETWORK_MACHINE_COUNT;
 		client_machine_index++)
