@@ -18,6 +18,11 @@ ceiling) is worked out over the whole grid (Dijkstra from the borders).
 Surfaces the map marks climbable (ladders) are kept for the reachabilities.
 */
 
+/* (the bots are the dedicated server's alone: none of this is in a
+player's build, bot_client.c) */
+#ifdef HALO_SERVER
+
+
 #include "bot_port.h"
 #include "bot_nav_internal.h"
 
@@ -1978,3 +1983,4 @@ int bot_env_set(char const *name)
 	values[i] = getenv(name) != NULL;
 	return values[i];
 }
+#endif /* HALO_SERVER */

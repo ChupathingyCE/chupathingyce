@@ -34,6 +34,11 @@ writes the text (bots_debug_describe, bots_debug_summary) and keeps each
 bot's last tick (bot_debug_snapshot) and log lines.
 */
 
+/* (the bots are the dedicated server's alone: none of this is in a
+player's build, bot_client.c) */
+#ifdef HALO_SERVER
+
+
 #include "cseries.h"
 #include "camera/observer.h"
 #include "game/game.h"
@@ -503,3 +508,4 @@ void bot_debug_draw(short local_player_index)
 		line++;
 	}
 }
+#endif /* HALO_SERVER */

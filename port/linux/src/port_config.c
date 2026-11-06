@@ -1019,6 +1019,9 @@ static const struct config_setting config_settings[] =
 		"The Discord application Chupathingy shows as. Leave it empty for none." },
 #endif
 
+	/* (the bots: the dedicated server's alone, port/linux/game/bots.c; a
+	player's build has none of these settings) */
+#ifdef HALO_SERVER
 	{ "bots.count", _config_integer, "0", "HALO_BOTS", _environment_value, _platform_all,
 		"Bots in the multiplayer games this machine hosts (split screen, system\n"
 		"link, internet play, a dedicated server): players the host drives\n"
@@ -1046,6 +1049,11 @@ static const struct config_setting config_settings[] =
 		"toward the bottom of the spread and those of one behind toward its\n"
 		"top, the further ahead or behind the more (the console's\n"
 		"\"bots_balance <0|1>\"). Nothing to move with a spread of 0." },
+	{ "bots.chatter", _config_string, "\"light\"", "HALO_BOT_CHATTER", _environment_value, _platform_all,
+		"How much the bots talk in the game's chat, in character: \"off\",\n"
+		"\"light\" (now and then) or \"full\" (all the time). At most a line\n"
+		"from each bot every 6 seconds, and one from all of them every 2." },
+#endif
 
 	{ "infection.rounds", _config_integer, "3", "HALO_INFECTION_ROUNDS", _environment_value, _platform_all,
 		"Infection (the game type \"infection\": a dedicated server's playlist,\n"

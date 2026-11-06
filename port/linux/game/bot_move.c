@@ -29,6 +29,11 @@ ahead on it, slowing for sharp turns, backing out when stuck, and never
 over one of our own on foot.
 */
 
+/* (the bots are the dedicated server's alone: none of this is in a
+player's build, bot_client.c) */
+#ifdef HALO_SERVER
+
+
 #include "bot_internal.h"
 
 #include "objects/objects.h"
@@ -3335,3 +3340,4 @@ void bot_move_debug(struct bot_mover *bot, struct bot_body const *body)
 		last ? last->travel : -1, last ? last->start.x : 0.f, last ? last->start.y : 0.f, last ? last->start.z : 0.f,
 		last ? last->edge.x : 0.f, last ? last->edge.y : 0.f, last ? last->edge.z : 0.f);
 }
+#endif /* HALO_SERVER */

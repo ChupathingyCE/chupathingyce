@@ -33,6 +33,11 @@ is and where the sky stops.
   and out.
 */
 
+/* (the bots are the dedicated server's alone: none of this is in a
+player's build, bot_client.c) */
+#ifdef HALO_SERVER
+
+
 #include "bot_internal.h"
 #include "bot_nav_internal.h"
 #include "objects/objects.h"
@@ -2956,3 +2961,4 @@ void bot_fly(struct bot_pilot *pilot, struct bot_body const *body, struct bot_fl
 	pilot->speed_before = f.speed;
 	air_log_flight(&f);
 }
+#endif /* HALO_SERVER */

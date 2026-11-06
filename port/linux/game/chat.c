@@ -912,6 +912,46 @@ int chat_server_say(char const *text)
 	return route(&line, NO_TEAM, FALSE);
 }
 
+/* (the host's bots, bot_rvb.c) a line said by one of the game's players,
+found by name, to everyone, as a player's own line goes: Delta machines and
+OpenCE's (while its chat is bridged) show it as that player's */
+int chat_bot_say(wchar_t const *name, char const *text)
+{
+	struct network_game *game = chat_game();
+	struct delta_wire_chat_line line;
+	boolean teams = game_teams(game);
+	long index, player = NONE;
+	int length;
+
+	if (!game || !name || !text || delta_peer_game_role() != 2)
+		return 0;
+	if (delta_chat_host_decide(chat.host_mode, _delta_chat_scope_all, teams, FALSE, 0))
+		return 0;
+	for (index = 0; index < HALO_PORT_MAXIMUM_NETWORK_PLAYERS && player == NONE; index++)
+	{
+		if (network_player_is_valid((struct network_player *)&game->players[index]) &&
+			!memcmp(game->players[index].name, name, sizeof(game->players[index].name)))
+		{
+			player = index;
+		}
+	}
+	if (player == NONE)
+		return 0;
+	csmemset(&line, 0, sizeof(line));
+	line.kind = _delta_chat_kind_player;
+	line.scope = _delta_chat_scope_all;
+	line.speaker_machine = (unsigned char)game->players[player].machine_index;
+	line.speaker_player = (unsigned char)player;
+	line.name_length = wide_to_utf8(game->players[player].name, NUMBEROF(game->players[player].name), line.name,
+		(int)sizeof(line.name));
+	length = (int)strlen(text);
+	line.length = MIN(length, DELTA_WIRE_CHAT_TEXT_SIZE);
+	csmemcpy(line.text, text, line.length);
+	if (delta_wire_chat_text_valid(line.text, line.length, 0) < 0)
+		return 0;
+	return route(&line, player_team(game, player), teams);
+}
+
 int chat_host_notice_to_machine(short machine, char const *text)
 {
 	if (!bridge_hosting() || !bridge_machine(machine) || !(bridge_host_flags() & DELTA_CHAT_BRIDGE_ALLOWED))
@@ -959,6 +999,13 @@ int chat_host_notice(int machine_index, char const *text)
 dedicated server's settings are not its) */
 int chat_server_say(char const *text)
 {
+	(void)text;
+	return 0;
+}
+
+int chat_bot_say(wchar_t const *name, char const *text)
+{
+	(void)name;
 	(void)text;
 	return 0;
 }

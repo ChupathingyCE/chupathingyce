@@ -17,6 +17,11 @@ progress gets them one a second (network_server_manager.c), and a new skill
 is every bot's at once.
 */
 
+/* (the bots are the dedicated server's alone: none of this is in a
+player's build, bot_client.c) */
+#ifdef HALO_SERVER
+
+
 #ifdef HALO_GAME_BROWSER
 
 #include "cseries.h"
@@ -523,3 +528,4 @@ void bots_screen_render(
 }
 
 #endif
+#endif /* HALO_SERVER */

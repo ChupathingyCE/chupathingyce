@@ -32,6 +32,11 @@ only the loaded map says.
 Called from the main loop every frame (main.c).
 */
 
+/* (the bots are the dedicated server's alone: none of this is in a
+player's build, bot_client.c) */
+#ifdef HALO_SERVER
+
+
 #include "cseries.h"
 #include "main/main.h"
 #include "cache/cache_files.h"
@@ -673,3 +678,4 @@ void bot_bake_update(
 
 	bake_run_lobby(map, client, seconds);
 }
+#endif /* HALO_SERVER */

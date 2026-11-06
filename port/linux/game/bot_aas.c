@@ -41,6 +41,11 @@ the reachability out of it with the least walk to its start plus time from
 there. Reachabilities that bots keep failing at cost more (learned).
 */
 
+/* (the bots are the dedicated server's alone: none of this is in a
+player's build, bot_client.c) */
+#ifdef HALO_SERVER
+
+
 #include "bot_port.h"
 #include "bot_nav_internal.h"
 
@@ -4338,3 +4343,4 @@ void aas_debug_scan(void)
 		bot_log("scan %.2f %.2f:%s", px, py, line);
 	}
 }
+#endif /* HALO_SERVER */

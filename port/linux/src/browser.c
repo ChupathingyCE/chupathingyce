@@ -1362,6 +1362,21 @@ static void announce(const char *invite, const struct hosted_game *game)
 	form_add(form, sizeof(form), "players", text);
 	snprintf(text, sizeof(text), "%d", game->maximum_players);
 	form_add(form, sizeof(form), "maximum_players", text);
+#ifdef HALO_SERVER
+	/* (the server's bots, of the players: the list says how many, so that
+	nobody takes a game of bots for a full one; a list from before the
+	field ignores it) */
+	{
+		long network_game_server_bots_now(void);
+		long bots = network_game_server_bots_now();
+
+		if (bots > 0)
+		{
+			snprintf(text, sizeof(text), "%ld", bots);
+			form_add(form, sizeof(form), "bots", text);
+		}
+	}
+#endif
 	form_add(form, sizeof(form), "open", game->open ? "1" : "0");
 	snprintf(text, sizeof(text), "%d", game->score_limit);
 	form_add(form, sizeof(form), "score_limit", text);

@@ -50,6 +50,11 @@ the bot is out between them), and is no part of how a bot gets about where
 the navigation can.
 */
 
+/* (the bots are the dedicated server's alone: none of this is in a
+player's build, bot_client.c) */
+#ifdef HALO_SERVER
+
+
 #include "bot_internal.h"
 #include "bot_nav_internal.h"
 #include "objects/objects.h"
@@ -5223,3 +5228,4 @@ void bot_country_drive(struct bot_traveller *traveller, struct bot_body const *b
 			body->unit_index & 0xffff, now, position->x, position->y, position->z, speed, to->x, to->y, to->z, to_place,
 			next.x, next.y, next.z, yaw, throttle, soon ? " (way to come)" : "", now < traveller->escape_until ? " getting clear" : "");
 }
+#endif /* HALO_SERVER */

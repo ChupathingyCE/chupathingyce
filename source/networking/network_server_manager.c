@@ -756,6 +756,12 @@ long bots_configured(void);
 long bots_fill(void);
 char const *bot_name(long slot);
 void bot_think(long player_absolute_index, struct player_action *action);
+/* (the cast, port/linux/game/bot_rvb.c: a name's character, its side and
+its free-for-all color; NONE for none) */
+long bot_rvb_character_of(wchar_t const *name);
+long bot_rvb_team(long character);
+long bot_rvb_color(long character);
+unsigned long long bot_time_microseconds(void);
 
 static boolean network_game_server_setup_game_from_playlist(
 	struct network_game_server *server);
@@ -2844,10 +2850,11 @@ static boolean network_game_server_add_bot(
 		}
 	}
 	player.team_index = (char)(team_counts[1] < team_counts[0] ? 1 : 0);
-	/* a bot's name, a different one for each */
-	for (index = 0; index < 32; index++)
+	/* a bot's name, a different one for each: the cast's in order, the
+	first not in the game (port/linux/game/bot_rvb.c) */
+	for (index = 0; index < 64; index++)
 	{
-		char const *name = bot_name(network_game_server_bot_count(server) + index);
+		char const *name = bot_name(index);
 		long character;
 
 		csmemset(player.name, 0, sizeof(player.name));
@@ -2859,6 +2866,28 @@ static boolean network_game_server_add_bot(
 	if (!player_name_is_unique(server, player.name))
 		get_unique_random_name(server, &player);
 	get_unique_random_color(server, &player);
+	/* the character's side in a team game (Reds on Red, Blues on Blue) and
+	its own color in a free-for-all, when no one has it */
+	{
+		long character = bot_rvb_character_of(player.name);
+		long team = bot_rvb_team(character);
+		long color = bot_rvb_color(character);
+
+		if (game->variant.universal_variant.teams && team != NONE)
+			player.team_index = (char)team;
+		if (color != NONE)
+		{
+			boolean taken = FALSE;
+
+			for (index = 0; index < MAXIMUM_NETWORK_PLAYER_COUNT; index++)
+			{
+				if (network_player_is_valid(&game->players[index]) && game->players[index].primary_color_index == color)
+					taken = TRUE;
+			}
+			if (!taken)
+				player.primary_color_index = (short)color;
+		}
+	}
 	if (!network_game_add_player(game, &player))
 	{
 		/* (not an empty machine left behind) */
@@ -2933,12 +2962,16 @@ static long network_game_server_bots_wanted(
 	struct network_game_server *server)
 {
 	long fill = bots_fill();
+	long count = bots_configured();
 	long people;
 
 	if (fill <= 0)
-		return bots_configured();
+		return MIN(count, 16);
 	people = server->game.player_count - network_game_server_bot_count(server);
-	return MAX(0, fill - people);
+	/* (with both: bots.count of them at the most, fewer as people fill the
+	game; set bots.fill under the game's maximum and a joining person always
+	finds a place: the bot gives it up within a second) */
+	return MIN(MAX(0, fill - people), count > 0 ? MIN(count, 16) : 16);
 }
 
 /* in the game, once a second: as many bots as are wanted, one a second, as
@@ -3076,11 +3109,27 @@ static void network_game_server_sync_bots(
 		network_event("network_game_server_sync_bots() failed to send the lobby");
 }
 
+/* the bots' thinking's budget in a tick (a tick is 33 ms), and each
+bot's last input, which it keeps for a tick past the budget */
+#define NETWORK_GAME_SERVER_BOT_BUDGET_MICROSECONDS 12000ULL
+static struct player_action network_game_server_bot_last_actions[MAXIMUM_NETWORK_PLAYER_COUNT];
+static long network_game_server_bot_skipped;
+
+/* the bots in the game now (the game list's count of them: browser.c) */
+long network_game_server_bots_now(
+	void)
+{
+	struct network_game_server *server = global_network_game_server_get();
+
+	return server ? network_game_server_bot_count(server) : 0;
+}
+
 /* in the game, before each tick's update is built: the bots' input */
 static void network_game_server_bot_actions(
 	struct network_game_server *server)
 {
 	long machine_index;
+	unsigned long long started = bot_time_microseconds();
 
 	for (machine_index = 0; machine_index < MAXIMUM_NETWORK_MACHINE_COUNT; machine_index++)
 	{
@@ -3102,8 +3151,31 @@ static void network_game_server_bot_actions(
 			action.desired_weapon_index = NONE;
 			action.desired_grenade_index = NONE;
 			action.desired_zoom_level = NONE;
-			bot_think(DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index), &action);
+			/* (a tick's budget for the bots' thinking: past it, a bot keeps
+			its last input for this tick, so the server's tick never waits
+			long on them) */
+			if (bot_time_microseconds() - started > NETWORK_GAME_SERVER_BOT_BUDGET_MICROSECONDS &&
+				VALID_INDEX(DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index), MAXIMUM_NETWORK_PLAYER_COUNT))
+			{
+				action = network_game_server_bot_last_actions[DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index)];
+				network_game_server_bot_skipped++;
+			}
+			else
+			{
+				bot_think(DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index), &action);
+				if (VALID_INDEX(DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index), MAXIMUM_NETWORK_PLAYER_COUNT))
+					network_game_server_bot_last_actions[DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index)] = action;
+			}
 			update_server_set_player_action(player_index, &action);
+		}
+	}
+	{
+		static long logged;
+
+		if (network_game_server_bot_skipped != logged && game_time_get() % (30 * TICKS_PER_SECOND) == 0)
+		{
+			logged = network_game_server_bot_skipped;
+			network_event("bots: %ld thinks put off so far (over the tick's budget)", logged);
 		}
 	}
 }

@@ -53,6 +53,11 @@ _ODD leave a part out of one half, to be weighed against the other):
 	                enemy in its sights
 */
 
+/* (the bots are the dedicated server's alone: none of this is in a
+player's build, bot_client.c) */
+#ifdef HALO_SERVER
+
+
 #include "bot_internal.h"
 
 #include "game/game.h"
@@ -324,3 +329,4 @@ void bot_stats_world_tick(long now)
 		bot_stats_report(now, TRUE);
 	}
 }
+#endif /* HALO_SERVER */

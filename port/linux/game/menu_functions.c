@@ -7400,6 +7400,11 @@ static void host_setup_rows(void)
 	host_setup.row_count = 0;
 	for (row = 0; row < NUMBER_OF_HOST_ROWS; row++)
 	{
+#ifndef HALO_SERVER
+		/* (a player's build has no bots: none of their rows) */
+		if (host_bot_row(row) || row == _host_row_bots)
+			continue;
+#endif
 		/* (the pause menu's and the lobby's BOTS: every bot row, in one list) */
 		if (host_setup.page == _host_page_bots)
 		{
@@ -7760,6 +7765,10 @@ static void host_bots_write(void)
 {
 	char text[16];
 
+#ifndef HALO_SERVER
+	/* (a player's build has no bots, nor their settings) */
+	return;
+#endif
 	snprintf(text, sizeof(text), "%ld", bots_configured());
 	host_write("bots.count", text);
 	snprintf(text, sizeof(text), "%ld", bots_fill());
@@ -7776,6 +7785,9 @@ static void host_bots_defaults(void)
 {
 	char text[32];
 
+#ifndef HALO_SERVER
+	return;
+#endif
 	bots_set_count(config_default("bots.count", text, sizeof(text)) ? atol(text) : 0);
 	bots_set_fill(config_default("bots.fill", text, sizeof(text)) ? atol(text) : 0);
 	bots_set_skill(config_default("bots.skill", text, sizeof(text)) ? atol(text) : 5);
@@ -9406,6 +9418,10 @@ boolean pc_menu_event_function_invoke(
 			extern short pc_menus_set(void);
 			extern boolean bots_screen_open(void);
 
+#ifndef HALO_SERVER
+			/* (a player's build has no bots) */
+			return campaign_fail();
+#endif
 			if (!global_network_game_server_get())
 				return campaign_fail();
 			if (pc_menus_set() != 2)
@@ -9790,6 +9806,10 @@ void pc_menu_game_data_function_invoke(
 		struct widget_instance *child;
 
 		for (child = widget->child; child; child = child->next)
+#ifdef HALO_SERVER
 			child->visible = global_network_game_server_get() != NULL;
+#else
+			child->visible = FALSE;
+#endif
 	}
 }

@@ -33,6 +33,11 @@ bot_skill_now holds and what the comments here mean by "the level", "level
 5" and "the levels over 3": bot_skill 10, and bot_skill 6 and up.
 */
 
+/* (the bots are the dedicated server's alone: none of this is in a
+player's build, bot_client.c) */
+#ifdef HALO_SERVER
+
+
 #include "bot_internal.h"
 #include "tag_files/files.h" /* the navigation cache's folder */
 
@@ -1320,10 +1325,15 @@ static real bot_balance_lead(long slot)
 	return leads[slot];
 }
 
+static struct player_datum *bot_player_at_index(long index);
+
 static real bot_skill_of(long slot)
 {
-	real high = (real)PIN(bot_skill, 1, BOT_SKILL_TOP);
-	real low = (real)MAX(1, PIN(bot_skill, 1, BOT_SKILL_TOP) - PIN(bot_skill_spread, 0, BOT_SKILL_TOP - 1));
+	/* (the character's offset from bots.skill: bot_rvb.c) */
+	struct player_datum *rvb_player = bot_player_at_index(slot);
+	long base = PIN(bot_skill + (rvb_player ? bot_rvb_skill_offset(bot_rvb_character_of(rvb_player->name)) : 0), 1, BOT_SKILL_TOP);
+	real high = (real)base;
+	real low = (real)MAX(1, base - PIN(bot_skill_spread, 0, BOT_SKILL_TOP - 1));
 	unsigned long seed;
 	real level;
 	if (high <= low)
@@ -9473,6 +9483,8 @@ static void bots_track_deaths(long now)
 				break;
 			}
 		}
+		/* (the cast's word on it: bot_rvb.c) */
+		bot_rvb_death(died[i], bots_killer[died[i]]);
 		/* (a free-for-all's figures, and how the places went) */
 		if (!game_engine_has_teams())
 		{
@@ -9625,6 +9637,7 @@ static void bots_world_tick(void)
 	   (whoever's kills went up as they died) is who the dead, and their
 	   friends, may have it in for */
 	bots_track_deaths(now);
+	bot_rvb_tick();
 	/* each side's route costs, a part each tick (by turns) */
 	if (aas_ready())
 		bot_sides_update();
@@ -17696,12 +17709,12 @@ long bots_configured(void)
 	bots_settings_apply();
 	count = bots_count_setting != NONE ? bots_count_setting : config_integer("bots.count");
 
-	return PIN(count, 0, BOT_MAXIMUM_PLAYERS - 1);
+	return PIN(count, 0, BOT_HARD_LIMIT);
 }
 
 void bots_set_count(long count)
 {
-	bots_count_setting = PIN(count, 0, BOT_MAXIMUM_PLAYERS - 1);
+	bots_count_setting = PIN(count, 0, BOT_HARD_LIMIT);
 }
 
 /* bots.fill: the bots fill the game up to this many players with the people
@@ -17901,26 +17914,7 @@ void bots_map_disposed(void)
 	bots_last_graph_tick = -1;
 }
 
-/* (five letters at the most: a player's name is 11, and six of them are
-   the mark that it is a bot) */
-static char const *const bot_names[] = { "Anvil", "Brick", "Comet", "Dirk", "Ember", "Flint", "Grit", "Hawk",
-	"Iron", "Jinx", "Kite", "Lance", "Mako", "Nomad", "Onyx", "Pike" };
-
-/* A bot's name: marked as a bot's, wherever a name is shown (the lobby, the
-   scores, who killed whom, on every machine: the mark is in the name, after
-   it: "Anvil [Bot]"). Past the first sixteen, numbered. */
-char const *bot_name(long slot)
-{
-	static char names[8][16];
-	static long next;
-	char *name = names[next++ & 7];
-	if (slot < 16)
-		snprintf(name, sizeof(names[0]), "%.5s [Bot]", bot_names[slot % 16]);
-	else
-		snprintf(name, sizeof(names[0]), "%.4s%ld [Bot]", bot_names[slot % 16], (slot / 16 + 1) % 10);
-	name[11] = 0;
-	return name;
-}
+/* (a bot's name: the cast's, bot_rvb.c) */
 
 /* ---------- the debug view (bot_debug.c) */
 
@@ -18436,3 +18430,11 @@ void bots_debug_markers(long index)
 		render_debug_line(FALSE, &from, &to, &white);
 	}
 }
+#endif /* HALO_SERVER */
+
+#ifdef HALO_SERVER
+/* (the server's bots and a player's build's stand-ins, bot_client.c, both
+define this: a build that links the two fails, so no bots reach a player's
+build by mistake) */
+int halo_bots_server_only_guard = 1;
+#endif

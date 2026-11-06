@@ -1766,7 +1766,12 @@ static boolean pause_list_patch(struct cache_file_tag_instance *instances, struc
 		NONE;
 	/* (the Xbox's and Gearbox's menus: a screen drawn by code, bots_screen.c,
 	which the row's function opens) */
+#ifdef HALO_SERVER
 	boolean bots = end_game && (bots_widget != NONE || menus_chosen() != _menus_chupathingy);
+#else
+	/* (a player's build has no bots: no BOTS in its pause menu) */
+	boolean bots = FALSE;
+#endif
 	struct ui_widget_child_reference *children = xbox_pointer(list->child_widgets.address);
 	long count = list->child_widgets.count, child;
 	boolean controls = pause_controls_offered();
@@ -2298,6 +2303,10 @@ static void host_lobby_bots_patch(long lobby)
 	struct ui_widget_child_reference *more_children;
 	long count = definition->event_handlers.count, index;
 
+#ifndef HALO_SERVER
+	/* (a player's build has no bots: no BOTS, no Y for them) */
+	return;
+#endif
 	if (bots == NONE || hint == NONE)
 		return;
 	/* (once: the lobby's tags stay as they are while the menus' map is loaded) */

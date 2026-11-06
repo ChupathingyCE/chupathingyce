@@ -5,6 +5,11 @@ What the bots take of the platform (bot_port.h): a clock, and with it what
 their parts cost (HALO_BOT_PROFILE).
 */
 
+/* (the bots are the dedicated server's alone: none of this is in a
+player's build, bot_client.c) */
+#ifdef HALO_SERVER
+
+
 #include "cseries.h"
 #include "bot_port.h"
 
@@ -121,3 +126,4 @@ void bot_profile_report(long ticks)
 		bot_profile_sections[index].calls = 0;
 	}
 }
+#endif /* HALO_SERVER */
