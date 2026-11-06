@@ -7,11 +7,10 @@ Halo Custom Edition 1.0.10's join wire, on the GameSpy listing's UDP port
 Custom Edition 1.0.10's client and dedicated server and from reading the
 retail binaries' behavior; see ce_transport.c for the wire.
 
-This first step answers a Custom Edition client's connection (the
-transport's handshake, its key agreement and enciphering, its reliable
-messages), names the server's map to it, reads its join request and then
-refuses the join cleanly: Custom Edition players can't play in our games
-yet.
+It answers a Custom Edition client's connection (the transport's
+handshake, its key agreement and enciphering, its reliable messages), names
+the server's map to it and reads its join request, which the game takes or
+refuses (server/src/server_ce.c).
 
 Built with the host's ABI (server_control.h's rule): only int and char
 cross here.
@@ -90,8 +89,8 @@ void ce_transport_start(ce_send_function send, void *context, ce_notice_function
 /* the server's name, the map it plays, as Custom Edition names it
 (gamespy_map_name), and its most players */
 void ce_transport_set_game(const char *name, const char *map, int maximum_players);
-/* 1: a join is taken (game settings and begin game) instead of refused.
-Only for testing until Custom Edition players can play: off by default */
+/* 1: the game answers each join (ce_transport_accept or
+ce_transport_refuse); 0: each is refused at once */
 void ce_transport_set_accept(int accept);
 /* a packet from address (a struct sockaddr_in): 1 when it is Custom
 Edition's join wire (handled), else 0 (the listing's to answer) */
