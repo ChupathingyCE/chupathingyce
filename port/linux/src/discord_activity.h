@@ -116,6 +116,12 @@ int discord_activity_json(char *json, int size, unsigned long nonce, unsigned lo
 	const struct discord_activity_game *game, const struct discord_activity_options *options, const char *party,
 	const char *join_secret);
 
+/* whether a player in a public game it joined (not its host) shares the
+game's invite now, by what the game tells: only while in the network game
+(a multiplayer game with players), not in the menus or a lobby. p2p.c
+says whether the game joined is a public one and its host still reached */
+int discord_activity_player_shares(const struct discord_activity_game *game);
+
 /* whether text is an invite Discord may carry: DISCORD_JOIN_PREFIX and the
 code of an open game (hex digits only: not a password game's, never an
 address) */

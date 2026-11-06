@@ -450,6 +450,13 @@ int discord_activity_json(char *json, int size, unsigned long nonce, unsigned lo
 	return text.overflow ? -1 : text.used;
 }
 
+int discord_activity_player_shares(const struct discord_activity_game *game)
+{
+	/* (in its multiplayer game over the network, not its lobby or menus) */
+	return game && game->screen == DISCORD_SCREEN_MULTIPLAYER && game->maximum_player_count > 0 &&
+		game->player_count > 0;
+}
+
 int discord_activity_subscribe_json(char *json, int size, unsigned long nonce, const char *event)
 {
 	int written = snprintf(json, (size_t)size, "{\"cmd\":\"SUBSCRIBE\",\"evt\":\"%s\",\"nonce\":\"%lu\"}",

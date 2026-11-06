@@ -25,6 +25,9 @@ int p2p_hand_off_invite(void);
 /* joins the game an invite link or code leads to; text may hold other
 words around it. Returns nonzero if it held an invite */
 int p2p_join_invite(const char *text);
+/* p2p_join_invite for the invite of a public game without a password (a
+listing's), which a player in it shares on Discord too (discord.show_join) */
+int p2p_join_listed_invite(const char *text);
 #ifdef HALO_GAME_BROWSER
 /* the invite of the game this machine hosts on the internet (its 44 digits,
 without halo://join/); 0 when it hosts none (browser.c) */

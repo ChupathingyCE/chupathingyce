@@ -10,7 +10,9 @@ activity's join secret, so Discord shows Join and Ask to Join on the
 profile and a Join card for an invite sent in a chat. A Join (Discord's
 ACTIVITY_JOIN, to players of the same application only) joins the invite
 as a halo://join link handed to the game does; one that comes before the
-game is up (Discord started the game for it) is held until it is. Once
+game is up (Discord started the game for it) is held until it is. A player
+in a public game it joined from a listing (or a Join) shares the game's
+invite the same way, under the host's party (p2p.c's join_public). Once
 connected, the game registers how Discord starts it for a Join
 (discord.register_launch: discord_register.h), so friends whose game is
 closed see Join too. An Ask to Join
@@ -76,6 +78,9 @@ static struct
 	struct discord_activity_game game;
 	struct discord_activity_options options;
 	char join_code[MAXIMUM_CODE_SIZE];
+	/* the host's party (hex) for a game joined, whose invite this machine
+	shares as a player in it; "" for its own game's */
+	char join_party[2 * P2P_IDENTIFIER_SIZE + 1];
 	int join_player_count;
 	int join_maximum_player_count;
 	int changed;
@@ -189,8 +194,14 @@ static void send_activity(void)
 
 	p2p_hex(p2p_identifier(), P2P_IDENTIFIER_SIZE, party);
 	snprintf(secret, sizeof(secret), DISCORD_JOIN_PREFIX "%s", discord.join_code);
+	/* (a joined game's: under its host's party, and only while in it) */
+	if (discord.join_party[0])
+	{
+		snprintf(party, sizeof(party), "%s", discord.join_party);
+		shared = shared && discord_activity_player_shares(&game);
+	}
 	/* (the hosted game's players, where the game told none: its menus) */
-	if (shared && game.maximum_player_count <= 0)
+	else if (shared && game.maximum_player_count <= 0)
 	{
 		game.player_count = discord.join_player_count;
 		game.maximum_player_count = discord.join_maximum_player_count;
@@ -269,7 +280,7 @@ static void frame_received(int opcode, char *json)
 				return;
 			}
 			platform_log("Internet play: joining a game from Discord");
-			p2p_invite_received(value);
+			p2p_invite_received(value, 1);
 			return;
 		case DISCORD_EVENT_JOIN_REQUEST:
 			/* (only to a game still open, on the host's word) */
@@ -452,7 +463,7 @@ void p2p_discord_update(void)
 		snprintf(held, sizeof(held), "%s", discord.held_join);
 		discord.held_join[0] = 0;
 		platform_log("Internet play: joining a game from Discord");
-		p2p_invite_received(held);
+		p2p_invite_received(held, 1);
 	}
 	if (discord.handle >= 0 && discord.ready && discord.changed &&
 		(!discord.sent || (unsigned int)(p2p_now() - discord.sent_time) >= (unsigned int)SEND_INTERVAL))
@@ -464,16 +475,19 @@ void p2p_discord_update(void)
 	}
 }
 
-void p2p_discord_set_join(const char *code, int player_count, int maximum_player_count)
+void p2p_discord_set_join(const char *code, const char *party, int player_count, int maximum_player_count)
 {
 	if (!code)
 		code = "";
+	if (!party || !code[0])
+		party = "";
 	if (!code[0])
 		player_count = maximum_player_count = 0;
-	if (strcmp(code, discord.join_code) || player_count != discord.join_player_count ||
-		maximum_player_count != discord.join_maximum_player_count)
+	if (strcmp(code, discord.join_code) || strcmp(party, discord.join_party) ||
+		player_count != discord.join_player_count || maximum_player_count != discord.join_maximum_player_count)
 	{
 		snprintf(discord.join_code, sizeof(discord.join_code), "%s", code);
+		snprintf(discord.join_party, sizeof(discord.join_party), "%s", party);
 		discord.join_player_count = player_count;
 		discord.join_maximum_player_count = maximum_player_count;
 		discord.changed = 1;

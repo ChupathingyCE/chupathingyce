@@ -1174,8 +1174,10 @@ joins yours as if they had opened the invite link. This works between
 Chupathingy players only: Discord hands the secret only to players of the
 same Discord application, so OpenCE players still use the invite link or
 the server browser. If a friend's game is closed, Discord starts it
-(`discord.register_launch`), and the join waits until the game is up. A
-password game never sends its invite, and the
+(`discord.register_launch`), and the join waits until the game is up.
+Players in a public game they joined from the server browser, Online Games
+or a Join share its invite too, while they play in it. A password game
+never sends its invite, and the
 invite is a code, never an address. Discord allows no buttons with an
 invite, so the big picture's hover text says "Free at chupathingy.org"
 instead. Otherwise the activity has buttons to the project's site and

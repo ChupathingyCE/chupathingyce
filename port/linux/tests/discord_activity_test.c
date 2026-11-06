@@ -381,6 +381,51 @@ static void test_hover_text(void)
 	CHECK(has("\"large_text\":\"Chupathingy\""));
 }
 
+/* a player in a public game it joined shares its invite: only while in the
+network game, under the host's party, as the host does */
+static void test_player_share(void)
+{
+	struct discord_activity_game game = { 0 };
+	struct discord_activity_options options = { DISCORD_PRESENCE_FULL, 1, 1 };
+	static const char host_party[] = "a1b2c3d4e5f6";
+
+	CHECK(!discord_activity_player_shares(NULL));
+	/* the menus, or a lobby: not yet */
+	game.screen = DISCORD_SCREEN_MENUS;
+	game.player_count = 3;
+	game.maximum_player_count = 16;
+	CHECK(!discord_activity_player_shares(&game));
+	/* the campaign (co-op): never */
+	game.screen = DISCORD_SCREEN_CAMPAIGN;
+	CHECK(!discord_activity_player_shares(&game));
+	/* a multiplayer game not over the network: no */
+	game.screen = DISCORD_SCREEN_MULTIPLAYER;
+	game.maximum_player_count = 0;
+	game.player_count = 0;
+	CHECK(!discord_activity_player_shares(&game));
+	/* in the network game: yes */
+	game.player_count = 3;
+	game.maximum_player_count = 16;
+	CHECK(discord_activity_player_shares(&game));
+
+	/* its activity: the host's party and invite, the game's players */
+	snprintf(game.map, sizeof(game.map), "bloodgulch");
+	game.mode = DISCORD_MODE_SLAYER;
+	CHECK(discord_activity_json(json, sizeof(json), 7, 1234, &game, &options, host_party, join) > 0);
+	CHECK(balanced());
+	CHECK(has("\"party\":{\"id\":\"a1b2c3d4e5f6\",\"size\":[3,16]}"));
+	CHECK(has("\"secrets\":{\"join\":\"halo://join/0123456789abcdef"));
+	CHECK(has("\"large_text\":\"Free at chupathingy.org\""));
+	CHECK(!has("buttons"));
+	/* a password game's (locked) invite never goes, nor with show_join off */
+	CHECK(discord_activity_json(json, sizeof(json), 7, 1234, &game, &options, host_party, locked) > 0);
+	CHECK(!has("secrets"));
+	options.show_join = 0;
+	CHECK(discord_activity_json(json, sizeof(json), 7, 1234, &game, &options, host_party, join) > 0);
+	CHECK(!has("secrets"));
+	CHECK(has("buttons"));
+}
+
 static void test_commands(void)
 {
 	CHECK(discord_activity_subscribe_json(json, sizeof(json), 9, "ACTIVITY_JOIN") > 0);
@@ -455,6 +500,7 @@ int main(int argc, char **argv)
 	test_campaign();
 	test_join();
 	test_hover_text();
+	test_player_share();
 	test_commands();
 	test_events();
 	if (failures)
