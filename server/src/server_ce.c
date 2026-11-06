@@ -97,6 +97,9 @@ enum
 	/* the next game up: told to reconnect (its client closes its connection
 	and connects again a second later, its seat kept for it) */
 	CE_PHASE_RECONNECTING,
+	/* joined an empty server between games: its player is in the lobby (so
+	the server starts a game for it), its join answered once that game plays */
+	CE_PHASE_LOBBY,
 };
 
 /* where a client was told an item is */
@@ -494,6 +497,28 @@ static boolean join(
 	if (!ce_transport_awaiting(event->peer))
 		return TRUE;
 	dedicated_server_get_status(&status);
+	/* (a join that took a seat in the lobby: answered once the game plays) */
+	if ((client = client_for_peer(event->peer, &index)) != NULL && client->phase == CE_PHASE_LOBBY)
+	{
+		/* (a client gives up on a join in about 15 seconds: the short
+		countdown, not the lobby's) */
+		if (status.state == _dedicated_state_lobby)
+			dedicated_server_start_soon();
+		if (status.state != _dedicated_state_in_game)
+			return FALSE;
+		if (local_player_get_player_index(index) == NONE)
+			return FALSE;
+		client->phase = CE_PHASE_PLAYING;
+		client_reset(client);
+		if (!accept_join(event->peer, event->name, local_player_get_player_index(index)))
+		{
+			leave(event->peer);
+			error(_error_silent, "ce: a Custom Edition player's join was gone before the game took it");
+			return TRUE;
+		}
+		error(_error_silent, "ce: Custom Edition player \"%s\" joins the game started for them", event->name);
+		return TRUE;
+	}
 	/* (a client back for the next game, on its new connection: the seat
 	kept for it) */
 	for (index = 0; index < CE_LOCAL_PLAYERS; index++)
@@ -522,8 +547,9 @@ static boolean join(
 		error(_error_silent, "ce: a Custom Edition player was turned away: too many players from their address");
 		return TRUE;
 	}
-	/* (between games: it waits for the next game to start) */
-	if (status.state != _dedicated_state_in_game)
+	/* (between games: it waits for the next game to start; in an empty
+	server's lobby its player is added there, so a game starts for it) */
+	if (status.state != _dedicated_state_in_game && status.state != _dedicated_state_lobby)
 		return FALSE;
 	/* (a map its client doesn't have: Custom Edition players play Custom
 	Edition maps only) */
@@ -562,6 +588,12 @@ static boolean join(
 	ce.clients[index].address = event->address;
 	snprintf(ce.clients[index].name, sizeof(ce.clients[index].name), "%s", event->name);
 	client_reset(&ce.clients[index]);
+	if (status.state == _dedicated_state_lobby)
+	{
+		ce.clients[index].phase = CE_PHASE_LOBBY;
+		error(_error_silent, "ce: Custom Edition player \"%s\" waits in the lobby as local player %d", event->name, index);
+		return FALSE;
+	}
 	if (!accept_join(event->peer, event->name, NONE))
 	{
 		/* (the join went while it waited: its player taken out again) */
@@ -1434,6 +1466,9 @@ static boolean between_games(
 	boolean in_game = status->state == _dedicated_state_in_game;
 	long mode = in_game || status->state == _dedicated_state_postgame ? game_engine_postgame_mode() : 0;
 
+	/* (waiting in the lobby for its game: join answers it) */
+	if (client->phase == CE_PHASE_LOBBY)
+		return FALSE;
 	/* (the game left before it was loaded: let go, as before) */
 	if (client->phase == CE_PHASE_PLAYING && !client->loaded)
 	{
@@ -1590,8 +1625,12 @@ void server_ce_update(
 
 		if (!answered && system_milliseconds() - ce.waiting_time[index] > JOIN_WAIT_MILLISECONDS)
 		{
+			struct ce_client *reserved = client_for_peer(ce.waiting[index].peer, NULL);
+
 			ce_transport_refuse(ce.waiting[index].peer, CE_REJECT_FULL);
 			error(_error_silent, "ce: a Custom Edition player was turned away: no game started in time");
+			if (reserved && reserved->phase == CE_PHASE_LOBBY)
+				leave_client(reserved);
 			answered = TRUE;
 		}
 		if (answered)
@@ -1819,6 +1858,19 @@ boolean server_ce_tell(
 		return FALSE;
 	send_chat(client, text);
 	return TRUE;
+}
+
+boolean server_ce_players_present(
+	void)
+{
+	short index;
+
+	for (index = 0; ce.enabled && index < CE_LOCAL_PLAYERS; index++)
+	{
+		if (ce.clients[index].active)
+			return TRUE;
+	}
+	return FALSE;
 }
 
 unsigned long server_ce_input_time(
