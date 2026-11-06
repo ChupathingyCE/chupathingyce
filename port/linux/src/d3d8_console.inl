@@ -888,7 +888,7 @@ static int cr_primitive(D3DPRIMITIVETYPE type)
 /* ---------- draws (bg_draw's) */
 
 static void cr_draw(D3DPRIMITIVETYPE type, BOOL immediate, unsigned long first, unsigned long vertex_count,
-	const WORD *indices, unsigned long index_count)
+	const WORD *indices, unsigned long index_count, unsigned long lowest)
 {
 	struct vertex_shader_object *program = current_program();
 	struct vertex_shader_object *declaration = device.vertex_shader;
@@ -1034,6 +1034,7 @@ static void cr_draw(D3DPRIMITIVETYPE type, BOOL immediate, unsigned long first, 
 	draw.elements = elements;
 	draw.constant_values = (const float (*)[4])device.attributes;
 	draw.vertex_count = vertex_count;
+	draw.vertex_first = lowest;
 	if (indices)
 	{
 		unsigned long address = (unsigned long)XBOX_ADDRESS(indices);
@@ -1077,7 +1078,7 @@ static void cr_draw(D3DPRIMITIVETYPE type, BOOL immediate, unsigned long first, 
 
 static void cr_draw_vertices(D3DPRIMITIVETYPE type, unsigned long start, unsigned long count)
 {
-	cr_draw(type, FALSE, start, count, NULL, 0);
+	cr_draw(type, FALSE, start, count, NULL, 0, 0);
 }
 
 static void cr_draw_indexed(D3DPRIMITIVETYPE type, unsigned long count, const WORD *indices)
@@ -1091,12 +1092,12 @@ static void cr_draw_indexed(D3DPRIMITIVETYPE type, unsigned long count, const WO
 	are drawn as they are, from it) */
 	index_extent(indices, count, memory_watch_generation((unsigned long)XBOX_ADDRESS(indices), count * sizeof(WORD)),
 		TRUE, &minimum, &maximum);
-	cr_draw(type, FALSE, device.base_vertex_index, maximum + 1, indices, count);
+	cr_draw(type, FALSE, device.base_vertex_index, maximum + 1, indices, count, minimum);
 }
 
 static void cr_draw_immediate(D3DPRIMITIVETYPE type, unsigned long count)
 {
-	cr_draw(type, TRUE, 0, count, NULL, 0);
+	cr_draw(type, TRUE, 0, count, NULL, 0, 0);
 }
 
 static void cr_clear(DWORD count, const D3DRECT *rectangles, DWORD flags, D3DCOLOR color, float z, DWORD stencil)

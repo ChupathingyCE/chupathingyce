@@ -276,6 +276,9 @@ struct console_draw
 	/* vertices from 0 (from each stream's data), or indices into them: 16
 	bits, the processor's order */
 	unsigned long vertex_count;
+	/* the lowest vertex the draw reads (its smallest index; 0 for a draw
+	without indices) */
+	unsigned long vertex_first;
 	const unsigned short *indices;
 	unsigned long index_count;
 	/* the indices are the game's to keep while the GPU reads them (in the
