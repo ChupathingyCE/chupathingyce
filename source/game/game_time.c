@@ -483,7 +483,9 @@ void game_time_update(
 						game_time_globals->server_time++;
 						game_time_globals->local_time++;
 						/* the distributed netcode's per-tick state */
+						HALO_PERF_BEGIN(_halo_perf_tick_netcode);
 						network_distributed_tick();
+						HALO_PERF_END(_halo_perf_tick_netcode);
 						/* debug.determinism's hashes of the tick's state
 						(port/linux/game/determinism_check.c) */
 #ifndef HALO_CONSOLE_NO_NETWORK_TEST
