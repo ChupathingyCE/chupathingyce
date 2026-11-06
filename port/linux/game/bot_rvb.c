@@ -243,6 +243,23 @@ static void bot_rvb_ascii_name(wchar_t const *name, char *out, int size)
 	out[i] = 0;
 }
 
+/* the lines said last */
+#define BOT_RVB_RECENT 40
+static char const *bot_rvb_recent[BOT_RVB_RECENT];
+static long bot_rvb_recent_next;
+
+static boolean bot_rvb_recently(char const *text)
+{
+	long index;
+
+	for (index = 0; index < BOT_RVB_RECENT; index++)
+	{
+		if (bot_rvb_recent[index] == text)
+			return TRUE;
+	}
+	return FALSE;
+}
+
 /* a line of this character for this event (about that one, if it has
 one), "%n" made the other's name; FALSE if it has none */
 static boolean bot_rvb_pick(long character, int event, long other_character, wchar_t const *other_name, char *out,
@@ -279,17 +296,27 @@ static boolean bot_rvb_pick(long character, int event, long other_character, wch
 	}
 	if (!matches)
 		return FALSE;
-	pick = (long)(bot_rvb_next() % (unsigned long)matches);
-	for (index = 0; index < BOT_RVB_LINE_COUNT && !text; index++)
+	/* (not one of the last lines said, while there is another) */
 	{
-		if (bot_rvb_lines[index].character == character && bot_rvb_lines[index].event == event &&
-			bot_rvb_lines[index].other == (specific ? other_character : NONE) && pick-- == 0)
+		long attempt;
+
+		for (attempt = 0; attempt < 6 && (!text || bot_rvb_recently(text)); attempt++)
 		{
-			text = bot_rvb_lines[index].text;
+			text = NULL;
+			pick = (long)(bot_rvb_next() % (unsigned long)matches);
+			for (index = 0; index < BOT_RVB_LINE_COUNT && !text; index++)
+			{
+				if (bot_rvb_lines[index].character == character && bot_rvb_lines[index].event == event &&
+					bot_rvb_lines[index].other == (specific ? other_character : NONE) && pick-- == 0)
+				{
+					text = bot_rvb_lines[index].text;
+				}
+			}
 		}
 	}
 	if (!text)
 		return FALSE;
+	bot_rvb_recent[bot_rvb_recent_next++ % BOT_RVB_RECENT] = text;
 	bot_rvb_ascii_name(other_name, name, (int)sizeof(name));
 	{
 		int used = 0;
