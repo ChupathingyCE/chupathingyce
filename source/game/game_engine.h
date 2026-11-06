@@ -615,6 +615,10 @@ boolean game_engine_running(
 	void);
 boolean game_engine_showing_postgame(
 	void);
+/* port: 0 while the game plays, then 1 to 3 as it ends (game_engine.c's
+game_engine_mode) */
+long game_engine_postgame_mode(
+	void);
 /* port: the carnage report's prompt as last drawn, in the menus'
 coordinates: its line's top and bottom, its ends, and where its second part
 begins (right when it has one); FALSE when it is not up */
