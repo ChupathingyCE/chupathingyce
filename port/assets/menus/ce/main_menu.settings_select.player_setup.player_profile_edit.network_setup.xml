@@ -259,7 +259,7 @@
 		<string text="CRASH REPORTS:"/>
 		<string text="DISCORD STATUS:"/>
 		<string text="DISCORD SERVER NAME:"/>
-		<string text="DISCORD JOIN BUTTON:"/>
+		<string text="DISCORD INVITES:"/>
 	</strings>
 	<strings name="main_menu/settings_select/player_setup/player_profile_edit/network_setup/help_strings">
 		<string text=""/>
@@ -282,7 +282,7 @@
 		<string text="Send crash reports to the developers."/>
 		<string text="Choose what your Discord status shows."/>
 		<string text="Show the game's name on Discord."/>
-		<string text="Show a Join button on Discord while hosting."/>
+		<string text="Let Discord friends join your public game."/>
 	</strings>
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/online_profile_item" type="text" left="51" top="243" width="232" height="32" bitmap="bitmaps/list_item_bkd" string_list="main_menu/settings_select/player_setup/player_profile_edit/profile_edit_options" string_index="15" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="5">
 		<on event="a" open="main_menu/settings_select/player_setup/player_profile_edit/network_setup/network_settings_screen"/>
