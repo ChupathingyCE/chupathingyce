@@ -203,15 +203,19 @@ and leaving cleanly what doesn't fold:
   from `port/xbox/src`, built into every build, called only with the
   console's limits). The client takes the PCs' 13,120-byte record in its
   four pieces and folds it into its own
-  (`network_client_message_handler.c`). A record with a machine or player
-  in a slot past 16, or an entry naming one, is not taken: the console
+  (`network_client_message_handler.c`). A record with a player in a slot
+  past 16, an entry naming one, or more machines than the console has
+  indices for, is not taken: the console
   leaves the game as a full one (`_rejection_code_game_is_full`, "the game
   is full" on the main menu) and says why in `debug.txt` ("cross-play:
   leaving the host's game: ...", with the entry it could not take). A
   host's maximum above 16 is held to 16. A player who names a machine the
   record has no entry for (a modified host's bots name machines from #113
-  up) is given a free machine index of the console's instead, the highest
-  first, and keeps it for the rest of the game, joining in progress too.
+  up), and a machine in a slot past 16 (a dedicated server's bots sit on
+  machines of their own from slot 127 down), are given a free machine index
+  of the console's instead, the highest first, and keep it for the rest of
+  the game, joining in progress too. The console's own machine is never one
+  of them: its index comes with the join (below).
 - **Joins and players in progress.** A machine index past 16 from the host
   (`message_server_machine_accepted`), or a player added in progress in a
   slot or from a machine past 16 (`message_server_add_player_ingame`),

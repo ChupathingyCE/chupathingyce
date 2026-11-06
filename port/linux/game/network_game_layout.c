@@ -56,66 +56,95 @@ static int index_fits(unsigned char value, int slots)
 	return value == NONE_BYTE || index_in(value, slots);
 }
 
-/* A player may name a machine the record has no entry for: a host's own
-players with no machine of their own (a modified host's bots name machines
-from #113 up), which the PC builds play with. One past the narrower layout's
-machines is given a free machine index of it, the highest first, the same
-one for each of its players: map[i] is the index a player naming machine i
-is given (i itself where it fits, or NONE). 0 when there are more such
-machines than free indices, or a player names a machine past the narrower
-layout's that has an entry (a real machine there, which is the machines'
-error). */
+/* A machine past the narrower layout's slots: a player may name a machine
+the record has no entry for (a host's own players with no machine of their
+own: a modified host's bots name machines from #113 up), or a host may put a
+machine with no connection in its last slots (a dedicated server's bots, on
+machines of their own from slot 127 down). The PC builds play with both. Each
+such machine is given a free machine index of the narrower layout, the
+highest first, the same one for each of its players, and its entry (if it
+has one) goes into that slot: map[i] is the index machine #i is given (i
+itself where it fits, or NONE). 0 when there are more such machines than
+free indices, or a player names a machine past the narrower layout's
+indices whose entry is in a slot that fits (an entry naming another slot,
+which the machines' check refuses). */
 static int machine_less_map(const unsigned char *from, int from_machines, int from_players, int to_machines,
 	int to_players, unsigned char *map, struct network_game_layout_machine_map *kept)
 {
 	const unsigned char *from_machine = from + NETWORK_GAME_LAYOUT_MACHINES_OFFSET;
 	const unsigned char *from_player = from_machine + from_machines * NETWORK_GAME_LAYOUT_MACHINE_SIZE + 2;
 	unsigned char present[256];
+	unsigned char past[256];
 	unsigned char taken[256];
+	unsigned char order[256];
+	unsigned char listed[256];
+	int order_count = 0;
 	int index, next, pass;
 
 	memset(present, 0, sizeof(present));
+	memset(past, 0, sizeof(past));
 	memset(taken, 0, sizeof(taken));
+	memset(listed, 0, sizeof(listed));
 	for (index = 0; index < 256; index++)
 		map[index] = (unsigned char)index;
 	for (index = 0; index < from_machines; index++)
 	{
 		unsigned char machine_index = from_machine[index * NETWORK_GAME_LAYOUT_MACHINE_SIZE + NETWORK_GAME_LAYOUT_MACHINE_INDEX];
 
-		if (index_in(machine_index, from_machines))
+		if (!index_in(machine_index, from_machines))
+			continue;
+		present[machine_index] = 1;
+		if (index < to_machines)
 		{
-			present[machine_index] = 1;
+			/* (its slot, and the index it names) */
+			taken[index] = 1;
 			taken[machine_index] = 1;
 		}
+		else if (machine_index >= to_machines)
+			past[machine_index] = 1;
 	}
-	/* (the indices the players that fit name are taken too) */
+	/* (the indices the players that fit name are taken too; the machines
+	past the slots are given theirs in the order their players come, then
+	those with no player) */
 	for (index = 0; index < from_players && index < to_players; index++)
 	{
 		const unsigned char *player = from_player + index * NETWORK_GAME_LAYOUT_PLAYER_SIZE;
+		unsigned char machine_index = player[NETWORK_GAME_LAYOUT_PLAYER_MACHINE_INDEX];
 
-		if (index_in(player[NETWORK_GAME_LAYOUT_PLAYER_LIST_INDEX], from_players) &&
-			index_in(player[NETWORK_GAME_LAYOUT_PLAYER_MACHINE_INDEX], to_machines))
+		if (!index_in(player[NETWORK_GAME_LAYOUT_PLAYER_LIST_INDEX], from_players))
+			continue;
+		if (index_in(machine_index, to_machines))
+			taken[machine_index] = 1;
+		else if (!index_fits(machine_index, to_machines))
 		{
-			taken[player[NETWORK_GAME_LAYOUT_PLAYER_MACHINE_INDEX]] = 1;
+			if (!index_in(machine_index, from_machines) || (present[machine_index] && !past[machine_index]))
+				return 0;
+			if (!listed[machine_index])
+			{
+				listed[machine_index] = 1;
+				order[order_count++] = machine_index;
+			}
+		}
+	}
+	for (index = 0; index < 256; index++)
+	{
+		if (past[index] && !listed[index])
+		{
+			listed[index] = 1;
+			order[order_count++] = (unsigned char)index;
 		}
 	}
 	/* (first the indices given before, while still free; then new ones) */
 	for (pass = 0; pass < 2; pass++)
 	{
 		next = to_machines - 1;
-		for (index = 0; index < from_players && index < to_players; index++)
+		for (index = 0; index < order_count; index++)
 		{
-			const unsigned char *player = from_player + index * NETWORK_GAME_LAYOUT_PLAYER_SIZE;
-			unsigned char machine_index = player[NETWORK_GAME_LAYOUT_PLAYER_MACHINE_INDEX];
+			unsigned char machine_index = order[index];
 			unsigned char before;
 
-			if (!index_in(player[NETWORK_GAME_LAYOUT_PLAYER_LIST_INDEX], from_players) ||
-				index_fits(machine_index, to_machines) || map[machine_index] != machine_index)
-			{
+			if (map[machine_index] != machine_index)
 				continue;
-			}
-			if (!index_in(machine_index, from_machines) || present[machine_index])
-				return 0;
 			before = kept && machine_index < NETWORK_GAME_LAYOUT_PC_SLOTS ? kept->machine[machine_index] : NONE_BYTE;
 			if (pass == 0)
 			{
@@ -208,7 +237,15 @@ int network_game_layout_convert_mapped(const unsigned char *from, int from_machi
 	if (player_count < 0 || player_count > to_players)
 		return NETWORK_GAME_LAYOUT_TOO_MANY_PLAYERS;
 
-	/* the used slots past the narrower layout's, and what the used ones name */
+	/* the machines past the narrower layout's (a free index each, or none
+	given: then the checks below say why) */
+	if (!machine_less_map(from, from_machines, from_players, to_machines, to_players, machine_map, kept))
+	{
+		for (index = 0; index < 256; index++)
+			machine_map[index] = (unsigned char)index;
+	}
+	/* the used slots past the narrower layout's that have no index given, and
+	what the used ones name */
 	for (index = 0; index < from_machines; index++)
 	{
 		unsigned char machine_index = from_machine[index * NETWORK_GAME_LAYOUT_MACHINE_SIZE + NETWORK_GAME_LAYOUT_MACHINE_INDEX];
@@ -216,12 +253,14 @@ int network_game_layout_convert_mapped(const unsigned char *from, int from_machi
 		if (!index_in(machine_index, from_machines))
 			continue;
 		if (index >= to_machines)
-			return NETWORK_GAME_LAYOUT_MACHINE_SLOT;
+		{
+			if (machine_map[machine_index] == machine_index)
+				return NETWORK_GAME_LAYOUT_MACHINE_SLOT;
+			continue;
+		}
 		if (!index_in(machine_index, to_machines))
 			return NETWORK_GAME_LAYOUT_INDEX;
 	}
-	if (!machine_less_map(from, from_machines, from_players, to_machines, to_players, machine_map, kept))
-		return NETWORK_GAME_LAYOUT_INDEX;
 	for (index = 0; index < from_players; index++)
 	{
 		const unsigned char *player = from_player + index * NETWORK_GAME_LAYOUT_PLAYER_SIZE;
@@ -251,6 +290,17 @@ int network_game_layout_convert_mapped(const unsigned char *from, int from_machi
 			memset(machine, 0, NETWORK_GAME_LAYOUT_MACHINE_SIZE);
 			machine[NETWORK_GAME_LAYOUT_MACHINE_INDEX] = NONE_BYTE;
 		}
+	}
+	/* (a machine past the slots into the one its index gives, free) */
+	for (index = to_machines; index < from_machines; index++)
+	{
+		const unsigned char *machine = from_machine + index * NETWORK_GAME_LAYOUT_MACHINE_SIZE;
+		unsigned char given = machine_map[machine[NETWORK_GAME_LAYOUT_MACHINE_INDEX]];
+
+		if (!index_in(machine[NETWORK_GAME_LAYOUT_MACHINE_INDEX], from_machines) || !index_in(given, to_machines))
+			continue;
+		memcpy(to_machine + given * NETWORK_GAME_LAYOUT_MACHINE_SIZE, machine, NETWORK_GAME_LAYOUT_MACHINE_SIZE);
+		to_machine[given * NETWORK_GAME_LAYOUT_MACHINE_SIZE + NETWORK_GAME_LAYOUT_MACHINE_INDEX] = given;
 	}
 	memcpy(to_player_count, from_player_count, 2);
 	for (index = 0; index < to_players; index++)
@@ -295,7 +345,8 @@ int network_game_layout_failing_entry(const unsigned char *from, int from_machin
 	{
 		return 0;
 	}
-	/* (a player of no machine is judged by the index it would be given) */
+	/* (a machine past the slots, and a player of no machine, are judged by
+	the index they would be given) */
 	if (!machine_less_map(from, from_machines, from_players, to_machines, to_players, machine_map, NULL))
 	{
 		for (index = 0; index < 256; index++)
@@ -307,7 +358,8 @@ int network_game_layout_failing_entry(const unsigned char *from, int from_machin
 	{
 		unsigned char machine_index = from_machine[index * NETWORK_GAME_LAYOUT_MACHINE_SIZE + NETWORK_GAME_LAYOUT_MACHINE_INDEX];
 
-		if (index_in(machine_index, from_machines) && (index >= to_machines || !index_in(machine_index, to_machines)))
+		if (index_in(machine_index, from_machines) &&
+			(index >= to_machines ? machine_map[machine_index] == machine_index : !index_in(machine_index, to_machines)))
 		{
 			entry[0] = (unsigned char)index;
 			entry[1] = machine_index;
