@@ -333,6 +333,11 @@ static const struct config_setting config_settings[] =
 		_platform_all | _platform_xbox,
 		"Size the reticle to the field of view, so it matches the weapon's\n"
 		"spread on screen. It makes no difference at 70." },
+	{ "display.widescreen", _config_string, "\"dashboard\"", NULL, _environment_value, _platform_xbox,
+		"Widescreen on a 16:9 TV. \"dashboard\" follows the Xbox dashboard:\n"
+		"with Widescreen set there, the game shows more to the sides and the\n"
+		"HUD and menus fit the wide screen. \"off\" keeps the 4:3 picture, as\n"
+		"the original game did. Read when Chupathingy starts." },
 #ifdef HALO_CONSOLE_PERFORMANCE_MODE
 	{ "display.performance_mode", _config_boolean, "true", "HALO_PERFORMANCE_MODE", _environment_value, _platform_all,
 		"Start in performance mode: the level drawn without its decals, dynamic lights, reflections and specular\n"
