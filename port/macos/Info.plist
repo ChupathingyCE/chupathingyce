@@ -36,6 +36,7 @@
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>chupathingy</string>
+				<string>halo</string>
 			</array>
 		</dict>
 	</array>
