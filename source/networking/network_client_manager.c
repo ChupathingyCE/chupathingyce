@@ -816,6 +816,9 @@ static struct
 	/* (and the advertisement's reserved bytes whole: the game wire a Delta
 	host plays after them, port/linux/include/delta.h) */
 	byte reserved[0x1A];
+	/* a console's build: the host takes players, but on more machines than
+	this build has room for (add_advertised_game) */
+	boolean over_console_limit;
 } network_game_client_advertised_versions[MAXIMUM_NETWORK_ADVERTISED_GAMES];
 
 /* the joined game's host's network version, as it advertised it (0xFFFF: not
@@ -2747,6 +2750,12 @@ static boolean add_advertised_game(
 			csmemcpy(network_game_client_advertised_versions[game_index].reserved,
 				advertisement->__unknown5A,
 				sizeof(network_game_client_advertised_versions[game_index].reserved));
+#ifdef HALO_PORT_CONSOLE_LIMITS
+			/* (kept closed, as a full game is, but said so when it is joined) */
+			network_game_client_advertised_versions[game_index].over_console_limit =
+				TEST_FLAG(advertisement->flags, _game_advertisement_open_bit) &&
+				advertisement->machine_count >= MAXIMUM_NETWORK_MACHINE_COUNT;
+#endif
 		}
 
 		if (advertisement->game_name[0] != L'\0')
@@ -3771,9 +3780,29 @@ long network_game_client_join_invite_host(
 		struct network_join_parameters join_parameters;
 
 		/* (the XNADDR: its size and flags, then abEnet) */
-		if (!network_game_client_advertised_game_is_valid(game) || !game->open ||
+		if (!network_game_client_advertised_game_is_valid(game) ||
 			csmemcmp(game->xnaddr.data + 2, identifier, sizeof(identifier)))
 		{
+			continue;
+		}
+		if (!game->open)
+		{
+#ifdef HALO_PORT_CONSOLE_LIMITS
+			/* port: a console's build cannot take a game on more machines than
+			it has room for; it would never open, and the wait would end only
+			with the browser's "the host did not answer" */
+			if (network_game_client_advertised_versions[game_index].over_console_limit)
+			{
+				char details[96];
+
+				csprintf(details, "This console takes %d players. The game has %d machines.",
+					(int)MAXIMUM_NUMBER_OF_PLAYERS, (int)game->machine_count);
+				network_event("not joining a host's game on %d machines (this build takes %d)", (int)game->machine_count,
+					(int)MAXIMUM_NETWORK_MACHINE_COUNT);
+				network_game_client_refuse(_join_reason_console_full, details, "", TRUE);
+				return -1;
+			}
+#endif
 			continue;
 		}
 		if (!network_game_client_advertised_game_compatible(client, game, TRUE))
