@@ -27,6 +27,7 @@ Dedicated server only (HALO_SERVER), as all of the bots' code is.
 const char *config_string(char const *name);
 /* the host's chat (chat.c): a line said as a player of this game */
 int chat_bot_say(wchar_t const *name, char const *text);
+void platform_log(char const *format, ...);
 /* (game_time.c) */
 long game_time_get(void);
 
@@ -600,7 +601,13 @@ void bot_rvb_tick(void)
 	}
 	if (best == NONE)
 		return;
-	chat_bot_say(bot_rvb_bots[best].name, bot_rvb_bots[best].text);
+	{
+		char name[16];
+
+		bot_rvb_ascii_name(bot_rvb_bots[best].name, name, (int)sizeof(name));
+		platform_log("bots: %s: %s%s", name, bot_rvb_bots[best].text,
+			chat_bot_say(bot_rvb_bots[best].name, bot_rvb_bots[best].text) ? "" : " (no one to hear it)");
+	}
 	bot_rvb_bots[best].text[0] = 0;
 	bot_rvb_bots[best].next_allowed = now + per_bot;
 	bot_rvb.next_line = now + server_wide;
