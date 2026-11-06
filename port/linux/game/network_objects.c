@@ -3204,6 +3204,20 @@ as it is) */
 		object_disconnect_from_map(object_index);
 		object_set_visibility(object_index, FALSE);
 	}
+	/* (an item the host has at rest: at rest here, where the host has it.
+	Left to fall on its own from the host's resting place, right on the
+	floor (a map's item spawn), it could start just under it and drop
+	through the map, gone from sight until the host's next word on it,
+	many seconds later: the host sends one made at rest no state of its
+	coming to rest) */
+	if (TEST_FLAG(change->flags, _distributed_object_at_rest_bit) &&
+		!TEST_FLAG(change->flags, _distributed_object_carried_bit) &&
+		TEST_FLAG(_object_mask_item, object->object.type) &&
+		TEST_FLAG(object->object.flags, _object_connected_to_map_bit) &&
+		object->object.parent_object_index == NONE)
+	{
+		SET_FLAG(object->object.flags, _object_at_rest_bit, TRUE);
+	}
 	/* (a body: dead on the host before this machine had it, killed here
 	with nothing to show or count of it) */
 	if (TEST_FLAG(change->flags, _distributed_object_dead_bit) && TEST_FLAG(_object_mask_unit, object->object.type) &&
