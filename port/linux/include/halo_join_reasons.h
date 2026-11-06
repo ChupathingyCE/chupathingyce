@@ -45,6 +45,9 @@ enum join_reason
 	_join_reason_no_answer,
 	/* the host answered, but no connection got through (strict NATs) */
 	_join_reason_no_connection,
+	/* the game has more machines than a console's build takes
+	(HALO_CONSOLE_PLAYERS) */
+	_join_reason_console_full,
 
 	NUMBER_OF_JOIN_REASONS
 };
@@ -68,6 +71,7 @@ enum join_reason
 #define JOIN_REASON_PASSWORD "Password needed."
 #define JOIN_REASON_NO_ANSWER "The host didn't answer."
 #define JOIN_REASON_NO_CONNECTION "Couldn't connect to the host."
+#define JOIN_REASON_CONSOLE_FULL "This game has more players than this console can hold."
 /* an OpenCE dedicated server's refusals of network version 40 and 41 (codes 8
 to 13 of the host's refusal): a VPN, Tor or data center address (8, 9); a
 Discord link of OpenCE's own, which this build has none of (10 to 12); and
@@ -101,7 +105,8 @@ detail) */
 	(reason) == _join_reason_full ? JOIN_REASON_FULL : \
 	(reason) == _join_reason_password ? JOIN_REASON_PASSWORD : \
 	(reason) == _join_reason_no_answer ? JOIN_REASON_NO_ANSWER : \
-	(reason) == _join_reason_no_connection ? JOIN_REASON_NO_CONNECTION : "")
+	(reason) == _join_reason_no_connection ? JOIN_REASON_NO_CONNECTION : \
+	(reason) == _join_reason_console_full ? JOIN_REASON_CONSOLE_FULL : "")
 
 /* a game of another network version's reason (browser_version_state's
 state: -1 older, 1 newer) */
