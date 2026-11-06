@@ -9,8 +9,8 @@ A running server takes commands, named after Halo PC's dedicated server's
 
 - **its console**: type them where the server runs;
 - **a startup file**: commands run once the server first hosts;
-- **its control API**: HTTP and JSON on a port of its own, off unless you
-  turn it on, for scripts and bots, with a **web admin page** on the same
+- **its control API**: HTTP and JSON on a port of its own, on this machine
+  only by default (127.0.0.1:8080), for scripts and bots, with a **web admin page** on the same
   port.
 
 Every command runs on the game's main thread, between frames, whichever
@@ -140,11 +140,14 @@ sv_map ratrace slayer
 
 ## The control API
 
-Off unless `HALO_DEDICATED_CONTROL` is set:
+On this machine only unless `HALO_DEDICATED_CONTROL` says otherwise (our
+Docker image sets `off`). If the port is taken, the server logs one line
+and keeps hosting without it.
 
 | `HALO_DEDICATED_CONTROL` | Listens on |
 | --- | --- |
-| (not set), `false` | nothing: no API |
+| (not set) | `127.0.0.1:8080`, this machine only |
+| `off`, `false`, `0`, empty | nothing: no API |
 | `8080` | `127.0.0.1:8080`, this machine only |
 | `127.0.0.1:8080` | the same |
 | `[::1]:8080` | IPv6's loopback |
@@ -286,7 +289,8 @@ below).
 
 ### Docker
 
-Our images run the server as uid 1000, with the data folder at `/data`;
+Our image sets `HALO_DEDICATED_CONTROL=off`, so the panel is off until you
+set it. Our images run the server as uid 1000, with the data folder at `/data`;
 `control_credentials.txt` is written there, so the data folder must be
 writable by that user.
 
@@ -303,7 +307,7 @@ writable by that user.
 
 ### What it does to keep strangers out
 
-- Off unless turned on; on the loopback address unless told otherwise.
+- On the loopback address unless told otherwise (off in our Docker image).
 - No default password: a random 256-bit token, shown once, kept only as a
   salted Argon2id hash (19 MiB, 2 passes); tokens are compared in constant
   time. A token checked right is remembered for the run as a keyed hash, so
@@ -462,4 +466,4 @@ endpoints above, with the cookie instead of a bearer token.
 | --- | --- | --- |
 | `HALO_DEDICATED_CONSOLE` | (a terminal: on) | `true`: read commands on standard input even when it is not a terminal; `false`: never. |
 | `HALO_DEDICATED_COMMANDS` | (none) | A file of commands in the data folder, run once the server first hosts. |
-| `HALO_DEDICATED_CONTROL` | (off) | The control API's and web admin page's address: a port (`8080`, on 127.0.0.1), or address and port. |
+| `HALO_DEDICATED_CONTROL` | `127.0.0.1:8080` | The control API's and web admin page's address: a port (`8080`, on 127.0.0.1), or address and port. |
