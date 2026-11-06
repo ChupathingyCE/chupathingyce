@@ -114,7 +114,9 @@ static void test_team_slayer(void)
 	CHECK(has("\"details\":\"Team Slayer on Blood Gulch\""));
 	CHECK(has("\"state\":\"Red 2 - 1 Blue\""));
 	CHECK(has("\"large_image\":\"https://stats.chupathingy.org/art/maps/bloodgulch.jpg\""));
-	CHECK(has("\"large_text\":\"Milenko's \\\"game\\\": Blood Gulch\""));
+	/* (with the secret, no buttons: the hover text says where the game is) */
+	CHECK(has("\"large_text\":\"Free at chupathingy.org\""));
+	CHECK(!has("Milenko's \\\"game\\\": Blood Gulch"));
 	CHECK(has("\"small_image\":\"https://stats.chupathingy.org/art/types/slayer.png\""));
 	CHECK(has("\"small_text\":\"Team Slayer (macOS)\""));
 	CHECK(has("\"size\":[3,16]"));
@@ -137,6 +139,8 @@ static void test_team_slayer(void)
 	CHECK(!has("halo://"));
 	CHECK(has("Get Chupathingy"));
 	CHECK(has("Join our Discord"));
+	CHECK(has("\"large_text\":\"Blood Gulch\""));
+	CHECK(!has("Free at chupathingy.org"));
 
 	/* the server's name as the state, with no score */
 	CHECK(build(&game, DISCORD_PRESENCE_FULL, 1, 1, NULL) > 0);
@@ -332,6 +336,96 @@ static void test_join(void)
 	CHECK(!has("secrets"));
 }
 
+/* the large picture's hover text: the site's word with a join secret, the
+existing text otherwise (unless there is none) */
+static void test_hover_text(void)
+{
+	struct discord_activity_game game = { 0 };
+
+	/* hosting in the menus: the site's word in place of "Chupathingy" */
+	game.screen = DISCORD_SCREEN_MENUS;
+	CHECK(build(&game, DISCORD_PRESENCE_FULL, 1, 1, join) > 0);
+	CHECK(balanced());
+	CHECK(has("\"large_text\":\"Free at chupathingy.org\""));
+	CHECK(!has("buttons"));
+	/* not hosting: as it was */
+	CHECK(build(&game, DISCORD_PRESENCE_FULL, 1, 1, NULL) > 0);
+	CHECK(has("\"large_text\":\"Chupathingy\""));
+	CHECK(!has("Free at"));
+
+	/* the campaign (no secret there): its level's name */
+	game.screen = DISCORD_SCREEN_CAMPAIGN;
+	snprintf(game.map, sizeof(game.map), "levels\\a10\\a10");
+	CHECK(build(&game, DISCORD_PRESENCE_FULL, 1, 1, NULL) > 0);
+	CHECK(!has("Free at"));
+
+	/* a multiplayer game: the map's name without the secret, the site's
+	with it; a password game's (no secret) keeps the map's */
+	game.screen = DISCORD_SCREEN_MULTIPLAYER;
+	snprintf(game.map, sizeof(game.map), "bloodgulch");
+	game.player_count = 2;
+	game.maximum_player_count = 8;
+	CHECK(build(&game, DISCORD_PRESENCE_FULL, 1, 1, NULL) > 0);
+	CHECK(has("\"large_text\":\"Blood Gulch\""));
+	CHECK(build(&game, DISCORD_PRESENCE_FULL, 1, 1, join) > 0);
+	CHECK(has("\"large_text\":\"Free at chupathingy.org\""));
+	CHECK(build(&game, DISCORD_PRESENCE_FULL, 1, 1, locked) > 0);
+	CHECK(has("\"large_text\":\"Blood Gulch\""));
+	/* discord.show_join off: no secret, the map's */
+	CHECK(build(&game, DISCORD_PRESENCE_FULL, 1, 0, join) > 0);
+	CHECK(has("\"large_text\":\"Blood Gulch\""));
+	CHECK(!has("Free at"));
+
+	/* minimal: its own text, never the secret's */
+	CHECK(build(&game, DISCORD_PRESENCE_MINIMAL, 1, 1, join) > 0);
+	CHECK(has("\"large_text\":\"Chupathingy\""));
+}
+
+/* a player in a public game it joined shares its invite: only while in the
+network game, under the host's party, as the host does */
+static void test_player_share(void)
+{
+	struct discord_activity_game game = { 0 };
+	struct discord_activity_options options = { DISCORD_PRESENCE_FULL, 1, 1 };
+	static const char host_party[] = "a1b2c3d4e5f6";
+
+	CHECK(!discord_activity_player_shares(NULL));
+	/* the menus, or a lobby: not yet */
+	game.screen = DISCORD_SCREEN_MENUS;
+	game.player_count = 3;
+	game.maximum_player_count = 16;
+	CHECK(!discord_activity_player_shares(&game));
+	/* the campaign (co-op): never */
+	game.screen = DISCORD_SCREEN_CAMPAIGN;
+	CHECK(!discord_activity_player_shares(&game));
+	/* a multiplayer game not over the network: no */
+	game.screen = DISCORD_SCREEN_MULTIPLAYER;
+	game.maximum_player_count = 0;
+	game.player_count = 0;
+	CHECK(!discord_activity_player_shares(&game));
+	/* in the network game: yes */
+	game.player_count = 3;
+	game.maximum_player_count = 16;
+	CHECK(discord_activity_player_shares(&game));
+
+	/* its activity: the host's party and invite, the game's players */
+	snprintf(game.map, sizeof(game.map), "bloodgulch");
+	game.mode = DISCORD_MODE_SLAYER;
+	CHECK(discord_activity_json(json, sizeof(json), 7, 1234, &game, &options, host_party, join) > 0);
+	CHECK(balanced());
+	CHECK(has("\"party\":{\"id\":\"a1b2c3d4e5f6\",\"size\":[3,16]}"));
+	CHECK(has("\"secrets\":{\"join\":\"halo://join/0123456789abcdef"));
+	CHECK(has("\"large_text\":\"Free at chupathingy.org\""));
+	CHECK(!has("buttons"));
+	/* a password game's (locked) invite never goes, nor with show_join off */
+	CHECK(discord_activity_json(json, sizeof(json), 7, 1234, &game, &options, host_party, locked) > 0);
+	CHECK(!has("secrets"));
+	options.show_join = 0;
+	CHECK(discord_activity_json(json, sizeof(json), 7, 1234, &game, &options, host_party, join) > 0);
+	CHECK(!has("secrets"));
+	CHECK(has("buttons"));
+}
+
 static void test_commands(void)
 {
 	CHECK(discord_activity_subscribe_json(json, sizeof(json), 9, "ACTIVITY_JOIN") > 0);
@@ -405,6 +499,8 @@ int main(int argc, char **argv)
 	test_maps();
 	test_campaign();
 	test_join();
+	test_hover_text();
+	test_player_share();
 	test_commands();
 	test_events();
 	if (failures)

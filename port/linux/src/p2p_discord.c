@@ -9,7 +9,13 @@ public game this machine hosts (p2p_discord_set_join): its invite is the
 activity's join secret, so Discord shows Join and Ask to Join on the
 profile and a Join card for an invite sent in a chat. A Join (Discord's
 ACTIVITY_JOIN, to players of the same application only) joins the invite
-as a halo://join link handed to the game does. An Ask to Join
+as a halo://join link handed to the game does; one that comes before the
+game is up (Discord started the game for it) is held until it is. A player
+in a public game it joined from a listing (or a Join) shares the game's
+invite the same way, under the host's party (p2p.c's join_public). Once
+connected, the game registers how Discord starts it for a Join
+(discord.register_launch: discord_register.h), so friends whose game is
+closed see Join too. An Ask to Join
 (ACTIVITY_JOIN_REQUEST) is accepted only with discord.accept_join_requests;
 otherwise it is left to Discord.
 
@@ -34,11 +40,9 @@ change waits until SEND_INTERVAL has passed since the last.
 #include "port_config.h"
 #include "p2p_internal.h"
 #include "discord_activity.h"
+#include "discord_register.h"
 
 #include <stdio.h>
-#ifdef HALO_64BIT
-#include <stdlib.h>
-#endif
 #include <string.h>
 
 enum
@@ -74,6 +78,9 @@ static struct
 	struct discord_activity_game game;
 	struct discord_activity_options options;
 	char join_code[MAXIMUM_CODE_SIZE];
+	/* the host's party (hex) for a game joined, whose invite this machine
+	shares as a player in it; "" for its own game's */
+	char join_party[2 * P2P_IDENTIFIER_SIZE + 1];
 	int join_player_count;
 	int join_maximum_player_count;
 	int changed;
@@ -85,6 +92,16 @@ static struct
 	host logs them, for a player it drops for cheating) */
 	char user_id[P2P_DISCORD_ID_SIZE];
 	char user_name[P2P_DISCORD_NAME_SIZE];
+
+	/* the launch command registered (once a run, after the first READY:
+	register_launch) */
+	int register_wanted;
+	int registered;
+	/* the game told what it is doing (p2p_discord_set_game: its menus are
+	up, or a map loaded); a Join that comes before (Discord started the
+	game for it) is held until then */
+	int game_told;
+	char held_join[160];
 } discord = { .handle = -1 };
 
 /* the text kept of a Discord user's id or name: of the characters allowed
@@ -172,18 +189,25 @@ static void send_activity(void)
 	char party[2 * P2P_IDENTIFIER_SIZE + 1];
 	char secret[sizeof(DISCORD_JOIN_PREFIX) + MAXIMUM_CODE_SIZE];
 	struct discord_activity_game game = discord.game;
+	int shared = discord.join_code[0] != 0;
 	int size;
 
 	p2p_hex(p2p_identifier(), P2P_IDENTIFIER_SIZE, party);
 	snprintf(secret, sizeof(secret), DISCORD_JOIN_PREFIX "%s", discord.join_code);
+	/* (a joined game's: under its host's party, and only while in it) */
+	if (discord.join_party[0])
+	{
+		snprintf(party, sizeof(party), "%s", discord.join_party);
+		shared = shared && discord_activity_player_shares(&game);
+	}
 	/* (the hosted game's players, where the game told none: its menus) */
-	if (discord.join_code[0] && game.maximum_player_count <= 0)
+	else if (shared && game.maximum_player_count <= 0)
 	{
 		game.player_count = discord.join_player_count;
 		game.maximum_player_count = discord.join_maximum_player_count;
 	}
 	size = discord_activity_json(json, sizeof(json), ++discord.nonce, (unsigned long)posix_process_id(), &game,
-		&discord.options, party, discord.join_code[0] ? secret : NULL);
+		&discord.options, party, shared ? secret : NULL);
 	if (size < 0)
 		return;
 	if (config_boolean("debug.discord_log"))
@@ -247,8 +271,16 @@ static void frame_received(int opcode, char *json)
 		switch (discord_activity_event(json, value, sizeof(value)))
 		{
 		case DISCORD_EVENT_JOIN:
+			/* (Discord started the game for it: held until the game is
+			up) */
+			if (!discord.game_told)
+			{
+				platform_log("Internet play: a Join from Discord, held until the game is ready");
+				snprintf(discord.held_join, sizeof(discord.held_join), "%s", value);
+				return;
+			}
 			platform_log("Internet play: joining a game from Discord");
-			p2p_invite_received(value);
+			p2p_invite_received(value, 1);
 			return;
 		case DISCORD_EVENT_JOIN_REQUEST:
 			/* (only to a game still open, on the host's word) */
@@ -288,6 +320,7 @@ static void frame_received(int opcode, char *json)
 			if (config_boolean("discord.accept_join_requests"))
 				subscribe("ACTIVITY_JOIN_REQUEST");
 			discord.changed = 1;
+			discord.register_wanted = !discord.registered;
 		}
 		else if (!strcmp(event, "ERROR"))
 		{
@@ -349,6 +382,32 @@ static void discord_read(void)
 	}
 }
 
+/* registers how Discord starts this executable for a Join of the
+application (posix_register_discord_launch), with discord.register_launch,
+unless it is an automated run (as p2p_register_url_scheme). It lets go of
+the p2p lock while it may wait for a program */
+static void register_launch(const char *application)
+{
+#ifdef HALO_SERVER
+	(void)application;
+#else
+	int result;
+
+	if (!config_boolean("discord.register_launch") || config_real("debug.exit_after") > 0.0 ||
+		config_boolean("debug.hidden_window") || config_boolean("debug.null_renderer"))
+		return;
+	pthread_mutex_unlock(&p2p_lock);
+	result = posix_register_discord_launch(application);
+	pthread_mutex_lock(&p2p_lock);
+	if (result == DISCORD_REGISTER_WRITTEN)
+		platform_log("Discord: registered how Discord starts the game for a friend's Join");
+	else if (result == DISCORD_REGISTER_LEFT)
+		platform_log("Discord: another program is registered for this application's Join; left as it is");
+	else if (result == DISCORD_REGISTER_FAILED)
+		platform_log("Discord: could not register how Discord starts the game for a Join");
+#endif
+}
+
 void p2p_discord_update(void)
 {
 	if (!discord.checked)
@@ -363,24 +422,6 @@ void p2p_discord_update(void)
 		{
 			strcpy(discord.application, application);
 			discord.enabled = 1;
-#ifdef HALO_64BIT
-#ifdef __APPLE__
-			/* (a games/<application>.json an earlier version wrote, for
-			Discord's invites, goes: Discord takes it for a page of its own) */
-			{
-				const char *home = getenv("HOME");
-
-				if (home && *home)
-				{
-					char path[1024];
-
-					snprintf(path, sizeof(path), "%s/Library/Application Support/discord/games/%s.json",
-						home, application);
-					remove(path);
-				}
-			}
-#endif
-#endif
 		}
 	}
 	if (!discord.enabled)
@@ -407,7 +448,24 @@ void p2p_discord_update(void)
 	if (discord.handle < 0)
 		return;
 	discord_read();
-	if (discord.ready && discord.changed &&
+	if (discord.handle >= 0 && discord.register_wanted)
+	{
+		/* (Discord's discord-<application>, so it shows a friend Join and
+		starts the game for it; it lets go of the lock while it may wait) */
+		discord.register_wanted = 0;
+		discord.registered = 1;
+		register_launch(discord.application);
+	}
+	if (discord.held_join[0] && discord.game_told)
+	{
+		char held[sizeof(discord.held_join)];
+
+		snprintf(held, sizeof(held), "%s", discord.held_join);
+		discord.held_join[0] = 0;
+		platform_log("Internet play: joining a game from Discord");
+		p2p_invite_received(held, 1);
+	}
+	if (discord.handle >= 0 && discord.ready && discord.changed &&
 		(!discord.sent || (unsigned int)(p2p_now() - discord.sent_time) >= (unsigned int)SEND_INTERVAL))
 	{
 		discord.changed = 0;
@@ -417,16 +475,19 @@ void p2p_discord_update(void)
 	}
 }
 
-void p2p_discord_set_join(const char *code, int player_count, int maximum_player_count)
+void p2p_discord_set_join(const char *code, const char *party, int player_count, int maximum_player_count)
 {
 	if (!code)
 		code = "";
+	if (!party || !code[0])
+		party = "";
 	if (!code[0])
 		player_count = maximum_player_count = 0;
-	if (strcmp(code, discord.join_code) || player_count != discord.join_player_count ||
-		maximum_player_count != discord.join_maximum_player_count)
+	if (strcmp(code, discord.join_code) || strcmp(party, discord.join_party) ||
+		player_count != discord.join_player_count || maximum_player_count != discord.join_maximum_player_count)
 	{
 		snprintf(discord.join_code, sizeof(discord.join_code), "%s", code);
+		snprintf(discord.join_party, sizeof(discord.join_party), "%s", party);
 		discord.join_player_count = player_count;
 		discord.join_maximum_player_count = maximum_player_count;
 		discord.changed = 1;
@@ -436,6 +497,7 @@ void p2p_discord_set_join(const char *code, int player_count, int maximum_player
 void p2p_discord_set_game(const struct discord_activity_game *game, const struct discord_activity_options *options)
 {
 	pthread_mutex_lock(&p2p_lock);
+	discord.game_told = 1;
 	if (memcmp(game, &discord.game, sizeof(*game)) || memcmp(options, &discord.options, sizeof(*options)))
 	{
 		discord.game = *game;

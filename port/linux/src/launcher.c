@@ -3589,7 +3589,10 @@ static void command_line(int *setup, int *play, char *mode, size_t mode_size, in
 				index++;
 			}
 		}
-		else if (!SDL_strncasecmp(argument, "halo://", 7) || strstr(argument, "connect"))
+		/* (Discord's discord-<application>:// starts the game for a Join,
+		which comes once it is up: p2p_discord.c) */
+		else if (!SDL_strncasecmp(argument, "halo://", 7) || !SDL_strncasecmp(argument, "discord-", 8) ||
+			strstr(argument, "connect"))
 			*joining = 1;
 	}
 }

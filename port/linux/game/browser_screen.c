@@ -656,7 +656,7 @@ static void rejoin(
 	platform_log("map download: %s.map in place: joining the game again%s", browser_screen.offer_file,
 		browser_screen.rejoin_invite[0] ? " (through its invite)" : " (on the local network)");
 	join_first_player();
-	if (browser_screen.rejoin_invite[0] && !browser_join(browser_screen.rejoin_invite))
+	if (browser_screen.rejoin_invite[0] && !browser_join(browser_screen.rejoin_invite, FALSE))
 	{
 		set_status("Turn on Internet Play in Settings.");
 		return;
@@ -766,7 +766,7 @@ static char const *no_answer_reason(
 /* ---------- a playlist's map set the game being joined plays */
 
 static void join_selected(void);
-static void join_invite(char const *invite, unsigned short const *name);
+static void join_invite(char const *invite, unsigned short const *name, boolean open);
 static void password_open(struct browser_game const *game);
 static void fetch_games(void);
 
@@ -995,17 +995,19 @@ static void join_selected(
 		password_open(game);
 		return;
 	}
-	join_invite(game->invite, game->name);
+	join_invite(game->invite, game->name, TRUE);
 }
 
 /* a game's invite joined (the tunnel to its host), its game joined once
-advertised through it (wait_for_host) */
+advertised through it (wait_for_host); open: an open listing's (not one a
+password opened: browser_join) */
 static void join_invite(
 	char const *invite,
-	unsigned short const *name)
+	unsigned short const *name,
+	boolean open)
 {
 	join_first_player();
-	if (!browser_join(invite))
+	if (!browser_join(invite, open))
 	{
 		set_status("Turn on Internet Play in Settings.");
 		return;
@@ -1108,7 +1110,7 @@ static void password_join(
 		csstrncpy(name, browser_screen.password_name, sizeof(name) - 1);
 		name[sizeof(name) - 1] = 0;
 		password_close();
-		join_invite(code, NULL);
+		join_invite(code, NULL, FALSE);
 		csstrncpy(browser_screen.connecting_name, name, sizeof(browser_screen.connecting_name) - 1);
 		browser_screen.connecting_name[sizeof(browser_screen.connecting_name) - 1] = 0;
 		csmemset(code, 0, sizeof(code));
