@@ -1764,7 +1764,7 @@ static boolean command_mute(
 	error(_error_silent, "dedicated: muted %s", names);
 	command_output_printf(output, "muted %s%s%s\n", names, minutes ? " for a while" : " until they leave",
 		delta_peer_game_chat_capable((int)player.machine_index, 0) ? "" :
-		" (not a ChupathingyCE game: it has no chat to mute)");
+		" (an OpenCE game: their lines stay out of the chat)");
 	return TRUE;
 #else
 	command_output_printf(output, "this build has no text chat\n");

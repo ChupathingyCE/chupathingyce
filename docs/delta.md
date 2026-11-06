@@ -582,7 +582,11 @@ of Delta's goes into the game protocol.
   MOD_NOTICE (the banner; the game also keeps them in its chat log).
 - **Mutes.** A moderator mutes a player's chat (MOD_ACTION 6, `sv_mute`, the
   control panel) until they leave the game or for a while; the host stops
-  relaying their lines and tells their game in CHAT_CONFIG. A player's own
+  relaying their lines and tells their game in CHAT_CONFIG. A player who
+  hosts does the same by typing `/mute <player> [minutes]` or `/unmute
+  <player>` as a line (as OpenCE's hosts do); an OpenCE player is told by
+  the host's notice. Typed in someone else's game, the commands are never
+  sent: OpenCE hosts would show them to everyone. A player's own
   mutes are their game's alone and never sent.
 - **The client checks again.** A CHAT_LINE comes only from its host, of its
   session, at most 10 a second; its text and name must pass the same text
