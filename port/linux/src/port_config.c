@@ -185,7 +185,9 @@ dedicated server keeps waiting for a second player: it never needs this. */
 /* The particles, and the dynamic lights that light the level: the consoles
 keep fewer (the Switch's particles, HALO_CONSOLE_PARTICLE_TICKS and
 HALO_CONSOLE_LIGHT_LIMITS); the desktop has the Xbox's look, unlimited */
-#ifdef HALO_SWITCH_CONSOLE
+#if defined(HALO_CONSOLE_PARTICLE_LIMIT)
+#define DEFAULT_PARTICLE_LIMIT HALO_CONSOLE_PARTICLE_LIMIT
+#elif defined(HALO_SWITCH_CONSOLE)
 #define DEFAULT_PARTICLE_LIMIT "2048"
 #else
 #define DEFAULT_PARTICLE_LIMIT "4096"
