@@ -1570,6 +1570,7 @@ static void distributed_host_send_states(
 		long object_index = distributed_host_placed_object(absolute_index);
 		boolean was_moving = objects_host_state_moving[absolute_index];
 		boolean at_rest;
+		boolean new_item;
 
 		objects_host_state_moving[absolute_index] = FALSE;
 		if (object_index == NONE)
@@ -1578,12 +1579,17 @@ static void distributed_host_send_states(
 			continue;
 		}
 		at_rest = TEST_FLAG(object_get(object_index)->object.flags, _object_at_rest_bit);
+		/* (an item new here and at rest at once, as a map's item spawn often
+		is, goes out as one come to rest does: older clients took no rest
+		from its creation, and let it fall from there, through the floor) */
+		new_item = objects_host_last_objects[absolute_index] != object_index &&
+			TEST_FLAG(_object_mask_item, object_get(object_index)->object.type);
 		/* (one at rest that moved goes out as a moving one; its state still
 		says at rest, so a client puts it there at once) */
 		if (distributed_host_moved_at_rest(absolute_index, object_index))
 			at_rest = FALSE;
 		objects_host_state_moving[absolute_index] = !at_rest;
-		if (at_rest && was_moving)
+		if (at_rest && (was_moving || new_item))
 			objects_host_rest_times[absolute_index] = game_time_get();
 		if (at_rest && !distributed_host_rest_state_due(absolute_index))
 			continue;
@@ -3203,6 +3209,20 @@ as it is) */
 	{
 		object_disconnect_from_map(object_index);
 		object_set_visibility(object_index, FALSE);
+	}
+	/* (an item the host has at rest: at rest here, where the host has it.
+	Left to fall on its own from the host's resting place, right on the
+	floor (a map's item spawn), it could start just under it and drop
+	through the map, gone from sight until the host's next word on it,
+	many seconds later: the host sends one made at rest no state of its
+	coming to rest) */
+	if (TEST_FLAG(change->flags, _distributed_object_at_rest_bit) &&
+		!TEST_FLAG(change->flags, _distributed_object_carried_bit) &&
+		TEST_FLAG(_object_mask_item, object->object.type) &&
+		TEST_FLAG(object->object.flags, _object_connected_to_map_bit) &&
+		object->object.parent_object_index == NONE)
+	{
+		SET_FLAG(object->object.flags, _object_at_rest_bit, TRUE);
 	}
 	/* (a body: dead on the host before this machine had it, killed here
 	with nothing to show or count of it) */
