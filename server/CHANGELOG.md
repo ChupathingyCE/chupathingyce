@@ -6,6 +6,12 @@ release notes.
 
 ## Unreleased
 
+- Halo Custom Edition 1.0.10 players can play (`ce_joins`, still off by
+  default): a Custom Edition player joins a game on a Custom Edition map as
+  one of the server's own players (up to 4), and stays from one game and
+  map to the next, as on Custom Edition's own servers. The development
+  switch `HALO_DEDICATED_CE_ACCEPT` is gone. See "Custom Edition join
+  attempts" in server/docs/settings.md for what works and what doesn't yet.
 - Host rules, off by default as on the Xbox: `allow_player_names`
   (`HALO_DEDICATED_ALLOW_PLAYER_NAMES`) lets Chupathingy players show names
   above heads, and `allow_follow_camera`
