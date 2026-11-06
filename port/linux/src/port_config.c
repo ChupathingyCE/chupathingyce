@@ -539,6 +539,19 @@ static const struct config_setting config_settings[] =
 		"never lower. Go back up once a frame fits in 90% of a 60 Hz frame for\n"
 		"a second. Changes at once." },
 #endif
+#ifdef HALO_CONSOLE_NATIVE_RENDERER
+#ifdef HALO_CONSOLE_NATIVE_RENDERER_FIRST
+#define HALO_CONSOLE_NATIVE_RENDERER_DEFAULT "\"native\""
+#else
+#define HALO_CONSOLE_NATIVE_RENDERER_DEFAULT "\"gl\""
+#endif
+	{ "display.renderer", _config_string, HALO_CONSOLE_NATIVE_RENDERER_DEFAULT, "HALO_RENDERER", _environment_value,
+		_platform_console_gl,
+		"What draws the game. \"native\" is the console's own renderer, which we\n"
+		"are testing. \"gl\" is the renderer over the OpenGL layer, as before.\n"
+		"If the native one can't start, the game draws with \"gl\".\n"
+		"Read when Chupathingy starts." },
+#endif
 #ifdef HALO_BGFX
 	{ "display.renderer", _config_string, "\"gl\"", "HALO_RENDERER", _environment_value, _platform_desktop,
 		"What draws the game. \"gl\" is OpenGL, the default. \"bgfx\" is a new\n"
