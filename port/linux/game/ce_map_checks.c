@@ -741,13 +741,14 @@ void *ce_tags_pointer(
 {
 	extern boolean cache_file_tags_are_ce(void);
 	extern boolean pc_menu_owns(unsigned long address, long size);
-	/* (the zeroes: most reads are a block's few elements, so a little here;
-	a longer one, up to CE_TAGS_SCRATCH_LIMIT, from memory taken the first
-	time one comes and kept, which a console spares only then) */
-	static byte scratch[0x4000];
+	/* (the zeroes: most reads are a block's few elements, so 16 KB; a
+	longer one, up to CE_TAGS_SCRATCH_LIMIT: each from memory taken the
+	first time one comes and kept, which a console spares only then) */
+	enum { SMALL_SCRATCH_SIZE = 0x4000 };
+	static byte *small_scratch;
 	static byte *large_scratch;
 	static long misses;
-	byte *zeroes = scratch;
+	byte *zeroes;
 
 	/* (the bounds first: they pass for nearly every read; then the menus'
 	own tags, added to the map's: menu_tags.c) */
@@ -768,7 +769,18 @@ void *ce_tags_pointer(
 		error(_error_silent, "Custom Edition map: its tags are damaged; stopping");
 		system_exit(-1);
 	}
-	if ((unsigned long)size > sizeof(scratch))
+	if ((unsigned long)size <= SMALL_SCRATCH_SIZE)
+	{
+		if (!small_scratch)
+			small_scratch = (byte *)system_malloc(SMALL_SCRATCH_SIZE);
+		if (!small_scratch)
+		{
+			error(_error_silent, "Custom Edition map: no memory for %ld bytes of its tags read as zeroes; stopping", size);
+			system_exit(-1);
+		}
+		zeroes = small_scratch;
+	}
+	else
 	{
 		if (!large_scratch)
 			large_scratch = (byte *)system_malloc(CE_TAGS_SCRATCH_LIMIT);

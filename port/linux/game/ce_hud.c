@@ -214,8 +214,10 @@ static long ce_hud_meter_bitmap_count;
 
 /* the Xbox's button icons (ui.map's), read once: its HUD globals' button
 icons, and its message icons bitmap's sequences (each with its first sprite
-here), sprites and bitmaps (textures of their own) */
-static struct
+here), sprites and bitmaps (textures of their own). About 50 KB, so it is
+allocated at the first Custom Edition map that needs them, not kept in
+every build's memory from the start */
+static struct ce_xbox_button_icons
 {
 	boolean read;
 	boolean ready;
@@ -228,7 +230,10 @@ static struct
 	byte sprites[MAXIMUM_XBOX_MESSAGE_SPRITES * BITMAP_SPRITE_SIZE];
 	long bitmap_count;
 	struct bitmap_data *bitmaps[MAXIMUM_XBOX_MESSAGE_BITMAPS];
-} ce_xbox_button_icons;
+} *ce_xbox_button_icons_data;
+/* (only once ce_hud_xbox_button_icons has allocated it: everything else
+that reads it runs after it said they are ready) */
+#define ce_xbox_button_icons (*ce_xbox_button_icons_data)
 
 /* the message icons bitmaps given the Xbox's (a map's HUD globals may share
 one), and where the Xbox's sequences begin in each */
@@ -668,6 +673,17 @@ static boolean ce_hud_xbox_button_icons(
 	z_stream stream;
 	boolean inflated = FALSE;
 
+	if (!ce_xbox_button_icons_data)
+	{
+		ce_xbox_button_icons_data = system_malloc(sizeof(*ce_xbox_button_icons_data));
+		if (!ce_xbox_button_icons_data)
+		{
+			error(_error_silent, "Custom Edition maps: no memory for the Xbox's button icons; HUD messages draw no "
+				"controller buttons");
+			return FALSE;
+		}
+		memset(ce_xbox_button_icons_data, 0, sizeof(*ce_xbox_button_icons_data));
+	}
 	if (ce_xbox_button_icons.read)
 		return ce_xbox_button_icons.ready;
 	ce_xbox_button_icons.read = TRUE;
