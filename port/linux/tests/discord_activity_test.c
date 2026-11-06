@@ -27,13 +27,15 @@ static char json[DISCORD_ACTIVITY_JSON_SIZE];
 static int print;
 
 static const char party[] = "0123456789abcdef0123456789abcdef";
-static const char join[] = DISCORD_JOIN_URL "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+static const char join[] = DISCORD_JOIN_PREFIX "0123456789abcdef0123456789abcdef0123456789ABCDEF0123456789abcdef";
+/* a password game's invite (its door's code after a p) */
+static const char locked[] = DISCORD_JOIN_PREFIX "p0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567";
 
 static int build(const struct discord_activity_game *game, int presence, int show_server_name, int show_join,
-	const char *join_url)
+	const char *join_secret)
 {
 	struct discord_activity_options options = { presence, show_server_name, show_join };
-	int size = discord_activity_json(json, sizeof(json), 7, 1234, game, &options, party, join_url);
+	int size = discord_activity_json(json, sizeof(json), 7, 1234, game, &options, party, join_secret);
 
 	CHECK(size == (int)strlen(json));
 	if (print)
@@ -117,17 +119,23 @@ static void test_team_slayer(void)
 	CHECK(has("\"small_text\":\"Team Slayer (macOS)\""));
 	CHECK(has("\"size\":[3,16]"));
 	CHECK(has("\"timestamps\":{\"start\":1760000000000}"));
-	CHECK(has("{\"label\":\"Join game\",\"url\":\"https://chupathingy.org/join/aaaa"));
-	CHECK(has("{\"label\":\"Get Chupathingy\""));
-	CHECK(!has("Join our Discord"));
-	CHECK(!has("secrets"));
+	/* hosting a public game: its invite as the join secret, no buttons */
+	CHECK(has("\"party\":{\"id\":\"0123456789abcdef0123456789abcdef\",\"size\":[3,16]}"));
+	CHECK(has(",\"secrets\":{\"join\":\"halo://join/0123456789abcdef"));
+	CHECK(!has("buttons"));
+	CHECK(!has("Get Chupathingy"));
+	CHECK(!has("chupathingy.org/join"));
+	CHECK(has("\"instance\":false"));
 
-	/* the server's name hidden; no join button */
+	/* the server's name hidden; discord.show_join off: no secret, buttons */
 	game.score[0] = 0;
 	CHECK(build(&game, DISCORD_PRESENCE_FULL, 0, 0, join) > 0);
+	CHECK(balanced());
 	CHECK(has("\"state\":\"In game\""));
 	CHECK(!has("Milenko"));
-	CHECK(!has("Join game"));
+	CHECK(!has("secrets"));
+	CHECK(!has("halo://"));
+	CHECK(has("Get Chupathingy"));
 	CHECK(has("Join our Discord"));
 
 	/* the server's name as the state, with no score */
@@ -152,13 +160,15 @@ static void test_minimal_and_off(void)
 	CHECK(!has("Secret base"));
 	CHECK(!has("Blood Gulch"));
 	CHECK(!has("party"));
-	CHECK(!has("Join game"));
+	CHECK(!has("secrets"));
+	CHECK(!has("halo://"));
 	CHECK(has("Get Chupathingy"));
 	CHECK(has("\"large_text\":\"Chupathingy\""));
 
 	CHECK(build(&game, DISCORD_PRESENCE_OFF, 1, 1, join) > 0);
 	CHECK(balanced());
 	CHECK(!strcmp(json, "{\"cmd\":\"SET_ACTIVITY\",\"nonce\":\"7\",\"args\":{\"pid\":1234}}"));
+	CHECK(!has("halo://"));
 
 	CHECK(discord_activity_presence("off") == DISCORD_PRESENCE_OFF);
 	CHECK(discord_activity_presence("Minimal") == DISCORD_PRESENCE_MINIMAL);
@@ -244,6 +254,147 @@ static void test_campaign(void)
 	CHECK(!has("party"));
 }
 
+static void test_join(void)
+{
+	struct discord_activity_game game = { 0 };
+	static const char *const not_joinable[] =
+	{
+		locked,
+		/* an address, in any guise */
+		"halo://join/192.168.1.20:2302",
+		"halo://join/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde.",
+		"10.0.0.1",
+		/* too short, too long, another scheme, empty */
+		"halo://join/0123456789abcdef",
+		"halo://join/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0",
+		"https://chupathingy.org/join/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		"",
+	};
+	size_t index;
+
+	CHECK(discord_activity_joinable(join));
+	CHECK(!discord_activity_joinable(NULL));
+	for (index = 0; index < sizeof(not_joinable) / sizeof(not_joinable[0]); index++)
+		CHECK(!discord_activity_joinable(not_joinable[index]));
+
+	/* hosting in the menus (the lobby): the party and the secret still */
+	game.screen = DISCORD_SCREEN_MENUS;
+	CHECK(build(&game, DISCORD_PRESENCE_FULL, 1, 1, join) > 0);
+	CHECK(balanced());
+	CHECK(has("\"state\":\"In menus\""));
+	CHECK(has("\"party\":{\"id\":"));
+	CHECK(has("\"size\":[1,2]"));
+	CHECK(has("\"secrets\":{\"join\":"));
+	CHECK(!has("buttons"));
+
+	/* a password game: no secret, the project's buttons */
+	game.screen = DISCORD_SCREEN_MULTIPLAYER;
+	snprintf(game.map, sizeof(game.map), "bloodgulch");
+	game.player_count = 2;
+	game.maximum_player_count = 8;
+	CHECK(build(&game, DISCORD_PRESENCE_FULL, 1, 1, locked) > 0);
+	CHECK(balanced());
+	CHECK(!has("secrets"));
+	CHECK(!has("halo://"));
+	CHECK(has("Get Chupathingy"));
+	CHECK(has("\"size\":[2,8]"));
+
+	/* an address never goes */
+	for (index = 0; index < sizeof(not_joinable) / sizeof(not_joinable[0]); index++)
+	{
+		CHECK(build(&game, DISCORD_PRESENCE_FULL, 1, 1, not_joinable[index]) > 0);
+		CHECK(!has("secrets"));
+		CHECK(!has("192.168"));
+		CHECK(!has("10.0.0.1"));
+		CHECK(!has(":2302"));
+	}
+
+	/* not hosting: buttons, no secret */
+	CHECK(build(&game, DISCORD_PRESENCE_FULL, 1, 1, NULL) > 0);
+	CHECK(!has("secrets"));
+	CHECK(has("buttons"));
+
+	/* no party id: no secret either (Discord needs both) */
+	{
+		struct discord_activity_options options = { DISCORD_PRESENCE_FULL, 1, 1 };
+
+		CHECK(discord_activity_json(json, sizeof(json), 7, 1234, &game, &options, "", join) > 0);
+		CHECK(!has("secrets"));
+		CHECK(has("buttons"));
+	}
+
+	/* minimal and off: no secret */
+	CHECK(build(&game, DISCORD_PRESENCE_MINIMAL, 1, 1, join) > 0);
+	CHECK(!has("secrets"));
+	CHECK(!has("party"));
+	CHECK(build(&game, DISCORD_PRESENCE_OFF, 1, 1, join) > 0);
+	CHECK(!has("secrets"));
+}
+
+static void test_commands(void)
+{
+	CHECK(discord_activity_subscribe_json(json, sizeof(json), 9, "ACTIVITY_JOIN") > 0);
+	CHECK(!strcmp(json, "{\"cmd\":\"SUBSCRIBE\",\"evt\":\"ACTIVITY_JOIN\",\"nonce\":\"9\"}"));
+	CHECK(discord_activity_subscribe_json(json, 8, 9, "ACTIVITY_JOIN") < 0);
+
+	CHECK(discord_activity_accept_json(json, sizeof(json), 10, "123456789012345678") > 0);
+	CHECK(!strcmp(json, "{\"cmd\":\"SEND_ACTIVITY_JOIN_INVITE\",\"args\":{\"user_id\":\"123456789012345678\"},"
+		"\"nonce\":\"10\"}"));
+	CHECK(discord_activity_accept_json(json, sizeof(json), 10, "12\"},\"x\":\"") < 0);
+	CHECK(discord_activity_accept_json(json, sizeof(json), 10, "") < 0);
+}
+
+static void test_events(void)
+{
+	char value[160];
+	char frame[512];
+
+	/* a Join: the invite */
+	snprintf(frame, sizeof(frame), "{\"cmd\":\"DISPATCH\",\"data\":{\"secret\":\"%s\"},\"evt\":\"ACTIVITY_JOIN\","
+		"\"nonce\":null}", join);
+	CHECK(discord_activity_event(frame, value, sizeof(value)) == DISCORD_EVENT_JOIN);
+	CHECK(!strcmp(value, join));
+
+	/* the fields in another order, with spaces and an escaped slash */
+	CHECK(discord_activity_event("{\"evt\": \"ACTIVITY_JOIN\", \"cmd\": \"DISPATCH\", \"data\": {\"secret\": "
+		"\"halo:\\/\\/join\\/0123456789abcdef0123456789abcdef0123456789ABCDEF0123456789abcdef\"}}", value,
+		sizeof(value)) == DISCORD_EVENT_JOIN);
+	CHECK(!strcmp(value, join));
+
+	/* the answer to the SUBSCRIBE names the event too: not a Join */
+	CHECK(discord_activity_event("{\"cmd\":\"SUBSCRIBE\",\"data\":{\"evt\":\"ACTIVITY_JOIN\"},\"evt\":null,"
+		"\"nonce\":\"3\"}", value, sizeof(value)) == DISCORD_EVENT_NONE);
+
+	/* a secret that is not an open game's invite is not joined */
+	snprintf(frame, sizeof(frame), "{\"cmd\":\"DISPATCH\",\"data\":{\"secret\":\"%s\"},\"evt\":\"ACTIVITY_JOIN\"}",
+		locked);
+	CHECK(discord_activity_event(frame, value, sizeof(value)) == DISCORD_EVENT_NONE);
+	CHECK(!value[0]);
+	CHECK(discord_activity_event("{\"cmd\":\"DISPATCH\",\"data\":{\"secret\":\"halo://join/1.2.3.4:2302\"},"
+		"\"evt\":\"ACTIVITY_JOIN\"}", value, sizeof(value)) == DISCORD_EVENT_NONE);
+	CHECK(discord_activity_event("{\"cmd\":\"DISPATCH\",\"data\":{},\"evt\":\"ACTIVITY_JOIN\"}", value,
+		sizeof(value)) == DISCORD_EVENT_NONE);
+	/* (too long for the value: not cut into something else) */
+	snprintf(frame, sizeof(frame), "{\"cmd\":\"DISPATCH\",\"data\":{\"secret\":\"%s\"},\"evt\":\"ACTIVITY_JOIN\"}",
+		join);
+	CHECK(discord_activity_event(frame, value, 20) == DISCORD_EVENT_NONE);
+
+	/* an Ask to Join: the user's id */
+	CHECK(discord_activity_event("{\"cmd\":\"DISPATCH\",\"data\":{\"user\":{\"id\":\"123456789012345678\","
+		"\"username\":\"someone\"}},\"evt\":\"ACTIVITY_JOIN_REQUEST\"}", value, sizeof(value)) ==
+		DISCORD_EVENT_JOIN_REQUEST);
+	CHECK(!strcmp(value, "123456789012345678"));
+	CHECK(discord_activity_event("{\"cmd\":\"DISPATCH\",\"data\":{\"user\":{\"id\":\"12a\"}},"
+		"\"evt\":\"ACTIVITY_JOIN_REQUEST\"}", value, sizeof(value)) == DISCORD_EVENT_NONE);
+
+	/* others */
+	CHECK(discord_activity_event("{\"cmd\":\"DISPATCH\",\"data\":{\"v\":1},\"evt\":\"READY\"}", value,
+		sizeof(value)) == DISCORD_EVENT_NONE);
+	CHECK(discord_activity_event("not json", value, sizeof(value)) == DISCORD_EVENT_NONE);
+	CHECK(discord_activity_event("", value, sizeof(value)) == DISCORD_EVENT_NONE);
+}
+
 int main(int argc, char **argv)
 {
 	(void)argv;
@@ -253,6 +404,9 @@ int main(int argc, char **argv)
 	test_minimal_and_off();
 	test_maps();
 	test_campaign();
+	test_join();
+	test_commands();
+	test_events();
 	if (failures)
 		printf("%d failed\n", failures);
 	else if (!print)

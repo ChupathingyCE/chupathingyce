@@ -5,16 +5,20 @@ The game on Discord, through the Discord desktop client's local RPC socket
 (a Unix socket, or a named pipe on Windows): its activity
 (discord_activity.c builds it) says what the player is doing, from what the
 game tells (p2p_discord_set_game: port/linux/game/discord_game.c) and the
-public game this machine hosts (p2p_discord_set_join), whose "Join game"
-button opens the game's page on the project's site, and from there its
-invite in either client (Discord's own Ask to Join works only within one
-application, so it is not used).
+public game this machine hosts (p2p_discord_set_join): its invite is the
+activity's join secret, so Discord shows Join and Ask to Join on the
+profile and a Join card for an invite sent in a chat. A Join (Discord's
+ACTIVITY_JOIN, to players of the same application only) joins the invite
+as a halo://join link handed to the game does. An Ask to Join
+(ACTIVITY_JOIN_REQUEST) is accepted only with discord.accept_join_requests;
+otherwise it is left to Discord.
 
 It goes through the Discord application in discord.application_id
 (config.toml; the project's by default), whose name is what Discord shows
 as being played. discord.presence chooses how much shows ("full",
 "minimal" or "off"), discord.show_server_name and discord.show_join what
-of a network game; debug.discord_log logs each activity sent.
+of a network game (no join secret with show_join false, presence other
+than "full", or a password game); debug.discord_log logs each activity sent.
 
 The protocol: frames of a little-endian opcode and length, then JSON. The
 handshake (opcode 0) names the application; commands and events are opcode
@@ -70,6 +74,8 @@ static struct
 	struct discord_activity_game game;
 	struct discord_activity_options options;
 	char join_code[MAXIMUM_CODE_SIZE];
+	int join_player_count;
+	int join_maximum_player_count;
 	int changed;
 	unsigned long sent_time;
 	int sent;
@@ -164,13 +170,20 @@ static void send_activity(void)
 {
 	char json[DISCORD_ACTIVITY_JSON_SIZE];
 	char party[2 * P2P_IDENTIFIER_SIZE + 1];
-	char join_url[sizeof(DISCORD_JOIN_URL) + MAXIMUM_CODE_SIZE];
+	char secret[sizeof(DISCORD_JOIN_PREFIX) + MAXIMUM_CODE_SIZE];
+	struct discord_activity_game game = discord.game;
 	int size;
 
 	p2p_hex(p2p_identifier(), P2P_IDENTIFIER_SIZE, party);
-	snprintf(join_url, sizeof(join_url), DISCORD_JOIN_URL "%s", discord.join_code);
-	size = discord_activity_json(json, sizeof(json), ++discord.nonce, (unsigned long)posix_process_id(), &discord.game,
-		&discord.options, party, discord.join_code[0] ? join_url : NULL);
+	snprintf(secret, sizeof(secret), DISCORD_JOIN_PREFIX "%s", discord.join_code);
+	/* (the hosted game's players, where the game told none: its menus) */
+	if (discord.join_code[0] && game.maximum_player_count <= 0)
+	{
+		game.player_count = discord.join_player_count;
+		game.maximum_player_count = discord.join_maximum_player_count;
+	}
+	size = discord_activity_json(json, sizeof(json), ++discord.nonce, (unsigned long)posix_process_id(), &game,
+		&discord.options, party, discord.join_code[0] ? secret : NULL);
 	if (size < 0)
 		return;
 	if (config_boolean("debug.discord_log"))
@@ -186,6 +199,15 @@ static void send_activity(void)
 		platform_log("Discord: %s", shown);
 	}
 	discord_send(_opcode_frame, json, size);
+}
+
+static void subscribe(const char *event)
+{
+	char command[128];
+	int size = discord_activity_subscribe_json(command, sizeof(command), ++discord.nonce, event);
+
+	if (size > 0)
+		discord_send(_opcode_frame, command, size);
 }
 
 /* a string field's value in json, without its escapes' backslashes */
@@ -217,10 +239,32 @@ static int json_string(const char *json, const char *name, char *value, int size
 static void frame_received(int opcode, char *json)
 {
 	char event[64];
+	char value[160];
 
 	switch (opcode)
 	{
 	case _opcode_frame:
+		switch (discord_activity_event(json, value, sizeof(value)))
+		{
+		case DISCORD_EVENT_JOIN:
+			platform_log("Internet play: joining a game from Discord");
+			p2p_invite_received(value);
+			return;
+		case DISCORD_EVENT_JOIN_REQUEST:
+			/* (only to a game still open, on the host's word) */
+			if (discord.join_code[0] && config_boolean("discord.accept_join_requests"))
+			{
+				char command[192];
+				int size = discord_activity_accept_json(command, sizeof(command), ++discord.nonce, value);
+
+				if (size > 0)
+				{
+					platform_log("Internet play: accepted an Ask to Join from Discord");
+					discord_send(_opcode_frame, command, size);
+				}
+			}
+			return;
+		}
 		if (!json_string(json, "evt", event, sizeof(event)))
 			break;
 		if (!strcmp(event, "READY"))
@@ -239,6 +283,10 @@ static void frame_received(int opcode, char *json)
 				if (user && json_string(user, "username", value, sizeof(value)))
 					p2p_discord_sanitize(discord.user_name, sizeof(discord.user_name), value, 1);
 			}
+			/* (Join and Ask to Join: the events come only once asked for) */
+			subscribe("ACTIVITY_JOIN");
+			if (config_boolean("discord.accept_join_requests"))
+				subscribe("ACTIVITY_JOIN_REQUEST");
 			discord.changed = 1;
 		}
 		else if (!strcmp(event, "ERROR"))
@@ -369,13 +417,18 @@ void p2p_discord_update(void)
 	}
 }
 
-void p2p_discord_set_join(const char *code)
+void p2p_discord_set_join(const char *code, int player_count, int maximum_player_count)
 {
 	if (!code)
 		code = "";
-	if (strcmp(code, discord.join_code))
+	if (!code[0])
+		player_count = maximum_player_count = 0;
+	if (strcmp(code, discord.join_code) || player_count != discord.join_player_count ||
+		maximum_player_count != discord.join_maximum_player_count)
 	{
 		snprintf(discord.join_code, sizeof(discord.join_code), "%s", code);
+		discord.join_player_count = player_count;
+		discord.join_maximum_player_count = maximum_player_count;
 		discord.changed = 1;
 	}
 }
