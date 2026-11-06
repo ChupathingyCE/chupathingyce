@@ -1704,26 +1704,32 @@ static boolean network_game_client_handle_message_server_add_player_ingame(
 				PC host put in a slot past this build's (its datum, which every
 				machine shares) would not exist here, an invisible player; the
 				game is left as a full one is */
-				/* (a player of a machine past this build's that is not in the
-				game, as a modified host's bots, is given a free machine index,
-				as the settings record's fold gives it) */
+				/* (a player of a machine past this build's, as a host's bots,
+				is given a free machine index, as the settings record's fold
+				gives it: the one that machine has here already, which its
+				entry and its other players hold, counts as free for it) */
 				if (!VALID_INDEX(player.machine_index, MAXIMUM_NETWORK_MACHINE_COUNT) && player.machine_index >= 0)
 				{
 					struct network_game *game = network_game_client_get_game(client);
 					unsigned char used[MAXIMUM_NETWORK_MACHINE_COUNT];
+					long own = network_game_client_machine_map.machine[(unsigned char)player.machine_index];
 					long index;
 					int given;
 
 					csmemset(used, 0, sizeof(used));
 					for (index = 0; game && index < MAXIMUM_NETWORK_MACHINE_COUNT; index++)
 					{
-						if (VALID_INDEX(game->machines[index].machine_index, MAXIMUM_NETWORK_MACHINE_COUNT))
+						if (VALID_INDEX(game->machines[index].machine_index, MAXIMUM_NETWORK_MACHINE_COUNT) &&
+							game->machines[index].machine_index != own)
+						{
 							used[game->machines[index].machine_index] = TRUE;
+						}
 					}
 					for (index = 0; game && index < MAXIMUM_NUMBER_OF_PLAYERS; index++)
 					{
 						if (game->players[index].player_list_index != NONE &&
-							VALID_INDEX(game->players[index].machine_index, MAXIMUM_NETWORK_MACHINE_COUNT))
+							VALID_INDEX(game->players[index].machine_index, MAXIMUM_NETWORK_MACHINE_COUNT) &&
+							game->players[index].machine_index != own)
 						{
 							used[game->players[index].machine_index] = TRUE;
 						}
