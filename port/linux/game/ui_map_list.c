@@ -259,16 +259,24 @@ static long ui_map_list_multiplayer_count;
 char const *cache_files_map_directory(void);
 long bitmap_format_to_d3d_format(short format, word flags);
 
-/* what Halo PC's ui.map has of its map list, read once */
+/* what Halo PC's ui.map has of its map list, read once: its names,
+descriptions and pictures (about 11 KB) allocated when it is read, so a
+console with no Custom Edition maps keeps that memory; each count is 0
+while they aren't */
+struct ce_ui_lists
+{
+	wchar_t names[MAXIMUM_CE_STRINGS][DISPLAY_NAME_LENGTH];
+	wchar_t descriptions[MAXIMUM_CE_STRINGS][DESCRIPTION_LENGTH];
+	struct bitmap_data pictures[MAXIMUM_CE_PICTURES];
+};
+
 static struct
 {
 	boolean read;
 	long name_count;
-	wchar_t names[MAXIMUM_CE_STRINGS][DISPLAY_NAME_LENGTH];
 	long description_count;
-	wchar_t descriptions[MAXIMUM_CE_STRINGS][DESCRIPTION_LENGTH];
 	long picture_count;
-	struct bitmap_data pictures[MAXIMUM_CE_PICTURES];
+	struct ce_ui_lists *lists;
 } ce_ui;
 
 /* Halo PC's ui.map's tags, while they are read (ce_ui_read) */
@@ -432,7 +440,7 @@ static void ce_pictures_read(
 	for (index = 0; index < count; index++)
 	{
 		byte *element = elements + index * 0x30;
-		struct bitmap_data *bitmap = &ce_ui.pictures[index];
+		struct bitmap_data *bitmap = &ce_ui.lists->pictures[index];
 		unsigned short flags = *(unsigned short *)(element + 0xe);
 		unsigned long pixels_offset = *(unsigned long *)(element + 0x18);
 		unsigned long pixels_size = *(unsigned long *)(element + 0x1c);
@@ -536,12 +544,13 @@ static void ce_ui_read(
 	{
 		ce_tags = malloc(header[5]);
 		ce_tags_size = header[5];
-		if (ce_tags && file_read(file, header[4], ce_tags, header[5]))
+		ce_ui.lists = ce_tags ? calloc(1, sizeof(*ce_ui.lists)) : NULL;
+		if (ce_ui.lists && file_read(file, header[4], ce_tags, header[5]))
 		{
-			ce_ui.name_count = ce_string_list_read("ui\\shell\\main_menu\\mp_map_list", ce_ui.names[0],
+			ce_ui.name_count = ce_string_list_read("ui\\shell\\main_menu\\mp_map_list", ce_ui.lists->names[0],
 				DISPLAY_NAME_LENGTH, MAXIMUM_CE_STRINGS);
 			ce_ui.description_count = ce_string_list_read(
-				"ui\\shell\\main_menu\\multiplayer_type_select\\mp_map_select\\map_data", ce_ui.descriptions[0],
+				"ui\\shell\\main_menu\\multiplayer_type_select\\mp_map_select\\map_data", ce_ui.lists->descriptions[0],
 				DESCRIPTION_LENGTH, MAXIMUM_CE_STRINGS);
 			ce_pictures_read(file);
 		}
@@ -734,11 +743,11 @@ static void add_pc_entry(
 			if (!name[0])
 			{
 				wide_copy(name, DISPLAY_NAME_LENGTH, ce_maps[known].name);
-				if (known < ce_ui.name_count && ce_ui.names[known][0])
-					wide_copy(name, DISPLAY_NAME_LENGTH, ce_ui.names[known]);
+				if (known < ce_ui.name_count && ce_ui.lists->names[known][0])
+					wide_copy(name, DISPLAY_NAME_LENGTH, ce_ui.lists->names[known]);
 			}
 			if (known < ce_ui.description_count)
-				description = ce_ui.descriptions[known];
+				description = ce_ui.lists->descriptions[known];
 			break;
 		}
 	}
@@ -1089,7 +1098,7 @@ struct bitmap_data *ui_map_list_picture(
 #ifdef HALO_CUSTOM_EDITION
 	if (frame_index < UI_MAP_LIST_PICTURE_BASE || frame_index - UI_MAP_LIST_PICTURE_BASE >= ce_ui.picture_count)
 		return NULL;
-	return &ce_ui.pictures[frame_index - UI_MAP_LIST_PICTURE_BASE];
+	return &ce_ui.lists->pictures[frame_index - UI_MAP_LIST_PICTURE_BASE];
 #else
 	(void)frame_index;
 	return NULL;
@@ -1134,7 +1143,7 @@ struct bitmap_data *ui_map_list_family_picture(
 	if (index == NONE)
 		return NULL;
 	ce_ui_read();
-	return index < ce_ui.picture_count ? &ce_ui.pictures[index] : NULL;
+	return index < ce_ui.picture_count ? &ce_ui.lists->pictures[index] : NULL;
 #else
 	(void)family;
 	(void)file;
@@ -1194,8 +1203,8 @@ void ui_map_list_family_name(
 	known = ce_maps[index].name;
 #ifdef HALO_CUSTOM_EDITION
 	ce_ui_read();
-	if (index < ce_ui.name_count && ce_ui.names[index][0])
-		known = ce_ui.names[index];
+	if (index < ce_ui.name_count && ce_ui.lists->names[index][0])
+		known = ce_ui.lists->names[index];
 #endif
 	for (length = 0; length < size - 1 && known[length]; length++)
 		name[length] = known[length];
