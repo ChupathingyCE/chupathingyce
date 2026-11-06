@@ -1174,8 +1174,10 @@ Chupathingy players only: Discord hands the secret only to players of the
 same Discord application, so OpenCE players still use the invite link or
 the server browser. The game has to be running for now; Discord can't start
 it from an invite yet. A password game never sends its invite, and the
-invite is a code, never an address. Otherwise the activity has buttons to
-the project's site and Discord server. `discord.presence`,
+invite is a code, never an address. Discord allows no buttons with an
+invite, so the big picture's hover text says "Free at chupathingy.org"
+instead. Otherwise the activity has buttons to the project's site and
+Discord server. `discord.presence`,
 `discord.show_server_name`, `discord.show_join` and
 `discord.accept_join_requests` choose what shows and who gets in (only
 `"full"` presence shares the invite); `debug.discord_log` logs each
