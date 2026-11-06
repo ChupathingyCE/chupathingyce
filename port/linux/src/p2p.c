@@ -294,6 +294,8 @@ struct stream
 	int remote_closed;
 	unsigned long created_time;
 	unsigned long closed_time;
+	/* (KCP has messages from this pass that its tick has not sent yet) */
+	int written;
 	unsigned char pending[STREAM_BUFFER_SIZE];
 	int pending_size;
 };
@@ -2172,6 +2174,7 @@ static void stream_message(struct stream *stream, unsigned char type, const void
 	if (size > 0)
 		memcpy(message + 1, data, (size_t)size);
 	ikcp_send(stream->kcp, (const char *)message, size + 1);
+	stream->written = 1;
 }
 
 static void stream_local_closed(struct stream *stream)
@@ -2320,6 +2323,16 @@ static void stream_update(struct stream *stream)
 	unsigned char message[1 + STREAM_CHUNK_SIZE];
 
 	ikcp_update(stream->kcp, p2p_now());
+	/* what this pass wrote goes out now, not on KCP's next tick up to
+	LOOP_INTERVAL later. The same messages in the same format, only
+	sooner; one flush a pass however many writes the pass made
+	(port/linux/tests/kcp_flush_test.c). Reworked for our engine, based on
+	work by goatbutt and the OpenH1 team. */
+	if (stream->written)
+	{
+		stream->written = 0;
+		ikcp_flush(stream->kcp);
+	}
 	/* what the peer sent */
 	for (;;)
 	{
