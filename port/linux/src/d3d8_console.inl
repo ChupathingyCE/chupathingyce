@@ -24,7 +24,8 @@ What it does at each draw, and what it leaves out:
 - vertex data in the Xbox window are read by the GPU where they are, the
   CPU's cache written back when a page is first used or after the game
   writes it; pages the game rewrites frame after frame (dynamic vertices)
-  are copied for the frame, as the OpenGL path's mirror does;
+  are copied for the frame, as the OpenGL path's mirror does, and so is
+  everything with console.native_in_place off;
 - indices are copied for the frame on a console without a write watch, as
   the OpenGL path copies them;
 - visibility tests (lens flares) are the console's queries, read a frame or
@@ -107,6 +108,8 @@ static struct
 	float test_area[VISIBILITY_TEST_SLOTS];
 	UINT test_known[VISIBILITY_TEST_SLOTS];
 	unsigned long drawn, skipped_program, skipped_target, skipped_shader, skipped_copy, copied_bytes, in_place_bytes;
+	/* console.native_in_place: the map's vertices read where they are */
+	BOOL in_place;
 } cr;
 
 static BOOL cr_active(void)
@@ -994,14 +997,16 @@ static void cr_draw(D3DPRIMITIVETYPE type, BOOL immediate, unsigned long first, 
 				unsigned long bytes = stride ? stride * vertex_count : 64;
 				unsigned long address = PLATFORM_WINDOW_ADDRESS(PLATFORM_PHYSICAL_TO_VIRTUAL(device.streams[stream].data)) +
 					first * stride;
-				/* (the map's own vertices: little-endian, as loaded) */
+				/* (the map's own vertices: little-endian, as loaded; the GPU reads
+				them where they are, or a copy of them with console.native_in_place
+				off, the same bytes) */
 				BOOL resident = !(address & 3) && !(stride & 3) && cr_resident(address, bytes);
 
 				placed[stream] = TRUE;
 				streams[stream].stride = stride;
 				streams[stream].size = bytes;
 				streams[stream].little_endian = (unsigned char)resident;
-				if (resident)
+				if (resident && cr.in_place)
 				{
 					streams[stream].data = xbox_pointer(address);
 					cr.in_place_bytes += bytes;
@@ -1050,7 +1055,7 @@ static void cr_draw(D3DPRIMITIVETYPE type, BOOL immediate, unsigned long first, 
 		GPU may still be reading the last frame's) */
 		BOOL in_place = FALSE;
 #else
-		BOOL in_place = !((uintptr_t)indices & 3) &&
+		BOOL in_place = cr.in_place && !((uintptr_t)indices & 3) &&
 			cr_resident((unsigned long)XBOX_ADDRESS(indices), index_count * sizeof(WORD));
 #endif
 
@@ -1225,8 +1230,10 @@ static BOOL cr_initialize(void)
 	cr.blank = console_texture_create(_console_texture_2d, _console_format_argb8, 1, 1, 1, 1);
 	if (cr.blank)
 		console_texture_level(cr.blank, 0, 0, &white);
+	cr.in_place = config_boolean("console.native_in_place");
 	cr.ready = TRUE;
 	platform_log("native renderer: drawing with the console's own graphics (display.renderer = \"native\"; "
-		"\"gl\" for the OpenGL path)");
+		"\"gl\" for the OpenGL path); the map's vertices %s", cr.in_place ? "read where they are" :
+		"copied (console.native_in_place = false)");
 	return TRUE;
 }
