@@ -282,6 +282,25 @@ static boolean bot_rvb_pick(long character, int event, long other_character, wch
 			}
 		}
 		specific = matches > 0;
+		/* (the few lines about that one, all said lately: an ordinary one) */
+		if (specific)
+		{
+			long fresh = 0;
+
+			for (index = 0; index < BOT_RVB_LINE_COUNT; index++)
+			{
+				if (bot_rvb_lines[index].character == character && bot_rvb_lines[index].event == event &&
+					bot_rvb_lines[index].other == other_character && !bot_rvb_recently(bot_rvb_lines[index].text))
+				{
+					fresh++;
+				}
+			}
+			if (!fresh)
+			{
+				specific = FALSE;
+				matches = 0;
+			}
+		}
 	}
 	if (!specific)
 	{
@@ -389,8 +408,12 @@ static void bot_rvb_queue(long absolute_index, int event, long other_index, int 
 	{
 		return;
 	}
-	if (!bot_rvb_pick(character, event, other_character, other ? other->name : NULL, text, (int)sizeof(text)))
+	if (!bot_rvb_pick(character, event, other_character, other ? other->name : NULL, text, (int)sizeof(text)) &&
+		(event != _say_died_to ||
+			!bot_rvb_pick(character, _say_death, NONE, other ? other->name : NULL, text, (int)sizeof(text))))
+	{
 		return;
+	}
 	strncpy(bot_rvb_bots[absolute_index].text, text, sizeof(bot_rvb_bots[0].text) - 1);
 	bot_rvb_bots[absolute_index].text[sizeof(bot_rvb_bots[0].text) - 1] = 0;
 	bot_rvb_bots[absolute_index].queued = now;
