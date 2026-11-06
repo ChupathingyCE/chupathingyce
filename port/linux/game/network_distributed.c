@@ -5130,6 +5130,10 @@ void network_distributed_handle_message(
 				text[index] = '?';
 		}
 		console_warning("%s", text);
+#ifdef HALO_PORT_CHAT
+		/* (an OpenCE host's: in the chat too, as its own players see it) */
+		chat_host_console_notice(text);
+#endif
 #ifdef HALO_CONSOLE_LOG_THROTTLE
 		/* (where the log is slow to write: on the Switch, the first,
 		debug.txt is on the card, and each line written

@@ -135,6 +135,10 @@ enum
 	/* the host's settings told each OpenCE machine again this often (as
 	OpenCE's host does: one that joined since learns them) */
 	BRIDGE_CONFIG_TIME = 3000,
+	/* an OpenCE host's console notices kept in the chat: the same line
+	again within this long (milliseconds) is left out, of the last few */
+	NOTICE_REPEAT_TIME = 15000,
+	NOTICE_RECENT = 8,
 };
 
 /* a line's look: who said it */
@@ -244,6 +248,11 @@ static struct
 	struct delta_chat_bridge_budget bridge_budgets[MACHINES];
 #endif
 	boolean bridge_logged;
+	/* an OpenCE host's console notices put in the chat lately (their
+	fingerprints, and when) */
+	delta_u32 notice_fingerprints[NOTICE_RECENT];
+	unsigned long notice_times[NOTICE_RECENT];
+	short notice_next;
 } chat;
 
 /* ---------- text */
@@ -1151,6 +1160,53 @@ void chat_bridge_message(long machine_index, int type, void const *entry, int si
 	default:
 		break;
 	}
+}
+
+/* (a client) an OpenCE host's console notice as a system line too, as its
+own players see it in their chat. Blank lines are left out, and a line seen
+again within NOTICE_REPEAT_TIME (a screen of notices sent each second) */
+void chat_host_console_notice(char const *text)
+{
+	struct delta_wire_chat_line line;
+	unsigned long now = system_milliseconds();
+	delta_u32 fingerprint;
+	int length, index;
+
+	/* (a host with Delta's chat says its lines there: its console notices
+	stay the console's) */
+	if (!text || game_connection() != _game_connection_network_client || delta_peer_game_chat_ready() ||
+		delta_capability_disabled(_delta_capability_chat))
+	{
+		return;
+	}
+	while (*text == ' ')
+		text++;
+	length = (int)strlen(text);
+	while (length > 0 && text[length - 1] == ' ')
+		length--;
+	if (length <= 0)
+		return;
+	if (length > DELTA_WIRE_CHAT_TEXT_SIZE)
+		length = DELTA_WIRE_CHAT_TEXT_SIZE;
+	fingerprint = delta_chat_fingerprint(text, length);
+	for (index = 0; index < NOTICE_RECENT; index++)
+	{
+		if (chat.notice_times[index] && chat.notice_fingerprints[index] == fingerprint &&
+			now - chat.notice_times[index] < NOTICE_REPEAT_TIME)
+		{
+			return;
+		}
+	}
+	chat.notice_fingerprints[chat.notice_next] = fingerprint;
+	chat.notice_times[chat.notice_next] = now ? now : 1;
+	chat.notice_next = (short)((chat.notice_next + 1) % NOTICE_RECENT);
+	csmemset(&line, 0, sizeof(line));
+	line.kind = _delta_chat_kind_system;
+	line.speaker_machine = DELTA_WIRE_NO_MACHINE;
+	line.speaker_player = 255;
+	line.length = length;
+	csmemcpy(line.text, text, length);
+	line_heard(&line);
 }
 
 /* (a client) the player's line said as OpenCE's: to the host as chat_up,
