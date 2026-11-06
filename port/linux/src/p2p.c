@@ -410,7 +410,10 @@ static struct
 	which the host's status needs to say "forward it" */
 	int host_port_wanted;
 	int port_fixed;
-} p2p = { 0, 0, -1, 0, -1, .hosting_socket = -1 };
+/* (all zero, so that it is in .bss and not written into an executable:
+112 KB on the console. Its sockets are none, -1, from p2p_initialize on;
+nothing reads them before, as nothing runs until then) */
+} p2p;
 
 /* the router's answer to UPnP, as the host's status says it */
 enum
@@ -4060,6 +4063,12 @@ void p2p_initialize(unsigned long local_address)
 	int chosen = config_chosen("network.tunnel_port");
 	int index;
 
+	if (!p2p.running)
+	{
+		p2p.tunnel_socket = -1;
+		p2p.handoff_socket = -1;
+		p2p.hosting_socket = -1;
+	}
 	p2p_identifier();
 	if (p2p.running || !config_boolean("network.online"))
 		return;
