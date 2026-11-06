@@ -318,7 +318,8 @@ void p2p_discord_update(void);
 /* the Discord user signed in, as told (empty if none): under p2p_lock */
 void p2p_discord_user(char *id, int id_size, char *name, int name_size);
 /* the public game hosted, by its invite's code (the hex after halo://join/),
-for the activity's Join game button; NULL for none: under p2p_lock */
-void p2p_discord_set_join(const char *code);
+and its players, for the activity's join secret; NULL for none: under
+p2p_lock */
+void p2p_discord_set_join(const char *code, int player_count, int maximum_player_count);
 
 #endif
