@@ -42,6 +42,12 @@ logged once), from a machine (the host's, NONE on a client), and whether it
 came over the sender's stream (anything else is dropped) */
 void chat_bridge_message(long machine_index, int type, void const *entry, int size, int from_stream);
 
+/* (network_distributed.c, a client) the host's notice for the console
+(_distributed_message_notice), printable ASCII: also a line of the chat
+when the host has no Delta chat (an OpenCE host, which sends its server
+messages, its message of the day and its dedicated server's word that way) */
+void chat_host_console_notice(char const *text);
+
 /* the host's mode (enum delta_chat_mode) and whether it filters blocked
 words: a dedicated server's settings (a player's host reads network.chat
 and network.chat_filter) */

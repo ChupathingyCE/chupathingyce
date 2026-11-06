@@ -631,7 +631,11 @@ of Delta's goes into the game protocol.
     the host allows chat, and shows each `chat_down` as a line of the
     host's game (a notice as a system line). The player's own settings
     decide the rest, as for Delta's lines: `chat.enabled`, `chat.show`, the
-    filter and their mutes. It takes nothing but the host's stream. A host
+    filter and their mutes. It takes nothing but the host's stream. Such a
+    host's console notices (the game's notice message, which an OpenCE
+    server uses for its server messages and its message of the day) show
+    in the chat too, as a system line, blank ones and repeats within 15
+    seconds left out; a host with Delta chat keeps them on the console. A host
     with Delta chat is never bridged: its lines come over Delta alone.
   - A message of the wrong size is dropped and the log says so once (the
     machine's index, never its address); nothing about chat ever ends a
