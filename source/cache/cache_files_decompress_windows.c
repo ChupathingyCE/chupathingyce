@@ -745,10 +745,13 @@ static void cache_copy_initialize_file_data(
 	short read_buffer_index;
 	short write_buffer_index;
 
+	/* (FILE_SHARE_READ: on the Xbox a map being copied to the cache stays
+	open while the game checks the same map is there; with no sharing the
+	kernel refused that open and the map looked missing) */
 	self->source_file = CreateFile(
 		self->src_name,
 		GENERIC_READ,
-		0,
+		FILE_SHARE_READ,
 		NULL,
 		OPEN_EXISTING,
 		FILE_FLAG_NO_BUFFERING | FILE_FLAG_OVERLAPPED,
