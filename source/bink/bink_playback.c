@@ -390,7 +390,8 @@ void bink_decompress_audio_frame(
 static void bink_draw_frame(
 	void);
 #ifndef HALO_XBOX_CONSOLE
-/* sdl_platform.c's (the desktop and Android builds) */
+/* sdl_platform.c's (the desktop and Android builds; the server's is
+server_platform.c's) */
 extern int platform_movie_skip_pressed(void) __attribute__((weak));
 #endif
 static boolean bink_query_analog_controller_buttons(
@@ -1077,7 +1078,7 @@ static boolean bink_query_analog_controller_buttons(
 	/* port: a key, mouse button or touch pressed since the movie started
 	(sdl_platform.c): the keyboard reaches the game only in text and the
 	console, and the mouse isn't the Xbox's (input_mouse_button_is_down is
-	its stub). Weak, as a build without it (a console's) skips by its pad */
+	its stub). Weak, as a console's build without it skips by its pad */
 	if (platform_movie_skip_pressed && platform_movie_skip_pressed())
 		return TRUE;
 #endif
