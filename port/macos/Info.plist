@@ -8,7 +8,6 @@
 	<string>Chupathingy</string>
 	<key>CFBundleExecutable</key>
 	<string>chupathingy</string>
-				<string>halo</string>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
@@ -37,6 +36,7 @@
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>chupathingy</string>
+				<string>halo</string>
 			</array>
 		</dict>
 	</array>
