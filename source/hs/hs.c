@@ -3627,6 +3627,8 @@ static void hs_allocate(
 	void);
 static boolean hs_scenario_syntax_data_valid(
 	struct scenario const *scenario);
+static char const *hs_scenario_syntax_data_problem(
+	struct scenario const *scenario);
 static boolean hs_scenario_string_constants_valid(
 	struct scenario const *scenario);
 static void hs_scenario_scripts_disable(
@@ -13288,7 +13290,9 @@ static void hs_syntax_data_byte_swap(
 }
 #endif
 
-static boolean hs_scenario_syntax_data_valid(
+/* port: why the scenario's script data isn't sound (NULL when it is), for
+the line that says so: a map that isn't run with its scripts says why */
+static char const *hs_scenario_syntax_data_problem(
 	struct scenario const *scenario)
 {
 	long const syntax_data_size =
@@ -13298,15 +13302,16 @@ static boolean hs_scenario_syntax_data_valid(
 	unsigned long tag_cache_size;
 	byte const *tag_cache = (byte const *)cache_files_tag_cache(&tag_cache_size);
 	byte const *address = (byte const *)xbox_pointer(scenario->hs_syntax_data.address);
-	struct data_array const *data = (struct data_array const *)address;
+	struct data_array *data = (struct data_array *)address;
 
-	if (scenario->hs_syntax_data.size != syntax_data_size ||
-		!tag_cache ||
+	if (scenario->hs_syntax_data.size != syntax_data_size)
+		return "its size isn't a script node array's";
+	if (!tag_cache ||
 		!scenario->hs_syntax_data.address ||
 		address < tag_cache ||
 		address > tag_cache+tag_cache_size-syntax_data_size)
 	{
-		return FALSE;
+		return "it isn't inside the map's tag data";
 	}
 #ifdef HALO_BIG_ENDIAN
 	hs_syntax_data_byte_swap((struct data_array *)address, scenario->hs_syntax_data.size);
@@ -13326,30 +13331,55 @@ static boolean hs_scenario_syntax_data_valid(
 
 		if (cache_file_tags_are_ce())
 		{
-			return data->signature == 'd@t@' &&
-				data->maximum_count == MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO &&
-				data->size == sizeof(struct hs_syntax_node) &&
-				hs_scenario_string_constants_valid(scenario);
+			if (data->signature != 'd@t@' ||
+				data->maximum_count != MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO ||
+				data->size != sizeof(struct hs_syntax_node))
+			{
+				return "its header isn't a script node array's";
+			}
+			return hs_scenario_string_constants_valid(scenario) ? NULL : "its strings aren't inside the map's tag data";
 		}
 	}
 #endif
 
-	if (POINTER_BITS(address) & 3)
+	/* port: an array that isn't at a 4-byte boundary is used where it is,
+	as a Custom Edition map's is above: other builds' tools (Halo 1: NHE's
+	maps, for one) left it so, and the Xbox's game ran them */
+	if (data->signature != 'd@t@' ||
+		data->maximum_count != MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO ||
+		data->size != sizeof(struct hs_syntax_node))
 	{
-		return FALSE;
+		return "its header isn't a script node array's";
+	}
+	/* (what bounds a node's index: datum_try_and_get, hs_syntax_try_get) */
+	if (data->count < 0 || data->count > data->maximum_count)
+		return "its node count is out of range";
+	/* port: the rest of the header is the array's bookkeeping, which other
+	builds' tools (Halo 1: NHE's maps, for one) left otherwise than the
+	shipped maps have it, and which the Xbox's own game never checked here.
+	It is set right in place (tag data, as the byte swap above writes):
+	what a new node is looked for from (datum_new) stays inside the array,
+	and the array is one the data code goes through */
+	if (!data->valid ||
+		data->actual_count < 0 || data->actual_count > data->count ||
+		data->first_free_absolute_index < 0 || data->first_free_absolute_index > data->maximum_count)
+	{
+		error(_error_log, "the scenario's script data has its header set right (valid %d, count %d, in use %d, first free %d)",
+			data->valid, data->count, data->actual_count, data->first_free_absolute_index);
+		data->valid = TRUE;
+		if (data->actual_count < 0 || data->actual_count > data->count)
+			data->actual_count = data->count;
+		if (data->first_free_absolute_index < 0 || data->first_free_absolute_index > data->maximum_count)
+			data->first_free_absolute_index = data->count;
 	}
 
-	return data->signature == 'd@t@' &&
-		data->maximum_count == MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO &&
-		data->size == sizeof(struct hs_syntax_node) &&
-		data->valid &&
-		data->count >= 0 &&
-		data->count <= data->maximum_count &&
-		data->actual_count >= 0 &&
-		data->actual_count <= data->count &&
-		data->first_free_absolute_index >= 0 &&
-		data->first_free_absolute_index <= data->maximum_count &&
-		hs_scenario_string_constants_valid(scenario);
+	return hs_scenario_string_constants_valid(scenario) ? NULL : "its strings aren't inside the map's tag data";
+}
+
+static boolean hs_scenario_syntax_data_valid(
+	struct scenario const *scenario)
+{
+	return hs_scenario_syntax_data_problem(scenario) == NULL;
 }
 
 /* port: the scenario's script strings as the map holds them (the names
@@ -13999,14 +14029,15 @@ static void hs_allocate(
 {
 	struct scenario *scenario;
 
+	char const *problem = NULL;
+
 	scenario = global_scenario_index != NONE ? global_scenario_get() : NULL;
 	/* port: as the map holds it only when it is sound */
-	if (scenario &&
-		scenario->hs_syntax_data.size ==
-			sizeof(struct data_array)+MAXIMUM_HS_SYNTAX_NODES_PER_SCENARIO*sizeof(struct hs_syntax_node) &&
-		hs_scenario_syntax_data_valid(scenario))
+	if (scenario)
 	{
-		return;
+		problem = hs_scenario_syntax_data_problem(scenario);
+		if (!problem)
+			return;
 	}
 
 	/* port: script data a map holds that isn't sound is the map's, in the
@@ -14021,9 +14052,12 @@ static void hs_allocate(
 		scenario without room for them) */
 		if (!hs_scenario_string_constants_valid(scenario))
 			scenario->hs_string_constants.size = 0;
+		/* port: logged, and the map plays without its scripts (this was a
+		fatal error, which ended on the damaged disc screen) */
+		error(_error_log, "the scenario's script data is missing or damaged (%s); the map plays without its scripts",
+			problem);
 		if (hs_syntax_data && hs_syntax_data_allocated)
 			return;
-		error(0, "the scenario's script data is missing or damaged; its scripts won't run");
 	}
 
 #ifdef HALO_XBOX_CONSOLE
@@ -16010,7 +16044,7 @@ boolean hs_scenario_postprocess(
 	if (scenario->hs_globals.count<0 ||
 		scenario->hs_globals.count>MAXIMUM_HS_GLOBALS-hs_external_global_count)
 	{
-		error(0, "the scenario has %ld script globals, more than the %d there is room for; its scripts won't run",
+		error(_error_log, "the scenario has %ld script globals, more than the %d there is room for; its scripts won't run",
 			scenario->hs_globals.count,
 			MAXIMUM_HS_GLOBALS-hs_external_global_count);
 		hs_scenario_scripts_disable(scenario);
@@ -16028,7 +16062,7 @@ boolean hs_scenario_postprocess(
 
 			if (!hs_type_valid(global->type))
 			{
-				error(0, "the scenario's script global #%d has no type (%d); its scripts won't run",
+				error(_error_log, "the scenario's script global #%d has no type (%d); its scripts won't run",
 					global_index,
 					global->type);
 				hs_scenario_scripts_disable(scenario);
@@ -16042,7 +16076,7 @@ boolean hs_scenario_postprocess(
 	if (scenario->hs_scripts.count<0 ||
 		scenario->hs_scripts.count>MAXIMUM_HS_SCRIPTS_PER_SCENARIO)
 	{
-		error(0, "the scenario has %ld scripts, more than the %d there is room for; its scripts won't run",
+		error(_error_log, "the scenario has %ld scripts, more than the %d there is room for; its scripts won't run",
 			scenario->hs_scripts.count,
 			MAXIMUM_HS_SCRIPTS_PER_SCENARIO);
 		hs_scenario_scripts_disable(scenario);
