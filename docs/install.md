@@ -13,8 +13,7 @@ Get the latest release from the [Releases page](https://github.com/ChupathingyCE
 | Linux (64-bit), AppImage | `chupathingyce-linux64-release.AppImage` | One file: make it executable and run it. glibc 2.31 or later. Updates itself. |
 | Linux (64-bit) | `chupathingyce-linux64-release.zip` | glibc 2.31 or later (Debian 11, Ubuntu 20.04). Brings its own SDL3. See [port/linux/README.md](../port/linux/README.md). |
 | Linux (32-bit, older systems) | `chupathingyce-linux-release.zip` | glibc 2.31 or later (32-bit). Brings its own SDL3. See [port/linux/README.md](../port/linux/README.md). |
-| Android | `chupathingyce-android-release.zip` | Android 9 or later, 64-bit. See [port/android/README.md](../port/android/README.md). |
-| Android, native 64-bit (experimental) | `chupathingyce-android64-release.zip` | The same app built as native 64-bit code. It installs over the other one and keeps your data. See [port/android/README.md](../port/android/README.md#the-native-64-bit-build-experimental). |
+| Android | `chupathingyce-android64-release.zip` | Android 9 or later, 64-bit. It installs over an older Android download and keeps your data. See [port/android/README.md](../port/android/README.md#the-native-64-bit-build-experimental). |
 | Mac | `chupathingyce-macos-release.zip` | macOS 13 or later, Apple silicon or Intel. |
 | FreeBSD (64-bit) | `chupathingyce-freebsd64-release.zip` | FreeBSD 14 or later, amd64. See [port/unix/README.md](../port/unix/README.md). |
 

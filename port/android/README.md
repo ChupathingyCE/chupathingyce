@@ -58,9 +58,10 @@ the same Gradle module built with `-Pnative64`, so the two builds' APKs
 sit side by side. It is the same app: the same ID
 (`dev.horrible.chupathingyce`), name, key and version code. Either build
 installs over the other and keeps the data folder and the saves. Its
-updates come from the release asset `chupathingyce-android64-<config>.zip`,
-the usual build's from `chupathingyce-android-<config>.zip` (refer to
-"Updates").
+updates come from the release asset `chupathingyce-android64-<config>.zip`.
+Since 0.9.0a the 64-bit app is the only Android download. CI no longer builds
+the usual build's `chupathingyce-android-<config>.zip`; its code stays here
+(refer to "Updates").
 
 The game does not use fixed addresses. Its Xbox address space (4 GB,
 `source/cseries/xbox_address.h`) is reserved wherever the process has room,

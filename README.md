@@ -57,7 +57,7 @@ Download the latest release from the [Releases page](https://github.com/Chupathi
 | Windows 10 or later | `chupathingyce-windows64-release.zip` |
 | Mac, Apple silicon or Intel | `chupathingyce-macos-release.zip` |
 | Linux, Steam Deck too | `chupathingyce-linux64-release.AppImage` |
-| Android 9 or later | `chupathingyce-android-release.zip` |
+| Android 9 or later, 64-bit | `chupathingyce-android64-release.zip` |
 | FreeBSD | `chupathingyce-freebsd64-release.zip` |
 
 Older 32-bit PCs, the Linux zip and the other ways to install are in [docs/install.md](docs/install.md).

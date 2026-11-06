@@ -1,7 +1,7 @@
 name: Build
 
 # Debug and release builds of the native ports (Linux and Windows, 32- and
-# 64-bit, Android and its native 64-bit app, macOS, FreeBSD), and release builds of the dedicated server (Linux
+# 64-bit, Android (native 64-bit), macOS, FreeBSD), and release builds of the dedicated server (Linux
 # x86, x64 and arm64, and Windows x64) and its container, for every pushed commit and pull
 # request, uploaded as artifacts: whether a change builds. tools/ci_build.py does each build; see it for the options.
 #
@@ -779,105 +779,10 @@ jobs:
           path: .ccache
           key: ccache-server-windows64-${{ github.sha }}
 
-  android:
-    # The runner image has the Android SDK and NDK, a JDK and CMake.
-    runs-on: ubuntu-24.04
-    timeout-minutes: 40
-    steps:
-      - name: Install the toolchain
-        run: |
-          mkdir -p "$RUNNER_TEMP/tools"
-          # (each download checked against the hash it had when it was pinned)
-          curl -fsSL -o ninja.zip https://github.com/ninja-build/ninja/releases/download/v1.12.1/ninja-linux.zip
-          curl -fsSL -o ccache.tar.xz https://github.com/ccache/ccache/releases/download/v4.10.2/ccache-4.10.2-linux-x86_64.tar.xz
-          sha256sum -c - <<'EOF'
-          6f98805688d19672bd699fbbfa2c2cf0fc054ac3df1f0e6a47664d963d530255  ninja.zip
-          80cab87bd510eca796467aee8e663c398239e0df1c4800a0b5dff11dca0b4f18  ccache.tar.xz
-          EOF
-          unzip -q ninja.zip -d "$RUNNER_TEMP/tools" && rm ninja.zip
-          tar -xJf ccache.tar.xz -C "$RUNNER_TEMP/tools" --strip-components=1 ccache-4.10.2-linux-x86_64/ccache && rm ccache.tar.xz
-          echo "$RUNNER_TEMP/tools" >> "$GITHUB_PATH"
-
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.commit }}
-
-      # (restored on every run, saved only on main: other branches' and pull
-      # requests' runs start from main's and keep nothing of their own)
-      - uses: actions/cache/restore@v4
-        with:
-          path: .ccache
-          key: ccache-android-${{ github.sha }}
-          restore-keys: ccache-android-
-
-      # the FFmpeg source tarball (tools/download.py): kept so most runs fetch nothing
-      - uses: actions/cache@v4
-        with:
-          path: build/downloads
-          key: ffmpeg-source-${{ hashFiles('tools/ffmpeg_build.py') }}
-
-      # musl and SDL, which configure.py fetches
-      - uses: actions/cache@v4
-        with:
-          path: build/android/third_party
-          key: android-third-party-${{ hashFiles('tools/android_build.py') }}
-
-      - uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: gradle-${{ hashFiles('port/android/**/*.gradle*', 'port/android/gradle/wrapper/gradle-wrapper.properties') }}
-
-      # No keystore.properties here (pull requests and forks have no
-      # secrets): the debug app has the runner's own debug key
-      # (chupathingyce-android-debug-testkey.apk), which does not install
-      # over ChupathingyCE's builds, and the release app is unsigned
-      # (chupathingyce-android-release-unsigned.apk). The release workflows
-      # (ChupathingyCE/command) take both from a run of this workflow and
-      # sign them again with ChupathingyCE's key, zipalign and apksigner
-      # (port/android/README.md).
-      - name: Debug
-        if: env.BUILD_DEBUG == 'true'
-        run: python3 tools/ci_build.py android debug
-
-      - name: Release
-        run: python3 tools/ci_build.py android release
-
-      - name: Compile cache
-        run: ccache --show-stats
-
-      - uses: actions/upload-artifact@v4
-        if: env.BUILD_DEBUG == 'true'
-        with:
-          name: chupathingyce-android-debug-testkey
-          path: dist/chupathingyce-android-debug
-          retention-days: 3
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: chupathingyce-android-release-unsigned
-          path: dist/chupathingyce-android-release
-          retention-days: 3
-
-      # (kept by ChupathingyCE's release, not a download)
-      - uses: actions/upload-artifact@v4
-        with:
-          name: symbols-android-release
-          path: dist/chupathingyce-android-release-symbols
-          if-no-files-found: ignore
-          retention-days: 3
-
-      - uses: actions/cache/save@v4
-        if: ${{ success() && github.ref == 'refs/heads/main' }}
-        with:
-          path: .ccache
-          key: ccache-android-${{ github.sha }}
-
   android64:
     # The native 64-bit Android app (ninja android64; tools/android64_build.py):
-    # the same app as the android job's, built with -Pnative64, in a job of
-    # its own so that the android job's builds and artifacts stay as they are.
+    # the Android download (the 32-bit-address app is no longer built here;
+    # its code stays in port/android).
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
