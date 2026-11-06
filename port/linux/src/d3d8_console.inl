@@ -104,7 +104,7 @@ static struct
 	DWORD test_slot;
 	float test_area[VISIBILITY_TEST_SLOTS];
 	UINT test_known[VISIBILITY_TEST_SLOTS];
-	unsigned long drawn, skipped, copied_bytes, in_place_bytes;
+	unsigned long drawn, skipped_program, skipped_target, skipped_shader, skipped_copy, copied_bytes, in_place_bytes;
 } cr;
 
 static BOOL cr_active(void)
@@ -904,7 +904,10 @@ static void cr_draw(D3DPRIMITIVETYPE type, BOOL immediate, unsigned long first, 
 	int stage;
 
 	if (!vertex_count || !program || !declaration || !program->instructions)
+	{
+		cr.skipped_program++;
 		return;
+	}
 	memset(&draw, 0, sizeof(draw));
 	memset(&key, 0, sizeof(key));
 	memcpy(key.combiner_state, D3D__RenderState, sizeof(key.combiner_state));
@@ -916,7 +919,7 @@ static void cr_draw(D3DPRIMITIVETYPE type, BOOL immediate, unsigned long first, 
 	draw.samplers = samplers;
 	if (!cr_bind_targets(&has_depth))
 	{
-		cr.skipped++;
+		cr.skipped_target++;
 		return;
 	}
 	for (stage = 0; stage < D3DTSS_MAXSTAGES; stage++)
@@ -931,7 +934,7 @@ static void cr_draw(D3DPRIMITIVETYPE type, BOOL immediate, unsigned long first, 
 	draw.pixel_shader = cr_pixel_shader(&key);
 	if (!draw.vertex_shader || !draw.pixel_shader)
 	{
-		cr.skipped++;
+		cr.skipped_shader++;
 		return;
 	}
 	cr_state(has_depth, &state);
@@ -948,7 +951,7 @@ static void cr_draw(D3DPRIMITIVETYPE type, BOOL immediate, unsigned long first, 
 		streams[0].data = console_frame_copy(device.immediate_vertices, vertex_count * CR_IMMEDIATE_STRIDE);
 		if (!streams[0].data)
 		{
-			cr.skipped++;
+			cr.skipped_copy++;
 			return;
 		}
 		streams[0].size = vertex_count * CR_IMMEDIATE_STRIDE;
@@ -1006,7 +1009,7 @@ static void cr_draw(D3DPRIMITIVETYPE type, BOOL immediate, unsigned long first, 
 					cr.copied_bytes += bytes;
 					if (!streams[stream].data)
 					{
-						cr.skipped++;
+						cr.skipped_copy++;
 						return;
 					}
 				}
@@ -1050,7 +1053,7 @@ static void cr_draw(D3DPRIMITIVETYPE type, BOOL immediate, unsigned long first, 
 			draw.indices = console_frame_copy(indices, (index_count * sizeof(WORD) + 3) & ~3UL);
 			if (!draw.indices)
 			{
-				cr.skipped++;
+				cr.skipped_copy++;
 				return;
 			}
 		}
@@ -1174,6 +1177,16 @@ static UINT cr_visibility_result(DWORD index)
 static void cr_present(void)
 {
 	struct cr_target *back_buffer = cr_target_get(&device.back_buffer);
+
+	/* (every 10 seconds of the game's 30 frames, what the console's
+	renderer left out and what it read in place) */
+	if (cr.frame % 300 == 299)
+	{
+		platform_log("native renderer: in 300 frames, %lu draws; left out %lu without a program, %lu without targets, %lu without shaders, "
+			"%lu without copy space; %lu KB read in place, %lu KB copied", cr.drawn, cr.skipped_program, cr.skipped_target,
+			cr.skipped_shader, cr.skipped_copy, cr.in_place_bytes >> 10, cr.copied_bytes >> 10);
+		cr.drawn = cr.skipped_program = cr.skipped_target = cr.skipped_shader = cr.skipped_copy = cr.copied_bytes = cr.in_place_bytes = 0;
+	}
 
 	if (back_buffer)
 		console_present(back_buffer->target);
