@@ -160,7 +160,7 @@ struct ce_bsp_reference
 boolean ce_resources_check(struct ce_image *image, void *tag_instances, long tag_count, unsigned long end_free,
 	unsigned long map_file_size, unsigned long *next_free);
 boolean ce_models_check(struct ce_image const *image, void const *tag_instances, long tag_count,
-	byte const *model_data, unsigned long model_data_size, unsigned long vertex_data_size, unsigned long *bytes);
+	struct ce_model_data *data, unsigned long *bytes);
 boolean ce_shaders_check(struct ce_image const *image, void const *tag_instances, long tag_count);
 boolean ce_hud_check(struct ce_image const *image, void const *tag_instances, long tag_count);
 boolean ce_bsp_check(struct ce_image const *image, unsigned long *bytes);
@@ -193,6 +193,48 @@ static boolean ce_file_read(
 	if (SetFilePointer(file, (long)offset, NULL, FILE_BEGIN) == INVALID_SET_FILE_POINTER)
 		return FALSE;
 	return ReadFile(file, buffer, size, &bytes_read, NULL) && bytes_read == size;
+}
+
+#ifdef HALO_CONSOLE_CE_MODEL_DATA_WINDOWS
+/* the map's model data, read through windows (ce_map_checks.h) */
+struct ce_model_data_file
+{
+	HANDLE file;
+	unsigned long offset;
+};
+
+static boolean ce_model_data_file_read(
+	void *context,
+	unsigned long offset,
+	void *buffer,
+	unsigned long size)
+{
+	struct ce_model_data_file const *model_file = (struct ce_model_data_file const *)context;
+
+	return ce_file_read(model_file->file, model_file->offset + offset, buffer, size);
+}
+#endif
+
+void ce_refusal_explain_room(
+	void)
+{
+#ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
+	if (platform_ce_alias)
+	{
+		ce_refusal_explain("It needs more memory than a 64 MB console has.");
+		return;
+	}
+#endif
+	ce_refusal_explain("It is too big for the game's tag cache.");
+}
+
+/* the reason for a refusal for want of memory to check it, on a console */
+static void ce_refusal_explain_memory(
+	void)
+{
+#ifdef HALO_CONSOLE_CE_MODEL_DATA_WINDOWS
+	ce_refusal_explain("It needs more memory than this console has free.");
+#endif
 }
 
 /* whether a cache needs OpenSauce: its header says so, by setting any of
@@ -419,7 +461,10 @@ static boolean ce_bsps_check(
 		bsp.size = reference.file_size;
 		bsp.data = malloc(reference.file_size);
 		if (!bsp.data)
+		{
+			ce_refusal_explain_memory();
 			return ce_refuse("no memory to check structure BSP %ld (%lu bytes)", index, reference.file_size);
+		}
 		valid = ce_file_read(file, reference.file_offset, bsp.data, reference.file_size) &&
 			ce_bsp_check(&bsp, &bytes);
 		if (bsp.data)
@@ -444,10 +489,15 @@ static boolean ce_map_check_tags(
 	struct ce_tag_instance const *scenario_instance;
 	byte *scenario;
 	byte *model_data = NULL;
+	struct ce_model_data models;
 	unsigned long end_free, bsp_bytes, next_free, model_bytes = 0;
 	long tag_count;
 	boolean valid = FALSE;
+#ifdef HALO_CONSOLE_CE_MODEL_DATA_WINDOWS
+	struct ce_model_data_file model_file;
+#endif
 
+	memset(&models, 0, sizeof(models));
 	if (tag_data_offset < CE_HEADER_SIZE || tag_data_size < CE_TAG_HEADER_SIZE ||
 		!ce_range_within(tag_data_offset, tag_data_size, file_size))
 	{
@@ -477,7 +527,10 @@ static boolean ce_map_check_tags(
 	{
 		image.data = malloc(CE_IMAGE_TAG_CACHE_SIZE);
 		if (!image.data)
+		{
+			ce_refusal_explain_memory();
 			return ce_refuse("no memory to check it");
+		}
 		memset(image.data, 0xcd, CE_IMAGE_TAG_CACHE_SIZE);
 	}
 	if (!ce_file_read(file, tag_data_offset, image.data, tag_data_size))
@@ -525,7 +578,7 @@ static boolean ce_map_check_tags(
 	end_free = platform_ce_room_end(end_free);
 	if (end_free < CE_IMAGE_TAG_CACHE_BASE + tag_data_size)
 	{
-		ce_refusal_explain("It is too big for the game's tag cache.");
+		ce_refusal_explain_room();
 		ce_refuse("its tags and structure BSPs (from %08lx) need more of the tag cache than a 64 MB console has",
 			end_free);
 		goto done;
@@ -549,17 +602,32 @@ static boolean ce_map_check_tags(
 			header.model_data_file_offset, header.vertex_data_size);
 		goto done;
 	}
+	models.size = header.model_data_size;
+	models.vertex_data_size = header.vertex_data_size;
+#ifdef HALO_CONSOLE_CE_MODEL_DATA_WINDOWS
+	/* (read whole, or through windows if there is no room for that:
+	ce_map_checks.h) */
+	model_file.file = file;
+	model_file.offset = header.model_data_file_offset;
+	models.read = ce_model_data_file_read;
+	models.context = &model_file;
+	if (!ce_model_data_begin(&models))
+	{
+		ce_refusal_explain_memory();
+		ce_refuse("no memory to read its model data (%lu bytes), even in parts", header.model_data_size);
+		goto done;
+	}
+#else
 	model_data = malloc(header.model_data_size ? header.model_data_size : 1);
 	if (!model_data || !ce_file_read(file, header.model_data_file_offset, model_data, header.model_data_size))
 	{
 		ce_refuse("its model data (%lu bytes) could not be read", header.model_data_size);
 		goto done;
 	}
-	if (!ce_models_check(&tags, instances, tag_count, model_data, header.model_data_size,
-		header.vertex_data_size, &model_bytes))
-	{
+	models.whole = model_data;
+#endif
+	if (!ce_models_check(&tags, instances, tag_count, &models, &model_bytes))
 		goto done;
-	}
 	/* (the room left: the models' parts, strips and buffers, then the
 	loaded BSP's buffers, below the BSP and then above the tag cache,
 	ce_resources_allocate: less, there, what the first allocation that goes
@@ -574,7 +642,7 @@ static boolean ce_map_check_tags(
 		{
 			unsigned long needed = model_bytes + bsp_bytes;
 
-			ce_refusal_explain("It is too big for the game's tag cache.");
+			ce_refusal_explain_room();
 			ce_refuse("its models and structure BSP buffers need %lu bytes of the tag cache, and %lu bytes "
 				"are free between its tags and its BSP and above the tag cache (%lu too few)", needed, room,
 				needed - room);
@@ -585,6 +653,7 @@ static boolean ce_map_check_tags(
 		ce_animations_check(&tags, instances, tag_count) && ce_weapons_check(&tags, instances, tag_count);
 
 done:
+	ce_model_data_end(&models);
 	if (model_data)
 		free(model_data);
 #ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
