@@ -28,7 +28,8 @@ def generated(fault=None):
     for source, name in ((cinematics, "scenario_cutscene_title"), (header, "cinematic_title"),
                          (header, "cinematic_global_data")):
         config += structure(source, name) + "\n"
-    code = function(cinematics, "cinematic_render")
+    # (ours shifts a title on a wide screen: that function too)
+    code = function(cinematics, "cinematic_title_edge_shift") + "\n" + function(cinematics, "cinematic_render")
     if fault:
         code = mutated(code, *fault)
     return (("config.inc", config), ("under_test.inc", code + "\n"))
