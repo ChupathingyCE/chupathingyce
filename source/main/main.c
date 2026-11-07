@@ -1261,6 +1261,17 @@ real first_person_reticle_scale(
 	return 1.0f / first_person_field_of_view_scale();
 }
 
+/* port: TRUE when display.field_of_view has the first-person view at
+other than the stock 70 degrees (the screen fog's canopy redraw,
+rasterizer_xbox_environment_fog.c) */
+boolean first_person_field_of_view_widened(
+	short local_player_index)
+{
+	return local_player_index != NONE &&
+		director_get_perspective(local_player_index) == _director_perspective_first_person &&
+		first_person_field_of_view_scale() != 1.0f;
+}
+
 /* port: display.far_clip_distance, how far the world is drawn (1024 as on
 the Xbox, to 10000). It is a floor under the camera's far clip, applied each
 frame: the map's own value, a script or init.txt can raise the clip beyond it
