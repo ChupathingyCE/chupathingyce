@@ -674,9 +674,11 @@ static void texture_cache_initialize_hardware_format(
 			D3DFORMAT_BORDERSOURCE_COLOR |
 			D3DFORMAT_DMACHANNEL_A;
 		/* port: (the pitch in whole steps, a Halo PC map's rounded up:
-		texture_cache_bitmap_valid) */
+		texture_cache_bitmap_valid; unsigned, since 256 steps shifted into
+		the top byte overflow a signed long. Found in chester's GulchCE) */
 		texture->Size =
-			(((bitmap_mipmap_get_row_pitch(bitmap, 0) + D3DTEXTURE_PITCH_ALIGNMENT - 1) / D3DTEXTURE_PITCH_ALIGNMENT - 1) <<
+			(((unsigned long)(bitmap_mipmap_get_row_pitch(bitmap, 0) + D3DTEXTURE_PITCH_ALIGNMENT - 1) /
+				D3DTEXTURE_PITCH_ALIGNMENT - 1) <<
 				D3DSIZE_PITCH_SHIFT) |
 			((bitmap->height - 1) << D3DSIZE_HEIGHT_SHIFT) |
 			(bitmap->width - 1);
