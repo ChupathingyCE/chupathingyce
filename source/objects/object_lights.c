@@ -178,6 +178,7 @@ symbols in this file:
 #include "structures/structure_bsp_definitions.h"
 #include "structures/structure_render.h"
 #include "structures/structure_render_lights.h"
+#include "main/main.h" /* port: first_person_weapon_projection_scale */
 #include "structures/structures.h"
 #include "structures/structure_vector_tests.h"
 #include "structures/structure_visibility.h"
@@ -895,6 +896,42 @@ long light_new_unattached(
 	return light_index;
 }
 
+/* port: display.viewmodel_field_of_view draws the first-person weapon with
+its own projection (first_person_weapon_projection_scale, its x and y
+scaled); its lights' glows are drawn with the world's. A glow on the
+weapon's marker is moved across the view, at the same depth, to where the
+weapon's projection draws that marker, so it stays on the weapon (the
+plasma pistol's and rifle's glows floated beside them). Only the glow: the
+light itself still lights from the marker. */
+static void lights_port_first_person_flare_positions(
+	struct object_marker *markers,
+	short marker_count)
+{
+	real scale = first_person_weapon_projection_scale();
+	real_vector3d forward = render.camera.forward;
+	short marker_index;
+
+	if (scale == 1.0f || normalize3d(&forward) == 0.0f)
+		return;
+	for (marker_index = 0; marker_index < marker_count; marker_index++)
+	{
+		real_point3d *position = &markers[marker_index].matrix.position;
+		real_vector3d offset;
+		real depth;
+
+		vector_from_points3d(&render.camera.position, position, &offset);
+		depth = dot_product3d(&offset, &forward);
+		position->x = render.camera.position.x + depth * forward.i +
+			(offset.i - depth * forward.i) * scale;
+		position->y = render.camera.position.y + depth * forward.j +
+			(offset.j - depth * forward.j) * scale;
+		position->z = render.camera.position.z + depth * forward.k +
+			(offset.k - depth * forward.k) * scale;
+	}
+
+	return;
+}
+
 void lights_preprocess_scene(
 	void)
 {
@@ -1195,6 +1232,7 @@ void lights_preprocess_scene(
 						{
 							lens_flare_parameters.compressed_window_index |=
 								LENS_FLARE_FIRST_PERSON_MARKER_FLAG;
+							lights_port_first_person_flare_positions(markers, marker_count);
 						}
 					}
 					if (!marker_count)
