@@ -226,6 +226,16 @@ boolean _rasterizer_environment_shadow_begin(
 		147,
 		global_d3d_device);
 
+	/* port: the caller sizes the shadow volume by this radius even when the
+	pass is skipped (a target other than the primary), and read it
+	uninitialized there: a crash in structure_render_shadow on some maps.
+	Give it the object's radius either way; the skipped pass still draws
+	nothing. Found in chester's GulchCE. */
+	if (shadow_volume_bounding_radius)
+	{
+		*shadow_volume_bounding_radius = object_bounding_radius;
+	}
+
 	if (global_window_parameters.rasterizer_target ==
 			_rasterizer_target_render_primary &&
 		rasterizer_debug_options.draw_environment_shadows)
