@@ -1028,6 +1028,9 @@ static void damage_data_validate_owner(
 {
 	if (damage->owner_player_index != NONE && !player_try_and_get(damage->owner_player_index))
 		damage->owner_player_index = NONE;
+	/* port: nor does damage keep an owner object that is gone */
+	if (damage->owner_object_index != NONE && !object_try_and_get(damage->owner_object_index))
+		damage->owner_object_index = NONE;
 }
 
 static void object_damage_aftermath(
