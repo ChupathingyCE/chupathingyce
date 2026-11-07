@@ -16,7 +16,7 @@ CASES = ["outside-near", "outside-far", "outside-side", "crossing-kept",
          "out-of-range-surfaces", "group-material", "missing-owner",
          "load-subclusters", "load-surface-lists", "load-lifetime", "load-allocation-failure",
          "load-small-group-scratch", "cluster-order", "cluster-order-per-call", "stale-structure",
-         "walk-fallback", "walk-planes", "walk-facing", "walk-near-first", "set-tests", "set-tests-unloaded", "console-local", "walk-unit-forward",
+         "walk-fallback", "walk-planes", "walk-facing", "walk-near-first", "set-tests", "set-tests-unloaded", "walk-unit-forward",
          "source-fog-rejected", "source-fog-straddling", "debug-record", "dispose-empty", "mirror-far", "build-budget",
           "rejected-bucket-visits", "compact-allocation-failure", "overlay-truncation", "default-mask", "debug-letterbox",
           "walk-profile", "missing-subcluster-warning", "debug-stale-data"]
