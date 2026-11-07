@@ -424,6 +424,13 @@ enum
 	_text_justification_right,
 };
 
+/* port: a network game's frame this long or longer is noted in debug.txt
+(milliseconds; a client's connection times out after 15 seconds of silence) */
+enum
+{
+	LONG_NETWORK_FRAME_MILLISECONDS = 2000,
+};
+
 /* ---------- macros */
 
 /* ---------- structures */
@@ -3726,6 +3733,24 @@ void main_loop(
 			on the consoles too */
 			MAIN_STAGE("audio_probe_update");
 			audio_probe_update(main_globals.main_menu_scenario_loaded, main_globals.seconds_elapsed);
+			/* port: a frame of a network game that took seconds (a hitch,
+			a stall of the renderer) noted in debug.txt, nothing having been
+			sent or read meanwhile: why a machine timed out of a game, or
+			another lost it, can then be read */
+			{
+				static unsigned long previous_network_frame_milliseconds;
+				unsigned long now = system_milliseconds();
+
+				if ((main_globals.connection==_game_connection_network_client ||
+					main_globals.connection==_game_connection_network_server) && game_in_progress() &&
+					previous_network_frame_milliseconds &&
+					now-previous_network_frame_milliseconds>=LONG_NETWORK_FRAME_MILLISECONDS)
+				{
+					error(_error_silent, "a frame of %lu ms in a network game (nothing sent or read meanwhile)",
+						now-previous_network_frame_milliseconds);
+				}
+				previous_network_frame_milliseconds = now;
+			}
 			HALO_PERF_BEGIN(_halo_perf_network);
 			connection = main_globals.connection;
 			if (connection==_game_connection_network_client)

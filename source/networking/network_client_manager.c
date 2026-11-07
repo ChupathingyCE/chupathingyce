@@ -958,6 +958,22 @@ static boolean check_networking_and_generate_error(
 	return connected;
 }
 
+/* port: how long the client's connection may hear nothing from the host
+before the game is left: none on the host. Its client's host is its own
+server, which runs in the same frame on the same thread: a frame that
+takes long (a hitch of the renderer or of the VR runtime) silences the
+server for as long, so when it ends the client had heard nothing for that
+long, the server's word of it not sent yet. It would leave its own game
+(the game host went down), though nothing went down. The server for its
+part times out none of its own machine's connections
+(network_game_server_client_machine_timed_out); a connection that has
+failed is still noticed by its read. */
+static long network_game_client_connection_timeout(
+	long timeout)
+{
+	return global_network_game_server_get() ? 0 : timeout;
+}
+
 void network_game_client_dispose(
 	struct network_game_client *client)
 {
@@ -3225,7 +3241,8 @@ static boolean network_game_client_idle_pregame(
 		{
 			network_game_client_update_precache_status(client);
 
-			if (!(success = network_connection_idle(client->connection, 15000, NULL)))
+			/* (port: no timeout on the host, network_game_client_connection_timeout) */
+			if (!(success = network_connection_idle(client->connection, network_game_client_connection_timeout(15000), NULL)))
 			{
 				network_event("network_connection_idle() failed in network_game_client_idle_pregame()");
 				if (network_game_client_process_last_messages(client))
@@ -3312,7 +3329,9 @@ static boolean network_game_client_idle_ingame(
 
 	if (success == TRUE)
 	{
-		success = network_connection_idle(client->connection, started ? 15000 : 75000, NULL);
+		/* (port: no timeout on the host, network_game_client_connection_timeout) */
+		success = network_connection_idle(client->connection,
+			network_game_client_connection_timeout(started ? 15000 : 75000), NULL);
 
 		if (success)
 		{
@@ -3354,7 +3373,8 @@ static boolean network_game_client_idle_postgame(
 	}
 	else
 	{
-		if (!(success = network_connection_idle(client->connection, 15000, NULL)))
+		/* (port: no timeout on the host, network_game_client_connection_timeout) */
+		if (!(success = network_connection_idle(client->connection, network_game_client_connection_timeout(15000), NULL)))
 		{
 			network_event("network_connection_idle() failed in network_game_client_idle_postgame()");
 			if (network_game_client_process_last_messages(client))
