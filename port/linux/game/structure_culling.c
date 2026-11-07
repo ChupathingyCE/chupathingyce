@@ -1031,7 +1031,11 @@ boolean structure_culling_traverse(struct structure_bsp *structure)
 		{
 			break;
 		}
-		memcpy(planes, frustum->world_planes, _structure_culling_frustum_plane_far * sizeof(*planes));
+		/* a portal's window trims only whole subclusters (the source test below), as the
+		original walk does; buckets and triangles are tested against the whole view, so a
+		cluster's geometry that its portals don't wrap (Blood Gulch's and Timberline's
+		cliffs) isn't cut away where the window ends */
+		memcpy(planes, render.frustum.world_planes, _structure_culling_frustum_plane_far * sizeof(*planes));
 		for (b = cluster->first_bucket; b < cluster->first_bucket + cluster->bucket_count; ++b)
 		{
 			struct structure_culling_bucket const *bucket = &structure_culling.buckets[b];

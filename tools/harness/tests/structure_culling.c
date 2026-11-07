@@ -499,6 +499,27 @@ int main(int argc, char **argv)
         render.cluster_index=NONE;
         CHECK(structure_culling_traverse(&fixture_bsp) && render.environment_surface_count==4,"camera outside uses full frustum"); return 0;
     }
+    CASE("portal-window-subclusters-only")
+    {
+        /* the portal's window overlaps the subcluster but not its triangles: the
+        original walk draws them all, so the finer tests must use the whole view */
+        fixture_load(TRUE); fixture_frame(); structures_use_pvs_for_vs=FALSE;
+        render.rendered_clusters[0].frustum=render.frustum;
+        render.rendered_clusters[0].frustum.world_planes[1].d=-0.5f;
+        structure_culling_set_tests(0);
+        CHECK(!structure_culling_traverse(&fixture_bsp),"mask zero runs original walk");
+        structure_visibility_traverse_subclusters(&fixture_bsp);
+        CHECK(render.environment_surface_count==4,"original keeps the subcluster the window overlaps");
+        memset(render.environment_surface_flags,0,sizeof(render.environment_surface_flags)); render.environment_surface_count=0;
+        structure_culling_set_tests(25);
+        CHECK(structure_culling_traverse(&fixture_bsp) && render.environment_surface_count==4,"window doesn't cut triangles of an overlapped subcluster");
+        fixture_load(FALSE); fixture_frame(); structures_use_pvs_for_vs=FALSE;
+        render.rendered_clusters[0].frustum=render.frustum;
+        render.rendered_clusters[0].frustum.world_planes[1].d=-0.5f;
+        structure_culling_structure_bsp_loaded();
+        CHECK(structure_culling_traverse(&fixture_bsp) && render.environment_surface_count==3,"window doesn't cut surface-list triangles");
+        return 0;
+    }
     CASE("source-fog-rejected")
     {
         fixture_load(TRUE);
