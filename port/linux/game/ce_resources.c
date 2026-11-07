@@ -1169,7 +1169,7 @@ static boolean ce_resources_place(
 		}
 		if (next > end_free || resource->size > end_free - next)
 		{
-			ce_refusal_explain("It is too big for the game's tag cache.");
+			ce_refusal_explain_room();
 			return ce_refuse("there is no room in the tag cache for %s's resource", name);
 		}
 		copy = image->data + (next - image->base);

@@ -27,6 +27,10 @@ HALO_CONSOLE_CE_SHARED_TAG_CACHE (with HALO_CUSTOM_EDITION): a console with no
 room for a second tag cache lends its own to a Custom Edition map: the map
 checked as it loads, the load's memory borrowed and given back, by the port's
 platform_ce_* hooks (platform_ce_alias says whether it is in use)
+HALO_CONSOLE_CE_MODEL_DATA_WINDOWS (with HALO_CUSTOM_EDITION): a Custom
+Edition map's model data (a Halo 2 map's is 14 MB) read through two small
+windows as its models are checked and made, not whole: a console's memory
+may have no room for it on top of the map (port/linux/game/ce_map_checks.h)
 HALO_CONSOLE_MAP_BROWSER: a console's own map browser (MAP BROWSER under
 ONLINE GAMES, and the keyboard's search launch), its screen the port's
 maps_screen_open

@@ -1803,6 +1803,23 @@ long scenario_tags_load(
 			/* its gbxmodels made models, from its model data block
 			(port/linux/game/ce_models.c) */
 			{
+				extern void ce_functions_tags_loaded(void *tag_instances, long tag_count);
+				extern void ce_shaders_tags_loaded(void *tag_instances, long tag_count);
+#ifdef HALO_CONSOLE_CE_MODEL_DATA_WINDOWS
+				extern boolean ce_models_tags_loaded_read(void *tag_instances, long tag_count,
+					unsigned long file_offset, unsigned long size, unsigned long vertex_data_size);
+
+				/* (read whole, or through two small windows if there is no room
+				for it: a Halo 2 map's is 14 MB, port/linux/game/ce_map_checks.h) */
+				if (!ce_models_tags_loaded_read(global_tag_instances, ce_header->tag_count,
+					(unsigned long)ce_header->model_data_file_offset, (unsigned long)ce_header->model_data_size,
+					(unsigned long)ce_header->vertex_data_size))
+				{
+					error(_error_silent, "Custom Edition map %s: its models could not all be made", scenario_name);
+				}
+				ce_functions_tags_loaded(global_tag_instances, ce_header->tag_count);
+				ce_shaders_tags_loaded(global_tag_instances, ce_header->tag_count);
+#else
 				extern boolean ce_models_tags_loaded(void *tag_instances, long tag_count, byte const *model_data,
 					unsigned long vertex_data_size);
 #ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
@@ -1826,16 +1843,8 @@ long scenario_tags_load(
 					}
 					/* (its function fields naming functions there are none
 					of made valid ones first: port/linux/game/ce_functions.c) */
-					{
-						extern void ce_functions_tags_loaded(void *tag_instances, long tag_count);
-
-						ce_functions_tags_loaded(global_tag_instances, ce_header->tag_count);
-					}
-					{
-						extern void ce_shaders_tags_loaded(void *tag_instances, long tag_count);
-
-						ce_shaders_tags_loaded(global_tag_instances, ce_header->tag_count);
-					}
+					ce_functions_tags_loaded(global_tag_instances, ce_header->tag_count);
+					ce_shaders_tags_loaded(global_tag_instances, ce_header->tag_count);
 #ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
 					if (platform_ce_alias)
 						platform_ce_scratch_free(model_data);
@@ -1848,6 +1857,7 @@ long scenario_tags_load(
 					error(_error_silent, "Custom Edition map %s: no memory for its model data (%ld bytes): its models "
 						"could not be made", scenario_name, ce_header->model_data_size);
 				}
+#endif
 			}
 
 #ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE

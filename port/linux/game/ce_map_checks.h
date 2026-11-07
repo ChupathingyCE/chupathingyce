@@ -128,6 +128,10 @@ boolean ce_refuse(char const *format, ...);
 player's words; only the first, and only before a refusal, is kept */
 void ce_refusal_explain(char const *format, ...);
 
+/* the same, for a map with no room in the tag cache: on a 64 MB console,
+whose tag cache is the Xbox's, that it needs more memory */
+void ce_refusal_explain_room(void);
+
 /* the message for a player about the map ce_map_check refused last ("" if
 it was accepted): the map, and the reason when ce_refusal_explain gave one */
 char const *ce_map_refusal_message(void);
@@ -150,6 +154,45 @@ extern long ce_map_cache_version;
 /* the family of the map being checked or loaded, for messages: "Custom
 Edition" or "HaloMD" */
 char const *ce_map_family_name(void);
+
+/* ---------- a map's model data */
+
+/* A map's model data block: its vertices (vertex_data_size bytes), then its
+triangle strips. Held whole in memory (whole). On a console
+(HALO_CONSOLE_CE_MODEL_DATA_WINDOWS) it is read whole if there is room for
+it, else through two windows, one over the vertices and one over the
+strips, each moved to a part's as the parts are checked and made: the Halo
+2 maps' are 11 to 14 MB, more than a 128 MB console has free while it checks
+one (ce_models.c) */
+enum
+{
+	CE_MODEL_DATA_WINDOW_SIZE = 0x20000,
+};
+
+struct ce_model_data
+{
+	byte const *whole;
+	unsigned long size;
+	unsigned long vertex_data_size;
+	/* (a window's read: TRUE if all size bytes at offset were read) */
+	boolean (*read)(void *context, unsigned long offset, void *buffer, unsigned long size);
+	void *context;
+	byte *held;
+	byte *windows;
+	unsigned long window_offsets[2];
+	unsigned long window_sizes[2];
+};
+
+/* the size bytes at offset of the model data, at most
+CE_MODEL_DATA_WINDOW_SIZE of them and all within it (the caller checked
+that); NULL if they could not be read */
+byte const *ce_model_data_at(struct ce_model_data *data, unsigned long offset, unsigned long size);
+
+/* the model data read whole, or else its windows' memory taken (FALSE: there
+is no memory even for those), and given back; nothing for model data already
+held whole */
+boolean ce_model_data_begin(struct ce_model_data *data);
+void ce_model_data_end(struct ce_model_data *data);
 
 #endif
 
