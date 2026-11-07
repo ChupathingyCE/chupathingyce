@@ -8,6 +8,7 @@ that refuse when full, CHECK (exits CHECK_FAILED, 1) and CASE.
 #ifndef HARNESS_H
 #define HARNESS_H
 
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
