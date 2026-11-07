@@ -341,20 +341,23 @@ void scenario_dispose_from_old_map(
 void scenario_frame_update(
 	real delta_time)
 {
-	/* A frame was a tick on the Xbox; the native builds draw several frames
-	per tick (port/linux/game/render_interpolation.c), and the wind steps
-	its random walk once an update: step it once per 30 Hz tick of game
-	time. */
-	static real leftover_ticks = 0.f;
-	long ticks;
+	/* port: a frame was a tick on the Xbox; the native builds draw several
+	frames per tick (port/linux/game/render_interpolation.c). The wind's
+	random walk steps once an update, so it steps once a tick, at the tick's
+	end (game_tick, scenario_tick_update), as the Xbox's frame came after its
+	tick. Counted from the frames' time it stepped a frame sooner or later by
+	the frame rate, and the antennas the ticks move swung with it. */
+	(void)delta_time;
 
-	leftover_ticks += delta_time * TICKS_PER_SECOND;
-	ticks = (long)leftover_ticks;
-	leftover_ticks -= (real)ticks;
-	for (ticks = MIN(ticks, 4); ticks > 0; ticks--)
-	{
-		wind_update();
-	}
+	return;
+}
+
+/* port: the wind's step of the tick (game.c's game_tick). wind_update draws
+only from the local random seed, never the game's. */
+void scenario_tick_update(
+	void)
+{
+	wind_update();
 
 	return;
 }
