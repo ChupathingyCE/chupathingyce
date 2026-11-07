@@ -1762,10 +1762,71 @@ SDL_Window *platform_sdl_window(void)
 	return platform_window;
 }
 
+#if !defined(HALO_ANDROID) && !defined(_WIN32) && !defined(__APPLE__)
+/* port: X11 without XInput2 (a 32-bit libSDL3 whose 32-bit libXi.so.6 is
+missing, as with Arch Linux's lib32-sdl3, falls back to plain X11 or
+XWayland) has no relative mouse: SDL_SetWindowRelativeMouseMode fails. The
+mouse is then held with a hidden cursor, a grab of the window (which also
+lets XWayland lock the pointer) and a warp back to the window's middle after
+it moves. */
+#define MOUSE_WARP_FALLBACK
+static BOOL mouse_warp_capture;
+static int mouse_warp_x;
+static int mouse_warp_y;
+
+static void mouse_warp_to_middle(void)
+{
+	int width = 0, height = 0;
+
+	SDL_GetWindowSize(platform_window, &width, &height);
+	if (width > 0 && height > 0)
+	{
+		mouse_warp_x = width / 2;
+		mouse_warp_y = height / 2;
+		SDL_WarpMouseInWindow(platform_window, (float)mouse_warp_x, (float)mouse_warp_y);
+	}
+}
+
+static void mouse_warp_release(void)
+{
+	if (mouse_warp_capture)
+	{
+		mouse_warp_capture = FALSE;
+		SDL_SetWindowMouseGrab(platform_window, false);
+		SDL_ShowCursor();
+	}
+}
+#endif
+
 void platform_mouse_capture(BOOL capture)
 {
-	if (platform_window)
-		SDL_SetWindowRelativeMouseMode(platform_window, capture ? true : false);
+	if (!platform_window)
+		return;
+#ifndef MOUSE_WARP_FALLBACK
+	SDL_SetWindowRelativeMouseMode(platform_window, capture ? true : false);
+#else
+	if (!capture)
+	{
+		SDL_SetWindowRelativeMouseMode(platform_window, false);
+		mouse_warp_release();
+		return;
+	}
+	if (SDL_GetKeyboardFocus() == platform_window &&
+		SDL_SetWindowRelativeMouseMode(platform_window, true))
+	{
+		mouse_warp_release();
+		return;
+	}
+	/* (before the window has the focus SDL sets its relative mode without
+	testing for XInput2, and if XInput2 is missing when the focus comes, the
+	plain motion is dropped until the mode is cleared: clear it, hold the
+	mouse here, and try the relative mode again when the focus comes) */
+	SDL_SetWindowRelativeMouseMode(platform_window, false);
+	mouse_warp_capture = TRUE;
+	SDL_HideCursor();
+	SDL_SetWindowMouseGrab(platform_window, true);
+	mouse_warp_to_middle();
+#endif
 }
 
 /* ---------- keyboard translation */
@@ -2264,6 +2325,9 @@ void platform_pump_events(void)
 	SDL_Event event;
 	static BOOL looked_at_clipboard;
 	BOOL look_at_clipboard = !looked_at_clipboard;
+#ifdef MOUSE_WARP_FALLBACK
+	BOOL mouse_needs_warp = FALSE;
+#endif
 
 #ifdef HALO_CONSOLE_PERFORMANCE_MODE
 	console_performance_update();
@@ -2406,6 +2470,16 @@ void platform_pump_events(void)
 				break;
 			}
 #endif
+#ifdef MOUSE_WARP_FALLBACK
+			/* port: the mouse held without XInput2: the move the warp back to
+			the middle makes is not the player's */
+			if (mouse_warp_capture)
+			{
+				if ((int)event.motion.x == mouse_warp_x && (int)event.motion.y == mouse_warp_y)
+					break;
+				mouse_needs_warp = TRUE;
+			}
+#endif
 			input_state.mouse_dx += event.motion.xrel;
 			input_state.mouse_dy += event.motion.yrel;
 			break;
@@ -2454,6 +2528,16 @@ void platform_pump_events(void)
 				if (event.button.down)
 					mouse_buttons_pressed[event.button.button] = 1;
 			}
+#ifdef MOUSE_WARP_FALLBACK
+			/* port: a click in play with the mouse held neither way (the
+			relative mode did not take) holds it again */
+			if (event.button.down && !input_state.mouse_released &&
+				!input_state.ui_pointer && !mouse_warp_capture &&
+				!SDL_GetWindowRelativeMouseMode(platform_window))
+			{
+				platform_mouse_capture(TRUE);
+			}
+#endif
 			break;
 		case SDL_EVENT_MOUSE_WHEEL:
 			if (binding_capture == _binding_capture_waiting && event.wheel.y != 0.0f)
@@ -2505,6 +2589,10 @@ void platform_pump_events(void)
 			memset(input_state.mouse_buttons, 0, sizeof(input_state.mouse_buttons));
 			memset(mouse_buttons_pressed, 0, sizeof(mouse_buttons_pressed));
 			input_state.focused = FALSE;
+#ifdef MOUSE_WARP_FALLBACK
+			/* port: the held mouse let go while another window has the focus */
+			mouse_warp_release();
+#endif
 #ifdef HALO_ANDROID
 			touch_input_cancel();
 #endif
@@ -2573,6 +2661,13 @@ void platform_pump_events(void)
 			break;
 		}
 	}
+#ifdef MOUSE_WARP_FALLBACK
+	if (mouse_warp_capture && mouse_needs_warp && !input_state.ui_pointer &&
+		!input_state.mouse_released)
+	{
+		mouse_warp_to_middle();
+	}
+#endif
 	pthread_mutex_unlock(&input_lock);
 	looked_at_clipboard = TRUE;
 	platform_invite_clipboard(look_at_clipboard);
