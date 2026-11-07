@@ -255,6 +255,11 @@ static boolean ce_needs_opensauce(
 		return FALSE;
 	memcpy(&signature, header, sizeof(signature));
 	memcpy(&flags, header + CE_OPENSAUCE_HEADER_FLAGS_OFFSET, sizeof(flags));
+#ifdef HALO_BIG_ENDIAN
+	/* port: (the map's byte order, little-endian) */
+	signature = __builtin_bswap32(signature);
+	flags = __builtin_bswap16(flags);
+#endif
 	return signature == (unsigned long)CE_OPENSAUCE_HEADER_SIGNATURE && flags != 0;
 }
 
@@ -465,8 +470,17 @@ static boolean ce_bsps_check(
 			ce_refusal_explain_memory();
 			return ce_refuse("no memory to check structure BSP %ld (%lu bytes)", index, reference.file_size);
 		}
-		valid = ce_file_read(file, reference.file_offset, bsp.data, reference.file_size) &&
-			ce_bsp_check(&bsp, &bytes);
+		valid = ce_file_read(file, reference.file_offset, bsp.data, reference.file_size);
+#ifdef HALO_PS3
+		/* port: in the console's byte order, as cache_files.c has it when it loads (port/ps3/game/ce_ps3.c) */
+		if (valid)
+		{
+			extern void ps3_ce_structure_bsp_byte_swap(void *data, unsigned long address, unsigned long size);
+
+			ps3_ce_structure_bsp_byte_swap(bsp.data, reference.base_address, reference.file_size);
+		}
+#endif
+		valid = valid && ce_bsp_check(&bsp, &bytes);
 		if (bsp.data)
 			free(bsp.data);
 		if (!valid)
@@ -538,6 +552,14 @@ static boolean ce_map_check_tags(
 		ce_refuse("its tag data could not be read");
 		goto done;
 	}
+#ifdef HALO_PS3
+	/* port: its tag header, index and tags in the console's byte order (port/ps3/xbox/xbox_tag_swap.c) */
+	{
+		extern void ce_byte_swap_tags(void *tag_data, unsigned long address, long size);
+
+		ce_byte_swap_tags(image.data, image.base, (long)tag_data_size);
+	}
+#endif
 	memcpy(&header, image.data, sizeof(header));
 	if (header.signature != CE_TAG_HEADER_SIGNATURE)
 	{
@@ -624,6 +646,14 @@ static boolean ce_map_check_tags(
 		ce_refuse("its model data (%lu bytes) could not be read", header.model_data_size);
 		goto done;
 	}
+#ifdef HALO_PS3
+	/* port: its vertices and strips in the console's byte order */
+	{
+		extern void ce_byte_swap_model_data(void *data, long size, long vertex_data_size);
+
+		ce_byte_swap_model_data(model_data, (long)header.model_data_size, (long)header.vertex_data_size);
+	}
+#endif
 	models.whole = model_data;
 #endif
 	if (!ce_models_check(&tags, instances, tag_count, &models, &model_bytes))

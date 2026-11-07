@@ -576,7 +576,12 @@ static boolean ce_map_open(
 	engine did not read: beavercreek_rev_beta's; the file's own then, which
 	every offset in it is checked against: ce_map_check) */
 	if (bytes_read == sizeof(header) && !header.file_length && file_size <= 0x7fffffff)
+#ifdef HALO_BIG_ENDIAN
+		/* port: (in the map's byte order, which cache_file_header_verify swaps) */
+		header.file_length = (long)__builtin_bswap32((unsigned int)file_size);
+#else
 		header.file_length = (long)file_size;
+#endif
 	/* (a map refused already, unchanged: refused again, quietly) */
 	if (!_stricmp(ce_refused_map_name, map_name) && ce_refused_map_size == file_size &&
 		ce_refused_map_checksum == header.checksum)

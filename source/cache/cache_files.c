@@ -238,7 +238,12 @@ Custom Edition's resource maps, port/linux/game/ce_resources.c) */
 #define CACHE_FILE_RETAIL_VERSION 7
 #define CACHE_FILE_VERSION_IS_PC(version) \
 	((version) == CACHE_FILE_CE_VERSION || (version) == CACHE_FILE_RETAIL_VERSION)
+#ifdef HALO_CE_TAG_CACHE_BASE
+/* port: (a console where that address is taken: the tags' pointers moved as they load) */
+#define CE_TAG_CACHE_BASE HALO_CE_TAG_CACHE_BASE
+#else
 #define CE_TAG_CACHE_BASE 0x40440000U
+#endif
 #define CE_TAG_CACHE_SIZE 0x01700000U
 #ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
 /* a 64 MB console's Custom Edition tag cache, the Xbox's (port/xbox's
@@ -1751,6 +1756,17 @@ long scenario_tags_load(
 
 #ifdef HALO_PS3
 			bsp_keep_map(NULL, 0, 0); /* port: (its reads are served in place) */
+			/* port: its tag cache's memory, the Xbox tag cache's while that holds nothing (port/ps3/game/ce_ps3.c) */
+			{
+				extern boolean ps3_ce_tag_cache_map(void);
+
+				if (!ps3_ce_tag_cache_map())
+				{
+					error(_error_silent, "Custom Edition map %s: no memory for its tag cache", scenario_name);
+					cache_file_close();
+					return NONE;
+				}
+			}
 #endif
 			tag_cache_base_address = xbox_pointer(CE_TAG_CACHE_BASE);
 #ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
@@ -1780,6 +1796,16 @@ long scenario_tags_load(
 				tag_cache_base_address, &read_complete, TRUE);
 			while (!read_complete)
 				SwitchToThread();
+#ifdef HALO_PS3
+			/* port: its tag header, index and tags in the console's byte order (port/ps3/xbox/xbox_tag_swap.c) */
+			if (read_complete == TRUE)
+			{
+				extern void ce_byte_swap_tags(void *tag_data, unsigned long address, long size);
+
+				CACHE_IO_BARRIER();
+				ce_byte_swap_tags(tag_cache_base_address, CE_TAG_CACHE_BASE, cache_file_globals.header.tag_data_size);
+			}
+#endif
 			ce_header = tag_cache_base_address;
 			/* port: tags that did not all read, or whose header is not a tag
 			header (a damaged map, or one in a format this build does not
@@ -1887,6 +1913,15 @@ long scenario_tags_load(
 						&read_complete, TRUE);
 					while (!read_complete)
 						SwitchToThread();
+#ifdef HALO_PS3
+					/* port: its vertices and strips in the console's byte order */
+					{
+						extern void ce_byte_swap_model_data(void *data, long size, long vertex_data_size);
+
+						CACHE_IO_BARRIER();
+						ce_byte_swap_model_data(model_data, ce_header->model_data_size, ce_header->vertex_data_size);
+					}
+#endif
 					if (!ce_models_tags_loaded(global_tag_instances, ce_header->tag_count, model_data,
 						ce_header->vertex_data_size))
 					{
@@ -1920,7 +1955,15 @@ long scenario_tags_load(
 			/* (none of the high-res HUD: Halo PC's HUD bitmaps are laid out
 			otherwise than the Xbox's it was drawn for, so a Custom Edition map
 			draws its own) */
-#ifndef HALO_CONSOLE_NO_HIRES
+#if defined(HALO_PS3)
+			/* port: but the PS3's button icons, which stand in for the message icons by the hooks, Halo PC's sheets
+			among them (port/ps3/xbox/hud_hires_rsx.c) */
+			{
+				extern void hud_hires_tags_loaded(long scenario_index);
+
+				hud_hires_tags_loaded(ce_header->scenario_tag_index);
+			}
+#elif !defined(HALO_CONSOLE_NO_HIRES)
 			{
 				extern void hud_hires_tags_unloaded(void);
 
@@ -1943,6 +1986,14 @@ long scenario_tags_load(
 
 				menu_tags_loaded(cache_file_globals.header.name);
 			}
+#ifdef HALO_PS3
+			/* port: the vertices the draws keep copies of are in this tag cache now (port/ps3/xbox/d3d8_rsx.c) */
+			{
+				extern void d3d8_tag_cache_replaced(void const *address, unsigned long size);
+
+				d3d8_tag_cache_replaced(tag_cache_base_address, CE_TAG_CACHE_SIZE);
+			}
+#endif
 			return ce_header->scenario_tag_index;
 		}
 #endif
@@ -1955,6 +2006,14 @@ long scenario_tags_load(
 
 				d3d8_tag_cache_loading();
 			}
+#ifdef HALO_CUSTOM_EDITION
+			/* port: the tag cache's memory back from a Custom Edition map's (port/ps3/game/ce_ps3.c) */
+			{
+				extern void ps3_ce_tag_cache_unmap(void);
+
+				ps3_ce_tag_cache_unmap();
+			}
+#endif
 			bsp_keep_map(
 				cache_file_globals.header.name,
 				cache_file_globals.header.tag_data_offset,
@@ -1976,9 +2035,9 @@ long scenario_tags_load(
 #ifdef HALO_PS3
 			/* port: the RSX copies of vertices go; the next draws make them again (port/ps3/xbox/d3d8_rsx.c) */
 			{
-				extern void d3d8_tag_cache_loaded(void const *address, unsigned long size);
+				extern void d3d8_tag_cache_replaced(void const *address, unsigned long size);
 
-				d3d8_tag_cache_loaded(tag_cache_base_address, 0x01600000);
+				d3d8_tag_cache_replaced(tag_cache_base_address, 0x01600000);
 			}
 #endif
 
@@ -2212,6 +2271,16 @@ boolean scenario_structure_bsp_load(
 #endif
 			)
 		{
+#if defined(HALO_CUSTOM_EDITION) && defined(HALO_PS3)
+			/* port: a Custom Edition map's, its pointers moved with its tag cache (port/ps3/xbox/xbox_tag_swap.c) */
+			if (cache_file_is_ce)
+			{
+				extern void ce_byte_swap_structure_bsp(void *bsp, unsigned long address, long size);
+
+				ce_byte_swap_structure_bsp(structure_bsp_header, reference->base_address, reference->file_size);
+			}
+			else
+#endif
 			if (cache_file_structure_bsp_byte_swap(
 				structure_bsp_header,
 				reference->base_address,
@@ -2246,6 +2315,11 @@ boolean scenario_structure_bsp_load(
 					struct scenario_structure_bsp_reference) : NULL, reference_count);
 			PS3_BSP_PART(_ps3_bsp_keep);
 			/* port: the RSX copies of vertices go; the next draws make them again (port/ps3/xbox/d3d8_rsx.c) */
+#ifdef HALO_CUSTOM_EDITION
+			if (cache_file_is_ce)
+				d3d8_tag_cache_loaded(xbox_pointer(CE_TAG_CACHE_BASE), CE_TAG_CACHE_SIZE);
+			else
+#endif
 			d3d8_tag_cache_loaded(tag_cache_base_address + cache_file_globals.header.tag_data_size,
 				0x01600000 - cache_file_globals.header.tag_data_size);
 			PS3_BSP_PART(_ps3_bsp_tag_cache);

@@ -5565,6 +5565,22 @@ static void lobby_browser_update(struct widget_instance *list)
 lobby_browser_update) */
 static boolean lobby_browser_join(struct p2p_listing const *game, short controller)
 {
+#ifdef HALO_PS3
+	/* port: the host's game is found by a searching client (lobby_browser_joined_game): a game this machine
+	hosts or is in is left first, as System Link's list does (ui_widget_event_handler_functions.c) */
+	{
+		extern boolean ui_online_games_start_network(void);
+		void *client = global_network_game_client_get();
+		short state_data;
+
+		if ((global_network_game_server_get() || !client ||
+			network_game_client_get_state(client, &state_data) != _client_state_searching) &&
+			!ui_online_games_start_network())
+		{
+			return FALSE;
+		}
+	}
+#endif
 	/* (an open listing's invite is a public game's, which a player in it
 	shares on Discord too; a password game's never) */
 	if (!(game->locked ? p2p_join_invite(game->invite) : p2p_join_listed_invite(game->invite)))

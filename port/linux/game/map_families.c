@@ -540,6 +540,13 @@ static boolean cache_file_is(
 		return FALSE;
 	if (ReadFile(file, header, sizeof(header), &bytes_read, NULL) && bytes_read == sizeof(header))
 	{
+#ifdef HALO_BIG_ENDIAN
+		/* port: (the map's byte order, little-endian) */
+		unsigned long word;
+
+		for (word = 0; word < sizeof(header) / sizeof(header[0]); word++)
+			header[word] = __builtin_bswap32(header[word]);
+#endif
 		result = header[0] == CACHE_HEADER_SIGNATURE &&
 			(header[1] == (unsigned long)version
 #ifdef HALO_COMPRESSED_MAPS
@@ -879,7 +886,13 @@ static short resource_map_state(
 		return _resource_map_missing;
 	file_size = GetFileSize(file, NULL);
 	if (file_size != INVALID_FILE_SIZE && ReadFile(file, header, sizeof(header), &bytes_read, NULL) &&
-		bytes_read == sizeof(header) && header[0] == type && header[3] && header[3] <= 0x10000 &&
+		bytes_read == sizeof(header) &&
+#ifdef HALO_BIG_ENDIAN
+		/* port: (the resource map's byte order, little-endian) */
+		(header[0] = __builtin_bswap32(header[0]), header[1] = __builtin_bswap32(header[1]),
+			header[2] = __builtin_bswap32(header[2]), header[3] = __builtin_bswap32(header[3]), TRUE) &&
+#endif
+		header[0] == type && header[3] && header[3] <= 0x10000 &&
 		header[1] >= sizeof(header) && header[1] <= header[2] && header[2] <= file_size &&
 		header[3] * 12 <= file_size - header[2])
 	{
