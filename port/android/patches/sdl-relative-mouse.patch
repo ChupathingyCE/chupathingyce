@@ -1,0 +1,35 @@
+diff --git a/android-project/app/src/main/java/org/libsdl/app/SDLControllerManager.java b/android-project/app/src/main/java/org/libsdl/app/SDLControllerManager.java
+index 8681d05..237cc7c 100644
+--- a/android-project/app/src/main/java/org/libsdl/app/SDLControllerManager.java
++++ b/android-project/app/src/main/java/org/libsdl/app/SDLControllerManager.java
+@@ -787,6 +787,30 @@ class SDLGenericMotionListener_API14 implements View.OnGenericMotionListener {
+                         consumed = true;
+                         break;
+ 
++                    // Chupathingy: with the pointer captured (relative mouse),
++                    // Android sends the motion as ACTION_MOVE and the buttons
++                    // as ACTION_BUTTON_PRESS/RELEASE; pass them on as relative
++                    case MotionEvent.ACTION_BUTTON_PRESS:
++                    case MotionEvent.ACTION_BUTTON_RELEASE:
++                        if (checkRelativeEvent(event)) {
++                            x = getEventX(event, i);
++                            y = getEventY(event, i);
++                            SDLActivity.onNativeMouse(event.getButtonState(),
++                                action == MotionEvent.ACTION_BUTTON_PRESS ? MotionEvent.ACTION_DOWN : MotionEvent.ACTION_UP,
++                                x, y, true);
++                            consumed = true;
++                        }
++                        break;
++
++                    case MotionEvent.ACTION_MOVE:
++                        if (checkRelativeEvent(event)) {
++                            x = getEventX(event, i);
++                            y = getEventY(event, i);
++                            SDLActivity.onNativeMouse(0, action, x, y, true);
++                            consumed = true;
++                        }
++                        break;
++
+                     case MotionEvent.ACTION_HOVER_MOVE:
+                         x = getEventX(event, i);
+                         y = getEventY(event, i);
