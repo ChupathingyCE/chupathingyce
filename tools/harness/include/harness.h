@@ -32,6 +32,7 @@ typedef struct { real i, j, k; } real_vector3d;
 #define XBOX_NULL NULL
 #define xbox_pointer(address) ((void *)(address))
 #define xbox_address(pointer) ((void *)(pointer))
+#define XBOX_POINTER(type, address) ((type *)xbox_pointer(address))
 
 #define CHECK(condition, ...) \
 	do \
