@@ -287,7 +287,7 @@ static void structure_culling_split_range(struct structure_culling_split_surface
 static boolean structure_culling_data_matches(struct structure_bsp const *structure)
 {
 	return structure_culling.allocation && structure && structure_culling.structure == structure &&
-		structure_culling.surface_address == structure->surfaces.address &&
+		structure_culling.surface_address == XBOX_POINTER(void, structure->surfaces.address) &&
 		structure_culling.surface_count == structure->surfaces.count;
 }
 
@@ -351,7 +351,7 @@ static void structure_culling_build_group(struct structure_bsp *structure, struc
 	long eligible_count = 0;
 
 	count = structure_culling_gather_pairings(list, list_count, from_surface_list, group_material,
-		structure->surfaces.count, work->owners, work->vertex_counts, (word const *)structure->surfaces.address,
+		structure->surfaces.count, work->owners, work->vertex_counts, XBOX_POINTER(word const, structure->surfaces.address),
 		work->pairings);
 	if (!count)
 	{
@@ -525,14 +525,14 @@ static long structure_culling_build_lists(
 			{
 				struct structure_visibility_subcluster *subcluster =
 					TAG_BLOCK_GET_ELEMENT(&cluster->subclusters, s, struct structure_visibility_subcluster);
-				list = subcluster->surface_indices.address;
+				list = XBOX_POINTER(long const, subcluster->surface_indices.address);
 				count = subcluster->surface_indices.count;
 				bounds = &subcluster->world_bounds;
 			}
 			else
 			{
 				struct tag_block *materials;
-				long const *header = (long const *)cluster->surface_indices.address + position;
+				long const *header = XBOX_POINTER(long const, cluster->surface_indices.address) + position;
 				/* malformed headers end this cluster, just as in the original walk */
 				if (position > cluster->surface_indices.count - 3 || header[0] < 0 ||
 					header[0] >= structure->lightmaps.count)
@@ -1232,7 +1232,7 @@ void structure_culling_structure_bsp_loaded(void)
 		{
 			struct structure_material *material = TAG_BLOCK_GET_ELEMENT(materials, m, struct structure_material);
 			struct structure_culling_material *built = &structure_culling.materials[material_index];
-			built->vertices = material->compressed_vertex_data.address;
+			built->vertices = XBOX_POINTER(byte const, material->compressed_vertex_data.address);
 			built->vertex_count =
 				built->vertices ? MAX(material->compressed_vertex_data.size / COMPRESSED_STRUCTURE_VERTEX_SIZE, 0) : 0;
 			work.vertex_counts[material_index] = built->vertex_count;
@@ -1283,7 +1283,7 @@ void structure_culling_structure_bsp_loaded(void)
 	structure_culling.pairings =
 		(struct structure_culling_pairing *)(structure_culling.buckets + structure_culling.bucket_count);
 	structure_culling.structure = structure;
-	structure_culling.surface_address = structure->surfaces.address;
+	structure_culling.surface_address = XBOX_POINTER(void, structure->surfaces.address);
 	structure_culling.surface_count = structure->surfaces.count;
 	structure_culling.bytes = (long)final_size;
 	structure_culling.from_subclusters =
