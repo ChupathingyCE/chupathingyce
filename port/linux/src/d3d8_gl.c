@@ -1804,6 +1804,60 @@ static BOOL bind_targets(BOOL *has_depth)
 
 static void program_adopt(GLuint vertex_shader, GLuint fragment_shader, GLuint program);
 
+/* The visibility tests' query objects (lens flares, light glows: the game's
+rasterizer_lights.c). Desktop OpenGL 4.5 creates them typed and at once
+(glCreateQueries): AMD's driver was seen handing out zero and repeated names
+from glGenQueries. Any name zero falls back to glGenQueries. Based on work by
+chester (GulchCE). */
+static void visibility_queries_create(void)
+{
+#if !defined(HALO_GL_ES) && !defined(__APPLE__) && !defined(HALO_CONSOLE_GL_LAYER)
+	PFNGLCREATEQUERIESPROC create_queries = (PFNGLCREATEQUERIESPROC)gl_function_extra("glCreateQueries");
+
+	if (create_queries)
+	{
+		unsigned long i;
+
+		memset(device.queries, 0, sizeof(device.queries));
+		create_queries(VISIBILITY_QUERY, VISIBILITY_TEST_SLOTS + 1, device.queries);
+		for (i = 0; i < VISIBILITY_TEST_SLOTS + 1 && device.queries[i]; i++)
+			;
+		if (i == VISIBILITY_TEST_SLOTS + 1 && glGetError() == GL_NO_ERROR)
+			return;
+		platform_log("GPU: glCreateQueries gave no names; using glGenQueries");
+		while (glGetError() != GL_NO_ERROR)
+			;
+	}
+#endif
+	glGenQueries(VISIBILITY_TEST_SLOTS + 1, device.queries);
+}
+
+#ifndef HALO_GL_ES
+/* Whether visibility test results come through a mapped query buffer
+(visibility_copy_batch) rather than being read on the CPU. AMD's driver
+loses results delivered through the mapped buffer: no sun lens flares,
+flashlight or light object glows. Only NVIDIA's driver takes the buffer, for
+its throughput in scenes with hundreds of tests (The Library); every other
+desktop driver reads each available query. debug.gpu_visibility_readback
+("cpu", "buffer") overrides. A console's GL layer keeps the buffer. Based on
+work by chester (GulchCE). */
+static BOOL visibility_results_buffered(void)
+{
+#ifdef HALO_CONSOLE_GL_LAYER
+	return TRUE;
+#else
+	const char *mode = config_string("debug.gpu_visibility_readback");
+	const char *vendor = (const char *)glGetString(GL_VENDOR);
+
+	if (!strcmp(mode, "cpu"))
+		return FALSE;
+	if (!strcmp(mode, "buffer"))
+		return TRUE;
+	return vendor && !strcmp(vendor, "NVIDIA Corporation");
+#endif
+}
+#endif
+
 static void gl_initialize(void)
 {
 	GLint major = 0, minor = 0;
@@ -1913,11 +1967,12 @@ static void gl_initialize(void)
 	glBufferData(GL_ELEMENT_ARRAY_BUFFER, INDEX_BUFFER_SIZE, NULL, GL_STREAM_DRAW);
 #endif
 	glGenSamplers(D3DTSS_MAXSTAGES, device.samplers);
-	glGenQueries(VISIBILITY_TEST_SLOTS + 1, device.queries);
+	visibility_queries_create();
 #ifndef HALO_GL_ES
 	/* (OpenGL 4.4: without it, as on macOS, visibility tests read their
-	queries, D3DDevice_GetVisibilityTestResult) */
-	if (glBufferStorage)
+	queries, D3DDevice_GetVisibilityTestResult; and off NVIDIA's driver,
+	visibility_results_buffered) */
+	if (glBufferStorage && visibility_results_buffered())
 	{
 	glGenBuffers(1, &device.visibility_results_buffer);
 	glBindBuffer(GL_QUERY_BUFFER, device.visibility_results_buffer);
@@ -1938,7 +1993,9 @@ static void gl_initialize(void)
 	}
 	}
 	if (!device.visibility_results)
-		platform_log("cannot map the visibility test results; tests read their queries");
+		platform_log("GPU: visibility tests read their queries on the CPU");
+	else
+		platform_log("GPU: visibility tests copy into a mapped buffer");
 	{
 		long every = config_integer("debug.gpu_flush_draws");
 		const char *renderer = (const char *)glGetString(GL_RENDERER);
