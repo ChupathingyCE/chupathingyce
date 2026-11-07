@@ -554,7 +554,7 @@ static void model_geometry_fix_transparent_part_links(
 	struct model const *model, struct model_geometry *geometry)
 {
 	short i, glass = NONE, energy = NONE, transparent_count = 0;
-	struct model_geometry_part *parts = geometry->parts.address;
+	struct model_geometry_part *parts = XBOX_POINTER(struct model_geometry_part, geometry->parts.address);
 
 	if (model->nodes.count != 1 || geometry->parts.count < 2 ||
 		geometry->parts.count > MAXIMUM_PARTS_PER_MODEL_GEOMETRY || !parts)
