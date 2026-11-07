@@ -445,7 +445,8 @@ def test_default_brokers_are_brokers_txt():
 def test_p2p_signatures_and_listings(tmp_path):
     """internet play's Ed25519 (RFC 8032), the X25519 key of a seed, and the
     server browser's listings from host to browser (tools/p2p_lobby_check.c),
-    built with the flags ninja gives the platform layer"""
+    built with the flags ninja gives the platform layer; and a broker's burst
+    on subscribing, whose live games the queue's intake checks keep"""
     import shlex
 
     if not shutil.which("clang") or not shutil.which("ninja") or not Path("build.ninja").is_file():
@@ -467,18 +468,28 @@ def test_p2p_signatures_and_listings(tmp_path):
             continue
         else:
             flags.append(word)
-    program = tmp_path / "p2p_lobby_check"
-    built = subprocess.run(["clang", *flags, "-O1", "-no-pie", "-Wl,--unresolved-symbols=ignore-all", "-o",
-                            str(program), "tools/p2p_lobby_check.c", "port/linux/src/p2p_crypto.c",
-                            "port/linux/src/p2p_lobby.c", "port/linux/src/p2p_copies.c",
-                            "port/linux/src/delta_compat.c",
-                            "port/third_party/monocypher/monocypher.c",
-                            "port/third_party/monocypher/monocypher-ed25519.c"],
-                           capture_output=True, text=True)
-    assert built.returncode == 0, built.stderr[-4000:]
-    result = subprocess.run([str(program)], capture_output=True, text=True, timeout=60)
+
+    def build(name, *defines):
+        program = tmp_path / name
+        built = subprocess.run(["clang", *flags, *defines, "-O1", "-no-pie", "-Wl,--unresolved-symbols=ignore-all",
+                                "-o", str(program), "tools/p2p_lobby_check.c", "port/linux/src/p2p_crypto.c",
+                                "port/linux/src/p2p_lobby.c", "port/linux/src/p2p_copies.c",
+                                "port/linux/src/delta_compat.c",
+                                "port/third_party/monocypher/monocypher.c",
+                                "port/third_party/monocypher/monocypher-ed25519.c"],
+                               capture_output=True, text=True)
+        assert built.returncode == 0, built.stderr[-4000:]
+        return program
+
+    result = subprocess.run([str(build("p2p_lobby_check"))], capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stdout
     assert "PASS" in result.stdout
+    # a broker's burst on subscribing, with the queue's intake reading a
+    # listing's time alone (1) or its version alone (2): live games lost
+    for checks in (1, 2):
+        program = build(f"p2p_lobby_check_{checks}", f"-DP2P_LOBBY_INTAKE_CHECKS={checks}")
+        result = subprocess.run([str(program), "burst"], capture_output=True, text=True, timeout=60)
+        assert result.returncode == 1 and "BURST FAIL" in result.stdout, (checks, result.stdout)
 
 
 # ---------- system link's stand-in machines (tools/system_link_bots.py)
