@@ -393,6 +393,9 @@ static real weapon_trigger_get_charged_fraction(
 
 static boolean weapon_busy(
 	long weapon_index);
+/* port: read by weapon_export_function_values (Halo PC's firing-on inputs) */
+boolean weapon_reloading(
+	long weapon_index);
 static boolean weapon_magazine_state_change_ok(
 	long weapon_index);
 static long weapon_get_effect_object_index(
@@ -1072,6 +1075,25 @@ void weapon_export_function_values(
 						{
 							function_value= 0.0f;
 						}
+					}
+				}
+				break;
+
+			/* port: Halo PC's (haloce.exe 1.0.10): the trigger's rate of fire while
+			its magazine has rounds and the weapon is neither overheated nor
+			reloading, not only in the tick after a shot; no Xbox map uses it */
+			case _weapon_function_primary_firing_on:
+			case _weapon_function_secondary_firing_on:
+				{
+					short trigger_index= (short)(*function_modes-_weapon_function_primary_firing_on);
+
+					if (trigger_index<weapon_definition->weapon.triggers.count &&
+						trigger_index<NUMBEROF(weapon->weapon.triggers) &&
+						weapon->weapon.magazines[trigger_index].rounds_loaded &&
+						!TEST_FLAG(weapon->weapon.flags, _weapon_overheated_bit) &&
+						!weapon_reloading(weapon_index))
+					{
+						function_value= weapon->weapon.triggers[trigger_index].rate_of_fire;
 					}
 				}
 				break;
