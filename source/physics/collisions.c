@@ -118,7 +118,13 @@ symbols in this file:
 
 /* port: object_bounds_cache.c's */
 boolean object_bounds_cache_out_of_reach(long object_index, real_point3d const *point, real radius);
+#ifdef HALO_XBOX_CONSOLE
+/* (the original Xbox build keeps no bounds cache: its out_of_reach is a stub
+that passes nothing over, port/xbox/game/xbox_desktop_stubs.c) */
+#define object_bounds_cache_missed_by_vector(object_index, point, vector) FALSE
+#else
 boolean object_bounds_cache_missed_by_vector(long object_index, real_point3d const *point, real_vector3d const *vector);
+#endif
 
 #undef REAL_MATH_EXTERNAL_POINT_FROM_LINE3D
 
