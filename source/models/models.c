@@ -91,6 +91,25 @@ symbols in this file:
 #include "cache/cache_files.h"
 #include "rasterizer/rasterizer_transparent_geometry.h"
 
+#ifdef HALO_PS3
+#include "ps3_timers.h"
+
+/* port: the timer build's parts of render_model but the shadows' (port/ps3/include/ps3_timers.h): a span's start with
+the game thread's Direct3D draws and constants so far (d3d8_rsx.c); its time, and theirs since, added to a timer */
+#define PS3_MODEL_D3D() (ps3_timers[_ps3_timer_front_draws] + ps3_timers[_ps3_timer_front_constants])
+#define PS3_MODEL_SPAN(span, d3d) ((void)((span) = ps3_timer_now(), (d3d) = PS3_MODEL_D3D()))
+#define PS3_MODEL_ADD(timed, timer, span, d3d) ((void)((timed) ? (ps3_timers[(timer)] += ps3_timer_now() - (span), \
+	ps3_render_d3d[(timer)] += PS3_MODEL_D3D() - (d3d)) : 0), PS3_MODEL_SPAN((span), (d3d)))
+#define PS3_MODEL_COUNT(timed, timer, count) ((void)((timed) ? (ps3_timer_counts[(timer)] += (uint32_t)(count)) : 0))
+/* port: a shadow's model, and whether its node matrices were kept (model_kept_node_matrices) */
+#define PS3_SHADOW_KEPT_COUNT(flags, kept) ((void)(TEST_FLAG((flags), _render_model_shadow_bit) ? \
+	(ps3_timer_counts[_ps3_timer_shadow_models]++, ps3_timer_counts[_ps3_timer_shadow_models_kept] += (kept) != 0) : 0))
+#else
+#define PS3_MODEL_SPAN(span, d3d) ((void)0)
+#define PS3_MODEL_ADD(timed, timer, span, d3d) ((void)0)
+#define PS3_MODEL_COUNT(timed, timer, count) ((void)0)
+#endif
+
 /* ---------- constants */
 
 enum
@@ -274,7 +293,102 @@ static char default_render_model_region_permutation_indices[MAXIMUM_REGIONS_PER_
 
 static struct profile_section render_model_section = { "render_model", NONE, TRUE };
 
+#ifdef HALO_PS3
+/* port: the relative node matrices that the objects' draws made in this window (render.scene_index), kept for their
+shadows' draws (render_object_shadows: the same object, model and node matrices), which then multiply nothing again */
+enum
+{
+	MODEL_KEPT_NODE_MATRICES = 1024,
+	MODEL_KEPT_NODE_ENTRIES = 128,
+	MODEL_KEPT_NODE_PROBES = 8
+};
+
+static struct
+{
+	long scene_index;
+	long used;
+	struct model_kept_nodes_entry
+	{
+		long unique_identifier;
+		long model_index;
+		real_matrix4x3 const *node_matrices;
+		long node_count;
+		long scene_index;
+		real_matrix4x3 *matrices;
+	} entries[MODEL_KEPT_NODE_ENTRIES];
+	real_matrix4x3 matrices[MODEL_KEPT_NODE_MATRICES];
+} model_kept_nodes;
+#endif
+
 /* ---------- private code */
+
+#ifdef HALO_PS3
+/* port: a shadow's draw: the matrices its object's draw kept (*kept TRUE), else storage. An object's draw: room in the
+window's matrices, kept for its shadow, else storage (the first person and the sky are not kept: their buffers vary) */
+static real_matrix4x3 *model_kept_node_matrices(
+	long model_index,
+	real_matrix4x3 const *node_matrices,
+	short node_count,
+	long unique_identifier,
+	unsigned long flags,
+	real_matrix4x3 *storage,
+	boolean *kept)
+{
+	struct model_kept_nodes_entry *entry = NULL;
+	unsigned long slot = ((unsigned long)unique_identifier * 2654435761u) >> 25;
+	short probe;
+
+	*kept = FALSE;
+	if (model_kept_nodes.scene_index != render.scene_index)
+	{
+		model_kept_nodes.scene_index = render.scene_index;
+		model_kept_nodes.used = 0;
+	}
+	if (unique_identifier == NONE || !node_matrices ||
+		(!TEST_FLAG(flags, _render_model_shadow_bit) &&
+		(TEST_FLAG(flags, _render_model_immediate_bit) || TEST_FLAG(flags, _render_model_first_person_bit))))
+	{
+		return storage;
+	}
+	/* (an entry of an older window is free; none is freed in a window, so a free one ends a search) */
+	for (probe = 0; probe < MODEL_KEPT_NODE_PROBES; probe++)
+	{
+		entry = &model_kept_nodes.entries[(slot + probe) % MODEL_KEPT_NODE_ENTRIES];
+		if (entry->scene_index != render.scene_index ||
+			(entry->unique_identifier == unique_identifier && entry->model_index == model_index &&
+			entry->node_matrices == node_matrices && entry->node_count == node_count))
+		{
+			break;
+		}
+	}
+	if (probe == MODEL_KEPT_NODE_PROBES)
+	{
+		return storage;
+	}
+	if (TEST_FLAG(flags, _render_model_shadow_bit))
+	{
+		if (entry->scene_index == render.scene_index)
+		{
+			*kept = TRUE;
+			return entry->matrices;
+		}
+		return storage;
+	}
+	if (model_kept_nodes.used + node_count > MODEL_KEPT_NODE_MATRICES)
+	{
+		return storage;
+	}
+	entry->unique_identifier = unique_identifier;
+	entry->model_index = model_index;
+	entry->node_matrices = node_matrices;
+	entry->node_count = node_count;
+	entry->scene_index = render.scene_index;
+	entry->matrices = &model_kept_nodes.matrices[model_kept_nodes.used];
+	model_kept_nodes.used += node_count;
+
+	return entry->matrices;
+}
+#endif
 
 static void render_model_parts(
 	struct model const *model,
@@ -291,7 +405,12 @@ static void render_model_parts(
 	struct render_sort_filth sort_filth[MAXIMUM_PARTS_PER_MODEL_GEOMETRY];
 	real_point3d centroid;
 	short pass;
+#ifdef HALO_PS3
+	boolean ps3_timed = !TEST_FLAG(flags, _render_model_shadow_bit); /* port: (the timer build) */
+	uint64_t ps3_span, ps3_d3d;
+#endif
 
+	PS3_MODEL_SPAN(ps3_span, ps3_d3d); /* port: (the timer build) */
 	for (pass = _render_model_pass_solid; pass<=last_pass; pass++)
 	{
 		short sort_filth_count = 0;
@@ -378,6 +497,7 @@ static void render_model_parts(
 										446,
 										part->centroid_secondary_node_index>=0 && part->centroid_secondary_node_index<model->nodes.count);
 
+									PS3_MODEL_ADD(ps3_timed, _ps3_timer_parts_rest, ps3_span, ps3_d3d); /* port: (the timer build) */
 									matrix4x3_transform_point(
 										&skinning->node_matrices[centroid_node_index],
 										&part->centroid,
@@ -394,6 +514,9 @@ static void render_model_parts(
 										/* port: no sort record once all of sort_filth is
 										used (it wrote one past it) */
 										sort_filth_count<MAXIMUM_PARTS_PER_MODEL_GEOMETRY ? &sort_filth[sort_filth_count] : NULL);
+									/* port: (the timer build) */
+									PS3_MODEL_ADD(ps3_timed, _ps3_timer_parts_transparent, ps3_span, ps3_d3d);
+									PS3_MODEL_COUNT(ps3_timed, _ps3_timer_parts_transparent, 1);
 
 									if (sort_filth_count<MAXIMUM_PARTS_PER_MODEL_GEOMETRY &&
 										sort_filth[sort_filth_count].group_index!=NONE &&
@@ -414,6 +537,7 @@ static void render_model_parts(
 								{
 									match_assert("c:\\halo\\SOURCE\\models\\models.c", 491, !TEST_FLAG(flags, _render_model_shadow_bit));
 
+									PS3_MODEL_ADD(ps3_timed, _ps3_timer_parts_rest, ps3_span, ps3_d3d); /* port: (the timer build) */
 									rasterizer_model_draw(
 										shader,
 										forced_shader_permutation_index ? forced_shader_permutation_index : shader_reference->permutation_index,
@@ -422,6 +546,9 @@ static void render_model_parts(
 										part->triangle_buffer.count,
 										&part->vertex_buffer,
 										NONE);
+									/* port: (the timer build) */
+									PS3_MODEL_ADD(ps3_timed, _ps3_timer_parts_decals, ps3_span, ps3_d3d);
+									PS3_MODEL_COUNT(ps3_timed, _ps3_timer_parts_decals, 1);
 								}
 							}
 							else if (pass==_render_model_pass_solid)
@@ -436,6 +563,13 @@ static void render_model_parts(
 								}
 								else
 								{
+#ifdef HALO_PS3
+									/* port: (the timer build) */
+									int ps3_timer = shader->base.type==_shader_type_environment ?
+										_ps3_timer_parts_environment : _ps3_timer_parts_model;
+#endif
+
+									PS3_MODEL_ADD(ps3_timed, _ps3_timer_parts_rest, ps3_span, ps3_d3d); /* port: (the timer build) */
 									rasterizer_model_draw(
 										shader,
 										forced_shader_permutation_index ? forced_shader_permutation_index : shader_reference->permutation_index,
@@ -444,6 +578,9 @@ static void render_model_parts(
 										part->triangle_buffer.count,
 										&part->vertex_buffer,
 										NONE);
+									/* port: (the timer build) */
+									PS3_MODEL_ADD(ps3_timed, ps3_timer, ps3_span, ps3_d3d);
+									PS3_MODEL_COUNT(ps3_timed, ps3_timer, 1);
 									rasterizer_debug_model_vertices(object_index, skinning, part);
 								}
 							}
@@ -466,6 +603,7 @@ static void render_model_parts(
 			}
 		}
 	}
+	PS3_MODEL_ADD(ps3_timed, _ps3_timer_parts_rest, ps3_span, ps3_d3d); /* port: (the timer build) */
 
 	return;
 }
@@ -1104,7 +1242,14 @@ void render_model(
 
 	if (level_of_detail_pixels>=model->detail_cutoff_pixels[0] || TEST_FLAG(flags, _render_model_shadow_bit))
 	{
+#ifdef HALO_PS3
+		/* port: the window's kept matrices (model_kept_node_matrices), else this storage */
+		real_matrix4x3 relative_node_matrix_storage[MAXIMUM_NODES_PER_MODEL];
+		real_matrix4x3 *relative_node_matrices;
+		boolean relative_node_matrices_kept;
+#else
 		real_matrix4x3 relative_node_matrices[MAXIMUM_NODES_PER_MODEL];
+#endif
 		struct rasterizer_model_begin_parameters model_parameters;
 		short geometry_detail_level_index;
 		short node_index;
@@ -1115,7 +1260,12 @@ void render_model(
 			MAXIMUM_REGIONS_PER_MODEL;
 		/* port: no more nodes than relative_node_matrices holds (a map's count) */
 		short node_count = (short)MIN(model->nodes.count, MAXIMUM_NODES_PER_MODEL);
+#ifdef HALO_PS3
+		boolean ps3_timed = !TEST_FLAG(flags, _render_model_shadow_bit); /* port: (the timer build) */
+		uint64_t ps3_span, ps3_d3d;
+#endif
 
+		PS3_MODEL_SPAN(ps3_span, ps3_d3d); /* port: (the timer build) */
 		if (!region_permutation_indices)
 		{
 			region_permutation_indices = default_render_model_region_permutation_indices;
@@ -1137,8 +1287,16 @@ void render_model(
 			centroid = &node_matrices->position;
 		}
 
+#ifdef HALO_PS3
+		relative_node_matrices = model_kept_node_matrices(model_index, node_matrices, node_count, unique_identifier, flags,
+			relative_node_matrix_storage, &relative_node_matrices_kept);
+		PS3_SHADOW_KEPT_COUNT(flags, relative_node_matrices_kept); /* port: (the timer build) */
+#endif
 		if (node_matrices)
 		{
+#ifdef HALO_PS3
+			if (!relative_node_matrices_kept)
+#endif
 			for (node_index = 0; node_index<node_count; node_index++)
 			{
 				struct model_node *node = TAG_BLOCK_GET_ELEMENT(&model->nodes, node_index, struct model_node);
@@ -1156,6 +1314,8 @@ void render_model(
 				relative_node_matrices[node_index] = render.frustum.world_to_view;
 			}
 		}
+		PS3_MODEL_ADD(ps3_timed, _ps3_timer_model_nodes, ps3_span, ps3_d3d); /* port: (the timer build) */
+		PS3_MODEL_COUNT(ps3_timed, _ps3_timer_model_nodes, node_count); /* port: (the timer build) */
 
 		geometry_detail_level_index = NUMBER_OF_DETAIL_LEVELS_PER_MODEL-1;
 		while (geometry_detail_level_index>0 &&
@@ -1390,6 +1550,7 @@ void render_model(
 		{
 			rasterizer_model_begin(&model_parameters, FALSE);
 		}
+		PS3_MODEL_ADD(ps3_timed, _ps3_timer_model_begin, ps3_span, ps3_d3d); /* port: (the timer build) */
 		render_model_parts(
 			model,
 			region_permutation_indices,
@@ -1399,6 +1560,8 @@ void render_model(
 			geometry_detail_level_index,
 			forced_shader_permutation_index,
 			flags);
+		PS3_MODEL_ADD(ps3_timed, _ps3_timer_model_parts, ps3_span, ps3_d3d); /* port: (the timer build) */
+		PS3_MODEL_COUNT(ps3_timed, _ps3_timer_model_parts, 1); /* port: (the timer build) */
 		if (TEST_FLAG(flags, _render_model_shadow_bit))
 		{
 			rasterizer_environment_shadow_model_end();
@@ -1407,6 +1570,7 @@ void render_model(
 		{
 			rasterizer_model_end();
 		}
+		PS3_MODEL_ADD(ps3_timed, _ps3_timer_model_end, ps3_span, ps3_d3d); /* port: (the timer build) */
 	}
 
 	rasterizer_model_cortana_hack = FALSE;

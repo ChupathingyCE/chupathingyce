@@ -119,6 +119,15 @@ symbols in this file:
 
 #include <ctype.h>
 
+/* port: on the PS3, texels keep the Xbox's little-endian byte order in texture memory (d3d8_rsx.c) */
+#ifdef HALO_PS3
+#define TEXEL16(value) ((word)__builtin_bswap16(value))
+#define TEXEL32(value) ((pixel32)__builtin_bswap32(value))
+#else
+#define TEXEL16(value) (value)
+#define TEXEL32(value) (value)
+#endif
+
 /* ---------- constants */
 
 enum
@@ -574,14 +583,14 @@ static void bitmap_draw_character(
 			{
 				if (*source_pixel)
 				{
-					word destination = *(word *)destination_pixel;
+					word destination = TEXEL16(*(word *)destination_pixel);
 					short coverage = (*source_pixel * coverage_scale) >> 8;
 					short inverse = 255 - coverage;
 
-					*(word *)destination_pixel = (word)(
+					*(word *)destination_pixel = TEXEL16((word)(
 						(((destination_color * coverage + destination * inverse) >> 8) & 0xF800) |
 						((((destination_color & 0x7FF) * coverage + (destination & 0x7FF) * inverse) >> 8) & 0x7E0) |
-						((((destination_color & 0x1F) * coverage + (destination & 0x1F) * inverse) >> 8) & 0x1F));
+						((((destination_color & 0x1F) * coverage + (destination & 0x1F) * inverse) >> 8) & 0x1F)));
 				}
 			}
 			break;
@@ -593,15 +602,15 @@ static void bitmap_draw_character(
 
 				if (source_value)
 				{
-					pixel32 destination = *(pixel32 *)destination_pixel;
+					pixel32 destination = TEXEL32(*(pixel32 *)destination_pixel);
 					short coverage = (source_value * coverage_scale) >> 8;
 					short inverse = 255 - coverage;
 
-					*(pixel32 *)destination_pixel =
+					*(pixel32 *)destination_pixel = TEXEL32(
 						((((((destination >> 16) & 0xFF) * inverse) >> 8) + ((((color >> 16) & 0xFF) * coverage) >> 8)) << 16) |
 						((((((destination >> 8) & 0xFF) * inverse) >> 8) + ((((color >> 8) & 0xFF) * coverage) >> 8)) << 8) |
 						((((destination & 0xFF) * inverse) >> 8) + (((color & 0xFF) * coverage) >> 8)) |
-						(MAX((pixel32)coverage, destination >> 24) << 24);
+						(MAX((pixel32)coverage, destination >> 24) << 24));
 				}
 			}
 			break;

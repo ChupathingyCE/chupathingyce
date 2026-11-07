@@ -19,13 +19,14 @@
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/op_device" x="54" y="163" platform="desktop"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/op_channels" x="54" y="193" platform="desktop"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/op_hrtf" x="54" y="223" platform="desktop android switch"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/op_hrtf" x="54" y="163" platform="console"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/op_hrtf" x="54" y="163" platform="x360 wiiu"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/op_reverb" x="54" y="253" platform="desktop android switch"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/op_reverb" x="54" y="193" platform="console"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/op_reverb" x="54" y="193" platform="x360 wiiu"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/op_doppler" x="54" y="283" platform="desktop android switch"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/op_doppler" x="54" y="223" platform="console"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/op_doppler" x="54" y="223" platform="x360 wiiu"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/op_enabled" x="54" y="313" platform="desktop android switch"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/op_enabled" x="54" y="253" platform="console"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/op_enabled" x="54" y="253" platform="x360 wiiu"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/op_enabled" x="54" y="163" platform="ps3"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/button_bar" y="414"/>
 	</widget>
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/button_bar" type="column_list" width="640" height="28" flags="pass_unhandled_to_focused_child left_right_tabs_items">
@@ -78,7 +79,7 @@
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/channels_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="AUTO|STEREO|5.1|7.1" setting="audio.channels" values="auto|stereo|5.1|7.1" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
 		<on event="created" run="port setting load"/>
 	</widget>
-	<widget name="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/op_hrtf" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/op_hrtf" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF" platform="desktop android switch x360 wiiu">
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/hrtf_label"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/hrtf_spinner" x="320" y="1"/>
 	</widget>
@@ -87,7 +88,7 @@
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/hrtf_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="OFF|ON|AUTO" setting="audio.hrtf" values="off|on|auto" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
 		<on event="created" run="port setting load"/>
 	</widget>
-	<widget name="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/op_reverb" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/op_reverb" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF" platform="desktop android switch x360 wiiu">
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/reverb_label"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/reverb_spinner" x="320" y="1"/>
 	</widget>
@@ -96,7 +97,7 @@
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/reverb_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="ON|OFF" setting="audio.reverb" values="true|false" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
 		<on event="created" run="port setting load"/>
 	</widget>
-	<widget name="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/op_doppler" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/op_doppler" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF" platform="desktop android switch x360 wiiu">
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/doppler_label"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/doppler_spinner" x="320" y="1"/>
 	</widget>

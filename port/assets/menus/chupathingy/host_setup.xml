@@ -175,6 +175,7 @@ are filled and changed by port/linux/game/menu_functions.c ("port host
 		<child widget="chupathingy/host/row_5" x="54" y="223"/>
 		<child widget="chupathingy/host/row_6" x="54" y="253"/>
 		<child widget="chupathingy/host/row_7" x="54" y="283"/>
+		<child widget="chupathingy/host/row_8" x="54" y="313" platform="ps3"/>
 	</widget>
 	<!-- (the editor's tabs: a click on one opens its page, as its A, which
 	only the mouse sends a tab (ui_widget.c's tab targets: a widget named

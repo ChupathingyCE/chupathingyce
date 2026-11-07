@@ -234,6 +234,10 @@ void player_profiles_dispose(
 			"waiting for asynchronous player profile writes to finish...");
 		while (!thread_has_exited(player_profile_globals.thread))
 		{
+#ifdef HALO_PS3
+			/* lv2 schedules by strict priority: yield so the equal-priority writer thread can run */
+			SwitchToThread();
+#endif
 		}
 		dispose_thread(player_profile_globals.thread);
 		player_profile_globals.thread = NULL;
@@ -495,6 +499,15 @@ boolean player_profile_get(
 	{
 		succeeded = player_profile_read(player_profile_index, profile);
 	}
+#ifdef PS3_DEBUG
+	/* port: a PS3 debug build (DEBUG=1) opens every campaign level on every difficulty */
+	{
+		long level;
+
+		for (level = 0; level < NUMBER_OF_SINGLE_PLAYER_LEVELS; level++)
+			profile->single_player_map_flags[level] |= (byte)(FLAG(NUMBER_OF_GAME_DIFFICULTY_LEVELS) - 1);
+	}
+#endif
 
 	return succeeded;
 }
@@ -700,6 +713,9 @@ static boolean player_profile_read(
 			"waiting for asynchronous player profile io to finish...");
 		while (!thread_has_exited(player_profile_globals.thread))
 		{
+#ifdef HALO_PS3
+			SwitchToThread();
+#endif
 		}
 		dispose_thread(player_profile_globals.thread);
 		player_profile_globals.thread = NULL;
@@ -920,6 +936,9 @@ static void player_profile_write(
 			"waiting for asynchronous player profile io to finish...");
 		while (!thread_has_exited(player_profile_globals.thread))
 		{
+#ifdef HALO_PS3
+			SwitchToThread();
+#endif
 		}
 		dispose_thread(player_profile_globals.thread);
 		player_profile_globals.thread = NULL;

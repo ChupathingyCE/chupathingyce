@@ -390,7 +390,7 @@ const struct tag_swap_op tag_swap_ops[] =
 	{ 116, 4, 4 },
 	{ 132, 2, 2 },
 	{ 136, 4, 5 },
-	{ 164, 4, 3 },
+	{ 160, 4, 4 },
 	{ 184, 4, 13 },
 	{ 244, 4, 8 },
 	{ 0, 4, 1 },
@@ -475,7 +475,7 @@ const struct tag_swap_op tag_swap_ops[] =
 	{ 0, 2, 4 },
 	{ 8, 4, 8 },
 	{ 40, 2, 6 },
-	{ 100, 4, 12 },
+	{ 52, 4, 24 },
 	{ 148, 2, 4 },
 	{ 156, 4, 81 },
 	{ 340, 0, 95 },
@@ -1199,7 +1199,7 @@ const struct tag_swap_op tag_swap_ops[] =
 	{ 0, 4, 1 },
 	{ 36, 4, 1 },
 	{ 40, 2, 8 },
-	{ 56, 4, 1 },
+	{ 56, 4, 3 },
 	{ 68, 4, 3 },
 	{ 0, 4, 3 },
 	{ 16, 4, 4 },
@@ -1661,6 +1661,9 @@ const struct tag_swap_op tag_swap_ops[] =
 	{ 112, 4, 7 },
 	{ 140, 2, 2 },
 	{ 144, 4, 10 },
+	/* (by hand until the next generation: a mirror's fields and its points, layout 179) */
+	{ 0, 4, 16 },
+	{ 52, 0, 182 },
 };
 
 const struct tag_swap_layout tag_swap_layouts[] =
@@ -1844,7 +1847,7 @@ const struct tag_swap_layout tag_swap_layouts[] =
 	{ 104, 904, 9 }, /* struct structure_cluster | struct structure_cluster_graph | struct structure_cluster_lens_flare_data | struct structure_cluster_runtime_decals | struct structure_cluster_schema | struct structure_visibility_cluster */
 	{ 36, 913, 2 }, /* struct structure_subcluster | struct structure_visibility_subcluster */
 	{ 4, 915, 1 }, /* long */
-	{ 64, 916, 1 }, /* struct structure_mirror | struct structure_visibility_mirror */
+	{ 64, 1651, 2 }, /* struct structure_mirror | struct structure_visibility_mirror */
 	{ 2, 917, 1 }, /* short | struct structure_portal_index */
 	{ 64, 918, 3 }, /* struct structure_cluster_portal | struct structure_visibility_portal */
 	{ 12, 921, 1 }, /* union real_point3d */

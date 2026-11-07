@@ -786,6 +786,17 @@ enum
 #define unit_get_current_weapon_index(unit_index) unit_inventory_get_weapon((unit_index), unit_get((unit_index))->unit.current_weapon_index)
 #define unit_get_desired_weapon_index(unit_index) unit_inventory_get_weapon((unit_index), unit_get((unit_index))->unit.desired_weapon_index)
 
+#ifdef HALO_PS3
+/* port: the timer build's parts of unit_preprocess_node_orientations (port/ps3/include/ps3_timers.h) */
+#define PS3_UNIT_SPAN(span) ((span) = ps3_timer_now())
+#define PS3_UNIT_ADD(timer, span) ((span) = ps3_timer_add((timer), (span)))
+#define PS3_UNIT_COUNT(timer) (ps3_timer_counts[(timer)]++)
+#else
+#define PS3_UNIT_SPAN(span) ((void)0)
+#define PS3_UNIT_ADD(timer, span) ((void)0)
+#define PS3_UNIT_COUNT(timer) ((void)0)
+#endif
+
 /* ---------- structures */
 
 struct unit_globals
@@ -10968,7 +10979,11 @@ void unit_preprocess_node_orientations(
 	struct unit_definition *unit_definition;
 	struct animation *animation;
 	short model_node_count;
+#ifdef HALO_PS3
+	uint64_t ps3_span; /* port: (the timer build) */
+#endif
 
+	PS3_UNIT_SPAN(ps3_span); /* port: (the timer build) */
 	unit = unit_get(unit_index);
 	unit_definition = unit_definition_get(unit->definition_index);
 	animation_graph = animation_graph_definition_get(
@@ -10976,6 +10991,7 @@ void unit_preprocess_node_orientations(
 	/* port: every animation below is one the graph has and that fits the
 	model (unit_animation_get_fitting) */
 	model_node_count = unit_animation_model_node_count(unit_index);
+	PS3_UNIT_ADD(_ps3_timer_unit_legs, ps3_span); /* port: (the timer build) */
 
 	if (unit->unit.animation.action_animation.index != NONE &&
 		(animation = unit_animation_get_fitting(animation_graph,
@@ -10985,6 +11001,7 @@ void unit_preprocess_node_orientations(
 			animation,
 			unit->unit.animation.action_animation.frame_index,
 			node_orientations);
+		PS3_UNIT_COUNT(_ps3_timer_unit_actions); /* port: (the timer build) */
 	}
 
 	if (unit->unit.animation.overlay_action_animation.index != NONE &&
@@ -10995,6 +11012,7 @@ void unit_preprocess_node_orientations(
 			animation,
 			unit->unit.animation.overlay_action_animation.frame_index,
 			node_orientations);
+		PS3_UNIT_COUNT(_ps3_timer_unit_actions); /* port: (the timer build) */
 	}
 
 	if (unit->unit.animation.soft_ping_animation.index != NONE &&
@@ -11005,7 +11023,9 @@ void unit_preprocess_node_orientations(
 			animation,
 			unit->unit.animation.soft_ping_animation.frame_index,
 			node_orientations);
+		PS3_UNIT_COUNT(_ps3_timer_unit_actions); /* port: (the timer build) */
 	}
+	PS3_UNIT_ADD(_ps3_timer_unit_actions, ps3_span); /* port: (the timer build) */
 
 	unit_verify_vectors(unit_index, "unit-preprocess-nodes");
 	unit->unit.animation.aiming_with_euler_screen = FALSE;
@@ -11049,6 +11069,7 @@ void unit_preprocess_node_orientations(
 						animation,
 						unit->unit.animation.emotion_index,
 						node_orientations);
+					PS3_UNIT_COUNT(_ps3_timer_unit_seat); /* port: (the timer build) */
 				}
 			}
 		}
@@ -11070,6 +11091,7 @@ void unit_preprocess_node_orientations(
 					0,
 					unit->unit.mouth_aperture,
 					node_orientations);
+				PS3_UNIT_COUNT(_ps3_timer_unit_seat); /* port: (the timer build) */
 			}
 		}
 
@@ -11104,10 +11126,12 @@ void unit_preprocess_node_orientations(
 							(animation->frame_count - 1) *
 								unit->unit.seat_acceleration.n[acceleration_index],
 							node_orientations);
+						PS3_UNIT_COUNT(_ps3_timer_unit_seat); /* port: (the timer build) */
 					}
 				}
 			}
 		}
+		PS3_UNIT_ADD(_ps3_timer_unit_seat, ps3_span); /* port: (the timer build) */
 
 		if (!TEST_FLAG(unit_definition->unit.flags, _unit_has_no_aiming_bit) &&
 			unit_animation_aiming_screen(&unit->unit.animation))
@@ -11186,7 +11210,9 @@ void unit_preprocess_node_orientations(
 					relative_aiming_angles.yaw,
 					relative_aiming_angles.pitch,
 					node_orientations);
+				PS3_UNIT_COUNT(_ps3_timer_unit_aiming); /* port: (the timer build) */
 			}
+			PS3_UNIT_ADD(_ps3_timer_unit_aiming, ps3_span); /* port: (the timer build) */
 
 			if (unit->unit.current_weapon_index != NONE ||
 				unit->unit.player_index != NONE)
@@ -11255,8 +11281,10 @@ void unit_preprocess_node_orientations(
 						relative_looking_angles.yaw,
 						relative_looking_angles.pitch,
 						node_orientations);
+					PS3_UNIT_COUNT(_ps3_timer_unit_looking); /* port: (the timer build) */
 				}
 			}
+			PS3_UNIT_ADD(_ps3_timer_unit_looking, ps3_span); /* port: (the timer build) */
 		}
 	}
 

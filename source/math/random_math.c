@@ -192,6 +192,19 @@ random_math_dispose(
 	return;
 }
 
+#ifdef HALO_PS3
+/* port: the SPU's weather reads a direction as 12 bytes (spu_game.c, seed_random_direction) */
+typedef char random_direction_table_spu_assert[sizeof(real_vector3d) == 12 ? 1 : -1];
+
+/* port: the random directions (direction3d_from_table's), for the SPU's weather (weather_particle_systems.c) */
+real_vector3d const *random_direction_table_get(
+	short *count)
+{
+	*count = random_math_globals.random_direction_table_size;
+	return random_math_globals.random_direction_table;
+}
+#endif
+
 unsigned short seed_random(
 	unsigned long *seed)
 {

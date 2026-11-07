@@ -131,6 +131,21 @@ long rasterizer_frame_statistics_count_static_vertices(
 	struct triangle_buffer const *triangle_buffer,
 	struct vertex_buffer const *vertex_buffer);
 #endif
+#ifdef HALO_PS3
+#include "ps3_timers.h"
+
+/* port: the timer build's parts of a model shader's draw (port/ps3/include/ps3_timers.h), each with the game thread's
+Direct3D draws and constants in it (d3d8_rsx.c) */
+#define PS3_DRAW_D3D() (ps3_timers[_ps3_timer_front_draws] + ps3_timers[_ps3_timer_front_constants])
+#define PS3_DRAW_SPAN(span, d3d) ((void)((span) = ps3_timer_now(), (d3d) = PS3_DRAW_D3D()))
+#define PS3_DRAW_ADD(timer, span, d3d) ((void)(ps3_timers[(timer)] += ps3_timer_now() - (span), \
+	ps3_render_d3d[(timer)] += PS3_DRAW_D3D() - (d3d)), PS3_DRAW_SPAN((span), (d3d)))
+#define PS3_DRAW_COUNT(timer) ((void)ps3_timer_counts[(timer)]++)
+#else
+#define PS3_DRAW_SPAN(span, d3d) ((void)0)
+#define PS3_DRAW_ADD(timer, span, d3d) ((void)0)
+#define PS3_DRAW_COUNT(timer) ((void)0)
+#endif
 
 /* ---------- constants */
 
@@ -1642,6 +1657,9 @@ void _rasterizer_model_draw(
 	unsigned long seed;
 	real self_illumination_phase;
 	real self_illumination_animation_fraction;
+#ifdef HALO_PS3
+	uint64_t ps3_span, ps3_d3d; /* port: (the timer build) */
+#endif
 
 	match_assert(
 		"c:\\halo\\SOURCE\\rasterizer\\xbox\\rasterizer_xbox_models.c",
@@ -1741,6 +1759,7 @@ void _rasterizer_model_draw(
 			}
 			else
 			{
+				PS3_DRAW_SPAN(ps3_span, ps3_d3d); /* port: (the timer build) */
 				shader_model = (struct shader_model_definition *)
 					shader_get_and_verify_type(shader, _shader_type_model);
 				alpha_blended_decal = (boolean)TEST_FLAG(
@@ -1847,6 +1866,7 @@ void _rasterizer_model_draw(
 					global_d3d_device,
 					D3DRS_ALPHAREF,
 					0x7F);
+				PS3_DRAW_ADD(_ps3_timer_model_draw_states, ps3_span, ps3_d3d); /* port: (the timer build) */
 
 				rasterizer_set_texture(
 					0,
@@ -1917,6 +1937,7 @@ void _rasterizer_model_draw(
 					3, D3DTSS_MINFILTER, D3DTEXF_LINEAR);
 				SetTextureStageStateSmart(
 					3, D3DTSS_MIPFILTER, D3DTEXF_LINEAR);
+				PS3_DRAW_ADD(_ps3_timer_model_draw_textures, ps3_span, ps3_d3d); /* port: (the timer build) */
 
 				seed = local_parameters->unique_identifier;
 				if (TEST_FLAG(
@@ -2030,6 +2051,7 @@ void _rasterizer_model_draw(
 				{
 					diffuse_change_color = *global_real_rgb_white;
 				}
+				PS3_DRAW_ADD(_ps3_timer_model_draw_colours, ps3_span, ps3_d3d); /* port: (the timer build) */
 
 				vertex_shader_work =
 					rasterizer_frame_statistics.vertex_shader_instruction_count;
@@ -2093,6 +2115,7 @@ void _rasterizer_model_draw(
 					rasterizer_frame_statistics.vertices_by_permutation[
 						vertex_shader_permutation] += vertex_buffer->count;
 				}
+				PS3_DRAW_ADD(_ps3_timer_model_draw_vertex_shader, ps3_span, ps3_d3d); /* port: (the timer build) */
 
 				perpendicular.alpha = reflection_fraction*
 					shader_model->model.perpendicular_brightness*
@@ -2192,6 +2215,7 @@ void _rasterizer_model_draw(
 						specular_constants,
 						2);
 				}
+				PS3_DRAW_ADD(_ps3_timer_model_draw_constants, ps3_span, ps3_d3d); /* port: (the timer build) */
 
 				match_assert(
 					"c:\\halo\\SOURCE\\rasterizer\\xbox\\rasterizer_xbox_models.c",
@@ -2330,6 +2354,7 @@ void _rasterizer_model_draw(
 					cc0_error_pixel = 0xFF000000;
 					cc0_pixel = 0xFF000000;
 				}
+				PS3_DRAW_ADD(_ps3_timer_model_draw_fog, ps3_span, ps3_d3d); /* port: (the timer build) */
 
 				set_environment_shader_pixel_shader(
 					real_rgb_color_to_pixel32(&self_illumination_color),
@@ -2350,6 +2375,7 @@ void _rasterizer_model_draw(
 					global_d3d_device,
 					D3DRS_CULLMODE,
 					D3DCULL_CCW);
+				PS3_DRAW_ADD(_ps3_timer_model_draw_pixel_shader, ps3_span, ps3_d3d); /* port: (the timer build) */
 
 				rasterizer_draw(
 					triangle_buffer,
@@ -2358,6 +2384,7 @@ void _rasterizer_model_draw(
 					triangle_count,
 					vertex_buffer,
 					dynamic_vertex_buffer_index);
+				PS3_DRAW_COUNT(_ps3_timer_model_draw_draws); /* port: (the timer build) */
 
 				if (rasterizer_debug_options.statistics_mode ==
 					_rasterizer_statistics_mode_enabled)
@@ -2421,6 +2448,7 @@ void _rasterizer_model_draw(
 						triangle_count,
 						vertex_buffer,
 						dynamic_vertex_buffer_index);
+					PS3_DRAW_COUNT(_ps3_timer_model_draw_draws); /* port: (the timer build) */
 
 					if (rasterizer_debug_options.statistics_mode ==
 						_rasterizer_statistics_mode_enabled)
@@ -2434,10 +2462,12 @@ void _rasterizer_model_draw(
 								vertex_buffer);
 					}
 				}
+				PS3_DRAW_ADD(_ps3_timer_model_draw_draws, ps3_span, ps3_d3d); /* port: (the timer build) */
 			}
 
 			if (local_environment_fog_screen_flag)
 			{
+				PS3_DRAW_SPAN(ps3_span, ps3_d3d); /* port: (the timer build) */
 				rasterizer_environment_fog_screen_model_submit(
 					shader,
 					shader_permutation_index,
@@ -2446,6 +2476,7 @@ void _rasterizer_model_draw(
 					triangle_count,
 					vertex_buffer,
 					dynamic_vertex_buffer_index);
+				PS3_DRAW_ADD(_ps3_timer_model_draw_fog_screen, ps3_span, ps3_d3d); /* port: (the timer build) */
 			}
 		}
 		else

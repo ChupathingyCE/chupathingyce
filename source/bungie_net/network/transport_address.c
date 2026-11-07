@@ -184,10 +184,18 @@ char const *transport_address_to_string(
 	{
 		unsigned char bytes[4];
 
+#ifdef HALO_BIG_ENDIAN
+		/* port: the host-order long's most significant byte comes first in memory here */
+		bytes[0] = addr->address.bytes[0];
+		bytes[1] = addr->address.bytes[1];
+		bytes[2] = addr->address.bytes[2];
+		bytes[3] = addr->address.bytes[3];
+#else
 		bytes[0] = addr->address.bytes[3];
 		bytes[1] = addr->address.bytes[2];
 		bytes[2] = addr->address.bytes[1];
 		bytes[3] = addr->address.bytes[0];
+#endif
 		log_address(bytes, 4, (word)addr->port, transport_address_string, NUMBEROF(transport_address_string));
 	}
 	else if (addr->address_length == IPV6_ADDRESS_LENGTH)

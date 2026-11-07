@@ -188,6 +188,19 @@ constant expressions in double and only rounds at the final assignment, so
 2.0*it then differs in the double constant too. */
 #define VEHICLE_ANGULAR_ACCELERATION 0.0139626344f
 
+#ifdef HALO_PS3
+#include "ps3_timers.h"
+
+/* port: the timer build's parts of vehicle_update (port/ps3/include/ps3_timers.h) */
+#define PS3_VEHICLE_SPAN(span) ((span) = ps3_timer_now())
+#define PS3_VEHICLE_ADD(timer, span) ((span) = ps3_timer_add((timer), (span)))
+#define PS3_VEHICLE_COUNT(timer) (ps3_timer_counts[(timer)]++)
+#else
+#define PS3_VEHICLE_SPAN(span) ((void)0)
+#define PS3_VEHICLE_ADD(timer, span) ((void)0)
+#define PS3_VEHICLE_COUNT(timer) ((void)0)
+#endif
+
 /* ---------- structures */
 
 struct vehicle_definition
@@ -2456,6 +2469,9 @@ boolean vehicle_update(
 	real steering_angle;
 	real torque;
 	struct vehicle_definition *definition;
+#ifdef HALO_PS3
+	uint64_t ps3_span;
+#endif
 
 	vehicle = vehicle_datum_get(vehicle_index);
 	definition = vehicle_specific_definition_get(vehicle->definition_index);
@@ -2641,6 +2657,7 @@ boolean vehicle_update(
 	{
 		real_vector3d previous_velocity = vehicle->object.translational_velocity;
 
+		PS3_VEHICLE_SPAN(ps3_span); /* port: (the timer build) */
 		switch (definition->vehicle_type)
 		{
 		case _vehicle_type_human_tank:
@@ -2665,11 +2682,14 @@ boolean vehicle_update(
 			update_turret_physics(vehicle_index, mass_points);
 			break;
 		}
+		PS3_VEHICLE_ADD(_ps3_timer_vehicle_physics, ps3_span); /* port: (the timer build) */
+		PS3_VEHICLE_COUNT(_ps3_timer_vehicle_physics); /* port: (the timer build) */
 
 		create_slipping_effects(vehicle_index, powered_mass_points, mass_points);
 		if (!update_suspension(vehicle_index))
 			create_crashing_effects(vehicle_index, &previous_velocity, mass_points);
 		compute_airborne_ticks(vehicle_index, mass_points, powered_mass_points);
+		PS3_VEHICLE_ADD(_ps3_timer_vehicle_effects, ps3_span); /* port: (the timer build) */
 
 		if (TEST_FLAG(vehicle->object.flags, _object_at_rest_bit))
 			vehicle->vehicle.stop_time = 15;
@@ -2700,8 +2720,10 @@ boolean vehicle_update(
 	}
 	else if (vehicle->vehicle.stop_time>0)
 	{
+		PS3_VEHICLE_SPAN(ps3_span); /* port: (the timer build) */
 		slowly_stop_vehicle(vehicle_index);
 		update_suspension(vehicle_index);
+		PS3_VEHICLE_ADD(_ps3_timer_vehicle_stopping, ps3_span); /* port: (the timer build) */
 	}
 
 	match_assert("c:\\halo\\SOURCE\\units\\vehicles.c", 372,
@@ -2737,7 +2759,10 @@ animate:
 
 		data.state_desired = _unit_state_idle;
 		data.crouching = FALSE;
+		PS3_VEHICLE_SPAN(ps3_span); /* port: (the timer build) */
 		unit_update_animation(vehicle_index, &data);
+		PS3_VEHICLE_ADD(_ps3_timer_vehicle_animation, ps3_span); /* port: (the timer build) */
+		PS3_VEHICLE_COUNT(_ps3_timer_vehicle_animation); /* port: (the timer build) */
 	}
 
 	{

@@ -410,6 +410,10 @@ static char const *const port_function_names[] =
 	/* (the settings screens' nested lists, and Controls Setup's) */
 	"port settings views init", "port settings view", "port settings back", "port settings accept",
 	"port controls init", "port controls defaults", "port controls accept", "port controls closed",
+#ifdef HALO_PS3
+	/* (the server browser's SQUARE and SELECT: its bar's REFRESH and FILTERS, which the pad cannot reach) */
+	"port browser refresh", "port browser filter",
+#endif
 };
 
 /* the PC version's game data functions that the Xbox's have not, from

@@ -26,7 +26,9 @@ high-res HUD's are (hud_hires.c).
 
 #include "expat.h"
 
+#ifndef HALO_PS3
 #include <SDL3/SDL.h>
+#endif
 #include <errno.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -99,7 +101,7 @@ static long file_add(const char *path, const unsigned char *data, unsigned long 
 
 static unsigned char *file_read(const char *path, unsigned long *size)
 {
-#ifdef HALO_ANDROID
+#if defined(HALO_ANDROID) || defined(HALO_PS3)
 	FILE *file = fopen(path, "rb");
 	unsigned char *data = NULL;
 	long length;
@@ -165,7 +167,7 @@ static void files_gather(void)
 			file_add(embedded->path, (const unsigned char *)embedded->data, embedded->size, 0);
 		}
 	}
-#ifndef HALO_ANDROID
+#if !defined(HALO_ANDROID) && !defined(HALO_PS3)
 	{
 		/* (the folder's own and its folders': SDL's * does not cross a /) */
 		static const char *const patterns[] = { "*.xml", "*/*.xml" };
@@ -394,7 +396,7 @@ the Chupathingy menus without the desktop's extras, and each of them has a
 name of its own too (HALO_CONSOLE_MENU_PLATFORM: halo_console_features.h) */
 static int platform_name_here(const char *name, size_t length, int *known)
 {
-	static const char *const names[] = { "desktop", "android", "switch", "console", "x360", "wiiu" };
+	static const char *const names[] = { "desktop", "android", "switch", "console", "x360", "wiiu", "ps3" };
 	const char *here[2] = { NULL, NULL };
 	size_t index;
 
@@ -448,7 +450,7 @@ static int for_this_platform(struct reader *reader, const XML_Char **attributes)
 						here = 1;
 					if (!known)
 					{
-						reader_error(reader, "platform=\"%s\": %.*s is not desktop, android, switch, console, x360 or wiiu",
+						reader_error(reader, "platform=\"%s\": %.*s is not desktop, android, switch, console, x360, wiiu or ps3",
 							platform, (int)length, name);
 						return 1;
 					}
@@ -1085,6 +1087,11 @@ static long art_count;
 /* changed whenever the art registered changes (menu_art_serial) */
 static unsigned long art_serial = 1;
 #endif
+#ifdef HALO_PS3
+/* the PS3's renderer draws the art from its own textures (port/ps3/xbox/menu_art_rsx.c) */
+void menu_art_rsx_register(unsigned long data, const char *png);
+void menu_art_rsx_forget(void);
+#endif
 
 void halo_menus_art_register(void const *texture, char const *png)
 {
@@ -1112,11 +1119,13 @@ void halo_menus_art_register(void const *texture, char const *png)
 	else
 	{
 		free(art[index].png);
+#ifndef HALO_PS3
 		if (art[index].texture)
 #ifdef HALO_BGFX
 			menu_art_delete(art[index].texture);
 #else
 			glDeleteTextures(1, &art[index].texture);
+#endif
 #endif
 	}
 	memset(&art[index], 0, sizeof(art[index]));
@@ -1124,6 +1133,9 @@ void halo_menus_art_register(void const *texture, char const *png)
 	art[index].png = strdup(png);
 #ifdef HALO_CONSOLE_HOST_ART
 	art_serial++;
+#endif
+#ifdef HALO_PS3
+	menu_art_rsx_register(data, png);
 #endif
 }
 
@@ -1134,19 +1146,25 @@ void halo_menus_art_forget(void)
 	for (index = 0; index < art_count; index++)
 	{
 		free(art[index].png);
+#ifndef HALO_PS3
 		if (art[index].texture)
 #ifdef HALO_BGFX
 			menu_art_delete(art[index].texture);
 #else
 			glDeleteTextures(1, &art[index].texture);
 #endif
+#endif
 	}
 	art_count = 0;
 #ifdef HALO_CONSOLE_HOST_ART
 	art_serial++;
 #endif
+#ifdef HALO_PS3
+	menu_art_rsx_forget();
+#endif
 }
 
+#ifndef HALO_PS3
 unsigned int menu_art_texture(unsigned long data, unsigned long *levels)
 {
 	long index;
@@ -1175,6 +1193,7 @@ unsigned int menu_art_texture(unsigned long data, unsigned long *levels)
 	*levels = art[index].levels;
 	return art[index].texture;
 }
+#endif
 
 #ifdef HALO_CONSOLE_HOST_ART
 unsigned long menu_art_serial(void)

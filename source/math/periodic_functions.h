@@ -37,6 +37,12 @@ real periodic_function_evaluate(
 real transition_function_evaluate(
 	short function_type,
 	real value);
+#ifdef HALO_PS3
+/* port: a transition function's table and its size, for an SPU's job (NULL before the tables are made) */
+byte const *transition_function_table(
+	short function_type,
+	long *size);
+#endif
 void periodic_functions_initialize(
 	void);
 void periodic_functions_dispose(

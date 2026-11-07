@@ -187,6 +187,13 @@ void particle_new(
 	struct new_particle_data const *data);
 void particles_update(
 	real dt);
+#ifdef HALO_PS3
+/* port: the SPU's particles_update taken, before the particles are read; or dropped (particles.c) */
+void particles_spu_finish(
+	void);
+void particles_spu_forget(
+	void);
+#endif
 
 /* ---------- globals */
 

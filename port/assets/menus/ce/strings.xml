@@ -318,10 +318,14 @@
 	</strings>
 	<strings name="main_menu/multiplayer_type_select/join_game/join_game_buttons">
 		<string text="GET LIST"/>
-		<string text="REFRESH"/>
+		<string text="REFRESH" platform="desktop android switch x360 wiiu"/>
+		<!-- (the PS3: the pad's buttons, which its screen takes; SELECT has no icon in the menus' text) -->
+		<string text="%x-button REFRESH" platform="ps3"/>
 		<string text="STOP"/>
-		<string text="FILTERS"/>
-		<string text="JOIN GAME"/>
+		<string text="FILTERS" platform="desktop android switch x360 wiiu"/>
+		<string text="SELECT FILTERS" platform="ps3"/>
+		<string text="JOIN GAME" platform="desktop android switch x360 wiiu"/>
+		<string text="%a-button JOIN GAME" platform="ps3"/>
 	</strings>
 	<strings name="main_menu/multiplayer_type_select/join_game/join_game_column_headers">
 		<string text="Server Name"/>
@@ -371,7 +375,7 @@
 	<strings name="main_menu/multiplayer_type_select/multiplayer_option_descriptions">
 		<string text="Browse the games on the\nInternet."/>
 		<string text="Join a multiplayer game on\nyour LAN."/>
-		<string text="Join a game by its invite\nlink."/>
+		<string text="Join a game by its invite\nlink." platform="desktop android switch x360 wiiu"/>
 		<string text="Host a game on the\nInternet."/>
 		<string text="Host a game on your LAN\nonly."/>
 		<string text="Play the campaign with a\nfriend in split screen."/>

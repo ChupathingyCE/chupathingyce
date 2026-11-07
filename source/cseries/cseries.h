@@ -251,7 +251,12 @@ unsigned long string_hash(char const *string);
 
 /* ---------- prototypes/CSERIES_WINDOWS.C */
 
+#if defined(HALO_PS3) && !defined(HALO_RELEASE)
+/* port: it never returns there (halt_and_catch_fire), so an assert's path keeps no register for after it */
+void system_exit(long code) __attribute__((noreturn));
+#else
 void system_exit(long code);
+#endif
 #ifdef HALO_RELEASE
 /* set by display_assert when a release build skips a fatal assertion (one
 for each thread; the console's one, whose compiler's thread-local storage
@@ -266,7 +271,12 @@ extern boolean display_assert_skipped;
 
 /* ---------- prototypes/MAIN.C */
 
+#ifdef HALO_PS3
+/* port: (ps3_host_game_halted, or exit) */
+void halt_and_catch_fire(void) __attribute__((noreturn));
+#else
 void halt_and_catch_fire(void);
+#endif
 
 /* ---------- prototypes/DEBUG_MEMORY.C */
 

@@ -231,7 +231,7 @@ def test_menus_are_well_formed():
             # (the platforms it is on, separated by spaces: menu_files.c)
             if element.get("platform") is not None:
                 names = element.get("platform").split(" ")
-                assert names and set(names) <= {"desktop", "android", "switch", "console", "x360", "wiiu"}, where
+                assert names and set(names) <= {"desktop", "android", "switch", "console", "x360", "wiiu", "ps3"}, where
             # (menu_files.c's whole numbers, which the tags keep in shorts,
             # its true/false attributes, and no text but whitespace outside
             # <string>s)

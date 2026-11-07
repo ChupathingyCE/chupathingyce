@@ -4113,10 +4113,18 @@ static unsigned long distributed_real_address(
 		/* (32 bits, also where a long has 64) */
 		unsigned long network = ((address >> 24) & 0xFF) | ((address >> 8) & 0xFF00) | ((address << 8) & 0xFF0000) |
 			((address << 24) & 0xFF000000UL);
-		unsigned long real = p2p_peer_endpoint_address(network) & 0xFFFFFFFFUL;
+		unsigned long real;
 
+#ifdef HALO_BIG_ENDIAN
+		/* (network byte order is a big-endian machine's own: neither turned) */
+		network = address;
+		real = p2p_peer_endpoint_address(network) & 0xFFFFFFFFUL;
+		return real ? real : address;
+#else
+		real = p2p_peer_endpoint_address(network) & 0xFFFFFFFFUL;
 		if (real)
 			return (real >> 24) | ((real >> 8) & 0xFF00) | ((real << 8) & 0xFF0000) | ((real << 24) & 0xFF000000UL);
+#endif
 	}
 	return address;
 }

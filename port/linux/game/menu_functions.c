@@ -1757,6 +1757,71 @@ static void settings_each_in_view(struct widget_instance *list, char const *view
 	}
 }
 
+#ifdef HALO_PS3
+/* DISPLAY's PRESET (PS3): QUALITY and PERFORMANCE set FRAME RATE and DYNAMIC
+RESOLUTION, shown with CUSTOM alone; other values of theirs make it CUSTOM */
+static void preset_rows_show(struct widget_instance *list)
+{
+	/* (FRAME RATE's 60 or 30, DYNAMIC RESOLUTION's ON or OFF, by PRESET's) */
+	static short const frame_rates[] = { NONE, 1, 0 };
+	static short const dynamics[] = { NONE, 1, 0 };
+	static struct
+	{
+		struct widget_instance *list;
+		long creation_time;
+		short preset;
+	} last;
+	struct widget_instance *preset = named(list, "preset_spinner", 0);
+	struct widget_instance *frame_rate = named(list, "frame_rate_spinner", 0);
+	struct widget_instance *dynamic = named(list, "dynamic_resolution_spinner", 0);
+	struct widget_instance *preset_row = named(list, "op_preset", 0);
+	struct widget_instance *frame_rate_row = named(list, "op_frame_rate", 0);
+	struct widget_instance *row;
+	short chosen, spacing, y;
+
+	if (!preset || !frame_rate || !dynamic || !preset_row || !frame_rate_row ||
+		preset->parameters.list.selected_index < 0 ||
+		preset->parameters.list.selected_index >= (short)NUMBEROF(frame_rates))
+	{
+		return;
+	}
+	chosen = preset->parameters.list.selected_index;
+	if (frame_rates[chosen] != NONE)
+	{
+		if (last.list == list && last.creation_time == list->creation_time && chosen != last.preset)
+		{
+			frame_rate->parameters.list.selected_index = frame_rates[chosen];
+			dynamic->parameters.list.selected_index = dynamics[chosen];
+		}
+		else if (frame_rate->parameters.list.selected_index != frame_rates[chosen] ||
+			dynamic->parameters.list.selected_index != dynamics[chosen])
+		{
+			preset->parameters.list.selected_index = chosen = 0;
+		}
+	}
+	last.list = list;
+	last.creation_time = list->creation_time;
+	last.preset = chosen;
+	visible_set(frame_rate_row, chosen == 0);
+	visible_set(named(list, "op_dynamic_resolution", 0), chosen == 0);
+	if (list->focused_child && !list->focused_child->visible)
+		focus_widget(list, preset_row);
+	/* (the rows after PRESET in DISPLAY's list, packed; FRAME RATE never moves,
+	so the two give the spacing. Drawing and the mouse follow vertical_offset) */
+	spacing = (short)(frame_rate_row->vertical_offset - preset_row->vertical_offset);
+	y = preset_row->vertical_offset;
+	for (row = preset_row->next; row && !view_mark(row); row = row->next)
+	{
+		if (row->visible && !strncmp(row->name, "op_", 3))
+		{
+			y = (short)(y + spacing);
+			row->vertical_offset = y;
+		}
+	}
+}
+#endif
+#line 1759
+
 /* ---------- Change Color: the profile's colour, from a list of the
 game's colours (more than its rows: it scrolls), by the Xbox's names for
 its spinner's functions */
@@ -3220,6 +3285,29 @@ void platform_clipboard_set(char const *text);
 void platform_text_field(int typing);
 int config_boolean(char const *name);
 void ui_widget_port_post_button(short controller_index, short button_index);
+#ifdef HALO_PS3
+/* (the PS3's invite codes, p2p.c, and its system keyboard, port/ps3/src/ps3_osk.c) */
+int p2p_invite_code(char *code, int size);
+int p2p_look_up_code(char const *text);
+int p2p_code_found(char *link, int size);
+void p2p_stop_code_lookup(void);
+int p2p_join_failure(void);
+int ps3_osk_open_digits(char const *title, int maximum_length);
+int ps3_osk_active(void);
+int ps3_osk_take_digits(char *text, int size);
+
+/* the internet game hosted's invite code as shown ("1234 5678"), once the brokers have it */
+static boolean invite_code_shown(char *text, int size)
+{
+	char code[16];
+
+	if (!p2p_invite_code(code, sizeof(code)))
+		return FALSE;
+	snprintf(text, (size_t)size, "%.4s %s", code, code + 4);
+	return TRUE;
+}
+#endif
+#line 3104
 
 /* (and Bomb, game_engine_bomb.c: a game of ChupathingyCE machines alone) */
 static wchar_t const *const engine_names[] = { L"", L"CTF", L"SLAYER", L"ODDBALL", L"KING OF THE HILL", L"RACE", L"BOMB" };
@@ -3241,6 +3329,20 @@ static short maximum_players_choices(void)
 }
 #else
 #define maximum_players_choices() NUMBEROF(maximum_players)
+#endif
+#ifdef HALO_PS3
+/* port: the PS3 hosts 16 at most, its Delta row's host limit, which its opted-in key (port_config.c's
+network.platform_limits) leaves to the menus; the choices up to it, as the Switch's above */
+#undef maximum_players_choices
+#define HOSTED_PLAYERS_LIMIT 16
+static short maximum_players_choices(void)
+{
+	short count = 0;
+
+	while (count < NUMBEROF(maximum_players) && maximum_players[count] <= HOSTED_PLAYERS_LIMIT)
+		count++;
+	return count;
+}
 #endif
 #line 3097
 /* the most players a hosted game starts with (16), up to the list's 128 */
@@ -3852,8 +3954,31 @@ static void server_settings_private_set(boolean private_game)
 	}
 }
 
-/* "server settings init": the game's name (player 1's, else the one given
-last), the most players, the gametype's copy (once: the screen is made
+#ifdef HALO_PS3
+/* (port/ps3/src/ps3_system.c) */
+int ps3_user_name(unsigned short *name, int size);
+#endif
+
+/* the game's name when none is given: the PS3's user name, else player 1's */
+static void game_name_default(void)
+{
+	if (multiplayer.game_name[0])
+		return;
+#ifdef HALO_PS3
+	if (ps3_user_name((unsigned short *)multiplayer.game_name, NUMBEROF(multiplayer.game_name)))
+		return;
+#endif
+	if (player_ui_get_active_player_profile_index(0) != NONE)
+	{
+		struct player_profile profile;
+
+		player_ui_get_active_player_profile(0, &profile);
+		ustrncpy(multiplayer.game_name, profile.player_name, NUMBEROF(multiplayer.game_name) - 1);
+	}
+}
+
+/* "server settings init": the game's name (game_name_default, else the one
+given last), the most players, the gametype's copy (once: the screen is made
 again on coming back from an option's screen) */
 static boolean server_settings_initialize(struct widget_instance *list)
 {
@@ -3862,16 +3987,10 @@ static boolean server_settings_initialize(struct widget_instance *list)
 	/* (co-op has no gametype to edit) */
 	if (!hosting_cooperative())
 		gametype_setup_begin();
-	if (!multiplayer.game_name[0] && player_ui_get_active_player_profile_index(0) != NONE)
-	{
-		struct player_profile profile;
-
-		player_ui_get_active_player_profile(0, &profile);
-		ustrncpy(multiplayer.game_name, profile.player_name, NUMBEROF(multiplayer.game_name) - 1);
-	}
+	game_name_default();
 	if (spinner)
 	{
-#ifdef HALO_SWITCH_CONSOLE
+#if defined(HALO_SWITCH_CONSOLE) || defined(HALO_PS3)
 		/* port: the choices up to HOSTED_PLAYERS_LIMIT (the spinner's left and
 		right wrap at its count of items) */
 		spinner->parameters.list.number_of_items = (word)MIN(spinner->parameters.list.number_of_items,
@@ -3918,6 +4037,12 @@ static void server_settings_update(struct widget_instance *list)
 		snprintf(text, sizeof(text), "INTERNET PLAY IS OFF (SETTINGS)");
 	else if (!p2p_invite_link(text, sizeof(text)))
 		snprintf(text, sizeof(text), "MADE WHEN THE GAME STARTS");
+#ifdef HALO_PS3
+	/* (the PS3 shows the invite's code: others type it, or the invite page turns it into the link) */
+	else if (!invite_code_shown(text, sizeof(text)))
+		snprintf(text, sizeof(text), "MAKING A CODE...");
+#endif
+#line 3757
 	text_field_show(named(list, "invite_value", 0), text, FALSE);
 	{
 		wchar_t type[ROW_TEXT_LENGTH];
@@ -4060,6 +4185,11 @@ static boolean invite_copy(void)
 {
 	char link[TEXT_FIELD_LENGTH];
 
+#ifdef HALO_PS3
+	/* (no clipboard: the row shows the invite's code) */
+	return TRUE;
+#endif
+#line 3899
 	if (!p2p_invite_link(link, sizeof(link)))
 		return campaign_fail();
 	platform_clipboard_set(link);
@@ -4206,6 +4336,132 @@ static void browser_focus(struct widget_instance *list)
 	}
 }
 
+#ifdef HALO_PS3
+/* ---- Direct Link's ENTER CODE (the PS3 has no clipboard): an invite code typed on the system keyboard, looked up on
+the brokers, its link then joined as a pasted one's (its game comes into the list); the ticker tells how it goes */
+
+#define DIRECT_CODE_CHARACTERS 12
+#define DIRECT_CODE_CONNECT_TIME 45000
+#define DIRECT_CODE_MESSAGE_TIME 8000
+
+static struct
+{
+	/* the keyboard up; the code looked up; when its link was joined (0: not waiting for its game) */
+	boolean keyboard;
+	boolean looking;
+	unsigned long joined_time;
+	/* what the last code came to, and when (NULL: nothing) */
+	wchar_t const *message;
+	unsigned long message_time;
+	/* the controller that asked (the server browser's join posts its A) */
+	short controller;
+} direct_code;
+
+/* (the server browser's join of a listed game, below: a code's game joins as one) */
+static boolean lobby_browser_join(struct p2p_listing const *game, short controller);
+
+static void direct_code_stop(wchar_t const *message)
+{
+	if (direct_code.looking)
+		p2p_stop_code_lookup();
+	direct_code.keyboard = direct_code.looking = FALSE;
+	direct_code.joined_time = 0;
+	direct_code.message = message;
+	direct_code.message_time = system_milliseconds();
+}
+
+/* "direct ip connect go" (ENTER CODE, and the server browser's Triangle) */
+static boolean direct_code_enter(short controller)
+{
+	if (direct_code.keyboard || direct_code.looking ||
+		(multiplayer.mode != _multiplayer_mode_direct_link && multiplayer.mode != _multiplayer_mode_server_browser))
+	{
+		return TRUE;
+	}
+	direct_code.controller = controller;
+	if (!ps3_osk_open_digits("Invite code", DIRECT_CODE_CHARACTERS))
+	{
+		direct_code_stop(L"Could not open the keyboard.");
+		return campaign_fail();
+	}
+	direct_code_stop(NULL);
+	direct_code.keyboard = TRUE;
+	ui_play_audio_feedback_sound(SOUND_FORWARD);
+	return TRUE;
+}
+
+/* each frame of Direct Link and the server browser: the code typed looked up, and its link joined once found */
+static void direct_code_update(void)
+{
+	char text[TEXT_FIELD_LENGTH];
+	int result;
+
+	if (direct_code.keyboard && !ps3_osk_active())
+	{
+		direct_code.keyboard = FALSE;
+		/* (none: the keyboard was cancelled) */
+		if (ps3_osk_take_digits(text, sizeof(text)))
+		{
+			result = config_boolean("network.online") ? p2p_look_up_code(text) : -1;
+			direct_code_stop(result < 0 ? L"Internet play is off (SETTINGS)." :
+				!result ? L"An invite code is 8 digits." : NULL);
+			direct_code.looking = result > 0;
+		}
+	}
+	if (direct_code.looking && (result = p2p_code_found(text, sizeof(text))) != 0)
+	{
+		direct_code_stop(result == -2 ? L"Could not look up the code. Check your network settings." :
+			result < 0 ? L"No game has that code. Check it, or make a new one." : NULL);
+		if (result > 0 && multiplayer.mode == _multiplayer_mode_server_browser)
+		{
+			/* (the host's identifier: the link's key hash, as p2p_identifier_from_hash makes it) */
+			struct p2p_listing game;
+			char const *hex = strstr(text, "join/");
+			short index;
+
+			csmemset(&game, 0, sizeof(game));
+			csstrncpy(game.invite, text, sizeof(game.invite) - 1);
+			csstrncpy(game.name, "the invite code's game", sizeof(game.name) - 1);
+			for (index = 0; hex && index < 12; index++)
+			{
+				char digit = hex[5 + index];
+				int value = digit >= '0' && digit <= '9' ? digit - '0' : digit >= 'a' && digit <= 'f' ? digit - 'a' + 10 : 0;
+
+				game.identifier[index / 2] |= (unsigned char)(index % 2 ? value : value << 4);
+			}
+			game.identifier[0] = (unsigned char)((game.identifier[0] & 0xFC) | 0x02);
+			if (!lobby_browser_join(&game, direct_code.controller))
+				direct_code_stop(L"Internet play is off (SETTINGS).");
+		}
+		else if (result > 0 && p2p_join_invite(text))
+			direct_code.joined_time = system_milliseconds();
+	}
+	if (direct_code.joined_time && multiplayer.game_count)
+		direct_code.joined_time = 0;
+	else if (direct_code.joined_time && system_milliseconds() - direct_code.joined_time > DIRECT_CODE_CONNECT_TIME)
+	{
+		/* (p2p_join_failure's 2: the host answered, but the tunnel could not reach it) */
+		direct_code_stop(p2p_join_failure() == 2 ? L"Could not connect to the host." : L"The host did not answer.");
+	}
+}
+
+/* the ticker's line for the code, or with no game listed what ENTER CODE does; NULL: the list's own */
+static wchar_t const *direct_code_line(void)
+{
+	if (direct_code.keyboard)
+		return L"Type the invite code.";
+	if (direct_code.looking)
+		return L"Looking up the invite code...";
+	if (direct_code.joined_time)
+		return L"Connecting to the invite code's game...";
+	if (direct_code.message && system_milliseconds() - direct_code.message_time < DIRECT_CODE_MESSAGE_TIME)
+		return direct_code.message;
+	if (multiplayer.mode == _multiplayer_mode_server_browser)
+		return NULL;
+	return multiplayer.game_count ? NULL : L"Press ENTER CODE to type an invite code.";
+}
+#endif
+#line 4045
 /* (the server browser's: below) */
 static void lobby_browser_begin(struct widget_instance *screen);
 static void lobby_browser_update(struct widget_instance *list);
@@ -4228,6 +4484,13 @@ static boolean browser_initialize(struct widget_instance *screen, struct event_r
 	for (index = 0; index < NUMBEROF(unused); index++)
 		visible_set(named(screen, unused[index], 0), FALSE);
 	visible_set(named(screen, "button_clipboard", 0), multiplayer.mode == _multiplayer_mode_direct_link);
+#ifdef HALO_PS3
+	/* (the server browser's TRIANGLE, its label the PS3's button_clipboard's) */
+	visible_set(named(screen, "button_clipboard", 0), multiplayer.mode == _multiplayer_mode_direct_link ||
+		multiplayer.mode == _multiplayer_mode_server_browser);
+	direct_code_stop(NULL);
+#endif
+#line 4067
 	visible_set(named(screen, "join_game_button_refresh", 0), multiplayer.mode == _multiplayer_mode_server_browser);
 	/* (the filter's button, the PC version's FILTERS: all games, multiplayer or co-op, in the Server Browser and LAN) */
 	visible_set(named(screen, "join_game_button_filters", 0),
@@ -5215,6 +5478,12 @@ static void lobby_browser_update(struct widget_instance *list)
 		message = TRUE;
 		if (!config_boolean("network.online"))
 			usnprintf(text, NUMBEROF(text) - 1, L"Turn on Internet Play in Settings.");
+#ifdef HALO_PS3
+		/* (Triangle's invite code: the keyboard, its lookup, or what it came to) */
+		else if (direct_code_line())
+			usnprintf(text, NUMBEROF(text) - 1, L"%s", direct_code_line());
+#endif
+#line 5054
 		else if (!config_boolean("network.public_lobby"))
 			usnprintf(text, NUMBEROF(text) - 1, L"The server browser is off.");
 		else if (lobby_browser.joining)
@@ -5529,12 +5798,23 @@ static void browser_update(struct widget_instance *list)
 		text_to_wide(label, filter, NUMBEROF(filter));
 		text_set(named(screen_of(list), "join_game_button_filters", 0), filter);
 	}
+#ifdef HALO_PS3
+	/* (Triangle's invite code: its game then joins as a listed one's) */
+	if (multiplayer.mode == _multiplayer_mode_server_browser)
+		direct_code_update();
+#endif
+#line 5368
 	if (multiplayer.mode == _multiplayer_mode_server_browser)
 	{
 		lobby_browser_update(list);
 		return;
 	}
 	browser_games_read();
+#ifdef HALO_PS3
+	if (multiplayer.mode == _multiplayer_mode_direct_link)
+		direct_code_update();
+#endif
+#line 5374
 	if (focused != NONE && focused < multiplayer.game_count)
 		multiplayer.game_chosen = focused;
 	for (row = list->child; row; row = row->next)
@@ -5567,6 +5847,11 @@ static void browser_update(struct widget_instance *list)
 
 		if (multiplayer.mode == _multiplayer_mode_server_browser)
 			text[0] = 0;
+#ifdef HALO_PS3
+		else if (multiplayer.mode == _multiplayer_mode_direct_link && direct_code_line())
+			usnprintf(text, NUMBEROF(text) - 1, L"%s", direct_code_line());
+#endif
+#line 5406
 		else if (!multiplayer.game_count)
 		{
 			usnprintf(text, NUMBEROF(text) - 1, L"%s", multiplayer.mode == _multiplayer_mode_direct_link ?
@@ -6223,6 +6508,19 @@ static void lobby_update(struct widget_instance *list)
 
 			usnprintf(text + length, NUMBEROF(text) - 1 - length, L" %d", seconds);
 		}
+#ifdef HALO_PS3
+		/* (no clipboard: the invite's code, which players type in DIRECT LINK) */
+		if (global_network_game_server_get() && p2p_invite_link(link, sizeof(link)) &&
+			invite_code_shown(link, sizeof(link)))
+		{
+			size_t length = ustrlen(text);
+			wchar_t code[16];
+
+			text_to_wide(link, code, NUMBEROF(code));
+			usnprintf(text + length, NUMBEROF(text) - 1 - length, L"\r\n\r\nInvite code: %s", code);
+		}
+#else
+#line 6062
 		/* (copied by itself only with network.copy_to_clipboard:
 		sdl_platform.c) */
 		if (global_network_game_server_get() && config_boolean("network.copy_to_clipboard") &&
@@ -6232,6 +6530,8 @@ static void lobby_update(struct widget_instance *list)
 
 			usnprintf(text + length, NUMBEROF(text) - 1 - length, L"\r\n\r\nInvite link copied.");
 		}
+#endif
+#line 6071
 		/* (the host of an internet game: whether players can reach it) */
 		{
 			char status[192];
@@ -7114,7 +7414,14 @@ gametype's choice did) */
 #define HOST_EDIT_SCREEN "pc\\chupathingy\\host\\edit_general"
 #define HOST_LOBBY_SCREEN "ui\\shell\\main_menu\\multiplayer_type_select\\connected\\pregame\\connected_pregame_screen"
 #define HOST_SETUP_SCREEN "pc\\chupathingy\\host\\setup_screen"
+#ifdef HALO_PS3
+/* (INVITE CODE's ninth row: chupathingy/host_setup.xml's row_8 on the PS3) */
+#define HOST_SETUP_ROWS 9
+#else
+#line 6953
 #define HOST_SETUP_ROWS 8
+#endif
+#line 6954
 #define HOST_EDIT_ROWS 10
 /* a message (a game type not saved) shows this long in place of the help */
 #define HOST_MESSAGE_DURATION 4000
@@ -7127,6 +7434,11 @@ enum
 {
 	_host_row_name,
 	_host_row_maximum_players,
+#ifdef HALO_PS3
+	/* (shown, not changed: the hosted game's invite code, as Gearbox's SERVER SETUP has it) */
+	_host_row_invite_code,
+#endif
+#line 6966
 	_host_row_public,
 	_host_row_password,
 	_host_row_port,
@@ -7145,7 +7457,14 @@ enum
 
 static wchar_t const *const host_row_labels[NUMBER_OF_HOST_ROWS] =
 {
+#ifdef HALO_PS3
+	L"GAME NAME:", L"MAX PLAYERS:", L"INVITE CODE:", L"PUBLIC LOBBY:", L"PASSWORD:", L"PORT:", L"GAME TYPE:",
+	L"TEAM SWITCHING:",
+#else
+#line 6984
 	L"GAME NAME:", L"MAX PLAYERS:", L"PUBLIC LOBBY:", L"PASSWORD:", L"PORT:", L"GAME TYPE:", L"TEAM SWITCHING:",
+#endif
+#line 6985
 	L"TEAM SWITCH MARGIN:", L"CHAT FILTER:", L"MOUSE AIM ASSIST:", L"PLAYER NAMES:",
 	L"FOLLOW CAMERA:", L"HOST RULES", L"START GAME",
 };
@@ -7385,6 +7704,16 @@ static boolean host_setup_value(short row, wchar_t *text)
 		usnprintf(text, ROW_TEXT_LENGTH - 1, L"%d",
 			maximum_players[PIN(*server_settings_maximum_players_index(), 0, NUMBEROF(maximum_players) - 1)]);
 		return TRUE;
+#ifdef HALO_PS3
+	case _host_row_invite_code:
+		if (!config_boolean("network.online"))
+			snprintf(ascii, sizeof(ascii), "INTERNET PLAY OFF");
+		else if (!invite_code_shown(ascii, sizeof(ascii)))
+			snprintf(ascii, sizeof(ascii), "MAKING A CODE...");
+		text_to_wide(ascii, text, ROW_TEXT_LENGTH);
+		return FALSE;
+#endif
+#line 7224
 	case _host_row_public:
 		ustrncpy(text, multiplayer.game_private ? L"OFF" : L"ON", ROW_TEXT_LENGTH - 1);
 		return TRUE;
@@ -7464,9 +7793,19 @@ static wchar_t const *host_setup_help(short row)
 		return L"The game's name in the game list.";
 	case _host_row_maximum_players:
 		return L"The most players allowed in the game.";
+#ifdef HALO_PS3
+	case _host_row_invite_code:
+		return L"A PS3 types it in ONLINE GAMES (START). On a PC,\r\nthe Invite Codes page turns it into a link.";
+	case _host_row_public:
+		return multiplayer.game_private ? L"Only players with your invite code can join." :
+			L"Anyone can join from Online Games.";
+#else
+#line 7303
 	case _host_row_public:
 		return multiplayer.game_private ? L"Only players with your invite link can join." :
 			L"Anyone can join from Online Games.";
+#endif
+#line 7306
 	case _host_row_password:
 		return L"Required to join from the game list.";
 	case _host_row_port:
@@ -8088,13 +8427,7 @@ static boolean host_initialize(struct widget_instance *list)
 			p2p_check_network();
 			multiplayer.game_private = !config_boolean("network.host_public");
 			multiplayer.game_password[0] = 0;
-			if (!multiplayer.game_name[0] && player_ui_get_active_player_profile_index(0) != NONE)
-			{
-				struct player_profile profile;
-
-				player_ui_get_active_player_profile(0, &profile);
-				ustrncpy(multiplayer.game_name, profile.player_name, NUMBEROF(multiplayer.game_name) - 1);
-			}
+			game_name_default();
 		}
 		/* (none chosen, as when the screen is opened on its own: the one used
 		last; co-op has none) */
@@ -9025,6 +9358,15 @@ boolean pc_menu_event_function_invoke(
 		{
 			text_field_end(FALSE);
 		}
+#ifdef HALO_PS3
+		/* (B while an invite code is looked up: the lookup stopped, Direct Link kept) */
+		else if (!strcmp(name, "gamespy back handler") && direct_code.looking)
+		{
+			direct_code_stop(L"Stopped.");
+			ui_play_audio_feedback_sound(SOUND_BACK);
+		}
+#endif
+#line 8864
 		else if (!strcmp(name, "port host init"))
 		{
 			return host_initialize(widget);
@@ -9136,6 +9478,24 @@ boolean pc_menu_event_function_invoke(
 		{
 			return profile_save_changes(widget, widget_deleted);
 		}
+#ifdef HALO_PS3
+		else if (!strcmp(name, "direct ip connect go"))
+		{
+			/* (the A the server browser posts for its join, if INSERT CODE has the focus) */
+			if (multiplayer.mode == _multiplayer_mode_server_browser && lobby_browser.ready)
+				return lobby_browser_select(widget, controller, NONE, widget_deleted);
+			return direct_code_enter(controller);
+		}
+		else if (!strcmp(name, "port browser refresh") || !strcmp(name, "port browser filter"))
+		{
+			/* (the bar's button, as if chosen: none while hidden, as REFRESH is but in the server browser) */
+			struct widget_instance *button = named(widget, !strcmp(name, "port browser refresh") ?
+				"join_game_button_refresh" : "join_game_button_filters", 0);
+
+			return !button || !button->visible || browser_select(button, event, controller, widget_deleted);
+		}
+#endif
+#line 8975
 		else if (!strcmp(name, "direct ip connect go"))
 		{
 			return direct_link_from_clipboard();
@@ -9460,6 +9820,11 @@ void pc_menu_game_data_function_invoke(
 			views_show(widget, settings_view);
 		if (views_list(widget) != widget || !strcmp(settings_view, "main"))
 			video_rows_show(widget);
+#ifdef HALO_PS3
+		if (views_list(widget) == widget && !strcmp(settings_view, "main"))
+			preset_rows_show(widget);
+#endif
+#line 9299
 		settings_help(widget);
 	}
 	else if (!strcmp(name, "port controls update"))

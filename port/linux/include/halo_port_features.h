@@ -63,7 +63,8 @@ only */
 /* the high-res text and HUD (port/linux/src/text_hires.c,
 port/linux/game/hud_hires_tags.c): a console draws the maps' own fonts and
 bitmaps, as retail, without the atlas's texture memory */
-#ifndef HALO_CONSOLE_NO_HIRES
+/* (HALO_CONSOLE_HIRES keeps the hooks: the PS3's button icons stand in for the HUD's bitmaps through them) */
+#if !defined(HALO_CONSOLE_NO_HIRES) && !defined(HALO_CONSOLE_HIRES)
 #define HALO_CONSOLE_NO_HIRES
 #endif
 

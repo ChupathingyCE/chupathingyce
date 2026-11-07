@@ -723,6 +723,25 @@ static void main_game_render(
 
 /* ---------- globals */
 
+#ifdef HALO_PS3
+#include "ps3_timers.h"
+
+/* port: the main loop's place and passes, for the PS3's heartbeat (port/ps3/xbox/xbox_kernel.c) */
+volatile long ps3_main_loop_step = 0;
+volatile unsigned long ps3_main_loop_count = 0;
+#define PS3_MAIN_STEP(step) (ps3_main_loop_step = (step))
+/* port: the timer build's spans (port/ps3/include/ps3_timers.h) */
+static uint64_t ps3_timer_loop, ps3_timer_sound;
+/* port: the frames drawn since the sound's last update (main_game_render) */
+static long ps3_frames_without_sound = 0;
+#define PS3_TIMER_BEGIN(span) ((span) = ps3_timer_now())
+#define PS3_TIMER_END(timer, span) ((void)ps3_timer_add((timer), (span)))
+#else
+#define PS3_MAIN_STEP(step) ((void)0)
+#define PS3_TIMER_BEGIN(span) ((void)0)
+#define PS3_TIMER_END(timer, span) ((void)0)
+#endif
+
 short global_difficulty_level = 1;
 short player_spawn_count = 1;
 boolean global_frame_rate_throttle = TRUE;
@@ -754,6 +773,10 @@ boolean debug_frame_rate = FALSE;
 boolean display_framerate = FALSE;
 boolean display_vblank_deltas = FALSE;
 boolean display_precache_progress = FALSE;
+#ifdef HALO_PS3
+/* port: pack(1) lets it start at an odd address, and the PPE faults on its misaligned floats */
+__declspec(align(8))
+#endif
 struct _screenshot_and_framerate_globals global_screenshot_count = { 0 };
 boolean debug_render_freeze;
 
@@ -1143,18 +1166,25 @@ void main_menu_unload(
 void main_menu_load(
 	void)
 {
+	PS3_MAIN_STEP(100); /* port: PS3_MAIN_STEP: the main loop's place, for the PS3's heartbeat (nothing elsewhere) */
 	if (!main_globals.main_menu_scenario_loaded)
 		main_load_ui_scenario(FALSE);
+	PS3_MAIN_STEP(101);
 	main_screen_shell_load();
+	PS3_MAIN_STEP(102);
 	main_menu_precache_resources();
+	PS3_MAIN_STEP(103);
 	update_server_delete();
 	update_server_new();
 	update_server_start();
+	PS3_MAIN_STEP(104);
 	game_time_dispose_from_old_map();
 	game_time_initialize_for_new_map();
 	game_time_start();
+	PS3_MAIN_STEP(105);
 	hs_runtime_dispose_from_old_map();
 	hs_runtime_initialize_for_new_map();
+	PS3_MAIN_STEP(106);
 	main_globals.want_to_be_at_main_menu = FALSE;
 
 	return;
@@ -1288,6 +1318,20 @@ void set_window_camera_values(
 	struct render_window *window,
 	struct observer_result const *observer)
 {
+	PS3_MAIN_STEP(560);
+#ifdef HALO_PS3
+	{
+		static boolean logged = FALSE;
+
+		if (!logged)
+		{
+			logged = TRUE;
+			error(_error_silent, "ps3: window camera of player %d, observer %s, field of view %08lx",
+				window->local_player_index, observer ? "set" : "none",
+				observer ? *(unsigned long const *)&observer->field_of_view : 0UL);
+		}
+	}
+#endif
 	if (observer)
 	{
 		real field_of_view_tangent = render_camera_get_adjusted_field_of_view_tangent(observer->field_of_view);
@@ -1304,29 +1348,35 @@ void set_window_camera_values(
 		window->rasterizer_camera.vertical_field_of_view =
 			2.0f * arctangent(0.75f * field_of_view_tangent, 1.0f);
 
+		PS3_MAIN_STEP(561);
 		if (window->local_player_index != NONE &&
-			!console_is_active() &&
-			!game_time_get_paused() &&
-			director_get_perspective(window->local_player_index) !=
+			(PS3_MAIN_STEP(5611), !console_is_active()) &&
+			(PS3_MAIN_STEP(5612), !game_time_get_paused()) &&
+			(PS3_MAIN_STEP(5613), director_get_perspective(window->local_player_index)) !=
 				_director_perspective_neutral)
 		{
 			real_matrix4x3 effect_matrix;
 			real_matrix4x3 view_matrix;
 
+			PS3_MAIN_STEP(562);
 			player_effect_get_camera_effect_matrix(
 				window->local_player_index,
 				&effect_matrix);
+			PS3_MAIN_STEP(563);
 			matrix4x3_from_point_and_vectors(
 				&view_matrix,
 				&observer->position,
 				&observer->forward,
 				&observer->up);
+			PS3_MAIN_STEP(564);
 			matrix4x3_multiply(&view_matrix, &effect_matrix, &view_matrix);
+			PS3_MAIN_STEP(565);
 			matrix4x3_to_point_and_vectors(
 				&view_matrix,
 				&window->rasterizer_camera.position,
 				&window->rasterizer_camera.forward,
 				&window->rasterizer_camera.up);
+			PS3_MAIN_STEP(566);
 		}
 	}
 	else
@@ -1334,6 +1384,7 @@ void set_window_camera_values(
 		window->rasterizer_camera.position = *global_origin3d;
 		window->rasterizer_camera.forward = *global_forward3d;
 		window->rasterizer_camera.up = *global_up3d;
+		PS3_MAIN_STEP(567);
 		window->rasterizer_camera.vertical_field_of_view =
 			2.0f * arctangent(
 				0.75f * render_camera_get_adjusted_field_of_view_tangent(
@@ -1341,6 +1392,7 @@ void set_window_camera_values(
 				1.0f);
 	}
 
+	PS3_MAIN_STEP(568);
 	window->rasterizer_camera.mirrored = FALSE;
 	window->rasterizer_camera.z_near = rasterizer_globals.near_clip_distance;
 	window->rasterizer_camera.z_far = MAX(rasterizer_globals.far_clip_distance, far_clip_distance_floor());
@@ -2843,8 +2895,17 @@ void main_rasterizer_throttle(
 				spent half its game thread asking the time. A millisecond is
 				well inside a 33 ms frame (Windows sets its timer to 1 ms:
 				win32_posix.c) */
+#ifdef HALO_PS3
+				if (precache_in_progress)
+				{
+					Sleep(1);
+				}
+				/* lv2 schedules by strict priority: let equal-priority game threads use this PPE thread */
+				SwitchToThread();
+#else
 				(void)precache_in_progress;
 				Sleep(1);
+#endif
 				if (system_milliseconds() > start_milliseconds + 1000)
 				{
 					console_warning(
@@ -3264,6 +3325,12 @@ void halt_and_catch_fire(
 #endif
 	if (!global_screenshot_count.halt_recursion_lock)
 	{
+#ifdef HALO_PS3
+		/* port: a red screen, until G4 draws this one (port/ps3/src/ps3_main.c) */
+		extern void ps3_host_game_halted(void);
+
+		ps3_host_game_halted();
+#endif
 		scenario = global_scenario_try_and_get();
 		global_screenshot_count.halt_recursion_lock = TRUE;
 		for (gamepad_index = 0; gamepad_index < MAXIMUM_GAMEPADS; gamepad_index++)
@@ -3407,16 +3474,32 @@ static void main_game_render(
 	MAIN_STAGE("render: collision_log_continue_period");
 	collision_log_continue_period(TRUE);
 	MAIN_STAGE("render: sound_render");
+	PS3_MAIN_STEP(501);
+	PS3_TIMER_BEGIN(ps3_timer_sound);
 	HALO_PERF_BEGIN(_halo_perf_sound);
 	HALO_PERF_BEGIN(_halo_perf_render_sound);
+#ifdef HALO_PS3
+	/* port: with the frames between ticks, the sound at the ticks' rate, as on the Xbox (a frame a tick);
+	every second frame while no tick runs (paused) */
+	if (!halo_interpolation_enabled() || game_time_get_elapsed() > 0 || ++ps3_frames_without_sound >= 2)
+	{
+		ps3_frames_without_sound = 0;
+		sound_render();
+	}
+#else
 	sound_render();
+#endif
 	HALO_PERF_END(_halo_perf_render_sound);
 	HALO_PERF_END(_halo_perf_sound);
+	PS3_TIMER_END(_ps3_timer_sound, ps3_timer_sound);
+	PS3_MAIN_STEP(502);
 	force_single_screen = game_engine_force_single_screen();
 	last_local_player_index = NONE;
 
+	PS3_MAIN_STEP(540);
 	window_count = PIN(local_player_count(), 1, MAXIMUM_LOCAL_PLAYERS);
 	player_window_count = window_count;
+	PS3_MAIN_STEP(541);
 	if (force_single_screen || cinematic_in_progress())
 	{
 		window_count = 1;
@@ -3429,6 +3512,7 @@ static void main_game_render(
 		observer = NULL;
 
 		MAIN_STAGE("render: compute_window_bounds");
+		PS3_MAIN_STEP(542);
 		compute_window_bounds(
 			window_index,
 			player_window_count,
@@ -3454,13 +3538,16 @@ static void main_game_render(
 				}
 			}
 
+			PS3_MAIN_STEP(543);
 			window->local_player_index = last_local_player_index;
 			MAIN_STAGE("render: observer_get_camera");
 			observer = observer_get_camera(window->local_player_index);
+			PS3_MAIN_STEP(544);
 			MAIN_STAGE("render: render_interpolation_camera");
 #ifndef HALO_XBOX_CONSOLE
 			observer = render_interpolation_camera(window->local_player_index, observer);
 #endif
+			PS3_MAIN_STEP(545);
 		}
 		else
 		{
@@ -3468,10 +3555,13 @@ static void main_game_render(
 		}
 
 		MAIN_STAGE("render: set_window_camera_values");
+		PS3_MAIN_STEP(546);
 		set_window_camera_values(window, observer);
+		PS3_MAIN_STEP(547);
 		window->console_window = FALSE;
 	}
 
+	PS3_MAIN_STEP(548);
 	window = &global_screenshot_count.windows[player_window_count];
 	MAIN_STAGE("render: compute_window_bounds");
 	compute_window_bounds(
@@ -3482,8 +3572,10 @@ static void main_game_render(
 	window->local_player_index = NONE;
 	window->console_window = TRUE;
 	MAIN_STAGE("render: set_window_camera_values");
+	PS3_MAIN_STEP(549);
 	set_window_camera_values(window, NULL);
 
+	PS3_MAIN_STEP(503);
 	if (global_screenshot_count.count <= 0)
 	{
 		MAIN_STAGE("render: render_frame");
@@ -3540,6 +3632,12 @@ void main_loop(
 
 	while (TRUE)
 	{
+#ifdef HALO_PS3
+		ps3_main_loop_count++;
+		ps3_timers_frame();
+		/* port: the RSX's frame starts here (its timestamps: ps3_timers_rsx_wait) */
+		ps3_timers_rsx_wait(_ps3_timer_rsx_previous);
+#endif
 #ifdef HALO_CONSOLE_BRINGUP_LOG
 		/* port: the loop's pulse in the port's log (the console developer
 		tools) */
@@ -3589,6 +3687,7 @@ void main_loop(
 		/* port: debug.txt's waiting lines, once a second (errors.c) */
 		error_log_update();
 #endif
+		PS3_MAIN_STEP(1); /* port: PS3_MAIN_STEP: the loop's place, for the PS3's heartbeat (nothing elsewhere) */
 		if (!game_in_editor())
 		{
 			if (main_globals.switch_to_structure_bsp_index!=NONE)
@@ -3693,20 +3792,27 @@ void main_loop(
 			main_reset_map_private();
 		}
 
+		PS3_MAIN_STEP(20);
 		MAIN_STAGE("profile_frame_start");
 		profile_frame_start();
 		MAIN_STAGE("input_frame_begin");
 		input_frame_begin();
+		PS3_MAIN_STEP(21);
 		MAIN_STAGE("input_update");
 		input_update();
+		PS3_MAIN_STEP(22);
 		MAIN_STAGE("input_abstraction_update");
 		input_abstraction_update();
+		PS3_MAIN_STEP(23);
 		MAIN_STAGE("shell_idle");
 		shell_idle();
+		PS3_MAIN_STEP(24);
 		MAIN_STAGE("event_manager_update");
 		event_manager_update();
+		PS3_MAIN_STEP(25);
 		MAIN_STAGE("telnet_console_process");
 		telnet_console_process();
+		PS3_MAIN_STEP(26);
 
 		if (!shell_application_is_paused())
 		{
@@ -3786,10 +3892,13 @@ void main_loop(
 			}
 			HALO_PERF_END(_halo_perf_network);
 
+			PS3_MAIN_STEP(30);
 			MAIN_STAGE("main_update_time");
 			main_update_time();
+			PS3_MAIN_STEP(31);
 			MAIN_STAGE("process_ui_widgets");
 			process_ui_widgets();
+			PS3_MAIN_STEP(32);
 #ifdef HALO_GAME_BROWSER
 			{
 				/* the dedicated server's director (server/src/dedicated.c); the
@@ -3824,6 +3933,7 @@ void main_loop(
 #endif
 			MAIN_STAGE("bink_playback_update");
 			bink_playback_update();
+			PS3_MAIN_STEP(33);
 
 			/* port: not End or Escape, the Xbox devkit keyboard's way out of a
 			game: here the keys reach the game only through the console and text
@@ -3843,11 +3953,13 @@ void main_loop(
 
 			if (game_in_progress())
 			{
+				PS3_MAIN_STEP(40);
 				MAIN_STAGE("terminal_update");
 				terminal_update();
 
 				if (!console_update() || main_globals.connection!=_game_connection_local)
 				{
+					PS3_MAIN_STEP(41);
 					MAIN_STAGE("debug_keys_update");
 					debug_keys_update();
 					MAIN_STAGE("cheats_update");
@@ -3865,8 +3977,15 @@ void main_loop(
 					}
 					HALO_PERF_END(_halo_perf_network);
 
+					PS3_MAIN_STEP(42);
+					PS3_TIMER_BEGIN(ps3_timer_loop);
 					MAIN_STAGE("game_time_update");
 					game_time_update((real)main_globals.halt_time_scale*main_globals.seconds_elapsed);
+					PS3_TIMER_END(_ps3_timer_ticks, ps3_timer_loop);
+#ifdef HALO_PS3
+					ps3_timer_game_ticks += game_time_get_elapsed();
+#endif
+					PS3_MAIN_STEP(43);
 
 					render_frame = main_globals.main_menu_scenario_loaded ||
 						(main_globals.halt_time_scale &&
@@ -3878,6 +3997,7 @@ void main_loop(
 #endif
 					render_frame &= !game_engine_running() || game_time_get()>=3;
 
+					PS3_MAIN_STEP(44);
 					MAIN_STAGE("collision_log_continue_period");
 					collision_log_continue_period(1);
 					MAIN_STAGE("director_update");
@@ -3886,6 +4006,7 @@ void main_loop(
 					observer_update((real)main_globals.halt_time_scale*main_globals.seconds_elapsed);
 					MAIN_STAGE("collision_log_end_period");
 					collision_log_end_period();
+					PS3_MAIN_STEP(45);
 					MAIN_STAGE("game_engine_update_non_deterministic");
 					game_engine_update_non_deterministic((real)main_globals.halt_time_scale*main_globals.seconds_elapsed);
 				}
@@ -3898,6 +4019,7 @@ void main_loop(
 
 				if (render_frame && !debug_no_drawing)
 				{
+					PS3_MAIN_STEP(50);
 					MAIN_STAGE("profile_render_start");
 					profile_render_start();
 					MAIN_STAGE("render_interpolation_frame_begin");
@@ -3905,8 +4027,11 @@ void main_loop(
 					render_interpolation_frame_begin();
 					MAIN_STAGE("main_game_render");
 					HALO_PERF_BEGIN(_halo_perf_render);
+					PS3_TIMER_BEGIN(ps3_timer_loop);
 					main_game_render((double)main_globals.seconds_elapsed);
+					PS3_TIMER_END(_ps3_timer_render, ps3_timer_loop);
 					HALO_PERF_END(_halo_perf_render);
+					PS3_MAIN_STEP(51);
 					MAIN_STAGE("render_interpolation_frame_end");
 					render_interpolation_frame_end();
 					MAIN_STAGE("profile_render_end");
@@ -3920,30 +4045,43 @@ void main_loop(
 			}
 			else
 			{
+				PS3_MAIN_STEP(52);
 				MAIN_STAGE("profile_render_start");
 				profile_render_start();
 				MAIN_STAGE("main_pregame_render");
 				HALO_PERF_BEGIN(_halo_perf_render);
+				PS3_TIMER_BEGIN(ps3_timer_loop);
 				main_pregame_render();
+				PS3_TIMER_END(_ps3_timer_render, ps3_timer_loop);
 				HALO_PERF_END(_halo_perf_render);
 				MAIN_STAGE("profile_render_end");
 				profile_render_end();
 			}
 
+			PS3_MAIN_STEP(60);
+#ifdef HALO_PS3
+			ps3_timers_rsx_wait(_ps3_timer_rsx_after);
+#endif
 			MAIN_STAGE("main_rasterizer_throttle");
 			HALO_PERF_BEGIN(_halo_perf_vsync_wait);
+			PS3_TIMER_BEGIN(ps3_timer_loop);
 			main_rasterizer_throttle();
+			PS3_TIMER_END(_ps3_timer_throttle, ps3_timer_loop);
 			HALO_PERF_END(_halo_perf_vsync_wait);
 
 			if (render_frame && !debug_no_drawing)
 			{
+				PS3_MAIN_STEP(61);
 				MAIN_STAGE("main_present_frame");
 				HALO_PERF_BEGIN(_halo_perf_present);
+				PS3_TIMER_BEGIN(ps3_timer_loop);
 				main_present_frame();
+				PS3_TIMER_END(_ps3_timer_present, ps3_timer_loop);
 				HALO_PERF_END(_halo_perf_present);
 			}
 		}
 
+		PS3_MAIN_STEP(70);
 		MAIN_STAGE("input_frame_end");
 		input_frame_end();
 		MAIN_STAGE("profile_frame_end");

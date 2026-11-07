@@ -105,6 +105,32 @@ void build_sprite(
 	unsigned long flags);
 void build_sprites_end(
 	struct build_sprite_data *data);
+#ifdef HALO_PS3
+#include "ps3_spu_game.h" /* port: port/ps3/src/ps3_spu.c */
+
+/* port: for the weather's and the particles' SPU jobs (render_sprite.c) */
+short build_sprite_group_for_bitmap(
+	struct build_sprite_data *data,
+	struct bitmap_data *bitmap);
+void build_sprite_spu_globals(
+	float *viewer_up,
+	float *viewer_forward,
+	int32_t *big_sprite_count);
+void build_sprite_spu_add(
+	int32_t big_sprite_count,
+	float coverage);
+/* port: and those a job built (after others, not from the count it started with) */
+void build_sprite_spu_add_more(
+	int32_t big_sprite_count,
+	float coverage);
+/* port: a bitmap group's sprites as the SPU reads them, its bitmaps by slot; FALSE when the table cannot hold them */
+boolean build_sprite_spu_table(
+	long bitmap_group_index,
+	spu_game_weather_sprites *sprites,
+	struct bitmap_data **bitmaps,
+	short *slot_count,
+	unsigned long *size);
+#endif
 void build_sprite_prepare_for_window(
 	void);
 real build_sprite_compute_vertex_fade(
