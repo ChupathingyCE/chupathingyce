@@ -109,6 +109,9 @@ enum
 	BITMAP_SIZE = 0x30,
 
 	CE_VERTEX_SIZE = 0x44,
+	/* (as many as a window of the model data holds: ce_map_checks.h) */
+	CE_WINDOW_VERTICES = CE_MODEL_DATA_WINDOW_SIZE / CE_VERTEX_SIZE,
+	CE_WINDOW_INDICES = CE_MODEL_DATA_WINDOW_SIZE / 2,
 	XBOX_VERTEX_SIZE = 0x20,
 	XBOX_MODEL_VERTEX_TYPE = 5, /* (_rasterizer_vertex_type_model_compressed) */
 };
@@ -142,6 +145,8 @@ struct xbox_vertex
 unsigned long ce_resources_allocate(unsigned long size);
 #ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
 extern int platform_ce_alias;
+void *platform_ce_scratch_malloc(size_t size);
+void platform_ce_scratch_free(void *address);
 #endif
 unsigned long ce_resources_free_mark(void);
 unsigned long compress_real_vector3d_to_int32_clamp(union real_vector3d const *v);
@@ -181,10 +186,25 @@ static unsigned long ce_compress_vector(
 	return compress_real_vector3d_to_int32_clamp(&v);
 }
 
+/* the vertices of a part's (count of them, at vertex_offset in the model
+data) from first on, as many as a window holds: NULL if they could not be
+read */
+static byte const *ce_model_data_vertices(
+	struct ce_model_data *data,
+	unsigned long vertex_offset,
+	long first,
+	long count)
+{
+	long batch = count - first < CE_WINDOW_VERTICES ? count - first : CE_WINDOW_VERTICES;
+
+	return ce_model_data_at(data, vertex_offset + (unsigned long)first * CE_VERTEX_SIZE,
+		(unsigned long)batch * CE_VERTEX_SIZE);
+}
+
 /* a part's vertices compressed into contiguous memory behind a new vertex
 buffer: the buffer's address, or 0 */
 static unsigned long ce_part_vertices(
-	byte const *model_data,
+	struct ce_model_data *data,
 	unsigned long vertex_offset,
 	long count,
 	byte const *part)
@@ -194,6 +214,7 @@ static unsigned long ce_part_vertices(
 	unsigned long buffer_address = ce_resources_allocate(3 * sizeof(unsigned long));
 	byte local_node_count = part[CE_PART_LOCAL_NODE_COUNT_OFFSET];
 	boolean local_nodes = (*(unsigned long const *)part & CE_PART_LOCAL_NODES_FLAG) && local_node_count;
+	byte const *span = NULL;
 	long index;
 
 	if (!buffer_address || count <= 0)
@@ -223,7 +244,14 @@ static unsigned long ce_part_vertices(
 		struct xbox_vertex *out = &vertices[index];
 		short node;
 
-		csmemcpy(&vertex, model_data + vertex_offset + index * CE_VERTEX_SIZE, sizeof(vertex));
+		/* (a window's worth of them at a time: ce_map_checks.h) */
+		if (index % CE_WINDOW_VERTICES == 0)
+		{
+			span = ce_model_data_vertices(data, vertex_offset, index, count);
+			if (!span)
+				return 0;
+		}
+		csmemcpy(&vertex, span + (index % CE_WINDOW_VERTICES) * CE_VERTEX_SIZE, sizeof(vertex));
 
 		out->position[0] = in->position[0];
 		out->position[1] = in->position[1];
@@ -259,7 +287,7 @@ static unsigned long ce_part_vertices(
 /* a part's triangle strip (count + 2 indices) copied into the tag cache
 behind a new index buffer: the buffer's address, or 0 */
 static unsigned long ce_part_triangles(
-	byte const *model_data,
+	struct ce_model_data *data,
 	unsigned long index_offset,
 	long count,
 	unsigned long *strip_address)
@@ -268,10 +296,20 @@ static unsigned long ce_part_triangles(
 	unsigned long indices = ce_resources_allocate(size);
 	unsigned long buffer_address = ce_resources_allocate(3 * sizeof(unsigned long));
 	unsigned long *buffer;
+	unsigned long copied;
 
 	if (!indices || !buffer_address || count < 0)
 		return 0;
-	csmemcpy(xbox_pointer(indices), model_data + index_offset, size);
+	/* (a window's worth at a time: ce_map_checks.h) */
+	for (copied = 0; copied < size; copied += CE_MODEL_DATA_WINDOW_SIZE)
+	{
+		unsigned long chunk = size - copied < CE_MODEL_DATA_WINDOW_SIZE ? size - copied : CE_MODEL_DATA_WINDOW_SIZE;
+		byte const *at = ce_model_data_at(data, index_offset + copied, chunk);
+
+		if (!at)
+			return 0;
+		csmemcpy((byte *)xbox_pointer(indices) + copied, at, chunk);
+	}
 	buffer = xbox_pointer(buffer_address);
 	buffer[0] = D3DCOMMON_TYPE_INDEXBUFFER | 1;
 	buffer[1] = indices;
@@ -440,16 +478,11 @@ static long ce_multipurpose_bitmaps_find(
 	return ce_multipurpose_bitmap_count;
 }
 
-/* ---------- public code */
-
-/* a Custom Edition map's tags and resources loaded (cache_files.c): its
-gbxmodels made models; model_data its model data block (the vertices,
-vertex_data_size bytes, then the triangles) */
-boolean ce_models_tags_loaded(
+/* a map's gbxmodels made models, from its model data (ce_models_tags_loaded) */
+static boolean ce_models_convert(
 	void *tag_instances,
 	long tag_count,
-	byte const *model_data,
-	unsigned long vertex_data_size)
+	struct ce_model_data *data)
 {
 	long models = 0, parts_converted = 0;
 	long index;
@@ -509,13 +542,13 @@ boolean ce_models_tags_loaded(
 				*(short *)(xbox_part + PART_TRIANGLE_BUFFER_OFFSET) = triangle_type;
 				*(long *)(xbox_part + PART_TRIANGLE_BUFFER_OFFSET + 4) = triangle_count;
 				*(unsigned long *)(xbox_part + PART_TRIANGLE_BUFFER_OFFSET + 12) =
-					ce_part_triangles(model_data, vertex_data_size + triangle_offset, triangle_count, &strip);
+					ce_part_triangles(data, data->vertex_data_size + triangle_offset, triangle_count, &strip);
 				*(unsigned long *)(xbox_part + PART_TRIANGLE_BUFFER_OFFSET + 8) = strip;
 				/* the vertex buffer: type, count, its vertices */
 				*(short *)(xbox_part + PART_VERTEX_BUFFER_OFFSET) = XBOX_MODEL_VERTEX_TYPE;
 				*(long *)(xbox_part + PART_VERTEX_BUFFER_OFFSET + 4) = vertex_count;
 				*(unsigned long *)(xbox_part + PART_VERTEX_BUFFER_OFFSET + 16) =
-					ce_part_vertices(model_data, vertex_offset, vertex_count, ce_part);
+					ce_part_vertices(data, vertex_offset, vertex_count, ce_part);
 				parts_converted++;
 			}
 			*(unsigned long *)(geometry_data + GEOMETRY_PARTS_OFFSET + 4) = xbox_parts_address;
@@ -526,6 +559,173 @@ boolean ce_models_tags_loaded(
 	error(_error_silent, "Custom Edition maps: %ld gbxmodels made models (%ld parts)", models, parts_converted);
 	return TRUE;
 }
+
+/* the model data's memory (ce_model_data_begin): on a 64 MB console, while a
+map loads, of what the load borrows */
+static void *ce_model_data_malloc(
+	unsigned long size)
+{
+#ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
+	if (platform_ce_alias)
+		return platform_ce_scratch_malloc(size);
+#endif
+	return system_malloc(size);
+}
+
+static void ce_model_data_free(
+	void *address)
+{
+#ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
+	if (platform_ce_alias)
+	{
+		platform_ce_scratch_free(address);
+		return;
+	}
+#endif
+	system_free(address);
+}
+
+#ifdef HALO_CONSOLE_CE_MODEL_DATA_WINDOWS
+short cache_file_read(long tag_index, long offset, long size, void *buffer, boolean *completion_flag_reference,
+	boolean blocking);
+
+/* a window of the model data read from the map, as cache_files.c reads the
+rest of it (context: the model data's offset in the file) */
+static boolean ce_model_data_cache_read(
+	void *context,
+	unsigned long offset,
+	void *buffer,
+	unsigned long size)
+{
+	boolean read_complete = FALSE;
+
+	cache_file_read(NONE, (long)(*(unsigned long const *)context + offset), (long)size, buffer, &read_complete,
+		TRUE);
+	while (!read_complete)
+		SwitchToThread();
+	return TRUE;
+}
+#endif
+
+/* ---------- public code */
+
+byte const *ce_model_data_at(
+	struct ce_model_data *data,
+	unsigned long offset,
+	unsigned long size)
+{
+	short which;
+	unsigned long length;
+
+	if (data->whole)
+		return data->whole + offset;
+	/* (the vertices' window, or the strips') */
+	which = offset >= data->vertex_data_size;
+	if (offset >= data->window_offsets[which] && offset - data->window_offsets[which] <= data->window_sizes[which] &&
+		size <= data->window_sizes[which] - (offset - data->window_offsets[which]))
+	{
+		return data->windows + which * CE_MODEL_DATA_WINDOW_SIZE + (offset - data->window_offsets[which]);
+	}
+	/* (moved on, to just what was asked for: the parts are checked and made
+	in the order of their tags, not of the file, so reading on past it gains
+	nothing; the Halo 2 maps' 1500 reads are their 16 MB) */
+	data->window_sizes[which] = 0;
+	if (offset > data->size || size > CE_MODEL_DATA_WINDOW_SIZE || size > data->size - offset)
+		return NULL;
+	length = size;
+	if (!data->read(data->context, offset, data->windows + which * CE_MODEL_DATA_WINDOW_SIZE, length))
+		return NULL;
+	data->window_offsets[which] = offset;
+	data->window_sizes[which] = length;
+	return data->windows + which * CE_MODEL_DATA_WINDOW_SIZE;
+}
+
+boolean ce_model_data_begin(
+	struct ce_model_data *data)
+{
+	if (data->whole)
+		return TRUE;
+	data->window_sizes[0] = data->window_sizes[1] = 0;
+	/* (whole, in one read, if there is room for it) */
+	data->held = ce_model_data_malloc(data->size ? data->size : 1);
+	if (data->held)
+	{
+		if (data->read(data->context, 0, data->held, data->size))
+		{
+			data->whole = data->held;
+			return TRUE;
+		}
+		ce_model_data_free(data->held);
+		data->held = NULL;
+	}
+	else
+	{
+		error(_error_silent, "Custom Edition maps: no room for the model data whole (%lu bytes): read in parts",
+			data->size);
+	}
+	data->windows = ce_model_data_malloc(2 * CE_MODEL_DATA_WINDOW_SIZE);
+	return data->windows != NULL;
+}
+
+void ce_model_data_end(
+	struct ce_model_data *data)
+{
+	if (data->held)
+	{
+		ce_model_data_free(data->held);
+		data->held = NULL;
+		data->whole = NULL;
+	}
+	if (data->windows)
+	{
+		ce_model_data_free(data->windows);
+		data->windows = NULL;
+	}
+}
+
+/* a Custom Edition map's tags and resources loaded (cache_files.c): its
+gbxmodels made models; model_data its model data block (the vertices,
+vertex_data_size bytes, then the triangles) */
+boolean ce_models_tags_loaded(
+	void *tag_instances,
+	long tag_count,
+	byte const *model_data,
+	unsigned long vertex_data_size)
+{
+	struct ce_model_data data;
+
+	memset(&data, 0, sizeof(data));
+	data.whole = model_data;
+	data.vertex_data_size = vertex_data_size;
+	return ce_models_convert(tag_instances, tag_count, &data);
+}
+
+#ifdef HALO_CONSOLE_CE_MODEL_DATA_WINDOWS
+/* the same, the model data (size bytes at file_offset in the map) read as
+it is used (whole, or through windows: ce_map_checks.h); FALSE if there was
+no memory even for the windows */
+boolean ce_models_tags_loaded_read(
+	void *tag_instances,
+	long tag_count,
+	unsigned long file_offset,
+	unsigned long size,
+	unsigned long vertex_data_size)
+{
+	struct ce_model_data data;
+	boolean converted;
+
+	memset(&data, 0, sizeof(data));
+	data.size = size;
+	data.vertex_data_size = vertex_data_size;
+	data.read = ce_model_data_cache_read;
+	data.context = &file_offset;
+	if (!ce_model_data_begin(&data))
+		return FALSE;
+	converted = ce_models_convert(tag_instances, tag_count, &data);
+	ce_model_data_end(&data);
+	return converted;
+}
+#endif
 
 /* a Custom Edition map's shaders made the Xbox's (cache_files.c): Halo PC
 added a shader type after transparent chicago (7, transparent chicago
@@ -746,11 +946,11 @@ static boolean ce_part_check(
 	byte const *part,
 	char const *name,
 	long node_count,
-	byte const *model_data,
-	unsigned long model_data_size,
-	unsigned long vertex_data_size,
+	struct ce_model_data *data,
 	unsigned long *bytes)
 {
+	unsigned long model_data_size = data->size;
+	unsigned long vertex_data_size = data->vertex_data_size;
 	short triangle_type = ce_read_short(part + PART_TRIANGLE_BUFFER_OFFSET);
 	long triangle_count = ce_read_long32(part + PART_TRIANGLE_BUFFER_OFFSET + 4);
 	unsigned long triangle_offset = (unsigned long)ce_read_long32(part + PART_TRIANGLE_BUFFER_OFFSET + 8);
@@ -759,6 +959,7 @@ static boolean ce_part_check(
 	byte local_node_count = part[CE_PART_LOCAL_NODE_COUNT_OFFSET];
 	boolean local_nodes = (ce_read_long32(part) & CE_PART_LOCAL_NODES_FLAG) && local_node_count;
 	unsigned long index_count;
+	byte const *span = NULL;
 	long index;
 
 	if (triangle_type != CE_TRIANGLE_BUFFER_PRECOMPILED_STRIP || triangle_count < 0 ||
@@ -791,8 +992,17 @@ static boolean ce_part_check(
 	{
 		word vertex_index;
 
-		memcpy(&vertex_index, model_data + vertex_data_size + triangle_offset + index * sizeof(word),
-			sizeof(vertex_index));
+		/* (a window's worth of them at a time: ce_map_checks.h) */
+		if (index % CE_WINDOW_INDICES == 0)
+		{
+			long batch = (long)index_count - index < CE_WINDOW_INDICES ? (long)index_count - index : CE_WINDOW_INDICES;
+
+			span = ce_model_data_at(data, vertex_data_size + triangle_offset + index * sizeof(word),
+				(unsigned long)batch * sizeof(word));
+			if (!span)
+				return ce_refuse("model %s: its model data could not be read", name);
+		}
+		memcpy(&vertex_index, span + (index % CE_WINDOW_INDICES) * sizeof(word), sizeof(vertex_index));
 		if (vertex_index >= vertex_count)
 			return ce_refuse("model %s: a part's strip names vertex %u of %ld", name, vertex_index, vertex_count);
 	}
@@ -802,7 +1012,13 @@ static boolean ce_part_check(
 		struct ce_vertex vertex;
 		short node;
 
-		memcpy(&vertex, model_data + vertex_offset + index * CE_VERTEX_SIZE, sizeof(vertex));
+		if (index % CE_WINDOW_VERTICES == 0)
+		{
+			span = ce_model_data_vertices(data, vertex_offset, index, vertex_count);
+			if (!span)
+				return ce_refuse("model %s: its model data could not be read", name);
+		}
+		memcpy(&vertex, span + (index % CE_WINDOW_VERTICES) * CE_VERTEX_SIZE, sizeof(vertex));
 		for (node = 0; node < 2; node++)
 		{
 			short node_index = vertex.node_indices[node];
@@ -838,9 +1054,7 @@ boolean ce_models_check(
 	struct ce_image const *image,
 	void const *tag_instances,
 	long tag_count,
-	byte const *model_data,
-	unsigned long model_data_size,
-	unsigned long vertex_data_size,
+	struct ce_model_data *data,
 	unsigned long *bytes)
 {
 	long index;
@@ -962,7 +1176,7 @@ boolean ce_models_check(
 				}
 				if (primary < 0 || primary >= node_count || secondary < 0 || secondary >= node_count)
 					return ce_refuse("model %s: a part's centroid is on nodes %d and %d", name, primary, secondary);
-				if (!ce_part_check(at, name, node_count, model_data, model_data_size, vertex_data_size, bytes))
+				if (!ce_part_check(at, name, node_count, data, bytes))
 					return FALSE;
 			}
 		}
