@@ -694,7 +694,9 @@ static BOOL data_extract(int kind, const char *image, const char *destination, u
 struct data_image_choice
 {
 	SDL_AtomicInt done;
+	BOOL failed;
 	char path[1024];
+	char error[256];
 };
 
 static void SDLCALL data_image_chosen(void *userdata, const char * const *files, int filter)
@@ -702,14 +704,25 @@ static void SDLCALL data_image_chosen(void *userdata, const char * const *files,
 	struct data_image_choice *choice = userdata;
 
 	(void)filter;
-	if (files && files[0])
+	if (!files)
+	{
+		/* no dialog could be shown (SDL needs the desktop portal through
+		libdbus, or zenity): not a cancelled choice */
+		choice->failed = TRUE;
+		snprintf(choice->error, sizeof(choice->error), "%s",
+			*SDL_GetError() ? SDL_GetError() : "no desktop portal or zenity");
+	}
+	else if (files[0])
+	{
 		snprintf(choice->path, sizeof(choice->path), "%s", files[0]);
+	}
 	SDL_SetAtomicInt(&choice->done, 1);
 }
 
 /* the file the player picks (Halo PC's first with halo_pc); FALSE if they
-pick none */
-static BOOL data_choose_image(char *path, int size, BOOL halo_pc)
+pick none, with *failed set (and error written) when no dialog could be
+shown */
+static BOOL data_choose_image(char *path, int size, BOOL halo_pc, BOOL *failed, char *error, int error_size)
 {
 	static const SDL_DialogFileFilter xbox_filters[] =
 	{
@@ -735,6 +748,9 @@ static BOOL data_choose_image(char *path, int size, BOOL halo_pc)
 		SDL_PumpEvents();
 		SDL_Delay(50);
 	}
+	*failed = choice.failed;
+	if (choice.failed)
+		snprintf(error, (size_t)error_size, "%s", choice.error);
 	if (!choice.path[0])
 		return FALSE;
 	snprintf(path, (size_t)size, "%s", choice.path);
@@ -874,9 +890,29 @@ BOOL platform_offer_game_data(char *destination, unsigned long size)
 				return TRUE;
 			continue;
 		}
-		/* no file picked: ask again */
-		if (!data_choose_image(image, sizeof(image), answer == _choice_halo_pc))
-			continue;
+		/* no file picked: ask again; no file dialog at all: say why, or the
+		same question comes back without end */
+		{
+			BOOL failed = FALSE;
+
+			if (!data_choose_image(image, sizeof(image), answer == _choice_halo_pc, &failed, error,
+				sizeof(error)))
+			{
+				if (failed)
+				{
+					char explanation[1400];
+
+					platform_log("no file dialog could be shown: %s", error);
+					snprintf(explanation, sizeof(explanation),
+						"No file dialog could be shown (%s).\n\n"
+						"Install zenity or the desktop portal, or choose Make the folders and copy "
+						"the maps folder of your Xbox disc into %s/maps yourself.",
+						error, destination);
+					SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Chupathingy", explanation, NULL);
+				}
+				continue;
+			}
+		}
 		kind = platform_import_kind(image);
 		if (kind == _data_unknown)
 		{
