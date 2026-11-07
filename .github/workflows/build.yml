@@ -254,6 +254,15 @@ jobs:
             if [ -f "$test" ]; then tests="$tests $test"; else echo "::notice::$test: not in this commit"; fi
           done
           python3 -m pytest -q $tests
+          # (the asset-free tests of the engine's own functions, tools/harness;
+          # the three left out were written against code of ours that has
+          # changed since, and wait to be brought up to date)
+          if [ -f tools/harness/__init__.py ]; then
+            python3 -m pytest -q tools/harness \
+              --ignore=tools/harness/tests/test_elevator_prediction.py \
+              --ignore=tools/harness/tests/test_server_teardown.py \
+              --ignore=tools/harness/tests/test_stale_player_damage.py
+          fi
           python3 tools/test_light_storage.py
           python3 tools/test_saved_game_script_globals.py
           python3 tools/test_rendered_lights_storage.py
