@@ -2276,8 +2276,13 @@ void lights_illumination_at_point(
 				/* port: the lightmap waited for, not sampled only if the texture
 				cache has it yet: a unit's illumination (the AI's sight) is the
 				ticks', and what the cache holds is the renderer's and the
-				loading thread's, by the clock and what was drawn */
+				loading thread's, by the clock and what was drawn. The consoles
+				read it as the Xbox did, without waiting on the disc */
+#if defined(HALO_CONSOLE) || defined(HALO_XBOX_CONSOLE)
+				if (_texture_cache_bitmap_get_hardware_format(bitmap, FALSE, FALSE))
+#else
 				if (_texture_cache_bitmap_get_hardware_format(bitmap, TRUE, TRUE))
+#endif
 				{
 					sample_lightmap(material, bitmap, surface, s, t, color);
 				}
