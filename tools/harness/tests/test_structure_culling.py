@@ -19,7 +19,7 @@ CASES = ["outside-near", "outside-far", "outside-side", "crossing-kept",
          "walk-fallback", "walk-planes", "walk-facing", "walk-near-first", "set-tests", "set-tests-unloaded", "walk-unit-forward",
          "source-fog-rejected", "source-fog-straddling", "debug-record", "dispose-empty", "mirror-far", "build-budget",
           "rejected-bucket-visits", "compact-allocation-failure", "overlay-truncation", "default-mask", "debug-letterbox",
-          "walk-profile", "missing-subcluster-warning", "debug-stale-data"]
+          "walk-profile", "missing-subcluster-warning", "debug-stale-data", "portal-window-subclusters-only"]
 CONTROLS = {
     "text-under-letterbox": (("bounds.y0 = (render.camera.viewport_bounds.y1 - render.camera.viewport_bounds.y0) / 8 + 2;", "bounds.y0 = 0;"), "structure_culling_render_debug", "debug-letterbox"),
     "drop-default-bucket-facing": (("FLAG(_structure_culling_bucket_facing_bit)", "0"), "structure_culling_tests", "default-mask"),
@@ -53,6 +53,7 @@ CONTROLS = {
     "skip-forward-normalization": (("scale_vector3d(&render.camera.forward, 1.0f / square_root(magnitude_squared3d(&render.camera.forward)),\n\t\t&planes[_structure_culling_frustum_plane_far].n);", "planes[_structure_culling_frustum_plane_far].n = render.camera.forward;"), "structure_culling_traverse", "walk-unit-forward"),
     "drop-source-box": (("if (bucket->source_bounds && !render_frustum_cube_visible", "if (FALSE && bucket->source_bounds && !render_frustum_cube_visible"), "structure_culling_traverse", "source-fog-rejected"),
     "clamp-finer-box": (("render_frustum_cube_visible(frustum, bucket->source_bounds, FALSE)", "render_frustum_cube_visible(frustum, &bucket->bounds, FALSE)"), "structure_culling_traverse", "source-fog-straddling"),
+    "triangles-in-portal-window": (("memcpy(planes, render.frustum.world_planes,", "memcpy(planes, frustum->world_planes,"), "structure_culling_traverse", "portal-window-subclusters-only"),
     "skip-profile-enter": (("profile_enter((*section));", ""), "structure_culling_traverse", "walk-profile"),
     "skip-profile-exit": (("profile_exit((*section));", ""), "structure_culling_traverse", "walk-profile"),
     "draw-stale-counters": (("if (!structure_culling_data_matches(structure))", "if (FALSE)"), "structure_culling_render_debug", "debug-stale-data"),
