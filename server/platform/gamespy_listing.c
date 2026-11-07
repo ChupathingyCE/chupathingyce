@@ -23,26 +23,25 @@ One UDP socket, on its own thread:
     RC4 variant, its index stepped by each byte) in base64. As the server
     stops, a last heartbeat says it is gone (statechanged 2).
 
+With joins on (gamespy_listing_set_joins), the same port also answers
+Halo Custom Edition 1.0.10's join wire (ce_transport.c): its packets go
+there first.
+
 Replies are rate limited (a reply is many times its query's size).
 Nothing here logs an address: the log lines say what happened, not to
 whom.
 */
 
 #include "gamespy_listing.h"
+#include "ce_transport.h"
 
-#include <arpa/inet.h>
-#include <errno.h>
-#include <fcntl.h>
-#include <netdb.h>
-#include <netinet/in.h>
-#include <poll.h>
+/* (the sockets, on Linux and Windows) */
+#include "server_host.h"
+
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/socket.h>
-#include <time.h>
-#include <unistd.h>
 
 enum
 {
@@ -99,6 +98,8 @@ static struct
 	char notices[NOTICES][NOTICE_SIZE];
 	int notice_first;
 	int notice_count;
+	/* Custom Edition's join wire answered (ce_transport.h) */
+	int joins;
 } listing;
 
 /* ---------- text */
@@ -242,6 +243,8 @@ static int status_pairs(const struct gamespy_status *status, const char *gamever
 	Custom Edition one */
 	PAIR_TEXT("bridge", "chupathingy");
 	PAIR_TEXT("bridge_version", status->version);
+	/* and that a Custom Edition player needs no Chimera here */
+	PAIR_TEXT("chimera", "optional");
 #undef PAIR_TEXT
 #undef PAIR_NUMBER
 	return count;
@@ -478,8 +481,10 @@ static void base64(const unsigned char *data, int length, char *out, int size)
 			value |= data[index + 2];
 		out[used++] = alphabet[(value >> 18) & 63];
 		out[used++] = alphabet[(value >> 12) & 63];
-		out[used++] = index + 1 < length ? alphabet[(value >> 6) & 63] : '=';
-		out[used++] = index + 2 < length ? alphabet[value & 63] : '=';
+		/* (a short last group zero-filled and written whole, with no '='
+		padding: as Custom Edition 1.0.10's server encodes it) */
+		out[used++] = alphabet[(value >> 6) & 63];
+		out[used++] = alphabet[value & 63];
 	}
 	if (size > 0)
 		out[used < size ? used : size - 1] = 0;
@@ -546,7 +551,7 @@ static void local_address(const struct sockaddr_in *toward, char *text, int size
 {
 	struct sockaddr_in local;
 	socklen_t local_size = sizeof(local);
-	int probe = socket(AF_INET, SOCK_DGRAM, 0);
+	int probe = host_socket(AF_INET, SOCK_DGRAM, 0);
 
 	copy_text(text, size, "");
 	if (probe < 0)
@@ -556,7 +561,7 @@ static void local_address(const struct sockaddr_in *toward, char *text, int size
 	{
 		inet_ntop(AF_INET, &local.sin_addr, text, (socklen_t)size);
 	}
-	close(probe);
+	host_socket_close(probe);
 }
 
 static void send_heartbeat(struct master *master, const struct gamespy_status *status, int statechanged, time_t now)
@@ -574,7 +579,7 @@ static void send_heartbeat(struct master *master, const struct gamespy_status *s
 	length = gamespy_heartbeat(status, listing.gamever, listing.instance, statechanged, localip, listing.port, packet,
 		sizeof(packet));
 	if (length > 0)
-		sendto(listing.socket, packet, (size_t)length, 0, (const struct sockaddr *)&master->address,
+		sendto(listing.socket, (const char *)packet, (size_t)length, 0, (const struct sockaddr *)&master->address,
 			sizeof(master->address));
 }
 
@@ -587,7 +592,7 @@ static void send_keepalive(struct master *master, time_t now)
 		return;
 	packet[0] = 0x08;
 	memcpy(packet + 1, listing.instance, 4);
-	sendto(listing.socket, packet, sizeof(packet), 0, (const struct sockaddr *)&master->address, sizeof(master->address));
+	sendto(listing.socket, (const char *)packet, sizeof(packet), 0, (const struct sockaddr *)&master->address, sizeof(master->address));
 }
 
 /* a packet from a master: its challenge, or its word that the server is listed */
@@ -617,7 +622,7 @@ static int master_packet(const unsigned char *packet, int length, const struct s
 			answer[0] = 0x01;
 			memcpy(answer + 1, listing.instance, 4);
 			memcpy(answer + 5, response, strlen(response) + 1);
-			sendto(listing.socket, answer, 5 + strlen(response) + 1, 0, (const struct sockaddr *)from, sizeof(*from));
+			sendto(listing.socket, (const char *)answer, 5 + strlen(response) + 1, 0, (const struct sockaddr *)from, sizeof(*from));
 			return 1;
 		}
 		if (packet[2] == 0x0a)
@@ -632,23 +637,44 @@ static int master_packet(const unsigned char *packet, int length, const struct s
 	return 0;
 }
 
+static unsigned int milliseconds_now(void)
+{
+	struct timespec now;
+
+	clock_gettime(CLOCK_MONOTONIC, &now);
+	return (unsigned int)now.tv_sec * 1000u + (unsigned int)(now.tv_nsec / 1000000);
+}
+
+static void send_to_peer(void *context, const void *address, const unsigned char *packet, int length)
+{
+	(void)context;
+	sendto(listing.socket, (const char *)packet, (size_t)length, 0, (const struct sockaddr *)address,
+		sizeof(struct sockaddr_in));
+}
+
 static void *listing_thread(void *unused)
 {
 	struct gamespy_status status;
 	int have_status = 0;
 	int first = 1;
+	int joins = 0;
 
 	(void)unused;
+	ce_transport_start(send_to_peer, NULL, notice);
+	/* (with ce_joins on, the game takes the joins: server_ce.c) */
+	ce_transport_set_accept(1);
 	for (;;)
 	{
 		struct pollfd poll_socket;
 		time_t now = time(NULL);
-		int stop, changed;
+		int stop, changed, stop_joins;
 		int index;
 
 		pthread_mutex_lock(&listing_mutex);
 		stop = listing.stop;
 		changed = listing.changed;
+		stop_joins = joins && !listing.joins;
+		joins = listing.joins;
 		if (listing.have_status)
 		{
 			status = listing.status;
@@ -663,8 +689,17 @@ static void *listing_thread(void *unused)
 			changed = 0;
 		pthread_mutex_unlock(&listing_mutex);
 
+		/* (outside the listing's lock: the transport's own lock may wait on it) */
+		if (stop_joins)
+			ce_transport_stop();
+		if (joins && have_status)
+		{
+			ce_transport_set_game(status.hostname, status.mapname, status.maxplayers);
+			ce_transport_update(milliseconds_now());
+		}
 		if (stop)
 		{
+			ce_transport_stop();
 			for (index = 0; index < listing.master_count; index++)
 				send_heartbeat(&listing.masters[index], NULL, 2, now);
 			break;
@@ -694,7 +729,7 @@ static void *listing_thread(void *unused)
 			unsigned char reply[GAMESPY_PACKET_SIZE];
 			struct sockaddr_in from;
 			socklen_t from_size = sizeof(from);
-			ssize_t length = recvfrom(listing.socket, packet, sizeof(packet), MSG_DONTWAIT, (struct sockaddr *)&from,
+			ssize_t length = recvfrom(listing.socket, (char *)packet, sizeof(packet), 0, (struct sockaddr *)&from,
 				&from_size);
 			int reply_length;
 
@@ -704,11 +739,20 @@ static void *listing_thread(void *unused)
 				continue;
 			if (master_packet(packet, (int)length, &from))
 				continue;
+			/* (Custom Edition's join wire: its first packet, which is
+			answered, as limited as a query) */
+			if (joins && have_status)
+			{
+				if (length >= 3 && packet[0] == 0xfe && packet[1] == 0xfe && packet[2] == 0x01 && !reply_allowed())
+					continue;
+				if (ce_transport_packet(packet, (int)length, &from, milliseconds_now()))
+					continue;
+			}
 			if (!have_status || !reply_allowed())
 				continue;
 			reply_length = gamespy_reply(&status, listing.gamever, packet, (int)length, reply, sizeof(reply));
 			if (reply_length > 0)
-				sendto(listing.socket, reply, (size_t)reply_length, 0, (const struct sockaddr *)&from, sizeof(from));
+				sendto(listing.socket, (const char *)reply, (size_t)reply_length, 0, (const struct sockaddr *)&from, sizeof(from));
 		}
 	}
 	return NULL;
@@ -792,22 +836,25 @@ int gamespy_listing_start(int port, const char *masters, const char *gamever, ch
 	}
 	if (!parse_masters(masters, problem, problem_size))
 		return 0;
-	listing.socket = socket(AF_INET, SOCK_DGRAM, 0);
+	listing.socket = host_socket(AF_INET, SOCK_DGRAM, 0);
 	if (listing.socket < 0)
 	{
-		snprintf(problem, (size_t)problem_size, "no socket: %s", strerror(errno));
+		snprintf(problem, (size_t)problem_size, "no socket: %s", strerror(host_socket_errno()));
 		return 0;
 	}
-	fcntl(listing.socket, F_SETFD, FD_CLOEXEC);
-	setsockopt(listing.socket, SOL_SOCKET, SO_BROADCAST, &one, sizeof(one));
+	/* (the reads never wait: the thread polls first, and reads until there
+	is nothing left) */
+	host_socket_nonblocking(listing.socket);
+	host_udp_ignore_unreachable(listing.socket);
+	setsockopt(listing.socket, SOL_SOCKET, SO_BROADCAST, (const char *)&one, sizeof(one));
 	memset(&address, 0, sizeof(address));
 	address.sin_family = AF_INET;
 	address.sin_addr.s_addr = htonl(INADDR_ANY);
 	address.sin_port = htons((unsigned short)port);
 	if (bind(listing.socket, (const struct sockaddr *)&address, sizeof(address)))
 	{
-		snprintf(problem, (size_t)problem_size, "UDP port %d: %s", port, strerror(errno));
-		close(listing.socket);
+		snprintf(problem, (size_t)problem_size, "UDP port %d: %s", port, strerror(host_socket_errno()));
+		host_socket_close(listing.socket);
 		listing.socket = -1;
 		return 0;
 	}
@@ -822,7 +869,7 @@ int gamespy_listing_start(int port, const char *masters, const char *gamever, ch
 	if (pthread_create(&listing.thread, NULL, listing_thread, NULL))
 	{
 		snprintf(problem, (size_t)problem_size, "no thread");
-		close(listing.socket);
+		host_socket_close(listing.socket);
 		listing.socket = -1;
 		return 0;
 	}
@@ -853,9 +900,16 @@ void gamespy_listing_stop(void)
 	listing.stop = 1;
 	pthread_mutex_unlock(&listing_mutex);
 	pthread_join(listing.thread, NULL);
-	close(listing.socket);
+	host_socket_close(listing.socket);
 	listing.socket = -1;
 	listing.running = 0;
+}
+
+void gamespy_listing_set_joins(int enabled)
+{
+	pthread_mutex_lock(&listing_mutex);
+	listing.joins = enabled ? 1 : 0;
+	pthread_mutex_unlock(&listing_mutex);
 }
 
 int gamespy_listing_running(void)

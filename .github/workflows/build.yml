@@ -1,8 +1,8 @@
 name: Build
 
 # Debug and release builds of the native ports (Linux and Windows, 32- and
-# 64-bit, Android and its native 64-bit app, macOS, FreeBSD), and release builds of the dedicated server (Linux
-# x86, x64 and arm64) and its container, for every pushed commit and pull
+# 64-bit, Android (native 64-bit), macOS, FreeBSD), and release builds of the dedicated server (Linux
+# x86, x64 and arm64, and Windows x64) and its container, for every pushed commit and pull
 # request, uploaded as artifacts: whether a change builds. tools/ci_build.py does each build; see it for the options.
 #
 # These builds are VERSION's -dev, and never look for updates. Releases and
@@ -21,14 +21,19 @@ name: Build
 # - compiles go through ccache, whose cache carries over from run to run, so
 #   a commit only recompiles what it changed; downloads (SDL, musl, Gradle,
 #   the Linux builds' system roots) are cached too;
-# - pushes build only main, release branches and tags; every other branch
-#   builds through its pull request, so a commit is not built twice;
+# - pushes build only release branches and tags, not main: a commit reaches
+#   main through a pull request whose Build passed, and the nightly, the
+#   releases and the test builds start their own run (workflow_dispatch);
+#   every other branch builds through its pull request;
+# - debug builds only in runs started with workflow_dispatch and on tags;
+#   pull requests build release only (BUILD_DEBUG);
 # - a newer commit to a pull request or a release branch cancels its run
-#   still going; main's runs are never canceled, so every commit of main
-#   has its Build (ChupathingyCE/command's nightly takes main's newest);
+#   still going; runs on main (started with workflow_dispatch) are never
+#   canceled;
 # - changes that only touch documentation do not build (no check is
 #   required to merge, so a pull request without a Build is not blocked);
-# - the compile caches are saved only on main (each run restores main's
+# - the compile caches are saved only by runs on main (the nightly's and
+#   the releases'; each run restores main's
 #   newest), so branches and pull requests do not crowd main's out of the
 #   repository's 10 GB of caches;
 # - Windows, whose minutes cost twice Linux's, builds only Windows;
@@ -36,7 +41,6 @@ name: Build
 on:
   push:
     branches:
-      - main
       - "release-*"
       - "release/**"
     tags:
@@ -85,6 +89,10 @@ env:
   # (empty unless started with a version: VERSION's -dev, tools/version.py)
   HALO_VERSION: ${{ inputs.version }}
   HALO_RELEASE_BUILD: ${{ inputs.release && '1' || '0' }}
+  # debug builds only for releases, nightlies and test builds (a run started
+  # with workflow_dispatch, as ChupathingyCE/command does) and tags; pull
+  # requests build release only
+  BUILD_DEBUG: ${{ (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')) && 'true' || 'false' }}
   CI_COMPILER_LAUNCHER: ccache
   CCACHE_DIR: ${{ github.workspace }}/.ccache
   CCACHE_BASEDIR: ${{ github.workspace }}
@@ -143,13 +151,26 @@ jobs:
     timeout-minutes: 40
     steps:
       - name: Install the toolchain
+        timeout-minutes: 15
         run: |
+          # (apt fails fast and retries: a mirror that stalls has hung a run
+          # for more than 15 minutes; each try is also cut off by timeout)
+          printf '%s\n' 'Acquire::Retries "3";' 'Acquire::http::Timeout "30";' 'Acquire::https::Timeout "30";' \
+            | sudo tee /etc/apt/apt.conf.d/80-ci-fail-fast > /dev/null
+          apt_try() {
+            for attempt in 1 2 3; do
+              sudo timeout 300 "$@" && return 0
+              echo "apt: try $attempt of $* failed" >&2
+              sleep 10
+            done
+            return 1
+          }
           sudo install -d -m 0755 /etc/apt/keyrings
-          curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/keyrings/apt.llvm.org.asc > /dev/null
+          curl -fsSL --retry 3 --max-time 60 https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/keyrings/apt.llvm.org.asc > /dev/null
           echo "deb [signed-by=/etc/apt/keyrings/apt.llvm.org.asc] http://apt.llvm.org/noble/ llvm-toolchain-noble-$LLVM_MAJOR main" \
             | sudo tee /etc/apt/sources.list.d/llvm.list
-          sudo apt-get update -q
-          sudo apt-get install -y -q --no-install-recommends clang-$LLVM_MAJOR lld-$LLVM_MAJOR llvm-$LLVM_MAJOR \
+          apt_try apt-get update -q
+          apt_try apt-get install -y -q --no-install-recommends clang-$LLVM_MAJOR lld-$LLVM_MAJOR llvm-$LLVM_MAJOR \
             libclang-rt-$LLVM_MAJOR-dev gcc gcc-multilib libc6-dev-i386 cmake pkg-config libwayland-bin \
             ninja-build ccache python3-pytest zstd
           echo "/usr/lib/llvm-$LLVM_MAJOR/bin" >> "$GITHUB_PATH"
@@ -189,6 +210,7 @@ jobs:
           key: linux-third-party-${{ hashFiles('tools/linux_sysroot.py') }}
 
       - name: Debug
+        if: env.BUILD_DEBUG == 'true'
         run: python3 tools/ci_build.py linux debug
 
       - name: Release
@@ -197,26 +219,61 @@ jobs:
       # (no executable or library that needs a newer glibc than the system
       # root's: tools/linux_glibc_check.py)
       - name: glibc 2.31
-        run: python3 tools/linux_glibc_check.py dist/chupathingyce-linux-debug dist/chupathingyce-linux-release
+        run: python3 tools/linux_glibc_check.py $([ "$BUILD_DEBUG" = true ] && echo dist/chupathingyce-linux-debug) dist/chupathingyce-linux-release
 
       # (Delta's wire on a big-endian machine, as the Xbox 360 and Wii U are:
       # tools/test_delta_big_endian.py, under QEMU)
       - name: Delta on big-endian
+        timeout-minutes: 15
         run: |
-          sudo apt-get install -y -q --no-install-recommends gcc-s390x-linux-gnu libc6-dev-s390x-cross qemu-user
+          # (apt fails fast and retries: a mirror that stalls has hung a run
+          # for more than 15 minutes; each try is also cut off by timeout)
+          printf '%s\n' 'Acquire::Retries "3";' 'Acquire::http::Timeout "30";' 'Acquire::https::Timeout "30";' \
+            | sudo tee /etc/apt/apt.conf.d/80-ci-fail-fast > /dev/null
+          apt_try() {
+            for attempt in 1 2 3; do
+              sudo timeout 300 "$@" && return 0
+              echo "apt: try $attempt of $* failed" >&2
+              sleep 10
+            done
+            return 1
+          }
+          apt_try apt-get install -y -q --no-install-recommends gcc-s390x-linux-gnu libc6-dev-s390x-cross qemu-user
           DELTA_BE_REQUIRED=1 python3 -m pytest -q tools/test_delta_big_endian.py -rs
 
+      # (HALO_SANITIZERS_REQUIRED: a test without its sanitizers' runtime or
+      # libFuzzer fails here, where clang's runtimes are installed, instead of
+      # building unsanitized or skipping; tools/fuzz_support.py)
       - name: Test
+        env:
+          HALO_SANITIZERS_REQUIRED: "1"
         run: |
-          python3 -m pytest -q tools/test_linux_port.py tools/test_android_asm_convert.py tools/test_touch_menu.py tools/test_ui_point.py tools/test_p2p_copies.py tools/test_p2p_host_port.py tools/test_ping.py tools/test_save_folder.py tools/test_packaged_install.py tools/test_server_control.py tools/test_delta.py tools/test_delta_peer.py tools/test_delta_compat.py tools/test_network_rules.py tools/test_map_download.py tools/test_playlist_maps.py tools/test_map_families.py tools/test_map_packs.py tools/test_map_report.py tools/test_event_log.py tools/test_update_manifest.py tools/test_rename_stub.py tools/test_gamespy_listing.py tools/test_determinism.py tools/test_ce_effect_flags.py
+          # (a release branch's commit, built with main's workflow, may not have
+          # every test main has yet: those are left out)
+          tests=""; for test in tools/test_host_fuzz.py tools/test_linux_port.py tools/test_android_asm_convert.py tools/test_touch_menu.py tools/test_ui_point.py tools/test_p2p_copies.py tools/test_p2p_host_port.py tools/test_ping.py tools/test_save_folder.py tools/test_packaged_install.py tools/test_server_control.py tools/test_delta.py tools/test_delta_peer.py tools/test_delta_compat.py tools/test_network_rules.py tools/test_map_download.py tools/test_playlist_maps.py tools/test_map_families.py tools/test_ce_resource_maps.py tools/test_map_packs.py tools/test_map_report.py tools/test_event_log.py tools/test_update_manifest.py tools/test_rename_stub.py tools/test_gamespy_listing.py tools/test_ce_joins.py tools/test_determinism.py tools/test_ce_effect_flags.py tools/test_online_games_list.py tools/test_campaign_levels.py tools/test_http_url_rules.py tools/test_host_cheats.py tools/test_vote_notice.py tools/test_lobby_budget.py tools/test_line_of_sight.py tools/test_host_console_objects.py tools/test_host_evidence.py tools/test_address_limit.py tools/test_conduct_rules.py tools/test_tricks.py tools/test_coop_spectate.py tools/test_discord_activity.py tools/test_discord_register.py tools/test_kcp_peer.py tools/test_kcp_flush.py; do
+            if [ -f "$test" ]; then tests="$tests $test"; else echo "::notice::$test: not in this commit"; fi
+          done
+          python3 -m pytest -q $tests
+          # (the asset-free tests of the engine's own functions, tools/harness;
+          # the three left out were written against code of ours that has
+          # changed since, and wait to be brought up to date)
+          if [ -f tools/harness/__init__.py ]; then
+            python3 -m pytest -q tools/harness \
+              --ignore=tools/harness/tests/test_elevator_prediction.py \
+              --ignore=tools/harness/tests/test_server_teardown.py \
+              --ignore=tools/harness/tests/test_stale_player_damage.py
+          fi
           python3 tools/test_light_storage.py
+          python3 tools/test_saved_game_script_globals.py
           python3 tools/test_rendered_lights_storage.py
           python3 tools/test_port_config.py
           python3 tools/test_tick_input.py
           python3 tools/test_audio_doppler.py
           python3 tools/test_controller_layout.py
           python3 tools/test_button_mappings.py
+          python3 tools/test_menu_key_caps.py
           python3 tools/test_split_screen_input.py
+          python3 tools/test_local_player_quit.py
           python3 tools/test_tag_byte_swap.py
           python3 tools/test_bitmap_byte_order.py
           python3 -m pytest -q tools/test_console_link.py
@@ -226,6 +283,7 @@ jobs:
         run: ccache --show-stats
 
       - uses: actions/upload-artifact@v4
+        if: env.BUILD_DEBUG == 'true'
         with:
           name: chupathingyce-linux-debug
           path: dist/chupathingyce-linux-debug
@@ -260,13 +318,26 @@ jobs:
     timeout-minutes: 40
     steps:
       - name: Install the toolchain
+        timeout-minutes: 15
         run: |
+          # (apt fails fast and retries: a mirror that stalls has hung a run
+          # for more than 15 minutes; each try is also cut off by timeout)
+          printf '%s\n' 'Acquire::Retries "3";' 'Acquire::http::Timeout "30";' 'Acquire::https::Timeout "30";' \
+            | sudo tee /etc/apt/apt.conf.d/80-ci-fail-fast > /dev/null
+          apt_try() {
+            for attempt in 1 2 3; do
+              sudo timeout 300 "$@" && return 0
+              echo "apt: try $attempt of $* failed" >&2
+              sleep 10
+            done
+            return 1
+          }
           sudo install -d -m 0755 /etc/apt/keyrings
-          curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/keyrings/apt.llvm.org.asc > /dev/null
+          curl -fsSL --retry 3 --max-time 60 https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/keyrings/apt.llvm.org.asc > /dev/null
           echo "deb [signed-by=/etc/apt/keyrings/apt.llvm.org.asc] http://apt.llvm.org/noble/ llvm-toolchain-noble-$LLVM_MAJOR main" \
             | sudo tee /etc/apt/sources.list.d/llvm.list
-          sudo apt-get update -q
-          sudo apt-get install -y -q --no-install-recommends clang-$LLVM_MAJOR lld-$LLVM_MAJOR llvm-$LLVM_MAJOR \
+          apt_try apt-get update -q
+          apt_try apt-get install -y -q --no-install-recommends clang-$LLVM_MAJOR lld-$LLVM_MAJOR llvm-$LLVM_MAJOR \
             gcc cmake pkg-config libwayland-bin ninja-build ccache zstd
           echo "/usr/lib/llvm-$LLVM_MAJOR/bin" >> "$GITHUB_PATH"
         env:
@@ -304,19 +375,28 @@ jobs:
           path: build/linux64/third_party
           key: linux64-third-party-${{ hashFiles('tools/linux_sysroot.py') }}
 
+      # bgfx's, bx's and bimg's sources, which the build fetches for the bgfx
+      # renderer (tools/bgfx_build.py): kept so most runs fetch nothing
+      - uses: actions/cache@v4
+        with:
+          path: build/bgfx
+          key: bgfx-source-${{ hashFiles('tools/bgfx_build.py') }}
+
       - name: Debug
+        if: env.BUILD_DEBUG == 'true'
         run: python3 tools/ci_build.py linux64 debug
 
       - name: Release
         run: python3 tools/ci_build.py linux64 release
 
       - name: glibc 2.31
-        run: python3 tools/linux_glibc_check.py dist/chupathingyce-linux64-debug dist/chupathingyce-linux64-release
+        run: python3 tools/linux_glibc_check.py $([ "$BUILD_DEBUG" = true ] && echo dist/chupathingyce-linux64-debug) dist/chupathingyce-linux64-release
 
       - name: Compile cache
         run: ccache --show-stats
 
       - uses: actions/upload-artifact@v4
+        if: env.BUILD_DEBUG == 'true'
         with:
           name: chupathingyce-linux64-debug
           path: dist/chupathingyce-linux64-debug
@@ -400,21 +480,21 @@ jobs:
           release: ${{ env.FREEBSD_RELEASE }}
           usesh: true
           sync: rsync
-          envs: "HALO_VERSION HALO_RELEASE_BUILD HALO_COMMIT CI_COMPILER_LAUNCHER CCACHE_DIR CCACHE_BASEDIR CCACHE_MAXSIZE"
+          envs: "BUILD_DEBUG HALO_VERSION HALO_RELEASE_BUILD HALO_COMMIT CI_COMPILER_LAUNCHER CCACHE_DIR CCACHE_BASEDIR CCACHE_MAXSIZE"
           prepare: |
             pkg install -y python3 ninja pkgconf sdl3 gmake llvm ccache
           run: |
             set -e
             freebsd-version
             cc --version | head -n 1
-            python3 tools/ci_build.py freebsd64 debug
+            if [ "$BUILD_DEBUG" = true ]; then python3 tools/ci_build.py freebsd64 debug; fi
             python3 tools/ci_build.py freebsd64 release
             ccache --show-stats
             # (only dist/, the compile cache and the downloads come back)
             rm -rf build/freebsd64
 
       - uses: actions/upload-artifact@v4
-        if: steps.has.outputs.freebsd64 == 'true'
+        if: steps.has.outputs.freebsd64 == 'true' && env.BUILD_DEBUG == 'true'
         with:
           name: chupathingyce-freebsd64-debug
           path: dist/chupathingyce-freebsd64-debug
@@ -581,24 +661,33 @@ jobs:
           done
           docker image ls chupathingyce-server
 
-  android:
-    # The runner image has the Android SDK and NDK, a JDK and CMake.
-    runs-on: ubuntu-24.04
+  server-windows:
+    # The dedicated server for 64-bit Windows (ninja server-windows64;
+    # tools/windows_build.py), a console program with no SDL, packaged as
+    # chupathingyce-server-windows-x64 with start-server.bat and its README
+    # (server/windows); then started as the server job starts the Linux
+    # ones, and installed, started and taken out once as a Windows service
+    # (the runner's user is an administrator). Release only, as the Linux
+    # servers.
+    runs-on: windows-2025
     timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Install the toolchain
+        shell: pwsh
         run: |
-          mkdir -p "$RUNNER_TEMP/tools"
+          Invoke-WebRequest -OutFile ninja.zip https://github.com/ninja-build/ninja/releases/download/v1.12.1/ninja-win.zip
+          Invoke-WebRequest -OutFile ccache.zip https://github.com/ccache/ccache/releases/download/v4.10.2/ccache-4.10.2-windows-x86_64.zip
           # (each download checked against the hash it had when it was pinned)
-          curl -fsSL -o ninja.zip https://github.com/ninja-build/ninja/releases/download/v1.12.1/ninja-linux.zip
-          curl -fsSL -o ccache.tar.xz https://github.com/ccache/ccache/releases/download/v4.10.2/ccache-4.10.2-linux-x86_64.tar.xz
-          sha256sum -c - <<'EOF'
-          6f98805688d19672bd699fbbfa2c2cf0fc054ac3df1f0e6a47664d963d530255  ninja.zip
-          80cab87bd510eca796467aee8e663c398239e0df1c4800a0b5dff11dca0b4f18  ccache.tar.xz
-          EOF
-          unzip -q ninja.zip -d "$RUNNER_TEMP/tools" && rm ninja.zip
-          tar -xJf ccache.tar.xz -C "$RUNNER_TEMP/tools" --strip-components=1 ccache-4.10.2-linux-x86_64/ccache && rm ccache.tar.xz
-          echo "$RUNNER_TEMP/tools" >> "$GITHUB_PATH"
+          if ((Get-FileHash ninja.zip -Algorithm SHA256).Hash -ne "F550FEC705B6D6FF58F2DB3C374C2277A37691678D6ABA463ADCBB129108467A") { throw "ninja.zip: unexpected SHA-256" }
+          if ((Get-FileHash ccache.zip -Algorithm SHA256).Hash -ne "6252F081876A9A9F700FAE13A5AEC5D0D486B28261D7F1F72AC11C7AD9DF4DA9") { throw "ccache.zip: unexpected SHA-256" }
+          Expand-Archive ninja.zip -DestinationPath "$env:RUNNER_TEMP\tools"
+          Expand-Archive ccache.zip -DestinationPath $env:RUNNER_TEMP
+          Copy-Item "$env:RUNNER_TEMP\ccache-4.10.2-windows-x86_64\ccache.exe" "$env:RUNNER_TEMP\tools"
+          Remove-Item ninja.zip, ccache.zip
+          "$env:RUNNER_TEMP\tools" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
 
       - uses: actions/checkout@v4
         with:
@@ -609,75 +698,100 @@ jobs:
       - uses: actions/cache/restore@v4
         with:
           path: .ccache
-          key: ccache-android-${{ github.sha }}
-          restore-keys: ccache-android-
+          key: ccache-server-windows64-${{ github.sha }}
+          restore-keys: ccache-server-windows64-
 
-      # the FFmpeg source tarball (tools/download.py): kept so most runs fetch nothing
+      # SDL's development package, which configure.py fetches (its headers
+      # only, for the server)
       - uses: actions/cache@v4
         with:
-          path: build/downloads
-          key: ffmpeg-source-${{ hashFiles('tools/ffmpeg_build.py') }}
-
-      # musl and SDL, which configure.py fetches
-      - uses: actions/cache@v4
-        with:
-          path: build/android/third_party
-          key: android-third-party-${{ hashFiles('tools/android_build.py') }}
-
-      - uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: gradle-${{ hashFiles('port/android/**/*.gradle*', 'port/android/gradle/wrapper/gradle-wrapper.properties') }}
-
-      # No keystore.properties here (pull requests and forks have no
-      # secrets): the debug app has the runner's own debug key
-      # (chupathingyce-android-debug-testkey.apk), which does not install
-      # over ChupathingyCE's builds, and the release app is unsigned
-      # (chupathingyce-android-release-unsigned.apk). The release workflows
-      # (ChupathingyCE/command) take both from a run of this workflow and
-      # sign them again with ChupathingyCE's key, zipalign and apksigner
-      # (port/android/README.md).
-      - name: Debug
-        run: python3 tools/ci_build.py android debug
+          path: build/windows/third_party
+          key: windows-third-party-${{ hashFiles('tools/windows_build.py') }}
 
       - name: Release
-        run: python3 tools/ci_build.py android release
+        run: python tools/ci_build.py server-windows64 release
 
       - name: Compile cache
         run: ccache --show-stats
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: chupathingyce-android-debug-testkey
-          path: dist/chupathingyce-android-debug
-          retention-days: 3
+      - name: Start it
+        run: |
+          smoke="$RUNNER_TEMP/smoke"
+          server="$smoke/chupathingyce-server.exe"
+          mkdir -p "$smoke/data/playlists"
+          cp dist/chupathingyce-server-windows-x64/chupathingyce-server.exe "$server"
+          ls dist/chupathingyce-server-windows-x64
+          test -f dist/chupathingyce-server-windows-x64/start-server.bat
+          test -f dist/chupathingyce-server-windows-x64/README.txt
+          # (no SDL, nothing beside it to load)
+          if objdump -p "$server" 2>/dev/null | grep -i "DLL Name" | grep -i sdl; then echo "links SDL"; exit 1; fi
+          "$server" --version
+          # no playlist: how to start one, and status 2
+          status=0; "$server" || status=$?
+          test "$status" = 2
+          # --service, not started by the service manager: status 2
+          status=0; "$server" --service 2> "$smoke/service.txt" || status=$?
+          cat "$smoke/service.txt"
+          test "$status" = 2
+          # a playlist, but no maps: a clear error, and status 1
+          echo "bloodgulch slayer" > "$smoke/data/playlists/test.txt"
+          status=0
+          HALO_DATA_ROOT="$(cygpath -w "$smoke/data")" HALO_SAVE_ROOT="$(cygpath -w "$smoke/saves")" \
+            HALO_DEDICATED=playlists/test.txt HALO_NET_ONLINE=false HALO_NET_LIST_GAMES=false \
+            timeout 60 "$server" 2> "$smoke/error.txt" < /dev/null || status=$?
+          cat "$smoke/error.txt"
+          test "$status" = 1
+          grep -q "no maps" "$smoke/error.txt"
+
+      - name: As a service
+        shell: pwsh
+        run: |
+          $data = Join-Path $env:RUNNER_TEMP "service-data"
+          New-Item -ItemType Directory -Force (Join-Path $data "playlists") | Out-Null
+          Copy-Item dist/chupathingyce-server-windows-x64/chupathingyce-server.exe $data
+          Set-Content (Join-Path $data "playlists/test.txt") "bloodgulch slayer"
+          Set-Location $data
+          $env:HALO_DEDICATED = "playlists\test.txt"
+          $env:HALO_NET_ONLINE = "false"
+          $env:HALO_NET_LIST_GAMES = "false"
+          & .\chupathingyce-server.exe --install-service ChupathingySmoke
+          if ($LASTEXITCODE -ne 0) { throw "--install-service: $LASTEXITCODE" }
+          sc.exe qc ChupathingySmoke
+          if (-not ((sc.exe qc ChupathingySmoke) -match "NT SERVICE\\ChupathingySmoke")) { throw "not its own account" }
+          # (no maps: it starts, says so in its output file, and stops)
+          $output = Join-Path $data "logs/server-output.txt"
+          for ($i = 0; $i -lt 30 -and -not ((Test-Path $output) -and (Select-String -Quiet "no maps" $output)); $i++) { Start-Sleep 1 }
+          Get-Content $output -ErrorAction SilentlyContinue
+          if (-not (Select-String -Quiet "no maps" $output)) { throw "the service did not run the server" }
+          & .\chupathingyce-server.exe --uninstall-service ChupathingySmoke
+          if ($LASTEXITCODE -ne 0) { throw "--uninstall-service: $LASTEXITCODE" }
+          sc.exe query ChupathingySmoke
+          if ($LASTEXITCODE -eq 0) { throw "the service is still there" }
+          exit 0
 
       - uses: actions/upload-artifact@v4
         with:
-          name: chupathingyce-android-release-unsigned
-          path: dist/chupathingyce-android-release
+          name: chupathingyce-server-windows-x64
+          path: dist/chupathingyce-server-windows-x64
           retention-days: 3
 
       # (kept by ChupathingyCE's release, not a download)
       - uses: actions/upload-artifact@v4
         with:
-          name: symbols-android-release
-          path: dist/chupathingyce-android-release-symbols
-          if-no-files-found: ignore
+          name: symbols-server-windows-x64-release
+          path: dist/chupathingyce-server-windows-x64-release-symbols
           retention-days: 3
 
       - uses: actions/cache/save@v4
         if: ${{ success() && github.ref == 'refs/heads/main' }}
         with:
           path: .ccache
-          key: ccache-android-${{ github.sha }}
+          key: ccache-server-windows64-${{ github.sha }}
 
   android64:
     # The native 64-bit Android app (ninja android64; tools/android64_build.py):
-    # the same app as the android job's, built with -Pnative64, in a job of
-    # its own so that the android job's builds and artifacts stay as they are.
+    # the Android download (the 32-bit-address app is no longer built here;
+    # its code stays in port/android).
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
@@ -729,6 +843,7 @@ jobs:
       # (no keystore.properties here, as in the android job: the debug app
       # has the runner's debug key, the release app is unsigned)
       - name: Debug
+        if: env.BUILD_DEBUG == 'true'
         run: python3 tools/ci_build.py android64 debug
 
       - name: Release
@@ -738,6 +853,7 @@ jobs:
         run: ccache --show-stats
 
       - uses: actions/upload-artifact@v4
+        if: env.BUILD_DEBUG == 'true'
         with:
           name: chupathingyce-android64-debug-testkey
           path: dist/chupathingyce-android64-debug
@@ -821,6 +937,7 @@ jobs:
           key: windows-ffmpeg-${{ hashFiles('tools/ffmpeg_build.py') }}
 
       - name: Debug
+        if: env.BUILD_DEBUG == 'true'
         run: python tools/ci_build.py windows debug
 
       - name: Release
@@ -835,6 +952,7 @@ jobs:
         run: ccache --show-stats
 
       - uses: actions/upload-artifact@v4
+        if: env.BUILD_DEBUG == 'true'
         with:
           name: chupathingyce-windows-debug
           path: dist/chupathingyce-windows-debug
@@ -849,6 +967,7 @@ jobs:
       # (halo.exe's symbols and map, which ChupathingyCE's release keeps
       # privately for the crash reports; not published)
       - uses: actions/upload-artifact@v4
+        if: env.BUILD_DEBUG == 'true'
         with:
           name: symbols-windows-debug
           path: dist/chupathingyce-windows-debug-symbols
@@ -914,6 +1033,13 @@ jobs:
           path: build/windows/third_party
           key: windows-third-party-${{ hashFiles('tools/windows_build.py') }}
 
+      # bgfx's, bx's and bimg's sources, which the build fetches for the bgfx
+      # renderer (tools/bgfx_build.py): kept so most runs fetch nothing
+      - uses: actions/cache@v4
+        with:
+          path: build/bgfx
+          key: bgfx-source-${{ hashFiles('tools/bgfx_build.py') }}
+
       # the movies' FFmpeg (tools/ffmpeg_build.py), built once and cached:
       # its configure and make run under the runner's MSYS2, which needs make
       - name: MSYS2 make
@@ -925,6 +1051,7 @@ jobs:
           key: windows64-ffmpeg-${{ hashFiles('tools/ffmpeg_build.py') }}
 
       - name: Debug
+        if: env.BUILD_DEBUG == 'true'
         run: python tools/ci_build.py windows64 debug
 
       - name: Release
@@ -934,6 +1061,7 @@ jobs:
         run: ccache --show-stats
 
       - uses: actions/upload-artifact@v4
+        if: env.BUILD_DEBUG == 'true'
         with:
           name: chupathingyce-windows64-debug
           path: dist/chupathingyce-windows64-debug
@@ -948,6 +1076,7 @@ jobs:
       # (halo.exe's symbols and map, which ChupathingyCE's release keeps
       # privately for the crash reports; not published)
       - uses: actions/upload-artifact@v4
+        if: env.BUILD_DEBUG == 'true'
         with:
           name: symbols-windows64-debug
           path: dist/chupathingyce-windows64-debug-symbols
@@ -1000,7 +1129,15 @@ jobs:
           path: build/macos/third_party
           key: macos-sdl3-${{ hashFiles('tools/android_build.py', 'tools/macos_build.py', 'tools/ffmpeg_build.py') }}
 
+      # bgfx's, bx's and bimg's sources, which the build fetches for the bgfx
+      # renderer (tools/bgfx_build.py): kept so most runs fetch nothing
+      - uses: actions/cache@v4
+        with:
+          path: build/bgfx
+          key: bgfx-source-${{ hashFiles('tools/bgfx_build.py') }}
+
       - name: Debug
+        if: env.BUILD_DEBUG == 'true'
         run: python3 tools/ci_build.py macos debug
 
       - name: Release
@@ -1008,10 +1145,11 @@ jobs:
 
       - name: Package
         run: |
-          tar -C dist -cf chupathingyce-macos-debug.tar chupathingyce-macos-debug
+          if [ "$BUILD_DEBUG" = true ]; then tar -C dist -cf chupathingyce-macos-debug.tar chupathingyce-macos-debug; fi
           tar -C dist -cf chupathingyce-macos-release.tar chupathingyce-macos-release
 
       - uses: actions/upload-artifact@v4
+        if: env.BUILD_DEBUG == 'true'
         with:
           name: chupathingyce-macos-debug
           path: chupathingyce-macos-debug.tar

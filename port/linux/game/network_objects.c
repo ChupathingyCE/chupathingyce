@@ -64,6 +64,7 @@ same datum index (identifier and all), so that any message can name one:
 #include "camera/observer.h"
 #include "cutscene/cinematics.h"
 #include "network_coop.h"
+#include "host_evidence.h"
 #include "network_distributed.h"
 #ifdef HALO_PORT_CONSOLE_LIMITS
 #include "cseries/errors.h"
@@ -220,6 +221,10 @@ moved it (distributed_host_moved_at_rest) */
 #define HOST_REST_MOVE_DISTANCE 0.001f
 #define HOST_REST_TURN_COSINE 0.9999f
 
+/* a step of an unsteered vehicle's path (world units a tick). Further than
+this in one tick, the host moved it some other way (a teleport), which is
+not carried on as the path */
+#define UNSTEERED_PATH_STEP 4.0f
 /* world units */
 #define REMOTE_OBJECT_TOLERANCE 0.05f
 /* ... and the cosine of the angle (an object at rest turned) */
@@ -443,6 +448,15 @@ static struct
 	long object_index;
 	long time;
 } objects_client_dead[MAXIMUM_TRACKED_OBJECTS];
+/* ... where the host last had each unsteered vehicle, and when, and for
+how many ticks that step may be carried (distributed_client_note_unsteered_path) */
+static struct
+{
+	long object_index;
+	long time;
+	long coast_ticks;
+	real_point3d position;
+} objects_client_unsteered_path[MAXIMUM_TRACKED_OBJECTS];
 /* ... its own objects made since the last tick (of any kind: those of the
 kinds the host has go), and whether to look through all the objects
 instead (the host's all told, too many made, or made where it cannot say) */
@@ -644,6 +658,15 @@ boolean network_objects_may_delete(
 	return objects_client_deleting || !network_game_distributed_client() ||
 		absolute_index < 0 || absolute_index >= MAXIMUM_TRACKED_OBJECTS ||
 		objects_client_has[absolute_index] != object_index;
+}
+
+/* whether a client is in distributed_client_delete: deleting an object on
+the host's word, or one of its own the host never told it of; a flag or
+ball among them, which the game itself never deletes (objects.c, weapons.c) */
+boolean network_objects_client_deleting(
+	void)
+{
+	return objects_client_deleting;
 }
 
 /* the map's objects placed (game.c): a client's own come from the upper
@@ -1569,6 +1592,7 @@ static void distributed_host_send_states(
 		long object_index = distributed_host_placed_object(absolute_index);
 		boolean was_moving = objects_host_state_moving[absolute_index];
 		boolean at_rest;
+		boolean new_item;
 
 		objects_host_state_moving[absolute_index] = FALSE;
 		if (object_index == NONE)
@@ -1577,12 +1601,17 @@ static void distributed_host_send_states(
 			continue;
 		}
 		at_rest = TEST_FLAG(object_get(object_index)->object.flags, _object_at_rest_bit);
+		/* (an item new here and at rest at once, as a map's item spawn often
+		is, goes out as one come to rest does: older clients took no rest
+		from its creation, and let it fall from there, through the floor) */
+		new_item = objects_host_last_objects[absolute_index] != object_index &&
+			TEST_FLAG(_object_mask_item, object_get(object_index)->object.type);
 		/* (one at rest that moved goes out as a moving one; its state still
 		says at rest, so a client puts it there at once) */
 		if (distributed_host_moved_at_rest(absolute_index, object_index))
 			at_rest = FALSE;
 		objects_host_state_moving[absolute_index] = !at_rest;
-		if (at_rest && was_moving)
+		if (at_rest && (was_moving || new_item))
 			objects_host_rest_times[absolute_index] = game_time_get();
 		if (at_rest && !distributed_host_rest_state_due(absolute_index))
 			continue;
@@ -2025,13 +2054,20 @@ void network_objects_apply_vehicle_predictions(
 		dx = state->position.x - vehicle->object.position.x;
 		dy = state->position.y - vehicle->object.position.y;
 		dz = state->position.z - vehicle->object.position.z;
-		/* (so written that a position not a number is not taken) */
+		/* (so written that a position not a number is not taken; each
+		refusal counted for the server's moderators: host_evidence.h) */
 		if (!(dx * dx + dy * dy + dz * dz <= HOST_VEHICLE_ACCEPT_TOLERANCE * HOST_VEHICLE_ACCEPT_TOLERANCE))
+		{
+			host_evidence_note(objects_host_vehicle_predictions[player_index].machine_index, _host_evidence_vehicle);
 			continue;
+		}
 		/* (no higher in the air than it was thrown up leaving the ground,
 		falling since: past that the host's copy falls as its ticks have it) */
 		if (!network_objects_vehicle_below_ceiling(player_index, state->object_index, &state->position))
+		{
+			host_evidence_note(objects_host_vehicle_predictions[player_index].machine_index, _host_evidence_vehicle);
 			continue;
+		}
 		/* (how fast it may go, a tick) */
 		{
 			struct vehicle_definition const *definition = vehicle_specific_definition_get(vehicle->definition_index);
@@ -2104,7 +2140,11 @@ void network_objects_apply_vehicle_predictions(
 				dy = state->position.y - from->y;
 				dz = state->position.z - from->z;
 				if (ticks <= 0 || !(dx * dx + dy * dy + dz * dz <= reach * reach))
+				{
+					host_evidence_note(objects_host_vehicle_predictions[player_index].machine_index,
+						_host_evidence_vehicle);
 					continue;
+				}
 			}
 		}
 		distributed_object_state_unpack(state, &forward, &up, &velocity, &angular_velocity);
@@ -2113,7 +2153,10 @@ void network_objects_apply_vehicle_predictions(
 		distributed_vector_clamp(&velocity, speed);
 		distributed_vector_clamp(&angular_velocity, MAXIMUM_PREDICTED_VEHICLE_ANGULAR_SPEED);
 		if (!distributed_transform_valid(&state->position, &forward, &up, &velocity, &angular_velocity, &forward, &up))
+		{
+			host_evidence_note(objects_host_vehicle_predictions[player_index].machine_index, _host_evidence_vehicle);
 			continue;
+		}
 		{
 			real_point3d previous_position = vehicle->object.position;
 
@@ -2988,6 +3031,11 @@ static void distributed_client_delete(
 		return;
 	if (TEST_FLAG(_object_mask_item, object->object.type))
 		distributed_client_release_item(object_index, TRUE);
+	/* (a flag or ball, which the game never deletes but a host may: a
+	release build's assertions do not stop it. Out of its carrier's hands
+	above, as any weapon; and the goal its game type shows at it goes too) */
+	if (object->object.type == _object_type_weapon && game_engine_running() && weapon_is_flag(object_index))
+		game_engine_objective_weapon_deleted(object_index);
 	if (TEST_FLAG(_object_mask_unit, object->object.type))
 	{
 		struct unit_datum *unit = unit_get(object_index);
@@ -3188,6 +3236,20 @@ as it is) */
 	{
 		object_disconnect_from_map(object_index);
 		object_set_visibility(object_index, FALSE);
+	}
+	/* (an item the host has at rest: at rest here, where the host has it.
+	Left to fall on its own from the host's resting place, right on the
+	floor (a map's item spawn), it could start just under it and drop
+	through the map, gone from sight until the host's next word on it,
+	many seconds later: the host sends one made at rest no state of its
+	coming to rest) */
+	if (TEST_FLAG(change->flags, _distributed_object_at_rest_bit) &&
+		!TEST_FLAG(change->flags, _distributed_object_carried_bit) &&
+		TEST_FLAG(_object_mask_item, object->object.type) &&
+		TEST_FLAG(object->object.flags, _object_connected_to_map_bit) &&
+		object->object.parent_object_index == NONE)
+	{
+		SET_FLAG(object->object.flags, _object_at_rest_bit, TRUE);
 	}
 	/* (a body: dead on the host before this machine had it, killed here
 	with nothing to show or count of it) */
@@ -3457,6 +3519,59 @@ static void distributed_client_dead_vehicle(
 	object_damage_update(object_index);
 }
 
+/* Client: the velocity that stays on the path of the host's positions for
+this unsteered vehicle. The velocity in the host's state is its physics
+velocity. A recording (a lifepod, which has no pilot) swings that about
+the path, and the next position pulls the vehicle back. The step from the
+host's previous position does not. Kept only for that gap: a late next
+position must not drive the vehicle on, and the host's word that it is at
+rest stops it. */
+static void distributed_client_note_unsteered_path(
+	long object_index,
+	real_point3d const *host_position,
+	boolean host_at_rest)
+{
+	long absolute_index = DATUM_INDEX_TO_ABSOLUTE_INDEX(object_index);
+	struct object_datum *object;
+	long now;
+	long since;
+	long coast_ticks;
+	real_vector3d step;
+
+	if (absolute_index < 0 || absolute_index >= MAXIMUM_TRACKED_OBJECTS || !host_position)
+		return;
+	object = object_get(object_index);
+	now = game_time_get();
+	since = objects_client_unsteered_path[absolute_index].object_index == object_index ?
+		now - objects_client_unsteered_path[absolute_index].time : 0;
+	coast_ticks = 0;
+	/* (stopped as the host has it: the last step would sink a warthog, or
+	carry a Pelican past the pad, until the next word) */
+	if (host_at_rest)
+	{
+		object->object.translational_velocity = *global_zero_vector3d;
+		object->object.angular_velocity = *global_zero_vector3d;
+	}
+	else if (since > 0)
+	{
+		step.i = (host_position->x - objects_client_unsteered_path[absolute_index].position.x) / (real)since;
+		step.j = (host_position->y - objects_client_unsteered_path[absolute_index].position.y) / (real)since;
+		step.k = (host_position->z - objects_client_unsteered_path[absolute_index].position.z) / (real)since;
+		/* (a teleport is not a step of the path: leave it where the host put it) */
+		if (step.i * step.i + step.j * step.j + step.k * step.k <= UNSTEERED_PATH_STEP * UNSTEERED_PATH_STEP)
+		{
+			object->object.translational_velocity = step;
+			coast_ticks = since;
+		}
+		else
+			object->object.translational_velocity = *global_zero_vector3d;
+	}
+	objects_client_unsteered_path[absolute_index].object_index = object_index;
+	objects_client_unsteered_path[absolute_index].time = now;
+	objects_client_unsteered_path[absolute_index].coast_ticks = coast_ticks;
+	objects_client_unsteered_path[absolute_index].position = *host_position;
+}
+
 void network_objects_handle_states(
 	void const *entries,
 	short count)
@@ -3563,6 +3678,9 @@ void network_objects_handle_states(
 				forward.k * object->object.forward.k >= angle_tolerance &&
 			up.i * object->object.up.i + up.j * object->object.up.j + up.k * object->object.up.k >= angle_tolerance)
 		{
+			if (distributed_vehicle_unsteered(state->object_index))
+				distributed_client_note_unsteered_path(state->object_index, &state->position,
+					TEST_FLAG(state->flags, _distributed_object_at_rest_bit));
 			continue;
 		}
 		if (network_objects_reconcile(state->object_index, &state->position, &forward, &up, &velocity,
@@ -3570,6 +3688,9 @@ void network_objects_handle_states(
 		{
 			distributed_count_correction();
 		}
+		if (distributed_vehicle_unsteered(state->object_index))
+			distributed_client_note_unsteered_path(state->object_index, &state->position,
+				TEST_FLAG(state->flags, _distributed_object_at_rest_bit));
 		/* (one it drives, put where the host has it, is as the host has it) */
 		if (own_vehicle)
 			SET_FLAG(object->object.flags, _object_at_rest_bit, at_rest);
@@ -4058,10 +4179,11 @@ static void distributed_client_remove_own_objects(
 	objects_client_new_object_count = 0;
 }
 
-/* Client: keeps each AI-driven vehicle (such as a Pelican on its flight
-path) moving at the velocity the host last sent. These vehicles are held at
-rest here, and a distant one is only updated every few ticks, so otherwise
-it would stop between updates and jump on each one. */
+/* Client: keeps each unsteered vehicle moving along the path of the host's
+positions (distributed_client_note_unsteered_path): a Pelican its pilot
+flies, and a recording's lifepod, which has no pilot. These vehicles are
+held at rest here, and a distant one is only updated every few ticks, so
+otherwise it would stop between updates and jump on each one. */
 static void distributed_client_carry_unsteered_vehicles(
 	void)
 {
@@ -4078,10 +4200,22 @@ static void distributed_client_carry_unsteered_vehicles(
 		real_point3d position;
 		real angle;
 
-		if (object->object.parent_object_index != NONE || unit_get(iterator.index)->unit.driver_object_index == NONE ||
-			!distributed_vehicle_unsteered(iterator.index))
+		if (object->object.parent_object_index != NONE || !distributed_vehicle_unsteered(iterator.index))
 		{
 			continue;
+		}
+		/* (the step of the last gap only: past that, hold for the host) */
+		{
+			long absolute_index = DATUM_INDEX_TO_ABSOLUTE_INDEX(iterator.index);
+
+			if (absolute_index < 0 || absolute_index >= MAXIMUM_TRACKED_OBJECTS ||
+				objects_client_unsteered_path[absolute_index].object_index != iterator.index ||
+				objects_client_unsteered_path[absolute_index].coast_ticks <= 0 ||
+				game_time_get() - objects_client_unsteered_path[absolute_index].time >
+					objects_client_unsteered_path[absolute_index].coast_ticks)
+			{
+				continue;
+			}
 		}
 		angle = normalize3d(&axis);
 		if (velocity->i == 0.0f && velocity->j == 0.0f && velocity->k == 0.0f && angle == 0.0f)
@@ -4190,6 +4324,9 @@ void network_objects_new_game(
 		objects_host_inventories[absolute_index].ammunition_time = NONE;
 		objects_client_has[absolute_index] = NONE;
 		objects_client_dead[absolute_index].object_index = NONE;
+		objects_client_unsteered_path[absolute_index].object_index = NONE;
+		objects_client_unsteered_path[absolute_index].time = NONE;
+		objects_client_unsteered_path[absolute_index].coast_ticks = 0;
 	}
 	objects_host_told_count = 0;
 	objects_host_resting_cursor = 0;

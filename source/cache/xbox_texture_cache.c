@@ -523,6 +523,22 @@ void texture_cache_return_memory(
 	return;
 }
 
+#if defined(HALO_CUSTOM_EDITION) && defined(HALO_CONSOLE_CE_SHARED_TAG_CACHE)
+/* (a 64 MB console's Custom Edition load borrows the cache: port/xbox's
+xbox_ce_files.c) */
+unsigned char texture_cache_memory_stolen(
+	void)
+{
+	return xbox_texture_cache_globals.stolen_memory;
+}
+
+long texture_cache_stealable_size(
+	void)
+{
+	return (XBOX_TEXTURE_CACHE_STEALABLE_PAGE_COUNT - 2) * XBOX_TEXTURE_CACHE_PAGE_SIZE;
+}
+#endif
+
 static const char *texture_cache_name_block_proc(
 	long block_index)
 {
@@ -689,9 +705,11 @@ static void texture_cache_initialize_hardware_format(
 			D3DFORMAT_BORDERSOURCE_COLOR |
 			D3DFORMAT_DMACHANNEL_A;
 		/* port: (the pitch in whole steps, a Halo PC map's rounded up:
-		texture_cache_bitmap_valid) */
+		texture_cache_bitmap_valid; unsigned, since 256 steps shifted into
+		the top byte overflow a signed long. Found in chester's GulchCE) */
 		texture->Size =
-			(((bitmap_mipmap_get_row_pitch(bitmap, 0) + D3DTEXTURE_PITCH_ALIGNMENT - 1) / D3DTEXTURE_PITCH_ALIGNMENT - 1) <<
+			(((unsigned long)(bitmap_mipmap_get_row_pitch(bitmap, 0) + D3DTEXTURE_PITCH_ALIGNMENT - 1) /
+				D3DTEXTURE_PITCH_ALIGNMENT - 1) <<
 				D3DSIZE_PITCH_SHIFT) |
 			((bitmap->height - 1) << D3DSIZE_HEIGHT_SHIFT) |
 			(bitmap->width - 1);
@@ -898,6 +916,34 @@ static void texture_cache_bitmap_spread_rows(
 	}
 
 	return;
+}
+#endif
+
+#ifdef HALO_CONSOLE_MAP_BROWSER
+/* port: a bitmap of the Map Browser's own, width by height square and a power of
+two, its pixels X8R8G8B8 and swizzled in contiguous memory, drawn without the cache
+(port/xbox/game/xbox_maps_screen.c) */
+void texture_cache_map_browser_bitmap(
+	struct bitmap_data *bitmap,
+	void *pixels,
+	short size)
+{
+	static D3DBaseTexture texture;
+
+	memset(bitmap, 0, sizeof(*bitmap));
+	bitmap->signature = 'bitm';
+	bitmap->width = size;
+	bitmap->height = size;
+	bitmap->depth = 1;
+	bitmap->type = _bitmap_type_2d;
+	bitmap->format = _bitmap_format_x8r8g8b8;
+	bitmap->flags = FLAG(_bitmap_has_power_of_two_dimensions_bit) | FLAG(_bitmap_swizzled_bit);
+	bitmap->pixels_size = size * size * 4;
+	bitmap->tag_index = NONE;
+	bitmap->cache_block_index = NONE;
+	bitmap->base_address = pixels;
+	texture_cache_initialize_hardware_format(bitmap, &texture);
+	bitmap->hardware_format = &texture;
 }
 #endif
 
@@ -1257,6 +1303,18 @@ void *_texture_cache_bitmap_get_hardware_format(
 						if (texture_cache_bitmap_rows_packed(bitmap))
 						{
 							texture_cache_bitmap_spread_rows(bitmap);
+						}
+#endif
+#if defined(HALO_CUSTOM_EDITION) && defined(HALO_CONSOLE_CE_BITMAPS)
+						/* port: a Custom Edition map's pixels made the console's, which
+						the desktop builds' renderer does as it draws them (the
+						console's hook: port/xbox/game/xbox_ce.c on the Xbox) */
+						{
+							extern boolean cache_file_tags_are_ce(void);
+							extern void platform_ce_bitmap_loaded(struct bitmap_data *bitmap);
+
+							if (cache_file_tags_are_ce())
+								platform_ce_bitmap_loaded(bitmap);
 						}
 #endif
 						texture->used = TRUE;

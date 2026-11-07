@@ -375,23 +375,31 @@ void game_tick(
 	remove_quitting_players_from_game();
 	game_allegiance_update();
 	PS3_GAME_SPLIT(_ps3_timer_tick_other);
+	HALO_PERF_BEGIN(_halo_perf_tick_units);
 	units_update();
+	HALO_PERF_END(_halo_perf_tick_units);
 	PS3_GAME_SPLIT(_ps3_timer_tick_units);
 	/* (the host's actors drive the host's units, which a client of the
 	distributed netcode has from the host: its own would fight the host's
 	positions, and could place objects of their own) */
+	HALO_PERF_BEGIN(_halo_perf_tick_ai);
 	if (!network_game_distributed_client())
 		ai_update();
 	else
 		network_actors_drive();
+	HALO_PERF_END(_halo_perf_tick_ai);
 	PS3_GAME_SPLIT(_ps3_timer_tick_ai);
+	HALO_PERF_BEGIN(_halo_perf_tick_units);
 	players_update_before_game();
+	HALO_PERF_END(_halo_perf_tick_units);
 	PS3_GAME_SPLIT(_ps3_timer_tick_players);
 
 	seconds_per_tick = game_globals->players_are_double_speed
 		? 1.0f / (2 * TICKS_PER_SECOND)
 		: 1.0f / TICKS_PER_SECOND;
+	HALO_PERF_BEGIN(_halo_perf_tick_effects);
 	effects_update(seconds_per_tick);
+	HALO_PERF_END(_halo_perf_tick_effects);
 	PS3_GAME_SPLIT(_ps3_timer_tick_effects);
 	/* An antenna's chain is a simulation of the Xbox's own step, an update a
 	tick: stepped a frame at a time, its springs, its carry and its points'
@@ -404,7 +412,9 @@ void game_tick(
 	first_person_weapons_update();
 	unlock_global_random_seed();
 	PS3_GAME_SPLIT(_ps3_timer_tick_first_person);
+	HALO_PERF_BEGIN(_halo_perf_tick_game_engine);
 	game_engine_update();
+	HALO_PERF_END(_halo_perf_tick_game_engine);
 	editor_update();
 	PS3_GAME_SPLIT(_ps3_timer_tick_other);
 	/* port: in network co-op only the host runs the scripts. A client running
@@ -415,9 +425,13 @@ void game_tick(
 	PS3_GAME_SPLIT(_ps3_timer_tick_scripts);
 	recorded_animations_update();
 	PS3_GAME_SPLIT(_ps3_timer_tick_other);
+	HALO_PERF_BEGIN(_halo_perf_tick_objects);
 	objects_update();
+	HALO_PERF_END(_halo_perf_tick_objects);
 	PS3_GAME_SPLIT(_ps3_timer_tick_objects);
+	HALO_PERF_BEGIN(_halo_perf_tick_units);
 	players_update_after_game();
+	HALO_PERF_END(_halo_perf_tick_units);
 	PS3_GAME_SPLIT(_ps3_timer_tick_players);
 	hud_update();
 	player_effect_update();

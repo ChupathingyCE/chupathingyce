@@ -289,6 +289,19 @@ static unsigned long stage_mode(const struct nv2a_pixel_shader_key *key, int sta
 	return (key->texture_modes >> (5 * stage)) & 0x1f;
 }
 
+/* whether a stage replaces the fragment's depth (DOT_ZW) */
+static BOOL replaces_depth(const struct nv2a_pixel_shader_key *key)
+{
+	int stage;
+
+	for (stage = 1; stage < 4; stage++)
+	{
+		if (stage_mode(key, stage) == _mode_dot_zw)
+			return TRUE;
+	}
+	return FALSE;
+}
+
 static int stage_input(const DWORD *state, int stage)
 {
 	switch (stage)
@@ -314,7 +327,7 @@ static void dot_input(struct xgpu_text *text, const DWORD *state, int stage)
 	}
 }
 
-#ifdef HALO_ANDROID
+#ifdef HALO_GL_ES
 /* ES samplers have no LOD bias: pass D3DTSS_MIPMAPLODBIAS to the lookup */
 #define SAMPLE_BIAS ", texture_lod_bias[%d]"
 #define SHADER_VERSION \
@@ -339,21 +352,21 @@ static void sample(struct xgpu_text *text, const struct nv2a_pixel_shader_key *k
 	{
 	case _xgpu_sampler_3d:
 		xgpu_text_append(text, "texture(tex%d, (%s).xyz" SAMPLE_BIAS ")", stage, coordinates
-#ifdef HALO_ANDROID
+#ifdef HALO_GL_ES
 			, stage
 #endif
 			);
 		break;
 	case _xgpu_sampler_cube:
 		xgpu_text_append(text, "texture(tex%d, (%s).xyz" SAMPLE_BIAS ")", stage, coordinates
-#ifdef HALO_ANDROID
+#ifdef HALO_GL_ES
 			, stage
 #endif
 			);
 		break;
 	default:
 		xgpu_text_append(text, "texture(tex%d, (%s).xy * texture_scale[%d].xy" SAMPLE_BIAS ")", stage, coordinates, stage
-#ifdef HALO_ANDROID
+#ifdef HALO_GL_ES
 			, stage
 #endif
 			);
@@ -452,6 +465,20 @@ static void texture_stage(struct xgpu_text *text, const struct nv2a_pixel_shader
 		xgpu_text_append(text, "\tdot%d = dot(xT%d.xyz, ", stage, stage);
 		dot_input(text, state, stage);
 		xgpu_text_append(text, ");\n\tt%d = vec4(0.0);\n", stage);
+		/* the stage replaces the fragment's depth with the previous stage's
+		dot product over its own, in the depth buffer's units (the game's
+		z-sprites: a particle's card tested as the rounded puff its second
+		map describes, up to its radius nearer than the card, so that the
+		surface it stands on doesn't cut it in half). The game's depth
+		buffer is 24 bits and its viewport's depth range 0 to 1
+		(rasterizer_xbox.c), so the units are 1 / 16777215 of the window's
+		depth. A divisor that is not positive (a fragment behind the eye)
+		gives the far plane */
+		if (stage >= 1)
+		{
+			xgpu_text_append(text, "\treplaced_depth = dot%d > 0.0 ? clamp(dot%d / dot%d / 16777215.0, 0.0, 1.0) : 1.0;\n",
+				stage, stage - 1, stage);
+		}
 		break;
 	case _mode_dot_reflect_diffuse:
 		/* the normal takes its third component from stage 3's dot product */
@@ -599,7 +626,7 @@ char *nv2a_pixel_shader_to_glsl(const struct nv2a_pixel_shader_key *key)
 	if (combiner_count > 8)
 		combiner_count = 8;
 
-#ifdef HALO_ANDROID
+#ifdef HALO_GL_ES
 	xgpu_text_append(&text, "#version %s\n", xgpu_capabilities.shading_language);
 	if (key->count_samples)
 	{
@@ -645,6 +672,8 @@ char *nv2a_pixel_shader_to_glsl(const struct nv2a_pixel_shader_key *key)
 		"\tfloat dot0 = 0.0, dot1 = 0.0, dot2 = 0.0, dot3 = 0.0;\n");
 	if (key->per_pixel_lighting)
 		xgpu_text_append(&text, "\tv0.rgb = model_lighting();\n");
+	if (replaces_depth(key))
+		xgpu_text_append(&text, "\tfloat replaced_depth = 1.0;\n");
 
 	for (stage = 0; stage < 4; stage++)
 		texture_stage(&text, key, stage);
@@ -746,10 +775,12 @@ char *nv2a_pixel_shader_to_glsl(const struct nv2a_pixel_shader_key *key)
 		xgpu_text_append(&text, "\tresult = vec4(t0.rgb, 1.0);\n");
 	if (config_boolean("debug.gpu_debug_flat"))
 		xgpu_text_append(&text, "\tresult = xD0.a > 0.0 ? vec4(xD0.rgb, 1.0) : vec4(1.0, 0.0, 1.0, 1.0);\n");
-#ifdef HALO_ANDROID
+#ifdef HALO_GL_ES
 	if (key->count_samples)
 		xgpu_text_append(&text, "\tatomicCounterIncrement(visible_samples);\n");
 #endif
+	if (replaces_depth(key))
+		xgpu_text_append(&text, "\tgl_FragDepth = replaced_depth;\n");
 	xgpu_text_append(&text, "\tfragment_color = clamp(result, 0.0, 1.0);\n}\n");
 	return text.buffer;
 }

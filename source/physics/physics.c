@@ -222,6 +222,8 @@ struct powered_mass_point_definition
 
 #include "units/vehicle_datum.h"
 
+#include "halo_perf_log.h" /* port: console.perf_log */
+
 /* TU-local copy: no shared header declares the game globals falling-damage
  * block yet; identical complete copies live in objects/damage.c and
  * units/bipeds.c. */
@@ -2285,6 +2287,7 @@ void physics_update(
 	uint64_t ps3_span;
 #endif
 
+	HALO_PERF_BEGIN(_halo_perf_tick_physics);
 	if (physics->radius > 0.0f)
 	{
 		PS3_PHYSICS_SPAN(ps3_span); /* port: (the timer build) */
@@ -2296,6 +2299,7 @@ void physics_update(
 			magic_torque);
 		PS3_PHYSICS_ADD(_ps3_timer_physics_old, ps3_span); /* port: (the timer build) */
 		PS3_PHYSICS_COUNT(_ps3_timer_physics_old, 1); /* port: (the timer build) */
+		HALO_PERF_END(_halo_perf_tick_physics);
 		return;
 	}
 
@@ -2377,6 +2381,7 @@ void physics_update(
 	physics_compute_unit_collisions(object_index);
 	PS3_PHYSICS_ADD(_ps3_timer_physics_unit_collisions, ps3_span); /* port: (the timer build) */
 
+	HALO_PERF_END(_halo_perf_tick_physics);
 	return;
 }
 

@@ -1,0 +1,28 @@
+# H2 King: Halo 2 Team King of the Hill. The hill moves every minute among
+# the map's hills, 2 minutes in the hill to win, 15 minutes. Players start
+# with the map's own weapons (a battle rifle where the map gives one).
+base = "team_king"
+name = "H2 King"
+score_limit = 2
+time_limit = 15
+
+[players]
+shields = true
+respawn_time = 5
+suicide_penalty = 5
+
+[items]
+starting_equipment = "map"
+weapon_set = "normal"
+
+[indicators]
+objectives = "nav_points"
+players_on_radar = "all"
+friends_on_screen = true
+
+[team_play]
+friendly_fire = "off"
+auto_balance = true
+
+[king]
+moving_hill = true

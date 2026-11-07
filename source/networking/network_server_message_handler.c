@@ -269,6 +269,8 @@ symbols in this file:
 /* port/linux/game/network_distributed.c's */
 void network_distributed_handle_message(long machine_index, word const *message, word size);
 void network_distributed_handle_stream_message(long machine_index, word const *message, word size);
+/* (the host's budget for a client machine's lobby messages) */
+boolean network_distributed_lobby_message_allowed(long machine_index);
 
 /* ---------- constants */
 
@@ -1546,6 +1548,25 @@ boolean network_game_server_handle_client_message(
 				if (network_game_server_client_machine_is_joined_to_game(server, machine) ||
 					packet_type == _message_client_join_game_request)
 				{
+					/* port: a client machine's lobby messages (its settings, its
+					players' settings, a player added or removed), each of which
+					the host sends every machine the lobby again for, within a
+					budget a player in the menus never reaches: past it, dropped
+					(network_distributed.c logs it once). Not the host's own. */
+					if ((packet_type == _message_client_settings_request ||
+							packet_type == _message_client_player_settings_request ||
+							packet_type == _message_client_add_player_request_pregame ||
+							packet_type == _message_client_remove_player_request_pregame ||
+							packet_type == _message_client_add_player_request_ingame ||
+							packet_type == _message_client_remove_player_request_ingame) &&
+						!network_game_server_client_machine_is_local(server, machine))
+					{
+						long machine_index = NONE;
+
+						network_game_server_get_client_machine(server, machine, &machine_index);
+						if (!network_distributed_lobby_message_allowed(machine_index))
+							break;
+					}
 					switch (packet_type)
 					{
 						case _message_client_join_game_request:

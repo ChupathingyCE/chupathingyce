@@ -18,6 +18,10 @@ none, a chain to Let's Encrypt's ISRG Root X1 or X2 naming the host is taken
 as a backstop (dates unchecked), so that a console that missed an update is
 never stranded. Pins win: the backstop is asked only when no pin matches.
 
+api.xboxhomebrew.store (a console's map browser): the Xbox Homebrew Store's,
+behind Cloudflare, whose keys are not ours either: its chain must lead to
+Let's Encrypt's ISRG Root X1 or X2 and name the host.
+
 raw.githubusercontent.com: GitHub's, whose keys are not ours to pin: its
 chain must lead to one of console_https_roots.c's roots (Let's Encrypt's
 ISRG roots, which it uses now, and the Sectigo and DigiCert roots GitHub
@@ -53,5 +57,7 @@ const struct console_https_trust console_https_hosts[] =
 	{ CONSOLE_HTTPS_SITE, site_pins, sizeof(site_pins) / sizeof(*site_pins), console_https_roots, 2 },
 	/* (roots NULL: all of console_https_roots.c's) */
 	{ CONSOLE_HTTPS_GITHUB, NULL, 0, NULL, 0 },
+	/* (the map store's: Let's Encrypt's, console_https_roots.c's first two) */
+	{ CONSOLE_HTTPS_MAP_STORE, NULL, 0, console_https_roots, 2 },
 };
 const int console_https_host_count = sizeof(console_https_hosts) / sizeof(*console_https_hosts);

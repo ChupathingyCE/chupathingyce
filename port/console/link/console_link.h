@@ -192,5 +192,11 @@ int console_link_qr_size(void);
 int console_link_qr_dark(int x, int y);
 /* this console's player ID while it is linked: 1, or 0 */
 int console_link_player_id(unsigned char *id);
+/* while the console is linked, its device key (the console's reports of
+its games, port/console/reports): its public key as 64 hex digits and a
+terminator, or a message's signature by it as 128 and one; 1, or 0 (not
+linked, or no key). The seed is read and wiped inside; any thread */
+int console_link_linked_key(char *public_hex);
+int console_link_sign_linked(const void *message, int size, char *signature_hex);
 
 #endif

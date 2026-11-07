@@ -1028,6 +1028,9 @@ static void damage_data_validate_owner(
 {
 	if (damage->owner_player_index != NONE && !player_try_and_get(damage->owner_player_index))
 		damage->owner_player_index = NONE;
+	/* port: nor does damage keep an owner object that is gone */
+	if (damage->owner_object_index != NONE && !object_try_and_get(damage->owner_object_index))
+		damage->owner_object_index = NONE;
 }
 
 static void object_damage_aftermath(
@@ -1124,7 +1127,7 @@ static void object_damage_aftermath(
 				being_damaged_flags,
 				_object_being_damaged_body_depleted_bit))
 		{
-#ifdef HALO_GAME_BROWSER
+#ifdef HALO_PORT_GAME_REPORTS
 			/* (the damage of the kill about to be counted, for the game
 			list's statistics recorder: port/linux/game/game_stats.c) */
 			void game_stats_kill_damage(long definition_index);
@@ -1136,7 +1139,7 @@ static void object_damage_aftermath(
 				damage->owner_player_index,
 				damage->owner_object_index,
 				damage->owner_team_index);
-#ifdef HALO_GAME_BROWSER
+#ifdef HALO_PORT_GAME_REPORTS
 			game_stats_kill_damage(NONE);
 #endif
 		}
@@ -2258,7 +2261,15 @@ static long get_player_index_from_object_or_parents(
 			break;
 		}
 
-		object_index = object_get(object_index)->object.parent_object_index;
+		{
+			// the parent may be gone already (a projectile can outlive its owner)
+			struct object_datum *object = object_try_and_get(object_index);
+
+			if (!object)
+				break;
+
+			object_index = object->object.parent_object_index;
+		}
 	}
 
 	return player_index;

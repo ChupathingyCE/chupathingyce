@@ -424,6 +424,13 @@ enum
 	_text_justification_right,
 };
 
+/* port: a network game's frame this long or longer is noted in debug.txt
+(milliseconds; a client's connection times out after 15 seconds of silence) */
+enum
+{
+	LONG_NETWORK_FRAME_MILLISECONDS = 2000,
+};
+
 /* ---------- macros */
 
 /* ---------- structures */
@@ -685,6 +692,9 @@ typedef char screenshot_and_framerate_globals_size_assert[
 void network_test_update(boolean main_menu_loaded, real seconds);
 void audio_probe_update(unsigned char main_menu_loaded, float seconds);
 void team_change_update(void);
+#endif
+#ifdef HALO_GAME_BROWSER
+void host_rules_update(void);
 #endif
 #ifdef HALO_PORT_CHAT
 void chat_update(void);
@@ -3815,6 +3825,10 @@ void main_loop(
 			/* changing teams during a game (port/linux/game/team_change.c) */
 			team_change_update();
 #endif
+#ifdef HALO_GAME_BROWSER
+			/* the host's rules for its players' extras (port/linux/game/host_rules.c) */
+			host_rules_update();
+#endif
 #ifdef HALO_PORT_CHAT
 			/* text chat (port/linux/game/chat.c; on a console, its client's
 			part) */
@@ -3825,6 +3839,24 @@ void main_loop(
 			on the consoles too */
 			MAIN_STAGE("audio_probe_update");
 			audio_probe_update(main_globals.main_menu_scenario_loaded, main_globals.seconds_elapsed);
+			/* port: a frame of a network game that took seconds (a hitch,
+			a stall of the renderer) noted in debug.txt, nothing having been
+			sent or read meanwhile: why a machine timed out of a game, or
+			another lost it, can then be read */
+			{
+				static unsigned long previous_network_frame_milliseconds;
+				unsigned long now = system_milliseconds();
+
+				if ((main_globals.connection==_game_connection_network_client ||
+					main_globals.connection==_game_connection_network_server) && game_in_progress() &&
+					previous_network_frame_milliseconds &&
+					now-previous_network_frame_milliseconds>=LONG_NETWORK_FRAME_MILLISECONDS)
+				{
+					error(_error_silent, "a frame of %lu ms in a network game (nothing sent or read meanwhile)",
+						now-previous_network_frame_milliseconds);
+				}
+				previous_network_frame_milliseconds = now;
+			}
 			HALO_PERF_BEGIN(_halo_perf_network);
 			connection = main_globals.connection;
 			if (connection==_game_connection_network_client)
@@ -3877,7 +3909,6 @@ void main_loop(
 				void dedicated_server_update(void);
 				void probe_update(void);
 				void game_list_claims_update(void);
-				void game_stats_update(void);
 				void discord_game_update(void);
 
 				MAIN_STAGE("dedicated_server_update");
@@ -3886,8 +3917,18 @@ void main_loop(
 				probe_update();
 				MAIN_STAGE("game_list_claims_update");
 				game_list_claims_update();
-				game_stats_update();
 				discord_game_update();
+			}
+#endif
+#ifdef HALO_PORT_GAME_REPORTS
+			{
+				/* the statistics recorder and a joined game's report
+				(port/linux/game/game_stats.c): the desktop builds' game
+				list, or a console's reports (port/console/reports) */
+				void game_stats_update(void);
+
+				MAIN_STAGE("game_stats_update");
+				game_stats_update();
 			}
 #endif
 			MAIN_STAGE("bink_playback_update");

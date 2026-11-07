@@ -54,6 +54,7 @@ symbols in this file:
 #include "cache/cache_files.h"
 #include "camera/director.h"
 #include "camera/observer.h"
+#include "game/game.h" /* port: game_connection, cheat_objects */
 #include "game/game_globals.h"
 #include "game/players.h"
 #include "hs/hs.h"
@@ -121,12 +122,103 @@ void cheats_dispose_from_old_map(
 
 /* network_game_globals.c's */
 boolean network_game_distributed_client(void);
+boolean network_game_host_cheats_refused(void);
 /* bipeds.c's, player_control.c's */
 extern boolean rider_ejection;
 extern boolean player_autoaim_flag;
 extern boolean player_magnetism_flag;
 /* game_time.c's */
 boolean game_time_reset_speed(void);
+/* network_game_globals.c's, port_config.c's, delta_peer_game.c's */
+struct network_game_server *global_network_game_server_get(void);
+long config_integer(const char *name);
+#ifdef HALO_GAME_BROWSER
+int delta_peer_game_hosting_xbox(void);
+#endif
+
+/* port: the objects a network game's host made from its console (its
+cheats, its object_create), this game: past network.host_console_objects
+(32 unless set; 8 while an original Xbox machine plays, whose object array
+is the PC's eighth) the next is refused, and none is kept at an index past
+the Xbox's own half (1,024: one there takes the place of the console's own
+objects, docs/cross-play.md, "Object slots"). A map's own scripts are not
+counted: the objects they make by name are the map's, one each at most */
+enum
+{
+	CONSOLE_OBJECTS_DEFAULT = 32,
+	CONSOLE_OBJECTS_WITH_XBOX = 8,
+	CONSOLE_OBJECTS_XBOX_INDEX_LIMIT = 1024
+};
+
+static long cheats_console_objects_made = 0;
+static boolean cheats_console_objects_refusal_logged = FALSE;
+
+/* whether the quota counts this object: the host of a network game, a
+command typed or a cheat button's (terminal_command_running) */
+static boolean cheats_console_objects_counted(
+	void)
+{
+	return terminal_command_running && global_network_game_server_get() != NULL &&
+		!network_game_distributed_client();
+}
+
+static boolean cheats_console_objects_xbox(
+	void)
+{
+#ifdef HALO_GAME_BROWSER
+	return delta_peer_game_hosting_xbox() != 0;
+#else
+	return FALSE;
+#endif
+}
+
+static void cheats_console_objects_refused(
+	char const *why)
+{
+	if (!cheats_console_objects_refusal_logged)
+	{
+		error(_error_log, "the host's console: objects refused (%s; %ld made this game)", why,
+			cheats_console_objects_made);
+		cheats_console_objects_refusal_logged = TRUE;
+	}
+	console_warning("no more objects from the console this game (%s)", why);
+}
+
+boolean cheats_console_object_allowed(
+	void)
+{
+	long limit;
+
+	if (!cheats_console_objects_counted())
+		return TRUE;
+	limit = config_integer("network.host_console_objects");
+	if (limit < 0)
+		limit = CONSOLE_OBJECTS_DEFAULT;
+	if (limit > 0 && cheats_console_objects_xbox() && limit > CONSOLE_OBJECTS_WITH_XBOX)
+		limit = CONSOLE_OBJECTS_WITH_XBOX;
+	if (limit > 0 && cheats_console_objects_made >= limit)
+	{
+		cheats_console_objects_refused("network.host_console_objects");
+		return FALSE;
+	}
+	return TRUE;
+}
+
+boolean cheats_console_object_made(
+	long object_index)
+{
+	if (object_index == NONE || !cheats_console_objects_counted())
+		return TRUE;
+	if (cheats_console_objects_xbox() &&
+		DATUM_INDEX_TO_ABSOLUTE_INDEX(object_index) >= CONSOLE_OBJECTS_XBOX_INDEX_LIMIT)
+	{
+		object_delete(object_index);
+		cheats_console_objects_refused("an original Xbox plays, and the game has many objects");
+		return FALSE;
+	}
+	cheats_console_objects_made++;
+	return TRUE;
+}
 
 /* port: what the map's own scripts set rider_ejection to (TRUE until they
 set it, and again with each new map). A client in another's game keeps it,
@@ -188,15 +280,24 @@ static boolean cheats_network_client_rasterizer_enforce(
 /* port: a client in another's game plays by the host's rules: none of its
 own cheats, its own game speed or its own changes to how players play, nor
 what its drawing shows it that others' does not, set before it joined too
-(after, hs_compile_and_evaluate refuses them); each frame and each tick */
+(after, hs_compile_and_evaluate refuses them); each frame and each tick. So
+does the host of a public internet game with others in it, unless
+network.host_cheats is on (network_game_host_cheats_refused): its cheats
+set before (init.txt, a game alone) are put back as the first player
+joins */
 void cheats_network_client_enforce(
 	void)
 {
 	static struct cheat_globals const none = { 0 };
 	boolean changed;
+	boolean host = FALSE;
 
 	if (!network_game_distributed_client())
-		return;
+	{
+		if (!network_game_host_cheats_refused())
+			return;
+		host = TRUE;
+	}
 	changed = csmemcmp(&cheat, &none, sizeof(cheat)) != 0 || rider_ejection != cheats_map_rider_ejection ||
 		!player_autoaim_flag || !player_magnetism_flag;
 	csmemset(&cheat, 0, sizeof(cheat));
@@ -205,7 +306,13 @@ void cheats_network_client_enforce(
 	player_magnetism_flag = TRUE;
 	changed |= game_time_reset_speed();
 	changed |= cheats_network_client_rasterizer_enforce();
-	if (changed)
+	if (changed && host)
+	{
+		console_warning("hosting a public game with other players: cheats, game speed and drawing put back "
+			"(network.host_cheats = true allows them, and Online Games shows it)");
+		error(_error_log, "hosting a public game with other players: cheats, game speed and drawing put back");
+	}
+	else if (changed)
 	{
 		console_warning("playing in another's game: its host's rules (cheats, game speed and drawing put back)");
 		error(_error_log, "playing in another's game: cheats, game speed and drawing put back to the host's");
@@ -330,6 +437,9 @@ void cheats_initialize_for_new_map(
 {
 	/* port: (the new map's scripts set their own) */
 	cheats_map_rider_ejection = TRUE;
+	/* port: (each game's console objects counted anew) */
+	cheats_console_objects_made = 0;
+	cheats_console_objects_refusal_logged = FALSE;
 	cheats_load();
 
 	return;
@@ -414,6 +524,17 @@ static void cheat_objects(
 				real angle = arctangent(forward.i, forward.j)+
 					(reference_index-reference_count/2)*angle_separation;
 
+				/* port: a network game's host makes no flag or ball (a weapon
+				that must be readied): those belong to the game engine, and
+				clients refuse one it does not own. Found in chester's GulchCE. */
+				if (game_connection() == _game_connection_network_server &&
+					object_definition_get(references[reference_index].index)->object.type == _object_type_weapon &&
+					TEST_FLAG(weapon_definition_get(references[reference_index].index)->weapon.flags,
+						_weapon_must_be_readied_bit))
+				{
+					continue;
+				}
+
 				object_placement_data_new(&data, references[reference_index].index, NONE);
 
 				data.position.x = cosine(angle)*1.5f+origin.x;
@@ -422,7 +543,10 @@ static void cheat_objects(
 				data.forward = forward;
 				data.up = up;
 
-				object_new(&data);
+				/* port: a network game's host, no more than its quota */
+				if (!cheats_console_object_allowed())
+					break;
+				cheats_console_object_made(object_new(&data));
 			}
 		}
 	}

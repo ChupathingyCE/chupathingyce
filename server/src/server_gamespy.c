@@ -9,6 +9,10 @@ Custom Edition names it (an Xbox map as xbox_<map>, a Custom Edition or
 Halo PC map by its own name: the naming the Custom Edition community uses,
 as ugoboom passed on), its game type, its seats and its players.
 
+With ce_joins on as well, the same port answers Halo Custom Edition
+1.0.10's join wire (server/platform/ce_transport.c), and Custom Edition
+players join the game (server_ce.c) while it plays a Custom Edition map.
+
 The version reported (gamever) is this server's own unless
 HALO_DEDICATED_GAMESPY_VERSION sets another. Custom Edition 1.0.10's server
 browser shows only servers of its own version (01.00.10.0621), so by
@@ -61,6 +65,7 @@ static struct
 {
 	boolean configured;
 	boolean enabled;
+	boolean joins;
 	long port;
 	boolean failed;
 	unsigned long failed_time;
@@ -81,6 +86,7 @@ static void configure_from_settings(
 	static struct server_settings settings;
 	char const *enabled = getenv(server_settings_table[SERVER_SETTING_GAMESPY_LISTING].environment);
 	char const *port = getenv(server_settings_table[SERVER_SETTING_GAMESPY_PORT].environment);
+	char const *joins = getenv(server_settings_table[SERVER_SETTING_CE_JOINS].environment);
 
 	if (!server_admin_read_settings(&settings))
 		csmemset(&settings, 0, sizeof(settings));
@@ -89,6 +95,23 @@ static void configure_from_settings(
 		gamespy.enabled = text_true(enabled);
 	else if (settings.set[SERVER_SETTING_GAMESPY_LISTING])
 		gamespy.enabled = settings.values[SERVER_SETTING_GAMESPY_LISTING] ? TRUE : FALSE;
+	gamespy.joins = FALSE;
+	if (joins && joins[0])
+		gamespy.joins = text_true(joins);
+	else if (settings.set[SERVER_SETTING_CE_JOINS])
+		gamespy.joins = settings.values[SERVER_SETTING_CE_JOINS] ? TRUE : FALSE;
+	/* (the Custom Edition welcome: the environment's even when empty, which
+	turns it off; else the file's; else the default) */
+	{
+		char const *welcome = getenv(server_settings_table[SERVER_SETTING_CE_WELCOME].environment);
+
+		if (welcome)
+			server_ce_set_welcome(welcome);
+		else if (settings.set[SERVER_SETTING_CE_WELCOME])
+			server_ce_set_welcome(settings.ce_welcome);
+		else
+			server_ce_set_welcome(NULL);
+	}
 	gamespy.port = GAMESPY_DEFAULT_PORT;
 	if (port && port[0])
 		gamespy.port = atol(port);
@@ -211,6 +234,9 @@ static void start(
 		return;
 	}
 	gamespy.failed = FALSE;
+	gamespy_listing_set_joins(gamespy.joins);
+	if (gamespy.joins)
+		error(_error_silent, "gamespy: taking Halo Custom Edition 1.0.10 players on Custom Edition maps");
 	if (!exit_registered)
 	{
 		exit_registered = TRUE;
@@ -273,6 +299,24 @@ void server_gamespy_configure(
 	gamespy.enabled = enabled;
 	gamespy.port = port;
 	gamespy.failed = FALSE;
+}
+
+void server_gamespy_set_joins(
+	boolean enabled)
+{
+	if (!gamespy.configured)
+		configure_from_settings();
+	gamespy.joins = enabled;
+	if (gamespy_listing_running())
+		gamespy_listing_set_joins(enabled);
+}
+
+boolean server_gamespy_joins(
+	void)
+{
+	if (!gamespy.configured)
+		configure_from_settings();
+	return gamespy.joins;
 }
 
 boolean server_gamespy_enabled(

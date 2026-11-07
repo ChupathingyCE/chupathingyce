@@ -185,6 +185,15 @@ long csstrcmp(char const *s1, char const *s2)
 	return strcmp(s1, s2);
 }
 
+/* (Stubbs mode's animation data block, port/linux/game/stubbs_mode.c: the
+validator alone never runs Stubbs mode, so it owns nothing) */
+unsigned char stubbs_mode_owns_data(void const *address, long size)
+{
+	(void)address;
+	(void)size;
+	return 0;
+}
+
 /* ---------- code */
 
 /* the map's bytes as the game sees them (its tag data and bsps at their file

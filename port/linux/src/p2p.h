@@ -25,6 +25,9 @@ int p2p_hand_off_invite(void);
 /* joins the game an invite link or code leads to; text may hold other
 words around it. Returns nonzero if it held an invite */
 int p2p_join_invite(const char *text);
+/* p2p_join_invite for the invite of a public game without a password (a
+listing's), which a player in it shares on Discord too (discord.show_join) */
+int p2p_join_listed_invite(const char *text);
 #ifdef HALO_GAME_BROWSER
 /* the invite of the game this machine hosts on the internet (its 44 digits,
 without halo://join/); 0 when it hosts none (browser.c) */
@@ -139,6 +142,30 @@ when internet play is off. check_network starts the STUN servers' look,
 which hosting does anyway, so the status is known before the game starts */
 int p2p_hosting_status(char *text, int size);
 void p2p_check_network(void);
+/* the same facts as fields, for the dedicated server's status (sv_status,
+its control panel): 0 when internet play is off (reach zeroed) */
+enum
+{
+	P2P_UPNP_NOT_ASKED,
+	P2P_UPNP_FORWARDED,
+	P2P_UPNP_NO_ROUTER,
+	P2P_UPNP_REFUSED,
+};
+struct p2p_reach
+{
+	/* the tunnel's UDP port, and whether it stays from run to run */
+	unsigned short port;
+	int port_fixed;
+	/* P2P_UPNP_*, and whether network.allow_upnp lets it ask */
+	int upnp;
+	int upnp_allowed;
+	/* the STUN servers that answered, whether two of them saw different
+	ports (a strict NAT), and whether the look is over */
+	int stun_answers;
+	int strict;
+	int settled;
+};
+int p2p_hosting_reach(struct p2p_reach *reach);
 
 /* text for the clipboard (a new invite link), once; NULL if none. Called
 from the main thread, which copies it only with network.copy_to_clipboard */

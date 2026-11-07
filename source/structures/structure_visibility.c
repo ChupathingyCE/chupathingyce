@@ -119,6 +119,7 @@ symbols in this file:
 #include "shaders/shader_definitions.h"
 #include "structures/structure_bsp_definitions.h"
 #include "tag_files/tag_groups.h"
+#include "structure_culling.h" /* port: port/linux/game/structure_culling.c */
 
 /* ---------- constants */
 
@@ -342,9 +343,10 @@ static boolean warned_about_structure_bsp_depth;
 static struct structure_visibility_globals structure_visibility_globals;
 static struct profile_section render_structure_visibility_portal_traversal =
 	{ "render_structure_visibility_portal_traversal", NONE, TRUE };
-static struct profile_section render_structure_visibility_subcluster_traversal =
+/* port: shared with the culling walk so both paths use the same profile sections */
+struct profile_section render_structure_visibility_subcluster_traversal =
 	{ "render_structure_visibility_subcluster_traversal", NONE, TRUE };
-static struct profile_section render_structure_visibility_surface_traversal =
+struct profile_section render_structure_visibility_surface_traversal =
 	{ "render_structure_visibility_surface_traversal", NONE, TRUE };
 real structure_sphere_threshold = 2.0f;
 
@@ -2222,8 +2224,14 @@ void structure_visibility_compute(
 #ifdef HALO_PS3
 		/* port: on the render SPU while the window goes on; structure_render_preprocess takes it */
 		if (!structure_visibility_spu_submit())
+			structure_visibility_traverse_subclusters(structure);
+#else
+		/* port: retain the original walk when culling is disabled or unavailable */
+		if (!structure_culling_traverse(structure))
+		{
+			structure_visibility_traverse_subclusters(structure);
+		}
 #endif
-		structure_visibility_traverse_subclusters(structure);
 	}
 	else
 	{
@@ -2239,7 +2247,11 @@ void structure_visibility_compute(
 			warned_about_missing_subclusters = TRUE;
 		}
 
-		structure_visibility_traverse_surface_lists(structure);
+		/* port: retain the original walk when culling is disabled or unavailable */
+		if (!structure_culling_traverse(structure))
+		{
+			structure_visibility_traverse_surface_lists(structure);
+		}
 	}
 
 	return;

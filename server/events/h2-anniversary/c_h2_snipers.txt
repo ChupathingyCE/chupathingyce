@@ -1,0 +1,11 @@
+# [C] H2 Snipers: Halo 2 Team Snipers on Zanzibar and Coagulation (the
+# HaloMD Halo 2 maps; not Relic, whose sniper rifle is not in the map's
+# weapon list, so Snipers starts with the pistol there). The last entry is
+# free for all, for a lone player.
+
+# map              game type
+zanzibar_1@md      h2_snipers
+coagulat_1@md      h2_snipers
+zanzibar_1@md      h2_snipers
+coagulat_1@md      h2_snipers
+zanzibar_1@md      h2_snipers_ffa

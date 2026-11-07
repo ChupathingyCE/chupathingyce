@@ -13,6 +13,8 @@ from pathlib import Path
 
 import pytest
 
+from tools import fuzz_support  # noqa: E402
+
 ROOT = Path(__file__).resolve().parent.parent
 INCLUDE = ROOT / "port" / "linux" / "include"
 MONOCYPHER = ROOT / "port" / "third_party" / "monocypher"
@@ -53,6 +55,7 @@ def test_sessions_and_random_inputs(tmp_path):
     result = compile_c(cc, [TEST, *SESSIONS], binary, SANITIZERS)
     if result.returncode != 0:
         # (a compiler without the sanitizers' runtime: unsanitized)
+        fuzz_support.fallback("no sanitizer runtime")
         result = compile_c(cc, [TEST, *SESSIONS], binary, [])
     assert result.returncode == 0, result.stdout + result.stderr
     run = subprocess.run([str(binary), str(ITERATIONS)], capture_output=True, text=True, timeout=600)
@@ -94,7 +97,7 @@ def test_libfuzzer(tmp_path):
     with tempfile.TemporaryDirectory() as directory:
         cc = libfuzzer_compiler(directory)
     if not cc:
-        pytest.skip("no clang with libFuzzer")
+        fuzz_support.skip("no clang with libFuzzer")
     binary = tmp_path / "delta_fuzz"
     result = subprocess.run(
         [cc, "-g", "-O1", "-fsanitize=fuzzer,address,undefined", "-fno-sanitize-recover=all", "-iquote",

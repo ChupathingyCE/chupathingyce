@@ -157,10 +157,11 @@ symbols in this file:
 #include "ps3_timers.h" /* port: port/ps3/include/ps3_timers.h */
 #endif
 
-/* port: a PowerPC's float loads need their 4 bytes aligned, and a map's
-keyframes are where the map put them: there they are copied out before
-use; elsewhere they are read in place, as the Xbox read them */
-#if defined(__powerpc__) || defined(__PPC__) || defined(_M_PPC)
+/* port: a PowerPC's float loads need their 4 bytes aligned (32-bit ARM's
+VFP loads too), and a map's keyframes are where the map put them: there
+they are copied out before use; elsewhere they are read in place, as the
+Xbox read them */
+#if defined(__powerpc__) || defined(__PPC__) || defined(_M_PPC) || defined(__arm__)
 #define ANIMATION_ALIGNED_COPIES 1
 #endif
 

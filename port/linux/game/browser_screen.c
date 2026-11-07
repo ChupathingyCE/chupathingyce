@@ -10,7 +10,10 @@ the user interface's tags.
 The list is the main source; the games heard on the brokers that it lacks
 come after its own (browser_get_games), marked OpenCE (legacy) while it
 answers. While it is down, the screen shows the games found directly and
-says so in the footer (BROWSER_LIST_OFFLINE_NOTE).
+says so in the footer (BROWSER_LIST_OFFLINE_NOTE). A game with a password
+(never on the list: only its host's listing on the brokers has it) is
+listed with a lock, and A asks for its password before joining it
+(password_join).
 
 The Multiplayer menu's ONLINE GAMES item opens it (ui_widget.c). Up and
 down pick a game, left and right turn the page, A joins it through its
@@ -79,10 +82,12 @@ the right button is B.
 #include "networking/network_game_globals.h"
 #include "networking/network_client_manager.h"
 #include "../src/browser.h"
+#include "delta.h"
 #include "halo_port_limits.h"
 #include "halo_join_reasons.h"
 #include "network_rules.h"
 #include "../src/browser_ping.h"
+#include "../src/campaign_levels.h"
 #include "../src/map_art.h"
 #include "../src/map_download.h"
 #include "../src/playlist_download.h"
@@ -136,6 +141,10 @@ enum
 	_ce_map_missing,
 	/* a Halo PC map, on a build without HALO_CUSTOM_EDITION */
 	_ce_map_unsupported,
+	/* a Halo PC map, without Custom Edition's resource maps here
+	(map_family_resources_ready): never downloaded, since it could not be
+	played */
+	_ce_map_no_resources,
 };
 
 /* a Custom Edition map offered for the game being joined (map_download.c) */
@@ -195,6 +204,11 @@ enum
 
 	NUMBER_OF_SORTS
 };
+
+/* the longest password (Server Setup's, menu_functions.c), and a key
+stroke's modifier for control (input_xbox.c's, as menu_functions.c has it) */
+#define PASSWORD_LENGTH 32
+#define KEY_MODIFIER_CONTROL_BIT 1
 
 /* ---------- globals */
 
@@ -273,6 +287,16 @@ static struct
 	boolean playlist_dont_ask;
 	unsigned long playlist_time;
 	struct playlist_status playlist_status;
+	/* a game with a password picked (its listing's lock: browser.c's
+	browser_unlock_game): its panel up while the password is typed, the
+	game's invite and name, what is typed, whether the last one was wrong,
+	and when the panel opened */
+	boolean password_open;
+	boolean password_wrong;
+	char password_invite[BROWSER_INVITE_LENGTH + 1];
+	char password_name[64];
+	char password_text[PASSWORD_LENGTH + 1];
+	unsigned long password_time;
 } browser_screen;
 
 /* ---------- private code */
@@ -304,26 +328,20 @@ static short map_family(
 }
 
 /* the campaign's levels in the menus' words, for the co-op games the list
-shows (a level's scenario is its file's name) */
-static char const *const campaign_names[][2] =
+shows (a level's scenario is its file's name), in campaign_levels.h's order */
+static char const *const campaign_names[CAMPAIGN_LEVEL_COUNT] =
 {
-	{ "a10", "The Pillar of Autumn" }, { "a30", "Halo" }, { "a50", "The Truth and Reconciliation" },
-	{ "b30", "The Silent Cartographer" }, { "b40", "Assault on the Control Room" }, { "c10", "343 Guilty Spark" },
-	{ "c20", "The Library" }, { "c40", "Two Betrayals" }, { "d20", "Keyes" }, { "d40", "The Maw" },
+	"The Pillar of Autumn", "Halo", "The Truth and Reconciliation", "The Silent Cartographer",
+	"Assault on the Control Room", "343 Guilty Spark", "The Library", "Two Betrayals", "Keyes", "The Maw",
 };
 
 /* a campaign level's name from its file's, or NULL for a map that is not one */
 static char const *campaign_name(
 	char const *file)
 {
-	long index;
+	int level = campaign_level_index(file);
 
-	for (index = 0; index < NUMBEROF(campaign_names); index++)
-	{
-		if (!csstrcmp(file, campaign_names[index][0]))
-			return campaign_names[index][1];
-	}
-	return NULL;
+	return level >= 0 ? campaign_names[level] : NULL;
 }
 
 /* a game's map as players name it: an Xbox map's name in the menus, or a
@@ -398,7 +416,8 @@ static short ce_map_state(
 	{
 		csstrncpy(browser_screen.ce_map, game->map, sizeof(browser_screen.ce_map) - 1);
 		browser_screen.ce_map[sizeof(browser_screen.ce_map) - 1] = 0;
-		browser_screen.ce_map_answer = ui_map_list_map_present(game->map) ? _ce_map_present : _ce_map_missing;
+		browser_screen.ce_map_answer = family != _map_family_pack && !map_family_resources_ready(NULL, 0) ?
+			_ce_map_no_resources : ui_map_list_map_present(game->map) ? _ce_map_present : _ce_map_missing;
 		browser_screen.ce_map_time = system_milliseconds();
 	}
 	return browser_screen.ce_map_answer;
@@ -495,6 +514,8 @@ int p2p_hosting_status(char *text, int size);
 /* p2p.c's: why the invite joined has not reached its host (2: the host
 answered, but no connection got through; p2p.h's P2P_JOIN_NO_CONNECTION) */
 int p2p_join_failure(void);
+int platform_clipboard_get(char *text, int size);
+void platform_text_field(int typing);
 void platform_log(char const *format, ...);
 int config_boolean(char const *name);
 void display_error_text_deferred(wchar_t const *text, short local_player_index);
@@ -635,7 +656,7 @@ static void rejoin(
 	platform_log("map download: %s.map in place: joining the game again%s", browser_screen.offer_file,
 		browser_screen.rejoin_invite[0] ? " (through its invite)" : " (on the local network)");
 	join_first_player();
-	if (browser_screen.rejoin_invite[0] && !browser_join(browser_screen.rejoin_invite))
+	if (browser_screen.rejoin_invite[0] && !browser_join(browser_screen.rejoin_invite, FALSE))
 	{
 		set_status("Turn on Internet Play in Settings.");
 		return;
@@ -745,6 +766,8 @@ static char const *no_answer_reason(
 /* ---------- a playlist's map set the game being joined plays */
 
 static void join_selected(void);
+static void join_invite(char const *invite, unsigned short const *name, boolean open);
+static void password_open(struct browser_game const *game);
 static void fetch_games(void);
 
 /* a game's playlist's map set checked, if it has one this run has not
@@ -965,8 +988,26 @@ static void join_selected(
 		}
 		game_connection_set(_game_connection_network_client);
 	}
+	/* (a game with a password: its panel asks for it, then joins:
+	password_join) */
+	if (game->locked)
+	{
+		password_open(game);
+		return;
+	}
+	join_invite(game->invite, game->name, TRUE);
+}
+
+/* a game's invite joined (the tunnel to its host), its game joined once
+advertised through it (wait_for_host); open: an open listing's (not one a
+password opened: browser_join) */
+static void join_invite(
+	char const *invite,
+	unsigned short const *name,
+	boolean open)
+{
 	join_first_player();
-	if (!browser_join(game->invite))
+	if (!browser_join(invite, open))
 	{
 		set_status("Turn on Internet Play in Settings.");
 		return;
@@ -974,10 +1015,131 @@ static void join_selected(
 	browser_screen.connecting = TRUE;
 	browser_screen.connecting_map_checked = FALSE;
 	browser_screen.rejoin_pending = FALSE;
-	csstrncpy(browser_screen.connecting_invite, game->invite, sizeof(browser_screen.connecting_invite) - 1);
+	csstrncpy(browser_screen.connecting_invite, invite, sizeof(browser_screen.connecting_invite) - 1);
 	browser_screen.connecting_invite[sizeof(browser_screen.connecting_invite) - 1] = 0;
-	utf8_name(game->name, browser_screen.connecting_name, sizeof(browser_screen.connecting_name));
+	if (name)
+		utf8_name(name, browser_screen.connecting_name, sizeof(browser_screen.connecting_name));
 	browser_screen.connecting_time = system_milliseconds();
+}
+
+/* ---------- a game's password: typed on the keyboard (Ctrl+V pastes) into
+a panel over the list, shown as stars, as the Server Browser's password
+screen (menu_functions.c) takes it; A (or Enter) joins with it, B (or
+Escape) gives up */
+
+static void password_open(
+	struct browser_game const *game)
+{
+	struct key_stroke key;
+
+	browser_screen.password_open = TRUE;
+	browser_screen.password_wrong = FALSE;
+	browser_screen.password_text[0] = 0;
+	csstrncpy(browser_screen.password_invite, game->invite, sizeof(browser_screen.password_invite) - 1);
+	browser_screen.password_invite[sizeof(browser_screen.password_invite) - 1] = 0;
+	utf8_name(game->name, browser_screen.password_name, sizeof(browser_screen.password_name));
+	browser_screen.password_time = system_milliseconds();
+	/* (the keys typed before it do not count) */
+	while (input_get_key(&key))
+		;
+	platform_text_field(TRUE);
+}
+
+static void password_close(
+	void)
+{
+	if (!browser_screen.password_open)
+		return;
+	csmemset(browser_screen.password_text, 0, sizeof(browser_screen.password_text));
+	browser_screen.password_open = FALSE;
+	platform_text_field(FALSE);
+}
+
+/* the keys typed since the last frame */
+static void password_type(
+	void)
+{
+	struct key_stroke key;
+
+	while (input_get_key(&key))
+	{
+		size_t length = strlen(browser_screen.password_text);
+
+		if (key.key_code == _key_backspace)
+		{
+			if (length)
+				browser_screen.password_text[length - 1] = 0;
+		}
+		else if (TEST_FLAG(key.modifier_flags, KEY_MODIFIER_CONTROL_BIT) && key.key_code == _key_v)
+		{
+			char clipboard[PASSWORD_LENGTH + 1];
+			char const *character;
+
+			if (!platform_clipboard_get(clipboard, sizeof(clipboard)))
+				continue;
+			for (character = clipboard; *character && length < PASSWORD_LENGTH; character++)
+			{
+				if (*character >= ' ' && *character <= '~')
+					browser_screen.password_text[length++] = *character;
+			}
+			browser_screen.password_text[length] = 0;
+			csmemset(clipboard, 0, sizeof(clipboard));
+		}
+		else if ((unsigned char)key.ascii_code >= ' ' && (unsigned char)key.ascii_code <= '~' && length < PASSWORD_LENGTH)
+		{
+			browser_screen.password_text[length] = key.ascii_code;
+			browser_screen.password_text[length + 1] = 0;
+		}
+		if (length != strlen(browser_screen.password_text))
+			browser_screen.password_wrong = FALSE;
+	}
+}
+
+/* the password tried: the game joined with the invite it opens, or the
+panel says it is wrong and takes another */
+static void password_join(
+	void)
+{
+	char code[BROWSER_INVITE_LENGTH + 1];
+	int opened = browser_unlock_game(browser_screen.password_invite, browser_screen.password_text, code, sizeof(code));
+
+	if (opened > 0)
+	{
+		char name[sizeof(browser_screen.password_name)];
+
+		csstrncpy(name, browser_screen.password_name, sizeof(name) - 1);
+		name[sizeof(name) - 1] = 0;
+		password_close();
+		join_invite(code, NULL, FALSE);
+		csstrncpy(browser_screen.connecting_name, name, sizeof(browser_screen.connecting_name) - 1);
+		browser_screen.connecting_name[sizeof(browser_screen.connecting_name) - 1] = 0;
+		csmemset(code, 0, sizeof(code));
+		return;
+	}
+	if (opened < 0)
+	{
+		password_close();
+		set_status("That game is no longer listed.");
+		return;
+	}
+	browser_screen.password_wrong = TRUE;
+	csmemset(browser_screen.password_text, 0, sizeof(browser_screen.password_text));
+}
+
+static void password_button(
+	short button)
+{
+	switch (button)
+	{
+	case _gamepad_analog_button_a:
+	case _gamepad_binary_button_start:
+		password_join();
+		break;
+	case _gamepad_analog_button_b:
+		password_close();
+		break;
+	default: break;
+	}
 }
 
 /* the picked game's host: its game joined once it is advertised, and its
@@ -1010,6 +1172,14 @@ static void wait_for_host(
 			char file[BROWSER_MAP_LENGTH];
 			short family = map_family_parse(advertisement.map_name, file, sizeof(file));
 
+			/* (a map past the Xbox's without Custom Edition's resource
+			maps here: given up now, before it is downloaded or loaded) */
+			if (!map_family_is_xbox_format(family) && !map_family_resources_ready(NULL, 0))
+			{
+				browser_screen.connecting = FALSE;
+				set_status(JOIN_REASON_CE_RESOURCES);
+				return;
+			}
 			if (family == _map_family_custom_edition && !ui_map_list_family_present(family, file) &&
 				map_archive_stock_name(file))
 			{
@@ -1232,6 +1402,9 @@ static char const *ce_map_blocker(
 	case _ce_map_unsupported:
 		snprintf(text, (size_t)size, JOIN_REASON_MAPS_UNSUPPORTED, family == _map_family_halomd ? "HaloMD" : "Halo PC");
 		return text;
+	case _ce_map_no_resources:
+		snprintf(text, (size_t)size, "%s", JOIN_REASON_CE_RESOURCES);
+		return text;
 	default:
 		return NULL;
 	}
@@ -1329,6 +1502,7 @@ void browser_screen_open(
 	browser_screen.connecting = FALSE;
 	if (browser_screen.connect_open)
 		close_link_profile();
+	password_close();
 	browser_screen.opened_time = system_milliseconds();
 	/* (the menu's A, still queued, is not a pick) */
 	event_manager_flush();
@@ -1606,6 +1780,12 @@ offer's while it is) */
 			playlist_offer_button(button);
 		return;
 	}
+	if (browser_screen.password_open)
+	{
+		if (system_milliseconds() - browser_screen.password_time >= CONNECT_SETTLE)
+			password_button(button);
+		return;
+	}
 	switch (button)
 	{
 	case _gamepad_binary_button_dpad_up: held_step(-1); break;
@@ -1683,6 +1863,8 @@ void browser_screen_process(
 		wait_for_host();
 	if (browser_screen.connect_open)
 		browser_connect_get(&browser_screen.connect);
+	if (browser_screen.password_open)
+		password_type();
 	while (browser_screen.active && get_next_event(&event, NONE))
 	{
 		/* (a d-pad direction held steps at the menus' pace, held_step; every
@@ -1694,7 +1876,8 @@ void browser_screen_process(
 					event.data.button.index <= _gamepad_binary_button_dpad_right)))
 			press(event.data.button.index);
 		else if (event.type == BROWSER_EVENT_LEFT_STICK && !browser_screen.connect_open &&
-			browser_screen.offer == _offer_none && browser_screen.playlist_offer == _playlist_none)
+			browser_screen.offer == _offer_none && browser_screen.playlist_offer == _playlist_none &&
+			!browser_screen.password_open)
 		{
 			if (event.data.stick.y == SHORT_MAX)
 				held_step(-1);
@@ -1708,6 +1891,9 @@ void browser_screen_process(
 	}
 	if (browser_screen.selected >= browser_screen.count)
 		browser_screen.selected = (short)MAX(0, browser_screen.count - 1);
+	/* (the panel goes with the screen) */
+	if (!browser_screen.active)
+		password_close();
 	/* (the widgets behind take nothing while the browser is up) */
 	event_manager_flush();
 	follow_listings();
@@ -1883,12 +2069,12 @@ List: a ChupathingyCE host's own word; nothing of an older or OpenCE host) */
 
 /* its platform (delta.h's registry), short for the row's tag and in full
 for the details */
-static char const *const platform_tags[] = { "", "WIN", "MAC", "LNX", "AND", "DECK", "XBOX", "360", "WIIU", "NX",
-	"PSP", "VITA", "XBS" };
-static char const *const platform_names[] = {
-	"", "Windows", "Mac", "Linux", "Android", "Steam Deck", "Xbox", "Xbox 360", "Wii U", "Switch",
-	"PSP", "Vita", "Xbox Series",
-};
+#define PLATFORM_TAG(platform, key, tag, name, caps_name) tag,
+#define PLATFORM_NAME(platform, key, tag, name, caps_name) name,
+static char const *const platform_tags[] = { DELTA_PLATFORM_NAMES(PLATFORM_TAG) };
+static char const *const platform_names[] = { DELTA_PLATFORM_NAMES(PLATFORM_NAME) };
+#undef PLATFORM_TAG
+#undef PLATFORM_NAME
 
 /* the row's tag before the name: the host's platform, SRV for a dedicated
 server; "" when the list does not say */
@@ -1958,7 +2144,8 @@ static char const *machines_text(
 		{ "PC", { 1, 2, 3, 13, 18, -1 } }, { "Steam Deck", { 5, -1 } }, { "Android", { 4, -1 } },
 		{ "Xbox", { 6, -1 } }, { "Xbox 360", { 7, -1 } }, { "Wii U", { 8, -1 } }, { "Switch", { 9, -1 } },
 		{ "PSP", { 10, -1 } }, { "Vita", { 11, -1 } }, { "Xbox Series", { 12, -1 } }, { "PS3", { 14, -1 } },
-		{ "PS4", { 15, -1 } }, { "PS5", { 16, -1 } }, { "N64", { 17, -1 } }, { "other", { 0, -1 } },
+		{ "PS4", { 15, -1 } }, { "PS5", { 16, -1 } }, { "N64", { 17, -1 } }, { "Steam Link", { 19, -1 } },
+		{ "iOS", { 20, -1 } }, { "Apple TV", { 21, -1 } }, { "other", { 0, -1 } },
 		{ "OpenCE", { BROWSER_MACHINE_KINDS - 1, -1 } },
 	};
 	long used = 0, group;
@@ -2525,12 +2712,24 @@ static void draw_link_profile(
 	}
 }
 
+#ifdef HALO_CONSOLE_CACHE_SCREEN
+/* (steamlink_cache_screen.c: the first start's ring, behind a map's download) */
+void console_ring_picture(float fraction);
+#endif
+
 static void draw_map_offer(
 	void)
 {
 	struct map_download_progress const *progress = &browser_screen.offer_progress;
 	float center = CONNECT_X + CONNECT_WIDTH / 2;
 	char text[192];
+
+#ifdef HALO_CONSOLE_CACHE_SCREEN
+	if (browser_screen.offer == _offer_downloading)
+	{
+		console_ring_picture(progress->total ? (float)progress->received / (float)progress->total : 0.0f);
+	}
+#endif
 
 	dialog_frame(CONNECT_X, CONNECT_Y, CONNECT_WIDTH, CONNECT_HEIGHT,
 		browser_screen.offer == _offer_stock ? MAP_ARCHIVE_STOCK_TITLE : "MISSING MAP");
@@ -2643,6 +2842,44 @@ static void draw_map_offer(
 		dialog_prompt(UI_BUTTON_B, "=CLOSE");
 		break;
 	}
+}
+
+/* a game's password asked for: the stars typed in a field, a caret
+blinking after them, and what a wrong one says */
+static void draw_password(
+	void)
+{
+	static int const buttons[] = { UI_BUTTON_B, UI_BUTTON_A };
+	static char const *const words[] = { "=CANCEL", "=JOIN" };
+	float center = CONNECT_X + CONNECT_WIDTH / 2;
+	float field_x = CONNECT_X + 60, field_width = CONNECT_WIDTH - 120, field_y = CONNECT_Y + 118;
+	char text[160], stars[PASSWORD_LENGTH + 2];
+	size_t index, length = strlen(browser_screen.password_text);
+	float width;
+
+	dialog_frame(CONNECT_X, CONNECT_Y, CONNECT_WIDTH, CONNECT_HEIGHT, "Password");
+	snprintf(text, sizeof(text), "%s has a password.", browser_screen.password_name[0] ? browser_screen.password_name :
+		"This game");
+	ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, CONNECT_Y + 76, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFF90, text);
+	for (index = 0; index < length && index < PASSWORD_LENGTH; index++)
+		stars[index] = '*';
+	stars[index] = 0;
+	ui_overlay_rect(field_x, field_y, field_width, 26, 6, 0x0A1E44FF);
+	ui_overlay_outline(field_x, field_y, field_width, 26, 6, 1.0f, 0x4F9DFFFF);
+	width = ui_overlay_text(UI_FONT_MENU, 13.0f, field_x + 10, field_y + 7, UI_ALIGN_LEFT, 0xFFFFFFFF, stars);
+	if (system_milliseconds() / 500 % 2 == 0)
+		ui_overlay_rect(field_x + 11 + width, field_y + 6, 1.5f, 14, 0, 0xFFFFFFFF);
+	if (browser_screen.password_wrong)
+	{
+		ui_overlay_text(UI_FONT_MENU, 10.0f, center, field_y + 40, UI_ALIGN_CENTER, COLOR_WARN,
+			"That password is not this game's. Try again.");
+	}
+	else
+	{
+		ui_overlay_text(UI_FONT_MENU_SMALL, 10.0f, center, field_y + 40, UI_ALIGN_CENTER, COLOR_DIM,
+			"Type it on the keyboard (Ctrl+V pastes).");
+	}
+	dialog_prompts(NUMBEROF(buttons), buttons, words);
 }
 
 /* a size in bytes as players read it: "74 MB", "1.2 GB" */
@@ -3067,6 +3304,13 @@ the map's name over its family's color (a custom map's) */
 				drawn = draw_picture("ui\\shell\\bitmaps\\mp_map_grafix", map_frame, 140, 116, MAP_PICTURE_X, PICTURE_Y,
 					MAP_PICTURE_X + MAP_PICTURE_WIDTH, PICTURE_Y + PICTURE_HEIGHT);
 			}
+			/* (a co-op game's level: the level select menus' picture of it,
+			its frame the level's place) */
+			else if (campaign_level_index(file) >= 0)
+			{
+				drawn = draw_picture("ui\\shell\\bitmaps\\sp_levels", (short)campaign_level_index(file), 140, 116,
+					MAP_PICTURE_X, PICTURE_Y, MAP_PICTURE_X + MAP_PICTURE_WIDTH, PICTURE_Y + PICTURE_HEIGHT);
+			}
 		}
 #ifdef HALO_CUSTOM_EDITION
 		else
@@ -3082,9 +3326,12 @@ the map's name over its family's color (a custom map's) */
 			}
 		}
 #endif
-		/* (a map pack's map has its stock file's name, not its art: a card) */
+		/* (a map pack's map has its stock file's name, not its art: a card;
+		a custom map's is the site's own picture of it, if it has one) */
 		if (!drawn && family != _map_family_pack &&
-			map_art_site_path(family == _map_family_xbox, file, art_path, (int)sizeof(art_path)))
+			(map_art_site_path(family == _map_family_xbox, file, art_path, (int)sizeof(art_path)) ||
+			((family == _map_family_halomd || family == _map_family_custom_edition) &&
+			map_art_custom_site_path(family == _map_family_halomd, file, art_path, (int)sizeof(art_path)))))
 		{
 			unsigned char const *pixels;
 			int width, height, serial;
@@ -3133,6 +3380,13 @@ the map's name over its family's color (a custom map's) */
 	else
 		snprintf(text, sizeof(text), "%s%s", selected->open ? "Accepting players" : "In progress", selected->locked ? ", password" : "");
 	DETAIL_LINE("Status:", text);
+	/* (a host whose console and cheats may change its game, as it says:
+	network.host_cheats) */
+	if (browser_game_host_cheats(selected))
+	{
+		ui_overlay_text(UI_FONT_MENU_SMALL, DETAIL_SIZE, x + 6, line_y + 0.5f, UI_ALIGN_LEFT, COLOR_NEUTRAL,
+			"Host cheats on");
+	}
 	DETAIL_LINE("Map:", map_label);
 	/* (its family, spelled out beside its tag) */
 	draw_family_badge(family, selected->map, BADGE_SIZE, x + 6, line_y, DETAIL_SIZE, FALSE);
@@ -3249,7 +3503,8 @@ void browser_screen_render(
 	float margin = (float)((halo_screen_width() - 640) / 2 + 2);
 	struct browser_game const *selected = browser_screen.count ? &browser_screen.games[browser_screen.selected] : NULL;
 	boolean dialog = browser_screen.connect_open || browser_screen.offer != _offer_none ||
-		browser_screen.playlist_offer != _playlist_none;
+		browser_screen.playlist_offer != _playlist_none ||
+		browser_screen.password_open;
 
 	/* (what the pointer may press, as this frame draws it) */
 	browser_screen.target_count = 0;
@@ -3300,6 +3555,8 @@ void browser_screen_render(
 			draw_link_profile();
 		else if (browser_screen.offer != _offer_none)
 			draw_map_offer();
+		else if (browser_screen.password_open)
+			draw_password();
 		else
 			draw_playlist_offer();
 		ui_overlay_layer(0);

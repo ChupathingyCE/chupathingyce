@@ -702,6 +702,13 @@ static void weather_particle_system_render(
 			type_index,
 			struct weather_particle_type_definition);
 
+#ifdef HALO_CUSTOM_EDITION
+		/* port: a HaloMD map's particles whose bitmap Custom Edition's
+		bitmaps.map has not (a campaign level's bugs) are left out, not
+		drawn as squares of another bitmap's sprites (bitmap_group.h) */
+		if (TEST_FLAG(bitmap_group_get(type_definition->bitmap.index)->flags, _bitmap_group_port_stood_in_bit))
+			continue;
+#endif
 		PS3_WEATHER_COUNT(_ps3_timer_weather_update, type->particle_count); /* port: (the timer build) */
 		if (type->particle_count)
 		{

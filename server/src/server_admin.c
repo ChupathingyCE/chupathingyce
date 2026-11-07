@@ -39,6 +39,7 @@ given both (dedicated.c). Nothing a client is sent is new.
 #include "dedicated.h"
 #include "server_admin.h"
 #include "server_config.h"
+#include "server_conduct.h"
 #include "server_gametype_variant.h"
 
 /* (text chat's, port/linux/game/chat.h) */
@@ -55,6 +56,14 @@ char const *chat_host_welcome(void);
 void team_change_host_set(int policy, int margin);
 int team_change_host_policy(void);
 int team_change_host_margin(void);
+/* (the host's rules', port/linux/game/host_rules.h) */
+void host_rules_set_player_names(boolean allowed);
+boolean host_rules_host_player_names(void);
+void host_rules_set_follow_camera(boolean allowed);
+boolean host_rules_host_follow_camera(void);
+/* (the limit on machines of one address, port/linux/game/network_distributed.c) */
+void network_distributed_set_address_limit(long maximum);
+long network_distributed_address_limit(void);
 
 #include <errno.h>
 #include <stdio.h>
@@ -438,6 +447,8 @@ static boolean write_settings(
 		csstrcpy(settings.playlist_environment, change->playlist_environment);
 	if (change->set[SERVER_SETTING_WELCOME])
 		csstrcpy(settings.welcome, change->welcome);
+	if (change->set[SERVER_SETTING_CE_WELCOME])
+		csstrcpy(settings.ce_welcome, change->ce_welcome);
 	if (server_settings_format(&settings, text, sizeof(text)) < 0)
 	{
 		command_output_printf(output, "the settings do not fit in %s\n", SETTINGS_FILE);
@@ -1642,9 +1653,22 @@ static void setting_now(
 	case SERVER_SETTING_PLAYLIST_SHUFFLE: snprintf(text, (size_t)size, "%s", status->playlist_shuffle ? "true" : "false"); break;
 	case SERVER_SETTING_TEAM_CHANGE: snprintf(text, (size_t)size, "%d", team_change_host_policy()); break;
 	case SERVER_SETTING_TEAM_CHANGE_MARGIN: snprintf(text, (size_t)size, "%d", team_change_host_margin()); break;
+	case SERVER_SETTING_ALLOW_PLAYER_NAMES:
+		snprintf(text, (size_t)size, "%s", host_rules_host_player_names() ? "true" : "false");
+		break;
+	case SERVER_SETTING_ALLOW_FOLLOW_CAMERA:
+		snprintf(text, (size_t)size, "%s", host_rules_host_follow_camera() ? "true" : "false");
+		break;
+	case SERVER_SETTING_MAX_MACHINES_PER_ADDRESS:
+		snprintf(text, (size_t)size, "%ld", network_distributed_address_limit());
+		break;
+	case SERVER_SETTING_BETRAYAL_KICK: snprintf(text, (size_t)size, "%d", server_conduct_betrayal_limit()); break;
+	case SERVER_SETTING_AFK_KICK_MINUTES: snprintf(text, (size_t)size, "%d", server_conduct_afk_minutes()); break;
 #ifdef HALO_SERVER
 	case SERVER_SETTING_GAMESPY_LISTING: snprintf(text, (size_t)size, "%s", server_gamespy_enabled() ? "true" : "false"); break;
 	case SERVER_SETTING_GAMESPY_PORT: snprintf(text, (size_t)size, "%ld", server_gamespy_port()); break;
+	case SERVER_SETTING_CE_JOINS: snprintf(text, (size_t)size, "%s", server_gamespy_joins() ? "true" : "false"); break;
+	case SERVER_SETTING_CE_WELCOME: snprintf(text, (size_t)size, "%s", server_ce_welcome()); break;
 #endif
 	default: text[0] = 0; break;
 	}
@@ -1667,6 +1691,8 @@ static void setting_saved(
 		snprintf(text, (size_t)size, "%s", settings->playlist_environment);
 	else if (setting == SERVER_SETTING_WELCOME)
 		snprintf(text, (size_t)size, "%s", settings->welcome);
+	else if (setting == SERVER_SETTING_CE_WELCOME)
+		snprintf(text, (size_t)size, "%s", settings->ce_welcome);
 	else if (server_settings_table[setting].kind == SERVER_FIELD_BOOLEAN)
 		snprintf(text, (size_t)size, "%s", settings->values[setting] ? "true" : "false");
 	else
@@ -1683,7 +1709,11 @@ static boolean setting_applies_now(
 		setting == SERVER_SETTING_SKIP_LOBBY || setting == SERVER_SETTING_CHAT_COOLDOWN ||
 		setting == SERVER_SETTING_PLAYLIST_SHUFFLE || setting == SERVER_SETTING_CHAT_LEGACY ||
 		setting == SERVER_SETTING_TEAM_CHANGE || setting == SERVER_SETTING_TEAM_CHANGE_MARGIN ||
-		setting == SERVER_SETTING_GAMESPY_LISTING || setting == SERVER_SETTING_GAMESPY_PORT;
+		setting == SERVER_SETTING_GAMESPY_LISTING || setting == SERVER_SETTING_GAMESPY_PORT ||
+		setting == SERVER_SETTING_CE_JOINS || setting == SERVER_SETTING_ALLOW_PLAYER_NAMES ||
+		setting == SERVER_SETTING_ALLOW_FOLLOW_CAMERA || setting == SERVER_SETTING_MAX_MACHINES_PER_ADDRESS ||
+		setting == SERVER_SETTING_BETRAYAL_KICK || setting == SERVER_SETTING_AFK_KICK_MINUTES ||
+		setting == SERVER_SETTING_CE_WELCOME;
 }
 
 static char const *environment_value(
@@ -1733,7 +1763,7 @@ boolean server_admin_settings(
 	for (setting = 0; setting < SERVER_SETTINGS; setting++)
 	{
 		struct server_setting const *description = &server_settings_table[setting];
-		char now[SERVER_SETTINGS_PATH_SIZE + 8], saved[SERVER_SETTINGS_PATH_SIZE + 8];
+		char now[SERVER_SETTINGS_CE_WELCOME_SIZE + 8], saved[SERVER_SETTINGS_CE_WELCOME_SIZE + 8];
 		char const *environment = environment_value(setting);
 		char const *source;
 
@@ -1797,7 +1827,9 @@ boolean server_admin_set(
 		if (setting < 0)
 			command_output_printf(output, "(name, maximum_players, minimum_players, idle_limit, public, name_filter, "
 				"chat, chat_filter, welcome, postgame_seconds, skip_lobby, chat_cooldown, team_change, "
-				"team_change_margin, playlist_shuffle, chat_legacy, gamespy_listing, gamespy_port)\n");
+				"team_change_margin, playlist_shuffle, chat_legacy, gamespy_listing, gamespy_port, ce_joins, "
+				"allow_player_names, allow_follow_camera, max_machines_per_address, betrayal_kick, "
+				"afk_kick_minutes, ce_welcome)\n");
 		return FALSE;
 	}
 	environment = environment_value((short)setting);
@@ -1848,11 +1880,18 @@ boolean server_admin_set(
 	case SERVER_SETTING_TEAM_CHANGE_MARGIN:
 		team_change_host_set(team_change_host_policy(), change.values[setting]);
 		break;
+	case SERVER_SETTING_ALLOW_PLAYER_NAMES: host_rules_set_player_names(change.values[setting] ? TRUE : FALSE); break;
+	case SERVER_SETTING_ALLOW_FOLLOW_CAMERA: host_rules_set_follow_camera(change.values[setting] ? TRUE : FALSE); break;
+	case SERVER_SETTING_MAX_MACHINES_PER_ADDRESS: network_distributed_set_address_limit(change.values[setting]); break;
+	case SERVER_SETTING_BETRAYAL_KICK: server_conduct_set_betrayal_limit(change.values[setting]); break;
+	case SERVER_SETTING_AFK_KICK_MINUTES: server_conduct_set_afk_minutes(change.values[setting]); break;
 #ifdef HALO_SERVER
 	case SERVER_SETTING_GAMESPY_LISTING:
 		server_gamespy_configure(change.values[setting] ? TRUE : FALSE, server_gamespy_port());
 		break;
 	case SERVER_SETTING_GAMESPY_PORT: server_gamespy_configure(server_gamespy_enabled(), change.values[setting]); break;
+	case SERVER_SETTING_CE_JOINS: server_gamespy_set_joins(change.values[setting] ? TRUE : FALSE); break;
+	case SERVER_SETTING_CE_WELCOME: server_ce_set_welcome(change.ce_welcome); break;
 #endif
 	}
 	error(_error_silent, "dedicated: a command sets %s to %s", server_settings_table[setting].key, line->words[2]);

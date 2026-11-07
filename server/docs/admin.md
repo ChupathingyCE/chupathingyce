@@ -9,8 +9,8 @@ A running server takes commands, named after Halo PC's dedicated server's
 
 - **its console**: type them where the server runs;
 - **a startup file**: commands run once the server first hosts;
-- **its control API**: HTTP and JSON on a port of its own, off unless you
-  turn it on, for scripts and bots, with a **web admin page** on the same
+- **its control API**: HTTP and JSON on a port of its own, on this machine
+  only by default (127.0.0.1:8080), for scripts and bots, with a **web admin page** on the same
   port.
 
 Every command runs on the game's main thread, between frames, whichever
@@ -34,8 +34,9 @@ the duration.
 | Command | What it does |
 | --- | --- |
 | `help [command]` | Lists the commands, or tells what one does. |
-| `sv_status` | The server: name, version and network version, the OpenCE build it follows (the legacy table's, [Delta](../../docs/delta.md#following-opence)), state (lobby, loading, in game, carnage report), map and game type, playlist entry, players, whether it is public, uptime. |
+| `sv_status` | The server: name, version and network version, the OpenCE build it follows (the legacy table's, [Delta](../../docs/delta.md#following-opence)), state (lobby, loading, in game, carnage report), map and game type, playlist entry, players, whether it is public, uptime, and whether people can join: internet play's UDP port, the router's UPnP answer, the network's NAT as the STUN servers saw it, and whether the game is on the game list and why not (in JSON, `reach`; ports and states only, never an address). |
 | `sv_players` | The players: number, name, team, score and ping (in a game), and their machine's hardware id. |
+| `sv_evidence [player]` | What the server refused of each player's machine this game, by kind: `movement` and `vehicle` (predictions out of bounds), `hit_report` (hit reports that failed validation), `line_of_sight` (hits refused through walls), `clock` (two-second windows its game ran fast) and `malformed` (kept for checks to come, always 0 for now). Moderators and up. Evidence, never a verdict ([moderation.md](moderation.md#evidence)). |
 | `sv_warn <player> <reason>` | Warns the player: a ChupathingyCE game shows the reason (Delta Peer); the warning is in the audit file either way. |
 | `sv_say <text>` | A server message: a line in the chat of every ChupathingyCE player, in their HUD font, marked "Server". In double quotes for more than a word. OpenCE players see it as the host's notice in their own chat, while they may chat (`chat_legacy`). In the audit file. |
 | `sv_chat [on\|team\|off]` | Shows or sets the players' text chat: `on`, `team` (team lines alone) or `off`. Saved in the settings file (`chat`: 2, 1 or 0), in effect at once. On unless set. |
@@ -57,7 +58,9 @@ the duration.
 | `sv_name_filter [0\|1]` | Shows or sets the name filter: with `1`, a player whose name is in the data folder's `blocked_names.txt` is warned and kicked ([settings.md](settings.md#blocked-names)). Saved in the settings file, and in effect at once. Off unless set. |
 | `sv_playlists`, `sv_playlist <name>`, `sv_playlist_new`, `sv_playlist_add`, `sv_playlist_remove`, `sv_playlist_move`, `sv_playlist_delete`, `sv_playlist_use`, `sv_mapcycle_add`, `sv_mapcycle_del` | Playlists made and edited on the server ([playlists.md](playlists.md#playlists-made-on-the-server)). |
 | `sv_gametypes`, `sv_gametype <name>`, `sv_gametype_new`, `sv_gametype_set`, `sv_gametype_delete` | Game type files ([playlists.md](playlists.md#game-type-files)). |
+| `sv_playlist_save`, `sv_gametype_save` | What the control API's `POST /v1/file` runs to save a playlist's or game type's whole file; they check the role and go in the audit file like the rest. |
 | `sv_settings`, `sv_set <setting> <value>` | The settings file ([settings.md](settings.md)). |
+| `sv_setup_start` | Starts hosting a server that waits for its first-run setup in the control panel, with the settings it has now ([moderation.md](moderation.md#first-run-setup-no-console-needed)). The console's only. |
 | `sv_mod_list`, `sv_mod_add`, `sv_mod_remove` | Everyone with a role here and where it comes from; moderators by moderator key ([moderation.md](moderation.md#who-can-moderate)). |
 | `sv_link`, `sv_unlink`, `sv_link_status` | The link to the Chupathingy site ([moderation.md](moderation.md#the-link-to-the-chupathingy-site-optional)): `sv_link` prints the link to open. |
 | `sv_admin_list`, `sv_admin_add <name>`, `sv_admin_rotate <name>`, `sv_admin_remove <name>` | The control API's credentials, one for each admin ([below](#a-token-for-each-admin)). The console's only. |
@@ -109,6 +112,13 @@ sv_kick 2
 kicked Odb718
 ```
 
+In a terminal, what you type stays on its own line at the bottom, after a
+`> ` prompt, while the server's log goes on above it. Backspace and Ctrl+U
+edit the line, Up and Down bring back earlier commands, Ctrl+C stops the
+server and Ctrl+D on an empty line closes the console. On Windows there is
+no prompt line yet: type into the server's window as usual, and the log may
+print over what you are typing. Ctrl+C or closing the window stops it.
+
 The console reads standard input only when it is a terminal. In a
 container, run it with `docker run -it` (and `docker attach` to it), or set
 `HALO_DEDICATED_CONSOLE=true` to read commands from a pipe; `false` turns
@@ -130,11 +140,14 @@ sv_map ratrace slayer
 
 ## The control API
 
-Off unless `HALO_DEDICATED_CONTROL` is set:
+On this machine only unless `HALO_DEDICATED_CONTROL` says otherwise (our
+Docker image sets `off`). If the port is taken, the server logs one line
+and keeps hosting without it.
 
 | `HALO_DEDICATED_CONTROL` | Listens on |
 | --- | --- |
-| (not set), `false` | nothing: no API |
+| (not set) | `127.0.0.1:8080`, this machine only |
+| `off`, `false`, `0`, empty | nothing: no API |
 | `8080` | `127.0.0.1:8080`, this machine only |
 | `127.0.0.1:8080` | the same |
 | `[::1]:8080` | IPv6's loopback |
@@ -177,6 +190,7 @@ Authorization: Bearer chce_4f0c...e91a
 | --- | --- |
 | `GET /v1/status` | `sv_status` as JSON. |
 | `GET /v1/players` | `sv_players` as JSON. |
+| `GET /v1/evidence` | `sv_evidence` as JSON: `{"kinds": ["movement", ...], "players": [{"number": 1, "name": "Player", "machine": 1, "total": 4, "evidence": {"movement": 3, "hit_report": 1, ...}}], "count": 1}`. Moderators and up (the warn permission). |
 | `POST /v1/command` with `{"command": "<command>"}` | `{"ok": true, "output": "..."}`: whether the command did what it was asked, and what it printed. Any command above. |
 | `GET /v1/bans` | `sv_banlist` as JSON: `{"bans": [{"number": 1, "when": "2026-10-05 02:18:03", "id": "c382...", "players": "Player", "reason": "...", "until": 1791182883, "seconds_left": 1793}], "count": 1}`. `until` and `seconds_left` are `null` for a ban for ever. |
 | `GET /v1/mapcycle` | `sv_mapcycle` as JSON: the playlist's `entries` (`number`, `map`, `game_type`), the `entry` playing, `state`, and what a command `chosen` now or set `next` (or `null`). |
@@ -275,7 +289,8 @@ below).
 
 ### Docker
 
-Our images run the server as uid 1000, with the data folder at `/data`;
+Our image sets `HALO_DEDICATED_CONTROL=off`, so the panel is off until you
+set it. Our images run the server as uid 1000, with the data folder at `/data`;
 `control_credentials.txt` is written there, so the data folder must be
 writable by that user.
 
@@ -292,7 +307,7 @@ writable by that user.
 
 ### What it does to keep strangers out
 
-- Off unless turned on; on the loopback address unless told otherwise.
+- On the loopback address unless told otherwise (off in our Docker image).
 - No default password: a random 256-bit token, shown once, kept only as a
   salted Argon2id hash (19 MiB, 2 passes); tokens are compared in constant
   time. A token checked right is remembered for the run as a keyed hash, so
@@ -328,18 +343,31 @@ writable by that user.
 The control API's port also serves a web page for running the server from a
 browser, on a computer or a phone:
 
-- **Status**: name, state, map and game type, what is next, players,
-  playlist entry, uptime, version.
-- **Players**: number, name, team, score, ping; **Kick** and **Ban** (30
-  minutes to 30 days, or for ever), each asked for again before it is done.
-  If the player at that number changed in between, nothing is done.
+- **Status**: "Can people join?" first (internet play's UDP port, the
+  router's UPnP answer, the network, the Server Browser listing and why
+  not, the OpenCE network version announced, players, and what to fix),
+  then name, state, map and game type, what is next, playlist entry,
+  uptime, version.
+- **Players**: number, name, team, score, ping, role, and for moderators
+  the Refused column (`sv_evidence`); **Warn**, **Kick**, **Ban** (30
+  minutes to 30 days, or for ever) and the rest, each asked for again
+  before it is done. If the player at that number changed in between,
+  nothing is done.
 - **Maps**: play any of the server's maps with any game type now, skip to
   the playlist's next entry, end the game; the playlist, and what is
   playing.
 - **Bans**: every ban, how long is left; **Unban**.
 - **Log**: the server's log as it is written (public addresses hidden).
-- **Settings**: the server's name and the most players (until it
-  restarts).
+- **Playlists**: playlists and game type files, made and edited
+  ([playlists.md](playlists.md)).
+- **Settings**: the server's name, the most players, the settings file's
+  settings, and the link to the Chupathingy site.
+- **People**: accounts, invitations, and who can moderate
+  ([moderation.md](moderation.md)).
+- **Audit**: the audit file.
+- **My account**: your second factor, your game and your password.
+
+Each role sees only what it may do.
 
 It is on whenever the control API is (`HALO_DEDICATED_CONTROL`), and off
 otherwise. Open `http://127.0.0.1:8080/` (through one of the ways below)
@@ -349,8 +377,9 @@ with a control token. The page is the server's own: its few
 files are built into the program, no fonts, scripts or anything else come
 from elsewhere, and nothing on the server's disk is ever served.
 
-**Never put it on a public port.** It is plain HTTP; reach it the ways the
-API is reached:
+On the loopback address it is plain HTTP. On any other address it is
+HTTPS only ([moderation.md](moderation.md#remote-access-safely)). For a
+plain HTTP page, reach it the ways the API is reached:
 
 - **SSH tunnel**: `ssh -N -L 8080:127.0.0.1:8080 you@your-server`, then open
   `http://127.0.0.1:8080/` on your machine.
@@ -423,8 +452,13 @@ it once in its log.
 The page's endpoints, for the curious: `POST /v1/login` with `{"token":
 "..."}` (sets the cookie; answers the credential's `name`, `id` and the
 session's `csrf`), `GET /v1/session` (the same, for a page reloaded), and
-`POST /v1/logout`. Everything else is the API's endpoints above, with the
-cookie instead of a bearer token.
+`POST /v1/logout`. A login also takes an account's `user`, `password` and
+`code` (its second factor). The panel's own: `GET /v1/hello`,
+`POST /v1/setup` (the first owner's account), `POST /v1/invite` (an
+account from an invitation), `POST /v1/setup/start` (an owner ends the
+first-run setup's wait), `/v1/account/...` (your own account) and
+`/v1/accounts` (accounts and invitations, for those who may invite). Everything else is the API's
+endpoints above, with the cookie instead of a bearer token.
 
 ## Settings
 
@@ -432,4 +466,4 @@ cookie instead of a bearer token.
 | --- | --- | --- |
 | `HALO_DEDICATED_CONSOLE` | (a terminal: on) | `true`: read commands on standard input even when it is not a terminal; `false`: never. |
 | `HALO_DEDICATED_COMMANDS` | (none) | A file of commands in the data folder, run once the server first hosts. |
-| `HALO_DEDICATED_CONTROL` | (off) | The control API's and web admin page's address: a port (`8080`, on 127.0.0.1), or address and port. |
+| `HALO_DEDICATED_CONTROL` | `127.0.0.1:8080` | The control API's and web admin page's address: a port (`8080`, on 127.0.0.1), or address and port. |

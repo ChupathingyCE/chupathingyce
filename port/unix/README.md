@@ -54,7 +54,7 @@ FFmpeg's build with them.
 
 Unzip `chupathingyce-freebsd64-release.zip` and add the maps next to `chupathingy`.
 It is built on FreeBSD 15.1 and needs FreeBSD 15 or later (amd64), and the
-system's SDL3: `pkg install sdl3`. On FreeBSD 14, build it yourself (below).
+system's SDL3: `pkg install sdl3`. On FreeBSD 14, build it yourself (above).
 
 ### Start the game
 

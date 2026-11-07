@@ -113,7 +113,10 @@ The image:
 - runs the server as user 1000, not root (`--user` to choose another: the
   owner of your data folder);
 - has the data folder at `/data` (`HALO_DATA_ROOT`), the saves in
-  `/data/saves`;
+  `/data/saves` (`HALO_SAVE_ROOT`), the cache in `/data/cache`
+  (`HALO_CACHE_ROOT`) and the log in `/data/logs`;
+- writes no `config.toml` beside the program: its settings come from the
+  environment and `admin/settings.toml` in the data folder;
 - stops the server with SIGTERM, which withdraws its game from the lists.
 
 ```sh
@@ -129,7 +132,8 @@ does not get through a bridge's NAT to players behind their own. The server
 needs no open ports.
 
 To type commands into it, run it with `-it` and `docker attach` to it; for
-its control API (`HALO_DEDICATED_CONTROL`), see
+its control API (`HALO_DEDICATED_CONTROL`, off in the image until you set
+it), see
 [admin.md](admin.md#docker): with the host's network it stays on the
 host's 127.0.0.1.
 

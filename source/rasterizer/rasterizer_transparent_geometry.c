@@ -604,6 +604,11 @@ static void rasterizer_sort_external(
 		group_sorted_indices_cmpfn);
 	PS3_TRANSPARENT_ADD(_ps3_timer_transparent_qsort, ps3_span); /* port: (the timer build) */
 
+	/* port: move model packets next to their glass surface, leaving other
+	   packets on their original side of every surface. */
+	rasterizer_transparent_geometry_order_models(
+		transparent_geometry_group_sorted_indices, transparent_geometry_group_count);
+
 	for (group_index = 0; group_index<transparent_geometry_group_count; group_index++)
 	{
 		transparent_geometry_groups[transparent_geometry_group_sorted_indices[group_index]].sorted_index = group_index;

@@ -37,8 +37,9 @@ Automated system link sessions for testing the netcode without the menus
   Multiplayer menu's ONLINE GAMES does, and logs each listed game's ping
   every few seconds (measured or estimated, never an address) with its
   invite's first digits (as the host's log has them), whether it
-  came from the game list or was heard directly (the brokers), and the
-  list's state, for the pings before joining and a list outage to be seen.
+  came from the game list or was heard directly (the brokers), whether it
+  has a password, and the list's state, for the pings before joining and a
+  list outage to be seen.
 
 Once the game runs, every second each machine logs where every player's
 unit is, so the machines' views of the game can be compared.
@@ -53,7 +54,11 @@ seconds later stands them at a vehicle's driver's entrance, where a joining
 machine's player holds the action button, as getting in does)
 and debug.network_test_pickup (the last player stands on a weapon lying
 about that many seconds in, and a joining machine's player holds the action
-button a second later, to pick it up), and debug.network_test_bomb (in a
+button a second later, to pick it up; debug.network_test_pickup_every
+repeats it), and debug.network_test_items (every machine logs every weapon,
+equipment and vehicle it has every that many seconds, and the host the
+map's item spawns, for tools/item_sync_check.py to compare), and
+debug.network_test_bomb (in a
 Bomb game, the last player stands on the bomb that many seconds in, and
 three seconds later in the goal its team attacks, which scores; again each
 time that long after: every machine logs the teams' scores and the round
@@ -101,7 +106,10 @@ network_test_update, which does nothing there */
 #include "items/projectile_definitions.h"
 #include "items/items.h"
 #include "objects/damage.h"
+#include "physics/collisions.h"
+#include "physics/collision_usage.h"
 #include "scenario/scenario.h"
+#include "scenario/scenario_definitions.h"
 #include "tag_files/tag_files.h"
 #include "camera/observer.h"
 #include "cache/cache_files.h"
@@ -132,6 +140,7 @@ void damage_kill_object_for_player(long object_index, long player_index);
 void network_distributed_statistics(long *sent, long *received, long *corrections);
 void network_distributed_item_statistics(long *creates, long *deletes, long *failures, long *removed);
 void network_damage_statistics(long *sent_reports, long *dealt_reports, long *rejected_reports, long *replayed_events);
+long network_damage_line_of_sight_refusals(void);
 /* xinput_sdl.c's */
 void test_input_hold_action(int hold);
 void test_input_hold_melee(int hold);
@@ -180,8 +189,14 @@ static struct
 	boolean team_set;
 	real kill_interval;
 	real shoot_interval;
+	boolean shoot_walls;
 	real vehicle_time;
 	real pickup_time;
+	/* debug.network_test_pickup_every, debug.network_test_items; and the
+	game time the host's item spawns were logged at */
+	real pickup_every;
+	real items_interval;
+	long spawns_logged_time;
 	real bomb_interval;
 	boolean bomb_in_goal;
 	boolean bomb_throw;
@@ -302,8 +317,12 @@ static void network_test_read_settings(
 	network_test.start_delay = (real)config_real("debug.network_test_start");
 	network_test.kill_interval = (real)config_real("debug.network_test_kill");
 	network_test.shoot_interval = (real)config_real("debug.network_test_shoot");
+	network_test.shoot_walls = config_boolean("debug.network_test_shoot_walls") != 0;
 	network_test.vehicle_time = (real)config_real("debug.network_test_vehicle");
 	network_test.pickup_time = (real)config_real("debug.network_test_pickup");
+	network_test.pickup_every = (real)config_real("debug.network_test_pickup_every");
+	network_test.items_interval = (real)config_real("debug.network_test_items");
+	network_test.spawns_logged_time = NONE;
 	network_test.bomb_interval = (real)config_real("debug.network_test_bomb");
 	network_test.bomb_in_goal = config_boolean("debug.network_test_bomb_in_goal");
 	network_test.bomb_throw = config_boolean("debug.network_test_bomb_throw");
@@ -502,7 +521,7 @@ static void network_test_log_players(
 		struct observer_result const *camera = observer_get_camera(0);
 
 		platform_log("network test: tick %ld%s | items %ld (+%ld -%ld !%ld x%ld) | %s to %ld | sent %ld received %ld corrected %ld"
-			" | hits %ld dealt %ld rejected %ld replayed %ld | local %ld camera (%.1f %.1f %.1f) respawn %ld",
+			" | hits %ld dealt %ld rejected %ld replayed %ld | local %ld camera (%.1f %.1f %.1f) respawn %ld | sight %ld",
 			game_time_get(), line, ground_items, creates, deletes, failures, removed,
 			game_engine_can_score() ? "playing" : "game over",
 			game_engine_running() ? (long)game_engine_get_variant()->universal_variant.score_to_win : 0L,
@@ -510,7 +529,8 @@ static void network_test_log_players(
 			sent_reports, dealt_reports, rejected_reports, replayed_events,
 			local_player_index == NONE ? -1L : (long)DATUM_INDEX_TO_ABSOLUTE_INDEX(local_player_index),
 			camera ? camera->position.x : 0.0f, camera ? camera->position.y : 0.0f, camera ? camera->position.z : 0.0f,
-			local_player_index == NONE ? 0L : (long)player_get(local_player_index)->respawn_timer);
+			local_player_index == NONE ? 0L : (long)player_get(local_player_index)->respawn_timer,
+			network_damage_line_of_sight_refusals());
 	}
 }
 
@@ -539,6 +559,7 @@ static void network_test_shoot(
 		struct damage_data damage;
 		struct object_datum *target_object;
 		real_vector3d direction;
+		boolean in_sight;
 
 		if (player->local_player_index == NONE || player->unit_index == NONE)
 			continue;
@@ -609,6 +630,23 @@ static void network_test_shoot(
 			if (dx * dx + dy * dy + dz * dz > 0.9f * reach * 0.9f * reach)
 				continue;
 		}
+		/* (a shot only with a clear line from the shooter's camera to the
+		target, as a player's is; with debug.network_test_shoot_walls through
+		what is between too, which the host refuses: network.hit_line_of_sight) */
+		in_sight = TRUE;
+		if (!melee && global_current_collision_user_depth < MAXIMUM_COLLISION_USER_STACK_DEPTH)
+		{
+			struct collision_result collision;
+			real_point3d camera;
+
+			unit_get_camera_position(player->unit_index, &camera);
+			global_current_collision_users[global_current_collision_user_depth++] = _collision_user_debugging;
+			in_sight = !collision_test_line(_collision_test_for_line_of_sight_flags, &camera,
+				&target_object->object.bounding_sphere_center, object_get_ultimate_parent(player->unit_index), &collision);
+			--global_current_collision_user_depth;
+		}
+		if (!in_sight && !network_test.shoot_walls)
+			continue;
 		damage_data_new(&damage, damage_index);
 		damage.owner_player_index = iterator.datum_index;
 		damage.owner_object_index = player->unit_index;
@@ -623,8 +661,9 @@ static void network_test_shoot(
 		damage.scale = 1.0f;
 		scenario_location_from_point(&damage.location, &damage.epicenter);
 		object_cause_damage(&damage, target->unit_index, NONE, NONE, NONE, NULL);
-		platform_log("network test: player %ld shoots player %ld",
-			(long)DATUM_INDEX_TO_ABSOLUTE_INDEX(iterator.datum_index), (long)(target - (struct player_datum *)xbox_pointer(player_data->data)));
+		platform_log("network test: player %ld shoots player %ld%s",
+			(long)DATUM_INDEX_TO_ABSOLUTE_INDEX(iterator.datum_index), (long)(target - (struct player_datum *)xbox_pointer(player_data->data)),
+			in_sight ? "" : " through a wall");
 	}
 }
 
@@ -848,6 +887,55 @@ static void network_test_second_weapon(
 			return;
 		}
 	}
+}
+
+/* debug.network_test_items: every weapon, equipment and vehicle this
+machine has ("network test: item <game time> <absolute index> <x> <y> <z>
+<holder's absolute index or -1> <at rest> <tag>"), and the host's the
+map's item spawns once a game ("network test: spawn <index> <flags> <game
+types> <spawn time> <x> <y> <z> <game type now> <item collection>"), for
+tools/item_sync_check.py to compare the machines' */
+static void network_test_log_items(
+	void)
+{
+	struct object_iterator iterator;
+	long time = game_time_get();
+	long count = 0;
+
+	if (network_test.mode != _network_test_join &&
+		(network_test.spawns_logged_time == NONE || time < network_test.spawns_logged_time))
+	{
+		struct scenario *scenario = global_scenario_get();
+		long index;
+
+		network_test.spawns_logged_time = time;
+		for (index = 0; index < scenario->netgame_equipment.count; index++)
+		{
+			struct scenario_netgame_equipment *equipment = TAG_BLOCK_GET_ELEMENT(&scenario->netgame_equipment,
+				index, struct scenario_netgame_equipment);
+
+			platform_log("network test: spawn %ld %lx %d,%d,%d,%d %d %.2f %.2f %.2f %d %s", index,
+				(unsigned long)equipment->flags, equipment->game_type[0], equipment->game_type[1],
+				equipment->game_type[2], equipment->game_type[3], equipment->spawn_time,
+				(double)equipment->position.x, (double)equipment->position.y, (double)equipment->position.z,
+				game_engine ? (int)game_engine->type : -1,
+				equipment->item_collection.index != NONE ? tag_get_name(equipment->item_collection.index) : "none");
+		}
+	}
+	object_iterator_new(&iterator, _object_mask_weapon | _object_mask_equipment | _object_mask_vehicle, 0);
+	while (object_iterator_next(&iterator))
+	{
+		struct object_datum *object = object_get(iterator.index);
+		long parent = object->object.parent_object_index;
+
+		platform_log("network test: item %ld %ld %.2f %.2f %.2f %ld %d %s", time,
+			(long)DATUM_INDEX_TO_ABSOLUTE_INDEX(iterator.index), (double)object->object.position.x,
+			(double)object->object.position.y, (double)object->object.position.z,
+			parent != NONE ? (long)DATUM_INDEX_TO_ABSOLUTE_INDEX(parent) : -1L,
+			TEST_FLAG(object->object.flags, _object_at_rest_bit) ? 1 : 0, tag_get_name(object->definition_index));
+		count++;
+	}
+	platform_log("network test: items %ld %ld", time, count);
 }
 
 /* both machines stand the last player on the first weapon lying about that
@@ -1222,8 +1310,9 @@ void network_test_update(
 						name[character] = games[index].name[character] < 127 ? (char)games[index].name[character] : '?';
 					name[character] = 0;
 					/* (the invite's first digits, as the host's own log shows them) */
-					platform_log("network test: browse: %s (%.8s...) ping %s%d (%s)", name, games[index].invite,
-						games[index].ping_estimated ? "~" : "", games[index].ping, games[index].direct ? "direct" : "list");
+					platform_log("network test: browse: %s (%.8s...) ping %s%d (%s%s)", name, games[index].invite,
+						games[index].ping_estimated ? "~" : "", games[index].ping, games[index].direct ? "direct" : "list",
+						games[index].locked ? ", password" : "");
 				}
 			}
 		}
@@ -1284,9 +1373,19 @@ void network_test_update(
 
 			network_test_gather(network_test.vehicle_time > 0.0f && game_time_get() >= vehicle_time - 2 * TICKS_PER_SECOND);
 		}
+		if (network_test.items_interval > 0.0f &&
+			game_time_get() % MAX(1, (long)(network_test.items_interval * TICKS_PER_SECOND)) < TICKS_PER_SECOND)
+		{
+			network_test_log_items();
+		}
 		if (network_test.pickup_time > 0.0f)
 		{
 			long pickup_time = (long)(network_test.pickup_time * TICKS_PER_SECOND);
+			long every = (long)(network_test.pickup_every * TICKS_PER_SECOND);
+
+			/* (debug.network_test_pickup_every: the last of the pickups so far) */
+			if (every > 0 && game_time_get() > pickup_time)
+				pickup_time += (game_time_get() - pickup_time) / every * every;
 
 			/* (two weapons first: picking up a third swaps) */
 			if (network_test.mode == _network_test_host && game_time_get() >= pickup_time - 3 * TICKS_PER_SECOND &&
@@ -1638,7 +1737,12 @@ void network_test_update(
 			{
 				network_test.team_set = network_game_client_split_teams();
 			}
-			if (network_test.setup_seconds >= network_test.start_delay)
+			/* (and not before the map and the game variant are set: a host
+			whose server could not be made, its port taken by another program,
+			started the fast setup's game, of no game type, where the players
+			spawn with no weapons or grenades; it now waits, and the test
+			fails on its time limit) */
+			if (network_test.setup_seconds >= network_test.start_delay && network_test.map_set)
 			{
 				network_test.started = TRUE;
 				network_test.setup_seconds = 0.0f;

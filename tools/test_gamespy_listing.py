@@ -20,7 +20,8 @@ sys.path.insert(0, str(ROOT))
 from tools.gamespy_fake_master import (  # noqa: E402
     CAPTURED_CHALLENGE, CAPTURED_RESPONSE, FakeMaster, challenge_response, parse_pairs, parse_qr2_sections)
 
-HARNESS_SOURCES = [ROOT / "server" / "tests" / "gamespy_harness.c", ROOT / "server" / "platform" / "gamespy_listing.c"]
+HARNESS_SOURCES = [ROOT / "server" / "tests" / "gamespy_harness.c", ROOT / "server" / "platform" / "gamespy_listing.c",
+                   ROOT / "server" / "platform" / "ce_transport.c", ROOT / "server" / "platform" / "ce_messages.c"]
 def compiler():
     for name in ("clang", "cc", "gcc"):
         path = shutil.which(name)
@@ -38,7 +39,7 @@ def harness(tmp_path_factory):
         pytest.skip("no C compiler")
     out = tmp_path_factory.mktemp("gamespy") / "gamespy_harness"
     subprocess.run([cc, "-std=gnu99", "-Wall", "-Wextra", "-Werror", "-O1", "-g", "-o", str(out),
-                    *map(str, HARNESS_SOURCES), "-lpthread"], check=True)
+                    *map(str, HARNESS_SOURCES), "-lpthread", "-lm"], check=True)
     return out
 
 
@@ -133,6 +134,7 @@ def test_classic_query(server, query):
     assert keys["fraglimit"] == "50"
     assert keys["bridge"] == "chupathingy"
     assert keys["bridge_version"] == "0.0.0-test"
+    assert keys["chimera"] == "optional"
     assert keys["player_0"] == "Player1" and keys["ping_0"] == "" and keys["team_0"] == "0"
     assert keys["player_2"] == "Player3" and keys["score_2"] == "6" and keys["team_2"] == "0"
     assert "player_3" not in keys
@@ -227,3 +229,6 @@ def test_masters_checked(harness):
 
 def test_encipher_matches_capture():
     assert challenge_response(CAPTURED_CHALLENGE) == CAPTURED_RESPONSE
+    # (a challenge from the real master (Custom Edition's, 20 characters):
+    # its last group short, zero-filled and written whole, no '=')
+    assert challenge_response(b"xSG7Cm6qc0632b5a08fe") == b"7yDP+7El21rL4jMZbxpiOCJ9sZ4A"

@@ -1027,6 +1027,7 @@ void hud_render_timer(
 		numbers.fractional_digits = 4;
 		numbers.number_flags = FLAG(_hud_number_show_all_leading_zeros_bit);
 		numbers.placement.offset = timer->position;
+		numbers.placement.multiplayer_scaling_flags = 0;
 		numbers.placement.scale.i = 1.0f;
 		numbers.placement.scale.j = 1.0f;
 
@@ -1886,7 +1887,7 @@ void hud_messaging_update(
 								element = &fixed_element;
 							}
 #endif
-#line 1831
+#line 1832
 
 							/* port: the keyboard's key, "[E]", in place of the
 							controller's button while the keyboard or mouse was

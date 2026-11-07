@@ -27,7 +27,8 @@ each time whether to send your `config.toml` too. Addresses are taken out first.
 Discord with your report.
 
 **Play** lists the ways you can play: Vanilla Halo, and each map pack that has its own menus (a `maps_<pack>` folder
-with its `ui.map`, such as Halo CE+ in `maps_cex`). Once you have more than one, the game asks once whether to pick
+with its `ui.map`, such as Halo CE+ in `maps_cex`). Stubbs the Zombie is there too, as an early test, if you put
+your own Stubbs Xbox maps in `maps_stubbs`. Once you have more than one, the game asks once whether to pick
 each time or always play the one you have. **Start in this mode** changes that later, and X makes the selected mode
 the default. `--play` starts the default mode without asking, and `--mode cex` (or `--mode vanilla`) starts that one.
 
@@ -37,7 +38,8 @@ the default. `--play` starts the default mode without asking, and `--mode cex` (
 
 Every Chupathingy build also plays Halo PC multiplayer maps: Windows
 (32-bit and 64-bit), Mac, Linux (32-bit and 64-bit), Android and the
-dedicated server. Each kind has a folder of its own beside the game's
+dedicated server. The original Xbox test builds play Custom Edition maps too,
+and their Map Browser (Multiplayer > MAP BROWSER) downloads them. Each kind has a folder of its own beside the game's
 `maps` folder:
 
 | Folder | What goes in it | Played online as |
@@ -51,7 +53,7 @@ Where the game's `maps` folder is:
 | Platform | The folder holding `maps`, `maps_ce`, `maps_md`, `maps_pc` and the map packs' `maps_<pack>` |
 | --- | --- |
 | Mac | `~/Library/Application Support/ChupathingyCE/` |
-| Linux | next to the `chupathingy` program |
+| Linux | next to the `chupathingy` program; for the AppImage, `~/.local/share/chupathingyce/` |
 | Windows | next to `chupathingy.exe` |
 | Android | `/sdcard/Android/data/dev.horrible.chupathingyce/files` |
 

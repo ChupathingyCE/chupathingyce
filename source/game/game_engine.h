@@ -615,6 +615,10 @@ boolean game_engine_running(
 	void);
 boolean game_engine_showing_postgame(
 	void);
+/* port: 0 while the game plays, then 1 to 3 as it ends (game_engine.c's
+game_engine_mode) */
+long game_engine_postgame_mode(
+	void);
 /* port: the carnage report's prompt as last drawn, in the menus'
 coordinates: its line's top and bottom, its ends, and where its second part
 begins (right when it has one); FALSE when it is not up */
@@ -818,6 +822,9 @@ boolean game_engine_should_end_game(
 void game_engine_clear_goal_position(
 	short goal_index);
 
+void game_engine_objective_weapon_deleted(
+	long weapon_index);
+
 long get_flag_definition_index(
 	void);
 
@@ -941,6 +948,36 @@ void game_engine_oddball_network_state_byte_swap(byte *buffer, long size);
 void game_engine_king_network_state_byte_swap(byte *buffer, long size);
 void game_engine_race_network_state_byte_swap(byte *buffer, long size);
 void game_engine_bomb_network_state_byte_swap(byte *buffer, long size);
+#endif
+
+#ifdef HALO_PORT_CONSOLE_LIMITS
+/* port: the console's limits (halo_port_limits.h): a PC host's game type
+state has its per-player arrays at the network's 128 slots, folded into
+this build's (port/linux/game/network_game_layout.c); the players past them
+were refused with the game settings, so what is dropped is empty. A state's
+fields in order, with no padding between them: element_size bytes, one
+element a player slot (per_slot) or one alone, an element empty while each
+byte is blank, and its numbers swap_size bytes each (0: bytes) */
+struct game_engine_network_state_field
+{
+	unsigned short element_size;
+	unsigned char per_slot;
+	unsigned char blank;
+	unsigned char swap_size;
+};
+/* the host's state of size bytes into state (state_size bytes, this
+build's): TRUE when it was a PC host's and is folded, FALSE when it was
+and is not, NONE when it is not a PC host's (the caller reads it as its
+own) */
+long game_engine_network_state_fold(byte const *buffer, long size, void *state, long state_size,
+	struct game_engine_network_state_field const *fields, long field_count, char const *name);
+#ifdef HALO_BIG_ENDIAN
+/* a PC host's state (size bytes, not this build's state_size) between the
+wire's byte order and this machine's, by its fields; FALSE for another
+size, left as it is */
+boolean game_engine_network_state_fields_byte_swap(byte *buffer, long size, long state_size,
+	struct game_engine_network_state_field const *fields, long field_count);
+#endif
 #endif
 
 #endif // __GAME_ENGINE_H

@@ -16,6 +16,24 @@ HALO_CUSTOM_EDITION: Halo PC's Custom Edition and HaloMD maps (maps_ce,
 maps_pc, maps_md), their loaders and conversions
 HALO_GAME_BROWSER: the game list, text chat and the dedicated server
 (configure.py --no-game-browser)
+
+and ones a console's build sets to have an extra the desktop's have:
+HALO_CONSOLE_GAME_REPORTS: the reports of the games it joins, sent to the
+site (port/console/reports), as the desktop builds' game list sends them
+HALO_CONSOLE_CE_BITMAPS (with HALO_CUSTOM_EDITION): a Custom Edition map's
+bitmaps made the console's as they are read, by the port's
+platform_ce_bitmap_loaded (the desktop builds' renderer draws them as they are)
+HALO_CONSOLE_CE_SHARED_TAG_CACHE (with HALO_CUSTOM_EDITION): a console with no
+room for a second tag cache lends its own to a Custom Edition map: the map
+checked as it loads, the load's memory borrowed and given back, by the port's
+platform_ce_* hooks (platform_ce_alias says whether it is in use)
+HALO_CONSOLE_CE_MODEL_DATA_WINDOWS (with HALO_CUSTOM_EDITION): a Custom
+Edition map's model data (a Halo 2 map's is 14 MB) read through two small
+windows as its models are checked and made, not whole: a console's memory
+may have no room for it on top of the map (port/linux/game/ce_map_checks.h)
+HALO_CONSOLE_MAP_BROWSER: a console's own map browser (MAP BROWSER under
+ONLINE GAMES, and the keyboard's search launch), its screen the port's
+maps_screen_open
 */
 
 #ifndef __HALO_PORT_FEATURES_H
@@ -116,6 +134,14 @@ and a console's with Delta Peer as a client (HALO_CONSOLE_DELTA), the
 client's part only, unless it sets HALO_CONSOLE_NO_CHAT */
 #if defined(HALO_GAME_BROWSER) || (defined(HALO_CONSOLE_DELTA) && !defined(HALO_CONSOLE_NO_CHAT))
 #define HALO_PORT_CHAT
+#endif
+
+/* the statistics recorder and the report of a joined game
+(port/linux/game/game_stats.c): the desktop builds' (HALO_GAME_BROWSER,
+whose game list sends it), and a console's that sends its own reports
+(HALO_CONSOLE_GAME_REPORTS: port/console/reports/console_reports.h) */
+#if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_GAME_REPORTS)
+#define HALO_PORT_GAME_REPORTS
 #endif
 
 #endif /* __HALO_PORT_FEATURES_H */

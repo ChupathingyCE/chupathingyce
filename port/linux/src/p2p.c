@@ -298,6 +298,8 @@ struct stream
 	int remote_closed;
 	unsigned long created_time;
 	unsigned long closed_time;
+	/* (KCP has messages from this pass that its tick has not sent yet) */
+	int written;
 	unsigned char pending[STREAM_BUFFER_SIZE];
 	int pending_size;
 };
@@ -386,6 +388,12 @@ static struct
 	addresses came), and the tunnel then could not reach it */
 	int join_host_answered;
 	int join_punch_failed;
+	/* the invite joined is a public game's, without a password: a listing's
+	(the game list's, the server browser's open one) or Discord's Join. A
+	player in the game shares it on Discord too: the host makes a new one
+	when its game goes private or takes a password, so it never opens one
+	that is not public */
+	int join_public;
 	/* a locked invite (a game with a password) waiting for its password
 	(p2p_locked_invite_unlock): its host's key hash, door and check */
 	int locked_waiting;
@@ -434,7 +442,10 @@ static struct
 	unsigned long lookup_time;
 	char lookup_link[P2P_LINK_SIZE];
 #endif
-} p2p = { 0, 0, -1, 0, -1, .hosting_socket = -1 };
+/* (all zero, so that it is in .bss and not written into an executable:
+112 KB on the console. Its sockets are none, -1, from p2p_initialize on;
+nothing reads them before, as nothing runs until then) */
+} p2p;
 
 #ifdef HALO_PS3
 enum
@@ -730,7 +741,7 @@ static struct peer *find_peer_by_address(unsigned long address)
 
 /* ---------- this machine's hardware id */
 
-#if defined(_WIN32) || defined(__APPLE__)
+#if defined(_WIN32) || (defined(__APPLE__) && !defined(HALO_IOS))
 /* win32_p2p.c's: the SMBIOS system UUID, else the registry's MachineGuid;
 posix_net.c's on macOS: the hardware UUID */
 int posix_hardware_id_source(char *text, int size);
@@ -739,10 +750,11 @@ int posix_hardware_id_source(char *text, int size);
 /* what this machine is known by, as text (none: 0): Windows' SMBIOS UUID or
 MachineGuid (win32_p2p.c); the Mac's hardware UUID (posix_net.c); Linux's
 /etc/machine-id; Android's ANDROID_ID, which only the app's Java can read
-and puts in hardware_id.txt (LauncherActivity.java) */
+and puts in hardware_id.txt (LauncherActivity.java), and iOS's vendor
+identifier, which the iOS port's entry point puts there */
 static int hardware_id_source(char *text, int size)
 {
-#if defined(_WIN32) || defined(__APPLE__)
+#if defined(_WIN32) || (defined(__APPLE__) && !defined(HALO_IOS))
 	return posix_hardware_id_source(text, size);
 #else
 	static const char *const linux_paths[] = { "/etc/machine-id", "/var/lib/dbus/machine-id" };
@@ -2203,8 +2215,11 @@ static void stream_message(struct stream *stream, unsigned char type, const void
 	unsigned char message[1 + STREAM_CHUNK_SIZE];
 
 	message[0] = type;
-	memcpy(message + 1, data, (size_t)size);
+	/* (a message of no data, a close, may come with no pointer) */
+	if (size > 0)
+		memcpy(message + 1, data, (size_t)size);
 	ikcp_send(stream->kcp, (const char *)message, size + 1);
+	stream->written = 1;
 }
 
 static void stream_local_closed(struct stream *stream)
@@ -2353,6 +2368,16 @@ static void stream_update(struct stream *stream)
 	unsigned char message[1 + STREAM_CHUNK_SIZE];
 
 	ikcp_update(stream->kcp, p2p_now());
+	/* what this pass wrote goes out now, not on KCP's next tick up to
+	LOOP_INTERVAL later. The same messages in the same format, only
+	sooner; one flush a pass however many writes the pass made
+	(port/linux/tests/kcp_flush_test.c). Reworked for our engine, based on
+	work by goatbutt and the OpenH1 team. */
+	if (stream->written)
+	{
+		stream->written = 0;
+		ikcp_flush(stream->kcp);
+	}
 	/* what the peer sent */
 	for (;;)
 	{
@@ -2534,8 +2559,10 @@ static void tunnel_readable(void)
 
 /* ---------- invites */
 
-/* an invite given before internet play started, joined once it has */
+/* an invite given before internet play started, joined once it has (and
+whether it is a public game's: join_public) */
 static char pending_startup_invite[256];
+static int pending_startup_public;
 
 /* the host's key hash and the token in an invite link or code within text:
 1 if it holds one, 2 if it is a locked one (a game with a password: its
@@ -2546,8 +2573,9 @@ static int parse_invite(const char *text, unsigned char *host_hash, unsigned cha
 	return p2p_parse_invite(text, host_hash, token, NULL);
 }
 
-/* under p2p_lock: parse_invite's result */
-static int join_invite(const char *text)
+/* under p2p_lock: parse_invite's result. public: the invite is a public
+game's (join_public) */
+static int join_invite(const char *text, int public)
 {
 	unsigned char hash[P2P_KEY_HASH_SIZE], host[P2P_IDENTIFIER_SIZE], token[P2P_TOKEN_SIZE];
 	unsigned char check[P2P_INVITE_CHECK_SIZE];
@@ -2589,7 +2617,11 @@ static int join_invite(const char *text)
 	}
 	if ((p2p.joining || p2p.join_requested) && !memcmp(hash, p2p.join_host_hash, sizeof(hash)) &&
 		!memcmp(token, p2p.join_token, sizeof(token)))
+	{
+		p2p.join_public |= public;
 		return 1;
+	}
+	p2p.join_public = public;
 	memcpy(p2p.join_host, host, sizeof(host));
 	memcpy(p2p.join_host_hash, hash, sizeof(hash));
 	memcpy(p2p.join_token, token, sizeof(token));
@@ -2614,7 +2646,6 @@ int p2p_join_failure(void)
 	return failure;
 }
 
-#ifdef HALO_GAME_BROWSER
 #ifdef HALO_GAME_BROWSER
 /* the game list's confirmed players (browser.c): the public address a peer
 is heard from, for the game's address of it (its virtual address), 0 if
@@ -2647,6 +2678,10 @@ unsigned long p2p_public_address(void)
 	return result;
 }
 
+#endif
+
+/* (and a console's reports of the games it joins: port/console/reports) */
+#if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_GAME_REPORTS)
 /* a game is being joined, whichever way (a listed game, an invite, a direct
 address, the local network, a server's change of game): the invite stays
 only if the host is the invite's, its identifier the one p2p_identifier_from_hash
@@ -2662,6 +2697,7 @@ void p2p_joining_host(const unsigned char *identifier)
 	{
 		memset(p2p.join_host_hash, 0, sizeof(p2p.join_host_hash));
 		memset(p2p.join_token, 0, sizeof(p2p.join_token));
+		p2p.join_public = 0;
 	}
 	pthread_mutex_unlock(&p2p_lock);
 }
@@ -2689,6 +2725,7 @@ int p2p_joined_invite(char *text, int size)
 }
 
 #endif
+#ifdef HALO_GAME_BROWSER
 int p2p_hosting_invite(char *text, int size)
 {
 	int result;
@@ -2711,6 +2748,20 @@ int p2p_hosting_listable_invite(char *text, int size)
 	result = p2p.running && p2p.hosting && p2p.has_token && !p2p.has_join_key && p2p_lobby_hosting_open();
 	if (result)
 		snprintf(text, (size_t)size, "%s", p2p.invite + strlen("halo://join/"));
+	pthread_mutex_unlock(&p2p_lock);
+	return result;
+}
+
+/* (network_game_globals.c's network_game_host_cheats_refused) whether this
+copy hosts an internet game anyone may join: public, without a password, as
+the game list lists it (whether or not network.list_hosted_games lists it
+there) */
+int p2p_hosting_public_game(void)
+{
+	int result;
+
+	pthread_mutex_lock(&p2p_lock);
+	result = p2p.running && p2p.hosting && p2p_lobby_hosting_open();
 	pthread_mutex_unlock(&p2p_lock);
 	return result;
 }
@@ -2763,7 +2814,7 @@ const char *p2p_invite_log_text(const char *invite, char *text, int size)
 	return text;
 }
 
-int p2p_join_invite(const char *text)
+static int join_invite_text(const char *text, int public)
 {
 	int result;
 
@@ -2788,6 +2839,7 @@ int p2p_join_invite(const char *text)
 			return 0;
 		}
 		snprintf(pending_startup_invite, sizeof(pending_startup_invite), "%s", text);
+		pending_startup_public = public;
 		{
 			char shown[128];
 
@@ -2797,15 +2849,25 @@ int p2p_join_invite(const char *text)
 		return 1;
 	}
 	pthread_mutex_lock(&p2p_lock);
-	result = join_invite(text);
+	result = join_invite(text, public);
 	pthread_mutex_unlock(&p2p_lock);
 	return result > 0;
 }
 
-void p2p_invite_received(const char *text)
+int p2p_join_invite(const char *text)
+{
+	return join_invite_text(text, 0);
+}
+
+int p2p_join_listed_invite(const char *text)
+{
+	return join_invite_text(text, 1);
+}
+
+void p2p_invite_received(const char *text, int public)
 {
 	/* (an older version's is logged as such) */
-	if (!join_invite(text))
+	if (!join_invite(text, public))
 		platform_log("Internet play: that is not an invite");
 }
 
@@ -3148,7 +3210,7 @@ int p2p_locked_invite_unlock(const char *password)
 	p2p_hex(bytes, sizeof(bytes), text + 12);
 	pthread_mutex_lock(&p2p_lock);
 	p2p.locked_waiting = 0;
-	opened = join_invite(text) > 0;
+	opened = join_invite(text, 0) > 0;
 	pthread_mutex_unlock(&p2p_lock);
 	memset(token, 0, sizeof(token));
 	memset(bytes, 0, sizeof(bytes));
@@ -3502,6 +3564,42 @@ int p2p_hosting_status(char *text, int size)
 	return 1;
 }
 
+int p2p_hosting_reach(struct p2p_reach *reach)
+{
+	int index;
+
+	memset(reach, 0, sizeof(*reach));
+	if (!p2p.running)
+		return 0;
+	pthread_mutex_lock(&p2p_lock);
+	reach->port = network_short(p2p.tunnel_port);
+	reach->port_fixed = p2p.port_fixed;
+	for (index = 0; index < p2p.stun_count; index++)
+	{
+		int other;
+
+		if (!p2p.stun[index].has_mapped)
+			continue;
+		reach->stun_answers++;
+		for (other = 0; other < index; other++)
+		{
+			if (p2p.stun[other].has_mapped && p2p.stun[other].mapped.port != p2p.stun[index].mapped.port)
+				reach->strict = 1;
+		}
+	}
+	reach->settled = p2p.stun_started && stun_settled();
+	switch (p2p.upnp_forwarded ? _upnp_forwarded : p2p.upnp_status)
+	{
+	case _upnp_forwarded: reach->upnp = P2P_UPNP_FORWARDED; break;
+	case _upnp_no_router: reach->upnp = P2P_UPNP_NO_ROUTER; break;
+	case _upnp_refused: reach->upnp = P2P_UPNP_REFUSED; break;
+	default: reach->upnp = P2P_UPNP_NOT_ASKED; break;
+	}
+	pthread_mutex_unlock(&p2p_lock);
+	reach->upnp_allowed = config_boolean("network.allow_upnp");
+	return 1;
+}
+
 /* ---------- invites from elsewhere */
 
 /* the first command line argument holding an invite (or an older
@@ -3606,7 +3704,7 @@ static void handoff_readable(void)
 	invite[size] = 0;
 	handoff_answer(p2p.handoff_key, message, answer);
 	posix_socket_sendto(p2p.handoff_socket, answer, sizeof(answer), 0, &from, sizeof(from));
-	p2p_invite_received(invite);
+	p2p_invite_received(invite, 0);
 }
 
 /* (not on the Switch, which builds as Android too: there is no app to write
@@ -3639,7 +3737,7 @@ static void poll_invite_file(void)
 	fclose(file);
 	remove(taken);
 	text[size] = 0;
-	p2p_invite_received(text);
+	p2p_invite_received(text, 0);
 }
 #endif
 
@@ -3994,6 +4092,29 @@ static void update_host_port(void)
 }
 #endif
 
+/* a player's share of the public game it joined (join_public) on Discord:
+the host's invite, under the host's party, while the host is reached */
+static void discord_share_joined(void)
+{
+	static const unsigned char none[P2P_KEY_HASH_SIZE];
+	struct peer *peer = p2p.join_public && !p2p.hosting && memcmp(p2p.join_host_hash, none, sizeof(none)) ?
+		find_peer(p2p.join_host) : NULL;
+	unsigned char code[P2P_KEY_HASH_SIZE + P2P_TOKEN_SIZE];
+	char text[2 * (P2P_KEY_HASH_SIZE + P2P_TOKEN_SIZE) + 1];
+	char party[2 * P2P_IDENTIFIER_SIZE + 1];
+
+	if (!peer || !peer->connected || !peer->is_host)
+	{
+		p2p_discord_set_join(NULL, NULL, 0, 0);
+		return;
+	}
+	memcpy(code, p2p.join_host_hash, P2P_KEY_HASH_SIZE);
+	memcpy(code + P2P_KEY_HASH_SIZE, p2p.join_token, P2P_TOKEN_SIZE);
+	p2p_hex(code, sizeof(code), text);
+	p2p_hex(p2p.join_host, P2P_IDENTIFIER_SIZE, party);
+	p2p_discord_set_join(text, party, 0, 0);
+}
+
 static void *p2p_thread(void *unused)
 {
 	enum
@@ -4204,9 +4325,19 @@ static void *p2p_thread(void *unused)
 		update_probes();
 		update_upnp();
 		/* (a public game's invite is in everyone's server browser already:
-		its Join game button on Discord) */
-		p2p_discord_set_join(p2p.hosting && p2p.has_token && p2p_lobby_open() ?
-			p2p.invite + strlen("halo://join/") : NULL);
+		its join secret on Discord; a password game's never) */
+		{
+			int count = 0, maximum = 0;
+			int joinable = p2p.hosting && p2p.has_token && !p2p.has_join_key && p2p_lobby_open();
+
+			if (joinable)
+			{
+				hosted_player_counts(&count, &maximum);
+				p2p_discord_set_join(p2p.invite + strlen("halo://join/"), NULL, count, maximum);
+			}
+			else
+				discord_share_joined();
+		}
 		p2p_discord_update();
 #if defined(HALO_ANDROID) && !defined(HALO_SWITCH_CONSOLE)
 		poll_invite_file();
@@ -4223,6 +4354,12 @@ void p2p_initialize(unsigned long local_address)
 	int chosen = config_chosen("network.tunnel_port");
 	int index;
 
+	if (!p2p.running)
+	{
+		p2p.tunnel_socket = -1;
+		p2p.handoff_socket = -1;
+		p2p.hosting_socket = -1;
+	}
 	p2p_identifier();
 	if (p2p.running || !config_boolean("network.online"))
 		return;
@@ -4287,9 +4424,10 @@ void p2p_initialize(unsigned long local_address)
 		platform_log("Internet play: applying stashed startup invite: %s",
 			p2p_invite_log_text(pending_startup_invite, shown, sizeof(shown)));
 		pthread_mutex_lock(&p2p_lock);
-		join_invite(pending_startup_invite);
+		join_invite(pending_startup_invite, pending_startup_public);
 		pthread_mutex_unlock(&p2p_lock);
 		pending_startup_invite[0] = '\0';
+		pending_startup_public = 0;
 	}
 	else if (command_line_invite(invite, sizeof(invite)))
 		p2p_join_invite(invite);

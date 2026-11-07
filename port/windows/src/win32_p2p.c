@@ -13,6 +13,7 @@ links, the user's secret, and Discord's local pipe.
 #include <string.h>
 
 #include "posix.h"
+#include "discord_register.h"
 
 /* ---------- the process */
 
@@ -84,6 +85,52 @@ int posix_register_url_scheme(const char *scheme, const char *description)
 	ok &= RegSetValueExA(key, NULL, 0, REG_SZ, (const BYTE *)command, (DWORD)strlen(command) + 1) == ERROR_SUCCESS;
 	RegCloseKey(key);
 	return ok ? 1 : 0;
+}
+
+/* HKEY_CURRENT_USER's registry for discord_register_windows */
+static int registry_get(void *context, const char *key_name, const char *name, char *value, int size)
+{
+	DWORD type = 0, length = (DWORD)size;
+	HKEY key;
+	LONG status;
+
+	(void)context;
+	if (size <= 0 || RegOpenKeyExA(HKEY_CURRENT_USER, key_name, 0, KEY_READ, &key) != ERROR_SUCCESS)
+		return 0;
+	status = RegQueryValueExA(key, name, NULL, &type, (BYTE *)value, &length);
+	RegCloseKey(key);
+	if (status != ERROR_SUCCESS || (type != REG_SZ && type != REG_EXPAND_SZ))
+		return 0;
+	if (length >= (DWORD)size)
+		length = (DWORD)size - 1;
+	value[length] = 0;
+	return 1;
+}
+
+static int registry_set(void *context, const char *key_name, const char *name, const char *value)
+{
+	HKEY key;
+	BOOL ok;
+
+	(void)context;
+	if (RegCreateKeyExA(HKEY_CURRENT_USER, key_name, 0, NULL, 0, KEY_WRITE, NULL, &key, NULL) != ERROR_SUCCESS)
+		return 0;
+	ok = RegSetValueExA(key, name, 0, REG_SZ, (const BYTE *)value, (DWORD)strlen(value) + 1) == ERROR_SUCCESS;
+	RegCloseKey(key);
+	return ok ? 1 : 0;
+}
+
+int posix_register_discord_launch(const char *application)
+{
+	/* HKEY_CURRENT_USER\Software\Classes\discord-<application>, as the SDK
+	writes it (discord_register.h) */
+	static const struct discord_registry registry = { NULL, registry_get, registry_set };
+	char executable[MAX_PATH];
+	DWORD length = GetModuleFileNameA(NULL, executable, sizeof(executable));
+
+	if (!length || length >= sizeof(executable))
+		return DISCORD_REGISTER_FAILED;
+	return discord_register_windows(&registry, application, executable);
 }
 
 int posix_user_secret(unsigned char *secret, int size)

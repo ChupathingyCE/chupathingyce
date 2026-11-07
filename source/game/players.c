@@ -702,6 +702,30 @@ long find_unused_local_player_index(
 void player_delete(
 	long player_index)
 {
+	short local_player_index;
+
+	/* port: a local player who quit the game in progress, whose slot
+	another machine's player takes (network_game_spawn_player), is no longer
+	this machine's local player. His handle left in the table was read by the
+	next input update (player_control.c), a halt on a datum that is gone or
+	another player's, and by a player joining again for that controller
+	(local_player_set_player_index). */
+	if (players_globals && player_index != NONE)
+	{
+		for (local_player_index = 0;
+			local_player_index < MAXIMUM_LOCAL_PLAYERS;
+			local_player_index++)
+		{
+			if (players_globals->local_players[local_player_index] != NONE &&
+				DATUM_INDEX_TO_ABSOLUTE_INDEX(players_globals->local_players[local_player_index]) ==
+					DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index))
+			{
+				players_globals->local_players[local_player_index] = NONE;
+				player_control_new_unit(local_player_index, NONE);
+			}
+		}
+	}
+
 	datum_delete(
 		player_data,
 		player_index);
@@ -3502,9 +3526,11 @@ boolean unit_should_autopick_weapon(
 	if ((unit_approve_weapon_pickup(unit_index, weapon_index) &&
 		TEST_FLAG(weapon_definition->weapon.flags, _weapon_doesnt_count_toward_maximum_bit)) ||
 		weapon_count == 0 ||
-		/* port: and in multiplayer (campaign's only), a second weapon into
-		the empty slot, readied (unit_add_weapon_to_inventory) */
-		(unit_approve_weapon_pickup(unit_index, weapon_index) &&
+		/* (in campaign only, a second weapon into the empty slot; in
+		multiplayer the player picks it up with the action button, as on
+		the Xbox) */
+		(!game_engine_running() &&
+			unit_approve_weapon_pickup(unit_index, weapon_index) &&
 			weapon_count < 2) ||
 		game_engine_force_autopickup(unit_index, weapon_index))
 	{
@@ -3564,7 +3590,13 @@ static boolean player_handle_weapon_swap(
 	switch (player->action_result)
 	{
 	case _player_action_result_swap_for_weapon:
-		if (unit_drop_selected_weapon(player->unit_index) &&
+		/* port: a player of this machine swaps out the weapon in hand, as on
+		the Xbox (mid-switch, the one still being put away); another
+		machine's player the one they selected, whose choice reaches the host
+		before its copy of them has finished switching */
+		if ((player->local_player_index != NONE ?
+				unit_drop_current_weapon(player->unit_index, TRUE) :
+				unit_drop_selected_weapon(player->unit_index)) &&
 			unit_add_weapon_to_inventory(
 				player->unit_index,
 				player->action_object_index,

@@ -4,7 +4,8 @@ XINPUT_SDL.C
 Xbox controllers and the debug keyboard for the Linux build.
 
 Port 0 is always connected: it is the keyboard and mouse, merged with the
-first SDL gamepad when one is present. Further SDL gamepads take ports 1-3.
+first SDL gamepad when one is present. Further SDL gamepads take ports 1-3;
+while one person plays the game (no menu up), they also drive port 0.
 
 In the game the keyboard and mouse are a control scheme of their own
 (port/linux/include/halo_keyboard.h): config.toml's [controls] bind each of
@@ -45,6 +46,9 @@ drive the controller.
 #include "../game/network_rules.h"
 
 #include <SDL3/SDL.h>
+#if defined(SDL_PLATFORM_LINUX) && !defined(HALO_ANDROID)
+#include "halo_xbox_pad_buttons.h"
+#endif
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -420,6 +424,9 @@ static void keyboard_gamepad(const struct platform_input_state *input, XINPUT_GA
 	if (k[SDL_SCANCODE_LEFT]) pad->wButtons |= XINPUT_GAMEPAD_DPAD_LEFT;
 	if (k[SDL_SCANCODE_RIGHT]) pad->wButtons |= XINPUT_GAMEPAD_DPAD_RIGHT;
 	if (k[SDL_SCANCODE_F1]) pad->wButtons |= XINPUT_GAMEPAD_BACK;
+	/* (and F2 Start, beside it as the pad's two are: Online Games' My
+	Profile; escape is B) */
+	if (k[SDL_SCANCODE_F2]) pad->wButtons |= XINPUT_GAMEPAD_START;
 
 	/* (escape backs out, as backspace does: the pause menu's B resumes the
 	game, the main menu's asks to quit; Start would choose, as A does) */
@@ -437,6 +444,9 @@ static void keyboard_gamepad(const struct platform_input_state *input, XINPUT_GA
 	pad->bAnalogButtons[XINPUT_GAMEPAD_BLACK] |= analog(k[SDL_SCANCODE_C]);
 	/* (and Q, the left bumper's: the game type editor's pages, with C) */
 	pad->bAnalogButtons[XINPUT_GAMEPAD_WHITE] |= analog(k[SDL_SCANCODE_Q]);
+	/* (X, the right trigger's: Online Games' next sort, ui_overlay.c's key
+	cap for it) */
+	pad->bAnalogButtons[XINPUT_GAMEPAD_RIGHT_TRIGGER] |= analog(k[SDL_SCANCODE_X]);
 }
 
 static BOOL chat_typing;
@@ -1293,6 +1303,27 @@ static int gamepad_ports_assign(const SDL_JoystickID *listed, int count, BOOL ke
 	return ports;
 }
 
+/* the ports 1-3 whose gamepads also drive port 0 (gamepad_shares_first_port) */
+static BOOL port_gamepad_shared[PORT_COUNT];
+
+/* whether the gamepad on a port from 1 also drives port 0 now: while one
+person plays the game (sharing: no menu up, nobody else playing here), any
+gamepad drives their player, as any gamepad drives their menus (ui_widget.c,
+widget_takes_any_controller). Windows can list another device as a gamepad
+before the one in hand (a receiver's, a driver's virtual pad), and port 0
+had only the first. A gamepad joins at rest: a button held as a menu closes
+is not pressed again in the game */
+static BOOL gamepad_shares_first_port(int port, BOOL sharing, BOOL present, BOOL idle)
+{
+	if (port <= 0 || port >= PORT_COUNT)
+		return FALSE;
+	if (!sharing || !present)
+		port_gamepad_shared[port] = FALSE;
+	else if (idle)
+		port_gamepad_shared[port] = TRUE;
+	return port_gamepad_shared[port];
+}
+
 /* ---------- SDL gamepads */
 
 /* the SDL gamepads by port (NULL for a port with none: gamepad_ports_assign);
@@ -1597,6 +1628,19 @@ static void sdl_gamepad_state(SDL_Gamepad *gamepad, XINPUT_GAMEPAD *pad)
 	/* the Duke's white and black buttons sit where later pads have shoulders */
 	merge_button(pad, XINPUT_GAMEPAD_WHITE, SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER));
 	merge_button(pad, XINPUT_GAMEPAD_BLACK, SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER));
+#if defined(SDL_PLATFORM_LINUX) && !defined(HALO_ANDROID)
+	/* an original Xbox pad's black and white are BTN_C and BTN_Z (halo_xbox_pad_buttons.h) */
+	if (xbox_pad_has_black_white_buttons(SDL_GetGamepadVendor(gamepad), SDL_GetGamepadProduct(gamepad)))
+	{
+		SDL_Joystick *joystick = SDL_GetGamepadJoystick(gamepad);
+
+		if (joystick && SDL_GetNumJoystickButtons(joystick) >= XBOX_PAD_MINIMUM_JOYSTICK_BUTTONS)
+		{
+			merge_button(pad, XINPUT_GAMEPAD_BLACK, SDL_GetJoystickButton(joystick, XBOX_PAD_BLACK_JOYSTICK_BUTTON));
+			merge_button(pad, XINPUT_GAMEPAD_WHITE, SDL_GetJoystickButton(joystick, XBOX_PAD_WHITE_JOYSTICK_BUTTON));
+		}
+	}
+#endif
 
 	left_trigger = SDL_GetGamepadAxis(gamepad, SDL_GAMEPAD_AXIS_LEFT_TRIGGER) * 255 / 32767;
 	right_trigger = SDL_GetGamepadAxis(gamepad, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) * 255 / 32767;
@@ -1660,6 +1704,56 @@ static DWORD connected_gamepads(void)
 	return mask;
 }
 
+/* the gamepads on each port, in the game's log (debug.txt: the 32-bit builds'
+platform_log reaches standard error alone), when they change (Android's
+guest has neither SDL_GetGamepadID nor SDL_GetGamepadName) */
+#ifndef HALO_ANDROID
+static void gamepads_log(void)
+{
+	static SDL_JoystickID logged[PORT_COUNT];
+	static BOOL logged_once;
+	SDL_Gamepad *gamepads[PORT_COUNT];
+	SDL_JoystickID ids[PORT_COUNT];
+	int count = sdl_gamepads(gamepads), port, listed = 0;
+	char line[512];
+	size_t length = 0;
+
+	for (port = 0; port < PORT_COUNT; port++)
+	{
+		SDL_Gamepad *gamepad = port_gamepad(gamepads, count, port);
+
+		ids[port] = gamepad ? SDL_GetGamepadID(gamepad) : 0;
+	}
+	if (logged_once && !memcmp(ids, logged, sizeof(ids)))
+		return;
+	logged_once = TRUE;
+	memcpy(logged, ids, sizeof(ids));
+	SDL_free(SDL_GetGamepads(&listed));
+	length = (size_t)snprintf(line, sizeof(line), "gamepads: %d connected", listed);
+	for (port = 0; port < PORT_COUNT && length < sizeof(line); port++)
+	{
+		SDL_Gamepad *gamepad = port_gamepad(gamepads, count, port);
+		const char *name = gamepad ? SDL_GetGamepadName(gamepad) : NULL;
+
+		if (gamepad)
+		{
+			length += (size_t)snprintf(line + length, sizeof(line) - length, "; port %d: %s", port + 1,
+				name && *name ? name : "(unnamed)");
+		}
+	}
+#ifdef HALO_64BIT
+	platform_log("%s", line);
+#else
+	{
+		void error(short priority, const char *format, ...);
+
+		/* (cseries/errors.h's _error_log: debug.txt alone) */
+		error(3, "%s", line);
+	}
+#endif
+}
+#endif
+
 BOOL WINAPI XGetDeviceChanges(PXPP_DEVICE_TYPE device_type, PDWORD insertions, PDWORD removals)
 {
 	*insertions = 0;
@@ -1670,6 +1764,9 @@ BOOL WINAPI XGetDeviceChanges(PXPP_DEVICE_TYPE device_type, PDWORD insertions, P
 
 		*insertions = connected & ~reported_gamepads;
 		*removals = reported_gamepads & ~connected;
+#ifndef HALO_ANDROID
+		gamepads_log();
+#endif
 		reported_gamepads = connected;
 	}
 	else if (device_type == XDEVICE_TYPE_DEBUG_KEYBOARD)
@@ -1761,6 +1858,19 @@ DWORD WINAPI XInputGetState(HANDLE device, PXINPUT_STATE state)
 		}
 		if (port_gamepad(gamepads, count, 0))
 			sdl_gamepad_state(gamepads[0], &state->Gamepad);
+		{
+			/* one person in the game: every gamepad is theirs */
+			BOOL sharing = !input.menus && !pc_menu_split_players();
+			int other;
+
+			for (other = 1; other < PORT_COUNT; other++)
+			{
+				SDL_Gamepad *gamepad = port_gamepad(gamepads, count, other);
+
+				if (gamepad_shares_first_port(other, sharing, gamepad != NULL, gamepad && gamepad_idle(gamepad)))
+					sdl_gamepad_state(gamepad, &state->Gamepad);
+			}
+		}
 		test_input_gamepad(&state->Gamepad);
 		touch_input_gamepad(&state->Gamepad);
 #ifdef HALO_ANDROID
@@ -1811,6 +1921,20 @@ DWORD WINAPI XInputSetState(HANDLE device, PXINPUT_FEEDBACK feedback)
 		than that so they do not stutter */
 		SDL_RumbleGamepad(port_gamepad(gamepads, count, port), feedback->Rumble.wLeftMotorSpeed,
 			feedback->Rumble.wRightMotorSpeed, 100);
+	}
+	if (port == 0)
+	{
+		int other;
+
+		/* (and the gamepads sharing port 0's player: XInputGetState) */
+		for (other = 1; other < PORT_COUNT; other++)
+		{
+			if (port_gamepad_shared[other] && port_gamepad(gamepads, count, other))
+			{
+				SDL_RumbleGamepad(port_gamepad(gamepads, count, other), feedback->Rumble.wLeftMotorSpeed,
+					feedback->Rumble.wRightMotorSpeed, 100);
+			}
+		}
 	}
 	return ERROR_SUCCESS;
 }

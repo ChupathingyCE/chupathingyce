@@ -8,16 +8,21 @@ console_https_port. The Switch is a desktop build and keeps
 port/linux/src/posix_browser.c.
 
 Only the hosts this file names are asked, and each one's certificate is
-checked without the console's clock (consoles often have none set):
+checked by its key or its chain, which never needs the console's clock
+(consoles often have none set). The certificate's own dates are checked
+too, but only when the port gives a clock (unix_seconds) and that clock is
+not earlier than the day this file was built: a console whose clock is
+unset (it reads 1970, 2000 or so) or plainly behind is not refused for it.
+The dates are those of the server's own certificate; a chain's roots and
+intermediates are judged by the pins, not by their dates:
 - stats.chupathingy.org by its public key: the certificate's key must be
   one of the pinned keys (built in, console_https_trust.c, or from the
   newest signed pin document, console_pins.h), and the certificate must
   name the host. A key it does not pin makes it ask for the pin document
   and try again; failing that, a chain to Let's Encrypt's ISRG roots is
-  taken as a backstop. Dates are never checked.
+  taken as a backstop.
 - raw.githubusercontent.com (the signed legacy table's copy) by its chain:
-  it must lead to one of a few pinned roots and name the host. Its dates are
-  not checked.
+  it must lead to one of a few pinned roots and name the host.
 docs/console-https.md says how the keys are rotated.
 
 A request is HTTP/1.0 (no chunked answers), never redirected, at most the
@@ -41,6 +46,9 @@ extern "C" {
 
 #define CONSOLE_HTTPS_SITE "stats.chupathingy.org"
 #define CONSOLE_HTTPS_GITHUB "raw.githubusercontent.com"
+/* the Xbox Homebrew Store's API (a console's map browser: its lists and
+their BLAKE2b hashes), checked by its chain to Let's Encrypt's ISRG roots */
+#define CONSOLE_HTTPS_MAP_STORE "api.xboxhomebrew.store"
 #define CONSOLE_HTTPS_PORT_NUMBER 443
 /* the pin document (console_pins.h): over plain HTTP from the console
 list's host, else over HTTPS from GitHub's raw files */
@@ -56,6 +64,9 @@ the stack a requesting thread needs for it and Mbed TLS's own frames */
 #define CONSOLE_HTTPS_ARENA_SIZE (80 * 1024)
 #endif
 #define CONSOLE_HTTPS_STACK_SIZE (CONSOLE_HTTPS_ARENA_SIZE + 32 * 1024)
+/* console_https_get_stream's buffer, on the stack too (beyond
+CONSOLE_HTTPS_STACK_SIZE): the answer's headers must fit in it */
+#define CONSOLE_HTTPS_STREAM_BUFFER_SIZE (8 * 1024)
 
 /* a port's receive and send: no byte in the time given */
 #define CONSOLE_HTTPS_IO_TIMEOUT (-2)
@@ -97,6 +108,9 @@ struct console_https_port
 	/* the newest pin document's file, beside config.toml; NULL: kept in
 	memory alone */
 	const char *pins_path;
+	/* the console's clock: seconds since 1970-01-01 UTC. NULL: the console
+	has no clock it can read, and certificates' dates are not checked */
+	long long (*unix_seconds)(void);
 };
 
 enum
@@ -116,6 +130,8 @@ enum
 	CONSOLE_HTTPS_ERROR_TIMEOUT,
 	CONSOLE_HTTPS_ERROR_TOO_LARGE,
 	CONSOLE_HTTPS_ERROR_RESPONSE,
+	/* (a stream's body callback said stop) */
+	CONSOLE_HTTPS_ERROR_STOPPED,
 	NUMBER_OF_CONSOLE_HTTPS_ERRORS
 };
 
@@ -124,6 +140,10 @@ every request fails with CONSOLE_HTTPS_ERROR_UNAVAILABLE */
 void console_https_initialize(const struct console_https_port *port);
 int console_https_available(void);
 const char *console_https_error_string(int error);
+/* the start of the day this file was built, seconds since 1970 (UTC;
+CONSOLE_HTTPS_BUILD_SECONDS when the build gives it): a console clock
+earlier than this is taken as unset, and certificates' dates are skipped */
+long long console_https_build_seconds(void);
 
 /* GET (body NULL) or POST body (content_type, "application/json" if NULL)
 https://host/path: the whole response, headers and all, into response (at
@@ -142,6 +162,21 @@ int console_https_call(const char *host, const char *path, const char *body, int
 JSON call to CONSOLE_HTTPS_SITE within 15 seconds; 1 if an answer came */
 int console_https_site_request(const char *path, const char *body, int *status, char *reply, int reply_size);
 
+/* a streamed GET of https://host/path, for answers too large for a buffer
+(a map browser's lists and pictures): headers (NULL, or lines each ending
+in \r\n) added to the request; the answer's status into *status; for a 2xx
+answer, size_proc told the body's length (0 when the answer does not say;
+NULL for none), then the body passed to body_proc as it comes (0 from it
+stops the transfer: CONSOLE_HTTPS_ERROR_STOPPED). timeout_ms is the
+handshake's, then the most to wait for each piece. It holds the one-request
+lock while it runs, so the other requests wait for it: keep it to answers of
+a few hundred KB, and fetch large files some other way (by a hash got over
+HTTPS). The calling thread needs CONSOLE_HTTPS_STACK_SIZE +
+CONSOLE_HTTPS_STREAM_BUFFER_SIZE of stack. The host is one of the hosts above */
+typedef void (*console_https_size_proc)(unsigned long size, void *context);
+typedef int (*console_https_body_proc)(const char *data, unsigned long size, void *context);
+int console_https_get_stream(const char *host, const char *path, const char *headers, int *status,
+	console_https_size_proc size_proc, console_https_body_proc body_proc, void *context, unsigned long timeout_ms);
 /* an HTTP/1.x response, size bytes (no terminator needed): its status, and
 its body (pointing into data) as Content-Length says, else to the end; 1, or
 0 if it is not whole */

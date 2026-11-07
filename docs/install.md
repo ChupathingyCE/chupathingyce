@@ -13,7 +13,7 @@ Get the latest release from the [Releases page](https://github.com/ChupathingyCE
 | Linux (64-bit), AppImage | `chupathingyce-linux64-release.AppImage` | One file: make it executable and run it. glibc 2.31 or later. Updates itself. |
 | Linux (64-bit) | `chupathingyce-linux64-release.zip` | glibc 2.31 or later (Debian 11, Ubuntu 20.04). Brings its own SDL3. See [port/linux/README.md](../port/linux/README.md). |
 | Linux (32-bit, older systems) | `chupathingyce-linux-release.zip` | glibc 2.31 or later (32-bit). Brings its own SDL3. See [port/linux/README.md](../port/linux/README.md). |
-| Android | `chupathingyce-android-release.zip` | Android 9 or later, 64-bit. See [port/android/README.md](../port/android/README.md). |
+| Android | `chupathingyce-android64-release.zip` | Android 9 or later, 64-bit. It installs over an older Android download and keeps your data. See [port/android/README.md](../port/android/README.md#the-native-64-bit-build-experimental). |
 | Mac | `chupathingyce-macos-release.zip` | macOS 13 or later, Apple silicon or Intel. |
 | FreeBSD (64-bit) | `chupathingyce-freebsd64-release.zip` | FreeBSD 14 or later, amd64. See [port/unix/README.md](../port/unix/README.md). |
 
@@ -71,7 +71,8 @@ Mac, the maps, settings and saves go in
 `~/Library/Application Support/ChupathingyCE`.
 On Linux, the maps and settings (`config.toml`) go next to the `chupathingy`
 program, and the saves in `~/.local/share/chupathingyce` (or
-`$XDG_DATA_HOME/chupathingyce`). On Windows, the saves go in
+`$XDG_DATA_HOME/chupathingyce`). The AppImage can't write beside itself, so
+its maps and settings go in `~/.local/share/chupathingyce` with the saves. On Windows, the saves go in
 `%APPDATA%\ChupathingyCE`. The first start copies your profiles, saved games
 and game types from the folder earlier versions used (`halo-linux`, on Linux
 and on a Mac, or `%APPDATA%\halo` on Windows), which is left as it was. The 64-bit and

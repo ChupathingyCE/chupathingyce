@@ -21,6 +21,12 @@ objects: each object's index, tag, parent, position, velocities, facing and
 vitality (raw bits: the same build on the same machine must match exactly);
 scores: the game type's score of each player and whether it can score.
 
+With debug.determinism_positions, each player's unit also gets a line after
+each tick (for tools/test_tricks.py, which checks that movement tricks such
+as a grenade jump still work):
+
+    <tick> <player> <unit> <x> <y> <z> <vx> <vy> <vz> <body> <shield> <frags> <plasmas>
+
 After debug.determinism_ticks ticks (0: never) the game quits; a replay also
 quits when its recording runs out. Off by default; nothing of it runs
 without the setting. A console's build leaves it out
@@ -35,6 +41,7 @@ the tick loop (game_time.c).
 #include "game/game_engine.h"
 #include "game/players.h"
 #include "objects/objects.h"
+#include "units/units.h"
 #include "interface/ui_widget.h"
 #include "math/real_math.h"
 
@@ -86,6 +93,7 @@ static struct
 	long mode;
 	FILE *inputs;
 	FILE *hashes;
+	FILE *positions;
 	unsigned long seed;
 	long ticks_limit;
 	long ticks_done;
@@ -104,8 +112,11 @@ static void determinism_finish(
 		fclose(determinism_globals.inputs);
 	if (determinism_globals.hashes)
 		fclose(determinism_globals.hashes);
+	if (determinism_globals.positions)
+		fclose(determinism_globals.positions);
 	determinism_globals.inputs = NULL;
 	determinism_globals.hashes = NULL;
+	determinism_globals.positions = NULL;
 	determinism_globals.finished = TRUE;
 	platform_log("determinism: %s after %ld ticks", reason, determinism_globals.ticks_done);
 	exit(EXIT_SUCCESS);
@@ -139,6 +150,7 @@ static void determinism_read_settings(
 {
 	char const *setting;
 	char const *hashes;
+	char const *positions;
 
 	if (determinism_globals.read)
 		return;
@@ -198,6 +210,13 @@ static void determinism_read_settings(
 		determinism_globals.hashes = fopen(hashes, "w");
 		if (!determinism_globals.hashes)
 			platform_log("determinism: can't write %s", hashes);
+	}
+	positions = config_string("debug.determinism_positions");
+	if (positions && positions[0])
+	{
+		determinism_globals.positions = fopen(positions, "w");
+		if (!determinism_globals.positions)
+			platform_log("determinism: can't write %s", positions);
 	}
 	platform_log("determinism: %s, seed %lu", determinism_globals.mode == _determinism_record ? "recording" : "replaying",
 		determinism_globals.seed);
@@ -344,6 +363,17 @@ void determinism_check_tick_end(
 			HASH_FIELD(players_hash, player->statistics.deaths);
 			HASH_FIELD(scores_hash, iterator.datum_index);
 			HASH_FIELD(scores_hash, score);
+			if (determinism_globals.positions && player->unit_index != NONE)
+			{
+				struct unit_datum *unit = unit_get(player->unit_index);
+
+				fprintf(determinism_globals.positions, "%ld %ld %ld %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %d %d\n",
+					tick, (long)DATUM_INDEX_TO_ABSOLUTE_INDEX(iterator.datum_index), (long)player->unit_index,
+					unit->object.position.x, unit->object.position.y, unit->object.position.z,
+					unit->object.translational_velocity.i, unit->object.translational_velocity.j,
+					unit->object.translational_velocity.k, unit->object.body_vitality, unit->object.shield_vitality,
+					(int)unit->unit.grenade_counts[0], (int)unit->unit.grenade_counts[1]);
+			}
 		}
 	}
 	{

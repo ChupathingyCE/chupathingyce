@@ -27,6 +27,7 @@ STUB_WINDOWS = """
 typedef void *HANDLE;
 #define INVALID_HANDLE_VALUE ((HANDLE)-1)
 #define GENERIC_READ 1
+#define FILE_SHARE_READ 1
 #define GENERIC_WRITE 2
 #define OPEN_EXISTING 3
 #define OPEN_ALWAYS 4

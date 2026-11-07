@@ -36,17 +36,15 @@ threads), so polls are short: one every few seconds, no long poll.
 
 #include "monocypher.h"
 
-#include <errno.h>
-#include <fcntl.h>
+/* (the files and random bytes, on Linux and Windows) */
+#include "server_host.h"
+
 #include <pthread.h>
 #include <stdarg.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <strings.h>
-#include <sys/stat.h>
-#include <time.h>
-#include <unistd.h>
 
 /* the platform layer's (xbox_files.c, posix_browser.c, the game's log):
 plain types */
@@ -158,26 +156,7 @@ static int64_t now_seconds(void)
 
 static int random_bytes(void *buffer, size_t size)
 {
-	int fd = open("/dev/urandom", O_RDONLY | O_CLOEXEC);
-	size_t done = 0;
-
-	if (fd < 0)
-		return 0;
-	while (done < size)
-	{
-		ssize_t count = read(fd, (char *)buffer + done, size - done);
-
-		if (count <= 0)
-		{
-			if (count < 0 && errno == EINTR)
-				continue;
-			close(fd);
-			return 0;
-		}
-		done += (size_t)count;
-	}
-	close(fd);
-	return 1;
+	return host_random_bytes(buffer, size);
 }
 
 static void data_file(const char *name, char *path, size_t size)

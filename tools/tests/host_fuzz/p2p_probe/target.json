@@ -1,0 +1,7 @@
+{
+  "about": "pings before joining: a probe, its answer and the datagrams, in a host's table and a prober's",
+  "harness": "port/linux/tests/p2p_probe_fuzz.c",
+  "sources": ["port/linux/src/p2p_probe.c"],
+  "flags": ["-std=gnu11"],
+  "max_len": 600
+}

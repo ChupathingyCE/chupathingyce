@@ -22,7 +22,10 @@ know, which are put right when the map's tags load:
     HUD's scale, not its placement's, so a number keeps the flag, and
     hud_draw_numbers draws a flagged number's digits at half size (a custom
     HUD's ammunition and grenade counts: grifball's Halo 3 HUD drew them
-    twice Halo PC's size, over its panels).
+    twice Halo PC's size, over its panels). A weapon's or grenade's
+    overlays' and crosshairs' items keep their scale with the flag: Halo PC
+    scales only elements by it (Custom Edition draws a Halo 2 anniversary
+    map's flagged grenade icons at their full scale).
   - A HUD meter's bitmap: the meter shader (rasterizer_xbox_dynavobgeom.c)
     compares the texel's color with the meter's value (the order the meter
     fills in) and draws only where there is alpha (its shape). Halo PC keeps
@@ -211,8 +214,10 @@ static long ce_hud_meter_bitmap_count;
 
 /* the Xbox's button icons (ui.map's), read once: its HUD globals' button
 icons, and its message icons bitmap's sequences (each with its first sprite
-here), sprites and bitmaps (textures of their own) */
-static struct
+here), sprites and bitmaps (textures of their own). About 50 KB, so it is
+allocated at the first Custom Edition map that needs them, not kept in
+every build's memory from the start */
+static struct ce_xbox_button_icons
 {
 	boolean read;
 	boolean ready;
@@ -225,7 +230,10 @@ static struct
 	byte sprites[MAXIMUM_XBOX_MESSAGE_SPRITES * BITMAP_SPRITE_SIZE];
 	long bitmap_count;
 	struct bitmap_data *bitmaps[MAXIMUM_XBOX_MESSAGE_BITMAPS];
-} ce_xbox_button_icons;
+} *ce_xbox_button_icons_data;
+/* (only once ce_hud_xbox_button_icons has allocated it: everything else
+that reads it runs after it said they are ready) */
+#define ce_xbox_button_icons (*ce_xbox_button_icons_data)
 
 /* the message icons bitmaps given the Xbox's (a map's HUD globals may share
 one), and where the Xbox's sequences begin in each */
@@ -269,11 +277,13 @@ static byte *ce_hud_bitmap_group(
 }
 
 /* a placement, drawing the bitmap the reference `bitmap` names (NULL: none):
-with the high resolution scale, its own or forced by its bitmap, drawn at
-half its scale, and with its bitmap's 0.5 HUD scale at half that */
+with the high resolution scale, its own (if `own_flag`) or forced by its
+bitmap, drawn at half its scale, and with its bitmap's 0.5 HUD scale at
+half that */
 static void ce_hud_placement(
 	byte *placement,
-	byte const *bitmap)
+	byte const *bitmap,
+	boolean own_flag)
 {
 	unsigned short *flags = (unsigned short *)(placement + PLACEMENT_SCALING_FLAGS_OFFSET);
 	byte const *bitmap_group = bitmap ? ce_hud_bitmap_group(bitmap) : NULL;
@@ -281,7 +291,7 @@ static void ce_hud_placement(
 		*(unsigned short const *)(bitmap_group + BITMAP_GROUP_FLAGS_OFFSET) : 0;
 	float scale = 1.0f;
 
-	if ((*flags & PLACEMENT_HIGH_RESOLUTION_SCALE_FLAG) ||
+	if ((own_flag && (*flags & PLACEMENT_HIGH_RESOLUTION_SCALE_FLAG)) ||
 		(bitmap_flags & BITMAP_GROUP_FORCE_HIGH_RESOLUTION_SCALE_FLAG))
 	{
 		scale *= 0.5f;
@@ -301,11 +311,14 @@ static void ce_hud_placement(
 static void ce_hud_element_placement(
 	byte *element)
 {
-	ce_hud_placement(element, element + ELEMENT_BITMAP_OFFSET);
+	ce_hud_placement(element, element + ELEMENT_BITMAP_OFFSET, TRUE);
 }
 
 /* the placement at `offset` in each element of a block: a static or meter
-element's (each drawing its own bitmap), or another's, drawing `bitmap` */
+element's (each drawing its own bitmap), or an overlay's item, drawing
+`bitmap`. Halo PC draws an overlay's item at its scale, flagged for the high
+resolution scale or not (a Halo 2 anniversary map's grenade icons, which
+Custom Edition draws at their full scale): only its bitmap's flags scale it */
 static void ce_hud_block_placements(
 	byte *block,
 	unsigned long element_size,
@@ -326,7 +339,7 @@ static void ce_hud_block_placements(
 		if (elements)
 			ce_hud_element_placement(placement);
 		else
-			ce_hud_placement(placement, bitmap);
+			ce_hud_placement(placement, bitmap, FALSE);
 	}
 }
 
@@ -427,7 +440,7 @@ static void ce_hud_unit_interface(
 	for (index = 0; index < NUMBEROF(placements); index++)
 		ce_hud_element_placement(hud + placements[index]);
 	/* (the blips' placement draws no bitmap of its own) */
-	ce_hud_placement(hud + UNIT_HUD_BLIP_PLACEMENT_OFFSET, NULL);
+	ce_hud_placement(hud + UNIT_HUD_BLIP_PLACEMENT_OFFSET, NULL, TRUE);
 	ce_hud_block_placements(hud + UNIT_HUD_AUXILARY_OVERLAYS_OFFSET, AUXILARY_OVERLAY_SIZE, 0, TRUE, NULL);
 	ce_hud_block_placements(hud + UNIT_HUD_AUXILARY_METERS_OFFSET, AUXILARY_METER_SIZE,
 		AUXILARY_METER_BACKGROUND_OFFSET, TRUE, NULL);
@@ -660,11 +673,22 @@ static boolean ce_hud_xbox_button_icons(
 	z_stream stream;
 	boolean inflated = FALSE;
 
+	if (!ce_xbox_button_icons_data)
+	{
+		ce_xbox_button_icons_data = system_malloc(sizeof(*ce_xbox_button_icons_data));
+		if (!ce_xbox_button_icons_data)
+		{
+			error(_error_silent, "Custom Edition maps: no memory for the Xbox's button icons; HUD messages draw no "
+				"controller buttons");
+			return FALSE;
+		}
+		memset(ce_xbox_button_icons_data, 0, sizeof(*ce_xbox_button_icons_data));
+	}
 	if (ce_xbox_button_icons.read)
 		return ce_xbox_button_icons.ready;
 	ce_xbox_button_icons.read = TRUE;
 	snprintf(path, sizeof(path), "%sui.map", cache_files_map_directory());
-	file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
+	file = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
 	if (file == INVALID_HANDLE_VALUE)
 	{
 		error(_error_silent, "Custom Edition maps: no %s; HUD messages draw no controller buttons", path);
@@ -898,7 +922,7 @@ void ce_hud_tags_loaded(
 		case 'hudg':
 			/* (the messages' placement places their text as well as
 			their icons: only its own flag scales it) */
-			ce_hud_placement(hud + HUD_GLOBALS_MESSAGING_PLACEMENT_OFFSET, NULL);
+			ce_hud_placement(hud + HUD_GLOBALS_MESSAGING_PLACEMENT_OFFSET, NULL, TRUE);
 			break;
 		}
 	}

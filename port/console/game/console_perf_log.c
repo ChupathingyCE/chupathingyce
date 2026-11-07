@@ -61,6 +61,8 @@ static struct
 
 	perf_time phase_start[NUMBER_OF_HALO_PERF_PHASES];
 	perf_time phase_total[NUMBER_OF_HALO_PERF_PHASES];
+	/* (how deep each phase is: a nested one is timed only outermost) */
+	int phase_depth[NUMBER_OF_HALO_PERF_PHASES];
 	int render_part;
 	perf_time render_part_start;
 
@@ -69,11 +71,20 @@ static struct
 
 void halo_perf_begin(int phase)
 {
+	/* (the collision tests: the game tick's only) */
+	if (phase == _halo_perf_tick_collision && !perf.phase_depth[_halo_perf_tick])
+		return;
+	if (perf.phase_depth[phase]++)
+		return;
 	perf.phase_start[phase] = perf_now();
 }
 
 void halo_perf_end(int phase)
 {
+	if (phase == _halo_perf_tick_collision && !perf.phase_depth[_halo_perf_tick])
+		return;
+	if (perf.phase_depth[phase] <= 0 || --perf.phase_depth[phase])
+		return;
 	perf.phase_total[phase] += perf_now() - perf.phase_start[phase];
 }
 
@@ -123,10 +134,19 @@ static void perf_second_log(perf_time now)
 	long frames = perf.frames;
 	double frame_count = frames > 0 ? (double)frames : 1.0;
 	unsigned long elapsed = (unsigned long)((double)(now - perf.second_start) / perf.ticks_per_millisecond);
+	perf_time tick_other;
+
+	/* (the tick less its parts: the scripts, the first-person weapons, the
+	HUD, the game state's checks; the physics and the collision tests are
+	inside the parts) */
+	tick_other = perf.phase_total[_halo_perf_tick] - perf.phase_total[_halo_perf_tick_units] -
+		perf.phase_total[_halo_perf_tick_ai] - perf.phase_total[_halo_perf_tick_effects] -
+		perf.phase_total[_halo_perf_tick_game_engine] - perf.phase_total[_halo_perf_tick_objects];
 
 	error(_error_log,
 		"perf: %ld frames in %lu ms, frame %.1f avg %.1f max, %ld over 34 ms; "
-		"tick %.1f (%.1f ticks), render %.1f (world %.1f objects %.1f transparent %.1f effects %.1f hud %.1f), "
+		"tick %.1f (%.1f ticks: units %.1f ai %.1f effects %.1f game engine %.1f objects %.1f (physics %.1f) "
+		"other %.1f; collision tests %.1f), netcode %.1f, render %.1f (world %.1f objects %.1f transparent %.1f effects %.1f hud %.1f), "
 		"sound %.1f, network %.1f, present %.1f, vsync wait %.1f; "
 		"%.0f draws, %.0f objects, %.0f models (%.0f high lod) a frame; zoom %d",
 		frames, elapsed,
@@ -135,6 +155,15 @@ static void perf_second_log(perf_time now)
 		perf.slow_frames,
 		perf_milliseconds(perf.phase_total[_halo_perf_tick], frames),
 		(double)halo_perf_counters[_halo_perf_ticks] / frame_count,
+		perf_milliseconds(perf.phase_total[_halo_perf_tick_units], frames),
+		perf_milliseconds(perf.phase_total[_halo_perf_tick_ai], frames),
+		perf_milliseconds(perf.phase_total[_halo_perf_tick_effects], frames),
+		perf_milliseconds(perf.phase_total[_halo_perf_tick_game_engine], frames),
+		perf_milliseconds(perf.phase_total[_halo_perf_tick_objects], frames),
+		perf_milliseconds(perf.phase_total[_halo_perf_tick_physics], frames),
+		perf_milliseconds(tick_other, frames),
+		perf_milliseconds(perf.phase_total[_halo_perf_tick_collision], frames),
+		perf_milliseconds(perf.phase_total[_halo_perf_tick_netcode], frames),
 		perf_milliseconds(perf.phase_total[_halo_perf_render], frames),
 		perf_milliseconds(perf.phase_total[_halo_perf_render_world], frames),
 		perf_milliseconds(perf.phase_total[_halo_perf_render_objects], frames),

@@ -96,6 +96,10 @@ BOOL platform_import_poll(char *file, int file_size, unsigned long long *done, u
 BOOL platform_sdl_initialize(void);
 /* creates the window and makes its OpenGL context current on this thread */
 BOOL platform_video_initialize(unsigned long width, unsigned long height);
+#ifdef HALO_BGFX
+/* the window again for OpenGL, when bgfx does not start (d3d8_bgfx.inl) */
+BOOL platform_video_reopen_for_gl(void);
+#endif
 #ifndef HALO_ANDROID
 BOOL platform_screen_mode(long *width, long *height);
 #endif
@@ -109,6 +113,12 @@ that fit the desktop, and display.window_size's; how many. None on
 Android. */
 int platform_window_sizes(long *widths, long *heights, int maximum);
 void platform_video_drawable_size(int *width, int *height);
+#ifdef HALO_IOS
+/* the part of the drawable the picture is shown in, in pixels from its top
+left: all of it, but where the platform keeps part for itself (iPhone Duo
+held part open like a laptop, its touch controls below the fold) */
+void platform_video_present_area(int *x, int *y, int *width, int *height);
+#endif
 /* the window's mode and size and V-Sync, from config.toml as Settings has
 just written it (the main thread's) */
 void platform_display_apply(void);
@@ -158,6 +168,9 @@ void platform_test_pointer_event(float x, float y, int button, int wheel);
 which differ from the drawable's pixels on displays that scale */
 void platform_video_window_size(int *width, int *height);
 BOOL platform_next_keystroke(struct platform_keystroke *keystroke);
+/* nonzero when a key, mouse button or touch was pressed since the last call
+(which forgets them): a movie's skip (bink_playback.c) */
+int platform_movie_skip_pressed(void);
 /* the multiplayer scoreboard (game_engine.c) open or not: while it is, the
 mouse wheel and Page Up/Down scroll it instead of switching weapons; how
 far they moved it since the last call (notches and pages, down positive) */

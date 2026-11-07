@@ -75,8 +75,13 @@ that the whole object turning moves nothing: measured in the world, a fast
 turn swung the head and weapon far enough to snap, and characters moved
 like robots.) */
 #define NODE_SNAP_DISTANCE 0.4f
-/* ... a first-person node may move relative to the camera */
-#define FIRST_PERSON_SNAP_DISTANCE 0.25f
+/* ... a first-person node may move relative to the camera: no animation
+moves one this far in a tick (a melee swing moves one a good part of it);
+only a pose that is not a number, or not of this weapon, is further */
+#define FIRST_PERSON_SNAP_DISTANCE 4.0f
+/* ... and its rotation may turn in one tick (the cosine of half the angle,
+a turn of more than a third of a revolution being no swing but another pose) */
+#define FIRST_PERSON_SNAP_COSINE 0.5f
 /* a correction's difference left drawn after each tick (of 1) */
 #define CORRECTION_DECAY 0.6f
 /* ... and small enough to be none */
@@ -153,6 +158,9 @@ struct interpolated_first_person
 	long tick;
 	short node_count;
 	boolean has_previous;
+	/* the weapon and animation graph the latest pose belongs to */
+	long weapon_index;
+	long graph_index;
 	real_matrix4x3 previous[MAXIMUM_INTERPOLATED_NODES];
 	real_matrix4x3 latest[MAXIMUM_INTERPOLATED_NODES];
 };
@@ -1073,7 +1081,9 @@ void render_interpolation_first_person(
 	short local_player_index,
 	real_matrix4x3 *node_matrices,
 	short node_count,
-	struct render_camera const *camera)
+	struct render_camera const *camera,
+	long weapon_index,
+	long graph_index)
 {
 	struct interpolated_first_person *first_person;
 	real_matrix4x3 camera_matrix;
@@ -1098,17 +1108,25 @@ void render_interpolation_first_person(
 		person (zoomed, in a vehicle, dead, in a cinematic), seconds old */
 		first_person->has_previous = first_person->tick == interpolation_tick - 1 &&
 			first_person->node_count == node_count;
+		/* (another weapon or graph: the last pose was not this one's) */
+		if (first_person->weapon_index != weapon_index || first_person->graph_index != graph_index)
+			first_person->has_previous = FALSE;
 		memcpy(first_person->previous, first_person->latest, sizeof(first_person->previous));
 		first_person->tick = interpolation_tick;
 	}
 	for (node_index = 0; node_index < node_count; node_index++)
 		matrix4x3_multiply(&inverse_camera, &node_matrices[node_index], &first_person->latest[node_index]);
 	first_person->node_count = node_count;
+	if (first_person->weapon_index != weapon_index || first_person->graph_index != graph_index)
+		first_person->has_previous = FALSE;
+	first_person->weapon_index = weapon_index;
+	first_person->graph_index = graph_index;
 	if (!first_person->has_previous)
 		return;
-	/* a node that jumped further in the camera's frame than a tick allows:
-	the last pose was another weapon's skeleton (of as many nodes), not this
-	one moving (so written that a position not a number snaps) */
+	/* a node that jumped, or turned over a third of a revolution, in the
+	camera's frame in a tick: not this pose moving (so written that a
+	position not a number snaps). A fast move short of that, a melee swing,
+	is blended: another weapon's skeleton is caught above. */
 	for (node_index = 0; node_index < node_count; node_index++)
 	{
 		real_matrix4x3 const *previous = &first_person->previous[node_index];
@@ -1121,6 +1139,16 @@ void render_interpolation_first_person(
 		}
 		rotation_from_matrix(previous, &previous_rotations[node_index]);
 		rotation_from_matrix(latest, &latest_rotations[node_index]);
+		if (previous_rotations[node_index].is_rotation && latest_rotations[node_index].is_rotation)
+		{
+			struct interpolation_quaternion const *a = &previous_rotations[node_index].quaternion;
+			struct interpolation_quaternion const *b = &latest_rotations[node_index].quaternion;
+			real dot = a->i * b->i + a->j * b->j + a->k * b->k + a->w * b->w;
+
+			/* (a quaternion and its negative are the one rotation) */
+			if (!(dot >= FIRST_PERSON_SNAP_COSINE || dot <= -FIRST_PERSON_SNAP_COSINE))
+				return;
+		}
 	}
 	for (node_index = 0; node_index < node_count; node_index++)
 	{

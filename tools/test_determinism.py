@@ -85,8 +85,11 @@ def copy_environment(folder, maps, address):
     return env
 
 
-def play(binary, maps, work, name, mode, inputs, game_map, ticks, seed, local_players=1):
-    """Runs one copy to the end of its ticks. Returns the path of its hashes."""
+def play(binary, maps, work, name, mode, inputs, game_map, ticks, seed, local_players=1, bot=True, extra_env=None):
+    """Runs one copy to the end of its ticks. Returns the path of its hashes.
+    A recording's player is the scripted bot unless bot is False (no input
+    at all: tools/test_tricks.py writes its own actions over the recording's);
+    extra_env adds settings (debug.determinism_positions)."""
     folder = os.path.join(work, name)
     address = f"127.{random.randint(64, 250)}.{random.randint(1, 250)}.{random.randint(1, 250)}"
     env = copy_environment(folder, maps, address)
@@ -103,8 +106,10 @@ def play(binary, maps, work, name, mode, inputs, game_map, ticks, seed, local_pl
         "HALO_DETERMINISM_TICKS": str(ticks),
         "HALO_DETERMINISM_SEED": str(seed),
     })
-    if mode == "record":
+    if mode == "record" and bot:
         env["HALO_TEST_INPUT"] = f"bot:{BOT_SEED}"
+    if extra_env:
+        env.update(extra_env)
     log(f"{name}: playing {ticks} ticks on {game_map}")
     with open(os.path.join(folder, "out.log"), "wb") as output:
         process = subprocess.Popen([os.path.abspath(binary)], cwd=os.path.join(folder, "data"), env=env,

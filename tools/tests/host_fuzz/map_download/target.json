@@ -1,0 +1,45 @@
+{
+  "about": "what a map download takes in: a repository's zip archive, a compressed map, a playlist's manifest and the names",
+  "harness": "port/linux/tests/map_download_fuzz.c",
+  "sources": [
+    "port/linux/src/map_archive.c",
+    "port/linux/src/map_compressed.c",
+    "port/linux/src/playlist_manifest.c",
+    "port/third_party/zlib/adler32.c",
+    "port/third_party/zlib/crc32.c",
+    "port/third_party/zlib/inffast.c",
+    "port/third_party/zlib/inflate.c",
+    "port/third_party/zlib/inftrees.c",
+    "port/third_party/zlib/zutil.c",
+    "port/third_party/zstd/lib/common/debug.c",
+    "port/third_party/zstd/lib/common/entropy_common.c",
+    "port/third_party/zstd/lib/common/error_private.c",
+    "port/third_party/zstd/lib/common/fse_decompress.c",
+    "port/third_party/zstd/lib/common/xxhash.c",
+    "port/third_party/zstd/lib/common/zstd_common.c",
+    "port/third_party/zstd/lib/decompress/huf_decompress.c",
+    "port/third_party/zstd/lib/decompress/zstd_ddict.c",
+    "port/third_party/zstd/lib/decompress/zstd_decompress.c",
+    "port/third_party/zstd/lib/decompress/zstd_decompress_block.c",
+    "port/third_party/monocypher/monocypher.c",
+    "port/third_party/monocypher/monocypher-ed25519.c"
+  ],
+  "includes": [
+    "port/linux/src",
+    "port/third_party/zlib",
+    "port/third_party/zstd/lib",
+    "port/third_party/monocypher"
+  ],
+  "flags": [
+    "-std=gnu11",
+    "-w",
+    "-DZ_PREFIX",
+    "-Dz_errmsg=z_port_errmsg",
+    "-DHALO_COMPRESSED_MAPS",
+    "-DZSTD_DISABLE_ASM=1",
+    "-DZSTD_LEGACY_SUPPORT=0",
+    "-DZSTD_TRACE=0",
+    "-DDEBUGLEVEL=0"
+  ],
+  "max_len": 20000
+}

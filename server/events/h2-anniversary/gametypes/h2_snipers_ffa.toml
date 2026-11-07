@@ -1,0 +1,23 @@
+# H2 Snipers, free for all: the Snipers server's game for one player (a
+# team game needs two). The rest as h2_snipers.
+base = "slayer"
+name = "H2 Snip FFA"
+score_limit = 25
+time_limit = 10
+
+[players]
+shields = true
+respawn_time = 5
+
+[items]
+weapon_set = "sniping"
+starting_equipment = "map"
+
+[indicators]
+objectives = "motion_tracker"
+players_on_radar = "all"
+friends_on_screen = true
+
+[vehicles]
+red = "none"
+blue = "none"

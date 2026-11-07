@@ -47,6 +47,30 @@ void server_gamespy_update(void);
 void server_gamespy_configure(boolean enabled, long port);
 boolean server_gamespy_enabled(void);
 long server_gamespy_port(void);
+/* (server_ce.c's: Custom Edition players in the game) */
+void server_ce_update(void);
+/* the line each Custom Edition player gets in their chat as they join
+(ce_welcome; NULL: the default, empty: none), and what it is */
+void server_ce_set_welcome(char const *text);
+char const *server_ce_welcome(void);
+/* a server line in every Custom Edition player's chat: how many got it */
+int server_ce_say(char const *text);
+/* the player of this machine and controller, if a Custom Edition player:
+dropped (their client told they were kicked) and TRUE, and their IPv4
+address (host byte order) */
+boolean server_ce_kick(long machine_index, long controller_index, unsigned long *address);
+/* (server_conduct.c's, for the betrayal and AFK limits) whether the player
+of this machine and controller is a Custom Edition player, and their
+address; a server line in their chat (TRUE: sent); when their actions last
+changed (0: not yet, or not a Custom Edition player) */
+boolean server_ce_player(long machine_index, long controller_index, unsigned long *address);
+boolean server_ce_tell(long machine_index, long controller_index, char const *text);
+unsigned long server_ce_input_time(long machine_index, long controller_index);
+/* whether any Custom Edition player has a seat (server_ce.c) */
+boolean server_ce_players_present(void);
+/* Halo Custom Edition 1.0.10's join wire answered on the same port */
+void server_gamespy_set_joins(boolean enabled);
+boolean server_gamespy_joins(void);
 
 /* the commands (server/docs/admin.md) */
 boolean server_admin_playlists(struct command_line const *line, boolean json, struct command_output *output);

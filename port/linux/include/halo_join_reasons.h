@@ -45,6 +45,9 @@ enum join_reason
 	_join_reason_no_answer,
 	/* the host answered, but no connection got through (strict NATs) */
 	_join_reason_no_connection,
+	/* the game has more machines than a console's build takes
+	(HALO_CONSOLE_PLAYERS) */
+	_join_reason_console_full,
 
 	NUMBER_OF_JOIN_REASONS
 };
@@ -68,6 +71,7 @@ enum join_reason
 #define JOIN_REASON_PASSWORD "Password needed."
 #define JOIN_REASON_NO_ANSWER "The host didn't answer."
 #define JOIN_REASON_NO_CONNECTION "Couldn't connect to the host."
+#define JOIN_REASON_CONSOLE_FULL "This game has more players than this console can hold."
 /* an OpenCE dedicated server's refusals of network version 40 and 41 (codes 8
 to 13 of the host's refusal): a VPN, Tor or data center address (8, 9); a
 Discord link of OpenCE's own, which this build has none of (10 to 12); and
@@ -79,6 +83,16 @@ the machines one address may have (13) */
 folder: said in the map lists, in the log and when it is picked to play (no
 detail, and no join reason: a host never announces one) */
 #define MAP_REASON_MCC_UNSUPPORTED "MCC map: not supported yet"
+/* a map past the Xbox's (Custom Edition's, HaloMD's, Halo PC's) on a machine
+without Custom Edition's resource maps in maps_ce, or with others in their
+place (Halo PC's own): the lists' short reason, and what the player is told
+when the map is picked, hosted or joined (map_family_resources_ready), then
+what to do on a desktop build (its setup screen imports the installer) or on
+another */
+#define JOIN_REASON_CE_RESOURCES "Needs Custom Edition's bitmaps.map, sounds.map and loc.map in maps_ce."
+#define MAP_REASON_CE_RESOURCES "This map needs Halo Custom Edition's bitmaps.map, sounds.map and loc.map in maps_ce."
+#define MAP_REASON_CE_RESOURCES_SETUP "Use the setup screen to import the Custom Edition installer."
+#define MAP_REASON_CE_RESOURCES_COPY "Copy them from a Custom Edition install."
 
 /* a reason without a detail as its sentence ("" for none, or one with a
 detail) */
@@ -91,7 +105,8 @@ detail) */
 	(reason) == _join_reason_full ? JOIN_REASON_FULL : \
 	(reason) == _join_reason_password ? JOIN_REASON_PASSWORD : \
 	(reason) == _join_reason_no_answer ? JOIN_REASON_NO_ANSWER : \
-	(reason) == _join_reason_no_connection ? JOIN_REASON_NO_CONNECTION : "")
+	(reason) == _join_reason_no_connection ? JOIN_REASON_NO_CONNECTION : \
+	(reason) == _join_reason_console_full ? JOIN_REASON_CONSOLE_FULL : "")
 
 /* a game of another network version's reason (browser_version_state's
 state: -1 older, 1 newer) */

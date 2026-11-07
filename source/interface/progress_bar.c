@@ -188,6 +188,7 @@ symbols in this file:
 
 #include "interface/progress_bar_internal.h"
 #include "loading_screen.h" /* port: port/linux/game/loading_screen.c */
+#include "loading_picture.h" /* port: port/linux/game/loading_picture.c */
 
 /* ---------- constants */
 
@@ -1593,6 +1594,10 @@ void progress_bar_initialize(
 	destination_directory[csstrlen(destination_directory) - 1]= 0;
 	CreateDirectoryA(destination_directory, NULL);
 	CopyFileA(source_path, destination_path, TRUE);
+#ifndef HALO_CONSOLE_NO_LOADING_PICTURE
+	/* port: Chupathingy's picture beside it (loading_picture.c) */
+	loading_picture_initialize();
+#endif
 
 	return;
 }
@@ -2333,8 +2338,12 @@ static void progress_bar_load_loading_texture(
 	IDirect3DTexture8 **texture)
 {
 	D3DSURFACE_DESC surface_description;
+#ifndef HALO_CONSOLE_NO_LOADING_PICTURE
+	char source_path[256];
+#else
 	char map_directory[40];
 	char source_path[40];
+#endif
 	struct tga_image image;
 	D3DLOCKED_RECT locked_rect;
 	unsigned long *pixels;
@@ -2352,8 +2361,14 @@ static void progress_bar_load_loading_texture(
 	IDirect3DTexture8_LockRect(*texture, 0, &locked_rect, NULL, 0);
 	IDirect3DTexture8_GetLevelDesc(*texture, 0, &surface_description);
 	pixels= locked_rect.pBits;
+#ifndef HALO_CONSOLE_NO_LOADING_PICTURE
+	/* port: Chupathingy's picture, or the Xbox's (display.xbox_loading_picture:
+	loading_picture.c) */
+	loading_picture_path(source_path, sizeof(source_path));
+#else
 	csstrcpy(map_directory, cache_files_map_directory());
 	sprintf(source_path, "z%sloading.tga", map_directory + 1);
+#endif
 	file= fopen(source_path, "rb");
 	if (file)
 	{

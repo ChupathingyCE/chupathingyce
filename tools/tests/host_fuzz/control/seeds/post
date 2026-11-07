@@ -1,0 +1,9 @@
+POST /api/command HTTP/1.1
+Host: localhost:2310
+Content-Type: application/json
+Content-Length: 26
+Cookie: chce_session=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+X-Forwarded-For: 10.0.0.1, 192.168.1.2
+Origin: http://localhost
+
+{"command": "sv_status"}
