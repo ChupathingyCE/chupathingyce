@@ -1120,6 +1120,38 @@ static GLuint texture_entry_result(struct texture_entry *entry, GLenum *target,
 	return entry->texture;
 }
 
+/* A new texture's name. On desktop OpenGL they come 64 at a time: a
+glGenTextures call each could stall Windows drivers the first time a
+texture was drawn. A name holds no storage until its image is uploaded,
+and the cache entry owns it once handed out. Based on work by chester
+(GulchCE). */
+static GLuint texture_name_new(void)
+{
+#if !defined(HALO_GL_ES) && !defined(HALO_CONSOLE_GL_LAYER)
+	static GLuint names[64];
+	static unsigned long name_count;
+
+	if (!name_count)
+	{
+		unsigned long i;
+
+		memset(names, 0, sizeof(names));
+		glGenTextures((GLsizei)(sizeof(names) / sizeof(names[0])), names);
+		for (i = 0; i < sizeof(names) / sizeof(names[0]); i++)
+		{
+			if (names[i])
+				names[name_count++] = names[i];
+		}
+	}
+	return name_count ? names[--name_count] : 0;
+#else
+	GLuint texture = 0;
+
+	glGenTextures(1, &texture);
+	return texture;
+#endif
+}
+
 GLuint xgpu_texture_get(const DWORD *resource, const D3DCOLOR *palette, GLenum *target,
 	struct xgpu_texture_description *description)
 {
@@ -1204,7 +1236,7 @@ GLuint xgpu_texture_get(const DWORD *resource, const D3DCOLOR *palette, GLenum *
 		}
 		entry->generation = 0;
 		entry->override = -1;
-		glGenTextures(1, &entry->texture);
+		entry->texture = texture_name_new();
 		entry->next = *bucket;
 		*bucket = entry;
 	}
