@@ -499,6 +499,8 @@ static long hs_real_to_short(
 	long r);
 static long hs_real_to_long(
 	long r);
+static long hs_short_to_long(
+	long s);
 static long hs_long_to_short(
 	long l);
 static long hs_object_name_to_object_list(
@@ -682,7 +684,10 @@ hs_typecasting_procedure typecasting_procedures[NUMBER_OF_HS_TYPES][NUMBER_OF_HS
 		NULL, NULL, NULL, NULL,
 		NULL, NULL,
 		hs_real_to_long,
-		NULL,
+		/* port: a short where a long is wanted, sign-extended. Retail had
+		none, so its compiler refused one and a map's script holding one was
+		refused at load; scripts made with later tools pass them */
+		hs_short_to_long,
 		hs_long_to_short,
 	},
 	{ NULL }, /* string */
@@ -1866,6 +1871,12 @@ static long hs_real_to_long(
 	long r)
 {
 	return (long)*(real *)&r;
+}
+
+static long hs_short_to_long(
+	long s)
+{
+	return (long)*HS_SLOT(short, &s);
 }
 
 static long hs_long_to_short(
