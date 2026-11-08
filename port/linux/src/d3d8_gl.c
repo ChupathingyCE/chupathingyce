@@ -5668,10 +5668,30 @@ void halo_draw_picture(const unsigned char *rgba, long width, long height)
 	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, framebuffer_get(back_buffer->target.texture, 0));
 	glDisable(GL_SCISSOR_TEST);
 	glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-	/* (row 0 of the render target is the top of the picture, as of this
-	texture) */
-	glBlitFramebuffer(0, 0, (GLint)width, (GLint)height, 0, 0, (GLint)back_buffer->target.gl_width,
-		(GLint)back_buffer->target.gl_height, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+	{
+		/* port: the picture keeps its shape (the Xbox drew its 640x480 on a
+		4:3 screen): as large as the back buffer holds, centered, black
+		around it, instead of stretched to a wide window */
+		GLint target_width = (GLint)back_buffer->target.gl_width;
+		GLint target_height = (GLint)back_buffer->target.gl_height;
+		GLint fit_width = target_width;
+		GLint fit_height = (GLint)((long long)target_width * height / width);
+		GLint x0, y0;
+
+		if (fit_height > target_height)
+		{
+			fit_height = target_height;
+			fit_width = (GLint)((long long)target_height * width / height);
+		}
+		x0 = (target_width - fit_width) / 2;
+		y0 = (target_height - fit_height) / 2;
+		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+		glClear(GL_COLOR_BUFFER_BIT);
+		/* (row 0 of the render target is the top of the picture, as of this
+		texture) */
+		glBlitFramebuffer(0, 0, (GLint)width, (GLint)height, x0, y0, x0 + fit_width, y0 + fit_height,
+			GL_COLOR_BUFFER_BIT, GL_LINEAR);
+	}
 	xgpu_gl_state_invalidate();
 	gl_check_errors("picture");
 }

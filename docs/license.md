@@ -25,6 +25,9 @@ version (`GPL-3.0-or-later`). It comes with no warranty. The full text is in
   `port/linux/ui/fonts`, `port/assets/prompts`, `port/assets/hud`,
   `port/assets/hrtf`), and the release downloads
   carry their notices.
+- **Other people's work.** Code and art used with their authors'
+  permission, and what we use under their own licenses, are listed in
+  [permissions.md](permissions.md).
 - **Halo itself is not covered.** The license covers the work of
   Chupathingy's authors. It gives no rights in Halo, its maps or anything
   else Microsoft owns.
