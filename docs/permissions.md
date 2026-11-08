@@ -11,6 +11,7 @@ permissions are kept on file and can be shown on request.
 | chester (chestahh) | His own code in GulchCE | GPL-3.0, his commits only | 2026-10-29 |
 | mOTA-lEV (SutlabSol) | His own code in OpenCE-Faber: medals, service records, Forge, Firefight | GPL-3.0, with attribution and links to his originals | 2026-11-07 |
 | thelinkin3000 | His Switch port work (warthog-switch) | GPL-3.0-or-later | 2026-10-21 |
+| Mayo (Mayo1970) | His PS3 port work, hosted as warthog-ps3 in the ChupathingyCE organization | GPL-3.0-or-later, his own code | 2026-11-03 |
 | Lord BirchWood (BirchWoodGod) | His fix taken as #809 (from his OpenCE pull request #366) | GPL-3.0, with credit | 2026-11-07 |
 | The OpenH1 team | Their work in OpenH1 | We re-implement from their work rather than copy it, and credit by handle | 2026-11-06 |
 
