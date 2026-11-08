@@ -159,6 +159,18 @@ static struct rasterizer_vertex_shader_runtime_globals vertex_shader_runtime_glo
 
 /* ---------- public code */
 
+#ifdef HALO_PS3
+/* port: the device's vertex shader is no longer known (the loading screen set it: progress_bar.c,
+rasterizer_forget_hardware_state); the next permutation is set again */
+void rasterizer_vertex_shader_runtime_forget(
+	void)
+{
+	vertex_shader_runtime_globals.current_vertex_shader_index = NONE;
+
+	return;
+}
+#endif
+
 void rasterizer_set_vertex_shader_permutation(
 	short vertex_shader_index,
 	short vertex_type,

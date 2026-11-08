@@ -687,6 +687,12 @@ static boolean ce_hud_xbox_button_icons(
 	if (ce_xbox_button_icons.read)
 		return ce_xbox_button_icons.ready;
 	ce_xbox_button_icons.read = TRUE;
+#ifdef HALO_BIG_ENDIAN
+	/* port: ui.map's tags are read here in the Xbox's byte order, and inflated whole (32 MB) */
+	error(_error_silent, "Custom Edition maps: no Xbox button icons on this console; HUD messages draw no controller "
+		"buttons");
+	return FALSE;
+#endif
 	snprintf(path, sizeof(path), "%sui.map", cache_files_map_directory());
 	file = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
 	if (file == INVALID_HANDLE_VALUE)

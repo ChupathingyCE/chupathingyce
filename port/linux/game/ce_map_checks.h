@@ -19,7 +19,9 @@ structure BSPs, and the reason a map is refused.
 enum
 {
 	/* (cache_files.c's: where a Custom Edition map's tags are) */
+#ifndef HALO_CE_TAG_CACHE_BASE
 	CE_IMAGE_TAG_CACHE_BASE = 0x40440000,
+#endif
 	CE_IMAGE_TAG_CACHE_SIZE = 0x01700000,
 	CE_TAG_INSTANCE_SIZE = 0x20,
 	/* the most one allocation of the port's converted models and level takes
@@ -27,6 +29,11 @@ enum
 	aligned */
 	CE_LARGEST_CONVERSION_ALLOCATION = 0x20000,
 };
+
+#ifdef HALO_CE_TAG_CACHE_BASE
+/* port: (a console where that address is taken: past an int, so not an enumerator) */
+#define CE_IMAGE_TAG_CACHE_BASE HALO_CE_TAG_CACHE_BASE
+#endif
 
 /* the room above the tag cache for the port's converted models and level
 (port/linux/src/platform.h): its size, 0 if it is not mapped, and always 0

@@ -118,6 +118,11 @@ symbols in this file:
 
 /* port: object_bounds_cache.c's */
 boolean object_bounds_cache_out_of_reach(long object_index, real_point3d const *point, real radius);
+#ifdef HALO_PS3
+#include "object_bounds_cache.h" /* port: port/linux/game/object_bounds_cache.c */
+#include "collision_bsp_definitions.h"
+#include "structures/structure_visibility.h"
+#endif
 #ifdef HALO_XBOX_CONSOLE
 /* (the original Xbox build keeps no bounds cache: its out_of_reach is a stub
 that passes nothing over, port/xbox/game/xbox_desktop_stubs.c) */
@@ -413,6 +418,7 @@ boolean collision_test_sphere(
 	boolean result;
 	struct collision_bsp_test_sphere_result sphere_result;
 
+	PS3_COLLISION_BEGIN(); /* port: (the timer build) */
 	if (bsp3d_test_point(global_bsp3d_get(), 0, center) != NONE)
 	{
 		result = collision_bsp_test_sphere(
@@ -424,10 +430,12 @@ boolean collision_test_sphere(
 			&sphere_result);
 		if (!result)
 		{
+			PS3_COLLISION_END(_ps3_collision_sphere); /* port: (the timer build) */
 			return result;
 		}
 	}
 
+	PS3_COLLISION_END(_ps3_collision_sphere); /* port: (the timer build) */
 	return TRUE;
 }
 
@@ -440,6 +448,7 @@ boolean collision_test_point(
 	long reference_index;
 	boolean test_objects;
 
+	PS3_COLLISION_BEGIN(); /* port: (the timer build) */
 	if (!(flags & _collision_test_environment_flags))
 	{
 		goto no_collision;
@@ -479,11 +488,113 @@ boolean collision_test_point(
 	}
 
 no_collision:
+	PS3_COLLISION_END(_ps3_collision_point); /* port: (the timer build) */
 	return FALSE;
 
 collision:
+	PS3_COLLISION_END(_ps3_collision_point); /* port: (the timer build) */
 	return TRUE;
 }
+
+#ifdef HALO_PS3
+/* port: the clusters' water and the collision materials' types as collision_test_vector reads them, for the
+particles' rays on an SPU (spu_game.c): made once a bsp */
+static struct
+{
+	spu_game_cluster_water cluster_water[MAXIMUM_CLUSTERS_PER_STRUCTURE];
+	int16_t material_types[1024];
+	unsigned long generation;
+	boolean made;
+	boolean valid;
+} __attribute__((aligned(16))) collision_spu_tables;
+
+/* port: the tag data the particles' rays read by DMA, as spu_game.c reads it: the collision bsp's surfaces, edges,
+vertices, bsp2d and bsp3d nodes and planes, the structure leaves' clusters, the breakable surfaces' bits */
+typedef char collision_spu_layout_check[sizeof(struct collision_surface) == 12 &&
+	offsetof(struct collision_surface, plane_designator) == 0 && offsetof(struct collision_surface, flags) == 8 &&
+	offsetof(struct collision_surface, breakable_surface_index) == 9 &&
+	offsetof(struct collision_surface, material_index) == 10 && sizeof(struct collision_edge) == 24 &&
+	offsetof(struct collision_edge, vertex_indices) == 0 && offsetof(struct collision_edge, edge_indices) == 8 &&
+	offsetof(struct collision_edge, surface_indices) == 16 && sizeof(struct collision_vertex) == 16 &&
+	offsetof(struct collision_vertex, point) == 0 && sizeof(struct bsp2d_node) == 20 &&
+	offsetof(struct bsp2d_node, plane) == 0 && offsetof(struct bsp2d_node, child_indices) == 12 &&
+	sizeof(real_plane2d) == 12 && sizeof(struct bsp3d_node) == 12 &&
+	offsetof(struct bsp3d_node, plane_designator) == 0 && offsetof(struct bsp3d_node, children) == 4 &&
+	sizeof(real_plane3d) == 16 && offsetof(real_plane3d, d) == 12 && sizeof(struct structure_leaf) == 16 &&
+	offsetof(struct structure_leaf, cluster_index) == 8 && sizeof(long) == sizeof(uint32_t) &&
+	MAXIMUM_BREAKABLE_SURFACES_PER_MAP <= 1024 ? 1 : -1];
+
+/* port: the collision bsp's blocks and those tables in an SPU job's parameters; FALSE when the SPU cannot take it */
+boolean collision_spu_particles(
+	spu_game_particles *job)
+{
+	struct structure_bsp *structure_bsp = global_structure_bsp_get();
+	struct collision_bsp *bsp = global_collision_bsp_get();
+
+	if (!structure_bsp || !bsp)
+	{
+		return FALSE;
+	}
+	if (!collision_spu_tables.made || collision_spu_tables.generation != scenario_structure_bsp_generation)
+	{
+		long index;
+
+		collision_spu_tables.made = TRUE;
+		collision_spu_tables.generation = scenario_structure_bsp_generation;
+		collision_spu_tables.valid = structure_bsp->clusters.count <= MAXIMUM_CLUSTERS_PER_STRUCTURE &&
+			structure_bsp->collision_materials.count <= NUMBEROF(collision_spu_tables.material_types);
+		for (index = 0; collision_spu_tables.valid && index < structure_bsp->clusters.count; index++)
+		{
+			spu_game_cluster_water *water = &collision_spu_tables.cluster_water[index];
+			struct structure_fog_plane const *fog_plane;
+			struct fog_definition const *fog;
+
+			memset(water, 0, sizeof(*water));
+			if (collision_cluster_fog_plane(structure_bsp, index, &fog_plane, &fog))
+			{
+				long material_type = fog_plane->runtime_material_type;
+
+				water->plane[0] = fog_plane->plane.n.i;
+				water->plane[1] = fog_plane->plane.n.j;
+				water->plane[2] = fog_plane->plane.n.k;
+				water->plane[3] = fog_plane->plane.d - fog->plane_distance;
+				water->material_type = material_type < 0 || material_type >= NUMBER_OF_MATERIAL_TYPES ? NONE : material_type;
+				water->valid = TRUE;
+			}
+		}
+		for (index = 0; collision_spu_tables.valid && index < structure_bsp->collision_materials.count; index++)
+		{
+			collision_spu_tables.material_types[index] = (int16_t)collision_structure_material_type(structure_bsp,
+				(short)index);
+		}
+	}
+	if (!collision_spu_tables.valid)
+	{
+		return FALSE;
+	}
+	structure_visibility_spu_structure(&job->structure);
+	job->collision_leaves = PS3_SPU_EA(TAG_BLOCK_ADDRESS(&bsp->leaves));
+	job->collision_leaf_count = bsp->leaves.count;
+	job->bsp2d_references = PS3_SPU_EA(TAG_BLOCK_ADDRESS(&bsp->bsp2d_references));
+	job->bsp2d_reference_count = bsp->bsp2d_references.count;
+	job->bsp2d_nodes = PS3_SPU_EA(TAG_BLOCK_ADDRESS(&bsp->bsp2d.nodes));
+	job->bsp2d_node_count = bsp->bsp2d.nodes.count;
+	job->surfaces = PS3_SPU_EA(TAG_BLOCK_ADDRESS(&bsp->surfaces));
+	job->surface_count = bsp->surfaces.count;
+	job->edges = PS3_SPU_EA(TAG_BLOCK_ADDRESS(&bsp->edges));
+	job->edge_count = bsp->edges.count;
+	job->vertices = PS3_SPU_EA(TAG_BLOCK_ADDRESS(&bsp->vertices));
+	job->vertex_count = bsp->vertices.count;
+	job->breakable_flags = PS3_SPU_EA(breakable_surface_flags_get());
+	job->breakable_count = MAXIMUM_BREAKABLE_SURFACES_PER_MAP;
+	job->cluster_water = PS3_SPU_EA(collision_spu_tables.cluster_water);
+	job->material_types = PS3_SPU_EA(collision_spu_tables.material_types);
+	job->material_count = structure_bsp->collision_materials.count;
+	job->water_material_type = _material_water;
+
+	return TRUE;
+}
+#endif
 
 boolean collision_test_vector(
 	unsigned long flags,
@@ -497,6 +608,7 @@ boolean collision_test_vector(
 		TEST_FLAG(flags, _collision_test_media_bit) ||
 		TEST_FLAG(flags, _collision_test_objects_bit);
 
+	PS3_COLLISION_BEGIN(); /* port: (the timer build) */
 	HALO_PERF_BEGIN(_halo_perf_tick_collision);
 	if (debug_collision_skip_vectors)
 	{
@@ -591,6 +703,7 @@ boolean collision_test_vector(
 		collision_log_end_time(
 			_collision_function_vector_structure,
 			collision_usage_times.vector_structure.QuadPart);
+		PS3_COLLISION_LEAVES(bsp_result.leaf_count); /* port: (the timer build) */
 
 		if (TEST_FLAG(flags, _collision_test_media_bit) &&
 			collision->location.cluster_index != NONE)
@@ -673,18 +786,41 @@ boolean collision_test_vector(
 
 				if (structure_cluster_mark(cluster_index))
 				{
+#ifdef HALO_PS3
+					/* port: the cluster's objects but those whose sphere's copy the segment misses, in order
+					(object_bounds_cache.c): they fail their own test, and their mark only stops one that fails too */
+					struct object_bounds_vector_iterator bounds;
+#else
 					long reference_index;
+#endif
 					long object_index;
+#ifdef HALO_PS3
+					boolean ps3_los = PS3_COLLISION_LOS();
+					uint32_t ps3_walked = ps3_bounds_walked, ps3_read = ps3_bounds_read;
+					uint64_t ps3_loop = ps3_los ? ps3_timer_now() : 0, ps3_test = 0;
+#endif
 
+					PS3_COLLISION_CLUSTER(); /* port: (the timer build) */
+#ifdef HALO_PS3
+					for (object_index = object_bounds_cache_first_vector(&bounds, (short)cluster_index, point, vector);
+						object_index != NONE;
+						object_index = object_bounds_cache_next_vector(&bounds))
+#else
 					for (object_index = cluster_get_first_collideable_object(&reference_index, cluster_index);
 						object_index != NONE;
 						object_index = cluster_get_next_collideable_object(&reference_index))
+#endif
 					{
+						PS3_COLLISION_TEST_BEGIN(ps3_los, ps3_test); /* port: (the timer build) */
+#ifdef HALO_PS3
+						if (object_mark_function(object_index) &&
+#else
 						/* port: (the ones the vector misses passed over on a
 						packed copy of their bounding spheres, before they
 						are marked, which reads them: object_bounds_cache.c) */
 						if (!object_bounds_cache_missed_by_vector(object_index, point, vector) &&
 							object_mark_function(object_index) &&
+#endif
 							object_test_vector(
 								object_index,
 								flags,
@@ -696,7 +832,9 @@ boolean collision_test_vector(
 						{
 							hit = TRUE;
 						}
+						PS3_COLLISION_TEST_END(ps3_los, ps3_test); /* port: (the timer build) */
 					}
+					PS3_COLLISION_LOOP_END(ps3_los, ps3_loop, ps3_walked, ps3_read); /* port: (the timer build) */
 				}
 			}
 			object_marker_end();
@@ -748,6 +886,7 @@ boolean collision_test_vector(
 		scenario_location_from_point(&collision->location, &collision->point);
 	}
 
+	PS3_COLLISION_END(_ps3_collision_vector); /* port: (the timer build) */
 	HALO_PERF_END(_halo_perf_tick_collision);
 	return hit;
 }
@@ -763,6 +902,7 @@ boolean collision_test_pill(
 	boolean hit = FALSE;
 	struct collision_bsp_test_pill_result bsp_result;
 
+	PS3_COLLISION_BEGIN(); /* port: (the timer build) */
 	collision->type = NONE;
 	collision->t = REAL_MAX;
 
@@ -813,6 +953,7 @@ boolean collision_test_pill(
 	COLLISION_POINT_FROM_LINE3D(point, vector, collision->t, &collision->point);
 	scenario_location_from_point(&collision->location, &collision->point);
 
+	PS3_COLLISION_END(_ps3_collision_pill); /* port: (the timer build) */
 	return hit;
 }
 
@@ -900,6 +1041,9 @@ boolean collision_get_features_in_sphere(
 	struct collision_feature_list *features)
 {
 	unsigned long structure_flags;
+#ifdef HALO_PS3
+	uint64_t ps3_span = 0, ps3_test = 0; /* port: (the timer build) */
+#endif
 
 	collision_features_new(features);
 	structure_flags = flags & FLAG(_collision_test_structure_bit);
@@ -920,15 +1064,17 @@ boolean collision_get_features_in_sphere(
 		collision_log_start_time(&collision_usage_times.features);
 		radius += 0.0625f;
 
-		if (collision_bsp_test_sphere(
+		/* port: (the timer build) */
+		if (PS3_SPHERE_TIMED(_ps3_timer_ground_leaves, collision_bsp_test_sphere(
 			collision_bsp,
 			MAXIMUM_BREAKABLE_SURFACES_PER_MAP,
 			breakable_surface_flags_get(),
 			center,
 			radius,
-			&result) &&
+			&result)) &&
 			structure_flags)
 		{
+			PS3_SPHERE_SPAN(ps3_span); /* port: (the timer build) */
 			collision_bsp_get_features_in_sphere(
 				collision_bsp,
 				&result,
@@ -937,8 +1083,12 @@ boolean collision_get_features_in_sphere(
 				width,
 				NONE,
 				features);
+			PS3_SPHERE_ADD(_ps3_timer_ground_structure, ps3_span); /* port: (the timer build) */
+			PS3_SPHERE_COUNT(_ps3_timer_ground_structure, 1); /* port: (the timer build) */
 		}
+		PS3_SPHERE_COUNT(_ps3_timer_ground_leaf_count, result.leaf_count); /* port: (the timer build) */
 
+		PS3_SPHERE_SPAN(ps3_span); /* port: (the timer build) */
 		if (objects && result.leaf_count > 0)
 		{
 			short leaf_reference_index;
@@ -960,22 +1110,43 @@ boolean collision_get_features_in_sphere(
 
 				if (structure_cluster_mark(cluster_index))
 				{
+#ifdef HALO_PS3
+					/* port: the cluster's objects but those out of reach on their spheres' copies, in order
+					(object_bounds_cache.c): their mark only stops one out of reach too */
+					struct object_bounds_sphere_iterator bounds;
+#else
 					long reference_index;
+#endif
 					long object_index;
+#ifdef HALO_PS3
+					uint32_t ps3_walked = ps3_bounds_walked, ps3_read = ps3_bounds_read; /* port: (the timer build) */
+#endif
 
+					PS3_SPHERE_COUNT(_ps3_timer_ground_objects, 1); /* port: (the timer build) */
+#ifdef HALO_PS3
+					for (object_index = object_bounds_cache_first_sphere(&bounds, cluster_index, center, radius);
+						object_index != NONE;
+						object_index = object_bounds_cache_next_sphere(&bounds))
+#else
 					for (object_index = cluster_get_first_collideable_object(
 							&reference_index,
 							cluster_index);
 						object_index != NONE;
 						object_index = cluster_get_next_collideable_object(&reference_index))
+#endif
 					{
+#ifdef HALO_PS3
+						if (object_mark_function(object_index))
+#else
 						/* port: (the far ones passed over on a packed copy
 						of their bounding spheres: object_bounds_cache.c;
 						before they are marked, which reads them: one met
 						again in another cluster is passed over again) */
 						if (!object_bounds_cache_out_of_reach(object_index, center, radius) &&
 							object_mark_function(object_index))
+#endif
 						{
+							PS3_SPHERE_SPAN(ps3_test); /* port: (the timer build) */
 							object_get_features_in_sphere(
 								flags,
 								object_index,
@@ -985,13 +1156,19 @@ boolean collision_get_features_in_sphere(
 								width,
 								ignore_object_index,
 								features);
+							PS3_SPHERE_ADD(_ps3_timer_ground_object_tests, ps3_test); /* port: (the timer build) */
+							PS3_SPHERE_COUNT(_ps3_timer_ground_object_tests, 1); /* port: (the timer build) */
 						}
 					}
+					/* port: (the timer build) */
+					PS3_SPHERE_COUNT(_ps3_timer_ground_objects_walked, ps3_bounds_walked - ps3_walked);
+					PS3_SPHERE_COUNT(_ps3_timer_ground_objects_read, ps3_bounds_read - ps3_read);
 				}
 			}
 			object_marker_end();
 			structure_cluster_marker_end();
 		}
+		PS3_SPHERE_ADD(_ps3_timer_ground_objects, ps3_span); /* port: (the timer build) */
 
 		collision_log_end_time(
 			_collision_function_vector_bounds_object,
@@ -1046,6 +1223,7 @@ boolean collision_fix_pill(
 		global_current_collision_user_depth < MAXIMUM_COLLISION_USER_STACK_DEPTH);
 	global_current_collision_users[global_current_collision_user_depth++] =
 		_collision_user_bipeds;
+	PS3_COLLISION_BEGIN(); /* port: (the timer build) */
 
 	{
 		real_point3d center;
@@ -1147,6 +1325,7 @@ boolean collision_fix_pill(
 		}
 	}
 
+	PS3_COLLISION_END(_ps3_collision_move); /* port: (the timer build) */
 	match_assert(
 		"c:\\halo\\SOURCE\\physics\\collisions.c",
 		0x562,
@@ -1168,6 +1347,7 @@ boolean collision_test_pill_new(
 	real t;
 	real_vector3d normal;
 
+	PS3_COLLISION_BEGIN(); /* port: (the timer build) */
 	collision->type = NONE;
 	collision->start_location.leaf_index = NONE;
 	collision->start_location.cluster_index = NONE;
@@ -1205,6 +1385,7 @@ boolean collision_test_pill_new(
 	collision->plane.n.j = 0.0f;
 	collision->plane.n.k = 0.0f;
 
+	PS3_COLLISION_END(_ps3_collision_pill); /* port: (the timer build) */
 	return result;
 }
 
@@ -1313,6 +1494,7 @@ short collision_move_point(
 	real_vector3d clip_line_vector;
 	real_point3d clip_point;
 
+	PS3_COLLISION_BEGIN(); /* port: (the timer build) */
 	match_assert_valid_real_point3d("c:\\halo\\SOURCE\\physics\\collisions.c", 0x3AD, old_position);
 	match_assert_valid_real_vector3d("c:\\halo\\SOURCE\\physics\\collisions.c", 0x3AE, old_velocity);
 	match_assert("c:\\halo\\SOURCE\\physics\\collisions.c", 0x3AF, features->count[_collision_feature_sphere]<=MAXIMUM_COLLISION_FEATURES_PER_TEST);
@@ -1569,6 +1751,7 @@ short collision_move_point(
 	match_assert_valid_real_point3d("c:\\halo\\SOURCE\\physics\\collisions.c", 0x497, new_position);
 	match_assert_valid_real_vector3d("c:\\halo\\SOURCE\\physics\\collisions.c", 0x498, new_velocity);
 
+	PS3_COLLISION_END(_ps3_collision_move); /* port: (the timer build) */
 	return collision_count;
 }
 
@@ -1590,28 +1773,32 @@ short collision_move_pill(
 
 	match_assert("c:\\halo\\SOURCE\\physics\\collisions.c", 1214, global_current_collision_user_depth < MAXIMUM_COLLISION_USER_STACK_DEPTH);
 	global_current_collision_users[global_current_collision_user_depth++] = 7;
+	PS3_COLLISION_BEGIN(); /* port: (the timer build) */
 
 	center.x = position->x + velocity->i * 0.5f;
 	center.y = position->y + velocity->j * 0.5f;
 	center.z = height * 0.5f + (position->z + velocity->k * 0.5f);
 
-	if (collision_get_features_in_sphere(
+	/* port: (the timer build) */
+	if (PS3_PILL_QUERY(collision_get_features_in_sphere(
 		flags,
 		&center,
 		magnitude3d(velocity) * 0.5f + height * 0.5f + radius,
 		height,
 		radius,
 		ignore_object_index,
-		&features))
+		&features)))
 	{
-		result = collision_move_point(
+		/* port: (the timer build) */
+		PS3_PILL_COUNT(_ps3_timer_pill_feature_count, features.count[0] + features.count[1] + features.count[2]);
+		result = PS3_PILL_TIMED(_ps3_timer_pill_move, collision_move_point(
 			position,
 			velocity,
 			&features,
 			clipped_position,
 			clipped_velocity,
 			maximum_collision_count,
-			collisions);
+			collisions));
 	}
 	else
 	{
@@ -1622,6 +1809,7 @@ short collision_move_pill(
 		*clipped_velocity = *velocity;
 	}
 
+	PS3_COLLISION_END(_ps3_collision_move); /* port: (the timer build) */
 	match_assert("c:\\halo\\SOURCE\\physics\\collisions.c", 1230, global_current_collision_user_depth > 1);
 	--global_current_collision_user_depth;
 
@@ -1705,6 +1893,7 @@ static boolean object_test_vector(
 	{
 		struct object_datum const *object = object_get(object_index);
 
+		PS3_COLLISION_OBJECT(); /* port: (the timer build) */
 		if (object_index != ignore_object_index &&
 			!TEST_FLAG(object->object.flags, _object_invisible_bit) &&
 			TEST_FLAG(flags, object->object.type + _collision_test_objects_first_type_bit) &&

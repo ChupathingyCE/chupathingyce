@@ -338,6 +338,26 @@ real transition_function_evaluate(
 	return 0.0f;
 }
 
+#ifdef HALO_PS3
+/* port: the SPU's contrails DMA a table of bytes, 2 to 1024 of them (spu_game.c, transition_evaluate) */
+typedef char transition_function_table_spu_assert[
+	sizeof(**transition_function_tables) == 1 && PERIODIC_FUNCTION_TABLE_SIZE >= 2 &&
+	PERIODIC_FUNCTION_TABLE_SIZE <= 1024 ? 1 : -1];
+
+byte const *transition_function_table(
+	short function_type,
+	long *size)
+{
+	*size = PERIODIC_FUNCTION_TABLE_SIZE;
+	if (!function_tables_initialized || !VALID_INDEX(function_type, NUMBER_OF_TRANSITION_FUNCTIONS))
+	{
+		return NULL;
+	}
+
+	return transition_function_tables[function_type];
+}
+#endif
+
 /* ---------- private code */
 
 static void __fastcall periodic_function_build_variable_period_x_table(

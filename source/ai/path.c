@@ -169,6 +169,22 @@ symbols in this file:
 
 #include <stddef.h>
 
+#ifdef HALO_PS3
+#include "ps3_timers.h"
+
+/* port: the timer build's parts of path_state_find and path_state_build_path; a timed call gives its result
+(port/ps3/include/ps3_timers.h) */
+#define PS3_PATH_SPAN(span) ((span) = ps3_timer_now())
+#define PS3_PATH_ADD(timer, span) ((span) = ps3_timer_add((timer), (span)))
+#define PS3_PATH_TIMED(timer, call) ({ uint64_t ps3_timed_start = ps3_timer_now(); \
+	__typeof__(call) ps3_timed_result = (call); \
+	ps3_timer_add((timer), ps3_timed_start); ps3_timer_counts[(timer)]++; ps3_timed_result; })
+#else
+#define PS3_PATH_SPAN(span) ((void)0)
+#define PS3_PATH_ADD(timer, span) ((void)0)
+#define PS3_PATH_TIMED(timer, call) (call)
+#endif
+
 /* ---------- constants */
 
 enum
@@ -853,6 +869,9 @@ boolean path_state_build_path(
 	struct path_step avoided_steps[4];
 	short child_node_index;
 	struct path_node *child_node;
+#ifdef HALO_PS3
+	uint64_t ps3_span;
+#endif
 
 	if (state->debug)
 	{
@@ -950,6 +969,7 @@ boolean path_state_build_path(
 			}
 			else
 			{
+				PS3_PATH_SPAN(ps3_span); /* port: (the timer build) */
 				path_smooth(
 					state,
 					raw_step_count,
@@ -957,6 +977,7 @@ boolean path_state_build_path(
 					&smoothed_step_count,
 					smoothed_steps,
 					&steps_finish_path);
+				PS3_PATH_ADD(_ps3_timer_path_smooth, ps3_span); /* port: (the timer build) */
 			}
 
 			if (game_connection() == _game_connection_local &&
@@ -971,13 +992,14 @@ boolean path_state_build_path(
 			}
 			else
 			{
-				path_build_success = path_avoid_obstacles(
+				/* port: (the timer build) */
+				path_build_success = PS3_PATH_TIMED(_ps3_timer_path_obstacles, path_avoid_obstacles(
 					state,
 					smoothed_step_count,
 					smoothed_steps,
 					&avoided_step_count,
 					avoided_steps,
-					&steps_finish_path);
+					&steps_finish_path));
 
 				if (state->debug && !path_build_success)
 				{
@@ -1494,10 +1516,14 @@ static boolean path_state_traverse(
 	struct path_edge edges[MAXIMUM_PATH_EDGES_PER_COLLISION_SURFACE];
 	boolean result = TRUE;
 	boolean reported_cost_overflow = FALSE;
+#ifdef HALO_PS3
+	uint64_t ps3_loop;
+#endif
 
 	while (TRUE)
 	{
-		short cheapest_node_index = path_heap_pop_cheapest_node(state);
+		/* port: (the timer build) */
+		short cheapest_node_index = PS3_PATH_TIMED(_ps3_timer_path_pop, path_heap_pop_cheapest_node(state));
 		struct path_node *cheapest_node;
 		struct collision_bsp const *bsp;
 		short edge_count;
@@ -1546,10 +1572,12 @@ static boolean path_state_traverse(
 			}
 		}
 
-		edge_count = build_path_edges_for_surface(
+		/* port: (the timer build) */
+		edge_count = PS3_PATH_TIMED(_ps3_timer_path_edges, build_path_edges_for_surface(
 			state->structure,
 			cheapest_node->surface_index,
-			edges);
+			edges));
+		PS3_PATH_SPAN(ps3_loop); /* port: (the timer build) */
 		for (edge_index = 0; edge_index < edge_count; edge_index++)
 		{
 			struct path_edge const *edge = &edges[edge_index];
@@ -1787,11 +1815,12 @@ static boolean path_state_traverse(
 
 				if (closest_distance < 4.0f)
 				{
-					closest_distance = closest_available_point_on_surface(
+					/* port: (the timer build) */
+					closest_distance = PS3_PATH_TIMED(_ps3_timer_path_closest, closest_available_point_on_surface(
 						state->structure,
 						edge->adjacent_surface_index,
 						&state->destination.point,
-						&closest_point);
+						&closest_point));
 				}
 				new_node->closest_distance_to_attractor = closest_distance;
 				new_node->closest_point_to_attractor = closest_point;
@@ -1805,6 +1834,7 @@ static boolean path_state_traverse(
 				}
 			}
 		}
+		PS3_PATH_ADD(_ps3_timer_path_edge_loop, ps3_loop); /* port: (the timer build) */
 	}
 
 	if (state->destination_valid)
@@ -1823,6 +1853,9 @@ boolean path_state_find(
 	struct path_state *state)
 {
 	boolean result = FALSE;
+#ifdef HALO_PS3
+	uint64_t ps3_span;
+#endif
 
 	if (state->destination_valid)
 	{
@@ -1833,15 +1866,18 @@ boolean path_state_find(
 		ai_profile.meters[_ai_meter_path_flood].accumulator++;
 	}
 
+	PS3_PATH_SPAN(ps3_span); /* port: (the timer build) */
 	path_state_reset(state);
+	PS3_PATH_ADD(_ps3_timer_path_reset, ps3_span); /* port: (the timer build) */
 	if (state->debug)
 	{
 		state->debug->path_traverse_result = _path_traverse_result_none;
 	}
 
-	if (path_state_begin(state))
+	/* port: (the timer build) */
+	if (PS3_PATH_TIMED(_ps3_timer_path_begin, path_state_begin(state)))
 	{
-		result = path_state_traverse(state);
+		result = PS3_PATH_TIMED(_ps3_timer_path_traverse, path_state_traverse(state));
 	}
 	else if (state->debug)
 	{
@@ -1851,7 +1887,14 @@ boolean path_state_find(
 
 	if (state->debug)
 	{
+		PS3_PATH_SPAN(ps3_span); /* port: (the timer build) */
+#ifdef HALO_PS3
+		/* port: the search's 70 KB copy only while a debug view draws it (ai_debug.c's ai_debug_render_path_storage:
+		for the paths, the failed paths, ai_debug.path's own), not at every search */
+		if (ai_debug.path || ai_debug.render_paths || ai_debug.render_paths_failed)
+#endif
 		state->debug->path_state = *state;
+		PS3_PATH_ADD(_ps3_timer_path_debug_copy, ps3_span); /* port: (the timer build) */
 		state->debug->structure_bsp_index = global_structure_bsp_index_get();
 		match_assert(
 			"c:\\halo\\SOURCE\\ai\\path.c",

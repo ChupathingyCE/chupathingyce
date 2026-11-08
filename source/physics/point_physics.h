@@ -80,6 +80,10 @@ void point_physics_initialize_for_new_map(
 	void);
 void point_physics_dispose_from_old_map(
 	void);
+#ifdef HALO_PS3
+/* port: point_physics.c */
+void point_physics_air_and_water_masses(float *air, float *water);
+#endif
 real point_physics_definition_get_mass(
 	struct point_physics_definition *definition,
 	real radius);

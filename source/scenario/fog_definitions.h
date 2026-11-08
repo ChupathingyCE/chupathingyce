@@ -28,8 +28,15 @@ enum
 
 struct fog_definition
 {
+#ifdef HALO_BIG_ENDIAN
+	/* port: the tag swap swaps the flags as a word (the validator's schema), so their low byte is the second */
+	byte flags_high;
+	byte flags;
+	byte unused1[0x72];
+#else
 	byte flags;
 	byte unused1[0x73];
+#endif
 	real plane_distance;
 	byte unused78[0x88];
 	long background_sound_index;

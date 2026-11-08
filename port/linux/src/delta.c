@@ -1393,10 +1393,9 @@ int delta_legacy_refresh(void)
 	int failed = 0;
 
 	pthread_once(&delta_once, delta_load);
-	/* (no key, nothing to check a table with; no list server, the player's
-	choice to talk to none; no HTTPS yet) */
-	if (delta_legacy_override() || !delta_has_key() || !config_string("network.browser_url")[0] ||
-		!console_https_available())
+	/* (no key, nothing to check a table with; no HTTPS yet. A console has no
+	network.browser_url: it asks the site it pins, delta_refresh) */
+	if (delta_legacy_override() || !delta_has_key() || !console_https_available())
 		return 0;
 	delta_refresh(&failed);
 	return !failed;

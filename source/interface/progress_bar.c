@@ -316,6 +316,12 @@ void tgaLoadImageData(
 
 /* ---------- globals */
 
+#ifdef HALO_PS3
+/* port: rasterizer_xbox.c's (rasterizer_xbox_internal.h, which this file does not include) */
+void rasterizer_forget_hardware_state(
+	void);
+#endif
+
 extern struct pixel_shader_definition blur_shader;
 extern struct pixel_shader_definition regular_shader;
 extern unsigned long current_time;
@@ -1503,8 +1509,19 @@ void tgaLoadHeader(
 	fread(&ignored_byte, 1, 1, file);
 	fread(&ignored_short, 2, 1, file);
 	fread(&ignored_short, 2, 1, file);
+#ifdef HALO_BIG_ENDIAN
+	{
+		unsigned char size[4];
+
+		/* port: the TGA file's shorts are little-endian */
+		fread(size, 1, 4, file);
+		image->width= (short)(size[0] | size[1]<<8);
+		image->height= (short)(size[2] | size[3]<<8);
+	}
+#else
 	fread(&image->width, 2, 1, file);
 	fread(&image->height, 2, 1, file);
+#endif
 	fread(&image->pixel_depth, 1, 1, file);
 	fread(&ignored_byte, 1, 1, file);
 
@@ -1530,7 +1547,12 @@ void tgaLoadImageData(
 
 			fread(color, 1, 3, file);
 			intensity= color[0];
+#ifdef HALO_PS3
+			/* port: the PS3's texture memory keeps the Xbox's little-endian texel order (port/ps3/xbox/d3d8_rsx.c) */
+			*pixel= __builtin_bswap32(((intensity<<9) | (intensity & ~1))<<7 | intensity>>2);
+#else
 			*pixel= ((intensity<<9) | (intensity & ~1))<<7 | intensity>>2;
+#endif
 			pixel++;
 		}
 	}
@@ -2011,9 +2033,11 @@ static void progress_bar_render(
 	long sound_index;
 	long stage;
 
+#ifndef HALO_PS3 /* port: the PS3 draws with Direct3D below at every call, as the Xbox */
 	/* port: a step each refresh, as the Xbox's (loading_screen.c) */
 	if (!loading_screen_step_due())
 		return;
+#endif
 	wobble_phase+= 0.01f;
 	progress= (real)((sin(wobble_phase)*0.05 + progress - last_t)*0.2 + last_t);
 	if (progress>1.0)
@@ -2035,6 +2059,7 @@ static void progress_bar_render(
 		}
 	}
 
+#ifndef HALO_PS3 /* port: the PS3's d3d8_rsx.c reads the frame before and draws the Xbox's passes */
 	/* port: the Xbox's drawing below reads its front buffer through a
 	texture made from its address (this_is_awful) and draws with no vertex
 	shader, neither of which the port's Direct3D has: the CPU makes the same
@@ -2052,6 +2077,7 @@ static void progress_bar_render(
 		IDirect3DTexture8_UnlockRect(progress_bar_mode.texture0, 0);
 	}
 	return;
+#endif
 
 	current_time= GetTickCount();
 	IDirect3DDevice8_GetTransform(global_d3d_device, D3DTS_WORLD, &progress_bar_globals.saved_world);
@@ -2059,7 +2085,18 @@ static void progress_bar_render(
 	IDirect3DDevice8_GetTransform(global_d3d_device, D3DTS_PROJECTION, &progress_bar_globals.saved_projection);
 	IDirect3DDevice8_SetTransform(global_d3d_device, D3DTS_WORLD, &progress_bar_globals.world);
 	IDirect3DDevice8_SetTransform(global_d3d_device, D3DTS_VIEW, &progress_bar_globals.view);
+#ifdef HALO_PS3
+	/* port: on a wide screen, the 640 columns in its middle, as the menus are drawn (the frame
+	before, which the trails are, is those columns) */
+	{
+		D3DXMATRIX projection= progress_bar_globals.projection;
+
+		projection._11*= 640.f/(real)halo_screen_width();
+		IDirect3DDevice8_SetTransform(global_d3d_device, D3DTS_PROJECTION, &projection);
+	}
+#else
 	IDirect3DDevice8_SetTransform(global_d3d_device, D3DTS_PROJECTION, &progress_bar_globals.projection);
+#endif
 	IDirect3DDevice8_SetRenderState(global_d3d_device, D3DRS_ALPHABLENDENABLE, TRUE);
 	IDirect3DDevice8_SetRenderState(global_d3d_device, D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
 	IDirect3DDevice8_SetRenderState(global_d3d_device, D3DRS_DESTBLEND, D3DBLEND_ONE);
@@ -2096,6 +2133,10 @@ static void progress_bar_render(
 		IDirect3DDevice8_SetTextureStageState(global_d3d_device, stage, D3DTSS_ADDRESSV, D3DTADDRESS_CLAMP);
 		IDirect3DDevice8_SetTexture(global_d3d_device, stage, &back_buffer_texture);
 	}
+#ifdef HALO_PS3
+	/* port: back_buffer_texture has what it needs of the surface; GetBackBuffer's reference goes back */
+	IDirect3DSurface8_Release(back_buffer);
+#endif
 
 	if (progress<0.9f)
 		draw_fade_layer(0.f, 0.f, 0.9f);
@@ -2114,6 +2155,10 @@ static void progress_bar_render(
 	IDirect3DDevice8_SetTransform(global_d3d_device, D3DTS_VIEW, &progress_bar_globals.saved_view);
 	IDirect3DDevice8_SetTransform(global_d3d_device, D3DTS_PROJECTION, &progress_bar_globals.saved_projection);
 	IDirect3DDevice8_BlockUntilVerticalBlank(global_d3d_device);
+#ifdef HALO_PS3
+	/* port: the rasterizer's caches of the device's states learn what was set here */
+	rasterizer_forget_hardware_state();
+#endif
 
 	return;
 }
@@ -2277,6 +2322,13 @@ static void progress_bar_make_stuff_ready(
 		IDirect3DDevice8_SetRenderTarget(global_d3d_device, back_buffer, depth_buffer);
 		IDirect3DDevice8_Clear(global_d3d_device, 0, NULL, 0xf0, 0, 0.f, 0);
 		IDirect3DDevice8_SetRenderTarget(global_d3d_device, front_buffer, depth_buffer);
+#ifdef HALO_PS3
+		/* port: the surfaces' references go back (no depth buffer when none is set) */
+		IDirect3DSurface8_Release(back_buffer);
+		IDirect3DSurface8_Release(front_buffer);
+		if (depth_buffer)
+			IDirect3DSurface8_Release(depth_buffer);
+#endif
 	}
 
 	return;

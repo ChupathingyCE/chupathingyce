@@ -12,9 +12,13 @@ port/linux/include/stdio.h).
 
 #include <ctype.h>
 #include <errno.h>
+#ifndef HALO_PS3
 #include <fenv.h>
+#endif
 #include <fcntl.h>
+#ifndef HALO_PS3
 #include <fenv.h>
+#endif
 #include <float.h>
 #include <limits.h>
 #include <math.h>
@@ -35,6 +39,12 @@ size_t malloc_usable_size(void *pointer);
 /* the shim stdio.h maps these onto the MSVC names defined below */
 #undef fdopen
 #undef fileno
+
+#ifdef HALO_PS3
+/* lv2's open takes no close-on-exec flag (newlib's _FNOINHERIT) */
+#undef O_CLOEXEC
+#define O_CLOEXEC 0
+#endif
 
 /* ---------- strings */
 
@@ -621,6 +631,27 @@ int halo_linux_snprintf(char *buffer, size_t count, const char *format, ...)
 	return result;
 }
 
+#ifdef HALO_PS3
+/* the game's _vsnprintf: MSVC returns -1 when the text and its terminator do not fit (still terminated here) */
+int halo_linux_msvc_vsnprintf(char *buffer, size_t count, const char *format, va_list arguments)
+{
+	int length = halo_linux_vsnprintf(buffer, count, format, arguments);
+
+	return (size_t)length < count ? length : -1;
+}
+
+int halo_linux_msvc_snprintf(char *buffer, size_t count, const char *format, ...)
+{
+	va_list arguments;
+	int result;
+
+	va_start(arguments, format);
+	result = halo_linux_msvc_vsnprintf(buffer, count, format, arguments);
+	va_end(arguments);
+	return result;
+}
+#endif
+
 int halo_linux_vsprintf(char *buffer, const char *format, va_list arguments)
 {
 	char translated_format[1024];
@@ -639,10 +670,38 @@ int halo_linux_sprintf(char *buffer, const char *format, ...)
 	return result;
 }
 
+#ifdef HALO_PS3
+/* A retail PS3 has no console: stdout and stderr go to the UDP log, a line at a time (newlib's stdio has no
+locks). The game's log reaches it through OutputDebugStringA (HALO_CONSOLE_DEBUG_CHANNEL) */
+static volatile int log_spin;
+
+static int log_vfprintf(const char *format, va_list arguments)
+{
+	char text[2048];
+	int length;
+
+	while (__sync_lock_test_and_set(&log_spin, 1))
+		ps3_host_thread_yield();
+	length = vsnprintf(text, sizeof(text), format, arguments);
+	if (length > 0)
+	{
+		if (length > (int)sizeof(text) - 1)
+			length = sizeof(text) - 1;
+		ps3_host_log_text(text, (uint32_t)length);
+	}
+	__sync_lock_release(&log_spin);
+	return length;
+}
+#endif
+
 int halo_linux_vfprintf(FILE *stream, const char *format, va_list arguments)
 {
 	char translated_format[1024];
 
+#ifdef HALO_PS3
+	if (stream == stdout || stream == stderr)
+		return log_vfprintf(translate_format(format, translated_format, sizeof(translated_format)), arguments);
+#endif
 	return vfprintf(stream, translate_format(format, translated_format, sizeof(translated_format)), arguments);
 }
 
@@ -684,8 +743,18 @@ static const char *translated(const char *path, char *buffer, size_t size)
 FILE *halo_linux_fopen(const char *path, const char *mode)
 {
 	char host_path[1024];
+#ifdef HALO_PS3
+	FILE *file = fopen(translated(path, host_path, sizeof(host_path)), mode);
+	size_t length = strlen(path);
+
+	/* debug.txt unbuffered: the game's fflush races nothing then */
+	if (file && length >= 9 && !_stricmp(path + length - 9, "debug.txt"))
+		setvbuf(file, NULL, _IONBF, 0);
+	return file;
+#else
 
 	return fopen(translated(path, host_path, sizeof(host_path)), mode);
+#endif
 }
 
 FILE *halo_linux_freopen(const char *path, const char *mode, FILE *stream)
@@ -740,6 +809,23 @@ int _rmdir(const char *path)
 	return rmdir(translated(path, host_path, sizeof(host_path)));
 }
 
+#ifdef HALO_PS3
+/* lv2 has no current folder: paths are absolute */
+int _chdir(const char *path)
+{
+	(void)path;
+	errno = ENOSYS;
+	return -1;
+}
+
+char *_getcwd(char *buffer, int maximum_length)
+{
+	if (!buffer || maximum_length < 1)
+		return NULL;
+	snprintf(buffer, (size_t)maximum_length, "%s", platform_data_root());
+	return buffer;
+}
+#else
 int _chdir(const char *path)
 {
 	char host_path[1024];
@@ -751,6 +837,7 @@ char *_getcwd(char *buffer, int maximum_length)
 {
 	return getcwd(buffer, (size_t)maximum_length);
 }
+#endif
 
 static void stat_from_information(const struct posix_file_information *information, struct _stat *buffer)
 {

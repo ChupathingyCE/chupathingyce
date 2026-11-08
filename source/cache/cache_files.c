@@ -146,6 +146,14 @@ symbols in this file:
 #include "stubbs_mode.h"
 #endif
 #include "models/models.h"
+#ifdef HALO_PS3
+#include "physics/collision_bsp.h" /* port: collision_bsp_sphere_fast_forget */
+#include "ps3_timers.h"
+/* port: a bsp load's parts, for the switch's log line (port/ps3/src/ps3_timers.c) */
+#define PS3_BSP_PART(part) (ps3_span = ps3_bsp_part((part), ps3_span))
+#else
+#define PS3_BSP_PART(part) ((void)0)
+#endif
 
 /* ---------- constants */
 
@@ -166,6 +174,20 @@ enum
 #define CACHE_FILE_STRUCTURE_BSP_HEADER_SIGNATURE 'sbsp'
 #define CACHE_FILE_HEADER_SIGNATURE 'head'
 #define CACHE_FILE_FOOTER_SIGNATURE 'foot'
+#ifdef HALO_PS3
+/* port: unlike x86, the PPE can see the cache thread's read_complete before the data it covers */
+#define CACHE_IO_BARRIER() __sync_synchronize()
+#else
+#define CACHE_IO_BARRIER()
+#endif
+#ifdef HALO_PS3
+/* port: the level's bsps kept in RSX memory, read there ahead too (port/ps3/xbox/bsp_keep.c) */
+void bsp_keep_map(char const *name, long tag_data_offset, long tag_data_size);
+int bsp_keep_restore(long file_offset, long file_size, void *address);
+void bsp_keep_loaded(long file_offset, long file_size, void *address, void const *references, long count);
+void bsp_keep_checked(long file_offset, long file_size, void *address, int restored);
+extern struct scenario *global_scenario;
+#endif
 
 /* ---------- structures */
 
@@ -216,7 +238,12 @@ Custom Edition's resource maps, port/linux/game/ce_resources.c) */
 #define CACHE_FILE_RETAIL_VERSION 7
 #define CACHE_FILE_VERSION_IS_PC(version) \
 	((version) == CACHE_FILE_CE_VERSION || (version) == CACHE_FILE_RETAIL_VERSION)
+#ifdef HALO_CE_TAG_CACHE_BASE
+/* port: (a console where that address is taken: the tags' pointers moved as they load) */
+#define CE_TAG_CACHE_BASE HALO_CE_TAG_CACHE_BASE
+#else
 #define CE_TAG_CACHE_BASE 0x40440000U
+#endif
 #define CE_TAG_CACHE_SIZE 0x01700000U
 #ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
 /* a 64 MB console's Custom Edition tag cache, the Xbox's (port/xbox's
@@ -330,7 +357,13 @@ static char const *data_00316820[] =
 
 /* ---------- private code */
 
+#ifdef HALO_PS3
+/* port: (the PS3) cache_get_tag_instance as written, for an index the fast path below refuses (its asserts' calls
+keep a stack frame that a lookup that passes needs none of) */
+static struct cache_file_tag_instance *__attribute__((noinline)) cache_get_tag_instance_checked(
+#else
 static struct cache_file_tag_instance *cache_get_tag_instance(
+#endif
 	long tag_index)
 {
 	short absolute_index;
@@ -380,6 +413,24 @@ static struct cache_file_tag_instance *cache_get_tag_instance(
 
 	return tag_instance;
 }
+
+#ifdef HALO_PS3
+/* port: every check of cache_get_tag_instance_checked passed: its tag's instance */
+static struct cache_file_tag_instance *cache_get_tag_instance(
+	long tag_index)
+{
+	short absolute_index = (short)tag_index;
+
+	if (cache_file_globals.tags_loaded && global_tag_instances && absolute_index >= 0 &&
+		absolute_index < cache_file_globals.tag_header->tag_count &&
+		(!(tag_index & 0xFFFF0000) || global_tag_instances[absolute_index].tag_index == tag_index))
+	{
+		return &global_tag_instances[absolute_index];
+	}
+
+	return cache_get_tag_instance_checked(tag_index);
+}
+#endif
 
 /* port: the tag that a tag index that is not one gets (cache_get_tag_instance,
 tag_get): no group, no name, and data that is all zeros, which whatever
@@ -712,6 +763,9 @@ void scenario_tags_unload(
 	tags_header_deregister_vertex_and_index_buffers(cache_file_globals.tag_header);
 	cache_file_globals.tags_loaded = FALSE;
 	global_tag_instances = NULL;
+#ifdef HALO_PS3
+	collision_bsp_sphere_fast_forget(); /* port: (collision_bsp.h) */
+#endif
 
 	return;
 }
@@ -1700,6 +1754,20 @@ long scenario_tags_load(
 		{
 			struct cache_file_ce_tag_header *ce_header;
 
+#ifdef HALO_PS3
+			bsp_keep_map(NULL, 0, 0); /* port: (its reads are served in place) */
+			/* port: its tag cache's memory, the Xbox tag cache's while that holds nothing (port/ps3/game/ce_ps3.c) */
+			{
+				extern boolean ps3_ce_tag_cache_map(void);
+
+				if (!ps3_ce_tag_cache_map())
+				{
+					error(_error_silent, "Custom Edition map %s: no memory for its tag cache", scenario_name);
+					cache_file_close();
+					return NONE;
+				}
+			}
+#endif
 			tag_cache_base_address = xbox_pointer(CE_TAG_CACHE_BASE);
 #ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
 			/* port: a 64 MB console's tag cache is the Xbox's, by the page
@@ -1728,6 +1796,16 @@ long scenario_tags_load(
 				tag_cache_base_address, &read_complete, TRUE);
 			while (!read_complete)
 				SwitchToThread();
+#ifdef HALO_PS3
+			/* port: its tag header, index and tags in the console's byte order (port/ps3/xbox/xbox_tag_swap.c) */
+			if (read_complete == TRUE)
+			{
+				extern void ce_byte_swap_tags(void *tag_data, unsigned long address, long size);
+
+				CACHE_IO_BARRIER();
+				ce_byte_swap_tags(tag_cache_base_address, CE_TAG_CACHE_BASE, cache_file_globals.header.tag_data_size);
+			}
+#endif
 			ce_header = tag_cache_base_address;
 			/* port: tags that did not all read, or whose header is not a tag
 			header (a damaged map, or one in a format this build does not
@@ -1835,6 +1913,15 @@ long scenario_tags_load(
 						&read_complete, TRUE);
 					while (!read_complete)
 						SwitchToThread();
+#ifdef HALO_PS3
+					/* port: its vertices and strips in the console's byte order */
+					{
+						extern void ce_byte_swap_model_data(void *data, long size, long vertex_data_size);
+
+						CACHE_IO_BARRIER();
+						ce_byte_swap_model_data(model_data, ce_header->model_data_size, ce_header->vertex_data_size);
+					}
+#endif
 					if (!ce_models_tags_loaded(global_tag_instances, ce_header->tag_count, model_data,
 						ce_header->vertex_data_size))
 					{
@@ -1868,7 +1955,15 @@ long scenario_tags_load(
 			/* (none of the high-res HUD: Halo PC's HUD bitmaps are laid out
 			otherwise than the Xbox's it was drawn for, so a Custom Edition map
 			draws its own) */
-#ifndef HALO_CONSOLE_NO_HIRES
+#if defined(HALO_PS3)
+			/* port: but the PS3's button icons, which stand in for the message icons by the hooks, Halo PC's sheets
+			among them (port/ps3/xbox/hud_hires_rsx.c) */
+			{
+				extern void hud_hires_tags_loaded(long scenario_index);
+
+				hud_hires_tags_loaded(ce_header->scenario_tag_index);
+			}
+#elif !defined(HALO_CONSOLE_NO_HIRES)
 			{
 				extern void hud_hires_tags_unloaded(void);
 
@@ -1891,11 +1986,39 @@ long scenario_tags_load(
 
 				menu_tags_loaded(cache_file_globals.header.name);
 			}
+#ifdef HALO_PS3
+			/* port: the vertices the draws keep copies of are in this tag cache now (port/ps3/xbox/d3d8_rsx.c) */
+			{
+				extern void d3d8_tag_cache_replaced(void const *address, unsigned long size);
+
+				d3d8_tag_cache_replaced(tag_cache_base_address, CE_TAG_CACHE_SIZE);
+			}
+#endif
 			return ce_header->scenario_tag_index;
 		}
 #endif
 		if (cache_file_header_verify(&cache_file_globals.header, scenario_name, TRUE))
 		{
+#ifdef HALO_PS3
+			/* port: the Direct3D thread's draws read the tag cache until they are done (port/ps3/xbox/d3d8_rsx.c) */
+			{
+				extern void d3d8_tag_cache_loading(void);
+
+				d3d8_tag_cache_loading();
+			}
+#ifdef HALO_CUSTOM_EDITION
+			/* port: the tag cache's memory back from a Custom Edition map's (port/ps3/game/ce_ps3.c) */
+			{
+				extern void ps3_ce_tag_cache_unmap(void);
+
+				ps3_ce_tag_cache_unmap();
+			}
+#endif
+			bsp_keep_map(
+				cache_file_globals.header.name,
+				cache_file_globals.header.tag_data_offset,
+				cache_file_globals.header.tag_data_size);
+#endif
 			csmemset(tag_cache_base_address, 0xCD, 0x01600000);
 			cache_file_read(
 				NONE,
@@ -1908,6 +2031,15 @@ long scenario_tags_load(
 			{
 				SwitchToThread();
 			}
+			CACHE_IO_BARRIER(); /* port: (the PS3's) */
+#ifdef HALO_PS3
+			/* port: the RSX copies of vertices go; the next draws make them again (port/ps3/xbox/d3d8_rsx.c) */
+			{
+				extern void d3d8_tag_cache_replaced(void const *address, unsigned long size);
+
+				d3d8_tag_cache_replaced(tag_cache_base_address, 0x01600000);
+			}
+#endif
 
 			/* port: tags that did not all read, or whose header cannot be
 			trusted, are not loaded: the map is refused, as one whose header
@@ -1944,6 +2076,15 @@ long scenario_tags_load(
 				tag_cache_base_address,
 				XBOX_ADDRESS(tag_cache_base_address),
 				cache_file_globals.header.tag_data_size);
+#ifdef HALO_PS3
+			/* port: and the models' vertices, which the swap leaves as the Xbox's, in the order the RSX copies read
+			them (port/ps3/xbox/xbox_tag_swap.c, d3d8_rsx.c) */
+			{
+				extern void cache_files_swap_tag_vertices(void *tag_data, long size);
+
+				cache_files_swap_tag_vertices(tag_cache_base_address, cache_file_globals.header.tag_data_size);
+			}
+#endif
 #endif
 #if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
 			/* port: Stubbs the Zombie's tags in Halo's layouts, in Stubbs
@@ -1976,10 +2117,18 @@ long scenario_tags_load(
 				csprintf(
 					temporary,
 					"signature is '%c%c%c%c', should be '%c%c%c%c'",
+#ifdef HALO_BIG_ENDIAN
+					/* port: the letters by value, whatever the byte order */
+					(char)(cache_file_globals.tag_header->signature >> 24),
+					(char)(cache_file_globals.tag_header->signature >> 16),
+					(char)(cache_file_globals.tag_header->signature >> 8),
+					(char)cache_file_globals.tag_header->signature,
+#else
 					((char *)&cache_file_globals.tag_header->signature)[3],
 					((char *)&cache_file_globals.tag_header->signature)[2],
 					((char *)&cache_file_globals.tag_header->signature)[1],
 					((char *)&cache_file_globals.tag_header->signature)[0],
+#endif
 					't',
 					'a',
 					'g',
@@ -2041,6 +2190,11 @@ boolean scenario_structure_bsp_load(
 	byte *tag_cache_base_address;
 	/* port: the bsp's header, once read and checked */
 	struct cache_file_structure_bsp_header *structure_bsp_header;
+#ifdef HALO_PS3
+	uint64_t ps3_span = ps3_timer_now();
+	/* port: how its kept copy came back (port/ps3/xbox/bsp_keep.c): 2 already swapped and checked, 1 as read, 0 none */
+	int kept = 0;
+#endif
 
 	/* port: the tag data's size was checked as the map loaded
 	(cache_file_header_verify); the bsp's reference is the map's, and is
@@ -2059,6 +2213,15 @@ boolean scenario_structure_bsp_load(
 	}
 
 	tag_cache_base_address = physical_memory_get_tag_cache_base_address();
+#ifdef HALO_PS3
+	/* port: the Direct3D thread's draws read the tag cache until they are done (port/ps3/xbox/d3d8_rsx.c) */
+	{
+		extern void d3d8_tag_cache_loading(void);
+
+		d3d8_tag_cache_loading();
+	}
+#endif
+	PS3_BSP_PART(_ps3_bsp_drain); /* port: (the timer build) */
 #ifdef HALO_CUSTOM_EDITION
 	/* port: (not a Custom Edition map's: its tags are in a tag cache of their
 	own, and may be more than the Xbox's holds) */
@@ -2068,9 +2231,16 @@ boolean scenario_structure_bsp_load(
 		tag_cache_base_address + cache_file_globals.header.tag_data_size,
 		0xCD,
 		0x01600000 - cache_file_globals.header.tag_data_size);
+	PS3_BSP_PART(_ps3_bsp_fill); /* port: (the timer build) */
 	{
 		boolean read_complete;
 
+#ifdef HALO_PS3
+		/* port: a bsp kept in RSX memory comes from there, not from the disk */
+		kept = bsp_keep_restore(reference->file_offset, reference->file_size, xbox_pointer(reference->base_address));
+		read_complete = kept ? TRUE : FALSE;
+		if (!kept)
+#endif
 		cache_file_read(
 			NONE,
 			reference->file_offset,
@@ -2086,14 +2256,31 @@ boolean scenario_structure_bsp_load(
 				sound_idle();
 			}
 		}
+		CACHE_IO_BARRIER(); /* port: (the PS3's) */
+		PS3_BSP_PART(_ps3_bsp_read); /* port: (the timer build) */
 
 		/* port: a bsp that did not all read, or whose header's pointers
 		leave what was read, is not loaded */
 		structure_bsp_header = xbox_pointer(reference->base_address);
 #ifdef HALO_BIG_ENDIAN
 		/* port: its header and buffers in the console's byte order */
-		if (read_complete == TRUE)
+		if (read_complete == TRUE
+#ifdef HALO_PS3
+			/* port: (but a copy kept checked, which was swapped before it was kept: port/ps3/xbox/bsp_keep.c) */
+			&& kept != 2
+#endif
+			)
 		{
+#if defined(HALO_CUSTOM_EDITION) && defined(HALO_PS3)
+			/* port: a Custom Edition map's, its pointers moved with its tag cache (port/ps3/xbox/xbox_tag_swap.c) */
+			if (cache_file_is_ce)
+			{
+				extern void ce_byte_swap_structure_bsp(void *bsp, unsigned long address, long size);
+
+				ce_byte_swap_structure_bsp(structure_bsp_header, reference->base_address, reference->file_size);
+			}
+			else
+#endif
 			if (cache_file_structure_bsp_byte_swap(
 				structure_bsp_header,
 				reference->base_address,
@@ -2104,7 +2291,38 @@ boolean scenario_structure_bsp_load(
 					structure_bsp_header->base_address,
 					reference->base_address,
 					reference->file_size);
+#ifdef HALO_PS3
+				/* port: and its vertices, as the models' above */
+				{
+					extern void cache_files_swap_structure_bsp_vertices(void *structure_bsp, long size);
+
+					cache_files_swap_structure_bsp_vertices(structure_bsp_header, reference->file_size);
+				}
+#endif
 			}
+		}
+#endif
+#ifdef HALO_PS3
+		{
+			extern void d3d8_tag_cache_loaded(void const *address, unsigned long size);
+			long reference_count = global_scenario ? global_scenario->structure_bsp_references.count : 0;
+
+			PS3_BSP_PART(_ps3_bsp_swap);
+			bsp_keep_loaded(reference->file_offset, reference->file_size, xbox_pointer(reference->base_address),
+				reference_count > 0 ? TAG_BLOCK_GET_ELEMENT(
+					&global_scenario->structure_bsp_references,
+					0,
+					struct scenario_structure_bsp_reference) : NULL, reference_count);
+			PS3_BSP_PART(_ps3_bsp_keep);
+			/* port: the RSX copies of vertices go; the next draws make them again (port/ps3/xbox/d3d8_rsx.c) */
+#ifdef HALO_CUSTOM_EDITION
+			if (cache_file_is_ce)
+				d3d8_tag_cache_loaded(xbox_pointer(CE_TAG_CACHE_BASE), CE_TAG_CACHE_SIZE);
+			else
+#endif
+			d3d8_tag_cache_loaded(tag_cache_base_address + cache_file_globals.header.tag_data_size,
+				0x01600000 - cache_file_globals.header.tag_data_size);
+			PS3_BSP_PART(_ps3_bsp_tag_cache);
 		}
 #endif
 		if (read_complete != TRUE ||
@@ -2154,6 +2372,10 @@ boolean scenario_structure_bsp_load(
 	stubbs_mode_convert_structure_bsp(xbox_pointer(reference->base_address), reference->file_size);
 #endif
 #ifndef HALO_CONSOLE_NO_TAG_VALIDATE
+#ifdef HALO_PS3
+	/* port: (a copy kept after these checks holds the bytes they made: they find nothing more) */
+	if (kept != 2)
+#endif
 	if (
 #ifdef HALO_CUSTOM_EDITION
 		!cache_file_is_ce &&
@@ -2165,6 +2387,11 @@ boolean scenario_structure_bsp_load(
 	{
 		return FALSE;
 	}
+#endif
+	PS3_BSP_PART(_ps3_bsp_checks); /* port: (the timer build) */
+#ifdef HALO_PS3
+	bsp_keep_checked(reference->file_offset, reference->file_size, xbox_pointer(reference->base_address), kept);
+	PS3_BSP_PART(_ps3_bsp_keep);
 #endif
 
 	cache_file_globals.structure_bsp_header = structure_bsp_header;
@@ -2196,6 +2423,7 @@ boolean scenario_structure_bsp_load(
 		0xEB,
 		tag_instance->group_tag==STRUCTURE_BSP_TAG);
 	tag_instance->base_address = cache_file_globals.structure_bsp_header->base_address;
+	PS3_BSP_PART(_ps3_bsp_register); /* port: (the timer build) */
 
 	return TRUE;
 }
@@ -2225,11 +2453,19 @@ void scenario_structure_bsp_unload(
 		tag_instance->group_tag==STRUCTURE_BSP_TAG);
 	tag_instance->base_address = XBOX_NULL;
 	cache_file_globals.structure_bsp_header = NULL;
+#ifdef HALO_PS3
+	collision_bsp_sphere_fast_forget(); /* port: (collision_bsp.h) */
+#endif
 
 	return;
 }
 
+#ifdef HALO_PS3
+/* port: (the PS3) tag_get as written, for a tag the fast path below refuses */
+static void *__attribute__((noinline)) tag_get_checked(
+#else
 void *tag_get(
+#endif
 	long group_tag,
 	long tag_index)
 {
@@ -2270,6 +2506,31 @@ void *tag_get(
 	
 	return xbox_pointer(tag_instance->base_address);
 }
+
+#ifdef HALO_PS3
+/* port: every check of tag_get_checked passed: a loaded tag of the group, or of a parent group, with its data */
+void *tag_get(
+	long group_tag,
+	long tag_index)
+{
+	short absolute_index = (short)tag_index;
+
+	if (cache_file_globals.tags_loaded && global_tag_instances && absolute_index >= 0 &&
+		absolute_index < cache_file_globals.tag_header->tag_count)
+	{
+		struct cache_file_tag_instance *tag_instance = &global_tag_instances[absolute_index];
+		/* (each test a bit, one branch for them all: the group's three were often mispredicted) */
+		unsigned long same_index = !(tag_index & 0xFFFF0000) | !(tag_instance->tag_index ^ tag_index);
+		unsigned long same_group = !(tag_instance->group_tag ^ group_tag) |
+			!(tag_instance->parent_group_tags[0] ^ group_tag) | !(tag_instance->parent_group_tags[1] ^ group_tag);
+
+		if (same_index & same_group & (tag_instance->base_address != XBOX_NULL))
+			return xbox_pointer(tag_instance->base_address);
+	}
+
+	return tag_get_checked(group_tag, tag_index);
+}
+#endif
 
 /* whether the index is a loaded tag of the group (or a group it inherits
 from): the distributed netcode names tags another machine sent

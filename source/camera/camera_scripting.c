@@ -68,7 +68,14 @@ enum
 
 struct camera_control
 {
+#ifdef HALO_BIG_ENDIAN
+	/* port: as director.c writes it: a long read here would have the short in its high half */
+	short local_player_index;
+	boolean active;
+	byte pad3;
+#else
 	long unknown0;
+#endif
 	real seconds_elapsed;
 };
 
@@ -505,7 +512,11 @@ void scripted_camera_update(
 			{
 				dead_camera_new(
 					camera,
+#ifdef HALO_BIG_ENDIAN
+					controls->local_player_index, /* port: (the struct above) */
+#else
 					(short)controls->unknown0,
+#endif
 					camera_script_globals.relative_object_index);
 			}
 			dead_camera_update(camera, controls, result);

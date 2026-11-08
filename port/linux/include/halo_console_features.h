@@ -327,6 +327,23 @@ larger maps take a campaign map's there as well) */
 #endif
 #endif
 
+/* the PS3 (Matt's halo-ps3): LP64 and big-endian, its own Direct3D on the RSX (port/ps3/xbox/d3d8_rsx.c),
+which copies a draw's vertices, so it keeps d3d8_resources.c's HALO_PS3 waits, not the GPU resource hooks */
+#ifdef HALO_PS3_CONSOLE
+#define HALO_CONSOLE_PARTICLE_TICKS 1
+#define HALO_CONSOLE_MAP_LOAD_HOOKS 1
+#define HALO_CONSOLE_XBOX_RENDER_SIZES 1
+#define HALO_CONSOLE_DEBUG_CHANNEL 1
+#define HALO_CONSOLE_HALT_TO_LAUNCHER 1
+#define HALO_CONSOLE_LOG_BUFFER 1
+#define HALO_CONSOLE_HIRES 1
+#define HALO_CONSOLE_ONLINE_GAMES 1
+/* (the one-second wait before the host's transport closes, which the PS3 had before it became a feature) */
+#define HALO_CONSOLE_SERVER_CLOSE_GRACE 1
+/* (the menus' pictures: 1x textures of our own, port/ps3/xbox/menu_art_rsx.c) */
+#define HALO_CONSOLE_MENU_PLATFORM "ps3"
+#endif
+
 #if (defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
 	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE)) && !defined(HALO_CONSOLE_NO_LOADING_PICTURE)
 #define HALO_CONSOLE_NO_LOADING_PICTURE 1

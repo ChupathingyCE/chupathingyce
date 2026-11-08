@@ -88,6 +88,9 @@ symbols in this file:
 
 #include "cseries.h"
 #include "real_math.h"
+#ifdef HALO_PS3
+#include "ps3_vmx.h" /* port: port/ps3/src/ps3_vmx.c */
+#endif
 
 /* ---------- constants */
 
@@ -936,6 +939,14 @@ void matrix4x3_multiply(
 	real *result_elements = result->n[0];
 	real const *a_scale = &a->scale;
 
+#ifdef HALO_PS3
+	/* port: the same operations in VMX's lanes, when they are exact */
+	if (ps3_vmx_exact())
+	{
+		ps3_vmx_matrix4x3_multiply(&a->scale, &b->scale, &result->scale);
+		return;
+	}
+#endif
 	{
 		/* the SSE block below: rows of b combine the rows of a, and the
 		position is scaled by a's scale before a's own is added */

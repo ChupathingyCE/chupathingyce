@@ -251,6 +251,19 @@ symbols in this file:
 #include "units/vehicle_definitions.h"
 #include "units/vehicles.h"
 
+#ifdef HALO_PS3
+#include "ps3_timers.h"
+
+typedef char ps3_actions_assert[
+	_ps3_timer_action_avoid - _ps3_timer_action_none + 1 == NUMBER_OF_ACTOR_ACTIONS ? 1 : -1];
+
+/* port: the timer build's action control by the action it ran for (port/ps3/include/ps3_timers.h) */
+#define PS3_ACTION_ADD(action, span) ((void)(VALID_INDEX((action), NUMBER_OF_ACTOR_ACTIONS) ? \
+	(ps3_timer_add(_ps3_timer_action_none + (action), (span)), ps3_timer_counts[_ps3_timer_action_none + (action)]++) : 0))
+#else
+#define PS3_ACTION_ADD(action, span) ((void)0)
+#endif
+
 /* ---------- constants */
 
 enum
@@ -540,7 +553,8 @@ struct action_specification const global_action_functions[NUMBER_OF_ACTOR_ACTION
 		&action_uncover_modify_color,
 		NULL,
 		&action_uncover_flush_position_indices,
-		NULL
+		/* port: was NULL, so a BSP switch kept the old BSP's cluster (scenario.c's PVS assert) */
+		&action_uncover_flush_structure_indices
 	},
 	{
 		6,
@@ -572,7 +586,7 @@ struct action_specification const global_action_functions[NUMBER_OF_ACTOR_ACTION
 		NULL,
 		NULL,
 		&action_search_flush_position_indices,
-		NULL
+		&action_search_flush_structure_indices /* port: was NULL (uncover's) */
 	},
 	{
 		8,
@@ -604,7 +618,7 @@ struct action_specification const global_action_functions[NUMBER_OF_ACTOR_ACTION
 		NULL,
 		NULL,
 		NULL,
-		NULL
+		&action_vehicle_flush_structure_indices /* port: was NULL (uncover's) */
 	},
 	{
 		10,
@@ -636,7 +650,7 @@ struct action_specification const global_action_functions[NUMBER_OF_ACTOR_ACTION
 		NULL,
 		NULL,
 		NULL,
-		NULL
+		&action_obey_flush_structure_indices /* port: was NULL (uncover's) */
 	},
 	{
 		12,
@@ -740,6 +754,10 @@ void actor_action_control(
 	long actor_index)
 {
 	struct actor_datum *actor = actor_get(actor_index);
+#ifdef HALO_PS3
+	short ps3_action = actor->state.action;
+	uint64_t ps3_span = ps3_timer_now();
+#endif
 
 	match_assert(
 		"c:\\halo\\SOURCE\\ai\\actions.c",
@@ -749,6 +767,7 @@ void actor_action_control(
 	if (global_action_functions[actor->state.action].control)
 		global_action_functions[actor->state.action].control(actor_index);
 
+	PS3_ACTION_ADD(ps3_action, ps3_span); /* port: (the timer build) */
 	return;
 }
 
