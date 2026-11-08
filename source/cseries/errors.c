@@ -64,6 +64,8 @@ symbols in this file:
 #include "interface/terminal.h"
 
 #include <stdarg.h>
+#include <stdio.h>
+#include <string.h>
 #include <time.h>
 
 /* ---------- constants */
@@ -635,6 +637,60 @@ void errors_initialize(
 	return;
 }
 
+/* port: a line error() wrote moments ago, said again, is counted, not
+written; every 1000th repeat says so. A script or a binding that errs
+every tick or frame wrote and flushed debug.txt each time, on whatever
+thread said it, which costs milliseconds a line on a slow card. The four
+latest lines are remembered, so two that alternate are held too; a line
+not seen for 5 seconds is written again */
+static boolean error_repeat_held(
+	char const *string)
+{
+	enum
+	{
+		RECENT_LINES = 4
+	};
+	static struct
+	{
+		unsigned long hash;
+		unsigned long repeats;
+		long seen;
+		char text[160];
+	} recent[RECENT_LINES];
+	static unsigned long next;
+	unsigned long hash = 2166136261UL;
+	long now = system_milliseconds();
+	char const *c;
+	int k;
+
+	for (c = string; *c; c++)
+		hash = (hash ^ (unsigned char)*c) * 16777619UL;
+	for (k = 0; k < RECENT_LINES; k++)
+	{
+		if (recent[k].hash == hash && !strncmp(recent[k].text, string, sizeof(recent[k].text) - 1) &&
+			strlen(string) < sizeof(recent[k].text) && (unsigned long)(now - recent[k].seen) < 5000)
+		{
+			recent[k].seen = now;
+			if (++recent[k].repeats % 1000 == 0)
+			{
+				char line[200];
+
+				snprintf(line, sizeof(line), "(the line before was said %lu more times: \"%.80s\")\r\n",
+					recent[k].repeats, string);
+				write_to_error_file(line, TRUE);
+			}
+			return TRUE;
+		}
+	}
+	k = (int)(next++ % RECENT_LINES);
+	recent[k].hash = hash;
+	recent[k].repeats = 0;
+	recent[k].seen = now;
+	strncpy(recent[k].text, string, sizeof(recent[k].text) - 1);
+	recent[k].text[sizeof(recent[k].text) - 1] = 0;
+	return FALSE;
+}
+
 void error(
 	short priority,
 	const char *format,
@@ -692,7 +748,8 @@ void error(
 			/* (port: the file first: printing used to halt on a long line
 			while this call still held the lock, and the reason never reached
 			debug.txt) */
-			write_to_error_file(string, TRUE);
+			if (!error_repeat_held(string))
+				write_to_error_file(string, TRUE);
 
 			/* (port: on screen as config.toml's game.console_log says: an
 			assert that stops the game, and what a command someone typed
