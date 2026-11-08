@@ -107,6 +107,9 @@ campaign's has six pieces) */
 #define MAXIMUM_TEXT 2048
 /* the size of a menu bitmap's D3D texture, which only stands for its PNG */
 #define PLACEHOLDER_SIZE 4
+#ifdef HALO_PS3
+int menu_art_rsx_button(char const *tag);
+#endif
 
 enum
 {
@@ -913,6 +916,15 @@ static void *bitmap_build(struct halo_menu_bitmap const *source, long tag_index)
 		{
 			png = BLANK_PNG;
 			width = height = PLACEHOLDER_SIZE;
+#ifdef HALO_PS3
+			/* (ui.map's button: the PS3's own icon for it, port/ps3/xbox/menu_art_rsx.c) */
+			if (menu_art_rsx_button(data->map))
+			{
+				png = data->map;
+				width = data->width > 0 ? data->width : 32;
+				height = data->height > 0 ? data->height : 32;
+			}
+#endif
 		}
 		else if (data->map)
 		{
