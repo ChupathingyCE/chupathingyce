@@ -1756,6 +1756,16 @@ stats.chupathingy.org/connect (and its QR code), then A to confirm.
   linked console shares its ID in Delta Peer's PROFILE
   (`HALO_CONSOLE_PROFILE_ID`), so its games count and Delta players see its
   Delta name. A console that never asked for a code sends nothing.
+- **Its games:** after each online game it hosted or joined, a linked
+  console claims its own line (`port/console/reports/console_claims.c`,
+  `HALO_CONSOLE_GAME_CLAIMS`). It asks for a one-use challenge
+  (`/v1/claim_challenge`), then signs it with its line's name and numbers
+  and the game's invite or host name, map, length and how long ago it
+  ended (`/v1/console/claim`). The site gives that line to the console's
+  ID, so the game counts for the profile, even one the console hosted,
+  which sends no report. Plain HTTP, nothing secret; tried again a few
+  times while the game's reports come in. `report_joined_games = false`
+  turns it off too.
 - **Unlinking** is on the site (`/profile#copies`). The original Xbox's
   identity file (`D:\game_list_player.key`) still works, and wins when
   present.
