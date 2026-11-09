@@ -101,6 +101,13 @@ slot, about 1.7 MB; a console draws them as sampled each tick, as retail */
 #define HALO_CONSOLE_NO_SMOOTH_FUNCTIONS
 #endif
 
+/* a stream of particles from an object made through the tick, on the
+emitter as drawn (port/linux/game/render_interpolation.c): about 64 KB held
+back; a console makes them all at the tick, as retail */
+#ifndef HALO_CONSOLE_NO_PARTICLE_STREAMS
+#define HALO_CONSOLE_NO_PARTICLE_STREAMS
+#endif
+
 /* the Controls screen (port/linux/game/controls_screen.c), the pause menu's
 CONTROLS and the controller's custom layout (port/linux/src/controller_layout.c):
 a console keeps its profile's layouts; the switch also leaves out
