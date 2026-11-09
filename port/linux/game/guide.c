@@ -1385,7 +1385,9 @@ static void render_friend_detail(struct friend_item const *item)
 	boolean busy;
 
 	line[0] = 0;
-	ui_style_surface(x, BODY_Y, width, BODY_BOTTOM - BODY_Y, 8, COLOR_DETAIL, COLOR_ROW_EDGE, FALSE);
+	/* (calm glass: the plasma is the selection's alone) */
+	ui_overlay_rect(x, BODY_Y, width, BODY_BOTTOM - BODY_Y, 8, COLOR_DETAIL);
+	ui_overlay_outline(x, BODY_Y, width, BODY_BOTTOM - BODY_Y, 8, 1.0f, COLOR_ROW_EDGE);
 	if (item->kind == _item_offline)
 	{
 		snprintf(line, sizeof(line), "OFFLINE (%d)", item->index);
