@@ -6,7 +6,10 @@ The game's text drawn with fonts at the display's resolution (text_hires.h).
 Each font tag the fonts draw (port/assets/fonts/fonts.json) gets its font
 sized so that its capitals are as tall as the tag's: the game's layout,
 from the tag's character widths, is kept, and the fonts were chosen to fit
-those widths. A glyph is rasterized when first drawn, at the display's
+the Xbox maps' widths. A tag whose letters are narrower than its font's (a
+Custom Edition loc.map's) gets the font narrowed until its letters are, on
+the whole, as wide as the tag's, so that they do not run into each other.
+A glyph is rasterized when first drawn, at the display's
 pixels per unit of the 480 lines, into an 8-bit atlas; the GL texture the
 game's placeholder bitmap stands for (xbox_textures.c) is the atlas, its new
 rows uploaded when the placeholder is bound. A change of the display's
@@ -35,7 +38,9 @@ when the settings change while the game runs.
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "../../third_party/stb/stb_truetype.h"
 
-#define MAXIMUM_FONTS 8
+/* (the Xbox maps' tags and a Custom Edition loc.map's, which share names,
+each at its oversamples) */
+#define MAXIMUM_FONTS 16
 #define ATLAS_SIZE 2048
 /* clear texels around each glyph, so that filtering never reaches the next */
 #define ATLAS_PADDING 2
@@ -55,6 +60,10 @@ static struct
 	float oversample;
 	/* the height of the tag's capitals, which it is sized to */
 	float cap_height;
+	/* the tag's letters' widths (text_hires_font), which it is narrowed to,
+	and their sum */
+	short letter_widths[TEXT_HIRES_FIT_LETTERS];
+	long letters_width;
 } fonts[MAXIMUM_FONTS];
 static long font_count;
 
@@ -200,6 +209,31 @@ static const struct text_hires_embedded *embedded_font(const char *tag_name)
 	return NULL;
 }
 
+/* the slot's font narrowed where its letters are, summed, wider than its
+tag's (a Custom Edition loc.map's fonts are narrower than the Xbox maps'),
+so that they do not run into each other; returns how wide it is drawn */
+static float font_fit(long font)
+{
+	float tag_width = 0.0f;
+	float font_width = 0.0f;
+	int letter;
+
+	for (letter = 0; letter < TEXT_HIRES_FIT_LETTERS; letter++)
+	{
+		int glyph = stbtt_FindGlyphIndex(&fonts[font].info, letter < 26 ? 'A' + letter : 'a' + letter - 26);
+		int advance = 0, bearing = 0;
+
+		if (fonts[font].letter_widths[letter] <= 0 || !glyph)
+			continue;
+		stbtt_GetGlyphHMetrics(&fonts[font].info, glyph, &advance, &bearing);
+		tag_width += fonts[font].letter_widths[letter];
+		font_width += advance * fonts[font].scale * fonts[font].width;
+	}
+	if (tag_width > 0.0f && font_width > tag_width)
+		fonts[font].width *= tag_width / font_width;
+	return fonts[font].width;
+}
+
 /* the font of a slot read (again), from the player's file for its role or
 else its built-in one: its scale 0 when it has none */
 static void font_load(long font)
@@ -222,7 +256,8 @@ static void font_load(long font)
 			/* (a player's font as it is drawn: its own width) */
 			fonts[font].width = 1.0f;
 			fonts[font].scale = fonts[font].cap_height / (float)(y1 - y0);
-			platform_log("high-res text: %s drawn with %s", fonts[font].tag, player_fonts[large].path);
+			platform_log("high-res text: %s (capitals %.0f units) drawn with %s, %.0f%% wide", fonts[font].tag,
+				fonts[font].cap_height, player_fonts[large].path, font_fit(font) * 100.0f);
 			return;
 		}
 	}
@@ -236,7 +271,8 @@ static void font_load(long font)
 			return;
 		}
 		fonts[font].scale = fonts[font].cap_height / (float)(y1 - y0);
-		platform_log("high-res text: %s drawn with %s", fonts[font].tag, embedded->file);
+		platform_log("high-res text: %s (capitals %.0f units) drawn with %s, %.0f%% wide", fonts[font].tag,
+			fonts[font].cap_height, embedded->file, font_fit(font) * 100.0f);
 	}
 }
 
@@ -273,20 +309,29 @@ static void player_fonts_check(void)
 	atlas_scale = -1.0f;
 }
 
-long text_hires_font(char const *tag_name, float cap_height, float oversample)
+long text_hires_font(char const *tag_name, float cap_height, short const *letter_widths, float oversample)
 {
 	long font;
+	long letters_width = 0;
+	int letter;
 
-	if (!text_hires_enabled() || !tag_name || cap_height <= 0.0f)
+	if (!text_hires_enabled() || !tag_name || cap_height <= 0.0f || !letter_widths)
 		return -1;
 	player_fonts_check();
 	/* (text is never drawn with fewer pixels than the display's) */
 	if (oversample < 1.0f)
 		oversample = 1.0f;
+	for (letter = 0; letter < TEXT_HIRES_FIT_LETTERS; letter++)
+		letters_width += letter_widths[letter] > 0 ? letter_widths[letter] : 0;
+	/* (by the tag's measures too: the Xbox maps and a Custom Edition loc.map
+	have tags of the same names with other measures) */
 	for (font = 0; font < font_count; font++)
 	{
-		if (!names_differ(fonts[font].tag, tag_name) && fonts[font].oversample == oversample)
+		if (!names_differ(fonts[font].tag, tag_name) && fonts[font].cap_height == cap_height &&
+			fonts[font].letters_width == letters_width && fonts[font].oversample == oversample)
+		{
 			return fonts[font].scale > 0.0f ? font : -1;
+		}
 	}
 	if (font_count >= MAXIMUM_FONTS)
 		return -1;
@@ -294,6 +339,8 @@ long text_hires_font(char const *tag_name, float cap_height, float oversample)
 	snprintf(fonts[font].tag, sizeof(fonts[font].tag), "%s", tag_name);
 	fonts[font].oversample = oversample;
 	fonts[font].cap_height = cap_height;
+	memcpy(fonts[font].letter_widths, letter_widths, sizeof(fonts[font].letter_widths));
+	fonts[font].letters_width = letters_width;
 	font_load(font);
 	return fonts[font].scale > 0.0f ? font : -1;
 }

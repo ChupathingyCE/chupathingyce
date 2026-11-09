@@ -1764,7 +1764,21 @@ void platform_video_swap(void)
 	/* (the device presents: d3d8_bgfx.inl; this paces the frames) */
 	if (!xgpu_bgfx)
 #endif
-	SDL_GL_SwapWindow(platform_window);
+	{
+		/* the window's framebuffer bound for reading too, as the frame is
+		shown: a capture hooked into the swap (OBS's game capture) copies
+		from whatever is bound for reading, and the render target the frame
+		was blitted from holds it upside down (row 0 the top) */
+		if (platform_gl_context)
+		{
+#ifdef HALO_IOS
+			glBindFramebuffer(GL_READ_FRAMEBUFFER, platform_window_framebuffer());
+#else
+			glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+#endif
+		}
+		SDL_GL_SwapWindow(platform_window);
+	}
 	/* (a frame the graphics driver held for seconds: the game froze, and
 	online, a host stops hearing a machine after a few; the log says where) */
 	swap_time = SDL_GetTicks() - swap_start;
@@ -2661,6 +2675,20 @@ void platform_pump_events(void)
 			}
 #endif
 			break;
+#if !defined(HALO_ANDROID) || defined(HALO_IOS)
+		case SDL_EVENT_GAMEPAD_REMOVED:
+			/* (SDL keeps a gamepad open until it is closed, even once the
+			controller has gone: each one plugged in again was opened anew
+			and the old one never let go. Android's guest has no
+			SDL_CloseGamepad in host_imports.list) */
+			{
+				SDL_Gamepad *gamepad = SDL_GetGamepadFromID(event.gdevice.which);
+
+				if (gamepad)
+					SDL_CloseGamepad(gamepad);
+			}
+			break;
+#endif
 #ifdef __APPLE__
 		case SDL_EVENT_DROP_FILE:
 		case SDL_EVENT_DROP_TEXT:
