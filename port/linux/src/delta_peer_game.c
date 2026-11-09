@@ -444,7 +444,10 @@ static int game_identity_check(void *context, const struct delta_wire_id_proof *
 	memcpy(identity->device_id, device.device_id, sizeof(identity->device_id));
 	memcpy(identity->device_key, device.public_key, sizeof(identity->device_key));
 	snprintf(identity->handle, sizeof(identity->handle), "%s", device.handle);
-	snprintf(identity->tag, sizeof(identity->tag), "%s", proof->tag);
+	/* (the name shows only as the handle in other capitals: anything else a
+	proof says is no name of this account's) */
+	if (identity_tag_is_handle(proof->tag, device.handle))
+		snprintf(identity->tag, sizeof(identity->tag), "%s", proof->tag);
 	identity->platform = device.platform;
 	identity->flags = device.flags;
 	identity->capabilities = (delta_u32)device.capabilities;
@@ -456,8 +459,9 @@ static int game_identity_check(void *context, const struct delta_wire_id_proof *
 /* a local player's proof (with proof NULL, only whether it would): its
 player shares their profile (network.share_profile), its Halo profile is
 signed in (not a guest: profile_names_local_account), and this copy holds
-an in-date certificate with a profile for that account; the tag is the
-profile's own, as the site last answered (none: the handle shows) */
+an in-date certificate with a profile for that account; the name is the
+handle in the capitals the profile picked, as the site last answered
+(none: the handle shows) */
 static int game_identity_prove(void *context, int local_player, const unsigned char *nonce, const char *binding,
 	int binding_length, int machine_index, struct delta_wire_id_proof *made)
 {
@@ -485,10 +489,11 @@ static int game_identity_prove(void *context, int local_player, const unsigned c
 	memcpy(made->certificate, certificate, (size_t)certificate_size);
 	memcpy(made->issuer, issuer, IDENTITY_ISSUER_SIZE);
 	browser_profile_get(&status, &profile);
-	length = (int)strlen(profile.tag);
-	if (!strcmp(profile.handle, device.handle) && identity_tag_valid(profile.tag, length))
+	length = (int)strlen(profile.display);
+	if (!strcmp(profile.handle, device.handle) && identity_tag_valid(profile.display, length) &&
+		identity_tag_is_handle(profile.display, device.handle))
 	{
-		memcpy(made->tag, profile.tag, (size_t)length);
+		memcpy(made->tag, profile.display, (size_t)length);
 		made->tag_length = length;
 	}
 	size = identity_proof_message(nonce, binding, binding_length, machine_index, local_player, device.serial,

@@ -280,10 +280,10 @@ void identity_confirmed(struct identity_state *state, unsigned long now);
 
 enum
 {
-	/* a Delta Tag: 3 to 24 of A-Z a-z 0-9 space _ - . (no space first or
-	last, nor two in a row) */
+	/* a player's name: their handle (the Delta Tag) in the capitals they
+	picked, 3 to 20 of A-Z a-z 0-9 _ - */
 	IDENTITY_TAG_LEAST = 3,
-	IDENTITY_TAG_MOST = 24,
+	IDENTITY_TAG_MOST = IDENTITY_HANDLE_MOST,
 	/* the host's nonce, its binding (its invite's first 32 hex digits, or
 	none on a LAN) and the local players a machine proves */
 	IDENTITY_PROOF_NONCE_SIZE = 32,
@@ -295,10 +295,11 @@ enum
 		IDENTITY_TAG_MOST,
 };
 
-/* whether text (length bytes) is a Delta Tag as the site allows it */
+/* whether text (length bytes) is a name: a handle's characters in any
+capitals */
 int identity_tag_valid(const char *tag, int length);
-/* whether a tag is the handle in other letters' case (a tag that needs no
-site to show) */
+/* whether a name is the handle in its owner's capitals (the only name that
+shows: "Milenko" for milenko) */
 int identity_tag_is_handle(const char *tag, const char *handle);
 /* what a device signs to prove a local player in a game: "delta identity
 proof v1\n", the host's nonce, the binding's length and it, the machine

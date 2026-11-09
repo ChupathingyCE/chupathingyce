@@ -900,18 +900,13 @@ int identity_tag_valid(const char *tag, int length)
 {
 	int index;
 
-	if (!tag || length < IDENTITY_TAG_LEAST || length > IDENTITY_TAG_MOST || tag[0] == ' ' || tag[length - 1] == ' ')
+	if (!tag || length < IDENTITY_TAG_LEAST || length > IDENTITY_TAG_MOST)
 		return 0;
 	for (index = 0; index < length; index++)
 	{
 		char c = tag[index];
 
-		if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == ' ' || c == '_' ||
-			c == '-' || c == '.'))
-		{
-			return 0;
-		}
-		if (c == ' ' && tag[index - 1] == ' ')
+		if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '-'))
 			return 0;
 	}
 	return 1;

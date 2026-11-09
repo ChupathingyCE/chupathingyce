@@ -576,7 +576,8 @@ boolean server_moderation_machine_profile(
 		return FALSE;
 	}
 	identity = &moderation.identities[machine_index][local_player];
-	snprintf(handle, (size_t)handle_size, "%s", identity->handle);
+	/* (in the capitals the proof gave: Delta Peer showed it is the handle's) */
+	snprintf(handle, (size_t)handle_size, "%s", identity->tag[0] ? identity->tag : identity->handle);
 	if (platform)
 		*platform = delta_peer_platform_name(identity->platform);
 	if (role)

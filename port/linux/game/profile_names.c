@@ -5,11 +5,11 @@ Players by their Delta profile on the scoreboard, in the lobby and postgame
 (display.profile_names; docs/delta.md, "Verified names"): a player whose
 game proved who they are over Delta Peer (the identity capability: their
 device certificate, checked by the host and again by this copy) shows by
-their Delta Tag, as the site's public card has it (browser.c's
-browser_player_card, asked of the site by the proved account, in the
-background). Until the card comes, the tag the proof names shows when it is
-the handle in other letters' case, else the handle itself, which the
-certificate names.
+their one name: their handle (the Delta Tag, which the certificate names)
+in the capitals they picked ("Milenko"), as the site's public card has it
+(browser.c's browser_player_card, asked of the site by the proved account,
+in the background) or, until it comes, as their proof says it. A name that
+is not the handle in other capitals never shows.
 
 Everyone else shows by their game name, as before: an OpenCE player, an
 older build's unproven PROFILE claim, a player who does not share their
@@ -204,9 +204,26 @@ static struct network_game *current_game(
 	return client ? network_game_client_get_game(client) : NULL;
 }
 
-/* the name a verified player shows by (UTF-8): the site's card's tag, else
-the proof's tag when it is the handle in other letters' case, else the
-handle; the clan tag the card shows, if any */
+/* whether a name is the handle in other capitals */
+static boolean same_name(
+	char const *name,
+	char const *handle)
+{
+	long index;
+
+	for (index = 0; name[index] && handle[index]; index++)
+	{
+		char c = name[index];
+
+		if ((c >= 'A' && c <= 'Z' ? c - 'A' + 'a' : c) != handle[index])
+			return FALSE;
+	}
+	return !name[index] && !handle[index];
+}
+
+/* the name a verified player shows by: their handle (the Delta Tag) in the
+capitals they picked, as the site's card has it, else as their proof says
+it, else the handle itself; the clan tag the card shows, if any */
 static boolean verified_name(
 	struct delta_peer_identity const *identity,
 	char *name,
@@ -228,33 +245,18 @@ static boolean verified_name(
 		hex[2 * index + 1] = digits[identity->account[index] & 15];
 	}
 	hex[2 * PLAYER_ID_SIZE] = 0;
+	/* (the site's card: the name in its owner's capitals, and the clan tag
+	it shows; a card's name that is not the handle is not shown) */
 	if (browser_player_card(hex, &card))
 	{
-		snprintf(name, (size_t)name_size, "%s", card.tag[0] ? card.tag : card.display[0] ? card.display : card.handle);
+		snprintf(name, (size_t)name_size, "%s", same_name(card.display, identity->handle) ? card.display :
+			identity->tag[0] ? identity->tag : identity->handle);
 		snprintf(clan_tag, (size_t)clan_size, "%s", card.clan_tag);
-		return name[0] != 0;
+		return TRUE;
 	}
-	/* (no card yet, or none: a profile hidden or locked on the site shows
-	its handle, which the certificate names) */
-	if (identity->tag[0])
-	{
-		long tag_index;
-		boolean same = TRUE;
-
-		for (tag_index = 0; identity->tag[tag_index] && identity->handle[tag_index]; tag_index++)
-		{
-			char c = identity->tag[tag_index];
-
-			if ((c >= 'A' && c <= 'Z' ? c - 'A' + 'a' : c) != identity->handle[tag_index])
-				same = FALSE;
-		}
-		if (same && !identity->tag[tag_index] && !identity->handle[tag_index])
-		{
-			snprintf(name, (size_t)name_size, "%s", identity->tag);
-			return TRUE;
-		}
-	}
-	snprintf(name, (size_t)name_size, "%s", identity->handle);
+	/* (no card yet, or none: the proof's capitals, checked to be the
+	handle's, else the handle, which the certificate names) */
+	snprintf(name, (size_t)name_size, "%s", identity->tag[0] ? identity->tag : identity->handle);
 	return TRUE;
 }
 

@@ -3259,7 +3259,7 @@ static int node_identity_prove(void *context, int local_player, const unsigned c
 	proof->certificate_length = DELTA_WIRE_IDENTITY_CERTIFICATE_LEAST;
 	memset(proof->certificate, machine_index * 4 + local_player, (size_t)proof->certificate_length);
 	proof->signature[0] = identity_mark(nonce, binding_length, machine_index, local_player);
-	snprintf(proof->tag, sizeof(proof->tag), "Tag %d.%d", machine_index, local_player);
+	snprintf(proof->tag, sizeof(proof->tag), "Player%d_%d", machine_index, local_player);
 	proof->tag_length = (int)strlen(proof->tag);
 	return 1;
 }
@@ -3331,7 +3331,7 @@ static void test_wire_identity(void)
 		proof.signature[index] = (unsigned char)(index + 100);
 	for (index = 0; index < 112; index++)
 		proof.issuer[index] = (unsigned char)(255 - index);
-	snprintf(proof.tag, sizeof(proof.tag), "The Real Milenko.");
+	snprintf(proof.tag, sizeof(proof.tag), "The_Real-Milenko");
 	proof.tag_length = (int)strlen(proof.tag);
 	size = delta_wire_write_id_proof(data, 9, &proof);
 	CHECK(size == DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_ID_PROOF_SIZE + 155 + proof.tag_length);
@@ -3434,7 +3434,7 @@ static void test_identity(void)
 	CHECK(!(nodes[3].peer.agreed & IDENTITY_BIT));
 	/* the host: its own player and machine 1's two, checked */
 	CHECK(delta_peer_identity(&nodes[0].peer, 0, 0, &identity) && !strcmp(identity.handle, "player00"));
-	CHECK(delta_peer_identity(&nodes[0].peer, 1, 0, &identity) && !strcmp(identity.tag, "Tag 1.0"));
+	CHECK(delta_peer_identity(&nodes[0].peer, 1, 0, &identity) && !strcmp(identity.tag, "Player1_0"));
 	CHECK(delta_peer_identity(&nodes[0].peer, 1, 1, &identity) && !strcmp(identity.handle, "player11"));
 	CHECK(!delta_peer_identity(&nodes[0].peer, 2, 0, NULL) && !delta_peer_identity(&nodes[0].peer, 3, 0, NULL));
 	/* each client that agreed: the same, checked by itself */

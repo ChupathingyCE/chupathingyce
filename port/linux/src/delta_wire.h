@@ -181,7 +181,7 @@ enum
 	DELTA_WIRE_IDENTITY_ISSUER_SIZE = 112,
 	DELTA_WIRE_IDENTITY_CERTIFICATE_LEAST = 148,
 	DELTA_WIRE_IDENTITY_CERTIFICATE_MOST = 168,
-	DELTA_WIRE_IDENTITY_TAG_SIZE = 24,
+	DELTA_WIRE_IDENTITY_TAG_SIZE = 20,
 	DELTA_WIRE_IDENTITY_SIGNATURE_SIZE = 64,
 	/* the messages' fixed parts: ID_CHALLENGE's (its binding follows),
 	ID_PROOF's and ID_CARD's heads (all a withdrawal has), and the rest of
@@ -642,7 +642,8 @@ struct delta_wire_id_proof
 	unsigned char signature[DELTA_WIRE_IDENTITY_SIGNATURE_SIZE];
 	unsigned char issuer[DELTA_WIRE_IDENTITY_ISSUER_SIZE];
 	unsigned char certificate[DELTA_WIRE_IDENTITY_CERTIFICATE_MOST];
-	/* (A-Z a-z 0-9 space _ - .; empty: none) */
+	/* the player's name: their handle (the Delta Tag) in the capitals they
+	picked, A-Z a-z 0-9 _ - (empty: none, the handle shows) */
 	char tag[DELTA_WIRE_IDENTITY_TAG_SIZE + 1];
 };
 
@@ -958,8 +959,8 @@ int delta_wire_write_unit_vitals(unsigned char *data, delta_u32 session, const s
 int delta_wire_write_object_names(unsigned char *data, delta_u32 session, const struct delta_wire_object_names *names);
 
 /* verified names' messages. A version of 0, a local player past 3, a
-certificate's length outside 148 to 168 (but 0, a withdrawal), or a tag
-with other characters is refused; a later version is read as far as this
+certificate's length outside 148 to 168 (but 0, a withdrawal), or a name
+of other characters than A-Z a-z 0-9 _ - is refused; a later version is read as far as this
 build knows it */
 int delta_wire_read_id_challenge(const unsigned char *payload, int size, struct delta_wire_id_challenge *challenge);
 int delta_wire_read_id_proof(const unsigned char *payload, int size, struct delta_wire_id_proof *proof);

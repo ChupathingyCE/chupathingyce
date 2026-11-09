@@ -257,10 +257,10 @@ static void test_proof(void)
 	CHECK(identity_proof_message(proof_nonce, "", 65, 3, 0, serial, "", 0, message) < 0);
 	CHECK(identity_proof_message(proof_nonce, "", 0, 3, 0, serial, "", 25, message) < 0);
 	/* tags */
-	CHECK(identity_tag_valid("Milenko", 7) && identity_tag_valid("The Real Milenko.", 17));
-	CHECK(identity_tag_valid("abcdefghijklmnopqrstuvwx", 24) && !identity_tag_valid("abcdefghijklmnopqrstuvwxy", 25));
-	CHECK(!identity_tag_valid("ab", 2) && !identity_tag_valid(" abc", 4) && !identity_tag_valid("abc ", 4) &&
-		!identity_tag_valid("a  bc", 5) && !identity_tag_valid("ab<c", 4));
+	CHECK(identity_tag_valid("Milenko", 7) && identity_tag_valid("The_Real-Milenko", 16));
+	CHECK(identity_tag_valid("abcdefghijklmnopqrst", 20) && !identity_tag_valid("abcdefghijklmnopqrstu", 21));
+	CHECK(!identity_tag_valid("ab", 2) && !identity_tag_valid("a bc", 4) && !identity_tag_valid("abc.", 4) &&
+		!identity_tag_valid("ab<c", 4));
 	CHECK(identity_tag_is_handle("Milenko", "milenko") && !identity_tag_is_handle("Milenk0", "milenko") &&
 		!identity_tag_is_handle("Milenko", "") && !identity_tag_is_handle("Mile", "milenko"));
 }

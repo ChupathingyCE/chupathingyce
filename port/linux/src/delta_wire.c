@@ -1606,8 +1606,8 @@ int delta_wire_write_id_challenge(unsigned char *data, delta_u32 session,
 	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_ID_CHALLENGE_SIZE + length;
 }
 
-/* whether length bytes are a Delta Tag's characters (A-Z a-z 0-9 space _ -
-.; the site's other rules are its own) */
+/* whether length bytes are a name's characters: a handle's in any capitals
+(A-Z a-z 0-9 _ -) */
 static int tag_characters(const unsigned char *data, int length)
 {
 	int index;
@@ -1616,11 +1616,8 @@ static int tag_characters(const unsigned char *data, int length)
 	{
 		unsigned char c = data[index];
 
-		if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == ' ' || c == '_' ||
-			c == '-' || c == '.'))
-		{
+		if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '-'))
 			return 0;
-		}
 	}
 	return 1;
 }
@@ -1671,11 +1668,11 @@ static void write_proof_body(unsigned char *body, const struct delta_wire_id_pro
 	1   local player (1, 0 to 3)
 	2   certificate length (1: 0 withdrawn, and nothing follows; else 148 to
 	    168)
-	3   tag length (1, at most 24)
+	3   name length (1, at most 20)
 	4   signature (64)
 	68  issuer certificate (112)
 	180 device certificate (L)
-	    tag (T: A-Z a-z 0-9 space _ - .) */
+	    name (T: the handle in its capitals, A-Z a-z 0-9 _ -) */
 
 int delta_wire_read_id_proof(const unsigned char *payload, int size, struct delta_wire_id_proof *proof)
 {
@@ -1725,12 +1722,12 @@ int delta_wire_write_id_proof(unsigned char *data, delta_u32 session, const stru
 	2   local player (1, 0 to 3)
 	3   certificate length (1: 0 withdrawn, and nothing follows; else 148 to
 	    168)
-	4   tag length (1, at most 24)
+	4   name length (1, at most 20)
 	5   reserved (3)
 	8   signature (64)
 	72  issuer certificate (112)
 	184 device certificate (L)
-	    tag (T) */
+	    name (T) */
 
 int delta_wire_read_id_card(const unsigned char *payload, int size, struct delta_wire_id_card *card)
 {
