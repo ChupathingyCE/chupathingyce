@@ -27,6 +27,10 @@ If your copy is linked to a Delta profile, your profile shows which game you're 
 
 To stop it, turn off SHOW WHEN I'M PLAYING in the Guide's SETTINGS (F3), set `share_presence = false` under `[network]` in `config.toml`, or turn off "Show when I'm playing" on your profile's Privacy page on the site.
 
+## Your device key
+
+From 0.9.1, your game also makes a device key of its own. Its private half never leaves your computer. The site gets only its public half, the build and the platform, once, when your game enrolls with your player key, and then issues a short-lived certificate and tokens for it. Your game then sends a token in place of your player key. The site keeps the device's public key, platform, build and the days it was added and last used, never an address.
+
 ## Games you host
 
 Set `report_events = false` under `[network]` in `config.toml`. It's on by default: the games you host send their Delta Stats (kills with positions, accuracy, medals, objectives) to stats.chupathingy.org for its match pages and heatmaps. Never anyone's address or hardware ID; OpenCE players are only their name, team and that game's score, kills and deaths. This stops Delta Stats only: a listed game's carnage report is still sent. To keep your hosted games listed but send neither, set `report_hosted_games = false`; `list_hosted_games = false` stops the listing too. All of these are also on the Privacy screen in Settings (Gearbox menus).

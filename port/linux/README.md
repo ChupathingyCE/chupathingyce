@@ -1226,6 +1226,17 @@ profile. Each copy of the game has a player key in the save root
 games. The game sends the key only to an HTTPS server, or to a server on
 this computer (`http://127.0.0.1`, `http://localhost`) for tests.
 
+Builds from 0.9.1 on also make a device key (`delta_device.key`, beside the
+player key, made the same way and readable by you alone). Its private half
+never leaves the computer. The first time the game reaches the site with a
+player key, it sends the player key once more to enroll the device, and the
+site answers a device certificate (`delta_device.cert`, public), which the
+game refreshes every few days. From then on the game sends the site an
+hour's token instead of the player key, and goes back to the key when the
+site is older or refuses the token. The key file stays: older sites and
+servers know only it. Neither file nor any token is ever written to
+`debug.txt` (docs/delta.md, "Device identity").
+
 To link the game to a profile on the site, do one of these steps in Online
 Games:
 
