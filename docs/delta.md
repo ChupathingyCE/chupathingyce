@@ -1711,7 +1711,9 @@ copy: every Halo profile on a copy counts for the same Delta profile.
   (the site's own privacy settings). The site takes 6 requests a minute
   from a key, so the game asks at most every 10 seconds, and again when the
   answer is a minute old. Another copy is unlinked on the site
-  (`/profile#copies`), signed in, never with a key alone. The answer is
+  (`/profile#copies`), signed in, never with a key alone. A copy with a
+  device certificate sends a token in place of the key ("Device
+  identity"). The answer is
   kept in memory only. `debug.txt` says whether it loaded, never what it
   holds.
 - **Profile names:** in a game on Delta, a player whose copy shares its
@@ -1759,6 +1761,268 @@ stats.chupathingy.org/connect (and its QR code), then A to confirm.
 - **Unlinking** is on the site (`/profile#copies`). The original Xbox's
   identity file (`D:\game_list_player.key`) still works, and wins when
   present.
+
+### Device identity
+
+Today a Delta profile rests on one secret, the player key
+(`game_list_player.key`): whoever holds a copy of it is the player, and the
+game sends it to the site with most requests. Device identity adds a key per
+device whose private half never leaves it, and short-lived certificates
+the site signs for those keys. Anyone can build a client, server or site
+that speaks it from this section alone.
+
+It comes in stages. **Stage A** (this section) runs beside the player key:
+a new build proves its player key once, gets a device certificate, and from
+then on sends the site a short-lived token instead of the key. Nothing
+players see changes, the key keeps working everywhere it works today, and
+OpenCE players see nothing at all. Later stages add the device list and
+revoke on the site, sign-in by code for new installs, and proof of identity
+over Delta Peer.
+
+**Keys.**
+
+| Key | Who holds it | What it signs |
+| --- | --- | --- |
+| Root (the `identity` key set: primary and recovery) | GitHub environment secrets in command, made inside Actions like the update and delta sets. Nobody sees them | Issuer certificates (CISS) |
+| Issuer | The site host, in a signer process of its own that the web process reaches over a Unix socket | Device certificates (CDEV) and the revocation list (CREV) |
+| Device | Each install, made on first use. Never sent anywhere | Its requests to the site, and later its proofs in games |
+| Player key (legacy) | Existing copies, as today | Nothing new. Sent once more, to enroll |
+
+A build trusts both root keys (`identity_key.h`; all zeros until the keys
+are made). The issuer key changes every few months: the site makes a new
+pair and command's `identity-issuer.yml` signs a CISS for it with the root
+key. A device certificate verifies while the issuer certificate that
+vouches for it is in date.
+
+**Encoding.** All three are binary with little-endian numbers, read byte by
+byte (so big-endian hosts need no special case), and travel as lowercase
+hex. Signatures are Ed25519 (RFC 8032), each over a label and then the
+bytes before the signature, checked as Monocypher 4's `crypto_ed25519_check`
+checks them: S must be below the group order, the check is cofactored
+([8]R = [8]([S]B - [h]A)), and points that aren't canonically encoded are
+allowed. A strictly cofactorless verifier can disagree on rare
+deliberately-crafted signatures, so implementations should check the same
+way. A verifier also refuses a public key of small order.
+
+- **Key ID** of an issuer: the first 8 bytes of SHA-256(its public key).
+- **Device ID**: the first 16 bytes of SHA-256(`"chupathingy device id\n"`
+  + the device's public key).
+- **Copy ID**: the player ID a player key has today, the first 16 bytes of
+  SHA-256(`"halo-ce-universal player id\n"` + the key).
+
+**CISS, the issuer certificate** (format 1, 112 bytes; signed by a root key
+over `"chupathingy identity issuer v1\n"` + bytes 0 to 47):
+
+| Offset | Size | Field |
+| --- | --- | --- |
+| 0 | 4 | magic `CISS` |
+| 4 | 1 | format, 1 |
+| 5 | 3 | reserved, 0 |
+| 8 | 4 | valid from (Unix seconds) |
+| 12 | 4 | valid until |
+| 16 | 32 | the issuer's public key |
+| 48 | 64 | signature |
+
+**CDEV, the device certificate** (format 1, 148 + L bytes, 168 at most;
+signed by the issuer over `"chupathingy device cert v1\n"` + bytes 0 to
+83 + L):
+
+| Offset | Size | Field |
+| --- | --- | --- |
+| 0 | 4 | magic `CDEV` |
+| 4 | 1 | format, 1 |
+| 5 | 1 | platform, the Delta platform number ("Platform numbers") |
+| 6 | 1 | handle length L: 0 (no profile yet) or 3 to 20 |
+| 7 | 1 | flags: 0x01 enrolled with a player key, 0x02 console |
+| 8 | 4 | issued |
+| 12 | 4 | expires |
+| 16 | 8 | serial (random) |
+| 24 | 8 | the issuer's key ID |
+| 32 | 16 | account: the profile's player ID; the copy ID while it has no profile |
+| 48 | 32 | the device's public key |
+| 80 | 4 | capabilities |
+| 84 | L | the handle, lowercase `a-z 0-9 _ -` |
+| 84 + L | 64 | signature |
+
+Capabilities say what the device may do as the account: 0x01 `play` (prove
+identity in games), 0x02 `stats` (confirm stats lines, send reports),
+0x04 `profile` (privacy and clan answers from the game), 0x08 `moderate`
+(sign in to moderation; the server still checks the role), 0x10 `social`
+(friends, presence, invites). A device enrolled with a player key gets all
+five, since the key could already do all of it. Unknown bits and flags are
+ignored. A certificate lasts 7 days on desktops and Android and 14 on
+consoles, and the device refreshes it at half its life. The display name,
+emblem and clan aren't in it; they change, and peers fetch them as today.
+
+A certificate checks when its issuer's key ID is a trusted CISS's, the
+issuer signed it, it was issued inside the CISS's validity, and now is
+between issued and expires (10 minutes of grace either way). An expired
+certificate never stops play; its player just isn't proven until it
+refreshes.
+
+**CREV, the revocation list** (format 1, 96 + 16 N bytes; signed by the
+issuer over `"chupathingy device revocations v1\n"` + the bytes before the
+signature):
+
+| Offset | Size | Field |
+| --- | --- | --- |
+| 0 | 4 | magic `CREV` |
+| 4 | 1 | format, 1 |
+| 5 | 3 | reserved, 0 |
+| 8 | 4 | serial, higher is newer |
+| 12 | 4 | issued |
+| 16 | 4 | next update |
+| 20 | 8 | the issuer's key ID |
+| 28 | 2 | count N, at most 4096 |
+| 30 | 2 | reserved, 0 |
+| 32 | 16 N | revoked device IDs, sorted, no repeats |
+| 32 + 16 N | 64 | signature |
+
+A device stays on the list for 15 days after it is revoked, longer than any
+certificate it could still hold, so the list stays small.
+
+**The site's endpoints** (Delta Link, HTTPS, JSON bodies; IDs, keys, nonces
+and signatures in lowercase hex):
+
+| Request | Answer |
+| --- | --- |
+| `GET /v1/identity/nonce` | `{"nonce": 32 hex, "expires_in": 300}`. Single use |
+| `POST /v1/identity/legacy/enroll {"key", "device_key", "nonce", "signature", "platform", "build", "name"?}` | 200 with a certificate (below) |
+| `POST /v1/identity/refresh {"device_id", "nonce", "signature"}` | 200 with a certificate |
+| `POST /v1/identity/token {"device_id", "nonce", "signature"}` | `{"token", "expires_in": 3600, "scopes": [...]}` |
+| `GET /v1/identity/revoked` | `{"revoked": CREV, "issuers": [CISS, ...], "serial"}` |
+
+- **The audience.** Every device signature names the site it is for: one
+  byte of length, then the site's host as the device addresses it
+  (lowercase, no scheme or port; `stats.chupathingy.org`). A signature made
+  for one site is no use at another.
+- **Enroll** proves the player key one last time (`key`, as today) and
+  registers `device_key`. The signature is the device key's, over
+  `"chupathingy legacy enroll v1\n"` + audience + nonce (16) + copy ID (16)
+  + device public key (32). The site enrolls only a copy it has seen before
+  (a profile, a link or a confirmed game). Enrolling the same device key
+  again for the same copy gives a new certificate. A device key that was
+  revoked or signed out can't enroll again: the device makes a new key.
+- **Refresh** and **token** are signed by the device key over
+  `"chupathingy device refresh v1\n"` or `"chupathingy device token v1\n"`
+  + audience + nonce (16) + device ID (16). No secret travels. Both are
+  refused for a revoked, signed-out or locked device.
+- **A certificate answer:** `{"device_id", "certificate": CDEV,
+  "issuer": CISS, "account", "handle", "expires", "refresh_after"}`.
+  `expires` is Unix seconds; `refresh_after` is a duration, the seconds
+  from now until the device should refresh (half the certificate's life).
+  The account and handle follow the copy's link: a copy linked to a
+  profile after it enrolled gets the profile's at its next refresh.
+- **Refusals:** 400 a malformed request; 401 `{"error": "nonce"}` (get a
+  new nonce) or `{"error": "signature"}`; 403 with `"revoked": true`,
+  `"signed_out": true`, `"locked": true` or `"unknown_copy": true`; 404
+  `{"enroll": true}` for a device the site doesn't know (enroll again);
+  409 with `"other_copy": true` for a key that belongs to another copy (the
+  device makes a new key, once) or `"too_many": true`; 429 slow down; 503
+  busy, or the site doesn't issue certificates yet.
+- **The issuer's signer** signs only certificates issued now (within 5
+  minutes of its clock) and revocation lists whose serial rises and isn't
+  ahead of its clock. The site checks every signature it gets back.
+- **Stage A's limit:** whoever holds a copy's player key can still enroll a
+  new device for it. Revoking a device stops that device key, not the
+  player key; later stages let an account turn its old key off.
+
+**Tokens.** A token is opaque ASCII, at most 200 characters of
+`A-Z a-z 0-9 . _ -`. It goes in a header, `Authorization: Delta <token>`,
+in place of the `"key"` member, on every request that takes the player key
+from the game today except the sign-in link (`/v1/link`) and Link Profile
+(`/v1/connect/start`), which keep the key until sign-in by code replaces
+them:
+
+| Requests | Capability |
+| --- | --- |
+| `/v1/claim`, `/v1/client_report` | `stats` |
+| `/v1/game/profile`, `/unlink`, `/privacy`, `/clan`, `/friends` | `profile` |
+| `/v1/presence`, `/v1/social/*` | `social` |
+
+The request acts for the copy the device enrolled with, exactly as its key
+would. A token the site can't use gets 401 `{"token": "unknown" |
+"expired" | "revoked" | "scope"}`. A site restart ends every token.
+
+**How a client falls back.** Nobody is locked out at any step:
+
+1. With no device certificate yet, the client sends its key as today. In
+   the background it gets a nonce and enrolls. A 404 for
+   `/v1/identity/nonce` means an older site: it tries again in an hour. A
+   503 means busy or not issuing yet: it tries again in ten minutes, backing
+   off to an hour. A 403 `unknown_copy` or `locked`, or a 409
+   `too_many`, waits a day, and those retries are capped.
+2. With a certificate, it gets a token (nonce, then token) when it has none
+   or the one it has is about to run out, and sends it instead of the key.
+3. A request answered 401 with `"token"` drops the token, gets a new one,
+   and sends the request again with it. Only if that fails does it go with
+   the key. A request sent with a token is sent with the key only when the
+   site doesn't speak identity (its `/v1/identity/nonce` answers 404, or it
+   refuses the request with a 400 that has no `"token"` member). An answer
+   the site acted on is never sent again.
+4. At `refresh_after`, or on start when the saved certificate is past it or
+   expired, it refreshes with the device key; it never enrolls again just
+   because a certificate expired. A 404 with `"enroll"` enrolls again. A
+   403 `revoked` or `signed_out` drops the certificate and keeps the key for
+   this run.
+5. A different player key (a restored backup, an Install in Game link)
+   means a different copy. The device then drops its certificate and token
+   and makes a new device key, which enrolls with the new player key. The
+   copy ID is saved beside the certificate so this is caught at start too.
+6. The key file stays. Old servers' `moderators.txt` list the moderator key
+   derived from it, and older sites only know it.
+
+**On the device.** `delta_device.key` in the save root holds the device
+key's 32-byte seed, written and read like the player key (32 raw bytes,
+readable by its owner alone, opened without following links).
+`delta_device.cert` beside it holds the answer's certificate, issuer
+certificate and the copy ID it was enrolled with (public data). Neither is ever logged. Consoles leave stage A
+out (`HALO_CONSOLE_NO_DELTA_IDENTITY`) until their own endpoints come.
+
+**Test vectors.** Each seed or key below is SHA-256 of its text:
+the root key's `chupathingy test identity root`, the issuer's
+`chupathingy test identity issuer`, the device's `chupathingy test device
+key`, and the player key `chupathingy test player key`. The certificates
+use the times 1790000000 (valid from), 1797776000 (valid until), 1790100000
+(issued) and 1790704800 (expires); the device certificate is for platform 1
+(Windows), handle `milenko`, serial 01 02 ... 08, all five capabilities,
+legacy enrolled; the list names the test device and sixteen 0x11 bytes.
+The nonce is the bytes 00 to 0f and the audience `stats.chupathingy.org`.
+The same values are in
+`port/linux/tests/identity_vectors.json`, and the game's, the site's and
+command's tests all check them.
+
+```
+root public        12762975a2781f981d53c9bfd7625f10b56137eee3235fb5f3eb92c966f023fa
+issuer public      fc284aa53690a1b91984e67b1820c0a28452dafbc58ed107d40066ad47814d90
+issuer key ID      48810d1682965a46
+device public      f6bcb81b396cf7f3cb5519a437d3699adc4ed40f2e4d22f30c3bfecb6ffcca8e
+device ID          a0f42dfd380bf6aee133508172a12700
+copy ID            31ea6b25b20006a252c816cd2077ff5b
+
+CISS  4349535301000000803bb16a80e2276bfc284aa53690a1b91984e67b1820c0a2
+      8452dafbc58ed107d40066ad47814d9038cc84f430b86054d1ede8b53244a90b
+      da00b6012d4df101a0e00f5d388af8193c95238b1498d9fbd9314d4226ca2e6d
+      40332529ea8163ad127e579cc26dcc0c
+
+CDEV  434445560101070120c2b26aa0fcbb6a010203040506070848810d1682965a46
+      31ea6b25b20006a252c816cd2077ff5bf6bcb81b396cf7f3cb5519a437d3699a
+      dc4ed40f2e4d22f30c3bfecb6ffcca8e1f0000006d696c656e6b6f359728fbc6
+      34431278f9352410620d865f517ebad416d36e0c845cdc85613fb2e8867b8ff2
+      b8fe26c1d7b5b9abb3d99c462edea4d82ad78c975c6b970f239b02
+
+CREV  435245560100000020c2b26a20c2b26aa013b46a48810d1682965a4602000000
+      11111111111111111111111111111111a0f42dfd380bf6aee133508172a12700
+      1169fc31fd48dcb2b10d79abd24a09fc115f4323eae5feebbd1f7f9b97d24693
+      2b730bd2e50b6be603b751854cceefdf32c3311a4a20e8f48c9410e1c40ae50f
+
+enroll signature   cec504f992252432a5d499113cbb7469a791b22e743cd44f6f15b278df2d4882
+                   e89a5724ddcaffe73fb2a14fb8a74fd21f00160cf177e9e2f64561cdbd3b4305
+refresh signature  f09ba64e6aa8ca29d8414d334dca2759d86d29f3757493a2b00be775a770f1ce
+                   0f7dc0388671683b6868a493416b50a27f11a1458bb1e29fc89541849b00170d
+token signature    0c02b24be2e9caa6385ef49de7bf80cb0740c7a73085d8a267c1f7f87978f1e8
+                   331b870581b254a5a258c85465b3130d5153e68646b300265f8ea304f0fd0901
+```
 
 ### Clans
 
