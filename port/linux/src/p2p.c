@@ -1465,6 +1465,27 @@ static int stun_settled(void)
 	return 1;
 }
 
+/* the p2p thread was stopped for longer than a peer lasts: the process was
+suspended (a phone app in the background) or the machine slept (a laptop).
+The NAT's mapping of the tunnel may have lapsed, so this machine's public
+address is asked again before an offer names it, and the brokers'
+connections, which the network may have dropped, are made anew rather than
+at their silence timeout (OpenCE #272, bmanturner) */
+static void network_resumed(unsigned long stopped)
+{
+	int index;
+
+	for (index = 0; index < p2p.stun_count; index++)
+	{
+		p2p.stun[index].has_mapped = 0;
+		p2p.stun[index].attempts = 0;
+		p2p.stun[index].sent_time = 0;
+	}
+	p2p_signal_reconnect();
+	platform_log("Internet play: the game was stopped for %lu seconds; its public address is asked again and "
+		"the brokers reconnected", stopped / 1000);
+}
+
 /* ---------- stand-ins for peers' ports */
 
 static void close_socket(int *socket)
@@ -3929,6 +3950,7 @@ static void *p2p_thread(void *unused)
 		streams; otherwise the thread can sleep longer */
 		int wait = LOOP_INTERVAL * 5;
 		int index, asked;
+		unsigned long waited;
 
 		/* what to wait for */
 		read_owners[read_count] = _owner_tunnel;
@@ -3994,12 +4016,20 @@ static void *p2p_thread(void *unused)
 		send_queued_datagrams();
 #endif
 		pthread_mutex_unlock(&p2p_lock);
+		waited = p2p_now();
 		if (posix_socket_select(read, &read_count, write, &write_count, NULL, &error_count, 0,
 			wait * 1000, 0) < 0)
 		{
 			read_count = write_count = 0;
 		}
 		pthread_mutex_lock(&p2p_lock);
+		/* the wait lasted far longer than asked (the process was suspended
+		or the machine slept): what the sockets report is stale */
+		if (elapsed(waited, (unsigned long)wait + PEER_TIMEOUT))
+		{
+			network_resumed(p2p_now() - waited);
+			read_count = write_count = 0;
+		}
 #ifdef P2P_SEND_FROM_THREAD
 		send_queued_datagrams();
 #endif
