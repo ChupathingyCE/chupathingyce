@@ -150,7 +150,9 @@ shares.
 | 17 | `object_sync` | what the game's messages leave out of the host's objects: every unit's shield and health (UNIT_VITALS) and the scenario names of the objects the host made (OBJECT_NAMES); see "Object sync" |
 | 18 | `host_cheats` | not a feature: the host's console and cheats may change its public game while others are in it (`network.host_cheats`); announced on Delta List only, never in a HELLO, and Online Games shows "Host cheats on" |
 | 19 | `host_rules` | the host's rules for its players' extras (HOST_RULES): names above heads, the follow camera, team changes; a client whose host says nothing plays by the Xbox's rules. See "Host rules" |
-| 20 | `voice` | voice chat (VOICE_UP, VOICE_DOWN, VOICE_CONFIG): a player talks on a channel, the host relays each frame by its rules without decoding it. Agreed per pair, so OpenCE machines and builds without voice are never sent any. See "Voice" |
+| 20 | `identity` | verified names (being built) |
+| 21 | `party_teams` | a party's tag, so a host can keep parties together (being built) |
+| 22 | `voice` | voice chat (VOICE_UP, VOICE_DOWN, VOICE_CONFIG): a player talks on a channel, the host relays each frame by its rules without decoding it. Agreed per pair, so OpenCE machines and builds without voice are never sent any. See "Voice" |
 
 The registry lives in the repository next to the compatibility table and is
 the single source for the bit numbers. Built so far: `platform`, `profile`,
@@ -402,10 +404,10 @@ a later version may append):
 | 27 | UNIT_VITALS | host to client | count (1, at most 98), flags (1: 0x01 the last datagram of a full pass), reserved (2), then 12-byte entries: the host's object (4, its datum index, which a client's copy shares), flags (1: 0x01 shield depleted, 0x02 shield charging, 0x04 shield over charging), reserved (1), body vitality (2), shield vitality (2), reserved (2); vitality in 16384ths, as the game's own unit states have it |
 | 28 | OBJECT_NAMES | host to client | total (2, the host's named objects and removed names in all, at most 512), first (2, this datagram's first entry's place among them), count (1, at most 98), reserved (3), then 12-byte entries: the host's object (4; 0xFFFFFFFF for a removed name), its scenario name index (2), flags (1: 0x01 removed, a name the host had an object of this game and has none of now; others ignored), and for a removed name its unit's last vitals: shield flags (1, as UNIT_VITALS's), body vitality (2), shield vitality (2) (full for an object that was not a unit; 0 for the others) |
 | 29 | HOST_RULES | host to client | version (1; 1 now, 0 refused, a later one read as far as this build knows it), flags (1: 0x01 names above heads allowed, 0x02 the follow camera allowed; others ignored), team changes (1: 0 off, 1 balanced, 2 allow), their margin (1, 0 to 16), reserved (4); values past their ranges refused. Sent at once when they change and every 5 seconds |
-| 30 to 32 | | | taken by verified names (being built) |
-| 33 | VOICE_UP | client to host | sequence (2, the speaker's own count), length (1, 0 to 255: the Opus frame's bytes; 0 none), channel (1: 0 none, 1 team, 2 proximity, 3 everyone, 4 party; none with no frame), hears (1: 0x01 team, 0x02 proximity, 0x04 everyone, 0x08 party: the channels this machine plays; 0 none), reserved (3), then the frame (length bytes); with no frame, a party's tag (8) may follow (none: all 0 or left out). The length must be the bytes that came, exactly |
-| 34 | VOICE_DOWN | host to client | sequence (2, the speaker's), speaker's machine (1), speaker's player (1, the game's player list index; 255 none), route (1: 1 global, played as said; 2 proximity, played from where the speaker's player is), channel (1, as VOICE_UP's), length (1, 1 to 255), reserved (1), then the frame. The length must be the bytes that came, exactly |
-| 35 | VOICE_CONFIG | host to client | version (1; 1 now, 0 refused), channels (1: 0x01 team, 0x02 proximity, 0x04 everyone, 0x08 party, the channels the host relays; 0x10 lobby, everyone hears everyone outside a game), flags (1: 0x01 this machine is muted), quality (1, 8 to 64 kbps), proximity (2, tenths of a world unit, 50 to 1000), reserved (2), a timed mute's seconds left (4; 0 none, or until the game ends); values past their ranges refused |
+| 30 to 33 | | | taken by verified names and party teams (being built) |
+| 34 | VOICE_UP | client to host | sequence (2, the speaker's own count), length (1, 0 to 255: the Opus frame's bytes; 0 none), channel (1: 0 none, 1 team, 2 proximity, 3 everyone, 4 party; none with no frame), hears (1: 0x01 team, 0x02 proximity, 0x04 everyone, 0x08 party: the channels this machine plays; 0 none), reserved (3), then the frame (length bytes); with no frame, a party's tag (8) may follow (none: all 0 or left out). The length must be the bytes that came, exactly |
+| 35 | VOICE_DOWN | host to client | sequence (2, the speaker's), speaker's machine (1), speaker's player (1, the game's player list index; 255 none), route (1: 1 global, played as said; 2 proximity, played from where the speaker's player is), channel (1, as VOICE_UP's), length (1, 1 to 255), reserved (1), then the frame. The length must be the bytes that came, exactly |
+| 36 | VOICE_CONFIG | host to client | version (1; 1 now, 0 refused), channels (1: 0x01 team, 0x02 proximity, 0x04 everyone, 0x08 party, the channels the host relays; 0x10 lobby, everyone hears everyone outside a game), flags (1: 0x01 this machine is muted), quality (1, 8 to 64 kbps), proximity (2, tenths of a world unit, 50 to 1000), reserved (2), a timed mute's seconds left (4; 0 none, or until the game ends); values past their ranges refused |
 
 A roster covers every machine of the game, in as many datagrams as it takes
 (32 machines each). A client forgets a machine the roster has not named for
@@ -735,7 +737,7 @@ The game's side is `port/linux/game/host_rules.c`.
 
 ### Voice
 
-Voice chat between Chupathingy players, over `voice` (bit 20). The host
+Voice chat between Chupathingy players, over `voice` (bit 22). The host
 decides who hears whom; a client never does. Voice is off on each player's
 copy until they turn it on (`audio.voice_chat`: retail had none), and push
 to talk is its default way once on. Nothing is recorded: frames go to the
@@ -747,7 +749,7 @@ the site.
   - **PARTY** (4): their party. The host relays a party frame to the
     machines whose VOICE_UP said the same party's tag, wherever their
     players are. The tag is the party's to give (8 bytes, never an ID the
-    site keeps): no party, no tag, and the channel can't be picked.
+    site keeps; the same tag party teams' PARTY_TAG carries): no party, no tag, and the channel can't be picked.
   - **TEAM** (1): their team in the game; everyone in co-op; nobody in a
     game without teams.
   - **PROXIMITY** (2): anyone within the host's proximity whose player is

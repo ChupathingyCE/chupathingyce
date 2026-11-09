@@ -417,17 +417,17 @@ enum delta_message_type
 	/* host to client, if both agreed to host_rules: the host's rules for
 	its players' extras, whenever they change and every few seconds */
 	_delta_message_host_rules = 29,
-	/* (30 to 32 are verified names', being built) */
+	/* (30 to 32 are verified names', and 33 party teams', being built) */
 	/* voice (both agreed to voice): client to host, a frame its player
 	said on a channel, or with no frame, the channels it hears (every
 	DELTA_PEER_VOICE_HEARS_INTERVAL) */
-	_delta_message_voice_up = 33,
+	_delta_message_voice_up = 34,
 	/* host to client: a frame of another machine's player, for a channel
 	the client hears, and how to play it (its route) */
-	_delta_message_voice_down = 34,
+	_delta_message_voice_down = 35,
 	/* host to client: the host's voice rules (the channels it relays, its
 	quality, its proximity) and this machine's mute */
-	_delta_message_voice_config = 35
+	_delta_message_voice_config = 36
 };
 
 /* voice's channels: who a player talks to (VOICE_UP, VOICE_DOWN); a number
@@ -812,7 +812,8 @@ struct delta_wire_voice_up
 	unsigned char channel;
 	/* DELTA_VOICE_* channels this machine plays */
 	unsigned char hears;
-	/* (with no frame) its party's tag: all 0 for none */
+	/* (with no frame) its party's tag, the same as party teams' PARTY_TAG:
+	all 0 for none */
 	unsigned char party[DELTA_WIRE_VOICE_PARTY_TAG_SIZE];
 };
 
