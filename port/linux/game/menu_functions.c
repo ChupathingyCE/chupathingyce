@@ -5749,6 +5749,24 @@ static boolean pause_moderation(void)
 #endif
 }
 
+/* "port pause guide" (the pause menu's GUIDE: menu_tags.c): the Guide over
+the pause menu (guide.c), which B closes back to it */
+static boolean pause_guide(struct widget_instance *widget)
+{
+#ifdef HALO_GUIDE
+	extern void guide_open(void);
+
+	/* (the first player's alone) */
+	if (widget->local_player_index != 0)
+		return FALSE;
+	guide_open();
+	return TRUE;
+#else
+	(void)widget;
+	return FALSE;
+#endif
+}
+
 /* "port pause controls" (the pause menu's CONTROLS: menu_tags.c): the
 Gearbox menus' opens their Controls Setup (its handler's
 widget), on player 1's profile, edited for it if none is (OK saves it); the
@@ -9113,6 +9131,10 @@ boolean pc_menu_event_function_invoke(
 		else if (!strcmp(name, "port pause moderation"))
 		{
 			return pause_moderation();
+		}
+		else if (!strcmp(name, "port pause guide"))
+		{
+			return pause_guide(widget);
 		}
 		else if (!strcmp(name, "port pause controls"))
 		{

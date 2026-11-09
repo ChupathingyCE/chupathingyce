@@ -31,6 +31,7 @@ import os
 import random
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import time
@@ -85,13 +86,30 @@ def copy_environment(folder, maps, address):
     return env
 
 
+def loopback_address():
+    """A loopback address of the copy's own, so that another copy on the
+    machine with the system link port on 127.0.0.1 is left alone. Linux
+    answers on all of 127.0.0.0/8; macOS only on 127.0.0.1 (and aliases
+    added with ifconfig), where the copy could not make its server and fell
+    back to the fast setup's campaign level, so it gets 127.0.0.1 there."""
+    address = f"127.{random.randint(64, 250)}.{random.randint(1, 250)}.{random.randint(1, 250)}"
+    probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        probe.bind((address, 0))
+    except OSError:
+        address = "127.0.0.1"
+    finally:
+        probe.close()
+    return address
+
+
 def play(binary, maps, work, name, mode, inputs, game_map, ticks, seed, local_players=1, bot=True, extra_env=None):
     """Runs one copy to the end of its ticks. Returns the path of its hashes.
     A recording's player is the scripted bot unless bot is False (no input
     at all: tools/test_tricks.py writes its own actions over the recording's);
     extra_env adds settings (debug.determinism_positions)."""
     folder = os.path.join(work, name)
-    address = f"127.{random.randint(64, 250)}.{random.randint(1, 250)}.{random.randint(1, 250)}"
+    address = loopback_address()
     env = copy_environment(folder, maps, address)
     hashes = os.path.join(folder, "hashes.txt")
     env.update({
