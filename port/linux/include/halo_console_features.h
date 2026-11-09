@@ -41,8 +41,9 @@ HALO_CONSOLE_NO_GUIDE
 	left out of config.toml: every console for now, until the Guide is
 	sized to each one's memory and input
 HALO_CONSOLE_NO_CAPTURE
-	no screenshots or clips (port/linux/src/capture.c, controls.screenshot):
-	every console; the desktop builds have them
+	no screenshots or clips (port/linux/src/capture.c and capture_clips.c,
+	controls.screenshot and controls.clip): every console; the desktop
+	builds have them
 HALO_CONSOLE_NO_WRITE_WATCH
 	a console that will not write-protect guest memory, so the renderer's
 	write watch cannot see the game write a resource: locks and file reads

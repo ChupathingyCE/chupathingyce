@@ -92,7 +92,7 @@ static void file_safe(char *out, unsigned long size, const char *name)
 }
 
 /* <map>_<YYYY-MM-DD_HH-MM-SS>, at the moment of the ask */
-static void name_now(char *name, unsigned long size)
+void capture_file_name(char *name, unsigned long size)
 {
 	char map[64], when[32];
 	time_t now = time(NULL);
@@ -108,7 +108,7 @@ static void name_now(char *name, unsigned long size)
 	snprintf(name, size, "%s_%s", map, when);
 }
 
-static void notice(const char *title, const char *line)
+void capture_notice(const char *title, const char *line)
 {
 	pthread_mutex_lock(&capture.lock);
 	snprintf(capture.notice_title, sizeof(capture.notice_title), "%s", title);
@@ -155,7 +155,7 @@ static void write_screenshot(struct capture_job *job)
 		job->lent = NULL;
 		if (!job->pixels)
 		{
-			notice("Screenshot not saved", "Out of memory");
+			capture_notice("Screenshot not saved", "Out of memory");
 			return;
 		}
 	}
@@ -168,7 +168,7 @@ static void write_screenshot(struct capture_job *job)
 	if (!rgb)
 	{
 		free(job->pixels);
-		notice("Screenshot not saved", "Out of memory");
+		capture_notice("Screenshot not saved", "Out of memory");
 		return;
 	}
 	for (y = 0; y < job->height; y++)
@@ -212,12 +212,12 @@ static void write_screenshot(struct capture_job *job)
 	if (written)
 	{
 		platform_log("screenshot: saved %s (%ldx%ld)", file_name, job->width, job->height);
-		notice("Screenshot saved", file_name);
+		capture_notice("Screenshot saved", file_name);
 	}
 	else
 	{
 		platform_log("screenshot: could not write %s", file_name);
-		notice("Screenshot not saved", "Could not write the file");
+		capture_notice("Screenshot not saved", "Could not write the file");
 	}
 }
 
@@ -247,7 +247,7 @@ void capture_request_screenshot(void)
 {
 	char name[160];
 
-	name_now(name, sizeof(name));
+	capture_file_name(name, sizeof(name));
 	pthread_mutex_lock(&capture.lock);
 	snprintf(capture.wanted_name, sizeof(capture.wanted_name), "%s", name);
 	capture.screenshot_wanted = 1;

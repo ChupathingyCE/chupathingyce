@@ -17,6 +17,8 @@ What each build of the game has. The downloads are in [docs/install.md](install.
 | Choice of audio output, surround and Audio Setup | Yes | Yes | Yes | No (the system's) |
 | Crash reports | Yes | Yes | Yes | Not yet |
 | Intro, attract and cutscene movies (Bink, with FFmpeg) | Yes | Yes | Yes | Yes |
+| Screenshots (F9) | Yes | Yes | Yes | Not yet |
+| Clips (F10, `clips.enabled`) | Yes, encoded in software for now | Yes, hardware H.264 | Yes, encoded in software for now | Not yet |
 
 Some defaults differ by platform: anti-aliasing is MSAA 2x on 64-bit
 computers and off on 32-bit ones and Android, and the Mac starts in a window

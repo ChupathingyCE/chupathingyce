@@ -177,10 +177,10 @@ static char const *const setting_keys[NUMBER_OF_SETTINGS] =
 };
 
 /* controls.guide's choices: the F keys the game leaves free (F1 is Back,
-F2 Start, F9 a screenshot, F11 full screen, F12 the mouse) */
+F2 Start, F9 a screenshot, F10 a clip, F11 full screen, F12 the mouse) */
 static char const *const open_keys[] =
 {
-	"F3", "F4", "F5", "F6", "F7", "F8", "F10",
+	"F3", "F4", "F5", "F6", "F7", "F8",
 };
 
 /* what a click or tap lands on */

@@ -36,6 +36,30 @@ were not taken (*released is set then too) */
 int capture_screenshot_lend(const unsigned char *pixels, long width, long height, long pitch, int bgra,
 	volatile int *released);
 
+/* ---------- clips (capture_clips.c): with clips.enabled, the last
+clips.seconds of the game's picture and sound kept encoded in memory, and
+saved as an MP4 to <data root>/clips/ when controls.clip is pressed. Off,
+they cost nothing: no thread, no buffers, one test a frame. */
+
+/* the input's: save the clip (any thread) */
+void capture_request_clip(void);
+/* the renderer's, at each present: whether a frame is wanted now (clips on,
+its time come, and room for it), and the size to make it from a back buffer
+of source_width by source_height (*width, *height: the GPU's scaled copy;
+the bgfx renderer, which cannot scale in a blit, passes the source's on) */
+int capture_clip_frame_due(long source_width, long source_height, long *width, long *height, double *time);
+/* the renderer's: a frame lent until *released (capture_screenshot_lend's
+rules), made at time (capture_clip_frame_due's) */
+int capture_clip_frame_lend(const unsigned char *pixels, long width, long height, long pitch, int bgra,
+	double time, volatile int *released);
+/* the mixer's (dsound_sdl.c): its output, frames of channels floats at
+48 kHz, from the audio thread */
+void capture_clip_audio(const float *samples, unsigned long frames, unsigned long channels);
+
+/* (capture.c's, for capture_clips.c: the files' names and the toasts) */
+void capture_file_name(char *name, unsigned long size);
+void capture_notice(const char *title, const char *line);
+
 /* the game's, each frame: the map's name for the files ("menu" in the
 menus), and the next line to show as a toast, if there is one (1) */
 void capture_set_map(const char *name);

@@ -338,6 +338,19 @@ static struct
 	unsigned char *shot_pixels;
 	uint32_t shot_ready;
 	BOOL shot_pending;
+	/* the clips' frames (capture_clips.c): the back buffer read back whole
+	into one of a few buffers, each lent to the encoder once bgfx has
+	filled it (bgfx's blit cannot scale; the encoder scales) */
+	struct
+	{
+		bgfx_texture_handle_t texture;
+		unsigned long width, height;
+		unsigned char *pixels;
+		uint32_t ready;
+		int state;
+		volatile int released;
+		double time;
+	} clip[3];
 #endif
 
 	unsigned long uniform_bytes;
@@ -3745,6 +3758,74 @@ static void bg_shot_start(void)
 }
 
 #endif
+#ifdef HALO_CAPTURE
+/* a clip's frame, when one is due and a buffer is free (0 free, 1 being
+read, 2 lent) */
+static void bg_clip_start(void)
+{
+	struct bg_target *back_buffer = bg_target_get(&device.back_buffer);
+	long width, height;
+	double time;
+	int index;
+
+	for (index = 0; index < 3; index++)
+	{
+		if (bg.clip[index].state == 2 && __atomic_load_n(&bg.clip[index].released, __ATOMIC_ACQUIRE))
+			bg.clip[index].state = 0;
+	}
+	if (!back_buffer || !capture_clip_frame_due((long)back_buffer->pixel_width, (long)back_buffer->pixel_height,
+		&width, &height, &time))
+	{
+		return;
+	}
+	for (index = 0; index < 3 && bg.clip[index].state; index++)
+		;
+	if (index == 3)
+		return;
+	if (!BGFX_HANDLE_IS_VALID(bg.clip[index].texture) || bg.clip[index].width != back_buffer->pixel_width ||
+		bg.clip[index].height != back_buffer->pixel_height)
+	{
+		if (BGFX_HANDLE_IS_VALID(bg.clip[index].texture))
+			bgfx_destroy_texture(bg.clip[index].texture);
+		bg.clip[index].width = back_buffer->pixel_width;
+		bg.clip[index].height = back_buffer->pixel_height;
+		bg.clip[index].texture = bgfx_create_texture_2d((uint16_t)bg.clip[index].width,
+			(uint16_t)bg.clip[index].height, false, 1, BGFX_TEXTURE_FORMAT_BGRA8,
+			BGFX_TEXTURE_BLIT_DST | BGFX_TEXTURE_READ_BACK, NULL, 0);
+		free(bg.clip[index].pixels);
+		bg.clip[index].pixels = malloc(bg.clip[index].width * bg.clip[index].height * 4);
+	}
+	if (!bg.clip[index].pixels)
+		return;
+	bgfx_blit(bg.present_view, bg.clip[index].texture, 0, 0, 0, 0, back_buffer->texture, 0, 0, 0, 0,
+		(uint16_t)bg.clip[index].width, (uint16_t)bg.clip[index].height, 1);
+	bg.clip[index].ready = bgfx_read_texture(bg.clip[index].texture, bg.clip[index].pixels, 0);
+	bg.clip[index].time = time;
+	bg.clip[index].state = 1;
+}
+
+/* the frames bgfx has filled, oldest first, lent to the encoder */
+static void bg_clip_finish(uint32_t frame_number)
+{
+	for (;;)
+	{
+		int index, oldest = -1;
+
+		for (index = 0; index < 3; index++)
+		{
+			if (bg.clip[index].state == 1 && (oldest < 0 || bg.clip[index].time < bg.clip[oldest].time))
+				oldest = index;
+		}
+		if (oldest < 0 || frame_number < bg.clip[oldest].ready)
+			return;
+		bg.clip[oldest].state = capture_clip_frame_lend(bg.clip[oldest].pixels, (long)bg.clip[oldest].width,
+			(long)bg.clip[oldest].height, (long)bg.clip[oldest].width * 4, TRUE, bg.clip[oldest].time,
+			&bg.clip[oldest].released) ? 2 : 0;
+	}
+}
+
+#endif
+
 static void bg_present(void)
 {
 	double frame_start, frame_end;
@@ -3818,6 +3899,7 @@ static void bg_present(void)
 #ifdef HALO_CAPTURE
 	if (!bg.shot_pending && capture_screenshot_take())
 		bg_shot_start();
+	bg_clip_start();
 #endif
 	frame_start = stats_seconds();
 	{
@@ -3853,6 +3935,7 @@ static void bg_present(void)
 		bg.shot_pixels = NULL;
 		bg.shot_pending = FALSE;
 	}
+	bg_clip_finish(frame_number);
 #endif
 	if (debug_settings.statistics && device.frame % 60 == 0)
 	{
@@ -4059,6 +4142,8 @@ static BOOL bg_initialize(void)
 	bg.capture = (bgfx_texture_handle_t)BGFX_INVALID_HANDLE;
 #ifdef HALO_CAPTURE
 	bg.shot = (bgfx_texture_handle_t)BGFX_INVALID_HANDLE;
+	for (index = 0; index < 3; index++)
+		bg.clip[index].texture = (bgfx_texture_handle_t)BGFX_INVALID_HANDLE;
 #endif
 	bg.framebuffer = (bgfx_frame_buffer_handle_t)BGFX_INVALID_HANDLE;
 	bg.view_framebuffer = (bgfx_frame_buffer_handle_t)BGFX_INVALID_HANDLE;

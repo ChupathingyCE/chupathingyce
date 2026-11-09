@@ -554,52 +554,63 @@ static void guide_asks(const struct platform_input_state *input, SDL_Gamepad *ga
 }
 
 #ifdef HALO_CAPTURE
-/* controls.screenshot's key, read again when config.toml changes (-1: none) */
-static int screenshot_key(void)
+/* controls.screenshot's and controls.clip's keys, read again when
+config.toml changes (-1: none) */
+static int capture_key(int clip)
 {
 	static unsigned long read_at = (unsigned long)-1;
-	static int key = -1;
+	static int keys[2] = { -1, -1 };
 
 	if (read_at != config_changes())
 	{
+		int index;
+
 		read_at = config_changes();
-		key = halo_input_from_name(config_string("controls.screenshot"));
-		if (key < 0 || key >= SDL_SCANCODE_COUNT)
-			key = -1;
+		for (index = 0; index < 2; index++)
+		{
+			keys[index] = halo_input_from_name(config_string(index ? "controls.clip" : "controls.screenshot"));
+			if (keys[index] < 0 || keys[index] >= SDL_SCANCODE_COUNT)
+				keys[index] = -1;
+		}
 	}
-	return key;
+	return keys[clip ? 1 : 0];
 }
 
-/* a screenshot asked for this poll: Print Screen or controls.screenshot's
-key (not while typing, should it be a letter's), or with
-controls.capture_buttons the first player's Share button or Back with the
-right stick pressed */
+/* a screenshot or a clip asked for this poll: Print Screen or
+controls.screenshot's key, controls.clip's (neither while typing, should it
+be a letter's), or with controls.capture_buttons the first player's Share
+button or Back with the right stick pressed, and Back with the left stick
+for a clip */
 static void capture_asks(const struct platform_input_state *input, SDL_Gamepad *gamepads[], int count)
 {
-	static BOOL key_was, buttons_was;
-	int key = screenshot_key(), index;
+	static BOOL shot_was, clip_was;
+	int shot_key = capture_key(0), clip_key = capture_key(1), index;
 	BOOL typing = chat_typing || text_typing || console_is_active();
-	BOOL key_down = input->keys[SDL_SCANCODE_PRINTSCREEN] || (key >= 0 && input->keys[key] && !typing);
-	BOOL buttons_down = FALSE;
+	BOOL shot_down = input->keys[SDL_SCANCODE_PRINTSCREEN] || (shot_key >= 0 && input->keys[shot_key] && !typing);
+	BOOL clip_down = clip_key >= 0 && input->keys[clip_key] && !typing;
 
-	if (key_down && !key_was)
-		capture_request_screenshot();
-	key_was = key_down;
 	if (config_boolean("controls.capture_buttons"))
 	{
 		for (index = 0; index < count; index++)
 		{
-			if (gamepads[index] && (SDL_GetGamepadButton(gamepads[index], SDL_GAMEPAD_BUTTON_MISC1) ||
-				(SDL_GetGamepadButton(gamepads[index], SDL_GAMEPAD_BUTTON_BACK) &&
-					SDL_GetGamepadButton(gamepads[index], SDL_GAMEPAD_BUTTON_RIGHT_STICK))))
+			SDL_Gamepad *gamepad = gamepads[index];
+			BOOL back = gamepad && SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_BACK);
+
+			if (gamepad && (SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_MISC1) ||
+				(back && SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_RIGHT_STICK))))
 			{
-				buttons_down = TRUE;
+				shot_down = TRUE;
 			}
+			if (back && SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_LEFT_STICK))
+				clip_down = TRUE;
 		}
 	}
-	if (buttons_down && !buttons_was)
+	if (shot_down && !shot_was)
 		capture_request_screenshot();
-	buttons_was = buttons_down;
+	shot_was = shot_down;
+	if (clip_down && !clip_was)
+		capture_request_clip();
+	clip_was = clip_down;
 }
 
 #endif
@@ -1103,11 +1114,18 @@ static void test_input_menu_pointer(void)
 	memcpy(text, token, length);
 	text[length] = 0;
 #ifdef HALO_CAPTURE
-	/* (and capture, a player's screenshot) */
+	/* (and capture, a player's screenshot, and clip, a clip) */
 	if (!strcmp(text, "capture"))
 	{
 		if (step_done != step)
 			capture_request_screenshot();
+		step_done = step;
+		return;
+	}
+	if (!strcmp(text, "clip"))
+	{
+		if (step_done != step)
+			capture_request_clip();
 		step_done = step;
 		return;
 	}
