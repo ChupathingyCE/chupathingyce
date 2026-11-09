@@ -128,7 +128,7 @@ enum
 /* the Chupathingy menus' blues (the mockups': review/guide-mockup) */
 enum
 {
-	COLOR_SHADE = 0x02081A58,
+	COLOR_SHADE = 0x02081AA8,
 	COLOR_PANEL = 0x0A2652E0,
 	COLOR_PANEL_EDGE = 0x2F7FD6FF,
 	COLOR_GLOW = 0x2F8FFFFF,
@@ -586,12 +586,12 @@ static void render_row(struct social_row const *row, float x, float y, float wid
 	ui_overlay_rect(x + 9, y + ROW_HEIGHT * 0.5f - 3, 6, 6, 3, dot_color(row->state));
 	if (row->status[0])
 	{
-		ui_overlay_text(UI_FONT_BOLD, 10.5f, x + 22, y + 3, UI_ALIGN_LEFT, COLOR_NAME, row->tag);
+		ui_overlay_text(UI_FONT_MENU, 10.5f, x + 22, y + 3, UI_ALIGN_LEFT, COLOR_NAME, row->tag);
 		ui_overlay_text(UI_FONT_REGULAR, 8.0f, x + 22, y + 17, UI_ALIGN_LEFT,
 			row->muted ? COLOR_MUTED : COLOR_STATUS, row->status);
 	}
 	else
-		ui_overlay_text(UI_FONT_BOLD, 10.5f, x + 22, y + (ROW_HEIGHT - 10.5f) * 0.5f, UI_ALIGN_LEFT, COLOR_NAME, row->tag);
+		ui_overlay_text(UI_FONT_MENU, 10.5f, x + 22, y + (ROW_HEIGHT - 10.5f) * 0.5f, UI_ALIGN_LEFT, COLOR_NAME, row->tag);
 	if (row->platform > 0)
 		ui_overlay_platform(row->platform, 11.0f, x + width - 14, y + (ROW_HEIGHT - 11.0f) * 0.5f, COLOR_LABEL, 0);
 	target_add(x, y, x + width, y + ROW_HEIGHT, _target_row, index);
@@ -634,7 +634,7 @@ static void render_players(void)
 		float x = DETAIL_LEFT, width = CONTENT_RIGHT - DETAIL_LEFT;
 
 		ui_style_surface(x, BODY_Y, width, BODY_BOTTOM - BODY_Y, 8, COLOR_DETAIL, COLOR_ROW_EDGE, FALSE);
-		ui_overlay_text(UI_FONT_BOLD, 13.0f, x + 12, BODY_Y + 12, UI_ALIGN_LEFT, COLOR_NAME, row->tag);
+		ui_overlay_text(UI_FONT_MENU, 13.0f, x + 12, BODY_Y + 12, UI_ALIGN_LEFT, COLOR_NAME, row->tag);
 		if (row->platform > 0)
 			ui_overlay_platform(row->platform, 13.0f, x + width - 18, BODY_Y + 12, COLOR_LABEL, 0);
 		if (row->status[0])
@@ -742,7 +742,7 @@ static void render_toast(void)
 	ui_style_surface(TOAST_X, TOAST_Y, TOAST_WIDTH, TOAST_HEIGHT, 8, fade(COLOR_PANEL, share),
 		fade(COLOR_PANEL_EDGE, share), FALSE);
 	ui_overlay_rect(TOAST_X + 8, TOAST_Y + 7, 20, 20, 4, fade(guide.color ? guide.color : 0x2F6DD0FF, share));
-	ui_overlay_text(UI_FONT_BOLD, 10.0f, TOAST_X + 36, TOAST_Y + 5, UI_ALIGN_LEFT, fade(COLOR_NAME, share),
+	ui_overlay_text(UI_FONT_MENU, 10.0f, TOAST_X + 36, TOAST_Y + 5, UI_ALIGN_LEFT, fade(COLOR_NAME, share),
 		guide.toast_title);
 	ui_overlay_text(UI_FONT_REGULAR, 8.0f, TOAST_X + 36, TOAST_Y + 19, UI_ALIGN_LEFT, fade(COLOR_STATUS, share),
 		guide.toast_line);
