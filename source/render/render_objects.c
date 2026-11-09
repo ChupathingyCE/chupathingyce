@@ -587,7 +587,7 @@ static void render_object_list(
 							model_effect.modifier_shader->base.type))
 						{
 							model_effect.modifier_animation.colors =
-								object->object.outgoing_change_colors;
+								object_get_change_colors(object_index);
 							model_effect.modifier_animation.values =
 								object_get_function_values(object_index);
 						}
@@ -603,18 +603,20 @@ static void render_object_list(
 
 					if (TEST_FLAG(_object_mask_unit, object->object.type))
 					{
-						struct unit_datum *unit = unit_get(object_index);
+						/* port: between the last two ticks, as the unit is
+						drawn (render_interpolation.c) */
+						real super_amount;
+						real active_camouflage = unit_get_drawn_camouflage(object_index, &super_amount);
 
-						if (unit->unit.active_camouflage > 0.f)
+						if (active_camouflage > 0.f)
 						{
 							model_effect.type =
 								_render_model_effect_type_active_camouflage;
 							model_effect.source_object_index = object_index;
 							model_effect.source_object_centroid =
 								object->object.bounding_sphere_center;
-							model_effect.intensity = unit->unit.active_camouflage;
-							model_effect.parameter =
-								unit->unit.active_camouflage_super_amount;
+							model_effect.intensity = active_camouflage;
+							model_effect.parameter = super_amount;
 						}
 					}
 
@@ -670,7 +672,7 @@ static void render_object_list(
 						level_of_detail_pixels,
 						object_get_node_matrices(object_index),
 						object->object.region_permutations,
-						object->object.outgoing_change_colors,
+						object_get_change_colors(object_index),
 						object_get_function_values(object_index),
 						data->lighting,
 						&object->object.bounding_sphere_center,
@@ -692,7 +694,7 @@ static void render_object_list(
 						level_of_detail_pixels * 0.3f,
 						object_get_node_matrices(object_index),
 						object->object.region_permutations,
-						object->object.outgoing_change_colors,
+						object_get_change_colors(object_index),
 						object_get_function_values(object_index),
 						data->lighting,
 						&object->object.bounding_sphere_center,
@@ -708,7 +710,7 @@ static void render_object_list(
 			{
 				struct render_animation animation;
 
-				animation.colors = object->object.outgoing_change_colors;
+				animation.colors = object_get_change_colors(object_index);
 				animation.values = object_get_function_values(object_index);
 				widgets_render(object_index, data->lighting, &animation);
 			}
@@ -830,11 +832,12 @@ static boolean render_object_shadow_begin(
 	object = object_get(data->object_index);
 	if (TEST_FLAG(_object_mask_unit, object->object.type))
 	{
-		struct unit_datum *unit = unit_get(data->object_index);
+		real super_amount;
+		real active_camouflage = unit_get_drawn_camouflage(data->object_index, &super_amount);
 
-		if (unit->unit.active_camouflage > 0.f)
+		if (active_camouflage > 0.f)
 		{
-			shadow_intensity = (1.f - unit->unit.active_camouflage) * level_of_detail;
+			shadow_intensity = (1.f - active_camouflage) * level_of_detail;
 		}
 	}
 

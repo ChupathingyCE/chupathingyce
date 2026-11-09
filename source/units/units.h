@@ -603,6 +603,9 @@ void unit_export_function_values(
 
 short unit_get_zoom_level(
 	long unit_index);
+real unit_get_drawn_camouflage(
+	long unit_index,
+	real *super_amount);
 real unit_get_zoom_magnification(
 	long unit_index,
 	short zoom_level);
