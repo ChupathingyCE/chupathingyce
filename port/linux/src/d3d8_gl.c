@@ -1798,6 +1798,13 @@ static GLint scaled_pixel(float coordinate, float scale)
 	return pixel;
 }
 
+/* the pixels a unit of the bound targets has, along the axis that has more:
+what a polygon offset's slope factor is scaled by (apply_raster_state) */
+static float target_bias_scale(void)
+{
+	return target_scale[0] > target_scale[1] ? target_scale[0] : target_scale[1];
+}
+
 /* ... in the bound targets' units */
 static GLint target_pixel(float coordinate, int axis)
 {
@@ -4115,7 +4122,12 @@ static void apply_raster_state(BOOL has_depth)
 	{
 		float offset[2];
 
-		offset[0] = dword_to_float(rs[D3DRS_POLYGONOFFSETZSLOPESCALE]);
+		/* (the slope term is the depth's change across a pixel: a target
+		drawn at several pixels to the game's unit has that many times less
+		depth across each, so the factor is scaled by as much to keep the
+		Xbox's bias; without it decals fight with the surface under them at
+		high resolutions) */
+		offset[0] = dword_to_float(rs[D3DRS_POLYGONOFFSETZSLOPESCALE]) * target_bias_scale();
 		offset[1] = dword_to_float(rs[D3DRS_POLYGONOFFSETZOFFSET]);
 		if (memcmp(gl_state.polygon_offset, offset, sizeof(offset)))
 		{
