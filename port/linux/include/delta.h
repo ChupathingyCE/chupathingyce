@@ -166,6 +166,16 @@ enum delta_capability
 	client whose host says nothing (OpenCE's, an older build) plays by the
 	Xbox's rules */
 	_delta_capability_host_rules = 19,
+	/* reserved for Delta identity (verified players: ID_CHALLENGE, ID_PROOF
+	and ID_CARD, a draft being built): never set here */
+	_delta_capability_identity = 20,
+	/* a party's members ask their host to keep them on one team (docs/
+	delta.md, Party teams): each sends its party's tag (PARTY_TAG), and a
+	host that honors it puts the party on one team where the teams stay
+	within one player of each other. Teams stay the host's call; a host
+	that says nothing (OpenCE's, an older build) places them as it always
+	did */
+	_delta_capability_party_teams = 21,
 
 	NUMBER_OF_DELTA_CAPABILITIES
 };

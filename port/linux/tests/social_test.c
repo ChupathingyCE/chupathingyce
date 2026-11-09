@@ -385,6 +385,115 @@ static void test_presence(void)
 	CHECK(social_presence_fields(fields, 20, "0123456789abcdef0123456789abcdef0123456789ab") == -1);
 }
 
+static const char party_text[] =
+	"{\"cursor\": \"0011223344556677\", \"same\": false, \"you\": {\"handle\": \"grif\"}, \"friends\": [],"
+	" \"party\": {\"id\": \"0123456789abcdef\", \"code\": \"GQ7RTX\", \"link\": \"halo://party/GQ7RTX\","
+	" \"leader\": false, \"who_can_join\": \"friends\", \"largest\": 8, \"tag\": \"00112233aabbccdd\","
+	" \"members\": [{\"id\": \"aa11bb22\", \"name\": \"Sarge\", \"handle\": \"sarge\", \"platform\": \"pc_macos\","
+	" \"leader\": true, \"you\": false}, {\"id\": \"cc33dd44\", \"name\": \"Lopez\", \"handle\": null,"
+	" \"platform\": \"xbox\", \"leader\": false, \"you\": true}],"
+	" \"go\": {\"serial\": 3, \"time\": 1700000000, \"game\": {\"name\": \"Red Base\", \"map\": \"bloodgulch\","
+	" \"engine\": 1, \"players\": 4, \"maximum_players\": 16, \"teams\": true},"
+	" \"join\": \"halo://join/0123456789abcdef0123456789abcdef0123456789ab\"}},"
+	" \"party_invites\": [{\"party\": \"fedcba9876543210\", \"from\": \"simmons\", \"display\": \"Simmons\","
+	" \"size\": 3, \"time\": 1, \"expires\": 301}]}";
+
+static void test_party(void)
+{
+	static struct social_state read;
+	struct social_follow_inputs inputs;
+	char text[192], code[SOCIAL_PARTY_CODE_SIZE];
+	unsigned char tag[8];
+
+	CHECK(delta_profile_parse_social(party_text, &read) == 1);
+	CHECK(read.party.has && !read.party.leader && read.party.member_count == 2 && read.party.largest == 8);
+	CHECK(!strcmp(read.party.code, "GQ7RTX") && !strcmp(read.party.who_can_join, "friends"));
+	CHECK(!strcmp(read.party.members[0].handle, "sarge") && read.party.members[0].leader);
+	CHECK(!read.party.members[1].handle[0] && read.party.members[1].you && !strcmp(read.party.members[1].platform, "xbox"));
+	CHECK(read.party.go.has && read.party.go.serial == 3 && read.party.go.game.listed);
+	CHECK(read.party_invite_count == 1 && read.party_invites[0].size == 3);
+	CHECK(!strcmp(social_party_leader(&read.party)->name, "Sarge"));
+	CHECK(social_party_tag_bytes(read.party.tag, tag) && tag[0] == 0x00 && tag[7] == 0xdd);
+	CHECK(!social_party_tag_bytes("00112233aabbccdX", tag) && !social_party_tag_bytes("0011", tag));
+
+	/* /v1/party's own answer, and no party */
+	CHECK(delta_profile_parse_party("{\"party\": null, \"party_invites\": []}", &read) == 1);
+	CHECK(!read.party.has && !read.party_invite_count);
+	CHECK(delta_profile_parse_party("{\"error\": \"x\", \"reason\": \"full\"}", &read) == 0);
+	CHECK(delta_profile_parse_social(party_text, &read) == 1);
+	/* (a go whose join isn't a game link is none) */
+	{
+		static struct social_state odd;
+
+		CHECK(delta_profile_parse_party("{\"party\": {\"id\": \"0123456789abcdef\", \"members\": [{\"id\": "
+			"\"aa11bb22\", \"name\": \"x\", \"leader\": true}], \"go\": {\"serial\": 1, \"join\": \"http://x\"}}}",
+			&odd) == 1);
+		CHECK(odd.party.has && odd.party.go.has && !odd.party.go.join[0]);
+	}
+
+	/* codes */
+	CHECK(social_party_code_clean("gq7-rtx", code) && !strcmp(code, "GQ7RTX"));
+	CHECK(social_party_code_clean("halo://party/GQ7RTX/", code) && !strcmp(code, "GQ7RTX"));
+	CHECK(social_party_code_clean("HALO://PARTY/gq7rtx", code) && !strcmp(code, "GQ7RTX"));
+	CHECK(!social_party_code_clean("GQ7RT", code) && !code[0]);
+	CHECK(!social_party_code_clean("GQ7RTXX", code));
+	CHECK(!social_party_code_clean("GQ0RTX", code));
+	CHECK(!social_party_code_clean("halo://party/GQ7RTX/more", code));
+	social_party_code_shown("GQ7RTX", text, sizeof(text));
+	CHECK(!strcmp(text, "GQ7-RTX"));
+	CHECK(social_party_link("gq7rtx", text, sizeof(text)) && !strcmp(text, "halo://party/GQ7RTX"));
+	CHECK(!strcmp(social_party_rule_shown("invite"), "INVITE ONLY"));
+	CHECK(!strcmp(social_party_rule_next("friends", 1), "invite"));
+	CHECK(!strcmp(social_party_rule_next("anyone", -1), "invite"));
+
+	/* the requests' fields */
+	CHECK(social_party_fields(text, sizeof(text), "create", "", "Lopez", "xbox") > 0);
+	CHECK(!strcmp(text, "\"action\": \"create\", \"name\": \"Lopez\", \"platform\": \"xbox\""));
+	CHECK(social_party_fields(text, sizeof(text), "join", "gq7-rtx", "", "") > 0);
+	CHECK(!strcmp(text, "\"action\": \"join\", \"code\": \"GQ7RTX\""));
+	CHECK(social_party_fields(text, sizeof(text), "invite", "grif", "", "") > 0);
+	CHECK(social_party_fields(text, sizeof(text), "invite", "Gr\"if", "", "") == -1);
+	CHECK(social_party_fields(text, sizeof(text), "kick", "aa11bb22", "", "") > 0);
+	CHECK(social_party_fields(text, sizeof(text), "kick", "nope", "", "") == -1);
+	CHECK(social_party_fields(text, sizeof(text), "rule", "anyone", "", "") > 0);
+	CHECK(social_party_fields(text, sizeof(text), "rule", "all", "", "") == -1);
+	CHECK(social_party_fields(text, sizeof(text), "go", "0123456789abcdef0123456789abcdef0123456789ab", "", "") > 0);
+	CHECK(social_party_fields(text, sizeof(text), "go", "192.168.1.1", "", "") == -1);
+	CHECK(social_party_fields(text, sizeof(text), "dance", "", "", "") == -1);
+	CHECK(social_party_fields(text, sizeof(text), "create", "", "Lo\"pez", "") == -1);
+	CHECK(!strcmp(social_party_refusal("friends_only", 403), "Only the leader's friends can join."));
+	CHECK(!strcmp(social_party_refusal("", 500), "Can't do that right now."));
+
+	/* following */
+	memset(&inputs, 0, sizeof(inputs));
+	inputs.current_invite = "";
+	CHECK(social_follow_decide(&read.party, &inputs) == SOCIAL_FOLLOW_OFFER);
+	social_follow_line(&read.party, text, sizeof(text));
+	CHECK(!strcmp(text, "Following Sarge to Blood Gulch"));
+	inputs.seen_serial = 3;
+	CHECK(social_follow_decide(&read.party, &inputs) == SOCIAL_FOLLOW_NONE);
+	inputs.seen_serial = 2;
+	inputs.current_invite = "halo://join/0123456789abcdef0123456789abcdef0123456789ab";
+	CHECK(social_follow_decide(&read.party, &inputs) == SOCIAL_FOLLOW_THERE);
+	inputs.current_invite = "";
+	inputs.hosting_others = 1;
+	CHECK(social_follow_decide(&read.party, &inputs) == SOCIAL_FOLLOW_CANT);
+	social_follow_reason(&read.party, &inputs, text, sizeof(text));
+	CHECK(!strcmp(text, "Can't follow: you're hosting a game."));
+	inputs.hosting_others = 0;
+	inputs.off = 1;
+	CHECK(social_follow_decide(&read.party, &inputs) == SOCIAL_FOLLOW_NONE);
+	inputs.off = 0;
+	read.party.go.join[0] = 0;
+	social_copy_text(read.party.go.error, sizeof(read.party.go.error), "Can't follow: the game is full.");
+	CHECK(social_follow_decide(&read.party, &inputs) == SOCIAL_FOLLOW_CANT);
+	social_follow_reason(&read.party, &inputs, text, sizeof(text));
+	CHECK(!strcmp(text, "Can't follow: the game is full."));
+	/* (the leader never follows) */
+	read.party.leader = 1;
+	CHECK(social_follow_decide(&read.party, &inputs) == SOCIAL_FOLLOW_NONE);
+}
+
 int main(void)
 {
 	test_sections();
@@ -394,6 +503,7 @@ int main(void)
 	test_poll();
 	test_presence();
 	test_state();
+	test_party();
 	if (failures)
 	{
 		printf("%d failed\n", failures);

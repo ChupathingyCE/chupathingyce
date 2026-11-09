@@ -320,6 +320,9 @@ enum
 	/* the line each Custom Edition player gets in their chat as they join
 	(server/src/server_ce.c; empty: none) */
 	SERVER_SETTING_CE_WELCOME,
+	/* a party's players kept on one team where the teams stay even
+	(port/linux/game/party_teams.h; Delta Peer's party teams) */
+	SERVER_SETTING_KEEP_PARTIES_TOGETHER,
 	SERVER_SETTINGS,
 	/* a game's players, at most (halo_port_limits.h's) */
 	SERVER_SETTINGS_MAXIMUM_PLAYERS = 128,

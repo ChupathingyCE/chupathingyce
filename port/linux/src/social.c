@@ -172,7 +172,7 @@ static int passed(unsigned long now, unsigned long since, unsigned long interval
 
 int social_poll_due(struct social_poll *poll, unsigned long now, int in_game, int signed_in)
 {
-	unsigned long interval = in_game ? SOCIAL_POLL_GAME : SOCIAL_POLL_MENUS;
+	unsigned long interval = in_game ? SOCIAL_POLL_GAME : poll->party ? SOCIAL_POLL_PARTY : SOCIAL_POLL_MENUS;
 
 	if (!signed_in)
 	{
@@ -450,6 +450,324 @@ const char *social_invite_refusal(const char *reason, int status)
 	if (status == 429)
 		return "Too many invites. Wait a minute.";
 	return "Can't invite right now.";
+}
+
+/* ---------- parties */
+
+static const char code_letters[] = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+
+int social_party_code_clean(const char *text, char *code)
+{
+	static const char prefix[] = "halo://party/";
+	size_t index;
+	int length = 0;
+
+	code[0] = 0;
+	if (!text)
+		return 0;
+	while (*text == ' ')
+		text++;
+	for (index = 0; index < sizeof(prefix) - 1; index++)
+	{
+		char c = text[index] >= 'A' && text[index] <= 'Z' ? (char)(text[index] - 'A' + 'a') : text[index];
+
+		if (c != prefix[index])
+			break;
+	}
+	if (index == sizeof(prefix) - 1)
+		text += index;
+	for (; *text; text++)
+	{
+		char c = *text >= 'a' && *text <= 'z' ? (char)(*text - 'a' + 'A') : *text;
+
+		if (c == '-' || c == ' ')
+			continue;
+		/* (a link's slash at its end; else the code ends there) */
+		if (c == '/' || c == '\r' || c == '\n')
+		{
+			while (*text == '/' || *text == ' ' || *text == '\r' || *text == '\n')
+				text++;
+			if (*text)
+				length = 0;
+			break;
+		}
+		if (!strchr(code_letters, c) || length >= SOCIAL_PARTY_CODE_LENGTH)
+		{
+			code[0] = 0;
+			return 0;
+		}
+		code[length++] = c;
+	}
+	code[length] = 0;
+	if (length != SOCIAL_PARTY_CODE_LENGTH)
+	{
+		code[0] = 0;
+		return 0;
+	}
+	return 1;
+}
+
+void social_party_code_shown(const char *code, char *text, int size)
+{
+	if (size <= 0)
+		return;
+	if (!code || (int)strlen(code) != SOCIAL_PARTY_CODE_LENGTH)
+		social_copy_text(text, size, code ? code : "");
+	else
+		snprintf(text, (size_t)size, "%.3s-%.3s", code, code + 3);
+}
+
+int social_party_link(const char *code, char *link, int size)
+{
+	char clean[SOCIAL_PARTY_CODE_SIZE];
+
+	if (size <= 0)
+		return 0;
+	link[0] = 0;
+	if (!social_party_code_clean(code, clean))
+		return 0;
+	return fields_done(link, size, snprintf(link, (size_t)size, "halo://party/%s", clean)) >= 0;
+}
+
+int social_party_tag_bytes(const char *tag, unsigned char *bytes)
+{
+	int index;
+
+	if (!tag || strlen(tag) != 16)
+		return 0;
+	for (index = 0; index < 16; index++)
+	{
+		char c = tag[index];
+		int digit = c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : -1;
+
+		if (digit < 0)
+			return 0;
+		if (index & 1)
+			bytes[index / 2] = (unsigned char)(bytes[index / 2] | digit);
+		else
+			bytes[index / 2] = (unsigned char)(digit << 4);
+	}
+	return 1;
+}
+
+const struct social_party_member *social_party_leader(const struct social_party *party)
+{
+	int index;
+
+	for (index = 0; party && party->has && index < party->member_count; index++)
+	{
+		if (party->members[index].leader)
+			return &party->members[index];
+	}
+	return NULL;
+}
+
+static const char *const party_rules[][2] =
+{
+	{ "anyone", "ANYONE" },
+	{ "friends", "FRIENDS" },
+	{ "invite", "INVITE ONLY" },
+};
+
+#define NUMBER_OF_PARTY_RULES ((int)(sizeof(party_rules) / sizeof(party_rules[0])))
+
+static int party_rule_index(const char *rule)
+{
+	int index;
+
+	for (index = 0; rule && index < NUMBER_OF_PARTY_RULES; index++)
+	{
+		if (!strcmp(rule, party_rules[index][0]))
+			return index;
+	}
+	return 1;
+}
+
+const char *social_party_rule_shown(const char *rule)
+{
+	return party_rules[party_rule_index(rule)][1];
+}
+
+const char *social_party_rule_next(const char *rule, int direction)
+{
+	int index = party_rule_index(rule) + (direction < 0 ? NUMBER_OF_PARTY_RULES - 1 : 1);
+
+	return party_rules[index % NUMBER_OF_PARTY_RULES][0];
+}
+
+/* text the site takes in a JSON string as it is: printable ASCII and UTF-8,
+no quote or backslash */
+static int plain_text(const char *text)
+{
+	for (; text && *text; text++)
+	{
+		if ((unsigned char)*text < 0x20 || *text == '"' || *text == '\\')
+			return 0;
+	}
+	return 1;
+}
+
+static int hex_of_length(const char *text, size_t length)
+{
+	size_t index;
+
+	if (!text || strlen(text) != length)
+		return 0;
+	for (index = 0; index < length; index++)
+	{
+		if (!((text[index] >= '0' && text[index] <= '9') || (text[index] >= 'a' && text[index] <= 'f')))
+			return 0;
+	}
+	return 1;
+}
+
+int social_party_fields(char *fields, int size, const char *action, const char *value, const char *name,
+	const char *platform)
+{
+	char extra[160], code[SOCIAL_PARTY_CODE_SIZE], who[64];
+	int length;
+
+	if (size <= 0)
+		return -1;
+	fields[0] = 0;
+	extra[0] = 0;
+	if (!action || !plain_text(name) || !plain_text(platform))
+		return -1;
+	if (!strcmp(action, "invite"))
+	{
+		if (!social_handle_valid(value))
+			return -1;
+		snprintf(extra, sizeof(extra), ", \"handle\": \"%s\"", value);
+	}
+	else if (!strcmp(action, "accept") || !strcmp(action, "decline"))
+	{
+		if (!hex_of_length(value, 16))
+			return -1;
+		snprintf(extra, sizeof(extra), ", \"party\": \"%s\"", value);
+	}
+	else if (!strcmp(action, "join"))
+	{
+		if (!social_party_code_clean(value, code))
+			return -1;
+		snprintf(extra, sizeof(extra), ", \"code\": \"%s\"", code);
+	}
+	else if (!strcmp(action, "kick") || !strcmp(action, "lead"))
+	{
+		if (!hex_of_length(value, 8))
+			return -1;
+		snprintf(extra, sizeof(extra), ", \"member\": \"%s\"", value);
+	}
+	else if (!strcmp(action, "rule"))
+	{
+		if (!value || (strcmp(value, "anyone") && strcmp(value, "friends") && strcmp(value, "invite")))
+			return -1;
+		snprintf(extra, sizeof(extra), ", \"join\": \"%s\"", value);
+	}
+	else if (!strcmp(action, "go"))
+	{
+		if (!social_presence_invite_valid(value))
+			return -1;
+		snprintf(extra, sizeof(extra), ", \"invite\": \"%s\"", value);
+	}
+	else if (strcmp(action, "") && strcmp(action, "create") && strcmp(action, "leave"))
+		return -1;
+	social_copy_text(who, sizeof(who), name ? name : "");
+	length = snprintf(fields, (size_t)size, "\"action\": \"%s\"%s", action, extra);
+	if (length > 0 && length < size && who[0])
+		length += snprintf(fields + length, (size_t)(size - length), ", \"name\": \"%s\"", who);
+	if (length > 0 && length < size && platform && platform[0])
+		length += snprintf(fields + length, (size_t)(size - length), ", \"platform\": \"%s\"", platform);
+	return fields_done(fields, size, length);
+}
+
+static const char *const party_reasons[][2] =
+{
+	{ "in_party", "You're in a party already." },
+	{ "no_party", "You're not in a party." },
+	{ "not_leader", "Only the leader can do that." },
+	{ "full", "The party is full." },
+	{ "friends_only", "Only the leader's friends can join." },
+	{ "invite_only", "This party is invite only." },
+	{ "kicked", "The leader took you out of this party." },
+	{ "unknown", "No party has that code." },
+	{ "gone", "That invite is gone." },
+	{ "signed_out", "Sign in to invite friends." },
+	{ "member", "They're in the party already." },
+	{ "busy", "Too many tries. Wait a minute." },
+};
+
+const char *social_party_refusal(const char *reason, int status)
+{
+	size_t index;
+
+	for (index = 0; reason && index < sizeof(party_reasons) / sizeof(party_reasons[0]); index++)
+	{
+		if (!strcmp(reason, party_reasons[index][0]))
+			return party_reasons[index][1];
+	}
+	if (status == 403)
+		return "Friends only.";
+	if (status == 429)
+		return "Too many tries. Wait a minute.";
+	return "Can't do that right now.";
+}
+
+/* the code of an invite or a halo://join link ("" for none) */
+static const char *join_code(const char *link)
+{
+	static const char prefix[] = "halo://join/";
+
+	if (!link)
+		return "";
+	return !strncmp(link, prefix, sizeof(prefix) - 1) ? link + sizeof(prefix) - 1 : link;
+}
+
+int social_follow_decide(const struct social_party *party, const struct social_follow_inputs *inputs)
+{
+	const struct social_party_go *go;
+
+	if (!party || !party->has || party->leader || !party->go.has)
+		return SOCIAL_FOLLOW_NONE;
+	go = &party->go;
+	if (go->serial <= inputs->seen_serial || inputs->off)
+		return SOCIAL_FOLLOW_NONE;
+	if (go->join[0] && inputs->current_invite && inputs->current_invite[0] &&
+		!strcmp(join_code(go->join), join_code(inputs->current_invite)))
+	{
+		return SOCIAL_FOLLOW_THERE;
+	}
+	if (!go->join[0] || inputs->hosting_others)
+		return SOCIAL_FOLLOW_CANT;
+	return SOCIAL_FOLLOW_OFFER;
+}
+
+void social_follow_reason(const struct social_party *party, const struct social_follow_inputs *inputs, char *text,
+	int size)
+{
+	if (size <= 0)
+		return;
+	if (inputs->hosting_others && party->go.join[0])
+		social_copy_text(text, size, "Can't follow: you're hosting a game.");
+	else if (party->go.error[0])
+		social_copy_text(text, size, party->go.error);
+	else
+		social_copy_text(text, size, "Can't follow right now.");
+}
+
+void social_follow_line(const struct social_party *party, char *text, int size)
+{
+	const struct social_party_member *leader = social_party_leader(party);
+	char map[SOCIAL_GAME_TEXT_SIZE];
+
+	if (size <= 0)
+		return;
+	if (party->go.game.listed && party->go.game.map[0])
+	{
+		discord_activity_map_name(party->go.game.map, party->go.game.coop, map, sizeof(map));
+		snprintf(text, (size_t)size, "Following %s to %s", leader ? leader->name : "the leader", map);
+	}
+	else
+		snprintf(text, (size_t)size, "Following %s", leader ? leader->name : "the leader");
 }
 
 /* ---------- presence */

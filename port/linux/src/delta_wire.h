@@ -135,6 +135,9 @@ enum
 	DELTA_WIRE_CHAT_LINE_SIZE = 12,
 	DELTA_WIRE_CHAT_REFUSED_SIZE = 8,
 
+	/* party teams (docs/delta.md, Party teams): the party's tag */
+	DELTA_WIRE_PARTY_TAG_SIZE = 8,
+
 	/* team changes (docs/delta.md, Team changes) */
 	DELTA_WIRE_TEAM_REQUEST_SIZE = 8,
 	DELTA_WIRE_TEAM_RESULT_SIZE = 8,
@@ -400,7 +403,12 @@ enum delta_message_type
 	_delta_message_object_names = 28,
 	/* host to client, if both agreed to host_rules: the host's rules for
 	its players' extras, whenever they change and every few seconds */
-	_delta_message_host_rules = 29
+	_delta_message_host_rules = 29,
+	/* (30 to 32 are kept for Delta identity's ID_CHALLENGE, ID_PROOF and
+	ID_CARD, a draft) */
+	/* client to host, if both agreed to party_teams: its party's tag (8
+	bytes; zeros: in no party), as it changes and every few seconds */
+	_delta_message_party_tag = 33
 };
 
 /* HOST_RULES's flags: what the host lets its players turn on (a flag a
@@ -883,6 +891,10 @@ int delta_wire_read_team_result(const unsigned char *payload, int size, struct d
 int delta_wire_write_team_request(unsigned char *data, delta_u32 session,
 	const struct delta_wire_team_request *request);
 int delta_wire_write_team_result(unsigned char *data, delta_u32 session, const struct delta_wire_team_result *result);
+/* a party's tag (DELTA_WIRE_PARTY_TAG_SIZE bytes; a longer payload is read
+as far as this build knows) */
+int delta_wire_read_party_tag(const unsigned char *payload, int size, unsigned char *tag);
+int delta_wire_write_party_tag(unsigned char *data, delta_u32 session, const unsigned char *tag);
 /* the host's rules: a version past this build's is read as far as it
 knows; a team change or margin past their ranges is refused */
 int delta_wire_read_host_rules(const unsigned char *payload, int size, struct delta_wire_host_rules *rules);

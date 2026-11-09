@@ -99,6 +99,8 @@ void host_rules_set_player_names(boolean allowed);
 void host_rules_set_follow_camera(boolean allowed);
 /* (the limit on machines of one address, port/linux/game/network_distributed.c) */
 void network_distributed_set_address_limit(long maximum);
+/* (parties kept on one team, port/linux/game/party_teams.h) */
+void party_teams_host_set(boolean keep);
 
 enum
 {
@@ -590,6 +592,23 @@ static void initialize(
 		host_rules_set_follow_camera(allowed);
 		if (allowed)
 			error(_error_silent, "dedicated: players may watch a follow camera while they wait to respawn");
+	}
+	/* a party kept on one team: off (the Xbox's teams) unless true, 1, yes
+	or on */
+	{
+		char const *keep = getenv("HALO_DEDICATED_KEEP_PARTIES_TOGETHER");
+		boolean on;
+
+		if (keep && keep[0])
+			on = !_stricmp(keep, "true") || !strcmp(keep, "1") || !_stricmp(keep, "yes") || !_stricmp(keep, "on");
+		else
+		{
+			on = settings.set[SERVER_SETTING_KEEP_PARTIES_TOGETHER] &&
+				settings.values[SERVER_SETTING_KEEP_PARTIES_TOGETHER];
+		}
+		party_teams_host_set(on);
+		if (on)
+			error(_error_silent, "dedicated: a party's players go to one team where the teams stay even");
 	}
 	/* the machines of one internet address a game takes: 8 unless set */
 	{

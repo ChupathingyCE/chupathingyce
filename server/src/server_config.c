@@ -260,6 +260,8 @@ const struct server_setting server_settings_table[SERVER_SETTINGS] =
 		"(0: off)" },
 	{ "ce_welcome", SERVER_FIELD_STRING, 0, SERVER_SETTINGS_CE_WELCOME_SIZE - 1, "HALO_DEDICATED_CE_WELCOME",
 		"Chat line each Custom Edition player gets as they join (empty: none)" },
+	{ "keep_parties_together", SERVER_FIELD_BOOLEAN, 0, 1, "HALO_DEDICATED_KEEP_PARTIES_TOGETHER",
+		"Put a Chupathingy party's players on one team where the teams stay within one player of each other" },
 };
 
 /* ---------- private code */

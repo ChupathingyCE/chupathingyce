@@ -37,6 +37,7 @@ the file.
 | `HALO_DEDICATED_CE_WELCOME` | a line about cross-play | The chat line each Custom Edition player gets as they join (`ce_welcome`, up to 255 characters). Set but empty: none. |
 | `HALO_DEDICATED_BETRAYAL_KICK` | `0` | Betrayals (teammates killed) in one game that kick a player, 1 to 100; they are warned one short of it, and a second such kick within 24 hours bans them for 30 minutes ([moderation.md](moderation.md#betrayal-and-afk-limits)). `0`: off. `sv_set betrayal_kick 3` sets it while the server runs. |
 | `HALO_DEDICATED_AFK_KICK_MINUTES` | `0` | Minutes without input in a game in progress that kick a player, 1 to 120, warned 30 seconds before; never in the lobby or the carnage report, never a moderator ([moderation.md](moderation.md#betrayal-and-afk-limits)). `0`: off (`afk_kick_minutes`). |
+| `HALO_DEDICATED_KEEP_PARTIES_TOGETHER` | `false` | `true`: in team games, Chupathingy players in one party go to one team where the teams stay within one player of each other: in the lobby (a member moved, or traded with a player in no party), and a late joiner before they spawn. Players can still change team in the lobby afterwards. `false` places them as the Xbox did (`keep_parties_together`; [docs/delta.md](../../docs/delta.md#party-teams)). |
 | `HALO_DEDICATED_COMMANDS` | (none) | A file of [commands](admin.md#startup-commands) in the data folder, run once the server first hosts. |
 | `HALO_DEDICATED_CONSOLE` | on in a terminal | Commands typed on the server's standard input ([the console](admin.md#the-console)). `true`: read them even when it is not a terminal; `false`: never. |
 | `HALO_DEDICATED_CONTROL` | `127.0.0.1:8080` (`off` in our Docker image) | The [control API](admin.md#the-control-api)'s address, or `off` for none: a port (`8080`, on 127.0.0.1 only) or an address and port (`127.0.0.1:8080`, `[::1]:8080`, `0.0.0.0:8443`). Its token is made and printed the first time, and the first owner's setup link. The [control panel](moderation.md#the-control-panel) is on the same address: plain HTTP on the loopback address, HTTPS beyond it. |
@@ -52,7 +53,7 @@ The settings file's keys (`sv_settings` lists them, with where each value
 comes from): `name`, `maximum_players`, `minimum_players`, `idle_limit`,
 `public` (from the next start), `name_filter`, `chat`, `chat_filter`,
 `welcome`, `postgame_seconds`, `skip_lobby`, `chat_cooldown`, `team_change`
-(0 off, 1 balanced, 2 allow), `team_change_margin`, `playlist_shuffle`, `chat_legacy`, `gamespy_listing`, `gamespy_port`, `ce_joins`, `allow_player_names`, `allow_follow_camera`, `max_machines_per_address`, `betrayal_kick`, `afk_kick_minutes`, and the playlist
+(0 off, 1 balanced, 2 allow), `team_change_margin`, `playlist_shuffle`, `chat_legacy`, `gamespy_listing`, `gamespy_port`, `ce_joins`, `allow_player_names`, `allow_follow_camera`, `max_machines_per_address`, `betrayal_kick`, `afk_kick_minutes`, `keep_parties_together`, and the playlist
 `sv_playlist_use` chose. `sv_set welcome Hello and welcome` takes
 the rest of the line as the value (quotes optional).
 

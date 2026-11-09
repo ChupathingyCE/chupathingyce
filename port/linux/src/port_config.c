@@ -742,6 +742,10 @@ static const struct config_setting config_settings[] =
 	{ "guide.notify_online", _config_boolean, "false", "HALO_GUIDE_NOTIFY_ONLINE", _environment_value,
 		_platform_all,
 		"Show a notification in the menus when a friend comes online." },
+	{ "delta.bring_party", _config_boolean, "true", "HALO_DELTA_BRING_PARTY", _environment_value,
+		_platform_all,
+		"When you lead a party, it follows you into the games you join or\n"
+		"host." },
 #endif
 
 	/* ---- chat */
@@ -883,6 +887,10 @@ static const struct config_setting config_settings[] =
 	{ "network.chat_legacy", _config_boolean, "true", "HALO_NET_CHAT_LEGACY", _environment_value, _platform_all,
 		"In games you host, let OpenCE players chat too while network.chat is\n"
 		"on. Their own text chat is bridged in." },
+	{ "network.keep_parties_together", _config_boolean, "true", "HALO_NET_KEEP_PARTIES_TOGETHER", _environment_value,
+		_platform_all,
+		"In team games you host, put a party's players on one team when the\n"
+		"teams stay even." },
 	{ "network.team_change", _config_string, "\"off\"", "HALO_NET_TEAM_CHANGE", _environment_value,
 		_platform_all,
 		"Team changes in team games you host: \"off\" (players keep their team,\n"
@@ -1273,6 +1281,12 @@ static const struct config_setting config_settings[] =
 		"Open the Guide once the menus or a map are up, for tests." },
 	{ "debug.guide_toast", _config_string, "\"\"", "HALO_GUIDE_TOAST", _environment_value, _platform_all,
 		"Show a test notification with this text once. Leave it empty for none." },
+	{ "debug.guide_section", _config_string, "\"\"", "HALO_GUIDE_SECTION", _environment_value, _platform_all,
+		"With debug.guide_open, the section it opens on (\"party\", \"friends\"),\n"
+		"for tests. Leave it empty for the first." },
+	{ "debug.party_test", _config_string, "\"\"", "HALO_PARTY_TEST", _environment_value, _platform_all,
+		"A party step once the menus are up, for tests: \"create\" or\n"
+		"\"join:<code>\". Leave it empty for none." },
 #endif
 	{ "debug.chat_test", _config_string, "\"\"", "HALO_CHAT_TEST", _environment_value, _platform_all,
 		"Scripted chat for tests, as steps separated by ;. Each step is\n"
@@ -1567,6 +1581,8 @@ static const struct
 #ifdef HALO_GUIDE
 	{ "guide", 0,
 		"The Guide, which opens over the menus or a game (F3)." },
+	{ "delta", 0,
+		"DELTA's party." },
 #endif
 	{ "game", 0,
 		"How games play. The bomb settings are for Bomb and Grifball games you\n"

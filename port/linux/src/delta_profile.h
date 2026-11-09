@@ -185,6 +185,9 @@ answer after an action) read into state (social.h): 1 for a whole state,
 answer. Only the incoming requests are kept */
 struct social_state;
 int delta_profile_parse_social(const char *text, struct social_state *state);
+/* /v1/party's answer ({"party", "party_invites"}) into state's party and
+party invites (the rest left as it is): 1, or 0 if not that answer */
+int delta_profile_parse_party(const char *text, struct social_state *state);
 /* a string member of an answer's top ({"error", "reason"}: "reason") into
 text ("" for none) */
 void delta_profile_parse_text(const char *answer, const char *name, char *text, int size);

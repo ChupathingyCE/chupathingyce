@@ -6,6 +6,10 @@ release notes.
 
 ## Unreleased
 
+- Parties can stay together (`keep_parties_together`, off by default): in
+  team games, Chupathingy players in one party go to one team when the
+  teams stay within one player of each other. `sv_set keep_parties_together
+  true` turns it on while the server runs.
 - The control panel is on by default, at `http://127.0.0.1:8080` (this
   machine only). New hosts get the one-time setup link on the console and in
   `control_setup_code.txt`; on Windows the server also opens it in the

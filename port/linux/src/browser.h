@@ -486,6 +486,27 @@ void browser_social_result(struct browser_social_result *result);
 /* a join the site allowed: its halo://join link, once (1) */
 int browser_social_take_join(char *link, int size);
 
+/* the Guide's party (social.h): for a copy linked to a profile, the
+party in the friends' state; for one with none, POST /v1/party alone,
+polled while it is in one (it joins by a code). Not on the consoles
+(HALO_CONSOLE_NO_GUIDE) */
+struct social_party;
+/* the party as the site last said (has 0: none) into party, when its
+serial is not *serial (then *serial is its serial) */
+void browser_party_get(struct social_party *party, int *serial);
+/* an action on the party (social_party_fields's: "create", "invite" a
+handle, "accept" a party ID, "join" a code, ...), with this copy's game
+name for a copy with no profile; one at a time (0 if one is still out).
+Its result as browser_social_result's (its action is 0) */
+int browser_party_act(const char *action, const char *value, const char *name);
+void browser_party_result(struct browser_social_result *result);
+/* the leader's game (its invite's code) told to the party, apart from the
+actions (the latest wins) */
+void browser_party_go(const char *invite);
+/* a halo://party/ link (opened, or on the command line): joined, as a code
+typed would be. 1 if the text was one */
+int browser_party_link(const char *text);
+
 /* Delta Profile in the game (port/linux/game/profile_screen.c;
 delta_profile.h): this copy's own profile, as the site has it, kept in
 memory only. browser_profile_load asks the site for it (in the background:
