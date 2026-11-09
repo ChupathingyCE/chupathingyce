@@ -962,11 +962,13 @@ static void hud_draw_friendly_indicator(
 				bitmap,
 				&position,
 				&clip,
+				(mcc_cache_tags_loaded() ?
+				 mcc_hud_bitmap_scale(interface_get_tag_index(_interface_bitmap_multiplayer_hud)) :
 #ifdef HALO_CUSTOM_EDITION
 				/* port: at its bitmap's HUD scale */
-				hud_bitmap_group_scale(interface_get_tag_index(_interface_bitmap_multiplayer_hud)),
+				hud_bitmap_group_scale(interface_get_tag_index(_interface_bitmap_multiplayer_hud))),
 #else
-				1.0f,
+				1.0f),
 #endif
 				0.0f,
 				1.0f);
@@ -1219,6 +1221,11 @@ static void hud_draw_player_name(
 
 		if (bitmap)
 		{
+			/* port: match the MCC arrow's scale */
+			if (mcc_cache_tags_loaded())
+				y -= (short)(bitmap->registration_point.y *
+					mcc_hud_bitmap_scale(interface_get_tag_index(_interface_bitmap_multiplayer_hud)));
+			else
 #ifdef HALO_CUSTOM_EDITION
 			/* (the triangle drawn at its bitmap's HUD scale) */
 			y -= (short)(bitmap->registration_point.y *
