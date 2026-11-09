@@ -1231,10 +1231,12 @@ player key, made the same way and readable by you alone). Its private half
 never leaves the computer. The first time the game reaches the site with a
 player key, it sends the player key once more to enroll the device, and the
 site answers a device certificate (`delta_device.cert`, public), which the
-game refreshes every few days. From then on the game sends the site an
-hour's token instead of the player key, and goes back to the key when the
-site is older or refuses the token. The key file stays: older sites and
-servers know only it. Neither file nor any token is ever written to
+game refreshes every few days with the device key alone. From then on the
+game sends the site an hour's token instead of the player key, and sends
+the key only to a site that doesn't know device identity. Restoring another
+player key makes a new device key, which enrolls with it. The device key can
+always be made again; the player key file stays: older sites and servers
+know only it. Neither file nor any token is ever written to
 `debug.txt` (docs/delta.md, "Device identity").
 
 To link the game to a profile on the site, do one of these steps in Online

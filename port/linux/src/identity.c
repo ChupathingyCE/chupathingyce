@@ -397,12 +397,64 @@ int identity_accept(const unsigned char *certificate, int certificate_size, cons
 
 /* ---------- what a device signs */
 
-static int message(const char *label, const unsigned char *a, int a_size, const unsigned char *b, int b_size,
-	const unsigned char *c, int c_size, unsigned char *out)
+void identity_wipe(void *data, int size)
 {
-	int length = (int)strlen(label);
+	if (data && size > 0)
+		crypto_wipe(data, (size_t)size);
+}
 
+static int audience_ok(const char *audience)
+{
+	int length = audience ? (int)strlen(audience) : 0, index;
+
+	if (length < 1 || length > IDENTITY_AUDIENCE_MOST)
+		return 0;
+	for (index = 0; index < length; index++)
+	{
+		char c = audience[index];
+
+		if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '.' || c == '-'))
+			return 0;
+	}
+	return 1;
+}
+
+int identity_audience(const char *url, char *audience, int size)
+{
+	const char *start = url ? strstr(url, "://") : NULL;
+	int length = 0;
+
+	if (size <= 0)
+		return 0;
+	audience[0] = 0;
+	if (!start)
+		return 0;
+	for (start += 3; start[length] && !strchr(":/?#", start[length]); length++)
+	{
+		if (length >= size - 1)
+			return audience[0] = 0, 0;
+		audience[length] = (char)(start[length] >= 'A' && start[length] <= 'Z' ? start[length] - 'A' + 'a' :
+			start[length]);
+	}
+	audience[length] = 0;
+	if (!audience_ok(audience))
+		return audience[0] = 0, 0;
+	return length;
+}
+
+/* label, audience (its length, then it), then up to three fields */
+static int message(const char *label, const char *audience, const unsigned char *a, int a_size,
+	const unsigned char *b, int b_size, const unsigned char *c, int c_size, unsigned char *out)
+{
+	int length = (int)strlen(label), audience_length;
+
+	if (!audience_ok(audience))
+		return -1;
+	audience_length = (int)strlen(audience);
 	memcpy(out, label, (size_t)length);
+	out[length++] = (unsigned char)audience_length;
+	memcpy(out + length, audience, (size_t)audience_length);
+	length += audience_length;
 	memcpy(out + length, a, (size_t)a_size);
 	memcpy(out + length + a_size, b, (size_t)b_size);
 	if (c_size)
@@ -410,21 +462,23 @@ static int message(const char *label, const unsigned char *a, int a_size, const 
 	return length + a_size + b_size + c_size;
 }
 
-int identity_enroll_message(const unsigned char *nonce, const unsigned char *copy_id, const unsigned char *public_key,
-	unsigned char *out)
+int identity_enroll_message(const char *audience, const unsigned char *nonce, const unsigned char *copy_id,
+	const unsigned char *public_key, unsigned char *out)
 {
-	return message(enroll_label, nonce, IDENTITY_NONCE_SIZE, copy_id, IDENTITY_ID_SIZE, public_key,
+	return message(enroll_label, audience, nonce, IDENTITY_NONCE_SIZE, copy_id, IDENTITY_ID_SIZE, public_key,
 		IDENTITY_KEY_SIZE, out);
 }
 
-int identity_refresh_message(const unsigned char *nonce, const unsigned char *device_id, unsigned char *out)
+int identity_refresh_message(const char *audience, const unsigned char *nonce, const unsigned char *device_id,
+	unsigned char *out)
 {
-	return message(refresh_label, nonce, IDENTITY_NONCE_SIZE, device_id, IDENTITY_ID_SIZE, NULL, 0, out);
+	return message(refresh_label, audience, nonce, IDENTITY_NONCE_SIZE, device_id, IDENTITY_ID_SIZE, NULL, 0, out);
 }
 
-int identity_token_message(const unsigned char *nonce, const unsigned char *device_id, unsigned char *out)
+int identity_token_message(const char *audience, const unsigned char *nonce, const unsigned char *device_id,
+	unsigned char *out)
 {
-	return message(token_label, nonce, IDENTITY_NONCE_SIZE, device_id, IDENTITY_ID_SIZE, NULL, 0, out);
+	return message(token_label, audience, nonce, IDENTITY_NONCE_SIZE, device_id, IDENTITY_ID_SIZE, NULL, 0, out);
 }
 
 /* ---------- text */
@@ -685,58 +739,98 @@ int identity_due(const struct identity_state *state, int has_player_key, unsigne
 		return IDENTITY_STEP_NONE;
 	if (!state->has_certificate || state->must_enroll)
 		return has_player_key ? IDENTITY_STEP_ENROLL : IDENTITY_STEP_NONE;
-	/* (at half its life) */
-	if (now >= state->issued + (state->expires - state->issued) / 2)
+	/* (an expired one too: a refresh, with the device key alone) */
+	if (now >= state->refresh_at)
 		return IDENTITY_STEP_REFRESH;
 	return IDENTITY_STEP_NONE;
 }
 
-void identity_have_certificate(struct identity_state *state, const struct identity_device *device)
+void identity_have_certificate(struct identity_state *state, const struct identity_device *device,
+	unsigned long refresh_after, unsigned long now)
 {
 	state->has_certificate = 1;
 	state->must_enroll = 0;
 	state->issued = device->issued;
 	state->expires = device->expires;
+	/* (a duration: seconds from now; at half the life when not given, and
+	never past the end) */
+	state->refresh_at = refresh_after ? now + refresh_after :
+		device->issued + (device->expires - device->issued) / 2;
+	if (state->refresh_at > device->expires)
+		state->refresh_at = device->expires;
 	state->failures = 0;
+	state->busy_failures = 0;
+	state->day_tries = 0;
+}
+
+/* a wait that doubles from first to IDENTITY_LATER with each count */
+static unsigned long growing(int first, int *count)
+{
+	unsigned long wait = (unsigned long)first << (*count < 8 ? *count : 8);
+
+	if (wait > IDENTITY_LATER)
+		wait = IDENTITY_LATER;
+	(*count)++;
+	return wait;
 }
 
 int identity_answered(struct identity_state *state, int status, const char *response, unsigned long now)
 {
-	int answer, wait;
+	int answer;
 
 	if (status == 200)
 	{
 		state->failures = 0;
+		state->busy_failures = 0;
 		return IDENTITY_ANSWER_OK;
 	}
 	if (status == 404 && identity_json_true(response, "enroll"))
 		answer = IDENTITY_ANSWER_ENROLL;
 	else if (status == 403 && (identity_json_true(response, "revoked") || identity_json_true(response, "signed_out")))
 		answer = IDENTITY_ANSWER_OFF;
-	else if (status == 404 || status == 405 || status == 501 || status == 503 || status == 403 || status == 409)
+	else if (status == 409 && identity_json_true(response, "other_copy") && !state->new_key_made)
+		answer = IDENTITY_ANSWER_NEW_KEY;
+	else if (status == 403 || status == 409)
+		answer = IDENTITY_ANSWER_DAY;
+	else if (status == 404 || status == 405 || status == 501)
 		answer = IDENTITY_ANSWER_LATER;
+	else if (status == 503)
+		answer = IDENTITY_ANSWER_BUSY;
 	else
 		answer = IDENTITY_ANSWER_RETRY;
 	switch (answer)
 	{
 	case IDENTITY_ANSWER_ENROLL:
 		state->must_enroll = 1;
+		identity_wipe(state->token, sizeof(state->token));
 		break;
 	case IDENTITY_ANSWER_OFF:
 		state->off = 1;
 		state->has_certificate = 0;
-		state->token[0] = 0;
+		identity_wipe(state->token, sizeof(state->token));
+		break;
+	case IDENTITY_ANSWER_NEW_KEY:
+		/* (the caller makes the new key; enrolled with it right away) */
+		state->new_key_made = 1;
+		state->has_certificate = 0;
+		state->must_enroll = 1;
+		identity_wipe(state->token, sizeof(state->token));
+		break;
+	case IDENTITY_ANSWER_DAY:
+		if (++state->day_tries >= IDENTITY_DAY_TRIES)
+			state->off = 1;
+		state->wait_until = now + IDENTITY_DAY;
 		break;
 	case IDENTITY_ANSWER_LATER:
+		/* (an older site: no tokens to it either) */
 		state->wait_until = now + IDENTITY_LATER;
+		state->tokens_off_until = now + IDENTITY_LATER;
+		break;
+	case IDENTITY_ANSWER_BUSY:
+		state->wait_until = now + growing(IDENTITY_BUSY_FIRST, &state->busy_failures);
 		break;
 	default:
-		/* (a minute, doubling to an hour) */
-		wait = IDENTITY_RETRY_FIRST << (state->failures < 6 ? state->failures : 6);
-		if (wait > IDENTITY_LATER)
-			wait = IDENTITY_LATER;
-		state->failures++;
-		state->wait_until = now + (unsigned long)wait;
+		state->wait_until = now + growing(IDENTITY_RETRY_FIRST, &state->failures);
 		break;
 	}
 	return answer;
@@ -765,23 +859,23 @@ void identity_set_token(struct identity_state *state, const char *token, unsigne
 	state->token_until = now + lifetime;
 }
 
-int identity_token_refused(struct identity_state *state, int status, const char *response, unsigned long now)
+int identity_token_sent(struct identity_state *state, int status, const char *response, unsigned long now)
 {
 	char reason[16];
+	int has_token = identity_json_member(response, "token", reason, sizeof(reason)) > 0;
 
-	if (status == 401 && identity_json_member(response, "token", reason, sizeof(reason)) > 0)
+	if (status == 401 && has_token)
 	{
-		/* (a new one next time) */
-		crypto_wipe(state->token, sizeof(state->token));
-		return 1;
+		/* (a site restart ends every token) */
+		identity_wipe(state->token, sizeof(state->token));
+		return IDENTITY_SENT_NEW_TOKEN;
 	}
-	if (status == 400 || status == 401)
+	if (status == 400 && !has_token)
 	{
-		/* (a site that wants the key: no tokens to it for an hour) */
 		state->tokens_off_until = now + IDENTITY_LATER;
-		return 1;
+		return IDENTITY_SENT_KEY;
 	}
-	return 0;
+	return IDENTITY_SENT_DONE;
 }
 
 #endif

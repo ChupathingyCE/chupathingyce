@@ -60,17 +60,19 @@ static int failures;
 	"435245560100000020c2b26a20c2b26aa013b46a48810d1682965a460200000011111111111111111111111111111111" \
 	"a0f42dfd380bf6aee133508172a127001169fc31fd48dcb2b10d79abd24a09fc115f4323eae5feebbd1f7f9b97d24693" \
 	"2b730bd2e50b6be603b751854cceefdf32c3311a4a20e8f48c9410e1c40ae50f"
+#define VECTOR_AUDIENCE \
+	"stats.chupathingy.org"
 #define VECTOR_NONCE \
 	"000102030405060708090a0b0c0d0e0f"
 #define VECTOR_ENROLL_SIGNATURE \
-	"e37ed96bc29327c39f1d4ad848ea910c24f92db6ac84ace8b858141e439de11418e5c5c3826ef049c8e47bd1d3991bb3" \
-	"f5c31303efd52d6f83c3e01831a0b10b"
+	"cec504f992252432a5d499113cbb7469a791b22e743cd44f6f15b278df2d4882e89a5724ddcaffe73fb2a14fb8a74fd2" \
+	"1f00160cf177e9e2f64561cdbd3b4305"
 #define VECTOR_REFRESH_SIGNATURE \
-	"d1db52df2498342c92283af1c857c747dd36ed87ed9c1201dc9c80e4bc85245a3565a0efbe1ffd0c01e1d4493549246a" \
-	"27e385ecbdd7848b22eb96dfc54cb103"
+	"f09ba64e6aa8ca29d8414d334dca2759d86d29f3757493a2b00be775a770f1ce0f7dc0388671683b6868a493416b50a2" \
+	"7f11a1458bb1e29fc89541849b00170d"
 #define VECTOR_TOKEN_SIGNATURE \
-	"dc04216b8d3b86186901e845e2812dd4739417bf23dcd0b23879ea705120e5c801f872fd654d3d25d45144befa965006" \
-	"a16bf49306bb45c440b3805ecab2d90b"
+	"0c02b24be2e9caa6385ef49de7bf80cb0740c7a73085d8a267c1f7f87978f1e8331b870581b254a5a258c85465b3130d" \
+	"5153e68646b300265f8ea304f0fd0901"
 #define VECTOR_VALID_FROM 1790000000UL
 #define VECTOR_VALID_UNTIL 1797776000UL
 #define VECTOR_ISSUED 1790100000UL
@@ -155,17 +157,17 @@ static void test_messages(void)
 	int size;
 
 	seed_of(DEVICE_SEED_TEXT, seed);
-	size = identity_enroll_message(nonce, copy_id, device_public, message);
-	CHECK(size == 29 + 16 + 16 + 32 && size <= IDENTITY_MESSAGE_MOST);
+	size = identity_enroll_message(VECTOR_AUDIENCE, nonce, copy_id, device_public, message);
+	CHECK(size == 29 + 1 + 21 + 16 + 16 + 32 && size <= IDENTITY_MESSAGE_MOST);
 	identity_sign(seed, message, size, signature);
 	CHECK(same_hex(signature, 64, VECTOR_ENROLL_SIGNATURE));
 	CHECK(identity_verify(device_public, message, size, signature));
 	message[0] ^= 1;
 	CHECK(!identity_verify(device_public, message, size, signature));
-	size = identity_refresh_message(nonce, device_id, message);
+	size = identity_refresh_message(VECTOR_AUDIENCE, nonce, device_id, message);
 	identity_sign(seed, message, size, signature);
 	CHECK(same_hex(signature, 64, VECTOR_REFRESH_SIGNATURE));
-	size = identity_token_message(nonce, device_id, message);
+	size = identity_token_message(VECTOR_AUDIENCE, nonce, device_id, message);
 	identity_sign(seed, message, size, signature);
 	CHECK(same_hex(signature, 64, VECTOR_TOKEN_SIGNATURE));
 }
@@ -344,37 +346,88 @@ static void test_text(void)
 	CHECK(identity_json_member("{\"a\": \"long value\"}", "a", out, 5) == 4 && !strcmp(out, "long"));
 }
 
+static void test_audience(void)
+{
+	char audience[IDENTITY_AUDIENCE_MOST + 1], longest[300];
+	unsigned char message[IDENTITY_MESSAGE_MOST];
+	int index;
+
+	CHECK(identity_audience("https://stats.chupathingy.org", audience, sizeof(audience)) == 21 &&
+		!strcmp(audience, VECTOR_AUDIENCE));
+	CHECK(identity_audience("https://Stats.Chupathingy.ORG:443/v1/?x#y", audience, sizeof(audience)) == 21 &&
+		!strcmp(audience, VECTOR_AUDIENCE));
+	CHECK(identity_audience("http://127.0.0.1:8080/", audience, sizeof(audience)) == 9 &&
+		!strcmp(audience, "127.0.0.1"));
+	CHECK(!identity_audience("stats.chupathingy.org", audience, sizeof(audience)) && !audience[0]);
+	CHECK(!identity_audience("https://", audience, sizeof(audience)));
+	CHECK(!identity_audience("https://user@host/", audience, sizeof(audience)));
+	CHECK(!identity_audience("https://[::1]:80/", audience, sizeof(audience)));
+	CHECK(!identity_audience("https://stats.chupathingy.org", audience, 10));
+	/* (the longest audience still fits a message; one longer is none) */
+	memset(longest, 'a', sizeof(longest));
+	longest[IDENTITY_AUDIENCE_MOST] = 0;
+	CHECK(identity_enroll_message(longest, nonce, copy_id, device_public, message) ==
+		29 + 1 + IDENTITY_AUDIENCE_MOST + 64);
+	longest[IDENTITY_AUDIENCE_MOST] = 'a';
+	longest[IDENTITY_AUDIENCE_MOST + 1] = 0;
+	CHECK(identity_enroll_message(longest, nonce, copy_id, device_public, message) < 0);
+	CHECK(identity_token_message("", nonce, device_id, message) < 0);
+	CHECK(identity_refresh_message("Stats.example", nonce, device_id, message) < 0);
+	for (index = 0; index < 3; index++)
+		CHECK(identity_token_message("a/b", nonce, device_id, message) < 0);
+}
+
 static void test_schedule(void)
 {
 	struct identity_state state;
 	struct identity_device device;
 	char token[IDENTITY_TOKEN_SIZE];
 	unsigned long now = 1000000;
+	int index;
 
 	memset(&state, 0, sizeof(state));
 	/* no certificate: enroll, with a player key only */
 	CHECK(identity_due(&state, 0, now) == IDENTITY_STEP_NONE);
 	CHECK(identity_due(&state, 1, now) == IDENTITY_STEP_ENROLL);
 	CHECK(!identity_token(&state, now, token, sizeof(token)) && !identity_token_due(&state, now));
-	/* an older site: an hour */
+	/* an older site (no identity paths): an hour, and no tokens to it */
 	CHECK(identity_answered(&state, 404, "{\"error\": \"not found\"}", now) == IDENTITY_ANSWER_LATER);
 	CHECK(identity_due(&state, 1, now + IDENTITY_LATER - 1) == IDENTITY_STEP_NONE);
 	CHECK(identity_due(&state, 1, now + IDENTITY_LATER) == IDENTITY_STEP_ENROLL);
+	CHECK(state.tokens_off_until == now + IDENTITY_LATER);
 	now += IDENTITY_LATER;
 	/* no answer: a minute, then two */
 	CHECK(identity_answered(&state, 0, "", now) == IDENTITY_ANSWER_RETRY);
 	CHECK(state.wait_until == now + 60);
 	CHECK(identity_answered(&state, 500, "", now) == IDENTITY_ANSWER_RETRY);
 	CHECK(state.wait_until == now + 120);
-	now += 120;
-	CHECK(identity_answered(&state, 200, "{}", now) == IDENTITY_ANSWER_OK && !state.failures);
+	/* busy: ten minutes, doubling, to an hour */
+	CHECK(identity_answered(&state, 503, "{\"error\": \"busy\"}", now) == IDENTITY_ANSWER_BUSY);
+	CHECK(state.wait_until == now + 600);
+	CHECK(identity_answered(&state, 503, "", now) == IDENTITY_ANSWER_BUSY && state.wait_until == now + 1200);
+	for (index = 0; index < 6; index++)
+		identity_answered(&state, 503, "", now);
+	CHECK(state.wait_until == now + IDENTITY_LATER);
+	now += IDENTITY_LATER;
+	CHECK(identity_answered(&state, 200, "{}", now) == IDENTITY_ANSWER_OK && !state.failures && !state.busy_failures);
+
+	/* a certificate: refreshed after the site's refresh_after (a duration) */
 	memset(&device, 0, sizeof(device));
 	device.issued = now;
 	device.expires = now + 7 * 86400;
-	identity_have_certificate(&state, &device);
-	CHECK(identity_due(&state, 1, now) == IDENTITY_STEP_NONE);
-	CHECK(identity_due(&state, 1, now + 7 * 43200 - 1) == IDENTITY_STEP_NONE);
-	CHECK(identity_due(&state, 1, now + 7 * 43200) == IDENTITY_STEP_REFRESH);
+	identity_have_certificate(&state, &device, 1000, now);
+	CHECK(state.refresh_at == now + 1000);
+	CHECK(identity_due(&state, 1, now + 999) == IDENTITY_STEP_NONE);
+	CHECK(identity_due(&state, 1, now + 1000) == IDENTITY_STEP_REFRESH);
+	/* (none given: half its life; never past its end) */
+	identity_have_certificate(&state, &device, 0, now);
+	CHECK(state.refresh_at == now + 7 * 43200);
+	identity_have_certificate(&state, &device, 30 * 86400, now);
+	CHECK(state.refresh_at == device.expires);
+	/* an expired saved certificate refreshes, never enrolls */
+	identity_have_certificate(&state, &device, 0, now);
+	CHECK(identity_due(&state, 1, device.expires + 86400) == IDENTITY_STEP_REFRESH);
+
 	/* a token: due, then used until near its end */
 	CHECK(identity_token_due(&state, now));
 	identity_set_token(&state, "d1.token", 3600, now);
@@ -382,30 +435,56 @@ static void test_schedule(void)
 	CHECK(identity_token(&state, now, token, sizeof(token)) && !strcmp(token, "d1.token"));
 	CHECK(!identity_token(&state, now + 3600 - 60, token, sizeof(token)));
 	CHECK(!identity_token(&state, now, token, 4));
-	/* a request refused for the token: dropped, the key sent */
-	CHECK(identity_token_refused(&state, 401, "{\"error\": \"token\", \"token\": \"expired\"}", now) &&
-		!state.token[0]);
+	/* a request answered: it stands, whatever it was, but for the two cases */
+	CHECK(identity_token_sent(&state, 200, "ok", now) == IDENTITY_SENT_DONE);
+	CHECK(identity_token_sent(&state, 404, "{}", now) == IDENTITY_SENT_DONE);
+	CHECK(identity_token_sent(&state, 0, "", now) == IDENTITY_SENT_DONE);
+	CHECK(identity_token_sent(&state, 403, "{\"error\": \"locked\"}", now) == IDENTITY_SENT_DONE);
+	CHECK(identity_token_sent(&state, 401, "{\"error\": \"Sign in first.\"}", now) == IDENTITY_SENT_DONE);
+	CHECK(identity_token_sent(&state, 400, "{\"error\": \"bad\", \"token\": \"scope\"}", now) == IDENTITY_SENT_DONE);
+	CHECK(state.token[0]);
+	/* a 401 for the token: dropped, a new one asked for */
+	CHECK(identity_token_sent(&state, 401, "{\"error\": \"token\", \"token\": \"expired\"}", now) ==
+		IDENTITY_SENT_NEW_TOKEN && !state.token[0] && identity_token_due(&state, now));
 	identity_set_token(&state, "d1.token", 3600, now);
-	CHECK(!identity_token_refused(&state, 200, "ok", now) && !identity_token_refused(&state, 404, "{}", now));
-	/* an older site's 400: the key, and no tokens to it for an hour */
-	CHECK(identity_token_refused(&state, 400, "bad key\n", now));
+	/* an older site's 400 (no "token"): the key, and no tokens to it for an hour */
+	CHECK(identity_token_sent(&state, 400, "bad key\n", now) == IDENTITY_SENT_KEY);
 	CHECK(!identity_token(&state, now + 1, token, sizeof(token)) && !identity_token_due(&state, now + 1));
 	CHECK(identity_token_due(&state, now + IDENTITY_LATER));
 	/* the site forgot the device: enroll again */
 	CHECK(identity_answered(&state, 404, "{\"error\": \"unknown device\", \"enroll\": true}", now) ==
 		IDENTITY_ANSWER_ENROLL);
 	CHECK(identity_due(&state, 1, now) == IDENTITY_STEP_ENROLL && !identity_token_due(&state, now));
-	identity_have_certificate(&state, &device);
+	identity_have_certificate(&state, &device, 0, now);
 	/* revoked: the certificate and the token dropped, the key this run */
 	identity_set_token(&state, "d1.token", 3600, now);
 	CHECK(identity_answered(&state, 403, "{\"error\": \"x\", \"revoked\": true}", now) == IDENTITY_ANSWER_OFF);
 	CHECK(state.off && !state.has_certificate && !state.token[0]);
 	CHECK(identity_due(&state, 1, now + 100000) == IDENTITY_STEP_NONE && !identity_token(&state, now, token, 201));
-	/* locked: later, not off */
 	memset(&state, 0, sizeof(state));
-	CHECK(identity_answered(&state, 403, "{\"error\": \"locked\", \"locked\": true}", now) == IDENTITY_ANSWER_LATER);
-	CHECK(!state.off);
 	CHECK(identity_answered(&state, 403, "{\"signed_out\": true}", now) == IDENTITY_ANSWER_OFF);
+
+	/* another copy's device key: a new key once; the second time, a day */
+	memset(&state, 0, sizeof(state));
+	CHECK(identity_answered(&state, 409, "{\"error\": \"x\", \"other_copy\": true}", now) == IDENTITY_ANSWER_NEW_KEY);
+	CHECK(state.new_key_made && state.must_enroll && identity_due(&state, 1, now) == IDENTITY_STEP_ENROLL);
+	CHECK(identity_answered(&state, 409, "{\"other_copy\": true}", now) == IDENTITY_ANSWER_DAY);
+	CHECK(state.wait_until == now + IDENTITY_DAY);
+	/* unknown copy, locked, too many: a day, given up after a few */
+	memset(&state, 0, sizeof(state));
+	for (index = 0; index < IDENTITY_DAY_TRIES; index++)
+	{
+		CHECK(!state.off);
+		CHECK(identity_answered(&state, 403, "{\"unknown_copy\": true}", now) == IDENTITY_ANSWER_DAY);
+	}
+	CHECK(state.off && identity_due(&state, 1, now + 10 * IDENTITY_DAY) == IDENTITY_STEP_NONE);
+	memset(&state, 0, sizeof(state));
+	CHECK(identity_answered(&state, 403, "{\"error\": \"locked\", \"locked\": true}", now) == IDENTITY_ANSWER_DAY);
+	CHECK(identity_answered(&state, 409, "{\"too_many\": true}", now) == IDENTITY_ANSWER_DAY && !state.off);
+	/* (a certificate in hand keeps it through a locked token answer) */
+	memset(&state, 0, sizeof(state));
+	identity_have_certificate(&state, &device, 0, now);
+	CHECK(identity_answered(&state, 403, "{\"locked\": true}", now) == IDENTITY_ANSWER_DAY && state.has_certificate);
 }
 
 int main(void)
@@ -417,6 +496,7 @@ int main(void)
 	test_device();
 	test_revoked();
 	test_text();
+	test_audience();
 	test_schedule();
 	if (failures)
 	{

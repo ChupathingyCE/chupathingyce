@@ -33,8 +33,10 @@ enum
 	IDENTITY_REVOKED_MOST = 4096,
 	/* a token: opaque, at most 200 characters, and its NUL */
 	IDENTITY_TOKEN_SIZE = 201,
-	/* (the longest signed message: the enroll's) */
-	IDENTITY_MESSAGE_MOST = 128,
+	/* the site's host a device signature names (its audience) */
+	IDENTITY_AUDIENCE_MOST = 253,
+	/* (the longest signed message: the enroll's, with the longest audience) */
+	IDENTITY_MESSAGE_MOST = 384,
 	/* the time a check allows a clock to be off by */
 	IDENTITY_GRACE = 600,
 };
@@ -135,13 +137,22 @@ int identity_accept(const unsigned char *certificate, int certificate_size, cons
 	int issuer_size, const unsigned char (*roots)[IDENTITY_KEY_SIZE], int root_count,
 	const unsigned char *own_key, unsigned long now, struct identity_device *device);
 
-/* ---------- what a device signs: the message's size in out
-(IDENTITY_MESSAGE_MOST bytes) */
+/* ---------- what a device signs: its label, the audience (a byte of
+length, then the site's host), then the fields. The message's size in out
+(IDENTITY_MESSAGE_MOST bytes), or -1 for an audience that isn't one */
 
-int identity_enroll_message(const unsigned char *nonce, const unsigned char *copy_id, const unsigned char *public_key,
+int identity_enroll_message(const char *audience, const unsigned char *nonce, const unsigned char *copy_id,
+	const unsigned char *public_key, unsigned char *out);
+int identity_refresh_message(const char *audience, const unsigned char *nonce, const unsigned char *device_id,
 	unsigned char *out);
-int identity_refresh_message(const unsigned char *nonce, const unsigned char *device_id, unsigned char *out);
-int identity_token_message(const unsigned char *nonce, const unsigned char *device_id, unsigned char *out);
+int identity_token_message(const char *audience, const unsigned char *nonce, const unsigned char *device_id,
+	unsigned char *out);
+/* the audience of a site's address (network.browser_url): its host,
+lowercase, without the scheme, port or path; 1 to 253 of a-z 0-9 . -.
+Its length, or 0 when the address has none */
+int identity_audience(const char *url, char *audience, int size);
+/* bytes wiped so the compiler can't leave them (seeds, tokens, signatures) */
+void identity_wipe(void *data, int size);
 
 /* ---------- text */
 
@@ -178,10 +189,18 @@ enum
 enum
 {
 	IDENTITY_ANSWER_OK = 0,
-	/* no answer, or busy: tried again after a growing wait */
+	/* no answer, or refused for now: tried again after a growing wait (a
+	minute, to an hour) */
 	IDENTITY_ANSWER_RETRY,
-	/* an older site, or one that issues no certificates yet: an hour */
+	/* an older site, which doesn't speak identity: an hour */
 	IDENTITY_ANSWER_LATER,
+	/* busy, or not issuing yet (503): ten minutes, to an hour */
+	IDENTITY_ANSWER_BUSY,
+	/* a copy the site hasn't seen, a locked account, too many devices: a
+	day, and given up for this run after IDENTITY_DAY_TRIES */
+	IDENTITY_ANSWER_DAY,
+	/* the device key is another copy's: a new device key, once */
+	IDENTITY_ANSWER_NEW_KEY,
 	/* the site doesn't know the device: enroll again */
 	IDENTITY_ANSWER_ENROLL,
 	/* revoked or signed out: the certificate dropped, the key alone this run */
@@ -192,19 +211,25 @@ enum
 {
 	IDENTITY_LATER = 3600,
 	IDENTITY_RETRY_FIRST = 60,
+	IDENTITY_BUSY_FIRST = 600,
+	IDENTITY_DAY = 86400,
+	IDENTITY_DAY_TRIES = 3,
 	/* a token is asked for again this long before it runs out */
 	IDENTITY_TOKEN_MARGIN = 300,
 };
 
 struct identity_state
 {
+	/* (a certificate, maybe expired: it refreshes, never enrolls again) */
 	int has_certificate;
-	unsigned long issued, expires;
+	unsigned long issued, expires, refresh_at;
 	int off;
 	int must_enroll;
 	/* nothing asked of the identity paths before this */
 	unsigned long wait_until;
-	int failures;
+	int failures, busy_failures, day_tries;
+	/* (a new device key made once this run for another copy's) */
+	int new_key_made;
 	char token[IDENTITY_TOKEN_SIZE];
 	unsigned long token_until;
 	/* tokens not sent before this (a site that wants the key) */
@@ -213,8 +238,11 @@ struct identity_state
 
 /* the step due now (the player key's file there or not) */
 int identity_due(const struct identity_state *state, int has_player_key, unsigned long now);
-/* a certificate taken (identity_accept's device) */
-void identity_have_certificate(struct identity_state *state, const struct identity_device *device);
+/* a certificate taken (identity_accept's device; an expired saved one too),
+refreshed refresh_after seconds from now (the site's answer; 0: at half
+its life) */
+void identity_have_certificate(struct identity_state *state, const struct identity_device *device,
+	unsigned long refresh_after, unsigned long now);
 /* how an identity path answered (status 0: none), and the state updated */
 int identity_answered(struct identity_state *state, int status, const char *response, unsigned long now);
 /* a token to send now, copied to token: 1; 0 to send the key */
@@ -222,8 +250,17 @@ int identity_token(const struct identity_state *state, unsigned long now, char *
 /* whether to ask for a token now (a certificate, and no token in date) */
 int identity_token_due(const struct identity_state *state, unsigned long now);
 void identity_set_token(struct identity_state *state, const char *token, unsigned long lifetime, unsigned long now);
-/* a request sent with the token, answered status: 1 to send it again with
-the key (an older site's 400, or a 401 for the token, which is dropped) */
-int identity_token_refused(struct identity_state *state, int status, const char *response, unsigned long now);
+/* what to do after a request sent with the token was answered status */
+enum
+{
+	/* the answer stands: never sent again (the site may have acted on it) */
+	IDENTITY_SENT_DONE = 0,
+	/* a 401 for the token, which is dropped: a new token, and again with it */
+	IDENTITY_SENT_NEW_TOKEN,
+	/* a 400 without "token": the site doesn't speak identity; again with
+	the key, and no tokens to it for an hour */
+	IDENTITY_SENT_KEY,
+};
+int identity_token_sent(struct identity_state *state, int status, const char *response, unsigned long now);
 
 #endif

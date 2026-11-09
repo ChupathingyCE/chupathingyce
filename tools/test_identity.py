@@ -46,7 +46,7 @@ def c_vectors():
     found = {}
     for match in re.finditer(r"#define VECTOR_([A-Z_]+)((?:[^\n]*\\\n)*[^\n]*)", text):
         body = match.group(2)
-        strings = re.findall(r'"([0-9a-f]*)"', body)
+        strings = re.findall(r'"([^"]*)"', body)
         found[match.group(1).lower()] = "".join(strings) if strings else int(re.search(r"(\d+)UL", body).group(1))
     return found
 
