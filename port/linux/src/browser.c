@@ -1957,6 +1957,10 @@ static void update_presence(void)
 	char invite[BROWSER_INVITE_LENGTH + 1], fields[128], response[256], error[256];
 	int status, no_key, answer, logged;
 
+	/* (whether this copy is linked, without waiting for a screen to ask:
+	the link kept in the save root, once a run, then the site's word on the
+	player's own profile, asked once a run while playing) */
+	read_profile_file();
 	memset(&inputs, 0, sizeof(inputs));
 	inputs.share = config_boolean("network.share_presence") != 0;
 	/* (the game's invite: hosted, else joined; a password game hosted here
@@ -1970,6 +1974,8 @@ static void update_presence(void)
 	/* (playing says the game is a Delta one: discord_game.c) */
 	inputs.on_delta = inputs.in_game;
 	inputs.linked = browser.profile_linked || (browser.game_profile_has && browser.game_profile.linked);
+	if (inputs.in_game && inputs.share && !inputs.linked)
+		browser.profile_check_wanted = 1;
 	inputs.hidden = browser.game_profile_has && browser.game_profile.has_privacy &&
 		!browser.game_profile.show_presence;
 	if (!social_presence_due(&browser.presence, &inputs, p2p_now()))

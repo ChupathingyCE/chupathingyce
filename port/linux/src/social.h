@@ -171,6 +171,9 @@ struct social_presence
 {
 	/* sending: the inputs allowed it at the last look */
 	int active;
+	/* the player's own choices at the last look (share, linked, hidden as
+	bits; -1 before the first): a change starts the schedule over */
+	int choices;
 	/* a request is out, not answered yet */
 	int waiting;
 	unsigned long last;
@@ -194,8 +197,10 @@ enum
 
 void social_presence_reset(struct social_presence *presence);
 /* whether one is sent now; with 1, the request is counted as out (the
-answer comes to social_presence_answer). Inputs that no longer allow it
-start the schedule again, so the next game is told at once */
+answer comes to social_presence_answer). The wait the site's last answer
+asked for holds across gaps in the game (a map loading, the next game), so
+"off" and too many are not asked again each round; only a change of the
+player's own choices (share, linked, hidden) starts it over */
 int social_presence_due(struct social_presence *presence, const struct social_presence_inputs *inputs,
 	unsigned long now);
 /* the site's answer: its HTTP status (0: none) and its body ("ok", "off");

@@ -189,6 +189,7 @@ int social_poll_due(struct social_poll *poll, unsigned long now, int in_game, in
 void social_presence_reset(struct social_presence *presence)
 {
 	memset(presence, 0, sizeof(*presence));
+	presence->choices = -1;
 }
 
 int social_presence_due(struct social_presence *presence, const struct social_presence_inputs *inputs,
@@ -197,14 +198,19 @@ int social_presence_due(struct social_presence *presence, const struct social_pr
 	int allowed = inputs->share && inputs->in_game && inputs->on_delta && inputs->linked && !inputs->hidden &&
 		inputs->has_invite;
 
-	if (!allowed)
+	int choices = (inputs->share ? 1 : 0) | (inputs->linked ? 2 : 0) | (inputs->hidden ? 4 : 0);
+
+	/* (the player changed what they share: told at once, by the new
+	choices; an answer still out is let go) */
+	if (choices != presence->choices)
 	{
-		/* (the next game is told at once; an answer still out is let go) */
+		presence->choices = choices;
 		presence->active = 0;
 		presence->waiting = 0;
 		presence->wait = 0;
-		return 0;
 	}
+	if (!allowed)
+		return 0;
 	if (presence->waiting)
 		return 0;
 	if (presence->active && !passed(now, presence->last, presence->wait))

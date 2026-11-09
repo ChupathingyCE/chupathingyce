@@ -222,12 +222,23 @@ static void test_presence(void)
 	CHECK(social_presence_due(&presence, &inputs, now + SOCIAL_PRESENCE_INTERVAL));
 	now += SOCIAL_PRESENCE_INTERVAL;
 
-	/* leaving the game starts it over: the next game is told at once, and
-	the answer still out is let go */
+	/* a gap in the game (a map loading) keeps the site's wait: "off" is not
+	asked again each round */
+	CHECK(social_presence_answer(&presence, 200, "off", now) == SOCIAL_PRESENCE_OFF);
 	off = inputs; off.in_game = 0;
 	CHECK(!social_presence_due(&presence, &off, now + 1));
-	CHECK(social_presence_answer(&presence, 200, "ok", now + 2) == SOCIAL_PRESENCE_NONE);
-	CHECK(social_presence_due(&presence, &inputs, now + 3));
+	CHECK(!social_presence_due(&presence, &inputs, now + SOCIAL_PRESENCE_INTERVAL * 2));
+	CHECK(social_presence_due(&presence, &inputs, now + SOCIAL_PRESENCE_OFF_WAIT));
+	now += SOCIAL_PRESENCE_OFF_WAIT;
+	/* (an answer that comes during a gap still counts) */
+	off = inputs; off.has_invite = 0;
+	CHECK(!social_presence_due(&presence, &off, now + 1));
+	CHECK(social_presence_answer(&presence, 429, "", now + 2) == SOCIAL_PRESENCE_BUSY);
+	CHECK(!social_presence_due(&presence, &inputs, now + 3));
+	/* the player's own choices changing starts it over, at once */
+	off = inputs; off.share = 0;
+	CHECK(!social_presence_due(&presence, &off, now + 4));
+	CHECK(social_presence_due(&presence, &inputs, now + 5));
 
 	/* the game's invite, as the site takes it: 64 or 44 lowercase hex */
 	CHECK(social_presence_invite_valid("0123456789abcdef0123456789abcdef0123456789ab"));
