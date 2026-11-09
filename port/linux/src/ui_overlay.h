@@ -147,19 +147,88 @@ int ui_overlay_available(void);
 
 /* ---------- the Guide's look (ui_overlay_style.c), shared by the screens
 drawn in it: the Guide (port/linux/game/guide.c) and the setup launcher
-(launcher.c). The Chupathingy menus' blues over the Xbox menus' plasma:
-translucent panels and rows, a glow on the selected row and the edges. In
-the menus' 640x480, as everything here */
+(launcher.c). The Chupathingy menus' blues: translucent glass panels and
+rows, and the Xbox menus' plasma with a glow on the selection alone. In the
+menus' 640x480, as everything here */
+
+/* the look's colors by name (0xRRGGBBAA, ui_style_color): one palette, so
+that a theme can change them all in one place */
+enum
+{
+	UI_COLOR_PANEL,
+	UI_COLOR_PANEL_EDGE,
+	UI_COLOR_GLOW,
+	UI_COLOR_RULE,
+	UI_COLOR_TITLE,
+	UI_COLOR_TITLE_GLOW,
+	UI_COLOR_NAME,
+	UI_COLOR_STATUS,
+	UI_COLOR_TAB,
+	UI_COLOR_TAB_ON,
+	UI_COLOR_SELECTED_EDGE,
+	UI_COLOR_SELECTED_GLOW,
+	UI_COLOR_ROW,
+	UI_COLOR_ROW_EDGE,
+	UI_COLOR_ROW_ON,
+	UI_COLOR_PROMPT,
+	UI_COLOR_PROMPT_GLOW,
+	/* a screen's text: its sections, headings, row labels (lit: their glow;
+	dim: a row not ready), plain text, values, and states (good, a warning,
+	bad) */
+	UI_COLOR_NAV,
+	UI_COLOR_NAV_GLOW,
+	UI_COLOR_HEAD,
+	UI_COLOR_HEAD_GLOW,
+	UI_COLOR_LABEL,
+	UI_COLOR_LABEL_DIM,
+	UI_COLOR_LABEL_GLOW,
+	UI_COLOR_TEXT,
+	UI_COLOR_TEXT_DIM,
+	UI_COLOR_FAINT,
+	UI_COLOR_GOOD,
+	UI_COLOR_WARNING,
+	UI_COLOR_BAD,
+	UI_COLOR_TAG,
+	/* the full-screen rules (the bright line and its glow), a separator */
+	UI_COLOR_LINE,
+	UI_COLOR_LINE_GLOW,
+	UI_COLOR_SEPARATOR,
+	/* a dark field (a path, a progress bar's track), its edge, and a
+	progress bar's fill from its top to its bottom */
+	UI_COLOR_FIELD,
+	UI_COLOR_FIELD_EDGE,
+	UI_COLOR_PROGRESS_TOP,
+	UI_COLOR_PROGRESS_BOTTOM,
+	/* the shade under a dialog */
+	UI_COLOR_SHADE,
+	/* a full screen's backdrop (the launcher's): space from its top to its
+	middle and bottom, its stars (their alpha their own), and what is
+	cleared behind it all */
+	UI_COLOR_BACKDROP_TOP,
+	UI_COLOR_BACKDROP_MIDDLE,
+	UI_COLOR_BACKDROP_BOTTOM,
+	UI_COLOR_STAR,
+	UI_COLOR_CLEAR,
+
+	NUMBER_OF_UI_COLORS
+};
+
+unsigned int ui_style_color(int name);
 
 /* the clock the plasma scrolls by, in milliseconds: set once a frame
 before drawing (the game's system_milliseconds, the launcher's ticks) */
 void ui_style_clock(unsigned int milliseconds);
-/* a plasma surface of a color, its edge (alpha 0: none) and, lit, a glow
-around it */
+/* a surface of a color and its edge (alpha 0: none): calm translucent
+glass, or, lit (the selection: a focused row, the open tab, a focused
+button), the Xbox menus' plasma in it and a glow around it */
 void ui_style_surface(float x, float y, float width, float height, float radius, unsigned int color,
 	unsigned int edge, int lit);
-/* the large translucent panel a screen sits on, faded by share (0 to 1) */
+/* the large translucent panel a screen sits on (glass, a faint glow along
+its edge), faded by share (0 to 1) */
 void ui_style_panel(float x, float y, float width, float height, float share);
+/* a heading or title in the menus' title font (the face of their big blue
+titles), with its glow; its width */
+float ui_style_heading(float x, float y, float size, int align, const char *text);
 /* a row's capsule, the selected one lit */
 void ui_style_row(float x, float y, float width, float height, int selected);
 /* section tabs between left and right, height tall: the bumpers' glyphs at

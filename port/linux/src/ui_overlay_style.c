@@ -2,11 +2,12 @@
 UI_OVERLAY_STYLE.C
 
 The Guide's look as pieces any screen of the overlay can draw (ui_overlay.h,
-"the Guide's look"): the Xbox menus' plasma under translucent panels and
-rows, a glow on the selected row and on the edges, the section tabs with
+"the Guide's look"): calm translucent glass panels and rows, and the Xbox
+menus' plasma and a glow on the selection alone (a focused row, the open
+tab), as the Xbox menus light theirs; the section tabs with
 their bumpers, the prompt bar and the player's card. The Guide
-(port/linux/game/guide.c) draws with them, and the setup launcher
-(launcher.c) is to. Built only on ui_overlay.h's own drawing, so it is the
+(port/linux/game/guide.c) and the setup launcher (launcher.c) draw with
+them. Built only on ui_overlay.h's own drawing, so it is the
 same over every back end (ui_overlay.c's OpenGL and bgfx, the Switch's
 deko3d).
 */
@@ -17,25 +18,62 @@ deko3d).
 
 #include <string.h>
 
-/* the Chupathingy menus' blues (the Guide's mockups) */
-enum
+/* the palette: the Chupathingy menus' blues (the Guide's mockups,
+review/guide-mockup), by ui_overlay.h's names */
+static const unsigned int style_palette[NUMBER_OF_UI_COLORS] =
 {
-	COLOR_PANEL = 0x0A2652E0,
-	COLOR_PANEL_EDGE = 0x2F7FD6FF,
-	COLOR_GLOW = 0x2F8FFFFF,
-	COLOR_RULE = 0x50A0FF5A,
-	COLOR_TITLE = 0x3D9BFFFF,
-	COLOR_NAME = 0xFFFFFFFF,
-	COLOR_STATUS = 0x8FC4FFFF,
-	COLOR_TAB = 0x7FB6EEFF,
-	COLOR_TAB_ON = 0x2F7FD68C,
-	COLOR_SELECTED_EDGE = 0x9FD4FFFF,
-	COLOR_ROW = 0x0A2246E6,
-	COLOR_ROW_EDGE = 0x50A0FF40,
-	COLOR_ROW_ON = 0x2F7FD670,
-	COLOR_PROMPT = 0x3D9BFFFF,
-	COLOR_PROMPT_GLOW = 0x3D8BFF80,
+	[UI_COLOR_PANEL] = 0x0A2652F8,
+	[UI_COLOR_PANEL_EDGE] = 0x2F7FD6FF,
+	[UI_COLOR_GLOW] = 0x2F8FFFFF,
+	[UI_COLOR_RULE] = 0x50A0FF5A,
+	[UI_COLOR_TITLE] = 0x3D9BFFFF,
+	[UI_COLOR_TITLE_GLOW] = 0x3D9BFFC0,
+	[UI_COLOR_NAME] = 0xFFFFFFFF,
+	[UI_COLOR_STATUS] = 0x8FC4FFFF,
+	[UI_COLOR_TAB] = 0x7FB6EEFF,
+	[UI_COLOR_TAB_ON] = 0x2F7FD6B0,
+	[UI_COLOR_SELECTED_EDGE] = 0x9FD4FFFF,
+	[UI_COLOR_SELECTED_GLOW] = 0x9FD4FF8C,
+	[UI_COLOR_ROW] = 0x0A2246D8,
+	[UI_COLOR_ROW_EDGE] = 0x50A0FF40,
+	[UI_COLOR_ROW_ON] = 0x2F7FD6A0,
+	[UI_COLOR_PROMPT] = 0x3D9BFFFF,
+	[UI_COLOR_PROMPT_GLOW] = 0x3D8BFF80,
+	[UI_COLOR_NAV] = 0x4FA6FFFF,
+	[UI_COLOR_NAV_GLOW] = 0x3D9BFF70,
+	[UI_COLOR_HEAD] = 0x6FB6FFFF,
+	[UI_COLOR_HEAD_GLOW] = 0x3D8BFF40,
+	[UI_COLOR_LABEL] = 0x6FB6FFFF,
+	[UI_COLOR_LABEL_DIM] = 0x4A6A8FFF,
+	[UI_COLOR_LABEL_GLOW] = 0x3D8BFF60,
+	[UI_COLOR_TEXT] = 0xFFFFFFFF,
+	[UI_COLOR_TEXT_DIM] = 0x9AA9BBFF,
+	[UI_COLOR_FAINT] = 0x7F9CBDFF,
+	[UI_COLOR_GOOD] = 0x7FE39AFF,
+	[UI_COLOR_WARNING] = 0xFFCF6BFF,
+	[UI_COLOR_BAD] = 0xFF8A80FF,
+	[UI_COLOR_TAG] = 0x9FC9F2FF,
+	[UI_COLOR_LINE] = 0x6EB4FF8C,
+	[UI_COLOR_LINE_GLOW] = 0x3D9BFF30,
+	[UI_COLOR_SEPARATOR] = 0x6EB4FF5A,
+	[UI_COLOR_FIELD] = 0x02081A80,
+	[UI_COLOR_FIELD_EDGE] = 0x50A0FF40,
+	[UI_COLOR_PROGRESS_TOP] = 0x5AAEFFFF,
+	[UI_COLOR_PROGRESS_BOTTOM] = 0x2F7FD6FF,
+	[UI_COLOR_SHADE] = 0x01040CB0,
+	[UI_COLOR_BACKDROP_TOP] = 0x030A1AFF,
+	[UI_COLOR_BACKDROP_MIDDLE] = 0x061430FF,
+	[UI_COLOR_BACKDROP_BOTTOM] = 0x030915FF,
+	[UI_COLOR_STAR] = 0xC8E1FFFF,
+	[UI_COLOR_CLEAR] = 0x020611FF,
 };
+
+unsigned int ui_style_color(int name)
+{
+	return name >= 0 && name < NUMBER_OF_UI_COLORS ? style_palette[name] : 0;
+}
+
+#define COLOR(name) style_palette[UI_COLOR_##name]
 
 static unsigned int style_clock;
 
@@ -61,23 +99,43 @@ void ui_style_surface(float x, float y, float width, float height, float radius,
 		for (ring = 1; ring <= 4; ring++)
 		{
 			ui_overlay_outline(x - ring, y - ring, width + 2 * ring, height + 2 * ring, radius + ring, 1.0f,
-				fade(COLOR_GLOW, (float)(edge & 0xFF) / 255.0f * 0.30f / (float)ring));
+				fade(COLOR(GLOW), (float)(edge & 0xFF) / 255.0f * 0.30f / (float)ring));
 		}
 	}
-	ui_overlay_plasma(x, y, width, height, radius, color, style_clock);
+	/* (the plasma on the selection alone, as the Xbox menus light their
+	selected item; the rest calm glass) */
+	if (lit)
+		ui_overlay_plasma(x, y, width, height, radius, color, style_clock);
+	else
+		ui_overlay_rect(x, y, width, height, radius, color);
 	if (edge & 0xFF)
 		ui_overlay_outline(x, y, width, height, radius, 1.0f, edge);
 }
 
 void ui_style_panel(float x, float y, float width, float height, float share)
 {
-	ui_style_surface(x, y, width, height, 12, fade(COLOR_PANEL, share), fade(COLOR_PANEL_EDGE, share), 1);
+	unsigned int edge = fade(COLOR(PANEL_EDGE), share);
+	int ring;
+
+	/* translucent glass, a faint glow along its edge */
+	for (ring = 1; ring <= 3; ring++)
+	{
+		ui_overlay_outline(x - ring, y - ring, width + 2 * ring, height + 2 * ring, 12 + ring, 1.0f,
+			fade(COLOR(GLOW), share * 0.16f / (float)ring));
+	}
+	ui_overlay_rect(x, y, width, height, 12, fade(COLOR(PANEL), share));
+	ui_overlay_outline(x, y, width, height, 12, 1.0f, edge);
+}
+
+float ui_style_heading(float x, float y, float size, int align, const char *text)
+{
+	return ui_overlay_text_glow(UI_FONT_TITLE, size, x, y, align, COLOR(TITLE), COLOR(TITLE_GLOW), text);
 }
 
 void ui_style_row(float x, float y, float width, float height, int selected)
 {
-	ui_style_surface(x, y, width, height, 7, selected ? COLOR_ROW_ON : COLOR_ROW,
-		selected ? COLOR_SELECTED_EDGE : COLOR_ROW_EDGE, selected);
+	ui_style_surface(x, y, width, height, 7, selected ? COLOR(ROW_ON) : COLOR(ROW),
+		selected ? COLOR(SELECTED_EDGE) : COLOR(ROW_EDGE), selected);
 }
 
 /* a bumper's glyph: the device's, or (the keyboard) the screen's own key */
@@ -108,14 +166,14 @@ void ui_style_tabs(float left, float right, float y, float height, const char *c
 
 		if (index == selected)
 		{
-			ui_style_surface(x, y, width, height, 6, COLOR_TAB_ON, COLOR_SELECTED_EDGE, 1);
+			ui_style_surface(x, y, width, height, 6, COLOR(TAB_ON), COLOR(SELECTED_EDGE), 1);
 			ui_overlay_text_glow(UI_FONT_MENU, size, x + width * 0.5f, y + (height - size) * 0.5f, UI_ALIGN_CENTER,
-				0xFFFFFFFF, COLOR_PROMPT_GLOW, names[index]);
+				COLOR(NAME), COLOR(PROMPT_GLOW), names[index]);
 		}
 		else
 		{
 			ui_overlay_text(UI_FONT_MENU, size, x + width * 0.5f, y + (height - size) * 0.5f, UI_ALIGN_CENTER,
-				COLOR_TAB, names[index]);
+				COLOR(TAB), names[index]);
 		}
 		if (starts)
 			starts[index] = x;
@@ -152,8 +210,8 @@ void ui_style_prompts(float right, float y, float size, const struct ui_style_pr
 		if (starts)
 			starts[index] = x;
 		x += prompt_glyph(&prompts[index], size, x, y, 0) + 4.0f;
-		x += ui_overlay_text_glow(UI_FONT_MENU, size * 0.72f, x, y + size * 0.14f, UI_ALIGN_LEFT, COLOR_PROMPT,
-			COLOR_PROMPT_GLOW, prompts[index].word);
+		x += ui_overlay_text_glow(UI_FONT_MENU, size * 0.72f, x, y + size * 0.14f, UI_ALIGN_LEFT, COLOR(PROMPT),
+			COLOR(PROMPT_GLOW), prompts[index].word);
 		if (ends)
 			ends[index] = x;
 		x += gap;
@@ -166,20 +224,20 @@ void ui_style_card(float left, float right, float y, const char *name, const cha
 	char initial[2];
 
 	if (title && title[0])
-		ui_overlay_text_glow(UI_FONT_TITLE, 17.0f, right, y + 6, UI_ALIGN_RIGHT, COLOR_TITLE, COLOR_TITLE, title);
-	ui_overlay_rect(left - 4, y + 42, right - left + 8, 1, 0, COLOR_RULE);
+		ui_style_heading(right, y + 6, 17.0f, UI_ALIGN_RIGHT, title);
+	ui_overlay_rect(left - 4, y + 42, right - left + 8, 1, 0, COLOR(RULE));
 	if (!name || !name[0])
 		return;
 	/* the emblem: the player's color, their name's first letter */
 	ui_overlay_rect(left, y, 32, 32, 5, color);
-	ui_overlay_outline(left, y, 32, 32, 5, 1.0f, 0xFFFFFF90);
+	ui_overlay_outline(left, y, 32, 32, 5, 1.0f, fade(COLOR(NAME), 0.56f));
 	initial[0] = name[0] >= 'a' && name[0] <= 'z' ? (char)(name[0] - 32) : name[0];
 	initial[1] = 0;
 	if ((unsigned char)initial[0] < 0x80)
-		ui_overlay_text(UI_FONT_BOLD, 17.0f, left + 16, y + 6, UI_ALIGN_CENTER, 0xFFFFFFFF, initial);
-	ui_overlay_text(UI_FONT_BOLD, 15.0f, left + 44, y + 1, UI_ALIGN_LEFT, COLOR_NAME, name);
+		ui_overlay_text(UI_FONT_BOLD, 17.0f, left + 16, y + 6, UI_ALIGN_CENTER, COLOR(NAME), initial);
+	ui_overlay_text(UI_FONT_MENU, 15.0f, left + 44, y + 1, UI_ALIGN_LEFT, COLOR(NAME), name);
 	if (status && status[0])
-		ui_overlay_text(UI_FONT_REGULAR, 9.5f, left + 44, y + 20, UI_ALIGN_LEFT, COLOR_STATUS, status);
+		ui_overlay_text(UI_FONT_REGULAR, 9.5f, left + 44, y + 20, UI_ALIGN_LEFT, COLOR(STATUS), status);
 }
 
 #endif
