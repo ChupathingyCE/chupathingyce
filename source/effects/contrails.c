@@ -104,7 +104,10 @@ enum
 {
 	_contrail_point_new_bit = 0,
 	_contrail_point_transitioning_bit,
-	_contrail_point_expired_bit
+	_contrail_point_expired_bit,
+	/* port: a head point on the drawn marker until the next update
+	(contrail_add_provisional_points) */
+	_contrail_point_provisional_bit
 };
 
 enum
@@ -154,6 +157,12 @@ static void contrail_update_points(
 	real dt);
 static void contrail_verify(
 	long contrail_index);
+#ifndef HALO_XBOX_CONSOLE
+static void contrail_remove_provisional_points(
+	long contrail_index);
+static void contrail_add_provisional_points(
+	long contrail_index);
+#endif
 
 /* ---------- globals */
 
@@ -431,9 +440,17 @@ void contrails_update(
 		real texture_animation_u;
 		real texture_animation_v;
 		short instance_index;
+#ifndef HALO_XBOX_CONSOLE
+		boolean emitted = FALSE;
+#endif
 
 		contrail_verify(contrail_index);
 		contrail->expired_dt = 0.0f;
+#ifndef HALO_XBOX_CONSOLE
+		/* port: last frame's head points off first: what is emitted starts
+		from the last real point */
+		contrail_remove_provisional_points(contrail_index);
+#endif
 
 		if (contrail->object_index != NONE)
 		{
@@ -449,6 +466,9 @@ void contrails_update(
 				contrail->density = 0.0f;
 				contrail_add_points(contrail_index, 1, TRUE);
 				contrail->density = density;
+#ifndef HALO_XBOX_CONSOLE
+				emitted = TRUE;
+#endif
 			}
 
 			SET_FLAG(contrail->flags, _contrail_active_bit, active);
@@ -456,10 +476,14 @@ void contrails_update(
 			if (active)
 			{
 #ifndef HALO_XBOX_CONSOLE
+				short new_point_count = contrail_compute_new_point_count(contrail_index, point_dt);
+
 				contrail_add_points(
 					contrail_index,
-					contrail_compute_new_point_count(contrail_index, point_dt),
+					new_point_count,
 					TRUE);
+				if (new_point_count)
+					emitted = TRUE;
 #else
 				contrail_add_points(
 					contrail_index,
@@ -503,6 +527,15 @@ void contrails_update(
 
 #ifndef HALO_XBOX_CONSOLE
 		contrail_update_points(contrail_index, point_dt);
+		/* port: in a frame that emitted no point (drawn between ticks, the
+		object moving on from the last point), a head point on the marker as
+		drawn, so the trail stays on its projectile */
+		if (contrail->object_index != NONE &&
+			TEST_FLAG(contrail->flags, _contrail_active_bit) &&
+			!emitted)
+		{
+			contrail_add_provisional_points(contrail_index);
+		}
 #else
 		contrail_update_points(contrail_index, dt);
 #endif
@@ -539,6 +572,11 @@ void contrail_owner_collision(
 {
 	struct contrail_datum *contrail = contrail_get(contrail_index);
 	struct contrail_definition *definition = contrail_definition_get(contrail->definition_index);
+
+#ifndef HALO_XBOX_CONSOLE
+	/* port: the last points from the last real point */
+	contrail_remove_provisional_points(contrail_index);
+#endif
 
 	if (TEST_FLAG(contrail->flags, _contrail_active_bit))
 	{
@@ -769,6 +807,96 @@ static void contrail_update_points(
 
 	return;
 }
+
+#ifndef HALO_XBOX_CONSOLE
+/* port: Contrails emit on the first frame after each tick, at their markers
+as drawn then (contrails_update). In the frames after, drawn between ticks
+(port/linux/game/render_interpolation.c), the projectile moved on and the
+trail's head stayed behind, a gap that opened and closed 30 times a second.
+In those frames each trail gets a head point on its marker as drawn, a copy
+of its newest point moved there, made again each frame and taken off before
+anything is emitted. It draws no random numbers and is not aged; with
+display.interpolation off none is made. */
+static void contrail_remove_provisional_points(
+	long contrail_index)
+{
+	struct contrail_datum *contrail = contrail_get(contrail_index);
+	short instance_index;
+
+	for (instance_index = 0; instance_index < MAXIMUM_CONTRAIL_INSTANCES; instance_index++)
+	{
+		long contrail_point_index = contrail->first_contrail_point_indices[instance_index];
+
+		if (contrail_point_index != NONE &&
+			TEST_FLAG(contrail_point_get(contrail_point_index)->flags, _contrail_point_provisional_bit))
+		{
+			contrail->first_contrail_point_indices[instance_index] =
+				contrail_point_get(contrail_point_index)->next_contrail_point_index;
+			contrail->contrail_point_counts[instance_index]--;
+			datum_delete(contrail_point_data, contrail_point_index);
+		}
+	}
+
+	return;
+}
+
+static void contrail_add_provisional_points(
+	long contrail_index)
+{
+	struct contrail_datum *contrail = contrail_get(contrail_index);
+	struct object_datum *object;
+	struct object_marker markers[MAXIMUM_CONTRAIL_INSTANCES];
+	short marker_count;
+	short marker_index;
+
+	if (!halo_interpolation_enabled())
+		return;
+	object = object_get(contrail->object_index);
+	marker_count = object_get_marker_by_name(
+		contrail->object_index,
+		TAG_BLOCK_GET_ELEMENT(
+			&object_definition_get(object->definition_index)->object.attachments,
+			contrail->attachment_index,
+			struct object_attachment_definition)->marker_name,
+		markers,
+		NUMBEROF(markers));
+	for (marker_index = 0; marker_index < marker_count; marker_index++)
+	{
+		long head_index = contrail->first_contrail_point_indices[marker_index];
+		struct contrail_point_datum *head;
+		struct contrail_point_datum *contrail_point;
+		long contrail_point_index;
+		short identifier;
+
+		if (head_index == NONE)
+			continue;
+		head = contrail_point_get(head_index);
+		/* (none where the marker is on the last point) */
+		if (TEST_FLAG(head->flags, _contrail_point_expired_bit) ||
+			!csmemcmp(&markers[marker_index].matrix.position, &head->position, sizeof(real_point3d)))
+		{
+			continue;
+		}
+		contrail_point_index = datum_new(contrail_point_data);
+		if (contrail_point_index == NONE)
+			continue;
+		contrail_point = contrail_point_get(contrail_point_index);
+		/* (the datum's own identifier kept; the head's location too, which
+		only the points' physics reads, and this point never moves) */
+		identifier = contrail_point->identifier;
+		*contrail_point = *head;
+		contrail_point->identifier = identifier;
+		SET_FLAG(contrail_point->flags, _contrail_point_new_bit, FALSE);
+		SET_FLAG(contrail_point->flags, _contrail_point_provisional_bit, TRUE);
+		contrail_point->position = markers[marker_index].matrix.position;
+		contrail_point->next_contrail_point_index = head_index;
+		contrail->contrail_point_counts[marker_index]++;
+		contrail->first_contrail_point_indices[marker_index] = contrail_point_index;
+	}
+
+	return;
+}
+#endif
 
 static void contrail_next_frame(
 	struct contrail_datum *contrail)
