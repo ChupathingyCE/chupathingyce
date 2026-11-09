@@ -1468,6 +1468,9 @@ short pc_menu_button_key_cap_left(
 /* port: the row of the bitmap draw_bitmap_in_rect starts from (a frame the
 menus place, pc_menu_frame_placement): 0 but while one is drawn */
 static short draw_bitmap_texel_y = 0;
+/* ... and the column (the name entry's picture's sides on a wide screen:
+virtual_keyboard.c) */
+short draw_bitmap_texel_x = 0;
 static void widget_instance_initialize(
 	struct widget_instance *widget,
 	struct widget_instance *parent,
@@ -1919,8 +1922,8 @@ void draw_bitmap_in_rect(
 			vertex_index++)
 		{
 			vertices[vertex_index].color = argb;
-			vertices[vertex_index].texture_coordinates.x =
-				(vertex_index % 3) ? texture_width : 0.0f;
+			vertices[vertex_index].texture_coordinates.x = draw_bitmap_texel_x / bitmap_width +
+				((vertex_index % 3) ? texture_width : 0.0f);
 			/* port: from the row the menus place it from (draw_bitmap_texel_y) */
 			vertices[vertex_index].texture_coordinates.y = draw_bitmap_texel_y / bitmap_height +
 				((vertex_index > 1) ? texture_height : 0.0f);
