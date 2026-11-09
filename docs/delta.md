@@ -2056,7 +2056,7 @@ endpoint below is new, and the player key's endpoints stay.
 **Sign-in by code (Quick Connect).** A copy with a device key and no
 account (or one that signs in to another) asks for a code. Its player
 approves the code where they're already signed in: on the site at
-`/connect`, or from another signed-in device's "Link a device". The device
+`/connect`, or from another signed-in device's LINK A DEVICE (in DELTA). The device
 asks its own player to confirm, then gets its certificate. The player key is
 never sent or shown.
 
@@ -2164,9 +2164,12 @@ and no key.
   account's confirmed address, and kept in the admin log (by its profile
   name, never an address).
 - **The game** shows the list under Delta Profile's DEVICES, also opened
-  from the Guide's SETTINGS: THIS DEVICE offers SIGN OUT, another device
-  REVOKE (asked twice). The Guide's SETTINGS also has LINK A DEVICE, where
-  the player enters another device's code with the d-pad.
+  from DELTA's SETTINGS: this device offers SIGN OUT, another device REVOKE
+  (asked first). DELTA's SETTINGS (and X in the list) also have LINK A
+  DEVICE, where the player enters another device's code with the d-pad.
+  DELTA's SIGN IN shows a Quick Connect code right in its row, and A there
+  answers the question; Link Profile's dialog shows the same code with its
+  QR code.
 - **The server panel** shows a player's verified profile name (from proof
   of identity over Delta Peer) and nothing of their devices: no platform,
   device name or ID.
