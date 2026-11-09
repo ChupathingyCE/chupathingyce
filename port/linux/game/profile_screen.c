@@ -1432,7 +1432,8 @@ static void devices_dialog_button(
 }
 
 /* Link a device: d-pad up and down pick a slot's character, left and
-right the slot; A sends a full code */
+right the slot; A sends a full code (8 characters), or one of 6 (an older
+copy's Link Profile code) from the empty slot after it */
 static void approve_dialog_button(
 	short button)
 {
@@ -1474,7 +1475,8 @@ static void approve_dialog_button(
 			code[index] = code_alphabet[profile_screen.code_slots[index]];
 		}
 		code[index] = 0;
-		if (index == NUMBEROF(profile_screen.code_slots) && browser_approve_start(code))
+		if ((index == NUMBEROF(profile_screen.code_slots) || (index == 6 && profile_screen.code_slot == 6)) &&
+			browser_approve_start(code))
 		{
 			profile_screen.code_sent = TRUE;
 			browser_approve_get(&profile_screen.approve);

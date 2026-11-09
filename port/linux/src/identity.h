@@ -174,6 +174,11 @@ void identity_device_code(const unsigned char *public_key, const unsigned char *
 the code alphabet into code (IDENTITY_CODE_TEXT, shown with the dash): 1,
 or 0 for one that isn't */
 int identity_clean_code(const char *typed, char *code);
+/* a code another device approves (Link a device): a device's or console's
+(8 characters) or an older copy's Link Profile code (6), as typed; its
+characters without the dash into code (IDENTITY_CODE_LENGTH + 1): 1, or 0
+for one that isn't */
+int identity_approval_code(const char *typed, char *code);
 /* the audience of a site's address (network.browser_url): its host,
 lowercase, without the scheme, port or path; 1 to 253 of a-z 0-9 . -.
 Its length, or 0 when the address has none */

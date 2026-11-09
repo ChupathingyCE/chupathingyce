@@ -4433,16 +4433,16 @@ void browser_profile_revoke(const char *device_id)
 int browser_approve_start(const char *code)
 {
 #ifdef HALO_DELTA_IDENTITY
-	char clean[IDENTITY_CODE_TEXT];
+	char clean[IDENTITY_CODE_LENGTH + 1];
 
-	if (!identity_clean_code(code, clean))
+	if (!identity_approval_code(code, clean))
 		return 0;
 	pthread_once(&browser_once, start_thread);
 	pthread_mutex_lock(&browser_lock);
 	browser.approve_serial++;
 	browser.approve_state = BROWSER_APPROVE_SENDING;
 	/* (sent without its dash, as /connect takes either) */
-	snprintf(browser.approve_code, sizeof(browser.approve_code), "%.4s%.4s", clean, clean + 5);
+	snprintf(browser.approve_code, sizeof(browser.approve_code), "%s", clean);
 	browser.approve_handle[0] = browser.approve_name[0] = browser.approve_platform[0] = 0;
 	browser.approve_message[0] = 0;
 	pthread_mutex_unlock(&browser_lock);

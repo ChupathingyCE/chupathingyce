@@ -201,6 +201,13 @@ static void test_quick_connect(void)
 	CHECK(!identity_clean_code("DVG6-9E5", code) && !code[0]);
 	CHECK(!identity_clean_code("DVG6-9E5JX", code));
 	CHECK(!identity_clean_code("DVG6-9E5O", code));
+	/* (Link a device takes an older copy's 6-character code too) */
+	CHECK(identity_approval_code("dvg6-9e5j", code) && !strcmp(code, "DVG69E5J"));
+	CHECK(identity_approval_code("K7Q-4MD", code) && !strcmp(code, "K7Q4MD"));
+	CHECK(!identity_approval_code("K7Q-4M", code) && !code[0]);
+	CHECK(!identity_approval_code("K7Q-4MD2", code));
+	CHECK(!identity_approval_code("K7Q-4M0", code));
+	CHECK(!identity_approval_code("DVG69E5J2", code));
 	seed_of(DEVICE_SEED_TEXT, seed);
 	size = identity_start_message(VECTOR_AUDIENCE, nonce, device_public, message);
 	CHECK(size == 28 + 1 + 21 + 16 + 32);

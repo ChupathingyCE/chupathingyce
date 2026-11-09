@@ -556,6 +556,24 @@ int identity_clean_code(const char *typed, char *code)
 	return count == IDENTITY_CODE_LENGTH || (code[0] = 0, 0);
 }
 
+int identity_approval_code(const char *typed, char *code)
+{
+	int length = 0;
+
+	for (; typed && *typed; typed++)
+	{
+		char c = *typed >= 'a' && *typed <= 'z' ? (char)(*typed - 'a' + 'A') : *typed;
+
+		if (c == '-' || c == ' ')
+			continue;
+		if (!c || !strchr(code_alphabet, c) || length == IDENTITY_CODE_LENGTH)
+			return code[0] = 0, 0;
+		code[length++] = c;
+	}
+	code[length] = 0;
+	return length == 6 || length == IDENTITY_CODE_LENGTH || (code[0] = 0, 0);
+}
+
 /* ---------- text */
 
 void identity_hex(const unsigned char *bytes, int size, char *text)
