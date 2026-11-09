@@ -494,6 +494,31 @@ byte input_abstraction_port_accept(
 		keyboard_controls[controller_index].ticks[_game_control_jump] : 0;
 }
 
+/* port: for how many ticks the controller's player holds the keyboard's key
+for the game's back, the control their layout puts on B: the key the
+prompts show for it (input_abstraction_port_icon_key). Scripts ask for it
+(player_action_test_back: the Pillar of Autumn's look inversion), and the
+keyboard had no way to give it */
+byte input_abstraction_port_back(
+	short controller_index)
+{
+	struct game_input_preferences preferences;
+	long control_index;
+
+	if (controller_index < 0 || controller_index >= MAXIMUM_GAMEPADS)
+		return 0;
+	input_abstraction_get_local_player_preferences(controller_index, &preferences);
+	for (control_index = 0; control_index < NUMBER_OF_GAME_CONTROLS; control_index++)
+	{
+		if (preferences.game_control_to_xbox_buttons[control_index] == _port_icon_b_button &&
+			keyboard_game_controls[control_index] >= 0)
+		{
+			return keyboard_controls[controller_index].ticks[control_index];
+		}
+	}
+	return 0;
+}
+
 /* port: which way the controller's player cycles a dead player's follow
 camera (port/linux/game/follow_camera.c) on the keyboard: the flashlight key
 (Q) back, the action key (E) or switch weapons (Tab) on, as held this tick */
