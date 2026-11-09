@@ -151,6 +151,9 @@ shares.
 | 18 | `host_cheats` | not a feature: the host's console and cheats may change its public game while others are in it (`network.host_cheats`); announced on Delta List only, never in a HELLO, and Online Games shows "Host cheats on" |
 | 19 | `host_rules` | the host's rules for its players' extras (HOST_RULES): names above heads, the follow camera, team changes; a client whose host says nothing plays by the Xbox's rules. See "Host rules" |
 | 20 | `identity` | verified names: the host challenges (ID_CHALLENGE), each local player with a device certificate proves it (ID_PROOF), the host relays the card (ID_CARD) and every client checks it again. Only verified players show by their Delta profile. See "Verified names" |
+| 21 | `party_teams` | reserved: a party's tag, so a host can keep parties together (being built) |
+| 22 | `voice` | reserved: voice chat (being built) |
+| 23 | `reports` | a dedicated server takes its players' reports of other players (REPORT, REPORT_RESULT); see "Reports" |
 
 The registry lives in the repository next to the compatibility table and is
 the single source for the bit numbers. Built so far: `platform`, `profile`,
@@ -385,7 +388,7 @@ a later version may append):
 | 8 | TABLE_HAVE | either | serial (4: 0 the built-in table, 0xFFFFFFFF takes no tables) |
 | 9 | MOD_CHALLENGE | host to client | nonce (32), binding length (1, at most 64), reserved (3), binding (printable ASCII) |
 | 10 | MOD_PROOF | client to host | moderator key (32), signature (64) |
-| 11 | MOD_STATE | host to client | role (1), reserved (3), permissions (4), longest timed ban in minutes (4) |
+| 11 | MOD_STATE | host to client | role (1), the host's actions (1: 0x01 it takes LOCK and UNLOCK, 0x02 joins are locked now; 0 from an older host), reserved (2), permissions (4), longest timed ban in minutes (4) |
 | 12 | MOD_ACTION | client to host | sequence (4), action (1), target machine (1), minutes (2; 0 for ever), reason length (1, at most 63), reserved (3), signature (64), reason (printable ASCII) |
 | 13 | MOD_RESULT | host to client | sequence (4), ok (1), text length (1, at most 127), reserved (2), text |
 | 14 | MOD_NOTICE | host to client | kind (1: 1 warning, 2 notice), text length (1, at most 127), reserved (2), text |
@@ -402,10 +405,12 @@ a later version may append):
 | 25, 26 | | | kept for server badges (a draft) |
 | 27 | UNIT_VITALS | host to client | count (1, at most 98), flags (1: 0x01 the last datagram of a full pass), reserved (2), then 12-byte entries: the host's object (4, its datum index, which a client's copy shares), flags (1: 0x01 shield depleted, 0x02 shield charging, 0x04 shield over charging), reserved (1), body vitality (2), shield vitality (2), reserved (2); vitality in 16384ths, as the game's own unit states have it |
 | 28 | OBJECT_NAMES | host to client | total (2, the host's named objects and removed names in all, at most 512), first (2, this datagram's first entry's place among them), count (1, at most 98), reserved (3), then 12-byte entries: the host's object (4; 0xFFFFFFFF for a removed name), its scenario name index (2), flags (1: 0x01 removed, a name the host had an object of this game and has none of now; others ignored), and for a removed name its unit's last vitals: shield flags (1, as UNIT_VITALS's), body vitality (2), shield vitality (2) (full for an object that was not a unit; 0 for the others) |
-| 29 | HOST_RULES | host to client | version (1; 1 now, 0 refused, a later one read as far as this build knows it), flags (1: 0x01 names above heads allowed, 0x02 the follow camera allowed; others ignored), team changes (1: 0 off, 1 balanced, 2 allow), their margin (1, 0 to 16), reserved (4); values past their ranges refused. Sent at once when they change and every 5 seconds |
+| 29 | HOST_RULES | host to client | version (1; 1 now, 0 refused, a later one read as far as this build knows it), flags (1: 0x01 names above heads allowed, 0x02 the follow camera allowed, 0x04 late joiners wait for the next game, 0x08 joins are locked; others ignored), team changes (1: 0 off, 1 balanced, 2 allow), their margin (1, 0 to 16), reserved (4); values past their ranges refused. Sent at once when they change and every 5 seconds |
 | 30 | ID_CHALLENGE | host to client | version (1; 1 now, 0 refused, a later one read as this), binding length (1, at most 64), reserved (2), nonce (32), binding (printable ASCII) |
 | 31 | ID_PROOF | client to host | version (1), local player (1, 0 to 3), certificate length (1: 0 withdraws the local player and nothing follows; else 148 to 168), name length (1, at most 20), signature (64), issuer certificate (CISS, 112), device certificate (CDEV, the length's bytes), name (the handle in the player's capitals: `A-Z a-z 0-9 _ -`) |
 | 32 | ID_CARD | host to client | version (1), machine index (1), local player (1, 0 to 3), certificate length (1: 0 withdraws the card and nothing follows; else 148 to 168), name length (1, at most 20), reserved (3), then as ID_PROOF's from the signature on: signature (64), CISS (112), CDEV, name. At most 400 bytes |
+| 37 | REPORT | client to host | sequence (4, above the session's last), target's machine (1), target's player (1, the game's player list index), reason (1: 1 cheating, 2 abuse in chat or voice, 3 griefing or betraying, 4 an offensive name, 5 something else), flags (1: 0x01 a clip will follow to the site), clip token (16; zeros without the flag) |
+| 38 | REPORT_RESULT | host to client | sequence (4, the REPORT's), result (1: 0 taken, 1 too soon, 2 no such player, 3 not taken here, 4 already reported this game), flags (1: 0x01 send the clip: the server is linked to the site), reserved (2) |
 
 A roster covers every machine of the game, in as many datagrams as it takes
 (32 machines each). A client forgets a machine the roster has not named for
@@ -545,7 +550,8 @@ Delta client can be an in-game moderator.
   sequence must be above the session's last, so a replay does nothing.
   Actions: 1 warn, 2 kick, 3 ban (minutes, 0 for ever), 4 end the game, 5
   next map, 6 mute the target's chat (minutes, 0 until they leave), 7 unmute
-  it; a host refuses one it does not know. Whether the key may do it
+  it, 8 lock joins, 9 unlock them (no target; a host that takes them says
+  so in MOD_STATE); a host refuses one it does not know. Whether the key may do it
   is the host's moderation's decision (the server's permission table), and
   MOD_RESULT says what happened.
 - **Notices.** MOD_NOTICE is a warning (or notice) the server shows the
@@ -725,11 +731,75 @@ game, over `host_rules` (bit 19):
   above) rides along, so a client offers it in the pause menu only where
   the host allows it. An older Chupathingy host that takes team changes
   but says no rules is asked as before.
+- **Late joiners wait** (0x04, off by default: a player's host's
+  `network.late_join_wait`, a dedicated server's `late_join_wait`). A
+  player who joins a game in progress doesn't spawn until the next game
+  starts. They watch through the follow camera (LB and RB switch who),
+  whatever their own `display.follow_camera` says, with "Waiting for the
+  next game" under it. The host holds their spawn, so an OpenCE player who
+  joins late waits too and sees Halo's own death view. Nobody else's game
+  changes. A joiner spawns at once when no one else is playing, and the
+  wait ends with the game.
+- **Joins are locked** (0x08): the host takes no new machines until it's
+  unlocked (a dedicated server's `sv_lock`). Players already in stay, and
+  a dropped player can't come back while it's locked. The host's Delta
+  List announcement says `locked=1`, and the game list shows it.
 - **A host that says nothing** (OpenCE's, an older Chupathingy, a console
   without Delta) gets the Xbox's rules: no extras. A game played alone
   (split screen) is its own host's.
 
-The game's side is `port/linux/game/host_rules.c`.
+The game's side is `port/linux/game/host_rules.c` and
+`port/linux/game/late_join.c`.
+
+### Reports
+
+A player reports another player to a dedicated server's moderators over
+`reports` (bit 23). A host offers it only when it takes reports (the
+dedicated server registers them; a game a player hosts offers none).
+
+- **REPORT** names the player by their machine and player list index, and
+  gives a reason from a short list: 1 cheating, 2 abuse in chat or voice,
+  3 griefing or betraying, 4 an offensive name, 5 something else. There is
+  no free text. Its sequence must be above the session's last.
+- **The host decides.** It refuses a report of a player who isn't there,
+  of the reporter themselves, a second report of the same player in one
+  game, and more than 3 a minute or 10 a game from one machine
+  (REPORT_RESULT says which). Each report it takes goes to its moderators'
+  queue with what it knows: both players' game names, their verified
+  handles ("Verified names") when they proved one, the map, the game type,
+  and the host's refusal counts for the reported machine (`sv_evidence`).
+  Never an address.
+- **OpenCE players** can be reported by their game name. Their reports stay
+  on the host: they never go to the site. A report by an OpenCE player isn't
+  possible (they can't send REPORT).
+- **Clips.** A reporter may attach a clip (the last one saved, or one from
+  `clips/`). REPORT then says so and carries a clip token, 16 random bytes
+  the reporter's copy makes. When the host is linked to the site (Delta
+  Control), REPORT_RESULT's 0x01 asks for the clip, and the copy uploads it
+  to the site with the same token (`/v1/game/clip/start`, then
+  `/v1/game/clip/upload`). The site keeps it beside the report the server
+  forwards, for that server's moderators and the site's admins alone, and
+  deletes it after 14 days (unclaimed after 30 minutes). A host that isn't
+  linked takes the report without the clip.
+- **Linked servers** forward reports to the site with their next poll
+  ("The link to the site", `reports`), but only those about a Delta
+  player.
+
+The clip upload, as `/v1/game/*` (the copy's key in the body, or its
+device token):
+
+- `POST /v1/game/clip/start` `{"key", "token", "size", "seconds"}` answers
+  `{"upload", "max"}`: an upload ID good for 30 minutes. 413 when `size`
+  is past the cap (48 MB), 429 past 3 clips an hour or 10 a day from one
+  copy, 507 when the site's clip store is full.
+- `POST /v1/game/clip/upload?upload=<id>`, the MP4 as the body
+  (`video/mp4`, exactly `size` bytes), answers `{"ok": true}`. The site
+  refuses a body that isn't an MP4 (`ftyp` at byte 4).
+- A clip whose token no report names within 30 minutes is deleted.
+
+The game's side is `port/linux/game/report_player.c` (DELTA's PLAYERS
+HERE and the scoreboard's REPORT), the dedicated server's
+`server/src/server_reports.c` (`sv_reports`, the control panel's Reports).
 
 ### Object sync
 
@@ -1892,9 +1962,61 @@ Optional and outbound: the server dials the site; no port is opened.
    answer says so and the server deletes it. `HALO_DEDICATED_LINK=false`
    turns the link off for good.
 
+7. Newer servers add to the poll (an older site ignores them, an older
+   server sends none, and the site's answer keeps its fields):
+   - `status.locked` and `status.late_join_wait` (booleans);
+   - `reports`: the reports taken since the last poll the site
+     acknowledged, at most 20 a poll, each `{"ref", "time", "reason",
+     "target": {"name", "handle", "account"}, "reporter": {"name",
+     "handle", "account"}, "map", "game_type", "clip", "evidence"}`. `ref`
+     is 32 hex digits, `clip` the clip token (32 hex digits) or null,
+     `handle` and `account` null for a player who proved no one,
+     `evidence` the refusal counts (`{"movement", "vehicle", "hits",
+     "clock"}`). Never a report about an OpenCE player. The answer's
+     `reports_taken` lists the refs the site kept; the rest go again.
+   - `bans`: when the server shares its bans (`ban_share`), `{"digest",
+     "entries"}` with every ban in bans.txt that names an account or a
+     device, each `{"ref", "accounts", "device", "handles", "reason",
+     "time", "until"}` (`until` 0 for ever). Never an address or hardware
+     ID. It's sent only when its digest isn't the answer's last
+     `bans_digest`; `{"digest": "", "entries": []}` withdraws them.
+   - `shared_bans_version`: the version of the subscribed lists the server
+     holds. When the site's isn't that, its answer has `shared_bans`:
+     `{"version", "entries"}`, each entry `{"list", "list_name", "ref",
+     "accounts", "device", "handles", "reason", "time", "until",
+     "source"}` (`source`: the name of the server that banned).
+
 HTTPS requests in the server go one at a time across its threads (Mbed TLS
 is built without locks), so polls are short; long polling waits for a build
 of Mbed TLS with its threading on.
+
+### Shared ban lists
+
+A linked server's owner may share its bans and take other servers'. Both
+are off until the owner turns them on, and both only go by Delta account
+and device, never by address or hardware ID.
+
+- **Sharing.** `ban_share` (`sv_set ban_share 1`, or "Share my bans" for
+  each server on the site's My servers) sends the server's bans that name
+  an account or device ("Verified names") to the site. They go into the
+  owner's own list. The owner picks who may subscribe to it: servers they
+  name, or every server, once a site admin marks the list trusted.
+- **Subscribing.** On My servers, an owner picks which lists each of their
+  servers takes: their own, those shared with that server, and the trusted
+  ones. The site sends the entries with the server's poll. The server keeps
+  them in `shared_bans.cache` (with the link secret's MAC, as the role
+  cache) and checks each machine whose players prove an account or device
+  against them, as it checks bans.txt. A match is kicked with "Banned on
+  <list name>".
+- **The server decides.** `sv_banlist` and the panel's Bans show the
+  shared entries beside bans.txt's, with their list and the server that
+  banned. `sv_unban` on one makes an exception on this server alone
+  (`shared_unbans.txt`); the list keeps it. Taking a ban out of bans.txt on
+  the server that made it takes it out of its list with the next poll.
+  `sv_ban_lists` shows the lists the server takes and when they came.
+- **Bans from the site.** `sv_ban_account <account> [duration] [reason]`
+  bans a Delta account that isn't in the game (a bans.txt line with only
+  `account=`), so a moderator can act on a report after the player left.
 
 ### The event log's hook
 
