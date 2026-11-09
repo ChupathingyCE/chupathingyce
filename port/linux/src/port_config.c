@@ -464,6 +464,19 @@ static const struct config_setting config_settings[] =
 #endif
 	{ "display.delta_profile", _config_boolean, "true", "HALO_DELTA_PROFILE", _environment_value, _platform_all,
 		"Show Delta Profile in the menus and Online Games." },
+#ifdef HALO_GAME_BROWSER
+	{ "display.online_games_view", _config_string, "\"public\"", "HALO_ONLINE_GAMES_VIEW", _environment_value,
+		_platform_all,
+		"The list Online Games opens on (LB and RB switch): \"all\",\n"
+		"\"public\" (Chupathingy and players' public games, no OpenCE\n"
+		"dedicated servers), \"chupathingy\" or \"opence\" (OpenCE's\n"
+		"dedicated servers)." },
+	{ "display.opence_empty_servers", _config_string, "\"folded\"", "HALO_OPENCE_EMPTY_SERVERS", _environment_value,
+		_platform_all,
+		"Empty OpenCE dedicated servers in Online Games' ALL and OPENCE lists:\n"
+		"\"folded\" puts them in one row at the end (A opens it), \"shown\"\n"
+		"lists each one." },
+#endif
 	{ "display.profile_names", _config_boolean, "true", "HALO_PROFILE_NAMES", _environment_value, _platform_all,
 		"In Delta games, show players by their shared Delta profile name." },
 	{ "display.server_messages", _config_boolean, "true", "HALO_SERVER_MESSAGES", _environment_value, _platform_all | _platform_xbox,
@@ -3439,6 +3452,8 @@ static const struct
 	{ "display.scoreboard_team_layout", { "teams", "score", NULL }, "\"teams\"" },
 	{ "display.scoreboard_platforms", { "auto", "on", "off", NULL }, "\"auto\"" },
 	{ "display.follow_camera", { "long_waits", "always", "off", NULL }, "\"off\"" },
+	{ "display.online_games_view", { "all", "public", "chupathingy", "opence", NULL }, "\"public\"" },
+	{ "display.opence_empty_servers", { "folded", "shown", NULL }, "\"folded\"" },
 	{ "display.texture_decode", { "auto", "gpu", "cpu", NULL }, "\"auto\"" },
 	{ "audio.resampling", { "sinc", "linear", NULL }, "\"sinc\"" },
 	{ "input.touch_controls", { "on", "auto", "off", NULL }, "\"on\"" },
