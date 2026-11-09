@@ -166,6 +166,11 @@ enum delta_capability
 	client whose host says nothing (OpenCE's, an older build) plays by the
 	Xbox's rules */
 	_delta_capability_host_rules = 19,
+	/* voice chat (docs/delta.md, Voice): a client says its player's frames
+	(VOICE_UP) on a channel, the host decides who hears them by its rules
+	(VOICE_CONFIG) and sends them on (VOICE_DOWN), never decoding them; a
+	dedicated server relays it without any audio of its own */
+	_delta_capability_voice = 20,
 
 	NUMBER_OF_DELTA_CAPABILITIES
 };

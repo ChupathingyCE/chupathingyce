@@ -83,6 +83,8 @@ SERVER_EXCLUDED = {
     "port/linux/src/xinput_sdl.c",
     "port/linux/src/updater.c",
     "port/linux/src/launcher.c",
+    # (voice: a server relays it, never decoding it, and links no Opus)
+    "port/linux/src/voice.c",
 }
 SERVER_DEFINES = ["-DHALO_SERVER"]
 OUTPUT_NAME = "chupathingyce-server"

@@ -39,7 +39,7 @@ from types import SimpleNamespace
 from typing import Any, Dict, List, Optional, Sequence
 
 from .version import VERSION_SOURCES, identity_defines, release_build, resource_version, version
-from .linux_build import (COMPRESSED_MAP_DEFINES, CUSTOM_EDITION_DEFINES, ZSTD_DEFINES, ZSTD_DIR, ZSTD_SOURCES, LINUX_PROFILE, ffmpeg_build, MBEDTLS_DIR, MINIUPNPC_DIR, OPTIMISATION, STB_DIR, WINDOWS_PROFILE,
+from .linux_build import (OPUS_DIR, VOICE_SOURCE, opus_cflags, opus_sources, COMPRESSED_MAP_DEFINES, CUSTOM_EDITION_DEFINES, ZSTD_DEFINES, ZSTD_DIR, ZSTD_SOURCES, LINUX_PROFILE, ffmpeg_build, MBEDTLS_DIR, MINIUPNPC_DIR, OPTIMISATION, STB_DIR, WINDOWS_PROFILE,
                           XDK_INCLUDE, game_browser_defines, lto_mode, march_flag, miniupnpc_sources, pgo_mode, compile_launcher, game_defines_and_includes,
                           game_sources, musl_math_cflags, musl_math_sources, pgo_profile, profile_use_flags,
                           xdk_headers)
@@ -625,6 +625,7 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
             f"-I{MONOCYPHER_DIR}",
             f"-I{ZLIB_DIR}",
             f"-I{ZSTD_DIR / 'lib'}",
+            f"-I{OPUS_DIR / 'include'}",
             # halo_linux_winsock_names.h, but not the Linux build's C runtime
             # wrappers next to it
             f"-iquote {LINUX_DIR / 'include'}",
@@ -710,6 +711,11 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
         # Zstandard's decoder, for compressed Halo PC maps (map_compressed.c)
         for name in ZSTD_SOURCES:
             add_object(ZSTD_DIR / name, " ".join([abi, "-std=gnu11", *ZSTD_DEFINES, "-w"]))
+        # voice chat's codec (port/third_party/opus; voice.c): not in the
+        # dedicated server, which relays voice without decoding it
+        if VOICE_SOURCE not in excluded:
+            for source in opus_sources():
+                add_object(source, opus_cflags(abi))
         # the game's sin, pow and the rest, the same on every port
         # (port/include/halo_math.h)
         for source in musl_math_sources():

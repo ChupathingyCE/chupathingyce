@@ -48,6 +48,7 @@ build 2 or 3's) */
 #define TEAM_CHANGE_BIT ((delta_u32)1 << _delta_capability_team_change)
 #define OBJECT_SYNC_BIT ((delta_u32)1 << _delta_capability_object_sync)
 #define HOST_RULES_BIT ((delta_u32)1 << _delta_capability_host_rules)
+#define VOICE_BIT ((delta_u32)1 << _delta_capability_voice)
 
 /* ---------- a simulated network */
 
@@ -1268,6 +1269,119 @@ static void test_host_rules(void)
 		frame(now, 3, joined, 1);
 	CHECK(delta_peer_host_rules(&nodes[1].peer, &heard) && heard.team_change == DELTA_WIRE_HOST_TEAM_CHANGE_ALLOW);
 	delta_peer_set_host_rules(&nodes[0].peer, NULL);
+}
+
+/* ---------- voice */
+
+static void test_wire_voice(void)
+{
+	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
+	unsigned char packet[DELTA_WIRE_VOICE_PACKET_SIZE];
+	struct delta_wire_header header;
+	struct delta_wire_voice_up up, up_read;
+	struct delta_wire_voice_down down, down_read;
+	struct delta_wire_voice_config config, config_read;
+	const unsigned char *bytes;
+	int size;
+
+	memset(packet, 0x5A, sizeof(packet));
+	/* the size cap: 24 kbps gives 136 bytes, 64 the byte's most */
+	CHECK(delta_wire_voice_packet_cap(24) == 136);
+	CHECK(delta_wire_voice_packet_cap(8) == 56);
+	CHECK(delta_wire_voice_packet_cap(64) == 255);
+	CHECK(delta_wire_voice_packet_cap(0) == 56 && delta_wire_voice_packet_cap(500) == 255);
+
+	/* a frame up: read back, its bytes in place */
+	memset(&up, 0, sizeof(up));
+	up.sequence = 0xBEEF;
+	up.length = 60;
+	up.channel = _delta_voice_channel_proximity;
+	up.hears = DELTA_VOICE_TEAM | DELTA_VOICE_PROXIMITY | 0x80;
+	size = delta_wire_write_voice_up(data, 0x1234, &up, packet);
+	CHECK(size == DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_VOICE_UP_SIZE + 60);
+	CHECK(delta_wire_read_header(data, size, &header) && header.type == _delta_message_voice_up);
+	CHECK(delta_wire_read_voice_up(data + DELTA_WIRE_HEADER_SIZE, header.length, &up_read, &bytes) &&
+		up_read.sequence == 0xBEEF && up_read.length == 60 && up_read.channel == _delta_voice_channel_proximity &&
+		up_read.hears == (DELTA_VOICE_TEAM | DELTA_VOICE_PROXIMITY) && bytes == data + DELTA_WIRE_HEADER_SIZE + 8 &&
+		bytes[0] == 0x5A);
+	/* the length byte must be the bytes that came, exactly */
+	CHECK(!delta_wire_read_voice_up(data + DELTA_WIRE_HEADER_SIZE, header.length - 1, &up_read, &bytes) && !bytes);
+	CHECK(!delta_wire_read_voice_up(data + DELTA_WIRE_HEADER_SIZE, header.length + 1, &up_read, &bytes));
+	CHECK(!delta_wire_read_voice_up(data + DELTA_WIRE_HEADER_SIZE, 7, &up_read, &bytes));
+	/* a frame on no channel, or one this build does not know */
+	data[DELTA_WIRE_HEADER_SIZE + 3] = 0;
+	CHECK(!delta_wire_read_voice_up(data + DELTA_WIRE_HEADER_SIZE, header.length, &up_read, &bytes));
+	data[DELTA_WIRE_HEADER_SIZE + 3] = NUMBER_OF_DELTA_VOICE_CHANNELS;
+	CHECK(!delta_wire_read_voice_up(data + DELTA_WIRE_HEADER_SIZE, header.length, &up_read, &bytes));
+	up.channel = _delta_voice_channel_none;
+	CHECK(!delta_wire_write_voice_up(data, 1, &up, packet));
+	/* no frame: what it hears, and a party's tag if it has one */
+	memset(&up, 0, sizeof(up));
+	up.hears = DELTA_VOICE_PARTY;
+	size = delta_wire_write_voice_up(data, 1, &up, NULL);
+	CHECK(size == DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_VOICE_UP_SIZE);
+	CHECK(delta_wire_read_voice_up(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_VOICE_UP_SIZE, &up_read, &bytes) &&
+		!up_read.length && up_read.hears == DELTA_VOICE_PARTY && !bytes);
+	memset(up.party, 7, sizeof(up.party));
+	size = delta_wire_write_voice_up(data, 1, &up, NULL);
+	CHECK(size == DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_VOICE_UP_SIZE + DELTA_WIRE_VOICE_PARTY_TAG_SIZE);
+	CHECK(delta_wire_read_voice_up(data + DELTA_WIRE_HEADER_SIZE, size - DELTA_WIRE_HEADER_SIZE, &up_read, &bytes) &&
+		up_read.party[0] == 7 && up_read.party[7] == 7);
+	CHECK(!delta_wire_read_voice_up(data + DELTA_WIRE_HEADER_SIZE, size - DELTA_WIRE_HEADER_SIZE - 1, &up_read, &bytes));
+	/* (no frame said on a channel) */
+	data[DELTA_WIRE_HEADER_SIZE + 3] = _delta_voice_channel_team;
+	CHECK(!delta_wire_read_voice_up(data + DELTA_WIRE_HEADER_SIZE, size - DELTA_WIRE_HEADER_SIZE, &up_read, &bytes));
+
+	/* a frame down */
+	memset(&down, 0, sizeof(down));
+	down.sequence = 7;
+	down.speaker_machine = 3;
+	down.speaker_player = 5;
+	down.route = _delta_voice_route_proximity;
+	down.channel = _delta_voice_channel_proximity;
+	down.length = 255;
+	size = delta_wire_write_voice_down(data, 9, &down, packet);
+	CHECK(size == DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_VOICE_DOWN_SIZE + 255 && size <= DELTA_WIRE_MAXIMUM_DATAGRAM);
+	CHECK(delta_wire_read_header(data, size, &header) && header.type == _delta_message_voice_down);
+	CHECK(delta_wire_read_voice_down(data + DELTA_WIRE_HEADER_SIZE, header.length, &down_read, &bytes) &&
+		down_read.sequence == 7 && down_read.speaker_machine == 3 && down_read.speaker_player == 5 &&
+		down_read.route == _delta_voice_route_proximity && down_read.length == 255 && bytes[254] == 0x5A);
+	CHECK(!delta_wire_read_voice_down(data + DELTA_WIRE_HEADER_SIZE, header.length - 1, &down_read, &bytes));
+	data[DELTA_WIRE_HEADER_SIZE + 4] = 3;
+	CHECK(!delta_wire_read_voice_down(data + DELTA_WIRE_HEADER_SIZE, header.length, &down_read, &bytes));
+	down.length = 0;
+	CHECK(!delta_wire_write_voice_down(data, 9, &down, packet));
+	down.length = 1;
+	down.route = _delta_voice_route_none;
+	CHECK(!delta_wire_write_voice_down(data, 9, &down, packet));
+
+	/* the host's rules */
+	memset(&config, 0, sizeof(config));
+	config.channels = DELTA_VOICE_TEAM | DELTA_VOICE_PROXIMITY | DELTA_VOICE_LOBBY;
+	config.flags = DELTA_VOICE_CONFIG_MUTED;
+	config.kbps = 24;
+	config.proximity = 150;
+	config.mute_seconds = 600;
+	size = delta_wire_write_voice_config(data, 9, &config);
+	CHECK(size == DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_VOICE_CONFIG_SIZE);
+	CHECK(delta_wire_read_header(data, size, &header) && header.type == _delta_message_voice_config);
+	CHECK(delta_wire_read_voice_config(data + DELTA_WIRE_HEADER_SIZE, header.length, &config_read) &&
+		config_read.channels == config.channels && config_read.flags == DELTA_VOICE_CONFIG_MUTED &&
+		config_read.kbps == 24 && config_read.proximity == 150 && config_read.mute_seconds == 600);
+	/* (a later version may append; bits this build does not know are
+	ignored; values past their ranges are refused) */
+	CHECK(delta_wire_read_voice_config(data + DELTA_WIRE_HEADER_SIZE, header.length + 4, &config_read));
+	data[DELTA_WIRE_HEADER_SIZE + 1] |= 0x80;
+	CHECK(delta_wire_read_voice_config(data + DELTA_WIRE_HEADER_SIZE, header.length, &config_read) &&
+		config_read.channels == config.channels);
+	data[DELTA_WIRE_HEADER_SIZE + 3] = 65;
+	CHECK(!delta_wire_read_voice_config(data + DELTA_WIRE_HEADER_SIZE, header.length, &config_read));
+	data[DELTA_WIRE_HEADER_SIZE + 3] = 24;
+	data[DELTA_WIRE_HEADER_SIZE] = 0;
+	CHECK(!delta_wire_read_voice_config(data + DELTA_WIRE_HEADER_SIZE, header.length, &config_read));
+	CHECK(!delta_wire_read_voice_config(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_VOICE_CONFIG_SIZE - 1, &config_read));
+	config.proximity = 20;
+	CHECK(!delta_wire_write_voice_config(data, 9, &config));
 }
 
 /* ---------- object sync */
@@ -3235,8 +3349,42 @@ static int mutated_message(unsigned char *data, delta_u32 session)
 	int size;
 	int flips;
 
-	switch (next_random() % 14)
+	switch (next_random() % 15)
 	{
+	case 14:
+	{
+		static unsigned char packet[DELTA_WIRE_VOICE_PACKET_SIZE];
+		struct delta_wire_voice_up up;
+		struct delta_wire_voice_down down;
+		struct delta_wire_voice_config config;
+
+		random_bytes(packet, (int)sizeof(packet));
+		random_bytes((unsigned char *)&up, (int)sizeof(up));
+		up.channel = (unsigned char)(next_random() % NUMBER_OF_DELTA_VOICE_CHANNELS);
+		if (next_random() % 3 == 0)
+		{
+			up.length = 0;
+			up.channel = 0;
+		}
+		else if (!up.channel)
+			up.channel = _delta_voice_channel_team;
+		random_bytes((unsigned char *)&down, (int)sizeof(down));
+		down.route = (unsigned char)(1 + next_random() % 2);
+		down.channel = (unsigned char)(1 + next_random() % (NUMBER_OF_DELTA_VOICE_CHANNELS - 1));
+		down.length = (unsigned char)(1 + next_random() % 200);
+		random_bytes((unsigned char *)&config, (int)sizeof(config));
+		config.channels &= DELTA_VOICE_KNOWN_CONFIG;
+		config.flags &= DELTA_VOICE_CONFIG_MUTED;
+		config.kbps = (unsigned char)(8 + next_random() % 57);
+		config.proximity = (unsigned short)(50 + next_random() % 951);
+		switch (next_random() % 3)
+		{
+		case 0: size = delta_wire_write_voice_up(data, session, &up, packet); break;
+		case 1: size = delta_wire_write_voice_down(data, session, &down, packet); break;
+		default: size = delta_wire_write_voice_config(data, session, &config); break;
+		}
+		break;
+	}
 	case 13:
 	{
 		struct delta_wire_chat_config config;
@@ -3621,6 +3769,7 @@ int main(int argc, char **argv)
 	test_host_rules();
 	test_wire_objects();
 	test_objects();
+	test_wire_voice();
 	test_random(iterations);
 	if (failures)
 	{

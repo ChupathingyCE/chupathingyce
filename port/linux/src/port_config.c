@@ -627,6 +627,39 @@ static const struct config_setting config_settings[] =
 	{ "audio.resampling", _config_string, "\"sinc\"", "HALO_AUDIO_RESAMPLING", _environment_value, _platform_all,
 #endif
 		"How sounds are converted to 48 kHz: \"sinc\" or \"linear\"." },
+#ifdef HALO_PORT_VOICE_AUDIO
+	/* ---- voice chat (port/linux/src/voice.c, port/linux/game/voice_game.c) */
+	{ "audio.voice_chat", _config_string, "\"off\"", "HALO_VOICE_CHAT", _environment_value, _platform_all,
+		"Voice chat: \"off\" (the default), \"push_to_talk\" (hold V, or the\n"
+		"D-pad right) or \"open_mic\" (talks while you speak). The microphone\n"
+		"opens only when you first talk. Voice goes through the game's host and\n"
+		"is never recorded." },
+	{ "audio.voice_channel", _config_string, "\"team\"", "HALO_VOICE_CHANNEL", _environment_value, _platform_all,
+		"The channel you talk on: \"party\", \"team\", \"proximity\" (players\n"
+		"near you, heard from where you are) or \"everyone\" (if the host\n"
+		"allows it). B, or the D-pad left, switches it." },
+	{ "audio.voice_volume", _config_real, "1.0", "HALO_VOICE_VOLUME", _environment_value, _platform_all,
+		"The volume of other players' voices, from 0.0 to 2.0." },
+	{ "audio.voice_volume_party", _config_real, "1.0", "HALO_VOICE_VOLUME_PARTY", _environment_value, _platform_all,
+		"The party channel's volume, from 0.0 to 2.0. 0 turns it off." },
+	{ "audio.voice_volume_team", _config_real, "1.0", "HALO_VOICE_VOLUME_TEAM", _environment_value, _platform_all,
+		"The team channel's volume, from 0.0 to 2.0. 0 turns it off." },
+	{ "audio.voice_volume_proximity", _config_real, "1.0", "HALO_VOICE_VOLUME_PROXIMITY", _environment_value,
+		_platform_all,
+		"The proximity channel's volume, from 0.0 to 2.0. 0 turns it off." },
+	{ "audio.voice_volume_everyone", _config_real, "1.0", "HALO_VOICE_VOLUME_EVERYONE", _environment_value,
+		_platform_all,
+		"The everyone channel's volume, from 0.0 to 2.0. 0 turns it off." },
+	{ "audio.voice_input_device", _config_string, "\"\"", "HALO_VOICE_INPUT_DEVICE", _environment_value,
+		_platform_all,
+		"The microphone, by its system name. Empty for the system's." },
+	{ "audio.voice_open_mic_level", _config_real, "0.01", "HALO_VOICE_OPEN_MIC_LEVEL", _environment_value,
+		_platform_all,
+		"How loud you must be for open mic to send (0.001 to 1.0)." },
+	{ "audio.voice_positional", _config_boolean, "true", "HALO_VOICE_POSITIONAL", _environment_value, _platform_all,
+		"Hear proximity voices from where the players are, with the game's 3D\n"
+		"sound (and Headphone 3D). false pans and fades them only." },
+#endif
 
 	/* ---- input */
 	{ "input.mouse_sensitivity", _config_real, "1.0", "HALO_MOUSE_SENSITIVITY", _environment_value, _platform_all,
@@ -1278,6 +1311,12 @@ static const struct config_setting config_settings[] =
 		"Scripted chat for tests, as steps separated by ;. Each step is\n"
 		"\"<seconds>:<all|team|server|mute|unmute|localmute|log|close|type>[:<text>]\".\n"
 		"Leave it empty for none." },
+#ifdef HALO_PORT_VOICE_AUDIO
+	{ "debug.voice_test", _config_string, "\"\"", "HALO_VOICE_TEST", _environment_value, _platform_all,
+		"Voice chat tests: \"tone\" (a 440 Hz tone) or a WAV file (16-bit, 48 kHz)\n"
+		"said in place of the microphone, all the time, and each voice heard\n"
+		"logged once a second. Leave it empty for none." },
+#endif
 #ifndef HALO_CONSOLE_NO_AUDIO_PROBE
 	{ "debug.audio_probe", _config_string, "\"\"", "HALO_AUDIO_PROBE", _environment_value, _platform_all | _platform_xbox,
 		"A probe file to run (port/linux/game/audio_probe.c), named the way\n"
