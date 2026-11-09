@@ -661,9 +661,13 @@ static int take_certificate(const unsigned char *certificate, int certificate_si
 		identity_have_certificate(&identity, &device, refresh_after, now);
 		return 1;
 	}
+	/* (a saved one past its time: checked all the same, the issuer's
+	signature, the chain with the root keys and this device's key, as of
+	when it was issued; one that doesn't check is as none, and enrolls) */
 	if (saved && (reason == IDENTITY_EXPIRED || reason == IDENTITY_NOT_YET) &&
 		identity_parse_device(certificate, certificate_size, &device) &&
-		!memcmp(device.public_key, public_key, IDENTITY_KEY_SIZE))
+		identity_accept(certificate, certificate_size, issuer, issuer_size, identity_root_keys,
+			IDENTITY_ROOT_KEY_COUNT, public_key, device.issued, &device) == IDENTITY_OK)
 	{
 		identity_have_certificate(&identity, &device, 0, now);
 		identity.refresh_at = 0;
@@ -782,7 +786,8 @@ static void identity_refused(int status, const char *response)
 	identity_say(answer, answer == IDENTITY_ANSWER_LATER ? "the site doesn't speak device identity; "
 		"the player key is used (asked again in an hour)" : answer == IDENTITY_ANSWER_BUSY ?
 		"the site is busy or doesn't issue device certificates yet; asked again later" :
-		answer == IDENTITY_ANSWER_DAY ? (identity.off ? "the site doesn't take this device; the player key is "
+		answer == IDENTITY_ANSWER_UNKNOWN_COPY ? "the site hasn't seen this copy yet; asked again after its "
+		"next confirmed game" : answer == IDENTITY_ANSWER_DAY ? (identity.off ? "the site doesn't take this device; the player key is "
 		"used this run" : "the site doesn't take this device yet; asked again tomorrow") :
 		answer == IDENTITY_ANSWER_NEW_KEY ? "the device key was another copy's; a new one enrolls" :
 		answer == IDENTITY_ANSWER_ENROLL ? "the site doesn't know this device; enrolling again" :
@@ -1003,11 +1008,10 @@ static int site_request(const char *path, const char *members, char *response, i
 #ifdef HALO_DELTA_IDENTITY
 	{
 		char token[IDENTITY_TOKEN_SIZE], headers[IDENTITY_TOKEN_SIZE + 64];
-		int attempt, sent = IDENTITY_SENT_NEW_TOKEN;
+		int attempt, sent;
 
 		update_token();
-		for (attempt = 0; attempt < 2 && sent == IDENTITY_SENT_NEW_TOKEN &&
-			identity_token(&identity, identity_clock(), token, sizeof(token)); attempt++)
+		for (attempt = 0; attempt < 2 && identity_token(&identity, identity_clock(), token, sizeof(token)); attempt++)
 		{
 			body = malloc(length);
 			if (!body)
@@ -1023,11 +1027,19 @@ static int site_request(const char *path, const char *members, char *response, i
 			identity_wipe(headers, sizeof(headers));
 			free(body);
 			sent = identity_token_sent(&identity, status, response, identity_clock());
-			if (sent == IDENTITY_SENT_DONE)
+			/* (the answer stands, or the second token failed too) */
+			if (sent == IDENTITY_SENT_DONE || attempt)
 				return status;
-			/* (a token the site lost: a new one, and again with it) */
-			if (sent == IDENTITY_SENT_NEW_TOKEN)
-				update_token();
+			/* (a token the site lost: a new one, and again with it once;
+			none to be had: the answer, or for an "unknown" token, the key) */
+			update_token();
+			if (!identity_token(&identity, identity_clock(), token, sizeof(token)))
+			{
+				if (sent != IDENTITY_SENT_UNKNOWN_TOKEN)
+					return status;
+				break;
+			}
+			identity_wipe(token, sizeof(token));
 		}
 	}
 #endif
@@ -1082,6 +1094,11 @@ static void send_claims(void)
 		if (no_key)
 			break;
 		response[strcspn(response, "\r\n")] = 0;
+#ifdef HALO_DELTA_IDENTITY
+		/* (a copy the site hadn't seen is known now: it enrolls soon) */
+		if (status == 200)
+			identity_confirmed(&identity, identity_clock());
+#endif
 		if (status == 200 && !strncmp(response, "ok ", 3))
 			platform_log("Game list: %s's line confirmed (player %s)", name, response + 3);
 		else if (status == 200)
@@ -2076,6 +2093,10 @@ static void send_client_report(void)
 	response[strcspn(response, "\r\n")] = 0;
 	/* (no answer, or the server busy: again in a while) */
 	retry = !status || status == 429 || status >= 500;
+#ifdef HALO_DELTA_IDENTITY
+	if (status == 200)
+		identity_confirmed(&identity, identity_clock());
+#endif
 	if (status == 200 && !strncmp(response, "ok ", 3))
 		platform_log("Game list: the joined game's report was taken (%s)", response);
 	else if (status == 200)

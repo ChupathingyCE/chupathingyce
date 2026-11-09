@@ -782,6 +782,7 @@ int identity_answered(struct identity_state *state, int status, const char *resp
 	{
 		state->failures = 0;
 		state->busy_failures = 0;
+		state->waiting_for_game = 0;
 		return IDENTITY_ANSWER_OK;
 	}
 	if (status == 404 && identity_json_true(response, "enroll"))
@@ -790,6 +791,8 @@ int identity_answered(struct identity_state *state, int status, const char *resp
 		answer = IDENTITY_ANSWER_OFF;
 	else if (status == 409 && identity_json_true(response, "other_copy") && !state->new_key_made)
 		answer = IDENTITY_ANSWER_NEW_KEY;
+	else if (status == 403 && identity_json_true(response, "unknown_copy"))
+		answer = IDENTITY_ANSWER_UNKNOWN_COPY;
 	else if (status == 403 || status == 409)
 		answer = IDENTITY_ANSWER_DAY;
 	else if (status == 404 || status == 405 || status == 501)
@@ -820,6 +823,11 @@ int identity_answered(struct identity_state *state, int status, const char *resp
 		if (++state->day_tries >= IDENTITY_DAY_TRIES)
 			state->off = 1;
 		state->wait_until = now + IDENTITY_DAY;
+		break;
+	case IDENTITY_ANSWER_UNKNOWN_COPY:
+		/* (not counted: the copy becomes known with its first game) */
+		state->waiting_for_game = 1;
+		state->wait_until = now + IDENTITY_LATER;
 		break;
 	case IDENTITY_ANSWER_LATER:
 		/* (an older site: no tokens to it either) */
@@ -862,20 +870,27 @@ void identity_set_token(struct identity_state *state, const char *token, unsigne
 int identity_token_sent(struct identity_state *state, int status, const char *response, unsigned long now)
 {
 	char reason[16];
-	int has_token = identity_json_member(response, "token", reason, sizeof(reason)) > 0;
 
-	if (status == 401 && has_token)
+	(void)now;
+	if (status == 401 && identity_json_member(response, "token", reason, sizeof(reason)) > 0)
 	{
 		/* (a site restart ends every token) */
 		identity_wipe(state->token, sizeof(state->token));
-		return IDENTITY_SENT_NEW_TOKEN;
+		return strcmp(reason, "unknown") ? IDENTITY_SENT_NEW_TOKEN : IDENTITY_SENT_UNKNOWN_TOKEN;
 	}
-	if (status == 400 && !has_token)
-	{
-		state->tokens_off_until = now + IDENTITY_LATER;
-		return IDENTITY_SENT_KEY;
-	}
+	/* (anything else the site answered stands, a 400 too) */
 	return IDENTITY_SENT_DONE;
+}
+
+void identity_confirmed(struct identity_state *state, unsigned long now)
+{
+	if (state->waiting_for_game)
+	{
+		state->waiting_for_game = 0;
+		/* (soon: the site records the game first) */
+		if (state->wait_until > now + IDENTITY_RETRY_FIRST)
+			state->wait_until = now + IDENTITY_RETRY_FIRST;
+	}
 }
 
 #endif

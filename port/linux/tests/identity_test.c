@@ -238,7 +238,17 @@ static void test_device(void)
 	memcpy(zero_roots[0], issuer_public, 32);
 	CHECK(identity_accept(device_data, device_size, issuer_data, IDENTITY_ISSUER_SIZE,
 		(const unsigned char (*)[32])zero_roots, 2, device_public, now, &device) == IDENTITY_NOT_ROOT_SIGNED);
-	/* (a changed handle breaks the signature) */
+	/* (a saved one past its time, checked as of when it was issued) */
+	CHECK(identity_accept(device_data, device_size, issuer_data, IDENTITY_ISSUER_SIZE,
+		(const unsigned char (*)[32])roots, 2, device_public, VECTOR_EXPIRES + 86400, &device) == IDENTITY_EXPIRED);
+	CHECK(identity_accept(device_data, device_size, issuer_data, IDENTITY_ISSUER_SIZE,
+		(const unsigned char (*)[32])roots, 2, device_public, VECTOR_ISSUED, &device) == IDENTITY_OK);
+	memcpy(broken, device_data, (size_t)device_size);
+	broken[device_size - 1] ^= 1;
+	CHECK(identity_accept(broken, device_size, issuer_data, IDENTITY_ISSUER_SIZE,
+		(const unsigned char (*)[32])roots, 2, device_public, VECTOR_ISSUED, &device) ==
+		IDENTITY_NOT_ISSUER_SIGNED);
+		/* (a changed handle breaks the signature) */
 	memcpy(broken, device_data, (size_t)device_size);
 	broken[IDENTITY_DEVICE_HEADER] = 'n';
 	CHECK(identity_check_device(broken, device_size, &issuer, now, &device) == IDENTITY_NOT_ISSUER_SIGNED);
@@ -435,22 +445,27 @@ static void test_schedule(void)
 	CHECK(identity_token(&state, now, token, sizeof(token)) && !strcmp(token, "d1.token"));
 	CHECK(!identity_token(&state, now + 3600 - 60, token, sizeof(token)));
 	CHECK(!identity_token(&state, now, token, 4));
-	/* a request answered: it stands, whatever it was, but for the two cases */
+	/* a request answered: it stands, whatever it was, a 400 too */
 	CHECK(identity_token_sent(&state, 200, "ok", now) == IDENTITY_SENT_DONE);
 	CHECK(identity_token_sent(&state, 404, "{}", now) == IDENTITY_SENT_DONE);
 	CHECK(identity_token_sent(&state, 0, "", now) == IDENTITY_SENT_DONE);
 	CHECK(identity_token_sent(&state, 403, "{\"error\": \"locked\"}", now) == IDENTITY_SENT_DONE);
 	CHECK(identity_token_sent(&state, 401, "{\"error\": \"Sign in first.\"}", now) == IDENTITY_SENT_DONE);
-	CHECK(identity_token_sent(&state, 400, "{\"error\": \"bad\", \"token\": \"scope\"}", now) == IDENTITY_SENT_DONE);
-	CHECK(state.token[0]);
+	CHECK(identity_token_sent(&state, 400, "bad claim\n", now) == IDENTITY_SENT_DONE);
+	CHECK(identity_token_sent(&state, 400, "{\"error\": \"bad request\"}", now) == IDENTITY_SENT_DONE);
+	CHECK(state.token[0] && identity_token(&state, now, token, sizeof(token)));
 	/* a 401 for the token: dropped, a new one asked for */
 	CHECK(identity_token_sent(&state, 401, "{\"error\": \"token\", \"token\": \"expired\"}", now) ==
 		IDENTITY_SENT_NEW_TOKEN && !state.token[0] && identity_token_due(&state, now));
 	identity_set_token(&state, "d1.token", 3600, now);
-	/* an older site's 400 (no "token"): the key, and no tokens to it for an hour */
-	CHECK(identity_token_sent(&state, 400, "bad key\n", now) == IDENTITY_SENT_KEY);
+	CHECK(identity_token_sent(&state, 401, "{\"token\": \"unknown\"}", now) == IDENTITY_SENT_UNKNOWN_TOKEN &&
+		!state.token[0]);
+	identity_set_token(&state, "d1.token", 3600, now);
+	/* an older site (its nonce path a 404): no tokens to it for an hour */
+	CHECK(identity_answered(&state, 404, "", now) == IDENTITY_ANSWER_LATER);
 	CHECK(!identity_token(&state, now + 1, token, sizeof(token)) && !identity_token_due(&state, now + 1));
 	CHECK(identity_token_due(&state, now + IDENTITY_LATER));
+	state.wait_until = 0;
 	/* the site forgot the device: enroll again */
 	CHECK(identity_answered(&state, 404, "{\"error\": \"unknown device\", \"enroll\": true}", now) ==
 		IDENTITY_ANSWER_ENROLL);
@@ -470,12 +485,22 @@ static void test_schedule(void)
 	CHECK(state.new_key_made && state.must_enroll && identity_due(&state, 1, now) == IDENTITY_STEP_ENROLL);
 	CHECK(identity_answered(&state, 409, "{\"other_copy\": true}", now) == IDENTITY_ANSWER_DAY);
 	CHECK(state.wait_until == now + IDENTITY_DAY);
-	/* unknown copy, locked, too many: a day, given up after a few */
+	/* an unknown copy: within an hour, sooner after a confirmed game; never given up */
+	memset(&state, 0, sizeof(state));
+	for (index = 0; index < 2 * IDENTITY_DAY_TRIES; index++)
+		CHECK(identity_answered(&state, 403, "{\"unknown_copy\": true}", now) == IDENTITY_ANSWER_UNKNOWN_COPY);
+	CHECK(!state.off && !state.day_tries && state.wait_until == now + IDENTITY_LATER && state.waiting_for_game);
+	identity_confirmed(&state, now + 10);
+	CHECK(state.wait_until == now + 10 + IDENTITY_RETRY_FIRST && !state.waiting_for_game);
+	identity_confirmed(&state, now + 20);
+	CHECK(state.wait_until == now + 10 + IDENTITY_RETRY_FIRST);
+	CHECK(identity_due(&state, 1, now + 10 + IDENTITY_RETRY_FIRST) == IDENTITY_STEP_ENROLL);
+	/* locked, too many: a day, given up after a few */
 	memset(&state, 0, sizeof(state));
 	for (index = 0; index < IDENTITY_DAY_TRIES; index++)
 	{
 		CHECK(!state.off);
-		CHECK(identity_answered(&state, 403, "{\"unknown_copy\": true}", now) == IDENTITY_ANSWER_DAY);
+		CHECK(identity_answered(&state, 403, "{\"locked\": true}", now) == IDENTITY_ANSWER_DAY);
 	}
 	CHECK(state.off && identity_due(&state, 1, now + 10 * IDENTITY_DAY) == IDENTITY_STEP_NONE);
 	memset(&state, 0, sizeof(state));

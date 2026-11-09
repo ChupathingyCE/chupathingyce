@@ -1950,16 +1950,18 @@ would. A token the site can't use gets 401 `{"token": "unknown" |
    the background it gets a nonce and enrolls. A 404 for
    `/v1/identity/nonce` means an older site: it tries again in an hour. A
    503 means busy or not issuing yet: it tries again in ten minutes, backing
-   off to an hour. A 403 `unknown_copy` or `locked`, or a 409
-   `too_many`, waits a day, and those retries are capped.
+   off to an hour. A 403 `unknown_copy` (a new install the site hasn't
+   seen yet) tries again soon after the player's next confirmed game or
+   report, or within an hour, whichever comes first. A 403 `locked` or a
+   409 `too_many` waits a day, and those retries are capped.
 2. With a certificate, it gets a token (nonce, then token) when it has none
    or the one it has is about to run out, and sends it instead of the key.
 3. A request answered 401 with `"token"` drops the token, gets a new one,
-   and sends the request again with it. Only if that fails does it go with
-   the key. A request sent with a token is sent with the key only when the
-   site doesn't speak identity (its `/v1/identity/nonce` answers 404, or it
-   refuses the request with a 400 that has no `"token"` member). An answer
-   the site acted on is never sent again.
+   and sends the request again with it once. A request sent with a token
+   goes with the key only when the site doesn't speak identity (its
+   `/v1/identity/nonce` answers 404) or refuses the token as `"unknown"`
+   and no new token can be had. Otherwise the answer is returned as it is,
+   and a request the site answered is never sent again.
 4. At `refresh_after`, or on start when the saved certificate is past it or
    expired, it refreshes with the device key; it never enrolls again just
    because a certificate expired. A 404 with `"enroll"` enrolls again. A

@@ -196,9 +196,12 @@ enum
 	IDENTITY_ANSWER_LATER,
 	/* busy, or not issuing yet (503): ten minutes, to an hour */
 	IDENTITY_ANSWER_BUSY,
-	/* a copy the site hasn't seen, a locked account, too many devices: a
-	day, and given up for this run after IDENTITY_DAY_TRIES */
+	/* a locked account, too many devices: a day, and given up for this run
+	after IDENTITY_DAY_TRIES */
 	IDENTITY_ANSWER_DAY,
+	/* a copy the site hasn't seen yet: again after the player's next
+	confirmed game or report (identity_confirmed), or within an hour */
+	IDENTITY_ANSWER_UNKNOWN_COPY,
 	/* the device key is another copy's: a new device key, once */
 	IDENTITY_ANSWER_NEW_KEY,
 	/* the site doesn't know the device: enroll again */
@@ -230,6 +233,8 @@ struct identity_state
 	int failures, busy_failures, day_tries;
 	/* (a new device key made once this run for another copy's) */
 	int new_key_made;
+	/* (an unknown copy, waiting for a confirmed game or report) */
+	int waiting_for_game;
 	char token[IDENTITY_TOKEN_SIZE];
 	unsigned long token_until;
 	/* tokens not sent before this (a site that wants the key) */
@@ -255,12 +260,15 @@ enum
 {
 	/* the answer stands: never sent again (the site may have acted on it) */
 	IDENTITY_SENT_DONE = 0,
-	/* a 401 for the token, which is dropped: a new token, and again with it */
+	/* a 401 for the token, which is dropped: a new token, and again with it
+	once (the answer returned when there is none) */
 	IDENTITY_SENT_NEW_TOKEN,
-	/* a 400 without "token": the site doesn't speak identity; again with
-	the key, and no tokens to it for an hour */
-	IDENTITY_SENT_KEY,
+	/* the same for a token the site calls "unknown": with no new token to
+	be had, the site may not speak identity, and the key goes */
+	IDENTITY_SENT_UNKNOWN_TOKEN,
 };
 int identity_token_sent(struct identity_state *state, int status, const char *response, unsigned long now);
+/* a game or report of the player's confirmed: an unknown copy asks again soon */
+void identity_confirmed(struct identity_state *state, unsigned long now);
 
 #endif
