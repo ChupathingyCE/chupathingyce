@@ -168,7 +168,8 @@ int platform_old_map_folders_move(void);
 runs as an application (ChupathingyCE.app): ~/Library/Application
 Support/ChupathingyCE, made if need be, into path; on Linux, when the game
 runs as an AppImage or a packaged install (or from a folder it cannot write
-that has no maps/ or config.toml of its own), the save root's usual place
+that has no maps/ of its own; config.toml is placed the same way by its own
+presence, port_config.c), the save root's usual place
 (HALO_SAVE_ROOT, else $XDG_DATA_HOME/chupathingyce or
 ~/.local/share/chupathingyce); 0 otherwise
 (and on other systems). An application's own files are not written: it is
