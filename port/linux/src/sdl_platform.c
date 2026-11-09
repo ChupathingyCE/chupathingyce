@@ -1104,6 +1104,26 @@ static void platform_fullscreen_kind_apply(void)
 /* whether the game last asked for the window to be fullscreen */
 static BOOL platform_fullscreen_requested = FALSE;
 
+#ifdef _WIN32
+/* port/windows/src/win32_window.c */
+void win32_window_borderless_styles(void *window_handle);
+#endif
+
+/* Windows: the borderless window an ordinary window with no frame, not
+SDL's topmost popup, which some drivers take for exclusive fullscreen
+(win32_window.c); before the context is made and before each frame shows,
+since SDL sets its styles again on a change of focus or mode */
+#ifdef _WIN32
+static void platform_borderless_styles(void)
+{
+	if (platform_window && platform_fullscreen_requested && platform_display_mode() == _display_mode_borderless)
+	{
+		win32_window_borderless_styles(SDL_GetPointerProperty(SDL_GetWindowProperties(platform_window),
+			SDL_PROP_WINDOW_WIN32_HWND_POINTER, NULL));
+	}
+}
+#endif
+
 static void platform_window_set_fullscreen(BOOL fullscreen)
 {
 	platform_fullscreen_requested = fullscreen;
@@ -1512,6 +1532,9 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 		return TRUE;
 	}
 #endif
+#ifdef _WIN32
+	platform_borderless_styles();
+#endif
 	platform_gl_context = SDL_GL_CreateContext(platform_window);
 #ifdef HALO_ANDROID
 	/* ES 3.2 where the driver has it, otherwise the renderer makes do with
@@ -1734,6 +1757,9 @@ void platform_video_swap(void)
 	Uint64 interval, now;
 	Uint64 swap_start = SDL_GetTicks(), swap_time;
 
+#ifdef _WIN32
+	platform_borderless_styles();
+#endif
 #ifdef HALO_BGFX
 	/* (the device presents: d3d8_bgfx.inl; this paces the frames) */
 	if (!xgpu_bgfx)
