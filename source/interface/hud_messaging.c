@@ -535,6 +535,35 @@ static void hud_message_spacing_reset(
 	return;
 }
 
+/* port: the text before a button drawn as the keyboard's key, with a stick's
+"Click in " at its end made "Press " (a key has nothing to click in): the
+text, or buffer holding the new one */
+static wchar_t const *hud_message_port_key_verb(
+	wchar_t const *text,
+	wchar_t *buffer,
+	long count)
+{
+	static wchar_t const click_in[] = L"Click in ";
+	static wchar_t const press[] = L"Press ";
+	long click_length = NUMBEROF(click_in) - 1;
+	long press_length = NUMBEROF(press) - 1;
+	long length = 0;
+	long index;
+
+	while (text && text[length])
+		length++;
+	if (length < click_length || length - click_length + press_length >= count ||
+		csmemcmp(text + length - click_length, click_in, click_length * sizeof(wchar_t)))
+	{
+		return text;
+	}
+	for (index = 0; index < length - click_length; index++)
+		buffer[index] = text[index];
+	for (index = 0; index <= press_length; index++)
+		buffer[length - click_length + index] = press[index];
+	return buffer;
+}
+
 /* the text's layout from the cursor (draw_unicode_string_compute_bounds),
 moved after an icon as above */
 static void hud_message_text_place(
@@ -1810,7 +1839,31 @@ void hud_messaging_update(
 								text_position * sizeof(wchar_t),
 								element->data * sizeof(wchar_t));
 							rectangle2d text_bounds;
+							wchar_t pressed_text[128];
 
+							/* port: a stick clicked in ("Click in [R] to zoom the
+							sniper rifle") is a key pressed where the next icon
+							is drawn as the keyboard's key */
+							if (element_index + 1 < message->element_count)
+							{
+								struct hud_state_message_element *next = TAG_BLOCK_GET_ELEMENT(
+									&hud_messages->elements,
+									message->element_start_index + element_index + 1,
+									struct hud_state_message_element);
+								wchar_t key_text[48];
+
+								if (next->type == _hud_message_type_icon &&
+									next->data <= _icon_look &&
+									input_abstraction_port_icon_key(
+										local_player_index,
+										next->data,
+										FALSE,
+										key_text,
+										NUMBEROF(key_text)))
+								{
+									text = hud_message_port_key_verb(text, pressed_text, NUMBEROF(pressed_text));
+								}
+							}
 							hud_message_text_place(&line_bounds, &line_cursor, text, &text_bounds);
 							line_cursor.x0 -= 3;
 							text_bounds.x0 = line_bounds.x0;

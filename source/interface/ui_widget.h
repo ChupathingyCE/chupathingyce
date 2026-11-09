@@ -201,6 +201,8 @@ void draw_string_and_hack_in_icons(
 /* port: where the last draw_string_and_hack_in_icons ended, across (its
 cursor's left edge after the last text or icon) */
 extern short draw_string_and_hack_in_icons_end_x;
+void draw_string_and_hack_in_icons_for_menus(
+	boolean menus);
 void ui_widgets_dispose(
 	void);
 boolean widget_event_function_list_widget_goto_next_item(
@@ -225,6 +227,10 @@ struct widget_instance *ui_widget_load_by_name_or_tag(
 	long invoking_widget_tag,
 	long focused_child_parent_widget_tag,
 	short focused_child_index);
+/* port: the screen the engine opens by name after a network game, or the
+PC menus' own where they are loaded (port/linux/game/menu_tags.c) */
+char const *pc_menus_screen(
+	char const *name);
 void main_screen_shell_load(
 	void);
 void network_game_reset_to_pregame_ui(

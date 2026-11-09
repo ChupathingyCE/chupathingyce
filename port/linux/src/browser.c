@@ -45,6 +45,9 @@ with it under the lock.
 #include "browser_ping.h"
 #include "qrcodegen.h"
 #include "delta_profile.h"
+#ifndef HALO_CONSOLE_NO_GUIDE
+#include "social.h"
+#endif
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -228,6 +231,16 @@ static struct
 	char connect_message[96];
 	int connect_qr_size;
 	unsigned char connect_qr[BROWSER_CONNECT_QR_SIZE * BROWSER_CONNECT_QR_SIZE];
+
+#ifndef HALO_CONSOLE_NO_GUIDE
+	/* presence (social.h): whether the game says this copy is playing a
+	Delta game, when it last said so, and the schedule (the browser
+	thread's, under the lock) */
+	int presence_playing;
+	unsigned long presence_said;
+	struct social_presence presence;
+	int presence_logged;
+#endif
 
 	/* the profile this copy's games count for (browser_profile_linked): its
 	handle while known, from Link Profile on this copy (kept in the save
@@ -1920,6 +1933,78 @@ static void update_anchors(void)
 		pthread_detach(thread);
 }
 
+#ifndef HALO_CONSOLE_NO_GUIDE
+/* ---------- presence (the browser thread)
+
+About once a minute while this copy plays a Delta game that has an invite,
+it tells the site which game (POST /v1/presence {key, invite}), when
+network.share_presence is on, this copy counts for a Delta profile and the
+profile's "Show when I'm playing" is not off. The invite is the game's own:
+the one this copy hosts with (p2p_hosting_invite), or the one it joined
+(p2p_joined_invite). The site finds the listed game by it for the
+profile's "playing" line, shows that game only to those the player allows,
+and the invite itself only to those allowed to join. Nothing in the menus,
+only this copy's own player key, nothing about other players. The site
+keeps it in memory only, with no address. */
+
+/* the game says it is playing this often (discord_game.c, once a second):
+quiet longer, and it no longer is */
+#define PRESENCE_SAID_TIMEOUT 5000
+
+static void update_presence(void)
+{
+	struct social_presence_inputs inputs;
+	char invite[BROWSER_INVITE_LENGTH + 1], fields[128], response[256], error[256];
+	int status, no_key, answer, logged;
+
+	/* (whether this copy is linked, without waiting for a screen to ask:
+	the link kept in the save root, once a run, then the site's word on the
+	player's own profile, asked once a run while playing) */
+	read_profile_file();
+	memset(&inputs, 0, sizeof(inputs));
+	inputs.share = config_boolean("network.share_presence") != 0;
+	/* (the game's invite: hosted, else joined; a password game hosted here
+	has none to give) */
+	invite[0] = 0;
+	if (!p2p_hosting_invite(invite, sizeof(invite)) && !p2p_joined_invite(invite, sizeof(invite)))
+		invite[0] = 0;
+	inputs.has_invite = social_presence_invite_valid(invite);
+	pthread_mutex_lock(&browser_lock);
+	inputs.in_game = browser.presence_playing && !elapsed(browser.presence_said, PRESENCE_SAID_TIMEOUT);
+	/* (playing says the game is a Delta one: discord_game.c) */
+	inputs.on_delta = inputs.in_game;
+	inputs.linked = browser.profile_linked || (browser.game_profile_has && browser.game_profile.linked);
+	if (inputs.in_game && inputs.share && !inputs.linked)
+		browser.profile_check_wanted = 1;
+	inputs.hidden = browser.game_profile_has && browser.game_profile.has_privacy &&
+		!browser.game_profile.show_presence;
+	if (!social_presence_due(&browser.presence, &inputs, p2p_now()))
+	{
+		pthread_mutex_unlock(&browser_lock);
+		return;
+	}
+	pthread_mutex_unlock(&browser_lock);
+	response[0] = 0;
+	if (social_presence_fields(fields, sizeof(fields), invite) < 0)
+		fields[0] = 0;
+	status = game_request("/v1/presence", fields, response, sizeof(response), error, sizeof(error), &no_key);
+	pthread_mutex_lock(&browser_lock);
+	answer = social_presence_answer(&browser.presence, no_key ? 0 : status, response, p2p_now());
+	logged = browser.presence_logged;
+	browser.presence_logged = answer;
+	pthread_mutex_unlock(&browser_lock);
+	/* (debug.txt says what the site said when it changes, never the key) */
+	if (answer != logged)
+	{
+		platform_log("Delta presence: %s", answer == SOCIAL_PRESENCE_OK ? "the site shows you playing" :
+			answer == SOCIAL_PRESENCE_OFF ? "the site keeps it hidden; asked again in half an hour" :
+			answer == SOCIAL_PRESENCE_BUSY ? "the site is busy; asked again in ten minutes" :
+			answer == SOCIAL_PRESENCE_REFUSED ? "the site does not take it; asked again in half an hour" :
+			no_key ? "no player key or no HTTPS game list" : "the site is not answering");
+	}
+}
+#endif
+
 static void *browser_thread(void *unused)
 {
 	(void)unused;
@@ -1935,6 +2020,9 @@ static void *browser_thread(void *unused)
 			update_connect();
 			check_profile();
 			update_game_profile();
+#ifndef HALO_CONSOLE_NO_GUIDE
+			update_presence();
+#endif
 			update_cards();
 			update_list();
 			update_anchors();
@@ -2860,6 +2948,17 @@ int browser_headless(void)
 {
 	return browser_dedicated() || browser_probe() != NULL;
 }
+
+#ifndef HALO_CONSOLE_NO_GUIDE
+void browser_presence_playing(int playing)
+{
+	pthread_once(&browser_once, start_thread);
+	pthread_mutex_lock(&browser_lock);
+	browser.presence_playing = playing != 0;
+	browser.presence_said = p2p_now();
+	pthread_mutex_unlock(&browser_lock);
+}
+#endif
 
 /* ---------- Delta Profile in the game (public) */
 
