@@ -150,13 +150,16 @@ shares.
 | 17 | `object_sync` | what the game's messages leave out of the host's objects: every unit's shield and health (UNIT_VITALS) and the scenario names of the objects the host made (OBJECT_NAMES); see "Object sync" |
 | 18 | `host_cheats` | not a feature: the host's console and cheats may change its public game while others are in it (`network.host_cheats`); announced on Delta List only, never in a HELLO, and Online Games shows "Host cheats on" |
 | 19 | `host_rules` | the host's rules for its players' extras (HOST_RULES): names above heads, the follow camera, team changes; a client whose host says nothing plays by the Xbox's rules. See "Host rules" |
+| 20 | `identity` | reserved for Delta identity (verified players: ID_CHALLENGE, ID_PROOF, ID_CARD), a draft being built; never set until it is |
+| 21 | `party_teams` | a party's members tell their host their party's tag (PARTY_TAG), and a host that keeps parties together puts them on one team where the teams stay even. See "Party teams" |
 
 The registry lives in the repository next to the compatibility table and is
 the single source for the bit numbers. Built so far: `platform`, `profile`,
 `ce_maps`, `moderation` (see "Moderation"), `chat` and `server_messages`
 (see "Chat"), `bomb`, `bomb_movement` and `bomb_traits` ([bomb.md](bomb.md)),
-`ping`, `team_change`, `object_sync`, `host_cheats` and `host_rules`. No
-build sets `coop`, `ai_sync`, `vote` or `server_badge` yet. The first two's values are
+`ping`, `team_change`, `object_sync`, `host_cheats`, `host_rules` and
+`party_teams`. No build sets `coop`, `ai_sync`, `vote`, `server_badge` or
+`identity` yet. The first two's values are
 claims, shown as claims, never used for game state:
 
 - **`platform`**: each machine's platform key (below), and so each player's
@@ -400,6 +403,8 @@ a later version may append):
 | 27 | UNIT_VITALS | host to client | count (1, at most 98), flags (1: 0x01 the last datagram of a full pass), reserved (2), then 12-byte entries: the host's object (4, its datum index, which a client's copy shares), flags (1: 0x01 shield depleted, 0x02 shield charging, 0x04 shield over charging), reserved (1), body vitality (2), shield vitality (2), reserved (2); vitality in 16384ths, as the game's own unit states have it |
 | 28 | OBJECT_NAMES | host to client | total (2, the host's named objects and removed names in all, at most 512), first (2, this datagram's first entry's place among them), count (1, at most 98), reserved (3), then 12-byte entries: the host's object (4; 0xFFFFFFFF for a removed name), its scenario name index (2), flags (1: 0x01 removed, a name the host had an object of this game and has none of now; others ignored), and for a removed name its unit's last vitals: shield flags (1, as UNIT_VITALS's), body vitality (2), shield vitality (2) (full for an object that was not a unit; 0 for the others) |
 | 29 | HOST_RULES | host to client | version (1; 1 now, 0 refused, a later one read as far as this build knows it), flags (1: 0x01 names above heads allowed, 0x02 the follow camera allowed; others ignored), team changes (1: 0 off, 1 balanced, 2 allow), their margin (1, 0 to 16), reserved (4); values past their ranges refused. Sent at once when they change and every 5 seconds |
+| 30 to 32 | | | kept for Delta identity's ID_CHALLENGE, ID_PROOF and ID_CARD (a draft) |
+| 33 | PARTY_TAG | client to host | the party's tag (8; zeros: in no party); a longer payload is read as far as this build knows. Sent once both agreed to `party_teams`, at once when it changes, and every 5 seconds while in a party |
 
 A roster covers every machine of the game, in as many datagrams as it takes
 (32 machines each). A client forgets a machine the roster has not named for
@@ -719,6 +724,50 @@ game, over `host_rules` (bit 19):
   (split screen) is its own host's.
 
 The game's side is `port/linux/game/host_rules.c`.
+
+### Party teams
+
+A party (DELTA's PARTY: up to 8 players who follow their leader into
+games, kept by the site in memory, `puma/party.py`) wants to play on one
+team. Halo's teams are the host's to place, so the party asks and the host
+decides, over `party_teams` (bit 21). It is additive and host-side: nothing
+in the game protocol changes, and an OpenCE host, or one that says nothing,
+places the party as it always did.
+
+- **The tag.** The site gives each party a random 8-byte tag and hands it
+  to the party's members only. It names no one and changes with each new
+  party. A member's game sends it to its game's host in PARTY_TAG (33)
+  once both agreed to `party_teams`, at once when it changes (joined,
+  left, a new party), and every 5 seconds while it is in a party, in case
+  a datagram was lost. Zeros mean "in no party". The host keeps each
+  machine's last tag and forgets it with the machine's session. It learns
+  only which of its machines share a party; split screen players share
+  their machine's.
+- **Whether the host honors it.** A player's host does unless its
+  `network.keep_parties_together` is off (on by default). A dedicated
+  server does only with its `keep_parties_together` setting on (off by
+  default; `sv_set keep_parties_together true`, `server/docs/settings.md`).
+  Only in team games, never in co-op.
+- **Where balance allows.** A split party goes to the team where most of
+  its members are (a tie: the smaller team first). One member moves at a
+  time, only when the teams then stay within one player of each other.
+  Where a move would unbalance them, the member trades places with a
+  player in no party on that team. Nobody else is moved.
+- **When.** In the lobby, each time its players or their parties change
+  (the host sends the lobby again); a player who picks the other team
+  afterwards keeps their pick until the lobby changes again. In a game in
+  progress, only a member who joined late and hasn't spawned yet moves (as
+  a team change does, without a death); nobody is traded and nobody
+  playing is moved.
+- **What it isn't.** The host's own team rules (auto team balance, team
+  changes, an admin's `sv_team`) stay as they are, and a party never
+  overrides them. A client that doesn't speak `party_teams` sends nothing
+  and is placed as before.
+
+The host's side is `port/linux/game/party_teams.c` (which change: the
+plan in `port/linux/src/party_teams_plan.c`, tested by
+`tools/test_party_teams.py`); the members' tag comes from
+`port/linux/game/guide.c`.
 
 ### Object sync
 
