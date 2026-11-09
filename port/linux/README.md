@@ -554,7 +554,7 @@ the setting for one start of the game. It has priority over the file.
 | `display.direct_camera` | `true` | `HALO_DIRECT_CAMERA` | `true`: in first person, on foot, the view points where the player aims in each frame, not where the last tick left it. Refer to "Frame rate". Not in Video Setup: config.toml only. |
 | `display.field_of_view` | `70.0` | `HALO_FIELD_OF_VIEW` | How wide the first-person view is, in degrees across a 4:3 picture: `70`, as on the Xbox, from `50` to `120`. On a wider screen the view shows more at the sides, as before. Scopes zoom in by as much as before. Only the first-person view changes: cutscenes, the third-person views and the game itself (aim, auto-aim, what each machine sends) do not. Video Setup's Field of View sets it in the menus. |
 | `display.viewmodel_field_of_view` | `0.0` | `HALO_VIEWMODEL_FIELD_OF_VIEW` | How wide the first-person weapon and arms are drawn, in degrees as `display.field_of_view`: `0` (the default) follows `display.field_of_view`, as before; `50` to `120` draws them at that width whatever the view's, so a wide view does not stretch them. `70`: the weapon as on the Xbox. Drawing only. |
-| `display.reticle_scales_with_fov` | `true` | `HALO_RETICLE_SCALES_WITH_FOV` | `true`: the weapon's reticle is drawn smaller in a wider `display.field_of_view` and larger in a narrower one, as the world is, so it still covers the weapon's spread. At `70`, the Xbox's, it is the Xbox's size. Only in first person; the scopes' overlays that cover the view are not resized. `false`: the reticle keeps the Xbox's size at any field of view. Video Setup's Reticle Follows FOV sets it. |
+| `display.reticle_scales_with_fov` | `true` | `HALO_RETICLE_SCALES_WITH_FOV` | `true`: the weapon's reticle is drawn smaller in a wider `display.field_of_view` and larger in a narrower one, as the world is, so it still covers the weapon's spread. At `70`, the Xbox's, it is the Xbox's size. Only in first person; while zoomed, the scope's picture (its mask, ticks, brackets and zoom label) keeps the Xbox's size, so its parts stay together. `false`: the reticle keeps the Xbox's size at any field of view. Video Setup's Reticle Follows FOV sets it. |
 | `display.far_clip_distance` | `1024.0` | `HALO_FAR_CLIP_DISTANCE` | How far the world is drawn, in world units: `1024`, as on the Xbox, up to `10000`. Raise it on large maps that cut off in the distance (Extinction, Hugeass). It is a floor under the map's own far clip, so it holds across map loads and joins, in single player and multiplayer; scripts and `init.txt` can raise the clip further but not below it. Only the picture changes: the game itself, what each machine sends and the near clip do not. Fog can still end the view sooner. Depth precision at a distance gets coarser as the value grows (about 9 units at 3000, 95 at 10000), so distant overlapping surfaces may flicker at the largest values. |
 | `display.match_timer` | `false` | `HALO_MATCH_TIMER` | `true`: in a multiplayer game with a time limit, the time left is drawn at the top of the screen. `false`: the time left shows only on the scoreboard (hold BACK, or tab), as on the Xbox. |
 | `display.high_res_hud` | `true` | `HALO_HIGH_RES_HUD` | `true`: the HUD (meters, counters, panels and their outlines, the motion sensor, reticles, waypoints, scopes) is drawn from the high-res assets in `port/assets/hud`, 8x the size of the maps' bitmaps. The bitmaps with English text keep the maps' own. `false`: the maps' own bitmaps. |
@@ -578,7 +578,9 @@ the setting for one start of the game. It has priority over the file.
 | `display.scoreboard_team_layout` | `"teams"` | `HALO_SCOREBOARD_TEAM_LAYOUT` | How the multiplayer scoreboard (hold BACK, or tab) lists a team game's players. `"teams"`: a column for each team, red on the left and blue on the right. `"score"`: all the players in order of score. With more players than fit, the mouse wheel and Page Up / Page Down scroll the scoreboard. |
 | `display.scoreboard_background` | `true` | `HALO_SCOREBOARD_BACKGROUND` | `true`: the multiplayer scoreboard (hold BACK, or tab) has a panel behind its text, for clearer text. |
 | `display.scoreboard_platforms` | `"auto"` | `HALO_SCOREBOARD_PLATFORMS` | A small logo of each player's platform (Windows, macOS, Linux, Android, Steam Deck, Xbox and so on) before their name on a network game's scoreboard, for players whose client sends it over Delta Peer; other players (OpenCE, retail) get no logo. `"auto"`: shown with the Chupathingy menus only, since the Xbox and Gearbox menus stay close to the originals. `"on"`: with any menus. `"off"`: never. |
-| `display.delta_profile` | `true` | `HALO_DELTA_PROFILE` | Delta Profile in the game: the DELTA row of Profiles (the Chupathingy menus) and button of Select Profile (the Gearbox menus), the "Delta:" line on a Halo profile, and Online Games' Start. `false` hides them all, and Start opens the profile's web page as before. Link Profile (RB in Online Games) stays. Refer to `docs/delta.md`, Delta Profile in the game. |
+| `display.delta_profile` | `true` | `HALO_DELTA_PROFILE` | Delta Profile in the game: the DELTA row of Profiles (the Chupathingy menus) and button of Select Profile (the Gearbox menus), the "Delta:" line on a Halo profile, and Online Games' Start. `false` hides them all, and Start opens the profile's web page as before, or Link Profile while this copy is not linked. Refer to `docs/delta.md`, Delta Profile in the game. |
+| `display.online_games_view` | `"public"` | `HALO_ONLINE_GAMES_VIEW` | The view Online Games opens on in a session (LB and RB switch, and the last one stays): `"all"`, `"public"` (CHUPATHINGY + PUBLIC: every game but OpenCE's dedicated servers), `"chupathingy"` (our servers and Delta hosts) or `"opence"` (OpenCE's dedicated servers). |
+| `display.opence_empty_servers` | `"folded"` | `HALO_OPENCE_EMPTY_SERVERS` | The empty OpenCE dedicated servers in Online Games' ALL and OPENCE views: `"folded"` puts them in one EMPTY SERVERS row at the end (A opens and closes it; closed each session), `"shown"` lists each one at the end. |
 | `display.profile_names` | `true` | `HALO_PROFILE_NAMES` | On the scoreboard, the postgame report and the lobby, players who share their Delta profile (`network.share_profile`) show by the profile's name, in games on Delta. `false`: every player by their game name. OpenCE players, and what OpenCE players see, are unchanged. |
 | `display.show_quit_players` | `true` | `HALO_SHOW_QUIT_PLAYERS` | `true`: players who quit stay on the multiplayer scoreboard (hold BACK, or tab) and the score in the corner, as in the original game. `false`: they are left off, and the players still in the game are ranked among themselves, as OpenCE does. Only what this machine draws changes. |
 | `display.scoreboard_background_color` | `"16, 16, 16, 150"` | `HALO_SCOREBOARD_BACKGROUND_COLOR` | The colour of the scoreboard's panel: `"red, green, blue, alpha"`, each from `0` to `255`. Alpha `0` is see-through, `255` is solid. |
@@ -708,7 +710,8 @@ the setting for one start of the game. It has priority over the file.
 | `controls.guide_button` | `true` | `HALO_GUIDE_BUTTON` | The first player's controller Guide button opens the Guide, where SDL can read it (Steam and the Xbox Game Bar may keep it). Split screen's other players never open it, and it doesn't open over chat typing. |
 | `guide.hold_back` | `false` | `HALO_GUIDE_HOLD_BACK` | Holding Back about 0.6 s in the menus opens the Guide. Off by default, since the menus get the Back press first, which isn't the Xbox's behavior. |
 | `guide.pause_menu` | `true` | `HALO_GUIDE_PAUSE_MENU` | GUIDE in the pause menu, after CONTROLS, in all three menu sets. |
-| `guide.notify_in_game` | `false` | `HALO_GUIDE_NOTIFY_IN_GAME` | The Guide's notifications during a game. They always show in the menus. None are sent yet. |
+| `guide.notify_in_game` | `false` | `HALO_GUIDE_NOTIFY_IN_GAME` | The Guide's notifications (a new invite or friend request) during a game. They always show in the menus. |
+| `guide.notify_online` | `false` | `HALO_GUIDE_NOTIFY_ONLINE` | A notification in the menus when a friend comes online. Never during a game. |
 | `debug.guide_open` | `false` | `HALO_GUIDE_OPEN` | Opens the Guide once the menus or a map are up, for tests and screenshots. |
 | `debug.guide_toast` | `""` | `HALO_GUIDE_TOAST` | Shows a test notification with this text once the main menu is up. |
 | `debug.chat_test` | `""` | `HALO_CHAT_TEST` | A script of text chat for the tests (`game/chat.c`): `"<seconds>:<what>[:<text>]"` steps separated by `;`, from when this copy is in a game: `all` and `team` say a line, `server` says one as the host's server, `mute` and `unmute` mute a machine as a moderator does (the host), `localmute` mutes one for this copy, `log` and `close` open and close the log, `type` shows a line being typed. |
@@ -1217,10 +1220,17 @@ last. The details show the map's picture from the menus, or from Halo PC's
 `network.online` is on and kept in the save root's `map_art` folder. So
 does a HaloMD or Custom Edition map's picture, when the site has one
 (art/maps/md, art/maps/ce). Any other map gets a card with its name in its
-family's color. RB (Link Profile)
-shows only while this copy is not linked to a profile: linked on this copy
-(kept in the save root's `game_list_profile.txt`), or a profile the site
-has for this copy's player ID. Once linked, Start's prompt names the
+family's color. LB and RB (Q and C on the keyboard) switch between four
+views of the list, each sorted with the most players first (the chosen
+order breaks ties): ALL; CHUPATHINGY + PUBLIC, the default, which leaves
+out OpenCE's dedicated servers; CHUPATHINGY (our servers and Delta hosts);
+and OPENCE (OpenCE's dedicated servers). The view shown stays for the
+session, and `display.online_games_view` picks the first. In ALL and
+OPENCE, the empty OpenCE dedicated servers fold into one EMPTY SERVERS row
+at the end, which A opens and closes (`display.opence_empty_servers`). The
+filter (Back) works in every view. Once this copy is linked to a profile
+(on this copy, kept in the save root's `game_list_profile.txt`, or a
+profile the site has for this copy's player ID), Start's prompt names the
 profile. Each copy of the game has a player key in the save root
 (`game_list_player.key`). The key confirms the player's lines in finished
 games. The game sends the key only to an HTTPS server, or to a server on
@@ -1244,7 +1254,8 @@ Games:
 
 - Press Start. The game opens the profile page in the web browser, signed
   in as this player.
-- Press RB, or C on the keyboard (Link Profile). Use this step where no web
+- Press Start, or F2 on the keyboard, and pick LINK PROFILE (with
+  `display.delta_profile` off, Start opens it directly). Use this step where no web
   browser opens: Steam's Game Mode, a Steam Deck, a console. The game shows
   a short code and a QR code. On a phone or a computer, go to
   `<server>/connect` (the address that the game shows), sign in, and enter
