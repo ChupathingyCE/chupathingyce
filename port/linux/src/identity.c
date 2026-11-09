@@ -26,6 +26,7 @@ static const char device_id_label[] = "chupathingy device id\n";
 static const char enroll_label[] = "chupathingy legacy enroll v1\n";
 static const char refresh_label[] = "chupathingy device refresh v1\n";
 static const char token_label[] = "chupathingy device token v1\n";
+static const char proof_label[] = "delta identity proof v1\n";
 
 /* ---------- SHA-256 (FIPS 180-4), for the IDs */
 
@@ -891,6 +892,97 @@ void identity_confirmed(struct identity_state *state, unsigned long now)
 		if (state->wait_until > now + IDENTITY_RETRY_FIRST)
 			state->wait_until = now + IDENTITY_RETRY_FIRST;
 	}
+}
+
+/* ---------- proofs in games */
+
+int identity_tag_valid(const char *tag, int length)
+{
+	int index;
+
+	if (!tag || length < IDENTITY_TAG_LEAST || length > IDENTITY_TAG_MOST || tag[0] == ' ' || tag[length - 1] == ' ')
+		return 0;
+	for (index = 0; index < length; index++)
+	{
+		char c = tag[index];
+
+		if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == ' ' || c == '_' ||
+			c == '-' || c == '.'))
+		{
+			return 0;
+		}
+		if (c == ' ' && tag[index - 1] == ' ')
+			return 0;
+	}
+	return 1;
+}
+
+int identity_tag_is_handle(const char *tag, const char *handle)
+{
+	int index;
+
+	if (!tag || !handle || !handle[0])
+		return 0;
+	for (index = 0; tag[index] && handle[index]; index++)
+	{
+		char c = tag[index] >= 'A' && tag[index] <= 'Z' ? (char)(tag[index] - 'A' + 'a') : tag[index];
+
+		if (c != handle[index])
+			return 0;
+	}
+	return !tag[index] && !handle[index];
+}
+
+int identity_proof_message(const unsigned char *nonce, const char *binding, int binding_length, int machine_index,
+	int local_player, const unsigned char *serial, const char *tag, int tag_length, unsigned char *out)
+{
+	int length = (int)strlen(proof_label);
+
+	if (binding_length < 0 || binding_length > IDENTITY_BINDING_MOST || machine_index < 0 || machine_index > 255 ||
+		local_player < 0 || local_player >= IDENTITY_LOCAL_PLAYERS || tag_length < 0 || tag_length > IDENTITY_TAG_MOST)
+	{
+		return -1;
+	}
+	memcpy(out, proof_label, (size_t)length);
+	memcpy(out + length, nonce, IDENTITY_PROOF_NONCE_SIZE);
+	length += IDENTITY_PROOF_NONCE_SIZE;
+	out[length++] = (unsigned char)binding_length;
+	if (binding_length)
+		memcpy(out + length, binding, (size_t)binding_length);
+	length += binding_length;
+	out[length++] = (unsigned char)machine_index;
+	out[length++] = (unsigned char)local_player;
+	memcpy(out + length, serial, 8);
+	length += 8;
+	out[length++] = (unsigned char)tag_length;
+	if (tag_length)
+		memcpy(out + length, tag, (size_t)tag_length);
+	return length + tag_length;
+}
+
+int identity_check_proof(const unsigned char *issuer, int issuer_size, const unsigned char *certificate,
+	int certificate_size, const unsigned char (*roots)[IDENTITY_KEY_SIZE], int root_count,
+	const struct identity_revoked *revoked, unsigned long now, const unsigned char *message, int message_size,
+	const unsigned char *signature, struct identity_device *device)
+{
+	struct identity_issuer checked;
+	int result;
+
+	/* (all-zero roots trust nothing here: unlike a copy's own certificate,
+	another's is never taken on its word) */
+	result = identity_check_issuer(issuer, issuer_size, roots, root_count, now, &checked);
+	if (result != IDENTITY_OK)
+		return result;
+	result = identity_check_device(certificate, certificate_size, &checked, now, device);
+	if (result != IDENTITY_OK)
+		return result;
+	if (!(device->capabilities & IDENTITY_CAN_PLAY))
+		return IDENTITY_CANNOT_PLAY;
+	if (revoked && identity_is_revoked(revoked, device->device_id))
+		return IDENTITY_REVOKED;
+	if (message_size <= 0 || !identity_verify(device->public_key, message, message_size, signature))
+		return IDENTITY_NOT_DEVICE_SIGNED;
+	return IDENTITY_OK;
 }
 
 #endif

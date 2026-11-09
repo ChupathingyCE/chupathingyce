@@ -73,6 +73,26 @@ static int failures;
 #define VECTOR_TOKEN_SIGNATURE \
 	"0c02b24be2e9caa6385ef49de7bf80cb0740c7a73085d8a267c1f7f87978f1e8331b870581b254a5a258c85465b3130d" \
 	"5153e68646b300265f8ea304f0fd0901"
+/* a proof in a game (Delta Peer's identity): the host's nonce 00 to 1f, its
+binding the hex digits twice (an invite's 32), machine 3, local player 1,
+the device certificate's serial, the tag "Milenko"; and the same on a LAN
+(no binding) */
+#define VECTOR_PROOF_NONCE \
+	"000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+#define VECTOR_PROOF_BINDING \
+	"0123456789abcdef0123456789abcdef"
+#define VECTOR_PROOF_TAG \
+	"Milenko"
+#define VECTOR_PROOF_MESSAGE \
+	"64656c7461206964656e746974792070726f6f662076310a000102030405060708090a0b0c0d0e0f1011121314151617" \
+	"18191a1b1c1d1e1f20303132333435363738396162636465663031323334353637383961626364656603010102030405" \
+	"060708074d696c656e6b6f"
+#define VECTOR_PROOF_SIGNATURE \
+	"47cff25752b29748ab5f732822539bd7dc13a8b3f39802395ef57c29b04e40fd6d9d51115bcaa7cf6c257d944c2f3556" \
+	"9fac5d85f5f960a560da981122ae980e"
+#define VECTOR_PROOF_LAN_SIGNATURE \
+	"b59e0304e57510142faa66b0f1edf4455190c283df0ea7602adc0e93e570ba60b7a1dca2f21071054b454fb2aadfeb56" \
+	"90a6e65d8cab2459eb47ed5f4e1dba0b"
 #define VECTOR_VALID_FROM 1790000000UL
 #define VECTOR_VALID_UNTIL 1797776000UL
 #define VECTOR_ISSUED 1790100000UL
@@ -170,6 +190,79 @@ static void test_messages(void)
 	size = identity_token_message(VECTOR_AUDIENCE, nonce, device_id, message);
 	identity_sign(seed, message, size, signature);
 	CHECK(same_hex(signature, 64, VECTOR_TOKEN_SIGNATURE));
+}
+
+static void test_proof(void)
+{
+	unsigned char seed[32], proof_nonce[32], serial[8], message[IDENTITY_PROOF_MESSAGE_MOST], signature[64];
+	struct identity_device device;
+	struct identity_revoked revoked;
+	int size, index;
+	unsigned long now = VECTOR_ISSUED + 1000;
+
+	CHECK(from_hex(VECTOR_PROOF_NONCE, proof_nonce, 32));
+	for (index = 0; index < 8; index++)
+		serial[index] = (unsigned char)(index + 1);
+	seed_of(DEVICE_SEED_TEXT, seed);
+	size = identity_proof_message(proof_nonce, VECTOR_PROOF_BINDING, 32, 3, 1, serial, VECTOR_PROOF_TAG, 7, message);
+	CHECK(size == 24 + 32 + 1 + 32 + 1 + 1 + 8 + 1 + 7 && size <= IDENTITY_PROOF_MESSAGE_MOST);
+	CHECK(same_hex(message, size, VECTOR_PROOF_MESSAGE));
+	identity_sign(seed, message, size, signature);
+	CHECK(same_hex(signature, 64, VECTOR_PROOF_SIGNATURE));
+	if (getenv("IDENTITY_TEST_PRINT"))
+	{
+		char hex[1024];
+
+		identity_hex(message, size, hex);
+		printf("proof message %s\n", hex);
+		identity_hex(signature, 64, hex);
+		printf("proof signature %s\n", hex);
+	}
+	/* the host's check: the chain, the dates, play, the list, the signature */
+	CHECK(identity_check_proof(issuer_data, IDENTITY_ISSUER_SIZE, device_data, device_size, roots, 2, NULL, now,
+		message, size, signature, &device) == IDENTITY_OK);
+	CHECK(!strcmp(device.handle, "milenko") && !memcmp(device.account, copy_id, 16));
+	/* (another machine, local player, nonce or tag: not this signature) */
+	message[size - 1] ^= 1;
+	CHECK(identity_check_proof(issuer_data, IDENTITY_ISSUER_SIZE, device_data, device_size, roots, 2, NULL, now,
+		message, size, signature, &device) == IDENTITY_NOT_DEVICE_SIGNED);
+	message[size - 1] ^= 1;
+	/* (the device on the list) */
+	CHECK(identity_parse_revoked(revoked_data, revoked_size, &revoked));
+	CHECK(identity_check_proof(issuer_data, IDENTITY_ISSUER_SIZE, device_data, device_size, roots, 2, &revoked, now,
+		message, size, signature, &device) == IDENTITY_REVOKED);
+	/* (expired, or no root trusted: never taken on its word) */
+	CHECK(identity_check_proof(issuer_data, IDENTITY_ISSUER_SIZE, device_data, device_size, roots, 2, NULL,
+		VECTOR_EXPIRES + IDENTITY_GRACE + 1, message, size, signature, &device) == IDENTITY_EXPIRED);
+	{
+		unsigned char none[2][IDENTITY_KEY_SIZE];
+
+		memset(none, 0, sizeof(none));
+		CHECK(identity_check_proof(issuer_data, IDENTITY_ISSUER_SIZE, device_data, device_size, none, 2, NULL, now,
+			message, size, signature, &device) == IDENTITY_NOT_ROOT_SIGNED);
+	}
+	/* on a LAN: no binding */
+	size = identity_proof_message(proof_nonce, "", 0, 3, 1, serial, VECTOR_PROOF_TAG, 7, message);
+	identity_sign(seed, message, size, signature);
+	CHECK(same_hex(signature, 64, VECTOR_PROOF_LAN_SIGNATURE));
+	if (getenv("IDENTITY_TEST_PRINT"))
+	{
+		char hex[256];
+
+		identity_hex(signature, 64, hex);
+		printf("proof lan signature %s\n", hex);
+	}
+	/* fields out of range */
+	CHECK(identity_proof_message(proof_nonce, "", 0, 3, 4, serial, "", 0, message) < 0);
+	CHECK(identity_proof_message(proof_nonce, "", 65, 3, 0, serial, "", 0, message) < 0);
+	CHECK(identity_proof_message(proof_nonce, "", 0, 3, 0, serial, "", 25, message) < 0);
+	/* tags */
+	CHECK(identity_tag_valid("Milenko", 7) && identity_tag_valid("The Real Milenko.", 17));
+	CHECK(identity_tag_valid("abcdefghijklmnopqrstuvwx", 24) && !identity_tag_valid("abcdefghijklmnopqrstuvwxy", 25));
+	CHECK(!identity_tag_valid("ab", 2) && !identity_tag_valid(" abc", 4) && !identity_tag_valid("abc ", 4) &&
+		!identity_tag_valid("a  bc", 5) && !identity_tag_valid("ab<c", 4));
+	CHECK(identity_tag_is_handle("Milenko", "milenko") && !identity_tag_is_handle("Milenk0", "milenko") &&
+		!identity_tag_is_handle("Milenko", "") && !identity_tag_is_handle("Mile", "milenko"));
 }
 
 static void test_issuer(void)
@@ -517,6 +610,7 @@ int main(void)
 	load();
 	test_keys();
 	test_messages();
+	test_proof();
 	test_issuer();
 	test_device();
 	test_revoked();

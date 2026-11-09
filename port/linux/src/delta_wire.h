@@ -168,7 +168,29 @@ enum
 	DELTA_WIRE_MAXIMUM_OBJECT_NAMES_ENTRIES =
 		(DELTA_WIRE_MAXIMUM_PAYLOAD - DELTA_WIRE_OBJECT_NAMES_SIZE) / DELTA_WIRE_OBJECT_NAMES_ENTRY_SIZE,
 	/* (the game's MAXIMUM_OBJECT_NAMES_PER_SCENARIO) */
-	DELTA_WIRE_MAXIMUM_OBJECT_NAMES = 512
+	DELTA_WIRE_MAXIMUM_OBJECT_NAMES = 512,
+
+	/* verified names (docs/delta.md, Verified names): the messages'
+	version, the local players a machine proves (0 to 3), the host's nonce
+	and binding, the certificates' sizes (identity.h's CISS and CDEV), a
+	Delta Tag's bytes, an Ed25519 signature */
+	DELTA_WIRE_IDENTITY_VERSION = 1,
+	DELTA_WIRE_IDENTITY_LOCAL_PLAYERS = 4,
+	DELTA_WIRE_IDENTITY_NONCE_SIZE = 32,
+	DELTA_WIRE_IDENTITY_BINDING_SIZE = 64,
+	DELTA_WIRE_IDENTITY_ISSUER_SIZE = 112,
+	DELTA_WIRE_IDENTITY_CERTIFICATE_LEAST = 148,
+	DELTA_WIRE_IDENTITY_CERTIFICATE_MOST = 168,
+	DELTA_WIRE_IDENTITY_TAG_SIZE = 24,
+	DELTA_WIRE_IDENTITY_SIGNATURE_SIZE = 64,
+	/* the messages' fixed parts: ID_CHALLENGE's (its binding follows),
+	ID_PROOF's and ID_CARD's heads (all a withdrawal has), and the rest of
+	their fixed fields (the certificate and tag follow) */
+	DELTA_WIRE_ID_CHALLENGE_SIZE = 36,
+	DELTA_WIRE_ID_PROOF_HEAD = 4,
+	DELTA_WIRE_ID_PROOF_SIZE = 180,
+	DELTA_WIRE_ID_CARD_HEAD = 8,
+	DELTA_WIRE_ID_CARD_SIZE = 184
 };
 
 /* UNIT_VITALS's entry flags: the unit's shield, as the game's own unit
@@ -400,7 +422,16 @@ enum delta_message_type
 	_delta_message_object_names = 28,
 	/* host to client, if both agreed to host_rules: the host's rules for
 	its players' extras, whenever they change and every few seconds */
-	_delta_message_host_rules = 29
+	_delta_message_host_rules = 29,
+	/* verified names (both agreed to identity): host to client, the host's
+	nonce for its game and its binding */
+	_delta_message_id_challenge = 30,
+	/* client to host: a local player's device certificate, its issuer's,
+	and the nonce signed with the device key (or the proof withdrawn) */
+	_delta_message_id_proof = 31,
+	/* host to client: a verified player's proof, relayed, which the client
+	checks itself (or withdrawn) */
+	_delta_message_id_card = 32
 };
 
 /* HOST_RULES's flags: what the host lets its players turn on (a flag a
@@ -589,6 +620,37 @@ struct delta_wire_mod_challenge
 	unsigned char nonce[DELTA_WIRE_MODERATION_NONCE_SIZE];
 	int binding_length;
 	char binding[DELTA_WIRE_MODERATION_BINDING_SIZE + 1];
+};
+
+/* verified names (docs/delta.md, Verified names) */
+struct delta_wire_id_challenge
+{
+	unsigned char nonce[DELTA_WIRE_IDENTITY_NONCE_SIZE];
+	int binding_length;
+	char binding[DELTA_WIRE_IDENTITY_BINDING_SIZE + 1];
+};
+
+/* a local player's proof: what ID_PROOF carries, and ID_CARD relays */
+struct delta_wire_id_proof
+{
+	/* the machine's local player (0 to 3) */
+	int local_player;
+	/* the device certificate's bytes (0: the proof withdrawn, and nothing
+	else is read) */
+	int certificate_length;
+	int tag_length;
+	unsigned char signature[DELTA_WIRE_IDENTITY_SIGNATURE_SIZE];
+	unsigned char issuer[DELTA_WIRE_IDENTITY_ISSUER_SIZE];
+	unsigned char certificate[DELTA_WIRE_IDENTITY_CERTIFICATE_MOST];
+	/* (A-Z a-z 0-9 space _ - .; empty: none) */
+	char tag[DELTA_WIRE_IDENTITY_TAG_SIZE + 1];
+};
+
+struct delta_wire_id_card
+{
+	/* the player's machine */
+	int machine_index;
+	struct delta_wire_id_proof proof;
 };
 
 struct delta_wire_mod_proof
@@ -894,6 +956,19 @@ int delta_wire_read_object_names(const unsigned char *payload, int size, struct 
 /* (0 for what the reader would refuse) */
 int delta_wire_write_unit_vitals(unsigned char *data, delta_u32 session, const struct delta_wire_unit_vitals *vitals);
 int delta_wire_write_object_names(unsigned char *data, delta_u32 session, const struct delta_wire_object_names *names);
+
+/* verified names' messages. A version of 0, a local player past 3, a
+certificate's length outside 148 to 168 (but 0, a withdrawal), or a tag
+with other characters is refused; a later version is read as far as this
+build knows it */
+int delta_wire_read_id_challenge(const unsigned char *payload, int size, struct delta_wire_id_challenge *challenge);
+int delta_wire_read_id_proof(const unsigned char *payload, int size, struct delta_wire_id_proof *proof);
+int delta_wire_read_id_card(const unsigned char *payload, int size, struct delta_wire_id_card *card);
+/* (0 for what the reader would refuse) */
+int delta_wire_write_id_challenge(unsigned char *data, delta_u32 session,
+	const struct delta_wire_id_challenge *challenge);
+int delta_wire_write_id_proof(unsigned char *data, delta_u32 session, const struct delta_wire_id_proof *proof);
+int delta_wire_write_id_card(unsigned char *data, delta_u32 session, const struct delta_wire_id_card *card);
 
 /* whether length bytes of text are a line to show: valid UTF-8 (shortest
 forms, no surrogates, nothing past U+10FFFF), no control characters (C0,

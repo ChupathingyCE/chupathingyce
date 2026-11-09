@@ -1899,8 +1899,10 @@ static void scoreboard_draw_row(
 }
 
 /* port: a player by their Delta profile's name, as long as the column (16
-characters) */
+characters; the postgame report's column, 11 at the menus' 640x480, as a
+game name's: a longer name is cut with "...") */
 #define SCOREBOARD_PROFILE_NAME_LENGTH 17
+#define POSTGAME_PROFILE_NAME_LENGTH 12
 #if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_DELTA_PROFILE)
 /* port/linux/game/profile_names.c's */
 boolean profile_names_player(long player_index, wchar_t *name, long size);
@@ -2843,7 +2845,7 @@ void game_engine_post_rasterize_post_game(
 		struct player_datum *player = player_get(player_index);
 		real_argb_color team_colors[2];
 		wchar_t const *place_string;
-		wchar_t profile_name[SCOREBOARD_PROFILE_NAME_LENGTH];
+		wchar_t profile_name[POSTGAME_PROFILE_NAME_LENGTH];
 
 		if (player->local_player_index != NONE)
 			draw_string_set_color(&normal_color);
@@ -2872,7 +2874,7 @@ void game_engine_post_rasterize_post_game(
 				&team_colors[PIN(team_index, 0, 1)]);
 		}
 		usnprintf(row_string, NUMBEROF(row_string), L" \t \t%s",
-			scoreboard_player_name(player_index, player, profile_name, SCOREBOARD_PROFILE_NAME_LENGTH));
+			scoreboard_player_name(player_index, player, profile_name, POSTGAME_PROFILE_NAME_LENGTH));
 		row_string[NUMBEROF(row_string) - 1] = 0;
 		drawline(row_string, draw_row, 0);
 		draw_string_set_color(&winner_color);

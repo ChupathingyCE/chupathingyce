@@ -644,6 +644,8 @@ int delta_profile_parse(const char *text, struct delta_profile *profile)
 			text_value(&reader, profile->handle, sizeof(profile->handle));
 		else if (!strcmp(key, "display"))
 			text_value(&reader, profile->display, sizeof(profile->display));
+		else if (!strcmp(key, "tag"))
+			text_value(&reader, profile->tag, sizeof(profile->tag));
 		else if (!strcmp(key, "created"))
 			profile->created = number_value(&reader);
 		else if (!strcmp(key, "badges"))
@@ -766,6 +768,8 @@ static void read_card(struct reader *reader, struct delta_profile_card *card, in
 			text_value(reader, card->handle, sizeof(card->handle));
 		else if (!strcmp(key, "display"))
 			text_value(reader, card->display, sizeof(card->display));
+		else if (!strcmp(key, "tag"))
+			text_value(reader, card->tag, sizeof(card->tag));
 		else if (!strcmp(key, "clan"))
 		{
 			char clan_key[16];

@@ -67,6 +67,10 @@ enum
 	IDENTITY_OUTSIDE_ISSUER,
 	IDENTITY_REVOKED,
 	IDENTITY_NOT_MINE,
+	/* (a proof in a game: a certificate without play, and a signature that
+	isn't the device's) */
+	IDENTITY_CANNOT_PLAY,
+	IDENTITY_NOT_DEVICE_SIGNED,
 };
 
 struct identity_issuer
@@ -270,5 +274,46 @@ enum
 int identity_token_sent(struct identity_state *state, int status, const char *response, unsigned long now);
 /* a game or report of the player's confirmed: an unknown copy asks again soon */
 void identity_confirmed(struct identity_state *state, unsigned long now);
+
+/* ---------- proofs in games (Delta Peer's identity capability; docs/delta.md,
+"Verified names") */
+
+enum
+{
+	/* a Delta Tag: 3 to 24 of A-Z a-z 0-9 space _ - . (no space first or
+	last, nor two in a row) */
+	IDENTITY_TAG_LEAST = 3,
+	IDENTITY_TAG_MOST = 24,
+	/* the host's nonce, its binding (its invite's first 32 hex digits, or
+	none on a LAN) and the local players a machine proves */
+	IDENTITY_PROOF_NONCE_SIZE = 32,
+	IDENTITY_BINDING_MOST = 64,
+	IDENTITY_LOCAL_PLAYERS = 4,
+	/* label (24), nonce, binding's length and it, machine, local player,
+	serial, tag's length and it */
+	IDENTITY_PROOF_MESSAGE_MOST = 24 + IDENTITY_PROOF_NONCE_SIZE + 1 + IDENTITY_BINDING_MOST + 1 + 1 + 8 + 1 +
+		IDENTITY_TAG_MOST,
+};
+
+/* whether text (length bytes) is a Delta Tag as the site allows it */
+int identity_tag_valid(const char *tag, int length);
+/* whether a tag is the handle in other letters' case (a tag that needs no
+site to show) */
+int identity_tag_is_handle(const char *tag, const char *handle);
+/* what a device signs to prove a local player in a game: "delta identity
+proof v1\n", the host's nonce, the binding's length and it, the machine
+and the local player, the certificate's serial, the tag's length and it.
+Its size, or -1 for a field out of its range */
+int identity_proof_message(const unsigned char *nonce, const char *binding, int binding_length, int machine_index,
+	int local_player, const unsigned char *serial, const char *tag, int tag_length, unsigned char *out);
+/* a proof checked as a host or another player checks it: the issuer
+certificate signed by one of the root keys and in date, the device
+certificate by it and in date, play among its capabilities, its device not
+on the list (revoked may be NULL: none known), and the message's signature
+the device key's. IDENTITY_OK and the certificate in device, or why not */
+int identity_check_proof(const unsigned char *issuer, int issuer_size, const unsigned char *certificate,
+	int certificate_size, const unsigned char (*roots)[IDENTITY_KEY_SIZE], int root_count,
+	const struct identity_revoked *revoked, unsigned long now, const unsigned char *message, int message_size,
+	const unsigned char *signature, struct identity_device *device);
 
 #endif

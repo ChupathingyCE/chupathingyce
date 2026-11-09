@@ -92,6 +92,9 @@ static delta_u32 offered(const struct delta_peer *peer)
 	/* (nor team changes without its team host) */
 	if (peer->mode == _mode_host && !peer->team_host)
 		capabilities &= ~CAPABILITY(_delta_capability_team_change);
+	/* (nor verified names without a way to check a proof) */
+	if (!peer->env.identity_check)
+		capabilities &= ~CAPABILITY(_delta_capability_identity);
 	if (!peer->env.capability_disabled)
 		return capabilities;
 	for (capability = 0; capability < NUMBER_OF_DELTA_CAPABILITIES; capability++)
@@ -170,6 +173,15 @@ static void copy_players(struct delta_peer *peer, const signed char *player_mach
 }
 
 static void host_forget_moderation(struct delta_peer *peer, int machine_index);
+/* (verified names: below) */
+static void make_identity_nonce(struct delta_peer *peer);
+static void host_send_identity_challenge(struct delta_peer *peer, int machine_index, delta_u32 now);
+static void host_identity_proof(struct delta_peer *peer, delta_u32 now, int machine_index,
+	const struct delta_wire_header *header, const unsigned char *payload);
+static void host_identity_frame(struct delta_peer *peer, delta_u32 now);
+static void client_identity_receive(struct delta_peer *peer, const struct delta_wire_header *header,
+	const unsigned char *payload);
+static void client_identity_frame(struct delta_peer *peer, delta_u32 now);
 
 static void forget_all(struct delta_peer *peer)
 {
@@ -211,6 +223,11 @@ static void forget_all(struct delta_peer *peer)
 	memset(peer->chat_muted, 0, sizeof(peer->chat_muted));
 	memset(peer->chat_mute_until, 0, sizeof(peer->chat_mute_until));
 	memset(&peer->client_chat, 0, sizeof(peer->client_chat));
+	memset(peer->cards, 0, sizeof(peer->cards));
+	peer->identity_nonce_made = 0;
+	peer->identity_challenged = 0;
+	memset(&peer->identity_challenge, 0, sizeof(peer->identity_challenge));
+	memset(peer->identity_sent, 0, sizeof(peer->identity_sent));
 }
 
 void delta_peer_initialize(struct delta_peer *peer, const struct delta_peer_env *env,
@@ -503,11 +520,16 @@ static void relay_have(struct delta_peer *peer, struct delta_peer_relay *relay, 
 
 /* ---------- the host */
 
+static void host_withdraw_machine(struct delta_peer *peer, int machine_index, delta_u32 now);
+
 static void forget_peer(struct delta_peer *peer, int machine_index, const char *why)
 {
 	if (peer->peers[machine_index].used)
 	{
 		say(peer, "Delta Peer: machine %d %s", machine_index, why);
+		/* (its cards withdrawn as of the last roster's time: kept until every
+		client hears) */
+		host_withdraw_machine(peer, machine_index, peer->roster_time);
 		host_forget_moderation(peer, machine_index);
 		memset(&peer->peers[machine_index], 0, sizeof(peer->peers[machine_index]));
 		if (peer->table_in.active && peer->table_in.from == machine_index)
@@ -673,7 +695,10 @@ static void host_send_state(struct delta_peer *peer, int machine_index, int alwa
 
 	if (!host_moderating(peer, machine_index) || !moderation->verified)
 		return;
-	if (peer->moderation_host->key_role)
+	if (peer->moderation_host->machine_role)
+		role = peer->moderation_host->machine_role(peer->moderation_host->context, machine_index, moderation->key,
+			&permissions, &ban_minutes);
+	else if (peer->moderation_host->key_role)
 		role = peer->moderation_host->key_role(peer->moderation_host->context, moderation->key, &permissions,
 			&ban_minutes);
 	memset(&state, 0, sizeof(state));
@@ -1512,6 +1537,7 @@ static void host_hello(struct delta_peer *peer, delta_u32 now, delta_u32 ipv4, u
 		client->port = port;
 		host_send_welcome(peer, machine_index);
 		host_send_challenge(peer, machine_index);
+		host_send_identity_challenge(peer, machine_index, now);
 		return;
 	}
 	if (client->used && !elapsed(now, client->session_time, DELTA_PEER_NEW_SESSION_GAP))
@@ -1536,6 +1562,9 @@ static void host_hello(struct delta_peer *peer, delta_u32 now, delta_u32 ipv4, u
 		(unsigned)hello.legacy_version, (unsigned)hello.capabilities, (unsigned)client->agreed);
 	host_send_welcome(peer, machine_index);
 	host_start_moderation(peer, machine_index);
+	if (offered(peer) & CAPABILITY(_delta_capability_identity))
+		make_identity_nonce(peer);
+	host_send_identity_challenge(peer, machine_index, now);
 	peer->roster_dirty = 1;
 }
 
@@ -1651,6 +1680,18 @@ static void host_receive(struct delta_peer *peer, delta_u32 now, delta_u32 ipv4,
 			break;
 		}
 		host_team_request(peer, now, machine_index, &header, payload);
+		break;
+	}
+	case _delta_message_id_proof:
+	{
+		int machine_index = host_find_session(peer, ipv4, header.session);
+
+		if (machine_index < 0)
+		{
+			peer->dropped++;
+			break;
+		}
+		host_identity_proof(peer, now, machine_index, &header, payload);
 		break;
 	}
 	case _delta_message_table:
@@ -2083,6 +2124,7 @@ void delta_peer_host_frame(struct delta_peer *peer, delta_u32 now, const struct 
 	host_send_maps(peer, now);
 	host_send_traits(peer, now);
 	host_send_rules(peer, now);
+	host_identity_frame(peer, now);
 
 	{
 		int sends = 0;
@@ -2159,6 +2201,10 @@ static void client_legacy(struct delta_peer *peer, const char *why)
 	memset(peer->machines, 0, sizeof(peer->machines));
 	if (valid_machine(own))
 		peer->machines[own] = local;
+	memset(peer->cards, 0, sizeof(peer->cards));
+	peer->identity_challenged = 0;
+	memset(&peer->identity_challenge, 0, sizeof(peer->identity_challenge));
+	memset(peer->identity_sent, 0, sizeof(peer->identity_sent));
 }
 
 void delta_peer_client_frame(struct delta_peer *peer, delta_u32 now, int joined, delta_u32 host_ipv4,
@@ -2232,6 +2278,7 @@ void delta_peer_client_frame(struct delta_peer *peer, delta_u32 now, int joined,
 		{
 			peer->client_moderation.bind_waiting = 0;
 		}
+		client_identity_frame(peer, now);
 		break;
 	}
 }
@@ -2618,6 +2665,10 @@ static void client_receive(struct delta_peer *peer, delta_u32 now, delta_u32 ipv
 	case _delta_message_chat_refused:
 		client_chat_receive(peer, now, &header, payload);
 		break;
+	case _delta_message_id_challenge:
+	case _delta_message_id_card:
+		client_identity_receive(peer, &header, payload);
+		break;
 	case _delta_message_team_result:
 	{
 		struct delta_wire_team_result result;
@@ -2743,6 +2794,485 @@ void delta_peer_receive(struct delta_peer *peer, delta_u32 now, delta_u32 ipv4, 
 		client_receive(peer, now, ipv4, port, data, size);
 	else
 		peer->dropped++;
+}
+
+/* ---------- verified names (docs/delta.md, Verified names) */
+
+static int host_identity_agreed(const struct delta_peer *peer, int machine_index)
+{
+	return valid_machine(machine_index) && peer->peers[machine_index].used &&
+		(peer->peers[machine_index].agreed & offered(peer) & CAPABILITY(_delta_capability_identity));
+}
+
+static int client_identity_agreed(const struct delta_peer *peer)
+{
+	return peer->mode == _mode_client && peer->client_state == _delta_peer_client_delta &&
+		(peer->agreed & offered(peer) & CAPABILITY(_delta_capability_identity));
+}
+
+static struct delta_peer_card *find_card(struct delta_peer *peer, int machine_index, int local_player)
+{
+	int index;
+
+	for (index = 0; index < DELTA_PEER_IDENTITY_CARDS; index++)
+	{
+		struct delta_peer_card *card = &peer->cards[index];
+
+		if (card->used && card->machine_index == machine_index && card->local_player == local_player)
+			return card;
+	}
+	return NULL;
+}
+
+/* a card's slot: its own, else a free one, else a withdrawn one (NULL:
+none, every slot a verified player's) */
+static struct delta_peer_card *card_slot(struct delta_peer *peer, int machine_index, int local_player)
+{
+	struct delta_peer_card *card = find_card(peer, machine_index, local_player);
+	int index;
+
+	for (index = 0; index < DELTA_PEER_IDENTITY_CARDS && !card; index++)
+	{
+		if (!peer->cards[index].used)
+			card = &peer->cards[index];
+	}
+	for (index = 0; index < DELTA_PEER_IDENTITY_CARDS && !card; index++)
+	{
+		if (!peer->cards[index].proof.certificate_length)
+			card = &peer->cards[index];
+	}
+	return card;
+}
+
+static delta_u32 next_generation(struct delta_peer *peer)
+{
+	peer->identity_generation = peer->identity_generation + 1 ? peer->identity_generation + 1 : 1;
+	return peer->identity_generation;
+}
+
+/* (the host) a machine's moderation told of a card (NULL: withdrawn), and
+the roles said again */
+static void host_identity_changed(struct delta_peer *peer, int machine_index, int local_player,
+	const struct delta_peer_identity *identity)
+{
+	if (peer->mode != _mode_host || !peer->moderation_host)
+		return;
+	if (peer->moderation_host->machine_identity)
+	{
+		peer->moderation_host->machine_identity(peer->moderation_host->context, machine_index, local_player,
+			identity);
+	}
+	peer->moderation_roles_dirty = 1;
+}
+
+/* (the host) a verified card stored: 1 if it is new or changed */
+static int host_store_card(struct delta_peer *peer, int machine_index, const struct delta_wire_id_proof *proof,
+	const struct delta_peer_identity *identity)
+{
+	struct delta_peer_card *card = card_slot(peer, machine_index, proof->local_player);
+
+	if (!card)
+		return 0;
+	if (card->used && card->machine_index == machine_index && card->local_player == proof->local_player &&
+		!memcmp(&card->proof, proof, sizeof(*proof)))
+	{
+		return 0;
+	}
+	if (card->used && card->proof.certificate_length &&
+		(card->machine_index != machine_index || card->local_player != proof->local_player))
+	{
+		/* (never: a verified card is taken only when every slot is) */
+		return 0;
+	}
+	memset(card, 0, sizeof(*card));
+	card->used = 1;
+	card->machine_index = (unsigned char)machine_index;
+	card->local_player = (unsigned char)proof->local_player;
+	card->proof = *proof;
+	card->identity = *identity;
+	card->generation = next_generation(peer);
+	say(peer, "Delta Peer: machine %d's player %d is verified%s%s", machine_index, proof->local_player,
+		identity->handle[0] ? " as @" : " (no profile)", identity->handle);
+	host_identity_changed(peer, machine_index, proof->local_player, identity);
+	return 1;
+}
+
+/* (the host) a card withdrawn: every client is told, then it is let go */
+static void host_withdraw_card(struct delta_peer *peer, struct delta_peer_card *card, delta_u32 now)
+{
+	if (!card->used || !card->proof.certificate_length)
+		return;
+	say(peer, "Delta Peer: machine %d's player %d is no longer verified", card->machine_index, card->local_player);
+	memset(&card->proof, 0, sizeof(card->proof));
+	card->proof.local_player = card->local_player;
+	memset(&card->identity, 0, sizeof(card->identity));
+	card->generation = next_generation(peer);
+	card->withdrawn_time = now;
+	host_identity_changed(peer, card->machine_index, card->local_player, NULL);
+}
+
+static void host_withdraw_machine(struct delta_peer *peer, int machine_index, delta_u32 now)
+{
+	int index;
+
+	if (peer->mode != _mode_host)
+		return;
+	for (index = 0; index < DELTA_PEER_IDENTITY_CARDS; index++)
+	{
+		if (peer->cards[index].used && peer->cards[index].machine_index == machine_index)
+			host_withdraw_card(peer, &peer->cards[index], now);
+	}
+}
+
+static void make_identity_nonce(struct delta_peer *peer)
+{
+	int index;
+
+	if (peer->identity_nonce_made || !peer->env.random_number)
+		return;
+	for (index = 0; index < DELTA_WIRE_IDENTITY_NONCE_SIZE; index += 4)
+	{
+		delta_u32 value = peer->env.random_number(peer->env.context);
+
+		peer->identity_nonce[index] = (unsigned char)value;
+		peer->identity_nonce[index + 1] = (unsigned char)(value >> 8);
+		peer->identity_nonce[index + 2] = (unsigned char)(value >> 16);
+		peer->identity_nonce[index + 3] = (unsigned char)(value >> 24);
+	}
+	peer->identity_nonce_made = 1;
+}
+
+static void host_send_identity_challenge(struct delta_peer *peer, int machine_index, delta_u32 now)
+{
+	struct delta_peer_host_peer *client = &peer->peers[machine_index];
+	struct delta_wire_id_challenge challenge;
+	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
+
+	if (!host_identity_agreed(peer, machine_index) || !peer->identity_nonce_made)
+		return;
+	memset(&challenge, 0, sizeof(challenge));
+	memcpy(challenge.nonce, peer->identity_nonce, sizeof(challenge.nonce));
+	challenge.binding_length = peer->moderation_binding_length;
+	memcpy(challenge.binding, peer->moderation_binding, (size_t)peer->moderation_binding_length);
+	client->identity_challenge_time = now;
+	peer_send(peer, client->ipv4, client->port, data, delta_wire_write_id_challenge(data, client->session, &challenge));
+}
+
+static void host_identity_proof(struct delta_peer *peer, delta_u32 now, int machine_index,
+	const struct delta_wire_header *header, const unsigned char *payload)
+{
+	struct delta_peer_host_peer *client = &peer->peers[machine_index];
+	struct delta_wire_id_proof proof;
+	struct delta_peer_identity identity;
+
+	if (!host_identity_agreed(peer, machine_index) || !peer->identity_nonce_made ||
+		!delta_wire_read_id_proof(payload, header->length, &proof) ||
+		!delta_rate_take(&client->identity_rate, now, DELTA_PEER_IDENTITY_PROOF_RATE, DELTA_PEER_IDENTITY_PROOF_BURST))
+	{
+		peer->dropped++;
+		return;
+	}
+	if (!proof.certificate_length)
+	{
+		struct delta_peer_card *card = find_card(peer, machine_index, proof.local_player);
+
+		if (card)
+			host_withdraw_card(peer, card, now);
+		return;
+	}
+	memset(&identity, 0, sizeof(identity));
+	if (!peer->env.identity_check(peer->env.context, &proof, peer->identity_nonce, peer->moderation_binding,
+		peer->moderation_binding_length, machine_index, &identity))
+	{
+		say(peer, "Delta Peer: machine %d's player %d's proof did not check", machine_index, proof.local_player);
+		peer->dropped++;
+		return;
+	}
+	host_store_card(peer, machine_index, &proof, &identity);
+}
+
+/* (the host, each frame) its own players proved; the challenge said
+again; cards of machines gone withdrawn, and withdrawn ones let go once
+every client heard; each client sent the cards it lacks */
+static void host_identity_frame(struct delta_peer *peer, delta_u32 now)
+{
+	int index, own = -1;
+
+	if (!(offered(peer) & CAPABILITY(_delta_capability_identity)))
+		return;
+	make_identity_nonce(peer);
+	if (!peer->identity_nonce_made)
+		return;
+	for (index = 0; index < peer->game_machine_count; index++)
+	{
+		if (peer->game_machines[index].local)
+			own = peer->game_machines[index].machine_index;
+	}
+	/* (its own players: each challenge's time, a check of its own) */
+	if (valid_machine(own) && peer->env.identity_prove &&
+		(!peer->identity_own_time || elapsed(now, peer->identity_own_time, DELTA_PEER_IDENTITY_CHALLENGE_INTERVAL)))
+	{
+		int local;
+
+		peer->identity_own_time = now ? now : 1;
+		for (local = 0; local < DELTA_WIRE_IDENTITY_LOCAL_PLAYERS; local++)
+		{
+			struct delta_peer_card *card = find_card(peer, own, local);
+			struct delta_wire_id_proof proof;
+			struct delta_peer_identity identity;
+
+			if (!peer->env.identity_prove(peer->env.context, local, peer->identity_nonce, peer->moderation_binding,
+				peer->moderation_binding_length, own, NULL))
+			{
+				if (card)
+					host_withdraw_card(peer, card, now);
+				continue;
+			}
+			if (card && card->proof.certificate_length)
+				continue;
+			memset(&proof, 0, sizeof(proof));
+			memset(&identity, 0, sizeof(identity));
+			if (peer->env.identity_prove(peer->env.context, local, peer->identity_nonce, peer->moderation_binding,
+				peer->moderation_binding_length, own, &proof) &&
+				peer->env.identity_check(peer->env.context, &proof, peer->identity_nonce, peer->moderation_binding,
+					peer->moderation_binding_length, own, &identity))
+			{
+				host_store_card(peer, own, &proof, &identity);
+			}
+		}
+	}
+	for (index = 0; index < DELTA_PEER_IDENTITY_CARDS; index++)
+	{
+		struct delta_peer_card *card = &peer->cards[index];
+		int present = 0, machine;
+
+		if (!card->used)
+			continue;
+		if (!card->proof.certificate_length)
+		{
+			if (elapsed(now, card->withdrawn_time, DELTA_PEER_IDENTITY_WITHDRAWN_TIME))
+				memset(card, 0, sizeof(*card));
+			continue;
+		}
+		machine = card->machine_index;
+		present = machine == own || host_identity_agreed(peer, machine);
+		if (!present)
+			host_withdraw_card(peer, card, now);
+	}
+	for (index = 0; index < DELTA_PEER_MAXIMUM_MACHINES; index++)
+	{
+		struct delta_peer_host_peer *client = &peer->peers[index];
+		unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
+		int card_index, sent = 0;
+
+		if (!host_identity_agreed(peer, index))
+			continue;
+		if (elapsed(now, client->identity_challenge_time, DELTA_PEER_IDENTITY_CHALLENGE_INTERVAL))
+			host_send_identity_challenge(peer, index, now);
+		if (elapsed(now, client->identity_cards_time, DELTA_PEER_IDENTITY_CARD_INTERVAL))
+		{
+			client->identity_cards_time = now;
+			memset(client->identity_card_sent, 0, sizeof(client->identity_card_sent));
+		}
+		for (card_index = 0; card_index < DELTA_PEER_IDENTITY_CARDS && sent < DELTA_PEER_IDENTITY_CARDS_A_FRAME;
+			card_index++)
+		{
+			const struct delta_peer_card *card = &peer->cards[card_index];
+			struct delta_wire_id_card message;
+
+			if (!card->used || client->identity_card_sent[card_index] == card->generation)
+				continue;
+			client->identity_card_sent[card_index] = card->generation;
+			memset(&message, 0, sizeof(message));
+			message.machine_index = card->machine_index;
+			message.proof = card->proof;
+			peer_send(peer, client->ipv4, client->port, data, delta_wire_write_id_card(data, client->session, &message));
+			sent++;
+		}
+	}
+}
+
+/* whether the binding a challenge carries is the host this machine joined
+(none needed on a LAN): else it proves nothing to it */
+static int client_identity_binding_ok(struct delta_peer *peer)
+{
+	char expected[DELTA_WIRE_IDENTITY_BINDING_SIZE + 1];
+	int result;
+
+	if (!peer->env.moderation_binding)
+		return 1;
+	memset(expected, 0, sizeof(expected));
+	result = peer->env.moderation_binding(peer->env.context, peer->host_ipv4, expected, (int)sizeof(expected));
+	if (result == 0)
+		return 1;
+	return result > 0 && (int)strlen(expected) == peer->identity_challenge.binding_length &&
+		!memcmp(expected, peer->identity_challenge.binding, (size_t)peer->identity_challenge.binding_length);
+}
+
+static void client_identity_receive(struct delta_peer *peer, const struct delta_wire_header *header,
+	const unsigned char *payload)
+{
+	if (!client_identity_agreed(peer))
+	{
+		peer->dropped++;
+		return;
+	}
+	if (header->type == _delta_message_id_challenge)
+	{
+		struct delta_wire_id_challenge challenge;
+
+		if (!delta_wire_read_id_challenge(payload, header->length, &challenge))
+		{
+			peer->dropped++;
+			return;
+		}
+		/* (another nonce: the cards checked with the last are over, and the
+		proofs are made again) */
+		if (peer->identity_challenged && memcmp(&challenge, &peer->identity_challenge, sizeof(challenge)))
+		{
+			memset(peer->cards, 0, sizeof(peer->cards));
+			memset(peer->identity_sent, 0, sizeof(peer->identity_sent));
+		}
+		peer->identity_challenge = challenge;
+		peer->identity_challenged = 1;
+		if (!client_identity_binding_ok(peer))
+		{
+			say(peer, "Delta Peer: the host's identity challenge is not for the host this machine joined: nothing "
+				"proved, and no one shown as verified");
+		}
+		return;
+	}
+	if (header->type == _delta_message_id_card)
+	{
+		struct delta_wire_id_card card;
+		struct delta_peer_card *slot;
+		struct delta_peer_identity identity;
+
+		if (!peer->identity_challenged || !client_identity_binding_ok(peer) ||
+			!delta_wire_read_id_card(payload, header->length, &card) || !valid_machine(card.machine_index))
+		{
+			peer->dropped++;
+			return;
+		}
+		slot = find_card(peer, card.machine_index, card.proof.local_player);
+		if (!card.proof.certificate_length)
+		{
+			if (slot)
+				memset(slot, 0, sizeof(*slot));
+			return;
+		}
+		/* (the same card again: checked already) */
+		if (slot && !memcmp(&slot->proof, &card.proof, sizeof(card.proof)))
+			return;
+		memset(&identity, 0, sizeof(identity));
+		if (!peer->env.identity_check(peer->env.context, &card.proof, peer->identity_challenge.nonce,
+			peer->identity_challenge.binding, peer->identity_challenge.binding_length, card.machine_index,
+			&identity))
+		{
+			/* (a host's relay that doesn't check: not shown, and never the
+			name it claims) */
+			if (slot)
+				memset(slot, 0, sizeof(*slot));
+			say(peer, "Delta Peer: the host's card for machine %d's player %d did not check", card.machine_index,
+				card.proof.local_player);
+			peer->dropped++;
+			return;
+		}
+		slot = card_slot(peer, card.machine_index, card.proof.local_player);
+		if (!slot)
+			return;
+		memset(slot, 0, sizeof(*slot));
+		slot->used = 1;
+		slot->machine_index = (unsigned char)card.machine_index;
+		slot->local_player = (unsigned char)card.proof.local_player;
+		slot->proof = card.proof;
+		slot->identity = identity;
+		slot->generation = next_generation(peer);
+		return;
+	}
+}
+
+/* (the client, each frame) each local player's proof, sent while the host
+has not relayed it (again every DELTA_PEER_IDENTITY_PROOF_GAP), or its
+withdrawal; cards of machines the roster dropped forgotten */
+static void client_identity_frame(struct delta_peer *peer, delta_u32 now)
+{
+	int index;
+
+	if (!client_identity_agreed(peer))
+		return;
+	for (index = 0; index < DELTA_PEER_IDENTITY_CARDS; index++)
+	{
+		struct delta_peer_card *card = &peer->cards[index];
+
+		if (card->used && !peer->machines[card->machine_index].known)
+			memset(card, 0, sizeof(*card));
+	}
+	if (!peer->identity_challenged || !peer->env.identity_prove || !valid_machine(peer->machine_index) ||
+		!client_identity_binding_ok(peer))
+	{
+		return;
+	}
+	for (index = 0; index < DELTA_WIRE_IDENTITY_LOCAL_PLAYERS; index++)
+	{
+		struct delta_peer_card *card = find_card(peer, peer->machine_index, index);
+		struct delta_wire_id_proof proof;
+		unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
+		const struct delta_wire_id_challenge *challenge = &peer->identity_challenge;
+		int would = peer->env.identity_prove(peer->env.context, index, challenge->nonce, challenge->binding,
+			challenge->binding_length, peer->machine_index, NULL);
+
+		if (!would)
+		{
+			/* (proved before, or still shown: withdrawn, once) */
+			if ((peer->identity_sent[index] == 1 || card) && peer->identity_sent[index] != 2)
+			{
+				memset(&proof, 0, sizeof(proof));
+				proof.local_player = index;
+				peer_send(peer, peer->host_ipv4, peer->host_port, data,
+					delta_wire_write_id_proof(data, peer->session, &proof));
+				peer->identity_sent[index] = 2;
+			}
+			continue;
+		}
+		if (card || (peer->identity_sent[index] == 1 &&
+			!elapsed(now, peer->identity_sent_time[index], DELTA_PEER_IDENTITY_PROOF_GAP)))
+		{
+			continue;
+		}
+		memset(&proof, 0, sizeof(proof));
+		if (!peer->env.identity_prove(peer->env.context, index, challenge->nonce, challenge->binding,
+			challenge->binding_length, peer->machine_index, &proof))
+		{
+			continue;
+		}
+		proof.local_player = index;
+		peer_send(peer, peer->host_ipv4, peer->host_port, data, delta_wire_write_id_proof(data, peer->session, &proof));
+		peer->identity_sent[index] = 1;
+		peer->identity_sent_time[index] = now;
+	}
+}
+
+int delta_peer_identity(const struct delta_peer *peer, int machine_index, int local_player,
+	struct delta_peer_identity *identity)
+{
+	int index;
+
+	if (peer->mode == _mode_off || (peer->mode == _mode_client && !client_identity_agreed(peer)))
+		return 0;
+	for (index = 0; index < DELTA_PEER_IDENTITY_CARDS; index++)
+	{
+		const struct delta_peer_card *card = &peer->cards[index];
+
+		if (card->used && card->proof.certificate_length && card->machine_index == machine_index &&
+			card->local_player == local_player)
+		{
+			if (identity)
+				*identity = card->identity;
+			return 1;
+		}
+	}
+	return 0;
 }
 
 /* ---------- what is known */

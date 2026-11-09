@@ -323,18 +323,26 @@ int control_moderator_parse(const char *line, struct control_moderator *moderato
 	cursor += length;
 	while (*cursor == ' ' || *cursor == '\t')
 		cursor++;
-	/* the key */
+	/* the key, or a Delta account (32 hex digits: its 16 bytes, then
+	zeros) */
 	length = strcspn(cursor, " \t\r\n");
-	if (length != CONTROL_KEY_TEXT)
+	if (length != CONTROL_KEY_TEXT && length != CONTROL_ACCOUNT_TEXT)
 	{
-		*reason = "the second word is a moderator key: 64 hex digits";
+		*reason = "the second word is a moderator key (64 hex digits) or a Delta account (32)";
 		return -1;
 	}
 	memcpy(key_text, cursor, length);
 	key_text[length] = 0;
+	if (length == CONTROL_ACCOUNT_TEXT)
+	{
+		/* (the account's digits, then zeros: as a key's text) */
+		memset(key_text + length, '0', CONTROL_KEY_TEXT - length);
+		key_text[CONTROL_KEY_TEXT] = 0;
+		moderator->account = 1;
+	}
 	if (!control_key_parse(key_text, moderator->key))
 	{
-		*reason = "the second word is a moderator key: 64 hex digits";
+		*reason = "the second word is a moderator key (64 hex digits) or a Delta account (32)";
 		return -1;
 	}
 	cursor += length;
@@ -375,6 +383,9 @@ int control_moderator_line(const struct control_moderator *moderator, char *out,
 		return -1;
 	}
 	control_key_text(moderator->key, key);
+	/* (an account's line: its 32 hex digits) */
+	if (moderator->account)
+		key[CONTROL_ACCOUNT_TEXT] = 0;
 	length = snprintf(out, size, "%-9s %s%s%s", control_role_name(moderator->role), key, moderator->name[0] ? " " : "",
 		moderator->name);
 	return length < 0 || (size_t)length >= size ? -1 : length;

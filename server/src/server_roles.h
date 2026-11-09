@@ -58,18 +58,31 @@ places), its permissions and, in who (who_size bytes, may be NULL), the
 name it goes by there ("Odb718", or "alice (account)"); 0 none */
 int server_roles_key_role(const unsigned char *key, unsigned int *permissions, char *who, int who_size);
 
+/* the role a verified player's Delta account has (docs/delta.md, "Verified
+names"): the moderators file's account lines (16 bytes), and the site's
+role list by the handle its certificate names (may be NULL); permissions
+and who as server_roles_key_role's */
+int server_roles_account_role(const unsigned char *account, const char *handle, unsigned int *permissions, char *who,
+	int who_size);
+/* where an account's role comes from, for the player ("this server's
+moderators file", "your site profile alice") */
+void server_roles_account_source(const unsigned char *account, const char *handle, char *text, int text_size);
+
 /* ---------- the moderators file (sv_mod_add, sv_mod_remove, sv_mod_list) */
 
 /* a key given a role (a new line, or the role of its line changed), with a
 name for display (may be empty): 1, else 0 and why in problem */
 int server_roles_moderator_set(int role, const unsigned char *key, const char *name, char *problem, int problem_size);
+/* ... a Delta account (16 bytes: a verified player's), the same way */
+int server_roles_account_set(int role, const unsigned char *account, const char *name, char *problem,
+	int problem_size);
 /* a moderator's line taken out, by its key, its key's beginning (8 hex
 digits or more) or its name: 1 (and its name and key in found_name,
 found_key: may be NULL), else 0 and why */
 int server_roles_moderator_remove(const char *which, char *found_name, int found_name_size, char *problem,
 	int problem_size);
 /* the file's moderators: how many; the one at index (role, key as 64 hex
-digits, name) */
+digits or an account as 32, name) */
 int server_roles_moderator_count(void);
 int server_roles_moderator_get(int index, int *role, char *key_text, int key_text_size, char *name, int name_size);
 

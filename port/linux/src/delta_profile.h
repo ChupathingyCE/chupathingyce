@@ -115,6 +115,9 @@ struct delta_profile
 	int hidden;
 	char handle[48];
 	char display[64];
+	/* its Delta Tag (docs/delta.md, Verified names; empty from a site
+	before tags) */
+	char tag[32];
 	long long created;
 	int badge_count;
 	char badges[DELTA_PROFILE_BADGES][48];
@@ -157,6 +160,9 @@ struct delta_profile_card
 {
 	char handle[48];
 	char display[64];
+	/* their Delta Tag, which a verified player shows by (empty from a site
+	before tags) */
+	char tag[32];
 	char badge[48];
 	/* the clan tag it shows (empty: none) */
 	char clan_tag[16];

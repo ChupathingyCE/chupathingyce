@@ -274,7 +274,8 @@ int server_roles_key_role(const unsigned char *key, unsigned int *permissions, c
 	refresh_moderators(0);
 	for (index = 0; index < roles.moderator_count; index++)
 	{
-		if (!memcmp(roles.moderators[index].key, key, CONTROL_KEY_BYTES) && roles.moderators[index].role > best)
+		if (!roles.moderators[index].account && !memcmp(roles.moderators[index].key, key, CONTROL_KEY_BYTES) &&
+			roles.moderators[index].role > best)
 		{
 			best = roles.moderators[index].role;
 			if (who && who_size > 0)
@@ -306,7 +307,26 @@ int server_roles_key_role(const unsigned char *key, unsigned int *permissions, c
 	return best;
 }
 
+static int moderator_set(int role, const unsigned char *key, int account, const char *name, char *problem,
+	int problem_size);
+
 int server_roles_moderator_set(int role, const unsigned char *key, const char *name, char *problem, int problem_size)
+{
+	return moderator_set(role, key, 0, name, problem, problem_size);
+}
+
+int server_roles_account_set(int role, const unsigned char *account, const char *name, char *problem,
+	int problem_size)
+{
+	unsigned char key[CONTROL_KEY_BYTES];
+
+	memset(key, 0, sizeof(key));
+	memcpy(key, account, CONTROL_ACCOUNT_BYTES);
+	return moderator_set(role, key, 1, name, problem, problem_size);
+}
+
+static int moderator_set(int role, const unsigned char *key, int account, const char *name, char *problem,
+	int problem_size)
 {
 	int index;
 	int result;
@@ -334,7 +354,7 @@ int server_roles_moderator_set(int role, const unsigned char *key, const char *n
 	}
 	for (index = 0; index < roles.moderator_count; index++)
 	{
-		if (!memcmp(roles.moderators[index].key, key, CONTROL_KEY_BYTES))
+		if (roles.moderators[index].account == account && !memcmp(roles.moderators[index].key, key, CONTROL_KEY_BYTES))
 			break;
 	}
 	if (index >= roles.moderator_count)
@@ -347,6 +367,7 @@ int server_roles_moderator_set(int role, const unsigned char *key, const char *n
 		}
 		memset(&roles.moderators[index], 0, sizeof(roles.moderators[index]));
 		memcpy(roles.moderators[index].key, key, CONTROL_KEY_BYTES);
+		roles.moderators[index].account = account;
 		roles.moderator_count++;
 		added = 1;
 	}
@@ -453,6 +474,8 @@ int server_roles_moderator_get(int index, int *role, char *key_text, int key_tex
 		char key[CONTROL_KEY_TEXT + 1];
 
 		control_key_text(roles.moderators[index].key, key);
+		if (roles.moderators[index].account)
+			key[CONTROL_ACCOUNT_TEXT] = 0;
 		*role = roles.moderators[index].role;
 		snprintf(key_text, (size_t)key_text_size, "%s", key);
 		snprintf(name, (size_t)name_size, "%s", roles.moderators[index].name);
@@ -700,7 +723,8 @@ void server_roles_key_source(const unsigned char *key, char *text, int text_size
 	/* (as server_roles_key_role picks: the highest, the first place first) */
 	for (index = 0; index < roles.moderator_count; index++)
 	{
-		if (!memcmp(roles.moderators[index].key, key, CONTROL_KEY_BYTES) && roles.moderators[index].role > best)
+		if (!roles.moderators[index].account && !memcmp(roles.moderators[index].key, key, CONTROL_KEY_BYTES) &&
+			roles.moderators[index].role > best)
 		{
 			best = roles.moderators[index].role;
 			snprintf(text, (size_t)text_size, "this server's moderators file");
@@ -721,6 +745,75 @@ void server_roles_key_source(const unsigned char *key, char *text, int text_size
 		{
 			best = roles.site[index].role;
 			snprintf(text, (size_t)text_size, "your site profile %s%s", roles.site[index].name,
+				roles.site_state == SERVER_SITE_ROLES_CACHED ? " (cached)" : "");
+		}
+	}
+	pthread_mutex_unlock(&roles_mutex);
+}
+
+int server_roles_account_role(const unsigned char *account, const char *handle, unsigned int *permissions, char *who,
+	int who_size)
+{
+	int best = CONTROL_ROLE_NONE;
+	int index;
+
+	if (who && who_size > 0)
+		who[0] = 0;
+	pthread_mutex_lock(&roles_mutex);
+	refresh_moderators(0);
+	for (index = 0; account && index < roles.moderator_count; index++)
+	{
+		if (roles.moderators[index].account &&
+			!memcmp(roles.moderators[index].key, account, CONTROL_ACCOUNT_BYTES) && roles.moderators[index].role > best)
+		{
+			best = roles.moderators[index].role;
+			if (who && who_size > 0)
+				snprintf(who, (size_t)who_size, "%s", roles.moderators[index].name[0] ? roles.moderators[index].name :
+					handle && handle[0] ? handle : "account");
+		}
+	}
+	/* (the site's list names handles; a verified player's handle is the
+	one its certificate names, and a handle never changes on the site) */
+	for (index = 0; handle && handle[0] && index < roles.site_handle_count; index++)
+	{
+		if (!strcmp(roles.site_handles[index].handle, handle) && roles.site_handles[index].role > best)
+		{
+			best = roles.site_handles[index].role;
+			if (who && who_size > 0)
+				snprintf(who, (size_t)who_size, "%s (site)", handle);
+		}
+	}
+	pthread_mutex_unlock(&roles_mutex);
+	if (permissions)
+		*permissions = control_role_permissions(best);
+	return best;
+}
+
+void server_roles_account_source(const unsigned char *account, const char *handle, char *text, int text_size)
+{
+	int best = CONTROL_ROLE_NONE;
+	int index;
+
+	if (text_size <= 0)
+		return;
+	text[0] = 0;
+	pthread_mutex_lock(&roles_mutex);
+	refresh_moderators(0);
+	for (index = 0; account && index < roles.moderator_count; index++)
+	{
+		if (roles.moderators[index].account &&
+			!memcmp(roles.moderators[index].key, account, CONTROL_ACCOUNT_BYTES) && roles.moderators[index].role > best)
+		{
+			best = roles.moderators[index].role;
+			snprintf(text, (size_t)text_size, "this server's moderators file");
+		}
+	}
+	for (index = 0; handle && handle[0] && index < roles.site_handle_count; index++)
+	{
+		if (!strcmp(roles.site_handles[index].handle, handle) && roles.site_handles[index].role > best)
+		{
+			best = roles.site_handles[index].role;
+			snprintf(text, (size_t)text_size, "your site profile %s%s", handle,
 				roles.site_state == SERVER_SITE_ROLES_CACHED ? " (cached)" : "");
 		}
 	}
