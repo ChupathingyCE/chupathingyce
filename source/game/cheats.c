@@ -54,6 +54,7 @@ symbols in this file:
 #include "cache/cache_files.h"
 #include "camera/director.h"
 #include "camera/observer.h"
+#include "game/game.h" /* port: game_connection, cheat_objects */
 #include "game/game_globals.h"
 #include "game/players.h"
 #include "hs/hs.h"
@@ -522,6 +523,17 @@ static void cheat_objects(
 				real angle_separation = CEILING(2*_pi/reference_count, _pi/8);
 				real angle = arctangent(forward.i, forward.j)+
 					(reference_index-reference_count/2)*angle_separation;
+
+				/* port: a network game's host makes no flag or ball (a weapon
+				that must be readied): those belong to the game engine, and
+				clients refuse one it does not own. Found in chester's GulchCE. */
+				if (game_connection() == _game_connection_network_server &&
+					object_definition_get(references[reference_index].index)->object.type == _object_type_weapon &&
+					TEST_FLAG(weapon_definition_get(references[reference_index].index)->weapon.flags,
+						_weapon_must_be_readied_bit))
+				{
+					continue;
+				}
 
 				object_placement_data_new(&data, references[reference_index].index, NONE);
 

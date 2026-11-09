@@ -33,7 +33,7 @@ Useful `configure.py` options:
 | `--packaged` | A build for a package manager: it never updates itself, and on Linux keeps its data and settings in `~/.local/share/chupathingyce` ([docs/install.md](install.md#package-managers)). |
 | `--pgo=off`, `--lto=off` | Faster builds, without profile-guided or link-time optimisation. |
 
-The console ports (original Xbox, Xbox 360, Switch, Wii U) are built from their own
+The console ports (original Xbox, Xbox 360, Switch, Wii U, PS3) are built from their own
 repositories, with this one as a submodule: [Console ports](#console-ports), below.
 
 The iPhone, iPad and Apple TV builds come from `port/ios` (`ninja ios` and
@@ -58,9 +58,10 @@ the build's generic side (`tools/console_build.py`).
 | Repository | Console | Status | Maintained by |
 | --- | --- | --- | --- |
 | [ChupathingyCE/warthog-xbox](https://github.com/ChupathingyCE/warthog-xbox) | original Xbox | Test builds: plays online, up to 32 players, with Halo CE+ maps, and Custom Edition maps from its Map Browser | Milenko |
-| [ChupathingyCE/warthog-360](https://github.com/ChupathingyCE/warthog-360) | Xbox 360 | Plays and joins servers on RGH hardware; test builds on Discord | Milenko |
-| [ChupathingyCE/warthog-switch](https://github.com/ChupathingyCE/warthog-switch) | Switch | Working: boots and plays on Switch hardware; CI builds it | [thelinkin3000](https://github.com/thelinkin3000) |
+| [ChupathingyCE/warthog-360](https://github.com/ChupathingyCE/warthog-360) | Xbox 360 | Test builds on Discord: RGH/JTAG or a softmod (BadUpdate, BadAvatar); the newest runs in Xenia to the menu and Blood Gulch | Milenko |
+| [ChupathingyCE/warthog-switch](https://github.com/ChupathingyCE/warthog-switch) | Switch | Working: boots and plays on Switch hardware; [releases](https://github.com/ChupathingyCE/warthog-switch/releases) | [thelinkin3000](https://github.com/thelinkin3000) |
 | [ChupathingyCE/warthog-wiiu](https://github.com/ChupathingyCE/warthog-wiiu) | Wii U | Plays on hardware and joins servers online; [public test builds](https://github.com/ChupathingyCE/warthog-wiiu/releases) | Milenko |
+| [ChupathingyCE/warthog-ps3](https://github.com/ChupathingyCE/warthog-ps3) | PS3 | Work in progress, built with PSL1GHT; the game is Matt's `ps3` branch for now | [Mayo1970](https://github.com/Mayo1970) |
 
 A console repository looks like this:
 

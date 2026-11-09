@@ -12,7 +12,11 @@ slot, an older one, a retained one of long ago, a tombstone and a listing
 older than it each handled as they must be; and a game with a password,
 listed locked (its token nowhere in the listing), opened by its password
 alone, and never listed by its invite on the game list (nor a private game),
-each change making a new invite. Prints PASS or the failures.
+each change making a new invite; and a broker's burst on subscribing (most
+of its slots games long gone or of other versions, a few dozen live), after
+which every live game is listed. Prints PASS or the failures; "burst" checks
+the burst alone (tools/test_linux_port.py builds the lobby without the
+queue's intake checks too, P2P_LOBBY_INTAKE_CHECKS, and sees live games lost).
 */
 
 #include "p2p_internal.h"
@@ -396,10 +400,150 @@ static void lobby_checks(void)
 	}
 }
 
-int main(void)
+/* ---------- a broker's burst on subscribing */
+
+enum
 {
+	BURST_STALE = 1400,
+	BURST_OTHER_VERSION = 200,
+};
+
+/* a host's listing: the template's, its key one of its own (from a seed of
+its number), of a version, signed at an offset from now, named by its number */
+static void burst_listing(const unsigned char *template, int size, int number, int version, long offset,
+	unsigned char *payload, char *slot)
+{
+	static const char label[] = "hceu-lobby-1";
+	unsigned char host_seed[P2P_SEED_SIZE], key[P2P_KEY_SIZE], secret[P2P_KEY_SIZE], x25519[P2P_KEY_SIZE];
+	unsigned char hash[P2P_KEY_HASH_SIZE], data[sizeof(label) - 1 + 512];
+	unsigned long when = (unsigned long)time(NULL) + (unsigned long)offset;
+	int signed_size = size - P2P_SIGNATURE_SIZE, name = -1, index;
+
+	memset(host_seed, 0, sizeof(host_seed));
+	host_seed[0] = 0xb0;
+	host_seed[1] = (unsigned char)(number >> 8);
+	host_seed[2] = (unsigned char)number;
+	p2p_ed25519_public(host_seed, key, secret);
+	memcpy(payload, template, (size_t)size);
+	payload[3] = (unsigned char)(version >> 8);
+	payload[4] = (unsigned char)version;
+	for (index = 10; index < 14; index++)
+		payload[index] = (unsigned char)(when >> (8 * (13 - index)));
+	memcpy(payload + 14, key, P2P_KEY_SIZE);
+	for (index = 0; index + 9 <= size; index++)
+	{
+		if (!memcmp(payload + index, "Test game", 9))
+		{
+			name = index;
+			break;
+		}
+	}
+	if (name >= 0)
+	{
+		char text[10];
+
+		snprintf(text, sizeof(text), "Game %04d", number % 10000);
+		memcpy(payload + name, text, 9);
+	}
+	memcpy(data, label, sizeof(label) - 1);
+	memcpy(data + sizeof(label) - 1, payload, (size_t)signed_size);
+	p2p_ed25519_sign(host_seed, key, data, (int)(sizeof(label) - 1) + signed_size, payload + signed_size);
+	p2p_ed25519_to_x25519(key, x25519);
+	p2p_key_hash(x25519, hash);
+	p2p_hex(hash, P2P_KEY_HASH_SIZE, slot);
+}
+
+/* every slot a broker keeps, heard at once (retained, in a shuffled order):
+games long gone (signed hours ago, this version and others), live games of
+versions this build does not join, and live games of this version; then the
+queue's passes. Whether every live game is listed */
+static int burst_check(int live)
+{
+	static struct p2p_listing all[256];
+	unsigned char template[512], payload[512];
+	char slot[2 * P2P_KEY_HASH_SIZE + 1];
+	int template_size, total = BURST_STALE + BURST_OTHER_VERSION + live;
+	int count, kept = 0, index, step;
+	unsigned long order = 12345;
+	int *numbers = malloc(sizeof(*numbers) * (size_t)total);
+
+	p2p_ed25519_public(seed, signing_key, x25519_secret);
+	p2p_x25519(x25519_public, x25519_secret, NULL);
+	p2p_set_hosting_public(1);
+	p2p_set_game_listing("Test game", "bloodgulch", "Slayer", 2, 1, 0, 1);
+	clock_now += 100000;
+	lobby_update(NULL, 3, 16);
+	lobby_update((const unsigned char *)"0123456789abcdef", 3, 16);
+	memcpy(template, published, (size_t)published_size);
+	template_size = published_size;
+	p2p_set_hosting_public(0);
+	lobby_update(NULL, 3, 16);
+	/* (a browser that just opened the list) */
+	p2p_lobby_browse(0);
+	lobby_update(NULL, 3, 16);
+	p2p_lobby_browse(1);
+	for (index = 0; index < total; index++)
+		numbers[index] = index;
+	for (index = total - 1; index > 0; index--)
+	{
+		int other, swap;
+
+		order = order * 1103515245ul + 12345ul;
+		other = (int)((order >> 8) % (unsigned long)(index + 1));
+		swap = numbers[index];
+		numbers[index] = numbers[other];
+		numbers[other] = swap;
+	}
+	pthread_mutex_lock(&p2p_lock);
+	for (index = 0; index < total; index++)
+	{
+		int number = numbers[index];
+
+		if (number < BURST_STALE)
+		{
+			/* (gone: this version's and others', hours or days ago) */
+			int version = number % 3 == 0 ? HALO_PORT_NETWORK_VERSION : number % 3 == 1 ?
+				HALO_PORT_NETWORK_VERSION_MINIMUM - 1 : HALO_PORT_NETWORK_VERSION_MAXIMUM + 1;
+
+			burst_listing(template, template_size, number, version, -3700 - 60L * (number % 2000), payload, slot);
+		}
+		else if (number < BURST_STALE + BURST_OTHER_VERSION)
+		{
+			int version = number % 2 ? HALO_PORT_NETWORK_VERSION_MINIMUM - 1 : HALO_PORT_NETWORK_VERSION_MAXIMUM + 1;
+
+			burst_listing(template, template_size, number, version, -(number % 25), payload, slot);
+		}
+		else
+			burst_listing(template, template_size, number, HALO_PORT_NETWORK_VERSION, -(number % 25), payload, slot);
+		p2p_lobby_slot_heard(slot, payload, template_size, 1);
+	}
+	pthread_mutex_unlock(&p2p_lock);
+	free(numbers);
+	for (step = 0; step < 64; step++)
+		lobby_update(NULL, 3, 16);
+	count = p2p_lobby_games(all, 256);
+	for (index = 0; index < count; index++)
+		kept += all[index].version == HALO_PORT_NETWORK_VERSION;
+	printf("burst: %d of %d live games listed (%d slots heard)\n", kept, live, total);
+	p2p_lobby_browse(0);
+	lobby_update(NULL, 3, 16);
+	return kept == live;
+}
+
+int main(int argc, char **argv)
+{
+	if (argc > 1 && !strcmp(argv[1], "burst"))
+	{
+		int good = burst_check(31);
+
+		good &= burst_check(70);
+		printf("%s\n", good ? "BURST PASS" : "BURST FAIL");
+		return !good;
+	}
 	crypto_checks();
 	lobby_checks();
+	check(burst_check(31), "a broker's burst: every live game listed (31 live)");
+	check(burst_check(70), "a broker's burst: every live game listed (70 live)");
 	printf("%s (%d failures)\n", failures ? "FAIL" : "PASS", failures);
 	return failures != 0;
 }

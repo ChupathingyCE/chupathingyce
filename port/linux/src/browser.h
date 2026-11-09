@@ -312,8 +312,10 @@ int browser_unlock_game(const char *invite, const char *password, char *code, in
 (joining it, or joined): its address in the game's network then */
 int browser_game_peer(const char *invite, unsigned long *address);
 
-/* joins a listed game: its invite, as an invite link would (p2p.c) */
-int browser_join(const char *invite);
+/* joins a listed game: its invite, as an invite link would (p2p.c). open:
+the listing is a public game's without a password (not one a password
+opened), whose invite a player in it shares on Discord too */
+int browser_join(const char *invite, int open);
 
 /* whether this copy is the dedicated server (server/src/dedicated.c:
 HALO_DEDICATED names its playlist): it joins no invite, leaves the clipboard

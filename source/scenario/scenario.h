@@ -93,6 +93,9 @@ void scenario_initialize_for_new_map(
 	void);
 void scenario_dispose_from_old_map(void);
 void scenario_frame_update(real dt);
+/* port: the wind's step, once a tick */
+void scenario_tick_update(
+	void);
 void scenario_unload(
 	void);
 struct scenario *global_scenario_get(void);

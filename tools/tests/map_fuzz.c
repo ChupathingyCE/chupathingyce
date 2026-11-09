@@ -1151,3 +1151,19 @@ long csstrcmp(char const *s1, char const *s2)
 	return strcmp(s1, s2);
 }
 
+/* (ce_map_checks.c asks whether an address is the menus' own tags: menu_tags.c, not in the harness) */
+boolean pc_menu_owns(unsigned long address, long size)
+{
+	(void)address;
+	(void)size;
+	return FALSE;
+}
+
+/* (tag_validate.c asks whether tag data is Stubbs the Zombie's own:
+stubbs_mode.c, not in the harness) */
+boolean stubbs_mode_owns_data(void const *address, long size)
+{
+	(void)address;
+	(void)size;
+	return FALSE;
+}

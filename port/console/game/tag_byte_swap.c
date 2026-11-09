@@ -494,6 +494,24 @@ static void swap_tag_text(struct swap_region *region, unsigned long group_tag, u
 	}
 }
 
+/* count zeroed elements of size bytes, NULL with no memory: from the game's
+malloc, as the free that lets them go is the game's (cseries.h makes malloc
+and free match_malloc and match_free, but leaves calloc the C library's, whose
+blocks the game's free refuses: debug_memory.c's "Signature is incorrect") */
+static void *swap_calloc(unsigned long count, unsigned long size)
+{
+	void *block;
+	unsigned long bytes;
+
+	if (size && count > (unsigned long)-1 / size)
+		return NULL;
+	bytes = count * size;
+	block = malloc(bytes ? bytes : 1);
+	if (block)
+		csmemset(block, 0, bytes);
+	return block;
+}
+
 /* a tag's root, for finding tags that share one (shared_tags_find) */
 struct swap_root
 {
@@ -521,7 +539,7 @@ no memory for it (every tag is then swapped, as before) */
 static unsigned char *shared_tags_find(const unsigned char *instances, unsigned long count)
 {
 	struct swap_root *roots = malloc((count ? count : 1) * sizeof(*roots));
-	unsigned char *shared = calloc(count ? count : 1, 1);
+	unsigned char *shared = swap_calloc(count ? count : 1, 1);
 	unsigned long index;
 
 	if (!roots || !shared)
@@ -572,7 +590,7 @@ void tag_byte_swap_tags(void *base, unsigned long base_address, unsigned long si
 		return;
 	}
 	shared = shared_tags_find(region.base + (instances - base_address), count);
-	swap_done = calloc((size + 31) / 32, sizeof(*swap_done));
+	swap_done = swap_calloc((size + 31) / 32, sizeof(*swap_done));
 	swap_done_base = region.base;
 	swap_done_size = size;
 	for (index = 0; index < count; index++)
@@ -661,7 +679,7 @@ void tag_byte_swap_structure_bsp(void *bsp, unsigned long bsp_address, unsigned 
 		error(_error_silent, "tag byte swap: the structure bsp cannot be swapped");
 		return;
 	}
-	swap_done = calloc((region_size + 31) / 32, sizeof(*swap_done));
+	swap_done = swap_calloc((region_size + 31) / 32, sizeof(*swap_done));
 	swap_done_base = region.base;
 	swap_done_size = region_size;
 	swap_layout(&region, (unsigned long)layout, bsp_address, 0);

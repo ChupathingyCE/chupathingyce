@@ -396,6 +396,13 @@ real pal_tags_first_person_fraction(short local_player_index, long graph_index, 
 /* ---------- globals */
 
 static struct first_person_weapon *first_person_weapons;
+/* port: the sound manager's index of each first-person weapon's sound, kept
+beside the game state: it is the mixer's (none when the sound cannot be
+heard or has no channel, by the clock), and the weapon's state went on
+differently with none. The state's current_sound_index holds the sound's
+definition, that the sound was begun. (A stale index, after a saved game is
+loaded, stops nothing: an index names its sound only.) */
+static long first_person_weapon_sound_indices[MAXIMUM_NUMBER_OF_LOCAL_PLAYERS];
 
 /* ---------- public code */
 
@@ -446,6 +453,7 @@ void first_person_weapons_initialize_for_new_map(
 		first_person_weapons[local_player_index].unit_index= NONE;
 		first_person_weapons[local_player_index].current_sound_index= NONE;
 		first_person_weapons[local_player_index].current_sound_state= NONE;
+		first_person_weapon_sound_indices[local_player_index]= NONE;
 	}
 
 	return;
@@ -1124,7 +1132,9 @@ static void first_person_weapon_set_state(
 							first_person_weapon->current_sound_index!=NONE &&
 							first_person_weapon->current_sound_state!=_first_person_weapon_state_overheating)
 						{
-							sound_stop_impulse(first_person_weapon->current_sound_index);
+							/* port: the sound manager's index (above) */
+							sound_stop_impulse(first_person_weapon_sound_indices[first_person_weapon-first_person_weapons]);
+							first_person_weapon_sound_indices[first_person_weapon-first_person_weapons]= NONE;
 							first_person_weapon->current_sound_index= NONE;
 							first_person_weapon->current_sound_state= NONE;
 						}
@@ -1987,13 +1997,16 @@ static void first_person_weapon_update(
 		if (sound_definition_index!=NONE &&
 			director_get_perspective(local_player_index)==_director_perspective_first_person)
 		{
-			first_person_weapon->current_sound_index= object_impulse_sound_new(
+			/* port: the sound manager's index beside the game state, the
+			sound's definition in it (above) */
+			first_person_weapon_sound_indices[first_person_weapon-first_person_weapons]= object_impulse_sound_new(
 				first_person_weapon->weapon_index,
 				sound_definition_index,
 				NONE,
 				global_origin3d,
 				global_forward3d,
 				1.0f);
+			first_person_weapon->current_sound_index= sound_definition_index;
 			first_person_weapon->current_sound_state= first_person_weapon->state;
 		}
 

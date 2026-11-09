@@ -6,6 +6,18 @@ release notes.
 
 ## Unreleased
 
+- The control panel is on by default, at `http://127.0.0.1:8080` (this
+  machine only). New hosts get the one-time setup link on the console and in
+  `control_setup_code.txt`; on Windows the server also opens it in the
+  browser. `HALO_DEDICATED_CONTROL=off` turns it off. If port 8080 is taken,
+  the server logs one line and keeps hosting. Public addresses stay opt-in,
+  and our Docker image keeps the panel off until you set it.
+- Halo Custom Edition 1.0.10 players can play (`ce_joins`, still off by
+  default): a Custom Edition player joins a game on a Custom Edition map as
+  one of the server's own players (up to 4), and stays from one game and
+  map to the next, as on Custom Edition's own servers. The development
+  switch `HALO_DEDICATED_CE_ACCEPT` is gone. See "Custom Edition join
+  attempts" in server/docs/settings.md for what works and what doesn't yet.
 - Host rules, off by default as on the Xbox: `allow_player_names`
   (`HALO_DEDICATED_ALLOW_PLAYER_NAMES`) lets Chupathingy players show names
   above heads, and `allow_follow_camera`

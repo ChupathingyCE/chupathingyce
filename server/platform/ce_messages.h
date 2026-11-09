@@ -23,9 +23,15 @@ enum
 	CE_MESSAGE_NEW_CLIENT_CHALLENGE = 4,
 	CE_MESSAGE_MACHINE_REJECTED = 6,
 	CE_MESSAGE_BEGIN_GAME = 10,
+	/* while the scores are shown, every 5 seconds */
+	CE_MESSAGE_POSTGAME_KEEP_ALIVE = 13,
 	CE_MESSAGE_JOIN_GAME_REQUEST = 14,
 	CE_MESSAGE_MAP_IS_PRECACHED = 21,
+	/* the game is over: the scores come up */
+	CE_MESSAGE_GAME_OVER = 25,
 	CE_MESSAGE_CLIENT_LOADED = 26,
+	/* the next game is up: the client joins it again on its connection */
+	CE_MESSAGE_RECONNECT = 33,
 
 	/* message delta types */
 	CE_DELTA_OBJECT_DELETE = 0,
@@ -40,6 +46,9 @@ enum
 	CE_DELTA_CHAT = 15,
 	CE_DELTA_SLAYER_SCORES = 16,
 	CE_DELTA_PLAYER_STATISTICS = 21,
+	/* the game's end, step by step (a 32-bit number: 1 the delay before
+	the scores, 2 and 3 the scores coming up and shown) */
+	CE_DELTA_POSTGAME_MODE = 22,
 	CE_DELTA_LOCAL_PLAYER_UPDATE = 35,
 	CE_DELTA_LOCAL_VEHICLE_UPDATE = 36,
 	CE_DELTA_REMOTE_PLAYER_ACTIONS = 37,
@@ -366,6 +375,8 @@ void ce_payload_put_player_statistics(struct ce_payload *payload, int player,
 /* the server's keep-alive delta: one entry */
 void ce_payload_put_server_keep_alive(struct ce_payload *payload, int index, unsigned int value);
 /* the payload's length in bytes (written in its first 11 bits), or 0 */
+/* where the game is past its end (CE_DELTA_POSTGAME_MODE) */
+void ce_payload_put_postgame_mode(struct ce_payload *payload, int mode);
 int ce_payload_end(struct ce_payload *payload);
 
 /* a free-for-all Slayer game's settings, as Custom Edition's own server

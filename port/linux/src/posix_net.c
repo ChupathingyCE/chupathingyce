@@ -50,6 +50,15 @@ kernel (3.8) no system call for it: /dev/urandom, below */
 #include <unistd.h>
 
 #include "posix.h"
+#include "discord_register.h"
+
+#ifdef __APPLE__
+#include <TargetConditionals.h>
+#if TARGET_OS_OSX
+/* port/macos/src/macos_discord.c */
+int macos_register_discord_scheme(const char *application);
+#endif
+#endif
 
 /* Winsock error codes (winsockx.h) */
 #define WSAEINTR 10004
@@ -899,6 +908,39 @@ static int run_program(char *const arguments[])
 }
 #endif
 
+#if !defined(__ANDROID__) && !defined(__APPLE__)
+/* the file the desktop runs to start the game: an AppImage's, not the
+executable in its mount, which is gone once the game exits */
+static int launch_executable(char *executable, size_t size)
+{
+	const char *appimage = getenv("APPIMAGE");
+	ssize_t length = readlink("/proc/self/exe", executable, size - 1);
+
+	if (length <= 0)
+		return 0;
+	executable[length] = '\0';
+	if (appimage && *appimage)
+		snprintf(executable, size, "%s", appimage);
+	return 1;
+}
+
+/* the user's desktop entries' folder (XDG_DATA_HOME's applications, else
+~/.local/share/applications) */
+static int applications_directory(char *directory, size_t size)
+{
+	const char *data_home = getenv("XDG_DATA_HOME");
+	const char *home = getenv("HOME");
+
+	if (data_home && *data_home)
+		snprintf(directory, size, "%s/applications", data_home);
+	else if (home && *home)
+		snprintf(directory, size, "%s/.local/share/applications", home);
+	else
+		return 0;
+	return 1;
+}
+#endif
+
 int posix_register_url_scheme(const char *scheme, const char *description)
 {
 #if defined(__ANDROID__) || defined(__APPLE__)
@@ -914,25 +956,10 @@ int posix_register_url_scheme(const char *scheme, const char *description)
 	/* a desktop entry declaring the executable as the scheme's handler, and
 	the scheme's default application set to it (as xdg-open reads it) */
 	char executable[1024], directory[1024], path[1200], name[128], entry[2048], existing[2048];
-	const char *data_home = getenv("XDG_DATA_HOME");
-	const char *home = getenv("HOME");
-	const char *appimage = getenv("APPIMAGE");
-	ssize_t length = readlink("/proc/self/exe", executable, sizeof(executable) - 1);
 	FILE *file;
 	size_t existing_length = 0;
 
-	if (length <= 0)
-		return 0;
-	executable[length] = '\0';
-	/* (an AppImage's file, not the executable in its mount, which is gone
-	once the game exits) */
-	if (appimage && *appimage)
-		snprintf(executable, sizeof(executable), "%s", appimage);
-	if (data_home && *data_home)
-		snprintf(directory, sizeof(directory), "%s/applications", data_home);
-	else if (home && *home)
-		snprintf(directory, sizeof(directory), "%s/.local/share/applications", home);
-	else
+	if (!launch_executable(executable, sizeof(executable)) || !applications_directory(directory, sizeof(directory)))
 		return 0;
 	snprintf(name, sizeof(name), "halo-ce-universal-%s.desktop", scheme);
 	snprintf(path, sizeof(path), "%s/%s", directory, name);
@@ -968,6 +995,62 @@ int posix_register_url_scheme(const char *scheme, const char *description)
 		run_program(arguments);
 	}
 	return 1;
+#endif
+}
+
+
+int posix_register_discord_launch(const char *application)
+{
+#if defined(__ANDROID__) || (defined(__APPLE__) && !TARGET_OS_OSX)
+	/* (an app declares its links: iOS's and Android's have no Discord) */
+	(void)application;
+	return DISCORD_REGISTER_NONE;
+#elif defined(__APPLE__)
+	/* the bundle declares discord-<application> (port/macos/Info.plist):
+	made its handler, as the SDK does for a bundle, unless another
+	program's is. A games/<application>.json an earlier version wrote, a
+	shell command that Discord opened as a page, goes */
+	char path[1024], text[512];
+	const char *home = getenv("HOME");
+
+	if (!discord_register_application_valid(application))
+		return DISCORD_REGISTER_FAILED;
+	if (home && *home)
+	{
+		FILE *file;
+
+		snprintf(path, sizeof(path), "%s/Library/Application Support/discord/games/%s.json", home, application);
+		file = fopen(path, "r");
+		if (file)
+		{
+			size_t length = fread(text, 1, sizeof(text) - 1, file);
+
+			fclose(file);
+			text[length] = 0;
+			if (discord_register_old_json_ours(text))
+				remove(path);
+		}
+	}
+	return macos_register_discord_scheme(application);
+#else
+	/* discord-<application>.desktop, the scheme's handler (as xdg-open
+	reads it) */
+	char executable[1024], directory[1024], name[128];
+	int result;
+
+	if (!launch_executable(executable, sizeof(executable)) || !applications_directory(directory, sizeof(directory)))
+		return DISCORD_REGISTER_FAILED;
+	mkdir(directory, 0755);
+	result = discord_register_desktop_file(directory, application, executable, name, sizeof(name));
+	if (result == DISCORD_REGISTER_WRITTEN)
+	{
+		char mime_type[160];
+		char *arguments[] = { "xdg-mime", "default", name, mime_type, NULL };
+
+		snprintf(mime_type, sizeof(mime_type), "x-scheme-handler/discord-%s", application);
+		run_program(arguments);
+	}
+	return result;
 #endif
 }
 

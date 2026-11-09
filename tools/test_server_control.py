@@ -149,8 +149,13 @@ class Harness:
         with socket.socket() as probe:
             probe.bind(("127.0.0.1", 0))
             self.port = probe.getsockname()[1]
-        environment = dict(os.environ, HARNESS_DATA=str(data), HALO_DEDICATED_CONTROL=f"{listen}:{self.port}",
-                           HALO_DEDICATED_CONSOLE="true", ASAN_OPTIONS="detect_leaks=0", **(extra or {}))
+        # (listen None: HALO_DEDICATED_CONTROL not set, the default address;
+        # a setting of its own: HALO_DEDICATED_CONTROL in extra)
+        environment = {key: value for key, value in os.environ.items() if key != "HALO_DEDICATED_CONTROL"}
+        environment.update(HARNESS_DATA=str(data), HALO_DEDICATED_CONSOLE="true", ASAN_OPTIONS="detect_leaks=0")
+        if listen is not None:
+            environment["HALO_DEDICATED_CONTROL"] = f"{listen}:{self.port}"
+        environment.update(extra or {})
         self.process = subprocess.Popen([str(binary)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                         stderr=subprocess.PIPE, env=environment, text=True)
         self.lines = []
@@ -572,6 +577,38 @@ def test_setup_mode_with_an_owner_hosts_at_once(harness_binary, tmp_path):
         assert "harness: waiting 1" not in running.lines
         assert not (data / "control_setup_code.txt").exists()
         assert "not waiting" in "\n".join(running.console("sv_setup_start", "not waiting"))
+    finally:
+        running.stop()
+
+
+def test_default_panel_on_a_taken_port_keeps_running(harness_binary, tmp_path):
+    """With HALO_DEDICATED_CONTROL not set, the panel is 127.0.0.1:8080's; when
+    that port is taken, one line says so and the server keeps running."""
+    holder = socket.socket()
+    try:
+        holder.bind(("127.0.0.1", 8080))
+        holder.listen(1)
+    except OSError:
+        pass  # (taken already: the same test)
+    try:
+        running = Harness(harness_binary, tmp_path / "data", listen=None, expect="127.0.0.1:8080 is taken")
+        try:
+            running.console("help", "ran help")
+            assert not (tmp_path / "data" / "control_setup_code.txt").exists()
+        finally:
+            running.stop()
+    finally:
+        holder.close()
+
+
+def test_panel_off(harness_binary, tmp_path):
+    """HALO_DEDICATED_CONTROL=off: no panel, no setup code, the console still."""
+    running = Harness(harness_binary, tmp_path / "data", listen=None, extra={"HALO_DEDICATED_CONTROL": "off"},
+                      expect="the console reads commands")
+    try:
+        running.console("help", "ran help")
+        assert not any("listen on" in line for line in running.lines)
+        assert not (tmp_path / "data" / "control_setup_code.txt").exists()
     finally:
         running.stop()
 

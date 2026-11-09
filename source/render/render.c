@@ -91,6 +91,8 @@ symbols in this file:
 #ifdef HALO_CONSOLE_PERFORMANCE_MODE
 #include "cutscene/cinematics.h"
 #endif
+/* port: static transparent part links for the newly loaded model tags. */
+#include "models/models.h"
 
 /* ---------- constants */
 
@@ -185,6 +187,8 @@ void render_initialize(
 void render_initialize_for_new_map(
 	void)
 {
+	/* port: preserve retail's energy-then-two-sided-glass compositing. */
+	models_fix_transparent_part_links();
 	render_objects_initialize_for_new_map();
 }
 

@@ -816,6 +816,9 @@ static struct
 	/* (and the advertisement's reserved bytes whole: the game wire a Delta
 	host plays after them, port/linux/include/delta.h) */
 	byte reserved[0x1A];
+	/* a console's build: the host takes players, but on more machines than
+	this build has room for (add_advertised_game) */
+	boolean over_console_limit;
 } network_game_client_advertised_versions[MAXIMUM_NETWORK_ADVERTISED_GAMES];
 
 /* the joined game's host's network version, as it advertised it (0xFFFF: not
@@ -953,6 +956,22 @@ static boolean check_networking_and_generate_error(
 	}
 
 	return connected;
+}
+
+/* port: how long the client's connection may hear nothing from the host
+before the game is left: none on the host. Its client's host is its own
+server, which runs in the same frame on the same thread: a frame that
+takes long (a hitch of the renderer or of the VR runtime) silences the
+server for as long, so when it ends the client had heard nothing for that
+long, the server's word of it not sent yet. It would leave its own game
+(the game host went down), though nothing went down. The server for its
+part times out none of its own machine's connections
+(network_game_server_client_machine_timed_out); a connection that has
+failed is still noticed by its read. */
+static long network_game_client_connection_timeout(
+	long timeout)
+{
+	return global_network_game_server_get() ? 0 : timeout;
 }
 
 void network_game_client_dispose(
@@ -2747,6 +2766,12 @@ static boolean add_advertised_game(
 			csmemcpy(network_game_client_advertised_versions[game_index].reserved,
 				advertisement->__unknown5A,
 				sizeof(network_game_client_advertised_versions[game_index].reserved));
+#ifdef HALO_PORT_CONSOLE_LIMITS
+			/* (kept closed, as a full game is, but said so when it is joined) */
+			network_game_client_advertised_versions[game_index].over_console_limit =
+				TEST_FLAG(advertisement->flags, _game_advertisement_open_bit) &&
+				advertisement->machine_count >= MAXIMUM_NETWORK_MACHINE_COUNT;
+#endif
 		}
 
 		if (advertisement->game_name[0] != L'\0')
@@ -3216,7 +3241,8 @@ static boolean network_game_client_idle_pregame(
 		{
 			network_game_client_update_precache_status(client);
 
-			if (!(success = network_connection_idle(client->connection, 15000, NULL)))
+			/* (port: no timeout on the host, network_game_client_connection_timeout) */
+			if (!(success = network_connection_idle(client->connection, network_game_client_connection_timeout(15000), NULL)))
 			{
 				network_event("network_connection_idle() failed in network_game_client_idle_pregame()");
 				if (network_game_client_process_last_messages(client))
@@ -3303,7 +3329,9 @@ static boolean network_game_client_idle_ingame(
 
 	if (success == TRUE)
 	{
-		success = network_connection_idle(client->connection, started ? 15000 : 75000, NULL);
+		/* (port: no timeout on the host, network_game_client_connection_timeout) */
+		success = network_connection_idle(client->connection,
+			network_game_client_connection_timeout(started ? 15000 : 75000), NULL);
 
 		if (success)
 		{
@@ -3345,7 +3373,8 @@ static boolean network_game_client_idle_postgame(
 	}
 	else
 	{
-		if (!(success = network_connection_idle(client->connection, 15000, NULL)))
+		/* (port: no timeout on the host, network_game_client_connection_timeout) */
+		if (!(success = network_connection_idle(client->connection, network_game_client_connection_timeout(15000), NULL)))
 		{
 			network_event("network_connection_idle() failed in network_game_client_idle_postgame()");
 			if (network_game_client_process_last_messages(client))
@@ -3771,9 +3800,29 @@ long network_game_client_join_invite_host(
 		struct network_join_parameters join_parameters;
 
 		/* (the XNADDR: its size and flags, then abEnet) */
-		if (!network_game_client_advertised_game_is_valid(game) || !game->open ||
+		if (!network_game_client_advertised_game_is_valid(game) ||
 			csmemcmp(game->xnaddr.data + 2, identifier, sizeof(identifier)))
 		{
+			continue;
+		}
+		if (!game->open)
+		{
+#ifdef HALO_PORT_CONSOLE_LIMITS
+			/* port: a console's build cannot take a game on more machines than
+			it has room for; it would never open, and the wait would end only
+			with the browser's "the host did not answer" */
+			if (network_game_client_advertised_versions[game_index].over_console_limit)
+			{
+				char details[96];
+
+				csprintf(details, "This console takes %d players. The game has %d machines.",
+					(int)MAXIMUM_NUMBER_OF_PLAYERS, (int)game->machine_count);
+				network_event("not joining a host's game on %d machines (this build takes %d)", (int)game->machine_count,
+					(int)MAXIMUM_NETWORK_MACHINE_COUNT);
+				network_game_client_refuse(_join_reason_console_full, details, "", TRUE);
+				return -1;
+			}
+#endif
 			continue;
 		}
 		if (!network_game_client_advertised_game_compatible(client, game, TRUE))

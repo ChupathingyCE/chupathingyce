@@ -33,6 +33,9 @@ real first_person_weapon_projection_scale(
 /* port: display.reticle_scales_with_fov (main.c) */
 real first_person_reticle_scale(
 	short local_player_index);
+/* port: display.field_of_view other than stock, in first person (main.c) */
+boolean first_person_field_of_view_widened(
+	short local_player_index);
 
 void set_window_camera_values(
 	struct render_window *window,

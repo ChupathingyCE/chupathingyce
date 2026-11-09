@@ -3209,6 +3209,7 @@ boolean game_engine_running(void);
 void game_engine_end_game(void);
 /* the platform layer's */
 int p2p_join_invite(char const *text);
+int p2p_join_listed_invite(char const *text);
 int p2p_invite_link(char *link, int size);
 int p2p_hosting_status(char *text, int size);
 void p2p_check_network(void);
@@ -5295,7 +5296,9 @@ static void lobby_browser_update(struct widget_instance *list)
 lobby_browser_update) */
 static boolean lobby_browser_join(struct p2p_listing const *game, short controller)
 {
-	if (!p2p_join_invite(game->invite))
+	/* (an open listing's invite is a public game's, which a player in it
+	shares on Discord too; a password game's never) */
+	if (!(game->locked ? p2p_join_invite(game->invite) : p2p_join_listed_invite(game->invite)))
 		return FALSE;
 	csmemcpy(lobby_browser.identifier, game->identifier, sizeof(lobby_browser.identifier));
 	csmemcpy(lobby_browser.name, game->name, sizeof(lobby_browser.name));

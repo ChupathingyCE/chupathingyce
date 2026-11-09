@@ -2832,14 +2832,14 @@ int browser_game_peer(const char *invite, unsigned long *address)
 	return p2p_peer_address(identifier, address);
 }
 
-int browser_join(const char *invite)
+int browser_join(const char *invite, int open)
 {
 	/* ("halo://join/" and the invite's digits) */
 	char link[16 + BROWSER_INVITE_LENGTH];
 
 	snprintf(link, sizeof(link), "halo://join/%s", invite);
 	platform_log("Game list: joining a listed game");
-	return p2p_join_invite(link);
+	return open ? p2p_join_listed_invite(link) : p2p_join_invite(link);
 }
 
 int browser_dedicated(void)

@@ -83,9 +83,12 @@ int delta_capability_disabled(int capability)
 	return 0;
 }
 
-void p2p_discord_set_join(const char *code)
+void p2p_discord_set_join(const char *code, const char *party, int player_count, int maximum_player_count)
 {
 	(void)code;
+	(void)party;
+	(void)player_count;
+	(void)maximum_player_count;
 }
 
 void p2p_discord_update(void)

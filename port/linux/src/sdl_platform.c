@@ -74,6 +74,11 @@ gone, ends: else the keyboard stays held from the game) */
 static Uint64 binding_polled_ms;
 #define BINDING_ABANDONED_MS 500
 static unsigned mouse_buttons_down;
+/* keys (not a modifier alone, not a held key's repeats), mouse buttons and
+touches pressed since platform_movie_skip_pressed last looked: what skips a
+movie (bink_playback.c), the keys not reaching the game outside text and
+the console (xinput_sdl.c), and the mouse not being the Xbox's */
+static volatile int movie_skip_presses;
 /* (an input taken that nothing asks for is let go after this) */
 #define BINDING_UNCLAIMED_MS 2000
 /* the multiplayer scoreboard is open (platform_scoreboard_scroll): the wheel
@@ -689,7 +694,9 @@ static BOOL data_extract(int kind, const char *image, const char *destination, u
 struct data_image_choice
 {
 	SDL_AtomicInt done;
+	BOOL failed;
 	char path[1024];
+	char error[256];
 };
 
 static void SDLCALL data_image_chosen(void *userdata, const char * const *files, int filter)
@@ -697,14 +704,25 @@ static void SDLCALL data_image_chosen(void *userdata, const char * const *files,
 	struct data_image_choice *choice = userdata;
 
 	(void)filter;
-	if (files && files[0])
+	if (!files)
+	{
+		/* no dialog could be shown (SDL needs the desktop portal through
+		libdbus, or zenity): not a cancelled choice */
+		choice->failed = TRUE;
+		snprintf(choice->error, sizeof(choice->error), "%s",
+			*SDL_GetError() ? SDL_GetError() : "no desktop portal or zenity");
+	}
+	else if (files[0])
+	{
 		snprintf(choice->path, sizeof(choice->path), "%s", files[0]);
+	}
 	SDL_SetAtomicInt(&choice->done, 1);
 }
 
 /* the file the player picks (Halo PC's first with halo_pc); FALSE if they
-pick none */
-static BOOL data_choose_image(char *path, int size, BOOL halo_pc)
+pick none, with *failed set (and error written) when no dialog could be
+shown */
+static BOOL data_choose_image(char *path, int size, BOOL halo_pc, BOOL *failed, char *error, int error_size)
 {
 	static const SDL_DialogFileFilter xbox_filters[] =
 	{
@@ -730,6 +748,9 @@ static BOOL data_choose_image(char *path, int size, BOOL halo_pc)
 		SDL_PumpEvents();
 		SDL_Delay(50);
 	}
+	*failed = choice.failed;
+	if (choice.failed)
+		snprintf(error, (size_t)error_size, "%s", choice.error);
 	if (!choice.path[0])
 		return FALSE;
 	snprintf(path, (size_t)size, "%s", choice.path);
@@ -869,9 +890,29 @@ BOOL platform_offer_game_data(char *destination, unsigned long size)
 				return TRUE;
 			continue;
 		}
-		/* no file picked: ask again */
-		if (!data_choose_image(image, sizeof(image), answer == _choice_halo_pc))
-			continue;
+		/* no file picked: ask again; no file dialog at all: say why, or the
+		same question comes back without end */
+		{
+			BOOL failed = FALSE;
+
+			if (!data_choose_image(image, sizeof(image), answer == _choice_halo_pc, &failed, error,
+				sizeof(error)))
+			{
+				if (failed)
+				{
+					char explanation[1400];
+
+					platform_log("no file dialog could be shown: %s", error);
+					snprintf(explanation, sizeof(explanation),
+						"No file dialog could be shown (%s).\n\n"
+						"Install zenity or the desktop portal, or choose Make the folders and copy "
+						"the maps folder of your Xbox disc into %s/maps yourself.",
+						error, destination);
+					SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Chupathingy", explanation, NULL);
+				}
+				continue;
+			}
+		}
 		kind = platform_import_kind(image);
 		if (kind == _data_unknown)
 		{
@@ -1273,6 +1314,8 @@ int platform_window_sizes(long *widths, long *heights, int maximum)
 /* the window's size (platform_window_size_setting), as the window was made
 or last resized: platform_display_apply */
 static long platform_window_width = -1, platform_window_height = -1;
+/* the last configured mode; F11 can change the window independently */
+static int platform_window_mode = _display_mode_windowed;
 #endif
 
 #ifndef HALO_ANDROID
@@ -1450,6 +1493,7 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 	}
 #ifndef HALO_ANDROID
 	platform_fullscreen_requested = platform_fullscreen_setting();
+	platform_window_mode = platform_display_mode();
 	platform_fullscreen_kind_apply();
 #endif
 #ifdef __APPLE__
@@ -1545,14 +1589,18 @@ and borderless's resolution are taken up between frames
 void platform_display_apply(void)
 {
 #ifndef HALO_ANDROID
-	BOOL fullscreen = platform_fullscreen_setting();
+	int mode = platform_display_mode();
 	long width, height;
 
 	if (!platform_window)
 		return;
 	platform_fullscreen_kind_apply();
-	if (platform_window_fullscreen() != (fullscreen != FALSE))
-		platform_window_set_fullscreen(fullscreen);
+	/* Saving unrelated settings must preserve the window mode chosen by F11. */
+	if (mode != platform_window_mode)
+	{
+		platform_window_mode = mode;
+		platform_window_set_fullscreen(platform_fullscreen_setting());
+	}
 	platform_window_size_setting(&width, &height);
 	if (width != platform_window_width || height != platform_window_height)
 	{
@@ -1684,12 +1732,18 @@ void platform_video_swap(void)
 {
 	static Uint64 next_frame;
 	Uint64 interval, now;
+	Uint64 swap_start = SDL_GetTicks(), swap_time;
 
 #ifdef HALO_BGFX
 	/* (the device presents: d3d8_bgfx.inl; this paces the frames) */
 	if (!xgpu_bgfx)
 #endif
 	SDL_GL_SwapWindow(platform_window);
+	/* (a frame the graphics driver held for seconds: the game froze, and
+	online, a host stops hearing a machine after a few; the log says where) */
+	swap_time = SDL_GetTicks() - swap_start;
+	if (swap_time >= 2000)
+		platform_log("display: showing a frame took %.1f s in the graphics driver", (double)swap_time / 1000.0);
 	interval = frame_interval_ns();
 	if (!interval)
 		return;
@@ -1708,10 +1762,71 @@ SDL_Window *platform_sdl_window(void)
 	return platform_window;
 }
 
+#if !defined(HALO_ANDROID) && !defined(_WIN32) && !defined(__APPLE__)
+/* port: X11 without XInput2 (a 32-bit libSDL3 whose 32-bit libXi.so.6 is
+missing, as with Arch Linux's lib32-sdl3, falls back to plain X11 or
+XWayland) has no relative mouse: SDL_SetWindowRelativeMouseMode fails. The
+mouse is then held with a hidden cursor, a grab of the window (which also
+lets XWayland lock the pointer) and a warp back to the window's middle after
+it moves. */
+#define MOUSE_WARP_FALLBACK
+static BOOL mouse_warp_capture;
+static int mouse_warp_x;
+static int mouse_warp_y;
+
+static void mouse_warp_to_middle(void)
+{
+	int width = 0, height = 0;
+
+	SDL_GetWindowSize(platform_window, &width, &height);
+	if (width > 0 && height > 0)
+	{
+		mouse_warp_x = width / 2;
+		mouse_warp_y = height / 2;
+		SDL_WarpMouseInWindow(platform_window, (float)mouse_warp_x, (float)mouse_warp_y);
+	}
+}
+
+static void mouse_warp_release(void)
+{
+	if (mouse_warp_capture)
+	{
+		mouse_warp_capture = FALSE;
+		SDL_SetWindowMouseGrab(platform_window, false);
+		SDL_ShowCursor();
+	}
+}
+#endif
+
 void platform_mouse_capture(BOOL capture)
 {
-	if (platform_window)
-		SDL_SetWindowRelativeMouseMode(platform_window, capture ? true : false);
+	if (!platform_window)
+		return;
+#ifndef MOUSE_WARP_FALLBACK
+	SDL_SetWindowRelativeMouseMode(platform_window, capture ? true : false);
+#else
+	if (!capture)
+	{
+		SDL_SetWindowRelativeMouseMode(platform_window, false);
+		mouse_warp_release();
+		return;
+	}
+	if (SDL_GetKeyboardFocus() == platform_window &&
+		SDL_SetWindowRelativeMouseMode(platform_window, true))
+	{
+		mouse_warp_release();
+		return;
+	}
+	/* (before the window has the focus SDL sets its relative mode without
+	testing for XInput2, and if XInput2 is missing when the focus comes, the
+	plain motion is dropped until the mode is cleared: clear it, hold the
+	mouse here, and try the relative mode again when the focus comes) */
+	SDL_SetWindowRelativeMouseMode(platform_window, false);
+	mouse_warp_capture = TRUE;
+	SDL_HideCursor();
+	SDL_SetWindowMouseGrab(platform_window, true);
+	mouse_warp_to_middle();
+#endif
 }
 
 /* ---------- keyboard translation */
@@ -2210,6 +2325,9 @@ void platform_pump_events(void)
 	SDL_Event event;
 	static BOOL looked_at_clipboard;
 	BOOL look_at_clipboard = !looked_at_clipboard;
+#ifdef MOUSE_WARP_FALLBACK
+	BOOL mouse_needs_warp = FALSE;
+#endif
 
 #ifdef HALO_CONSOLE_PERFORMANCE_MODE
 	console_performance_update();
@@ -2303,6 +2421,11 @@ void platform_pump_events(void)
 				if (event.key.down)
 					keys_pressed[event.key.scancode] = 1;
 			}
+			if (event.key.down && !event.key.repeat &&
+				(event.key.scancode < SDL_SCANCODE_LCTRL || event.key.scancode > SDL_SCANCODE_RGUI))
+			{
+				movie_skip_presses++;
+			}
 			if (binding_capture == _binding_capture_waiting && event.key.down && !event.key.repeat &&
 				event.key.scancode != SDL_SCANCODE_F11 && event.key.scancode != SDL_SCANCODE_F12)
 			{
@@ -2347,11 +2470,23 @@ void platform_pump_events(void)
 				break;
 			}
 #endif
+#ifdef MOUSE_WARP_FALLBACK
+			/* port: the mouse held without XInput2: the move the warp back to
+			the middle makes is not the player's */
+			if (mouse_warp_capture)
+			{
+				if ((int)event.motion.x == mouse_warp_x && (int)event.motion.y == mouse_warp_y)
+					break;
+				mouse_needs_warp = TRUE;
+			}
+#endif
 			input_state.mouse_dx += event.motion.xrel;
 			input_state.mouse_dy += event.motion.yrel;
 			break;
 		case SDL_EVENT_MOUSE_BUTTON_DOWN:
 		case SDL_EVENT_MOUSE_BUTTON_UP:
+			if (event.button.down)
+				movie_skip_presses++;
 			if (event.button.button < 32)
 			{
 				if (event.button.down)
@@ -2393,6 +2528,16 @@ void platform_pump_events(void)
 				if (event.button.down)
 					mouse_buttons_pressed[event.button.button] = 1;
 			}
+#ifdef MOUSE_WARP_FALLBACK
+			/* port: a click in play with the mouse held neither way (the
+			relative mode did not take) holds it again */
+			if (event.button.down && !input_state.mouse_released &&
+				!input_state.ui_pointer && !mouse_warp_capture &&
+				!SDL_GetWindowRelativeMouseMode(platform_window))
+			{
+				platform_mouse_capture(TRUE);
+			}
+#endif
 			break;
 		case SDL_EVENT_MOUSE_WHEEL:
 			if (binding_capture == _binding_capture_waiting && event.wheel.y != 0.0f)
@@ -2444,6 +2589,10 @@ void platform_pump_events(void)
 			memset(input_state.mouse_buttons, 0, sizeof(input_state.mouse_buttons));
 			memset(mouse_buttons_pressed, 0, sizeof(mouse_buttons_pressed));
 			input_state.focused = FALSE;
+#ifdef MOUSE_WARP_FALLBACK
+			/* port: the held mouse let go while another window has the focus */
+			mouse_warp_release();
+#endif
 #ifdef HALO_ANDROID
 			touch_input_cancel();
 #endif
@@ -2461,6 +2610,8 @@ void platform_pump_events(void)
 		case SDL_EVENT_FINGER_MOTION:
 		case SDL_EVENT_FINGER_UP:
 		case SDL_EVENT_FINGER_CANCELED:
+			if (event.type == SDL_EVENT_FINGER_DOWN)
+				movie_skip_presses++;
 			touch_input_event(event.type, &event.tfinger);
 			break;
 #endif
@@ -2510,6 +2661,13 @@ void platform_pump_events(void)
 			break;
 		}
 	}
+#ifdef MOUSE_WARP_FALLBACK
+	if (mouse_warp_capture && mouse_needs_warp && !input_state.ui_pointer &&
+		!input_state.mouse_released)
+	{
+		mouse_warp_to_middle();
+	}
+#endif
 	pthread_mutex_unlock(&input_lock);
 	looked_at_clipboard = TRUE;
 	platform_invite_clipboard(look_at_clipboard);
@@ -2741,4 +2899,12 @@ void platform_input_read(struct platform_input_state *state, BOOL consume_motion
 		input_state.mouse_wheel = 0;
 	}
 	pthread_mutex_unlock(&input_lock);
+}
+
+int platform_movie_skip_pressed(void)
+{
+	int pressed = movie_skip_presses != 0;
+
+	movie_skip_presses = 0;
+	return pressed;
 }
