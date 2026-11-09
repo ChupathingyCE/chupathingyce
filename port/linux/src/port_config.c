@@ -464,6 +464,19 @@ static const struct config_setting config_settings[] =
 #endif
 	{ "display.delta_profile", _config_boolean, "true", "HALO_DELTA_PROFILE", _environment_value, _platform_all,
 		"Show Delta Profile in the menus and Online Games." },
+#ifdef HALO_GAME_BROWSER
+	{ "display.online_games_view", _config_string, "\"public\"", "HALO_ONLINE_GAMES_VIEW", _environment_value,
+		_platform_all,
+		"The list Online Games opens on (LB and RB switch): \"all\",\n"
+		"\"public\" (Chupathingy and players' public games, no OpenCE\n"
+		"dedicated servers), \"chupathingy\" or \"opence\" (OpenCE's\n"
+		"dedicated servers)." },
+	{ "display.opence_empty_servers", _config_string, "\"folded\"", "HALO_OPENCE_EMPTY_SERVERS", _environment_value,
+		_platform_all,
+		"Empty OpenCE dedicated servers in Online Games' ALL and OPENCE lists:\n"
+		"\"folded\" puts them in one row at the end (A opens it), \"shown\"\n"
+		"lists each one." },
+#endif
 	{ "display.profile_names", _config_boolean, "true", "HALO_PROFILE_NAMES", _environment_value, _platform_all,
 		"In Delta games, show players by their shared Delta profile name." },
 	{ "display.server_messages", _config_boolean, "true", "HALO_SERVER_MESSAGES", _environment_value, _platform_all | _platform_xbox,
@@ -710,6 +723,27 @@ static const struct config_setting config_settings[] =
 		"Leave it empty for the default." },
 #endif
 
+#ifdef HALO_GUIDE
+	/* ---- the Guide (port/linux/game/guide.c) */
+	{ "controls.guide", _config_string, "\"F3\"", "HALO_KEY_GUIDE", _environment_value, _platform_all,
+		"The key that opens and closes the Guide: F3 to F10." },
+	{ "controls.guide_button", _config_boolean, "true", "HALO_GUIDE_BUTTON", _environment_value, _platform_all,
+		"Open the Guide with the controller's Guide button, where Chupathingy\n"
+		"can read it (Steam and the Xbox Game Bar may keep it for themselves)." },
+	{ "guide.hold_back", _config_boolean, "false", "HALO_GUIDE_HOLD_BACK", _environment_value, _platform_all,
+		"Open the Guide by holding Back for about half a second in the menus.\n"
+		"Off by default: the menus get the Back press first, as on the Xbox." },
+	{ "guide.pause_menu", _config_boolean, "true", "HALO_GUIDE_PAUSE_MENU", _environment_value, _platform_all,
+		"Put GUIDE in the pause menu, in every menu set." },
+	{ "guide.notify_in_game", _config_boolean, "false", "HALO_GUIDE_NOTIFY_IN_GAME", _environment_value,
+		_platform_all,
+		"Show the Guide's notifications during a game. They always show in\n"
+		"the menus." },
+	{ "guide.notify_online", _config_boolean, "false", "HALO_GUIDE_NOTIFY_ONLINE", _environment_value,
+		_platform_all,
+		"Show a notification in the menus when a friend comes online." },
+#endif
+
 	/* ---- chat */
 	{ "chat.enabled", _config_boolean, "true", "HALO_CHAT", _environment_value, _platform_all | _platform_xbox,
 		"Text chat with Chupathingy players. T talks to everyone, and Y to your\n"
@@ -911,6 +945,15 @@ static const struct config_setting config_settings[] =
 		_platform_all,
 		"Show your Chupathingy player ID to other Chupathingy players over\n"
 		"Delta." },
+#if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_GUIDE)
+	{ "network.share_presence", _config_boolean, "true", "HALO_NET_SHARE_PRESENCE", _environment_value,
+		_platform_all,
+		"Let your Delta profile show which game you're playing. While you play\n"
+		"a Delta game, Chupathingy tells the site which game, about once a\n"
+		"minute. The site shows the game only to people you allow, and lets\n"
+		"only those allowed to join see its invite. Nothing about other\n"
+		"players is sent. \"Show when I'm playing\" on the site hides it too." },
+#endif
 #ifdef HALO_GAME_BROWSER
 	{ "network.browser_url", _config_string, "\"https://stats.chupathingy.org\"", "HALO_NET_BROWSER", _environment_value,
 		_platform_all | _platform_server,
@@ -1225,6 +1268,12 @@ static const struct config_setting config_settings[] =
 		"The answer to the update question, for tests: \"yes\", \"no\" or\n"
 		"\"never\". Leave it empty to ask." },
 #endif
+#ifdef HALO_GUIDE
+	{ "debug.guide_open", _config_boolean, "false", "HALO_GUIDE_OPEN", _environment_set_is_true, _platform_all,
+		"Open the Guide once the menus or a map are up, for tests." },
+	{ "debug.guide_toast", _config_string, "\"\"", "HALO_GUIDE_TOAST", _environment_value, _platform_all,
+		"Show a test notification with this text once. Leave it empty for none." },
+#endif
 	{ "debug.chat_test", _config_string, "\"\"", "HALO_CHAT_TEST", _environment_value, _platform_all,
 		"Scripted chat for tests, as steps separated by ;. Each step is\n"
 		"\"<seconds>:<all|team|server|mute|unmute|localmute|log|close|type>[:<text>]\".\n"
@@ -1515,6 +1564,10 @@ static const struct
 	{ "chat", 0,
 		"The text chat you see and send. The chat rules for games you host are\n"
 		"in [network]." },
+#ifdef HALO_GUIDE
+	{ "guide", 0,
+		"The Guide, which opens over the menus or a game (F3)." },
+#endif
 	{ "game", 0,
 		"How games play. The bomb settings are for Bomb and Grifball games you\n"
 		"host." },
@@ -3399,6 +3452,8 @@ static const struct
 	{ "display.scoreboard_team_layout", { "teams", "score", NULL }, "\"teams\"" },
 	{ "display.scoreboard_platforms", { "auto", "on", "off", NULL }, "\"auto\"" },
 	{ "display.follow_camera", { "long_waits", "always", "off", NULL }, "\"off\"" },
+	{ "display.online_games_view", { "all", "public", "chupathingy", "opence", NULL }, "\"public\"" },
+	{ "display.opence_empty_servers", { "folded", "shown", NULL }, "\"folded\"" },
 	{ "display.texture_decode", { "auto", "gpu", "cpu", NULL }, "\"auto\"" },
 	{ "audio.resampling", { "sinc", "linear", NULL }, "\"sinc\"" },
 	{ "input.touch_controls", { "on", "auto", "off", NULL }, "\"on\"" },

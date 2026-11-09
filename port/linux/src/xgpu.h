@@ -228,6 +228,12 @@ from guest memory as needed; *target receives GL_TEXTURE_2D etc. */
 GLuint xgpu_texture_get(const DWORD *resource, const D3DCOLOR *palette, GLenum *target,
 	struct xgpu_texture_description *description);
 void xgpu_texture_cache_begin_frame(void);
+/* (not on the consoles: HALO_CONSOLE_NO_GUIDE) a plain 2D texture's first
+level, read for the port's own drawing (the Guide's plasma: ui_overlay.h),
+as RGBA bytes with rows from the top; NULL for one it does not read (a cube,
+a volume, a palette's, larger than 1024 square) or without memory. The
+caller frees it */
+unsigned char *xgpu_texture_rgba(const DWORD *resource, unsigned long *width, unsigned long *height);
 
 /* ---------- render targets */
 
@@ -286,6 +292,7 @@ void xgpu_bgfx_texture_delete(unsigned int name);
 void xgpu_bgfx_overlay_draw(const void *vertices, int count, int vertex_bytes, const unsigned char *atlas, int atlas_size,
 	int dirty_top, int dirty_bottom, const unsigned char *icons, int icon_size, int icon_count,
 	const unsigned char *picture, int picture_width, int picture_height, int picture_serial,
+	const unsigned char *plasma, int plasma_width, int plasma_height, int plasma_serial, const float plasma_shift[4],
 	const float cutouts[4][4], int window_width, int window_height);
 #endif
 
