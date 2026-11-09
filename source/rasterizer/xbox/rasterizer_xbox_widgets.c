@@ -924,6 +924,7 @@ long _rasterizer_widget_submit_occlusion_test(
 			pixel_count = MAX(0, (x1 - x0) * (y1 - y0));
 			if (pixel_count > 0)
 			{
+				HALO_PERF_COUNT(_halo_perf_visibility_tests, 1);
 				IDirect3DDevice8_BeginVisibilityTest(global_d3d_device);
 				IDirect3DDevice8_Begin(
 					global_d3d_device,

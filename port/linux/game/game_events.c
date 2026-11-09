@@ -62,6 +62,7 @@ Called each frame from game_stats_update (main.c).
 #include "../src/event_log.h"
 #include "../src/delta_maps.h"
 #include "../src/map_report.h"
+#include "../src/posix.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -177,6 +178,9 @@ static struct
 	long frames;
 	double frame_sum;
 	double frame_most;
+	/* the sockets' totals at the last health sample (posix_socket_traffic) */
+	unsigned long long traffic_sent;
+	unsigned long long traffic_received;
 } game_events;
 
 /* ---------- private code */
@@ -430,7 +434,7 @@ static void map_info_update(void)
 }
 
 /* the game's statistics of a player, as the log's totals */
-static void player_totals(struct player_datum const *player, int place, int score, struct event_log_player_totals *totals)
+static void player_totals(long player_index, struct player_datum const *player, int place, int score, struct event_log_player_totals *totals)
 {
 	struct game_statistics const *statistics = &player->statistics;
 
@@ -460,6 +464,22 @@ static void player_totals(struct player_datum const *player, int place, int scor
 	case game_engine_race:
 		totals->laps = statistics->multiplayer_statistics.race_statistics.laps;
 		break;
+	/* (Bomb's scores and carries are CTF's: game_engine_bomb.c) */
+	case game_engine_bomb:
+		totals->flag_grabs = statistics->multiplayer_statistics.ctf_statistics.flag_grabs;
+		totals->flag_scores = statistics->multiplayer_statistics.ctf_statistics.flag_scores;
+		{
+			long carry_seconds, carrier_kills, kills_as_carrier;
+
+			if (game_engine_bomb_player_statistics(player_index, &carry_seconds, &carrier_kills, &kills_as_carrier))
+			{
+				totals->bomb = 1;
+				totals->bomb_carry_time = (int)carry_seconds;
+				totals->bomb_carrier_kills = (int)carrier_kills;
+				totals->bomb_kills_as_carrier = (int)kills_as_carrier;
+			}
+		}
+		break;
 	}
 }
 
@@ -484,7 +504,7 @@ static void begin_game(long tick)
 	/* (a built-in variant has no name of its own: its game type's) */
 	if (!game.gametype[0])
 	{
-		static char const *const engines[] = { "", "CTF", "Slayer", "Oddball", "King of the Hill", "Race" };
+		static char const *const engines[] = { "", "CTF", "Slayer", "Oddball", "King of the Hill", "Race", "Bomb" };
 		long engine = variant->game_engine_index;
 
 		snprintf(game.gametype, sizeof(game.gametype), "%s%s", variant->universal_variant.teams && engine == 2 ? "Team " : "",
@@ -600,7 +620,7 @@ static void send_game(boolean final, int reason)
 
 			if (!tracked)
 				continue;
-			player_totals(player, place_of[absolute_index], score_of[absolute_index], &totals);
+			player_totals(iterator.datum_index, player, place_of[absolute_index], score_of[absolute_index], &totals);
 			event_log_player_totals(tracked->slot, &totals);
 		}
 	}
@@ -742,6 +762,23 @@ static void update_objectives(struct tracked *tracked, struct player_datum *play
 			objective(tracked, player, tick, EVENT_LOG_OBJECTIVE_RACE_LAP, position);
 		tracked->laps = statistics->race_statistics.laps;
 		break;
+	/* (Bomb's goals are CTF's statistics; its carrier, the unit's hands) */
+	case game_engine_bomb:
+	{
+		long bomb_index = game_engine_bomb_weapon();
+		boolean holding = bomb_index != NONE && player->unit_index != NONE &&
+			unit_has_weapon(player->unit_index, bomb_index);
+
+		if (holding && !tracked->holding_ball)
+			objective(tracked, player, tick, EVENT_LOG_OBJECTIVE_BOMB_GRAB, position);
+		for (value = tracked->flag_scores; value < statistics->ctf_statistics.flag_scores; value++)
+			objective(tracked, player, tick, EVENT_LOG_OBJECTIVE_BOMB_SCORE, position);
+		if (!holding && tracked->holding_ball && tracked->flag_scores == statistics->ctf_statistics.flag_scores)
+			objective(tracked, player, tick, EVENT_LOG_OBJECTIVE_BOMB_DROP, position);
+		tracked->holding_ball = holding;
+		tracked->flag_scores = statistics->ctf_statistics.flag_scores;
+		break;
+	}
 	}
 }
 
@@ -945,12 +982,17 @@ static void update_health(long tick)
 	}
 	game_events.frame_time = now;
 	if (!game_events.health_time)
+	{
 		game_events.health_time = now;
+		posix_socket_traffic(&game_events.traffic_sent, &game_events.traffic_received);
+	}
 	if (now - game_events.health_time >= HEALTH_MILLISECONDS && game_events.frames)
 	{
 		struct event_log_record record;
 		struct data_iterator iterator;
 		int cpu, resident, players = 0;
+		unsigned long long sent, received;
+		double kilobits = 8.0/(double)(now - game_events.health_time);
 
 		data_iterator_new(&iterator, player_data);
 		while (data_iterator_next(&iterator))
@@ -966,6 +1008,13 @@ static void update_health(long tick)
 		record.value[2] = (int)(100.0 * game_events.frame_most + 0.5);
 		record.value[3] = resident;
 		record.bits = (unsigned int)cpu;
+		/* (the sockets' traffic since the last sample, in kilobits a second:
+		bytes times 8 over milliseconds) */
+		posix_socket_traffic(&sent, &received);
+		record.position[0] = (float)((double)(received - game_events.traffic_received)*kilobits);
+		record.position[1] = (float)((double)(sent - game_events.traffic_sent)*kilobits);
+		game_events.traffic_sent = sent;
+		game_events.traffic_received = received;
 		event_log_add(&record);
 		game_events.health_time = now;
 		game_events.frames = 0;

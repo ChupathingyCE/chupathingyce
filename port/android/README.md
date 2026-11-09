@@ -39,7 +39,7 @@ ninja) and these items:
 `ninja android` builds only the game image and the native libraries.
 
 The app is `dev.horrible.chupathingyce`, and its name on the device is
-ChupathingyCE. Refer to "App ID, signing and versions".
+Chupathingy. Refer to "App ID, signing and versions".
 
 ## The native 64-bit build (experimental)
 
@@ -58,9 +58,10 @@ the same Gradle module built with `-Pnative64`, so the two builds' APKs
 sit side by side. It is the same app: the same ID
 (`dev.horrible.chupathingyce`), name, key and version code. Either build
 installs over the other and keeps the data folder and the saves. Its
-updates come from the release asset `chupathingyce-android64-<config>.zip`,
-the usual build's from `chupathingyce-android-<config>.zip` (refer to
-"Updates").
+updates come from the release asset `chupathingyce-android64-<config>.zip`.
+Since 0.9.0a the 64-bit app is the only Android download. CI no longer builds
+the usual build's `chupathingyce-android-<config>.zip`; its code stays here
+(refer to "Updates").
 
 The game does not use fixed addresses. Its Xbox address space (4 GB,
 `source/cseries/xbox_address.h`) is reserved wherever the process has room,
@@ -86,8 +87,8 @@ A crash report gives addresses in `libmain.so`. To get the names, enter
 
 The game needs the `maps/` folder from an Xbox disc image (`.xiso` or
 `.iso`) of any version of the game. The app extracts `maps/` from the disc
-image, and the Bink movies (`bink/`) that the folder lacks. The movies are
-not played on this build yet. The app keeps the data in
+image, and the Bink movies (`bink/`) that the folder lacks, which the game
+plays. The app keeps the data in
 `/sdcard/Android/data/dev.horrible.chupathingyce/files`.
 
 To install the data with the app:
@@ -118,8 +119,8 @@ To make a copy of the saved games, enter
 `adb pull /sdcard/Android/data/dev.horrible.chupathingyce/files/save`.
 
 The app plays Halo PC (Custom Edition, HaloMD and retail) maps as the other
-builds do: refer to "Halo PC maps" in the main
-[README](../../README.md#halo-pc-maps).
+builds do: refer to "Halo PC maps" in
+[docs/maps.md](../../docs/maps.md#halo-pc-maps).
 
 To add maps on the device, use **Import maps**: hold the app's icon and
 choose Import Halo PC maps, or, in the game, open the touch controls'
@@ -219,7 +220,8 @@ them. The setting `input.touch_controls` changes this (refer to
 
 The buttons at the top of the screen:
 
-- "Hide" removes the controls until you push "Touch".
+- "Hide" removes the controls, and the "Options" button with them, until
+  you push "Touch".
 - "Options" opens these items:
   - "General": the phone's vibration (on by default; it follows the
     vibration setting of the game's profile), aiming with the gyroscope
@@ -253,21 +255,23 @@ These settings are only for Android:
 | --- | --- |
 | `input.touch_controls` | The touch controls in a game. `"on"` (the default): shown on a touchscreen, also with a controller connected. `"auto"`: shown only while no controller is connected. `"off"`: never shown. A device without a touchscreen never shows them. The menus take taps with each value. |
 | `display.screen_width` | The number of columns of the 480-line picture. `0` (the default): the shape of the display (1068 on a 20:9 phone). `640`: the 4:3 shape of the Xbox. |
+| `display.resolution_limit` | The lines the game draws at, scaled up to the display. `"480"` (the default): the game's own. `"720"`, `"900"`, `"1080"` (or any number between): sharper, but more work for the GPU and the battery. `"native"`: the display's own. Never more than the display has. Video Setup's Resolution sets it, and a change applies at once. |
 | `display.texture_decode` | Where the compressed (DXT) textures of the maps are unpacked. `"auto"` (the default): by the game on Adreno graphics (Snapdragon), whose driver draws them with dark speckles, and by the driver on other graphics. `"gpu"`: by the driver. `"cpu"`: by the game, as they load (more memory, as on Mali). |
 | `debug.sample_seconds` | Refer to "Find problems". |
 
 ## Internet play
 
-Internet play operates as on Linux, but without Discord. When the game
-hosts a system link game, it puts the invite link on the clipboard and
-shows a notice.
+Internet play operates as on Linux, but without Discord. With
+`network.copy_to_clipboard` set to `true`, when the game hosts a system link
+game, it puts the invite link on the clipboard and shows a notice.
 
 To join a game, do one of these steps:
 
 - Open the link. The app is the handler of `halo://join/...` links. If the
   game does not operate, the app starts it. The app writes the link to
   `files/join_link.txt`, and the game reads it.
-- Copy the link and go to the game.
+- Copy the link and select PASTE LINK in Join Game's Direct Link (or set
+  `network.join_from_clipboard` to `"ask"` and go to the game).
 
 On the local network:
 
@@ -288,7 +292,7 @@ select "Yes":
 
 1. The app downloads the new version.
 2. The package installer of Android opens. At the first update, Android asks
-   you to let ChupathingyCE install apps. Allow it.
+   you to let Chupathingy install apps. Allow it.
 3. Select "Update". Android replaces the app.
 4. Select "Open" to start the new version.
 
@@ -594,10 +598,16 @@ assembly of the port is necessary:
 
 ## Limits
 
-- Bink video is not available on this build. The game skips the movies.
-  The app still copies the disc's `bink/` movies with `maps/`.
+The limits of memory, fixed addresses and page size are the usual build's.
+The native 64-bit build has the desktop's memory and needs no fixed
+address (refer to "The native 64-bit build").
+
+- Bink video is decoded with FFmpeg behind the Bink calls the game makes
+  (`port/linux/src/bink_ffmpeg.c`, as on Linux and macOS), built for the
+  guest (`tools/android_ffmpeg.py`) and for the 64-bit app
+  (`tools/ffmpeg_build.py`). A missing or unreadable movie is skipped.
 - The Xbox memory is the 128 MB of a development kit, not the 512 MB of the
-  computer builds. Thus the texture cache is 44 MB, not 128 MB
+  computer builds. Thus the texture cache is 44 MB, not 256 MB
   (`port/linux/include/halo_port_capacity.h`). This is sufficient for the
   Xbox maps and for most Halo PC maps (Portent draws 23 MB of textures in
   a frame). Foundation draws up to 66 MB in a frame: some surfaces then
@@ -612,4 +622,5 @@ assembly of the port is necessary:
 - The size of the touch controls follows the height of the screen. On a
   tablet they are larger than on a phone.
 - Kernels with 16 KB pages (a developer option of Android 15) do not
-  operate. The Xbox memory uses 4 KB pages.
+  operate with this build. The Xbox memory uses 4 KB pages. The native
+  64-bit build supports them.

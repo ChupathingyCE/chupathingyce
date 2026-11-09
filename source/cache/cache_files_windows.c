@@ -189,6 +189,10 @@ symbols in this file:
 #ifdef HALO_CUSTOM_EDITION
 #include "main/console.h"
 #endif
+/* port: the map families' names and files (port/linux/game/map_families.c):
+a pack's Xbox maps, <file>@<pack>, are read from maps_<pack> */
+#include "halo_map_families.h"
+#include "halo_join_reasons.h"
 #include "tag_files/files.h"
 #include "tag_files/tag_files.h"
 #include "scenario/scenario_definitions.h"
@@ -402,6 +406,9 @@ static void cached_map_file_set_modification_date(
 	short map_file_index);
 static void cached_map_file_read_header(
 	short map_file_index);
+static void cached_map_file_name_family(
+	short map_file_index,
+	char const *map_name);
 static void cached_map_files_delete(
 	short map_file_index);
 static void cache_files_verify_language(
@@ -466,11 +473,19 @@ static unsigned long ce_refused_map_checksum;
 /* and what the game tells the player about it (ce_map_check's message) */
 static char ce_refused_map_message[320];
 char const *ce_map_refusal_message(void);
+#ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
+/* a 64 MB console's: its tag cache the Xbox's (port/xbox's xbox_ce_files.c),
+a map opened unchecked, and one refused as it loaded */
+extern int platform_ce_alias;
+static boolean ce_map_unchecked;
+static boolean ce_map_refused_open;
+#endif
 
 static boolean ce_map_name_is(
 	const char *map_name)
 {
-	return map_family_parse(map_name, NULL, 0) != _map_family_xbox;
+	/* (a pack's Xbox map, <file>@<pack>, is the Xbox loader's: not one of these) */
+	return !map_family_is_xbox_format(map_family_parse(map_name, NULL, 0));
 }
 
 /* the map named <name>@ce, @md or @pc opened in its slot (once): FALSE if
@@ -486,6 +501,16 @@ static boolean ce_map_open(
 	HANDLE file;
 	short family;
 
+#ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
+	/* (one refused as it loaded: its slot let go of) */
+	if (ce_map_refused_open && ce_map_file.file)
+	{
+		CloseHandle(ce_map_file.file);
+		ce_map_file.file = NULL;
+		ce_map_name[0] = 0;
+	}
+	ce_map_refused_open = FALSE;
+#endif
 	if (ce_map_file.file && !_stricmp(ce_map_name, map_name))
 		return TRUE;
 	if (strlen(map_name) >= sizeof(ce_map_name) - 1)
@@ -502,8 +527,38 @@ static boolean ce_map_open(
 	}
 	family = map_family_parse(map_name, file_name, sizeof(file_name));
 	if (!map_family_find(family, file_name, path, sizeof(path)))
+	{
+		/* (an MCC map is in the folder: said so, once, not "damaged") */
+		if (map_family_find_mcc(family, file_name, path, sizeof(path)) && _stricmp(ce_refused_map_name, map_name))
+		{
+			error(_error_silent, "%s map %s refused: %s. %s", map_family_kind(family), map_name,
+				MAP_REASON_MCC_UNSUPPORTED, path);
+			console_warning("%s map %s: %s", map_family_kind(family), map_name, MAP_REASON_MCC_UNSUPPORTED);
+			snprintf(ce_refused_map_message, sizeof(ce_refused_map_message), "%s.", MAP_REASON_MCC_UNSUPPORTED);
+			memset(ce_refused_map_name, 0, sizeof(ce_refused_map_name));
+			strncpy(ce_refused_map_name, map_name, sizeof(ce_refused_map_name) - 1);
+			ce_refused_map_size = 0;
+			ce_refused_map_checksum = 0;
+		}
 		return FALSE;
-	file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL);
+	}
+	/* (Custom Edition's resource maps, which every such map reads: without
+	them, or with Halo PC's own in their place, it is refused before it is
+	read, saying what it needs, and asked again the next time, since the
+	player may have added them since: map_family_resources_ready logs each
+	place it looked) */
+	if (!map_family_resources_ready(ce_refused_map_message, sizeof(ce_refused_map_message)))
+	{
+		error(_error_silent, "%s map %s refused: Custom Edition's resource maps are missing or not Custom Edition's",
+			map_family_kind(family), map_name);
+		console_warning("%s map %s: %s", map_family_kind(family), map_name, MAP_REASON_CE_RESOURCES);
+		memset(ce_refused_map_name, 0, sizeof(ce_refused_map_name));
+		strncpy(ce_refused_map_name, map_name, sizeof(ce_refused_map_name) - 1);
+		ce_refused_map_size = 0;
+		ce_refused_map_checksum = 0;
+		return FALSE;
+	}
+	file = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL);
 	if (file == INVALID_HANDLE_VALUE)
 		return FALSE;
 	memset(&header, 0, sizeof(header));
@@ -533,8 +588,13 @@ static boolean ce_map_open(
 			"The %s map %.63s can't be played: it isn't a map this game can read.", map_family_kind(family), file_name);
 	}
 	/* every offset, count and size in it that the port reads checked, before
-	it has a slot (port/linux/game/ce_map_checks.c) */
+	it has a slot (port/linux/game/ce_map_checks.c). A 64 MB console checks it
+	as it loads instead (ce_map_check_deferred): its tag cache is the Xbox's,
+	which the menus' map is in until then */
 	else if ((ce_map_cache_version = header.version,
+#ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
+		(platform_ce_alias && (ce_map_unchecked = TRUE)) ||
+#endif
 		ce_map_check(file, map_name, header.file_length, header.tag_data_offset, header.tag_data_size)))
 	{
 		if (ce_map_file.file)
@@ -564,12 +624,54 @@ static boolean ce_map_open(
 	return FALSE;
 }
 
+#ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
+/* the map open in its slot checked, if it was opened unchecked (a 64 MB
+console: above), as it loads (cache_files.c, its tag cache made the Xbox's):
+FALSE, and the map refused as ce_map_open refuses one, if it is refused */
+boolean ce_map_check_deferred(
+	void)
+{
+	struct cache_file_header const *header = &ce_map_file.header;
+
+	if (!ce_map_unchecked || !ce_map_file.file)
+		return TRUE;
+	ce_map_unchecked = FALSE;
+	ce_map_cache_version = header->version;
+	if (ce_map_check(ce_map_file.file, ce_map_name, header->file_length, header->tag_data_offset,
+		header->tag_data_size))
+	{
+		return TRUE;
+	}
+	strncpy(ce_refused_map_message, ce_map_refusal_message(), sizeof(ce_refused_map_message) - 1);
+	ce_refused_map_message[sizeof(ce_refused_map_message) - 1] = 0;
+	memset(ce_refused_map_name, 0, sizeof(ce_refused_map_name));
+	strncpy(ce_refused_map_name, ce_map_name, sizeof(ce_refused_map_name) - 1);
+	ce_refused_map_size = GetFileSize(ce_map_file.file, NULL);
+	ce_refused_map_checksum = header->checksum;
+	/* (closed once the load lets go of it: cache_file_close, then the next open) */
+	ce_map_refused_open = TRUE;
+	return FALSE;
+}
+#endif
+
 /* the map open in that slot, or NULL: its own sounds' samples are read
 from it as its tags load (port/linux/game/ce_resources.c) */
 HANDLE cache_files_ce_map_file(
 	void)
 {
 	return ce_map_file.file && ce_map_file.file != INVALID_HANDLE_VALUE ? ce_map_file.file : NULL;
+}
+
+/* port: whether a Custom Edition, HaloMD or Halo PC map (<name>@ce, ...) is
+there and not refused, opened as loading it would (ce_map_open); TRUE for
+any other map. The dedicated server asks before it plays one: a map refused
+as it loads stops on the damaged disc error (server/src/dedicated.c) */
+boolean cache_files_map_can_open(
+	const char *map_name)
+{
+	char const *name = tag_name_strip_path(map_name);
+
+	return !ce_map_name_is(name) || ce_map_open(name);
 }
 #endif
 
@@ -820,7 +922,12 @@ boolean cache_files_precache_map_begin(
 			header (cached_map_files_find_map): a map file whose header names
 			another map would be copied again each time it was asked for, for
 			ever */
-			if (_stricmp(header.name, cache_map_name) != 0)
+			/* (a pack's map, <file>@<pack>, names itself <file>: its slot is
+			named <file>@<pack> once it is copied, cached_map_file_name_family) */
+			char header_file[64];
+
+			map_family_parse(cache_map_name, header_file, sizeof(header_file));
+			if (_stricmp(header.name, header_file) != 0 || strlen(cache_map_name) >= sizeof(header.name))
 			{
 				error(_error_silent, "map '%s' names itself '%s' in its header: refused", cache_map_name, header.name);
 				platform_log("map %s.map names itself '%s' in its header; a map's name must be its file's",
@@ -928,6 +1035,8 @@ void cache_files_precache_map_end(
 	texture_cache_return_memory();
 	cached_map_file_set_modification_date(cache_file_globals.copying_to_map_file_index);
 	cached_map_file_read_header(cache_file_globals.copying_to_map_file_index);
+	cached_map_file_name_family(cache_file_globals.copying_to_map_file_index,
+		cache_file_globals.copying_to_map_file_name);
 	cache_file_globals.copy_in_progress = FALSE;
 	cache_file_globals.copying_to_map_file_index = NONE;
 
@@ -1150,6 +1259,38 @@ short cache_files_precache_map_status(
 
 /* ---------- private code */
 
+#ifdef HALO_CONSOLE_CACHE_SCREEN
+/* port: a new cache file made long a little at a time, with a screen between
+(halo_console_features.h): on the Steam Link's FAT32 one long step is a minute
+of zeros written with nothing shown */
+void console_cache_screen(unsigned long long done, unsigned long long total);
+void console_cache_screen_done(void);
+
+static unsigned long long cache_screen_done;
+static unsigned long long cache_screen_total;
+static boolean cache_screen_shown = FALSE;
+
+static void cache_screen_extend(
+	HANDLE file,
+	long size)
+{
+	const long step = 0x200000;
+	long length;
+
+	for (length = step; length < size; length += step)
+	{
+		if (SetFilePointer(file, length, NULL, FILE_BEGIN) == INVALID_SET_FILE_POINTER ||
+			!SetEndOfFile(file))
+		{
+			break;
+		}
+		cache_screen_shown = TRUE;
+		console_cache_screen(cache_screen_done + (unsigned long long)length, cache_screen_total);
+	}
+	return;
+}
+#endif
+
 static void cached_map_files_delete(
 	short map_file_index)
 {
@@ -1213,6 +1354,14 @@ static void cache_files_verify_language(
 	return;
 }
 
+#ifdef HALO_CONSOLE_WAIT_POLL
+/* port: the steps of making a cache file, in the console's log (where a
+console stopped, and in what) */
+#define CACHE_FILE_TRACE(...) console_trace(__VA_ARGS__)
+#else
+#define CACHE_FILE_TRACE(...) ((void)0)
+#endif
+
 #ifdef HALO_XBOX_CONSOLE
 static boolean cached_map_file_current(
 	struct cached_map_file *map_file,
@@ -1232,6 +1381,14 @@ static void cache_files_open_cache_files(
 	short map_file_index;
 
 	cached_map_files_delete(NUMBER_OF_CACHED_MAP_FILES);
+#ifdef HALO_CONSOLE_CACHE_SCREEN
+	for (map_file_index = 0;
+		map_file_index < NUMBER_OF_CACHED_MAP_FILES;
+		map_file_index++)
+	{
+		cache_screen_total += (unsigned long long)cached_map_file_get_size(map_file_index);
+	}
+#endif
 	for (map_file_index = 0;
 		map_file_index < NUMBER_OF_CACHED_MAP_FILES;
 		map_file_index++)
@@ -1243,6 +1400,7 @@ static void cache_files_open_cache_files(
 		valid = FALSE;
 		cached_map_file_get_path(map_file_index, path);
 		size = cached_map_file_get_size(map_file_index);
+		CACHE_FILE_TRACE("cache file %d: CreateFile %s", map_file_index, path);
 		file = CreateFileA(
 			path,
 			GENERIC_READ | GENERIC_WRITE,
@@ -1253,6 +1411,8 @@ static void cache_files_open_cache_files(
 			NULL);
 		if (file != INVALID_HANDLE_VALUE)
 		{
+			CACHE_FILE_TRACE("cache file %d: created or opened, length %lu, wanted %ld", map_file_index,
+				GetFileSize(file, NULL), size);
 			if (GetLastError() == ERROR_ALREADY_EXISTS &&
 				GetFileSize(file, NULL) == (unsigned long)size)
 			{
@@ -1267,6 +1427,7 @@ static void cache_files_open_cache_files(
 				}
 
 				completion_flag = FALSE;
+				CACHE_FILE_TRACE("cache file %d: header write issued", map_file_index);
 				cached_map_issue_async_write(
 					file,
 					&overlapped,
@@ -1276,10 +1437,18 @@ static void cache_files_open_cache_files(
 					&completion_flag,
 					cache_file_blocking_io_completion_routine);
 				cached_map_block_on_async_request(&completion_flag);
+				CACHE_FILE_TRACE("cache file %d: header write done (%d)", map_file_index, (int)completion_flag);
+#ifdef HALO_CONSOLE_CACHE_SCREEN
+				if (completion_flag)
+				{
+					cache_screen_extend(file, size);
+				}
+#endif
 				if (completion_flag &&
 					SetFilePointer(file, size, NULL, FILE_BEGIN) != INVALID_SET_FILE_POINTER &&
-					SetEndOfFile(file))
+					(CACHE_FILE_TRACE("cache file %d: SetEndOfFile", map_file_index), SetEndOfFile(file)))
 				{
+					CACHE_FILE_TRACE("cache file %d: SetEndOfFile done", map_file_index);
 					valid = TRUE;
 				}
 				else
@@ -1309,6 +1478,9 @@ static void cache_files_open_cache_files(
 		}
 
 		map_file->file = file;
+#ifdef HALO_CONSOLE_CACHE_SCREEN
+		cache_screen_done += (unsigned long long)size;
+#endif
 		if (valid)
 		{
 #ifdef HALO_64BIT
@@ -1317,7 +1489,9 @@ static void cache_files_open_cache_files(
 			char *cache_map_name = cached_map_file_get(map_file_index)->header.name;
 #endif
 
+			CACHE_FILE_TRACE("cache file %d: header read issued", map_file_index);
 			cached_map_file_read_header(map_file_index);
+			CACHE_FILE_TRACE("cache file %d: header read done", map_file_index);
 #ifdef HALO_64BIT
 			cache_map_name = map_file->header.name;
 #endif
@@ -1348,6 +1522,13 @@ static void cache_files_open_cache_files(
 			sizeof(struct cache_file_header));
 	}
 
+#ifdef HALO_CONSOLE_CACHE_SCREEN
+	if (cache_screen_shown)
+	{
+		console_cache_screen_done();
+	}
+#endif
+
 	return;
 }
 
@@ -1365,7 +1546,7 @@ static boolean cached_map_file_current(
 	boolean current = TRUE;
 
 	cache_file_get_map_path(cache_map_name, path);
-	file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
+	file = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
 	if (file != INVALID_HANDLE_VALUE)
 	{
 		FILETIME written;
@@ -1520,9 +1701,8 @@ static void cache_file_get_map_path(
 	{
 		MAXIMUM_MAP_PATH_LENGTH = 256,
 	};
-	int length = snprintf(path, MAXIMUM_MAP_PATH_LENGTH, "%s%s.map", cache_files_map_directory(), map_name);
-
-	if (length < 0 || length >= MAXIMUM_MAP_PATH_LENGTH)
+	/* (a pack's map, <file>@<pack>, is maps_<pack>'s <file>.map: map_family_xbox_path) */
+	if (!map_family_xbox_path(map_name, path, MAXIMUM_MAP_PATH_LENGTH))
 	{
 		error(_error_silent, "map path for '%.64s' is too long", map_name);
 		path[0] = 0;
@@ -1543,7 +1723,7 @@ static boolean cache_file_read_header_from_dvd(
 	file = CreateFileA(
 		path,
 		GENERIC_READ,
-		0,
+		FILE_SHARE_READ,
 		NULL,
 		OPEN_EXISTING,
 		0,
@@ -1603,6 +1783,9 @@ static short cached_map_files_find_free_map(
 			return NONE;
 	}
 
+#ifdef HALO_CONSOLE_OVERSIZED_MAPS
+find_in_range:
+#endif
 	for (map_file_index = first_map_file_index;
 		map_file_index <= last_map_file_index;
 		map_file_index++)
@@ -1625,6 +1808,21 @@ static short cached_map_files_find_free_map(
 			}
 		}
 	}
+
+#ifdef HALO_CONSOLE_OVERSIZED_MAPS
+	/* port: a map larger than its type's cache files (a map pack's
+	multiplayer maps, past retail's 47 MB) is copied to a campaign map's,
+	which hold 278 MB; the utility partition has no room for larger ones
+	(the six take 732 MB of its 750). A retail map always fits its own */
+	if (best_map_file_index == NONE && first_map_file_index != 0)
+	{
+		error(_error_silent, "map of %08x bytes is larger than its type's cache files (%08lx bytes): it takes a campaign map's",
+			file_length, (unsigned long)cached_map_file_get_size(first_map_file_index));
+		first_map_file_index = 0;
+		last_map_file_index = 1;
+		goto find_in_range;
+	}
+#endif
 
 	match_assert(
 		"c:\\halo\\SOURCE\\cache\\cache_files_windows.c",
@@ -1662,6 +1860,7 @@ static void CALLBACK cache_file_blocking_io_completion_routine(
 	unsigned long bytes_transferred,
 	OVERLAPPED *overlapped)
 {
+	CACHE_FILE_TRACE("cache file io completion: error %lu, %lu bytes", error_code, bytes_transferred);
 	match_assert(
 		"c:\\halo\\SOURCE\\cache\\cache_files_windows.c",
 		1405,
@@ -1720,6 +1919,9 @@ static void cached_map_issue_async_request(
 	{
 		unsigned long error_code;
 
+#ifdef HALO_CONSOLE_WAIT_POLL
+		console_wait_poll();
+#endif
 		SleepEx(0, TRUE);
 		SetLastError(ERROR_SUCCESS);
 		if (async_request_function(
@@ -1794,6 +1996,9 @@ static boolean cached_map_block_on_async_request(
 
 	while (!*completion_flag)
 	{
+#ifdef HALO_CONSOLE_WAIT_POLL
+		console_wait_poll();
+#endif
 		if (SleepEx(5000, TRUE) != WAIT_IO_COMPLETION)
 		{
 			break;
@@ -1864,6 +2069,53 @@ static void cached_map_file_read_header(
 		cached_map_file_invalidate(map_file_index);
 	}
 
+	return;
+}
+
+/* port: a slot that a pack's map (<file>@<pack>: halo_map_families.h) was
+copied into is named <file>@<pack>, in its header in memory and on the cache
+drive, so that it is found by that name (cached_map_files_find_map) and
+never taken for the retail map, or another pack's, of the same file's name,
+in this run or the next (cache_files_open_cache_files checks it against
+maps_<pack>'s file then). The header's name is its bytes alone, the same in
+either byte order */
+static void cached_map_file_name_family(
+	short map_file_index,
+	char const *map_name)
+{
+	struct cached_map_file *map_file = cached_map_file_get(map_file_index);
+	struct cache_file_header raw;
+	OVERLAPPED overlapped;
+	volatile boolean completion_flag;
+
+	if (map_family_parse(map_name, NULL, 0) == _map_family_xbox || !map_file->header.name[0] ||
+		strlen(map_name) >= sizeof(map_file->header.name))
+	{
+		return;
+	}
+	completion_flag = FALSE;
+	cached_map_issue_async_read(map_file->file, &overlapped, &raw, sizeof(raw), 0, &completion_flag,
+		cache_file_blocking_io_completion_routine);
+	cached_map_block_on_async_request(&completion_flag);
+	if (completion_flag)
+	{
+		memset(raw.name, 0, sizeof(raw.name));
+		strncpy(raw.name, map_name, sizeof(raw.name) - 1);
+		completion_flag = FALSE;
+		cached_map_issue_async_write(map_file->file, &overlapped, &raw, sizeof(raw), 0, &completion_flag,
+			cache_file_blocking_io_completion_routine);
+		cached_map_block_on_async_request(&completion_flag);
+	}
+	if (!completion_flag)
+	{
+		error(_error_silent, "cached map '%s': its slot could not be named for its family", map_name);
+		memset(&map_file->header, 0, sizeof(map_file->header));
+		return;
+	}
+	memset(map_file->header.name, 0, sizeof(map_file->header.name));
+	strncpy(map_file->header.name, map_name, sizeof(map_file->header.name) - 1);
+	/* (the header written is the copy's: its date stays the copy's, which
+	cached_map_file_current compares the pack's file with) */
 	return;
 }
 

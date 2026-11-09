@@ -16,7 +16,7 @@ Windows it is __stdcall too, and SDL would include windows.h without it) */
 #ifndef _WIN32
 #undef APIENTRY
 #endif
-#ifdef HALO_ANDROID
+#ifdef HALO_GL_ES
 #include <GLES3/gl32.h>
 #include <GLES2/gl2ext.h>
 #define GLAPIENTRY GL_APIENTRY
@@ -25,7 +25,7 @@ Windows it is __stdcall too, and SDL would include windows.h without it) */
 #endif
 #pragma pop_macro("APIENTRY")
 
-#ifdef HALO_ANDROID
+#ifdef HALO_GL_ES
 /* OpenGL ES 3.2 (port/android/README.md); tools/android_gl_stubs.py reads
 this list to generate the guest's entry points */
 /* ANDROID_GL_FUNCTIONS_BEGIN */
@@ -269,7 +269,7 @@ context has the extension, never required (gl_functions.c). On ES 3.0 and
 
 #define GL_DECLARE_FUNCTION(name) extern __typeof__(&name) halo_##name;
 GL_FUNCTIONS(GL_DECLARE_FUNCTION)
-#ifdef HALO_ANDROID
+#ifdef HALO_GL_ES
 GL_OPTIONAL_FUNCTIONS(GL_DECLARE_FUNCTION)
 #endif
 #undef GL_DECLARE_FUNCTION
@@ -277,7 +277,7 @@ GL_OPTIONAL_FUNCTIONS(GL_DECLARE_FUNCTION)
 /* call sites use the ordinary names; gl_functions.c, which defines the
 pointers, sees the declarations without these aliases */
 #ifndef GL_FUNCTIONS_DEFINE
-#ifdef HALO_ANDROID
+#ifdef HALO_GL_ES
 #define glGetString halo_glGetString
 #define glGetIntegerv halo_glGetIntegerv
 #define glCopyImageSubData halo_glCopyImageSubData
@@ -511,5 +511,14 @@ pointers, sees the declarations without these aliases */
 
 /* returns FALSE (and logs) if a required function is missing */
 int gl_functions_load(void);
+/* an entry point of a console's GL layer that is not OpenGL's, by name
+(d3d8_gl.c's console_gl_draw_again); NULL where there is none */
+void *gl_function_extra(const char *name);
+
+#ifdef HALO_CONSOLE_GLES2
+/* the port's: with the driver's ES 2 entry points loaded, fills in (or
+replaces) the ES 3 ones the renderer uses; FALSE if it cannot */
+int console_gles2_layer(void);
+#endif
 
 #endif

@@ -19,6 +19,16 @@ account to this game, how to answer it (the same screen: A links, B
 declines). The player key and the moderator key never leave this machine;
 only signatures of the server's challenge and of each action do, and only
 when the player acts.
+
+A game this machine hosts (a listen host, not a client) has the same screen
+for its host, with no sign-in: the pause menu's MODERATION (menu_tags.c) or
+Y (or M) opens it, and its actions are the host's kick and ban, as the
+console's `kick` and `ban` do them (network_server_manager.c): a kick lets
+the player join again, a ban is a line in bans.txt (for a while, or for
+ever), kept across the host's games. The host's own machine is never
+listed. A client never gets this: only the machine with the game's server
+does. While confirming, left and right pick a reason (optional), which the
+players are told and bans.txt keeps.
 */
 
 #ifdef HALO_GAME_BROWSER
@@ -29,6 +39,8 @@ when the player acts.
 #include "input/input.h"
 #include "interface/event_manager.h"
 #include "game/players.h"
+#include "game/game_engine.h"
+#include "networking/network_server_manager.h"
 #include "networking/network_game_globals.h"
 #include "networking/network_game_manager.h"
 #include "networking/network_client_manager.h"
@@ -70,6 +82,8 @@ enum
 {
 	COLOR_SHADE = 0x000000A0,
 	COLOR_PANEL = 0x081530F0,
+	/* (the screen's own panel: opaque, the pause menu under it hidden) */
+	COLOR_SCREEN_PANEL = 0x081530FF,
 	COLOR_PANEL_EDGE = 0x2F6DD0FF,
 	COLOR_TITLE = 0x3D8BFFFF,
 	COLOR_TEXT = 0xE6EEFCFF,
@@ -109,6 +123,24 @@ static struct moderation_choice const moderation_choices[] =
 	{ "Next map", _delta_moderation_action_next_map, 0, DELTA_MODERATION_MAP, FALSE },
 };
 
+/* the reasons a confirm may give (left and right), the first none: the same
+words go to the players and to bans.txt */
+static char const *const moderation_reasons[] =
+{
+	"",
+	"Cheating",
+	"Griefing",
+	"Team killing",
+	"Abusive chat",
+	"Spamming",
+};
+
+/* the host's own moderation: every kick and ban (as an owner's role) */
+enum
+{
+	HOST_PERMISSIONS = DELTA_MODERATION_KICK | DELTA_MODERATION_BAN | DELTA_MODERATION_BAN_TIMED,
+};
+
 /* a player of the game, as the screen lists them */
 struct moderation_player
 {
@@ -126,7 +158,11 @@ static struct
 	boolean open_held;
 	short selected;
 	short choice;
+	short reason;
 	boolean confirming;
+	/* this machine hosts the game: the host's kick and ban, no sign-in */
+	boolean host;
+	char host_name[16];
 	/* the players and the choices allowed, this frame */
 	short player_count;
 	struct moderation_player players[HALO_PORT_MAXIMUM_NETWORK_PLAYERS];
@@ -167,6 +203,7 @@ static void read_players(
 	long index;
 
 	moderation_screen.player_count = 0;
+	moderation_screen.host_name[0] = 0;
 	if (!game)
 		return;
 	for (index = 0; index < HALO_PORT_MAXIMUM_NETWORK_PLAYERS; index++)
@@ -175,8 +212,22 @@ static void read_players(
 		struct moderation_player *out;
 		long character;
 
-		if (!network_player_is_valid(player) || player->machine_index == local_machine)
+		if (!network_player_is_valid(player))
 			continue;
+		/* (the host's own name, shown; never a row) */
+		if (player->machine_index == local_machine)
+		{
+			if (moderation_screen.host && !moderation_screen.host_name[0])
+			{
+				for (character = 0; character < (long)NUMBEROF(player->name) && player->name[character] &&
+					character < (long)sizeof(moderation_screen.host_name) - 1; character++)
+				{
+					moderation_screen.host_name[character] = player_name_character_ascii(player->name[character]);
+				}
+				moderation_screen.host_name[character] = 0;
+			}
+			continue;
+		}
 		out = &moderation_screen.players[moderation_screen.player_count++];
 		for (character = 0; character < (long)NUMBEROF(player->name) && player->name[character] &&
 			character < (long)sizeof(out->name) - 1; character++)
@@ -199,13 +250,20 @@ static void read_choices(
 	for (index = 0; index < (short)NUMBEROF(moderation_choices); index++)
 	{
 		struct moderation_choice const *choice = &moderation_choices[index];
-		boolean allowed = (moderation->permissions & choice->permission) != 0;
+		unsigned int permissions = moderation_screen.host ? HOST_PERMISSIONS : moderation->permissions;
+		boolean allowed = (permissions & choice->permission) != 0;
 
 		/* (a timed ban the role's own limit allows, or any ban) */
 		if (choice->permission == DELTA_MODERATION_BAN_TIMED)
 		{
-			allowed = (moderation->permissions & DELTA_MODERATION_BAN) ||
+			allowed = (permissions & DELTA_MODERATION_BAN) ||
 				(allowed && (unsigned int)choice->minutes <= moderation->ban_minutes);
+		}
+		/* (the host's: kick and ban alone, which its own game does) */
+		if (moderation_screen.host && choice->action != _delta_moderation_action_kick &&
+			choice->action != _delta_moderation_action_ban)
+		{
+			allowed = FALSE;
 		}
 		if (allowed)
 			moderation_screen.allowed[moderation_screen.allowed_count++] = index;
@@ -227,6 +285,7 @@ static void act(
 {
 	struct moderation_choice const *choice;
 	short target = DELTA_WIRE_NO_MACHINE;
+	char const *reason = moderation_reasons[moderation_screen.reason];
 	char text[128];
 
 	if (!moderation_screen.allowed_count)
@@ -238,7 +297,23 @@ static void act(
 			return;
 		target = moderation_screen.players[moderation_screen.selected].machine_index;
 	}
-	if (!delta_peer_game_moderation_action(choice->action, target, choice->minutes, ""))
+	/* (the host's own game: its kick and ban, here) */
+	if (moderation_screen.host)
+	{
+		boolean done = choice->action == _delta_moderation_action_kick ?
+			network_game_server_host_kick_machine(target, reason) :
+			network_game_server_host_ban_machine(target, choice->minutes, reason);
+
+		snprintf(text, sizeof(text), done ? "%s: %s, done." : "%s: could not do that to %s.", choice->name,
+			moderation_screen.players[moderation_screen.selected].name);
+		platform_log("moderation: the host's %s of %s%s%s: %s", choice->name,
+			moderation_screen.players[moderation_screen.selected].name, reason[0] ? ", " : "", reason,
+			done ? "done" : "refused");
+		set_status(text);
+		moderation_screen.reason = 0;
+		return;
+	}
+	if (!delta_peer_game_moderation_action(choice->action, target, choice->minutes, reason))
 	{
 		set_status("Could not send that to the server.");
 		return;
@@ -248,6 +323,7 @@ static void act(
 	else
 		snprintf(text, sizeof(text), "%s, sent", choice->name);
 	set_status(text);
+	moderation_screen.reason = 0;
 }
 
 static void press(
@@ -305,7 +381,7 @@ static void press(
 		}
 		return;
 	}
-	if (!moderation->signed_in)
+	if (!moderation_screen.host && !moderation->signed_in)
 	{
 		if (button == _gamepad_analog_button_a && settled)
 		{
@@ -326,14 +402,21 @@ static void press(
 			moderation_screen.selected++;
 		break;
 	case _gamepad_binary_button_dpad_left:
-		if (!moderation_screen.confirming && moderation_screen.allowed_count)
+		if (moderation_screen.confirming)
+		{
+			moderation_screen.reason = (short)((moderation_screen.reason + NUMBEROF(moderation_reasons) - 1) %
+				NUMBEROF(moderation_reasons));
+		}
+		else if (moderation_screen.allowed_count)
 		{
 			moderation_screen.choice = (short)((moderation_screen.choice + moderation_screen.allowed_count - 1) %
 				moderation_screen.allowed_count);
 		}
 		break;
 	case _gamepad_binary_button_dpad_right:
-		if (!moderation_screen.confirming && moderation_screen.allowed_count)
+		if (moderation_screen.confirming)
+			moderation_screen.reason = (short)((moderation_screen.reason + 1) % NUMBEROF(moderation_reasons));
+		else if (moderation_screen.allowed_count)
 			moderation_screen.choice = (short)((moderation_screen.choice + 1) % moderation_screen.allowed_count);
 		break;
 	case _gamepad_analog_button_a:
@@ -348,11 +431,32 @@ static void press(
 			moderation_screen.player_count)
 		{
 			moderation_screen.confirming = TRUE;
+			moderation_screen.reason = 0;
 		}
 		break;
 	default:
 		break;
 	}
+}
+
+/* whether this machine hosts a game in progress: the host's own
+moderation (a client's machine has no game server) */
+static boolean host_moderation_available(
+	void)
+{
+	return global_network_game_server_get() != NULL && game_engine_running();
+}
+
+static void open_screen(
+	void)
+{
+	moderation_screen.active = TRUE;
+	moderation_screen.opened_time = system_milliseconds();
+	moderation_screen.confirming = FALSE;
+	moderation_screen.reason = 0;
+	moderation_screen.status[0] = 0;
+	/* (the button that opened it is not the menu's) */
+	event_manager_flush();
 }
 
 /* ---------- public code */
@@ -361,6 +465,55 @@ boolean moderation_screen_active(
 	void)
 {
 	return moderation_screen.active;
+}
+
+/* the host's pause menu's MODERATION (menu_functions.c): the screen opened,
+over the menu; FALSE if this machine hosts no game in progress */
+boolean moderation_screen_open(
+	void)
+{
+	moderation_screen.host = host_moderation_available();
+	if (!moderation_screen.host)
+		return FALSE;
+	if (!moderation_screen.active)
+		open_screen();
+	return TRUE;
+}
+
+/* the automated tests' host (network_test.c, debug.network_test_moderate):
+the screen opened, the action named (its name as the screen shows it) on
+the first player listed, confirmed with A as a player confirms it; the
+status the screen shows after, in status (empty if nothing was done) */
+boolean moderation_screen_test_act(
+	char const *action,
+	char *status,
+	long status_size)
+{
+	short index;
+
+	status[0] = 0;
+	if (!moderation_screen_open())
+		return FALSE;
+	read_players();
+	read_choices();
+	for (index = 0; index < moderation_screen.allowed_count; index++)
+	{
+		if (!_stricmp(moderation_choices[moderation_screen.allowed[index]].name, action))
+			break;
+	}
+	if (index == moderation_screen.allowed_count || !moderation_screen.player_count)
+		return FALSE;
+	moderation_screen.choice = index;
+	moderation_screen.selected = 0;
+	/* (as long open as a player's press would be) */
+	moderation_screen.opened_time = system_milliseconds() - OPEN_SETTLE - 1;
+	press(_gamepad_analog_button_a);
+	press(_gamepad_binary_button_dpad_right);
+	press(_gamepad_analog_button_a);
+	csstrncpy(status, moderation_screen.status, status_size - 1);
+	status[status_size - 1] = 0;
+	moderation_screen.active = FALSE;
+	return status[0] != 0;
 }
 
 /* each frame (ui_widget.c's process_ui_widgets), before the menus: what the
@@ -406,20 +559,15 @@ void moderation_screen_update(
 		if (gamepad && gamepad->analog_buttons[_gamepad_analog_button_y] >= PRESS_THRESHOLD)
 			held = TRUE;
 	}
-	if (!moderation_screen.moderation.available)
+	/* (a dedicated server's moderation, else this machine's own game's) */
+	moderation_screen.host = !moderation_screen.moderation.available && host_moderation_available();
+	if (!moderation_screen.moderation.available && !moderation_screen.host)
 	{
 		moderation_screen.active = FALSE;
 		moderation_screen.note[0] = 0;
 	}
 	else if (!moderation_screen.active && menu_open && held && !moderation_screen.open_held)
-	{
-		moderation_screen.active = TRUE;
-		moderation_screen.opened_time = system_milliseconds();
-		moderation_screen.confirming = FALSE;
-		moderation_screen.status[0] = 0;
-		/* (the Y that opened it is not the menu's) */
-		event_manager_flush();
-	}
+		open_screen();
 	moderation_screen.open_held = held;
 }
 
@@ -497,6 +645,22 @@ static float prompt(
 	add_target(left - 4.0f, y - 4.0f, x + 4.0f, y + 19.0f,
 		button == UI_BUTTON_A ? _gamepad_analog_button_a :
 		button == UI_BUTTON_B ? _gamepad_analog_button_b : _gamepad_binary_button_dpad_right, NONE);
+	return x + 18.0f;
+}
+
+/* left and right's prompt (the action, or while confirming the reason): both
+arrows, then the words; the pointer steps on with it */
+static float prompt_left_right(
+	char const *words,
+	float x,
+	float y)
+{
+	float left = x;
+
+	x += ui_overlay_button(UI_BUTTON_DPAD_LEFT, 15.0f, x, y, 0xFFFFFFFF) + 2.0f;
+	x += ui_overlay_button(UI_BUTTON_DPAD_RIGHT, 15.0f, x, y, 0xFFFFFFFF) + 3.0f;
+	x += ui_overlay_text(UI_FONT_BOLD, 12.0f, x, y + 1.5f, UI_ALIGN_LEFT, COLOR_PROMPT, words);
+	add_target(left - 4.0f, y - 4.0f, x + 4.0f, y + 19.0f, _gamepad_binary_button_dpad_right, NONE);
 	return x + 18.0f;
 }
 
@@ -614,21 +778,29 @@ void moderation_screen_render(
 {
 	struct delta_peer_game_moderation const *moderation = &moderation_screen.moderation;
 	char text[192];
+	char reason[64];
 	float x, y;
 	short row, first;
 
 	moderation_screen.target_count = 0;
-	if (!ui_overlay_available() || !moderation->available)
+	if (!ui_overlay_available() || (!moderation->available && !moderation_screen.host))
 		return;
-	render_banner();
+	if (moderation->available)
+		render_banner();
 	if (!moderation_screen.active)
 		return;
 
 	ui_overlay_rect(-200, 0, 1040, 480, 0, COLOR_SHADE);
-	ui_overlay_rect(100, 60, 440, 360, 8, COLOR_PANEL);
+	ui_overlay_rect(100, 60, 440, 360, 8, COLOR_SCREEN_PANEL);
 	ui_overlay_outline(100, 60, 440, 360, 8, 1.0f, COLOR_PANEL_EDGE);
 	ui_overlay_text(UI_FONT_BOLD, 22.0f, 120, 72, UI_ALIGN_LEFT, COLOR_TITLE, "MODERATION");
-	if (moderation->has_state)
+	if (moderation_screen.host)
+	{
+		/* (the host's own name: the one machine never listed) */
+		snprintf(text, sizeof(text), "Host: %s", moderation_screen.host_name[0] ? moderation_screen.host_name : "you");
+		ui_overlay_text(UI_FONT_REGULAR, 12.0f, 520, 80, UI_ALIGN_RIGHT, COLOR_DIM, text);
+	}
+	else if (moderation->has_state)
 	{
 		ui_overlay_text(UI_FONT_REGULAR, 12.0f, 520, 80, UI_ALIGN_RIGHT, COLOR_DIM,
 			role_name(moderation->role));
@@ -647,7 +819,7 @@ void moderation_screen_render(
 		prompt(UI_BUTTON_B, "Decline", x, 392);
 		return;
 	}
-	if (!moderation->signed_in)
+	if (!moderation_screen.host && !moderation->signed_in)
 	{
 		char key[80];
 
@@ -668,19 +840,19 @@ void moderation_screen_render(
 		prompt(UI_BUTTON_B, "Back", x, 392);
 		return;
 	}
-	if (!moderation->has_state)
+	if (!moderation_screen.host && !moderation->has_state)
 	{
 		ui_overlay_text(UI_FONT_REGULAR, 13.0f, 120, y, UI_ALIGN_LEFT, COLOR_TEXT, "Signing in...");
 		prompt(UI_BUTTON_B, "Back", 120, 392);
 		return;
 	}
 	/* (the role's source, as the server told this player) */
-	if (moderation_screen.note[0])
+	if (!moderation_screen.host && moderation_screen.note[0])
 	{
 		ui_overlay_text(UI_FONT_REGULAR, 11.0f, 120, 96, UI_ALIGN_LEFT, COLOR_DIM, moderation_screen.note);
 		y += 8;
 	}
-	if (!moderation->role || !moderation_screen.allowed_count)
+	if ((!moderation_screen.host && !moderation->role) || !moderation_screen.allowed_count)
 	{
 		ui_overlay_text(UI_FONT_REGULAR, 13.0f, 120, y, UI_ALIGN_LEFT, COLOR_TEXT,
 			"Your moderator key has no role on this server.");
@@ -700,8 +872,11 @@ void moderation_screen_render(
 	y += 26;
 	if (moderation_choices[moderation_screen.allowed[moderation_screen.choice]].needs_target)
 	{
-		first = (short)MAX(0, moderation_screen.selected - ROWS + 1);
-		for (row = 0; row < ROWS && first + row < moderation_screen.player_count; row++)
+		/* (fewer while confirming: the reason and the question below) */
+		short rows = moderation_screen.confirming ? ROWS - 2 : ROWS;
+
+		first = (short)MAX(0, moderation_screen.selected - rows + 1);
+		for (row = 0; row < rows && first + row < moderation_screen.player_count; row++)
 		{
 			short index = (short)(first + row);
 
@@ -726,6 +901,12 @@ void moderation_screen_render(
 		}
 		else
 			snprintf(text, sizeof(text), "%s? Press", choice->name);
+		/* (the reason, optional: left and right, or the pointer on its halves) */
+		snprintf(reason, sizeof(reason), "Reason: < %s >", moderation_screen.reason ?
+			moderation_reasons[moderation_screen.reason] : "None");
+		ui_overlay_text(UI_FONT_REGULAR, 13.0f, 320, 318, UI_ALIGN_CENTER, COLOR_TEXT, reason);
+		add_target(116, 314, 320, 336, _gamepad_binary_button_dpad_left, NONE);
+		add_target(320, 314, 524, 336, _gamepad_binary_button_dpad_right, NONE);
 		text_with_button(UI_FONT_BOLD, 13.0f, 120, 340, UI_ALIGN_LEFT, COLOR_WARNING, text, UI_BUTTON_A, "again.");
 	}
 	if (moderation_screen.status[0])
@@ -736,7 +917,7 @@ void moderation_screen_render(
 			moderation->result);
 	}
 	x = prompt(UI_BUTTON_A, moderation_screen.confirming ? "Confirm" : "Choose", 120, 392);
-	x = prompt(UI_BUTTON_DPAD_LEFT, "Action", x, 392);
+	x = prompt_left_right(moderation_screen.confirming ? "Reason" : "Action", x, 392);
 	prompt(UI_BUTTON_B, moderation_screen.confirming ? "Cancel" : "Back", x, 392);
 }
 

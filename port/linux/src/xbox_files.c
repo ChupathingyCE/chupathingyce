@@ -6,7 +6,7 @@ Win32 file API for the Linux build, over POSIX descriptors.
 Xbox paths are translated below two roots. d:\ is the data root, the
 directory holding the game's maps/ folder: paths.data (port_config.c), else the current
 directory when it has maps/, else assets/ in the current directory or two
-levels above the executable (the repository root for build/linux/halo).
+levels above the executable (the repository root for build/linux/chupathingy).
 Every other drive letter X:\ is the subdirectory X/ of the save root (z:\ holds the persistent cache and saves,
 u:\ user data, t:\ title data): paths.saves, else the game's own folder
 (save_folder.c): $XDG_DATA_HOME/chupathingyce or ~/.local/share/chupathingyce,
@@ -116,13 +116,13 @@ const char *platform_data_root(void)
 			}
 			else if (length > 0)
 			{
-				/* <repository>/build/linux/halo -> <repository>/assets */
+				/* <repository>/build/linux/chupathingy -> <repository>/assets */
 				char *slash;
 				int level;
 
 				executable[length] = '\0';
 #ifdef __APPLE__
-				/* ... and <repository>/build/macos/ChupathingyCE.app/Contents/MacOS/halo:
+				/* ... and <repository>/build/macos/ChupathingyCE.app/Contents/MacOS/chupathingy:
 				the nearest assets folder up to five levels up */
 				for (level = 0; level < 6 && (slash = strrchr(executable, '/')); level++)
 				{
@@ -151,17 +151,20 @@ const char *platform_data_root(void)
 			{
 				/* (the macOS application's data goes in its folder in
 				Application Support, not in the application, and an
-				AppImage's in the save root's place: port_config.c) */
+				AppImage's or a packaged install's in the save root's
+				place: port_config.c, packaged_install.h) */
 				char app_folder[MAX_PATH];
+				char offered[MAX_PATH];
 				const char *destination = platform_app_folder(app_folder, sizeof(app_folder))
 					? app_folder : executable_directory;
 
+				snprintf(offered, sizeof(offered), "%s", destination);
 				if (!has_maps(root) && destination[0] && has_maps(destination))
 					snprintf(root, sizeof(root), "%s", destination);
-				else if (!has_maps(root) && destination[0] && platform_offer_game_data(destination) &&
-					has_maps(destination))
+				else if (!has_maps(root) && destination[0] && platform_offer_game_data(offered, sizeof(offered)) &&
+					has_maps(offered))
 				{
-					snprintf(root, sizeof(root), "%s", destination);
+					snprintf(root, sizeof(root), "%s", offered);
 				}
 				/* (with no maps anywhere, the log still goes where it can
 				be written) */
@@ -299,21 +302,9 @@ int platform_logs_folder_early(char *path, unsigned long size)
 	return 1;
 }
 
-#ifdef __APPLE__
-/* whether this Mac has saves in the folder the game used before the
-application had its own (~/.local/share/halo-linux) */
-static BOOL saves_exist(const char *home)
-{
-	char path[MAX_PATH];
-
-	snprintf(path, sizeof(path), "%s/.local/share/halo-linux", home);
-	return directory_exists(path);
-}
-#endif
-
-#ifndef __APPLE__
 /* once, on the first start with the game's own save root: the saves of the
-folder it shared with other builds, copied into it (never moved: they still
+folder it shared with other builds (on macOS, the one the game used before
+the application had its own), copied into it (never moved: they may still
 use it) */
 static void copy_shared_saves(const char *shared, const char *root)
 {
@@ -332,7 +323,6 @@ static void copy_shared_saves(const char *shared, const char *root)
 		break;
 	}
 }
-#endif
 
 const char *platform_save_root(void)
 {
@@ -344,15 +334,19 @@ const char *platform_save_root(void)
 		const char *data_home = getenv("XDG_DATA_HOME");
 		const char *home = getenv("HOME");
 #ifdef __APPLE__
+		char shared[MAX_PATH];
+
 		if (*environment)
 			snprintf(root, sizeof(root), "%s", environment);
 		/* the macOS application keeps everything in its folder in
-		Application Support (platform_app_folder), unless this Mac has saves
-		from before (and its player key: browser.c), in the folder below */
-		else if (platform_app_folder(root, sizeof(root)) &&
-			!(home && *home && saves_exist(home)))
+		Application Support (platform_app_folder), with the saves (and the
+		player key: browser.c) of the folder it used before,
+		~/.local/share/halo-linux, copied once, as on Linux */
+		else if (platform_app_folder(root, sizeof(root)))
 		{
 			strncat(root, "/saves", sizeof(root) - strlen(root) - 1);
+			if (save_folder_shared(_save_folder_linux, NULL, data_home, home, shared, sizeof(shared)))
+				copy_shared_saves(shared, root);
 		}
 		else if (data_home && *data_home)
 			snprintf(root, sizeof(root), "%s/halo-linux", data_home);
@@ -948,6 +942,15 @@ static BOOL write_at(struct platform_file *file, LPCVOID buffer, DWORD count, LP
 			if (errno == EINTR)
 				continue;
 			platform_set_last_error_from_errno(errno);
+			if (bytes_written)
+				*bytes_written = total;
+			return FALSE;
+		}
+		/* (a write that takes nothing ends the loop, which would otherwise ask
+		for it again forever) */
+		if (result == 0)
+		{
+			SetLastError(ERROR_DISK_FULL);
 			if (bytes_written)
 				*bytes_written = total;
 			return FALSE;

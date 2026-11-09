@@ -34,6 +34,11 @@ void *pool_resize_pointer(
 	long allocation_size,
 	char const *file,
 	unsigned long line);
+/* port: the most the pool has held at once, its bytes and its blocks */
+void stack_memory_pool_usage(
+	struct stack_memory_pool *pool,
+	long *maximum_bytes_used,
+	unsigned long *maximum_blocks_used);
 
 /* ---------- globals */
 

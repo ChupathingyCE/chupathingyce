@@ -513,6 +513,22 @@ void texture_cache_return_memory(
 	return;
 }
 
+#if defined(HALO_CUSTOM_EDITION) && defined(HALO_CONSOLE_CE_SHARED_TAG_CACHE)
+/* (a 64 MB console's Custom Edition load borrows the cache: port/xbox's
+xbox_ce_files.c) */
+unsigned char texture_cache_memory_stolen(
+	void)
+{
+	return xbox_texture_cache_globals.stolen_memory;
+}
+
+long texture_cache_stealable_size(
+	void)
+{
+	return (XBOX_TEXTURE_CACHE_STEALABLE_PAGE_COUNT - 2) * XBOX_TEXTURE_CACHE_PAGE_SIZE;
+}
+#endif
+
 static const char *texture_cache_name_block_proc(
 	long block_index)
 {
@@ -658,9 +674,11 @@ static void texture_cache_initialize_hardware_format(
 			D3DFORMAT_BORDERSOURCE_COLOR |
 			D3DFORMAT_DMACHANNEL_A;
 		/* port: (the pitch in whole steps, a Halo PC map's rounded up:
-		texture_cache_bitmap_valid) */
+		texture_cache_bitmap_valid; unsigned, since 256 steps shifted into
+		the top byte overflow a signed long. Found in chester's GulchCE) */
 		texture->Size =
-			(((bitmap_mipmap_get_row_pitch(bitmap, 0) + D3DTEXTURE_PITCH_ALIGNMENT - 1) / D3DTEXTURE_PITCH_ALIGNMENT - 1) <<
+			(((unsigned long)(bitmap_mipmap_get_row_pitch(bitmap, 0) + D3DTEXTURE_PITCH_ALIGNMENT - 1) /
+				D3DTEXTURE_PITCH_ALIGNMENT - 1) <<
 				D3DSIZE_PITCH_SHIFT) |
 			((bitmap->height - 1) << D3DSIZE_HEIGHT_SHIFT) |
 			(bitmap->width - 1);
@@ -834,6 +852,70 @@ void texture_cache_close(
 	return;
 }
 
+#ifdef HALO_XBOX_CONSOLE
+/* port: a linear bitmap whose rows are packed, a row's texels after the
+last's, though they are not whole steps of the pitch (a map pack's, its tags
+converted from Halo PC's: CE+'s ui.map's cex_grad, 10 texels wide): the
+hardware reads rows a pitch apart, so once read its rows are spread to the
+pitch, in place (its cache block holds the padded size:
+rasterizer_xbox_bitmap_get_pixel_data_size). Called on a bitmap whose sizes
+texture_cache_bitmap_valid has checked */
+static boolean texture_cache_bitmap_rows_packed(
+	struct bitmap_data *bitmap)
+{
+	long row_pitch = bitmap_mipmap_get_row_pitch(bitmap, 0);
+
+	return TEST_FLAG(bitmap->flags, _bitmap_linear_bit) &&
+		bitmap->type == _bitmap_type_2d &&
+		row_pitch % D3DTEXTURE_PITCH_ALIGNMENT != 0 &&
+		bitmap->pixels_size == row_pitch * bitmap->height;
+}
+
+static void texture_cache_bitmap_spread_rows(
+	struct bitmap_data *bitmap)
+{
+	long row_pitch = bitmap_mipmap_get_row_pitch(bitmap, 0);
+	long pitch = (row_pitch + D3DTEXTURE_PITCH_ALIGNMENT - 1) & ~(D3DTEXTURE_PITCH_ALIGNMENT - 1);
+	byte *pixels = xbox_pointer(bitmap->base_address);
+	long row;
+
+	for (row = bitmap->height - 1; row > 0; row--)
+	{
+		memmove(pixels + row * pitch, pixels + row * row_pitch, row_pitch);
+	}
+
+	return;
+}
+#endif
+
+#ifdef HALO_CONSOLE_MAP_BROWSER
+/* port: a bitmap of the Map Browser's own, width by height square and a power of
+two, its pixels X8R8G8B8 and swizzled in contiguous memory, drawn without the cache
+(port/xbox/game/xbox_maps_screen.c) */
+void texture_cache_map_browser_bitmap(
+	struct bitmap_data *bitmap,
+	void *pixels,
+	short size)
+{
+	static D3DBaseTexture texture;
+
+	memset(bitmap, 0, sizeof(*bitmap));
+	bitmap->signature = 'bitm';
+	bitmap->width = size;
+	bitmap->height = size;
+	bitmap->depth = 1;
+	bitmap->type = _bitmap_type_2d;
+	bitmap->format = _bitmap_format_x8r8g8b8;
+	bitmap->flags = FLAG(_bitmap_has_power_of_two_dimensions_bit) | FLAG(_bitmap_swizzled_bit);
+	bitmap->pixels_size = size * size * 4;
+	bitmap->tag_index = NONE;
+	bitmap->cache_block_index = NONE;
+	bitmap->base_address = pixels;
+	texture_cache_initialize_hardware_format(bitmap, &texture);
+	bitmap->hardware_format = &texture;
+}
+#endif
+
 /* port: whether a map's bitmap is one the hardware format can describe and
 the texture cache can size: a type and format the tables have, sizes up to
 the device's (D3DDevice_GetDeviceCaps: 4096, a volume 512; retail's are 2048
@@ -882,6 +964,10 @@ static boolean texture_cache_bitmap_valid(
 
 			any_pitch = cache_file_tags_are_ce();
 		}
+#endif
+#ifdef HALO_XBOX_CONSOLE
+		/* port: packed rows are spread to the pitch once read (above) */
+		any_pitch = any_pitch || texture_cache_bitmap_rows_packed(bitmap);
 #endif
 		valid =
 			row_pitch>0 &&
@@ -1170,6 +1256,24 @@ void *_texture_cache_bitmap_get_hardware_format(
 				{
 					if (!texture->used)
 					{
+#ifdef HALO_XBOX_CONSOLE
+						if (texture_cache_bitmap_rows_packed(bitmap))
+						{
+							texture_cache_bitmap_spread_rows(bitmap);
+						}
+#endif
+#if defined(HALO_CUSTOM_EDITION) && defined(HALO_CONSOLE_CE_BITMAPS)
+						/* port: a Custom Edition map's pixels made the console's, which
+						the desktop builds' renderer does as it draws them (the
+						console's hook: port/xbox/game/xbox_ce.c on the Xbox) */
+						{
+							extern boolean cache_file_tags_are_ce(void);
+							extern void platform_ce_bitmap_loaded(struct bitmap_data *bitmap);
+
+							if (cache_file_tags_are_ce())
+								platform_ce_bitmap_loaded(bitmap);
+						}
+#endif
 						texture->used = TRUE;
 					}
 					hardware_format = &texture->hardware_format;

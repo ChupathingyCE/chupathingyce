@@ -38,8 +38,9 @@ Browser), and is withdrawn when the server stops.
 
 The playlist: one entry a line, a map (its name, "bloodgulch", its path, a
 Custom Edition map in maps_ce as <name>@ce, "timberland@ce", a HaloMD map
-in maps_md as <name>@md, "phoenix3_15@md", or a Halo PC retail map in
-maps_pc as <name>@pc: halo_map_families.h) and a game
+in maps_md as <name>@md, "phoenix3_15@md", a Halo PC retail map in
+maps_pc as <name>@pc, or an Xbox map pack's map in maps_<pack> as
+<name>@<pack>, Halo CE+'s "wizard@cex": halo_map_families.h) and a game
 type (game_engine_get_variant_by_name's names: slayer, team_slayer, ctf,
 king, oddball, race, ...); # starts a comment.
 
@@ -71,11 +72,19 @@ played instead of HALO_DEDICATED's until HALO_DEDICATED is changed.
 #include "interface/player_ui.h"
 #include "networking/network_game_globals.h"
 #include "networking/network_game_manager.h"
+#include "networking/network_client_manager.h"
 #include "text/unicode.h"
 #include "networking/network_server_manager.h"
 #include "dedicated.h"
+#include "command_line.h"
 #include "server_admin.h"
+#include "server_conduct.h"
 #include "server_config.h"
+#ifdef HALO_SERVER
+/* (the server program's control unit, built with the host's ABI: plain
+types only) */
+#include "../platform/server_control.h"
+#endif
 #ifdef HALO_GAME_BROWSER
 /* (text chat's, port/linux/game/chat.h) */
 void chat_host_set(int mode, int filter);
@@ -85,6 +94,11 @@ void chat_host_set_welcome(char const *text);
 #endif
 /* (team changes', port/linux/game/team_change.h: 0 off, 1 balanced, 2 allow) */
 void team_change_host_set(int policy, int margin);
+/* (the host's rules', port/linux/game/host_rules.h) */
+void host_rules_set_player_names(boolean allowed);
+void host_rules_set_follow_camera(boolean allowed);
+/* (the limit on machines of one address, port/linux/game/network_distributed.c) */
+void network_distributed_set_address_limit(long maximum);
 
 enum
 {
@@ -104,6 +118,10 @@ enum
 	MAXIMUM_ENTRIES = DEDICATED_MAXIMUM_ENTRIES,
 	/* a failed start tried again this much later */
 	RETRY_MILLISECONDS = 5000,
+	/* every entry skipped in a row: tried again this much later, twice as
+	long each time after, up to the most */
+	SKIPPED_ALL_MILLISECONDS = 5000,
+	SKIPPED_ALL_MOST_MILLISECONDS = 300000,
 	/* the carnage report shown this long before the next game's lobby,
 	unless set (HALO_DEDICATED_POSTGAME_SECONDS) */
 	DEFAULT_POSTGAME_SECONDS = 20,
@@ -136,6 +154,10 @@ boolean main_menu_is_active(void);
 boolean bink_playback_active(void);
 boolean network_game_server_lobby_is_open(struct network_game_server *server);
 boolean network_game_server_game_is_loading(struct network_game_server *server);
+#ifdef HALO_CUSTOM_EDITION
+/* (cache_files_windows.c's) */
+boolean cache_files_map_can_open(char const *map_name);
+#endif
 /* (server_commands.c's) */
 void server_commands_update(void);
 
@@ -176,6 +198,8 @@ static struct
 	wchar_t name[16];
 	/* listed in the server browser (HALO_DEDICATED_PUBLIC) */
 	boolean public_game;
+	/* (the first-run setup held the server from hosting) */
+	boolean setup_waited;
 	/* blocked names kicked (sv_name_filter: server_commands.c) */
 	boolean name_filter;
 	/* the carnage report's seconds; and the lobby skipped after it when
@@ -210,6 +234,17 @@ static struct
 	waited out when the command wanted the next game at once */
 	boolean end_requested;
 	boolean postgame_skipped;
+
+	/* an entry set on the server whose game has not started yet (its lobby
+	gone before then: the entry skipped, not hosted again forever) */
+	boolean entry_hosted;
+	/* the last entry skipped and why (sv_status, the panel's); entries
+	skipped in a row, and every one of them skipped: when to try again */
+	char skipped[DEDICATED_SKIPPED_SIZE];
+	long skipped_in_a_row;
+	long skipped_all_rounds;
+	boolean skipped_all;
+	unsigned long skipped_all_time;
 } dedicated;
 
 /* ---------- private code */
@@ -234,11 +269,14 @@ static long read_playlist(
 	char maps[MAXIMUM_ENTRIES][DEDICATED_MAP_SIZE],
 	char variants[MAXIMUM_ENTRIES][DEDICATED_VARIANT_SIZE])
 {
+	static char text[4 * SERVER_PLAYLIST_TEXT_SIZE];
+	static struct server_playlist playlist;
 	char path[256];
+	char problem[SERVER_CONFIG_ERROR_SIZE];
 	FILE *file;
-	char line[256];
 	char *cursor;
-	long count = 0;
+	size_t length;
+	long count;
 
 	snprintf(path, sizeof(path), "d:\\%s", name);
 	for (cursor = path; *cursor; cursor++)
@@ -253,20 +291,16 @@ static long read_playlist(
 		error(_error_silent, "dedicated: cannot read the playlist %s", path);
 		return -1;
 	}
-	while (fgets(line, sizeof(line), file) && count < MAXIMUM_ENTRIES)
-	{
-		char map[128], variant[32];
-		char *comment = strchr(line, '#');
-
-		if (comment)
-			*comment = 0;
-		if (sscanf(line, "%127s %31s", map, variant) != 2)
-			continue;
-		level_path(map, maps[count]);
-		snprintf(variants[count], DEDICATED_VARIANT_SIZE, "%s", variant);
-		count++;
-	}
+	length = fread(text, 1, sizeof(text), file);
 	fclose(file);
+	/* (as the server has always read it: each line's first two words, a map
+	in quotes if its name has a space, "skedar v2@ce": server_config.c) */
+	server_playlist_parse(text, length, 0, &playlist, problem, sizeof(problem));
+	for (count = 0; count < playlist.count && count < MAXIMUM_ENTRIES; count++)
+	{
+		level_path(playlist.entries[count].map, maps[count]);
+		snprintf(variants[count], DEDICATED_VARIANT_SIZE, "%s", playlist.entries[count].game_type);
+	}
 	error(_error_silent, "dedicated: %ld playlist entries from %s", count, path);
 	return count;
 }
@@ -493,27 +527,27 @@ static void initialize(
 			error(_error_silent, "dedicated: a welcome message for each Chupathingy player");
 	}
 #endif
-	/* players changing teams during a game: balanced (within 1) unless set;
+	/* players changing teams during a game: off (the Xbox's) unless set;
 	the environment's as a word or a number */
 	{
 		char const *value = getenv("HALO_DEDICATED_TEAM_CHANGE");
-		long policy = settings.set[SERVER_SETTING_TEAM_CHANGE] ? settings.values[SERVER_SETTING_TEAM_CHANGE] : 1;
+		long policy = settings.set[SERVER_SETTING_TEAM_CHANGE] ? settings.values[SERVER_SETTING_TEAM_CHANGE] : 0;
 		long margin = setting_number("HALO_DEDICATED_TEAM_CHANGE_MARGIN", &settings, SERVER_SETTING_TEAM_CHANGE_MARGIN,
 			1);
 
 		if (value && value[0])
 		{
-			policy = !_stricmp(value, "off") || !strcmp(value, "0") ? 0 : !_stricmp(value, "allow") ||
-				!strcmp(value, "2") ? 2 : 1;
+			policy = !_stricmp(value, "balanced") || !strcmp(value, "1") ? 1 : !_stricmp(value, "allow") ||
+				!strcmp(value, "2") ? 2 : 0;
 			if (_stricmp(value, "off") && _stricmp(value, "balanced") && _stricmp(value, "allow") &&
 				strcmp(value, "0") && strcmp(value, "1") && strcmp(value, "2"))
 			{
 				error(_error_silent, "dedicated: HALO_DEDICATED_TEAM_CHANGE \"%s\" is not allow, balanced or off: "
-					"balanced", value);
+					"off", value);
 			}
 		}
 		if (policy < 0 || policy > 2)
-			policy = 1;
+			policy = 0;
 		if (margin < 0)
 			margin = 0;
 		if (margin > SERVER_SETTINGS_MAXIMUM_TEAM_CHANGE_MARGIN)
@@ -521,6 +555,71 @@ static void initialize(
 		team_change_host_set((int)policy, (int)margin);
 		error(_error_silent, "dedicated: team changes during a game %s", policy == 0 ? "off" : policy == 2 ? "allowed" :
 			"while the teams stay balanced");
+	}
+	/* the host's rules for its players' extras: off (the Xbox's game)
+	unless true, 1, yes or on */
+	{
+		char const *names = getenv("HALO_DEDICATED_ALLOW_PLAYER_NAMES");
+		boolean allowed;
+
+		if (names && names[0])
+		{
+			allowed = !_stricmp(names, "true") || !strcmp(names, "1") || !_stricmp(names, "yes") ||
+				!_stricmp(names, "on");
+		}
+		else
+			allowed = settings.set[SERVER_SETTING_ALLOW_PLAYER_NAMES] && settings.values[SERVER_SETTING_ALLOW_PLAYER_NAMES];
+		host_rules_set_player_names(allowed);
+		if (allowed)
+			error(_error_silent, "dedicated: players may show names above heads");
+	}
+	{
+		char const *camera = getenv("HALO_DEDICATED_ALLOW_FOLLOW_CAMERA");
+		boolean allowed;
+
+		if (camera && camera[0])
+		{
+			allowed = !_stricmp(camera, "true") || !strcmp(camera, "1") || !_stricmp(camera, "yes") ||
+				!_stricmp(camera, "on");
+		}
+		else
+		{
+			allowed = settings.set[SERVER_SETTING_ALLOW_FOLLOW_CAMERA] &&
+				settings.values[SERVER_SETTING_ALLOW_FOLLOW_CAMERA];
+		}
+		host_rules_set_follow_camera(allowed);
+		if (allowed)
+			error(_error_silent, "dedicated: players may watch a follow camera while they wait to respawn");
+	}
+	/* the machines of one internet address a game takes: 8 unless set */
+	{
+		long maximum = setting_number("HALO_DEDICATED_MAX_MACHINES_PER_ADDRESS", &settings,
+			SERVER_SETTING_MAX_MACHINES_PER_ADDRESS, SERVER_SETTINGS_DEFAULT_MACHINES_PER_ADDRESS);
+
+		if (maximum < 0)
+			maximum = 0;
+		if (maximum > SERVER_SETTINGS_MAXIMUM_MACHINES_PER_ADDRESS)
+			maximum = SERVER_SETTINGS_MAXIMUM_MACHINES_PER_ADDRESS;
+		network_distributed_set_address_limit(maximum);
+		if (maximum)
+			error(_error_silent, "dedicated: at most %ld machines from one internet address", maximum);
+		else
+			error(_error_silent, "dedicated: no limit on the machines from one internet address");
+	}
+	/* the betrayal and AFK limits (server_conduct.h): off unless set */
+	{
+		long betrayals = setting_number("HALO_DEDICATED_BETRAYAL_KICK", &settings, SERVER_SETTING_BETRAYAL_KICK, 0);
+		long minutes = setting_number("HALO_DEDICATED_AFK_KICK_MINUTES", &settings, SERVER_SETTING_AFK_KICK_MINUTES, 0);
+
+		server_conduct_set_betrayal_limit((int)PIN(betrayals, 0, SERVER_SETTINGS_MAXIMUM_BETRAYAL_KICK));
+		server_conduct_set_afk_minutes((int)PIN(minutes, 0, SERVER_SETTINGS_MAXIMUM_AFK_KICK_MINUTES));
+		if (server_conduct_betrayal_limit())
+			error(_error_silent, "dedicated: a player is kicked after %d betrayals in a game", server_conduct_betrayal_limit());
+		if (server_conduct_afk_minutes())
+		{
+			error(_error_silent, "dedicated: a player is kicked after %d minutes without input in a game",
+				server_conduct_afk_minutes());
+		}
 	}
 	dedicated.active = dedicated.entry_count > 0;
 }
@@ -685,6 +784,43 @@ static void advance_entry(
 	}
 }
 
+/* the entry about to be played (or the command's game) skipped, and why,
+told once: the playlist goes on with its next. Once every entry has been
+skipped in a row, the server waits, longer each time, before trying again */
+static void skip_entry(
+	char const *map,
+	char const *variant_name,
+	char const *reason)
+{
+	/* (each entry's reason once: not again as every entry is tried again) */
+	if (!dedicated.skipped_all_rounds || dedicated.chosen_playing)
+		error(_error_silent, "dedicated: %s on %s: %s; skipping the entry", variant_name, map, reason);
+	snprintf(dedicated.skipped, sizeof(dedicated.skipped), "%s on %s: %s", variant_name, map, reason);
+	if (dedicated.chosen_playing)
+		dedicated.chosen_playing = FALSE;
+	else if (dedicated.entry_count)
+	{
+		advance_entry();
+		dedicated.skipped_in_a_row++;
+	}
+	if (dedicated.skipped_in_a_row >= (dedicated.entry_count > 0 ? dedicated.entry_count : 1))
+	{
+		long wait = SKIPPED_ALL_MILLISECONDS;
+		long round;
+
+		for (round = 0; round < dedicated.skipped_all_rounds && wait < SKIPPED_ALL_MOST_MILLISECONDS; round++)
+			wait *= 2;
+		if (wait > SKIPPED_ALL_MOST_MILLISECONDS)
+			wait = SKIPPED_ALL_MOST_MILLISECONDS;
+		error(_error_silent, "dedicated: every entry of the playlist was skipped; trying again in %ld seconds",
+			wait / 1000);
+		dedicated.skipped_in_a_row = 0;
+		dedicated.skipped_all_rounds++;
+		dedicated.skipped_all = TRUE;
+		dedicated.skipped_all_time = system_milliseconds() + (unsigned long)wait;
+	}
+}
+
 /* the playlist's entry (or the map and game type a command chose), set on
 the server (in its pregame) */
 static boolean set_entry(
@@ -706,24 +842,52 @@ static boolean set_entry(
 		map = dedicated.chosen_map;
 		variant_name = dedicated.chosen_variant;
 	}
+	/* (every entry skipped: none tried again until the wait is over; a
+	command's game is tried at once) */
+	if (dedicated.skipped_all && !dedicated.chosen_playing)
+	{
+		if ((long)(system_milliseconds() - dedicated.skipped_all_time) < 0)
+			return FALSE;
+		dedicated.skipped_all = FALSE;
+	}
 	if (map_is_campaign_level(map))
 	{
-		error(_error_silent, "dedicated: %s is a campaign level, which a dedicated server does not host; "
-			"skipping the entry", map);
-		if (dedicated.chosen_playing)
-			dedicated.chosen_playing = FALSE;
-		else
-			advance_entry();
+		skip_entry(map, variant_name, "a campaign level, which a dedicated server does not host");
+		return FALSE;
+	}
+	/* (a name the game's clients refuse, the server's own among them: its
+	lobby would close as it opened) */
+	if (!network_game_client_map_name_is_valid(map, (long)strlen(map) + 1))
+	{
+		skip_entry(map, variant_name, "not a map name the game takes");
 		return FALSE;
 	}
 	if (!server_gametype_resolve(variant_name, &variant, &options, problem, sizeof(problem)))
 	{
-		error(_error_silent, "dedicated: %s; skipping the entry", problem);
-		if (dedicated.chosen_playing)
-			dedicated.chosen_playing = FALSE;
-		else
-			advance_entry();
+		skip_entry(map, variant_name, problem);
 		return FALSE;
+	}
+	/* (and a map that is there, and opens: one missing or refused as it
+	loads would stop the server on the damaged disc error) */
+	{
+		static char scratch[160];
+		struct command_output output;
+
+		command_output_begin(&output, scratch, sizeof(scratch));
+		if (!server_map_playable(map, &output))
+		{
+			if (scratch[0] && scratch[strlen(scratch) - 1] == '\n')
+				scratch[strlen(scratch) - 1] = 0;
+			skip_entry(map, variant_name, scratch[0] ? scratch : "no such map");
+			return FALSE;
+		}
+#ifdef HALO_CUSTOM_EDITION
+		if (!cache_files_map_can_open(map))
+		{
+			skip_entry(map, variant_name, "the map is damaged or unsupported (the line above says why)");
+			return FALSE;
+		}
+#endif
 	}
 	main_set_multiplayer_map_name(map);
 	game_engine_override_map_name(map);
@@ -738,6 +902,7 @@ static boolean set_entry(
 	if (!dedicated.chosen_playing)
 		dedicated.teams[dedicated.entry] = dedicated.entry_teams;
 	error(_error_silent, "dedicated: next %s on %s", variant_name, map);
+	dedicated.entry_hosted = TRUE;
 	return TRUE;
 }
 
@@ -796,6 +961,18 @@ void dedicated_server_update(
 	server = global_network_game_server_get();
 	if (!server)
 	{
+		/* (the lobby gone before its game started, as when the server's own
+		client refuses the game's settings: the entry is skipped, not hosted
+		again and again) */
+		if (dedicated.entry_hosted)
+		{
+			char const *map = dedicated.chosen_playing ? dedicated.chosen_map : dedicated.maps[dedicated.entry];
+			char const *variant = dedicated.chosen_playing ? dedicated.chosen_variant : dedicated.variants[dedicated.entry];
+
+			dedicated.entry_hosted = FALSE;
+			if (dedicated.entry_count || dedicated.chosen_playing)
+				skip_entry(map, variant, "its lobby closed before the game started (see the lines above)");
+		}
 		dedicated.entry_set = FALSE;
 		/* (not while a movie plays: the intro's end loads the main menu,
 		which ends any network game) */
@@ -805,6 +982,29 @@ void dedicated_server_update(
 		{
 			return;
 		}
+#ifdef HALO_SERVER
+		/* (a server started for the control panel's first-run setup hosts
+		once its owner has finished it, listed as the setup chose) */
+		if (server_control_setup_waiting())
+		{
+			dedicated.setup_waited = TRUE;
+			return;
+		}
+		if (dedicated.setup_waited)
+		{
+			char const *public_game = getenv("HALO_DEDICATED_PUBLIC");
+			static struct server_settings settings;
+
+			dedicated.setup_waited = FALSE;
+			if ((!public_game || !public_game[0]) && server_admin_read_settings(&settings) &&
+				settings.set[SERVER_SETTING_PUBLIC])
+			{
+				dedicated.public_game = settings.values[SERVER_SETTING_PUBLIC] ? TRUE : FALSE;
+			}
+			error(_error_silent, "dedicated: the first-run setup is finished: hosting %s game",
+				dedicated.public_game ? "a public" : "an unlisted");
+		}
+#endif
 		dedicated.tried = TRUE;
 		dedicated.tried_time = system_milliseconds();
 		host();
@@ -881,6 +1081,9 @@ void dedicated_server_update(
 
 		if (dedicated.last_state != DEDICATED_SERVER_STATE_INGAME)
 		{
+			dedicated.entry_hosted = FALSE;
+			dedicated.skipped_in_a_row = 0;
+			dedicated.skipped_all_rounds = 0;
 			dedicated.score_time = now;
 			dedicated.score = 0;
 			dedicated.empty_time = 0;
@@ -1008,6 +1211,7 @@ void dedicated_server_get_status(
 		status->name[index] = (char)dedicated.name[index];
 	status->name[index] = 0;
 	status->uptime_seconds = (system_milliseconds() - dedicated.start_time) / 1000;
+	snprintf(status->skipped, sizeof(status->skipped), "%s", dedicated.skipped);
 }
 
 long dedicated_playlist_count(
@@ -1112,6 +1316,14 @@ void dedicated_server_set_maximum_players(
 	long maximum_players)
 {
 	dedicated.maximum_players = maximum_players;
+}
+
+/* the lobby's game started after the short countdown, as with the lobby
+skipped (a Custom Edition player waiting for a game: server_ce.c) */
+void dedicated_server_start_soon(
+	void)
+{
+	dedicated.skip_lobby_now = TRUE;
 }
 
 void dedicated_server_set_minimum_players(

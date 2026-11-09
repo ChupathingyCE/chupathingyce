@@ -284,9 +284,14 @@ symbols in this file:
 #include "interface/terminal.h"
 #include "main/console.h"
 #include "game/game.h"
+#include "game/game_engine.h"
 #ifdef HALO_64BIT
 #include "cseries/cseries_windows.h"
 #endif
+
+/* port: bipeds.c's; cheats.c's (hs_evaluate_set) */
+extern boolean rider_ejection;
+void cheats_map_set_rider_ejection(boolean value);
 
 /* ---------- constants */
 
@@ -563,6 +568,8 @@ struct data_array *hs_thread_data;
 extern struct data_array *hs_syntax_data;
 extern short const hs_external_global_count;
 extern long const hs_function_table_count;
+/* port: Halo's functions and Stubbs mode's (hs.c) */
+long hs_function_count(void);
 extern short const hs_type_sizes[NUMBER_OF_HS_TYPES];
 boolean debug_scripting;
 unsigned long hs_debug_data[BIT_VECTOR_SIZE_IN_LONGS(MAXIMUM_TRIGGER_VOLUMES_PER_SCENARIO)];
@@ -931,7 +938,7 @@ static char const *expression_get_function_name(
 			expression_index != thread->stack->expression_index)
 		{
 			/* port: an index past the table (a damaged map's) names none */
-			if ((word)syntax_node->index>=hs_function_table_count)
+			if ((word)syntax_node->index>=hs_function_count())
 				return "(corrupt function)";
 
 			return hs_function_get((word)syntax_node->index)->name;
@@ -1228,6 +1235,12 @@ void hs_runtime_update(
 
 			if (thread->type==_hs_thread_type_console_command)
 				console_command_running = TRUE;
+#ifdef HALO_GAME_BROWSER
+			/* port: a court's scripts, off in a Bomb game, which plays the
+			court's game itself (game_engine_bomb.c, bomb_courts) */
+			if (thread->type==_hs_thread_type_script && game_engine_bomb_scripts_off())
+				continue;
+#endif
 			if (thread->sleep_until>=0 && thread->sleep_until<=time)
 				hs_thread_main(thread_index);
 		}
@@ -2255,6 +2268,15 @@ void hs_evaluate_set(
 		hs_global_reconcile_write((short)variable->data);
 		if (type==_hs_type_object_list)
 			object_list_add_reference(hs_global_evaluate((short)variable->data));
+		/* port: rider_ejection as the map's own scripts set it, which a
+		client in another's game keeps (cheats_network_client_enforce); the
+		console's sets are the player's, not the map's */
+		if (thread->type!=_hs_thread_type_console_command &&
+			HS_GLOBAL_DESIGNATOR_IS_EXTERNAL(variable->data) &&
+			hs_global_external_get(HS_GLOBAL_DESIGNATOR_TO_INDEX((short)variable->data))->address==&rider_ejection)
+		{
+			cheats_map_set_rider_ejection(rider_ejection);
+		}
 
 		hs_return(thread_index, hs_global_evaluate((short)variable->data));
 	}
@@ -2460,8 +2482,10 @@ void hs_evaluate_begin_random(
 			*argument_count += 1;
 		}
 
+		/* port: one long holds LONG_BITS choices, so a list of that
+		many fits the mask this function already allocates */
 		match_assert("c:\\halo\\source\\hs\\hs_library_internal_runtime.h", 0x50,
-			*argument_count<LONG_BITS);
+			*argument_count<=LONG_BITS);
 
 		csmemset(evaluated, 0, BIT_VECTOR_SIZE_IN_BYTES(*argument_count));
 	}
@@ -2799,7 +2823,7 @@ static void hs_thread_main(
 		checked, but this index picks a function pointer */
 		index_count = TEST_FLAG(expression->flags, _hs_syntax_node_script_bit) ?
 			global_scenario_get()->hs_scripts.count :
-			hs_function_table_count;
+			hs_function_count();
 		if (expression->index<0 || expression->index>=index_count)
 		{
 			hs_syntax_error(thread_index);
@@ -2951,8 +2975,9 @@ static void *hs_stack_allocate(
 		return NULL;
 	}
 
-#if defined(__powerpc__) || defined(__ppc__) || defined(_M_PPC)
-	/* port: a PowerPC faults on a misaligned float (a script's arithmetic
+#if defined(__powerpc__) || defined(__ppc__) || defined(_M_PPC) || defined(__arm__)
+	/* port: a PowerPC (and 32-bit ARM, whose VFP loads fault the same)
+	faults on a misaligned float (a script's arithmetic
 	put its reals after a short): allocations start on 4 bytes there; the
 	Xbox's layout is kept elsewhere */
 	{
@@ -3017,6 +3042,12 @@ static void hs_evaluate(
 				expression->type,
 				expression->data);
 		}
+	}
+	else if (hs_scenario_node_skipped(expression_index))
+	{
+		/* port: a call or set a map's scripts may not make returns its
+		type's default, and the script goes on (hs_scenario_functions_check) */
+		*destination = hs_type_default_value(expression->type);
 	}
 	else
 	{

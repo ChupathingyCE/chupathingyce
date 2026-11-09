@@ -110,6 +110,10 @@ symbols in this file:
 enum
 {
 	_hud_dont_scale_offset_bit = 0,
+	/* port: Halo PC's "use high resolution scale" (port/linux/game/ce_hud.c),
+	which only a Custom Edition map's numbers keep: their digits are drawn
+	at half size, as Halo PC draws them (no Xbox map sets it) */
+	_hud_port_high_resolution_scale_bit = 2,
 };
 
 /* hud number and meter definitions (no shared header declares these yet;
@@ -477,6 +481,28 @@ real hud_bitmap_group_scale(
 	}
 	return scale;
 }
+
+/* port: the weapon's zoom mask (interface.c) and its group's high
+resolution scale. The screen effect draws a mask at its bitmap's size
+(rasterizer_xbox_screen_effect.c), so a Custom Edition map's high resolution
+mask is drawn at that scale, as Halo PC with Chimera draws it
+(fix/hud_bitmap_scale.cpp); any other mask (a cinematic's) at its size */
+static struct bitmap_data const *hud_screen_effect_mask;
+static real hud_screen_effect_mask_bitmap_scale = 1.0f;
+
+void hud_set_screen_effect_mask(
+	struct bitmap_data const *mask,
+	long bitmap_group_index)
+{
+	hud_screen_effect_mask = mask;
+	hud_screen_effect_mask_bitmap_scale = mask ? hud_bitmap_group_scale(bitmap_group_index) : 1.0f;
+}
+
+real hud_screen_effect_mask_scale(
+	struct bitmap_data const *mask)
+{
+	return mask && mask == hud_screen_effect_mask ? hud_screen_effect_mask_bitmap_scale : 1.0f;
+}
 #endif
 
 void hud_retrieve_bitmap_and_bounding_rect(
@@ -607,6 +633,22 @@ static boolean hud_draw_multitexture_overlay_get_current_weapon_definition(
 	return result;
 }
 
+/* port: the Xbox point sampled the HUD's multitexture overlays and meters
+for one player, whose HUD it drew texel for pixel at 640x480, and filtered
+them for split screen, whose HUD it scaled. Drawn at any other size they are
+scaled too, and point sampling gives them blocky, uneven edges (the most on a
+Custom Edition map's HUD, whose high resolution bitmaps are drawn at half
+their size): filtered then, as split screen's were.
+display.resolution_scaling = "original" draws at 640x480, texel for pixel. */
+static boolean hud_point_sampled(
+	real_vector2d const *xy_scale)
+{
+	return local_player_count() == 1 &&
+		halo_screen_scale() == 1.0f &&
+		xy_scale->i == 1.0f &&
+		xy_scale->j == 1.0f;
+}
+
 static void hud_draw_multitexture_overlay(
 	struct multitexture_overlay_hud_element_definition const *overlay,
 	short local_player_index,
@@ -685,7 +727,7 @@ static void hud_draw_multitexture_overlay(
 	parameters.map_scale[0].j = 1.0f;
 	parameters.map_scale[0].i = 1.0f;
 	parameters.meter_parameters = NULL;
-	parameters.point_sampled = local_player_count() == 1;
+	parameters.point_sampled = hud_point_sampled(xy_scale);
 	parameters.map[0] = bitmap_group_get_bitmap_from_sequence(
 		overlay->map[0].index,
 		0,
@@ -1418,6 +1460,11 @@ void hud_zoomed_layout_end(
 }
 
 #endif
+#ifdef HALO_CONSOLE_PERFORMANCE_MODE
+/* port: whether performance mode keeps the HUD's frames and backgrounds */
+boolean console_performance_hud_frames(void);
+#endif
+
 void hud_draw_static_element(
 	short local_player_index,
 	struct hud_absolute_placement_definition const *absolute_placement,
@@ -1430,6 +1477,13 @@ void hud_draw_static_element(
 	struct bitmap_group *bitmap_group;
 	struct bitmap_data *bitmap;
 	short overlay_index;
+
+#ifdef HALO_CONSOLE_PERFORMANCE_MODE
+	if (!console_performance_hud_frames())
+	{
+		return;
+	}
+#endif
 
 	csmemset(stack_buffer, 0x62, sizeof(stack_buffer));
 
@@ -1582,7 +1636,7 @@ static void hud_draw_bitmap_internal(
 	parameters.map_scale[0].j = 1.0f;
 	parameters.map_scale[0].i = 1.0f;
 	parameters.meter_parameters = meter_parameters;
-	parameters.point_sampled = meter_parameters && local_player_count()==1;
+	parameters.point_sampled = meter_parameters && hud_point_sampled(xy_scale);
 	parameters.framebuffer_blend_function =
 		_shader_framebuffer_blend_function_alpha_multiply_add;
 	parameters.map[0] = (struct bitmap_data *)bitmap;
@@ -2012,6 +2066,8 @@ void hud_draw_numbers(
 				scale = hud_globals_get_scale(
 					TEST_FLAG(draw_flags, _hud_draw_in_multiplayer_bit));
 			}
+			if (TEST_FLAG(numbers->placement.multiplayer_scaling_flags, _hud_port_high_resolution_scale_bit))
+				scale *= 0.5f;
 #ifdef HALO_CUSTOM_EDITION
 			/* port: the digits' bitmap drawn at its HUD scale, their spacing
 			(the HUD number's widths, in pixels of the screen) at the HUD's */

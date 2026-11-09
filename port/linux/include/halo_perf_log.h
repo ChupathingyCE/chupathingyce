@@ -3,20 +3,27 @@ HALO_PERF_LOG.H
 
 The frame timing log (console.perf_log): once a second, one line in
 debug.txt with the frame time (average and worst), the time each part of the
-main loop took (game ticks, the render's parts, sound, network, present and
-the wait for the vertical blank), the draw calls and objects drawn, and a
+main loop took (game ticks and their parts, the distributed netcode's
+per-tick state, the render's parts, sound, network, present and the wait
+for the vertical blank), the draw calls and objects drawn, and a
 line when the player zooms in or out. For finding what a slow scene spends
 its time on, on hardware with no profiler attached.
 
 A port that has it defines HALO_PERF_LOG (the original Xbox's prefix,
 halo_xbox_prefix.h) and gives the functions below (port/xbox/game/
-xbox_perf_log.c). Elsewhere, and while the setting is off, each hook is a
-test of one flag. Counters and timers only: nothing is formatted until the
-second's line.
+xbox_perf_log.c). The consoles on the shared GL layer (HALO_CONSOLE_GL_LAYER:
+the Xbox 360, the Wii U) have it from here, with the functions in
+port/console/game/console_perf_log.c. Elsewhere, and while the setting is
+off, each hook is a test of one flag. Counters and timers only: nothing is
+formatted until the second's line.
 */
 
 #ifndef __HALO_PERF_LOG_H
 #define __HALO_PERF_LOG_H
+
+#if defined(HALO_CONSOLE_GL_LAYER) && !defined(HALO_PERF_LOG)
+#define HALO_PERF_LOG
+#endif
 
 /* the parts of a frame that are timed. The render's own parts (world to
 HUD, and setup to end) are inside render; sound is partly inside the game
@@ -38,7 +45,8 @@ enum halo_perf_phase
 	_halo_perf_vsync_wait,
 	/* the render's finer parts, on the second line: the frame's start
 	(rasterizer_frame_begin), a player view's setup before its window (fog,
-	visibility, a mirror's view), the lens flares (split from effects), the
+	visibility, a mirror's view), the lens flares (their visibility tests
+	and their drawing, split from world and effects), the
 	HUD's screen effect (the scope's mask, blur and night vision, split from
 	hud) and the end (the console window, EndScene, rasterizer_frame_end) */
 	_halo_perf_render_begin,
@@ -53,6 +61,22 @@ enum halo_perf_phase
 	before drawing */
 	_halo_perf_occlusion_wait,
 	_halo_perf_texture_wait,
+	/* the game tick's parts (game_tick, game.c), each inside tick: the
+	units' and players' updates, the AI (or, on a client of the distributed
+	netcode, the host's actors driven), the effects, the game type's update
+	and the objects' update; inside that last, the vehicles' physics
+	(physics_update). The collision tests (collision_test_vector) are timed
+	wherever in the tick they are made, and nest in the others. The
+	distributed netcode's per-tick state (network_distributed_tick) runs
+	after each tick, outside it */
+	_halo_perf_tick_units,
+	_halo_perf_tick_ai,
+	_halo_perf_tick_effects,
+	_halo_perf_tick_game_engine,
+	_halo_perf_tick_objects,
+	_halo_perf_tick_physics,
+	_halo_perf_tick_collision,
+	_halo_perf_tick_netcode,
 	NUMBER_OF_HALO_PERF_PHASES
 };
 
@@ -67,6 +91,8 @@ enum halo_perf_counter
 	/* textures the cache started loading, and the screen effect's passes */
 	_halo_perf_texture_loads,
 	_halo_perf_screen_effect_passes,
+	/* the lens flares' visibility (occlusion) tests drawn */
+	_halo_perf_visibility_tests,
 	NUMBER_OF_HALO_PERF_COUNTERS
 };
 
@@ -74,6 +100,8 @@ enum halo_perf_counter
 extern int halo_perf_log_on;
 extern unsigned long halo_perf_counters[NUMBER_OF_HALO_PERF_COUNTERS];
 
+/* (a phase may nest in itself, as a collision test made inside another:
+only the outermost is timed) */
 void halo_perf_begin(int phase);
 void halo_perf_end(int phase);
 /* the render's parts follow each other: the one now running (NONE: none) */

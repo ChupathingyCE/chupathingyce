@@ -167,4 +167,34 @@ sv_end_game, sv_name, sv_maxplayers), and its reason, if any, its last word
 in quotes (sv_warn, sv_kick and sv_ban only). 1, else 0 and why */
 int control_link_command_line(const char *command, const char *reason, char *line, size_t size, const char **why);
 
+/* sv_link_status's JSON (GET /v1/link), each string escaped; an empty
+server_id, owner or code is null (the caller leaves the code out for those
+who may not link the server), an empty problem null: its length, or -1 if
+it does not fit */
+struct control_link_status
+{
+	int enabled;
+	/* off, linking, linked */
+	const char *state;
+	const char *site;
+	const char *server_id;
+	const char *owner;
+	const char *code;
+	long long heard_seconds_ago;
+	const char *role_cap;
+	const char *problem;
+	/* none, live, cached, expired */
+	const char *roles_state;
+	int role_accounts;
+	unsigned long long roles_version;
+	int roles_hours;
+};
+
+int control_link_status_json(const struct control_link_status *status, char *out, size_t size);
+
+/* whether the site's address may be the link's: https://<host>..., or plain
+http:// to this machine alone for tests (the host exactly 127.0.0.1,
+localhost or [::1], then a port, a path or nothing): 1, else 0 */
+int control_link_url_allowed(const char *url);
+
 #endif

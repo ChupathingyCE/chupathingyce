@@ -185,6 +185,30 @@ int main(int argc, char **argv)
 		/* (nothing more once it is finished) */
 		return finish(1300, 1, &length) == NULL ? 0 : 2;
 	}
+	if (argc >= 2 && !strcmp(argv[1], "bomb"))
+	{
+		/* a Bomb game: its carry seconds, carriers killed and kills while
+		carrying in the objectives of the player with Bomb's counts */
+		struct event_log_player_totals line;
+		int walter;
+
+		game("levels\\test\\bloodgulch\\bloodgulch", 6, 1);
+		walter = player(0, "Walter", "00112233445566778899AABBCCDDEEFF", 0);
+		memset(&line, 0, sizeof(line));
+		line.flag_grabs = 3;
+		line.flag_scores = 2;
+		line.bomb = 1;
+		line.bomb_carry_time = 42;
+		line.bomb_carrier_kills = 2;
+		line.bomb_kills_as_carrier = 1;
+		event_log_player_totals(walter, &line);
+		json = finish(1200, 1, &length);
+		if (!json)
+			return 1;
+		fwrite(json, 1, length, stdout);
+		free(json);
+		return 0;
+	}
 	if (argc >= 2 && !strcmp(argv[1], "abandon"))
 	{
 		/* a game torn down before its end (game_events_update): its batch

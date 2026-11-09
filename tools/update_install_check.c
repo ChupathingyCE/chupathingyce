@@ -13,7 +13,8 @@ itself the latest.
 Every line of its log is appended to the file HALO_UPDATE_TEST_LOG names,
 after the version and the executable's file name: "<version> <name> <line>".
 It exits once the check is answered (its update failed, or there is none);
-an update that succeeds ends it by starting the new one.
+an update that succeeds ends it by starting the new one. Started with
+APPIMAGE set, it is an AppImage, as the AppImage runtime would start it.
 */
 
 #define _GNU_SOURCE
@@ -22,6 +23,7 @@ uses of it is here) */
 #define __HALO_LINUX_PLATFORM_H
 
 #include "build_identity.h"
+#include "packaged_install.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -31,6 +33,7 @@ uses of it is here) */
 
 void platform_log(const char *format, ...) __attribute__((format(printf, 1, 2)));
 const char *platform_save_root(void);
+int platform_packaged(void);
 
 #include "updater.c"
 
@@ -64,6 +67,12 @@ const char *build_identity_user_agent(void)
 	return "chupathingyce-update-test/" HALO_VERSION;
 }
 
+void build_identity_watermark_update(const char *version, const char *where)
+{
+	(void)version;
+	(void)where;
+}
+
 int config_boolean(const char *name)
 {
 	return !strcmp(name, "update.auto");
@@ -78,6 +87,29 @@ double config_real(const char *name)
 const char *config_string(const char *name)
 {
 	return !strcmp(name, "debug.update_answer") ? "yes" : "";
+}
+
+/* (a packaged install's mark, as the game reads it: HALO_PACKAGED, or the
+file "packaged" beside the executable) */
+int platform_packaged(void)
+{
+	char folder[1024], path[1100];
+	ssize_t length = readlink("/proc/self/exe", folder, sizeof(folder) - 1);
+	SDL_PathInfo information;
+	char *slash;
+
+	folder[length > 0 ? length : 0] = 0;
+	slash = strrchr(folder, '/');
+	if (slash)
+		*slash = 0;
+	return packaged_install_marked(getenv("HALO_PACKAGED"),
+		packaged_install_file_path(path, sizeof(path), folder) && SDL_GetPathInfo(path, &information) &&
+		information.type == SDL_PATHTYPE_FILE);
+}
+
+int config_packaged_update_check(void)
+{
+	return 1;
 }
 
 int config_write_boolean(const char *name, int value)
@@ -106,6 +138,8 @@ int main(void)
 		return 1;
 	}
 	platform_log("started");
+	/* (what an update's AppImage was started with: update_launch) */
+	platform_log("library path: %s", getenv("LD_LIBRARY_PATH") ? getenv("LD_LIBRARY_PATH") : "(none)");
 	updater_start();
 	/* (as the game's frames do, until the check is answered) */
 	deadline = SDL_GetTicks() + 60000;

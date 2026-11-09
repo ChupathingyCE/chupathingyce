@@ -28,9 +28,22 @@ are the controller's button icons (a texture array, a layer each).
 #include <stdlib.h>
 #include <string.h>
 
+/* the button icons' texture: on ES 2, with no texture arrays, one 2D texture
+with the icons one above the other (and no smaller levels: its size may not
+be a power of two) */
+#ifdef HALO_CONSOLE_GLES2
+#define ICONS_TARGET GL_TEXTURE_2D
+#define ICONS_BINDING GL_TEXTURE_BINDING_2D
+#else
+#define ICONS_TARGET GL_TEXTURE_2D_ARRAY
+#define ICONS_BINDING GL_TEXTURE_BINDING_2D_ARRAY
+#endif
+
 /* (xinput_sdl.c: the device the player last used: 0 keyboard, 1 Xbox-like,
 2 PlayStation, 3 Nintendo) */
 int platform_prompt_scheme(void);
+/* (interface/progress_bar.c: the loading screen is up) */
+extern unsigned char progress_bar_is_active(void);
 
 /* the controller's button icons (port/assets/prompts, generated with the
 fonts by tools/embed_assets.py --fonts): A, B, X, Y, Start, LT, RT, LB, RB,
@@ -92,6 +105,10 @@ static struct
 {
 	int ready, failed;
 	GLuint program, vertex_array, vertex_buffer, atlas, icons, picture;
+#ifdef HALO_CONSOLE_GLES2
+	GLint icon_count_location;
+	GLint y_flip_location;
+#endif
 	GLint scale_location, atlas_location, icons_location, picture_location, cutouts_location, window_height_location;
 	/* the picture (ui_overlay_picture): the serial and pixels last given,
 	and the serial in the texture */
@@ -129,16 +146,22 @@ static struct
 	float last_scale;
 
 	struct vertex vertices[MAXIMUM_QUADS * 6];
+#ifdef HALO_BGFX
+	/* (the bgfx backend: the atlas's texels here, the rows changed since it
+	last had them, and the icons premultiplied; d3d8_bgfx.inl draws) */
+	unsigned char *atlas_texels, *icon_texels;
+	int dirty_top, dirty_bottom;
+#endif
 } overlay;
 
 /* ---------- the device's buttons */
 
 static const unsigned int button_glyphs[4][NUMBER_OF_UI_BUTTONS] =
 {
-	/* keyboard: Enter, Backspace, E, Tab, Esc, Q, X, Q, C (the game's keys
-	for them, xinput_sdl.c; C is Online Games' Link Profile), Left, Right,
-	F1 */
-	{ 0xE05E, 0xE038, 0xE05A, 0xE0D1, 0xE062, 0xE0B3, 0xE0E3, 0xE0B3, 0xE046, 0xE020, 0xE022, 0xE067 },
+	/* keyboard: Enter, Backspace, E, Tab, F2, Q, X, Q, C (the game's keys
+	for them, xinput_sdl.c; C is Online Games' Link Profile, F2 its My
+	Profile: escape is B), Left, Right, F1 */
+	{ 0xE05E, 0xE038, 0xE05A, 0xE0D1, 0xE06F, 0xE0B3, 0xE0E3, 0xE0B3, 0xE046, 0xE020, 0xE022, 0xE067 },
 	/* Xbox: A, B, X, Y, menu, LT, RT, LB, RB, -, -, view */
 	{ 0xE004, 0xE006, 0xE01E, 0xE020, 0xE014, 0xE047, 0xE04D, 0xE043, 0xE049, 0, 0, 0xE01C },
 	/* PlayStation: cross, circle, square, triangle, options, L2, R2, L1, R1,
@@ -465,14 +488,40 @@ other buttons as dark pills with a label, the keyboard's as light key caps */
 static const char *const pill_labels[4][NUMBER_OF_UI_BUTTONS] =
 {
 	/* (the keyboard's keys for them: xinput_sdl.c; C is Online Games' Link
-	Profile, F1 Back) */
-	{ "ENTER", "BKSP", "E", "TAB", "ESC", "Q", "X", "Q", "C", "\xE2\x86\x90", "\xE2\x86\x92", "F1" },
+	Profile, F1 Back, F2 Start) */
+	{ "ENTER", "BKSP", "E", "TAB", "F2", "Q", "X", "Q", "C", "\xE2\x86\x90", "\xE2\x86\x92", "F1" },
 	{ "A", "B", "X", "Y", "START", "LT", "RT", "LB", "RB", "\xE2\x80\xB9", "\xE2\x80\xBA", "BACK" },
 	{ "", "", "", "", "OPTIONS", "L2", "R2", "L1", "R1", "\xE2\x80\xB9", "\xE2\x80\xBA", "SHARE" },
 	/* (Nintendo's south and east are B and A where the Xbox's are A and B,
 	its west and north Y and X) */
 	{ "B", "A", "Y", "X", "+", "ZL", "ZR", "L", "R", "\xE2\x80\xB9", "\xE2\x80\xBA", "\xE2\x88\x92" },
 };
+
+/* a pill's or key cap's label: the d-pad's arrows only if a face draws them
+(the menus' face, else Noto Sans Bold: glyph_font), else "\u2039" and
+"\u203A", else "<" and ">", never a blank cap */
+static const char *pill_label(int device, int button)
+{
+	static const unsigned int arrows[2][3] = { { 0x2190, 0x2039, '<' }, { 0x2192, 0x203A, '>' } };
+	static const char *const texts[2][3] = { { "\xE2\x86\x90", "\xE2\x80\xB9", "<" },
+		{ "\xE2\x86\x92", "\xE2\x80\xBA", ">" } };
+	int side, choice;
+
+	if (button != UI_BUTTON_DPAD_LEFT && button != UI_BUTTON_DPAD_RIGHT)
+		return pill_labels[device][button];
+	side = button == UI_BUTTON_DPAD_RIGHT;
+	/* (the label's own first: the keyboard's arrow keys, the pads' chevrons) */
+	choice = device == 0 ? 0 : 1;
+	for (; choice < 2; choice++)
+	{
+		if (posix_ui_font_has(POSIX_UI_FONT_MENU, arrows[side][choice]) ||
+			posix_ui_font_has(POSIX_UI_FONT_BOLD, arrows[side][choice]))
+		{
+			return texts[side][choice];
+		}
+	}
+	return texts[side][2];
+}
 
 /* the Xbox's face buttons' colors, lit at the top and deep at the bottom */
 static const unsigned int face_colors[4][2] =
@@ -626,7 +675,7 @@ float ui_overlay_button_width(int button, float size)
 		}
 		return size;
 	}
-	return pill_width(pill_labels[device][button], size);
+	return pill_width(pill_label(device, button), size);
 }
 
 float ui_overlay_button(int button, float size, float x, float y, unsigned int color)
@@ -638,7 +687,7 @@ float ui_overlay_button(int button, float size, float x, float y, unsigned int c
 
 	if (button < 0 || button >= NUMBER_OF_UI_BUTTONS)
 		return 0.0f;
-	label = pill_labels[device][button];
+	label = pill_label(device, button);
 	/* an Xbox-like pad's buttons: their icons (snapchipper's) */
 	if (device == 1 && button_icon(button) >= 0)
 		return draw_icon(button_icon(button), size, x, y, fade(0xFFFFFFFF, share));
@@ -717,6 +766,9 @@ static const char vertex_source[] =
 	"in vec2 edge;\n"
 	"in vec4 color;\n"
 	"uniform vec2 scale;\n"
+#ifdef HALO_CONSOLE_GLES2
+	"uniform float y_flip;\n"
+#endif
 	"out vec2 v_texture_coordinate;\n"
 	"out vec4 v_shape;\n"
 	"out vec2 v_edge;\n"
@@ -728,6 +780,9 @@ static const char vertex_source[] =
 	"\tv_edge = edge;\n"
 	"\tv_color = color;\n"
 	"\tgl_Position = vec4(position * scale - vec2(1.0, -1.0), 0.0, 1.0);\n"
+#ifdef HALO_CONSOLE_GLES2
+	"\tgl_Position.y *= y_flip;\n"
+#endif
 	"}\n";
 
 static const char fragment_source[] =
@@ -736,17 +791,29 @@ static const char fragment_source[] =
 	"in vec2 v_edge;\n"
 	"in vec4 v_color;\n"
 	"uniform sampler2D atlas;\n"
+#ifdef HALO_CONSOLE_GLES2
+	"uniform sampler2D icons;\n"
+	"uniform float icon_count;\n"
+#else
 	"uniform sampler2DArray icons;\n"
+#endif
 	"uniform sampler2D picture;\n"
 	"uniform vec4 cutouts[4];\n"
 	"uniform float window_height;\n"
+#ifdef HALO_CONSOLE_GLES2
+	"uniform float y_flip;\n"
+#endif
 	"out vec4 fragment;\n"
 	"void main()\n"
 	"{\n"
 	"\tfloat alpha;\n"
 	/* (the game's own pictures show through: x0, y0, x1, y1 in window pixels
 	from the top) */
+#ifdef HALO_CONSOLE_GLES2
+	"\tvec2 p = vec2(gl_FragCoord.x, y_flip < 0.0 ? gl_FragCoord.y : window_height - gl_FragCoord.y);\n"
+#else
 	"\tvec2 p = vec2(gl_FragCoord.x, window_height - gl_FragCoord.y);\n"
+#endif
 	"\tfor (int i = 0; i < 4; i++)\n"
 	"\t\tif (p.x >= cutouts[i].x && p.y >= cutouts[i].y && p.x < cutouts[i].z && p.y < cutouts[i].w)\n"
 	"\t\t\tdiscard;\n"
@@ -759,7 +826,11 @@ static const char fragment_source[] =
 	/* an icon (premultiplied: its color undone after filtering) */
 	"\tif (v_edge.x < -1.5)\n"
 	"\t{\n"
+#ifdef HALO_CONSOLE_GLES2
+	"\t\tvec4 texel = texture(icons, vec2(v_texture_coordinate.x, (v_texture_coordinate.y + v_shape.x) / icon_count));\n"
+#else
 	"\t\tvec4 texel = texture(icons, vec3(v_texture_coordinate, v_shape.x));\n"
+#endif
 	"\t\tfragment = vec4(texel.rgb / max(texel.a, 0.001), texel.a) * v_color;\n"
 	"\t\treturn;\n"
 	"\t}\n"
@@ -786,7 +857,7 @@ static GLuint compile(GLenum type, const char *body)
 	const char *pointer = source;
 	GLint status = 0;
 
-#ifdef HALO_ANDROID
+#ifdef HALO_GL_ES
 	snprintf(source, sizeof(source), "#version %s\nprecision highp float;\nprecision highp sampler2DArray;\n%s",
 		xgpu_capabilities.shading_language, body);
 #elif defined(__APPLE__)
@@ -818,6 +889,45 @@ static int set_up(void)
 
 	if (overlay.ready || overlay.failed)
 		return overlay.ready;
+#ifdef HALO_BGFX
+	if (xgpu_bgfx)
+	{
+		int size = ui_prompt_icon_size, icon, texel;
+
+		(void)vertex_shader;
+		(void)fragment_shader;
+		(void)status;
+		(void)zero;
+		(void)zero_texel;
+		overlay.atlas_texels = calloc(ATLAS_SIZE, ATLAS_SIZE);
+		overlay.icon_texels = malloc((size_t)size * size * 4 * NUMBER_OF_ICONS);
+		if (!overlay.atlas_texels || !overlay.icon_texels)
+		{
+			overlay.failed = 1;
+			return 0;
+		}
+		for (icon = 0; icon < NUMBER_OF_ICONS; icon++)
+		{
+			const unsigned char *from = (const unsigned char *)ui_prompt_icons[icon];
+			unsigned char *to = overlay.icon_texels + (size_t)icon * size * size * 4;
+
+			for (texel = 0; texel < size * size; texel++)
+			{
+				unsigned int alpha = from[texel * 4 + 3];
+
+				to[texel * 4] = (unsigned char)(from[texel * 4] * alpha / 255);
+				to[texel * 4 + 1] = (unsigned char)(from[texel * 4 + 1] * alpha / 255);
+				to[texel * 4 + 2] = (unsigned char)(from[texel * 4 + 2] * alpha / 255);
+				to[texel * 4 + 3] = (unsigned char)alpha;
+			}
+		}
+		overlay.dirty_top = 0;
+		overlay.dirty_bottom = ATLAS_SIZE;
+		overlay.shelf_x = overlay.shelf_y = 2;
+		overlay.ready = 1;
+		return 1;
+	}
+#endif
 	vertex_shader = compile(GL_VERTEX_SHADER, vertex_source);
 	fragment_shader = compile(GL_FRAGMENT_SHADER, fragment_source);
 	if (!vertex_shader || !fragment_shader)
@@ -846,6 +956,10 @@ static int set_up(void)
 	overlay.scale_location = glGetUniformLocation(overlay.program, "scale");
 	overlay.atlas_location = glGetUniformLocation(overlay.program, "atlas");
 	overlay.icons_location = glGetUniformLocation(overlay.program, "icons");
+#ifdef HALO_CONSOLE_GLES2
+	overlay.icon_count_location = glGetUniformLocation(overlay.program, "icon_count");
+	overlay.y_flip_location = glGetUniformLocation(overlay.program, "y_flip");
+#endif
 	overlay.picture_location = glGetUniformLocation(overlay.program, "picture");
 	overlay.cutouts_location = glGetUniformLocation(overlay.program, "cutouts");
 	overlay.window_height_location = glGetUniformLocation(overlay.program, "window_height");
@@ -890,9 +1004,9 @@ static int set_up(void)
 		int size = ui_prompt_icon_size, icon, texel;
 		unsigned char *pixels = malloc((size_t)size * size * 4 * NUMBER_OF_ICONS);
 
-		glGetIntegerv(GL_TEXTURE_BINDING_2D_ARRAY, &saved_array);
+		glGetIntegerv(ICONS_BINDING, &saved_array);
 		glGenTextures(1, &overlay.icons);
-		glBindTexture(GL_TEXTURE_2D_ARRAY, overlay.icons);
+		glBindTexture(ICONS_TARGET, overlay.icons);
 		if (pixels)
 		{
 			for (icon = 0; icon < NUMBER_OF_ICONS; icon++)
@@ -911,14 +1025,20 @@ static int set_up(void)
 				}
 			}
 		}
+#ifdef HALO_CONSOLE_GLES2
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, size, size * NUMBER_OF_ICONS, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+		free(pixels);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+#else
 		glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_RGBA8, size, size, NUMBER_OF_ICONS, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
 		free(pixels);
 		glGenerateMipmap(GL_TEXTURE_2D_ARRAY);
 		glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-		glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-		glBindTexture(GL_TEXTURE_2D_ARRAY, (GLuint)saved_array);
+#endif
+		glTexParameteri(ICONS_TARGET, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glTexParameteri(ICONS_TARGET, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(ICONS_TARGET, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		glBindTexture(ICONS_TARGET, (GLuint)saved_array);
 	}
 	/* the picture's texture (filled when a picture is given) */
 	glGenTextures(1, &overlay.picture);
@@ -985,10 +1105,38 @@ static struct glyph *glyph(int font, int pixel_size, unsigned int codepoint, int
 	entry->atlas_y = (short)overlay.shelf_y;
 	if (bitmap && width > 0 && height > 0)
 	{
-		glBindTexture(GL_TEXTURE_2D, overlay.atlas);
-		glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-		glTexSubImage2D(GL_TEXTURE_2D, 0, overlay.shelf_x, overlay.shelf_y, width, height, GL_RED, GL_UNSIGNED_BYTE,
-			bitmap);
+		/* the glyph with a clear texel all around: a quad at a fraction of a
+		pixel filters in the texels beside its glyph, which hold whatever was
+		there before (a glyph from before the atlas started over, or a new
+		texture's undefined texels), drawn as lines at the glyph's sides */
+		int bordered_width = width + 2, bordered_height = height + 2, row;
+		unsigned char *bordered = calloc((size_t)bordered_width * (size_t)bordered_height, 1);
+
+		if (bordered)
+		{
+			for (row = 0; row < height; row++)
+				memcpy(bordered + (row + 1) * bordered_width + 1, bitmap + row * width, (size_t)width);
+#ifdef HALO_BGFX
+			if (xgpu_bgfx)
+			{
+				for (row = 0; row < bordered_height; row++)
+					memcpy(overlay.atlas_texels + (overlay.shelf_y - 1 + row) * ATLAS_SIZE + overlay.shelf_x - 1,
+						bordered + row * bordered_width, (size_t)bordered_width);
+				if (overlay.shelf_y - 1 < overlay.dirty_top)
+					overlay.dirty_top = overlay.shelf_y - 1;
+				if (overlay.shelf_y + height + 1 > overlay.dirty_bottom)
+					overlay.dirty_bottom = overlay.shelf_y + height + 1;
+			}
+			else
+#endif
+			{
+				glBindTexture(GL_TEXTURE_2D, overlay.atlas);
+				glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+				glTexSubImage2D(GL_TEXTURE_2D, 0, overlay.shelf_x - 1, overlay.shelf_y - 1, bordered_width,
+					bordered_height, GL_RED, GL_UNSIGNED_BYTE, bordered);
+			}
+			free(bordered);
+		}
 		overlay.shelf_x += width + 2;
 		if (height > overlay.shelf_height)
 			overlay.shelf_height = height;
@@ -1083,6 +1231,108 @@ static void put_vertex(struct vertex *vertex, float x, float y, float u, float v
 	vertex->color[3] = (unsigned char)color;
 }
 
+#ifdef HALO_BGFX
+/* the quads as triangles in window pixels, each layer's shapes, then its
+text, then the next layer's (shape_count of them shapes, the rest glyphs);
+how many vertices */
+static int build_vertices(int shape_count, float scale, float origin_x, float origin_y)
+{
+	int index, count = 0, layer, pass;
+
+	for (layer = 0; layer < MAXIMUM_LAYERS; layer++)
+	for (pass = 0; pass < 2; pass++)
+	for (index = pass ? shape_count : 0; index < (pass ? overlay.quad_count : shape_count) &&
+		count + 6 <= MAXIMUM_QUADS * 6; index++)
+	{
+		const struct quad *quad = &overlay.quads[index];
+		struct vertex *v = &overlay.vertices[count];
+		float left, top, right, bottom, half_width, half_height, radius, thickness, grow;
+		unsigned int top_color = quad->top, bottom_color = quad->bottom;
+
+		if (quad->layer != layer)
+			continue;
+		if (index < shape_count && (quad->radius == ICON_MARK || quad->radius == PICTURE_MARK))
+		{
+			/* an icon: layout to window pixels, its layer in shape.x (the
+			picture: the same, marked as the picture's) */
+			float layer_index = quad->thickness;
+			float mark = quad->radius;
+
+			left = origin_x + quad->x * scale;
+			top = origin_y + quad->y * scale;
+			right = left + quad->width * scale;
+			bottom = top + quad->height * scale;
+			put_vertex(&v[0], left, top, quad->u0, quad->v0, layer_index, 0, 0, 0, mark, 0, top_color);
+			put_vertex(&v[1], right, top, quad->u1, quad->v0, layer_index, 0, 0, 0, mark, 0, top_color);
+			put_vertex(&v[2], left, bottom, quad->u0, quad->v1, layer_index, 0, 0, 0, mark, 0, top_color);
+			put_vertex(&v[3], right, top, quad->u1, quad->v0, layer_index, 0, 0, 0, mark, 0, top_color);
+			put_vertex(&v[4], right, bottom, quad->u1, quad->v1, layer_index, 0, 0, 0, mark, 0, top_color);
+			put_vertex(&v[5], left, bottom, quad->u0, quad->v1, layer_index, 0, 0, 0, mark, 0, top_color);
+		}
+		else if (index < shape_count)
+		{
+			/* a shape: layout to window pixels, a pixel larger all round for
+			the smooth edge */
+			left = origin_x + quad->x * scale;
+			top = origin_y + quad->y * scale;
+			right = left + quad->width * scale;
+			bottom = top + quad->height * scale;
+			half_width = (right - left) * 0.5f;
+			half_height = (bottom - top) * 0.5f;
+			radius = quad->radius * scale;
+			thickness = quad->thickness > 0.0f ? fmaxf(1.0f, quad->thickness * scale) : 0.0f;
+			grow = 1.0f;
+			put_vertex(&v[0], left - grow, top - grow, -1.0f, 0.0f, -half_width - grow, -half_height - grow, half_width, half_height, radius, thickness, top_color);
+			put_vertex(&v[1], right + grow, top - grow, -1.0f, 0.0f, half_width + grow, -half_height - grow, half_width, half_height, radius, thickness, top_color);
+			put_vertex(&v[2], left - grow, bottom + grow, -1.0f, 0.0f, -half_width - grow, half_height + grow, half_width, half_height, radius, thickness, bottom_color);
+			put_vertex(&v[3], right + grow, top - grow, -1.0f, 0.0f, half_width + grow, -half_height - grow, half_width, half_height, radius, thickness, top_color);
+			put_vertex(&v[4], right + grow, bottom + grow, -1.0f, 0.0f, half_width + grow, half_height + grow, half_width, half_height, radius, thickness, bottom_color);
+			put_vertex(&v[5], left - grow, bottom + grow, -1.0f, 0.0f, -half_width - grow, half_height + grow, half_width, half_height, radius, thickness, bottom_color);
+		}
+		else
+		{
+			/* a glyph, already in window pixels (its top leaning right by
+			its skew) */
+			float lean = quad->thickness * quad->height;
+
+			left = quad->x;
+			top = quad->y;
+			right = left + quad->width;
+			bottom = top + quad->height;
+			put_vertex(&v[0], left + lean, top, quad->u0, quad->v0, 0, 0, 0, 0, 0, 0, top_color);
+			put_vertex(&v[1], right + lean, top, quad->u1, quad->v0, 0, 0, 0, 0, 0, 0, top_color);
+			put_vertex(&v[2], left, bottom, quad->u0, quad->v1, 0, 0, 0, 0, 0, 0, top_color);
+			put_vertex(&v[3], right + lean, top, quad->u1, quad->v0, 0, 0, 0, 0, 0, 0, top_color);
+			put_vertex(&v[4], right, bottom, quad->u1, quad->v1, 0, 0, 0, 0, 0, 0, top_color);
+			put_vertex(&v[5], left, bottom, quad->u0, quad->v1, 0, 0, 0, 0, 0, 0, top_color);
+		}
+		count += 6;
+	}
+	return count;
+}
+#endif
+#ifdef HALO_CONSOLE_GLES2
+/* where the overlay draws: the window, or the game's picture, to be scaled up
+with it, on an ES 2 console whose picture is drawn small (d3d8_gl.c) */
+static GLuint overlay_target_framebuffer;
+
+/* whether anything is gathered to draw */
+int ui_overlay_pending(void)
+{
+	return overlay.quad_count || overlay.text_count;
+}
+
+void ui_overlay_present_to(unsigned int framebuffer, int width, int height)
+{
+	overlay_target_framebuffer = framebuffer;
+	ui_overlay_present(0, 0, width, height, width, height);
+	overlay_target_framebuffer = 0;
+}
+#else
+/* (the window's: iOS's is SDL's view's own, 0 elsewhere) */
+#define overlay_target_framebuffer platform_window_framebuffer()
+#endif
+
 void ui_overlay_present(int x, int y, int width, int height, int window_width, int window_height)
 {
 	float scale, origin_x, origin_y;
@@ -1096,7 +1346,10 @@ void ui_overlay_present(int x, int y, int width, int height, int window_width, i
 		overlay.cutout_count = 0;
 		return;
 	}
-	if (!set_up() || width <= 0 || height <= 0)
+	/* (the loading screen is drawn over the menus under it, as the game's
+	picture: the screens and button prompts those menus gathered here, Online
+	Games' and the Chupathingy menus', are not drawn over it) */
+	if (progress_bar_is_active() || !set_up() || width <= 0 || height <= 0)
 	{
 		overlay.quad_count = overlay.text_count = overlay.text_used = 0;
 		overlay.cutout_count = 0;
@@ -1115,6 +1368,39 @@ void ui_overlay_present(int x, int y, int width, int height, int window_width, i
 	/* the picture's top left, in window pixels from the window's top */
 	origin_x = (float)x + ((float)width - LAYOUT_WIDTH * scale) * 0.5f;
 	origin_y = (float)(window_height - (y + height));
+#ifdef HALO_BGFX
+	if (xgpu_bgfx)
+	{
+		/* (the bgfx backend draws: d3d8_bgfx.inl) */
+		float cutouts[4][4];
+		int cutout;
+
+		shape_count = overlay.quad_count;
+		for (index = 0; index < overlay.text_count; index++)
+			lay_out_text(index, scale, origin_x, origin_y, &atlas_full);
+		count = build_vertices(shape_count, scale, origin_x, origin_y);
+		memset(cutouts, 0, sizeof(cutouts));
+		for (cutout = 0; cutout < overlay.cutout_count; cutout++)
+		{
+			cutouts[cutout][0] = origin_x + overlay.cutouts[cutout][0] * scale;
+			cutouts[cutout][1] = origin_y + overlay.cutouts[cutout][1] * scale;
+			cutouts[cutout][2] = origin_x + overlay.cutouts[cutout][2] * scale;
+			cutouts[cutout][3] = origin_y + overlay.cutouts[cutout][3] * scale;
+		}
+		xgpu_bgfx_overlay_draw(overlay.vertices, count, (int)sizeof(struct vertex), overlay.atlas_texels, ATLAS_SIZE,
+			overlay.dirty_top, overlay.dirty_bottom, overlay.icon_texels, ui_prompt_icon_size, NUMBER_OF_ICONS,
+			overlay.picture_pixels, overlay.picture_width, overlay.picture_height, overlay.picture_serial,
+			(const float (*)[4])cutouts, window_width, window_height);
+		overlay.dirty_top = ATLAS_SIZE;
+		overlay.dirty_bottom = 0;
+		overlay.quad_count = overlay.text_count = overlay.text_used = 0;
+		overlay.cutout_count = 0;
+		overlay.layer = 0;
+		if (atlas_full)
+			forget_glyphs();
+		return;
+	}
+#endif
 
 	/* (the game's renderer keeps its bindings across frames: they are put
 	back after) */
@@ -1231,7 +1517,7 @@ void ui_overlay_present(int x, int y, int width, int height, int window_width, i
 	}
 	}
 
-	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, overlay_target_framebuffer);
 	glViewport(0, 0, window_width, window_height);
 	glDisable(GL_SCISSOR_TEST);
 	glDisable(GL_DEPTH_TEST);
@@ -1243,12 +1529,20 @@ void ui_overlay_present(int x, int y, int width, int height, int window_width, i
 	glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
 	glUseProgram(overlay.program);
 	glUniform2f(overlay.scale_location, 2.0f / (float)window_width, -2.0f / (float)window_height);
+#ifdef HALO_CONSOLE_GLES2
+	/* (a render target's row 0 is the top of the picture; the window's, its
+	bottom) */
+	glUniform1f(overlay.y_flip_location, overlay_target_framebuffer ? -1.0f : 1.0f);
+#endif
 	glActiveTexture(GL_TEXTURE1);
-	glGetIntegerv(GL_TEXTURE_BINDING_2D_ARRAY, &saved_icons);
+	glGetIntegerv(ICONS_BINDING, &saved_icons);
 	glGetIntegerv(GL_SAMPLER_BINDING, &saved_icons_sampler);
 	glBindSampler(1, 0);
-	glBindTexture(GL_TEXTURE_2D_ARRAY, overlay.icons);
+	glBindTexture(ICONS_TARGET, overlay.icons);
 	glUniform1i(overlay.icons_location, 1);
+#ifdef HALO_CONSOLE_GLES2
+	glUniform1f(overlay.icon_count_location, (float)NUMBER_OF_ICONS);
+#endif
 	glActiveTexture(GL_TEXTURE2);
 	glGetIntegerv(GL_TEXTURE_BINDING_2D, &saved_picture);
 	glGetIntegerv(GL_SAMPLER_BINDING, &saved_picture_sampler);
@@ -1293,7 +1587,7 @@ void ui_overlay_present(int x, int y, int width, int height, int window_width, i
 	glBindTexture(GL_TEXTURE_2D, (GLuint)saved_picture);
 	glBindSampler(2, (GLuint)saved_picture_sampler);
 	glActiveTexture(GL_TEXTURE1);
-	glBindTexture(GL_TEXTURE_2D_ARRAY, (GLuint)saved_icons);
+	glBindTexture(ICONS_TARGET, (GLuint)saved_icons);
 	glBindSampler(1, (GLuint)saved_icons_sampler);
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, (GLuint)saved_texture);

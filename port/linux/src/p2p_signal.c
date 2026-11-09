@@ -400,7 +400,11 @@ static int elapsed(unsigned long since, unsigned long time)
 
 static unsigned short network_short(unsigned short value)
 {
+#ifdef HALO_BIG_ENDIAN
+	return value;
+#else
 	return (unsigned short)(value << 8 | value >> 8);
+#endif
 }
 
 /* whether some of a budget is left now (maximum at once, one more each
@@ -1716,7 +1720,7 @@ static void broker_readable(struct broker *broker)
 beside its config.toml: the dedicated server's container, a macOS
 application (its config.toml in Application Support), a build run from its
 build folder. Keep it the same as that file */
-#define DEFAULT_BROKERS "opence.milenko.org:1883,broker.emqx.io:1883,broker.hivemq.com:1883,test.mosquitto.org:1883"
+#define DEFAULT_BROKERS "mqtt.chupathingy.org:1883,broker.emqx.io:1883,broker.hivemq.com:1883,test.mosquitto.org:1883"
 
 /* the brokers in network.brokers_file (beside config.toml, unless a full
 path: port/assets/network/brokers.txt, which the builds put there), one on

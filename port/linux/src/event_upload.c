@@ -29,6 +29,7 @@ is sent, a file each (<game>-<part>.json), for the operator.
 #include "posix.h"
 #include "port_config.h"
 #include "browser_http.h"
+#include "http_url_rules.h"
 #include "build_identity.h"
 #include "p2p.h"
 #include "p2p_internal.h"
@@ -94,8 +95,7 @@ static void event_url(char *url, int size)
 /* the token goes to an HTTPS server, or one on this machine (a test) */
 static int safe_for_token(const char *url)
 {
-	return !strncmp(url, "https://", 8) || !strncmp(url, "http://127.0.0.1", 16) ||
-		!strncmp(url, "http://localhost", 16);
+	return http_url_safe_for_secret(url);
 }
 
 static int due(unsigned long when)
@@ -395,6 +395,9 @@ void event_upload_system_sample(int *cpu_permille, int *resident_kb)
 			fclose(file);
 		}
 	}
+#elif defined(HALO_UNIX_PLATFORM_NAME)
+	/* (the other Unix hosts': port/unix/src/unix_host.c) */
+	*resident_kb = halo_unix_resident_kb();
 #endif
 }
 

@@ -13,7 +13,7 @@ device itself (d3d8_gl.c).
 #include "platform.h"
 #include "gl.h"
 
-#ifdef HALO_ANDROID
+#ifdef HALO_GL_ES
 /* OpenGL ES features that are optional (d3d8_gl.c gl_initialize) */
 struct xgpu_capabilities
 {
@@ -37,6 +37,15 @@ void host_gl_read_buffer(unsigned int buffer, unsigned int offset, unsigned int 
 void host_gl_buffer_write(unsigned int target, unsigned int offset, unsigned int size, const void *data);
 void host_gl_fence_frame(unsigned int slot);
 void host_gl_wait_frame(unsigned int slot);
+#endif
+
+/* the window's framebuffer, which the frame is presented into: 0 but on
+iOS, which has no default framebuffer, and draws the window from the one
+SDL makes for it (sdl_platform.c) */
+#ifdef HALO_IOS
+unsigned int platform_window_framebuffer(void);
+#else
+#define platform_window_framebuffer() 0
 #endif
 
 /* ---------- GL state
@@ -104,7 +113,7 @@ lights the diffuse color for each pixel (nv2a_pixel_shader_key
 per_pixel_lighting). Returns a malloc'd string. */
 /* OpenGL ES and macOS's OpenGL 4.1 have no glClipControl: vertex shaders
 convert D3D's clip space themselves (nv2a_vsh.c) */
-#if defined(HALO_ANDROID) || defined(__APPLE__)
+#if defined(HALO_GL_ES) || defined(__APPLE__)
 #define HALO_GL_NO_CLIP_CONTROL 1
 #endif
 
@@ -161,7 +170,7 @@ struct nv2a_pixel_shader_key
 
 char *nv2a_pixel_shader_to_glsl(const struct nv2a_pixel_shader_key *key);
 
-#ifdef HALO_ANDROID
+#ifdef HALO_GL_ES
 /* ES samplers have no LOD bias of their own */
 #define XGPU_PIXEL_UNIFORMS_ES "uniform vec4 texture_lod_bias;\n"
 #else
@@ -233,11 +242,13 @@ struct xgpu_render_target
 	float scale[2];
 	unsigned long gl_width, gl_height;
 	/* with multisampling, the multisampled renderbuffer draws go to, its
-	samples a pixel (0 when it has none), and whether it has been drawn into
+	samples a pixel (0 when it has none), the samples the GPU gave it (it
+	may give more than were asked for), and whether it has been drawn into
 	since the texture last had its pixels (d3d8_gl.c,
 	render_target_multisample) */
 	GLuint multisample;
 	int samples;
+	int gl_samples;
 	BOOL unresolved;
 	/* changes whenever the target is drawn into or cleared (d3d8_gl.c,
 	bind_targets) */
@@ -246,6 +257,33 @@ struct xgpu_render_target
 
 /* the GL texture holding a render target with this physical address, or 0 */
 struct xgpu_render_target *xgpu_render_target_find(unsigned long data);
+
+#ifdef HALO_BGFX
+/* display.renderer is "bgfx": the bgfx test backend draws instead of OpenGL
+(d3d8_bgfx.inl), from platform_video_initialize on */
+extern BOOL xgpu_bgfx;
+/* a level of a texture that is not compressed, as 32-bit ARGB words (B, G,
+R, A in memory); FALSE without the memory for it */
+BOOL xgpu_texture_decode_level(const struct xgpu_texture_description *description, unsigned long level,
+	const unsigned char *source, const D3DCOLOR *palette, unsigned long *destination);
+/* a compressed texture's DXT kind (1, 3 or 5; 0 for any other), and the
+bytes of one of its levels */
+int xgpu_texture_dxt(const struct xgpu_texture_description *description);
+unsigned long xgpu_texture_level_bytes(const struct xgpu_texture_description *description, unsigned long level);
+/* the port's own textures under the bgfx backend (the high-res text's atlas,
+HUD sheets, menu art): RGBA texels, made with their smaller levels when
+mipmapped; a name (nonzero) as the OpenGL path's texture names are */
+unsigned int xgpu_bgfx_texture_create(unsigned long width, unsigned long height, const unsigned char *rgba,
+	BOOL mipmapped);
+void xgpu_bgfx_texture_rows(unsigned int name, unsigned long top, unsigned long width, unsigned long rows,
+	const unsigned char *rgba);
+void xgpu_bgfx_texture_delete(unsigned int name);
+/* the overlay's quads (ui_overlay.c) over the window's picture at Present */
+void xgpu_bgfx_overlay_draw(const void *vertices, int count, int vertex_bytes, const unsigned char *atlas, int atlas_size,
+	int dirty_top, int dirty_bottom, const unsigned char *icons, int icon_size, int icon_count,
+	const unsigned char *picture, int picture_width, int picture_height, int picture_serial,
+	const float cutouts[4][4], int window_width, int window_height);
+#endif
 
 /* ---------- anti-aliasing
 

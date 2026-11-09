@@ -36,17 +36,15 @@ threads), so polls are short: one every few seconds, no long poll.
 
 #include "monocypher.h"
 
-#include <errno.h>
-#include <fcntl.h>
+/* (the files and random bytes, on Linux and Windows) */
+#include "server_host.h"
+
 #include <pthread.h>
 #include <stdarg.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <strings.h>
-#include <sys/stat.h>
-#include <time.h>
-#include <unistd.h>
 
 /* the platform layer's (xbox_files.c, posix_browser.c, the game's log):
 plain types */
@@ -158,26 +156,7 @@ static int64_t now_seconds(void)
 
 static int random_bytes(void *buffer, size_t size)
 {
-	int fd = open("/dev/urandom", O_RDONLY | O_CLOEXEC);
-	size_t done = 0;
-
-	if (fd < 0)
-		return 0;
-	while (done < size)
-	{
-		ssize_t count = read(fd, (char *)buffer + done, size - done);
-
-		if (count <= 0)
-		{
-			if (count < 0 && errno == EINTR)
-				continue;
-			close(fd);
-			return 0;
-		}
-		done += (size_t)count;
-	}
-	close(fd);
-	return 1;
+	return host_random_bytes(buffer, size);
 }
 
 static void data_file(const char *name, char *path, size_t size)
@@ -523,13 +502,14 @@ static void run_linking(void)
 	link_state.code_until = now_seconds() + expires;
 	link_state.state = LINK_WAITING;
 	pthread_mutex_unlock(&link_mutex);
-	/* (on the console, as sv_link said it would be, and in the log: the code
-	is good once, for a few minutes, and only with the owner's account) */
+	/* (on the console, as sv_link said it would be: the code is good once,
+	for a few minutes, and only with the owner's account) */
 	printf("\nChupathingy Dedicated Server: to link this server to your account, open\n\n    %s/servers/link?code=%s\n\n"
 		"signed in (or sign in at %s/servers/link and enter the code %s). It is good for %d minutes.\n\n",
 		link_state.url, code, link_state.url, code, expires / 60);
 	fflush(stdout);
-	platform_log("Delta Control: the link's code is %s (open %s/servers/link?code=%s)", code, link_state.url, code);
+	/* (not the code itself: the log is every role's to read) */
+	platform_log("Delta Control: a link code is ready, on the console (and sv_link_status, for the owner)");
 	for (;;)
 	{
 		char state[16], server_id[CONTROL_LINK_SERVER_ID_SIZE], owner[CONTROL_LINK_HANDLE_SIZE];
@@ -864,7 +844,7 @@ void server_link_begin(void)
 	if (!url || !url[0])
 		url = "https://stats.chupathingy.org";
 	/* (HTTPS, or this machine for tests) */
-	if (strncmp(url, "https://", 8) && strncmp(url, "http://127.0.0.1", 16) && strncmp(url, "http://localhost", 16))
+	if (!control_link_url_allowed(url))
 	{
 		link_state.disabled = 1;
 		pthread_mutex_unlock(&link_mutex);
@@ -948,7 +928,7 @@ int server_link_start(const char *server_name, const char *version, char *text, 
 		{
 			pthread_cond_signal(&link_wake);
 			snprintf(text, (size_t)text_size, "asking %s for a code: the link to open, %s/servers/link?code=<code>, is "
-				"printed on the server's console and in its log in a moment (sv_link_status shows it too)", link_state.url,
+				"printed on the server's console in a moment (sv_link_status shows it too)", link_state.url,
 				link_state.url);
 			ok = 1;
 		}
@@ -989,28 +969,36 @@ int server_link_stop(char *text, int text_size)
 	return ok;
 }
 
-void server_link_status(int json, char *text, int text_size)
+void server_link_status(int json, int show_code, char *text, int text_size)
 {
 	static const char *const names[] = { "off", "linking", "linking", "linked" };
 	static const char *const role_states[] = { "none", "live", "cached", "expired" };
 	int64_t now = now_seconds();
-	char problem[200];
+	const char *code;
 
 	pthread_mutex_lock(&link_mutex);
-	control_json_string(link_state.problem, problem, sizeof(problem));
+	/* (the pending code only for those who may link the server: whoever
+	enters it on the site first becomes the server's owner there) */
+	code = show_code ? link_state.code : "";
 	if (json)
 	{
-		snprintf(text, (size_t)text_size, "{\"state\": \"%s\", \"enabled\": %s, \"site\": \"%s\", \"server_id\": %s%s%s, "
-			"\"owner\": %s%s%s, \"code\": %s%s%s, \"heard_seconds_ago\": %lld, \"role_cap\": \"%s\", \"problem\": %s, "
-			"\"roles\": {\"state\": \"%s\", \"accounts\": %d, \"version\": %llu, \"expire_hours\": %d}}",
-			link_state.disabled ? "off" : names[link_state.state], link_state.disabled ? "false" : "true", link_state.url,
-			link_state.server_id[0] ? "\"" : "", link_state.server_id[0] ? link_state.server_id : "null",
-			link_state.server_id[0] ? "\"" : "", link_state.owner[0] ? "\"" : "", link_state.owner[0] ? link_state.owner :
-			"null", link_state.owner[0] ? "\"" : "", link_state.code[0] ? "\"" : "", link_state.code[0] ? link_state.code :
-			"null", link_state.code[0] ? "\"" : "", link_state.heard ? (long long)(now - link_state.heard) : -1LL,
-			control_role_name(link_state.cap ? link_state.cap : CONTROL_ROLE_ADMIN), link_state.problem[0] ? problem :
-			"null", role_states[link_state.roles_state], link_state.roles_state == SERVER_SITE_ROLES_EXPIRED ? 0 :
-			link_state.roles.role_count, (unsigned long long)link_state.roles_version, link_state.roles_hours);
+		struct control_link_status status;
+
+		status.enabled = !link_state.disabled;
+		status.state = link_state.disabled ? "off" : names[link_state.state];
+		status.site = link_state.url;
+		status.server_id = link_state.server_id;
+		status.owner = link_state.owner;
+		status.code = code;
+		status.heard_seconds_ago = link_state.heard ? (long long)(now - link_state.heard) : -1LL;
+		status.role_cap = control_role_name(link_state.cap ? link_state.cap : CONTROL_ROLE_ADMIN);
+		status.problem = link_state.problem;
+		status.roles_state = role_states[link_state.roles_state];
+		status.role_accounts = link_state.roles_state == SERVER_SITE_ROLES_EXPIRED ? 0 : link_state.roles.role_count;
+		status.roles_version = (unsigned long long)link_state.roles_version;
+		status.roles_hours = link_state.roles_hours;
+		if (control_link_status_json(&status, text, (size_t)text_size) < 0)
+			snprintf(text, (size_t)text_size, "{\"error\": \"the status does not fit\"}");
 	}
 	else if (link_state.disabled)
 		snprintf(text, (size_t)text_size, "the link to the Chupathingy site is off (HALO_DEDICATED_LINK)");
@@ -1018,9 +1006,10 @@ void server_link_status(int json, char *text, int text_size)
 		snprintf(text, (size_t)text_size, "linked to %s's account on %s (%s); site roles at most %s; last heard %s%s%s",
 			link_state.owner, link_state.url, link_state.server_id, control_role_name(link_state.cap),
 			link_state.heard ? "a few seconds ago" : "not yet", link_state.problem[0] ? "; " : "", link_state.problem);
+	else if (link_state.state == LINK_WAITING && code[0])
+		snprintf(text, (size_t)text_size, "linking: open %s/servers/link?code=%s, signed in", link_state.url, code);
 	else if (link_state.state == LINK_WAITING)
-		snprintf(text, (size_t)text_size, "linking: open %s/servers/link?code=%s, signed in", link_state.url,
-			link_state.code);
+		snprintf(text, (size_t)text_size, "linking: waiting for the owner to enter the code on the site");
 	else if (link_state.state == LINK_STARTING)
 		snprintf(text, (size_t)text_size, "linking: asking the site for a code");
 	else

@@ -251,6 +251,30 @@ void game_engine_play_multiplayer_sound(
 	return;
 }
 
+#ifdef HALO_GAME_BROWSER
+/* port: whether the map's globals have a multiplayer sound (not all have
+the last ones: a game type's fallback) */
+boolean game_engine_multiplayer_sound_exists(
+	long sound_index)
+{
+	struct game_globals_multiplayer_sound_view *game_globals =
+		(struct game_globals_multiplayer_sound_view *)scenario_get_game_globals();
+	struct game_globals_multiplayer_information *multiplayer_information;
+	struct tag_reference *sound;
+
+	if (!game_globals || game_globals->multiplayer_information.count <= 0)
+		return FALSE;
+	multiplayer_information = TAG_BLOCK_GET_ELEMENT(
+		&game_globals->multiplayer_information,
+		0,
+		struct game_globals_multiplayer_information);
+	if (!multiplayer_information || sound_index < 0 || sound_index >= multiplayer_information->sounds.count)
+		return FALSE;
+	sound = TAG_BLOCK_GET_ELEMENT(&multiplayer_information->sounds, sound_index, struct tag_reference);
+	return sound && sound->index != NONE;
+}
+#endif
+
 void game_engine_intialize_queued_sounds(
 	void)
 {

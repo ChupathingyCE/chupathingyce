@@ -34,6 +34,16 @@ struct data_array
 	scenario's script syntax) and is used there in place */
 	XPTR(void) data;
 };
+
+/* port: what an array's data field holds for its own elements, as
+data_initialize puts it there: their Xbox address in a 64-bit build, their
+pointer in the others (in a build whose window is moved, HALO_WINDOW_REBASE,
+an address in the window is the window's own, not the Xbox's) */
+#ifdef HALO_64BIT
+#define DATA_ARRAY_OWN_ELEMENTS(array) xbox_address((array) + 1)
+#else
+#define DATA_ARRAY_OWN_ELEMENTS(array) ((void *)((array) + 1))
+#endif
 #ifdef HALO_64BIT
 
 typedef char data_array_size_assert[

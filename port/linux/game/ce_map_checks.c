@@ -63,6 +63,14 @@ rest of a map's tags as it reads the Xbox's maps, trusting them.
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
+/* a 64 MB console's tag cache, the Xbox's own (port/xbox's xbox_ce_files.c):
+22 MB of it, and the end of the room below a map's BSPs */
+#define CE_ALIAS_CACHE_SIZE 0x01600000UL
+extern int platform_ce_alias;
+unsigned long platform_ce_room_end(unsigned long end_free);
+#endif
+
 /* ---------- constants */
 
 enum
@@ -152,7 +160,7 @@ struct ce_bsp_reference
 boolean ce_resources_check(struct ce_image *image, void *tag_instances, long tag_count, unsigned long end_free,
 	unsigned long map_file_size, unsigned long *next_free);
 boolean ce_models_check(struct ce_image const *image, void const *tag_instances, long tag_count,
-	byte const *model_data, unsigned long model_data_size, unsigned long vertex_data_size, unsigned long *bytes);
+	struct ce_model_data *data, unsigned long *bytes);
 boolean ce_shaders_check(struct ce_image const *image, void const *tag_instances, long tag_count);
 boolean ce_hud_check(struct ce_image const *image, void const *tag_instances, long tag_count);
 boolean ce_bsp_check(struct ce_image const *image, unsigned long *bytes);
@@ -185,6 +193,48 @@ static boolean ce_file_read(
 	if (SetFilePointer(file, (long)offset, NULL, FILE_BEGIN) == INVALID_SET_FILE_POINTER)
 		return FALSE;
 	return ReadFile(file, buffer, size, &bytes_read, NULL) && bytes_read == size;
+}
+
+#ifdef HALO_CONSOLE_CE_MODEL_DATA_WINDOWS
+/* the map's model data, read through windows (ce_map_checks.h) */
+struct ce_model_data_file
+{
+	HANDLE file;
+	unsigned long offset;
+};
+
+static boolean ce_model_data_file_read(
+	void *context,
+	unsigned long offset,
+	void *buffer,
+	unsigned long size)
+{
+	struct ce_model_data_file const *model_file = (struct ce_model_data_file const *)context;
+
+	return ce_file_read(model_file->file, model_file->offset + offset, buffer, size);
+}
+#endif
+
+void ce_refusal_explain_room(
+	void)
+{
+#ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
+	if (platform_ce_alias)
+	{
+		ce_refusal_explain("It needs more memory than a 64 MB console has.");
+		return;
+	}
+#endif
+	ce_refusal_explain("It is too big for the game's tag cache.");
+}
+
+/* the reason for a refusal for want of memory to check it, on a console */
+static void ce_refusal_explain_memory(
+	void)
+{
+#ifdef HALO_CONSOLE_CE_MODEL_DATA_WINDOWS
+	ce_refusal_explain("It needs more memory than this console has free.");
+#endif
 }
 
 /* whether a cache needs OpenSauce: its header says so, by setting any of
@@ -411,7 +461,10 @@ static boolean ce_bsps_check(
 		bsp.size = reference.file_size;
 		bsp.data = malloc(reference.file_size);
 		if (!bsp.data)
+		{
+			ce_refusal_explain_memory();
 			return ce_refuse("no memory to check structure BSP %ld (%lu bytes)", index, reference.file_size);
+		}
 		valid = ce_file_read(file, reference.file_offset, bsp.data, reference.file_size) &&
 			ce_bsp_check(&bsp, &bytes);
 		if (bsp.data)
@@ -436,10 +489,15 @@ static boolean ce_map_check_tags(
 	struct ce_tag_instance const *scenario_instance;
 	byte *scenario;
 	byte *model_data = NULL;
+	struct ce_model_data models;
 	unsigned long end_free, bsp_bytes, next_free, model_bytes = 0;
 	long tag_count;
 	boolean valid = FALSE;
+#ifdef HALO_CONSOLE_CE_MODEL_DATA_WINDOWS
+	struct ce_model_data_file model_file;
+#endif
 
+	memset(&models, 0, sizeof(models));
 	if (tag_data_offset < CE_HEADER_SIZE || tag_data_size < CE_TAG_HEADER_SIZE ||
 		!ce_range_within(tag_data_offset, tag_data_size, file_size))
 	{
@@ -455,10 +513,26 @@ static boolean ce_map_check_tags(
 	in after the tags, as they are when the map loads) */
 	image.base = CE_IMAGE_TAG_CACHE_BASE;
 	image.size = tag_data_size;
-	image.data = malloc(CE_IMAGE_TAG_CACHE_SIZE);
-	if (!image.data)
-		return ce_refuse("no memory to check it");
-	memset(image.data, 0xcd, CE_IMAGE_TAG_CACHE_SIZE);
+#ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
+	/* (a 64 MB console's: no room for an image, the map checked in the tag
+	cache itself as it loads, which is then read again: cache_files.c. Its
+	first 22 MB, the Xbox tag cache's pages: port/xbox's xbox_ce_files.c) */
+	if (platform_ce_alias)
+	{
+		image.data = (byte *)CE_IMAGE_TAG_CACHE_BASE;
+		memset(image.data, 0xcd, CE_ALIAS_CACHE_SIZE);
+	}
+	else
+#endif
+	{
+		image.data = malloc(CE_IMAGE_TAG_CACHE_SIZE);
+		if (!image.data)
+		{
+			ce_refusal_explain_memory();
+			return ce_refuse("no memory to check it");
+		}
+		memset(image.data, 0xcd, CE_IMAGE_TAG_CACHE_SIZE);
+	}
 	if (!ce_file_read(file, tag_data_offset, image.data, tag_data_size))
 	{
 		ce_refuse("its tag data could not be read");
@@ -499,6 +573,17 @@ static boolean ce_map_check_tags(
 	{
 		goto done;
 	}
+#ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
+	/* (and on a 64 MB console, below what isn't memory beneath the BSPs) */
+	end_free = platform_ce_room_end(end_free);
+	if (end_free < CE_IMAGE_TAG_CACHE_BASE + tag_data_size)
+	{
+		ce_refusal_explain_room();
+		ce_refuse("its tags and structure BSPs (from %08lx) need more of the tag cache than a 64 MB console has",
+			end_free);
+		goto done;
+	}
+#endif
 	/* the resource maps' tags copied in and relocated, and every bitmap and
 	sound checked (ce_resources.c); the image then reaches past them */
 	/* (the map's own tags, in the tag data: what follows is the resource
@@ -517,17 +602,32 @@ static boolean ce_map_check_tags(
 			header.model_data_file_offset, header.vertex_data_size);
 		goto done;
 	}
+	models.size = header.model_data_size;
+	models.vertex_data_size = header.vertex_data_size;
+#ifdef HALO_CONSOLE_CE_MODEL_DATA_WINDOWS
+	/* (read whole, or through windows if there is no room for that:
+	ce_map_checks.h) */
+	model_file.file = file;
+	model_file.offset = header.model_data_file_offset;
+	models.read = ce_model_data_file_read;
+	models.context = &model_file;
+	if (!ce_model_data_begin(&models))
+	{
+		ce_refusal_explain_memory();
+		ce_refuse("no memory to read its model data (%lu bytes), even in parts", header.model_data_size);
+		goto done;
+	}
+#else
 	model_data = malloc(header.model_data_size ? header.model_data_size : 1);
 	if (!model_data || !ce_file_read(file, header.model_data_file_offset, model_data, header.model_data_size))
 	{
 		ce_refuse("its model data (%lu bytes) could not be read", header.model_data_size);
 		goto done;
 	}
-	if (!ce_models_check(&tags, instances, tag_count, model_data, header.model_data_size,
-		header.vertex_data_size, &model_bytes))
-	{
+	models.whole = model_data;
+#endif
+	if (!ce_models_check(&tags, instances, tag_count, &models, &model_bytes))
 		goto done;
-	}
 	/* (the room left: the models' parts, strips and buffers, then the
 	loaded BSP's buffers, below the BSP and then above the tag cache,
 	ce_resources_allocate: less, there, what the first allocation that goes
@@ -542,7 +642,7 @@ static boolean ce_map_check_tags(
 		{
 			unsigned long needed = model_bytes + bsp_bytes;
 
-			ce_refusal_explain("It is too big for the game's tag cache.");
+			ce_refusal_explain_room();
 			ce_refuse("its models and structure BSP buffers need %lu bytes of the tag cache, and %lu bytes "
 				"are free between its tags and its BSP and above the tag cache (%lu too few)", needed, room,
 				needed - room);
@@ -553,8 +653,13 @@ static boolean ce_map_check_tags(
 		ce_animations_check(&tags, instances, tag_count) && ce_weapons_check(&tags, instances, tag_count);
 
 done:
+	ce_model_data_end(&models);
 	if (model_data)
 		free(model_data);
+#ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
+	if (platform_ce_alias)
+		image.data = NULL;
+#endif
 	if (image.data)
 		free(image.data);
 	return valid;
@@ -697,18 +802,28 @@ char const *ce_map_family_name(
 tags were checked only as far as the port reads them, not read outside its
 tag cache (where its tags, resources, models and BSP are), but from zeroed
 bytes of their own, and logged; else, as always, the address */
+#define CE_TAGS_SCRATCH_LIMIT 0x40000UL
+
 void *ce_tags_pointer(
 	unsigned long address,
 	long size)
 {
 	extern boolean cache_file_tags_are_ce(void);
-	static byte scratch[0x40000];
+	extern boolean pc_menu_owns(unsigned long address, long size);
+	/* (the zeroes: most reads are a block's few elements, so 16 KB; a
+	longer one, up to CE_TAGS_SCRATCH_LIMIT: each from memory taken the
+	first time one comes and kept, which a console spares only then) */
+	enum { SMALL_SCRATCH_SIZE = 0x4000 };
+	static byte *small_scratch;
+	static byte *large_scratch;
 	static long misses;
+	byte *zeroes;
 
-	/* (the bounds first: they pass for nearly every read) */
+	/* (the bounds first: they pass for nearly every read; then the menus'
+	own tags, added to the map's: menu_tags.c) */
 	if (!size || (address >= CE_IMAGE_TAG_CACHE_BASE && size > 0 &&
 		ce_range_within(address - CE_IMAGE_TAG_CACHE_BASE, (unsigned long)size, CE_IMAGE_TAG_CACHE_SIZE)) ||
-		!cache_file_tags_are_ce())
+		!cache_file_tags_are_ce() || pc_menu_owns(address, size))
 	{
 		return xbox_pointer(address);
 	}
@@ -718,13 +833,35 @@ void *ce_tags_pointer(
 		error(_error_silent, "Custom Edition map: its tags name %ld bytes at %08lx, outside them (read as zeroes)",
 			size, address);
 	}
-	if (size < 0 || (unsigned long)size > sizeof(scratch))
+	if (size < 0 || (unsigned long)size > CE_TAGS_SCRATCH_LIMIT)
 	{
 		error(_error_silent, "Custom Edition map: its tags are damaged; stopping");
 		system_exit(-1);
 	}
-	memset(scratch, 0, (size_t)size);
-	return scratch;
+	if ((unsigned long)size <= SMALL_SCRATCH_SIZE)
+	{
+		if (!small_scratch)
+			small_scratch = (byte *)system_malloc(SMALL_SCRATCH_SIZE);
+		if (!small_scratch)
+		{
+			error(_error_silent, "Custom Edition map: no memory for %ld bytes of its tags read as zeroes; stopping", size);
+			system_exit(-1);
+		}
+		zeroes = small_scratch;
+	}
+	else
+	{
+		if (!large_scratch)
+			large_scratch = (byte *)system_malloc(CE_TAGS_SCRATCH_LIMIT);
+		if (!large_scratch)
+		{
+			error(_error_silent, "Custom Edition map: no memory for %ld bytes of its tags read as zeroes; stopping", size);
+			system_exit(-1);
+		}
+		zeroes = large_scratch;
+	}
+	memset(zeroes, 0, (size_t)size);
+	return zeroes;
 }
 
 /* the length of a map's name without its family's suffix (@ce, @md or @pc),

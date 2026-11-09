@@ -21,9 +21,21 @@ with the host ABI.
 #include <string.h>
 #include <sys/ioctl.h>
 #ifdef __APPLE__
+#include <CoreGraphics/CGEventSource.h>
 #include <crt_externs.h>
 #include <uuid/uuid.h>
 #include <stdlib.h>
+#elif defined(__GLIBC__)
+/* (in two steps: without glibc, __GLIBC_PREREQ is no macro, and the
+preprocessor cannot read the test) */
+#if !__GLIBC_PREREQ(2, 25)
+/* glibc before 2.25 (the Steam Link's 2.19) has no getrandom, and its
+kernel (3.8) no system call for it: /dev/urandom, below */
+#include <errno.h>
+#define getrandom(buffer, size, flags) (errno = ENOSYS, (ssize_t)-1)
+#else
+#include <sys/random.h>
+#endif
 #else
 #include <sys/random.h>
 #include <sys/random.h>
@@ -38,6 +50,15 @@ with the host ABI.
 #include <unistd.h>
 
 #include "posix.h"
+#include "discord_register.h"
+
+#ifdef __APPLE__
+#include <TargetConditionals.h>
+#if TARGET_OS_OSX
+/* port/macos/src/macos_discord.c */
+int macos_register_discord_scheme(const char *application);
+#endif
+#endif
 
 /* Winsock error codes (winsockx.h) */
 #define WSAEINTR 10004
@@ -128,7 +149,14 @@ static int fail(void)
 	return -1;
 }
 
-#ifdef __APPLE__
+/* A host whose struct sockaddr starts with sa_len (the BSDs'), not with the
+family as Winsock's does and Linux's: the game's addresses are converted at the
+boundary (to_host_address, from_host_address). port/unix says it for its hosts. */
+#if defined(__APPLE__) && !defined(HALO_SOCKADDR_LEN)
+#define HALO_SOCKADDR_LEN 1
+#endif
+
+#ifdef HALO_SOCKADDR_LEN
 static int to_host_address(const void *address, int address_length,
 	struct sockaddr_storage *host_address, socklen_t *host_length)
 {
@@ -227,7 +255,7 @@ int posix_socket_close(int socket)
 
 int posix_socket_bind(int socket, const void *address, int address_length)
 {
-#ifdef __APPLE__
+#ifdef HALO_SOCKADDR_LEN
 	struct sockaddr_storage host_address;
 	socklen_t host_length = 0;
 
@@ -240,7 +268,7 @@ int posix_socket_bind(int socket, const void *address, int address_length)
 int posix_socket_connect(int socket, const void *address, int address_length)
 {
 	int result;
-#ifdef __APPLE__
+#ifdef HALO_SOCKADDR_LEN
 	struct sockaddr_storage host_address;
 	socklen_t host_length = 0;
 
@@ -284,23 +312,47 @@ int posix_socket_accept(int socket, void *address, int *address_length)
 
 	if (address_length)
 		*address_length = (int)length;
-#ifdef __APPLE__
+#ifdef HALO_SOCKADDR_LEN
 	if (result >= 0 && address && address_length)
 		from_host_address(address, address_length);
 #endif
 	return succeed(result);
 }
 
+/* the bytes this process has sent and received on its sockets, for the
+server's health reports (game_events.c): every thread's, so added atomically */
+static struct
+{
+	/* (8-byte aligned: a 32-bit x86 build otherwise aligns them to 4 and calls
+	libatomic, which isn't linked, instead of using cmpxchg8b) */
+	unsigned long long sent __attribute__((aligned(8)));
+	unsigned long long received __attribute__((aligned(8)));
+} traffic;
+
+static int traffic_sent(int result)
+{
+	if (result > 0)
+		__atomic_fetch_add(&traffic.sent, (unsigned long long)result, __ATOMIC_RELAXED);
+	return result;
+}
+
+static int traffic_received(int result)
+{
+	if (result > 0)
+		__atomic_fetch_add(&traffic.received, (unsigned long long)result, __ATOMIC_RELAXED);
+	return result;
+}
+
 int posix_socket_send(int socket, const void *buffer, int length, int flags)
 {
-	return succeed((int)send(socket, buffer, (size_t)length, flags | MSG_NOSIGNAL));
+	return traffic_sent(succeed((int)send(socket, buffer, (size_t)length, flags | MSG_NOSIGNAL)));
 }
 
 int posix_socket_sendto(int socket, const void *buffer, int length, int flags,
 	const void *address, int address_length)
 {
 	int result;
-#ifdef __APPLE__
+#ifdef HALO_SOCKADDR_LEN
 	struct sockaddr_storage host_address;
 	socklen_t host_length = 0;
 
@@ -312,7 +364,7 @@ int posix_socket_sendto(int socket, const void *buffer, int length, int flags,
 		{
 			result = (int)send(socket, buffer, (size_t)length, flags | MSG_NOSIGNAL);
 		}
-		return succeed(result);
+		return traffic_sent(succeed(result));
 	}
 #endif
 	result = (int)sendto(socket, buffer, (size_t)length, flags | MSG_NOSIGNAL,
@@ -321,12 +373,12 @@ int posix_socket_sendto(int socket, const void *buffer, int length, int flags,
 	{
 		result = (int)send(socket, buffer, (size_t)length, flags | MSG_NOSIGNAL);
 	}
-	return succeed(result);
+	return traffic_sent(succeed(result));
 }
 
 int posix_socket_recv(int socket, void *buffer, int length, int flags)
 {
-	return succeed((int)recv(socket, buffer, (size_t)length, flags));
+	return traffic_received(succeed((int)recv(socket, buffer, (size_t)length, flags)));
 }
 
 int posix_socket_recvfrom(int socket, void *buffer, int length, int flags,
@@ -353,11 +405,11 @@ int posix_socket_recvfrom(int socket, void *buffer, int length, int flags,
 		last_error = WSAEMSGSIZE;
 		return -1;
 	}
-#ifdef __APPLE__
+#ifdef HALO_SOCKADDR_LEN
 	if (result >= 0 && address && address_length)
 		from_host_address(address, address_length);
 #endif
-	return succeed(result);
+	return traffic_received(succeed(result));
 }
 
 int posix_socket_shutdown(int socket, int how)
@@ -452,7 +504,7 @@ int posix_socket_getsockname(int socket, void *address, int *address_length)
 
 	if (address_length)
 		*address_length = (int)length;
-#ifdef __APPLE__
+#ifdef HALO_SOCKADDR_LEN
 	if (result >= 0 && address && address_length)
 		from_host_address(address, address_length);
 #endif
@@ -466,7 +518,7 @@ int posix_socket_getpeername(int socket, void *address, int *address_length)
 
 	if (address_length)
 		*address_length = (int)length;
-#ifdef __APPLE__
+#ifdef HALO_SOCKADDR_LEN
 	if (result >= 0 && address && address_length)
 		from_host_address(address, address_length);
 #endif
@@ -737,6 +789,9 @@ int posix_command_line_argument(int index, char *buffer, posix_ulong size)
 	(void)buffer;
 	(void)size;
 	return 0;
+#elif defined(HALO_UNIX_PLATFORM_NAME)
+	/* (the other Unix hosts': port/unix/src/unix_host.c) */
+	return halo_unix_command_line_argument(index, buffer, size);
 #else
 	char command_line[4096];
 	ssize_t length;
@@ -759,6 +814,15 @@ int posix_command_line_argument(int index, char *buffer, posix_ulong size)
 	}
 	snprintf(buffer, size, "%s", command_line + offset);
 	return 1;
+#endif
+}
+
+int posix_shift_key_held(void)
+{
+#ifdef __APPLE__
+	return (CGEventSourceFlagsState(kCGEventSourceStateCombinedSessionState) & kCGEventFlagMaskShift) ? 1 : 0;
+#else
+	return -1;
 #endif
 }
 
@@ -844,6 +908,39 @@ static int run_program(char *const arguments[])
 }
 #endif
 
+#if !defined(__ANDROID__) && !defined(__APPLE__)
+/* the file the desktop runs to start the game: an AppImage's, not the
+executable in its mount, which is gone once the game exits */
+static int launch_executable(char *executable, size_t size)
+{
+	const char *appimage = getenv("APPIMAGE");
+	ssize_t length = readlink("/proc/self/exe", executable, size - 1);
+
+	if (length <= 0)
+		return 0;
+	executable[length] = '\0';
+	if (appimage && *appimage)
+		snprintf(executable, size, "%s", appimage);
+	return 1;
+}
+
+/* the user's desktop entries' folder (XDG_DATA_HOME's applications, else
+~/.local/share/applications) */
+static int applications_directory(char *directory, size_t size)
+{
+	const char *data_home = getenv("XDG_DATA_HOME");
+	const char *home = getenv("HOME");
+
+	if (data_home && *data_home)
+		snprintf(directory, size, "%s/applications", data_home);
+	else if (home && *home)
+		snprintf(directory, size, "%s/.local/share/applications", home);
+	else
+		return 0;
+	return 1;
+}
+#endif
+
 int posix_register_url_scheme(const char *scheme, const char *description)
 {
 #if defined(__ANDROID__) || defined(__APPLE__)
@@ -859,25 +956,10 @@ int posix_register_url_scheme(const char *scheme, const char *description)
 	/* a desktop entry declaring the executable as the scheme's handler, and
 	the scheme's default application set to it (as xdg-open reads it) */
 	char executable[1024], directory[1024], path[1200], name[128], entry[2048], existing[2048];
-	const char *data_home = getenv("XDG_DATA_HOME");
-	const char *home = getenv("HOME");
-	const char *appimage = getenv("APPIMAGE");
-	ssize_t length = readlink("/proc/self/exe", executable, sizeof(executable) - 1);
 	FILE *file;
 	size_t existing_length = 0;
 
-	if (length <= 0)
-		return 0;
-	executable[length] = '\0';
-	/* (an AppImage's file, not the executable in its mount, which is gone
-	once the game exits) */
-	if (appimage && *appimage)
-		snprintf(executable, sizeof(executable), "%s", appimage);
-	if (data_home && *data_home)
-		snprintf(directory, sizeof(directory), "%s/applications", data_home);
-	else if (home && *home)
-		snprintf(directory, sizeof(directory), "%s/.local/share/applications", home);
-	else
+	if (!launch_executable(executable, sizeof(executable)) || !applications_directory(directory, sizeof(directory)))
 		return 0;
 	snprintf(name, sizeof(name), "halo-ce-universal-%s.desktop", scheme);
 	snprintf(path, sizeof(path), "%s/%s", directory, name);
@@ -913,6 +995,62 @@ int posix_register_url_scheme(const char *scheme, const char *description)
 		run_program(arguments);
 	}
 	return 1;
+#endif
+}
+
+
+int posix_register_discord_launch(const char *application)
+{
+#if defined(__ANDROID__) || (defined(__APPLE__) && !TARGET_OS_OSX)
+	/* (an app declares its links: iOS's and Android's have no Discord) */
+	(void)application;
+	return DISCORD_REGISTER_NONE;
+#elif defined(__APPLE__)
+	/* the bundle declares discord-<application> (port/macos/Info.plist):
+	made its handler, as the SDK does for a bundle, unless another
+	program's is. A games/<application>.json an earlier version wrote, a
+	shell command that Discord opened as a page, goes */
+	char path[1024], text[512];
+	const char *home = getenv("HOME");
+
+	if (!discord_register_application_valid(application))
+		return DISCORD_REGISTER_FAILED;
+	if (home && *home)
+	{
+		FILE *file;
+
+		snprintf(path, sizeof(path), "%s/Library/Application Support/discord/games/%s.json", home, application);
+		file = fopen(path, "r");
+		if (file)
+		{
+			size_t length = fread(text, 1, sizeof(text) - 1, file);
+
+			fclose(file);
+			text[length] = 0;
+			if (discord_register_old_json_ours(text))
+				remove(path);
+		}
+	}
+	return macos_register_discord_scheme(application);
+#else
+	/* discord-<application>.desktop, the scheme's handler (as xdg-open
+	reads it) */
+	char executable[1024], directory[1024], name[128];
+	int result;
+
+	if (!launch_executable(executable, sizeof(executable)) || !applications_directory(directory, sizeof(directory)))
+		return DISCORD_REGISTER_FAILED;
+	mkdir(directory, 0755);
+	result = discord_register_desktop_file(directory, application, executable, name, sizeof(name));
+	if (result == DISCORD_REGISTER_WRITTEN)
+	{
+		char mime_type[160];
+		char *arguments[] = { "xdg-mime", "default", name, mime_type, NULL };
+
+		snprintf(mime_type, sizeof(mime_type), "x-scheme-handler/discord-%s", application);
+		run_program(arguments);
+	}
+	return result;
 #endif
 }
 
@@ -1060,7 +1198,7 @@ void posix_discord_close(int handle)
 		close(handle);
 }
 
-#ifdef __APPLE__
+#if defined(__APPLE__) && !defined(HALO_IOS)
 /* the Mac's hardware UUID (System Information's, IOPlatformUUID), as text, 0
 if it cannot be read (p2p.c's hardware id; Linux has /etc/machine-id, which
 macOS does not) */
@@ -1077,3 +1215,9 @@ int posix_hardware_id_source(char *text, int size)
 	return text[0] != 0;
 }
 #endif
+
+void posix_socket_traffic(unsigned long long *sent, unsigned long long *received)
+{
+	*sent = __atomic_load_n(&traffic.sent, __ATOMIC_RELAXED);
+	*received = __atomic_load_n(&traffic.received, __ATOMIC_RELAXED);
+}

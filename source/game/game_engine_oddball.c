@@ -1384,6 +1384,21 @@ struct oddball_network_state
 typedef char verify_oddball_network_state_size[
 	sizeof(struct oddball_network_state) <= GAME_ENGINE_MAXIMUM_NETWORK_STATE_SIZE ? 1 : -1];
 
+#ifdef HALO_PORT_CONSOLE_LIMITS
+/* port: the console's limits: a PC host's state, by its fields
+(game_engine_network_state_fold) */
+static struct game_engine_network_state_field const oddball_network_state_fields[] =
+{
+	{ sizeof(long), TRUE, 0, sizeof(long) }, /* team_score (by team: a player's in free for all) */
+	{ sizeof(long), TRUE, 0, sizeof(long) }, /* individual_score */
+	{ sizeof(long) * MAXIMUM_ODDBALLS, FALSE, 0, sizeof(long) }, /* ball_spawn_timer */
+	{ sizeof(byte) * MAXIMUM_ODDBALLS, FALSE, 0, 0 }, /* current_ball_owner */
+	{ sizeof(byte) * 4, FALSE, 0, 0 }, /* resets, touched_resets, transfers, transfer_player */
+};
+
+#define ODDBALL_NETWORK_STATE_FIELDS ((long)(sizeof(oddball_network_state_fields) / sizeof(oddball_network_state_fields[0])))
+#endif
+
 /* port/linux/game/network_distributed.c's */
 byte distributed_player_to_byte(long player_index);
 long distributed_player_from_byte(byte player_index);
@@ -1492,9 +1507,18 @@ boolean game_engine_oddball_read_network_state(
 	struct oddball_network_state state;
 	short ball_index;
 
+#ifdef HALO_PORT_CONSOLE_LIMITS
+	long folded = game_engine_network_state_fold(buffer, size, &state, sizeof(state), oddball_network_state_fields,
+		ODDBALL_NETWORK_STATE_FIELDS, "oddball");
+
+	if (folded == FALSE)
+		return FALSE;
+	if (folded == NONE)
+#endif
 	if (size != (long)sizeof(state))
 		return FALSE;
-	csmemcpy(&state, buffer, sizeof(state));
+	else
+		csmemcpy(&state, buffer, sizeof(state));
 	for (ball_index = 0; ball_index < MAXIMUM_ODDBALLS; ball_index++)
 		oddball_globals.current_ball_owner[ball_index] = distributed_player_from_byte(state.current_ball_owner[ball_index]);
 	if (!first)
@@ -1542,3 +1566,25 @@ boolean game_engine_oddball_read_network_state(
 	oddball_events.transfers = state.transfers;
 	return TRUE;
 }
+
+#ifdef HALO_BIG_ENDIAN
+/* port: (game_engine.h) the state in the wire's byte order, either way */
+void game_engine_oddball_network_state_byte_swap(
+	byte *buffer,
+	long size)
+{
+	struct oddball_network_state *state = (struct oddball_network_state *)buffer;
+
+#ifdef HALO_PORT_CONSOLE_LIMITS
+	/* (a PC host's, at the network's 128 slots, which the read folds) */
+	if (game_engine_network_state_fields_byte_swap(buffer, size, sizeof(*state), oddball_network_state_fields,
+		ODDBALL_NETWORK_STATE_FIELDS))
+	{
+		return;
+	}
+#endif
+	if (size != (long)sizeof(*state))
+		return;
+	GAME_ENGINE_NETWORK_STATE_SWAP(state, team_score, ball_spawn_timer, sizeof(long));
+}
+#endif

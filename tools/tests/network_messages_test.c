@@ -26,10 +26,16 @@ enum
 	SERVER_PREGAME_KEEP_ALIVE,
 	SERVER_POSTGAME_KEEP_ALIVE,
 	PACKET_CLASS_PREGAME = 2,
+	CLIENT_JOIN_GAME_REQUEST = 12,
+	PACKET_CLASS_CLIENT_PREGAME = 3,
+	/* OpenCE's network version 40's join request: 234 bytes after the 0x70 */
+	JOIN_REQUEST_EXTRA = 234,
 };
 
 void initialize_network_game_packets(void);
 void *create_network_game_message(int message_type, const void *message_struct, short message_struct_size);
+void *create_network_game_message_with_tail(int message_type, const void *message_struct, short message_struct_size,
+	short tail_size);
 byte decode_network_game_message(void *message_struct, const void *encoded_message, short *encoded_message_size,
 	short *packet_type, short *packet_version, int expected_packet_class);
 
@@ -174,6 +180,49 @@ int main(void)
 			free(decoded);
 		}
 		free(message);
+	}
+
+	/* the join request to a host of 40 or later: the 0x70 bytes, 234 zero
+	bytes, the type; a host's decoder (ours, or an older one) reads the 0x70
+	and ignores the rest; and the short one, as before */
+	{
+		int size = message_sizes[CLIENT_JOIN_GAME_REQUEST];
+		byte *request = malloc(size);
+		byte *decoded = malloc(size);
+		int tail;
+		unsigned int i;
+
+		for (i = 0; i < (unsigned int)size; i++)
+			request[i] = (byte)(0x40 + i);
+		for (tail = 0; tail <= JOIN_REQUEST_EXTRA; tail += JOIN_REQUEST_EXTRA)
+		{
+			short encoded_size, packet_type = CLIENT_JOIN_GAME_REQUEST, packet_version = 1;
+
+			captured_size = 0;
+			if (!create_network_game_message_with_tail(CLIENT_JOIN_GAME_REQUEST, request, (short)size, (short)tail))
+			{
+				printf("join %d failed\n", tail);
+				continue;
+			}
+			printf("join %d", tail);
+			for (i = 0; i < captured_size; i++)
+				printf("%s%02x", i ? "" : " ", captured[i]);
+			printf("\n");
+			encoded_size = (short)captured_size;
+			memset(decoded, 0, size);
+			if (!decode_network_game_message(decoded, captured, &encoded_size, &packet_type, &packet_version,
+				PACKET_CLASS_CLIENT_PREGAME) || packet_type != CLIENT_JOIN_GAME_REQUEST)
+			{
+				printf("join %d decode failed\n", tail);
+				continue;
+			}
+			printf("join %d decoded", tail);
+			for (i = 0; i < (unsigned int)size; i++)
+				printf("%s%02x", i ? "" : " ", decoded[i]);
+			printf("\n");
+		}
+		free(request);
+		free(decoded);
 	}
 
 	return 0;

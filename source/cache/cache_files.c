@@ -141,6 +141,10 @@ symbols in this file:
 #include "sound/sound_manager.h"
 #include "tag_schema.h"
 #include "halo_map_families.h"
+#ifdef HALO_MAP_LIST
+#include "halo_map_packs.h"
+#include "stubbs_mode.h"
+#endif
 #include "models/models.h"
 
 /* ---------- constants */
@@ -214,6 +218,18 @@ Custom Edition's resource maps, port/linux/game/ce_resources.c) */
 	((version) == CACHE_FILE_CE_VERSION || (version) == CACHE_FILE_RETAIL_VERSION)
 #define CE_TAG_CACHE_BASE 0x40440000U
 #define CE_TAG_CACHE_SIZE 0x01700000U
+#ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
+/* a 64 MB console's Custom Edition tag cache, the Xbox's (port/xbox's
+xbox_ce_files.c) */
+#define CE_SHARED_TAG_CACHE_SIZE 0x01600000U
+extern int platform_ce_alias;
+void platform_ce_load_begin(void);
+void platform_ce_load_end(void);
+void platform_ce_alias_whole(void);
+unsigned long platform_ce_room_end(unsigned long end_free);
+void *platform_ce_scratch_malloc(size_t size);
+void platform_ce_scratch_free(void *address);
+#endif
 
 struct cache_file_ce_tag_header
 {
@@ -272,6 +288,10 @@ typedef char verify_cache_file_globals_size[
 #endif
 typedef char verify_cache_file_header_size[
 	sizeof(struct cache_file_header) == 0x800 ? 1 : -1];
+
+/* port: called with a map's name once its tags have loaded (the renderer's,
+d3d8_gl.c, when it wants it) */
+void (*cache_file_map_loaded_hook)(char const *map_name);
 
 /* ---------- prototypes */
 
@@ -782,7 +802,12 @@ long tag_loaded(
 void cache_files_enable_writes(
 	void)
 {
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+	/* port: (Stubbs mode's tag cache is lower: port/linux/game/stubbs_mode.c) */
+	XPhysicalProtect((void *)(__UINTPTR_TYPE__)stubbs_mode_tag_cache_base(0x803A6000), 0x01600000, PAGE_READWRITE);
+#else
 	XPhysicalProtect((void *)0x803A6000, 0x01600000, PAGE_READWRITE);
+#endif
 
 	return;
 }
@@ -790,7 +815,12 @@ void cache_files_enable_writes(
 void cache_files_disable_writes(
 	void)
 {
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+	/* port: (Stubbs mode's tag cache is lower: port/linux/game/stubbs_mode.c) */
+	XPhysicalProtect((void *)(__UINTPTR_TYPE__)stubbs_mode_tag_cache_base(0x803A6000), 0x01600000, PAGE_READONLY);
+#else
 	XPhysicalProtect((void *)0x803A6000, 0x01600000, PAGE_READONLY);
+#endif
 	XPhysicalProtect(
 		xbox_pointer(cache_file_globals.tag_header->vertex_buffers),
 		cache_file_globals.tag_header->vertex_buffer_count * 12,
@@ -940,6 +970,24 @@ void const *cache_file_loaded_header(
 	return cache_file_globals.tags_loaded ? &cache_file_globals.header : NULL;
 }
 
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+/* port: a read of the open map's file for Stubbs mode (stubbs_mode.c) */
+static boolean cache_file_stubbs_read(
+	long offset,
+	long size,
+	void *buffer)
+{
+	boolean read_complete = FALSE;
+
+	if (offset < 0 || size <= 0 || offset > cache_file_globals.header.file_length - size)
+		return FALSE;
+	cache_file_read(NONE, offset, size, buffer, &read_complete, TRUE);
+	while (!read_complete)
+		SwitchToThread();
+	return read_complete == TRUE;
+}
+#endif
+
 boolean cache_file_header_verify(
 	struct cache_file_header *header,
 	char const *scenario_name,
@@ -1011,6 +1059,25 @@ boolean cache_file_header_verify(
 #endif
 		header->tag_data_offset > header->file_length - header->tag_data_size)
 	{
+#ifdef HALO_CONSOLE_OVERSIZED_MAPS
+		/* port: a map whose tags are larger than the tag cache (a map
+		pack's, built for a larger one) is not damaged; it says so */
+		if (header->tag_data_size > TAG_CACHE_SIZE
+#ifdef HALO_CUSTOM_EDITION
+			&& !CACHE_FILE_VERSION_IS_PC(header->version)
+#endif
+			)
+		{
+			error(
+				_error_silent,
+				"the map '%s' cannot load: its tags need %ld KB, more than the tag cache's %ld MB",
+				scenario_name,
+				(long)((header->tag_data_size + 1023) / 1024),
+				(long)(TAG_CACHE_SIZE / (1024 * 1024)));
+
+			return FALSE;
+		}
+#endif
 		error(
 			_error_silent,
 			"the cache file '%s' is damaged: %08x bytes of tag data at %08x, in %08x bytes",
@@ -1068,43 +1135,100 @@ char const *cache_files_multiplayer_region(
 	return cache_files_build_region(cache_file_globals.header.build);
 }
 
-/* whether the named map plays multiplayer with the others: FALSE only for
-a map whose header is of a build not listed above (a map whose header cannot
-be read is left to precaching, which tells of a missing map); build gets the
-map's build, empty if unread. The multiplayer menus check the loaded map's
-(ui.map's) build; this checks a multiplayer map's own, which may be of
-another build: the object and damage messages name definitions by tag
-index, which differs between builds */
-boolean cache_files_map_plays_multiplayer(
+/* the header of the named map's file, an Xbox-format map's (version 5), in
+header: FALSE when it has none to read, or it is not an Xbox-format map; build
+gets its build, empty if unread. *pack whether it is a pack's map
+(<file>@<pack>, in maps_<pack>) */
+static boolean cache_files_map_xbox_header(
 	char const *map_name,
-	char build[0x20])
+	struct cache_file_header *header,
+	char build[0x20],
+	boolean *pack)
 {
-	struct cache_file_header header;
 	char path[256];
 	HANDLE file;
-	boolean result = TRUE;
+	boolean result = FALSE;
 
 	build[0] = 0;
+	*pack = FALSE;
 	if (!map_name || !map_name[0])
-		return TRUE;
-	snprintf(path, sizeof(path), "%s%s.map", cache_files_map_directory(), tag_name_strip_path(map_name));
-	file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
+		return FALSE;
+	*pack = map_family_parse(tag_name_strip_path(map_name), NULL, 0) == _map_family_pack;
+	/* port: (a pack's map, <file>@<pack>, in maps_<pack>) */
+	if (!map_family_xbox_path(tag_name_strip_path(map_name), path, sizeof(path)))
+		return FALSE;
+	file = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
 	if (file != INVALID_HANDLE_VALUE)
 	{
 		unsigned long bytes_read;
 
-		if (ReadFile(file, &header, sizeof(header), &bytes_read, NULL) &&
-			bytes_read == sizeof(header) &&
-			cache_file_header_verify(&header, path, FALSE))
+		if (ReadFile(file, header, sizeof(*header), &bytes_read, NULL) &&
+			bytes_read == sizeof(*header) &&
+			cache_file_header_verify(header, path, FALSE))
 		{
-			csstrncpy(build, header.build, 0x20);
+			csstrncpy(build, header->build, 0x20);
 			build[0x1F] = 0;
-			result = cache_files_build_region(header.build) != NULL;
+			result = header->version == 5;
 		}
 		CloseHandle(file);
 	}
 
 	return result;
+}
+
+/* whether the named map plays multiplayer with the others: FALSE only for
+a map other than a pack's whose header is of a build not listed above (a map
+whose header cannot be read is left to precaching, which tells of a missing
+map); build gets the map's build, empty if unread. The multiplayer menus check the loaded map's
+(ui.map's) build; this checks a multiplayer map's own, which may be of
+another build: the object and damage messages name definitions by tag
+index, which differs between builds.
+
+A pack's map (<file>@<pack>) plays whatever its build, if it is an Xbox-format
+map: what makes the tag indexes agree is that every machine has the same
+file, and every machine of ours checks that before it plays one (the host's
+fingerprint of it, cache_files_map_pack_present, and Delta Peer's MAP). Its
+tags are played as they are, as an NTSC map's are (only a listed PAL build's
+are put back to the NTSC maps', pal_tags.c): the same on every machine,
+since each has the same file. A machine that cannot say which file it has
+(OpenCE's) is kept out of a game on one of an unlisted build
+(cache_files_map_needs_delta) */
+boolean cache_files_map_plays_multiplayer(
+	char const *map_name,
+	char build[0x20])
+{
+	struct cache_file_header header;
+	boolean pack;
+
+	if (!cache_files_map_xbox_header(map_name, &header, build, &pack))
+		return TRUE;
+
+	return cache_files_build_region(header.build) != NULL || pack;
+}
+
+/* whether the named map is a pack's Xbox-format map of a build not listed
+above, which a host plays only with machines that check they have its file
+(Delta's: network_server_manager.c, network_game_server_delta_refusals). Kept
+for the last map asked, by its name */
+boolean cache_files_map_needs_delta(
+	char const *map_name)
+{
+	static char last_name[64];
+	static boolean last_result;
+	struct cache_file_header header;
+	char build[0x20];
+	boolean pack;
+
+	if (!map_name || !map_name[0] || map_family_parse(tag_name_strip_path(map_name), NULL, 0) != _map_family_pack)
+		return FALSE;
+	if (last_name[0] && !csstrncmp(last_name, map_name, sizeof(last_name)))
+		return last_result;
+	last_result = cache_files_map_xbox_header(map_name, &header, build, &pack) && pack &&
+		!cache_files_build_region(header.build);
+	csstrncpy(last_name, map_name, sizeof(last_name));
+	last_name[sizeof(last_name) - 1] = 0;
+
+	return last_result;
 }
 
 /* tells the player that maps of a build (a cache file header's) do not play
@@ -1123,7 +1247,7 @@ void cache_files_show_multiplayer_unavailable(
 		snprintf(
 			message,
 			sizeof(message),
-			"The map %s (build %s) isn't supported for multiplayer yet.\n\nAsk in the Discord to get it added.",
+			"The map %s (build %s) isn't supported for multiplayer.\n\nUse the released version of it, or ask in the Chupathingy Discord to get this build added.",
 			tag_name_strip_path(map_name),
 			build);
 	}
@@ -1133,7 +1257,7 @@ void cache_files_show_multiplayer_unavailable(
 		snprintf(
 			message,
 			sizeof(message),
-			"Your maps (build %s) aren't supported for multiplayer yet.\n\nAsk in the Discord to get them added.",
+			"Your maps (build %s) aren't supported for multiplayer yet.\n\nAsk in the Chupathingy Discord to get them added.",
 			build);
 	}
 	platform_show_message("Halo: multiplayer unavailable", message);
@@ -1148,10 +1272,23 @@ version 29 send it (port/linux/src/map_archive.h, map_archive_hash_version:
 hashed once a run, map_file_hash.c), a HaloMD or Halo PC retail map's header
 checksum, as hosts of 23 to 28 sent any Halo PC map's; either differs between
 versions of a map. 0, which a client checks nothing for, for the Xbox's
-maps, whose builds of other regions play together. */
+maps, whose builds of other regions play together. A pack's Xbox map's
+(<file>@<pack>) is its file's fingerprint (map_pack_fingerprint), on every
+build: two versions of a pack have two. */
 unsigned long cache_files_map_version(
 	char const *map_name)
 {
+#ifdef HALO_MAP_LIST
+	{
+		char pack_file[64], pack[MAP_PACK_ID_LENGTH + 1];
+
+		if (map_name && map_family_parse(map_name, pack_file, sizeof(pack_file)) == _map_family_pack &&
+			map_family_pack_id(map_name, pack, sizeof(pack)))
+		{
+			return map_pack_fingerprint(pack, pack_file);
+		}
+	}
+#endif
 #ifdef HALO_CUSTOM_EDITION
 	/* (port/linux/src/map_file_hash.h) */
 	int map_file_hash_version(char const *path, unsigned int *version);
@@ -1167,7 +1304,7 @@ unsigned long cache_files_map_version(
 		return 0;
 	if (family == _map_family_custom_edition)
 		return map_file_hash_version(path, &hash_version) ? hash_version : 0;
-	handle = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
+	handle = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
 	if (handle == INVALID_HANDLE_VALUE)
 		return 0;
 	if (!ReadFile(handle, &header, sizeof(header), &bytes_read, NULL) || bytes_read != sizeof(header))
@@ -1219,6 +1356,70 @@ unsigned long cache_files_map_choose(
 	return cache_files_map_version(map_name);
 }
 
+#ifdef HALO_MAP_LIST
+/* port: whether this machine has a pack's map (map_name, <file>@<pack>) of
+the host's version (version, the host's fingerprint of it; 0 for any): when
+not, what the player is told, naming the map and its pack by the library of
+known Xbox mod maps (by the host's fingerprint), else by the pack's
+maplist.txt, else by its file's name, and where it goes: the pack's folder,
+maps_<pack> (halo_map_packs.h) */
+static boolean cache_files_map_pack_present(
+	char const *map_name,
+	unsigned long version,
+	char *message,
+	long size)
+{
+	void platform_log(char const *format, ...);
+	char file[64], pack[MAP_PACK_ID_LENGTH + 1], name[96], title[96], path[256];
+	unsigned long mine;
+
+	map_family_parse(map_name, file, sizeof(file));
+	map_family_pack_id(map_name, pack, sizeof(pack));
+	mine = map_pack_fingerprint(pack, file);
+	if (mine && (!version || mine == version))
+	{
+		struct cache_file_header header;
+		unsigned long bytes_read = 0;
+		HANDLE handle;
+		boolean verified = FALSE;
+
+		/* (its header checked, as an Xbox map's is: precaching one that does
+		not verify stops the game on the header's assert) */
+		if (map_family_xbox_path(map_name, path, sizeof(path)) &&
+			(handle = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL)) != INVALID_HANDLE_VALUE)
+		{
+			verified = ReadFile(handle, &header, sizeof(header), &bytes_read, NULL) && bytes_read == sizeof(header) &&
+				cache_file_header_verify(&header, path, FALSE) && header.version == 5;
+			CloseHandle(handle);
+		}
+		if (verified)
+		{
+			if (version)
+				platform_log("map version: %s is the host's %08lx", map_name, version);
+			return TRUE;
+		}
+		platform_log("map damaged: %s's header does not verify", path);
+		snprintf(message, (size_t)size, "Can't load %.63s from maps_%s: the map file is damaged or not this game's",
+			file, pack);
+		return FALSE;
+	}
+	map_pack_names(pack, file, version, name, sizeof(name), title, sizeof(title));
+	if (!mine)
+	{
+		platform_log("map missing: %s (maps_%s), the host's %08lx", map_name, pack, version);
+		snprintf(message, (size_t)size, "This game uses %.63s's %.63s (%.63s.map in maps_%s). Install it in maps_%s "
+			"and join again.", title, name, file, pack, pack);
+	}
+	else
+	{
+		platform_log("map version: %s is %08lx here, %08lx on the host", map_name, mine, version);
+		snprintf(message, (size_t)size, "This game uses %.63s's %.63s, and your maps_%s\\%.63s.map is another "
+			"version. Install the host's in maps_%s and join again.", title, name, pack, file, pack);
+	}
+	return FALSE;
+}
+#endif
+
 /* port: whether this machine has the map a network game is on (a client
 joining it: network_client_manager.c); when not, tells the player which map
 is missing and the folder to copy it into, in the error the main menu shows
@@ -1249,8 +1450,41 @@ boolean cache_files_map_present(
 	if (!map_name || !map_name[0])
 		return TRUE;
 	family = map_family_parse(map_name, file, sizeof(file));
+	/* (a pack's Xbox map: its maps_<pack> folder's file, of the host's
+	fingerprint when the host says which) */
+#ifdef HALO_MAP_LIST
+	if (family == _map_family_pack)
+	{
+		if (cache_files_map_pack_present(map_name, version, message, sizeof(message)))
+			return TRUE;
+	}
+	else
+#endif
 #ifdef HALO_CUSTOM_EDITION
-	if (family != _map_family_xbox)
+#ifdef HALO_CONSOLE_NO_HALOMD_MAPS
+	/* (a HaloMD map, which this console doesn't play: said so, and the map
+	the next game opens on is the first one again, not this one, which the
+	menus' list leaves out and could not change from) */
+	if (family == _map_family_halomd)
+	{
+		void game_engine_override_map_name(char const *map_name);
+		void main_set_multiplayer_map_name(char const *map_name);
+
+		snprintf(message, sizeof(message), "%.63s is a HaloMD map. HaloMD maps can't be played on %s.", file,
+			HALO_CONSOLE_NO_HALOMD_MAPS);
+		game_engine_override_map_name("levels\\test\\carousel\\carousel");
+		main_set_multiplayer_map_name("levels\\test\\carousel\\carousel");
+	}
+	else
+#endif
+	/* (Custom Edition's resource maps, which every map past the Xbox's reads:
+	without them the map is refused as it loads, so the join is given up here,
+	before it is downloaded or loaded, saying what is needed) */
+	if (family != _map_family_xbox && !map_family_resources_ready(message, sizeof(message)))
+	{
+		platform_log("map %s: Custom Edition's resource maps are missing or not Custom Edition's", map_name);
+	}
+	else if (family != _map_family_xbox)
 	{
 		char path[256];
 
@@ -1343,7 +1577,7 @@ boolean cache_files_map_present(
 			if (cache_files_precache_map_loaded(map_name))
 				return TRUE;
 			snprintf(path, sizeof(path), "%s%s.map", cache_files_map_directory(), file);
-			handle = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
+			handle = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
 			if (handle != INVALID_HANDLE_VALUE)
 			{
 #ifdef HALO_XBOX_CONSOLE
@@ -1467,14 +1701,52 @@ long scenario_tags_load(
 			struct cache_file_ce_tag_header *ce_header;
 
 			tag_cache_base_address = xbox_pointer(CE_TAG_CACHE_BASE);
+#ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
+			/* port: a 64 MB console's tag cache is the Xbox's, by the page
+			tables, and the memory the load needs a while the texture cache's,
+			lent (port/xbox's xbox_ce_files.c); the map checked here, in it,
+			not as it opened (the menus' map was in it then) */
+			if (platform_ce_alias)
+			{
+				extern boolean ce_map_check_deferred(void);
+
+				platform_ce_load_begin();
+				if (!ce_map_check_deferred())
+				{
+					platform_ce_load_end();
+					cache_file_close();
+					return NONE;
+				}
+				platform_ce_alias_whole();
+				/* (its 22 MB: the range's last megabyte is no memory) */
+				csmemset(tag_cache_base_address, 0xCD, CE_SHARED_TAG_CACHE_SIZE);
+			}
+			else
+#endif
 			csmemset(tag_cache_base_address, 0xCD, CE_TAG_CACHE_SIZE);
 			cache_file_read(NONE, cache_file_globals.header.tag_data_offset, cache_file_globals.header.tag_data_size,
 				tag_cache_base_address, &read_complete, TRUE);
 			while (!read_complete)
 				SwitchToThread();
 			ce_header = tag_cache_base_address;
-			match_vassert("c:\\halo\\SOURCE\\cache\\cache_files.c", 0x94,
-				ce_header->signature == CACHE_FILE_TAG_HEADER_SIGNATURE, "a Custom Edition map's tag header");
+			/* port: tags that did not all read, or whose header is not a tag
+			header (a damaged map, or one in a format this build does not
+			read), are not loaded: the map is refused, as an Xbox map's are
+			(below), and closed for the next to open. A release build went
+			on past the assert and faulted on the header's counts */
+			if (read_complete != TRUE || ce_header->signature != CACHE_FILE_TAG_HEADER_SIGNATURE)
+			{
+				error(_error_silent, "Custom Edition map %s: %s: the map is not loaded", scenario_name,
+					read_complete != TRUE ? "its tags could not be read" : "its tag header is damaged");
+#ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
+				/* (what the load borrowed given back) */
+				if (platform_ce_alias)
+					platform_ce_load_end();
+#endif
+				cache_file_close();
+
+				return NONE;
+			}
 			cache_file_globals.tag_header = tag_cache_base_address;
 			global_tag_instances = xbox_pointer(ce_header->tag_instances);
 			cache_file_globals.tags_loaded = TRUE;
@@ -1508,6 +1780,10 @@ long scenario_tags_load(
 
 					ce_map_cache_version = cache_file_globals.header.version;
 				}
+#ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
+				/* (the BSPs' window made, and the room below what isn't memory) */
+				end_free = platform_ce_room_end(end_free);
+#endif
 				if (!ce_resources_tags_loaded(global_tag_instances, ce_header->tag_count,
 					CE_TAG_CACHE_BASE + cache_file_globals.header.tag_data_size, end_free))
 				{
@@ -1527,9 +1803,31 @@ long scenario_tags_load(
 			/* its gbxmodels made models, from its model data block
 			(port/linux/game/ce_models.c) */
 			{
+				extern void ce_functions_tags_loaded(void *tag_instances, long tag_count);
+				extern void ce_shaders_tags_loaded(void *tag_instances, long tag_count);
+#ifdef HALO_CONSOLE_CE_MODEL_DATA_WINDOWS
+				extern boolean ce_models_tags_loaded_read(void *tag_instances, long tag_count,
+					unsigned long file_offset, unsigned long size, unsigned long vertex_data_size);
+
+				/* (read whole, or through two small windows if there is no room
+				for it: a Halo 2 map's is 14 MB, port/linux/game/ce_map_checks.h) */
+				if (!ce_models_tags_loaded_read(global_tag_instances, ce_header->tag_count,
+					(unsigned long)ce_header->model_data_file_offset, (unsigned long)ce_header->model_data_size,
+					(unsigned long)ce_header->vertex_data_size))
+				{
+					error(_error_silent, "Custom Edition map %s: its models could not all be made", scenario_name);
+				}
+				ce_functions_tags_loaded(global_tag_instances, ce_header->tag_count);
+				ce_shaders_tags_loaded(global_tag_instances, ce_header->tag_count);
+#else
 				extern boolean ce_models_tags_loaded(void *tag_instances, long tag_count, byte const *model_data,
 					unsigned long vertex_data_size);
+#ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
+				byte *model_data = platform_ce_alias ? platform_ce_scratch_malloc(ce_header->model_data_size) :
+					system_malloc(ce_header->model_data_size);
+#else
 				byte *model_data = system_malloc(ce_header->model_data_size);
+#endif
 
 				if (model_data)
 				{
@@ -1545,16 +1843,13 @@ long scenario_tags_load(
 					}
 					/* (its function fields naming functions there are none
 					of made valid ones first: port/linux/game/ce_functions.c) */
-					{
-						extern void ce_functions_tags_loaded(void *tag_instances, long tag_count);
-
-						ce_functions_tags_loaded(global_tag_instances, ce_header->tag_count);
-					}
-					{
-						extern void ce_shaders_tags_loaded(void *tag_instances, long tag_count);
-
-						ce_shaders_tags_loaded(global_tag_instances, ce_header->tag_count);
-					}
+					ce_functions_tags_loaded(global_tag_instances, ce_header->tag_count);
+					ce_shaders_tags_loaded(global_tag_instances, ce_header->tag_count);
+#ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
+					if (platform_ce_alias)
+						platform_ce_scratch_free(model_data);
+					else
+#endif
 					system_free(model_data);
 				}
 				else
@@ -1562,8 +1857,14 @@ long scenario_tags_load(
 					error(_error_silent, "Custom Edition map %s: no memory for its model data (%ld bytes): its models "
 						"could not be made", scenario_name, ce_header->model_data_size);
 				}
+#endif
 			}
 
+#ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
+			/* (what the load borrowed given back, before anything of it is drawn) */
+			if (platform_ce_alias)
+				platform_ce_load_end();
+#endif
 			/* (none of the high-res HUD: Halo PC's HUD bitmaps are laid out
 			otherwise than the Xbox's it was drawn for, so a Custom Edition map
 			draws its own) */
@@ -1581,6 +1882,14 @@ long scenario_tags_load(
 				extern void ce_hud_tags_loaded(void *tag_instances, long tag_count);
 
 				ce_hud_tags_loaded(global_tag_instances, ce_header->tag_count);
+			}
+			/* port: the pause menu's rows, as a stock map's get them
+			(port/linux/game/menu_tags.c: Halo PC's CHANGE SETTINGS and GAME
+			OPTIONS give way to the menus' own) */
+			{
+				extern void menu_tags_loaded(char const *map_name);
+
+				menu_tags_loaded(cache_file_globals.header.name);
 			}
 			return ce_header->scenario_tag_index;
 		}
@@ -1636,6 +1945,12 @@ long scenario_tags_load(
 				XBOX_ADDRESS(tag_cache_base_address),
 				cache_file_globals.header.tag_data_size);
 #endif
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+			/* port: Stubbs the Zombie's tags in Halo's layouts, in Stubbs
+			mode only (port/linux/game/stubbs_mode.c) */
+			stubbs_mode_set_file_reader(cache_file_stubbs_read);
+			stubbs_mode_convert_tags(tag_cache_base_address, cache_file_globals.header.tag_data_size);
+#endif
 #ifndef HALO_CONSOLE_NO_TAG_VALIDATE
 			/* port: and every tag checked against its group's schema before
 			anything reads it (port/linux/game/tag_validate.c): a map whose
@@ -1687,6 +2002,10 @@ long scenario_tags_load(
 
 				menu_tags_loaded(cache_file_globals.header.name);
 			}
+			/* port: the renderer's, to make this map's shaders during its
+			 * loading screen (port/linux/src/d3d8_gl.c sets it) */
+			if (cache_file_map_loaded_hook)
+				cache_file_map_loaded_hook(cache_file_globals.header.name);
 			/* port: the bitmaps the high-res HUD stands for (port/linux/game/hud_hires_tags.c) */
 #ifndef HALO_CONSOLE_NO_HIRES
 			{
@@ -1830,6 +2149,10 @@ boolean scenario_structure_bsp_load(
 	/* port: and checked against its schema, as the map's tags were
 	(port/linux/game/tag_validate.c); a Custom Edition or HaloMD map's
 	tags are Halo PC's layout, checked as they load (ce_map_checks.c) */
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+	/* (Stubbs mode: port/linux/game/stubbs_mode.c) */
+	stubbs_mode_convert_structure_bsp(xbox_pointer(reference->base_address), reference->file_size);
+#endif
 #ifndef HALO_CONSOLE_NO_TAG_VALIDATE
 	if (
 #ifdef HALO_CUSTOM_EDITION
@@ -1967,6 +2290,35 @@ boolean tag_index_is_group(
 	return tag_instance->tag_index == tag_index && tag_instance->base_address &&
 		(tag_instance->group_tag == group_tag || tag_instance->parent_group_tags[0] == group_tag ||
 			tag_instance->parent_group_tags[1] == group_tag);
+}
+
+/* port: the loaded tag whose data holds an address in the tag cache (a
+tag block's, for its log: tag_groups.c), the one whose data begins nearest
+below it, and the address's offset in it; NONE if none does */
+long tag_index_holding_address(
+	void const *address,
+	unsigned long *offset)
+{
+	byte const *best_base = NULL;
+	long best = NONE;
+	long absolute_index;
+
+	if (!address || !cache_file_globals.tags_loaded || !global_tag_instances)
+		return NONE;
+	for (absolute_index = 0; absolute_index < cache_file_globals.tag_header->tag_count; absolute_index++)
+	{
+		struct cache_file_tag_instance const *tag_instance = &global_tag_instances[absolute_index];
+		byte const *base = tag_instance->base_address ? (byte const *)xbox_pointer(tag_instance->base_address) : NULL;
+
+		if (base && base <= (byte const *)address && (!best_base || base > best_base))
+		{
+			best_base = base;
+			best = tag_instance->tag_index;
+		}
+	}
+	if (best != NONE)
+		*offset = (unsigned long)((byte const *)address - best_base);
+	return best;
 }
 
 char *tag_get_name(

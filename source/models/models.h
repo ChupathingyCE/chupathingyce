@@ -28,6 +28,8 @@ union real_vector3d;
 /* ---------- prototypes/MODELS.C */
 
 void models_fix_powerup_render_bounds(void);
+/* port: apply native transparent part links once per loaded model. */
+void models_fix_transparent_part_links(void);
 
 void model_interpolate_node_orientations(
 	struct model const *model,

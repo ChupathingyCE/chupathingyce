@@ -359,7 +359,7 @@ char *csprintf(
 }
 
 #ifdef HALO_RELEASE
-#ifndef HALO_XBOX_CONSOLE
+#if !defined(HALO_XBOX_CONSOLE) && !defined(HALO_CONSOLE_NO_THREAD_LOCAL)
 __thread boolean display_assert_skipped = FALSE;
 #else
 boolean display_assert_skipped = FALSE;

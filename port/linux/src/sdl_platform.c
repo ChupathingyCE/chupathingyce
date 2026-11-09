@@ -12,6 +12,9 @@ and the debug keyboard that the game's console reads.
 #include "platform.h"
 #include "sdl_platform.h"
 #include "gl.h"
+#ifdef HALO_BGFX
+#include "xgpu.h"
+#endif
 #include "port_config.h"
 #include "p2p.h"
 #include "posix.h"
@@ -21,6 +24,7 @@ and the debug keyboard that the game's console reads.
 #include "touch_input.h"
 #include "delta.h"
 #include "crash_report.h"
+#include "launcher.h"
 
 #include <SDL3/SDL.h>
 #include <stdio.h>
@@ -70,6 +74,11 @@ gone, ends: else the keyboard stays held from the game) */
 static Uint64 binding_polled_ms;
 #define BINDING_ABANDONED_MS 500
 static unsigned mouse_buttons_down;
+/* keys (not a modifier alone, not a held key's repeats), mouse buttons and
+touches pressed since platform_movie_skip_pressed last looked: what skips a
+movie (bink_playback.c), the keys not reaching the game outside text and
+the console (xinput_sdl.c), and the mouse not being the Xbox's */
+static volatile int movie_skip_presses;
 /* (an input taken that nothing asks for is let go after this) */
 #define BINDING_UNCLAIMED_MS 2000
 /* the multiplayer scoreboard is open (platform_scoreboard_scroll): the wheel
@@ -95,6 +104,8 @@ void updater_poll(SDL_Window *window);
 #endif
 /* (and the version, for the window's title) */
 const char *updater_version(void);
+/* (whether the game runs under gamescope, where no dialog is shown) */
+int updater_gamescope(void);
 
 /* the older folders of Halo PC maps (maps/ce, md_maps) moved into the new
 ones (maps_ce, maps_md) once, as game.move_old_map_folders says: asked, in
@@ -148,11 +159,12 @@ static void old_map_folders_offer(BOOL quiet)
 }
 
 /* whether the game is run without anyone to answer a question (a test run,
-a null renderer) */
-static BOOL platform_run_is_quiet(void)
+a null renderer), or where a question cannot be shown (under gamescope, the
+Steam Deck's Game Mode: updater_gamescope) */
+BOOL platform_run_is_quiet(void)
 {
 	BOOL quiet = config_boolean("debug.hidden_window") || config_real("debug.exit_after") > 0.0 ||
-		config_boolean("debug.null_renderer");
+		config_boolean("debug.null_renderer") || updater_gamescope();
 
 #ifdef HALO_GAME_BROWSER
 	quiet = quiet || browser_headless();
@@ -185,7 +197,8 @@ static void new_defaults_offer(BOOL quiet)
 	if (quiet)
 	{
 		platform_log("settings: this version changes some defaults (%s); they are asked about when the game is "
-			"run with someone to answer, and until then your settings stay as they were", changes);
+			"run where it can ask (not a test run, nor Steam Deck Game Mode), and until then your settings stay "
+			"as they were", changes);
 		return;
 	}
 	snprintf(text, sizeof(text),
@@ -205,6 +218,12 @@ static void new_defaults_offer(BOOL quiet)
 
 #ifndef HALO_ANDROID
 static BOOL data_has_xbox_maps(const char *destination);
+#ifdef HALO_CONSOLE_SETUP_SCREENS
+/* the port's start-up screens, for a console with no dialogs or file picker
+(halo_console_features.h); platform_offer_game_data is the port's too */
+void console_setup_start(void);
+void console_setup_after_data(const char *data_root);
+#endif
 
 /* the maps folder checked to hold the Xbox maps (platform_maps_folder_check).
 When it holds Halo PC's instead, or no ui.map, the player is told where each
@@ -247,12 +266,15 @@ static void data_check_maps(void)
 		break;
 	default:
 		/* (a maps folder without ui.map and no Halo PC maps in it, as "make
-		the folders" leaves it: the choices offered again) */
-		if (!quiet && !maps.stray_pc_maps && platform_offer_game_data(maps.root) &&
+		the folders" leaves it: the choices offered again; the launcher's Maps
+		has them) */
+#ifndef HALO_LAUNCHER
+		if (!quiet && !maps.stray_pc_maps && platform_offer_game_data(maps.root, sizeof(maps.root)) &&
 			data_has_xbox_maps(maps.root))
 		{
 			return;
 		}
+#endif
 		snprintf(message, sizeof(message),
 			"Halo's Xbox maps were not found: %s/maps has no ui.map.%s\n\n%s\n\n"
 			"To copy the Xbox maps from your disc image, move the maps folder aside and start Chupathingy.",
@@ -261,6 +283,17 @@ static void data_check_maps(void)
 			where);
 		break;
 	}
+#ifdef HALO_LAUNCHER
+	/* (the launcher opens on Maps with the window, the problem shown there,
+	rather than a message and a quit) */
+	if (!quiet)
+	{
+		platform_log("maps folder: %s/maps is not the Xbox maps (ui.map version %ld): the launcher opens on Maps",
+			maps.root, maps.ui_version);
+		launcher_open_on_maps();
+		return;
+	}
+#endif
 	platform_log("maps folder: %s/maps is not the Xbox maps (ui.map version %ld): quitting", maps.root,
 		maps.ui_version);
 	platform_log("%s", message);
@@ -313,9 +346,10 @@ static void crash_reports_start(void)
 	}
 	if (strcmp(consent, "yes"))
 	{
-		/* (not for runs nobody is watching: the reports wait) */
+		/* (not for runs nobody is watching, nor under gamescope: the reports
+		wait) */
 		if (config_boolean("debug.hidden_window") || config_real("debug.exit_after") > 0.0 ||
-			!SDL_ShowMessageBox(&question, &answer))
+			updater_gamescope() || !SDL_ShowMessageBox(&question, &answer))
 		{
 			return;
 		}
@@ -372,10 +406,43 @@ BOOL platform_sdl_initialize(void)
 #endif
 	if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMEPAD | SDL_INIT_EVENTS))
 	{
-		platform_log("SDL_Init failed: %s", SDL_GetError());
+		char reason[256];
+
+		snprintf(reason, sizeof(reason), "%s", SDL_GetError());
+		platform_log("SDL_Init failed: %s", reason);
+#ifdef HALO_ANDROID
+		/* (a phone always has its screen) */
 		return FALSE;
+#else
+		/* (the window first: without a display there is no game, and the
+		renderer would only crash on the window it never got; without sound
+		or gamepads there still is one) */
+		if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS))
+		{
+			char message[512];
+
+			snprintf(reason, sizeof(reason), "%s", SDL_GetError());
+			snprintf(message, sizeof(message),
+				"Chupathingy couldn't open a window: %s.\n\n"
+				"It needs a display to run on. Check that one is connected and turned on.", reason);
+			platform_log("video: no window (%s): quitting", reason);
+			fprintf(stderr, "Chupathingy: %s\n", message);
+			if (!config_boolean("debug.hidden_window") && config_real("debug.exit_after") <= 0.0)
+				SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Chupathingy", message, NULL);
+			SDL_Quit();
+			exit(EXIT_FAILURE);
+		}
+		if (!SDL_InitSubSystem(SDL_INIT_AUDIO))
+			platform_log("audio: could not start (%s): playing without sound", SDL_GetError());
+		if (!SDL_InitSubSystem(SDL_INIT_GAMEPAD))
+			platform_log("gamepads: could not start (%s)", SDL_GetError());
+#endif
 	}
 	platform_sdl_started = TRUE;
+#ifdef HALO_CONSOLE_SETUP_SCREENS
+	/* (the port's: halo_console_features.h) */
+	console_setup_start();
+#endif
 	/* which build this is, first in its log (build_identity.c) */
 	build_identity_log();
 #ifndef HALO_ANDROID
@@ -383,6 +450,9 @@ BOOL platform_sdl_initialize(void)
 	game's window opens, and checked to be the Xbox maps */
 	platform_data_root();
 	data_check_maps();
+#ifdef HALO_CONSOLE_SETUP_SCREENS
+	console_setup_after_data(platform_data_root());
+#endif
 	/* (a new version looked for meanwhile, updater_poll asking about it) */
 	updater_start();
 #ifndef _WIN32
@@ -423,12 +493,13 @@ fill themselves. A file picked is told apart by what it holds, not its
 name: an Xbox disc image (xiso.c), Custom Edition's installer
 (ce_installer.c), or a CD image (pc_disc.c) */
 
+/* (sdl_platform.h's PLATFORM_IMPORT_*) */
 enum
 {
-	_data_unknown,
-	_data_xbox_disc,
-	_data_halo_pc_disc,
-	_data_custom_edition_installer,
+	_data_unknown = PLATFORM_IMPORT_UNKNOWN,
+	_data_xbox_disc = PLATFORM_IMPORT_XBOX_DISC,
+	_data_halo_pc_disc = PLATFORM_IMPORT_HALO_PC_DISC,
+	_data_custom_edition_installer = PLATFORM_IMPORT_CE_INSTALLER,
 };
 
 struct data_extraction
@@ -440,10 +511,15 @@ struct data_extraction
 	char file[256];
 	unsigned long long done;
 	unsigned long long total;
+	BOOL running;
 	BOOL finished;
 	BOOL succeeded;
 	char error[512];
 };
+
+/* (one at a time: the first-run window's or the launcher's) */
+static struct data_extraction extraction;
+static pthread_mutex_t extraction_start_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static void data_extraction_progress(void *context, const char *file, unsigned long long done,
 	unsigned long long total)
@@ -484,33 +560,85 @@ static void *data_extraction_thread(void *context)
 	return NULL;
 }
 
-/* copies the maps, showing how far it has got; closing the window quits.
-The bytes written in written (0 when the folder had them all) */
-static BOOL data_extract(int kind, const char *image, const char *destination, unsigned long long *written,
-	char *error, int error_size)
+BOOL platform_import_start(int kind, const char *image, const char *destination, char *error, int error_size)
 {
-	static struct data_extraction extraction;
-	const char *title = kind == _data_halo_pc_disc ? "Importing Halo PC maps..." :
-		kind == _data_custom_edition_installer ? "Importing Custom Edition maps..." :
-		"Extracting the maps folder...";
-	SDL_Window *window;
-	SDL_Renderer *renderer = NULL;
+	static BOOL lock_made;
 	pthread_t thread;
-	BOOL finished = FALSE;
 
+	pthread_mutex_lock(&extraction_start_lock);
+	if (lock_made)
+	{
+		BOOL busy;
+
+		pthread_mutex_lock(&extraction.lock);
+		busy = extraction.running && !extraction.finished;
+		pthread_mutex_unlock(&extraction.lock);
+		if (busy)
+		{
+			pthread_mutex_unlock(&extraction_start_lock);
+			snprintf(error, (size_t)error_size, "Maps are being copied already.");
+			return FALSE;
+		}
+		pthread_mutex_destroy(&extraction.lock);
+	}
 	memset(&extraction, 0, sizeof(extraction));
 	pthread_mutex_init(&extraction.lock, NULL);
+	lock_made = TRUE;
 	extraction.kind = kind;
+	extraction.running = TRUE;
 	snprintf(extraction.image, sizeof(extraction.image), "%s", image);
 	snprintf(extraction.destination, sizeof(extraction.destination), "%s", destination);
 	if (pthread_create(&thread, NULL, data_extraction_thread, &extraction) != 0)
 	{
+		extraction.running = FALSE;
+		pthread_mutex_unlock(&extraction_start_lock);
 		snprintf(error, (size_t)error_size, "Could not start the extraction.");
 		return FALSE;
 	}
 	/* (waited for through extraction.finished; the Windows port's threads
 	cannot be joined) */
 	pthread_detach(thread);
+	pthread_mutex_unlock(&extraction_start_lock);
+	return TRUE;
+}
+
+BOOL platform_import_poll(char *file, int file_size, unsigned long long *done, unsigned long long *total,
+	BOOL *succeeded, char *error, int error_size)
+{
+	BOOL finished;
+
+	pthread_mutex_lock(&extraction.lock);
+	finished = extraction.finished;
+	if (file && file_size > 0)
+		snprintf(file, (size_t)file_size, "%s", extraction.file);
+	if (done)
+		*done = extraction.done;
+	if (total)
+		*total = extraction.total;
+	if (succeeded)
+		*succeeded = extraction.succeeded;
+	if (finished && error && error_size > 0)
+		snprintf(error, (size_t)error_size, "%s", extraction.succeeded ? "" : extraction.error);
+	pthread_mutex_unlock(&extraction.lock);
+	return finished;
+}
+
+#if !defined(HALO_LAUNCHER) && !defined(HALO_CONSOLE_SETUP_SCREENS)
+/* copies the maps, showing how far it has got; closing the window quits.
+The bytes written in written (0 when the folder had them all) */
+static BOOL data_extract(int kind, const char *image, const char *destination, unsigned long long *written,
+	char *error, int error_size)
+{
+	const char *title = kind == _data_halo_pc_disc ? "Importing Halo PC maps..." :
+		kind == _data_custom_edition_installer ? "Importing Custom Edition maps..." :
+		"Extracting the maps folder...";
+	SDL_Window *window;
+	SDL_Renderer *renderer = NULL;
+	BOOL finished = FALSE, succeeded = FALSE;
+	unsigned long long done = 0, total = 0;
+
+	if (!platform_import_start(kind, image, destination, error, error_size))
+		return FALSE;
 	window = SDL_CreateWindow("Chupathingy", 640, 150, 0);
 	if (window)
 	{
@@ -522,7 +650,6 @@ static BOOL data_extract(int kind, const char *image, const char *destination, u
 	{
 		SDL_Event event;
 		char file[256];
-		unsigned long long done, total;
 
 		while (SDL_PollEvent(&event))
 		{
@@ -532,12 +659,7 @@ static BOOL data_extract(int kind, const char *image, const char *destination, u
 				exit(EXIT_SUCCESS);
 			}
 		}
-		pthread_mutex_lock(&extraction.lock);
-		finished = extraction.finished;
-		snprintf(file, sizeof(file), "%s", extraction.file);
-		done = extraction.done;
-		total = extraction.total;
-		pthread_mutex_unlock(&extraction.lock);
+		finished = platform_import_poll(file, sizeof(file), &done, &total, &succeeded, error, error_size);
 		if (renderer)
 		{
 			char line[320];
@@ -565,16 +687,16 @@ static BOOL data_extract(int kind, const char *image, const char *destination, u
 		SDL_DestroyRenderer(renderer);
 	if (window)
 		SDL_DestroyWindow(window);
-	*written = extraction.done;
-	if (!extraction.succeeded)
-		snprintf(error, (size_t)error_size, "%s", extraction.error);
-	return extraction.succeeded;
+	*written = done;
+	return succeeded;
 }
 
 struct data_image_choice
 {
 	SDL_AtomicInt done;
+	BOOL failed;
 	char path[1024];
+	char error[256];
 };
 
 static void SDLCALL data_image_chosen(void *userdata, const char * const *files, int filter)
@@ -582,14 +704,25 @@ static void SDLCALL data_image_chosen(void *userdata, const char * const *files,
 	struct data_image_choice *choice = userdata;
 
 	(void)filter;
-	if (files && files[0])
+	if (!files)
+	{
+		/* no dialog could be shown (SDL needs the desktop portal through
+		libdbus, or zenity): not a cancelled choice */
+		choice->failed = TRUE;
+		snprintf(choice->error, sizeof(choice->error), "%s",
+			*SDL_GetError() ? SDL_GetError() : "no desktop portal or zenity");
+	}
+	else if (files[0])
+	{
 		snprintf(choice->path, sizeof(choice->path), "%s", files[0]);
+	}
 	SDL_SetAtomicInt(&choice->done, 1);
 }
 
 /* the file the player picks (Halo PC's first with halo_pc); FALSE if they
-pick none */
-static BOOL data_choose_image(char *path, int size, BOOL halo_pc)
+pick none, with *failed set (and error written) when no dialog could be
+shown */
+static BOOL data_choose_image(char *path, int size, BOOL halo_pc, BOOL *failed, char *error, int error_size)
 {
 	static const SDL_DialogFileFilter xbox_filters[] =
 	{
@@ -615,15 +748,20 @@ static BOOL data_choose_image(char *path, int size, BOOL halo_pc)
 		SDL_PumpEvents();
 		SDL_Delay(50);
 	}
+	*failed = choice.failed;
+	if (choice.failed)
+		snprintf(error, (size_t)error_size, "%s", choice.error);
 	if (!choice.path[0])
 		return FALSE;
 	snprintf(path, (size_t)size, "%s", choice.path);
 	return TRUE;
 }
 
+#endif
+
 /* what a picked file holds (an Xbox image of a whole disc has a CD's file
 system too, so it is looked for first) */
-static int data_kind(const char *path)
+int platform_import_kind(const char *path)
 {
 	if (xiso_is_image(path))
 		return _data_xbox_disc;
@@ -644,6 +782,7 @@ static BOOL data_has_xbox_maps(const char *destination)
 	return posix_find_entry_case_insensitive(maps, "ui.map", on_disk, sizeof(on_disk)) != 0;
 }
 
+#if !defined(HALO_LAUNCHER) && !defined(HALO_CONSOLE_SETUP_SCREENS)
 /* "make the folders": the maps folders made empty, what goes where shown,
 and checked again when the player says so; TRUE once the Xbox maps are
 there, FALSE to go back to the choices */
@@ -694,7 +833,7 @@ static BOOL data_make_folders(const char *destination)
 	}
 }
 
-BOOL platform_offer_game_data(const char *destination)
+BOOL platform_offer_game_data(char *destination, unsigned long size)
 {
 	enum
 	{
@@ -712,12 +851,17 @@ BOOL platform_offer_game_data(const char *destination)
 	};
 	char message[1400];
 
-	/* not for runs nobody is watching */
-	if (config_boolean("debug.hidden_window") || config_real("debug.exit_after") > 0.0 ||
-		!SDL_Init(SDL_INIT_VIDEO))
+	/* not for runs nobody is watching, nor under gamescope (the player adds
+	the maps from the desktop) */
+	if (config_boolean("debug.hidden_window") || config_real("debug.exit_after") > 0.0)
+		return FALSE;
+	if (updater_gamescope())
 	{
+		platform_log("no game data: start Chupathingy once from Desktop Mode to add the maps");
 		return FALSE;
 	}
+	if (!SDL_Init(SDL_INIT_VIDEO))
+		return FALSE;
 	snprintf(message, sizeof(message),
 		"Chupathingy needs the maps from your Halo: Combat Evolved Xbox disc. Add them from:\n\n"
 		"Xbox disc image: a disc image (.iso), copied into %s/maps.\n\n"
@@ -746,10 +890,30 @@ BOOL platform_offer_game_data(const char *destination)
 				return TRUE;
 			continue;
 		}
-		/* no file picked: ask again */
-		if (!data_choose_image(image, sizeof(image), answer == _choice_halo_pc))
-			continue;
-		kind = data_kind(image);
+		/* no file picked: ask again; no file dialog at all: say why, or the
+		same question comes back without end */
+		{
+			BOOL failed = FALSE;
+
+			if (!data_choose_image(image, sizeof(image), answer == _choice_halo_pc, &failed, error,
+				sizeof(error)))
+			{
+				if (failed)
+				{
+					char explanation[1400];
+
+					platform_log("no file dialog could be shown: %s", error);
+					snprintf(explanation, sizeof(explanation),
+						"No file dialog could be shown (%s).\n\n"
+						"Install zenity or the desktop portal, or choose Make the folders and copy "
+						"the maps folder of your Xbox disc into %s/maps yourself.",
+						error, destination);
+					SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Chupathingy", explanation, NULL);
+				}
+				continue;
+			}
+		}
+		kind = platform_import_kind(image);
 		if (kind == _data_unknown)
 		{
 			platform_log("%s is no disc image or installer this reads", image);
@@ -790,6 +954,30 @@ BOOL platform_offer_game_data(const char *destination)
 		}
 	}
 }
+#elif defined(HALO_LAUNCHER)
+/* the launcher's Welcome (launcher.c), in the game's window */
+BOOL platform_offer_game_data(char *destination, unsigned long size)
+{
+	/* (the window it opens finds the data root again while it is being
+	found: asked once) */
+	static BOOL offering;
+	BOOL found;
+
+	/* not for runs nobody is watching, nor under gamescope (the player adds
+	the maps from the desktop) */
+	if (offering || config_boolean("debug.hidden_window") || config_real("debug.exit_after") > 0.0)
+		return FALSE;
+	if (updater_gamescope())
+	{
+		platform_log("no game data: start Chupathingy once from Desktop Mode to add the maps");
+		return FALSE;
+	}
+	offering = TRUE;
+	found = launcher_welcome(destination, size);
+	offering = FALSE;
+	return found;
+}
+#endif
 #endif
 
 int halo_interpolation_enabled(void)
@@ -1126,6 +1314,76 @@ int platform_window_sizes(long *widths, long *heights, int maximum)
 /* the window's size (platform_window_size_setting), as the window was made
 or last resized: platform_display_apply */
 static long platform_window_width = -1, platform_window_height = -1;
+/* the last configured mode; F11 can change the window independently */
+static int platform_window_mode = _display_mode_windowed;
+#endif
+
+#ifndef HALO_ANDROID
+/* the OpenGL version the renderer needs (platform_video_initialize) */
+#ifdef __APPLE__
+#define PLATFORM_GL_NEEDED "4.1"
+#else
+#define PLATFORM_GL_NEEDED "4.5"
+#endif
+
+/* this computer's graphics can't run the renderer (no OpenGL context of the
+version it needs, or one without the functions it calls): say so plainly
+and quit, rather than go on without a display and crash at the first thing
+drawn (crash reports from 0.8.0h; game issue #78). The version the driver
+does have is asked from a context of no particular version. */
+static void platform_gl_missing(const char *reason)
+{
+	char have[160] = "";
+	char message[768];
+
+	if (platform_gl_context)
+	{
+		SDL_GL_DestroyContext(platform_gl_context);
+		platform_gl_context = NULL;
+	}
+	SDL_GL_ResetAttributes();
+	{
+		SDL_GLContext probe = SDL_GL_CreateContext(platform_window);
+
+		if (probe)
+		{
+			/* (gl.h's type, with OpenGL's calling convention) */
+			__typeof__(halo_glGetString) get_string;
+
+			SDL_GL_MakeCurrent(platform_window, probe);
+			get_string = (__typeof__(halo_glGetString))SDL_GL_GetProcAddress("glGetString");
+			if (get_string)
+			{
+				const char *version = (const char *)get_string(GL_VERSION);
+				const char *renderer = (const char *)get_string(GL_RENDERER);
+
+				if (version)
+					snprintf(have, sizeof(have), "%s%s%s%s", version, renderer ? " (" : "",
+						renderer ? renderer : "", renderer ? ")" : "");
+			}
+			SDL_GL_MakeCurrent(platform_window, NULL);
+			SDL_GL_DestroyContext(probe);
+		}
+	}
+	platform_log("graphics: %s; OpenGL %s is needed%s%s: quitting", reason, PLATFORM_GL_NEEDED,
+		have[0] ? ", the driver has OpenGL " : "", have);
+	snprintf(message, sizeof(message),
+		"Chupathingy can't run on this computer's graphics.\n\n"
+		"It needs OpenGL %s%s%s.\n\n"
+		"Updating the graphics driver can fix this. Some older graphics chips never get OpenGL %s, "
+		"and Chupathingy can't run on those yet.",
+		PLATFORM_GL_NEEDED,
+		have[0] ? ", and the graphics driver here has OpenGL " : ", and the graphics driver here doesn't have it",
+		have, PLATFORM_GL_NEEDED);
+	if (!config_boolean("debug.hidden_window") && config_real("debug.exit_after") <= 0.0)
+		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Chupathingy", message, platform_window);
+	exit(EXIT_FAILURE);
+}
+#endif
+
+#ifdef HALO_BGFX
+/* bgfx could not start (d3d8_bgfx.inl): the game draws with OpenGL */
+static BOOL platform_bgfx_refused;
 #endif
 
 BOOL platform_video_initialize(unsigned long width, unsigned long height)
@@ -1137,11 +1395,23 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 		return TRUE;
 	if (!platform_sdl_initialize())
 		return FALSE;
+#ifdef HALO_BGFX
+	/* the bgfx renderer draws instead (d3d8_bgfx.inl): a window without an
+	OpenGL context, whose Metal layer (macOS) or Vulkan surface bgfx draws
+	into; unless it could not start before (platform_video_reopen_for_gl) */
+	xgpu_bgfx = !platform_bgfx_refused && strcmp(config_string("display.renderer"), "bgfx") == 0;
+#endif
 
 #ifdef HALO_ANDROID
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 2);
+#elif defined(HALO_CONSOLE_GLES2)
+	/* ES 2, which the port fills out to the ES 3 the renderer uses
+	(console_gles2_layer) */
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
 #elif defined(__APPLE__)
 	/* macOS stops at OpenGL 4.1, whose core contexts must be forward
 	compatible; the renderer does without what it uses from later versions
@@ -1203,7 +1473,16 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 	(void)height;
 	platform_window_size_setting(&platform_window_width, &platform_window_height);
 	platform_window = SDL_CreateWindow(title, (int)platform_window_width, (int)platform_window_height,
+#if defined(HALO_BGFX) && defined(__APPLE__)
+		(xgpu_bgfx ? SDL_WINDOW_METAL : SDL_WINDOW_OPENGL) |
+		SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY |
+#elif defined(HALO_BGFX)
+		/* (bgfx makes the Vulkan surface itself) */
+		(xgpu_bgfx ? 0 : SDL_WINDOW_OPENGL) |
+		SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY |
+#else
 		SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY |
+#endif
 		(config_boolean("debug.hidden_window") ? SDL_WINDOW_HIDDEN : 0) |
 		(platform_fullscreen_setting() ? SDL_WINDOW_FULLSCREEN : 0));
 #endif
@@ -1214,6 +1493,7 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 	}
 #ifndef HALO_ANDROID
 	platform_fullscreen_requested = platform_fullscreen_setting();
+	platform_window_mode = platform_display_mode();
 	platform_fullscreen_kind_apply();
 #endif
 #ifdef __APPLE__
@@ -1222,6 +1502,15 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 	before its event loop runs (rasterizer_preinitialize), so wait for the
 	window here */
 	SDL_SyncWindow(platform_window);
+#endif
+#ifdef HALO_BGFX
+	if (xgpu_bgfx)
+	{
+		platform_event_thread = SDL_GetCurrentThreadID();
+		platform_log("renderer: bgfx");
+		platform_mouse_capture(TRUE);
+		return TRUE;
+	}
 #endif
 	platform_gl_context = SDL_GL_CreateContext(platform_window);
 #ifdef HALO_ANDROID
@@ -1236,12 +1525,20 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 	if (!platform_gl_context)
 	{
 		platform_log("cannot create an OpenGL context: %s", SDL_GetError());
+#ifndef HALO_ANDROID
+		platform_gl_missing("no OpenGL context of the version needed");
+#endif
 		return FALSE;
 	}
 	SDL_GL_MakeCurrent(platform_window, platform_gl_context);
 	if (!gl_functions_load())
+	{
+#ifndef HALO_ANDROID
+		platform_gl_missing("OpenGL functions are missing");
+#endif
 		return FALSE;
-#ifdef __APPLE__
+	}
+#if defined(__APPLE__) && !defined(HALO_IOS)
 	{
 		/* port/macos/src/macos_video.c */
 		void macos_set_swap_interval(int interval);
@@ -1258,8 +1555,31 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 #ifndef HALO_ANDROID
 	platform_mouse_capture(TRUE);
 #endif
+#ifdef HALO_LAUNCHER
+	/* the launcher, before the game draws or loads anything, when it was
+	asked for (--setup, a key held, the maps not right) */
+	launcher_at_start();
+#endif
 	return TRUE;
 }
+
+#ifdef HALO_BGFX
+/* bgfx did not start (d3d8_bgfx.inl, bg_initialize): the window again,
+with an OpenGL context, for the OpenGL renderer, so that a computer whose
+Vulkan (or Metal) is missing or broken still shows the game */
+BOOL platform_video_reopen_for_gl(void)
+{
+	platform_log("renderer: bgfx did not start, so OpenGL");
+	platform_bgfx_refused = TRUE;
+	xgpu_bgfx = FALSE;
+	if (platform_window)
+	{
+		SDL_DestroyWindow(platform_window);
+		platform_window = NULL;
+	}
+	return platform_video_initialize(0, 0);
+}
+#endif
 
 /* display.mode, display.resolution (fullscreen's display mode),
 display.window_size (when it changes: the window can be resized) and
@@ -1269,14 +1589,18 @@ and borderless's resolution are taken up between frames
 void platform_display_apply(void)
 {
 #ifndef HALO_ANDROID
-	BOOL fullscreen = platform_fullscreen_setting();
+	int mode = platform_display_mode();
 	long width, height;
 
 	if (!platform_window)
 		return;
 	platform_fullscreen_kind_apply();
-	if (platform_window_fullscreen() != (fullscreen != FALSE))
-		platform_window_set_fullscreen(fullscreen);
+	/* Saving unrelated settings must preserve the window mode chosen by F11. */
+	if (mode != platform_window_mode)
+	{
+		platform_window_mode = mode;
+		platform_window_set_fullscreen(platform_fullscreen_setting());
+	}
 	platform_window_size_setting(&width, &height);
 	if (width != platform_window_width || height != platform_window_height)
 	{
@@ -1288,7 +1612,7 @@ void platform_display_apply(void)
 	if (!platform_window)
 		return;
 #endif
-#ifdef __APPLE__
+#if defined(__APPLE__) && !defined(HALO_IOS)
 	{
 		/* (the context's own interval, as at start-up: SDL's stays off) */
 		void macos_set_swap_interval(int interval);
@@ -1305,11 +1629,50 @@ void platform_video_drawable_size(int *width, int *height)
 	SDL_GetWindowSizeInPixels(platform_window, width, height);
 }
 
-#ifndef HALO_ANDROID
+#ifdef HALO_IOS
+/* the part of the window the picture goes in, as fractions of it (x, y,
+width, height from the top left): port/ios/src/ios_touch.m */
+void host_present_area(float *area);
+
+void platform_video_present_area(int *x, int *y, int *width, int *height)
+{
+	int drawable_width = 0, drawable_height = 0;
+	float area[4] = { 0.0f, 0.0f, 1.0f, 1.0f };
+
+	platform_video_drawable_size(&drawable_width, &drawable_height);
+	*x = *y = 0;
+	*width = drawable_width;
+	*height = drawable_height;
+	host_present_area(area);
+	if (area[2] > 0.0f && area[3] > 0.0f && area[0] >= 0.0f && area[1] >= 0.0f &&
+		area[0] + area[2] <= 1.0f && area[1] + area[3] <= 1.0f)
+	{
+		*x = (int)(area[0] * drawable_width);
+		*y = (int)(area[1] * drawable_height);
+		*width = (int)(area[2] * drawable_width);
+		*height = (int)(area[3] * drawable_height);
+	}
+	if (*width <= 0 || *height <= 0)
+	{
+		*x = *y = 0;
+		*width = drawable_width;
+		*height = drawable_height;
+	}
+}
+
+/* (SDL's view makes it with the context: xgpu.h) */
+unsigned int platform_window_framebuffer(void)
+{
+	return (unsigned int)SDL_GetNumberProperty(SDL_GetWindowProperties(platform_window),
+		SDL_PROP_WINDOW_UIKIT_OPENGL_FRAMEBUFFER_NUMBER, 0);
+}
+#endif
+
 /* with vsync off, the time between frames display.max_fps asks for (0:
 twice the display's refresh rate), or 0 for no limit. A GPU never left idle
 can hang (Intel's Raptor Lake graphics, whose reset then takes the desktop
-with it); the limit gives it a rest every frame. */
+with it), and a phone drawing as fast as it can heats up and drains its
+battery; the limit gives either a rest every frame. */
 static Uint64 frame_interval_ns(void)
 {
 	static int vsync;
@@ -1328,42 +1691,142 @@ static Uint64 frame_interval_ns(void)
 	rate = (float)maximum;
 	if (!maximum)
 	{
+#ifndef HALO_ANDROID
 		SDL_DisplayID display = SDL_GetDisplayForWindow(platform_window);
 		const SDL_DisplayMode *mode = display ? SDL_GetCurrentDisplayMode(display) : NULL;
 
 		rate = 2.0f * (mode && mode->refresh_rate > 0.0f ? mode->refresh_rate : 60.0f);
+#else
+		/* (the Android guest's SDL has no display modes to ask) */
+		rate = 2.0f * 60.0f;
+#endif
 	}
 	return (Uint64)(1e9f / rate);
 }
 
+#ifndef HALO_ANDROID
+#define frame_clock_ns SDL_GetTicksNS
+#define frame_delay_ns SDL_DelayPrecise
+#else
+/* (the Android guest's SDL has neither SDL_GetTicksNS nor
+SDL_DelayPrecise: the system's clock and sleep) */
+static Uint64 frame_clock_ns(void)
+{
+	struct timespec now;
+
+	clock_gettime(CLOCK_MONOTONIC, &now);
+	return (Uint64)now.tv_sec * 1000000000u + (Uint64)now.tv_nsec;
+}
+
+static void frame_delay_ns(Uint64 nanoseconds)
+{
+	struct timespec wait;
+
+	wait.tv_sec = (time_t)(nanoseconds / 1000000000u);
+	wait.tv_nsec = (long)(nanoseconds % 1000000000u);
+	nanosleep(&wait, NULL);
+}
 #endif
+
 void platform_video_swap(void)
 {
-#ifndef HALO_ANDROID
 	static Uint64 next_frame;
 	Uint64 interval, now;
+	Uint64 swap_start = SDL_GetTicks(), swap_time;
 
+#ifdef HALO_BGFX
+	/* (the device presents: d3d8_bgfx.inl; this paces the frames) */
+	if (!xgpu_bgfx)
 #endif
 	SDL_GL_SwapWindow(platform_window);
-#ifndef HALO_ANDROID
+	/* (a frame the graphics driver held for seconds: the game froze, and
+	online, a host stops hearing a machine after a few; the log says where) */
+	swap_time = SDL_GetTicks() - swap_start;
+	if (swap_time >= 2000)
+		platform_log("display: showing a frame took %.1f s in the graphics driver", (double)swap_time / 1000.0);
 	interval = frame_interval_ns();
 	if (!interval)
 		return;
-	now = SDL_GetTicksNS();
+	now = frame_clock_ns();
 	if (next_frame > now)
 	{
-		SDL_DelayPrecise(next_frame - now);
+		frame_delay_ns(next_frame - now);
 		now = next_frame;
 	}
 	/* (a frame more than an interval late starts the count again) */
 	next_frame = now - next_frame > interval ? now + interval : next_frame + interval;
-#endif
 }
+
+SDL_Window *platform_sdl_window(void)
+{
+	return platform_window;
+}
+
+#if !defined(HALO_ANDROID) && !defined(_WIN32) && !defined(__APPLE__)
+/* port: X11 without XInput2 (a 32-bit libSDL3 whose 32-bit libXi.so.6 is
+missing, as with Arch Linux's lib32-sdl3, falls back to plain X11 or
+XWayland) has no relative mouse: SDL_SetWindowRelativeMouseMode fails. The
+mouse is then held with a hidden cursor, a grab of the window (which also
+lets XWayland lock the pointer) and a warp back to the window's middle after
+it moves. */
+#define MOUSE_WARP_FALLBACK
+static BOOL mouse_warp_capture;
+static int mouse_warp_x;
+static int mouse_warp_y;
+
+static void mouse_warp_to_middle(void)
+{
+	int width = 0, height = 0;
+
+	SDL_GetWindowSize(platform_window, &width, &height);
+	if (width > 0 && height > 0)
+	{
+		mouse_warp_x = width / 2;
+		mouse_warp_y = height / 2;
+		SDL_WarpMouseInWindow(platform_window, (float)mouse_warp_x, (float)mouse_warp_y);
+	}
+}
+
+static void mouse_warp_release(void)
+{
+	if (mouse_warp_capture)
+	{
+		mouse_warp_capture = FALSE;
+		SDL_SetWindowMouseGrab(platform_window, false);
+		SDL_ShowCursor();
+	}
+}
+#endif
 
 void platform_mouse_capture(BOOL capture)
 {
-	if (platform_window)
-		SDL_SetWindowRelativeMouseMode(platform_window, capture ? true : false);
+	if (!platform_window)
+		return;
+#ifndef MOUSE_WARP_FALLBACK
+	SDL_SetWindowRelativeMouseMode(platform_window, capture ? true : false);
+#else
+	if (!capture)
+	{
+		SDL_SetWindowRelativeMouseMode(platform_window, false);
+		mouse_warp_release();
+		return;
+	}
+	if (SDL_GetKeyboardFocus() == platform_window &&
+		SDL_SetWindowRelativeMouseMode(platform_window, true))
+	{
+		mouse_warp_release();
+		return;
+	}
+	/* (before the window has the focus SDL sets its relative mode without
+	testing for XInput2, and if XInput2 is missing when the focus comes, the
+	plain motion is dropped until the mode is cleared: clear it, hold the
+	mouse here, and try the relative mode again when the focus comes) */
+	SDL_SetWindowRelativeMouseMode(platform_window, false);
+	mouse_warp_capture = TRUE;
+	SDL_HideCursor();
+	SDL_SetWindowMouseGrab(platform_window, true);
+	mouse_warp_to_middle();
+#endif
 }
 
 /* ---------- keyboard translation */
@@ -1595,8 +2058,10 @@ int platform_take_clipboard_invite(char *text, int size)
 	return taken;
 }
 
-/* puts a new invite on the clipboard, and joins one found there when the
-game comes to the front, or asks first (network.join_from_clipboard) */
+/* puts a new invite on the clipboard (network.copy_to_clipboard), and joins
+one found there when the game comes to the front, or asks first
+(network.join_from_clipboard); both off by default, so the clipboard is the
+player's own until a setting says otherwise */
 static void platform_invite_clipboard(BOOL look)
 {
 	/* the last clipboard text looked at, so each invite is joined once */
@@ -1611,12 +2076,16 @@ static void platform_invite_clipboard(BOOL look)
 #endif
 	if (invite)
 	{
-		SDL_SetClipboardText(invite);
+		/* (the game's own invite is never joined, copied or not) */
 		snprintf(seen, sizeof(seen), "%s", invite);
-		platform_log("Internet play: the invite link is on the clipboard");
+		if (config_boolean("network.copy_to_clipboard"))
+		{
+			SDL_SetClipboardText(invite);
+			platform_log("Internet play: the invite link is on the clipboard");
 #ifdef HALO_ANDROID
-		SDL_ShowAndroidToast("Invite link copied", 1, -1, 0, 0);
+			SDL_ShowAndroidToast("Invite link copied", 1, -1, 0, 0);
 #endif
+		}
 	}
 	setting = look ? platform_clipboard_join_setting() : _clipboard_join_never;
 	if (setting != _clipboard_join_never)
@@ -1727,6 +2196,14 @@ static void platform_game_list_requests(void)
 			"Current: player %.8s. New: player %.8s.\n\n"
 			"Replace it only with your own key, from your profile on the game list.",
 			old_id[0] ? old_id : "(none)", new_id);
+		/* (no question under gamescope: the key stays) */
+		if (updater_gamescope())
+		{
+			platform_log("Game list: a link asks to replace the player key; not asking under gamescope "
+				"(Steam Deck Game Mode): open it from Desktop Mode");
+			browser_answer_key_link(0);
+			return;
+		}
 		memset(&question, 0, sizeof(question));
 		question.flags = SDL_MESSAGEBOX_WARNING;
 		question.window = platform_window;
@@ -1753,7 +2230,8 @@ static void platform_show_pending_message(void)
 	memcpy(title, platform_message_title, sizeof(title));
 	memcpy(text, platform_message_text, sizeof(text));
 	pthread_mutex_unlock(&platform_message_lock);
-	if (!pending)
+	/* (under gamescope, the log only: platform_show_message logged it) */
+	if (!pending || updater_gamescope())
 		return;
 #ifdef HALO_ANDROID
 	SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_WARNING, title, text, NULL);
@@ -1833,6 +2311,12 @@ void platform_scoreboard_scroll(int open, long *notches, long *pages)
 	pthread_mutex_unlock(&input_lock);
 }
 
+#ifdef HALO_CONSOLE_PERFORMANCE_MODE
+/* the port's: performance mode's passes left out, and its switch read
+(halo_console_features.h) */
+void console_performance_update(void);
+#endif
+
 void platform_pump_events(void)
 {
 	/* debug.exit_after (seconds) ends the game that long after the window
@@ -1841,6 +2325,13 @@ void platform_pump_events(void)
 	SDL_Event event;
 	static BOOL looked_at_clipboard;
 	BOOL look_at_clipboard = !looked_at_clipboard;
+#ifdef MOUSE_WARP_FALLBACK
+	BOOL mouse_needs_warp = FALSE;
+#endif
+
+#ifdef HALO_CONSOLE_PERFORMANCE_MODE
+	console_performance_update();
+#endif
 
 #ifdef HALO_GAME_BROWSER
 	/* the dedicated server has no window, but stops as asked (SIGTERM or
@@ -1930,6 +2421,11 @@ void platform_pump_events(void)
 				if (event.key.down)
 					keys_pressed[event.key.scancode] = 1;
 			}
+			if (event.key.down && !event.key.repeat &&
+				(event.key.scancode < SDL_SCANCODE_LCTRL || event.key.scancode > SDL_SCANCODE_RGUI))
+			{
+				movie_skip_presses++;
+			}
 			if (binding_capture == _binding_capture_waiting && event.key.down && !event.key.repeat &&
 				event.key.scancode != SDL_SCANCODE_F11 && event.key.scancode != SDL_SCANCODE_F12)
 			{
@@ -1974,11 +2470,23 @@ void platform_pump_events(void)
 				break;
 			}
 #endif
+#ifdef MOUSE_WARP_FALLBACK
+			/* port: the mouse held without XInput2: the move the warp back to
+			the middle makes is not the player's */
+			if (mouse_warp_capture)
+			{
+				if ((int)event.motion.x == mouse_warp_x && (int)event.motion.y == mouse_warp_y)
+					break;
+				mouse_needs_warp = TRUE;
+			}
+#endif
 			input_state.mouse_dx += event.motion.xrel;
 			input_state.mouse_dy += event.motion.yrel;
 			break;
 		case SDL_EVENT_MOUSE_BUTTON_DOWN:
 		case SDL_EVENT_MOUSE_BUTTON_UP:
+			if (event.button.down)
+				movie_skip_presses++;
 			if (event.button.button < 32)
 			{
 				if (event.button.down)
@@ -2020,6 +2528,16 @@ void platform_pump_events(void)
 				if (event.button.down)
 					mouse_buttons_pressed[event.button.button] = 1;
 			}
+#ifdef MOUSE_WARP_FALLBACK
+			/* port: a click in play with the mouse held neither way (the
+			relative mode did not take) holds it again */
+			if (event.button.down && !input_state.mouse_released &&
+				!input_state.ui_pointer && !mouse_warp_capture &&
+				!SDL_GetWindowRelativeMouseMode(platform_window))
+			{
+				platform_mouse_capture(TRUE);
+			}
+#endif
 			break;
 		case SDL_EVENT_MOUSE_WHEEL:
 			if (binding_capture == _binding_capture_waiting && event.wheel.y != 0.0f)
@@ -2071,6 +2589,10 @@ void platform_pump_events(void)
 			memset(input_state.mouse_buttons, 0, sizeof(input_state.mouse_buttons));
 			memset(mouse_buttons_pressed, 0, sizeof(mouse_buttons_pressed));
 			input_state.focused = FALSE;
+#ifdef MOUSE_WARP_FALLBACK
+			/* port: the held mouse let go while another window has the focus */
+			mouse_warp_release();
+#endif
 #ifdef HALO_ANDROID
 			touch_input_cancel();
 #endif
@@ -2088,11 +2610,13 @@ void platform_pump_events(void)
 		case SDL_EVENT_FINGER_MOTION:
 		case SDL_EVENT_FINGER_UP:
 		case SDL_EVENT_FINGER_CANCELED:
+			if (event.type == SDL_EVENT_FINGER_DOWN)
+				movie_skip_presses++;
 			touch_input_event(event.type, &event.tfinger);
 			break;
 #endif
 		case SDL_EVENT_GAMEPAD_ADDED:
-#ifdef HALO_ANDROID
+#if defined(HALO_ANDROID) && !defined(HALO_IOS)
 			/* (the guest reaches SDL only through host_imports.list, which
 			has no SDL_GetGamepadName) */
 			SDL_OpenGamepad(event.gdevice.which);
@@ -2137,6 +2661,13 @@ void platform_pump_events(void)
 			break;
 		}
 	}
+#ifdef MOUSE_WARP_FALLBACK
+	if (mouse_warp_capture && mouse_needs_warp && !input_state.ui_pointer &&
+		!input_state.mouse_released)
+	{
+		mouse_warp_to_middle();
+	}
+#endif
 	pthread_mutex_unlock(&input_lock);
 	looked_at_clipboard = TRUE;
 	platform_invite_clipboard(look_at_clipboard);
@@ -2368,4 +2899,12 @@ void platform_input_read(struct platform_input_state *state, BOOL consume_motion
 		input_state.mouse_wheel = 0;
 	}
 	pthread_mutex_unlock(&input_lock);
+}
+
+int platform_movie_skip_pressed(void)
+{
+	int pressed = movie_skip_presses != 0;
+
+	movie_skip_presses = 0;
+	return pressed;
 }

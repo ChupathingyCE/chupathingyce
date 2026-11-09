@@ -14,6 +14,7 @@ OBJECTS.C
 
 #include "ai/ai_debug.h"
 #include "bitmaps/bitmaps.h"
+#include "cache/cache_files.h"
 #include "cache/predicted_resources.h"
 #include "cseries/errors.h"
 #include "cseries/profile.h"
@@ -1806,8 +1807,11 @@ static void object_delete_initial_recursive(
 	/* port: a client deletes the host's objects on the host's word, a flag
 	the host returns or resets included, so a client's flag deletion is no
 	bug (it halted debug builds in CTF games online) */
+	/* port: nor a Custom Edition map's: its scripts may destroy a weapon
+	that must be readied, which this asks for (grifball's own ball, at a
+	goal), as Halo PC's engine let them */
 	if (game_engine_running() && object->object.type == _object_type_weapon &&
-		!network_game_distributed_client())
+		!network_game_distributed_client() && !CACHE_FILE_TAGS_ARE_CE())
 	{
 		match_assert("c:\\halo\\SOURCE\\objects\\objects.c", 829, !(weapon_is_flag(object_index)));
 	}
@@ -2201,6 +2205,17 @@ void object_inverse_kinematics(
 	return;
 }
 
+/* port: never inlined. Its list of the objects in the clusters is 32 KB in
+the native builds (8 KB on the Xbox: halo_port_capacity.h), and inlined it
+was on the stack of each effect update (effects.c) for the whole of the
+update, so a chain of explosions, which nests effect updates (damage.c),
+took 32 KB more stack at each step. Called, it is on the stack only while
+it runs. */
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((noinline))
+#elif defined(_MSC_VER)
+__declspec(noinline)
+#endif
 short objects_in_sphere(
 	unsigned long class_flags,
 	unsigned long type_flags,

@@ -694,6 +694,9 @@ symbols in this file:
 #include "network_coop.h" /* port: port/linux/game/network_coop.c */
 #include "coop_scripts.h" /* port: port/linux/game/coop_scripts.c */
 #include "coop_enemies.h" /* port: port/linux/game/coop_enemies.c */
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+#include "stubbs_mode.h" /* port: port/linux/game/stubbs_mode.c */
+#endif
 
 /* port: the control and animation impulses the host's actors give their
 units go to the clients' copies (port/linux/game/network_actors.c) */
@@ -2867,6 +2870,18 @@ static void unit_drop_grenades(
 	grenade_type_count = NUMBER_OF_UNIT_GRENADE_TYPES;
 	do
 	{
+#if defined(HALO_MAP_LIST) && !defined(HALO_XBOX_CONSOLE)
+		/* port: in Stubbs mode, a grenade type the globals don't have
+		(Stubbs the Zombie's have none) is not dropped
+		(port/linux/game/stubbs_mode.c); Halo's globals have every one */
+		if (stubbs_mode_active() &&
+			(long)(grenade_count_negative_base + (unsigned long)POINTER_BITS(grenade_count)) >=
+				scenario_get_game_globals()->grenades.count)
+		{
+			grenade_count++;
+			continue;
+		}
+#endif
 		grenade = TAG_BLOCK_GET_ELEMENT(
 			&scenario_get_game_globals()->grenades,
 			grenade_count_negative_base + (unsigned long)POINTER_BITS(grenade_count),
@@ -3410,6 +3425,72 @@ void unit_animation_start_action(
 	}
 
 	return;
+}
+
+/* port: a player with no weapon (a gametype's loadout of none) swings as
+with a pistol: the player's biped has no melee of its own unarmed, so its
+blow showed nothing. Only the action's animation is the pistol's: its weapon
+class stays unarmed. */
+void unit_animation_start_unarmed_melee(
+	long unit_index)
+{
+	struct unit_datum *unit = unit_get(unit_index);
+	struct unit_definition *unit_definition = unit_definition_get(unit->definition_index);
+	struct animation_graph *animation_graph = animation_graph_definition_get(unit_definition->object.animation_graph.index);
+	struct animation_graph_unit_seat *unit_seat;
+	short class_index;
+	short animation_index = NONE;
+
+	if (unit->unit.animation.seat_index<0 || unit->unit.animation.seat_index>=animation_graph->unit_seats.count)
+		return;
+	unit_seat = TAG_BLOCK_GET_ELEMENT(&animation_graph->unit_seats, unit->unit.animation.seat_index, struct animation_graph_unit_seat);
+	/* (none where its own weapon class has a melee: unit_animation_start_action
+	played it) */
+	if (unit->unit.animation.weapon_index>=0 && unit->unit.animation.weapon_index<unit_seat->weapon_classes.count)
+	{
+		struct animation_graph_weapon_class *weapon_class = TAG_BLOCK_GET_ELEMENT(&unit_seat->weapon_classes,
+			unit->unit.animation.weapon_index, struct animation_graph_weapon_class);
+
+		if (unit->unit.animation.weapon_type_index>=0 &&
+			unit->unit.animation.weapon_type_index<weapon_class->weapon_types.count)
+		{
+			struct animation_graph_weapon_type *weapon_type = TAG_BLOCK_GET_ELEMENT(&weapon_class->weapon_types,
+				unit->unit.animation.weapon_type_index, struct animation_graph_weapon_type);
+
+			if (weapon_type->animations.count>8 &&
+				animation_graph_animation_index_get(&weapon_type->animations)[8].animation_index!=NONE)
+			{
+				return;
+			}
+		}
+	}
+	/* (the pistol's, else the first class's that has one) */
+	for (class_index = 0; class_index<unit_seat->weapon_classes.count; class_index++)
+	{
+		struct animation_graph_weapon_class *weapon_class = TAG_BLOCK_GET_ELEMENT(&unit_seat->weapon_classes, class_index, struct animation_graph_weapon_class);
+		struct animation_graph_weapon_type *weapon_type;
+		short index;
+
+		if (weapon_class->weapon_types.count<=0)
+			continue;
+		weapon_type = TAG_BLOCK_GET_ELEMENT(&weapon_class->weapon_types, 0, struct animation_graph_weapon_type);
+		if (weapon_type->animations.count<=8)
+			continue;
+		index = animation_graph_animation_index_get(&weapon_type->animations)[8].animation_index;
+		if (index==NONE)
+			continue;
+		if (animation_index==NONE || !strcmp(weapon_class->label, "pistol"))
+			animation_index = index;
+		if (!strcmp(weapon_class->label, "pistol"))
+			break;
+	}
+	if (animation_index!=NONE)
+	{
+		unit->unit.animation.action_animation.index = animation_choose_random_permutation_internal(TRUE,
+			unit_definition->object.animation_graph.index, animation_index);
+		unit->unit.animation.action_animation.frame_index = 0;
+		unit->unit.animation.action = 7; /* (the melee, unit_animation_start_action's) */
+	}
 }
 
 static void unit_animation_start_overlay_action(
@@ -4410,10 +4491,12 @@ boolean unit_throw_grenade_begin(
 			break;
 
 		default:
-			/* port: and with no weapon (a loadout of none), as melee
-			(bipeds.c), which weapon_prevents_grenade_throwing(NONE) prevents;
-			not from a vehicle's seat, which holds no weapon either */
-			if ((weapon_index == NONE && unit->unit.parent_seat_index == NONE) ||
+			/* with no weapon, weapon_prevents_grenade_throwing(NONE) is TRUE:
+			an unarmed unit cannot throw, as in the retail game. port: except
+			on foot in a game type with a custom loadout (the PC version's
+			option), whose loadout of none throws grenades */
+			if ((weapon_index == NONE && unit->unit.parent_seat_index == NONE &&
+					game_engine_running() && game_variant_options_get()->loadout == _loadout_custom) ||
 				(weapon_index != NONE && !weapon_prevents_grenade_throwing(weapon_index)))
 			{
 				struct animation_graph *animation_graph;
@@ -7049,6 +7132,13 @@ void unit_damage_aftermath(
 			direction_valid ? &damage_direction : NULL);
 	}
 
+#ifdef HALO_GAME_BROWSER
+	/* port: a Bomb carrier struck by a melee blow it lives through may drop
+	the bomb (game_engine_bomb.c, the host's) */
+	if (!lethal && damage_definition->category == 6 /* damage.c's _damage_category_melee */)
+		game_engine_bomb_unit_struck(unit_index);
+#endif
+
 	{
 		long owner_player_index = damage_data->owner_player_index;
 		long player_index = unit->unit.player_index;
@@ -7656,6 +7746,38 @@ boolean unit_drop_selected_weapon(
 		object_delete(weapon_index);
 	}
 
+	return TRUE;
+}
+
+boolean unit_drop_weapon(
+	long unit_index,
+	long weapon_index)
+{
+	struct unit_datum *unit = unit_get(unit_index);
+	short slot;
+
+	for (slot = 0; slot < MAXIMUM_WEAPONS_PER_UNIT; slot++)
+	{
+		if (unit->unit.weapon_object_indices[slot] == weapon_index)
+			break;
+	}
+	if (slot == MAXIMUM_WEAPONS_PER_UNIT)
+		return FALSE;
+	if (slot == unit->unit.current_weapon_index)
+		first_person_weapon_message_from_unit(unit_index, 13);
+	unit_drop_item(unit_index, weapon_index);
+	/* (one holstered, in the unit's hand as it is dropped, is not in the
+	world yet) */
+	if (!TEST_FLAG(object_get(weapon_index)->object.flags, _object_connected_to_map_bit))
+		object_reconnect_to_map(weapon_index, NULL);
+	unit->unit.weapon_object_indices[slot] = NONE;
+	if (slot == unit->unit.current_weapon_index)
+		unit->unit.current_weapon_index = NONE;
+	if (slot == unit->unit.desired_weapon_index || unit->unit.current_weapon_index == NONE)
+	{
+		unit->unit.desired_weapon_index = unit->unit.current_weapon_index != NONE ?
+			unit->unit.current_weapon_index : unit_weapon_next_index(unit_index, NONE, 0);
+	}
 	return TRUE;
 }
 
@@ -8903,6 +9025,9 @@ void unit_cause_player_melee_damage(
 	real best_object_fraction;
 	long outer_index;
 	long outer_count;
+#ifdef HALO_GAME_BROWSER
+	real melee_reach;
+#endif
 
 	unit = unit_get(unit_index);
 	unit_definition = unit_definition_get(unit->definition_index);
@@ -8924,6 +9049,10 @@ void unit_cause_player_melee_damage(
 		global_current_collision_user_depth < MAXIMUM_COLLISION_USER_STACK_DEPTH);
 	global_current_collision_users[global_current_collision_user_depth++] = 8;
 	facing = &unit->unit.aiming_vector;
+#ifdef HALO_GAME_BROWSER
+	melee_reach = unit->unit.player_index!=NONE ?
+		game_engine_traits_melee_multiplier(unit->unit.player_index) : 1.f;
+#endif
 
 	{
 		real_vector3d perpendicular;
@@ -8952,6 +9081,11 @@ void unit_cause_player_melee_damage(
 					((real)inner_component_i + (real)outer_index * perpendicular.j) * 0.1f;
 				ray.k = unit->unit.aiming_vector.k * 0.8f +
 					((real)outer_index * perpendicular.k + (real)inner_index * cross.k) * 0.1f;
+#ifdef HALO_GAME_BROWSER
+				/* port: a Bomb game type's melee reach trait (game_engine_bomb.c) */
+				if (melee_reach!=1.f)
+					scale_vector3d(&ray, melee_reach, &ray);
+#endif
 
 				if (collision_test_vector(
 					_collision_test_for_projectiles_flags,
@@ -11558,9 +11692,15 @@ static void unit_drop_item(
 	
 	if (item->object.parent_object_index==NONE)
 	{
-		object_reconnect_to_map(item_index, 0);
-		object_set_visibility(item_index, 1);
-		object_attach_to_marker(unit_index, "left hand", item_index, "");
+		/* port: not one in the world already, though the unit holds it (a
+		script moved it: hs_object_orient lets go of it first, with
+		unit_release_item), which would be connected to the map twice */
+		if (!TEST_FLAG(item->object.flags, _object_connected_to_map_bit))
+		{
+			object_reconnect_to_map(item_index, 0);
+			object_set_visibility(item_index, 1);
+			object_attach_to_marker(unit_index, "left hand", item_index, "");
+		}
 	}
 	else
 	{
@@ -12032,4 +12172,40 @@ void unit_network_forget_weapon(
 		unit->unit.current_weapon_index = NONE;
 	if (unit->unit.desired_weapon_index == slot || unit->unit.desired_weapon_index == NONE)
 		unit->unit.desired_weapon_index = unit_weapon_next_index(unit_index, NONE, 0);
+}
+
+/* port: a weapon a unit holds, let go of before a script moves it
+(object_teleport; a Custom Edition map's scripts send a carried ball back
+to its spawn when it goes out of bounds): dropped, as a carrier drops it,
+so that no unit holds a weapon that is out in the world (its next drop
+reconnected it to the map twice, which halted debug builds). FALSE when
+no unit holds it */
+boolean unit_release_item(
+	long item_index)
+{
+	struct object_iterator iterator;
+	struct unit_datum *unit;
+	struct item_datum *item = item_try_and_get(item_index);
+
+	if (!item || item->object.type != _object_type_weapon ||
+		!TEST_FLAG(item->item.flags, _item_attached_to_unit_bit))
+	{
+		return FALSE;
+	}
+	object_iterator_new(&iterator, _object_mask_unit, 0);
+	while ((unit = object_iterator_next(&iterator))!=NULL)
+	{
+		short slot;
+
+		for (slot = 0; slot < MAXIMUM_WEAPONS_PER_UNIT; slot++)
+		{
+			if (unit->unit.weapon_object_indices[slot] == item_index)
+			{
+				unit_network_drop_weapon(iterator.index, slot);
+				return TRUE;
+			}
+		}
+	}
+
+	return FALSE;
 }

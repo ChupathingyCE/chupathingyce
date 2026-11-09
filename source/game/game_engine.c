@@ -546,6 +546,7 @@ symbols in this file:
 
 #include "bitmaps/bitmap_group.h"
 #include "bitmaps/bitmap_group_lookup.h"
+#include "cache/cache_files.h"
 #include "effects/player_effects.h"
 #include "game_allegiance.h"
 #include "game.h"
@@ -588,6 +589,7 @@ struct network_game *network_game_server_get_game(struct network_game_server *se
 #include "sound/sound_classes.h"
 #include "text/draw_string.h"
 #include "text/font_group.h"
+#include "cache/cache_files.h"
 #include "text/text_group.h"
 #include "text/unicode.h"
 #include "units/bipeds.h"
@@ -596,8 +598,10 @@ struct network_game *network_game_server_get_game(struct network_game_server *se
 #include "main/console.h"
 #endif
 #ifdef HALO_GAME_BROWSER
-#include "../../port/linux/src/browser.h"
 #include "../../port/linux/src/ui_overlay.h"
+#endif
+#ifdef HALO_PORT_GAME_REPORTS
+#include "../../port/linux/src/browser.h"
 /* port/linux/game/game_stats.c's */
 void game_stats_player_killed(long killing_player_index, long dead_player_index, boolean friendly_fire);
 void game_stats_player_extra(long player_index, char *text, long size, short *multikills);
@@ -608,6 +612,9 @@ boolean game_stats_line_full(long player_index, boolean host);
 #ifdef HALO_CUSTOM_EDITION
 /* cache_files.c's */
 boolean cache_file_tags_are_ce(void);
+#endif
+#ifdef HALO_PORT_CONSOLE_LIMITS
+#include "../../port/linux/game/network_game_layout.h"
 #endif
 
 /* network_game_globals.c's */
@@ -2542,6 +2549,116 @@ enum
 	POSTGAME_PROMPT_RIGHT = 610
 };
 
+/* port: the carnage report's prompt as last drawn, for a click or a tap
+on it (ui_widgets_process_mouse, #467). It is text, not widgets, so the
+menus' pointer has no target on it, and the postgame reads the gamepads'
+buttons (game_engine_update_non_deterministic), not the menus' events: a
+tap on PICK GAME or QUIT did nothing. Its parts are the text before and
+from its second button, each with that button's gamepad button. */
+enum
+{
+	POSTGAME_PROMPT_LINE_HEIGHT = 18
+};
+
+static struct
+{
+	boolean drawn;
+	short top, bottom;
+	short left, right;
+	short split;
+	short part_buttons[2];
+	/* a part's button the pointer pressed, for the next update */
+	short pressed_button;
+} postgame_prompt = { FALSE, 0, 0, 0, 0, 0, { NONE, NONE }, NONE };
+
+/* the gamepad button of a prompt's button token ("%a-button": 0, A), or
+NONE */
+static short postgame_prompt_token_button(
+	wchar_t const *token)
+{
+	if (!token)
+		return NONE;
+	return token[1] == L'a' ? 0 : token[1] == L'b' ? 1 : NONE;
+}
+
+/* where the first length characters of a prompt end, drawn unseen from
+bounds' left */
+static short postgame_prompt_measure(
+	rectangle2d const *bounds,
+	wchar_t const *prompt,
+	long length)
+{
+	wchar_t part[256];
+	rectangle2d drawn = *bounds;
+
+	length = MIN(length, (long)NUMBEROF(part) - 1);
+	csmemcpy(part, prompt, length * sizeof(wchar_t));
+	part[length] = 0;
+	draw_string_and_hack_in_icons(&drawn, NULL, NULL, 0, part, FALSE);
+
+	return draw_string_and_hack_in_icons_end_x;
+}
+
+/* notes the prompt's parts as drawn at bounds (the color is unseen) */
+static void postgame_prompt_note(
+	rectangle2d const *bounds,
+	wchar_t const *prompt,
+	short right)
+{
+	wchar_t const *a_token = wcsstr(prompt, L"%a");
+	wchar_t const *b_token = wcsstr(prompt, L"%b");
+	wchar_t const *first = a_token && (!b_token || a_token < b_token) ? a_token : b_token;
+	wchar_t const *second = first == a_token ? b_token : a_token;
+
+	postgame_prompt.drawn = first != NULL;
+	postgame_prompt.top = bounds->y0;
+	postgame_prompt.bottom = (short)(bounds->y0 + POSTGAME_PROMPT_LINE_HEIGHT);
+	postgame_prompt.left = bounds->x0;
+	postgame_prompt.right = right;
+	postgame_prompt.split = right;
+	postgame_prompt.part_buttons[0] = postgame_prompt_token_button(first);
+	postgame_prompt.part_buttons[1] = postgame_prompt_token_button(second);
+	if (second)
+	{
+		long length = (long)(second - prompt);
+		long trimmed = length;
+		short first_end;
+		short second_start;
+
+		/* halfway across the space between the parts */
+		while (trimmed > 0 && prompt[trimmed - 1] == L' ')
+			trimmed--;
+		first_end = postgame_prompt_measure(bounds, prompt, trimmed);
+		second_start = postgame_prompt_measure(bounds, prompt, length);
+		postgame_prompt.split = (short)((first_end + second_start) / 2);
+	}
+}
+
+boolean game_engine_postgame_prompt(
+	short *top,
+	short *bottom,
+	short *left,
+	short *right,
+	short *split)
+{
+	if (!game_engine_showing_postgame() || !postgame_prompt.drawn)
+		return FALSE;
+	*top = postgame_prompt.top;
+	*bottom = postgame_prompt.bottom;
+	*left = postgame_prompt.left;
+	*right = postgame_prompt.right;
+	*split = postgame_prompt.split;
+
+	return TRUE;
+}
+
+void game_engine_postgame_prompt_press(
+	short part)
+{
+	if (part >= 0 && part < (short)NUMBEROF(postgame_prompt.part_buttons) && game_engine_showing_postgame())
+		postgame_prompt.pressed_button = postgame_prompt.part_buttons[part];
+}
+
 static void postgame_draw_prompt(
 	rectangle2d const *bounds,
 	wchar_t const *prompt,
@@ -2556,6 +2673,7 @@ static void postgame_draw_prompt(
 	drawn = *bounds;
 	if (draw_string_and_hack_in_icons_end_x > POSTGAME_PROMPT_RIGHT)
 		drawn.x0 = (short)MAX(0, drawn.x0 - (draw_string_and_hack_in_icons_end_x - POSTGAME_PROMPT_RIGHT));
+	postgame_prompt_note(&drawn, prompt, (short)MIN(draw_string_and_hack_in_icons_end_x, POSTGAME_PROMPT_RIGHT));
 	draw_string_set_color(color);
 	draw_string_and_hack_in_icons(&drawn, NULL, NULL, 0, prompt, FALSE);
 }
@@ -2934,6 +3052,11 @@ long game_engine_remap_equipment(
 		weapon_list_index == _weapon_list_plasma_grenade;
 	if (!remap_equipment)
 	{
+#ifdef HALO_GAME_BROWSER
+		/* port: a melee-only Bomb game has no powerups */
+		if (equipment && game_engine_bomb_melee_only())
+			return NONE;
+#endif
 		if (equipment)
 		{
 			if (equipment->equipment.powerup_type == _equipment_powerup_overshield)
@@ -2965,11 +3088,12 @@ long game_engine_remap_equipment(
 			break;
 		}
 
-		/* (port: whatever the number of players, as
-		game_engine_infinite_grenades_internal) */
-		if (game_engine_infinite_grenades_internal())
+		if (!TEST_FLAG(game_engine_globals.flags, _game_engine_5_or_more_players_bit))
 		{
-			weapon_list_index = NONE;
+			if (game_engine_infinite_grenades_internal())
+			{
+				weapon_list_index = NONE;
+			}
 		}
 
 		if (TEST_FLAG(game_engine_globals.flags, _game_engine_9_or_more_players_bit))
@@ -3456,6 +3580,12 @@ boolean match_game_type(
 	boolean result;
 	long index;
 
+#ifdef HALO_GAME_BROWSER
+	/* port: Bomb plays on a map as CTF does: the starting locations and
+	equipment marked for CTF are Bomb's too (docs/bomb.md) */
+	if (game_type == game_engine_bomb)
+		game_type = game_engine_ctf;
+#endif
 	if (game_engine)
 	{
 		result = FALSE;
@@ -3491,9 +3621,13 @@ boolean match_game_type(
 static boolean game_engine_infinite_grenades_internal(
 	void)
 {
-	/* port: whatever the number of players (the Xbox game's had none with
-	five or more) */
-	return TEST_FLAG(global_variant.universal_variant.flags, _game_variant_infinite_grenades_bit);
+	boolean infinite_grenades = FALSE;
+
+	/* (none with five or more players, as on the Xbox) */
+	if (!TEST_FLAG(game_engine_globals.flags, _game_engine_5_or_more_players_bit))
+		infinite_grenades = TEST_FLAG(global_variant.universal_variant.flags, _game_variant_infinite_grenades_bit);
+
+	return infinite_grenades;
 }
 
 static boolean find_closest_player_callback(
@@ -3840,6 +3974,11 @@ static void game_engine_post_rasterize_in_game(
 	if (game_engine && player)
 		internal_rasterize_target_name(player_index);
 	game_engine_rasterize_time_left();
+#ifdef HALO_GAME_BROWSER
+	/* port: a Bomb game type's HUD (game_engine_bomb.c) */
+	if (game_engine && player)
+		game_engine_bomb_rasterize(player_index);
+#endif
 
 	gamepad = input_get_gamepad_state(local_player_index);
 	fade = game_engine_globals.hud_message_timers[local_player_index];
@@ -3979,6 +4118,15 @@ boolean game_engine_showing_postgame(
 	return game_engine != NULL && game_engine_globals.postgame_state == game_engine_mode_postgame_rasterize;
 }
 
+/* port: where the game is past its end (0 playing, 1 the delay before the
+scores, 2 and 3 the scores coming up and shown), for the server's Custom
+Edition players (server/src/server_ce.c) */
+long game_engine_postgame_mode(
+	void)
+{
+	return game_engine != NULL ? game_engine_globals.postgame_state : game_engine_mode_active;
+}
+
 void game_variant_options_default(
 	struct game_variant const *variant,
 	struct game_variant_options *options)
@@ -3993,6 +4141,18 @@ void game_variant_options_default(
 		_radar_players_none : _radar_players_all;
 	options->vehicle_set[0] = options->vehicle_set[1] =
 		variant ? (byte)variant->universal_variant.vehicle_set : 0;
+#ifdef HALO_GAME_BROWSER
+	/* port: a melee-only Bomb game type: no weapons to start with, none on
+	the map (game_engine_bomb.c gives the map's sword, if it has one) */
+	if (variant && variant->game_engine_index == game_engine_bomb &&
+		TEST_FLAG(variant->game_engine_variant.bomb.flags, _bomb_melee_only_bit))
+	{
+		options->loadout = _loadout_custom;
+		options->primary_weapon = _loadout_weapon_none;
+		options->secondary_weapon = _loadout_weapon_none;
+		options->no_map_weapons = TRUE;
+	}
+#endif
 
 	return;
 }
@@ -4438,8 +4598,14 @@ netcode). Vehicles otherwise stay where they are left (the Xbox game's). */
 enum
 {
 	/* (a map places up to 80 vehicles, a Halo PC map more: those past this
-	never came back; 48 bytes each, outside the game state) */
+	never came back; 52 bytes each, outside the game state. A console that
+	plays only the Xbox's maps keeps 256: the most a retail or Halo CE+ map
+	places is b40's 74) */
+#ifdef HALO_CONSOLE_XBOX_MAP_SIZES
+	MAXIMUM_VEHICLE_HOMES = 256
+#else
 	MAXIMUM_VEHICLE_HOMES = 1024
+#endif
 };
 
 static struct
@@ -4849,6 +5015,21 @@ void game_engine_player_killed(
 	if (killing_player_index != NONE && !player_try_and_get(killing_player_index))
 		killing_player_index = NONE;
 #ifdef HALO_GAME_BROWSER
+	/* port: a Bomb goal's blast taking the scoring team's own, which counts
+	nothing: no message, no statistics, no penalty; back as the countdown
+	starts (game_engine_bomb.c) */
+	if (game_engine_bomb_silent_death(killing_player_index, dead_player_index, friendly_fire))
+	{
+		dead_player->death_time = game_time_get();
+		dead_player->respawn_timer = game_engine_bomb_silent_respawn_ticks();
+		/* (a team change waiting for the death: the player respawns on the
+		new team, team_change.c) */
+		if (!network_game_distributed_client())
+			team_change_player_died(dead_player_index);
+		return;
+	}
+#endif
+#ifdef HALO_PORT_GAME_REPORTS
 	/* the game list's statistics recorder (port/linux/game/game_stats.c):
 	who killed whom, as this machine's game has it; it changes nothing */
 	if (!team_change)
@@ -4903,7 +5084,11 @@ void game_engine_player_killed(
 		}
 	}
 
-	if (!player_kill && !team_change)
+	/* port: a betrayed player respawns on the normal timer: the suicide
+	penalty is for suicides and deaths nobody caused. The betrayer takes it
+	instead, on their next respawn (below). The Xbox gave it to the betrayed
+	player too (owner's call, 2026-11-03: someone killed them) */
+	if (!player_kill && !team_change && !(friendly_fire && valid_players && !same_player))
 		dead_player->respawn_timer += global_variant.universal_variant.suicide_penalty;
 
 	/* port: a team change waiting for the death (team_change.c): the player
@@ -4943,8 +5128,9 @@ void game_engine_player_killed(
 		}
 	}
 
-	/* port: the gametype's friendly fire penalty: the team killer's next
-	respawn later (the dead's own, if he has one waiting) */
+	/* port: the betrayer's penalty: the gametype's suicide penalty plus its
+	friendly fire penalty, on the team killer's next respawn (the dead's own,
+	if he has one waiting) */
 	{
 		long dead_absolute = DATUM_INDEX_TO_ABSOLUTE_INDEX(dead_player_index);
 
@@ -4956,8 +5142,11 @@ void game_engine_player_killed(
 		if (friendly_fire && valid_players && !same_player && global_variant.universal_variant.teams &&
 			DATUM_INDEX_TO_ABSOLUTE_INDEX(killing_player_index) < HALO_PORT_MAXIMUM_NETWORK_PLAYERS)
 		{
+			long penalty = global_variant.universal_variant.suicide_penalty +
+				(long)(game_variant_options_get()->friendly_fire_penalty * TICKS_PER_SECOND);
+
 			game_engine_betrayal_penalty[DATUM_INDEX_TO_ABSOLUTE_INDEX(killing_player_index)] =
-				(short)(game_variant_options_get()->friendly_fire_penalty * TICKS_PER_SECOND);
+				(short)MIN(penalty, 32767);
 		}
 	}
 
@@ -5084,6 +5273,9 @@ void game_engine_update_non_deterministic(
 		{
 		case game_engine_mode_postgame_rasterize_delay:
 			rumble_clear_all_now();
+			/* port: nothing of the last game's prompt (postgame_prompt) */
+			postgame_prompt.drawn = FALSE;
+			postgame_prompt.pressed_button = NONE;
 			game_engine_globals.postgame_timer -= delta_seconds;
 			if (game_engine_globals.postgame_timer <= 0.0f)
 				game_engine_globals.postgame_state = game_engine_mode_postgame_rasterize;
@@ -5095,16 +5287,21 @@ void game_engine_update_non_deterministic(
 			if (game_engine_globals.postgame_progress > 1.0f)
 				game_engine_globals.postgame_progress = 1.0f;
 
-			if (test_any_gamepad_button(0) || test_any_gamepad_button(12))
+			/* port: or a click or tap on the prompt's part
+			(postgame_prompt) */
+			if (test_any_gamepad_button(0) || test_any_gamepad_button(12) ||
+				postgame_prompt.pressed_button == 0)
 			{
 				if (global_network_game_server_get())
 				network_game_server_reset_to_pregame(
 					global_network_game_server_get());
 			}
-			else if (test_any_gamepad_button(1) || test_any_gamepad_button(13))
+			else if (test_any_gamepad_button(1) || test_any_gamepad_button(13) ||
+				postgame_prompt.pressed_button == 1)
 			{
 				network_game_abort();
 			}
+			postgame_prompt.pressed_button = NONE;
 			break;
 		}
 	}
@@ -5152,6 +5349,11 @@ boolean game_engine_has_shield(
 
 	if (game_engine && player_index!=NONE)
 		has_shield = !TEST_FLAG(global_variant.universal_variant.flags, _game_variant_no_shields_bit);
+#ifdef HALO_GAME_BROWSER
+	/* port: a Bomb game type's player traits (its carrier's overshield) */
+	if (game_engine && player_index != NONE && game_engine_traits_shields(player_index) != NONE)
+		has_shield = (boolean)game_engine_traits_shields(player_index);
+#endif
 
 	return has_shield;
 }
@@ -5465,6 +5667,30 @@ void game_engine_clear_goal_position(
 	return;
 }
 
+/* port: a flag or ball deleted on a client of the distributed netcode, on
+the host's word (port/linux/game/network_objects.c): the goals its game
+type's objective_weapon_update set at it each tick, which nothing else
+clears (ctf: its team's, and its carrier's goal; oddball: its team's) */
+void game_engine_objective_weapon_deleted(
+	long weapon_index)
+{
+	short team_index = weapon_get(weapon_index)->object.owner_team_index;
+
+	if (!game_engine || team_index == NONE)
+		return;
+	if (global_variant.game_engine_index == game_engine_ctf)
+	{
+		game_engine_clear_goal_position(team_index);
+		game_engine_clear_goal_position(team_index + 2);
+	}
+	else if (global_variant.game_engine_index == game_engine_oddball)
+	{
+		game_engine_clear_goal_position(team_index);
+	}
+
+	return;
+}
+
 long get_flag_definition_index(
 	void)
 {
@@ -5547,7 +5773,7 @@ void game_engine_load_stage(
 	return;
 }
 
-#ifdef HALO_GAME_BROWSER
+#ifdef HALO_PORT_GAME_REPORTS
 /* the lines of a carnage report: the players in the postgame's order, as
 this machine's game has them (the host's own, or a client's copy of the
 host's statistics and scores, network_distributed.c), each with what the
@@ -5559,9 +5785,18 @@ long game_engine_report_lines(
 	long maximum)
 {
 	static struct statistic_buffer ranking[MULTIPLAYER_MAXIMUM_PLAYERS];
-	static char extras[MULTIPLAYER_MAXIMUM_PLAYERS][BROWSER_REPORT_EXTRA_SIZE];
+	/* (the recorder's parts of the lines that go in full: every player's
+	on a host; on a console, whose report is a client's, its own players'
+	alone, game_stats_line_full, so it keeps room for those) */
+#if defined(HALO_GAME_BROWSER)
+	enum { MAXIMUM_EXTRA_LINES = MULTIPLAYER_MAXIMUM_PLAYERS };
+#else
+	enum { MAXIMUM_EXTRA_LINES = MAXIMUM_LOCAL_PLAYERS };
+#endif
+	static char extras[MAXIMUM_EXTRA_LINES][BROWSER_REPORT_EXTRA_SIZE];
 	struct network_game_server *server = global_network_game_server_get();
 	long count = populate_statistic_buffer(ranking, _postgame_statistic_ranking, FALSE);
+	long extra_lines = 0;
 	long index;
 
 	if (count > maximum)
@@ -5590,6 +5825,9 @@ long game_engine_report_lines(
 		line->shots_hit = player->statistics.shots_hit;
 		line->color = player->network_player_data.primary_color_index;
 		line->minimal = !game_stats_line_full(ranking[index].player_index, server != NULL);
+#ifdef HALO_GAME_BROWSER
+		/* (the host's own report alone: its lines' tags, browser.c; the
+		address is never sent) */
 		if (server)
 		{
 			unsigned long network_game_server_machine_ipv4_address(struct network_game_server *server,
@@ -5598,6 +5836,7 @@ long game_engine_report_lines(
 			line->address = network_game_server_machine_ipv4_address(server,
 				player->network_player_data.machine_index);
 		}
+#endif
 		/* (the game type's statistics: the union's member for this game) */
 		switch (global_variant.game_engine_index)
 		{
@@ -5617,20 +5856,38 @@ long game_engine_report_lines(
 			line->laps = player->statistics.multiplayer_statistics.race_statistics.laps;
 			break;
 		}
+		/* (only a full line's go: game_report.c) */
+		if (!line->minimal && extra_lines < MAXIMUM_EXTRA_LINES)
 		{
+			char *extra = extras[extra_lines++];
 			short multikills = line->multikills;
 
-			extras[index][0] = 0;
-			if (!line->minimal)
-				game_stats_player_extra(ranking[index].player_index, extras[index], BROWSER_REPORT_EXTRA_SIZE,
-					&multikills);
+			extra[0] = 0;
+			game_stats_player_extra(ranking[index].player_index, extra, BROWSER_REPORT_EXTRA_SIZE, &multikills);
 			line->multikills = multikills;
-			line->extra = extras[index];
+#ifdef HALO_GAME_BROWSER
+			/* (a Bomb game's own members: docs/bomb.md, Reports; Bomb is the
+			desktop builds') */
+			{
+				char bomb[192];
+				size_t used = strlen(extra);
+
+				if (game_engine_bomb_report_player(ranking[index].player_index, bomb, sizeof(bomb)) &&
+					used + strlen(bomb) + 3 < BROWSER_REPORT_EXTRA_SIZE)
+				{
+					snprintf(extra + used, BROWSER_REPORT_EXTRA_SIZE - used, "%s%s", used ? ", " : "", bomb);
+				}
+			}
+#endif
+			line->extra = extra;
 		}
 	}
 	return count;
 }
 
+#endif
+
+#ifdef HALO_GAME_BROWSER
 /* the carnage report of a game this machine hosts, as it ends, for the game
 list (port/linux/src/browser.c, which sends it if the game is listed). A
 game that is quit or crashes never gets here, so it is never reported. */
@@ -5854,6 +6111,11 @@ boolean game_engine_force_autopickup(
 
 	if (game_engine && global_variant.game_engine_index==game_engine_ctf && weapon_is_flag(weapon_index))
 		force_autopickup = TRUE;
+#ifdef HALO_GAME_BROWSER
+	/* port: Bomb's bomb, picked up as a flag is (running over it) */
+	if (game_engine && global_variant.game_engine_index == game_engine_bomb && weapon_is_flag(weapon_index))
+		force_autopickup = TRUE;
+#endif
 
 	return force_autopickup;
 }
@@ -6553,6 +6815,93 @@ struct game_variant *build_game_variant_team_king(
 	return variant;
 }
 
+#ifdef HALO_GAME_BROWSER
+/* port: Bomb (game_engine_bomb.c): CTF's settings, with the bomb */
+struct game_variant *build_game_variant_bomb(
+	struct game_variant *variant)
+{
+	struct game_variant result = { 0 };
+
+	ustrncpy(result.human_readable_game_description, L"Bomb", NUMBEROF(result.human_readable_game_description) - 1);
+	result.game_engine_index = game_engine_bomb;
+	SET_FLAG(result.universal_variant.flags, _game_variant_draw_object_in_motion_sensor_bit, TRUE);
+	SET_FLAG(result.universal_variant.flags, _game_variant_allow_friendly_navpoints_bit, TRUE);
+	result.universal_variant.goal_radar = _radar_nav_point;
+	result.universal_variant.teams = TRUE;
+	result.flags = 1;
+	result.universal_variant.health = 1.0f;
+	result.universal_variant.respawn_time = 150;
+	result.universal_variant.suicide_penalty = 150;
+	result.universal_variant.score_to_win = 3;
+	result.universal_variant.weapon_set = _game_engine_weapons_normal;
+	result.universal_variant.vehicle_set = _game_engine_vehicles_none;
+	result.game_engine_variant.bomb.arm_time = 3;
+	result.game_engine_variant.bomb.reset_time = 30;
+	result.game_engine_variant.bomb.round_time = 0;
+	result.game_engine_variant.bomb.flags = FLAG(_bomb_new_round_on_score_bit);
+	result.game_engine_variant.bomb.traits = _bomb_traits_none;
+
+	*variant = result;
+
+	return variant;
+}
+
+/* port: Grifball, Bomb as the official rules have it, in Halo CE: one hit
+kills (its traits: game_engine_traits_default), melee only, no shields,
+rounds of three minutes that a goal ends, first to three rounds; respawns
+in 3 seconds at your own goal; friendly fire and the motion tracker on
+(game_variant_options_default) */
+struct game_variant *build_game_variant_grifball(
+	struct game_variant *variant)
+{
+	struct game_variant result = { 0 };
+
+	ustrncpy(result.human_readable_game_description, L"Grifball",
+		NUMBEROF(result.human_readable_game_description) - 1);
+	result.game_engine_index = game_engine_bomb;
+	SET_FLAG(result.universal_variant.flags, _game_variant_draw_object_in_motion_sensor_bit, TRUE);
+	SET_FLAG(result.universal_variant.flags, _game_variant_allow_friendly_navpoints_bit, TRUE);
+	SET_FLAG(result.universal_variant.flags, _game_variant_no_shields_bit, TRUE);
+	result.universal_variant.goal_radar = _radar_nav_point;
+	result.universal_variant.teams = TRUE;
+	result.flags = 1;
+	result.universal_variant.health = 1.0f;
+	result.universal_variant.respawn_time = 3 * TICKS_PER_SECOND;
+	result.universal_variant.suicide_penalty = 0;
+	result.universal_variant.score_to_win = 3;
+	result.universal_variant.weapon_set = _game_engine_weapons_no_grenades;
+	result.universal_variant.vehicle_set = _game_engine_vehicles_none;
+	result.game_engine_variant.bomb.arm_time = 0;
+	result.game_engine_variant.bomb.reset_time = 30;
+	result.game_engine_variant.bomb.round_time = 180;
+	result.game_engine_variant.bomb.flags = FLAG(_bomb_new_round_on_score_bit) | FLAG(_bomb_melee_only_bit);
+	result.game_engine_variant.bomb.traits = _bomb_traits_grifball;
+
+	*variant = result;
+
+	return variant;
+}
+
+/* port: Open Pitch, Grifball for a big map (Blood Gulch): everyone 175%
+fast and the carrier 200%, rounds of five minutes */
+struct game_variant *build_game_variant_grifball_open_pitch(
+	struct game_variant *variant)
+{
+	struct game_variant result;
+
+	build_game_variant_grifball(&result);
+	csmemset(result.human_readable_game_description, 0, sizeof(result.human_readable_game_description));
+	ustrncpy(result.human_readable_game_description, L"Open Pitch",
+		NUMBEROF(result.human_readable_game_description) - 1);
+	result.game_engine_variant.bomb.round_time = 300;
+	result.game_engine_variant.bomb.traits = _bomb_traits_open_pitch;
+
+	*variant = result;
+
+	return variant;
+}
+#endif
+
 struct game_variant *build_game_variant_slayer_pro(
 	struct game_variant *variant)
 {
@@ -7084,6 +7433,14 @@ struct game_variant *game_engine_get_variant_by_name(
 		result = *build_game_variant_king(&temporary);
 	else if (csstrcmp(name, "team_king") == 0)
 		result = *build_game_variant_team_king(&temporary);
+#ifdef HALO_GAME_BROWSER
+	else if (csstrcmp(name, "bomb") == 0)
+		result = *build_game_variant_bomb(&temporary);
+	else if (csstrcmp(name, "grifball") == 0)
+		result = *build_game_variant_grifball(&temporary);
+	else if (csstrcmp(name, "grifball_open_pitch") == 0)
+		result = *build_game_variant_grifball_open_pitch(&temporary);
+#endif
 
 	*variant = result;
 
@@ -7217,7 +7574,13 @@ void game_engine_variant_cleanup(
 	struct game_variant original = *variant;
 
 	variant->human_readable_game_description[NUMBEROF(variant->human_readable_game_description) - 1] = 0;
+#ifdef HALO_GAME_BROWSER
+	/* port: and Bomb (game_engine_bomb.c), which only the builds with Delta
+	Peer have */
+	variant->game_engine_index = PIN(variant->game_engine_index, 1, game_engine_bomb);
+#else
 	variant->game_engine_index = PIN(variant->game_engine_index, 1, 5);
+#endif
 	variant->universal_variant.teams = !!variant->universal_variant.teams;
 	variant->universal_variant.odd_man_out = !!variant->universal_variant.odd_man_out;
 	variant->universal_variant.respawn_time_growth = MAX(variant->universal_variant.respawn_time_growth, 0);
@@ -7253,6 +7616,20 @@ void game_engine_variant_cleanup(
 		variant->game_engine_variant.oddball.ball_spawn_count =
 			PIN(variant->game_engine_variant.oddball.ball_spawn_count, 0, MAXIMUM_ODDBALLS);
 		break;
+
+#ifdef HALO_GAME_BROWSER
+	case game_engine_bomb:
+		/* (a team game: its goals are the teams') */
+		variant->universal_variant.teams = TRUE;
+		variant->game_engine_variant.bomb.arm_time = PIN(variant->game_engine_variant.bomb.arm_time, 0, 60);
+		variant->game_engine_variant.bomb.reset_time = PIN(variant->game_engine_variant.bomb.reset_time, 0, 600);
+		variant->game_engine_variant.bomb.round_time = PIN(variant->game_engine_variant.bomb.round_time, 0, 3600);
+		variant->game_engine_variant.bomb.flags &= FLAG(_bomb_new_round_on_score_bit) | FLAG(_bomb_melee_only_bit);
+		if (variant->game_engine_variant.bomb.traits >= NUMBER_OF_BOMB_TRAITS)
+			variant->game_engine_variant.bomb.traits = _bomb_traits_none;
+		csmemset(variant->game_engine_variant.bomb.pad, 0, sizeof(variant->game_engine_variant.bomb.pad));
+		break;
+#endif
 	}
 
 	if (csmemcmp(&original, variant, sizeof(original)) != 0)
@@ -7330,6 +7707,11 @@ static void game_engine_predict_resources(
 
 	if (global_variant.game_engine_index == game_engine_oddball)
 		object_definition_predict(list_index_to_weapon_definition_index(_weapon_list_ball));
+#ifdef HALO_GAME_BROWSER
+	/* port: Bomb's bomb is the ball */
+	if (global_variant.game_engine_index == game_engine_bomb)
+		object_definition_predict(list_index_to_weapon_definition_index(_weapon_list_ball));
+#endif
 
 	if (global_variant.game_engine_index == game_engine_ctf)
 		object_definition_predict(list_index_to_weapon_definition_index(_weapon_list_flag));
@@ -7710,15 +8092,23 @@ short game_engine_friendly_damage(
 
 	/* port: network co-op's friendly fire is Server Setup's FRIENDLY FIRE,
 	in the host's game settings (only the host deals damage), between its
-	players: their AI allies they always hurt, as in the campaign */
+	players. Their AI allies they hurt, as in the campaign, unless the
+	host's settings say the players' hits spare them (OpenCE's version 33:
+	ALLY FRIENDLY FIRE OFF); the AI's own hits on its allies are the game's */
 	if (network_coop_active())
 	{
 		struct network_game *game = network_game_get_game();
 		struct unit_datum *unit = (struct unit_datum *)object_try_and_get_and_verify_type(object_index,
 			_object_mask_unit);
 
-		if (!game || !unit || unit->unit.player_index == NONE)
+		if (!game || !unit)
 			return _friendly_damage_all;
+		if (unit->unit.player_index == NONE)
+		{
+			return attacker_player_index != NONE &&
+				TEST_FLAG(game->cooperative_flags, _network_game_cooperative_no_ally_damage_bit) ?
+				_friendly_damage_none : _friendly_damage_all;
+		}
 		friendly_fire = game->variant_options.friendly_fire;
 	}
 	else if (!game_engine || !global_variant.universal_variant.teams)
@@ -7761,6 +8151,10 @@ real game_engine_get_damage_multiplier(
 			result *= 0.5f;
 		}
 	}
+#ifdef HALO_GAME_BROWSER
+	/* port: a Bomb game type's player traits (game_engine_bomb.c) */
+	result *= game_engine_traits_damage_multiplier(damaging_player_index, damaged_player_index);
+#endif
 
 	return result;
 }
@@ -7845,8 +8239,12 @@ long game_engine_remap_weapon(
 	}
 
 	/* (port: and the gravity rifle, a cut weapon, as the flamethrower,
-	which the Xbox's maps have unfinished: neither is a multiplayer weapon) */
-	if (weapon_list_index == _weapon_list_flamethrower || weapon_list_index == _weapon_list_gravity_rifle)
+	which the Xbox's maps have unfinished: neither is a multiplayer weapon.
+	The Xbox's maps only: on a Halo PC map the flamethrower is one, and HaloMD
+	maps put weapons of their own in those slots, such as Halo 2's battle
+	rifle) */
+	if (!CACHE_FILE_TAGS_ARE_CE() &&
+		(weapon_list_index == _weapon_list_flamethrower || weapon_list_index == _weapon_list_gravity_rifle))
 		weapon_list_index = _weapon_list_rocket_launcher;
 
 	/* port: a custom loadout (game_variant_options) has no weapon set */
@@ -8122,11 +8520,15 @@ static void game_engine_update_weapons(
 					? definition->item.scale
 					: 1.f;
 
+			/* port: a Custom Edition map's item may have any scale, which
+			Halo PC's engine drew it at (grifball's gravity hammer has
+			0.001, so it all but vanishes on the ground) */
 			match_assert(
 				"c:\\halo\\SOURCE\\game\\game_engine.c",
 				0x83E,
-				(item->object.scale >= 0.5f) &&
-					(item->object.scale <= 3.f));
+				CACHE_FILE_TAGS_ARE_CE() ||
+					((item->object.scale >= 0.5f) &&
+					(item->object.scale <= 3.f)));
 		}
 
 		/*
@@ -8387,6 +8789,17 @@ static void internal_rasterize_target_name(
 		player->player_display_count++;
 	}
 		}
+	}
+
+	/* port: the name stays on screen for a few ticks after the player
+	under the crosshair is gone, and in that time they can leave the game:
+	their index then names no player, and reading their name crashed (crash
+	reports from 0.8.0b to 0.8.0h, all platforms). The name is dropped. */
+	if (player->player_display_index != NONE &&
+		!player_try_and_get(player->player_display_index))
+	{
+		player->player_display_index = NONE;
+		player->player_display_count = 0;
 	}
 
 	if (player->player_display_index != NONE)
@@ -9174,10 +9587,27 @@ void game_engine_postspawn_player_update(
 			fragmentation_grenade_count;
 		long starting_plasma_grenade_count = 0;
 
+#ifdef HALO_CUSTOM_EDITION
+		/* port: Halo PC spawns a player with each grenade's multiplayer
+		spawn default from the globals (mp_spawn_default: 2 fragmentation
+		and 0 plasma grenades in its maps), at most the counts above, where
+		the Xbox gives every fragmentation grenade a player can carry. A
+		Custom Edition map plays as Halo PC's */
+		if (cache_file_tags_are_ce())
+		{
+			starting_fragmentation_grenade_count = fragmentation_grenade->mp_spawn_default;
+			starting_plasma_grenade_count = plasma_grenade->mp_spawn_default;
+		}
+#endif
+
 		/* port: a custom loadout's weapons (game_variant_options) */
 		if (game_variant_options_get()->loadout == _loadout_custom)
 		{
 			game_engine_give_loadout(unit_index);
+#ifdef HALO_GAME_BROWSER
+			/* port: a melee-only Bomb game's sword, if the map has one */
+			game_engine_bomb_give_sword(unit_index);
+#endif
 		}
 		else if (!TEST_FLAG(global_variant.universal_variant.flags, _game_variant_generic_starting_equipment_bit))
 		{
@@ -9368,6 +9798,14 @@ boolean game_engine_should_spawn_player(
 		{
 			should_spawn = FALSE;
 		}
+#ifdef HALO_GAME_BROWSER
+		/* port: none during a Bomb goal's blast (game_engine_bomb.c): the
+		dead come back as its countdown starts, at their own end */
+		else if (game_engine_bomb_holds_spawns())
+		{
+			should_spawn = FALSE;
+		}
+#endif
 		else if (player->statistics.deaths == 0)
 		{
 			should_spawn = TRUE;
@@ -9583,6 +10021,10 @@ long game_engine_king_write_network_state(byte *buffer, long size);
 boolean game_engine_king_read_network_state(byte const *buffer, long size, boolean first);
 long game_engine_race_write_network_state(byte *buffer, long size);
 boolean game_engine_race_read_network_state(byte const *buffer, long size, boolean first);
+#ifdef HALO_GAME_BROWSER
+long game_engine_bomb_write_network_state(byte *buffer, long size);
+boolean game_engine_bomb_read_network_state(byte const *buffer, long size, boolean first);
+#endif
 
 /* the distributed netcode (port/linux/game/network_damage.c): a player's
 score as the game type has it (with its killing blows' messages), 0 for
@@ -9619,10 +10061,105 @@ long game_engine_write_network_state(
 	case game_engine_oddball: written = game_engine_oddball_write_network_state(buffer, size); break;
 	case game_engine_king: written = game_engine_king_write_network_state(buffer, size); break;
 	case game_engine_race: written = game_engine_race_write_network_state(buffer, size); break;
+#ifdef HALO_GAME_BROWSER
+	case game_engine_bomb: written = game_engine_bomb_write_network_state(buffer, size); break;
+#endif
 	default: written = 0; break;
 	}
 	return sizeof(postgame_state) + written;
 }
+
+#ifdef HALO_PORT_CONSOLE_LIMITS
+/* port: (game_engine.h) a PC host's state, at the network's 128 slots,
+into this build's */
+#define GAME_ENGINE_NETWORK_STATE_MAXIMUM_FIELDS 16
+
+static boolean game_engine_network_state_layout(
+	struct game_engine_network_state_field const *fields,
+	long field_count,
+	struct network_game_layout_field *layout)
+{
+	long field_index;
+
+	if (field_count <= 0 || field_count > GAME_ENGINE_NETWORK_STATE_MAXIMUM_FIELDS)
+		return FALSE;
+	for (field_index = 0; field_index < field_count; field_index++)
+	{
+		layout[field_index].element_size = fields[field_index].element_size;
+		layout[field_index].per_slot = fields[field_index].per_slot;
+		layout[field_index].blank = fields[field_index].blank;
+	}
+	return TRUE;
+}
+
+long game_engine_network_state_fold(
+	byte const *buffer,
+	long size,
+	void *state,
+	long state_size,
+	struct game_engine_network_state_field const *fields,
+	long field_count,
+	char const *name)
+{
+	struct network_game_layout_field layout[GAME_ENGINE_NETWORK_STATE_MAXIMUM_FIELDS];
+	int dropped;
+
+	if (!game_engine_network_state_layout(fields, field_count, layout) ||
+		size != (long)network_game_layout_fields_size(layout, (int)field_count, HALO_PORT_WIRE_NETWORK_PLAYERS))
+	{
+		return NONE;
+	}
+	if (state_size != (long)network_game_layout_fields_size(layout, (int)field_count, HALO_PORT_MAXIMUM_NETWORK_PLAYERS) ||
+		network_game_layout_fold_fields(buffer, (unsigned long)size, HALO_PORT_WIRE_NETWORK_PLAYERS,
+			(unsigned char *)state, (unsigned long)state_size, HALO_PORT_MAXIMUM_NETWORK_PLAYERS, layout,
+			(int)field_count, &dropped))
+	{
+		return FALSE;
+	}
+	if (dropped)
+	{
+		static long told_types = 0;
+		long type = game_engine_get_type();
+
+		if (type >= 0 && type < 32 && !(told_types & (1L << type)))
+		{
+			told_types |= 1L << type;
+			error(3, "cross-play: the host's %s state had %d entries past this build's %d players (dropped)",
+				name, dropped, (int)HALO_PORT_MAXIMUM_NETWORK_PLAYERS);
+		}
+	}
+	return TRUE;
+}
+
+#ifdef HALO_BIG_ENDIAN
+boolean game_engine_network_state_fields_byte_swap(
+	byte *buffer,
+	long size,
+	long state_size,
+	struct game_engine_network_state_field const *fields,
+	long field_count)
+{
+	struct network_game_layout_field layout[GAME_ENGINE_NETWORK_STATE_MAXIMUM_FIELDS];
+	long field_index;
+
+	if (size == state_size || !game_engine_network_state_layout(fields, field_count, layout) ||
+		size != (long)network_game_layout_fields_size(layout, (int)field_count, HALO_PORT_WIRE_NETWORK_PLAYERS))
+	{
+		return FALSE;
+	}
+	for (field_index = 0; field_index < field_count; field_index++)
+	{
+		struct game_engine_network_state_field const *field = &fields[field_index];
+		long bytes = (long)field->element_size * (field->per_slot ? HALO_PORT_WIRE_NETWORK_PLAYERS : 1);
+
+		if (field->swap_size > 1)
+			distributed_wire_swap(buffer, bytes / field->swap_size, field->swap_size);
+		buffer += bytes;
+	}
+	return TRUE;
+}
+#endif
+#endif
 
 /* a client: the host's */
 void game_engine_read_network_state(
@@ -9646,6 +10183,9 @@ void game_engine_read_network_state(
 	case game_engine_oddball: read = game_engine_oddball_read_network_state(buffer, size, first); break;
 	case game_engine_king: read = game_engine_king_read_network_state(buffer, size, first); break;
 	case game_engine_race: read = game_engine_race_read_network_state(buffer, size, first); break;
+#ifdef HALO_GAME_BROWSER
+	case game_engine_bomb: read = game_engine_bomb_read_network_state(buffer, size, first); break;
+#endif
 	default: read = TRUE; break;
 	}
 	/* (a state the game type refused is not had: the first it takes is,
@@ -9653,10 +10193,10 @@ void game_engine_read_network_state(
 	if (!read)
 	{
 #ifdef HALO_PORT_CONSOLE_LIMITS
-		/* port: the console's limits (halo_port_limits.h): slayer's and
-		ctf's states from a PC host are read; the others' are the PCs' 128
-		slots, which this build does not yet fold, so their scores stay this
-		machine's own (told once a game type) */
+		/* port: the console's limits (halo_port_limits.h): a PC host's
+		states are folded into this build's slots (game_engine_network_state_
+		fold); one of a size neither the PCs' nor this build's is not read,
+		so its scores stay this machine's own (told once a game type) */
 		static long told_types = 0;
 		long type = game_engine_get_type();
 
@@ -9675,3 +10215,30 @@ void game_engine_read_network_state(
 	if (postgame_state != 0 && game_engine_globals.postgame_state == 0)
 		game_engine_end_game();
 }
+
+#ifdef HALO_BIG_ENDIAN
+/* port: (port/linux/game/network_distributed.h) the state the host sends,
+between this machine's byte order and the wire's: whether the game is over,
+then the game type's */
+void game_engine_network_state_byte_swap(
+	byte *buffer,
+	long size)
+{
+	if (!game_engine || size < (long)sizeof(long))
+		return;
+	distributed_wire_swap(buffer, 1, sizeof(long));
+	buffer += sizeof(long);
+	size -= sizeof(long);
+	switch (game_engine_get_type())
+	{
+	case game_engine_ctf: game_engine_ctf_network_state_byte_swap(buffer, size); break;
+	case game_engine_slayer: game_engine_slayer_network_state_byte_swap(buffer, size); break;
+	case game_engine_oddball: game_engine_oddball_network_state_byte_swap(buffer, size); break;
+	case game_engine_king: game_engine_king_network_state_byte_swap(buffer, size); break;
+	case game_engine_race: game_engine_race_network_state_byte_swap(buffer, size); break;
+#ifdef HALO_GAME_BROWSER
+	case game_engine_bomb: game_engine_bomb_network_state_byte_swap(buffer, size); break;
+#endif
+	}
+}
+#endif

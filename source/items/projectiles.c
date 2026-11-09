@@ -750,6 +750,20 @@ boolean projectile_update(
 			326,
 			&projectile->object.translational_velocity);
 
+		/* port: an object that was deleted since the projectile was fired is no longer ignored or chased */
+		if (projectile->projectile.ignore_object_index != NONE &&
+			!object_try_and_get(projectile->projectile.ignore_object_index))
+		{
+			projectile->projectile.ignore_object_index = NONE;
+			ignore_object_index = NONE;
+		}
+
+		if (projectile->projectile.target_object_index != NONE &&
+			!unit_try_and_get(projectile->projectile.target_object_index))
+		{
+			projectile->projectile.target_object_index = NONE;
+		}
+
 		if (projectile->projectile.target_object_index != NONE &&
 			definition->projectile.guided_angular_velocity > 0.0f)
 		{
@@ -1875,6 +1889,14 @@ real projectile_estimate_time_to_target(
 		time_to_target = target_distance / definition->projectile.initial_velocity;
 
 	return time_to_target;
+}
+
+/* port: the projectile's "combine initial velocity with parent velocity"
+(Halo PC's: weapons.c, trigger_create_projectiles) */
+boolean projectile_definition_combines_parent_velocity(
+	struct projectile_definition const *definition)
+{
+	return TEST_FLAG(definition->projectile.flags, _projectile_combine_initial_velocity_with_parent_velocity_bit);
 }
 
 boolean projectile_aim_ballistic(

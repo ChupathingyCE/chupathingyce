@@ -814,3 +814,65 @@ int control_link_command_line(const char *command, const char *reason, char *lin
 	}
 	return 1;
 }
+
+/* ---------- sv_link_status */
+
+/* text as a JSON string, or null if it is empty or does not fit (out has
+size bytes) */
+static void json_string_or_null(const char *text, char *out, size_t size)
+{
+	if (!text || !text[0] || control_json_string(text, out, size) < 0)
+		snprintf(out, size, "null");
+}
+
+int control_link_status_json(const struct control_link_status *status, char *out, size_t size)
+{
+	char site[1600], server_id[6 * CONTROL_LINK_SERVER_ID_SIZE + 8], owner[6 * CONTROL_LINK_HANDLE_SIZE + 8],
+		code[6 * CONTROL_LINK_CODE_SIZE + 8], problem[1000];
+	int length;
+
+	json_string_or_null(status->site, site, sizeof(site));
+	json_string_or_null(status->server_id, server_id, sizeof(server_id));
+	json_string_or_null(status->owner, owner, sizeof(owner));
+	json_string_or_null(status->code, code, sizeof(code));
+	json_string_or_null(status->problem, problem, sizeof(problem));
+	length = snprintf(out, size, "{\"state\": \"%s\", \"enabled\": %s, \"site\": %s, \"server_id\": %s, "
+		"\"owner\": %s, \"code\": %s, \"heard_seconds_ago\": %lld, \"role_cap\": \"%s\", \"problem\": %s, "
+		"\"roles\": {\"state\": \"%s\", \"accounts\": %d, \"version\": %llu, \"expire_hours\": %d}}", status->state,
+		status->enabled ? "true" : "false", site, server_id, owner, code, status->heard_seconds_ago, status->role_cap,
+		problem, status->roles_state, status->role_accounts, status->roles_version, status->roles_hours);
+	return length < 0 || (size_t)length >= size ? -1 : length;
+}
+
+/* ---------- the site's address */
+
+int control_link_url_allowed(const char *url)
+{
+	static const char *const local_hosts[] = { "http://127.0.0.1", "http://localhost", "http://[::1]" };
+	size_t index;
+
+	if (!url)
+		return 0;
+	if (!strncmp(url, "https://", 8))
+		return url[8] && url[8] != '/' && url[8] != ':';
+	for (index = 0; index < sizeof(local_hosts) / sizeof(local_hosts[0]); index++)
+	{
+		size_t length = strlen(local_hosts[index]);
+		const char *rest = url + length;
+
+		if (strncmp(url, local_hosts[index], length))
+			continue;
+		/* (not http://127.0.0.1.example.org, nor http://localhost@elsewhere) */
+		if (*rest == ':')
+		{
+			const char *digits = ++rest;
+
+			while (*rest >= '0' && *rest <= '9')
+				rest++;
+			if (rest == digits || rest - digits > 5)
+				return 0;
+		}
+		return !*rest || *rest == '/';
+	}
+	return 0;
+}

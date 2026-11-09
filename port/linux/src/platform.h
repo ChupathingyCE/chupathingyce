@@ -42,6 +42,25 @@ void platform_unimplemented(const char *name);
 
 #define PLATFORM_UNIMPLEMENTED() platform_unimplemented(__func__)
 
+/* ---------- thread-local variables
+
+A console whose executables have no thread-local storage
+(HALO_CONSOLE_NO_THREAD_LOCAL, halo_console_features.h) keeps the platform
+layer's variables of each thread in a block its port gives each thread for
+each key (platform_thread_local: zeroed the first time; key is a static of
+the caller's, NULL until then). PLATFORM_THREAD_LOCAL_SLOT(type, name)
+declares name_slot(), the calling thread's variable. */
+
+#ifdef HALO_CONSOLE_NO_THREAD_LOCAL
+void *platform_thread_local(void **key, unsigned long size);
+#define PLATFORM_THREAD_LOCAL_SLOT(type, name) \
+	static void *name##_key; \
+	static type *name##_slot(void) \
+	{ \
+		return (type *)platform_thread_local(&name##_key, sizeof(type)); \
+	}
+#endif
+
 /* ---------- errors */
 
 /* translate errno into a Win32 error code and store it as GetLastError() */
@@ -101,9 +120,11 @@ against what exists on disk, as the Xbox file system is case-insensitive. */
 void platform_translate_path(const char *xbox_path, char *host_path, unsigned long host_path_size);
 const char *platform_data_root(void);
 /* on the desktop, when the data root has no maps folder: offers to copy it
-out of an Xbox disc image into destination (sdl_platform.c), and quits if
-the player declines; nonzero once destination has one */
-BOOL platform_offer_game_data(const char *destination);
+out of an Xbox disc image into destination (sdl_platform.c; the launcher's
+Welcome, launcher.c), and quits if the player declines; nonzero once
+destination has one. The player may point at a maps folder elsewhere:
+destination (size bytes) is then that folder's */
+BOOL platform_offer_game_data(char *destination, unsigned long size);
 /* what the data root's maps folder holds, which should be the Xbox maps
 (sdl_platform.c tells the player when it is not, rather than the game
 failing on Halo PC's ui.map) */
@@ -146,12 +167,19 @@ int platform_old_map_folders_move(void);
 /* the macOS application's folder for its data and settings, when the game
 runs as an application (ChupathingyCE.app): ~/Library/Application
 Support/ChupathingyCE, made if need be, into path; on Linux, when the game
-runs as an AppImage, the save root's usual place (HALO_SAVE_ROOT, else
-$XDG_DATA_HOME/chupathingyce or ~/.local/share/chupathingyce); 0 otherwise
+runs as an AppImage or a packaged install (or from a folder it cannot write
+that has no maps/ of its own; config.toml is placed the same way by its own
+presence, port_config.c), the save root's usual place
+(HALO_SAVE_ROOT, else $XDG_DATA_HOME/chupathingyce or
+~/.local/share/chupathingyce); 0 otherwise
 (and on other systems). An application's own files are not written: it is
 signed, and may be where its player cannot write, and an AppImage is
 mounted read-only (port_config.c) */
 int platform_app_folder(char *path, unsigned long size);
+/* whether the game is a packaged install, which a package manager updates:
+built as one, HALO_PACKAGED in the environment, or a file named "packaged"
+beside the executable (packaged_install.h); 0 on Android and the consoles */
+int platform_packaged(void);
 const char *platform_save_root(void);
 /* one of the game's own folders (port_folders.h: data/ and logs/ in the
 data root, cache/ and private/ in the save root, or paths.logs and
@@ -199,6 +227,11 @@ holds for it at its pinned address (port/switch/host/host_memory.c), the
 extra going to the texture cache (halo_port_capacity.h) */
 #define PLATFORM_CONTIGUOUS_MINIMUM 0x08000000UL
 #define PLATFORM_CONTIGUOUS_MAXIMUM 0x10000000UL
+#elif defined(HALO_CONSOLE_WINDOW_MAXIMUM)
+/* a console that puts the window where it finds room
+(halo_console_features.h): a development kit's 128 MB at least */
+#define PLATFORM_CONTIGUOUS_MINIMUM 0x08000000UL
+#define PLATFORM_CONTIGUOUS_MAXIMUM HALO_CONSOLE_WINDOW_MAXIMUM
 #else
 /* the Linux build's test of a moved window: the desktop's size, always */
 #define PLATFORM_CONTIGUOUS_MINIMUM 0x20000000UL

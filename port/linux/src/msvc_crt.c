@@ -302,11 +302,24 @@ static unsigned short msvc_to_control_word(unsigned int value, unsigned short wo
 	return word;
 }
 
-#if defined(HALO_ANDROID) || defined(__aarch64__)
+#if defined(HALO_ANDROID) || defined(__aarch64__) || defined(__arm__)
 /* AArch64: the rounding mode lives in FPCR.RMode, the sticky exception
 flags in FPSR. Precision control and exception unmasking have no
-equivalent; the rest of the MSVC control word is only remembered. */
+equivalent; the rest of the MSVC control word is only remembered. 32-bit
+ARM (VFP) has both in FPSCR, at the same bits */
 static unsigned int msvc_control_word = CW_DEFAULT;
+
+#if defined(__arm__)
+#define ARM_FP_CONTROL_READ() ((unsigned long long)__builtin_arm_get_fpscr())
+#define ARM_FP_CONTROL_WRITE(value) __builtin_arm_set_fpscr((unsigned int)(value))
+#define ARM_FP_STATUS_READ() ARM_FP_CONTROL_READ()
+#define ARM_FP_STATUS_WRITE(value) ARM_FP_CONTROL_WRITE(value)
+#else
+#define ARM_FP_CONTROL_READ() __builtin_arm_rsr64("fpcr")
+#define ARM_FP_CONTROL_WRITE(value) __builtin_arm_wsr64("fpcr", (value))
+#define ARM_FP_STATUS_READ() __builtin_arm_rsr64("fpsr")
+#define ARM_FP_STATUS_WRITE(value) __builtin_arm_wsr64("fpsr", (value))
+#endif
 
 unsigned int _control87(unsigned int new_value, unsigned int mask)
 {
@@ -315,7 +328,7 @@ unsigned int _control87(unsigned int new_value, unsigned int mask)
 	if (mask)
 	{
 		msvc_control_word = (msvc_control_word & ~mask) | (new_value & mask);
-		fpcr = __builtin_arm_rsr64("fpcr");
+		fpcr = ARM_FP_CONTROL_READ();
 		fpcr &= ~(3ULL << 22);
 		switch (msvc_control_word & _MCW_RC)
 		{
@@ -324,7 +337,7 @@ unsigned int _control87(unsigned int new_value, unsigned int mask)
 		case _RC_CHOP: fpcr |= 3ULL << 22; break;
 		default: break;
 		}
-		__builtin_arm_wsr64("fpcr", fpcr);
+		ARM_FP_CONTROL_WRITE(fpcr);
 	}
 	return msvc_control_word;
 }
@@ -337,7 +350,7 @@ unsigned int _controlfp(unsigned int new_value, unsigned int mask)
 
 unsigned int _statusfp(void)
 {
-	unsigned long long fpsr = __builtin_arm_rsr64("fpsr");
+	unsigned long long fpsr = ARM_FP_STATUS_READ();
 	unsigned int result = 0;
 
 	/* as the x87 status word's low bits: invalid, denormal, zero divide,
@@ -355,7 +368,89 @@ unsigned int _clearfp(void)
 {
 	unsigned int status = _statusfp();
 
-	__builtin_arm_wsr64("fpsr", __builtin_arm_rsr64("fpsr") & ~0x9fULL);
+	ARM_FP_STATUS_WRITE(ARM_FP_STATUS_READ() & ~0x9fULL);
+	return status;
+}
+
+#if defined(__arm__)
+/* MSVC's compiler barrier (scenario.c), a builtin of clang's on x86 but not
+on 32-bit ARM: a call is a barrier already */
+void _ReadWriteBarrier(void)
+{
+	__asm__ volatile ("" ::: "memory");
+}
+#endif
+#elif defined(__PPC__)
+/* PowerPC (the Wii U): the rounding mode is the FPSCR's RN field, the sticky
+exception flags its OX, UX, ZX, XX and VX* bits. As on AArch64, precision
+control and exception unmasking have no equivalent; the rest of the MSVC
+control word is only remembered. */
+static unsigned int msvc_control_word = CW_DEFAULT;
+
+static unsigned int fpscr_read(void)
+{
+	union { double value; unsigned long long bits; } fpscr;
+
+	__asm__ volatile ("mffs %0" : "=f"(fpscr.value));
+	return (unsigned int)fpscr.bits;
+}
+
+static void fpscr_write(unsigned int value)
+{
+	union { double value; unsigned long long bits; } fpscr;
+
+	fpscr.bits = value;
+	__asm__ volatile ("mtfsf 0xff, %0" : : "f"(fpscr.value));
+}
+
+unsigned int _control87(unsigned int new_value, unsigned int mask)
+{
+	unsigned int fpscr;
+
+	if (mask)
+	{
+		msvc_control_word = (msvc_control_word & ~mask) | (new_value & mask);
+		fpscr = fpscr_read() & ~3u;
+		switch (msvc_control_word & _MCW_RC)
+		{
+		case _RC_CHOP: fpscr |= 1; break;
+		case _RC_UP: fpscr |= 2; break;
+		case _RC_DOWN: fpscr |= 3; break;
+		default: break;
+		}
+		fpscr_write(fpscr);
+	}
+	return msvc_control_word;
+}
+
+unsigned int _controlfp(unsigned int new_value, unsigned int mask)
+{
+	/* _controlfp ignores the denormal mask */
+	return _control87(new_value, mask & ~_EM_DENORMAL);
+}
+
+unsigned int _statusfp(void)
+{
+	unsigned int fpscr = fpscr_read();
+	unsigned int result = 0;
+
+	/* as the x87 status word's low bits: invalid (VX), zero divide (ZX),
+	overflow (OX), underflow (UX), precision (XX); no denormal flag */
+	if (fpscr & 0x20000000u) result |= 0x01;
+	if (fpscr & 0x04000000u) result |= 0x04;
+	if (fpscr & 0x10000000u) result |= 0x08;
+	if (fpscr & 0x08000000u) result |= 0x10;
+	if (fpscr & 0x02000000u) result |= 0x20;
+	return result;
+}
+
+unsigned int _clearfp(void)
+{
+	unsigned int status = _statusfp();
+
+	/* FX, OX, UX, ZX, XX and the invalid operation flags (VX, FEX are their
+	summaries) */
+	fpscr_write(fpscr_read() & ~0x9ff80700u);
 	return status;
 }
 #else

@@ -56,9 +56,11 @@ WORD = re.compile(r"^[A-Za-z0-9._+-]{1,127}$")
 UPDATE_FILE = re.compile(r"^chupathingyce-([a-z0-9]+)-(release|debug)\.(zip|AppImage)$")
 KINDS = {"zip": "zip", "AppImage": "appimage"}
 MANIFEST_FORMAT = "chupathingyce-updates 1"
-# the game's executable by its later names: a zip with one starts it after
-# an update (the list's "main"); halo and halo.exe need none, as the updater
-# starts the file it was started from
+# the game's executable by its names from 0.9.0: a zip with one starts it
+# after an update (the list's "main"), not the halo or halo.exe beside it,
+# which is only the stub that starts it (port/linux/src/rename_stub.h); a
+# zip with neither needs none, as the updater starts the file it was
+# started from
 MAIN_NAMES = ("chupathingy.exe", "chupathingy")
 # (an Ed25519 public key's DER: this prefix, then its 32 bytes)
 ED25519_SPKI_PREFIX = bytes.fromhex("302a300506032b6570032100")
@@ -146,8 +148,9 @@ def sign(key: Path, version: str, zips) -> None:
             print(f"{zip_path}.sig")
 
 
-def header_keys():
-    text = KEY_HEADER.read_text()
+def header_keys(header: Path = KEY_HEADER):
+    """update_key.h's release keys that are set (none when all are zero)"""
+    text = header.read_text()
     # (the release keys: the block before the test key's #else)
     text = text.split("#else", 1)[0]
     keys = []

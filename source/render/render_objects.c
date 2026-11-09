@@ -113,6 +113,7 @@ symbols in this file:
 #include "rasterizer/rasterizer_console_vars.h"
 #include "rasterizer/rasterizer_model_types.h"
 #include "halo_perf_log.h" /* port: console.perf_log */
+#include "game/game_engine.h"
 
 /* ---------- constants */
 
@@ -288,6 +289,14 @@ boolean debug_inactive_objects = FALSE;
 
 static boolean reported_rendered_object_overflow = FALSE;
 
+#ifdef HALO_CONSOLE_PERFORMANCE_MODE
+/* port: whether performance mode keeps the transparent parts of the level's
+objects (not the sky's, nor the first-person weapon's), and how far it draws
+scenery nothing can touch */
+boolean console_performance_object_transparents(void);
+real console_performance_decoration_distance(void);
+#endif
+
 /* ---------- public code */
 
 void render_objects_initialize(
@@ -371,7 +380,18 @@ void render_objects(
 		}
 		else
 		{
+#ifdef HALO_CONSOLE_PERFORMANCE_MODE
+			boolean transparents = rasterizer_debug_options.draw_model_transparent_geometry;
+
+			if (!console_performance_object_transparents())
+			{
+				rasterizer_debug_options.draw_model_transparent_geometry = FALSE;
+			}
 			process_rendered_objects(&data);
+			rasterizer_debug_options.draw_model_transparent_geometry = transparents;
+#else
+			process_rendered_objects(&data);
+#endif
 		}
 
 		first_person_pass = !first_person_pass;
@@ -455,6 +475,33 @@ static void find_rendered_objects(
 		reported_rendered_object_overflow = TRUE;
 	}
 
+#ifdef HALO_CONSOLE_PERFORMANCE_MODE
+	/* port: scenery nothing can touch, as plants, not drawn past a distance */
+	{
+		real distance = console_performance_decoration_distance();
+
+		if (distance > 0.f)
+		{
+			short i, kept = 0;
+
+			for (i = 0; i < render_object_globals.rendered_object_count; i++)
+			{
+				long object_index = render_object_globals.rendered_object_indices[i];
+				struct object_datum *object = object_get(object_index);
+
+				if (!TEST_FLAG(_object_mask_scenery, object->object.type) ||
+					object_definition_get(object->definition_index)->object.collision_model.index != NONE ||
+					distance_squared3d(&object->object.bounding_sphere_center, &render.camera.position) <
+						distance * distance)
+				{
+					render_object_globals.rendered_object_indices[kept++] = object_index;
+				}
+			}
+			render_object_globals.rendered_object_count = kept;
+		}
+	}
+#endif
+
 	return;
 }
 
@@ -513,7 +560,13 @@ static void render_object_list(
 				}
 			}
 
-			if (!TEST_FLAG(object->object.flags, _object_invisible_bit))
+			/* (port: nor a melee-only Bomb game's unseen fists,
+			game_engine_bomb.c) */
+			if (!TEST_FLAG(object->object.flags, _object_invisible_bit)
+#ifdef HALO_GAME_BROWSER
+				&& !game_engine_bomb_hides_weapon(object->definition_index)
+#endif
+				)
 			{
 				struct object_definition *definition =
 					object_definition_get(object->definition_index);

@@ -109,6 +109,8 @@ int posix_socket_recv(int socket, void *buffer, int length, int flags);
 int posix_socket_recvfrom(int socket, void *buffer, int length, int flags,
 	void *address, int *address_length);
 int posix_socket_shutdown(int socket, int how);
+/* the bytes sent and received on every socket since the process started */
+void posix_socket_traffic(unsigned long long *sent, unsigned long long *received);
 int posix_socket_set_nonblocking(int socket, int nonblocking);
 int posix_socket_bytes_available(int socket, posix_ulong *count);
 /* a stream socket sends each write at once (no Nagle delay): the game's
@@ -158,10 +160,19 @@ void posix_upnp_stop_forwarding_udp(unsigned short external_port);
 returns 0 if there is none (always, on Android) */
 int posix_command_line_argument(int index, char *buffer, posix_ulong size);
 posix_ulong posix_process_id(void);
+/* whether a Shift key is held now, asked of the system (no window needed):
+1 or 0, or -1 where the system can't tell (the launcher then asks SDL once
+its window has the keyboard) */
+int posix_shift_key_held(void);
 /* registers this executable as the desktop's handler of links with this
 scheme (scheme://...); returns 0 where there is no such thing (Android,
 whose app declares its links in its manifest). May wait for a program */
 int posix_register_url_scheme(const char *scheme, const char *description);
+/* registers how Discord starts this executable for a Join of the Discord
+application (digits): discord-<application>, as discord_register.h says
+for each system. Returns a DISCORD_REGISTER_* (DISCORD_REGISTER_NONE where
+there is no such thing: Android, iOS). May wait for a program */
+int posix_register_discord_launch(const char *application);
 /* a random secret of this user's, the same for all their processes, from a
 file that only they can read (made the first time); 1 on success, 0 where
 there is none (always, on Android) */

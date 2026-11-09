@@ -783,6 +783,11 @@ void hud_picked_up_weapon(
 	short local_player_index,
 	long weapon_definition_index)
 {
+#ifdef HALO_GAME_BROWSER
+	/* port: Bomb's bomb is the map's oddball ball: no "odd ball" line */
+	if (game_engine_bomb_hides_pickup(weapon_definition_index))
+		return;
+#endif
 	if (local_player_index != NONE)
 	{
 		hud_add_item_message(
@@ -978,12 +983,10 @@ static void hud_draw_players(
 
 	if (player_index != NONE)
 	{
-#ifndef HALO_XBOX_CONSOLE
-		/* the native builds' sessions hold more than 16 players */
+		/* port: a session holds as many players as the build's network
+		tables (the Xbox's 16; more on the consoles' 32-player builds and on
+		the desktop) */
 		long teammate_indices[HALO_PORT_MAXIMUM_NETWORK_PLAYERS];
-#else
-		long teammate_indices[16];
-#endif
 		long teammate_count = 0;
 		struct data_iterator iterator;
 		struct player_datum *player;
@@ -996,13 +999,10 @@ static void hud_draw_players(
 				team_index == player->team_index &&
 				player->unit_index != NONE)
 			{
-#ifndef HALO_XBOX_CONSOLE
-				/* never write past the buffer, whatever the player data holds */
+				/* port: never write past the buffer, whatever the player
+				data holds (the original had no bound, safe at 16 players) */
 				if (teammate_count < (long)NUMBEROF(teammate_indices))
 					teammate_indices[teammate_count++] = iterator.datum_index;
-#else
-				teammate_indices[teammate_count++] = iterator.datum_index;
-#endif
 			}
 		}
 
@@ -1019,7 +1019,11 @@ static void hud_draw_players(
 
 #ifndef HALO_CONSOLE_NO_PLAYER_NAMES
 /* port: in multiplayer and network co-op, players' names above their heads
-(display.player_names: "all", "allies", "enemies" or "none"). An ally's goes
+(display.player_names: "all", "allies", "enemies" or "none", the default:
+the Xbox named only the player under the reticle), where the game's host
+allows them (port/linux/game/host_rules.c: its network.allow_player_names, or a
+dedicated server's allow_player_names; a host that says nothing allows none, as
+the Xbox's game had none). An ally's goes
 above the triangle the game draws over teammates; an enemy's only within the
 motion sensor's reach, while the view sees them and they are not
 camouflaged, so that it never gives away where they hide. Whose names show
@@ -1030,6 +1034,8 @@ allies' if it shows only friends (game_engine_draw_object_in_motion_sensor). */
 const char *config_string(const char *name);
 double config_real(const char *name);
 unsigned long config_changes(void);
+/* (port/linux/game/host_rules.c) */
+boolean host_rules_player_names(void);
 
 enum
 {
@@ -1051,11 +1057,11 @@ static short hud_player_names_setting(
 		const char *value = config_string("display.player_names");
 
 		read_at = config_changes();
-		setting = _player_names_all;
+		setting = _player_names_none;
 		if (value)
 		{
-			if (!csstrcmp(value, "none"))
-				setting = _player_names_none;
+			if (!csstrcmp(value, "all"))
+				setting = _player_names_all;
 			else if (!csstrcmp(value, "allies") || !csstrcmp(value, "allys"))
 				setting = _player_names_allies;
 			else if (!csstrcmp(value, "enemies"))
@@ -1063,6 +1069,9 @@ static short hud_player_names_setting(
 		}
 	}
 
+	/* (the host's to allow: none where it does not) */
+	if (setting != _player_names_none && !host_rules_player_names())
+		return _player_names_none;
 	return setting;
 }
 
@@ -1122,6 +1131,37 @@ static real hud_player_name_enemy_range(
 	return hud_globals ? hud_globals->defaults.motion_sensor_range : 0.0f;
 }
 
+/* port: the line of sight to an enemy's head, tested once a tick for each
+local player's view rather than at every frame drawn: in a 64-player match
+the names' rays and head markers were a tenth of the HUD's time */
+static struct
+{
+	long player_index;
+	long tick;
+	boolean in_sight;
+} hud_player_name_sight[MAXIMUM_LOCAL_PLAYERS][HALO_PORT_MAXIMUM_NETWORK_PLAYERS];
+
+static boolean hud_player_name_in_sight_this_tick(
+	long player_index,
+	long unit_index,
+	real_point3d const *head_position)
+{
+	long slot = player_index & 0xFFFF;
+	short view = render.local_player_index;
+	long tick = game_time_get();
+
+	if (slot >= HALO_PORT_MAXIMUM_NETWORK_PLAYERS || !VALID_INDEX(view, MAXIMUM_LOCAL_PLAYERS))
+		return hud_player_name_in_sight(unit_index, head_position);
+	if (hud_player_name_sight[view][slot].player_index != player_index ||
+		hud_player_name_sight[view][slot].tick != tick)
+	{
+		hud_player_name_sight[view][slot].player_index = player_index;
+		hud_player_name_sight[view][slot].tick = tick;
+		hud_player_name_sight[view][slot].in_sight = hud_player_name_in_sight(unit_index, head_position);
+	}
+	return hud_player_name_sight[view][slot].in_sight;
+}
+
 static void hud_draw_player_name(
 	long player_index,
 	boolean ally,
@@ -1143,20 +1183,31 @@ static void hud_draw_player_name(
 
 	if (font_index == NONE)
 		return;
+	/* (port: an enemy whose body is well past the range has no head in it
+	either - the head is within a world unit of the body's origin - and is
+	not looked for) */
+	if (!ally &&
+		distance3d(&render.camera.position, &object_get(player->unit_index)->object.position) >= enemy_range + 2.0f)
+	{
+		return;
+	}
 	unit_get_head_position(player->unit_index, &head_position);
 	distance = distance3d(&render.camera.position, &head_position);
 	if (!ally && distance >= enemy_range)
 		return;
-	if (!ally &&
-		(unit_get(player->unit_index)->unit.active_camouflage > 0.5f ||
-		!hud_player_name_in_sight(player->unit_index, &head_position)))
-	{
+	if (!ally && unit_get(player->unit_index)->unit.active_camouflage > 0.5f)
 		return;
+	/* (where the game draws a teammate's triangle; off the screen, no line
+	of sight is tested) */
+	{
+		real_point3d above = head_position;
+
+		above.z += 0.30000001f;
+		matrix4x3_transform_point(&render.frustum.world_to_view, &above, &view_position);
 	}
-	/* (where the game draws a teammate's triangle) */
-	head_position.z += 0.30000001f;
-	matrix4x3_transform_point(&render.frustum.world_to_view, &head_position, &view_position);
 	if (!render_camera_view_to_screen(&render.camera, &render.frustum, &view_position, &screen_position))
+		return;
+	if (!ally && !hud_player_name_in_sight_this_tick(player_index, player->unit_index, &head_position))
 		return;
 	x = (short)fast_ftol(screen_position.x) - render.camera.viewport_bounds.x0;
 	y = (short)fast_ftol(screen_position.y) - render.camera.viewport_bounds.y0;

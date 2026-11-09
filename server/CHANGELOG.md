@@ -6,6 +6,164 @@ release notes.
 
 ## Unreleased
 
+- The control panel is on by default, at `http://127.0.0.1:8080` (this
+  machine only). New hosts get the one-time setup link on the console and in
+  `control_setup_code.txt`; on Windows the server also opens it in the
+  browser. `HALO_DEDICATED_CONTROL=off` turns it off. If port 8080 is taken,
+  the server logs one line and keeps hosting. Public addresses stay opt-in,
+  and our Docker image keeps the panel off until you set it.
+- Halo Custom Edition 1.0.10 players can play (`ce_joins`, still off by
+  default): a Custom Edition player joins a game on a Custom Edition map as
+  one of the server's own players (up to 4), and stays from one game and
+  map to the next, as on Custom Edition's own servers. The development
+  switch `HALO_DEDICATED_CE_ACCEPT` is gone. See "Custom Edition join
+  attempts" in server/docs/settings.md for what works and what doesn't yet.
+- Host rules, off by default as on the Xbox: `allow_player_names`
+  (`HALO_DEDICATED_ALLOW_PLAYER_NAMES`) lets Chupathingy players show names
+  above heads, and `allow_follow_camera`
+  (`HALO_DEDICATED_ALLOW_FOLLOW_CAMERA`) lets them watch a follow camera
+  while they wait to respawn. Team changes during a game (`team_change`)
+  are now `off` unless set; `balanced` and `allow` work as before, and
+  players see CHANGE TEAMS only where the server allows it. The rules reach
+  Chupathingy players over Delta Peer; OpenCE players play as before.
+- Auto-announce: with `HALO_NET_ANNOUNCE=latest` (the default), the server
+  announces the newest OpenCE network version the signed table proves for
+  hosting, checks for a new table every 30 minutes, and moves to a newer
+  number between games without a restart. A table row may name host
+  protections a number needs; a server without them keeps announcing its
+  own number and logs why. A number in `HALO_NET_ANNOUNCE` pins it.
+- Halo 2 anniversary game types and playlist in `server/events/h2-anniversary`
+  (not in the download): seven game types and a 12-entry playlist on the
+  stock maps, from options the game already has.
+- A betrayed player respawns on the normal timer; the betrayer takes the game type's suicide penalty (plus any friendly fire penalty) on their next respawn. Suicides and deaths nobody caused keep the suicide penalty.
+- Hits through walls are refused: a client's reported hit counts only when
+  the shot had a clear line to its target from where the server had the
+  shooter (their view, head, or the gun of their vehicle seat), or, for an
+  explosion, from where it went off. Glass, what the projectile goes
+  through, and projectiles that home in or arc are allowed for; melee and
+  vehicle hits are not checked. The log counts these refusals with the
+  other refused hits. On by default; `network.hit_line_of_sight = false`
+  (`HALO_NET_HIT_LINE_OF_SIGHT=false`) turns it off if good hits are
+  refused. The players' builds need nothing new.
+- The console keeps what you are typing on its own prompt line in a
+  terminal: log lines print above it instead of breaking it up. Up and
+  Down bring back earlier commands. Pipes and services see the same output
+  as before.
+- First-run setup in the control panel. A server started with the panel on
+  (`HALO_DEDICATED_CONTROL`) and no playlist no longer exits: it waits
+  until its owner makes their account and picks a name, most players, a
+  playlist and Server Browser listing in the browser, then hosts and offers
+  to link the server to a Chupathingy account. The one-time setup code is
+  also written to `control_setup_code.txt` in the data folder (owner-only,
+  deleted once the account is made), for servers whose console nobody sees.
+  Servers started with `HALO_DEDICATED`, or with an owner already, start as
+  before.
+- A new `config.toml` has only the settings the server uses. The display,
+  sound, controls and other game settings are left out. An existing file
+  is not changed and still works.
+- The control panel's Status tab answers "Can people join?": internet play's
+  UDP port, whether the router forwarded it (UPnP), whether the network lets
+  most players in, whether the game is in the Server Browser and why not,
+  the OpenCE network version it announces, and players. When something is in
+  the way it says what to do, with a link to the site's ports guide.
+  `sv_status` has the same lines, and a `reach` object in JSON. Ports and
+  states only, never an address.
+- New [Host a server](docs/hosting.md) guide: Docker or Linux, ports, the
+  control panel (SSH tunnel or HTTPS), linking to your profile, and
+  moderators. It matches the site's stats.chupathingy.org/host page. The
+  compose file's control panel note now says where the setup code is and
+  how to reach the panel from your own computer.
+- Evidence for moderators: `sv_evidence [player]`, `GET /v1/evidence` and a
+  Refused column in the panel's Players count what the server refused of
+  each player's machine this game (movement and vehicle predictions out of
+  bounds, hit reports that failed validation, hits through walls, windows
+  its clock ran fast).
+  Moderators and up; reset each game; never sent anywhere, never an
+  automatic ban.
+- Betrayal and AFK limits, both off by default: `betrayal_kick`
+  (`HALO_DEDICATED_BETRAYAL_KICK`) warns a player one betrayal short of the
+  limit and kicks them at it, and a second such kick within 24 hours is a
+  30-minute ban; `afk_kick_minutes` (`HALO_DEDICATED_AFK_KICK_MINUTES`)
+  kicks a player with no input for that long in a game in progress, warned
+  30 seconds before, moderators never. OpenCE players are warned through
+  the host's notice in their chat. Every warning, kick and ban is in the
+  audit file.
+- A Windows server: `chupathingyce-server-windows-x64.zip`, for 64-bit
+  Windows 10, Windows 11 and Windows Server. The same server, settings,
+  playlists, game types, commands and control panel as on Linux, as a
+  console program with `start-server.bat` and a README (`server/windows`).
+  Ctrl+C or closing its window stops it and takes its game off the lists.
+  `start-server.bat install` (or `--install-service`) makes it a Windows
+  service that starts with Windows, restarts after a crash and runs as its
+  own account, not SYSTEM; `--uninstall-service` takes it out. Both keep
+  the server's saves in `saves` in the data folder, apart from the game's.
+- Map names as Halo PC takes them: commas, brackets, spaces and the rest a
+  Windows file name can have (`bigassv2,104@ce`, `[h3]_sandtrap@ce`), in
+  `sv_map`, `sv_maps` and playlists. A name with a space goes in double
+  quotes (`sv_map "skedar v2@ce" slayer`, and the same in a playlist file).
+  A playlist entry that cannot be played (a missing or damaged map, a
+  campaign level, an unknown game type, or a lobby that closed before its
+  game started) is skipped with the reason in the log, `sv_status` and the
+  panel, instead of being hosted again every 5 seconds or stopping the
+  server on the damaged disc error. When every entry is skipped, the server
+  waits 5 seconds, then twice as long each round, up to 5 minutes.
+- GameSpy status queries, off by default (`gamespy_listing`,
+  `HALO_DEDICATED_GAMESPY_*`): the server answers `\basic\` and QR2 status
+  queries on UDP 2302 and sends QR2 heartbeats to the masters Halo Custom
+  Edition 1.0.10 reports to, with Xbox maps named `xbox_<map>` (naming from
+  the Custom Edition community, via ugoboom). It reports its own version, so
+  Custom Edition 1.0.10's browser does not show it.
+- Halo Custom Edition 1.0.10 join attempts, off by default (`ce_joins`,
+  `HALO_DEDICATED_CE_JOINS`, with `gamespy_listing` on): the GameSpy port
+  answers a Custom Edition client's connection (its handshake, key
+  agreement and enciphered messages), names the map, reads the join request
+  and refuses it cleanly with Custom Edition's "Unable to join the game
+  server!" instead of a timeout. Playing comes in later steps. For
+  development, `HALO_DEDICATED_CE_ACCEPT=1` takes the join instead: game
+  settings, begin game and keep-alives, so the client loads the map and
+  stays connected (it doesn't see the game yet).
+- Lobby message limit: a player's machine may send the lobby's settings,
+  player settings and add or remove player requests in a burst of 32 and
+  16 a second after it, more than four players on one machine holding a
+  menu key send. Past that, the extra requests are dropped and the log says
+  so once per machine per lobby (its machine number only). OpenCE and Xbox
+  players are held to the same limit; nothing on the wire changes.
+- Machines per address: `max_machines_per_address`
+  (`HALO_DEDICATED_MAX_MACHINES_PER_ADDRESS`, default 8, 0 for no limit).
+  A machine joining from an internet address that already has that many in
+  the game is refused with OpenCE's "too many players from your address"
+  code (13). Internet play players are counted by their real address, and
+  local network addresses are never limited. The log names the refused
+  machine with its address hidden. Games hosted by players have the same
+  limit as `network.max_machines_per_address`, off by default.
+- Custom Edition players (still behind the development switch, off by
+  default): their own position corrected to the server's, shield and
+  health, deaths, the scoreboard, weapons and equipment on the ground,
+  vehicles and seats, a welcome line in their chat (`ce_welcome`), and
+  `sv_say`, `sv_kick` and `sv_ban` reaching them. Bans, the limit on
+  players from one address and the betrayal and AFK limits apply to them.
+- Control panel hardening: `sv_welcome` needs the settings permission (an
+  admin's) and is in the audit file; a command missing from the permission
+  table is the console's alone. Wrong logins lock an account only for the
+  address they came from, are forgotten after 15 quiet minutes, and a
+  locked login reads as a wrong password; `HALO_DEDICATED_CONTROL_TRUSTED_PROXY`
+  lets the limits count each client behind a reverse proxy. The pending
+  link code is shown only to the owner and the console, and no longer
+  written to the log. A second factor is replaced only by turning it off
+  first (password and code). Idle connections are dropped after 3 seconds,
+  8 at most from one address. The log hides IPv4-mapped IPv6 addresses;
+  `sv_link_status`'s JSON is escaped; `HALO_DEDICATED_LINK_URL`'s plain-HTTP
+  exception is this machine's exact address only.
+- Bomb and Grifball game types for playlists (`bomb`, `grifball`,
+  `grifball_open_pitch`, `bomb.*` fields), played only with Chupathingy
+  clients; standard game types are unchanged.
+- Xbox map packs: each pack's maps in its own `maps_<pack>` folder of the
+  data folder (Halo CE+'s in `maps_cex`), named `<name>@<pack>` in
+  playlists, `sv_map` and `sv_maps` (`wizard@cex`); `/v1/maps` adds
+  `map_packs` (each pack map's name, pack and tag). The listing names a
+  pack's map ("Gothra", Halo CE+) for players without it. Deploy: a CE+
+  server needs the pack's `maps` folder copied to `data/maps_cex` and a
+  playlist naming `@cex` maps; nothing changes for the other servers.
 - Network versions 30, 31 and 32. Announces 32 and joins as a client hosts
   of 11 through 33. Redeploy: a legacy table can't follow this one (wire
   `chupa-32a`).

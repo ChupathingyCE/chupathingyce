@@ -110,7 +110,7 @@ static void multiplayer_map(struct discord_activity_game *game, struct network_g
 	{
 		wchar_t name[DISCORD_ACTIVITY_TEXT_SIZE];
 
-		ui_map_list_family_name(family, file, name, NUMBEROF(name));
+		ui_map_list_map_name(game->map, name, NUMBEROF(name));
 		utf8_from_wide(game->map_name, sizeof(game->map_name), name, NUMBEROF(name));
 	}
 }

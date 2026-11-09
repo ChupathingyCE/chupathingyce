@@ -1,6 +1,6 @@
 # Chupathingy Dedicated Server
 
-A Halo: Combat Evolved server for Linux. It hosts games by itself, with no
+A Halo: Combat Evolved server for Linux and Windows. It hosts games by itself, with no
 player of its own, around the clock, from a playlist of maps and game types.
 Its games show on [stats.chupathingy.org](https://stats.chupathingy.org), the
 community's game list, and in the in-game Server Browser of Chupathingy
@@ -28,6 +28,7 @@ not sure.
 | `chupathingyce-server-linux-x64` | `x86_64` | Most VPSes and PCs: Intel and AMD 64-bit. |
 | `chupathingyce-server-linux-arm64` | `aarch64` | 64-bit ARM: Oracle Cloud's free tier (Ampere A1), other Ampere and Graviton servers, Raspberry Pi 4 and 5 with a 64-bit OS. |
 | `chupathingyce-server-linux-x86` | `i686`, `i386` | Older 32-bit PCs. It runs on a 64-bit x86 Linux too, and uses a little less memory there. |
+| `chupathingyce-server-windows-x64` | | 64-bit Windows 10 and 11, and Windows Server. Its `README.txt` ([windows/README.txt](windows/README.txt)) covers `start-server.bat` and running it as a Windows service; the rest of this page holds for it too. |
 
 Halo PC (Custom Edition) and HaloMD maps: use the x64 or arm64 server. The
 x86 one is for the Xbox maps (it can load the others, with less room for
@@ -47,7 +48,8 @@ small VPS will do.
    maps of the North American (NTSC) Xbox disc, as the players do. Halo PC
    maps go in folders beside `maps`: Custom Edition maps (with Custom
    Edition's `bitmaps.map`, `sounds.map` and `loc.map`) in `maps_ce`,
-   HaloMD maps in `maps_md`, Halo PC retail maps in `maps_pc`
+   HaloMD maps in `maps_md`, Halo PC retail maps in `maps_pc`, an Xbox map
+   pack's maps (Halo CE+'s) in its own folder (`maps_cex`)
    ([Playlists](docs/playlists.md)).
 3. Put a playlist in the data folder's `playlists` folder (the download's,
    or your own), and start the server:
@@ -70,8 +72,11 @@ itself), and its saves in `~/.local/share/chupathingyce` unless
 `debug.txt` reaches 64 MB, it is renamed `debug.old.txt` and a new
 `debug.txt` starts.
 
-To keep a server running all the time, with restarts and several servers on
-one machine, use [Docker or systemd](docs/docker.md).
+New to hosting? [Host a server](docs/hosting.md) is the short path, from
+maps to moderators. To keep a server running all the time, with restarts and several servers on
+one machine, use [Docker or systemd](docs/docker.md). Each release has a
+ready image, `ghcr.io/chupathingyce/server`: see
+[Host a server with Docker](docs/docker.md#host-a-server-with-docker).
 
 ## What it does
 
@@ -89,11 +94,19 @@ one machine, use [Docker or systemd](docs/docker.md).
   everyone has left it.
 - Plays a team entry's next entry without teams while a single player waits
   (a team game needs a player on each team).
-- Stops on SIGTERM or SIGINT, and withdraws its game from the lists.
+- Stops on SIGTERM or SIGINT (on Windows: Ctrl+C, its window closed, or
+  its service stopped), and withdraws its game from the lists.
 - Takes commands, named after Halo PC's (`sv_players`, `sv_kick`, `sv_ban`,
   `sv_map`, `sv_mapcycle_next`, ...): typed on its console, from a startup
-  file, or through its control API (off unless turned on) and the control
+  file, or through its control API (on this machine only by default) and the control
   panel on the same port. See [docs/admin.md](docs/admin.md).
+- Checks what players' games tell it, for OpenCE players too: it refuses
+  moves and hits that don't add up, hits through walls
+  (`HALO_NET_HIT_LINE_OF_SIGHT`), lobby requests past a burst of 32 and 16
+  a second from one machine, and more than 8 machines from one internet
+  address (`HALO_DEDICATED_MAX_MACHINES_PER_ADDRESS`). Moderators see the
+  refusals with `sv_evidence`. Betrayal and AFK kicks are there too, off
+  unless set ([docs/moderation.md](docs/moderation.md#betrayal-and-afk-limits)).
 - Has moderators, admins and owners of its own, with accounts, a second
   factor, in-game moderation and an audit file
   ([docs/moderation.md](docs/moderation.md)).
@@ -105,15 +118,19 @@ one machine, use [Docker or systemd](docs/docker.md).
 Everything here works without stats.chupathingy.org. Details, the roles table
 and the security notes: [docs/moderation.md](docs/moderation.md).
 
-1. **Turn on the control panel.** `HALO_DEDICATED_CONTROL=8080` keeps it on
-   this machine (reach it with `ssh -N -L 8080:127.0.0.1:8080 you@server`);
+1. **Open the control panel.** It is on by default at 127.0.0.1:8080, this
+   machine only (reach it with `ssh -N -L 8080:127.0.0.1:8080 you@server`;
+   in Docker, set `HALO_DEDICATED_CONTROL=8080`);
    `HALO_DEDICATED_CONTROL=0.0.0.0:8443` opens it to the network, HTTPS
    only. The server prints the certificate's SHA-256 fingerprint: check the
    browser shows the same, once.
 2. **Make the owner's account.** The first start prints a one-time setup
-   link (on the console, not in the log). Open it, choose a name and a
+   link (on the console, not in the log), and writes the code to
+   `control_setup_code.txt` in the data folder. Open it, choose a name and a
    password, log in, and set up a second factor in My account (any
-   authenticator app).
+   authenticator app). Started with the panel on and no `HALO_DEDICATED`,
+   the server waits for this setup and lets you pick its name, players and
+   playlist in the panel before it hosts.
 3. **Invite your moderators.** People, then Make an invitation: send the
    link privately. Each person chooses their own password and second
    factor. People can require a second factor of everyone.
@@ -143,21 +160,30 @@ only, capped at admin, and undone at once with `sv_unlink`.
 
 ## Who can join
 
-Players need a build of the same network version: the ChupathingyCE release
-the server comes from (or any other of that network version), or OpenCE
-builds of that network version. `chupathingyce-server --version` prints it.
-A player with another version sees a message saying which version each side
-is on.
+Chupathingy players join by their build's Delta wire, whatever OpenCE
+number the server announces. `chupathingyce-server --version` prints the
+server's version and the number it announces.
+
+OpenCE players see the server when it announces their network version. By
+default (`HALO_NET_ANNOUNCE=latest`) the server announces the newest OpenCE
+network version that Chupathingy's signed table says our servers host
+well. It checks for a new table every 30 minutes and moves to a newer
+number between games, with no restart. `sv_status` and the control panel's
+Status tab show the number in use. A number pins it, such as
+`HALO_NET_ANNOUNCE=32` for a server meant for console players on older
+builds ([Settings](docs/settings.md#the-network)). A player with another
+version sees a message saying which version each side is on.
 
 ## More
 
 | | |
 | --- | --- |
+| [docs/hosting.md](docs/hosting.md) | Host a server, the short path: Docker, Linux or Windows, ports, the control panel, linking to your profile, and moderators. |
 | [docs/settings.md](docs/settings.md) | Every setting, the command line, exit statuses, and the files the server writes. |
 | [docs/admin.md](docs/admin.md) | Running a server: its commands, its console, startup commands, the control API and web admin page (and reaching them safely). |
 | [docs/moderation.md](docs/moderation.md) | Moderators and the control panel: roles, accounts, second factors, invitations, in-game moderation, HTTPS, the link to stats.chupathingy.org, and security notes. |
-| [docs/playlists.md](docs/playlists.md) | Playlists: the maps (Xbox, `@ce`, `@md`), the game types, and the ones included. |
-| [docs/docker.md](docs/docker.md) | The container image, the systemd services, more servers on one host, and the game list's probe. |
+| [docs/playlists.md](docs/playlists.md) | Playlists: the maps (Xbox, `@ce`, `@md`, the Xbox map packs' `@cex`), the game types, and the ones included. |
+| [docs/docker.md](docs/docker.md) | Hosting with Docker, the container image, the systemd services, more servers on one host, and the game list's probe. |
 | [docs/building.md](docs/building.md) | Building the server: the targets, musl and glibc, and how it differs from the game. |
 | [CHANGELOG.md](CHANGELOG.md) | What changed in the server, release by release. |
 
@@ -167,8 +193,10 @@ line (`command_line.c`) and the game list's probe (`probe.c`); `platform/` is
 the server's own platform layer, with no window, input or sound, and its
 console, control API and web admin page; `webui/` that page's files;
 `tests/` the control API's tests; `docs/` the server's documents;
-`playlists/` the playlists; `blocked_names.txt` the names `sv_name_filter`
-blocks; `deploy/` the container and services.
+`playlists/` the playlists; `events/` playlists and game types for one-off
+events, not in the download; `blocked_names.txt` the names `sv_name_filter`
+blocks; `deploy/` the container and services; `windows/` the Windows
+server's `start-server.bat` and README.
 
 ## Stats (Delta Stats)
 

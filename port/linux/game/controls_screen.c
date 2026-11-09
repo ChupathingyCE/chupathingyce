@@ -547,6 +547,12 @@ static void press(
 	case _gamepad_binary_button_dpad_right:
 		step_side(1);
 		break;
+	/* (the bumpers too, on a key's row: its other key) */
+	case _gamepad_analog_button_white:
+	case _gamepad_analog_button_black:
+		if (controls_screen.page == _page_keyboard && *row != 0)
+			step_side(button == _gamepad_analog_button_white ? -1 : 1);
+		break;
 	default:
 		break;
 	}

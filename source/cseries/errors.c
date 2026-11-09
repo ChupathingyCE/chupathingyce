@@ -137,6 +137,27 @@ static void debug_file_port_write(
 	char const *prefix,
 	char const *string);
 
+#ifdef HALO_CONSOLE_LOG_ECHO
+/* a line of debug.txt in the platform's log too, without its line end */
+void platform_log(char const *format, ...);
+
+static void debug_file_port_echo(
+	char const *string)
+{
+	char line[1024];
+	long length = 0;
+
+	while (length < (long)sizeof(line) - 1 && string[length] && string[length] != '\r' && string[length] != '\n')
+	{
+		line[length] = string[length];
+		length++;
+	}
+	line[length] = 0;
+	if (length)
+		platform_log("debug.txt: %s", line);
+}
+#endif
+
 static FILE *debug_file_port = NULL;
 static long debug_file_port_size = 0;
 static char debug_file_port_last_line[1024];
@@ -189,7 +210,7 @@ static void write_to_debug_file(
 	prefix[0] = 0;
 	if (date || debug_file_port_repeat_count)
 	{
-#ifdef HALO_64BIT
+#if defined(HALO_64BIT) || defined(HALO_CONSOLE_WIDE_TIME_T)
 		/* (the host's time_t: 64 bits, which time() writes whole) */
 		time_t timeptr;
 #else
@@ -236,6 +257,9 @@ static void write_to_debug_file(
 		}
 		debug_file_port_last_line[index] = 0;
 		debug_file_port_write(file, date ? prefix : "", string);
+#ifdef HALO_CONSOLE_LOG_ECHO
+		debug_file_port_echo(string);
+#endif
 	}
 
 	__sync_lock_release(&debug_file_port_lock);
@@ -418,7 +442,11 @@ void write_to_error_file(
 
 		if (date)
 		{
+#ifdef HALO_CONSOLE_WIDE_TIME_T
+			time_t timeptr;
+#else
 			long timeptr;
+#endif
 			struct tm *_time;
 
 			time(&timeptr);

@@ -1,0 +1,42 @@
+/* messages_sizes.c: appended to network_messages.c as the game builds it
+(tools/test_host_fuzz.py, a target's "game_sources" "append"): each message's
+structure size, by type, for game_messages_fuzz.c */
+
+const int game_messages_fuzz_sizes[] =
+{
+	sizeof(message_client_broadcast_game_search),
+	sizeof(message_client_ping),
+	sizeof(message_server_game_advertise),
+	sizeof(message_server_pong),
+	sizeof(message_server_machine_accepted),
+	sizeof(message_server_machine_rejected),
+	sizeof(message_server_game_settings_update),
+	sizeof(message_server_pregame_countdown),
+	sizeof(message_server_begin_game),
+	sizeof(message_server_graceful_game_exit_pregame),
+	sizeof(message_server_pregame_keep_alive),
+	sizeof(message_server_postgame_keep_alive),
+	sizeof(message_client_join_game_request),
+	sizeof(message_client_add_player_request_pregame),
+	sizeof(message_client_remove_player_request_pregame),
+	sizeof(message_client_settings_request),
+	sizeof(message_client_player_settings_request),
+	sizeof(message_client_game_start_request),
+	sizeof(message_client_graceful_game_exit_pregame),
+	sizeof(message_client_map_is_precached_pregame),
+	sizeof(message_server_game_update),
+	sizeof(message_server_add_player_ingame),
+	sizeof(message_server_remove_player_ingame),
+	sizeof(message_server_game_over),
+	sizeof(message_client_loaded),
+	sizeof(message_client_game_update),
+	sizeof(message_client_add_player_request_ingame),
+	sizeof(message_client_remove_player_request_ingame),
+	sizeof(message_client_host_crashed_cry_for_help),
+	sizeof(message_client_join_new_host),
+	sizeof(message_server_switch_to_pregame),
+	sizeof(message_server_graceful_game_exit_postgame),
+	sizeof(message_client_remove_player_request_postgame),
+	sizeof(message_client_switch_to_pregame),
+	sizeof(message_client_graceful_game_exit_postgame),
+};

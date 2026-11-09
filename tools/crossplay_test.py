@@ -12,14 +12,17 @@ an OpenCE client and one of ours (--server).
     python3 tools/crossplay_test.py build --repo . --ref v0.7.0b --out /tmp/ours --server
     python3 tools/crossplay_test.py build --repo ../opence --ref build-145 --out /tmp/theirs
     python3 tools/crossplay_test.py run \\
-        --ours /tmp/ours/build/linux/halo --theirs /tmp/theirs/build/linux/halo \\
+        --ours /tmp/ours/build/linux/chupathingy --theirs /tmp/theirs/build/linux/halo \\
         --server /tmp/ours/build/server-x86/chupathingyce-server \\
         --maps ~/halo/maps --ours-table table.json --work /tmp/crossplay --out result.json
     python3 tools/crossplay_test.py check --work /tmp/crossplay --out result.json
 
 `build` makes a release build of a commit (git archive, configure.py
 --release --pgo=off --lto=off, ninja linux), ours or OpenCE's: about two
-minutes on 12 cores. `check` checks an earlier run's logs again.
+minutes on 12 cores. With --portable, configure.py gets --portable too: the
+build brings its own SDL 3 (libSDL3.so.0 beside the game), for OpenCE builds
+that need a newer SDL 3 than the machine has. `check` checks an earlier
+run's logs again.
 
 --ours-table names a legacy table file (docs/delta.md, "Local override")
 for our copies: how a build is made to announce, and join, an OpenCE number
@@ -50,6 +53,21 @@ game ticks on every machine):
 | end_of_game | both machines reach the end (scores shown), then both play the next game (CTF) |
 | rejoin | the client leaves; a new copy joins the game in progress, plays with both players and sees a death |
 | stability | no copy stops by itself (assertions a release build logs and goes on from are warnings) |
+| line_of_sight | (control-ours only, where the first client's test shots also go through walls, `debug.network_test_shoot_walls`) the host refuses some of the shots through walls for want of a line of sight, and no more refusals than shots through walls (`network.hit_line_of_sight`); counted even though it is a baseline |
+
+A Grifball direction (grifball; docs/bomb.md) has our host play Grifball, a
+game type only machines with Delta Peer's bomb capability play, with an
+OpenCE client joining its lobby and another its game in progress:
+
+| Step | Pass when |
+| --- | --- |
+| refused | the host drops each OpenCE machine (no bomb capability) and the machine is told it cannot join |
+| no_load | the machine joining in progress never loads the game (it would read it as Race) |
+| plays_on | the host plays Grifball on after the drops, to its end |
+| stability | as above: no copy stops by itself |
+
+The ours-host direction is the check that a normal game with the same host
+build is unchanged.
 
 The result, JSON:
 
@@ -64,6 +82,7 @@ up there); 3 to 4 minutes, every direction at once, 11 copies at most.
 """
 
 import argparse
+import glob
 import json
 import os
 import re
@@ -82,13 +101,16 @@ KILL_INTERVAL = 5         # the host kills the last player this often (network_t
 SHOOT_INTERVAL = 2        # each machine hits the next this often (network_test_shoot)
 SCORE_TO_WIN = 4          # Slayer's score (network_test_score)
 LATE_AT = 5               # seconds into the first game a second client joins it in progress ("late")
-LEAVE_AT = 11             # ... the first client quits
-BACK_AT = 14              # ... and comes back, a new copy on its address ("back")
+LEAVE_AT = 11             # ... the first client quits, once the late client plays (else LEAVE_LIMIT)
+LEAVE_LIMIT = 30          # ... or then at the latest
+BACK_AT = 14              # ... and comes back, a new copy on its address ("back"), as long after its leave
 SECOND_GAME_PLAY = 30     # seconds of the second game (CTF) played before a direction ends
 QUIET_LIMIT = 45          # ... or seconds the host logs no play after the first game, before it ends
 NO_GAME_LIMIT = 90        # ... or seconds with no game at all
 HARD_LIMIT = 300          # everything stops
 SERVER_RUN_SECONDS = 120
+GRIFBALL_LATE_AT = 8      # seconds into the Grifball game the second OpenCE client joins it
+GRIFBALL_PLAY = 45        # seconds of the Grifball game played before the direction ends
 
 # steps an OpenCE host's test hooks don't do reliably, whoever its clients
 # are: reported, never failing a run when the host is OpenCE's. Its host
@@ -108,6 +130,7 @@ PLAYER = re.compile(r" player (\d+): (dead|\((-?[\d.]+) (-?[\d.]+) (-?[\d.]+)\) 
     r"s(-?\d+) k(-?\d+) d(-?\d+) f(-?\d+) t(-?\d+) m(-?\d+)(?= player \d+:|$)")
 VERSION_LINES = re.compile(r"(network version|legacy table: |legacy table is|joining a host|newer version of the network|"
     r"older version of the network|does not speak Delta)", re.I)
+SIGHT_COUNTER = re.compile(r"network test: tick .*\| sight (\d+)")
 WARNING_LINES = re.compile(r"(EXCEPTION|assert)", re.I)
 TROUBLE_LINES = re.compile(r"(Segmentation fault|SIGSEGV|SIGABRT|Aborted|stack trace|crashed)", re.I)
 
@@ -135,6 +158,10 @@ class Copy:
             os.makedirs(os.path.join(self.folder, sub))
         self.binary = os.path.join(self.folder, "bin", os.path.basename(binary))
         shutil.copy2(binary, self.binary)
+        # (a portable build's own libraries, libSDL3.so.0, beside the game,
+        # where it loads them from)
+        for library in glob.glob(os.path.join(os.path.dirname(binary), "lib*.so*")):
+            shutil.copy2(library, os.path.join(self.folder, "bin"))
         os.symlink(os.path.abspath(maps), os.path.join(self.folder, "data", "maps"))
         if ce_maps:
             # (Custom Edition maps and their resource maps: OpenCE's
@@ -210,7 +237,10 @@ class Copy:
         return self.read("out.log")
 
     def debug(self):
-        return self.read(os.path.join("data", "debug.txt"))
+        # (ChupathingyCE keeps it in the data folder's logs folder, OpenCE
+        # in the data folder itself)
+        return (self.read(os.path.join("data", "logs", "debug.txt"))
+                or self.read(os.path.join("data", "debug.txt")))
 
 
 # ---------- reading a copy's log
@@ -448,6 +478,18 @@ def check_direction(host, client, late, back, variants):
     sent = sum(max((entry[4]["hits"] for game in games for entry in game.ticks), default=0) for _, games in clients)
     steps["client_damage"] = step(dealt > 0, f"the clients reported {sent} hits; the host dealt {dealt}, refused {rejected}")
 
+    # hits through walls (our clients' test shots with debug.network_test_shoot_walls)
+    # refused for want of a line of sight, and no more than them (network.hit_line_of_sight)
+    if host.kind == "ours" and all(copy.kind == "ours" for copy, _ in clients):
+        counts = [int(match.group(1)) for line in host.out() for match in [SIGHT_COUNTER.search(line)] if match]
+        shots = [line for copy, _ in clients for line in copy.out() if "network test: player" in line and "shoots player" in line]
+        walled = sum("through a wall" in line for line in shots)
+        if counts and walled:
+            sight = max(counts)
+            steps["line_of_sight"] = step(0 < sight <= walled,
+                f"the clients' test shots: {len(shots) - walled} in sight, {walled} through walls; the host refused "
+                f"{sight} for want of a line of sight")
+
     # the first game's end, on the host and the client there then
     first = host_games[0]
     host_end = first.end()
@@ -565,6 +607,25 @@ def stability(copies):
     return step(not trouble, "every copy ran until the test stopped it" if not trouble else trouble), warnings
 
 
+def check_grifball(host, client, late):
+    """The Grifball direction: each OpenCE machine dropped (the lobby's and
+    the game in progress's), told so, never loading the game; the host
+    playing on"""
+    steps = {}
+    host_lines = host.out() + host.debug()
+    drops = sum(1 for line in host_lines if "has no bomb capability" in line)
+    told = [copy.name for copy in (client, late) if any("unable to join game" in line or
+        "rejection_code" in line for line in copy.out() + copy.debug())]
+    steps["refused"] = step(drops >= 2 and len(told) == 2, f"the host dropped {drops} machine(s); told: {told or 'none'}")
+    loaded = [line for line in late.out() + late.debug() if "joined the game in progress" in line]
+    steps["no_load"] = step(not loaded, "the late OpenCE machine never loaded the game" if not loaded else loaded[0])
+    host_games, _ = read_games(host.out())
+    played = sum(len(game.ticks) for game in host_games)
+    ended = any(game.over() for game in host_games)
+    steps["plays_on"] = step(played >= 20, f"the host logged {played} s of Grifball, the game over: {ended}")
+    return steps
+
+
 # ---------- a run
 
 def addresses(base):
@@ -606,15 +667,28 @@ def plan(args):
         late = dict(join_test, HALO_NET_ADDRESS=late_address, HALO_NET_BROADCAST=host_address,
             HALO_TEST_INPUT=f"bot:{29 + number}")
         back = dict(client, HALO_TEST_INPUT=f"bot:{37 + number}")
+        # (our own baseline's first client also shoots through walls: the line_of_sight step)
+        if name == "control-ours":
+            client["HALO_NETWORK_TEST_SHOOT_WALLS"] = "true"
         directions.append({"name": name, "variants": variants, "copies": [
             (f"{name}/host-{host_kind}", host_kind, host, 0, HARD_LIMIT),
             (f"{name}/client-{client_kind}", client_kind, client, JOIN_DELAY, HARD_LIMIT),
             (f"{name}/late-{client_kind}", client_kind, late, None, HARD_LIMIT),
             (f"{name}/back-{client_kind}", client_kind, back, None, HARD_LIMIT)],
             "phase": 1 if name.startswith("control-") else 0})
+    if not args.only or "grifball" in args.only:
+        host_address, client_address, late_address = addresses(base + 30)
+        directions.append({"name": "grifball", "variants": ["grifball"], "grifball": True, "phase": 0, "copies": [
+            ("grifball/host-ours", "ours", dict(test, HALO_NETWORK_TEST="host:bloodgulch:grifball",
+                HALO_SOLO_GAME="true", HALO_NETWORK_TEST_BOMB="10", HALO_NET_ADDRESS=host_address,
+                HALO_NET_BROADCAST=f"{client_address},{late_address}"), 0, HARD_LIMIT),
+            ("grifball/client-theirs", "theirs", dict(join_test, HALO_NET_ADDRESS=client_address,
+                HALO_NET_BROADCAST=host_address, HALO_TEST_INPUT="bot:51"), JOIN_DELAY, HARD_LIMIT),
+            ("grifball/late-theirs", "theirs", dict(join_test, HALO_NET_ADDRESS=late_address,
+                HALO_NET_BROADCAST=host_address, HALO_TEST_INPUT="bot:53"), None, HARD_LIMIT)]})
     if getattr(args, "server", None) and (not args.only or "server" in args.only):
         server_address, first, second = addresses(base + 20)
-        directions.append({"name": "server", "variants": ["slayer"], "server": True, "phase": 0, "copies": [
+        directions.append({"name": "server", "variants": [getattr(args, "server_gametype", "slayer")], "server": True, "phase": 0, "copies": [
             ("server/server-ours", "server", {"HALO_NET_ADDRESS": server_address,
                 "HALO_NET_BROADCAST": f"{first},{second}", "HALO_DEDICATED": "crossplay-playlist.txt",
                 "HALO_DEDICATED_MINIMUM_PLAYERS": "2", "HALO_DEDICATED_CONSOLE": "false"}, 0, SERVER_RUN_SECONDS),
@@ -648,7 +722,7 @@ def run(args):
                 args.ours_table, args.ce_maps)
             if kind == "server":
                 with open(os.path.join(copy.folder, "data", "crossplay-playlist.txt"), "w") as file:
-                    file.write(f"{args.map.replace('custom_maps' + chr(92), '')}{'@ce' if chr(92) in args.map else ''} slayer\n")
+                    file.write(f"{args.map.replace('custom_maps' + chr(92), '')}{'@ce' if chr(92) in args.map else ''} {args.server_gametype}\n")
             direction["live"].append({"copy": copy, "delay": delay, "until": until})
     started = time.time()
     # the cross-play directions (and the server) first, then the baselines:
@@ -674,6 +748,16 @@ def play(directions):
             for direction in directions:
                 if direction.get("server"):
                     continue
+                if direction.get("grifball"):
+                    host, client, late = direction["live"]
+                    games = progress(host["copy"])
+                    first = games[0] if games else 0
+                    if late["delay"] is None and first >= GRIFBALL_LATE_AT:
+                        late["delay"] = now
+                    if first >= GRIFBALL_PLAY or (not games and now >= NO_GAME_LIMIT):
+                        for entry in direction["live"]:
+                            entry["until"] = min(entry["until"], now)
+                    continue
                 host, client, late, back = direction["live"]
                 if host["copy"].process is None:
                     continue
@@ -683,10 +767,16 @@ def play(directions):
                 first = games[0] if games else 0
                 if late["delay"] is None and first >= LATE_AT:
                     late["delay"] = now
-                if client["until"] == HARD_LIMIT and first >= LEAVE_AT:
+                # (the first client leaves once the late one plays: a host
+                # whose last opponent quits ends the game, as Halo does, and a
+                # host may take a few seconds to start a late machine, ours an
+                # OpenCE one's while it waits for a Delta HELLO)
+                if client["until"] == HARD_LIMIT and first >= LEAVE_AT and \
+                        (progress(late["copy"]) or first >= LEAVE_LIMIT):
                     log(f"{direction['name']}: the first client leaves {first} s into game 1")
                     client["until"] = now
-                if back["delay"] is None and first >= BACK_AT:
+                    direction["left_at"] = first
+                if back["delay"] is None and "left_at" in direction and first >= direction["left_at"] + BACK_AT - LEAVE_AT:
                     back["delay"] = now
                 if (len(games) >= 2 and games[1] >= SECOND_GAME_PLAY) or \
                         (games and now - direction["seen_at"] >= QUIET_LIMIT) or (not games and now >= NO_GAME_LIMIT):
@@ -724,15 +814,24 @@ def report(args, directions, seconds):
         copies = [entry["copy"] for entry in direction["live"]]
         if direction.get("server"):
             steps, versions = check_server(*copies), []
+        elif direction.get("grifball"):
+            steps, versions = check_grifball(*copies), []
         else:
             steps, versions = check_direction(*copies, direction["variants"])
         steps["stability"], warnings = stability(copies)
+        # (a refused OpenCE client's test quits by itself, cleanly: not a crash)
+        if direction.get("grifball") and not steps["stability"]["pass"]:
+            trouble = steps["stability"]["detail"]
+            if isinstance(trouble, dict) and all(all(text == "exited by itself, status 0" for text in texts)
+                                                 for texts in trouble.values()):
+                steps["stability"] = step(True, f"every copy ran on; refused clients quit cleanly ({sorted(trouble)})")
         checked[direction["name"]] = (steps, versions, warnings)
     for direction in directions:
         name = direction["name"]
         steps, versions, warnings = checked[name]
         host_kind = direction["copies"][0][1]
-        baseline = checked.get(f"control-{host_kind}") if not name.startswith("control-") and name != "server" else None
+        baseline = checked.get(f"control-{host_kind}") if not name.startswith("control-") and \
+            name not in ("server", "grifball") else None
         passed = True
         for step_name, value in steps.items():
             if value["pass"]:
@@ -746,6 +845,9 @@ def report(args, directions, seconds):
                 passed = False
         if not name.startswith("control-"):
             result["pass"] = result["pass"] and passed
+        elif "line_of_sight" in steps and not steps["line_of_sight"]["pass"]:
+            # (the host's line of sight is checked in our baseline alone)
+            result["pass"] = False
         result["directions"].append({"name": name, "pass": passed, "steps": steps, "warnings": warnings,
             "versions": versions[:16], "logs": os.path.join(os.path.abspath(args.work), name)})
         log(f"{name}: {'PASS' if passed else 'FAIL'}")
@@ -787,11 +889,16 @@ def build(args):
     if archive.wait():
         log(f"git archive {args.ref}: failed")
         return 2
-    subprocess.run([sys.executable, "configure.py", "--release", "--pgo=off", "--lto=off"], cwd=out, check=True,
+    subprocess.run([sys.executable, "configure.py", "--release", "--pgo=off", "--lto=off"]
+                   + (["--portable"] if args.portable else []), cwd=out, check=True,
         stdout=subprocess.DEVNULL)
     targets = ["linux"] + (["server-x86"] if args.server else [])
     subprocess.run(["ninja", "-j", str(os.cpu_count() or 4)] + targets, cwd=out, check=True)
-    log(f"built {args.ref}: {os.path.join(out, 'build', 'linux', 'halo')}")
+    # (chupathingy from 0.9.0; halo before, and in OpenCE)
+    program = os.path.join(out, "build", "linux", "chupathingy")
+    if not os.path.exists(program):
+        program = os.path.join(out, "build", "linux", "halo")
+    log(f"built {args.ref}: {program}")
     return 0
 
 
@@ -802,6 +909,9 @@ def main():
     run_parser.add_argument("--ours", required=True, help="ChupathingyCE's game (a Linux build)")
     run_parser.add_argument("--theirs", required=True, help="OpenCE's game (a Linux build)")
     run_parser.add_argument("--server", help="ChupathingyCE's dedicated server, for the server step")
+    run_parser.add_argument("--server-gametype", default="slayer", choices=["slayer", "ctf"],
+                            help="the server's game (slayer): in CTF a Delta server also writes the old "
+                                 "advertisement layout for released clients (docs/delta.md, \"The transition\")")
     run_parser.add_argument("--ce-maps", help="a folder of Custom Edition maps (and bitmaps.map, sounds.map, loc.map), "
                             "as both builds' custom_maps; then --map custom_maps\\NAME plays one")
     run_parser.add_argument("--ours-table", help="a legacy table file for our copies (HALO_LEGACY_TABLE)")
@@ -817,7 +927,7 @@ def main():
     for sub in (run_parser, check_parser):
         sub.add_argument("--maps", required=sub is run_parser, help="the Xbox maps folder (NTSC)")
         sub.add_argument("--map", default="bloodgulch")
-        sub.add_argument("--only", action="append", choices=["ours-host", "theirs-host", "server"])
+        sub.add_argument("--only", action="append", choices=["ours-host", "theirs-host", "server", "grifball"])
         sub.add_argument("--no-baseline", action="store_true", help="leave out each build playing itself")
         sub.add_argument("--work", required=True, help="a scratch folder for the copies' folders and logs")
         sub.add_argument("--out", required=True, help="the JSON result")
@@ -826,6 +936,8 @@ def main():
     build_parser.add_argument("--ref", required=True)
     build_parser.add_argument("--out", required=True)
     build_parser.add_argument("--server", action="store_true", help="the dedicated server too (ours)")
+    build_parser.add_argument("--portable", action="store_true",
+                              help="configure.py --portable: the build's own SDL 3 (OpenCE's, when the machine's is too old)")
     args = parser.parse_args()
     if args.command == "build":
         return build(args)

@@ -236,6 +236,10 @@ symbols in this file:
 #include "math/integer_math.h"
 #include "rasterizer/rasterizer_swizzle.h"
 #include "rasterizer/xbox/rasterizer_xbox_hardware_bitmaps.h"
+#ifdef HALO_BIG_ENDIAN
+/* port: a map's pixels in a big-endian console's byte order */
+#include "bitmap_byte_order.h"
+#endif
 
 /* ---------- constants */
 
@@ -294,6 +298,20 @@ enum
 };
 
 /* ---------- macros */
+
+/* port: a 16-bit or 32-bit texel of a map's pixels. They are the Xbox's,
+little-endian, on every build: a big-endian console reads them byte by
+byte (bitmap_byte_order.h), or the lightmap a particle or an object is lit
+by comes out with its bytes the other way around */
+#ifdef HALO_BIG_ENDIAN
+#define BITMAP_PIXEL16(pixels, index) \
+	((word)bitmap_byte_order_read16((byte const *)(pixels) + (index) * 2))
+#define BITMAP_PIXEL32(pixels, index) \
+	((pixel32)bitmap_byte_order_read32((byte const *)(pixels) + (index) * 4))
+#else
+#define BITMAP_PIXEL16(pixels, index) (((word const *)(pixels))[index])
+#define BITMAP_PIXEL32(pixels, index) (((pixel32 const *)(pixels))[index])
+#endif
 
 /* ---------- structures */
 
@@ -800,7 +818,7 @@ pixel32 bitmap_format_to_a8r8g8b8(
 	{
 	case _bitmap_format_r5g6b5:
 	{
-		word pixel = ((word const *)mipmap_address)[pixel_index];
+		word pixel = BITMAP_PIXEL16(mipmap_address, pixel_index);
 
 		result = 0xFF000000 |
 			(((((pixel >> 11) & 0x1F) << 3) | (((pixel >> 11) & 0x1F) >> 2)) << 16) |
@@ -811,7 +829,7 @@ pixel32 bitmap_format_to_a8r8g8b8(
 
 	case _bitmap_format_a1r5g5b5:
 	{
-		word pixel = ((word const *)mipmap_address)[pixel_index];
+		word pixel = BITMAP_PIXEL16(mipmap_address, pixel_index);
 
 		result = (((pixel >> 15) * 0xFF) << 24) |
 			(((((pixel >> 10) & 0x1F) << 3) | (((pixel >> 10) & 0x1F) >> 2)) << 16) |
@@ -822,7 +840,7 @@ pixel32 bitmap_format_to_a8r8g8b8(
 
 	case _bitmap_format_a4r4g4b4:
 	{
-		word pixel = ((word const *)mipmap_address)[pixel_index];
+		word pixel = BITMAP_PIXEL16(mipmap_address, pixel_index);
 
 		result = (((((pixel >> 12) & 0xF) << 4) | ((pixel >> 12) & 0xF)) << 24) |
 			(((((pixel >> 8) & 0xF) << 4) | ((pixel >> 8) & 0xF)) << 16) |
@@ -832,11 +850,11 @@ pixel32 bitmap_format_to_a8r8g8b8(
 	}
 
 	case _bitmap_format_x8r8g8b8:
-		result = ((pixel32 const *)mipmap_address)[pixel_index];
+		result = BITMAP_PIXEL32(mipmap_address, pixel_index);
 		break;
 
 	case _bitmap_format_a8r8g8b8:
-		result = ((pixel32 const *)mipmap_address)[pixel_index];
+		result = BITMAP_PIXEL32(mipmap_address, pixel_index);
 		break;
 
 	case _bitmap_format_a8:
@@ -861,7 +879,7 @@ pixel32 bitmap_format_to_a8r8g8b8(
 
 	case _bitmap_format_a8y8:
 	{
-		word pixel = ((word const *)mipmap_address)[pixel_index];
+		word pixel = BITMAP_PIXEL16(mipmap_address, pixel_index);
 		byte intensity = (byte)pixel;
 
 		result = ((pixel >> 8) << 24) | (intensity << 16) | (intensity << 8) | intensity;
@@ -1124,6 +1142,10 @@ pixel32 bitmap_2d_get_pixel(
 			short block_x = x / 4;
 			short block_y = y / 4;
 			byte *block_address = (byte *)mipmap_address + (block_y * width / 4 + block_x) * bytes_per_block;
+#ifdef HALO_BIG_ENDIAN
+			/* port: the block with its words in the console's byte order */
+			unsigned long block_copy[4];
+#endif
 
 			x &= 3;
 			y &= 3;
@@ -1156,6 +1178,28 @@ pixel32 bitmap_2d_get_pixel(
 					fast_ftol((real)width * point->x - 0.5f) % width,
 					fast_ftol((real)height * point->y - 0.5f) % height,
 					lod));
+
+#ifdef HALO_BIG_ENDIAN
+			/* port: a map's blocks are the Xbox's, little-endian: their colors
+			and indices are read in a copy in the console's order */
+			switch (bitmap->format)
+			{
+			case _bitmap_format_dxt1:
+				bitmap_byte_order_s3tc_rgb(block_address, block_copy);
+				block_address = (byte *)block_copy;
+				break;
+
+			case _bitmap_format_dxt3:
+				bitmap_byte_order_s3tc_alpha4(block_address, block_copy);
+				block_address = (byte *)block_copy;
+				break;
+
+			case _bitmap_format_dxt5:
+				bitmap_byte_order_s3tc_alpha3(block_address, block_copy);
+				block_address = (byte *)block_copy;
+				break;
+			}
+#endif
 
 			switch (bitmap->format)
 			{
@@ -1192,6 +1236,13 @@ pixel32 bitmap_2d_get_pixel(
 				pixel = 0;
 				break;
 			}
+
+#ifdef HALO_BIG_ENDIAN
+			/* port: the decoded color's bytes are blue, green, red and alpha,
+			a pixel32 as the Xbox keeps one; read as the CPU's own word they are
+			the other way around (the light under a particle, purple) */
+			pixel = (pixel32)bitmap_byte_order_s3tc_color(&pixel);
+#endif
 
 			return pixel;
 		}

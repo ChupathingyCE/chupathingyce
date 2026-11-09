@@ -106,6 +106,10 @@ struct command_permission
 	int read_without_argument;
 };
 
+/* every command the server has (server_commands.c's server_commands[];
+tools/test_server_control.py checks that none is left out). A command not
+here needs the console (control_command_permission): the reads anyone with
+a role may run are the VIEW ones here, and no others */
 static const struct command_permission command_permissions[] =
 {
 	{ "help", CONTROL_PERMISSION_VIEW, 0, 0 },
@@ -120,6 +124,8 @@ static const struct command_permission command_permissions[] =
 	{ "sv_gametype", CONTROL_PERMISSION_VIEW, 0, 0 },
 	{ "sv_settings", CONTROL_PERMISSION_VIEW, 0, 0 },
 	{ "sv_warn", CONTROL_PERMISSION_WARN, 1, 0 },
+	/* (what the server refused of each player: moderators' evidence) */
+	{ "sv_evidence", CONTROL_PERMISSION_WARN, 0, 0 },
 	/* (text chat: a server message, and a player's lines not passed on) */
 	{ "sv_say", CONTROL_PERMISSION_WARN, 1, 0 },
 	{ "sv_mute", CONTROL_PERMISSION_WARN, 1, 0 },
@@ -146,6 +152,7 @@ static const struct command_permission command_permissions[] =
 	{ "sv_name", CONTROL_PERMISSION_SETTINGS, 1, 1 },
 	{ "sv_name_filter", CONTROL_PERMISSION_SETTINGS, 1, 1 },
 	{ "sv_chat", CONTROL_PERMISSION_SETTINGS, 1, 1 },
+	{ "sv_welcome", CONTROL_PERMISSION_SETTINGS, 1, 1 },
 	{ "sv_set", CONTROL_PERMISSION_SETTINGS, 1, 0 },
 	{ "sv_gametype_new", CONTROL_PERMISSION_SETTINGS, 1, 0 },
 	{ "sv_gametype_set", CONTROL_PERMISSION_SETTINGS, 1, 0 },
@@ -167,6 +174,7 @@ static const struct command_permission command_permissions[] =
 	{ "sv_account_remove", CONTROL_PERMISSION_CONSOLE, 1, 0 },
 	{ "sv_account_reset", CONTROL_PERMISSION_CONSOLE, 1, 0 },
 	{ "sv_account_setup", CONTROL_PERMISSION_CONSOLE, 1, 0 },
+	{ "sv_setup_start", CONTROL_PERMISSION_CONSOLE, 1, 0 },
 };
 
 unsigned int control_command_permission(const char *line, int *changes)
@@ -203,7 +211,9 @@ unsigned int control_command_permission(const char *line, int *changes)
 		}
 		return command->permission;
 	}
-	return 0;
+	/* (a command the table does not know, if the server has one: the
+	console's alone, never a role's by being left out) */
+	return CONTROL_PERMISSION_CONSOLE;
 }
 
 /* ---------- keys and names */

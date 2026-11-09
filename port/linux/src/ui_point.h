@@ -27,6 +27,10 @@ struct ui_point_view
 	int gl_width, gl_height;
 	/* the game's screen width: 640, or more for a wide screen */
 	long screen_width;
+	/* the part of the window's pixels the picture is shown in, from the
+	top left (platform_video_present_area); a width or height of 0 is the
+	whole window */
+	int area_left, area_top, area_width, area_height;
 };
 
 /* a point of the window in the menus' coordinates; 0 and -1, -1 when the
@@ -36,5 +40,21 @@ int ui_point_from_window(struct ui_point_view const *view, float window_x, float
 /* the middle of a menu pixel in the window's points; 0 when the view has
 no size yet */
 int ui_point_to_window(struct ui_point_view const *view, short x, short y, float *window_x, float *window_y);
+
+/* a prompt of the menus drawn as text, not widgets, so it has no tap
+targets of its own (the carnage report's "B =quit    A =pick game"): its
+line's top and bottom, its left and right ends, and where its second part
+begins (right when it has one part) */
+struct ui_point_prompt
+{
+	short top, bottom;
+	short left, right;
+	short split;
+};
+
+/* the part of a prompt a menu point is on: 0 for the first, 1 for the
+second, -1 for neither; margin widens the prompt on every side (a finger
+is less exact than a mouse) */
+int ui_point_prompt_part(struct ui_point_prompt const *prompt, short margin, short x, short y);
 
 #endif

@@ -15,6 +15,8 @@ enum
 	/* a map's name or path, and a game type's name, with their ends */
 	DEDICATED_MAP_SIZE = 128,
 	DEDICATED_VARIANT_SIZE = 32,
+	/* the last entry skipped and why, with its end */
+	DEDICATED_SKIPPED_SIZE = 256,
 };
 
 enum
@@ -58,6 +60,8 @@ struct dedicated_status
 	boolean playlist_shuffle;
 	char name[16];
 	unsigned long uptime_seconds;
+	/* the last entry skipped and why ("slayer on x@ce: ..."; empty if none) */
+	char skipped[DEDICATED_SKIPPED_SIZE];
 };
 
 boolean dedicated_server_active(void);
@@ -79,6 +83,8 @@ boolean dedicated_server_end_game(void);
 
 void dedicated_server_set_maximum_players(long maximum_players);
 void dedicated_server_set_minimum_players(long minimum_players);
+/* the lobby's game started after a short countdown, once it may run */
+void dedicated_server_start_soon(void);
 void dedicated_server_set_idle_limit(long idle_limit);
 void dedicated_server_set_name(char const *name);
 void dedicated_server_set_name_filter(boolean name_filter);

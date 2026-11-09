@@ -104,11 +104,7 @@ void data_initialize(
 	data->maximum_count = maximum_count;
 	data->size = size;
 	data->signature = 'd@t@';
-#ifdef HALO_64BIT
-	data->data = xbox_address(data+1);
-#else
-	data->data = data+1;
-#endif
+	data->data = DATA_ARRAY_OWN_ELEMENTS(data);
 	data->valid = FALSE;
 
 	return;

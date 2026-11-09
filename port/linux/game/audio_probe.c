@@ -34,10 +34,12 @@ The probe file, one statement a line, # starting a comment:
 		to be the spot's
 	tail 6
 		seconds of silence after a spot's last sound, for the reverb's tail
-	sound <seconds> <distance> <label> <tag>
+	sound <seconds> <distance>[@<degrees>] <label> <tag>
 		at every spot, the sound tag (sound\sfx\weapons\pistol\fire) that
 		many seconds after the spot settled, that many world units ahead
-		of the camera; the label names it in the log
+		of the camera, or that many degrees around from ahead (to the left:
+		6@90 is 6 units to the camera's left, 6@180 behind it); the label
+		names it in the log
 	spot <name> <x> <y> <z> <yaw> [<pitch>]
 		a camera position, its facing in degrees
 
@@ -122,6 +124,7 @@ struct audio_probe_sound
 {
 	real time;
 	real distance;
+	real angle;
 	char label[AUDIO_PROBE_NAME_SIZE];
 	char tag[AUDIO_PROBE_PATH_SIZE];
 };
@@ -288,6 +291,7 @@ static boolean audio_probe_read(char const *path)
 
 				sound->time = (real)atof(time);
 				sound->distance = (real)atof(distance);
+				sound->angle = strchr(distance, '@') ? (real)atof(strchr(distance, '@') + 1) : 0.0f;
 				audio_probe_copy(sound->label, sizeof(sound->label), label);
 				audio_probe_copy(sound->tag, sizeof(sound->tag), tag);
 				/* (in the order they play) */
@@ -461,9 +465,9 @@ static void audio_probe_play(struct audio_probe_sound const *sound)
 	}
 	*get_global_local_random_seed_address() = AUDIO_PROBE_SEED + (unsigned long)audio_probe.event_count;
 
-	/* ahead of the camera, level with it */
-	ahead.i = (real)cos(spot->yaw * AUDIO_PROBE_RADIANS_PER_DEGREE);
-	ahead.j = (real)sin(spot->yaw * AUDIO_PROBE_RADIANS_PER_DEGREE);
+	/* ahead of the camera (or around from ahead), level with it */
+	ahead.i = (real)cos((spot->yaw + sound->angle) * AUDIO_PROBE_RADIANS_PER_DEGREE);
+	ahead.j = (real)sin((spot->yaw + sound->angle) * AUDIO_PROBE_RADIANS_PER_DEGREE);
 	ahead.k = 0.0f;
 	csmemset(&location, 0, sizeof(location));
 	location.position.x = spot->position.x + ahead.i * sound->distance;
@@ -476,8 +480,8 @@ static void audio_probe_play(struct audio_probe_sound const *sound)
 	sound_index = unattached_impulse_sound_new(definition_index, &location, 1.0f);
 	/* (and where the camera is, which is where the listener is) */
 	camera = observer_get_camera(0);
-	audio_probe_log("sound index=%d spot=%s label=%s frame=%lu distance=%.2f started=%s camera=%.2f,%.2f,%.2f tag=%s",
-		audio_probe.event_count, spot->name, sound->label, audio_capture_frames(), sound->distance,
+	audio_probe_log("sound index=%d spot=%s label=%s frame=%lu distance=%.2f angle=%.0f started=%s camera=%.2f,%.2f,%.2f "
+		"tag=%s", audio_probe.event_count, spot->name, sound->label, audio_capture_frames(), sound->distance, sound->angle,
 		sound_index != NONE ? "yes" : "no", camera->position.x, camera->position.y, camera->position.z, sound->tag);
 	audio_probe.event_count++;
 }

@@ -4,7 +4,8 @@ TAG_BYTE_SWAP_TEST.C
 tag_byte_swap_tags (port/console/game/tag_byte_swap.c) on a real Xbox map,
 read as a big-endian console reads it: after the swap every block it follows
 must have been taken, and a tag the swap has already done must be left as it
-is. Usage: tag_byte_swap_test <map> (a map of assets/maps); built by
+is. Usage: tag_byte_swap_test <map> (a map of assets/maps), or
+tag_byte_swap_test --synthetic (a model made here, no map needed); built by
 port/console/tests/run_tag_byte_swap_test.sh.
 */
 
@@ -159,6 +160,114 @@ static int swap_bsp(const unsigned char *decoded, unsigned long file_offset, uns
 	return failed;
 }
 
+static void le16_put(unsigned char *at, unsigned short value)
+{
+	at[0] = (unsigned char)value;
+	at[1] = (unsigned char)(value >> 8);
+}
+
+static void le32_put(unsigned char *at, unsigned long value)
+{
+	at[0] = (unsigned char)value;
+	at[1] = (unsigned char)(value >> 8);
+	at[2] = (unsigned char)(value >> 16);
+	at[3] = (unsigned char)(value >> 24);
+}
+
+/* a model made here, as Halo CE+X maps have them: parts that share one
+index range, overlap another, and overlap a triangles block (whose words
+its layout swaps). Every index word must be swapped once, and read as the
+map wrote it */
+#define SYNTHETIC_SIZE 0x2000
+#define SYNTHETIC_INSTANCES 0x40
+#define SYNTHETIC_MODEL 0x100
+#define SYNTHETIC_GEOMETRY 0x200
+#define SYNTHETIC_PARTS 0x300
+#define SYNTHETIC_INDICES 0x1000
+
+static int synthetic_test(void)
+{
+	/* each part: strip or list, count, its indices' offset, its triangles block's (0 for none) */
+	static const struct { unsigned short type; unsigned long count, indices, triangles; } parts[] =
+	{
+		{ 0, 2, 0x1000, 0 }, /* 0x1000-0x100C */
+		{ 0, 2, 0x1000, 0 }, /* the same */
+		{ 0, 2, 0x1006, 0 }, /* half over the first, to 0x1012 */
+		{ 1, 1, 0x1020, 0 }, /* a strip, 0x1020-0x1026 */
+		{ 0, 1, 0x1040, 0x1040 }, /* its own triangles block, 0x1040-0x1046 */
+		{ 0, 2, 0x103A, 0 }, /* over that triangles block, 0x103A-0x1046 */
+	};
+	static const struct { unsigned long start, end; } swapped[] =
+	{
+		{ 0x1000, 0x1012 }, { 0x1020, 0x1026 }, { 0x103A, 0x1046 },
+	};
+	unsigned char *tags = calloc(1, SYNTHETIC_SIZE);
+	unsigned char *counts = calloc(1, SYNTHETIC_SIZE);
+	unsigned long index, part_count = sizeof(parts) / sizeof(parts[0]);
+	int failed = 0;
+
+	/* the tag header and index, the console's already */
+	be32(tags, TAG_CACHE_ADDRESS + SYNTHETIC_INSTANCES);
+	be32(tags + 0xC, 1);
+	be32(tags + SYNTHETIC_INSTANCES, 0x6D6F6465UL); /* 'mode' */
+	be32(tags + SYNTHETIC_INSTANCES + 0x14, TAG_CACHE_ADDRESS + SYNTHETIC_MODEL);
+	/* the model, its geometry and parts, the map's */
+	le32_put(tags + SYNTHETIC_MODEL + 0xD0, 1);
+	le32_put(tags + SYNTHETIC_MODEL + 0xD4, TAG_CACHE_ADDRESS + SYNTHETIC_GEOMETRY);
+	le32_put(tags + SYNTHETIC_GEOMETRY + 0x24, part_count);
+	le32_put(tags + SYNTHETIC_GEOMETRY + 0x28, TAG_CACHE_ADDRESS + SYNTHETIC_PARTS);
+	for (index = 0; index < part_count; index++)
+	{
+		unsigned char *part = tags + SYNTHETIC_PARTS + index * 0x68;
+
+		if (parts[index].triangles)
+		{
+			le32_put(part + 0x38, parts[index].count);
+			le32_put(part + 0x3C, TAG_CACHE_ADDRESS + parts[index].triangles);
+		}
+		le16_put(part + 0x44, parts[index].type);
+		le32_put(part + 0x48, parts[index].count);
+		le32_put(part + 0x4C, TAG_CACHE_ADDRESS + parts[index].indices);
+	}
+	/* each index word its own offset */
+	for (index = SYNTHETIC_INDICES; index < SYNTHETIC_INDICES + 0x100; index += 2)
+		le16_put(tags + index, (unsigned short)index);
+
+	tag_byte_swap_test_base = tags;
+	tag_byte_swap_test_size = SYNTHETIC_SIZE;
+	tag_byte_swap_test_counts = counts;
+	tag_byte_swap_tags(tags, TAG_CACHE_ADDRESS, SYNTHETIC_SIZE);
+	tag_byte_swap_test_counts = NULL;
+	if (check_counts("synthetic", counts, SYNTHETIC_SIZE, 0))
+		failed = 1;
+	for (index = 0; index < sizeof(swapped) / sizeof(swapped[0]); index++)
+	{
+		unsigned long at;
+
+		for (at = swapped[index].start; at < swapped[index].end; at += 2)
+		{
+			unsigned short value = (unsigned short)((tags[at] << 8) | tags[at + 1]);
+
+			if (counts[at] != 1 || counts[at + 1] != 1 || value != at)
+			{
+				printf("FAIL: synthetic: the index at +0x%lx reads 0x%x (swapped %d times)\n", at, value, counts[at]);
+				failed = 1;
+				break;
+			}
+		}
+	}
+	if (reports || summary_bad != 0)
+	{
+		printf("FAIL: synthetic: %d blocks reported not swapped (summary %d)\n", reports, summary_bad);
+		failed = 1;
+	}
+	if (!failed)
+		printf("PASS: synthetic\n");
+	free(counts);
+	free(tags);
+	return failed;
+}
+
 int main(int argc, char **argv)
 {
 	unsigned long want_tags = 0, want_bsp = 0, bsp_count = 0, bsp_references = 0, scenario_offset = 0;
@@ -174,9 +283,11 @@ int main(int argc, char **argv)
 
 	if (argc < 2)
 	{
-		printf("usage: tag_byte_swap_test <map>\n");
+		printf("usage: tag_byte_swap_test <map> | --synthetic\n");
 		return 2;
 	}
+	if (!strcmp(argv[1], "--synthetic"))
+		return synthetic_test();
 	file = fopen(argv[1], "rb");
 	if (!file)
 	{

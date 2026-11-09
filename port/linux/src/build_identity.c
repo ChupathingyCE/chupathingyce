@@ -42,6 +42,9 @@ HALO_BUILD_FLAVOR.
 #define BUILD_IDENTITY_PLATFORM "Windows"
 #elif defined(__APPLE__)
 #define BUILD_IDENTITY_PLATFORM "macOS"
+#elif defined(HALO_UNIX_PLATFORM_NAME)
+/* (the other Unix hosts': tools/unix64_build.py) */
+#define BUILD_IDENTITY_PLATFORM HALO_UNIX_PLATFORM_NAME
 #else
 #define BUILD_IDENTITY_PLATFORM "Linux"
 #endif
@@ -51,6 +54,10 @@ HALO_BUILD_FLAVOR.
 #define BUILD_IDENTITY_ARCHITECTURE "arm64"
 #elif defined(__x86_64__) || defined(_M_X64)
 #define BUILD_IDENTITY_ARCHITECTURE "x64"
+/* (32-bit ARM ahead of _M_IX86, which halo_linux_prefix.h defines for the
+XDK's headers on every 32-bit build) */
+#elif defined(__arm__)
+#define BUILD_IDENTITY_ARCHITECTURE "arm"
 #elif defined(__i386__) || defined(_M_IX86)
 #define BUILD_IDENTITY_ARCHITECTURE "x86"
 #else
@@ -115,10 +122,10 @@ const char *build_identity_commit(void)
 	return HALO_COMMIT;
 }
 
+static char watermark[160];
+
 const char *build_identity_watermark(void)
 {
-	static char watermark[64];
-
 	if (!watermark[0])
 	{
 		if (strcmp(HALO_COMMIT, "unknown"))
@@ -127,6 +134,17 @@ const char *build_identity_watermark(void)
 			snprintf(watermark, sizeof(watermark), "%s", HALO_VERSION);
 	}
 	return watermark;
+}
+
+void build_identity_watermark_update(const char *version, const char *where)
+{
+	char base[64];
+
+	if (strcmp(HALO_COMMIT, "unknown"))
+		snprintf(base, sizeof(base), "%s (%.7s)", HALO_VERSION, HALO_COMMIT);
+	else
+		snprintf(base, sizeof(base), "%s", HALO_VERSION);
+	snprintf(watermark, sizeof(watermark), "%s - %s is out: update %s", base, version, where);
 }
 
 const char *build_identity_platform(void)

@@ -73,6 +73,8 @@ machine (their datum identifiers need not be).
 #include "units/biped_definitions.h"
 #include "units/bipeds.h"
 #include "network_coop.h"
+#include "host_evidence.h"
+#include "conduct_rules.h"
 #include "network_distributed.h"
 #include "network_rules.h"
 #include "../src/delta_chat_bridge.h"
@@ -114,6 +116,7 @@ unsigned long p2p_peer_endpoint_address(unsigned long virtual_address);
 boolean network_connection_last_read_was_unreliable(void);
 boolean main_menu_is_active(void);
 int config_boolean(char const *name);
+long config_integer(char const *name);
 unsigned int network_game_client_host_network_version(void);
 unsigned long system_milliseconds(void);
 void console_warning(const char *format, ...);
@@ -887,7 +890,7 @@ static void distributed_batch_flush(
 	header->count = 0;
 	header->game_time = game_time_get();
 	header->header = 0;
-	build_message_header(&header->header, batch->size, 2, 0);
+	build_message_header(&header->header, batch->size, 2, 0); WIRE_HEADER_OUT(header);
 	if (sender == HOST_SENDER)
 		network_distributed_client_send(batch->data, batch->size);
 	else
@@ -926,7 +929,7 @@ static void distributed_batch_append(
 
 	if (!batch->size)
 		batch->size = sizeof(struct distributed_message_header);
-	csmemcpy(batch->data + batch->size, &length, sizeof(word));
+	WIRE_WORD_OUT(&length); csmemcpy(batch->data + batch->size, &length, sizeof(word));
 	csmemcpy(batch->data + batch->size + sizeof(word), (byte const *)header + sizeof(message_header),
 		sizeof(*header) - sizeof(message_header));
 	csmemcpy(batch->data + batch->size + BATCH_MESSAGE_OVERHEAD, entries, entries_size);
@@ -1030,7 +1033,7 @@ void distributed_send(
 	word size,
 	short destination)
 {
-	distributed_fill_header(message, type, count, size);
+	distributed_fill_header(message, type, count, size); WIRE_MESSAGE_OUT(message, size);
 	switch (destination)
 	{
 	case _distributed_to_clients:
@@ -1060,7 +1063,7 @@ void distributed_send_to_machine(
 {
 	if (machine_index < 0 || machine_index >= HALO_PORT_MAXIMUM_NETWORK_MACHINES)
 		return;
-	distributed_fill_header(message, type, count, size);
+	distributed_fill_header(message, type, count, size); WIRE_MESSAGE_OUT(message, size);
 	distributed_batch_add((short)machine_index, message, size, distributed_entry_size(count, size));
 }
 
@@ -1071,7 +1074,7 @@ void distributed_send_to_machine_reliably(
 	short count,
 	word size)
 {
-	distributed_fill_header(message, type, count, size);
+	distributed_fill_header(message, type, count, size); WIRE_MESSAGE_OUT(message, size);
 	network_distributed_server_send_to_machine_reliably(machine_index, message, size);
 }
 
@@ -1091,7 +1094,7 @@ static void distributed_packer_begin(
 	packer->size = prefix_size;
 	packer->room = 0;
 	if (prefix_size)
-		csmemcpy(packer->message.data, prefix, prefix_size);
+		csmemcpy(packer->message.data, prefix, prefix_size); WIRE_PREFIX_OUT(packer->message.data, prefix_size);
 }
 
 /* the message packed so far, into the batch */
@@ -1103,7 +1106,7 @@ static void distributed_packer_flush(
 	if (!packer->count)
 		return;
 	distributed_fill_header(&packer->message, packer->type, packer->count, size);
-	distributed_batch_add(packer->sender, &packer->message, size, 0);
+	distributed_batch_add(packer->sender, WIRE_MESSAGE(&packer->message, size), size, 0);
 	packer->count = 0;
 	packer->size = packer->prefix_size;
 }
@@ -1129,7 +1132,7 @@ static void distributed_packer_add(
 
 /* the bytes of what a message says, in order: written, and read no further
 than its end (FALSE past it) */
-static byte *distributed_put(
+static byte *(distributed_put)(
 	byte *cursor,
 	void const *data,
 	short size)
@@ -1138,7 +1141,7 @@ static byte *distributed_put(
 	return cursor + size;
 }
 
-static boolean distributed_take(
+static boolean (distributed_take)(
 	byte const **cursor,
 	byte const *end,
 	void *data,
@@ -1289,6 +1292,7 @@ static boolean distributed_machine_loaded(
 	csmemset(&distributed_client_clocks[machine_index], 0, sizeof(distributed_client_clocks[machine_index]));
 	distributed_client_clocks[machine_index].window_tick = NONE;
 	csmemset(&distributed_client_identities[machine_index], 0, sizeof(distributed_client_identities[machine_index]));
+	host_evidence_reset_machine(machine_index);
 	for (player_index = 0; player_index < MAXIMUM_TRACKED_PLAYERS; player_index++)
 		distributed_seen[machine_index][player_index] = FALSE;
 	return TRUE;
@@ -1457,13 +1461,13 @@ static word distributed_unit_state_write(
 		}
 		if (TEST_FLAG(flags, _distributed_unit_placed_bit))
 		{
-			cursor = distributed_put(cursor, &state->position, sizeof(state->position));
-			cursor = distributed_put(cursor, &state->velocity, sizeof(state->velocity));
-			cursor = distributed_put(cursor, &state->forward, sizeof(state->forward));
+			cursor = distributed_put_parts(cursor, &state->position, sizeof(state->position), sizeof(real));
+			cursor = distributed_put_parts(cursor, &state->velocity, sizeof(state->velocity), sizeof(short));
+			cursor = distributed_put_parts(cursor, &state->forward, sizeof(state->forward), sizeof(short));
 			if (state->up.i || state->up.j || state->up.k != (short)DISTRIBUTED_UNIT_SCALE)
 			{
 				SET_FLAG(parts, _distributed_unit_part_up_bit, TRUE);
-				cursor = distributed_put(cursor, &state->up, sizeof(state->up));
+				cursor = distributed_put_parts(cursor, &state->up, sizeof(state->up), sizeof(short));
 			}
 		}
 		if (TEST_FLAG(flags, _distributed_unit_predicted_bit))
@@ -1490,7 +1494,7 @@ static word distributed_unit_state_write(
 			if (powerup_index < NUMBER_OF_PLAYER_POWERUPS)
 			{
 				SET_FLAG(parts, _distributed_unit_part_powerups_bit, TRUE);
-				cursor = distributed_put(cursor, state->powerup_durations, sizeof(state->powerup_durations));
+				cursor = distributed_put_parts(cursor, state->powerup_durations, sizeof(state->powerup_durations), sizeof(short));
 			}
 		}
 		if (state->unit_flags || state->active_camouflage)
@@ -1544,11 +1548,11 @@ static word distributed_unit_state_read(
 			return 0;
 		}
 		if (TEST_FLAG(state->flags, _distributed_unit_placed_bit) &&
-			(!distributed_take(&cursor, end, &state->position, sizeof(state->position)) ||
-				!distributed_take(&cursor, end, &state->velocity, sizeof(state->velocity)) ||
-				!distributed_take(&cursor, end, &state->forward, sizeof(state->forward)) ||
+			(!distributed_take_parts(&cursor, end, &state->position, sizeof(state->position), sizeof(real)) ||
+				!distributed_take_parts(&cursor, end, &state->velocity, sizeof(state->velocity), sizeof(short)) ||
+				!distributed_take_parts(&cursor, end, &state->forward, sizeof(state->forward), sizeof(short)) ||
 				(TEST_FLAG(parts, _distributed_unit_part_up_bit) &&
-					!distributed_take(&cursor, end, &state->up, sizeof(state->up)))))
+					!distributed_take_parts(&cursor, end, &state->up, sizeof(state->up), sizeof(short)))))
 		{
 			return 0;
 		}
@@ -1571,7 +1575,7 @@ static word distributed_unit_state_read(
 			return 0;
 		}
 		if (TEST_FLAG(parts, _distributed_unit_part_powerups_bit) &&
-			!distributed_take(&cursor, end, state->powerup_durations, sizeof(state->powerup_durations)))
+			!distributed_take_parts(&cursor, end, state->powerup_durations, sizeof(state->powerup_durations), sizeof(short)))
 		{
 			return 0;
 		}
@@ -1843,6 +1847,9 @@ struct distributed_on_foot_bound
 	real rise_speed;
 	real rise_base;
 	long airborne_ticks;
+	/* gravity on it in the air (a Bomb game type's trait: world units a
+	tick, each tick) */
+	real gravity;
 };
 
 /* (the host) how fast a client's player's unit on foot may go, a tick, and
@@ -1934,6 +1941,11 @@ static void distributed_on_foot_bound(
 		struct biped_definition *definition = biped_definition_get(biped->definition_index);
 
 		jump_speed = definition->biped.jump_velocity;
+#ifdef HALO_GAME_BROWSER
+		/* (a Bomb game type's jump trait, as biped_jump has it) */
+		if (player)
+			jump_speed *= game_engine_traits_jump_multiplier(DATUM_INDEX_NEW(player_index, player->identifier));
+#endif
 		crouch_rise = definition->biped.collision_height_standing - definition->biped.collision_height_crouching;
 	}
 	base_speed = PREDICTED_ON_FOOT_SPEED_SCALE * (real)sqrt(run_speed * run_speed + jump_speed * jump_speed);
@@ -1989,8 +2001,14 @@ static void distributed_on_foot_bound(
 		rise_speed += jump_speed;
 	rise_speed += MAX(jump_speed, run_speed);
 	bound->rise = UNIT_WORLD_BOUND;
-	if (biped && global_gravity > 0.0f)
-		bound->rise = rise_speed * rise_speed / (2.0f * global_gravity) + crouch_rise + PREDICTED_RISE_TOLERANCE;
+	/* (and its gravity trait, as bipeds.c has it) */
+	bound->gravity = global_gravity;
+#ifdef HALO_GAME_BROWSER
+	if (player)
+		bound->gravity *= game_engine_traits_gravity_multiplier(DATUM_INDEX_NEW(player_index, player->identifier));
+#endif
+	if (biped && bound->gravity > 0.0f)
+		bound->rise = rise_speed * rise_speed / (2.0f * bound->gravity) + crouch_rise + PREDICTED_RISE_TOLERANCE;
 	bound->rise_speed = rise_speed;
 	bound->rise_base = crouch_rise + PREDICTED_RISE_TOLERANCE;
 	bound->airborne_ticks = noted->grounded ? 0 : now - noted->ground_time;
@@ -2009,8 +2027,8 @@ static real distributed_on_foot_fall_speed(
 	real drop = bound->top_height - height;
 	real speed = bound->speed;
 
-	if (drop > 0.0f && global_gravity > 0.0f)
-		speed += (real)sqrt(2.0f * global_gravity * drop);
+	if (drop > 0.0f && bound->gravity > 0.0f)
+		speed += (real)sqrt(2.0f * bound->gravity * drop);
 	return MIN(speed, MAXIMUM_PREDICTED_SPEED);
 }
 
@@ -2031,9 +2049,9 @@ static real distributed_on_foot_ceiling(
 			(real)PREDICTION_CEILING_LEAD_TICKS) -
 		(real)PREDICTION_JITTER_TICKS;
 
-	if (bound->airborne_ticks > 0 && ticks > 0.0f && global_gravity > 0.0f)
+	if (bound->airborne_ticks > 0 && ticks > 0.0f && bound->gravity > 0.0f)
 	{
-		real ceiling = bound->rise_base + bound->rise_speed * ticks - 0.5f * global_gravity * ticks * ticks;
+		real ceiling = bound->rise_base + bound->rise_speed * ticks - 0.5f * bound->gravity * ticks * ticks;
 
 		if (ceiling < rise)
 			rise = ceiling;
@@ -2107,8 +2125,12 @@ static void distributed_take_prediction(
 	dx = position.x - object->object.position.x;
 	dy = position.y - object->object.position.y;
 	dz = position.z - object->object.position.z;
+	/* (each refusal counted for the server's moderators: host_evidence.h) */
 	if (!(dx * dx + dy * dy + dz * dz <= HOST_ACCEPT_TOLERANCE * HOST_ACCEPT_TOLERANCE))
+	{
+		host_evidence_note(distributed_player_machine(player_index), _host_evidence_movement);
 		return;
+	}
 	if (distributed_accepted[player_index].valid)
 	{
 		long ticks = MIN(distributed_predictions[player_index].time - distributed_accepted[player_index].time,
@@ -2128,6 +2150,7 @@ static void distributed_take_prediction(
 		else if (ticks <= 0 || !distributed_on_foot_move_valid(bound, &distributed_accepted[player_index].position,
 			&position, ticks))
 		{
+			host_evidence_note(distributed_player_machine(player_index), _host_evidence_movement);
 			return;
 		}
 	}
@@ -2137,6 +2160,7 @@ static void distributed_take_prediction(
 	if (!(position.z - distributed_host_speeds[player_index].ground_height <=
 		distributed_on_foot_ceiling(player_index, bound)))
 	{
+		host_evidence_note(distributed_player_machine(player_index), _host_evidence_movement);
 		return;
 	}
 	/* (the client told which of its ticks the host has it at) */
@@ -2431,6 +2455,52 @@ absolute index. Recorded as read; the host's own friendly fire setting
 decides what hurts. */
 static boolean distributed_coop_declined[MAXIMUM_TRACKED_PLAYERS];
 
+/* (the host) each client player's input as it last changed, and when
+(system_milliseconds), for a dedicated server's AFK limit
+(server/src/server_conduct.c): the same input again and again is none */
+static struct
+{
+	boolean valid;
+	struct conduct_input input;
+	unsigned long time;
+} distributed_input_activity[MAXIMUM_TRACKED_PLAYERS];
+
+/* (the host) when a client's player's input last was input (conduct_rules.h),
+system_milliseconds; 0 if it sent none this game */
+unsigned long network_distributed_player_input_time(
+	short player_index)
+{
+	if (player_index < 0 || player_index >= MAXIMUM_TRACKED_PLAYERS || !distributed_input_activity[player_index].valid)
+		return 0;
+	return distributed_input_activity[player_index].time ? distributed_input_activity[player_index].time : 1;
+}
+
+static void distributed_note_input_activity(
+	short player_index,
+	struct player_action const *action)
+{
+	struct conduct_input input;
+
+	csmemset(&input, 0, sizeof(input));
+	input.control_flags = action->control_flags;
+	input.yaw = action->desired_facing.yaw;
+	input.pitch = action->desired_facing.pitch;
+	input.throttle_i = action->throttle.i;
+	input.throttle_j = action->throttle.j;
+	input.primary_trigger = action->primary_trigger;
+	input.weapon_index = action->desired_weapon_index;
+	input.grenade_index = action->desired_grenade_index;
+	input.zoom_level = action->desired_zoom_level;
+	/* (the first: input, as the player just came) */
+	if (!distributed_input_activity[player_index].valid ||
+		conduct_input_active(&distributed_input_activity[player_index].input, &input))
+	{
+		distributed_input_activity[player_index].time = system_milliseconds();
+	}
+	distributed_input_activity[player_index].valid = TRUE;
+	distributed_input_activity[player_index].input = input;
+}
+
 /* (the host, in co-op) a client player's input counted in the scripts'
 action tests, as a local player's is (player_control_action_test_note) */
 static void distributed_note_input_actions(
@@ -2490,6 +2560,7 @@ static void distributed_handle_inputs(
 		/* (whether the player declined friendly fire: any value but 0; kept
 		for the player, which no rule of this host uses yet) */
 		distributed_coop_declined[input->player_index] = input->coop_no_friendly_fire != 0;
+		distributed_note_input_activity(input->player_index, &action);
 		update_server_handle_distributed_input(DATUM_INDEX_NEW(input->player_index, player->identifier), input->tick,
 			&action, input->control_flags, DISTRIBUTED_INPUT_HISTORY);
 		if (input->host_time != NONE && (host_time == NONE || input->host_time > host_time))
@@ -2986,6 +3057,13 @@ void network_distributed_player_killed(
 		death->friendly_fire = *friendly_fire;
 		death->killed_by_vehicle = *killing_player_index == NONE && killing_object &&
 			killing_object->object.type == _object_type_vehicle;
+#ifdef HALO_GAME_BROWSER
+		/* (a death that counts nothing, Bomb's blast taking the scoring
+		team's own: the player's own, by a vehicle, which no other death
+		is; a client before this took it as the player's own) */
+		if (game_engine_bomb_silent_death(*killing_player_index, dead_player_index, *friendly_fire))
+			death->killed_by_vehicle = TRUE;
+#endif
 		distributed_statistics_due = TRUE;
 	}
 	else if (game_connection() == _game_connection_network_client && death->valid)
@@ -3008,6 +3086,20 @@ void network_distributed_player_killed(
 			*killing_object_index = NONE;
 		}
 	}
+}
+
+/* (a client) whether the host's word on a player's death is that it counts
+nothing (network_distributed_player_killed) */
+boolean network_distributed_death_silent(
+	long dead_player_index)
+{
+	short dead_absolute_index = (short)DATUM_INDEX_TO_ABSOLUTE_INDEX(dead_player_index);
+	struct distributed_death const *death;
+
+	if (dead_absolute_index < 0 || dead_absolute_index >= MAXIMUM_TRACKED_PLAYERS)
+		return FALSE;
+	death = &distributed_deaths[dead_absolute_index];
+	return death->valid && death->killing_player_index == dead_absolute_index && death->killed_by_vehicle;
 }
 
 /* (a client) the host's word on how a player died, with the damage that
@@ -3202,6 +3294,120 @@ boolean network_aim_assist_blocked(
 		distributed_aim_assist_setting(), distributed_aim_assist_blocked_by_host);
 }
 
+boolean network_rules_of_version(
+	unsigned int version)
+{
+	unsigned int host;
+
+	/* (a host, or a game of this machine's own: by the number it announces,
+	the built-in one or a legacy table's, which its OpenCE machines are of) */
+	if (game_connection() != _game_connection_network_client)
+		return (unsigned int)delta_legacy_announce() >= version;
+	host = network_game_client_host_network_version();
+	return host != NETWORK_RULES_VERSION_UNKNOWN && host >= version;
+}
+
+/* a client: the host's shield effects, as it last said (message 91), stock
+at the start of every game. They are its choice of how every machine draws
+players' shields, for fairness; this build has no glow or light show of its
+own and draws stock, which a stock host's game is exactly, and the others
+differ from only in their look. 6 (version 38) leaves each machine its own
+player's look; this build has no look of its own to choose, so it draws stock
+for it too. */
+static short distributed_shield_effects = 0;
+/* (whether the host has said them this game, for the log) */
+static boolean distributed_shield_effects_heard = FALSE;
+
+short network_shield_effects(
+	void)
+{
+	return distributed_shield_effects;
+}
+
+/* OpenCE's distributed message 92, client_build, which this build never
+sends and drops unread */
+#define DISTRIBUTED_CLIENT_BUILD_KIND 92
+
+/* the distributed message kinds this game has seen that this build does not
+know, a bit a kind (each said in the log once a game) */
+static byte distributed_unknown_kinds_seen[32];
+/* (the host) the client machines whose OpenCE vote this game has dropped, a
+bit a machine: each told once, and logged once */
+static byte distributed_vote_machines_told[(HALO_PORT_MAXIMUM_NETWORK_MACHINES + 7) / 8];
+
+/* (the host) an OpenCE client's vote (its ask for a kick or the game's end,
+78, or its map choice, 95), dropped unread: the first from a machine this
+game is logged (its kind, nothing of what it says) and the machine's player
+told, over OpenCE's chat, that this host has no votes */
+static void distributed_vote_dropped(
+	long machine_index,
+	byte type)
+{
+	if (machine_index < 0 || machine_index >= HALO_PORT_MAXIMUM_NETWORK_MACHINES ||
+		(distributed_vote_machines_told[machine_index >> 3] & (1 << (machine_index & 7))))
+	{
+		return;
+	}
+	distributed_vote_machines_told[machine_index >> 3] |= (byte)(1 << (machine_index & 7));
+	error(_error_log, "network: machine %ld sent an OpenCE vote (kind %d), dropped: this host has no votes",
+		machine_index, (int)type);
+	chat_host_notice_to_machine((short)machine_index, "Voting isn't supported on this server; ask a moderator.");
+}
+
+/* whether this build knows a distributed message's kind (network_distributed.h) */
+static boolean distributed_kind_known(
+	byte type)
+{
+	return (type >= _distributed_message_player_prediction && type <= _distributed_message_pings) ||
+		(type >= _distributed_message_actor_states && type <= _distributed_message_coop_device_states) ||
+		(type >= _distributed_message_chat_up && type < NUMBER_OF_DISTRIBUTED_MESSAGES);
+}
+
+/* a message of a kind this build does not know, from the host (machine_index
+NONE) or a client: dropped, as ever. A kind the layout of the sender's
+version lists (network_rules.h: built in, or a signed legacy table's facts)
+is one such a machine sends that a machine without it drops; another is said
+in the log, once a game, as the sign of a newer host's change this build and
+its table do not know. */
+static void distributed_unknown_kind(
+	long machine_index,
+	byte type)
+{
+	struct network_rules_layout layout;
+	unsigned int version = machine_index == NONE ? network_game_client_host_network_version() :
+		(unsigned int)delta_legacy_announce();
+
+	/* (OpenCE's client_build, a player's build, repository and mods: dropped
+	unread and unlogged, and never sent: docs/delta.md, "Never send message
+	92") */
+	if (type == DISTRIBUTED_CLIENT_BUILD_KIND)
+		return;
+	/* (OpenCE's votes, a kick or the game's end (78, 79) and the map (94,
+	95): this build plays none, shows none and never votes; dropped unread,
+	from a host or a client of any version. A client's own vote (78, 95)
+	is noted once a game and its player told: distributed_vote_dropped) */
+	if (type == NETWORK_RULES_VOTE_REQUEST_KIND || type == NETWORK_RULES_VOTE_STATUS_KIND ||
+		type == NETWORK_RULES_MAP_VOTE_STATUS_KIND || type == NETWORK_RULES_MAP_VOTE_CHOICE_KIND)
+	{
+		if (machine_index != NONE &&
+			(type == NETWORK_RULES_VOTE_REQUEST_KIND || type == NETWORK_RULES_MAP_VOTE_CHOICE_KIND))
+		{
+			distributed_vote_dropped(machine_index, type);
+		}
+		return;
+	}
+	if (distributed_unknown_kinds_seen[type >> 3] & (1 << (type & 7)))
+		return;
+	distributed_unknown_kinds_seen[type >> 3] |= (byte)(1 << (type & 7));
+	network_rules_layout(version, &layout);
+	if (!network_rules_layout_drops(&layout, type))
+	{
+		error(_error_log, "network: dropped a distributed message of kind %d from %s (network version %u), which "
+			"this build does not know and its legacy table's layouts do not list", (int)type,
+			machine_index == NONE ? "the host" : "a client", version);
+	}
+}
+
 /* (the host) the setting to one client machine, or to every client (NONE) */
 static void distributed_send_aim_assist(
 	long machine_index)
@@ -3243,6 +3449,86 @@ static void distributed_tell_aim_assist(
 	}
 }
 
+
+/* the message 91 (NETWORK_RULES_SHIELD_EFFECTS_SIZE bytes) */
+struct distributed_shield_effects_message
+{
+	struct distributed_message_header header;
+	word effects;
+	word reserved;
+};
+
+typedef char distributed_shield_effects_message_size_assert[
+	sizeof(struct distributed_shield_effects_message) == NETWORK_RULES_SHIELD_EFFECTS_SIZE &&
+	offsetof(struct distributed_shield_effects_message, effects) == 8 &&
+	offsetof(struct distributed_shield_effects_message, reserved) == 10 ? 1 : -1];
+
+/* the version whose clients take message 91's seventh value, "players" */
+#define SHIELD_EFFECTS_PLAYERS_NETWORK_VERSION 38
+#define SHIELD_EFFECTS_STOCK 0
+#define SHIELD_EFFECTS_PLAYERS 6
+
+/* the host: the value last sent to every client (NONE: none this game) */
+static long distributed_shield_effects_sent = NONE;
+
+/* (the host) its shield effects: this build draws no glow, light show or
+overshield of its own, so stock (0), or from version 38 "players" (6), which
+leaves each machine its own player's look, as offline. None before 36, whose
+machines do not know the message. */
+static long distributed_shield_effects_setting(
+	void)
+{
+	if (!network_rules_of_version(NETWORK_RULES_SHIELD_EFFECTS_VERSION))
+		return NONE;
+	return network_rules_of_version(SHIELD_EFFECTS_PLAYERS_NETWORK_VERSION) ? SHIELD_EFFECTS_PLAYERS :
+		SHIELD_EFFECTS_STOCK;
+}
+
+/* (the host) the shield effects to one client machine, or to every client
+(NONE), as the aim assist policy is sent */
+static void distributed_send_shield_effects(
+	long machine_index,
+	long effects)
+{
+	union
+	{
+		struct distributed_shield_effects_message message;
+		byte bytes[NETWORK_RULES_SHIELD_EFFECTS_SIZE];
+	} choice;
+
+	network_rules_shield_effects_write(choice.bytes, (int)effects, game_time_get());
+	if (machine_index == NONE)
+	{
+		distributed_send(&choice.message, _distributed_message_shield_effects, 1, sizeof(choice.message),
+			_distributed_to_clients_reliably);
+	}
+	else
+	{
+		distributed_send_to_machine_reliably(machine_index, &choice.message, _distributed_message_shield_effects, 1,
+			sizeof(choice.message));
+	}
+}
+
+/* (the host) a client has loaded: it is told the shield effects. If they are
+not what the clients were last told this game (the first tick of a game, or
+a legacy table's newer number), they all are, once. */
+static void distributed_tell_shield_effects(
+	long machine_index)
+{
+	long wanted = distributed_shield_effects_setting();
+
+	if (wanted == NONE)
+		return;
+	if (wanted != distributed_shield_effects_sent)
+	{
+		distributed_shield_effects_sent = wanted;
+		distributed_send_shield_effects(NONE, wanted);
+	}
+	else if (machine_index != NONE)
+	{
+		distributed_send_shield_effects(machine_index, wanted);
+	}
+}
 
 /* Co-op: the host's structure BSP. Clients switch BSP only when told
 (their own trigger volumes don't, players.c). A switch is sent at once and
@@ -3417,6 +3703,10 @@ static void distributed_send_game_state(
 		_distributed_to_clients_reliably);
 }
 
+/* (host_evidence.h counts every machine there may be) */
+typedef char distributed_evidence_machines_assert[
+	HALO_PORT_MAXIMUM_NETWORK_MACHINES <= HOST_EVIDENCE_MACHINES ? 1 : -1];
+
 /* ---------- the game */
 
 /* a new map loading (game.c), before any of the new game's messages can
@@ -3437,8 +3727,10 @@ void network_distributed_new_game(
 	csmemset(distributed_round_trips, 0, sizeof(distributed_round_trips));
 	csmemset(distributed_input_facings, 0, sizeof(distributed_input_facings));
 	csmemset(distributed_coop_declined, 0, sizeof(distributed_coop_declined));
+	csmemset(distributed_input_activity, 0, sizeof(distributed_input_activity));
 	csmemset(distributed_client_clocks, 0, sizeof(distributed_client_clocks));
 	csmemset(distributed_client_identities, 0, sizeof(distributed_client_identities));
+	host_evidence_reset();
 	distributed_identity_sent = FALSE;
 	{
 		short machine_index;
@@ -3498,6 +3790,11 @@ void network_distributed_new_game(
 		network_game_client_host_network_version() != 0xFFFF &&
 		network_game_client_host_network_version() >= AIM_ASSIST_POLICY_NETWORK_VERSION;
 	distributed_aim_assist_sent = NONE;
+	distributed_shield_effects_sent = NONE;
+	distributed_shield_effects = 0;
+	distributed_shield_effects_heard = FALSE;
+	csmemset(distributed_unknown_kinds_seen, 0, sizeof(distributed_unknown_kinds_seen));
+	csmemset(distributed_vote_machines_told, 0, sizeof(distributed_vote_machines_told));
 	distributed_statistics_due = FALSE;
 	distributed_pickup_count = 0;
 	/* (each player's latest input: player_queues_new.c) */
@@ -3509,6 +3806,52 @@ void network_distributed_new_game(
 }
 
 /* after each tick (game_time.c) */
+/* every 10 seconds of a network game, each player's network health in the
+log (debug.txt), for playtests: "net health:", the ping (ms, the host's
+round trip to the player's machine; a client's as the host told it) and its
+jitter (the host's), this machine's corrections of its own players (the
+host pulling a prediction back: a rubber band) since the last line, and the
+messages sent and received */
+static void distributed_log_health(
+	void)
+{
+	static long last_tick = -1;
+	static long last_corrections = 0;
+	short player_index;
+	char line[1024];
+	int length = 0;
+
+	if (game_time_get() < last_tick)
+		last_tick = -1;
+	if (last_tick >= 0 && game_time_get() - last_tick < 10 * TICKS_PER_SECOND)
+		return;
+	last_tick = game_time_get();
+	length = snprintf(line, sizeof(line), "net health: %s tick %ld corrections +%ld sent %ld received %ld |",
+		game_connection() == _game_connection_network_server ? "host" : "client", (long)game_time_get(),
+		distributed_statistics.corrections - last_corrections, distributed_statistics.sent,
+		distributed_statistics.received);
+	last_corrections = distributed_statistics.corrections;
+	for (player_index = 0; player_index < MAXIMUM_TRACKED_PLAYERS && length > 0 && length < (int)sizeof(line) - 64;
+		player_index++)
+	{
+		long machine_index;
+		long ping;
+
+		if (!distributed_player(player_index))
+			continue;
+		ping = distributed_player_ping(player_index);
+		machine_index = distributed_player_machines[player_index];
+		length += snprintf(line + length, sizeof(line) - (size_t)length, " player %d ping %ld", (int)player_index, ping);
+		if (game_connection() == _game_connection_network_server && machine_index >= 0 &&
+			machine_index < HALO_PORT_MAXIMUM_NETWORK_MACHINES && distributed_round_trips[machine_index].valid)
+		{
+			length += snprintf(line + length, sizeof(line) - (size_t)length, " jitter %ld",
+				(long)(distributed_round_trips[machine_index].deviation * 1000.0f / TICKS_PER_SECOND + 0.5f));
+		}
+	}
+	error(_error_log, "%s", line);
+}
+
 void network_distributed_tick(
 	void)
 {
@@ -3517,6 +3860,8 @@ void network_distributed_tick(
 	if (game_time_get() == distributed_last_sent_time)
 		return;
 	distributed_last_sent_time = game_time_get();
+	if (connection == _game_connection_network_server || connection == _game_connection_network_client)
+		distributed_log_health();
 	distributed_machines.in_tick = TRUE;
 	if (connection == _game_connection_network_server)
 	{
@@ -3561,6 +3906,7 @@ void network_distributed_tick(
 		distributed_send_pickups();
 		/* (a change of the setting, or the first tick of a game) */
 		distributed_tell_aim_assist(NONE);
+		distributed_tell_shield_effects(NONE);
 		if (game_time_get() % GAME_STATE_INTERVAL_TICKS == 0)
 			distributed_send_game_state(NONE);
 	}
@@ -3754,31 +4100,39 @@ void distributed_client_send_identity(
 		_distributed_to_host_reliably);
 }
 
+/* (the host) a client machine's address (host byte order) as the internet
+has it: an internet play peer's stand-in (100.64.0.0/10, p2p.c) its real
+one, the address the peer's tunnel is heard from, when that is known; any
+other as it is */
+static unsigned long distributed_real_address(
+	unsigned long address)
+{
+	/* (network byte order for p2p.c: its first number the lowest byte) */
+	if ((address & 0xFFC00000) == 0x64400000)
+	{
+		/* (32 bits, also where a long has 64) */
+		unsigned long network = ((address >> 24) & 0xFF) | ((address >> 8) & 0xFF00) | ((address << 8) & 0xFF0000) |
+			((address << 24) & 0xFF000000UL);
+		unsigned long real = p2p_peer_endpoint_address(network) & 0xFFFFFFFFUL;
+
+		if (real)
+			return (real >> 24) | ((real >> 8) & 0xFF00) | ((real << 8) & 0xFF0000) | ((real << 24) & 0xFF000000UL);
+	}
+	return address;
+}
+
 /* (the host) a client machine's address as text: its real one, for an
-internet play peer's stand-in (p2p.c). Whole, for the host's own CHEATERS_FILE
-and BANS_FILE, which match on it: never for the log (log_address.h) */
+internet play peer's stand-in (distributed_real_address). Whole, for the
+host's own CHEATERS_FILE and BANS_FILE, which match on it: never for the log
+(log_address.h) */
 static void distributed_address_text(
 	unsigned long address,
 	char *text,
 	long size)
 {
-	/* 100.64.0.0/10: an internet play peer's, by its real address (network
-	byte order: its first number the lowest byte) */
-	if ((address & 0xFFC00000) == 0x64400000)
-	{
-		unsigned long network = (address >> 24) | ((address >> 8) & 0xFF00) | ((address << 8) & 0xFF0000) |
-			(address << 24);
-		unsigned long real = p2p_peer_endpoint_address(network);
-
-		if (real)
-		{
-			snprintf(text, size, "%lu.%lu.%lu.%lu", real & 255, (real >> 8) & 255, (real >> 16) & 255,
-				(real >> 24) & 255);
-			return;
-		}
-	}
 	if (address)
 	{
+		address = distributed_real_address(address);
 		snprintf(text, size, "%lu.%lu.%lu.%lu", (address >> 24) & 255, (address >> 16) & 255, (address >> 8) & 255,
 			address & 255);
 	}
@@ -3786,6 +4140,57 @@ static void distributed_address_text(
 	{
 		snprintf(text, size, "unknown");
 	}
+}
+
+/* (the host's) the most machines of one address its games take, a
+dedicated server's setting's once it is set (network_distributed_set_
+address_limit), else network.max_machines_per_address; 0 for no limit */
+static boolean distributed_address_limit_set;
+static long distributed_address_limit;
+
+void network_distributed_set_address_limit(
+	long maximum)
+{
+	distributed_address_limit_set = TRUE;
+	distributed_address_limit = maximum < 0 ? 0 : maximum > NETWORK_RULES_ADDRESS_LIMIT_MAXIMUM ?
+		NETWORK_RULES_ADDRESS_LIMIT_MAXIMUM : maximum;
+}
+
+long network_distributed_address_limit(
+	void)
+{
+	long maximum;
+
+	if (distributed_address_limit_set)
+		return distributed_address_limit;
+	maximum = config_integer("network.max_machines_per_address");
+	return maximum < 0 ? 0 : maximum > NETWORK_RULES_ADDRESS_LIMIT_MAXIMUM ? NETWORK_RULES_ADDRESS_LIMIT_MAXIMUM :
+		maximum;
+}
+
+/* (the host: network_server_manager.c) whether a machine joining from
+address (host byte order, the game's address of it) goes past the limit,
+the game's addresses of the count machines in the game already in others:
+each counted by its real address (distributed_real_address), so the
+machines behind one public address are counted together, and a local
+network's left alone (network_rules_address_is_local) */
+boolean network_distributed_address_full(
+	unsigned long address,
+	unsigned long const *others,
+	short count)
+{
+	uint32_t real_others[HALO_PORT_MAXIMUM_NETWORK_MACHINES];
+	long maximum = network_distributed_address_limit();
+	short index;
+
+	if (maximum <= 0 || !address)
+		return FALSE;
+	if (count > HALO_PORT_MAXIMUM_NETWORK_MACHINES)
+		count = HALO_PORT_MAXIMUM_NETWORK_MACHINES;
+	for (index = 0; index < count; index++)
+		real_others[index] = (uint32_t)distributed_real_address(others[index]);
+	return network_rules_address_full((uint32_t)distributed_real_address(address), real_others, count, maximum) ?
+		TRUE : FALSE;
 }
 
 /* (the host) a client machine's address as text (distributed_address_text) */
@@ -3936,6 +4341,59 @@ static boolean distributed_ban_line(
 	char const *line)
 {
 	return line[0] != '#' && (strstr(line, "ip=") || strstr(line, "hwid="));
+}
+
+/* (the host's) each client machine's budget for its lobby messages
+(network_rules.h), and whether its going over has been logged since it
+joined or came back to the lobby */
+static struct
+{
+	struct network_rules_lobby_budget budget;
+	boolean logged;
+} distributed_lobby_budgets[HALO_PORT_MAXIMUM_NETWORK_MACHINES];
+
+/* (the host: network_server_manager.c) a machine joined the game, or came
+back to its lobby from the carnage report: its budget full again */
+void network_distributed_lobby_budget_reset(
+	long machine_index)
+{
+	if (machine_index < 0 || machine_index >= HALO_PORT_MAXIMUM_NETWORK_MACHINES)
+		return;
+	network_rules_lobby_budget_reset(&distributed_lobby_budgets[machine_index].budget);
+	distributed_lobby_budgets[machine_index].logged = FALSE;
+}
+
+/* (the host's) a client machine's lobby message dropped, over its budget:
+logged once (the machine's index, nothing of the message or of its
+address). The one place a refused message of a machine's is counted: a
+count of each player's refusals, as evidence for the host, is fed from
+here (not yet) */
+static void distributed_lobby_message_refused(
+	long machine_index)
+{
+	if (!distributed_lobby_budgets[machine_index].logged)
+	{
+		distributed_lobby_budgets[machine_index].logged = TRUE;
+		error(_error_silent, "machine #%ld sends lobby messages faster than %d a second: the ones past that dropped",
+			machine_index, NETWORK_RULES_LOBBY_PER_SECOND);
+	}
+}
+
+/* (the host: network_server_message_handler.c) whether a client machine's
+lobby message (its settings, a player's settings, a player added or
+removed) is in its budget: FALSE to drop it */
+boolean network_distributed_lobby_message_allowed(
+	long machine_index)
+{
+	if (machine_index < 0 || machine_index >= HALO_PORT_MAXIMUM_NETWORK_MACHINES)
+		return TRUE;
+	if (network_rules_lobby_budget_take(&distributed_lobby_budgets[machine_index].budget,
+		(uint32_t)system_milliseconds()))
+	{
+		return TRUE;
+	}
+	distributed_lobby_message_refused(machine_index);
+	return FALSE;
 }
 
 /* (the host: network_server_manager.c) whether a machine of this address
@@ -4166,17 +4624,48 @@ boolean network_distributed_unban(
 	return TRUE;
 }
 
+/* (the host: network_server_manager.c) a notice about the game: in a game,
+to every client and here; in the lobby, here alone (the console and the
+log) */
+void network_distributed_host_notice(
+	char const *text)
+{
+	if (game_in_progress())
+		distributed_send_notice(text);
+	else
+	{
+		console_warning("%s", text);
+		error(_error_log, "%s", text);
+	}
+}
+
 /* (the host: network_server_manager.c, its kick command) players kicked by
 the host, which may join again: every machine told, nothing kept (no line
 in BANS_FILE) */
+void network_distributed_kick_reason(
+	char const *names,
+	char const *reason);
+
 void network_distributed_kick(
 	char const *names)
 {
+	network_distributed_kick_reason(names, NULL);
+}
+
+/* (the host's Moderation screen: moderation_screen.c) the same, with why
+(NULL or empty: nothing said) */
+void network_distributed_kick_reason(
+	char const *names,
+	char const *reason)
+{
 	char kept_names[64];
+	char kept_reason[64] = "";
 	char notice[MAXIMUM_NOTICE_LENGTH];
 
 	distributed_printable(kept_names, sizeof(kept_names), names);
-	snprintf(notice, sizeof(notice), "%s kicked by the host", kept_names);
+	if (reason && reason[0])
+		distributed_printable(kept_reason, sizeof(kept_reason), reason);
+	snprintf(notice, sizeof(notice), "%s kicked by the host%s%s", kept_names, kept_reason[0] ? ": " : "", kept_reason);
 	/* (to every client in the game: in the lobby, the host's own) */
 	if (game_in_progress())
 		distributed_send_notice(notice);
@@ -4222,6 +4711,9 @@ static void distributed_note_client_clock(
 		long ahead = clock->latest_tick - game_time_get();
 
 		clock->fast = rate > CLIENT_CLOCK_FAST_RATE && ahead > CLIENT_CLOCK_AHEAD_TICKS;
+		/* (each window it ran fast, counted for the server's moderators) */
+		if (clock->fast)
+			host_evidence_note(machine_index, _host_evidence_clock);
 		if (!clock->fast)
 		{
 			clock->fast_windows = 0;
@@ -4323,6 +4815,15 @@ void network_distributed_handle_message(
 	/* (none between games: loading, or in the menus) */
 	if (size < sizeof(header) || !game_in_progress())
 		return;
+#ifdef HALO_BIG_ENDIAN
+	/* (a big-endian console: the message in this machine's order; a batch's
+	messages each as it is handled) */
+	if (((struct distributed_message_header const *)message)->type != _distributed_message_batch)
+	{
+		message = (word const *)distributed_wire_copy(message, size, TRUE);
+		entries = (byte const *)message + sizeof(header);
+	}
+#endif
 	csmemcpy(&header, message, sizeof(header));
 	/* a tick's messages in one: each as if it came alone */
 	if (header.type == _distributed_message_batch)
@@ -4335,6 +4836,9 @@ void network_distributed_handle_message(
 			word length;
 
 			csmemcpy(&length, (byte const *)message + offset, sizeof(word));
+#ifdef HALO_BIG_ENDIAN
+			distributed_wire_swap(&length, 1, sizeof(word));
+#endif
 			offset += sizeof(word);
 			if (length > size - offset || length < sizeof(header) - sizeof(message_header) ||
 				sizeof(message_header) + length > sizeof(buffer))
@@ -4352,6 +4856,12 @@ void network_distributed_handle_message(
 				distributed_handling_batch = FALSE;
 			}
 		}
+		return;
+	}
+	/* (a kind this build does not know: dropped before anything reads it) */
+	if (!distributed_kind_known(header.type))
+	{
+		distributed_unknown_kind(machine_index, header.type);
 		return;
 	}
 	/* (entries of a size of their own: their least here, and each read no
@@ -4377,6 +4887,7 @@ void network_distributed_handle_message(
 	case _distributed_message_coop_device_states: entry_size = network_coop_device_state_entry_size(); break;
 	case _distributed_message_pickups: entry_size = sizeof(struct distributed_pickup); break;
 	case _distributed_message_aim_assist_policy: entry_size = NETWORK_RULES_AIM_ASSIST_SIZE - sizeof(header); break;
+	case _distributed_message_shield_effects: entry_size = NETWORK_RULES_SHIELD_EFFECTS_SIZE - sizeof(header); break;
 	case _distributed_message_chat_up:
 	case _distributed_message_chat_down: entry_size = DELTA_CHAT_BRIDGE_LINE_SIZE; break;
 	case _distributed_message_chat_config: entry_size = DELTA_CHAT_BRIDGE_CONFIG_SIZE; break;
@@ -4619,6 +5130,10 @@ void network_distributed_handle_message(
 				text[index] = '?';
 		}
 		console_warning("%s", text);
+#ifdef HALO_PORT_CHAT
+		/* (an OpenCE host's: in the chat too, as its own players see it) */
+		chat_host_console_notice(text);
+#endif
 #ifdef HALO_CONSOLE_LOG_THROTTLE
 		/* (where the log is slow to write: on the Switch, the first,
 		debug.txt is on the card, and each line written
@@ -4664,8 +5179,9 @@ void network_distributed_handle_message(
 		/* (its count 1: the client asks again, having failed to make one of
 		the host's objects) */
 		network_objects_client_asked(machine_index, header.count != 0);
-		/* (and the host's policy on aiming assist) */
+		/* (and the host's policy on aiming assist, and its shield effects) */
 		distributed_tell_aim_assist(machine_index);
+		distributed_tell_shield_effects(machine_index);
 		/* (a machine new at its index, which may have joined the game in
 		progress: every player's statistics and the game type's state, after
 		the objects it names) */
@@ -4697,12 +5213,55 @@ void network_distributed_handle_message(
 		not from a datagram, and not at the main menu's scene; anything else
 		is dropped and leaves the policy as it was. A host takes none. */
 		int block;
+#ifdef HALO_BIG_ENDIAN
+		/* (network_rules.c reads every byte as the wire has it, the message
+		header too, which the transport gave in this machine's order) */
+		byte policy[NETWORK_RULES_AIM_ASSIST_SIZE];
+
+		if (size == sizeof(policy))
+		{
+			csmemcpy(policy, message, sizeof(policy));
+			distributed_wire_swap(policy, 1, sizeof(message_header));
+			message = (word const *)policy;
+		}
+#endif
 
 		if (machine_index == NONE && game_connection() == _game_connection_network_client && !main_menu_is_active() &&
 			network_rules_aim_assist_read((byte const *)message, size, network_connection_last_read_was_unreliable(),
 				&block))
 		{
 			distributed_aim_assist_blocked_by_host = block != 0;
+		}
+		break;
+	}
+	case _distributed_message_shield_effects:
+	{
+		/* the host's shield effects: as the aim assist policy, reliably, of
+		exactly the size, not from a datagram, up to the largest value of the
+		host's version's layout (built in, or a signed legacy table's);
+		anything else is dropped. A host takes none. */
+		struct network_rules_layout layout;
+		int effects;
+#ifdef HALO_BIG_ENDIAN
+		byte choice[NETWORK_RULES_SHIELD_EFFECTS_SIZE];
+
+		if (size == sizeof(choice))
+		{
+			csmemcpy(choice, message, sizeof(choice));
+			distributed_wire_swap(choice, 1, sizeof(message_header));
+			message = (word const *)choice;
+		}
+#endif
+
+		network_rules_layout(network_game_client_host_network_version(), &layout);
+		if (machine_index == NONE && game_connection() == _game_connection_network_client &&
+			network_rules_shield_effects_read((byte const *)message, size, network_connection_last_read_was_unreliable(),
+				layout.shield_effects_maximum, &effects))
+		{
+			if (effects != distributed_shield_effects || !distributed_shield_effects_heard)
+				error(_error_log, "the host's shield effects are %d (drawn as stock, as this build has no other)", effects);
+			distributed_shield_effects = (short)effects;
+			distributed_shield_effects_heard = TRUE;
 		}
 		break;
 	}
@@ -4738,3 +5297,777 @@ void network_distributed_handle_stream_message(
 	network_distributed_handle_message(machine_index, message, size);
 	distributed_handling_stream_message = FALSE;
 }
+
+#ifdef HALO_BIG_ENDIAN
+/* ---------- the wire's byte order (network_distributed.h) */
+
+void distributed_wire_swap(
+	void *data,
+	long count,
+	long size)
+{
+	byte *cursor = (byte *)data;
+	long index;
+
+	if (size != 2 && size != 4)
+		return;
+	for (index = 0; index < count; index++, cursor += size)
+	{
+		byte swapped;
+
+		swapped = cursor[0];
+		cursor[0] = cursor[size - 1];
+		cursor[size - 1] = swapped;
+		if (size == 4)
+		{
+			swapped = cursor[1];
+			cursor[1] = cursor[2];
+			cursor[2] = swapped;
+		}
+	}
+}
+
+/* the entries of this module's kinds (as network_distributed.h's
+network_*_wire_entries) */
+static boolean distributed_wire_entries(
+	byte type,
+	byte *entries,
+	short count,
+	long size)
+{
+	short index;
+
+	switch (type)
+	{
+	case _distributed_message_player_statistics:
+	{
+		struct distributed_player_statistics *players = (struct distributed_player_statistics *)entries;
+
+		for (index = 0; index < count && (index + 1) * (long)sizeof(*players) <= size; index++)
+		{
+			WIRE_SWAP_FIELD(&players[index], struct distributed_player_statistics, player_index, sizeof(short));
+			WIRE_SWAP_FIELDS(&players[index], struct distributed_player_statistics, statistics.sort_key,
+				statistics.suicides, sizeof(short));
+			WIRE_SWAP_FIELDS(&players[index], struct distributed_player_statistics, statistics.shots_fired,
+				statistics.seconds_online, sizeof(long));
+			WIRE_SWAP_FIELDS(&players[index], struct distributed_player_statistics,
+				statistics.killed_teammate_since_last_death, statistics.custom_data_size, sizeof(short));
+			/* (every game type's statistics are shorts) */
+			WIRE_SWAP_FIELD(&players[index], struct distributed_player_statistics, statistics.multiplayer_statistics,
+				sizeof(short));
+		}
+		return TRUE;
+	}
+	case _distributed_message_pings:
+	{
+		struct distributed_player_ping *pings = (struct distributed_player_ping *)entries;
+
+		for (index = 0; index < count && (index + 1) * (long)sizeof(*pings) <= size; index++)
+			WIRE_SWAP_FIELD(&pings[index], struct distributed_player_ping, milliseconds, sizeof(word));
+		return TRUE;
+	}
+	case _distributed_message_structure_bsp:
+	{
+		struct distributed_structure_bsp *structure_bsps = (struct distributed_structure_bsp *)entries;
+
+		for (index = 0; index < count && (index + 1) * (long)sizeof(*structure_bsps) <= size; index++)
+		{
+			WIRE_SWAP_FIELD(&structure_bsps[index], struct distributed_structure_bsp, structure_bsp_index,
+				sizeof(short));
+		}
+		return TRUE;
+	}
+	case _distributed_message_pickups:
+	{
+		struct distributed_pickup *pickups = (struct distributed_pickup *)entries;
+
+		for (index = 0; index < count && (index + 1) * (long)sizeof(*pickups) <= size; index++)
+		{
+			WIRE_SWAP_FIELD(&pickups[index], struct distributed_pickup, count, sizeof(short));
+			WIRE_SWAP_FIELD(&pickups[index], struct distributed_pickup, definition_index, sizeof(long));
+		}
+		return TRUE;
+	}
+	case _distributed_message_player_inputs:
+	{
+		struct distributed_player_input *inputs = (struct distributed_player_input *)entries;
+
+		for (index = 0; index < count && (index + 1) * (long)sizeof(*inputs) <= size; index++)
+		{
+			WIRE_SWAP_FIELDS(&inputs[index], struct distributed_player_input, tick, host_time, sizeof(long));
+			/* (the action: its buttons, facing, sticks and trigger, then its
+			choices) */
+			WIRE_SWAP_FIELDS(&inputs[index], struct distributed_player_input, action.control_flags,
+				action.primary_trigger, sizeof(long));
+			WIRE_SWAP_FIELDS(&inputs[index], struct distributed_player_input, action.desired_weapon_index,
+				action.pad, sizeof(short));
+			WIRE_SWAP_FIELD(&inputs[index], struct distributed_player_input, control_flags, sizeof(short));
+		}
+		return TRUE;
+	}
+	case _distributed_message_game_state:
+		game_engine_network_state_byte_swap(entries, size);
+		return TRUE;
+	/* (packed a number at a time, as the wire has them: distributed_put;
+	the relayed actions' update too, distributed_packer_begin) */
+	case _distributed_message_player_prediction:
+	case _distributed_message_unit_states:
+	case _distributed_message_relayed_actions:
+	/* (bytes and text) */
+	case _distributed_message_client_identity:
+	case _distributed_message_notice:
+	case _distributed_message_chat_up:
+	case _distributed_message_chat_down:
+	case _distributed_message_chat_config:
+	/* (none) */
+	case _distributed_message_client_ready:
+	case _distributed_message_objects_synchronized:
+	/* (network_rules.c's, written and read as the wire has it) */
+	case _distributed_message_aim_assist_policy:
+	case _distributed_message_shield_effects:
+		return TRUE;
+	}
+	return FALSE;
+}
+
+byte *distributed_wire_put(
+	byte *cursor,
+	void const *data,
+	short size,
+	short part)
+{
+	csmemcpy(cursor, data, size);
+	distributed_wire_swap(cursor, size / part, part);
+	return cursor + size;
+}
+
+boolean distributed_wire_take(
+	byte const **cursor,
+	byte const *end,
+	void *data,
+	short size,
+	short part)
+{
+	if (end - *cursor < size)
+		return FALSE;
+	csmemcpy(data, *cursor, size);
+	distributed_wire_swap(data, size / part, part);
+	*cursor += size;
+	return TRUE;
+}
+
+/* (a message of either way: the header's description) */
+void *distributed_wire_copy(
+	void const *message,
+	word size,
+	boolean received)
+{
+	static union
+	{
+		struct distributed_message_header header;
+		byte bytes[sizeof(message_header) + MAXIMUM_MESSAGE_SIZE];
+	} buffers[2];
+	byte *copy = buffers[received ? 1 : 0].bytes;
+	struct distributed_message_header *header = (struct distributed_message_header *)copy;
+	byte *entries = copy + sizeof(*header);
+	long entries_size = (long)size - (long)sizeof(*header);
+
+	if (size < sizeof(*header) || size > sizeof(buffers[0].bytes))
+		return (void *)message;
+	csmemcpy(copy, message, size);
+	WIRE_SWAP_FIELD(header, struct distributed_message_header, game_time, sizeof(long));
+	/* (a kind no module knows, which the handler drops: its header alone) */
+	if (!distributed_wire_entries(header->type, entries, header->count, entries_size) &&
+		!network_objects_wire_entries(header->type, entries, header->count, entries_size) &&
+		!network_damage_wire_entries(header->type, entries, header->count, entries_size) &&
+		!network_actors_wire_entries(header->type, entries, header->count, entries_size))
+	{
+		network_coop_wire_entries(header->type, entries, header->count, entries_size);
+	}
+	return copy;
+}
+#endif
+
+#if defined(HALO_BIG_ENDIAN) || defined(HALO_NETWORK_WIRE_CAPTURE)
+/* ---------- the wire's samples (network_distributed.h)
+
+Every kind of message the byte order turns, filled field by field with
+numbers of the fields' own sizes; the units' states and the relayed actions
+as the netcode packs them; and the game settings record's header, first
+machine, first player and tail. A little-endian build made with
+HALO_NETWORK_WIRE_CAPTURE writes their bytes (wire_samples.h, from the
+32-bit Linux build: HALO_WIRE_CAPTURE=1 in its environment, read before main,
+writes it to the standard output); a big-endian one compares its own, turned to the wire's order, with
+them, and turns them back to compare with its own (network_wire_self_test). */
+
+#include "networking/network_game_manager.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+
+void network_game_byte_swap(struct network_game *game, boolean to_host);
+
+/* (the settings record's sample: its header, first machine, first player
+and tail) */
+#define WIRE_SAMPLE_RECORD 0xFF
+#define WIRE_SAMPLE_GAME_TIME 0x0A0B0C0D
+
+static byte const wire_sample_kinds[] =
+{
+	_distributed_message_player_statistics,
+	_distributed_message_pings,
+	_distributed_message_structure_bsp,
+	_distributed_message_pickups,
+	_distributed_message_player_inputs,
+	_distributed_message_player_prediction,
+	_distributed_message_unit_states,
+	_distributed_message_relayed_actions,
+	_distributed_message_object_changes,
+	_distributed_message_object_states,
+	_distributed_message_vehicle_prediction,
+	_distributed_message_inventories,
+	_distributed_message_damage_animations,
+	_distributed_message_damage_events,
+	_distributed_message_hit_reports,
+	_distributed_message_actor_states,
+	_distributed_message_actor_damage,
+	_distributed_message_coop_presentation,
+	_distributed_message_coop_events,
+	_distributed_message_coop_device_groups,
+	_distributed_message_coop_object_names,
+	_distributed_message_coop_object_transforms,
+	_distributed_message_coop_object_looks,
+	_distributed_message_coop_device_states,
+	_distributed_message_coop_screen_effect,
+	_distributed_message_coop_skip_vote,
+	WIRE_SAMPLE_RECORD,
+};
+
+static unsigned long wire_sample_next;
+
+void wire_sample_set(
+	void *field,
+	long size)
+{
+	/* (each number's bytes all different, lowest first: 0x01, 0x02, ...
+	then the next number's, so a byte out of place shows) */
+	unsigned long value = 0;
+	long index;
+
+	for (index = size - 1; index >= 0; index--)
+		value = (value << 8) | ((wire_sample_next * 4 + (unsigned long)index) % 251 + 1);
+	wire_sample_next++;
+	switch (size)
+	{
+	case 1: { byte number = (byte)value; csmemcpy(field, &number, 1); break; }
+	case 2: { word number = (word)value; csmemcpy(field, &number, 2); break; }
+	case 4: { unsigned long number = value; csmemcpy(field, &number, 4); break; }
+	}
+}
+
+void wire_sample_array(
+	void *array,
+	long count,
+	long size)
+{
+	long index;
+
+	for (index = 0; index < count; index++)
+		wire_sample_set((byte *)array + index * size, size);
+}
+
+static void wire_sample_unit_state(
+	struct distributed_unit_state *state)
+{
+	csmemset(state, 0, sizeof(*state));
+	WIRE_SAMPLE(state->player_index);
+	state->flags = (byte)(FLAG(_distributed_unit_alive_bit) | FLAG(_distributed_unit_placed_bit) |
+		FLAG(_distributed_unit_predicted_bit));
+	WIRE_SAMPLE(state->unit_flags);
+	WIRE_SAMPLE(state->unit_index);
+	WIRE_SAMPLE(state->vehicle_index);
+	WIRE_SAMPLE(state->seat_index);
+	WIRE_SAMPLE(state->active_camouflage);
+	WIRE_SAMPLES(state->position.n);
+	WIRE_SAMPLE_VECTOR(state->velocity);
+	WIRE_SAMPLE_VECTOR(state->forward);
+	WIRE_SAMPLE_VECTOR(state->up);
+	WIRE_SAMPLE(state->predicted_time);
+	WIRE_SAMPLE(state->body_vitality);
+	WIRE_SAMPLE(state->shield_vitality);
+	WIRE_SAMPLE(state->current_body_damage);
+	WIRE_SAMPLE(state->recent_body_damage);
+	WIRE_SAMPLE(state->current_shield_damage);
+	WIRE_SAMPLE(state->recent_shield_damage);
+	WIRE_SAMPLES(state->powerup_durations);
+}
+
+static void wire_sample_relayed_action(
+	struct distributed_relayed_action *relayed)
+{
+	csmemset(relayed, 0, sizeof(*relayed));
+	WIRE_SAMPLE(relayed->player_index);
+	WIRE_SAMPLE(relayed->desired_weapon_index);
+	WIRE_SAMPLE(relayed->desired_grenade_index);
+	WIRE_SAMPLE(relayed->desired_zoom_level);
+	WIRE_SAMPLES(relayed->control_flags);
+	WIRE_SAMPLE(relayed->yaw);
+	WIRE_SAMPLE(relayed->pitch);
+	WIRE_SAMPLE(relayed->throttle_i);
+	WIRE_SAMPLE(relayed->throttle_j);
+	WIRE_SAMPLE(relayed->primary_trigger);
+}
+
+/* this module's sample entries (as network_distributed.h's) */
+static word distributed_wire_sample(
+	byte type,
+	byte *entries)
+{
+	short index;
+
+	switch (type)
+	{
+	case _distributed_message_player_statistics:
+	{
+		struct distributed_player_statistics *players = (struct distributed_player_statistics *)entries;
+
+		for (index = 0; index < 2; index++)
+		{
+			struct game_statistics *statistics = &players[index].statistics;
+
+			WIRE_SAMPLE(players[index].player_index);
+			WIRE_SAMPLE(statistics->sort_key);
+			WIRE_SAMPLE(statistics->games_played);
+			WIRE_SAMPLE(statistics->games_won);
+			WIRE_SAMPLE(statistics->kills_in_a_row);
+			WIRE_SAMPLE(statistics->multiple_kills);
+			WIRE_SAMPLE(statistics->last_kill_time);
+			WIRE_SAMPLES(statistics->kills);
+			WIRE_SAMPLES(statistics->assists);
+			WIRE_SAMPLE(statistics->friendly_fire_kills);
+			WIRE_SAMPLE(statistics->deaths);
+			WIRE_SAMPLE(statistics->suicides);
+			WIRE_SAMPLE(statistics->shots_fired);
+			WIRE_SAMPLE(statistics->shots_hit);
+			WIRE_SAMPLE(statistics->seconds_online);
+			WIRE_SAMPLE(statistics->killed_teammate_since_last_death);
+			WIRE_SAMPLE(statistics->custom_data_size);
+			WIRE_SAMPLE(statistics->multiplayer_statistics.oddball_statistics.time_with_the_ball);
+			WIRE_SAMPLE(statistics->multiplayer_statistics.oddball_statistics.ball_carrier_kills);
+			WIRE_SAMPLE(statistics->multiplayer_statistics.oddball_statistics.kills_as_ball_carrier);
+		}
+		return (word)(2 * sizeof(*players));
+	}
+	case _distributed_message_pings:
+	{
+		struct distributed_player_ping *pings = (struct distributed_player_ping *)entries;
+
+		for (index = 0; index < 2; index++)
+		{
+			WIRE_SAMPLE(pings[index].player_index);
+			WIRE_SAMPLE(pings[index].milliseconds);
+		}
+		return (word)(2 * sizeof(*pings));
+	}
+	case _distributed_message_structure_bsp:
+	{
+		struct distributed_structure_bsp *structure_bsp = (struct distributed_structure_bsp *)entries;
+
+		WIRE_SAMPLE(structure_bsp->structure_bsp_index);
+		return (word)sizeof(*structure_bsp);
+	}
+	case _distributed_message_pickups:
+	{
+		struct distributed_pickup *pickups = (struct distributed_pickup *)entries;
+
+		for (index = 0; index < 2; index++)
+		{
+			WIRE_SAMPLE(pickups[index].player_index);
+			WIRE_SAMPLE(pickups[index].kind);
+			WIRE_SAMPLE(pickups[index].count);
+			WIRE_SAMPLE(pickups[index].definition_index);
+		}
+		return (word)(2 * sizeof(*pickups));
+	}
+	case _distributed_message_player_inputs:
+	{
+		struct distributed_player_input *inputs = (struct distributed_player_input *)entries;
+
+		for (index = 0; index < 2; index++)
+		{
+			struct distributed_player_input *input = &inputs[index];
+
+			WIRE_SAMPLE(input->player_index);
+			WIRE_SAMPLE(input->structure_bsp_index);
+			WIRE_SAMPLE(input->coop_no_friendly_fire);
+			WIRE_SAMPLE(input->tick);
+			WIRE_SAMPLE(input->host_time);
+			WIRE_SAMPLE(input->action.control_flags);
+			WIRE_SAMPLES(input->action.desired_facing.n);
+			WIRE_SAMPLES(input->action.throttle.n);
+			WIRE_SAMPLE(input->action.primary_trigger);
+			WIRE_SAMPLE(input->action.desired_weapon_index);
+			WIRE_SAMPLE(input->action.desired_grenade_index);
+			WIRE_SAMPLE(input->action.desired_zoom_level);
+			WIRE_SAMPLES(input->control_flags);
+		}
+		return (word)(2 * sizeof(*inputs));
+	}
+	case _distributed_message_player_prediction:
+	case _distributed_message_unit_states:
+	{
+		/* (packed) */
+		struct distributed_unit_state state;
+		word size = 0;
+
+		for (index = 0; index < 2; index++)
+		{
+			wire_sample_unit_state(&state);
+			size += distributed_unit_state_write(&state, TRUE, entries + size);
+		}
+		return size;
+	}
+	case _distributed_message_relayed_actions:
+	{
+		/* (packed, after the update, as distributed_packer_begin puts it) */
+		struct distributed_relayed_action relayed;
+		long update;
+		word size = sizeof(update);
+
+		WIRE_SAMPLE(update);
+		csmemcpy(entries, &update, sizeof(update));
+		WIRE_PREFIX_OUT(entries, sizeof(update));
+		for (index = 0; index < 2; index++)
+		{
+			wire_sample_relayed_action(&relayed);
+			size += distributed_relayed_action_write(&relayed, entries + size);
+		}
+		return size;
+	}
+	}
+	return 0;
+}
+
+/* a sample of the kind: its message (the message header 0) and its size, 0
+for none */
+static word wire_sample_message(
+	byte type,
+	byte *message)
+{
+	struct distributed_message_header *header = (struct distributed_message_header *)message;
+	byte *entries = message + sizeof(*header);
+	word size;
+
+	csmemset(message, 0, sizeof(*header) + MAXIMUM_MESSAGE_SIZE / 2);
+	wire_sample_next = type;
+	size = distributed_wire_sample(type, entries);
+	if (!size)
+		size = network_objects_wire_sample(type, entries);
+	if (!size)
+		size = network_damage_wire_sample(type, entries);
+	if (!size)
+		size = network_actors_wire_sample(type, entries);
+	if (!size)
+		size = network_coop_wire_sample(type, entries);
+	if (!size)
+		return 0;
+	header->type = type;
+	header->count = (byte)((type == _distributed_message_structure_bsp || type == _distributed_message_coop_presentation ||
+		type == _distributed_message_coop_object_names || type == _distributed_message_coop_screen_effect ||
+		type == _distributed_message_coop_skip_vote) ? 1 : 2);
+	header->game_time = WIRE_SAMPLE_GAME_TIME;
+	return (word)(sizeof(*header) + size);
+}
+
+/* the settings record's sample (oddball's rules, so the variant's union is
+turned by its game type) */
+static struct network_game wire_sample_game;
+
+static void wire_sample_record(
+	struct network_game *game)
+{
+	csmemset(game, 0, sizeof(*game));
+	wire_sample_next = WIRE_SAMPLE_RECORD;
+	WIRE_SAMPLES(game->name);
+	WIRE_SAMPLE(game->map.version);
+	WIRE_SAMPLE(game->map.name[0]);
+	WIRE_SAMPLES(game->variant.human_readable_game_description);
+	game->variant.game_engine_index = game_engine_oddball;
+	WIRE_SAMPLE(game->variant.universal_variant.teams);
+	WIRE_SAMPLE(game->variant.universal_variant.flags);
+	WIRE_SAMPLE(game->variant.universal_variant.goal_radar);
+	WIRE_SAMPLE(game->variant.universal_variant.odd_man_out);
+	WIRE_SAMPLE(game->variant.universal_variant.respawn_time_growth);
+	WIRE_SAMPLE(game->variant.universal_variant.respawn_time);
+	WIRE_SAMPLE(game->variant.universal_variant.suicide_penalty);
+	WIRE_SAMPLE(game->variant.universal_variant.lives);
+	WIRE_SAMPLE(game->variant.universal_variant.health);
+	WIRE_SAMPLE(game->variant.universal_variant.score_to_win);
+	WIRE_SAMPLE(game->variant.universal_variant.weapon_set);
+	WIRE_SAMPLE(game->variant.universal_variant.vehicle_set);
+	WIRE_SAMPLE(game->variant.game_engine_variant.oddball.random_start);
+	WIRE_SAMPLE(game->variant.game_engine_variant.oddball.ball_spawn_delay);
+	WIRE_SAMPLE(game->variant.game_engine_variant.oddball.speed_with_ball);
+	WIRE_SAMPLE(game->variant.game_engine_variant.oddball.trait_with_ball);
+	WIRE_SAMPLE(game->variant.game_engine_variant.oddball.trait_without_ball);
+	WIRE_SAMPLE(game->variant.game_engine_variant.oddball.oddball_ball_type);
+	WIRE_SAMPLE(game->variant.game_engine_variant.oddball.ball_spawn_count);
+	WIRE_SAMPLE(game->variant.flags);
+	WIRE_SAMPLE(game->cooperative_flags);
+	WIRE_SAMPLE(game->minimum_players);
+	WIRE_SAMPLE(game->maximum_players);
+	WIRE_SAMPLE(game->maximum_teams);
+	WIRE_SAMPLE(game->difficulty);
+	WIRE_SAMPLE(game->machine_count);
+	WIRE_SAMPLES(game->machines[0].name);
+	WIRE_SAMPLE(game->machines[0].machine_index);
+	WIRE_SAMPLE(game->player_count);
+	WIRE_SAMPLES(game->players[0].name);
+	WIRE_SAMPLE(game->players[0].primary_color_index);
+	WIRE_SAMPLE(game->players[0].icon_index);
+	WIRE_SAMPLE(game->players[0].machine_index);
+	WIRE_SAMPLE(game->players[0].controller_index);
+	WIRE_SAMPLE(game->players[0].team_index);
+	WIRE_SAMPLE(game->players[0].player_list_index);
+	WIRE_SAMPLE(game->__unknown426);
+	WIRE_SAMPLE(game->random_seed);
+	WIRE_SAMPLE(game->number_of_games_played);
+	WIRE_SAMPLE(game->variant_options.time_limit);
+	WIRE_SAMPLE(game->variant_options.friendly_fire);
+	WIRE_SAMPLE(game->variant_options.friendly_fire_penalty);
+	WIRE_SAMPLE(game->variant_options.vehicle_respawn_time);
+	WIRE_SAMPLE(game->variant_options.auto_team_balance);
+	WIRE_SAMPLE(game->variant_options.radar_players);
+	WIRE_SAMPLES(game->variant_options.vehicle_set);
+	WIRE_SAMPLE(game->variant_options.loadout);
+	WIRE_SAMPLE(game->local_data.game_objects_loaded);
+}
+
+/* the parts of a record the sample has, into bytes (the header and the
+first machine, the first player, the tail: the same on every layout) or
+back; their size */
+static long wire_sample_record_parts(
+	struct network_game *game,
+	byte *bytes,
+	boolean into_bytes)
+{
+	long const parts[3][2] =
+	{
+		{ 0, (long)(offsetof(struct network_game, machines) + sizeof(game->machines[0])) },
+		{ (long)offsetof(struct network_game, players), (long)sizeof(game->players[0]) },
+		{ (long)offsetof(struct network_game, __unknown426),
+			(long)(sizeof(*game) - offsetof(struct network_game, __unknown426)) },
+	};
+	long size = 0;
+	short part;
+
+	for (part = 0; part < 3; part++)
+	{
+		if (into_bytes)
+			csmemcpy(bytes + size, (byte *)game + parts[part][0], parts[part][1]);
+		else
+			csmemcpy((byte *)game + parts[part][0], bytes + size, parts[part][1]);
+		size += parts[part][1];
+	}
+	return size;
+}
+
+#ifdef HALO_NETWORK_WIRE_CAPTURE
+/* a little-endian build's samples, which are the wire's, as wire_samples.h */
+__attribute__((constructor)) static void wire_samples_capture(
+	void)
+{
+	static byte message[sizeof(message_header) + MAXIMUM_MESSAGE_SIZE];
+	FILE *file = stdout;
+	short kind;
+
+	if (!getenv("HALO_WIRE_CAPTURE"))
+		return;
+	fprintf(file, "/*\nWIRE_SAMPLES.H\n\nThe wire's bytes of network_distributed.c's samples (network_wire_self_test),\n"
+		"captured from the 32-bit Linux build made with HALO_NETWORK_WIRE_CAPTURE\n"
+		"(HALO_WIRE_CAPTURE=1 in its environment, to the standard output). Generated:\n"
+		"a change to the samples or to a message's layout captures it again.\n\n"
+		"Each sample: its kind, its size (two bytes, low first), then its bytes past\n"
+		"the message header; the kind 0 ends them.\n*/\n\n"
+		"static unsigned char const wire_samples[] =\n{\n");
+	for (kind = 0; kind < (short)NUMBEROF(wire_sample_kinds); kind++)
+	{
+		byte type = wire_sample_kinds[kind];
+		byte *bytes;
+		long size;
+		long index;
+
+		if (type == WIRE_SAMPLE_RECORD)
+		{
+			wire_sample_record(&wire_sample_game);
+			size = wire_sample_record_parts(&wire_sample_game, message, TRUE);
+			bytes = message;
+		}
+		else
+		{
+			size = (long)wire_sample_message(type, message) - (long)sizeof(message_header);
+			bytes = message + sizeof(message_header);
+		}
+		fprintf(file, "\t%d, %ld, %ld,", (int)type, size & 0xFF, size >> 8);
+		for (index = 0; index < size; index++)
+			fprintf(file, "%s0x%02x,", index % 16 ? " " : "\n\t\t", bytes[index]);
+		fprintf(file, "\n");
+	}
+	fprintf(file, "\t0\n};\n");
+	fflush(file);
+	exit(0);
+}
+#endif
+
+#ifdef HALO_BIG_ENDIAN
+#include "wire_samples.h"
+
+/* the samples, turned to the wire's order and compared with the PC's bytes
+(wire_samples.h), and those turned back and compared with this machine's;
+the count that differ, and a line saying so in report */
+long network_wire_self_test(
+	char *report,
+	long report_size)
+{
+	static byte message[sizeof(message_header) + MAXIMUM_MESSAGE_SIZE];
+	static byte expected[sizeof(message_header) + MAXIMUM_MESSAGE_SIZE];
+	static struct network_game turned;
+	byte const *sample = wire_samples;
+	long samples = 0;
+	long failed = 0;
+	long written = 0;
+
+	report[0] = 0;
+	while (*sample)
+	{
+		byte type = sample[0];
+		long size = sample[1] | (sample[2] << 8);
+		byte const *bytes = sample + 3;
+		long mismatch = NONE;
+		char const *which = "sent";
+		long ours;
+		long index;
+
+		sample += 3 + size;
+		samples++;
+		if (type == WIRE_SAMPLE_RECORD)
+		{
+			wire_sample_record(&wire_sample_game);
+			turned = wire_sample_game;
+			network_game_byte_swap(&turned, FALSE);
+			ours = wire_sample_record_parts(&turned, expected, TRUE);
+			for (index = 0; index < size && index < ours && mismatch == NONE; index++)
+			{
+				if (expected[index] != bytes[index])
+					mismatch = index;
+			}
+			if (mismatch == NONE && ours == size)
+			{
+				csmemset(&turned, 0, sizeof(turned));
+				wire_sample_record_parts(&turned, (byte *)bytes, FALSE);
+				network_game_byte_swap(&turned, TRUE);
+				wire_sample_record_parts(&turned, message, TRUE);
+				wire_sample_record_parts(&wire_sample_game, expected, TRUE);
+				which = "received";
+				for (index = 0; index < size && mismatch == NONE; index++)
+				{
+					if (message[index] != expected[index])
+						mismatch = index;
+				}
+			}
+		}
+		else
+		{
+			byte *wire;
+
+			ours = (long)wire_sample_message(type, expected) - (long)sizeof(message_header);
+			wire = (byte *)distributed_wire_copy(expected, (word)(ours + sizeof(message_header)), FALSE);
+			for (index = 0; index < size && index < ours && mismatch == NONE; index++)
+			{
+				if (wire[sizeof(message_header) + index] != bytes[index])
+					mismatch = index;
+			}
+			if (mismatch == NONE && ours == size)
+			{
+				which = "received";
+				csmemset(message, 0, sizeof(message_header));
+				csmemcpy(message + sizeof(message_header), bytes, size);
+				wire = (byte *)distributed_wire_copy(message, (word)(size + sizeof(message_header)), TRUE);
+				if (type == _distributed_message_player_prediction || type == _distributed_message_unit_states ||
+					type == _distributed_message_relayed_actions)
+				{
+					/* (packed: taken and packed again, as the PC's) */
+					byte const *cursor = wire + sizeof(struct distributed_message_header);
+					byte const *end = wire + sizeof(message_header) + size;
+					byte *repacked = message + sizeof(struct distributed_message_header);
+					long update;
+					short entry;
+
+					if (type == _distributed_message_relayed_actions)
+					{
+						distributed_take(&cursor, end, &update, sizeof(update));
+						csmemcpy(repacked, &update, sizeof(update));
+						WIRE_PREFIX_OUT(repacked, sizeof(update));
+						repacked += sizeof(update);
+					}
+					for (entry = 0; entry < 2; entry++)
+					{
+						word taken;
+
+						if (type == _distributed_message_relayed_actions)
+						{
+							struct distributed_relayed_action relayed;
+
+							taken = distributed_relayed_action_read(cursor, end, &relayed);
+							repacked += distributed_relayed_action_write(&relayed, repacked);
+						}
+						else
+						{
+							struct distributed_unit_state state;
+
+							taken = distributed_unit_state_read(cursor, end, &state);
+							repacked += distributed_unit_state_write(&state, TRUE, repacked);
+						}
+						cursor += taken;
+					}
+					/* (the header as it came, turned: its tick this machine's) */
+					csmemcpy(message, wire, sizeof(struct distributed_message_header));
+					WIRE_HEADER_OUT((struct distributed_message_header *)message);
+					for (index = 0; index < size && mismatch == NONE; index++)
+					{
+						if (message[sizeof(message_header) + index] != bytes[index])
+							mismatch = index;
+					}
+				}
+				else
+				{
+					for (index = 0; index < size && mismatch == NONE; index++)
+					{
+						if (wire[sizeof(message_header) + index] != expected[sizeof(message_header) + index])
+							mismatch = index;
+					}
+				}
+			}
+		}
+		if (ours != size || mismatch != NONE)
+		{
+			failed++;
+			if (written < report_size - 1)
+			{
+				int length = ours != size ?
+					snprintf(report + written, (size_t)(report_size - written), "%s%d: %ld bytes, the PC's %ld",
+						failed > 1 ? "; " : "", (int)type, ours, size) :
+					snprintf(report + written, (size_t)(report_size - written), "%s%d %s: byte %ld",
+						failed > 1 ? "; " : "", (int)type, which, mismatch);
+
+				if (length > 0)
+					written += length;
+			}
+		}
+	}
+	if (!failed)
+		snprintf(report, (size_t)report_size, "all %ld samples as the PC's bytes, both ways", samples);
+	return failed;
+}
+#endif
+#endif

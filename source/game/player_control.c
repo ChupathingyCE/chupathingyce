@@ -611,11 +611,16 @@ static boolean player_control_port_menu_has_controller(
 	short local_player_index)
 {
 	long player_index = local_player_get_player_index(local_player_index);
+	struct player_datum *player;
 	short gamepad_index;
 
-	if (player_index == NONE)
+	/* (none when the player has just left the game: the local player still
+	names them until the game exits, and player_get faulted, macOS crash
+	report on 0.8.0c) */
+	player = player_index != NONE ? player_try_and_get(player_index) : NULL;
+	if (!player)
 		return FALSE;
-	gamepad_index = player_get(player_index)->local_player_index;
+	gamepad_index = player->local_player_index;
 	return gamepad_index >= 0 && gamepad_index < MAXIMUM_NUMBER_OF_LOCAL_PLAYERS &&
 		ui_widgets_active_for_local_player(gamepad_index);
 }
@@ -824,6 +829,21 @@ static void handle_one_player_input(
 		action.desired_zoom_level = player->zoom_level;
 		action.throttle = player->throttle;
 		action.primary_trigger = player->primary_trigger;
+#ifdef HALO_SERVER
+		/* port: a Custom Edition player's actions come from its client
+		(server/src/server_ce.c) */
+		{
+			boolean server_ce_local_action(short local_player_index, struct player_action *action);
+
+			if (server_ce_local_action(local_player_index, &action))
+			{
+				player->desired_angles = action.desired_facing;
+				player->control_flags = action.control_flags;
+				player->throttle = action.throttle;
+				player->primary_trigger = action.primary_trigger;
+			}
+		}
+#endif
 
 		match_assert_valid_real(
 			"c:\\halo\\SOURCE\\game\\player_control.c",
@@ -1320,6 +1340,34 @@ static void get_local_player_input_blob(
 							input->facing_delta.pitch += mouse_pitch;
 						}
 					}
+#ifdef HALO_SWITCH_CONSOLE
+					{
+						/* port: the controller's gyroscope (port/linux/src/xinput_sdl.c),
+						as the mouse's turn above, with its own invert; with
+						input.gyro_aim = "zoom" only while zoomed in, for fine aiming
+						(read and dropped otherwise, so that zooming in does not jump) */
+						extern int halo_linux_gyro_look(short gamepad_index, real *yaw, real *pitch);
+						extern int halo_linux_gyro_zoom_only(void);
+						real gyro_yaw;
+						real gyro_pitch;
+
+						if (halo_linux_gyro_look(gamepad_index, &gyro_yaw, &gyro_pitch) &&
+							!(control->zoom_level == NONE && halo_linux_gyro_zoom_only()))
+						{
+							if (player->unit_index != NONE && control->zoom_level != NONE)
+							{
+								real inverse_zoom = 1.f / unit_get_zoom_magnification(
+									player->unit_index,
+									control->zoom_level);
+
+								gyro_yaw *= inverse_zoom;
+								gyro_pitch *= inverse_zoom;
+							}
+							input->facing_delta.yaw += gyro_yaw;
+							input->facing_delta.pitch += gyro_pitch;
+						}
+					}
+#endif
 				}
 				else
 				{

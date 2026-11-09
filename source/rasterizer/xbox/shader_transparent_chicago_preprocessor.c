@@ -18,6 +18,7 @@ symbols in this file:
 
 #include "cseries.h"
 #include "cseries/errors.h"
+#include "models/models.h"
 #include "rasterizer/xbox/rasterizer_xbox_pixel_shader.h"
 #include "rasterizer/xbox/shader_transparent_chicago_preprocessor.h"
 #include "shaders/shader_definitions.h"
@@ -200,7 +201,10 @@ boolean shader_transparent_chicago_create(
 	}
 	else
 	{
-		error(_error_silent, "### ERROR chicago shader has no maps");
+		/* port: said once a shader (a map's; it is drawn every frame, and
+		cmt_fragment has one) */
+		if (model_data_report_once(shader))
+			error(_error_silent, "### ERROR a transparent chicago shader has no maps; it is not drawn");
 		result = FALSE;
 	}
 

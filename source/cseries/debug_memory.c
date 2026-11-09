@@ -467,7 +467,9 @@ void *debug_malloc(
 		"c:\\halo\\SOURCE\\cseries\\debug_memory.c",
 		214,
 		size>=0 && size<MAXIMUM_POINTER_SIZE);
+#ifndef HALO_CONSOLE_NO_DEBUG_ASSERTS
 	debug_check_memory_globals(file, line);
+#endif
 
 	header = system_malloc(allocation_size);
 	if (header != NULL)
@@ -488,15 +490,26 @@ void *debug_malloc(
 		}
 		else
 		{
+#ifndef HALO_CONSOLE_NO_DEBUG_ASSERTS
+			/* port: (the debug build's fill, which shows a read of memory not
+			yet written; a console's release-style build leaves it out, as
+			the retail game's malloc did: it touched every byte of every
+			allocation, at boot and each map's load) */
 			csmemset(pointer, 0xCA, size);
+#endif
 		}
 	}
 
 #ifdef HALO_XBOX_CONSOLE
 	/* port: the console's large allocations, and any that fails, in
 	debug.txt (port/xbox/src/xbox_memory.c): what a 64 MB console runs out
-	of */
+	of. A release-style build (HALO_CONSOLE_NO_DEBUG_ASSERTS) logs only the
+	allocations that fail: each line opens, writes and closes the file */
+#ifdef HALO_CONSOLE_NO_DEBUG_ASSERTS
+	if (pointer == NULL)
+#else
 	if (pointer == NULL || size >= 0x4000)
+#endif
 	{
 		void xbox_memory_heap_allocation(char const *file, long line, unsigned long size, void const *address);
 

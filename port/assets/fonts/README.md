@@ -65,5 +65,7 @@ The Overpass files are static instances of Google Fonts' variable Overpass
     python3 -m fontTools.varLib.instancer 'Overpass[wght].ttf' wght=900 -o Overpass-900.ttf
     python3 -m fontTools.varLib.instancer 'Overpass[wght].ttf' wght=750 -o Overpass-750.ttf
 
-The builds embed the Overpass files (`tools/embed_assets.py`), and the
-release packages carry `Overpass-OFL.txt`, as the license asks.
+The builds no longer embed the Overpass files: they draw nothing since
+0.8.0, and the builds embed only the fonts `fonts.json` names
+(`tools/embed_assets.py`). The release packages still carry
+`Overpass-OFL.txt`, for the glyphs Cyborg Interface Gothic takes from it.

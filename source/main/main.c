@@ -424,6 +424,13 @@ enum
 	_text_justification_right,
 };
 
+/* port: a network game's frame this long or longer is noted in debug.txt
+(milliseconds; a client's connection times out after 15 seconds of silence) */
+enum
+{
+	LONG_NETWORK_FRAME_MILLISECONDS = 2000,
+};
+
 /* ---------- macros */
 
 /* ---------- structures */
@@ -685,6 +692,9 @@ typedef char screenshot_and_framerate_globals_size_assert[
 void network_test_update(boolean main_menu_loaded, real seconds);
 void audio_probe_update(unsigned char main_menu_loaded, float seconds);
 void team_change_update(void);
+#endif
+#ifdef HALO_GAME_BROWSER
+void host_rules_update(void);
 #endif
 #ifdef HALO_PORT_CHAT
 void chat_update(void);
@@ -1221,6 +1231,45 @@ real first_person_weapon_projection_scale(
 	}
 
 	return weapon_scale > 0.0f ? first_person_field_of_view_scale() / weapon_scale : 1.0f;
+}
+
+/* port: display.reticle_scales_with_fov, what the reticle's size (and its
+items' offsets from the middle) is scaled by in the local player's
+first-person view: the inverse of the field of view's tangent scale, as the
+world's image is (the screen's aspect and the zoom scale both alike), so the
+reticle still covers the weapon's spread. 1 at 70, the Xbox's, in any other
+view, or with the setting off. */
+real first_person_reticle_scale(
+	short local_player_index)
+{
+	extern int config_boolean(char const *name);
+	static unsigned long read_at = (unsigned long)-1;
+	static boolean enabled = FALSE;
+
+	if (read_at != config_changes())
+	{
+		read_at = config_changes();
+		enabled = config_boolean("display.reticle_scales_with_fov") != 0;
+	}
+	if (!enabled ||
+		local_player_index == NONE ||
+		director_get_perspective(local_player_index) != _director_perspective_first_person)
+	{
+		return 1.0f;
+	}
+
+	return 1.0f / first_person_field_of_view_scale();
+}
+
+/* port: TRUE when display.field_of_view has the first-person view at
+other than the stock 70 degrees (the screen fog's canopy redraw,
+rasterizer_xbox_environment_fog.c) */
+boolean first_person_field_of_view_widened(
+	short local_player_index)
+{
+	return local_player_index != NONE &&
+		director_get_perspective(local_player_index) == _director_perspective_first_person &&
+		first_person_field_of_view_scale() != 1.0f;
 }
 
 /* port: display.far_clip_distance, how far the world is drawn (1024 as on
@@ -2416,6 +2465,16 @@ static void main_won_map_private(
 void main_set_map_name(
 	char const *map_name)
 {
+#ifdef HALO_MAP_LIST
+	/* port: with a map pack's own menus (game.pack_menus), a level only the
+	pack has is the pack's: its menus name cex_museum, which is
+	cex_museum@cex here (port/linux/game/map_packs.c) */
+	void map_pack_menus_map_name(char const *map_name, char *name, long size);
+	char pack_map_name[NUMBEROF(main_globals.soloplayer_map_name)];
+
+	map_pack_menus_map_name(map_name, pack_map_name, sizeof(pack_map_name));
+	map_name = pack_map_name;
+#endif
 	main_globals.want_to_be_at_main_menu = FALSE;
 	csstrncpy(main_globals.soloplayer_map_name, map_name, NUMBEROF(main_globals.soloplayer_map_name) - 1);
 	main_globals.soloplayer_map_name[NUMBEROF(main_globals.soloplayer_map_name) - 1] = 0;
@@ -3671,6 +3730,10 @@ void main_loop(
 			/* changing teams during a game (port/linux/game/team_change.c) */
 			team_change_update();
 #endif
+#ifdef HALO_GAME_BROWSER
+			/* the host's rules for its players' extras (port/linux/game/host_rules.c) */
+			host_rules_update();
+#endif
 #ifdef HALO_PORT_CHAT
 			/* text chat (port/linux/game/chat.c; on a console, its client's
 			part) */
@@ -3681,6 +3744,24 @@ void main_loop(
 			on the consoles too */
 			MAIN_STAGE("audio_probe_update");
 			audio_probe_update(main_globals.main_menu_scenario_loaded, main_globals.seconds_elapsed);
+			/* port: a frame of a network game that took seconds (a hitch,
+			a stall of the renderer) noted in debug.txt, nothing having been
+			sent or read meanwhile: why a machine timed out of a game, or
+			another lost it, can then be read */
+			{
+				static unsigned long previous_network_frame_milliseconds;
+				unsigned long now = system_milliseconds();
+
+				if ((main_globals.connection==_game_connection_network_client ||
+					main_globals.connection==_game_connection_network_server) && game_in_progress() &&
+					previous_network_frame_milliseconds &&
+					now-previous_network_frame_milliseconds>=LONG_NETWORK_FRAME_MILLISECONDS)
+				{
+					error(_error_silent, "a frame of %lu ms in a network game (nothing sent or read meanwhile)",
+						now-previous_network_frame_milliseconds);
+				}
+				previous_network_frame_milliseconds = now;
+			}
 			HALO_PERF_BEGIN(_halo_perf_network);
 			connection = main_globals.connection;
 			if (connection==_game_connection_network_client)
@@ -3730,7 +3811,6 @@ void main_loop(
 				void dedicated_server_update(void);
 				void probe_update(void);
 				void game_list_claims_update(void);
-				void game_stats_update(void);
 				void discord_game_update(void);
 
 				MAIN_STAGE("dedicated_server_update");
@@ -3739,8 +3819,18 @@ void main_loop(
 				probe_update();
 				MAIN_STAGE("game_list_claims_update");
 				game_list_claims_update();
-				game_stats_update();
 				discord_game_update();
+			}
+#endif
+#ifdef HALO_PORT_GAME_REPORTS
+			{
+				/* the statistics recorder and a joined game's report
+				(port/linux/game/game_stats.c): the desktop builds' game
+				list, or a console's reports (port/console/reports) */
+				void game_stats_update(void);
+
+				MAIN_STAGE("game_stats_update");
+				game_stats_update();
 			}
 #endif
 			MAIN_STAGE("bink_playback_update");
@@ -3825,7 +3915,9 @@ void main_loop(
 #ifndef HALO_XBOX_CONSOLE
 					render_interpolation_frame_begin();
 					MAIN_STAGE("main_game_render");
+					HALO_PERF_BEGIN(_halo_perf_render);
 					main_game_render((double)main_globals.seconds_elapsed);
+					HALO_PERF_END(_halo_perf_render);
 					MAIN_STAGE("render_interpolation_frame_end");
 					render_interpolation_frame_end();
 					MAIN_STAGE("profile_render_end");

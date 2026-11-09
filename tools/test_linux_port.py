@@ -228,7 +228,10 @@ def test_menus_are_well_formed():
             where = f"{path.name}: <{element.tag} {element.get('name', '')}>"
             assert element.tag in MENU_ATTRIBUTES, where
             assert set(element.attrib) <= MENU_ATTRIBUTES[element.tag], where
-            assert element.get("platform") in (None, "desktop", "android"), where
+            # (the platforms it is on, separated by spaces: menu_files.c)
+            if element.get("platform") is not None:
+                names = element.get("platform").split(" ")
+                assert names and set(names) <= {"desktop", "android", "switch", "console", "x360", "wiiu"}, where
             # (menu_files.c's whole numbers, which the tags keep in shorts,
             # its true/false attributes, and no text but whitespace outside
             # <string>s)
@@ -315,11 +318,12 @@ def test_report_joined_games_stops_claims():
     root = MENUS.parent.parent.parent
     browser = (root / "port/linux/src/browser.c").read_text()
     for function in ("browser_client_report", "browser_claim_game"):
-        body = re.search(r"^void " + function + r"\(.*?^\}", browser, re.M | re.S).group(0)
+        # (browser_client_report says whether it sent: int, return 0)
+        body = re.search(r"^(?:void|int) " + function + r"\(.*?^\}", browser, re.M | re.S).group(0)
         gate = re.search(r'!config_boolean\("network\.report_joined_games"\)\s*\|\|\s*'
                          r'!p2p_joined_invite\(', body)
         assert gate, function
-        assert body.index("return;") > gate.start(), function
+        assert re.search(r"return( 0)?;", body[gate.start():]), function
     readme = (root / "port/linux/README.md").read_text()
     row = next(line for line in readme.splitlines() if line.startswith("| `network.report_joined_games`"))
     assert "/v1/claim" in row
@@ -378,14 +382,18 @@ def test_minimal_report_lines():
     scoreboard's numbers: name, team, place, score, kills, deaths (and the
     host's claim tag). Its recorded parts (medals, weapons, ...) never go."""
     root = MENUS.parent.parent.parent
-    browser = (root / "port/linux/src/browser.c").read_text()
-    body = re.search(r"^static char \*report_json\(.*?^\}", browser, re.M | re.S).group(0)
+    report = (root / "port/linux/src/game_report.c").read_text()
+    body = re.search(r"^char \*game_report_json\(.*?^\}", report, re.M | re.S).group(0)
     minimal = re.search(r"if \(player->minimal\)\s*\{.*?append\(report, size, used, \"(.*?)\",", body, re.S).group(1)
     line = json.loads('{"name": "Someone"' + c_format_json(minimal, [1, 2, 3, 4, 5]) + "}")
     assert set(line) == {"name", "team", "place", "score", "kills", "deaths"}
     # (the tag stays, so a Chupathingy player the handshake missed can still claim it)
     assert body.index("if (player->minimal)") < body.index('"tag\\"')
-    assert "!player->minimal && player->extra" in body
+    assert "if (line_has_extra(player))" in body
+    assert "return !player->minimal && player->extra" in report
+    # (the host's report alone tags its lines: browser.c's report_json)
+    browser = (root / "port/linux/src/browser.c").read_text()
+    assert "tag_invite ? report_line_tag : NULL" in browser
     stats = (root / "port/linux/game/game_stats.c").read_text()
     departed = re.search(r"if \(!full\)\s*\{\s*return stats_append\(text, size, used, \"(.*?)\",", stats, re.S).group(1)
     assert set(json.loads(c_format_json(departed, ['"Someone"', 1, 2, 3]))) == {"name", "team", "kills", "deaths"}
@@ -437,7 +445,8 @@ def test_default_brokers_are_brokers_txt():
 def test_p2p_signatures_and_listings(tmp_path):
     """internet play's Ed25519 (RFC 8032), the X25519 key of a seed, and the
     server browser's listings from host to browser (tools/p2p_lobby_check.c),
-    built with the flags ninja gives the platform layer"""
+    built with the flags ninja gives the platform layer; and a broker's burst
+    on subscribing, whose live games the queue's intake checks keep"""
     import shlex
 
     if not shutil.which("clang") or not shutil.which("ninja") or not Path("build.ninja").is_file():
@@ -459,17 +468,28 @@ def test_p2p_signatures_and_listings(tmp_path):
             continue
         else:
             flags.append(word)
-    program = tmp_path / "p2p_lobby_check"
-    built = subprocess.run(["clang", *flags, "-O1", "-no-pie", "-Wl,--unresolved-symbols=ignore-all", "-o",
-                            str(program), "tools/p2p_lobby_check.c", "port/linux/src/p2p_crypto.c",
-                            "port/linux/src/p2p_lobby.c", "port/linux/src/p2p_copies.c",
-                            "port/third_party/monocypher/monocypher.c",
-                            "port/third_party/monocypher/monocypher-ed25519.c"],
-                           capture_output=True, text=True)
-    assert built.returncode == 0, built.stderr[-4000:]
-    result = subprocess.run([str(program)], capture_output=True, text=True, timeout=60)
+
+    def build(name, *defines):
+        program = tmp_path / name
+        built = subprocess.run(["clang", *flags, *defines, "-O1", "-no-pie", "-Wl,--unresolved-symbols=ignore-all",
+                                "-o", str(program), "tools/p2p_lobby_check.c", "port/linux/src/p2p_crypto.c",
+                                "port/linux/src/p2p_lobby.c", "port/linux/src/p2p_copies.c",
+                                "port/linux/src/delta_compat.c",
+                                "port/third_party/monocypher/monocypher.c",
+                                "port/third_party/monocypher/monocypher-ed25519.c"],
+                               capture_output=True, text=True)
+        assert built.returncode == 0, built.stderr[-4000:]
+        return program
+
+    result = subprocess.run([str(build("p2p_lobby_check"))], capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stdout
     assert "PASS" in result.stdout
+    # a broker's burst on subscribing, with the queue's intake reading a
+    # listing's time alone (1) or its version alone (2): live games lost
+    for checks in (1, 2):
+        program = build(f"p2p_lobby_check_{checks}", f"-DP2P_LOBBY_INTAKE_CHECKS={checks}")
+        result = subprocess.run([str(program), "burst"], capture_output=True, text=True, timeout=60)
+        assert result.returncode == 1 and "BURST FAIL" in result.stdout, (checks, result.stdout)
 
 
 # ---------- system link's stand-in machines (tools/system_link_bots.py)

@@ -234,12 +234,23 @@ public final class TouchControls extends View implements SensorEventListener, In
         return owners.indexOfValue(control) >= 0;
     }
 
+    /** the controls held, a bit each (TouchLayout.MAX_CONTROLS is 64) */
+    private long heldControls() {
+        long held = 0;
+        for (int i = 0; i < owners.size(); i++) {
+            int control = owners.valueAt(i);
+            if (control >= 0 && control < 64) held |= 1L << control;
+        }
+        return held;
+    }
+
     private static boolean inside(float x, float y, float cx, float cy, float radius) {
         return (x-cx)*(x-cx) + (y-cy)*(y-cy) <= radius*radius;
     }
 
     private int hit(float x, float y) {
-        if (inside(x, y, optionsX(), toolbarY(), 34)) return EDIT;
+        // (hidden controls leave only the "Touch" button: Options comes back with the controls)
+        if ((visible || editing) && inside(x, y, optionsX(), toolbarY(), 34)) return EDIT;
         if (editing && inside(x, y, optionsX()-156, toolbarY(), 34)) return EXPORT;
         if (editing && inside(x, y, optionsX()-78, toolbarY(), 34)) return IMPORT;
         if (inside(x, y, logicalWidth/2, toolbarY(), 28)) return TOGGLE;
@@ -324,6 +335,11 @@ public final class TouchControls extends View implements SensorEventListener, In
             return true;
         }
         if (editing) return editTouch(event, action, index, id, x, y);
+        // (most of a game's touches only aim and change nothing drawn: redraw
+        // only when the controls held, the stick or Hide changed)
+        boolean wasVisible = visible;
+        long wasHeld = heldControls();
+        int wasStickX = axes[0], wasStickY = axes[1];
         if ((action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_POINTER_DOWN)
                 && inGestureZone(event.getX(index), event.getY(index), true)) {
             return true;
@@ -371,7 +387,10 @@ public final class TouchControls extends View implements SensorEventListener, In
         } else if (action == MotionEvent.ACTION_CANCEL) {
             reset();
         }
-        publish(); invalidate();
+        publish();
+        if (editing || visible != wasVisible || heldControls() != wasHeld
+                || axes[0] != wasStickX || axes[1] != wasStickY)
+            invalidate();
         return true;
     }
 
@@ -410,6 +429,7 @@ public final class TouchControls extends View implements SensorEventListener, In
     private float optionsX() { return logicalWidth-Math.max(42, insetRight/scale+42); }
 
     private void editorButton(Canvas canvas) {
+        if (!visible && !editing) return;
         circle(canvas, optionsX(), toolbarY(), 34, editing ? "Save" : "Options", false);
         if (editing) {
             circle(canvas, optionsX()-156, toolbarY(), 34, "Export", false);

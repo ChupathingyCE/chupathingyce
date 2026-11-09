@@ -1,20 +1,21 @@
 #!/usr/bin/env python3
 """Puts function names and source lines on the crash lines of a Windows
 build's debug.txt or halo.log (port/windows/src/win32_crash.c), or on the
-calls of a crash report as the site keeps it (halo.exe+0x1a2b3c, one a
-line: port/linux/src/crash_report.h):
+calls of a crash report as the site keeps it (chupathingy.exe+0x1a2b3c, one
+a line: port/linux/src/crash_report.h):
 
-    python tools/symbolize_crash.py logs/debug.txt path/to/halo.exe
+    python tools/symbolize_crash.py logs/debug.txt path/to/chupathingy.exe
 
 (Both logs are in logs/ in the game's data folder since 0.8.0; before, debug.txt
-was in the data folder itself and halo.log beside halo.exe.)
+was in the data folder itself and halo.log beside the program.)
 
-halo.exe must be the build that crashed (32- or 64-bit), with its halo.pdb
-beside it (a release's symbols, chupathingyce-<platform>-<config>-symbols,
-have the PDB and the linker's map; the release's zip has halo.exe). The
-lines come from llvm-symbolizer, which reads the PDB. The game's executable
-is read by either of its names, halo.exe or chupathingy.exe (a later
-release's), so reports from before and after the rename both work.
+The program must be the build that crashed (32- or 64-bit), with its .pdb
+beside it: chupathingy.exe and chupathingy.pdb from 0.9.0, halo.exe and
+halo.pdb before (a release's symbols, chupathingyce-<platform>-<config>-symbols,
+have the PDB and the linker's map; the release's zip has the program). The
+lines come from llvm-symbolizer, which reads the PDB. Crash lines name the
+game by either name, halo.exe or chupathingy.exe, so reports from before and
+after the rename both work, whichever program is given.
 """
 
 import argparse
@@ -37,7 +38,7 @@ ANY_FRAME = re.compile(r"[\w.?-]\+0x[0-9A-Fa-f]+")
 
 
 def image_layout(executable: Path) -> tuple:
-    """the address halo.exe is linked at and its size in memory (its PE
+    """the address the game's program is linked at and its size in memory (its PE
     optional header's ImageBase and SizeOfImage)"""
     data = executable.read_bytes()
     pe = struct.unpack_from("<I", data, 0x3C)[0]
@@ -67,7 +68,7 @@ def symbolize(symbolizer: str, executable: Path, addresses: list) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("log", type=Path, help="debug.txt or halo.log (chupathingy.log)")
-    parser.add_argument("executable", type=Path, help="the halo.exe (or chupathingy.exe) that crashed, its .pdb beside it")
+    parser.add_argument("executable", type=Path, help="the chupathingy.exe (or, before 0.9.0, halo.exe) that crashed, its .pdb beside it")
     args = parser.parse_args()
 
     symbolizer = shutil.which("llvm-symbolizer") or shutil.which("llvm-addr2line")
@@ -78,8 +79,8 @@ def main() -> int:
     linked, size = image_layout(args.executable)
 
     lines = args.log.read_text(encoding="utf-8", errors="replace").splitlines()
-    # each crash's addresses, relative to where halo.exe was in that run (a
-    # line before "halo.exe at" is from a build too old to say: linked base);
+    # each crash's addresses, relative to where the program was in that run (a
+    # line before "<program> at" is from a build too old to say: linked base);
     # a caller's is its return address, one past the call
     base = linked
     wanted = {}

@@ -143,7 +143,7 @@ boolean data_encode_memory(
 		else
 			csmemset(destination, 0, memory_size);
 
-		if (element_size != 1)
+		if (element_size != 1 && NETWORK_ORDER_SWAPPED)
 			byte_swap_memory(destination, element_count, element_size);
 		state->offset += memory_size;
 	}
@@ -219,7 +219,7 @@ boolean data_encode_structures(
 		{
 			destination = state->buffer + state->offset;
 			csmemcpy(destination, source_structures, memory_size);
-			byte_swap_data(bs_definition, destination, structure_count);
+			if (NETWORK_ORDER_SWAPPED) byte_swap_data(bs_definition, destination, structure_count);
 			state->offset += memory_size;
 		}
 		else
@@ -377,7 +377,7 @@ void *data_decode_structures(
 		structures = state->buffer + state->offset;
 		if (memory_size)
 		{
-			byte_swap_data(bs_definition, structures, structure_count);
+			if (NETWORK_ORDER_SWAPPED) byte_swap_data(bs_definition, structures, structure_count);
 			state->offset += memory_size;
 		}
 	}
@@ -430,7 +430,7 @@ void *data_decode_memory(
 	if (state->offset+memory_size<=state->buffer_size && !state->overflow)
 	{
 		memory = state->buffer+state->offset;
-		if (element_size!=1)
+		if (element_size!=1 && NETWORK_ORDER_SWAPPED)
 		{
 			byte_swap_memory(memory, count, element_size);
 		}

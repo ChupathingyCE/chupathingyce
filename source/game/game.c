@@ -185,6 +185,7 @@ struct game_options;
 #include "rasterizer/common/rasterizer_common.h"
 #endif
 #include "network_coop.h" /* port: port/linux/game/network_coop.c */
+#include "loading_screen.h" /* port: port/linux/game/loading_screen.c */
 #include "networking/network_game_globals.h"
 #include "tag_files/tag_files.h"
 #include "cseries/cseries_windows.h"
@@ -321,6 +322,8 @@ void game_initialize(
 	return;
 }
 
+void determinism_check_game_load(unsigned long *random_seed);
+
 void game_tick(
 	void)
 {
@@ -348,20 +351,28 @@ void game_tick(
 	cheats_network_client_enforce();
 	remove_quitting_players_from_game();
 	game_allegiance_update();
+	HALO_PERF_BEGIN(_halo_perf_tick_units);
 	units_update();
+	HALO_PERF_END(_halo_perf_tick_units);
 	/* (the host's actors drive the host's units, which a client of the
 	distributed netcode has from the host: its own would fight the host's
 	positions, and could place objects of their own) */
+	HALO_PERF_BEGIN(_halo_perf_tick_ai);
 	if (!network_game_distributed_client())
 		ai_update();
 	else
 		network_actors_drive();
+	HALO_PERF_END(_halo_perf_tick_ai);
+	HALO_PERF_BEGIN(_halo_perf_tick_units);
 	players_update_before_game();
+	HALO_PERF_END(_halo_perf_tick_units);
 
 	seconds_per_tick = game_globals->players_are_double_speed
 		? 1.0f / (2 * TICKS_PER_SECOND)
 		: 1.0f / TICKS_PER_SECOND;
+	HALO_PERF_BEGIN(_halo_perf_tick_effects);
 	effects_update(seconds_per_tick);
+	HALO_PERF_END(_halo_perf_tick_effects);
 	/* An antenna's chain is a simulation of the Xbox's own step, an update a
 	tick: stepped a frame at a time, its springs, its carry and its points'
 	physics act against the frames' own movement of it, and a vehicle at
@@ -372,7 +383,9 @@ void game_tick(
 	rumble_update();
 	first_person_weapons_update();
 	unlock_global_random_seed();
+	HALO_PERF_BEGIN(_halo_perf_tick_game_engine);
 	game_engine_update();
+	HALO_PERF_END(_halo_perf_tick_game_engine);
 	editor_update();
 	/* port: in network co-op only the host runs the scripts. A client running
 	them would place the map's actors and objects a second time and make
@@ -380,10 +393,17 @@ void game_tick(
 	if (!(network_game_distributed_client() && network_coop_active()))
 		hs_update();
 	recorded_animations_update();
+	HALO_PERF_BEGIN(_halo_perf_tick_objects);
 	objects_update();
+	HALO_PERF_END(_halo_perf_tick_objects);
+	HALO_PERF_BEGIN(_halo_perf_tick_units);
 	players_update_after_game();
+	HALO_PERF_END(_halo_perf_tick_units);
 	hud_update();
 	player_effect_update();
+	/* port: the wind steps once a tick (scenario.c; it stepped by the
+	frames' time) */
+	scenario_tick_update();
 	/* port: and at its end, before the frame draws the lights */
 	game_state_check_data_arrays();
 	lights_port_recover();
@@ -616,6 +636,11 @@ boolean game_load(
 
 	random_seed_debug_log(TRUE);
 	csmemcpy(&game_globals->options, options, sizeof(*options));
+	/* port: debug.determinism's games all play from one seed
+	(port/linux/game/determinism_check.c) */
+#ifndef HALO_CONSOLE_NO_NETWORK_TEST
+	determinism_check_game_load(&game_globals->options.random_seed);
+#endif
 	if (scenario_load(options->map_name))
 	{
 		game_globals->map_loaded = TRUE;
@@ -809,7 +834,7 @@ void game_precache_new_map(
 	boolean blocking)
 {
 	long map_status;
-	/* port: display.loading_screen_min_seconds */
+	/* port: display.loading_screen */
 	unsigned long hold_milliseconds = blocking ? game_loading_screen_hold_milliseconds(map_name) : 0;
 	unsigned long hold_start = system_milliseconds();
 
@@ -904,6 +929,9 @@ void game_precache_new_map(
 					game_globals->loading_progress = progress;
 				}
 #endif
+				/* (skipped, the load itself still runs to its end) */
+				if (hold_milliseconds > 0 && loading_screen_skip_pressed())
+					hold_milliseconds = 0;
 				game_loading_screen_hold_progress(hold_start, hold_milliseconds, map_status != 0);
 				main_pregame_render();
 				main_rasterizer_throttle();
@@ -933,7 +961,7 @@ void game_precache_new_map(
 	else if (hold_milliseconds > 0)
 	{
 		/* port: a map already in its cache file loads at once; the loading
-		screen is still held for display.loading_screen_min_seconds */
+		screen is still held for display.loading_screen's seconds */
 		game_loading_screen_hold(hold_start, hold_milliseconds);
 	}
 
@@ -1096,25 +1124,52 @@ void game_set_game_variant_from_name(
 /* ---------- private code */
 
 /* port_config.c */
+int config_boolean(char const *name);
 double config_real(char const *name);
 
-/* port: display.loading_screen_min_seconds (0, the default, for none): the
-least time the original loading screen stays up when a level loads, as
-loading from the Xbox's disc took, where the port's loads are over before it
-shows. Only in a game no other machine is in (campaign, a split screen game):
-this loop runs nothing of the network, so a game on it is not held. Never for
-the main menu's map. */
+/* port: display.loading_screen (false for none) and its seconds: the least
+time the original loading screen stays up when a level loads, as loading
+from the Xbox's disc took, where the port's loads are over before it shows.
+A campaign level on this machine alone (split screen co-op too) has its
+own, and every other game (split screen multiplayer, and any game on the
+network, network co-op too) the multiplayer one. This loop runs nothing of
+the network, so a multiplayer game is held at most 5 seconds, far from the
+15 a host waits on a silent machine (NETWORK_GAME_SERVER_CLIENT_TIMEOUT);
+machines finish loading at their own times as it is. Never for the main
+menu's map, a saved film, or the dedicated server and the game list's probe,
+which show nothing. */
 static unsigned long game_loading_screen_hold_milliseconds(
 	char const *map_name)
 {
-	double seconds = config_real("display.loading_screen_min_seconds");
+	double seconds, maximum = 30.0;
 
-	if (!(seconds > 0.0) || !_stricmp(tag_name_strip_path(map_name), "ui"))
+	if (!config_boolean("display.loading_screen") || !_stricmp(tag_name_strip_path(map_name), "ui"))
 		return 0;
-	if (game_connection() != _game_connection_local && !network_game_is_splitscreen_local())
+#ifdef HALO_GAME_BROWSER
+	{ boolean dedicated_server_active(void);
+	  boolean probe_active(void);
+	  if (dedicated_server_active() || probe_active())
+		return 0; }
+#endif
+	if (game_connection() == _game_connection_local)
+	{
+		seconds = config_real("display.loading_screen_campaign_seconds");
+	}
+	else if (game_connection() == _game_connection_network_client ||
+		game_connection() == _game_connection_network_server)
+	{
+		/* (a split screen game is a network game no other machine is in) */
+		seconds = config_real("display.loading_screen_multiplayer_seconds");
+		maximum = 5.0;
+	}
+	else
+	{
+		return 0;
+	}
+	if (!(seconds > 0.0))
 		return 0;
 
-	return (unsigned long)(PIN(seconds, 0.0, 30.0) * 1000.0);
+	return (unsigned long)(PIN(seconds, 0.0, maximum) * 1000.0);
 }
 
 /* while the loading screen is held, its picture moves on with the time held
@@ -1145,6 +1200,8 @@ static void game_loading_screen_hold(
 	progress_bar_begin(global_scenario_index != NONE);
 	do
 	{
+		if (loading_screen_skip_pressed())
+			break;
 		game_loading_screen_hold_progress(hold_start, hold_milliseconds, TRUE);
 		main_pregame_render();
 		main_rasterizer_throttle();

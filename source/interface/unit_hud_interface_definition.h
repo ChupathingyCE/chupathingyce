@@ -79,8 +79,12 @@ struct meter_hud_element_definition
 	real opacity;
 	real fade;
 	unsigned long disabled_color;
-	struct tag_block multitexture_overlays;
-	long unused0[1];
+	/* port: Chimera's and MCC's "min alpha", the shape's alpha a meter's
+	pixels need to be drawn, in what the Xbox's and Halo PC's tags left
+	empty (zero in their maps; halopc-restored's meters set it). It was
+	read here as a block of multitexture overlays, which no meter has */
+	real min_alpha;
+	long unused0[3];
 };
 
 struct shield_meter_extras_definition

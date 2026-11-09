@@ -94,7 +94,7 @@ be a child of many).
 | `description` | A column list's extended description: a widget |
 | `controller` | `1` to `4`, or `any` (the default); a `<child>`'s or `child_controller`: the one it is for |
 | `auto_close`, `auto_close_fade` | It closes itself after this many milliseconds, fading for this many |
-| `platform` | `desktop` or `android`: it is only there. Every element takes this. |
+| `platform` | The platforms it is on, separated by spaces: `desktop`, `android`, `switch`, and `console` (the Xbox 360 and the Wii U), or one console by its name (`x360`, `wiiu`). Every element takes this. |
 
 Widget flags: `pass_unhandled_to_focused_child` (an event it does not handle
 goes to its focused child: a screen needs it for its list to get events),
@@ -127,8 +127,9 @@ and what to do.
 | `label` | Kept as the script's name, not run (as the tags keep it) |
 | `sound` | A sound tag of the map to play |
 
-On the keyboard, A is Enter or Space, B is Backspace or F, Start is Escape and
-Back is F1. The mouse picks the item under it, clicks A, right-clicks B and
+On the keyboard, A is Enter or Space, B is Escape or Backspace, X is Delete
+or E, Y is Tab, Back is F1, Start is F2, black is C, white is Q and the
+right trigger is X. The mouse picks the item under it, clicks A, right-clicks B and
 scrolls lists.
 
 The port's functions: `port quit game` quits; `port setting load` (on a
@@ -164,7 +165,8 @@ Chupathingy menus' GAME SETUP and game type editor
 (`chupathingy/host_setup.xml`): `port host init` and `port host update` (a
 list's rows, by its screen's name), `port host row a`, `port host row
 left` and `port host row right` (a row's value), `port host defaults`,
-`port host edit` and `port host back`. The others do nothing yet.
+`port host edit` and `port host back` (out of HOST RULES' nested list
+first, else back). The others do nothing yet.
 
 ### `<data>`, `<conditional>`, `<replace>`
 

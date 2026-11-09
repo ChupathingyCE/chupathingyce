@@ -200,6 +200,8 @@ struct powered_mass_point_definition
 
 #include "units/vehicle_datum.h"
 
+#include "halo_perf_log.h" /* port: console.perf_log */
+
 /* TU-local copy: no shared header declares the game globals falling-damage
  * block yet; identical complete copies live in objects/damage.c and
  * units/bipeds.c. */
@@ -2245,6 +2247,7 @@ void physics_update(
 	real_vector3d total_torque;
 	short powered_mass_point_index;
 
+	HALO_PERF_BEGIN(_halo_perf_tick_physics);
 	if (physics->radius > 0.0f)
 	{
 		physics_update_old(
@@ -2253,6 +2256,7 @@ void physics_update(
 			mass_points,
 			magic_force,
 			magic_torque);
+		HALO_PERF_END(_halo_perf_tick_physics);
 		return;
 	}
 
@@ -2327,6 +2331,7 @@ void physics_update(
 		&total_torque);
 	physics_compute_unit_collisions(object_index);
 
+	HALO_PERF_END(_halo_perf_tick_physics);
 	return;
 }
 

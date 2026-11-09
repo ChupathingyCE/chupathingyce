@@ -745,10 +745,13 @@ static void cache_copy_initialize_file_data(
 	short read_buffer_index;
 	short write_buffer_index;
 
+	/* (FILE_SHARE_READ: on the Xbox a map being copied to the cache stays
+	open while the game checks the same map is there; with no sharing the
+	kernel refused that open and the map looked missing) */
 	self->source_file = CreateFile(
 		self->src_name,
 		GENERIC_READ,
-		0,
+		FILE_SHARE_READ,
 		NULL,
 		OPEN_EXISTING,
 		FILE_FLAG_NO_BUFFERING | FILE_FLAG_OVERLAPPED,
@@ -1634,8 +1637,27 @@ static void cache_copy_run_decompression(
 		if (self->write_requests_pending > 1)
 			decompressor_timer_stop(_decompressor_timer_zlib_during_write_file);
 
+		/* port: a stream that ends a little before the size the header gives
+		the map, inside the buffer being written (Halo 1: NHE's atlas, 1,584
+		bytes short), has the rest written as zeros, as the Xbox's game played
+		it (what the buffer held from before would be written there
+		otherwise) */
+		if (zlib_result == Z_STREAM_END &&
+			zlib_stream->total_out < (uLong)(self->header.size - sizeof(self->header)) &&
+			(uLong)(self->header.size - sizeof(self->header)) - zlib_stream->total_out <= zlib_stream->avail_out)
+		{
+			uInt missing = (uInt)((uLong)(self->header.size - sizeof(self->header)) - zlib_stream->total_out);
+
+			error(_error_log, "the map's data ends %u bytes before its header says; the rest is zeros",
+				missing);
+			csmemset(zlib_stream->next_out, 0, missing);
+			zlib_stream->next_out += missing;
+			zlib_stream->avail_out -= missing;
+			zlib_stream->total_out += missing;
+		}
 		/* port: a stream that ends before the size the header gives the map
-		is a bad file: the rest of the cache file would be taken for it */
+		otherwise is a bad file: the rest of the cache file would be taken for
+		it */
 		if (zlib_result == Z_STREAM_END &&
 			zlib_stream->total_out != (uLong)(self->header.size - sizeof(self->header)))
 		{

@@ -41,6 +41,7 @@ being hit looks and feels like on the clients).
 */
 
 #include "cseries.h"
+#include "cseries/cseries_windows.h"
 #include "cseries/errors.h"
 #include "game/game.h"
 #include "game/game_globals.h"
@@ -55,7 +56,12 @@ being hit looks and feels like on the clients).
 #include "items/projectile_definitions.h"
 #include "scenario/scenario.h"
 #include "units/units.h"
+#include "physics/collisions.h"
+#include "physics/collision_usage.h"
+#include "host_evidence.h"
 #include "network_distributed.h"
+#include "network_rules.h"
+#include "line_of_sight.h"
 
 #include <math.h>
 
@@ -74,10 +80,15 @@ boolean distributed_get_death(short dead_player_index, byte *killing_player_inde
 	boolean *killed_by_vehicle);
 /* cache_files.c's */
 boolean tag_index_is_group(long tag_index, long group_tag);
+/* (the host) whether a machine's players report a static target's own
+damage (network_server_message_handler.c) */
+boolean network_game_server_machine_reports_static_damage(long machine_index);
 /* game_engine.c's */
 long game_engine_network_player_score(long player_index);
 /* physics.c's (world units a tick, each tick) */
 extern real global_gravity;
+/* port_config.c's */
+int config_boolean(char const *name);
 
 enum
 {
@@ -141,6 +152,18 @@ enum
 	PLAYER_TRAIL_REPORT_SLACK_TICKS = TICKS_PER_SECOND,
 	PLAYER_TRAIL_POINTS = 128,
 	PLAYER_TRAIL_TICKS = PLAYER_TRAIL_INTERVAL_TICKS * PLAYER_TRAIL_POINTS,
+	/* where a player could see and fire from, each tick of the history and
+	each point of the trail: their camera, their head, the gun of the
+	vehicle seat they drive or gun (network.hit_line_of_sight) */
+	MAXIMUM_SIGHT_POINTS = 3,
+	/* ... the ticks of them a shot is tried from: as many from the host's
+	tick the report was made at to now, and before it for its flight */
+	SHOT_SAMPLES_SINCE_REPORT = 6,
+	SHOT_SAMPLES_IN_FLIGHT = 4,
+	MAXIMUM_SHOT_STARTS = (SHOT_SAMPLES_SINCE_REPORT + SHOT_SAMPLES_IN_FLIGHT) * MAXIMUM_SIGHT_POINTS,
+	/* ... and the collision tests a report's line takes at most (one
+	refused takes them all: a few hundred) */
+	LINE_OF_SIGHT_BUDGET = 1024,
 };
 
 enum
@@ -336,6 +359,17 @@ struct damage_reach
 	real distance;
 	real ticks;
 	real carried_ticks;
+	/* how what it deals at a point gets there, for the line from the firer
+	(network.hit_line_of_sight): how far it falls for its speed (its gravity
+	over its slowest speed squared, per world unit), the radius it turns in
+	homing in at its fastest (0 for none), the material types it goes
+	through (a bit each, overpenetrate in its material responses), and
+	whether it comes from anywhere but its firer (a grenade's, what an
+	effect fires, a detonation on what it stuck to: no line from them) */
+	real fall;
+	real turn_radius;
+	unsigned long passable_materials[2];
+	boolean indirect;
 };
 
 /* the vehicle damage in the globals' falling damage block, as vehicles.c
@@ -386,9 +420,15 @@ static struct
 		long object_index;
 	} explosions[MAXIMUM_EXPLOSIONS_PER_TICK];
 } damage_explosions[MAXIMUM_TRACKED_PLAYERS];
+/* where a player could see and fire from (MAXIMUM_SIGHT_POINTS) */
+struct damage_sight
+{
+	short count;
+	real_point3d points[MAXIMUM_SIGHT_POINTS];
+};
 /* ... where each player's unit and vehicle were at each of the last ticks
-(and whether they drove it) */
-static struct damage_history_tick
+(and whether they drove it), and where they could see from */
+struct damage_history_tick
 {
 	long time;
 	struct
@@ -398,28 +438,44 @@ static struct damage_history_tick
 		real speed;
 		boolean driving;
 	} objects[MAXIMUM_TRACKED_PLAYERS][2];
-} damage_history[TARGET_HISTORY_TICKS];
+	struct damage_sight sight[MAXIMUM_TRACKED_PLAYERS];
+};
 /* ... and where each player's living unit was every few ticks, longer (NONE
 for no time: none), how fast it or its vehicle went, and the size of the
 vehicle it rode */
-static struct damage_trail_point
+struct damage_trail_point
 {
 	long time;
 	real_point3d position;
 	real speed;
 	real radius;
-} damage_trails[MAXIMUM_TRACKED_PLAYERS][PLAYER_TRAIL_POINTS];
+	struct damage_sight sight;
+};
 /* ... what each weapon or grenade deals, as the tags have it (their walk
 is long): the hits a second of a damage effect from it, how it deals it
 (the _damage_source flags), and how far from its firer */
-static struct damage_rate_cache_entry
+struct damage_rate_cache_entry
 {
 	long source_index;
 	long damage_index;
 	real rate;
 	byte kinds;
 	struct damage_reach reach;
-} damage_rate_cache[DAMAGE_RATE_CACHE_SIZE];
+};
+/* ... the three above, the host's alone: allocated while this machine hosts
+(network_damage_host_tables_allocate, from network_game_server_create), so
+that a machine that only joins (most consoles, most of the time) doesn't
+carry them; NULL otherwise (about 400 KB) */
+static struct damage_host_tables
+{
+	struct damage_history_tick history[TARGET_HISTORY_TICKS];
+	struct damage_trail_point trails[MAXIMUM_TRACKED_PLAYERS][PLAYER_TRAIL_POINTS];
+	struct damage_rate_cache_entry rate_cache[DAMAGE_RATE_CACHE_SIZE];
+} *damage_host;
+static boolean damage_host_missing_logged;
+#define damage_history (damage_host->history)
+#define damage_trails (damage_host->trails)
+#define damage_rate_cache (damage_host->rate_cache)
 /* ... the players each damage event of this tick goes to the machines of
 (NONE for every machine), and the machine of its owner */
 static struct
@@ -430,6 +486,14 @@ static struct
 } damage_event_destinations[MAXIMUM_DAMAGE_EVENTS_PER_TICK];
 /* for the automated tests' reports (network_test.c) */
 static long damage_rejected_reports;
+/* hit reports refused as malformed (a stamp no tick of the game has), among
+the rejected */
+static long damage_malformed_reports;
+/* ... of which for want of a line of sight (network.hit_line_of_sight) */
+static long damage_line_of_sight_reports;
+static boolean damage_report_refused_line_of_sight;
+/* ... whether the host looks for one, this tick's reports */
+static boolean damage_line_of_sight = TRUE;
 static long damage_dealt_reports;
 static long damage_sent_reports;
 static long damage_replayed_events;
@@ -499,12 +563,65 @@ static boolean distributed_damage_to_data(
 	return TRUE;
 }
 
-/* whether the object is scenery or a device that damage can destroy */
+/* whether the object is scenery or a device that damage can destroy, or,
+from network version 34 (network_rules_of_version), one that is a shield
+alone (Rat Race's energy shields, the tripmines of Bigass): every machine of
+a game takes the same ones */
 static boolean static_target(
 	long object_index)
 {
-	return object_try_and_get_and_verify_type(object_index, STATIC_TARGET_TYPES) &&
-		object_get_maximum_body_vitality(object_index, TRUE) > 0.0f;
+	struct object_datum *object = (struct object_datum *)object_try_and_get_and_verify_type(object_index,
+		STATIC_TARGET_TYPES);
+
+	if (!object)
+		return FALSE;
+	if (object_get_maximum_body_vitality(object_index, TRUE) > 0.0f)
+		return TRUE;
+	return network_rules_of_version(NETWORK_RULES_STATIC_SHIELDS_VERSION) &&
+		object->object.maximum_shield_vitality > 0.0f;
+}
+
+/* (a client) whether it runs the object's shields itself, their stun and
+recharge: a static target's, from network version 34, as the host sends no
+shield of one (else a broken one stays broken on the client's screen) */
+boolean network_damage_client_runs_shields(
+	long object_index)
+{
+	return network_rules_of_version(NETWORK_RULES_STATIC_SHIELDS_VERSION) && static_target(object_index);
+}
+
+/* (a client) the nearest static target to the point, within its bounding
+sphere and the reach: the copy of one a host's event names by the host's
+own index, made during play (a tripmine), which each machine makes at an
+index of its own. NONE for none; the first found of two as near. */
+static long static_target_nearest(
+	real_point3d const *point,
+	real reach)
+{
+	struct object_iterator iterator;
+	struct object_datum *object;
+	long nearest = NONE;
+	real nearest_distance = 0.0f;
+
+	object_iterator_new(&iterator, STATIC_TARGET_TYPES, 0);
+	while ((object = object_iterator_next(&iterator)) != NULL)
+	{
+		real_point3d origin;
+		real distance;
+
+		if (!static_target(iterator.index))
+			continue;
+		object_get_origin(iterator.index, &origin);
+		distance = (origin.x - point->x) * (origin.x - point->x) + (origin.y - point->y) * (origin.y - point->y) +
+			(origin.z - point->z) * (origin.z - point->z);
+		if (network_rules_static_within(distance, object->object.bounding_sphere_radius, reach) &&
+			(nearest == NONE || distance < nearest_distance))
+		{
+			nearest = iterator.index;
+			nearest_distance = distance;
+		}
+	}
+	return nearest;
 }
 
 /* ---------- object_cause_damage (damage.c) */
@@ -652,8 +769,12 @@ boolean network_damage_deals(
 
 			damage_replay_player_effect(unit->unit.player_index, &effect, 0.0f);
 		}
-		/* a hit of this machine's own player's, on the host's object */
+		/* a hit of this machine's own player's, on the host's object (but
+not a static target's own, a tripmine's going off, which from network
+version 34 the host deals itself, whoever placed it) */
 		if (distributed_player_is_local(damage->owner_player_index) &&
+			!(network_rules_of_version(NETWORK_RULES_STATIC_SHIELDS_VERSION) &&
+				damage->owner_object_index != NONE && static_target(damage->owner_object_index)) &&
 			(network_objects_client_has(object_index) || static_target(object_index)) &&
 			damage_report_count < MAXIMUM_HIT_REPORTS_PER_TICK)
 		{
@@ -684,14 +805,35 @@ boolean network_damage_deals(
 	{
 		struct player_datum *owner = player_try_and_get(damage->owner_player_index);
 
-		if (owner && !owner->quit_out_of_game &&
-			distributed_player_machine((short)DATUM_INDEX_TO_ABSOLUTE_INDEX(damage->owner_player_index)) != NONE)
+		long owner_machine = distributed_player_machine((short)DATUM_INDEX_TO_ABSOLUTE_INDEX(damage->owner_player_index));
+
+		/* (from network version 34, a static target's own damage, a
+		tripmine's going off, dealt here whoever placed it, unless the
+		placer's machine still reports it: an older build's) */
+		if (owner && !owner->quit_out_of_game && owner_machine != NONE &&
+			!(network_rules_of_version(NETWORK_RULES_STATIC_SHIELDS_VERSION) &&
+				damage->owner_object_index != NONE && static_target(damage->owner_object_index) &&
+				!network_game_server_machine_reports_static_damage(owner_machine)))
 		{
 			distributed_damage_material((struct damage_data *)damage, object_index, material_index);
 			return FALSE;
 		}
 	}
 	return TRUE;
+}
+
+/* (the host) the object killed now, the kill credited to a player who may
+be another machine's: a kill the host makes for them (Bomb's goal blast,
+game_engine_bomb.c), which no report of theirs brings */
+void network_damage_host_kill_for_player(
+	long object_index,
+	long player_index)
+{
+	void damage_kill_object_for_player(long object_index, long player_index);
+
+	damage_dealing_report = TRUE;
+	damage_kill_object_for_player(object_index, player_index);
+	damage_dealing_report = FALSE;
 }
 
 /* whether a client replaying the host's killing blow leaves out its
@@ -853,6 +995,13 @@ static void distributed_reach_combine(
 	struct damage_reach *reach,
 	struct damage_reach const *other)
 {
+	/* (and what it deals at a point, the most a path bends of either) */
+	reach->fall = MAX(reach->fall, other->fall);
+	if (other->turn_radius > 0.0f && (reach->turn_radius <= 0.0f || other->turn_radius < reach->turn_radius))
+		reach->turn_radius = other->turn_radius;
+	reach->passable_materials[0] |= other->passable_materials[0];
+	reach->passable_materials[1] |= other->passable_materials[1];
+	reach->indirect = reach->indirect || other->indirect;
 	if (!(reach->distance >= 0.0f) || !(other->distance >= 0.0f))
 	{
 		reach->distance = -1.0f;
@@ -918,6 +1067,53 @@ static void distributed_projectile_flight(
 	}
 }
 
+/* how a projectile that deals damage at a point gets there from its firer
+(struct damage_reach): its fall, how it homes in, the materials it goes
+through; and none of that but that it does not come from its firer's gun
+(indirect: fired by an effect, a detonation on what it stuck to) */
+static void distributed_projectile_path(
+	struct projectile_definition const *projectile,
+	boolean indirect,
+	struct damage_reach *path)
+{
+	real fastest = MAX(projectile->projectile.initial_velocity, projectile->projectile.final_velocity);
+	real slowest = MIN(projectile->projectile.initial_velocity, projectile->projectile.final_velocity);
+	real gravity = global_gravity * MAX(0.0f, projectile->projectile.air_gravity_scale);
+	real turn = projectile->projectile.guided_angular_velocity / TICKS_PER_SECOND;
+	short response_index;
+
+	if (indirect)
+	{
+		path->indirect = TRUE;
+		return;
+	}
+	/* (so written that a tag's number not a number bends it all it can) */
+	if (!(gravity <= 0.0f))
+		path->fall = MAX(path->fall, slowest > 0.001f ? gravity / (slowest * slowest) : 1000.0f);
+	if (!(turn <= 0.0f))
+	{
+		real radius = fastest > 0.0f && turn > 0.0f ? fastest / turn : 0.001f;
+
+		if (!(radius > 0.001f))
+			radius = 0.001f;
+		if (path->turn_radius <= 0.0f || radius < path->turn_radius)
+			path->turn_radius = radius;
+	}
+	for (response_index = 0; response_index < projectile->projectile.material_responses.count && response_index < 64;
+		response_index++)
+	{
+		struct projectile_material_response_definition *response = TAG_BLOCK_GET_ELEMENT(
+			&projectile->projectile.material_responses, response_index,
+			struct projectile_material_response_definition);
+
+		if (response->default_response == _projectile_material_response_overpenetrate ||
+			response->potential_response == _projectile_material_response_overpenetrate)
+		{
+			path->passable_materials[response_index / 32] |= 1ul << (response_index % 32);
+		}
+	}
+}
+
 /* how a projectile's impacts and detonations deal the damage (the
 _damage_source flags, none for not at all), and how far from its firer
 (combined into reach) */
@@ -970,7 +1166,7 @@ static byte distributed_projectile_deals(
 	struct damage_reach *reach)
 {
 	struct projectile_definition *projectile;
-	struct damage_reach from_here = {0.0f, 0.0f, 0.0f};
+	struct damage_reach from_here = {0};
 	short response_index;
 	byte kinds = 0;
 
@@ -984,6 +1180,8 @@ static byte distributed_projectile_deals(
 		projectile->projectile.attached_detonation_damage.index == damage_index)
 	{
 		SET_FLAG(kinds, _damage_source_impact_bit, TRUE);
+		distributed_projectile_path(projectile, depth > 0 ||
+			projectile->projectile.impact_damage.index != damage_index, &from_here);
 	}
 	kinds |= distributed_effect_deals(projectile->projectile.effect.index, damage_index, depth + 1, &from_here);
 	kinds |= distributed_effect_deals(projectile->projectile.super_detonation.index, damage_index, depth + 1,
@@ -1047,7 +1245,7 @@ static real distributed_weapon_deals(
 		SET_FLAG(*kinds, _damage_source_melee_bit, TRUE);
 	}
 	{
-		struct damage_reach weapon_reach = {0.0f, 0.0f, 0.0f};
+		struct damage_reach weapon_reach = {0};
 
 		effect_kinds = distributed_effect_deals(weapon->weapon.detonation_effect.index, damage_index, 0, &weapon_reach) |
 			distributed_effect_deals(weapon->weapon.overheated_effect.index, damage_index, 0, &weapon_reach);
@@ -1092,12 +1290,14 @@ static real distributed_source_deals_uncached(
 	byte *kinds,
 	struct damage_reach *reach)
 {
-	reach->distance = 0.0f;
-	reach->ticks = 0.0f;
-	reach->carried_ticks = 0.0f;
+	csmemset(reach, 0, sizeof(*reach));
 	if (grenade)
 	{
 		*kinds = distributed_projectile_deals(source_index, damage_index, 0, reach);
+		/* (a grenade is thrown, and bounces: what it hits at a point has no
+		line from its thrower) */
+		if (TEST_FLAG(*kinds, _damage_source_impact_bit))
+			reach->indirect = TRUE;
 		return *kinds ? (real)GRENADE_HITS_PER_SECOND : 0.0f;
 	}
 	return distributed_weapon_deals(source_index, damage_index, kinds, reach);
@@ -1114,6 +1314,8 @@ static real distributed_source_deals(
 	unsigned long hash = ((unsigned long)source_index * 2654435761u) ^ ((unsigned long)damage_index * 40503u);
 	short probe;
 
+	if (!damage_host)
+		return distributed_source_deals_uncached(source_index, damage_index, grenade, kinds, reach);
 	for (probe = 0; probe < 16; probe++)
 	{
 		struct damage_rate_cache_entry *entry =
@@ -1216,9 +1418,7 @@ static real distributed_player_deals(
 
 	*kinds = 0;
 	*grenade_type = NONE;
-	reach->distance = 0.0f;
-	reach->ticks = 0.0f;
-	reach->carried_ticks = 0.0f;
+	csmemset(reach, 0, sizeof(*reach));
 	for (index = 0; index < MAXIMUM_RECENT_WEAPONS; index++)
 	{
 		if (damage_players[player_index].definition_indices[index] != NONE &&
@@ -1301,6 +1501,71 @@ static real distributed_distance_squared(
 	return dx * dx + dy * dy + dz * dz;
 }
 
+/* whether the point is finite and within the distance of the other */
+static boolean distributed_point_near(
+	real_point3d const *point,
+	real_point3d const *other,
+	real distance)
+{
+	return distributed_point_valid(point, REPORT_WORLD_BOUND) &&
+		distributed_distance_squared(point, other) <= distance * distance;
+}
+
+/* where the player's living unit could see and fire from: its camera (a
+seat's when it rides), its head, and the gun of the vehicle seat it drives
+or guns (the vehicle's weapon); a point not near the unit is left out */
+static void distributed_note_sight(
+	long unit_index,
+	struct damage_sight *sight)
+{
+	struct unit_datum *unit;
+	real_point3d origin;
+	real_point3d point;
+
+	sight->count = 0;
+	if (unit_index == NONE || !(unit = (struct unit_datum *)object_try_and_get_and_verify_type(unit_index,
+		_object_mask_unit)))
+	{
+		return;
+	}
+	object_get_origin(unit_index, &origin);
+	unit_get_camera_position(unit_index, &point);
+	if (distributed_point_near(&point, &origin, REPORT_VEHICLE_TOLERANCE + REPORT_HISTORY_TOLERANCE))
+		sight->points[sight->count++] = point;
+	unit_get_head_position(unit_index, &point);
+	if (distributed_point_near(&point, &origin, REPORT_HISTORY_TOLERANCE) &&
+		(sight->count == 0 || distributed_distance_squared(&point, &sight->points[0]) > 0.01f * 0.01f))
+	{
+		sight->points[sight->count++] = point;
+	}
+	if (unit->object.parent_object_index != NONE)
+	{
+		struct unit_datum *vehicle = (struct unit_datum *)object_try_and_get_and_verify_type(
+			unit->object.parent_object_index, _object_mask_unit);
+
+		if (vehicle && (vehicle->unit.driver_object_index == unit_index ||
+			vehicle->unit.gunner_object_index == unit_index))
+		{
+			long weapon_index = NONE;
+			short weapon_slot;
+
+			if (vehicle->unit.current_weapon_index >= 0 && vehicle->unit.current_weapon_index < MAXIMUM_WEAPONS_PER_UNIT)
+				weapon_index = vehicle->unit.weapon_object_indices[vehicle->unit.current_weapon_index];
+			for (weapon_slot = 0; weapon_slot < MAXIMUM_WEAPONS_PER_UNIT && weapon_index == NONE; weapon_slot++)
+				weapon_index = vehicle->unit.weapon_object_indices[weapon_slot];
+			if (weapon_index != NONE && object_try_and_get(weapon_index))
+			{
+				object_get_origin(weapon_index, &point);
+				if (distributed_point_near(&point, &origin,
+					object_get(unit->object.parent_object_index)->object.bounding_sphere_radius + REPORT_VEHICLE_TOLERANCE))
+				{
+					sight->points[sight->count++] = point;
+				}
+			}
+		}
+	}
+}
+
 /* where each player's unit and vehicle are this tick (and whether they
 drive it), noted; and every few ticks where their unit is */
 static void distributed_note_targets(
@@ -1320,6 +1585,7 @@ static void distributed_note_targets(
 			object_get(unit_index)->object.parent_object_index : NONE;
 		tick->objects[player_index][0].driving = FALSE;
 		tick->objects[player_index][1].driving = FALSE;
+		distributed_note_sight(unit_index, &tick->sight[player_index]);
 		for (slot = 0; slot < 2; slot++)
 		{
 			long object_index = tick->objects[player_index][slot].object_index;
@@ -1351,6 +1617,7 @@ static void distributed_note_targets(
 				point->position = tick->objects[player_index][0].position;
 				point->speed = tick->objects[player_index][0].speed;
 				point->radius = 0.0f;
+				point->sight = tick->sight[player_index];
 				if (tick->objects[player_index][1].object_index != NONE)
 				{
 					point->speed = MAX(point->speed, tick->objects[player_index][1].speed);
@@ -1730,6 +1997,215 @@ static boolean distributed_report_paid(
 	return TRUE;
 }
 
+/* ---------- the line of sight (network.hit_line_of_sight) */
+
+/* what the line of sight's collision test tests (line_of_sight.h) */
+struct distributed_sight_context
+{
+	unsigned long flags;
+	long ignore_object_index;
+	/* (NULL: nothing passable) */
+	unsigned long const *passable_materials;
+};
+
+/* the collision tests: a shot's against what a projectile hits that every
+machine has the same (the map's structure and scenery; never a unit or a
+vehicle, which each machine has where it last heard; nor a machine, a door
+or a lift, nor glass that breaks, which may differ), its surfaces that
+cannot be seen or that are two-sided (fences, grates) gone through; an
+explosion's as damage.c tests its spread (area_of_effect_cause_damage_to_
+object) less the vehicles and machines, and glass that breaks */
+#define SHOT_SIGHT_COLLISION_FLAGS (FLAG(_collision_test_front_facing_surfaces_bit) | \
+	FLAG(_collision_test_ignore_two_sided_surfaces_bit) | FLAG(_collision_test_ignore_invisible_surfaces_bit) | \
+	FLAG(_collision_test_ignore_breakable_surfaces_bit) | FLAG(_collision_test_structure_bit) | \
+	FLAG(_collision_test_objects_bit) | FLAG(_collision_test_objects_scenery_bit))
+#define EXPLOSION_SIGHT_COLLISION_FLAGS (FLAG(_collision_test_front_facing_surfaces_bit) | \
+	FLAG(_collision_test_ignore_breakable_surfaces_bit) | FLAG(_collision_test_structure_bit) | \
+	FLAG(_collision_test_objects_bit) | FLAG(_collision_test_objects_scenery_bit))
+
+static void distributed_sight_test(
+	void *context,
+	struct line_of_sight_point const *from,
+	struct line_of_sight_point const *to,
+	struct line_of_sight_hit *hit)
+{
+	struct distributed_sight_context const *sight = (struct distributed_sight_context const *)context;
+	struct collision_result collision;
+	real_point3d start;
+	real_point3d end;
+
+	start.x = from->x, start.y = from->y, start.z = from->z;
+	end.x = to->x, end.y = to->y, end.z = to->z;
+	hit->hit = collision_test_line(sight->flags, &start, &end, sight->ignore_object_index, &collision) ? 1 : 0;
+	hit->t = collision.t;
+	hit->passable = 0;
+	if (hit->hit && sight->passable_materials && collision.material_type >= 0 && collision.material_type < 64)
+	{
+		hit->passable = (int)((sight->passable_materials[collision.material_type / 32] >>
+			(collision.material_type % 32)) & 1);
+	}
+}
+
+/* where the player could see and fire from at the tick: the history's, or
+the trail's nearest point at or before it (NULL for none) */
+static struct damage_sight const *distributed_sight_at(
+	short player_index,
+	long time)
+{
+	struct damage_history_tick const *tick = &damage_history[time & (TARGET_HISTORY_TICKS - 1)];
+	struct damage_trail_point const *point;
+	long trail_time;
+
+	if (time > game_time_get())
+		return NULL;
+	if (tick->time == time)
+		return tick->sight[player_index].count > 0 ? &tick->sight[player_index] : NULL;
+	trail_time = time - time % PLAYER_TRAIL_INTERVAL_TICKS;
+	point = &damage_trails[player_index][(trail_time / PLAYER_TRAIL_INTERVAL_TICKS) & (PLAYER_TRAIL_POINTS - 1)];
+	if (point->time != trail_time || point->time == NONE)
+		return NULL;
+	return point->sight.count > 0 ? &point->sight : NULL;
+}
+
+/* the points a shot is tried from: where the host had the player could see
+and fire from at ticks from the one the report was made at to now (the host
+hears of a client's player a round trip after the client saw it there),
+then before it, as long as what they fired flies; each spread evenly, a
+point each no closer than a hundredth of the last's */
+static short distributed_shot_starts(
+	short player_index,
+	long host_time,
+	real flight_ticks,
+	struct line_of_sight_point starts[MAXIMUM_SHOT_STARTS])
+{
+	long now = game_time_get();
+	long earliest_since = MAX(host_time - TARGET_HISTORY_SLACK_TICKS, now - (TARGET_HISTORY_TICKS - 1));
+	long flight = flight_ticks > 0.0f && flight_ticks < (real)PLAYER_TRAIL_TICKS ? (long)flight_ticks :
+		(flight_ticks > 0.0f ? PLAYER_TRAIL_TICKS : 0);
+	short count = 0;
+	short pass;
+
+	if (earliest_since > now)
+		earliest_since = now;
+	for (pass = 0; pass < 2; pass++)
+	{
+		/* (0: from the report's tick to now; 1: the flight before it) */
+		long first = pass == 0 ? earliest_since : earliest_since - flight - PLAYER_TRAIL_INTERVAL_TICKS;
+		long last = pass == 0 ? now : earliest_since - 1;
+		short samples = pass == 0 ? SHOT_SAMPLES_SINCE_REPORT : SHOT_SAMPLES_IN_FLIGHT;
+		short sample;
+
+		if (last < first)
+			continue;
+		if (last - first + 1 < samples)
+			samples = (short)(last - first + 1);
+		for (sample = 0; sample < samples; sample++)
+		{
+			long time = samples > 1 ? first + (last - first) * sample / (samples - 1) : first;
+			struct damage_sight const *sight = distributed_sight_at(player_index, time);
+			short index;
+
+			if (!sight)
+				continue;
+			for (index = 0; index < sight->count && count < MAXIMUM_SHOT_STARTS; index++)
+			{
+				struct line_of_sight_point point;
+
+				point.x = sight->points[index].x;
+				point.y = sight->points[index].y;
+				point.z = sight->points[index].z;
+				if (count > 0)
+				{
+					real dx = point.x - starts[count - 1].x;
+					real dy = point.y - starts[count - 1].y;
+					real dz = point.z - starts[count - 1].z;
+
+					if (dx * dx + dy * dy + dz * dz < 0.01f * 0.01f)
+						continue;
+				}
+				starts[count++] = point;
+			}
+		}
+	}
+	return count;
+}
+
+/* whether the report's hit had a line of sight to its target where the
+shooter saw it (the target's bounding sphere there): a shot's from where the
+host had the shooter (their camera, head, or the gun of their seat) to the
+target, along any path its projectile can bend in, through what it goes
+through; an explosion's from its epicenter (whoever threw it, wherever
+from: a grenade around a corner hits what it sees). What does not come from
+the shooter's gun (a grenade's hit, what an explosion fires, a detonation
+on what it stuck to) has no line to look for, nor a hit on the map's
+scenery or devices. */
+static boolean distributed_report_in_sight(
+	short player_index,
+	struct distributed_hit_report const *report,
+	struct object_datum const *target,
+	struct damage_effect_definition const *definition,
+	struct damage_reach const *fired_reach,
+	boolean explosion)
+{
+	struct distributed_sight_context context;
+	struct line_of_sight_query query;
+	struct line_of_sight_target sight_target;
+	real_point3d origin;
+	int clear;
+
+	/* (nor the map's scenery and devices: a light set in a wall has its
+	center in it) */
+	if ((!explosion && fired_reach->indirect) || TEST_FLAG(STATIC_TARGET_TYPES, target->object.type))
+		return TRUE;
+	if (global_current_collision_user_depth >= MAXIMUM_COLLISION_USER_STACK_DEPTH)
+		return TRUE;
+	/* (the target's sphere where the shooter saw it: its center as far
+	from its origin as the host has it now) */
+	object_get_origin(report->object_index, &origin);
+	sight_target.center.x = report->target_position.x + target->object.bounding_sphere_center.x - origin.x;
+	sight_target.center.y = report->target_position.y + target->object.bounding_sphere_center.y - origin.y;
+	sight_target.center.z = report->target_position.z + target->object.bounding_sphere_center.z - origin.z;
+	sight_target.radius = target->object.bounding_sphere_radius;
+	sight_target.impact.x = report->damage.origin.x;
+	sight_target.impact.y = report->damage.origin.y;
+	sight_target.impact.z = report->damage.origin.z;
+	sight_target.has_impact = !explosion;
+	context.ignore_object_index = object_get_ultimate_parent(report->object_index);
+	query.test = distributed_sight_test;
+	query.context = &context;
+	query.budget = LINE_OF_SIGHT_BUDGET;
+	global_current_collision_users[global_current_collision_user_depth++] =
+		explosion ? _collision_user_area_damage : _collision_user_projectiles;
+	if (explosion)
+	{
+		struct line_of_sight_point epicenter;
+
+		context.flags = EXPLOSION_SIGHT_COLLISION_FLAGS;
+		context.passable_materials = NULL;
+		epicenter.x = report->damage.epicenter.x;
+		epicenter.y = report->damage.epicenter.y;
+		epicenter.z = report->damage.epicenter.z;
+		clear = line_of_sight_explosion(&query, &epicenter, definition->damage.area_of_effect_core_radius,
+			&sight_target);
+	}
+	else
+	{
+		struct line_of_sight_point starts[MAXIMUM_SHOT_STARTS];
+		struct line_of_sight_bend bend;
+		short start_count = distributed_shot_starts(player_index, report->host_time, fired_reach->ticks, starts);
+
+		context.flags = SHOT_SIGHT_COLLISION_FLAGS;
+		context.passable_materials = fired_reach->passable_materials;
+		bend.turn_radius = fired_reach->turn_radius;
+		bend.gravity = fired_reach->fall;
+		bend.slowest_speed = 1.0f;
+		clear = line_of_sight_shot(&query, starts, start_count, &sight_target,
+			bend.turn_radius > 0.0f || bend.gravity > 0.0f ? &bend : NULL);
+	}
+	--global_current_collision_user_depth;
+	return clear != 0;
+}
+
 /* whether the host takes the report, which it makes the damage as the
 host deals it (the cheaper checks first, and the report paid for before the
 history is looked through: a flood of reports costs its sender no more than
@@ -1795,8 +2271,23 @@ static boolean distributed_report_valid(
 	held back is refused, as a burst after the network was lost is), and
 	looked back over from then: however long it took to come (sent again,
 	reliably), where the shooter saw the target */
-	if (report->host_time == NONE || report->host_time > now || now - report->host_time > REPORT_MAXIMUM_AGE_TICKS)
+	if (!network_rules_report_stamp_taken(now, report->host_time, REPORT_MAXIMUM_AGE_TICKS))
+	{
+		/* (one stamped from before the game began: counted, and said in the
+		log once) */
+		if (report->host_time < 0 && report->host_time != NONE)
+		{
+			static boolean logged;
+
+			damage_malformed_reports++;
+			if (!logged)
+			{
+				error(_error_log, "a client's hit report stamped before the game began; refused (counted)");
+				logged = TRUE;
+			}
+		}
 		return FALSE;
+	}
 	ticks = MIN(now - report->host_time + TARGET_HISTORY_SLACK_TICKS, TARGET_HISTORY_TICKS - 1);
 	/* damage that player could deal, and how they deal it */
 	rate = distributed_player_deals(player_index, report->damage.definition_index, &kinds, &fired_reach,
@@ -1904,6 +2395,15 @@ static boolean distributed_report_valid(
 		if (!(distributed_distance_squared(&report->target_position, &origin) <= tolerance * tolerance))
 			return FALSE;
 	}
+	/* a line of sight to the target where the shooter saw it: a shot's
+	from the shooter, an explosion's from its epicenter (not a melee blow's
+	or a collision's, which are at hand) */
+	if (damage_line_of_sight && !melee && !collision &&
+		!distributed_report_in_sight(player_index, report, target, definition, &fired_reach, area))
+	{
+		damage_report_refused_line_of_sight = TRUE;
+		return FALSE;
+	}
 	/* the damage as the host deals it: what a client's hit can be, from the
 	player's own */
 	if (!distributed_damage_to_data(&report->damage, damage))
@@ -1959,14 +2459,52 @@ void network_damage_handle_reports(
 	struct distributed_hit_report const *reports = (struct distributed_hit_report const *)entries;
 	short index;
 
+	/* (network.hit_line_of_sight, off if it misfires) */
+	damage_line_of_sight = config_boolean("network.hit_line_of_sight") != 0;
+	/* (no tables, which hosting allocates: none of the reports can be
+	checked, so none is dealt) */
+	if (!damage_host)
+	{
+		damage_rejected_reports += count;
+		return;
+	}
 	for (index = 0; index < count; index++)
 	{
 		struct distributed_hit_report const *report = &reports[index];
+		struct distributed_hit_report matched;
 		struct damage_data damage;
 
+		/* (from network version 34, a report on an index that names none of
+		this machine's units, weapons, equipment or static targets: the
+		client's own copy of a static target made during play, a tripmine,
+		is this machine's nearest to where the client had it, within its
+		bounding sphere and 1.0 more) */
+		if (network_rules_of_version(NETWORK_RULES_STATIC_SHIELDS_VERSION) &&
+			distributed_object_index_valid(report->object_index) &&
+			DATUM_INDEX_TO_ABSOLUTE_INDEX(report->object_index) < MAXIMUM_OBJECTS_PER_MAP &&
+			distributed_point_valid(&report->target_position, REPORT_WORLD_BOUND) &&
+			!object_try_and_get_and_verify_type(report->object_index,
+				_object_mask_biped | _object_mask_vehicle | _object_mask_weapon | _object_mask_equipment) &&
+			!static_target(report->object_index))
+		{
+			long nearest = static_target_nearest(&report->target_position, NETWORK_RULES_STATIC_REPORT_REACH);
+
+			if (nearest != NONE)
+			{
+				matched = *report;
+				matched.object_index = nearest;
+				report = &matched;
+			}
+		}
+		damage_report_refused_line_of_sight = FALSE;
 		if (!distributed_report_valid(machine_index, report, &damage))
 		{
 			damage_rejected_reports++;
+			if (damage_report_refused_line_of_sight)
+				damage_line_of_sight_reports++;
+			/* (counted for the server's moderators: host_evidence.h) */
+			host_evidence_note(machine_index,
+				damage_report_refused_line_of_sight ? _host_evidence_line_of_sight : _host_evidence_hit_report);
 			continue;
 		}
 		damage_dealt_reports++;
@@ -1985,7 +2523,8 @@ blow to all (NONE) */
 static void distributed_note_event_destinations(
 	void)
 {
-	struct damage_history_tick const *tick = &damage_history[game_time_get() & (TARGET_HISTORY_TICKS - 1)];
+	struct damage_history_tick const *tick =
+		damage_host ? &damage_history[game_time_get() & (TARGET_HISTORY_TICKS - 1)] : NULL;
 	short index;
 
 	for (index = 0; index < damage_event_count; index++)
@@ -2038,6 +2577,12 @@ static void distributed_note_event_destinations(
 			}
 			if (unit_player_index != NONE)
 				player_indices[(*count)++] = (short)DATUM_INDEX_TO_ABSOLUTE_INDEX(unit_player_index);
+		}
+		/* (no tables: every machine) */
+		if (!tick)
+		{
+			*count = NONE;
+			continue;
 		}
 		if (tick->time != game_time_get())
 			continue;
@@ -2092,14 +2637,16 @@ static void distributed_log_reports(
 {
 	static long logged_dealt;
 	static long logged_rejected;
+	static long logged_line_of_sight;
 
 	if (game_time_get() % REPORT_LOG_TICKS != 0 || damage_rejected_reports == logged_rejected)
 		return;
-	error(_error_silent, "damage: clients' hits in the last %d seconds: %ld dealt, %ld refused",
+	error(_error_silent, "damage: clients' hits in the last %d seconds: %ld dealt, %ld refused (%ld with no line of sight)",
 		REPORT_LOG_TICKS / TICKS_PER_SECOND, damage_dealt_reports - logged_dealt,
-		damage_rejected_reports - logged_rejected);
+		damage_rejected_reports - logged_rejected, damage_line_of_sight_reports - logged_line_of_sight);
 	logged_dealt = damage_dealt_reports;
 	logged_rejected = damage_rejected_reports;
+	logged_line_of_sight = damage_line_of_sight_reports;
 }
 
 /* the tick's killing blows once more, reliably, to every client: sent with
@@ -2146,7 +2693,8 @@ void network_damage_host_tick(
 
 	distributed_log_reports();
 	distributed_note_weapons();
-	distributed_note_targets();
+	if (damage_host)
+		distributed_note_targets();
 	distributed_note_event_destinations();
 	for (machine_number = 0; machine_number < machine_count; machine_number++)
 	{
@@ -2255,14 +2803,32 @@ void network_damage_handle_events(
 			}
 			break;
 		case _damage_event_static:
-			if (distributed_object_index_valid(event->object_index) && static_target(event->object_index) &&
-				distributed_damage_indices_valid(event->object_index, event->node_index, event->region_index,
+		{
+			long object_index = event->object_index;
+
+			/* (from network version 34, an index that names no object here,
+			the host's own copy of one made during play: the nearest static
+			target to where the damage is from, within reach; an index that
+			names another object is not taken for one) */
+			if (distributed_object_index_valid(object_index) && !static_target(object_index) &&
+				network_rules_of_version(NETWORK_RULES_STATIC_SHIELDS_VERSION) &&
+				DATUM_INDEX_TO_ABSOLUTE_INDEX(object_index) < MAXIMUM_OBJECTS_PER_MAP &&
+				!object_try_and_get_and_verify_type(object_index, -1))
+			{
+				boolean area = TEST_FLAG(damage.flags, _damage_area_of_effect_bit);
+
+				object_index = static_target_nearest(&damage.origin, network_rules_static_event_reach(area,
+					area ? damage_effect_definition_get(damage.definition_index)->cutoff_radius : 0.0f));
+			}
+			if (distributed_object_index_valid(object_index) && static_target(object_index) &&
+				distributed_damage_indices_valid(object_index, event->node_index, event->region_index,
 					event->material_index))
 			{
-				damage_replay_static(event->object_index, &damage, event->node_index, event->region_index,
+				damage_replay_static(object_index, &damage, event->node_index, event->region_index,
 					event->material_index);
 			}
 			break;
+		}
 		}
 	}
 }
@@ -2308,6 +2874,14 @@ void network_damage_statistics(
 	*replayed_events = damage_replayed_events;
 }
 
+/* the reports refused for want of a line of sight (network.hit_line_of_sight),
+of the rejected */
+long network_damage_line_of_sight_refusals(
+	void)
+{
+	return damage_line_of_sight_reports;
+}
+
 /* the host: a grenade a player's unit threw (units.c), as the host's own
 game threw it, which that player's machine reports the damage of
 (distributed_report_valid) */
@@ -2343,6 +2917,56 @@ void network_damage_note_grenade(
 	damage_players[player_index].throw_types[slot] = grenade_type;
 }
 
+/* the host's tables (damage_host), emptied */
+static void damage_host_tables_reset(
+	void)
+{
+	short player_index;
+	short index;
+
+	if (!damage_host)
+		return;
+	for (index = 0; index < TARGET_HISTORY_TICKS; index++)
+		damage_history[index].time = NONE;
+	for (player_index = 0; player_index < MAXIMUM_TRACKED_PLAYERS; player_index++)
+	{
+		for (index = 0; index < PLAYER_TRAIL_POINTS; index++)
+			damage_trails[player_index][index].time = NONE;
+	}
+	for (index = 0; index < DAMAGE_RATE_CACHE_SIZE; index++)
+		damage_rate_cache[index].source_index = NONE;
+}
+
+/* (network_distributed.h) */
+boolean network_damage_host_tables_allocate(
+	void)
+{
+	if (damage_host)
+		return TRUE;
+	damage_host = (struct damage_host_tables *)system_malloc(sizeof(*damage_host));
+	if (!damage_host)
+	{
+		if (!damage_host_missing_logged)
+		{
+			damage_host_missing_logged = TRUE;
+			error(_error_silent, "network damage: no memory for the host's tables (%lu KB): clients' hits not dealt",
+				(unsigned long)(sizeof(struct damage_host_tables) / 1024));
+		}
+		return FALSE;
+	}
+	damage_host_tables_reset();
+	return TRUE;
+}
+
+void network_damage_host_tables_free(
+	void)
+{
+	if (damage_host)
+		system_free(damage_host);
+	damage_host = NULL;
+	damage_host_missing_logged = FALSE;
+}
+
 void network_damage_new_game(
 	void)
 {
@@ -2353,8 +2977,7 @@ void network_damage_new_game(
 	damage_dealing_report = FALSE;
 	damage_replaying_kill = FALSE;
 	csmemset(damage_players, 0, sizeof(damage_players));
-	for (player_index = 0; player_index < TARGET_HISTORY_TICKS; player_index++)
-		damage_history[player_index].time = NONE;
+	damage_host_tables_reset();
 	for (player_index = 0; player_index < MAXIMUM_TRACKED_PLAYERS; player_index++)
 	{
 		short index;
@@ -2368,9 +2991,144 @@ void network_damage_new_game(
 		damage_players[player_index].hit_seconds = HIT_REPORT_BURST_SECONDS;
 		damage_explosions[player_index].time = NONE;
 		damage_explosions[player_index].count = 0;
-		for (index = 0; index < PLAYER_TRAIL_POINTS; index++)
-			damage_trails[player_index][index].time = NONE;
 	}
-	for (player_index = 0; player_index < DAMAGE_RATE_CACHE_SIZE; player_index++)
-		damage_rate_cache[player_index].source_index = NONE;
 }
+
+#ifdef HALO_BIG_ENDIAN
+/* (network_distributed.h) this module's entries in the wire's order */
+static void distributed_damage_wire(
+	struct distributed_damage *damage)
+{
+	WIRE_SWAP_FIELDS(damage, struct distributed_damage, definition_index, flags, sizeof(long));
+	WIRE_SWAP_FIELD(damage, struct distributed_damage, owner_team_index, sizeof(short));
+	WIRE_SWAP_FIELD(damage, struct distributed_damage, owner_object_index, sizeof(long));
+	/* (the origin, epicenter and direction, then the scales) */
+	WIRE_SWAP_FIELDS(damage, struct distributed_damage, origin, material_effect_scale, sizeof(real));
+	WIRE_SWAP_FIELD(damage, struct distributed_damage, material_type, sizeof(short));
+}
+
+boolean network_damage_wire_entries(
+	byte type,
+	byte *entries,
+	short count,
+	long size)
+{
+	short index;
+
+	switch (type)
+	{
+	case _distributed_message_damage_events:
+	{
+		struct distributed_damage_event *events = (struct distributed_damage_event *)entries;
+
+		for (index = 0; index < count && (index + 1) * (long)sizeof(*events) <= size; index++)
+		{
+			WIRE_SWAP_FIELD(&events[index], struct distributed_damage_event, object_index, sizeof(long));
+			distributed_damage_wire(&events[index].damage);
+			WIRE_SWAP_FIELD(&events[index], struct distributed_damage_event, being_damaged_flags, sizeof(long));
+			WIRE_SWAP_FIELDS(&events[index], struct distributed_damage_event, shield_damage, total_damage,
+				sizeof(real));
+			WIRE_SWAP_FIELDS(&events[index], struct distributed_damage_event, body_part, material_index,
+				sizeof(short));
+			WIRE_SWAP_FIELD(&events[index], struct distributed_damage_event, killer_score, sizeof(long));
+		}
+		return TRUE;
+	}
+	case _distributed_message_hit_reports:
+	{
+		struct distributed_hit_report *reports = (struct distributed_hit_report *)entries;
+
+		for (index = 0; index < count && (index + 1) * (long)sizeof(*reports) <= size; index++)
+		{
+			WIRE_SWAP_FIELD(&reports[index], struct distributed_hit_report, object_index, sizeof(long));
+			distributed_damage_wire(&reports[index].damage);
+			WIRE_SWAP_FIELDS(&reports[index], struct distributed_hit_report, target_position, object_normal,
+				sizeof(real));
+			WIRE_SWAP_FIELDS(&reports[index], struct distributed_hit_report, node_index, material_index,
+				sizeof(short));
+			WIRE_SWAP_FIELD(&reports[index], struct distributed_hit_report, host_time, sizeof(long));
+		}
+		return TRUE;
+	}
+	}
+	return FALSE;
+}
+#endif
+
+#if defined(HALO_BIG_ENDIAN) || defined(HALO_NETWORK_WIRE_CAPTURE)
+/* (network_distributed.h) this module's sample entries */
+static void distributed_damage_sample(
+	struct distributed_damage *damage)
+{
+	WIRE_SAMPLE(damage->definition_index);
+	WIRE_SAMPLE(damage->flags);
+	WIRE_SAMPLE(damage->owner_player_index);
+	WIRE_SAMPLE(damage->owner_team_index);
+	WIRE_SAMPLE(damage->owner_object_index);
+	WIRE_SAMPLES(damage->origin.n);
+	WIRE_SAMPLES(damage->epicenter.n);
+	WIRE_SAMPLES(damage->direction.n);
+	WIRE_SAMPLE(damage->scale);
+	WIRE_SAMPLE(damage->multiplier);
+	WIRE_SAMPLE(damage->material_effect_scale);
+	WIRE_SAMPLE(damage->material_type);
+}
+
+word network_damage_wire_sample(
+	byte type,
+	byte *entries)
+{
+	short index;
+
+	switch (type)
+	{
+	case _distributed_message_damage_events:
+	{
+		struct distributed_damage_event *events = (struct distributed_damage_event *)entries;
+
+		for (index = 0; index < 2; index++)
+		{
+			struct distributed_damage_event *event = &events[index];
+
+			WIRE_SAMPLE(event->kind);
+			WIRE_SAMPLE(event->player_index);
+			WIRE_SAMPLE(event->kill_flags);
+			WIRE_SAMPLE(event->object_index);
+			distributed_damage_sample(&event->damage);
+			WIRE_SAMPLE(event->being_damaged_flags);
+			WIRE_SAMPLE(event->shield_damage);
+			WIRE_SAMPLE(event->body_damage);
+			WIRE_SAMPLE(event->body_damage_multiplier);
+			WIRE_SAMPLE(event->total_damage);
+			WIRE_SAMPLE(event->body_part);
+			WIRE_SAMPLE(event->node_index);
+			WIRE_SAMPLE(event->region_index);
+			WIRE_SAMPLE(event->material_index);
+			WIRE_SAMPLE(event->killer_score);
+		}
+		return (word)(2 * sizeof(*events));
+	}
+	case _distributed_message_hit_reports:
+	{
+		struct distributed_hit_report *reports = (struct distributed_hit_report *)entries;
+
+		for (index = 0; index < 2; index++)
+		{
+			struct distributed_hit_report *report = &reports[index];
+
+			WIRE_SAMPLE(report->object_index);
+			distributed_damage_sample(&report->damage);
+			WIRE_SAMPLES(report->target_position.n);
+			WIRE_SAMPLES(report->object_normal.n);
+			WIRE_SAMPLE(report->node_index);
+			WIRE_SAMPLE(report->region_index);
+			WIRE_SAMPLE(report->material_index);
+			WIRE_SAMPLE(report->has_normal);
+			WIRE_SAMPLE(report->host_time);
+		}
+		return (word)(2 * sizeof(*reports));
+	}
+	}
+	return 0;
+}
+#endif

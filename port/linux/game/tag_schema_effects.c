@@ -57,9 +57,6 @@ enum
 	_sound_compression_xbox_adpcm = 1,
 	/* (an xbox adpcm block, of each channel: sound_dsound_xbox.c) */
 	SOUND_COMPRESSED_BLOCK_SIZE = 36,
-	/* (a pitch range's played permutations are bits of a long:
-	sound_definitions.c, try_to_reset_permutations) */
-	MAXIMUM_PLAYED_PERMUTATIONS_PER_PITCH_RANGE = 32,
 	/* (the sound cache: sound_dsound_xbox.c's SOUND_CACHE_SIZE) */
 	SOUND_CACHE_SIZE = 0x400000,
 
@@ -1111,8 +1108,8 @@ static struct tag_schema_definition const optional_static_hud_element_schema =
 static struct tag_schema_field const meter_hud_element_fields[] =
 {
 	TAG_SCHEMA_REFERENCE(struct meter_hud_element_definition, meter_bitmap, TAG_SCHEMA_GROUPS('bitm')),
-	TAG_SCHEMA_BLOCK(struct meter_hud_element_definition, multitexture_overlays, multitexture_overlay_schema,
-		MAXIMUM_MULTITEXTURE_OVERLAYS_PER_HUD_ELEMENT),
+	/* (a meter has no multitexture overlays: its min alpha is where the
+	structure had them) */
 	TAG_SCHEMA_END
 };
 
@@ -2178,7 +2175,7 @@ static boolean sound_check(
 	for (range_index = 0; range_index < definition->pitch_ranges.count; range_index++)
 	{
 		struct sound_pitch_range *range = (struct sound_pitch_range *)xbox_pointer(definition->pitch_ranges.address) + range_index;
-		long most = MIN(range->permutations.count, MAXIMUM_PLAYED_PERMUTATIONS_PER_PITCH_RANGE);
+		long most = range->permutations.count;
 		long permutation_index;
 
 		if (range->permutations.count &&

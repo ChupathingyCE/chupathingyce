@@ -4,7 +4,7 @@ P2P.H
 Internet play (p2p.c): machines that shared an invite reach each other's
 system link games as if they were on one LAN. xnet.c routes the game's
 traffic for them through here; sdl_platform.c passes invite links in and
-out through the clipboard.
+out through the clipboard, as the player's settings allow.
 
 Addresses and ports are in network byte order.
 */
@@ -25,6 +25,9 @@ int p2p_hand_off_invite(void);
 /* joins the game an invite link or code leads to; text may hold other
 words around it. Returns nonzero if it held an invite */
 int p2p_join_invite(const char *text);
+/* p2p_join_invite for the invite of a public game without a password (a
+listing's), which a player in it shares on Discord too (discord.show_join) */
+int p2p_join_listed_invite(const char *text);
 #ifdef HALO_GAME_BROWSER
 /* the invite of the game this machine hosts on the internet (its 44 digits,
 without halo://join/); 0 when it hosts none (browser.c) */
@@ -44,6 +47,18 @@ int p2p_joined_invite(char *text, int size);
 void p2p_joining_host(const unsigned char *identifier);
 #endif
 #endif
+
+/* why the last invite joined has not reached its host, for a failed
+join's message: 0 it has (or none was joined); P2P_JOIN_NO_ANSWER the host
+never answered (it stopped hosting, or quit); P2P_JOIN_NO_CONNECTION it
+answered, but the tunnel could not get through (both networks' NATs too
+strict) */
+enum
+{
+	P2P_JOIN_NO_ANSWER = 1,
+	P2P_JOIN_NO_CONNECTION = 2,
+};
+int p2p_join_failure(void);
 
 /* this machine's identifier, which its XNADDR carries (6 bytes) */
 const unsigned char *p2p_identifier(void);
@@ -98,8 +113,41 @@ void p2p_port_taken(int stream, unsigned short port);
 a stream's) */
 void p2p_socket_closed(int socket, unsigned short datagram_port);
 
+/* the host's reachability, in one or two short sentences for the menus
+(Server Setup, the lobby): whether the router forwards the tunnel's port
+(UPnP), whether this network's NAT lets most players in (the two STUN
+servers saw the same port), and what to forward if not. 0 (text empty)
+when internet play is off. check_network starts the STUN servers' look,
+which hosting does anyway, so the status is known before the game starts */
+int p2p_hosting_status(char *text, int size);
+void p2p_check_network(void);
+/* the same facts as fields, for the dedicated server's status (sv_status,
+its control panel): 0 when internet play is off (reach zeroed) */
+enum
+{
+	P2P_UPNP_NOT_ASKED,
+	P2P_UPNP_FORWARDED,
+	P2P_UPNP_NO_ROUTER,
+	P2P_UPNP_REFUSED,
+};
+struct p2p_reach
+{
+	/* the tunnel's UDP port, and whether it stays from run to run */
+	unsigned short port;
+	int port_fixed;
+	/* P2P_UPNP_*, and whether network.allow_upnp lets it ask */
+	int upnp;
+	int upnp_allowed;
+	/* the STUN servers that answered, whether two of them saw different
+	ports (a strict NAT), and whether the look is over */
+	int stun_answers;
+	int strict;
+	int settled;
+};
+int p2p_hosting_reach(struct p2p_reach *reach);
+
 /* text for the clipboard (a new invite link), once; NULL if none. Called
-from the main thread */
+from the main thread, which copies it only with network.copy_to_clipboard */
 const char *p2p_take_clipboard_text(void);
 
 /* whether a game this machine hosts may be joined from the internet (an
@@ -129,10 +177,18 @@ was listed */
 void p2p_set_hosting_public(int public);
 /* the password of the game hosted for the internet (Server Setup's
 PASSWORD; NULL or empty: none): its listing lets only those who know it
-join from the server browser (its invite link still joins it). Setting or
-changing it makes a new invite, if the old one was listed. It takes a few
-milliseconds (the password's key) */
+join from the server browser, and its invite link is a locked one, which
+joins only with the password (p2p_locked_invite_unlock). Setting or
+changing it makes a new invite at once (the old link joins no more). It
+takes a few milliseconds (the password's keys) */
 void p2p_set_hosting_password(const char *password);
+/* a locked invite (a game with a password's link, from anywhere: the
+clipboard, a link opened, Discord) waits for its password: the menus ask
+for it (invite_prompt.c). Unlock joins the game if the password is the
+game's, else returns 0 (it takes a few milliseconds); cancel forgets it */
+int p2p_locked_invite_waiting(void);
+int p2p_locked_invite_unlock(const char *password);
+void p2p_locked_invite_cancel(void);
 /* whether a dedicated server hosts: its listing says so, for browsers that
 list dedicated servers apart (the next p2p_set_game_listing publishes it) */
 void p2p_set_hosting_dedicated(int dedicated);
@@ -182,6 +238,13 @@ struct p2p_listing
 	unsigned char sealed_token[P2P_LISTING_SEALED_TOKEN_SIZE];
 	/* the network version it was listed under (0: not known) */
 	unsigned short version;
+	/* the game's kind (version 37: an OpenCE game type's number in the low
+	seven bits, Hardcore in bit 7; 0 for a stock game or an older host),
+	read from the listing's stamp; only a name for the list */
+	unsigned char kind;
+	/* an OpenCE dedicated server's game, by its flags
+	(delta_compat_opence_server_listing): only a label in the lists */
+	unsigned char opence_server;
 };
 /* a copy of the public games found, each once (p2p_listing_older_copy), in
 the order shown (the most players first; then those not failed, the open
@@ -196,6 +259,12 @@ way) are one game, kept at its newest version, and of copies of that, the
 last heard (heard_times: p2p_now's); two hosts' games of one version stay
 apart. The game list's rule too (its one_per_version_set) */
 int p2p_listing_older_copy(const struct p2p_listing *games, const unsigned long *heard_times, int count, int index);
+/* p2p_listing_older_copy, for a client that joins versions minimum to
+maximum: games of other versions are kept too (the browser marks them, and
+joins none), but each as a game of their own side of the window only, and
+never beside a copy that is joinable */
+int p2p_listing_hidden_copy(const struct p2p_listing *games, const unsigned long *heard_times, int count, int index,
+	int minimum, int maximum);
 /* a game the browser could not join: kept, marked failed, for this run */
 void p2p_lobby_mark_failed(const unsigned char *identifier);
 /* a locked game's invite (into its invite), if the password is its own:

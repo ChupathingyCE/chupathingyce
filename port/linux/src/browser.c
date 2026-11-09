@@ -16,9 +16,14 @@ server forgets a game it is not told about for a while, so a copy of the
 game that quits without withdrawing drops off by itself.
 
 Browsing: browser_get_games asks for the list when the last one is more
-than LIST_INTERVAL old, and returns what it has meanwhile. Only games of
-this machine's network version are kept (the others could not be joined),
-and never this machine's own.
+than LIST_INTERVAL old, and returns what it has meanwhile. Games of another
+network version than this machine can join are kept too, for the screens to
+mark (browser_game_version_state); never this machine's own. The list is
+the main source; the public listings heard on the brokers (p2p_lobby.c,
+mqtt.chupathingy.org among them) add the games it lacks (direct): OpenCE's
+(legacy) while it answers, and every host's while it is down. So losing
+the list costs no game the brokers carry, and losing the brokers OpenCE
+uses costs only OpenCE's games.
 
 The requests (posix_browser.c) block, so they are made on a thread of this
 file's, which the first call starts; the game's threads only exchange state
@@ -31,9 +36,11 @@ with it under the lock.
 #include "posix.h"
 #include "port_config.h"
 #include "browser_http.h"
+#include "http_url_rules.h"
 #include "p2p.h"
 #include "p2p_internal.h"
 #include "browser.h"
+#include "game_report.h"
 #include "delta_peer.h"
 #include "browser_ping.h"
 #include "qrcodegen.h"
@@ -46,6 +53,9 @@ with it under the lock.
 
 #include <SDL3/SDL_stdinc.h>
 
+/* an Xbox map pack's map's name, pack and tag (port/linux/game/map_packs.c) */
+int map_pack_listing(char const *map, char *title, int title_size, char *pack, int pack_size, char *tag, int tag_size);
+
 enum
 {
 	ANNOUNCE_INTERVAL = 20000,
@@ -56,12 +66,17 @@ enum
 	LIST_INTERVAL = 5000,
 	/* (asked again this long after a failure) */
 	RETRY_INTERVAL = 15000,
+	/* the last list's games are kept through failures this long, then
+	dropped (the games heard directly stay: browser_get_games) */
+	LIST_STALE = 90000,
 	THREAD_INTERVAL = 250,
 	/* a copy of the game that quits waits this long at most for its
 	listing's withdrawal (the list drops it by itself later otherwise) */
 	EXIT_WITHDRAW_WAIT = 2500,
 	EXIT_WITHDRAW_POLL = 50,
-	RESPONSE_SIZE = 32768,
+	/* (the list's answer: a line of 150 bytes or so a game, more with a
+	full roster, for BROWSER_MAXIMUM_GAMES of them) */
+	RESPONSE_SIZE = BROWSER_MAXIMUM_GAMES * 1024,
 	/* the player key (game_list_player.key in the save root) */
 	PLAYER_KEY_SIZE = 32,
 	/* the public player ID: the first bytes of the key's hash */
@@ -93,8 +108,6 @@ enum
 	could not be reached, a few times */
 	PROFILE_CHECK_INTERVAL = 60000,
 	PROFILE_CHECK_ATTEMPTS = 4,
-	/* a report's line: its fixed members, and the most the recorder adds */
-	REPORT_LINE_SIZE = 640 + BROWSER_REPORT_EXTRA_SIZE,
 	/* Delta Profile: the site takes a key's requests 6 a minute
 	(list_server.py's GAME_REQUESTS_PER_KEY), so the profile is asked for
 	this often at most (a request sooner waits), and asked again when a
@@ -164,6 +177,11 @@ static struct
 	char listed_invite[BROWSER_INVITE_LENGTH + 1];
 	unsigned long announce_time;
 	struct hosted_game announced;
+	/* whether the hosted game was offered to the list since it was last
+	listed or withdrawn, and the answer's HTTP status (0: no answer), for
+	browser_host_listing */
+	int announce_tried;
+	int announce_status;
 
 	/* a finished game's carnage report, waiting to be sent (JSON, without
 	the invite, which is the listing's) */
@@ -266,6 +284,7 @@ static struct
 	unsigned long list_request_time;
 	unsigned long list_time;
 	int list_failed;
+	unsigned long list_answered_time;
 	int game_count;
 	struct browser_game games[BROWSER_MAXIMUM_GAMES];
 } browser;
@@ -277,43 +296,10 @@ static int elapsed(unsigned long since, unsigned long interval)
 	return !since || p2p_now() - since >= interval;
 }
 
-/* UTF-16 to UTF-8 */
+/* UTF-16 to UTF-8 (game_report.c's) */
 static void utf8_from_name(const unsigned short *name, int length, char *text, int size)
 {
-	int used = 0;
-	int index;
-
-	for (index = 0; index < length && name[index]; index++)
-	{
-		unsigned int character = name[index];
-		char bytes[3];
-		int count;
-
-		/* (no surrogate pairs in the game's names) */
-		if (character < 0x80)
-		{
-			bytes[0] = (char)character;
-			count = 1;
-		}
-		else if (character < 0x800)
-		{
-			bytes[0] = (char)(0xC0 | (character >> 6));
-			bytes[1] = (char)(0x80 | (character & 0x3F));
-			count = 2;
-		}
-		else
-		{
-			bytes[0] = (char)(0xE0 | (character >> 12));
-			bytes[1] = (char)(0x80 | ((character >> 6) & 0x3F));
-			bytes[2] = (char)(0x80 | (character & 0x3F));
-			count = 3;
-		}
-		if (used + count >= size)
-			break;
-		memcpy(text + used, bytes, (size_t)count);
-		used += count;
-	}
-	text[used] = 0;
+	game_report_utf8(name, length, text, size);
 }
 
 /* UTF-8 to UTF-16, into a name of the game's length */
@@ -515,8 +501,7 @@ static unsigned long public_address(unsigned long game_address)
 /* the key goes to an HTTPS server, or one on this machine (a test) */
 static int safe_for_key(const char *url)
 {
-	return !strncmp(url, "https://", 8) || !strncmp(url, "http://127.0.0.1", 16) ||
-		!strncmp(url, "http://localhost", 16);
+	return http_url_safe_for_secret(url);
 }
 
 static void send_claims(void)
@@ -1249,6 +1234,7 @@ static void withdraw(void)
 	platform_log("Game list: the game is no longer listed");
 	pthread_mutex_lock(&browser_lock);
 	browser.listed_invite[0] = 0;
+	browser.announce_tried = 0;
 	pthread_mutex_unlock(&browser_lock);
 }
 
@@ -1282,10 +1268,12 @@ static const char *build_architecture(void)
 	return "arm64";
 #elif defined(__x86_64__) || defined(_M_X64)
 	return "x64";
-#elif defined(__i386__) || defined(_M_IX86)
-	return "x86";
+/* (32-bit ARM ahead of _M_IX86, which halo_linux_prefix.h defines for the
+XDK's headers on every 32-bit build) */
 #elif defined(__arm__) || defined(_M_ARM)
 	return "arm";
+#elif defined(__i386__) || defined(_M_IX86)
+	return "x86";
 #else
 	return "";
 #endif
@@ -1325,7 +1313,8 @@ static void host_fields(char *form, int size, const struct hosted_game *game)
 	/* (Delta Peer's, and whether this host answers Online Games' pings:
 	p2p_probe.c, announced here alone) */
 	snprintf(text, sizeof(text), "%08x", (unsigned int)game->delta.capabilities |
-		(delta_capability_disabled(_delta_capability_ping) ? 0u : 1u << _delta_capability_ping));
+		(delta_capability_disabled(_delta_capability_ping) ? 0u : 1u << _delta_capability_ping) |
+		(config_boolean("network.host_cheats") ? 1u << _delta_capability_host_cheats : 0u));
 	form_add(form, size, "capabilities", text);
 	if (!game->has_delta || !game->delta.delta)
 		return;
@@ -1355,6 +1344,18 @@ static void announce(const char *invite, const struct hosted_game *game)
 	utf8_from_name(game->name, BROWSER_NAME_LENGTH, text, sizeof(text));
 	form_add(form, sizeof(form), "name", text);
 	form_add(form, sizeof(form), "map", game->map);
+	/* (an Xbox map pack's map: its name, its pack's and the pack's tag, for
+	players without the pack: port/linux/game/map_packs.c) */
+	{
+		char title[96], pack[96], tag[16];
+
+		if (map_pack_listing(game->map, title, (int)sizeof(title), pack, (int)sizeof(pack), tag, (int)sizeof(tag)))
+		{
+			form_add(form, sizeof(form), "map_title", title);
+			form_add(form, sizeof(form), "map_pack", pack);
+			form_add(form, sizeof(form), "map_tag", tag);
+		}
+	}
 	snprintf(text, sizeof(text), "%d", game->engine);
 	form_add(form, sizeof(form), "engine", text);
 	snprintf(text, sizeof(text), "%d", game->players);
@@ -1368,6 +1369,18 @@ static void announce(const char *invite, const struct hosted_game *game)
 	snprintf(text, sizeof(text), "%d", delta_legacy_announce());
 	form_add(form, sizeof(form), "version", text);
 	host_fields(form, sizeof(form), game);
+	/* (a dedicated server's playlist, as its host names it: HALO_PLAYLIST_ID,
+	the site's id of its verified map set, docs/playlist-maps.md) */
+	if (browser_dedicated())
+	{
+		const char *playlist = getenv("HALO_PLAYLIST_ID");
+
+		if (playlist && playlist[0] && strlen(playlist) <= 32 &&
+			!playlist[strspn(playlist, "abcdefghijklmnopqrstuvwxyz0123456789_")])
+		{
+			form_add(form, sizeof(form), "playlist", playlist);
+		}
+	}
 	/* (last: a full one may be cut short, and a list from before rosters
 	takes no field of the name) */
 	roster_text(game->roster, game->roster_count, roster, sizeof(roster));
@@ -1376,6 +1389,10 @@ static void announce(const char *invite, const struct hosted_game *game)
 	status = posix_browser_request(url, form, NULL, response, sizeof(response), error, sizeof(error));
 	browser.announce_time = p2p_now();
 	browser.announced = *game;
+	pthread_mutex_lock(&browser_lock);
+	browser.announce_tried = 1;
+	browser.announce_status = status;
+	pthread_mutex_unlock(&browser_lock);
 	if (status == 200)
 	{
 		if (strcmp(browser.listed_invite, invite))
@@ -1627,15 +1644,17 @@ static void parse_host(char **fields, struct browser_game *game)
 
 /* one line of /v1/games.txt: invite name map engine players
 maximum_players open version age score_limit teams roster, and (as asked:
-?fields=19) region, platform, hosting, protocol, machines, gametype,
-capabilities */
+?fields=22) region, platform, hosting, protocol, machines, gametype,
+capabilities, an Xbox map pack's map's name, pack and tag, (?fields=23)
+the playlist, and (?fields=24) "opence_server" for an OpenCE dedicated
+server's game (a list from before them sends 19, 22 or 23) */
 static int parse_game(char *line, struct browser_game *game)
 {
-	char *fields[19];
+	char *fields[24];
 	int count = 0;
 	char *cursor = line;
 
-	while (count < 19)
+	while (count < 24)
 	{
 		fields[count++] = cursor;
 		cursor = strchr(cursor, '\t');
@@ -1699,6 +1718,45 @@ static int parse_game(char *line, struct browser_game *game)
 		if (strlen(fields[18]) <= 8 && fields[18][strspn(fields[18], "0123456789abcdefABCDEF")] == 0)
 			game->capabilities = strtoul(fields[18], NULL, 16);
 	}
+	/* (then an Xbox map pack's map's name and its pack's, printable ASCII:
+	the menus draw them as they are) */
+	if (count >= 21)
+	{
+		int field;
+
+		for (field = 19; field <= 20; field++)
+		{
+			char *text = field == 19 ? game->map_title : game->map_pack;
+			size_t size = field == 19 ? sizeof(game->map_title) : sizeof(game->map_pack);
+			size_t index;
+
+			fields[field][strcspn(fields[field], "\r\n")] = 0;
+			for (index = 0; fields[field][index]; index++)
+			{
+				if ((unsigned char)fields[field][index] < 32 || (unsigned char)fields[field][index] > 126)
+					break;
+			}
+			if (!fields[field][index])
+				snprintf(text, size, "%s", fields[field]);
+		}
+	}
+	/* (then the playlist's id, a-z, 0-9 and '_' alone: anything else is none) */
+	if (count >= 23)
+	{
+		fields[22][strcspn(fields[22], "\r\n")] = 0;
+		if (fields[22][0] && strlen(fields[22]) < sizeof(game->playlist) &&
+			!fields[22][strspn(fields[22], "abcdefghijklmnopqrstuvwxyz0123456789_")])
+		{
+			snprintf(game->playlist, sizeof(game->playlist), "%s", fields[22]);
+		}
+	}
+	/* (then an OpenCE dedicated server's label: the list knows it of a
+	server that publishes only to OpenCE's masters, which no broker hears) */
+	if (count >= 24)
+	{
+		fields[23][strcspn(fields[23], "\r\n")] = 0;
+		game->opence_server = !strcmp(fields[23], "opence_server");
+	}
 	return 1;
 }
 
@@ -1732,8 +1790,9 @@ static void update_list(void)
 		pthread_mutex_unlock(&browser_lock);
 		return;
 	}
-	/* (with the host's fields: a list from before them sends what it has) */
-	server_url("/v1/games.txt?fields=19", url, sizeof(url));
+	/* (with the host's fields: a list from before them sends what it has; and
+	co-op games, which the list sends only when asked, for the lists' filter) */
+	server_url("/v1/games.txt?fields=24&coop=1", url, sizeof(url));
 	status = posix_browser_request(url, NULL, NULL, response, sizeof(response), error, sizeof(error));
 	if (!p2p_hosting_invite(own, sizeof(own)))
 		own[0] = 0;
@@ -1750,13 +1809,10 @@ static void update_list(void)
 				*next++ = 0;
 			if (!line[0])
 				continue;
-			/* (a game of another OpenCE number too when its host speaks
-			Delta: joining it goes by the game wire its advertisement says,
-			network_game_client_advertised_game_compatible) */
-			if (parse_game(line, &games[count]) &&
-				((games[count].version >= delta_legacy_minimum() && games[count].version <= delta_legacy_maximum()) ||
-				(games[count].protocol == BROWSER_PROTOCOL_DELTA && delta_peer_protocol() != _delta_peer_protocol_opence)) &&
-				strcmp(games[count].invite, own))
+			/* (a game of another number is kept, marked by the screens: a
+			Delta host's may still be joined, by the game wire its
+			advertisement says, network_game_client_advertised_game_compatible) */
+			if (parse_game(line, &games[count]) && strcmp(games[count].invite, own))
 			{
 				count++;
 			}
@@ -1773,7 +1829,10 @@ static void update_list(void)
 	{
 		memcpy(browser.games, games, sizeof(*games) * (size_t)count);
 		browser.game_count = count;
+		browser.list_answered_time = browser.list_time;
 	}
+	else if (elapsed(browser.list_answered_time, LIST_STALE))
+		browser.game_count = 0;
 	pthread_mutex_unlock(&browser_lock);
 	free(games);
 }
@@ -1984,28 +2043,10 @@ void browser_host_update(const unsigned short *name, const char *map, short engi
 	pthread_mutex_unlock(&browser_lock);
 }
 
-/* appends a JSON string of a name */
+/* appends a JSON string of a name (game_report.c's) */
 static int json_name(char *out, int size, const unsigned short *name, int length)
 {
-	char text[64];
-	int used = 0;
-	const char *cursor;
-
-	utf8_from_name(name, length, text, sizeof(text));
-	used += snprintf(out + used, (size_t)(size - used), "\"");
-	for (cursor = text; *cursor && used < size - 8; cursor++)
-	{
-		unsigned char character = (unsigned char)*cursor;
-
-		if (character == '"' || character == '\\')
-			used += snprintf(out + used, (size_t)(size - used), "\\%c", character);
-		else if (character < 0x20)
-			used += snprintf(out + used, (size_t)(size - used), "\\u%04x", character);
-		else
-			out[used++] = (char)character;
-	}
-	used += snprintf(out + used, (size_t)(size - used), "\"");
-	return used;
+	return game_report_json_name(out, size, name, length);
 }
 
 int browser_json_name(char *out, int size, const unsigned short *name, int length)
@@ -2013,85 +2054,26 @@ int browser_json_name(char *out, int size, const unsigned short *name, int lengt
 	return json_name(out, size, name, length);
 }
 
-/* text appended to a report of size bytes at used, as far as it fits:
-where its end is now (never past the buffer, whatever snprintf says it
-would have written) */
-static int clamped(int used, size_t size)
+/* a line's tag: its player's address's hash with the invite (the host's
+own report) */
+static int report_line_tag(const struct browser_report_player *player, void *context, char *tag)
 {
-	return used < 0 ? 0 : (size_t)used >= size ? (int)size - 1 : used;
+	unsigned long address = public_address(player->address);
+
+	if (!address)
+		return 0;
+	address_tag((const char *)context, address, tag);
+	return 1;
 }
 
-static int append(char *report, size_t size, int used, const char *format, ...)
-{
-	va_list arguments;
-	int written;
-
-	if ((size_t)used >= size - 1)
-		return used;
-	va_start(arguments, format);
-	written = vsnprintf(report + used, size - (size_t)used, format, arguments);
-	va_end(arguments);
-	return written < 0 ? used : clamped(used + written, size);
-}
-
-/* a report as JSON: the teams, the scores, the length and the lines (each
-tagged with its player's address's hash when tag_invite is given: the
-host's own report), then extra's members */
+/* a report as JSON (game_report.c): the teams, the scores, the length and
+the lines (each tagged with its player's address's hash when tag_invite is
+given: the host's own report), then extra's members */
 static char *report_json(int teams, int red_score, int blue_score, int duration_seconds,
 	const struct browser_report_player *players, int count, const char *extra, const char *tag_invite)
 {
-	size_t size = 256 + (size_t)count * REPORT_LINE_SIZE + (extra ? strlen(extra) : 0);
-	char *report = malloc(size);
-	int used = 0;
-	int index;
-
-	if (!report || count <= 0)
-	{
-		free(report);
-		return NULL;
-	}
-	used = append(report, size, used,
-		"{\"teams\": %d, \"duration\": %d, \"team_scores\": [%d, %d], \"players\": [",
-		teams != 0, duration_seconds, teams ? red_score : 0, teams ? blue_score : 0);
-	for (index = 0; index < count && (size_t)used < size - REPORT_LINE_SIZE; index++)
-	{
-		const struct browser_report_player *player = &players[index];
-		unsigned long address = tag_invite ? public_address(player->address) : 0;
-
-		used = append(report, size, used, "%s{\"name\": ", index ? ", " : "");
-		used = clamped(used + json_name(report + used, (int)(size - (size_t)used), player->name, BROWSER_PLAYER_NAME_LENGTH), size);
-		if (player->minimal)
-		{
-			/* (a player not on Chupathingy: this game's scoreboard, no more) */
-			used = append(report, size, used, ", \"team\": %d, \"place\": %d, \"score\": %d, \"kills\": %d, \"deaths\": %d",
-				player->team, player->place, player->score, player->kills, player->deaths);
-		}
-		else used = append(report, size, used,
-			", \"team\": %d, \"place\": %d, \"score\": %d, \"kills\": %d, \"assists\": %d, \"deaths\": %d, "
-			"\"betrayals\": %d, \"suicides\": %d, \"shots_fired\": %d, \"shots_hit\": %d, \"multikills\": %d, "
-			"\"color\": %d, \"flag_grabs\": %d, \"flag_returns\": %d, \"flag_scores\": %d, \"ball_time\": %d, "
-			"\"ball_carrier_kills\": %d, \"hill_time\": %d, \"laps\": %d",
-			player->team, player->place, player->score, player->kills, player->assists, player->deaths,
-			player->betrayals, player->suicides, player->shots_fired, player->shots_hit, player->multikills,
-			player->color, player->flag_grabs, player->flag_returns, player->flag_scores, player->ball_time,
-			player->ball_carrier_kills, player->hill_time, player->laps);
-		/* (the line's tag: who may confirm it) */
-		if (address)
-		{
-			char tag[2 * P2P_SHA256_SIZE + 1];
-
-			address_tag(tag_invite, address, tag);
-			used = append(report, size, used, ", \"tag\": \"%s\"", tag);
-		}
-		if (!player->minimal && player->extra && player->extra[0] && strlen(player->extra) < BROWSER_REPORT_EXTRA_SIZE)
-			used = append(report, size, used, ", %s", player->extra);
-		used = append(report, size, used, "}");
-	}
-	used = append(report, size, used, "]");
-	if (extra && extra[0])
-		used = append(report, size, used, ", %s", extra);
-	append(report, size, used, "}");
-	return report;
+	return game_report_json(NULL, teams, red_score, blue_score, duration_seconds, players, count, extra,
+		tag_invite ? report_line_tag : NULL, (void *)tag_invite);
 }
 
 void browser_report_game(int teams, int red_score, int blue_score, int duration_seconds,
@@ -2114,7 +2096,7 @@ void browser_report_game(int teams, int red_score, int blue_score, int duration_
 	pthread_mutex_unlock(&browser_lock);
 }
 
-void browser_client_report(int teams, int red_score, int blue_score, int duration_seconds,
+int browser_client_report(int teams, int red_score, int blue_score, int duration_seconds,
 	const struct browser_report_player *players, int count, const char *extra)
 {
 	char invite[BROWSER_INVITE_LENGTH + 1];
@@ -2124,11 +2106,11 @@ void browser_client_report(int teams, int red_score, int blue_score, int duratio
 	if (!config_string("network.browser_url")[0] || !config_boolean("network.report_joined_games") ||
 		!p2p_joined_invite(invite, sizeof(invite)))
 	{
-		return;
+		return 0;
 	}
 	report = report_json(teams, red_score, blue_score, duration_seconds, players, count, extra, NULL);
 	if (!report)
-		return;
+		return 0;
 	/* (the invite first: which game it is) */
 	size = strlen(report) + BROWSER_INVITE_LENGTH + 32;
 	body = malloc(size);
@@ -2136,7 +2118,7 @@ void browser_client_report(int teams, int red_score, int blue_score, int duratio
 		snprintf(body, size, "{\"invite\": \"%s\", %s", invite, report + 1);
 	free(report);
 	if (!body)
-		return;
+		return 0;
 	pthread_once(&browser_once, start_thread);
 	pthread_mutex_lock(&browser_lock);
 	free(browser.client_report);
@@ -2144,6 +2126,7 @@ void browser_client_report(int teams, int red_score, int blue_score, int duratio
 	browser.client_report_attempts = 0;
 	browser.client_report_time = p2p_now();
 	pthread_mutex_unlock(&browser_lock);
+	return 1;
 }
 
 /* the local players of a game that ended: their lines confirmed with the
@@ -2441,28 +2424,159 @@ static int invite_identifier(const char *invite, unsigned char *identifier)
 	return 1;
 }
 
+/* the public listings heard on the brokers (p2p_lobby.c) while they are
+followed, read again each LISTINGS_INTERVAL (the game's thread's alone) */
+enum { LISTINGS = 256, LISTINGS_INTERVAL = 1000 };
+static struct p2p_listing listings[LISTINGS];
+/* (each one's key hash in hexadecimal, as an invite starts: made once a
+reading, not for every game every frame) */
+static char listing_key_hashes[LISTINGS][2 * P2P_KEY_HASH_SIZE + 1];
+static int listing_count;
+
+static void read_listings(void)
+{
+	static unsigned long listings_time;
+	static int listings_read;
+
+	if (!listings_read || elapsed(listings_time, LISTINGS_INTERVAL))
+	{
+		int index;
+
+		listing_count = p2p_lobby_browsing() ? p2p_lobby_games(listings, LISTINGS) : 0;
+		for (index = 0; index < listing_count; index++)
+			p2p_hex(listings[index].key_hash, P2P_KEY_HASH_SIZE, listing_key_hashes[index]);
+		listings_time = p2p_now();
+		listings_read = 1;
+	}
+}
+
+/* strcmp without case (ASCII): the server and Android builds have no
+SDL_strcasecmp */
+static int text_compare_no_case(const char *a, const char *b)
+{
+	for (; *a && *b; a++, b++)
+	{
+		int x = (*a >= 'A' && *a <= 'Z') ? *a + 32 : *a;
+		int y = (*b >= 'A' && *b <= 'Z') ? *b + 32 : *b;
+
+		if (x != y)
+			return x - y;
+	}
+	return (unsigned char)*a - (unsigned char)*b;
+}
+
+
+/* whether a listing is a game the list has: the same invite token (the
+invite's last 32 hexadecimal digits), or, for a host that lists a game once
+for each network version (p2p_listing_older_copy), the same name, map,
+game type and players */
+static int listing_on_list(const struct p2p_listing *listing, const char *code, const struct browser_game *games,
+	int count)
+{
+	int index, character;
+
+	for (index = 0; index < count; index++)
+	{
+		const struct browser_game *game = &games[index];
+
+		if (!text_compare_no_case(code + BROWSER_INVITE_LENGTH - 32, game->invite + BROWSER_INVITE_LENGTH - 32))
+			return 1;
+		if (game->engine != listing->engine_type || game->players != listing->player_count ||
+			game->maximum_players != listing->maximum_player_count || text_compare_no_case(game->map, listing->map))
+		{
+			continue;
+		}
+		for (character = 0; character < BROWSER_NAME_LENGTH && listing->name[character]; character++)
+		{
+			unsigned short a = game->name[character], b = (unsigned char)listing->name[character];
+
+			if ((a >= 'A' && a <= 'Z' ? a + 32 : a) != (b >= 'A' && b <= 'Z' ? b + 32 : b))
+				break;
+		}
+		if ((character == BROWSER_NAME_LENGTH || !listing->name[character]) &&
+			(character == BROWSER_NAME_LENGTH || !game->name[character]))
+		{
+			return 1;
+		}
+	}
+	return 0;
+}
+
+/* a locked listing's code until its password opens it: its key hash (the
+invite's first half, which names its host) and no token (zeros), so the
+lists can show it, ping its host and match it to its listing again
+(browser_unlock_game) */
+static void locked_code(const struct p2p_listing *listing, char *code)
+{
+	p2p_hex(listing->key_hash, P2P_KEY_HASH_SIZE, code);
+	memset(code + 2 * P2P_KEY_HASH_SIZE, '0', BROWSER_INVITE_LENGTH - 2 * P2P_KEY_HASH_SIZE);
+	code[BROWSER_INVITE_LENGTH] = 0;
+}
+
+/* the games heard on the brokers that the list lacks, after its count
+games (up to maximum_count): marked direct, and OpenCE (legacy) while the
+list answers (a Chupathingy host announces its game to the list too; the
+site marks a game it only hears there the same way). One with a password,
+whose invite is sealed (p2p_listing_unlock), is listed locked, by its key
+hash alone (locked_code), and joined once its password opens it
+(browser_unlock_game); the list never has one (a password game's invite is
+never sent to it). This machine's own is left out, as the list's is */
+static int add_direct(struct browser_game *games, int count, int maximum_count, int list_answered)
+{
+	char own[BROWSER_INVITE_LENGTH + 1];
+	int listed = count, index, character;
+
+	if (!p2p_hosting_invite(own, sizeof(own)))
+		own[0] = 0;
+	for (index = 0; index < listing_count && count < maximum_count; index++)
+	{
+		const struct p2p_listing *listing = &listings[index];
+		char sealed[BROWSER_INVITE_LENGTH + 1];
+		const char *code = !SDL_strncasecmp(listing->invite, "halo://join/", 12) ? listing->invite + 12 : "";
+		struct browser_game *game = &games[count];
+
+		if (listing->locked)
+		{
+			locked_code(listing, sealed);
+			code = sealed;
+		}
+		if (strlen(code) != BROWSER_INVITE_LENGTH ||
+			!SDL_strncasecmp(code, own, 2 * P2P_KEY_HASH_SIZE) || listing_on_list(listing, code, games, listed))
+		{
+			continue;
+		}
+		memset(game, 0, sizeof(*game));
+		snprintf(game->invite, sizeof(game->invite), "%s", code);
+		game->locked = listing->locked;
+		for (character = 0; character < BROWSER_NAME_LENGTH && listing->name[character]; character++)
+			game->name[character] = (unsigned char)listing->name[character];
+		snprintf(game->map, sizeof(game->map), "%s", listing->map);
+		game->engine = listing->engine_type;
+		game->players = listing->player_count;
+		game->maximum_players = listing->maximum_player_count;
+		game->open = listing->open;
+		game->teams = listing->has_teams;
+		game->version = listing->version;
+		game->hosting = listing->dedicated ? BROWSER_HOSTING_DEDICATED : BROWSER_HOSTING_UNKNOWN;
+		game->protocol = list_answered ? BROWSER_PROTOCOL_OPENCE : BROWSER_PROTOCOL_UNKNOWN;
+		game->kind = listing->kind;
+		game->direct = 1;
+		game->opence_server = listing->opence_server;
+		count++;
+	}
+	return count;
+}
+
 /* what the list does not say of its games and this machine knows: the
 round trip to a host the tunnel reaches, and which games' public listings
 have a password (a listing's key hash is its invite's first half) */
 static void add_known(struct browser_game *games, int count)
 {
-	enum { LISTINGS = 64, LISTINGS_INTERVAL = 1000 };
-	static struct p2p_listing listings[LISTINGS];
-	static int listing_count;
-	static unsigned long listings_time;
-	static int listings_read;
 	int index, other;
 
-	if (!listings_read || elapsed(listings_time, LISTINGS_INTERVAL))
-	{
-		listing_count = p2p_lobby_browsing() ? p2p_lobby_games(listings, LISTINGS) : 0;
-		listings_time = p2p_now();
-		listings_read = 1;
-	}
 	for (index = 0; index < count; index++)
 	{
 		unsigned char identifier[P2P_IDENTIFIER_SIZE];
-		char key_hash[2 * P2P_KEY_HASH_SIZE + 1];
 
 		/* the tunnel's (a game being joined or played), else a probe's (a host
 		that answers pings), else an estimate */
@@ -2483,20 +2597,37 @@ static void add_known(struct browser_game *games, int count)
 				games[index].ping_estimated = 1;
 			}
 		}
+		/* (a listing's own lock stays: add_direct's) */
+		if (games[index].direct)
+			continue;
 		games[index].locked = 0;
+		games[index].kind = 0;
+		/* (the list's label, else a broker listing's; a Delta host is never
+		OpenCE's) */
+		if (games[index].protocol == BROWSER_PROTOCOL_DELTA)
+			games[index].opence_server = 0;
 		for (other = 0; other < listing_count; other++)
 		{
-			if (!listings[other].locked)
-				continue;
-			p2p_hex(listings[other].key_hash, P2P_KEY_HASH_SIZE, key_hash);
-			if (!SDL_strncasecmp(key_hash, games[index].invite, 2 * P2P_KEY_HASH_SIZE))
+			if (!SDL_strncasecmp(listing_key_hashes[other], games[index].invite, 2 * P2P_KEY_HASH_SIZE))
 			{
-				games[index].locked = 1;
+				games[index].locked = listings[other].locked;
+				games[index].kind = listings[other].kind;
+				/* (a Delta host is never OpenCE's, whatever its listing) */
+				if (games[index].protocol != BROWSER_PROTOCOL_DELTA && listings[other].opence_server)
+					games[index].opence_server = 1;
 				break;
 			}
 		}
 	}
 }
+
+#endif
+
+/* (every build, with the game browser or without: the menus' lobbies ask
+it too, port/linux/game/menu_functions.c) */
+#include "browser.h"
+
+#include <string.h>
 
 /* whether two names are the same, ASCII letters in either case (every
 build has this: the server's and Android's link no SDL string functions) */
@@ -2535,6 +2666,57 @@ int browser_map_is_campaign(const char *map)
 	return 0;
 }
 
+/* the lists' filter by kind of game (All, Multiplayer, Co-op), kept for the
+session (every build: the consoles' Join Game screen has it too,
+port/linux/game/menu_functions.c) */
+static int list_filter;
+
+int browser_list_filter(void)
+{
+	return list_filter;
+}
+
+void browser_list_filter_cycle(void)
+{
+	list_filter = (list_filter + 1) % BROWSER_LIST_FILTERS;
+}
+
+const char *browser_list_filter_name(void)
+{
+	static const char *const names[BROWSER_LIST_FILTERS] = { "ALL", "MULTIPLAYER", "CO-OP" };
+
+	return names[list_filter];
+}
+
+int browser_list_filter_allows(const char *map)
+{
+	if (list_filter == BROWSER_LIST_FILTER_ALL)
+		return 1;
+	return browser_map_is_campaign(map) == (list_filter == BROWSER_LIST_FILTER_COOP);
+}
+
+int browser_version_state(int version)
+{
+	if (version < delta_legacy_minimum())
+		return -1;
+	return version > delta_legacy_maximum() ? 1 : 0;
+}
+
+#ifdef HALO_GAME_BROWSER
+
+int browser_game_host_cheats(const struct browser_game *game)
+{
+	return (game->capabilities & 1ul << _delta_capability_host_cheats) != 0;
+}
+
+int browser_game_version_state(const struct browser_game *game)
+{
+	/* (a Delta host's other number may still be joined, as above) */
+	if (game->protocol == BROWSER_PROTOCOL_DELTA && delta_peer_protocol() != _delta_peer_protocol_opence)
+		return 0;
+	return browser_version_state(game->version);
+}
+
 int browser_get_games(struct browser_game *games, int maximum_count)
 {
 	int count;
@@ -2545,8 +2727,64 @@ int browser_get_games(struct browser_game *games, int maximum_count)
 	count = browser.game_count < maximum_count ? browser.game_count : maximum_count;
 	memcpy(games, browser.games, sizeof(*games) * (size_t)count);
 	pthread_mutex_unlock(&browser_lock);
+	read_listings();
+	count = add_direct(games, count, maximum_count, browser_list_status() == BROWSER_LIST_ANSWERED);
 	add_known(games, count);
 	return count;
+}
+
+int browser_unlock_game(const char *invite, const char *password, char *code, int size)
+{
+	int index;
+
+	for (index = 0; index < listing_count; index++)
+	{
+		struct p2p_listing listing = listings[index];
+		char sealed[BROWSER_INVITE_LENGTH + 1];
+
+		if (!listing.locked)
+			continue;
+		locked_code(&listing, sealed);
+		if (text_compare_no_case(sealed, invite))
+			continue;
+		if (!p2p_listing_unlock(&listing, password) || SDL_strncasecmp(listing.invite, "halo://join/", 12) ||
+			strlen(listing.invite + 12) != BROWSER_INVITE_LENGTH)
+		{
+			return 0;
+		}
+		snprintf(code, (size_t)size, "%s", listing.invite + 12);
+		memset(&listing, 0, sizeof(listing));
+		return 1;
+	}
+	return -1;
+}
+
+int browser_host_listing(int *status)
+{
+	char invite[BROWSER_INVITE_LENGTH + 1];
+	int reported, listed, tried, answer;
+
+	*status = 0;
+	if (!config_string("network.browser_url")[0])
+		return BROWSER_HOST_NO_LIST;
+	if (!config_boolean("network.list_hosted_games"))
+		return BROWSER_HOST_OFF;
+	pthread_mutex_lock(&browser_lock);
+	reported = browser.host_reported && !elapsed(browser.host_report_time, HOST_TIMEOUT);
+	listed = browser.listed_invite[0] != 0;
+	tried = browser.announce_tried;
+	answer = browser.announce_status;
+	pthread_mutex_unlock(&browser_lock);
+	if (!reported || !p2p_hosting_invite(invite, sizeof(invite)))
+		return BROWSER_HOST_NOT_HOSTING;
+	if (!p2p_hosting_listable_invite(invite, sizeof(invite)))
+		return BROWSER_HOST_PRIVATE;
+	if (listed)
+		return BROWSER_HOST_LISTED;
+	if (!tried)
+		return BROWSER_HOST_WAITING;
+	*status = answer;
+	return BROWSER_HOST_FAILED;
 }
 
 int browser_list_status(void)
@@ -2594,14 +2832,14 @@ int browser_game_peer(const char *invite, unsigned long *address)
 	return p2p_peer_address(identifier, address);
 }
 
-int browser_join(const char *invite)
+int browser_join(const char *invite, int open)
 {
 	/* ("halo://join/" and the invite's digits) */
 	char link[16 + BROWSER_INVITE_LENGTH];
 
 	snprintf(link, sizeof(link), "halo://join/%s", invite);
 	platform_log("Game list: joining a listed game");
-	return p2p_join_invite(link);
+	return open ? p2p_join_listed_invite(link) : p2p_join_invite(link);
 }
 
 int browser_dedicated(void)

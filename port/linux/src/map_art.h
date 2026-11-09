@@ -7,7 +7,8 @@ game's own ui.map has no picture of a listed game's map: Halo PC's maps
 without Halo PC's ui.map, for one. The site has one of each of the Xbox's
 maps (art/maps/<map>.jpg) and Halo PC's picture of each of Halo PC's
 (art/maps/ce/<map>.jpg), the pictures the Discord activity names
-(discord_activity.c). map_art.c. Plain types only: the game's units call it.
+(discord_activity.c), and some custom maps' (art/maps/md/<file>.jpg for
+HaloMD's, art/maps/ce/<file>.jpg for Custom Edition's). map_art.c. Plain types only: the game's units call it.
 */
 
 #ifndef __MAP_ART_H
@@ -24,8 +25,15 @@ enum
 
 /* the site's picture of a stock map by its file's name ("icefields"): of
 the Xbox's set (xbox_set nonzero), "maps/<file>", else Halo PC's,
-"maps/ce/<file>"; 0 if the site has none of it */
+"maps/ce/<file>"; a campaign level's ("a10"), of the Xbox's set only; 0 if
+the site has none of it */
 int map_art_site_path(int xbox_set, const char *file, char *path, int size);
+
+/* the site's picture of a custom map by its file's name ("coagulat_1"):
+HaloMD's (halomd nonzero) "maps/md/<file>", else Custom Edition's,
+"maps/ce/<file>"; 0 for a name that can't be one (not a plain file name).
+The site may have none: map_art_get says so. */
+int map_art_custom_site_path(int halomd, const char *file, char *path, int size);
 
 /* the picture at a site path (map_art_site_path's): MAP_ART_READY with its
 pixels (RGBA, rows from the top; kept until a few other pictures are asked

@@ -2745,6 +2745,11 @@ void rasterizer_set_stencil_mode(
 	return;
 }
 
+/* port: set while a pass redraws the first-person weapon at the world's
+clip distances (the fog screen's), so its frustum takes the weapon's own
+view width as well */
+static boolean frustum_first_person_width = FALSE;
+
 void rasterizer_set_frustum_z(
 	real z_near,
 	real z_far)
@@ -2778,8 +2783,9 @@ void rasterizer_set_frustum_z(
 	/* port: display.viewmodel_field_of_view: the first-person weapon's
 frustum (its own clip distances) narrowed or widened to the weapon's view
 width; only its x and y, the depth as before */
-	if (z_near == rasterizer_globals.first_person_weapon_near_clip_distance &&
-		z_far == rasterizer_globals.first_person_weapon_far_clip_distance)
+	if (frustum_first_person_width ||
+		(z_near == rasterizer_globals.first_person_weapon_near_clip_distance &&
+		z_far == rasterizer_globals.first_person_weapon_far_clip_distance))
 	{
 		real scale = first_person_weapon_projection_scale();
 
@@ -2813,6 +2819,21 @@ width; only its x and y, the depth as before */
 		-96,
 		vertex_constants,
 		8);
+	return;
+}
+
+/* port: the world's frustum with the first-person weapon's view width
+(display.viewmodel_field_of_view) or back to the world's own. The fog screen
+redraws the opaque models, the weapon among them, at the world's clip
+distances to keep the fog off them; at the world's width the weapon's copy
+missed the weapon whenever the two widths differed, and left a fogged
+shadow of it beside the weapon. */
+void rasterizer_set_frustum_first_person_width(
+	boolean first_person)
+{
+	frustum_first_person_width = first_person;
+	rasterizer_set_frustum_z(0.0f, 0.0f);
+
 	return;
 }
 

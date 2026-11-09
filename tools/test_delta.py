@@ -51,26 +51,69 @@ def test_limits_follow_the_table():
     table = rows()
     newest = table[-1][0]
     last_breaking = max(number for number, _, kind in table if kind == "breaking")
-    assert define(limits, "HALO_PORT_NETWORK_VERSION") == newest, \
-        "hosts must announce the table's newest version"
+    # (hosts announce a version of the table, which may be older than its
+    # newest: clients play by a newer host's version before our hosts do)
+    assert define(limits, "HALO_PORT_NETWORK_VERSION") in [number for number, _, _ in table], \
+        "hosts must announce a version of the table"
     assert define(limits, "HALO_PORT_NETWORK_VERSION_MAXIMUM") >= newest, \
         "clients must join hosts up to the table's newest version, at least"
+    assert define(DELTA.read_text(encoding="utf-8"), "DELTA_LEGACY_NEWEST") == newest, \
+        "a Delta client's HELLO says the table's newest version, the newest whose rules it plays"
     assert define(limits, "HALO_PORT_NETWORK_VERSION_MINIMUM") == last_breaking, \
         "clients must join hosts back to the table's newest breaking version"
     presumed = define(DELTA.read_text(encoding="utf-8"), "DELTA_LEGACY_PRESUMED")
     assert presumed >= 1
-    assert define(limits, "HALO_PORT_NETWORK_VERSION_MAXIMUM") >= define(limits, "HALO_PORT_NETWORK_VERSION") + presumed, \
-        "clients must join hosts of the versions past their own presumed additive (DELTA_LEGACY_PRESUMED)"
+    assert define(limits, "HALO_PORT_NETWORK_VERSION_MAXIMUM") >= newest + presumed, \
+        "clients must join hosts of the versions past the table's newest presumed additive (DELTA_LEGACY_PRESUMED)"
 
 
 def test_advertised_wire_fits():
     text = DELTA.read_text(encoding="utf-8")
     wire = re.search(r'^#define DELTA_WIRE "([^"]+)"', text, re.M).group(1)
-    assert len(wire) <= define(text, "DELTA_ADVERTISED_WIRE_SIZE")
-    # (the major and the wire after the port's version and flags, within the
-    # advertisement's 0x1A reserved bytes)
+    # (a wire's number and letter, as the tag says them: chupa-<1 to 255><a to z>)
+    match = re.fullmatch(r"chupa-(\d+)([a-z])", wire)
+    assert match and 1 <= int(match.group(1)) <= 255
+    # (the old layout, still read: the major and the wire after the port's
+    # version and flags, within the advertisement's 0x1A reserved bytes)
     assert define(text, "DELTA_ADVERTISED_WIRE_OFFSET") >= 3
     assert define(text, "DELTA_ADVERTISED_WIRE_OFFSET") + 1 + define(text, "DELTA_ADVERTISED_WIRE_SIZE") <= 0x1A
+    # (the tag at the tail, past OpenCE's version, flags and kind)
+    assert define(text, "DELTA_ADVERTISED_TAG_SIZE") == 9
+    assert 0x1A - define(text, "DELTA_ADVERTISED_TAG_SIZE") > 3
+
+
+def wire_key(name):
+    number, letter = re.fullmatch(r"chupa-(\d+)([a-z])", name).groups()
+    return int(number), letter
+
+
+def test_console_floor():
+    """every wire from the console floor on reaches back to it
+    (DELTA_WIRE_CONSOLE_FLOOR, docs/delta.md, "The console floor"): the
+    oldest wire a console build in the wild plays, so that a new PC wire
+    never splits the consoles from the PCs. Raise the floor only when every
+    console port has shipped a newer wire."""
+    text = DELTA.read_text(encoding="utf-8")
+    floor = re.search(r'^#define DELTA_WIRE_CONSOLE_FLOOR "([^"]+)"', text, re.M).group(1)
+    for console in CONSOLE_WIRES_IN_THE_WILD:
+        assert wire_key(floor) <= wire_key(console), f"the floor, {floor}, is past {console}, a console's wire"
+    compatibility = text[text.index("#define DELTA_WIRE_COMPATIBILITY(X)"):]
+    compatibility = compatibility[:compatibility.index("\n\n")]
+    rows = dict(re.findall(r'X\("(chupa-\d+[a-z])", "(chupa-\d+[a-z])"\)', compatibility))
+    wire = delta_table.wire()
+    assert wire in rows, f"DELTA_WIRE ({wire}) has no row in DELTA_WIRE_COMPATIBILITY"
+    for row_wire, oldest in rows.items():
+        if wire_key(row_wire) >= wire_key(floor):
+            assert wire_key(oldest) <= wire_key(floor), \
+                f"{row_wire} plays back to {oldest} only: it must reach the console floor, {floor}"
+    for console in CONSOLE_WIRES_IN_THE_WILD:
+        assert wire_key(rows[wire]) <= wire_key(console), f"{wire} no longer reaches {console}, a console's wire"
+
+
+# the wires console builds in the wild play (warthog-xbox, warthog-360, warthog-wiiu, warthog-switch:
+# chupa-32a on 2026-10-27); a wire leaves this list only when no console
+# build of it is in use
+CONSOLE_WIRES_IN_THE_WILD = ("chupa-32a",)
 
 
 def test_capability_bits():
@@ -162,7 +205,8 @@ def test_built_in_keys():
 def test_make_is_this_builds_numbers():
     table = json.loads(delta_table.make(7, issued=1))
     assert table["serial"] == 7 and table["delta_legacy"] == 1
-    assert table["wires"] == {delta_table.wire(): delta_table.built_in()}
+    assert {name: delta_table.numbers(row) for name, row in table["wires"].items()} == \
+        {delta_table.wire(): delta_table.built_in()}
 
 
 def floor():
@@ -198,6 +242,12 @@ def document(serial=10, row=None, wire=None, extra=None, **fields):
     b'{"delta_legacy": 1, "serial": 3, "wires": {}, "platform_policy": {"xbox": {"host_players": true}}}',
     b'{"delta_legacy": 1, "serial": 3, "wires": {}, "platform_policy": {"xbox": {"host_players": 100000}}}',
     b'{"delta_legacy": 1, "serial": 3, "wires": {}, "platform_policy": {"Xbox 360": {}}}',
+    b'{"delta_legacy": 1, "serial": 3, "wires": {"w": {"announce": 5, "minimum": 1, "maximum": 7, "hosting": 6}}}',
+    b'{"delta_legacy": 1, "serial": 3, "wires": {"w": {"announce": 5, "minimum": 1, "maximum": 7, "hosting": [7, 6]}}}',
+    b'{"delta_legacy": 1, "serial": 3, "wires": {"w": {"announce": 5, "minimum": 1, "maximum": 7, "hosting": [6, 6]}}}',
+    b'{"delta_legacy": 1, "serial": 3, "wires": {"w": {"announce": 5, "minimum": 1, "maximum": 7, "hosting": [0]}}}',
+    b'{"delta_legacy": 1, "serial": 3, "wires": {"w": {"announce": 5, "minimum": 1, "maximum": 7, '
+    b'"hosting": [1, 2, 3, 4, 5, 6, 7, 8, 9]}}}',
 ])
 def test_bad_documents(bad):
     with pytest.raises(delta_table.TableError):
@@ -320,7 +370,7 @@ def test_make_take_back(tmp_path):
                         "--take-back", "chupa-01z=20,11,20")
     assert result.returncode == 0, result.stderr
     table = json.loads(result.stdout)
-    assert table["wires"][own] == floor()
+    assert delta_table.numbers(table["wires"][own]) == floor()
     assert table["wires"]["chupa-01z"] == {"announce": 20, "minimum": 11, "maximum": 20}
     below = f"{floor()['announce'] - 1},{floor()['minimum']},{floor()['maximum']}"
     assert make_table(tmp_path, "--serial", "5", "--from", str(old), "--take-back", f"{own}={below}").returncode == 1
@@ -353,8 +403,8 @@ def test_make_from_keeps_other_wires(tmp_path):
     assert table["wires"]["chupa-17a"]["maximum"] == 19
     # (a published row wider than the built-in numbers stays: making the table
     # again from the same commit never narrows what builds follow)
-    assert table["wires"][delta_table.wire()] == dict(floor(), announce=floor()["announce"] + 1,
-                                                      maximum=floor()["maximum"] + 1)
+    assert delta_table.numbers(table["wires"][delta_table.wire()]) == dict(floor(), announce=floor()["announce"] + 1,
+                                                                           maximum=floor()["maximum"] + 1)
     result = subprocess.run([sys.executable, str(ROOT / "tools" / "delta_table.py"), "make", "--serial", "4",
                              "--from", str(old)], capture_output=True, text=True)
     assert result.returncode == 1
@@ -399,15 +449,18 @@ def checker(keys, recovery_keys, tmp_path_factory):
     built = subprocess.run(["clang", *flags, "-DHALO_GAME_BROWSER", f"-DHALO_DELTA_TEST_KEY={key}",
                             f"-DHALO_DELTA_TEST_RECOVERY_KEY={recovery}",
                             "-DDELTA_RETRY_INTERVAL=100", "-O1", *link, "-o", str(program),
-                            *sources, "tools/delta_check.c", "port/third_party/monocypher/monocypher.c",
+                            *sources, "tools/delta_check.c", "port/linux/game/network_rules.c",
+                            "port/third_party/monocypher/monocypher.c",
                             "port/third_party/monocypher/monocypher-ed25519.c", "-lpthread"],
                            capture_output=True, text=True, cwd=ROOT)
     assert built.returncode == 0, built.stderr[-4000:]
     return program
 
 
-def run_checker(program, root, *steps, override=None, url=""):
+def run_checker(program, root, *steps, override=None, url="", announce=None):
     environment = {"DELTA_CHECK_ROOT": str(root), "PATH": "/usr/bin:/bin", "DELTA_CHECK_URL": url}
+    if announce is not None:
+        environment["DELTA_CHECK_ANNOUNCE"] = announce
     if override:
         environment["DELTA_CHECK_OVERRIDE"] = str(override)
     result = subprocess.run([str(program), *map(str, steps)], capture_output=True, text=True, env=environment,
@@ -477,6 +530,13 @@ def test_loader_presumes_the_next_version(keys, checker, tmp_path):
     ("no serial", lambda: b'{"delta_legacy": 1, "wires": {}}'),
     ("serial of none", lambda: document(serial=0xFFFFFFFF)),
     ("nul", lambda: document().replace(b'"issued"', b'"\x00": 1, "issued"')),
+    ("hosting not ascending", lambda: document(row=dict(floor(), hosting=[floor()["maximum"] + 3,
+                                                                          floor()["maximum"] + 2]))),
+    ("hosting too long", lambda: document(row=dict(floor(), hosting=list(range(50, 59))))),
+    ("requires not a list", lambda: document(row=dict(floor(), requires="hit_report_checks"))),
+    ("requires twice", lambda: document(row=dict(floor(), requires=["hit_report_checks", "hit_report_checks"]))),
+    ("requires a number", lambda: document(row=dict(floor(), requires=[5]))),
+    ("requires too long", lambda: document(row=dict(floor(), requires=[f"p{index}" for index in range(17)]))),
 ])
 def test_loader_drops_bad_tables(keys, checker, tmp_path, name, make):
     table = write_signed(keys, tmp_path / "bad", make())
@@ -628,3 +688,516 @@ def test_loader_says_once_that_no_table_is_published(checker, tmp_path):
     assert "no legacy table is published" not in output
     assert output.count("no legacy table from Delta List (could not connect)") >= 3
     assert output.count("no legacy table from GitHub (it has none)") >= 3
+
+
+# ---------- wires and layouts
+
+
+# each released wire's newest version (DELTA_WIRE_LEGACY_NEWEST): never
+# changed once released, a build that learns a newer version's rules has a
+# new wire (docs/delta.md, "When the wire changes")
+RELEASED_WIRE_NEWEST = {"chupa-28a": 28, "chupa-29a": 29, "chupa-32a": 33, "chupa-38a": 38, "chupa-39a": 39}
+
+
+def test_wire_changes_with_the_rules():
+    """a build that learns a version's rules (a newer DELTA_LEGACY_NEWEST, a
+    row of DELTA_LEGACY_VERSIONS) has a new wire: a signed table's row widens
+    every build of a wire alike"""
+    text = DELTA.read_text(encoding="utf-8")
+    ledger = delta_table.wire_newest()
+    for name, number in RELEASED_WIRE_NEWEST.items():
+        assert ledger.get(name) == number, f"{name}'s row of DELTA_WIRE_LEGACY_NEWEST changed (or went)"
+    assert delta_table.wire() in ledger, "DELTA_WIRE has no row in DELTA_WIRE_LEGACY_NEWEST"
+    assert ledger[delta_table.wire()] == define(text, "DELTA_LEGACY_NEWEST") == rows()[-1][0], \
+        "a build that learns a newer version's rules (DELTA_LEGACY_VERSIONS' newest) needs a new DELTA_WIRE"
+    # (each wire's row once, in order, and each plays with older wires)
+    names = list(ledger)
+    numbers = [int(re.fullmatch(r"chupa-(\d+)[a-z]", name).group(1)) for name in names]
+    assert numbers == sorted(set(numbers))
+    assert list(ledger.values()) == sorted(ledger.values())
+    compatibility = text[text.index("#define DELTA_WIRE_COMPATIBILITY(X)"):]
+    compatibility = compatibility[:compatibility.index("\n\n")]
+    assert f'X("{delta_table.wire()}", ' in compatibility
+    assert delta_table.reads_layouts(delta_table.wire())
+
+
+C_LAYOUT = r'''
+#include "network_rules.h"
+#include "../include/delta.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+/* facts from the arguments: VERSION SETTINGS OPTIONS SHIELD KIND+KIND JOIN ... (0 not said; JOIN "-" not
+said, N zeros, N:x another fill) */
+int main(int count, char **arguments)
+{
+	static struct delta_layout_fact facts[DELTA_LAYOUT_FACTS];
+	int used = 0, index;
+	unsigned version, kind;
+
+	for (index = 1; index + 5 < count && used < DELTA_LAYOUT_FACTS; index += 6, used++)
+	{
+		char *kinds = arguments[index + 4];
+		char *join = arguments[index + 5];
+
+		if (strcmp(join, "-"))
+		{
+			facts[used].join_request_said = 1;
+			facts[used].join_request_extra = (unsigned short)strtoul(join, &join, 10);
+			facts[used].join_request_fill = *join == ':' ? DELTA_LAYOUT_FILL_UNKNOWN : DELTA_LAYOUT_FILL_ZEROS;
+		}
+
+		facts[used].version = (unsigned short)atoi(arguments[index]);
+		facts[used].settings_size = (unsigned short)atoi(arguments[index + 1]);
+		facts[used].options_size = (unsigned short)atoi(arguments[index + 2]);
+		facts[used].shield_effects_maximum = (unsigned short)atoi(arguments[index + 3]);
+		while (*kinds)
+		{
+			unsigned value = (unsigned)strtoul(kinds, &kinds, 10);
+
+			if (value && value < 256)
+				facts[used].dropped[value >> 3] |= (unsigned char)(1 << (value & 7));
+			if (*kinds == '+')
+				kinds++;
+			else if (*kinds)
+				return 2;
+		}
+	}
+	for (version = 11; version <= 64; version++)
+	{
+		struct network_rules_layout layout;
+
+		network_rules_layout_built_in(version, &layout);
+		network_rules_layout_apply(&layout, facts, used);
+		printf("%u %d %d %d", version, layout.settings_size, layout.options_size, layout.shield_effects_maximum);
+		for (kind = 1; kind < 256; kind++)
+			if (network_rules_layout_drops(&layout, kind))
+				printf(" %u", kind);
+		printf(" join %d refused %d\n", layout.join_request_extra, layout.refused);
+	}
+	return 0;
+}
+'''
+
+
+@pytest.fixture(scope="module")
+def layout_program(tmp_path_factory):
+    cc = shutil.which("cc") or shutil.which("clang")
+    if not cc:
+        pytest.skip("no C compiler")
+    directory = tmp_path_factory.mktemp("layouts")
+    game = ROOT / "port" / "linux" / "game"
+    source = game / "network_rules_layout_check.c"
+    try:
+        source.write_text(C_LAYOUT, encoding="utf-8")
+        subprocess.run([cc, "-std=c11", "-Wall", "-Werror", str(source), str(game / "network_rules.c"), "-o",
+                        str(directory / "layouts")], check=True, capture_output=True, text=True)
+    finally:
+        source.unlink(missing_ok=True)
+    return directory / "layouts"
+
+
+def c_layouts(program, facts):
+    arguments = []
+    for version, fact in facts.items():
+        arguments += [version, str(fact.get("settings_size", 0)), str(fact.get("options_size", 0)),
+                      str(fact.get("shield_effects_maximum", 0)),
+                      "+".join(str(kind) for kind in fact.get("dropped_messages", [])),
+                      "-" if "join_request_extra" not in fact else
+                      f"{fact['join_request_extra']}" + ("" if fact.get("join_request_fill", "zeros") == "zeros" else ":x")]
+    output = subprocess.run([str(program), *arguments], capture_output=True, text=True, check=True).stdout
+    layouts = {}
+    for line in output.splitlines():
+        words = line.split()
+        layouts[int(words[0])] = ({"settings_size": int(words[1]), "options_size": int(words[2]),
+                                   "shield_effects_maximum": int(words[3]),
+                                   "dropped_messages": [int(word) for word in words[4:-4]],
+                                   "join_request_extra": int(words[-3])}, int(words[-1]))
+    return layouts
+
+
+def test_tool_layouts_are_the_games(layout_program):
+    """delta_table.py reads layouts as network_rules.c does: the built-in
+    facts, and a table's facts applied within the limits (so the tool refuses
+    what a build would not take)"""
+    import random
+
+    own = define(DELTA.read_text(encoding="utf-8"), "DELTA_LEGACY_NEWEST")
+    for version, (layout, refused) in c_layouts(layout_program, {}).items():
+        assert layout == delta_table.built_in_layout(version) and refused == 0, version
+    generator = random.Random(4)
+    for _ in range(40):
+        facts = {}
+        for version in sorted(generator.sample(range(30, 60), generator.randint(1, 6))):
+            fact = {}
+            if generator.random() < 0.6:
+                fact["options_size"] = generator.choice([0x1C, 0x2C, 0x30, 0x40, 0x6C, 0x6D, 0x2A])
+            if generator.random() < 0.5:
+                fact["settings_size"] = generator.choice([13120, 13136, 13140, 13150, 13200, 13201, 13190])
+            if generator.random() < 0.4:
+                fact["shield_effects_maximum"] = generator.randint(1, 17)
+            if generator.random() < 0.4:
+                fact["dropped_messages"] = sorted(generator.sample(range(1, 256), 3))
+            if generator.random() < 0.4:
+                fact["join_request_extra"] = generator.choice([0, 1, 234, 300, 1024, 1025, 5000])
+                if generator.random() < 0.3:
+                    fact["join_request_fill"] = generator.choice(["zeros", "pass"])
+            facts[str(version)] = fact
+        games = c_layouts(layout_program, facts)
+        for version, (layout, refused) in games.items():
+            tool, tool_refused = delta_table.apply_layouts(version, facts, own)
+            assert tool == layout, (facts, version)
+            assert len(tool_refused) == refused, (facts, version)
+
+
+def test_make_has_this_builds_facts():
+    table = json.loads(delta_table.make(7, issued=1))
+    row = table["wires"][delta_table.wire()]
+    own = define(DELTA.read_text(encoding="utf-8"), "DELTA_LEGACY_NEWEST")
+    assert [int(version) for version in row["layouts"]] == list(range(floor()["announce"] + 1, own + 1))
+    assert row["layouts"]["35"] == {"settings_size": 13136, "options_size": 44}
+    assert row["layouts"]["36"]["dropped_messages"] == [91]
+    delta_table.parse(delta_table.make(7, issued=1), delta_table.wire())
+
+
+def test_make_layouts(tmp_path):
+    own = delta_table.wire()
+    old = tmp_path / "old.json"
+    old.write_bytes(delta_table.make(4, issued=1))
+    result = make_table(tmp_path, "--serial", "5", "--from", str(old),
+                        "--layout", f"{own}=42:options_size=48,dropped_messages=92+93",
+                        "--layout", f"{own}=43:shield_effects_maximum=7",
+                        "--layout", f"{own}=44:join_request_extra=0")
+    assert result.returncode == 0, result.stderr
+    (tmp_path / "new.json").write_text(result.stdout)
+    row = json.loads(result.stdout)["wires"][own]
+    assert row["layouts"]["42"] == {"options_size": 48, "dropped_messages": [92, 93]}
+    assert row["layouts"]["43"] == {"shield_effects_maximum": 7}
+    assert row["layouts"]["44"] == {"join_request_extra": 0, "join_request_fill": "zeros"}
+    # (this build's own facts say its join request too)
+    assert row["layouts"]["40"]["join_request_extra"] == 234 and row["layouts"]["40"]["join_request_fill"] == "zeros"
+    # (made again, and with a --row for the wire: the facts past its own stay)
+    wide = f"{floor()['announce'] + 6},{floor()['minimum']},{floor()['maximum'] + 2}"
+    result = make_table(tmp_path, "--serial", "6", "--from", str(tmp_path / "new.json"), "--row", f"{own}={wide}")
+    assert result.returncode == 0, result.stderr
+    row = json.loads(result.stdout)["wires"][own]
+    assert row["announce"] == floor()["announce"] + 6 and row["layouts"]["42"]["options_size"] == 48
+    assert "33" in row["layouts"]
+    for bad in (f"{own}=41:options_size=48", f"{own}=42:options_size=40", f"{own}=42:settings_size=13300",
+                f"{own}=42:shield_effects_maximum=16", f"{own}=42:shield_effects_maximum=5",
+                f"{own}=42:dropped_messages=0", f"{own}=42:dropped_messages=256", f"{own}=42:colour=1",
+                f"{own}=42:options_size=48,options_size=52", f"{own}=42", "chupa-32a=42:options_size=48",
+                f"{own}=42:join_request_extra=1025", "chupa-39a=42:join_request_extra=234",
+                "chupa-99z=100:options_size=48"):
+        assert make_table(tmp_path, "--serial", "6", "--from", str(old), "--layout", bad).returncode == 1, bad
+
+
+@pytest.mark.parametrize("layouts", [
+    [], {"39": []}, {"039": {}}, {"0": {}}, {"70000": {}}, {"x": {}},
+    {"39": {"options_size": -1}}, {"39": {"options_size": 1.5}}, {"39": {"settings_size": 70000}},
+    {"39": {"dropped_messages": [0]}}, {"39": {"dropped_messages": [256]}}, {"39": {"dropped_messages": 92}},
+    {str(version): {} for version in range(39, 39 + 17)},
+    {"39": {"x": {"y": {"z": [[1]]}}}},
+])
+def test_bad_layouts(layouts):
+    with pytest.raises(delta_table.TableError):
+        delta_table.parse(document(extra={"chupa-40a": {"announce": 32, "minimum": 11, "maximum": 39,
+                                                         "layouts": layouts}}))
+
+
+def layout_line(output, version):
+    return next(line for line in output.splitlines() if line.startswith(f"layout {version} "))
+
+
+def test_loader_reads_layouts(keys, checker, tmp_path):
+    """this wire's row's layouts: read, and used past the build's own
+    versions within the limits; the built-in facts for its own versions"""
+    row = dict(floor(), layouts={"35": {"options_size": 60}, "42": {"options_size": 48, "dropped_messages": [92, 93],
+                                                                    "shield_effects_maximum": 7, "later": {"a": [1]}},
+                                  "44": {"settings_size": 13146, "join_request_extra": 300, "join_request_fill": "zeros"},
+                                  "45": {"options_size": 20, "join_request_extra": 64, "join_request_fill": "pass"}})
+    table = write_signed(keys, tmp_path / "t10", document(serial=10, row=row))
+    output = run_checker(checker, tmp_path, "layout", 42, "offer", table, "layout", 35, "layout", 41, "layout", 42,
+                         "layout", 44, "layout", 45, "state")
+    assert "offer 1" in output and "4 layout facts" in output
+    assert layout_line(output, 42).startswith("layout 42 settings 13136 options 44 shield 6 dropped 78,79,91,94,95 ")
+    lines = [line for line in output.splitlines() if line.startswith("layout ")][1:]
+    assert lines[0] == "layout 35 settings 13136 options 44 shield 6 dropped - learned 0 refused 0 facts 4 join 0"
+    assert lines[1].startswith("layout 41 settings 13136 options 44 shield 6 dropped 78,79,91,94,95 learned 0 refused 0")
+    assert lines[2].startswith("layout 42 settings 13140 options 48 shield 7 dropped 78,79,91,92,93,94,95 ")
+    assert lines[3].startswith("layout 44 settings 13146 options 48 shield 7 ")
+    assert lines[4].startswith("layout 45 settings 13146 options 48 shield 7 ") and " refused 2 " in lines[4]
+    # (the join request: 234 zero bytes from 40, the table's 300 from 44; a
+    # fill this build does not write is not taken)
+    assert lines[1].endswith(" join 234") and lines[2].endswith(" join 234")
+    assert lines[3].endswith(" join 300") and lines[4].endswith(" join 300")
+    # (the cached table, read again at the next start)
+    output = run_checker(checker, tmp_path, "layout", 42)
+    assert layout_line(output, 42).startswith("layout 42 settings 13140 options 48 ")
+
+
+def test_loader_skips_other_wires_layouts(keys, checker, tmp_path):
+    """a newer wire's row with layouts, as this build's parser passes over
+    another wire's row (as every older build's does, the same way)"""
+    other = {"announce": 40, "minimum": 11, "maximum": 41,
+             "layouts": {"39": {"options_size": 48, "dropped_messages": [92], "later": {"a": [1, 2]}}}}
+    table = write_signed(keys, tmp_path / "t10", document(serial=10, extra={"chupa-99z": other}))
+    output = run_checker(checker, tmp_path, "offer", table, "layout", 39, "state")
+    assert "offer 1" in output
+    assert layout_line(output, 39).startswith("layout 39 settings 13136 options 44 ")
+    assert f" {floor()['maximum'] + 1} serial 10 " in state_line(output)[0]
+
+
+@pytest.mark.parametrize("name,layouts", [
+    ("twice", b'{"39": {}, "39": {}}'),
+    ("leading zero", b'{"039": {}}'),
+    ("zero", b'{"0": {}}'),
+    ("escaped", b'{"\\u0033\\u0039": {}}'),
+    ("too many", ("{" + ", ".join(f'"{version}": {{}}' for version in range(39, 56)) + "}").encode()),
+    ("kind 0", b'{"39": {"dropped_messages": [0]}}'),
+    ("kind 256", b'{"39": {"dropped_messages": [256]}}'),
+    ("field twice", b'{"39": {"options_size": 48, "options_size": 52}}'),
+    ("negative", b'{"39": {"options_size": -4}}'),
+    ("not an object", b'[39]'),
+    ("layouts twice", b'{}, "layouts": {}'),
+])
+def test_loader_drops_bad_layouts(keys, checker, tmp_path, name, layouts):
+    data = document(serial=11).replace(b'"maximum": ', b'"layouts": ' + layouts + b', "maximum": ', 1)
+    output = run_checker(checker, tmp_path, "offer", write_signed(keys, tmp_path / "bad", data), "state")
+    assert "offer 0" in output, name
+    assert " serial 0 " in state_line(output)[0], name
+
+
+def test_loader_override_layouts(checker, tmp_path):
+    """network.legacy_table: a server announces a number of its own, with
+    layouts, unsigned and never passed on"""
+    local = tmp_path / "local.json"
+    local.write_bytes(document(serial=1, row={"announce": 38, "minimum": 11, "maximum": 42,
+                                              "layouts": {"42": {"options_size": 48}}}))
+    output = run_checker(checker, tmp_path, "state", "layout", 42, override=local)
+    assert state_line(output)[0] == "state 38 11 42 serial 0 override 1 disabled 0 signed 0"
+    assert "1 layout facts" in output
+    assert layout_line(output, 42).startswith("layout 42 settings 13140 options 48 ")
+
+
+# ---------- auto-announce: the "hosting" list, network.announce, the hold
+
+
+def test_make_hosting(tmp_path):
+    """--hosting adds versions proved for hosting alone; the row is otherwise
+    kept, and later rows keep the list"""
+    old = tmp_path / "old.json"
+    old.write_bytes(document(serial=4, row=floor()))
+    own = delta_table.wire()
+    newer = floor()["maximum"] + 1
+    result = make_table(tmp_path, "--serial", "5", "--from", str(old), "--hosting", f"{own}={newer}")
+    assert result.returncode == 0, result.stderr
+    row = json.loads(result.stdout)["wires"][own]
+    assert row["hosting"] == [newer] and delta_table.numbers(row) == dict(floor(), hosting=[newer])
+    assert delta_table.hosting_newest(row) == newer
+    # (kept by a later --row that widens, and by a plain make --from)
+    old.write_bytes(result.stdout.encode())
+    wide = f"{floor()['announce']},{floor()['minimum']},{floor()['maximum'] + 1}"
+    result = make_table(tmp_path, "--serial", "6", "--from", str(old), "--row", f"{own}={wide}")
+    assert json.loads(result.stdout)["wires"][own]["hosting"] == [newer]
+    result = make_table(tmp_path, "--serial", "6", "--from", str(old))
+    assert json.loads(result.stdout)["wires"][own]["hosting"] == [newer]
+    # (a version at or below announce adds nothing; below the minimum, or not a version, is refused)
+    result = make_table(tmp_path, "--serial", "6", "--from", str(old), "--hosting", f"{own}={floor()['announce']}")
+    assert json.loads(result.stdout)["wires"][own]["hosting"] == [newer]
+    for bad in (f"{own}={floor()['minimum'] - 1}", f"{own}=", "chupa-99z=41", f"{own}=70000"):
+        assert make_table(tmp_path, "--serial", "6", "--from", str(old), "--hosting", bad).returncode == 1, bad
+
+
+def test_loader_announces_the_hosting_newest(keys, checker, tmp_path):
+    """a row's hosting list: this build announces its newest; the join range
+    is the row's"""
+    base = floor()
+    newest = base["maximum"] + 1
+    table = write_signed(keys, tmp_path / "t10", document(serial=10, row=dict(base, hosting=[newest])))
+    output = run_checker(checker, tmp_path, "offer", table, "state", "hosting")
+    assert "offer 1" in output
+    assert state_line(output)[0].startswith(f"state {newest} {base['minimum']} {base['maximum']} serial 10 ")
+    assert f"hosting {newest} pinned 0" in output
+    assert f"announcing {newest}, joining" in output
+
+
+def test_loader_holds_the_number_through_a_hosted_game(keys, checker, tmp_path):
+    """a newer number taken while a hosted game is under way waits for its end"""
+    base = floor()
+    newest = base["maximum"] + 1
+    table = write_signed(keys, tmp_path / "t10", document(serial=10, row=dict(base, hosting=[newest])))
+    output = run_checker(checker, tmp_path, "state", "hold", "1", "offer", table, "state", "hold", "0", "state")
+    states = state_line(output)
+    assert states[0].startswith(f"state {base['announce']} ")
+    assert states[1].startswith(f"state {base['announce']} ") and " serial 10 " in states[1]
+    assert states[2].startswith(f"state {newest} ")
+    assert f"now announcing OpenCE network version {newest} (was {base['announce']})" in output
+
+
+@pytest.mark.parametrize("pin,expect", [
+    ("latest", "newest"), ("", "newest"), ("announce", "announce"), ("minimum", "minimum"),
+    ("below", "newest"), ("above", "newest"), ("words", "newest"),
+])
+def test_loader_pin(keys, checker, tmp_path, pin, expect):
+    """network.announce: a number from the minimum to the newest proved for
+    hosting is announced; anything else follows the table"""
+    base = floor()
+    newest = base["maximum"] + 1
+    values = {"latest": "latest", "": "", "announce": str(base["announce"]), "minimum": str(base["minimum"]),
+              "below": str(base["minimum"] - 1), "above": str(newest + 1), "words": "newest please"}
+    table = write_signed(keys, tmp_path / "t10", document(serial=10, row=dict(base, hosting=[newest])))
+    run_checker(checker, tmp_path, "offer", table)
+    output = run_checker(checker, tmp_path, "state", "hosting", announce=values[pin])
+    number = {"newest": newest, "announce": base["announce"], "minimum": base["minimum"]}[expect]
+    assert state_line(output)[0].startswith(f"state {number} "), output
+    assert f"hosting {newest} pinned {number if expect != 'newest' else 0}" in output
+    if pin in ("below", "above", "words"):
+        assert "network.announce" in output
+
+
+def test_loader_override_hosting(checker, tmp_path):
+    """a local table's hosting list is followed as a signed one's"""
+    local = tmp_path / "local.json"
+    local.write_bytes(document(serial=1, row={"announce": 39, "minimum": 11, "maximum": 40, "hosting": [41]}))
+    output = run_checker(checker, tmp_path, "state", override=local)
+    assert state_line(output)[0] == "state 41 11 40 serial 0 override 1 disabled 0 signed 0"
+
+
+# ---------- host protections: a row's "requires"
+
+
+def test_host_protections_are_honest():
+    """the names a row may require, and the ones this build has: never
+    an address limit or votes until a build enforces them on every host"""
+    protections = delta_table.host_protections()
+    assert protections, "delta.h's DELTA_HOST_PROTECTIONS has no names"
+    assert all(re.fullmatch(r"[a-z0-9_]{1,31}", name) for name in protections)
+    assert protections["hit_report_checks"] is True
+    # 0.9.0's hosts and dedicated servers refuse hits with no line of sight
+    # by default (network.hit_line_of_sight)
+    assert protections["hit_line_of_sight"] is True
+    config = (ROOT / "port/linux/src/port_config.c").read_text(encoding="utf-8")
+    assert re.search(r'"network\.hit_line_of_sight", _config_boolean, "true"', config)
+    # the address limit is off by default on a player's host
+    assert re.search(r'"network\.max_machines_per_address", _config_integer, "0"', config)
+    for name in ("address_machine_limit", "map_votes"):
+        assert protections[name] is False, f"{name} is not enforced on every host yet"
+
+
+def requires_row(**fields):
+    """this build's wire's row proving a number past its own for hosting"""
+    base = floor()
+    return dict(base, maximum=base["maximum"] + 1, hosting=[base["maximum"] + 1], **fields)
+
+
+@pytest.mark.parametrize("requires,why", [
+    (["no_such_protection"], "unknown host protection"),
+    (["hit_report_checks", "no_such_protection"], "unknown host protection"),
+    (["hit_report_checks", "hit_report_checks"], "twice"),
+    ("hit_report_checks", "not a list"),
+    ([7], "not a list"),
+])
+def test_tool_refuses_bad_requires(requires, why):
+    with pytest.raises(delta_table.TableError, match=why):
+        delta_table.parse(document(row=requires_row(requires=requires)))
+
+
+def test_tool_requires_only_where_builds_read_it():
+    """an older wire's builds read no requires; chupa-41a's 0.8.1d reads
+    announce alone, so a row that requires anything keeps its announce at
+    what those builds announce"""
+    old_wire = {"announce": 39, "minimum": 11, "maximum": 40, "requires": ["hit_report_checks"]}
+    with pytest.raises(delta_table.TableError, match="read no requires"):
+        delta_table.parse(document(extra={"chupa-39a": old_wire}))
+    delta_table.parse(document(extra={"chupa-39a": dict(old_wire, requires=[])}))
+    skipped = delta_table.REQUIRES_SKIPPED_ANNOUNCE["chupa-41a"]
+    row = {"announce": skipped, "minimum": 11, "maximum": 42, "hosting": [41, 42], "requires": ["hit_line_of_sight"]}
+    delta_table.parse(document(wire="chupa-41a", row=row))
+    with pytest.raises(delta_table.TableError, match="unchecked"):
+        delta_table.parse(document(wire="chupa-41a", row=dict(row, announce=41)))
+    # (without requires, as before)
+    delta_table.parse(document(wire="chupa-41a", row={"announce": 41, "minimum": 11, "maximum": 42}))
+
+
+def test_make_requires(tmp_path):
+    """--requires adds to a row's list; every later make keeps it; an
+    unknown name is refused"""
+    old = tmp_path / "old.json"
+    old.write_bytes(document(serial=4, row=floor()))
+    own = delta_table.wire()
+    result = make_table(tmp_path, "--serial", "5", "--from", str(old), "--requires", f"{own}=hit_line_of_sight")
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout)["wires"][own]["requires"] == ["hit_line_of_sight"]
+    old.write_bytes(result.stdout.encode())
+    wide = f"{floor()['announce']},{floor()['minimum']},{floor()['maximum'] + 1}"
+    for arguments in ((), ("--row", f"{own}={wide}"), ("--hosting", f"{own}={floor()['maximum'] + 1}"),
+                      ("--requires", f"{own}=hit_report_checks,hit_line_of_sight"),
+                      ("--take-back", f"{own}={floor()['announce']},{floor()['minimum']},{floor()['maximum']}")):
+        result = make_table(tmp_path, "--serial", "6", "--from", str(old), *arguments)
+        assert result.returncode == 0, (arguments, result.stderr)
+        assert "hit_line_of_sight" in json.loads(result.stdout)["wires"][own]["requires"], arguments
+    for bad in (f"{own}=no_such_protection", f"{own}=", "chupa-99z=hit_report_checks", f"{own}=Hit"):
+        result = make_table(tmp_path, "--serial", "6", "--from", str(old), "--requires", bad)
+        assert result.returncode == 1, bad
+
+
+def test_loader_hosts_only_with_the_protections(keys, checker, tmp_path):
+    """a row that requires a protection this build lacks: its own number
+    announced, one line says which protection, the join range the row's"""
+    base = floor()
+    table = write_signed(keys, tmp_path / "t10", document(serial=10, row=requires_row(
+        requires=["hit_report_checks", "hit_line_of_sight", "address_machine_limit"])))
+    output = run_checker(checker, tmp_path, "offer", table, "state", "hosting")
+    assert "offer 1" in output
+    assert state_line(output)[0].startswith(f"state {base['announce']} {base['minimum']} {base['maximum'] + 1} "), \
+        output
+    assert f"hosting {base['announce']} pinned 0" in output
+    said = [line for line in output.splitlines() if "requires the host protection" in line]
+    assert len(said) == 1 and "address_machine_limit" in said[0] and f"version {base['maximum'] + 1}" in said[0], output
+
+
+@pytest.mark.parametrize("requires", [["future_protection"], ["hit_report_checks", "Not-Plain"]])
+def test_loader_lacks_what_it_does_not_know(keys, checker, tmp_path, requires):
+    """a name this build doesn't know is one it lacks"""
+    table = write_signed(keys, tmp_path / "t10", document(serial=10, row=requires_row(requires=requires)))
+    output = run_checker(checker, tmp_path, "offer", table, "state")
+    assert state_line(output)[0].startswith(f"state {floor()['announce']} "), output
+    assert "requires the host protection" in output
+
+
+def test_loader_hosts_with_the_protections(keys, checker, tmp_path):
+    """every protection required present (or none required): the newest
+    proved is announced, as before"""
+    newest = floor()["maximum"] + 1
+    for serial, requires in ((10, ["hit_report_checks"]), (11, []), (12, ["hit_report_checks", "hit_line_of_sight"])):
+        table = write_signed(keys, tmp_path / f"t{serial}", document(serial=serial, row=requires_row(requires=requires)))
+        output = run_checker(checker, tmp_path, "offer", table, "state")
+        assert state_line(output)[0].startswith(f"state {newest} "), output
+        assert "requires the host protection" not in output
+
+
+def test_loader_pin_cannot_pass_a_missing_protection(keys, checker, tmp_path):
+    """network.announce can't pin a number the protections forbid"""
+    newest = floor()["maximum"] + 1
+    table = write_signed(keys, tmp_path / "t10", document(serial=10, row=requires_row(requires=["map_votes"])))
+    run_checker(checker, tmp_path, "offer", table)
+    output = run_checker(checker, tmp_path, "state", announce=str(newest))
+    assert state_line(output)[0].startswith(f"state {floor()['announce']} "), output
+    assert "network.announce" in output
+
+
+def test_loader_override_requires(checker, tmp_path):
+    """a local table's requires is followed as a signed one's; one without
+    it is as before"""
+    local = tmp_path / "local.json"
+    row = {"announce": 32, "minimum": 11, "maximum": 42, "hosting": [41], "requires": ["address_machine_limit"]}
+    local.write_bytes(document(serial=1, row=row))
+    output = run_checker(checker, tmp_path, "state", override=local)
+    assert state_line(output)[0] == f"state {floor()['announce']} 11 42 serial 0 override 1 disabled 0 signed 0"
+    assert "address_machine_limit" in output
+    del row["requires"]
+    local.write_bytes(document(serial=1, row=row))
+    output = run_checker(checker, tmp_path, "state", override=local)
+    assert state_line(output)[0] == "state 41 11 42 serial 0 override 1 disabled 0 signed 0"

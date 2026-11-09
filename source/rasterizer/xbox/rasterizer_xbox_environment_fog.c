@@ -201,6 +201,12 @@ enum
 	MAXIMUM_ENVIRONMENT_FOG_SCREEN_OPAQUE_MODELS = 128,
 };
 
+/* (a model's geometry flags: rasterizer_xbox_models.c) */
+enum
+{
+	_rasterizer_geometry_first_person_bit = 7,
+};
+
 enum
 {
 	_rasterizer_target_render_primary = 0,
@@ -378,16 +384,17 @@ static short cached_node_matrix_count = 0;
 static real_matrix4x3 const *cached_node_matrices = NULL;
 static real_matrix4x3 previous_camera_matrix[MAXIMUM_WINDOWS] = {0};
 
-#ifndef HALO_XBOX_CONSOLE
 /* rasterizer_environment_fog_screen_draw initializes a local pointer of the
 same name from this array; MSVC resolved the name in that initializer to
-the array, standard C to the new (uninitialized) local */
+the array, standard C to the new (uninitialized) local. Every build of ours
+is standard C (clang), the original Xbox's included: on it the uninitialized
+pointer took the first-time copy of the camera somewhere random, and the game
+crashed entering a fog screen (a10, driving to the cave) */
 static real_matrix4x3 *previous_camera_matrix_for_window(
 	short window_index)
 {
 	return &previous_camera_matrix[window_index];
 }
-#endif
 static boolean local_environment_fog_screen_model_flag = FALSE;
 static boolean local_environment_fog_screen_flag = FALSE;
 static word local_fog_screen_layer_bitmap_indices[MAXIMUM_ENVIRONMENT_FOG_SCREEN_LAYERS] = {0};
@@ -397,6 +404,9 @@ static short local_fog_pass = 0;
 static struct rasterizer_environment_fog_screen_window windows[MAXIMUM_WINDOWS] = {0};
 static struct transparent_geometry_group *opaque_model_submit_parameters = NULL;
 static long opaque_model_count = 0;
+/* port: which of them are the first-person weapon's, drawn at its own view
+width (display.viewmodel_field_of_view) */
+static boolean opaque_model_first_person[MAXIMUM_ENVIRONMENT_FOG_SCREEN_OPAQUE_MODELS] = {0};
 static boolean fog_screen_active[MAXIMUM_WINDOWS] = {0};
 static unsigned __int64 last_frame_index[MAXIMUM_WINDOWS] = {0};
 static short atmosphere_dominant_warning_count = 0;
@@ -544,6 +554,9 @@ void rasterizer_environment_fog_screen_model_submit(
 			group->dynamic_vertex_buffer_index = dynamic_vertex_buffer_index;
 			group->vertex_buffer = vertex_buffer;
 			group->model_base_map_scale = model->base_map_scale;
+			opaque_model_first_person[opaque_model_count - 1] = TEST_FLAG(
+				model->geometry_flags,
+				_rasterizer_geometry_first_person_bit);
 			if (!model_parameters_cached)
 			{
 				cached_node_matrices =
@@ -1012,14 +1025,8 @@ void _rasterizer_environment_fog_screen_begin(
 
 		if (pass == 0)
 		{
-#ifndef HALO_XBOX_CONSOLE
 			real_matrix4x3 *previous_camera_matrix =
 				previous_camera_matrix_for_window(global_window_parameters.window_index);
-#else
-			real_matrix4x3 *previous_camera_matrix =
-				&previous_camera_matrix[
-					global_window_parameters.window_index];
-#endif
 			real_matrix4x3 wind_matrix = *global_identity4x3;
 			real screen_constants[5][4];
 			real_matrix4x3 matrix;
@@ -1360,7 +1367,15 @@ void _rasterizer_environment_fog_screen_begin(
 		{
 			boolean success;
 			boolean clear_z_buffer;
+			boolean stick_to_drawn_surface;
 			real vsh_constants__texscale[VSH_CONSTANTS__TEXSCALE_COUNT][4];
+
+			/* port: at the stock field of view the redrawn canopy lands on the
+			canopy. With display.field_of_view widened, less-or-equal still
+			accepts that redraw where it has slid onto the sky, so the fog
+			keeps to the depth already drawn (no clear, equal only) */
+			stick_to_drawn_surface =
+				first_person_field_of_view_widened(render.local_player_index);
 
 			if (pass == 0)
 			{
@@ -1384,6 +1399,8 @@ void _rasterizer_environment_fog_screen_begin(
 			{
 				clear_z_buffer = FALSE;
 			}
+			if (stick_to_drawn_surface)
+				clear_z_buffer = FALSE;
 
 			success = IDirect3DDevice8_Clear(
 				global_d3d_device,
@@ -1400,7 +1417,7 @@ void _rasterizer_environment_fog_screen_begin(
 			IDirect3DDevice8_SetRenderState(global_d3d_device, D3DRS_ALPHATESTENABLE, FALSE);
 			IDirect3DDevice8_SetRenderState(global_d3d_device, D3DRS_ZENABLE, TRUE);
 			IDirect3DDevice8_SetRenderState(global_d3d_device, D3DRS_ZFUNC,
-				pass != 0 ? D3DCMP_EQUAL : D3DCMP_LESSEQUAL);
+				pass != 0 || stick_to_drawn_surface ? D3DCMP_EQUAL : D3DCMP_LESSEQUAL);
 			IDirect3DDevice8_SetRenderState(global_d3d_device, D3DRS_ZWRITEENABLE, pass == 0);
 			IDirect3DDevice8_SetRenderState(global_d3d_device, D3DRS_ZBIAS, 0);
 
@@ -1558,7 +1575,15 @@ void _rasterizer_environment_fog_screen_begin(
 					rasterizer_set_model_skinning(&skinning);
 					if (success)
 					{
+						if (opaque_model_first_person[group_index])
+						{
+							rasterizer_set_frustum_first_person_width(TRUE);
+						}
 						rasterizer_transparent_geometry_group_draw__internal(group, FALSE);
+						if (opaque_model_first_person[group_index])
+						{
+							rasterizer_set_frustum_first_person_width(FALSE);
+						}
 						if (rasterizer_debug_options.statistics_mode ==
 							_rasterizer_statistics_mode_enabled)
 						{

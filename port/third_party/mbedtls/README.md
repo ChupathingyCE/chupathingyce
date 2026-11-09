@@ -15,3 +15,7 @@ their build files, and nothing in them is changed. The default configuration
 The Linux build's self-updater (`port/linux/src/posix_update.c`) uses it to
 download new builds over HTTPS, with the system's certificate authorities.
 The Windows build uses WinHTTP instead, and the Android app Java's HTTPS.
+
+The consoles (original Xbox, Xbox 360, Wii U) build it with their own
+configuration, `port/console/https/console_mbedtls_config.h`, for the shared
+client in `port/console/https` (docs/console-https.md).

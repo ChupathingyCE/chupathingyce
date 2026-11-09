@@ -1,8 +1,9 @@
 # Delta: compatibility
 
 Status: design. Sections say what is built and what is planned. Written for
-0.8.0; step one (0.8.0a) is in progress. For the protocol details this builds
-on, see [delta.md](delta.md).
+0.8.0 and brought up to date for 0.9.0: step one shipped in 0.8.0a, and the
+signed table has since learned layouts, auto-announce and host protections.
+For the protocol details this builds on, see [delta.md](delta.md).
 
 Delta is the network Halo never had on PC: one place that knows who is
 playing, what they are running, and what can play with what. This document is
@@ -34,30 +35,41 @@ what fixes it.
    never changes what such a client sees, reads or displays. Delta features
    are additions for Delta machines, not requirements on anyone else.
 
-## 2. Today (0.8.0)
+## 2. Where it started (0.8.0), and what changed
 
 ### Wires
 
 Each build has a wire ID, `DELTA_WIRE` in `port/linux/include/delta.h`
-(`chupa-32a` in 0.8.0; `chupa-29a` and `chupa-28a` before it). It names the
+(`chupa-41a` from 0.8.1d, `chupa-39a` in 0.8.1b and 0.8.1c, `chupa-38a` in
+0.8.0h, `chupa-32a` in 0.8.0 to 0.8.0g; `chupa-29a` and `chupa-28a` before
+it). It names the
 revision of the game protocol the build actually speaks, which is not the same
 thing as the legacy network number the original game protocol advertises. A
 release that changes how a game plays gives itself a new wire.
 
-A Delta host puts its Delta major and its wire ID in the reserved bytes of its
-advertisement after the port's version and flags
-(`DELTA_ADVERTISED_WIRE_OFFSET`). Clients that do not read those bytes see
-nothing different.
+A Delta host puts its Delta major and its wire in the reserved bytes of its
+advertisement: since `chupa-39a` in the Delta tag at their tail
+(`DELTA_ADVERTISED_TAG_OFFSET`), clear of OpenCE's version, flags and kind;
+before that after the port's version and flags (`DELTA_ADVERTISED_WIRE_OFFSET`,
+with the flag 0x04), which new clients still read. Clients that do not read
+those bytes see nothing different (docs/delta.md, "The advertisement", and
+its transition, which has no end date).
 
-### The exact-wire join rule
+Every wire from the console floor on (`DELTA_WIRE_CONSOLE_FLOOR`,
+`chupa-32a`: the Xbox and Switch builds) plays back to it, so a new PC wire
+never splits the consoles from the PCs; CI checks it (docs/delta.md, "The
+console floor").
 
-Today our client, in its default mode, joins a Delta host of its own major
-and exactly its own wire, whatever legacy number either announces. A host of
-another wire is refused with a message naming both wires. A host of another
-major, or one old enough not to advertise a wire, is joined by legacy number
-as before.
+### The exact-wire join rule (until 0.8.0a)
 
-This rule is safe and it is too strict. It treats every wire change as
+Until 0.8.0a our client, in its default mode, joined a Delta host of its own major
+and exactly its own wire, whatever legacy number either announced. A host of
+another wire was refused with a message naming both wires. A host of another
+major, or one old enough not to advertise a wire, was joined by legacy number.
+Since 0.8.0a a client joins when either side's wire is in the other's range
+(step one, below; docs/delta.md, "Wire compatibility ranges").
+
+The rule was safe and it was too strict. It treats every wire change as
 breaking, but most are not: 0.7.5 (`chupa-29a`) and 0.8.0 (`chupa-32a`) differ
 by additive changes that machines of either side can live with. Exact matching
 splits builds that would have played fine, and the split reaches the Xbox
@@ -75,8 +87,16 @@ What it can do for builds already released:
 
 - widen the numbers a given wire announces and joins, when the cross-play
   gate has proven that wire plays with them;
-- disable a capability network-wide (`disabled_capabilities`) and set platform
-  policy.
+- disable a capability network-wide (`disabled_capabilities`);
+- give the facts of a newer OpenCE version's layout that a wire reads by data
+  (`layouts`, from `chupa-38a`), such as the join request's length;
+- prove numbers for hosting alone (`hosting`), which hosts then announce on
+  their own (auto-announce, from 0.9.0);
+- name the host protections a host must have to announce past its own number
+  (`requires`, read from 0.9.0).
+
+`platform_policy` is reserved for per-platform limits; no build reads it
+yet.
 
 What it cannot do:
 
@@ -100,7 +120,7 @@ Capabilities gate Delta features. They do not gate the base game protocol, and
 they are agreed after the join, so they cannot decide whether a join is
 allowed.
 
-## 3. Step one (0.8.0a, in progress)
+## 3. Step one (shipped in 0.8.0a)
 
 Goal: stop the exact-wire split without changing anything the wire means.
 
@@ -175,7 +195,7 @@ room-wide capabilities.
 
 ## 5. The compatibility map
 
-Planned (0.8.1). The signed table grows from a list of announce numbers per
+Planned. The signed table grows from a list of announce numbers per
 wire into the network's authority on what plays with what. It stays one signed
 JSON document, the same key, the same distribution, the same format-version
 rule (a build drops a document of a format it cannot read).
@@ -232,6 +252,12 @@ Planned, built on section 3's advertisement.
 - **The same words everywhere.** The game list on the site, the in-game list
   and a failed join use the same reason strings, so a player is not told
   something different in each place.
+  Done for 0.8.1: the sentences are in `port/linux/include/halo_join_reasons.h`
+  ("Needs a newer Chupathingy.", "The host is on an older version.", "Map not
+  installed: ...", "Game is full.", "Password needed." and the rest), used by
+  Online Games, the PC Server Browser and the failed-join message. The site's
+  list has the same ones (puma `web/site.js`, `JOIN_REASONS`), and
+  `tools/test_join_reasons.py` holds the list both follow.
 - **Failures stay clean.** A join that fails after the list said it would work
   (a stale map, a host that changed since) ends the join with the reason and
   does not start a game that might drift.
@@ -269,8 +295,10 @@ who has not opted in.
 
 | Phase | Contents | State |
 | --- | --- | --- |
-| 0.8.0a | Advertise the oldest compatible wire in the old slot, real wire and range in new bytes; table rows for older wires proven by the cross-play gate | in progress |
-| 0.8.1 | Protocol levels and per-game negotiation; the compatibility map; honest lists and "update to join" | planned |
+| 0.8.0a | Advertise the oldest compatible wire in the old slot, real wire and range in new bytes; table rows for older wires proven by the cross-play gate | done (since `chupa-39a` the range rides in the Delta tag; the old slot is still written where it fits) |
+| 0.8.1 | The same reason strings in every list and failed join | done |
+| 0.9.0 | Auto-announce from the signed table, and host protections a row requires | done |
+| Later | Protocol levels and per-game negotiation; the compatibility map; "update to join" | planned |
 | Later | Presence, invites, profiles in game, title-update prompts | planned |
 
 Open questions:

@@ -26,8 +26,32 @@ or cannot be reached. If it is newer, the game asks whether to update:
   has none: its chupathingyce-<platform>-<release|debug>.zip is downloaded,
   with that zip's own signature (<zip>.sig) checked, as before.
 - No: nothing, until the next start.
+
+The game is chupathingy (chupathingy.exe) from 0.9.0, and was halo
+(halo.exe) before. A release's zip carries both: the game, which the list
+names as its "main", and a small halo that starts it (rename_stub.h), for
+shortcuts and for the updaters from before the list, which start halo again.
+At its start the renamed game removes an old halo beside it that is a game,
+never the stub (updater_remove_old_program).
 - Do not ask again: after the player confirms it, update.auto = false is
   written to config.toml.
+
+Run as an AppImage (Linux: update_appimage_path), the game is that one file,
+mounted read-only: Yes downloads the AppImage the release's signed list
+names for this platform and configuration (kind "appimage") beside it (into
+update.partial/), checks its size and SHA-256 against the list's, and puts
+it in place of the AppImage file, by that file's own name (the old one
+becomes <name>.old, deleted at the next start), executable as it was, and
+starts it. Nothing is unpacked: a release without a list, or whose list has
+no AppImage, is not installed over an AppImage (its zip would only fill the
+AppImage's folder with a second copy of the game), and the player is told to
+download the new AppImage.
+
+A packaged install (packaged_install.h: the AUR's chupathingy-bin, marked
+by the build, HALO_PACKAGED or a file named "packaged" beside the
+executable) is its package manager's to update: nothing is downloaded or
+asked, and a newer release only puts "update Chupathingy with your package
+manager" on the main menu's version line and in the log.
 
 The system side (the HTTPS download, the files, starting the new game) is
 update.h's: posix_update.c on Linux, win32_update.c on Windows.
@@ -38,11 +62,15 @@ at the server HALO_UPDATE_TEST_SERVER names in place of GitHub. No release
 is built with it.
 */
 
+#include "rename_stub.h"
 #include "platform.h"
 #include "port_config.h"
 #include "update.h"
 #include "update_manifest.h"
 #include "update_signature.h"
+
+#include <stdlib.h>
+#include <string.h>
 
 /* (given for this file by the build: tools/linux_build.py, windows_build.py,
 macos_build.py; the Android app's version is its own, build.gradle) */
@@ -58,6 +86,17 @@ macos_build.py; the Android app's version is its own, build.gradle) */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#ifdef HALO_CONSOLE_SETUP_SCREENS
+/* the port's screens, for a console with no dialogs (halo_console_features.h):
+one shown while the update downloads, a notice read with the pad, and the
+question, answered 1 update, 2 never ask again, 0 not now */
+void *console_setup_screen_open(void);
+void console_setup_screen_progress(void *screen, float fraction, const char *title, const char *line);
+void console_setup_screen_close(void *screen);
+void console_setup_notice(const char *first, const char *second);
+int console_setup_update_question(const char *latest, const char *current);
+#endif
 
 #ifndef HALO_RELEASE_BUILD
 #define HALO_RELEASE_BUILD 0
@@ -80,11 +119,24 @@ looks for a new version and offers its download page) */
 #define HALO_BUILD_FLAVOR "release"
 #endif
 
-/* ChupathingyCE's releases */
+/* ChupathingyCE's releases, or a console port's own (HALO_PORT_UPDATE_API on
+its compile line, its own key in its halo_port_update_keys.h: update_key.h),
+laid out as GitHub's addresses are */
+#ifdef HALO_PORT_UPDATE_API
+#define UPDATE_REPOSITORY HALO_PORT_UPDATE_REPOSITORY
+#define UPDATE_API HALO_PORT_UPDATE_API
+#define UPDATE_DOWNLOADS HALO_PORT_UPDATE_API "/releases/download"
+#else
 #define UPDATE_REPOSITORY "ChupathingyCE/chupathingyce"
 #define UPDATE_API "https://api.github.com/repos/" UPDATE_REPOSITORY
 #define UPDATE_DOWNLOADS "https://github.com/" UPDATE_REPOSITORY "/releases/download"
-#if defined(_WIN32) && defined(HALO_64BIT)
+#endif
+#if defined(HALO_PORT_UPDATE_PLATFORM)
+/* (a console port's own download: on the game's releases, signed with the
+release key, unless the port has releases of its own, HALO_PORT_UPDATE_API) */
+#define UPDATE_PLATFORM HALO_PORT_UPDATE_PLATFORM
+#define PATH_SEPARATOR "/"
+#elif defined(_WIN32) && defined(HALO_64BIT)
 /* (the 64-bit Windows build's own download, ninja windows64: tools/ci_build.py) */
 #define UPDATE_PLATFORM "windows64"
 #define PATH_SEPARATOR "\\"
@@ -93,6 +145,11 @@ looks for a new version and offers its download page) */
 #define PATH_SEPARATOR "\\"
 #elif defined(__APPLE__)
 #define UPDATE_PLATFORM "macos"
+#define PATH_SEPARATOR "/"
+#elif defined(__FreeBSD__) && defined(HALO_64BIT)
+/* (the FreeBSD build's own download, ninja freebsd64: tools/unix64_build.py;
+never the Linux one) */
+#define UPDATE_PLATFORM "freebsd64"
 #define PATH_SEPARATOR "/"
 #elif defined(HALO_64BIT)
 /* (the 64-bit Linux build's own download, ninja linux64: tools/ci_build.py) */
@@ -103,6 +160,8 @@ looks for a new version and offers its download page) */
 #define PATH_SEPARATOR "/"
 #endif
 #define UPDATE_ASSET "chupathingyce-" UPDATE_PLATFORM "-" HALO_BUILD_FLAVOR ".zip"
+/* (an AppImage's update: the release's list names it, kind "appimage") */
+#define UPDATE_APPIMAGE_ASSET "chupathingyce-" UPDATE_PLATFORM "-" HALO_BUILD_FLAVOR ".AppImage"
 /* the release's list of its update files (update_manifest.h) */
 #define UPDATE_MANIFEST "updates.json"
 #define UPDATE_DIRECTORY "update.partial"
@@ -129,6 +188,9 @@ static SDL_AtomicInt updater_state;
 static char updater_latest_version[32];
 static char updater_directory[1024];
 static char updater_executable[1024];
+/* whether this runs from an AppImage, updater_executable then being the
+AppImage file (update_appimage_path) */
+static int updater_appimage;
 /* what is downloaded: from the release's list, or the zip's name as before
 (listed: 0, and its own signature is checked) */
 static struct
@@ -344,6 +406,12 @@ static int updater_executable_name(const char *name)
 {
 	size_t index;
 
+#ifdef HALO_PORT_UPDATE_SCRIPT
+	/* (a console port that starts the game from a script, which an update
+	replaces too) */
+	if (!strcmp(name, HALO_PORT_UPDATE_SCRIPT))
+		return 1;
+#endif
 	for (index = 0; index < sizeof(updater_executable_names) / sizeof(*updater_executable_names); index++)
 	{
 		if (!strcmp(name, updater_executable_names[index]))
@@ -517,6 +585,16 @@ static int updater_latest_release(char *version, size_t size)
 		return 0;
 	/* "tag_name": "v<version>" */
 	tag = strstr(text, "\"tag_name\"");
+#if defined(HALO_PORT_UPDATE_PLATFORM) && !defined(HALO_PORT_UPDATE_API)
+	/* (a port's download on the game's releases: a release counts only once
+	its assets name the port's zip, so a release made before the port's
+	download is added is not offered) */
+	if (tag && !strstr(text, "\"" UPDATE_ASSET "\""))
+	{
+		platform_log("update: the latest release has no " UPDATE_ASSET " yet");
+		tag = NULL;
+	}
+#endif
 	if (tag)
 	{
 		tag = strchr(tag + 10, '"');
@@ -604,6 +682,9 @@ static int updater_download_zip(const char *zip_path, char *error, size_t error_
 	SDL_Renderer *renderer = NULL;
 	SDL_Thread *thread;
 	int finished = 0;
+#ifdef HALO_CONSOLE_SETUP_SCREENS
+	void *screen;
+#endif
 
 	memset(&download, 0, sizeof(download));
 	download.lock = SDL_CreateMutex();
@@ -620,9 +701,14 @@ static int updater_download_zip(const char *zip_path, char *error, size_t error_
 		snprintf(error, error_size, "could not start the download");
 		return 0;
 	}
+#ifdef HALO_CONSOLE_SETUP_SCREENS
+	window = NULL;
+	screen = console_setup_screen_open();
+#else
 	window = SDL_CreateWindow("Chupathingy", 640, 150, 0);
 	if (window)
 		renderer = SDL_CreateRenderer(window, SDL_SOFTWARE_RENDERER);
+#endif
 	while (!finished)
 	{
 		SDL_Event event;
@@ -637,6 +723,17 @@ static int updater_download_zip(const char *zip_path, char *error, size_t error_
 		received = download.received;
 		total = download.total;
 		SDL_UnlockMutex(download.lock);
+#ifdef HALO_CONSOLE_SETUP_SCREENS
+		if (screen)
+		{
+			char line[160];
+
+			snprintf(line, sizeof(line), "version %s  (%llu of %llu MB)", updater_latest_version, received >> 20,
+				total >> 20);
+			console_setup_screen_progress(screen, total ? (float)((double)received / (double)total) : 0.0f,
+				"Downloading the update...", line);
+		}
+#else
 		if (renderer)
 		{
 			char line[160];
@@ -659,9 +756,13 @@ static int updater_download_zip(const char *zip_path, char *error, size_t error_
 			SDL_RenderFillRect(renderer, &bar);
 			SDL_RenderPresent(renderer);
 		}
+#endif
 		SDL_Delay(16);
 	}
 	SDL_WaitThread(thread, NULL);
+#ifdef HALO_CONSOLE_SETUP_SCREENS
+	console_setup_screen_close(screen);
+#endif
 	if (renderer)
 		SDL_DestroyRenderer(renderer);
 	if (window)
@@ -773,6 +874,13 @@ static int updater_find_file(char *error, size_t error_size)
 	updater_url(url, sizeof(url), 0, path);
 	if (!update_download(url, manifest_path, MAXIMUM_CHECK_SIZE, NULL, NULL, reason, sizeof(reason)))
 	{
+		/* (an AppImage updates only from the list: the zip is not one) */
+		if (updater_appimage)
+		{
+			snprintf(error, error_size, "this release has no list of update files (%s), and an AppImage updates "
+				"only from one: download the new AppImage from the release's page", reason);
+			return 0;
+		}
 		/* (its zip's own signature is checked instead) */
 		platform_log("update: no list of update files (%s): downloading " UPDATE_ASSET, reason);
 		return 1;
@@ -807,7 +915,7 @@ static int updater_find_file(char *error, size_t error_size)
 		platform_log("update: this build has no release key: the list's signature is not checked");
 	}
 	result = update_manifest_find(manifest, manifest_size, updater_latest_version, UPDATE_PLATFORM, HALO_BUILD_FLAVOR,
-		"zip", updater_file.tag, sizeof(updater_file.tag), updater_file.name, sizeof(updater_file.name),
+		updater_appimage ? "appimage" : "zip", updater_file.tag, sizeof(updater_file.tag), updater_file.name, sizeof(updater_file.name),
 		&updater_file.size, updater_file.sha256, sizeof(updater_file.sha256), updater_file.main_name,
 		sizeof(updater_file.main_name), reason, sizeof(reason));
 	if (result == _update_manifest_found && (!updater_file.size || updater_file.size > MAXIMUM_UPDATE_SIZE))
@@ -821,6 +929,11 @@ static int updater_find_file(char *error, size_t error_size)
 		platform_log("update: the release's list names %s (%s, %llu bytes%s%s)", updater_file.name, updater_file.tag,
 			updater_file.size, updater_file.main_name[0] ? ", main " : "", updater_file.main_name);
 		succeeded = 1;
+	}
+	else if (result == _update_manifest_missing && updater_appimage)
+	{
+		snprintf(error, error_size, "this release has no AppImage update (%s): download the new AppImage from the "
+			"release's page", reason);
 	}
 	else if (result == _update_manifest_missing)
 	{
@@ -836,6 +949,56 @@ static int updater_find_file(char *error, size_t error_size)
 done:
 	SDL_free(signature);
 	SDL_free(manifest);
+	return succeeded;
+}
+
+/* the downloaded AppImage, checked against the release's list (its size and
+SHA-256), written again from the copy that was checked, and put in place of
+the AppImage file this runs from (which becomes <name>.old), executable as
+it was; 1 when it is there */
+static int updater_install_appimage(const char *download_path, char *error, size_t error_size)
+{
+	char old_path[1300], digest[UPDATE_SHA256_TEXT_SIZE];
+	size_t size = 0;
+	unsigned char *data = SDL_LoadFile(download_path, &size);
+	int succeeded = 0;
+
+	update_delete_file(download_path);
+	if (!data || size > MAXIMUM_UPDATE_SIZE)
+	{
+		snprintf(error, error_size, "could not read the download");
+		goto done;
+	}
+	/* (always from the list, whose signature checked: updater_find_file) */
+	if (!updater_file.listed || size != updater_file.size)
+	{
+		snprintf(error, error_size, "the download was not installed: it is %llu bytes, not the list's %llu",
+			(unsigned long long)size, updater_file.size);
+		goto done;
+	}
+	update_sha256(data, size, digest);
+	if (strcmp(digest, updater_file.sha256))
+	{
+		snprintf(error, error_size, "the download was not installed: its SHA-256 is not the list's");
+		goto done;
+	}
+	platform_log("update: the download's SHA-256 is the release list's");
+	if (!SDL_SaveFile(download_path, data, size))
+	{
+		snprintf(error, error_size, "could not write the new AppImage beside the old one");
+		goto done;
+	}
+	snprintf(old_path, sizeof(old_path), "%s.old", updater_executable);
+	if (!update_replace_file(updater_executable, download_path, old_path))
+	{
+		update_delete_file(download_path);
+		snprintf(error, error_size, "could not replace %s", updater_executable);
+		goto done;
+	}
+	succeeded = 1;
+
+done:
+	SDL_free(data);
 	return succeeded;
 }
 
@@ -939,11 +1102,31 @@ static void updater_update(void)
 	int name_count = 0;
 
 	updater_path(partial, sizeof(partial), UPDATE_DIRECTORY);
-	updater_partial_path(zip_path, sizeof(zip_path), UPDATE_ASSET);
+	updater_partial_path(zip_path, sizeof(zip_path), updater_appimage ? UPDATE_APPIMAGE_ASSET : UPDATE_ASSET);
 	platform_log("update: downloading version %s", updater_latest_version);
 	if (!update_make_directory(partial))
 	{
-		snprintf(error, sizeof(error), "could not make %s (is the game's folder read-only?)", partial);
+		snprintf(error, sizeof(error), "could not make %s (is the %s folder read-only?)", partial,
+			updater_appimage ? "AppImage's" : "game's");
+	}
+	else if (updater_appimage)
+	{
+		/* (the AppImage, whole: started by the name it had) */
+		if (updater_find_file(error, sizeof(error)) && updater_download_zip(zip_path, error, sizeof(error)) &&
+			updater_install_appimage(zip_path, error, sizeof(error)))
+		{
+			update_delete_file(partial);
+			platform_log("update: starting version %s (%s)", updater_latest_version,
+				strrchr(updater_executable, PATH_SEPARATOR[0]) ? strrchr(updater_executable, PATH_SEPARATOR[0]) + 1 :
+				updater_executable);
+			if (update_launch(updater_executable))
+				exit(EXIT_SUCCESS);
+			snprintf(error, sizeof(error), "the new version is in place, but could not be started: start it again");
+		}
+		else
+		{
+			update_delete_file(partial);
+		}
 	}
 	else if (updater_find_file(error, sizeof(error)) && updater_download_zip(zip_path, error, sizeof(error)) &&
 		updater_unpack(zip_path, names, executable, &name_count, error, sizeof(error)))
@@ -954,18 +1137,79 @@ static void updater_update(void)
 			updater_new_executable(names, name_count, start, sizeof(start));
 			platform_log("update: starting version %s (%s)", updater_latest_version,
 				strrchr(start, PATH_SEPARATOR[0]) ? strrchr(start, PATH_SEPARATOR[0]) + 1 : start);
+#ifdef HALO_PORT_UPDATE_RESTART_EXIT_CODE
+			/* (the port's script starts the new version itself when the game
+			exits with this code) */
+			exit(HALO_PORT_UPDATE_RESTART_EXIT_CODE);
+#endif
 			if (update_launch(start))
 				exit(EXIT_SUCCESS);
 			snprintf(error, sizeof(error), "the new version is in place, but could not be started: start it again");
 		}
 	}
 	platform_log("update: failed: %s", error);
+#ifdef HALO_CONSOLE_SETUP_SCREENS
+	console_setup_notice("The update failed, and the game goes on as it was:", error);
+#else
 	{
 		char message[800];
 
 		snprintf(message, sizeof(message), "The update failed:\n\n%s", error);
 		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Chupathingy", message, NULL);
 	}
+#endif
+}
+
+/* the game's program from before the rename, beside the renamed one: halo
+beside chupathingy, halo.exe beside chupathingy.exe (rename_stub.h), removed,
+unless it is the small stub that starts this one, which stays for the
+shortcuts and scripts that start halo */
+static void updater_remove_old_program(void)
+{
+	const char *running = strrchr(updater_executable, PATH_SEPARATOR[0]);
+	const char *old_name = rename_stub_old_name(running ? running + 1 : updater_executable);
+	unsigned char data[RENAME_STUB_MAXIMUM_SIZE > 65536 ? 65536 : RENAME_STUB_MAXIMUM_SIZE];
+	char path[1300];
+	SDL_PathInfo info;
+	SDL_IOStream *file;
+	size_t size = 0;
+	Sint64 file_size;
+
+	if (!old_name)
+		return;
+	updater_path(path, sizeof(path), old_name);
+	if (!SDL_GetPathInfo(path, &info) || info.type != SDL_PATHTYPE_FILE)
+		return;
+	file = SDL_IOFromFile(path, "rb");
+	if (!file)
+		return;
+	file_size = SDL_GetIOSize(file);
+	if (file_size >= 0 && (Uint64)file_size <= RENAME_STUB_MAXIMUM_SIZE)
+	{
+		/* (a stub has its mark near its start, or, a Windows one, in its
+		data: read it whole, in pieces, and look at each with the last
+		mark's length of the one before it) */
+		size_t keep = sizeof(RENAME_STUB_MARK) - 2, got;
+
+		while ((got = SDL_ReadIO(file, data + size, sizeof(data) - size)) > 0)
+		{
+			size += got;
+			if (rename_stub_is_stub(data, size, (unsigned long long)file_size))
+			{
+				SDL_CloseIO(file);
+				return;
+			}
+			if (size > keep)
+			{
+				memmove(data, data + size - keep, keep);
+				size = keep;
+			}
+		}
+	}
+	SDL_CloseIO(file);
+	platform_log("update: removing %s, the game from before its rename to %s", old_name,
+		running ? running + 1 : updater_executable);
+	update_delete_file(path);
 }
 
 /* the files a previous update left behind */
@@ -976,13 +1220,26 @@ static void updater_clean_up(void)
 		"halo.old", "halo.exe.old", "chupathingy.old", "chupathingy.exe.old", "SDL3.dll.old", "libSDL3.so.0.old",
 		"SDL3-LICENSE.txt.old", "mbedtls-LICENSE.txt.old", "LICENSE.txt.old",
 	};
-	char path[1200];
+	char path[1300];
 	size_t index;
 
-	for (index = 0; index < sizeof(names) / sizeof(*names); index++)
+	/* (an AppImage's folder is the player's, not the game's: only the
+	AppImage's own old file) */
+	if (updater_appimage)
 	{
-		updater_path(path, sizeof(path), names[index]);
+		snprintf(path, sizeof(path), "%s.old", updater_executable);
 		update_delete_file(path);
+		updater_partial_path(path, sizeof(path), UPDATE_APPIMAGE_ASSET);
+		update_delete_file(path);
+	}
+	else
+	{
+		for (index = 0; index < sizeof(names) / sizeof(*names); index++)
+		{
+			updater_path(path, sizeof(path), names[index]);
+			update_delete_file(path);
+		}
+		updater_remove_old_program();
 	}
 	updater_partial_path(path, sizeof(path), UPDATE_ASSET);
 	update_delete_file(path);
@@ -1002,18 +1259,29 @@ static void updater_clean_up(void)
 void updater_start(void)
 {
 	char *slash;
+	int packaged = platform_packaged();
 
-	/* (the macOS application only offers the download page: no files of its
-	own to find or clean up) */
-	if (UPDATER_DOWNLOAD_PAGE_ONLY)
+#ifdef HALO_CONSOLE_SETUP_SCREENS
+	/* (asked before the game's window opens, as the console has no dialogs:
+	updater_console_check, from the port's console_setup_after_data) */
+	return;
+#endif
+
+	/* (the macOS application only offers the download page, and a packaged
+	install the package manager: no files of their own to find or clean up) */
+	if (UPDATER_DOWNLOAD_PAGE_ONLY || packaged)
 	{
 		/* (the check's answer is kept in the save root while it is read) */
 		snprintf(updater_directory, sizeof(updater_directory), "%s", platform_save_root());
 	}
 	else
 	{
-		if (!update_executable_path(updater_executable, sizeof(updater_executable)))
+		/* (an AppImage: its file is the one replaced) */
+		updater_appimage = update_appimage_path(updater_executable, sizeof(updater_executable));
+		if (!updater_appimage && !update_executable_path(updater_executable, sizeof(updater_executable)))
 			return;
+		if (updater_appimage)
+			platform_log("update: running as an AppImage (%s)", updater_executable);
 		snprintf(updater_directory, sizeof(updater_directory), "%s", updater_executable);
 		slash = strrchr(updater_directory, PATH_SEPARATOR[0]);
 		if (!slash)
@@ -1022,8 +1290,19 @@ void updater_start(void)
 		updater_clean_up();
 	}
 	/* (not for builds other than a release's, the player's no, or runs nobody
-	is watching, but for a test with its answer) */
-	if (!(HALO_RELEASE_BUILD || UPDATER_TEST) || !config_boolean("update.auto") ||
+	is watching, but for a test with its answer; a packaged install's
+	update.auto is off, and its no is the one the file or the environment
+	gave: config_packaged_update_check) */
+	/* (a release's build with no update key, all zero in update_key.h, would
+	install unsigned updates: it never looks for any. configure.py refuses
+	to make one; this is for a build made some other way) */
+	if (HALO_RELEASE_BUILD && !UPDATER_TEST && !update_signature_required())
+	{
+		platform_log("update: this release build has no update key, so it does not look for updates");
+		return;
+	}
+	if (!(HALO_RELEASE_BUILD || UPDATER_TEST) ||
+		!(packaged ? config_packaged_update_check() : config_boolean("update.auto")) ||
 		(!config_string("debug.update_answer")[0] && (config_boolean("debug.hidden_window") ||
 			config_real("debug.exit_after") > 0.0 || config_string("debug.network_test")[0])))
 	{
@@ -1040,21 +1319,70 @@ void updater_start(void)
 	}
 }
 
-/* whether the game runs under gamescope (the Steam Deck's Game Mode), where
-a system dialog such as SDL's message box crashes the game. gamescope sets
-GAMESCOPE_WAYLAND_DISPLAY for the programs it runs and Game Mode's session
-XDG_CURRENT_DESKTOP; Steam sets SteamDeck and SteamGamepadUI there. Wine
-passes them on to the Windows build under Proton. */
-static int updater_gamescope(void)
+#ifdef HALO_CONSOLE_SETUP_SCREENS
+/* at start-up, before the game's window (the port's console_setup_after_data):
+a new version looked for, for as long as a player would not notice (no network
+must not hold the game up), and the player asked on the port's screen, with
+the pad. Downloaded, checked and put in place as on the desktop */
+void updater_console_check(void)
 {
-	const char *wayland_display = getenv("GAMESCOPE_WAYLAND_DISPLAY");
-	const char *desktop = getenv("XDG_CURRENT_DESKTOP");
-	const char *steam_deck = getenv("SteamDeck");
-	const char *gamepad_ui = getenv("SteamGamepadUI");
+	/* (a slow console's first TLS takes seconds: its certificates, one core) */
+	const Uint64 patience = 8000;
+	Uint64 start = SDL_GetTicks();
+	const char *test_answer = config_string("debug.update_answer");
+	SDL_Thread *thread;
+	char *slash;
+	int answer = 0;
 
-	return (wayland_display && wayland_display[0]) || (desktop && strstr(desktop, "gamescope")) ||
-		(steam_deck && !strcmp(steam_deck, "1") && gamepad_ui && !strcmp(gamepad_ui, "1"));
+	if (!update_executable_path(updater_executable, sizeof(updater_executable)))
+		return;
+	snprintf(updater_directory, sizeof(updater_directory), "%s", updater_executable);
+	slash = strrchr(updater_directory, PATH_SEPARATOR[0]);
+	if (!slash)
+		return;
+	*slash = 0;
+	updater_clean_up();
+	if (HALO_RELEASE_BUILD && !UPDATER_TEST && !update_signature_required())
+	{
+		platform_log("update: this release build has no update key, so it does not look for updates");
+		return;
+	}
+	if (!(HALO_RELEASE_BUILD || UPDATER_TEST) || !config_boolean("update.auto"))
+		return;
+	SDL_SetAtomicInt(&updater_state, _updater_checking);
+	thread = SDL_CreateThread(updater_check_thread, "update check", NULL);
+	if (!thread)
+	{
+		SDL_SetAtomicInt(&updater_state, _updater_handled);
+		return;
+	}
+	SDL_DetachThread(thread);
+	while (SDL_GetAtomicInt(&updater_state) == _updater_checking && SDL_GetTicks() - start < patience)
+		SDL_Delay(50);
+	if (SDL_GetAtomicInt(&updater_state) != _updater_available)
+	{
+		if (SDL_GetAtomicInt(&updater_state) == _updater_checking)
+			platform_log("update: no answer in time; the game starts without waiting");
+		return;
+	}
+	SDL_SetAtomicInt(&updater_state, _updater_handled);
+	if (test_answer[0])
+		answer = !strcmp(test_answer, "yes") ? 1 : !strcmp(test_answer, "never") ? 2 : 0;
+	else
+		answer = console_setup_update_question(updater_latest_version, HALO_VERSION);
+	if (answer == 1)
+	{
+		updater_update();
+	}
+	else if (answer == 2)
+	{
+		if (config_write_boolean("update.auto", 0))
+			platform_log("update: update.auto = false written to config.toml");
+	}
 }
+#endif
+
+int updater_gamescope(void);
 
 /* every frame, on the game's thread (sdl_platform.c): asks the player once a
 new version is found */
@@ -1076,9 +1404,23 @@ void updater_poll(SDL_Window *window)
 	int fullscreen;
 	const char *test_answer = config_string("debug.update_answer");
 
+#ifdef HALO_CONSOLE_SETUP_SCREENS
+	/* (an answer too late for updater_console_check waits for the next start:
+	the console has no dialogs) */
+	return;
+#endif
 	if (SDL_GetAtomicInt(&updater_state) != _updater_available)
 		return;
 	SDL_SetAtomicInt(&updater_state, _updater_handled);
+	/* (a packaged install: nothing asked or downloaded, whatever a test
+	answers) */
+	if (platform_packaged())
+	{
+		platform_log("update: %s is out (this is %s); a packaged install: update Chupathingy with your "
+			"package manager", updater_latest_version, HALO_VERSION);
+		build_identity_watermark_update(updater_latest_version, "Chupathingy with your package manager");
+		return;
+	}
 	/* (an automated test's answer: debug.update_answer) */
 	if (test_answer[0])
 	{
@@ -1091,12 +1433,14 @@ void updater_poll(SDL_Window *window)
 			config_write_boolean("update.auto", 0);
 		return;
 	}
-	/* (no question under gamescope: the player updates from the desktop, or
-	with debug.update_answer) */
+	/* (no question under gamescope: the main menu's version line says the
+	new version is out, and the player updates from the desktop, or with
+	debug.update_answer) */
 	if (updater_gamescope())
 	{
 		platform_log("update: %s is out (this is %s); not asking under gamescope (Steam Deck Game Mode)",
 			updater_latest_version, HALO_VERSION);
+		build_identity_watermark_update(updater_latest_version, "from Desktop Mode");
 		return;
 	}
 	/* (a dialog cannot show above a fullscreen game) */
@@ -1161,6 +1505,23 @@ void updater_start(void)
 }
 
 #endif
+
+/* whether the game runs under gamescope (the Steam Deck's Game Mode), where
+a system dialog such as SDL's message box crashes the game: every dialog
+(sdl_platform.c, updater_poll) is left out there, its question kept for a
+run on the desktop. gamescope sets GAMESCOPE_WAYLAND_DISPLAY for the programs
+it runs and Game Mode's session XDG_CURRENT_DESKTOP; Steam sets SteamDeck and
+SteamGamepadUI there. Wine passes them on to the Windows build under Proton */
+int updater_gamescope(void)
+{
+	const char *wayland_display = getenv("GAMESCOPE_WAYLAND_DISPLAY");
+	const char *desktop = getenv("XDG_CURRENT_DESKTOP");
+	const char *steam_deck = getenv("SteamDeck");
+	const char *gamepad_ui = getenv("SteamGamepadUI");
+
+	return (wayland_display && wayland_display[0]) || (desktop && strstr(desktop, "gamescope")) ||
+		(steam_deck && !strcmp(steam_deck, "1") && gamepad_ui && !strcmp(gamepad_ui, "1"));
+}
 
 /* this build's version (HALO_VERSION: 0.5.0b, 0.5.0b-nightly.42, 0.5.0b-dev),
 for the window's title (sdl_platform.c) */

@@ -53,6 +53,9 @@ enum
 	SERVER_ENGINE_ODDBALL,
 	SERVER_ENGINE_KING,
 	SERVER_ENGINE_RACE,
+	/* Bomb and Grifball (game_engine_bomb.c): played only with clients that
+	have Delta Peer's bomb capability; the server drops any other */
+	SERVER_ENGINE_BOMB,
 };
 
 struct server_builtin
@@ -186,6 +189,13 @@ enum
 	SERVER_GAMETYPE_RACE_TYPE,
 	SERVER_GAMETYPE_RACE_TEAM_SCORING,
 
+	SERVER_GAMETYPE_BOMB_ARM_TIME,
+	SERVER_GAMETYPE_BOMB_RESET_TIME,
+	SERVER_GAMETYPE_BOMB_ROUND_TIME,
+	SERVER_GAMETYPE_BOMB_NEW_ROUND_ON_SCORE,
+	SERVER_GAMETYPE_BOMB_MELEE_ONLY,
+	SERVER_GAMETYPE_BOMB_TRAITS,
+
 	SERVER_GAMETYPE_FIELDS,
 	/* a side's vehicles, "pc": every one the map places, as Halo PC places
 	them (game_engine.h's VARIANT_VEHICLE_SET_PC); "custom": their counts */
@@ -287,6 +297,29 @@ enum
 	/* whether OpenCE players chat too (their own text chat, bridged), while
 	the chat is on */
 	SERVER_SETTING_CHAT_LEGACY,
+	/* GameSpy-style status queries and master heartbeats (server/platform/
+	gamespy_listing.h), and the UDP port they use */
+	SERVER_SETTING_GAMESPY_LISTING,
+	SERVER_SETTING_GAMESPY_PORT,
+	/* Halo Custom Edition 1.0.10's join wire answered on that port
+	(server/platform/ce_transport.h) */
+	SERVER_SETTING_CE_JOINS,
+	/* the host's rules for its players' extras (port/linux/game/host_rules.h):
+	whether players may show names above heads, and watch a follow camera
+	while they wait to respawn */
+	SERVER_SETTING_ALLOW_PLAYER_NAMES,
+	SERVER_SETTING_ALLOW_FOLLOW_CAMERA,
+	/* the most machines of one internet address a game takes (port/linux/
+	game/network_distributed.c's limit) */
+	SERVER_SETTING_MAX_MACHINES_PER_ADDRESS,
+	/* a player kicked after this many betrayals in a game (warned one short
+	of it), and after this many minutes without input in a game in
+	progress (server_conduct.h); 0 off */
+	SERVER_SETTING_BETRAYAL_KICK,
+	SERVER_SETTING_AFK_KICK_MINUTES,
+	/* the line each Custom Edition player gets in their chat as they join
+	(server/src/server_ce.c; empty: none) */
+	SERVER_SETTING_CE_WELCOME,
 	SERVER_SETTINGS,
 	/* a game's players, at most (halo_port_limits.h's) */
 	SERVER_SETTINGS_MAXIMUM_PLAYERS = 128,
@@ -294,8 +327,15 @@ enum
 	SERVER_SETTINGS_MAXIMUM_POSTGAME_SECONDS = 300,
 	SERVER_SETTINGS_MAXIMUM_CHAT_COOLDOWN = 600,
 	SERVER_SETTINGS_MAXIMUM_TEAM_CHANGE_MARGIN = 16,
+	SERVER_SETTINGS_MAXIMUM_MACHINES_PER_ADDRESS = 16,
+	SERVER_SETTINGS_DEFAULT_MACHINES_PER_ADDRESS = 8,
+	/* (conduct_rules.h's CONDUCT_MAXIMUM_BETRAYALS, CONDUCT_MAXIMUM_AFK_MINUTES) */
+	SERVER_SETTINGS_MAXIMUM_BETRAYAL_KICK = 100,
+	SERVER_SETTINGS_MAXIMUM_AFK_KICK_MINUTES = 120,
 	/* a welcome's characters, at most (a reason's: command_line.h) */
 	SERVER_SETTINGS_WELCOME_SIZE = 128,
+	/* a Custom Edition welcome's characters, at most (its chat line's) */
+	SERVER_SETTINGS_CE_WELCOME_SIZE = 256,
 };
 
 struct server_setting
@@ -319,6 +359,7 @@ struct server_settings
 	char playlist[SERVER_SETTINGS_PATH_SIZE];
 	char playlist_environment[SERVER_SETTINGS_PATH_SIZE];
 	char welcome[SERVER_SETTINGS_WELCOME_SIZE];
+	char ce_welcome[SERVER_SETTINGS_CE_WELCOME_SIZE];
 };
 
 /* whether text is a path a setting may name: a file in the data folder,

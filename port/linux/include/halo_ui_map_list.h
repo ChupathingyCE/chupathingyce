@@ -23,12 +23,19 @@ enum
 	_ui_map_list_string_description,
 	/* its name on one line, for the lobby */
 	_ui_map_list_string_lobby_name,
+	/* its game's type in the lobby (a campaign level's: co-op) */
+	_ui_map_list_string_game_type,
 	NUMBER_OF_UI_MAP_LIST_STRINGS
 };
 
 /* the list anew: the game's thirteen Xbox map names, then those found */
 void ui_map_list_refresh(char *const *xbox_maps);
+/* the rows that are multiplayer maps */
 long ui_map_list_count(void);
+/* those and then the campaign's levels, for hosting network co-op from the
+Xbox's map list (builds with HALO_GAME_BROWSER; the maps alone on others) */
+long ui_map_list_count_with_campaign(void);
+boolean ui_map_list_row_is_campaign(long row);
 /* the rows' map names, for the list widget's items */
 char **ui_map_list_names(void);
 /* the row of a map's name, or NONE */
@@ -55,5 +62,12 @@ HALO_CUSTOM_EDITION) */
 void ui_map_list_family_name(short family, char const *file, wchar_t *name, long size);
 struct bitmap_data *ui_map_list_family_picture(short family, char const *file);
 boolean ui_map_list_family_present(short family, char const *file);
+
+/* the same by a game's map's name (<file>, <file>@ce, <file>@<pack>: a map
+pack's needs its pack's name), and its tag and what the tag stands for (a
+pack's map's its pack's: CE+, Halo CE+); builds with HALO_MAP_LIST */
+void ui_map_list_map_name(char const *map, wchar_t *name, long size);
+boolean ui_map_list_map_present(char const *map);
+void ui_map_list_map_tag(char const *map, char *tag, long tag_size, char *title, long title_size);
 
 #endif

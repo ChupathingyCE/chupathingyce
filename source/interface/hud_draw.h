@@ -63,6 +63,11 @@ real hud_globals_get_scale(
 #ifdef HALO_CUSTOM_EDITION
 real hud_bitmap_group_scale(
 	long bitmap_group_index);
+void hud_set_screen_effect_mask(
+	struct bitmap_data const *mask,
+	long bitmap_group_index);
+real hud_screen_effect_mask_scale(
+	struct bitmap_data const *mask);
 #endif
 void hud_retrieve_bitmap_and_bounding_rect(
 	long bitmap_group_index,

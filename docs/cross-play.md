@@ -1,5 +1,10 @@
 # Cross-play: the console and the PC builds on one network
 
+This is the design record from October 2026, kept for its reasoning. The
+console builds have played online with the PC builds since then, and the
+original Xbox's builds now hold 32 players. What a console does today is in
+its own repository's README ([docs/building.md](building.md#console-ports)).
+
 Warthog is to play system link with the PC builds (network version 11 when
 this was written; 28 since the October 13 merge, with the same layout) on
 one LAN, then internet games. The PCs' protocol is fixed: the console
@@ -198,21 +203,32 @@ and leaving cleanly what doesn't fold:
   from `port/xbox/src`, built into every build, called only with the
   console's limits). The client takes the PCs' 13,120-byte record in its
   four pieces and folds it into its own
-  (`network_client_message_handler.c`). A record with a machine or player
-  in a slot past 16, or an entry naming one, is not taken: the console
+  (`network_client_message_handler.c`). A record with a player in a slot
+  past 16, an entry naming one, or more machines than the console has
+  indices for, is not taken: the console
   leaves the game as a full one (`_rejection_code_game_is_full`, "the game
   is full" on the main menu) and says why in `debug.txt` ("cross-play:
-  leaving the host's game: ..."). A host's maximum above 16 is held to 16.
+  leaving the host's game: ...", with the entry it could not take). A
+  host's maximum above 16 is held to 16. A player who names a machine the
+  record has no entry for (a modified host's bots name machines from #113
+  up), and a machine in a slot past 16 (a dedicated server's bots sit on
+  machines of their own from slot 127 down), are given a free machine index
+  of the console's instead, the highest first, and keep it for the rest of
+  the game, joining in progress too. The console's own machine is never one
+  of them: its index comes with the join (below).
 - **Joins and players in progress.** A machine index past 16 from the host
   (`message_server_machine_accepted`), or a player added in progress in a
   slot or from a machine past 16 (`message_server_add_player_ingame`),
   leaves the game the same way; before, the first waited in "joining" for
   nothing and the second made an invisible player.
-- **Game type states.** Slayer's (the [D] servers' only game type: 1,408
-  bytes from a PC, 176 on the console) is folded field by field
-  (`network_game_layout_fold_fields`); CTF's is the same size on both.
-  Oddball's, King's and Race's are not folded yet: their scores stay the
-  console's own, told once in `debug.txt`.
+- **Game type states.** Slayer's (1,408 bytes from a PC, 176 on a
+  16-player console), Oddball's (1,108 and 212), King's (1,436 and 428) and Race's
+  (2,704 and 352) are folded field by field
+  (`network_game_layout_fold_fields`, through
+  `game_engine_network_state_fold` in `game_engine.c`): the per-player
+  arrays by slot, the team and game fields as they are. CTF's and Bomb's
+  are the same size on both. A state of any other size is not read (told
+  once in `debug.txt`) and its scores stay the console's own.
 - **Objects: measured, not translated.** The client logs how high the
   host's object indices go (each time they pass another 256), and each
   game's highest index, the creates that landed in the console's own half
@@ -275,7 +291,8 @@ the tunnel's thread. To be measured on the console.
 - `port/linux/game/network_game_layout.c`: the settings record between
   any two slot counts, byte for byte. A fold refuses any used machine or
   player slot, or index a used entry names, past the narrower layout (no
-  guess), and holds the gametype's maximum to its slots. A widen fills the
+  guess; a player of a machine with no entry gets a free index), and holds
+  the gametype's maximum to its slots. A widen fills the
   new slots as the game empties one. Tested on the host
   (`port/xbox/tests/network_game_layout_test.c`: the sizes the game
   asserts, an exact round trip, every refusal).

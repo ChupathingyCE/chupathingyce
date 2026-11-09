@@ -98,6 +98,10 @@ boolean ui_widgets_active(
 	void);
 boolean ui_widgets_active_for_local_player(
 	short local_player_index);
+/* port: a menu, the virtual keyboard or a screen of code over them takes
+the input (the chat waits) */
+boolean ui_widgets_take_input(
+	void);
 void ui_widgets_inhibit_processing(
 	boolean inhibit);
 void draw_bitmap_in_rect(

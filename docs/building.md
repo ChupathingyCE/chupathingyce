@@ -1,8 +1,52 @@
 # Building
 
-The desktop, Android and server builds are in the README, "Building it
-yourself": `python3 configure.py`, then `ninja` and a target. This page
-covers what the README doesn't.
+## Desktop, Android and the server
+
+You need Python 3, [ninja](https://ninja-build.org/) and clang. The game
+supplies the Xbox SDK declarations it uses, so you don't need the SDK.
+
+```sh
+python3 configure.py
+ninja            # the game for the computer you're on
+```
+
+| Target | Result | Instructions |
+| --- | --- | --- |
+| `ninja macos` | `build/macos/ChupathingyCE.app` | [port/macos/README.md](../port/macos/README.md) |
+| `ninja linux64` | `build/linux64/chupathingy` (64-bit) | [port/linux/README.md](../port/linux/README.md) |
+| `ninja linux` | `build/linux/chupathingy` (32-bit) | [port/linux/README.md](../port/linux/README.md) |
+| `ninja windows` | `build/windows/chupathingy.exe` | [port/windows/README.md](../port/windows/README.md) |
+| `ninja windows64` | `build/windows64/chupathingy.exe`, the 64-bit game | [port/windows/README.md](../port/windows/README.md#64-bit) |
+| `ninja freebsd64` | `build/freebsd64/chupathingy`, on FreeBSD | [port/unix/README.md](../port/unix/README.md) |
+| `ninja android_apk` | the Android app | [port/android/README.md](../port/android/README.md) |
+| `ninja android64_apk` | the native 64-bit Android app (experimental) | [port/android/README.md](../port/android/README.md#the-native-64-bit-build-experimental) |
+| `ninja server` | `build/server-<arch>/chupathingyce-server`, the dedicated server (Linux) | [server/docs/building.md](../server/docs/building.md) |
+| `ninja server-windows64` | `build/server-windows64/chupathingyce-server.exe`, the dedicated server for 64-bit Windows, on Windows | [server/docs/building.md](../server/docs/building.md) |
+
+Useful `configure.py` options:
+
+| Option | What it does |
+| --- | --- |
+| `--release` | A release build, as players get. Without it, a failed check stops the game. |
+| `--portable` | A Linux or Windows build that runs on any x86-64 computer, or a universal Mac application, to give to others. The Linux builds also run on older distributions and on SteamOS: refer to "Portable build" in [port/linux/README.md](../port/linux/README.md#portable-build). |
+| `--no-game-browser` | Leaves out the server list, stats and dedicated servers. |
+| `--packaged` | A build for a package manager: it never updates itself, and on Linux keeps its data and settings in `~/.local/share/chupathingyce` ([docs/install.md](install.md#package-managers)). |
+| `--pgo=off`, `--lto=off` | Faster builds, without profile-guided or link-time optimisation. |
+
+The console ports (original Xbox, Xbox 360, Switch, Wii U, PS3) are built from their own
+repositories, with this one as a submodule: [Console ports](#console-ports), below.
+
+The iPhone, iPad and Apple TV builds come from `port/ios` (`ninja ios` and
+`ninja tvos`, with `configure.py --console-port port/ios`), on a Mac with
+Xcode: see [port/ios/README.md](../port/ios/README.md). They aren't in the
+nightlies or releases yet.
+
+The version being made is in `VERSION`. Releases are built and published by
+the project's release workflow; the builds on this repository's Actions page
+are for checking changes. A pull request builds every platform in its release
+configuration, and one that changes only documentation doesn't build. Pushes
+to `main` don't build: the nightly checks it. Debug builds are made only for
+releases, nightlies, test builds and tags.
 
 ## Console ports
 
@@ -11,12 +55,13 @@ Each console port lives in a repository of its own, with this repository
 port; the game holds the shared code, its console hooks, `port/console` and
 the build's generic side (`tools/console_build.py`).
 
-| Repository | Consoles |
-| --- | --- |
-| [ChupathingyCE/warthog-xbox](https://github.com/ChupathingyCE/warthog-xbox) | original Xbox |
-| [ChupathingyCE/warthog-360](https://github.com/ChupathingyCE/warthog-360) | Xbox 360 |
-| [ChupathingyCE/warthog-switch](https://github.com/ChupathingyCE/warthog-switch) | Switch |
-| [ChupathingyCE/warthog-wiiu](https://github.com/ChupathingyCE/warthog-wiiu) | Wii U |
+| Repository | Console | Status | Maintained by |
+| --- | --- | --- | --- |
+| [ChupathingyCE/warthog-xbox](https://github.com/ChupathingyCE/warthog-xbox) | original Xbox | Test builds: plays online, up to 32 players, with Halo CE+ maps, and Custom Edition maps from its Map Browser | Milenko |
+| [ChupathingyCE/warthog-360](https://github.com/ChupathingyCE/warthog-360) | Xbox 360 | Test builds on Discord: RGH/JTAG or a softmod (BadUpdate, BadAvatar); the newest runs in Xenia to the menu and Blood Gulch | Milenko |
+| [ChupathingyCE/warthog-switch](https://github.com/ChupathingyCE/warthog-switch) | Switch | Working: boots and plays on Switch hardware; [releases](https://github.com/ChupathingyCE/warthog-switch/releases) | [thelinkin3000](https://github.com/thelinkin3000) |
+| [ChupathingyCE/warthog-wiiu](https://github.com/ChupathingyCE/warthog-wiiu) | Wii U | Plays on hardware and joins servers online; [public test builds](https://github.com/ChupathingyCE/warthog-wiiu/releases) | Milenko |
+| [ChupathingyCE/warthog-ps3](https://github.com/ChupathingyCE/warthog-ps3) | PS3 | Work in progress, built with PSL1GHT; the game is Matt's `ps3` branch for now | [Mayo1970](https://github.com/Mayo1970) |
 
 A console repository looks like this:
 
@@ -95,14 +140,35 @@ and what each hook asks of the port, or on its compile lines:
 | `HALO_CONSOLE_DELTA` | Delta Peer as a client |
 | `HALO_CONSOLE_NO_*` | the desktop extras a console leaves out (`halo_port_features.h`, a port's prefix header) |
 | `HALO_CONSOLE_ONLINE_GAMES` | the console's own Online Games screen |
+| `HALO_CONSOLE_MENU_PLATFORM` | the console's name for the menus (`x360`, `wiiu`): the Chupathingy menus' rows marked `console` or with that name in place of the desktop's, packed with no gaps, and ui.map's button pictures in the prompts (`port/assets/menus/README.md`, `tools/port_settings.py`) |
+| `HALO_CONSOLE_PROFILE_ID` | on the port's compile line: Delta Peer's PROFILE carries `console_profile_id()`, the port's (a console linked with Link Profile, `port/console/link`) |
+| `HALO_CONSOLE_HTTPS` | HTTPS over the console's own sockets, with pinned keys and roots (`port/console/https`, [console-https.md](console-https.md)) |
 | `HALO_CONSOLE_LOG_BUFFER`, `HALO_CONSOLE_LOG_THROTTLE` | a log whose writes are slow |
 | `HALO_CONSOLE_GPU_RESOURCE_HOOKS`, `HALO_CONSOLE_NO_WRITE_WATCH`, `HALO_CONSOLE_HOST_ART`, `HALO_CONSOLE_MAP_LOAD_HOOKS`, `HALO_CONSOLE_STATUS_LINE` | a console renderer of its own |
 | `HALO_CONSOLE_GL_LAYER` | a console whose OpenGL is the port's own layer over another graphics API |
+| `HALO_CONSOLE_GLES2` | a console with OpenGL ES 2 only (the Steam Link): the renderer's ES path, filled out by the port's `console_gles2_layer` |
+| `HALO_CONSOLE_SETUP_SCREENS`, `HALO_CONSOLE_CACHE_SCREEN`, `HALO_CONSOLE_PERFORMANCE_MODE` | a console on a television with no dialogs: the port's own start-up screens, a progress screen while the cache files are made, and a lighter picture for a slow console |
+| `HALO_CONSOLE_GAME_REPORTS` | the reports of the games the console joins, sent to the site (`port/console/reports`) |
+| `HALO_CONSOLE_CE_SHARED_TAG_CACHE`, `HALO_CONSOLE_CE_BITMAPS` | Custom Edition maps on a console: the console's own tag cache lent to the map, and its bitmaps made the console's as they are read (`halo_port_features.h`) |
 | `HALO_CONSOLE_XBOX_RENDER_SIZES` | the Xbox's texture cache and frame draw limits on a build that otherwise has the desktop's |
 | `HALO_CONSOLE_DEBUG_CHANNEL`, `HALO_CONSOLE_HALT_TO_LAUNCHER` | a console without a standard error, whose halts go back to its launcher |
 | `HALO_CONSOLE_BRINGUP_LOG` | with the developer tools, a console's bring-up logs (frame stages, the main loop's pulse, init.txt's `later` commands) |
 | `HALO_BIG_ENDIAN` | a big-endian console: the maps' headers and tags byte-swapped as they load (`port/console/game`, `tools/tag_swap_generate.py`) |
 | `HALO_WINDOW_TRANSLATED` | with `HALO_64BIT`, a 32-bit console's Xbox addresses in a window placed wherever it has room (`source/cseries/xbox_address.h`) |
+
+### Link Profile on a console
+
+`port/console/link` is a console's Link Profile (docs/delta.md, "Delta
+Link"): `console_link.c` (the device key, the code, the requests, plain C)
+and `console_link_panel.c` (the DELTA PROFILE panel over Online Games, game
+code). A port builds both, with `port/third_party/qrcodegen` and the
+internet play's `p2p_crypto.c`, fills a `struct console_link_port` (a
+plain HTTP request to the console list's host, and later an HTTPS one; a
+thread; a lock; random bytes; the clock; the log; where the key and the
+link are kept), calls `console_link_initialize` at the start, opens the
+panel with Start on its Online Games, and defines `console_profile_id`
+with `-DHALO_CONSOLE_PROFILE_ID`. `tools/test_console_link.py` runs it on
+the host.
 
 A console's name stays in the shared code only for what is that console's
 alone: `HALO_XBOX_CONSOLE` is the original Xbox's own target (the game as

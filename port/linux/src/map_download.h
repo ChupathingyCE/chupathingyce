@@ -68,6 +68,9 @@ int map_download_start(const char *name, unsigned int version);
 /* the running download stopped (its partial files deleted) */
 void map_download_cancel(void);
 void map_download_get(struct map_download_progress *progress);
+/* the same, from any thread, the map not marked as downloaded (the
+playlist downloader's: playlist_download.c, whose caller marks it) */
+void map_download_peek(struct map_download_progress *progress);
 /* a finished download's result forgotten (back to MAP_DOWNLOAD_IDLE) */
 void map_download_reset(void);
 

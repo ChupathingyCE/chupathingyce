@@ -69,8 +69,13 @@ that the whole object turning moves nothing: measured in the world, a fast
 turn swung the head and weapon far enough to snap, and characters moved
 like robots.) */
 #define NODE_SNAP_DISTANCE 0.4f
-/* ... a first-person node may move relative to the camera */
-#define FIRST_PERSON_SNAP_DISTANCE 0.25f
+/* ... a first-person node may move relative to the camera: no animation
+moves one this far in a tick (a melee swing moves one a good part of it);
+only a pose that is not a number, or not of this weapon, is further */
+#define FIRST_PERSON_SNAP_DISTANCE 4.0f
+/* ... and its rotation may turn in one tick (the cosine of half the angle,
+a turn of more than a third of a revolution being no swing but another pose) */
+#define FIRST_PERSON_SNAP_COSINE 0.5f
 /* a correction's difference left drawn after each tick (of 1) */
 #define CORRECTION_DECAY 0.6f
 /* ... and small enough to be none */
@@ -147,6 +152,9 @@ struct interpolated_first_person
 	long tick;
 	short node_count;
 	boolean has_previous;
+	/* the weapon and animation graph the latest pose belongs to */
+	long weapon_index;
+	long graph_index;
 	real_matrix4x3 previous[MAXIMUM_INTERPOLATED_NODES];
 	real_matrix4x3 latest[MAXIMUM_INTERPOLATED_NODES];
 };
@@ -667,6 +675,25 @@ real *render_interpolation_object_function_values(long object_index)
 #endif
 }
 
+/* a point carried by the object's root node (its bounding sphere's center,
+where a nav point sits over it), moved from where the last tick left the
+object to where it is drawn this frame. Left as it is when the object is
+drawn as the tick left it (interpolation off, a snap, no earlier pose). */
+void render_interpolation_object_point(long object_index, real_point3d *point)
+{
+	real_matrix4x3 const *drawn = render_interpolation_object_node_matrices(object_index);
+	real_matrix4x3 const *nodes;
+	real_point3d local;
+
+	if (!drawn)
+		return;
+	/* (as of the last tick: object_get_node_matrices gives the drawn pose
+	while a frame is drawn) */
+	nodes = (real_matrix4x3 const *)object_header_block_get(object_index, &object_get(object_index)->object.node_matrices);
+	matrix4x3_inverse_transform_point(&nodes[0], point, &local);
+	matrix4x3_transform_point(&drawn[0], &local, point);
+}
+
 /* ---------- corrections */
 
 /* the object (and what it carries) moved by the netcode from where it was,
@@ -747,16 +774,11 @@ turns every frame (player_control.c), but the observer keeps it as of the
 last tick and the blend above draws it a tick later still. On foot, the view
 points where the player aims now (display.direct_camera). In a vehicle's
 seat or a cinematic the view is the seat's or the script's: left as it is.
-Desktop only: display.direct_camera is not an Android setting, and its
-default would otherwise apply there. */
+Android's touch look and controllers turn it the same way. */
 static struct observer_result const *render_interpolation_direct_camera(
 	short local_player_index,
 	struct observer_result const *observer)
 {
-#ifdef HALO_ANDROID
-	(void)local_player_index;
-	return observer;
-#else
 	static int enabled;
 	static unsigned long read_at = (unsigned long)-1;
 	struct observer_result *direct;
@@ -783,7 +805,6 @@ static struct observer_result const *render_interpolation_direct_camera(
 	player_control_get_facing_direction(local_player_index, &direct->forward);
 	observer_up_from_forward(&direct->forward, &direct->up);
 	return direct;
-#endif
 }
 
 struct observer_result const *render_interpolation_camera(
@@ -940,7 +961,9 @@ void render_interpolation_first_person(
 	short local_player_index,
 	real_matrix4x3 *node_matrices,
 	short node_count,
-	struct render_camera const *camera)
+	struct render_camera const *camera,
+	long weapon_index,
+	long graph_index)
 {
 	struct interpolated_first_person *first_person;
 	real_matrix4x3 camera_matrix;
@@ -965,17 +988,25 @@ void render_interpolation_first_person(
 		person (zoomed, in a vehicle, dead, in a cinematic), seconds old */
 		first_person->has_previous = first_person->tick == interpolation_tick - 1 &&
 			first_person->node_count == node_count;
+		/* (another weapon or graph: the last pose was not this one's) */
+		if (first_person->weapon_index != weapon_index || first_person->graph_index != graph_index)
+			first_person->has_previous = FALSE;
 		memcpy(first_person->previous, first_person->latest, sizeof(first_person->previous));
 		first_person->tick = interpolation_tick;
 	}
 	for (node_index = 0; node_index < node_count; node_index++)
 		matrix4x3_multiply(&inverse_camera, &node_matrices[node_index], &first_person->latest[node_index]);
 	first_person->node_count = node_count;
+	if (first_person->weapon_index != weapon_index || first_person->graph_index != graph_index)
+		first_person->has_previous = FALSE;
+	first_person->weapon_index = weapon_index;
+	first_person->graph_index = graph_index;
 	if (!first_person->has_previous)
 		return;
-	/* a node that jumped further in the camera's frame than a tick allows:
-	the last pose was another weapon's skeleton (of as many nodes), not this
-	one moving (so written that a position not a number snaps) */
+	/* a node that jumped, or turned over a third of a revolution, in the
+	camera's frame in a tick: not this pose moving (so written that a
+	position not a number snaps). A fast move short of that, a melee swing,
+	is blended: another weapon's skeleton is caught above. */
 	for (node_index = 0; node_index < node_count; node_index++)
 	{
 		real_matrix4x3 const *previous = &first_person->previous[node_index];
@@ -988,6 +1019,16 @@ void render_interpolation_first_person(
 		}
 		rotation_from_matrix(previous, &previous_rotations[node_index]);
 		rotation_from_matrix(latest, &latest_rotations[node_index]);
+		if (previous_rotations[node_index].is_rotation && latest_rotations[node_index].is_rotation)
+		{
+			struct interpolation_quaternion const *a = &previous_rotations[node_index].quaternion;
+			struct interpolation_quaternion const *b = &latest_rotations[node_index].quaternion;
+			real dot = a->i * b->i + a->j * b->j + a->k * b->k + a->w * b->w;
+
+			/* (a quaternion and its negative are the one rotation) */
+			if (!(dot >= FIRST_PERSON_SNAP_COSINE || dot <= -FIRST_PERSON_SNAP_COSINE))
+				return;
+		}
 	}
 	for (node_index = 0; node_index < node_count; node_index++)
 	{

@@ -67,7 +67,7 @@ int main(void)
 
 	/* the Xbox's 640x480 in a window of its size */
 	{
-		struct ui_point_view view = { 640, 480, 640, 480, 640, 480, 640, 480, 640 };
+		struct ui_point_view view = { 640, 480, 640, 480, 640, 480, 640, 480, 640, 0, 0, 0, 0 };
 
 		CHECK(ui_point_from_window(&view, 0.0f, 0.0f, &x, &y) && x == 0 && y == 0);
 		CHECK(ui_point_from_window(&view, 639.9f, 479.9f, &x, &y) && x == 639 && y == 479);
@@ -76,7 +76,7 @@ int main(void)
 	/* a HiDPI window: 1280x960 points, twice the pixels, the picture
 	supersampled */
 	{
-		struct ui_point_view view = { 1280, 960, 2560, 1920, 640, 480, 1280, 960, 640 };
+		struct ui_point_view view = { 1280, 960, 2560, 1920, 640, 480, 1280, 960, 640, 0, 0, 0, 0 };
 
 		CHECK(ui_point_from_window(&view, 640.0f, 480.0f, &x, &y) && x == 320 && y == 240);
 		CHECK(ui_point_from_window(&view, 1279.0f, 959.0f, &x, &y) && x == 639 && y == 479);
@@ -86,7 +86,7 @@ int main(void)
 	the menus' 640 columns are its middle, x 0 at its 106th (the picture
 	letterboxed by a few pixels: 852x480 is not quite 16:9) */
 	{
-		struct ui_point_view view = { 1920, 1080, 3840, 2160, 852, 480, 1704, 960, 852 };
+		struct ui_point_view view = { 1920, 1080, 3840, 2160, 852, 480, 1704, 960, 852, 0, 0, 0, 0 };
 
 		CHECK(ui_point_from_window(&view, 960.0f, 540.0f, &x, &y) && x == 320 && y == 240);
 		CHECK(ui_point_from_window(&view, 2.0f, 540.0f, &x, &y) && x == -106);
@@ -94,7 +94,7 @@ int main(void)
 	}
 	/* the Xbox's 4:3 in a 16:9 window: bars at the sides, outside the menus */
 	{
-		struct ui_point_view view = { 1920, 1080, 1920, 1080, 640, 480, 640, 480, 640 };
+		struct ui_point_view view = { 1920, 1080, 1920, 1080, 640, 480, 640, 480, 640, 0, 0, 0, 0 };
 
 		CHECK(ui_point_from_window(&view, 240.0f, 0.0f, &x, &y) && x == 0 && y == 0);
 		CHECK(ui_point_from_window(&view, 100.0f, 540.0f, &x, &y) && x < 0);
@@ -103,17 +103,61 @@ int main(void)
 	}
 	/* a tall window (a phone held upright): bars above and below */
 	{
-		struct ui_point_view view = { 1080, 2340, 1080, 2340, 640, 480, 640, 480, 640 };
+		struct ui_point_view view = { 1080, 2340, 1080, 2340, 640, 480, 640, 480, 640, 0, 0, 0, 0 };
 
 		CHECK(ui_point_from_window(&view, 540.0f, 1170.0f, &x, &y) && x == 320 && y == 240);
 		check_round_trip(&view);
 	}
+	/* iPhone Duo part open like a laptop: 1000x800 points at 2x, the picture
+	(1230x480, the shape of the half above the fold) in the top 780 pixels,
+	the touch controls below; a finger below the fold is no menu point */
+	{
+		struct ui_point_view view = { 1000, 800, 2000, 1600, 1230, 480, 1230, 480, 1230, 0, 0, 2000, 780 };
+
+		CHECK(ui_point_from_window(&view, 500.0f, 195.0f, &x, &y) && x == 320 && y == 240);
+		CHECK(ui_point_from_window(&view, 500.0f, 600.0f, &x, &y) && y >= 480);
+		CHECK(ui_point_to_window(&view, 320, 240, &window_x, &window_y) && window_y > 194.0f && window_y < 196.0f);
+		check_round_trip(&view);
+	}
 	/* no window yet */
 	{
-		struct ui_point_view view = { 0, 0, 0, 0, 640, 480, 640, 480, 640 };
+		struct ui_point_view view = { 0, 0, 0, 0, 640, 480, 640, 480, 640, 0, 0, 0, 0 };
 
 		CHECK(!ui_point_from_window(&view, 10.0f, 10.0f, &x, &y) && x == -1 && y == -1);
 		CHECK(!ui_point_to_window(&view, 10, 10, &window_x, &window_y));
+	}
+	/* the host's carnage report prompt: B =quit from 380, A =pick game
+	from 470 to 600, on the line at 410 */
+	{
+		struct ui_point_prompt prompt = { 410, 428, 380, 600, 470 };
+
+		CHECK(ui_point_prompt_part(&prompt, 0, 400, 418) == 0);
+		CHECK(ui_point_prompt_part(&prompt, 0, 469, 418) == 0);
+		CHECK(ui_point_prompt_part(&prompt, 0, 470, 418) == 1);
+		CHECK(ui_point_prompt_part(&prompt, 0, 599, 418) == 1);
+		CHECK(ui_point_prompt_part(&prompt, 0, 600, 418) == -1);
+		CHECK(ui_point_prompt_part(&prompt, 0, 500, 400) == -1);
+		CHECK(ui_point_prompt_part(&prompt, 0, 300, 418) == -1);
+		/* a finger's margin: just above, below and beside the text */
+		CHECK(ui_point_prompt_part(&prompt, 24, 500, 395) == 1);
+		CHECK(ui_point_prompt_part(&prompt, 24, 500, 450) == 1);
+		CHECK(ui_point_prompt_part(&prompt, 24, 360, 418) == 0);
+		CHECK(ui_point_prompt_part(&prompt, 24, 620, 418) == 1);
+		CHECK(ui_point_prompt_part(&prompt, 24, 500, 300) == -1);
+	}
+	/* a client's prompt has one part: B =quit only */
+	{
+		struct ui_point_prompt prompt = { 410, 428, 520, 600, 600 };
+
+		CHECK(ui_point_prompt_part(&prompt, 24, 560, 418) == 0);
+		CHECK(ui_point_prompt_part(&prompt, 24, 610, 418) == 0);
+		CHECK(ui_point_prompt_part(&prompt, 24, 400, 418) == -1);
+	}
+	/* a prompt not drawn yet */
+	{
+		struct ui_point_prompt prompt = { 0, 0, 0, 0, 0 };
+
+		CHECK(ui_point_prompt_part(&prompt, 24, 0, 0) == -1);
 	}
 	if (failures)
 		printf("%d failures\n", failures);

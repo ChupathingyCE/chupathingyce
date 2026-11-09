@@ -131,9 +131,9 @@ with ideas from VALORANT's netcode articles, keeping the 30 Hz tick:
   down, and they meet where it stops.
 - **Shooter's hits.** A client reports what its own players hit; the host
   checks the report (the player's, a weapon they carry, fired from within
-  its reach, the target where the host had it when the shooter saw it, no
-  faster than weapons fire) and deals the damage. What the shooter saw
-  hit, hits.
+  its reach, the target where the host had it when the shooter saw it, a
+  clear line to it, no faster than weapons fire) and deals the damage.
+  What the shooter saw hit, hits.
 
 A host's game advertisement says that it plays this netcode. A client does
 not join a host that does not (one of network version 4 built before the
@@ -227,16 +227,100 @@ decides friendly fire by its own setting. Messages 87 to 89 are OpenCE's
 text chat, which Delta chat bridges (`docs/delta.md`, Chat): a build without
 them drops them as unknown, so they take no version of their own.
 
+Versions 33 to 41 are OpenCE's, which this build's clients play by the
+version the host advertised (`network_rules_of_version`; a host not known
+plays by the older rules). Its hosts announce the built-in 32, or the newest
+number the signed legacy table proves for hosting (docs/delta.md,
+"Auto-announce"). Version 33 adds a
+second bit to the settings' co-op byte (bit 1: the players' hits do their AI
+allies no harm), which only a host acts on. Version 34 changes no message:
+scenery and devices that are a shield alone (Rat Race's energy shields, a
+Custom Edition map's tripmines) are static targets too, which a client
+reports its hits on and applies the host's events to; a client runs the
+shields of static targets itself (no host sends them); a client reports no
+damage whose owner object is a static target (a tripmine going off, which
+the host deals); and a host's event naming an index that is no object on the
+client, the host's copy of one made during play, is applied to the client's
+nearest static target to the damage's origin, within its bounding sphere and
+2.0 world units (and an area effect's cutoff radius). Version 35 grows the
+gametype's PC options from 0x1C to 0x2C bytes (OpenCE's SWAT, Infection,
+Gun Game and Hardcore), so the settings record is 13,136 bytes at the
+network's slots, not 13,120: a client takes the size by the host's version
+(either, from a host not known), makes a newer record the older layout
+before anything reads it, and sanitizes the 16 further bytes
+(`network_rules.c`). A game that plays one of those game types is left, and
+the player told which, as this build doesn't play them yet. Version 36 adds
+message 91, the host's shield effects (12 bytes: the header, a 16-bit 0 to 5,
+16 bits of 0), reliably from the host; a client takes it and draws stock,
+the only shield look this build has. Version 37 puts a game's kind (an OpenCE
+game type in the low seven bits, Hardcore in bit 7) in a byte that was zero:
+the advertisement's fourth reserved byte and the first byte of the internet
+listing's stamp. Our readers take any value there (the listing's signature
+covers the stamp as sent) and the game list names the game types this build
+doesn't play, marking them like a game of a newer build; our own hosts send
+a stock game's kind, 0. Version 38 lets message 91 carry 6, each machine's
+own look, which this build draws as stock too. Version 39 marks a dedicated
+server's game: the advertisement's flag 0x04 and the internet listing's flag
+32. Version 40 makes the client's join request 234 bytes longer after the
+hardware id; this build sends those bytes as zeros to a host of 40 or later
+(`network_rules_join_request_extra`), and the plain request of 0x70 bytes to
+an older one. Version 41 adds a refusal 13 (too many machines from one
+address), lays out the vote messages 78 and 79 anew, and adds 94 and 95 (map
+votes); this build drops all four unread, and its hosts tell an OpenCE player
+who votes, the first time in a game, that the host has no votes. Refusals 8 to 13 are said
+plainly to the player.
+
+A host plays by the number it announces (`delta_legacy_announce()`: the
+built-in one, or a legacy table's), which is the number of every OpenCE
+machine in its game, as they join only their own. From 34 a host takes
+scenery and devices that are a shield alone as static targets (their hits
+reported, their damage sent to every machine), finds the nearest of its own
+static targets (within its bounding sphere and 1.0 more) for a client's hit
+report on an index that names none of its units, weapons, equipment or
+static targets (a tripmine each machine made at an index of its own), and
+deals a static target's own damage (a tripmine's going off) itself for the
+machines whose players no longer report it: OpenCE's of 34 on, and Delta
+machines that take 35's record from it; an older build's report is still
+taken, so it is never dealt twice. From 35 the game settings record is 16
+bytes longer (13,136: the gametype's options 0x2C bytes, OpenCE's own game
+types' bytes; this host plays none of them and sends their defaults), and a
+machine takes only the size of its version. An OpenCE machine takes the
+announced number's; a Delta machine the record of the older of its HELLO's
+number (the newest it plays, `DELTA_LEGACY_NEWEST`; builds before 36 said
+32 or older there) and the host's. A Delta host that announces 35 or later
+therefore holds a joining machine's record until its HELLO comes, or the
+handshake's 4 seconds are over (an OpenCE machine); the size is then that
+machine's while it is connected; the game does not start while a machine
+waits for its record, and a machine joining it in progress is started once
+its record has gone. Under 35 every machine gets the older record
+at once, as before. From 33 a host sets co-op's second bit from
+`network.coop_ally_friendly_fire` (on by default: the players' hits harm
+their AI allies, as OpenCE's default) and honors it: with the bit set, a
+player's hit on a unit that is no player's does it no harm in network co-op
+(`game_engine_friendly_damage`); the AI's own hits on its allies are the
+game's, as ever. From 36 a host sends message 91 (shield effects), as it
+sends message 90: to a client when it has loaded, and to every client once
+each game: stock (0), or from 38 each machine's own look (6), as this build
+draws no glow or overshield of its own. From 37 the advertisement's fourth
+reserved byte (the game's kind) is 0, and from 39 a dedicated server sets
+the advertisement's flag 0x04 and the internet listing's flag 32 (OpenCE's
+dedicated flags). A Delta host's own bytes are the Delta tag at the reserved
+bytes' tail (docs/delta.md, "The advertisement"). For released clients a
+dedicated server that hosts with Delta also sets 0x04 and, in a game that
+is not Slayer, writes the old layout's major and slot from byte 3, where
+OpenCE names no kind (docs/delta.md, "The transition").
+
 A host never checks a joining client's version: the client reads the
 host's from its advertisement and joins only a version it plays with. That
 is its own, or one of a range (HALO_PORT_NETWORK_VERSION_MINIMUM to
 HALO_PORT_NETWORK_VERSION_MAXIMUM, halo_port_limits.h) of versions that
-differ from it only in messages the other machine drops, not knowing them:
-version 10 (OpenCE's build-73) adds the host's message of the players'
-pings, which a machine of version 9 drops. This build has version 10, as
-OpenCE's current builds (so their clients join its hosts), without that
-message (its hosts do not send it, its clients drop it), and joins hosts of
-9 and 10. The game browser lists the range's games.
+differ from it only in messages the other machine drops, not knowing them,
+or whose rules it plays by the host's version (above). This build has
+version 32 built in and joins hosts of 11 to 42: back to version 11, the
+newest breaking one, and one past the newest it knows (41), which it
+presumes additive. A signed legacy table widens the range without a
+release (docs/delta.md, "The legacy number"). The game browser lists the
+range's games.
 
 `port/linux/network_format.txt` records the wire format of the current
 version (`tools/network_format.py`): `test_linux_port.py` fails when the
@@ -249,7 +333,7 @@ format with ours: extract that build's source (for example `git archive
 `python3 tools/network_format.py --compare /tmp/opence`. Their own message
 kinds (votes to kick, voice, map sharing) are expected there, as is our
 `server_pregame_keep_alive` field list (the same bytes on the wire); match
-anything else before taking the number. The tool is OpenCE's (Addison Bair,
+anything else before taking the number. The tool is OpenCE's (addisonbair,
 MrBruh), CC0.
 
 A client plays by its host's rules: in another's game (searching for it,
@@ -261,7 +345,17 @@ rider ejection are put back to the host's, and what it draws of the world
 to what everyone's draws (no wireframe, debug drawing mode, environment
 left out, fog, grass or water off), as set before joining too
 (`cheats_network_client_enforce`); its camera stays the player's own
-(no flying or following camera). The host keeps its own.
+(no flying or following camera). The host keeps its own in a LAN game, a
+private or password game, or a game with no one else in it. The host of a
+public internet game with other players in it plays by the same rules as
+its clients unless `network.host_cheats` is on: its console runs only
+commands that change nothing of the game (kick and ban stay), and its
+cheats, game speed and drawing are put back each tick
+(`network_game_host_cheats_refused`). With it on, the host's listing says
+so and Online Games shows "Host cheats on". In any network game, the
+objects a host makes from its console are capped per game
+(`network.host_console_objects`, 32 unless set, 8 while an original Xbox
+plays); a map's own scripts are not counted.
 
 The host also finds a client whose game runs faster than time (a speed
 hack, which speeds up the machine's own clock, so that nothing on it can
@@ -305,6 +399,22 @@ machine tells them: anyone with administrator or root access can change
 them, and players behind one address share it. The console's `kick <player
 name>` drops a player as `ban` does (every machine told), but adds no line
 and keeps no address out: the player may join again at once.
+
+A host keeps each client machine's lobby requests (machine and player
+settings, players added and removed) to a budget: a burst of 32, then 16 a
+second, enough for four players on one machine holding a menu key.
+Requests past it are dropped, and the first drop is logged by machine
+number alone. The budget fills again when a machine joins and when it
+comes back to the lobby. The host's own machine is never limited, and the
+wire is unchanged (`network_rules.c`).
+
+A host can also limit the machines that join from one internet address
+(`network.max_machines_per_address`, off by default; a dedicated server's
+`max_machines_per_address`, 8 by default). A machine past it is refused
+with refusal 13, "too many players from your address". Internet play's
+peers are counted by the address their tunnel is heard from; local network
+addresses are never limited, and neither are the host's own machine and a
+machine taking back its old slot.
 A speed hack of less than a tenth is let be: the host's bounds on how far
 and how fast a client's player moves and fires hold it to the host's time
 anyway.
@@ -392,7 +502,11 @@ a pregame keep-alive every five seconds from the host
      and delete theirs to match. A client that has loaded asks for all the
      host's objects and is told when it has them; from then on it deletes
      any such object the host has not told it of, and nothing but the
-     host's word deletes the host's.
+     host's word deletes the host's. That word deletes a CTF flag or an
+     oddball too, which the game itself never deletes (an assertion
+     stops a build that is not `--release` there, where a release host
+     goes on and tells its clients): the client takes it out of its
+     carrier's hands, and the goal its game type shows at it goes with it.
    - The objects placed when the map loads are placed alike everywhere:
      the host's word finds a client's already there. Past loading, a
      client's own objects (projectiles, effects: what only it sees) take
@@ -419,7 +533,10 @@ a pregame keep-alive every five seconds from the host
    60, every third within 120, every fourth further off), to every client
    three times over half a second as an object comes to rest (one lost
    would leave a falling body hanging until its turn round all of them),
-   and a few of those at rest, round them all. A client takes the host's
+   and a few of those at rest, round them all. An object at rest that a
+   script moves (objects_attach and objects_detach, object_teleport) stays
+   at rest, so the host sends it as a moving one while it moves: Coldsnap's
+   Pelicans carry their cargo that way. A client takes the host's
    word on whether each is at rest even when its copy is close enough to
    leave where it is. A body's pose goes with it: one lying limp that the
    host moves stops lying limp (the blast that moved the host's reaches
@@ -427,7 +544,13 @@ a pregame keep-alive every five seconds from the host
    rest is on the ground, so it lies limp again where it stops instead of
    keeping the pose of its fall in the air. A client puts its copies there, and the difference is
    drawn fading over a few ticks (`render_interpolation.c`) instead of a
-   jump. A client drives its own player's vehicle and sends where it is,
+   jump. A vehicle no player drives is carried between those updates along
+   the positions the host sent, a recording's lifepod as well as a Pelican.
+   Its physics velocity swings about that path, so the carry steps from
+   one of those positions to the next, and a jump further than a step of
+   the path is left where the host put it. The host's word that it is at
+   rest stops that step, and the step is kept only for the last gap
+   between positions, so a late word does not drive it on. A client drives its own player's vehicle and sends where it is,
    which the host takes within a tolerance, as it does its own player's
    unit, and no further from an anchor (one it took, a newer once a
    second) than the vehicle moves in the client's ticks since, those no
@@ -484,17 +607,48 @@ a pregame keep-alive every five seconds from the host
      the client's round trip and a second before the report came; not checked for what the tags do
      not bound: a projectile that sticks, which what it sticks to carries,
      one whose timer starts once it bounces or rests, a weapon's own
-     detonation; no line of sight); the target within a few world units of
+     detonation); the target within a few world units of
      where the host had it at the tick the report was made at (a player's
      unit or vehicle: the host keeps a second of where they were) or of
      where it is (more for a fast one; also for one that is no longer a
-     player's, a body or a vehicle left);
+     player's, a body or a vehicle left); a line of sight to the target
+     where the shooter saw it (`network.hit_line_of_sight`, on by default):
+     for a shot, from where the host had the shooter between the tick the
+     report was made at and now, and before that for as long as the
+     projectile flies (their view, their head, or the gun of the vehicle
+     seat they drive or gun, each tick of the history and every third of
+     the trail; a little to either side and above too), to the target's
+     center, the impact or the edges of its bounding sphere and a little
+     more; for an explosion, from its epicenter to the target's center or
+     sphere's edges, or from a point its core reaches (as the game spreads
+     an explosion with a core), whoever threw it and from wherever, so a
+     grenade around a corner hits what it sees. The test is the game's own
+     collision test against what every machine has the same: the map's
+     structure and scenery, front faces only; never units, vehicles or
+     machines (doors, lifts), which each machine has where it last heard,
+     nor glass that breaks. For a shot, surfaces that cannot be seen or are
+     two-sided (fences, grates), and any material the projectile goes
+     through (overpenetrate in its material responses), do not block it; a
+     projectile that homes in is also taken along a path through a point
+     beside the middle of the line, as far as it turns over that distance
+     (and half that), and one that falls through a point above it, as high
+     as its arc at its slowest speed rises. What does not come from the
+     shooter's gun has no line looked for: a grenade's hit (it is thrown,
+     and bounces), what an explosion fires, a detonation on what a
+     projectile stuck to. Melee blows and collisions are at hand and are
+     not looked at, nor hits on the map's scenery and devices (a light set
+     in a wall). A ricochet around a corner is refused. Each report takes
+     a thousand collision tests at most (a refused one a few hundred); one
+     the tests run out on is taken. The host's log counts these refusals
+     with the others ("N with no line of sight"); no message changes, and
+     a client of any build is checked the same way;
      and no more reports than the weapon that deals them fires (its rate of
      fire and projectiles a shot, with a margin; an explosion's hits count
      as one, when its damage has a reach, and no object is hit twice by
      one, the explosions of each player's reports told apart on their
      own). A report made more than three seconds ago (a burst of them held
-     back while the network was out) is refused. A report is paid for
+     back while the network was out) is refused, as is one stamped with a
+     tick from before the game began. A report is paid for
      before the host looks through its history, so a flood of them costs
      the sender its hits. The damage is dealt as a client's own hit can
      be: only the flags such a hit has, area damage as the game deals that
@@ -631,7 +785,12 @@ Unity's Netcode for Entities, lightyear, netfox and the Ares source):
   against where it is now with a wide margin: however long the report
   took to come (the reliable channel's resending holds it up), that is
   when the shooter saw the target (as far back as the host keeps). A
-  report made more than three seconds ago is refused.
+  report made more than three seconds ago, or stamped with a tick from
+  before the game began, is refused.
+- **Internet play's streams.** Over the internet a game's connections go
+  as KCP streams inside the tunnel (`p2p.c`, `port/third_party/kcp`). The
+  round trip an acknowledgement reports is the other machine's to set, so
+  it is capped at KCP's longest timeout (60 seconds) before it is used.
 
 ## Testing
 

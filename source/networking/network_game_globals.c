@@ -315,12 +315,35 @@ boolean network_game_distributed_client(
 
 int config_boolean(char const *name);
 
+#ifdef HALO_GAME_BROWSER
+/* p2p.c's: whether this copy hosts an open public internet game */
+int p2p_hosting_public_game(void);
+#endif
+
+boolean network_game_host_cheats_refused(
+	void)
+{
+#ifdef HALO_GAME_BROWSER
+	struct network_game_server *server = global_network_game_server;
+
+	/* (the cheap tests first: this runs each frame and each tick) */
+	if (!server || network_game_distributed_client() ||
+		network_game_server_get_game(server)->machine_count < 2)
+	{
+		return FALSE;
+	}
+	return !config_boolean("network.host_cheats") && p2p_hosting_public_game();
+#else
+	return FALSE;
+#endif
+}
+
 /* (read each time: the menus' Start With One Player changes it while the
 game runs) */
 boolean network_game_solo_game(
 	void)
 {
-	return config_boolean("game.start_with_one_player") || config_boolean("debug.solo_game") ? TRUE : FALSE;
+	return config_boolean("game.start_with_one_player") ? TRUE : FALSE;
 }
 
 boolean network_game_is_active(

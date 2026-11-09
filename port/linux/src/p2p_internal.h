@@ -28,6 +28,14 @@ enum
 	/* an invite link's text: "halo://join/", the host's key hash and the
 	token in hexadecimal, and a terminator */
 	P2P_LINK_SIZE = 12 + 2 * (P2P_KEY_HASH_SIZE + P2P_TOKEN_SIZE) + 1,
+	/* a game with a password's invite (p2p_locked_invite_text): "halo://join/p",
+	the host's key hash, the invite's door (P2P_TOKEN_SIZE random bytes) and a
+	check of the password (P2P_INVITE_CHECK_SIZE bytes) in hexadecimal, and a
+	terminator. Its token, the one the host listens with, is worked out from
+	the door and the password (p2p_locked_invite_token): the link alone joins
+	nothing */
+	P2P_INVITE_CHECK_SIZE = 4,
+	P2P_LOCKED_LINK_SIZE = 13 + 2 * (P2P_KEY_HASH_SIZE + P2P_TOKEN_SIZE + P2P_INVITE_CHECK_SIZE) + 1,
 	/* the most machines one tunnels to: a host and the rest of a system
 	link game's 128 machines (include/halo_port_limits.h); the console's
 	build holds its own players (HALO_CONSOLE_PLAYERS, 16 for a stock Xbox)
@@ -108,12 +116,18 @@ packet numbers would start again) */
 int p2p_peer_reoffered(const unsigned char *identifier, const unsigned char *secret,
 	const struct p2p_candidate *candidates, int count);
 /* an invite that arrived on the p2p thread (from Discord, or another copy
-of the game) */
-void p2p_invite_received(const char *text);
+of the game); public: a public game's (Discord's Join), which a player in
+it shares on Discord too */
+void p2p_invite_received(const char *text, int public);
 /* a new invite (token) for the game hosted, if its invite was listed in the
 server browser or on the game list (going private, or a password: those who
 saw it must not get in); under p2p_lock */
 void p2p_new_invite_if_listed(void);
+/* the hosted game's password changed (p2p_set_hosting_password): its
+invite key (p2p_join_password_key; NULL: no password). A new invite at once,
+listed or not: one that was shared before may not join any more; under
+p2p_lock */
+void p2p_new_invite_for_password(const unsigned char *join_key);
 
 /* ---------- p2p.c: pings before joining (p2p_probe.c), under p2p_lock */
 
@@ -245,6 +259,34 @@ void p2p_seal_token(const unsigned char *key, const unsigned char *signing_key, 
 int p2p_unseal_token(const unsigned char *key, const unsigned char *signing_key, const unsigned char *sealed,
 	unsigned char *token);
 
+/* ---------- invites to a game with a password (p2p.c)
+
+A host with a password never shows its token: its invite link holds a door
+instead, and the token is the door keyed with the password's key, which
+only who knows the password can work out. Those who read the token out of
+the server browser's listing with the password (p2p_listing_unlock, OpenCE's
+browsers too) join with the same token. */
+
+/* the key of a password for invites of the host whose key has this hash
+(Argon2id, as p2p_password_key, salted with the hash): a few milliseconds */
+void p2p_join_password_key(const char *password, const unsigned char *key_hash, unsigned char *key);
+/* the token (P2P_TOKEN_SIZE bytes) and the check (P2P_INVITE_CHECK_SIZE) of a
+door, with a password's key */
+void p2p_locked_invite_token(const unsigned char *key, const unsigned char *door, unsigned char *token,
+	unsigned char *check);
+/* the token of a locked invite, if the password is its own (its check
+matches): 0 if not. It takes a few milliseconds */
+int p2p_locked_invite_open(const char *password, const unsigned char *key_hash, const unsigned char *door,
+	const unsigned char *check, unsigned char *token);
+/* a locked invite's link (P2P_LOCKED_LINK_SIZE bytes) */
+void p2p_locked_invite_text(const unsigned char *key_hash, const unsigned char *door, const unsigned char *check,
+	char *text);
+/* the invite in text (a link, or a bare code; other words may be around a
+link): 1 an invite (its host's key hash and token), 2 a locked one (its
+host's key hash, its door in token, and its check), -1 an older version's
+(which this one cannot join), 0 none */
+int p2p_parse_invite(const char *text, unsigned char *host_hash, unsigned char *token, unsigned char *check);
+
 /* ---------- p2p_lobby.c: public games' listings */
 
 /* the p2p thread's pass: the token of the game hosted for the internet
@@ -277,7 +319,10 @@ void p2p_discord_update(void);
 /* the Discord user signed in, as told (empty if none): under p2p_lock */
 void p2p_discord_user(char *id, int id_size, char *name, int name_size);
 /* the public game hosted, by its invite's code (the hex after halo://join/),
-for the activity's Join game button; NULL for none: under p2p_lock */
-void p2p_discord_set_join(const char *code);
+and its players, for the activity's join secret; NULL for none. party: the
+host's identifier (hex) for a public game this machine joined and is in,
+whose invite it shares too; NULL for this machine's own game. Under
+p2p_lock */
+void p2p_discord_set_join(const char *code, const char *party, int player_count, int maximum_player_count);
 
 #endif

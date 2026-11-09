@@ -40,6 +40,7 @@ by their tags' paths (below).
 #include "bitmaps/bitmaps.h"
 #include "ce_map_checks.h"
 #include "halo_map_families.h"
+#include "halopc_bitmap_offsets.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -99,8 +100,6 @@ enum
 	MB: a map's Ogg Vorbis streams may decode to any length (silence takes
 	almost nothing compressed); the shipped maps' take a few megabytes */
 	CE_MAXIMUM_DECODED_SOUNDS_SIZE = 0x20000000,
-	/* (the played permutations are a 32-bit mask: sound_definitions.c) */
-	CE_MAXIMUM_PLAYED_PERMUTATIONS = 32,
 
 	/* the bitmap group's header and its bitmaps (bitmap_group.h) */
 	CE_BITMAP_GROUP_SIZE = 0x6c,
@@ -138,6 +137,7 @@ typedef char verify_ce_bitmap_data_size[sizeof(struct bitmap_data) == CE_BITMAP_
 char const *cache_files_map_directory(void);
 HANDLE cache_files_ce_map_file(void);
 int ce_vorbis_decode(const unsigned char *data, int size, int *channels, int *sample_rate, short **samples);
+int ce_vorbis_resample(short **samples, int frames, int channels, int rate, int wanted);
 void ce_vorbis_free(short *samples);
 static void ce_sounds_decode(void *tag_instances, long tag_count);
 
@@ -189,7 +189,7 @@ static boolean ce_resource_map_open(
 		return TRUE;
 	/* (in maps_ce, or its older places: halo_map_families.h) */
 	map_family_resource(ce_resource_map_names[type], path, sizeof(path));
-	file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
+	file = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
 	if (file == INVALID_HANDLE_VALUE)
 	{
 		ce_refusal_explain("It needs Custom Edition's %s.map: copy it into maps_ce.", ce_resource_map_names[type]);
@@ -506,12 +506,21 @@ bitmaps.map and sounds.map, which are laid out unlike Custom Edition's. The
 same stock tags are in Custom Edition's resource maps, by the same paths
 (HaloMD's maps add '+'s to copies of them): each external bitmap or sound
 takes the offsets of its namesake there, when its pixels or samples are the
-same size. A bitmap with no namesake borrows the pixels of one of the same
+same size. A bitmap is found there first by where its pixels are in Halo
+PC's bitmaps.map (halopc_bitmap_offsets.h: which tag's bitmap each offset
+holds), as Halo PC and HaloMD found it, and only then by its tag's path: the
+tools that made some of HaloMD's maps left stock bitmaps renamed (Halo 2
+anniversary maps' copy of the HUD's reticles is named after the Warthog's
+tires, the fuel rod gun's after a hunter's), which drew another bitmap's
+pixels. A bitmap with no namesake borrows the pixels of one of the same
 type (and format, if there is one) there; a sound with none is made
 silent (no pitch ranges: sound_manager.c does not play it). */
 
 /* every bitmap in Custom Edition's bitmaps.map (CE_BITMAP_DATA_SIZE each),
 read once, for stand-ins */
+#ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
+void *platform_ce_heap_realloc(void *address, size_t size);
+#endif
 static byte *ce_retail_stand_ins;
 static long ce_retail_stand_in_count;
 static boolean ce_retail_stand_ins_read;
@@ -616,7 +625,13 @@ static void ce_retail_read_stand_ins(
 		bitmaps = ce_retail_resource_bitmaps(map, (long)index, &count);
 		if (!bitmaps)
 			continue;
+#ifdef HALO_CONSOLE_CE_SHARED_TAG_CACHE
+		/* (kept for good: the heap's, not what a 64 MB console's load borrows,
+		port/xbox's xbox_ce_files.c) */
+		grown = platform_ce_heap_realloc(ce_retail_stand_ins, (ce_retail_stand_in_count + count) * CE_BITMAP_DATA_SIZE);
+#else
 		grown = realloc(ce_retail_stand_ins, (ce_retail_stand_in_count + count) * CE_BITMAP_DATA_SIZE);
+#endif
 		if (grown)
 		{
 			memcpy(grown + ce_retail_stand_in_count * CE_BITMAP_DATA_SIZE, bitmaps, count * CE_BITMAP_DATA_SIZE);
@@ -626,6 +641,23 @@ static void ce_retail_read_stand_ins(
 		if (bitmaps)
 			free(bitmaps);
 	}
+}
+
+/* a bitmap given another's shape, format and pixels (in bitmaps.map) */
+static void ce_retail_bitmap_take(
+	byte *data,
+	byte const *other)
+{
+	unsigned short flags, other_flags;
+
+	memcpy(&flags, data + 0x0e, 2);
+	memcpy(&other_flags, other + 0x0e, 2);
+	flags = (unsigned short)((flags & ~CE_BITMAP_XBOX_FORMAT_FLAGS) | (other_flags & CE_BITMAP_XBOX_FORMAT_FLAGS) |
+		CE_BITMAP_EXTERNAL_FLAG);
+	memcpy(data + 0x04, other + 0x04, 10);
+	memcpy(data + 0x0e, &flags, 2);
+	memcpy(data + 0x14, other + 0x14, 2);
+	memcpy(data + 0x18, other + 0x18, 8);
 }
 
 /* a bitmap given the pixels of one in Custom Edition's bitmaps.map: of its
@@ -660,16 +692,7 @@ static boolean ce_retail_bitmap_stand_in(
 			}
 			if (fits)
 			{
-				unsigned short flags, stand_in_flags;
-
-				memcpy(&flags, data + 0x0e, 2);
-				memcpy(&stand_in_flags, stand_in + 0x0e, 2);
-				flags = (unsigned short)((flags & ~CE_BITMAP_XBOX_FORMAT_FLAGS) |
-					(stand_in_flags & CE_BITMAP_XBOX_FORMAT_FLAGS) | CE_BITMAP_EXTERNAL_FLAG);
-				memcpy(data + 0x04, stand_in + 0x04, 10);
-				memcpy(data + 0x0e, &flags, 2);
-				memcpy(data + 0x14, stand_in + 0x14, 2);
-				memcpy(data + 0x18, stand_in + 0x18, 8);
+				ce_retail_bitmap_take(data, stand_in);
 				return TRUE;
 			}
 		}
@@ -677,20 +700,84 @@ static boolean ce_retail_bitmap_stand_in(
 	return FALSE;
 }
 
+/* a tag's path's hash, as halopc_bitmap_offsets.h has them (FNV-1a, 32
+bits, of the path in lowercase) */
+static unsigned long ce_path_hash(
+	char const *path)
+{
+	unsigned long hash = 0x811c9dc5UL;
+
+	for (; *path; path++)
+	{
+		unsigned char character = (unsigned char)*path;
+
+		if (character >= 'A' && character <= 'Z')
+			character = (unsigned char)(character - 'A' + 'a');
+		hash = ((hash ^ character) * 0x01000193UL) & 0xffffffffUL;
+	}
+	return hash;
+}
+
+/* the bitmap whose pixels are at `offset` in Halo PC's bitmaps.map: its
+tag's resource in Custom Edition's bitmaps.map (NONE if the offset is none of
+Halo PC's stock bitmaps', or its tag is not there) and its index in the tag */
+static long ce_retail_resource_at(
+	struct ce_resource_map const *map,
+	unsigned long offset,
+	long *bitmap_index)
+{
+	long low = 0, high = (long)NUMBEROF(halopc_bitmap_offsets) - 1;
+	unsigned long index;
+
+	while (low <= high)
+	{
+		long middle = low + (high - low) / 2;
+		unsigned long here = halopc_bitmap_offsets[middle].offset;
+
+		if (here == offset)
+		{
+			unsigned long hash = halopc_bitmap_offsets[middle].path_hash;
+
+			if (!map->paths)
+				return NONE;
+			for (index = 0; index < map->count; index++)
+			{
+				unsigned long path_offset = map->resources[index].path_offset;
+
+				if (path_offset < map->paths_size && ce_path_hash(map->paths + path_offset) == hash)
+				{
+					*bitmap_index = halopc_bitmap_offsets[middle].index;
+					return (long)index;
+				}
+			}
+			return NONE;
+		}
+		if (here < offset)
+			low = middle + 1;
+		else
+			high = middle - 1;
+	}
+	return NONE;
+}
+
 /* a retail map's bitmap tag: its external bitmaps' pixels found in Custom
-Edition's bitmaps.map (or stood in for), and the tag's pixels read from
-there (*type) */
+Edition's bitmaps.map, and the tag's pixels read from there (*type). A bitmap
+of its path there of another size or format (a bitmaps.map not as Custom
+Edition shipped it: an HD or repacked one) is drawn as that one is (*resized);
+one not there at all is stood in for (*stood_in) */
 static boolean ce_retail_bitmaps(
 	struct ce_image *image,
 	struct ce_tag_instance const *instance,
 	byte *type,
-	long *stood_in)
+	long *stood_in,
+	long *resized,
+	long *renamed)
 {
 	byte *group = ce_image_pointer(image, instance->base_address, CE_BITMAP_GROUP_SIZE);
 	char const *name = ce_image_tag_name(image, instance);
 	struct ce_resource_map *map = &ce_resource_maps[_ce_resource_bitmaps];
-	byte *bitmaps, *theirs;
-	long count, their_count = 0, index, found;
+	byte *bitmaps, *theirs, *at_offset = NULL;
+	long count, their_count = 0, index, found, at_offset_resource = NONE, at_offset_count = 0;
 	boolean external = FALSE;
 
 	/* (ce_bitmaps_check refuses a bitmap whose blocks are not in the tags) */
@@ -711,25 +798,69 @@ static boolean ce_retail_bitmaps(
 	{
 		byte *data = bitmaps + index * CE_BITMAP_DATA_SIZE;
 		byte const *their = theirs && index < their_count ? theirs + index * CE_BITMAP_DATA_SIZE : NULL;
+		long resource, their_index = 0;
 
 		if (!(*(unsigned short *)(data + 0x0e) & CE_BITMAP_EXTERNAL_FLAG))
 			continue;
+		/* (the bitmap its pixels' offset in Halo PC's bitmaps.map names,
+		before its tag's path's: a renamed stock tag's) */
+		resource = ce_retail_resource_at(map, ce_read_long(data + 0x18), &their_index);
+		if (resource != NONE)
+		{
+			if (resource != at_offset_resource)
+			{
+				if (at_offset)
+					free(at_offset);
+				at_offset = ce_retail_resource_bitmaps(map, resource, &at_offset_count);
+				at_offset_resource = resource;
+			}
+			if (at_offset && their_index < at_offset_count)
+			{
+				if (resource != found)
+					(*renamed)++;
+				their = at_offset + their_index * CE_BITMAP_DATA_SIZE;
+			}
+		}
 		if (their && !memcmp(data + 0x04, their + 0x04, 10) && !memcmp(data + 0x14, their + 0x14, 2) &&
 			!memcmp(data + 0x1c, their + 0x1c, 4))
 		{
 			memcpy(data + 0x18, their + 0x18, 4);
 		}
+		/* (the same bitmap, of its type, at another size or format: its own
+		pixels rather than another bitmap's) */
+		else if (their && !memcmp(data + 0x0a, their + 0x0a, 2))
+		{
+			if (!ce_map_checking() && *resized < 8)
+			{
+				error(_error_silent, "HaloMD map: bitmap %ld of %s is another size or format in bitmaps.map "
+					"(%dx%d format %d there, %dx%d format %d in the map)", index, name, *(short const *)(their + 0x04),
+					*(short const *)(their + 0x06), *(short const *)(their + 0x0c), *(short const *)(data + 0x04),
+					*(short const *)(data + 0x06), *(short const *)(data + 0x0c));
+			}
+			ce_retail_bitmap_take(data, their);
+			(*resized)++;
+		}
 		else if (ce_retail_bitmap_stand_in(map, data))
+		{
+			/* (another bitmap's pixels: what the weather leaves out) */
+			*(unsigned short *)(group + 0x06) |= (unsigned short)FLAG(_bitmap_group_port_stood_in_bit);
+			if (!ce_map_checking() && *stood_in < 16)
+				error(_error_silent, "HaloMD map: bitmap %ld of %s is not in bitmaps.map: stood in for", index, name);
 			(*stood_in)++;
+		}
 		else
 		{
 			if (theirs)
 				free(theirs);
+			if (at_offset)
+				free(at_offset);
 			return ce_refuse("bitmap %ld of %s is in Halo PC's bitmaps.map, not in Custom Edition's", index, name);
 		}
 	}
 	if (theirs)
 		free(theirs);
+	if (at_offset)
+		free(at_offset);
 	*type = (byte)(_ce_resource_bitmaps + 1);
 	return TRUE;
 }
@@ -944,7 +1075,7 @@ static boolean ce_resources_place(
 	unsigned long tags_end = image->base + image->size;
 	unsigned long next = (tags_end + 15) & ~15UL;
 	long index;
-	long stood_in = 0, silenced = 0;
+	long stood_in = 0, silenced = 0, resized = 0, reindexed = 0, renamed = 0;
 
 	*copied = 0;
 	csmemset(types, 0, tag_count);
@@ -970,7 +1101,7 @@ static boolean ce_resources_place(
 				boolean found = TRUE;
 
 				if (instance->group_tag == 'bitm')
-					found = ce_retail_bitmaps(image, instance, &types[index], &stood_in);
+					found = ce_retail_bitmaps(image, instance, &types[index], &stood_in, &resized, &renamed);
 				else if (instance->group_tag == 'snd!')
 					found = ce_retail_sound(image, instance, &types[index], &silenced);
 				if (!found)
@@ -1000,7 +1131,30 @@ static boolean ce_resources_place(
 			instance->base_address = (unsigned long)found;
 		}
 		/* (strings and fonts are indexed by their resource, bitmaps the
-		same: the resource after their pixels) */
+		same: the resource after their pixels. A resource map whose
+		resources are in another order than the one the map was built
+		with, a repacked one, has the tag's resource by its path) */
+		else if (map->paths && instance->base_address < map->count &&
+			(map->resources[instance->base_address].path_offset >= map->paths_size ||
+			_stricmp(map->paths + map->resources[instance->base_address].path_offset, name)))
+		{
+			long found = ce_resource_by_path(map, name);
+
+			if (found == NONE)
+			{
+				ce_refusal_explain("Its %s.map doesn't match: copy Custom Edition's own into maps_ce.",
+					ce_resource_map_names[type]);
+				return ce_refuse("%s is not in %s.map (its resource %lu there is another's)", name,
+					ce_resource_map_names[type], instance->base_address);
+			}
+			if (!ce_map_checking() && reindexed < 8)
+			{
+				error(_error_silent, "Custom Edition map: %s's resource %lu in %s.map is another's: %ld, by its path", name,
+					instance->base_address, ce_resource_map_names[type], found);
+			}
+			reindexed++;
+			instance->base_address = (unsigned long)found;
+		}
 		if (instance->base_address >= map->count)
 		{
 			return ce_refuse("%s's resource %lu is not in %s.map (%lu)", name, instance->base_address,
@@ -1015,7 +1169,7 @@ static boolean ce_resources_place(
 		}
 		if (next > end_free || resource->size > end_free - next)
 		{
-			ce_refusal_explain("It is too big for the game's tag cache.");
+			ce_refusal_explain_room();
 			return ce_refuse("there is no room in the tag cache for %s's resource", name);
 		}
 		copy = image->data + (next - image->base);
@@ -1034,7 +1188,33 @@ static boolean ce_resources_place(
 	if (ce_map_cache_version == CE_CACHE_VERSION_RETAIL && !ce_map_checking())
 	{
 		error(_error_silent, "HaloMD map: %ld bitmaps stood in for, %ld sounds silent (not in Custom Edition's "
-			"resource maps)", stood_in, silenced);
+			"resource maps), %ld bitmaps of another size or format in bitmaps.map, %ld found by their pixels' "
+			"offset under another tag's name", stood_in, silenced, resized, renamed);
+		/* (Custom Edition's own bitmaps.map has every stock bitmap at the
+		size Halo PC's maps expect: one that doesn't is another file) */
+		if (resized)
+		{
+			char path[256];
+
+			map_family_resource("bitmaps", path, sizeof(path));
+			error(_error_silent, "HaloMD map: %s isn't the bitmaps.map Custom Edition shipped (an HD or repacked one?): "
+				"its %ld bitmaps of another size are drawn as they are there", path, resized);
+		}
+		/* (a map's own few bitmaps aren't in it, as HaloMD's own bitmaps.map
+		had them; many is a bitmaps.map without Custom Edition's stock ones) */
+		if (stood_in > 16)
+		{
+			char path[256];
+
+			map_family_resource("bitmaps", path, sizeof(path));
+			error(_error_silent, "HaloMD map: %s lacks %ld of the map's bitmaps: is it Custom Edition's own?", path,
+				stood_in);
+		}
+	}
+	if (reindexed && !ce_map_checking())
+	{
+		error(_error_silent, "Custom Edition map: %ld resources found by their paths: a resource map isn't in the order "
+			"Custom Edition's own is (a repacked one?)", reindexed);
 	}
 	*next_free = next;
 	return TRUE;
@@ -1143,7 +1323,7 @@ static boolean ce_sound_check(
 			return FALSE;
 		}
 		memcpy(&actual_count, range + CE_PITCH_RANGE_ACTUAL_PERMUTATION_COUNT_OFFSET, sizeof(actual_count));
-		if (actual_count < 0 || actual_count > permutation_count || actual_count > CE_MAXIMUM_PLAYED_PERMUTATIONS)
+		if (actual_count < 0 || actual_count > permutation_count)
 		{
 			return ce_refuse("sound %s plays %d of its %ld permutations", name, actual_count, permutation_count);
 		}
@@ -1358,7 +1538,9 @@ static void ce_sounds_decode(
 	char path[256];
 	HANDLE file = NULL;
 	unsigned long written = 0;
-	long sounds = 0, in_map = 0, permutations_decoded = 0, repaired = 0, copied = 0;
+	long sounds = 0, in_map = 0, permutations_decoded = 0, repaired = 0, copied = 0, resampled_count = 0;
+	boolean resampled_told = FALSE;
+	int played_rate;
 	long index;
 	/* (a sound's decoded permutations, changed once all of them are) */
 	struct ce_decoded_permutation *decoded = NULL;
@@ -1445,6 +1627,10 @@ static void ce_sounds_decode(
 		}
 		encoding = *(short *)(sound + CE_SOUND_ENCODING_OFFSET);
 		sample_rate = *(short *)(sound + CE_SOUND_SAMPLE_RATE_OFFSET);
+		/* (the rate the game plays the sound at: a mono sound's always 22 kHz,
+		as the Xbox's channels have it; Halo PC's 44 kHz mono sounds are
+		decoded to it and made 22 kHz sounds) */
+		played_rate = encoding ? (sample_rate ? 44100 : 22050) : 22050;
 		/* (all or nothing: every permutation is decoded and written before
 		any is changed. A sound read from the decoded file with a permutation
 		left pointing into its own file, or the other way about, would play
@@ -1526,12 +1712,32 @@ static void ce_sounds_decode(
 					ce_vorbis_decode(data, size, &channels, &rate, &samples) : -1;
 				if (data)
 					free(data);
-				/* (and no more than the sound cache could hold of it) */
-				if (frames <= 0 || channels != (encoding ? 2 : 1) || rate != (sample_rate ? 44100 : 22050) ||
-					frames > 0x1000000)
+				/* (one at twice the rate it is played at, or half it, brought
+				to it: ce_vorbis_resample, told once a map) */
+				if (frames > 0 && channels == (encoding ? 2 : 1) && rate != played_rate)
 				{
-					error(_error_silent, "Custom Edition maps: %s: an Ogg Vorbis permutation of %d channels at %d Hz",
-						(char const *)xbox_pointer(instance->name), channels, rate);
+					int resampled = ce_vorbis_resample(&samples, frames, channels, rate, played_rate);
+
+					if (resampled > 0)
+					{
+						if (!resampled_told)
+						{
+							error(_error_silent, "Custom Edition maps: %s: Ogg Vorbis samples at %d Hz, played at %d Hz: "
+								"resampled (any more like it are too)", (char const *)xbox_pointer(instance->name), rate,
+								played_rate);
+							resampled_told = TRUE;
+						}
+						frames = resampled;
+						rate = played_rate;
+						resampled_count++;
+					}
+				}
+				/* (and no more than the sound cache could hold of it) */
+				if (frames <= 0 || channels != (encoding ? 2 : 1) || rate != played_rate || frames > 0x1000000)
+				{
+					error(_error_silent, "Custom Edition maps: %s: an Ogg Vorbis permutation of %d channels at %d Hz "
+						"in a sound of %d at %d Hz; it does not play", (char const *)xbox_pointer(instance->name),
+						channels, rate, encoding ? 2 : 1, played_rate);
 					ce_vorbis_free(samples);
 					all = FALSE;
 					break;
@@ -1583,6 +1789,9 @@ static void ce_sounds_decode(
 		}
 		permutations_decoded += (long)decoded_count;
 		*(short *)(sound + CE_SOUND_COMPRESSION_OFFSET) = CE_SOUND_COMPRESSION_NONE;
+		/* (a 44 kHz mono sound, its samples now 22 kHz's) */
+		if (!encoding && sample_rate)
+			*(short *)(sound + CE_SOUND_SAMPLE_RATE_OFFSET) = 0;
 		sounds++;
 		if (from_map)
 			in_map++;
@@ -1590,8 +1799,9 @@ static void ce_sounds_decode(
 	free(decoded);
 	ce_decoded_sounds_file = file;
 	error(_error_silent, "Custom Edition maps: %ld Ogg Vorbis sounds decoded, %ld of them the map's (%ld permutations, "
-		"%lu bytes); %ld sounds given their permutations' compression; %ld with samples in both the map and sounds.map "
-		"copied", sounds, in_map, permutations_decoded, written, repaired, copied);
+		"%lu bytes; %ld permutations resampled to their sounds' rate); %ld sounds given their permutations' compression; "
+		"%ld with samples in both the map and sounds.map copied", sounds, in_map, permutations_decoded, written,
+		resampled_count, repaired, copied);
 }
 
 /* the resource map a tag's pixels or samples are read from (cache_files_windows.c),

@@ -387,7 +387,43 @@ static long current_line(struct reader *reader)
 	return (long)XML_GetCurrentLineNumber(reader->parser);
 }
 
-/* whether the element is for this platform (its platform attribute) */
+/* the platform names a platform attribute may have, and whether this build
+is each: the Switch's game is built as Android's, with HALO_SWITCH_CONSOLE
+too ("android" is the Android app's); "console" is the consoles that show
+the Chupathingy menus without the desktop's extras, and each of them has a
+name of its own too (HALO_CONSOLE_MENU_PLATFORM: halo_console_features.h) */
+static int platform_name_here(const char *name, size_t length, int *known)
+{
+	static const char *const names[] = { "desktop", "android", "switch", "console", "x360", "wiiu" };
+	const char *here[2] = { NULL, NULL };
+	size_t index;
+
+#if defined(HALO_SWITCH_CONSOLE)
+	here[0] = "switch";
+#elif defined(HALO_ANDROID)
+	here[0] = "android";
+#elif defined(HALO_CONSOLE_MENU_PLATFORM)
+	here[0] = "console";
+	here[1] = HALO_CONSOLE_MENU_PLATFORM;
+#else
+	here[0] = "desktop";
+#endif
+	*known = 0;
+	for (index = 0; index < sizeof(names) / sizeof(names[0]); index++)
+	{
+		if (strlen(names[index]) == length && !strncmp(names[index], name, length))
+			*known = 1;
+	}
+	for (index = 0; index < sizeof(here) / sizeof(here[0]); index++)
+	{
+		if (here[index] && strlen(here[index]) == length && !strncmp(here[index], name, length))
+			return 1;
+	}
+	return 0;
+}
+
+/* whether the element is for this platform (its platform attribute: the
+names of the platforms it is on, separated by spaces) */
 static int for_this_platform(struct reader *reader, const XML_Char **attributes)
 {
 	int index;
@@ -397,25 +433,36 @@ static int for_this_platform(struct reader *reader, const XML_Char **attributes)
 		if (!strcmp(attributes[index], "platform"))
 		{
 			const char *platform = attributes[index + 1];
+			const char *name = platform;
+			int here = 0, names = 0;
 
-			if (strcmp(platform, "desktop") && strcmp(platform, "android")
-#ifdef HALO_SWITCH_CONSOLE
-				&& strcmp(platform, "switch")
-#endif
-				)
+			while (*name)
 			{
-				reader_error(reader, "platform=\"%s\" is not \"desktop\" or \"android\"", platform);
+				size_t length = strcspn(name, " ");
+				int known;
+
+				if (length)
+				{
+					names++;
+					if (platform_name_here(name, length, &known))
+						here = 1;
+					if (!known)
+					{
+						reader_error(reader, "platform=\"%s\": %.*s is not desktop, android, switch, console, x360 or wiiu",
+							platform, (int)length, name);
+						return 1;
+					}
+				}
+				name += length;
+				while (*name == ' ')
+					name++;
+			}
+			if (!names)
+			{
+				reader_error(reader, "platform=\"%s\" names no platform", platform);
 				return 1;
 			}
-			/* (the Switch's game is built as Android's, with
-			HALO_SWITCH_CONSOLE too: "android" is the Android app's) */
-#if defined(HALO_SWITCH_CONSOLE)
-			return !strcmp(platform, "switch");
-#elif defined(HALO_ANDROID)
-			return !strcmp(platform, "android");
-#else
-			return !strcmp(platform, "desktop");
-#endif
+			return here;
 		}
 	}
 	return 1;
@@ -1005,6 +1052,23 @@ void halo_menus_log(char const *file, long line, char const *message, char const
 {
 	platform_log("menus: %s:%ld: %s%s%s", file ? file : "?", line, message, detail ? " " : "", detail ? detail : "");
 }
+#ifdef HALO_BGFX
+/* (a menu's texture, the renderer's: OpenGL's or the bgfx backend's) */
+static void menu_art_delete(unsigned int texture)
+{
+	if (xgpu_bgfx)
+	{
+		xgpu_bgfx_texture_delete(texture);
+		return;
+	}
+	{
+		GLuint name = texture;
+
+		glDeleteTextures(1, &name);
+	}
+}
+#endif
+
 
 /* ---------- art */
 
@@ -1049,7 +1113,11 @@ void halo_menus_art_register(void const *texture, char const *png)
 	{
 		free(art[index].png);
 		if (art[index].texture)
+#ifdef HALO_BGFX
+			menu_art_delete(art[index].texture);
+#else
 			glDeleteTextures(1, &art[index].texture);
+#endif
 	}
 	memset(&art[index], 0, sizeof(art[index]));
 	art[index].data = data;
@@ -1067,7 +1135,11 @@ void halo_menus_art_forget(void)
 	{
 		free(art[index].png);
 		if (art[index].texture)
+#ifdef HALO_BGFX
+			menu_art_delete(art[index].texture);
+#else
 			glDeleteTextures(1, &art[index].texture);
+#endif
 	}
 	art_count = 0;
 #ifdef HALO_CONSOLE_HOST_ART
