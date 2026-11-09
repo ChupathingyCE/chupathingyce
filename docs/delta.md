@@ -937,7 +937,10 @@ characters. Where a column is shorter, the name is cut with "...". At the
 menus' 640x480 the columns hold: the in-game scoreboard 16 characters, the
 pregame panel 16 for a player's own line and 12 for another machine's, the
 Chupathingy menus' lobby 32, and the postgame report 11 (as a Halo name:
-its column is drawn to that width). A clan tag stays in front only while
+its column is drawn to that width). Those are lowercase letters' widths:
+wide letters (M, W) count for more and narrow ones (i, l) for less, so a
+name of wide letters is cut sooner and the "..." always shows. A clan tag
+stays in front only while
 the name keeps 6 characters after it ("[TAG] Milen..."); else the name
 shows alone. Names above heads and the name of the player aimed at stay
 the Halo name (11 characters), as the Xbox draws them.
