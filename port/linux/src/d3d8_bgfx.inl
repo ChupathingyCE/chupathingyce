@@ -1811,19 +1811,12 @@ static struct bg_target *bg_target_get(const D3DSurface *surface)
 	if (!surface || !surface->Data)
 		return NULL;
 	surface_dimensions(surface, &width, &height, &depth);
-	/* the screen's targets are drawn at the screen's scale, the secondary
-	target at the 3D view's pixels with its samples (it is drawn with the
-	back buffer's depth buffer, and a frame buffer is one size:
-	render_target_scale), and the shadow maps at display.shadow_resolution's */
+	/* the screen's targets are drawn at the screen's scale, and the shadow
+	maps at display.shadow_resolution's */
 	if (width == (unsigned long)halo_screen_width() && height == SCREEN_HEIGHT)
 	{
 		scale[0] = screen_scale[0];
 		scale[1] = screen_scale[1];
-		samples = bg_screen_samples();
-	}
-	else if (!depth && width == SECONDARY_TARGET_WIDTH && height == SECONDARY_TARGET_HEIGHT)
-	{
-		render_target_scale(_render_target_secondary, scale);
 		samples = bg_screen_samples();
 	}
 	else if (!depth && surface_is_shadow_map(surface))
@@ -2530,10 +2523,7 @@ static void bg_uniforms_update(float texture_scale[4][4])
 	bg_depth_range[1] = device.viewport.MaxZ - device.viewport.MinZ;
 	bg_depth_range[2] = bg_depth_range[3] = 0.0f;
 	/* (glPolygonOffset's units: the depth buffer's smallest step, 2^-24) */
-	/* (the slope's factor scaled by the target's pixels a unit, as the
-	OpenGL path's: apply_raster_state) */
-	bg_depth_bias[0] = dword_to_float(D3D__RenderState[D3DRS_POLYGONOFFSETZSLOPESCALE]) *
-		(bg.target_scale[0] > bg.target_scale[1] ? bg.target_scale[0] : bg.target_scale[1]);
+	bg_depth_bias[0] = dword_to_float(D3D__RenderState[D3DRS_POLYGONOFFSETZSLOPESCALE]);
 	bg_depth_bias[1] = dword_to_float(D3D__RenderState[D3DRS_POLYGONOFFSETZOFFSET]) / 16777216.0f;
 	bg_depth_bias[2] = bg_depth_bias[3] = 0.0f;
 	for (index = 0; index < BG_UNIFORM_COUNT; index++)
