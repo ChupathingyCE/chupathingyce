@@ -2667,6 +2667,9 @@ static void postgame_draw_prompt(
 	rectangle2d drawn = *bounds;
 	real_argb_color unseen = *color;
 
+	/* (the keys that work here: the carnage report takes the buttons as the
+	menus do, Backspace to quit, not the game's controls on them) */
+	draw_string_and_hack_in_icons_for_menus(TRUE);
 	unseen.alpha = 0.0f;
 	draw_string_set_color(&unseen);
 	draw_string_and_hack_in_icons(&drawn, NULL, NULL, 0, prompt, FALSE);
@@ -2676,6 +2679,7 @@ static void postgame_draw_prompt(
 	postgame_prompt_note(&drawn, prompt, (short)MIN(draw_string_and_hack_in_icons_end_x, POSTGAME_PROMPT_RIGHT));
 	draw_string_set_color(color);
 	draw_string_and_hack_in_icons(&drawn, NULL, NULL, 0, prompt, FALSE);
+	draw_string_and_hack_in_icons_for_menus(FALSE);
 }
 
 void game_engine_post_rasterize_post_game(
