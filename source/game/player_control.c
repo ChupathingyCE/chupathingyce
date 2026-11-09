@@ -621,6 +621,16 @@ static boolean player_control_port_menu_has_controller(
 	if (!player)
 		return FALSE;
 	gamepad_index = player->local_player_index;
+#ifdef HALO_GUIDE
+	/* (the Guide: the first player's controls are its own while it is
+	open, port/linux/game/guide.c) */
+	{
+		extern boolean guide_takes_player(void);
+
+		if (gamepad_index == 0 && guide_takes_player())
+			return TRUE;
+	}
+#endif
 	return gamepad_index >= 0 && gamepad_index < MAXIMUM_NUMBER_OF_LOCAL_PLAYERS &&
 		ui_widgets_active_for_local_player(gamepad_index);
 }

@@ -69,6 +69,12 @@ int chat_host_cooldown(void);
 void chat_host_set_welcome(char const *text);
 char const *chat_host_welcome(void);
 
+/* this copy's own mute of a machine's player (the chat log's M, and the
+Guide's Players here): whether they are muted, and muted or not. wchar_t
+is the game's UTF-16 */
+boolean chat_local_muted(short machine, wchar_t const *name);
+void chat_local_mute(short machine, wchar_t const *name, boolean mute);
+
 /* (the dedicated server's) whether a machine's player is signed in as a
 moderator with a role here: its lines are marked as a moderator's */
 void chat_set_moderator_check(int (*check)(int machine_index));

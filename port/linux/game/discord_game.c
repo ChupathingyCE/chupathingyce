@@ -186,6 +186,15 @@ static void look(struct discord_activity_game *game)
 	discord_game.last_tick = tick;
 }
 
+/* the last look (the Guide's card: guide.c); FALSE before the first */
+boolean discord_game_get(struct discord_activity_game *game)
+{
+	if (!discord_game.looked)
+		return FALSE;
+	*game = discord_game.game;
+	return TRUE;
+}
+
 void discord_game_update(void)
 {
 	struct discord_activity_options options;

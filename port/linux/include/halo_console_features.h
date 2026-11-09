@@ -378,6 +378,11 @@ console gets them sized to its limits later */
 	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE)) && !defined(HALO_CONSOLE_NO_GUIDE)
 #define HALO_CONSOLE_NO_GUIDE 1
 #endif
+/* (the Guide's builds: the game list's, not the consoles' nor the dedicated
+server's, which has no player) */
+#if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_GUIDE) && !defined(HALO_SERVER)
+#define HALO_GUIDE 1
+#endif
 
 #if (defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
 	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE)) && !defined(HALO_CONSOLE_NO_LOADING_PICTURE)

@@ -710,6 +710,20 @@ static const struct config_setting config_settings[] =
 		"Leave it empty for the default." },
 #endif
 
+#ifdef HALO_GUIDE
+	/* ---- the Guide (port/linux/game/guide.c) */
+	{ "controls.guide", _config_string, "\"F3\"", "HALO_KEY_GUIDE", _environment_value, _platform_all,
+		"The key that opens and closes the Guide: F3 to F10." },
+	{ "controls.guide_button", _config_boolean, "true", "HALO_GUIDE_BUTTON", _environment_value, _platform_all,
+		"Open the Guide with the controller's Guide button, where Chupathingy\n"
+		"can read it (Steam and the Xbox Game Bar may keep it for themselves).\n"
+		"Holding Back in the menus opens it too." },
+	{ "guide.notify_in_game", _config_boolean, "false", "HALO_GUIDE_NOTIFY_IN_GAME", _environment_value,
+		_platform_all,
+		"Show the Guide's notifications during a game. They always show in\n"
+		"the menus." },
+#endif
+
 	/* ---- chat */
 	{ "chat.enabled", _config_boolean, "true", "HALO_CHAT", _environment_value, _platform_all | _platform_xbox,
 		"Text chat with Chupathingy players. T talks to everyone, and Y to your\n"
@@ -1234,6 +1248,12 @@ static const struct config_setting config_settings[] =
 		"The answer to the update question, for tests: \"yes\", \"no\" or\n"
 		"\"never\". Leave it empty to ask." },
 #endif
+#ifdef HALO_GUIDE
+	{ "debug.guide_open", _config_boolean, "false", "HALO_GUIDE_OPEN", _environment_set_is_true, _platform_all,
+		"Open the Guide once the menus or a map are up, for tests." },
+	{ "debug.guide_toast", _config_string, "\"\"", "HALO_GUIDE_TOAST", _environment_value, _platform_all,
+		"Show a test notification with this text once. Leave it empty for none." },
+#endif
 	{ "debug.chat_test", _config_string, "\"\"", "HALO_CHAT_TEST", _environment_value, _platform_all,
 		"Scripted chat for tests, as steps separated by ;. Each step is\n"
 		"\"<seconds>:<all|team|server|mute|unmute|localmute|log|close|type>[:<text>]\".\n"
@@ -1524,6 +1544,10 @@ static const struct
 	{ "chat", 0,
 		"The text chat you see and send. The chat rules for games you host are\n"
 		"in [network]." },
+#ifdef HALO_GUIDE
+	{ "guide", 0,
+		"The Guide, which opens over the menus or a game (F3)." },
+#endif
 	{ "game", 0,
 		"How games play. The bomb settings are for Bomb and Grifball games you\n"
 		"host." },
