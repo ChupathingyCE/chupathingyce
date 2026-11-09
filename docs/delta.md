@@ -1796,10 +1796,13 @@ vouches for it is in date.
 
 **Encoding.** All three are binary with little-endian numbers, read byte by
 byte (so big-endian hosts need no special case), and travel as lowercase
-hex. Signatures are Ed25519 (RFC 8032, as Monocypher's
-`crypto_ed25519_check`), each over a label and then the bytes before the
-signature. A verifier refuses a signature whose S is not below the group
-order, and a public key of small order.
+hex. Signatures are Ed25519 (RFC 8032), each over a label and then the
+bytes before the signature, checked as Monocypher 4's `crypto_ed25519_check`
+checks them: S must be below the group order, the check is cofactored
+([8]R = [8]([S]B - [h]A)), and points that aren't canonically encoded are
+allowed. A strictly cofactorless verifier can disagree on rare
+deliberately-crafted signatures, so implementations should check the same
+way. A verifier also refuses a public key of small order.
 
 - **Key ID** of an issuer: the first 8 bytes of SHA-256(its public key).
 - **Device ID**: the first 16 bytes of SHA-256(`"chupathingy device id\n"`
@@ -1889,24 +1892,40 @@ and signatures in lowercase hex):
 | `POST /v1/identity/token {"device_id", "nonce", "signature"}` | `{"token", "expires_in": 3600, "scopes": [...]}` |
 | `GET /v1/identity/revoked` | `{"revoked": CREV, "issuers": [CISS, ...], "serial"}` |
 
+- **The audience.** Every device signature names the site it is for: one
+  byte of length, then the site's host as the device addresses it
+  (lowercase, no scheme or port; `stats.chupathingy.org`). A signature made
+  for one site is no use at another.
 - **Enroll** proves the player key one last time (`key`, as today) and
   registers `device_key`. The signature is the device key's, over
-  `"chupathingy legacy enroll v1\n"` + nonce (16) + copy ID (16) + device
-  public key (32). Enrolling the same device key again for the same copy
-  gives a new certificate; for another copy, 409.
+  `"chupathingy legacy enroll v1\n"` + audience + nonce (16) + copy ID (16)
+  + device public key (32). The site enrolls only a copy it has seen before
+  (a profile, a link or a confirmed game). Enrolling the same device key
+  again for the same copy gives a new certificate. A device key that was
+  revoked or signed out can't enroll again: the device makes a new key.
 - **Refresh** and **token** are signed by the device key over
   `"chupathingy device refresh v1\n"` or `"chupathingy device token v1\n"`
-  + nonce (16) + device ID (16). No secret travels.
+  + audience + nonce (16) + device ID (16). No secret travels. Both are
+  refused for a revoked, signed-out or locked device.
 - **A certificate answer:** `{"device_id", "certificate": CDEV,
-  "issuer": CISS, "account", "handle", "expires", "refresh_after"}`. The
-  account and handle follow the copy's link: a copy linked to a profile
-  after it enrolled gets the profile's at its next refresh.
+  "issuer": CISS, "account", "handle", "expires", "refresh_after"}`.
+  `expires` is Unix seconds; `refresh_after` is a duration, the seconds
+  from now until the device should refresh (half the certificate's life).
+  The account and handle follow the copy's link: a copy linked to a
+  profile after it enrolled gets the profile's at its next refresh.
 - **Refusals:** 400 a malformed request; 401 `{"error": "nonce"}` (get a
   new nonce) or `{"error": "signature"}`; 403 with `"revoked": true`,
-  `"signed_out": true` or `"locked": true`; 404 `{"enroll": true}` for a
-  device the site doesn't know (enroll again); 409 a key that belongs to
-  another copy, or too many devices; 429 slow down; 503 the site doesn't
-  issue certificates yet.
+  `"signed_out": true`, `"locked": true` or `"unknown_copy": true`; 404
+  `{"enroll": true}` for a device the site doesn't know (enroll again);
+  409 with `"other_copy": true` for a key that belongs to another copy (the
+  device makes a new key, once) or `"too_many": true`; 429 slow down; 503
+  busy, or the site doesn't issue certificates yet.
+- **The issuer's signer** signs only certificates issued now (within 5
+  minutes of its clock) and revocation lists whose serial rises and isn't
+  ahead of its clock. The site checks every signature it gets back.
+- **Stage A's limit:** whoever holds a copy's player key can still enroll a
+  new device for it. Revoking a device stops that device key, not the
+  player key; later stages let an account turn its old key off.
 
 **Tokens.** A token is opaque ASCII, at most 200 characters of
 `A-Z a-z 0-9 . _ -`. It goes in a header, `Authorization: Delta <token>`,
@@ -1928,25 +1947,36 @@ would. A token the site can't use gets 401 `{"token": "unknown" |
 **How a client falls back.** Nobody is locked out at any step:
 
 1. With no device certificate yet, the client sends its key as today. In
-   the background it gets a nonce and enrolls. A 404 or 405 for the
-   identity paths means an older site: it tries again in an hour. A 503
-   means the site doesn't issue certificates yet: the same.
+   the background it gets a nonce and enrolls. A 404 for
+   `/v1/identity/nonce` means an older site: it tries again in an hour. A
+   503 means busy or not issuing yet: it tries again in ten minutes, backing
+   off to an hour. A 403 `unknown_copy` or `locked`, or a 409
+   `too_many`, waits a day, and those retries are capped.
 2. With a certificate, it gets a token (nonce, then token) when it has none
    or the one it has is about to run out, and sends it instead of the key.
-3. A request answered 401 with `"token"` drops the token and goes again
-   once with the key. So does a request an older site refuses for lacking
-   a key (400). The client gets a new token next time.
-4. At `refresh_after`, or on start when the certificate is past it, it
-   refreshes. A 404 with `"enroll"` enrolls again. A 403 `revoked` or
-   `signed_out` drops the certificate and keeps the key for this run.
-5. The key file stays. Old servers' `moderators.txt` list the moderator key
+3. A request answered 401 with `"token"` drops the token, gets a new one,
+   and sends the request again with it. Only if that fails does it go with
+   the key. A request sent with a token is sent with the key only when the
+   site doesn't speak identity (its `/v1/identity/nonce` answers 404, or it
+   refuses the request with a 400 that has no `"token"` member). An answer
+   the site acted on is never sent again.
+4. At `refresh_after`, or on start when the saved certificate is past it or
+   expired, it refreshes with the device key; it never enrolls again just
+   because a certificate expired. A 404 with `"enroll"` enrolls again. A
+   403 `revoked` or `signed_out` drops the certificate and keeps the key for
+   this run.
+5. A different player key (a restored backup, an Install in Game link)
+   means a different copy. The device then drops its certificate and token
+   and makes a new device key, which enrolls with the new player key. The
+   copy ID is saved beside the certificate so this is caught at start too.
+6. The key file stays. Old servers' `moderators.txt` list the moderator key
    derived from it, and older sites only know it.
 
 **On the device.** `delta_device.key` in the save root holds the device
 key's 32-byte seed, written and read like the player key (32 raw bytes,
 readable by its owner alone, opened without following links).
-`delta_device.cert` beside it holds the answer's certificate and issuer
-certificate (public data). Neither is ever logged. Consoles leave stage A
+`delta_device.cert` beside it holds the answer's certificate, issuer
+certificate and the copy ID it was enrolled with (public data). Neither is ever logged. Consoles leave stage A
 out (`HALO_CONSOLE_NO_DELTA_IDENTITY`) until their own endpoints come.
 
 **Test vectors.** Each seed or key below is SHA-256 of its text:
@@ -1957,7 +1987,8 @@ use the times 1790000000 (valid from), 1797776000 (valid until), 1790100000
 (issued) and 1790704800 (expires); the device certificate is for platform 1
 (Windows), handle `milenko`, serial 01 02 ... 08, all five capabilities,
 legacy enrolled; the list names the test device and sixteen 0x11 bytes.
-The nonce is the bytes 00 to 0f. The same values are in
+The nonce is the bytes 00 to 0f and the audience `stats.chupathingy.org`.
+The same values are in
 `port/linux/tests/identity_vectors.json`, and the game's, the site's and
 command's tests all check them.
 
@@ -1985,12 +2016,12 @@ CREV  435245560100000020c2b26a20c2b26aa013b46a48810d1682965a4602000000
       1169fc31fd48dcb2b10d79abd24a09fc115f4323eae5feebbd1f7f9b97d24693
       2b730bd2e50b6be603b751854cceefdf32c3311a4a20e8f48c9410e1c40ae50f
 
-enroll signature   e37ed96bc29327c39f1d4ad848ea910c24f92db6ac84ace8b858141e439de114
-                   18e5c5c3826ef049c8e47bd1d3991bb3f5c31303efd52d6f83c3e01831a0b10b
-refresh signature  d1db52df2498342c92283af1c857c747dd36ed87ed9c1201dc9c80e4bc85245a
-                   3565a0efbe1ffd0c01e1d4493549246a27e385ecbdd7848b22eb96dfc54cb103
-token signature    dc04216b8d3b86186901e845e2812dd4739417bf23dcd0b23879ea705120e5c8
-                   01f872fd654d3d25d45144befa965006a16bf49306bb45c440b3805ecab2d90b
+enroll signature   cec504f992252432a5d499113cbb7469a791b22e743cd44f6f15b278df2d4882
+                   e89a5724ddcaffe73fb2a14fb8a74fd21f00160cf177e9e2f64561cdbd3b4305
+refresh signature  f09ba64e6aa8ca29d8414d334dca2759d86d29f3757493a2b00be775a770f1ce
+                   0f7dc0388671683b6868a493416b50a27f11a1458bb1e29fc89541849b00170d
+token signature    0c02b24be2e9caa6385ef49de7bf80cb0740c7a73085d8a267c1f7f87978f1e8
+                   331b870581b254a5a258c85465b3130d5153e68646b300265f8ea304f0fd0901
 ```
 
 ### Clans
