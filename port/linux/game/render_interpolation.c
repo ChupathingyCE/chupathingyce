@@ -675,6 +675,25 @@ real *render_interpolation_object_function_values(long object_index)
 #endif
 }
 
+/* a point carried by the object's root node (its bounding sphere's center,
+where a nav point sits over it), moved from where the last tick left the
+object to where it is drawn this frame. Left as it is when the object is
+drawn as the tick left it (interpolation off, a snap, no earlier pose). */
+void render_interpolation_object_point(long object_index, real_point3d *point)
+{
+	real_matrix4x3 const *drawn = render_interpolation_object_node_matrices(object_index);
+	real_matrix4x3 const *nodes;
+	real_point3d local;
+
+	if (!drawn)
+		return;
+	/* (as of the last tick: object_get_node_matrices gives the drawn pose
+	while a frame is drawn) */
+	nodes = (real_matrix4x3 const *)object_header_block_get(object_index, &object_get(object_index)->object.node_matrices);
+	matrix4x3_inverse_transform_point(&nodes[0], point, &local);
+	matrix4x3_transform_point(&drawn[0], &local, point);
+}
+
 /* ---------- corrections */
 
 /* the object (and what it carries) moved by the netcode from where it was,
