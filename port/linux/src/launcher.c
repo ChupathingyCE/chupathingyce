@@ -7,8 +7,8 @@ loads, drawn with the overlay (ui_overlay.c) and its built-in fonts and
 button glyphs. No map, tag or bitmap of the game's is read, so nothing of
 the retail game's is on screen.
 
-Screens: Welcome (the first start), and PLAY, MAPS and LOGS & HELP with
-QUIT, as a list of sections on the left and the open one in a panel on the
+Screens: Welcome (the first start), and PLAY, MAPS, LOGS & HELP and ABOUT
+(about.c's page) with QUIT, as a list of sections on the left and the open one in a panel on the
 right. Maps shows each family of maps (halo_map_families.h) by its folder,
 with its state read from the files' headers; a family's own screen opens
 its folder, checks its maps and adds them from a file (xiso.c, pc_disc.c,
@@ -34,6 +34,7 @@ upload, which have threads of their own.
 #include "crash_report.h"
 #include "browser_http.h"
 #include "build_identity.h"
+#include "about.h"
 
 #include <SDL3/SDL.h>
 #include <ctype.h>
@@ -109,6 +110,7 @@ enum
 	_screen_family,
 	_screen_map_list,
 	_screen_logs,
+	_screen_about,
 };
 
 enum
@@ -116,11 +118,12 @@ enum
 	_section_play,
 	_section_maps,
 	_section_logs,
+	_section_about,
 	_section_quit,
 	NUMBER_OF_SECTIONS
 };
 
-static const char *const section_names[NUMBER_OF_SECTIONS] = { "PLAY", "MAPS", "LOGS & HELP", "QUIT" };
+static const char *const section_names[NUMBER_OF_SECTIONS] = { "PLAY", "MAPS", "LOGS & HELP", "ABOUT", "QUIT" };
 
 enum
 {
@@ -378,6 +381,9 @@ static struct
 	const char *script_cursor;
 	Uint64 script_next;
 	char screenshot[128];
+
+	/* ABOUT's page */
+	struct about_view about;
 } launcher;
 
 static void modes_find(void);
@@ -1574,6 +1580,8 @@ static const char *screen_title(void)
 		return title;
 	case _screen_logs:
 		return "LOGS & HELP";
+	case _screen_about:
+		return "ABOUT";
 	default:
 		return "CHUPATHINGY";
 	}
@@ -1767,6 +1775,21 @@ static void draw_panel(float x0, float y0, float x1, float y1)
 	case _screen_logs:
 		heading = "SOMETHING WRONG?";
 		break;
+	case _screen_about:
+		heading = "CHUPATHINGY";
+		break;
+	}
+	if (launcher.screen == _screen_about)
+	{
+		/* (about.c's page, its headings its own) */
+		ui_style_clock((unsigned int)SDL_GetTicks());
+		about_render(&launcher.about, x + 2.0f, y + 2.0f, x1 - 14.0f, y1 - 14.0f);
+		if (launcher.about.licenses_x1 > launcher.about.licenses_x0)
+		{
+			target_add(launcher.about.licenses_x0, launcher.about.licenses_y0, launcher.about.licenses_x1,
+				launcher.about.licenses_y1, _target_button, _button_a);
+		}
+		return;
 	}
 	ui_overlay_text_glow(UI_FONT_MENU, 16.5f, x + 2.0f, y, UI_ALIGN_LEFT, COLOR_HEAD, 0x3D8BFF40, heading);
 	y += 24.0f;
@@ -1976,6 +1999,13 @@ static void draw_prompts(void)
 	if (!launcher.in_panel)
 	{
 		prompt_add(UI_BUTTON_A, launcher.section == _section_quit ? "QUIT" : "SELECT", 1, _button_a);
+		return;
+	}
+	if (launcher.screen == _screen_about)
+	{
+		if (about_a_word(&launcher.about))
+			prompt_add(UI_BUTTON_A, about_a_word(&launcher.about), 1, _button_a);
+		prompt_add(UI_BUTTON_B, "BACK", 1, _button_b);
 		return;
 	}
 	prompt_add(UI_BUTTON_A, launcher.screen == _screen_play ? "PLAY" :
@@ -2687,6 +2717,8 @@ static void upload_finished(void)
 
 static void enter_screen(int screen)
 {
+	if (screen == _screen_about && launcher.screen != _screen_about)
+		about_reset(&launcher.about);
 	launcher.screen = screen;
 	launcher.selected = 0;
 	launcher.scroll = 0;
@@ -2894,7 +2926,8 @@ static void back(void)
 /* the section picked: its screen in the panel */
 static void open_section(int section)
 {
-	static const int screens[NUMBER_OF_SECTIONS] = { _screen_play, _screen_maps, _screen_logs, _screen_play };
+	static const int screens[NUMBER_OF_SECTIONS] = { _screen_play, _screen_maps, _screen_logs, _screen_about,
+		_screen_play };
 
 	launcher.section = section;
 	if (section != _section_quit)
@@ -3004,6 +3037,38 @@ static void input(int button)
 			}
 			launcher.in_panel = 1;
 			break;
+		default:
+			break;
+		}
+		return;
+	}
+	if (launcher.screen == _screen_about)
+	{
+		switch (button)
+		{
+		case _button_up:
+			about_input(&launcher.about, ABOUT_INPUT_UP);
+			break;
+		case _button_down:
+			about_input(&launcher.about, ABOUT_INPUT_DOWN);
+			break;
+		case _button_a:
+			about_input(&launcher.about, ABOUT_INPUT_A);
+			break;
+		case _button_b:
+		case _button_left:
+			if (!about_input(&launcher.about, ABOUT_INPUT_B))
+				launcher.in_panel = 0;
+			break;
+		case _button_previous:
+		case _button_next:
+		{
+			int section = launcher.section + (button == _button_next ? 1 : -1);
+
+			if (section >= 0 && section < _section_quit)
+				open_section(section);
+			break;
+		}
 		default:
 			break;
 		}

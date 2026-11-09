@@ -63,6 +63,7 @@ GUIDE counts what waits ("GUIDE 2": invites and requests).
 #include "interface/player_ui.h"
 #include "main/main.h"
 #include "bink/bink_playback.h"
+#include "../src/about.h"
 #include "../src/browser.h"
 #include "../src/delta_profile.h"
 #include "../src/discord_activity.h"
@@ -185,17 +186,20 @@ enum
 	_setting_notify_in_game,
 	_setting_notify_online,
 	_setting_share_presence,
+	/* (no setting: the About screen) */
+	_setting_about,
 	NUMBER_OF_SETTINGS
 };
 
 static char const *const setting_labels[NUMBER_OF_SETTINGS] =
 {
-	"OPEN KEY", "GUIDE BUTTON", "NOTIFICATIONS IN GAME", "FRIEND ONLINE ALERTS", "SHOW WHEN I'M PLAYING",
+	"OPEN KEY", "GUIDE BUTTON", "NOTIFICATIONS IN GAME", "FRIEND ONLINE ALERTS", "SHOW WHEN I'M PLAYING", "ABOUT",
 };
 
 static char const *const setting_keys[NUMBER_OF_SETTINGS] =
 {
 	"controls.guide", "controls.guide_button", "guide.notify_in_game", "guide.notify_online", "network.share_presence",
+	"",
 };
 
 /* controls.guide's choices: the F keys the game leaves free (F1 is Back,
@@ -345,6 +349,12 @@ static struct
 	short dismissed_next;
 
 	int plasma_tries;
+
+	/* the About screen in the panel (from SETTINGS' ABOUT: B goes back
+	there; from the menus' ABOUT: B closes the Guide) */
+	boolean about;
+	boolean about_from_settings;
+	struct about_view about_view;
 
 	struct guide_target targets[MAXIMUM_TARGETS];
 	short target_count;
@@ -562,7 +572,9 @@ static boolean setting_on(short setting)
 
 static void setting_value(short setting, char *text, int size)
 {
-	if (setting == _setting_open_key)
+	if (setting == _setting_about)
+		text[0] = '\0';
+	else if (setting == _setting_open_key)
 	{
 		char const *key = config_string(setting_keys[setting]);
 
@@ -574,7 +586,17 @@ static void setting_value(short setting, char *text, int size)
 
 static void setting_change(short setting, short direction)
 {
-	if (setting == _setting_open_key)
+	if (setting == _setting_about)
+	{
+		/* (A alone opens it, not the d-pad's left and right) */
+		if (direction > 0 && !guide.about)
+		{
+			guide.about = TRUE;
+			guide.about_from_settings = TRUE;
+			about_reset(&guide.about_view);
+		}
+	}
+	else if (setting == _setting_open_key)
 	{
 		char const *key = config_string(setting_keys[setting]);
 		short count = (short)NUMBEROF(open_keys), index, found = 0;
@@ -591,7 +613,7 @@ static void setting_change(short setting, short direction)
 		found = (short)((found + (direction < 0 ? count - 1 : 1)) % count);
 		config_write(setting_keys[setting], open_keys[found]);
 	}
-	else if (setting >= 0 && setting < NUMBER_OF_SETTINGS)
+	else if (setting >= 0 && setting < _setting_about)
 		config_write_boolean(setting_keys[setting], !setting_on(setting));
 }
 
@@ -1503,12 +1525,17 @@ static void render_settings(void)
 		ui_style_row(CONTENT_LEFT, y, width, SETTING_HEIGHT, on);
 		ui_overlay_text(UI_FONT_MENU, 10.0f, CONTENT_LEFT + 12, y + 8, UI_ALIGN_LEFT, COLOR_SETTING,
 			setting_labels[setting]);
+		target_add(CONTENT_LEFT, y, CONTENT_RIGHT, y + SETTING_HEIGHT, _target_setting, setting);
+		if (!value[0])
+		{
+			y += SETTING_HEIGHT + ROW_GAP;
+			continue;
+		}
 		/* (the value between its arrows, as the menus' settings have it) */
 		ui_overlay_text(UI_FONT_MENU, 10.0f, value_right, y + 8, UI_ALIGN_RIGHT, COLOR_VALUE, "\xE2\x80\xBA");
 		ui_overlay_text(UI_FONT_MENU, 10.0f, value_right - 12, y + 8, UI_ALIGN_RIGHT, COLOR_VALUE, value);
 		ui_overlay_text(UI_FONT_MENU, 10.0f, value_right - 18 - ui_overlay_text_width(UI_FONT_MENU, 10.0f, value),
 			y + 8, UI_ALIGN_RIGHT, COLOR_VALUE, "\xE2\x80\xB9");
-		target_add(CONTENT_LEFT, y, CONTENT_RIGHT, y + SETTING_HEIGHT, _target_setting, setting);
 		y += SETTING_HEIGHT + ROW_GAP;
 	}
 }
@@ -1558,6 +1585,19 @@ static void render_prompts(void)
 	short count = 0, index;
 	boolean back = FALSE;
 
+	if (guide.about)
+	{
+		word = about_a_word(&guide.about_view);
+		if (word)
+			prompt_add(prompts, &count, UI_BUTTON_A, "ENTER", word);
+		prompt_add(prompts, &count, UI_BUTTON_B, "ESC",
+			about_b_word(&guide.about_view, guide.about_from_settings ? "BACK" : "CLOSE"));
+		ui_style_prompts(CONTENT_RIGHT, PROMPTS_Y, 15.0f, prompts, count, starts, ends);
+		for (index = 0; index < count; index++)
+			target_add(starts[index] - 4, PROMPTS_Y - 4, ends[index] + 4, PROMPTS_Y + 19, _target_prompt,
+				(short)prompts[index].button);
+		return;
+	}
 	switch (guide.section)
 	{
 	case SOCIAL_SECTION_PLAYERS_HERE:
@@ -1568,7 +1608,7 @@ static void render_prompts(void)
 		}
 		break;
 	case SOCIAL_SECTION_SETTINGS:
-		word = "CHANGE";
+		word = guide.row[guide.section] == _setting_about ? "OPEN" : "CHANGE";
 		break;
 	case SOCIAL_SECTION_FRIENDS:
 		if (friends_signed_in())
@@ -1701,11 +1741,22 @@ void guide_open(void)
 	platform_log("Guide: opened");
 }
 
+void guide_about_open(void)
+{
+	guide_open();
+	if (!guide.open)
+		return;
+	guide.about = TRUE;
+	guide.about_from_settings = FALSE;
+	about_reset(&guide.about_view);
+}
+
 void guide_close(void)
 {
 	if (!guide.open)
 		return;
 	guide.open = FALSE;
+	guide.about = FALSE;
 	guide.target_count = 0;
 	platform_guide_capture(FALSE);
 	event_manager_flush();
@@ -1793,6 +1844,27 @@ static void handle(unsigned int pressed)
 {
 	short option;
 
+	if (guide.about)
+	{
+		if (pressed & GUIDE_INPUT_B)
+		{
+			if (!about_input(&guide.about_view, ABOUT_INPUT_B))
+			{
+				if (guide.about_from_settings)
+					guide.about = FALSE;
+				else
+					guide_close();
+			}
+			return;
+		}
+		if (pressed & GUIDE_INPUT_UP)
+			about_input(&guide.about_view, ABOUT_INPUT_UP);
+		if (pressed & GUIDE_INPUT_DOWN)
+			about_input(&guide.about_view, ABOUT_INPUT_DOWN);
+		if (pressed & GUIDE_INPUT_A)
+			about_input(&guide.about_view, ABOUT_INPUT_A);
+		return;
+	}
 	if (pressed & GUIDE_INPUT_B)
 	{
 		/* (in FRIENDS' options panel: back to the list) */
@@ -1843,8 +1915,22 @@ void guide_pointer(struct halo_ui_pointer const *pointer)
 		handle(GUIDE_INPUT_B);
 		return;
 	}
+	if (guide.about && pointer->wheel_steps)
+	{
+		short step;
+
+		for (step = 0; step < ABS(pointer->wheel_steps); step++)
+			about_input(&guide.about_view, pointer->wheel_steps > 0 ? ABOUT_INPUT_UP : ABOUT_INPUT_DOWN);
+	}
 	if (!pointer->left_clicks)
 		return;
+	if (guide.about && guide.about_view.licenses_x1 > guide.about_view.licenses_x0 &&
+		pointer->click_x >= guide.about_view.licenses_x0 && pointer->click_x < guide.about_view.licenses_x1 &&
+		pointer->click_y >= guide.about_view.licenses_y0 && pointer->click_y < guide.about_view.licenses_y1)
+	{
+		about_input(&guide.about_view, ABOUT_INPUT_A);
+		return;
+	}
 	for (index = 0; index < guide.target_count; index++)
 	{
 		struct guide_target const *target = &guide.targets[index];
@@ -1926,6 +2012,14 @@ void guide_render(void)
 	ui_overlay_rect(-200, 0, 1040, 480, 0, ui_style_color(UI_COLOR_SHADE));
 	ui_style_clock((unsigned int)system_milliseconds());
 	ui_style_panel(PANEL_X, PANEL_Y, PANEL_WIDTH, PANEL_HEIGHT, 1.0f);
+	if (guide.about)
+	{
+		ui_style_card(CONTENT_LEFT, CONTENT_RIGHT, HEADER_Y, NULL, NULL, 0, "ABOUT");
+		about_render(&guide.about_view, CONTENT_LEFT, RULE_Y + 12, CONTENT_RIGHT, BODY_BOTTOM);
+		render_prompts();
+		ui_overlay_layer(0);
+		return;
+	}
 	render_card();
 	render_tabs();
 	switch (guide.section)

@@ -1921,13 +1921,15 @@ static void chupathingy_settings_about(struct widget_instance *picture)
 		"Chupathingy %s\r\n"
 		"%s\r\n"
 		"\r\n"
+		"By Milenko and contributors.\r\n"
+		"\r\n"
 		"A fan-made port of the Halo: Combat\r\n"
 		"Evolved decompilation. Not affiliated\r\n"
 		"with Microsoft or Bungie.\r\n"
 		"\r\n"
 		"Free software under the GPL-3.0.\r\n"
-		"chupathingy.org\r\n"
-		"discord.gg/chupathingy",
+		"stats.chupathingy.org\r\n"
+		"github.com/ChupathingyCE/chupathingyce",
 		version, platform);
 	for (index = 0; text[index] && index < CHUPATHINGY_ABOUT_LENGTH - 1; index++)
 		wide[index] = (wchar_t)(unsigned char)text[index];
@@ -5767,6 +5769,25 @@ static boolean pause_guide(struct widget_instance *widget)
 #endif
 }
 
+/* "port about open" (Settings' ABOUT, in the Gearbox and Chupathingy
+menus): the About screen, in the Guide (guide.c), which B closes back to
+Settings. Without the Guide (the consoles), the Chupathingy menus' picture
+shows the build instead */
+static boolean about_open(struct widget_instance *widget)
+{
+#ifdef HALO_GUIDE
+	extern void guide_about_open(void);
+
+	if (widget->local_player_index != 0)
+		return FALSE;
+	guide_about_open();
+	return TRUE;
+#else
+	(void)widget;
+	return FALSE;
+#endif
+}
+
 /* "port pause controls" (the pause menu's CONTROLS: menu_tags.c): the
 Gearbox menus' opens their Controls Setup (its handler's
 widget), on player 1's profile, edited for it if none is (OK saves it); the
@@ -9135,6 +9156,10 @@ boolean pc_menu_event_function_invoke(
 		else if (!strcmp(name, "port pause guide"))
 		{
 			return pause_guide(widget);
+		}
+		else if (!strcmp(name, "port about open"))
+		{
+			return about_open(widget);
 		}
 		else if (!strcmp(name, "port pause controls"))
 		{

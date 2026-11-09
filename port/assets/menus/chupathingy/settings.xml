@@ -108,7 +108,7 @@ The rows open the pages of settings_pages.xml. -->
 		<string text="Adjust the audio settings.\n\n\nCurrent Profile:"/>
 		<string text="Adjust the network, chat\nand privacy settings.\n\nCurrent Profile:" platform="desktop android switch"/>
 		<string text="Adjust the network\nsettings.\n\nCurrent Profile:" platform="console"/>
-		<string text="Credits: punpckhdq, bnunu and\nmore in the README.\n\nCurrent Profile:"/>
+		<string text="About Chupathingy.\n\n\nCurrent Profile:"/>
 		<string text="Save the changes made\nto this profile.\n\nCurrent Profile:"/>
 	</strings>
 </menus>

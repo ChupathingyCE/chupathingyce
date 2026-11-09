@@ -972,6 +972,12 @@ WIDGET_PATCHES = {
         f'<on event="start" open="{PE}/{CONTROLS_SCREEN}/{CONTROLS_SPEC["screen"]}"/>',
         '<on event="left_mouse" run="mouse emit accept event"/>',
     ]} for row in ("gamepads", "mouse_settings")},
+    # (ABOUT: the About screen, in the Guide: menu_functions.c's about_open)
+    f"{PE}/about_item": {"handlers": [
+        '<on event="a" run="port about open"/>',
+        '<on event="start" run="port about open"/>',
+        '<on event="left_mouse" run="mouse emit accept event"/>',
+    ]},
     f"{PE}/audio_settings_profile_item": {"set": {"string_index": 14}},
     # (the profile settings' picture: on CONTROLS' row, the profile's
     # button settings, BITMAP_FRAMES; menu_functions.c's
