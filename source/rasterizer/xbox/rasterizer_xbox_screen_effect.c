@@ -707,8 +707,9 @@ static void rasterizer_screen_effect_port_texture_transforms(
 /* port: the zoom's warp (a convolution mask and the warp convolution, as the
 sniper rifle's and the pistol's zoom draw) drawn small on the Switch, unless
 debug.original_zoom is set (halo_screen_fast_warp). The game's passes each read the whole
-screen four times and write it once, and the native builds draw several
-times the passes (the steps in _rasterizer_screen_effect): 5 ms of a 720p
+screen four times and write it once, and the native builds drew several
+times the passes (the steps _rasterizer_screen_effect drew before its extra
+passes): 5 ms of a 720p
 frame's GPU time. Here the screen is copied to a target of about 360 lines,
 the game's own passes (as many as the Xbox drew, with its own spread) blur
 that copy, and one pass over the screen blends the blur over it
@@ -1029,7 +1030,8 @@ static boolean rasterizer_screen_effect_port_fast_warp(
 on the Switch, unless debug.original_blur is set (halo_screen_fast_blur).
 Each of its passes averages four copies of the screen, apart diagonally by
 its radius; the native builds drew several times the passes at the
-display's resolution (the steps in _rasterizer_screen_effect), up to 24
+display's resolution (the steps _rasterizer_screen_effect drew before its
+extra passes), up to 24
 passes of 1080p in a cutscene, 39 ms of a frame. Here the game's own passes,
 as many as the Xbox drew with its radius, go through the targets of the
 zoom's warp (about 360 lines): the first reads the screen and writes a small
@@ -1127,6 +1129,44 @@ static boolean rasterizer_screen_effect_port_small_blur(
 	return TRUE;
 }
 #endif
+
+/* port: the passes a convolution (a scope's zoom warp, a cutscene's blur)
+draws after the game's own on a screen of screen_scale pixels to the
+Xbox's one. Each pass blends copies of the screen a radius apart; at
+640x480 they melt into a blur, and at several times the pixels they stand
+apart as ghosts. Two more passes, at a third and a ninth of the radius,
+fill each gap with eight more copies, enough up to nine pixels to the
+Xbox's one (2160 lines are 4.5); two more again up to 81. The count stays
+even, so the last pass still draws into the screen. None at 640x480. */
+static short rasterizer_screen_effect_extra_passes(
+	real screen_scale)
+{
+	short passes = 0;
+	real covered = 1.0f;
+
+	while (screen_scale > covered && passes < 4)
+	{
+		passes += 2;
+		covered *= 9.0f;
+	}
+
+	return passes;
+}
+
+/* port: the radius of a convolution's pass: the game's passes keep the
+effect's radius, and each extra pass after them a third of the one before */
+static real rasterizer_screen_effect_pass_radius(
+	real radius,
+	short pass,
+	short game_pass_count)
+{
+	short extra;
+
+	for (extra = game_pass_count; extra <= pass; extra++)
+		radius /= 3.0f;
+
+	return radius;
+}
 
 /* ---------- public code */
 
@@ -1241,9 +1281,15 @@ void _rasterizer_screen_effect(
 		one (halo_screen_scale): a convolution's few copies of the screen,
 		apart by its radius in the Xbox's pixels, blended into a blur at
 		640x480, and at four times the pixels they stand apart as sharp
-		ghosts (the zoom's warp). The same spread in that many times the
-		passes, each a step of it, blends them again. */
+		ghosts (the zoom's warp). The game's passes are drawn as they are,
+		and a few more at smaller radii fill the gaps between the copies
+		(rasterizer_screen_effect_extra_passes). It used to split the radius
+		over up to six times the passes: ten full-screen passes at 2160
+		lines, which halved the frame rate zoomed in and narrowed the blur
+		to under half the Xbox's. */
 		struct rasterizer_cinematic_screen_effect_parameters scaled_parameters;
+		struct rasterizer_cinematic_screen_effect_parameters const *game_parameters = parameters;
+		short game_pass_count = pass_count;
 
 		if (parameters->convolution_type != _rasterizer_screen_effect_convolution_type_none && !parameters->video_on
 #ifdef HALO_SWITCH_CONSOLE
@@ -1251,16 +1297,13 @@ void _rasterizer_screen_effect(
 #endif
 			)
 		{
-			long steps = (long)(halo_screen_scale() + 0.999f);
+			short extra_passes = rasterizer_screen_effect_extra_passes(halo_screen_scale());
 
-			if (steps > 6)
-				steps = 6;
-			if (steps > 1)
+			if (extra_passes > 0)
 			{
 				scaled_parameters = *parameters;
-				scaled_parameters.convolution_radius /= (real)steps;
 				parameters = &scaled_parameters;
-				pass_count *= (short)steps;
+				pass_count += extra_passes;
 			}
 		}
 		short source_target;
@@ -1551,7 +1594,17 @@ void _rasterizer_screen_effect(
 			}
 			else
 #endif
-			rasterizer_screen_effect_set_texture_transforms(parameters, pass, pass_count);
+			{
+				/* port: this pass's radius (the extra passes, above) */
+				if (parameters == &scaled_parameters)
+				{
+					scaled_parameters.convolution_radius = rasterizer_screen_effect_pass_radius(
+						game_parameters->convolution_radius,
+						pass,
+						game_pass_count);
+				}
+				rasterizer_screen_effect_set_texture_transforms(parameters, pass, pass_count);
+			}
 
 #ifdef HALO_XBOX_CONSOLE
 			screen_effect_source_swizzled = FALSE;

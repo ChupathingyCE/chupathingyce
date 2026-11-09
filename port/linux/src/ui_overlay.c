@@ -54,6 +54,11 @@ enum
 	/* (a quad's radius that marks it as an icon's, or as the picture's) */
 	ICON_MARK = -2,
 	PICTURE_MARK = -3,
+	/* (the plasma's: ui_overlay_plasma) */
+	PLASMA_MARK = -4,
+	/* the overlay's own noise for the plasma, when the player's ui.map gave
+	none: this many texels square, tiling */
+	PLASMA_NOISE_SIZE = 128,
 };
 extern const int ui_prompt_icon_size;
 extern const unsigned int *const ui_prompt_icons[NUMBER_OF_ICONS];
@@ -67,7 +72,7 @@ enum
 	MAXIMUM_GLYPHS = 4096,
 	MAXIMUM_TEXT = 64 * 1024,
 	MAXIMUM_TEXTS = 4096,
-	MAXIMUM_LAYERS = 4,
+	MAXIMUM_LAYERS = 5,
 };
 
 /* a quad as gathered (layout coordinates) */
@@ -114,6 +119,16 @@ static struct
 	and the serial in the texture */
 	int picture_serial, picture_width, picture_height, picture_uploaded;
 	unsigned char *picture_pixels;
+	/* the plasma's noise map (ui_overlay_plasma_source, else the overlay's
+	own noise: serial -1), the serial in its texture, and the second map's
+	place from the first's this frame (x, y, then its scale), and whether a
+	plasma is drawn this frame */
+	GLuint plasma;
+	GLint plasma_location, plasma_shift_location;
+	int plasma_serial, plasma_width, plasma_height, plasma_uploaded;
+	unsigned char *plasma_pixels;
+	float plasma_shift[4];
+	int plasma_drawn;
 	/* each icon's drawn columns (from its left, of ui_prompt_icon_size) */
 	int icon_left[NUMBER_OF_ICONS], icon_right[NUMBER_OF_ICONS];
 	int icons_measured;
@@ -637,6 +652,151 @@ void ui_overlay_picture(int serial, const unsigned char *pixels, int width, int 
 	quad->v1 = 1.0f;
 }
 
+/* ---------- the plasma */
+
+/* the overlay's own noise: smooth value noise in octaves, tiling (from a
+fixed seed: the same each run), white with the noise as its alpha */
+static void plasma_noise(void)
+{
+	enum { CELLS = 4 };
+	unsigned char *pixels;
+	float lattice[3][32][32];
+	unsigned int seed = 0x9E3779B9u;
+	int octave, x, y;
+
+	pixels = malloc(PLASMA_NOISE_SIZE * PLASMA_NOISE_SIZE * 4);
+	if (!pixels)
+		return;
+	for (octave = 0; octave < 3; octave++)
+	{
+		for (y = 0; y < 32; y++)
+		{
+			for (x = 0; x < 32; x++)
+			{
+				seed = seed * 1664525u + 1013904223u;
+				lattice[octave][y][x] = (float)(seed >> 8) / 16777216.0f;
+			}
+		}
+	}
+	for (y = 0; y < PLASMA_NOISE_SIZE; y++)
+	{
+		for (x = 0; x < PLASMA_NOISE_SIZE; x++)
+		{
+			float value = 0.0f, weight = 0.6f;
+
+			for (octave = 0; octave < 3; octave++)
+			{
+				int cells = CELLS << octave;
+				float fx = (float)x * cells / PLASMA_NOISE_SIZE, fy = (float)y * cells / PLASMA_NOISE_SIZE;
+				int x0 = (int)fx, y0 = (int)fy, x1 = (x0 + 1) % cells, y1 = (y0 + 1) % cells;
+				float tx = fx - x0, ty = fy - y0;
+				float a, b;
+
+				/* (smoothstep between the lattice's corners) */
+				tx = tx * tx * (3.0f - 2.0f * tx);
+				ty = ty * ty * (3.0f - 2.0f * ty);
+				a = lattice[octave][y0][x0] + (lattice[octave][y0][x1] - lattice[octave][y0][x0]) * tx;
+				b = lattice[octave][y1][x0] + (lattice[octave][y1][x1] - lattice[octave][y1][x0]) * tx;
+				value += (a + (b - a) * ty) * weight;
+				weight *= 0.5f;
+			}
+			value /= 1.05f;
+			pixels[(y * PLASMA_NOISE_SIZE + x) * 4] = 255;
+			pixels[(y * PLASMA_NOISE_SIZE + x) * 4 + 1] = 255;
+			pixels[(y * PLASMA_NOISE_SIZE + x) * 4 + 2] = 255;
+			pixels[(y * PLASMA_NOISE_SIZE + x) * 4 + 3] = (unsigned char)(value < 0.0f ? 0 : value > 1.0f ? 255 :
+				value * 255.0f);
+		}
+	}
+	free(overlay.plasma_pixels);
+	overlay.plasma_pixels = pixels;
+	overlay.plasma_width = overlay.plasma_height = PLASMA_NOISE_SIZE;
+	overlay.plasma_serial = -1;
+}
+
+void ui_overlay_plasma_source(int serial, const unsigned char *pixels, int width, int height)
+{
+	unsigned char *copy;
+
+	if (!serial || serial == overlay.plasma_serial || !pixels || width <= 0 || height <= 0)
+		return;
+	copy = malloc((size_t)width * (size_t)height * 4);
+	if (!copy)
+		return;
+	memcpy(copy, pixels, (size_t)width * (size_t)height * 4);
+	free(overlay.plasma_pixels);
+	overlay.plasma_pixels = copy;
+	overlay.plasma_width = width;
+	overlay.plasma_height = height;
+	overlay.plasma_serial = serial;
+}
+
+int ui_overlay_plasma_from_texture(const void *hardware_format)
+{
+#ifdef HALO_CONSOLE_NO_GUIDE
+	(void)hardware_format;
+	return 0;
+#else
+	unsigned long width = 0, height = 0;
+	unsigned char *pixels;
+
+	if (!hardware_format)
+		return 0;
+	if (overlay.plasma_serial > 0)
+		return 1;
+	pixels = xgpu_texture_rgba((const DWORD *)hardware_format, &width, &height);
+	if (!pixels)
+		return 0;
+	/* (serial 1: the game's own, never read again) */
+	ui_overlay_plasma_source(1, pixels, (int)width, (int)height);
+	free(pixels);
+	platform_log("Guide: the plasma is drawn from ui.map's (%lux%lu)", width, height);
+	return 1;
+#endif
+}
+
+/* (the game's compute_offset_coordinate: how far a map has scrolled, a
+share of its size) */
+static float plasma_scroll(unsigned int time, float per_second)
+{
+	return (float)fmod((double)per_second * 0.001 * (double)time, 1.0);
+}
+
+void ui_overlay_plasma(float x, float y, float width, float height, float radius, unsigned int color,
+	unsigned int time)
+{
+	/* the menus' two maps: one 311 pixels of the screen a repeat, the other
+	201, each scrolled at its own pace (ui_widget.c) */
+	const float first = 311.0f, second = 201.0f;
+	float first_x = plasma_scroll(time, 0.03215434f), first_y = plasma_scroll(time, 0.026795285f);
+	float second_x = -plasma_scroll(time, 0.035536603f), second_y = -plasma_scroll(time, 0.031094525f);
+	struct quad *quad;
+
+	if (!overlay.plasma_pixels)
+		plasma_noise();
+	quad = new_quad();
+	if (!quad)
+		return;
+	quad->x = x;
+	quad->y = y;
+	quad->width = width;
+	quad->height = height;
+	quad->radius = PLASMA_MARK;
+	quad->thickness = radius;
+	quad->top = quad->bottom = color;
+	/* (the first map's place, anchored to the screen as the menus' is; the
+	second's from it, by the shader) */
+	quad->u0 = x / first + first_x;
+	quad->v0 = y / first + first_y;
+	quad->u1 = (x + width) / first + first_x;
+	quad->v1 = (y + height) / first + first_y;
+	overlay.plasma_shift[0] = second_x - first_x * first / second;
+	overlay.plasma_shift[1] = second_y - first_y * first / second;
+	overlay.plasma_shift[2] = first / second;
+	overlay.plasma_shift[3] = 0.0f;
+	overlay.plasma_drawn = 1;
+}
+
 static int face_button(int button)
 {
 	return button >= UI_BUTTON_A && button <= UI_BUTTON_Y;
@@ -735,6 +895,31 @@ float ui_overlay_button(int button, float size, float x, float y, unsigned int c
 	}
 }
 
+int ui_overlay_keyboard(void)
+{
+	return scheme() == 0;
+}
+
+float ui_overlay_key_width(const char *label, float size)
+{
+	return pill_width(label ? label : "", size);
+}
+
+float ui_overlay_key(const char *label, float size, float x, float y, unsigned int color)
+{
+	float share = (float)(color & 0xFF) / 255.0f;
+	float width = pill_width(label ? label : "", size);
+	float height = size * 0.78f, top_y = y + (size - height) * 0.5f;
+	float label_size = pill_text_size(size);
+
+	ui_overlay_rect(x, top_y + size * 0.06f, width, height, height * 0.22f, fade(0x00000070, share));
+	ui_overlay_gradient(x, top_y, width, height, height * 0.22f, fade(0xF2F5FAFF, share), fade(0xA9B3C2FF, share));
+	ui_overlay_outline(x, top_y, width, height, height * 0.22f, 0.75f, fade(0x5F6B7DFF, share));
+	add_text(POSIX_UI_FONT_MENU, label_size, x + width * 0.5f, top_y + (height - label_size) * 0.5f + 0.2f,
+		UI_ALIGN_CENTER, fade(0x1A2230FF, share), label ? label : "");
+	return width;
+}
+
 /* ---------- the platforms' logos */
 
 /* (platform_icons.ttf: one logo per platform of delta.h's registry, at
@@ -798,6 +983,8 @@ static const char fragment_source[] =
 	"uniform sampler2DArray icons;\n"
 #endif
 	"uniform sampler2D picture;\n"
+	"uniform sampler2D plasma;\n"
+	"uniform vec4 plasma_shift;\n"
 	"uniform vec4 cutouts[4];\n"
 	"uniform float window_height;\n"
 #ifdef HALO_CONSOLE_GLES2
@@ -817,6 +1004,22 @@ static const char fragment_source[] =
 	"\tfor (int i = 0; i < 4; i++)\n"
 	"\t\tif (p.x >= cutouts[i].x && p.y >= cutouts[i].y && p.x < cutouts[i].z && p.y < cutouts[i].w)\n"
 	"\t\t\tdiscard;\n"
+	/* the plasma: the noise map twice, at the menus' two scales, its bright
+	threads where the two meet, in a rounded rectangle (edge.y its corners'
+	radius) */
+	"\tif (v_edge.x < -3.5)\n"
+	"\t{\n"
+	"\t\tvec2 q = abs(v_shape.xy) - v_shape.zw + vec2(v_edge.y);\n"
+	"\t\tfloat d = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - v_edge.y;\n"
+	"\t\tvec4 t0 = texture(plasma, v_texture_coordinate);\n"
+	"\t\tvec4 t1 = texture(plasma, v_texture_coordinate * plasma_shift.z + plasma_shift.xy);\n"
+	"\t\tfloat a0 = t0.a * dot(t0.rgb, vec3(0.3333));\n"
+	"\t\tfloat a1 = t1.a * dot(t1.rgb, vec3(0.3333));\n"
+	"\t\tfloat thread = pow(clamp(1.0 - abs(a0 - a1) * 3.0, 0.0, 1.0), 8.0);\n"
+	"\t\tvec3 color = v_color.rgb * (0.8 + 0.6 * a0 * a1) + vec3(0.2, 0.45, 1.0) * thread * 0.18;\n"
+	"\t\tfragment = vec4(color, v_color.a * clamp(0.5 - d, 0.0, 1.0) * (0.92 + 0.08 * thread));\n"
+	"\t\treturn;\n"
+	"\t}\n"
 	/* the picture */
 	"\tif (v_edge.x < -2.5)\n"
 	"\t{\n"
@@ -852,7 +1055,7 @@ static const char fragment_source[] =
 
 static GLuint compile(GLenum type, const char *body)
 {
-	char source[4096];
+	char source[8192];
 	GLuint shader = glCreateShader(type);
 	const char *pointer = source;
 	GLint status = 0;
@@ -961,6 +1164,8 @@ static int set_up(void)
 	overlay.y_flip_location = glGetUniformLocation(overlay.program, "y_flip");
 #endif
 	overlay.picture_location = glGetUniformLocation(overlay.program, "picture");
+	overlay.plasma_location = glGetUniformLocation(overlay.program, "plasma");
+	overlay.plasma_shift_location = glGetUniformLocation(overlay.program, "plasma_shift");
 	overlay.cutouts_location = glGetUniformLocation(overlay.program, "cutouts");
 	overlay.window_height_location = glGetUniformLocation(overlay.program, "window_height");
 
@@ -1048,6 +1253,15 @@ static int set_up(void)
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	/* the plasma's (filled when a plasma is first drawn), tiling */
+	glGenTextures(1, &overlay.plasma);
+	glBindTexture(GL_TEXTURE_2D, overlay.plasma);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, &zero_texel);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+	overlay.plasma_uploaded = 0;
 	glBindVertexArray((GLuint)saved_vertex_array);
 	glBindBuffer(GL_ARRAY_BUFFER, (GLuint)saved_array_buffer);
 	glBindTexture(GL_TEXTURE_2D, (GLuint)saved_texture);
@@ -1269,6 +1483,24 @@ static int build_vertices(int shape_count, float scale, float origin_x, float or
 			put_vertex(&v[4], right, bottom, quad->u1, quad->v1, layer_index, 0, 0, 0, mark, 0, top_color);
 			put_vertex(&v[5], left, bottom, quad->u0, quad->v1, layer_index, 0, 0, 0, mark, 0, top_color);
 		}
+		else if (index < shape_count && quad->radius == PLASMA_MARK)
+		{
+			/* the plasma: a shape (its corners' radius in edge.y), with the
+			first map's place as its texture coordinates */
+			left = origin_x + quad->x * scale;
+			top = origin_y + quad->y * scale;
+			right = left + quad->width * scale;
+			bottom = top + quad->height * scale;
+			half_width = (right - left) * 0.5f;
+			half_height = (bottom - top) * 0.5f;
+			radius = quad->thickness * scale;
+			put_vertex(&v[0], left, top, quad->u0, quad->v0, -half_width, -half_height, half_width, half_height, PLASMA_MARK, radius, top_color);
+			put_vertex(&v[1], right, top, quad->u1, quad->v0, half_width, -half_height, half_width, half_height, PLASMA_MARK, radius, top_color);
+			put_vertex(&v[2], left, bottom, quad->u0, quad->v1, -half_width, half_height, half_width, half_height, PLASMA_MARK, radius, bottom_color);
+			put_vertex(&v[3], right, top, quad->u1, quad->v0, half_width, -half_height, half_width, half_height, PLASMA_MARK, radius, top_color);
+			put_vertex(&v[4], right, bottom, quad->u1, quad->v1, half_width, half_height, half_width, half_height, PLASMA_MARK, radius, bottom_color);
+			put_vertex(&v[5], left, bottom, quad->u0, quad->v1, -half_width, half_height, half_width, half_height, PLASMA_MARK, radius, bottom_color);
+		}
 		else if (index < shape_count)
 		{
 			/* a shape: layout to window pixels, a pixel larger all round for
@@ -1390,12 +1622,14 @@ void ui_overlay_present(int x, int y, int width, int height, int window_width, i
 		xgpu_bgfx_overlay_draw(overlay.vertices, count, (int)sizeof(struct vertex), overlay.atlas_texels, ATLAS_SIZE,
 			overlay.dirty_top, overlay.dirty_bottom, overlay.icon_texels, ui_prompt_icon_size, NUMBER_OF_ICONS,
 			overlay.picture_pixels, overlay.picture_width, overlay.picture_height, overlay.picture_serial,
-			(const float (*)[4])cutouts, window_width, window_height);
+			overlay.plasma_drawn ? overlay.plasma_pixels : NULL, overlay.plasma_width, overlay.plasma_height,
+			overlay.plasma_serial, overlay.plasma_shift, (const float (*)[4])cutouts, window_width, window_height);
 		overlay.dirty_top = ATLAS_SIZE;
 		overlay.dirty_bottom = 0;
 		overlay.quad_count = overlay.text_count = overlay.text_used = 0;
 		overlay.cutout_count = 0;
 		overlay.layer = 0;
+		overlay.plasma_drawn = 0;
 		if (atlas_full)
 			forget_glyphs();
 		return;
@@ -1408,6 +1642,7 @@ void ui_overlay_present(int x, int y, int width, int height, int window_width, i
 	/* (the game's renderer binds a sampler to each unit, which would filter
 	the atlas as it filters its textures) */
 	GLint saved_sampler = 0, saved_icons = 0, saved_icons_sampler = 0, saved_picture = 0, saved_picture_sampler = 0;
+	GLint saved_plasma = 0, saved_plasma_sampler = 0;
 	GLint saved_viewport[4] = { 0, 0, 0, 0 };
 	GLboolean saved_blend = glIsEnabled(GL_BLEND), saved_depth = glIsEnabled(GL_DEPTH_TEST),
 		saved_stencil = glIsEnabled(GL_STENCIL_TEST), saved_cull = glIsEnabled(GL_CULL_FACE),
@@ -1475,6 +1710,24 @@ void ui_overlay_present(int x, int y, int width, int height, int window_width, i
 			put_vertex(&v[3], right, top, quad->u1, quad->v0, layer_index, 0, 0, 0, mark, 0, top_color);
 			put_vertex(&v[4], right, bottom, quad->u1, quad->v1, layer_index, 0, 0, 0, mark, 0, top_color);
 			put_vertex(&v[5], left, bottom, quad->u0, quad->v1, layer_index, 0, 0, 0, mark, 0, top_color);
+		}
+		else if (index < shape_count && quad->radius == PLASMA_MARK)
+		{
+			/* the plasma: a shape (its corners' radius in edge.y), with the
+			first map's place as its texture coordinates */
+			left = origin_x + quad->x * scale;
+			top = origin_y + quad->y * scale;
+			right = left + quad->width * scale;
+			bottom = top + quad->height * scale;
+			half_width = (right - left) * 0.5f;
+			half_height = (bottom - top) * 0.5f;
+			radius = quad->thickness * scale;
+			put_vertex(&v[0], left, top, quad->u0, quad->v0, -half_width, -half_height, half_width, half_height, PLASMA_MARK, radius, top_color);
+			put_vertex(&v[1], right, top, quad->u1, quad->v0, half_width, -half_height, half_width, half_height, PLASMA_MARK, radius, top_color);
+			put_vertex(&v[2], left, bottom, quad->u0, quad->v1, -half_width, half_height, half_width, half_height, PLASMA_MARK, radius, bottom_color);
+			put_vertex(&v[3], right, top, quad->u1, quad->v0, half_width, -half_height, half_width, half_height, PLASMA_MARK, radius, top_color);
+			put_vertex(&v[4], right, bottom, quad->u1, quad->v1, half_width, half_height, half_width, half_height, PLASMA_MARK, radius, bottom_color);
+			put_vertex(&v[5], left, bottom, quad->u0, quad->v1, -half_width, half_height, half_width, half_height, PLASMA_MARK, radius, bottom_color);
 		}
 		else if (index < shape_count)
 		{
@@ -1556,6 +1809,22 @@ void ui_overlay_present(int x, int y, int width, int height, int window_width, i
 		overlay.picture_uploaded = overlay.picture_serial;
 	}
 	glUniform1i(overlay.picture_location, 2);
+	/* the plasma's noise map, on the fourth unit (only while a plasma is
+	drawn: the Guide's, nothing when it is closed) */
+	glActiveTexture(GL_TEXTURE3);
+	glGetIntegerv(GL_TEXTURE_BINDING_2D, &saved_plasma);
+	glGetIntegerv(GL_SAMPLER_BINDING, &saved_plasma_sampler);
+	glBindSampler(3, 0);
+	glBindTexture(GL_TEXTURE_2D, overlay.plasma);
+	if (overlay.plasma_drawn && overlay.plasma_pixels && overlay.plasma_serial != overlay.plasma_uploaded)
+	{
+		glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, overlay.plasma_width, overlay.plasma_height, 0, GL_RGBA,
+			GL_UNSIGNED_BYTE, overlay.plasma_pixels);
+		overlay.plasma_uploaded = overlay.plasma_serial;
+	}
+	glUniform1i(overlay.plasma_location, 3);
+	glUniform4fv(overlay.plasma_shift_location, 1, overlay.plasma_shift);
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, overlay.atlas);
 	glUniform1i(overlay.atlas_location, 0);
@@ -1583,6 +1852,9 @@ void ui_overlay_present(int x, int y, int width, int height, int window_width, i
 	glBindVertexArray((GLuint)saved_vertex_array);
 	glBindBuffer(GL_ARRAY_BUFFER, (GLuint)saved_array_buffer);
 	glUseProgram((GLuint)saved_program);
+	glActiveTexture(GL_TEXTURE3);
+	glBindTexture(GL_TEXTURE_2D, (GLuint)saved_plasma);
+	glBindSampler(3, (GLuint)saved_plasma_sampler);
 	glActiveTexture(GL_TEXTURE2);
 	glBindTexture(GL_TEXTURE_2D, (GLuint)saved_picture);
 	glBindSampler(2, (GLuint)saved_picture_sampler);
@@ -1610,6 +1882,7 @@ void ui_overlay_present(int x, int y, int width, int height, int window_width, i
 	overlay.quad_count = overlay.text_count = overlay.text_used = 0;
 	overlay.cutout_count = 0;
 	overlay.layer = 0;
+	overlay.plasma_drawn = 0;
 	if (atlas_full)
 		forget_glyphs();
 }

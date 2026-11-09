@@ -417,6 +417,13 @@ void browser_connect_stop(void);
 void browser_connect_answer(int accept);
 void browser_connect_get(struct browser_connect *connect);
 
+/* presence (study 0.1; social.h): the game says, about once a second,
+whether this copy plays a Delta game now (a multiplayer game over the
+network whose host speaks Delta); the browser thread tells the site which
+game (its invite) about once a minute while it does and
+network.share_presence is on. Not on the consoles (HALO_CONSOLE_NO_GUIDE) */
+void browser_presence_playing(int playing);
+
 /* Delta Profile in the game (port/linux/game/profile_screen.c;
 delta_profile.h): this copy's own profile, as the site has it, kept in
 memory only. browser_profile_load asks the site for it (in the background:
