@@ -1943,8 +1943,8 @@ would. A token the site can't use gets 401 `{"token": "unknown" |
    derived from it, and older sites only know it.
 
 **On the device.** `delta_device.key` in the save root holds the device
-key's 32-byte seed as 64 hex digits, written and read like the player key
-(readable by its owner alone, opened without following links).
+key's 32-byte seed, written and read like the player key (32 raw bytes,
+readable by its owner alone, opened without following links).
 `delta_device.cert` beside it holds the answer's certificate and issuer
 certificate (public data). Neither is ever logged. Consoles leave stage A
 out (`HALO_CONSOLE_NO_DELTA_IDENTITY`) until their own endpoints come.
