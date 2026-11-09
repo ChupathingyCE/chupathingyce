@@ -94,6 +94,7 @@ their handlers open opens.
 #include "networking/network_connection.h"
 /* (the game list's filter and the campaign levels: every build) */
 #include "../src/browser.h"
+#include "../src/launcher.h"
 #include "delta.h"
 #ifdef HALO_GAME_BROWSER
 #include "halo_port_limits.h"
@@ -1871,9 +1872,12 @@ static void profile_gamepad_layout(struct widget_instance *picture)
 }
 
 /* the Chupathingy menus' settings picture (port/assets/menus/chupathingy):
-a frame for each of its eight rows, then the Xbox's five button settings,
+a frame for each of its nine rows (SETUP's last), then the Xbox's five button settings,
 which CONTROLS' row shows for the edited profile */
-#define CHUPATHINGY_FIRST_LAYOUT_FRAME 8
+#define CHUPATHINGY_FIRST_LAYOUT_FRAME 9
+/* SETUP's frame, and its words in the descriptions (after ABOUT's) */
+#define CHUPATHINGY_SETUP_FRAME 7
+#define CHUPATHINGY_SETUP_DESCRIPTION 7
 
 /* ABOUT's row (the picture's frame for it is blank): this build and the
 project, in the picture's place (its about_text) */
@@ -1938,7 +1942,19 @@ static void chupathingy_settings_about(struct widget_instance *picture)
 /* "chupathingy settings picture" (the picture's own) */
 static void chupathingy_settings_picture(struct widget_instance *picture)
 {
+	extern boolean pc_menu_setup_shown(void);
 	struct player_profile *profile = player_ui_get_edit_player_profile();
+
+	/* (without SETUP, SAVE CHANGES is in its place: its words and picture,
+	the next ones) */
+	if (!pc_menu_setup_shown() && picture->animation.current_frame_index == CHUPATHINGY_SETUP_FRAME)
+	{
+		struct widget_instance *text = named(picture->parent, "description_text", 0);
+
+		picture->animation.current_frame_index = CHUPATHINGY_SETUP_FRAME + 1;
+		if (text)
+			text->parameters.text_box.string_list_index = CHUPATHINGY_SETUP_DESCRIPTION + 1;
+	}
 
 	chupathingy_settings_about(picture);
 	if (picture->animation.current_frame_index == PROFILE_GAMEPAD_FRAME)
@@ -5749,6 +5765,30 @@ static boolean pause_moderation(void)
 #endif
 }
 
+/* ---------- SETUP (port/assets/menus/chupathingy/setup_entry.xml): back to
+the setup screen, by starting Chupathingy again on it (launcher.c); in the
+menus' settings of every menu set, unless launcher.menu_entry is false (the
+builds without the setup screen have none) */
+
+boolean pc_menu_setup_offered(void)
+{
+#ifdef HALO_LAUNCHER
+	return config_boolean("launcher.menu_entry") != 0;
+#else
+	return FALSE;
+#endif
+}
+
+/* "port setup open" (its A) */
+boolean pc_menu_setup_open(void)
+{
+#ifdef HALO_LAUNCHER
+	return launcher_restart_to_setup() != 0;
+#else
+	return FALSE;
+#endif
+}
+
 /* "port pause guide" (the pause menu's GUIDE: menu_tags.c): the Guide over
 the pause menu (guide.c), which B closes back to it */
 static boolean pause_guide(struct widget_instance *widget)
@@ -9131,6 +9171,10 @@ boolean pc_menu_event_function_invoke(
 		else if (!strcmp(name, "port pause moderation"))
 		{
 			return pause_moderation();
+		}
+		else if (!strcmp(name, "port setup open"))
+		{
+			return pc_menu_setup_open();
 		}
 		else if (!strcmp(name, "port pause guide"))
 		{

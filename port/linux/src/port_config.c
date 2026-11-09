@@ -1030,6 +1030,9 @@ static const struct config_setting config_settings[] =
 	{ "launcher.hold_to_open", _config_boolean, "true", "HALO_LAUNCHER_HOLD", _environment_value, _platform_desktop,
 		"Holding Shift or a controller's Back (View) button while Chupathingy\n"
 		"starts opens the setup screen." },
+	{ "launcher.menu_entry", _config_boolean, "true", "HALO_LAUNCHER_MENU_ENTRY", _environment_value, _platform_desktop,
+		"SETUP in the menus' settings, which starts Chupathingy again on the\n"
+		"setup screen. false leaves it out." },
 	{ "launcher.mode_choice", _config_string, "\"ask\"", "HALO_LAUNCHER_MODE_CHOICE", _environment_value,
 		_platform_desktop,
 		"What to do when there is more than one way to play, like a map pack\n"
