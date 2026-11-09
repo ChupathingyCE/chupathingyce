@@ -369,6 +369,7 @@ static void test_console(void)
 	claims = 0;
 	CHECK(game_ended(1));
 	CHECK(claims == CONSOLE_CLAIMS_ATTEMPTS);
+	CHECK(strstr(last_log, "no report of the game") != NULL);
 
 	/* the identity file first, as the reports */
 	has_key = 1;

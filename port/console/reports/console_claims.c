@@ -231,6 +231,10 @@ static void claim_thread(void *context)
 	}
 	if (status == 200)
 		snprintf(line, sizeof(line), "Delta profile: the game was claimed for the linked profile (%.48s)", reply);
+	else if (status == 404)
+		/* (no report of it reached the site: a System Link game, or one whose
+		players don't report) */
+		snprintf(line, sizeof(line), "Delta profile: the site has no report of the game, so it was not claimed");
 	else if (status)
 		snprintf(line, sizeof(line), "Delta profile: the game was not claimed (%d %.64s)", status, reply);
 	else
