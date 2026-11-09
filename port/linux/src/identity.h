@@ -1,8 +1,8 @@
 /*
 IDENTITY.H
 
-Delta's device identity, stage A (docs/delta.md, "Device identity"): this
-copy's device key, the site's device certificates (CDEV) for it under an
+Delta's device identity (docs/delta.md, "Device identity" and "Devices"):
+this copy's device key, the site's device certificates (CDEV) for it under an
 issuer certificate (CISS) the identity root keys vouch for
 (identity_key.h), the revocation list (CREV), the requests a device signs,
 and when to enroll, refresh and get a token (browser.c's thread does the
@@ -51,6 +51,18 @@ enum
 	IDENTITY_CAN_PROFILE = 0x04,
 	IDENTITY_CAN_MODERATE = 0x08,
 	IDENTITY_CAN_SOCIAL = 0x10,
+	/* approve another device's code, revoke another device (stage B) */
+	IDENTITY_CAN_DEVICES = 0x20,
+};
+
+/* sign-in by code (Quick Connect): the code's characters (as a console's
+Link Profile code), and the text the device shows, ABCD-EFGH and a NUL */
+enum
+{
+	IDENTITY_CODE_LENGTH = 8,
+	IDENTITY_CODE_TEXT = IDENTITY_CODE_LENGTH + 2,
+	/* a poll token: 64 hex digits and a NUL */
+	IDENTITY_POLL_TOKEN_SIZE = 65,
 };
 
 /* why a certificate or list is not one to trust (0: it is) */
@@ -147,6 +159,21 @@ int identity_refresh_message(const char *audience, const unsigned char *nonce, c
 	unsigned char *out);
 int identity_token_message(const char *audience, const unsigned char *nonce, const unsigned char *device_id,
 	unsigned char *out);
+/* Quick Connect's: its start (the device's key), its answer to an approval
+(yes or no, for the profile it showed), and signing out */
+int identity_start_message(const char *audience, const unsigned char *nonce, const unsigned char *public_key,
+	unsigned char *out);
+int identity_confirm_message(const char *audience, const unsigned char *nonce, const unsigned char *device_id,
+	int accept, const char *handle, unsigned char *out);
+int identity_signout_message(const char *audience, const unsigned char *nonce, const unsigned char *device_id,
+	unsigned char *out);
+/* the code a device shows (ABCD-EFGH) for its key and the site's code
+nonce: IDENTITY_CODE_TEXT bytes into code */
+void identity_device_code(const unsigned char *public_key, const unsigned char *code_nonce, char *code);
+/* a code as typed (any case, a dash or spaces or not): its 8 characters in
+the code alphabet into code (IDENTITY_CODE_TEXT, shown with the dash): 1,
+or 0 for one that isn't */
+int identity_clean_code(const char *typed, char *code);
 /* the audience of a site's address (network.browser_url): its host,
 lowercase, without the scheme, port or path; 1 to 253 of a-z 0-9 . -.
 Its length, or 0 when the address has none */
@@ -170,11 +197,19 @@ int identity_enroll_body(char *out, int size, const char *player_key_hex, const 
 	const char *nonce_hex, const unsigned char *signature, const char *platform, const char *build);
 int identity_signed_body(char *out, int size, const unsigned char *device_id, const char *nonce_hex,
 	const unsigned char *signature);
+int identity_start_body(char *out, int size, const unsigned char *public_key, const char *nonce_hex,
+	const unsigned char *signature, const char *platform, const char *build, const char *name);
+int identity_confirm_body(char *out, int size, const char *poll_token, const unsigned char *device_id,
+	const char *nonce_hex, const unsigned char *signature, int accept);
 /* an answer's parts: 1, or 0 for an answer without them */
 int identity_nonce_answer(const char *json, char *nonce_hex, unsigned char *nonce);
 int identity_certificate_answer(const char *json, unsigned char *certificate, int *certificate_size,
 	unsigned char *issuer, int *issuer_size);
 int identity_token_answer(const char *json, char *token, int size, unsigned long *lifetime);
+/* /v1/identity/device/start's: the code nonce (16 bytes), the poll token,
+how often to poll and how long the code lives (seconds) */
+int identity_start_answer(const char *json, unsigned char *code_nonce, char *poll_token, unsigned long *interval,
+	unsigned long *lifetime);
 
 /* ---------- when to ask (browser.c's thread keeps the state) */
 
@@ -239,6 +274,9 @@ struct identity_state
 	unsigned long token_until;
 	/* tokens not sent before this (a site that wants the key) */
 	unsigned long tokens_off_until;
+	/* signed out by its player (stage B): nothing goes to the site as the
+	account, the key neither, until it signs in again by code */
+	int signed_out;
 };
 
 /* the step due now (the player key's file there or not) */
@@ -268,6 +306,19 @@ enum
 	IDENTITY_SENT_UNKNOWN_TOKEN,
 };
 int identity_token_sent(struct identity_state *state, int status, const char *response, unsigned long now);
+/* more than one account on a copy (docs/delta.md, Devices): each Halo
+profile that signs in to its own account has a device key of its own,
+delta_device_<n>.key and .cert (n from 1); delta_accounts.txt in the save
+root maps a Halo profile (its save folder's name) to n, one "name n" a
+line. The n of a Halo profile in that text, 0 for the copy's own key
+(delta_device.key). Builds of 0.9.1 read it and show one account a copy */
+int identity_account_slot(const char *text, const char *profile);
+/* a slot's file names (n 0: the copy's own): its key's and certificate's */
+void identity_slot_files(int slot, char *key_name, char *cert_name, int size);
+
+/* whether a request may go with the player key now (stage C): only with no
+certificate and not signed out, or to a site that doesn't speak identity */
+int identity_key_allowed(const struct identity_state *state, unsigned long now);
 /* a game or report of the player's confirmed: an unknown copy asks again soon */
 void identity_confirmed(struct identity_state *state, unsigned long now);
 

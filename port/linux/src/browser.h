@@ -542,6 +542,40 @@ void browser_profile_action_seen(void);
 /* a clan's invite answered ("accept" or "decline", clan its ID), or the
 clan left ("leave"): the site's /v1/game/clan, its result the action's */
 void browser_profile_clan(const char *action, int clan);
+/* the devices (docs/delta.md, Devices): this device signed out (its
+certificate dropped, its key kept; nothing goes to the site as the account
+until it signs in again by code), and another device of the account revoked
+(by its ID, 32 hex digits); each the action's result */
+void browser_profile_sign_out(void);
+void browser_profile_revoke(const char *device_id);
+
+/* Link a device: another device's Quick Connect code (as typed, ABCD-EFGH)
+approved as this device's account, then that device asks its player */
+enum
+{
+	BROWSER_APPROVE_NONE,
+	/* sent, not answered yet */
+	BROWSER_APPROVE_SENDING,
+	/* taken: the other device asks its player (handle, name, platform) */
+	BROWSER_APPROVE_WAITING,
+	BROWSER_APPROVE_DONE,
+	BROWSER_APPROVE_DECLINED,
+	BROWSER_APPROVE_EXPIRED,
+	/* refused (message) */
+	BROWSER_APPROVE_FAILED,
+};
+struct browser_approve
+{
+	int state;
+	char handle[48];
+	char name[40];
+	char platform[24];
+	char message[96];
+};
+/* 0 if the code isn't one */
+int browser_approve_start(const char *code);
+void browser_approve_stop(void);
+void browser_approve_get(struct browser_approve *approve);
 
 /* another player's public profile card, by the player ID they shared in a
 game (32 hex digits): 1 with it in card, else 0 (asked of the site in the
