@@ -9,8 +9,8 @@ a profile, and account matters (password, email, two-step sign-in, export,
 deletion) stay on the site, reached with OPEN ON THE WEB. Linking is per
 copy: every Halo profile on this copy counts for the one Delta profile.
 
-The same sections in every menu set: OVERVIEW, LINKED COPIES, ROLES,
-CLAN, PRIVACY, then LINK PROFILE (or UNLINK THIS COPY) and OPEN ON THE
+The same sections in every menu set: OVERVIEW, DEVICES, ROLES,
+CLAN, PRIVACY, then LINK PROFILE (or UNLINK THIS DEVICE) and OPEN ON THE
 WEB. CLAN shows the profile's clan (its emblem, tag, motto and members by
 rank) or the clans that invited it; its A opens a dialog to show or hide
 the tag, leave the clan, or join or decline an invite. What each shows is made here once (profile_screen_panel_lines):
@@ -111,7 +111,7 @@ enum
 	_section_roles,
 	_section_clan,
 	_section_privacy,
-	/* LINK PROFILE, or UNLINK THIS COPY */
+	/* LINK PROFILE, or UNLINK THIS DEVICE */
 	_section_link,
 	_section_web,
 
@@ -197,7 +197,7 @@ typedef char profile_screen_sections_named[(_section_clan == PROFILE_SCREEN_SECT
 
 static char const *const section_names[NUMBER_OF_PROFILE_SECTIONS] =
 {
-	"OVERVIEW", "LINKED COPIES", "ROLES", "CLAN", "PRIVACY", "LINK PROFILE", "OPEN ON THE WEB",
+	"OVERVIEW", "DEVICES", "ROLES", "CLAN", "PRIVACY", "LINK PROFILE", "OPEN ON THE WEB",
 };
 
 /* the multiplayer maps' names in the menus (as Online Games names them) */
@@ -309,7 +309,7 @@ static boolean linked(
 	return profile_screen.status.has_profile && profile_screen.profile.linked;
 }
 
-/* a section the player can go to now (Linked Copies and Roles need a
+/* a section the player can go to now (Devices and Roles need a
 linked profile) */
 static boolean section_open(
 	short section)
@@ -323,7 +323,7 @@ char const *profile_screen_section_name(
 	short section)
 {
 	if (section == _section_link && linked())
-		return "UNLINK THIS COPY";
+		return "UNLINK THIS DEVICE";
 	return section >= 0 && section < NUMBER_OF_PROFILE_SECTIONS ? section_names[section] : "";
 }
 
@@ -360,7 +360,7 @@ static char const *platform_name(
 	static char const *const names[][2] =
 	{
 		{ "pc_linux", "Linux PC" }, { "pc_windows", "Windows PC" }, { "pc_macos", "Mac" },
-		{ "android", "Android" }, { "steam_deck", "Steam Deck" }, { "xbox", "Xbox" }, { "xbox360", "Xbox 360" },
+		{ "android", "Android" }, { "steam_deck", "SteamOS" }, { "xbox", "Xbox" }, { "xbox360", "Xbox 360" },
 		{ "xbox_series", "Xbox Series" }, { "psp", "PSP" }, { "vita", "PS Vita" }, { "wiiu", "Wii U" },
 		{ "pc_freebsd", "FreeBSD PC" }, { "xbox_uwp", "Xbox Series" }, { "switch", "Switch" }, { "ps3", "PS3" },
 		{ "ps4", "PS4" }, { "ps5", "PS5" }, { "n64", "Nintendo 64" }, { "pc_legacy", "Legacy PC" },
@@ -373,7 +373,7 @@ static char const *platform_name(
 		if (!strcmp(platform, names[index][0]))
 			return names[index][1];
 	}
-	return platform[0] ? platform : "Copy";
+	return platform[0] ? platform : "Device";
 }
 
 /* a count with thousands' commas */
@@ -646,7 +646,7 @@ static short copies_lines(
 
 		when_text(copy->last_seen, seen, sizeof(seen));
 		if (copy->this_copy)
-			count = add_line(lines, count, maximum, _profile_line_row, "%s %s\tThis copy", platform_name(copy->platform), copy->label);
+			count = add_line(lines, count, maximum, _profile_line_row, "%s %s\tThis device", platform_name(copy->platform), copy->label);
 		else if (copy->last_seen <= 0)
 			count = add_line(lines, count, maximum, _profile_line_row, "%s %s\tNever played", platform_name(copy->platform), copy->label);
 		else
@@ -743,8 +743,8 @@ static short link_lines(
 	short maximum)
 {
 	if (!linked())
-		return add_line(lines, count, maximum, _profile_line_text, "Link this copy to a Delta profile.");
-	return add_line(lines, count, maximum, _profile_line_text, "Unlink this copy from @%s.", profile_screen.profile.handle);
+		return add_line(lines, count, maximum, _profile_line_text, "Link this device to a Delta profile.");
+	return add_line(lines, count, maximum, _profile_line_text, "Unlink this device from @%s.", profile_screen.profile.handle);
 }
 
 static short web_lines(
@@ -850,7 +850,7 @@ short profile_screen_summary(
 		count = add_line(lines, count, maximum, _profile_line_row, "K/D\t%.2f",
 			(double)profile->record_kills / (double)(profile->record_deaths ? profile->record_deaths : 1));
 	}
-	return add_line(lines, count, maximum, _profile_line_row, "COPIES\t%d", profile->copy_count + profile->more_copies);
+	return add_line(lines, count, maximum, _profile_line_row, "DEVICES\t%d", profile->copy_count + profile->more_copies);
 }
 
 /* ---------- the actions (every menu set's) */
@@ -2070,7 +2070,7 @@ static void draw_bar(
 	if (profile_screen.section == _section_copies && linked())
 	{
 		buttons[count] = UI_BUTTON_X;
-		words[count++] = "=UNLINK A COPY";
+		words[count++] = "=UNLINK A DEVICE";
 	}
 	buttons[count] = UI_BUTTON_B;
 	words[count++] = "=BACK";
@@ -2161,9 +2161,9 @@ static void draw_link_dialog(
 	}
 	case BROWSER_CONNECT_CONFIRM:
 		if (connect->previous[0])
-			snprintf(text, sizeof(text), "Move this copy from @%s to @%s?", connect->previous, connect->handle);
+			snprintf(text, sizeof(text), "Move this device from @%s to @%s?", connect->previous, connect->handle);
 		else
-			snprintf(text, sizeof(text), "Link this copy to @%s?", connect->handle);
+			snprintf(text, sizeof(text), "Link this device to @%s?", connect->handle);
 		ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, DIALOG_Y + 96, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFF90, text);
 		if (connect->answered)
 			ui_overlay_text(UI_FONT_MENU, 11.0f, center, DIALOG_Y + 196, UI_ALIGN_CENTER, COLOR_TEXT, "Sending your answer\xE2\x80\xA6");
@@ -2208,7 +2208,7 @@ static void draw_unlink_dialog(
 	char text[192];
 	float center = DIALOG_X + DIALOG_WIDTH / 2, left = DIALOG_X + 30, width = DIALOG_WIDTH - 60;
 
-	dialog_frame("UNLINK THIS COPY");
+	dialog_frame("UNLINK THIS DEVICE");
 	switch (status->action)
 	{
 	case BROWSER_PROFILE_ACTION_WORKING:
@@ -2220,7 +2220,7 @@ static void draw_unlink_dialog(
 		dialog_prompt(UI_BUTTON_A, "=OK");
 		break;
 	case BROWSER_PROFILE_ACTION_FIRST_COPY:
-		snprintf(text, sizeof(text), "This copy made @%s and can't be unlinked.", profile_screen.profile.handle);
+		snprintf(text, sizeof(text), "This device made @%s and can't be unlinked.", profile_screen.profile.handle);
 		wrapped_text(UI_FONT_MENU, 12.0f, left, DIALOG_Y + 96, width, 17, COLOR_TEXT, text, 4);
 		dialog_prompt(UI_BUTTON_A, "=OK");
 		break;
@@ -2233,7 +2233,7 @@ static void draw_unlink_dialog(
 		static int const buttons[] = { UI_BUTTON_B, UI_BUTTON_A };
 		static char const *const words[] = { "=NO", "=YES" };
 
-		snprintf(text, sizeof(text), "Unlink this copy from @%s?", profile_screen.profile.handle);
+		snprintf(text, sizeof(text), "Unlink this device from @%s?", profile_screen.profile.handle);
 		ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, DIALOG_Y + 90, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFF90, text);
 		dialog_prompts(NUMBEROF(buttons), buttons, words);
 		break;
@@ -2249,11 +2249,11 @@ static void draw_page_dialog(
 	boolean web = profile_screen.dialog == _dialog_web;
 	float left = DIALOG_X + 22, y = DIALOG_Y + 60, width = QR_X - left - 16;
 
-	dialog_frame(web ? "OPEN ON THE WEB" : "UNLINK A COPY");
+	dialog_frame(web ? "OPEN ON THE WEB" : "UNLINK A DEVICE");
 	ui_overlay_text(UI_FONT_MENU_SMALL, 11.5f, left, y, UI_ALIGN_LEFT, COLOR_DIM, "Go to");
 	ui_overlay_text_glow(UI_FONT_MENU, 12.0f, left, y + 16, UI_ALIGN_LEFT, COLOR_LABEL, 0x3D8BFF60, profile_screen.page);
 	if (!web)
-		wrapped_text(UI_FONT_MENU_SMALL, 11.5f, left, y + 44, width, 15, COLOR_TEXT, "Sign in, then unlink the copy.", 2);
+		wrapped_text(UI_FONT_MENU_SMALL, 11.5f, left, y + 44, width, 15, COLOR_TEXT, "Sign in, then unlink the device.", 2);
 	if (profile_screen.page_qr_size)
 		draw_qr(profile_screen.page_qr, (short)profile_screen.page_qr_size);
 	if (web)
