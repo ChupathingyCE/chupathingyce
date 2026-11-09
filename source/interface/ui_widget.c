@@ -1623,6 +1623,15 @@ keys for the buttons, not the game's: input_abstraction_port_icon_key) */
 static boolean draw_string_icons_for_menus = FALSE;
 short draw_string_and_hack_in_icons_end_x = 0;
 
+/* port: draw_string_and_hack_in_icons draws the menus' keys for the buttons
+from here on (the carnage report's prompt, which takes the buttons as the
+menus do), or the game's again */
+void draw_string_and_hack_in_icons_for_menus(
+	boolean menus)
+{
+	draw_string_icons_for_menus = menus;
+}
+
 /* January defines this and never references it, as we do not */
 real const _one_over_255 = 1.0f / 255.0f;
 real const SECONDS_PER_MILLISECOND = 0.001f;
