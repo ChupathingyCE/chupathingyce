@@ -975,6 +975,11 @@ void hud_render_nav_points(
 						nav_point->reference_index,
 						&position,
 						&radius);
+					/* port: over the object as it is drawn between ticks, not
+					where the last tick left it (a step behind or ahead of a
+					moving ally or vehicle in most frames);
+					port/linux/game/render_interpolation.c */
+					render_interpolation_object_point(nav_point->reference_index, &position);
 				}
 				break;
 
