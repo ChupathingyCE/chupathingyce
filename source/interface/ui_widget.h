@@ -222,6 +222,10 @@ struct widget_instance *ui_widget_load_by_name_or_tag(
 	long invoking_widget_tag,
 	long focused_child_parent_widget_tag,
 	short focused_child_index);
+/* port: the screen the engine opens by name after a network game, or the
+PC menus' own where they are loaded (port/linux/game/menu_tags.c) */
+char const *pc_menus_screen(
+	char const *name);
 void main_screen_shell_load(
 	void);
 void network_game_reset_to_pregame_ui(
