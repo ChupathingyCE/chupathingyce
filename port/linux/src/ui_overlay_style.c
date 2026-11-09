@@ -118,6 +118,33 @@ void ui_style_row(float x, float y, float width, float height, int selected)
 		selected ? COLOR(SELECTED_EDGE) : COLOR(ROW_EDGE), selected);
 }
 
+void ui_style_setting(float x, float y, float width, float height, float size, const char *label, const char *badge,
+	const char *value, int selected)
+{
+	float text_y = y + (height - size) * 0.5f, right = x + width - size * 1.2f, label_end;
+	float value_width = ui_overlay_text_width(UI_FONT_MENU, size, value);
+
+	ui_style_row(x, y, width, height, selected);
+	label_end = x + size * 1.1f + ui_overlay_text_glow(UI_FONT_MENU, size, x + size * 1.1f, text_y, UI_ALIGN_LEFT,
+		selected ? COLOR(NAME) : COLOR(LABEL), selected ? COLOR(LABEL_GLOW) : 0, label);
+	if (badge && badge[0])
+	{
+		float badge_size = size * 0.62f;
+		float badge_width = ui_overlay_text_width(UI_FONT_BOLD, badge_size, badge) + badge_size;
+		float badge_x = label_end + size * 0.6f, badge_height = badge_size * 1.5f;
+
+		ui_overlay_outline(badge_x, y + (height - badge_height) * 0.5f, badge_width, badge_height, 3.0f, 0.8f,
+			fade(COLOR(WARNING), 0.7f));
+		ui_overlay_text(UI_FONT_BOLD, badge_size, badge_x + badge_size * 0.5f,
+			y + (height - badge_size) * 0.5f - badge_size * 0.05f, UI_ALIGN_LEFT, COLOR(WARNING), badge);
+	}
+	/* (the value between its arrows, as the menus' settings have it) */
+	ui_overlay_text(UI_FONT_MENU, size, right, text_y, UI_ALIGN_RIGHT, COLOR(TAB), "\xE2\x80\xBA");
+	ui_overlay_text(UI_FONT_MENU, size, right - size * 1.2f, text_y, UI_ALIGN_RIGHT, COLOR(NAME), value);
+	ui_overlay_text(UI_FONT_MENU, size, right - size * 1.8f - value_width, text_y, UI_ALIGN_RIGHT, COLOR(TAB),
+		"\xE2\x80\xB9");
+}
+
 /* a bumper's glyph: the device's, or (the keyboard) the screen's own key */
 static float bumper(int button, const char *key, float size, float x, float y, int measure_only)
 {

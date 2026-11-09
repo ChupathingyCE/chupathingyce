@@ -1,0 +1,496 @@
+/*
+SETTINGS_ROWS.C
+
+The settings rows shared by the setup screen's Settings and the Guide's
+SETTINGS (settings_rows.h). Each row is a config.toml key: its values are
+the ones port_config.c checks the file against (config_setting_word) or a
+list of its own, and a change is written with config_write, a reset with
+config_reset (the key follows the version's default again). The
+Performance row is a preset: Potato sets the heavy display settings low,
+Default puts them back.
+*/
+
+#include "halo_console_features.h"
+#include "launcher.h"
+
+#if defined(HALO_GUIDE) || defined(HALO_LAUNCHER)
+
+#include "settings_rows.h"
+#include "port_config.h"
+
+#include <ctype.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#ifdef HALO_LAUNCHER
+/* (sdl_platform.c's and dsound_sdl.c's: the desktop's) */
+int platform_display_resolutions(long *widths, long *heights, int maximum);
+int platform_window_sizes(long *widths, long *heights, int maximum);
+int platform_audio_device_names(const char **names, int maximum);
+void platform_display_apply(void);
+#endif
+
+enum
+{
+	/* on or off */
+	_kind_toggle,
+	/* the words config.toml takes (config_setting_word) */
+	_kind_words,
+	/* the row's own list */
+	_kind_choices,
+	/* "native", then the display's resolutions */
+	_kind_resolutions,
+	/* the window's sizes ("" is display.window_scale's) */
+	_kind_window_sizes,
+	/* "default", then the system's outputs */
+	_kind_audio_devices,
+	/* the Performance preset */
+	_kind_preset,
+};
+
+enum
+{
+	/* (a row in more than one group) */
+	_in_display = 1 << SETTINGS_GROUP_DISPLAY,
+	_in_audio = 1 << SETTINGS_GROUP_AUDIO,
+	_in_network = 1 << SETTINGS_GROUP_NETWORK,
+	_in_updates = 1 << SETTINGS_GROUP_UPDATES,
+	_in_guide = 1 << SETTINGS_GROUP_GUIDE,
+};
+
+struct settings_row
+{
+	unsigned groups;
+	const char *label;
+	const char *key;
+	int kind;
+	/* _kind_choices': the values, NULL ended, and their names (NULL: the
+	value in capitals) */
+	const char *const *choices;
+	const char *const *names;
+	/* a change shows after a restart */
+	int restart;
+	/* a change shows at once on the window (platform_display_apply) */
+	int window;
+};
+
+#ifdef HALO_BGFX
+static const char *const renderer_choices[] = { "gl", "bgfx", NULL };
+#ifdef __APPLE__
+static const char *const renderer_names[] = { "OPENGL", "METAL", NULL };
+#else
+static const char *const renderer_names[] = { "OPENGL", "VULKAN", NULL };
+#endif
+#endif
+static const char *const menus_choices[] = { "xbox", "gearbox", "chupathingy", NULL };
+static const char *const channels_choices[] = { "auto", "stereo", "5.1", "7.1", NULL };
+static const char *const hrtf_choices[] = { "on", "off", "auto", NULL };
+static const char *const buffer_choices[] = { "256", "512", "1024", "2048", "4096", NULL };
+/* controls.guide's: the F keys the game leaves free (F1 is Back, F2 Start,
+F11 full screen, F12 the mouse) */
+static const char *const guide_key_choices[] = { "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", NULL };
+
+static const struct settings_row settings_rows[] =
+{
+#ifdef HALO_BGFX
+	{ _in_display, "RENDERER", "display.renderer", _kind_choices, renderer_choices, renderer_names, 1, 0 },
+#endif
+	{ _in_display, "DISPLAY MODE", "display.mode", _kind_words, NULL, NULL, 0, 1 },
+#ifdef HALO_LAUNCHER
+	{ _in_display, "RESOLUTION", "display.resolution", _kind_resolutions, NULL, NULL, 0, 1 },
+	{ _in_display, "WINDOW SIZE", "display.window_size", _kind_window_sizes, NULL, NULL, 0, 1 },
+#endif
+	{ _in_display, "V-SYNC", "display.vsync", _kind_toggle, NULL, NULL, 0, 1 },
+	{ _in_display, "ANTI-ALIASING", "display.anti_aliasing", _kind_words, NULL, NULL, 0, 0 },
+	{ _in_display, "MENU STYLE", "display.menus", _kind_choices, menus_choices, NULL, 0, 0 },
+	{ _in_display, "PERFORMANCE", "display.particle_limit", _kind_preset, NULL, NULL, 0, 0 },
+
+#ifdef HALO_LAUNCHER
+	{ _in_audio, "OUTPUT", "audio.device", _kind_audio_devices, NULL, NULL, 1, 0 },
+#endif
+	{ _in_audio, "SPEAKERS", "audio.channels", _kind_choices, channels_choices, NULL, 1, 0 },
+	{ _in_audio, "HEADPHONE 3D", "audio.hrtf", _kind_choices, hrtf_choices, NULL, 0, 0 },
+	{ _in_audio, "REVERB", "audio.reverb", _kind_toggle, NULL, NULL, 0, 0 },
+	{ _in_audio, "DOPPLER", "audio.doppler", _kind_toggle, NULL, NULL, 0, 0 },
+	{ _in_audio, "BUFFER SIZE", "audio.buffer_frames", _kind_choices, buffer_choices, NULL, 1, 0 },
+	{ _in_audio, "RESAMPLING", "audio.resampling", _kind_words, NULL, NULL, 0, 0 },
+
+	{ _in_network, "UPNP PORT FORWARDING", "network.allow_upnp", _kind_toggle, NULL, NULL, 0, 0 },
+	{ _in_network, "PROTOCOL", "network.protocol", _kind_words, NULL, NULL, 0, 0 },
+	{ _in_network, "MAP DOWNLOADS", "network.map_downloads", _kind_words, NULL, NULL, 0, 0 },
+	{ _in_network, "LIST MY GAMES", "network.list_hosted_games", _kind_toggle, NULL, NULL, 0, 0 },
+	{ _in_network, "HOSTED GAME STATS", "network.report_hosted_games", _kind_toggle, NULL, NULL, 0, 0 },
+	{ _in_network, "JOINED GAME STATS", "network.report_joined_games", _kind_toggle, NULL, NULL, 0, 0 },
+	{ _in_network, "DELTA STATS", "network.report_events", _kind_toggle, NULL, NULL, 0, 0 },
+	/* (the Guide's own, then the one it shares with Network) */
+	{ _in_guide, "OPEN KEY", "controls.guide", _kind_choices, guide_key_choices, NULL, 0, 0 },
+	{ _in_guide, "GUIDE BUTTON", "controls.guide_button", _kind_toggle, NULL, NULL, 0, 0 },
+	{ _in_guide, "NOTIFICATIONS IN GAME", "guide.notify_in_game", _kind_toggle, NULL, NULL, 0, 0 },
+	{ _in_network | _in_guide, "SHOW WHEN I'M PLAYING", "network.share_presence", _kind_toggle, NULL, NULL, 0, 0 },
+	{ _in_network, "DISCORD", "discord.presence", _kind_words, NULL, NULL, 0, 0 },
+	{ _in_network, "CRASH REPORTS", "crash_reports.upload", _kind_words, NULL, NULL, 0, 0 },
+
+	{ _in_updates, "CHECK FOR UPDATES", "update.auto", _kind_toggle, NULL, NULL, 0, 0 },
+
+};
+
+#define NUMBER_OF_SETTINGS_ROWS ((int)(sizeof(settings_rows) / sizeof(settings_rows[0])))
+
+/* the Potato preset: the display's heaviest work turned down */
+static const struct
+{
+	const char *key;
+	const char *value;
+} potato[] =
+{
+	{ "display.particle_limit", "1024" },
+	{ "display.particle_ticks", "true" },
+	{ "display.dynamic_light_limit", "8" },
+	{ "display.specular_light_limit", "2" },
+	{ "display.shadow_resolution", "128" },
+	{ "display.anisotropic_filtering", "0" },
+	{ "display.anti_aliasing", "off" },
+	{ "display.per_pixel_lighting", "false" },
+	{ "display.resolution_scaling", "original" },
+};
+
+#define NUMBER_OF_POTATO_SETTINGS ((int)(sizeof(potato) / sizeof(potato[0])))
+
+enum
+{
+	_preset_default,
+	_preset_potato,
+	_preset_custom,
+};
+
+/* ---------- words */
+
+/* a value as a row shows it: in capitals, "_" a space */
+static void shown(const char *value, char *text, int size)
+{
+	int index;
+
+	for (index = 0; value[index] && index + 1 < size; index++)
+		text[index] = value[index] == '_' ? ' ' : (char)toupper((unsigned char)value[index]);
+	if (size > 0)
+		text[index < size ? index : size - 1] = '\0';
+}
+
+static int same(const char *a, const char *b)
+{
+	for (; *a && *b; a++, b++)
+	{
+		if (tolower((unsigned char)*a) != tolower((unsigned char)*b))
+			return 0;
+	}
+	return *a == *b;
+}
+
+static void current(const char *key, char *text, int size)
+{
+	if (!config_text(key, text, (size_t)size))
+		text[0] = '\0';
+}
+
+/* ---------- a row's values: the count, and the one at index (value and
+name), from its kind */
+
+enum
+{
+	MAXIMUM_VALUES = 48,
+	VALUE_SIZE = 96,
+};
+
+struct values
+{
+	int count;
+	char value[MAXIMUM_VALUES][VALUE_SIZE];
+	char name[MAXIMUM_VALUES][VALUE_SIZE];
+};
+
+static void values_add(struct values *values, const char *value, const char *name)
+{
+	if (values->count >= MAXIMUM_VALUES)
+		return;
+	snprintf(values->value[values->count], VALUE_SIZE, "%s", value);
+	if (name)
+		snprintf(values->name[values->count], VALUE_SIZE, "%s", name);
+	else
+		shown(value, values->name[values->count], VALUE_SIZE);
+	values->count++;
+}
+
+static void values_of(const struct settings_row *row, struct values *values)
+{
+	int index;
+
+	values->count = 0;
+	switch (row->kind)
+	{
+	case _kind_toggle:
+		values_add(values, "false", "OFF");
+		values_add(values, "true", "ON");
+		break;
+	case _kind_words:
+	{
+		const char *word;
+
+		for (index = 0; (word = config_setting_word(row->key, index)) != NULL; index++)
+		{
+			/* (display.mode's empty word follows display.fullscreen: not
+			one to pick) */
+			if (word[0])
+				values_add(values, word, NULL);
+		}
+		break;
+	}
+	case _kind_choices:
+		for (index = 0; row->choices[index]; index++)
+			values_add(values, row->choices[index], row->names ? row->names[index] : NULL);
+		break;
+#ifdef HALO_LAUNCHER
+	case _kind_resolutions:
+	case _kind_window_sizes:
+	{
+		long widths[MAXIMUM_VALUES], heights[MAXIMUM_VALUES];
+		int count = row->kind == _kind_resolutions ?
+			platform_display_resolutions(widths, heights, MAXIMUM_VALUES - 1) :
+			platform_window_sizes(widths, heights, MAXIMUM_VALUES - 1);
+		char size[32];
+
+		if (row->kind == _kind_resolutions)
+			values_add(values, "native", "NATIVE");
+		for (index = 0; index < count; index++)
+		{
+			snprintf(size, sizeof(size), "%ldx%ld", widths[index], heights[index]);
+			values_add(values, size, size);
+		}
+		break;
+	}
+	case _kind_audio_devices:
+	{
+		const char *names[MAXIMUM_VALUES];
+		int count = platform_audio_device_names(names, MAXIMUM_VALUES - 1);
+
+		values_add(values, "default", "SYSTEM DEFAULT");
+		for (index = 0; index < count; index++)
+			values_add(values, names[index], names[index]);
+		break;
+	}
+#endif
+	default:
+		break;
+	}
+}
+
+/* ---------- the preset */
+
+static int preset_now(void)
+{
+	char value[VALUE_SIZE], fallback[VALUE_SIZE];
+	int index, potato_all = 1, defaults_all = 1;
+
+	for (index = 0; index < NUMBER_OF_POTATO_SETTINGS; index++)
+	{
+		if (config_setting_kind(potato[index].key) < 0)
+			continue;
+		current(potato[index].key, value, sizeof(value));
+		if (!same(value, potato[index].value))
+			potato_all = 0;
+		if (!config_default(potato[index].key, fallback, sizeof(fallback)) || !same(value, fallback))
+			defaults_all = 0;
+	}
+	return defaults_all ? _preset_default : potato_all ? _preset_potato : _preset_custom;
+}
+
+static void preset_set(int preset)
+{
+	int index;
+
+	for (index = 0; index < NUMBER_OF_POTATO_SETTINGS; index++)
+	{
+		if (config_setting_kind(potato[index].key) < 0)
+			continue;
+		if (preset == _preset_potato)
+			config_write(potato[index].key, potato[index].value);
+		else
+			config_reset(potato[index].key);
+	}
+}
+
+/* ---------- public code */
+
+const struct settings_row *settings_row_at(int group, int index)
+{
+	int row;
+
+	for (row = 0; row < NUMBER_OF_SETTINGS_ROWS; row++)
+	{
+		if (!(settings_rows[row].groups & (1u << group)) || config_setting_kind(settings_rows[row].key) < 0)
+			continue;
+		if (!index--)
+			return &settings_rows[row];
+	}
+	return NULL;
+}
+
+const char *settings_row_label(const struct settings_row *row)
+{
+	return row->label;
+}
+
+const char *settings_row_key(const struct settings_row *row)
+{
+	return row->key;
+}
+
+int settings_row_restart(const struct settings_row *row)
+{
+	return row->restart;
+}
+
+void settings_row_value(const struct settings_row *row, char *text, int size)
+{
+	static const char *const preset_names[] = { "DEFAULT", "POTATO", "CUSTOM" };
+	static struct values values;
+	char value[VALUE_SIZE];
+	int index;
+
+	if (row->kind == _kind_preset)
+	{
+		snprintf(text, (size_t)size, "%s", preset_names[preset_now()]);
+		return;
+	}
+	current(row->key, value, sizeof(value));
+	/* (empty: what the setting does without a value) */
+	if (!value[0] && !strcmp(row->key, "display.mode"))
+		snprintf(value, sizeof(value), "%s", config_boolean("display.fullscreen") ? "borderless" : "windowed");
+	if (!value[0] && !strcmp(row->key, "display.window_size"))
+	{
+		long scale = config_integer("display.window_scale");
+
+		scale = scale < 1 ? 1 : scale;
+		snprintf(value, sizeof(value), "%ldx%ld", 640 * scale, 480 * scale);
+	}
+	values_of(row, &values);
+	for (index = 0; index < values.count; index++)
+	{
+		if (same(values.value[index], value))
+		{
+			snprintf(text, (size_t)size, "%s", values.name[index]);
+			return;
+		}
+	}
+	/* (display.menus' older "pc" is Gearbox's) */
+	if (!strcmp(row->key, "display.menus") && same(value, "pc"))
+	{
+		snprintf(text, (size_t)size, "GEARBOX");
+		return;
+	}
+	shown(value, text, size);
+}
+
+void settings_row_change(const struct settings_row *row, int step)
+{
+	static struct values values;
+	char value[VALUE_SIZE];
+	int index, found = -1;
+
+	if (row->kind == _kind_preset)
+	{
+		/* (Default and Potato: from Custom, a step goes to one of them) */
+		int preset = preset_now();
+
+		preset_set(preset == _preset_potato ? _preset_default : _preset_potato);
+		return;
+	}
+	values_of(row, &values);
+	if (!values.count)
+		return;
+	current(row->key, value, sizeof(value));
+	if (!strcmp(row->key, "display.menus") && same(value, "pc"))
+		snprintf(value, sizeof(value), "gearbox");
+	for (index = 0; index < values.count; index++)
+	{
+		if (same(values.value[index], value))
+			found = index;
+	}
+	if (found < 0)
+		found = step > 0 ? -1 : 0;
+	index = ((found + step) % values.count + values.count) % values.count;
+	config_write(row->key, values.value[index]);
+#ifdef HALO_LAUNCHER
+	if (row->window)
+		platform_display_apply();
+#endif
+}
+
+void settings_row_reset(const struct settings_row *row)
+{
+	if (row->kind == _kind_preset)
+		preset_set(_preset_default);
+	else
+		config_reset(row->key);
+#ifdef HALO_LAUNCHER
+	if (row->window)
+		platform_display_apply();
+#endif
+}
+
+void settings_key_value(const char *key, char *text, int size)
+{
+	char value[VALUE_SIZE];
+
+	current(key, value, sizeof(value));
+	if (config_setting_kind(key) == CONFIG_KIND_BOOLEAN)
+		snprintf(text, (size_t)size, "%s", config_boolean(key) ? "ON" : "OFF");
+	else if (config_setting_kind(key) == CONFIG_KIND_STRING && !config_setting_word(key, 0))
+		snprintf(text, (size_t)size, "%s", value);
+	else
+		shown(value, text, size);
+}
+
+int settings_key_change(const char *key, int step)
+{
+	char value[VALUE_SIZE];
+	const char *word;
+	int index, count, found = -1;
+
+	switch (config_setting_kind(key))
+	{
+	case CONFIG_KIND_BOOLEAN:
+		return config_write_boolean(key, !config_boolean(key));
+	case CONFIG_KIND_INTEGER:
+		snprintf(value, sizeof(value), "%ld", config_integer(key) + step);
+		return config_write(key, value);
+	case CONFIG_KIND_REAL:
+	{
+		char fallback[VALUE_SIZE];
+		double base = config_default(key, fallback, sizeof(fallback)) ? strtod(fallback, NULL) : 0.0;
+		double amount = base >= -2.0 && base <= 2.0 ? 0.05 : 1.0;
+		double next = config_real(key) + amount * step;
+
+		/* (no -0.00 from the steps adding up) */
+		if (next > -amount * 0.5 && next < amount * 0.5)
+			next = 0.0;
+		snprintf(value, sizeof(value), "%.2f", next);
+		return config_write(key, value);
+	}
+	case CONFIG_KIND_STRING:
+		current(key, value, sizeof(value));
+		for (count = 0; (word = config_setting_word(key, count)) != NULL; count++)
+		{
+			if (same(word, value))
+				found = count;
+		}
+		if (!count)
+			return 0;
+		index = ((found + step) % count + count) % count;
+		return config_write(key, config_setting_word(key, index));
+	default:
+		return 0;
+	}
+}
+
+#endif

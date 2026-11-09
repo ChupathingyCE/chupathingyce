@@ -227,6 +227,12 @@ void ui_style_surface(float x, float y, float width, float height, float radius,
 void ui_style_panel(float x, float y, float width, float height, float share);
 /* a row's capsule, the selected one lit */
 void ui_style_row(float x, float y, float width, float height, int selected);
+/* a setting's row (settings_rows.h's, the Guide's and the setup screen's):
+its capsule (ui_style_row), its label (size high) and a tag after it (badge,
+as "NEEDS A RESTART"; NULL: none), and its value at the right between the
+arrows that change it */
+void ui_style_setting(float x, float y, float width, float height, float size, const char *label, const char *badge,
+	const char *value, int selected);
 /* section tabs between left and right, height tall: the bumpers' glyphs at
 the ends (the keyboard's: left_key and right_key, as "Q" and "E", or the
 device's LB and RB when NULL), the names centered, the selected one lit.
