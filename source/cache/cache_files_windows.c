@@ -2212,7 +2212,7 @@ static void cached_map_file_invalidate(
 
 	/* port: the handle is closed, not just forgotten (a cache slot that
 	failed its header read or a copy's write kept its file open) */
-	if (map_file->file != INVALID_HANDLE_VALUE)
+	if (map_file->file != INVALID_HANDLE_VALUE && map_file->file != NULL)
 	{
 		CloseHandle(map_file->file);
 	}

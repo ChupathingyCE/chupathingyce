@@ -1811,12 +1811,19 @@ static struct bg_target *bg_target_get(const D3DSurface *surface)
 	if (!surface || !surface->Data)
 		return NULL;
 	surface_dimensions(surface, &width, &height, &depth);
-	/* the screen's targets are drawn at the screen's scale, and the shadow
-	maps at display.shadow_resolution's */
+	/* the screen's targets are drawn at the screen's scale, the secondary
+	target at the 3D view's pixels with its samples (it is drawn with the
+	back buffer's depth buffer, and a frame buffer is one size:
+	render_target_scale), and the shadow maps at display.shadow_resolution's */
 	if (width == (unsigned long)halo_screen_width() && height == SCREEN_HEIGHT)
 	{
 		scale[0] = screen_scale[0];
 		scale[1] = screen_scale[1];
+		samples = bg_screen_samples();
+	}
+	else if (!depth && width == SECONDARY_TARGET_WIDTH && height == SECONDARY_TARGET_HEIGHT)
+	{
+		render_target_scale(_render_target_secondary, scale);
 		samples = bg_screen_samples();
 	}
 	else if (!depth && surface_is_shadow_map(surface))
