@@ -91,15 +91,39 @@ void ui_overlay_panel(float x, float y, float width, float height, int lit);
 void ui_overlay_band(float left, float right, float top, float bottom);
 void ui_overlay_prompt_bar(float left, float right, float top, float bottom);
 
+/* the Xbox menus' animated plasma (ui_widget.c's draw_bitmap_in_rect: the
+interface's plasma noise map, twice, scrolling at two scales) filling a
+rounded rectangle, tinted by color, its alpha the surface's: the Guide's
+panels and rows. Drawn from the player's ui.map's map when it was given
+(ui_overlay_plasma_source), else from a noise of the overlay's own. time:
+the milliseconds clock it scrolls by (system_milliseconds) */
+void ui_overlay_plasma(float x, float y, float width, float height, float radius, unsigned int color,
+	unsigned int time);
+/* the plasma's noise map: RGBA (rows from the top), width by height,
+copied; serial names it (the same serial is not copied again) */
+void ui_overlay_plasma_source(int serial, const unsigned char *pixels, int width, int height);
+/* the plasma's noise map read from the game's texture of it (a bitmap's
+hardware format, the texture cache's: the interface's plasma map), once:
+nonzero if it was read */
+int ui_overlay_plasma_from_texture(const void *hardware_format);
+
 /* what is drawn from here on goes over what was drawn before at a lower
-layer (0 to 3; each frame starts at 0): text is drawn over the shapes of
-its layer, and under those of the layers above, as a dialog over a list */
+layer (0 to 4; each frame starts at 0): text is drawn over the shapes of
+its layer, and under those of the layers above, as a dialog over a list.
+The Guide alone draws on 4, over every other screen's dialogs */
 void ui_overlay_layer(int layer);
 
 /* a button's glyph, size high, at x (its left), y (its top); its width.
 color's alpha dims it (a prompt that does nothing now) */
 float ui_overlay_button(int button, float size, float x, float y, unsigned int color);
 float ui_overlay_button_width(int button, float size);
+
+/* whether the keyboard (or the mouse) was used last: a screen whose keys
+are not the game's (the Guide's Q, E and M) draws its own key caps, as the
+keyboard's buttons are drawn, with ui_overlay_key (its width) */
+int ui_overlay_keyboard(void);
+float ui_overlay_key(const char *label, float size, float x, float y, unsigned int color);
+float ui_overlay_key_width(const char *label, float size);
 
 /* a player's platform logo (delta.h's enum delta_platform), size high,
 centered on x, y its top, with a drop shadow if shadow: nothing for an
@@ -120,6 +144,48 @@ void ui_overlay_cutout(float x, float y, float width, float height);
 /* whether the overlay draws (no window: the dedicated server, a run with
 the null renderer) */
 int ui_overlay_available(void);
+
+/* ---------- the Guide's look (ui_overlay_style.c), shared by the screens
+drawn in it: the Guide (port/linux/game/guide.c) and the setup launcher
+(launcher.c). The Chupathingy menus' blues over the Xbox menus' plasma:
+translucent panels and rows, a glow on the selected row and the edges. In
+the menus' 640x480, as everything here */
+
+/* the clock the plasma scrolls by, in milliseconds: set once a frame
+before drawing (the game's system_milliseconds, the launcher's ticks) */
+void ui_style_clock(unsigned int milliseconds);
+/* a plasma surface of a color, its edge (alpha 0: none) and, lit, a glow
+around it */
+void ui_style_surface(float x, float y, float width, float height, float radius, unsigned int color,
+	unsigned int edge, int lit);
+/* the large translucent panel a screen sits on, faded by share (0 to 1) */
+void ui_style_panel(float x, float y, float width, float height, float share);
+/* a row's capsule, the selected one lit */
+void ui_style_row(float x, float y, float width, float height, int selected);
+/* section tabs between left and right, height tall: the bumpers' glyphs at
+the ends (the keyboard's: left_key and right_key, as "Q" and "E", or the
+device's LB and RB when NULL), the names centered, the selected one lit.
+Each tab's left and right in starts and ends (NULL: not wanted), for the
+pointer */
+void ui_style_tabs(float left, float right, float y, float height, const char *const *names, int count,
+	int selected, const char *left_key, const char *right_key, float *starts, float *ends);
+/* the prompt bar's prompts, right-aligned at right: each a button's glyph
+(the keyboard's: key, as "ESC", or the game's own key when NULL), then its
+word; their places in starts and ends (NULL: not wanted) */
+struct ui_style_prompt
+{
+	int button;
+	const char *key;
+	const char *word;
+};
+void ui_style_prompts(float right, float y, float size, const struct ui_style_prompt *prompts, int count,
+	float *starts, float *ends);
+/* the player's card across the top: their emblem (color, their name's
+first letter), name and status line, the screen's title on the right
+(NULL: none), and the rule under it all, 42 below y. With no name, the
+title and the rule alone */
+void ui_style_card(float left, float right, float y, const char *name, const char *status, unsigned int color,
+	const char *title);
 
 /* (d3d8_gl.c, at Present: the frame's drawing, in the picture's place in
 the window, x and y its lower left corner in GL's window coordinates) */
