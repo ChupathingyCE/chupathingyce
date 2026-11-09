@@ -1623,6 +1623,15 @@ keys for the buttons, not the game's: input_abstraction_port_icon_key) */
 static boolean draw_string_icons_for_menus = FALSE;
 short draw_string_and_hack_in_icons_end_x = 0;
 
+/* port: draw_string_and_hack_in_icons draws the menus' keys for the buttons
+from here on (the carnage report's prompt, which takes the buttons as the
+menus do), or the game's again */
+void draw_string_and_hack_in_icons_for_menus(
+	boolean menus)
+{
+	draw_string_icons_for_menus = menus;
+}
+
 /* January defines this and never references it, as we do not */
 real const _one_over_255 = 1.0f / 255.0f;
 real const SECONDS_PER_MILLISECOND = 0.001f;
@@ -7258,10 +7267,29 @@ static void ui_mouse_give_focus(
 	struct widget_instance *widget)
 {
 	struct widget_instance *ancestor;
+	struct widget_instance *root = widget_instance_get_topmost_parent(widget);
+	struct widget_instance *settings[16];
+	long setting_count = 0;
+	long index;
 
 	if (ui_mouse_widget_has_focus(widget))
 		return;
-	widget_instance_give_focus_directly(widget_instance_get_topmost_parent(widget), widget);
+	/* (a setting the focus leaves keeps its row's focus, as the d-pad
+	leaves it: that draws its value white. Giving the focus directly
+	cleared every widget's on the old focus's way, so a value the pointer
+	had been on stayed blue, #478) */
+	for (ancestor = root->focused_child; ancestor && setting_count < (long)NUMBEROF(settings);
+		ancestor = ancestor->focused_child)
+	{
+		if (ancestor->type == _ui_widget_type_spinner_list)
+			settings[setting_count++] = ancestor;
+	}
+	widget_instance_give_focus_directly(root, widget);
+	for (index = 0; index < setting_count; index++)
+	{
+		if (settings[index]->parent && !settings[index]->parent->focused_child)
+			settings[index]->parent->focused_child = settings[index];
+	}
 	for (ancestor = widget; ancestor->parent; ancestor = ancestor->parent)
 	{
 		if (ancestor->parent->type == _ui_widget_type_column_list)

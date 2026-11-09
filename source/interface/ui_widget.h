@@ -198,6 +198,8 @@ void draw_string_and_hack_in_icons(
 /* port: where the last draw_string_and_hack_in_icons ended, across (its
 cursor's left edge after the last text or icon) */
 extern short draw_string_and_hack_in_icons_end_x;
+void draw_string_and_hack_in_icons_for_menus(
+	boolean menus);
 void ui_widgets_dispose(
 	void);
 boolean widget_event_function_list_widget_goto_next_item(
