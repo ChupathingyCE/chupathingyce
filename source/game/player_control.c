@@ -1505,6 +1505,9 @@ static void get_local_player_input_blob(
 					_button_back))
 				{
 					input->back = gamepad->buttons[_gamepad_analog_button_b];
+					/* port: and the keyboard's key for it */
+					if (!input->back)
+						input->back = input_abstraction_port_back(gamepad_index);
 				}
 				if (!TEST_FLAG(
 					control->inhibited_button_bit_vector,
