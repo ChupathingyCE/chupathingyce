@@ -1478,6 +1478,7 @@ static struct render_target_entry *render_target_get(const D3DSurface *surface)
 	unsigned long width, height, slot;
 	long screen;
 	BOOL depth;
+	GLint previous_texture = -1;
 
 	if (!surface || !surface->Data)
 		return NULL;
@@ -1526,6 +1527,9 @@ static struct render_target_entry *render_target_get(const D3DSurface *surface)
 	entry->target.scale[1] = scale[1];
 	entry->target.gl_width = (unsigned long)(width * scale[0] + 0.5f);
 	entry->target.gl_height = (unsigned long)(height * scale[1] + 0.5f);
+	/* the draw's textures are bound before its targets (prepare_draw): making
+	the target must not leave it bound as the active unit's input */
+	glGetIntegerv(GL_TEXTURE_BINDING_2D, &previous_texture);
 	glGenTextures(1, &entry->target.texture);
 	glBindTexture(GL_TEXTURE_2D, entry->target.texture);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
@@ -1535,6 +1539,9 @@ static struct render_target_entry *render_target_get(const D3DSurface *surface)
 	else
 		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, (GLsizei)entry->target.gl_width, (GLsizei)entry->target.gl_height,
 			0, GL_BGRA, GL_UNSIGNED_BYTE, NULL);
+	/* (-1: a GL layer that does not answer the query) */
+	if (previous_texture >= 0)
+		glBindTexture(GL_TEXTURE_2D, (GLuint)previous_texture);
 	entry->screen_buffer = surface->Data == (depth ? device.depth_buffer.Data : device.back_buffer.Data);
 #ifdef HALO_CONSOLE_GLES2
 	/* (black until it is drawn: its memory holds whatever was last there, the
