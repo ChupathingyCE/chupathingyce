@@ -14,12 +14,19 @@ You can turn each of these off on the Privacy screen in Settings (Gearbox menus)
 | `report_events = false` | Match details of games you host |
 | `report_hosted_games = false` | All reports of games you host (they stay listed) |
 | `list_hosted_games = false` | Listing your hosted games, and their reports |
+| `share_presence = false` | Showing on your Delta profile that you're playing |
 
 The full list of what the site keeps is on [stats.chupathingy.org/delta#tracked](https://stats.chupathingy.org/delta#tracked).
 
 ## Games you join
 
 Your service record is on [stats.chupathingy.org](https://stats.chupathingy.org), found by your name. Games you join count even when the host doesn't run Chupathingy: when an online game you joined ends, the game sends stats.chupathingy.org the scoreboard as your game saw it (your own line in full; everyone else's name, team, place, score, kills and deaths) with your player ID. Your copy also confirms your line in the host's report, which puts the game on your profile. To turn both off for games you join, set `report_joined_games = false` under `[network]` in `config.toml`.
+
+## Showing that you're playing
+
+If your copy is linked to a Delta profile, your profile shows when you're playing. While you're in a Delta game, the game tells stats.chupathingy.org about once a minute. It sends your player key and nothing else: no invite, no map, nothing about other players. The site keeps it in memory for a few minutes and never stores your address. It's never sent for a game whose host doesn't run Delta.
+
+To stop it, set `share_presence = false` under `[network]` in `config.toml`, or turn off "Show when I'm playing" on your profile's Privacy page.
 
 ## Games you host
 

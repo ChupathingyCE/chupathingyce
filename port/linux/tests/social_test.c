@@ -1,0 +1,250 @@
+/*
+SOCIAL_TEST.C
+
+Tests of the Guide's data (port/linux/src/social.c): its rows and their
+cache, the polling schedule and presence's. Built and run by
+tools/test_social.py with discord_activity.c; exits nonzero on a failure.
+*/
+
+#include "../src/social.h"
+#include "../src/discord_activity.h"
+
+#include <stdio.h>
+#include <string.h>
+
+static int failures;
+
+#define CHECK(condition) \
+	do \
+	{ \
+		if (!(condition)) \
+		{ \
+			printf("FAIL %s:%d: %s\n", __FILE__, __LINE__, #condition); \
+			failures++; \
+		} \
+	} while (0)
+
+static struct social_row make_row(const char *tag, int state, int key)
+{
+	struct social_row row;
+
+	memset(&row, 0, sizeof(row));
+	social_copy_text(row.tag, sizeof(row.tag), tag);
+	row.state = state;
+	row.key = key;
+	return row;
+}
+
+static void test_sections(void)
+{
+	CHECK(!strcmp(social_section_name(SOCIAL_SECTION_FRIENDS), "FRIENDS"));
+	CHECK(!strcmp(social_section_name(SOCIAL_SECTION_PLAYERS_HERE), "PLAYERS HERE"));
+	CHECK(!strcmp(social_section_name(SOCIAL_SECTION_SETTINGS), "SETTINGS"));
+	CHECK(!strcmp(social_section_name(-1), ""));
+	CHECK(!strcmp(social_section_name(NUMBER_OF_SOCIAL_SECTIONS), ""));
+}
+
+static void test_copy_text(void)
+{
+	char small[6];
+
+	social_copy_text(small, sizeof(small), "Grif");
+	CHECK(!strcmp(small, "Grif"));
+	social_copy_text(small, sizeof(small), "Simmons");
+	CHECK(!strcmp(small, "Simmo"));
+	/* (a cut never splits a character: "Caboé" is 6 bytes) */
+	social_copy_text(small, sizeof(small), "Cabo\xC3\xA9");
+	CHECK(!strcmp(small, "Cabo"));
+	social_copy_text(small, sizeof(small), NULL);
+	CHECK(!strcmp(small, ""));
+}
+
+static void test_list(void)
+{
+	static struct social_list list, cache;
+	struct social_row row;
+	int index;
+
+	memset(&cache, 0, sizeof(cache));
+	social_list_clear(&list);
+	row = make_row("tucker", SOCIAL_STATE_AWAY, 4);
+	CHECK(social_list_add(&list, &row) == 0);
+	row = make_row("Grif", SOCIAL_STATE_IN_GAME, 2);
+	CHECK(social_list_add(&list, &row) == 1);
+	row = make_row("Church", SOCIAL_STATE_OFFLINE, 1);
+	social_list_add(&list, &row);
+	row = make_row("Donut", SOCIAL_STATE_ONLINE, 3);
+	social_list_add(&list, &row);
+	row = make_row("caboose", SOCIAL_STATE_ONLINE, 5);
+	social_list_add(&list, &row);
+	social_list_sort(&list);
+	CHECK(!strcmp(list.rows[0].tag, "Grif"));
+	CHECK(!strcmp(list.rows[1].tag, "caboose"));
+	CHECK(!strcmp(list.rows[2].tag, "Donut"));
+	CHECK(!strcmp(list.rows[3].tag, "tucker"));
+	CHECK(!strcmp(list.rows[4].tag, "Church"));
+	CHECK(social_list_find(&list, 3) == 2);
+	CHECK(social_list_find(&list, 9) == -1);
+
+	CHECK(social_list_commit(&cache, &list) == 1);
+	CHECK(cache.serial == 1);
+	/* (the same rows again: no change, even from a row with leftovers past
+	its texts' ends) */
+	social_list_clear(&list);
+	for (index = 0; index < cache.count; index++)
+	{
+		row = cache.rows[index];
+		memset(row.status + 1, 'x', sizeof(row.status) - 1);
+		row.status[0] = 0;
+		social_list_add(&list, &row);
+	}
+	CHECK(social_list_commit(&cache, &list) == 0);
+	CHECK(cache.serial == 1);
+	list.rows[0].muted = 1;
+	CHECK(social_list_commit(&cache, &list) == 1);
+	CHECK(cache.serial == 2 && cache.rows[0].muted);
+
+	/* full */
+	social_list_clear(&list);
+	for (index = 0; index < SOCIAL_MAXIMUM_ROWS; index++)
+	{
+		row = make_row("Lopez", SOCIAL_STATE_ONLINE, index);
+		CHECK(social_list_add(&list, &row) == index);
+	}
+	CHECK(social_list_add(&list, &row) == -1);
+	CHECK(list.count == SOCIAL_MAXIMUM_ROWS);
+}
+
+static void test_status(void)
+{
+	struct discord_activity_game game;
+	char text[SOCIAL_STATUS_SIZE];
+
+	memset(&game, 0, sizeof(game));
+	game.screen = DISCORD_SCREEN_MENUS;
+	CHECK(social_own_status(&game, text, sizeof(text)) > 0);
+	CHECK(!strcmp(text, "Online \xC2\xB7 In the menus"));
+
+	game.screen = DISCORD_SCREEN_MULTIPLAYER;
+	snprintf(game.map, sizeof(game.map), "bloodgulch");
+	game.mode = DISCORD_MODE_SLAYER;
+	game.player_count = 11;
+	game.maximum_player_count = 16;
+	CHECK(discord_activity_status_line(&game, text, sizeof(text)) > 0);
+	CHECK(!strcmp(text, "Slayer \xC2\xB7 Blood Gulch \xC2\xB7 11/16"));
+	game.teams = 1;
+	discord_activity_status_line(&game, text, sizeof(text));
+	CHECK(!strcmp(text, "Team Slayer \xC2\xB7 Blood Gulch \xC2\xB7 11/16"));
+	/* (no network game: no count) */
+	game.player_count = 0;
+	discord_activity_status_line(&game, text, sizeof(text));
+	CHECK(!strcmp(text, "Team Slayer \xC2\xB7 Blood Gulch"));
+
+	memset(&game, 0, sizeof(game));
+	game.screen = DISCORD_SCREEN_CAMPAIGN;
+	snprintf(game.map, sizeof(game.map), "levels\\a30\\a30");
+	discord_activity_status_line(&game, text, sizeof(text));
+	CHECK(!strcmp(text, "Campaign \xC2\xB7 Halo"));
+
+	/* too small: "Online" alone, never a cut line */
+	CHECK(social_own_status(&game, text, 12) == -1);
+	CHECK(!strcmp(text, "Online"));
+	CHECK(social_own_status(NULL, text, sizeof(text)) == 6);
+}
+
+static void test_poll(void)
+{
+	struct social_poll poll;
+
+	memset(&poll, 0, sizeof(poll));
+	CHECK(!social_poll_due(&poll, 1000, 0, 0));
+	CHECK(social_poll_due(&poll, 1000, 0, 1));
+	CHECK(!social_poll_due(&poll, 1000 + SOCIAL_POLL_MENUS - 1, 0, 1));
+	CHECK(social_poll_due(&poll, 1000 + SOCIAL_POLL_MENUS, 0, 1));
+	CHECK(!social_poll_due(&poll, 1000 + SOCIAL_POLL_MENUS * 2, 1, 1));
+	CHECK(social_poll_due(&poll, 1000 + SOCIAL_POLL_MENUS + SOCIAL_POLL_GAME, 1, 1));
+	/* (the clock wraps) */
+	memset(&poll, 0, sizeof(poll));
+	CHECK(social_poll_due(&poll, (unsigned long)-5000, 0, 1));
+	CHECK(!social_poll_due(&poll, 1000, 0, 1));
+	CHECK(social_poll_due(&poll, SOCIAL_POLL_MENUS, 0, 1));
+}
+
+static void test_presence(void)
+{
+	struct social_presence presence;
+	struct social_presence_inputs inputs = { 1, 1, 1, 1, 0 };
+	struct social_presence_inputs off;
+	char fields[64];
+	unsigned long now = 5000;
+
+	social_presence_reset(&presence);
+	/* each input on its own stops it */
+	off = inputs; off.share = 0;
+	CHECK(!social_presence_due(&presence, &off, now));
+	off = inputs; off.in_game = 0;
+	CHECK(!social_presence_due(&presence, &off, now));
+	off = inputs; off.on_delta = 0;
+	CHECK(!social_presence_due(&presence, &off, now));
+	off = inputs; off.linked = 0;
+	CHECK(!social_presence_due(&presence, &off, now));
+	off = inputs; off.hidden = 1;
+	CHECK(!social_presence_due(&presence, &off, now));
+	CHECK(presence.sent == 0);
+
+	/* the first at once, then once a minute */
+	CHECK(social_presence_due(&presence, &inputs, now));
+	CHECK(!social_presence_due(&presence, &inputs, now + 1));
+	CHECK(social_presence_answer(&presence, 200, "ok\n", now + 100) == SOCIAL_PRESENCE_OK);
+	CHECK(!social_presence_due(&presence, &inputs, now + 100 + SOCIAL_PRESENCE_INTERVAL - 1));
+	CHECK(social_presence_due(&presence, &inputs, now + 100 + SOCIAL_PRESENCE_INTERVAL));
+	now += 100 + SOCIAL_PRESENCE_INTERVAL;
+
+	/* "off": half an hour */
+	CHECK(social_presence_answer(&presence, 200, "off\n", now) == SOCIAL_PRESENCE_OFF);
+	CHECK(!social_presence_due(&presence, &inputs, now + SOCIAL_PRESENCE_OFF_WAIT - 1));
+	CHECK(social_presence_due(&presence, &inputs, now + SOCIAL_PRESENCE_OFF_WAIT));
+	now += SOCIAL_PRESENCE_OFF_WAIT;
+
+	/* too many: ten minutes; refused: half an hour; no answer: a minute */
+	CHECK(social_presence_answer(&presence, 429, "too many requests\n", now) == SOCIAL_PRESENCE_BUSY);
+	CHECK(!social_presence_due(&presence, &inputs, now + SOCIAL_PRESENCE_BUSY_WAIT - 1));
+	CHECK(social_presence_due(&presence, &inputs, now + SOCIAL_PRESENCE_BUSY_WAIT));
+	now += SOCIAL_PRESENCE_BUSY_WAIT;
+	CHECK(social_presence_answer(&presence, 400, "bad request\n", now) == SOCIAL_PRESENCE_REFUSED);
+	CHECK(!social_presence_due(&presence, &inputs, now + SOCIAL_PRESENCE_INTERVAL));
+	CHECK(social_presence_due(&presence, &inputs, now + SOCIAL_PRESENCE_OFF_WAIT));
+	now += SOCIAL_PRESENCE_OFF_WAIT;
+	CHECK(social_presence_answer(&presence, 0, "", now) == SOCIAL_PRESENCE_NO_ANSWER);
+	CHECK(social_presence_due(&presence, &inputs, now + SOCIAL_PRESENCE_INTERVAL));
+	now += SOCIAL_PRESENCE_INTERVAL;
+
+	/* leaving the game starts it over: the next game is told at once, and
+	the answer still out is let go */
+	off = inputs; off.in_game = 0;
+	CHECK(!social_presence_due(&presence, &off, now + 1));
+	CHECK(social_presence_answer(&presence, 200, "ok", now + 2) == SOCIAL_PRESENCE_NONE);
+	CHECK(social_presence_due(&presence, &inputs, now + 3));
+
+	/* the invite is never in it */
+	CHECK(social_presence_fields(fields, sizeof(fields)) > 0);
+	CHECK(!strcmp(fields, "\"invite\": \"\""));
+	CHECK(social_presence_fields(fields, 4) == -1);
+}
+
+int main(void)
+{
+	test_sections();
+	test_copy_text();
+	test_list();
+	test_status();
+	test_poll();
+	test_presence();
+	if (failures)
+	{
+		printf("%d failed\n", failures);
+		return 1;
+	}
+	printf("ok\n");
+	return 0;
+}

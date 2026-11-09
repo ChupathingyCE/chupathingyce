@@ -35,6 +35,11 @@ HALO_CONSOLE_WIDGET_POOL_SIZE
 	Xbox's menus: the desktop's 256 KB is for the PC menus' screens
 	(port/assets/menus), which have many more widgets (source/interface/
 	ui_widget.c; console.widget_pool_log logs what the menus use)
+HALO_CONSOLE_NO_GUIDE
+	no Guide (port/linux/game/guide.c, over any screen) and no presence
+	sent to the site (browser.c, network.share_presence), their settings
+	left out of config.toml: every console for now, until the Guide is
+	sized to each one's memory and input
 HALO_CONSOLE_NO_WRITE_WATCH
 	a console that will not write-protect guest memory, so the renderer's
 	write watch cannot see the game write a resource: locks and file reads
@@ -364,6 +369,14 @@ larger maps take a campaign map's there as well) */
 #ifdef HALO_CONSOLE_DEBUG_TOOLS
 #define HALO_CONSOLE_BRINGUP_LOG 1
 #endif
+#endif
+
+/* the Guide (port/linux/game/guide.c, port/linux/src/social.c) and the
+presence it tells the site (browser.c): desktop and Android first; each
+console gets them sized to its limits later */
+#if (defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
+	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE)) && !defined(HALO_CONSOLE_NO_GUIDE)
+#define HALO_CONSOLE_NO_GUIDE 1
 #endif
 
 #if (defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
