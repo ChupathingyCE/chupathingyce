@@ -2150,8 +2150,12 @@ and no key.
 
 - **Revoke** stops the device's tokens at once, refuses its refreshes, and
   puts it on the revocation list (CREV) until its last certificate has run
-  out. Revoking a device doesn't unlink its copy (Linked games does that).
-  Revoking doesn't turn the player key back on (stage C, below).
+  out. Its copy's link goes too, so a computer's or console's games stop
+  counting for the profile (the profile's own player ID has no link to
+  take). Every device it approved by code goes with it, and theirs: the
+  site keeps who approved each device (`approved_by`), consoles approved
+  from a device included, so a stolen device leaves none behind. Revoking
+  doesn't turn the player key back on (stage C, below).
 - **Consoles.** A console linked by its own Link Profile
   (`/v1/console/link/*`, "Link Profile on a console") is in the list as a
   device with `"console": true`, its device ID made from its console key as
@@ -2166,7 +2170,8 @@ and no key.
 - **The game** shows the list under Delta Profile's DEVICES, also opened
   from DELTA's SETTINGS: this device offers SIGN OUT, another device REVOKE
   (asked first). DELTA's SETTINGS (and X in the list) also have LINK A
-  DEVICE, where the player enters another device's code with the d-pad.
+  DEVICE, where the player enters another device's code with the d-pad: 8
+  characters, or an older copy's 6-character Link Profile code.
   DELTA's SIGN IN shows a Quick Connect code right in its row, and A there
   answers the question; Link Profile's dialog shows the same code with its
   QR code.
