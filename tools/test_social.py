@@ -23,8 +23,8 @@ def compiler():
 
 
 def test_social(tmp_path):
-    """Builds the social unit (and the activity unit its status lines use) with its
-    tests, warnings as errors, and runs them."""
+    """Builds the social unit (and the activity unit its status lines use, and
+    the profile unit that reads the site's friends) with its tests, warnings as errors, and runs them."""
     cc = compiler()
     if not cc:
         pytest.skip("no C compiler")
@@ -34,6 +34,8 @@ def test_social(tmp_path):
          str(ROOT / "port" / "linux" / "tests" / "social_test.c"),
          str(ROOT / "port" / "linux" / "src" / "social.c"),
          str(ROOT / "port" / "linux" / "src" / "discord_activity.c"),
+         str(ROOT / "port" / "linux" / "src" / "delta_profile.c"),
+         "-DHALO_GAME_BROWSER",
          "-o", str(binary)],
         capture_output=True, text=True,
     )
