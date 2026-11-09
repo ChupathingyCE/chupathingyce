@@ -101,6 +101,12 @@ about 384 KB; a console draws them as sampled each tick, as retail */
 #define HALO_CONSOLE_NO_SMOOTH_FUNCTIONS
 #endif
 
+/* the camera shake drawn between ticks (source/effects/player_effects.c):
+a console shakes once a tick, as retail */
+#ifndef HALO_CONSOLE_NO_SMOOTH_SHAKE
+#define HALO_CONSOLE_NO_SMOOTH_SHAKE
+#endif
+
 /* the Controls screen (port/linux/game/controls_screen.c), the pause menu's
 CONTROLS and the controller's custom layout (port/linux/src/controller_layout.c):
 a console keeps its profile's layouts; the switch also leaves out

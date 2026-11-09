@@ -299,7 +299,7 @@ static void get_shake_matrix(
 /* ---------- globals */
 
 static struct player_effect_globals_definition *player_effect_globals;
-#ifndef HALO_XBOX_CONSOLE
+#ifndef HALO_CONSOLE_NO_SMOOTH_SHAKE
 /* port: the camera's shake drawn between ticks (get_shake_matrix): the seed
 of the tick before the one drawn, and how far the frame is from that tick
 to the next */
@@ -913,7 +913,7 @@ static boolean camera_effect_drawn(
 	return *end_time == game_time_get() + 1 && duration > 0.0f && *frame_ticks_left > 0.0f;
 }
 
-#ifndef HALO_XBOX_CONSOLE
+#ifndef HALO_CONSOLE_NO_SMOOTH_SHAKE
 /* port: the seed a tick's shake draws from, for a local player */
 static unsigned long shake_tick_seed(
 	long time,
@@ -939,7 +939,7 @@ once a tick. Both seeds draw the same numbers in the same order. */
 static real get_shake_random(void)
 {
 	real latest = real_seed_random_range(get_global_local_random_seed_address(), -1.0f, 1.0f);
-#ifndef HALO_XBOX_CONSOLE
+#ifndef HALO_CONSOLE_NO_SMOOTH_SHAKE
 	real last = real_seed_random_range(&shake_last_tick_seed, -1.0f, 1.0f);
 
 	latest = last + (latest - last) * shake_tick_fraction;
@@ -951,12 +951,12 @@ static real get_shake_random(void)
 static void get_shake_direction(
 	real_vector3d *direction)
 {
-#ifndef HALO_XBOX_CONSOLE
+#ifndef HALO_CONSOLE_NO_SMOOTH_SHAKE
 	real_vector3d last;
 #endif
 
 	seed_random_direction3d(get_global_local_random_seed_address(), direction);
-#ifndef HALO_XBOX_CONSOLE
+#ifndef HALO_CONSOLE_NO_SMOOTH_SHAKE
 	seed_random_direction3d(&shake_last_tick_seed, &last);
 	direction->i = last.i + (direction->i - last.i) * shake_tick_fraction;
 	direction->j = last.j + (direction->j - last.j) * shake_tick_fraction;
@@ -974,7 +974,7 @@ static void get_shake_matrix(
 	if (rotation != 0.0f)
 	{
 		get_shake_direction(&direction);
-#ifndef HALO_XBOX_CONSOLE
+#ifndef HALO_CONSOLE_NO_SMOOTH_SHAKE
 		/* port: the axis scaled by the angle blends as one rotation */
 		rotation *= normalize3d(&direction);
 #endif
