@@ -1698,8 +1698,8 @@ copy: every Halo profile on a copy counts for the same Delta profile.
   "Delta: not linked". With an empty `network.browser_url`, every way in
   is hidden.
 - **Sections:** OVERVIEW (name, the player's Spartan, badges, record,
-  recent games), LINKED COPIES, ROLES, CLAN, PRIVACY, then LINK
-  PROFILE or UNLINK THIS COPY, and OPEN ON THE WEB. The Chupathingy menus
+  recent games), DEVICES, ROLES, CLAN, PRIVACY, then LINK
+  PROFILE or UNLINK THIS DEVICE, and OPEN ON THE WEB. The Chupathingy menus
   draw them with their own widgets
   (`port/assets/menus/chupathingy/delta_profile.xml`), and Privacy is one
   of their settings pages. The Xbox and Gearbox menus get a
