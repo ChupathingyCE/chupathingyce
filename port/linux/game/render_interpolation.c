@@ -22,7 +22,9 @@ another weapon's skeleton, a pose left from seconds before) blended node by
 node stretch vertices across the screen.
 
 Particles, contrails and other effects already move every frame
-(game_frame), so they need nothing here.
+(game_frame). A stream of particles from an object, made in the tick all at
+once, is held back to be made through the frames between the ticks, on the
+emitter as drawn (render_interpolation_particle_later).
 
 An object the distributed netcode moves to where the host has it
 (port/linux/game/network_objects.c) is drawn gliding there over a few ticks
@@ -40,6 +42,7 @@ with their unit, and with what it rides.
 #include "camera/observer.h"
 #include "cutscene/cinematics.h"
 #include "game/players.h"
+#include "effects/particles.h"
 #include "render/render_cameras.h"
 #include "units/units.h"
 
@@ -165,6 +168,36 @@ static struct interpolated_object *interpolated_objects;
 static struct interpolated_camera interpolated_cameras[MAXIMUM_LOCAL_PLAYERS];
 static struct interpolated_first_person interpolated_first_person[MAXIMUM_LOCAL_PLAYERS];
 static long interpolation_tick;
+
+#ifndef HALO_CONSOLE_NO_PARTICLE_STREAMS
+/* An effect's particles are made in the tick, all of the tick's at once, at
+the emitter's place as the tick found it: a stream from an object (a
+vehicle's exhaust, a burning wreck's smoke) came out in clumps 30 times a
+second, and from a moving object each clump a tick's motion behind the
+last, which the object drawn between the ticks then moved away from. Such a
+particle, the nth of the tick's count, is held back for that part of the
+tick and made in the first frame that far into it, where its node is drawn
+then. Particles take the local random seed, never the game's: holding them
+back changes nothing of the game. */
+
+#define MAXIMUM_LATER_PARTICLES 512
+
+struct later_particle
+{
+	struct new_particle_data data;
+	long object_index;
+	short node_index;
+	/* where it was made in its node's frame */
+	real_point3d node_position;
+	/* made in the frames after this tick, this far into it */
+	long tick;
+	real fraction;
+};
+
+static struct later_particle later_particles[MAXIMUM_LATER_PARTICLES];
+static short later_particle_count;
+#endif
+
 static long interpolation_frame;
 static boolean interpolation_rendering;
 static real interpolation_fraction = 1.0f;
@@ -518,6 +551,10 @@ void render_interpolation_reset(void)
 			interpolated_objects[index].object_index = NONE;
 	}
 	memset(interpolated_cameras, 0, sizeof(interpolated_cameras));
+#ifndef HALO_CONSOLE_NO_PARTICLE_STREAMS
+	/* (the particles held back are the last map's) */
+	later_particle_count = 0;
+#endif
 	for (index = 0; index < MAXIMUM_LOCAL_PLAYERS; index++)
 	{
 		interpolated_first_person[index].node_count = 0;
@@ -1043,6 +1080,112 @@ void render_interpolation_first_person(
 			&blended);
 		matrix4x3_multiply(&camera_matrix, &blended, &node_matrices[node_index]);
 	}
+}
+
+/* ---------- particles */
+
+/* (effects.c, in the tick, before objects move) the particle made at the
+object's node, fraction of the way through the tick's count: TRUE as it is
+held back to be made then (render_interpolation_particles_due), FALSE to be
+made now (interpolation off, no earlier pose, too many held) */
+boolean render_interpolation_particle_later(
+	struct new_particle_data const *data,
+	long object_index,
+	short node_index,
+	real fraction)
+{
+#ifdef HALO_CONSOLE_NO_PARTICLE_STREAMS
+	(void)data;
+	(void)object_index;
+	(void)node_index;
+	(void)fraction;
+	return FALSE;
+#else
+	struct interpolated_object *record;
+	struct later_particle *later;
+	long absolute_index;
+
+	/* (so written that a fraction not a number is made now) */
+	if (!halo_interpolation_enabled() || !interpolated_objects || object_index == NONE ||
+		!(fraction > 0.0f && fraction < 1.0f) || later_particle_count >= MAXIMUM_LATER_PARTICLES)
+	{
+		return FALSE;
+	}
+	absolute_index = DATUM_INDEX_TO_ABSOLUTE_INDEX(object_index);
+	if (absolute_index >= MAXIMUM_INTERPOLATED_OBJECTS)
+		return FALSE;
+	record = &interpolated_objects[absolute_index];
+	if (record->object_index != object_index || record->tick != interpolation_tick ||
+		node_index < 0 || node_index >= record->node_count)
+	{
+		return FALSE;
+	}
+	later = &later_particles[later_particle_count++];
+	later->data = *data;
+	later->object_index = object_index;
+	later->node_index = node_index;
+	/* (the latest snapshot is the pose this tick began from) */
+	matrix4x3_inverse_transform_point(record->nodes + record->latest * record->node_capacity + node_index,
+		&data->position, &later->node_position);
+	later->tick = interpolation_tick + 1;
+	later->fraction = fraction;
+	return TRUE;
+#endif
+}
+
+/* (particles.c, each frame before the particles move) the particles held
+back that the frame has reached, made at their nodes as drawn this frame */
+void render_interpolation_particles_due(void)
+{
+#ifndef HALO_CONSOLE_NO_PARTICLE_STREAMS
+	boolean interpolating = halo_interpolation_enabled() && interpolated_objects;
+	real fraction = interpolating ? game_time_get_tick_fraction() : 1.0f;
+	short index = 0;
+
+	while (index < later_particle_count)
+	{
+		struct later_particle *later = &later_particles[index];
+		struct interpolated_object *record;
+
+		if (interpolating && (interpolation_tick < later->tick ||
+			(interpolation_tick == later->tick && fraction < later->fraction)))
+		{
+			index++;
+			continue;
+		}
+		/* its node between the last two ticks' poses, as the object is
+		drawn in this frame; left where the tick made it when the object is
+		gone or drawn as the tick left it */
+		record = interpolating ?
+			&interpolated_objects[DATUM_INDEX_TO_ABSOLUTE_INDEX(later->object_index)] :
+			NULL;
+		if (record && record->object_index == later->object_index && record->tick == interpolation_tick &&
+			record->has_previous && later->node_index < record->node_count)
+		{
+			real_point3d previous, latest;
+
+			matrix4x3_transform_point(
+				record->nodes + (record->latest ^ 1) * record->node_capacity + later->node_index,
+				&later->node_position, &previous);
+			matrix4x3_transform_point(
+				record->nodes + record->latest * record->node_capacity + later->node_index,
+				&later->node_position, &latest);
+			/* (so written that a position not a number snaps) */
+			if (distance_squared(&previous, &latest) <= OBJECT_SNAP_DISTANCE * OBJECT_SNAP_DISTANCE)
+			{
+				later->data.position.x = lerp(previous.x, latest.x, fraction);
+				later->data.position.y = lerp(previous.y, latest.y, fraction);
+				later->data.position.z = lerp(previous.z, latest.z, fraction);
+			}
+			else
+			{
+				later->data.position = latest;
+			}
+		}
+		particle_new(&later->data);
+		*later = later_particles[--later_particle_count];
+	}
+#endif
 }
 
 /* ---------- time */

@@ -23,6 +23,10 @@ float render_interpolation_fraction(void);
 unsigned char render_interpolation_drawing(void);
 struct real_matrix4x3 *render_interpolation_object_node_matrices(long object_index);
 float *render_interpolation_object_function_values(long object_index);
+struct new_particle_data;
+unsigned char render_interpolation_particle_later(struct new_particle_data const *data, long object_index,
+	short node_index, float fraction);
+void render_interpolation_particles_due(void);
 void render_interpolation_object_point(long object_index, union real_point3d *point);
 struct observer_result const *render_interpolation_camera(short local_player_index,
 	struct observer_result const *observer);
