@@ -708,7 +708,8 @@ the setting for one start of the game. It has priority over the file.
 | `controls.guide_button` | `true` | `HALO_GUIDE_BUTTON` | The first player's controller Guide button opens the Guide, where SDL can read it (Steam and the Xbox Game Bar may keep it). Split screen's other players never open it, and it doesn't open over chat typing. |
 | `guide.hold_back` | `false` | `HALO_GUIDE_HOLD_BACK` | Holding Back about 0.6 s in the menus opens the Guide. Off by default, since the menus get the Back press first, which isn't the Xbox's behavior. |
 | `guide.pause_menu` | `true` | `HALO_GUIDE_PAUSE_MENU` | GUIDE in the pause menu, after CONTROLS, in all three menu sets. |
-| `guide.notify_in_game` | `false` | `HALO_GUIDE_NOTIFY_IN_GAME` | The Guide's notifications during a game. They always show in the menus. None are sent yet. |
+| `guide.notify_in_game` | `false` | `HALO_GUIDE_NOTIFY_IN_GAME` | The Guide's notifications (a new invite or friend request) during a game. They always show in the menus. |
+| `guide.notify_online` | `false` | `HALO_GUIDE_NOTIFY_ONLINE` | A notification in the menus when a friend comes online. Never during a game. |
 | `debug.guide_open` | `false` | `HALO_GUIDE_OPEN` | Opens the Guide once the menus or a map are up, for tests and screenshots. |
 | `debug.guide_toast` | `""` | `HALO_GUIDE_TOAST` | Shows a test notification with this text once the main menu is up. |
 | `debug.chat_test` | `""` | `HALO_CHAT_TEST` | A script of text chat for the tests (`game/chat.c`): `"<seconds>:<what>[:<text>]"` steps separated by `;`, from when this copy is in a game: `all` and `team` say a line, `server` says one as the host's server, `mute` and `unmute` mute a machine as a moderator does (the host), `localmute` mutes one for this copy, `log` and `close` open and close the log, `type` shows a line being typed. |

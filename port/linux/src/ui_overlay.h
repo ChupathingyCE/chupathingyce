@@ -151,6 +151,23 @@ drawn in it: the Guide (port/linux/game/guide.c) and the setup launcher
 translucent panels and rows, a glow on the selected row and the edges. In
 the menus' 640x480, as everything here */
 
+/* the palette's named colors, for what a screen draws itself (the theme
+swaps this one palette): ui_style_color's names */
+enum
+{
+	UI_COLOR_NAME,
+	UI_COLOR_STATUS,
+	UI_COLOR_LABEL,
+	UI_COLOR_HEADING,
+	UI_COLOR_VALUE,
+	UI_COLOR_WARNING,
+	UI_COLOR_FRIEND_EMBLEM,
+	UI_COLOR_FRIEND_INITIAL,
+	UI_COLOR_KEY,
+	NUMBER_OF_UI_COLORS
+};
+unsigned int ui_style_color(int name);
+
 /* the clock the plasma scrolls by, in milliseconds: set once a frame
 before drawing (the game's system_milliseconds, the launcher's ticks) */
 void ui_style_clock(unsigned int milliseconds);

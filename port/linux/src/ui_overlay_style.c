@@ -37,6 +37,24 @@ enum
 	COLOR_PROMPT_GLOW = 0x3D8BFF80,
 };
 
+/* the palette's named colors that screens draw with themselves
+(ui_style_color), by UI_COLOR_* */
+static const unsigned int palette[NUMBER_OF_UI_COLORS] =
+{
+	/* UI_COLOR_NAME, UI_COLOR_STATUS, UI_COLOR_LABEL, UI_COLOR_HEADING */
+	COLOR_NAME, COLOR_STATUS, 0x6FA6DDFF, 0x6FA6DDFF,
+	/* UI_COLOR_VALUE, UI_COLOR_WARNING */
+	0xFFFFFFFF, 0xFF9F9FFF,
+	/* UI_COLOR_FRIEND_EMBLEM, UI_COLOR_FRIEND_INITIAL (a friend's initial
+	on their toast's emblem), UI_COLOR_KEY (a key cap) */
+	0xC9A227FF, 0x071A33FF, 0xFFFFFFFF,
+};
+
+unsigned int ui_style_color(int name)
+{
+	return name >= 0 && name < NUMBER_OF_UI_COLORS ? palette[name] : COLOR_NAME;
+}
+
 static unsigned int style_clock;
 
 static unsigned int fade(unsigned int color, float share)
