@@ -2523,7 +2523,10 @@ static void bg_uniforms_update(float texture_scale[4][4])
 	bg_depth_range[1] = device.viewport.MaxZ - device.viewport.MinZ;
 	bg_depth_range[2] = bg_depth_range[3] = 0.0f;
 	/* (glPolygonOffset's units: the depth buffer's smallest step, 2^-24) */
-	bg_depth_bias[0] = dword_to_float(D3D__RenderState[D3DRS_POLYGONOFFSETZSLOPESCALE]);
+	/* (the slope's factor scaled by the target's pixels a unit, as the
+	OpenGL path's: apply_raster_state) */
+	bg_depth_bias[0] = dword_to_float(D3D__RenderState[D3DRS_POLYGONOFFSETZSLOPESCALE]) *
+		(bg.target_scale[0] > bg.target_scale[1] ? bg.target_scale[0] : bg.target_scale[1]);
 	bg_depth_bias[1] = dword_to_float(D3D__RenderState[D3DRS_POLYGONOFFSETZOFFSET]) / 16777216.0f;
 	bg_depth_bias[2] = bg_depth_bias[3] = 0.0f;
 	for (index = 0; index < BG_UNIFORM_COUNT; index++)
