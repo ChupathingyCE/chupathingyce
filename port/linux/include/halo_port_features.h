@@ -20,6 +20,10 @@ HALO_GAME_BROWSER: the game list, text chat and the dedicated server
 and ones a console's build sets to have an extra the desktop's have:
 HALO_CONSOLE_GAME_REPORTS: the reports of the games it joins, sent to the
 site (port/console/reports), as the desktop builds' game list sends them
+HALO_CONSOLE_GAME_CLAIMS (with HALO_CONSOLE_GAME_REPORTS): the claim of its
+own line in each online game, hosted or joined, for the Delta profile it is
+linked to (port/console/reports/console_claims.h); the port builds
+console_claims.c and gives its hooks
 HALO_CONSOLE_CE_BITMAPS (with HALO_CUSTOM_EDITION): a Custom Edition map's
 bitmaps made the console's as they are read, by the port's
 platform_ce_bitmap_loaded (the desktop builds' renderer draws them as they are)
@@ -99,6 +103,19 @@ define brings them back when a console gets an updater */
 slot, about 1.7 MB; a console draws them as sampled each tick, as retail */
 #ifndef HALO_CONSOLE_NO_SMOOTH_FUNCTIONS
 #define HALO_CONSOLE_NO_SMOOTH_FUNCTIONS
+#endif
+
+/* a stream of particles from an object made through the tick, on the
+emitter as drawn (port/linux/game/render_interpolation.c): about 64 KB held
+back; a console makes them all at the tick, as retail */
+#ifndef HALO_CONSOLE_NO_PARTICLE_STREAMS
+#define HALO_CONSOLE_NO_PARTICLE_STREAMS
+#endif
+
+/* the camera shake drawn between ticks (source/effects/player_effects.c):
+a console shakes once a tick, as retail */
+#ifndef HALO_CONSOLE_NO_SMOOTH_SHAKE
+#define HALO_CONSOLE_NO_SMOOTH_SHAKE
 #endif
 
 /* the Controls screen (port/linux/game/controls_screen.c), the pause menu's

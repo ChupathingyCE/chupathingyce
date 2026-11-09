@@ -214,8 +214,8 @@ static void keyboard_hold_ticks(
 	long *down_time,
 	boolean down)
 {
-	long now = (long)system_milliseconds();
-
+	/* (the clock is read only for a control held: this runs for every
+	control each tick) */
 	if (!down)
 	{
 		*ticks = 0;
@@ -223,11 +223,11 @@ static void keyboard_hold_ticks(
 	else if (*ticks == 0)
 	{
 		*ticks = 1;
-		*down_time = now;
+		*down_time = (long)system_milliseconds();
 	}
 	else
 	{
-		long held = now - *down_time;
+		long held = (long)system_milliseconds() - *down_time;
 
 		held = held < 0 ? 0 : MIN(held, (long)UNSIGNED_CHAR_MAX * 1000 / TICKS_PER_SECOND);
 		*ticks = (byte)PIN(1 + held * TICKS_PER_SECOND / 1000, 2, UNSIGNED_CHAR_MAX);
@@ -492,6 +492,31 @@ byte input_abstraction_port_accept(
 {
 	return controller_index >= 0 && controller_index < MAXIMUM_GAMEPADS ?
 		keyboard_controls[controller_index].ticks[_game_control_jump] : 0;
+}
+
+/* port: for how many ticks the controller's player holds the keyboard's key
+for the game's back, the control their layout puts on B: the key the
+prompts show for it (input_abstraction_port_icon_key). Scripts ask for it
+(player_action_test_back: the Pillar of Autumn's look inversion), and the
+keyboard had no way to give it */
+byte input_abstraction_port_back(
+	short controller_index)
+{
+	struct game_input_preferences preferences;
+	long control_index;
+
+	if (controller_index < 0 || controller_index >= MAXIMUM_GAMEPADS)
+		return 0;
+	input_abstraction_get_local_player_preferences(controller_index, &preferences);
+	for (control_index = 0; control_index < NUMBER_OF_GAME_CONTROLS; control_index++)
+	{
+		if (preferences.game_control_to_xbox_buttons[control_index] == _port_icon_b_button &&
+			keyboard_game_controls[control_index] >= 0)
+		{
+			return keyboard_controls[controller_index].ticks[control_index];
+		}
+	}
+	return 0;
 }
 
 /* port: which way the controller's player cycles a dead player's follow
