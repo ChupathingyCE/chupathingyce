@@ -194,7 +194,8 @@ void social_presence_reset(struct social_presence *presence)
 int social_presence_due(struct social_presence *presence, const struct social_presence_inputs *inputs,
 	unsigned long now)
 {
-	int allowed = inputs->share && inputs->in_game && inputs->on_delta && inputs->linked && !inputs->hidden;
+	int allowed = inputs->share && inputs->in_game && inputs->on_delta && inputs->linked && !inputs->hidden &&
+		inputs->has_invite;
 
 	if (!allowed)
 	{
@@ -254,12 +255,39 @@ int social_presence_answer(struct social_presence *presence, int status, const c
 	return answer;
 }
 
-int social_presence_fields(char *fields, int size)
+int social_presence_invite_valid(const char *invite)
+{
+	size_t length, index;
+
+	if (!invite)
+		return 0;
+	length = strlen(invite);
+	if (length != 64 && length != 44)
+		return 0;
+	for (index = 0; index < length; index++)
+	{
+		char c = invite[index];
+
+		if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')))
+			return 0;
+	}
+	return 1;
+}
+
+int social_presence_fields(char *fields, int size, const char *invite)
 {
 	int length;
 
 	if (size <= 0)
 		return -1;
-	length = snprintf(fields, (size_t)size, "\"invite\": \"\"");
-	return length < 0 || length >= size ? -1 : length;
+	fields[0] = 0;
+	if (!social_presence_invite_valid(invite))
+		return -1;
+	length = snprintf(fields, (size_t)size, "\"invite\": \"%s\"", invite);
+	if (length < 0 || length >= size)
+	{
+		fields[0] = 0;
+		return -1;
+	}
+	return length;
 }

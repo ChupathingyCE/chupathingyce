@@ -1936,12 +1936,16 @@ static void update_anchors(void)
 #ifndef HALO_CONSOLE_NO_GUIDE
 /* ---------- presence (the browser thread)
 
-About once a minute while this copy plays a Delta game, it tells the site
-so (POST /v1/presence {key, invite}), when network.share_presence is on,
-this copy counts for a Delta profile and the profile's "Show when I'm
-playing" is not off. The invite is always empty: who can join is never
-in presence. Only this copy's own player key goes; nothing about other
-players. The site keeps it in memory only, with no address. */
+About once a minute while this copy plays a Delta game that has an invite,
+it tells the site which game (POST /v1/presence {key, invite}), when
+network.share_presence is on, this copy counts for a Delta profile and the
+profile's "Show when I'm playing" is not off. The invite is the game's own:
+the one this copy hosts with (p2p_hosting_invite), or the one it joined
+(p2p_joined_invite). The site finds the listed game by it for the
+profile's "playing" line, shows that game only to those the player allows,
+and the invite itself only to those allowed to join. Nothing in the menus,
+only this copy's own player key, nothing about other players. The site
+keeps it in memory only, with no address. */
 
 /* the game says it is playing this often (discord_game.c, once a second):
 quiet longer, and it no longer is */
@@ -1950,11 +1954,17 @@ quiet longer, and it no longer is */
 static void update_presence(void)
 {
 	struct social_presence_inputs inputs;
-	char fields[64], response[256], error[256];
+	char invite[BROWSER_INVITE_LENGTH + 1], fields[128], response[256], error[256];
 	int status, no_key, answer, logged;
 
 	memset(&inputs, 0, sizeof(inputs));
 	inputs.share = config_boolean("network.share_presence") != 0;
+	/* (the game's invite: hosted, else joined; a password game hosted here
+	has none to give) */
+	invite[0] = 0;
+	if (!p2p_hosting_invite(invite, sizeof(invite)) && !p2p_joined_invite(invite, sizeof(invite)))
+		invite[0] = 0;
+	inputs.has_invite = social_presence_invite_valid(invite);
 	pthread_mutex_lock(&browser_lock);
 	inputs.in_game = browser.presence_playing && !elapsed(browser.presence_said, PRESENCE_SAID_TIMEOUT);
 	/* (playing says the game is a Delta one: discord_game.c) */
@@ -1969,7 +1979,7 @@ static void update_presence(void)
 	}
 	pthread_mutex_unlock(&browser_lock);
 	response[0] = 0;
-	if (social_presence_fields(fields, sizeof(fields)) < 0)
+	if (social_presence_fields(fields, sizeof(fields), invite) < 0)
 		fields[0] = 0;
 	status = game_request("/v1/presence", fields, response, sizeof(response), error, sizeof(error), &no_key);
 	pthread_mutex_lock(&browser_lock);

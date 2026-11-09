@@ -173,9 +173,9 @@ static void test_poll(void)
 static void test_presence(void)
 {
 	struct social_presence presence;
-	struct social_presence_inputs inputs = { 1, 1, 1, 1, 0 };
+	struct social_presence_inputs inputs = { 1, 1, 1, 1, 0, 1 };
 	struct social_presence_inputs off;
-	char fields[64];
+	char fields[96];
 	unsigned long now = 5000;
 
 	social_presence_reset(&presence);
@@ -189,6 +189,9 @@ static void test_presence(void)
 	off = inputs; off.linked = 0;
 	CHECK(!social_presence_due(&presence, &off, now));
 	off = inputs; off.hidden = 1;
+	CHECK(!social_presence_due(&presence, &off, now));
+	/* (no invite: the menus, or a game the site can't name) */
+	off = inputs; off.has_invite = 0;
 	CHECK(!social_presence_due(&presence, &off, now));
 	CHECK(presence.sent == 0);
 
@@ -226,10 +229,18 @@ static void test_presence(void)
 	CHECK(social_presence_answer(&presence, 200, "ok", now + 2) == SOCIAL_PRESENCE_NONE);
 	CHECK(social_presence_due(&presence, &inputs, now + 3));
 
-	/* the invite is never in it */
-	CHECK(social_presence_fields(fields, sizeof(fields)) > 0);
-	CHECK(!strcmp(fields, "\"invite\": \"\""));
-	CHECK(social_presence_fields(fields, 4) == -1);
+	/* the game's invite, as the site takes it: 64 or 44 lowercase hex */
+	CHECK(social_presence_invite_valid("0123456789abcdef0123456789abcdef0123456789ab"));
+	CHECK(social_presence_invite_valid("0123456789abcdef0123456789abcdef0123456789ab0123456789abcdef0123"));
+	CHECK(!social_presence_invite_valid(""));
+	CHECK(!social_presence_invite_valid(NULL));
+	CHECK(!social_presence_invite_valid("0123456789ABCDEF0123456789ABCDEF0123456789AB"));
+	CHECK(!social_presence_invite_valid("0123456789abcdef0123456789abcdef0123456789ab0"));
+	CHECK(!social_presence_invite_valid("halo://join/0123456789abcdef0123456789abcdef0123456789ab"));
+	CHECK(social_presence_fields(fields, sizeof(fields), "0123456789abcdef0123456789abcdef0123456789ab") > 0);
+	CHECK(!strcmp(fields, "\"invite\": \"0123456789abcdef0123456789abcdef0123456789ab\""));
+	CHECK(social_presence_fields(fields, sizeof(fields), "") == -1 && !fields[0]);
+	CHECK(social_presence_fields(fields, 20, "0123456789abcdef0123456789abcdef0123456789ab") == -1);
 }
 
 int main(void)

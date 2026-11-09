@@ -914,10 +914,11 @@ static const struct config_setting config_settings[] =
 #if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_GUIDE)
 	{ "network.share_presence", _config_boolean, "true", "HALO_NET_SHARE_PRESENCE", _environment_value,
 		_platform_all,
-		"Let your Delta profile show when you're playing. While you play a\n"
-		"Delta game, Chupathingy tells the site about once a minute. It never\n"
-		"sends your invite or anything about other players. Delta Profile's\n"
-		"\"Show when I'm playing\" on the site hides it too." },
+		"Let your Delta profile show which game you're playing. While you play\n"
+		"a Delta game, Chupathingy tells the site which game, about once a\n"
+		"minute. The site shows the game only to people you allow, and lets\n"
+		"only those allowed to join see its invite. Nothing about other\n"
+		"players is sent. \"Show when I'm playing\" on the site hides it too." },
 #endif
 #ifdef HALO_GAME_BROWSER
 	{ "network.browser_url", _config_string, "\"https://stats.chupathingy.org\"", "HALO_NET_BROWSER", _environment_value,

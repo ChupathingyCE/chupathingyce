@@ -130,9 +130,13 @@ where the player is since the last poll (the first at once) */
 int social_poll_due(struct social_poll *poll, unsigned long now, int in_game, int signed_in);
 
 /* ---------- presence: this copy tells the site it is playing
-(network.share_presence), about once a minute while it is in a Delta game.
-The invite is never in it: the site gets an empty one. Never for another
-player, never for a game without Delta (an OpenCE host's). */
+(network.share_presence), about once a minute while it is in a Delta game
+that has an invite: the game's own invite (the one the game list and
+halo://join/ links carry), so that the site can show which game it is.
+The site shows the game only to those the player allows, and the invite
+itself only to those allowed to join. Nothing in the menus (the site's
+social state covers "online"), never for another player, never for a game
+without Delta (an OpenCE host's). */
 
 enum
 {
@@ -159,6 +163,8 @@ struct social_presence_inputs
 	int linked;
 	/* the site's privacy, when known: "Show when I'm playing" off */
 	int hidden;
+	/* the game's invite is known (social_presence_invite_valid) */
+	int has_invite;
 };
 
 struct social_presence
@@ -195,8 +201,12 @@ int social_presence_due(struct social_presence *presence, const struct social_pr
 /* the site's answer: its HTTP status (0: none) and its body ("ok", "off");
 the next one waits by it. Returns the word (SOCIAL_PRESENCE_*) */
 int social_presence_answer(struct social_presence *presence, int status, const char *body, unsigned long now);
+/* whether text is an invite the site takes: 64 or 44 lowercase
+hexadecimal digits (a code, without halo://join/) */
+int social_presence_invite_valid(const char *invite);
 /* the request's members besides the key, as browser.c's game_request takes
-them: the empty invite */
-int social_presence_fields(char *fields, int size);
+them: the game's invite; -1 for an invite the site would not take, or when
+it does not fit */
+int social_presence_fields(char *fields, int size, const char *invite);
 
 #endif

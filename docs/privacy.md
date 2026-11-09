@@ -14,7 +14,7 @@ You can turn each of these off on the Privacy screen in Settings (Gearbox menus)
 | `report_events = false` | Match details of games you host |
 | `report_hosted_games = false` | All reports of games you host (they stay listed) |
 | `list_hosted_games = false` | Listing your hosted games, and their reports |
-| `share_presence = false` | Showing on your Delta profile that you're playing |
+| `share_presence = false` | Showing on your Delta profile which game you're playing |
 
 The full list of what the site keeps is on [stats.chupathingy.org/delta#tracked](https://stats.chupathingy.org/delta#tracked).
 
@@ -24,7 +24,7 @@ Your service record is on [stats.chupathingy.org](https://stats.chupathingy.org)
 
 ## Showing that you're playing
 
-If your copy is linked to a Delta profile, your profile shows when you're playing. While you're in a Delta game, the game tells stats.chupathingy.org about once a minute. It sends your player key and nothing else: no invite, no map, nothing about other players. The site keeps it in memory for a few minutes and never stores your address. It's never sent for a game whose host doesn't run Delta.
+If your copy is linked to a Delta profile, your profile shows which game you're playing. While you're in a Delta game, your game tells stats.chupathingy.org which game it is, about once a minute: your player key and the game's invite, nothing about other players. The site shows that game (its name, map and player count) only to the people you allow, and the invite itself only to people allowed to join you. It keeps this in memory for a few minutes and never stores your address. Nothing is sent from the menus, or for a game whose host doesn't run Delta.
 
 To stop it, set `share_presence = false` under `[network]` in `config.toml`, or turn off "Show when I'm playing" on your profile's Privacy page.
 

@@ -419,9 +419,9 @@ void browser_connect_get(struct browser_connect *connect);
 
 /* presence (study 0.1; social.h): the game says, about once a second,
 whether this copy plays a Delta game now (a multiplayer game over the
-network whose host speaks Delta); the browser thread tells the site about
-once a minute while it does and network.share_presence is on. Not on the
-consoles (HALO_CONSOLE_NO_GUIDE) */
+network whose host speaks Delta); the browser thread tells the site which
+game (its invite) about once a minute while it does and
+network.share_presence is on. Not on the consoles (HALO_CONSOLE_NO_GUIDE) */
 void browser_presence_playing(int playing);
 
 /* Delta Profile in the game (port/linux/game/profile_screen.c;
