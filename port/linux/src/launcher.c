@@ -1717,7 +1717,7 @@ static void draw_panel(float x0, float y0, float x1, float y1)
 		heading = "HELP";
 		break;
 	}
-	ui_style_heading(x + 1.0f, y, 8.5f, UI_ALIGN_LEFT, heading);
+	ui_style_text(UI_TEXT_HEADING, x + 1.0f, y + 1.0f, UI_ALIGN_LEFT, heading);
 	y += 22.0f;
 	if (launcher.screen == _screen_family)
 	{
