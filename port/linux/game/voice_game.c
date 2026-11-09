@@ -151,7 +151,8 @@ static boolean host_wire_rules(struct delta_wire_voice_config *config)
 /* whether a game is played now (not the lobby or its postgame) */
 static boolean voice_in_game(void)
 {
-	return game_in_progress() && !game_engine_showing_postgame();
+	/* (the pregame lobby has the menus' map running, not a game engine) */
+	return game_in_progress() && game_engine_running() && !game_engine_showing_postgame();
 }
 
 /* a player of the game's list's unit's place: FALSE if it has none (dead,
