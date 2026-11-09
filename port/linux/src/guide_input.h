@@ -35,10 +35,11 @@ enum
 void platform_guide_capture(int capture);
 /* what is held now, while it takes the input (0 when it does not) */
 unsigned int platform_guide_held(void);
-/* the times the player asked to open or close it since the last call: its
-key (controls.guide, F3), the controller's Guide button where SDL reads it
-(controls.guide_button), or Back held about GUIDE_HOLD_BACK milliseconds in
-the menus (a tap of Back stays the scoreboard's in a game) */
+/* the times the first player asked to open or close it since the last
+call: its key (controls.guide, F3), their controller's Guide button where
+SDL reads it (controls.guide_button), or, with guide.hold_back (off: Back
+stays the Xbox's), Back held about GUIDE_HOLD_BACK milliseconds in the
+menus. Not over chat's or a text field's typing */
 int platform_guide_toggles(void);
 
 #define GUIDE_HOLD_BACK 600

@@ -716,8 +716,10 @@ static const struct config_setting config_settings[] =
 		"The key that opens and closes the Guide: F3 to F10." },
 	{ "controls.guide_button", _config_boolean, "true", "HALO_GUIDE_BUTTON", _environment_value, _platform_all,
 		"Open the Guide with the controller's Guide button, where Chupathingy\n"
-		"can read it (Steam and the Xbox Game Bar may keep it for themselves).\n"
-		"Holding Back in the menus opens it too." },
+		"can read it (Steam and the Xbox Game Bar may keep it for themselves)." },
+	{ "guide.hold_back", _config_boolean, "false", "HALO_GUIDE_HOLD_BACK", _environment_value, _platform_all,
+		"Open the Guide by holding Back for about half a second in the menus.\n"
+		"Off by default: the menus get the Back press first, as on the Xbox." },
 	{ "guide.pause_menu", _config_boolean, "true", "HALO_GUIDE_PAUSE_MENU", _environment_value, _platform_all,
 		"Put GUIDE in the pause menu, in every menu set." },
 	{ "guide.notify_in_game", _config_boolean, "false", "HALO_GUIDE_NOTIFY_IN_GAME", _environment_value,

@@ -1673,7 +1673,11 @@ port/linux/game/guide.c), as guide.pause_menu says, in every menu set */
 static boolean pause_guide_offered(void)
 {
 #ifdef HALO_GUIDE
-	return config_boolean("guide.pause_menu") != 0;
+	/* (the Guide is the first player's: not with split screen, where the
+	row would be dead in the others' pause menus) */
+	extern unsigned char pc_menu_split_players(void);
+
+	return config_boolean("guide.pause_menu") != 0 && !pc_menu_split_players();
 #else
 	return FALSE;
 #endif

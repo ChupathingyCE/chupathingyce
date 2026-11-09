@@ -5751,14 +5751,18 @@ static boolean pause_moderation(void)
 
 /* "port pause guide" (the pause menu's GUIDE: menu_tags.c): the Guide over
 the pause menu (guide.c), which B closes back to it */
-static boolean pause_guide(void)
+static boolean pause_guide(struct widget_instance *widget)
 {
 #ifdef HALO_GUIDE
 	extern void guide_open(void);
 
+	/* (the first player's alone) */
+	if (widget->local_player_index != 0)
+		return FALSE;
 	guide_open();
 	return TRUE;
 #else
+	(void)widget;
 	return FALSE;
 #endif
 }
@@ -9130,7 +9134,7 @@ boolean pc_menu_event_function_invoke(
 		}
 		else if (!strcmp(name, "port pause guide"))
 		{
-			return pause_guide();
+			return pause_guide(widget);
 		}
 		else if (!strcmp(name, "port pause controls"))
 		{

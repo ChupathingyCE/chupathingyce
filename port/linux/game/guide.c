@@ -25,10 +25,10 @@ gets a controller at rest, and their player stands still
 alone pauses as it does under the pause menu. B closes it, back to what was
 under it as it was.
 
-It opens with controls.guide (F3), the controller's Guide button
-(controls.guide_button, where SDL reads it), Back held in the menus, or the
-pause menu's GUIDE (menu_tags.c, guide.pause_menu); the same key or button,
-or B, closes it.
+It opens with controls.guide (F3), the first player's Guide button
+(controls.guide_button, where SDL reads it), Back held in the menus with
+guide.hold_back (off by default), or the first player's pause menu's GUIDE
+(menu_tags.c, guide.pause_menu); the same key or button, or B, closes it.
 
 Toasts (guide_toast) show low in the middle of the screen for a few
 seconds: in the menus, and in a game only with guide.notify_in_game. None

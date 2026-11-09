@@ -506,21 +506,24 @@ static int guide_key(void)
 }
 
 /* the asks to open or close the Guide this poll: its key and the Guide
-button pressed, Back held in the menus (state: port 0's, everything merged) */
+button pressed, Back held in the menus with guide.hold_back (pad: port 0's,
+everything merged). The Guide is the first player's: only their gamepads
+(port 0's, and those sharing its player) ask, never split screen's others,
+and nothing opens it over chat's or a field's typing */
 static void guide_asks(const struct platform_input_state *input, SDL_Gamepad *gamepads[], int count,
 	const XINPUT_GAMEPAD *pad)
 {
 	static BOOL key_was, button_was, back_asked;
 	static Uint64 back_since;
 	int key = guide_key(), index;
-	BOOL key_down = key >= 0 && input->keys[key] && !console_is_active() && (guide_capture || (!chat_typing &&
-		!text_typing));
+	BOOL typing_free = guide_capture || (!chat_typing && !text_typing);
+	BOOL key_down = key >= 0 && input->keys[key] && !console_is_active() && typing_free;
 	BOOL button_down = FALSE;
 
 	if (key_down && !key_was)
 		guide_toggles++;
 	key_was = key_down;
-	if (config_boolean("controls.guide_button"))
+	if (config_boolean("controls.guide_button") && typing_free && !console_is_active())
 	{
 		for (index = 0; index < count; index++)
 			button_down = button_down || (gamepads[index] && SDL_GetGamepadButton(gamepads[index], SDL_GAMEPAD_BUTTON_GUIDE));
@@ -530,7 +533,7 @@ static void guide_asks(const struct platform_input_state *input, SDL_Gamepad *ga
 	button_was = button_down;
 	/* (Back held in the menus, once a hold; never in a game, where Back is
 	the scoreboard) */
-	if (!guide_capture && input->menus && (pad->wButtons & XINPUT_GAMEPAD_BACK))
+	if (!guide_capture && input->menus && (pad->wButtons & XINPUT_GAMEPAD_BACK) && config_boolean("guide.hold_back"))
 	{
 		if (!back_since)
 			back_since = SDL_GetTicks();
@@ -2062,7 +2065,21 @@ DWORD WINAPI XInputGetState(HANDLE device, PXINPUT_STATE state)
 		touch_input_controls(&state->Gamepad, input.menus);
 #endif
 #ifdef HALO_GUIDE
-		guide_asks(&input, gamepads, count, &state->Gamepad);
+		{
+			/* (the first player's own gamepads: port 0's, and those sharing
+			its player) */
+			SDL_Gamepad *own[PORT_COUNT];
+			int own_count = 0, other;
+
+			if (port_gamepad(gamepads, count, 0))
+				own[own_count++] = port_gamepad(gamepads, count, 0);
+			for (other = 1; other < PORT_COUNT; other++)
+			{
+				if (port_gamepad_shared[other] && port_gamepad(gamepads, count, other))
+					own[own_count++] = port_gamepad(gamepads, count, other);
+			}
+			guide_asks(&input, own, own_count, &state->Gamepad);
+		}
 		guide_take(&state->Gamepad);
 #endif
 		if (abs(state->Gamepad.sThumbRX) > STICK_AIMING_DEFLECTION ||
