@@ -2141,7 +2141,7 @@ static char const *machines_text(
 	/* (the registry's numbers grouped as players say them, each group's
 	numbers ending with -1; the last, those without Delta) */
 	static struct { char const *name; signed char kinds[6]; } const groups[] = {
-		{ "PC", { 1, 2, 3, 13, 18, -1 } }, { "Steam Deck", { 5, -1 } }, { "Android", { 4, -1 } },
+		{ "PC", { 1, 2, 3, 13, 18, -1 } }, { "SteamOS", { 5, -1 } }, { "Android", { 4, -1 } },
 		{ "Xbox", { 6, -1 } }, { "Xbox 360", { 7, -1 } }, { "Wii U", { 8, -1 } }, { "Switch", { 9, -1 } },
 		{ "PSP", { 10, -1 } }, { "Vita", { 11, -1 } }, { "Xbox Series", { 12, -1 } }, { "PS3", { 14, -1 } },
 		{ "PS4", { 15, -1 } }, { "PS5", { 16, -1 } }, { "N64", { 17, -1 } }, { "Steam Link", { 19, -1 } },
