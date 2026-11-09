@@ -2298,6 +2298,8 @@ static struct
 	{ "controls.chat_all", L"CHAT", 2 },
 	{ "controls.chat_team", L"TEAM CHAT", 2 },
 	{ "controls.chat_log", L"CHAT LOG", 2 },
+	{ "controls.push_to_talk", L"PUSH TO TALK", 2 },
+	{ "controls.voice_channel", L"VOICE CHANNEL", 2 },
 };
 
 static struct

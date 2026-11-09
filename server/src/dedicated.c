@@ -80,6 +80,7 @@ played instead of HALO_DEDICATED's until HALO_DEDICATED is changed.
 #include "server_admin.h"
 #include "server_conduct.h"
 #include "server_config.h"
+#include "voice_game.h"
 #ifdef HALO_SERVER
 /* (the server program's control unit, built with the host's ABI: plain
 types only) */
@@ -357,6 +358,23 @@ static long setting_number(
 	return default_value;
 }
 
+/* a yes or no setting: the environment's (true, 1, yes or on; anything
+else no), else the settings file's, else the default */
+static boolean setting_flag(
+	char const *environment,
+	struct server_settings const *settings,
+	short setting,
+	boolean default_value)
+{
+	char const *value = getenv(environment);
+
+	if (value && value[0])
+		return !_stricmp(value, "true") || !strcmp(value, "1") || !_stricmp(value, "yes") || !_stricmp(value, "on");
+	if (settings->set[setting])
+		return settings->values[setting] ? TRUE : FALSE;
+	return default_value;
+}
+
 static void initialize(
 	void)
 {
@@ -591,6 +609,25 @@ static void initialize(
 		if (allowed)
 			error(_error_silent, "dedicated: players may watch a follow camera while they wait to respawn");
 	}
+#ifdef HALO_PORT_VOICE
+	/* voice chat: relayed, by team and by proximity, to parties and in the
+	lobby unless set; everyone only when set */
+	{
+		struct voice_host_rules rules;
+
+		rules.on = setting_flag("HALO_DEDICATED_VOICE", &settings, SERVER_SETTING_VOICE, TRUE);
+		rules.team = setting_flag("HALO_DEDICATED_VOICE_TEAM", &settings, SERVER_SETTING_VOICE_TEAM, TRUE);
+		rules.proximity = setting_flag("HALO_DEDICATED_VOICE_PROXIMITY", &settings, SERVER_SETTING_VOICE_PROXIMITY, TRUE);
+		rules.everyone = setting_flag("HALO_DEDICATED_VOICE_EVERYONE", &settings, SERVER_SETTING_VOICE_EVERYONE, FALSE);
+		rules.party = setting_flag("HALO_DEDICATED_VOICE_PARTY", &settings, SERVER_SETTING_VOICE_PARTY, TRUE);
+		rules.lobby = setting_flag("HALO_DEDICATED_VOICE_LOBBY", &settings, SERVER_SETTING_VOICE_LOBBY, TRUE);
+		rules.range = setting_number("HALO_DEDICATED_VOICE_RANGE", &settings, SERVER_SETTING_VOICE_RANGE, 15);
+		rules.kbps = setting_number("HALO_DEDICATED_VOICE_KBPS", &settings, SERVER_SETTING_VOICE_KBPS, 24);
+		voice_game_host_set(&rules);
+		voice_game_host_get(&rules);
+		error(_error_silent, "dedicated: voice chat %s", rules.on ? "relayed" : "off");
+	}
+#endif
 	/* the machines of one internet address a game takes: 8 unless set */
 	{
 		long maximum = setting_number("HALO_DEDICATED_MAX_MACHINES_PER_ADDRESS", &settings,

@@ -699,6 +699,9 @@ void host_rules_update(void);
 #ifdef HALO_PORT_CHAT
 void chat_update(void);
 #endif
+#ifdef HALO_PORT_VOICE
+void voice_game_update(void);
+#endif
 
 /* ---------- prototypes */
 
@@ -3739,6 +3742,12 @@ void main_loop(
 			part) */
 			MAIN_STAGE("chat_update");
 			chat_update();
+#endif
+#ifdef HALO_PORT_VOICE
+			/* voice chat (port/linux/game/voice_game.c; a dedicated server
+			relays it) */
+			MAIN_STAGE("voice_update");
+			voice_game_update();
 #endif
 			/* the audio probe's scripted recording (port/linux/game/audio_probe.c),
 			on the consoles too */

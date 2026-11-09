@@ -748,6 +748,12 @@ static const struct config_setting config_settings[] =
 		"Chat to your team." },
 	{ "controls.chat_log", _config_string, "\"H\"", "HALO_KEY_CHAT_LOG", _environment_value, _platform_all,
 		"Chat history and the player list. M mutes a player there." },
+	{ "controls.push_to_talk", _config_string, "\"V\"", "HALO_KEY_PUSH_TO_TALK", _environment_value, _platform_all,
+		"Hold to talk in voice chat (with audio.voice_chat = \"push_to_talk\").\n"
+		"On a controller, hold the D-pad right." },
+	{ "controls.voice_channel", _config_string, "\"B\"", "HALO_KEY_VOICE_CHANNEL", _environment_value, _platform_all,
+		"Switch the voice channel you talk on: party, team, proximity.\n"
+		"On a controller, press the D-pad left." },
 #ifndef HALO_CONSOLE_NO_CONTROLS
 	{ "controls.controller_layout", _config_string, "\"\"", "HALO_CONTROLLER_LAYOUT", _environment_value,
 		_platform_all,
@@ -933,6 +939,30 @@ static const struct config_setting config_settings[] =
 		"In games you host, let players watch a living player's view while\n"
 		"they wait to respawn (display.follow_camera). Off plays as the Xbox\n"
 		"did: the death camera alone." },
+#ifdef HALO_PORT_VOICE
+	/* ---- voice chat in games you host (port/linux/game/voice_game.c) */
+	{ "network.voice", _config_boolean, "true", "HALO_NET_VOICE", _environment_value, _platform_all,
+		"Relay voice chat in games you host. Only players who turned voice on\n"
+		"talk or hear it." },
+	{ "network.voice_team", _config_boolean, "true", "HALO_NET_VOICE_TEAM", _environment_value, _platform_all,
+		"In games you host, players may talk to their team." },
+	{ "network.voice_proximity", _config_boolean, "true", "HALO_NET_VOICE_PROXIMITY", _environment_value,
+		_platform_all,
+		"In games you host, players may talk to anyone near them." },
+	{ "network.voice_everyone", _config_boolean, "false", "HALO_NET_VOICE_EVERYONE", _environment_value,
+		_platform_all,
+		"In games you host, players may talk to everyone in the game." },
+	{ "network.voice_party", _config_boolean, "true", "HALO_NET_VOICE_PARTY", _environment_value, _platform_all,
+		"In games you host, players may talk to their party." },
+	{ "network.voice_lobby", _config_boolean, "true", "HALO_NET_VOICE_LOBBY", _environment_value, _platform_all,
+		"In games you host, everyone hears everyone in the lobby and after a\n"
+		"game." },
+	{ "network.voice_range", _config_integer, "15", "HALO_NET_VOICE_RANGE", _environment_value, _platform_all,
+		"How near is near for proximity voice, in world units (5 to 100)." },
+	{ "network.voice_kbps", _config_integer, "24", "HALO_NET_VOICE_KBPS", _environment_value, _platform_all,
+		"Voice quality in games you host, in kbps (8 to 64). Higher costs you\n"
+		"more upload: about 10 KB/s for each talker and each listener at 24." },
+#endif
 	{ "network.block_mouse_aim_assist", _config_boolean, "false", "HALO_NET_BLOCK_MOUSE_AIM_ASSIST", _environment_value,
 		_platform_all | _platform_server,
 		"Turn off mouse aim assist for everyone in games you host." },

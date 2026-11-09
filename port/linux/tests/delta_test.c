@@ -1384,6 +1384,260 @@ static void test_wire_voice(void)
 	CHECK(!delta_wire_write_voice_config(data, 9, &config));
 }
 
+static void voice_member(struct delta_peer_voice_world *world, int machine, int team, int alive, float x)
+{
+	struct delta_peer_voice_member *member = &world->members[machine];
+
+	member->present = 1;
+	member->player = (unsigned char)machine;
+	member->team = (unsigned char)team;
+	member->alive = (unsigned char)alive;
+	member->position[0] = x;
+	member->position[1] = 0.0f;
+	member->position[2] = 0.0f;
+}
+
+static void test_voice_route(void)
+{
+	struct delta_wire_voice_config rules;
+	struct delta_peer_voice_world world;
+
+	memset(&rules, 0, sizeof(rules));
+	rules.channels = DELTA_VOICE_TEAM | DELTA_VOICE_PROXIMITY | DELTA_VOICE_PARTY | DELTA_VOICE_LOBBY;
+	rules.kbps = 24;
+	rules.proximity = 150;
+	memset(&world, 0, sizeof(world));
+	/* 1 and 2 red, 3 blue; 3 near 1, 4 far, 5 dead and near */
+	voice_member(&world, 1, 0, 1, 0.0f);
+	voice_member(&world, 2, 0, 1, 100.0f);
+	voice_member(&world, 3, 1, 1, 10.0f);
+	voice_member(&world, 4, 1, 1, 60.0f);
+	voice_member(&world, 5, 1, 0, 2.0f);
+	/* the lobby: everyone, whatever the channel; none without lobby voice */
+	CHECK(delta_peer_voice_route(&rules, &world, 1, 4, _delta_voice_channel_team) == _delta_voice_route_global);
+	CHECK(delta_peer_voice_route(&rules, &world, 1, 5, _delta_voice_channel_proximity) == _delta_voice_route_global);
+	rules.channels &= ~DELTA_VOICE_LOBBY;
+	CHECK(delta_peer_voice_route(&rules, &world, 1, 4, _delta_voice_channel_team) == _delta_voice_route_none);
+	world.in_game = 1;
+	world.teams = 1;
+	/* team: teammates anywhere, never enemies */
+	CHECK(delta_peer_voice_route(&rules, &world, 1, 2, _delta_voice_channel_team) == _delta_voice_route_global);
+	CHECK(delta_peer_voice_route(&rules, &world, 1, 3, _delta_voice_channel_team) == _delta_voice_route_none);
+	/* proximity: anyone alive within range, from where they are */
+	CHECK(delta_peer_voice_route(&rules, &world, 1, 3, _delta_voice_channel_proximity) == _delta_voice_route_proximity);
+	CHECK(delta_peer_voice_route(&rules, &world, 1, 4, _delta_voice_channel_proximity) == _delta_voice_route_none);
+	CHECK(delta_peer_voice_route(&rules, &world, 1, 2, _delta_voice_channel_proximity) == _delta_voice_route_none);
+	CHECK(delta_peer_voice_route(&rules, &world, 1, 5, _delta_voice_channel_proximity) == _delta_voice_route_none);
+	CHECK(delta_peer_voice_route(&rules, &world, 5, 1, _delta_voice_channel_proximity) == _delta_voice_route_none);
+	/* everyone: only when the host allows it */
+	CHECK(delta_peer_voice_route(&rules, &world, 1, 4, _delta_voice_channel_everyone) == _delta_voice_route_none);
+	rules.channels |= DELTA_VOICE_EVERYONE;
+	CHECK(delta_peer_voice_route(&rules, &world, 1, 4, _delta_voice_channel_everyone) == _delta_voice_route_global);
+	/* free-for-all: no teammates; co-op: everyone is one */
+	world.teams = 0;
+	CHECK(delta_peer_voice_route(&rules, &world, 1, 2, _delta_voice_channel_team) == _delta_voice_route_none);
+	world.coop = 1;
+	CHECK(delta_peer_voice_route(&rules, &world, 1, 3, _delta_voice_channel_team) == _delta_voice_route_global);
+	/* a channel the host turned off; party (tags are the caller's); never
+	oneself, nor a machine without a player */
+	rules.channels &= ~DELTA_VOICE_TEAM;
+	CHECK(delta_peer_voice_route(&rules, &world, 1, 3, _delta_voice_channel_team) == _delta_voice_route_none);
+	CHECK(delta_peer_voice_route(&rules, &world, 1, 4, _delta_voice_channel_party) == _delta_voice_route_global);
+	CHECK(delta_peer_voice_route(&rules, &world, 1, 1, _delta_voice_channel_everyone) == _delta_voice_route_none);
+	CHECK(delta_peer_voice_route(&rules, &world, 1, 9, _delta_voice_channel_everyone) == _delta_voice_route_none);
+	CHECK(delta_peer_voice_route(&rules, &world, 1, 4, 9) == _delta_voice_route_none);
+	CHECK(delta_peer_voice_route(NULL, &world, 1, 4, _delta_voice_channel_everyone) == _delta_voice_route_none);
+}
+
+static struct
+{
+	int count;
+	struct delta_wire_voice_down last;
+	unsigned char byte;
+} voice_heard[MAXIMUM_NODES];
+
+static void test_voice_heard(void *context, const struct delta_wire_voice_down *down, const unsigned char *packet)
+{
+	int node = (int)((struct node *)context - nodes);
+
+	voice_heard[node].count++;
+	voice_heard[node].last = *down;
+	voice_heard[node].byte = packet[0];
+}
+
+static const struct delta_peer_voice_client voice_clients[MAXIMUM_NODES] =
+{
+	{ &nodes[0], test_voice_heard }, { &nodes[1], test_voice_heard }, { &nodes[2], test_voice_heard },
+	{ &nodes[3], test_voice_heard }, { &nodes[4], test_voice_heard }, { &nodes[5], test_voice_heard },
+	{ &nodes[6], test_voice_heard }, { &nodes[7], test_voice_heard },
+};
+
+static void test_voice(void)
+{
+	int joined[5] = { 0, 1, 1, 1, 1 };
+	struct delta_wire_voice_config rules, heard;
+	struct delta_peer_voice_world world;
+	unsigned char packet[DELTA_WIRE_VOICE_PACKET_SIZE];
+	unsigned char party[DELTA_WIRE_VOICE_PARTY_TAG_SIZE];
+	delta_u32 now = 9000;
+	int step, index, sent, dropped;
+
+	memset(voice_heard, 0, sizeof(voice_heard));
+	memset(packet, 0x11, sizeof(packet));
+	node_start(0, HOST_IPV4, DELTA_PEER_PORT, VOICE_BIT, _delta_platform_pc_linux, 0, 0);
+	for (index = 1; index <= 3; index++)
+		node_start(index, 0x0100007F + (delta_u32)(index + 1) * 0x01000000u, (unsigned short)(40000 + index), VOICE_BIT,
+			_delta_platform_pc_linux, 0, 0);
+	/* (a Delta machine without voice: an older build, never sent any) */
+	node_start(4, 0x0600007F, 40004, 0, _delta_platform_pc_macos, 0, 0);
+	for (index = 0; index < 5; index++)
+		delta_peer_set_voice_client(&nodes[index].peer, &voice_clients[index]);
+	game_reset();
+	for (index = 1; index <= 4; index++)
+		game_add(index);
+	/* a host without rules offers no voice */
+	for (step = 0; step < 4; step++, now += 300)
+		frame(now, 5, joined, 1);
+	CHECK(!delta_peer_client_voice_config(&nodes[1].peer, now, NULL));
+	CHECK(!delta_peer_client_voice_say(&nodes[1].peer, now, _delta_voice_channel_team, 1, packet, 40));
+
+	/* rules from now: new sessions agree to voice */
+	memset(&rules, 0, sizeof(rules));
+	rules.channels = DELTA_VOICE_TEAM | DELTA_VOICE_PROXIMITY | DELTA_VOICE_PARTY | DELTA_VOICE_LOBBY;
+	rules.kbps = 24;
+	rules.proximity = 150;
+	delta_peer_set_voice_rules(&nodes[0].peer, &rules);
+	for (index = 1; index <= 4; index++)
+		node_start(index, nodes[index].ipv4, nodes[index].port, index == 4 ? 0 : VOICE_BIT, _delta_platform_pc_linux, 0,
+			0);
+	for (index = 1; index <= 4; index++)
+		delta_peer_set_voice_client(&nodes[index].peer, &voice_clients[index]);
+	memset(&world, 0, sizeof(world));
+	world.in_game = 1;
+	world.teams = 1;
+	voice_member(&world, 0, 0, 1, 0.0f);
+	voice_member(&world, 1, 0, 1, 1.0f);
+	voice_member(&world, 2, 0, 1, 100.0f);
+	voice_member(&world, 3, 1, 1, 5.0f);
+	voice_member(&world, 4, 1, 1, 5.0f);
+	delta_peer_set_voice_world(&nodes[0].peer, &world);
+	for (index = 1; index <= 3; index++)
+		delta_peer_client_set_voice_hears(&nodes[index].peer, DELTA_VOICE_CHANNELS, NULL);
+	delta_peer_set_voice_local(&nodes[0].peer, DELTA_VOICE_CHANNELS, NULL);
+	for (step = 0; step < 8; step++, now += 300)
+		frame(now, 5, joined, 1);
+	CHECK(delta_peer_client_voice_config(&nodes[1].peer, now, &heard) && heard.kbps == 24 && heard.proximity == 150 &&
+		heard.channels == rules.channels && !heard.flags);
+	CHECK(!delta_peer_client_voice_config(&nodes[4].peer, now, NULL));
+
+	/* a team frame: the host's own player and the teammate hear it, the
+	enemies don't, the speaker never hears itself */
+	CHECK(delta_peer_client_voice_say(&nodes[1].peer, now, _delta_voice_channel_team, 77, packet, 60));
+	deliver(now);
+	CHECK(voice_heard[0].count == 1 && voice_heard[0].last.speaker_machine == 1 &&
+		voice_heard[0].last.route == _delta_voice_route_global && voice_heard[0].last.sequence == 77 &&
+		voice_heard[0].last.length == 60 && voice_heard[0].byte == 0x11);
+	CHECK(voice_heard[2].count == 1 && voice_heard[2].last.channel == _delta_voice_channel_team);
+	CHECK(!voice_heard[1].count && !voice_heard[3].count && !voice_heard[4].count);
+	CHECK(delta_peer_voice_talking(&nodes[0].peer, now, 1) && !delta_peer_voice_talking(&nodes[0].peer, now, 2));
+	/* proximity: the enemy near hears it from where it is; the far
+	teammate doesn't */
+	now += 20;
+	CHECK(delta_peer_client_voice_say(&nodes[1].peer, now, _delta_voice_channel_proximity, 78, packet, 60));
+	deliver(now);
+	CHECK(voice_heard[3].count == 1 && voice_heard[3].last.route == _delta_voice_route_proximity);
+	CHECK(voice_heard[2].count == 1 && voice_heard[0].count == 2);
+	/* the host's own player speaks as a client does */
+	now += 20;
+	CHECK(delta_peer_host_voice_say(&nodes[0].peer, now, _delta_voice_channel_team, 5, packet, 50));
+	deliver(now);
+	CHECK(voice_heard[1].count == 1 && voice_heard[1].last.speaker_machine == 0 && voice_heard[2].count == 2 &&
+		voice_heard[0].count == 2 && voice_heard[3].count == 1);
+	/* refused: a channel the host turned off, over the size cap, a frame
+	the client's own copy would not send */
+	dropped = (int)nodes[0].peer.dropped;
+	now += 20;
+	CHECK(!delta_peer_client_voice_say(&nodes[1].peer, now, _delta_voice_channel_team, 79, packet, 137));
+	CHECK(delta_peer_client_voice_say(&nodes[1].peer, now, _delta_voice_channel_everyone, 79, packet, 60));
+	deliver(now);
+	CHECK(voice_heard[2].count == 2 && (int)nodes[0].peer.dropped > dropped);
+	/* a listener that hears no team voice is sent none */
+	delta_peer_client_set_voice_hears(&nodes[2].peer, DELTA_VOICE_PROXIMITY, NULL);
+	frame(now, 5, joined, 1);
+	now += 20;
+	CHECK(delta_peer_client_voice_say(&nodes[1].peer, now, _delta_voice_channel_team, 80, packet, 60));
+	deliver(now);
+	CHECK(voice_heard[2].count == 2 && voice_heard[0].count == 3);
+	delta_peer_client_set_voice_hears(&nodes[2].peer, DELTA_VOICE_CHANNELS, NULL);
+	frame(now, 5, joined, 1);
+	/* party: the same tag hears it, wherever its player is */
+	memset(party, 0x42, sizeof(party));
+	delta_peer_client_set_voice_hears(&nodes[1].peer, DELTA_VOICE_CHANNELS, party);
+	delta_peer_client_set_voice_hears(&nodes[3].peer, DELTA_VOICE_CHANNELS, party);
+	frame(now, 5, joined, 1);
+	now += 20;
+	CHECK(delta_peer_client_voice_say(&nodes[1].peer, now, _delta_voice_channel_party, 81, packet, 60));
+	deliver(now);
+	CHECK(voice_heard[3].count == 2 && voice_heard[3].last.channel == _delta_voice_channel_party &&
+		voice_heard[3].last.route == _delta_voice_route_global && voice_heard[2].count == 2 &&
+		voice_heard[0].count == 3);
+	/* a muted machine (the moderator's, chat's) is relayed nothing, and is
+	told */
+	delta_peer_chat_mute(&nodes[0].peer, now, 1, 1, 10);
+	for (step = 0; step < 2; step++, now += 300)
+		frame(now, 5, joined, 1);
+	CHECK(delta_peer_client_voice_config(&nodes[1].peer, now, &heard) && (heard.flags & DELTA_VOICE_CONFIG_MUTED) &&
+		heard.mute_seconds > 0 && heard.mute_seconds <= 600);
+	sent = voice_heard[0].count;
+	CHECK(delta_peer_client_voice_say(&nodes[1].peer, now, _delta_voice_channel_team, 82, packet, 60));
+	deliver(now);
+	CHECK(voice_heard[0].count == sent);
+	delta_peer_chat_mute(&nodes[0].peer, now, 1, 0, 0);
+	/* the voice budget: 50 a second, 10 at once; beyond it dropped, and the
+	machine's other messages untouched */
+	now += 5000;
+	sent = voice_heard[2].count;
+	for (index = 0; index < 30; index++)
+		delta_peer_client_voice_say(&nodes[1].peer, now, _delta_voice_channel_team, (unsigned short)(100 + index), packet, 40);
+	deliver(now);
+	CHECK(voice_heard[2].count - sent == DELTA_PEER_VOICE_UP_BURST);
+	/* the talkers' cap: a ninth talker waits while eight talk */
+	{
+		struct delta_peer *host = &nodes[0].peer;
+
+		for (index = 10; index < 10 + DELTA_PEER_VOICE_TALKERS; index++)
+			host->voice_talking_until[index] = now + 400;
+		sent = voice_heard[2].count;
+		now += 20;
+		CHECK(delta_peer_client_voice_say(&nodes[3].peer, now, _delta_voice_channel_proximity, 1, packet, 40));
+		deliver(now);
+		CHECK(!delta_peer_voice_talking(host, now, 3));
+		now += 1000;
+		CHECK(delta_peer_client_voice_say(&nodes[3].peer, now, _delta_voice_channel_proximity, 2, packet, 40));
+		deliver(now);
+		CHECK(delta_peer_voice_talking(host, now, 3));
+	}
+	/* a listener that stops saying what it hears is sent nothing after the
+	expiry */
+	for (step = 0; step < 30; step++, now += 300)
+	{
+		delta_peer_host_frame(&nodes[0].peer, now, game_machines, game_machine_count, player_machines);
+		deliver(now);
+		/* (2 says nothing, the others keep on) */
+		delta_peer_client_frame(&nodes[1].peer, now, 1, HOST_IPV4, DELTA_PEER_PORT, 1, 1, player_machines);
+		delta_peer_client_frame(&nodes[3].peer, now, 1, HOST_IPV4, DELTA_PEER_PORT, 1, 3, player_machines);
+		deliver(now);
+	}
+	sent = voice_heard[2].count;
+	CHECK(delta_peer_client_voice_say(&nodes[1].peer, now, _delta_voice_channel_team, 300, packet, 60));
+	deliver(now);
+	CHECK(voice_heard[2].count == sent && voice_heard[0].count > 0);
+	/* the host's rules taken away: no voice for new sessions */
+	delta_peer_set_voice_rules(&nodes[0].peer, NULL);
+	for (index = 0; index < 5; index++)
+		delta_peer_set_voice_client(&nodes[index].peer, NULL);
+}
+
 /* ---------- object sync */
 
 static void test_wire_objects(void)
@@ -3770,6 +4024,8 @@ int main(int argc, char **argv)
 	test_wire_objects();
 	test_objects();
 	test_wire_voice();
+	test_voice_route();
+	test_voice();
 	test_random(iterations);
 	if (failures)
 	{
