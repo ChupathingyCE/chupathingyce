@@ -328,6 +328,13 @@ void _rasterizer_psuedo_dynamic_screen_quad_draw(
 		vertex_constants[1] = 0.0f;
 		vertex_constants[2] = 0.0f;
 		vertex_constants[3] = normalized_offset.i - (1.0f / width + 1.0f);
+#ifdef HALO_CONSOLE_ANAMORPHIC_SCREEN
+		/* port: the menus' columns centered, as their text is
+		(rasterizer_interface_begin): the menus' pictures, frames, fades and
+		button icons are drawn here, and without it they sat a sixth of the
+		screen left of their text */
+		vertex_constants[3] += 2.0f * rasterizer_interface_offset_x() / width;
+#endif
 		vertex_constants[4] = 0.0f;
 		vertex_constants[5] = -2.0f * (1.0f / height);
 		vertex_constants[6] = 0.0f;
