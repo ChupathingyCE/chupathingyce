@@ -172,16 +172,284 @@ static int passed(unsigned long now, unsigned long since, unsigned long interval
 
 int social_poll_due(struct social_poll *poll, unsigned long now, int in_game, int signed_in)
 {
+	unsigned long interval = in_game ? SOCIAL_POLL_GAME : SOCIAL_POLL_MENUS;
+
 	if (!signed_in)
 	{
 		poll->started = 0;
+		poll->wait = 0;
+		poll->failures = 0;
+		poll->soon = 0;
 		return 0;
 	}
-	if (poll->started && !passed(now, poll->last, in_game ? SOCIAL_POLL_GAME : SOCIAL_POLL_MENUS))
+	if (poll->wait > interval)
+		interval = poll->wait;
+	else if (poll->soon)
+		interval = SOCIAL_POLL_SOONEST;
+	if (poll->started && !passed(now, poll->last, interval))
 		return 0;
 	poll->started = 1;
 	poll->last = now;
+	poll->soon = 0;
 	return 1;
+}
+
+void social_poll_answer(struct social_poll *poll, int status, int understood)
+{
+	if (status == 200 && understood)
+	{
+		poll->wait = 0;
+		poll->failures = 0;
+	}
+	else if (status == 429)
+		poll->wait = SOCIAL_POLL_BUSY_WAIT;
+	else if (status == 404)
+		poll->wait = SOCIAL_POLL_UNLINKED_WAIT;
+	else
+	{
+		/* (no answer, or one not understood: 40 s, 80 s, ... up to five
+		minutes) */
+		unsigned long wait = SOCIAL_POLL_MENUS;
+		int doubling;
+
+		if (poll->failures < 16)
+			poll->failures++;
+		for (doubling = 0; doubling < poll->failures && wait < SOCIAL_POLL_FAILED_WAIT; doubling++)
+			wait *= 2;
+		poll->wait = wait < SOCIAL_POLL_FAILED_WAIT ? wait : SOCIAL_POLL_FAILED_WAIT;
+	}
+}
+
+void social_poll_soon(struct social_poll *poll)
+{
+	if (!poll->wait)
+		poll->soon = 1;
+}
+
+/* ---------- the site's friends */
+
+const char *social_name(const char *display, const char *handle)
+{
+	return display && display[0] ? display : handle ? handle : "";
+}
+
+int social_handle_valid(const char *handle)
+{
+	size_t length, index;
+
+	if (!handle)
+		return 0;
+	length = strlen(handle);
+	if (length < 3 || length > 20)
+		return 0;
+	for (index = 0; index < length; index++)
+	{
+		char c = handle[index];
+
+		if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '-'))
+			return 0;
+	}
+	return 1;
+}
+
+int social_game_line(const struct social_game *game, char *text, int size)
+{
+	struct discord_activity_game shown;
+
+	if (size <= 0)
+		return -1;
+	text[0] = 0;
+	if (!game || !game->listed || !game->map[0])
+		return -1;
+	memset(&shown, 0, sizeof(shown));
+	shown.screen = game->coop ? DISCORD_SCREEN_CAMPAIGN : DISCORD_SCREEN_MULTIPLAYER;
+	shown.coop = game->coop;
+	social_copy_text(shown.map, sizeof(shown.map), game->map);
+	shown.mode = game->engine > 0 && game->engine < NUMBER_OF_DISCORD_MODES ? game->engine : DISCORD_MODE_NONE;
+	shown.teams = game->teams;
+	shown.player_count = game->players;
+	shown.maximum_player_count = game->maximum_players;
+	return discord_activity_status_line(&shown, text, size);
+}
+
+void social_friend_status(const struct social_friend *buddy, char *text, int size)
+{
+	if (size <= 0)
+		return;
+	if (buddy->playing && social_game_line(&buddy->game, text, size) >= 0)
+		return;
+	social_copy_text(text, size, buddy->playing ? "In a game" : buddy->online ? "Online" : "Offline");
+}
+
+int social_online_count(const struct social_state *state)
+{
+	int index, count = 0;
+
+	for (index = 0; index < state->friend_count; index++)
+		count += state->friends[index].online != 0;
+	return count;
+}
+
+static const struct social_friend *find_friend(const struct social_state *state, const char *handle)
+{
+	int index;
+
+	for (index = 0; index < state->friend_count; index++)
+	{
+		if (!strcmp(state->friends[index].handle, handle))
+			return &state->friends[index];
+	}
+	return NULL;
+}
+
+void social_news(const struct social_state *old, const struct social_state *fresh, struct social_news *news)
+{
+	int index, seen;
+
+	news->invite = -1;
+	news->request = -1;
+	news->online = -1;
+	for (index = 0; index < fresh->invite_count && news->invite < 0; index++)
+	{
+		int other;
+
+		for (other = 0, seen = 0; other < old->invite_count && !seen; other++)
+			seen = !strcmp(old->invites[other].id, fresh->invites[index].id);
+		if (!seen)
+			news->invite = index;
+	}
+	for (index = 0; index < fresh->request_count && news->request < 0; index++)
+	{
+		int other;
+
+		for (other = 0, seen = 0; other < old->request_count && !seen; other++)
+			seen = !strcmp(old->requests[other].handle, fresh->requests[index].handle);
+		if (!seen)
+			news->request = index;
+	}
+	/* (a friend who was there and offline; a new friend is not news) */
+	for (index = 0; index < fresh->friend_count && news->online < 0; index++)
+	{
+		const struct social_friend *before;
+
+		if (!fresh->friends[index].online)
+			continue;
+		before = find_friend(old, fresh->friends[index].handle);
+		if (before && !before->online)
+			news->online = index;
+	}
+}
+
+/* fields printed, or -1 when they do not fit */
+static int fields_done(char *fields, int size, int length)
+{
+	if (length < 0 || length >= size)
+	{
+		fields[0] = 0;
+		return -1;
+	}
+	return length;
+}
+
+int social_state_fields(char *fields, int size, const char *cursor, int limit)
+{
+	size_t index;
+
+	if (size <= 0)
+		return -1;
+	fields[0] = 0;
+	/* (the cursor is the site's own: hexadecimal digits) */
+	for (index = 0; cursor && cursor[index]; index++)
+	{
+		char c = cursor[index];
+
+		if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')))
+			return -1;
+	}
+	if (cursor && cursor[0])
+		return fields_done(fields, size, snprintf(fields, (size_t)size, "\"since\": \"%s\", \"limit\": %d", cursor, limit));
+	return fields_done(fields, size, snprintf(fields, (size_t)size, "\"limit\": %d", limit));
+}
+
+int social_action_fields(char *fields, int size, const char *action, const char *handle)
+{
+	if (size <= 0)
+		return -1;
+	fields[0] = 0;
+	if (!social_handle_valid(handle) || !action ||
+		(strcmp(action, "accept") && strcmp(action, "decline") && strcmp(action, "remove") && strcmp(action, "block")))
+	{
+		return -1;
+	}
+	return fields_done(fields, size, snprintf(fields, (size_t)size, "\"action\": \"%s\", \"handle\": \"%s\"",
+		action, handle));
+}
+
+int social_join_fields(char *fields, int size, const char *handle)
+{
+	if (size <= 0)
+		return -1;
+	fields[0] = 0;
+	if (!social_handle_valid(handle))
+		return -1;
+	return fields_done(fields, size, snprintf(fields, (size_t)size, "\"friend\": \"%s\"", handle));
+}
+
+int social_invite_fields(char *fields, int size, const char *handle, const char *invite)
+{
+	if (size <= 0)
+		return -1;
+	fields[0] = 0;
+	if (!social_handle_valid(handle) || (invite && invite[0] && !social_presence_invite_valid(invite)))
+		return -1;
+	if (invite && invite[0])
+	{
+		return fields_done(fields, size, snprintf(fields, (size_t)size, "\"to\": \"%s\", \"invite\": \"%s\"",
+			handle, invite));
+	}
+	return fields_done(fields, size, snprintf(fields, (size_t)size, "\"to\": \"%s\"", handle));
+}
+
+static const char *const join_reasons[][2] =
+{
+	{ "offline", "They're offline." },
+	{ "not_playing", "They're not in a game." },
+	{ "friends_only", "Friends only." },
+	{ "invite_only", "Invite only." },
+	{ "unlisted", "Their game isn't listed." },
+	{ "locked", "Their game has a password." },
+	{ "full", "Their game is full." },
+	{ "closed", "Their game is closed." },
+	{ "unknown", "No such player." },
+};
+
+const char *social_join_refusal(const char *reason)
+{
+	size_t index;
+
+	for (index = 0; reason && index < sizeof(join_reasons) / sizeof(join_reasons[0]); index++)
+	{
+		if (!strcmp(reason, join_reasons[index][0]))
+			return join_reasons[index][1];
+	}
+	return "Can't join right now.";
+}
+
+const char *social_invite_refusal(const char *reason, int status)
+{
+	if (reason && !strcmp(reason, "not_playing"))
+		return "You're not in a game.";
+	if (reason && !strcmp(reason, "locked"))
+		return "Your game has a password.";
+	if (reason && !strcmp(reason, "full"))
+		return "Your game is full.";
+	if (reason && !strcmp(reason, "closed"))
+		return "Your game is closed.";
+	if (status == 403)
+		return "Friends only.";
+	if (status == 429)
+		return "Too many invites. Wait a minute.";
+	return "Can't invite right now.";
 }
 
 /* ---------- presence */

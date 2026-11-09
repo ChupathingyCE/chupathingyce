@@ -726,6 +726,9 @@ static const struct config_setting config_settings[] =
 		_platform_all,
 		"Show the Guide's notifications during a game. They always show in\n"
 		"the menus." },
+	{ "guide.notify_online", _config_boolean, "false", "HALO_GUIDE_NOTIFY_ONLINE", _environment_value,
+		_platform_all,
+		"Show a notification in the menus when a friend comes online." },
 #endif
 
 	/* ---- chat */

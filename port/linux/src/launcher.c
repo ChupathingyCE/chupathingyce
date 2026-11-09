@@ -1861,7 +1861,7 @@ static float draw_row(const struct row *row, int index, float x, float y, float 
 	/* (a setting: the row the Guide's SETTINGS draws too) */
 	if ((row->setting || row->key[0]) && row->cycles)
 	{
-		ui_style_setting(x, y, width, height, 15.0f, row->label, row->badge, row->value, picked && lit);
+		ui_style_setting(x, y, width, height, 1.3f, row->label, row->badge, row->value, picked && lit);
 		target_add(x, y, x + width, y + height, _target_row, index);
 		return height;
 	}
@@ -1964,13 +1964,13 @@ static void draw_panel(float x0, float y0, float x1, float y1)
 
 			snprintf(section, sizeof(section), "%s", launcher.setting_section);
 			upper(section);
-			ui_style_heading(x + 1.0f, y, 7.5f, UI_ALIGN_LEFT, section);
+			ui_style_text(UI_TEXT_HEADING, x + 1.0f, y + 1.0f, UI_ALIGN_LEFT, section);
 			y += 18.0f;
 		}
 	}
 	else
 	{
-		ui_style_heading(x + 1.0f, y, 8.5f, UI_ALIGN_LEFT, heading);
+		ui_style_text(UI_TEXT_HEADING, x + 1.0f, y + 1.0f, UI_ALIGN_LEFT, heading);
 		y += 22.0f;
 	}
 	if (launcher.screen == _screen_family)

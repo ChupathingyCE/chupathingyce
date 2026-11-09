@@ -179,4 +179,16 @@ card (NULL: no profile to show); the count named, -1 if not that answer */
 int delta_profile_parse_cards(const char *text, void (*found)(void *context, const char *id,
 	const struct delta_profile_card *card), void *context);
 
+/* the friends' state (POST /v1/social/state, and /v1/game/friends's
+answer after an action) read into state (social.h): 1 for a whole state,
+2 for {"cursor", "same": true} (only state's cursor is set), 0 if not that
+answer. Only the incoming requests are kept */
+struct social_state;
+int delta_profile_parse_social(const char *text, struct social_state *state);
+/* a string member of an answer's top ({"error", "reason"}: "reason") into
+text ("" for none) */
+void delta_profile_parse_text(const char *answer, const char *name, char *text, int size);
+/* /v1/social/join's {"join": "halo://join/..."}: the link into link, 1 */
+int delta_profile_parse_join(const char *text, char *link, int size);
+
 #endif

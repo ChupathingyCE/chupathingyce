@@ -127,6 +127,7 @@ static const struct settings_row settings_rows[] =
 	{ _in_guide, "OPEN KEY", "controls.guide", _kind_choices, guide_key_choices, NULL, 0, 0 },
 	{ _in_guide, "GUIDE BUTTON", "controls.guide_button", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_guide, "NOTIFICATIONS IN GAME", "guide.notify_in_game", _kind_toggle, NULL, NULL, 0, 0 },
+	{ _in_guide, "FRIEND ONLINE ALERTS", "guide.notify_online", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_network | _in_guide, "SHOW WHEN I'M PLAYING", "network.share_presence", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_network, "DISCORD", "discord.presence", _kind_words, NULL, NULL, 0, 0 },
 	{ _in_network, "CRASH REPORTS", "crash_reports.upload", _kind_words, NULL, NULL, 0, 0 },

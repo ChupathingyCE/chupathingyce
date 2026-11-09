@@ -424,6 +424,68 @@ game (its invite) about once a minute while it does and
 network.share_presence is on. Not on the consoles (HALO_CONSOLE_NO_GUIDE) */
 void browser_presence_playing(int playing);
 
+/* the Guide's friends (social.h): the browser thread polls the site's
+state (POST /v1/social/state) while the game says where the player is,
+about every 20 seconds in the menus or with the Guide open, every minute in
+a game, only for a copy linked to a Delta profile. Not on the consoles
+(HALO_CONSOLE_NO_GUIDE) */
+struct social_state;
+enum
+{
+	/* not asked yet, or this copy is not linked */
+	BROWSER_SOCIAL_NONE = 0,
+	BROWSER_SOCIAL_LOADING,
+	BROWSER_SOCIAL_LOADED,
+	/* the site did not answer (a state it gave before is kept) */
+	BROWSER_SOCIAL_FAILED,
+	/* the site says this copy is linked to no profile */
+	BROWSER_SOCIAL_UNLINKED,
+};
+/* the game says, about once a second, whether the player is in a game and
+whether the Guide is open (opening it asks again soon); quiet longer, and
+no polling */
+void browser_social_where(int in_game, int guide_open);
+/* the state into state when its serial is not *serial (then *serial is
+its serial); returns BROWSER_SOCIAL_* */
+int browser_social_get(struct social_state *state, int *serial);
+
+/* an action on a friend (by handle), one at a time */
+enum
+{
+	BROWSER_SOCIAL_ACCEPT,
+	BROWSER_SOCIAL_DECLINE,
+	BROWSER_SOCIAL_REMOVE,
+	BROWSER_SOCIAL_BLOCK,
+	/* /v1/social/join: the halo://join link, taken by
+	browser_social_take_join */
+	BROWSER_SOCIAL_JOIN,
+	/* /v1/social/invite, to this copy's game */
+	BROWSER_SOCIAL_INVITE,
+	NUMBER_OF_BROWSER_SOCIAL_ACTIONS
+};
+enum
+{
+	BROWSER_SOCIAL_IDLE = 0,
+	BROWSER_SOCIAL_BUSY,
+	BROWSER_SOCIAL_DONE,
+	BROWSER_SOCIAL_REFUSED,
+};
+struct browser_social_result
+{
+	/* counts the actions asked for */
+	int serial;
+	int state;
+	int action;
+	char handle[24];
+	/* a short line for a refusal ("Their game is full.") */
+	char message[96];
+};
+/* 0 if one is still out */
+int browser_social_act(int action, const char *handle);
+void browser_social_result(struct browser_social_result *result);
+/* a join the site allowed: its halo://join link, once (1) */
+int browser_social_take_join(char *link, int size);
+
 /* Delta Profile in the game (port/linux/game/profile_screen.c;
 delta_profile.h): this copy's own profile, as the site has it, kept in
 memory only. browser_profile_load asks the site for it (in the background:
