@@ -108,6 +108,10 @@ void halo_perf_end(int phase);
 void halo_perf_render_part(int phase);
 /* once each pass of the main loop, at its end */
 void halo_perf_frame(void);
+/* the render's part running now (an enum halo_perf_phase), or NONE while
+the setting is off or no part runs: a console's renderer counts each part's
+draws (the Xbox 360's frame counters) */
+int halo_perf_render_part_now(void);
 
 #define HALO_PERF_BEGIN(phase) do { if (halo_perf_log_on) halo_perf_begin(phase); } while (0)
 #define HALO_PERF_END(phase) do { if (halo_perf_log_on) halo_perf_end(phase); } while (0)

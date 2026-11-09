@@ -113,6 +113,20 @@ HALO_CONSOLE_GL_LAYER
 	copied by blit (no glCopyImageSubData), and the vertex mirror's
 	segments are the window's own memory (console_gl_buffer_alias, defined
 	by the port: port/linux/src/d3d8_gl.c)
+HALO_CONSOLE_PARTICLE_LIMIT
+	display.particle_limit's default on a console, as a string ("1024": the
+	original Xbox's and the retail game's cap), where the desktop's 4096
+	costs a console too many draws (port/linux/src/port_config.c)
+HALO_CONSOLE_NATIVE_RENDERER
+	a console with a renderer of its own under the Xbox's Direct3D 8 device:
+	display.renderer = "native" draws through console_renderer.h, defined
+	by the port, instead of the OpenGL layer (port/linux/src/d3d8_console.inl),
+	and "gl" as before; the setting's default is "gl", or "native" with
+	HALO_CONSOLE_NATIVE_RENDERER_FIRST on the port's compile line
+HALO_CONSOLE_RENDER_TIMING
+	a console that logs where a frame's time goes: the renderer tells it
+	when the game enters and leaves the device's draws, clears and present
+	(console_render_time, defined by the port: port/linux/src/d3d8_gl.c)
 HALO_CONSOLE_XBOX_RENDER_SIZES
 	the Xbox's texture cache and the Xbox's structure surfaces and dynamic
 	triangles in a frame (halo_port_capacity.h), on a console whose build
@@ -340,6 +354,9 @@ larger maps take a campaign map's there as well) */
 #define HALO_CONSOLE_HALT_TO_LAUNCHER 1
 #define HALO_CONSOLE_GL_LAYER 1
 #define HALO_CONSOLE_XBOX_RENDER_SIZES 1
+#define HALO_CONSOLE_RENDER_TIMING 1
+#define HALO_CONSOLE_NATIVE_RENDERER 1
+#define HALO_CONSOLE_PARTICLE_LIMIT "1024"
 #define HALO_CONSOLE_ONLINE_GAMES 1
 #define HALO_CONSOLE_LIGHT_LIMITS 1
 #define HALO_CONSOLE_OVERSIZED_MAPS 1

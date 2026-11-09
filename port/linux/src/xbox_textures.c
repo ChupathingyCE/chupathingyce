@@ -849,7 +849,7 @@ static void texture_dump(GLenum target, const struct xgpu_texture_description *d
 }
 #endif
 
-#ifdef HALO_BGFX
+#if defined(HALO_BGFX) || defined(HALO_CONSOLE_NATIVE_RENDERER)
 BOOL xgpu_texture_decode_level(const struct xgpu_texture_description *description, unsigned long level,
 	const unsigned char *source, const D3DCOLOR *palette, unsigned long *destination)
 {
