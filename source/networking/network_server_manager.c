@@ -2993,7 +2993,26 @@ the game in progress, and its pregame screen stays up a few seconds more,
 long enough for the players on its other controllers to press A and join
 too (split screen); started at once when all four are in. When its first
 player was added (system_milliseconds, 0 for not yet) */
-#define LATE_JOINER_ADD_PLAYERS_MILLISECONDS 5000
+long config_integer(const char *name);
+unsigned long config_changes(void);
+
+/* (network.late_join_wait, in seconds, 0 to 30: read when Settings
+changes it) */
+static long network_game_server_late_join_wait_milliseconds(
+	void)
+{
+	static long milliseconds = 5000;
+	static unsigned long read_at = (unsigned long)-1;
+
+	if (read_at != config_changes())
+	{
+		long seconds = config_integer("network.late_join_wait");
+
+		read_at = config_changes();
+		milliseconds = (seconds < 0 ? 0 : seconds > 30 ? 30 : seconds) * 1000;
+	}
+	return milliseconds;
+}
 static unsigned long network_game_server_late_joiner_first_added[MAXIMUM_NETWORK_MACHINE_COUNT];
 
 /* the players of the machine in the game */
@@ -3027,20 +3046,22 @@ static void network_game_server_start_late_joiner(
 	{
 		long slot = machine - server->client_machines;
 		unsigned long now = system_milliseconds();
+		long wait_milliseconds = network_game_server_late_join_wait_milliseconds();
 
 		/* (the time for its other players to join: above) */
 		if (slot >= 0 && slot < MAXIMUM_NETWORK_MACHINE_COUNT)
 		{
 			if (!network_game_server_late_joiner_first_added[slot])
 				network_game_server_late_joiner_first_added[slot] = now ? now : 1;
-			if (now - network_game_server_late_joiner_first_added[slot] < LATE_JOINER_ADD_PLAYERS_MILLISECONDS &&
+			if (wait_milliseconds > 0 &&
+				now - network_game_server_late_joiner_first_added[slot] < (unsigned long)wait_milliseconds &&
 				network_game_server_machine_player_count(server, machine->machine_index) < MAXIMUM_NUMBER_OF_LOCAL_PLAYERS)
 			{
 				if (!network_game_server_late_joiner_waiting[slot])
 				{
 					network_game_server_late_joiner_waiting[slot] = TRUE;
 					network_event("machine #%d joins the game in progress in %d seconds, or when its other players are in",
-						machine->machine_index, LATE_JOINER_ADD_PLAYERS_MILLISECONDS / 1000);
+						machine->machine_index, wait_milliseconds / 1000);
 				}
 				return;
 			}
@@ -3467,6 +3488,17 @@ boolean server_has_enough_machines(
 	long machine_count = 0;
 	long client_machine_index;
 
+#ifdef HALO_SERVER
+	{
+		/* port: a dedicated server's Custom Edition players are seats of its
+		own machine, so with one there its machine is enough
+		(server/src/server_ce.c) */
+		boolean server_ce_players_present(void);
+
+		if (server_ce_players_present())
+			minimum_machine_count = 1;
+	}
+#endif
 	for (client_machine_index = 0;
 		client_machine_index < MAXIMUM_NETWORK_MACHINE_COUNT;
 		client_machine_index++)

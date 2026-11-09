@@ -134,18 +134,24 @@ same.
 ## The control panel
 
 The server has a web control panel: status, players, maps, playlists, bans,
-settings, the log and the people who run it. It is off unless you turn it
-on, and there is no default password.
+settings, the log and the people who run it. It is on by default, at
+`http://127.0.0.1:8080`, which only this machine can reach. There is no
+default password. Our Docker image keeps it off until you set it.
 
 ```sh
-HALO_DEDICATED_CONTROL=8080            # this machine only: 127.0.0.1:8080
+HALO_DEDICATED_CONTROL=9090            # another port, still this machine only
 HALO_DEDICATED_CONTROL=0.0.0.0:8443    # every address, HTTPS only
+HALO_DEDICATED_CONTROL=off             # no panel
 ```
+
+If port 8080 is taken, the server logs one line and keeps hosting without
+the panel. Set another port to get it back.
 
 The first time it starts, the server prints a one-time setup link on its
 console (`docker compose logs` with Docker) and writes the same code to
 `control_setup_code.txt` in the data folder. Open the link, choose a name
-and a password, then set up a second factor in My account.
+and a password, then set up a second factor in My account. On Windows, the
+server also opens the link in your browser the first time.
 
 You can also do the whole setup in the browser. Start the server with the
 panel on and no playlist (no `HALO_DEDICATED`). It waits instead of

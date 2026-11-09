@@ -86,7 +86,7 @@ static void print_usage(FILE *stream)
 		"  HALO_DEDICATED_PUBLIC           false: not listed in the in-game Server Browser\n"
 		"  HALO_DEDICATED_COMMANDS         a file of commands in the data folder, run at start\n"
 		"  HALO_DEDICATED_CONSOLE          true/false: commands on standard input (on in a terminal)\n"
-		"  HALO_DEDICATED_CONTROL          the control API's port or address (off; 127.0.0.1)\n"
+		"  HALO_DEDICATED_CONTROL          the control panel's port or address (127.0.0.1:8080; off)\n"
 		"  HALO_DATA_ROOT, HALO_SAVE_ROOT  the data folder, and where saves go\n"
 		"\n"
 		"HALO_PROBE=<invite> reads the game an invite leads to, prints it and exits.\n"
@@ -217,10 +217,10 @@ static int setting_off(const char *value)
 
 static int start_for_setup(void)
 {
-	const char *control = getenv("HALO_DEDICATED_CONTROL");
+	const char *control = server_control_setting();
 	char playlist[300];
 
-	if (!control || !control[0] || setting_off(control))
+	if (!control[0] || setting_off(control))
 	{
 		return 0;
 	}
@@ -477,6 +477,12 @@ void platform_open_url(const char *url)
 void platform_request_quit(void)
 {
 	stop_requested = 1;
+}
+
+/* (the server plays no movies: bink_playback.c) */
+int platform_movie_skip_pressed(void)
+{
+	return 0;
 }
 
 void platform_scoreboard_scroll(int open, long *notches, long *pages)

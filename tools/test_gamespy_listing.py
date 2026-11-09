@@ -229,3 +229,6 @@ def test_masters_checked(harness):
 
 def test_encipher_matches_capture():
     assert challenge_response(CAPTURED_CHALLENGE) == CAPTURED_RESPONSE
+    # (a challenge from the real master (Custom Edition's, 20 characters):
+    # its last group short, zero-filled and written whole, no '=')
+    assert challenge_response(b"xSG7Cm6qc0632b5a08fe") == b"7yDP+7El21rL4jMZbxpiOCJ9sZ4A"

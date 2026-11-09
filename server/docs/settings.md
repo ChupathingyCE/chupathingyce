@@ -39,7 +39,7 @@ the file.
 | `HALO_DEDICATED_AFK_KICK_MINUTES` | `0` | Minutes without input in a game in progress that kick a player, 1 to 120, warned 30 seconds before; never in the lobby or the carnage report, never a moderator ([moderation.md](moderation.md#betrayal-and-afk-limits)). `0`: off (`afk_kick_minutes`). |
 | `HALO_DEDICATED_COMMANDS` | (none) | A file of [commands](admin.md#startup-commands) in the data folder, run once the server first hosts. |
 | `HALO_DEDICATED_CONSOLE` | on in a terminal | Commands typed on the server's standard input ([the console](admin.md#the-console)). `true`: read them even when it is not a terminal; `false`: never. |
-| `HALO_DEDICATED_CONTROL` | (off) | The [control API](admin.md#the-control-api)'s address: a port (`8080`, on 127.0.0.1 only) or an address and port (`127.0.0.1:8080`, `[::1]:8080`, `0.0.0.0:8443`). Its token is made and printed the first time, and the first owner's setup link. The [control panel](moderation.md#the-control-panel) is on the same address: plain HTTP on the loopback address, HTTPS beyond it. |
+| `HALO_DEDICATED_CONTROL` | `127.0.0.1:8080` (`off` in our Docker image) | The [control API](admin.md#the-control-api)'s address, or `off` for none: a port (`8080`, on 127.0.0.1 only) or an address and port (`127.0.0.1:8080`, `[::1]:8080`, `0.0.0.0:8443`). Its token is made and printed the first time, and the first owner's setup link. The [control panel](moderation.md#the-control-panel) is on the same address: plain HTTP on the loopback address, HTTPS beyond it. |
 | `HALO_DEDICATED_CONTROL_TLS` | `auto` | `auto`: HTTPS beyond the loopback address; `on`: always; `off`: never (refused on a public address). [moderation.md](moderation.md#remote-access-safely) |
 | `HALO_DEDICATED_CONTROL_TRUSTED_PROXY` | (none) | The reverse proxies in front of the control panel (their addresses, comma separated: `127.0.0.1`): their `X-Forwarded-For` names the client, so the login limits count each client and not the proxy. [admin.md](admin.md#reaching-it-safely) |
 | `HALO_DEDICATED_CONTROL_CERT`, `HALO_DEDICATED_CONTROL_KEY` | (the server's own) | Your own certificate and key for the control panel's HTTPS (PEM, as certbot writes them; a path in the data folder or absolute). A renewal is taken within a minute. |
@@ -148,9 +148,10 @@ version), let a client tell it from a Custom Edition server, and `chimera`
 The version reported is the server's own (`HALO_DEDICATED_GAMESPY_VERSION`
 sets another). Custom Edition 1.0.10's server browser shows only servers
 reporting its own version, `01.00.10.0621`, so by default the server is in
-the masters' list but that browser does not show it. Its players cannot join
-this server, so reporting `01.00.10.0621` would show them a game they cannot
-join.
+the masters' list but that browser does not show it. Report
+`01.00.10.0621` only on a server that takes Custom Edition players
+(`ce_joins`, below) and plays Custom Edition maps, or the browser shows its
+players a game they cannot join.
 
 The UDP port must be open (forwarded) for the queries to reach the server
 from outside. The naming of Xbox maps is the Custom Edition community's,
@@ -162,19 +163,17 @@ Off unless `ce_joins` is on too (`sv_set ce_joins true`). The same UDP port
 then answers a Halo Custom Edition 1.0.10 client that connects to it: the
 connection's handshake, its key agreement and its enciphered, reliable
 messages, as Custom Edition's own server does them. The server tells the
-client its map (by the name above), reads its join request (the player's
-name goes in the log; the CD key hash is not logged) and, for now, refuses
-the join: the player gets Custom Edition's own "Unable to join the game
-server!" message, not a timeout. Playing in the game comes later. At most 16 Custom
-Edition clients are handled at once.
+client its map (by the name above) and reads its join request (the
+player's name goes in the log; the CD key hash is not logged).
 
-For development only, `HALO_DEDICATED_CE_ACCEPT=1` takes the join instead,
-while a game is being played on a map the Custom Edition player has too (a
-Custom Edition map, `bloodgulch@ce`: the same .map file on both sides). The
-player joins the game as one of the server's own players, moved by their
-client's input. Leave this off on a real server: it is still incomplete.
+The player joins while a game is being played on a map they have too: a
+Custom Edition map (`bloodgulch@ce`, the same .map file on both sides). They
+play as one of the server's own players, moved by their client's input.
+On any other map, or with no seat left, the join is refused with Custom
+Edition's own message, not a timeout. This is new: test it on your server
+before you rely on it.
 
-What works so far:
+What works:
 
 - Moving, aiming and shooting, both ways. Their own position is corrected
   to the server's twice a second, so their shots land at range.
@@ -186,6 +185,11 @@ What works so far:
 - Weapons and equipment on the ground, picking them up and dropping them.
 - Vehicles: getting in and out of seats, and driving.
 - A welcome line in their chat as they join (`ce_welcome`), and `sv_say`.
+- The end of a game and the next one: the scores come up on their screen,
+  and when the next game starts they join it again by themselves (their
+  client reconnects, as it does on Custom Edition's own servers) and keep
+  their seat. They are let go when the next map is not a Custom Edition
+  map, or when they don't come back within 45 seconds.
 - `sv_kick` and `sv_ban` (a ban is by their address). The bans, the limit
   on players from one address (`max_machines_per_address`) and the
   betrayal and AFK limits apply to them too: warnings go in their chat. The
@@ -194,10 +198,13 @@ What works so far:
 
 Not yet:
 
-- At most 4 Custom Edition players at once.
-- They join a game in progress only: the end of a game drops them, and a
-  join between games waits up to 12 seconds for the next one. An empty
-  server doesn't start a game for them.
+- At most 4 Custom Edition players at once (they are seats of the server's
+  own machine); a fifth is told the server is full.
+- Their client is told the game is Slayer, free for all: play Slayer with
+  them. Other game types and teams are not shown right on their side.
+- A join between games waits up to 12 seconds for the next one. On an
+  empty server, their player goes into the lobby and a game starts after a
+  short countdown.
 - Weapons and equipment coming back (respawning) on the ground.
 - Checked live only in part: a Chupathingy player in a vehicle as Custom
   Edition players see it, and swapping weapons.
@@ -240,6 +247,7 @@ settings is left as it is and still works.
 | `HALO_NET_PROTOCOL` | `auto` | Delta Peer ([docs/delta.md](../../docs/delta.md)), ChupathingyCE's messages beside OpenCE's protocol, on UDP port 5160 beside the game's 5150: `auto` speaks it with the machines that do (the rest play plain OpenCE); `opence` turns it off; `delta` is `auto` for now. |
 | `HALO_NET_HOST_PLATFORM_LIMITS` | `true` | Keep the game to the players its Delta machines' platforms take (an original Xbox: 16, unless its player opted out); `false` ignores them, for testing. |
 | `HALO_NET_HIT_LINE_OF_SIGHT` | `true` | Refuse a client's reported hit through a wall: the shot needs a clear line to its target from where the server had the shooter (their view, head or vehicle seat's gun), or, for an explosion, from where it went off. Glass, what the projectile passes through, and homing or arcing projectiles are allowed for; melee and vehicle hits are not checked. `false` turns it off if good hits are refused (`network.hit_line_of_sight`). Players need nothing new. |
+| `HALO_NET_LATE_JOIN_WAIT` | `5` | How many seconds a machine that joins a game in progress waits after its first player is in, so the players on its other controllers can join too (split screen), 0 to 30. It starts sooner when the machine has four players; 0 starts it at once. |
 | `HALO_NET_BLOCK_MOUSE_AIM_ASSIST` | `false` | The server's policy on aiming assist for the mouse and keyboard: `false` leaves each player's own setting (`input.mouse_aim_assist`); `true` turns the view's magnetism off for players aiming with the mouse, in every game of the server. Clients are told when they join and when it changes (network version 32). |
 | `HALO_PLAYLIST_ID` | (none) | The id of the playlist's verified map set on the Chupathingy site (`c_ce_maps`), sent with the game list entry so joining players can get missing maps ([Playlists](playlists.md#the-playlists-map-set)). |
 | `SSL_CERT_FILE` | the system's | The certificates the server checks stats.chupathingy.org's against, when they are somewhere unusual. |

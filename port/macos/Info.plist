@@ -27,7 +27,9 @@
 	<string>13.0</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
-	<!-- internet play invite links (halo://) -->
+	<!-- internet play invite links (halo://), and Discord starting the game
+	for a friend's Join (discord-<discord.application_id>://, the default
+	application's: port/linux/src/discord_register.h) -->
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -36,6 +38,15 @@
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>chupathingy</string>
+				<string>halo</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>Discord Join</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>discord-1560397272166957136</string>
 			</array>
 		</dict>
 	</array>

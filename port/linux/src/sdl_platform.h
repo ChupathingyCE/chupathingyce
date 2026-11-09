@@ -168,6 +168,9 @@ void platform_test_pointer_event(float x, float y, int button, int wheel);
 which differ from the drawable's pixels on displays that scale */
 void platform_video_window_size(int *width, int *height);
 BOOL platform_next_keystroke(struct platform_keystroke *keystroke);
+/* nonzero when a key, mouse button or touch was pressed since the last call
+(which forgets them): a movie's skip (bink_playback.c) */
+int platform_movie_skip_pressed(void);
 /* the multiplayer scoreboard (game_engine.c) open or not: while it is, the
 mouse wheel and Page Up/Down scroll it instead of switching weapons; how
 far they moved it since the last call (notches and pages, down positive) */

@@ -243,8 +243,7 @@ static int status_pairs(const struct gamespy_status *status, const char *gamever
 	Custom Edition one */
 	PAIR_TEXT("bridge", "chupathingy");
 	PAIR_TEXT("bridge_version", status->version);
-	/* and that a Custom Edition player needs no Chimera here (up to 16
-	Custom Edition players, the game's own limit) */
+	/* and that a Custom Edition player needs no Chimera here */
 	PAIR_TEXT("chimera", "optional");
 #undef PAIR_TEXT
 #undef PAIR_NUMBER
@@ -482,8 +481,10 @@ static void base64(const unsigned char *data, int length, char *out, int size)
 			value |= data[index + 2];
 		out[used++] = alphabet[(value >> 18) & 63];
 		out[used++] = alphabet[(value >> 12) & 63];
-		out[used++] = index + 1 < length ? alphabet[(value >> 6) & 63] : '=';
-		out[used++] = index + 2 < length ? alphabet[value & 63] : '=';
+		/* (a short last group zero-filled and written whole, with no '='
+		padding: as Custom Edition 1.0.10's server encodes it) */
+		out[used++] = alphabet[(value >> 6) & 63];
+		out[used++] = alphabet[value & 63];
 	}
 	if (size > 0)
 		out[used < size ? used : size - 1] = 0;
@@ -660,12 +661,8 @@ static void *listing_thread(void *unused)
 
 	(void)unused;
 	ce_transport_start(send_to_peer, NULL, notice);
-	/* (testing only, until Custom Edition players can play: joins taken) */
-	{
-		const char *accept = getenv("HALO_DEDICATED_CE_ACCEPT");
-
-		ce_transport_set_accept(accept && !strcmp(accept, "1"));
-	}
+	/* (with ce_joins on, the game takes the joins: server_ce.c) */
+	ce_transport_set_accept(1);
 	for (;;)
 	{
 		struct pollfd poll_socket;

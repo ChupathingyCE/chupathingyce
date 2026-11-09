@@ -582,7 +582,11 @@ of Delta's goes into the game protocol.
   MOD_NOTICE (the banner; the game also keeps them in its chat log).
 - **Mutes.** A moderator mutes a player's chat (MOD_ACTION 6, `sv_mute`, the
   control panel) until they leave the game or for a while; the host stops
-  relaying their lines and tells their game in CHAT_CONFIG. A player's own
+  relaying their lines and tells their game in CHAT_CONFIG. A player who
+  hosts does the same by typing `/mute <player> [minutes]` or `/unmute
+  <player>` as a line (as OpenCE's hosts do); an OpenCE player is told by
+  the host's notice. Typed in someone else's game, the commands are never
+  sent: OpenCE hosts would show them to everyone. A player's own
   mutes are their game's alone and never sent.
 - **The client checks again.** A CHAT_LINE comes only from its host, of its
   session, at most 10 a second; its text and name must pass the same text
@@ -631,7 +635,11 @@ of Delta's goes into the game protocol.
     the host allows chat, and shows each `chat_down` as a line of the
     host's game (a notice as a system line). The player's own settings
     decide the rest, as for Delta's lines: `chat.enabled`, `chat.show`, the
-    filter and their mutes. It takes nothing but the host's stream. A host
+    filter and their mutes. It takes nothing but the host's stream. Such a
+    host's console notices (the game's notice message, which an OpenCE
+    server uses for its server messages and its message of the day) show
+    in the chat too, as a system line, blank ones and repeats within 15
+    seconds left out; a host with Delta chat keeps them on the console. A host
     with Delta chat is never bridged: its lines come over Delta alone.
   - A message of the wrong size is dropped and the log says so once (the
     machine's index, never its address); nothing about chat ever ends a

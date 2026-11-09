@@ -502,7 +502,11 @@ a pregame keep-alive every five seconds from the host
      and delete theirs to match. A client that has loaded asks for all the
      host's objects and is told when it has them; from then on it deletes
      any such object the host has not told it of, and nothing but the
-     host's word deletes the host's.
+     host's word deletes the host's. That word deletes a CTF flag or an
+     oddball too, which the game itself never deletes (an assertion
+     stops a build that is not `--release` there, where a release host
+     goes on and tells its clients): the client takes it out of its
+     carrier's hands, and the goal its game type shows at it goes with it.
    - The objects placed when the map loads are placed alike everywhere:
      the host's word finds a client's already there. Past loading, a
      client's own objects (projectiles, effects: what only it sees) take
@@ -540,7 +544,13 @@ a pregame keep-alive every five seconds from the host
    rest is on the ground, so it lies limp again where it stops instead of
    keeping the pose of its fall in the air. A client puts its copies there, and the difference is
    drawn fading over a few ticks (`render_interpolation.c`) instead of a
-   jump. A client drives its own player's vehicle and sends where it is,
+   jump. A vehicle no player drives is carried between those updates along
+   the positions the host sent, a recording's lifepod as well as a Pelican.
+   Its physics velocity swings about that path, so the carry steps from
+   one of those positions to the next, and a jump further than a step of
+   the path is left where the host put it. The host's word that it is at
+   rest stops that step, and the step is kept only for the last gap
+   between positions, so a late word does not drive it on. A client drives its own player's vehicle and sends where it is,
    which the host takes within a tolerance, as it does its own player's
    unit, and no further from an anchor (one it took, a newer once a
    second) than the vehicle moves in the client's ticks since, those no

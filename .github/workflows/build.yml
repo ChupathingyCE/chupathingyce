@@ -1,7 +1,7 @@
 name: Build
 
 # Debug and release builds of the native ports (Linux and Windows, 32- and
-# 64-bit, Android and its native 64-bit app, macOS, FreeBSD), and release builds of the dedicated server (Linux
+# 64-bit, Android (native 64-bit), macOS, FreeBSD), and release builds of the dedicated server (Linux
 # x86, x64 and arm64, and Windows x64) and its container, for every pushed commit and pull
 # request, uploaded as artifacts: whether a change builds. tools/ci_build.py does each build; see it for the options.
 #
@@ -248,7 +248,21 @@ jobs:
         env:
           HALO_SANITIZERS_REQUIRED: "1"
         run: |
-          python3 -m pytest -q tools/test_host_fuzz.py tools/test_linux_port.py tools/test_android_asm_convert.py tools/test_touch_menu.py tools/test_ui_point.py tools/test_p2p_copies.py tools/test_p2p_host_port.py tools/test_ping.py tools/test_save_folder.py tools/test_packaged_install.py tools/test_server_control.py tools/test_delta.py tools/test_delta_peer.py tools/test_delta_compat.py tools/test_network_rules.py tools/test_map_download.py tools/test_playlist_maps.py tools/test_map_families.py tools/test_ce_resource_maps.py tools/test_map_packs.py tools/test_map_report.py tools/test_event_log.py tools/test_update_manifest.py tools/test_rename_stub.py tools/test_gamespy_listing.py tools/test_ce_joins.py tools/test_determinism.py tools/test_ce_effect_flags.py tools/test_online_games_list.py tools/test_campaign_levels.py tools/test_http_url_rules.py tools/test_host_cheats.py tools/test_vote_notice.py tools/test_lobby_budget.py tools/test_line_of_sight.py tools/test_host_console_objects.py tools/test_host_evidence.py tools/test_address_limit.py tools/test_conduct_rules.py tools/test_tricks.py tools/test_coop_spectate.py
+          # (a release branch's commit, built with main's workflow, may not have
+          # every test main has yet: those are left out)
+          tests=""; for test in tools/test_host_fuzz.py tools/test_linux_port.py tools/test_android_asm_convert.py tools/test_touch_menu.py tools/test_ui_point.py tools/test_p2p_copies.py tools/test_p2p_host_port.py tools/test_ping.py tools/test_save_folder.py tools/test_packaged_install.py tools/test_server_control.py tools/test_delta.py tools/test_delta_peer.py tools/test_delta_compat.py tools/test_network_rules.py tools/test_map_download.py tools/test_playlist_maps.py tools/test_map_families.py tools/test_ce_resource_maps.py tools/test_map_packs.py tools/test_map_report.py tools/test_event_log.py tools/test_update_manifest.py tools/test_rename_stub.py tools/test_gamespy_listing.py tools/test_ce_joins.py tools/test_determinism.py tools/test_ce_effect_flags.py tools/test_online_games_list.py tools/test_campaign_levels.py tools/test_http_url_rules.py tools/test_host_cheats.py tools/test_vote_notice.py tools/test_lobby_budget.py tools/test_line_of_sight.py tools/test_host_console_objects.py tools/test_host_evidence.py tools/test_address_limit.py tools/test_conduct_rules.py tools/test_tricks.py tools/test_coop_spectate.py tools/test_discord_activity.py tools/test_discord_register.py tools/test_kcp_peer.py tools/test_kcp_flush.py; do
+            if [ -f "$test" ]; then tests="$tests $test"; else echo "::notice::$test: not in this commit"; fi
+          done
+          python3 -m pytest -q $tests
+          # (the asset-free tests of the engine's own functions, tools/harness;
+          # the three left out were written against code of ours that has
+          # changed since, and wait to be brought up to date)
+          if [ -f tools/harness/__init__.py ]; then
+            python3 -m pytest -q tools/harness \
+              --ignore=tools/harness/tests/test_elevator_prediction.py \
+              --ignore=tools/harness/tests/test_server_teardown.py \
+              --ignore=tools/harness/tests/test_stale_player_damage.py
+          fi
           python3 tools/test_light_storage.py
           python3 tools/test_saved_game_script_globals.py
           python3 tools/test_rendered_lights_storage.py
@@ -774,105 +788,10 @@ jobs:
           path: .ccache
           key: ccache-server-windows64-${{ github.sha }}
 
-  android:
-    # The runner image has the Android SDK and NDK, a JDK and CMake.
-    runs-on: ubuntu-24.04
-    timeout-minutes: 40
-    steps:
-      - name: Install the toolchain
-        run: |
-          mkdir -p "$RUNNER_TEMP/tools"
-          # (each download checked against the hash it had when it was pinned)
-          curl -fsSL -o ninja.zip https://github.com/ninja-build/ninja/releases/download/v1.12.1/ninja-linux.zip
-          curl -fsSL -o ccache.tar.xz https://github.com/ccache/ccache/releases/download/v4.10.2/ccache-4.10.2-linux-x86_64.tar.xz
-          sha256sum -c - <<'EOF'
-          6f98805688d19672bd699fbbfa2c2cf0fc054ac3df1f0e6a47664d963d530255  ninja.zip
-          80cab87bd510eca796467aee8e663c398239e0df1c4800a0b5dff11dca0b4f18  ccache.tar.xz
-          EOF
-          unzip -q ninja.zip -d "$RUNNER_TEMP/tools" && rm ninja.zip
-          tar -xJf ccache.tar.xz -C "$RUNNER_TEMP/tools" --strip-components=1 ccache-4.10.2-linux-x86_64/ccache && rm ccache.tar.xz
-          echo "$RUNNER_TEMP/tools" >> "$GITHUB_PATH"
-
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.commit }}
-
-      # (restored on every run, saved only on main: other branches' and pull
-      # requests' runs start from main's and keep nothing of their own)
-      - uses: actions/cache/restore@v4
-        with:
-          path: .ccache
-          key: ccache-android-${{ github.sha }}
-          restore-keys: ccache-android-
-
-      # the FFmpeg source tarball (tools/download.py): kept so most runs fetch nothing
-      - uses: actions/cache@v4
-        with:
-          path: build/downloads
-          key: ffmpeg-source-${{ hashFiles('tools/ffmpeg_build.py') }}
-
-      # musl and SDL, which configure.py fetches
-      - uses: actions/cache@v4
-        with:
-          path: build/android/third_party
-          key: android-third-party-${{ hashFiles('tools/android_build.py') }}
-
-      - uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: gradle-${{ hashFiles('port/android/**/*.gradle*', 'port/android/gradle/wrapper/gradle-wrapper.properties') }}
-
-      # No keystore.properties here (pull requests and forks have no
-      # secrets): the debug app has the runner's own debug key
-      # (chupathingyce-android-debug-testkey.apk), which does not install
-      # over ChupathingyCE's builds, and the release app is unsigned
-      # (chupathingyce-android-release-unsigned.apk). The release workflows
-      # (ChupathingyCE/command) take both from a run of this workflow and
-      # sign them again with ChupathingyCE's key, zipalign and apksigner
-      # (port/android/README.md).
-      - name: Debug
-        if: env.BUILD_DEBUG == 'true'
-        run: python3 tools/ci_build.py android debug
-
-      - name: Release
-        run: python3 tools/ci_build.py android release
-
-      - name: Compile cache
-        run: ccache --show-stats
-
-      - uses: actions/upload-artifact@v4
-        if: env.BUILD_DEBUG == 'true'
-        with:
-          name: chupathingyce-android-debug-testkey
-          path: dist/chupathingyce-android-debug
-          retention-days: 3
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: chupathingyce-android-release-unsigned
-          path: dist/chupathingyce-android-release
-          retention-days: 3
-
-      # (kept by ChupathingyCE's release, not a download)
-      - uses: actions/upload-artifact@v4
-        with:
-          name: symbols-android-release
-          path: dist/chupathingyce-android-release-symbols
-          if-no-files-found: ignore
-          retention-days: 3
-
-      - uses: actions/cache/save@v4
-        if: ${{ success() && github.ref == 'refs/heads/main' }}
-        with:
-          path: .ccache
-          key: ccache-android-${{ github.sha }}
-
   android64:
     # The native 64-bit Android app (ninja android64; tools/android64_build.py):
-    # the same app as the android job's, built with -Pnative64, in a job of
-    # its own so that the android job's builds and artifacts stay as they are.
+    # the Android download (the 32-bit-address app is no longer built here;
+    # its code stays in port/android).
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:

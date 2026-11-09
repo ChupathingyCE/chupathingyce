@@ -74,7 +74,8 @@ error leaves to unspecified. */
 int network_game_layout_convert(const unsigned char *from, int from_machines, int from_players,
 	unsigned char *to, int to_machines, int to_players, int *clamped);
 
-/* ... and the same, a player who names a machine past to_machines that has
+/* ... and the same, a machine in a slot past to_machines (its entry moved
+into that slot) and a player who names a machine past to_machines that has
 no entry in the record given a free machine index of to's, the highest
 first, the one kept gave it before while it is still free; kept (may be
 NULL) is updated */

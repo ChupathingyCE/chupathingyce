@@ -14,15 +14,20 @@ The activity the Discord desktop client shows while the game runs
   stock map or campaign level, else the logo; the game type's icon small,
   with the type and this machine's platform;
 - the time the game began;
-- buttons: while hosting a public game (one in the server list, with no
-  password), "Join game" to its page on the project's site, which opens
-  its invite in whichever client the viewer has (Chupathingy's or
-  OpenCE's: Discord's own Ask to Join works only within one application),
-  and "Get Chupathingy"; otherwise "Get Chupathingy" and "Join our
-  Discord".
+- while hosting a public game (one in the server list, with no password):
+  its invite as the activity's join secret, with the party's size, so
+  Discord shows Join and Ask to Join on the profile and a Join card for an
+  invite sent in a chat (Discord hands the secret only to players of the
+  same application: Chupathingy's). Discord takes no buttons with a
+  secret;
+- otherwise buttons: "Get Chupathingy" and "Join our Discord".
 
 discord.presence "minimal" leaves only "Playing Chupathingy" and the
-project's buttons; "off" clears the activity.
+project's buttons; "off" clears the activity. discord.show_join false, and
+a password game, send no secret.
+
+It reads Discord's events too (discord_activity_event): the invite of a
+Join, and who asks to join.
 */
 
 #include "discord_activity.h"
@@ -32,6 +37,9 @@ project's buttons; "off" clears the activity.
 
 #define ART_URL "https://stats.chupathingy.org/art/"
 #define LOGO_URL ART_URL "icon.png"
+/* the large picture's hover text with a join secret (which takes no
+buttons: the site's word in their place) */
+#define JOIN_HOVER_TEXT "Free at chupathingy.org"
 #define SITE_URL "https://chupathingy.org"
 #define DISCORD_URL "https://discord.gg/chupathingy"
 
@@ -261,28 +269,45 @@ static void map_describe(const struct discord_activity_game *game, char *name, i
 		snprintf(name, (size_t)name_size, "%s", "a custom map");
 }
 
-/* the buttons: a public game's page and the project's site while hosting
-one (and discord.show_join), else the site and the Discord server */
-static void buttons(struct text *text, const char *join_url)
+/* the project's buttons: its site and its Discord server */
+static void buttons(struct text *text)
 {
-	raw(text, ",\"buttons\":[");
-	if (join_url && join_url[0])
-	{
-		raw(text, "{\"label\":\"Join game\",\"url\":");
-		string(text, join_url);
-		raw(text, "},{\"label\":\"Get Chupathingy\",\"url\":\"" SITE_URL "\"}]");
-		return;
-	}
-	raw(text, "{\"label\":\"Get Chupathingy\",\"url\":\"" SITE_URL "\"},"
+	raw(text, ",\"buttons\":[{\"label\":\"Get Chupathingy\",\"url\":\"" SITE_URL "\"},"
 		"{\"label\":\"Join our Discord\",\"url\":\"" DISCORD_URL "\"}]");
 }
 
-/* a network game's players, as the party's size */
-static void party_size(struct text *text, const struct discord_activity_game *game, const char *party)
+static int hex_digit(char character)
+{
+	return (character >= '0' && character <= '9') || (character >= 'a' && character <= 'f') ||
+		(character >= 'A' && character <= 'F');
+}
+
+int discord_activity_joinable(const char *text)
+{
+	size_t prefix = strlen(DISCORD_JOIN_PREFIX);
+	int digits = 0;
+
+	if (!text || strncmp(text, DISCORD_JOIN_PREFIX, prefix))
+		return 0;
+	/* (an open game's code: its host's key hash and token, 64 digits; a
+	password game's starts with p, and nothing else goes) */
+	for (text += prefix; *text; text++, digits++)
+	{
+		if (!hex_digit(*text))
+			return 0;
+	}
+	return digits == 64;
+}
+/* a network game's players, as the party's size (a joinable game's at
+least one of two, as Discord asks a party with a secret) */
+static void party_size(struct text *text, const struct discord_activity_game *game, const char *party,
+	int joinable)
 {
 	int count = game->player_count, maximum = game->maximum_player_count;
 	char numbers[48];
 
+	if (joinable && maximum <= 0)
+		maximum = 2;
 	if (!party || !party[0] || maximum <= 0)
 		return;
 	if (count < 1)
@@ -297,16 +322,19 @@ static void party_size(struct text *text, const struct discord_activity_game *ga
 
 int discord_activity_json(char *json, int size, unsigned long nonce, unsigned long process_id,
 	const struct discord_activity_game *game, const struct discord_activity_options *options, const char *party,
-	const char *join_url)
+	const char *join_secret)
 {
 	struct text text = { json, size, 0, 0 };
 	char number[64];
+	int joinable;
 
 	if (size <= 0)
 		return -1;
 	json[0] = 0;
-	if (!options->show_join)
-		join_url = NULL;
+	/* (a secret only of an open game's invite, shared on the player's word,
+	with a party to join) */
+	joinable = options->show_join && options->presence == DISCORD_PRESENCE_FULL && party && party[0] &&
+		discord_activity_joinable(join_secret);
 	snprintf(number, sizeof(number), "%lu", nonce);
 	raw(&text, "{\"cmd\":\"SET_ACTIVITY\",\"nonce\":\"");
 	raw(&text, number);
@@ -322,8 +350,6 @@ int discord_activity_json(char *json, int size, unsigned long nonce, unsigned lo
 	if (options->presence == DISCORD_PRESENCE_MINIMAL)
 	{
 		raw(&text, "\"assets\":{\"large_image\":\"" LOGO_URL "\",\"large_text\":\"Chupathingy\"}");
-		/* (nothing of the game: no join either) */
-		join_url = NULL;
 	}
 	else
 	{
@@ -371,6 +397,10 @@ int discord_activity_json(char *json, int size, unsigned long nonce, unsigned lo
 			snprintf(large_text, sizeof(large_text), "Chupathingy");
 			break;
 		}
+		/* (with a join secret, no buttons say where the game comes from:
+		the picture's hover text does; never empty) */
+		if (joinable || !large_text[0])
+			snprintf(large_text, sizeof(large_text), "%s", JOIN_HOVER_TEXT);
 		if (small_text[0] && game->platform[0])
 			snprintf(small_text + strlen(small_text), sizeof(small_text) - strlen(small_text), " (%s)",
 				game->platform);
@@ -405,10 +435,106 @@ int discord_activity_json(char *json, int size, unsigned long nonce, unsigned lo
 			string(&text, small_text);
 		}
 		raw(&text, "}");
-		if (game->screen != DISCORD_SCREEN_MENUS)
-			party_size(&text, game, party);
+		if (game->screen != DISCORD_SCREEN_MENUS || joinable)
+			party_size(&text, game, party, joinable);
 	}
-	buttons(&text, join_url);
+	if (joinable)
+	{
+		raw(&text, ",\"secrets\":{\"join\":");
+		string(&text, join_secret);
+		raw(&text, "}");
+	}
+	else
+		buttons(&text);
 	raw(&text, ",\"instance\":false}}}");
 	return text.overflow ? -1 : text.used;
+}
+
+int discord_activity_player_shares(const struct discord_activity_game *game)
+{
+	/* (in its multiplayer game over the network, not its lobby or menus) */
+	return game && game->screen == DISCORD_SCREEN_MULTIPLAYER && game->maximum_player_count > 0 &&
+		game->player_count > 0;
+}
+
+int discord_activity_subscribe_json(char *json, int size, unsigned long nonce, const char *event)
+{
+	int written = snprintf(json, (size_t)size, "{\"cmd\":\"SUBSCRIBE\",\"evt\":\"%s\",\"nonce\":\"%lu\"}",
+		event, nonce);
+
+	return written < 0 || written >= size ? -1 : written;
+}
+
+int discord_activity_accept_json(char *json, int size, unsigned long nonce, const char *user_id)
+{
+	int written;
+
+	if (!user_id || !user_id[0] || strspn(user_id, "0123456789") != strlen(user_id))
+		return -1;
+	written = snprintf(json, (size_t)size,
+		"{\"cmd\":\"SEND_ACTIVITY_JOIN_INVITE\",\"args\":{\"user_id\":\"%s\"},\"nonce\":\"%lu\"}", user_id, nonce);
+	return written < 0 || written >= size ? -1 : written;
+}
+
+/* a string field's value in json, without its escapes'
+backslashes (0: none, or longer than size) */
+static int field(const char *json, const char *name, char *value, int size)
+{
+	char pattern[64];
+	const char *start;
+	int length = 0;
+
+	snprintf(pattern, sizeof(pattern), "\"%s\"", name);
+	start = strstr(json, pattern);
+	if (!start)
+		return 0;
+	start += strlen(pattern);
+	while (*start == ' ' || *start == ':')
+		start++;
+	if (*start++ != '"')
+		return 0;
+	while (*start && *start != '"')
+	{
+		if (length >= size - 1)
+			return 0;
+		if (*start == '\\' && start[1])
+			start++;
+		value[length++] = *start++;
+	}
+	value[length] = 0;
+	return *start == '"';
+}
+
+int discord_activity_event(const char *json, char *value, int size)
+{
+	char word[64];
+	const char *data;
+
+	if (size <= 0)
+		return DISCORD_EVENT_NONE;
+	value[0] = 0;
+	/* (an event Discord sends, not its answer to the SUBSCRIBE, which names
+	the event too) */
+	if (!field(json, "cmd", word, sizeof(word)) || strcmp(word, "DISPATCH"))
+		return DISCORD_EVENT_NONE;
+	if (!field(json, "evt", word, sizeof(word)))
+		return DISCORD_EVENT_NONE;
+	data = strstr(json, "\"data\"");
+	if (!data)
+		return DISCORD_EVENT_NONE;
+	if (!strcmp(word, "ACTIVITY_JOIN"))
+	{
+		if (field(data, "secret", value, size) && discord_activity_joinable(value))
+			return DISCORD_EVENT_JOIN;
+	}
+	else if (!strcmp(word, "ACTIVITY_JOIN_REQUEST"))
+	{
+		const char *user = strstr(data, "\"user\"");
+
+		if (user && field(user, "id", value, size) && value[0] &&
+			strspn(value, "0123456789") == strlen(value))
+			return DISCORD_EVENT_JOIN_REQUEST;
+	}
+	value[0] = 0;
+	return DISCORD_EVENT_NONE;
 }

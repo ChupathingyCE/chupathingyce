@@ -505,20 +505,22 @@ static const struct config_setting config_settings[] =
 		"refresh rates. The default is false on the desktop and true on the\n"
 		"consoles. Takes effect at the next map." },
 	{ "display.dynamic_light_limit", _config_integer, DEFAULT_DYNAMIC_LIGHT_LIMIT, "HALO_DYNAMIC_LIGHT_LIMIT",
-		_environment_value, _platform_all,
+		_environment_value, _platform_all | _platform_xbox,
 		"The most dynamic lights that light the level at once, like muzzle\n"
 		"flashes, plasma and explosions. The biggest on screen light the walls\n"
 		"and floor. The rest light only the objects near them. 0 means no limit,\n"
 		"as on the Xbox. Each light redraws the level it reaches twice, and in a\n"
 		"big firefight that is most of the GPU's time. The default is 0 on the\n"
-		"desktop and 8 on the consoles. Changes at once." },
+		"desktop and the original Xbox, and 8 on the other consoles. Changes at\n"
+		"once." },
 	{ "display.specular_light_limit", _config_integer, DEFAULT_SPECULAR_LIGHT_LIMIT, "HALO_SPECULAR_LIGHT_LIMIT",
-		_environment_value, _platform_all,
+		_environment_value, _platform_all | _platform_xbox,
 		"Of those lights, the most that also add their shine to metal and wet\n"
 		"floors. The first-person weapon's go first, then the biggest on screen.\n"
 		"The others still light the level, without the shine. 0 means no limit,\n"
 		"as on the Xbox. Near lights' shine is the costliest pass in a firefight.\n"
-		"The default is 0 on the desktop and 2 on the consoles. Changes at once." },
+		"The default is 0 on the desktop and the original Xbox, and 2 on the\n"
+		"other consoles. Changes at once." },
 	{ "display.texture_decode", _config_string, "\"auto\"", "HALO_TEXTURE_DECODE", _environment_value,
 		_platform_android,
 		"Where compressed textures are unpacked: \"gpu\" or \"cpu\". \"cpu\"\n"
@@ -872,6 +874,12 @@ static const struct config_setting config_settings[] =
 		"In games you host, the most machines that may join from one internet\n"
 		"address, from 1 to 16. 0 means no limit. Players on your local\n"
 		"network are never limited." },
+	{ "network.late_join_wait", _config_integer, "5", "HALO_NET_LATE_JOIN_WAIT", _environment_value,
+		_platform_all | _platform_server | _platform_xbox | _platform_console_gl,
+		"In games you host, how many seconds a machine that joins a game in\n"
+		"progress waits after its first player is in, so the players on its\n"
+		"other controllers can join too (split screen), from 0 to 30. It starts\n"
+		"sooner when it has four players. 0 starts it at once." },
 	{ "network.coop_friendly_fire", _config_string, "\"on\"", "HALO_NET_COOP_FRIENDLY_FIRE", _environment_value,
 		_platform_all,
 		"Friendly fire in online co-op: \"off\", \"on\", \"shields_only\" or\n"
@@ -1017,7 +1025,13 @@ static const struct config_setting config_settings[] =
 		"Show the network game's name on Discord." },
 	{ "discord.show_join", _config_boolean, "true", "HALO_DISCORD_SHOW_JOIN", _environment_value,
 		_platform_desktop,
-		"Show a Join game button on Discord while you host a public game." },
+		"Let Discord friends join the public game you host (Join and Ask to Join)." },
+	{ "discord.accept_join_requests", _config_boolean, "false", "HALO_DISCORD_ACCEPT_JOIN_REQUESTS",
+		_environment_value, _platform_desktop,
+		"Accept every Ask to Join on Discord for the public game you host." },
+	{ "discord.register_launch", _config_boolean, "true", "HALO_DISCORD_REGISTER_LAUNCH", _environment_value,
+		_platform_desktop,
+		"Tell Discord how to start Chupathingy, so friends can Join you from it." },
 	{ "discord.application_id", _config_string, "\"1560397272166957136\"", "HALO_DISCORD_APPLICATION",
 		_environment_value, _platform_desktop,
 		"The Discord application Chupathingy shows as. Leave it empty for none." },
@@ -1102,6 +1116,15 @@ static const struct config_setting config_settings[] =
 		_platform_all,
 		"The weapon for debug.network_test_pickup, by part of its tag name.\n"
 		"Leave it empty for any." },
+	{ "debug.network_test_pickup_every", _config_real, "0.0", "HALO_NETWORK_TEST_PICKUP_EVERY", _environment_value,
+		_platform_all,
+		"Repeats debug.network_test_pickup this many seconds after each one (for\n"
+		"the map's items to be taken and come back). 0 picks up once." },
+	{ "debug.network_test_items", _config_real, "0.0", "HALO_NETWORK_TEST_ITEMS", _environment_value, _platform_all,
+		"Every this many seconds of a test game, each machine logs every weapon,\n"
+		"equipment and vehicle it has, where it is and who holds it (the host\n"
+		"also the map's item spawns, once a game), for the machines' items to be\n"
+		"compared (tools/item_sync_check.py). 0 never does." },
 	{ "debug.network_test_bomb", _config_real, "0.0", "HALO_NETWORK_TEST_BOMB", _environment_value, _platform_all,
 		"For an automated test Bomb game (host:<map>:grifball). After this many\n"
 		"seconds, and again each time that long after, the last player is stood\n"
@@ -1230,6 +1253,9 @@ static const struct config_setting config_settings[] =
 	{ "debug.gpu_flush_draws", _config_integer, "-1", "HALO_GPU_FLUSH_DRAWS", _environment_value, _platform_desktop,
 		"Flush the GPU every this many draws. -1 means every 3 on Intel with\n"
 		"Mesa. 0 never does." },
+	{ "debug.gpu_visibility_readback", _config_string, "\"auto\"", "HALO_GPU_VISIBILITY_READBACK", _environment_value, _platform_desktop,
+		"How lens flare and light glow tests get their results. auto reads\n"
+		"them on the CPU except on NVIDIA. cpu or buffer forces one." },
 	{ "debug.gpu_stats", _config_boolean, "false", "HALO_GPU_STATS", _environment_set_is_true, _platform_all,
 		"Log the renderer's draw counts once a second." },
 	{ "debug.gpu_trace_frame", _config_integer, "-1", "HALO_GPU_TRACE", _environment_value, _platform_all,
@@ -1594,13 +1620,42 @@ int platform_packaged(void)
 }
 
 #if defined(__linux__) && !defined(HALO_ANDROID) && !defined(HALO_XBOX_CONSOLE)
-/* whether folder has maps/ or config.toml, in any case */
-static int folder_has_setup(const char *folder)
+/* An AppImage (which sets APPIMAGE) runs from its own file, mounted
+read-only, and a packaged install (packaged_install.h) from a folder its
+player cannot write: their data and settings go in the save root's usual
+place (save_folder.c), or a test's HALO_SAVE_ROOT. So do those of a game in
+any folder it cannot write, but what that folder has of its own is kept
+where it is: setup is the entry, in any case, that keeps one kind of file
+there ("maps" for the data and the logs, "config.toml" for the settings).
+A read-only copy with maps/ and no config.toml (an administrator's
+/opt folder) keeps its maps and its settings now go home, where they can be
+saved; one with config.toml and no maps/ keeps its settings and copies the
+maps home. One with both, or a folder the game can write, is as before. */
+static int linux_home_folder(char *path, unsigned long size, const char *setup)
 {
+	const char *appimage = getenv("APPIMAGE");
+	const char *save_root = getenv("HALO_SAVE_ROOT");
+	const char *data_home = getenv("XDG_DATA_HOME");
+	const char *home = getenv("HOME");
+	const char *base = SDL_GetBasePath();
+	int writable = !base || !*base || access(base, W_OK) == 0;
 	char found[256];
 
-	return posix_find_entry_case_insensitive(folder, "maps", found, sizeof(found)) ||
-		posix_find_entry_case_insensitive(folder, "config.toml", found, sizeof(found));
+	if (!packaged_install_files_in_home(appimage && *appimage, platform_packaged(), writable,
+			writable || posix_find_entry_case_insensitive(base, setup, found, sizeof(found))))
+	{
+		return 0;
+	}
+	if (save_root && *save_root)
+		snprintf(path, (size_t)size, "%s", save_root);
+	else if (data_home && *data_home)
+		snprintf(path, (size_t)size, "%s/chupathingyce", data_home);
+	else if (home && *home)
+		snprintf(path, (size_t)size, "%s/.local/share/chupathingyce", home);
+	else
+		return 0;
+	SDL_CreateDirectory(path);
+	return 1;
 }
 #endif
 
@@ -1616,34 +1671,9 @@ int platform_app_folder(char *path, unsigned long size)
 	SDL_CreateDirectory(path);
 	return 1;
 #elif defined(__linux__) && !defined(HALO_ANDROID) && !defined(HALO_XBOX_CONSOLE)
-	/* an AppImage (which sets APPIMAGE) runs from its own file, mounted
-	read-only, and a packaged install (packaged_install.h) from a folder
-	its player cannot write: their data and settings go in the save root's
-	usual place (save_folder.c), or a test's HALO_SAVE_ROOT. So do those of
-	a game in any folder it cannot write, unless the folder has its own
-	maps/ or config.toml (a setup made there by hand, kept as it is) */
-	const char *appimage = getenv("APPIMAGE");
-	const char *save_root = getenv("HALO_SAVE_ROOT");
-	const char *data_home = getenv("XDG_DATA_HOME");
-	const char *home = getenv("HOME");
-	const char *base = SDL_GetBasePath();
-	int writable = !base || !*base || access(base, W_OK) == 0;
-
-	if (!packaged_install_files_in_home(appimage && *appimage, platform_packaged(), writable,
-			writable || folder_has_setup(base)))
-	{
-		return 0;
-	}
-	if (save_root && *save_root)
-		snprintf(path, (size_t)size, "%s", save_root);
-	else if (data_home && *data_home)
-		snprintf(path, (size_t)size, "%s/chupathingyce", data_home);
-	else if (home && *home)
-		snprintf(path, (size_t)size, "%s/.local/share/chupathingyce", home);
-	else
-		return 0;
-	SDL_CreateDirectory(path);
-	return 1;
+	/* (the data and the logs: a read-only folder's own maps/ kept where it
+	is; config_path asks for config.toml the same way) */
+	return linux_home_folder(path, size, "maps");
 #else
 	(void)path;
 	(void)size;
@@ -1670,7 +1700,14 @@ static void config_path(char *path, size_t size)
 #if !defined(HALO_ANDROID) && !defined(HALO_XBOX_CONSOLE)
 	/* (the application's folder: not the application, which is signed, or
 	the AppImage, which cannot be written) */
+#if defined(__linux__)
+	/* (on Linux by config.toml, not maps/: a read-only folder's own
+	config.toml is read where it is, and without one the settings go where
+	they can be saved: linux_home_folder) */
+	if (linux_home_folder(folder, sizeof(folder), "config.toml"))
+#else
 	if (platform_app_folder(folder, sizeof(folder)))
+#endif
 	{
 		snprintf(path, size, "%s/config.toml", folder);
 		return;

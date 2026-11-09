@@ -37,6 +37,8 @@ REASONS = {
     "NO_ANSWER": "The host didn't answer.",
     # (a failed join's alone: the site's list never says it)
     "NO_CONNECTION": "Couldn't connect to the host.",
+    # (a console's failed join alone: a game on more machines than it holds)
+    "CONSOLE_FULL": "This game has more players than this console can hold.",
     # (the refusals of OpenCE hosts, said on a failed join only)
     "NO_VPN": "This server doesn't allow VPNs.",
     "DISCORD_LINK": "This server only lets in players who link a Discord account with OpenCE.",
@@ -125,4 +127,4 @@ def test_header_builds_alone(tmp_path):
     said = {value for key, value in lines.items() if key.isdigit() and value}
     assert said == {REASONS[name] for name in ("NEEDS_UPDATE", "HOST_OLDER", "OTHER_VERSION", "NEEDS_BOMB",
                                                 "NOT_OPEN", "FULL", "PASSWORD", "NO_ANSWER",
-                                                "NO_CONNECTION")}
+                                                "NO_CONNECTION", "CONSOLE_FULL")}

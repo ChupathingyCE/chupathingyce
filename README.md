@@ -57,7 +57,7 @@ Download the latest release from the [Releases page](https://github.com/Chupathi
 | Windows 10 or later | `chupathingyce-windows64-release.zip` |
 | Mac, Apple silicon or Intel | `chupathingyce-macos-release.zip` |
 | Linux, Steam Deck too | `chupathingyce-linux64-release.AppImage` |
-| Android 9 or later | `chupathingyce-android-release.zip` |
+| Android 9 or later, 64-bit | `chupathingyce-android64-release.zip` |
 | FreeBSD | `chupathingyce-freebsd64-release.zip` |
 
 Older 32-bit PCs, the Linux zip and the other ways to install are in [docs/install.md](docs/install.md).
@@ -138,7 +138,7 @@ Every setting, and the `config.toml` file behind them: [docs/settings.md](docs/s
 
 ## Consoles
 
-Chupathingy also runs as homebrew on consoles, in the same online games as everyone else. They're test builds for now.
+Chupathingy also runs as homebrew on consoles, in the same online games as everyone else. Most are test builds for now.
 
 | Console | Get it |
 | --- | --- |
@@ -146,8 +146,9 @@ Chupathingy also runs as homebrew on consoles, in the same online games as every
 | Xbox 360 | [warthog-360](https://github.com/ChupathingyCE/warthog-360). Test builds are on the [Discord](https://discord.gg/chupathingy). |
 | Wii U | [warthog-wiiu](https://github.com/ChupathingyCE/warthog-wiiu/releases) |
 | Nintendo Switch | [warthog-switch](https://github.com/ChupathingyCE/warthog-switch/releases), by thelinkin3000 |
+| PlayStation 3 | [warthog-ps3](https://github.com/ChupathingyCE/warthog-ps3), by Mayo1970. Work in progress, no release yet. |
 
-Other developers have ported it to the PSP, PS Vita, PS3, PS4, PS5, Xbox Series (UWP), the Steam Link, and the iPhone, iPad and Apple TV. They play in the same games.
+Other developers have ported it to the PSP, PS Vita, PS4, PS5, Xbox Series (UWP), the Steam Link, and the iPhone, iPad and Apple TV. They play in the same games.
 
 <p align="center">
 <img src="docs/screenshots/xbox-360.jpg" width="49%" alt="Xbox 360">

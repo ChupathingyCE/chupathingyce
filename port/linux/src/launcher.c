@@ -1122,6 +1122,15 @@ static int mode_asks(void)
 	return strcmp(config_string("launcher.mode_choice"), "default") != 0;
 }
 
+/* how to come back to this screen once a mode skips it (a pack's menus,
+Halo CE+'s, have no way here of their own) */
+static const char *reopen_hint(void)
+{
+	if (config_boolean("launcher.hold_to_open"))
+		return "To come back here, hold Shift or a controller's Back as Chupathingy starts.";
+	return "To come back here, start Chupathingy with --setup.";
+}
+
 /* the mode for this run: its menus (game.pack_menus, for this run only). A
 player who never picked one keeps what config.toml says */
 static void mode_apply(int index, int picked)
@@ -1139,6 +1148,9 @@ static void mode_make_default(int index)
 {
 	config_write("launcher.mode_choice", "default");
 	config_write("launcher.default_mode", launcher.modes[index].id);
+	/* (chosen for this run too: config_write leaves config_chosen as the
+	file said at the start, and mode_default goes by it) */
+	config_set("launcher.default_mode", launcher.modes[index].id);
 }
 
 /* ---------- the rows of each screen */
@@ -1256,7 +1268,7 @@ static void build_rows(void)
 				snprintf(row->value, sizeof(row->value), "ALWAYS ASK");
 			else
 				snprintf(row->value, sizeof(row->value), "%s", launcher.modes[mode_default()].name);
-			snprintf(row->help, sizeof(row->help), "Pick a mode to skip this screen next time.");
+			snprintf(row->help, sizeof(row->help), "Pick a mode to skip this screen next time. %s", reopen_hint());
 		}
 		row = row_add(_action_play, "PLAY");
 		row->gap = launcher.installed_modes <= 1;
@@ -3061,7 +3073,8 @@ static void input(int button)
 			launcher.modes[row->argument].installed && launcher.installed_modes > 1)
 		{
 			mode_make_default(row->argument);
-			set_status(COLOR_GREEN, "%s starts by default now.", launcher.modes[row->argument].title);
+			set_status(COLOR_GREEN, "%s starts by default now. %s", launcher.modes[row->argument].title,
+				reopen_hint());
 		}
 		else if (launcher.screen == _screen_family)
 		{
@@ -3589,7 +3602,10 @@ static void command_line(int *setup, int *play, char *mode, size_t mode_size, in
 				index++;
 			}
 		}
-		else if (!SDL_strncasecmp(argument, "halo://", 7) || strstr(argument, "connect"))
+		/* (Discord's discord-<application>:// starts the game for a Join,
+		which comes once it is up: p2p_discord.c) */
+		else if (!SDL_strncasecmp(argument, "halo://", 7) || !SDL_strncasecmp(argument, "discord-", 8) ||
+			strstr(argument, "connect"))
 			*joining = 1;
 	}
 }
@@ -3641,7 +3657,7 @@ static void mode_question(void)
 	launcher.dialog_selected = 0;
 	snprintf(launcher.dialog_title, sizeof(launcher.dialog_title), "HOW DO YOU WANT TO PLAY?");
 	snprintf(launcher.dialog_text, sizeof(launcher.dialog_text),
-		"You have more than one way to play now. You can change this on Play.");
+		"You have more than one way to play now. You can change this on Play. %s", reopen_hint());
 	launcher.dialog_text_color = COLOR_WHITE;
 	launcher.dialog_row_count = 2;
 	memset(launcher.dialog_rows, 0, sizeof(launcher.dialog_rows));

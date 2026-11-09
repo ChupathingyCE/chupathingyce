@@ -83,6 +83,8 @@ boolean dedicated_server_end_game(void);
 
 void dedicated_server_set_maximum_players(long maximum_players);
 void dedicated_server_set_minimum_players(long minimum_players);
+/* the lobby's game started after a short countdown, once it may run */
+void dedicated_server_start_soon(void);
 void dedicated_server_set_idle_limit(long idle_limit);
 void dedicated_server_set_name(char const *name);
 void dedicated_server_set_name_filter(boolean name_filter);

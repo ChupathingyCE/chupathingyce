@@ -54,7 +54,15 @@ going private does.
 
 Checking signatures takes work, and anyone can send listings: at most
 VERIFY_BUDGET milliseconds of it each pass of the p2p thread, from a queue
-of MAXIMUM_QUEUED; the rest is dropped (hosts publish again).
+of MAXIMUM_QUEUED; the rest is dropped (hosts publish again). A listing's
+header is read as it is heard, before it is queued (listing_current): one
+whose time is out of its window never takes a place in the queue, and when
+the queue is full one this build joins takes the place of one it does not.
+A broker sends every slot it keeps at once when a browser subscribes, most
+of them games long gone or of other versions, and without this they filled
+the queue and pushed out live games until their hosts published again. The
+header is not checked yet, so a forged one keeps out only its own listing;
+the signature is still checked before a game is shown.
 */
 
 #include "platform.h"
@@ -96,7 +104,10 @@ enum
 		P2P_SIGNATURE_SIZE,
 	MAXIMUM_GAMES = 256,
 	MAXIMUM_TOMBSTONES = 256,
-	MAXIMUM_QUEUED = 64,
+	/* (a burst of current listings, as a broker's on subscribing: 292 bytes
+	each, 37 KB in all on every platform; the original Xbox builds no
+	public games, port/xbox/src/xbox_p2p.c) */
+	MAXIMUM_QUEUED = 128,
 
 	/* milliseconds */
 	REPUBLISH_INTERVAL = 30000,
@@ -561,6 +572,31 @@ static int queued_joinable(const unsigned char *payload, int size)
 	return size >= MINIMUM_LISTING_SIZE && version_joinable(payload[3] << 8 | payload[4]);
 }
 
+/* whether a listing's header says a game of about now (its signature not
+checked yet: the queue's intake and the queue read it alike). A slot's
+retained copy: only one within RETAINED_WINDOW (a host that died left it,
+and nothing cleared it); a live one: within LIVE_WINDOW, not one long gone,
+published again by someone who kept it */
+static int listing_current(const unsigned char *payload, int size, int retained)
+{
+	long difference, window = retained ? RETAINED_WINDOW : LIVE_WINDOW;
+
+	if (size < MINIMUM_LISTING_SIZE || size > MAXIMUM_LISTING_SIZE || payload[0] != 'H' || payload[1] != 'L' ||
+		payload[2] != LISTING_FORMAT)
+	{
+		return 0;
+	}
+	/* (the time: bytes 10 to 13) */
+	difference = (long)(get_long(payload + 10) - (unsigned long)time(NULL));
+	return difference <= window && difference >= -window;
+}
+
+/* (tools/p2p_lobby_check.c builds the lobby without the intake's checks too,
+to show what they keep: 1 the time, 2 the version, 3 both) */
+#ifndef P2P_LOBBY_INTAKE_CHECKS
+#define P2P_LOBBY_INTAKE_CHECKS 3
+#endif
+
 void p2p_lobby_slot_heard(const char *hash_text, const unsigned char *payload, int size, int retained)
 {
 	unsigned char key_hash[P2P_KEY_HASH_SIZE];
@@ -594,6 +630,9 @@ void p2p_lobby_slot_heard(const char *hash_text, const unsigned char *payload, i
 		game->heard_time = p2p_now();
 		return;
 	}
+	/* (one out of its window takes no place in the queue) */
+	if ((P2P_LOBBY_INTAKE_CHECKS & 1) && !listing_current(payload, size, retained))
+		return;
 	for (index = 0; index < lobby.queue_count; index++)
 	{
 		if (lobby.queue[index].size == size && !memcmp(lobby.queue[index].payload, payload, (size_t)size))
@@ -602,7 +641,7 @@ void p2p_lobby_slot_heard(const char *hash_text, const unsigned char *payload, i
 	if (lobby.queue_count == MAXIMUM_QUEUED)
 	{
 		/* (full: a joinable listing takes the place of one that is not) */
-		if (!queued_joinable(payload, size))
+		if (!(P2P_LOBBY_INTAKE_CHECKS & 2) || !queued_joinable(payload, size))
 			return;
 		for (index = lobby.queue_count - 1; index >= 0 && queued_joinable(lobby.queue[index].payload, lobby.queue[index].size);
 			index--)
@@ -758,16 +797,9 @@ static void update_browsing(void)
 		{
 			continue;
 		}
-		/* a slot's retained copy: only one of about now (a host that died
-		left it, and nothing cleared it); a live one: not one long gone,
-		published again by someone who kept it */
-		{
-			long difference = (long)(listing.time - (unsigned long)time(NULL));
-			long window = queued.retained ? RETAINED_WINDOW : LIVE_WINDOW;
-
-			if (difference > window || difference < -window)
-				continue;
-		}
+		/* (heard in its window, it may have left it since) */
+		if (!listing_current(queued.payload, queued.size, queued.retained))
+			continue;
 		/* (the work, without the lock: the game's threads need not wait) */
 		pthread_mutex_unlock(&p2p_lock);
 		good = listing_signed(queued.payload, &listing);
