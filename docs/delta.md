@@ -404,8 +404,8 @@ a later version may append):
 | 28 | OBJECT_NAMES | host to client | total (2, the host's named objects and removed names in all, at most 512), first (2, this datagram's first entry's place among them), count (1, at most 98), reserved (3), then 12-byte entries: the host's object (4; 0xFFFFFFFF for a removed name), its scenario name index (2), flags (1: 0x01 removed, a name the host had an object of this game and has none of now; others ignored), and for a removed name its unit's last vitals: shield flags (1, as UNIT_VITALS's), body vitality (2), shield vitality (2) (full for an object that was not a unit; 0 for the others) |
 | 29 | HOST_RULES | host to client | version (1; 1 now, 0 refused, a later one read as far as this build knows it), flags (1: 0x01 names above heads allowed, 0x02 the follow camera allowed; others ignored), team changes (1: 0 off, 1 balanced, 2 allow), their margin (1, 0 to 16), reserved (4); values past their ranges refused. Sent at once when they change and every 5 seconds |
 | 30 | ID_CHALLENGE | host to client | version (1; 1 now, 0 refused, a later one read as this), binding length (1, at most 64), reserved (2), nonce (32), binding (printable ASCII) |
-| 31 | ID_PROOF | client to host | version (1), local player (1, 0 to 3), certificate length (1: 0 withdraws the local player and nothing follows; else 148 to 168), tag length (1, at most 24), signature (64), issuer certificate (CISS, 112), device certificate (CDEV, the length's bytes), tag (`A-Z a-z 0-9`, space, `_ - .`) |
-| 32 | ID_CARD | host to client | version (1), machine index (1), local player (1, 0 to 3), certificate length (1: 0 withdraws the card and nothing follows; else 148 to 168), tag length (1, at most 24), reserved (3), then as ID_PROOF's from the signature on: signature (64), CISS (112), CDEV, tag. At most 404 bytes |
+| 31 | ID_PROOF | client to host | version (1), local player (1, 0 to 3), certificate length (1: 0 withdraws the local player and nothing follows; else 148 to 168), name length (1, at most 20), signature (64), issuer certificate (CISS, 112), device certificate (CDEV, the length's bytes), name (the handle in the player's capitals: `A-Z a-z 0-9 _ -`) |
+| 32 | ID_CARD | host to client | version (1), machine index (1), local player (1, 0 to 3), certificate length (1: 0 withdraws the card and nothing follows; else 148 to 168), name length (1, at most 20), reserved (3), then as ID_PROOF's from the signature on: signature (64), CISS (112), CDEV, name. At most 400 bytes |
 
 A roster covers every machine of the game, in as many datagrams as it takes
 (32 machines each). A client forgets a machine the roster has not named for
@@ -831,8 +831,8 @@ Network determinism is untouched. Nothing here feeds game state.
    shows no one as verified in that game.
 3. For each local player (0 to 3, the player's controller in the network
    game) whose copy can prove them, the client sends **ID_PROOF**: the
-   device certificate (CDEV), its issuer's (CISS), the tag the player
-   claims, and the device key's signature (below). A local player proves
+   device certificate (CDEV), its issuer's (CISS), the player's name in
+   their capitals, and the device key's signature (below). A local player proves
    only when their player shares their profile (`network.share_profile`),
    their Halo profile is signed in (not a guest), and the copy holds an
    in-date certificate for that account with `play` and a handle. An
@@ -863,8 +863,8 @@ seconds until the host relays its card.
 | 1 | the machine index |
 | 1 | the local player (0 to 3) |
 | 8 | the device certificate's serial |
-| 1 | the tag's length T (0 to 24) |
-| T | the tag |
+| 1 | the name's length T (0 to 20) |
+| T | the name |
 
 The machine index ties a proof to the machine that sent it. A client
 replaying another machine's proof gets nothing, and the host checks the
@@ -883,7 +883,9 @@ to two accounts can't have its proof paired with the other.
 - Its device isn't on the revocation list this copy last fetched (below).
 - The signature is the device key's over the message above, as Monocypher
   4's `crypto_ed25519_check` checks it. A key of small order is refused.
-- The tag, if any, is a tag's characters (below).
+- The name, if any, is the handle's characters (`A-Z a-z 0-9 _ -`). A
+  name that isn't the certificate's handle in other capitals is dropped,
+  and the handle shows instead.
 
 A proof that fails is dropped, logged without its contents, and the
 player shows by their game name.
@@ -895,33 +897,33 @@ serial past the one it has) and keeps it in `delta_revoked.bin` in the save
 root, so a host or player that can't reach the site still knows the last
 list. Hosts don't relay the list over Delta Peer yet.
 
-**What shows.** The account and handle come from the certificate, and are
-signed. The tag in a proof is only the player's claim, so a client shows:
+**One name.** A Delta profile has one name, its **Delta Tag**: the handle,
+3 to 20 of `a-z 0-9 _ -`, unique on the site however it's capitalized, and
+the key of every lookup and URL. The account shows it in the capitals its
+owner picked ("Milenko" for `milenko`), on the site, on DELTA, in ID_CARD
+and on the scoreboard. The capitals can change on the site at any time; the
+letters can't. There's no other display name. Profiles from before keep
+their old free-form names on the site (`old_display`), and show their
+handle until their owner picks its capitals.
 
-1. the tag on the site's public card for that account (`/v1/game/players`,
-   asked by the proven account), else that card's display name or handle;
-2. before the card comes, or with no site, the proof's tag when it is the
-   handle in other letters' case ("Milenko" for `milenko`);
-3. else the handle.
+**What shows.** The account and handle come from the certificate, and are
+signed. The capitals come from the site's public card for that account
+(`/v1/game/players`, asked by the proven account), or, before the card
+comes or with no site, from the proof. Either way they show only when they
+are the handle in other capitals; else the handle shows as the certificate
+has it. So no one can show a name that isn't their own handle.
 
 A clan tag shows before it ("[TAG] Name") when the card has one. A copy
 with no profile (a certificate with no handle) proves nothing, and its
-player shows by their game name.
+player shows by their game name. The name never reaches OpenCE: their
+players see the Halo profile's own name, 11 characters, which the game's
+messages carry unchanged.
 
-**The Delta Tag** is the name a verified player shows by in games. It's
-the account's, kept by the site. Each Halo profile on a copy is signed in
-to its own account, so split-screen players can each show their own tag.
-
-- 3 to 24 characters of `A-Z a-z 0-9`, space, `_`, `-` and `.`. No space
-  first or last, and no two spaces in a row.
-- Unique on the site, compared as names are compared there (letters'
-  case, look-alikes and punctuation folded). It can't look like another
-  profile's handle or tag, nor be a reserved name, nor a blocked one.
-- A profile with no tag set shows by its handle, so every profile has
-  one.
-- One change every 30 days. An old tag is held for its owner for 30 days.
-- It never reaches OpenCE. Their players see the Halo profile's own name,
-  11 characters, which the game's messages carry unchanged.
+**Look-alikes.** The site marks a new handle that looks like an existing
+one when it's made: `1` and `I` read as `l`, `rn` as `m`, `vv` as `w`,
+`0` as `o`, digits at the end dropped, accents and separators gone. Its
+public card and service record carry `looks_like` with the other handle,
+and the admin panel lists it with the reserved and blocked names.
 
 **Each Halo profile's account.** A Halo profile's folder may hold
 `delta_account.txt`: `guest` (the profile proves no one) or an account's 32
@@ -932,8 +934,8 @@ is signed out by an update. Signing a Halo profile in to another account
 (sign-in by code) writes the file, and keeps that account's certificate
 beside the copy's.
 
-**Where names are drawn, and how long they can be.** The tag can be 24
-characters. Where a column is shorter, the name is cut with "...". At the
+**Where names are drawn, and how long they can be.** A name can be 20
+characters, and a clan tag adds up to 11 more. Where a column is shorter, the name is cut with "...". At the
 menus' 640x480 the columns hold: the in-game scoreboard 16 characters, the
 pregame panel 16 for a player's own line and 12 for another machine's, the
 Chupathingy menus' lobby 32, and the postgame report 11 (as a Halo name:
@@ -986,7 +988,7 @@ later without a special case.
 **Test vectors** (also in `port/linux/tests/identity_vectors.json`; the
 device key and certificate are "Device identity"'s). The host's nonce is the
 bytes 00 to 1f, the binding `0123456789abcdef0123456789abcdef`, machine 3,
-local player 1, the certificate's serial 01 02 ... 08, and the tag
+local player 1, the certificate's serial 01 02 ... 08, and the name
 `Milenko`:
 
 ```
@@ -1942,8 +1944,8 @@ copy: every Halo profile on a copy counts for the same Delta profile.
   kept in memory only. `debug.txt` says whether it loaded, never what it
   holds.
 - **Profile names:** in a game on Delta, a verified player (Delta Peer's
-  `identity`: "Verified names") shows by their Delta Tag on the
-  scoreboard, the postgame report and the lobby
+  `identity`: "Verified names") shows by their Delta Tag, in the
+  capitals they picked, on the scoreboard, the postgame report and the lobby
   (`port/linux/game/profile_names.c`). The game asks the site for those
   players' public cards by their proven accounts (`POST /v1/game/players`,
   no key). Split-screen players each prove their own Halo profile's
