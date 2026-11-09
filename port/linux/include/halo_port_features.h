@@ -94,9 +94,9 @@ define brings them back when a console gets an updater */
 #define HALO_CONSOLE_NO_UPDATER
 #endif
 
-/* the object functions drawn between ticks
-(port/linux/game/render_interpolation.c): 48 bytes for each object slot,
-about 384 KB; a console draws them as sampled each tick, as retail */
+/* the object functions, change colors and camouflage drawn between ticks
+(port/linux/game/render_interpolation.c): about 220 bytes for each object
+slot, about 1.7 MB; a console draws them as sampled each tick, as retail */
 #ifndef HALO_CONSOLE_NO_SMOOTH_FUNCTIONS
 #define HALO_CONSOLE_NO_SMOOTH_FUNCTIONS
 #endif

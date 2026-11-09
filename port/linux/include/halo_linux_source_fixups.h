@@ -13,6 +13,7 @@ struct observer_result;
 struct render_camera;
 struct real_matrix4x3;
 union real_point3d;
+union real_rgb_color;
 int halo_interpolation_enabled(void);
 float game_time_get_tick_fraction(void);
 void render_interpolation_tick(void);
@@ -23,6 +24,8 @@ float render_interpolation_fraction(void);
 unsigned char render_interpolation_drawing(void);
 struct real_matrix4x3 *render_interpolation_object_node_matrices(long object_index);
 float *render_interpolation_object_function_values(long object_index);
+union real_rgb_color *render_interpolation_object_change_colors(long object_index);
+unsigned char render_interpolation_unit_camouflage(long unit_index, float *amount, float *super_amount);
 struct new_particle_data;
 unsigned char render_interpolation_particle_later(struct new_particle_data const *data, long object_index,
 	short node_index, float fraction);

@@ -1447,6 +1447,23 @@ short unit_get_zoom_level(
 	return unit_get(unit_index)->unit.current_zoom_level;
 }
 
+/* port: the unit's active camouflage and its super amount as drawn; while
+a frame is drawn, between the last two ticks
+(port/linux/game/render_interpolation.c) */
+real unit_get_drawn_camouflage(
+	long unit_index,
+	real *super_amount)
+{
+	struct unit_datum *unit;
+	real amount;
+
+	if (render_interpolation_unit_camouflage(unit_index, &amount, super_amount))
+		return amount;
+	unit = unit_get(unit_index);
+	*super_amount = unit->unit.active_camouflage_super_amount;
+	return unit->unit.active_camouflage;
+}
+
 real unit_get_zoom_magnification(
 	long unit_index,
 	short zoom_level)

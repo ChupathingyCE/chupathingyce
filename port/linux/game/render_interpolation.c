@@ -133,6 +133,12 @@ struct interpolated_object
 	pulse with them) in the two snapshots, and the blend drawn this frame */
 	real function_values[2][NUMBER_OF_OUTGOING_OBJECT_FUNCTIONS];
 	real blended_function_values[NUMBER_OF_OUTGOING_OBJECT_FUNCTIONS];
+	/* ... its change colors (what its shaders tint with) and a unit's
+	active camouflage (amount, super amount), the same way */
+	real_rgb_color change_colors[2][NUMBER_OF_OBJECT_CHANGE_COLORS];
+	real_rgb_color blended_change_colors[NUMBER_OF_OBJECT_CHANGE_COLORS];
+	real camouflage[2][2];
+	real blended_camouflage[2];
 	long functions_blended_frame;
 #endif
 };
@@ -526,6 +532,19 @@ void render_interpolation_tick(void)
 			record->function_values[record->latest],
 			object->object.outgoing_function_values,
 			sizeof(record->function_values[0]));
+		memcpy(
+			record->change_colors[record->latest],
+			object->object.outgoing_change_colors,
+			sizeof(record->change_colors[0]));
+		record->camouflage[record->latest][0] = 0.0f;
+		record->camouflage[record->latest][1] = 0.0f;
+		if (TEST_FLAG(_object_mask_unit, object->object.type))
+		{
+			struct unit_datum const *unit = (struct unit_datum const *)object;
+
+			record->camouflage[record->latest][0] = unit->unit.active_camouflage;
+			record->camouflage[record->latest][1] = unit->unit.active_camouflage_super_amount;
+		}
 #endif
 		record->rotations_valid[record->latest] = FALSE;
 		record->object_index = iterator.index;
@@ -669,16 +688,21 @@ real_matrix4x3 *render_interpolation_object_node_matrices(long object_index)
 	return record->nodes + 2 * record->node_capacity;
 }
 
-/* the object's outgoing functions as drawn: between the last two ticks,
-as its pose. Functions are sampled once a tick, so a glow or light pulsing
-with one stepped at 30 Hz however fast the frames came. (NULL, the values
-of the tick, on a console: HALO_CONSOLE_NO_SMOOTH_FUNCTIONS) */
-real *render_interpolation_object_function_values(long object_index)
+#ifndef HALO_CONSOLE_NO_SMOOTH_FUNCTIONS
+/* a value between the last two ticks', or the latest when it changed more
+than a sweep (so written that a value not a number snaps) */
+static real interpolation_value(real previous, real latest)
 {
-#ifdef HALO_CONSOLE_NO_SMOOTH_FUNCTIONS
-	(void)object_index;
-	return NULL;
-#else
+	return fabsf(latest - previous) <= FUNCTION_SNAP_CHANGE ?
+		lerp(previous, latest, interpolation_fraction) :
+		latest;
+}
+
+/* the object's record with its function values, change colors and
+camouflage blended for this frame; NULL when it is drawn as the tick left
+it (interpolation off, no earlier tick) */
+static struct interpolated_object *interpolation_object_values(long object_index)
+{
 	struct interpolated_object *record;
 	long absolute_index;
 
@@ -692,23 +716,84 @@ real *render_interpolation_object_function_values(long object_index)
 		return NULL;
 	if (record->functions_blended_frame != interpolation_frame)
 	{
-		real const *previous = record->function_values[record->latest ^ 1];
-		real const *latest = record->function_values[record->latest];
-		short function_index;
+		short previous = record->latest ^ 1;
+		short latest = record->latest;
+		short index;
 
-		for (function_index = 0; function_index < NUMBER_OF_OUTGOING_OBJECT_FUNCTIONS; function_index++)
+		for (index = 0; index < NUMBER_OF_OUTGOING_OBJECT_FUNCTIONS; index++)
 		{
-			real change = latest[function_index] - previous[function_index];
+			record->blended_function_values[index] = interpolation_value(
+				record->function_values[previous][index], record->function_values[latest][index]);
+		}
+		for (index = 0; index < NUMBER_OF_OBJECT_CHANGE_COLORS; index++)
+		{
+			real_rgb_color const *a = &record->change_colors[previous][index];
+			real_rgb_color const *b = &record->change_colors[latest][index];
+			real_rgb_color *blended = &record->blended_change_colors[index];
 
-			/* (so written that a value not a number snaps) */
-			record->blended_function_values[function_index] =
-				fabsf(change) <= FUNCTION_SNAP_CHANGE ?
-				lerp(previous[function_index], latest[function_index], interpolation_fraction) :
-				latest[function_index];
+			blended->red = interpolation_value(a->red, b->red);
+			blended->green = interpolation_value(a->green, b->green);
+			blended->blue = interpolation_value(a->blue, b->blue);
+		}
+		/* (camouflage fades in and out over a second or more; turned on
+		at once by a cheat or a script, it fades in over the one tick) */
+		for (index = 0; index < 2; index++)
+		{
+			record->blended_camouflage[index] = lerp(record->camouflage[previous][index],
+				record->camouflage[latest][index], interpolation_fraction);
 		}
 		record->functions_blended_frame = interpolation_frame;
 	}
-	return record->blended_function_values;
+	return record;
+}
+#endif
+
+/* the object's outgoing functions as drawn: between the last two ticks,
+as its pose. Functions are sampled once a tick, so a glow or light pulsing
+with one stepped at 30 Hz however fast the frames came. (NULL, the values
+of the tick, on a console: HALO_CONSOLE_NO_SMOOTH_FUNCTIONS) */
+real *render_interpolation_object_function_values(long object_index)
+{
+#ifdef HALO_CONSOLE_NO_SMOOTH_FUNCTIONS
+	(void)object_index;
+	return NULL;
+#else
+	struct interpolated_object *record = interpolation_object_values(object_index);
+
+	return record ? record->blended_function_values : NULL;
+#endif
+}
+
+/* ... its change colors, the same way (NULL: the tick's) */
+real_rgb_color *render_interpolation_object_change_colors(long object_index)
+{
+#ifdef HALO_CONSOLE_NO_SMOOTH_FUNCTIONS
+	(void)object_index;
+	return NULL;
+#else
+	struct interpolated_object *record = interpolation_object_values(object_index);
+
+	return record ? record->blended_change_colors : NULL;
+#endif
+}
+
+/* ... and a unit's active camouflage and its super amount; FALSE: the
+tick's */
+boolean render_interpolation_unit_camouflage(long unit_index, real *amount, real *super_amount)
+{
+#ifdef HALO_CONSOLE_NO_SMOOTH_FUNCTIONS
+	(void)unit_index;
+	(void)amount;
+	(void)super_amount;
+	return FALSE;
+#else
+	struct interpolated_object *record = interpolation_object_values(unit_index);
+
+	if (!record)
+		return FALSE;
+	*amount = record->blended_camouflage[0];
+	*super_amount = record->blended_camouflage[1];
+	return TRUE;
 #endif
 }
 
