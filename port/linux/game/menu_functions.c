@@ -8808,7 +8808,7 @@ static void delta_profile_update(struct widget_instance *list)
 	struct widget_instance *row;
 
 	rows_update(list, profile_screen_section_count(), delta_section_text);
-	/* (Linked Copies and Roles greyed while there is no profile to show) */
+	/* (Devices and Roles greyed while there is no profile to show) */
 	for (row = list->child, index = 0; row && index < profile_screen_section_count(); row = row->next, index++)
 	{
 		if (!profile_screen_section_open(index))
