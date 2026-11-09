@@ -1738,7 +1738,21 @@ void platform_video_swap(void)
 	/* (the device presents: d3d8_bgfx.inl; this paces the frames) */
 	if (!xgpu_bgfx)
 #endif
-	SDL_GL_SwapWindow(platform_window);
+	{
+		/* the window's framebuffer bound for reading too, as the frame is
+		shown: a capture hooked into the swap (OBS's game capture) copies
+		from whatever is bound for reading, and the render target the frame
+		was blitted from holds it upside down (row 0 the top) */
+		if (platform_gl_context)
+		{
+#ifdef HALO_IOS
+			glBindFramebuffer(GL_READ_FRAMEBUFFER, platform_window_framebuffer());
+#else
+			glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+#endif
+		}
+		SDL_GL_SwapWindow(platform_window);
+	}
 	/* (a frame the graphics driver held for seconds: the game froze, and
 	online, a host stops hearing a machine after a few; the log says where) */
 	swap_time = SDL_GetTicks() - swap_start;
