@@ -713,7 +713,7 @@ static const struct config_setting config_settings[] =
 #ifdef HALO_GUIDE
 	/* ---- the Guide (port/linux/game/guide.c) */
 	{ "controls.guide", _config_string, "\"F3\"", "HALO_KEY_GUIDE", _environment_value, _platform_all,
-		"The key that opens and closes the Guide: F3 to F10." },
+		"The key that opens and closes the Guide: F3 to F8, or F10." },
 	{ "controls.guide_button", _config_boolean, "true", "HALO_GUIDE_BUTTON", _environment_value, _platform_all,
 		"Open the Guide with the controller's Guide button, where Chupathingy\n"
 		"can read it (Steam and the Xbox Game Bar may keep it for themselves)." },
@@ -726,6 +726,16 @@ static const struct config_setting config_settings[] =
 		_platform_all,
 		"Show the Guide's notifications during a game. They always show in\n"
 		"the menus." },
+#endif
+#ifdef HALO_CAPTURE
+	/* ---- screenshots (capture.c) */
+	{ "controls.screenshot", _config_string, "\"F9\"", "HALO_KEY_SCREENSHOT", _environment_value, _platform_desktop,
+		"The key that saves a screenshot to the screenshots folder, beside\n"
+		"maps. Print Screen always does too." },
+	{ "controls.capture_buttons", _config_boolean, "false", "HALO_CAPTURE_BUTTONS", _environment_value,
+		_platform_desktop,
+		"Take a screenshot with a controller too: its Share button, or Back\n"
+		"and the right stick pressed together." },
 #endif
 
 	/* ---- chat */

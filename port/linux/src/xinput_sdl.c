@@ -46,6 +46,9 @@ drive the controller.
 #ifdef HALO_GUIDE
 #include "guide_input.h"
 #endif
+#ifdef HALO_CAPTURE
+#include "capture.h"
+#endif
 #include "../game/network_rules.h"
 
 #include <SDL3/SDL.h>
@@ -550,6 +553,56 @@ static void guide_asks(const struct platform_input_state *input, SDL_Gamepad *ga
 	}
 }
 
+#ifdef HALO_CAPTURE
+/* controls.screenshot's key, read again when config.toml changes (-1: none) */
+static int screenshot_key(void)
+{
+	static unsigned long read_at = (unsigned long)-1;
+	static int key = -1;
+
+	if (read_at != config_changes())
+	{
+		read_at = config_changes();
+		key = halo_input_from_name(config_string("controls.screenshot"));
+		if (key < 0 || key >= SDL_SCANCODE_COUNT)
+			key = -1;
+	}
+	return key;
+}
+
+/* a screenshot asked for this poll: Print Screen or controls.screenshot's
+key (not while typing, should it be a letter's), or with
+controls.capture_buttons the first player's Share button or Back with the
+right stick pressed */
+static void capture_asks(const struct platform_input_state *input, SDL_Gamepad *gamepads[], int count)
+{
+	static BOOL key_was, buttons_was;
+	int key = screenshot_key(), index;
+	BOOL typing = chat_typing || text_typing || console_is_active();
+	BOOL key_down = input->keys[SDL_SCANCODE_PRINTSCREEN] || (key >= 0 && input->keys[key] && !typing);
+	BOOL buttons_down = FALSE;
+
+	if (key_down && !key_was)
+		capture_request_screenshot();
+	key_was = key_down;
+	if (config_boolean("controls.capture_buttons"))
+	{
+		for (index = 0; index < count; index++)
+		{
+			if (gamepads[index] && (SDL_GetGamepadButton(gamepads[index], SDL_GAMEPAD_BUTTON_MISC1) ||
+				(SDL_GetGamepadButton(gamepads[index], SDL_GAMEPAD_BUTTON_BACK) &&
+					SDL_GetGamepadButton(gamepads[index], SDL_GAMEPAD_BUTTON_RIGHT_STICK))))
+			{
+				buttons_down = TRUE;
+			}
+		}
+	}
+	if (buttons_down && !buttons_was)
+		capture_request_screenshot();
+	buttons_was = buttons_down;
+}
+
+#endif
 /* the keyboard, as the Guide reads it */
 static void guide_keyboard(const struct platform_input_state *input, XINPUT_GAMEPAD *pad)
 {
@@ -1049,6 +1102,16 @@ static void test_input_menu_pointer(void)
 		return;
 	memcpy(text, token, length);
 	text[length] = 0;
+#ifdef HALO_CAPTURE
+	/* (and capture, a player's screenshot) */
+	if (!strcmp(text, "capture"))
+	{
+		if (step_done != step)
+			capture_request_screenshot();
+		step_done = step;
+		return;
+	}
+#endif
 	if (!strcmp(text, "shot"))
 	{
 		if (step_done != step)
@@ -2079,6 +2142,9 @@ DWORD WINAPI XInputGetState(HANDLE device, PXINPUT_STATE state)
 					own[own_count++] = port_gamepad(gamepads, count, other);
 			}
 			guide_asks(&input, own, own_count, &state->Gamepad);
+#ifdef HALO_CAPTURE
+			capture_asks(&input, own, own_count);
+#endif
 		}
 		guide_take(&state->Gamepad);
 #endif

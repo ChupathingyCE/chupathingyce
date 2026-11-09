@@ -40,6 +40,9 @@ HALO_CONSOLE_NO_GUIDE
 	sent to the site (browser.c, network.share_presence), their settings
 	left out of config.toml: every console for now, until the Guide is
 	sized to each one's memory and input
+HALO_CONSOLE_NO_CAPTURE
+	no screenshots or clips (port/linux/src/capture.c, controls.screenshot):
+	every console; the desktop builds have them
 HALO_CONSOLE_NO_WRITE_WATCH
 	a console that will not write-protect guest memory, so the renderer's
 	write watch cannot see the game write a resource: locks and file reads
@@ -382,6 +385,17 @@ console gets them sized to its limits later */
 server's, which has no player) */
 #if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_GUIDE) && !defined(HALO_SERVER)
 #define HALO_GUIDE 1
+#endif
+
+/* screenshots and clips (port/linux/src/capture.c): the desktop builds'
+alone, with the Guide's toasts; not the consoles, the phones or the
+dedicated server */
+#if (defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
+	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE)) && !defined(HALO_CONSOLE_NO_CAPTURE)
+#define HALO_CONSOLE_NO_CAPTURE 1
+#endif
+#if defined(HALO_GUIDE) && !defined(HALO_CONSOLE_NO_CAPTURE) && !defined(HALO_ANDROID) && !defined(HALO_IOS)
+#define HALO_CAPTURE 1
 #endif
 
 #if (defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \

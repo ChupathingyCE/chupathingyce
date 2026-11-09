@@ -10,6 +10,8 @@ licensed, as the user chooses (see `LICENSE`), vendored unchanged from
   (`port/linux/src/text_hires.c`); and the overlay's text with the fonts
   of `port/linux/ui/fonts` (`port/linux/src/ui_overlay.c`, the game browser's).
 - `stb_image.h` v2.30: PNG and JPEG decoding, for the overlay's pictures.
+- `stb_image_write.h` v1.16 (same commit as stb_truetype): PNG encoding,
+  for the player's screenshots (`port/linux/src/capture.c`).
 - `stb_vorbis.c` v1.22 (same commit): Ogg Vorbis decoding, for Halo PC's
   sounds in Custom Edition maps (`port/linux/game/ce_vorbis.c`).
   Not unchanged: a map's sounds come from anyone, so its setup parsing is

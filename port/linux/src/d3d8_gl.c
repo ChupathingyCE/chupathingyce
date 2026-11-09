@@ -36,6 +36,7 @@ Conventions carried over from the Xbox:
 #ifdef HALO_GAME_BROWSER
 #include "browser.h"
 #include "ui_overlay.h"
+#include "capture.h"
 #endif
 
 #ifdef HALO_BGFX
@@ -6003,6 +6004,119 @@ void halo_draw_picture(const unsigned char *rgba, long width, long height)
 	gl_check_errors("picture");
 }
 
+#ifdef HALO_CAPTURE
+/* ---------- screenshots (capture.c): the back buffer copied into a pixel
+buffer by the GPU, and read once its fence says the copy is done, a frame
+or two later; the frame never waits for it. Nothing is made until the
+first one. */
+
+typedef GLsync (GLAPIENTRY *gl_fence_sync_proc)(GLenum condition, GLbitfield flags);
+typedef GLenum (GLAPIENTRY *gl_client_wait_sync_proc)(GLsync sync, GLbitfield flags, GLuint64 timeout);
+typedef void (GLAPIENTRY *gl_delete_sync_proc)(GLsync sync);
+
+static struct
+{
+	GLuint buffer;
+	unsigned long buffer_size;
+	GLsync fence;
+	unsigned long width, height;
+	unsigned long frames;
+	BOOL pending;
+	/* lent to the writer (capture_screenshot_lend) until released */
+	BOOL mapped;
+	volatile int released;
+	BOOL looked_up;
+	gl_fence_sync_proc fence_sync;
+	gl_client_wait_sync_proc client_wait_sync;
+	gl_delete_sync_proc delete_sync;
+} gl_capture;
+
+static void gl_capture_frame(struct render_target_entry *target)
+{
+	if (gl_capture.mapped)
+	{
+		/* (lent to the writer, mapped, until it has copied it) */
+		if (!__atomic_load_n(&gl_capture.released, __ATOMIC_ACQUIRE))
+			return;
+		glBindBuffer(GL_PIXEL_PACK_BUFFER, gl_capture.buffer);
+		glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
+		glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+		gl_capture.mapped = FALSE;
+		return;
+	}
+	if (gl_capture.pending)
+	{
+		BOOL done;
+
+		gl_capture.frames++;
+		if (gl_capture.fence)
+		{
+			GLenum state = gl_capture.client_wait_sync(gl_capture.fence, 0, 0);
+
+			done = state == GL_ALREADY_SIGNALED || state == GL_CONDITION_SATISFIED || state == GL_WAIT_FAILED;
+		}
+		else
+			/* (no fences: three frames is as far as the driver queues) */
+			done = gl_capture.frames >= 3;
+		if (!done)
+			return;
+		if (gl_capture.fence)
+			gl_capture.delete_sync(gl_capture.fence);
+		gl_capture.fence = NULL;
+		gl_capture.pending = FALSE;
+		{
+			void *mapped;
+
+			glBindBuffer(GL_PIXEL_PACK_BUFFER, gl_capture.buffer);
+			mapped = glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0, (GLsizeiptr)gl_capture.buffer_size, GL_MAP_READ_BIT);
+			/* (the writer copies it on its own thread; it stays mapped, and
+			unused, until then) */
+			if (mapped && capture_screenshot_lend(mapped, (long)gl_capture.width, (long)gl_capture.height,
+				(long)gl_capture.width * 4, TRUE, &gl_capture.released))
+			{
+				gl_capture.mapped = TRUE;
+			}
+			else if (mapped)
+				glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
+			glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+		}
+		return;
+	}
+	if (!capture_screenshot_take())
+		return;
+	if (!gl_capture.looked_up)
+	{
+		gl_capture.looked_up = TRUE;
+		gl_capture.fence_sync = (gl_fence_sync_proc)gl_function_extra("glFenceSync");
+		gl_capture.client_wait_sync = (gl_client_wait_sync_proc)gl_function_extra("glClientWaitSync");
+		gl_capture.delete_sync = (gl_delete_sync_proc)gl_function_extra("glDeleteSync");
+		if (!gl_capture.fence_sync || !gl_capture.client_wait_sync || !gl_capture.delete_sync)
+			gl_capture.fence_sync = NULL;
+	}
+	gl_capture.width = target->target.gl_width;
+	gl_capture.height = target->target.gl_height;
+	if (!gl_capture.width || !gl_capture.height)
+		return;
+	if (!gl_capture.buffer)
+		glGenBuffers(1, &gl_capture.buffer);
+	glBindBuffer(GL_PIXEL_PACK_BUFFER, gl_capture.buffer);
+	if (gl_capture.buffer_size != gl_capture.width * gl_capture.height * 4)
+	{
+		gl_capture.buffer_size = gl_capture.width * gl_capture.height * 4;
+		glBufferData(GL_PIXEL_PACK_BUFFER, (GLsizeiptr)gl_capture.buffer_size, NULL, GL_STREAM_READ);
+	}
+	glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer_get(target->target.texture, 0));
+	glPixelStorei(GL_PACK_ALIGNMENT, 4);
+	/* (the render target's row 0 is the picture's top: the rows come top
+	first) */
+	glReadPixels(0, 0, (GLsizei)gl_capture.width, (GLsizei)gl_capture.height, GL_BGRA, GL_UNSIGNED_BYTE, NULL);
+	glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+	gl_capture.fence = gl_capture.fence_sync ? gl_capture.fence_sync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0) : NULL;
+	gl_capture.frames = 0;
+	gl_capture.pending = TRUE;
+}
+
+#endif
 /* debug.test_input's shot: the window as shown at the next present */
 static BOOL test_screenshot_requested;
 
@@ -6054,6 +6168,10 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 #endif
 		if (screenshot_every > 0 && !screenshot_window && device.frame % (unsigned long)screenshot_every == 0)
 			write_screenshot(back_buffer);
+#ifdef HALO_CAPTURE
+		/* (the game's frame, the HUD in it, before the overlay goes over) */
+		gl_capture_frame(back_buffer);
+#endif
 
 		platform_video_drawable_size(&window_width, &window_height);
 #ifdef HALO_IOS

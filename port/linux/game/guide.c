@@ -60,6 +60,9 @@ are sent yet.
 #include "../src/guide_input.h"
 #include "../src/social.h"
 #include "../src/ui_overlay.h"
+#ifdef HALO_CAPTURE
+#include "../src/capture.h"
+#endif
 #include "halo_ui_pointer.h"
 #include "halo_profile_screen.h"
 #include "chat.h"
@@ -174,10 +177,10 @@ static char const *const setting_keys[NUMBER_OF_SETTINGS] =
 };
 
 /* controls.guide's choices: the F keys the game leaves free (F1 is Back,
-F2 Start, F11 full screen, F12 the mouse) */
+F2 Start, F9 a screenshot, F11 full screen, F12 the mouse) */
 static char const *const open_keys[] =
 {
-	"F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10",
+	"F3", "F4", "F5", "F6", "F7", "F8", "F10",
 };
 
 /* what a click or tap lands on */
@@ -233,6 +236,9 @@ static struct
 	char toast_line[96];
 	unsigned long toast_time;
 	boolean toast_shown;
+	/* (a toast for something the player just did, as a screenshot: shown
+	in a game too) */
+	boolean toast_always;
 	boolean debug_toast_done;
 	boolean debug_open_done;
 
@@ -788,7 +794,7 @@ static void render_toast(void)
 		return;
 	}
 	/* (quiet in a game unless asked for; never over the loading screen) */
-	if (in_game() && !config_boolean("guide.notify_in_game"))
+	if (in_game() && !guide.toast_always && !config_boolean("guide.notify_in_game"))
 		return;
 	share = age < TOAST_FADE ? (float)age / TOAST_FADE :
 		age > TOAST_TIME - TOAST_FADE ? (float)(TOAST_TIME - age) / TOAST_FADE : 1.0f;
@@ -856,10 +862,33 @@ void guide_toast(char const *title, char const *line)
 	social_copy_text(guide.toast_line, sizeof(guide.toast_line), line);
 	guide.toast_time = system_milliseconds();
 	guide.toast_shown = TRUE;
+	guide.toast_always = FALSE;
 }
+
+#ifdef HALO_CAPTURE
+/* the screenshots' (capture.c): the map's name for their files, and their
+toasts */
+static void capture_update(void)
+{
+	char title[64], line[160];
+	char const *map = "menu";
+
+	if (!main_menu_is_active() && game_map_loaded())
+		map = game_engine_running() ? main_get_multiplayer_map_name() : main_get_map_name();
+	capture_set_map(map);
+	if (capture_take_notice(title, sizeof(title), line, sizeof(line)))
+	{
+		guide_toast(title, line);
+		guide.toast_always = TRUE;
+	}
+}
+#endif
 
 void guide_update(boolean menu_open)
 {
+#ifdef HALO_CAPTURE
+	capture_update();
+#endif
 	/* (debug.guide_open and debug.guide_toast: for screenshots and tests,
 	once a run) */
 	if (!guide.debug_open_done && config_boolean("debug.guide_open") && (main_menu_is_active() || game_map_loaded()))

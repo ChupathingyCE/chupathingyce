@@ -331,6 +331,14 @@ static struct
 	uint32_t capture_ready;
 	BOOL capture_pending;
 	char capture_path[512];
+#ifdef HALO_CAPTURE
+	/* a player's screenshot (capture.c), the same way */
+	bgfx_texture_handle_t shot;
+	unsigned long shot_width, shot_height;
+	unsigned char *shot_pixels;
+	uint32_t shot_ready;
+	BOOL shot_pending;
+#endif
 
 	unsigned long uniform_bytes;
 	unsigned long drawn, skipped, stat_tests, stat_seen, stat_waited;
@@ -3707,6 +3715,36 @@ static void bg_window_presented(double start, double end)
 		bg_window_next = end + bg_window_interval;
 }
 
+#ifdef HALO_CAPTURE
+/* a player's screenshot: the back buffer copied to a texture the CPU can
+read and read back when bgfx says the frame that has it is done
+(bg_present), the HUD in it and the overlay not */
+static void bg_shot_start(void)
+{
+	struct bg_target *back_buffer = bg_target_get(&device.back_buffer);
+
+	if (!back_buffer || !back_buffer->pixel_width || !back_buffer->pixel_height)
+		return;
+	if (!BGFX_HANDLE_IS_VALID(bg.shot) || bg.shot_width != back_buffer->pixel_width ||
+		bg.shot_height != back_buffer->pixel_height)
+	{
+		if (BGFX_HANDLE_IS_VALID(bg.shot))
+			bgfx_destroy_texture(bg.shot);
+		bg.shot_width = back_buffer->pixel_width;
+		bg.shot_height = back_buffer->pixel_height;
+		bg.shot = bgfx_create_texture_2d((uint16_t)bg.shot_width, (uint16_t)bg.shot_height, false, 1,
+			BGFX_TEXTURE_FORMAT_BGRA8, BGFX_TEXTURE_BLIT_DST | BGFX_TEXTURE_READ_BACK, NULL, 0);
+	}
+	bg.shot_pixels = malloc(bg.shot_width * bg.shot_height * 4);
+	if (!bg.shot_pixels)
+		return;
+	bgfx_blit(bg.present_view, bg.shot, 0, 0, 0, 0, back_buffer->texture, 0, 0, 0, 0, (uint16_t)bg.shot_width,
+		(uint16_t)bg.shot_height, 1);
+	bg.shot_ready = bgfx_read_texture(bg.shot, bg.shot_pixels, 0);
+	bg.shot_pending = TRUE;
+}
+
+#endif
 static void bg_present(void)
 {
 	double frame_start, frame_end;
@@ -3777,6 +3815,10 @@ static void bg_present(void)
 			}
 		}
 	}
+#ifdef HALO_CAPTURE
+	if (!bg.shot_pending && capture_screenshot_take())
+		bg_shot_start();
+#endif
 	frame_start = stats_seconds();
 	{
 #ifdef __APPLE__
@@ -3802,6 +3844,16 @@ static void bg_present(void)
 			(uint32_t)(bg.capture_width * bg.capture_height * 4), false);
 		bg.capture_pending = FALSE;
 	}
+#ifdef HALO_CAPTURE
+	if (bg.shot_pending && frame_number >= bg.shot_ready)
+	{
+		/* (the pixels are capture.c's now: the next gets new ones) */
+		capture_screenshot_submit(bg.shot_pixels, (long)bg.shot_width, (long)bg.shot_height, (long)bg.shot_width * 4,
+			TRUE);
+		bg.shot_pixels = NULL;
+		bg.shot_pending = FALSE;
+	}
+#endif
 	if (debug_settings.statistics && device.frame % 60 == 0)
 	{
 		const bgfx_stats_t *stats = bgfx_get_stats();
@@ -4005,6 +4057,9 @@ static BOOL bg_initialize(void)
 	bg.crt = (bgfx_program_handle_t)BGFX_INVALID_HANDLE;
 	bg.overlay = (bgfx_program_handle_t)BGFX_INVALID_HANDLE;
 	bg.capture = (bgfx_texture_handle_t)BGFX_INVALID_HANDLE;
+#ifdef HALO_CAPTURE
+	bg.shot = (bgfx_texture_handle_t)BGFX_INVALID_HANDLE;
+#endif
 	bg.framebuffer = (bgfx_frame_buffer_handle_t)BGFX_INVALID_HANDLE;
 	bg.view_framebuffer = (bgfx_frame_buffer_handle_t)BGFX_INVALID_HANDLE;
 	bg.frame = 1;
