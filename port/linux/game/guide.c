@@ -16,9 +16,15 @@ PARTY, PLAYERS HERE, RECENT and SETTINGS.
   shown.
 - SETTINGS has the Guide's own settings (settings_rows.c's rows, which the
   setup screen's Settings shares).
-- FRIENDS, PARTY and RECENT come with the site's friends: until then, a
-  player without a Delta profile is offered SIGN IN (Delta Profile's Link
-  Profile).
+- FRIENDS is the site's friends (browser.c polls them, social.h): the
+  invites, the friends online, the offline ones (a row that shows them),
+  the friend requests. A on a row opens its options: a friend's JOIN (the
+  site checks, then the game joins its halo://join link), INVITE TO MY GAME
+  (in a game on Delta), REMOVE and BLOCK (each pressed twice); an invite's
+  JOIN and DISMISS; a request's ACCEPT and DECLINE. Only Delta profiles,
+  never an OpenCE player, never an address.
+- PARTY and RECENT are still empty. Without a Delta profile, FRIENDS,
+  PARTY and RECENT offer SIGN IN (Delta Profile's Link Profile).
 
 It takes the first player's input while open (guide_input.h): the game
 gets a controller at rest, and their player stands still
@@ -31,9 +37,11 @@ It opens with controls.guide (F3), the first player's Guide button
 guide.hold_back (off by default), or the first player's pause menu's GUIDE
 (menu_tags.c, guide.pause_menu); the same key or button, or B, closes it.
 
-Toasts (guide_toast) show low in the middle of the screen for a few
-seconds: in the menus, and in a game only with guide.notify_in_game. None
-are sent yet.
+Toasts show low in the middle of the screen for a few seconds: a new
+invite or friend request, and a friend come online (guide.notify_online,
+off by default, menus only). In a game only with guide.notify_in_game. The
+Guide's key or button while one shows opens its item. The pause menu's
+GUIDE counts what waits ("GUIDE 2": invites and requests).
 */
 
 #include "cseries.h"
@@ -55,6 +63,7 @@ are sent yet.
 #include "saved games/player_profile.h"
 #include "interface/player_ui.h"
 #include "main/main.h"
+#include "bink/bink_playback.h"
 #include "../src/browser.h"
 #include "../src/delta_profile.h"
 #include "../src/discord_activity.h"
@@ -68,6 +77,7 @@ are sent yet.
 
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 int config_boolean(char const *name);
 char const *config_string(char const *name);
@@ -82,6 +92,13 @@ int delta_peer_player_profile(int player_index, unsigned char *player_id);
 boolean discord_game_get(struct discord_activity_game *game);
 /* virtual_keyboard.c's */
 boolean virtual_keyboard_active(void);
+/* p2p.c's: this copy's game's invite (hosted, else joined), and an invite
+link joined */
+int p2p_hosting_invite(char *text, int size);
+int p2p_joined_invite(char *text, int size);
+int p2p_join_invite(char const *text);
+/* menu_tags.c's: the pause menu's GUIDE text (NONE: none in this map) */
+long pc_menu_pause_guide_label(void);
 /* ui_widget.c's: the game paused as a menu pauses it */
 void ui_widgets_port_pause_game(boolean pause);
 
@@ -108,8 +125,16 @@ enum
 	ROW_GAP = 4,
 	SETTING_HEIGHT = 26,
 
+	HEADING_HEIGHT = 16,
+	OPTION_HEIGHT = 24,
+	OPTION_GAP = 4,
+	/* a refusal's line, shown this long */
+	MESSAGE_TIME = 6000,
+	/* the browser thread told where the player is this often */
+	WHERE_INTERVAL = 1000,
+
 	/* the toast's place */
-	TOAST_WIDTH = 220, TOAST_HEIGHT = 34,
+	TOAST_WIDTH = 260, TOAST_HEIGHT = 34,
 	TOAST_X = 320 - TOAST_WIDTH / 2, TOAST_Y = 404,
 	TOAST_TIME = 5000,
 	TOAST_FADE = 400,
@@ -128,7 +153,6 @@ enum
 /* the Chupathingy menus' blues (the mockups': review/guide-mockup) */
 enum
 {
-	COLOR_SHADE = 0x02081AA8,
 	COLOR_PANEL = 0x0A2652E0,
 	COLOR_PANEL_EDGE = 0x2F7FD6FF,
 	COLOR_GLOW = 0x2F8FFFFF,
@@ -163,6 +187,58 @@ enum
 	_target_setting,
 	_target_sign_in,
 	_target_close,
+	_target_option,
+	_target_prompt,
+};
+
+/* FRIENDS' items, top to bottom: the invites, the friends online, the
+offline friends' row (open: they follow), the requests */
+enum
+{
+	_item_heading,
+	_item_invite,
+	_item_friend,
+	_item_offline,
+	_item_request,
+};
+
+enum
+{
+	_heading_invites,
+	_heading_online,
+	_heading_requests,
+};
+
+struct friend_item
+{
+	short kind;
+	/* the invite's, friend's or request's index in the state; a heading's
+	_heading_* */
+	short index;
+};
+
+#define MAXIMUM_FRIEND_ITEMS (4 + SOCIAL_MAXIMUM_INVITES + SOCIAL_MAXIMUM_FRIENDS + SOCIAL_MAXIMUM_REQUESTS)
+
+/* what a FRIENDS item's options are */
+enum
+{
+	_option_join,
+	_option_invite,
+	_option_remove,
+	_option_block,
+	_option_accept,
+	_option_decline,
+	_option_dismiss,
+	MAXIMUM_OPTIONS = 4
+};
+
+/* what a toast leads to */
+enum
+{
+	_toast_none,
+	_toast_invite,
+	_toast_request,
+	_toast_friend,
 };
 
 struct guide_target
@@ -209,12 +285,47 @@ static struct
 	boolean toast_shown;
 	boolean debug_toast_done;
 	boolean debug_open_done;
+	/* the toast's item (an invite's ID, a handle) and its sender's initial */
+	short toast_kind;
+	char toast_key[SOCIAL_INVITE_ID_SIZE];
+	char toast_initial[8];
+
+	/* FRIENDS: the site's state's serial and status (browser.c), and
+	whether one loaded this run */
+	int friends_serial;
+	int friends_status;
+	boolean friends_loaded;
+	unsigned long where_time;
+	/* the items, the offline friends shown, the chosen item (by what it
+	is, kept as the list changes) */
+	struct friend_item items[MAXIMUM_FRIEND_ITEMS];
+	short item_count;
+	boolean offline_open;
+	short chosen_kind;
+	char chosen_key[SOCIAL_INVITE_ID_SIZE];
+	/* its options panel: open (the d-pad moves in it), the option chosen,
+	one waiting for its second press (REMOVE, BLOCK), NONE for none */
+	boolean options;
+	short option;
+	short armed;
+	/* the action out (browser_social_act), and a line about the last */
+	boolean acting;
+	int action_serial;
+	char message[96];
+	unsigned long message_time;
+	/* the invites dismissed (by ID) */
+	char dismissed[SOCIAL_MAXIMUM_INVITES][SOCIAL_INVITE_ID_SIZE];
+	short dismissed_next;
 
 	int plasma_tries;
 
 	struct guide_target targets[MAXIMUM_TARGETS];
 	short target_count;
 } guide;
+
+/* the site's friends: as shown, and as just read (browser_social_get) */
+static struct social_state friends_state;
+static struct social_state friends_fresh;
 
 /* ---------- private code */
 
@@ -304,7 +415,10 @@ static void card_update(void)
 
 	guide.linked = browser_profile_linked(handle, sizeof(handle)) != 0;
 	guide.name[0] = 0;
-	if (guide.linked && handle[0])
+	/* (the profile's name as the site shows it, else its handle) */
+	if (guide.linked && guide.friends_loaded && friends_state.handle[0])
+		social_copy_text(guide.name, sizeof(guide.name), social_name(friends_state.display, friends_state.handle));
+	else if (guide.linked && handle[0])
 		social_copy_text(guide.name, sizeof(guide.name), handle);
 	guide.color = 0x2F6DD0FF;
 	if (player_ui_get_active_player_profile_index(0) != NONE)
@@ -432,6 +546,483 @@ static void setting_change(short setting, short direction)
 		settings_row_change(row, direction < 0 ? -1 : 1);
 }
 
+/* ---------- FRIENDS: the site's friends (browser.c polls them) */
+
+static boolean invite_dismissed(char const *id)
+{
+	short index;
+
+	for (index = 0; index < SOCIAL_MAXIMUM_INVITES; index++)
+	{
+		if (guide.dismissed[index][0] && !strcmp(guide.dismissed[index], id))
+			return TRUE;
+	}
+	return FALSE;
+}
+
+static short invites_waiting(void)
+{
+	short index, count = 0;
+
+	for (index = 0; index < friends_state.invite_count; index++)
+		count += !invite_dismissed(friends_state.invites[index].id);
+	return count;
+}
+
+/* signed in to Delta, as the site says */
+static boolean friends_signed_in(void)
+{
+	return guide.linked && guide.friends_status != BROWSER_SOCIAL_UNLINKED;
+}
+
+/* what waits: invites not dismissed, and friend requests */
+static short friends_waiting(void)
+{
+	if (!guide.friends_loaded || guide.friends_status == BROWSER_SOCIAL_UNLINKED ||
+		guide.friends_status == BROWSER_SOCIAL_NONE)
+	{
+		return 0;
+	}
+	return (short)(invites_waiting() + friends_state.request_count);
+}
+
+/* an item's key: an invite's ID, a player's handle */
+static char const *item_key(struct friend_item const *item)
+{
+	switch (item->kind)
+	{
+	case _item_invite: return friends_state.invites[item->index].id;
+	case _item_friend: return friends_state.friends[item->index].handle;
+	case _item_request: return friends_state.requests[item->index].handle;
+	default: return "";
+	}
+}
+
+/* the handle an item's actions go to */
+static char const *item_handle(struct friend_item const *item)
+{
+	return item->kind == _item_invite ? friends_state.invites[item->index].from : item_key(item);
+}
+
+static boolean item_selectable(short index)
+{
+	return index >= 0 && index < guide.item_count && guide.items[index].kind != _item_heading;
+}
+
+static void item_add(short kind, short index)
+{
+	if (guide.item_count >= MAXIMUM_FRIEND_ITEMS)
+		return;
+	guide.items[guide.item_count].kind = kind;
+	guide.items[guide.item_count].index = index;
+	guide.item_count++;
+}
+
+static void chosen_remember(void)
+{
+	short row = guide.row[SOCIAL_SECTION_FRIENDS];
+
+	if (row < 0 || row >= guide.item_count)
+		return;
+	guide.chosen_kind = guide.items[row].kind;
+	social_copy_text(guide.chosen_key, sizeof(guide.chosen_key), item_key(&guide.items[row]));
+}
+
+/* the items from the state, the chosen one kept where it still is */
+static void items_build(void)
+{
+	short index, online = 0, offline = 0, found = NONE;
+	short *row = &guide.row[SOCIAL_SECTION_FRIENDS];
+
+	guide.item_count = 0;
+	if (invites_waiting())
+	{
+		item_add(_item_heading, _heading_invites);
+		for (index = 0; index < friends_state.invite_count; index++)
+		{
+			if (!invite_dismissed(friends_state.invites[index].id))
+				item_add(_item_invite, index);
+		}
+	}
+	for (index = 0; index < friends_state.friend_count; index++)
+	{
+		if (friends_state.friends[index].online)
+			online++;
+		else
+			offline++;
+	}
+	if (online)
+		item_add(_item_heading, _heading_online);
+	for (index = 0; index < friends_state.friend_count; index++)
+	{
+		if (friends_state.friends[index].online)
+			item_add(_item_friend, index);
+	}
+	if (offline)
+	{
+		item_add(_item_offline, offline);
+		for (index = 0; guide.offline_open && index < friends_state.friend_count; index++)
+		{
+			if (!friends_state.friends[index].online)
+				item_add(_item_friend, index);
+		}
+	}
+	if (friends_state.request_count)
+	{
+		item_add(_item_heading, _heading_requests);
+		for (index = 0; index < friends_state.request_count; index++)
+			item_add(_item_request, index);
+	}
+	/* (the chosen item, where it is now; else the row where it was) */
+	for (index = 0; index < guide.item_count && found == NONE; index++)
+	{
+		if (item_selectable(index) && guide.items[index].kind == guide.chosen_kind &&
+			!strcmp(item_key(&guide.items[index]), guide.chosen_key))
+			found = index;
+	}
+	if (found != NONE)
+		*row = found;
+	else
+	{
+		guide.options = FALSE;
+		*row = (short)PIN(*row, 0, MAX(0, guide.item_count - 1));
+		while (*row > 0 && !item_selectable(*row))
+			(*row)--;
+		/* (the first row a heading: the row under it) */
+		while (*row < guide.item_count - 1 && !item_selectable(*row))
+			(*row)++;
+		chosen_remember();
+	}
+}
+
+/* this copy's game can take a friend (in a game on Delta with an invite) */
+static boolean can_invite(void)
+{
+	char invite[160];
+
+	if (!in_game() || !network_game_get_game() || !delta_peer_game_on_delta())
+		return FALSE;
+	if (!p2p_hosting_invite(invite, sizeof(invite)) && !p2p_joined_invite(invite, sizeof(invite)))
+		return FALSE;
+	return social_presence_invite_valid(invite) != 0;
+}
+
+/* an item's options (_option_*): their count */
+static short item_options(struct friend_item const *item, short *options)
+{
+	short count = 0;
+
+	switch (item->kind)
+	{
+	case _item_friend:
+		if (friends_state.friends[item->index].playing)
+			options[count++] = _option_join;
+		if (can_invite())
+			options[count++] = _option_invite;
+		options[count++] = _option_remove;
+		options[count++] = _option_block;
+		break;
+	case _item_invite:
+		options[count++] = _option_join;
+		options[count++] = _option_dismiss;
+		break;
+	case _item_request:
+		options[count++] = _option_accept;
+		options[count++] = _option_decline;
+		break;
+	}
+	return count;
+}
+
+static boolean item_has_option(struct friend_item const *item, short option)
+{
+	short options[MAXIMUM_OPTIONS], count = item_options(item, options), index;
+
+	for (index = 0; index < count; index++)
+	{
+		if (options[index] == option)
+			return TRUE;
+	}
+	return FALSE;
+}
+
+static char const *option_label(short option, boolean armed)
+{
+	switch (option)
+	{
+	case _option_join: return "JOIN";
+	case _option_invite: return "INVITE TO MY GAME";
+	case _option_remove: return armed ? "CONFIRM REMOVE" : "REMOVE";
+	case _option_block: return armed ? "CONFIRM BLOCK" : "BLOCK";
+	case _option_accept: return "ACCEPT";
+	case _option_decline: return "DECLINE";
+	default: return "DISMISS";
+	}
+}
+
+static struct friend_item const *chosen_item(void)
+{
+	short row = guide.row[SOCIAL_SECTION_FRIENDS];
+
+	return row >= 0 && row < guide.item_count ? &guide.items[row] : NULL;
+}
+
+static void message_set(char const *text)
+{
+	social_copy_text(guide.message, sizeof(guide.message), text);
+	guide.message_time = system_milliseconds();
+}
+
+static void friend_act(short action, char const *handle)
+{
+	struct browser_social_result result;
+
+	if (guide.acting)
+		return;
+	if (!browser_social_act(action, handle))
+		return;
+	browser_social_result(&result);
+	guide.acting = TRUE;
+	guide.action_serial = result.serial;
+	guide.message[0] = 0;
+}
+
+static void invite_dismiss(char const *id)
+{
+	social_copy_text(guide.dismissed[guide.dismissed_next], SOCIAL_INVITE_ID_SIZE, id);
+	guide.dismissed_next = (short)((guide.dismissed_next + 1) % SOCIAL_MAXIMUM_INVITES);
+	if (guide.toast_kind == _toast_invite && !strcmp(guide.toast_key, id))
+		guide.toast_shown = FALSE;
+	guide.options = FALSE;
+	items_build();
+}
+
+/* an option of the chosen item */
+static void option_run(short option)
+{
+	struct friend_item const *item = chosen_item();
+
+	if (!item || !item_has_option(item, option))
+		return;
+	/* (REMOVE and BLOCK take a second press) */
+	if ((option == _option_remove || option == _option_block) && guide.armed != option)
+	{
+		guide.armed = option;
+		return;
+	}
+	guide.armed = NONE;
+	switch (option)
+	{
+	case _option_join: friend_act(BROWSER_SOCIAL_JOIN, item_handle(item)); break;
+	case _option_invite: friend_act(BROWSER_SOCIAL_INVITE, item_handle(item)); break;
+	case _option_remove: friend_act(BROWSER_SOCIAL_REMOVE, item_handle(item)); break;
+	case _option_block: friend_act(BROWSER_SOCIAL_BLOCK, item_handle(item)); break;
+	case _option_accept: friend_act(BROWSER_SOCIAL_ACCEPT, item_handle(item)); break;
+	case _option_decline: friend_act(BROWSER_SOCIAL_DECLINE, item_handle(item)); break;
+	case _option_dismiss: invite_dismiss(item_key(item)); break;
+	}
+}
+
+/* A on FRIENDS: the chosen item's options, or the offline friends shown */
+static void friends_activate(void)
+{
+	struct friend_item const *item = chosen_item();
+	short options[MAXIMUM_OPTIONS], count;
+
+	if (!item)
+		return;
+	if (guide.options)
+	{
+		count = item_options(item, options);
+		if (guide.option >= 0 && guide.option < count)
+			option_run(options[guide.option]);
+		return;
+	}
+	if (item->kind == _item_offline)
+	{
+		guide.offline_open = !guide.offline_open;
+		items_build();
+		return;
+	}
+	if (item_options(item, options) > 0)
+	{
+		guide.options = TRUE;
+		guide.option = 0;
+		guide.armed = NONE;
+	}
+}
+
+static void friends_move(short step)
+{
+	short *row = &guide.row[SOCIAL_SECTION_FRIENDS];
+	short next = *row;
+	struct friend_item const *item = chosen_item();
+
+	if (guide.options && item)
+	{
+		short options[MAXIMUM_OPTIONS], count = item_options(item, options);
+
+		guide.option = (short)PIN(guide.option + step, 0, MAX(0, count - 1));
+		guide.armed = NONE;
+		return;
+	}
+	do
+		next = (short)(next + step);
+	while (next > 0 && next < guide.item_count && !item_selectable(next));
+	if (item_selectable(next))
+	{
+		*row = next;
+		guide.armed = NONE;
+		guide.message[0] = 0;
+		chosen_remember();
+	}
+}
+
+/* the friends' name a toast shows (none in streamer mode) */
+static void toast_from(short kind, char const *key, char const *title, char const *line, char const *name)
+{
+	social_copy_text(guide.toast_title, sizeof(guide.toast_title), title);
+	social_copy_text(guide.toast_line, sizeof(guide.toast_line), line);
+	guide.toast_initial[0] = 0;
+	if (name && name[0] && !(name[0] & 0x80))
+	{
+		guide.toast_initial[0] = (char)(name[0] >= 'a' && name[0] <= 'z' ? name[0] - 'a' + 'A' : name[0]);
+		guide.toast_initial[1] = 0;
+	}
+	guide.toast_kind = kind;
+	social_copy_text(guide.toast_key, sizeof(guide.toast_key), key);
+	guide.toast_time = system_milliseconds();
+	guide.toast_shown = TRUE;
+}
+
+/* the toasts for what is new: an invite, a request (not those already
+waiting at the first state), a friend online (guide.notify_online, menus) */
+static void friends_news(boolean first)
+{
+	struct social_news news;
+	boolean streamer = config_boolean("chat.streamer_mode") != 0;
+	char title[96], line[96];
+
+	social_news(&friends_state, &friends_fresh, &news);
+	if (news.invite >= 0 && !invite_dismissed(friends_fresh.invites[news.invite].id))
+	{
+		struct social_invite const *invite = &friends_fresh.invites[news.invite];
+		char const *name = social_name(invite->display, invite->from);
+
+		if (streamer)
+			snprintf(title, sizeof(title), "Game invite");
+		else
+			snprintf(title, sizeof(title), "%s invited you", name);
+		if (social_game_line(&invite->game, line, sizeof(line)) < 0)
+			snprintf(line, sizeof(line), "Game invite");
+		toast_from(_toast_invite, invite->id, title, line, streamer ? "" : name);
+		platform_log("Guide: a new invite");
+	}
+	else if (news.request >= 0 && !first)
+	{
+		struct social_request const *request = &friends_fresh.requests[news.request];
+		char const *name = social_name(request->display, request->handle);
+
+		toast_from(_toast_request, request->handle, streamer ? "Friend request" : name, streamer ? "" : "Friend request",
+			streamer ? "" : name);
+		platform_log("Guide: a new friend request");
+	}
+	else if (news.online >= 0 && !first && !in_game() && config_boolean("guide.notify_online"))
+	{
+		struct social_friend const *buddy = &friends_fresh.friends[news.online];
+		char const *name = social_name(buddy->display, buddy->handle);
+
+		social_friend_status(buddy, line, sizeof(line));
+		toast_from(_toast_friend, buddy->handle, streamer ? "Friend online" : name, line, streamer ? "" : name);
+	}
+}
+
+/* each frame: where the player is, told to the browser thread; a new
+state read, its toasts; an action's answer */
+static void friends_update(void)
+{
+	unsigned long now = system_milliseconds();
+	int serial = guide.friends_serial;
+	struct browser_social_result result;
+
+	if (!guide.where_time || now - guide.where_time >= WHERE_INTERVAL)
+	{
+		guide.where_time = now ? now : 1;
+		browser_social_where(in_game(), guide.open);
+	}
+	guide.friends_status = browser_social_get(&friends_fresh, &serial);
+	if (serial != guide.friends_serial)
+	{
+		boolean first = !guide.friends_loaded;
+
+		guide.friends_serial = serial;
+		if (guide.friends_status == BROWSER_SOCIAL_LOADED)
+		{
+			friends_news(first);
+			guide.friends_loaded = TRUE;
+		}
+		else if (guide.friends_status == BROWSER_SOCIAL_NONE || guide.friends_status == BROWSER_SOCIAL_UNLINKED)
+			guide.friends_loaded = FALSE;
+		friends_state = friends_fresh;
+		items_build();
+	}
+	if (!guide.acting)
+		return;
+	browser_social_result(&result);
+	if (result.serial != guide.action_serial || result.state == BROWSER_SOCIAL_BUSY)
+		return;
+	guide.acting = FALSE;
+	if (result.state == BROWSER_SOCIAL_REFUSED)
+	{
+		message_set(result.message);
+		return;
+	}
+	if (result.action == BROWSER_SOCIAL_JOIN)
+	{
+		char link[192];
+
+		if (browser_social_take_join(link, sizeof(link)))
+		{
+			/* (as any invite link: Internet play joins it) */
+			guide_close();
+			platform_log("Guide: joining a friend's game");
+			p2p_join_invite(link);
+		}
+		return;
+	}
+	if (result.action == BROWSER_SOCIAL_INVITE)
+		message_set("Invite sent");
+	else
+		guide.options = FALSE;
+}
+
+/* the toast's item chosen on FRIENDS, its options open */
+static boolean toast_go(void)
+{
+	short index;
+	short kind = guide.toast_kind == _toast_invite ? _item_invite : guide.toast_kind == _toast_request ? _item_request :
+		guide.toast_kind == _toast_friend ? _item_friend : NONE;
+
+	if (kind == NONE)
+		return FALSE;
+	guide.section = SOCIAL_SECTION_FRIENDS;
+	guide.first_row = 0;
+	for (index = 0; index < guide.item_count; index++)
+	{
+		if (guide.items[index].kind == kind && !strcmp(item_key(&guide.items[index]), guide.toast_key))
+		{
+			guide.row[SOCIAL_SECTION_FRIENDS] = index;
+			chosen_remember();
+			guide.options = kind != _item_friend;
+			guide.option = 0;
+			guide.armed = NONE;
+			break;
+		}
+	}
+	guide.toast_shown = FALSE;
+	return TRUE;
+}
+
 /* ---------- the sections' rows */
 
 static short section_rows(short section)
@@ -442,6 +1033,10 @@ static short section_rows(short section)
 		return (short)guide.players.count;
 	case SOCIAL_SECTION_SETTINGS:
 		return settings_count();
+	case SOCIAL_SECTION_FRIENDS:
+		if (friends_signed_in())
+			return guide.friends_loaded ? guide.item_count : 0;
+		return sign_in_section() != NONE ? 1 : 0;
 	default:
 		/* (SIGN IN, without a Delta profile) */
 		return !guide.linked && sign_in_section() != NONE ? 1 : 0;
@@ -452,6 +1047,8 @@ static void section_go(short section)
 {
 	guide.section = (short)((section + NUMBER_OF_SOCIAL_SECTIONS) % NUMBER_OF_SOCIAL_SECTIONS);
 	guide.first_row = 0;
+	guide.options = FALSE;
+	guide.armed = NONE;
 }
 
 /* A on the chosen row */
@@ -463,21 +1060,27 @@ static void activate(void)
 	{
 	case SOCIAL_SECTION_PLAYERS_HERE:
 		player_mute_toggle(row);
-		break;
+		return;
 	case SOCIAL_SECTION_SETTINGS:
 		setting_change(row, 1);
-		break;
-	default:
-		if (!guide.linked && sign_in_section() != NONE)
+		return;
+	case SOCIAL_SECTION_FRIENDS:
+		if (friends_signed_in())
 		{
-			short section = sign_in_section();
-
-			/* (Delta Profile's Link Profile, its dialog over what was under
-			the Guide) */
-			guide_close();
-			profile_screen_section_action(section);
+			if (guide.friends_loaded)
+				friends_activate();
+			return;
 		}
 		break;
+	}
+	if (!friends_signed_in() && sign_in_section() != NONE)
+	{
+		short section = sign_in_section();
+
+		/* (Delta Profile's Link Profile, its dialog over what was under
+		the Guide) */
+		guide_close();
+		profile_screen_section_action(section);
 	}
 }
 
@@ -488,6 +1091,11 @@ static void move(short step)
 
 	if (rows <= 0)
 		return;
+	if (guide.section == SOCIAL_SECTION_FRIENDS && friends_signed_in())
+	{
+		friends_move(step);
+		return;
+	}
 	*row = (short)PIN(*row + step, 0, rows - 1);
 }
 
@@ -583,15 +1191,16 @@ static void render_tabs(void)
 static void render_row(struct social_row const *row, float x, float y, float width, boolean on, short index)
 {
 	ui_style_row(x, y, width, ROW_HEIGHT, on);
-	ui_overlay_rect(x + 9, y + ROW_HEIGHT * 0.5f - 3, 6, 6, 3, dot_color(row->state));
+	if (row->state >= 0)
+		ui_overlay_rect(x + 9, y + ROW_HEIGHT * 0.5f - 3, 6, 6, 3, dot_color(row->state));
 	if (row->status[0])
 	{
-		ui_overlay_text(UI_FONT_MENU, 10.5f, x + 22, y + 3, UI_ALIGN_LEFT, COLOR_NAME, row->tag);
-		ui_overlay_text(UI_FONT_REGULAR, 8.0f, x + 22, y + 17, UI_ALIGN_LEFT,
-			row->muted ? COLOR_MUTED : COLOR_STATUS, row->status);
+		ui_style_text(UI_TEXT_NAME, x + 22, y + 3, UI_ALIGN_LEFT, row->tag);
+		ui_style_text(row->muted ? UI_TEXT_WARNING : UI_TEXT_STATUS, x + 22, y + 17, UI_ALIGN_LEFT, row->status);
 	}
 	else
-		ui_overlay_text(UI_FONT_MENU, 10.5f, x + 22, y + (ROW_HEIGHT - 10.5f) * 0.5f, UI_ALIGN_LEFT, COLOR_NAME, row->tag);
+		ui_style_text(UI_TEXT_NAME, x + 22, y + (ROW_HEIGHT - ui_style_text_size(UI_TEXT_NAME)) * 0.5f, UI_ALIGN_LEFT,
+			row->tag);
 	if (row->platform > 0)
 		ui_overlay_platform(row->platform, 11.0f, x + width - 14, y + (ROW_HEIGHT - 11.0f) * 0.5f, COLOR_LABEL, 0);
 	target_add(x, y, x + width, y + ROW_HEIGHT, _target_row, index);
@@ -616,7 +1225,7 @@ static void render_players(void)
 	if (!count)
 		return;
 	snprintf(heading, sizeof(heading), "PLAYERS (%d)", count);
-	ui_overlay_text(UI_FONT_MENU, 8.5f, CONTENT_LEFT, BODY_Y, UI_ALIGN_LEFT, COLOR_LABEL, heading);
+	ui_style_text(UI_TEXT_HEADING, CONTENT_LEFT, BODY_Y, UI_ALIGN_LEFT, heading);
 	visible = (short)((BODY_BOTTOM - y + ROW_GAP) / (ROW_HEIGHT + ROW_GAP));
 	if (chosen < guide.first_row)
 		guide.first_row = chosen;
@@ -633,16 +1242,201 @@ static void render_players(void)
 		struct social_row const *row = &guide.players.rows[chosen];
 		float x = DETAIL_LEFT, width = CONTENT_RIGHT - DETAIL_LEFT;
 
-		ui_style_surface(x, BODY_Y, width, BODY_BOTTOM - BODY_Y, 8, COLOR_DETAIL, COLOR_ROW_EDGE, FALSE);
-		ui_overlay_text(UI_FONT_MENU, 13.0f, x + 12, BODY_Y + 12, UI_ALIGN_LEFT, COLOR_NAME, row->tag);
+		ui_style_glass(x, BODY_Y, width, BODY_BOTTOM - BODY_Y, 8, ui_style_color(UI_COLOR_PANE), COLOR_ROW_EDGE);
+		ui_style_text(UI_TEXT_TITLE, x + 12, BODY_Y + 12, UI_ALIGN_LEFT, row->tag);
 		if (row->platform > 0)
 			ui_overlay_platform(row->platform, 13.0f, x + width - 18, BODY_Y + 12, COLOR_LABEL, 0);
 		if (row->status[0])
-			ui_overlay_text(UI_FONT_REGULAR, 9.5f, x + 12, BODY_Y + 32, UI_ALIGN_LEFT,
-				row->muted ? COLOR_MUTED : COLOR_STATUS, row->status);
+			ui_style_text(row->muted ? UI_TEXT_WARNING : UI_TEXT_LINE, x + 12, BODY_Y + 32, UI_ALIGN_LEFT, row->status);
 		if (row->actions & SOCIAL_ACTION_MUTE)
 			render_action(row->muted ? "UNMUTE" : "MUTE", x + 12, BODY_Y + 54, width - 24, TRUE, COLOR_VALUE, 0);
 	}
+}
+
+static float item_height(short kind)
+{
+	return kind == _item_heading ? HEADING_HEIGHT : ROW_HEIGHT + ROW_GAP;
+}
+
+/* the chosen item in view (a heading over it too, where it fits) */
+static void friends_scroll(void)
+{
+	short chosen = guide.row[SOCIAL_SECTION_FRIENDS];
+	float room = BODY_BOTTOM - BODY_Y + ROW_GAP;
+
+	if (chosen < 0 || chosen >= guide.item_count)
+		return;
+	if (guide.first_row > chosen)
+		guide.first_row = chosen;
+	if (guide.first_row == chosen && chosen > 0 && guide.items[chosen - 1].kind == _item_heading)
+		guide.first_row = (short)(chosen - 1);
+	for (;;)
+	{
+		float used = 0;
+		short index;
+
+		for (index = guide.first_row; index <= chosen; index++)
+			used += item_height(guide.items[index].kind);
+		if (used <= room || guide.first_row >= chosen)
+			break;
+		guide.first_row++;
+	}
+}
+
+/* an item's row as the list draws it */
+static void item_row(struct friend_item const *item, struct social_row *row)
+{
+	csmemset(row, 0, sizeof(*row));
+	switch (item->kind)
+	{
+	case _item_invite:
+	{
+		struct social_invite const *invite = &friends_state.invites[item->index];
+
+		social_copy_text(row->tag, sizeof(row->tag), social_name(invite->display, invite->from));
+		if (social_game_line(&invite->game, row->status, sizeof(row->status)) < 0)
+			social_copy_text(row->status, sizeof(row->status), "Invited you");
+		row->state = SOCIAL_STATE_IN_GAME;
+		break;
+	}
+	case _item_friend:
+	{
+		struct social_friend const *buddy = &friends_state.friends[item->index];
+
+		social_copy_text(row->tag, sizeof(row->tag), social_name(buddy->display, buddy->handle));
+		social_friend_status(buddy, row->status, sizeof(row->status));
+		row->state = buddy->playing ? SOCIAL_STATE_IN_GAME : buddy->online ? SOCIAL_STATE_ONLINE : SOCIAL_STATE_OFFLINE;
+		break;
+	}
+	case _item_request:
+	{
+		struct social_request const *request = &friends_state.requests[item->index];
+
+		social_copy_text(row->tag, sizeof(row->tag), social_name(request->display, request->handle));
+		social_copy_text(row->status, sizeof(row->status), "Friend request");
+		/* (no dot: not a friend yet) */
+		row->state = -1;
+		break;
+	}
+	}
+}
+
+/* the chosen item's panel: its name, status, a line about its game, then
+its options */
+static void render_friend_detail(struct friend_item const *item)
+{
+	struct social_row row;
+	float x = DETAIL_LEFT, width = CONTENT_RIGHT - DETAIL_LEFT, y;
+	char line[SOCIAL_STATUS_SIZE];
+	short options[MAXIMUM_OPTIONS], count, index;
+	boolean busy;
+
+	line[0] = 0;
+	ui_style_glass(x, BODY_Y, width, BODY_BOTTOM - BODY_Y, 8, ui_style_color(UI_COLOR_PANE), COLOR_ROW_EDGE);
+	if (item->kind == _item_offline)
+	{
+		snprintf(line, sizeof(line), "OFFLINE (%d)", item->index);
+		ui_style_text(UI_TEXT_HEADING, x + 12, BODY_Y + 14, UI_ALIGN_LEFT, line);
+		return;
+	}
+	item_row(item, &row);
+	ui_style_text(UI_TEXT_TITLE, x + 12, BODY_Y + 12, UI_ALIGN_LEFT, row.tag);
+	if (row.status[0])
+		ui_style_text(UI_TEXT_LINE, x + 12, BODY_Y + 32, UI_ALIGN_LEFT, row.status);
+	switch (item->kind)
+	{
+	case _item_invite:
+		social_copy_text(line, sizeof(line), friends_state.invites[item->index].game.name);
+		break;
+	case _item_friend:
+	{
+		struct social_friend const *buddy = &friends_state.friends[item->index];
+		time_t since = (time_t)buddy->since;
+		struct tm *date = buddy->since > 0 ? localtime(&since) : NULL;
+
+		if (buddy->playing && buddy->game.listed)
+			social_copy_text(line, sizeof(line), buddy->game.name);
+		else if (date)
+			strftime(line, sizeof(line), "Friends since %b %d", date);
+		break;
+	}
+	}
+	if (line[0])
+		ui_style_text(UI_TEXT_LABEL, x + 12, BODY_Y + 48, UI_ALIGN_LEFT, line);
+	count = item_options(item, options);
+	busy = guide.acting;
+	y = BODY_Y + 68;
+	for (index = 0; index < count; index++)
+	{
+		boolean on = guide.options && index == guide.option;
+
+		ui_style_row(x + 12, y, width - 24, OPTION_HEIGHT, on);
+		ui_overlay_text(UI_FONT_MENU, 10.0f, x + 22, y + 7, UI_ALIGN_LEFT, busy ? fade(COLOR_VALUE, 0.5f) : COLOR_VALUE,
+			option_label(options[index], guide.armed == options[index]));
+		target_add(x + 12, y, x + width - 12, y + OPTION_HEIGHT, _target_option, index);
+		y += OPTION_HEIGHT + OPTION_GAP;
+	}
+	/* (what the last action came to: a refusal's line, "Invite sent") */
+	if (busy)
+		ui_style_text(UI_TEXT_LINE, x + 12, y + 4, UI_ALIGN_LEFT, "Sending");
+	else if (guide.message[0] && system_milliseconds() - guide.message_time < MESSAGE_TIME)
+		ui_style_text(UI_TEXT_WARNING, x + 12, y + 4, UI_ALIGN_LEFT, guide.message);
+}
+
+static void render_friends(void)
+{
+	short index, chosen = guide.row[SOCIAL_SECTION_FRIENDS];
+	float y = BODY_Y, center = (CONTENT_LEFT + CONTENT_RIGHT) * 0.5f;
+	char heading[48];
+	int online = social_online_count(&friends_state);
+
+	if (!guide.friends_loaded)
+	{
+		ui_style_text(UI_TEXT_LINE, center, (BODY_Y + BODY_BOTTOM) * 0.5f - 6, UI_ALIGN_CENTER,
+			guide.friends_status == BROWSER_SOCIAL_FAILED ? "Can't reach the site" : "Loading");
+		return;
+	}
+	friends_scroll();
+	for (index = guide.first_row; index < guide.item_count; index++)
+	{
+		struct friend_item const *item = &guide.items[index];
+		float height = item_height(item->kind);
+
+		if (y + height - (item->kind == _item_heading ? 0 : ROW_GAP) > BODY_BOTTOM)
+			break;
+		if (item->kind == _item_heading)
+		{
+			if (item->index == _heading_invites)
+				snprintf(heading, sizeof(heading), "INVITES (%d)", invites_waiting());
+			else if (item->index == _heading_online)
+				snprintf(heading, sizeof(heading), "ONLINE (%d OF %d)", online, friends_state.friend_count);
+			else
+				snprintf(heading, sizeof(heading), "REQUESTS (%d)", friends_state.request_count);
+			ui_style_text(UI_TEXT_HEADING, CONTENT_LEFT, y + 2, UI_ALIGN_LEFT, heading);
+		}
+		else if (item->kind == _item_offline)
+		{
+			ui_style_row(CONTENT_LEFT, y, LIST_WIDTH, ROW_HEIGHT, index == chosen && !guide.options);
+			snprintf(heading, sizeof(heading), "OFFLINE (%d)", item->index);
+			ui_overlay_text(UI_FONT_MENU, 9.5f, CONTENT_LEFT + 12, y + (ROW_HEIGHT - 9.5f) * 0.5f, UI_ALIGN_LEFT,
+				COLOR_LABEL, heading);
+			ui_overlay_text(UI_FONT_MENU, 11.0f, CONTENT_LEFT + LIST_WIDTH - 14, y + (ROW_HEIGHT - 11.0f) * 0.5f,
+				UI_ALIGN_RIGHT, COLOR_LABEL, guide.offline_open ? "-" : "+");
+			target_add(CONTENT_LEFT, y, CONTENT_LEFT + LIST_WIDTH, y + ROW_HEIGHT, _target_row, index);
+		}
+		else
+		{
+			struct social_row row;
+
+			item_row(item, &row);
+			render_row(&row, CONTENT_LEFT, y, LIST_WIDTH, index == chosen && !guide.options, index);
+		}
+		y += height;
+	}
+	if (!guide.item_count)
+		ui_style_text(UI_TEXT_LINE, CONTENT_LEFT + LIST_WIDTH * 0.5f, y + 14, UI_ALIGN_CENTER, "No friends yet");
+	if (chosen >= 0 && chosen < guide.item_count)
+		render_friend_detail(&guide.items[chosen]);
 }
 
 static void render_settings(void)
@@ -656,7 +1450,7 @@ static void render_settings(void)
 		char value[96];
 
 		settings_row_value(row, value, sizeof(value));
-		ui_style_setting(CONTENT_LEFT, y, CONTENT_RIGHT - CONTENT_LEFT, SETTING_HEIGHT, 10.0f, settings_row_label(row),
+		ui_style_setting(CONTENT_LEFT, y, CONTENT_RIGHT - CONTENT_LEFT, SETTING_HEIGHT, 1.0f, settings_row_label(row),
 			NULL, value, setting == guide.row[SOCIAL_SECTION_SETTINGS]);
 		target_add(CONTENT_LEFT, y, CONTENT_RIGHT, y + SETTING_HEIGHT, _target_setting, setting);
 		y += SETTING_HEIGHT + ROW_GAP;
@@ -670,21 +1464,43 @@ static void render_coming(void)
 	float center = (CONTENT_LEFT + CONTENT_RIGHT) * 0.5f, width = 140;
 	float y = (BODY_Y + BODY_BOTTOM) * 0.5f - 24;
 
-	if (guide.linked || sign_in_section() == NONE)
+	if (friends_signed_in() || sign_in_section() == NONE)
 		return;
-	ui_overlay_text(UI_FONT_REGULAR, 11.0f, center, y, UI_ALIGN_CENTER, COLOR_STATUS, "Sign in to Delta to see friends");
+	ui_style_text(UI_TEXT_LINE, center, y, UI_ALIGN_CENTER, "Sign in to Delta to see friends");
 	ui_style_row(center - width * 0.5f, y + 22, width, 26, TRUE);
 	ui_overlay_text_glow(UI_FONT_MENU, 11.0f, center, y + 29, UI_ALIGN_CENTER, 0xFFFFFFFF, COLOR_PROMPT_GLOW,
 		"SIGN IN");
 	target_add(center - width * 0.5f, y + 22, center + width * 0.5f, y + 48, _target_sign_in, 0);
 }
 
+/* FRIENDS' shortcuts on the chosen item: Y joins, X invites */
+static short shortcut_option(unsigned int button)
+{
+	struct friend_item const *item = chosen_item();
+	short option = button == GUIDE_INPUT_Y ? _option_join : _option_invite;
+
+	if (guide.section != SOCIAL_SECTION_FRIENDS || !friends_signed_in() || !guide.friends_loaded || guide.options ||
+		!item || !item_has_option(item, option))
+	{
+		return NONE;
+	}
+	return option;
+}
+
+static void prompt_add(struct ui_style_prompt *prompts, short *count, int button, char const *key, char const *word)
+{
+	prompts[*count].button = button;
+	prompts[*count].key = key;
+	prompts[(*count)++].word = word;
+}
+
 static void render_prompts(void)
 {
-	struct ui_style_prompt prompts[2];
-	float starts[2], ends[2];
+	struct ui_style_prompt prompts[4];
+	float starts[4], ends[4];
 	char const *word = NULL;
 	short count = 0, index;
+	boolean back = FALSE;
 
 	switch (guide.section)
 	{
@@ -698,32 +1514,56 @@ static void render_prompts(void)
 	case SOCIAL_SECTION_SETTINGS:
 		word = "CHANGE";
 		break;
+	case SOCIAL_SECTION_FRIENDS:
+		if (friends_signed_in())
+		{
+			struct friend_item const *item = guide.friends_loaded ? chosen_item() : NULL;
+			short options[MAXIMUM_OPTIONS];
+
+			if (item && guide.options)
+				word = "SELECT";
+			else if (item && item->kind == _item_offline)
+				word = guide.offline_open ? "HIDE" : "SHOW";
+			else if (item && item_options(item, options) > 0)
+				word = "SELECT";
+			back = guide.options;
+			break;
+		}
+		if (section_rows(guide.section))
+			word = "SIGN IN";
+		break;
 	default:
 		if (section_rows(guide.section))
 			word = "SIGN IN";
 		break;
 	}
 	if (word)
-	{
-		prompts[count].button = UI_BUTTON_A;
-		prompts[count].key = "ENTER";
-		prompts[count++].word = word;
-	}
-	prompts[count].button = UI_BUTTON_B;
-	prompts[count].key = "ESC";
-	prompts[count++].word = "CLOSE";
+		prompt_add(prompts, &count, UI_BUTTON_A, "ENTER", word);
+	if (shortcut_option(GUIDE_INPUT_Y) != NONE)
+		prompt_add(prompts, &count, UI_BUTTON_Y, "TAB", "JOIN");
+	if (shortcut_option(GUIDE_INPUT_X) != NONE)
+		prompt_add(prompts, &count, UI_BUTTON_X, "M", "INVITE");
+	prompt_add(prompts, &count, UI_BUTTON_B, "ESC", back ? "BACK" : "CLOSE");
 	ui_style_prompts(CONTENT_RIGHT, PROMPTS_Y, 15.0f, prompts, count, starts, ends);
 	for (index = 0; index < count; index++)
-	{
-		target_add(starts[index] - 4, PROMPTS_Y - 4, ends[index] + 4, PROMPTS_Y + 19,
-			prompts[index].button == UI_BUTTON_B ? _target_close : _target_action, 0);
-	}
+		target_add(starts[index] - 4, PROMPTS_Y - 4, ends[index] + 4, PROMPTS_Y + 19, _target_prompt, (short)prompts[index].button);
+}
+
+/* the toast on screen now: in the menus, in a game only with
+guide.notify_in_game, a friend online's in the menus alone */
+static boolean toast_visible(void)
+{
+	if (!guide.toast_shown || system_milliseconds() - guide.toast_time >= TOAST_TIME)
+		return FALSE;
+	if (in_game() && (!config_boolean("guide.notify_in_game") || guide.toast_kind == _toast_friend))
+		return FALSE;
+	return TRUE;
 }
 
 static void render_toast(void)
 {
 	unsigned long age = system_milliseconds() - guide.toast_time;
-	float share;
+	float share, text_right = TOAST_X + TOAST_WIDTH - 10;
 
 	if (!guide.toast_shown)
 		return;
@@ -732,20 +1572,38 @@ static void render_toast(void)
 		guide.toast_shown = FALSE;
 		return;
 	}
-	/* (quiet in a game unless asked for; never over the loading screen) */
-	if (in_game() && !config_boolean("guide.notify_in_game"))
+	/* (never over the loading screen) */
+	if (!toast_visible())
 		return;
 	share = age < TOAST_FADE ? (float)age / TOAST_FADE :
 		age > TOAST_TIME - TOAST_FADE ? (float)(TOAST_TIME - age) / TOAST_FADE : 1.0f;
 	ui_overlay_layer(4);
 	ui_style_clock((unsigned int)system_milliseconds());
-	ui_style_surface(TOAST_X, TOAST_Y, TOAST_WIDTH, TOAST_HEIGHT, 8, fade(COLOR_PANEL, share),
-		fade(COLOR_PANEL_EDGE, share), FALSE);
-	ui_overlay_rect(TOAST_X + 8, TOAST_Y + 7, 20, 20, 4, fade(guide.color ? guide.color : 0x2F6DD0FF, share));
-	ui_overlay_text(UI_FONT_MENU, 10.0f, TOAST_X + 36, TOAST_Y + 5, UI_ALIGN_LEFT, fade(COLOR_NAME, share),
-		guide.toast_title);
-	ui_overlay_text(UI_FONT_REGULAR, 8.0f, TOAST_X + 36, TOAST_Y + 19, UI_ALIGN_LEFT, fade(COLOR_STATUS, share),
-		guide.toast_line);
+	ui_style_glass(TOAST_X, TOAST_Y, TOAST_WIDTH, TOAST_HEIGHT, 8, fade(ui_style_color(UI_COLOR_GLASS_TOP), share),
+		fade(COLOR_PANEL_EDGE, share));
+	/* (a friend's: their initial on gold; else the player's own color) */
+	if (guide.toast_kind != _toast_none)
+	{
+		ui_overlay_rect(TOAST_X + 8, TOAST_Y + 7, 20, 20, 4, fade(ui_style_color(UI_COLOR_EMBLEM_FRIEND), share));
+		if (guide.toast_initial[0])
+		{
+			ui_overlay_text(UI_FONT_BOLD, 11.0f, TOAST_X + 18, TOAST_Y + 11, UI_ALIGN_CENTER, fade(ui_style_color(UI_COLOR_EMBLEM_LETTER), share),
+				guide.toast_initial);
+		}
+		/* (the key that opens it) */
+		if (ui_overlay_keyboard())
+		{
+			char const *key = config_string("controls.guide");
+
+			key = key[0] ? key : "F3";
+			text_right -= ui_overlay_key_width(key, 12.0f) + 6;
+			ui_overlay_key(key, 12.0f, text_right + 6, TOAST_Y + 11, fade(ui_style_color(UI_COLOR_NAME), share));
+		}
+	}
+	else
+		ui_overlay_rect(TOAST_X + 8, TOAST_Y + 7, 20, 20, 4, fade(guide.color ? guide.color : 0x2F6DD0FF, share));
+	ui_style_text_faded(UI_TEXT_NAME, share, TOAST_X + 36, TOAST_Y + 5, UI_ALIGN_LEFT, guide.toast_title);
+	ui_style_text_faded(UI_TEXT_STATUS, share, TOAST_X + 36, TOAST_Y + 20, UI_ALIGN_LEFT, guide.toast_line);
 	ui_overlay_layer(0);
 }
 
@@ -776,6 +1634,11 @@ void guide_open(void)
 	card_update();
 	players_update();
 	browser_profile_load(FALSE);
+	/* (its friends asked for soon) */
+	guide.options = FALSE;
+	guide.armed = NONE;
+	guide.where_time = 0;
+	friends_update();
 	guide.paused_game = pauses_game();
 	if (guide.paused_game)
 		ui_widgets_port_pause_game(TRUE);
@@ -799,12 +1662,34 @@ void guide_toast(char const *title, char const *line)
 {
 	social_copy_text(guide.toast_title, sizeof(guide.toast_title), title);
 	social_copy_text(guide.toast_line, sizeof(guide.toast_line), line);
+	guide.toast_kind = _toast_none;
 	guide.toast_time = system_milliseconds();
 	guide.toast_shown = TRUE;
 }
 
+wchar_t const *guide_pause_label(long string_list_tag)
+{
+	static wchar_t label[16];
+	char text[16];
+	long tag = pc_menu_pause_guide_label();
+	short waiting, index;
+
+	if (tag == NONE || string_list_tag != tag || (waiting = friends_waiting()) <= 0)
+		return NULL;
+	snprintf(text, sizeof(text), "GUIDE %d", MIN(waiting, 99));
+	for (index = 0; text[index] && index < (short)NUMBEROF(label) - 1; index++)
+		label[index] = (wchar_t)text[index];
+	label[index] = 0;
+	return label;
+}
+
 void guide_update(boolean menu_open)
 {
+	friends_update();
+	/* (a toast waits out the intro's video and a map's loading: its time
+	starts once it can show) */
+	if (guide.toast_shown && (bink_playback_active() || (!main_menu_is_active() && !game_map_loaded())))
+		guide.toast_time = system_milliseconds();
 	/* (debug.guide_open and debug.guide_toast: for screenshots and tests,
 	once a run) */
 	if (!guide.debug_open_done && config_boolean("debug.guide_open") && (main_menu_is_active() || game_map_loaded()))
@@ -825,7 +1710,14 @@ void guide_update(boolean menu_open)
 		if (guide.open)
 			guide_close();
 		else if (!virtual_keyboard_active())
+		{
+			/* (a toast up: its item) */
+			boolean toast = toast_visible() && guide.toast_kind != _toast_none;
+
 			guide_open();
+			if (toast && guide.open)
+				toast_go();
+		}
 	}
 	if (guide.open)
 	{
@@ -840,16 +1732,21 @@ void guide_update(boolean menu_open)
 	}
 }
 
-void guide_process(void)
+/* what was pressed (or clicked on the prompt bar) */
+static void handle(unsigned int pressed)
 {
-	unsigned int pressed;
+	short option;
 
-	if (!guide.open)
-		return;
-	pressed = presses();
 	if (pressed & GUIDE_INPUT_B)
 	{
-		guide_close();
+		/* (in FRIENDS' options panel: back to the list) */
+		if (guide.options)
+		{
+			guide.options = FALSE;
+			guide.armed = NONE;
+		}
+		else
+			guide_close();
 		return;
 	}
 	if (pressed & GUIDE_INPUT_LEFT_BUMPER)
@@ -866,6 +1763,17 @@ void guide_process(void)
 		activate();
 	else if ((pressed & GUIDE_INPUT_X) && guide.section == SOCIAL_SECTION_PLAYERS_HERE)
 		player_mute_toggle(guide.row[guide.section]);
+	else if ((pressed & GUIDE_INPUT_Y) && (option = shortcut_option(GUIDE_INPUT_Y)) != NONE)
+		option_run(option);
+	else if ((pressed & GUIDE_INPUT_X) && (option = shortcut_option(GUIDE_INPUT_X)) != NONE)
+		option_run(option);
+}
+
+void guide_process(void)
+{
+	if (!guide.open)
+		return;
+	handle(presses());
 }
 
 void guide_pointer(struct halo_ui_pointer const *pointer)
@@ -876,7 +1784,7 @@ void guide_pointer(struct halo_ui_pointer const *pointer)
 		return;
 	if (pointer->right_clicks)
 	{
-		guide_close();
+		handle(GUIDE_INPUT_B);
 		return;
 	}
 	if (!pointer->left_clicks)
@@ -897,6 +1805,19 @@ void guide_pointer(struct halo_ui_pointer const *pointer)
 			break;
 		case _target_row:
 			/* (a tap chooses the row; on the one chosen, it is its A) */
+			if (guide.section == SOCIAL_SECTION_FRIENDS)
+			{
+				boolean again = guide.row[guide.section] == target->index && !guide.options;
+
+				guide.options = FALSE;
+				guide.armed = NONE;
+				guide.row[guide.section] = target->index;
+				chosen_remember();
+				/* (a click on the chosen row, or on the offline friends' row) */
+				if (again || guide.items[target->index].kind == _item_offline)
+					activate();
+				break;
+			}
 			if (guide.row[guide.section] == target->index && pointer->touch)
 				activate();
 			guide.row[guide.section] = target->index;
@@ -905,9 +1826,20 @@ void guide_pointer(struct halo_ui_pointer const *pointer)
 			guide.row[guide.section] = target->index;
 			setting_change(target->index, 1);
 			break;
+		case _target_option:
+			guide.options = TRUE;
+			if (guide.option != target->index)
+				guide.armed = NONE;
+			guide.option = target->index;
+			activate();
+			break;
 		case _target_action:
 		case _target_sign_in:
 			activate();
+			break;
+		case _target_prompt:
+			handle(target->index == UI_BUTTON_A ? GUIDE_INPUT_A : target->index == UI_BUTTON_X ? GUIDE_INPUT_X :
+				target->index == UI_BUTTON_Y ? GUIDE_INPUT_Y : GUIDE_INPUT_B);
 			break;
 		case _target_close:
 			guide_close();
@@ -935,7 +1867,7 @@ void guide_render(void)
 	plasma_look();
 	guide.target_count = 0;
 	ui_overlay_layer(4);
-	ui_overlay_rect(-200, 0, 1040, 480, 0, COLOR_SHADE);
+	ui_overlay_rect(-200, 0, 1040, 480, 0, ui_style_color(UI_COLOR_SHADE));
 	ui_style_clock((unsigned int)system_milliseconds());
 	ui_style_panel(PANEL_X, PANEL_Y, PANEL_WIDTH, PANEL_HEIGHT, 1.0f);
 	render_card();
@@ -947,6 +1879,12 @@ void guide_render(void)
 		break;
 	case SOCIAL_SECTION_SETTINGS:
 		render_settings();
+		break;
+	case SOCIAL_SECTION_FRIENDS:
+		if (friends_signed_in())
+			render_friends();
+		else
+			render_coming();
 		break;
 	default:
 		render_coming();

@@ -147,95 +147,112 @@ int ui_overlay_available(void);
 
 /* ---------- the Guide's look (ui_overlay_style.c), shared by the screens
 drawn in it: the Guide (port/linux/game/guide.c) and the setup launcher
-(launcher.c). The Chupathingy menus' blues: translucent glass panels and
-rows, and the Xbox menus' plasma with a glow on the selection alone. In the
-menus' 640x480, as everything here */
+(launcher.c). The Chupathingy menus' blues over the Xbox menus' plasma:
+translucent panels and rows, a glow on the selected row and the edges. In
+the menus' 640x480, as everything here */
 
-/* the look's colors by name (0xRRGGBBAA, ui_style_color): one palette, so
-that a theme can change them all in one place */
+/* the palette's named colors, for what a screen draws itself (the theme
+swaps this one palette): ui_style_color's names (the setup screen's
+names where they share one) */
 enum
 {
-	UI_COLOR_PANEL,
-	UI_COLOR_PANEL_EDGE,
-	UI_COLOR_GLOW,
-	UI_COLOR_RULE,
-	UI_COLOR_TITLE,
-	UI_COLOR_TITLE_GLOW,
 	UI_COLOR_NAME,
 	UI_COLOR_STATUS,
-	UI_COLOR_TAB,
-	UI_COLOR_TAB_ON,
-	UI_COLOR_SELECTED_EDGE,
-	UI_COLOR_SELECTED_GLOW,
-	UI_COLOR_ROW,
-	UI_COLOR_ROW_EDGE,
-	UI_COLOR_ROW_ON,
-	UI_COLOR_PROMPT,
-	UI_COLOR_PROMPT_GLOW,
-	/* a screen's text: its sections, headings, row labels (lit: their glow;
-	dim: a row not ready), plain text, values, and states (good, a warning,
-	bad) */
-	UI_COLOR_NAV,
-	UI_COLOR_NAV_GLOW,
+	UI_COLOR_LABEL,
 	UI_COLOR_HEAD,
 	UI_COLOR_HEAD_GLOW,
-	UI_COLOR_LABEL,
+	UI_COLOR_TEXT,
+	UI_COLOR_WARNING,
+	/* the shade over the screen under the Guide */
+	UI_COLOR_SHADE,
+	/* glass: a panel's, from its top to its bottom, and a pane's (a detail
+	box, a toast) */
+	UI_COLOR_GLASS_TOP,
+	UI_COLOR_GLASS_BOTTOM,
+	UI_COLOR_PANE,
+	/* a friend's emblem on a toast, and its letter */
+	UI_COLOR_EMBLEM_FRIEND,
+	UI_COLOR_EMBLEM_LETTER,
+	/* the setup screen's (launcher.c): its title, its sections (lit: their
+	glow), a row's label not ready, a lit label's glow, a lit section's glow,
+	quieter and fainter text, its states (good, bad), a row's tag, the
+	prompts, the full-screen rule and its glow, a separator, a field (a path,
+	a progress bar's track) and its edge, a progress bar's fill from its top
+	to its bottom, the backdrop's space from its top to its middle and
+	bottom, its stars (their alpha their own), and what is cleared behind */
+	UI_COLOR_TITLE,
+	UI_COLOR_TITLE_GLOW,
+	UI_COLOR_NAV,
+	UI_COLOR_NAV_GLOW,
 	UI_COLOR_LABEL_DIM,
 	UI_COLOR_LABEL_GLOW,
-	UI_COLOR_TEXT,
+	UI_COLOR_SELECTED_GLOW,
 	UI_COLOR_TEXT_DIM,
 	UI_COLOR_FAINT,
 	UI_COLOR_GOOD,
-	UI_COLOR_WARNING,
 	UI_COLOR_BAD,
 	UI_COLOR_TAG,
-	/* the full-screen rules (the bright line and its glow), a separator */
+	UI_COLOR_PROMPT,
+	UI_COLOR_PROMPT_GLOW,
 	UI_COLOR_LINE,
 	UI_COLOR_LINE_GLOW,
 	UI_COLOR_SEPARATOR,
-	/* a dark field (a path, a progress bar's track), its edge, and a
-	progress bar's fill from its top to its bottom */
 	UI_COLOR_FIELD,
 	UI_COLOR_FIELD_EDGE,
 	UI_COLOR_PROGRESS_TOP,
 	UI_COLOR_PROGRESS_BOTTOM,
-	/* the shade under a dialog */
-	UI_COLOR_SHADE,
-	/* a full screen's backdrop (the launcher's): space from its top to its
-	middle and bottom, its stars (their alpha their own), and what is
-	cleared behind it all */
 	UI_COLOR_BACKDROP_TOP,
 	UI_COLOR_BACKDROP_MIDDLE,
 	UI_COLOR_BACKDROP_BOTTOM,
 	UI_COLOR_STAR,
 	UI_COLOR_CLEAR,
-
 	NUMBER_OF_UI_COLORS
 };
-
 unsigned int ui_style_color(int name);
+
+/* the look's text, each kind in the menus' fonts (ui_style_text): a list's
+headings ("ONLINE (2 OF 3)"), a row's name and its status line, a pane's
+name, its lines, a quieter line, and a warning */
+enum
+{
+	UI_TEXT_HEADING,
+	UI_TEXT_NAME,
+	UI_TEXT_STATUS,
+	UI_TEXT_TITLE,
+	UI_TEXT_LINE,
+	UI_TEXT_LABEL,
+	UI_TEXT_WARNING,
+};
+/* text of a kind (UTF-8), y its top; its width. Its height:
+ui_style_text_size */
+float ui_style_text(int kind, float x, float y, int align, const char *text);
+/* the same faded by share (0 to 1: a toast coming and going) */
+float ui_style_text_faded(int kind, float share, float x, float y, int align, const char *text);
+float ui_style_text_size(int kind);
+/* the same at scale times its size (a larger screen's rows: the setup
+screen's) */
+float ui_style_text_scaled(int kind, float scale, float x, float y, int align, const char *text);
 
 /* the clock the plasma scrolls by, in milliseconds: set once a frame
 before drawing (the game's system_milliseconds, the launcher's ticks) */
 void ui_style_clock(unsigned int milliseconds);
-/* a surface of a color and its edge (alpha 0: none): calm translucent
-glass, or, lit (the selection: a focused row, the open tab, a focused
-button), the Xbox menus' plasma in it and a glow around it */
+/* a plasma surface of a color, its edge (alpha 0: none) and, lit, a glow
+around it */
 void ui_style_surface(float x, float y, float width, float height, float radius, unsigned int color,
 	unsigned int edge, int lit);
-/* the large translucent panel a screen sits on (glass, a faint glow along
-its edge), faded by share (0 to 1) */
+/* the large glass panel a screen sits on (no plasma: the selection has it),
+faded by share (0 to 1) */
 void ui_style_panel(float x, float y, float width, float height, float share);
-/* a heading or title in the menus' title font (the face of their big blue
-titles), with its glow; its width */
-float ui_style_heading(float x, float y, float size, int align, const char *text);
-/* a row's capsule, the selected one lit */
+/* calm glass (a pane: a detail box, a toast), its edge (alpha 0: none) */
+void ui_style_glass(float x, float y, float width, float height, float radius, unsigned int color,
+	unsigned int edge);
+/* a row's capsule: glass, the selected one lit with the plasma */
 void ui_style_row(float x, float y, float width, float height, int selected);
 /* a setting's row (settings_rows.h's, the Guide's and the setup screen's):
-its capsule (ui_style_row), its label (size high) and a tag after it (badge,
-as "NEEDS A RESTART"; NULL: none), and its value at the right between the
-arrows that change it */
-void ui_style_setting(float x, float y, float width, float height, float size, const char *label, const char *badge,
+its capsule (ui_style_row), its label in ui_style_text's UI_TEXT_NAME at
+scale times its size, a tag after it (badge, as "NEEDS A RESTART"; NULL:
+none), and its value at the right between the arrows that change it */
+void ui_style_setting(float x, float y, float width, float height, float scale, const char *label, const char *badge,
 	const char *value, int selected);
 /* section tabs between left and right, height tall: the bumpers' glyphs at
 the ends (the keyboard's: left_key and right_key, as "Q" and "E", or the

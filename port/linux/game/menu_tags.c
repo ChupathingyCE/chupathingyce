@@ -1509,10 +1509,20 @@ static void instance_set(struct cache_file_tag_instance *instances, long group_t
 	instance->base_address = XBOX_ADDRESS(definition);
 }
 
+/* the pause menus' GUIDE's text (its string list's tag), for the count
+of what waits in the Guide (guide_pause_label); NONE in a map without it */
+static long pause_guide_label = NONE;
+
+long pc_menu_pause_guide_label(void)
+{
+	return pause_guide_label;
+}
+
 static void menu_tags_release(void)
 {
 	long index;
 
+	pause_guide_label = NONE;
 	for (index = 0; index < menu_tags.bitmap_count; index++)
 	{
 		if (menu_tags.bitmaps[index]->hardware_format)
@@ -1865,6 +1875,8 @@ static boolean pause_list_patch(struct cache_file_tag_instance *instances, struc
 		tags[added] = next_tag();
 		buttons[added++] = pause_button(instances, model, "pause/guide_button", "GUIDE",
 			function_index("port pause guide", "pause", 0), NONE, FALSE);
+		if (buttons[added - 1])
+			pause_guide_label = ((struct ui_widget_definition *)buttons[added - 1])->text_label_string_list.index;
 	}
 	if (moderation)
 	{
@@ -2337,6 +2349,7 @@ void menu_tags_loaded(
 
 	boolean game_map = strcmp(map_name, "ui") != 0;
 
+	pause_guide_label = NONE;
 #ifdef HALO_GAME_BROWSER
 	/* (the save folder's game type files, in every menus' gametype lists:
 	gametype_files.c) */

@@ -4,9 +4,9 @@ SOCIAL.H
 The Guide's data (port/linux/game/guide.c draws it): the rows its sections
 list (a player's tag, one status line, their platform and what can be done
 with them), kept in a cache the Guide reads each frame, the schedule of the
-site's social polling (FRIENDS, PARTY and RECENT, coming with the site's
-friends), and when this copy tells the site it is playing (presence: POST
-/v1/presence, browser.c's thread sends it).
+site's friends polling and what its answer holds (browser.c's thread asks,
+delta_profile.c reads it), and when this copy tells the site it is playing
+(presence: POST /v1/presence, browser.c's thread sends it).
 
 No SDL, no drawing and no game here, so its tests build anywhere
 (port/linux/tests/social_test.c, tools/test_social.py). Times are a
@@ -109,25 +109,166 @@ void social_copy_text(char *destination, int size, const char *text);
 does not fit */
 int social_own_status(const struct discord_activity_game *game, char *text, int size);
 
-/* ---------- polling the site (FRIENDS, PARTY, RECENT): the schedule only,
-the requests come with the site's friends (study phase 1.1) */
+/* ---------- polling the site's friends (POST /v1/social/state {key,
+since}: browser.c's thread asks, on this schedule) */
 
 enum
 {
-	/* how often, in the menus and in a game */
+	/* how often: in the menus or with the Guide open, and in a game */
 	SOCIAL_POLL_MENUS = 20000,
 	SOCIAL_POLL_GAME = 60000,
+	/* after an action or the Guide opening, sooner, but never sooner than
+	this after the last (the site takes 6 a minute from a key) */
+	SOCIAL_POLL_SOONEST = 10000,
+	/* too many (429), and a copy the site says is linked to no profile */
+	SOCIAL_POLL_BUSY_WAIT = 5 * 60000,
+	SOCIAL_POLL_UNLINKED_WAIT = 10 * 60000,
+	/* no answer, or an answer not understood: the wait doubles from the
+	interval up to this */
+	SOCIAL_POLL_FAILED_WAIT = 5 * 60000,
 };
 
 struct social_poll
 {
 	int started;
 	unsigned long last;
+	/* the wait the site's last answer asked for (0: the interval) */
+	unsigned long wait;
+	int failures;
+	/* asked for sooner (social_poll_soon) */
+	int soon;
 };
 
 /* whether it is time to poll: signed in to Delta, and the interval of
-where the player is since the last poll (the first at once) */
+where the player is since the last poll (the first at once), or the
+longer wait the last answer asked for */
 int social_poll_due(struct social_poll *poll, unsigned long now, int in_game, int signed_in);
+/* the poll's answer: its HTTP status (0: none) and whether it was read */
+void social_poll_answer(struct social_poll *poll, int status, int understood);
+/* polled again soon (an action, the Guide opening), unless the site asked
+for a wait */
+void social_poll_soon(struct social_poll *poll);
+
+/* ---------- the site's friends: what the state answer holds (the parts
+the Guide shows). Only Delta profiles, by handle: nothing of an OpenCE
+player, no address, no player ID */
+
+enum
+{
+	/* a handle: 3 to 20 of a-z, 0-9, _ and - */
+	SOCIAL_HANDLE_SIZE = 24,
+	SOCIAL_GAME_TEXT_SIZE = 64,
+	SOCIAL_CURSOR_SIZE = 40,
+	SOCIAL_INVITE_ID_SIZE = 40,
+	/* the site keeps 200 friends at most, 50 requests waiting */
+	SOCIAL_MAXIMUM_FRIENDS = 200,
+	SOCIAL_MAXIMUM_REQUESTS = 50,
+	SOCIAL_MAXIMUM_INVITES = 20,
+};
+
+/* a friend's game, as the game list has it (none when not listed) */
+struct social_game
+{
+	int listed;
+	/* the game's name and map, as listed ("bloodgulch") */
+	char name[SOCIAL_GAME_TEXT_SIZE];
+	char map[SOCIAL_GAME_TEXT_SIZE];
+	/* the game type (1 CTF, 2 Slayer, 3 Oddball, 4 King, 5 Race, 6 Bomb),
+	a campaign level played together, teams */
+	int engine;
+	int coop;
+	int teams;
+	int players;
+	int maximum_players;
+};
+
+struct social_friend
+{
+	char handle[SOCIAL_HANDLE_SIZE];
+	char display[SOCIAL_TAG_SIZE];
+	/* friends since (Unix time) */
+	long long since;
+	int online;
+	int playing;
+	/* the site would let this player join now */
+	int joinable;
+	struct social_game game;
+};
+
+/* a friend request to this player */
+struct social_request
+{
+	char handle[SOCIAL_HANDLE_SIZE];
+	char display[SOCIAL_TAG_SIZE];
+	long long time;
+};
+
+/* a friend's invite to their game */
+struct social_invite
+{
+	char id[SOCIAL_INVITE_ID_SIZE];
+	char from[SOCIAL_HANDLE_SIZE];
+	char display[SOCIAL_TAG_SIZE];
+	long long time;
+	long long expires;
+	struct social_game game;
+};
+
+struct social_state
+{
+	char cursor[SOCIAL_CURSOR_SIZE];
+	/* this player: their handle and name, and whether they appear offline */
+	char handle[SOCIAL_HANDLE_SIZE];
+	char display[SOCIAL_TAG_SIZE];
+	int appear_offline;
+	/* online first, then in a game, then by handle (the site's order) */
+	int friend_count;
+	struct social_friend friends[SOCIAL_MAXIMUM_FRIENDS];
+	int request_count;
+	struct social_request requests[SOCIAL_MAXIMUM_REQUESTS];
+	int invite_count;
+	struct social_invite invites[SOCIAL_MAXIMUM_INVITES];
+};
+
+/* the name a profile shows: its display name, else its handle */
+const char *social_name(const char *display, const char *handle);
+/* whether text is a handle the site could have given (sent back in a
+request as it is) */
+int social_handle_valid(const char *handle);
+/* a game's line ("Slayer · Blood Gulch · 11/16"): its
+length, -1 for none (not listed, or it does not fit) */
+int social_game_line(const struct social_game *game, char *text, int size);
+/* a friend's status line: their game's line, "In a game" (one not
+listed), "Online" or "Offline" */
+void social_friend_status(const struct social_friend *buddy, char *text, int size);
+/* how many friends are online */
+int social_online_count(const struct social_state *state);
+
+/* what changed between two states, for the toasts: the first invite and
+the first request that are new (-1: none), and the first friend who came
+online (-1: none), as indexes in fresh */
+struct social_news
+{
+	int invite;
+	int request;
+	int online;
+};
+void social_news(const struct social_state *old, const struct social_state *fresh, struct social_news *news);
+
+/* the requests' members besides the key (browser.c's game_request): -1
+when they do not fit, or for a handle the site could not have given */
+int social_state_fields(char *fields, int size, const char *cursor, int limit);
+/* action: "accept", "decline", "remove" or "block" (/v1/game/friends) */
+int social_action_fields(char *fields, int size, const char *action, const char *handle);
+int social_join_fields(char *fields, int size, const char *handle);
+/* invite: the game's invite (social_presence_invite_valid), or "" for the
+one presence told the site */
+int social_invite_fields(char *fields, int size, const char *handle, const char *invite);
+
+/* the line shown when the site says no: a join's (its "reason"), an
+invite's (its "reason", else by status) */
+const char *social_join_refusal(const char *reason);
+const char *social_invite_refusal(const char *reason, int status);
 
 /* ---------- presence: this copy tells the site it is playing
 (network.share_presence), about once a minute while it is in a Delta game
