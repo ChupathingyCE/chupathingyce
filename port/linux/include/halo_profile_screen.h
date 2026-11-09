@@ -58,7 +58,7 @@ PRIVACY (a settings page of theirs) */
 #define PROFILE_SCREEN_SECTION_CLAN 3
 #define PROFILE_SCREEN_SECTION_PRIVACY 4
 
-/* the sections: their count, names (LINK PROFILE or UNLINK THIS COPY),
+/* the sections: their count, names (LINK PROFILE or UNLINK THIS DEVICE),
 whether one can be gone to now, their lines, and the action of their A
 (a dialog: TRUE when there was one) */
 short profile_screen_section_count(void);

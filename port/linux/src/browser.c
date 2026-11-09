@@ -45,11 +45,19 @@ with it under the lock.
 #include "browser_ping.h"
 #include "qrcodegen.h"
 #include "delta_profile.h"
+#ifndef HALO_CONSOLE_NO_GUIDE
+#include "social.h"
+#endif
+#ifdef HALO_DELTA_IDENTITY
+#include "identity.h"
+#include "identity_key.h"
+#endif
 
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include <SDL3/SDL_stdinc.h>
 
@@ -228,6 +236,31 @@ static struct
 	char connect_message[96];
 	int connect_qr_size;
 	unsigned char connect_qr[BROWSER_CONNECT_QR_SIZE * BROWSER_CONNECT_QR_SIZE];
+
+#ifndef HALO_CONSOLE_NO_GUIDE
+	/* presence (social.h): whether the game says this copy is playing a
+	Delta game, when it last said so, and the schedule (the browser
+	thread's, under the lock) */
+	int presence_playing;
+	unsigned long presence_said;
+	struct social_presence presence;
+	int presence_logged;
+
+	/* the Guide's friends (browser_social_*): where the game says the
+	player is, and when it last said so; the schedule; the state (made the
+	first time the game says) and its serial; the action asked for and
+	what it came to; a join the site allowed */
+	int social_in_game;
+	int social_guide_open;
+	unsigned long social_said;
+	struct social_poll social_poll;
+	struct social_state *social_state;
+	int social_status;
+	int social_serial;
+	int social_action_wanted;
+	struct browser_social_result social_result;
+	char social_join[BROWSER_INVITE_LENGTH + 16];
+#endif
 
 	/* the profile this copy's games count for (browser_profile_linked): its
 	handle while known, from Link Profile on this copy (kept in the save
@@ -504,14 +537,554 @@ static int safe_for_key(const char *url)
 	return http_url_safe_for_secret(url);
 }
 
+/* ---------- Delta's device identity (identity.c; docs/delta.md, "Device
+identity")
+
+Beside the player key, each copy has a device key of its own
+(delta_device.key in the save root, 32 bytes made and read as the player
+key is: its owner's alone, never a link), whose private half never leaves
+this machine. The first time a build with it reaches the site with a player
+key, it proves the key once more and enrolls the device; the site answers a
+certificate for the device key (delta_device.cert beside it, public, with
+the copy ID it was enrolled with), which this thread refreshes when the
+site says, with the device key alone. Every signature names the site
+(its host, the audience), so it is no use at another.
+
+With a certificate, the requests that took the player key send an hour's
+token instead (site_request). A token the site lost (a restart) is asked
+for again and the request sent again with it; the key goes only to a site
+that doesn't speak identity. A request the site answered otherwise is never
+sent again. Another player key (a restored one, or one found at start that
+isn't the copy's the certificate names) drops the certificate and the token
+and makes a new device key, which enrolls with it. The player key file
+stays: older sites and servers know only it. Keys, certificates and tokens
+are never logged; debug.txt says only how enrollment went.
+
+The browser thread's alone (no lock), but for identity_key_changed, which
+the game's thread sets under browser_lock when it puts in another key. */
+
+#ifdef HALO_DELTA_IDENTITY
+enum
+{
+	/* (a certificate answer: two certificates in hex, and the account) */
+	IDENTITY_RESPONSE = 2048,
+};
+
+static struct identity_state identity;
+static int identity_read;
+/* the copy ID the certificate is for (the player key's when it enrolled) */
+static unsigned char identity_copy[IDENTITY_ID_SIZE];
+/* (under browser_lock) another player key was put in */
+static int identity_key_changed;
+/* the last thing debug.txt was told (an identity answer), said once */
+static int identity_said = -1;
+
+static unsigned long identity_clock(void)
+{
+	time_t now = time(NULL);
+
+	return now > 0 ? (unsigned long)now : 0;
+}
+
+static void identity_path(const char *name, char *path, int size)
+{
+	snprintf(path, (size_t)size, "%s/%s", platform_save_root(), name);
+}
+
+/* the site's host, which every device signature names */
+static int identity_site(char *audience, int size)
+{
+	return identity_audience(config_string("network.browser_url"), audience, size) > 0;
+}
+
+/* the device key: read, or made the first time; its public key and ID */
+static int device_key(unsigned char *seed, unsigned char *public_key, unsigned char *device_id)
+{
+	char path[1024];
+
+	identity_path("delta_device.key", path, sizeof(path));
+	if (!posix_browser_device_key(path, seed, IDENTITY_SEED_SIZE))
+		return 0;
+	identity_public(seed, public_key);
+	identity_device_id(public_key, device_id);
+	return 1;
+}
+
+static int file_exists(const char *path)
+{
+	FILE *file = fopen(path, "rb");
+
+	if (!file)
+		return 0;
+	fclose(file);
+	return 1;
+}
+
+/* the copy ID of the player key (the player ID of today), when it has one
+(none is made here) */
+static int current_copy(unsigned char *copy)
+{
+	unsigned char key[PLAYER_KEY_SIZE], data[28 + PLAYER_KEY_SIZE], digest[P2P_SHA256_SIZE];
+	char path[1024];
+
+	player_key_path(path, sizeof(path));
+	if (!file_exists(path) || !player_key(key))
+		return 0;
+	memcpy(data, "halo-ce-universal player id\n", 28);
+	memcpy(data + 28, key, PLAYER_KEY_SIZE);
+	p2p_sha256(data, (int)sizeof(data), digest);
+	memcpy(copy, digest, IDENTITY_ID_SIZE);
+	identity_wipe(key, sizeof(key));
+	identity_wipe(data, sizeof(data));
+	return 1;
+}
+
+/* everything dropped for another copy: the certificate, the token and the
+device key (a new one is made, and enrolls) */
+static void identity_new_device(void)
+{
+	char path[1024];
+	int new_key_made = identity.new_key_made;
+
+	identity_wipe(&identity, sizeof(identity));
+	identity.new_key_made = new_key_made;
+	identity_wipe(identity_copy, sizeof(identity_copy));
+	identity_path("delta_device.cert", path, sizeof(path));
+	remove(path);
+	identity_path("delta_device.key", path, sizeof(path));
+	remove(path);
+	identity_read = 1;
+}
+
+/* a certificate the site answered (or the file kept), taken when it checks;
+a saved one past its time is kept to refresh, never to enroll again */
+static int take_certificate(const unsigned char *certificate, int certificate_size, const unsigned char *issuer,
+	int issuer_size, unsigned long refresh_after, int saved)
+{
+	unsigned char seed[IDENTITY_SEED_SIZE], public_key[IDENTITY_KEY_SIZE], id[IDENTITY_ID_SIZE];
+	struct identity_device device;
+	unsigned long now = identity_clock();
+	int reason;
+
+	if (!device_key(seed, public_key, id))
+		return 0;
+	identity_wipe(seed, sizeof(seed));
+	reason = identity_accept(certificate, certificate_size, issuer, issuer_size, identity_root_keys,
+		IDENTITY_ROOT_KEY_COUNT, public_key, now, &device);
+	if (reason == IDENTITY_OK)
+	{
+		identity_have_certificate(&identity, &device, refresh_after, now);
+		return 1;
+	}
+	/* (a saved one past its time: checked all the same, the issuer's
+	signature, the chain with the root keys and this device's key, as of
+	when it was issued; one that doesn't check is as none, and enrolls) */
+	if (saved && (reason == IDENTITY_EXPIRED || reason == IDENTITY_NOT_YET) &&
+		identity_parse_device(certificate, certificate_size, &device) &&
+		identity_accept(certificate, certificate_size, issuer, issuer_size, identity_root_keys,
+			IDENTITY_ROOT_KEY_COUNT, public_key, device.issued, &device) == IDENTITY_OK)
+	{
+		identity_have_certificate(&identity, &device, 0, now);
+		identity.refresh_at = 0;
+		return 1;
+	}
+	return 0;
+}
+
+/* delta_device.cert: the certificate's hex, the issuer's, then the copy
+ID's, a line each */
+static void read_certificate_file(void)
+{
+	char path[1024], line[2 * IDENTITY_DEVICE_MOST + 4], issuer_line[2 * IDENTITY_ISSUER_SIZE + 4];
+	char copy_line[2 * IDENTITY_ID_SIZE + 4];
+	unsigned char certificate[IDENTITY_DEVICE_MOST], issuer[IDENTITY_ISSUER_SIZE];
+	unsigned char saved_copy[IDENTITY_ID_SIZE], copy[IDENTITY_ID_SIZE];
+	FILE *file;
+	int length, ok;
+
+	if (identity_read)
+		return;
+	identity_read = 1;
+	identity_path("delta_device.cert", path, sizeof(path));
+	file = fopen(path, "r");
+	if (!file)
+		return;
+	line[0] = issuer_line[0] = copy_line[0] = 0;
+	if (!fgets(line, sizeof(line), file) || !fgets(issuer_line, sizeof(issuer_line), file) ||
+		!fgets(copy_line, sizeof(copy_line), file))
+	{
+		line[0] = 0;
+	}
+	fclose(file);
+	line[strcspn(line, "\r\n")] = 0;
+	issuer_line[strcspn(issuer_line, "\r\n")] = 0;
+	copy_line[strcspn(copy_line, "\r\n")] = 0;
+	length = (int)strlen(line);
+	ok = !(length % 2) && length <= 2 * IDENTITY_DEVICE_MOST &&
+		identity_unhex(line, length, certificate, length / 2) &&
+		identity_unhex(issuer_line, (int)strlen(issuer_line), issuer, IDENTITY_ISSUER_SIZE) &&
+		identity_unhex(copy_line, (int)strlen(copy_line), saved_copy, IDENTITY_ID_SIZE);
+	/* (another player key since: a new device for it) */
+	if (ok && (!current_copy(copy) || memcmp(copy, saved_copy, IDENTITY_ID_SIZE)))
+	{
+		identity_new_device();
+		platform_log("Delta identity: the player key changed; this device enrolls again with a new device key");
+		return;
+	}
+	if (ok && take_certificate(certificate, length / 2, issuer, IDENTITY_ISSUER_SIZE, 0, 1))
+	{
+		memcpy(identity_copy, saved_copy, IDENTITY_ID_SIZE);
+		return;
+	}
+	/* (one that doesn't check is enrolled again) */
+	platform_log("Delta identity: the saved device certificate is not used; asked for again");
+}
+
+static void write_certificate_file(const unsigned char *certificate, int certificate_size, const unsigned char *issuer,
+	int issuer_size)
+{
+	char path[1024], text[2 * (IDENTITY_DEVICE_MOST + IDENTITY_ISSUER_SIZE + IDENTITY_ID_SIZE) + 4];
+
+	identity_path("delta_device.cert", path, sizeof(path));
+	identity_hex(certificate, certificate_size, text);
+	strcat(text, "\n");
+	identity_hex(issuer, issuer_size, text + strlen(text));
+	strcat(text, "\n");
+	identity_hex(identity_copy, IDENTITY_ID_SIZE, text + strlen(text));
+	strcat(text, "\n");
+	if (!posix_browser_replace_key(path, (const unsigned char *)text, (int)strlen(text)))
+		platform_log("Delta identity: could not save the device certificate");
+}
+
+/* a nonce from the site: its HTTP status (200 only with one), its answer
+in response */
+static int identity_nonce(char *nonce_hex, unsigned char *nonce, char *response, int size)
+{
+	char url[512], error[256];
+	int status;
+
+	server_url("/v1/identity/nonce", url, sizeof(url));
+	response[0] = 0;
+	status = posix_browser_request(url, NULL, NULL, response, size, error, sizeof(error));
+	if (status == 200 && !identity_nonce_answer(response, nonce_hex, nonce))
+		status = 502;
+	return status;
+}
+
+static void identity_say(int said, const char *text)
+{
+	if (said != identity_said)
+	{
+		identity_said = said;
+		platform_log("Delta identity: %s", text);
+	}
+}
+
+/* an identity path's refusal (status, response) taken: the state, the
+files and debug.txt */
+static void identity_refused(int status, const char *response)
+{
+	char path[1024];
+	int answer = identity_answered(&identity, status, status ? response : "", identity_clock());
+
+	if (answer == IDENTITY_ANSWER_OFF)
+	{
+		identity_path("delta_device.cert", path, sizeof(path));
+		remove(path);
+	}
+	else if (answer == IDENTITY_ANSWER_NEW_KEY)
+	{
+		identity_new_device();
+		identity.new_key_made = 1;
+		identity.must_enroll = 1;
+	}
+	identity_say(answer, answer == IDENTITY_ANSWER_LATER ? "the site doesn't speak device identity; "
+		"the player key is used (asked again in an hour)" : answer == IDENTITY_ANSWER_BUSY ?
+		"the site is busy or doesn't issue device certificates yet; asked again later" :
+		answer == IDENTITY_ANSWER_UNKNOWN_COPY ? "the site hasn't seen this copy yet; asked again after its "
+		"next confirmed game" : answer == IDENTITY_ANSWER_DAY ? (identity.off ? "the site doesn't take this device; the player key is "
+		"used this run" : "the site doesn't take this device yet; asked again tomorrow") :
+		answer == IDENTITY_ANSWER_NEW_KEY ? "the device key was another copy's; a new one enrolls" :
+		answer == IDENTITY_ANSWER_ENROLL ? "the site doesn't know this device; enrolling again" :
+		answer == IDENTITY_ANSWER_OFF ? "this device was signed out or removed on the site; the player key is "
+		"used this run" : "the site is not answering; asked again later");
+}
+
+/* a certificate answer (enroll or refresh) taken */
+static void identity_certificate(int status, const char *response, int enrolling)
+{
+	unsigned char certificate[IDENTITY_DEVICE_MOST], issuer[IDENTITY_ISSUER_SIZE];
+	char number[16];
+	unsigned long refresh_after = 0;
+	int certificate_size, issuer_size, index, length;
+
+	if (status != 200)
+	{
+		identity_refused(status, response);
+		return;
+	}
+	identity_answered(&identity, 200, response, identity_clock());
+	/* (refresh_after: a duration, seconds from now) */
+	length = identity_json_member(response, "refresh_after", number, sizeof(number));
+	for (index = 0; index < length && number[index] >= '0' && number[index] <= '9'; index++)
+		refresh_after = refresh_after * 10 + (unsigned long)(number[index] - '0');
+	if (index != length)
+		refresh_after = 0;
+	if (!identity_certificate_answer(response, certificate, &certificate_size, issuer, &issuer_size) ||
+		!take_certificate(certificate, certificate_size, issuer, issuer_size, refresh_after, 0))
+	{
+		identity_answered(&identity, 502, "", identity_clock());
+		identity_say(-2, "the site's device certificate did not check; asked again later");
+		return;
+	}
+	write_certificate_file(certificate, certificate_size, issuer, issuer_size);
+	identity_say(IDENTITY_ANSWER_OK, enrolling ? "this device is enrolled" : "the device certificate is fresh");
+}
+
+/* another player key put in (browser_answer_key_link): a new device */
+static void identity_check_key_change(void)
+{
+	int changed;
+
+	pthread_mutex_lock(&browser_lock);
+	changed = identity_key_changed;
+	identity_key_changed = 0;
+	pthread_mutex_unlock(&browser_lock);
+	if (changed)
+	{
+		identity_new_device();
+		identity.new_key_made = 0;
+		platform_log("Delta identity: the player key changed; this device enrolls again with a new device key");
+	}
+}
+
+/* enrollment or a refresh, when one is due (browser_thread) */
+static void update_identity(void)
+{
+	unsigned char seed[IDENTITY_SEED_SIZE], public_key[IDENTITY_KEY_SIZE], device_id[IDENTITY_ID_SIZE];
+	unsigned char nonce[IDENTITY_NONCE_SIZE], message[IDENTITY_MESSAGE_MOST], signature[IDENTITY_SIGNATURE_SIZE];
+	unsigned char key[PLAYER_KEY_SIZE], copy[IDENTITY_ID_SIZE];
+	char nonce_hex[2 * IDENTITY_NONCE_SIZE + 1], key_text[2 * PLAYER_KEY_SIZE + 1];
+	char audience[IDENTITY_AUDIENCE_MOST + 1];
+	char url[512], path[1024], body[768];
+	static char response[IDENTITY_RESPONSE];
+	char error[256];
+	int step, status, size = -1;
+
+	server_url("/v1/identity/nonce", url, sizeof(url));
+	if (!safe_for_key(url) || !identity_site(audience, sizeof(audience)))
+		return;
+	identity_check_key_change();
+	read_certificate_file();
+	step = identity_due(&identity, 1, identity_clock());
+	/* (a copy that never made a player key enrolls once it has one: no key
+	is made for it here) */
+	player_key_path(path, sizeof(path));
+	if (step == IDENTITY_STEP_ENROLL && !file_exists(path))
+	{
+		/* (looked for again in a minute) */
+		identity.wait_until = identity_clock() + IDENTITY_RETRY_FIRST;
+		return;
+	}
+	if (step == IDENTITY_STEP_NONE)
+		return;
+	status = identity_nonce(nonce_hex, nonce, response, sizeof(response));
+	if (status != 200)
+	{
+		identity_refused(status, response);
+		return;
+	}
+	if (!device_key(seed, public_key, device_id))
+	{
+		identity_say(-3, "could not read or make this device's key");
+		identity_answered(&identity, 0, "", identity_clock());
+		return;
+	}
+	body[0] = 0;
+	if (step == IDENTITY_STEP_ENROLL && current_copy(copy) && player_key(key))
+	{
+		/* (the copy ID, which the signature names, kept for the file) */
+		size = identity_enroll_message(audience, nonce, copy, public_key, message);
+		if (size > 0)
+		{
+			identity_sign(seed, message, size, signature);
+			p2p_hex(key, PLAYER_KEY_SIZE, key_text);
+			if (identity_enroll_body(body, sizeof(body), key_text, public_key, nonce_hex, signature,
+				local_platform_name(), build_identity_version()) < 0)
+			{
+				body[0] = 0;
+			}
+			memcpy(identity_copy, copy, IDENTITY_ID_SIZE);
+		}
+		server_url("/v1/identity/legacy/enroll", url, sizeof(url));
+		identity_wipe(key, sizeof(key));
+		identity_wipe(key_text, sizeof(key_text));
+	}
+	else if (step == IDENTITY_STEP_REFRESH)
+	{
+		size = identity_refresh_message(audience, nonce, device_id, message);
+		if (size > 0)
+		{
+			identity_sign(seed, message, size, signature);
+			if (identity_signed_body(body, sizeof(body), device_id, nonce_hex, signature) < 0)
+				body[0] = 0;
+		}
+		server_url("/v1/identity/refresh", url, sizeof(url));
+	}
+	identity_wipe(seed, sizeof(seed));
+	identity_wipe(signature, sizeof(signature));
+	if (!body[0])
+	{
+		identity_answered(&identity, 0, "", identity_clock());
+		return;
+	}
+	status = posix_browser_request(url, body, "application/json", response, sizeof(response), error, sizeof(error));
+	identity_wipe(body, sizeof(body));
+	identity_certificate(status, status ? response : "", step == IDENTITY_STEP_ENROLL);
+	identity_wipe(response, sizeof(response));
+}
+
+/* an hour's token for the site's requests, when one is due */
+static void update_token(void)
+{
+	unsigned char seed[IDENTITY_SEED_SIZE], public_key[IDENTITY_KEY_SIZE], device_id[IDENTITY_ID_SIZE];
+	unsigned char nonce[IDENTITY_NONCE_SIZE], message[IDENTITY_MESSAGE_MOST], signature[IDENTITY_SIGNATURE_SIZE];
+	char nonce_hex[2 * IDENTITY_NONCE_SIZE + 1], token[IDENTITY_TOKEN_SIZE];
+	char audience[IDENTITY_AUDIENCE_MOST + 1];
+	char url[512], body[512], response[512], error[256];
+	unsigned long lifetime;
+	int status, size;
+
+	if (!identity_site(audience, sizeof(audience)))
+		return;
+	identity_check_key_change();
+	read_certificate_file();
+	if (!identity_token_due(&identity, identity_clock()))
+		return;
+	status = identity_nonce(nonce_hex, nonce, response, sizeof(response));
+	if (status != 200)
+	{
+		identity_refused(status, response);
+		return;
+	}
+	if (!device_key(seed, public_key, device_id))
+		return;
+	size = identity_token_message(audience, nonce, device_id, message);
+	if (size > 0)
+		identity_sign(seed, message, size, signature);
+	identity_wipe(seed, sizeof(seed));
+	if (size <= 0 || identity_signed_body(body, sizeof(body), device_id, nonce_hex, signature) < 0)
+		return;
+	identity_wipe(signature, sizeof(signature));
+	server_url("/v1/identity/token", url, sizeof(url));
+	status = posix_browser_request(url, body, "application/json", response, sizeof(response), error, sizeof(error));
+	if (status == 200 && identity_token_answer(response, token, sizeof(token), &lifetime))
+		identity_set_token(&identity, token, lifetime, identity_clock());
+	else if (status == 200)
+		identity_answered(&identity, 502, "", identity_clock());
+	else
+		identity_refused(status, response);
+	identity_wipe(token, sizeof(token));
+	identity_wipe(response, sizeof(response));
+}
+#endif
+
+/* (the player key's copies wiped as the seeds are) */
+#ifdef HALO_DELTA_IDENTITY
+#define identity_wipe_key identity_wipe
+#else
+#define identity_wipe_key(data, size) memset((data), 0, (size_t)(size))
+#endif
+
+/* a request that takes the player key (members: the body's other JSON
+members, or ""): with this device's token (Authorization: Delta) when it
+has one. A token the site lost is asked for again and the request sent
+again with it; the key in the body only when there is no token, or the site
+doesn't speak identity (a 400 without "token"). An answer the site may have
+acted on is never sent again. Its HTTP status (0: no answer); *no_key when
+the key can't go (no HTTPS game list, no player key). The browser thread's */
+static int site_request(const char *path, const char *members, char *response, int size, char *error,
+	int error_size, int *no_key)
+{
+	unsigned char key[PLAYER_KEY_SIZE];
+	char key_text[2 * PLAYER_KEY_SIZE + 1];
+	char url[512];
+	char *body;
+	size_t length = strlen(members) + 2 * PLAYER_KEY_SIZE + 32;
+	int status;
+
+	*no_key = 0;
+	server_url(path, url, sizeof(url));
+	if (!safe_for_key(url))
+	{
+		*no_key = 1;
+		return 0;
+	}
+#ifdef HALO_DELTA_IDENTITY
+	{
+		char token[IDENTITY_TOKEN_SIZE], headers[IDENTITY_TOKEN_SIZE + 64];
+		int attempt, sent;
+
+		update_token();
+		for (attempt = 0; attempt < 2 && identity_token(&identity, identity_clock(), token, sizeof(token)); attempt++)
+		{
+			body = malloc(length);
+			if (!body)
+			{
+				identity_wipe(token, sizeof(token));
+				return 0;
+			}
+			snprintf(body, length, "{%s}", members);
+			snprintf(headers, sizeof(headers), "Authorization: Delta %s\r\n", token);
+			status = posix_browser_send(url, body, strlen(body), "application/json", headers, response, size, error,
+				error_size);
+			identity_wipe(token, sizeof(token));
+			identity_wipe(headers, sizeof(headers));
+			free(body);
+			sent = identity_token_sent(&identity, status, response, identity_clock());
+			/* (the answer stands, or the second token failed too) */
+			if (sent == IDENTITY_SENT_DONE || attempt)
+				return status;
+			/* (a token the site lost: a new one, and again with it once;
+			none to be had: the answer, or for an "unknown" token, the key) */
+			update_token();
+			if (!identity_token(&identity, identity_clock(), token, sizeof(token)))
+			{
+				if (sent != IDENTITY_SENT_UNKNOWN_TOKEN)
+					return status;
+				break;
+			}
+			identity_wipe(token, sizeof(token));
+		}
+	}
+#endif
+	if (!player_key(key))
+	{
+		*no_key = 1;
+		return 0;
+	}
+	body = malloc(length);
+	if (!body)
+	{
+		identity_wipe_key(key, sizeof(key));
+		return 0;
+	}
+	p2p_hex(key, PLAYER_KEY_SIZE, key_text);
+	snprintf(body, length, "{\"key\": \"%s\"%s%s}", key_text, members[0] ? ", " : "", members);
+	status = posix_browser_request(url, body, "application/json", response, size, error, error_size);
+	identity_wipe_key(key, sizeof(key));
+	identity_wipe_key(key_text, sizeof(key_text));
+	identity_wipe_key(body, (int)strlen(body));
+	free(body);
+	return status;
+}
+
 static void send_claims(void)
 {
 	char invite[BROWSER_INVITE_LENGTH + 1];
 	unsigned short names[MAXIMUM_CLAIM_NAMES][BROWSER_PLAYER_NAME_LENGTH];
-	unsigned char key[PLAYER_KEY_SIZE];
-	char key_text[2 * PLAYER_KEY_SIZE + 1];
-	char url[512], body[512], name[64], response[256], error[256];
-	int count, index, retry = 0;
+	char members[512], name[64], response[256], error[256];
+	int count, index, retry = 0, no_key = 0;
 
 	pthread_mutex_lock(&browser_lock);
 	count = browser.claim_count;
@@ -522,27 +1095,25 @@ static void send_claims(void)
 	pthread_mutex_unlock(&browser_lock);
 	if (!count)
 		return;
-	server_url("/v1/claim", url, sizeof(url));
-	if (!safe_for_key(url) || !player_key(key))
-	{
-		pthread_mutex_lock(&browser_lock);
-		browser.claim_count = 0;
-		pthread_mutex_unlock(&browser_lock);
-		return;
-	}
-	p2p_hex(key, PLAYER_KEY_SIZE, key_text);
-	for (index = 0; index < count; index++)
+	for (index = 0; index < count && !no_key; index++)
 	{
 		int status;
 
 		utf8_from_name(names[index], BROWSER_PLAYER_NAME_LENGTH, name, sizeof(name));
-		snprintf(body, sizeof(body), "{\"invite\": \"%s\", \"key\": \"%s\", \"platform\": \"%s\", \"name\": ", invite,
-			key_text, local_platform_name());
-		json_name(body + strlen(body), (int)(sizeof(body) - strlen(body) - 2), names[index], BROWSER_PLAYER_NAME_LENGTH);
-		strcat(body, "}");
-		status = posix_browser_request(url, body, "application/json", response, sizeof(response), error,
-			sizeof(error));
+		snprintf(members, sizeof(members), "\"invite\": \"%s\", \"platform\": \"%s\", \"name\": ", invite,
+			local_platform_name());
+		json_name(members + strlen(members), (int)(sizeof(members) - strlen(members) - 1), names[index],
+			BROWSER_PLAYER_NAME_LENGTH);
+		/* (the player key, or this device's token: site_request) */
+		status = site_request("/v1/claim", members, response, sizeof(response), error, sizeof(error), &no_key);
+		if (no_key)
+			break;
 		response[strcspn(response, "\r\n")] = 0;
+#ifdef HALO_DELTA_IDENTITY
+		/* (a copy the site hadn't seen is known now: it enrolls soon) */
+		if (status == 200)
+			identity_confirmed(&identity, identity_clock());
+#endif
 		if (status == 200 && !strncmp(response, "ok ", 3))
 			platform_log("Game list: %s's line confirmed (player %s)", name, response + 3);
 		else if (status == 200)
@@ -552,10 +1123,13 @@ static void send_claims(void)
 		else
 			platform_log("Game list: %s's line was not confirmed (%s)", name, response);
 	}
-	memset(key, 0, sizeof(key));
-	memset(key_text, 0, sizeof(key_text));
-	memset(body, 0, sizeof(body));
 	pthread_mutex_lock(&browser_lock);
+	if (no_key)
+	{
+		browser.claim_count = 0;
+		pthread_mutex_unlock(&browser_lock);
+		return;
+	}
 	browser.claim_attempts++;
 	browser.claim_time = p2p_now();
 	if (!retry || browser.claim_attempts >= CLAIM_ATTEMPTS)
@@ -853,25 +1427,8 @@ no player key) */
 static int game_request(const char *path, const char *fields, char *response, int size, char *error,
 	int error_size, int *no_key)
 {
-	unsigned char key[PLAYER_KEY_SIZE];
-	char key_text[2 * PLAYER_KEY_SIZE + 1];
-	char url[512], body[256];
-	int status;
-
-	*no_key = 0;
-	server_url(path, url, sizeof(url));
-	if (!safe_for_key(url) || !player_key(key))
-	{
-		*no_key = 1;
-		return 0;
-	}
-	p2p_hex(key, PLAYER_KEY_SIZE, key_text);
-	snprintf(body, sizeof(body), "{\"key\": \"%s\"%s%s}", key_text, fields[0] ? ", " : "", fields);
-	status = posix_browser_request(url, body, "application/json", response, size, error, error_size);
-	memset(key, 0, sizeof(key));
-	memset(key_text, 0, sizeof(key_text));
-	memset(body, 0, sizeof(body));
-	return status;
+	/* (or this device's token in its place: site_request) */
+	return site_request(path, fields, response, size, error, error_size, no_key);
 }
 
 /* (under the lock) this copy is linked to no profile now: known, and the
@@ -1483,17 +2040,16 @@ static void send_report(void)
 	free(report);
 }
 
-/* a joined game's report, with this copy's player key, which shows the
-server whose report it is (the server keeps the player ID it works out
-from it, never the key, as for /v1/claim) */
+/* a joined game's report, with this copy's player key (or this device's
+token: site_request), which shows the server whose report it is (the
+server keeps the player ID it works out from it, never the key, as for
+/v1/claim) */
 static void send_client_report(void)
 {
-	unsigned char key[PLAYER_KEY_SIZE];
-	char key_text[2 * PLAYER_KEY_SIZE + 1];
-	char url[512], response[256], error[256];
-	char *report, *body;
-	size_t size;
-	int status, retry;
+	char response[256], error[256];
+	char *report, *members;
+	size_t size, length;
+	int status, retry, no_key = 1;
 
 	pthread_mutex_lock(&browser_lock);
 	report = browser.client_report;
@@ -1505,32 +2061,40 @@ static void send_client_report(void)
 	pthread_mutex_unlock(&browser_lock);
 	if (!report)
 		return;
-	server_url("/v1/client_report", url, sizeof(url));
-	body = NULL;
-	if (safe_for_key(url) && player_key(key))
+	/* (the report's members after the platform: the report is the browser
+	thread's to free or replace only under the lock, and the game's thread
+	replaces it only with a new game's) */
+	members = NULL;
+	pthread_mutex_lock(&browser_lock);
+	if (browser.client_report == report)
 	{
-		p2p_hex(key, PLAYER_KEY_SIZE, key_text);
-		/* (the key, and the report after it; the report is the browser
-		thread's to free or replace only under the lock, and the game's
-		thread replaces it only with a new game's) */
-		pthread_mutex_lock(&browser_lock);
-		if (browser.client_report == report)
+		size = strlen(report) + 64;
+		members = malloc(size);
+		if (members)
 		{
-			size = strlen(report) + sizeof(key_text) + 64;
-			body = malloc(size);
-			if (body)
-				snprintf(body, size, "{\"key\": \"%s\", \"platform\": \"%s\", %s", key_text, local_platform_name(),
-					report + 1);
+			snprintf(members, size, "\"platform\": \"%s\", %s", local_platform_name(), report + 1);
+			length = strlen(members);
+			while (length && (members[length - 1] == '\n' || members[length - 1] == '\r' ||
+				members[length - 1] == ' '))
+			{
+				length--;
+			}
+			if (length && members[length - 1] == '}')
+				length--;
+			members[length] = 0;
 		}
-		pthread_mutex_unlock(&browser_lock);
-		memset(key, 0, sizeof(key));
-		memset(key_text, 0, sizeof(key_text));
 	}
-	else
+	pthread_mutex_unlock(&browser_lock);
+	status = 0;
+	if (members)
 	{
-		platform_log("Game list: the joined game's report needs an HTTPS game list and a player key");
+		status = site_request("/v1/client_report", members, response, sizeof(response), error, sizeof(error),
+			&no_key);
+		free(members);
+		if (no_key)
+			platform_log("Game list: the joined game's report needs an HTTPS game list and a player key");
 	}
-	if (!body)
+	if (no_key)
 	{
 		pthread_mutex_lock(&browser_lock);
 		if (browser.client_report == report)
@@ -1541,12 +2105,13 @@ static void send_client_report(void)
 		pthread_mutex_unlock(&browser_lock);
 		return;
 	}
-	status = posix_browser_request(url, body, "application/json", response, sizeof(response), error, sizeof(error));
-	memset(body, 0, strlen(body));
-	free(body);
 	response[strcspn(response, "\r\n")] = 0;
 	/* (no answer, or the server busy: again in a while) */
 	retry = !status || status == 429 || status >= 500;
+#ifdef HALO_DELTA_IDENTITY
+	if (status == 200)
+		identity_confirmed(&identity, identity_clock());
+#endif
 	if (status == 200 && !strncmp(response, "ok ", 3))
 		platform_log("Game list: the joined game's report was taken (%s)", response);
 	else if (status == 200)
@@ -1920,6 +2485,298 @@ static void update_anchors(void)
 		pthread_detach(thread);
 }
 
+#ifndef HALO_CONSOLE_NO_GUIDE
+/* ---------- presence (the browser thread)
+
+About once a minute while this copy plays a Delta game that has an invite,
+it tells the site which game (POST /v1/presence {key, invite}), when
+network.share_presence is on, this copy counts for a Delta profile and the
+profile's "Show when I'm playing" is not off. The invite is the game's own:
+the one this copy hosts with (p2p_hosting_invite), or the one it joined
+(p2p_joined_invite). The site finds the listed game by it for the
+profile's "playing" line, shows that game only to those the player allows,
+and the invite itself only to those allowed to join. Nothing in the menus,
+only this copy's own player key, nothing about other players. The site
+keeps it in memory only, with no address. */
+
+/* the game says it is playing this often (discord_game.c, once a second):
+quiet longer, and it no longer is */
+#define PRESENCE_SAID_TIMEOUT 5000
+
+static void update_presence(void)
+{
+	struct social_presence_inputs inputs;
+	char invite[BROWSER_INVITE_LENGTH + 1], fields[128], response[256], error[256];
+	int status, no_key, answer, logged;
+
+	/* (whether this copy is linked, without waiting for a screen to ask:
+	the link kept in the save root, once a run, then the site's word on the
+	player's own profile, asked once a run while playing) */
+	read_profile_file();
+	memset(&inputs, 0, sizeof(inputs));
+	inputs.share = config_boolean("network.share_presence") != 0;
+	/* (the game's invite: hosted, else joined; a password game hosted here
+	has none to give) */
+	invite[0] = 0;
+	if (!p2p_hosting_invite(invite, sizeof(invite)) && !p2p_joined_invite(invite, sizeof(invite)))
+		invite[0] = 0;
+	inputs.has_invite = social_presence_invite_valid(invite);
+	pthread_mutex_lock(&browser_lock);
+	inputs.in_game = browser.presence_playing && !elapsed(browser.presence_said, PRESENCE_SAID_TIMEOUT);
+	/* (playing says the game is a Delta one: discord_game.c) */
+	inputs.on_delta = inputs.in_game;
+	inputs.linked = browser.profile_linked || (browser.game_profile_has && browser.game_profile.linked);
+	if (inputs.in_game && inputs.share && !inputs.linked)
+		browser.profile_check_wanted = 1;
+	inputs.hidden = browser.game_profile_has && browser.game_profile.has_privacy &&
+		!browser.game_profile.show_presence;
+	if (!social_presence_due(&browser.presence, &inputs, p2p_now()))
+	{
+		pthread_mutex_unlock(&browser_lock);
+		return;
+	}
+	pthread_mutex_unlock(&browser_lock);
+	response[0] = 0;
+	if (social_presence_fields(fields, sizeof(fields), invite) < 0)
+		fields[0] = 0;
+	status = game_request("/v1/presence", fields, response, sizeof(response), error, sizeof(error), &no_key);
+	pthread_mutex_lock(&browser_lock);
+	answer = social_presence_answer(&browser.presence, no_key ? 0 : status, response, p2p_now());
+	logged = browser.presence_logged;
+	browser.presence_logged = answer;
+	pthread_mutex_unlock(&browser_lock);
+	/* (debug.txt says what the site said when it changes, never the key) */
+	if (answer != logged)
+	{
+		platform_log("Delta presence: %s", answer == SOCIAL_PRESENCE_OK ? "the site shows you playing" :
+			answer == SOCIAL_PRESENCE_OFF ? "the site keeps it hidden; asked again in half an hour" :
+			answer == SOCIAL_PRESENCE_BUSY ? "the site is busy; asked again in ten minutes" :
+			answer == SOCIAL_PRESENCE_REFUSED ? "the site does not take it; asked again in half an hour" :
+			no_key ? "no player key or no HTTPS game list" : "the site is not answering");
+	}
+}
+#endif
+
+/* ---------- the Guide's friends (the browser thread)
+
+While the game says where the player is (the Guide's, about once a second),
+this copy is linked to a Delta profile and network.browser_url is set, the
+site's friends state is asked for on social_poll_due's schedule (POST
+/v1/social/state {key, since}: the cursor of the last state, so that an
+unchanged one is just the cursor back). Too many (429), no answer and an
+unlinked copy wait longer (social_poll_answer). An action asked for
+(browser_social_act) goes first: a friends change (/v1/game/friends, whose
+answer is the new state), a join (/v1/social/join: the halo://join link the
+game then joins as any invite link) or an invite (/v1/social/invite, with
+this copy's game's invite). Only this copy's key is sent; debug.txt says
+how many, never who. */
+
+#define SOCIAL_SAID_TIMEOUT 5000
+#define SOCIAL_RESPONSE (256 * 1024)
+#define SOCIAL_NOT_ANSWERING "The site isn't answering."
+
+static const char *const social_action_names[] = { "accept", "decline", "remove", "block" };
+
+/* (under the lock) the state changed: the Guide copies it */
+static void social_status_set(int status)
+{
+	if (browser.social_status != status)
+	{
+		browser.social_status = status;
+		browser.social_serial++;
+	}
+}
+
+/* (under the lock) the result of the action out */
+static void social_done(int state, const char *message)
+{
+	browser.social_result.state = state;
+	snprintf(browser.social_result.message, sizeof(browser.social_result.message), "%s", message ? message : "");
+}
+
+static void social_log(int status, const struct social_state *state)
+{
+	if (status == BROWSER_SOCIAL_LOADED)
+	{
+		platform_log("Guide: friends loaded (%d of %d online, %d requests, %d invites)", social_online_count(state),
+			state->friend_count, state->request_count, state->invite_count);
+	}
+	else if (status == BROWSER_SOCIAL_UNLINKED)
+		platform_log("Guide: the site says this copy is linked to no profile");
+	else if (status == BROWSER_SOCIAL_FAILED)
+		platform_log("Guide: friends not loaded (the site is busy or not answering; asked again later)");
+}
+
+/* a state read (the poll's, or a friends action's): kept */
+static void social_keep(const struct social_state *read)
+{
+	*browser.social_state = *read;
+	browser.social_serial++;
+	browser.social_status = BROWSER_SOCIAL_LOADED;
+}
+
+static void social_action(int action, const char *handle, char *response, struct social_state *read)
+{
+	char fields[192], error[256], text[96], invite[BROWSER_INVITE_LENGTH + 1];
+	const char *path;
+	int status, no_key, ok, parsed = 0, logged_status;
+
+	fields[0] = 0;
+	if (action >= BROWSER_SOCIAL_ACCEPT && action <= BROWSER_SOCIAL_BLOCK)
+	{
+		path = "/v1/game/friends";
+		ok = social_action_fields(fields, sizeof(fields), social_action_names[action], handle) >= 0;
+	}
+	else if (action == BROWSER_SOCIAL_JOIN)
+	{
+		path = "/v1/social/join";
+		ok = social_join_fields(fields, sizeof(fields), handle) >= 0;
+	}
+	else
+	{
+		/* (this copy's game: the one it hosts, else the one it joined) */
+		path = "/v1/social/invite";
+		if (!p2p_hosting_invite(invite, sizeof(invite)) && !p2p_joined_invite(invite, sizeof(invite)))
+			invite[0] = 0;
+		ok = social_invite_fields(fields, sizeof(fields), handle,
+			social_presence_invite_valid(invite) ? invite : "") >= 0;
+	}
+	if (!ok)
+	{
+		pthread_mutex_lock(&browser_lock);
+		social_done(BROWSER_SOCIAL_REFUSED, "Can't do that.");
+		pthread_mutex_unlock(&browser_lock);
+		return;
+	}
+	response[0] = 0;
+	status = game_request(path, fields, response, SOCIAL_RESPONSE, error, sizeof(error), &no_key);
+	if (status == 200 && action <= BROWSER_SOCIAL_BLOCK)
+		parsed = delta_profile_parse_social(response, read);
+	pthread_mutex_lock(&browser_lock);
+	logged_status = browser.social_status;
+	social_poll_soon(&browser.social_poll);
+	if (no_key || !status)
+		social_done(BROWSER_SOCIAL_REFUSED, SOCIAL_NOT_ANSWERING);
+	else if (action == BROWSER_SOCIAL_JOIN)
+	{
+		if (status == 200 && delta_profile_parse_join(response, browser.social_join, sizeof(browser.social_join)))
+			social_done(BROWSER_SOCIAL_DONE, "");
+		else if (status == 429)
+			social_done(BROWSER_SOCIAL_REFUSED, "Too many tries. Wait a minute.");
+		else
+		{
+			delta_profile_parse_text(response, "reason", text, sizeof(text));
+			social_done(BROWSER_SOCIAL_REFUSED, social_join_refusal(text));
+		}
+	}
+	else if (action == BROWSER_SOCIAL_INVITE)
+	{
+		if (status == 200)
+			social_done(BROWSER_SOCIAL_DONE, "Invite sent");
+		else
+		{
+			delta_profile_parse_text(response, "reason", text, sizeof(text));
+			social_done(BROWSER_SOCIAL_REFUSED, social_invite_refusal(text, status));
+		}
+	}
+	else if (parsed == 1)
+	{
+		social_keep(read);
+		social_done(BROWSER_SOCIAL_DONE, "");
+	}
+	else
+	{
+		/* (the site's own words: "That request is gone.") */
+		delta_profile_parse_text(response, "error", text, sizeof(text));
+		social_done(BROWSER_SOCIAL_REFUSED, status == 429 ? "Too many tries. Wait a minute." :
+			text[0] && status >= 400 && status < 500 ? text : "Can't do that right now.");
+	}
+	pthread_mutex_unlock(&browser_lock);
+	platform_log("Guide: %s %s", action == BROWSER_SOCIAL_JOIN ? "join" : action == BROWSER_SOCIAL_INVITE ? "invite" :
+		social_action_names[action], status == 200 ? "done" : status ? "refused" : "no answer");
+	if (parsed == 1 && logged_status != BROWSER_SOCIAL_LOADED)
+		social_log(BROWSER_SOCIAL_LOADED, read);
+}
+
+static void update_social(void)
+{
+	static char *response;
+	static struct social_state *read;
+	char fields[128], error[256], cursor[SOCIAL_CURSOR_SIZE], handle[SOCIAL_HANDLE_SIZE];
+	int linked, due, action, status, no_key, parsed, before, after;
+
+	pthread_mutex_lock(&browser_lock);
+	if (!browser.social_state || elapsed(browser.social_said, SOCIAL_SAID_TIMEOUT))
+	{
+		pthread_mutex_unlock(&browser_lock);
+		return;
+	}
+	linked = browser.profile_linked || (browser.game_profile_has && browser.game_profile.linked);
+	if (!linked)
+	{
+		/* (the site asked once a run whether this copy is linked) */
+		browser.profile_check_wanted = 1;
+		if (browser.social_status != BROWSER_SOCIAL_NONE)
+		{
+			memset(browser.social_state, 0, sizeof(*browser.social_state));
+			social_status_set(BROWSER_SOCIAL_NONE);
+		}
+	}
+	action = linked && browser.social_action_wanted ? browser.social_result.action : -1;
+	snprintf(handle, sizeof(handle), "%s", browser.social_result.handle);
+	if (browser.social_action_wanted && !linked)
+		social_done(BROWSER_SOCIAL_REFUSED, "Sign in first.");
+	browser.social_action_wanted = 0;
+	due = action < 0 &&
+		social_poll_due(&browser.social_poll, p2p_now(), browser.social_in_game && !browser.social_guide_open, linked);
+	if (due && browser.social_status == BROWSER_SOCIAL_NONE)
+		browser.social_status = BROWSER_SOCIAL_LOADING;
+	snprintf(cursor, sizeof(cursor), "%s", browser.social_status == BROWSER_SOCIAL_LOADED ? browser.social_state->cursor : "");
+	pthread_mutex_unlock(&browser_lock);
+	if (action < 0 && !due)
+		return;
+	if (!response)
+		response = malloc(SOCIAL_RESPONSE);
+	if (!read)
+		read = malloc(sizeof(*read));
+	if (!response || !read)
+		return;
+	if (action >= 0)
+	{
+		social_action(action, handle, response, read);
+		return;
+	}
+
+	if (social_state_fields(fields, sizeof(fields), cursor, SOCIAL_MAXIMUM_FRIENDS) < 0)
+		social_state_fields(fields, sizeof(fields), "", SOCIAL_MAXIMUM_FRIENDS);
+	response[0] = 0;
+	status = game_request("/v1/social/state", fields, response, SOCIAL_RESPONSE, error, sizeof(error), &no_key);
+	parsed = status == 200 ? delta_profile_parse_social(response, read) : 0;
+	pthread_mutex_lock(&browser_lock);
+	before = browser.social_status;
+	social_poll_answer(&browser.social_poll, no_key ? 0 : status, parsed != 0);
+	if (parsed == 1)
+		social_keep(read);
+	else if (parsed == 2 && before == BROWSER_SOCIAL_LOADED)
+	{
+		/* (unchanged) */
+	}
+	else if (status == 404 && !no_key)
+	{
+		memset(browser.social_state, 0, sizeof(*browser.social_state));
+		social_status_set(BROWSER_SOCIAL_UNLINKED);
+	}
+	else if (before == BROWSER_SOCIAL_LOADING || before == BROWSER_SOCIAL_LOADED)
+	{
+		/* (the state kept stays shown; the next poll asks for all of it) */
+		social_status_set(BROWSER_SOCIAL_FAILED);
+	}
+	after = browser.social_status;
+	pthread_mutex_unlock(&browser_lock);
+	if (after != before || (parsed == 1 && before != BROWSER_SOCIAL_LOADED))
+		social_log(after, read);
+}
+
 static void *browser_thread(void *unused)
 {
 	(void)unused;
@@ -1927,6 +2784,9 @@ static void *browser_thread(void *unused)
 	{
 		if (config_string("network.browser_url")[0])
 		{
+#ifdef HALO_DELTA_IDENTITY
+			update_identity();
+#endif
 			update_hosting();
 			send_report();
 			send_client_report();
@@ -1935,6 +2795,10 @@ static void *browser_thread(void *unused)
 			update_connect();
 			check_profile();
 			update_game_profile();
+#ifndef HALO_CONSOLE_NO_GUIDE
+			update_presence();
+			update_social();
+#endif
 			update_cards();
 			update_list();
 			update_anchors();
@@ -2341,6 +3205,10 @@ void browser_answer_key_link(int install)
 			browser.profile_check_done = 0;
 			browser.profile_check_attempts = 0;
 			browser.profile_check_time = 0;
+#ifdef HALO_DELTA_IDENTITY
+			/* (another copy: a new device, on the browser thread) */
+			identity_key_changed = 1;
+#endif
 		}
 		memset(key, 0, sizeof(key));
 	}
@@ -2860,6 +3728,89 @@ int browser_headless(void)
 {
 	return browser_dedicated() || browser_probe() != NULL;
 }
+
+#ifndef HALO_CONSOLE_NO_GUIDE
+void browser_presence_playing(int playing)
+{
+	pthread_once(&browser_once, start_thread);
+	pthread_mutex_lock(&browser_lock);
+	browser.presence_playing = playing != 0;
+	browser.presence_said = p2p_now();
+	pthread_mutex_unlock(&browser_lock);
+}
+
+void browser_social_where(int in_game, int guide_open)
+{
+	pthread_once(&browser_once, start_thread);
+	pthread_mutex_lock(&browser_lock);
+	if (!browser.social_state)
+		browser.social_state = calloc(1, sizeof(*browser.social_state));
+	/* (the Guide opening: its friends soon) */
+	if (guide_open && !browser.social_guide_open)
+		social_poll_soon(&browser.social_poll);
+	browser.social_in_game = in_game != 0;
+	browser.social_guide_open = guide_open != 0;
+	browser.social_said = p2p_now();
+	pthread_mutex_unlock(&browser_lock);
+}
+
+int browser_social_get(struct social_state *state, int *serial)
+{
+	int status;
+
+	pthread_mutex_lock(&browser_lock);
+	status = browser.social_status;
+	if (browser.social_state && *serial != browser.social_serial)
+	{
+		*state = *browser.social_state;
+		*serial = browser.social_serial;
+	}
+	pthread_mutex_unlock(&browser_lock);
+	return status;
+}
+
+int browser_social_act(int action, const char *handle)
+{
+	int taken = 0;
+
+	if (action < 0 || action >= NUMBER_OF_BROWSER_SOCIAL_ACTIONS || !social_handle_valid(handle))
+		return 0;
+	pthread_once(&browser_once, start_thread);
+	pthread_mutex_lock(&browser_lock);
+	if (browser.social_result.state != BROWSER_SOCIAL_BUSY)
+	{
+		browser.social_result.serial++;
+		browser.social_result.state = BROWSER_SOCIAL_BUSY;
+		browser.social_result.action = action;
+		snprintf(browser.social_result.handle, sizeof(browser.social_result.handle), "%s", handle);
+		browser.social_result.message[0] = 0;
+		browser.social_action_wanted = 1;
+		browser.social_join[0] = 0;
+		taken = 1;
+	}
+	pthread_mutex_unlock(&browser_lock);
+	return taken;
+}
+
+void browser_social_result(struct browser_social_result *result)
+{
+	pthread_mutex_lock(&browser_lock);
+	*result = browser.social_result;
+	pthread_mutex_unlock(&browser_lock);
+}
+
+int browser_social_take_join(char *link, int size)
+{
+	int taken;
+
+	pthread_mutex_lock(&browser_lock);
+	taken = browser.social_join[0] != 0;
+	snprintf(link, (size_t)size, "%s", browser.social_join);
+	browser.social_join[0] = 0;
+	pthread_mutex_unlock(&browser_lock);
+	return taken;
+}
+#endif
 
 /* ---------- Delta Profile in the game (public) */
 
