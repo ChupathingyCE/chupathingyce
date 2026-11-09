@@ -578,7 +578,9 @@ the setting for one start of the game. It has priority over the file.
 | `display.scoreboard_team_layout` | `"teams"` | `HALO_SCOREBOARD_TEAM_LAYOUT` | How the multiplayer scoreboard (hold BACK, or tab) lists a team game's players. `"teams"`: a column for each team, red on the left and blue on the right. `"score"`: all the players in order of score. With more players than fit, the mouse wheel and Page Up / Page Down scroll the scoreboard. |
 | `display.scoreboard_background` | `true` | `HALO_SCOREBOARD_BACKGROUND` | `true`: the multiplayer scoreboard (hold BACK, or tab) has a panel behind its text, for clearer text. |
 | `display.scoreboard_platforms` | `"auto"` | `HALO_SCOREBOARD_PLATFORMS` | A small logo of each player's platform (Windows, macOS, Linux, Android, Steam Deck, Xbox and so on) before their name on a network game's scoreboard, for players whose client sends it over Delta Peer; other players (OpenCE, retail) get no logo. `"auto"`: shown with the Chupathingy menus only, since the Xbox and Gearbox menus stay close to the originals. `"on"`: with any menus. `"off"`: never. |
-| `display.delta_profile` | `true` | `HALO_DELTA_PROFILE` | Delta Profile in the game: the DELTA row of Profiles (the Chupathingy menus) and button of Select Profile (the Gearbox menus), the "Delta:" line on a Halo profile, and Online Games' Start. `false` hides them all, and Start opens the profile's web page as before. Link Profile (RB in Online Games) stays. Refer to `docs/delta.md`, Delta Profile in the game. |
+| `display.delta_profile` | `true` | `HALO_DELTA_PROFILE` | Delta Profile in the game: the DELTA row of Profiles (the Chupathingy menus) and button of Select Profile (the Gearbox menus), the "Delta:" line on a Halo profile, and Online Games' Start. `false` hides them all, and Start opens the profile's web page as before, or Link Profile while this copy is not linked. Refer to `docs/delta.md`, Delta Profile in the game. |
+| `display.online_games_view` | `"public"` | `HALO_ONLINE_GAMES_VIEW` | The view Online Games opens on in a session (LB and RB switch, and the last one stays): `"all"`, `"public"` (CHUPATHINGY + PUBLIC: every game but OpenCE's dedicated servers), `"chupathingy"` (our servers and Delta hosts) or `"opence"` (OpenCE's dedicated servers). |
+| `display.opence_empty_servers` | `"folded"` | `HALO_OPENCE_EMPTY_SERVERS` | The empty OpenCE dedicated servers in Online Games' ALL and OPENCE views: `"folded"` puts them in one EMPTY SERVERS row at the end (A opens and closes it; closed each session), `"shown"` lists each one at the end. |
 | `display.profile_names` | `true` | `HALO_PROFILE_NAMES` | On the scoreboard, the postgame report and the lobby, players who share their Delta profile (`network.share_profile`) show by the profile's name, in games on Delta. `false`: every player by their game name. OpenCE players, and what OpenCE players see, are unchanged. |
 | `display.show_quit_players` | `true` | `HALO_SHOW_QUIT_PLAYERS` | `true`: players who quit stay on the multiplayer scoreboard (hold BACK, or tab) and the score in the corner, as in the original game. `false`: they are left off, and the players still in the game are ranked among themselves, as OpenCE does. Only what this machine draws changes. |
 | `display.scoreboard_background_color` | `"16, 16, 16, 150"` | `HALO_SCOREBOARD_BACKGROUND_COLOR` | The colour of the scoreboard's panel: `"red, green, blue, alpha"`, each from `0` to `255`. Alpha `0` is see-through, `255` is solid. |
@@ -1209,10 +1211,17 @@ last. The details show the map's picture from the menus, or from Halo PC's
 `network.online` is on and kept in the save root's `map_art` folder. So
 does a HaloMD or Custom Edition map's picture, when the site has one
 (art/maps/md, art/maps/ce). Any other map gets a card with its name in its
-family's color. RB (Link Profile)
-shows only while this copy is not linked to a profile: linked on this copy
-(kept in the save root's `game_list_profile.txt`), or a profile the site
-has for this copy's player ID. Once linked, Start's prompt names the
+family's color. LB and RB (Q and C on the keyboard) switch between four
+views of the list, each sorted with the most players first (the chosen
+order breaks ties): ALL; CHUPATHINGY + PUBLIC, the default, which leaves
+out OpenCE's dedicated servers; CHUPATHINGY (our servers and Delta hosts);
+and OPENCE (OpenCE's dedicated servers). The view shown stays for the
+session, and `display.online_games_view` picks the first. In ALL and
+OPENCE, the empty OpenCE dedicated servers fold into one EMPTY SERVERS row
+at the end, which A opens and closes (`display.opence_empty_servers`). The
+filter (Back) works in every view. Once this copy is linked to a profile
+(on this copy, kept in the save root's `game_list_profile.txt`, or a
+profile the site has for this copy's player ID), Start's prompt names the
 profile. Each copy of the game has a player key in the save root
 (`game_list_player.key`). The key confirms the player's lines in finished
 games. The game sends the key only to an HTTPS server, or to a server on
@@ -1223,7 +1232,8 @@ Games:
 
 - Press Start. The game opens the profile page in the web browser, signed
   in as this player.
-- Press RB, or C on the keyboard (Link Profile). Use this step where no web
+- Press Start, or F2 on the keyboard, and pick LINK PROFILE (with
+  `display.delta_profile` off, Start opens it directly). Use this step where no web
   browser opens: Steam's Game Mode, a Steam Deck, a console. The game shows
   a short code and a QR code. On a phone or a computer, go to
   `<server>/connect` (the address that the game shows), sign in, and enter
