@@ -2635,6 +2635,20 @@ void platform_pump_events(void)
 			}
 #endif
 			break;
+#if !defined(HALO_ANDROID) || defined(HALO_IOS)
+		case SDL_EVENT_GAMEPAD_REMOVED:
+			/* (SDL keeps a gamepad open until it is closed, even once the
+			controller has gone: each one plugged in again was opened anew
+			and the old one never let go. Android's guest has no
+			SDL_CloseGamepad in host_imports.list) */
+			{
+				SDL_Gamepad *gamepad = SDL_GetGamepadFromID(event.gdevice.which);
+
+				if (gamepad)
+					SDL_CloseGamepad(gamepad);
+			}
+			break;
+#endif
 #ifdef __APPLE__
 		case SDL_EVENT_DROP_FILE:
 		case SDL_EVENT_DROP_TEXT:
