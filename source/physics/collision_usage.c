@@ -581,6 +581,13 @@ static short collision_log_get_current_user(
 void collision_log_start_time(
 	LARGE_INTEGER *start_time)
 {
+	/* port: the clock is read only when the times are shown
+	(collision_log_time): this runs twice for every collision test */
+	if (!collision_log_time)
+	{
+		start_time->QuadPart = 0;
+		return;
+	}
 	QueryPerformanceCounter(start_time);
 
 	return;
@@ -593,11 +600,14 @@ void collision_log_end_time(
 	LARGE_INTEGER end_time;
 	short user;
 
-	QueryPerformanceCounter(&end_time);
 	user = collision_log_get_current_user(collision_function);
-	if (user != NONE)
+	/* port: not timed (collision_log_start_time) */
+	if (user != NONE && start_time)
 	{
-		__int64 elapsed_time = end_time.QuadPart - start_time;
+		__int64 elapsed_time;
+
+		QueryPerformanceCounter(&end_time);
+		elapsed_time = end_time.QuadPart - start_time;
 
 		collision_usage_current.function[collision_function]
 			.total_all_users.elapsed_time += elapsed_time;

@@ -45,6 +45,9 @@ with it under the lock.
 #include "browser_ping.h"
 #include "qrcodegen.h"
 #include "delta_profile.h"
+#ifndef HALO_CONSOLE_NO_GUIDE
+#include "social.h"
+#endif
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -228,6 +231,31 @@ static struct
 	char connect_message[96];
 	int connect_qr_size;
 	unsigned char connect_qr[BROWSER_CONNECT_QR_SIZE * BROWSER_CONNECT_QR_SIZE];
+
+#ifndef HALO_CONSOLE_NO_GUIDE
+	/* presence (social.h): whether the game says this copy is playing a
+	Delta game, when it last said so, and the schedule (the browser
+	thread's, under the lock) */
+	int presence_playing;
+	unsigned long presence_said;
+	struct social_presence presence;
+	int presence_logged;
+
+	/* the Guide's friends (browser_social_*): where the game says the
+	player is, and when it last said so; the schedule; the state (made the
+	first time the game says) and its serial; the action asked for and
+	what it came to; a join the site allowed */
+	int social_in_game;
+	int social_guide_open;
+	unsigned long social_said;
+	struct social_poll social_poll;
+	struct social_state *social_state;
+	int social_status;
+	int social_serial;
+	int social_action_wanted;
+	struct browser_social_result social_result;
+	char social_join[BROWSER_INVITE_LENGTH + 16];
+#endif
 
 	/* the profile this copy's games count for (browser_profile_linked): its
 	handle while known, from Link Profile on this copy (kept in the save
@@ -1920,6 +1948,298 @@ static void update_anchors(void)
 		pthread_detach(thread);
 }
 
+#ifndef HALO_CONSOLE_NO_GUIDE
+/* ---------- presence (the browser thread)
+
+About once a minute while this copy plays a Delta game that has an invite,
+it tells the site which game (POST /v1/presence {key, invite}), when
+network.share_presence is on, this copy counts for a Delta profile and the
+profile's "Show when I'm playing" is not off. The invite is the game's own:
+the one this copy hosts with (p2p_hosting_invite), or the one it joined
+(p2p_joined_invite). The site finds the listed game by it for the
+profile's "playing" line, shows that game only to those the player allows,
+and the invite itself only to those allowed to join. Nothing in the menus,
+only this copy's own player key, nothing about other players. The site
+keeps it in memory only, with no address. */
+
+/* the game says it is playing this often (discord_game.c, once a second):
+quiet longer, and it no longer is */
+#define PRESENCE_SAID_TIMEOUT 5000
+
+static void update_presence(void)
+{
+	struct social_presence_inputs inputs;
+	char invite[BROWSER_INVITE_LENGTH + 1], fields[128], response[256], error[256];
+	int status, no_key, answer, logged;
+
+	/* (whether this copy is linked, without waiting for a screen to ask:
+	the link kept in the save root, once a run, then the site's word on the
+	player's own profile, asked once a run while playing) */
+	read_profile_file();
+	memset(&inputs, 0, sizeof(inputs));
+	inputs.share = config_boolean("network.share_presence") != 0;
+	/* (the game's invite: hosted, else joined; a password game hosted here
+	has none to give) */
+	invite[0] = 0;
+	if (!p2p_hosting_invite(invite, sizeof(invite)) && !p2p_joined_invite(invite, sizeof(invite)))
+		invite[0] = 0;
+	inputs.has_invite = social_presence_invite_valid(invite);
+	pthread_mutex_lock(&browser_lock);
+	inputs.in_game = browser.presence_playing && !elapsed(browser.presence_said, PRESENCE_SAID_TIMEOUT);
+	/* (playing says the game is a Delta one: discord_game.c) */
+	inputs.on_delta = inputs.in_game;
+	inputs.linked = browser.profile_linked || (browser.game_profile_has && browser.game_profile.linked);
+	if (inputs.in_game && inputs.share && !inputs.linked)
+		browser.profile_check_wanted = 1;
+	inputs.hidden = browser.game_profile_has && browser.game_profile.has_privacy &&
+		!browser.game_profile.show_presence;
+	if (!social_presence_due(&browser.presence, &inputs, p2p_now()))
+	{
+		pthread_mutex_unlock(&browser_lock);
+		return;
+	}
+	pthread_mutex_unlock(&browser_lock);
+	response[0] = 0;
+	if (social_presence_fields(fields, sizeof(fields), invite) < 0)
+		fields[0] = 0;
+	status = game_request("/v1/presence", fields, response, sizeof(response), error, sizeof(error), &no_key);
+	pthread_mutex_lock(&browser_lock);
+	answer = social_presence_answer(&browser.presence, no_key ? 0 : status, response, p2p_now());
+	logged = browser.presence_logged;
+	browser.presence_logged = answer;
+	pthread_mutex_unlock(&browser_lock);
+	/* (debug.txt says what the site said when it changes, never the key) */
+	if (answer != logged)
+	{
+		platform_log("Delta presence: %s", answer == SOCIAL_PRESENCE_OK ? "the site shows you playing" :
+			answer == SOCIAL_PRESENCE_OFF ? "the site keeps it hidden; asked again in half an hour" :
+			answer == SOCIAL_PRESENCE_BUSY ? "the site is busy; asked again in ten minutes" :
+			answer == SOCIAL_PRESENCE_REFUSED ? "the site does not take it; asked again in half an hour" :
+			no_key ? "no player key or no HTTPS game list" : "the site is not answering");
+	}
+}
+#endif
+
+/* ---------- the Guide's friends (the browser thread)
+
+While the game says where the player is (the Guide's, about once a second),
+this copy is linked to a Delta profile and network.browser_url is set, the
+site's friends state is asked for on social_poll_due's schedule (POST
+/v1/social/state {key, since}: the cursor of the last state, so that an
+unchanged one is just the cursor back). Too many (429), no answer and an
+unlinked copy wait longer (social_poll_answer). An action asked for
+(browser_social_act) goes first: a friends change (/v1/game/friends, whose
+answer is the new state), a join (/v1/social/join: the halo://join link the
+game then joins as any invite link) or an invite (/v1/social/invite, with
+this copy's game's invite). Only this copy's key is sent; debug.txt says
+how many, never who. */
+
+#define SOCIAL_SAID_TIMEOUT 5000
+#define SOCIAL_RESPONSE (256 * 1024)
+#define SOCIAL_NOT_ANSWERING "The site isn't answering."
+
+static const char *const social_action_names[] = { "accept", "decline", "remove", "block" };
+
+/* (under the lock) the state changed: the Guide copies it */
+static void social_status_set(int status)
+{
+	if (browser.social_status != status)
+	{
+		browser.social_status = status;
+		browser.social_serial++;
+	}
+}
+
+/* (under the lock) the result of the action out */
+static void social_done(int state, const char *message)
+{
+	browser.social_result.state = state;
+	snprintf(browser.social_result.message, sizeof(browser.social_result.message), "%s", message ? message : "");
+}
+
+static void social_log(int status, const struct social_state *state)
+{
+	if (status == BROWSER_SOCIAL_LOADED)
+	{
+		platform_log("Guide: friends loaded (%d of %d online, %d requests, %d invites)", social_online_count(state),
+			state->friend_count, state->request_count, state->invite_count);
+	}
+	else if (status == BROWSER_SOCIAL_UNLINKED)
+		platform_log("Guide: the site says this copy is linked to no profile");
+	else if (status == BROWSER_SOCIAL_FAILED)
+		platform_log("Guide: friends not loaded (the site is busy or not answering; asked again later)");
+}
+
+/* a state read (the poll's, or a friends action's): kept */
+static void social_keep(const struct social_state *read)
+{
+	*browser.social_state = *read;
+	browser.social_serial++;
+	browser.social_status = BROWSER_SOCIAL_LOADED;
+}
+
+static void social_action(int action, const char *handle, char *response, struct social_state *read)
+{
+	char fields[192], error[256], text[96], invite[BROWSER_INVITE_LENGTH + 1];
+	const char *path;
+	int status, no_key, ok, parsed = 0, logged_status;
+
+	fields[0] = 0;
+	if (action >= BROWSER_SOCIAL_ACCEPT && action <= BROWSER_SOCIAL_BLOCK)
+	{
+		path = "/v1/game/friends";
+		ok = social_action_fields(fields, sizeof(fields), social_action_names[action], handle) >= 0;
+	}
+	else if (action == BROWSER_SOCIAL_JOIN)
+	{
+		path = "/v1/social/join";
+		ok = social_join_fields(fields, sizeof(fields), handle) >= 0;
+	}
+	else
+	{
+		/* (this copy's game: the one it hosts, else the one it joined) */
+		path = "/v1/social/invite";
+		if (!p2p_hosting_invite(invite, sizeof(invite)) && !p2p_joined_invite(invite, sizeof(invite)))
+			invite[0] = 0;
+		ok = social_invite_fields(fields, sizeof(fields), handle,
+			social_presence_invite_valid(invite) ? invite : "") >= 0;
+	}
+	if (!ok)
+	{
+		pthread_mutex_lock(&browser_lock);
+		social_done(BROWSER_SOCIAL_REFUSED, "Can't do that.");
+		pthread_mutex_unlock(&browser_lock);
+		return;
+	}
+	response[0] = 0;
+	status = game_request(path, fields, response, SOCIAL_RESPONSE, error, sizeof(error), &no_key);
+	if (status == 200 && action <= BROWSER_SOCIAL_BLOCK)
+		parsed = delta_profile_parse_social(response, read);
+	pthread_mutex_lock(&browser_lock);
+	logged_status = browser.social_status;
+	social_poll_soon(&browser.social_poll);
+	if (no_key || !status)
+		social_done(BROWSER_SOCIAL_REFUSED, SOCIAL_NOT_ANSWERING);
+	else if (action == BROWSER_SOCIAL_JOIN)
+	{
+		if (status == 200 && delta_profile_parse_join(response, browser.social_join, sizeof(browser.social_join)))
+			social_done(BROWSER_SOCIAL_DONE, "");
+		else if (status == 429)
+			social_done(BROWSER_SOCIAL_REFUSED, "Too many tries. Wait a minute.");
+		else
+		{
+			delta_profile_parse_text(response, "reason", text, sizeof(text));
+			social_done(BROWSER_SOCIAL_REFUSED, social_join_refusal(text));
+		}
+	}
+	else if (action == BROWSER_SOCIAL_INVITE)
+	{
+		if (status == 200)
+			social_done(BROWSER_SOCIAL_DONE, "Invite sent");
+		else
+		{
+			delta_profile_parse_text(response, "reason", text, sizeof(text));
+			social_done(BROWSER_SOCIAL_REFUSED, social_invite_refusal(text, status));
+		}
+	}
+	else if (parsed == 1)
+	{
+		social_keep(read);
+		social_done(BROWSER_SOCIAL_DONE, "");
+	}
+	else
+	{
+		/* (the site's own words: "That request is gone.") */
+		delta_profile_parse_text(response, "error", text, sizeof(text));
+		social_done(BROWSER_SOCIAL_REFUSED, status == 429 ? "Too many tries. Wait a minute." :
+			text[0] && status >= 400 && status < 500 ? text : "Can't do that right now.");
+	}
+	pthread_mutex_unlock(&browser_lock);
+	platform_log("Guide: %s %s", action == BROWSER_SOCIAL_JOIN ? "join" : action == BROWSER_SOCIAL_INVITE ? "invite" :
+		social_action_names[action], status == 200 ? "done" : status ? "refused" : "no answer");
+	if (parsed == 1 && logged_status != BROWSER_SOCIAL_LOADED)
+		social_log(BROWSER_SOCIAL_LOADED, read);
+}
+
+static void update_social(void)
+{
+	static char *response;
+	static struct social_state *read;
+	char fields[128], error[256], cursor[SOCIAL_CURSOR_SIZE], handle[SOCIAL_HANDLE_SIZE];
+	int linked, due, action, status, no_key, parsed, before, after;
+
+	pthread_mutex_lock(&browser_lock);
+	if (!browser.social_state || elapsed(browser.social_said, SOCIAL_SAID_TIMEOUT))
+	{
+		pthread_mutex_unlock(&browser_lock);
+		return;
+	}
+	linked = browser.profile_linked || (browser.game_profile_has && browser.game_profile.linked);
+	if (!linked)
+	{
+		/* (the site asked once a run whether this copy is linked) */
+		browser.profile_check_wanted = 1;
+		if (browser.social_status != BROWSER_SOCIAL_NONE)
+		{
+			memset(browser.social_state, 0, sizeof(*browser.social_state));
+			social_status_set(BROWSER_SOCIAL_NONE);
+		}
+	}
+	action = linked && browser.social_action_wanted ? browser.social_result.action : -1;
+	snprintf(handle, sizeof(handle), "%s", browser.social_result.handle);
+	if (browser.social_action_wanted && !linked)
+		social_done(BROWSER_SOCIAL_REFUSED, "Sign in first.");
+	browser.social_action_wanted = 0;
+	due = action < 0 &&
+		social_poll_due(&browser.social_poll, p2p_now(), browser.social_in_game && !browser.social_guide_open, linked);
+	if (due && browser.social_status == BROWSER_SOCIAL_NONE)
+		browser.social_status = BROWSER_SOCIAL_LOADING;
+	snprintf(cursor, sizeof(cursor), "%s", browser.social_status == BROWSER_SOCIAL_LOADED ? browser.social_state->cursor : "");
+	pthread_mutex_unlock(&browser_lock);
+	if (action < 0 && !due)
+		return;
+	if (!response)
+		response = malloc(SOCIAL_RESPONSE);
+	if (!read)
+		read = malloc(sizeof(*read));
+	if (!response || !read)
+		return;
+	if (action >= 0)
+	{
+		social_action(action, handle, response, read);
+		return;
+	}
+
+	if (social_state_fields(fields, sizeof(fields), cursor, SOCIAL_MAXIMUM_FRIENDS) < 0)
+		social_state_fields(fields, sizeof(fields), "", SOCIAL_MAXIMUM_FRIENDS);
+	response[0] = 0;
+	status = game_request("/v1/social/state", fields, response, SOCIAL_RESPONSE, error, sizeof(error), &no_key);
+	parsed = status == 200 ? delta_profile_parse_social(response, read) : 0;
+	pthread_mutex_lock(&browser_lock);
+	before = browser.social_status;
+	social_poll_answer(&browser.social_poll, no_key ? 0 : status, parsed != 0);
+	if (parsed == 1)
+		social_keep(read);
+	else if (parsed == 2 && before == BROWSER_SOCIAL_LOADED)
+	{
+		/* (unchanged) */
+	}
+	else if (status == 404 && !no_key)
+	{
+		memset(browser.social_state, 0, sizeof(*browser.social_state));
+		social_status_set(BROWSER_SOCIAL_UNLINKED);
+	}
+	else if (before == BROWSER_SOCIAL_LOADING || before == BROWSER_SOCIAL_LOADED)
+	{
+		/* (the state kept stays shown; the next poll asks for all of it) */
+		social_status_set(BROWSER_SOCIAL_FAILED);
+	}
+	after = browser.social_status;
+	pthread_mutex_unlock(&browser_lock);
+	if (after != before || (parsed == 1 && before != BROWSER_SOCIAL_LOADED))
+		social_log(after, read);
+}
+
 static void *browser_thread(void *unused)
 {
 	(void)unused;
@@ -1935,6 +2255,10 @@ static void *browser_thread(void *unused)
 			update_connect();
 			check_profile();
 			update_game_profile();
+#ifndef HALO_CONSOLE_NO_GUIDE
+			update_presence();
+			update_social();
+#endif
 			update_cards();
 			update_list();
 			update_anchors();
@@ -2860,6 +3184,89 @@ int browser_headless(void)
 {
 	return browser_dedicated() || browser_probe() != NULL;
 }
+
+#ifndef HALO_CONSOLE_NO_GUIDE
+void browser_presence_playing(int playing)
+{
+	pthread_once(&browser_once, start_thread);
+	pthread_mutex_lock(&browser_lock);
+	browser.presence_playing = playing != 0;
+	browser.presence_said = p2p_now();
+	pthread_mutex_unlock(&browser_lock);
+}
+
+void browser_social_where(int in_game, int guide_open)
+{
+	pthread_once(&browser_once, start_thread);
+	pthread_mutex_lock(&browser_lock);
+	if (!browser.social_state)
+		browser.social_state = calloc(1, sizeof(*browser.social_state));
+	/* (the Guide opening: its friends soon) */
+	if (guide_open && !browser.social_guide_open)
+		social_poll_soon(&browser.social_poll);
+	browser.social_in_game = in_game != 0;
+	browser.social_guide_open = guide_open != 0;
+	browser.social_said = p2p_now();
+	pthread_mutex_unlock(&browser_lock);
+}
+
+int browser_social_get(struct social_state *state, int *serial)
+{
+	int status;
+
+	pthread_mutex_lock(&browser_lock);
+	status = browser.social_status;
+	if (browser.social_state && *serial != browser.social_serial)
+	{
+		*state = *browser.social_state;
+		*serial = browser.social_serial;
+	}
+	pthread_mutex_unlock(&browser_lock);
+	return status;
+}
+
+int browser_social_act(int action, const char *handle)
+{
+	int taken = 0;
+
+	if (action < 0 || action >= NUMBER_OF_BROWSER_SOCIAL_ACTIONS || !social_handle_valid(handle))
+		return 0;
+	pthread_once(&browser_once, start_thread);
+	pthread_mutex_lock(&browser_lock);
+	if (browser.social_result.state != BROWSER_SOCIAL_BUSY)
+	{
+		browser.social_result.serial++;
+		browser.social_result.state = BROWSER_SOCIAL_BUSY;
+		browser.social_result.action = action;
+		snprintf(browser.social_result.handle, sizeof(browser.social_result.handle), "%s", handle);
+		browser.social_result.message[0] = 0;
+		browser.social_action_wanted = 1;
+		browser.social_join[0] = 0;
+		taken = 1;
+	}
+	pthread_mutex_unlock(&browser_lock);
+	return taken;
+}
+
+void browser_social_result(struct browser_social_result *result)
+{
+	pthread_mutex_lock(&browser_lock);
+	*result = browser.social_result;
+	pthread_mutex_unlock(&browser_lock);
+}
+
+int browser_social_take_join(char *link, int size)
+{
+	int taken;
+
+	pthread_mutex_lock(&browser_lock);
+	taken = browser.social_join[0] != 0;
+	snprintf(link, (size_t)size, "%s", browser.social_join);
+	browser.social_join[0] = 0;
+	pthread_mutex_unlock(&browser_lock);
+	return taken;
+}
+#endif
 
 /* ---------- Delta Profile in the game (public) */
 
