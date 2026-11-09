@@ -574,14 +574,18 @@ void first_person_weapon_draw(
 					short fists_frame_index;
 					real fists_drop;
 #endif
+					/* port: between the last two ticks, as the world's
+					units are drawn (render_interpolation.c) */
+					real camouflage_super_amount;
+					real active_camouflage= unit_get_drawn_camouflage(unit_index, &camouflage_super_amount);
 
 					model_effect.modifier_shader= NULL;
 					if (TEST_FLAG(unit->unit.flags, _unit_active_camouflaged_bit) ||
-						unit->unit.active_camouflage>0.0f)
+						active_camouflage>0.0f)
 					{
 						model_effect.type= _render_model_effect_type_active_camouflage;
-						model_effect.intensity= unit->unit.active_camouflage;
-						model_effect.parameter= unit->unit.active_camouflage_super_amount;
+						model_effect.intensity= active_camouflage;
+						model_effect.parameter= camouflage_super_amount;
 						model_effect.source_object_index= unit_index;
 						model_effect.source_object_centroid= render.camera.position;
 					}
@@ -610,7 +614,7 @@ void first_person_weapon_draw(
 							0.0f,
 							model_node_matrices,
 							NULL,
-							weapon->object.outgoing_change_colors,
+							object_get_change_colors(first_person_weapon->weapon_index),
 							object_get_function_values(first_person_weapon->weapon_index),
 							lighting,
 							&render.camera.position,
@@ -642,7 +646,7 @@ void first_person_weapon_draw(
 							0.0f,
 							model_node_matrices,
 							NULL,
-							unit->object.outgoing_change_colors,
+							object_get_change_colors(unit_index),
 							object_get_function_values(unit_index),
 							lighting,
 							&render.camera.position,
