@@ -1543,6 +1543,20 @@ static void mute_toggle(short machine, wchar_t const *name)
 	}
 }
 
+/* ---------- this copy's mutes, as the Guide's Players here sets them
+(guide.c): the chat log's own */
+
+boolean chat_local_muted(short machine, wchar_t const *name)
+{
+	return muted(machine, name);
+}
+
+void chat_local_mute(short machine, wchar_t const *name, boolean mute)
+{
+	if (muted(machine, name) != (mute != FALSE))
+		mute_toggle(machine, name);
+}
+
 static void log_keys(void)
 {
 	struct key_stroke key;

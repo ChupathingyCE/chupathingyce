@@ -727,6 +727,14 @@ void invite_prompt_pointer(struct halo_ui_pointer const *pointer);
 /* moderation's screen: the same */
 void moderation_screen_pointer(struct halo_ui_pointer const *pointer);
 void invite_prompt_render(void);
+#ifdef HALO_GUIDE
+/* port: the Guide (port/linux/game/guide.c), over any screen */
+boolean guide_active(void);
+void guide_update(boolean menu_open);
+void guide_process(void);
+void guide_pointer(struct halo_ui_pointer const *pointer);
+void guide_render(void);
+#endif
 /* (ONLINE GAMES, below: its list moves focus item by item) */
 boolean ui_widget_online_games_list(struct widget_instance *widget);
 #ifdef HALO_CONSOLE_MAP_BROWSER
@@ -1460,6 +1468,9 @@ short pc_menu_button_key_cap_left(
 /* port: the row of the bitmap draw_bitmap_in_rect starts from (a frame the
 menus place, pc_menu_frame_placement): 0 but while one is drawn */
 static short draw_bitmap_texel_y = 0;
+/* ... and the column (the name entry's picture's sides on a wide screen:
+virtual_keyboard.c) */
+short draw_bitmap_texel_x = 0;
 static void widget_instance_initialize(
 	struct widget_instance *widget,
 	struct widget_instance *parent,
@@ -1622,6 +1633,15 @@ short local_player_index_for_draw_string_and_hack_in_icons;
 keys for the buttons, not the game's: input_abstraction_port_icon_key) */
 static boolean draw_string_icons_for_menus = FALSE;
 short draw_string_and_hack_in_icons_end_x = 0;
+
+/* port: draw_string_and_hack_in_icons draws the menus' keys for the buttons
+from here on (the carnage report's prompt, which takes the buttons as the
+menus do), or the game's again */
+void draw_string_and_hack_in_icons_for_menus(
+	boolean menus)
+{
+	draw_string_icons_for_menus = menus;
+}
 
 /* January defines this and never references it, as we do not */
 real const _one_over_255 = 1.0f / 255.0f;
@@ -1902,8 +1922,8 @@ void draw_bitmap_in_rect(
 			vertex_index++)
 		{
 			vertices[vertex_index].color = argb;
-			vertices[vertex_index].texture_coordinates.x =
-				(vertex_index % 3) ? texture_width : 0.0f;
+			vertices[vertex_index].texture_coordinates.x = draw_bitmap_texel_x / bitmap_width +
+				((vertex_index % 3) ? texture_width : 0.0f);
 			/* port: from the row the menus place it from (draw_bitmap_texel_y) */
 			vertices[vertex_index].texture_coordinates.y = draw_bitmap_texel_y / bitmap_height +
 				((vertex_index > 1) ? texture_height : 0.0f);
@@ -2249,6 +2269,10 @@ static boolean ui_widget_screens_of_code_active(
 #ifdef HALO_GAME_BROWSER
 	boolean active = invite_prompt_active() || browser_screen_active() || moderation_screen_active();
 
+#ifdef HALO_GUIDE
+	active = active || guide_active();
+#endif
+
 #ifndef HALO_CONSOLE_NO_CONTROLS
 	active = active || controls_screen_active();
 #endif
@@ -2271,6 +2295,36 @@ boolean ui_widgets_take_input(
 {
 	return ui_widgets_active() || virtual_keyboard_active() || ui_widget_screens_of_code_active();
 }
+
+#ifdef HALO_GUIDE
+/* port: the game paused (or let go) as a menu that pauses it does, for the
+Guide over a game on this machine alone (port/linux/game/guide.c) */
+void ui_widgets_port_pause_game(
+	boolean pause)
+{
+	if (pause)
+	{
+		widget_globals.pause_game_time_count++;
+		if (!game_time_get_paused())
+			game_time_set_paused(TRUE);
+		if (!widget_globals.sound_paused && !we_are_at_the_main_menu)
+		{
+			sound_pause(TRUE);
+			widget_globals.sound_paused = TRUE;
+		}
+	}
+	else if (widget_globals.pause_game_time_count > 0 && --widget_globals.pause_game_time_count == 0)
+	{
+		if (game_time_get_paused())
+			game_time_set_paused(FALSE);
+		if (widget_globals.sound_paused)
+		{
+			sound_pause(FALSE);
+			widget_globals.sound_paused = FALSE;
+		}
+	}
+}
+#endif
 
 boolean ui_widgets_active(
 	void)
@@ -5232,9 +5286,6 @@ void display_error_damaged_media_text(
 	return;
 }
 
-/* port: menu_tags.c's */
-char const *pc_menus_screen(char const *name);
-
 void network_game_reset_to_pregame_ui(
 	void)
 {
@@ -7493,6 +7544,11 @@ static boolean ui_mouse_menus_active(
 
 	/* (and the scores after a game, which take A and B like the menus:
 	game_engine_update_non_deterministic) */
+#ifdef HALO_GUIDE
+	/* (the Guide, over a game too, frees the mouse for itself) */
+	if (guide_active())
+		return TRUE;
+#endif
 	return virtual_keyboard_active() || ui_mouse_menu() != NULL || game_engine_showing_postgame();
 }
 
@@ -7699,6 +7755,11 @@ static void ui_widgets_process_mouse(
 	targets under it and would have taken the click as its A (ONLINE GAMES,
 	opening it again) */
 	overlay_active = ui_widget_screens_of_code_active();
+#ifdef HALO_GUIDE
+	if (pointer_active && guide_active())
+		guide_pointer(&pointer);
+	else
+#endif
 	if (pointer_active && !keyboard_active && invite_prompt_active())
 		invite_prompt_pointer(&pointer);
 #ifndef HALO_CONSOLE_NO_DELTA_PROFILE
@@ -8406,6 +8467,10 @@ void render_ui_widgets(
 #endif
 		moderation_screen_render();
 		invite_prompt_render();
+#ifdef HALO_GUIDE
+		/* (over all of them) */
+		guide_render();
+#endif
 	}
 #endif
 #ifndef HALO_XBOX_CONSOLE
@@ -9594,6 +9659,17 @@ void process_ui_widgets(
 	}
 	if (progress_bar_is_active())
 		return;
+#ifdef HALO_GUIDE
+	/* port: the Guide, over whatever is up, takes the input while open */
+	guide_update(widget_globals.active_widgets[0] != NULL);
+	if (guide_active())
+	{
+		guide_process();
+		event_manager_flush();
+
+		return;
+	}
+#endif
 	if (virtual_keyboard_active())
 	{
 		virtual_keyboard_process();

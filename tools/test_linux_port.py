@@ -303,9 +303,11 @@ def test_menu_settings_exist():
     for path in (MENUS / "ce").glob("*.xml"):
         for setting in re.findall(r'setting="([^"]+)"', path.read_text()):
             assert setting in known | profile, f"{path.name}: {setting}"
-    controls = set(re.findall(r'"(controls\.[a-z_]+)"', (root / "port/linux/src/xinput_sdl.c").read_text()))
+    # (the Guide's key and button: its own Settings set them, not the Controls screen; game/guide.c)
+    guide = {"controls.guide", "controls.guide_button"}
+    controls = set(re.findall(r'"(controls\.[a-z_]+)"', (root / "port/linux/src/xinput_sdl.c").read_text())) - guide
     # (controls.controller_layout is the controller's, not a key's: controller_layout.c)
-    assert controls == {name for name in known if name.startswith("controls.")} - {"controls.controller_layout"}
+    assert controls == {name for name in known if name.startswith("controls.")} - {"controls.controller_layout"} - guide
     assert controls == set(re.findall(r'\{ "(controls\.[a-z_]+)", L"', functions))
 
 
