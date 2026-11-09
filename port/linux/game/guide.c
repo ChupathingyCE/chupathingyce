@@ -25,6 +25,11 @@ gets a controller at rest, and their player stands still
 alone pauses as it does under the pause menu. B closes it, back to what was
 under it as it was.
 
+It opens with controls.guide (F3), the controller's Guide button
+(controls.guide_button, where SDL reads it), Back held in the menus, or the
+pause menu's GUIDE (menu_tags.c, guide.pause_menu); the same key or button,
+or B, closes it.
+
 Toasts (guide_toast) show low in the middle of the screen for a few
 seconds: in the menus, and in a game only with guide.notify_in_game. None
 are sent yet.
@@ -73,6 +78,8 @@ int delta_peer_player_platform(int player_index);
 int delta_peer_player_profile(int player_index, unsigned char *player_id);
 /* discord_game.c's */
 boolean discord_game_get(struct discord_activity_game *game);
+/* virtual_keyboard.c's */
+boolean virtual_keyboard_active(void);
 /* ui_widget.c's: the game paused as a menu pauses it */
 void ui_widgets_port_pause_game(boolean pause);
 
@@ -865,6 +872,15 @@ void guide_update(boolean menu_open)
 	{
 		guide.debug_toast_done = TRUE;
 		guide_toast(config_string("debug.guide_toast"), "Online \xC2\xB7 In the menus");
+	}
+	/* (F3, the Guide button, Back held in the menus: open or close; not
+	over the virtual keyboard, which takes typing) */
+	if (platform_guide_toggles())
+	{
+		if (guide.open)
+			guide_close();
+		else if (!virtual_keyboard_active())
+			guide_open();
 	}
 	if (guide.open)
 	{

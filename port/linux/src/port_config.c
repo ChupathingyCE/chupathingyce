@@ -718,6 +718,8 @@ static const struct config_setting config_settings[] =
 		"Open the Guide with the controller's Guide button, where Chupathingy\n"
 		"can read it (Steam and the Xbox Game Bar may keep it for themselves).\n"
 		"Holding Back in the menus opens it too." },
+	{ "guide.pause_menu", _config_boolean, "true", "HALO_GUIDE_PAUSE_MENU", _environment_value, _platform_all,
+		"Put GUIDE in the pause menu, in every menu set." },
 	{ "guide.notify_in_game", _config_boolean, "false", "HALO_GUIDE_NOTIFY_IN_GAME", _environment_value,
 		_platform_all,
 		"Show the Guide's notifications during a game. They always show in\n"
