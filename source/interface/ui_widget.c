@@ -734,6 +734,9 @@ void guide_update(boolean menu_open);
 void guide_process(void);
 void guide_pointer(struct halo_ui_pointer const *pointer);
 void guide_render(void);
+/* the pause menu's GUIDE with what waits in the Guide ("GUIDE 2"), for
+its text's string list; NULL to leave it */
+wchar_t const *guide_pause_label(long string_list_tag);
 #endif
 /* (ONLINE GAMES, below: its list moves focus item by item) */
 boolean ui_widget_online_games_list(struct widget_instance *widget);
@@ -5916,6 +5919,15 @@ static void widget_instance_render_text_box(
 #else
 			string = L"Find and join games hosted \r\nover the internet, on the \r\ncommunity's game list.";
 #endif
+#endif
+#ifdef HALO_GUIDE
+		{
+			/* port: the pause menu's GUIDE, with a count ("GUIDE 2") */
+			wchar_t const *guide_label = guide_pause_label(definition->text_label_string_list.index);
+
+			if (guide_label)
+				string = (wchar_t *)guide_label;
+		}
 #endif
 		/* port: the description of a spinner's extra item */
 		if (string_list_index >= SPINNER_EXTRA_DESCRIPTION_BASE &&
