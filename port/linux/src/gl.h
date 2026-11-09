@@ -89,6 +89,7 @@ this list to generate the guest's entry points */
 	X(glBlitFramebuffer) \
 	X(glDrawBuffers) \
 	X(glGenRenderbuffers) \
+	X(glDeleteRenderbuffers) \
 	X(glBindRenderbuffer) \
 	X(glRenderbufferStorageMultisample) \
 	X(glFramebufferRenderbuffer) \
@@ -209,6 +210,7 @@ context has the extension, never required (gl_functions.c). On ES 3.0 and
 	X(glBlitFramebuffer) \
 	X(glDrawBuffers) \
 	X(glGenRenderbuffers) \
+	X(glDeleteRenderbuffers) \
 	X(glBindRenderbuffer) \
 	X(glRenderbufferStorageMultisample) \
 	X(glFramebufferRenderbuffer) \
@@ -337,6 +339,7 @@ pointers, sees the declarations without these aliases */
 #define glBlitFramebuffer halo_glBlitFramebuffer
 #define glDrawBuffers halo_glDrawBuffers
 #define glGenRenderbuffers halo_glGenRenderbuffers
+#define glDeleteRenderbuffers halo_glDeleteRenderbuffers
 #define glBindRenderbuffer halo_glBindRenderbuffer
 #define glRenderbufferStorageMultisample halo_glRenderbufferStorageMultisample
 #define glFramebufferRenderbuffer halo_glFramebufferRenderbuffer
@@ -449,6 +452,7 @@ pointers, sees the declarations without these aliases */
 #define glBlitFramebuffer halo_glBlitFramebuffer
 #define glDrawBuffers halo_glDrawBuffers
 #define glGenRenderbuffers halo_glGenRenderbuffers
+#define glDeleteRenderbuffers halo_glDeleteRenderbuffers
 #define glBindRenderbuffer halo_glBindRenderbuffer
 #define glRenderbufferStorageMultisample halo_glRenderbufferStorageMultisample
 #define glFramebufferRenderbuffer halo_glFramebufferRenderbuffer

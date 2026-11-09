@@ -2208,7 +2208,12 @@ static struct cached_map_file *cached_map_file_get(
 static void cached_map_file_invalidate(
 	short map_file_index)
 {
-	cached_map_file_get(map_file_index)->file = INVALID_HANDLE_VALUE;
+	struct cached_map_file *map_file = cached_map_file_get(map_file_index);
+
+	/* port: the handle is closed, not just forgotten */
+	if (map_file->file != INVALID_HANDLE_VALUE && map_file->file != NULL)
+		CloseHandle(map_file->file);
+	map_file->file = INVALID_HANDLE_VALUE;
 
 	return;
 }
