@@ -462,6 +462,9 @@ static void light_get_bounding_sphere(
 	long light_index,
 	real_point3d *position,
 	real *radius);
+static void light_port_drawn_center(
+	struct light_datum const *light,
+	real_point3d *center);
 
 /* ---------- globals */
 
@@ -1140,6 +1143,33 @@ void lights_preprocess_scene(
 						0x1F0,
 						light->color.blue >=0.0f && light->color.blue <=1.0f);
 
+					/* port: drawn where the object is drawn between ticks
+					(port/linux/game/render_interpolation.c). An attached
+					light is put on its marker once a tick, as the object
+					moves, so it ran up to a tick ahead of the object drawn
+					and moved in 30 Hz steps beside a thrown grenade or a
+					bolt. The rasterizer light goes on the marker as drawn;
+					light->position, which the units' illumination reads,
+					stays the tick's. The first-person weapon's lights are
+					moved below as before. */
+					if (object && light->parent_light_index == NONE)
+					{
+						struct object_marker drawn_marker;
+
+						if (object_get_marker_by_name(
+							light->object_index,
+							object_get_attachment_marker_name(
+								light->object_index,
+								light->attachment_marker_index),
+							&drawn_marker,
+							1) > 0)
+						{
+							light_parameters.position = drawn_marker.matrix.position;
+							light_parameters.forward = drawn_marker.matrix.forward;
+							light_parameters.up = drawn_marker.matrix.up;
+						}
+					}
+
 					if (light->parent_light_index == NONE)
 					{
 						boolean adjusted = FALSE;
@@ -1780,6 +1810,29 @@ static void light_get_bounding_sphere(
 	return;
 }
 
+/* port: a light's sphere for the level's diffuse and specular passes, moved
+with its rasterizer light to where it is drawn (lights_preprocess_scene), so
+a fast bolt's pool of light is not cut off at the tick's sphere. Not a light
+on the first-person weapon: its light is moved there, and its passes keep the
+sphere the game gathers their surfaces by. */
+static void light_port_drawn_center(
+	struct light_datum const *light,
+	real_point3d *center)
+{
+	real_point3d const *drawn;
+
+	if (light->rasterizer_light_index < 0 ||
+		light->rasterizer_light_index >= rasterizer_lights.light_count ||
+		TEST_FLAG(light->flags, _point_light_attached_to_first_person_weapon_bit))
+	{
+		return;
+	}
+	drawn = &rasterizer_lights.lights[light->rasterizer_light_index].position;
+	center->x += drawn->x - light->position.x;
+	center->y += drawn->y - light->position.y;
+	center->z += drawn->z - light->position.z;
+}
+
 /* port: display.dynamic_light_limit, the most dynamic lights (muzzle
 flashes, plasma bolts, explosions) whose light the level is drawn again for
 in a frame (0: as the Xbox, every one rendered), and
@@ -1917,6 +1970,7 @@ void lights_render_diffuse(
 					FALSE,
 					&center,
 					&radius);
+				light_port_drawn_center(light, &center);
 				structure_render_diffuse_light(
 					light->rasterizer_light_index,
 					&center,
@@ -1976,6 +2030,7 @@ void lights_render_specular(
 					FALSE,
 					&center,
 					&radius);
+				light_port_drawn_center(light, &center);
 				structure_render_specular_light(
 					light->rasterizer_light_index,
 					&center,
