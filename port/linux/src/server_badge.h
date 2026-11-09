@@ -66,6 +66,20 @@ int server_badge_signed(const unsigned char *certificate, int size, const unsign
 server_badge_key.h, of a tier this build knows, and good at now (Unix
 seconds; 0, a clock not known: not checked). 1, and its fields in badge */
 int server_badge_check(const unsigned char *certificate, int size, unsigned long long now, struct server_badge *badge);
+/* the same, saying why a certificate is not taken (the panel's badge state):
+enum server_badge_verdict, its fields in badge from _server_badge_not_signed
+on */
+enum server_badge_verdict
+{
+	_server_badge_malformed = 0,
+	/* not a badge key's of this build (or the build has none) */
+	_server_badge_not_signed,
+	_server_badge_unknown_tier,
+	_server_badge_expired,
+	_server_badge_not_yet,
+	_server_badge_good
+};
+int server_badge_verdict(const unsigned char *certificate, int size, unsigned long long now, struct server_badge *badge);
 /* whether this build has a badge key at all (server_badge_key.h not all
 zeros): without one it shows no badge */
 int server_badge_has_keys(void);

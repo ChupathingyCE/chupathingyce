@@ -18,6 +18,9 @@ or a server name.
 3. Once it is approved, download `server_badge.cert` from the same page.
 4. Put it in the server's data folder. The server picks it up within a few
    seconds.
+5. The panel's Settings page shows the badge under "Chupathingy site"
+   (`sv_link_status` says it too): the badge and its expiry, or what's
+   wrong with the certificate.
 
 Linking the server again makes a new key, so the old certificate stops
 working. Ask for a new one after relinking. A certificate is good for a
@@ -62,8 +65,8 @@ names:
   key's, in date and not revoked. A developer or community certificate
   also needs the server still linked, and a developer certificate needs
   its owner to still hold the Developer profile badge. The list then says
-  `badge` and `badge_label` (`/v1/games`, and `/v1/games.txt` fields 24
-  and 25 with `?fields=25`).
+  `badge` and `badge_label` (`/v1/games`, and `/v1/games.txt` fields 25
+  and 26 with `?fields=26`).
 - **Joining.** Over Delta Peer (`server_badge`, BADGE_ASK and BADGE in
   [delta.md](delta.md), "Server badges"): the client's fresh nonce, signed
   with the same key as `chupathingy server badge proof v1\n` and the nonce.

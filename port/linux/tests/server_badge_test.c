@@ -105,6 +105,11 @@ static void test_signed(const unsigned char *certificate, int size)
 	CHECK(server_badge_check(certificate, size, ISSUED - DAY + 60, &badge));
 	CHECK(!server_badge_check(certificate, size, ISSUED - DAY - 60, &badge));
 	CHECK(!server_badge_check(certificate, size, EXPIRES, &badge));
+	/* (why, for the server panel) */
+	CHECK(server_badge_verdict(certificate, size, ISSUED + 1, &badge) == _server_badge_good);
+	CHECK(server_badge_verdict(certificate, size, EXPIRES, &badge) == _server_badge_expired);
+	CHECK(server_badge_verdict(certificate, size, ISSUED - DAY - 60, &badge) == _server_badge_not_yet);
+	CHECK(server_badge_verdict(certificate, 20, ISSUED + 1, &badge) == _server_badge_malformed);
 	/* (a changed label, or signature: not the badge key's) */
 	memcpy(copy, certificate, (size_t)size);
 	copy[SERVER_BADGE_HEADER_SIZE] ^= 0x01;
@@ -112,10 +117,12 @@ static void test_signed(const unsigned char *certificate, int size)
 	memcpy(copy, certificate, (size_t)size);
 	copy[size - 1] ^= 0x01;
 	CHECK(!server_badge_check(copy, size, ISSUED + 1, &badge));
+	CHECK(server_badge_verdict(copy, size, ISSUED + 1, &badge) == _server_badge_not_signed);
 #else
 	/* (no keys: nothing taken) */
 	CHECK(!server_badge_has_keys());
 	CHECK(!server_badge_check(certificate, size, ISSUED + 1, &badge));
+	CHECK(server_badge_verdict(certificate, size, ISSUED + 1, &badge) == _server_badge_not_signed);
 	(void)copy;
 #endif
 }

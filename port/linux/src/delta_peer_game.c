@@ -758,9 +758,8 @@ static void client_badge(void)
 #endif
 
 #ifdef HALO_SERVER
-/* (server/src/server_link.h's, Delta Control's link: plain types) */
-int server_link_badge_certificate(unsigned char *certificate, int size);
-int server_link_badge_sign(const unsigned char *message, int size, unsigned char *signature);
+/* (Delta Control's link: plain types) */
+#include "../../../server/src/server_link.h"
 
 /* a joining game's BADGE_ASK: the certificate and the link key's signature
 of its nonce (docs/server-badges.md) */
@@ -783,6 +782,23 @@ static const struct delta_peer_badge_host game_badge_host = { NULL, game_badge_a
 
 /* the server's badge looked at again (once a second): offered while it has
 a good one, and what it has said in the log when that changes */
+/* what this build makes of the server's certificate, for its panel and
+sv_link_status (server_link_set_badge_check) */
+static void report_badge(const unsigned char *certificate, int size)
+{
+	static const int checks[] = { _server_link_badge_unchecked, _server_link_badge_not_signed,
+		_server_link_badge_unknown_tier, _server_link_badge_expired, _server_link_badge_not_yet,
+		_server_link_badge_good };
+	struct server_badge badge;
+	int verdict = size ? server_badge_verdict(certificate, size, (unsigned long long)time(NULL), &badge)
+		: _server_badge_malformed;
+
+	if (verdict == _server_badge_malformed)
+		server_link_set_badge_check(size ? _server_link_badge_malformed : _server_link_badge_unchecked, "", "", 0);
+	else
+		server_link_set_badge_check(checks[verdict], server_badge_tier_name(badge.tier), badge.label, badge.expires);
+}
+
 static void host_badge(void)
 {
 	unsigned char certificate[SERVER_BADGE_MAXIMUM_SIZE];
@@ -793,6 +809,7 @@ static void host_badge(void)
 		return;
 	delta_game.badge_time = GetTickCount();
 	size = server_link_badge_certificate(certificate, (int)sizeof(certificate));
+	report_badge(certificate, size);
 	if (size && !server_badge_check(certificate, size, (unsigned long long)time(NULL), &badge))
 	{
 		/* (said once for each certificate) */

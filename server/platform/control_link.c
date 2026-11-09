@@ -161,6 +161,14 @@ static struct
 	int badge_exists;
 	int badge_size;
 	uint8_t badge[BADGE_SIZE];
+	/* its certificate names another key than the link's (relinked since it
+	was issued) */
+	int badge_other_key;
+	/* what the game made of it (server_link_set_badge_check) */
+	int badge_check;
+	char badge_tier[16];
+	char badge_label[32];
+	unsigned int badge_expires;
 } link_state;
 
 /* ---------- private code */
@@ -985,6 +993,8 @@ int server_link_stop(char *text, int text_size)
 	return ok;
 }
 
+static const char *badge_state(void);
+
 void server_link_status(int json, int show_code, char *text, int text_size)
 {
 	static const char *const names[] = { "off", "linking", "linking", "linked" };
@@ -1013,15 +1023,23 @@ void server_link_status(int json, int show_code, char *text, int text_size)
 		status.role_accounts = link_state.roles_state == SERVER_SITE_ROLES_EXPIRED ? 0 : link_state.roles.role_count;
 		status.roles_version = (unsigned long long)link_state.roles_version;
 		status.roles_hours = link_state.roles_hours;
+		status.badge_state = badge_state();
+		status.badge_tier = strcmp(status.badge_state, "off") ? link_state.badge_tier : "";
+		status.badge_label = strcmp(status.badge_state, "off") ? link_state.badge_label : "";
+		status.badge_expires = strcmp(status.badge_state, "off") ? link_state.badge_expires : 0;
 		if (control_link_status_json(&status, text, (size_t)text_size) < 0)
 			snprintf(text, (size_t)text_size, "{\"error\": \"the status does not fit\"}");
 	}
 	else if (link_state.disabled)
 		snprintf(text, (size_t)text_size, "the link to the Chupathingy site is off (HALO_DEDICATED_LINK)");
 	else if (link_state.state == LINK_LINKED)
-		snprintf(text, (size_t)text_size, "linked to %s's account on %s (%s); site roles at most %s; last heard %s%s%s",
-			link_state.owner, link_state.url, link_state.server_id, control_role_name(link_state.cap),
-			link_state.heard ? "a few seconds ago" : "not yet", link_state.problem[0] ? "; " : "", link_state.problem);
+		snprintf(text, (size_t)text_size, "linked to %s's account on %s (%s); site roles at most %s; last heard %s; "
+			"server badge: %s%s%s%s%s", link_state.owner, link_state.url, link_state.server_id,
+			control_role_name(link_state.cap), link_state.heard ? "a few seconds ago" : "not yet",
+			!strcmp(badge_state(), "good") ? link_state.badge_tier : badge_state(),
+			!strcmp(badge_state(), "good") && link_state.badge_label[0] ? " " : "",
+			!strcmp(badge_state(), "good") ? link_state.badge_label : "", link_state.problem[0] ? "; " : "",
+			link_state.problem);
 	else if (link_state.state == LINK_WAITING && code[0])
 		snprintf(text, (size_t)text_size, "linking: open %s/servers/link?code=%s, signed in", link_state.url, code);
 	else if (link_state.state == LINK_WAITING)
@@ -1187,8 +1205,9 @@ int server_link_badge_certificate(unsigned char *certificate, int size)
 		refresh_badge();
 		/* (format 1's server key, at 16: the link key's, or no badge) */
 		control_link_public_key(link_state.seed, public_key);
-		if (link_state.badge_size >= 48 && link_state.badge_size <= size &&
-			!memcmp(link_state.badge + 16, public_key, sizeof(public_key)))
+		link_state.badge_other_key = link_state.badge_size >= 48 &&
+			memcmp(link_state.badge + 16, public_key, sizeof(public_key)) != 0;
+		if (link_state.badge_size >= 48 && link_state.badge_size <= size && !link_state.badge_other_key)
 		{
 			memcpy(certificate, link_state.badge, (size_t)link_state.badge_size);
 			length = link_state.badge_size;
@@ -1217,4 +1236,33 @@ int server_link_badge_sign(const unsigned char *message, int size, unsigned char
 	}
 	pthread_mutex_unlock(&link_mutex);
 	return ok;
+}
+
+void server_link_set_badge_check(int check, const char *tier, const char *label, unsigned int expires)
+{
+	pthread_mutex_lock(&link_mutex);
+	link_state.badge_check = check;
+	snprintf(link_state.badge_tier, sizeof(link_state.badge_tier), "%s", tier ? tier : "");
+	snprintf(link_state.badge_label, sizeof(link_state.badge_label), "%s", label ? label : "");
+	link_state.badge_expires = expires;
+	pthread_mutex_unlock(&link_mutex);
+}
+
+/* the badge's state for sv_link_status and the panel (the lock held) */
+static const char *badge_state(void)
+{
+	static const char *const checks[] = { "checking", "good", "not_signed", "unknown_tier", "expired", "not_yet",
+		"unreadable" };
+
+	if (link_state.disabled || link_state.state != LINK_LINKED)
+		return "off";
+	if (!link_state.badge_exists)
+		return "none";
+	if (!link_state.badge_size)
+		return "unreadable";
+	if (link_state.badge_other_key)
+		return "other_server";
+	if (link_state.badge_check < 0 || link_state.badge_check >= (int)(sizeof(checks) / sizeof(*checks)))
+		return "checking";
+	return checks[link_state.badge_check];
 }

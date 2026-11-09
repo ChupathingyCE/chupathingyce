@@ -1844,6 +1844,17 @@ static void test_link(int rounds)
 		status.code = "ABCD-1234";
 		CHECK(control_link_status_json(&status, json, sizeof(json)) > 0 && strstr(json, "\"code\": \"ABCD-1234\""));
 		CHECK(control_link_status_json(&status, json, 40) == -1);
+		/* the badge: off with nothing set, else its state, tier, label and
+		expiry */
+		CHECK(control_link_status_json(&status, json, sizeof(json)) > 0);
+		CHECK(strstr(json, "\"badge\": {\"state\": \"off\", \"tier\": null, \"label\": null, \"expires\": 0}") != NULL);
+		status.badge_state = "good";
+		status.badge_tier = "official";
+		status.badge_label = "Chupa \"C\"";
+		status.badge_expires = 1821536000ULL;
+		CHECK(control_link_status_json(&status, json, sizeof(json)) > 0);
+		CHECK(strstr(json, "\"badge\": {\"state\": \"good\", \"tier\": \"official\", \"label\": \"Chupa \\\"C\\\"\", "
+			"\"expires\": 1821536000}") != NULL);
 	}
 	/* the site's address: HTTPS, or plain HTTP to this machine alone */
 	CHECK(control_link_url_allowed("https://stats.chupathingy.org"));

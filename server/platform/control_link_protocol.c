@@ -828,7 +828,7 @@ static void json_string_or_null(const char *text, char *out, size_t size)
 int control_link_status_json(const struct control_link_status *status, char *out, size_t size)
 {
 	char site[1600], server_id[6 * CONTROL_LINK_SERVER_ID_SIZE + 8], owner[6 * CONTROL_LINK_HANDLE_SIZE + 8],
-		code[6 * CONTROL_LINK_CODE_SIZE + 8], problem[1000];
+		code[6 * CONTROL_LINK_CODE_SIZE + 8], problem[1000], badge_tier[64], badge_label[6 * 32 + 8];
 	int length;
 
 	json_string_or_null(status->site, site, sizeof(site));
@@ -836,11 +836,15 @@ int control_link_status_json(const struct control_link_status *status, char *out
 	json_string_or_null(status->owner, owner, sizeof(owner));
 	json_string_or_null(status->code, code, sizeof(code));
 	json_string_or_null(status->problem, problem, sizeof(problem));
+	json_string_or_null(status->badge_tier, badge_tier, sizeof(badge_tier));
+	json_string_or_null(status->badge_label, badge_label, sizeof(badge_label));
 	length = snprintf(out, size, "{\"state\": \"%s\", \"enabled\": %s, \"site\": %s, \"server_id\": %s, "
 		"\"owner\": %s, \"code\": %s, \"heard_seconds_ago\": %lld, \"role_cap\": \"%s\", \"problem\": %s, "
-		"\"roles\": {\"state\": \"%s\", \"accounts\": %d, \"version\": %llu, \"expire_hours\": %d}}", status->state,
+		"\"roles\": {\"state\": \"%s\", \"accounts\": %d, \"version\": %llu, \"expire_hours\": %d}, "
+		"\"badge\": {\"state\": \"%s\", \"tier\": %s, \"label\": %s, \"expires\": %llu}}", status->state,
 		status->enabled ? "true" : "false", site, server_id, owner, code, status->heard_seconds_ago, status->role_cap,
-		problem, status->roles_state, status->role_accounts, status->roles_version, status->roles_hours);
+		problem, status->roles_state, status->role_accounts, status->roles_version, status->roles_hours,
+		status->badge_state ? status->badge_state : "off", badge_tier, badge_label, status->badge_expires);
 	return length < 0 || (size_t)length >= size ? -1 : length;
 }
 

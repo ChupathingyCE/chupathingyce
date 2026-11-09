@@ -960,6 +960,28 @@
     $('link-stop').hidden = link.state === 'off';
     $('link-stop').textContent = link.state === 'linking' ? 'Stop linking' : 'Unlink';
     if (before === 'linking' && linkState === 'linked') show('Linked to ' + link.owner + '\'s account.');
+    showBadge(link.badge || { state: 'off' });
+  }
+
+  // the server badge (docs/server-badges.md): what this server's
+  // server_badge.cert is, while it's linked
+  const BADGE_TIERS = { official: 'Official server', developer: 'Developer server', community: 'Community server' };
+  function showBadge(badge) {
+    const day = badge.expires ? new Date(badge.expires * 1000).toLocaleDateString() : '';
+    const states = {
+      none: 'None',
+      checking: 'Checking',
+      unreadable: 'server_badge.cert is not a certificate',
+      other_server: 'For another link key. Ask for a new one on the site.',
+      not_signed: 'Not signed by a badge key this build knows',
+      unknown_tier: 'A kind this build doesn\'t know',
+      expired: 'Expired ' + day + '. Ask for a new one on the site.',
+      not_yet: 'Not valid yet',
+      good: (BADGE_TIERS[badge.tier] || badge.tier) + (badge.label ? ' (' + badge.label + ')' : '') +
+        (day ? ', until ' + day : ''),
+    };
+    $('link-badge').hidden = badge.state === 'off' || !states[badge.state];
+    $('link-badge').textContent = 'Server badge: ' + (states[badge.state] || '');
   }
 
   async function copyLink() {

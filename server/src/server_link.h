@@ -44,5 +44,21 @@ int server_link_badge_certificate(unsigned char *certificate, int size);
 /* the link key's signature (64 bytes) of message, as a badge's proof: 1,
 else 0 (not linked) */
 int server_link_badge_sign(const unsigned char *message, int size, unsigned char *signature);
+/* what the game made of that certificate (server_badge_check), for
+sv_link_status and the panel: enum server_link_badge_check, and the
+certificate's tier name ("official"), label and expiry (Unix seconds) */
+enum server_link_badge_check
+{
+	_server_link_badge_unchecked = 0,
+	_server_link_badge_good,
+	/* not signed by a badge key of this build (or it has none) */
+	_server_link_badge_not_signed,
+	_server_link_badge_unknown_tier,
+	_server_link_badge_expired,
+	_server_link_badge_not_yet,
+	/* not a certificate at all */
+	_server_link_badge_malformed
+};
+void server_link_set_badge_check(int check, const char *tier, const char *label, unsigned int expires);
 
 #endif

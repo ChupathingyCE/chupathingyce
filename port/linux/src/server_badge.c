@@ -106,18 +106,28 @@ int server_badge_has_keys(void)
 	return 0;
 }
 
+int server_badge_verdict(const unsigned char *certificate, int size, unsigned long long now, struct server_badge *badge)
+{
+	if (!server_badge_parse(certificate, size, badge))
+		return _server_badge_malformed;
+	if (!server_badge_signed(certificate, size, server_badge_public_keys,
+		(int)(sizeof(server_badge_public_keys) / sizeof(*server_badge_public_keys))))
+	{
+		return _server_badge_not_signed;
+	}
+	if (!server_badge_tier_name(badge->tier)[0])
+		return _server_badge_unknown_tier;
+	if (now && now >= badge->expires)
+		return _server_badge_expired;
+	/* (a day's leeway for a clock behind on a certificate just issued) */
+	if (now && now + 24 * 60 * 60 < badge->issued)
+		return _server_badge_not_yet;
+	return _server_badge_good;
+}
+
 int server_badge_check(const unsigned char *certificate, int size, unsigned long long now, struct server_badge *badge)
 {
-	if (!server_badge_parse(certificate, size, badge) || !server_badge_tier_name(badge->tier)[0] ||
-		!server_badge_signed(certificate, size, server_badge_public_keys,
-			(int)(sizeof(server_badge_public_keys) / sizeof(*server_badge_public_keys))))
-	{
-		return 0;
-	}
-	/* (a day's leeway for a clock behind on a certificate just issued) */
-	if (now && (now >= badge->expires || now + 24 * 60 * 60 < badge->issued))
-		return 0;
-	return 1;
+	return server_badge_verdict(certificate, size, now, badge) == _server_badge_good;
 }
 
 int server_badge_proof_message(unsigned char *message, const unsigned char *nonce)
