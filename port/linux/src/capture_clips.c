@@ -8,7 +8,7 @@ replay. The picture comes from the renderer (d3d8_gl.c scales the back
 buffer on the GPU and reads it back behind a fence, the bgfx renderer reads
 it back whole) and is lent here until copied; the sound is the mixer's
 output (dsound_sdl.c), the HUD and menus in the picture and nothing of the
-port's overlay (the Guide, toasts, the game list's screens).
+port's overlay (DELTA, toasts, the game list's screens).
 
 One thread encodes: the picture with the system's hardware H.264 encoder
 where FFmpeg can drive it (VideoToolbox on macOS), else FFmpeg's own MPEG-4

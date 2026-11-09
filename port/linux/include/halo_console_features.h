@@ -389,7 +389,7 @@ server's, which has no player) */
 #endif
 
 /* screenshots and clips (port/linux/src/capture.c): the desktop builds'
-alone, with the Guide's toasts; not the consoles, the phones or the
+alone, with DELTA's toasts; not the consoles, the phones or the
 dedicated server */
 #if (defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
 	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE)) && !defined(HALO_CONSOLE_NO_CAPTURE)

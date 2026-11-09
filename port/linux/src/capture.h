@@ -7,7 +7,7 @@ without waiting for the GPU (d3d8_gl.c's pixel buffer and fence, bgfx's
 read-back texture), and a thread of its own writes it as a PNG to
 <data root>/screenshots/<map>_<YYYY-MM-DD_HH-MM-SS>.png. The frame is the
 game's back buffer at its full size, the HUD and menus in it, without the
-port's overlay (the Guide, toasts, the game list's screens). A toast says
+port's overlay (DELTA, toasts, the game list's screens). A toast says
 when it is saved.
 
 Nothing runs until the first screenshot: no thread, no buffers. The
