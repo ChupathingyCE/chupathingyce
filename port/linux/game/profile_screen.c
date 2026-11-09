@@ -1442,9 +1442,20 @@ static void approve_dialog_button(
 
 	if (profile_screen.code_sent)
 	{
-		boolean waiting = profile_screen.approve.state == BROWSER_APPROVE_SENDING ||
-			profile_screen.approve.state == BROWSER_APPROVE_WAITING;
+		short state = (short)profile_screen.approve.state;
+		boolean waiting = state == BROWSER_APPROVE_SENDING || state == BROWSER_APPROVE_ANSWERING ||
+			state == BROWSER_APPROVE_WAITING;
 
+		/* (the device shown: A approves, B denies, and the code is dead) */
+		if (state == BROWSER_APPROVE_SHOWN)
+		{
+			if (button == _gamepad_analog_button_a || button == _gamepad_analog_button_b)
+			{
+				browser_approve_answer(button == _gamepad_analog_button_a);
+				browser_approve_get(&profile_screen.approve);
+			}
+			return;
+		}
 		if (button == _gamepad_analog_button_b || (button == _gamepad_analog_button_a && !waiting))
 			close_dialog();
 		return;
@@ -2808,9 +2819,24 @@ static void draw_approve_dialog(
 		switch (approve->state)
 		{
 		case BROWSER_APPROVE_SENDING:
+		case BROWSER_APPROVE_ANSWERING:
 			ui_overlay_text(UI_FONT_MENU, 12.0f, center, DIALOG_Y + 120, UI_ALIGN_CENTER, COLOR_TEXT, "Sending\xE2\x80\xA6");
 			dialog_prompt(UI_BUTTON_B, "=CLOSE");
 			return;
+		case BROWSER_APPROVE_SHOWN:
+		{
+			static int const buttons[] = { UI_BUTTON_B, UI_BUTTON_A };
+			static char const *const words[] = { "=DENY", "=APPROVE" };
+
+			snprintf(text, sizeof(text), "%s%s%s wants to sign in as @%s.", approve->platform[0] ?
+				platform_name(approve->platform) : "A device", approve->name[0] ? " " : "",
+				approve->name[0] ? approve->name : "", approve->handle);
+			wrapped_text(UI_FONT_MENU, 12.0f, left, DIALOG_Y + 76, width, 17, COLOR_TEXT, text, 3);
+			wrapped_text(UI_FONT_MENU_SMALL, 11.0f, left, DIALOG_Y + 140, width, 15, COLOR_WARN,
+				approve->message[0] ? approve->message : "Only enter a code shown on your own screen.", 2);
+			dialog_prompts(NUMBEROF(buttons), buttons, words);
+			return;
+		}
 		case BROWSER_APPROVE_WAITING:
 			snprintf(text, sizeof(text), "%s%s%s wants to sign in as @%s.", approve->platform[0] ?
 				platform_name(approve->platform) : "A device", approve->name[0] ? " " : "",
@@ -2829,6 +2855,10 @@ static void draw_approve_dialog(
 			break;
 		case BROWSER_APPROVE_EXPIRED:
 			ui_overlay_text(UI_FONT_MENU, 12.0f, center, DIALOG_Y + 110, UI_ALIGN_CENTER, COLOR_TEXT, "The code expired.");
+			break;
+		case BROWSER_APPROVE_DENIED:
+			ui_overlay_text(UI_FONT_MENU, 12.0f, center, DIALOG_Y + 110, UI_ALIGN_CENTER, COLOR_TEXT,
+				"Denied. That code doesn't work anymore.");
 			break;
 		default:
 			wrapped_text(UI_FONT_MENU, 12.0f, left, DIALOG_Y + 100, width, 17, COLOR_WARN,

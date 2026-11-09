@@ -977,7 +977,10 @@ int identity_answered(struct identity_state *state, int status, const char *resp
 		identity_wipe(state->token, sizeof(state->token));
 		break;
 	case IDENTITY_ANSWER_OFF:
+		/* (revoked or signed out on the site: signed out here too, so the
+		player key never goes in its place; browser.c keeps it on disk) */
 		state->off = 1;
+		state->signed_out = 1;
 		state->has_certificate = 0;
 		identity_wipe(state->token, sizeof(state->token));
 		break;

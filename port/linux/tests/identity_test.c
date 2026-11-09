@@ -259,6 +259,11 @@ static void test_key_allowed(void)
 	/* (a site that doesn't speak identity takes only the key) */
 	CHECK(identity_answered(&state, 404, "", now) == IDENTITY_ANSWER_LATER);
 	CHECK(identity_key_allowed(&state, now) && !identity_key_allowed(&state, now + IDENTITY_LATER));
+	/* (revoked or signed out on the site: no key either, from then on) */
+	memset(&state, 0, sizeof(state));
+	identity_have_certificate(&state, &device, 0, now);
+	CHECK(identity_answered(&state, 403, "{\"revoked\": true}", now) == IDENTITY_ANSWER_OFF);
+	CHECK(state.signed_out && !identity_key_allowed(&state, now) && identity_due(&state, 1, now) == IDENTITY_STEP_NONE);
 	/* (signed out by its player: neither, and nothing due) */
 	memset(&state, 0, sizeof(state));
 	state.signed_out = 1;

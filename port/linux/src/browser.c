@@ -249,6 +249,8 @@ static struct
 	char device_revoke[DELTA_PROFILE_ID_LENGTH + 1];
 	int approve_state;
 	int approve_serial;
+	/* the player's answer to the device shown: 1 approve, -1 deny */
+	int approve_answer;
 	char approve_code[16];
 	char approve_handle[48];
 	char approve_name[40];
@@ -833,8 +835,17 @@ static void identity_refused(int status, const char *response)
 
 	if (answer == IDENTITY_ANSWER_OFF)
 	{
+		FILE *file;
+
+		/* (revoked or signed out on the site: as signed out here, this run
+		and after, so the player key never goes in its place; signing in by
+		code again ends it) */
 		identity_path("delta_device.cert", path, sizeof(path));
 		remove(path);
+		identity_path("delta_device.out", path, sizeof(path));
+		file = fopen(path, "w");
+		if (file)
+			fclose(file);
 	}
 	else if (answer == IDENTITY_ANSWER_NEW_KEY)
 	{
@@ -850,8 +861,8 @@ static void identity_refused(int status, const char *response)
 		"used this run" : "the site doesn't take this device yet; asked again tomorrow") :
 		answer == IDENTITY_ANSWER_NEW_KEY ? "the device key was another copy's; a new one enrolls" :
 		answer == IDENTITY_ANSWER_ENROLL ? "the site doesn't know this device; enrolling again" :
-		answer == IDENTITY_ANSWER_OFF ? "this device was signed out or removed on the site; the player key is "
-		"used this run" : "the site is not answering; asked again later");
+		answer == IDENTITY_ANSWER_OFF ? "this device was signed out or removed on the site; it signs in again by "
+		"code" : "the site is not answering; asked again later");
 }
 
 /* a certificate answer (enroll or refresh) taken */
@@ -1304,7 +1315,7 @@ static int quick_connect_start(int serial, const unsigned short *name)
 	char url[512], body[768], response[1024], error[256], page[640], player[64];
 	char code[IDENTITY_CODE_TEXT], token[IDENTITY_POLL_TOKEN_SIZE];
 	unsigned long interval = 0, lifetime = 0;
-	int status = 0, size = 0, attempt, x, y;
+	int status = 0, size = 0, attempt, x, y, from_nonce = 0;
 
 	if (!identity_site(audience, sizeof(audience)))
 		return 0;
@@ -1318,7 +1329,10 @@ static int quick_connect_start(int serial, const unsigned short *name)
 	{
 		status = identity_nonce(nonce_hex, nonce, response, sizeof(response));
 		if (status != 200)
+		{
+			from_nonce = 1;
 			break;
+		}
 		if (!device_key(seed, public_key, device_id))
 		{
 			connect_failed(serial, "Link Profile could not read or make this device's key.");
@@ -1345,11 +1359,11 @@ static int quick_connect_start(int serial, const unsigned short *name)
 		}
 		break;
 	}
-	if (status == 404 || status == 405 || status == 501 || (status == 503 && !identity.has_certificate))
+	/* (only a site whose nonce is 404, one without device identity, gets
+	the old Link Profile with the key, and only while the key may go) */
+	if (from_nonce && status == 404)
 	{
-		/* (a site without sign-in by code: the old Link Profile, if the key may go) */
-		if (status != 503)
-			identity_answered(&identity, 404, "", identity_clock());
+		identity_answered(&identity, 404, "", identity_clock());
 		if (identity_key_allowed(&identity, identity_clock()))
 			return 0;
 	}
@@ -1465,20 +1479,27 @@ static int quick_connect_ask(const char *token, int answer, const char *handle, 
 		int certificate_size, issuer_size;
 		unsigned char issuer[IDENTITY_ISSUER_SIZE];
 
-		identity.off = 0;
-		identity.signed_out = 0;
-		identity.wait_until = 0;
-		if (identity_certificate_answer(response, certificate, &certificate_size, issuer, &issuer_size) &&
-			identity_parse_device(certificate, certificate_size, &device) && !(device.flags & IDENTITY_FLAG_LEGACY))
+		struct identity_state saved = identity;
+		/* (nothing changes here until the new certificate checks: the
+		chain, the issuer's signature and this device's key; checked on a
+		copy of the state, put back after) */
+		if (!identity_certificate_answer(response, certificate, &certificate_size, issuer, &issuer_size) ||
+			!identity_parse_device(certificate, certificate_size, &device) ||
+			!take_certificate(certificate, certificate_size, issuer, issuer_size, 0, 0))
 		{
-			identity_wipe(identity_copy, sizeof(identity_copy));
-		}
-		identity_certificate(200, response, 0);
-		if (!identity.has_certificate)
-		{
+			identity = saved;
+			identity_wipe(&saved, sizeof(saved));
 			snprintf(line, (size_t)line_size, "%s", "The site's certificate did not check.");
 			return 502;
 		}
+		identity = saved;
+		identity_wipe(&saved, sizeof(saved));
+		identity.off = 0;
+		identity.signed_out = 0;
+		identity.wait_until = 0;
+		if (!(device.flags & IDENTITY_FLAG_LEGACY))
+			identity_wipe(identity_copy, sizeof(identity_copy));
+		identity_certificate(200, response, 0);
 		signed_out_mark(0);
 		identity_wipe(identity.token, sizeof(identity.token));
 		member_text(response, "handle", who, sizeof(who));
@@ -1895,7 +1916,7 @@ static void update_game_profile(void)
 		else if (status == 404)
 			game_action_done(BROWSER_PROFILE_ACTION_FAILED, "That device is gone already.");
 		else if (status == 401 || status == 403)
-			game_action_done(BROWSER_PROFILE_ACTION_FAILED, "Sign in on this device first.");
+			game_action_done(BROWSER_PROFILE_ACTION_FAILED, "Do that on the site.");
 		else
 			game_action_done(BROWSER_PROFILE_ACTION_FAILED, NOT_ANSWERING_MESSAGE);
 		pthread_mutex_unlock(&browser_lock);
@@ -2031,13 +2052,14 @@ static void update_approve(void)
 {
 	static char response[2048];
 	char code[16], fields[64], error[256], state_text[16];
-	int serial, state, status, no_key = 0, due;
+	int serial, state, status, no_key = 0, due, answer;
 
 	pthread_mutex_lock(&browser_lock);
 	state = browser.approve_state;
 	serial = browser.approve_serial;
+	answer = browser.approve_answer;
 	memcpy(code, browser.approve_code, sizeof(code));
-	due = state == BROWSER_APPROVE_SENDING ||
+	due = state == BROWSER_APPROVE_SENDING || state == BROWSER_APPROVE_ANSWERING ||
 		(state == BROWSER_APPROVE_WAITING && elapsed(browser.approve_time, APPROVE_POLL_INTERVAL));
 	if (due)
 		browser.approve_time = p2p_now();
@@ -2045,9 +2067,12 @@ static void update_approve(void)
 	if (!due)
 		return;
 	response[0] = 0;
-	if (state == BROWSER_APPROVE_SENDING)
+	if (state == BROWSER_APPROVE_SENDING || state == BROWSER_APPROVE_ANSWERING)
 	{
-		snprintf(fields, sizeof(fields), "\"code\": \"%s\"", code);
+		if (state == BROWSER_APPROVE_SENDING)
+			snprintf(fields, sizeof(fields), "\"code\": \"%s\"", code);
+		else
+			snprintf(fields, sizeof(fields), "\"approve\": %s", answer > 0 ? "true" : "false");
 		status = site_request("/v1/identity/device/approve", fields, response, sizeof(response), error,
 			sizeof(error), &no_key);
 	}
@@ -2059,10 +2084,18 @@ static void update_approve(void)
 	{
 		if (state == BROWSER_APPROVE_SENDING && status == 202)
 		{
-			browser.approve_state = BROWSER_APPROVE_WAITING;
+			/* (a device's code: shown first; another's goes straight on) */
+			browser.approve_state = strstr(response, "\"shown\": true") ? BROWSER_APPROVE_SHOWN :
+				BROWSER_APPROVE_WAITING;
 			any_member(response, "handle", browser.approve_handle, sizeof(browser.approve_handle));
 			any_member(response, "name", browser.approve_name, sizeof(browser.approve_name));
 			any_member(response, "platform", browser.approve_platform, sizeof(browser.approve_platform));
+			any_member(response, "warning", browser.approve_message, sizeof(browser.approve_message));
+		}
+		else if (state == BROWSER_APPROVE_ANSWERING && (status == 200 || status == 202))
+		{
+			browser.approve_state = answer > 0 ? BROWSER_APPROVE_WAITING : BROWSER_APPROVE_DENIED;
+			browser.approve_time = p2p_now();
 		}
 		else if (state == BROWSER_APPROVE_WAITING && status == 200)
 		{
@@ -2082,9 +2115,9 @@ static void update_approve(void)
 			any_member(response, "error", browser.approve_message, sizeof(browser.approve_message));
 			if (!browser.approve_message[0] || status == 401)
 				snprintf(browser.approve_message, sizeof(browser.approve_message), "%s",
-					status == 401 ? "Sign in on this device first." : "The site refused the code.");
+					status == 401 ? "Do that on the site." : "The site refused the code.");
 		}
-		else if (!status && (no_key || state == BROWSER_APPROVE_SENDING))
+		else if (!status && (no_key || state != BROWSER_APPROVE_WAITING))
 		{
 			browser.approve_state = BROWSER_APPROVE_FAILED;
 			snprintf(browser.approve_message, sizeof(browser.approve_message), "%s",
@@ -4451,6 +4484,18 @@ int browser_approve_start(const char *code)
 	(void)code;
 	return 0;
 #endif
+}
+
+void browser_approve_answer(int approve)
+{
+	pthread_mutex_lock(&browser_lock);
+	if (browser.approve_state == BROWSER_APPROVE_SHOWN)
+	{
+		browser.approve_answer = approve ? 1 : -1;
+		browser.approve_state = BROWSER_APPROVE_ANSWERING;
+		browser.approve_message[0] = 0;
+	}
+	pthread_mutex_unlock(&browser_lock);
 }
 
 void browser_approve_stop(void)

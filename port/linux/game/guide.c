@@ -128,6 +128,8 @@ enum
 	OPTION_GAP = 4,
 	/* a refusal's line, shown this long */
 	MESSAGE_TIME = 6000,
+	/* (as Delta Profile's dialogs: DIALOG_SETTLE) */
+	CONFIRM_SETTLE = 400,
 	/* the browser thread told where the player is this often */
 	WHERE_INTERVAL = 1000,
 
@@ -364,6 +366,9 @@ static struct
 asked for, and what it came to */
 	boolean signing_in;
 	struct browser_connect connect;
+	/* when its question first showed: A only after CONFIRM_SETTLE, so a
+	press meant for something else doesn't answer it */
+	unsigned long confirm_shown;
 
 	struct guide_target targets[MAXIMUM_TARGETS];
 	short target_count;
@@ -664,7 +669,10 @@ static void sign_in_activate(void)
 	if (!guide.signing_in)
 		sign_in_start();
 	else if (connect->state == BROWSER_CONNECT_CONFIRM && !connect->answered)
-		browser_connect_answer(TRUE);
+	{
+		if (system_milliseconds() - guide.confirm_shown >= CONFIRM_SETTLE)
+			browser_connect_answer(TRUE);
+	}
 	else if (connect->state == BROWSER_CONNECT_EXPIRED || connect->state == BROWSER_CONNECT_DECLINED ||
 		connect->state == BROWSER_CONNECT_FAILED)
 	{
@@ -1997,7 +2005,11 @@ void guide_process(void)
 		return;
 	if (guide.signing_in)
 	{
+		int before = guide.connect.state;
+
 		browser_connect_get(&guide.connect);
+		if (guide.connect.state == BROWSER_CONNECT_CONFIRM && before != BROWSER_CONNECT_CONFIRM)
+			guide.confirm_shown = system_milliseconds();
 		/* (signed in: the card and the friends follow) */
 		if (guide.connect.state == BROWSER_CONNECT_CONNECTED && guide.linked)
 			guide.signing_in = FALSE;

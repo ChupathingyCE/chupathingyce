@@ -246,7 +246,8 @@ enum
 	IDENTITY_ANSWER_NEW_KEY,
 	/* the site doesn't know the device: enroll again */
 	IDENTITY_ANSWER_ENROLL,
-	/* revoked or signed out: the certificate dropped, the key alone this run */
+	/* revoked or signed out: the certificate dropped, and signed out (no key
+	either) until it signs in again by code */
 	IDENTITY_ANSWER_OFF,
 };
 

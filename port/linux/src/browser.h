@@ -556,11 +556,19 @@ enum
 	BROWSER_APPROVE_NONE,
 	/* sent, not answered yet */
 	BROWSER_APPROVE_SENDING,
+	/* a device's code: what it says it is (name, platform, message: the
+	site's warning), for the player to approve or deny
+	(browser_approve_answer) */
+	BROWSER_APPROVE_SHOWN,
+	/* the answer sent */
+	BROWSER_APPROVE_ANSWERING,
 	/* taken: the other device asks its player (handle, name, platform) */
 	BROWSER_APPROVE_WAITING,
 	BROWSER_APPROVE_DONE,
 	BROWSER_APPROVE_DECLINED,
 	BROWSER_APPROVE_EXPIRED,
+	/* denied here: the code is dead */
+	BROWSER_APPROVE_DENIED,
 	/* refused (message) */
 	BROWSER_APPROVE_FAILED,
 };
@@ -574,6 +582,8 @@ struct browser_approve
 };
 /* 0 if the code isn't one */
 int browser_approve_start(const char *code);
+/* the player's answer to a device shown (BROWSER_APPROVE_SHOWN) */
+void browser_approve_answer(int approve);
 void browser_approve_stop(void);
 void browser_approve_get(struct browser_approve *approve);
 
