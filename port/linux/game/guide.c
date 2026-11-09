@@ -15,7 +15,7 @@ PARTY, PLAYERS HERE, RECENT and SETTINGS.
   is on Delta, and a local Mute (the chat log's, chat.c). No address is ever
   shown.
 - SETTINGS has the Guide's own settings.
-- FRIENDS is the site's friends (browser.c polls them, social.h): you, the
+- FRIENDS is the site's friends (browser.c polls them, social.h): the
   invites, the friends online, the offline ones (a row that shows them),
   the friend requests. A on a row opens its options: a friend's JOIN (the
   site checks, then the game joins its halo://join link), INVITE TO MY GAME
@@ -151,7 +151,6 @@ enum
 /* the Chupathingy menus' blues (the mockups': review/guide-mockup) */
 enum
 {
-	COLOR_SHADE = 0x02081A58,
 	COLOR_PANEL = 0x0A2652E0,
 	COLOR_PANEL_EDGE = 0x2F7FD6FF,
 	COLOR_GLOW = 0x2F8FFFFF,
@@ -219,11 +218,10 @@ enum
 	_target_prompt,
 };
 
-/* FRIENDS' items, top to bottom: you, the invites, the friends online, the
+/* FRIENDS' items, top to bottom: the invites, the friends online, the
 offline friends' row (open: they follow), the requests */
 enum
 {
-	_item_you,
 	_item_heading,
 	_item_invite,
 	_item_friend,
@@ -444,7 +442,10 @@ static void card_update(void)
 
 	guide.linked = browser_profile_linked(handle, sizeof(handle)) != 0;
 	guide.name[0] = 0;
-	if (guide.linked && handle[0])
+	/* (the profile's name as the site shows it, else its handle) */
+	if (guide.linked && guide.friends_loaded && friends_state.handle[0])
+		social_copy_text(guide.name, sizeof(guide.name), social_name(friends_state.display, friends_state.handle));
+	else if (guide.linked && handle[0])
 		social_copy_text(guide.name, sizeof(guide.name), handle);
 	guide.color = 0x2F6DD0FF;
 	if (player_ui_get_active_player_profile_index(0) != NONE)
@@ -683,7 +684,6 @@ static void items_build(void)
 	short *row = &guide.row[SOCIAL_SECTION_FRIENDS];
 
 	guide.item_count = 0;
-	item_add(_item_you, 0);
 	if (invites_waiting())
 	{
 		item_add(_item_heading, _heading_invites);
@@ -725,7 +725,8 @@ static void items_build(void)
 	/* (the chosen item, where it is now; else the row where it was) */
 	for (index = 0; index < guide.item_count && found == NONE; index++)
 	{
-		if (guide.items[index].kind == guide.chosen_kind && !strcmp(item_key(&guide.items[index]), guide.chosen_key))
+		if (item_selectable(index) && guide.items[index].kind == guide.chosen_kind &&
+			!strcmp(item_key(&guide.items[index]), guide.chosen_key))
 			found = index;
 	}
 	if (found != NONE)
@@ -733,9 +734,12 @@ static void items_build(void)
 	else
 	{
 		guide.options = FALSE;
-		*row = (short)PIN(*row, 0, guide.item_count - 1);
+		*row = (short)PIN(*row, 0, MAX(0, guide.item_count - 1));
 		while (*row > 0 && !item_selectable(*row))
 			(*row)--;
+		/* (the first row a heading: the row under it) */
+		while (*row < guide.item_count - 1 && !item_selectable(*row))
+			(*row)++;
 		chosen_remember();
 	}
 }
@@ -1240,12 +1244,12 @@ static void render_row(struct social_row const *row, float x, float y, float wid
 		ui_overlay_rect(x + 9, y + ROW_HEIGHT * 0.5f - 3, 6, 6, 3, dot_color(row->state));
 	if (row->status[0])
 	{
-		ui_overlay_text(UI_FONT_BOLD, 10.5f, x + 22, y + 3, UI_ALIGN_LEFT, COLOR_NAME, row->tag);
-		ui_overlay_text(UI_FONT_REGULAR, 8.0f, x + 22, y + 17, UI_ALIGN_LEFT,
-			row->muted ? COLOR_MUTED : COLOR_STATUS, row->status);
+		ui_style_text(UI_TEXT_NAME, x + 22, y + 3, UI_ALIGN_LEFT, row->tag);
+		ui_style_text(row->muted ? UI_TEXT_WARNING : UI_TEXT_STATUS, x + 22, y + 17, UI_ALIGN_LEFT, row->status);
 	}
 	else
-		ui_overlay_text(UI_FONT_BOLD, 10.5f, x + 22, y + (ROW_HEIGHT - 10.5f) * 0.5f, UI_ALIGN_LEFT, COLOR_NAME, row->tag);
+		ui_style_text(UI_TEXT_NAME, x + 22, y + (ROW_HEIGHT - ui_style_text_size(UI_TEXT_NAME)) * 0.5f, UI_ALIGN_LEFT,
+			row->tag);
 	if (row->platform > 0)
 		ui_overlay_platform(row->platform, 11.0f, x + width - 14, y + (ROW_HEIGHT - 11.0f) * 0.5f, COLOR_LABEL, 0);
 	target_add(x, y, x + width, y + ROW_HEIGHT, _target_row, index);
@@ -1270,7 +1274,7 @@ static void render_players(void)
 	if (!count)
 		return;
 	snprintf(heading, sizeof(heading), "PLAYERS (%d)", count);
-	ui_overlay_text(UI_FONT_MENU, 8.5f, CONTENT_LEFT, BODY_Y, UI_ALIGN_LEFT, COLOR_LABEL, heading);
+	ui_style_text(UI_TEXT_HEADING, CONTENT_LEFT, BODY_Y, UI_ALIGN_LEFT, heading);
 	visible = (short)((BODY_BOTTOM - y + ROW_GAP) / (ROW_HEIGHT + ROW_GAP));
 	if (chosen < guide.first_row)
 		guide.first_row = chosen;
@@ -1287,13 +1291,12 @@ static void render_players(void)
 		struct social_row const *row = &guide.players.rows[chosen];
 		float x = DETAIL_LEFT, width = CONTENT_RIGHT - DETAIL_LEFT;
 
-		ui_style_surface(x, BODY_Y, width, BODY_BOTTOM - BODY_Y, 8, COLOR_DETAIL, COLOR_ROW_EDGE, FALSE);
-		ui_overlay_text(UI_FONT_BOLD, 13.0f, x + 12, BODY_Y + 12, UI_ALIGN_LEFT, COLOR_NAME, row->tag);
+		ui_style_glass(x, BODY_Y, width, BODY_BOTTOM - BODY_Y, 8, ui_style_color(UI_COLOR_PANE), COLOR_ROW_EDGE);
+		ui_style_text(UI_TEXT_TITLE, x + 12, BODY_Y + 12, UI_ALIGN_LEFT, row->tag);
 		if (row->platform > 0)
 			ui_overlay_platform(row->platform, 13.0f, x + width - 18, BODY_Y + 12, COLOR_LABEL, 0);
 		if (row->status[0])
-			ui_overlay_text(UI_FONT_REGULAR, 9.5f, x + 12, BODY_Y + 32, UI_ALIGN_LEFT,
-				row->muted ? COLOR_MUTED : COLOR_STATUS, row->status);
+			ui_style_text(row->muted ? UI_TEXT_WARNING : UI_TEXT_LINE, x + 12, BODY_Y + 32, UI_ALIGN_LEFT, row->status);
 		if (row->actions & SOCIAL_ACTION_MUTE)
 			render_action(row->muted ? "UNMUTE" : "MUTE", x + 12, BODY_Y + 54, width - 24, TRUE, COLOR_VALUE, 0);
 	}
@@ -1335,13 +1338,6 @@ static void item_row(struct friend_item const *item, struct social_row *row)
 	csmemset(row, 0, sizeof(*row));
 	switch (item->kind)
 	{
-	case _item_you:
-		social_copy_text(row->tag, sizeof(row->tag), friends_state.handle[0] ?
-			social_name(friends_state.display, friends_state.handle) : guide.name);
-		social_copy_text(row->status, sizeof(row->status), friends_state.appear_offline ? "Appear offline" : guide.status);
-		row->state = friends_state.appear_offline ? SOCIAL_STATE_OFFLINE : in_game() ? SOCIAL_STATE_IN_GAME :
-			SOCIAL_STATE_ONLINE;
-		break;
 	case _item_invite:
 	{
 		struct social_invite const *invite = &friends_state.invites[item->index];
@@ -1385,23 +1381,19 @@ static void render_friend_detail(struct friend_item const *item)
 	boolean busy;
 
 	line[0] = 0;
-	ui_style_surface(x, BODY_Y, width, BODY_BOTTOM - BODY_Y, 8, COLOR_DETAIL, COLOR_ROW_EDGE, FALSE);
+	ui_style_glass(x, BODY_Y, width, BODY_BOTTOM - BODY_Y, 8, ui_style_color(UI_COLOR_PANE), COLOR_ROW_EDGE);
 	if (item->kind == _item_offline)
 	{
 		snprintf(line, sizeof(line), "OFFLINE (%d)", item->index);
-		ui_overlay_text(UI_FONT_MENU, 11.0f, x + 12, BODY_Y + 14, UI_ALIGN_LEFT, COLOR_LABEL, line);
+		ui_style_text(UI_TEXT_HEADING, x + 12, BODY_Y + 14, UI_ALIGN_LEFT, line);
 		return;
 	}
 	item_row(item, &row);
-	ui_overlay_text(UI_FONT_BOLD, 13.0f, x + 12, BODY_Y + 12, UI_ALIGN_LEFT, COLOR_NAME, row.tag);
+	ui_style_text(UI_TEXT_TITLE, x + 12, BODY_Y + 12, UI_ALIGN_LEFT, row.tag);
 	if (row.status[0])
-		ui_overlay_text(UI_FONT_REGULAR, 9.5f, x + 12, BODY_Y + 32, UI_ALIGN_LEFT, COLOR_STATUS, row.status);
+		ui_style_text(UI_TEXT_LINE, x + 12, BODY_Y + 32, UI_ALIGN_LEFT, row.status);
 	switch (item->kind)
 	{
-	case _item_you:
-		snprintf(line, sizeof(line), "%d friends \xC2\xB7 %d online", friends_state.friend_count,
-			social_online_count(&friends_state));
-		break;
 	case _item_invite:
 		social_copy_text(line, sizeof(line), friends_state.invites[item->index].game.name);
 		break;
@@ -1419,7 +1411,7 @@ static void render_friend_detail(struct friend_item const *item)
 	}
 	}
 	if (line[0])
-		ui_overlay_text(UI_FONT_REGULAR, 9.0f, x + 12, BODY_Y + 46, UI_ALIGN_LEFT, COLOR_LABEL, line);
+		ui_style_text(UI_TEXT_LABEL, x + 12, BODY_Y + 48, UI_ALIGN_LEFT, line);
 	count = item_options(item, options);
 	busy = guide.acting;
 	y = BODY_Y + 68;
@@ -1435,9 +1427,9 @@ static void render_friend_detail(struct friend_item const *item)
 	}
 	/* (what the last action came to: a refusal's line, "Invite sent") */
 	if (busy)
-		ui_overlay_text(UI_FONT_REGULAR, 9.0f, x + 12, y + 4, UI_ALIGN_LEFT, COLOR_STATUS, "Sending");
+		ui_style_text(UI_TEXT_LINE, x + 12, y + 4, UI_ALIGN_LEFT, "Sending");
 	else if (guide.message[0] && system_milliseconds() - guide.message_time < MESSAGE_TIME)
-		ui_overlay_text(UI_FONT_REGULAR, 9.0f, x + 12, y + 4, UI_ALIGN_LEFT, COLOR_MUTED, guide.message);
+		ui_style_text(UI_TEXT_WARNING, x + 12, y + 4, UI_ALIGN_LEFT, guide.message);
 }
 
 static void render_friends(void)
@@ -1449,8 +1441,8 @@ static void render_friends(void)
 
 	if (!guide.friends_loaded)
 	{
-		ui_overlay_text(UI_FONT_REGULAR, 11.0f, center, (BODY_Y + BODY_BOTTOM) * 0.5f - 6, UI_ALIGN_CENTER,
-			COLOR_STATUS, guide.friends_status == BROWSER_SOCIAL_FAILED ? "Can't reach the site" : "Loading");
+		ui_style_text(UI_TEXT_LINE, center, (BODY_Y + BODY_BOTTOM) * 0.5f - 6, UI_ALIGN_CENTER,
+			guide.friends_status == BROWSER_SOCIAL_FAILED ? "Can't reach the site" : "Loading");
 		return;
 	}
 	friends_scroll();
@@ -1469,7 +1461,7 @@ static void render_friends(void)
 				snprintf(heading, sizeof(heading), "ONLINE (%d OF %d)", online, friends_state.friend_count);
 			else
 				snprintf(heading, sizeof(heading), "REQUESTS (%d)", friends_state.request_count);
-			ui_overlay_text(UI_FONT_MENU, 8.5f, CONTENT_LEFT, y + 2, UI_ALIGN_LEFT, ui_style_color(UI_COLOR_HEADING), heading);
+			ui_style_text(UI_TEXT_HEADING, CONTENT_LEFT, y + 2, UI_ALIGN_LEFT, heading);
 		}
 		else if (item->kind == _item_offline)
 		{
@@ -1490,11 +1482,8 @@ static void render_friends(void)
 		}
 		y += height;
 	}
-	if (guide.item_count == 1)
-	{
-		ui_overlay_text(UI_FONT_REGULAR, 10.0f, CONTENT_LEFT + LIST_WIDTH * 0.5f, y + 14, UI_ALIGN_CENTER, COLOR_STATUS,
-			"No friends yet");
-	}
+	if (!guide.item_count)
+		ui_style_text(UI_TEXT_LINE, CONTENT_LEFT + LIST_WIDTH * 0.5f, y + 14, UI_ALIGN_CENTER, "No friends yet");
 	if (chosen >= 0 && chosen < guide.item_count)
 		render_friend_detail(&guide.items[chosen]);
 }
@@ -1533,7 +1522,7 @@ static void render_coming(void)
 
 	if (friends_signed_in() || sign_in_section() == NONE)
 		return;
-	ui_overlay_text(UI_FONT_REGULAR, 11.0f, center, y, UI_ALIGN_CENTER, COLOR_STATUS, "Sign in to Delta to see friends");
+	ui_style_text(UI_TEXT_LINE, center, y, UI_ALIGN_CENTER, "Sign in to Delta to see friends");
 	ui_style_row(center - width * 0.5f, y + 22, width, 26, TRUE);
 	ui_overlay_text_glow(UI_FONT_MENU, 11.0f, center, y + 29, UI_ALIGN_CENTER, 0xFFFFFFFF, COLOR_PROMPT_GLOW,
 		"SIGN IN");
@@ -1646,15 +1635,15 @@ static void render_toast(void)
 		age > TOAST_TIME - TOAST_FADE ? (float)(TOAST_TIME - age) / TOAST_FADE : 1.0f;
 	ui_overlay_layer(4);
 	ui_style_clock((unsigned int)system_milliseconds());
-	ui_style_surface(TOAST_X, TOAST_Y, TOAST_WIDTH, TOAST_HEIGHT, 8, fade(COLOR_PANEL, share),
-		fade(COLOR_PANEL_EDGE, share), FALSE);
+	ui_style_glass(TOAST_X, TOAST_Y, TOAST_WIDTH, TOAST_HEIGHT, 8, fade(ui_style_color(UI_COLOR_GLASS_TOP), share),
+		fade(COLOR_PANEL_EDGE, share));
 	/* (a friend's: their initial on gold; else the player's own color) */
 	if (guide.toast_kind != _toast_none)
 	{
-		ui_overlay_rect(TOAST_X + 8, TOAST_Y + 7, 20, 20, 4, fade(ui_style_color(UI_COLOR_FRIEND_EMBLEM), share));
+		ui_overlay_rect(TOAST_X + 8, TOAST_Y + 7, 20, 20, 4, fade(ui_style_color(UI_COLOR_EMBLEM_FRIEND), share));
 		if (guide.toast_initial[0])
 		{
-			ui_overlay_text(UI_FONT_BOLD, 11.0f, TOAST_X + 18, TOAST_Y + 11, UI_ALIGN_CENTER, fade(ui_style_color(UI_COLOR_FRIEND_INITIAL), share),
+			ui_overlay_text(UI_FONT_BOLD, 11.0f, TOAST_X + 18, TOAST_Y + 11, UI_ALIGN_CENTER, fade(ui_style_color(UI_COLOR_EMBLEM_LETTER), share),
 				guide.toast_initial);
 		}
 		/* (the key that opens it) */
@@ -1664,15 +1653,13 @@ static void render_toast(void)
 
 			key = key[0] ? key : "F3";
 			text_right -= ui_overlay_key_width(key, 12.0f) + 6;
-			ui_overlay_key(key, 12.0f, text_right + 6, TOAST_Y + 11, fade(ui_style_color(UI_COLOR_KEY), share));
+			ui_overlay_key(key, 12.0f, text_right + 6, TOAST_Y + 11, fade(ui_style_color(UI_COLOR_NAME), share));
 		}
 	}
 	else
 		ui_overlay_rect(TOAST_X + 8, TOAST_Y + 7, 20, 20, 4, fade(guide.color ? guide.color : 0x2F6DD0FF, share));
-	ui_overlay_text(UI_FONT_BOLD, 10.0f, TOAST_X + 36, TOAST_Y + 5, UI_ALIGN_LEFT, fade(COLOR_NAME, share),
-		guide.toast_title);
-	ui_overlay_text(UI_FONT_REGULAR, 8.0f, TOAST_X + 36, TOAST_Y + 19, UI_ALIGN_LEFT, fade(COLOR_STATUS, share),
-		guide.toast_line);
+	ui_style_text_faded(UI_TEXT_NAME, share, TOAST_X + 36, TOAST_Y + 5, UI_ALIGN_LEFT, guide.toast_title);
+	ui_style_text_faded(UI_TEXT_STATUS, share, TOAST_X + 36, TOAST_Y + 20, UI_ALIGN_LEFT, guide.toast_line);
 	ui_overlay_layer(0);
 }
 
@@ -1936,7 +1923,7 @@ void guide_render(void)
 	plasma_look();
 	guide.target_count = 0;
 	ui_overlay_layer(4);
-	ui_overlay_rect(-200, 0, 1040, 480, 0, COLOR_SHADE);
+	ui_overlay_rect(-200, 0, 1040, 480, 0, ui_style_color(UI_COLOR_SHADE));
 	ui_style_clock((unsigned int)system_milliseconds());
 	ui_style_panel(PANEL_X, PANEL_Y, PANEL_WIDTH, PANEL_HEIGHT, 1.0f);
 	render_card();

@@ -41,18 +41,69 @@ enum
 (ui_style_color), by UI_COLOR_* */
 static const unsigned int palette[NUMBER_OF_UI_COLORS] =
 {
-	/* UI_COLOR_NAME, UI_COLOR_STATUS, UI_COLOR_LABEL, UI_COLOR_HEADING */
-	COLOR_NAME, COLOR_STATUS, 0x6FA6DDFF, 0x6FA6DDFF,
-	/* UI_COLOR_VALUE, UI_COLOR_WARNING */
-	0xFFFFFFFF, 0xFF9F9FFF,
-	/* UI_COLOR_FRIEND_EMBLEM, UI_COLOR_FRIEND_INITIAL (a friend's initial
-	on their toast's emblem), UI_COLOR_KEY (a key cap) */
-	0xC9A227FF, 0x071A33FF, 0xFFFFFFFF,
+	[UI_COLOR_NAME] = COLOR_NAME,
+	[UI_COLOR_STATUS] = COLOR_STATUS,
+	[UI_COLOR_LABEL] = 0x6FB6FFFF,
+	[UI_COLOR_HEAD] = 0x6FB6FFFF,
+	[UI_COLOR_HEAD_GLOW] = 0x3D8BFF40,
+	[UI_COLOR_TEXT] = 0xFFFFFFFF,
+	[UI_COLOR_WARNING] = 0xFFCF6BFF,
+	[UI_COLOR_SHADE] = 0x01040CC8,
+	[UI_COLOR_GLASS_TOP] = 0x0C2A58F6,
+	[UI_COLOR_GLASS_BOTTOM] = 0x061430FA,
+	[UI_COLOR_PANE] = 0x03102AE0,
+	[UI_COLOR_EMBLEM_FRIEND] = 0xC9A227FF,
+	[UI_COLOR_EMBLEM_LETTER] = 0x071A33FF,
 };
+
+#define PALETTE(name) palette[UI_COLOR_##name]
 
 unsigned int ui_style_color(int name)
 {
 	return name >= 0 && name < NUMBER_OF_UI_COLORS ? palette[name] : COLOR_NAME;
+}
+
+static unsigned int fade(unsigned int color, float share);
+
+/* the text kinds: their font, size and color (and glow) */
+static const struct
+{
+	int font;
+	float size;
+	int color;
+	int glow;
+} text_kinds[] =
+{
+	[UI_TEXT_HEADING] = { UI_FONT_MENU, 9.0f, UI_COLOR_HEAD, UI_COLOR_HEAD_GLOW },
+	[UI_TEXT_NAME] = { UI_FONT_MENU, 11.0f, UI_COLOR_NAME, -1 },
+	[UI_TEXT_STATUS] = { UI_FONT_MENU_SMALL, 8.5f, UI_COLOR_STATUS, -1 },
+	[UI_TEXT_TITLE] = { UI_FONT_MENU, 14.0f, UI_COLOR_NAME, UI_COLOR_HEAD_GLOW },
+	[UI_TEXT_LINE] = { UI_FONT_MENU_SMALL, 10.0f, UI_COLOR_STATUS, -1 },
+	[UI_TEXT_LABEL] = { UI_FONT_MENU_SMALL, 9.0f, UI_COLOR_LABEL, -1 },
+	[UI_TEXT_WARNING] = { UI_FONT_MENU_SMALL, 9.0f, UI_COLOR_WARNING, -1 },
+};
+
+float ui_style_text_size(int kind)
+{
+	return kind >= 0 && kind <= UI_TEXT_WARNING ? text_kinds[kind].size : 10.0f;
+}
+
+float ui_style_text_faded(int kind, float share, float x, float y, int align, const char *text)
+{
+	if (kind < 0 || kind > UI_TEXT_WARNING)
+		kind = UI_TEXT_LINE;
+	if (text_kinds[kind].glow >= 0)
+	{
+		return ui_overlay_text_glow(text_kinds[kind].font, text_kinds[kind].size, x, y, align,
+			fade(palette[text_kinds[kind].color], share), fade(palette[text_kinds[kind].glow], share), text);
+	}
+	return ui_overlay_text(text_kinds[kind].font, text_kinds[kind].size, x, y, align,
+		fade(palette[text_kinds[kind].color], share), text);
+}
+
+float ui_style_text(int kind, float x, float y, int align, const char *text)
+{
+	return ui_style_text_faded(kind, 1.0f, x, y, align, text);
 }
 
 static unsigned int style_clock;
@@ -87,15 +138,36 @@ void ui_style_surface(float x, float y, float width, float height, float radius,
 		ui_overlay_outline(x, y, width, height, radius, 1.0f, edge);
 }
 
+void ui_style_glass(float x, float y, float width, float height, float radius, unsigned int color,
+	unsigned int edge)
+{
+	ui_overlay_rect(x, y, width, height, radius, color);
+	if (edge & 0xFF)
+		ui_overlay_outline(x, y, width, height, radius, 1.0f, edge);
+}
+
 void ui_style_panel(float x, float y, float width, float height, float share)
 {
-	ui_style_surface(x, y, width, height, 12, fade(COLOR_PANEL, share), fade(COLOR_PANEL_EDGE, share), 1);
+	int ring;
+
+	/* (glass, nearly opaque, so that nothing under it reads through; its
+	edge's glow around it. The plasma is the selection's alone, as in
+	Halo's menus) */
+	for (ring = 1; ring <= 4; ring++)
+	{
+		ui_overlay_outline(x - ring, y - ring, width + 2 * ring, height + 2 * ring, 12 + ring, 1.0f,
+			fade(COLOR_GLOW, share * 0.30f / (float)ring));
+	}
+	ui_overlay_gradient(x, y, width, height, 12, fade(PALETTE(GLASS_TOP), share), fade(PALETTE(GLASS_BOTTOM), share));
+	ui_overlay_outline(x, y, width, height, 12, 1.0f, fade(COLOR_PANEL_EDGE, share));
 }
 
 void ui_style_row(float x, float y, float width, float height, int selected)
 {
-	ui_style_surface(x, y, width, height, 7, selected ? COLOR_ROW_ON : COLOR_ROW,
-		selected ? COLOR_SELECTED_EDGE : COLOR_ROW_EDGE, selected);
+	if (selected)
+		ui_style_surface(x, y, width, height, 7, COLOR_ROW_ON, COLOR_SELECTED_EDGE, 1);
+	else
+		ui_style_glass(x, y, width, height, 7, COLOR_ROW, COLOR_ROW_EDGE);
 }
 
 /* a bumper's glyph: the device's, or (the keyboard) the screen's own key */
@@ -195,9 +267,9 @@ void ui_style_card(float left, float right, float y, const char *name, const cha
 	initial[1] = 0;
 	if ((unsigned char)initial[0] < 0x80)
 		ui_overlay_text(UI_FONT_BOLD, 17.0f, left + 16, y + 6, UI_ALIGN_CENTER, 0xFFFFFFFF, initial);
-	ui_overlay_text(UI_FONT_BOLD, 15.0f, left + 44, y + 1, UI_ALIGN_LEFT, COLOR_NAME, name);
+	ui_overlay_text(UI_FONT_MENU, 15.0f, left + 44, y + 1, UI_ALIGN_LEFT, COLOR_NAME, name);
 	if (status && status[0])
-		ui_overlay_text(UI_FONT_REGULAR, 9.5f, left + 44, y + 20, UI_ALIGN_LEFT, COLOR_STATUS, status);
+		ui_overlay_text(UI_FONT_MENU_SMALL, 10.0f, left + 44, y + 20, UI_ALIGN_LEFT, COLOR_STATUS, status);
 }
 
 #endif

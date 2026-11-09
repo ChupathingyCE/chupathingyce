@@ -152,21 +152,50 @@ translucent panels and rows, a glow on the selected row and the edges. In
 the menus' 640x480, as everything here */
 
 /* the palette's named colors, for what a screen draws itself (the theme
-swaps this one palette): ui_style_color's names */
+swaps this one palette): ui_style_color's names (the setup screen's
+names where they share one) */
 enum
 {
 	UI_COLOR_NAME,
 	UI_COLOR_STATUS,
 	UI_COLOR_LABEL,
-	UI_COLOR_HEADING,
-	UI_COLOR_VALUE,
+	UI_COLOR_HEAD,
+	UI_COLOR_HEAD_GLOW,
+	UI_COLOR_TEXT,
 	UI_COLOR_WARNING,
-	UI_COLOR_FRIEND_EMBLEM,
-	UI_COLOR_FRIEND_INITIAL,
-	UI_COLOR_KEY,
+	/* the shade over the screen under the Guide */
+	UI_COLOR_SHADE,
+	/* glass: a panel's, from its top to its bottom, and a pane's (a detail
+	box, a toast) */
+	UI_COLOR_GLASS_TOP,
+	UI_COLOR_GLASS_BOTTOM,
+	UI_COLOR_PANE,
+	/* a friend's emblem on a toast, and its letter */
+	UI_COLOR_EMBLEM_FRIEND,
+	UI_COLOR_EMBLEM_LETTER,
 	NUMBER_OF_UI_COLORS
 };
 unsigned int ui_style_color(int name);
+
+/* the look's text, each kind in the menus' fonts (ui_style_text): a list's
+headings ("ONLINE (2 OF 3)"), a row's name and its status line, a pane's
+name, its lines, a quieter line, and a warning */
+enum
+{
+	UI_TEXT_HEADING,
+	UI_TEXT_NAME,
+	UI_TEXT_STATUS,
+	UI_TEXT_TITLE,
+	UI_TEXT_LINE,
+	UI_TEXT_LABEL,
+	UI_TEXT_WARNING,
+};
+/* text of a kind (UTF-8), y its top; its width. Its height:
+ui_style_text_size */
+float ui_style_text(int kind, float x, float y, int align, const char *text);
+/* the same faded by share (0 to 1: a toast coming and going) */
+float ui_style_text_faded(int kind, float share, float x, float y, int align, const char *text);
+float ui_style_text_size(int kind);
 
 /* the clock the plasma scrolls by, in milliseconds: set once a frame
 before drawing (the game's system_milliseconds, the launcher's ticks) */
@@ -175,9 +204,13 @@ void ui_style_clock(unsigned int milliseconds);
 around it */
 void ui_style_surface(float x, float y, float width, float height, float radius, unsigned int color,
 	unsigned int edge, int lit);
-/* the large translucent panel a screen sits on, faded by share (0 to 1) */
+/* the large glass panel a screen sits on (no plasma: the selection has it),
+faded by share (0 to 1) */
 void ui_style_panel(float x, float y, float width, float height, float share);
-/* a row's capsule, the selected one lit */
+/* calm glass (a pane: a detail box, a toast), its edge (alpha 0: none) */
+void ui_style_glass(float x, float y, float width, float height, float radius, unsigned int color,
+	unsigned int edge);
+/* a row's capsule: glass, the selected one lit with the plasma */
 void ui_style_row(float x, float y, float width, float height, int selected);
 /* section tabs between left and right, height tall: the bumpers' glyphs at
 the ends (the keyboard's: left_key and right_key, as "Q" and "E", or the
