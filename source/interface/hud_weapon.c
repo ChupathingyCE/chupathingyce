@@ -1306,9 +1306,15 @@ static void crosshairs_draw(
 										{
 											/* port: display.reticle_scales_with_fov, the reticle
 											and its items' places about the middle scaled as the
-											world's image is by display.field_of_view */
+											world's image is by display.field_of_view. Not while
+											zoomed: then the crosshairs are the scope's picture
+											(its ticks, brackets and zoom label), drawn with its
+											mask, which keeps its size, so they keep theirs too,
+											or they slide off the mask in a wide view */
 											struct hud_placement_definition placement = item->placement;
-											real reticle_scale = first_person_reticle_scale(render.local_player_index);
+											real reticle_scale = crosshair->states[_crosshair_state_zoom].value.reference_data > 0 ?
+												1.0f :
+												first_person_reticle_scale(render.local_player_index);
 
 											placement.offset.x = (short)fast_ftol(placement.offset.x * reticle_scale);
 											placement.offset.y = (short)fast_ftol(placement.offset.y * reticle_scale);

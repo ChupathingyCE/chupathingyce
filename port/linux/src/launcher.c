@@ -4,9 +4,9 @@ LAUNCHER.C
 Chupathingy's screen before the game (launcher.h): its own small loop in
 the game's window (read input, clear, draw, present) before the first map
 loads, drawn with the overlay (ui_overlay.c) and its built-in fonts and
-button glyphs, in the Guide's look (ui_overlay_style.c: the plasma, from
-the overlay's own noise, under translucent panels and rows, the glow on the
-selection). No map, tag or bitmap of the game's is read, so nothing of the
+button glyphs, in the Guide's look (ui_overlay_style.c: translucent glass
+panels and rows, and the Xbox menus' plasma, from the overlay's own noise,
+on the selection alone). No map, tag or bitmap of the game's is read, so nothing of the
 retail game's is on screen. It draws with OpenGL, or with bgfx when that is
 the renderer (xgpu_bgfx_launcher_frame).
 
@@ -1710,8 +1710,8 @@ static void target_add(float x0, float y0, float x1, float y1, int kind, int ind
 	launcher.target_count++;
 }
 
-/* the backdrop: dark space under the Xbox menus' plasma (the overlay's own
-noise, as no map is loaded yet), and stars */
+/* the backdrop: dark space and stars (the plasma is the selection's: the
+overlay's own noise, as no map is loaded yet) */
 static void draw_backdrop(void)
 {
 	float left = launcher.left, width = layout_width();
@@ -1722,7 +1722,6 @@ static void draw_backdrop(void)
 		ui_style_color(UI_COLOR_BACKDROP_MIDDLE));
 	ui_overlay_gradient(left, 265, width, 215, 0, ui_style_color(UI_COLOR_BACKDROP_MIDDLE),
 		ui_style_color(UI_COLOR_BACKDROP_BOTTOM));
-	ui_style_surface(left, 0, width, 480, 0, ui_style_color(UI_COLOR_BACKDROP_PLASMA), 0, 0);
 	for (index = 0; index < 160; index++)
 	{
 		float x, y, size, alpha;
@@ -1872,7 +1871,7 @@ static float draw_row(const struct row *row, int index, float x, float y, float 
 		float tag_y = y + (height - 12.0f) * 0.5f;
 
 		ui_overlay_outline(label_x, tag_y, 29.0f, 12.0f, 3.0f, 0.8f, with_alpha(row->tag_color, 0x99));
-		text_fit(UI_FONT_BOLD, 8.0f, label_x + 14.5f, tag_y + 1.5f, UI_ALIGN_CENTER, row->tag_color, 0, 26.0f,
+		text_fit(UI_FONT_MENU, 8.5f, label_x + 14.5f, tag_y + 1.5f, UI_ALIGN_CENTER, row->tag_color, 0, 26.0f,
 			row->tag);
 		label_x += 38.0f;
 	}
@@ -1883,7 +1882,7 @@ static float draw_row(const struct row *row, int index, float x, float y, float 
 
 		draw_arrow(right - 5.0f, y + height * 0.5f, 0, COLOR_NAV);
 		draw_arrow(right - 124.0f, y + height * 0.5f, 1, COLOR_NAV);
-		text_fit(UI_FONT_BOLD, 10.5f, center, y + (height - 10.5f) * 0.5f, UI_ALIGN_CENTER, COLOR_WHITE, 0, 104.0f,
+		text_fit(UI_FONT_MENU, 12.5f, center, y + (height - 12.5f) * 0.5f, UI_ALIGN_CENTER, COLOR_WHITE, 0, 104.0f,
 			row->value);
 		value_width = 130.0f;
 	}
@@ -1891,10 +1890,10 @@ static float draw_row(const struct row *row, int index, float x, float y, float 
 	{
 		float maximum = width * 0.5f;
 
-		value_width = ui_overlay_text_width(UI_FONT_BOLD, 10.5f, row->value);
+		value_width = ui_overlay_text_width(UI_FONT_MENU, 12.5f, row->value);
 		if (value_width > maximum)
 			value_width = maximum;
-		text_fit(UI_FONT_BOLD, 10.5f, x + width - 11.0f, y + (height - 10.5f) * 0.5f - 0.5f, UI_ALIGN_RIGHT,
+		text_fit(UI_FONT_MENU, 12.5f, x + width - 11.0f, y + (height - 12.5f) * 0.5f, UI_ALIGN_RIGHT,
 			row->value_color, 0, maximum, row->value);
 		value_width += 10.0f;
 	}
@@ -1965,13 +1964,13 @@ static void draw_panel(float x0, float y0, float x1, float y1)
 
 			snprintf(section, sizeof(section), "%s", launcher.setting_section);
 			upper(section);
-			ui_overlay_text_glow(UI_FONT_MENU, 12.0f, x + 1.0f, y, UI_ALIGN_LEFT, COLOR_HEAD, COLOR_HEAD_GLOW, section);
+			ui_style_heading(x + 1.0f, y, 7.5f, UI_ALIGN_LEFT, section);
 			y += 18.0f;
 		}
 	}
 	else
 	{
-		ui_overlay_text_glow(UI_FONT_MENU, 13.5f, x + 1.0f, y, UI_ALIGN_LEFT, COLOR_HEAD, COLOR_HEAD_GLOW, heading);
+		ui_style_heading(x + 1.0f, y, 8.5f, UI_ALIGN_LEFT, heading);
 		y += 22.0f;
 	}
 	if (launcher.screen == _screen_family)
@@ -2028,21 +2027,21 @@ static void draw_panel(float x0, float y0, float x1, float y1)
 		float kx = x + 2.0f;
 
 		snprintf(text, sizeof(text), "%s", build_identity_version());
-		kx += ui_overlay_text(UI_FONT_BOLD, 10.5f, kx, y, UI_ALIGN_LEFT, COLOR_NAV, "Version: ");
-		kx += ui_overlay_text(UI_FONT_BOLD, 10.5f, kx, y, UI_ALIGN_LEFT, COLOR_WHITE, text) + 9.0f;
+		kx += ui_overlay_text(UI_FONT_MENU, 11.5f, kx, y, UI_ALIGN_LEFT, COLOR_NAV, "Version: ");
+		kx += ui_overlay_text(UI_FONT_MENU, 11.5f, kx, y, UI_ALIGN_LEFT, COLOR_WHITE, text) + 9.0f;
 		snprintf(text, sizeof(text), "%s %s", build_identity_platform(), sizeof(void *) == 8 ? "64-bit" : "32-bit");
-		kx += ui_overlay_text(UI_FONT_BOLD, 10.5f, kx, y, UI_ALIGN_LEFT, COLOR_NAV, "Build: ");
-		kx += ui_overlay_text(UI_FONT_BOLD, 10.5f, kx, y, UI_ALIGN_LEFT, COLOR_WHITE, text) + 9.0f;
+		kx += ui_overlay_text(UI_FONT_MENU, 11.5f, kx, y, UI_ALIGN_LEFT, COLOR_NAV, "Build: ");
+		kx += ui_overlay_text(UI_FONT_MENU, 11.5f, kx, y, UI_ALIGN_LEFT, COLOR_WHITE, text) + 9.0f;
 		snprintf(text, sizeof(text), "%d", delta_legacy_announce());
-		kx += ui_overlay_text(UI_FONT_BOLD, 10.5f, kx, y, UI_ALIGN_LEFT, COLOR_NAV, "Network: ");
-		ui_overlay_text(UI_FONT_BOLD, 10.5f, kx, y, UI_ALIGN_LEFT, COLOR_WHITE, text);
+		kx += ui_overlay_text(UI_FONT_MENU, 11.5f, kx, y, UI_ALIGN_LEFT, COLOR_NAV, "Network: ");
+		ui_overlay_text(UI_FONT_MENU, 11.5f, kx, y, UI_ALIGN_LEFT, COLOR_WHITE, text);
 		y += 18.0f;
 	}
 	/* the last action's result, else the selected row's line (a value: a
 	path, what is missing), else what the screen's state is */
 	if (launcher.status[0])
 	{
-		lines = text_wrapped(UI_FONT_BOLD, 11.0f, x + 2.0f, y, inner, 14.5f, 3, launcher.status_color, launcher.status);
+		lines = text_wrapped(UI_FONT_MENU, 12.0f, x + 2.0f, y, inner, 14.5f, 3, launcher.status_color, launcher.status);
 		y += 14.5f * (float)lines;
 	}
 	else
@@ -2060,7 +2059,7 @@ static void draw_panel(float x0, float y0, float x1, float y1)
 		}
 		if (line[0])
 		{
-			lines = text_wrapped(UI_FONT_BOLD, 11.0f, x + 2.0f, y, inner, 14.5f, 3, color, line);
+			lines = text_wrapped(UI_FONT_MENU, 12.0f, x + 2.0f, y, inner, 14.5f, 3, color, line);
 			y += 14.5f * (float)lines;
 		}
 	}
@@ -2220,7 +2219,7 @@ static void draw_dialog(void)
 		height = 46.0f + 50.0f;
 		break;
 	default:
-		height = 46.0f + 8.0f + (launcher.dialog_text[0] ? 15.0f * (float)(ui_overlay_text_width(UI_FONT_BOLD, 11.0f,
+		height = 46.0f + 8.0f + (launcher.dialog_text[0] ? 15.0f * (float)(ui_overlay_text_width(UI_FONT_MENU, 12.0f,
 			launcher.dialog_text) / inner + 1.0f) : 0.0f) + 33.0f * (float)launcher.dialog_row_count + 10.0f;
 		break;
 	}
@@ -2234,7 +2233,7 @@ static void draw_dialog(void)
 	switch (launcher.dialog)
 	{
 	case _dialog_picking:
-		text_wrapped(UI_FONT_BOLD, 11.0f, x, y, inner, 15.0f, 3, COLOR_WHITE, launcher.dialog_text);
+		text_wrapped(UI_FONT_MENU, 12.0f, x, y, inner, 15.0f, 3, COLOR_WHITE, launcher.dialog_text);
 		break;
 	case _dialog_import:
 	{
@@ -2259,10 +2258,10 @@ static void draw_dialog(void)
 		break;
 	}
 	case _dialog_sending:
-		ui_overlay_text(UI_FONT_BOLD, 11.0f, x, y, UI_ALIGN_LEFT, COLOR_WHITE, "Sending\xE2\x80\xA6");
+		ui_overlay_text(UI_FONT_MENU, 12.0f, x, y, UI_ALIGN_LEFT, COLOR_WHITE, "Sending\xE2\x80\xA6");
 		break;
 	case _dialog_sent:
-		text_wrapped(UI_FONT_BOLD, 11.0f, x, y, inner, 15.0f, 2, COLOR_WHITE, launcher.dialog_text);
+		text_wrapped(UI_FONT_MENU, 12.0f, x, y, inner, 15.0f, 2, COLOR_WHITE, launcher.dialog_text);
 		ui_style_row(x, y + 36.0f, inner, 46.0f, 1);
 		ui_overlay_text_glow(UI_FONT_MENU, 28.0f, x + inner * 0.5f, y + 45.0f, UI_ALIGN_CENTER, COLOR_WHITE,
 			COLOR_PROMPT_GLOW, launcher.sent_code);
@@ -2270,7 +2269,7 @@ static void draw_dialog(void)
 	default:
 		if (launcher.dialog_text[0])
 		{
-			y += 15.0f * (float)text_wrapped(UI_FONT_BOLD, 11.0f, x, y, inner, 15.0f, 4, launcher.dialog_text_color,
+			y += 15.0f * (float)text_wrapped(UI_FONT_MENU, 12.0f, x, y, inner, 15.0f, 4, launcher.dialog_text_color,
 				launcher.dialog_text) + 8.0f;
 		}
 		for (index = 0; index < launcher.dialog_row_count; index++)
