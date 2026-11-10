@@ -27,6 +27,18 @@ files the host's.
 #include <sys/socket.h>
 #include <unistd.h>
 
+/* (what slurp read, freed at exit, as is the index held: the sanitizers'
+leak check) */
+static char *slurped[8];
+static int slurped_count;
+
+static void free_all(void)
+{
+	while (slurped_count)
+		free(slurped[--slurped_count]);
+	map_repo_reset();
+}
+
 static char *slurp(const char *path, size_t *size)
 {
 	FILE *file = fopen(path, "rb");
@@ -45,6 +57,8 @@ static char *slurp(const char *path, size_t *size)
 	*size = fread(data, 1, (size_t)length, file);
 	data[*size] = 0;
 	fclose(file);
+	if (slurped_count < (int)(sizeof(slurped) / sizeof(*slurped)))
+		slurped[slurped_count++] = data;
 	return data;
 }
 
@@ -222,6 +236,7 @@ int main(int count, char **arguments)
 	char why[200] = "";
 	size_t size = 0, signature_size = 0;
 
+	atexit(free_all);
 	if (count == 5 && !strcmp(arguments[1], "index"))
 	{
 		struct map_index_info info;
