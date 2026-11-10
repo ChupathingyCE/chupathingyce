@@ -781,6 +781,10 @@ char *nv2a_pixel_shader_to_glsl(const struct nv2a_pixel_shader_key *key)
 #endif
 	if (replaces_depth(key))
 		xgpu_text_append(&text, "\tgl_FragDepth = replaced_depth;\n");
-	xgpu_text_append(&text, "\tfragment_color = clamp(result, 0.0, 1.0);\n}\n");
+	/* (a component that is not a number, or is infinite, made 0 by its
+	bits, as nv2a_vsh.c's nv2a_finite: clamp leaves one as the driver likes) */
+	xgpu_text_append(&text,
+		"\tresult = mix(result, vec4(0.0), equal(floatBitsToUint(result) & uvec4(0x7f800000u), uvec4(0x7f800000u)));\n"
+		"\tfragment_color = clamp(result, 0.0, 1.0);\n}\n");
 	return text.buffer;
 }
