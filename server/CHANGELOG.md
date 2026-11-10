@@ -19,7 +19,7 @@ release notes.
 - Shared ban lists for linked servers (both off by default): `ban_share`
   sends your account and device bans to your list on the site, and the
   lists you pick on My servers come back as `sv_banlist`'s S entries
-  (`sv_ban_lists`, `sv_unban S<n>` for an exception here).
+  (`sv_ban_lists`, `sv_unban S<ref>` for an exception here).
   `sv_ban_account` bans a Delta account that isn't in the game.
 - The control panel is on by default, at `http://127.0.0.1:8080` (this
   machine only). New hosts get the one-time setup link on the console and in

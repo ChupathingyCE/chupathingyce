@@ -41,6 +41,9 @@ enum
 	CONTROL_LINK_COMMANDS = 16,
 	CONTROL_LINK_ROLE_ENTRIES = 128,
 	CONTROL_LINK_ENTRY_KEYS = 8,
+	/* a signed request's body, at most: the site refuses a bigger one before
+	it reads it */
+	CONTROL_LINK_BODY_MOST = 384 * 1024,
 	/* the refs of reports an answer says the site took, at most */
 	CONTROL_LINK_REPORTS_TAKEN = 20,
 	/* a JSON answer's tokens, at most (a full shared ban list's take about

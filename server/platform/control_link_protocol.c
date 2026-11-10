@@ -342,12 +342,10 @@ int control_link_signed_body(const char *path, const char *server_id, const uint
 	uint8_t copy[CONTROL_LINK_SEED_BYTES];
 	size_t message_size = strlen(path) + strlen(server_id) + strlen(payload) + 96;
 	char *message;
-	char *quoted;
-	size_t quoted_size = strlen(payload) * 6 + 3;
 	int length;
 
 	control_hex_text(nonce, CONTROL_LINK_NONCE_BYTES, nonce_text);
-	if (message_size > size || quoted_size > size)
+	if (message_size > size)
 		return -1;
 	/* (the message signed: in the out buffer's room, before the body is
 	written there) */
@@ -361,19 +359,17 @@ int control_link_signed_body(const char *path, const char *server_id, const uint
 	crypto_ed25519_sign(signature, secret, (const uint8_t *)message, (size_t)length);
 	crypto_wipe(secret, sizeof(secret));
 	control_hex_text(signature, sizeof(signature), signature_text);
-	/* the body: the payload as a JSON string */
+	/* the body: the payload as a JSON string (its escaped length, not a
+	guess at it: a payload of more than a few kilobytes once never fit) */
 	{
-		static char quoted_buffer[64 * 1024];
+		static char quoted[CONTROL_LINK_BODY_MOST];
 
-		if (quoted_size > sizeof(quoted_buffer))
-			return -1;
-		quoted = quoted_buffer;
-		if (control_json_string(payload, quoted, sizeof(quoted_buffer)) < 0)
+		if (control_json_string(payload, quoted, sizeof(quoted)) < 0)
 			return -1;
 		length = snprintf(out, size, "{\"server_id\": \"%s\", \"time\": %lld, \"nonce\": \"%s\", \"payload\": %s, "
 			"\"signature\": \"%s\"}", server_id, (long long)time, nonce_text, quoted, signature_text);
 	}
-	return length < 0 || (size_t)length >= size ? -1 : length;
+	return length < 0 || (size_t)length >= size || length > CONTROL_LINK_BODY_MOST ? -1 : length;
 }
 
 int control_link_open_answer(const char *answer, size_t length, const uint8_t secret[CONTROL_LINK_SECRET_BYTES],

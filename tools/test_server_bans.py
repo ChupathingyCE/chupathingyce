@@ -48,3 +48,19 @@ def test_server_bans(tmp_path):
     # (the queue's file: no address in it)
     log = (data / "reports.log").read_text(encoding="utf-8")
     assert "\"event\": \"report\"" in log and "\"event\": \"closed\"" in log
+
+
+def test_poll_sends_without_extras_before_failing():
+    """a poll whose signed body would pass what the site reads
+    (CONTROL_LINK_BODY_MOST) goes without the shared bans, then without the
+    reports too, so the commands' results and the status never wait on them"""
+    source = (ROOT / "server" / "platform" / "control_link.c").read_text(encoding="utf-8")
+    start = source.index("static int run_poll(void)")
+    body = source[start:source.index("\n}\n", start)]
+    assert "for (extras_sent = 2; extras_sent >= 0; extras_sent--)" in body
+    assert body.index("extras_sent >= 1 && ") < body.index("server_reports_site_payload(")
+    assert body.index("extras_sent >= 2 && ") < body.index("server_bans_share_payload(")
+    assert "if (status != REQUEST_TOO_BIG)\n\t\t\tbreak;" in body
+    assert "return REQUEST_TOO_BIG;" in source
+    protocol = (ROOT / "server" / "platform" / "control_link_protocol.h").read_text(encoding="utf-8")
+    assert "CONTROL_LINK_BODY_MOST = 384 * 1024," in protocol

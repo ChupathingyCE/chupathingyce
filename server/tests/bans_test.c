@@ -11,6 +11,8 @@ in a data folder of its own.
 
 #include "../src/server_bans.h"
 #include "../src/server_reports.h"
+#include "../platform/control_protocol.h"
+#include "monocypher.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -71,9 +73,82 @@ static void test_lines(void)
 	CHECK(!server_bans_line_entry("x\taccount=0123\tdevice=zz\n", 100, &ban));
 }
 
+/* a ban's ref: the line keyed with this server's own key, never the line's
+plain hash (which anyone could test guesses of its address against); the
+same line keeps its ref, another server's key gives another */
+static void test_refs(void)
+{
+	static const char line[] = "2026-11-09 10:00:00\tip=1.2.3.4\thwid=abc\tplayers=x\treason=r\t"
+		"account=0123456789abcdef0123456789abcdef\n";
+	struct server_shared_ban ban, again;
+	unsigned char plain[16];
+	char plain_text[33], path[1024];
+	FILE *file;
+
+	CHECK(server_bans_line_entry(line, 100, &ban) && server_bans_line_entry(line, 100, &again) &&
+		!strcmp(ban.ref, again.ref));
+	crypto_blake2b(plain, sizeof(plain), (const uint8_t *)line, strlen(line) - 1);
+	control_hex_text(plain, sizeof(plain), plain_text);
+	CHECK(strcmp(ban.ref, plain_text) != 0);
+	snprintf(path, sizeof(path), "%s/shared_bans.key", data_root);
+	file = fopen(path, "rb");
+	CHECK(file != NULL);
+	if (file)
+	{
+		unsigned char key[64];
+
+		CHECK(fread(key, 1, sizeof(key), file) == 32);
+		fclose(file);
+	}
+}
+
+/* sv_unban S<digits>: an entry found by its ref's first digits, never by a
+place in the list */
+static void test_find(void)
+{
+	static struct server_shared_ban bans[3];
+	struct server_shared_ban got;
+	int index;
+
+	memset(bans, 0, sizeof(bans));
+	snprintf(bans[0].ref, sizeof(bans[0].ref), "aaaaaaaa00000000000000000000000a");
+	snprintf(bans[1].ref, sizeof(bans[1].ref), "aaaaaaab00000000000000000000000b");
+	snprintf(bans[2].ref, sizeof(bans[2].ref), "aaaaaaab11111111111111111111111c");
+	for (index = 0; index < 3; index++)
+	{
+		bans[index].has_device = 1;
+		memset(bans[index].device, 0x10 + index, 16);
+	}
+	server_bans_set_shared(bans, 3, 1, 0);
+	CHECK(server_bans_shared_find("aaaaaaaa", &got, NULL) && !strcmp(got.ref, bans[0].ref));
+	/* (two share the digits: neither, until enough are given) */
+	CHECK(!server_bans_shared_find("aaaaaaab", &got, NULL));
+	CHECK(server_bans_shared_find("aaaaaaab1", &got, NULL) && !strcmp(got.ref, bans[2].ref));
+	/* (too few digits, or not lowercase hex) */
+	CHECK(!server_bans_shared_find("aaaa", &got, NULL) && !server_bans_shared_find("AAAAAAAA", &got, NULL));
+	/* the list sent again in another order: the same digits find the same ban */
+	got = bans[0];
+	bans[0] = bans[2];
+	bans[2] = got;
+	server_bans_set_shared(bans, 3, 2, 0);
+	CHECK(server_bans_shared_find("aaaaaaaa", &got, NULL) && !strcmp(got.ref, "aaaaaaaa00000000000000000000000a"));
+	/* exceptions full of bans no list has now: they go to make room */
+	for (index = 0; index < 512; index++)
+	{
+		char ref[33];
+
+		snprintf(ref, sizeof(ref), "%032x", index + 0x100);
+		CHECK(server_bans_except(ref, 1));
+	}
+	CHECK(server_bans_except("aaaaaaaa00000000000000000000000a", 1));
+	CHECK(server_bans_shared_find("aaaaaaaa", &got, &index) && index);
+	CHECK(server_bans_except("aaaaaaaa00000000000000000000000a", 0));
+	server_bans_set_shared(NULL, 0, 0, 0);
+}
+
 static void test_share(void)
 {
-	char payload[64 * 1024];
+	static char payload[256 * 1024];
 
 	/* sharing off, never shared: nothing */
 	server_bans_set_sharing(0);
@@ -100,6 +175,29 @@ static void test_share(void)
 		!strcmp(payload, "\"bans\": {\"digest\": \"\", \"entries\": []}"));
 	server_bans_share_answered("");
 	CHECK(server_bans_share_payload(payload, sizeof(payload)) == 0);
+	/* (many long bans: what a poll carries stays under its cap; the rest
+	go when there is room) */
+	{
+		char path[1024];
+		FILE *file;
+		int index;
+
+		snprintf(path, sizeof(path), "%s/bans.txt", data_root);
+		file = fopen(path, "w");
+		for (index = 0; file && index < 500; index++)
+		{
+			fprintf(file, "2026-11-09 10:00:00\tip=1.2.3.4\thwid=a\tplayers=x\treason=%0120d\taccount=%032x,"
+				"%032x,%032x,%032x\tdevice=%032x\tprofile=aaaaaaaaaaaaaaaa,bbbbbbbbbbbbbbbb,cccccccccccccccc\n", index,
+				index + 1, index + 2, index + 3, index + 4, index + 5);
+		}
+		if (file)
+			fclose(file);
+		server_bans_set_sharing(1);
+		server_bans_share_answered("x");
+		CHECK(server_bans_share_payload(payload, sizeof(payload)) > 0 && strlen(payload) < 100 * 1024);
+		server_bans_set_sharing(0);
+		write_bans("");
+	}
 	/* (no room: -1, nothing half written) */
 	server_bans_set_sharing(1);
 	server_bans_share_answered("x");
@@ -220,6 +318,8 @@ int main(int argc, char **argv)
 {
 	data_root = argc > 1 ? argv[1] : ".";
 	test_lines();
+	test_refs();
+	test_find();
 	test_share();
 	test_shared();
 	test_reports();

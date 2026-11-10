@@ -1768,6 +1768,26 @@ static void test_link(int rounds)
 		CHECK(crypto_ed25519_check(signature, public_key, (const uint8_t *)message, (size_t)message_length));
 	}
 	CHECK(control_link_signed_body("/v1/control/poll", "s_1", seed, 1, nonce, "{}", body, 20) < 0);
+	/* (a payload of tens of kilobytes, as twenty reports or a shared ban
+	list make, is signed: it once needed six times its size in a 64 KB
+	buffer; one whose body would pass what the site reads is not) */
+	{
+		static char big_payload[CONTROL_LINK_BODY_MOST], big_body[2 * CONTROL_LINK_BODY_MOST];
+		size_t fill;
+
+		fill = (size_t)snprintf(big_payload, sizeof(big_payload), "{\"reports\": \"");
+		while (fill < 40 * 1024)
+			big_payload[fill++] = 'r';
+		snprintf(big_payload + fill, sizeof(big_payload) - fill, "\"}");
+		length = control_link_signed_body("/v1/control/poll", "s_1", seed, 1, nonce, big_payload, big_body,
+			sizeof(big_body));
+		CHECK(length > 40 * 1024 && length <= CONTROL_LINK_BODY_MOST);
+		while (fill < CONTROL_LINK_BODY_MOST - 64)
+			big_payload[fill++] = 'r';
+		snprintf(big_payload + fill, sizeof(big_payload) - fill, "\"}");
+		CHECK(control_link_signed_body("/v1/control/poll", "s_1", seed, 1, nonce, big_payload, big_body,
+			sizeof(big_body)) < 0);
+	}
 
 	/* an answer: taken only with the right MAC, of this request's nonce */
 	{

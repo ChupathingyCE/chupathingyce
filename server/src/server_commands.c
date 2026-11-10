@@ -266,10 +266,11 @@ static struct server_command const server_commands[] =
 		"hardware id and address, and the Delta accounts and device its game proved, in bans.txt), for ever or for a "
 		"while: 30m, 2h, 7d, 1d12h.", 2, 4, TRUE,
 		command_ban },
-	{ "sv_unban", "sv_unban <ban>", "Takes a ban (its number in sv_banlist) out of bans.txt.", 2, 2, FALSE,
-		command_unban },
+	{ "sv_unban", "sv_unban <ban>", "Takes a ban (its number in sv_banlist) out of bans.txt; a shared list's ban "
+		"(S and its digits in sv_banlist) lets that player in on this server alone.", 2, 2, FALSE, command_unban },
 	{ "sv_banlist", "sv_banlist", "The bans in bans.txt: number, when, hardware id, players, how long; then the shared "
-		"lists' (S1, S2, ...), with their list and the server that banned.", 1, 1, FALSE, command_banlist },
+		"lists' (S and the first 8 digits of each ref), with their list and the server that banned.", 1, 1, FALSE,
+		command_banlist },
 	{ "sv_ban_account", "sv_ban_account <account> [duration] [reason]", "Bans a Delta account (32 hex digits, from a "
 		"report or sv_players) that need not be in the game, for ever or for a while: a bans.txt line with only its "
 		"account.", 2, 4, FALSE, command_ban_account },
@@ -1217,21 +1218,34 @@ static boolean command_unban(
 
 	(void)json;
 #ifdef HALO_SERVER
-	/* (a shared list's: an exception on this server alone) */
-	if ((line->words[1][0] == 'S' || line->words[1][0] == 's') &&
-		command_line_integer(line->words[1] + 1, 1, SERVER_BAN_SHARED_MOST, &number))
+	/* (a shared list's, by S and its ref's first digits as sv_banlist shows
+	them, never its place in the list, which moves when the site sends the
+	lists again: an exception on this server alone) */
+	if (line->words[1][0] == 'S' || line->words[1][0] == 's')
 	{
 		struct server_shared_ban ban;
+		char prefix[2 * SERVER_BAN_ID_BYTES + 1];
+		long at;
 
-		if (!server_bans_shared_entry((int)number - 1, &ban, NULL) || !server_bans_except(ban.ref, TRUE))
+		snprintf(prefix, sizeof(prefix), "%s", line->words[1] + 1);
+		for (at = 0; prefix[at]; at++)
+			prefix[at] = (char)(prefix[at] >= 'A' && prefix[at] <= 'F' ? prefix[at] - 'A' + 'a' : prefix[at]);
+		if (!server_bans_shared_find(prefix, &ban, NULL))
 		{
-			command_output_printf(output, "no shared ban S%ld (sv_banlist)\n", number);
+			command_output_printf(output, "no shared ban %s (sv_banlist shows each as S and 8 hex digits)\n",
+				line->words[1]);
+			return FALSE;
+		}
+		if (!server_bans_except(ban.ref, TRUE))
+		{
+			command_output_printf(output, "the exception could not be kept (shared_unbans.txt is full or not "
+				"writable)\n");
 			return FALSE;
 		}
 		note_target(ban.handles[0] ? ban.handles : ban.ref, NULL);
-		error(_error_silent, "dedicated: shared ban S%ld (%s) excepted on this server", number, ban.list_name);
-		command_output_printf(output, "shared ban S%ld (%s) no longer keeps anyone out here; its list keeps it\n",
-			number, ban.list_name);
+		error(_error_silent, "dedicated: shared ban S%.8s (%s) excepted on this server", ban.ref, ban.list_name);
+		command_output_printf(output, "shared ban S%.8s (%s) no longer keeps anyone out here; its list keeps it\n",
+			ban.ref, ban.list_name);
 		return TRUE;
 	}
 #endif
@@ -1336,7 +1350,8 @@ static boolean command_banlist(
 			}
 			if (json)
 			{
-				command_output_printf(output, "%s{\"number\": \"S%ld\", \"list\": ", entry ? ", " : "", entry + 1);
+				command_output_printf(output, "%s{\"number\": \"S%.8s\", \"ref\": \"%s\", \"list\": ", entry ? ", " :
+					"", ban.ref, ban.ref);
 				command_output_json_string(output, ban.list_name);
 				command_output_printf(output, ", \"source\": ");
 				command_output_json_string(output, ban.source);
@@ -1354,7 +1369,7 @@ static boolean command_banlist(
 			}
 			if (!entry)
 				command_output_printf(output, "shared lists:\n");
-			command_output_printf(output, " S%-2ld  %-24s  %-16s  %-14s  %s  (%s)%s\n", entry + 1, ban.list_name,
+			command_output_printf(output, " S%.8s  %-24s  %-16s  %-14s  %s  (%s)%s\n", ban.ref, ban.list_name,
 				ban.source, left, ban.handles[0] ? ban.handles : "-", ban.reason[0] ? ban.reason : "-",
 				excepted ? "  excepted here" : "");
 		}

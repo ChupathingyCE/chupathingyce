@@ -194,10 +194,13 @@ by address or hardware ID.
   come with the server's poll and are kept in `shared_bans.cache`, so a
   restart while the site is down keeps them. `sv_ban_lists` shows them.
 - **Here:** `sv_banlist` (and the panel's Bans) shows the shared entries
-  as S1, S2, ... with their list and the server that banned. A player
-  whose proven account or device is on one is kicked with "Banned on <list>".
-  `sv_unban S3` lets that player in on this server alone
-  (`shared_unbans.txt`); the list keeps the ban. Unlinking drops the lists.
+  as S and the first 8 hex digits of each one's ref (S3f9a01c2), with
+  their list and the server that banned. A player whose proven account or
+  device is on one is kicked with "Banned on <list>". `sv_unban S3f9a01c2`
+  lets that player in on this server alone (`shared_unbans.txt`); the list
+  keeps the ban. Unlinking drops the lists. A shared ban's ref is made with
+  this server's own key (`shared_bans.key`), so it says nothing about the
+  bans.txt line it came from.
 
 ### Betrayal and AFK limits
 

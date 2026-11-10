@@ -6,8 +6,9 @@ server/docs/moderation.md): a linked server's bans that name a Delta
 account or device, sent to its owner's list on the site while ban_share is
 on, and the entries of the lists its owner subscribed it to, kept in
 shared_bans.cache and checked against every machine whose players prove an
-account or device. Never an address or hardware ID. Shared by the link's
-thread (control_link.c), the control thread and the game's main thread
+account or device. Never an address or hardware ID; a ban's ref is keyed
+with this server's own key (shared_bans.key). Shared by the link's thread
+(control_link.c), the control thread and the game's main thread
 (server_commands.c, server_moderation.c), under a lock of its own. Plain
 types only: built with the host's ABI (server/platform/server_bans.c).
 */
@@ -31,6 +32,9 @@ enum
 	SERVER_BAN_HANDLES_SIZE = 64,
 	SERVER_BAN_REASON_SIZE = 128,
 	SERVER_BAN_SOURCE_SIZE = 32,
+	/* the ref's first hex digits sv_banlist shows (S<them>) and sv_unban
+	takes */
+	SERVER_BAN_REF_SHOWN = 8,
 };
 
 /* an entry of a list the server takes */
@@ -90,12 +94,20 @@ int server_bans_shared_match(const char *identity, long long now, char *list_nam
 /* whether an entry matches an identity (no expiry or exception checked) */
 int server_bans_entry_matches(const struct server_shared_ban *ban, const char *identity);
 
-/* the entries now (sv_banlist's S1, S2, ...): the count; one by its index
-(from 0), and whether it is excepted here: 1, else 0 */
+/* the entries now (sv_banlist's, each S and its ref's first digits): the
+count; one by its index (from 0), and whether it is excepted here: 1, else
+0 */
 int server_bans_shared_count(void);
 int server_bans_shared_entry(int index, struct server_shared_ban *ban, int *excepted);
-/* an exception here for an entry (sv_unban S<n>), or taken back:
-shared_unbans.txt in the data folder. 1, else 0 */
+/* an entry by its ref, or the ref's first digits (at least
+SERVER_BAN_REF_SHOWN, lowercase hex; sv_unban S<them>): 1 when one entry
+alone has them, and whether it is excepted here; else 0. A ref, unlike a
+place in the list, never moves when the site sends the lists again */
+int server_bans_shared_find(const char *prefix, struct server_shared_ban *ban, int *excepted);
+/* an exception here for an entry (sv_unban S<ref>), or taken back:
+shared_unbans.txt in the data folder. 1, else 0 (it could not be written,
+or MAXIMUM_EXCEPTIONS are kept even after those of entries no list has now
+were let go) */
 int server_bans_except(const char *ref, int excepted);
 
 /* sv_ban_lists: the lists taken, their entries, the version and when the

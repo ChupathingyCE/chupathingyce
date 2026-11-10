@@ -68,6 +68,8 @@ enum
 	be sent, at most */
 	MAXIMUM_PENDING = 16,
 	RESULT_SIZE = 1024,
+	/* signed_request's: the body would be past CONTROL_LINK_BODY_MOST */
+	REQUEST_TOO_BIG = -2,
 	/* polls after a failure: this long at first, doubled up to the most */
 	RETRY_SECONDS = 5,
 	RETRY_MAXIMUM = 120,
@@ -647,7 +649,7 @@ static void run_linking(void)
 static int signed_request(const char *path, const char *payload, char *opened, size_t opened_size, char *error,
 	int error_size)
 {
-	static char body[(STATUS_SIZE + 2 * EXTRAS_SIZE) * 2 + MAXIMUM_PENDING * RESULT_SIZE * 12 + 4096];
+	static char body[CONTROL_LINK_BODY_MOST + 1];
 	static char answer[ANSWER_SIZE];
 	uint8_t nonce[CONTROL_LINK_NONCE_BYTES];
 	uint8_t seed[CONTROL_LINK_SEED_BYTES];
@@ -669,7 +671,7 @@ static int signed_request(const char *path, const char *payload, char *opened, s
 	{
 		crypto_wipe(secret, sizeof(secret));
 		snprintf(error, (size_t)error_size, "the request does not fit");
-		return 0;
+		return REQUEST_TOO_BIG;
 	}
 	status = request(path, body, answer, sizeof(answer), error, error_size);
 	if (status == 200 && !control_link_open_answer(answer, strlen(answer), secret, nonce, opened, opened_size))
@@ -689,10 +691,11 @@ static int run_poll(void)
 	static char opened[ANSWER_SIZE];
 	static struct control_link_poll poll;
 	char error[256];
-	size_t length;
+	size_t length, base;
 	int index;
-	int status;
+	int status = 0;
 	int sent_results;
+	int extras_sent;
 
 	pthread_mutex_lock(&link_mutex);
 	length = (size_t)snprintf(payload, sizeof(payload), "{\"status\": %s, \"results\": [",
@@ -716,16 +719,33 @@ static int run_poll(void)
 	}
 	pthread_mutex_unlock(&link_mutex);
 	/* (newer sites: the reports taken, and this server's shared bans when
-	they changed; an older site leaves them) */
-	if (length < sizeof(payload) && server_reports_site_payload(extras, (int)sizeof(extras)) > 0)
-		length += (size_t)snprintf(payload + length, sizeof(payload) - length, ", %s", extras);
-	if (length < sizeof(payload) && server_bans_share_payload(extras, (int)sizeof(extras)) > 0)
-		length += (size_t)snprintf(payload + length, sizeof(payload) - length, ", %s", extras);
-	if (length < sizeof(payload))
-		length += (size_t)snprintf(payload + length, sizeof(payload) - length, "}");
-	if (length >= sizeof(payload))
+	they changed; an older site leaves them. A poll whose body would be
+	past what the site reads goes without the shared bans, then without the
+	reports too: they go with a later poll, and the commands and results
+	never wait for them) */
+	base = length;
+	for (extras_sent = 2; extras_sent >= 0; extras_sent--)
+	{
+		length = base;
+		if (extras_sent >= 1 && length < sizeof(payload) && server_reports_site_payload(extras, (int)sizeof(extras)) > 0)
+			length += (size_t)snprintf(payload + length, sizeof(payload) - length, ", %s", extras);
+		if (extras_sent >= 2 && length < sizeof(payload) && server_bans_share_payload(extras, (int)sizeof(extras)) > 0)
+			length += (size_t)snprintf(payload + length, sizeof(payload) - length, ", %s", extras);
+		if (length < sizeof(payload))
+			length += (size_t)snprintf(payload + length, sizeof(payload) - length, "}");
+		if (length >= sizeof(payload))
+			continue;
+		status = signed_request("/v1/control/poll", payload, opened, sizeof(opened), error, sizeof(error));
+		if (status != REQUEST_TOO_BIG)
+			break;
+	}
+	if (extras_sent < 0)
+	{
+		pthread_mutex_lock(&link_mutex);
+		set_problem("%s", "the poll does not fit");
+		pthread_mutex_unlock(&link_mutex);
 		return 0;
-	status = signed_request("/v1/control/poll", payload, opened, sizeof(opened), error, sizeof(error));
+	}
 	pthread_mutex_lock(&link_mutex);
 	if (status != 200)
 	{
