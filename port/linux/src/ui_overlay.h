@@ -266,6 +266,9 @@ float ui_style_text(int kind, float x, float y, int align, const char *text);
 /* the same faded by share (0 to 1: a toast coming and going) */
 float ui_style_text_faded(int kind, float share, float x, float y, int align, const char *text);
 float ui_style_text_size(int kind);
+/* the same at scale times its size (a larger screen's rows: the setup
+screen's) */
+float ui_style_text_scaled(int kind, float scale, float x, float y, int align, const char *text);
 
 /* the clock the plasma scrolls by, in milliseconds: set once a frame
 before drawing (the game's system_milliseconds, the launcher's ticks) */
@@ -282,6 +285,12 @@ void ui_style_glass(float x, float y, float width, float height, float radius, u
 	unsigned int edge);
 /* a row's capsule: glass, the selected one lit with the plasma */
 void ui_style_row(float x, float y, float width, float height, int selected);
+/* a setting's row (settings_rows.h's, the Guide's and the setup screen's):
+its capsule (ui_style_row), its label in ui_style_text's UI_TEXT_NAME at
+scale times its size, a tag after it (badge, as "NEEDS A RESTART"; NULL:
+none), and its value at the right between the arrows that change it */
+void ui_style_setting(float x, float y, float width, float height, float scale, const char *label, const char *badge,
+	const char *value, int selected);
 /* section tabs between left and right, height tall: the bumpers' glyphs at
 the ends (the keyboard's: left_key and right_key, as "Q" and "E", or the
 device's LB and RB when NULL), the names centered, the selected one lit.

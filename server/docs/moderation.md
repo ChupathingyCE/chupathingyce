@@ -53,6 +53,18 @@ and hardware ids can be claimed; a moderator key cannot be.
 A player's game shows only when its player signs in (it is the same key on
 every server), so other servers never learn it.
 
+A player can also be known by their **Delta account**. A ChupathingyCE game
+that shares its profile proves who its players are when it joins, with its
+device certificate (docs/delta.md, "Verified names"). Only a proof bound to
+this server counts here: the player joined through the server's invite, so
+their game could check the challenge came from this server. The server
+checks it, and the Players page shows each such player's profile. When the
+certificate lets the device moderate, the account's role here counts as the
+player's: from an account line in the moderators file, or from the site's
+role list (by account). A copy with no player key signs in to moderation
+with its device key, and its role comes from its account. A player who
+joined by address proves a name only, which never gets a role or a ban.
+
 ## Setting up moderators without the site
 
 ### The moderators file
@@ -63,7 +75,11 @@ every server), so other servers never learn it.
 # role       moderator key                                                      name (for display)
 moderator    72f7b19d4735618403dab4fe9e4c8c0d13e510709552140a17cd9b9ed2a798ec  Odb718
 admin        3f2a9c1b5d0e7a64b2c8f19d0e6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e9f8a7  Mega
+moderator    31ea6b25b20006a252c816cd2077ff5b                                  Zatchbot
 ```
+
+A key is 64 hex digits. 32 hex digits are a Delta account instead (a
+verified player's: `sv_mod_add` on a player in the game writes it for you).
 
 Roles: `moderator`, `admin`, `owner`. Lines beginning with `#` are
 comments. Edits by hand take effect within a second; a line the server
@@ -77,11 +93,12 @@ until it is fixed.
 | `sv_mod_list` | Everyone with a role here and where it comes from: the moderators file, the panel's accounts (bound to a game or not) and the site's profiles, with the site's cap and whether its list is live, cached or expired ([below](#who-can-moderate)). |
 | `sv_mod_add <player> <role> [name]` | Gives a player in the game a role, by the key their game proved (they sign in from the game's Moderation screen first: `sv_players` shows their key). |
 | `sv_mod_add <moderator key> <role> [name]` | The same, with the key itself (a moderator can read theirs on the Moderation screen). |
+| `sv_mod_add <account> <role> [name]` | The same, for a Delta account (32 hex digits). A player in the game whose game proved their profile but no key gets their account this way too. |
 | `sv_mod_remove <key or name>` | Takes a moderator out (the key's first 8 or more digits will do). |
 | `sv_warn <player> <reason>` | A warning in the player's game (a ChupathingyCE game shows it; any warning is in the audit file). |
 | `sv_mute <player> [minutes]`, `sv_unmute <player>` | A player's chat lines not passed on (until they leave, or for a while), and on again. |
 | `sv_say <text>` | A server message in every ChupathingyCE player's chat. |
-| `sv_kick <player> [reason]`, `sv_ban <player> [duration] [reason]` | As before, with a reason. A ChupathingyCE player sees it as their game drops them. |
+| `sv_kick <player> [reason]`, `sv_ban <player> [duration] [reason]` | As before, with a reason. A ChupathingyCE player sees it as their game drops them. A ban also names the Delta accounts and device the player's game proved bound to this server, and a machine that proves a banned account or device later is dropped. This only reaches players who share their profile; address and hardware id bans reach everyone. |
 | `sv_team <player> <red\|blue>` | Moves a player to a team (a team game); the control panel's To Red and To Blue. |
 
 ### In the game

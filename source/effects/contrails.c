@@ -157,7 +157,7 @@ static void contrail_update_points(
 	real dt);
 static void contrail_verify(
 	long contrail_index);
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 static void contrail_remove_provisional_points(
 	long contrail_index);
 static void contrail_add_provisional_points(
@@ -232,7 +232,7 @@ void contrails_initialize(
 	return;
 }
 
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 /* the emission clock (contrails_update): reset with each map */
 static long last_point_game_time = NONE;
 static real pending_point_dt = 0.0f;
@@ -241,7 +241,7 @@ static real pending_point_dt = 0.0f;
 void contrails_initialize_for_new_map(
 	void)
 {
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 	last_point_game_time = NONE;
 	pending_point_dt = 0.0f;
 #endif
@@ -254,7 +254,7 @@ void contrails_initialize_for_new_map(
 void contrails_dispose_from_old_map(
 	void)
 {
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 	last_point_game_time = NONE;
 	pending_point_dt = 0.0f;
 #endif
@@ -403,7 +403,7 @@ void contrails_update(
 	real dt)
 {
 	long contrail_index;
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 	/* The native builds update contrails every frame, several frames per
 	tick (port/linux/game/render_interpolation.c), but objects and their
 	markers move only on ticks: points due on a frame that ran no tick would
@@ -440,13 +440,13 @@ void contrails_update(
 		real texture_animation_u;
 		real texture_animation_v;
 		short instance_index;
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 		boolean emitted = FALSE;
 #endif
 
 		contrail_verify(contrail_index);
 		contrail->expired_dt = 0.0f;
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 		/* port: last frame's head points off first: what is emitted starts
 		from the last real point */
 		contrail_remove_provisional_points(contrail_index);
@@ -466,7 +466,7 @@ void contrails_update(
 				contrail->density = 0.0f;
 				contrail_add_points(contrail_index, 1, TRUE);
 				contrail->density = density;
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 				emitted = TRUE;
 #endif
 			}
@@ -475,7 +475,7 @@ void contrails_update(
 
 			if (active)
 			{
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 				short new_point_count = contrail_compute_new_point_count(contrail_index, point_dt);
 
 				contrail_add_points(
@@ -525,7 +525,7 @@ void contrails_update(
 			texture_animation_v = texture_animation_v * contrail->density;
 		contrail->texture_offset_v = texture_animation_v * frame_dt + contrail->texture_offset_v;
 
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 		contrail_update_points(contrail_index, point_dt);
 		/* port: in a frame that emitted no point (drawn between ticks, the
 		object moving on from the last point), a head point on the marker as
@@ -573,7 +573,7 @@ void contrail_owner_collision(
 	struct contrail_datum *contrail = contrail_get(contrail_index);
 	struct contrail_definition *definition = contrail_definition_get(contrail->definition_index);
 
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 	/* port: the last points from the last real point */
 	contrail_remove_provisional_points(contrail_index);
 #endif
@@ -808,7 +808,7 @@ static void contrail_update_points(
 	return;
 }
 
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 /* port: Contrails emit on the first frame after each tick, at their markers
 as drawn then (contrails_update). In the frames after, drawn between ticks
 (port/linux/game/render_interpolation.c), the projectile moved on and the

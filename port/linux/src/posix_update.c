@@ -685,13 +685,14 @@ int update_make_directory(const char *path)
 #ifdef HALO_TVOS
 /* tvOS starts no other process: an Apple TV app is updated by installing it
 again */
-int update_launch(const char *path)
+int update_launch_with(const char *path, const char *argument)
 {
 	(void)path;
+	(void)argument;
 	return 0;
 }
 #else
-int update_launch(const char *path)
+int update_launch_with(const char *path, const char *argument)
 {
 	/* (the environment for the new game, made before the fork: an AppImage's
 	AppRun put its own mount's libraries first in LD_LIBRARY_PATH, keeping
@@ -735,7 +736,7 @@ int update_launch(const char *path)
 		for (descriptor = 3; descriptor < maximum; descriptor++)
 			close(descriptor);
 		{
-			char *const arguments[] = { (char *)path, NULL };
+			char *const arguments[] = { (char *)path, (char *)argument, NULL };
 
 			execve(path, arguments, variables);
 		}
@@ -744,3 +745,8 @@ int update_launch(const char *path)
 	return child > 0;
 }
 #endif
+
+int update_launch(const char *path)
+{
+	return update_launch_with(path, NULL);
+}
