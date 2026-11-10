@@ -175,6 +175,19 @@ static void test_share(void)
 		!strcmp(payload, "\"bans\": {\"digest\": \"\", \"entries\": []}"));
 	server_bans_share_answered("");
 	CHECK(server_bans_share_payload(payload, sizeof(payload)) == 0);
+	/* (the share sends at most 4 handles, each at most 31 characters) */
+	{
+		static char payload[8192];
+
+		write_bans("x\taccount=0123456789abcdef0123456789abcdef\tprofile=a,b,c,d,e,"
+			"abcdefghijabcdefghijabcdefghijabcdefghij\n");
+		server_bans_set_sharing(1);
+		server_bans_share_answered("x");
+		CHECK(server_bans_share_payload(payload, sizeof(payload)) > 0 &&
+			strstr(payload, "\"handles\": [\"a\", \"b\", \"c\", \"d\"]"));
+		server_bans_set_sharing(0);
+		write_bans("");
+	}
 	/* (many long bans: what a poll carries stays under its cap; the rest
 	go when there is room) */
 	{
