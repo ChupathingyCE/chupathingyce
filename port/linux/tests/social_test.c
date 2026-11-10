@@ -208,6 +208,78 @@ static void test_poll(void)
 	/* signed out: all forgotten */
 	CHECK(!social_poll_due(&poll, 2000, 0, 0));
 	CHECK(poll.wait == 0 && social_poll_due(&poll, 2001, 0, 1));
+
+	/* the doorbell: at once (after the gap), while there is room */
+	{
+		unsigned long now = 100000;
+		int polls;
+
+		memset(&poll, 0, sizeof(poll));
+		CHECK(social_poll_due(&poll, now, 0, 1));
+		social_poll_ring(&poll);
+		CHECK(!social_poll_due(&poll, now + SOCIAL_POLL_RING_GAP - 1, 0, 1));
+		CHECK(social_poll_due(&poll, now + SOCIAL_POLL_RING_GAP, 0, 1));
+		CHECK(!poll.rung);
+		/* (a third: the room is full, so the ring waits for the schedule) */
+		now += SOCIAL_POLL_RING_GAP;
+		social_poll_ring(&poll);
+		CHECK(social_poll_due(&poll, now + SOCIAL_POLL_RING_GAP, 0, 1));
+		now += SOCIAL_POLL_RING_GAP;
+		social_poll_ring(&poll);
+		CHECK(!social_poll_due(&poll, now + SOCIAL_POLL_RING_GAP, 0, 1));
+		CHECK(poll.rung);
+		CHECK(social_poll_due(&poll, now + SOCIAL_POLL_MENUS, 0, 1));
+		CHECK(!poll.rung);
+		/* (a ring never goes through a wait the site asked for) */
+		social_poll_answer(&poll, 429, 0);
+		social_poll_ring(&poll);
+		CHECK(!poll.rung);
+		CHECK(!social_poll_due(&poll, now + SOCIAL_POLL_MENUS + 70000, 0, 1));
+		social_poll_answer(&poll, 200, 1);
+
+		/* (in the menus, after a minute of the schedule's own polls, a ring
+		still polls early: the schedule never uses up the ring's room) */
+		memset(&poll, 0, sizeof(poll));
+		now = 500000;
+		CHECK(social_poll_due(&poll, now, 0, 1));
+		CHECK(social_poll_due(&poll, now + SOCIAL_POLL_MENUS, 0, 1));
+		CHECK(social_poll_due(&poll, now + 2 * SOCIAL_POLL_MENUS, 0, 1));
+		now += 2 * SOCIAL_POLL_MENUS + 5000;
+		CHECK(!social_poll_due(&poll, now, 0, 1));
+		social_poll_ring(&poll);
+		CHECK(social_poll_due(&poll, now, 0, 1));
+		CHECK(!poll.rung);
+		/* (and a second, then the room is full) */
+		social_poll_ring(&poll);
+		CHECK(social_poll_due(&poll, now + SOCIAL_POLL_RING_GAP, 0, 1));
+		social_poll_ring(&poll);
+		CHECK(!social_poll_due(&poll, now + 2 * SOCIAL_POLL_RING_GAP, 0, 1));
+		CHECK(poll.rung);
+
+		/* (rings all the time, in the menus, for five minutes: never more
+		than 5 polls in any minute (the site takes 6), and at least the
+		schedule's) */
+		memset(&poll, 0, sizeof(poll));
+		{
+			unsigned long times[128];
+			int count = 0, index, later;
+
+			for (now = 1000000; now < 1000000 + 5 * 60000; now += 250)
+			{
+				social_poll_ring(&poll);
+				if (social_poll_due(&poll, now, 0, 1) && count < 128)
+					times[count++] = now;
+			}
+			CHECK(count >= 20);
+			for (index = 0; index < count; index++)
+			{
+				polls = 0;
+				for (later = index; later < count && times[later] - times[index] < 60000; later++)
+					polls++;
+				CHECK(polls <= 5);
+			}
+		}
+	}
 }
 
 static const char state_text[] =
@@ -264,6 +336,16 @@ static void test_state(void)
 	CHECK(!strcmp(other.cursor, "89ab01cd23ef4567"));
 	CHECK(delta_profile_parse_social("{\"error\": \"too many requests\"}", &other) == 0);
 	CHECK(delta_profile_parse_social("not json", &other) == 0);
+	/* the doorbell: 32 of 0-9 and a-f, in a whole state or the cursor alone */
+	CHECK(delta_profile_parse_social("{\"cursor\": \"1\", \"same\": true,"
+		" \"doorbell\": \"0123456789abcdef0123456789abcdef\"}", &other) == 2);
+	CHECK(!strcmp(other.doorbell, "0123456789abcdef0123456789abcdef"));
+	CHECK(delta_profile_parse_social("{\"cursor\": \"1\", \"same\": true, \"doorbell\": \"doorbell/#\"}", &other) == 2);
+	CHECK(!other.doorbell[0]);
+	CHECK(delta_profile_parse_social("{\"cursor\": \"1\", \"same\": true,"
+		" \"doorbell\": \"0123456789ABCDEF0123456789abcdef\"}", &other) == 2);
+	CHECK(!other.doorbell[0]);
+	CHECK(!state.doorbell[0]);
 	CHECK(delta_profile_parse_social("{\"cursor\": \"1\", \"friends\": [{\"handle\": ", &other) == 0);
 
 	/* what's new: an invite, a request, a friend online */

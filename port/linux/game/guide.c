@@ -3755,7 +3755,7 @@ static void render_party_voice(float y, boolean on)
 {
 	int state = voice_game_channel_state(voice_game_channel());
 	char const *status = state != _voice_channel_open ? "Not available" : voice_game_talking() ? "Talking" : "";
-	unsigned int color = state == _voice_channel_open ? COLOR_VALUE : COLOR_DIMMED;
+	unsigned int color = state == _voice_channel_open ? ui_style_color(UI_COLOR_NAME) : COLOR_DIMMED;
 
 	ui_style_row(CONTENT_LEFT, y, LIST_WIDTH, PARTY_ROW_HEIGHT, on);
 	if (status[0])
@@ -3903,7 +3903,7 @@ static void render_party(void)
 			ui_style_row(x, action_y, width, OPTION_HEIGHT, on);
 			ui_overlay_text(UI_FONT_MENU, 10.0f, x + 10, action_y + 7, UI_ALIGN_LEFT, color, party_action_label(action));
 			if (value)
-				ui_overlay_text(UI_FONT_MENU, 10.0f, x + width - 10, action_y + 7, UI_ALIGN_RIGHT, COLOR_VALUE, value);
+				ui_overlay_text(UI_FONT_MENU, 10.0f, x + width - 10, action_y + 7, UI_ALIGN_RIGHT, ui_style_color(UI_COLOR_NAME), value);
 			target_add(x, action_y, x + width, action_y + OPTION_HEIGHT, _target_row, index);
 			action_y += OPTION_HEIGHT + OPTION_GAP;
 		}
