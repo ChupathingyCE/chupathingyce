@@ -23,7 +23,7 @@ the file.
 | `HALO_DEDICATED_TEAM_CHANGE` | `off` | Players changing teams during a team game (the pause menu's CHANGE TEAMS, [below](#team-changes)): `off` (players keep their team, as on the Xbox), `balanced` or `allow` (`0`, `1` or `2`; the settings file's `team_change`). Chupathingy players see CHANGE TEAMS only when it is on. |
 | `HALO_DEDICATED_TEAM_CHANGE_MARGIN` | `1` | With `balanced`, the most players one team may have over the other after a change, 0 to 16 (`team_change_margin`). |
 | `HALO_DEDICATED_ALLOW_PLAYER_NAMES` | `false` | `true`: Chupathingy players may show names above other players' heads (their `display.player_names`). `false` plays as the Xbox did: a name shows only on the player aimed at (`allow_player_names`; the host's rules, [docs/delta.md](../../docs/delta.md#host-rules)). |
-| `HALO_DEDICATED_VOICE` | `true` | Relay voice chat between Chupathingy players who turned it on (`voice`). The server never decodes, plays or keeps it. |
+| `HALO_DEDICATED_VOICE` | `false` | Relay voice chat between Chupathingy players who turned it on (`voice`). Off by default, since every talker costs the server upload; turn it on with `voice = true` in the settings file, `sv_set voice 1`, or the control panel's Settings. The server never decodes, plays or keeps it, and relays 8 talkers at once at most. |
 | `HALO_DEDICATED_VOICE_TEAM`, `_PROXIMITY`, `_EVERYONE`, `_PARTY` | `true`, `true`, `false`, `true` | The channels players may talk on (`voice_team`, `voice_proximity`, `voice_everyone`, `voice_party`). |
 | `HALO_DEDICATED_VOICE_LOBBY` | `true` | Everyone hears everyone in the lobby and after a game (`voice_lobby`). |
 | `HALO_DEDICATED_VOICE_RANGE` | `15` | How near is near for proximity voice, 5 to 100 world units (`voice_range`). |
