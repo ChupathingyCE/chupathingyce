@@ -67,7 +67,7 @@ on:
   workflow_dispatch:
     inputs:
       commit:
-        description: The commit to build (a full SHA on main or a release branch; empty, the branch's)
+        description: The commit to build (a full SHA on main or a release-* branch; empty, the branch's)
         type: string
         default: ""
       version:
@@ -119,7 +119,7 @@ jobs:
   gate:
     # A run started with a commit (workflow_dispatch's inputs.commit) builds
     # it only when it is a full SHA in the history of main or of a release
-    # branch (release-*, release/...) of this repository. GitHub checks out
+    # branch (release-*) of this repository. GitHub checks out
     # any commit of the repository's network, a fork's unmerged pull request
     # included, and every other job waits for this one.
     runs-on: ubuntu-24.04
@@ -138,10 +138,13 @@ jobs:
           # (the branches' history, commits only: no trees, no files)
           git init -q gate
           cd gate
-          git fetch -q --filter=tree:0 "$REPOSITORY" \
-            '+refs/heads/main:refs/gate/main' \
-            '+refs/heads/release-*:refs/gate/release-*' \
-            '+refs/heads/release/*:refs/gate/release/*'
+          # (one retry: a GitHub hiccup should not fail a release's build)
+          fetch() {
+            git fetch -q --filter=tree:0 "$REPOSITORY" \
+              '+refs/heads/main:refs/gate/main' \
+              '+refs/heads/release-*:refs/gate/release-*'
+          }
+          fetch || { echo "fetch failed; trying again in 10 seconds"; sleep 10; fetch; }
           for branch in $(git for-each-ref --format='%(refname)' refs/gate); do
             if git merge-base --is-ancestor "$COMMIT" "$branch" 2>/dev/null; then
               echo "$COMMIT is on ${branch#refs/gate/}"
@@ -306,6 +309,20 @@ jobs:
             DELTA_BE_REQUIRED=1 python3 -m pytest -q tools/harness/tests/test_structure_culling_byte_order.py -rs
           fi
 
+      # (the self-updater from end to end, against the 32-bit SDL 3 the
+      # release step built in build/linux: tools/test_update_install.py;
+      # UPDATE_INSTALL_REQUIRED, so that a missing piece fails, never skips)
+      - name: The updater, end to end
+        env:
+          HALO_UPDATE_TEST_SDL: build/linux
+          UPDATE_INSTALL_REQUIRED: "1"
+        run: |
+          if [ -f tools/test_update_install.py ]; then
+            python3 -m pytest -q -rs tools/test_update_install.py
+          else
+            echo "::notice::tools/test_update_install.py: not in this commit"
+          fi
+
       # (HALO_SANITIZERS_REQUIRED: a test without its sanitizers' runtime or
       # libFuzzer fails here, where clang's runtimes are installed, instead of
       # building unsanitized or skipping; tools/fuzz_support.py)
@@ -315,7 +332,7 @@ jobs:
         run: |
           # (a release branch's commit, built with main's workflow, may not have
           # every test main has yet: those are left out)
-          tests=""; for test in tools/test_host_fuzz.py tools/test_linux_port.py tools/test_android_asm_convert.py tools/test_touch_menu.py tools/test_ui_point.py tools/test_p2p_copies.py tools/test_p2p_host_port.py tools/test_ping.py tools/test_save_folder.py tools/test_packaged_install.py tools/test_server_control.py tools/test_server_roles.py tools/test_delta.py tools/test_delta_peer.py tools/test_delta_compat.py tools/test_network_rules.py tools/test_map_download.py tools/test_playlist_maps.py tools/test_map_families.py tools/test_ce_resource_maps.py tools/test_map_packs.py tools/test_map_report.py tools/test_event_log.py tools/test_update_manifest.py tools/test_rename_stub.py tools/test_gamespy_listing.py tools/test_ce_joins.py tools/test_determinism.py tools/test_ce_effect_flags.py tools/test_online_games_list.py tools/test_campaign_levels.py tools/test_http_url_rules.py tools/test_host_cheats.py tools/test_vote_notice.py tools/test_lobby_budget.py tools/test_line_of_sight.py tools/test_host_console_objects.py tools/test_host_evidence.py tools/test_address_limit.py tools/test_conduct_rules.py tools/test_tricks.py tools/test_coop_spectate.py tools/test_discord_activity.py tools/test_social.py tools/test_identity.py tools/test_discord_register.py tools/test_kcp_peer.py tools/test_kcp_flush.py tools/test_late_join_wait.py tools/test_server_bans.py tools/test_report_clip.py tools/test_party_teams.py tools/test_server_badge.py tools/test_medal_rules.py tools/test_log_paths.py tools/test_map_share.py tools/test_console_gl_check.py tools/test_map_repo.py tools/test_build_workflow.py; do
+          tests=""; for test in tools/test_host_fuzz.py tools/test_linux_port.py tools/test_android_asm_convert.py tools/test_touch_menu.py tools/test_ui_point.py tools/test_p2p_copies.py tools/test_p2p_host_port.py tools/test_ping.py tools/test_save_folder.py tools/test_packaged_install.py tools/test_server_control.py tools/test_server_roles.py tools/test_delta.py tools/test_delta_peer.py tools/test_delta_compat.py tools/test_network_rules.py tools/test_map_download.py tools/test_playlist_maps.py tools/test_map_families.py tools/test_ce_resource_maps.py tools/test_map_packs.py tools/test_map_report.py tools/test_event_log.py tools/test_update_manifest.py tools/test_update_channels.py tools/test_rename_stub.py tools/test_gamespy_listing.py tools/test_ce_joins.py tools/test_determinism.py tools/test_ce_effect_flags.py tools/test_online_games_list.py tools/test_campaign_levels.py tools/test_http_url_rules.py tools/test_host_cheats.py tools/test_vote_notice.py tools/test_lobby_budget.py tools/test_line_of_sight.py tools/test_host_console_objects.py tools/test_host_evidence.py tools/test_address_limit.py tools/test_conduct_rules.py tools/test_tricks.py tools/test_coop_spectate.py tools/test_discord_activity.py tools/test_social.py tools/test_identity.py tools/test_discord_register.py tools/test_kcp_peer.py tools/test_kcp_flush.py tools/test_late_join_wait.py tools/test_server_bans.py tools/test_report_clip.py tools/test_party_teams.py tools/test_server_badge.py tools/test_medal_rules.py tools/test_log_paths.py tools/test_map_share.py tools/test_console_gl_check.py tools/test_map_repo.py tools/test_build_workflow.py; do
             if [ -f "$test" ]; then tests="$tests $test"; else echo "::notice::$test: not in this commit"; fi
           done
           python3 -m pytest -q $tests

@@ -7,11 +7,13 @@ version the same way, and Yes opens the release's download page instead.
 
 A release's build (HALO_RELEASE_BUILD: built from the release's tag,
 v<version>, by ChupathingyCE's release workflow; tools/version.py) knows its
-version (HALO_VERSION, 0.5.0b); nightlies and other builds never look for
-updates. When update.auto in config.toml is true (the default), the game
-asks GitHub for the latest release when it starts, on a thread of its own:
-the game starts meanwhile, and nothing happens if the release is not newer
-or cannot be reached. If it is newer, the game asks whether to update:
+version (HALO_VERSION, 0.5.0b), and so do the test builds and nightlies
+(HALO_UPDATE_CHANNEL testing or nightly: 0.9.1-testing.202611101530); other
+builds never look for updates. When update.auto in config.toml is true (the
+default), the game asks GitHub for the latest release when it starts, on a
+thread of its own: the game starts meanwhile, and nothing happens if the
+release is not newer or cannot be reached. If it is newer, the game asks
+whether to update:
 
 - Yes: the release's list of its update files (updates.json,
   update_manifest.h) is downloaded, with its signature (updates.json.sig)
@@ -46,6 +48,18 @@ starts it. Nothing is unpacked: a release without a list, or whose list has
 no AppImage, is not installed over an AppImage (its zip would only fill the
 AppImage's folder with a second copy of the game), and the player is told to
 download the new AppImage.
+
+The update channel (update.channel: "release", "testing" or "nightly";
+a build's default is its own channel, so a release's is "release"): Release
+is offered the latest release alone, as before. Testing is also offered the
+testing feed's build, and Nightly the testing and nightly feeds' builds
+(update_manifest.h: a fixed list each, testing/updates.json and
+nightly/updates.json, signed by the prerelease key or a release key,
+update_signature_check_feed), whichever of them is the newest
+(update_version_compare). Nothing older than this build is ever offered, so
+going back from Testing to Release waits for the next release newer than
+the build installed. A feed's list, checked once, is kept, and its file is
+installed from that copy (no second download of the list).
 
 A packaged install (packaged_install.h: the AUR's chupathingy-bin, marked
 by the build, HALO_PACKAGED or a file named "packaged" beside the
@@ -101,6 +115,19 @@ int console_setup_update_question(const char *latest, const char *current);
 #ifndef HALO_RELEASE_BUILD
 #define HALO_RELEASE_BUILD 0
 #endif
+/* a test build's or a nightly's (tools/version.py gives HALO_UPDATE_CHANNEL,
+"testing" or "nightly", only to the builds the test and nightly workflows
+make, of a version of that shape): it looks for updates on its channel, as a
+release's does. Never a console port's (no channels there) */
+#if defined(HALO_UPDATE_CHANNEL) && !defined(HALO_PORT_UPDATE_PLATFORM)
+#define UPDATER_PRERELEASE_BUILD 1
+#else
+#define UPDATER_PRERELEASE_BUILD 0
+#endif
+/* whether this build looks for updates at all */
+#define UPDATER_LOOKS (HALO_RELEASE_BUILD || UPDATER_PRERELEASE_BUILD || UPDATER_TEST)
+/* (a release's or a prerelease's build, not a test's, with no update key) */
+#define UPDATER_KEYLESS ((HALO_RELEASE_BUILD || UPDATER_PRERELEASE_BUILD) && !UPDATER_TEST && !update_signature_required())
 #ifdef HALO_UPDATE_TEST
 #define UPDATER_TEST 1
 #else
@@ -113,7 +140,8 @@ looks for a new version and offers its download page) */
 #else
 #define UPDATER_DOWNLOAD_PAGE_ONLY 0
 #endif
-/* the latest release's page, where the macOS application is downloaded */
+/* the latest release's page, where the macOS application is downloaded (a
+test build's or a nightly's: its pre-release's page, updater_page) */
 #define UPDATE_RELEASE_PAGE "https://github.com/" UPDATE_REPOSITORY "/releases/latest"
 #ifndef HALO_BUILD_FLAVOR
 #define HALO_BUILD_FLAVOR "release"
@@ -193,7 +221,36 @@ enum
 };
 
 static SDL_AtomicInt updater_state;
-static char updater_latest_version[32];
+static char updater_latest_version[48];
+
+/* the channels (update.channel), from the most stable */
+enum
+{
+	_channel_release,
+	_channel_testing,
+	_channel_nightly,
+	NUMBER_OF_CHANNELS
+};
+
+static const char *const updater_channel_names[NUMBER_OF_CHANNELS] = { "release", "testing", "nightly" };
+
+/* where the newer version came from: _channel_release (the latest release),
+or a feed, whose checked list (updater_feed_list, updater_feed_size) is kept
+for the download (updater_find_file) */
+static int updater_latest_channel;
+static char *updater_feed_list;
+static size_t updater_feed_size;
+/* (the check's results above, and updater_latest_version, are published by
+the check's thread under this lock, all at once at its end; an install
+takes its own copy of them under it, and refuses while a check runs) */
+static SDL_Mutex *updater_lock;
+/* the install's copy of the feed's list (updater_take_results) */
+static char *updater_install_list;
+static size_t updater_install_size;
+static int updater_install_channel;
+static char updater_install_version[sizeof(updater_latest_version)];
+/* (a feed's build's page, for the macOS download page: its file's tag) */
+static char updater_feed_tag[160];
 static char updater_directory[1024];
 static char updater_executable[1024];
 /* whether this runs from an AppImage, updater_executable then being the
@@ -540,48 +597,51 @@ done:
 
 /* ---------- checking */
 
-/* a version's numbers and hotfix letter: [v]<major>.<minor>.<patch>
-followed by a letter (0.7.5a) or nothing; 0 if it is not one */
-static int updater_parse_version(const char *text, long numbers[3], const char **suffix)
-{
-	int part;
-
-	if (*text == 'v')
-		text++;
-	for (part = 0; part < 3; part++)
-	{
-		char *end;
-
-		if (*text < '0' || *text > '9')
-			return 0;
-		numbers[part] = strtol(text, &end, 10);
-		text = end;
-		if (part < 2 && *text++ != '.')
-			return 0;
-	}
-	*suffix = text;
-	return 1;
-}
-
-/* whether version is newer than this build's: by its numbers, then its
-hotfix letter, a version without one first (0.7.5, then 0.7.5a, 0.7.5b) */
+/* whether version is newer than this build's (update_version_compare: by
+its numbers, then its hotfix letter, a version without one first, 0.7.5,
+then 0.7.5a, 0.7.5b; a release before none of its test builds and
+nightlies, which are in the order they were built; never one that is not of
+that shape) */
 static int updater_newer(const char *version)
 {
-	long latest[3], current[3];
-	const char *latest_suffix, *current_suffix;
-	int part;
+	return update_version_newer(version, HALO_VERSION);
+}
 
-	if (!updater_parse_version(version, latest, &latest_suffix) ||
-		!updater_parse_version(HALO_VERSION, current, &current_suffix))
+/* the lock, made on the game's thread before the first check starts */
+static void updater_make_lock(void)
+{
+	if (!updater_lock)
+		updater_lock = SDL_CreateMutex();
+}
+
+static void updater_locked(int lock)
+{
+	if (updater_lock)
 	{
-		return 0;
+		if (lock)
+			SDL_LockMutex(updater_lock);
+		else
+			SDL_UnlockMutex(updater_lock);
 	}
-	for (part = 0; part < 3; part++)
+}
+
+/* the channel the player chose (update.channel; this build's own by
+default: port_config.c), and on a build without channels (a console port's)
+the release channel */
+static int updater_chosen_channel(void)
+{
+	const char *chosen = config_string("update.channel");
+	int channel;
+
+#ifdef HALO_PORT_UPDATE_PLATFORM
+	return _channel_release;
+#endif
+	for (channel = 0; channel < NUMBER_OF_CHANNELS; channel++)
 	{
-		if (latest[part] != current[part])
-			return latest[part] > current[part];
+		if (!strcmp(chosen, updater_channel_names[channel]))
+			return channel;
 	}
-	return strcmp(latest_suffix, current_suffix) > 0;
+	return _channel_release;
 }
 
 /* GitHub's latest release's version (its tag, without the v), into version;
@@ -633,9 +693,77 @@ static int updater_latest_release(char *version, size_t size)
 				/* (a version goes into the download's address: letters,
 				digits and . _ + - only) */
 				found = zip_name_allowed(version);
+				/* (the latest release's tag is a release's: never a test
+				build's or a nightly's version, whoever marked it latest) */
+				if (found && !update_version_release(version))
+				{
+					platform_log("update: the latest release's tag v%s is not a release's version: not used", version);
+					found = 0;
+				}
 			}
 		}
 	}
+	SDL_free(text);
+	return found;
+}
+
+/* a channel's feed (testing or nightly: update_manifest.h): its list and
+its signature downloaded, the signature checked (by a release key or the
+prerelease key: update_signature_check_feed; never unsigned, whatever the
+build's keys), and the list's version, when it is the channel's, into
+version; the checked list into *list (SDL_free it). 0 if the feed is not
+there or not to be used */
+static int updater_feed(int channel, char *version, size_t size, char **list, size_t *list_size)
+{
+	const char *name = updater_channel_names[channel];
+	char path[1200], signature_path[1200], url[512], file[64], reason[256] = "";
+	size_t length = 0, signature_length = 0;
+	char *text = NULL, *signature = NULL;
+	int found = 0;
+
+	*list = NULL;
+	*list_size = 0;
+	snprintf(file, sizeof(file), "update-%s.json", name);
+	updater_path(path, sizeof(path), file);
+	snprintf(file, sizeof(file), "update-%s.json.sig", name);
+	updater_path(signature_path, sizeof(signature_path), file);
+	snprintf(file, sizeof(file), "%s/" UPDATE_MANIFEST, name);
+	updater_url(url, sizeof(url), 0, file);
+	if (!update_download(url, path, MAXIMUM_CHECK_SIZE, NULL, NULL, reason, sizeof(reason)))
+	{
+		platform_log("update: could not read the %s channel's list (%s)", name, reason);
+		return 0;
+	}
+	text = SDL_LoadFile(path, &length);
+	update_delete_file(path);
+	snprintf(file, sizeof(file), "%s/" UPDATE_MANIFEST ".sig", name);
+	updater_url(url, sizeof(url), 0, file);
+	if (!text || !update_download(url, signature_path, MAXIMUM_SIGNATURE_SIZE, NULL, NULL, reason, sizeof(reason)))
+	{
+		platform_log("update: the %s channel's list has no signature (%s): not used", name, reason);
+		goto done;
+	}
+	signature = SDL_LoadFile(signature_path, &signature_length);
+	update_delete_file(signature_path);
+	if (!update_signature_check_feed((const unsigned char *)text, length, signature, signature ? signature_length : 0,
+		reason, sizeof(reason)))
+	{
+		platform_log("update: the %s channel's list was not used: %s", name, reason);
+		goto done;
+	}
+	if (update_manifest_about(text, length, name, version, size, reason, sizeof(reason)) != _update_manifest_found ||
+		!zip_name_allowed(version))
+	{
+		platform_log("update: the %s channel's list was not used: %s", name, reason[0] ? reason : "its version");
+		goto done;
+	}
+	*list = text;
+	*list_size = length;
+	text = NULL;
+	found = 1;
+
+done:
+	SDL_free(signature);
 	SDL_free(text);
 	return found;
 }
@@ -647,30 +775,110 @@ static SDL_AtomicInt updater_answer;
 static int SDLCALL updater_check_thread(void *context)
 {
 	char latest[sizeof(updater_latest_version)];
-	int found;
+	char candidate[sizeof(updater_latest_version)];
+	int found, channel, chosen = updater_chosen_channel(), best = _channel_release, answer, state;
+	char *list = NULL, *best_list = NULL, *old_list;
+	size_t list_size = 0, best_size = 0;
 
 	(void)context;
 	found = updater_latest_release(latest, sizeof(latest));
-	SDL_SetAtomicInt(&updater_answer, !found ? -1 : updater_newer(latest) ? 1 : 0);
+	/* (Testing and Nightly: each feed more stable than the chosen one too,
+	the newest of them all offered) */
+	if (chosen != _channel_release)
+		platform_log("update: the %s channel", updater_channel_names[chosen]);
+	for (channel = _channel_testing; channel <= chosen; channel++)
+	{
+		int comparable = 1, order;
+
+		if (!updater_feed(channel, candidate, sizeof(candidate), &list, &list_size))
+			continue;
+		/* (a latest release whose tag is not a version is never offered:
+		the feed's build goes before it) */
+		order = found ? update_version_compare(candidate, latest, &comparable) : 1;
+		if (!found || !comparable || order > 0)
+		{
+			snprintf(latest, sizeof(latest), "%s", candidate);
+			SDL_free(best_list);
+			best_list = list;
+			best_size = list_size;
+			best = channel;
+			found = 1;
+		}
+		else
+		{
+			SDL_free(list);
+		}
+		list = NULL;
+	}
+	if (best == _channel_release)
+	{
+		SDL_free(best_list);
+		best_list = NULL;
+		best_size = 0;
+	}
+	answer = !found ? -1 : updater_newer(latest) ? 1 : 0;
 	if (found && updater_newer(latest))
 	{
-		platform_log("update: version %s is available (this is %s)", latest, HALO_VERSION);
-		snprintf(updater_latest_version, sizeof(updater_latest_version), "%s", latest);
-		SDL_SetAtomicInt(&updater_state, _updater_available);
+		platform_log("update: version %s is available (this is %s; %s)", latest, HALO_VERSION,
+			best == _channel_release ? "the latest release" : best == _channel_testing ? "the testing channel" :
+			"the nightly channel");
+		state = _updater_available;
 	}
-	else if (found && updater_offer_64bit && !strcmp(latest, HALO_VERSION))
+	else if (found && updater_offer_64bit && best == _channel_release && !strcmp(latest, HALO_VERSION))
 	{
 		/* (no newer version, but this one's 64-bit build to offer) */
 		platform_log("update: this is the latest version (%s); its 64-bit build is offered", HALO_VERSION);
-		snprintf(updater_latest_version, sizeof(updater_latest_version), "%s", latest);
-		SDL_SetAtomicInt(&updater_state, _updater_available);
+		state = _updater_available;
 	}
 	else
 	{
 		platform_log("update: this is the latest version (%s)", HALO_VERSION);
-		SDL_SetAtomicInt(&updater_state, _updater_handled);
+		state = _updater_handled;
 	}
+	/* (published all at once: an install reads them only under the lock) */
+	updater_locked(1);
+	old_list = updater_feed_list;
+	updater_feed_list = best_list;
+	updater_feed_size = best_size;
+	updater_feed_tag[0] = 0;
+	updater_latest_channel = best;
+	if (state == _updater_available)
+		snprintf(updater_latest_version, sizeof(updater_latest_version), "%s", latest);
+	SDL_SetAtomicInt(&updater_answer, answer);
+	SDL_SetAtomicInt(&updater_state, state);
+	updater_locked(0);
+	SDL_free(old_list);
 	return 0;
+}
+
+/* the check's results, copied for an install (updater_find_file,
+updater_page): 0 while a check runs, which an install never races */
+static int updater_take_results(void)
+{
+	int taken = 0;
+
+	updater_locked(1);
+	if (SDL_GetAtomicInt(&updater_state) != _updater_checking)
+	{
+		SDL_free(updater_install_list);
+		updater_install_list = NULL;
+		updater_install_size = 0;
+		updater_install_channel = updater_latest_channel;
+		snprintf(updater_install_version, sizeof(updater_install_version), "%s", updater_latest_version);
+		if (updater_feed_list)
+		{
+			updater_install_list = SDL_malloc(updater_feed_size + 1);
+			if (updater_install_list)
+			{
+				memcpy(updater_install_list, updater_feed_list, updater_feed_size);
+				updater_install_list[updater_feed_size] = 0;
+				updater_install_size = updater_feed_size;
+			}
+		}
+		taken = !updater_feed_list || updater_install_list;
+	}
+	updater_locked(0);
+	return taken;
 }
 
 /* ---------- updating */
@@ -766,7 +974,7 @@ static int updater_download_zip(const char *zip_path, char *error, size_t error_
 		{
 			char line[160];
 
-			snprintf(line, sizeof(line), "version %s  (%llu of %llu MB)", updater_latest_version, received >> 20,
+			snprintf(line, sizeof(line), "version %s  (%llu of %llu MB)", updater_install_version, received >> 20,
 				total >> 20);
 			console_setup_screen_progress(screen, total ? (float)((double)received / (double)total) : 0.0f,
 				"Downloading the update...", line);
@@ -784,7 +992,7 @@ static int updater_download_zip(const char *zip_path, char *error, size_t error_
 			SDL_SetRenderScale(renderer, 2.0f, 2.0f);
 			SDL_RenderDebugText(renderer, 10.0f, 10.0f, "Downloading the update...");
 			SDL_SetRenderScale(renderer, 1.0f, 1.0f);
-			snprintf(line, sizeof(line), "version %s  (%llu of %llu MB)", updater_latest_version, received >> 20,
+			snprintf(line, sizeof(line), "version %s  (%llu of %llu MB)", updater_install_version, received >> 20,
 				total >> 20);
 			SDL_RenderDebugText(renderer, 20.0f, 70.0f, line);
 			SDL_SetRenderDrawColor(renderer, 60, 66, 72, 255);
@@ -848,6 +1056,14 @@ static int updater_unpack(const char *zip_path, char names[][256], int *executab
 		}
 		platform_log("update: the download's SHA-256 is the release list's");
 	}
+	else if (!update_version_release(updater_install_version))
+	{
+		/* (a zip's own .sig is a release's alone: a test build's or a
+		nightly's comes only with its feed's list) */
+		snprintf(error, error_size, "the download was not installed: version %s is not a release's",
+			updater_install_version);
+		goto done;
+	}
 	else if (update_signature_required())
 	{
 		char url[512], reason[256] = "";
@@ -857,7 +1073,7 @@ static int updater_unpack(const char *zip_path, char names[][256], int *executab
 
 		snprintf(signature_name, sizeof(signature_name), "%s.sig", updater_asset());
 		updater_partial_path(signature_path, sizeof(signature_path), signature_name);
-		snprintf(path, sizeof(path), "v%s/%s", updater_latest_version, signature_name);
+		snprintf(path, sizeof(path), "v%s/%s", updater_install_version, signature_name);
 		updater_url(url, sizeof(url), 0, path);
 		if (!update_download(url, signature_path, MAXIMUM_SIGNATURE_SIZE, NULL, NULL, reason, sizeof(reason)))
 		{
@@ -866,7 +1082,7 @@ static int updater_unpack(const char *zip_path, char names[][256], int *executab
 		}
 		signature = SDL_LoadFile(signature_path, &signature_size);
 		update_delete_file(signature_path);
-		if (!update_signature_check(zip, zip_size, updater_asset(), updater_latest_version, signature,
+		if (!update_signature_check(zip, zip_size, updater_asset(), updater_install_version, signature,
 			signature ? signature_size : 0, reason, sizeof(reason)))
 		{
 			snprintf(error, error_size, "the download was not installed: %s", reason);
@@ -906,11 +1122,52 @@ static int updater_find_file(char *error, size_t error_size)
 	int result, succeeded = 0;
 
 	memset(&updater_file, 0, sizeof(updater_file));
-	snprintf(updater_file.tag, sizeof(updater_file.tag), "v%s", updater_latest_version);
+	/* (a feed's build: from the list checked when it was found, which must
+	name this platform's file; there is no zip by an older name to fall back
+	on) */
+	if (updater_install_channel != _channel_release)
+	{
+		const char *channel = updater_channel_names[updater_install_channel];
+
+		if (!updater_install_list)
+		{
+			snprintf(error, error_size, "the %s channel's list is gone: look again at the next start", channel);
+			return 0;
+		}
+		result = update_manifest_find_channel(updater_install_list, updater_install_size, channel, updater_install_version,
+			updater_platform, HALO_BUILD_FLAVOR, updater_appimage ? "appimage" : "zip", updater_file.tag,
+			sizeof(updater_file.tag), updater_file.name, sizeof(updater_file.name), &updater_file.size,
+			updater_file.sha256, sizeof(updater_file.sha256), updater_file.main_name, sizeof(updater_file.main_name),
+			reason, sizeof(reason));
+		if (result != _update_manifest_found)
+		{
+			snprintf(error, error_size, "the %s channel's list has no update for this build: %s", channel, reason);
+			return 0;
+		}
+		if (!updater_file.size || updater_file.size > MAXIMUM_UPDATE_SIZE)
+		{
+			snprintf(error, error_size, "the %s channel's list gives %s a size this build does not install (%llu bytes)",
+				channel, updater_file.name, updater_file.size);
+			return 0;
+		}
+		updater_file.listed = 1;
+		platform_log("update: the %s channel's list names %s (%s, %llu bytes%s%s)", channel, updater_file.name,
+			updater_file.tag, updater_file.size, updater_file.main_name[0] ? ", main " : "", updater_file.main_name);
+		return 1;
+	}
+	/* (the release path: a release's version only, never a test build's or a
+	nightly's, with the list or with its zip's own .sig) */
+	if (!update_version_release(updater_install_version))
+	{
+		snprintf(error, error_size, "version %s is not a release's: not installed from the release path",
+			updater_install_version);
+		return 0;
+	}
+	snprintf(updater_file.tag, sizeof(updater_file.tag), "v%s", updater_install_version);
 	snprintf(updater_file.name, sizeof(updater_file.name), "%s", updater_asset());
 	updater_partial_path(manifest_path, sizeof(manifest_path), UPDATE_MANIFEST);
 	updater_partial_path(signature_path, sizeof(signature_path), UPDATE_MANIFEST ".sig");
-	snprintf(path, sizeof(path), "v%s/" UPDATE_MANIFEST, updater_latest_version);
+	snprintf(path, sizeof(path), "v%s/" UPDATE_MANIFEST, updater_install_version);
 	updater_url(url, sizeof(url), 0, path);
 	if (!update_download(url, manifest_path, MAXIMUM_CHECK_SIZE, NULL, NULL, reason, sizeof(reason)))
 	{
@@ -934,7 +1191,7 @@ static int updater_find_file(char *error, size_t error_size)
 	}
 	if (update_signature_required())
 	{
-		snprintf(path, sizeof(path), "v%s/" UPDATE_MANIFEST ".sig", updater_latest_version);
+		snprintf(path, sizeof(path), "v%s/" UPDATE_MANIFEST ".sig", updater_install_version);
 		updater_url(url, sizeof(url), 0, path);
 		if (!update_download(url, signature_path, MAXIMUM_SIGNATURE_SIZE, NULL, NULL, reason, sizeof(reason)))
 		{
@@ -954,7 +1211,7 @@ static int updater_find_file(char *error, size_t error_size)
 	{
 		platform_log("update: this build has no release key: the list's signature is not checked");
 	}
-	result = update_manifest_find(manifest, manifest_size, updater_latest_version, updater_platform, HALO_BUILD_FLAVOR,
+	result = update_manifest_find(manifest, manifest_size, updater_install_version, updater_platform, HALO_BUILD_FLAVOR,
 		updater_appimage ? "appimage" : "zip", updater_file.tag, sizeof(updater_file.tag), updater_file.name, sizeof(updater_file.name),
 		&updater_file.size, updater_file.sha256, sizeof(updater_file.sha256), updater_file.main_name,
 		sizeof(updater_file.main_name), reason, sizeof(reason));
@@ -1140,11 +1397,19 @@ static void updater_update(void)
 	int executable[MAXIMUM_UPDATE_FILES];
 	char zip_path[1200], partial[1200], start[1200], error[512] = "";
 	int name_count = 0;
+	/* (the check's results, copied once: the version, the channel and the
+	feed's list stay these for the whole install) */
+	int taken = updater_take_results();
 
 	updater_path(partial, sizeof(partial), UPDATE_DIRECTORY);
 	updater_partial_path(zip_path, sizeof(zip_path), updater_appimage ? UPDATE_APPIMAGE_ASSET : updater_asset());
-	platform_log("update: downloading version %s", updater_latest_version);
-	if (!update_make_directory(partial))
+	if (taken)
+		platform_log("update: downloading version %s", updater_install_version);
+	if (!taken)
+	{
+		snprintf(error, sizeof(error), "a check for updates is running: try again when it is done");
+	}
+	else if (!update_make_directory(partial))
 	{
 		snprintf(error, sizeof(error), "could not make %s (is the %s folder read-only?)", partial,
 			updater_appimage ? "AppImage's" : "game's");
@@ -1156,7 +1421,7 @@ static void updater_update(void)
 			updater_install_appimage(zip_path, error, sizeof(error)))
 		{
 			update_delete_file(partial);
-			platform_log("update: starting version %s (%s)", updater_latest_version,
+			platform_log("update: starting version %s (%s)", updater_install_version,
 				strrchr(updater_executable, PATH_SEPARATOR[0]) ? strrchr(updater_executable, PATH_SEPARATOR[0]) + 1 :
 				updater_executable);
 			if (update_launch(updater_executable))
@@ -1175,7 +1440,7 @@ static void updater_update(void)
 		{
 			update_delete_file(partial);
 			updater_new_executable(names, name_count, start, sizeof(start));
-			platform_log("update: starting version %s (%s)", updater_latest_version,
+			platform_log("update: starting version %s (%s)", updater_install_version,
 				strrchr(start, PATH_SEPARATOR[0]) ? strrchr(start, PATH_SEPARATOR[0]) + 1 : start);
 #ifdef HALO_PORT_UPDATE_RESTART_EXIT_CODE
 			/* (the port's script starts the new version itself when the game
@@ -1337,12 +1602,12 @@ void updater_start(void)
 	/* (a release's build with no update key, all zero in update_key.h, would
 	install unsigned updates: it never looks for any. configure.py refuses
 	to make one; this is for a build made some other way) */
-	if (HALO_RELEASE_BUILD && !UPDATER_TEST && !update_signature_required())
+	if (UPDATER_KEYLESS)
 	{
 		platform_log("update: this release build has no update key, so it does not look for updates");
 		return;
 	}
-	if (!(HALO_RELEASE_BUILD || UPDATER_TEST) ||
+	if (!UPDATER_LOOKS ||
 		!(packaged ? config_packaged_update_check() : config_boolean("update.auto")) ||
 		(!config_string("debug.update_answer")[0] && (config_boolean("debug.hidden_window") ||
 			config_real("debug.exit_after") > 0.0 || config_string("debug.network_test")[0])))
@@ -1355,6 +1620,7 @@ void updater_start(void)
 	if (updater_offer_64bit)
 		platform_log("update: this is the 32-bit build on 64-bit Windows: the 64-bit build will be offered");
 #endif
+	updater_make_lock();
 	SDL_SetAtomicInt(&updater_state, _updater_checking);
 	{
 		SDL_Thread *thread = SDL_CreateThread(updater_check_thread, "update check", NULL);
@@ -1389,13 +1655,14 @@ void updater_console_check(void)
 		return;
 	*slash = 0;
 	updater_clean_up();
-	if (HALO_RELEASE_BUILD && !UPDATER_TEST && !update_signature_required())
+	if (UPDATER_KEYLESS)
 	{
 		platform_log("update: this release build has no update key, so it does not look for updates");
 		return;
 	}
-	if (!(HALO_RELEASE_BUILD || UPDATER_TEST) || !config_boolean("update.auto"))
+	if (!UPDATER_LOOKS || !config_boolean("update.auto"))
 		return;
+	updater_make_lock();
 	SDL_SetAtomicInt(&updater_state, _updater_checking);
 	thread = SDL_CreateThread(updater_check_thread, "update check", NULL);
 	if (!thread)
@@ -1429,6 +1696,29 @@ void updater_console_check(void)
 }
 #endif
 
+/* the newer version's download page: the latest release's, or a feed's
+build's pre-release (its file's tag in the checked list: macOS) */
+static const char *updater_page(void)
+{
+	static char page[300];
+
+	if (updater_take_results() && updater_install_channel != _channel_release && updater_install_list)
+	{
+		char name[160], sha256[UPDATE_SHA256_TEXT_SIZE], main_name[160], reason[256];
+		unsigned long long size = 0;
+
+		if (update_manifest_find_channel(updater_install_list, updater_install_size,
+			updater_channel_names[updater_install_channel], updater_install_version, updater_platform,
+			HALO_BUILD_FLAVOR, "zip", updater_feed_tag, sizeof(updater_feed_tag), name, sizeof(name), &size, sha256,
+			sizeof(sha256), main_name, sizeof(main_name), reason, sizeof(reason)) == _update_manifest_found)
+		{
+			snprintf(page, sizeof(page), "https://github.com/" UPDATE_REPOSITORY "/releases/tag/%s", updater_feed_tag);
+			return page;
+		}
+	}
+	return UPDATE_RELEASE_PAGE;
+}
+
 /* ---------- the setup screen's Updates (launcher.c) */
 
 /* the check started now, whatever update.auto says: 0 when this build never
@@ -1437,12 +1727,13 @@ int updater_check_now(void)
 {
 	SDL_Thread *thread;
 
-	if (!(HALO_RELEASE_BUILD || UPDATER_TEST) || (HALO_RELEASE_BUILD && !UPDATER_TEST && !update_signature_required()))
+	if (!UPDATER_LOOKS || UPDATER_KEYLESS)
 		return 0;
 	if (SDL_GetAtomicInt(&updater_state) == _updater_checking)
 		return 0;
 	if (!updater_directory[0])
 		snprintf(updater_directory, sizeof(updater_directory), "%s", platform_save_root());
+	updater_make_lock();
 	SDL_SetAtomicInt(&updater_state, _updater_checking);
 	thread = SDL_CreateThread(updater_check_thread, "update check", NULL);
 	if (!thread)
@@ -1486,10 +1777,13 @@ nothing in a packaged install (0), else downloaded and started (this one
 then quits) */
 int updater_install(void)
 {
-	if (SDL_GetAtomicInt(&updater_answer) != 1 || platform_packaged())
+	if (SDL_GetAtomicInt(&updater_answer) != 1 || platform_packaged() ||
+		SDL_GetAtomicInt(&updater_state) == _updater_checking)
+	{
 		return 0;
+	}
 	if (UPDATER_DOWNLOAD_PAGE_ONLY)
-		return SDL_OpenURL(UPDATE_RELEASE_PAGE);
+		return SDL_OpenURL(updater_page());
 	if (!updater_executable[0])
 	{
 		updater_appimage = update_appimage_path(updater_executable, sizeof(updater_executable));
@@ -1506,7 +1800,11 @@ const char *updater_channel(void)
 {
 	if (HALO_RELEASE_BUILD)
 		return "release";
+#if UPDATER_PRERELEASE_BUILD
+	return HALO_UPDATE_CHANNEL;
+#else
 	return strstr(HALO_VERSION, "nightly") ? "nightly" : "dev";
+#endif
 }
 
 int updater_gamescope(void);
@@ -1556,7 +1854,7 @@ void updater_poll(SDL_Window *window)
 			return;
 		platform_log("update: answering %s (debug.update_answer)", test_answer);
 		if (!strcmp(test_answer, "yes") && UPDATER_DOWNLOAD_PAGE_ONLY)
-			platform_log("update: would open " UPDATE_RELEASE_PAGE);
+			platform_log("update: would open %s", updater_page());
 		else if (!strcmp(test_answer, "yes"))
 			updater_update();
 		else if (!strcmp(test_answer, "never"))
@@ -1681,8 +1979,8 @@ void updater_poll(SDL_Window *window)
 	}
 	else if (answer == 1 && UPDATER_DOWNLOAD_PAGE_ONLY)
 	{
-		platform_log("update: opening " UPDATE_RELEASE_PAGE);
-		if (!SDL_OpenURL(UPDATE_RELEASE_PAGE))
+		platform_log("update: opening %s", updater_page());
+		if (!SDL_OpenURL(updater_page()))
 			platform_log("update: could not open the download page: %s", SDL_GetError());
 	}
 	else if (answer == 1)

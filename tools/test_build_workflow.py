@@ -3,7 +3,7 @@
 (.github/workflows/build.yml):
 
 - the gate job: a run started with a commit builds it only when it is a
-  full SHA on main or on a release branch, never another commit of the
+  full SHA on main or on a release-* branch, never another commit of the
   repository's network (a fork's pull request). Its script is run here
   against a repository made in the test;
 - every other job waits for the gate;
@@ -137,8 +137,11 @@ def repository(tmp_path_factory):
     git(folder, "checkout", "-q", "-b", "fork-pr", head)
     git(folder, "commit", "-q", "--allow-empty", "-m", "not merged")
     other = git(folder, "rev-parse", "HEAD")
+    git(folder, "checkout", "-q", "-b", "release/old", head)
+    git(folder, "commit", "-q", "--allow-empty", "-m", "outside the ruleset")
+    slashed = git(folder, "rev-parse", "HEAD")
     git(folder, "checkout", "-q", "main")
-    return {"folder": folder, "old": old, "head": head, "release": release, "other": other}
+    return {"folder": folder, "old": old, "head": head, "release": release, "other": other, "slashed": slashed}
 
 
 def gate(repository, commit: str, work: Path) -> subprocess.CompletedProcess:
@@ -154,8 +157,10 @@ def test_gate_takes_mains_and_release_branches(repository, tmp_path, which):
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-def test_gate_refuses_a_commit_on_no_such_branch(repository, tmp_path):
-    result = gate(repository, repository["other"], tmp_path)
+@pytest.mark.parametrize("which", ["other", "slashed"])
+def test_gate_refuses_a_commit_on_no_such_branch(repository, tmp_path, which):
+    """an unmerged branch, and release/... (the ruleset covers release-* only)"""
+    result = gate(repository, repository[which], tmp_path)
     assert result.returncode != 0
     assert "not on main or a release branch" in result.stdout
 

@@ -87,7 +87,7 @@ static const char *const menus_choices[] = { "xbox", "gearbox", "chupathingy", N
 static const char *const channels_choices[] = { "auto", "stereo", "5.1", "7.1", NULL };
 static const char *const hrtf_choices[] = { "on", "off", "auto", NULL };
 static const char *const buffer_choices[] = { "256", "512", "1024", "2048", "4096", NULL };
-/* controls.guide's: the F keys the game leaves free (F1 is Back, F2 Start,
+/* controls.delta's: the F keys the game leaves free (F1 is Back, F2 Start,
 F11 full screen, F12 the mouse) */
 /* (F9 takes a screenshot and F10 a clip: capture.c) */
 static const char *const guide_key_choices[] = { "F3", "F4", "F5", "F6", "F7", "F8", NULL };
@@ -128,9 +128,9 @@ static const struct settings_row settings_rows[] =
 	{ _in_network, "JOINED GAME STATS", "network.report_joined_games", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_network, "DELTA STATS", "network.report_events", _kind_toggle, NULL, NULL, 0, 0 },
 	/* (the Guide's own, then the one it shares with Network) */
-	{ _in_guide, "OPEN KEY", "controls.guide", _kind_choices, guide_key_choices, NULL, 0, 0 },
-	{ _in_guide, "GUIDE BUTTON", "controls.guide_button", _kind_toggle, NULL, NULL, 0, 0 },
-	{ _in_guide, "NOTIFICATIONS IN GAME", "guide.notify_in_game", _kind_toggle, NULL, NULL, 0, 0 },
+	{ _in_guide, "OPEN KEY", "controls.delta", _kind_choices, guide_key_choices, NULL, 0, 0 },
+	{ _in_guide, "GUIDE BUTTON", "controls.delta_button", _kind_toggle, NULL, NULL, 0, 0 },
+	{ _in_guide, "NOTIFICATIONS IN GAME", "delta.notify_in_game", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_guide, "FRIEND ONLINE ALERTS", "delta.notify_online", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_network | _in_guide, "SHOW WHEN I'M PLAYING", "network.share_presence", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_display | _in_guide, "THEME", "display.theme", _kind_choices, theme_choices, theme_names, 0, 0 },
@@ -138,6 +138,7 @@ static const struct settings_row settings_rows[] =
 	{ _in_network, "CRASH REPORTS", "crash_reports.upload", _kind_words, NULL, NULL, 0, 0 },
 
 	{ _in_updates, "CHECK FOR UPDATES", "update.auto", _kind_toggle, NULL, NULL, 0, 0 },
+	{ _in_updates, "CHANNEL", "update.channel", _kind_words, NULL, NULL, 0, 0 },
 
 };
 
