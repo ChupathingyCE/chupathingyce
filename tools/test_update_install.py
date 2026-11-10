@@ -763,3 +763,207 @@ def test_latest_release_tag_of_a_prerelease_refused(keys, builds, server, tmp_pa
     assert has(lines, f"{OLD} halo update: the latest release's tag v{TESTING} is not a release's version")
     assert not any(path.startswith("/files/") for path in server.requests)
     assert snapshot(folder) == before
+
+
+# ---------- the Steam Deck's Game Mode (gamescope): no dialog or window, the
+# version line says where to update, the game's own pages install it, and
+# the new version is the same process (Steam and gamescope keep the game)
+
+GAMESCOPE = {"GAMESCOPE_WAYLAND_DISPLAY": "gamescope-0"}
+PAGE = {"HALO_UPDATE_TEST_PAGE": "1"}
+# (no answer: the question, which under gamescope is only the version line)
+NO_ANSWER = {"HALO_UPDATE_TEST_ANSWER": ""}
+
+
+def pids(lines, version, name):
+    """the process ids the version's runs logged (update_install_check.c's
+    "pid <n>, parent <n>, group <n>")"""
+    found = []
+    for line in lines:
+        prefix = f"{version} {name} pid "
+        if line.startswith(prefix):
+            found.append(tuple(int(part.split()[-1]) for part in line[len(f"{version} {name} "):].split(", ")))
+    return found
+
+
+def shown_nothing(lines):
+    """no dialog and no window of the updater's"""
+    return not any(" dialog: " in line or " window: " in line for line in lines)
+
+
+def test_where_to_update_under_gamescope():
+    """the version line's words under gamescope name the page that has
+    INSTALL UPDATE (tools/port_settings.py), in both menu styles"""
+    import port_settings
+    header = (ROOT / "port/linux/src/update.h").read_text()
+    assert '#define UPDATER_GAMESCOPE_WHERE "in Settings > Network > Updates"' in header
+    assert '"from Desktop Mode"' not in (ROOT / "port/linux/src/updater.c").read_text()
+    assert "build_identity_watermark_update(updater_latest_version, UPDATER_GAMESCOPE_WHERE)" in \
+        (ROOT / "port/linux/src/updater.c").read_text()
+    views = {view: rows for view, _, _, rows in port_settings.SCREENS["network_setup"]["views"]}
+    assert port_settings.INSTALL_UPDATE in views["updates"]
+    assert port_settings.SCREENS["network_setup"]["header"][0] == "header_profile_network_settings"
+
+
+def test_install_row_wiring():
+    """INSTALL UPDATE: in UPDATES' list in the Gearbox menus and the
+    Chupathingy menus' page, as tools/port_settings.py writes them; A runs
+    "port update install" (the Chupathingy menus' A, "port settings accept",
+    installs on it too), which menu_functions.c handles; its help line is the
+    screen's own text, so the install's progress and errors can be shown"""
+    import port_settings
+    base = "main_menu/settings_select/player_setup/player_profile_edit/network_setup"
+    gearbox_name = f"{base}".replace("/", ".") + ".xml"
+    gearbox = (ROOT / "port/assets/menus/ce" / gearbox_name).read_text()
+    pages = (ROOT / "port/assets/menus/chupathingy/settings_pages.xml").read_text()
+    # (the files are port_settings.py's, as written)
+    assert gearbox == "\n".join(port_settings.settings_files()[gearbox_name])
+    assert pages == "\n".join(port_settings.chupathingy_settings_pages())
+    row = f'<child widget="{base}/op_install_update" x="54" y="133" platform="desktop"/>'
+    for text in (gearbox, pages):
+        updates = text.index(f'<child widget="{base}/view_updates"')
+        assert text.index(row) > updates
+        assert text.index(row) < text.index(f'<child widget="{base}/view_chat"')
+    assert f'<widget name="{base}/op_install_update"' in gearbox
+    assert '<on event="a" run="port update install"/>' in gearbox
+    assert f'<widget name="{base}/help" type="text" controller="1" left="68" top="350" width="482" height="60" ' \
+           'font="ui\\large_ui"' in gearbox
+    assert '<string text="INSTALL UPDATE:"/>' in gearbox
+    functions = (ROOT / "port/linux/game/menu_functions.c").read_text()
+    assert '"port update install",' in (ROOT / "port/linux/game/menu_tags.c").read_text()
+    assert 'else if (!strcmp(name, "port update install"))' in functions
+    assert '!strcmp(list->focused_child->name, "op_install_update")' in functions
+    assert "updater_install_begin()" in functions and "updater_ready(" in functions
+    launcher = (ROOT / "port/linux/src/launcher.c").read_text()
+    assert "updater_install_begin()" in launcher and "updater_install_status(" in launcher
+    assert "updater_install()" not in launcher
+
+
+def test_no_question_under_gamescope(keys, builds, server, tmp_path):
+    """under gamescope nothing is asked in a dialog: the version line says
+    where to update, and nothing is downloaded"""
+    folder, appimage = install_appimage(tmp_path, builds)
+    before = snapshot(folder)
+    release = appimage_release(tmp_path, builds, keys)
+    server.release(NEW, release, [ASSET, APPIMAGE, "updates.json", "updates.json.sig"])
+    name = appimage.name
+    lines = run_appimage(tmp_path, appimage, server, f"{OLD} {name}", {**GAMESCOPE, **NO_ANSWER})
+    assert has(lines, f"{OLD} {name} update: {NEW} is out (this is {OLD}); not asking under gamescope")
+    assert has(lines, f"{OLD} {name} watermark: {OLD} - {NEW} is out: update in Settings > Network > Updates")
+    assert shown_nothing(lines)
+    assert not has(lines, "downloading") and snapshot(folder) == before
+
+
+def test_failure_shown_in_no_dialog_under_gamescope(keys, builds, server, tmp_path):
+    """a failed update under gamescope opens no dialog and no progress
+    window (each would crash the game there); on the desktop it does"""
+    for environment, dialog in ((GAMESCOPE, False), ({}, True)):
+        where = tmp_path / ("gamescope" if environment else "desktop")
+        where.mkdir()
+        folder, appimage = install_appimage(where, builds)
+        before = snapshot(folder)
+        release = appimage_release(where, builds, keys)
+        data = bytearray((release / APPIMAGE).read_bytes())
+        data[len(data) // 2] ^= 0x01
+        (release / APPIMAGE).write_bytes(bytes(data))
+        server.release(NEW, release, [ASSET, APPIMAGE, "updates.json", "updates.json.sig"])
+        name = appimage.name
+        lines = run_appimage(where, appimage, server, f"{OLD} {name}", environment)
+        assert has(lines, f"{OLD} {name} update: failed: the download was not installed")
+        assert (not shown_nothing(lines)) == dialog, lines
+        if not dialog:
+            assert has(lines, "not showing the failure in a dialog under gamescope")
+        assert snapshot(folder) == before
+
+
+def test_page_install_under_gamescope(keys, builds, server, tmp_path):
+    """from end to end in Game Mode: the AppImage, under gamescope, installs
+    the new version from the game's page (INSTALL UPDATE, the setup screen's
+    UPDATE) with no dialog or window, the page showing the download; the new
+    AppImage takes the old one's name, executable, the old one kept as
+    <name>.old until the new one starts; and the new version is the same
+    process, with the same parent and group, started with the library path
+    its AppRun was given"""
+    folder, appimage = install_appimage(tmp_path, builds)
+    release = appimage_release(tmp_path, builds, keys)
+    server.release(NEW, release, [ASSET, APPIMAGE, "updates.json", "updates.json.sig"])
+    name = appimage.name
+    lines = run_appimage(tmp_path, appimage, server, f"{NEW} {name}", {**GAMESCOPE, **NO_ANSWER, **PAGE})
+    assert has(lines, f"{OLD} {name} watermark: {OLD} - {NEW} is out: update in Settings > Network > Updates")
+    assert has(lines, f"{OLD} {name} page: installing")
+    assert has(lines, f"{OLD} {name} update: installing version {NEW} from the game's own page (under gamescope")
+    assert has(lines, f"{OLD} {name} page: Downloading {NEW}")
+    assert has(lines, f"{OLD} {name} update: the download's SHA-256 is the release list's")
+    assert has(lines, f"{OLD} {name} update: starting version {NEW} ({name})")
+    assert has(lines, f"{NEW} {name} library path: /opt/host/lib")
+    assert has(lines, f"{NEW} {name} update: this is the latest version ({NEW})")
+    assert shown_nothing(lines), lines
+    old, new = pids(lines, OLD, name), pids(lines, NEW, name)
+    assert len(old) == 1 and len(new) == 1 and old == new, (old, new)
+    after = snapshot(folder)
+    assert after[name] == (hashlib.sha256(builds[NEW].read_bytes()).hexdigest(), 0o755)
+    assert set(after) == {name, "notes.txt"}, after
+
+
+def test_page_install_of_a_folder(keys, builds, server, tmp_path):
+    """the zip's install from a page (a folder, not an AppImage), on the
+    desktop: the same process too"""
+    folder = install(tmp_path, builds)
+    release = tmp_path / "release"
+    zip_path = release_zip(release, builds)
+    update_sign.manifest(keys[0][0], NEW, f"v{NEW}", f"v{NEW}-debug", "0" * 40, [zip_path])
+    server.release(NEW, release, [ASSET, "updates.json", "updates.json.sig"])
+    lines = run(tmp_path, folder, server, f"{NEW} halo", {**NO_ANSWER, **PAGE})
+    assert has(lines, f"{OLD} halo page: installing")
+    assert has(lines, f"{OLD} halo update: starting version {NEW} (halo)")
+    assert has(lines, f"{NEW} halo update: this is the latest version ({NEW})")
+    # (the page's install opens no window of its own, on the desktop too)
+    assert not any(" window: " in line for line in lines)
+    assert pids(lines, OLD, "halo") == pids(lines, NEW, "halo")
+    assert snapshot(folder)["halo"][0] == hashlib.sha256(builds[NEW].read_bytes()).hexdigest()
+
+
+def test_page_install_failure_under_gamescope(keys, builds, server, tmp_path):
+    """a page's install that fails under gamescope says why on the page,
+    and the game goes on as it was"""
+    folder, appimage = install_appimage(tmp_path, builds)
+    before = snapshot(folder)
+    release = appimage_release(tmp_path, builds, keys, listed=(ASSET,))
+    server.release(NEW, release, [ASSET, APPIMAGE, "updates.json", "updates.json.sig"])
+    name = appimage.name
+    lines = run_appimage(tmp_path, appimage, server, f"{OLD} {name}", {**GAMESCOPE, **NO_ANSWER, **PAGE})
+    assert has(lines, f"{OLD} {name} page: The update failed: ")
+    assert has(lines, "download the new AppImage")
+    assert shown_nothing(lines) and not any(line.startswith(NEW) for line in lines)
+    assert snapshot(folder) == before
+
+
+def test_page_install_when_the_new_version_cannot_start(keys, builds, server, tmp_path):
+    """a new version in place that cannot be started (here, not executable:
+    a noexec folder is the same to the check) leaves the old game running,
+    and the page says to start it again, rather than the game quitting with
+    nothing to start"""
+    folder, appimage = install_appimage(tmp_path, builds)
+    release = appimage_release(tmp_path, builds, keys)
+    server.release(NEW, release, [ASSET, APPIMAGE, "updates.json", "updates.json.sig"])
+    name = appimage.name
+    # (the AppImage's own mode is the new one's: run through a copy, so the
+    # file replaced is one with no execute bits)
+    os.chmod(appimage, 0o644)
+    runner = tmp_path / "runner"
+    shutil.copy(builds[OLD], runner)
+    os.chmod(runner, 0o755)
+    log = tmp_path / "update.log"
+    log.write_text("")
+    home = tmp_path / "home"
+    (home / "saves").mkdir(parents=True, exist_ok=True)
+    environment = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": str(home),
+                   "HALO_SAVE_ROOT": str(home / "saves"), "HALO_UPDATE_TEST_SERVER": server.url,
+                   "HALO_UPDATE_TEST_CA": str(server.authority), "HALO_UPDATE_TEST_LOG": str(log),
+                   "APPIMAGE": str(appimage), **GAMESCOPE, **NO_ANSWER, **PAGE}
+    subprocess.run([str(runner)], cwd=tmp_path, env=environment, timeout=120, capture_output=True)
+    lines = log.read_text().splitlines()
+    assert has(lines, f"{OLD} runner page: The update failed: the new version is in place, but it isn't "
+                      "executable: start it again.")
+    assert has(lines, f"{OLD} runner done") and not any(line.startswith(NEW) for line in lines)
+    assert shown_nothing(lines)

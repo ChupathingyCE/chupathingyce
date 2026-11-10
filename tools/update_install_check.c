@@ -13,8 +13,19 @@ itself the latest.
 Every line of its log is appended to the file HALO_UPDATE_TEST_LOG names,
 after the version and the executable's file name: "<version> <name> <line>".
 It exits once the check is answered (its update failed, or there is none);
-an update that succeeds ends it by starting the new one. Started with
-APPIMAGE set, it is an AppImage, as the AppImage runtime would start it.
+an update that succeeds ends it by starting the new one, in its place (the
+same process: its log says "pid <n>" as it starts). Started with APPIMAGE
+set, it is an AppImage, as the AppImage runtime would start it.
+
+HALO_UPDATE_TEST_ANSWER is the answer to the question (debug.update_answer:
+"yes" when it is not set; "" asks, which under gamescope, with
+GAMESCOPE_WAYLAND_DISPLAY set, only puts it on the version line). With
+HALO_UPDATE_TEST_PAGE=1 the update is installed as the game's own pages
+install it (the setup screen's UPDATE, Settings > Network > Updates'
+INSTALL UPDATE: updater_install_begin), on its own thread, each line the
+page would show logged as "page: <line>". A dialog or a window the updater
+opens is logged as "dialog: <title>" or "window: <title>", the version
+line's text as "watermark: <text>".
 */
 
 #ifndef _GNU_SOURCE
@@ -37,7 +48,39 @@ void platform_log(const char *format, ...) __attribute__((format(printf, 1, 2)))
 const char *platform_save_root(void);
 int platform_packaged(void);
 
+/* (the updater's dialogs and windows, logged: SDL's own, by these names in
+updater.c, as SDL.h declares them) */
+#define SDL_ShowSimpleMessageBox check_show_simple_message_box
+#define SDL_ShowMessageBox check_show_message_box
+#define SDL_CreateWindow check_create_window
+
 #include "updater.c"
+
+bool check_show_simple_message_box(SDL_MessageBoxFlags flags, const char *title, const char *message,
+	SDL_Window *window)
+{
+	(void)flags;
+	(void)window;
+	platform_log("dialog: %s: %s", title, message);
+	return false;
+}
+
+bool check_show_message_box(const SDL_MessageBoxData *data, int *button)
+{
+	platform_log("dialog: %s: %s", data->title, data->message);
+	if (button)
+		*button = -1;
+	return false;
+}
+
+SDL_Window *check_create_window(const char *title, int w, int h, SDL_WindowFlags flags)
+{
+	(void)w;
+	(void)h;
+	(void)flags;
+	platform_log("window: %s", title);
+	return NULL;
+}
 
 static char check_executable_name[256] = "?";
 
@@ -71,8 +114,8 @@ const char *build_identity_user_agent(void)
 
 void build_identity_watermark_update(const char *version, const char *where)
 {
-	(void)version;
-	(void)where;
+	/* (as build_identity.c puts it) */
+	platform_log("watermark: %s - %s is out: update %s", HALO_VERSION, version, where);
 }
 
 int config_boolean(const char *name)
@@ -92,7 +135,9 @@ const char *config_string(const char *name)
 	release channel) */
 	if (!strcmp(name, "update.channel"))
 		return getenv("HALO_UPDATE_TEST_CHANNEL") ? getenv("HALO_UPDATE_TEST_CHANNEL") : "";
-	return !strcmp(name, "debug.update_answer") ? "yes" : "";
+	if (!strcmp(name, "debug.update_answer"))
+		return getenv("HALO_UPDATE_TEST_ANSWER") ? getenv("HALO_UPDATE_TEST_ANSWER") : "yes";
+	return "";
 }
 
 /* (a packaged install's mark, as the game reads it: HALO_PACKAGED, or the
@@ -144,6 +189,8 @@ int main(void)
 		return 1;
 	}
 	platform_log("started");
+	/* (the process: an update's new version is this one, in its place) */
+	platform_log("pid %ld, parent %ld, group %ld", (long)getpid(), (long)getppid(), (long)getpgrp());
 	/* (what an update's AppImage was started with: update_launch) */
 	platform_log("library path: %s", getenv("LD_LIBRARY_PATH") ? getenv("LD_LIBRARY_PATH") : "(none)");
 	updater_start();
@@ -152,6 +199,28 @@ int main(void)
 	while (SDL_GetAtomicInt(&updater_state) == _updater_checking && SDL_GetTicks() < deadline)
 		SDL_Delay(10);
 	updater_poll(NULL);
+	/* (a page's install: begun, and its lines shown each frame until the
+	game restarts into the new version, or it fails) */
+	if (getenv("HALO_UPDATE_TEST_PAGE") && !strcmp(getenv("HALO_UPDATE_TEST_PAGE"), "1"))
+	{
+		char line[256], shown[256] = "";
+		int state;
+
+		platform_log("page: %s", updater_install_begin() ? "installing" : "nothing to install");
+		deadline = SDL_GetTicks() + 60000;
+		do
+		{
+			updater_poll(NULL);
+			state = updater_install_status(line, sizeof(line));
+			if (strcmp(line, shown))
+			{
+				snprintf(shown, sizeof(shown), "%s", line);
+				platform_log("page: %s", line);
+			}
+			SDL_Delay(5);
+		} while ((state == UPDATER_INSTALL_DOWNLOADING || state == UPDATER_INSTALL_INSTALLING) &&
+			SDL_GetTicks() < deadline);
+	}
 	platform_log("done");
 	SDL_Quit();
 	return 0;
