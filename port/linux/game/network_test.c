@@ -1709,8 +1709,11 @@ void network_test_update(
 					would stay) */
 					{
 						extern boolean cache_files_map_host_refused(char const *map_name, char *message, long size);
+						extern void map_repo_game_refresh_wait(int milliseconds);
 						char refused[320];
 
+						/* (the repository's answer in, or ten seconds given it) */
+						map_repo_game_refresh_wait(10000);
 						if (cache_files_map_host_refused(path, refused, sizeof(refused)))
 						{
 							platform_log("network test: not hosted: %s", refused);

@@ -44,6 +44,13 @@ addresses (never a player's) and why a document or a file was refused.
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#ifdef _WIN32
+#include <process.h>
+#define process_id() ((long)_getpid())
+#else
+#include <unistd.h>
+#define process_id() ((long)getpid())
+#endif
 
 #if defined(HALO_GAME_BROWSER)
 
@@ -52,6 +59,9 @@ addresses (never a player's) and why a document or a file was refused.
 enum
 {
 	CHUNK_SIZE = 64 * 1024,
+	/* an index or mirror list's body, at most: the connection is shared
+	with the game list, stats, updater and control link while it is open */
+	DOCUMENT_DEADLINE_MILLISECONDS = 90 * 1000,
 };
 
 /* ---------- globals */
@@ -79,9 +89,10 @@ typedef int (*stream_write)(void *file, const char *data, int count);
 /* a GET of url streamed to write (file), at most maximum bytes: 1 with
 the bytes received in *received and their SHA-256 in sha256 (NULL: not
 wanted), else 0 with the HTTP status in *status (0 for none) and why in
-why; a map's download tells hooks (NULL: none) */
+why; a map's download tells hooks (NULL: none); deadline (0: the default, hours)
+is the body's time in milliseconds */
 static int stream_get(const char *url, stream_write write, void *file, unsigned int maximum, unsigned char *sha256,
-	unsigned int *received, int *status, const struct map_repo_game_hooks *hooks, char *why, int why_size)
+	unsigned int *received, int *status, const struct map_repo_game_hooks *hooks, int deadline, char *why, int why_size)
 {
 	struct playlist_sha256 hash;
 	char *buffer;
@@ -91,6 +102,8 @@ static int stream_get(const char *url, stream_write write, void *file, unsigned 
 	download = posix_browser_download_open(url, build_identity_user_agent(), status, &length, why, why_size);
 	if (!download)
 		return 0;
+	if (deadline > 0)
+		posix_browser_download_deadline(download, deadline);
 	if (length >= 0 && (unsigned int)length > maximum)
 	{
 		posix_browser_download_close(download);
@@ -178,7 +191,7 @@ static int game_get_file(void *context, const char *url, const char *path, unsig
 		snprintf(why, (size_t)why_size, "could not write the map's file");
 		return 0;
 	}
-	ok = stream_get(url, write_handle, (void *)file, maximum, sha256, received, status, hooks, why, why_size);
+	ok = stream_get(url, write_handle, (void *)file, maximum, sha256, received, status, hooks, 0, why, why_size);
 	CloseHandle(file);
 	if (!ok)
 		platform_log("chupathingy maps: %s", why);
@@ -237,14 +250,24 @@ static int game_get_document(void *context, const char *url, const char *name, c
 	*size = -1;
 	*status = 0;
 	buffer[0] = 0;
-	kept_path(name, path, sizeof(path));
+	/* (this process's own file: a second copy sharing the save root doesn't
+	write into it too) */
+	{
+		char own[160];
+		const char *dot = strrchr(name, '.');
+
+		snprintf(own, sizeof(own), "%.*s.%ld%s", dot ? (int)(dot - name) : (int)strlen(name), name, process_id(),
+			dot ? dot : "");
+		kept_path(own, path, sizeof(path));
+	}
 	file = fopen(path, "wb");
 	if (!file)
 	{
 		snprintf(why, (size_t)why_size, "could not write %s", name);
 		return 0;
 	}
-	ok = stream_get(url, write_stdio, file, (unsigned int)maximum, NULL, &received, status, NULL, why, why_size);
+	ok = stream_get(url, write_stdio, file, (unsigned int)maximum, NULL, &received, status, NULL, DOCUMENT_DEADLINE_MILLISECONDS, why,
+		why_size);
 	ok = fclose(file) == 0 && ok;
 	if (ok && !(file = fopen(path, "rb")))
 		ok = 0;

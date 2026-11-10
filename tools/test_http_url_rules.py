@@ -63,3 +63,15 @@ def test_updater_is_https_only():
     assert 'strncasecmp(url, "https://", 8) != 0' in parse
     get = re.search(r"^static int https_get\(.*?^\}", text, re.M | re.S).group(0)
     assert get.index("parse_url(url,") < get.index("connection_open(")
+
+
+def test_documents_get_a_short_body_deadline_and_no_second_open():
+    """The map repository's index and mirror list hold the shared TLS lock
+    only ninety seconds at most, and a thread that has a download open
+    can't open another (it would wait on itself)."""
+    game = (SOURCE / "map_repo_game.c").read_text()
+    assert "DOCUMENT_DEADLINE_MILLISECONDS = 90 * 1000" in game
+    assert "posix_browser_download_deadline(download, deadline)" in game
+    text = (SOURCE / "posix_browser.c").read_text()
+    body = re.search(r"^int posix_browser_download_open\(.*?^\}", text, re.M | re.S).group(0)
+    assert body.index("pthread_equal(download.owner, pthread_self())") < body.index("posix_browser_lock();")

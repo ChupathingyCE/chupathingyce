@@ -81,6 +81,9 @@ static struct
 	/* the last refresh that took an index asked for it alone (no mirror
 	list): one that wants the mirror list is due at once */
 	int index_only;
+	/* when a full refresh last got no mirror list (0: it did, or none was
+	asked): that alone is tried again after RETRY_SECONDS */
+	long long mirrors_failed;
 	struct map_mirrors mirrors;
 	int has_mirrors;
 	struct document_floor index_floor, mirrors_floor;
@@ -339,7 +342,9 @@ int map_repo_refresh_due(long long now, int flags)
 
 	pthread_mutex_lock(&map_repo_lock);
 	due = !map_repo.index || !map_repo.fetched || now - map_repo.fetched >= map_repo.info.refresh ||
-		now > map_repo.info.expires || (!(flags & MAP_REPO_REFRESH_INDEX_ONLY) && map_repo.index_only);
+		now > map_repo.info.expires || (!(flags & MAP_REPO_REFRESH_INDEX_ONLY) && map_repo.index_only) ||
+		(!(flags & MAP_REPO_REFRESH_INDEX_ONLY) && map_repo.mirrors_failed && now >= map_repo.mirrors_failed &&
+		now - map_repo.mirrors_failed >= RETRY_SECONDS);
 	/* (not again before a failure's wait is over) */
 	if (due && map_repo.failed && now - map_repo.failed < map_repo.retry && now >= map_repo.failed)
 		due = 0;
@@ -528,6 +533,7 @@ int map_repo_refresh(const struct map_repo_transport *transport, const char *bas
 	map_repo.failed = 0;
 	map_repo.retry = 0;
 	map_repo.index_only = (flags & MAP_REPO_REFRESH_INDEX_ONLY) != 0;
+	map_repo.mirrors_failed = 0;
 	floor_set(&map_repo.index_floor, info.serial, sha256);
 	if (has_mirrors)
 	{
@@ -540,6 +546,10 @@ int map_repo_refresh(const struct map_repo_transport *transport, const char *bas
 			floor_set(&map_repo.mirrors_floor, mirrors->serial, mirrors_sha256);
 		}
 	}
+	/* (a mirror list that failed on a full refresh is asked for again soon,
+	not at the index's next refresh) */
+	if (!(flags & MAP_REPO_REFRESH_INDEX_ONLY) && !mirrors_allowed)
+		map_repo.mirrors_failed = now;
 	pthread_mutex_unlock(&map_repo_lock);
 	/* (each document taken anew kept, then the floors: map_repo_load) */
 	if (index_allowed == 1)
@@ -688,6 +698,7 @@ void map_repo_reset(void)
 	map_repo.failed = 0;
 	map_repo.retry = 0;
 	map_repo.index_only = 0;
+	map_repo.mirrors_failed = 0;
 	map_repo.has_mirrors = 0;
 	memset(&map_repo.index_floor, 0, sizeof(map_repo.index_floor));
 	memset(&map_repo.mirrors_floor, 0, sizeof(map_repo.mirrors_floor));
