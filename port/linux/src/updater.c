@@ -248,6 +248,7 @@ static SDL_Mutex *updater_lock;
 static char *updater_install_list;
 static size_t updater_install_size;
 static int updater_install_channel;
+static char updater_install_version[sizeof(updater_latest_version)];
 /* (a feed's build's page, for the macOS download page: its file's tag) */
 static char updater_feed_tag[160];
 static char updater_directory[1024];
@@ -863,6 +864,7 @@ static int updater_take_results(void)
 		updater_install_list = NULL;
 		updater_install_size = 0;
 		updater_install_channel = updater_latest_channel;
+		snprintf(updater_install_version, sizeof(updater_install_version), "%s", updater_latest_version);
 		if (updater_feed_list)
 		{
 			updater_install_list = SDL_malloc(updater_feed_size + 1);
@@ -972,7 +974,7 @@ static int updater_download_zip(const char *zip_path, char *error, size_t error_
 		{
 			char line[160];
 
-			snprintf(line, sizeof(line), "version %s  (%llu of %llu MB)", updater_latest_version, received >> 20,
+			snprintf(line, sizeof(line), "version %s  (%llu of %llu MB)", updater_install_version, received >> 20,
 				total >> 20);
 			console_setup_screen_progress(screen, total ? (float)((double)received / (double)total) : 0.0f,
 				"Downloading the update...", line);
@@ -990,7 +992,7 @@ static int updater_download_zip(const char *zip_path, char *error, size_t error_
 			SDL_SetRenderScale(renderer, 2.0f, 2.0f);
 			SDL_RenderDebugText(renderer, 10.0f, 10.0f, "Downloading the update...");
 			SDL_SetRenderScale(renderer, 1.0f, 1.0f);
-			snprintf(line, sizeof(line), "version %s  (%llu of %llu MB)", updater_latest_version, received >> 20,
+			snprintf(line, sizeof(line), "version %s  (%llu of %llu MB)", updater_install_version, received >> 20,
 				total >> 20);
 			SDL_RenderDebugText(renderer, 20.0f, 70.0f, line);
 			SDL_SetRenderDrawColor(renderer, 60, 66, 72, 255);
@@ -1054,12 +1056,12 @@ static int updater_unpack(const char *zip_path, char names[][256], int *executab
 		}
 		platform_log("update: the download's SHA-256 is the release list's");
 	}
-	else if (!update_version_release(updater_latest_version))
+	else if (!update_version_release(updater_install_version))
 	{
 		/* (a zip's own .sig is a release's alone: a test build's or a
 		nightly's comes only with its feed's list) */
 		snprintf(error, error_size, "the download was not installed: version %s is not a release's",
-			updater_latest_version);
+			updater_install_version);
 		goto done;
 	}
 	else if (update_signature_required())
@@ -1071,7 +1073,7 @@ static int updater_unpack(const char *zip_path, char names[][256], int *executab
 
 		snprintf(signature_name, sizeof(signature_name), "%s.sig", updater_asset());
 		updater_partial_path(signature_path, sizeof(signature_path), signature_name);
-		snprintf(path, sizeof(path), "v%s/%s", updater_latest_version, signature_name);
+		snprintf(path, sizeof(path), "v%s/%s", updater_install_version, signature_name);
 		updater_url(url, sizeof(url), 0, path);
 		if (!update_download(url, signature_path, MAXIMUM_SIGNATURE_SIZE, NULL, NULL, reason, sizeof(reason)))
 		{
@@ -1080,7 +1082,7 @@ static int updater_unpack(const char *zip_path, char names[][256], int *executab
 		}
 		signature = SDL_LoadFile(signature_path, &signature_size);
 		update_delete_file(signature_path);
-		if (!update_signature_check(zip, zip_size, updater_asset(), updater_latest_version, signature,
+		if (!update_signature_check(zip, zip_size, updater_asset(), updater_install_version, signature,
 			signature ? signature_size : 0, reason, sizeof(reason)))
 		{
 			snprintf(error, error_size, "the download was not installed: %s", reason);
@@ -1132,7 +1134,7 @@ static int updater_find_file(char *error, size_t error_size)
 			snprintf(error, error_size, "the %s channel's list is gone: look again at the next start", channel);
 			return 0;
 		}
-		result = update_manifest_find_channel(updater_install_list, updater_install_size, channel, updater_latest_version,
+		result = update_manifest_find_channel(updater_install_list, updater_install_size, channel, updater_install_version,
 			updater_platform, HALO_BUILD_FLAVOR, updater_appimage ? "appimage" : "zip", updater_file.tag,
 			sizeof(updater_file.tag), updater_file.name, sizeof(updater_file.name), &updater_file.size,
 			updater_file.sha256, sizeof(updater_file.sha256), updater_file.main_name, sizeof(updater_file.main_name),
@@ -1155,17 +1157,17 @@ static int updater_find_file(char *error, size_t error_size)
 	}
 	/* (the release path: a release's version only, never a test build's or a
 	nightly's, with the list or with its zip's own .sig) */
-	if (!update_version_release(updater_latest_version))
+	if (!update_version_release(updater_install_version))
 	{
 		snprintf(error, error_size, "version %s is not a release's: not installed from the release path",
-			updater_latest_version);
+			updater_install_version);
 		return 0;
 	}
-	snprintf(updater_file.tag, sizeof(updater_file.tag), "v%s", updater_latest_version);
+	snprintf(updater_file.tag, sizeof(updater_file.tag), "v%s", updater_install_version);
 	snprintf(updater_file.name, sizeof(updater_file.name), "%s", updater_asset());
 	updater_partial_path(manifest_path, sizeof(manifest_path), UPDATE_MANIFEST);
 	updater_partial_path(signature_path, sizeof(signature_path), UPDATE_MANIFEST ".sig");
-	snprintf(path, sizeof(path), "v%s/" UPDATE_MANIFEST, updater_latest_version);
+	snprintf(path, sizeof(path), "v%s/" UPDATE_MANIFEST, updater_install_version);
 	updater_url(url, sizeof(url), 0, path);
 	if (!update_download(url, manifest_path, MAXIMUM_CHECK_SIZE, NULL, NULL, reason, sizeof(reason)))
 	{
@@ -1189,7 +1191,7 @@ static int updater_find_file(char *error, size_t error_size)
 	}
 	if (update_signature_required())
 	{
-		snprintf(path, sizeof(path), "v%s/" UPDATE_MANIFEST ".sig", updater_latest_version);
+		snprintf(path, sizeof(path), "v%s/" UPDATE_MANIFEST ".sig", updater_install_version);
 		updater_url(url, sizeof(url), 0, path);
 		if (!update_download(url, signature_path, MAXIMUM_SIGNATURE_SIZE, NULL, NULL, reason, sizeof(reason)))
 		{
@@ -1209,7 +1211,7 @@ static int updater_find_file(char *error, size_t error_size)
 	{
 		platform_log("update: this build has no release key: the list's signature is not checked");
 	}
-	result = update_manifest_find(manifest, manifest_size, updater_latest_version, updater_platform, HALO_BUILD_FLAVOR,
+	result = update_manifest_find(manifest, manifest_size, updater_install_version, updater_platform, HALO_BUILD_FLAVOR,
 		updater_appimage ? "appimage" : "zip", updater_file.tag, sizeof(updater_file.tag), updater_file.name, sizeof(updater_file.name),
 		&updater_file.size, updater_file.sha256, sizeof(updater_file.sha256), updater_file.main_name,
 		sizeof(updater_file.main_name), reason, sizeof(reason));
@@ -1395,11 +1397,15 @@ static void updater_update(void)
 	int executable[MAXIMUM_UPDATE_FILES];
 	char zip_path[1200], partial[1200], start[1200], error[512] = "";
 	int name_count = 0;
+	/* (the check's results, copied once: the version, the channel and the
+	feed's list stay these for the whole install) */
+	int taken = updater_take_results();
 
 	updater_path(partial, sizeof(partial), UPDATE_DIRECTORY);
 	updater_partial_path(zip_path, sizeof(zip_path), updater_appimage ? UPDATE_APPIMAGE_ASSET : updater_asset());
-	platform_log("update: downloading version %s", updater_latest_version);
-	if (!updater_take_results())
+	if (taken)
+		platform_log("update: downloading version %s", updater_install_version);
+	if (!taken)
 	{
 		snprintf(error, sizeof(error), "a check for updates is running: try again when it is done");
 	}
@@ -1415,7 +1421,7 @@ static void updater_update(void)
 			updater_install_appimage(zip_path, error, sizeof(error)))
 		{
 			update_delete_file(partial);
-			platform_log("update: starting version %s (%s)", updater_latest_version,
+			platform_log("update: starting version %s (%s)", updater_install_version,
 				strrchr(updater_executable, PATH_SEPARATOR[0]) ? strrchr(updater_executable, PATH_SEPARATOR[0]) + 1 :
 				updater_executable);
 			if (update_launch(updater_executable))
@@ -1434,7 +1440,7 @@ static void updater_update(void)
 		{
 			update_delete_file(partial);
 			updater_new_executable(names, name_count, start, sizeof(start));
-			platform_log("update: starting version %s (%s)", updater_latest_version,
+			platform_log("update: starting version %s (%s)", updater_install_version,
 				strrchr(start, PATH_SEPARATOR[0]) ? strrchr(start, PATH_SEPARATOR[0]) + 1 : start);
 #ifdef HALO_PORT_UPDATE_RESTART_EXIT_CODE
 			/* (the port's script starts the new version itself when the game
@@ -1702,7 +1708,7 @@ static const char *updater_page(void)
 		unsigned long long size = 0;
 
 		if (update_manifest_find_channel(updater_install_list, updater_install_size,
-			updater_channel_names[updater_install_channel], updater_latest_version, updater_platform,
+			updater_channel_names[updater_install_channel], updater_install_version, updater_platform,
 			HALO_BUILD_FLAVOR, "zip", updater_feed_tag, sizeof(updater_feed_tag), name, sizeof(name), &size, sha256,
 			sizeof(sha256), main_name, sizeof(main_name), reason, sizeof(reason)) == _update_manifest_found)
 		{

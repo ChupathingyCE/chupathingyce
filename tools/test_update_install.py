@@ -69,15 +69,38 @@ ZLIB_SOURCES = ("adler32.c", "crc32.c", "inffast.c", "inflate.c", "inftrees.c", 
 MONOCYPHER = ("monocypher.c", "monocypher-ed25519.c")
 
 
+# (UPDATE_INSTALL_REQUIRED=1: what this needs missing fails the test, as in
+# CI, instead of skipping it)
+REQUIRED = os.environ.get("UPDATE_INSTALL_REQUIRED") == "1"
+
+
+def unavailable(reason):
+    if REQUIRED:
+        pytest.fail(f"{reason} (UPDATE_INSTALL_REQUIRED=1)")
+    pytest.skip(reason)
+
+
 def abi():
-    """the host's SDL 3, else the i386 one with -m32"""
+    """the target's flags, SDL 3's and its library: the SDL 3 a Linux build
+    made (HALO_UPDATE_TEST_SDL, its build folder: build/linux, whose
+    sdl3-build is the 32-bit SDL tools/linux_build.py builds, as CI has it;
+    build/linux64 for the 64-bit one), else the host's, else the i386 one"""
+    built = os.environ.get("HALO_UPDATE_TEST_SDL")
+    if built:
+        folder = Path(built).resolve()
+        library = folder / "sdl3-build" / "libSDL3.so.0"
+        include = folder / "third_party" / "SDL3" / "include"
+        if not library.is_file() or not include.is_dir():
+            unavailable(f"no SDL 3 built in {folder} (its sdl3-build and third_party/SDL3)")
+        target = ["-m32"] if folder.name == "linux" else []
+        return target, [f"-isystem{include}"], [str(library), f"-Wl,-rpath,{library.parent}"]
     found = subprocess.run(["pkg-config", "--exists", "sdl3"], capture_output=True).returncode == 0 \
         if shutil.which("pkg-config") else False
     if found:
-        return []
+        return [], [], ["-lSDL3"]
     if Path("/usr/lib/i386-linux-gnu/libSDL3.so").exists():
-        return ["-m32"]
-    pytest.skip("needs SDL 3's development files")
+        return ["-m32"], [], ["-lSDL3"]
+    unavailable("needs SDL 3's development files")
 
 
 def compile_objects(cc, flags, sources, directory):
@@ -95,7 +118,7 @@ def keys(tmp_path_factory):
     try:
         os.environ["OPENSSL"] = delta_table.openssl()
     except SystemExit:
-        pytest.skip("needs OpenSSL 3's openssl")
+        unavailable("needs OpenSSL 3's openssl")
     directory = tmp_path_factory.mktemp("update_key")
     # (the release key, another, and the prerelease key: never real ones)
     return [(directory / f"{name}.pem", delta_table.keygen(directory / f"{name}.pem"))
@@ -107,8 +130,8 @@ def builds(keys, tmp_path_factory):
     """{version: the update test's program}"""
     cc = shutil.which("clang") or shutil.which("cc")
     if not cc:
-        pytest.skip("no C compiler")
-    target = abi()
+        unavailable("no C compiler")
+    target, sdl_flags, sdl_libraries = abi()
     directory = tmp_path_factory.mktemp("update_install")
     library = compile_objects(cc, [*target, "-std=gnu11", "-O1", "-w", f"-I{MBEDTLS / 'include'}",
                                    f"-I{MBEDTLS / 'library'}"], sorted((MBEDTLS / "library").glob("*.c")), directory)
@@ -122,13 +145,14 @@ def builds(keys, tmp_path_factory):
     for version in (OLD, NEW, TESTING, NIGHTLY):
         program = directory / f"update-{version}"
         built = subprocess.run(
-            [cc, *target, "-std=gnu11", "-O1", "-Wall", "-Werror", "-Wno-unused-function", f'-DHALO_VERSION="{version}"',
+            [cc, *target, *sdl_flags, "-std=gnu11", "-O1", "-Wall", "-Werror", "-Wno-unused-function",
+             f'-DHALO_VERSION="{version}"',
              "-DHALO_UPDATE_TEST", f"-DHALO_UPDATE_TEST_KEY={key}",
              f"-DHALO_UPDATE_TEST_PRERELEASE_KEY={prerelease_key}", "-DZ_PREFIX", "-Dz_errmsg=z_port_errmsg",
              "-Iport/linux/src", "-Iport/third_party/zlib", "-Iport/third_party/monocypher",
              f"-I{MBEDTLS / 'include'}", "-o", str(program), "tools/update_install_check.c",
              "port/linux/src/posix_update.c", "port/linux/src/update_manifest.c",
-             "port/linux/src/update_signature.c", *library, "-lSDL3", "-lpthread"],
+             "port/linux/src/update_signature.c", *library, *sdl_libraries, "-lpthread"],
             capture_output=True, text=True, cwd=ROOT)
         assert built.returncode == 0, built.stderr
         programs[version] = program
