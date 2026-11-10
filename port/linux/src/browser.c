@@ -2589,7 +2589,7 @@ how many, never who. */
 #define SOCIAL_RESPONSE (256 * 1024)
 #define SOCIAL_NOT_ANSWERING "The site isn't answering."
 
-static const char *const social_action_names[] = { "accept", "decline", "remove", "block" };
+static const char *const social_action_names[] = { "accept", "decline", "remove", "block", "request" };
 
 /* (under the lock) the state changed: the Guide copies it */
 static void social_status_set(int status)
@@ -2649,7 +2649,7 @@ static void social_action(int action, const char *handle, char *response, struct
 	int status, no_key, ok, parsed = 0, logged_status;
 
 	fields[0] = 0;
-	if (action >= BROWSER_SOCIAL_ACCEPT && action <= BROWSER_SOCIAL_BLOCK)
+	if (action >= BROWSER_SOCIAL_ACCEPT && action <= BROWSER_SOCIAL_REQUEST)
 	{
 		path = "/v1/game/friends";
 		ok = social_action_fields(fields, sizeof(fields), social_action_names[action], handle) >= 0;
@@ -2677,7 +2677,7 @@ static void social_action(int action, const char *handle, char *response, struct
 	}
 	response[0] = 0;
 	status = game_request(path, fields, response, SOCIAL_RESPONSE, error, sizeof(error), &no_key);
-	if (status == 200 && action <= BROWSER_SOCIAL_BLOCK)
+	if (status == 200 && action <= BROWSER_SOCIAL_REQUEST)
 		parsed = delta_profile_parse_social(response, read);
 	pthread_mutex_lock(&browser_lock);
 	logged_status = browser.social_status;
@@ -4132,6 +4132,27 @@ int browser_player_card(const char *player_id, struct delta_profile_card *card)
 	}
 	pthread_mutex_unlock(&browser_lock);
 	return known;
+}
+
+/* any short text (a link) as a QR code: its size, 0 if it doesn't fit */
+int browser_text_qr(const char *text, unsigned char *modules)
+{
+	unsigned char qr[qrcodegen_BUFFER_LEN_FOR_VERSION(CONNECT_QR_VERSION)];
+	unsigned char work[qrcodegen_BUFFER_LEN_FOR_VERSION(CONNECT_QR_VERSION)];
+	int size, x, y;
+
+	if (!text || !text[0] || !qrcodegen_encodeText(text, work, qr, qrcodegen_Ecc_MEDIUM, qrcodegen_VERSION_MIN,
+		CONNECT_QR_VERSION, qrcodegen_Mask_AUTO, true))
+	{
+		return 0;
+	}
+	size = qrcodegen_getSize(qr);
+	for (y = 0; y < size; y++)
+	{
+		for (x = 0; x < size; x++)
+			modules[y * size + x] = qrcodegen_getModule(qr, x, y) ? 1 : 0;
+	}
+	return size;
 }
 
 /* a page of the site, as a player types it, and as a QR code */

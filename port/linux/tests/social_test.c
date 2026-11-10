@@ -281,7 +281,9 @@ static void test_state(void)
 	CHECK(social_state_fields(text, sizeof(text), "\"}", 200) == -1);
 	CHECK(social_action_fields(text, sizeof(text), "accept", "donut") > 0);
 	CHECK(!strcmp(text, "\"action\": \"accept\", \"handle\": \"donut\""));
-	CHECK(social_action_fields(text, sizeof(text), "request", "donut") == -1);
+	CHECK(social_action_fields(text, sizeof(text), "request", "donut") > 0);
+	CHECK(!strcmp(text, "\"action\": \"request\", \"handle\": \"donut\""));
+	CHECK(social_action_fields(text, sizeof(text), "unknown", "donut") == -1);
 	CHECK(social_action_fields(text, sizeof(text), "block", "Donut") == -1);
 	CHECK(social_action_fields(text, sizeof(text), "block", "do\"nut") == -1);
 	CHECK(social_join_fields(text, sizeof(text), "grif") > 0 && !strcmp(text, "\"friend\": \"grif\""));
@@ -494,6 +496,71 @@ static void test_party(void)
 	CHECK(social_follow_decide(&read.party, &inputs) == SOCIAL_FOLLOW_NONE);
 }
 
+/* RECENT: the site's list, this run's verified players first */
+static void test_recent(void)
+{
+	static struct social_state state;
+	struct social_recent_seen seen;
+	struct social_recent out[SOCIAL_MAXIMUM_RECENT];
+	char text[SOCIAL_STATUS_SIZE];
+	int count, index;
+	static const char recent_text[] =
+		"{\"cursor\": \"aa\", \"you\": {\"handle\": \"sarge\", \"display\": \"Sarge\"}, "
+		"\"friends\": [{\"handle\": \"grif\", \"display\": \"Grif\", \"online\": true}], "
+		"\"recent\": [{\"handle\": \"caboose\", \"display\": \"Caboose\", \"time\": 1000, \"map\": \"bloodgulch\", "
+		"\"friend\": false, \"requested\": true}, "
+		"{\"handle\": \"Not A Handle\", \"display\": \"x\", \"time\": 900}, "
+		"{\"handle\": \"grif\", \"display\": \"Grif\", \"time\": 800, \"map\": \"hangemhigh\", \"friend\": true, "
+		"\"requested\": false, \"later\": [1, {\"a\": 2}]}]}";
+
+	CHECK(delta_profile_parse_social(recent_text, &state) == 1);
+	CHECK(state.recent_count == 2);
+	CHECK(!strcmp(state.recent[0].handle, "caboose") && state.recent[0].requested && !state.recent[0].is_friend);
+	CHECK(state.recent[0].time == 1000 && !strcmp(state.recent[0].map, "bloodgulch"));
+	CHECK(!strcmp(state.recent[1].handle, "grif") && state.recent[1].is_friend);
+
+	/* this run's: newest first, once each, never this player */
+	memset(&seen, 0, sizeof(seen));
+	social_recent_note(&seen, "donut", "", "dangercanyon", 5000);
+	social_recent_note(&seen, "caboose", "Caboose", "dangercanyon", 5000);
+	social_recent_note(&seen, "sarge", "Sarge", "dangercanyon", 5000);
+	social_recent_note(&seen, "donut", "Donut", "dangercanyon", 5100);
+	social_recent_note(&seen, "Bad Name", "", "", 5100);
+	CHECK(seen.count == 3 && !strcmp(seen.players[0].handle, "donut") && !strcmp(seen.players[0].display, "Donut"));
+	count = social_recent_merge(&state, &seen, "sarge", out, SOCIAL_MAXIMUM_RECENT);
+	CHECK(count == 3);
+	CHECK(!strcmp(out[0].handle, "donut") && out[0].here && !out[0].is_friend);
+	/* (caboose: this run's, with the site's request waiting) */
+	CHECK(!strcmp(out[1].handle, "caboose") && out[1].here && out[1].requested && out[1].time == 5000);
+	CHECK(!strcmp(out[2].handle, "grif") && !out[2].here && out[2].is_friend);
+	CHECK(social_recent_merge(&state, &seen, "sarge", out, 1) == 1);
+
+	/* a block lets them go; the list keeps the newest */
+	social_recent_forget(&seen, "donut");
+	CHECK(seen.count == 2 && !strcmp(seen.players[0].handle, "sarge"));
+	for (index = 0; index < SOCIAL_MAXIMUM_RECENT + 4; index++)
+	{
+		char handle[16];
+
+		snprintf(handle, sizeof(handle), "player%d", index);
+		social_recent_note(&seen, handle, "", "", index);
+	}
+	CHECK(seen.count == SOCIAL_MAXIMUM_RECENT && !strcmp(seen.players[0].handle, "player27"));
+
+	/* the line */
+	social_recent_status(&state.recent[0], 1000 + 2 * 3600, text, sizeof(text));
+	CHECK(!strcmp(text, "Blood Gulch \xC2\xB7 2 hours ago"));
+	social_recent_status(&state.recent[0], 1000 + 86400, text, sizeof(text));
+	CHECK(!strcmp(text, "Blood Gulch \xC2\xB7 1 day ago"));
+	social_recent_status(&state.recent[0], 1060, text, sizeof(text));
+	CHECK(!strcmp(text, "Blood Gulch \xC2\xB7 Just now"));
+	social_recent_status(&state.recent[0], 1000 + 25 * 60, text, sizeof(text));
+	CHECK(!strcmp(text, "Blood Gulch \xC2\xB7 25 minutes ago"));
+	state.recent[0].map[0] = 0;
+	social_recent_status(&state.recent[0], 1000 + 40 * 86400LL, text, sizeof(text));
+	CHECK(!strcmp(text, "A while ago"));
+}
+
 int main(void)
 {
 	test_sections();
@@ -504,6 +571,7 @@ int main(void)
 	test_presence();
 	test_state();
 	test_party();
+	test_recent();
 	if (failures)
 	{
 		printf("%d failed\n", failures);

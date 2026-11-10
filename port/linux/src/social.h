@@ -295,6 +295,39 @@ struct social_party_invite
 	long long expires;
 };
 
+/* ---------- RECENT: the Delta players this player shared a game with
+(the site's, from its confirmed report lines, and those verified in games
+this run: the identity capability's roster). Only Delta profiles, by handle:
+never an OpenCE player, a name alone or an address */
+
+enum
+{
+	/* the site sends 24 at most; this run's own, as many */
+	SOCIAL_MAXIMUM_RECENT = 24,
+};
+
+struct social_recent
+{
+	char handle[SOCIAL_HANDLE_SIZE];
+	char display[SOCIAL_TAG_SIZE];
+	/* the last game shared (Unix time) and its map ("bloodgulch"; "" not
+	known) */
+	long long time;
+	char map[SOCIAL_GAME_TEXT_SIZE];
+	/* already a friend; this player's request to them waiting */
+	int is_friend;
+	int requested;
+	/* verified in a game this run (not from the site) */
+	int here;
+};
+
+/* this run's verified players, newest first */
+struct social_recent_seen
+{
+	int count;
+	struct social_recent players[SOCIAL_MAXIMUM_RECENT];
+};
+
 struct social_state
 {
 	char cursor[SOCIAL_CURSOR_SIZE];
@@ -313,6 +346,9 @@ struct social_state
 	struct social_party party;
 	int party_invite_count;
 	struct social_party_invite party_invites[SOCIAL_MAXIMUM_PARTY_INVITES];
+	/* RECENT as the site says, newest first */
+	int recent_count;
+	struct social_recent recent[SOCIAL_MAXIMUM_RECENT];
 };
 
 /* the name a profile shows: its display name, else its handle */
@@ -329,6 +365,21 @@ void social_friend_status(const struct social_friend *buddy, char *text, int siz
 /* how many friends are online */
 int social_online_count(const struct social_state *state);
 
+/* a player verified in this run's game noted (a valid handle; display may
+be ""), at the front of seen: once each, the oldest let go when full */
+void social_recent_note(struct social_recent_seen *seen, const char *handle, const char *display, const char *map,
+	long long time);
+/* a handle let go of seen (blocked) */
+void social_recent_forget(struct social_recent_seen *seen, const char *handle);
+/* RECENT's rows into out (most of them): this run's first, then the
+site's, each handle once, never this player's own (own_handle); "friend"
+and "requested" from the state where it knows them. Returns the count */
+int social_recent_merge(const struct social_state *state, const struct social_recent_seen *seen,
+	const char *own_handle, struct social_recent *out, int most);
+/* a recent player's line ("Blood Gulch · 2 hours ago", "In this game"),
+now in Unix time */
+void social_recent_status(const struct social_recent *player, long long now, char *text, int size);
+
 /* what changed between two states, for the toasts: the first invite and
 the first request that are new (-1: none), and the first friend who came
 online (-1: none), as indexes in fresh */
@@ -343,7 +394,8 @@ void social_news(const struct social_state *old, const struct social_state *fres
 /* the requests' members besides the key (browser.c's game_request): -1
 when they do not fit, or for a handle the site could not have given */
 int social_state_fields(char *fields, int size, const char *cursor, int limit);
-/* action: "accept", "decline", "remove" or "block" (/v1/game/friends) */
+/* action: "accept", "decline", "remove", "block" or "request"
+(/v1/game/friends) */
 int social_action_fields(char *fields, int size, const char *action, const char *handle);
 int social_join_fields(char *fields, int size, const char *handle);
 /* invite: the game's invite (social_presence_invite_valid), or "" for the

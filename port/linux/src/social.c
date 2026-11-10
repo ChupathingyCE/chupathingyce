@@ -340,6 +340,129 @@ void social_news(const struct social_state *old, const struct social_state *fres
 	}
 }
 
+/* ---------- RECENT */
+
+void social_recent_forget(struct social_recent_seen *seen, const char *handle)
+{
+	int index;
+
+	for (index = 0; index < seen->count; index++)
+	{
+		if (!strcmp(seen->players[index].handle, handle))
+		{
+			memmove(&seen->players[index], &seen->players[index + 1],
+				(size_t)(seen->count - index - 1) * sizeof(seen->players[0]));
+			seen->count--;
+			return;
+		}
+	}
+}
+
+void social_recent_note(struct social_recent_seen *seen, const char *handle, const char *display, const char *map,
+	long long time)
+{
+	struct social_recent player;
+
+	if (!social_handle_valid(handle))
+		return;
+	memset(&player, 0, sizeof(player));
+	social_copy_text(player.handle, sizeof(player.handle), handle);
+	social_copy_text(player.display, sizeof(player.display), display ? display : "");
+	social_copy_text(player.map, sizeof(player.map), map ? map : "");
+	player.time = time;
+	player.here = 1;
+	social_recent_forget(seen, handle);
+	if (seen->count >= SOCIAL_MAXIMUM_RECENT)
+		seen->count = SOCIAL_MAXIMUM_RECENT - 1;
+	memmove(&seen->players[1], &seen->players[0], (size_t)seen->count * sizeof(seen->players[0]));
+	seen->players[0] = player;
+	seen->count++;
+}
+
+static int recent_has(const struct social_recent *list, int count, const char *handle)
+{
+	int index;
+
+	for (index = 0; index < count; index++)
+	{
+		if (!strcmp(list[index].handle, handle))
+			return 1;
+	}
+	return 0;
+}
+
+int social_recent_merge(const struct social_state *state, const struct social_recent_seen *seen,
+	const char *own_handle, struct social_recent *out, int most)
+{
+	int count = 0, index;
+
+	for (index = 0; seen && index < seen->count && count < most; index++)
+	{
+		const struct social_recent *player = &seen->players[index];
+		int site;
+
+		if ((own_handle && !strcmp(player->handle, own_handle)) || recent_has(out, count, player->handle))
+			continue;
+		out[count] = *player;
+		out[count].is_friend = find_friend(state, player->handle) != NULL;
+		/* (what the site knows of them: its name, and a request waiting) */
+		for (site = 0; site < state->recent_count; site++)
+		{
+			if (!strcmp(state->recent[site].handle, player->handle))
+			{
+				out[count].requested = state->recent[site].requested;
+				if (state->recent[site].display[0])
+					social_copy_text(out[count].display, sizeof(out[count].display), state->recent[site].display);
+			}
+		}
+		count++;
+	}
+	for (index = 0; index < state->recent_count && count < most; index++)
+	{
+		const struct social_recent *player = &state->recent[index];
+
+		if (!social_handle_valid(player->handle) || (own_handle && !strcmp(player->handle, own_handle)) ||
+			recent_has(out, count, player->handle))
+		{
+			continue;
+		}
+		out[count] = *player;
+		out[count].here = 0;
+		out[count].is_friend = player->is_friend || find_friend(state, player->handle) != NULL;
+		count++;
+	}
+	return count;
+}
+
+void social_recent_status(const struct social_recent *player, long long now, char *text, int size)
+{
+	char map[SOCIAL_GAME_TEXT_SIZE];
+	char when[32];
+	long long age = now - player->time;
+
+	if (size <= 0)
+		return;
+	if (player->time <= 0 || age < 0)
+		when[0] = 0;
+	else if (age < 120)
+		snprintf(when, sizeof(when), "Just now");
+	else if (age < 3600)
+		snprintf(when, sizeof(when), "%lld minutes ago", age / 60);
+	else if (age < 86400)
+		snprintf(when, sizeof(when), "%lld hour%s ago", age / 3600, age / 3600 == 1 ? "" : "s");
+	else if (age < 30 * 86400LL)
+		snprintf(when, sizeof(when), "%lld day%s ago", age / 86400, age / 86400 == 1 ? "" : "s");
+	else
+		snprintf(when, sizeof(when), "A while ago");
+	map[0] = 0;
+	if (player->map[0])
+		discord_activity_map_name(player->map, 0, map, (int)sizeof(map));
+	if (map[0] && when[0])
+		snprintf(text, (size_t)size, "%s \xC2\xB7 %s", map, when);
+	else
+		social_copy_text(text, size, map[0] ? map : when);
+}
+
 /* fields printed, or -1 when they do not fit */
 static int fields_done(char *fields, int size, int length)
 {
@@ -377,7 +500,8 @@ int social_action_fields(char *fields, int size, const char *action, const char 
 		return -1;
 	fields[0] = 0;
 	if (!social_handle_valid(handle) || !action ||
-		(strcmp(action, "accept") && strcmp(action, "decline") && strcmp(action, "remove") && strcmp(action, "block")))
+		(strcmp(action, "accept") && strcmp(action, "decline") && strcmp(action, "remove") && strcmp(action, "block") &&
+			strcmp(action, "request")))
 	{
 		return -1;
 	}
