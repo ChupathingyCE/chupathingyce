@@ -166,8 +166,13 @@ enum delta_capability
 	client whose host says nothing (OpenCE's, an older build) plays by the
 	Xbox's rules */
 	_delta_capability_host_rules = 19,
-	/* (20 and 21 are verified names' and party teams', being built) */
+	/* verified names (docs/delta.md, Verified names): the host challenges,
+	each local player whose copy has a device certificate proves it
+	(ID_PROOF), and the host relays the card (ID_CARD), which every client
+	checks itself. Only a verified player shows by their Delta profile; a
+	console leaves it out for now (HALO_CONSOLE_NO_DELTA_IDENTITY) */
 	_delta_capability_identity = 20,
+	/* (21 is party teams', being built) */
 	_delta_capability_party_teams = 21,
 	/* voice chat (docs/delta.md, Voice): a client says its player's frames
 	(VOICE_UP) on a channel, the host decides who hears them by its rules

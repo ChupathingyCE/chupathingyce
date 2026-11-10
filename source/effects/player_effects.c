@@ -913,7 +913,7 @@ static boolean camera_effect_drawn(
 	return *end_time == game_time_get() + 1 && duration > 0.0f && *frame_ticks_left > 0.0f;
 }
 
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 /* port: the seed a tick's shake draws from, for a local player */
 static unsigned long shake_tick_seed(
 	long time,
