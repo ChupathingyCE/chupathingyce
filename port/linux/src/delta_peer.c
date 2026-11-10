@@ -180,7 +180,7 @@ static void host_send_identity_challenge(struct delta_peer *peer, int machine_in
 static void host_identity_proof(struct delta_peer *peer, delta_u32 now, int machine_index,
 	const struct delta_wire_header *header, const unsigned char *payload);
 static void host_identity_frame(struct delta_peer *peer, delta_u32 now);
-static void client_identity_receive(struct delta_peer *peer, const struct delta_wire_header *header,
+static void client_identity_receive(struct delta_peer *peer, delta_u32 now, const struct delta_wire_header *header,
 	const unsigned char *payload);
 static void client_identity_frame(struct delta_peer *peer, delta_u32 now);
 
@@ -2676,7 +2676,7 @@ static void client_receive(struct delta_peer *peer, delta_u32 now, delta_u32 ipv
 		break;
 	case _delta_message_id_challenge:
 	case _delta_message_id_card:
-		client_identity_receive(peer, &header, payload);
+		client_identity_receive(peer, now, &header, payload);
 		break;
 	case _delta_message_team_result:
 	{
@@ -2853,16 +2853,16 @@ static struct delta_peer_card *card_slot(struct delta_peer *peer, int machine_in
 	return card;
 }
 
-/* whether another slot (machine and local player) has a verified card of
-the same device or account: one identity is one player at a time */
-static int identity_elsewhere(const struct delta_peer *peer, int machine_index, int local_player,
+/* another slot's (machine and local player) verified card of the same
+device or account: one identity is one player at a time (NULL: none) */
+static struct delta_peer_card *identity_elsewhere(struct delta_peer *peer, int machine_index, int local_player,
 	const struct delta_peer_identity *identity)
 {
 	int index;
 
 	for (index = 0; index < DELTA_PEER_IDENTITY_CARDS; index++)
 	{
-		const struct delta_peer_card *card = &peer->cards[index];
+		struct delta_peer_card *card = &peer->cards[index];
 
 		if (!card->used || !card->proof.certificate_length ||
 			(card->machine_index == machine_index && card->local_player == local_player))
@@ -2872,10 +2872,10 @@ static int identity_elsewhere(const struct delta_peer *peer, int machine_index, 
 		if (!memcmp(card->identity.device_id, identity->device_id, sizeof(identity->device_id)) ||
 			!memcmp(card->identity.account, identity->account, sizeof(identity->account)))
 		{
-			return 1;
+			return card;
 		}
 	}
-	return 0;
+	return NULL;
 }
 
 static delta_u32 next_generation(struct delta_peer *peer)
@@ -2901,12 +2901,23 @@ static void host_identity_changed(struct delta_peer *peer, int machine_index, in
 }
 
 /* (the host) a verified card stored: 1 if it is new or changed */
-static int host_store_card(struct delta_peer *peer, int machine_index, const unsigned char *nonce,
+static void host_withdraw_card(struct delta_peer *peer, struct delta_peer_card *card, delta_u32 now);
+
+static int host_store_card(struct delta_peer *peer, delta_u32 now, int machine_index, const unsigned char *nonce,
 	const struct delta_wire_id_proof *proof, const struct delta_peer_identity *identity)
 {
-	struct delta_peer_card *card;
+	struct delta_peer_card *card, *other = identity_elsewhere(peer, machine_index, proof->local_player, identity);
 
-	if (identity_elsewhere(peer, machine_index, proof->local_player, identity))
+	/* (one identity, one player: a bound proof takes the place of an
+	unbound card of it, which anyone may have relayed; else the first
+	stays) */
+	if (other && identity->bound && !other->identity.bound)
+	{
+		say(peer, "Delta Peer: machine %d's player %d proved bound an identity shown for another player: that one "
+			"withdrawn", machine_index, proof->local_player);
+		host_withdraw_card(peer, other, now);
+	}
+	else if (other)
 	{
 		say(peer, "Delta Peer: machine %d's player %d proved an identity another player of the game has: refused",
 			machine_index, proof->local_player);
@@ -2934,6 +2945,7 @@ static int host_store_card(struct delta_peer *peer, int machine_index, const uns
 	card->proof = *proof;
 	card->identity = *identity;
 	card->generation = next_generation(peer);
+	card->checked_time = now;
 	say(peer, "Delta Peer: machine %d's player %d is verified%s%s%s", machine_index, proof->local_player,
 		identity->handle[0] ? " as @" : " (no profile)", identity->handle, identity->bound ? "" : " (shown only)");
 	host_identity_changed(peer, machine_index, proof->local_player, identity);
@@ -3074,7 +3086,7 @@ static void host_identity_proof(struct delta_peer *peer, delta_u32 now, int mach
 		return;
 	}
 	identity.bound = host_proof_bound(peer, &proof);
-	host_store_card(peer, machine_index, client->identity_nonce, &proof, &identity);
+	host_store_card(peer, now, machine_index, client->identity_nonce, &proof, &identity);
 }
 
 /* (the host) its binding changed (its invite came or went): every card,
@@ -3149,7 +3161,7 @@ static void host_identity_frame(struct delta_peer *peer, delta_u32 now)
 					peer->moderation_binding_length, own, DELTA_PEER_IDENTITY_HOST_AGE, &identity))
 			{
 				identity.bound = host_proof_bound(peer, &proof);
-				if (host_store_card(peer, own, peer->identity_nonce, &proof, &identity))
+				if (host_store_card(peer, now, own, peer->identity_nonce, &proof, &identity))
 				{
 					/* (when it was proved: proved again RENEW later) */
 					find_card(peer, own, local)->withdrawn_time = now;
@@ -3172,7 +3184,25 @@ static void host_identity_frame(struct delta_peer *peer, delta_u32 now)
 		}
 		machine = card->machine_index;
 		if (machine != own && !host_identity_agreed(peer, machine))
+		{
 			host_withdraw_card(peer, card, now);
+			continue;
+		}
+		/* (checked again: a proof grown too old, a certificate past its
+		date, a device revoked since) */
+		if (elapsed(now, card->checked_time, DELTA_PEER_IDENTITY_RECHECK))
+		{
+			struct delta_peer_identity again;
+
+			card->checked_time = now;
+			memset(&again, 0, sizeof(again));
+			if (!peer->env.identity_check(peer->env.context, &card->proof, card->nonce, peer->moderation_binding,
+				peer->moderation_binding_length, machine, DELTA_PEER_IDENTITY_KEPT_AGE, &again))
+			{
+				say(peer, "Delta Peer: machine %d's player %d's card no longer checks", machine, card->local_player);
+				host_withdraw_card(peer, card, now);
+			}
+		}
 	}
 	for (index = 0; index < DELTA_PEER_MAXIMUM_MACHINES; index++)
 	{
@@ -3232,7 +3262,7 @@ static int client_identity_binding(struct delta_peer *peer)
 	return -1;
 }
 
-static void client_identity_receive(struct delta_peer *peer, const struct delta_wire_header *header,
+static void client_identity_receive(struct delta_peer *peer, delta_u32 now, const struct delta_wire_header *header,
 	const unsigned char *payload)
 {
 	if (!client_identity_agreed(peer))
@@ -3305,13 +3335,21 @@ static void client_identity_receive(struct delta_peer *peer, const struct delta_
 		}
 		identity.bound = (card.proof.flags & DELTA_WIRE_IDENTITY_BOUND) && peer->identity_challenge.binding_length > 0;
 		/* (one identity, one player: a card naming one already shown for
-		another player is not taken) */
-		if (identity_elsewhere(peer, card.machine_index, card.proof.local_player, &identity))
+		another player is not taken, but for a bound card where an unbound
+		one was) */
 		{
-			if (slot)
-				memset(slot, 0, sizeof(*slot));
-			peer->dropped++;
-			return;
+			struct delta_peer_card *other = identity_elsewhere(peer, card.machine_index, card.proof.local_player,
+				&identity);
+
+			if (other && identity.bound && !other->identity.bound)
+				memset(other, 0, sizeof(*other));
+			else if (other)
+			{
+				if (slot)
+					memset(slot, 0, sizeof(*slot));
+				peer->dropped++;
+				return;
+			}
 		}
 		slot = card_slot(peer, card.machine_index, card.proof.local_player);
 		if (!slot)
@@ -3324,6 +3362,7 @@ static void client_identity_receive(struct delta_peer *peer, const struct delta_
 		slot->proof = card.proof;
 		slot->identity = identity;
 		slot->generation = next_generation(peer);
+		slot->checked_time = now;
 		return;
 	}
 }
@@ -3342,9 +3381,28 @@ static void client_identity_frame(struct delta_peer *peer, delta_u32 now)
 	for (index = 0; index < DELTA_PEER_IDENTITY_CARDS; index++)
 	{
 		struct delta_peer_card *card = &peer->cards[index];
+		struct delta_peer_identity again;
 
 		if (card->used && !peer->machines[card->machine_index].known)
+		{
 			memset(card, 0, sizeof(*card));
+			continue;
+		}
+		/* (checked again: grown too old, its certificate past its date, its
+		device revoked since; the host sends the same card again and again,
+		but a card only lasts as long as it checks) */
+		if (!card->used || !card->proof.certificate_length ||
+			!elapsed(now, card->checked_time, DELTA_PEER_IDENTITY_RECHECK))
+		{
+			continue;
+		}
+		card->checked_time = now;
+		memset(&again, 0, sizeof(again));
+		if (!peer->env.identity_check(peer->env.context, &card->proof, card->nonce, peer->identity_challenge.binding,
+			peer->identity_challenge.binding_length, card->machine_index, DELTA_PEER_IDENTITY_CARD_AGE, &again))
+		{
+			memset(card, 0, sizeof(*card));
+		}
 	}
 	if (!peer->identity_challenged || !peer->env.identity_prove || !valid_machine(peer->machine_index))
 		return;

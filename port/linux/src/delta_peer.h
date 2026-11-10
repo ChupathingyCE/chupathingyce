@@ -144,10 +144,16 @@ enum
 	DELTA_PEER_IDENTITY_WITHDRAWN_TIME = 30000,
 	DELTA_PEER_IDENTITY_PROOF_GAP = 10000,
 	DELTA_PEER_IDENTITY_RENEW = 900000,
+	/* every card kept is checked again this often (its proof's age, its
+	certificate's dates, the revocation list as it is now): one that fails
+	is withdrawn (the host) or dropped (a client) */
+	DELTA_PEER_IDENTITY_RECHECK = 60000,
 	/* (seconds) how old a proof may be when its host takes it, and when
-	another client checks its card */
+	another client checks its card; and when the host checks a card it
+	keeps again (its own age and the time its client proves again in) */
 	DELTA_PEER_IDENTITY_HOST_AGE = 600,
-	DELTA_PEER_IDENTITY_CARD_AGE = 1800
+	DELTA_PEER_IDENTITY_CARD_AGE = 1800,
+	DELTA_PEER_IDENTITY_KEPT_AGE = 1500
 };
 
 /* the verified players' cards a session keeps: one for each player the game
@@ -417,6 +423,8 @@ struct delta_peer_card
 	(proof.certificate_length 0), kept a while so that every client hears */
 	delta_u32 generation;
 	delta_u32 withdrawn_time;
+	/* when it was last checked (DELTA_PEER_IDENTITY_RECHECK) */
+	delta_u32 checked_time;
 	/* the nonce its machine's session was challenged with */
 	unsigned char nonce[DELTA_WIRE_IDENTITY_NONCE_SIZE];
 	struct delta_wire_id_proof proof;

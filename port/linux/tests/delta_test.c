@@ -3755,6 +3755,79 @@ static void test_identity_replay(void)
 	CHECK(!delta_peer_identity(&nodes[0].peer, 1, 0, NULL) && !identity_host.account[1][0]);
 }
 
+
+/* cards kept are checked again: a proof grown old, a device revoked since,
+on the host and on clients; and a bound proof takes an unbound card's place */
+static void test_identity_recheck(void)
+{
+	static const char binding[] = "0123456789abcdef0123456789abcdef";
+	int joined[4];
+	delta_u32 now = 1000;
+	struct delta_peer_identity identity;
+	int step;
+
+	/* a card grown older than the host keeps one: withdrawn, and the old
+	proof sent again not taken */
+	identity_start(&now, joined, "");
+	CHECK(delta_peer_identity(&nodes[0].peer, 1, 0, NULL));
+	nodes[0].clock += 2200;
+	for (step = 0; step < 8; step++, now += DELTA_PEER_IDENTITY_RECHECK / 4)
+		frame(now, 4, joined, 1);
+	CHECK(!delta_peer_identity(&nodes[0].peer, 1, 0, NULL) && delta_peer_identity(&nodes[0].peer, 0, 0, NULL));
+	/* (its player proves again, with a fresh time: taken again) */
+	nodes[1].clock += 2200;
+	nodes[2].clock += 2200;
+	for (step = 0; step < 6; step++, now += DELTA_PEER_IDENTITY_PROOF_GAP)
+		frame(now, 4, joined, 1);
+	CHECK(delta_peer_identity(&nodes[0].peer, 1, 0, NULL) && delta_peer_identity(&nodes[2].peer, 1, 0, NULL));
+
+	/* a client whose clock says the cards are too old: drops them, however
+	often the host sends them again */
+	nodes[2].clock += 2600;
+	for (step = 0; step < 8; step++, now += DELTA_PEER_IDENTITY_RECHECK / 2)
+		frame(now, 4, joined, 1);
+	CHECK(!delta_peer_identity(&nodes[2].peer, 1, 0, NULL) && delta_peer_identity(&nodes[0].peer, 1, 0, NULL));
+	nodes[2].clock -= 2600;
+
+	/* a device revoked since (the host's check now refuses machine 1):
+	withdrawn within the recheck */
+	nodes[0].refuses = 1u << 1;
+	for (step = 0; step < 4; step++, now += DELTA_PEER_IDENTITY_RECHECK / 2)
+		frame(now, 4, joined, 1);
+	CHECK(!delta_peer_identity(&nodes[0].peer, 1, 0, NULL) && !delta_peer_identity(&nodes[0].peer, 1, 1, NULL));
+	nodes[0].refuses = 0;
+
+	/* someone shows an identity unbound first (joined by address); its
+	owner then proves it bound: the bound one takes its place */
+	identity_start(&now, joined, binding);
+	nodes[1].proves = 0;
+	for (step = 0; step < 6; step++, now += DELTA_PEER_IDENTITY_PROOF_GAP)
+		frame(now, 4, joined, 1);
+	CHECK(!delta_peer_identity(&nodes[0].peer, 1, 0, NULL));
+	nodes[2].proves = 1;
+	nodes[2].account = 1 * 4 + 0 + 1;
+	nodes[2].binding_result = 0;
+	for (step = 0; step < 6; step++, now += DELTA_PEER_IDENTITY_PROOF_GAP)
+		frame(now, 4, joined, 1);
+	CHECK(delta_peer_identity(&nodes[0].peer, 2, 0, &identity) && !identity.bound && !identity_host.account[2][0]);
+	/* (the host's sends lost meanwhile: a client may then hear the bound
+	card before the unbound one's withdrawal, and takes it all the same) */
+	nodes[0].mute = 1;
+	nodes[1].proves = 1;
+	for (step = 0; step < 2; step++, now += 500)
+		frame(now, 4, joined, 1);
+	CHECK(delta_peer_identity(&nodes[0].peer, 1, 0, &identity) && identity.bound &&
+		identity_host.account[1][0] == 1 * 4 + 0 + 1);
+	CHECK(!delta_peer_identity(&nodes[0].peer, 2, 0, NULL));
+	CHECK(delta_peer_identity(&nodes[1].peer, 2, 0, NULL) && !delta_peer_identity(&nodes[1].peer, 1, 0, NULL));
+	nodes[0].mute = 0;
+	/* (and the unbound one doesn't take it back) */
+	for (step = 0; step < 6; step++, now += DELTA_PEER_IDENTITY_PROOF_GAP)
+		frame(now, 4, joined, 1);
+	CHECK(delta_peer_identity(&nodes[0].peer, 1, 0, NULL) && !delta_peer_identity(&nodes[0].peer, 2, 0, NULL));
+	CHECK(delta_peer_identity(&nodes[1].peer, 1, 0, NULL) && !delta_peer_identity(&nodes[1].peer, 2, 0, NULL));
+}
+
 /* a valid message of the session's, then some of its bytes changed */
 static int mutated_message(unsigned char *data, delta_u32 session)
 {
@@ -4197,6 +4270,7 @@ int main(int argc, char **argv)
 	test_identity();
 	test_identity_bound();
 	test_identity_replay();
+	test_identity_recheck();
 	test_random(iterations);
 	if (failures)
 	{
