@@ -47,14 +47,14 @@ k <vertex code> <flags> <packed mask> <pixel key number>
   types, 105-108 alpha kill, 109-112 color sign, 113 the alpha test's
   function, 114 fog, 115 the fog table mode, 116 sample counting, 117
   coverage alpha, 118 per-pixel lighting, 119 the alpha test's samples, 120
-  point thresholds. A new field takes the next number, and a number is never
+  point thresholds, 121 the Light effects. A new field takes the next number, and a number is never
   used again, so an older list still reads: a slot a build doesn't know is
   skipped, and a field a list doesn't give is 0.
 - `map` starts one map's keys, by its file's name. A map's own list has no
   `map` line.
 - `k` is a key: the vertex program's code hash (FNV-1a, 64 bits, of its
   words as little-endian bytes), its flags (1 immediate mode, 2 lit for each
-  pixel, 4 drawn with a depth bias) and its packed attributes, in
+  pixel, 4 drawn with a depth bias, 8 the Light effects' form) and its packed attributes, in
   hexadecimal, and the number of its pixel key.
 
 Every value is written out as a number, so a list is the same on every

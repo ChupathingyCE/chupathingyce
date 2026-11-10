@@ -1072,36 +1072,83 @@ static BOOL platform_display_size(SDL_DisplayID display, long *width, long *heig
 	return TRUE;
 }
 
+/* whether fullscreen can set the display's refresh rate: on Windows, and
+on an X server's own display; not on Wayland or XWayland (whose modes are
+emulated, the display's own kept), nor under gamescope, nor on the Mac,
+iOS or Android, whose displays stay at their own rate */
+static BOOL platform_refresh_rates_settable(void)
+{
+#if defined(HALO_ANDROID) || defined(__APPLE__)
+	return FALSE;
+#else
+	const char *driver = SDL_GetCurrentVideoDriver();
+	const char *wayland = getenv("WAYLAND_DISPLAY");
+	const char *gamescope = getenv("GAMESCOPE_WAYLAND_DISPLAY");
+
+	if (!driver)
+		return FALSE;
+	if (!strcmp(driver, "windows"))
+		return TRUE;
+	return !strcmp(driver, "x11") && !(wayland && wayland[0]) && !(gamescope && gamescope[0]);
+#endif
+}
+
+/* display.refresh_rate where fullscreen can set it, else 0: the display's
+own. Based on work by erin.cena in OpenH1. */
+static float platform_refresh_rate_setting(void)
+{
+	double rate = config_real("display.refresh_rate");
+
+	return rate > 0.0 && rate < 1000.0 && platform_refresh_rates_settable() ? (float)rate : 0.0f;
+}
+
 /* the window's fullscreen kind (display.mode): borderless, a window over
 the whole desktop (SDL's fullscreen without a mode), or fullscreen, the
 display taken at display.resolution's mode (the one nearest it), else at its
-desktop one. F11 switches to the kind set. */
+desktop one, at display.refresh_rate's rate (the nearest the display has at
+that size), else at the desktop's. F11 switches to the kind set. */
 static void platform_fullscreen_kind_apply(void)
 {
 	static int applied = -1;
 	static long applied_width, applied_height;
+	static float applied_rate;
 	int exclusive = platform_display_mode() == _display_mode_fullscreen ? 1 : 0;
 	long width = 0, height = 0;
+	float rate = 0.0f;
 	SDL_DisplayID display;
 	SDL_DisplayMode closest;
 	const SDL_DisplayMode *mode = NULL;
+	const SDL_DisplayMode *desktop;
 
 	if (!platform_window)
 		return;
 	if (exclusive)
+	{
 		platform_resolution_setting(&width, &height);
-	if (exclusive == applied && width == applied_width && height == applied_height)
+		rate = platform_refresh_rate_setting();
+	}
+	if (exclusive == applied && width == applied_width && height == applied_height && rate == applied_rate)
 		return;
 	applied = exclusive;
 	applied_width = width;
 	applied_height = height;
+	applied_rate = rate;
 	display = SDL_GetDisplayForWindow(platform_window);
 	if (exclusive && display)
 	{
-		if (width && SDL_GetClosestFullscreenDisplayMode(display, (int)width, (int)height, 0.0f, false, &closest))
+		desktop = SDL_GetDesktopDisplayMode(display);
+		if (width && SDL_GetClosestFullscreenDisplayMode(display, (int)width, (int)height, rate, false, &closest))
+			mode = &closest;
+		else if (!width && rate > 0.0f && desktop &&
+			SDL_GetClosestFullscreenDisplayMode(display, desktop->w, desktop->h, rate, false, &closest))
 			mode = &closest;
 		else
-			mode = SDL_GetDesktopDisplayMode(display);
+			mode = desktop;
+		if (mode && rate > 0.0f)
+		{
+			platform_log("display: fullscreen at %dx%d, %.2f Hz (display.refresh_rate %.2f)", mode->w, mode->h,
+				(double)mode->refresh_rate, (double)rate);
+		}
 	}
 	SDL_SetWindowFullscreenMode(platform_window, mode);
 }
@@ -1411,6 +1458,17 @@ static void platform_gl_missing(const char *reason)
 #ifdef HALO_BGFX
 /* bgfx could not start (d3d8_bgfx.inl): the game draws with OpenGL */
 static BOOL platform_bgfx_refused;
+
+BOOL platform_bgfx_chosen(void)
+{
+	const char *renderer = config_string("display.renderer");
+
+#ifdef _WIN32
+	if (strcmp(renderer, "d3d11") == 0)
+		return TRUE;
+#endif
+	return strcmp(renderer, "bgfx") == 0;
+}
 #endif
 
 #if !defined(HALO_ANDROID) && !defined(_WIN32) && !defined(__APPLE__)
@@ -1578,7 +1636,7 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 	/* the bgfx renderer draws instead (d3d8_bgfx.inl): a window without an
 	OpenGL context, whose Metal layer (macOS) or Vulkan surface bgfx draws
 	into; unless it could not start before (platform_video_reopen_for_gl) */
-	xgpu_bgfx = !platform_bgfx_refused && strcmp(config_string("display.renderer"), "bgfx") == 0;
+	xgpu_bgfx = !platform_bgfx_refused && platform_bgfx_chosen();
 #endif
 
 #ifdef HALO_ANDROID

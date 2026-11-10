@@ -27,6 +27,7 @@ A few people look for most:
 | --- | --- |
 | `display.mode` | `"fullscreen"`, `"borderless"` or `"windowed"`. F11 switches between a window and the whole screen. When it is set, `display.fullscreen` is ignored; when it is empty, `display.fullscreen = true` is borderless and `false` a window. |
 | `display.window_scale` | The window's size, as a multiple of 640x480. |
+| `display.refresh_rate` | Fullscreen's refresh rate in Hz, the nearest the display has. 0 (the default) keeps the display's own. It only works on Windows and X11. Wayland, gamescope and the Mac keep their own rate. config.toml only for now. |
 | `display.vsync`, `display.max_fps` | Vertical sync, and a frame rate cap with V-Sync off (0 for twice the display's refresh rate, -1 for none). On the Steam Deck in Game Mode (under gamescope), a cap at the display's refresh rate or a whole fraction of it (60 at 60 Hz, or 30) keeps the frames in step with the display, so they don't judder. Everywhere else a cap with V-Sync off works as before. |
 | `display.interpolation` | `false` keeps the game's own 30 frames a second; Video Setup's Frame Rate at 30 (Xbox) sets it. |
 | `display.direct_camera` | Instant aim: the view turns the frame the mouse, stick or touch moves it. On by default; config.toml only. |
@@ -107,6 +108,12 @@ the game with the environment variable `HALO_RENDERER=bgfx`. If bgfx can't
 start, for example with no working Vulkan driver, the game uses OpenGL and
 says so in `logs/debug.txt`.
 
+On Windows there's also Direct3D 11, for testing on computers whose Vulkan
+is missing or bad. It's only used when you ask for it: set `renderer` to
+`"d3d11"`, or pick **DIRECT3D 11** on the **RENDERER** row of the display
+settings and restart. If it can't start, or Windows would draw it in
+software, the game uses OpenGL.
+
 Some Vulkan drivers start but run badly on older computers, so the game
 skips them and uses OpenGL. Right now that's nouveau's Vulkan (NVK) on a
 GeForce older than the 20 series, NVIDIA drivers older than 470, Mesa's
@@ -120,7 +127,7 @@ What we know is different from OpenGL:
 - FXAA, SMAA and supersampling are OpenGL only. With bgfx they become MSAA 2x.
 - The Halo PC ammo and health meters look different.
 - The first-person pistol is a little brighter, and water looks grainy.
-- There's no menu option for it yet. It's in `config.toml` only.
+- The **RENDERER** row in the display settings switches it after a restart.
 - The 32-bit builds, Android, FreeBSD and the consoles don't have it.
 
 Tell us how it runs. Post in the Discord with your system and graphics card,

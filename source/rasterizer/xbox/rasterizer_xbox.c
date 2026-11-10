@@ -419,6 +419,8 @@ symbols in this file:
 #include "rasterizer_xbox_internal.h"
 #include "rasterizer_xbox_vertex_shaders.h"
 
+#include "plasma_model_shader.h" /* port: port/linux/game/plasma_lighting.c */
+
 /* ---------- constants */
 
 enum
@@ -1179,6 +1181,8 @@ void rasterizer_set_model_lighting_point_light(
 		"c:\\halo\\SOURCE\\rasterizer\\xbox\\rasterizer_xbox.c",
 		2826,
 		lighting_constants);
+	/* port: whether the Light effects light this slot (plasma_lighting.c) */
+	plasma_model_lighting_slot(light_index, constant_index);
 	if (light_index != NONE)
 	{
 		struct rasterizer_light_submit_parameters const *light;
@@ -1275,6 +1279,8 @@ void rasterizer_set_model_lighting(
 		"c:\\halo\\SOURCE\\rasterizer\\xbox\\rasterizer_xbox.c",
 		2898,
 		lighting->distant_light_count>=0 && lighting->distant_light_count<=MAXIMUM_RENDERED_DISTANT_LIGHTS);
+	/* port: each model its own lights of the Light effects, none for an ambient one */
+	plasma_model_lighting_reset();
 	if (rasterizer_debug_options.model_lighting_ambient > 0.0f)
 	{
 		csmemset(&lighting_constants, 0, sizeof(lighting_constants));

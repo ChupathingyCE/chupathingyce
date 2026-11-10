@@ -21,6 +21,8 @@ Conventions carried over from the Xbox:
 - Vertex data is read from guest memory at draw time.
 */
 
+#include "plasma_model_shader.h" /* the Light effects (port/linux/src/plasma_model_shader.c) */
+#include "plasma_occlusion.h"
 #include "xgpu.h"
 #include "xgpu_shader_keys.h"
 #include "sdl_platform.h"
@@ -50,7 +52,7 @@ struct vertex_shader_object;
 struct nv2a_pixel_shader_key;
 static void prep_vertex_program_made(struct vertex_shader_object *object);
 static void prep_note(unsigned long *noted, struct vertex_shader_object *object, BOOL immediate, BOOL lit,
-	BOOL depth_bias, unsigned long packed_mask, const struct nv2a_pixel_shader_key *pixel);
+	BOOL plasma, BOOL depth_bias, unsigned long packed_mask, const struct nv2a_pixel_shader_key *pixel);
 static void prep_present(void);
 #endif
 
@@ -585,10 +587,18 @@ struct vertex_shader_object
 	unsigned char shaders_tried;
 #ifdef HALO_SHADER_PREP
 	/* xgpu_vertex_code_hash of its instructions (its shader keys': d3d8_shader_prep.inl),
-	and the packed mask each of shader[] and lit_shader[] was made for */
+	and the packed mask each of shader[], lit_shader[] and their Light effects forms
+	was made for (vertex_shader_make) */
 	unsigned long long code_hash;
-	unsigned long packed_mask_made[4];
+	unsigned long packed_mask_made[8];
 #endif
+	/* a model lighting program with two point lights, which the Light
+	effects can light (plasma_model_shader.c): its shaders that do, as
+	shader[] and lit_shader[], tried as shaders_tried (plasma_tried) */
+	BOOL plasma_model;
+	BOOL plasma_lighting_failed;
+	GLuint plasma_shader[2], plasma_lit_shader[2];
+	unsigned char plasma_tried;
 #ifdef HALO_BGFX
 	/* as shader[], the bgfx backend's (d3d8_bgfx.inl) */
 	void *bg_shader[2];
@@ -655,6 +665,9 @@ struct program_entry
 	constants_serial at their last upload */
 	GLint model_lights;
 	unsigned long long model_lights_serial;
+	/* the Light effects' uniforms, in a program that has them (-1: none) */
+	GLint plasma_model_slots;
+	struct plasma_occlusion_uniforms plasma_occlusion;
 
 	/* the vertex constants c[0..constant_count) the program uses; with
 	consecutive locations, a changed range is uploaded by itself */
@@ -2269,6 +2282,24 @@ static void gl_initialize(void)
 	device.gl_ready = TRUE;
 	/* display.stats_log's line: the driver's own text for the renderer */
 	stats_log_set_renderer((const char *)glGetString(GL_VENDOR), (const char *)glGetString(GL_RENDERER));
+#ifndef HALO_CONSOLE_NO_LIGHT_EFFECTS
+	{
+		/* a renderer in software, or the older drivers' OpenGL 3.3 path: the
+		Light effects' "auto" is off there, and low on an older Intel HD
+		(port/linux/game/lighting_config.c) */
+		extern int xgpu_software_renderer, xgpu_weak_renderer;
+		const char *renderer = (const char *)glGetString(GL_RENDERER);
+
+		xgpu_software_renderer = renderer && (strstr(renderer, "llvmpipe") || strstr(renderer, "softpipe") ||
+			strstr(renderer, "SwiftShader") || strstr(renderer, "Software") || strstr(renderer, "GDI Generic"));
+#ifdef XGPU_GL_LEGACY_AT_RUN_TIME
+		if (xgpu_gl_legacy)
+			xgpu_software_renderer = 1;
+#endif
+		xgpu_weak_renderer = renderer && strstr(renderer, "Intel") && strstr(renderer, "HD Graphics") &&
+			!strstr(renderer, "Iris");
+	}
+#endif
 	if (anti_aliasing_value < 0)
 		anti_aliasing_read();
 	else
@@ -3362,6 +3393,7 @@ void halo_vertex_shader_lighting(unsigned long handle)
 		platform_log("GPU: vertex shader %lu is not lit as the pixel shader would light it: lit for each vertex",
 			object->id);
 	}
+	object->plasma_model = object->lighting.lights == 2;
 }
 
 void WINAPI D3DDevice_DeleteVertexShader(DWORD handle)
@@ -3456,31 +3488,33 @@ static BOOL words_equal(const void *a, const void *b, unsigned long size)
 
 /* lit: the shader that hands the lighting's normal and position on
 (vertex_shader_object lit_shader) */
-static GLuint vertex_shader_make(struct vertex_shader_object *program, BOOL immediate, BOOL lit,
+static GLuint vertex_shader_make(struct vertex_shader_object *program, BOOL immediate, BOOL lit, BOOL plasma,
 	unsigned long packed_mask, BOOL prepare);
 
-static GLuint vertex_shader_get(struct vertex_shader_object *program, BOOL immediate, BOOL lit)
+static GLuint vertex_shader_get(struct vertex_shader_object *program, BOOL immediate, BOOL lit, BOOL plasma)
 {
-	return vertex_shader_make(program, immediate, lit, device.vertex_shader->packed_mask, FALSE);
+	return vertex_shader_make(program, immediate, lit, plasma, device.vertex_shader->packed_mask, FALSE);
 }
 
 /* (prepare: its compile asked for and not waited on, a map's loading
 screen's: d3d8_shader_prep.inl) */
-static GLuint vertex_shader_make(struct vertex_shader_object *program, BOOL immediate, BOOL lit,
+static GLuint vertex_shader_make(struct vertex_shader_object *program, BOOL immediate, BOOL lit, BOOL plasma,
 	unsigned long packed_mask, BOOL prepare)
 {
 	int variant = immediate ? 1 : 0;
-	GLuint *shader = lit ? &program->lit_shader[variant] : &program->shader[variant];
+	GLuint *shader = plasma ? (lit ? &program->plasma_lit_shader[variant] : &program->plasma_shader[variant]) :
+		lit ? &program->lit_shader[variant] : &program->shader[variant];
+	unsigned char *tried_bits = plasma ? &program->plasma_tried : &program->shaders_tried;
 	unsigned char tried = (unsigned char)(1 << (variant + (lit ? 2 : 0)));
 
-	if (!*shader && !(program->shaders_tried & tried))
+	if (!*shader && !(*tried_bits & tried))
 	{
-		program->shaders_tried |= tried;
+		*tried_bits |= tried;
 		char *source = nv2a_vertex_shader_to_glsl(program->instructions, program->instruction_count,
-			immediate ? 0 : packed_mask, lit ? &program->lighting : NULL);
+			immediate ? 0 : packed_mask, lit ? &program->lighting : NULL, plasma);
 
 #ifdef HALO_SHADER_PREP
-		program->packed_mask_made[variant + (lit ? 2 : 0)] = immediate ? 0 : packed_mask;
+		program->packed_mask_made[variant + (lit ? 2 : 0) + (plasma ? 4 : 0)] = immediate ? 0 : packed_mask;
 		*shader = prepare ? xgpu_shader_cache_submit(GL_VERTEX_SHADER, source) :
 			xgpu_shader_cache_compile(GL_VERTEX_SHADER, source, "vertex");
 #else
@@ -3492,8 +3526,8 @@ static GLuint vertex_shader_make(struct vertex_shader_object *program, BOOL imme
 			char path[512];
 			FILE *file;
 
-			snprintf(path, sizeof(path), "%s/vs%03lu_%d%s.glsl", debug_settings.dump_shaders, program->id, variant,
-				lit ? "_lit" : "");
+			snprintf(path, sizeof(path), "%s/vs%03lu_%d%s%s.glsl", debug_settings.dump_shaders, program->id, variant,
+				lit ? "_lit" : "", plasma ? "_light_effects" : "");
 			if ((file = fopen(path, "w")) != NULL)
 			{
 				fputs(source, file);
@@ -3682,6 +3716,9 @@ static struct program_entry *program_entry_add(GLuint vertex_shader, GLuint frag
 	entry->texture_lod_bias = glGetUniformLocation(entry->program, "texture_lod_bias");
 	entry->screen_offset = glGetUniformLocation(entry->program, "screen_offset");
 	entry->model_lights = glGetUniformLocation(entry->program, "model_lights");
+	entry->plasma_model_slots = glGetUniformLocation(entry->program, "plasma_model_slots");
+	if (entry->plasma_model_slots >= 0)
+		plasma_occlusion_model_initialize(entry->program, &entry->plasma_occlusion);
 	for (stage = 0; stage < D3DTSS_MAXSTAGES; stage++)
 	{
 		char name[8];
@@ -4545,6 +4582,7 @@ static struct program_entry *prepare_draw(BOOL immediate)
 	struct program_entry *entry;
 	struct draw_uniforms uniforms;
 	BOOL has_depth = FALSE;
+	unsigned int plasma_mask;
 	int stage;
 
 #ifdef HALO_CONSOLE_GL_LAYER
@@ -4611,10 +4649,31 @@ static struct program_entry *prepare_draw(BOOL immediate)
 #endif
 
 	entry = NULL;
-	if (program->lighting.lights && !program->lighting_failed && per_pixel_lighting())
+	/* the Light effects' lights of the draw (plasma_model_shader.c): drawn
+	by shaders of their own while one lights it, the game's otherwise */
+	plasma_mask = program->plasma_model && !program->plasma_lighting_failed ? plasma_model_lighting_mask() : 0;
+	if (plasma_mask)
+	{
+		BOOL lit = program->lighting.lights && !program->lighting_failed && per_pixel_lighting();
+
+		key.per_pixel_lighting = lit ? (unsigned char)program->lighting.lights : 0;
+		key.plasma_model = (unsigned char)lit;
+		entry = program_get(vertex_shader_get(program, immediate, lit, TRUE), fragment_shader_get(&key));
+		if (!entry || entry->plasma_model_slots < 0)
+		{
+			platform_log("GPU: vertex shader %lu cannot be drawn with the Light effects here (refer to the shader "
+				"log above): drawn without them", program->id);
+			program->plasma_lighting_failed = TRUE;
+			key.per_pixel_lighting = 0;
+			key.plasma_model = 0;
+			plasma_mask = 0;
+			entry = NULL;
+		}
+	}
+	if (!entry && program->lighting.lights && !program->lighting_failed && per_pixel_lighting())
 	{
 		key.per_pixel_lighting = (unsigned char)program->lighting.lights;
-		entry = program_get(vertex_shader_get(program, immediate, TRUE), fragment_shader_get(&key));
+		entry = program_get(vertex_shader_get(program, immediate, TRUE, FALSE), fragment_shader_get(&key));
 		if (!entry)
 		{
 			/* drawn as the vertex shader lights it instead (not at all,
@@ -4626,7 +4685,7 @@ static struct program_entry *prepare_draw(BOOL immediate)
 		}
 	}
 	if (!entry)
-		entry = program_get(vertex_shader_get(program, immediate, FALSE), fragment_shader_get(&key));
+		entry = program_get(vertex_shader_get(program, immediate, FALSE, FALSE), fragment_shader_get(&key));
 	if (!entry)
 	{
 		stats.skipped_link++;
@@ -4638,8 +4697,9 @@ static struct program_entry *prepare_draw(BOOL immediate)
 	{
 		BOOL lit = key.per_pixel_lighting != 0;
 
-		prep_note(&entry->noted, program, immediate, lit, has_depth && D3D__RenderState[D3DRS_SOLIDOFFSETENABLE],
-			immediate ? 0 : program->packed_mask_made[(immediate ? 1 : 0) + (lit ? 2 : 0)], &key);
+		prep_note(&entry->noted, program, immediate, lit, plasma_mask != 0,
+			has_depth && D3D__RenderState[D3DRS_SOLIDOFFSETENABLE],
+			immediate ? 0 : program->packed_mask_made[(immediate ? 1 : 0) + (lit ? 2 : 0) + (plasma_mask ? 4 : 0)], &key);
 	}
 #endif
 	gl_check_errors("state");
@@ -4649,6 +4709,11 @@ static struct program_entry *prepare_draw(BOOL immediate)
 		stats.draws++;
 	draw_flush();
 	state_program(entry->program);
+	if (plasma_mask && entry->plasma_model_slots >= 0)
+	{
+		plasma_occlusion_bind_model(&entry->plasma_occlusion);
+		glUniform2f(entry->plasma_model_slots, (plasma_mask & 1) ? 1.0f : 0.0f, (plasma_mask & 2) ? 1.0f : 0.0f);
+	}
 #ifdef HALO_GL_ES
 	if (key.count_samples)
 		glBindBufferRange(GL_ATOMIC_COUNTER_BUFFER, 0, device.visibility_counters,

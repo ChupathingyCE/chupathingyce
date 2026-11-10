@@ -178,7 +178,7 @@ convert D3D's clip space themselves (nv2a_vsh.c) */
 #endif
 
 char *nv2a_vertex_shader_to_glsl(const DWORD *instructions, unsigned long instruction_count,
-	unsigned long packed_attribute_mask, const struct nv2a_vertex_lighting *lighting);
+	unsigned long packed_attribute_mask, const struct nv2a_vertex_lighting *lighting, BOOL plasma_model);
 
 /* ---------- pixel shaders */
 

@@ -30,13 +30,15 @@ load on.
 #include <stdio.h>
 
 /* the variant of the vertex program: its immediate-mode form (every input
-register a float), the per-pixel lighting form (GL), and the pixel shader
-drawn with a depth bias (bgfx) */
+register a float), the per-pixel lighting form (GL), the pixel shader
+drawn with a depth bias (bgfx), and the Light effects' form (GL) */
 enum
 {
 	_xgpu_key_immediate_bit = 1 << 0,
 	_xgpu_key_lit_bit = 1 << 1,
 	_xgpu_key_depth_bias_bit = 1 << 2,
+	/* (GL) the Light effects' form of the program (plasma_model_shader.c) */
+	_xgpu_key_plasma_bit = 1 << 3,
 };
 
 struct xgpu_program_key

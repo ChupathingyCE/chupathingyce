@@ -217,7 +217,7 @@ static struct vertex_shader_object *prep_vertex_program(unsigned long long code_
 /* a draw's key, the first time the map draws with its program: into the
 map's list */
 static void prep_note(unsigned long *noted, struct vertex_shader_object *object, BOOL immediate, BOOL lit,
-	BOOL depth_bias, unsigned long packed_mask, const struct nv2a_pixel_shader_key *pixel)
+	BOOL plasma, BOOL depth_bias, unsigned long packed_mask, const struct nv2a_pixel_shader_key *pixel)
 {
 	struct xgpu_program_key key;
 
@@ -227,7 +227,7 @@ static void prep_note(unsigned long *noted, struct vertex_shader_object *object,
 	memset(&key, 0, sizeof(key));
 	key.vertex_code = object->code_hash;
 	key.flags = (immediate ? _xgpu_key_immediate_bit : 0) | (lit ? _xgpu_key_lit_bit : 0) |
-		(depth_bias ? _xgpu_key_depth_bias_bit : 0);
+		(plasma ? _xgpu_key_plasma_bit : 0) | (depth_bias ? _xgpu_key_depth_bias_bit : 0);
 	key.packed_mask = immediate ? 0 : packed_mask;
 	key.pixel = *pixel;
 	xgpu_shader_key_writer_add(prep.writer, &key);
@@ -333,6 +333,7 @@ static BOOL prep_start(const struct xgpu_program_key *recorded)
 	struct nv2a_pixel_shader_key key = recorded->pixel;
 	BOOL immediate = (recorded->flags & _xgpu_key_immediate_bit) != 0;
 	BOOL lit = (recorded->flags & _xgpu_key_lit_bit) != 0;
+	BOOL plasma = (recorded->flags & _xgpu_key_plasma_bit) != 0;
 	struct prep_pending pending;
 
 	if (!object || !object->instructions)
@@ -350,8 +351,9 @@ static BOOL prep_start(const struct xgpu_program_key *recorded)
 		int flags = recorded->flags & _xgpu_key_depth_bias_bit ? _bg_shader_depth_bias : 0;
 		struct bg_shader *vertex, *fragment;
 
-		/* (bgfx lights each vertex) */
+		/* (bgfx lights each vertex, without the Light effects) */
 		key.per_pixel_lighting = 0;
+		key.plasma_model = 0;
 		vertex = bg_vertex_shader(object, immediate);
 		fragment = bg_fragment_shader(&key, flags);
 		if (vertex && fragment)
@@ -370,12 +372,20 @@ static BOOL prep_start(const struct xgpu_program_key *recorded)
 		return TRUE;
 	}
 #endif
+	/* (as prepare_draw draws it here: the Light effects' form only of a
+	program they light, per-pixel lighting only where it is on) */
+	if (plasma && (!object->plasma_model || object->plasma_lighting_failed))
+	{
+		plasma = FALSE;
+		key.plasma_model = 0;
+	}
 	if (lit && (!object->lighting.lights || object->lighting_failed || !per_pixel_lighting()))
 	{
 		lit = FALSE;
 		key.per_pixel_lighting = 0;
+		key.plasma_model = 0;
 	}
-	pending.vertex_shader = vertex_shader_make(object, immediate, lit, recorded->packed_mask, TRUE);
+	pending.vertex_shader = vertex_shader_make(object, immediate, lit, plasma, recorded->packed_mask, TRUE);
 	pending.fragment_shader = fragment_shader_make(&key, TRUE);
 	if (!pending.vertex_shader || !pending.fragment_shader || program_find(pending.vertex_shader, pending.fragment_shader))
 		return FALSE;

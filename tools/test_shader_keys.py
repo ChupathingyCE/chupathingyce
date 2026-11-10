@@ -42,7 +42,7 @@ def code_hash(words):
 def lines_of(keys):
     """the C test's lines for keys (shader_keys.read_keys' sets), in any order."""
     return sorted(f"{vertex:016x} {flags:x} {packed:x}" + "".join(f" {slot}:{value:x}" for slot, value in pixel
-                                                                  if slot < 57 or 100 <= slot <= 120)
+                                                                  if slot < 57 or 100 <= slot <= 121)
                   for vertex, flags, packed, pixel in keys)
 
 
@@ -182,9 +182,9 @@ def test_stock_list_whole():
 def test_slots_match_the_game():
     """the tool's and the README's slots are the game's (xgpu_shader_keys.c)."""
     source = SOURCE.read_text()
-    assert "_slot_texture_modes = 100," in source and "_slot_point_threshold,\n\t_slot_last = _slot_point_threshold" in source
+    assert "_slot_texture_modes = 100," in source and "_slot_plasma_model,\n\t_slot_last = _slot_plasma_model" in source
     readme = (ROOT / "port" / "assets" / "shaders" / "README.md").read_text()
-    assert "120\n  point thresholds" in readme or "120 point thresholds" in readme.replace("\n  ", " ")
+    assert "121 the Light effects" in readme.replace("\n  ", " ")
 
 
 def test_embedded_in_every_build():

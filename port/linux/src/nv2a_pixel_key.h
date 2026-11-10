@@ -47,6 +47,9 @@ struct nv2a_pixel_shader_key
 	/* Discrete meter thresholds in texture 0's red are read at level zero,
 	without filtering. Coverage/brightness still use the filtered lookup. */
 	unsigned char point_threshold;
+	/* a model lighting program's draw the Light effects light
+	(plasma_model_shader.c): their falloff and walls in model_lighting */
+	unsigned char plasma_model;
 };
 
 #endif
