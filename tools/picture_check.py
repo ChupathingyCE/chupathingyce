@@ -107,7 +107,10 @@ def read_ppm(path):
 
 
 def to_ppm(png, ppm):
-    subprocess.run(["convert", str(png), "-alpha", "off", f"ppm:{ppm}"], check=True)
+    # (8-bit color always: ImageMagick writes a gray PPM for a picture with
+    # no color in it, a black cutscene frame)
+    subprocess.run(["convert", str(png), "-alpha", "off", "-type", "TrueColor", "-depth", "8", f"ppm:{ppm}"],
+                   check=True)
 
 
 def pixels(path, work):
