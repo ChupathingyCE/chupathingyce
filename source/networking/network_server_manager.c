@@ -751,6 +751,9 @@ static boolean network_game_server_drop_client_machine(
 static void network_game_server_start_late_joiner(
 	struct network_game_server *server,
 	struct network_game_server_client_machine *machine);
+static void network_game_server_show_late_joiner_players(
+	struct network_game_server *server,
+	struct network_game_server_client_machine *machine);
 static void network_game_server_start_waiting_late_joiners(
 	struct network_game_server *server);
 static void network_game_server_keep_late_joiners_alive(
@@ -2768,6 +2771,11 @@ void network_game_server_update_ticks(
 					{
 						network_game_server_start_late_joiner(server, client_machine);
 					}
+					/* port: one that waits for its other players (split screen)
+					is sent its players, so its pregame screen shows the ones
+					that joined, and they can change their profile and team
+					there (network_game_server_late_joiner_player_settings) */
+					network_game_server_show_late_joiner_players(server, client_machine);
 				}
 				else
 				{
@@ -3104,6 +3112,76 @@ static void network_game_server_start_late_joiner(
 	}
 	network_event("machine #%d joins the game in progress at game tick #%ld", machine->machine_index,
 		begin_game.unused);
+}
+
+/* whether the machine is joining the game in progress and not started yet
+(in its pregame screen: the wait for its other players, or for its
+settings record's size) */
+static boolean network_game_server_late_joiner_not_started(
+	struct network_game_server *server,
+	struct network_game_server_client_machine *machine)
+{
+	return server->state == _network_game_server_state_ingame &&
+		network_game_server_client_machine_is_joined_to_game(server, machine) &&
+		!TEST_FLAG(machine->flags, _network_client_machine_level_loaded_bit) &&
+		!TEST_FLAG(machine->flags, _network_client_machine_started_late_bit);
+}
+
+/* port: the settings, with the machine's players, to a machine joining the
+game in progress that has not started yet, alone: its pregame screen shows
+the players that joined (X#83). The same record its start sends it; the
+other machines, in the game, get none */
+static void network_game_server_show_late_joiner_players(
+	struct network_game_server *server,
+	struct network_game_server_client_machine *machine)
+{
+	if (!network_game_server_late_joiner_not_started(server, machine))
+		return;
+	if (!network_game_server_send_game_settings_to_client_machine(server, machine, &server->game, sizeof(server->game)))
+		network_event("failed to send machine #%d its players before it joins the game in progress", machine->machine_index);
+}
+
+long team_change_late_joiner(long list_index, short team);
+
+/* port: a player of a machine joining the game in progress, not started
+yet, changes their settings in its pregame screen (X#83): their team, as
+the host's team rule takes a player who has not played yet
+(team_change_late_joiner); a name or color stays as the other machines
+were told when the player was added. The machine is sent its players
+again either way. FALSE if the machine is not such a one */
+boolean network_game_server_late_joiner_player_settings(
+	struct network_game_server *server,
+	struct network_game_server_client_machine *machine,
+	struct network_player const *player)
+{
+	struct network_player const *record;
+
+	if (!network_game_server_late_joiner_not_started(server, machine))
+		return FALSE;
+	if (player->machine_index != machine->machine_index ||
+		!VALID_INDEX(player->player_list_index, MAXIMUM_NETWORK_PLAYER_COUNT))
+	{
+		network_event("client machine #%d tried to update a player of another machine", machine->machine_index);
+		return TRUE;
+	}
+	record = &server->game.players[player->player_list_index];
+	if (!network_player_is_valid(record) || record->machine_index != machine->machine_index ||
+		record->controller_index != player->controller_index)
+	{
+		network_event("client machine #%d tried to update a player of another machine", machine->machine_index);
+		return TRUE;
+	}
+	if (server->game.variant.universal_variant.teams && VALID_INDEX(player->team_index, NUMBER_OF_MULTIPLAYER_TEAMS) &&
+		player->team_index != record->team_index)
+	{
+		long result = team_change_late_joiner(player->player_list_index, player->team_index);
+
+		network_event("machine #%d's player %d asked for team %d before joining the game in progress: %s",
+			machine->machine_index, (int)player->player_list_index, (int)player->team_index,
+			result ? "taken" : "refused");
+	}
+	network_game_server_show_late_joiner_players(server, machine);
+	return TRUE;
 }
 
 /* port: each frame, the machines joining the game in progress whose start

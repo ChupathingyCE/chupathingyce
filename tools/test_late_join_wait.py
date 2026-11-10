@@ -24,3 +24,15 @@ def test_host_reads_it_cheaply_and_clamps():
     assert "seconds < 0 ? 0 : seconds > 30 ? 30 : seconds" in source
     # (0 starts the machine at once)
     assert "wait_milliseconds > 0 &&" in source
+
+
+def test_waiting_late_joiner_sees_its_players_and_picks_a_team():
+    """X#83: a machine waiting to join the game in progress is sent its players,
+    and its players' team picks reach the host's team rule."""
+    source = MANAGER.read_text(encoding="utf-8")
+    handler = (ROOT / "source/networking/network_server_message_handler.c").read_text(encoding="utf-8")
+    team_change = (ROOT / "port/linux/game/team_change.c").read_text(encoding="utf-8")
+    assert "network_game_server_show_late_joiner_players(server, client_machine);" in source
+    assert "boolean network_game_server_late_joiner_player_settings(" in source
+    assert "network_game_server_late_joiner_player_settings(server, client_machine, &player)" in handler
+    assert "long team_change_late_joiner(long list_index, short team)" in team_change
