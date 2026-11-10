@@ -10,6 +10,7 @@ known is skipped, and text keeps no control characters.
 #ifdef HALO_GAME_BROWSER
 
 #include "delta_profile.h"
+#include "social.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -390,6 +391,42 @@ static void read_copy(struct reader *reader, struct delta_profile_copy *copy)
 	}
 }
 
+static void read_device(struct reader *reader, struct delta_profile_device *device)
+{
+	char key[32];
+	int first = 1;
+
+	memset(device, 0, sizeof(*device));
+	if (!take(reader, '{'))
+	{
+		skip_value(reader, 0);
+		return;
+	}
+	while (!reader->failed && member(reader, key, sizeof(key), &first))
+	{
+		if (!strcmp(key, "id"))
+			text_value(reader, device->id, sizeof(device->id));
+		else if (!strcmp(key, "name"))
+			text_value(reader, device->name, sizeof(device->name));
+		else if (!strcmp(key, "platform"))
+			text_value(reader, device->platform, sizeof(device->platform));
+		else if (!strcmp(key, "created"))
+			device->created = number_value(reader);
+		else if (!strcmp(key, "last_seen"))
+			device->last_seen = number_value(reader);
+		else if (!strcmp(key, "legacy"))
+			device->legacy = boolean_value(reader);
+		else if (!strcmp(key, "console"))
+			device->console = boolean_value(reader);
+		else if (!strcmp(key, "signed_out"))
+			device->signed_out = boolean_value(reader);
+		else if (!strcmp(key, "this"))
+			device->this_device = boolean_value(reader);
+		else
+			skip_value(reader, 1);
+	}
+}
+
 static void read_role(struct reader *reader, struct delta_profile_role *role)
 {
 	char key[32];
@@ -656,6 +693,14 @@ int delta_profile_parse(const char *text, struct delta_profile *profile)
 		else if (!strcmp(key, "copies"))
 			READ_ARRAY(&reader, DELTA_PROFILE_COPIES, profile->copy_count,
 				read_copy(&reader, &profile->copies[profile->copy_count]));
+		else if (!strcmp(key, "devices"))
+		{
+			profile->has_devices = 1;
+			READ_ARRAY(&reader, DELTA_PROFILE_DEVICES, profile->device_count,
+				read_device(&reader, &profile->devices[profile->device_count]));
+		}
+		else if (!strcmp(key, "more_devices"))
+			profile->more_devices = (int)number_value(&reader);
 		else if (!strcmp(key, "roles"))
 			READ_ARRAY(&reader, DELTA_PROFILE_ROLES, profile->role_count,
 				read_role(&reader, &profile->roles[profile->role_count]));
@@ -848,6 +893,302 @@ int delta_profile_parse_cards(const char *text, void (*found)(void *context, con
 		}
 	}
 	return reader.failed || !players ? -1 : count;
+}
+
+/* ---------- the friends' state */
+
+static void read_social_game(struct reader *reader, struct social_game *game)
+{
+	char key[32], mode[16];
+	int first = 1;
+
+	memset(game, 0, sizeof(*game));
+	space(reader);
+	if (!take(reader, '{'))
+	{
+		/* (null: not listed) */
+		skip_value(reader, 0);
+		return;
+	}
+	game->listed = 1;
+	while (!reader->failed && member(reader, key, sizeof(key), &first))
+	{
+		if (!strcmp(key, "name"))
+			text_value(reader, game->name, sizeof(game->name));
+		else if (!strcmp(key, "map"))
+			text_value(reader, game->map, sizeof(game->map));
+		else if (!strcmp(key, "engine"))
+			game->engine = (int)number_value(reader);
+		else if (!strcmp(key, "mode"))
+		{
+			text_value(reader, mode, sizeof(mode));
+			game->coop = !strcmp(mode, "coop");
+		}
+		else if (!strcmp(key, "teams"))
+			game->teams = boolean_value(reader);
+		else if (!strcmp(key, "players"))
+			game->players = (int)number_value(reader);
+		else if (!strcmp(key, "maximum_players"))
+			game->maximum_players = (int)number_value(reader);
+		else
+			skip_value(reader, 1);
+	}
+}
+
+static void read_social_friend(struct reader *reader, struct social_friend *buddy)
+{
+	char key[32];
+	int first = 1;
+
+	memset(buddy, 0, sizeof(*buddy));
+	if (!take(reader, '{'))
+	{
+		skip_value(reader, 0);
+		return;
+	}
+	while (!reader->failed && member(reader, key, sizeof(key), &first))
+	{
+		if (!strcmp(key, "handle"))
+			text_value(reader, buddy->handle, sizeof(buddy->handle));
+		else if (!strcmp(key, "display"))
+			text_value(reader, buddy->display, sizeof(buddy->display));
+		else if (!strcmp(key, "since"))
+			buddy->since = number_value(reader);
+		else if (!strcmp(key, "online"))
+			buddy->online = boolean_value(reader);
+		else if (!strcmp(key, "playing"))
+			buddy->playing = boolean_value(reader);
+		else if (!strcmp(key, "joinable"))
+			buddy->joinable = boolean_value(reader);
+		else if (!strcmp(key, "game"))
+			read_social_game(reader, &buddy->game);
+		else
+			skip_value(reader, 1);
+	}
+}
+
+static void read_social_request(struct reader *reader, struct social_request *request)
+{
+	char key[32];
+	int first = 1;
+
+	memset(request, 0, sizeof(*request));
+	if (!take(reader, '{'))
+	{
+		skip_value(reader, 0);
+		return;
+	}
+	while (!reader->failed && member(reader, key, sizeof(key), &first))
+	{
+		if (!strcmp(key, "handle"))
+			text_value(reader, request->handle, sizeof(request->handle));
+		else if (!strcmp(key, "display"))
+			text_value(reader, request->display, sizeof(request->display));
+		else if (!strcmp(key, "time"))
+			request->time = number_value(reader);
+		else
+			skip_value(reader, 1);
+	}
+}
+
+static void read_social_invite(struct reader *reader, struct social_invite *invite)
+{
+	char key[32];
+	int first = 1;
+
+	memset(invite, 0, sizeof(*invite));
+	if (!take(reader, '{'))
+	{
+		skip_value(reader, 0);
+		return;
+	}
+	while (!reader->failed && member(reader, key, sizeof(key), &first))
+	{
+		if (!strcmp(key, "id"))
+			text_value(reader, invite->id, sizeof(invite->id));
+		else if (!strcmp(key, "from"))
+			text_value(reader, invite->from, sizeof(invite->from));
+		else if (!strcmp(key, "display"))
+			text_value(reader, invite->display, sizeof(invite->display));
+		else if (!strcmp(key, "time"))
+			invite->time = number_value(reader);
+		else if (!strcmp(key, "expires"))
+			invite->expires = number_value(reader);
+		else if (!strcmp(key, "game"))
+			read_social_game(reader, &invite->game);
+		else
+			skip_value(reader, 1);
+	}
+}
+
+static void read_social_you(struct reader *reader, struct social_state *state)
+{
+	char key[32];
+	int first = 1;
+
+	if (!take(reader, '{'))
+	{
+		skip_value(reader, 0);
+		return;
+	}
+	while (!reader->failed && member(reader, key, sizeof(key), &first))
+	{
+		if (!strcmp(key, "handle"))
+			text_value(reader, state->handle, sizeof(state->handle));
+		else if (!strcmp(key, "display"))
+			text_value(reader, state->display, sizeof(state->display));
+		else if (!strcmp(key, "appear_offline"))
+			state->appear_offline = boolean_value(reader);
+		else
+			skip_value(reader, 1);
+	}
+}
+
+int delta_profile_parse_social(const char *text, struct social_state *state)
+{
+	struct reader reader;
+	char key[32];
+	int first = 1, same = 0, whole = 0;
+
+	memset(state, 0, sizeof(*state));
+	reader.at = text;
+	reader.failed = 0;
+	if (!take(&reader, '{'))
+		return 0;
+	while (!reader.failed && member(&reader, key, sizeof(key), &first))
+	{
+		int item_first = 1;
+
+		if (!strcmp(key, "cursor"))
+			text_value(&reader, state->cursor, sizeof(state->cursor));
+		else if (!strcmp(key, "same"))
+			same = boolean_value(&reader);
+		else if (!strcmp(key, "you"))
+		{
+			read_social_you(&reader, state);
+			whole = 1;
+		}
+		else if (!strcmp(key, "friends") && take(&reader, '['))
+		{
+			struct social_friend skipped;
+
+			while (!reader.failed && item(&reader, &item_first))
+			{
+				/* (past the most kept: read and let go) */
+				if (state->friend_count < SOCIAL_MAXIMUM_FRIENDS)
+				{
+					read_social_friend(&reader, &state->friends[state->friend_count]);
+					if (state->friends[state->friend_count].handle[0])
+						state->friend_count++;
+				}
+				else
+					read_social_friend(&reader, &skipped);
+			}
+		}
+		else if (!strcmp(key, "invites") && take(&reader, '['))
+		{
+			struct social_invite skipped;
+
+			while (!reader.failed && item(&reader, &item_first))
+			{
+				if (state->invite_count < SOCIAL_MAXIMUM_INVITES)
+				{
+					read_social_invite(&reader, &state->invites[state->invite_count]);
+					if (state->invites[state->invite_count].id[0] && state->invites[state->invite_count].from[0])
+						state->invite_count++;
+				}
+				else
+					read_social_invite(&reader, &skipped);
+			}
+		}
+		else if (!strcmp(key, "requests") && take(&reader, '{'))
+		{
+			char part[16];
+			int part_first = 1;
+
+			while (!reader.failed && member(&reader, part, sizeof(part), &part_first))
+			{
+				if (strcmp(part, "incoming") || !take(&reader, '['))
+				{
+					skip_value(&reader, 2);
+					continue;
+				}
+				item_first = 1;
+				while (!reader.failed && item(&reader, &item_first))
+				{
+					struct social_request skipped;
+
+					if (state->request_count < SOCIAL_MAXIMUM_REQUESTS)
+					{
+						read_social_request(&reader, &state->requests[state->request_count]);
+						if (state->requests[state->request_count].handle[0])
+							state->request_count++;
+					}
+					else
+						read_social_request(&reader, &skipped);
+				}
+			}
+		}
+		else
+			skip_value(&reader, 1);
+	}
+	if (reader.failed || !state->cursor[0])
+		return 0;
+	if (same)
+		return 2;
+	return whole ? 1 : 0;
+}
+
+void delta_profile_parse_text(const char *answer, const char *name, char *text, int size)
+{
+	struct reader reader;
+	char key[32];
+	int first = 1;
+
+	if (size <= 0)
+		return;
+	text[0] = 0;
+	reader.at = answer ? answer : "";
+	reader.failed = 0;
+	if (!take(&reader, '{'))
+		return;
+	while (!reader.failed && member(&reader, key, sizeof(key), &first))
+	{
+		if (!strcmp(key, name))
+			text_value(&reader, text, size);
+		else
+			skip_value(&reader, 1);
+	}
+	if (reader.failed)
+		text[0] = 0;
+}
+
+int delta_profile_parse_join(const char *text, char *link, int size)
+{
+	struct reader reader;
+	char key[32];
+	int first = 1;
+
+	if (size <= 0)
+		return 0;
+	link[0] = 0;
+	reader.at = text ? text : "";
+	reader.failed = 0;
+	if (!take(&reader, '{'))
+		return 0;
+	while (!reader.failed && member(&reader, key, sizeof(key), &first))
+	{
+		if (!strcmp(key, "join"))
+			text_value(&reader, link, size);
+		else
+			skip_value(&reader, 1);
+	}
+	if (reader.failed || strncmp(link, "halo://join/", 12))
+	{
+		link[0] = 0;
+		return 0;
+	}
+	return 1;
 }
 
 #endif

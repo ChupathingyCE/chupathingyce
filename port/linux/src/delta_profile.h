@@ -18,6 +18,8 @@ GAME_COPIES and GAME_ROLES) */
 #define DELTA_PROFILE_RECENT 4
 #define DELTA_PROFILE_COPIES 16
 #define DELTA_PROFILE_ROLES 32
+/* (list_server.py's GAME_DEVICES) */
+#define DELTA_PROFILE_DEVICES 16
 /* (list_server.py's GAME_CLAN_MEMBERS; invites, at most clans.py's
 PLAYER_INVITES) */
 #define DELTA_PROFILE_CLAN_MEMBERS 24
@@ -50,6 +52,24 @@ struct delta_profile_copy
 	/* this copy; the copy that made the profile (it can't be unlinked) */
 	int this_copy;
 	int first;
+};
+
+/* a device of the account (docs/delta.md, Devices): signed in to it by
+code, or one of its copies' */
+struct delta_profile_device
+{
+	/* its device ID (32 hex digits), the name its owner gave it (else
+	empty), and its platform (delta.h's platform keys) */
+	char id[DELTA_PROFILE_ID_LENGTH + 1];
+	char name[40];
+	char platform[24];
+	long long created;
+	long long last_seen;
+	/* enrolled with a player key; a console; signed out; this device */
+	int legacy;
+	int console;
+	int signed_out;
+	int this_device;
 };
 
 struct delta_profile_role
@@ -133,6 +153,11 @@ struct delta_profile
 	int copy_count;
 	int more_copies;
 	struct delta_profile_copy copies[DELTA_PROFILE_COPIES];
+	/* (a site with device identity: has_devices) */
+	int has_devices;
+	int device_count;
+	int more_devices;
+	struct delta_profile_device devices[DELTA_PROFILE_DEVICES];
 	int role_count;
 	int more_roles;
 	struct delta_profile_role roles[DELTA_PROFILE_ROLES];
@@ -178,5 +203,17 @@ int delta_profile_parse_clan(const char *text, struct delta_profile *profile);
 card (NULL: no profile to show); the count named, -1 if not that answer */
 int delta_profile_parse_cards(const char *text, void (*found)(void *context, const char *id,
 	const struct delta_profile_card *card), void *context);
+
+/* the friends' state (POST /v1/social/state, and /v1/game/friends's
+answer after an action) read into state (social.h): 1 for a whole state,
+2 for {"cursor", "same": true} (only state's cursor is set), 0 if not that
+answer. Only the incoming requests are kept */
+struct social_state;
+int delta_profile_parse_social(const char *text, struct social_state *state);
+/* a string member of an answer's top ({"error", "reason"}: "reason") into
+text ("" for none) */
+void delta_profile_parse_text(const char *answer, const char *name, char *text, int size);
+/* /v1/social/join's {"join": "halo://join/..."}: the link into link, 1 */
+int delta_profile_parse_join(const char *text, char *link, int size);
 
 #endif
