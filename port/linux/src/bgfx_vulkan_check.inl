@@ -22,6 +22,12 @@ which run on Mesa's software Vulkan). Part of d3d8_bgfx.inl.
 #define VK_NO_PROTOTYPES
 #include <vulkan-local/vulkan_core.h>
 
+#ifdef _WIN32
+/* win32_posix.c's: a DLL from System32 only, never the game's folder or the
+working directory (an SDL_SharedObject, as SDL_LoadObject's are: a module) */
+void *win32_system_library(const char *name);
+#endif
+
 /* the rules, one a line: words of key=value, all of which must match a GPU
 for it to be passed over, then "#" and the reason the log gives.
 
@@ -47,6 +53,10 @@ static const char bg_vulkan_blocklist[] =
 	/* NVIDIA's legacy branches (340 has no Vulkan, 390 and 418 are old and
 	end of life) */
 	"driver=nvidia version_below=470 # an NVIDIA driver older than 470\n"
+	/* (those branches often can't name their driver, VK_KHR_driver_properties
+	being newer: an NVIDIA GPU with no driver named and NVIDIA's numbering.
+	NVK always names itself, so this never catches it) */
+	"driver=unknown vendor=10de version_below=470 # an NVIDIA driver older than 470\n"
 	/* Mesa's Vulkan for Ivy Bridge, Haswell and Bay Trail (hasvk): not
 	conformant */
 	"driver=anv name=(IVB # Mesa's Vulkan for Ivy Bridge graphics\n"
@@ -256,7 +266,11 @@ static BOOL bg_vulkan_check(uint16_t *vendor, uint16_t *device)
 	VkResult result;
 
 	for (index = 0; loaders[index] && !library; index++)
+#ifdef _WIN32
+		library = (SDL_SharedObject *)win32_system_library(loaders[index]);
+#else
 		library = SDL_LoadObject(loaders[index]);
+#endif
 	if (!library)
 	{
 		platform_log("bgfx: no Vulkan driver is installed (%s not found)", loaders[0]);

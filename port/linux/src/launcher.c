@@ -3896,8 +3896,11 @@ static void frame(void)
 		if (launcher.screenshot[0] && *config_string("debug.screenshot_directory"))
 			snprintf(path, sizeof(path), "%s/%s.bmp", config_string("debug.screenshot_directory"), launcher.screenshot);
 		launcher.screenshot[0] = '\0';
-		xgpu_bgfx_launcher_frame(ui_style_color(UI_COLOR_CLEAR), launcher.picture_x, launcher.picture_y, launcher.picture_width,
-			launcher.picture_height, path);
+		/* (bgfx that does not start, a blocklisted Vulkan driver say:
+		OpenGL, once, rather than trying again each frame) */
+		if (!xgpu_bgfx_launcher_frame(ui_style_color(UI_COLOR_CLEAR), launcher.picture_x, launcher.picture_y,
+			launcher.picture_width, launcher.picture_height, path))
+			platform_video_reopen_for_gl();
 		return;
 	}
 #endif
