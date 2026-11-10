@@ -1412,6 +1412,100 @@ static void platform_gl_missing(const char *reason)
 static BOOL platform_bgfx_refused;
 #endif
 
+#if !defined(HALO_ANDROID) && !defined(_WIN32) && !defined(__APPLE__)
+/* port: with vsync off, a display.max_fps of the display's refresh rate or
+a whole fraction of it is shown in step with the display (Linux's OpenGL) */
+#define SWAP_INTERVAL_IN_STEP
+#endif
+
+#if !defined(__APPLE__) || defined(HALO_IOS)
+/* the swap interval the OpenGL window was given (-1: none yet); above 0
+with vsync off, display.max_fps in step with the display, and the clock
+paces nothing (frame_interval_ns) */
+static int platform_interval = -1;
+#endif
+
+/* the display's refresh rate, 0 where it is not known */
+static float platform_refresh_rate(void)
+{
+#ifndef HALO_ANDROID
+	SDL_DisplayID display = platform_window ? SDL_GetDisplayForWindow(platform_window) : 0;
+	const SDL_DisplayMode *mode = display ? SDL_GetCurrentDisplayMode(display) : NULL;
+
+	return mode && mode->refresh_rate > 0.0f ? mode->refresh_rate : 0.0f;
+#else
+	return 0.0f;
+#endif
+}
+
+#if !defined(__APPLE__) || defined(HALO_IOS)
+/* the refreshes each frame is shown for, 0 for none: display.vsync's 1;
+and on Linux's OpenGL, with vsync off, a display.max_fps of the display's
+refresh rate or a whole fraction of it (60 at 60 Hz, 30 or 45 at 90),
+within a frame a second, so many. Frames spaced by the clock at the
+display's own rate drift against its refreshes, so now and then one is
+shown twice and the next not at all: judder while the counter says 60
+(the Steam Deck in Game Mode with its Frame Rate Limit, under gamescope).
+The Mac's frames are taken at its display link's refreshes already, and
+Windows and bgfx are left as they were. Based on work by goatbutt and the
+OpenH1 team. */
+static int platform_swap_interval(void)
+{
+#ifdef SWAP_INTERVAL_IN_STEP
+	long maximum;
+	float refresh;
+	int interval;
+#endif
+
+	if (config_boolean("display.vsync"))
+		return 1;
+#ifdef SWAP_INTERVAL_IN_STEP
+#ifdef HALO_BGFX
+	if (xgpu_bgfx)
+		return 0;
+#endif
+	maximum = config_integer("display.max_fps");
+	refresh = platform_refresh_rate();
+	if (maximum > 0 && refresh > 0.0f)
+	{
+		for (interval = 1; interval <= 4; interval++)
+		{
+			float apart = refresh / (float)interval - (float)maximum;
+
+			if (apart >= -1.0f && apart <= 1.0f)
+				return interval;
+		}
+	}
+#endif
+	return 0;
+}
+
+/* platform_swap_interval's, given to the OpenGL window when it changes
+(force: whatever the window had); one the driver refuses falls back to
+vsync off, paced by the clock */
+static void platform_swap_interval_apply(BOOL force)
+{
+	int interval = platform_swap_interval();
+
+	if (!platform_gl_context || (!force && interval == platform_interval))
+		return;
+	if (!SDL_GL_SetSwapInterval(interval))
+	{
+		platform_log("frame rate: a swap interval of %d refused (%s): the clock paces the frames", interval,
+			SDL_GetError());
+		interval = 0;
+		SDL_GL_SetSwapInterval(0);
+	}
+	else if (interval > 0 && !config_boolean("display.vsync"))
+	{
+		platform_log("frame rate: display.max_fps %ld shown in step with the display's %.2f Hz, each frame for %d "
+			"refresh%s", config_integer("display.max_fps"), (double)platform_refresh_rate(), interval,
+			interval == 1 ? "" : "es");
+	}
+	platform_interval = interval;
+}
+#endif
+
 BOOL platform_video_initialize(unsigned long width, unsigned long height)
 {
 	int version;
@@ -1580,7 +1674,8 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 		macos_set_swap_interval(config_boolean("display.vsync") ? 1 : 0);
 	}
 #else
-	version = SDL_GL_SetSwapInterval(config_boolean("display.vsync") ? 1 : 0);
+	version = 0;
+	platform_swap_interval_apply(TRUE);
 #endif
 	(void)version;
 	platform_event_thread = SDL_GetCurrentThreadID();
@@ -1653,7 +1748,7 @@ void platform_display_apply(void)
 		macos_set_swap_interval(config_boolean("display.vsync") ? 1 : 0);
 	}
 #else
-	SDL_GL_SetSwapInterval(config_boolean("display.vsync") ? 1 : 0);
+	platform_swap_interval_apply(TRUE);
 #endif
 }
 
@@ -1719,20 +1814,26 @@ static Uint64 frame_interval_ns(void)
 		vsync = config_boolean("display.vsync");
 		maximum = config_integer("display.max_fps");
 	}
+#ifdef SWAP_INTERVAL_IN_STEP
+	/* (in step with the display, or no longer: the refresh rate known only
+	once the window is shown, as under gamescope, the window moved to
+	another display, the display's mode or display.max_fps changed) */
+	if (!vsync)
+	{
+		platform_swap_interval_apply(FALSE);
+		if (platform_interval > 0)
+			return 0;
+	}
+#endif
 	if (vsync || maximum < 0)
 		return 0;
 	rate = (float)maximum;
 	if (!maximum)
 	{
-#ifndef HALO_ANDROID
-		SDL_DisplayID display = SDL_GetDisplayForWindow(platform_window);
-		const SDL_DisplayMode *mode = display ? SDL_GetCurrentDisplayMode(display) : NULL;
+		/* (the Android guest's SDL has no display modes to ask: 60) */
+		float refresh = platform_refresh_rate();
 
-		rate = 2.0f * (mode && mode->refresh_rate > 0.0f ? mode->refresh_rate : 60.0f);
-#else
-		/* (the Android guest's SDL has no display modes to ask) */
-		rate = 2.0f * 60.0f;
-#endif
+		rate = 2.0f * (refresh > 0.0f ? refresh : 60.0f);
 	}
 	return (Uint64)(1e9f / rate);
 }
