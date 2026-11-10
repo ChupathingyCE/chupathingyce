@@ -33,6 +33,8 @@ threads), so polls are short: one every few seconds, no long poll.
 #include "control_roles.h"
 #include "../src/server_roles.h"
 #include "../src/server_link.h"
+#include "../src/server_bans.h"
+#include "../src/server_reports.h"
 
 #include "monocypher.h"
 
@@ -60,12 +62,14 @@ enum
 	/* a code's state asked for this often, and the code's life at most */
 	STATUS_SECONDS = 3,
 	/* the poll's room: an answer, and the status sent */
-	ANSWER_SIZE = 96 * 1024,
+	ANSWER_SIZE = 512 * 1024,
 	STATUS_SIZE = 24 * 1024,
 	/* the commands waiting for the main thread, and the results waiting to
 	be sent, at most */
 	MAXIMUM_PENDING = 16,
 	RESULT_SIZE = 1024,
+	/* signed_request's: the body would be past CONTROL_LINK_BODY_MOST */
+	REQUEST_TOO_BIG = -2,
 	/* polls after a failure: this long at first, doubled up to the most */
 	RETRY_SECONDS = 5,
 	RETRY_MAXIMUM = 120,
@@ -82,6 +86,7 @@ enum
 
 #define LINK_FILE "delta_link.key"
 #define ROLES_FILE "delta_roles.cache"
+#define SHARED_BANS_FILE "shared_bans.cache"
 
 enum
 {
@@ -89,6 +94,9 @@ enum
 	answers (its time heard, for the expiry after a restart) */
 	ROLES_CACHE_SECONDS = 10 * 60,
 	ROLES_CACHE_SIZE = 96 * 1024,
+	SHARED_BANS_CACHE_SIZE = 512 * 1024,
+	/* the reports and shared bans a poll carries */
+	EXTRAS_SIZE = 256 * 1024,
 };
 
 /* ---------- globals */
@@ -281,6 +289,11 @@ static void forget_credential(void)
 	server_roles_set_site(0, NULL, NULL, NULL, 0);
 	server_roles_set_site_handles(0, NULL, NULL, NULL, NULL, NULL);
 	server_roles_set_site_state(SERVER_SITE_ROLES_NONE, 0, link_state.cap, link_state.roles_hours);
+	/* (the shared lists were the site's: gone with it) */
+	data_file(SHARED_BANS_FILE, path, sizeof(path));
+	unlink(path);
+	server_bans_set_shared(NULL, 0, 0, 0);
+	server_bans_share_answered(NULL);
 }
 
 static void set_problem(const char *format, ...)
@@ -418,6 +431,58 @@ static void expire_roles(void)
 		"does (HALO_DEDICATED_LINK_ROLE_HOURS); moderators.txt and the panel's accounts keep theirs",
 		link_state.roles_hours, link_state.roles.role_count);
 	server_audit("site", "", CONTROL_ROLE_NONE, "roles expired", NULL, "the site was not heard", 1, NULL);
+}
+
+/* the shared lists' cache written (the lock held), from the answer that had
+them */
+static void write_shared_bans_cache(const char *payload, const struct control_link_poll *poll)
+{
+	static char text[SHARED_BANS_CACHE_SIZE];
+	char path[1024];
+	char temporary[1040];
+	int length;
+	int fd;
+
+	length = control_link_shared_bans_cache_text(payload, poll, now_seconds(), link_state.secret, text, sizeof(text));
+	if (length < 0)
+		return;
+	data_file(SHARED_BANS_FILE, path, sizeof(path));
+	snprintf(temporary, sizeof(temporary), "%s.new", path);
+	unlink(temporary);
+	fd = open(temporary, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
+	if (fd < 0)
+		return;
+	if (write(fd, text, (size_t)length) != length || close(fd) || rename(temporary, path))
+		unlink(temporary);
+}
+
+/* the shared lists' cache read at start (the lock held), once linked */
+static void load_shared_bans_cache(void)
+{
+	static char text[SHARED_BANS_CACHE_SIZE + 1];
+	static struct control_link_poll cached;
+	char path[1024];
+	int64_t heard = 0;
+	ssize_t length;
+	int fd;
+
+	data_file(SHARED_BANS_FILE, path, sizeof(path));
+	fd = open(path, O_RDONLY | O_CLOEXEC);
+	if (fd < 0)
+		return;
+	length = read(fd, text, SHARED_BANS_CACHE_SIZE);
+	close(fd);
+	if (length <= 0)
+		return;
+	text[length] = 0;
+	if (!control_link_shared_bans_cache_open(text, (size_t)length, link_state.secret, &cached, &heard))
+	{
+		platform_log("Delta Control: %s is not this link's, or was edited: left out (the lists come with the site's "
+			"next answer)", SHARED_BANS_FILE);
+		return;
+	}
+	server_bans_set_shared(cached.shared_bans, cached.shared_ban_count, cached.shared_bans_version, 1);
+	platform_log("Delta Control: %d shared bans from %s", cached.shared_ban_count, SHARED_BANS_FILE);
 }
 
 /* the role cache read at start (the lock held), once linked: its list
@@ -584,7 +649,7 @@ static void run_linking(void)
 static int signed_request(const char *path, const char *payload, char *opened, size_t opened_size, char *error,
 	int error_size)
 {
-	static char body[STATUS_SIZE * 7 + 4096];
+	static char body[CONTROL_LINK_BODY_MOST + 1];
 	static char answer[ANSWER_SIZE];
 	uint8_t nonce[CONTROL_LINK_NONCE_BYTES];
 	uint8_t seed[CONTROL_LINK_SEED_BYTES];
@@ -606,7 +671,7 @@ static int signed_request(const char *path, const char *payload, char *opened, s
 	{
 		crypto_wipe(secret, sizeof(secret));
 		snprintf(error, (size_t)error_size, "the request does not fit");
-		return 0;
+		return REQUEST_TOO_BIG;
 	}
 	status = request(path, body, answer, sizeof(answer), error, error_size);
 	if (status == 200 && !control_link_open_answer(answer, strlen(answer), secret, nonce, opened, opened_size))
@@ -621,14 +686,16 @@ static int signed_request(const char *path, const char *payload, char *opened, s
 /* a poll: the state and the results sent; the commands and roles taken */
 static int run_poll(void)
 {
-	static char payload[STATUS_SIZE + MAXIMUM_PENDING * (RESULT_SIZE * 6 + 64) + 256];
+	static char payload[STATUS_SIZE + MAXIMUM_PENDING * (RESULT_SIZE * 6 + 64) + 2 * EXTRAS_SIZE + 256];
+	static char extras[EXTRAS_SIZE];
 	static char opened[ANSWER_SIZE];
 	static struct control_link_poll poll;
 	char error[256];
-	size_t length;
+	size_t length, base;
 	int index;
-	int status;
+	int status = 0;
 	int sent_results;
+	int extras_sent;
 
 	pthread_mutex_lock(&link_mutex);
 	length = (size_t)snprintf(payload, sizeof(payload), "{\"status\": %s, \"results\": [",
@@ -647,12 +714,38 @@ static int run_poll(void)
 	if (length < sizeof(payload))
 	{
 		length += (size_t)snprintf(payload + length, sizeof(payload) - length, "], \"roles_version\": %llu, "
-			"\"wait\": 0}", (unsigned long long)link_state.roles_version);
+			"\"shared_bans_version\": %llu, \"wait\": 0", (unsigned long long)link_state.roles_version,
+			server_bans_shared_version());
 	}
 	pthread_mutex_unlock(&link_mutex);
-	if (length >= sizeof(payload))
+	/* (newer sites: the reports taken, and this server's shared bans when
+	they changed; an older site leaves them. A poll whose body would be
+	past what the site reads goes without the shared bans, then without the
+	reports too: they go with a later poll, and the commands and results
+	never wait for them) */
+	base = length;
+	for (extras_sent = 2; extras_sent >= 0; extras_sent--)
+	{
+		length = base;
+		if (extras_sent >= 1 && length < sizeof(payload) && server_reports_site_payload(extras, (int)sizeof(extras)) > 0)
+			length += (size_t)snprintf(payload + length, sizeof(payload) - length, ", %s", extras);
+		if (extras_sent >= 2 && length < sizeof(payload) && server_bans_share_payload(extras, (int)sizeof(extras)) > 0)
+			length += (size_t)snprintf(payload + length, sizeof(payload) - length, ", %s", extras);
+		if (length < sizeof(payload))
+			length += (size_t)snprintf(payload + length, sizeof(payload) - length, "}");
+		if (length >= sizeof(payload))
+			continue;
+		status = signed_request("/v1/control/poll", payload, opened, sizeof(opened), error, sizeof(error));
+		if (status != REQUEST_TOO_BIG)
+			break;
+	}
+	if (extras_sent < 0)
+	{
+		pthread_mutex_lock(&link_mutex);
+		set_problem("%s", "the poll does not fit");
+		pthread_mutex_unlock(&link_mutex);
 		return 0;
-	status = signed_request("/v1/control/poll", payload, opened, sizeof(opened), error, sizeof(error));
+	}
 	pthread_mutex_lock(&link_mutex);
 	if (status != 200)
 	{
@@ -714,6 +807,20 @@ static int run_poll(void)
 			link_state.roles_hours);
 		if (link_state.heard - link_state.roles_written >= ROLES_CACHE_SECONDS)
 			write_roles_cache();
+	}
+	/* (newer sites) the reports it took, what it has of the shared bans, the
+	lists this server takes */
+	if (poll.reports_taken_count)
+		server_reports_site_taken((const char (*)[SERVER_REPORT_ID_SIZE])poll.reports_taken, poll.reports_taken_count);
+	if (poll.has_bans_digest)
+		server_bans_share_answered(poll.bans_digest);
+	if (poll.has_shared_bans)
+	{
+		server_bans_set_shared(poll.shared_bans, poll.shared_ban_count, poll.shared_bans_version, 0);
+		write_shared_bans_cache(opened, &poll);
+		platform_log("Delta Control: the shared ban lists, version %llu: %d bans%s", (unsigned long long)
+			poll.shared_bans_version, poll.shared_ban_count, poll.shared_bans_skipped ? " (some entries were not "
+			"right and were left out)" : "");
 	}
 	for (index = 0; index < poll.command_count; index++)
 	{
@@ -890,6 +997,7 @@ void server_link_begin(void)
 		platform_log("Delta Control: linked to %s (%s, %s's); site roles at most %s", link_state.url, link_state.server_id,
 			link_state.owner, control_role_name(link_state.cap));
 		load_roles_cache();
+		load_shared_bans_cache();
 		start_thread();
 	}
 	pthread_mutex_unlock(&link_mutex);
@@ -1071,6 +1179,16 @@ void server_link_finish_command(unsigned int id, int ok, const char *output)
 		link_state.result_count++;
 	}
 	pthread_mutex_unlock(&link_mutex);
+}
+
+int server_link_linked(void)
+{
+	int linked;
+
+	pthread_mutex_lock(&link_mutex);
+	linked = link_state.state == LINK_LINKED;
+	pthread_mutex_unlock(&link_mutex);
+	return linked;
 }
 
 void server_link_set_status(const char *json)

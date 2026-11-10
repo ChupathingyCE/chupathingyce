@@ -93,6 +93,7 @@ symbols in this file:
 #include "objects/objects.h"
 #include "units/units.h"
 #include "text/unicode.h"
+#include "late_join.h" /* port: port/linux/game/late_join.c */
 
 #if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_DELTA_PROFILE)
 /* port: port/linux/game/profile_names.c's */
@@ -568,6 +569,9 @@ boolean network_game_spawn_player(
 	if (player_index != NONE)
 	{
 		player->player_list_index = (char)player_index;
+		/* port: a player made for a game in progress may wait for the next
+		(late_join.c: the host's rule) */
+		late_join_player_added(player_index);
 		return TRUE;
 	}
 

@@ -655,6 +655,9 @@ int delta_peer_protocol(void)
 		host offers it only with the dedicated server's moderation) */
 #ifdef HALO_GAME_BROWSER
 		local.capabilities |= (delta_u32)1 << _delta_capability_moderation;
+		/* (reports: a client's player reports another; a host offers it only
+		with the dedicated server's reports, server_reports.c) */
+		local.capabilities |= (delta_u32)1 << _delta_capability_reports;
 #ifdef HALO_DELTA_PEER_IDENTITY
 		/* (verified names: profile_names.c shows only these) */
 		local.capabilities |= (delta_u32)1 << _delta_capability_identity;
@@ -1377,6 +1380,7 @@ void delta_peer_game_client_moderation(struct delta_peer_game_moderation *modera
 	moderation->role = client->has_state ? client->state.role : 0;
 	moderation->permissions = client->has_state ? client->state.permissions : 0;
 	moderation->ban_minutes = client->has_state ? client->state.ban_minutes : 0;
+	moderation->actions = client->has_state ? client->state.actions : 0;
 	moderation->result_count = client->result_count;
 	moderation->result_ok = client->result.ok;
 	memcpy(moderation->result, client->result.text, sizeof(moderation->result));
@@ -1547,6 +1551,45 @@ unsigned int delta_peer_game_team_result(struct delta_wire_team_result *result)
 	if (!delta_game.ready)
 		return 0;
 	return delta_peer_client_team_result(&delta_game.peer, result);
+}
+
+/* ---------- reports (port/linux/game/report_player.c, server/src/server_reports.c) */
+
+void delta_peer_game_set_report_host(const struct delta_peer_report_host *host)
+{
+	delta_peer_protocol();
+	delta_peer_set_report_host(&delta_game.peer, host);
+}
+
+int delta_peer_game_report_ready(void)
+{
+	return delta_game.ready && delta_game.role == _role_client && delta_peer_client_report_ready(&delta_game.peer);
+}
+
+unsigned int delta_peer_game_report(int machine_index, int player, int reason, int clip)
+{
+	struct delta_wire_report report;
+
+	if (!delta_game.ready || delta_game.role != _role_client || machine_index < 0 ||
+		machine_index >= DELTA_WIRE_NO_MACHINE || player < 0 || player > 255)
+	{
+		return 0;
+	}
+	memset(&report, 0, sizeof(report));
+	report.target_machine = (unsigned char)machine_index;
+	report.target_player = (unsigned char)player;
+	report.reason = (unsigned char)reason;
+	/* (a clip's token is the host's: REPORT_RESULT's, when it asks) */
+	if (clip)
+		report.flags = DELTA_WIRE_REPORT_CLIP;
+	return delta_peer_client_report(&delta_game.peer, &report);
+}
+
+unsigned int delta_peer_game_report_result(struct delta_wire_report_result *result)
+{
+	if (!delta_game.ready)
+		return 0;
+	return delta_peer_client_report_result(&delta_game.peer, result);
 }
 
 /* ---------- object sync (port/linux/game/network_objects.c) */

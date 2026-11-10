@@ -572,6 +572,7 @@ symbols in this file:
 #include "networking/network_game_manager.h"
 #include "network_coop.h" /* port: port/linux/game/network_coop.c */
 #include "follow_camera.h" /* port: port/linux/game/follow_camera.c */
+#include "late_join.h" /* port: port/linux/game/late_join.c */
 /* (network_server_manager_internal.h's: the host's game record) */
 struct network_game *network_game_server_get_game(struct network_game_server *server);
 #include "objects.h"
@@ -9821,6 +9822,12 @@ boolean game_engine_should_spawn_player(
 			should_spawn = FALSE;
 		}
 #endif
+		/* port: a late joiner waits for the next game, where the host's rule
+		says so (late_join.c; off by default) */
+		else if (late_join_holds(player_index))
+		{
+			should_spawn = FALSE;
+		}
 		else if (player->statistics.deaths == 0)
 		{
 			should_spawn = TRUE;

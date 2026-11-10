@@ -130,6 +130,8 @@ struct browser_game
 	(p2p_listing's opence_server): the lists' neutral label
 	(HOST_LABEL_OPENCE_SERVER), nothing more */
 	unsigned char opence_server;
+	/* the host takes no new players now (sv_lock: the list's field 25) */
+	unsigned char joins_locked;
 };
 
 /* the note a screen of listed games shows while the list is down and its
@@ -482,6 +484,25 @@ struct browser_social_result
 };
 /* 0 if one is still out */
 int browser_social_act(int action, const char *handle);
+
+/* a report's clip (docs/delta.md, Reports): the file at path sent to the
+site with the report's token (16 bytes), on the browser's thread: 1 if
+taken (one at a time). Its state: BROWSER_CLIP_* */
+enum
+{
+	BROWSER_CLIP_NONE,
+	BROWSER_CLIP_SENDING,
+	BROWSER_CLIP_SENT,
+	BROWSER_CLIP_TOO_BIG,
+	BROWSER_CLIP_TOO_MANY,
+	BROWSER_CLIP_FAILED,
+};
+int browser_clip_upload(const char *path, const unsigned char *token);
+int browser_clip_state(void);
+/* the clips in <data root>/clips (capture's: *.mp4 no bigger than the site
+takes), newest first, at most most (16): their paths and file names; the
+count */
+int browser_clips_list(char paths[][512], char names[][48], int most);
 void browser_social_result(struct browser_social_result *result);
 /* a join the site allowed: its halo://join link, once (1) */
 int browser_social_take_join(char *link, int size);
