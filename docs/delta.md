@@ -2241,6 +2241,27 @@ and more). The site takes any key (at most 64 a line) and counts the ones
 it knows (`site.js`, `MEDALS`); its checks hold a line's multikill medals
 to its kills, and its sprees, five kills each, too.
 
+The names and icons are the site's too, one set for both. `tools/medal_assets.py`,
+run by hand with a checkout of ChupathingyCE/puma, reads `site.js`'s
+tables (`MEDALS`, `TIERS`, `SHAPES`, `GLYPHS`), draws each icon as the
+site's `medalSVG` does, and writes `port/assets/medals` (`medals.json` and
+an atlas of 64 pixels a medal, which the builds embed, and one of 32
+for a console later) and `port/linux/src/medal_icons.h`.
+puma's `test_medals_sync.py` keeps the digest of the tables the game was
+made from, so a change on the site says to run it again;
+`tools/test_medal_rules.py` checks every key of `medal_rules.h` has its
+entry and icon.
+
+With `display.medals` on, the HUD shows each medal you earn as its icon at
+the end of the kill's line in the kill feed, at the text's height
+(`port/linux/game/medal_hud.c`, from `source/interface/hud_messaging.c`,
+drawn by the overlay). The icons come, fade and scroll with that line.
+Medals no kill's line took get a line of their own, the icons alone. Off,
+the kill feed is retail's. The icons need the game list
+(`HALO_GAME_BROWSER`), so every console build and the dedicated server are
+without them and show the medal's name as a line of the HUD's messages. DELTA's SERVICE
+RECORD shows your top medals with their icons, names and counts.
+
 ### Map facts
 
 `game.map_info` (optional; added in 0.8.0, still schema 2) describes the
@@ -3124,7 +3145,7 @@ signout signature   f579b26e3db2c34573a7a4e9842d85ef6646513dbf73706aeae41c825a44
 
 ### The doorbell
 
-The Guide asks the site for its friends every 20 seconds in the menus and
+DELTA asks the site for its friends every 20 seconds in the menus and
 every minute in a game (`POST /v1/social/state`; the site takes 6 a minute
 from a copy). The doorbell makes invites, friend requests, party changes
 and friends coming online show up within about a second instead: the site
@@ -3188,7 +3209,7 @@ rings, and the game asks at once.
   rings, never what changed or for whom.
 - **The setting:** `network.doorbell` (on by default; it changes nothing in
   a game). Off, or a copy not linked, no user name and no subscription.
-  Consoles keep polling (they have no Guide's friends yet).
+  Consoles keep polling (they have no DELTA friends yet).
 - **The code:** `p2p_signal.c` (`p2p_signal_doorbell`), `p2p.c`
   (`p2p_doorbell`, `p2p_doorbell_rings`), `browser.c` and `social.c` (the
   ring's poll), and the site's `doorbell.py`. Tests: `tools/test_doorbell.py`

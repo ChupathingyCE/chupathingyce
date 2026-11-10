@@ -609,6 +609,10 @@ void game_stats_player_extra(long player_index, char *text, long size, short *mu
 void game_stats_game_extra(boolean host, char *text, long size);
 boolean game_stats_line_full(long player_index, boolean host);
 #endif
+#ifdef HALO_MEDAL_ICONS
+/* port: display.medals's kill feed (port/linux/game/medal_hud.c) */
+void medal_hud_hold(boolean hold);
+#endif
 
 #ifdef HALO_CUSTOM_EDITION
 /* cache_files.c's */
@@ -5241,6 +5245,11 @@ void game_engine_player_killed(
 	{
 		struct data_iterator iterator;
 
+		/* port: a player quitting's lines take no medals (display.medals:
+		port/linux/game/medal_hud.c) */
+#ifdef HALO_MEDAL_ICONS
+		medal_hud_hold(TRUE);
+#endif
 		data_iterator_new(&iterator, player_data);
 		while (data_iterator_next(&iterator))
 		{
@@ -5249,6 +5258,9 @@ void game_engine_player_killed(
 				_game_engine_message_quit,
 				dead_player_index);
 		}
+#ifdef HALO_MEDAL_ICONS
+		medal_hud_hold(FALSE);
+#endif
 	}
 
 	if (message == _game_engine_message_killed_by_friendly_fire)

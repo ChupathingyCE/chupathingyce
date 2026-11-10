@@ -734,7 +734,7 @@ void guide_update(boolean menu_open);
 void guide_process(void);
 void guide_pointer(struct halo_ui_pointer const *pointer);
 void guide_render(void);
-/* the pause menu's GUIDE with what waits in the Guide ("GUIDE 2"), for
+/* the pause menu's DELTA with what waits in it ("DELTA 2"), for
 its text's string list; NULL to leave it */
 wchar_t const *guide_pause_label(long string_list_tag);
 #endif
@@ -6134,7 +6134,7 @@ static void widget_instance_render_text_box(
 #endif
 #ifdef HALO_GUIDE
 		{
-			/* port: the pause menu's GUIDE, with a count ("GUIDE 2") */
+			/* port: the pause menu's DELTA, with a count ("DELTA 2") */
 			wchar_t const *guide_label = guide_pause_label(definition->text_label_string_list.index);
 
 			if (guide_label)

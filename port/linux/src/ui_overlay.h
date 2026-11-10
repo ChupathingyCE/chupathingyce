@@ -140,6 +140,14 @@ serial's are not read again), 0 none */
 void ui_overlay_picture(int serial, const unsigned char *pixels, int width, int height, float x, float y,
 	float draw_width, float draw_height, unsigned int color);
 
+/* a medal's icon (medal_icons.h's index: the site's medals, as
+stats.chupathingy.org draws them), size square, x, y its top left, tinted by
+color (its alpha fades it). Nothing in a build without them
+(HALO_MEDAL_ICONS, halo_console_features.h); ui_overlay_medals_available
+says whether they are drawn */
+void ui_overlay_medal(int medal, float x, float y, float size, unsigned int color);
+int ui_overlay_medals_available(void);
+
 /* a place the overlay leaves for the game's own drawing (a map's picture),
 for this frame (at most 4) */
 void ui_overlay_cutout(float x, float y, float width, float height);

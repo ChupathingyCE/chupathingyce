@@ -62,17 +62,17 @@ gets a controller at rest, and their player stands still
 alone pauses as it does under the pause menu. B closes it, back to what was
 under it as it was.
 
-It opens with controls.guide (F3), the first player's Guide button
-(controls.guide_button, where SDL reads it), Back held in the menus with
-guide.hold_back (off by default), or the first player's pause menu's GUIDE
-(menu_tags.c, guide.pause_menu); the same key or button, or B, closes it.
+It opens with controls.delta (F3), the first player's Guide button
+(controls.delta_button, where SDL reads it), Back held in the menus with
+delta.hold_back (off by default), or the first player's pause menu's DELTA
+(menu_tags.c, delta.pause_menu); the same key or button, or B, closes it.
 
 Toasts show for a few seconds (in the menus in the bottom left corner,
 clear of their items; in a game low in the middle): a new
 invite or friend request, and a friend come online (delta.notify_online,
-off by default, menus only). In a game only with guide.notify_in_game. The
+off by default, menus only). In a game only with delta.notify_in_game. The
 Guide's key or button while one shows opens its item. The pause menu's
-GUIDE counts what waits ("GUIDE 2": invites and requests).
+DELTA counts what waits ("DELTA 2": invites and requests).
 */
 
 #include "cseries.h"
@@ -150,7 +150,7 @@ link joined */
 int p2p_hosting_invite(char *text, int size);
 int p2p_joined_invite(char *text, int size);
 int p2p_join_invite(char const *text);
-/* menu_tags.c's: the pause menu's GUIDE text (NONE: none in this map) */
+/* menu_tags.c's: the pause menu's DELTA text (NONE: none in this map) */
 long pc_menu_pause_guide_label(void);
 /* ui_widget.c's: the game paused as a menu pauses it */
 void ui_widgets_port_pause_game(boolean pause);
@@ -520,7 +520,7 @@ static struct
 	boolean toast_always;
 	boolean debug_toast_done;
 	boolean debug_open_done;
-	/* debug.guide_test: the next step, and when the last one ran */
+	/* debug.delta_test: the next step, and when the last one ran */
 	short debug_step;
 	unsigned long debug_step_time;
 	boolean debug_row_done;
@@ -1680,7 +1680,7 @@ static void friends_news(boolean first)
 		if (social_game_line(&invite->game, line, sizeof(line)) < 0)
 			snprintf(line, sizeof(line), "Game invite");
 		toast_from(_toast_invite, invite->id, title, line, streamer ? "" : name);
-		platform_log("Guide: a new invite");
+		platform_log("DELTA: a new invite");
 	}
 	else if (party_invite != NONE)
 	{
@@ -1693,7 +1693,7 @@ static void friends_news(boolean first)
 			snprintf(title, sizeof(title), "%s invited you", name);
 		snprintf(line, sizeof(line), "Party of %d", invite->size);
 		toast_from(_toast_party_invite, invite->party, title, line, streamer ? "" : name);
-		platform_log("Guide: a new party invite");
+		platform_log("DELTA: a new party invite");
 	}
 	else if (news.request >= 0 && !first)
 	{
@@ -1702,7 +1702,7 @@ static void friends_news(boolean first)
 
 		toast_from(_toast_request, request->handle, streamer ? "Friend request" : name, streamer ? "" : "Friend request",
 			streamer ? "" : name);
-		platform_log("Guide: a new friend request");
+		platform_log("DELTA: a new friend request");
 	}
 	else if (news.online >= 0 && !first && !in_game() && config_boolean("delta.notify_online"))
 	{
@@ -1766,7 +1766,7 @@ static void friends_update(void)
 		{
 			/* (as any invite link: Internet play joins it) */
 			guide_close();
-			platform_log("Guide: joining a friend's game");
+			platform_log("DELTA: joining a friend's game");
 			p2p_join_invite(link);
 		}
 		return;
@@ -2522,7 +2522,7 @@ static void party_where(void)
 		{
 			social_copy_text(guide.go_sent, sizeof(guide.go_sent), invite);
 			browser_party_go(invite);
-			platform_log("Guide: the party is told where its leader went");
+			platform_log("DELTA: the party is told where its leader went");
 		}
 		return;
 	}
@@ -2544,7 +2544,7 @@ static void party_where(void)
 
 		social_follow_reason(&guide.party, &inputs, line, sizeof(line));
 		toast_from(_toast_party_note, "", "Party", line, "");
-		platform_log("Guide: can't follow the party's leader (%s)", guide.party.go.reason[0] ? guide.party.go.reason :
+		platform_log("DELTA: can't follow the party's leader (%s)", guide.party.go.reason[0] ? guide.party.go.reason :
 			"hosting");
 		return;
 	}
@@ -2561,7 +2561,7 @@ static void party_where(void)
 	guide.held = 0xFFFFFFFF;
 	platform_guide_capture(TRUE);
 	event_manager_flush();
-	platform_log("Guide: following the party's leader in a few seconds");
+	platform_log("DELTA: following the party's leader in a few seconds");
 }
 
 static void follow_end(boolean go)
@@ -2575,7 +2575,7 @@ static void follow_end(boolean go)
 	{
 		if (go)
 			party_act("join", guide.follow_party);
-		platform_log(go ? "Guide: joining a party by its link" : "Guide: the party link was not joined");
+		platform_log(go ? "DELTA: joining a party by its link" : "DELTA: the party link was not joined");
 		guide.follow_party[0] = 0;
 		return;
 	}
@@ -2584,7 +2584,7 @@ static void follow_end(boolean go)
 		struct social_party_member const *leader = social_party_leader(&guide.party);
 		char name[64];
 
-		platform_log("Guide: following the party's leader");
+		platform_log("DELTA: following the party's leader");
 		snprintf(name, sizeof(name), "%s's game", leader ? leader->name : "the leader");
 		/* (in the menus, Online Games joins it as a pasted link; in a game,
 		the link alone: the host shows under System Link) */
@@ -2592,7 +2592,7 @@ static void follow_end(boolean go)
 			p2p_join_invite(guide.follow_link);
 	}
 	else
-		platform_log("Guide: stayed");
+		platform_log("DELTA: stayed");
 }
 
 /* whether the offer's countdown ending joins (else the member stays): in
@@ -2632,7 +2632,7 @@ static void party_link_offer(void)
 	guide.held = 0xFFFFFFFF;
 	platform_guide_capture(TRUE);
 	event_manager_flush();
-	platform_log("Guide: a party link, asking first");
+	platform_log("DELTA: a party link, asking first");
 }
 
 
@@ -3125,12 +3125,12 @@ static void plasma_look(void)
 		}
 	}
 	if (guide.plasma_tries == PLASMA_TRIES)
-		platform_log("Guide: no plasma map in ui.map; drawn from the Guide's own");
+		platform_log("DELTA: no plasma map in ui.map; drawn from DELTA's own");
 }
 
 static void render_card(void)
 {
-	ui_style_card(CONTENT_LEFT, CONTENT_RIGHT, HEADER_Y, guide.name, guide.status, guide.color, "GUIDE");
+	ui_style_card(CONTENT_LEFT, CONTENT_RIGHT, HEADER_Y, guide.name, guide.status, guide.color, "DELTA");
 }
 
 static void render_tabs(void)
@@ -4325,7 +4325,7 @@ static void render_prompts(void)
 }
 
 /* the toast on screen now: in the menus, in a game only with
-guide.notify_in_game, a friend online's in the menus alone */
+delta.notify_in_game, a friend online's in the menus alone */
 static boolean toast_visible(void)
 {
 	if (!guide.toast_shown || system_milliseconds() - guide.toast_time >= TOAST_TIME)
@@ -4333,7 +4333,7 @@ static boolean toast_visible(void)
 	/* (quiet in a game unless asked for: a screenshot's or clip's, and a
 	party's note, always show) */
 	if (in_game() && !guide.toast_always && guide.toast_kind != _toast_party_note &&
-		(!config_boolean("guide.notify_in_game") || guide.toast_kind == _toast_friend))
+		(!config_boolean("delta.notify_in_game") || guide.toast_kind == _toast_friend))
 	{
 		return FALSE;
 	}
@@ -4374,7 +4374,7 @@ static void render_toast(void)
 		/* (the key that opens it) */
 		if (ui_overlay_keyboard())
 		{
-			char const *key = config_string("controls.guide");
+			char const *key = config_string("controls.delta");
 
 			key = key[0] ? key : "F3";
 			text_right -= ui_overlay_key_width(key, 12.0f) + 6;
@@ -4529,7 +4529,7 @@ void guide_open(void)
 	guide.paused_game = pauses_game();
 	if (guide.paused_game)
 		ui_widgets_port_pause_game(TRUE);
-	platform_log("Guide: opened");
+	platform_log("DELTA: opened");
 }
 
 void guide_about_open(void)
@@ -4602,7 +4602,7 @@ wchar_t const *guide_pause_label(long string_list_tag)
 
 	if (tag == NONE || string_list_tag != tag || (waiting = (short)(friends_waiting() + clan_invites_waiting())) <= 0)
 		return NULL;
-	snprintf(text, sizeof(text), "GUIDE %d", MIN(waiting, 99));
+	snprintf(text, sizeof(text), "DELTA %d", MIN(waiting, 99));
 	for (index = 0; text[index] && index < (short)NUMBEROF(label) - 1; index++)
 		label[index] = (wchar_t)text[index];
 	label[index] = 0;
@@ -4641,11 +4641,11 @@ void guide_update(boolean menu_open)
 	starts once it can show) */
 	if (guide.toast_shown && (bink_playback_active() || (!main_menu_is_active() && !game_map_loaded())))
 		guide.toast_time = system_milliseconds();
-	/* (debug.guide_open and debug.guide_toast: for screenshots and tests,
+	/* (debug.delta_open and debug.delta_toast: for screenshots and tests,
 	once a run) */
-	if (!guide.debug_open_done && config_boolean("debug.guide_open") && (main_menu_is_active() || game_map_loaded()))
+	if (!guide.debug_open_done && config_boolean("debug.delta_open") && (main_menu_is_active() || game_map_loaded()))
 	{
-		char const *wanted = config_string("debug.guide_section");
+		char const *wanted = config_string("debug.delta_section");
 		short section;
 
 		guide.debug_open_done = TRUE;
@@ -4660,12 +4660,12 @@ void guide_update(boolean menu_open)
 				section_go(section);
 		}
 	}
-	/* (debug.guide_row: that row chosen once its section has it) */
-	if (guide.debug_open_done && !guide.debug_row_done && guide.open && config_integer("debug.guide_row") >= 0 &&
-		section_rows(guide.section) > config_integer("debug.guide_row"))
+	/* (debug.delta_row: that row chosen once its section has it) */
+	if (guide.debug_open_done && !guide.debug_row_done && guide.open && config_integer("debug.delta_row") >= 0 &&
+		section_rows(guide.section) > config_integer("debug.delta_row"))
 	{
 		guide.debug_row_done = TRUE;
-		guide.row[guide.section] = (short)config_integer("debug.guide_row");
+		guide.row[guide.section] = (short)config_integer("debug.delta_row");
 		if (guide.section == SOCIAL_SECTION_FRIENDS)
 			chosen_remember();
 	}
@@ -4681,11 +4681,11 @@ void guide_update(boolean menu_open)
 		else
 			party_act(step, "");
 	}
-	if (!guide.debug_toast_done && config_string("debug.guide_toast")[0] && main_menu_is_active() &&
+	if (!guide.debug_toast_done && config_string("debug.delta_toast")[0] && main_menu_is_active() &&
 		menu_open)
 	{
 		guide.debug_toast_done = TRUE;
-		guide_toast(config_string("debug.guide_toast"), "Online \xC2\xB7 In the menus");
+		guide_toast(config_string("debug.delta_toast"), "Online \xC2\xB7 In the menus");
 	}
 	/* (F3, the Guide button, Back held in the menus: open or close; not
 	over the virtual keyboard, which takes typing) */
@@ -4725,7 +4725,7 @@ void guide_update(boolean menu_open)
 
 static void handle(unsigned int pressed);
 
-/* debug.guide_test: once the Guide opened by itself (debug.guide_open),
+/* debug.delta_test: once the Guide opened by itself (debug.delta_open),
 its steps pressed one at a time, DEBUG_STEP_INTERVAL apart, from
 DEBUG_STEP_WAIT after it opened ("down;down;a":
 up, down, left, right, a, b, x, y, lb, rb). Debug builds only: a release
@@ -4741,7 +4741,7 @@ static void debug_steps(void)
 static void debug_steps(void)
 {
 	static char const *const words[] = { "up", "down", "left", "right", "a", "b", "x", "y", "lb", "rb" };
-	char const *steps = config_string("debug.guide_test");
+	char const *steps = config_string("debug.delta_test");
 	unsigned long now = system_milliseconds();
 	short step = 0, index;
 
@@ -4767,7 +4767,7 @@ static void debug_steps(void)
 		if (!strncmp(steps, words[index], length) && (steps[length] == ';' || !steps[length]))
 		{
 			handle(1u << index);
-			platform_log("Guide: test step %s", words[index]);
+			platform_log("DELTA: test step %s", words[index]);
 			return;
 		}
 	}
