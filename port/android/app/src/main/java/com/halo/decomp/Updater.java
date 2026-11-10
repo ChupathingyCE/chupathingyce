@@ -48,7 +48,15 @@ import java.util.zip.ZipInputStream;
  * - Do not ask again: after the player confirms it, update.auto = false is
  *   written to config.toml.
  *
- * Every release and nightly is signed with the same key (the release
+ * The update channel (update.channel in config.toml: release, testing or
+ * nightly; a build's default is its own channel, BuildConfig
+ * HALO_UPDATE_CHANNEL) works as the desktop's (updater.c): Testing is also
+ * offered the testing feed's build, Nightly the testing and nightly feeds',
+ * the newest of them all, never one older than this build. A feed is used
+ * only when its signature checks (UpdateManifest.checkFeed), so before
+ * Android 13, which has no Ed25519 here, only releases are offered.
+ *
+ * Every release and nightly is signed with the same app key (the release
  * workflow's), which an app must keep for Android to install a new version
  * over it.
  */
@@ -68,18 +76,135 @@ final class Updater {
     private Updater() {
     }
 
+    /** the channels, from the most stable (update.channel) */
+    private static final String[] CHANNELS = { "release", "testing", "nightly" };
+
+    /** a feed's newer build: its channel, and its list, its signature checked */
+    static final class Feed {
+        final String channel, list;
+
+        Feed(String channel, String list) {
+            this.channel = channel;
+            this.list = list;
+        }
+    }
+
     /** At the game's start: looks for a new version, in the background. */
     static void start(Activity activity) {
         File config = configFile(activity);
 
-        if (!BuildConfig.HALO_RELEASE_BUILD || config == null || !autoUpdate(config))
+        if (!(BuildConfig.HALO_RELEASE_BUILD || !BuildConfig.HALO_UPDATE_CHANNEL.isEmpty()) || config == null
+            || !autoUpdate(config))
             return;
+        int chosen = chosenChannel(config);
         new Thread(() -> {
             String latest = latestRelease();
+            Feed best = null;
 
-            if (latest != null && newer(latest, BuildConfig.HALO_VERSION))
-                activity.runOnUiThread(() -> ask(activity, latest));
+            // (Testing and Nightly: each feed more stable than the chosen one too)
+            for (int channel = 1; channel <= chosen; channel++) {
+                Feed feed = feed(CHANNELS[channel]);
+
+                if (feed == null)
+                    continue;
+                try {
+                    String version = UpdateManifest.about(feed.list, feed.channel);
+
+                    if (latest == null || newer(version, latest)) {
+                        latest = version;
+                        best = feed;
+                    }
+                } catch (UpdateManifest.Refused e) {
+                    android.util.Log.i(LOG_TAG, "update: the " + feed.channel + " channel's list was not used: "
+                        + e.getMessage());
+                }
+            }
+            String found = latest;
+            Feed from = best;
+
+            if (found != null && newer(found, BuildConfig.HALO_VERSION))
+                activity.runOnUiThread(() -> ask(activity, found, from));
         }, "update check").start();
+    }
+
+    /** update.channel's index in CHANNELS: config.toml's, else this build's own */
+    static int chosenChannel(File config) {
+        String chosen = configString(config, "update", "channel");
+
+        if (chosen == null)
+            chosen = BuildConfig.HALO_UPDATE_CHANNEL.isEmpty() ? "release" : BuildConfig.HALO_UPDATE_CHANNEL;
+        for (int index = 0; index < CHANNELS.length; index++) {
+            if (CHANNELS[index].equals(chosen))
+                return index;
+        }
+        return 0;
+    }
+
+    /** a string setting of section's, or null when config.toml has none */
+    private static String configString(File config, String wanted, String key) {
+        String section = "";
+
+        for (String line : readLines(config)) {
+            String trimmed = line.trim();
+
+            if (trimmed.startsWith("[") && trimmed.contains("]")) {
+                section = trimmed.substring(1, trimmed.indexOf(']')).trim();
+            } else if (section.equals(wanted) && isKey(trimmed, key)) {
+                java.util.regex.Matcher value = java.util.regex.Pattern.compile("=\\s*\"([a-z]*)\"")
+                    .matcher(trimmed);
+
+                return value.find() ? value.group(1) : null;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * A channel's feed (testing or nightly): its list, once its signature
+     * checks; null if it is not there, not signed, or cannot be checked here.
+     */
+    private static Feed feed(String channel) {
+        String base = "https://github.com/" + REPOSITORY + "/releases/download/" + channel + "/";
+
+        try {
+            byte[] document = fetch(base + "updates.json"), signature = fetch(base + "updates.json.sig");
+            UpdateManifest.Check check = UpdateManifest.checkFeed(document,
+                new String(signature, StandardCharsets.US_ASCII));
+
+            if (!UpdateManifest.feedUsable(check)) {
+                android.util.Log.i(LOG_TAG, "update: the " + channel + " channel's list was not used: "
+                    + (check == UpdateManifest.Check.NOT_CHECKED ? "no Ed25519 before Android 13" : "not signed"));
+                return null;
+            }
+            return new Feed(channel, new String(document, StandardCharsets.UTF_8));
+        } catch (IOException e) {
+            android.util.Log.i(LOG_TAG, "update: could not read the " + channel + " channel's list: " + e);
+            return null;
+        }
+    }
+
+    /** a small download (a list or a signature) into memory */
+    private static byte[] fetch(String address) throws IOException {
+        HttpURLConnection connection = open(address);
+
+        try {
+            if (connection.getResponseCode() != 200)
+                throw new IOException("the server answered " + connection.getResponseCode());
+            try (InputStream stream = connection.getInputStream()) {
+                ByteArrayOutputStream out = new ByteArrayOutputStream();
+                byte[] buffer = new byte[16384];
+                int count;
+
+                while ((count = stream.read(buffer)) > 0) {
+                    out.write(buffer, 0, count);
+                    if (out.size() > MAXIMUM_LIST_SIZE)
+                        throw new IOException("the download is larger than expected");
+                }
+                return out.toByteArray();
+            }
+        } finally {
+            connection.disconnect();
+        }
     }
 
     static File configFile(Activity activity) {
@@ -190,23 +315,13 @@ final class Updater {
     }
 
     /**
-     * Whether version is newer than current: [v]<major>.<minor>.<patch> and a
-     * hotfix letter (0.7.5a) or none, by the numbers, then the letter, a
-     * version without one first (as updater.c's updater_newer).
+     * Whether version is newer than current (UpdateManifest.compare, as
+     * updater.c's updater_newer): by the numbers, then the hotfix letter, a
+     * version without one first, then a release before its test builds and
+     * nightlies, which are in the order they were built.
      */
     static boolean newer(String version, String current) {
-        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("v?(\\d+)\\.(\\d+)\\.(\\d+)(.*)");
-        java.util.regex.Matcher latest = pattern.matcher(version), now = pattern.matcher(current);
-
-        if (!latest.matches() || !now.matches())
-            return false;
-        for (int part = 1; part <= 3; part++) {
-            long a = Long.parseLong(latest.group(part)), b = Long.parseLong(now.group(part));
-
-            if (a != b)
-                return a > b;
-        }
-        return latest.group(4).compareTo(now.group(4)) > 0;
+        return UpdateManifest.newer(version, current);
     }
 
     /** GitHub's latest release's version (its tag, without the v), null if there is none */
@@ -218,8 +333,13 @@ final class Updater {
             try (InputStream stream = connection.getInputStream()) {
                 String tag = new JSONObject(new String(readAll(stream), StandardCharsets.UTF_8)).optString("tag_name");
 
-                // (a version goes into the download's address: letters, digits and . _ + - only)
-                return tag.matches("v[0-9A-Za-z_+-][0-9A-Za-z._+-]{0,30}") ? tag.substring(1) : null;
+                // (a version goes into the download's address: letters, digits and . _ + - only;
+                // and the latest release's is a release's, never a test build's or a nightly's)
+                if (!tag.matches("v[0-9A-Za-z_+-][0-9A-Za-z._+-]{0,30}") || !UpdateManifest.release(tag.substring(1))) {
+                    android.util.Log.i(LOG_TAG, "update: the latest release's tag " + tag + " is not used");
+                    return null;
+                }
+                return tag.substring(1);
             } finally {
                 connection.disconnect();
             }
@@ -231,7 +351,7 @@ final class Updater {
 
     /* ---------- the player's answer */
 
-    private static void ask(Activity activity, String latest) {
+    private static void ask(Activity activity, String latest, Feed feed) {
         if (activity.isFinishing())
             return;
         new AlertDialog.Builder(activity)
@@ -240,7 +360,7 @@ final class Updater {
                 + BuildConfig.HALO_VERSION + ").\n\nDo you want to update? The game will close and start "
                 + "the new version.")
             .setCancelable(false)
-            .setPositiveButton("Yes", (dialog, which) -> update(activity, latest, BuildConfig.HALO_UPDATE_ASSET))
+            .setPositiveButton("Yes", (dialog, which) -> update(activity, latest, BuildConfig.HALO_UPDATE_ASSET, feed))
             .setNegativeButton("No", null)
             .setNeutralButton("Do not ask again", (dialog, which) -> confirmNever(activity))
             .show();
@@ -276,10 +396,10 @@ final class Updater {
      * (LauncherActivity). Release builds only: others have no release.
      */
     static void switchTo64Bit(Activity activity) {
-        update(activity, BuildConfig.HALO_VERSION, ASSET_64BIT);
+        update(activity, BuildConfig.HALO_VERSION, ASSET_64BIT, null);
     }
 
-    private static void update(Activity activity, String latest, String assetBase) {
+    private static void update(Activity activity, String latest, String assetBase, Feed feed) {
         // (the native 64-bit build's is chupathingyce-android64-*: build.gradle)
         String configuration = BuildConfig.DEBUG ? "debug" : "release";
         String asset = assetBase + "-" + configuration + ".zip";
@@ -308,7 +428,11 @@ final class Updater {
                 File zip = new File(directory, "update.zip");
                 File apk = new File(directory, UpdateProvider.APK);
 
-                UpdateManifest.Entry listed = listedFile(directory, latest, configuration, assetBase);
+                // (the release path takes a release's version alone)
+                if (feed == null && !UpdateManifest.release(latest))
+                    throw new IOException("version " + latest + " is not a release's");
+                UpdateManifest.Entry listed = feed != null ? feedFile(feed, latest, configuration, assetBase)
+                    : listedFile(directory, latest, configuration, assetBase);
                 String address = listed != null
                     ? "https://github.com/" + REPOSITORY + "/releases/download/" + listed.tag + "/" + listed.name
                     : "https://github.com/" + REPOSITORY + "/releases/download/v" + latest + "/" + asset;
@@ -390,6 +514,26 @@ final class Updater {
             return listed;
         } catch (UpdateManifest.Refused e) {
             throw new IOException("the release's list of update files was not used: " + e.getMessage());
+        }
+    }
+
+    /**
+     * A feed's file for this build, from the list checked when it was found;
+     * a feed's build has no zip by an older name, so none is an error.
+     */
+    private static UpdateManifest.Entry feedFile(Feed feed, String latest, String configuration, String assetBase)
+            throws IOException {
+        String platform = assetBase.substring("chupathingyce-".length());
+
+        try {
+            UpdateManifest.Entry listed = UpdateManifest.findChannel(feed.list, feed.channel, latest, platform,
+                configuration, "zip");
+
+            if (listed == null)
+                throw new IOException("the " + feed.channel + " channel's list has no " + platform + " " + configuration);
+            return listed;
+        } catch (UpdateManifest.Refused e) {
+            throw new IOException("the " + feed.channel + " channel's list was not used: " + e.getMessage());
         }
     }
 

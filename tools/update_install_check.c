@@ -17,7 +17,9 @@ an update that succeeds ends it by starting the new one. Started with
 APPIMAGE set, it is an AppImage, as the AppImage runtime would start it.
 */
 
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
 /* (in place of the game's platform.h and its SDK headers: what updater.c
 uses of it is here) */
 #define __HALO_LINUX_PLATFORM_H
@@ -86,6 +88,10 @@ double config_real(const char *name)
 
 const char *config_string(const char *name)
 {
+	/* (update.channel: the test's, HALO_UPDATE_TEST_CHANNEL; none, the
+	release channel) */
+	if (!strcmp(name, "update.channel"))
+		return getenv("HALO_UPDATE_TEST_CHANNEL") ? getenv("HALO_UPDATE_TEST_CHANNEL") : "";
 	return !strcmp(name, "debug.update_answer") ? "yes" : "";
 }
 
