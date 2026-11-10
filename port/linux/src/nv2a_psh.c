@@ -338,12 +338,9 @@ static void dot_input(struct xgpu_text *text, const DWORD *state, int stage)
 	"precision highp samplerCube;\n"
 #else
 #define SAMPLE_BIAS ""
-#ifdef __APPLE__
-/* macOS stops at OpenGL 4.1 */
-#define SHADER_VERSION "#version 410 core\n"
-#else
-#define SHADER_VERSION "#version 450 core\n"
-#endif
+/* (macOS stops at OpenGL 4.1, and an older driver may be older: xgpu.h) */
+#define SHADER_VERSION_LINE XGPU_GL_VERSION_LINE
+#define SHADER_VERSION ""
 #endif
 
 static void sample(struct xgpu_text *text, const struct nv2a_pixel_shader_key *key, int stage, const char *coordinates)
@@ -637,6 +634,9 @@ char *nv2a_pixel_shader_to_glsl(const struct nv2a_pixel_shader_key *key)
 			"layout(binding = 0, offset = 0) uniform atomic_uint visible_samples;\n");
 	}
 #endif
+#ifndef HALO_GL_ES
+	xgpu_text_append(&text, "%s", SHADER_VERSION_LINE);
+#endif
 	xgpu_text_append(&text,
 		SHADER_VERSION
 		"in vec4 xD0;\n"
@@ -655,6 +655,7 @@ char *nv2a_pixel_shader_to_glsl(const struct nv2a_pixel_shader_key *key)
 	if (key->per_pixel_lighting)
 		model_lighting(&text, key->per_pixel_lighting == 2);
 	xgpu_text_append(&text,
+		NV2A_FINITE
 		"float signed_byte(float x)\n"
 		"{\n"
 		"	float b = floor(x * 255.0 + 0.5);\n"
@@ -781,6 +782,9 @@ char *nv2a_pixel_shader_to_glsl(const struct nv2a_pixel_shader_key *key)
 #endif
 	if (replaces_depth(key))
 		xgpu_text_append(&text, "\tgl_FragDepth = replaced_depth;\n");
-	xgpu_text_append(&text, "\tfragment_color = clamp(result, 0.0, 1.0);\n}\n");
+	/* (no component not a number: nv2a_finite, xgpu.h) */
+	xgpu_text_append(&text,
+		"\tresult = nv2a_finite(result);\n"
+		"\tfragment_color = clamp(result, 0.0, 1.0);\n}\n");
 	return text.buffer;
 }

@@ -81,6 +81,13 @@ static struct
 	/* the last refresh that took an index asked for it alone (no mirror
 	list): one that wants the mirror list is due at once */
 	int index_only;
+	/* when a full refresh last got no mirror list (0: it did, or none was
+	asked), and the wait after it (RETRY_SECONDS, doubled for each failure
+	after it, up to RETRY_SECONDS_MOST): that alone is asked for again then,
+	and only a mirror list that checks ends the waits (an index taken meanwhile
+	doesn't) */
+	long long mirrors_failed;
+	long long mirrors_retry;
 	struct map_mirrors mirrors;
 	int has_mirrors;
 	struct document_floor index_floor, mirrors_floor;
@@ -316,6 +323,29 @@ static void refresh_failed(long long now)
 		map_repo.retry * 2 > RETRY_SECONDS_MOST ? RETRY_SECONDS_MOST : map_repo.retry * 2;
 }
 
+/* (the lock held) a mirror list that failed on a full refresh: asked for
+again no sooner than its own wait, doubled each time */
+static void mirrors_failed(long long now)
+{
+	map_repo.mirrors_failed = now;
+	map_repo.mirrors_retry = !map_repo.mirrors_retry ? RETRY_SECONDS :
+		map_repo.mirrors_retry * 2 > RETRY_SECONDS_MOST ? RETRY_SECONDS_MOST : map_repo.mirrors_retry * 2;
+}
+
+/* (the lock held) what a refresh with flags would fetch at now: the index
+(with the mirror list unless flags ask for the index alone), or the mirror
+list alone, its index still good */
+static void refresh_wants(long long now, int flags, int *index_due, int *mirrors_due)
+{
+	*index_due = !map_repo.index || !map_repo.fetched || now - map_repo.fetched >= map_repo.info.refresh ||
+		now > map_repo.info.expires;
+	*mirrors_due = !(flags & MAP_REPO_REFRESH_INDEX_ONLY) && (map_repo.index_only || (map_repo.mirrors_failed &&
+		now >= map_repo.mirrors_failed && now - map_repo.mirrors_failed >= map_repo.mirrors_retry));
+	/* (not again before a failure's wait is over) */
+	if (map_repo.failed && now - map_repo.failed < map_repo.retry && now >= map_repo.failed)
+		*index_due = *mirrors_due = 0;
+}
+
 /* ---------- public code */
 
 int map_repo_enabled(void)
@@ -335,16 +365,12 @@ int map_repo_enabled(void)
 
 int map_repo_refresh_due(long long now, int flags)
 {
-	int due;
+	int index_due, mirrors_due;
 
 	pthread_mutex_lock(&map_repo_lock);
-	due = !map_repo.index || !map_repo.fetched || now - map_repo.fetched >= map_repo.info.refresh ||
-		now > map_repo.info.expires || (!(flags & MAP_REPO_REFRESH_INDEX_ONLY) && map_repo.index_only);
-	/* (not again before a failure's wait is over) */
-	if (due && map_repo.failed && now - map_repo.failed < map_repo.retry && now >= map_repo.failed)
-		due = 0;
+	refresh_wants(now, flags, &index_due, &mirrors_due);
 	pthread_mutex_unlock(&map_repo_lock);
-	return due;
+	return index_due || mirrors_due;
 }
 
 int map_repo_load(const struct map_repo_transport *transport, long long now, char *why, int why_size)
@@ -445,9 +471,9 @@ int map_repo_refresh(const struct map_repo_transport *transport, const char *bas
 	unsigned char sha256[MAP_INDEX_HASH_SIZE], mirrors_sha256[MAP_INDEX_HASH_SIZE];
 	struct map_index_info info;
 	struct map_mirrors *mirrors = NULL;
-	char *document, *mirrors_text = NULL;
-	long size, mirrors_size = -1;
-	int has_mirrors = 0, index_allowed, mirrors_allowed = 0;
+	char *document = NULL, *mirrors_text = NULL;
+	long size = 0, mirrors_size = -1;
+	int has_mirrors = 0, index_allowed = 0, mirrors_allowed = 0, index_due, mirrors_due, held;
 
 	if (why && why_size > 0)
 		why[0] = 0;
@@ -455,44 +481,49 @@ int map_repo_refresh(const struct map_repo_transport *transport, const char *bas
 		return fail(why, why_size, "this build has no key for it");
 	if (!(flags & MAP_REPO_REFRESH_FORCE) && !map_repo_refresh_due(now, flags))
 	{
-		int held;
-
 		pthread_mutex_lock(&map_repo_lock);
 		held = index_usable(now);
 		pthread_mutex_unlock(&map_repo_lock);
 		return held || fail(why, why_size, "its last refresh failed");
 	}
-	document = (char *)malloc(MAP_INDEX_DOCUMENT_SIZE + 2);
-	if (!document)
-		return fail(why, why_size, "no memory for it");
 	pthread_mutex_lock(&map_repo_refresh_lock);
 	/* (another refresh may have run meanwhile) */
-	if (!(flags & MAP_REPO_REFRESH_FORCE) && !map_repo_refresh_due(now, flags))
+	pthread_mutex_lock(&map_repo_lock);
+	refresh_wants(now, flags, &index_due, &mirrors_due);
+	if (flags & MAP_REPO_REFRESH_FORCE)
+		index_due = 1;
+	held = index_usable(now);
+	pthread_mutex_unlock(&map_repo_lock);
+	if (!index_due && !mirrors_due)
 	{
-		int held;
-
 		pthread_mutex_unlock(&map_repo_refresh_lock);
-		free(document);
-		pthread_mutex_lock(&map_repo_lock);
-		held = index_usable(now);
-		pthread_mutex_unlock(&map_repo_lock);
 		return held || fail(why, why_size, "its last refresh failed");
 	}
-	/* (the index) */
-	snprintf(url, sizeof(url), "%s/index.json", base_url);
-	size = fetch_pair(transport, url, INDEX_FETCH_FILE, document, MAP_INDEX_DOCUMENT_SIZE, signature, detail,
-		(int)sizeof(detail));
-	if (size < 0 || !map_index_check(document, (size_t)size, signature, strlen(signature), now, &info, detail,
-		(int)sizeof(detail)))
+	/* (the index, unless only the mirror list is due: one that failed while
+	the index is still good is asked for alone) */
+	if (index_due)
 	{
-		free(document);
-		pthread_mutex_lock(&map_repo_lock);
-		refresh_failed(now);
-		pthread_mutex_unlock(&map_repo_lock);
-		pthread_mutex_unlock(&map_repo_refresh_lock);
-		return fail(why, why_size, "the index was refused: %s", detail);
+		document = (char *)malloc(MAP_INDEX_DOCUMENT_SIZE + 2);
+		if (!document)
+		{
+			pthread_mutex_unlock(&map_repo_refresh_lock);
+			return fail(why, why_size, "no memory for it");
+		}
+		snprintf(url, sizeof(url), "%s/index.json", base_url);
+		size = fetch_pair(transport, url, INDEX_FETCH_FILE, document, MAP_INDEX_DOCUMENT_SIZE, signature, detail,
+			(int)sizeof(detail));
+		if (size < 0 || !map_index_check(document, (size_t)size, signature, strlen(signature), now, &info, detail,
+			(int)sizeof(detail)))
+		{
+			free(document);
+			pthread_mutex_lock(&map_repo_lock);
+			refresh_failed(now);
+			pthread_mutex_unlock(&map_repo_lock);
+			pthread_mutex_unlock(&map_repo_refresh_lock);
+			return fail(why, why_size, "the index was refused: %s", detail);
+		}
+		sha256_of(document, (size_t)size, sha256);
 	}
-	sha256_of(document, (size_t)size, sha256);
 	/* (the mirror list: without it, the index's blacklist is still kept; not
 	asked for at all when only the blacklist is wanted) */
 	if (!(flags & MAP_REPO_REFRESH_INDEX_ONLY))
@@ -508,27 +539,30 @@ int map_repo_refresh(const struct map_repo_transport *transport, const char *bas
 			sha256_of(mirrors_text, (size_t)mirrors_size, mirrors_sha256);
 	}
 	pthread_mutex_lock(&map_repo_lock);
-	/* (never an older one than taken, nor another of the same serial) */
-	index_allowed = floor_allows(&map_repo.index_floor, info.serial, sha256, detail, (int)sizeof(detail));
-	if (!index_allowed)
+	if (index_due)
 	{
-		refresh_failed(now);
-		pthread_mutex_unlock(&map_repo_lock);
-		pthread_mutex_unlock(&map_repo_refresh_lock);
-		free(document);
-		free(mirrors);
-		free(mirrors_text);
-		return fail(why, why_size, "the index was refused: %s", detail);
+		/* (never an older one than taken, nor another of the same serial) */
+		index_allowed = floor_allows(&map_repo.index_floor, info.serial, sha256, detail, (int)sizeof(detail));
+		if (!index_allowed)
+		{
+			refresh_failed(now);
+			pthread_mutex_unlock(&map_repo_lock);
+			pthread_mutex_unlock(&map_repo_refresh_lock);
+			free(document);
+			free(mirrors);
+			free(mirrors_text);
+			return fail(why, why_size, "the index was refused: %s", detail);
+		}
+		free(map_repo.index);
+		map_repo.index = document;
+		map_repo.index_size = (size_t)size;
+		map_repo.info = info;
+		map_repo.fetched = now;
+		map_repo.failed = 0;
+		map_repo.retry = 0;
+		floor_set(&map_repo.index_floor, info.serial, sha256);
 	}
-	free(map_repo.index);
-	map_repo.index = document;
-	map_repo.index_size = (size_t)size;
-	map_repo.info = info;
-	map_repo.fetched = now;
-	map_repo.failed = 0;
-	map_repo.retry = 0;
 	map_repo.index_only = (flags & MAP_REPO_REFRESH_INDEX_ONLY) != 0;
-	floor_set(&map_repo.index_floor, info.serial, sha256);
 	if (has_mirrors)
 	{
 		mirrors_allowed = floor_allows(&map_repo.mirrors_floor, mirrors->serial, mirrors_sha256, mirrors_detail,
@@ -540,6 +574,19 @@ int map_repo_refresh(const struct map_repo_transport *transport, const char *bas
 			floor_set(&map_repo.mirrors_floor, mirrors->serial, mirrors_sha256);
 		}
 	}
+	/* (a mirror list that failed is asked for again after its own wait, not
+	at the index's next refresh; one that checks ends the waits) */
+	if (!(flags & MAP_REPO_REFRESH_INDEX_ONLY))
+	{
+		if (mirrors_allowed)
+		{
+			map_repo.mirrors_failed = 0;
+			map_repo.mirrors_retry = 0;
+		}
+		else
+			mirrors_failed(now);
+	}
+	held = index_usable(now);
 	pthread_mutex_unlock(&map_repo_lock);
 	/* (each document taken anew kept, then the floors: map_repo_load) */
 	if (index_allowed == 1)
@@ -553,7 +600,8 @@ int map_repo_refresh(const struct map_repo_transport *transport, const char *bas
 	free(mirrors_text);
 	if (!(flags & MAP_REPO_REFRESH_INDEX_ONLY) && !mirrors_allowed)
 		fail(why, why_size, "the mirror list was refused: %s", mirrors_detail);
-	return 1;
+	/* (an index taken now, or the one held when the mirror list alone was) */
+	return index_due || held;
 }
 
 int map_repo_blocked(const unsigned char *sha256, const unsigned char *map_hash, long long now, char *reason,
@@ -688,6 +736,8 @@ void map_repo_reset(void)
 	map_repo.failed = 0;
 	map_repo.retry = 0;
 	map_repo.index_only = 0;
+	map_repo.mirrors_failed = 0;
+	map_repo.mirrors_retry = 0;
 	map_repo.has_mirrors = 0;
 	memset(&map_repo.index_floor, 0, sizeof(map_repo.index_floor));
 	memset(&map_repo.mirrors_floor, 0, sizeof(map_repo.mirrors_floor));

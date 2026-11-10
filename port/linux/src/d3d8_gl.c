@@ -51,8 +51,8 @@ static void bg_clear(DWORD count, const D3DRECT *rectangles, DWORD flags, D3DCOL
 static void bg_present(void);
 static void bg_frame_account(char *text, size_t size);
 static void bg_visibility_begin(void);
-static void bg_visibility_end(DWORD index);
-static UINT bg_visibility_result(DWORD index);
+static BOOL bg_visibility_end(DWORD index, unsigned long number);
+static UINT bg_visibility_result(DWORD index, unsigned long *number);
 static BOOL bg_back_buffer_size(int *width, int *height, int *pixel_width, int *pixel_height);
 static const char *bg_renderer_name(void);
 #endif
@@ -69,8 +69,8 @@ static void cr_draw_immediate(D3DPRIMITIVETYPE type, unsigned long count);
 static void cr_clear(DWORD count, const D3DRECT *rectangles, DWORD flags, D3DCOLOR color, float z, DWORD stencil);
 static void cr_present(void);
 static void cr_visibility_begin(void);
-static void cr_visibility_end(DWORD index);
-static UINT cr_visibility_result(DWORD index);
+static BOOL cr_visibility_end(DWORD index, unsigned long number);
+static UINT cr_visibility_result(DWORD index, unsigned long *number);
 static BOOL cr_back_buffer_size(int *width, int *height, int *pixel_width, int *pixel_height);
 /* display.renderer is "native" */
 static BOOL console_native_renderer_chosen(void)
@@ -577,7 +577,7 @@ struct vertex_shader_object
 	shaders_tried's bits 4 and 5) */
 	struct console_shader *console_shader[2];
 #endif
-#if !defined(HALO_GL_ES) && !defined(__APPLE__)
+#if XGPU_GL_BINDINGS
 	/* the vertex array its draws last used, and the streams they had
 	(setup_streams: the layout follows from the two) */
 	struct vertex_array_entry *vertex_array;
@@ -738,6 +738,9 @@ with the old one two frames later, so these stay small. */
 #define INDEX_BUFFER_SIZE (8 * 1024 * 1024)
 #endif
 #define VISIBILITY_TEST_SLOTS 4096
+/* the copies of visibility counts the GPU may still be making (more are
+dropped, oldest first: their slots keep the numbers they had) */
+#define VISIBILITY_COPIES 4
 #ifdef HALO_GL_ES
 #define VISIBILITY_QUERY GL_ANY_SAMPLES_PASSED
 #define VISIBILITY_ALL_SAMPLES 1000000
@@ -810,6 +813,14 @@ struct gl_device
 	lights makes hundreds of tests. */
 	GLuint visibility_known[VISIBILITY_TEST_SLOTS];
 	BOOL visibility_unread[VISIBILITY_TEST_SLOTS];
+	/* the tests' numbers (D3DDevice_EndVisibilityTest: never 0, one more
+	each test, modulo 2^32): the last one ended, each slot's latest test
+	still to be read, and the test each slot's known count is of (0: none
+	yet). A lens flare keeps a slot of its own and takes a count only once it
+	is of its own test (rasterizer_lights.c) */
+	unsigned long visibility_test_number;
+	unsigned long visibility_pending_number[VISIBILITY_TEST_SLOTS];
+	unsigned long visibility_known_number[VISIBILITY_TEST_SLOTS];
 #ifdef HALO_GL_ES
 	/* with atomic counters: one counter per test, used as a ring */
 	GLuint visibility_counters;
@@ -826,6 +837,7 @@ struct gl_device
 	the latest count known, as the desktop's query buffer gives. */
 	GLuint counter_snapshots[STREAM_BUFFER_RING];
 	unsigned short ring_tests[STREAM_BUFFER_RING][VISIBILITY_TEST_SLOTS][2];
+	unsigned long ring_test_numbers[STREAM_BUFFER_RING][VISIBILITY_TEST_SLOTS];
 	unsigned long ring_test_count[STREAM_BUFFER_RING];
 	GLuint counter_values[VISIBILITY_TEST_SLOTS];
 	GLuint visibility_latest[VISIBILITY_TEST_SLOTS];
@@ -843,9 +855,24 @@ struct gl_device
 	{
 		GLuint queries[VISIBILITY_TEST_SLOTS];
 		unsigned short slots[VISIBILITY_TEST_SLOTS];
+		unsigned long numbers[VISIBILITY_TEST_SLOTS];
 		unsigned long count;
 	} visibility_batches[2];
 	unsigned long visibility_batch;
+	/* the copies made of the batches' counts, oldest first, each with a
+	fence: their tests' numbers become the slots' known numbers once the GPU
+	is through it (visibility_copies_retire), the counts being in the
+	buffer by then (coherent memory is no promise that the GPU has written
+	them). Without fences, three frames on */
+	struct
+	{
+		GLsync fence;
+		unsigned long frame;
+		unsigned long count;
+		unsigned short slots[VISIBILITY_TEST_SLOTS];
+		unsigned long numbers[VISIBILITY_TEST_SLOTS];
+	} visibility_copies[VISIBILITY_COPIES];
+	unsigned long visibility_copy_first, visibility_copy_count;
 	/* a pipeline flush every flush_every draws (draw_flush), 0 never */
 	unsigned long flush_every;
 	unsigned long flush_draws;
@@ -969,8 +996,9 @@ values are all ones, which no real value matches (floats become NaN, which
 compares unequal to everything). */
 
 /* (each attribute pointed at on its own, glVertexAttribPointer: OpenGL ES,
-and macOS, whose OpenGL 4.1 has no vertex attribute binding of 4.3) */
-#if defined(HALO_GL_ES) || defined(__APPLE__)
+and macOS, whose OpenGL 4.1 has no vertex attribute binding of 4.3, and an
+older driver's: xgpu.h) */
+#if XGPU_GL_POINTERS
 struct attribute_pointer
 {
 	GLuint buffer;
@@ -981,7 +1009,8 @@ struct attribute_pointer
 	GLsizei stride;
 	unsigned long offset;
 };
-#else
+#endif
+#if XGPU_GL_BINDINGS
 /* desktop GL (4.3) separates an attribute's format from the buffer it
 reads: the attributes of a stream share one binding, so a draw that moves
 the stream rebinds it once instead of pointing each attribute again */
@@ -1059,9 +1088,10 @@ static struct
 	GLuint array_buffer;
 	GLuint element_array_buffer;
 	unsigned char attribute_enabled[XGPU_VERTEX_ATTRIBUTE_COUNT];
-#if defined(HALO_GL_ES) || defined(__APPLE__)
+#if XGPU_GL_POINTERS
 	struct attribute_pointer attribute_pointers[XGPU_VERTEX_ATTRIBUTE_COUNT];
-#else
+#endif
+#if XGPU_GL_BINDINGS
 	GLuint vertex_array;
 #endif
 	/* a disabled attribute's value; kind 1 is the integer zero */
@@ -1111,7 +1141,7 @@ static int texture_slot(GLenum target)
 	return target == GL_TEXTURE_CUBE_MAP ? 1 : target == GL_TEXTURE_3D ? 2 : 0;
 }
 
-#if defined(HALO_GL_ES) || defined(__APPLE__)
+#if XGPU_GL_POINTERS
 static void state_texture(int unit, GLenum target, GLuint texture)
 {
 	int slot = texture_slot(target);
@@ -1155,7 +1185,7 @@ static void state_element_array_buffer(GLuint buffer)
 	}
 }
 
-#if defined(HALO_GL_ES) || defined(__APPLE__)
+#if XGPU_GL_POINTERS
 /* enables the attribute, reading size elements of type from buffer: each
 vertex is stride bytes on from the one before it, starting at
 buffer_offset, with the attribute relative_offset bytes into it */
@@ -1190,7 +1220,8 @@ static void state_attribute_stream(GLuint index, GLuint binding, GLuint buffer, 
 	pointer->stride = stride;
 	pointer->offset = offset;
 }
-#else
+#endif
+#if XGPU_GL_BINDINGS
 /* the vertex array of a layout, made the first time (its attributes enabled,
 formatted and bound to their bindings) */
 static struct vertex_array_entry *vertex_array_get(const struct vertex_layout *layout)
@@ -1282,8 +1313,9 @@ static void state_attribute_value(GLuint index, const float *value)
 {
 	unsigned char kind = value ? 0 : 1;
 
-#if defined(HALO_GL_ES) || defined(__APPLE__)
-	if (gl_state.attribute_enabled[index] != 0)
+#if XGPU_GL_POINTERS
+	/* (the 4.5 path's attributes are enabled by their vertex arrays) */
+	if (XGPU_GL_LEGACY && gl_state.attribute_enabled[index] != 0)
 	{
 		gl_state.attribute_enabled[index] = 0;
 		glDisableVertexAttribArray(index);
@@ -1928,7 +1960,9 @@ chester (GulchCE). */
 static void visibility_queries_create(void)
 {
 #if !defined(HALO_GL_ES) && !defined(__APPLE__) && !defined(HALO_CONSOLE_GL_LAYER)
-	PFNGLCREATEQUERIESPROC create_queries = (PFNGLCREATEQUERIESPROC)gl_function_extra("glCreateQueries");
+	/* (OpenGL 4.5's: not on an older driver's path, xgpu.h) */
+	PFNGLCREATEQUERIESPROC create_queries = XGPU_GL_LEGACY ? NULL :
+		(PFNGLCREATEQUERIESPROC)gl_function_extra("glCreateQueries");
 
 	if (create_queries)
 	{
@@ -2051,7 +2085,10 @@ static void gl_initialize(void)
 		glDebugMessageCallback(gl_debug_callback, NULL);
 	}
 #ifndef HALO_GL_NO_CLIP_CONTROL
-	glClipControl(GL_UPPER_LEFT, GL_ZERO_TO_ONE);
+	/* (an older driver's path converts the clip space in its shaders
+	instead, as macOS's does: nv2a_vsh.c) */
+	if (!XGPU_GL_LEGACY)
+		glClipControl(GL_UPPER_LEFT, GL_ZERO_TO_ONE);
 #endif
 	glEnable(GL_PROGRAM_POINT_SIZE);
 #endif
@@ -2123,6 +2160,10 @@ static void gl_initialize(void)
 			device.flush_every = (unsigned long)every;
 			platform_log("GPU: a pipeline flush every %ld draws", every);
 		}
+#ifdef XGPU_GL_LEGACY_AT_RUN_TIME
+		else if (every > 0)
+			platform_log("GPU: no glMemoryBarrier (OpenGL 4.2) in this context: the pipeline flush every %ld draws is unavailable", every);
+#endif
 	}
 #endif
 #ifdef HALO_GL_ES
@@ -2255,6 +2296,30 @@ serial, which then took only the checkpoint's registers). */
 static unsigned long long constants_checkpoint_serial;
 static unsigned long constants_checkpoint_first = XGPU_VERTEX_CONSTANT_COUNT, constants_checkpoint_last;
 
+/* A constant's component that is not a number is drawn as 0: a GPU draws
+one as anything it likes (black, white, blocks), and the NV2A made none from
+what the game sends. An infinite one is kept: the shaders' clamps take it to
+the end of the range, as the NV2A did. Said in the log once in a thousand,
+with the register (c[-96] is c[0] here). By its bits, as valid_real does */
+#define CONSTANT_EXPONENT 0x7f800000u
+#define CONSTANT_NOT_A_NUMBER(word) (((word) & 0x7fffffffu) > CONSTANT_EXPONENT)
+
+static void constant_finite(float value[4], const unsigned int words[4], unsigned long reg)
+{
+	static unsigned long made;
+	int component;
+
+	for (component = 0; component < 4; component++)
+	{
+		if (!CONSTANT_NOT_A_NUMBER(words[component]))
+			continue;
+		if (made++ % 1000 == 0)
+			platform_log("GPU: vertex constant %ld.%c was not a number (%08lx), drawn as 0 (%lu so far)",
+				(long)reg - XGPU_VERTEX_CONSTANT_BIAS, "xyzw"[component], (unsigned long)words[component], made);
+		value[component] = 0.0f;
+	}
+}
+
 static void constants_store(unsigned long first, const void *data, unsigned long count)
 {
 	const float (*values)[4] = data;
@@ -2262,9 +2327,24 @@ static void constants_store(unsigned long first, const void *data, unsigned long
 
 	for (index = 0; index < count; index++)
 	{
-		if (memcmp(device.constants[first + index], values[index], sizeof(device.constants[0])))
+		const float *value = values[index];
+		float fixed[4];
+		unsigned int words[4];
+
+		/* (the source's words tested as they are, with one check of all
+		four exponents: a copy only for a constant with a bad value, so a
+		console's in-order CPU doesn't store floats and load them back) */
+		memcpy(words, values[index], sizeof(words));
+		if (((words[0] & CONSTANT_EXPONENT) == CONSTANT_EXPONENT) | ((words[1] & CONSTANT_EXPONENT) == CONSTANT_EXPONENT) |
+			((words[2] & CONSTANT_EXPONENT) == CONSTANT_EXPONENT) | ((words[3] & CONSTANT_EXPONENT) == CONSTANT_EXPONENT))
 		{
-			memcpy(device.constants[first + index], values[index], sizeof(device.constants[0]));
+			memcpy(fixed, values[index], sizeof(fixed));
+			constant_finite(fixed, words, first + index);
+			value = fixed;
+		}
+		if (memcmp(device.constants[first + index], value, sizeof(device.constants[0])))
+		{
+			memcpy(device.constants[first + index], value, sizeof(device.constants[0]));
 			constant_serials[first + index] = ++constants_serial;
 			constant_log[constants_serial % CONSTANT_LOG_SIZE] = (unsigned char)(first + index);
 			if (constants_checkpoint_first > first + index)
@@ -2747,21 +2827,40 @@ void WINAPI D3DDevice_BeginVisibilityTest(void)
 	glBeginQuery(VISIBILITY_QUERY, device.queries[VISIBILITY_TEST_SLOTS]);
 }
 
+/* the next test's number: never 0, one more each test (modulo 2^32). The
+count comes back frames later, and the slot may have been tested for
+something else since: the number says which test a count is of
+(D3DDevice_GetVisibilityTestResult's time stamp) */
+static unsigned long visibility_next_number(void)
+{
+	unsigned long number = (device.visibility_test_number + 1) & 0xffffffffUL;
+
+	return number ? number : 1;
+}
+
+unsigned long d3d8_visibility_test_number(void)
+{
+	return device.visibility_test_number;
+}
+
 HRESULT WINAPI D3DDevice_EndVisibilityTest(DWORD index)
 {
 	GLuint scratch;
+	unsigned long number = visibility_next_number();
 
 #ifdef HALO_BGFX
 	if (bg_active())
 	{
-		bg_visibility_end(index);
+		if (bg_visibility_end(index, number))
+			device.visibility_test_number = number;
 		return S_OK;
 	}
 #endif
 #ifdef HALO_CONSOLE_NATIVE_RENDERER
 	if (cr_active())
 	{
-		cr_visibility_end(index);
+		if (cr_visibility_end(index, number))
+			device.visibility_test_number = number;
 		return S_OK;
 	}
 #endif
@@ -2769,6 +2868,7 @@ HRESULT WINAPI D3DDevice_EndVisibilityTest(DWORD index)
 		return S_OK;
 	device.visibility_test_active = FALSE;
 	index %= VISIBILITY_TEST_SLOTS;
+	device.visibility_test_number = number;
 #ifdef HALO_GL_ES
 	if (xgpu_capabilities.atomic_counters)
 	{
@@ -2784,6 +2884,7 @@ HRESULT WINAPI D3DDevice_EndVisibilityTest(DWORD index)
 		{
 			device.ring_tests[device.buffer_ring][*count][0] = (unsigned short)index;
 			device.ring_tests[device.buffer_ring][*count][1] = (unsigned short)device.counter_active;
+			device.ring_test_numbers[device.buffer_ring][*count] = number;
 			(*count)++;
 		}
 		device.query_pending[index] = TRUE;
@@ -2806,6 +2907,7 @@ HRESULT WINAPI D3DDevice_EndVisibilityTest(DWORD index)
 
 		if (*count < VISIBILITY_TEST_SLOTS)
 		{
+			device.visibility_batches[device.visibility_batch].numbers[*count] = number;
 			device.visibility_batches[device.visibility_batch].slots[(*count)++] = (unsigned short)index;
 			device.query_pending[index] = TRUE;
 		}
@@ -2818,6 +2920,7 @@ HRESULT WINAPI D3DDevice_EndVisibilityTest(DWORD index)
 	device.queries[index] = scratch;
 	device.query_pending[index] = TRUE;
 	device.visibility_unread[index] = TRUE;
+	device.visibility_pending_number[index] = number;
 	return S_OK;
 }
 
@@ -2838,16 +2941,26 @@ HRESULT WINAPI D3DDevice_GetVisibilityTestResult(DWORD index, UINT *result, ULON
 #ifdef HALO_BGFX
 	if (bg_active())
 	{
+		unsigned long number = 0;
+		UINT count = bg_visibility_result(index, &number);
+
 		if (result)
-			*result = bg_visibility_result(index);
+			*result = count;
+		if (time_stamp)
+			*time_stamp = number;
 		return S_OK;
 	}
 #endif
 #ifdef HALO_CONSOLE_NATIVE_RENDERER
 	if (cr_active())
 	{
+		unsigned long number = 0;
+		UINT count = cr_visibility_result(index, &number);
+
 		if (result)
-			*result = cr_visibility_result(index);
+			*result = count;
+		if (time_stamp)
+			*time_stamp = number;
 		return S_OK;
 	}
 #endif
@@ -2864,6 +2977,8 @@ HRESULT WINAPI D3DDevice_GetVisibilityTestResult(DWORD index, UINT *result, ULON
 		/* the latest count the GPU has finished (counter_snapshots) */
 		if (result)
 			*result = device.visibility_latest[index];
+		if (time_stamp)
+			*time_stamp = device.visibility_known_number[index];
 		return S_OK;
 	}
 #endif
@@ -2871,9 +2986,13 @@ HRESULT WINAPI D3DDevice_GetVisibilityTestResult(DWORD index, UINT *result, ULON
 	if (device.visibility_results)
 	{
 		/* the latest count the GPU has written: from this test, or while
-		the GPU is still behind, from the slot's earlier ones */
+		the GPU is still behind, from the slot's earlier ones. The number is
+		of the latest copy known to be done (visibility_copies_retire), so
+		the count is of that test or a later one */
 		if (result)
 			*result = visibility_unscaled(device.visibility_results[index], index);
+		if (time_stamp)
+			*time_stamp = device.visibility_known_number[index];
 		return S_OK;
 	}
 #endif
@@ -2896,11 +3015,14 @@ HRESULT WINAPI D3DDevice_GetVisibilityTestResult(DWORD index, UINT *result, ULON
 			samples = visibility_unscaled(samples, index);
 #endif
 			device.visibility_known[index] = samples;
+			device.visibility_known_number[index] = device.visibility_pending_number[index];
 			device.visibility_unread[index] = FALSE;
 		}
 	}
 	if (result)
 		*result = device.visibility_known[index];
+	if (time_stamp)
+		*time_stamp = device.visibility_known_number[index];
 	return S_OK;
 }
 
@@ -3815,7 +3937,7 @@ static void render_targets_evict(void)
 	}
 }
 
-#if defined(HALO_GL_ES) || defined(__APPLE__) || defined(HALO_CONSOLE_GL_LAYER)
+#if defined(HALO_GL_ES) || defined(__APPLE__) || defined(HALO_CONSOLE_GL_LAYER) || defined(XGPU_GL_LEGACY_AT_RUN_TIME)
 #ifdef HALO_GL_ES
 #define HOST_GL_COPY_IMAGE xgpu_capabilities.copy_image
 #else
@@ -3919,8 +4041,9 @@ static GLuint mip_composite_get(const struct xgpu_texture_description *descripti
 		composite->level_sources[level] = target->texture;
 		composite->level_written[level] = target->written;
 		render_target_resolve(target);
-#if defined(HALO_GL_ES) || defined(__APPLE__) || defined(HALO_CONSOLE_GL_LAYER)
-		/* (OpenGL 4.3: macOS's 4.1 copies levels with a blit instead) */
+#if defined(HALO_GL_ES) || defined(__APPLE__) || defined(HALO_CONSOLE_GL_LAYER) || defined(XGPU_GL_LEGACY_AT_RUN_TIME)
+		/* (OpenGL 4.3: macOS's 4.1, and an older driver's path, copy levels
+		with a blit instead) */
 		if (!HOST_GL_COPY_IMAGE)
 		{
 			copy_level_by_blit(target->texture, composite->texture, (GLint)level, width, height);
@@ -4012,11 +4135,17 @@ static void bind_textures(struct nv2a_pixel_shader_key *key, float texture_scale
 				gl_target == GL_TEXTURE_3D ? _xgpu_sampler_3d : _xgpu_sampler_2d;
 		}
 	}
-#if defined(HALO_GL_ES) || defined(__APPLE__)
-	/* (each unit on its own: macOS's OpenGL 4.1 has no multi-bind of 4.4) */
-	for (stage = 0; stage < D3DTSS_MAXSTAGES; stage++)
-		state_texture(stage, gl_targets[stage], gl_textures[stage]);
-#else
+#if XGPU_GL_POINTERS
+	/* (each unit on its own: macOS's OpenGL 4.1, and an older driver's, has
+	no multi-bind of 4.4) */
+	if (XGPU_GL_LEGACY)
+	{
+		for (stage = 0; stage < D3DTSS_MAXSTAGES; stage++)
+			state_texture(stage, gl_targets[stage], gl_textures[stage]);
+	}
+#endif
+#if XGPU_GL_BINDINGS
+	if (!XGPU_GL_LEGACY)
 	{
 		/* the units whose texture changes, bound in one call (GL 4.4's
 		multi-bind) rather than selecting and binding each unit; binding no
@@ -4192,13 +4321,10 @@ static void apply_raster_state(BOOL has_depth)
 	state_enable(&gl_state.cull_face, GL_CULL_FACE, rs[D3DRS_CULLMODE] != D3DCULL_NONE);
 	if (rs[D3DRS_CULLMODE] != D3DCULL_NONE)
 	{
-#ifdef HALO_GL_NO_CLIP_CONTROL
-		/* the vertex shader flips y in clip space, which (unlike desktop
-		GL's upper-left clip origin) also flips the winding */
-		GLenum front_face = rs[D3DRS_FRONTFACE] == D3DFRONT_CCW ? GL_CW : GL_CCW;
-#else
-		GLenum front_face = rs[D3DRS_FRONTFACE] == D3DFRONT_CCW ? GL_CCW : GL_CW;
-#endif
+		/* (where the vertex shader flips y in clip space, as without
+		glClipControl, xgpu.h, which unlike desktop GL's upper-left clip
+		origin also flips the winding, the front is the other winding) */
+		GLenum front_face = (rs[D3DRS_FRONTFACE] == D3DFRONT_CCW) != (XGPU_GL_LEGACY != 0) ? GL_CCW : GL_CW;
 		GLenum cull_mode = rs[D3DRS_CULLMODE] == rs[D3DRS_FRONTFACE] ? GL_FRONT : GL_BACK;
 
 		if (gl_state.front_face != front_face)
@@ -4403,7 +4529,8 @@ static struct program_entry *prepare_draw(BOOL immediate)
 	key.alpha_test_function = D3D__RenderState[D3DRS_ALPHATESTENABLE] ? D3D__RenderState[D3DRS_ALPHAFUNC] : 0;
 #ifndef HALO_GL_ES
 	/* (gl_SampleMask: ES has it only from 3.2) */
-	if (target_samples > 1 && key.alpha_test_function && !D3D__RenderState[D3DRS_ALPHABLENDENABLE])
+	if (target_samples > 1 && key.alpha_test_function && !D3D__RenderState[D3DRS_ALPHABLENDENABLE] &&
+		XGPU_GL_SAMPLE_MASK)
 		key.alpha_test_samples = (unsigned char)target_samples;
 #endif
 	key.fog_enable = D3D__RenderState[D3DRS_FOGENABLE] != 0;
@@ -5233,7 +5360,7 @@ static void setup_streams(unsigned long first, unsigned long count)
 	BOOL placed[16] = { FALSE };
 	BOOL enabled[XGPU_VERTEX_ATTRIBUTE_COUNT] = { FALSE };
 	unsigned long index, total = 0;
-#if !defined(HALO_GL_ES) && !defined(__APPLE__)
+#if XGPU_GL_BINDINGS
 	struct vertex_layout layout;
 	unsigned long streams_used = 0;
 
@@ -5288,24 +5415,25 @@ static void setup_streams(unsigned long first, unsigned long count)
 			stream_buffers[stream] = device.stream_buffer;
 			stats.streamed_bytes += bytes;
 		}
-#if defined(HALO_GL_ES) || defined(__APPLE__)
-		if (element->type == D3DVSDT_NORMPACKED3)
+#if XGPU_GL_POINTERS
+		if (XGPU_GL_LEGACY && element->type == D3DVSDT_NORMPACKED3)
 		{
 			state_attribute_stream(element->reg, (GLuint)stream, stream_buffers[stream], 1, GL_UNSIGNED_INT, GL_FALSE,
 				TRUE, (GLsizei)stride, stream_offsets[stream], element->offset);
 		}
-		else
+		else if (XGPU_GL_LEGACY)
 		{
 			attribute_format(element, &size, &type, &normalized);
 			state_attribute_stream(element->reg, (GLuint)stream, stream_buffers[stream], size, type, normalized,
 				FALSE, (GLsizei)stride, stream_offsets[stream], element->offset);
 		}
-#else
-		if (element->type == D3DVSDT_NORMPACKED3)
+#endif
+#if XGPU_GL_BINDINGS
+		if (!XGPU_GL_LEGACY && element->type == D3DVSDT_NORMPACKED3)
 		{
 			layout_attribute(&layout, element->reg, (GLuint)stream, 1, GL_UNSIGNED_INT, GL_FALSE, TRUE, element->offset);
 		}
-		else
+		else if (!XGPU_GL_LEGACY)
 		{
 			attribute_format(element, &size, &type, &normalized);
 			layout_attribute(&layout, element->reg, (GLuint)stream, size, type, normalized, FALSE, element->offset);
@@ -5314,20 +5442,23 @@ static void setup_streams(unsigned long first, unsigned long count)
 #endif
 		enabled[element->reg] = TRUE;
 	}
-#if !defined(HALO_GL_ES) && !defined(__APPLE__)
+#if XGPU_GL_BINDINGS
 	/* (the layout follows from the declaration and the streams it has, so
 	the same two have the same vertex array: no need to look it up) */
-	if (!declaration->vertex_array || declaration->vertex_array_streams != streams_used)
+	if (!XGPU_GL_LEGACY)
 	{
-		declaration->vertex_array = vertex_array_get(&layout);
-		declaration->vertex_array_streams = streams_used;
-	}
-	state_vertex_array(declaration->vertex_array);
-	for (index = 0; index < 16; index++)
-	{
-		if (streams_used & (1UL << index))
-			state_vertex_buffer((GLuint)index, stream_buffers[index], stream_offsets[index],
-				(GLsizei)device.streams[index].stride);
+		if (!declaration->vertex_array || declaration->vertex_array_streams != streams_used)
+		{
+			declaration->vertex_array = vertex_array_get(&layout);
+			declaration->vertex_array_streams = streams_used;
+		}
+		state_vertex_array(declaration->vertex_array);
+		for (index = 0; index < 16; index++)
+		{
+			if (streams_used & (1UL << index))
+				state_vertex_buffer((GLuint)index, stream_buffers[index], stream_offsets[index],
+					(GLsizei)device.streams[index].stride);
+		}
 	}
 #endif
 	for (index = 0; index < XGPU_VERTEX_ATTRIBUTE_COUNT; index++)
@@ -5650,13 +5781,18 @@ static void end_untimed(void)
 		visibility_run.type = type;
 	}
 #endif
-#if defined(HALO_GL_ES) || defined(__APPLE__)
-	for (index = 0; index < XGPU_VERTEX_ATTRIBUTE_COUNT; index++)
+#if XGPU_GL_POINTERS
+	if (XGPU_GL_LEGACY)
 	{
-		state_attribute_stream(index, 0, device.stream_buffer, 4, GL_FLOAT, GL_FALSE, FALSE, (GLsizei)stride,
-			offset, index * 4 * sizeof(float));
+		for (index = 0; index < XGPU_VERTEX_ATTRIBUTE_COUNT; index++)
+		{
+			state_attribute_stream(index, 0, device.stream_buffer, 4, GL_FLOAT, GL_FALSE, FALSE, (GLsizei)stride,
+				offset, index * 4 * sizeof(float));
+		}
 	}
-#else
+#endif
+#if XGPU_GL_BINDINGS
+	if (!XGPU_GL_LEGACY)
 	{
 		/* every attribute four floats, one after another */
 		static struct vertex_array_entry *immediate_array;
@@ -5951,12 +6087,76 @@ glGetQueryObjectuiv, even one into a bound buffer). A copy right after each
 test stopped the GPU until that test's draws were through, hundreds of times
 a frame in The Library; a frame later the draws are long done, so the copies
 do not wait. */
+typedef GLsync (GLAPIENTRY *visibility_fence_sync_proc)(GLenum condition, GLbitfield flags);
+typedef GLenum (GLAPIENTRY *visibility_client_wait_sync_proc)(GLsync sync, GLbitfield flags, GLuint64 timeout);
+typedef void (GLAPIENTRY *visibility_delete_sync_proc)(GLsync sync);
+
+/* the fences' entry points (OpenGL 3.2's, loaded here alone: gl.h's list is
+every build's, the consoles' layers too); none without all three */
+static struct
+{
+	BOOL looked_up;
+	visibility_fence_sync_proc fence_sync;
+	visibility_client_wait_sync_proc client_wait_sync;
+	visibility_delete_sync_proc delete_sync;
+} visibility_sync;
+
+static void visibility_sync_look_up(void)
+{
+	if (visibility_sync.looked_up)
+		return;
+	visibility_sync.looked_up = TRUE;
+	visibility_sync.fence_sync = (visibility_fence_sync_proc)gl_function_extra("glFenceSync");
+	visibility_sync.client_wait_sync = (visibility_client_wait_sync_proc)gl_function_extra("glClientWaitSync");
+	visibility_sync.delete_sync = (visibility_delete_sync_proc)gl_function_extra("glDeleteSync");
+	if (!visibility_sync.fence_sync || !visibility_sync.client_wait_sync || !visibility_sync.delete_sync)
+		visibility_sync.fence_sync = NULL;
+}
+
+/* the copies the GPU is through, oldest first: their tests' numbers become
+their slots' known numbers. Never waits (a fence polled with no timeout);
+without fences a copy is taken as done three frames on */
+static void visibility_copies_retire(void)
+{
+	while (device.visibility_copy_count)
+	{
+		unsigned long first = device.visibility_copy_first;
+		unsigned long i;
+		BOOL done;
+
+		if (device.visibility_copies[first].fence)
+		{
+			GLenum state = visibility_sync.client_wait_sync(device.visibility_copies[first].fence, 0, 0);
+
+			done = state == GL_ALREADY_SIGNALED || state == GL_CONDITION_SATISFIED || state == GL_WAIT_FAILED;
+		}
+		else
+		{
+			done = device.frame >= device.visibility_copies[first].frame + 3;
+		}
+		if (!done)
+			break;
+		for (i = 0; i < device.visibility_copies[first].count; i++)
+		{
+			device.visibility_known_number[device.visibility_copies[first].slots[i]] =
+				device.visibility_copies[first].numbers[i];
+		}
+		if (device.visibility_copies[first].fence)
+			visibility_sync.delete_sync(device.visibility_copies[first].fence);
+		device.visibility_copies[first].fence = NULL;
+		device.visibility_copy_first = (first + 1) % VISIBILITY_COPIES;
+		device.visibility_copy_count--;
+	}
+}
+
 static void visibility_copy_batch(void)
 {
-	unsigned long i;
+	unsigned long i, copy;
 
 	if (!device.visibility_results)
 		return;
+	visibility_sync_look_up();
+	visibility_copies_retire();
 	/* this frame's tests wait for the next present */
 	device.visibility_batch ^= 1;
 	for (i = 0; i < device.visibility_batches[device.visibility_batch].count; i++)
@@ -5964,6 +6164,30 @@ static void visibility_copy_batch(void)
 		glGetQueryBufferObjectuiv(device.visibility_batches[device.visibility_batch].queries[i],
 			device.visibility_results_buffer, GL_QUERY_RESULT,
 			(GLintptr)(device.visibility_batches[device.visibility_batch].slots[i] * sizeof(GLuint)));
+	}
+	if (device.visibility_batches[device.visibility_batch].count)
+	{
+		/* (all the copies the GPU may still be making: the oldest one's
+		numbers are dropped, its slots keeping the numbers they had) */
+		if (device.visibility_copy_count == VISIBILITY_COPIES)
+		{
+			unsigned long first = device.visibility_copy_first;
+
+			if (device.visibility_copies[first].fence)
+				visibility_sync.delete_sync(device.visibility_copies[first].fence);
+			device.visibility_copies[first].fence = NULL;
+			device.visibility_copy_first = (first + 1) % VISIBILITY_COPIES;
+			device.visibility_copy_count--;
+		}
+		copy = (device.visibility_copy_first + device.visibility_copy_count++) % VISIBILITY_COPIES;
+		device.visibility_copies[copy].count = device.visibility_batches[device.visibility_batch].count;
+		device.visibility_copies[copy].frame = device.frame;
+		memcpy(device.visibility_copies[copy].slots, device.visibility_batches[device.visibility_batch].slots,
+			device.visibility_copies[copy].count * sizeof(device.visibility_copies[copy].slots[0]));
+		memcpy(device.visibility_copies[copy].numbers, device.visibility_batches[device.visibility_batch].numbers,
+			device.visibility_copies[copy].count * sizeof(device.visibility_copies[copy].numbers[0]));
+		device.visibility_copies[copy].fence = visibility_sync.fence_sync ?
+			visibility_sync.fence_sync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0) : NULL;
 	}
 	device.visibility_batches[device.visibility_batch].count = 0;
 }
@@ -6520,6 +6744,7 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 			{
 				device.visibility_latest[device.ring_tests[ring][test][0]] = visibility_unscaled(
 					device.counter_values[device.ring_tests[ring][test][1]], device.ring_tests[ring][test][0]);
+				device.visibility_known_number[device.ring_tests[ring][test][0]] = device.ring_test_numbers[ring][test];
 			}
 			device.ring_test_count[ring] = 0;
 		}

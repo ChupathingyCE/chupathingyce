@@ -13,6 +13,53 @@ device itself (d3d8_gl.c).
 #include "platform.h"
 #include "gl.h"
 
+/* ---------- the desktop's two kinds of OpenGL
+
+The desktop renderer is written for OpenGL 4.5, and does without what came
+after 3.3 where macOS's OpenGL 4.1 lacks it (OpenGL ES has the same path):
+each vertex attribute pointed at on its own (no 4.3 vertex attribute
+binding), each texture unit bound on its own (no 4.4 multi-bind), mipmap
+levels copied with a blit (no 4.3 glCopyImageSubData), and D3D's clip space
+converted by the vertex shaders (no 4.5 glClipControl: nv2a_vsh.c).
+Windows, Linux and FreeBSD take that path when the driver has no OpenGL 4.5
+(an older integrated GPU's, game issue #78): sdl_platform.c then makes a
+3.3 context and sets xgpu_gl_legacy (gl_functions.c), and the entry points
+past 3.3 are left out, as on macOS (gl_functions_load).
+
+XGPU_GL_POINTERS: the build has the path without them; XGPU_GL_BINDINGS:
+the build has the 4.5 one; XGPU_GL_LEGACY: the path drawing now. */
+#if defined(HALO_GL_ES) || defined(__APPLE__)
+#define XGPU_GL_POINTERS 1
+#define XGPU_GL_BINDINGS 0
+#define XGPU_GL_LEGACY 1
+#elif defined(HALO_CONSOLE_GL_LAYER)
+#define XGPU_GL_POINTERS 0
+#define XGPU_GL_BINDINGS 1
+#define XGPU_GL_LEGACY 0
+#else
+#define XGPU_GL_POINTERS 1
+#define XGPU_GL_BINDINGS 1
+#define XGPU_GL_LEGACY_AT_RUN_TIME 1
+extern int xgpu_gl_legacy;
+#define XGPU_GL_LEGACY xgpu_gl_legacy
+#endif
+
+/* the desktop shaders' #version line: 4.5's, macOS's 4.1, or on an older
+driver the newest of 4.1, 4.0 and 3.3 its context has */
+#ifdef XGPU_GL_LEGACY_AT_RUN_TIME
+extern const char *xgpu_gl_version_line;
+#define XGPU_GL_VERSION_LINE xgpu_gl_version_line
+/* (GLSL 3.30's has no gl_SampleMask: alpha tested over the samples, nv2a_psh.c) */
+extern int xgpu_gl_sample_mask;
+#define XGPU_GL_SAMPLE_MASK xgpu_gl_sample_mask
+#elif defined(__APPLE__)
+#define XGPU_GL_VERSION_LINE "#version 410 core\n"
+#define XGPU_GL_SAMPLE_MASK 1
+#else
+#define XGPU_GL_VERSION_LINE "#version 450 core\n"
+#define XGPU_GL_SAMPLE_MASK 1
+#endif
+
 #ifdef HALO_GL_ES
 /* OpenGL ES features that are optional (d3d8_gl.c gl_initialize) */
 struct xgpu_capabilities
@@ -169,6 +216,19 @@ struct nv2a_pixel_shader_key
 };
 
 char *nv2a_pixel_shader_to_glsl(const struct nv2a_pixel_shader_key *key);
+
+/* nv2a_finite, in the vertex and pixel shaders: a component that is not a
+number made 0, by its bits (a driver's fast math may drop a float test such as
+isnan). The NV2A made none, and a GPU draws one as anything: black, white or
+blocks. An infinite one is kept, for the clamps after it to take to the end of
+the range, as the NV2A did. A named function, so that a console that writes
+the GLSL into another language can give it its own body (the Xbox 360's has no
+integer bit operations) */
+#define NV2A_FINITE \
+	"vec4 nv2a_finite(vec4 v)\n" \
+	"{\n" \
+	"	return mix(v, vec4(0.0), greaterThan(floatBitsToUint(v) & uvec4(0x7fffffffu), uvec4(0x7f800000u)));\n" \
+	"}\n"
 
 #ifdef HALO_GL_ES
 /* ES samplers have no LOD bias of their own */

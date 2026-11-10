@@ -39,6 +39,10 @@ int posix_browser_download_open(const char *url, const char *user_agent, int *st
 end, negative on an error (each read waits about ten seconds at most) */
 int posix_browser_download_read(int download, void *buffer, int size);
 void posix_browser_download_close(int download);
+/* the open download's body given only this many milliseconds from now
+(the default is hours, for a map): a document that holds the lock other
+requests wait on is given far less */
+void posix_browser_download_deadline(int download, int milliseconds);
 /* taken around every use of Mbed TLS, which as built here has no locks of
 its own: the requests above take it themselves; the self-updater's
 downloads (posix_update.c) take it too */

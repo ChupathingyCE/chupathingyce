@@ -160,6 +160,7 @@ symbols in this file:
 #include "interface/first_person_weapons.h"
 #include "math/periodic_functions.h"
 #include "memory/data.h"
+#include "objects/door_portals.h" /* port: closed doors shut their portals to the lights */
 #include "objects/light_definitions.h"
 #include "objects/object_lights.h"
 #include "objects/object_lights_rendering.h"
@@ -722,6 +723,7 @@ void lights_initialize_for_new_map(
 {
 	data_make_valid(light_data);
 	lights_game_globals->render_lights = TRUE;
+	door_portals_new_map(); /* port: (door_portals.c) */
 	cluster_partition_make_valid(&light_cluster_partition);
 
 	return;
@@ -935,6 +937,16 @@ static void lights_port_first_person_flare_positions(
 	return;
 }
 
+/* port: how far a let-go light is through its transition. A light with no
+transition (the Scorpion's cannon's) is at its end as soon as it is made: the
+Xbox divided 0 by 0 there and gave the light a color that is not a number */
+static real light_port_transition_fraction(
+	real elapsed,
+	real duration)
+{
+	return duration > 0.0f ? MAX(elapsed, 0.0f) / duration : 1.0f;
+}
+
 void lights_preprocess_scene(
 	void)
 {
@@ -983,6 +995,8 @@ void lights_preprocess_scene(
 		}
 	}
 
+	/* port: (the portals the closed doors shut: door_portals.c) */
+	door_portals_update();
 	light_marker_begin();
 	lights_globals.scene_point_light_count = structure_visibility_find_objects(
 		lights_globals.scene_point_lights,
@@ -1048,8 +1062,9 @@ void lights_preprocess_scene(
 			(port/linux/game/render_interpolation.c) */
 			intensity = (1.0f - transition_function_evaluate(
 				definition->falloff_function,
-				render_interpolation_ticks_since(current_time, light->parent_light_index)
-					/ definition->transition_duration))
+				light_port_transition_fraction(
+					render_interpolation_ticks_since(current_time, light->parent_light_index),
+					definition->transition_duration)))
 				* light->intensity_scale;
 			rgb_colors_interpolate(
 				&light->color,
@@ -1209,6 +1224,30 @@ void lights_preprocess_scene(
 					light->rasterizer_light_index = rasterizer_light_submit(
 						&light_parameters);
 					debug_rasterizer_light_count = light->rasterizer_light_index + 1;
+					/* port: the clusters it reaches only through a closed
+					door, from its light partition's sphere, which its passes
+					over the level and the objects there then leave out
+					(door_portals.c). Not a first-person weapon's supersized
+					light, which lights everything in view */
+					if (light->rasterizer_light_index != NONE &&
+						!(TEST_FLAG(light->flags, _point_light_attached_to_first_person_weapon_bit) &&
+							TEST_FLAG(definition->flags, _light_definition_supersize_in_first_person_bit)))
+					{
+						real_point3d partition_center;
+						real partition_radius;
+						struct location emitter_location;
+
+						/* (from its object's cluster when it has one: a
+						light at a marker on a door's or a wall's face can
+						be a hair into the next cluster) */
+						if (object)
+							object_get_location(light->object_index, &emitter_location);
+						else
+							scenario_location_from_point(&emitter_location, &light->position);
+						light_get_bounding_sphere(scene_light_handle, &partition_center, &partition_radius);
+						door_portals_light(light->rasterizer_light_index, emitter_location.cluster_index,
+							&partition_center, partition_radius);
+					}
 				}
 			}
 			else
@@ -1679,6 +1718,15 @@ static void brighten_real_rgb_color(
 	real scale = fraction + 1.0f;
 	real scaled_maximum = scale * maximum;
 
+	/* port: a black color (a weapon or grenade the game lights extra bright,
+	lying where the lightmap is black) goes to the least it is brightened to,
+	grey. Scaling it by fraction / 0 made 0 times infinity, not a number, and
+	the object kept that lighting for as long as it lay there */
+	if (!(maximum > 0.0f))
+	{
+		color->red = color->green = color->blue = fraction;
+		return;
+	}
 	if (scaled_maximum > 1.0f)
 	{
 		scale = 1.0f / maximum;
@@ -1962,6 +2010,15 @@ void lights_render_diffuse(
 						lights_globals.scene_point_lights[light_index],
 						MAXIMUM_CLUSTERS_PER_LIGHT,
 						cluster_indices);
+					/* port: not the clusters behind a closed door
+					(door_portals.c); none left, no pass */
+					if (cluster_count > 0)
+					{
+						cluster_count = door_portals_light_filter(light->rasterizer_light_index, cluster_count,
+							cluster_indices);
+						if (!cluster_count)
+							continue;
+					}
 				}
 				light_compute_bounding_sphere(
 					lights_globals.scene_point_lights[light_index],
@@ -2022,6 +2079,15 @@ void lights_render_specular(
 						lights_globals.scene_point_lights[light_index],
 						MAXIMUM_CLUSTERS_PER_LIGHT,
 						cluster_indices);
+					/* port: not the clusters behind a closed door
+					(door_portals.c); none left, no pass */
+					if (cluster_count > 0)
+					{
+						cluster_count = door_portals_light_filter(light->rasterizer_light_index, cluster_count,
+							cluster_indices);
+						if (!cluster_count)
+							continue;
+					}
 				}
 				light_compute_bounding_sphere(
 					lights_globals.scene_point_lights[light_index],
@@ -2123,6 +2189,12 @@ void light_reconnect_to_map(
 	return;
 }
 
+/* port: the cluster lights_prepare_for_object_dynamic is finding an object's
+lights in, whose lights behind a closed door are passed over (door_portals.c);
+NONE otherwise (the units' illumination, which the AI sees by, keeps the
+game's clusters) */
+static short lights_port_door_cluster = NONE;
+
 /* a light of a cluster, for find_point_lights_for_object_in_cluster: as
 the Xbox's loop does each, marking it (so its other clusters pass it over) */
 static void find_point_light_for_object(
@@ -2140,6 +2212,14 @@ static void find_point_light_for_object(
 	{
 		struct light_datum *light = light_get(light_index);
 
+		/* port: a light behind a closed door from this cluster is passed
+		over, and left unmarked: the object's other clusters may see it
+		(door_portals.c) */
+		if (lights_port_door_cluster != NONE &&
+			door_portals_light_blocked(light->rasterizer_light_index, lights_port_door_cluster))
+		{
+			return;
+		}
 		if (light->rasterizer_light_index != NONE
 			&& (light->object_index != object_index
 				|| !TEST_FLAG(light_definition_get(light->definition_index)->flags,
@@ -2442,6 +2522,7 @@ void lights_prepare_for_object_dynamic(
 		cluster_index != NONE;
 		cluster_index = object_get_next_cluster(&iterator, object_index))
 	{
+		lights_port_door_cluster = cluster_index;
 		find_point_lights_for_object_in_cluster(
 			object_index,
 			cluster_index,
@@ -2453,6 +2534,7 @@ void lights_prepare_for_object_dynamic(
 			&lighting->point_light_count,
 			MAXIMUM_RENDERED_POINT_LIGHTS);
 	}
+	lights_port_door_cluster = NONE;
 	light_marker_end();
 	for (light_index = 0; light_index < lighting->point_light_count; light_index++)
 	{
