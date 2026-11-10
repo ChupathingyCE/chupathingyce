@@ -288,20 +288,26 @@ static void test_aim_assist_policy(void)
 static void test_aim_device(void)
 {
 	/* no stick aiming ever: the mouse (a controller merely connected changes
-	nothing) */
-	CHECK(network_rules_mouse_is_aim_device(0, 0, 0));
-	CHECK(network_rules_mouse_is_aim_device(500, 0, 0));
+	nothing once the mouse has aimed) */
+	CHECK(network_rules_mouse_is_aim_device(0, 0, 0, 0));
+	CHECK(network_rules_mouse_is_aim_device(500, 0, 0, 0));
+	CHECK(network_rules_mouse_is_aim_device(500, 0, 0, 1));
+	/* nothing aimed yet with a controller connected: the pad player keeps
+	the stick's magnetism (#861) */
+	CHECK(!network_rules_mouse_is_aim_device(0, 0, 0, 1));
+	CHECK(!network_rules_mouse_is_aim_device(0, 500, 0, 1));
+	CHECK(network_rules_mouse_is_aim_device(600, 500, 0, 1));
 	/* the mouse after the stick, or at the same time, is; before it is not */
-	CHECK(network_rules_mouse_is_aim_device(600, 500, 0));
-	CHECK(network_rules_mouse_is_aim_device(500, 500, 0));
-	CHECK(!network_rules_mouse_is_aim_device(400, 500, 0));
-	CHECK(!network_rules_mouse_is_aim_device(0, 500, 0));
+	CHECK(network_rules_mouse_is_aim_device(600, 500, 0, 0));
+	CHECK(network_rules_mouse_is_aim_device(500, 500, 0, 0));
+	CHECK(!network_rules_mouse_is_aim_device(400, 500, 0, 0));
+	CHECK(!network_rules_mouse_is_aim_device(0, 500, 0, 0));
 	/* touch at or after both is not the mouse; before either is */
-	CHECK(!network_rules_mouse_is_aim_device(500, 400, 700));
-	CHECK(!network_rules_mouse_is_aim_device(500, 400, 500));
-	CHECK(network_rules_mouse_is_aim_device(500, 400, 450));
-	CHECK(!network_rules_mouse_is_aim_device(0, 0, 100));
-	CHECK(network_rules_mouse_is_aim_device(600, 500, 550));
+	CHECK(!network_rules_mouse_is_aim_device(500, 400, 700, 0));
+	CHECK(!network_rules_mouse_is_aim_device(500, 400, 500, 0));
+	CHECK(network_rules_mouse_is_aim_device(500, 400, 450, 0));
+	CHECK(!network_rules_mouse_is_aim_device(0, 0, 100, 0));
+	CHECK(network_rules_mouse_is_aim_device(600, 500, 550, 0));
 }
 
 static void test_settings_size(void)
