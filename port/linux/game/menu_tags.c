@@ -93,6 +93,9 @@ adds to */
 #define MULTIPLAYER_COLLECTION "ui\\shell\\multiplayer"
 /* a campaign map's pause screen, which pause_patch adds to */
 #define SOLO_PAUSE_SCREEN "ui\\shell\\solo_game\\pause_game\\pause_game"
+/* a Custom Edition map's CHANGE SETTINGS, which pause_row_replaced takes out
+(the Halo PC screen it opens is in no map) */
+#define CUSTOM_CHANGE_SETTINGS_BUTTON "ui\\shell\\multiplayer_game\\pause_game\\change_settings_button"
 /* the tags pause_patch adds: six buttons and their texts, and the middle
 and bottom parts of the stock box's pieces, a widget and a bitmap each (the
 campaign's has six pieces) */
@@ -1478,10 +1481,20 @@ static void instance_set(struct cache_file_tag_instance *instances, long group_t
 	instance->base_address = XBOX_ADDRESS(definition);
 }
 
+/* the pause menus' GUIDE's text (its string list's tag), for the count
+of what waits in the Guide (guide_pause_label); NONE in a map without it */
+static long pause_guide_label = NONE;
+
+long pc_menu_pause_guide_label(void)
+{
+	return pause_guide_label;
+}
+
 static void menu_tags_release(void)
 {
 	long index;
 
+	pause_guide_label = NONE;
 	for (index = 0; index < menu_tags.bitmap_count; index++)
 	{
 		if (menu_tags.bitmaps[index]->hardware_format)
@@ -1834,6 +1847,8 @@ static boolean pause_list_patch(struct cache_file_tag_instance *instances, struc
 		tags[added] = next_tag();
 		buttons[added++] = pause_button(instances, model, "pause/guide_button", "GUIDE",
 			function_index("port pause guide", "pause", 0), NONE, FALSE);
+		if (buttons[added - 1])
+			pause_guide_label = ((struct ui_widget_definition *)buttons[added - 1])->text_label_string_list.index;
 	}
 	if (moderation)
 	{
@@ -2306,6 +2321,7 @@ void menu_tags_loaded(
 
 	boolean game_map = strcmp(map_name, "ui") != 0;
 
+	pause_guide_label = NONE;
 #ifdef HALO_GAME_BROWSER
 	/* (the save folder's game type files, in every menus' gametype lists:
 	gametype_files.c) */
@@ -2320,11 +2336,14 @@ void menu_tags_loaded(
 		return;
 	}
 	/* the Xbox's menus: only a multiplayer game's CHANGE TEAMS and the host's
-	END GAME, and CONTROLS */
+	END GAME, and CONTROLS; and a Custom Edition map's dead CHANGE SETTINGS
+	taken out even with none of them (a console, which has no CONTROLS, kept
+	it in a client's game that was not a team game) */
 	if (menus_chosen() == _menus_xbox)
 	{
 		if (game_map && (pause_controls_offered() || (tag_loaded(UI_WIDGET_DEFINITION_TAG, SOLO_PAUSE_SCREEN) == NONE &&
-			(global_network_game_server_get() != NULL || team_change_pause_offered()))))
+			(global_network_game_server_get() != NULL || team_change_pause_offered() ||
+			tag_loaded(UI_WIDGET_DEFINITION_TAG, CUSTOM_CHANGE_SETTINGS_BUTTON) != NONE))))
 		{
 			pause_patch_xbox();
 		}

@@ -4,8 +4,11 @@ LAUNCHER.C
 Chupathingy's screen before the game (launcher.h): its own small loop in
 the game's window (read input, clear, draw, present) before the first map
 loads, drawn with the overlay (ui_overlay.c) and its built-in fonts and
-button glyphs. No map, tag or bitmap of the game's is read, so nothing of
-the retail game's is on screen.
+button glyphs, in the Guide's look (ui_overlay_style.c: translucent glass
+panels and rows, and the Xbox menus' plasma, from the overlay's own noise,
+on the selection alone). No map, tag or bitmap of the game's is read, so nothing of the
+retail game's is on screen. It draws with OpenGL, or with bgfx when that is
+the renderer (xgpu_bgfx_launcher_frame).
 
 Screens: Welcome (the first start), and PLAY, MAPS and LOGS & HELP with
 QUIT, as a list of sections on the left and the open one in a panel on the
@@ -30,6 +33,7 @@ upload, which have threads of their own.
 #include "port_config.h"
 #include "posix.h"
 #include "gl.h"
+#include "xgpu.h"
 #include "ui_overlay.h"
 #include "crash_report.h"
 #include "browser_http.h"
@@ -72,32 +76,41 @@ enum
 	PATH_SIZE = 1024,
 };
 
-/* ---------- colors (0xRRGGBBAA), as the Chupathingy menus' */
+/* ---------- colors: the look's palette, by name (ui_overlay_style.c's
+ui_style_color) */
 
-enum
+#define COLOR_TITLE ui_style_color(UI_COLOR_TITLE)
+#define COLOR_TITLE_GLOW ui_style_color(UI_COLOR_TITLE_GLOW)
+#define COLOR_NAV ui_style_color(UI_COLOR_NAV)
+#define COLOR_NAV_GLOW ui_style_color(UI_COLOR_NAV_GLOW)
+#define COLOR_WHITE ui_style_color(UI_COLOR_TEXT)
+#define COLOR_GREY ui_style_color(UI_COLOR_TEXT_DIM)
+#define COLOR_FAINT ui_style_color(UI_COLOR_FAINT)
+#define COLOR_GREEN ui_style_color(UI_COLOR_GOOD)
+#define COLOR_AMBER ui_style_color(UI_COLOR_WARNING)
+#define COLOR_RED ui_style_color(UI_COLOR_BAD)
+#define COLOR_HEAD ui_style_color(UI_COLOR_HEAD)
+#define COLOR_HEAD_GLOW ui_style_color(UI_COLOR_HEAD_GLOW)
+#define COLOR_ROW ui_style_color(UI_COLOR_LABEL)
+#define COLOR_ROW_DIM ui_style_color(UI_COLOR_LABEL_DIM)
+#define COLOR_ROW_GLOW ui_style_color(UI_COLOR_LABEL_GLOW)
+#define COLOR_SELECTED_GLOW ui_style_color(UI_COLOR_SELECTED_GLOW)
+#define COLOR_RULE ui_style_color(UI_COLOR_LINE)
+#define COLOR_RULE_GLOW ui_style_color(UI_COLOR_LINE_GLOW)
+#define COLOR_SEPARATOR ui_style_color(UI_COLOR_SEPARATOR)
+#define COLOR_TAG_GREEN ui_style_color(UI_COLOR_GOOD)
+#define COLOR_TAG_BLUE ui_style_color(UI_COLOR_TAG)
+#define COLOR_SHADE ui_style_color(UI_COLOR_SHADE)
+#define COLOR_PROMPT ui_style_color(UI_COLOR_PROMPT)
+#define COLOR_PROMPT_GLOW ui_style_color(UI_COLOR_PROMPT_GLOW)
+#define COLOR_EDGE ui_style_color(UI_COLOR_FIELD_EDGE)
+#define COLOR_PATH_FIELD ui_style_color(UI_COLOR_FIELD)
+
+/* a color, its alpha alpha (0 to 255) */
+static unsigned int with_alpha(unsigned int color, unsigned int alpha)
 {
-	COLOR_TITLE = 0x2E86FFFF,
-	COLOR_TITLE_GLOW = 0x2882FFA6,
-	COLOR_NAV = 0x3D9BFFFF,
-	COLOR_NAV_GLOW = 0x2882FF59,
-	COLOR_WHITE = 0xE8F1FFFF,
-	COLOR_GREY = 0x7F93ADFF,
-	COLOR_GREEN = 0x7FD88CFF,
-	COLOR_AMBER = 0xE7B25AFF,
-	COLOR_RED = 0xFF8A80FF,
-	COLOR_HEAD = 0x3D8EEBFF,
-	COLOR_ROW = 0x3D9BFFFF,
-	COLOR_ROW_DIM = 0x4F6F99FF,
-	COLOR_ROW_FILL = 0x06142CB8,
-	COLOR_ROW_EDGE = 0x468CE638,
-	COLOR_SELECTION_FILL = 0x16468C8C,
-	COLOR_SELECTION_EDGE = 0x78BEFFF2,
-	COLOR_TAG_GREEN = 0x7FD88CFF,
-	COLOR_TAG_BLUE = 0x7FB6FFFF,
-	COLOR_SHADE = 0x01040CB0,
-	COLOR_PROMPT = 0x4AA3FFFF,
-	COLOR_PROMPT_GLOW = 0x3D8BFF80,
-};
+	return (color & 0xFFFFFF00) | (alpha & 0xFF);
+}
 
 /* ---------- what is shown */
 
@@ -1216,14 +1229,10 @@ static void build_rows(void)
 	switch (launcher.screen)
 	{
 	case _screen_welcome:
-		row = row_add(_action_add_file, "COPY FROM MY XBOX DISC IMAGE");
-		snprintf(row->sub, sizeof(row->sub), "Pick an .iso file. We copy the maps for you.");
-		row = row_add(_action_make_folders, "MAKE THE FOLDERS, I'LL ADD THE FILES");
-		snprintf(row->sub, sizeof(row->sub), "Empty map folders, then Open folder.");
-		row = row_add(_action_add_halo_pc, "ADD HALO PC OR CUSTOM EDITION TOO");
-		snprintf(row->sub, sizeof(row->sub), "Optional. A Halo PC CD image or the CE installer.");
-		row = row_add(_action_pick_folder, "I ALREADY HAVE A MAPS FOLDER");
-		snprintf(row->sub, sizeof(row->sub), "Point us at it.");
+		row_add(_action_add_file, "COPY FROM MY XBOX DISC IMAGE");
+		row_add(_action_make_folders, "MAKE THE FOLDERS, I'LL ADD THE FILES");
+		row_add(_action_add_halo_pc, "ADD HALO PC OR CUSTOM EDITION TOO");
+		row_add(_action_pick_folder, "I ALREADY HAVE A MAPS FOLDER");
 		break;
 	case _screen_play:
 		for (index = 0; index < launcher.mode_count; index++)
@@ -1240,45 +1249,36 @@ static void build_rows(void)
 				row->value_color = COLOR_GREY;
 				row->tag_color = COLOR_GREY;
 				row->dim = 1;
-				snprintf(row->help, sizeof(row->help), "Put its maps in %s, with its ui.map. A shows your maps.",
-					mode->folder);
 			}
 			else if (!xbox_maps_ready())
 			{
 				snprintf(row->value, sizeof(row->value), "Xbox maps needed");
 				row->value_color = COLOR_AMBER;
-				snprintf(row->help, sizeof(row->help), "Add your Xbox maps first. A takes you there.");
+				snprintf(row->help, sizeof(row->help), "Add your Xbox maps first.");
 			}
 			else
 			{
 				snprintf(row->value, sizeof(row->value), "Ready");
 				row->value_color = COLOR_GREEN;
-				if (!index)
-					snprintf(row->help, sizeof(row->help), "The original game. Xbox maps, Xbox rules.");
-				else
-					snprintf(row->help, sizeof(row->help), "%s, with its own menus and maps.", mode->title);
 			}
 		}
 		if (launcher.installed_modes > 1)
 		{
-			row = row_add(_action_start_mode, "START IN THIS MODE");
+			row = row_add(_action_start_mode, "START WITH");
 			row->cycles = 1;
 			row->gap = 1;
 			if (mode_asks())
 				snprintf(row->value, sizeof(row->value), "ALWAYS ASK");
 			else
 				snprintf(row->value, sizeof(row->value), "%s", launcher.modes[mode_default()].name);
-			snprintf(row->help, sizeof(row->help), "Pick a mode to skip this screen next time. %s", reopen_hint());
 		}
 		row = row_add(_action_play, "PLAY");
 		row->gap = launcher.installed_modes <= 1;
 		if (launcher.mode >= 0 && launcher.mode < launcher.mode_count && launcher.installed_modes > 1)
 			snprintf(row->value, sizeof(row->value), "%s", launcher.modes[launcher.mode].name);
 		row->value_color = COLOR_WHITE;
-		if (xbox_maps_ready())
-			snprintf(row->help, sizeof(row->help), "Load the menus and play.");
-		else
-			snprintf(row->help, sizeof(row->help), "Add your Xbox maps first. A takes you there.");
+		if (!xbox_maps_ready())
+			snprintf(row->help, sizeof(row->help), "Add your Xbox maps first.");
 		break;
 	case _screen_maps:
 		for (index = 0; index < launcher.family_count; index++)
@@ -1290,36 +1290,17 @@ static void build_rows(void)
 			snprintf(row->tag, sizeof(row->tag), "%s", family->tag);
 			row->tag_color = family->kind == _family_xbox ? COLOR_TAG_GREEN : COLOR_TAG_BLUE;
 			family_state(family, row->value, sizeof(row->value), &row->value_color);
-			switch (family->kind)
-			{
-			case _family_xbox:
-				snprintf(row->help, sizeof(row->help), "The maps from your Xbox disc. Everything else needs these.");
-				break;
-			case _family_custom_edition:
-				snprintf(row->help, sizeof(row->help), "Custom Edition maps, with bitmaps.map, sounds.map and loc.map.");
-				break;
-			case _family_halo_pc:
-				snprintf(row->help, sizeof(row->help), "The maps from your Halo PC disc.");
-				break;
-			case _family_halomd:
-				snprintf(row->help, sizeof(row->help), "HaloMD's maps. They need Custom Edition's bitmaps.map, sounds.map and loc.map in maps_ce.");
-				break;
-			default:
-				snprintf(row->help, sizeof(row->help), "A pack of Xbox maps. It plays beside the Xbox maps.");
-				break;
-			}
+			if (row->value_color == COLOR_GREY)
+				row->dim = 1;
 		}
 		if (launcher.old_folders)
 		{
 			row = row_add(_action_move_old_folders, "MOVE TO THE NEW FOLDERS");
 			row->gap = 1;
-			snprintf(row->help, sizeof(row->help), "Maps in maps/ce or md_maps go to maps_ce and maps_md. Nothing is deleted.");
 		}
 		row = row_add(_action_add_file, "ADD MAPS FROM A FILE");
 		row->gap = !launcher.old_folders;
-		snprintf(row->help, sizeof(row->help), "An Xbox disc image, a Halo PC CD image or the CE installer.");
-		row = row_add(_action_make_folders, "MAKE THE FOLDERS");
-		snprintf(row->help, sizeof(row->help), "Makes maps, maps_ce, maps_pc and maps_md, with a note in each.");
+		row_add(_action_make_folders, "MAKE THE FOLDERS");
 		row = row_add(_action_open_game_folder, "OPEN GAME FOLDER");
 		shown_path(launcher.root, row->help, sizeof(row->help));
 		break;
@@ -1327,41 +1308,30 @@ static void build_rows(void)
 	{
 		const struct family *family = &launcher.families[launcher.family];
 
-		row = row_add(_action_open_family_folder, "OPEN FOLDER");
-		snprintf(row->help, sizeof(row->help), "Drop .map files here. Come back and we'll check them.");
+		row_add(_action_open_family_folder, "OPEN FOLDER");
 		row = row_add(_action_check_family, "CHECK MY MAPS");
 		family_check_text(family, row->value, sizeof(row->value), &row->value_color);
-		if (family->kind == _family_custom_edition && family->missing)
-			snprintf(row->help, sizeof(row->help), "Custom Edition and HaloMD maps need Custom Edition's %s here too.",
-				family->missing_names);
-		else if (family_needs_resources(family) && family->missing)
-			snprintf(row->help, sizeof(row->help), "These maps need Custom Edition's %s in maps_ce. Add the CE installer under Custom Edition.",
-				family->missing_names);
-		else if (family->kind == _family_pack && family->missing)
-			snprintf(row->help, sizeof(row->help), "Missing: %s.", family->missing_names);
-		else if (family->broken)
-			snprintf(row->help, sizeof(row->help), "X shows which ones are broken.");
+		/* (what is wrong, where something is: the missing files by name) */
+		if ((family->kind == _family_custom_edition || family_needs_resources(family) ||
+			family->kind == _family_pack) && family->missing)
+		{
+			snprintf(row->help, sizeof(row->help), "Missing: %s", family->missing_names);
+		}
 		else if (family->stray)
 			snprintf(row->help, sizeof(row->help), "Halo PC maps go in maps_ce, maps_pc or maps_md.");
-		else
-			snprintf(row->help, sizeof(row->help), "Checks every map in the folder again.");
 		switch (family->kind)
 		{
 		case _family_xbox:
-			row = row_add(_action_add_file, "ADD FROM MY DISC IMAGE");
-			snprintf(row->help, sizeof(row->help), "Pick your Xbox disc image (.iso). We copy the maps for you.");
+			row_add(_action_add_file, "ADD FROM MY DISC IMAGE");
 			break;
 		case _family_custom_edition:
-			row = row_add(_action_add_halo_pc, "ADD THE CE INSTALLER");
-			snprintf(row->help, sizeof(row->help), "Pick halocesetup_en_1.00.exe. We copy its maps for you.");
+			row_add(_action_add_halo_pc, "ADD THE CE INSTALLER");
 			row = row_add(_action_downloads, "DOWNLOADS");
 			row->cycles = 1;
 			snprintf(row->value, sizeof(row->value), "%s", downloads_word());
-			snprintf(row->help, sizeof(row->help), "Maps you're missing when you join a game.");
 			break;
 		case _family_halo_pc:
-			row = row_add(_action_add_halo_pc, "ADD FROM MY CD IMAGE");
-			snprintf(row->help, sizeof(row->help), "Pick your Halo PC CD image (.iso). We copy the maps for you.");
+			row_add(_action_add_halo_pc, "ADD FROM MY CD IMAGE");
 			break;
 		default:
 			break;
@@ -1389,9 +1359,7 @@ static void build_rows(void)
 		row = row_add(_action_send_logs, "SEND MY LOGS");
 		snprintf(row->value, sizeof(row->value), "%s", LAUNCHER_DUMP_SITE);
 		row->value_color = COLOR_GREY;
-		snprintf(row->help, sizeof(row->help), "Sends debug.txt and your last crash report. Addresses are removed.");
-		row = row_add(_action_open_logs, "OPEN LOGS FOLDER");
-		snprintf(row->help, sizeof(row->help), "debug.txt and crash reports are in here.");
+		row_add(_action_open_logs, "OPEN LOGS FOLDER");
 		if (crash)
 		{
 			struct tm when;
@@ -1406,12 +1374,9 @@ static void build_rows(void)
 			else
 				strftime(row->value, sizeof(row->value), "%b %d, %H:%M", &when);
 			row->value_color = COLOR_AMBER;
-			snprintf(row->help, sizeof(row->help), "Send my logs sends it too.");
 		}
-		row = row_add(_action_copy_version, "COPY VERSION INFO");
-		snprintf(row->help, sizeof(row->help), "Paste it in your bug report.");
-		row = row_add(_action_discord, "GET HELP ON DISCORD");
-		snprintf(row->help, sizeof(row->help), "Opens our Discord in your browser.");
+		row_add(_action_copy_version, "COPY VERSION INFO");
+		row_add(_action_discord, "GET HELP ON DISCORD");
 		break;
 	}
 	}
@@ -1522,26 +1487,19 @@ static void target_add(float x0, float y0, float x1, float y1, int kind, int ind
 	launcher.target_count++;
 }
 
-/* the backdrop, drawn by code: dark space, two soft glows and stars */
+/* the backdrop: dark space and stars (the plasma is the selection's: the
+overlay's own noise, as no map is loaded yet) */
 static void draw_backdrop(void)
 {
 	float left = launcher.left, width = layout_width();
 	unsigned int seed = 7;
-	int index, ring;
+	int index;
 
-	ui_overlay_gradient(left, 0, width, 265, 0, 0x030A1AFF, 0x061430FF);
-	ui_overlay_gradient(left, 265, width, 215, 0, 0x061430FF, 0x030915FF);
-	/* (the glows: rings of faint ellipses, wider and fainter outward) */
-	for (ring = 0; ring < 16; ring++)
-	{
-		float grow = (float)ring * 9.0f;
-
-		ui_overlay_rect(left + width * 0.66f - grow, 30 - grow * 0.55f, width * 0.32f + grow * 2, 120 + grow * 1.1f,
-			60 + grow * 0.55f, 0x286EC804);
-		ui_overlay_rect(left - width * 0.1f - grow, 380 - grow * 0.55f, width * 0.4f + grow * 2, 150 + grow * 1.1f,
-			75 + grow * 0.55f, 0x1E3C8C05);
-	}
-	for (index = 0; index < 220; index++)
+	ui_overlay_gradient(left, 0, width, 265, 0, ui_style_color(UI_COLOR_BACKDROP_TOP),
+		ui_style_color(UI_COLOR_BACKDROP_MIDDLE));
+	ui_overlay_gradient(left, 265, width, 215, 0, ui_style_color(UI_COLOR_BACKDROP_MIDDLE),
+		ui_style_color(UI_COLOR_BACKDROP_BOTTOM));
+	for (index = 0; index < 160; index++)
 	{
 		float x, y, size, alpha;
 
@@ -1552,10 +1510,18 @@ static void draw_backdrop(void)
 		seed = seed * 1103515245u + 12345u;
 		size = 0.35f + (float)(seed >> 8 & 0xFF) / 255.0f * 0.8f;
 		seed = seed * 1103515245u + 12345u;
-		alpha = 0.15f + (float)(seed >> 8 & 0xFF) / 255.0f * 0.6f;
+		alpha = 0.15f + (float)(seed >> 8 & 0xFF) / 255.0f * 0.55f;
 		ui_overlay_rect(left + x * width, y * 480.0f, size, size, size * 0.5f,
-			0xC8E1FF00 | (unsigned int)(alpha * 255.0f));
+			with_alpha(ui_style_color(UI_COLOR_STAR), (unsigned int)(alpha * 255.0f)));
 	}
+}
+
+/* a glowing rule across the screen, as the Guide's mockups have under the
+title and over the prompts */
+static void draw_rule(float y)
+{
+	ui_overlay_rect(launcher.left, y - 2.0f, layout_width(), 5.0f, 0, COLOR_RULE_GLOW);
+	ui_overlay_rect(launcher.left, y - 0.5f, layout_width(), 1.5f, 0, COLOR_RULE);
 }
 
 static const char *screen_title(void)
@@ -1585,56 +1551,41 @@ static void draw_header(void)
 	float corner = launcher.right - width * 0.05f;
 	char line[96];
 
-	text_fit(UI_FONT_TITLE, 15.5f, launcher.left + width * 0.103f, 28.0f, UI_ALIGN_LEFT, COLOR_TITLE, COLOR_TITLE_GLOW,
+	text_fit(UI_FONT_TITLE, 15.5f, launcher.left + width * 0.086f, 25.0f, UI_ALIGN_LEFT, COLOR_TITLE, COLOR_TITLE_GLOW,
 		width * 0.62f, screen_title());
 	snprintf(line, sizeof(line), "Chupathingy %s", build_identity_version());
-	ui_overlay_text(UI_FONT_BOLD, 12.0f, corner, 33.0f, UI_ALIGN_RIGHT, COLOR_WHITE, line);
+	ui_overlay_text(UI_FONT_BOLD, 10.0f, corner, 27.0f, UI_ALIGN_RIGHT, COLOR_WHITE, line);
 	snprintf(line, sizeof(line), "%s %s", build_identity_platform(), sizeof(void *) == 8 ? "64-bit" : "32-bit");
-	ui_overlay_text(UI_FONT_BOLD, 11.5f, corner, 50.0f, UI_ALIGN_RIGHT, COLOR_GREY, line);
-	ui_overlay_band(launcher.left, launcher.right, 75.0f, 413.0f);
+	ui_overlay_text(UI_FONT_BOLD, 8.7f, corner, 41.0f, UI_ALIGN_RIGHT, COLOR_FAINT, line);
+	draw_rule(75.0f);
 }
 
-/* the sections, Xbox main-menu rows */
+/* the sections, Xbox main-menu rows: the one open lit while it has the
+focus, its capsule kept (unlit) while the panel has it */
 static void draw_sections(void)
 {
 	float width = layout_width();
-	float x = launcher.left + width * 0.088f;
+	float x = launcher.left + width * 0.075f;
 	float column = width * 0.234f;
-	float y = 88.0f;
+	float y = 93.0f;
 	int index;
 
 	for (index = 0; index < NUMBER_OF_SECTIONS; index++)
 	{
 		int picked = index == launcher.section;
-		unsigned int color = picked ? COLOR_WHITE : COLOR_NAV;
+		int lit = picked && !launcher.in_panel;
 
 		if (index == _section_quit)
 		{
-			ui_overlay_rect(x + 13.0f, y + 6.0f, column - 26.0f, 1.3f, 0, 0x50A0FF80);
+			ui_overlay_rect(x + 9.0f, y + 6.0f, column - 18.0f, 1.3f, 0, COLOR_SEPARATOR);
 			y += 13.0f;
 		}
-		if (picked && !launcher.in_panel)
-		{
-			ui_overlay_rect(x, y, column, 27.0f, 8.0f, 0x1E5AAA59);
-			ui_overlay_outline(x - 1.0f, y - 1.0f, column + 2.0f, 29.0f, 9.0f, 1.0f, 0x4696FF50);
-			ui_overlay_outline(x, y, column, 27.0f, 8.0f, 1.3f, 0x6EB9FFF2);
-		}
-		else if (picked)
-		{
-			int step;
-
-			/* (the open section: a band fading out to the right, and a bar) */
-			for (step = 0; step < 24; step++)
-			{
-				ui_overlay_rect(x + column * (float)step / 24.0f, y, column / 24.0f + 0.2f, 27.0f, 0,
-					0x286ED200 | (unsigned int)(0x59 * (24 - step) / 24));
-			}
-			ui_overlay_rect(x, y, 2.0f, 27.0f, 1.0f, 0x78BEFFF2);
-		}
-		text_fit(UI_FONT_MENU, 19.0f, x + 13.0f, y + 4.0f, UI_ALIGN_LEFT, color, picked ? 0x4696FF8C : COLOR_NAV_GLOW,
-			column - 20.0f, section_names[index]);
-		target_add(x, y, x + column, y + 27.0f, _target_section, index);
-		y += 29.0f;
+		if (picked)
+			ui_style_row(x, y, column, 29.0f, lit);
+		text_fit(UI_FONT_MENU, 16.0f, x + 9.5f, y + 6.5f, UI_ALIGN_LEFT, picked ? COLOR_WHITE : COLOR_NAV,
+			lit ? COLOR_SELECTED_GLOW : COLOR_NAV_GLOW, column - 18.0f, section_names[index]);
+		target_add(x, y, x + column, y + 29.0f, _target_section, index);
+		y += 33.0f;
 	}
 }
 
@@ -1666,44 +1617,39 @@ static void draw_arrow_vertical(float x, float y, int up, unsigned int color)
 	}
 }
 
-/* a row: a capsule, its tag, its label (and the line under it), its value;
-its height */
+/* a row's height */
+static float row_height(const struct row *row)
+{
+	return row->sub[0] ? 35.0f : 32.0f;
+}
+
+/* a row: its capsule (ui_style_row), its tag, its label (and the line under
+it), its value; its height */
 static float draw_row(const struct row *row, int index, float x, float y, float width, int picked, int lit)
 {
-	float height = row->sub[0] ? 35.0f : 26.5f;
-	float label_x = x + 12.0f;
+	float height = row_height(row);
+	float label_x = x + 11.0f;
 	float value_width = 0.0f;
-	unsigned int label_color = row->disabled || row->dim ? COLOR_ROW_DIM : COLOR_ROW;
+	unsigned int label_color = row->disabled || row->dim ? COLOR_ROW_DIM : picked && lit ? COLOR_WHITE : COLOR_ROW;
 
-	if (picked && lit)
-	{
-		ui_overlay_outline(x - 2.0f, y - 2.0f, width + 4.0f, height + 4.0f, 9.0f, 1.0f, 0x4696FF40);
-		ui_overlay_outline(x - 1.0f, y - 1.0f, width + 2.0f, height + 2.0f, 8.0f, 1.0f, 0x4696FF70);
-		ui_overlay_rect(x, y, width, height, 7.0f, COLOR_SELECTION_FILL);
-		ui_overlay_outline(x, y, width, height, 7.0f, 1.3f, COLOR_SELECTION_EDGE);
-	}
-	else
-	{
-		ui_overlay_rect(x, y, width, height, 7.0f, COLOR_ROW_FILL);
-		ui_overlay_outline(x, y, width, height, 7.0f, 0.75f, picked ? 0x78BEFF90 : COLOR_ROW_EDGE);
-	}
+	ui_style_row(x, y, width, height, picked && lit);
 	if (row->tag[0])
 	{
 		float tag_y = y + (height - 12.0f) * 0.5f;
 
-		ui_overlay_outline(label_x, tag_y, 29.0f, 12.0f, 3.0f, 0.8f, (row->tag_color & 0xFFFFFF00) | 0xB0);
-		text_fit(UI_FONT_BOLD, 8.5f, label_x + 14.5f, tag_y + 1.2f, UI_ALIGN_CENTER, row->tag_color, 0, 26.0f,
+		ui_overlay_outline(label_x, tag_y, 29.0f, 12.0f, 3.0f, 0.8f, with_alpha(row->tag_color, 0x99));
+		text_fit(UI_FONT_MENU, 8.5f, label_x + 14.5f, tag_y + 1.5f, UI_ALIGN_CENTER, row->tag_color, 0, 26.0f,
 			row->tag);
 		label_x += 38.0f;
 	}
 	if (row->cycles)
 	{
-		float right = x + width - 12.0f;
+		float right = x + width - 11.0f;
 		float center = right - 62.0f;
 
-		draw_arrow(right - 5.0f, y + height * 0.5f, 0, COLOR_ROW);
-		draw_arrow(right - 124.0f, y + height * 0.5f, 1, COLOR_ROW);
-		text_fit(UI_FONT_BOLD, 13.5f, center, y + (height - 13.5f) * 0.5f, UI_ALIGN_CENTER, COLOR_WHITE, 0, 104.0f,
+		draw_arrow(right - 5.0f, y + height * 0.5f, 0, COLOR_NAV);
+		draw_arrow(right - 124.0f, y + height * 0.5f, 1, COLOR_NAV);
+		text_fit(UI_FONT_MENU, 12.5f, center, y + (height - 12.5f) * 0.5f, UI_ALIGN_CENTER, COLOR_WHITE, 0, 104.0f,
 			row->value);
 		value_width = 130.0f;
 	}
@@ -1711,48 +1657,49 @@ static float draw_row(const struct row *row, int index, float x, float y, float 
 	{
 		float maximum = width * 0.5f;
 
-		value_width = ui_overlay_text_width(UI_FONT_BOLD, 13.5f, row->value);
+		value_width = ui_overlay_text_width(UI_FONT_MENU, 12.5f, row->value);
 		if (value_width > maximum)
 			value_width = maximum;
-		text_fit(UI_FONT_BOLD, 13.5f, x + width - 12.0f, y + (height - 13.5f) * 0.5f - 0.5f, UI_ALIGN_RIGHT, row->value_color,
-			0, maximum, row->value);
+		text_fit(UI_FONT_MENU, 12.5f, x + width - 11.0f, y + (height - 12.5f) * 0.5f, UI_ALIGN_RIGHT,
+			row->value_color, 0, maximum, row->value);
 		value_width += 10.0f;
 	}
 	if (row->sub[0])
 	{
-		text_fit(UI_FONT_MENU, 18.0f, label_x, y + 2.0f, UI_ALIGN_LEFT, label_color, picked ? 0x3D8BFF60 : 0,
-			x + width - 12.0f - value_width - label_x, row->label);
-		text_fit(UI_FONT_BOLD, 10.0f, label_x, y + 21.5f, UI_ALIGN_LEFT, COLOR_GREY, 0,
-			x + width - 12.0f - label_x, row->sub);
+		text_fit(UI_FONT_MENU, 15.0f, label_x, y + 3.0f, UI_ALIGN_LEFT, label_color, picked && lit ? COLOR_ROW_GLOW : 0,
+			x + width - 11.0f - value_width - label_x, row->label);
+		text_fit(UI_FONT_BOLD, 9.0f, label_x, y + 21.5f, UI_ALIGN_LEFT, COLOR_GREY, 0,
+			x + width - 11.0f - label_x, row->sub);
 	}
 	else
 	{
-		text_fit(UI_FONT_MENU, 18.0f, label_x, y + (height - 18.0f) * 0.5f + 0.5f, UI_ALIGN_LEFT, label_color,
-			picked ? 0x3D8BFF60 : 0, x + width - 12.0f - value_width - label_x, row->label);
+		text_fit(UI_FONT_MENU, 15.0f, label_x, y + (height - 15.0f) * 0.5f + 0.5f, UI_ALIGN_LEFT, label_color,
+			picked && lit ? COLOR_ROW_GLOW : 0, x + width - 11.0f - value_width - label_x, row->label);
 	}
 	target_add(x, y, x + width, y + height, _target_row, index);
 	return height;
 }
 
-/* the panel: its heading, what goes above its rows, the rows (scrolled to
-the selected one), then the help line */
+/* the panel (ui_style_panel): its heading, what goes above its rows, the
+rows (scrolled to the selected one), then the status or the row's line */
 static void draw_panel(float x0, float y0, float x1, float y1)
 {
 	float width = x1 - x0;
-	float inner = width - 28.0f;
-	float x = x0 + 14.0f;
-	float y = y0 + 11.0f;
+	float inner = width - 30.0f;
+	float x = x0 + 15.0f;
+	float y = y0 + 13.0f;
 	const char *heading = "";
-	const char *help = "";
+	const char *line = "";
 	char text[600];
 	float bottom, rows_top;
 	int index, first, last, lines;
+	int lit = launcher.in_panel || launcher.screen == _screen_welcome;
 
-	ui_overlay_panel(x0, y0, width, y1 - y0, launcher.in_panel || launcher.screen == _screen_welcome);
+	ui_style_panel(x0, y0, width, y1 - y0, 1.0f);
 	switch (launcher.screen)
 	{
 	case _screen_welcome:
-		heading = "LET'S GET YOUR MAPS IN";
+		heading = "ADD YOUR MAPS";
 		break;
 	case _screen_play:
 		heading = "CHOOSE HOW TO PLAY";
@@ -1761,21 +1708,17 @@ static void draw_panel(float x0, float y0, float x1, float y1)
 		heading = "YOUR MAPS";
 		break;
 	case _screen_family:
+		heading = "FOLDER";
+		break;
 	case _screen_map_list:
-		heading = launcher.screen == _screen_family ? "FOLDER" : "THE MAPS IN THIS FOLDER";
+		heading = "MAPS";
 		break;
 	case _screen_logs:
-		heading = "SOMETHING WRONG?";
+		heading = "HELP";
 		break;
 	}
-	ui_overlay_text_glow(UI_FONT_MENU, 16.5f, x + 2.0f, y, UI_ALIGN_LEFT, COLOR_HEAD, 0x3D8BFF40, heading);
-	y += 24.0f;
-	if (launcher.screen == _screen_welcome)
-	{
-		text_fit(UI_FONT_BOLD, 13.5f, x + 2.0f, y - 2.0f, UI_ALIGN_LEFT, COLOR_WHITE, 0, inner,
-			"Chupathingy plays Halo's Xbox maps. Pick how you want to add them.");
-		y += 18.0f;
-	}
+	ui_style_text(UI_TEXT_HEADING, x + 1.0f, y + 1.0f, UI_ALIGN_LEFT, heading);
+	y += 22.0f;
 	if (launcher.screen == _screen_family)
 	{
 		char folder[PATH_SIZE], shown[PATH_SIZE];
@@ -1783,15 +1726,15 @@ static void draw_panel(float x0, float y0, float x1, float y1)
 
 		root_path(launcher.families[launcher.family].folder, folder, sizeof(folder));
 		shown_path(folder, shown, sizeof(shown));
-		path_lines = ui_overlay_text_width(UI_FONT_BOLD, 11.0f, shown) > inner - 16.0f ? 2 : 1;
-		ui_overlay_rect(x, y, inner, 8.0f + 14.0f * (float)path_lines, 5.0f, 0x00000059);
-		ui_overlay_outline(x, y, inner, 8.0f + 14.0f * (float)path_lines, 5.0f, 0.75f, COLOR_ROW_EDGE);
-		text_wrapped(UI_FONT_BOLD, 11.0f, x + 8.0f, y + 4.5f, inner - 16.0f, 14.0f, 2, COLOR_WHITE, shown);
-		y += 14.0f + 14.0f * (float)path_lines;
+		path_lines = ui_overlay_text_width(UI_FONT_BOLD, 10.0f, shown) > inner - 16.0f ? 2 : 1;
+		ui_overlay_rect(x, y, inner, 8.0f + 13.0f * (float)path_lines, 6.0f, COLOR_PATH_FIELD);
+		ui_overlay_outline(x, y, inner, 8.0f + 13.0f * (float)path_lines, 6.0f, 0.75f, COLOR_EDGE);
+		text_wrapped(UI_FONT_BOLD, 10.0f, x + 8.0f, y + 4.5f, inner - 16.0f, 13.0f, 2, COLOR_WHITE, shown);
+		y += 14.0f + 13.0f * (float)path_lines;
 	}
 	rows_top = y;
-	/* (room for the help line, and Logs' version line) */
-	bottom = y1 - 12.0f - 40.0f - (launcher.screen == _screen_logs ? 18.0f : 0.0f) -
+	/* (room for the line under the rows, and Logs' version line) */
+	bottom = y1 - 12.0f - 22.0f - (launcher.screen == _screen_logs ? 18.0f : 0.0f) -
 		(launcher.screen == _screen_welcome ? 16.0f : 0.0f);
 	/* the rows that fit, from the first shown; the selected one in them */
 	if (launcher.selected < launcher.scroll)
@@ -1802,9 +1745,9 @@ static void draw_panel(float x0, float y0, float x1, float y1)
 
 		for (index = launcher.scroll; index < launcher.row_count; index++)
 		{
-			end += (launcher.rows[index].sub[0] ? 35.0f : 26.5f) + 4.5f +
+			end += row_height(&launcher.rows[index]) + 5.0f +
 				(launcher.rows[index].gap && index > launcher.scroll ? 7.0f : 0.0f);
-			if (end > bottom + 4.5f)
+			if (end > bottom + 5.0f)
 				break;
 		}
 		if (launcher.selected < index || launcher.scroll >= launcher.selected)
@@ -1817,50 +1760,53 @@ static void draw_panel(float x0, float y0, float x1, float y1)
 	{
 		if (launcher.rows[index].gap && index > first)
 			y += 7.0f;
-		y += draw_row(&launcher.rows[index], index, x, y, inner, index == launcher.selected,
-			launcher.in_panel || launcher.screen == _screen_welcome) + 4.5f;
+		y += draw_row(&launcher.rows[index], index, x, y, inner, index == launcher.selected, lit) + 5.0f;
 	}
 	/* (more above or below: a small arrow) */
 	if (first > 0)
 		draw_arrow_vertical(x1 - 20.0f, rows_top - 8.0f, 1, COLOR_GREY);
 	if (last < launcher.row_count)
 		draw_arrow_vertical(x1 - 20.0f, y - 1.0f, 0, COLOR_GREY);
-	y += 3.0f;
+	y += 4.0f;
 	if (launcher.screen == _screen_logs)
 	{
 		float kx = x + 2.0f;
 
 		snprintf(text, sizeof(text), "%s", build_identity_version());
-		kx += ui_overlay_text(UI_FONT_BOLD, 12.5f, kx, y, UI_ALIGN_LEFT, COLOR_NAV, "Version: ");
-		kx += ui_overlay_text(UI_FONT_BOLD, 12.5f, kx, y, UI_ALIGN_LEFT, COLOR_WHITE, text) + 9.0f;
+		kx += ui_overlay_text(UI_FONT_MENU, 11.5f, kx, y, UI_ALIGN_LEFT, COLOR_NAV, "Version: ");
+		kx += ui_overlay_text(UI_FONT_MENU, 11.5f, kx, y, UI_ALIGN_LEFT, COLOR_WHITE, text) + 9.0f;
 		snprintf(text, sizeof(text), "%s %s", build_identity_platform(), sizeof(void *) == 8 ? "64-bit" : "32-bit");
-		kx += ui_overlay_text(UI_FONT_BOLD, 12.5f, kx, y, UI_ALIGN_LEFT, COLOR_NAV, "Build: ");
-		kx += ui_overlay_text(UI_FONT_BOLD, 12.5f, kx, y, UI_ALIGN_LEFT, COLOR_WHITE, text) + 9.0f;
+		kx += ui_overlay_text(UI_FONT_MENU, 11.5f, kx, y, UI_ALIGN_LEFT, COLOR_NAV, "Build: ");
+		kx += ui_overlay_text(UI_FONT_MENU, 11.5f, kx, y, UI_ALIGN_LEFT, COLOR_WHITE, text) + 9.0f;
 		snprintf(text, sizeof(text), "%d", delta_legacy_announce());
-		kx += ui_overlay_text(UI_FONT_BOLD, 12.5f, kx, y, UI_ALIGN_LEFT, COLOR_NAV, "Network: ");
-		ui_overlay_text(UI_FONT_BOLD, 12.5f, kx, y, UI_ALIGN_LEFT, COLOR_WHITE, text);
+		kx += ui_overlay_text(UI_FONT_MENU, 11.5f, kx, y, UI_ALIGN_LEFT, COLOR_NAV, "Network: ");
+		ui_overlay_text(UI_FONT_MENU, 11.5f, kx, y, UI_ALIGN_LEFT, COLOR_WHITE, text);
 		y += 18.0f;
 	}
+	/* the last action's result, else the selected row's line (a value: a
+	path, what is missing), else what the screen's state is */
 	if (launcher.status[0])
 	{
-		lines = text_wrapped(UI_FONT_BOLD, 13.5f, x + 2.0f, y, inner, 17.0f, 3, launcher.status_color, launcher.status);
-		y += 17.0f * (float)lines;
+		lines = text_wrapped(UI_FONT_MENU, 12.0f, x + 2.0f, y, inner, 14.5f, 3, launcher.status_color, launcher.status);
+		y += 14.5f * (float)lines;
 	}
 	else
 	{
-		if (launcher.row_count && launcher.rows[launcher.selected].help[0] &&
-			(launcher.in_panel || launcher.screen == _screen_welcome))
-		{
-			help = launcher.rows[launcher.selected].help;
-		}
+		unsigned int color = COLOR_WHITE;
+
+		if (launcher.row_count && launcher.rows[launcher.selected].help[0] && lit)
+			line = launcher.rows[launcher.selected].help;
 		else if (launcher.screen == _screen_map_list && !launcher.row_count)
-			help = "No maps here yet.";
-		else if (!launcher.in_panel && launcher.screen == _screen_play)
-			help = xbox_maps_ready() ? "Your Xbox maps are ready." : "Add your Xbox maps first.";
-		if (help[0])
+			line = "No maps here yet.";
+		else if (!launcher.in_panel && launcher.screen == _screen_play && !xbox_maps_ready())
 		{
-			lines = text_wrapped(UI_FONT_BOLD, 13.5f, x + 2.0f, y, inner, 17.0f, 3, COLOR_WHITE, help);
-			y += 17.0f * (float)lines;
+			line = "Add your Xbox maps first.";
+			color = COLOR_AMBER;
+		}
+		if (line[0])
+		{
+			lines = text_wrapped(UI_FONT_MENU, 12.0f, x + 2.0f, y, inner, 14.5f, 3, color, line);
+			y += 14.5f * (float)lines;
 		}
 	}
 	if (launcher.screen == _screen_welcome)
@@ -1868,64 +1814,53 @@ static void draw_panel(float x0, float y0, float x1, float y1)
 		char shown[PATH_SIZE];
 
 		shown_path(launcher.root, shown, sizeof(shown));
-		snprintf(text, sizeof(text), "Your game folder: %s", shown);
-		text_wrapped(UI_FONT_BOLD, 11.0f, x + 2.0f, y + 6.0f, inner, 14.0f, 2, COLOR_GREY, text);
+		text_wrapped(UI_FONT_BOLD, 9.5f, x + 2.0f, y1 - 12.0f - 26.0f, inner, 13.0f, 2, COLOR_GREY, shown);
 	}
 }
 
-/* the prompt bar's prompts, from the right: each a button, then =WORD
-(gathered, then drawn smaller if the bar is too narrow for them) */
-static struct
-{
-	int button;
-	char word[32];
-	int enabled;
-	int target;
-} prompts[6];
+/* the prompt bar's prompts (ui_style_prompts), from the right: each a
+button's glyph, then =WORD; smaller when the screen is too narrow for them */
+static struct ui_style_prompt prompts[6];
+static int prompt_targets[6];
+static char prompt_words[6][32];
 static int prompt_count;
 
 static void prompt_add(int button, const char *word, int enabled, int target)
 {
-	if (prompt_count >= (int)(sizeof(prompts) / sizeof(*prompts)))
+	if (!enabled || prompt_count >= (int)(sizeof(prompts) / sizeof(*prompts)))
 		return;
+	snprintf(prompt_words[prompt_count], sizeof(prompt_words[prompt_count]), "=%s", word);
 	prompts[prompt_count].button = button;
-	snprintf(prompts[prompt_count].word, sizeof(prompts[prompt_count].word), "=%s", word);
-	prompts[prompt_count].enabled = enabled;
-	prompts[prompt_count].target = target;
+	prompts[prompt_count].key = NULL;
+	prompts[prompt_count].word = prompt_words[prompt_count];
+	prompt_targets[prompt_count] = target;
 	prompt_count++;
 }
 
 static void prompts_draw(void)
 {
-	float right = launcher.right - layout_width() * 0.094f;
+	float right = launcher.right - layout_width() * 0.078f;
 	float room = right - (launcher.left + layout_width() * 0.05f);
-	float total = 0.0f, scale = 1.0f, text_size, button_size, gap, y;
+	float size = 20.0f, total = 0.0f, starts[6], ends[6];
+	struct ui_style_prompt ordered[6];
 	int index;
 
+	/* (gathered first-to-the-right: drawn left to right) */
+	for (index = 0; index < prompt_count; index++)
+		ordered[index] = prompts[prompt_count - 1 - index];
 	for (index = 0; index < prompt_count; index++)
 	{
-		total += ui_overlay_button_width(prompts[index].button, 21.0f) + 4.0f +
-			ui_overlay_text_width(UI_FONT_MENU, 18.5f, prompts[index].word) + (index ? 22.0f : 0.0f);
+		total += ui_overlay_button_width(ordered[index].button, size) + 4.0f +
+			ui_overlay_text_width(UI_FONT_MENU, size * 0.72f, ordered[index].word) + (index ? size : 0.0f);
 	}
 	if (total > room && total > 0.0f)
-		scale = room / total;
-	text_size = 18.5f * scale;
-	button_size = 21.0f * scale;
-	gap = 22.0f * scale;
-	y = 441.5f - button_size * 0.5f;
-	ui_overlay_prompt_bar(launcher.left, launcher.right, 423.0f, 460.0f);
+		size *= room / total;
+	draw_rule(419.0f);
+	ui_style_prompts(right, 441.0f - size * 0.5f, size, ordered, prompt_count, starts, ends);
 	for (index = 0; index < prompt_count; index++)
 	{
-		float x = right - ui_overlay_text_width(UI_FONT_MENU, text_size, prompts[index].word);
-		int enabled = prompts[index].enabled;
-
-		ui_overlay_text_glow(UI_FONT_MENU, text_size, x, y + (button_size - text_size) * 0.5f + 0.5f, UI_ALIGN_LEFT,
-			enabled ? COLOR_PROMPT : 0x4A5E80FF, enabled ? COLOR_PROMPT_GLOW : 0, prompts[index].word);
-		x -= ui_overlay_button_width(prompts[index].button, button_size) + 4.0f * scale;
-		ui_overlay_button(prompts[index].button, button_size, x, y, enabled ? 0xFFFFFFFF : 0xFFFFFF55);
-		if (enabled)
-			target_add(x - 4.0f, y - 6.0f, right + 4.0f, y + button_size + 6.0f, _target_button, prompts[index].target);
-		right = x - gap;
+		target_add(starts[index] - 4.0f, 441.0f - size * 0.5f - 6.0f, ends[index] + 4.0f, 441.0f + size * 0.5f + 6.0f,
+			_target_button, prompt_targets[prompt_count - 1 - index]);
 	}
 	prompt_count = 0;
 }
@@ -2022,21 +1957,21 @@ static void draw_dialog(void)
 		height = 46.0f + 50.0f;
 		break;
 	default:
-		height = 46.0f + 8.0f + 15.0f * (float)(ui_overlay_text_width(UI_FONT_BOLD, 12.0f, launcher.dialog_text) /
-			inner + 1.0f) + 31.0f * (float)launcher.dialog_row_count + 10.0f;
+		height = 46.0f + 8.0f + (launcher.dialog_text[0] ? 15.0f * (float)(ui_overlay_text_width(UI_FONT_MENU, 12.0f,
+			launcher.dialog_text) / inner + 1.0f) : 0.0f) + 33.0f * (float)launcher.dialog_row_count + 10.0f;
 		break;
 	}
 	y0 = 240.0f - height * 0.5f - 10.0f;
 	ui_overlay_layer(2);
 	ui_overlay_rect(launcher.left, 0, width, 480.0f, 0, COLOR_SHADE);
-	ui_overlay_panel(x0, y0, dialog_width, height, 1);
+	ui_style_panel(x0, y0, dialog_width, height, 1.0f);
 	text_fit(UI_FONT_TITLE, 11.5f, x, y0 + 18.0f, UI_ALIGN_LEFT, COLOR_TITLE, COLOR_TITLE_GLOW, inner,
 		launcher.dialog_title);
 	y = y0 + 46.0f;
 	switch (launcher.dialog)
 	{
 	case _dialog_picking:
-		text_wrapped(UI_FONT_BOLD, 12.0f, x, y, inner, 15.0f, 3, COLOR_WHITE, launcher.dialog_text);
+		text_wrapped(UI_FONT_MENU, 12.0f, x, y, inner, 15.0f, 3, COLOR_WHITE, launcher.dialog_text);
 		break;
 	case _dialog_import:
 	{
@@ -2044,52 +1979,47 @@ static void draw_dialog(void)
 		float fraction = launcher.import_total ? (float)((double)launcher.import_done /
 			(double)launcher.import_total) : 0.0f;
 
-		text_fit(UI_FONT_BOLD, 12.0f, x, y, UI_ALIGN_LEFT, COLOR_WHITE, 0, inner,
+		text_fit(UI_FONT_BOLD, 11.0f, x, y, UI_ALIGN_LEFT, COLOR_WHITE, 0, inner,
 			launcher.import_file[0] ? launcher.import_file : "Reading the file...");
 		y += 26.0f;
-		ui_overlay_rect(x, y, inner, 12.0f, 6.0f, 0x0A1A33FF);
-		ui_overlay_outline(x, y, inner, 12.0f, 6.0f, 0.75f, COLOR_ROW_EDGE);
+		ui_overlay_rect(x, y, inner, 12.0f, 6.0f, COLOR_PATH_FIELD);
+		ui_overlay_outline(x, y, inner, 12.0f, 6.0f, 0.75f, COLOR_EDGE);
 		if (fraction > 0.0f)
-			ui_overlay_gradient(x, y, inner * (fraction > 1.0f ? 1.0f : fraction), 12.0f, 6.0f, 0x5AAEFFFF, 0x2F7FD6FF);
+			ui_overlay_gradient(x, y, inner * (fraction > 1.0f ? 1.0f : fraction), 12.0f, 6.0f,
+				ui_style_color(UI_COLOR_PROGRESS_TOP), ui_style_color(UI_COLOR_PROGRESS_BOTTOM));
 		y += 22.0f;
 		if (launcher.import_total)
 		{
 			snprintf(line, sizeof(line), "%llu of %llu MB", launcher.import_done >> 20, launcher.import_total >> 20);
-			ui_overlay_text(UI_FONT_BOLD, 11.0f, x, y, UI_ALIGN_LEFT, COLOR_GREY, line);
+			ui_overlay_text(UI_FONT_BOLD, 10.0f, x, y, UI_ALIGN_LEFT, COLOR_GREY, line);
 		}
 		break;
 	}
 	case _dialog_sending:
-		ui_overlay_text(UI_FONT_BOLD, 12.0f, x, y, UI_ALIGN_LEFT, COLOR_WHITE, "Sending\xE2\x80\xA6");
+		ui_overlay_text(UI_FONT_MENU, 12.0f, x, y, UI_ALIGN_LEFT, COLOR_WHITE, "Sending\xE2\x80\xA6");
 		break;
 	case _dialog_sent:
-		text_wrapped(UI_FONT_BOLD, 12.0f, x, y, inner, 15.0f, 2, COLOR_WHITE, launcher.dialog_text);
-		ui_overlay_panel(x, y + 36.0f, inner, 46.0f, 0);
+		text_wrapped(UI_FONT_MENU, 12.0f, x, y, inner, 15.0f, 2, COLOR_WHITE, launcher.dialog_text);
+		ui_style_row(x, y + 36.0f, inner, 46.0f, 1);
 		ui_overlay_text_glow(UI_FONT_MENU, 28.0f, x + inner * 0.5f, y + 45.0f, UI_ALIGN_CENTER, COLOR_WHITE,
-			0x3D8BFFFF, launcher.sent_code);
+			COLOR_PROMPT_GLOW, launcher.sent_code);
 		break;
 	default:
-		y += 15.0f * (float)text_wrapped(UI_FONT_BOLD, 12.0f, x, y, inner, 15.0f, 4, launcher.dialog_text_color,
-			launcher.dialog_text) + 8.0f;
+		if (launcher.dialog_text[0])
+		{
+			y += 15.0f * (float)text_wrapped(UI_FONT_MENU, 12.0f, x, y, inner, 15.0f, 4, launcher.dialog_text_color,
+				launcher.dialog_text) + 8.0f;
+		}
 		for (index = 0; index < launcher.dialog_row_count; index++)
 		{
 			const struct row *row = &launcher.dialog_rows[index];
-			float row_y = y + (float)index * 31.0f;
+			float row_y = y + (float)index * 33.0f;
 			int picked = index == launcher.dialog_selected;
 
-			if (picked)
-			{
-				ui_overlay_rect(x, row_y, inner, 26.5f, 7.0f, COLOR_SELECTION_FILL);
-				ui_overlay_outline(x, row_y, inner, 26.5f, 7.0f, 1.3f, COLOR_SELECTION_EDGE);
-			}
-			else
-			{
-				ui_overlay_rect(x, row_y, inner, 26.5f, 7.0f, COLOR_ROW_FILL);
-				ui_overlay_outline(x, row_y, inner, 26.5f, 7.0f, 0.75f, COLOR_ROW_EDGE);
-			}
-			text_fit(UI_FONT_MENU, 15.5f, x + 12.0f, row_y + 6.0f, UI_ALIGN_LEFT, COLOR_ROW, picked ? 0x3D8BFF60 : 0,
-				inner - 24.0f, row->label);
-			target_add(x, row_y, x + inner, row_y + 26.5f, _target_dialog_row, index);
+			ui_style_row(x, row_y, inner, 28.0f, picked);
+			text_fit(UI_FONT_MENU, 14.0f, x + 11.0f, row_y + 7.0f, UI_ALIGN_LEFT, picked ? COLOR_WHITE : COLOR_ROW,
+				picked ? COLOR_ROW_GLOW : 0, inner - 22.0f, row->label);
+			target_add(x, row_y, x + inner, row_y + 28.0f, _target_dialog_row, index);
 		}
 		break;
 	}
@@ -2101,15 +2031,16 @@ static void draw(void)
 	float width = layout_width();
 
 	launcher.target_count = 0;
+	ui_style_clock((unsigned int)SDL_GetTicks());
 	build_rows();
 	draw_backdrop();
 	draw_header();
 	if (launcher.screen == _screen_welcome)
-		draw_panel(launcher.left + width * 0.117f, 90.0f, launcher.right - width * 0.117f, 400.0f);
+		draw_panel(launcher.left + width * 0.117f, 93.0f, launcher.right - width * 0.117f, 393.0f);
 	else
 	{
 		draw_sections();
-		draw_panel(launcher.left + width * 0.343f, 88.0f, launcher.right - width * 0.087f, 400.0f);
+		draw_panel(launcher.left + width * 0.343f, 93.0f, launcher.right - width * 0.078f, 393.0f);
 	}
 	draw_prompts();
 	draw_dialog();
@@ -2564,6 +2495,7 @@ static const char *dump_platform(void)
 	const char *platform = build_identity_platform();
 	const char *deck = getenv("SteamDeck");
 
+	/* (SteamOS: the site still takes it by its old name) */
 	if (deck && !strcmp(deck, "1"))
 		return "Steam Deck";
 	if (!strcmp(platform, "macOS"))
@@ -2780,8 +2712,7 @@ static void act(const struct row *row)
 		launcher.dialog = _dialog_send_ask;
 		launcher.dialog_selected = 1;
 		snprintf(launcher.dialog_title, sizeof(launcher.dialog_title), "SEND MY LOGS");
-		snprintf(launcher.dialog_text, sizeof(launcher.dialog_text),
-			"We send debug.txt and your last crash report, with addresses removed. Send your settings too?");
+		snprintf(launcher.dialog_text, sizeof(launcher.dialog_text), "Send your settings too?");
 		launcher.dialog_text_color = COLOR_WHITE;
 		launcher.dialog_row_count = 2;
 		memset(launcher.dialog_rows, 0, sizeof(launcher.dialog_rows));
@@ -3481,11 +3412,29 @@ static void frame(void)
 		launcher.right = 320.0f + layout * 0.5f;
 	}
 	draw();
+#ifdef HALO_BGFX
+	if (xgpu_bgfx)
+	{
+		char path[PATH_SIZE] = "";
+
+		if (launcher.screenshot[0] && *config_string("debug.screenshot_directory"))
+			snprintf(path, sizeof(path), "%s/%s.bmp", config_string("debug.screenshot_directory"), launcher.screenshot);
+		launcher.screenshot[0] = '\0';
+		xgpu_bgfx_launcher_frame(ui_style_color(UI_COLOR_CLEAR), launcher.picture_x, launcher.picture_y, launcher.picture_width,
+			launcher.picture_height, path);
+		return;
+	}
+#endif
 	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
 	glViewport(0, 0, width, height);
 	glDisable(GL_SCISSOR_TEST);
 	glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-	glClearColor(0.008f, 0.024f, 0.067f, 1.0f);
+	{
+		unsigned int clear = ui_style_color(UI_COLOR_CLEAR);
+
+		glClearColor((float)(clear >> 24) / 255.0f, (float)(clear >> 16 & 0xFF) / 255.0f,
+			(float)(clear >> 8 & 0xFF) / 255.0f, 1.0f);
+	}
 	glClear(GL_COLOR_BUFFER_BIT);
 	ui_overlay_present(launcher.picture_x, launcher.picture_y, launcher.picture_width, launcher.picture_height, width,
 		height);
@@ -3538,14 +3487,16 @@ static void run(void)
 	platform_mouse_capture(TRUE);
 }
 
-/* whether the window can be drawn in (the bgfx test backend has no OpenGL
-context the overlay can draw with before its device starts) */
-static int drawable(void)
+/* whether the window can be drawn in yet: with the bgfx renderer, only once
+the game's memory is up (launcher_at_start, from the device's start), as
+bgfx starts with the device's state; the first start's Welcome comes before
+that, and keeps the message boxes there */
+static int drawable(int early)
 {
 #ifdef HALO_BGFX
-	return strcmp(config_string("display.renderer"), "bgfx") != 0;
+	return !early || strcmp(config_string("display.renderer"), "bgfx") != 0;
 #else
-	/* (display.renderer is only in builds with the bgfx backend) */
+	(void)early;
 	return 1;
 #endif
 }
@@ -3554,7 +3505,7 @@ int launcher_welcome(char *destination, unsigned long size)
 {
 	/* (the window's own launcher_at_start: not again) */
 	launcher.shown = 1;
-	if (!drawable() || !platform_video_initialize(640, 480))
+	if (!drawable(1) || !platform_video_initialize(640, 480))
 		return 0;
 	platform_log("launcher: no Xbox maps yet: Welcome");
 	memset(&launcher.families, 0, sizeof(launcher.families));
@@ -3657,7 +3608,7 @@ static void mode_question(void)
 	launcher.dialog_selected = 0;
 	snprintf(launcher.dialog_title, sizeof(launcher.dialog_title), "HOW DO YOU WANT TO PLAY?");
 	snprintf(launcher.dialog_text, sizeof(launcher.dialog_text),
-		"You have more than one way to play now. You can change this on Play. %s", reopen_hint());
+		"%s", reopen_hint());
 	launcher.dialog_text_color = COLOR_WHITE;
 	launcher.dialog_row_count = 2;
 	memset(launcher.dialog_rows, 0, sizeof(launcher.dialog_rows));
@@ -3673,7 +3624,7 @@ void launcher_at_start(void)
 	int setup, play_now, joining, open = 0, question = 0;
 	char mode[64];
 
-	if (launcher.shown || platform_run_is_quiet() || !drawable())
+	if (launcher.shown || platform_run_is_quiet() || !drawable(0))
 		return;
 	command_line(&setup, &play_now, mode, sizeof(mode), &joining);
 	set_root(platform_data_root());

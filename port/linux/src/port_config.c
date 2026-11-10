@@ -311,6 +311,10 @@ static const struct config_setting config_settings[] =
 		"Draw a frame for every display refresh. The game runs 30 ticks a\n"
 		"second, and the frames between them are blended. false keeps the\n"
 		"game's own 30 frames a second." },
+	{ "display.stats_log", _config_boolean, "false", "HALO_STATS_LOG", _environment_value, _platform_all,
+		"A line a second in the log with the frame rate, the mode, the map, the\n"
+		"renderer and the size of the 3D view, for a bug report or to compare two\n"
+		"builds. Nothing is drawn and nothing is sent; off by default." },
 	{ "display.anti_aliasing", _config_string, DEFAULT_ANTI_ALIASING, "HALO_ANTI_ALIASING", _environment_value,
 		_platform_all,
 		"Smooth jagged edges: \"off\", \"fxaa\", \"smaa\", \"ssaa2x\", \"msaa2x\",\n"
@@ -464,6 +468,19 @@ static const struct config_setting config_settings[] =
 #endif
 	{ "display.delta_profile", _config_boolean, "true", "HALO_DELTA_PROFILE", _environment_value, _platform_all,
 		"Show Delta Profile in the menus and Online Games." },
+#ifdef HALO_GAME_BROWSER
+	{ "display.online_games_view", _config_string, "\"public\"", "HALO_ONLINE_GAMES_VIEW", _environment_value,
+		_platform_all,
+		"The list Online Games opens on (LB and RB switch): \"all\",\n"
+		"\"public\" (Chupathingy and players' public games, no OpenCE\n"
+		"dedicated servers), \"chupathingy\" or \"opence\" (OpenCE's\n"
+		"dedicated servers)." },
+	{ "display.opence_empty_servers", _config_string, "\"folded\"", "HALO_OPENCE_EMPTY_SERVERS", _environment_value,
+		_platform_all,
+		"Empty OpenCE dedicated servers in Online Games' ALL and OPENCE lists:\n"
+		"\"folded\" puts them in one row at the end (A opens it), \"shown\"\n"
+		"lists each one." },
+#endif
 	{ "display.profile_names", _config_boolean, "true", "HALO_PROFILE_NAMES", _environment_value, _platform_all,
 		"In Delta games, show players by their shared Delta profile name." },
 	{ "display.server_messages", _config_boolean, "true", "HALO_SERVER_MESSAGES", _environment_value, _platform_all | _platform_xbox,
@@ -726,6 +743,9 @@ static const struct config_setting config_settings[] =
 		_platform_all,
 		"Show the Guide's notifications during a game. They always show in\n"
 		"the menus." },
+	{ "guide.notify_online", _config_boolean, "false", "HALO_GUIDE_NOTIFY_ONLINE", _environment_value,
+		_platform_all,
+		"Show a notification in the menus when a friend comes online." },
 #endif
 #ifdef HALO_CAPTURE
 	/* ---- screenshots (capture.c) */
@@ -973,7 +993,7 @@ static const struct config_setting config_settings[] =
 	/* (a console's reports of the games it joins too: port/console/reports) */
 #if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_GAME_REPORTS)
 	{ "network.report_joined_games", _config_boolean, "true", "HALO_NET_REPORT_GAMES", _environment_value,
-		_platform_all,
+		_platform_all | _platform_xbox,
 		"Send the scores of internet games you join to the game list." },
 #endif
 #ifdef HALO_GAME_BROWSER
@@ -3466,6 +3486,8 @@ static const struct
 	{ "display.scoreboard_team_layout", { "teams", "score", NULL }, "\"teams\"" },
 	{ "display.scoreboard_platforms", { "auto", "on", "off", NULL }, "\"auto\"" },
 	{ "display.follow_camera", { "long_waits", "always", "off", NULL }, "\"off\"" },
+	{ "display.online_games_view", { "all", "public", "chupathingy", "opence", NULL }, "\"public\"" },
+	{ "display.opence_empty_servers", { "folded", "shown", NULL }, "\"folded\"" },
 	{ "display.texture_decode", { "auto", "gpu", "cpu", NULL }, "\"auto\"" },
 	{ "audio.resampling", { "sinc", "linear", NULL }, "\"sinc\"" },
 	{ "input.touch_controls", { "on", "auto", "off", NULL }, "\"on\"" },

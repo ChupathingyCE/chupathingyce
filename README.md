@@ -8,7 +8,7 @@
 <img src="docs/badges/windows.svg" alt="Windows">
 <img src="docs/badges/macos.svg" alt="Mac">
 <img src="docs/badges/linux.svg" alt="Linux">
-<img src="docs/badges/steam-deck.svg" alt="Steam Deck">
+<img src="docs/badges/steam-deck.svg" alt="SteamOS">
 <img src="docs/badges/android.svg" alt="Android">
 <img src="docs/badges/freebsd.svg" alt="FreeBSD">
 </p>
@@ -56,7 +56,8 @@ Download the latest release from the [Releases page](https://github.com/Chupathi
 | --- | --- |
 | Windows 10 or later | `chupathingyce-windows64-release.zip` |
 | Mac, Apple silicon or Intel | `chupathingyce-macos-release.zip` |
-| Linux, Steam Deck too | `chupathingyce-linux64-release.AppImage` |
+| Linux | `chupathingyce-linux64-release.AppImage` |
+| SteamOS | `chupathingyce-linux64-release.AppImage` |
 | Android 9 or later, 64-bit | `chupathingyce-android64-release.zip` |
 | FreeBSD | `chupathingyce-freebsd64-release.zip` |
 

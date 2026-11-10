@@ -40,9 +40,14 @@ void guide_render(void);
 boolean guide_takes_player(void);
 
 /* a toast: a short line at the bottom of the screen for a few seconds,
-quiet, never over a game unless guide.notify_in_game is on. Nothing sends
-one yet (friends and invites come with the site's friends) */
+quiet, never over a game unless guide.notify_in_game is on (the Guide's
+own: a new invite or friend request, a friend online with
+guide.notify_online) */
 void guide_toast(char const *title, char const *line);
+
+/* the pause menu's GUIDE with what waits in it (invites, friend
+requests): "GUIDE 2" for the text of its string list; else NULL */
+wchar_t const *guide_pause_label(long string_list_tag);
 
 #endif
 
