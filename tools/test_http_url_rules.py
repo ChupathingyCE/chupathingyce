@@ -74,4 +74,4 @@ def test_documents_get_a_short_body_deadline_and_no_second_open():
     assert "posix_browser_download_deadline(download, deadline)" in game
     text = (SOURCE / "posix_browser.c").read_text()
     body = re.search(r"^int posix_browser_download_open\(.*?^\}", text, re.M | re.S).group(0)
-    assert body.index("pthread_equal(download.owner, pthread_self())") < body.index("posix_browser_lock();")
+    assert body.index("download.owner == thread_token()") < body.index("posix_browser_lock();")
