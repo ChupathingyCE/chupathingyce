@@ -728,21 +728,28 @@ The game's side is `port/linux/game/host_rules.c`.
 ### Party teams
 
 A party (DELTA's PARTY: up to 8 players who follow their leader into
-games, kept by the site in memory, `puma/party.py`) wants to play on one
+games, kept by the site in memory) wants to play on one
 team. Halo's teams are the host's to place, so the party asks and the host
 decides, over `party_teams` (bit 21). It is additive and host-side: nothing
 in the game protocol changes, and an OpenCE host, or one that says nothing,
 places the party as it always did.
 
 - **The tag.** The site gives each party a random 8-byte tag and hands it
-  to the party's members only. It names no one and changes with each new
-  party. A member's game sends it to its game's host in PARTY_TAG (33)
-  once both agreed to `party_teams`, at once when it changes (joined,
-  left, a new party), and every 5 seconds while it is in a party, in case
-  a datagram was lost. Zeros mean "in no party". The host keeps each
-  machine's last tag and forgets it with the machine's session. It learns
-  only which of its machines share a party; split screen players share
-  their machine's.
+  to the party's members only. It names no one and lasts the party's
+  lifetime: a new party has a new one, and the site makes a new one (and a
+  new code) when the leader kicks a member or asks for a new code. A
+  member's game sends it to its game's host in PARTY_TAG (33) once both
+  agreed to `party_teams`, at once when it changes (joined, left, a new
+  party), and every 5 seconds while it is in a party, in case a datagram
+  was lost. Zeros mean "in no party". The host keeps each machine's last
+  tag and forgets it with the machine's session. It learns only which of
+  its machines share a party; split screen players share their machine's.
+- **The client's word.** The host can't check a tag: it takes it on the
+  client's word, so a tag only ever moves the players who send it. A
+  machine's tag, once it has one, changes no sooner than 30 seconds after
+  its last change (a sooner one is dropped, and the next resend lands), so
+  flipping it can't keep a lobby rearranging. A tag only one machine sends
+  is no party: one machine's own players are never a party of their own.
 - **Whether the host honors it.** A player's host does unless its
   `network.keep_parties_together` is off (on by default). A dedicated
   server does only with its `keep_parties_together` setting on (off by
@@ -751,14 +758,13 @@ places the party as it always did.
 - **Where balance allows.** A split party goes to the team where most of
   its members are (a tie: the smaller team first). One member moves at a
   time, only when the teams then stay within one player of each other.
-  Where a move would unbalance them, the member trades places with a
-  player in no party on that team. Nobody else is moved.
+  Where a move would unbalance them, the party stays split: only party
+  members are ever moved, never a player in no party (no trades).
 - **When.** In the lobby, each time its players or their parties change
   (the host sends the lobby again); a player who picks the other team
   afterwards keeps their pick until the lobby changes again. In a game in
   progress, only a member who joined late and hasn't spawned yet moves (as
-  a team change does, without a death); nobody is traded and nobody
-  playing is moved.
+  a team change does, without a death); nobody playing is moved.
 - **What it isn't.** The host's own team rules (auto team balance, team
   changes, an admin's `sv_team`) stay as they are, and a party never
   overrides them. A client that doesn't speak `party_teams` sends nothing
