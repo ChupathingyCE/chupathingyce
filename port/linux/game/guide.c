@@ -72,6 +72,14 @@ GUIDE counts what waits ("GUIDE 2": invites and requests).
 #include "halo_ui_pointer.h"
 #include "halo_profile_screen.h"
 #include "chat.h"
+#include "voice_game.h"
+#ifdef HALO_PORT_VOICE_AUDIO
+#include "../src/voice.h"
+#include "networking/network_game_manager.h"
+#include "networking/network_client_manager.h"
+#include "../src/delta_wire.h"
+#include "../src/delta_chat_game.h"
+#endif
 
 #include <stdio.h>
 #include <string.h>
@@ -81,6 +89,7 @@ int config_boolean(char const *name);
 char const *config_string(char const *name);
 int config_write(char const *name, char const *value);
 int config_write_boolean(char const *name, int value);
+double config_real(char const *name);
 void platform_log(char const *format, ...);
 /* delta_peer_game.c's */
 int delta_peer_game_on_delta(void);
@@ -175,6 +184,7 @@ enum
 	COLOR_DOT_AWAY = 0xE0A53AFF,
 	COLOR_DOT_OFFLINE = 0x4A5A70FF,
 	COLOR_MUTED = 0xFF9F9FFF,
+	COLOR_DIMMED = 0x6F829AFF,
 };
 
 /* the Guide's own settings, as SETTINGS lists them */
@@ -185,17 +195,40 @@ enum
 	_setting_notify_in_game,
 	_setting_notify_online,
 	_setting_share_presence,
+#ifdef HALO_PORT_VOICE_AUDIO
+	/* voice chat's (voice_game.c): its way, the channel talked on, the
+	voices' volume and each channel's, and whether proximity voices take
+	the game's 3D sound */
+	_setting_voice_chat,
+	_setting_voice_channel,
+	_setting_voice_volume,
+	_setting_voice_party,
+	_setting_voice_team,
+	_setting_voice_proximity,
+	_setting_voice_everyone,
+	_setting_voice_positional,
+	_setting_voice_speakers,
+#endif
 	NUMBER_OF_SETTINGS
 };
 
 static char const *const setting_labels[NUMBER_OF_SETTINGS] =
 {
 	"OPEN KEY", "GUIDE BUTTON", "NOTIFICATIONS IN GAME", "FRIEND ONLINE ALERTS", "SHOW WHEN I'M PLAYING",
+#ifdef HALO_PORT_VOICE_AUDIO
+	"VOICE CHAT", "VOICE CHANNEL", "VOICE VOLUME", "PARTY VOLUME", "TEAM VOLUME", "PROXIMITY VOLUME",
+	"EVERYONE VOLUME", "3D VOICES", "WHO'S TALKING",
+#endif
 };
 
 static char const *const setting_keys[NUMBER_OF_SETTINGS] =
 {
 	"controls.guide", "controls.guide_button", "guide.notify_in_game", "guide.notify_online", "network.share_presence",
+#ifdef HALO_PORT_VOICE_AUDIO
+	"audio.voice_chat", "audio.voice_channel", "audio.voice_volume", "audio.voice_volume_party",
+	"audio.voice_volume_team", "audio.voice_volume_proximity", "audio.voice_volume_everyone",
+	"audio.voice_positional", "display.voice_speakers",
+#endif
 };
 
 /* controls.guide's choices: the F keys the game leaves free (F1 is Back,
@@ -522,7 +555,9 @@ static void players_update(void)
 		row.key = (int)absolute;
 		row.muted = !you && chat_local_muted(player->network_player_data.machine_index, player->name);
 		row.actions = you ? 0 : SOCIAL_ACTION_MUTE;
-		if (you)
+		if (voice_game_machine_talking(player->network_player_data.machine_index) && !row.muted)
+			snprintf(row.status, sizeof(row.status), "Talking");
+		else if (you)
 			snprintf(row.status, sizeof(row.status), "You");
 		else if (row.muted)
 			snprintf(row.status, sizeof(row.status), "Muted");
@@ -560,8 +595,90 @@ static boolean setting_on(short setting)
 	return config_boolean(setting_keys[setting]) != 0;
 }
 
+#ifdef HALO_PORT_VOICE_AUDIO
+static char const *const voice_modes[] = { "off", "push_to_talk", "open_mic" };
+static char const *const voice_mode_names[] = { "OFF", "PUSH TO TALK", "OPEN MIC" };
+/* (the channels in the order the rows show them) */
+static int const voice_channels[] =
+{
+	_delta_voice_channel_party, _delta_voice_channel_team, _delta_voice_channel_proximity,
+	_delta_voice_channel_everyone
+};
+
+static boolean setting_is_volume(short setting)
+{
+	return setting >= _setting_voice_volume && setting <= _setting_voice_everyone;
+}
+
+/* a voice row's value as it shows; FALSE for a row that isn't voice's */
+static boolean voice_setting_value(short setting, char *text, int size)
+{
+	if (setting == _setting_voice_chat)
+	{
+		snprintf(text, (size_t)size, "%s", voice_mode_names[voice_mode()]);
+		return TRUE;
+	}
+	if (setting == _setting_voice_channel)
+	{
+		snprintf(text, (size_t)size, "%s", voice_game_channel_name(voice_game_channel()));
+		return TRUE;
+	}
+	if (setting_is_volume(setting))
+	{
+		double volume = config_real(setting_keys[setting]);
+
+		if (volume <= 0.0)
+			snprintf(text, (size_t)size, "OFF");
+		else
+			snprintf(text, (size_t)size, "%d%%", (int)(volume * 100.0 + 0.5));
+		return TRUE;
+	}
+	return FALSE;
+}
+
+/* a voice row stepped; FALSE for a row that isn't voice's */
+static boolean voice_setting_change(short setting, short direction)
+{
+	if (setting == _setting_voice_chat)
+	{
+		short mode = (short)((voice_mode() + (direction < 0 ? 2 : 1)) % 3);
+
+		config_write(setting_keys[setting], voice_modes[mode]);
+		return TRUE;
+	}
+	if (setting == _setting_voice_channel)
+	{
+		/* (every channel, a closed one shown dimmed with why) */
+		short count = (short)NUMBEROF(voice_channels), index, at = 0;
+
+		for (index = 0; index < count; index++)
+		{
+			if (voice_channels[index] == voice_game_channel())
+				at = index;
+		}
+		voice_game_set_channel(voice_channels[(at + (direction < 0 ? count - 1 : 1)) % count]);
+		return TRUE;
+	}
+	if (setting_is_volume(setting))
+	{
+		char value[16];
+		double volume = config_real(setting_keys[setting]) + (direction < 0 ? -0.25 : 0.25);
+
+		volume = volume < 0.0 ? 0.0 : volume > 2.0 ? 2.0 : volume;
+		snprintf(value, sizeof(value), "%.2f", volume);
+		config_write(setting_keys[setting], value);
+		return TRUE;
+	}
+	return FALSE;
+}
+#endif
+
 static void setting_value(short setting, char *text, int size)
 {
+#ifdef HALO_PORT_VOICE_AUDIO
+	if (voice_setting_value(setting, text, size))
+		return;
+#endif
 	if (setting == _setting_open_key)
 	{
 		char const *key = config_string(setting_keys[setting]);
@@ -574,6 +691,10 @@ static void setting_value(short setting, char *text, int size)
 
 static void setting_change(short setting, short direction)
 {
+#ifdef HALO_PORT_VOICE_AUDIO
+	if (voice_setting_change(setting, direction))
+		return;
+#endif
 	if (setting == _setting_open_key)
 	{
 		char const *key = config_string(setting_keys[setting]);
@@ -1082,6 +1203,11 @@ static short section_rows(short section)
 		return (short)guide.players.count;
 	case SOCIAL_SECTION_SETTINGS:
 		return NUMBER_OF_SETTINGS;
+#ifdef HALO_PORT_VOICE_AUDIO
+	case SOCIAL_SECTION_PARTY:
+		/* (VOICE CHANNEL, then SIGN IN without a Delta profile) */
+		return (short)(1 + (!guide.linked && sign_in_section() != NONE ? 1 : 0));
+#endif
 	case SOCIAL_SECTION_FRIENDS:
 		if (friends_signed_in())
 			return guide.friends_loaded ? guide.item_count : 0;
@@ -1113,6 +1239,15 @@ static void activate(void)
 	case SOCIAL_SECTION_SETTINGS:
 		setting_change(row, 1);
 		return;
+#ifdef HALO_PORT_VOICE_AUDIO
+	case SOCIAL_SECTION_PARTY:
+		if (row == 0)
+		{
+			setting_change(_setting_voice_channel, 1);
+			return;
+		}
+		break;
+#endif
 	case SOCIAL_SECTION_FRIENDS:
 		if (friends_signed_in())
 		{
@@ -1488,30 +1623,88 @@ static void render_friends(void)
 		render_friend_detail(&guide.items[chosen]);
 }
 
+/* a setting's row: its label, and its value between its arrows (dimmed:
+a value that can't be used now) */
+static void render_setting_row(short setting, float y, boolean on, boolean dimmed)
+{
+	char value[32];
+	float width = CONTENT_RIGHT - CONTENT_LEFT, value_right = CONTENT_RIGHT - 14;
+	unsigned int color = dimmed ? COLOR_DIMMED : COLOR_VALUE;
+
+	setting_value(setting, value, sizeof(value));
+	ui_style_row(CONTENT_LEFT, y, width, SETTING_HEIGHT, on);
+	ui_overlay_text(UI_FONT_MENU, 10.0f, CONTENT_LEFT + 12, y + 8, UI_ALIGN_LEFT, COLOR_SETTING,
+		setting_labels[setting]);
+	/* (the value between its arrows, as the menus' settings have it) */
+	ui_overlay_text(UI_FONT_MENU, 10.0f, value_right, y + 8, UI_ALIGN_RIGHT, color, "\xE2\x80\xBA");
+	ui_overlay_text(UI_FONT_MENU, 10.0f, value_right - 12, y + 8, UI_ALIGN_RIGHT, color, value);
+	ui_overlay_text(UI_FONT_MENU, 10.0f, value_right - 18 - ui_overlay_text_width(UI_FONT_MENU, 10.0f, value),
+		y + 8, UI_ALIGN_RIGHT, color, "\xE2\x80\xB9");
+}
+
+#ifdef HALO_PORT_VOICE_AUDIO
+/* the voice channel's state now: open, or why not (voice_game.h) */
+static int channel_state(void)
+{
+	return voice_game_channel_state(voice_game_channel());
+}
+
+/* the line under voice's rows: why the channel can't be used, else what
+voice is */
+static char const *voice_help(short setting)
+{
+	int state = channel_state();
+
+	if (setting == _setting_voice_channel && state != _voice_channel_open && state != _voice_channel_voice_off)
+		return voice_game_channel_reason(state);
+	if (setting == _setting_voice_chat && voice_microphone() == _voice_microphone_denied)
+		return "The microphone isn't allowed. You can still listen.";
+	if (setting == _setting_voice_chat && voice_microphone() == _voice_microphone_missing)
+		return "No microphone found. You can still listen.";
+	return "Voice goes through the game's host. Nothing is recorded.";
+}
+#endif
+
 static void render_settings(void)
 {
-	short setting;
+	short setting, chosen = guide.row[SOCIAL_SECTION_SETTINGS];
 	float y = BODY_Y;
+	/* (the rows that fit above the help line, scrolled to the chosen one) */
+	short shown = (short)((BODY_BOTTOM - BODY_Y - 18) / (SETTING_HEIGHT + ROW_GAP));
+	short first = chosen >= shown ? (short)(chosen - shown + 1) : 0;
 
-	for (setting = 0; setting < NUMBER_OF_SETTINGS; setting++)
+	for (setting = first; setting < NUMBER_OF_SETTINGS && setting < first + shown; setting++)
 	{
-		boolean on = setting == guide.row[SOCIAL_SECTION_SETTINGS];
-		char value[32];
-		float width = CONTENT_RIGHT - CONTENT_LEFT, value_right = CONTENT_RIGHT - 14;
+		boolean dimmed = FALSE;
 
-		setting_value(setting, value, sizeof(value));
-		ui_style_row(CONTENT_LEFT, y, width, SETTING_HEIGHT, on);
-		ui_overlay_text(UI_FONT_MENU, 10.0f, CONTENT_LEFT + 12, y + 8, UI_ALIGN_LEFT, COLOR_SETTING,
-			setting_labels[setting]);
-		/* (the value between its arrows, as the menus' settings have it) */
-		ui_overlay_text(UI_FONT_MENU, 10.0f, value_right, y + 8, UI_ALIGN_RIGHT, COLOR_VALUE, "\xE2\x80\xBA");
-		ui_overlay_text(UI_FONT_MENU, 10.0f, value_right - 12, y + 8, UI_ALIGN_RIGHT, COLOR_VALUE, value);
-		ui_overlay_text(UI_FONT_MENU, 10.0f, value_right - 18 - ui_overlay_text_width(UI_FONT_MENU, 10.0f, value),
-			y + 8, UI_ALIGN_RIGHT, COLOR_VALUE, "\xE2\x80\xB9");
+#ifdef HALO_PORT_VOICE_AUDIO
+		dimmed = setting == _setting_voice_channel && channel_state() != _voice_channel_open;
+#endif
+		render_setting_row(setting, y, setting == chosen, dimmed);
 		target_add(CONTENT_LEFT, y, CONTENT_RIGHT, y + SETTING_HEIGHT, _target_setting, setting);
 		y += SETTING_HEIGHT + ROW_GAP;
 	}
+#ifdef HALO_PORT_VOICE_AUDIO
+	if (chosen >= _setting_voice_chat && chosen <= _setting_voice_speakers)
+		ui_style_text(UI_TEXT_LINE, CONTENT_LEFT, BODY_BOTTOM - 14, UI_ALIGN_LEFT, voice_help(chosen));
+#endif
 }
+
+#ifdef HALO_PORT_VOICE_AUDIO
+/* PARTY's VOICE CHANNEL: the channel talked on, the same as SETTINGS', and
+why it can't be used if it can't */
+static void render_party_voice(void)
+{
+	boolean on = guide.row[SOCIAL_SECTION_PARTY] == 0;
+	int state = channel_state();
+
+	render_setting_row(_setting_voice_channel, BODY_Y, on, state != _voice_channel_open);
+	target_add(CONTENT_LEFT, BODY_Y, CONTENT_RIGHT, BODY_Y + SETTING_HEIGHT, _target_row, 0);
+	ui_style_text(state == _voice_channel_open ? UI_TEXT_LINE : UI_TEXT_WARNING, CONTENT_LEFT + 12,
+		BODY_Y + SETTING_HEIGHT + 8, UI_ALIGN_LEFT, state == _voice_channel_open ?
+		"Party, team or proximity. Mute players in PLAYERS HERE." : voice_game_channel_reason(state));
+}
+#endif
 
 /* FRIENDS, PARTY and RECENT: SIGN IN without a Delta profile; nothing yet
 with one (the site's friends come next) */
@@ -1570,6 +1763,11 @@ static void render_prompts(void)
 	case SOCIAL_SECTION_SETTINGS:
 		word = "CHANGE";
 		break;
+#ifdef HALO_PORT_VOICE_AUDIO
+	case SOCIAL_SECTION_PARTY:
+		word = guide.row[guide.section] == 0 ? "CHANGE" : "SIGN IN";
+		break;
+#endif
 	case SOCIAL_SECTION_FRIENDS:
 		if (friends_signed_in())
 		{
@@ -1662,6 +1860,109 @@ static void render_toast(void)
 	ui_style_text_faded(UI_TEXT_STATUS, share, TOAST_X + 36, TOAST_Y + 20, UI_ALIGN_LEFT, guide.toast_line);
 	ui_overlay_layer(0);
 }
+
+#ifdef HALO_PORT_VOICE_AUDIO
+/* ---------- the talking indicator
+
+Quiet and off the HUD, in the Guide's look, at the top right: while this
+player talks, a small glass pill with a level meter and the channel talked
+on (and for a moment after the channel is switched); under it, while others
+talk, their names, a few at most (display.voice_speakers). Nothing while
+nobody talks. */
+
+enum
+{
+	VOICE_RIGHT = 628, VOICE_TOP = 10,
+	VOICE_PILL_HEIGHT = 18,
+	VOICE_NAME_HEIGHT = 16,
+	VOICE_NAMES = 4,
+	/* the channel shown this long after it is switched (ms) */
+	VOICE_CHANNEL_SHOWN = 2500
+};
+
+/* a meter of three bars, by the level (0 to 1) */
+static void voice_meter(float x, float y, float level, unsigned int color)
+{
+	short bar;
+
+	for (bar = 0; bar < 3; bar++)
+	{
+		float height = 4.0f + 3.0f * bar;
+		boolean lit = level > 0.02f + 0.06f * bar;
+
+		ui_overlay_rect(x + bar * 4.0f, y + 12.0f - height, 3.0f, height, 1.0f,
+			lit ? color : (color & 0xFFFFFF00) | 0x50);
+	}
+}
+
+static void render_voice_indicator(void)
+{
+	static int last_channel;
+	static unsigned long switched_time;
+	struct network_game *game = network_game_get_game();
+	unsigned long now = system_milliseconds();
+	int channel = voice_game_channel();
+	boolean talking = voice_game_talking();
+	float y = VOICE_TOP;
+	short names = 0;
+	long index;
+
+	if (voice_mode() == _voice_mode_off || !game || !delta_peer_game_role())
+		return;
+	if (channel != last_channel)
+	{
+		if (last_channel)
+			switched_time = now;
+		last_channel = channel;
+	}
+	ui_overlay_layer(3);
+	ui_style_clock((unsigned int)now);
+	if (talking || now - switched_time < VOICE_CHANNEL_SHOWN)
+	{
+		char const *name = voice_game_channel_name(channel);
+		float width = 34.0f + ui_overlay_text_width(UI_FONT_MENU, 9.0f, name);
+		boolean open = voice_game_channel_state(channel) == _voice_channel_open;
+
+		ui_style_glass(VOICE_RIGHT - width, y, width, VOICE_PILL_HEIGHT, 6, ui_style_color(UI_COLOR_GLASS_TOP),
+			COLOR_PANEL_EDGE);
+		voice_meter(VOICE_RIGHT - width + 8, y + 3, talking ? 0.05f + voice_input_level() * 4.0f : 0.0f,
+			open ? 0x7FE07FFF : COLOR_DIMMED);
+		ui_overlay_text(UI_FONT_MENU, 9.0f, VOICE_RIGHT - 8, y + 4, UI_ALIGN_RIGHT, open ? COLOR_VALUE : COLOR_DIMMED,
+			name);
+		y += VOICE_PILL_HEIGHT + 4;
+	}
+	if (!config_boolean("display.voice_speakers"))
+	{
+		ui_overlay_layer(0);
+		return;
+	}
+	for (index = 0; index < HALO_PORT_MAXIMUM_NETWORK_PLAYERS && names < VOICE_NAMES; index++)
+	{
+		struct network_player *player = &game->players[index];
+		short machine = player->machine_index;
+		long other;
+		boolean first = TRUE;
+		char name[48];
+
+		if (!network_player_is_valid(player) || machine == network_game_client_get_local_machine_index() ||
+			!voice_game_machine_talking(machine))
+		{
+			continue;
+		}
+		/* (a machine's first player names it) */
+		for (other = 0; other < index && first; other++)
+			first = !(network_player_is_valid(&game->players[other]) && game->players[other].machine_index == machine);
+		if (!first)
+			continue;
+		utf8_from_wide(name, sizeof(name), player->name, NUMBEROF(player->name));
+		voice_meter(VOICE_RIGHT - ui_overlay_text_width(UI_FONT_MENU, 9.0f, name) - 18, y + 2, 0.3f, 0x7FE07FFF);
+		ui_overlay_text(UI_FONT_MENU, 9.0f, VOICE_RIGHT, y + 3, UI_ALIGN_RIGHT, COLOR_VALUE, name);
+		y += VOICE_NAME_HEIGHT;
+		names++;
+	}
+	ui_overlay_layer(0);
+}
+#endif
 
 /* ---------- public code */
 
@@ -1815,6 +2116,13 @@ static void handle(unsigned int pressed)
 		move(1);
 	if (guide.section == SOCIAL_SECTION_SETTINGS && (pressed & (GUIDE_INPUT_LEFT | GUIDE_INPUT_RIGHT)))
 		setting_change(guide.row[guide.section], (pressed & GUIDE_INPUT_LEFT) ? -1 : 1);
+#ifdef HALO_PORT_VOICE_AUDIO
+	if (guide.section == SOCIAL_SECTION_PARTY && !guide.row[guide.section] &&
+		(pressed & (GUIDE_INPUT_LEFT | GUIDE_INPUT_RIGHT)))
+	{
+		setting_change(_setting_voice_channel, (pressed & GUIDE_INPUT_LEFT) ? -1 : 1);
+	}
+#endif
 	if (pressed & GUIDE_INPUT_A)
 		activate();
 	else if ((pressed & GUIDE_INPUT_X) && guide.section == SOCIAL_SECTION_PLAYERS_HERE)
@@ -1874,6 +2182,15 @@ void guide_pointer(struct halo_ui_pointer const *pointer)
 					activate();
 				break;
 			}
+#ifdef HALO_PORT_VOICE_AUDIO
+			/* (PARTY's VOICE CHANNEL: a click steps it, as a setting's) */
+			if (guide.section == SOCIAL_SECTION_PARTY)
+			{
+				guide.row[guide.section] = target->index;
+				activate();
+				break;
+			}
+#endif
 			if (guide.row[guide.section] == target->index && pointer->touch)
 				activate();
 			guide.row[guide.section] = target->index;
@@ -1917,6 +2234,9 @@ void guide_render(void)
 		return;
 	if (!guide.open)
 	{
+#ifdef HALO_PORT_VOICE_AUDIO
+		render_voice_indicator();
+#endif
 		render_toast();
 		return;
 	}
@@ -1936,6 +2256,12 @@ void guide_render(void)
 	case SOCIAL_SECTION_SETTINGS:
 		render_settings();
 		break;
+#ifdef HALO_PORT_VOICE_AUDIO
+	case SOCIAL_SECTION_PARTY:
+		render_party_voice();
+		render_coming();
+		break;
+#endif
 	case SOCIAL_SECTION_FRIENDS:
 		if (friends_signed_in())
 			render_friends();
