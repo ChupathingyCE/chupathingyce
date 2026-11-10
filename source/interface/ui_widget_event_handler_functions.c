@@ -3442,7 +3442,9 @@ static boolean multiplayer_profiles_list_initialize(
 	match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 1385,
 		definition->child_count == 3,
 		"expected 3 list items for 'multiplayer settings list' widget");
-	widget->parameters.list.list_items = ui_widget_realloc(widget->parameters.list.list_items, 0x190,
+	/* port: room for 100 profile indices, a long each (400 bytes on the Xbox;
+	twice that where a long is 8 bytes) */
+	widget->parameters.list.list_items = ui_widget_realloc(widget->parameters.list.list_items, (word)(100 * sizeof(long)),
 		"c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 1390);
 	profile_indices = widget->parameters.list.list_items;
 	if (profile_indices)
@@ -4572,7 +4574,9 @@ static boolean player_profiles_list_initialize(
 	match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 1688,
 		definition->child_count == 0 || definition->child_count == required_profile_count,
 		"expected either 1 or 3 list items for 'player settings list' widget");
-	widget->parameters.list.list_items = ui_widget_realloc(widget->parameters.list.list_items, 400,
+	/* port: room for 100 profile indices, a long each (400 bytes on the Xbox;
+	twice that where a long is 8 bytes) */
+	widget->parameters.list.list_items = ui_widget_realloc(widget->parameters.list.list_items, (word)(100 * sizeof(long)),
 		"c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 1693);
 	if (widget->parameters.list.list_items)
 	{
