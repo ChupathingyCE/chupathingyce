@@ -107,6 +107,14 @@ the game with the environment variable `HALO_RENDERER=bgfx`. If bgfx can't
 start, for example with no working Vulkan driver, the game uses OpenGL and
 says so in `logs/debug.txt`.
 
+Some Vulkan drivers start but run badly on older computers, so the game
+skips them and uses OpenGL. Right now that's nouveau's Vulkan (NVK) on a
+GeForce older than the 20 series, NVIDIA drivers older than 470, Mesa's
+Vulkan for Intel Ivy Bridge, Haswell and Bay Trail graphics, and software
+Vulkan. `debug.txt` has a `bgfx: Vulkan GPU` line for each card with the
+reason. To try Vulkan anyway, set `vulkan_blocklist = false` under
+`[display]`. The line `renderer=` in `debug.txt` says what drew the game.
+
 What we know is different from OpenGL:
 
 - FXAA, SMAA and supersampling are OpenGL only. With bgfx they become MSAA 2x.
