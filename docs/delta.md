@@ -1685,7 +1685,14 @@ Stats' event log records moderation through it.
   (the site's Past games from this device), since a shared computer or a
   second-hand console may have played someone else's. Claimed games and
   games played while linked stay with the profile after an unlink. Links
-  made before this rule keep the games they had.
+  made before this rule keep the games they had. Each device's line in a
+  game is its own entry, so two of your devices in one game count once.
+  A game that reaches the site late goes by the link that applied when it
+  was played. A second-hand console: if someone else linked it first, the
+  games from before their link stay theirs to claim, and the games it
+  played while linked to them stay theirs; only the games after their
+  unlink wait for you. An admin can move waiting games to another profile
+  when they turn out to be someone else's.
 - **Servers** (exists): see Delta Control, The link to the site.
 
 ### Delta Profile in the game
