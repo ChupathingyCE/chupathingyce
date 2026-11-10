@@ -24,7 +24,10 @@ joins are locked (sv_lock).
 */
 
 #include "cseries.h"
+#include "cseries/cseries_windows.h"
+#include "cseries/errors.h"
 #include "networking/network_game_globals.h"
+#include "networking/network_game_manager.h"
 #include "../src/delta_wire.h"
 #ifdef HALO_GAME_BROWSER
 #include "../src/delta_peer.h"
@@ -36,6 +39,20 @@ joins are locked (sv_lock).
 
 /* the platform layer's (port/linux/src/port_config.c) */
 int config_boolean(char const *name);
+/* (network_server_manager.c's: the host's game record) */
+struct network_game *network_game_server_get_game(struct network_game_server *server);
+#ifdef HOST_RULES_DELTA
+/* (delta_peer_game.c's: MOD_STATE told again, the lock in it) */
+void delta_peer_game_moderation_roles_changed(void);
+#endif
+
+enum
+{
+	/* a lock outlives its game this long, then joins open again: hosting
+	ended, or nobody else is in (a map's change or a moment between games
+	is shorter) */
+	HOST_RULES_LOCK_EMPTY_MILLISECONDS = 10 * 1000,
+};
 
 static struct
 {
@@ -48,6 +65,8 @@ static struct
 	boolean late_join_hold;
 	/* (the host's, any host's) */
 	boolean joins_locked;
+	/* when nobody it keeps out could matter began (0: not now) */
+	unsigned long lock_empty_since;
 } host_rules;
 
 void host_rules_set_player_names(boolean allowed)
@@ -71,6 +90,54 @@ void host_rules_set_late_join_hold(boolean wait)
 void host_rules_set_joins_locked(boolean locked)
 {
 	host_rules.joins_locked = locked ? TRUE : FALSE;
+	host_rules.lock_empty_since = 0;
+}
+
+boolean host_rules_lock_has_players(void)
+{
+	struct network_game_server *server = global_network_game_server_get();
+	struct network_game *game = server ? network_game_server_get_game(server) : NULL;
+
+	/* (hosting ended: nobody to keep anyone from) */
+	if (!game)
+		return FALSE;
+#ifdef HALO_SERVER
+	/* (a dedicated server: anyone in, Custom Edition players too) */
+	return game->player_count > 0;
+#else
+	/* (a player's host: someone of another machine) */
+	return game->machine_count > 1;
+#endif
+}
+
+/* (each frame) a lock ends when hosting does, or once nobody is in for a
+while: a lock is for the players in the game, and never outlives them */
+static void host_rules_lock_update(void)
+{
+	unsigned long now;
+
+	if (!host_rules.joins_locked)
+		return;
+	if (host_rules_lock_has_players())
+	{
+		host_rules.lock_empty_since = 0;
+		return;
+	}
+	now = system_milliseconds();
+	if (!now)
+		now = 1;
+	if (!host_rules.lock_empty_since)
+	{
+		host_rules.lock_empty_since = now;
+		return;
+	}
+	if (now - host_rules.lock_empty_since < HOST_RULES_LOCK_EMPTY_MILLISECONDS)
+		return;
+	host_rules_set_joins_locked(FALSE);
+	error(_error_silent, "host rules: joins unlocked (nobody left in the game)");
+#ifdef HOST_RULES_DELTA
+	delta_peer_game_moderation_roles_changed();
+#endif
 }
 
 boolean host_rules_joins_locked(void)
@@ -193,6 +260,8 @@ boolean host_rules_team_change(int *policy)
 
 void host_rules_update(void)
 {
+	host_rules_lock_update();
+	{
 #ifdef HOST_RULES_DELTA
 	struct delta_wire_host_rules rules;
 	int policy = team_change_host_policy();
@@ -215,4 +284,5 @@ void host_rules_update(void)
 	a client's Delta Peer logs what its host says) */
 	delta_peer_game_set_host_rules(&rules);
 #endif
+	}
 }

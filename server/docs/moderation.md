@@ -167,17 +167,21 @@ server's moderators and the site's admins can watch it. It's deleted after
 ### Locking joins
 
 `sv_lock` stops anyone new from joining (the lobby or the game in
-progress) until `sv_unlock`. Players already in stay; one who drops can't
-come back while it's locked. The game list shows the server as Locked.
-Moderators can lock from the panel's Status tab, the game's Moderation
-screen, or the site. A restart unlocks.
+progress, Custom Edition players too) until `sv_unlock`. Players already
+in stay; one who drops can't come back while it's locked. The game list
+shows the server as Locked. Moderators can lock from the panel's Status
+tab, the game's Moderation screen, or the site. The lock ends by itself
+once the server has been empty for 10 seconds (an empty server can't be
+locked), and a restart unlocks.
 
 ### Late joiners
 
 With `late_join_hold` on (`sv_set late_join_hold 1`), a player who joins a
 game in progress doesn't spawn until the next game. They watch a living
 player through the follow camera, with "Waiting for the next game" on
-screen. Off by default: Halo spawns them at once.
+screen (an OpenCE player gets a line in their chat). The wait is never
+longer than 5 minutes, and a player who drops and comes back isn't held.
+Off by default: Halo spawns them at once.
 
 ### Shared ban lists
 

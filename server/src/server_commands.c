@@ -139,6 +139,7 @@ boolean network_distributed_unban(long index);
 /* (the host's rules': port/linux/game/host_rules.h) */
 void host_rules_set_joins_locked(boolean locked);
 boolean host_rules_joins_locked(void);
+boolean host_rules_lock_has_players(void);
 boolean host_rules_host_late_join_hold(void);
 /* (network_distributed.c's: an account's ban, docs/delta.md "Shared ban
 lists") */
@@ -275,7 +276,8 @@ static struct server_command const server_commands[] =
 		"report or sv_players) that need not be in the game, for ever or for a while: a bans.txt line with only its "
 		"account.", 2, 4, FALSE, command_ban_account },
 	{ "sv_lock", "sv_lock", "Locks joins: no new players until sv_unlock (those in the game stay). The game list "
-		"shows it. Not kept across a restart.", 1, 1, FALSE, command_lock },
+		"shows it. It ends by itself once the server has been empty for 10 seconds, and isn't kept across a restart.",
+		1, 1, FALSE, command_lock },
 	{ "sv_unlock", "sv_unlock", "Unlocks joins.", 1, 1, FALSE, command_unlock },
 #ifdef HALO_SERVER
 	{ "sv_reports", "sv_reports [all]", "Players' reports of other players: the open ones, newest first (all: the "
@@ -1410,6 +1412,13 @@ static boolean command_lock(
 	{
 		command_output_printf(output, "joins are locked already\n");
 		return TRUE;
+	}
+	/* (a lock is for the players in the game: it ends once nobody is in,
+	host_rules.c) */
+	if (!host_rules_lock_has_players())
+	{
+		command_output_printf(output, "nobody is in the game: joins stay open (a lock ends once the server is empty)\n");
+		return FALSE;
 	}
 	set_locked(TRUE);
 	command_output_printf(output, "joins locked: nobody new joins until sv_unlock\n");

@@ -738,12 +738,17 @@ game, over `host_rules` (bit 19):
   starts. They watch through the follow camera (LB and RB switch who),
   whatever their own `display.follow_camera` says, with "Waiting for the
   next game" under it. The host holds their spawn, so an OpenCE player who
-  joins late waits too and sees Halo's own death view. Nobody else's game
-  changes. A joiner spawns at once when no one else is playing, and the
-  wait ends with the game.
+  joins late waits too and sees Halo's own death view, with a line in
+  their chat saying why. Nobody else's game changes. A joiner spawns at
+  once when no one else is playing, the wait ends with the game, and it
+  never lasts more than 5 minutes. A player who was in the game, dropped
+  and came back (the same name) isn't held.
 - **Joins are locked** (0x08): the host takes no new machines until it's
   unlocked (a dedicated server's `sv_lock`). Players already in stay, and
-  a dropped player can't come back while it's locked. The host's Delta
+  a dropped player can't come back while it's locked (Custom Edition
+  players are kept out too). A lock ends by itself 10 seconds after the
+  host stops hosting or nobody it was for is in (a dedicated server's
+  players, or a player's host's players of other machines). The host's Delta
   List announcement says `locked=1`, which the site keeps as
   `joins_locked` (games.txt's field 25), and the game list shows it.
 - **A host that says nothing** (OpenCE's, an older Chupathingy, a console

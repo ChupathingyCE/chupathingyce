@@ -20,9 +20,13 @@ void host_rules_set_follow_camera(boolean allowed);
 void host_rules_set_late_join_hold(boolean wait);
 /* whether the host takes new machines (sv_lock, a moderator's LOCK, the
 host's own Moderation screen): locked, none join until it is unlocked.
-Not saved: a restart unlocks */
+Not saved: a restart unlocks; and it unlocks by itself 10 seconds after
+hosting ends or nobody it could matter to is in (host_rules_update) */
 void host_rules_set_joins_locked(boolean locked);
 boolean host_rules_joins_locked(void);
+/* whether anyone a lock is for is in: a dedicated server's players, or a
+player's host's players of other machines (FALSE when not hosting) */
+boolean host_rules_lock_has_players(void);
 /* (the same, plain: browser.c's announcement) */
 int host_rules_joins_locked_now(void);
 
