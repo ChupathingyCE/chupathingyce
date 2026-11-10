@@ -26,19 +26,18 @@ from .ninja_syntax import Writer
 
 BGFX_SOURCES = Path("build/bgfx")
 BGFX_REPOSITORIES = {
-    "bx": ("https://github.com/bkaradzic/bx.git", "217823bc0a05a7dcf29e5166708b82910cda0623"),
-    "bimg": ("https://github.com/bkaradzic/bimg.git", "5c7eabb1d73cb0c1a3c23c0268dd70e8dca972f7"),
-    "bgfx": ("https://github.com/bkaradzic/bgfx.git", "9849fe96cba81355352e5355ee2d333ea70857ac"),
+    "bx": ("https://github.com/bkaradzic/bx.git", "57548da89a07771c5b0f8a6711149be70e08a329"),
+    "bimg": ("https://github.com/bkaradzic/bimg.git", "77bebb28e12956bfced82bb2cf7c19ac5735b6c8"),
+    "bgfx": ("https://github.com/bkaradzic/bgfx.git", "4608478e119667eab7635226f721ede32b0935c3"),
 }
 # our changes to bgfx, applied to the fetched sources (tools/bgfx-patches)
 BGFX_PATCHES = sorted(Path("tools/bgfx-patches").glob("*.patch"))
-# its limits for the game: views (each target change and clear after draws
-# is one), visibility tests (lens flares, The Library's lights) and Metal's
-# uniform space a frame
+# its limits for the game: visibility tests (lens flares, The Library's
+# lights). Views are fixed at 4096 in bgfx now, and Metal's uniform space
+# grows as needed.
 # (and not its NvOptimusEnablement and AmdPowerXpressRequestHighPerformance:
 # the Windows builds export their own, port/windows/src)
-BGFX_DEFINES = ["-DBGFX_CONFIG_MAX_VIEWS=1024", "-DBGFX_CONFIG_MAX_OCCLUSION_QUERIES=4096",
-                "-DBGFX_CONFIG_MTL_UNIFORM_BUFFER_SIZE=33554432", "-DBGFX_CONFIG_PREFER_DISCRETE_GPU=0"]
+BGFX_DEFINES = ["-DBGFX_CONFIG_MAX_OCCLUSION_QUERIES=4096", "-DBGFX_CONFIG_PREFER_DISCRETE_GPU=0"]
 # bgfx's renderers, all off but the platform's
 BGFX_RENDERERS = ["AGC", "DIRECT3D11", "DIRECT3D12", "GNM", "METAL", "NVN", "OPENGL", "OPENGLES", "VULKAN",
                   "WEBGPU"]
@@ -184,7 +183,7 @@ def bgfx_build(n: Writer, target: BgfxTarget) -> List[Path]:
     simd = "-Xarch_x86_64 -msse4.2" if target.platform == "macos" else "-msse4.2"
     units = {
         "bx": ([bx / "src/amalgamated.cpp"], f"-x c++ {simd}"),
-        "bimg": ([bimg / "src/image.cpp", bimg / "src/image_gnf.cpp",
+        "bimg": ([bimg / "src/image.cpp", bimg / "src/image_encode_wic.cpp",
                   *sorted((bimg / "3rdparty/astc-encoder/source").glob("*.cpp"))], f"-x c++ {simd}"),
         "bgfx": ([bgfx / "src/amalgamated.cpp"], f"{bgfx_flags} {simd}"),
         "glslang": (glslang_sources, f"-x c++ -std=c++17 -fno-strict-aliasing -I{glslang} -I{glslang.parent}"),
