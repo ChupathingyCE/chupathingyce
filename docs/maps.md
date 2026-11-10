@@ -113,13 +113,63 @@ there. Then the game joins, and the map's own checks run as for any map. A
 downloaded map is listed in `maps_ce/downloaded_maps.txt`: its scripts are
 held to a downloaded map's tighter rules. `network.map_downloads` in
 `config.toml` (or Network Settings in the PC menus) says `"ask"` (the
-default), `"always"` or `"never"`. Desktop and Android builds download maps;
+default), `"always"` or `"never"`. `"never"` means no map is ever
+downloaded, but the game still fetches Chupathingy maps' small signed index
+for its blacklist (below) and checks your maps against it. Desktop and Android builds download maps;
 the dedicated server doesn't. HaloMD and Halo PC retail maps aren't
 downloaded, and neither are Halo PC's own maps and files (Blood Gulch, Putput,
 the campaign's levels, `ui`, `bitmaps` and the rest, also under a hashed
 name), though the repositories have copies: they're Microsoft's and
 Gearbox's, so the game asks you to copy them from your own Halo PC or Custom
 Edition install instead ("Install this map yourself").
+
+**Chupathingy maps.** If the community repositories don't have the map (or
+not the host's version of it), the game asks Chupathingy maps
+(maps.chupathingy.org) next. It's our own map repository, for the maps HaloNet
+doesn't have. When its list has the map, the question says so: "Download
+<name>.map from HaloNet or Chupathingy maps?", and the download says where
+it's coming from. The game downloads from the repository only when its list
+of maps and its list of mirrors are signed with its key and not expired. It refetches
+them about once an hour and never goes back to an older list. It finds the map
+by its name and the host's version, and downloads it from the first working
+mirror. The file must have the list's size and SHA-256, or the next mirror is
+asked. Then the same checks run as for a map from HaloNet. Peer-to-peer
+downloads from the host aren't part of this.
+
+**The blacklist.** Chupathingy maps also keeps a list of maps that crash
+games or break the engine, by their hashes. A map on it isn't downloaded from
+anywhere, HaloNet included ("<name>.map is blocked by Chupathingy maps", and
+the reason). If you already have it, Chupathingy won't play it in network
+games: you can't join someone else's game on it or host one on it, and the
+game tells you why when you pick it. A dedicated server skips it in its
+playlist and refuses it for `sv_map`, with the reason in its log. You can
+still play it by yourself or in split screen. The game fetches the list when
+it starts and about once an hour after that, whatever `network.map_downloads`
+says: the list is a public file, and the request carries nothing about you.
+With `"never"` (and on the dedicated server) only that list is fetched, not
+the mirror list. Switch back to `"ask"` or `"always"` and the mirror list is
+fetched the next time the game checks, not an hour later. The game keeps the last list it took in its save folder
+and reads it back when it starts, so the blacklist holds before the first
+fetch and while the site can't be reached. A kept list that has expired
+still blocks its maps until a newer one comes, but nothing is downloaded on
+its word. The game never takes a list older than one it has taken, nor a
+different one with the same number. If the site can't be reached, the game
+writes one line in its log and tries again later (5 minutes, then longer,
+up to an hour); you see nothing and nothing waits on it. A dedicated server
+waits for the list a few seconds at most as it starts. If Chupathingy maps
+ever has to stop all downloads at once, the game takes nothing from it
+until it's back. `network.maps_url` in `config.toml` says where the lists
+come from. Set it to `""` to turn Chupathingy maps off: nothing is fetched
+from it, and no map is blocked.
+
+**Testing Chupathingy maps.** `tools/test_map_repo.py` checks the list
+reader and the downloader against a fake repository on your machine. Its
+last tests run the real game. Build it with a test key in
+`port/linux/src/maps_key.h`, then set `HALO_MAP_REPO_GAME` (the executable),
+`HALO_MAP_REPO_KEY` (the key's PEM file), `HALO_MAP_REPO_MAP` (a Custom
+Edition map) and `HALO_MAP_REPO_XBOX_MAPS` (your Xbox maps folder). The game
+uses its own data folder, and `debug.map_repositories` points it at the fake
+repository in place of HaloNet's.
 
 **When the host changes map.** If a game you're in moves on to a Custom
 Edition map you don't have (a dedicated server's playlist going to its next

@@ -158,6 +158,7 @@ const char *updater_version(void);
 int server_platform_reach(char *text, int size, int json);
 #endif
 char const *cache_files_map_directory(void);
+boolean cache_files_map_host_refused(char const *map_name, char *message, long size);
 
 /* ---------- structures */
 
@@ -764,6 +765,17 @@ boolean server_map_playable(
 	{
 		command_output_printf(output, "no multiplayer map %s in %s\n", map, map_family_folder(family));
 		return FALSE;
+	}
+	/* (nor one on Chupathingy maps' blacklist: a server hosts none of them,
+	as no game of ours does: cache_files_map_host_refused) */
+	{
+		char message[320];
+
+		if (cache_files_map_host_refused(map, message, sizeof(message)))
+		{
+			command_output_printf(output, "%s\n", message);
+			return FALSE;
+		}
 	}
 	return TRUE;
 #else

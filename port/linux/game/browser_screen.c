@@ -100,6 +100,8 @@ the right button is B.
 #include "../src/campaign_levels.h"
 #include "../src/map_art.h"
 #include "../src/map_download.h"
+#include "../src/map_repo.h"
+#include <time.h>
 #include "../src/playlist_download.h"
 #include "../src/ui_overlay.h"
 #include "halo_ui_map_list.h"
@@ -294,6 +296,9 @@ static struct
 	char offer_stock_first[96];
 	char offer_stock_second[160];
 	unsigned long offer_version;
+	/* (Chupathingy maps has it too, as the index held says: the offer names
+	it beside the community repositories) */
+	boolean offer_ours;
 	boolean offer_dont_ask;
 	struct map_download_progress offer_progress;
 	/* when it was offered (the A that joined, still held, answers nothing) */
@@ -655,6 +660,15 @@ static void offer_map(
 	map_archive_display_name(browser_screen.offer_file, browser_screen.offer_display,
 		(int)sizeof(browser_screen.offer_display));
 	browser_screen.offer_version = version;
+	{
+		char base[32];
+		unsigned int prefix = 0;
+
+		if (map_archive_hashed_name(file, base, (int)sizeof(base), &prefix))
+			browser_screen.offer_ours = map_repo_has(base, prefix ? prefix : 1, (long long)time(NULL)) != 0;
+		else
+			browser_screen.offer_ours = map_repo_has(file, (unsigned int)version, (long long)time(NULL)) != 0;
+	}
 	browser_screen.offer_dont_ask = FALSE;
 	browser_screen.offer_time = system_milliseconds();
 	map_download_reset();
@@ -1688,6 +1702,9 @@ void browser_screen_open(
 	void)
 {
 	browser_screen.active = TRUE;
+	/* (Chupathingy maps' index and blacklist, fresh for the games joined
+	from here: map_repo.h) */
+	map_repo_game_refresh_soon();
 	browser_screen.selected = 0;
 	/* (the session's first: the config's view, else CHUPATHINGY + PUBLIC) */
 	if (!browser_screen.view_chosen)
@@ -3007,10 +3024,13 @@ static void draw_map_offer(
 		if (text[0] >= 'a' && text[0] <= 'z')
 			text[0] = (char)(text[0] - 32);
 		ui_overlay_text(UI_FONT_MENU_SMALL, 10.0f, center, CONNECT_Y + 62, UI_ALIGN_CENTER, COLOR_DIM, text);
-		snprintf(text, sizeof(text), "Download %s.map from the", browser_screen.offer_display);
+		/* (where it comes from: the community repositories first, then
+		Chupathingy maps when its index has it) */
+		snprintf(text, sizeof(text), browser_screen.offer_ours ? "Download %s.map from" : "Download %s.map from the",
+			browser_screen.offer_display);
 		ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, CONNECT_Y + 86, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFF90, text);
 		ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, CONNECT_Y + 106, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFF90,
-			"community map repository?");
+			browser_screen.offer_ours ? "HaloNet or " MAP_REPO_TITLE "?" : "community map repository?");
 		/* "Don't ask again", ticked or not (Y, or a click on it) */
 		width = ui_overlay_button_width(UI_BUTTON_Y, glyph) + 6 + box + 6 +
 			ui_overlay_text_width(UI_FONT_MENU, 11.0f, "DON'T ASK AGAIN");
@@ -3030,7 +3050,10 @@ static void draw_map_offer(
 		float bar_x = CONNECT_X + 40, bar_width = CONNECT_WIDTH - 80;
 		float done = 0.0f;
 
-		snprintf(text, sizeof(text), "Downloading %s.map", browser_screen.offer_display);
+		if (progress->source == MAP_DOWNLOAD_SOURCE_CHUPATHINGY)
+			snprintf(text, sizeof(text), "Downloading %s.map from " MAP_REPO_TITLE, browser_screen.offer_display);
+		else
+			snprintf(text, sizeof(text), "Downloading %s.map", browser_screen.offer_display);
 		ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, CONNECT_Y + 88, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFF90, text);
 		switch (progress->phase)
 		{
@@ -3053,7 +3076,8 @@ static void draw_map_offer(
 			done = 1.0f;
 			break;
 		default:
-			snprintf(text, sizeof(text), "Connecting to the map repository\xE2\x80\xA6");
+			snprintf(text, sizeof(text), progress->source == MAP_DOWNLOAD_SOURCE_CHUPATHINGY ?
+				"Connecting to " MAP_REPO_TITLE "\xE2\x80\xA6" : "Connecting to the map repository\xE2\x80\xA6");
 			break;
 		}
 		ui_overlay_rect(bar_x, CONNECT_Y + 126, bar_width, 12, 6, 0x0A1E44FF);
