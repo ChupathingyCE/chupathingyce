@@ -68,9 +68,13 @@ enum
 	HEARD_WINDOW = 20000,
 	GROWTH_WINDOW = 80000,
 	/* the longest a download may keep a machine with no player: its size at
-	16 KB a second, and this much more */
+	16 KB a second, and this much more, and never past DOWNLOAD_LONGEST */
 	DOWNLOAD_SLACK = 120000,
 	DOWNLOAD_SLOWEST = 16 * 1024,
+	DOWNLOAD_LONGEST = 30 * 60 * 1000,
+	/* an address whose download ended before this host sent it the whole
+	map starts no other for this long */
+	ADDRESS_COOLDOWN = 15 * 60 * 1000,
 	/* machines downloading at once: in all, and from one address */
 	DOWNLOADERS = 8,
 	DOWNLOADERS_PER_ADDRESS = 2,
@@ -124,6 +128,12 @@ struct host_machine
 	unsigned long served_mark;
 };
 
+struct host_cooldown
+{
+	unsigned long address;
+	unsigned long until;
+};
+
 struct host_stream
 {
 	struct transport_endpoint *endpoint;
@@ -160,6 +170,7 @@ struct host_stream
 static struct
 {
 	struct host_machine machines[MACHINES];
+	struct host_cooldown cooldowns[MACHINES];
 	struct host_stream streams[STREAMS];
 	struct transport_endpoint *listener;
 	unsigned long listen_failed_time;
@@ -321,7 +332,58 @@ static void host_offer(
 static unsigned long host_download_limit(
 	unsigned long size)
 {
-	return (unsigned long)((unsigned long long)size * 1000 / DOWNLOAD_SLOWEST) + DOWNLOAD_SLACK;
+	unsigned long long limit = (unsigned long long)size * 1000 / DOWNLOAD_SLOWEST + DOWNLOAD_SLACK;
+
+	return limit < DOWNLOAD_LONGEST ? (unsigned long)limit : DOWNLOAD_LONGEST;
+}
+
+/* whether an address is waiting out ADDRESS_COOLDOWN */
+static boolean host_cooling(
+	unsigned long address,
+	unsigned long now)
+{
+	long index;
+
+	for (index = 0; index < MACHINES; index++)
+	{
+		struct host_cooldown const *cooldown = &host.cooldowns[index];
+
+		if (cooldown->until && cooldown->address == address && (long)(cooldown->until - now) > 0)
+			return TRUE;
+	}
+	return FALSE;
+}
+
+/* a machine leaves: if its download held a slot and this host never sent
+its address the whole map, the address cools down (so a few addresses
+can't keep every slot by leaving and joining again) */
+static void host_machine_left(
+	struct host_machine const *machine,
+	unsigned long now)
+{
+	long index;
+	long oldest = 0;
+
+	if (!machine->answered || !machine->offered_once || machine->served >= machine->total)
+		return;
+	for (index = 0; index < MACHINES; index++)
+	{
+		struct host_cooldown *cooldown = &host.cooldowns[index];
+
+		if (!cooldown->until || (long)(cooldown->until - now) <= 0 || cooldown->address == machine->address)
+		{
+			oldest = index;
+			break;
+		}
+		if ((long)(cooldown->until - host.cooldowns[oldest].until) < 0)
+			oldest = index;
+	}
+	host.cooldowns[oldest].address = machine->address;
+	host.cooldowns[oldest].until = now + ADDRESS_COOLDOWN;
+	if (!host.cooldowns[oldest].until)
+		host.cooldowns[oldest].until = 1;
+	platform_log("map sharing: a download ended unfinished; its address waits %d minutes for another",
+		ADDRESS_COOLDOWN / 60000);
 }
 
 static boolean host_machine_downloading_now(
@@ -426,9 +488,10 @@ static void host_answer(
 	host.serving_size = size;
 	csmemcpy(host.serving_hash, hash, sizeof(hash));
 	csstrncpy(host.serving_level, level, sizeof(host.serving_level) - 1);
-	if (!machine->offered_once && !host_room_for(machine_index))
+	if (!machine->offered_once && (!host_room_for(machine_index) || host_cooling(machine->address, host_now())))
 	{
 		platform_log("map sharing: machine %ld asked, but %s", machine_index,
+			host_cooling(machine->address, host_now()) ? "its address had a download end unfinished lately" :
 			"too many machines are downloading (in all or from its address)");
 		host_offer(machine_index, level, MAP_SHARE_OFFER_UNAVAILABLE, in_progress);
 		return;
@@ -882,6 +945,7 @@ static void host_update_machines(
 			continue;
 		if (!network_game_server_map_share_machine(machine_index, &address) || address != machine->address)
 		{
+			host_machine_left(machine, now);
 			csmemset(machine, 0, sizeof(*machine));
 			continue;
 		}

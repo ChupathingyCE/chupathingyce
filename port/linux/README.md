@@ -1325,7 +1325,10 @@ that is downloading isn't refused or timed out for having no player, in the
 lobby or in a game in progress, while the host keeps sending it data: its
 stay grows with the bytes the host really sends, not with what the machine
 says it has, and ends after the map's size at 16 KB a second plus two
-minutes, however often it asks again. Its download doesn't hold
+minutes, and never after more than 30 minutes, however often it asks
+again. A machine that leaves before the host sent its address the whole
+map keeps that address from starting another download for 15 minutes, so
+a few addresses can't hold every slot by joining again. Its download doesn't hold
 the game up. The host's log says who asked, the progress in tenths and
 each stream closed, with addresses as tags (`debug.log_addresses`).
 
