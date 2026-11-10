@@ -1494,6 +1494,12 @@ version once it is in place. For that the screen's help is its own text
 (port_settings.py's help_text): the rows' helps are read from its
 help_strings here */
 
+/* (the builds with the self-updater: not a console's, nor the dedicated
+server, which has no updater.c) */
+#if !defined(HALO_CONSOLE_NO_UPDATER) && !defined(HALO_SERVER)
+#define MENU_INSTALL_UPDATE 1
+#endif
+
 #define NETWORK_HELP_STRINGS \
 	"pc\\main_menu\\settings_select\\player_setup\\player_profile_edit\\network_setup\\help_strings"
 #define NETWORK_HELP_LENGTH 192
@@ -1536,7 +1542,7 @@ static void help_wrapped(wchar_t *wide, char const *ascii, size_t count)
 	wide[length] = 0;
 }
 
-#ifndef HALO_CONSOLE_NO_UPDATER
+#ifdef MENU_INSTALL_UPDATE
 /* the install's state, and its line (updater_install_status) */
 static int install_update_state(char *line, int size)
 {
@@ -1619,7 +1625,7 @@ static void settings_help(struct widget_instance *list)
 
 		ustrncpy(text, string ? string : L"", NETWORK_HELP_LENGTH - 1);
 		text[NETWORK_HELP_LENGTH - 1] = 0;
-#ifndef HALO_CONSOLE_NO_UPDATER
+#ifdef MENU_INSTALL_UPDATE
 		if (row && !strcmp(row->name, "op_install_update"))
 		{
 			char line[256];
@@ -1797,7 +1803,7 @@ static void views_show(struct widget_instance *list, char const *view)
 		visible_set(named(screen, "cancel", 0), !strcmp(view, "main"));
 		visible_set(named(screen, "back", 0), strcmp(view, "main") != 0);
 	}
-#ifndef HALO_CONSOLE_NO_UPDATER
+#ifdef MENU_INSTALL_UPDATE
 	/* (INSTALL UPDATE, in UPDATES, only with a version to install) */
 	install_update_show(list, view);
 	if (list->focused_child && !list->focused_child->visible)
@@ -1882,7 +1888,7 @@ static boolean settings_accept(struct widget_instance *list, boolean *widget_del
 {
 	if (view_link(list->focused_child))
 		return settings_view_open(list->focused_child);
-#ifndef HALO_CONSOLE_NO_UPDATER
+#ifdef MENU_INSTALL_UPDATE
 	/* (INSTALL UPDATE installs, and the screen stays: it shows how) */
 	if (list->focused_child && !strcmp(list->focused_child->name, "op_install_update"))
 		return install_update_begin(list->focused_child);
@@ -9531,7 +9537,7 @@ boolean pc_menu_event_function_invoke(
 		{
 			return settings_accept(widget, widget_deleted);
 		}
-#ifndef HALO_CONSOLE_NO_UPDATER
+#ifdef MENU_INSTALL_UPDATE
 		else if (!strcmp(name, "port update install"))
 		{
 			return install_update_begin(widget);
