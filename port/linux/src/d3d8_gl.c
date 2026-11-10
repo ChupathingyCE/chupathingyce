@@ -54,6 +54,7 @@ static void bg_visibility_begin(void);
 static void bg_visibility_end(DWORD index);
 static UINT bg_visibility_result(DWORD index);
 static BOOL bg_back_buffer_size(int *width, int *height, int *pixel_width, int *pixel_height);
+static const char *bg_renderer_name(void);
 #endif
 
 #ifdef HALO_CONSOLE_NATIVE_RENDERER
@@ -2268,6 +2269,30 @@ serial, which then took only the checkpoint's registers). */
 static unsigned long long constants_checkpoint_serial;
 static unsigned long constants_checkpoint_first = XGPU_VERTEX_CONSTANT_COUNT, constants_checkpoint_last;
 
+/* A constant's component that is not a number is drawn as 0: a GPU draws
+one as anything it likes (black, white, blocks), and the NV2A made none from
+what the game sends. An infinite one is kept: the shaders' clamps take it to
+the end of the range, as the NV2A did. Said in the log once in a thousand,
+with the register (c[-96] is c[0] here). By its bits, as valid_real does */
+#define CONSTANT_EXPONENT 0x7f800000u
+#define CONSTANT_NOT_A_NUMBER(word) (((word) & 0x7fffffffu) > CONSTANT_EXPONENT)
+
+static void constant_finite(float value[4], const unsigned int words[4], unsigned long reg)
+{
+	static unsigned long made;
+	int component;
+
+	for (component = 0; component < 4; component++)
+	{
+		if (!CONSTANT_NOT_A_NUMBER(words[component]))
+			continue;
+		if (made++ % 1000 == 0)
+			platform_log("GPU: vertex constant %ld.%c was not a number (%08lx), drawn as 0 (%lu so far)",
+				(long)reg - XGPU_VERTEX_CONSTANT_BIAS, "xyzw"[component], (unsigned long)words[component], made);
+		value[component] = 0.0f;
+	}
+}
+
 static void constants_store(unsigned long first, const void *data, unsigned long count)
 {
 	const float (*values)[4] = data;
@@ -2275,9 +2300,24 @@ static void constants_store(unsigned long first, const void *data, unsigned long
 
 	for (index = 0; index < count; index++)
 	{
-		if (memcmp(device.constants[first + index], values[index], sizeof(device.constants[0])))
+		const float *value = values[index];
+		float fixed[4];
+		unsigned int words[4];
+
+		/* (the source's words tested as they are, with one check of all
+		four exponents: a copy only for a constant with a bad value, so a
+		console's in-order CPU doesn't store floats and load them back) */
+		memcpy(words, values[index], sizeof(words));
+		if (((words[0] & CONSTANT_EXPONENT) == CONSTANT_EXPONENT) | ((words[1] & CONSTANT_EXPONENT) == CONSTANT_EXPONENT) |
+			((words[2] & CONSTANT_EXPONENT) == CONSTANT_EXPONENT) | ((words[3] & CONSTANT_EXPONENT) == CONSTANT_EXPONENT))
 		{
-			memcpy(device.constants[first + index], values[index], sizeof(device.constants[0]));
+			memcpy(fixed, values[index], sizeof(fixed));
+			constant_finite(fixed, words, first + index);
+			value = fixed;
+		}
+		if (memcmp(device.constants[first + index], value, sizeof(device.constants[0])))
+		{
+			memcpy(device.constants[first + index], value, sizeof(device.constants[0]));
 			constant_serials[first + index] = ++constants_serial;
 			constant_log[constants_serial % CONSTANT_LOG_SIZE] = (unsigned char)(first + index);
 			if (constants_checkpoint_first > first + index)
@@ -2418,6 +2458,21 @@ HRESULT WINAPI Direct3D_CreateDevice(UINT adapter, D3DDEVTYPE device_type, void 
 #endif
 		else
 			platform_log("Direct3D: running without a window (nothing is displayed)");
+		/* the renderer that draws, in a line of its own for crash reports
+		and people reading debug.txt (crash_report.c): gl, bgfx-metal,
+		bgfx-vulkan, native or none */
+		{
+			const char *renderer = device.gl_ready ? "gl" : "none";
+
+#ifdef HALO_BGFX
+			if (xgpu_bgfx)
+				renderer = bg_renderer_name();
+#elif defined(HALO_CONSOLE_NATIVE_RENDERER)
+			if (cr_active())
+				renderer = "native";
+#endif
+			platform_log("renderer=%s", renderer);
+		}
 		device.created = TRUE;
 	}
 	*returned_device = device_pointer();

@@ -27,7 +27,7 @@ A few people look for most:
 | --- | --- |
 | `display.mode` | `"fullscreen"`, `"borderless"` or `"windowed"`. F11 switches between a window and the whole screen. When it is set, `display.fullscreen` is ignored; when it is empty, `display.fullscreen = true` is borderless and `false` a window. |
 | `display.window_scale` | The window's size, as a multiple of 640x480. |
-| `display.vsync`, `display.max_fps` | Vertical sync, and a frame rate cap with V-Sync off (0 for twice the display's refresh rate, -1 for none). |
+| `display.vsync`, `display.max_fps` | Vertical sync, and a frame rate cap with V-Sync off (0 for twice the display's refresh rate, -1 for none). On the Steam Deck in Game Mode (under gamescope), a cap at the display's refresh rate or a whole fraction of it (60 at 60 Hz, or 30) keeps the frames in step with the display, so they don't judder. Everywhere else a cap with V-Sync off works as before. |
 | `display.interpolation` | `false` keeps the game's own 30 frames a second; Video Setup's Frame Rate at 30 (Xbox) sets it. |
 | `display.direct_camera` | Instant aim: the view turns the frame the mouse, stick or touch moves it. On by default; config.toml only. |
 | `display.menus` | `"chupathingy"` (the default: the Xbox's look with Halo PC's settings, profiles and more), `"xbox"` (as close to the console as can be) or `"gearbox"` (Halo PC's menus with their Server Browser; `"pc"` still works). |
@@ -35,6 +35,7 @@ A few people look for most:
 | `display.high_res_text` | `true` draws the game's text (menus and HUD) with sharp fonts at your resolution; `false` uses the maps' original bitmap fonts. The Server Browser and the moderation overlays use the system's fonts either way. For a blocky look overall, also set `display.resolution_scaling = "original"`. |
 | `display.high_res_font`, `display.high_res_font_large` | Your own font file for the sharp text and Online Games, in place of the built-in fonts: put it in `data/fonts` beside `maps` and give its name (`high_res_font = "MyFont.ttf"`), or a full path. `_large` sets one for the large text only. Empty uses the built-in fonts; a file that can't be read is noted in `logs/debug.txt` and the built-in font is used. The font is yours: Chupathingy ships none but its own free ones, and never sends yours anywhere. |
 | `display.field_of_view` | How wide the first-person view is, in degrees: 70 (the Xbox's) by default, 50 to 120. |
+| `display.doors_block_light` | `true` (the default) stops a light behind a closed door from lighting your side of it, such as a plasma bolt in the next room. `false` lets it through, as on the Xbox. Drawing only. Video Setup, Advanced: Doors Block Light. |
 | `display.far_clip_distance` | How far the world is drawn: 1024 (the Xbox's) by default, up to 10000, for large maps that cut off in the distance. Drawing only. |
 | `display.match_timer` | A multiplayer game's clock: `"off"` (the default), `"remaining"` (the time left, or the time played when there is no time limit) or `"elapsed"` (the time played). An older `true` still works as `"remaining"`. |
 | `display.match_timer_position` | Where the clock goes: `"top"` (the default) or `"bottom_right"`, like later Halo games. |
@@ -105,6 +106,14 @@ To go back, set it to `"gl"` or put the `#` back. For one run only, start
 the game with the environment variable `HALO_RENDERER=bgfx`. If bgfx can't
 start, for example with no working Vulkan driver, the game uses OpenGL and
 says so in `logs/debug.txt`.
+
+Some Vulkan drivers start but run badly on older computers, so the game
+skips them and uses OpenGL. Right now that's nouveau's Vulkan (NVK) on a
+GeForce older than the 20 series, NVIDIA drivers older than 470, Mesa's
+Vulkan for Intel Ivy Bridge, Haswell and Bay Trail graphics, and software
+Vulkan. `debug.txt` has a `bgfx: Vulkan GPU` line for each card with the
+reason. To try Vulkan anyway, set `vulkan_blocklist = false` under
+`[display]`. The line `renderer=` in `debug.txt` says what drew the game.
 
 What we know is different from OpenGL:
 
