@@ -166,7 +166,6 @@ and those the same in both */
 #define COLOR_PANEL_EDGE ui_style_color(UI_COLOR_PANEL_EDGE)
 #define COLOR_LABEL ui_style_color(UI_COLOR_LABEL_SOFT)
 #define COLOR_ROW_EDGE ui_style_color(UI_COLOR_ROW_EDGE)
-#define COLOR_SETTING ui_style_color(UI_COLOR_SETTING)
 #define COLOR_PROMPT_GLOW ui_style_color(UI_COLOR_PROMPT_GLOW)
 #define COLOR_DOT_GAME ui_style_color(UI_COLOR_DOT_GAME)
 #define COLOR_DOT_OFFLINE ui_style_color(UI_COLOR_DOT_OFFLINE)

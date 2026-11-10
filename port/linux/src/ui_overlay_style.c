@@ -16,6 +16,7 @@ deko3d).
 #include "ui_overlay.h"
 
 #include <string.h>
+#include <strings.h>
 
 /* the palette's named colors (ui_style_color, by UI_COLOR_*), a table a
 theme: Halo Blue, the Chupathingy menus' blues (the Guide's mockups), and
@@ -77,7 +78,6 @@ static const unsigned int palettes[NUMBER_OF_UI_THEMES][NUMBER_OF_UI_COLORS] =
 		[UI_COLOR_ROW_ON] = 0x2F7FD670,
 		[UI_COLOR_PLASMA_THREAD] = 0x3373FFFF,
 		[UI_COLOR_LABEL_SOFT] = 0x6FA6DDFF,
-		[UI_COLOR_SETTING] = 0x9FD0FFFF,
 		[UI_COLOR_DOT_GAME] = 0x4FB3FFFF,
 		[UI_COLOR_DOT_OFFLINE] = 0x4A5A70FF,
 	},
@@ -133,7 +133,6 @@ static const unsigned int palettes[NUMBER_OF_UI_THEMES][NUMBER_OF_UI_COLORS] =
 		[UI_COLOR_ROW_ON] = 0xD6434770,
 		[UI_COLOR_PLASMA_THREAD] = 0xFF4346FF,
 		[UI_COLOR_LABEL_SOFT] = 0xDD7D80FF,
-		[UI_COLOR_SETTING] = 0xFFABAEFF,
 		[UI_COLOR_DOT_GAME] = 0xFF686DFF,
 		[UI_COLOR_DOT_OFFLINE] = 0x704E4FFF,
 	},
@@ -165,7 +164,7 @@ int ui_style_theme_current(void)
 
 int ui_style_theme_named(const char *name)
 {
-	return name && strcmp(name, "red") == 0 ? UI_THEME_RED : UI_THEME_BLUE;
+	return name && strcasecmp(name, "red") == 0 ? UI_THEME_RED : UI_THEME_BLUE;
 }
 
 static unsigned int fade(unsigned int color, float share);

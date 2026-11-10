@@ -226,7 +226,6 @@ enum
 	/* the Guide's (guide.c): a quieter label, a setting's name, and the
 	dots of a friend in a game and offline */
 	UI_COLOR_LABEL_SOFT,
-	UI_COLOR_SETTING,
 	UI_COLOR_DOT_GAME,
 	UI_COLOR_DOT_OFFLINE,
 	NUMBER_OF_UI_COLORS

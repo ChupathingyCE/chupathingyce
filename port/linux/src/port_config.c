@@ -3497,6 +3497,7 @@ static const struct
 	const char *otherwise;
 } config_words[] =
 {
+	{ "display.theme", { "blue", "red", NULL }, "\"blue\"" },
 	{ "display.mode", { "", "fullscreen", "borderless", "windowed", NULL }, "display.fullscreen's" },
 	{ "display.resolution_scaling", { "native", "original", NULL }, "\"native\"" },
 	{ "display.anti_aliasing", { "off", "fxaa", "smaa", "ssaa2x", "msaa2x", "msaa4x", "msaa8x", NULL }, NULL },
