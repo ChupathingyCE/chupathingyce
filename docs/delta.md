@@ -2151,7 +2151,7 @@ and no key.
 | `POST /v1/session/devices {}` | The profile page, signed in (a page the game opened may read it) | `{"devices", "legacy_key"}` |
 | `POST /v1/session/devices/revoke {"device_id"}` | The page, a password session | `{"ok", "devices"}`; 404 for another account's |
 | `POST /v1/session/devices/rename {"device_id", "name"}` | The page, a password session | `{"ok", "devices"}` |
-| `POST /v1/session/devices/signout_all {"auth", "code"?}` | The page, with the password (and the two-step code) | `{"ok", "revoked", "devices"}`: every device revoked and every other session of the account ended; no copy is unlinked |
+| `POST /v1/session/devices/signout_all {"auth", "code"?}` | The page, with the password (and the two-step code) | `{"ok", "revoked", "devices"}`: every device revoked and every other session of the account ended; consoles are unlinked, computers' copies aren't |
 | `POST /v1/identity/devices {}` | A device's token (`profile`) | `{"devices"}` |
 | `POST /v1/identity/device/revoke {"device_id"}` | A device's token (`devices`) | `{"ok", "devices"}`; 409 `{"this": true}` for itself (it signs out instead); 404 for a console (the site revokes those) |
 | `POST /v1/game/profile` | As before | `"devices"` beside `"copies"`, without `"build"`, at most 16, cut to fit like the rest |
@@ -2160,15 +2160,18 @@ and no key.
   puts it on the revocation list (CREV) until its last certificate has run
   out. The device alone stops: a player key it was enrolled with keeps
   working for the copy's other installs (an older build, an Xbox identity
-  file); a key that leaked is turned off with the account's switch, below.
-  Its copy's link goes too once no other live device of that copy is left,
-  so a computer's or console's games stop counting for the profile (the
-  profile's own player ID has no link to take). The site sessions it opened
+  file); a key that leaked is turned off with the account's switch, below,
+  and the page and the mail say so when such a device is revoked. A
+  computer's copy is unlinked once no other live device of that copy is
+  left (the profile's own player ID has no link to take). A console's link
+  is its key, so a console revoked is always unlinked: from the site, down
+  an approval chain, and by signing out everywhere. A console still linked
+  is never left out of the list. The site sessions it opened
   (`/v1/link` with its token) end. Every device it approved by
   code goes with it, and theirs: the site keeps who approved each device
   (`approved_by`), consoles approved from a device included, so a stolen
   device leaves none behind. Revoked from another device rather than the
-  site, a console approved down the chain is revoked but stays linked.
+  site, a console down the chain is revoked and unlinked all the same.
   Revoking doesn't turn the player key back on (stage C, below).
 - **Consoles.** A console linked by its own Link Profile
   (`/v1/console/link/*`, "Link Profile on a console") is in the list as a
@@ -2226,7 +2229,9 @@ stops a device, and nobody is locked out:
   "auto" | "on" | "off", "auth", "code"?}` (the password, and the code with
   two-step sign-in): automatic (above, the default), always on, or off now.
   The answer and `/v1/session/devices` carry `"legacy_key": {"setting",
-  "on", "waiting"}` (copies not moved yet). The profile page has it under
+  "on", "waiting", "used"}` (copies not moved yet; `used` false for an
+  account none of whose copies ever used the key from a game, shown as
+  "Not used"). The profile page has it under
   Account and security, and the admin page shows it. Off is also how a
   leaked key is turned off; On takes the password (and the two-step code)
   like any change. Any change that turns the key back on is mailed.
