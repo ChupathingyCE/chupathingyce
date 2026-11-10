@@ -278,17 +278,21 @@ static int entry_json(const struct server_shared_ban *ban, char *out, size_t siz
 	/* (the handles, as their own strings) */
 	{
 		const char *cursor = ban->handles;
-		int first = 1;
+		int first = 1, handles = 0;
 
-		while (*cursor && length < size)
+		/* (at most 4, each at most 31 characters: what the site takes) */
+		while (*cursor && length < size && handles < 4)
 		{
 			char one[SERVER_BAN_HANDLES_SIZE], quoted[SERVER_BAN_HANDLES_SIZE * 6 + 3];
 			size_t one_length = strcspn(cursor, ",");
 
 			while (one_length && *cursor == ' ')
 				cursor++, one_length--;
-			if (one_length && one_length < sizeof(one))
+			if (one_length > 31)
+				one_length = 31;
+			if (one_length)
 			{
+				handles++;
 				memcpy(one, cursor, one_length);
 				one[one_length] = 0;
 				if (control_json_string(one, quoted, sizeof(quoted)) < 0)
