@@ -283,6 +283,14 @@ def test_crash_report_body(program):
     assert dump == "opened C:\\Users\\___\\AppData\\Roaming\\ChupathingyCE\\x.map"
 
 
+
+def test_crash_report_renderer_from_log(program):
+    """the report's renderer: the log's last renderer= line (d3d8_gl.c)"""
+    body = json.loads(run(program, ["chupathingyce: renderer=gl then renderer=bgfx-vulkan, more"], "body")[0])
+    assert body["renderer"] == "bgfx-vulkan"
+    body = json.loads(run(program, ["no renderer here; frame_renderer=x"], "body")[0])
+    assert "renderer" not in body
+
 def test_every_log_writer_redacts():
     """platform_log and the game's error log (debug.txt) both go through
     log_paths_redact_line; the site's uploads through crash_report_redact."""

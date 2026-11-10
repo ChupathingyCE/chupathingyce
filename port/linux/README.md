@@ -610,6 +610,7 @@ the setting for one start of the game. It has priority over the file.
 | `display.dynamic_light_limit` | `0` (consoles: `8`; the original Xbox: `0`) | `HALO_DYNAMIC_LIGHT_LIMIT` | The most dynamic lights (muzzle flashes, plasma, explosions) that light the level at once. The biggest on screen light the walls and floor; the rest light only the objects near them. `0`: no limit, as on the Xbox. Changes at once. |
 | `display.specular_light_limit` | `0` (consoles: `2`; the original Xbox: `0`) | `HALO_SPECULAR_LIGHT_LIMIT` | Of those lights, the most that also add their shine to metal and wet floors. The first-person weapon's go first. `0`: no limit, as on the Xbox. Changes at once. |
 | `display.crt_filter` | `false` | `HALO_CRT_FILTER=1` sets `true` | `true`: a CRT look over the picture (scanlines, curvature, a phosphor mask). Only the `bgfx` renderer has it for now. |
+| `display.vulkan_blocklist` | `true` | `HALO_VULKAN_BLOCKLIST` | Windows and Linux, with the `bgfx` renderer: skip Vulkan drivers known to be broken or slow on older computers (nouveau's Vulkan before Turing, NVIDIA older than 470, Mesa's Vulkan for Ivy Bridge, Haswell and Bay Trail, software Vulkan) and draw with OpenGL. `false` tries Vulkan anyway. |
 | `audio.enabled` | `true` | `HALO_NO_AUDIO=1` sets `false` | `false`: no audio device. The sound continues without output. |
 | `audio.volume` | `1.0` | `HALO_VOLUME` | The master volume. |
 | `audio.music_volume` | `1.0` | `HALO_MUSIC_VOLUME` | The music's volume, of the master volume. |
