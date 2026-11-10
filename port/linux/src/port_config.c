@@ -542,6 +542,11 @@ static const struct config_setting config_settings[] =
 	{ "display.per_pixel_lighting", _config_boolean, "false", "HALO_PER_PIXEL_LIGHTING", _environment_value,
 		_platform_all,
 		"Light models for each pixel instead of each vertex." },
+	{ "display.doors_block_light", _config_boolean, "true", "HALO_DOORS_BLOCK_LIGHT", _environment_value,
+		_platform_all,
+		"A closed door stops a light behind it from lighting your side, such as\n"
+		"a plasma bolt in the next room. false lets the light through, as on\n"
+		"the Xbox." },
 	{ "display.particle_limit", _config_integer, DEFAULT_PARTICLE_LIMIT, "HALO_PARTICLE_LIMIT", _environment_value,
 		_platform_all,
 		"The most particles alive at once: sparks, smoke, casings and debris.\n"
@@ -1540,6 +1545,8 @@ static const struct config_setting config_settings[] =
 	{ "debug.gpu_visibility_readback", _config_string, "\"auto\"", "HALO_GPU_VISIBILITY_READBACK", _environment_value, _platform_desktop,
 		"How lens flare and light glow tests get their results. auto reads\n"
 		"them on the CPU except on NVIDIA. cpu or buffer forces one." },
+	{ "debug.door_portals_log", _config_boolean, "false", "HALO_DOOR_PORTALS_LOG", _environment_set_is_true, _platform_all,
+		"Log which level portals each door covers, as it is paired with them." },
 	{ "debug.gpu_stats", _config_boolean, "false", "HALO_GPU_STATS", _environment_set_is_true, _platform_all,
 		"Log the renderer's draw counts once a second." },
 	{ "debug.gpu_trace_frame", _config_integer, "-1", "HALO_GPU_TRACE", _environment_value, _platform_all,
