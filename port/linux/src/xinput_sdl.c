@@ -1048,10 +1048,30 @@ void test_input_hold_fire(int hold)
 the first poll, for testing the menus: a, b, x, y, lb, rb (white and black),
 up, down, left, right, start, back, key:<a key's name> (a key of the
 keyboard, as SDL names it: key:C; key:W+C holds both), the mouse's (move,
-click, rclick, wheel, below), shot, or wait (none), separated by spaces or
+click, rclick, wheel, below), shot, fire (the trigger held all its second),
+fireshot (fire, and a shot 600 ms in) or wait (none), separated by spaces or
 commas */
 static char test_input_menu[512];
 static Uint64 test_input_menu_since;
+
+/* the token of this second, held or not (NULL for none) */
+static const char *test_input_menu_current(size_t *length)
+{
+	Uint64 step = (SDL_GetTicks() - test_input_menu_since) / 1000;
+	const char *token = test_input_menu;
+
+	for (;;)
+	{
+		token += strspn(token, " ,");
+		*length = strcspn(token, " ,");
+		if (!*length)
+			return NULL;
+		if (!step)
+			return token;
+		step--;
+		token += *length;
+	}
+}
 
 /* the button or key pressed now (NULL for none) */
 static const char *test_input_menu_token(size_t *length)
@@ -1141,6 +1161,18 @@ static void test_input_menu_pointer(void)
 		step_done = step;
 		return;
 	}
+	/* (fireshot: the trigger held all of its second, test_input_menu_gamepad,
+	and the window saved 600 ms in, the weapon firing: the Light effects'
+	pictures, tools/light_effects_check.py) */
+	if (!strcmp(text, "fireshot"))
+	{
+		if (step_done != step && elapsed % 1000 >= 600)
+		{
+			halo_test_screenshot();
+			step_done = step;
+		}
+		return;
+	}
 	if (sscanf(text, "wheel:%d", &wheel) == 1)
 	{
 		if (step_done != step)
@@ -1222,9 +1254,16 @@ static void test_input_menu_gamepad(XINPUT_GAMEPAD *pad)
 		{ "back", -1, XINPUT_GAMEPAD_BACK },
 	};
 	size_t length;
-	const char *token = test_input_menu_token(&length);
+	const char *token = test_input_menu_current(&length);
 	unsigned int index;
 
+	/* (fire and fireshot: the trigger held all of the second) */
+	if (token && ((length == 4 && !strncmp(token, "fire", 4)) || (length == 8 && !strncmp(token, "fireshot", 8))))
+	{
+		pad->bAnalogButtons[XINPUT_GAMEPAD_RIGHT_TRIGGER] = 255;
+		return;
+	}
+	token = test_input_menu_token(&length);
 	if (!token)
 		return;
 	for (index = 0; index < sizeof(buttons) / sizeof(buttons[0]); index++)

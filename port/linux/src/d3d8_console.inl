@@ -612,7 +612,7 @@ static struct console_shader *cr_vertex_shader(struct vertex_shader_object *prog
 
 		program->shaders_tried |= tried;
 		source = nv2a_vertex_shader_to_glsl(program->instructions, program->instruction_count,
-			immediate ? 0 : device.vertex_shader->packed_mask, NULL);
+			immediate ? 0 : device.vertex_shader->packed_mask, NULL, FALSE);
 		if (source)
 		{
 			program->console_shader[variant] = console_shader_create(1, source);
