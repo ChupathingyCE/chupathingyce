@@ -15,7 +15,8 @@ PARTY, PLAYERS HERE, RECENT and SETTINGS.
   is on Delta, and a local Mute (the chat log's, chat.c). No address is ever
   shown.
 - SETTINGS has the Guide's own settings (settings_rows.c's rows, which the
-  setup screen's Settings shares).
+  setup screen's Settings shares), then ABOUT: the About screen (about.c),
+  which the menus' ABOUT rows open too (guide_about_open).
 - FRIENDS is the site's friends (browser.c polls them, social.h): the
   invites, the friends online, the offline ones (a row that shows them),
   the friend requests. A on a row opens its options: a friend's JOIN (the
@@ -65,6 +66,7 @@ GUIDE counts what waits ("GUIDE 2": invites and requests).
 #include "interface/player_ui.h"
 #include "main/main.h"
 #include "bink/bink_playback.h"
+#include "../src/about.h"
 #include "../src/browser.h"
 #include "../src/delta_profile.h"
 #include "../src/discord_activity.h"
@@ -347,6 +349,12 @@ asked for, and what it came to */
 	press meant for something else doesn't answer it */
 	unsigned long confirm_shown;
 
+	/* the About screen in the panel (from SETTINGS' ABOUT: B goes back
+	there; from the menus' ABOUT: B closes it) */
+	boolean about;
+	boolean about_from_settings;
+	struct about_view about_view;
+
 	struct guide_target targets[MAXIMUM_TARGETS];
 	short target_count;
 } guide;
@@ -576,10 +584,17 @@ static void setting_change(short setting, short direction)
 		settings_row_change(row, direction < 0 ? -1 : 1);
 }
 
-/* SETTINGS' rows: the settings, then the devices' rows when signed in */
+/* SETTINGS' rows: the settings, then the devices' rows when signed in,
+then ABOUT */
 static short settings_rows(void)
 {
-	return (short)(settings_count() + (guide.linked && profile_screen_available() ? NUMBER_OF_DEVICE_ROWS : 0));
+	return (short)(settings_count() + (guide.linked && profile_screen_available() ? NUMBER_OF_DEVICE_ROWS : 0) + 1);
+}
+
+/* ABOUT's row, the last */
+static short about_row(void)
+{
+	return (short)(settings_rows() - 1);
 }
 
 /* a device row's A: Delta Profile's dialog, over what was under DELTA */
@@ -592,6 +607,19 @@ static void device_row_activate(short row)
 		message_set(row == _device_row_devices ? "Your devices aren't loaded yet." :
 			"Sign in on this device first.");
 	}
+}
+
+/* A on a row after the settings: a device row's dialog, or ABOUT's screen */
+static void extra_row_activate(short row)
+{
+	if (row == about_row())
+	{
+		guide.about = TRUE;
+		guide.about_from_settings = TRUE;
+		about_reset(&guide.about_view);
+	}
+	else
+		device_row_activate((short)(row - settings_count()));
 }
 
 /* ---------- SIGN IN: Quick Connect's code, shown here */
@@ -1157,7 +1185,7 @@ static void activate(void)
 		return;
 	case SOCIAL_SECTION_SETTINGS:
 		if (row >= settings_count())
-			device_row_activate((short)(row - settings_count()));
+			extra_row_activate(row);
 		else
 			setting_change(row, 1);
 		return;
@@ -1549,7 +1577,7 @@ static void render_settings(void)
 	for (setting = settings_count(); setting < settings_rows(); setting++)
 	{
 		ui_style_setting(CONTENT_LEFT, y, CONTENT_RIGHT - CONTENT_LEFT, SETTING_HEIGHT, 1.0f,
-			device_row_labels[setting - settings_count()], NULL, "\xE2\x80\xBA",
+			setting == about_row() ? "ABOUT" : device_row_labels[setting - settings_count()], NULL, "\xE2\x80\xBA",
 			setting == guide.row[SOCIAL_SECTION_SETTINGS]);
 		target_add(CONTENT_LEFT, y, CONTENT_RIGHT, y + SETTING_HEIGHT, _target_setting, setting);
 		y += SETTING_HEIGHT + ROW_GAP;
@@ -1665,6 +1693,19 @@ static void render_prompts(void)
 	short count = 0, index;
 	boolean back = FALSE;
 
+	if (guide.about)
+	{
+		word = about_a_word(&guide.about_view);
+		if (word)
+			prompt_add(prompts, &count, UI_BUTTON_A, "ENTER", word);
+		prompt_add(prompts, &count, UI_BUTTON_B, "ESC",
+			about_b_word(&guide.about_view, guide.about_from_settings ? "BACK" : "CLOSE"));
+		ui_style_prompts(CONTENT_RIGHT, PROMPTS_Y, 15.0f, prompts, count, starts, ends);
+		for (index = 0; index < count; index++)
+			target_add(starts[index] - 4, PROMPTS_Y - 4, ends[index] + 4, PROMPTS_Y + 19, _target_prompt,
+				(short)prompts[index].button);
+		return;
+	}
 	switch (guide.section)
 	{
 	case SOCIAL_SECTION_PLAYERS_HERE:
@@ -1810,11 +1851,22 @@ void guide_open(void)
 	platform_log("Guide: opened");
 }
 
+void guide_about_open(void)
+{
+	guide_open();
+	if (!guide.open)
+		return;
+	guide.about = TRUE;
+	guide.about_from_settings = FALSE;
+	about_reset(&guide.about_view);
+}
+
 void guide_close(void)
 {
 	if (!guide.open)
 		return;
 	guide.open = FALSE;
+	guide.about = FALSE;
 	guide.target_count = 0;
 	sign_in_stop();
 	platform_guide_capture(FALSE);
@@ -1903,6 +1955,27 @@ static void handle(unsigned int pressed)
 {
 	short option;
 
+	if (guide.about)
+	{
+		if (pressed & GUIDE_INPUT_B)
+		{
+			if (!about_input(&guide.about_view, ABOUT_INPUT_B))
+			{
+				if (guide.about_from_settings)
+					guide.about = FALSE;
+				else
+					guide_close();
+			}
+			return;
+		}
+		if (pressed & GUIDE_INPUT_UP)
+			about_input(&guide.about_view, ABOUT_INPUT_UP);
+		if (pressed & GUIDE_INPUT_DOWN)
+			about_input(&guide.about_view, ABOUT_INPUT_DOWN);
+		if (pressed & GUIDE_INPUT_A)
+			about_input(&guide.about_view, ABOUT_INPUT_A);
+		return;
+	}
 	if (pressed & GUIDE_INPUT_B)
 	{
 		/* (in FRIENDS' options panel: back to the list; signing in: a no, or
@@ -1973,8 +2046,22 @@ void guide_pointer(struct halo_ui_pointer const *pointer)
 		handle(GUIDE_INPUT_B);
 		return;
 	}
+	if (guide.about && pointer->wheel_steps)
+	{
+		short step;
+
+		for (step = 0; step < ABS(pointer->wheel_steps); step++)
+			about_input(&guide.about_view, pointer->wheel_steps > 0 ? ABOUT_INPUT_UP : ABOUT_INPUT_DOWN);
+	}
 	if (!pointer->left_clicks)
 		return;
+	if (guide.about && guide.about_view.licenses_x1 > guide.about_view.licenses_x0 &&
+		pointer->click_x >= guide.about_view.licenses_x0 && pointer->click_x < guide.about_view.licenses_x1 &&
+		pointer->click_y >= guide.about_view.licenses_y0 && pointer->click_y < guide.about_view.licenses_y1)
+	{
+		about_input(&guide.about_view, ABOUT_INPUT_A);
+		return;
+	}
 	for (index = 0; index < guide.target_count; index++)
 	{
 		struct guide_target const *target = &guide.targets[index];
@@ -2011,7 +2098,7 @@ void guide_pointer(struct halo_ui_pointer const *pointer)
 		case _target_setting:
 			guide.row[guide.section] = target->index;
 			if (target->index >= settings_count())
-				device_row_activate((short)(target->index - settings_count()));
+				extra_row_activate(target->index);
 			else
 				setting_change(target->index, 1);
 			break;
@@ -2059,6 +2146,14 @@ void guide_render(void)
 	ui_overlay_rect(-200, 0, 1040, 480, 0, ui_style_color(UI_COLOR_SHADE));
 	ui_style_clock((unsigned int)system_milliseconds());
 	ui_style_panel(PANEL_X, PANEL_Y, PANEL_WIDTH, PANEL_HEIGHT, 1.0f);
+	if (guide.about)
+	{
+		ui_style_card(CONTENT_LEFT, CONTENT_RIGHT, HEADER_Y, NULL, NULL, 0, "ABOUT");
+		about_render(&guide.about_view, CONTENT_LEFT, RULE_Y + 12, CONTENT_RIGHT, BODY_BOTTOM);
+		render_prompts();
+		ui_overlay_layer(0);
+		return;
+	}
 	render_card();
 	render_tabs();
 	switch (guide.section)

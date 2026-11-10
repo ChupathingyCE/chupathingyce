@@ -384,7 +384,7 @@ static char const *const port_function_names[] =
 	"port pause end game",
 	"port pause change teams",
 	"port pause moderation",
-	"port pause controls", "port pause guide", "controller screen init", "controller screen defaults", "controller begin binding",
+	"port pause controls", "port pause guide", "port about open", "controller screen init", "controller screen defaults", "controller begin binding",
 	"port coop begin", "port coop player 2 list initialize", "port coop player 2",
 	"port lobby open", "port lobby add player", "port lobby join", "port lobby leave",
 	"port lobby player list initialize", "port lobby player choose",

@@ -10,8 +10,8 @@ on the selection alone). No map, tag or bitmap of the game's is read, so nothing
 retail game's is on screen. It draws with OpenGL, or with bgfx when that is
 the renderer (xgpu_bgfx_launcher_frame).
 
-Screens: Welcome (the first start), and PLAY, MAPS and LOGS & HELP with
-QUIT, as a list of sections on the left and the open one in a panel on the
+Screens: Welcome (the first start), and PLAY, MAPS, SETTINGS, LOGS & HELP
+and ABOUT (about.c's page) with QUIT, as a list of sections on the left and the open one in a panel on the
 right. Maps shows each family of maps (halo_map_families.h) by its folder,
 with its state read from the files' headers; a family's own screen opens
 its folder, checks its maps and adds them from a file (xiso.c, pc_disc.c,
@@ -38,6 +38,7 @@ upload, which have threads of their own.
 #include "crash_report.h"
 #include "browser_http.h"
 #include "build_identity.h"
+#include "about.h"
 #include "settings_rows.h"
 #include "update.h"
 
@@ -130,6 +131,7 @@ enum
 	_screen_settings,
 	/* ALL's: one section's keys */
 	_screen_setting_keys,
+	_screen_about,
 };
 
 enum
@@ -138,11 +140,13 @@ enum
 	_section_maps,
 	_section_settings,
 	_section_logs,
+	_section_about,
 	_section_quit,
 	NUMBER_OF_SECTIONS
 };
 
-static const char *const section_names[NUMBER_OF_SECTIONS] = { "PLAY", "MAPS", "SETTINGS", "LOGS & HELP", "QUIT" };
+static const char *const section_names[NUMBER_OF_SECTIONS] = { "PLAY", "MAPS", "SETTINGS", "LOGS & HELP", "ABOUT",
+	"QUIT" };
 
 /* Settings' tabs: settings_rows.h's groups, then PATHS and ALL */
 enum
@@ -434,6 +438,9 @@ static struct
 	const char *script_cursor;
 	Uint64 script_next;
 	char screenshot[128];
+
+	/* ABOUT's page */
+	struct about_view about;
 } launcher;
 
 static void modes_find(void);
@@ -1766,6 +1773,8 @@ static const char *screen_title(void)
 	case _screen_settings:
 	case _screen_setting_keys:
 		return "SETTINGS";
+	case _screen_about:
+		return "ABOUT";
 	default:
 		return "CHUPATHINGY";
 	}
@@ -1949,6 +1958,17 @@ static void draw_panel(float x0, float y0, float x1, float y1)
 	case _screen_logs:
 		heading = "HELP";
 		break;
+	}
+	if (launcher.screen == _screen_about)
+	{
+		/* (about.c's page, its headings its own) */
+		about_render(&launcher.about, x + 1.0f, y, x + inner, y1 - 14.0f);
+		if (launcher.about.licenses_x1 > launcher.about.licenses_x0)
+		{
+			target_add(launcher.about.licenses_x0, launcher.about.licenses_y0, launcher.about.licenses_x1,
+				launcher.about.licenses_y1, _target_button, _button_a);
+		}
+		return;
 	}
 	if (launcher.screen == _screen_settings || launcher.screen == _screen_setting_keys)
 	{
@@ -2165,6 +2185,13 @@ static void draw_prompts(void)
 	if (!launcher.in_panel)
 	{
 		prompt_add(UI_BUTTON_A, launcher.section == _section_quit ? "QUIT" : "SELECT", 1, _button_a);
+		return;
+	}
+	if (launcher.screen == _screen_about)
+	{
+		if (about_a_word(&launcher.about))
+			prompt_add(UI_BUTTON_A, about_a_word(&launcher.about), 1, _button_a);
+		prompt_add(UI_BUTTON_B, "BACK", 1, _button_b);
 		return;
 	}
 	prompt_add(UI_BUTTON_A, launcher.screen == _screen_play ? "PLAY" :
@@ -2888,6 +2915,8 @@ static void upload_finished(void)
 
 static void enter_screen(int screen)
 {
+	if (screen == _screen_about && launcher.screen != _screen_about)
+		about_reset(&launcher.about);
 	launcher.screen = screen;
 	launcher.selected = 0;
 	launcher.scroll = 0;
@@ -3210,7 +3239,7 @@ static void back(void)
 static void open_section(int section)
 {
 	static const int screens[NUMBER_OF_SECTIONS] = { _screen_play, _screen_maps, _screen_settings, _screen_logs,
-		_screen_play };
+		_screen_about, _screen_play };
 
 	launcher.section = section;
 	if (section != _section_quit)
@@ -3326,6 +3355,38 @@ static void input(int button)
 			}
 			launcher.in_panel = 1;
 			break;
+		default:
+			break;
+		}
+		return;
+	}
+	if (launcher.screen == _screen_about)
+	{
+		switch (button)
+		{
+		case _button_up:
+			about_input(&launcher.about, ABOUT_INPUT_UP);
+			break;
+		case _button_down:
+			about_input(&launcher.about, ABOUT_INPUT_DOWN);
+			break;
+		case _button_a:
+			about_input(&launcher.about, ABOUT_INPUT_A);
+			break;
+		case _button_b:
+		case _button_left:
+			if (!about_input(&launcher.about, ABOUT_INPUT_B))
+				launcher.in_panel = 0;
+			break;
+		case _button_previous:
+		case _button_next:
+		{
+			int section = launcher.section + (button == _button_next ? 1 : -1);
+
+			if (section >= 0 && section < _section_quit)
+				open_section(section);
+			break;
+		}
 		default:
 			break;
 		}
