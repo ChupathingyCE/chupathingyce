@@ -306,7 +306,9 @@ static const struct config_setting config_settings[] =
 	{ "display.max_fps", _config_integer, "0", "HALO_MAX_FPS", _environment_value, _platform_all,
 		"The frame rate limit when V-Sync is off. 0 is twice the display's\n"
 		"refresh rate. -1 is no limit. No limit can hang some Intel graphics,\n"
-		"and it heats up a phone." },
+		"and it heats up a phone. Under gamescope (the Steam Deck's Game Mode),\n"
+		"the display's refresh rate or a whole fraction of it (60 at 60 Hz, or\n"
+		"30) keeps the frames in step with the display, as V-Sync does." },
 	{ "display.interpolation", _config_boolean, "true", "HALO_INTERPOLATION", _environment_value, _platform_all,
 		"Draw a frame for every display refresh. The game runs 30 ticks a\n"
 		"second, and the frames between them are blended. false keeps the\n"
@@ -617,6 +619,13 @@ static const struct config_setting config_settings[] =
 	{ "display.crt_filter", _config_boolean, "false", "HALO_CRT_FILTER", _environment_set_is_true, _platform_desktop,
 		"Put a CRT look over the picture: scanlines, curvature and a phosphor\n"
 		"mask. Only the bgfx renderer has it for now." },
+#ifndef __APPLE__
+	{ "display.vulkan_blocklist", _config_boolean, "true", "HALO_VULKAN_BLOCKLIST", _environment_value,
+		_platform_desktop,
+		"With the bgfx renderer, skip Vulkan drivers known to be broken or slow\n"
+		"on older computers and draw with OpenGL instead. Set false to try\n"
+		"Vulkan anyway. Read when Chupathingy starts." },
+#endif
 #endif
 
 	/* ---- audio */
