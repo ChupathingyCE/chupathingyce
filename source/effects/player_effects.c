@@ -913,7 +913,7 @@ static boolean camera_effect_drawn(
 	return *end_time == game_time_get() + 1 && duration > 0.0f && *frame_ticks_left > 0.0f;
 }
 
-#ifndef HALO_CONSOLE_NO_SMOOTH_SHAKE
+#ifndef HALO_XBOX_CONSOLE
 /* port: the seed a tick's shake draws from, for a local player */
 static unsigned long shake_tick_seed(
 	long time,
@@ -1021,8 +1021,10 @@ void player_effect_get_camera_effect_matrix(
 		unsigned long saved_local_seed = *local_seed;
 
 		*local_seed = shake_tick_seed(game_time_get(), local_player_index);
+#ifndef HALO_CONSOLE_NO_SMOOTH_SHAKE
 		shake_last_tick_seed = shake_tick_seed(game_time_get() - 1, local_player_index);
 		shake_tick_fraction = render_interpolation_drawing() ? render_interpolation_fraction() : 1.0f;
+#endif
 #endif
 		game_time_get();
 

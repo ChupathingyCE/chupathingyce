@@ -331,6 +331,27 @@ static struct
 	uint32_t capture_ready;
 	BOOL capture_pending;
 	char capture_path[512];
+#ifdef HALO_CAPTURE
+	/* a player's screenshot (capture.c), the same way */
+	bgfx_texture_handle_t shot;
+	unsigned long shot_width, shot_height;
+	unsigned char *shot_pixels;
+	uint32_t shot_ready;
+	BOOL shot_pending;
+	/* the clips' frames (capture_clips.c): the back buffer read back whole
+	into one of a few buffers, each lent to the encoder once bgfx has
+	filled it (bgfx's blit cannot scale; the encoder scales) */
+	struct
+	{
+		bgfx_texture_handle_t texture;
+		unsigned long width, height;
+		unsigned char *pixels;
+		uint32_t ready;
+		int state;
+		volatile int released;
+		double time;
+	} clip[3];
+#endif
 
 	unsigned long uniform_bytes;
 	unsigned long drawn, skipped, stat_tests, stat_seen, stat_waited;
@@ -3643,6 +3664,32 @@ void xgpu_bgfx_overlay_draw(const void *vertices, int count, int vertex_bytes, c
 static void bg_callback_screen_shot(bgfx_callback_interface_t *self, const char *path, uint32_t width,
 	uint32_t height, uint32_t pitch, bgfx_texture_format_t format, const void *data, uint32_t size, bool flip);
 
+/* the setup launcher's frame (launcher.c), before the game draws: bgfx
+started (once; the device's start then finds it so), the window cleared to
+color (0xRRGGBBAA) and the overlay's quads over it, in the picture's place
+(x and y its lower left corner, as OpenGL's), and the window saved to
+screenshot (a .bmp's path, or NULL). FALSE if bgfx does not start */
+BOOL xgpu_bgfx_launcher_frame(unsigned int color, int x, int y, int width, int height, const char *screenshot)
+{
+	if (!bg.ready && !bg_initialize())
+		return FALSE;
+	bg_window_update();
+	bgfx_set_view_frame_buffer(0, (bgfx_frame_buffer_handle_t)BGFX_INVALID_HANDLE);
+	bgfx_set_view_rect(0, 0, 0, (uint16_t)bg.window_width, (uint16_t)bg.window_height);
+	bgfx_set_view_clear(0, BGFX_CLEAR_COLOR, color, 1.0f, 0);
+	bgfx_touch(0);
+	bg.present_view = 0;
+#ifdef HALO_GAME_BROWSER
+	ui_overlay_present(x, y, width, height, bg.window_width, bg.window_height);
+#endif
+	if (screenshot && *screenshot)
+		bgfx_request_screen_shot((bgfx_frame_buffer_handle_t)BGFX_INVALID_HANDLE, screenshot);
+	bgfx_frame(BGFX_FRAME_NONE);
+	/* (the game's first frame starts its views as bg_present leaves them) */
+	bgfx_set_view_clear(0, BGFX_CLEAR_NONE, 0, 1.0f, 0);
+	return TRUE;
+}
+
 #ifdef __APPLE__
 /* Metal's compiles (the bgfx patch, tools/bgfx-patches) */
 struct bgfx_mtl_stats_t
@@ -3706,6 +3753,104 @@ static void bg_window_presented(double start, double end)
 	if (!(bg.reset_flags & BGFX_RESET_VSYNC) && end - start > bg_window_interval * 0.25)
 		bg_window_next = end + bg_window_interval;
 }
+
+#ifdef HALO_CAPTURE
+/* a player's screenshot: the back buffer copied to a texture the CPU can
+read and read back when bgfx says the frame that has it is done
+(bg_present), the HUD in it and the overlay not */
+static void bg_shot_start(void)
+{
+	struct bg_target *back_buffer = bg_target_get(&device.back_buffer);
+
+	if (!back_buffer || !back_buffer->pixel_width || !back_buffer->pixel_height)
+		return;
+	if (!BGFX_HANDLE_IS_VALID(bg.shot) || bg.shot_width != back_buffer->pixel_width ||
+		bg.shot_height != back_buffer->pixel_height)
+	{
+		if (BGFX_HANDLE_IS_VALID(bg.shot))
+			bgfx_destroy_texture(bg.shot);
+		bg.shot_width = back_buffer->pixel_width;
+		bg.shot_height = back_buffer->pixel_height;
+		bg.shot = bgfx_create_texture_2d((uint16_t)bg.shot_width, (uint16_t)bg.shot_height, false, 1,
+			BGFX_TEXTURE_FORMAT_BGRA8, BGFX_TEXTURE_BLIT_DST | BGFX_TEXTURE_READ_BACK, NULL, 0);
+	}
+	bg.shot_pixels = malloc(bg.shot_width * bg.shot_height * 4);
+	if (!bg.shot_pixels)
+		return;
+	bgfx_blit(bg.present_view, bg.shot, 0, 0, 0, 0, back_buffer->texture, 0, 0, 0, 0, (uint16_t)bg.shot_width,
+		(uint16_t)bg.shot_height, 1);
+	bg.shot_ready = bgfx_read_texture(bg.shot, bg.shot_pixels, 0);
+	bg.shot_pending = TRUE;
+}
+
+#endif
+#ifdef HALO_CAPTURE
+/* a clip's frame, when one is due and a buffer is free (0 free, 1 being
+read, 2 lent) */
+static void bg_clip_start(void)
+{
+	struct bg_target *back_buffer = bg_target_get(&device.back_buffer);
+	long width, height;
+	double time;
+	int index;
+
+	for (index = 0; index < 3; index++)
+	{
+		if (bg.clip[index].state == 2 && __atomic_load_n(&bg.clip[index].released, __ATOMIC_ACQUIRE))
+			bg.clip[index].state = 0;
+	}
+	if (!back_buffer || !capture_clip_frame_due((long)back_buffer->pixel_width, (long)back_buffer->pixel_height,
+		&width, &height, &time))
+	{
+		return;
+	}
+	for (index = 0; index < 3 && bg.clip[index].state; index++)
+		;
+	if (index == 3)
+		return;
+	if (!BGFX_HANDLE_IS_VALID(bg.clip[index].texture) || bg.clip[index].width != back_buffer->pixel_width ||
+		bg.clip[index].height != back_buffer->pixel_height)
+	{
+		if (BGFX_HANDLE_IS_VALID(bg.clip[index].texture))
+			bgfx_destroy_texture(bg.clip[index].texture);
+		bg.clip[index].width = back_buffer->pixel_width;
+		bg.clip[index].height = back_buffer->pixel_height;
+		bg.clip[index].texture = bgfx_create_texture_2d((uint16_t)bg.clip[index].width,
+			(uint16_t)bg.clip[index].height, false, 1, BGFX_TEXTURE_FORMAT_BGRA8,
+			BGFX_TEXTURE_BLIT_DST | BGFX_TEXTURE_READ_BACK, NULL, 0);
+		free(bg.clip[index].pixels);
+		bg.clip[index].pixels = malloc(bg.clip[index].width * bg.clip[index].height * 4);
+	}
+	if (!bg.clip[index].pixels)
+		return;
+	bgfx_blit(bg.present_view, bg.clip[index].texture, 0, 0, 0, 0, back_buffer->texture, 0, 0, 0, 0,
+		(uint16_t)bg.clip[index].width, (uint16_t)bg.clip[index].height, 1);
+	bg.clip[index].ready = bgfx_read_texture(bg.clip[index].texture, bg.clip[index].pixels, 0);
+	bg.clip[index].time = time;
+	bg.clip[index].state = 1;
+}
+
+/* the frames bgfx has filled, oldest first, lent to the encoder */
+static void bg_clip_finish(uint32_t frame_number)
+{
+	for (;;)
+	{
+		int index, oldest = -1;
+
+		for (index = 0; index < 3; index++)
+		{
+			if (bg.clip[index].state == 1 && (oldest < 0 || bg.clip[index].time < bg.clip[oldest].time))
+				oldest = index;
+		}
+		if (oldest < 0 || frame_number < bg.clip[oldest].ready)
+			return;
+		bg.clip[oldest].state = capture_clip_frame_lend(bg.clip[oldest].pixels, (long)bg.clip[oldest].width,
+			(long)bg.clip[oldest].height, (long)bg.clip[oldest].width * 4, TRUE, bg.clip[oldest].time,
+			&bg.clip[oldest].released) ? 2 : 0;
+	}
+}
+
+#endif
 
 static void bg_present(void)
 {
@@ -3777,6 +3922,11 @@ static void bg_present(void)
 			}
 		}
 	}
+#ifdef HALO_CAPTURE
+	if (!bg.shot_pending && capture_screenshot_take())
+		bg_shot_start();
+	bg_clip_start();
+#endif
 	frame_start = stats_seconds();
 	{
 #ifdef __APPLE__
@@ -3802,6 +3952,17 @@ static void bg_present(void)
 			(uint32_t)(bg.capture_width * bg.capture_height * 4), false);
 		bg.capture_pending = FALSE;
 	}
+#ifdef HALO_CAPTURE
+	if (bg.shot_pending && frame_number >= bg.shot_ready)
+	{
+		/* (the pixels are capture.c's now: the next gets new ones) */
+		capture_screenshot_submit(bg.shot_pixels, (long)bg.shot_width, (long)bg.shot_height, (long)bg.shot_width * 4,
+			TRUE);
+		bg.shot_pixels = NULL;
+		bg.shot_pending = FALSE;
+	}
+	bg_clip_finish(frame_number);
+#endif
 	if (debug_settings.statistics && device.frame % 60 == 0)
 	{
 		const bgfx_stats_t *stats = bgfx_get_stats();
@@ -3999,12 +4160,22 @@ static BOOL bg_initialize(void)
 	int width = 0, height = 0;
 	static const unsigned int black = 0xff000000;
 
+	/* (started already: the setup launcher draws with it before the
+	device starts, xgpu_bgfx_launcher_frame) */
+	if (bg.ready)
+		return TRUE;
+
 	bg.window = platform_sdl_window();
 	bg.view = 0;
 	bg.blit = (bgfx_program_handle_t)BGFX_INVALID_HANDLE;
 	bg.crt = (bgfx_program_handle_t)BGFX_INVALID_HANDLE;
 	bg.overlay = (bgfx_program_handle_t)BGFX_INVALID_HANDLE;
 	bg.capture = (bgfx_texture_handle_t)BGFX_INVALID_HANDLE;
+#ifdef HALO_CAPTURE
+	bg.shot = (bgfx_texture_handle_t)BGFX_INVALID_HANDLE;
+	for (index = 0; index < 3; index++)
+		bg.clip[index].texture = (bgfx_texture_handle_t)BGFX_INVALID_HANDLE;
+#endif
 	bg.framebuffer = (bgfx_frame_buffer_handle_t)BGFX_INVALID_HANDLE;
 	bg.view_framebuffer = (bgfx_frame_buffer_handle_t)BGFX_INVALID_HANDLE;
 	bg.frame = 1;

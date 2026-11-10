@@ -3631,6 +3631,10 @@ static struct
 #endif
 } online_games = { NONE, NONE, NULL, FALSE };
 
+#ifdef HALO_GAME_BROWSER
+static void ui_widget_setup_entry_tags_loaded(void);
+#endif
+
 void ui_widget_online_games_tags_loaded(
 	void)
 {
@@ -3644,6 +3648,10 @@ void ui_widget_online_games_tags_loaded(
 
 	online_games.list_tag = NONE;
 	online_games.description_text_tag = tag_loaded(UI_WIDGET_DEFINITION_TAG, ONLINE_GAMES_DESCRIPTION_TEXT);
+#ifdef HALO_GAME_BROWSER
+	/* (and the Xbox's EDIT PROFILE SETTINGS' SETUP, below) */
+	ui_widget_setup_entry_tags_loaded();
+#endif
 	if (list_tag == NONE)
 		return;
 	list = tag_get(UI_WIDGET_DEFINITION_TAG, list_tag);
@@ -3699,9 +3707,157 @@ static short ui_widget_list_position(
 	return child ? position : NONE;
 }
 
+#ifdef HALO_GAME_BROWSER
+/* ---------- SETUP (the Xbox's menus)
+
+A row of the Xbox's EDIT PROFILE SETTINGS, after CHANGE COLOR: back to the
+setup screen (port/linux/src/launcher.c), as the Gearbox and Chupathingy
+menus have it (port/assets/menus/chupathingy/setup_entry.xml). When the
+menus' tags load, the list gets a copy of CHANGE COLOR's row a row under
+it, and SAVE CHANGES and the line over it move down a row; the copy's text,
+its A and its description are this code's, told apart by its place.
+Not in a game's tags, nor with launcher.menu_entry false
+(pc_menu_setup_offered). */
+
+#define SETUP_ENTRY_LIST "ui\\shell\\main_menu\\settings_select\\player_setup\\player_profile_edit\\profile_edit_select_list"
+#define SETUP_ENTRY_MAIN_MENU "ui\\shell\\main_menu\\main_menu"
+#define SETUP_ENTRY_SCREEN "ui\\shell\\main_menu\\settings_select\\player_setup\\player_profile_edit\\player_profile_edit_screen"
+#define SETUP_ENTRY_LINE "ui\\shell\\main_menu\\blueline"
+
+enum
+{
+	/* the Xbox's rows: CHANGE NAME, CONTROLLER SETTINGS, ADVANCED
+	CONTROLS, CHANGE COLOR, SAVE CHANGES */
+	SETUP_ENTRY_ROWS = 5,
+	SETUP_ENTRY_COPIED = 3,
+	SETUP_ENTRY_SAVE = 4,
+	SETUP_ENTRY_POSITION = 4,
+};
+
+static struct
+{
+	long list_tag;
+	long description_text_tag;
+	struct ui_widget_child_reference *children;
+	boolean described;
+} setup_entry = { NONE, NONE, NULL, FALSE };
+
+static void ui_widget_setup_entry_tags_loaded(
+	void)
+{
+	extern short pc_menus_set(void);
+	extern boolean pc_menu_setup_offered(void);
+	long list_tag = tag_loaded(UI_WIDGET_DEFINITION_TAG, SETUP_ENTRY_LIST);
+	struct ui_widget_definition *list;
+	struct ui_widget_child_reference *old_children;
+	struct ui_widget_child_reference *children;
+	long screen_tag = tag_loaded(UI_WIDGET_DEFINITION_TAG, SETUP_ENTRY_SCREEN);
+	long line_tag = tag_loaded(UI_WIDGET_DEFINITION_TAG, SETUP_ENTRY_LINE);
+	short row;
+	long index;
+
+	setup_entry.list_tag = NONE;
+	setup_entry.description_text_tag = NONE;
+	/* (the Xbox's menus' alone, at the main menu's) */
+	if (pc_menus_set() != 0 || !pc_menu_setup_offered() || list_tag == NONE ||
+		tag_loaded(UI_WIDGET_DEFINITION_TAG, SETUP_ENTRY_MAIN_MENU) == NONE)
+	{
+		return;
+	}
+	list = tag_get(UI_WIDGET_DEFINITION_TAG, list_tag);
+	if (list->child_widgets.count != SETUP_ENTRY_ROWS)
+		return;
+	if (setup_entry.children)
+		system_free(setup_entry.children);
+	setup_entry.children = NULL;
+	old_children = (struct ui_widget_child_reference *)xbox_pointer(list->child_widgets.address);
+	/* (a row: as far as CHANGE COLOR's is under the row before it) */
+	row = (short)(ui_widget_definition_get(old_children[SETUP_ENTRY_COPIED].widget_tag.index)->bounds.y0 -
+		ui_widget_definition_get(old_children[SETUP_ENTRY_COPIED - 1].widget_tag.index)->bounds.y0);
+	if (row <= 0 || row > 60)
+		return;
+	children = system_malloc((SETUP_ENTRY_ROWS + 1) * sizeof(*children));
+	setup_entry.children = children;
+	if (!children)
+		return;
+	csmemcpy(children, old_children, SETUP_ENTRY_POSITION * sizeof(*children));
+	children[SETUP_ENTRY_POSITION] = old_children[SETUP_ENTRY_COPIED];
+	children[SETUP_ENTRY_POSITION].vertical_offset += row;
+	children[SETUP_ENTRY_POSITION + 1] = old_children[SETUP_ENTRY_SAVE];
+	children[SETUP_ENTRY_POSITION + 1].vertical_offset += row;
+	list->child_widgets.address = XBOX_ADDRESS(children);
+	list->child_widgets.count = SETUP_ENTRY_ROWS + 1;
+	setup_entry.list_tag = list_tag;
+	/* the line over SAVE CHANGES, a row lower */
+	if (screen_tag != NONE && line_tag != NONE)
+	{
+		struct ui_widget_definition *screen = tag_get(UI_WIDGET_DEFINITION_TAG, screen_tag);
+		struct ui_widget_child_reference *screen_children =
+			(struct ui_widget_child_reference *)xbox_pointer(screen->child_widgets.address);
+
+		for (index = 0; index < screen->child_widgets.count; index++)
+		{
+			if (screen_children[index].widget_tag.index == line_tag)
+				screen_children[index].vertical_offset += row;
+		}
+	}
+}
+
+static boolean ui_widget_setup_entry_list(
+	struct widget_instance *widget)
+{
+	return setup_entry.list_tag != NONE && widget && widget->definition_tag_index == setup_entry.list_tag;
+}
+
+static boolean ui_widget_setup_entry_item(
+	struct widget_instance *widget)
+{
+	short position = 0;
+	struct widget_instance *child;
+
+	if (setup_entry.list_tag == NONE || !widget || !widget->parent ||
+		widget->parent->definition_tag_index != setup_entry.list_tag)
+	{
+		return FALSE;
+	}
+	for (child = widget->parent->child; child && child != widget; child = child->next)
+		position++;
+	return child && position == SETUP_ENTRY_POSITION;
+}
+
+/* the list's description for its focused item (ui_widget_game_data_input_
+functions.c): SETUP's words, the picture left as it was; SAVE CHANGES' own
+after it */
+short ui_widget_setup_entry_description(
+	struct widget_instance *list_widget,
+	short index)
+{
+	setup_entry.described = FALSE;
+	if (!ui_widget_setup_entry_list(list_widget) || index < SETUP_ENTRY_POSITION)
+		return index;
+	if (index > SETUP_ENTRY_POSITION)
+		return (short)(index - 1);
+	if (list_widget->parameters.list.extended_description && list_widget->parameters.list.extended_description->child &&
+		list_widget->parameters.list.extended_description->child->next)
+	{
+		/* (its text, then its picture: player_profile_edit_select_menu_update_
+		extended_description's) */
+		setup_entry.description_text_tag =
+			list_widget->parameters.list.extended_description->child->definition_tag_index;
+	}
+	setup_entry.described = TRUE;
+	return NONE;
+}
+#endif
+
 boolean ui_widget_online_games_list(
 	struct widget_instance *widget)
 {
+#ifdef HALO_GAME_BROWSER
+	/* (SETUP's list too: a copied row, the same) */
+	if (ui_widget_setup_entry_list(widget))
+		return TRUE;
+#endif
 	return online_games.list_tag != NONE && widget && widget->definition_tag_index == online_games.list_tag;
 }
 
@@ -3827,6 +3983,21 @@ static void event_handler_dispatch(
 		browser_screen_open();
 		return;
 	}
+#ifdef HALO_GAME_BROWSER
+	/* SETUP (CHANGE COLOR's row copied): the setup screen, none of CHANGE
+	COLOR's */
+	if (ui_widget_setup_entry_item(widget))
+	{
+		if (handler->event_type == _gamepad_analog_button_a || handler->event_type == _gamepad_binary_button_start)
+		{
+			extern boolean pc_menu_setup_open(void);
+
+			ui_play_audio_feedback_sound(_ui_audio_feedback_forward);
+			pc_menu_setup_open();
+		}
+		return;
+	}
+#endif
 #ifdef HALO_CONSOLE_MAP_BROWSER
 	/* MAP BROWSER (the same copy): its own screen, and none of System Link's
 	other buttons */
@@ -5901,6 +6072,12 @@ static void widget_instance_render_text_box(
 		/* (ONLINE GAMES' item and description share System Link's tags) */
 		if (ui_widget_online_games_item(widget))
 			string = L"ONLINE GAMES";
+#ifdef HALO_GAME_BROWSER
+		else if (ui_widget_setup_entry_item(widget))
+			string = L"SETUP";
+		else if (setup_entry.described && widget->definition_tag_index == setup_entry.description_text_tag)
+			string = L"Opens the setup screen.\r\nChupathingy restarts.";
+#endif
 #ifdef HALO_CONSOLE_MAP_BROWSER
 		else if (ui_widget_map_browser_item(widget))
 			string = L"MAP BROWSER";
@@ -6443,6 +6620,10 @@ static short ui_mouse_presses[UI_MOUSE_MAXIMUM_PRESSES];
 static long ui_mouse_press_count = 0;
 static boolean ui_mouse_hover_pending = FALSE;
 static boolean ui_mouse_click_pending = FALSE;
+/* whether the pointer moved the focus last (the d-pad clears it): a list
+then doesn't scroll on at its end, which the pointer, moving, would make it
+do every frame (menu_functions.c) */
+static boolean ui_mouse_focused_last = FALSE;
 static short ui_mouse_hover_x, ui_mouse_hover_y;
 static short ui_mouse_click_x, ui_mouse_click_y;
 /* whether the latest pointer read was the touchscreen: the taller legend
@@ -7329,6 +7510,7 @@ static void ui_mouse_give_focus(
 	long setting_count = 0;
 	long index;
 
+	ui_mouse_focused_last = TRUE;
 	if (ui_mouse_widget_has_focus(widget))
 		return;
 	/* (a setting the focus leaves keeps its row's focus, as the d-pad
@@ -7355,6 +7537,14 @@ static void ui_mouse_give_focus(
 	ui_play_audio_feedback_sound(_ui_audio_feedback_cursor);
 
 	return;
+}
+
+/* port: whether the pointer moved the menus' focus last, rather than the
+d-pad (menu_functions.c's lists) */
+boolean ui_widget_port_pointer_focused(
+	void)
+{
+	return ui_mouse_focused_last;
 }
 
 /* the d-pad buttons that step a widget back and forward */
@@ -8877,6 +9067,16 @@ static void widget_instance_process_one_event_recursive(
 		"c:\\halo\\SOURCE\\interface\\ui_widget.c",
 		3067,
 		widget && definition && event && return_widget_deleted);
+#ifndef HALO_XBOX_CONSOLE
+	/* port: the d-pad (keys, a controller, the wheel) moves the focus now,
+	not the pointer */
+	if (event->type == _event_type_button &&
+		event->data.button.index >= _widget_event_dpad_up &&
+		event->data.button.index <= _widget_event_dpad_right)
+	{
+		ui_mouse_focused_last = FALSE;
+	}
+#endif
 	if (event->type == _event_type_button &&
 		event->data.button.value > 1 &&
 		event->controller_index >= 0 &&
