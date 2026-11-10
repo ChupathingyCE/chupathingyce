@@ -31,7 +31,8 @@ PCM, 48 kHz) said in place of the microphone, all the time, for the
 automated tests; each voice heard is then logged once a second
 ("voice test: speaker M level L route R channel C bytes B"), with what the
 codec costs. With it, HALO_VOICE_TEST_DUMP names a WAV file that what this
-copy hears is written to, for the tests' own checks.
+copy hears is written to, for the tests' own checks. A release's build
+(channel "release") ignores both: only test builds feed the voice.
 */
 
 #include "port_config.h"
@@ -40,6 +41,7 @@ copy hears is written to, for the tests' own checks.
 
 #include "voice.h"
 #include "voice_jitter.h"
+#include "build_identity.h"
 #include "delta_wire.h"
 
 #include <SDL3/SDL.h>
@@ -73,8 +75,9 @@ enum
 	buffer's start, then this */
 	PLAY_AHEAD = 3 * FRAME,
 	/* push to talk: the microphone paused at once when the key comes up, and
-	closed after this long without talking (milliseconds) */
-	CLOSE_AFTER = 30000,
+	closed after this long without talking (milliseconds), so the system's
+	microphone light goes out soon after */
+	CLOSE_AFTER = 3000,
 	/* open mic: the gate stays open this long after the level drops (ms) */
 	OPEN_MIC_HANG = 400,
 	/* a speaker not heard this long gives back its voice, and its decoder
@@ -188,7 +191,9 @@ static void test_load(const char *source);
 static void read_settings(void)
 {
 	const char *mode = config_string("audio.voice_chat");
-	const char *test = config_string("debug.voice_test");
+	/* (debug.voice_test is for test builds: a release's never feeds the
+	voice from anything but the microphone) */
+	const char *test = strcmp(build_identity_channel(), "release") ? config_string("debug.voice_test") : "";
 	int was = voice.mode;
 
 	voice.mode = same_text(mode, "push_to_talk") ? _voice_mode_push_to_talk :

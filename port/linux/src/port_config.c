@@ -1358,7 +1358,8 @@ static const struct config_setting config_settings[] =
 	{ "debug.voice_test", _config_string, "\"\"", "HALO_VOICE_TEST", _environment_value, _platform_all,
 		"Voice chat tests: \"tone\" (a 440 Hz tone) or a WAV file (16-bit, 48 kHz)\n"
 		"said in place of the microphone, all the time, and each voice heard\n"
-		"logged once a second. Leave it empty for none." },
+		"logged once a second. Leave it empty for none. Release builds ignore\n"
+		"it." },
 #endif
 #ifndef HALO_CONSOLE_NO_AUDIO_PROBE
 	{ "debug.audio_probe", _config_string, "\"\"", "HALO_AUDIO_PROBE", _environment_value, _platform_all | _platform_xbox,

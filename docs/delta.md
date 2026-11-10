@@ -452,7 +452,7 @@ Limits and timeouts (`delta_peer.h`):
 | verified names: a withdrawn card kept (so every client hears it) | 30 s |
 | voice: VOICE_UP a host takes from one machine | 50 a second, 10 at once, a budget of its own (the messages' above are left alone) |
 | voice: a frame's bytes | at most `min(kbps * 1000 / 8 / 50 * 2 + 16, 255)`: 136 at 24 kbps |
-| voice: machines talking at once | 8 (a machine talks for 500 ms after its last frame; one talking keeps its place, a new one waits) |
+| voice: machines talking at once | 8 on a dedicated server, 4 on a player's host (a machine talks for 500 ms after its last frame; one talking keeps its place, a new one waits) |
 | voice: the channels heard (VOICE_UP with no frame) | every 2 s; a host sends a machine voice only while it said them within 6 s |
 | voice: VOICE_DOWN a client takes from its host | 400 a second, 80 at once, a budget of its own |
 | voice: VOICE_CONFIG | at the handshake, on a change (at most every 250 ms), and every 10 s; a client that hears none for 25 s has no voice |
@@ -761,6 +761,11 @@ the site.
     machines whose VOICE_UP said the same party's tag, wherever their
     players are. The tag is the party's to give (8 bytes, never an ID the
     site keeps; the same tag party teams' PARTY_TAG carries): no party, no tag, and the channel can't be picked.
+    Anyone who knows a tag hears that party, so a tag must be at least 64
+    bits from the system's secure random source (never a counter, a time,
+    a name or an ID), and nothing ever echoes it: a host never puts it in
+    a roster or a VOICE_DOWN, and party teams' messages never send it back
+    to other machines.
   - **TEAM** (1): their team in the game; everyone in co-op; nobody in a
     game without teams.
   - **PROXIMITY** (2): anyone within the host's proximity whose player is
@@ -782,7 +787,9 @@ the site.
   `voice_team`, `voice_proximity`, `voice_everyone`, `voice_party`,
   `voice_lobby`, `voice_range`, `voice_kbps`; `sv_set` and the control
   panel's Settings change them at once). A host with `network.voice` off
-  doesn't offer the capability at all.
+  doesn't offer the capability at all. A dedicated server's `voice` is off
+  unless its host turns it on (`voice = true` in its settings, or
+  `sv_set voice 1`), since relaying costs its upload.
 - **Listening.** A client says the channels it plays and its party's tag in
   a VOICE_UP with no frame every 2 seconds (any frame it says counts too).
   The host sends it a frame only on a channel it plays, and nothing once
@@ -792,7 +799,8 @@ the site.
 - **Relaying.** The host checks each VOICE_UP's session, the voice budget,
   its size (the length exactly the bytes that came, no more than its
   quality's cap), the channel (one it relays now), the machine's mute and
-  the 8 talkers, then sends the frame to each machine that may hear it,
+  the talkers at once (8 on a dedicated server, 4 on a player's host, whose
+  upload is a home connection's), then sends the frame to each machine that may hear it,
   with the speaker's machine and player named by the host, never by the
   frame. It never decodes a frame and never sends one back to its
   speaker. A player's host is a speaker and a listener like any other.
