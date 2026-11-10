@@ -3976,6 +3976,11 @@ void browser_party_go(const char *invite)
 	pthread_mutex_unlock(&browser_lock);
 }
 
+/* a party's link waiting for the player's word (guide.c asks), under its
+own lock: the link comes from the p2p thread too, which holds p2p_lock */
+static pthread_mutex_t party_link_lock = PTHREAD_MUTEX_INITIALIZER;
+static char party_link_code[SOCIAL_PARTY_CODE_SIZE];
+
 int browser_party_link(const char *text)
 {
 	char code[SOCIAL_PARTY_CODE_SIZE];
@@ -3987,11 +3992,25 @@ int browser_party_link(const char *text)
 		platform_log("Guide: that party link has no party code");
 		return 1;
 	}
-	platform_log("Guide: joining a party by its link");
-	/* (the Guide's toast says how it went: guide.c) */
-	if (!browser_party_act("join", code, NULL))
-		platform_log("Guide: a party action is still out; the link is not joined");
+	/* (never joined unseen: the Guide asks first, guide.c) */
+	platform_log("Guide: a party link, waiting for the player");
+	pthread_mutex_lock(&party_link_lock);
+	snprintf(party_link_code, sizeof(party_link_code), "%s", code);
+	pthread_mutex_unlock(&party_link_lock);
 	return 1;
+}
+
+int browser_party_take_link(char *code, int size)
+{
+	int taken;
+
+	pthread_mutex_lock(&party_link_lock);
+	taken = party_link_code[0] != 0;
+	if (taken)
+		snprintf(code, (size_t)size, "%s", party_link_code);
+	party_link_code[0] = 0;
+	pthread_mutex_unlock(&party_link_lock);
+	return taken;
 }
 
 int browser_social_take_join(char *link, int size)

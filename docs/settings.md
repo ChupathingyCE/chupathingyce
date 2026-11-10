@@ -52,6 +52,7 @@ A few people look for most:
 | `network.copy_to_clipboard` | `false` (the default) leaves the clipboard alone; `true` puts the invite link of a game you host on it. The link is also in the log and under INVITE LINK in the Gearbox menus' Server Settings. |
 | `network.host_public` | Whether games you host are listed for everyone (true) or only joinable by invite (false). |
 | `network.keep_parties_together` | In team games you host, put a party's players on one team when the teams stay even. On by default. |
+| `delta.follow_leader` | When your party's leader goes to a game: `"ask"` (the default) gives you a few seconds to stay and then follows, but in a game you stay unless you press join; `"always"` follows when the seconds run out, in a game too; `"never"` doesn't offer it. Also FOLLOW LEADER in DELTA's PARTY. |
 | `network.allow_player_names`, `network.allow_follow_camera` | In games you host, let players turn on names above heads and the follow camera. Both off by default, as on the Xbox. |
 | `network.team_change` | Team changes in team games you host: `"off"` (the default: players keep their team, as on the Xbox), `"balanced"` (a change is allowed while no team ends up more than `network.team_change_margin` players ahead, 1 by default) or `"allow"`. |
 | `network.hit_line_of_sight` | `true` (the default): in games you host, a hit through a wall is refused. The shot or the explosion needs a clear line to its target. Turn it off if good hits are refused. |

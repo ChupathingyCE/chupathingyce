@@ -481,9 +481,20 @@ static void test_party(void)
 	social_follow_reason(&read.party, &inputs, text, sizeof(text));
 	CHECK(!strcmp(text, "Can't follow: you're hosting a game."));
 	inputs.hosting_others = 0;
-	inputs.off = 1;
+	inputs.mode = social_follow_mode("never");
 	CHECK(social_follow_decide(&read.party, &inputs) == SOCIAL_FOLLOW_NONE);
-	inputs.off = 0;
+	inputs.mode = social_follow_mode("always");
+	CHECK(social_follow_decide(&read.party, &inputs) == SOCIAL_FOLLOW_OFFER);
+	inputs.mode = social_follow_mode("");
+	CHECK(inputs.mode == SOCIAL_FOLLOW_ASK && social_follow_mode("ask") == SOCIAL_FOLLOW_ASK &&
+		social_follow_mode("Always") == SOCIAL_FOLLOW_ASK);
+	/* (the countdown ending: joins in the menus, stays in a game unless
+	"always", never with "never") */
+	CHECK(social_follow_timeout_joins(SOCIAL_FOLLOW_ASK, 0) && !social_follow_timeout_joins(SOCIAL_FOLLOW_ASK, 1));
+	CHECK(social_follow_timeout_joins(SOCIAL_FOLLOW_ALWAYS, 0) && social_follow_timeout_joins(SOCIAL_FOLLOW_ALWAYS, 1));
+	CHECK(!social_follow_timeout_joins(SOCIAL_FOLLOW_NEVER, 0) && !social_follow_timeout_joins(SOCIAL_FOLLOW_NEVER, 1));
+	CHECK(!strcmp(social_follow_mode_next("ask"), "always") && !strcmp(social_follow_mode_next("always"), "never") &&
+		!strcmp(social_follow_mode_next("never"), "ask") && !strcmp(social_follow_mode_next("junk"), "always"));
 	read.party.go.join[0] = 0;
 	social_copy_text(read.party.go.error, sizeof(read.party.go.error), "Can't follow: the game is full.");
 	CHECK(social_follow_decide(&read.party, &inputs) == SOCIAL_FOLLOW_CANT);

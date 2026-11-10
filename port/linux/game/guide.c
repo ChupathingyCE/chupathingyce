@@ -313,6 +313,8 @@ enum
 	_party_action_copy_link,
 	_party_action_bring,
 	_party_action_who,
+	_party_action_new_code,
+	_party_action_follow,
 	_party_action_leave,
 	_party_action_start,
 	_party_action_join_code,
@@ -426,12 +428,14 @@ static struct
 	/* the leader's game last told to the party (its invite's code) */
 	char go_sent[160];
 	/* following the leader: the offer up, since when, its link and line;
-	the last go acted on */
+	the last go acted on. Or a party's link opened (follow_party: its code),
+	asked about the same way with no countdown */
 	boolean follow_active;
 	unsigned long follow_time;
 	char follow_link[SOCIAL_PARTY_LINK_SIZE];
 	char follow_line[96];
 	long long follow_seen;
+	char follow_party[SOCIAL_PARTY_CODE_SIZE];
 
 	int plasma_tries;
 
@@ -446,6 +450,7 @@ static struct social_state friends_fresh;
 static void party_act(char const *action, char const *value);
 static void party_update(void);
 static void party_where(void);
+static boolean party_has_leader(void);
 static void section_go(short section);
 static void toast_from(short kind, char const *key, char const *title, char const *line, char const *name);
 
@@ -1147,6 +1152,7 @@ static void friends_update(void)
 		guide.where_time = now ? now : 1;
 		browser_social_where(in_game(), guide.open);
 		party_where();
+		party_link_offer();
 	}
 	party_update();
 	guide.friends_status = browser_social_get(&friends_fresh, &serial);
@@ -1287,7 +1293,8 @@ static short party_actions(short *actions)
 	if (guide.party_member != NONE)
 	{
 		actions[count++] = _party_action_make_leader;
-		actions[count++] = _party_action_kick;
+		if (party_has_leader())
+			actions[count++] = _party_action_kick;
 		return count;
 	}
 	if (friends_signed_in() && guide.party.member_count < guide.party.largest)
@@ -1295,6 +1302,10 @@ static short party_actions(short *actions)
 	actions[count++] = _party_action_copy_link;
 	actions[count++] = _party_action_bring;
 	actions[count++] = _party_action_who;
+	if (guide.party.leader)
+		actions[count++] = _party_action_new_code;
+	else
+		actions[count++] = _party_action_follow;
 	actions[count++] = _party_action_leave;
 	return count;
 }
@@ -1339,6 +1350,13 @@ static boolean party_chosen(struct party_item *item)
 	return TRUE;
 }
 
+/* whether anyone leads the party (a leader who went quiet hands it only to
+an invited member; with none, the members choose) */
+static boolean party_has_leader(void)
+{
+	return social_party_leader(&guide.party) != NULL;
+}
+
 static char const *party_action_label(short action)
 {
 	switch (action)
@@ -1347,17 +1365,22 @@ static char const *party_action_label(short action)
 	case _party_action_copy_link: return "COPY PARTY LINK";
 	case _party_action_bring: return "BRING PARTY TO MY GAME";
 	case _party_action_who: return "WHO CAN JOIN";
+	case _party_action_new_code: return "NEW PARTY CODE";
+	case _party_action_follow: return "FOLLOW LEADER";
 	case _party_action_leave: return guide.party_armed == _party_action_leave ? "CONFIRM LEAVE" : "LEAVE PARTY";
 	case _party_action_start: return "START A PARTY";
 	case _party_action_join_code: return "JOIN WITH A CODE";
-	case _party_action_make_leader: return "MAKE LEADER";
+	case _party_action_make_leader: return party_has_leader() ? "MAKE LEADER" : "CHOOSE AS LEADER";
 	default: return guide.party_armed == _party_action_kick ? "CONFIRM KICK" : "KICK";
 	}
 }
 
-/* the party's line on a member (LEADER, YOU) */
+/* the party's line on a member (LEADER, YOU); a member with no Delta
+profile is marked unverified (their name is only the game name they send) */
 static char const *member_note(struct social_party_member const *member)
 {
+	if (!member->handle[0])
+		return member->leader ? "Leader \xC2\xB7 Unverified" : member->you ? "You \xC2\xB7 Unverified" : "Unverified";
 	return member->leader ? "Leader" : member->you ? "You" : "";
 }
 
@@ -1431,8 +1454,9 @@ static void party_activate(void)
 	{
 		struct social_party_member const *member = &guide.party.members[item.index];
 
-		/* (the leader's options on another member) */
-		if (guide.party.leader && !member->you)
+		/* (the leader's options on another member; with no leader, any
+		member's choice of one, themselves too) */
+		if ((guide.party.leader && !member->you) || !party_has_leader())
 		{
 			guide.party_member = item.index;
 			guide.party_armed = NONE;
@@ -1464,6 +1488,16 @@ static void party_activate(void)
 	case _party_action_who:
 		if (guide.party.leader)
 			party_act("rule", social_party_rule_next(guide.party.who_can_join, 1));
+		break;
+	case _party_action_new_code:
+		if (guide.party.leader)
+		{
+			party_act("code", "");
+			party_message_set("The old code no longer works");
+		}
+		break;
+	case _party_action_follow:
+		config_write("delta.follow_leader", social_follow_mode_next(config_string("delta.follow_leader")));
 		break;
 	case _party_action_leave:
 		if (guide.party_armed != _party_action_leave)
@@ -1549,7 +1583,7 @@ static void party_update(void)
 	{
 		guide.party_serial = serial;
 		party_news(&before);
-		if (guide.party_member >= guide.party.member_count || !guide.party.leader)
+		if (guide.party_member >= guide.party.member_count || (!guide.party.leader && party_has_leader()))
 			guide.party_member = NONE;
 		if (!guide.party.has)
 			guide.go_sent[0] = 0;
@@ -1605,6 +1639,7 @@ static void party_where(void)
 	memset(&inputs, 0, sizeof(inputs));
 	inputs.seen_serial = guide.follow_seen;
 	inputs.current_invite = invite;
+	inputs.mode = social_follow_mode(config_string("delta.follow_leader"));
 	inputs.hosting_others = global_network_game_server_get() && network_game_get_game() &&
 		network_game_get_game()->machine_count > 1;
 	decision = social_follow_decide(&guide.party, &inputs);
@@ -1628,6 +1663,7 @@ static void party_where(void)
 		guide_close();
 	social_copy_text(guide.follow_link, sizeof(guide.follow_link), guide.party.go.join);
 	social_follow_line(&guide.party, guide.follow_line, sizeof(guide.follow_line));
+	guide.follow_party[0] = 0;
 	guide.follow_active = TRUE;
 	guide.follow_time = system_milliseconds();
 	guide.held = 0xFFFFFFFF;
@@ -1642,6 +1678,15 @@ static void follow_end(boolean go)
 	if (!guide.open)
 		platform_guide_capture(FALSE);
 	event_manager_flush();
+	/* (a party's link: joined only on the player's word) */
+	if (guide.follow_party[0])
+	{
+		if (go)
+			party_act("join", guide.follow_party);
+		platform_log(go ? "Guide: joining a party by its link" : "Guide: the party link was not joined");
+		guide.follow_party[0] = 0;
+		return;
+	}
 	if (go)
 	{
 		struct social_party_member const *leader = social_party_leader(&guide.party);
@@ -1658,14 +1703,44 @@ static void follow_end(boolean go)
 		platform_log("Guide: stayed");
 }
 
+/* whether the offer's countdown ending joins (else the member stays): in
+a game, only with delta.follow_leader "always"; a party's link waits for
+an answer */
+static boolean follow_timeout_joins(void)
+{
+	return social_follow_timeout_joins(social_follow_mode(config_string("delta.follow_leader")), in_game()) ? TRUE :
+		FALSE;
+}
+
 static void follow_handle(unsigned int pressed)
 {
 	if (pressed & GUIDE_INPUT_B)
 		follow_end(FALSE);
 	else if (pressed & GUIDE_INPUT_A)
 		follow_end(TRUE);
-	else if (system_milliseconds() - guide.follow_time >= SOCIAL_FOLLOW_TIME)
-		follow_end(TRUE);
+	else if (!guide.follow_party[0] && system_milliseconds() - guide.follow_time >= SOCIAL_FOLLOW_TIME)
+		follow_end(follow_timeout_joins());
+}
+
+/* a party's link opened (or on the command line): asked about first, never
+joined unseen */
+static void party_link_offer(void)
+{
+	char code[SOCIAL_PARTY_CODE_SIZE], shown[16];
+
+	if (guide.follow_active || virtual_keyboard_active() || !browser_party_take_link(code, sizeof(code)))
+		return;
+	if (guide.open)
+		guide_close();
+	social_party_code_shown(code, shown, sizeof(shown));
+	social_copy_text(guide.follow_party, sizeof(guide.follow_party), code);
+	snprintf(guide.follow_line, sizeof(guide.follow_line), "Join the party %s?", shown);
+	guide.follow_active = TRUE;
+	guide.follow_time = system_milliseconds();
+	guide.held = 0xFFFFFFFF;
+	platform_guide_capture(TRUE);
+	event_manager_flush();
+	platform_log("Guide: a party link, asking first");
 }
 
 /* ---------- the sections' rows */
@@ -2256,6 +2331,12 @@ static void render_party(void)
 				continue;
 			if (action == _party_action_bring)
 				value = config_boolean("delta.bring_party") ? "ON" : "OFF";
+			else if (action == _party_action_follow)
+			{
+				int mode = social_follow_mode(config_string("delta.follow_leader"));
+
+				value = mode == SOCIAL_FOLLOW_ALWAYS ? "ALWAYS" : mode == SOCIAL_FOLLOW_NEVER ? "NEVER" : "ASK";
+			}
 			else if (action == _party_action_who)
 			{
 				value = social_party_rule_shown(guide.party.who_can_join);
@@ -2295,14 +2376,17 @@ static void render_follow(void)
 	ui_style_clock((unsigned int)system_milliseconds());
 	ui_style_glass(left, top, width, height, 8, ui_style_color(UI_COLOR_GLASS_TOP), COLOR_PANEL_EDGE);
 	ui_style_text(UI_TEXT_NAME, left + 12, top + 7, UI_ALIGN_LEFT, guide.follow_line);
-	snprintf(line, sizeof(line), "Joining in %ld", seconds);
+	if (guide.follow_party[0])
+		social_copy_text(line, sizeof(line), "Only join parties from people you know");
+	else
+		snprintf(line, sizeof(line), follow_timeout_joins() ? "Joining in %ld" : "Staying in %ld", seconds);
 	ui_style_text(UI_TEXT_STATUS, left + 12, top + 22, UI_ALIGN_LEFT, line);
 	prompts[0].button = UI_BUTTON_A;
 	prompts[0].key = "ENTER";
-	prompts[0].word = "JOIN NOW";
+	prompts[0].word = guide.follow_party[0] ? "JOIN" : "JOIN NOW";
 	prompts[1].button = UI_BUTTON_B;
 	prompts[1].key = "ESC";
-	prompts[1].word = "STAY";
+	prompts[1].word = guide.follow_party[0] ? "NO" : "STAY";
 	ui_style_prompts(left + width - 10, top + height - 19, 12.0f, prompts, 2, starts, ends);
 	for (index = 0; index < 2; index++)
 	{
@@ -2404,7 +2488,7 @@ static void render_prompts(void)
 				prompt_add(prompts, &count, UI_BUTTON_A, "ENTER", "JOIN");
 				prompt_add(prompts, &count, UI_BUTTON_X, "M", "DECLINE");
 			}
-			else if (item.kind == _party_item_action ||
+			else if (item.kind == _party_item_action || !party_has_leader() ||
 				(guide.party.leader && !guide.party.members[item.index].you))
 			{
 				word = "SELECT";

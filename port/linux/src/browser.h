@@ -503,9 +503,12 @@ void browser_party_result(struct browser_social_result *result);
 /* the leader's game (its invite's code) told to the party, apart from the
 actions (the latest wins) */
 void browser_party_go(const char *invite);
-/* a halo://party/ link (opened, or on the command line): joined, as a code
-typed would be. 1 if the text was one */
+/* a halo://party/ link (opened, or on the command line): kept for the
+Guide, which asks the player before joining it as a code typed would be. 1
+if the text was one */
 int browser_party_link(const char *text);
+/* the party link waiting (its code), taken: 1, or 0 for none */
+int browser_party_take_link(char *code, int size);
 
 /* Delta Profile in the game (port/linux/game/profile_screen.c;
 delta_profile.h): this copy's own profile, as the site has it, kept in

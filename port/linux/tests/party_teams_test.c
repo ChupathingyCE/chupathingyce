@@ -29,8 +29,8 @@ static int settle(struct party_teams_player *players, int count)
 
 	while (made < 64 && party_teams_plan(players, count, &change))
 	{
-		if (change.traded >= 0)
-			players[change.traded].team = 1 - change.team;
+		/* (only a party member is ever moved) */
+		CHECK(players[change.player].party >= 0);
 		players[change.player].team = change.team;
 		made++;
 	}
@@ -49,21 +49,19 @@ static int teams_apart(const struct party_teams_player *players, int count)
 	return counts[0] > counts[1] ? counts[0] - counts[1] : counts[1] - counts[0];
 }
 
-static void test_plain_move(void)
+static void test_never_a_trade(void)
 {
-	/* (a party of two split, the teams 2 and 2: a move makes them 3 and 1,
-	so the member trades with Grif) */
+	/* (a party of two split, the teams 2 and 2: a move would make them 3 and
+	1, and a player in no party is never traded for it: left as is) */
 	struct party_teams_player players[] =
 	{
 		{ 0, 7, 1 }, { 1, 7, 1 }, { 0, -1, 1 }, { 1, -1, 1 },
 	};
 	struct party_teams_change change;
 
-	CHECK(party_teams_plan(players, 4, &change) == 1);
-	CHECK(change.team == 0 && change.player == 1 && change.traded == 2);
-	CHECK(settle(players, 4) == 1);
-	CHECK(players[0].team == players[1].team && teams_apart(players, 4) == 0);
 	CHECK(party_teams_plan(players, 4, &change) == 0);
+	CHECK(settle(players, 4) == 0);
+	CHECK(players[2].team == 0 && players[3].team == 1);
 }
 
 static void test_move_into_the_smaller_team(void)
@@ -76,25 +74,25 @@ static void test_move_into_the_smaller_team(void)
 	struct party_teams_change change;
 
 	CHECK(party_teams_plan(players, 3, &change) == 1);
-	CHECK(change.player == 1 && change.team == 0 && change.traded == -1);
+	CHECK(change.player == 1 && change.team == 0);
 }
 
 static void test_majority_wins(void)
 {
-	/* (three of the party blue, one red: the red one goes blue by a trade) */
+	/* (two of the party blue, one red, red 3 and blue 2: the red one goes
+	blue, 2 and 3) */
 	struct party_teams_player players[] =
 	{
-		{ 1, 1, 1 }, { 1, 1, 1 }, { 1, 1, 1 }, { 0, 1, 1 },
-		{ 0, -1, 1 }, { 0, -1, 1 }, { 0, -1, 1 }, { 1, -1, 1 },
+		{ 1, 1, 1 }, { 1, 1, 1 }, { 0, 1, 1 }, { 0, -1, 1 }, { 0, -1, 1 },
 	};
 
-	CHECK(settle(players, 8) == 1);
-	CHECK(players[3].team == 1 && teams_apart(players, 8) == 0);
+	CHECK(settle(players, 5) == 1);
+	CHECK(players[2].team == 1 && players[3].team == 0 && players[4].team == 0 && teams_apart(players, 5) == 1);
 }
 
 static void test_never_unbalanced_or_unmovable(void)
 {
-	/* (no one to trade with, and a move would make 3 and 1: left as is) */
+	/* (a move would make 3 and 1: left as is) */
 	struct party_teams_player players[] =
 	{
 		{ 0, 2, 1 }, { 1, 2, 1 }, { 0, 5, 1 }, { 1, 5, 0 },
@@ -102,7 +100,7 @@ static void test_never_unbalanced_or_unmovable(void)
 	struct party_teams_change change;
 
 	CHECK(party_teams_plan(players, 4, &change) == 0);
-	/* (a player who can't be moved stays, and isn't traded) */
+	/* (a player who can't be moved stays) */
 	players[2].party = -1;
 	players[2].movable = 0;
 	CHECK(party_teams_plan(players, 4, &change) == 0);
@@ -110,15 +108,37 @@ static void test_never_unbalanced_or_unmovable(void)
 
 static void test_two_parties(void)
 {
-	/* (two parties of two, crossed: each ends up together, the teams even) */
+	/* (two parties of two, crossed, red 3 and blue 2: each ends up
+	together by moves alone, the teams within one) */
 	struct party_teams_player players[] =
 	{
-		{ 0, 1, 1 }, { 1, 1, 1 }, { 0, 2, 1 }, { 1, 2, 1 }, { 0, -1, 1 }, { 1, -1, 1 },
+		{ 0, 1, 1 }, { 1, 1, 1 }, { 0, 2, 1 }, { 1, 2, 1 }, { 0, -1, 1 },
 	};
 
-	CHECK(settle(players, 6) > 0);
+	CHECK(settle(players, 5) == 2);
 	CHECK(players[0].team == players[1].team && players[2].team == players[3].team);
-	CHECK(teams_apart(players, 6) <= 1);
+	CHECK(players[4].team == 0 && teams_apart(players, 5) <= 1);
+}
+
+static void test_players_in_no_party_never_move(void)
+{
+	/* (every arrangement of 6 players, 3 of them in one party: whatever the
+	plan does, only the party's members move) */
+	struct party_teams_player players[6];
+	int arrangement, index;
+
+	for (arrangement = 0; arrangement < 64; arrangement++)
+	{
+		for (index = 0; index < 6; index++)
+		{
+			players[index].team = (arrangement >> index) & 1;
+			players[index].party = index < 3 ? 4 : -1;
+			players[index].movable = 1;
+		}
+		settle(players, 6);
+		for (index = 3; index < 6; index++)
+			CHECK(players[index].team == ((arrangement >> index) & 1));
+	}
 }
 
 static void test_off_teams_left_out(void)
@@ -135,11 +155,12 @@ static void test_off_teams_left_out(void)
 
 int main(void)
 {
-	test_plain_move();
+	test_never_a_trade();
 	test_move_into_the_smaller_team();
 	test_majority_wins();
 	test_never_unbalanced_or_unmovable();
 	test_two_parties();
+	test_players_in_no_party_never_move();
 	test_off_teams_left_out();
 	if (failures)
 	{

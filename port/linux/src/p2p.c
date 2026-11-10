@@ -2835,6 +2835,12 @@ int p2p_join_listed_invite(const char *text)
 
 void p2p_invite_received(const char *text, int public)
 {
+#if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_GUIDE)
+	/* (a party's link opened while the game runs: the Guide asks about it,
+	browser.c; join_invite alone would drop it) */
+	if (browser_party_link(text))
+		return;
+#endif
 	/* (an older version's is logged as such) */
 	if (!join_invite(text, public))
 		platform_log("Internet play: that is not an invite");

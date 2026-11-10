@@ -746,6 +746,12 @@ static const struct config_setting config_settings[] =
 		_platform_all,
 		"When you lead a party, it follows you into the games you join or\n"
 		"host." },
+	{ "delta.follow_leader", _config_string, "\"ask\"", "HALO_DELTA_FOLLOW_LEADER", _environment_value,
+		_platform_all,
+		"When you're in a party and its leader goes to a game: \"ask\" (a few\n"
+		"seconds to stay, then you follow; in a game you stay unless you press\n"
+		"join), \"always\" (you follow when the seconds run out, in a game\n"
+		"too) or \"never\"." },
 #endif
 
 	/* ---- chat */
