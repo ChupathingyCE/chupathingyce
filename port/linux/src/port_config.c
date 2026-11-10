@@ -1058,6 +1058,12 @@ static const struct config_setting config_settings[] =
 		"HALO_NET_STUN", _environment_value, _platform_all | _platform_xbox | _platform_server,
 		"STUN servers that find this machine's internet address, as host:port,\n"
 		"separated by commas." },
+	{ "network.public_address", _config_string, "\"\"", "HALO_NET_PUBLIC_ADDRESS", _environment_value,
+		_platform_all | _platform_server,
+		"The address players reach your games at, as host or host:port, when\n"
+		"they come in through a relay or tunnel (a VPS forwarding UDP). It is\n"
+		"advertised in place of the address STUN finds, and the port defaults\n"
+		"to network.tunnel_port. Leave it empty to use STUN." },
 	{ "network.announce", _config_string, "\"latest\"", "HALO_NET_ANNOUNCE", _environment_value,
 		_platform_all | _platform_server,
 		"The OpenCE network version the games you host announce. \"latest\"\n"
