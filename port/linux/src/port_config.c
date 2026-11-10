@@ -311,6 +311,10 @@ static const struct config_setting config_settings[] =
 		"Draw a frame for every display refresh. The game runs 30 ticks a\n"
 		"second, and the frames between them are blended. false keeps the\n"
 		"game's own 30 frames a second." },
+	{ "display.stats_log", _config_boolean, "false", "HALO_STATS_LOG", _environment_value, _platform_all,
+		"A line a second in the log with the frame rate, the mode, the map, the\n"
+		"renderer and the size of the 3D view, for a bug report or to compare two\n"
+		"builds. Nothing is drawn and nothing is sent; off by default." },
 	{ "display.anti_aliasing", _config_string, DEFAULT_ANTI_ALIASING, "HALO_ANTI_ALIASING", _environment_value,
 		_platform_all,
 		"Smooth jagged edges: \"off\", \"fxaa\", \"smaa\", \"ssaa2x\", \"msaa2x\",\n"
