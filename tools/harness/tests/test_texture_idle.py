@@ -16,7 +16,8 @@ def generated(fault=None, config_fault=None):
     source = read(SOURCE)
     config = '\n'.join(re.findall(r'^#define TEXTURE_\w+.*$', source, re.M) + re.findall(
         r'^static (?:unsigned long|Uint64) texture_(?:frame|drop_serial|sweep_\w+|next_sweep)\b.*;$', source, re.M))
-    code = function(source, 'xgpu_texture_cache_begin_frame')
+    # (with the loop it shares with xgpu_texture_cache_drop_idle)
+    code = function(source, 'texture_cache_drop_unused_since') + '\n' + function(source, 'xgpu_texture_cache_begin_frame')
     if config_fault:
         config = mutated(config, *config_fault)
     if fault:

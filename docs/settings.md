@@ -65,6 +65,7 @@ A few people look for most:
 | `network.public_address` | A host setting, empty by default. For a host whose players come in through a relay or tunnel: the address they reach it at, as `host` or `host:port` (the port defaults to `network.tunnel_port`). Games you host advertise it in place of the address STUN finds. Joining someone else's game works as usual. |
 | `network.announce` | The OpenCE network version your hosted games announce. `"latest"` (the default) follows the newest the signed table proves, so OpenCE's newest players see your games. A number pins it. |
 | `update.auto` | Whether the game updates itself. |
+| `update.offer_64bit` | 32-bit Windows build: whether to offer the 64-bit build on 64-bit Windows. "Keep 32-bit" turns it off. |
 | `paths.data`, `paths.saves` | Where the maps and the saves are, if not the usual place. |
 | `paths.logs`, `paths.cache` | Where the logs and the cache go, if not the usual place ([Where your files go](install.md#where-your-files-go)). |
 

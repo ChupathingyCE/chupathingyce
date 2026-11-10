@@ -46,8 +46,10 @@ HALO_CONSOLE_NO_CAPTURE
 	builds have them
 HALO_CONSOLE_NO_DELTA_IDENTITY
 	no device key, device certificate or site token (port/linux/src/
-	identity.c, browser.c; docs/delta.md, "Device identity"): every console
-	for now, until their own endpoints come; the player key alone, as before
+	identity.c, browser.c; docs/delta.md, "Device identity"), and no
+	verified names in games (Delta Peer's identity capability, never
+	offered: "Verified names"): every console for now, until their own
+	endpoints come; the player key alone, and game names, as before
 HALO_CONSOLE_NO_WRITE_WATCH
 	a console that will not write-protect guest memory, so the renderer's
 	write watch cannot see the game write a resource: locks and file reads
@@ -464,6 +466,13 @@ Android; consoles get it with their own endpoints later */
 server's, which has no player) */
 #if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_DELTA_IDENTITY) && !defined(HALO_SERVER)
 #define HALO_DELTA_IDENTITY 1
+#endif
+/* verified names in games (Delta Peer's identity capability: delta_peer.c,
+delta_peer_game.c): the game list's builds, and the dedicated server, which
+checks its players' proofs and keeps the revocation list; the consoles
+leave it out with the rest of HALO_CONSOLE_NO_DELTA_IDENTITY */
+#if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_DELTA_IDENTITY)
+#define HALO_DELTA_PEER_IDENTITY 1
 #endif
 
 #if (defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
