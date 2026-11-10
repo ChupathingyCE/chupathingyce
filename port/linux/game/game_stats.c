@@ -588,6 +588,24 @@ static long stats_departed_json(
 client's report, a console's claim: one after the other, on the main thread) */
 static struct browser_report_player stats_lines[MAXIMUM_STATS_PLAYERS];
 
+#if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_DELTA_PROFILE)
+/* port/linux/game/profile_names.c's */
+boolean profile_names_local_guest(long local_player);
+#endif
+
+/* whether a local player's Halo profile plays as a guest (not connected to
+Delta: profile_names_local_guest) */
+static boolean stats_local_guest(
+	short local_player_index)
+{
+#if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_DELTA_PROFILE)
+	return profile_names_local_guest(local_player_index);
+#else
+	(void)local_player_index;
+	return FALSE;
+#endif
+}
+
 /* a client's report of the game it joined, sent once it has its last
 statistics from the host */
 static void stats_client_report(
@@ -611,13 +629,15 @@ static void stats_client_report(
 	data_iterator_new(&iterator, player_data);
 	while ((player = (struct player_datum *)data_iterator_next(&iterator)) != NULL)
 	{
-		if (player->local_player_index != NONE)
+		if (player->local_player_index != NONE && !stats_local_guest(player->local_player_index))
 		{
 			reporter = player;
 			break;
 		}
 	}
-	/* (a machine whose players all left: nothing of its own to say) */
+	/* (a machine whose players all left, or whose players are all guests,
+	not connected to Delta: nothing of its own to say, nor anything to put
+	on a profile) */
 	if (!reporter)
 		return;
 	count = game_engine_report_lines(players, MAXIMUM_STATS_PLAYERS);
