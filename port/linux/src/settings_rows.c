@@ -76,10 +76,16 @@ struct settings_row
 };
 
 #ifdef HALO_BGFX
-static const char *const renderer_choices[] = { "gl", "bgfx", NULL };
 #ifdef __APPLE__
+static const char *const renderer_choices[] = { "gl", "bgfx", NULL };
 static const char *const renderer_names[] = { "OPENGL", "METAL", NULL };
+#elif defined(_WIN32)
+/* (bgfx's Vulkan falls back to Direct3D 11, and that to OpenGL; "d3d11"
+starts at Direct3D 11) */
+static const char *const renderer_choices[] = { "gl", "bgfx", "d3d11", NULL };
+static const char *const renderer_names[] = { "OPENGL", "VULKAN", "DIRECT3D 11", NULL };
 #else
+static const char *const renderer_choices[] = { "gl", "bgfx", NULL };
 static const char *const renderer_names[] = { "OPENGL", "VULKAN", NULL };
 #endif
 #endif

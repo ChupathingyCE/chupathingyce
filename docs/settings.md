@@ -105,6 +105,11 @@ the game with the environment variable `HALO_RENDERER=bgfx`. If bgfx can't
 start, for example with no working Vulkan driver, the game uses OpenGL and
 says so in `logs/debug.txt`.
 
+On Windows, if Vulkan can't start, the game tries Direct3D 11 next, then
+OpenGL. To use Direct3D 11 right away, set `renderer` to `"d3d11"`, or pick
+**DIRECT3D 11** on the **RENDERER** row of the display settings and restart.
+That's the one to try on an older laptop whose Vulkan is missing or crashes.
+
 Some Vulkan drivers start but run badly on older computers, so the game
 skips them and uses OpenGL. Right now that's nouveau's Vulkan (NVK) on a
 GeForce older than the 20 series, NVIDIA drivers older than 470, Mesa's
@@ -120,7 +125,7 @@ What we know is different from OpenGL:
 - The first-person pistol is a little brighter, and water looks grainy.
 - On Linux with a software Vulkan driver, some cliffs looked flatter than
   with OpenGL. We don't know yet if real graphics cards do this.
-- There's no menu option for it yet. It's in `config.toml` only.
+- The **RENDERER** row in the display settings switches it after a restart.
 - The 32-bit builds, Android, FreeBSD and the consoles don't have it.
 
 Tell us how it runs. Post in the Discord with your system and graphics card,

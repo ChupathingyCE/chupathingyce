@@ -3,7 +3,8 @@ D3D8_BGFX.INL
 
 A test renderer: the Xbox Direct3D 8 device drawn with bgfx instead of
 OpenGL, so that each platform can draw with its own API: Metal on macOS,
-Vulkan on Windows and Linux. display.renderer = "bgfx" (HALO_RENDERER=bgfx)
+Vulkan on Windows and Linux, and Direct3D 11 on Windows when Vulkan does not
+start (or display.renderer = "d3d11"). display.renderer = "bgfx" (HALO_RENDERER=bgfx)
 chooses it at start-up, in every 64-bit desktop build (configure.py
 --without-bgfx leaves it out); when bgfx cannot start, the game draws with
 OpenGL as usual (platform_video_reopen_for_gl). It is part of
@@ -37,7 +38,7 @@ stencil write mask rides in the back stencil's read mask, as bgfx reads it. The 
 #include <bgfx/c99/bgfx.h>
 #include <glslang/Include/glslang_c_interface.h>
 #include <glslang/Public/resource_limits_c.h>
-#ifdef __APPLE__
+#if defined(__APPLE__) || defined(_WIN32)
 #include "spirv_cross_c.h"
 #endif
 
@@ -81,6 +82,10 @@ BOOL xgpu_bgfx;
 /* the backend bgfx draws with: Vulkan (Windows, Linux) takes SPIR-V and
 its uniforms' table, Metal (macOS) its own language, which it reflects */
 static BOOL bg_vulkan;
+/* Direct3D 11 (Windows, when Vulkan does not start, or display.renderer =
+"d3d11"): the shaders as Metal's GLSL, through SPIRV-Cross to HLSL and
+d3dcompiler_47 to DXBC (bg_hlsl, bg_dxbc), in the container Vulkan's go in */
+static BOOL bg_d3d11;
 
 #define BG_SHADER_BUCKETS 1024
 #define BG_TEXTURE_BUCKETS 4096
@@ -521,7 +526,7 @@ static char *bg_vulkan_glsl(const char *source, BOOL fragment, int flags, unsign
 		draws a surface again in passes that test for the same depth, from
 		vertex shaders that would otherwise round it apart) */
 		if (strncmp(text, "#version", 8) == 0 || strncmp(text, "precision ", 10) == 0 ||
-			(!bg_vulkan && strcmp(text, "invariant gl_Position;") == 0) ||
+			(!bg_vulkan && !bg_d3d11 && strcmp(text, "invariant gl_Position;") == 0) ||
 			strcmp(text, "\tgl_Position.y = -gl_Position.y;") == 0 ||
 			strcmp(text, "\tgl_Position.z = 2.0 * gl_Position.z - gl_Position.w;") == 0)
 			continue;
@@ -766,6 +771,150 @@ done:
 }
 #endif
 
+#ifdef _WIN32
+/* Direct3D 11's semantics for the inputs, by location: bgfx's input layout
+names bgfx's attributes so (renderer_d3d11.cpp's s_attrib), in the order
+bg_attribute_ids gives them */
+static const struct
+{
+	const char *name;
+	unsigned index;
+} bg_hlsl_semantics[XGPU_VERTEX_ATTRIBUTE_COUNT] =
+{
+	{ "POSITION", 0 }, { "NORMAL", 0 }, { "TANGENT", 0 }, { "BITANGENT", 0 }, { "COLOR", 0 }, { "COLOR", 1 },
+	{ "COLOR", 2 }, { "COLOR", 3 }, { "BLENDINDICES", 0 }, { "BLENDWEIGHT", 0 }, { "TEXCOORD", 0 },
+	{ "TEXCOORD", 1 }, { "TEXCOORD", 2 }, { "TEXCOORD", 3 }, { "TEXCOORD", 4 }, { "TEXCOORD", 5 },
+};
+
+/* HLSL (shader model 5.0) for the SPIR-V of Metal's GLSL: the uniform block
+is the stage's constant buffer 0, where bgfx puts its uniforms, at the
+block's std140 offsets; each sampler a texture and a sampler state at its
+stage (t and s); the inputs at bgfx's semantics */
+static char *bg_hlsl(const unsigned int *words, unsigned long word_count, BOOL fragment, const char **error)
+{
+	spvc_context context = NULL;
+	spvc_parsed_ir ir;
+	spvc_compiler compiler;
+	spvc_compiler_options options;
+	spvc_resources resources;
+	const spvc_reflected_resource *list;
+	size_t count, index;
+	const char *source = NULL;
+	char *copy = NULL;
+
+	*error = "SPIRV-Cross";
+	if (spvc_context_create(&context) != SPVC_SUCCESS)
+		return NULL;
+	if (spvc_context_parse_spirv(context, (const SpvId *)words, word_count, &ir) != SPVC_SUCCESS ||
+		spvc_context_create_compiler(context, SPVC_BACKEND_HLSL, ir, SPVC_CAPTURE_MODE_TAKE_OWNERSHIP, &compiler) !=
+			SPVC_SUCCESS)
+		goto done;
+	spvc_compiler_create_compiler_options(compiler, &options);
+	spvc_compiler_options_set_uint(options, SPVC_COMPILER_OPTION_HLSL_SHADER_MODEL, 50);
+	spvc_compiler_install_compiler_options(compiler, options);
+	spvc_compiler_create_shader_resources(compiler, &resources);
+	spvc_resources_get_resource_list_for_type(resources, SPVC_RESOURCE_TYPE_UNIFORM_BUFFER, &list, &count);
+	for (index = 0; index < count; index++)
+	{
+		spvc_compiler_set_decoration(compiler, list[index].id, SpvDecorationDescriptorSet, 0);
+		spvc_compiler_set_decoration(compiler, list[index].id, SpvDecorationBinding, 0);
+	}
+	if (!fragment)
+	{
+		for (index = 0; index < XGPU_VERTEX_ATTRIBUTE_COUNT; index++)
+		{
+			spvc_hlsl_vertex_attribute_remap remap;
+			char semantic[24];
+
+			snprintf(semantic, sizeof(semantic), "%s%u", bg_hlsl_semantics[index].name,
+				bg_hlsl_semantics[index].index);
+			remap.location = (unsigned)index;
+			remap.semantic = semantic;
+			spvc_compiler_hlsl_add_vertex_attribute_remap(compiler, &remap, 1);
+		}
+	}
+	if (spvc_compiler_compile(compiler, &source) == SPVC_SUCCESS && source)
+		copy = strdup(source);
+	else
+		*error = spvc_context_get_last_error_string(context);
+done:
+	if (!copy)
+		platform_log("bgfx: SPIRV-Cross (HLSL): %s", spvc_context_get_last_error_string(context));
+	spvc_context_destroy(context);
+	return copy;
+}
+
+/* d3dcompiler_47.dll's D3DCompile and its blobs (ID3DBlob), declared here
+so that the Xbox's Direct3D 8 headers this file has need no Windows ones */
+struct bg_blob;
+struct bg_blob_table
+{
+	long (__stdcall *query_interface)(struct bg_blob *self, const void *id, void **out);
+	unsigned long (__stdcall *add_reference)(struct bg_blob *self);
+	unsigned long (__stdcall *release)(struct bg_blob *self);
+	void *(__stdcall *buffer)(struct bg_blob *self);
+	size_t (__stdcall *buffer_size)(struct bg_blob *self);
+};
+struct bg_blob
+{
+	const struct bg_blob_table *table;
+};
+typedef long (__stdcall *bg_d3d_compile)(const void *source, size_t size, const char *name, const void *defines,
+	void *include, const char *entry, const char *target, unsigned flags, unsigned effect_flags,
+	struct bg_blob **code, struct bg_blob **errors);
+/* D3DCOMPILE_OPTIMIZATION_LEVEL3 */
+#define BG_D3DCOMPILE_FLAGS (1u << 15)
+
+static bg_d3d_compile bg_d3d_compiler;
+
+/* whether Direct3D's shader compiler is there (bg_initialize, before bgfx
+starts on Direct3D 11) */
+static BOOL bg_dxbc_available(void)
+{
+	SDL_SharedObject *library;
+
+	if (bg_d3d_compiler)
+		return TRUE;
+	library = SDL_LoadObject("d3dcompiler_47.dll");
+	if (library)
+		bg_d3d_compiler = (bg_d3d_compile)SDL_LoadFunction(library, "D3DCompile");
+	if (!bg_d3d_compiler)
+		platform_log("bgfx: Direct3D 11 needs d3dcompiler_47.dll, which is missing");
+	return bg_d3d_compiler != NULL;
+}
+
+/* the DXBC for the HLSL (malloc'd, *size its bytes), or NULL with why */
+static unsigned int *bg_dxbc(const char *hlsl, BOOL fragment, unsigned long *size, char **error)
+{
+	struct bg_blob *code = NULL, *errors = NULL;
+	unsigned int *words = NULL;
+	long result;
+
+	*size = 0;
+	result = bg_d3d_compiler(hlsl, strlen(hlsl), fragment ? "pixel" : "vertex", NULL, NULL, "main",
+		fragment ? "ps_5_0" : "vs_5_0", BG_D3DCOMPILE_FLAGS, 0, &code, &errors);
+	if (result >= 0 && code)
+	{
+		size_t length = code->table->buffer_size(code);
+
+		if ((words = malloc(length + 4)) != NULL)
+		{
+			memcpy(words, code->table->buffer(code), length);
+			*size = (unsigned long)length;
+		}
+	}
+	else
+	{
+		*error = strdup(errors ? (const char *)errors->table->buffer(errors) : "D3DCompile failed");
+	}
+	if (code)
+		code->table->release(code);
+	if (errors)
+		errors->table->release(errors);
+	return words;
+}
+#endif
+
 /* bgfx's attributes' numbers in its shader container, in its attributes'
 order (bgfx's vertexlayout.cpp, which says they never change) */
 /* the shader binary format bgfx reads (its shaderc's BGFX_SHADER_BIN_VERSION:
@@ -809,7 +958,7 @@ vec4 or an array of them, at their std140 offsets, and the samplers with
 their stages and kinds; the inputs are at the locations of bgfx's attributes
 (bg_attribute_names), which the list follows. Both hashes are 0 so that any
 vertex shader goes with any pixel shader. */
-static char *bg_vulkan_container(const unsigned int *words, unsigned long word_count, const char *source,
+static char *bg_vulkan_container(const void *code, unsigned long code_size, const char *source,
 	BOOL fragment, unsigned long *size)
 {
 	unsigned char *bytes = NULL;
@@ -890,8 +1039,10 @@ static char *bg_vulkan_container(const unsigned int *words, unsigned long word_c
 			block += 16 * elements;
 			continue;
 		}
-		if (sscanf(line, "layout(set = 0, binding = %d) uniform texture%31s %63[A-Za-z0-9_]", &binding, type,
-			name) == 3)
+		/* (Vulkan's textures, or Direct3D 11's samplers, which are Metal's
+		GLSL: sampler2D NAME at its stage) */
+		if (sscanf(line, bg_vulkan ? "layout(set = 0, binding = %d) uniform texture%31s %63[A-Za-z0-9_]" :
+			"layout(set = 0, binding = %d) uniform sampler%31s %63[A-Za-z0-9_]", &binding, type, name) == 3)
 		{
 			unsigned char entry[9];
 			size_t length = strlen(name);
@@ -929,9 +1080,9 @@ static char *bg_vulkan_container(const unsigned int *words, unsigned long word_c
 	}
 	if (bytes)
 		memcpy(bytes + count_at, &count, 2);
-	value = (Uint32)(word_count * sizeof(*words));
+	value = (Uint32)code_size;
 	bg_put(&bytes, &offset, &capacity, &value, 4);
-	bg_put(&bytes, &offset, &capacity, words, value);
+	bg_put(&bytes, &offset, &capacity, code, value);
 	byte = 0;
 	bg_put(&bytes, &offset, &capacity, &byte, 1);
 	/* (the inputs by location: a location not read has no attribute) */
@@ -1121,7 +1272,8 @@ static void bg_cache_write(Uint64 hash, unsigned long uniform_size, const char *
 }
 
 /* the backend's code for a shader's Vulkan GLSL (malloc'd, *size its
-bytes): Metal source, or Vulkan's shader container; or NULL with why */
+bytes): Metal source, or the shader container with Vulkan's SPIR-V or
+Direct3D 11's DXBC; or NULL with why */
 static char *bg_compile(const char *source, BOOL fragment, const char *what, char **error, unsigned long *size)
 {
 	unsigned long count = 0;
@@ -1134,9 +1286,28 @@ static char *bg_compile(const char *source, BOOL fragment, const char *what, cha
 		return NULL;
 	if (bg_vulkan)
 	{
-		if ((code = bg_vulkan_container(words, count, source, fragment, size)) == NULL)
+		if ((code = bg_vulkan_container(words, count * sizeof(*words), source, fragment, size)) == NULL)
 			*error = strdup("its uniforms are not vec4s");
 	}
+#ifdef _WIN32
+	else if (bg_d3d11)
+	{
+		const char *why = NULL;
+		char *hlsl = bg_hlsl(words, count, fragment, &why);
+		unsigned long dxbc_size = 0;
+		unsigned int *dxbc;
+
+		if (!hlsl)
+			*error = strdup(why ? why : "SPIRV-Cross");
+		else if ((dxbc = bg_dxbc(hlsl, fragment, &dxbc_size, error)) != NULL)
+		{
+			if ((code = bg_vulkan_container(dxbc, dxbc_size, source, fragment, size)) == NULL)
+				*error = strdup("its uniforms are not vec4s");
+			free(dxbc);
+		}
+		free(hlsl);
+	}
+#endif
 #ifdef __APPLE__
 	else
 	{
@@ -1184,6 +1355,12 @@ static void *bg_compiler_thread(void *unused)
 	return NULL;
 }
 
+/* the backend's name in the cache: its folder, and part of its versions */
+static const char *bg_backend_folder(void)
+{
+	return bg_vulkan ? "vulkan" : bg_d3d11 ? "d3d11" : "metal";
+}
+
 /* the cache's folder, emptied of its oldest entries past its size */
 static void bg_cache_start(void)
 {
@@ -1193,15 +1370,15 @@ static void bg_cache_start(void)
 	int index;
 
 	glslang_get_version(&glslang);
-#ifdef __APPLE__
+#if defined(__APPLE__) || defined(_WIN32)
 	spvc_get_version(&major, &minor, &patch);
 #endif
 	snprintf(versions, sizeof(versions), "%s %d glslang %d.%d.%d%s spirv-cross %u.%u.%u bgfx %d",
-		bg_vulkan ? "vulkan" : "metal", BG_SHADER_CACHE_FORMAT, glslang.major, glslang.minor, glslang.patch,
+		bg_backend_folder(), BG_SHADER_CACHE_FORMAT, glslang.major, glslang.minor, glslang.patch,
 		glslang.flavor ? glslang.flavor : "", major, minor, patch, BGFX_API_VERSION);
 	bg_jobs.versions = bg_hash(versions, strlen(versions), 14695981039346656037ULL);
 	snprintf(bg_jobs.folder, sizeof(bg_jobs.folder), "%s/bgfx/%s", platform_folder(_port_folder_cache),
-		bg_vulkan ? "vulkan" : "metal");
+		bg_backend_folder());
 	{
 		char parent[1100];
 
@@ -1279,7 +1456,7 @@ static struct bg_shader *bg_shader_failed(struct bg_shader *shader, const char *
 /* a shader made from its code (on this thread: bgfx's) */
 static void bg_shader_finish(struct bg_shader *shader, char *msl, unsigned long size, const char *what)
 {
-	shader->shader = bg_vulkan ? bgfx_create_shader(bgfx_copy(msl, (uint32_t)size)) :
+	shader->shader = bg_vulkan || bg_d3d11 ? bgfx_create_shader(bgfx_copy(msl, (uint32_t)size)) :
 		bg_container(msl, shader->fragment);
 	if (!BGFX_HANDLE_IS_VALID(shader->shader))
 		bg_shader_failed(shader, what, "bgfx refused it");
@@ -4225,6 +4402,83 @@ static const char *bg_renderer_name(void)
 #include "bgfx_vulkan_check.inl"
 #endif
 
+/* bgfx started on the renderer of type, in the window (width by height
+pixels): whether it did */
+static BOOL bg_start(bgfx_renderer_type_t type, int width, int height)
+{
+	bgfx_init_t init;
+
+	/* (drawn on this thread: bgfx renders as each frame is submitted) */
+	bgfx_render_frame(-1);
+	bgfx_init_ctor(&init);
+	init.type = type;
+	{
+		SDL_PropertiesID properties = SDL_GetWindowProperties(bg.window);
+
+#if defined(__APPLE__)
+		init.swapChain.nwh = SDL_GetPointerProperty(properties, SDL_PROP_WINDOW_COCOA_WINDOW_POINTER, NULL);
+#elif defined(_WIN32)
+		init.swapChain.nwh = SDL_GetPointerProperty(properties, SDL_PROP_WINDOW_WIN32_HWND_POINTER, NULL);
+#else
+		if (SDL_strcmp(SDL_GetCurrentVideoDriver(), "wayland") == 0)
+		{
+			init.platformData.type = BGFX_NATIVE_WINDOW_HANDLE_TYPE_WAYLAND;
+			init.swapChain.ndt = SDL_GetPointerProperty(properties, SDL_PROP_WINDOW_WAYLAND_DISPLAY_POINTER, NULL);
+			init.swapChain.nwh = SDL_GetPointerProperty(properties, SDL_PROP_WINDOW_WAYLAND_SURFACE_POINTER, NULL);
+		}
+		else
+		{
+			init.swapChain.ndt = SDL_GetPointerProperty(properties, SDL_PROP_WINDOW_X11_DISPLAY_POINTER, NULL);
+			init.swapChain.nwh = (void *)(uintptr_t)SDL_GetNumberProperty(properties,
+				SDL_PROP_WINDOW_X11_WINDOW_NUMBER, 0);
+		}
+#endif
+	}
+	bg_vulkan = type == BGFX_RENDERER_TYPE_VULKAN;
+	bg_d3d11 = type == BGFX_RENDERER_TYPE_DIRECT3D11;
+	init.swapChain.width = (uint32_t)width;
+	init.swapChain.height = (uint32_t)height;
+	init.reset = config_boolean("display.vsync") ? BGFX_RESET_VSYNC : BGFX_RESET_NONE;
+	/* (only the renderer asked for: the shaders here are only its) */
+	init.fallback = false;
+	init.limits.maxTransientVbSize = 64u << 20;
+	init.limits.maxTransientIbSize = 8u << 20;
+	init.callback = &bg_callback;
+	if (!init.swapChain.nwh)
+	{
+		platform_log("bgfx: the window has no handle for %s", bgfx_get_renderer_name(init.type));
+		return FALSE;
+	}
+#ifndef __APPLE__
+	/* (a computer without a working Vulkan, or with a driver the blocklist
+	names, draws with OpenGL: bgfx_vulkan_check.inl) */
+	if (bg_vulkan && !bg_vulkan_check(&init.vendorId, &init.deviceId))
+		return FALSE;
+#endif
+#ifdef _WIN32
+	/* (Direct3D 11's shaders are compiled at run time, by Windows' own
+	compiler) */
+	if (bg_d3d11 && !bg_dxbc_available())
+		return FALSE;
+#endif
+	bgfx_vk_gpu_timer = config_boolean("debug.gpu_stats");
+	if (!bgfx_init(&init))
+	{
+		platform_log("bgfx: %s does not start", bgfx_get_renderer_name(init.type));
+		return FALSE;
+	}
+	/* (bgfx tries its other renderers when the one asked for fails: the
+	shaders here are only the one's) */
+	if (bgfx_get_renderer_type() != init.type)
+	{
+		platform_log("bgfx: %s does not start (bgfx offered %s)", bgfx_get_renderer_name(init.type),
+			bgfx_get_renderer_name(bgfx_get_renderer_type()));
+		bgfx_shutdown();
+		return FALSE;
+	}
+	return TRUE;
+}
+
 static BOOL bg_initialize(void)
 {
 	bgfx_init_t init;
@@ -4253,68 +4507,31 @@ static BOOL bg_initialize(void)
 	bg.frame = 1;
 	SDL_GetWindowSizeInPixels(bg.window, &width, &height);
 
-	/* (drawn on this thread: bgfx renders as each frame is submitted) */
-	bgfx_render_frame(-1);
-	bgfx_init_ctor(&init);
 	{
-		SDL_PropertiesID properties = SDL_GetWindowProperties(bg.window);
+		/* the renderers to try, in order: on Windows Vulkan, then
+		Direct3D 11 (first with display.renderer = "d3d11"); OpenGL after
+		them (platform_video_reopen_for_gl) */
+		bgfx_renderer_type_t types[2];
+		int type_count = 0, attempt;
+		BOOL started = FALSE;
 
 #if defined(__APPLE__)
-		init.type = BGFX_RENDERER_TYPE_METAL;
-		init.swapChain.nwh = SDL_GetPointerProperty(properties, SDL_PROP_WINDOW_COCOA_WINDOW_POINTER, NULL);
+		types[type_count++] = BGFX_RENDERER_TYPE_METAL;
 #elif defined(_WIN32)
-		init.type = BGFX_RENDERER_TYPE_VULKAN;
-		init.swapChain.nwh = SDL_GetPointerProperty(properties, SDL_PROP_WINDOW_WIN32_HWND_POINTER, NULL);
+		if (strcmp(config_string("display.renderer"), "d3d11") != 0)
+			types[type_count++] = BGFX_RENDERER_TYPE_VULKAN;
+		types[type_count++] = BGFX_RENDERER_TYPE_DIRECT3D11;
 #else
-		init.type = BGFX_RENDERER_TYPE_VULKAN;
-		if (SDL_strcmp(SDL_GetCurrentVideoDriver(), "wayland") == 0)
-		{
-			init.platformData.type = BGFX_NATIVE_WINDOW_HANDLE_TYPE_WAYLAND;
-			init.swapChain.ndt = SDL_GetPointerProperty(properties, SDL_PROP_WINDOW_WAYLAND_DISPLAY_POINTER, NULL);
-			init.swapChain.nwh = SDL_GetPointerProperty(properties, SDL_PROP_WINDOW_WAYLAND_SURFACE_POINTER, NULL);
-		}
-		else
-		{
-			init.swapChain.ndt = SDL_GetPointerProperty(properties, SDL_PROP_WINDOW_X11_DISPLAY_POINTER, NULL);
-			init.swapChain.nwh = (void *)(uintptr_t)SDL_GetNumberProperty(properties,
-				SDL_PROP_WINDOW_X11_WINDOW_NUMBER, 0);
-		}
+		types[type_count++] = BGFX_RENDERER_TYPE_VULKAN;
 #endif
-	}
-	bg_vulkan = init.type == BGFX_RENDERER_TYPE_VULKAN;
-	init.swapChain.width = (uint32_t)width;
-	init.swapChain.height = (uint32_t)height;
-	init.reset = config_boolean("display.vsync") ? BGFX_RESET_VSYNC : BGFX_RESET_NONE;
-	/* (only the renderer asked for: the shaders here are only its) */
-	init.fallback = false;
-	init.limits.maxTransientVbSize = 64u << 20;
-	init.limits.maxTransientIbSize = 8u << 20;
-	init.callback = &bg_callback;
-	if (!init.swapChain.nwh)
-	{
-		platform_log("bgfx: the window has no handle for %s", bgfx_get_renderer_name(init.type));
-		return FALSE;
-	}
-#ifndef __APPLE__
-	/* (a computer without a working Vulkan, or with a driver the blocklist
-	names, draws with OpenGL: bgfx_vulkan_check.inl) */
-	if (bg_vulkan && !bg_vulkan_check(&init.vendorId, &init.deviceId))
-		return FALSE;
-#endif
-	bgfx_vk_gpu_timer = config_boolean("debug.gpu_stats");
-	if (!bgfx_init(&init))
-	{
-		platform_log("bgfx: %s does not start", bgfx_get_renderer_name(init.type));
-		return FALSE;
-	}
-	/* (bgfx tries its other renderers when the one asked for fails: the
-	shaders here are only the one's) */
-	if (bgfx_get_renderer_type() != init.type)
-	{
-		platform_log("bgfx: %s does not start (bgfx offered %s)", bgfx_get_renderer_name(init.type),
-			bgfx_get_renderer_name(bgfx_get_renderer_type()));
-		bgfx_shutdown();
-		return FALSE;
+		for (attempt = 0; attempt < type_count && !started; attempt++)
+		{
+			if (attempt)
+				platform_log("bgfx: trying %s", bgfx_get_renderer_name(types[attempt]));
+			started = bg_start(types[attempt], width, height);
+		}
+		if (!started)
+			return FALSE;
 	}
 	bg.window_width = width;
 	bg.window_height = height;
