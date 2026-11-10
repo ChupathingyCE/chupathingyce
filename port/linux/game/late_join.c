@@ -3,8 +3,8 @@ LATE_JOIN.C
 
 Late joiners waiting for the next game (docs/delta.md, Host rules). A host
 option, off by default: Halo spawns a player who joins a game in progress
-at once. With it on (a player's host's network.late_join_wait, a dedicated
-server's late_join_wait), they wait until the next game starts and watch
+at once. With it on (a player's host's network.late_join_hold, a dedicated
+server's late_join_hold), they wait until the next game starts and watch
 through the follow camera (follow_camera.c) until then.
 
 - The host holds the spawn (late_join_holds, in
@@ -13,7 +13,7 @@ through the follow camera (follow_camera.c) until then.
   as a player waiting to respawn has none. A joiner spawns at once when no
   one else is playing, and the next game's players are all new.
 - A Chupathingy client knows its host's rule from HOST_RULES
-  (host_rules_late_join_wait), so its waiting player watches a living one
+  (host_rules_late_join_hold), so its waiting player watches a living one
   whatever their own display.follow_camera says, with a line saying so.
 */
 
@@ -124,7 +124,7 @@ boolean late_join_holds(
 	struct player_datum *player;
 
 	if (!late_join_marked(player_index) || global_network_game_server_get() == NULL ||
-		!host_rules_host_late_join_wait())
+		!host_rules_host_late_join_hold())
 	{
 		return FALSE;
 	}
@@ -156,7 +156,7 @@ boolean late_join_waiting(
 		return FALSE;
 	now = game_time_get();
 	if (player->unit_index != NONE || player->statistics.deaths > 0 || now < LATE_JOIN_GRACE_TICKS ||
-		!host_rules_late_join_wait())
+		!host_rules_late_join_hold())
 	{
 		late_join.unspawned_since[local] = NONE;
 		return FALSE;

@@ -139,7 +139,7 @@ boolean network_distributed_unban(long index);
 /* (the host's rules': port/linux/game/host_rules.h) */
 void host_rules_set_joins_locked(boolean locked);
 boolean host_rules_joins_locked(void);
-boolean host_rules_host_late_join_wait(void);
+boolean host_rules_host_late_join_hold(void);
 /* (network_distributed.c's: an account's ban, docs/delta.md "Shared ban
 lists") */
 boolean network_distributed_ban_account(char const *account, char const *handle, char const *reason,
@@ -809,8 +809,8 @@ static void print_status(
 			status.entry + 1, status.entry_count, players, status.maximum_players, status.minimum_players,
 			status.public_game ? "true" : "false", status.idle_limit, status.uptime_seconds);
 		/* (additive: joins locked, late joiners waiting, open reports) */
-		command_output_printf(output, ", \"locked\": %s, \"late_join_wait\": %s", host_rules_joins_locked() ? "true" :
-			"false", host_rules_host_late_join_wait() ? "true" : "false");
+		command_output_printf(output, ", \"locked\": %s, \"late_join_hold\": %s", host_rules_joins_locked() ? "true" :
+			"false", host_rules_host_late_join_hold() ? "true" : "false");
 #ifdef HALO_SERVER
 		command_output_printf(output, ", \"open_reports\": %d", server_reports_open());
 #endif
@@ -2580,8 +2580,8 @@ static void link_status(
 	command_output_printf(&output, ", \"playlist\": ");
 	command_output_json_string(&output, status.playlist);
 	command_output_printf(&output, ", \"player_count\": %ld, \"maximum_players\": %ld, \"uptime_seconds\": %lu, "
-		"\"locked\": %s, \"late_join_wait\": %s, \"players\": [", count, status.maximum_players, status.uptime_seconds,
-		host_rules_joins_locked() ? "true" : "false", host_rules_host_late_join_wait() ? "true" : "false");
+		"\"locked\": %s, \"late_join_hold\": %s, \"players\": [", count, status.maximum_players, status.uptime_seconds,
+		host_rules_joins_locked() ? "true" : "false", host_rules_host_late_join_hold() ? "true" : "false");
 	for (index = 0; index < count; index++)
 	{
 		struct server_player const *player = &players[index];

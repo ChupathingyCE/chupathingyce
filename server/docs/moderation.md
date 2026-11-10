@@ -174,7 +174,7 @@ screen, or the site. A restart unlocks.
 
 ### Late joiners
 
-With `late_join_wait` on (`sv_set late_join_wait 1`), a player who joins a
+With `late_join_hold` on (`sv_set late_join_hold 1`), a player who joins a
 game in progress doesn't spawn until the next game. They watch a living
 player through the follow camera, with "Waiting for the next game" on
 screen. Off by default: Halo spawns them at once.

@@ -322,7 +322,7 @@ enum
 	SERVER_SETTING_CE_WELCOME,
 	/* a player who joins a game in progress waits for the next game
 	(port/linux/game/late_join.h) */
-	SERVER_SETTING_LATE_JOIN_WAIT,
+	SERVER_SETTING_LATE_JOIN_HOLD,
 	/* the bans that name a Delta account or device sent to the site's shared
 	ban lists while linked (server_bans.h) */
 	SERVER_SETTING_BAN_SHARE,

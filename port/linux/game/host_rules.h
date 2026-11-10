@@ -17,7 +17,7 @@ void host_rules_set_player_names(boolean allowed);
 void host_rules_set_follow_camera(boolean allowed);
 
 /* ... whether its late joiners wait for the next game (late_join.c) */
-void host_rules_set_late_join_wait(boolean wait);
+void host_rules_set_late_join_hold(boolean wait);
 /* whether the host takes new machines (sv_lock, a moderator's LOCK, the
 host's own Moderation screen): locked, none join until it is unlocked.
 Not saved: a restart unlocks */
@@ -29,7 +29,7 @@ int host_rules_joins_locked_now(void);
 /* the host's own rule (this machine's, whether or not it hosts now) */
 boolean host_rules_host_player_names(void);
 boolean host_rules_host_follow_camera(void);
-boolean host_rules_host_late_join_wait(void);
+boolean host_rules_host_late_join_hold(void);
 
 /* whether this machine's players may show names above other players' heads
 (display.player_names): its own rule in a game it hosts or plays alone; its
@@ -45,7 +45,7 @@ boolean host_rules_follow_camera(void);
 /* whether a player who joins a game in progress waits for the next game
 (late_join.c): its own rule in a game it hosts, its host's in a game it
 joined (FALSE if the host said nothing) */
-boolean host_rules_late_join_wait(void);
+boolean host_rules_late_join_hold(void);
 
 /* (a client's) whether its host said its joins are locked */
 boolean host_rules_host_says_locked(void);

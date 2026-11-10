@@ -1277,10 +1277,10 @@ static void test_wire_report(void)
 		struct delta_wire_host_rules rules, rules_in;
 
 		memset(&rules, 0, sizeof(rules));
-		rules.flags = DELTA_WIRE_HOST_LATE_JOIN_WAIT | DELTA_WIRE_HOST_JOINS_LOCKED;
+		rules.flags = DELTA_WIRE_HOST_LATE_JOIN_HOLD | DELTA_WIRE_HOST_JOINS_LOCKED;
 		size = delta_wire_write_host_rules(data, 7, &rules);
 		CHECK(size > 0 && delta_wire_read_host_rules(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_HOST_RULES_SIZE,
-			&rules_in) && rules_in.flags == (DELTA_WIRE_HOST_LATE_JOIN_WAIT | DELTA_WIRE_HOST_JOINS_LOCKED));
+			&rules_in) && rules_in.flags == (DELTA_WIRE_HOST_LATE_JOIN_HOLD | DELTA_WIRE_HOST_JOINS_LOCKED));
 	}
 }
 

@@ -511,7 +511,7 @@ enum
 	DELTA_WIRE_HOST_FOLLOW_CAMERA = 0x02,
 	/* a player who joins a game in progress waits for the next game, and
 	watches (docs/delta.md, Host rules) */
-	DELTA_WIRE_HOST_LATE_JOIN_WAIT = 0x04,
+	DELTA_WIRE_HOST_LATE_JOIN_HOLD = 0x04,
 	/* the host takes no new machines now (sv_lock) */
 	DELTA_WIRE_HOST_JOINS_LOCKED = 0x08,
 	DELTA_WIRE_HOST_KNOWN_FLAGS = 0x0F

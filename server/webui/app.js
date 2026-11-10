@@ -471,7 +471,7 @@
     ];
     if (status.skipped) rows.push(['Last skipped', status.skipped]);
     if (status.locked !== undefined) rows.push(['Joins', status.locked ? 'Locked' : 'Open']);
-    if (status.late_join_wait !== undefined) rows.push(['Late joiners', status.late_join_wait ? 'Wait for the next game' : 'Spawn at once']);
+    if (status.late_join_hold !== undefined) rows.push(['Late joiners', status.late_join_hold ? 'Wait for the next game' : 'Spawn at once']);
     if (status.open_reports) rows.push(['Reports', status.open_reports + ' open']);
     facts.replaceChildren();
     rows.forEach(([name, value]) => {

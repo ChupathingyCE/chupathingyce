@@ -331,6 +331,15 @@ def previous_release_file(case, kind):
 	return text
 
 
+def test_unique_settings(program, directory, defaults, kind):
+	"""no setting, and no environment variable, is named twice in a kind of
+	build's table: a second entry would never be read (the first is found),
+	and the setting it shadows would read the wrong type"""
+	case = Case(program, directory / "unique")
+	_, output = case.run("duplicates")
+	check("duplicates=none" in output, f"named twice: {output.strip()}")
+
+
 def test_new_file(program, directory, defaults, kind):
 	case = Case(program, directory / "new")
 	values, _ = case.get(*defaults)
@@ -1021,7 +1030,7 @@ def main():
 			if kind == "desktop32":
 				global OLD_SERVER_FILE
 				OLD_SERVER_FILE = make_old_server_file(program, directory / kind / "cases")
-			for test in (test_new_file, test_previous_release_file, test_answered_first_question,
+			for test in (test_unique_settings, test_new_file, test_previous_release_file, test_answered_first_question,
 				test_start_alone, test_answered_earlier, test_chosen_port_kept, test_file_without_the_settings,
 				test_readded_by_older_version, test_before_config_version, test_renamed_setting,
 				test_retired_setting, test_layout, test_old_browser_address, test_packaged_install,

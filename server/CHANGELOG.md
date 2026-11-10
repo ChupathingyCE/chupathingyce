@@ -14,7 +14,7 @@ release notes.
 - `sv_lock` and `sv_unlock` stop and start new joins (the panel's Status
   tab, the game's Moderation screen and the site have it too). The game
   list shows a locked server. A restart unlocks.
-- `late_join_wait` (off by default): players who join a game in progress
+- `late_join_hold` (off by default): players who join a game in progress
   watch until the next game.
 - Shared ban lists for linked servers (both off by default): `ban_share`
   sends your account and device bans to your list on the site, and the

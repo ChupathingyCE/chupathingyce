@@ -733,7 +733,7 @@ game, over `host_rules` (bit 19):
   the host allows it. An older Chupathingy host that takes team changes
   but says no rules is asked as before.
 - **Late joiners wait** (0x04, off by default: a player's host's
-  `network.late_join_wait`, a dedicated server's `late_join_wait`). A
+  `network.late_join_hold`, a dedicated server's `late_join_hold`). A
   player who joins a game in progress doesn't spawn until the next game
   starts. They watch through the follow camera (LB and RB switch who),
   whatever their own `display.follow_camera` says, with "Waiting for the
@@ -2045,7 +2045,7 @@ Optional and outbound: the server dials the site; no port is opened.
 
 7. Newer servers add to the poll (an older site ignores them, an older
    server sends none, and the site's answer keeps its fields):
-   - `status.locked` and `status.late_join_wait` (booleans);
+   - `status.locked` and `status.late_join_hold` (booleans);
    - `reports`: the reports taken since the last poll the site
      acknowledged, at most 20 a poll, each `{"ref", "time", "reason",
      "target": {"name", "handle", "account"}, "reporter": {"name",

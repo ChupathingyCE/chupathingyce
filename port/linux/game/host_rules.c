@@ -44,8 +44,8 @@ static struct
 	boolean player_names;
 	boolean follow_camera_set;
 	boolean follow_camera;
-	boolean late_join_wait_set;
-	boolean late_join_wait;
+	boolean late_join_hold_set;
+	boolean late_join_hold;
 	/* (the host's, any host's) */
 	boolean joins_locked;
 } host_rules;
@@ -62,10 +62,10 @@ void host_rules_set_follow_camera(boolean allowed)
 	host_rules.follow_camera = allowed ? TRUE : FALSE;
 }
 
-void host_rules_set_late_join_wait(boolean wait)
+void host_rules_set_late_join_hold(boolean wait)
 {
-	host_rules.late_join_wait_set = TRUE;
-	host_rules.late_join_wait = wait ? TRUE : FALSE;
+	host_rules.late_join_hold_set = TRUE;
+	host_rules.late_join_hold = wait ? TRUE : FALSE;
 }
 
 void host_rules_set_joins_locked(boolean locked)
@@ -83,11 +83,11 @@ int host_rules_joins_locked_now(void)
 	return host_rules.joins_locked ? 1 : 0;
 }
 
-boolean host_rules_host_late_join_wait(void)
+boolean host_rules_host_late_join_hold(void)
 {
-	if (host_rules.late_join_wait_set)
-		return host_rules.late_join_wait;
-	return config_boolean("network.late_join_wait") ? TRUE : FALSE;
+	if (host_rules.late_join_hold_set)
+		return host_rules.late_join_hold;
+	return config_boolean("network.late_join_hold") ? TRUE : FALSE;
 }
 
 boolean host_rules_host_follow_camera(void)
@@ -149,17 +149,17 @@ boolean host_rules_follow_camera(void)
 	return FALSE;
 }
 
-boolean host_rules_late_join_wait(void)
+boolean host_rules_late_join_hold(void)
 {
 #ifdef HOST_RULES_DELTA
 	struct delta_wire_host_rules rules;
 #endif
 
 	if (!host_rules_joined())
-		return host_rules_host_late_join_wait();
+		return host_rules_host_late_join_hold();
 #ifdef HOST_RULES_DELTA
 	if (host_rules_heard(&rules))
-		return (rules.flags & DELTA_WIRE_HOST_LATE_JOIN_WAIT) != 0;
+		return (rules.flags & DELTA_WIRE_HOST_LATE_JOIN_HOLD) != 0;
 #endif
 	return FALSE;
 }
@@ -203,8 +203,8 @@ void host_rules_update(void)
 		rules.flags |= DELTA_WIRE_HOST_PLAYER_NAMES;
 	if (host_rules_host_follow_camera())
 		rules.flags |= DELTA_WIRE_HOST_FOLLOW_CAMERA;
-	if (host_rules_host_late_join_wait())
-		rules.flags |= DELTA_WIRE_HOST_LATE_JOIN_WAIT;
+	if (host_rules_host_late_join_hold())
+		rules.flags |= DELTA_WIRE_HOST_LATE_JOIN_HOLD;
 	if (host_rules.joins_locked)
 		rules.flags |= DELTA_WIRE_HOST_JOINS_LOCKED;
 	rules.team_change = (unsigned char)(policy == _team_change_allow ? DELTA_WIRE_HOST_TEAM_CHANGE_ALLOW :
