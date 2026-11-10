@@ -1860,11 +1860,11 @@ identity in games), 0x02 `stats` (confirm stats lines, send reports),
 0x04 `profile` (privacy and clan answers from the game), 0x08 `moderate`
 (sign in to moderation; the server still checks the role), 0x10 `social`
 (friends, presence, invites), 0x20 `devices` (approve another device's
-code, revoke another device of the account; stage B). A device enrolled
-with a player key gets all six, since the key could already do all of it
-(it opens a session that approves codes), and so does one signed in by
-code. A stage A site gave the first five. Unknown bits and flags are
-ignored. A certificate lasts 7 days on desktops and Android and 14 on
+code, revoke another device of the account; stage B). A device gets the
+first five; only one signed in by code and approved from a password
+session on the site also gets `devices`, so approving and revoking never
+pass down a chain: not a device enrolled with a player key, not one
+another device approved. Unknown bits and flags are ignored. A certificate lasts 7 days on desktops and Android and 14 on
 consoles, and the device refreshes it at half its life. The display name,
 emblem and clan aren't in it; they change, and peers fetch them as today.
 
@@ -2080,16 +2080,21 @@ never sent or shown.
 3. The player types the code in, signed in: `POST /v1/connect/claim
    {"code"}` on the site (a password session), or `POST
    /v1/identity/device/approve {"code"}` from another device with a token
-   (capability `devices`). Either takes any code `/connect` takes. The
-   answer is 202 `{"waiting": true, "handle", "previous", "confirm_seconds",
-   "device": {"name", "platform", "build"}}`, so the page can say "Windows
-   (Living room), build 0.9.1, wants to sign in as @handle". `previous` is
-   the profile the device (or its copy) counts for now, if another. A code
-   is spent when it's typed, right or not. `/v1/connect/claimed` (the page)
-   and `/v1/identity/device/approved` (a device) say how it went:
-   `{"state": "waiting" | "connected" | "declined" | "expired", ...}`.
+   (capability `devices`). Either takes any code `/connect` takes. A
+   device's code is shown first: 202 `{"shown": true, "handle",
+   "confirm_seconds", "device": {"name", "platform", "build"}, "warning":
+   "Only enter a code shown on your own screen."}`, so the page can say
+   "Windows (Living room), build 0.9.1, wants to sign in as @handle". Then
+   `POST /v1/connect/approve {"approve": true | false}` (the page) or
+   `/v1/identity/device/approve {"approve": ...}` (the device) approves it
+   (202 `{"waiting": true, ...}`) or denies it (`{"state": "declined"}`: the
+   code is dead). The approver never sees which profile the device counted
+   for before. A code is spent when it's typed, right or not.
+   `/v1/connect/claimed` (the page) and `/v1/identity/device/approved` (a
+   device) say how it went: `{"state": "shown" | "waiting" | "connected" |
+   "declined" | "expired", ...}`.
 4. The device polls `POST /v1/identity/device/poll {"poll_token"}` every
-   `interval` seconds: `{"state": "pending"}`, `{"state": "confirm",
+   `interval` seconds: `{"state": "pending"}` (shown too), `{"state": "confirm",
    "handle", "previous"}`, `{"state": "connected", "handle"}`, or
    `{"state": "declined" | "expired"}` (an unknown token too).
 5. On "confirm" it asks its player (A to sign in, B not), then `POST
@@ -2100,7 +2105,8 @@ never sent or shown.
    with a certificate (the certificate answer, plus `"state":
    "connected"`), a no with `{"state": "declined"}`. The player has 120
    seconds after the approval to answer. Asked again after a lost answer,
-   a yes gets a new certificate and nothing is done twice.
+   a yes gets a new certificate and nothing is done twice, unless the
+   device was signed out, revoked or locked since.
 
 What signing in does on the site:
 - A device enrolled with its player key (stage A) brings its copy: the
@@ -2115,8 +2121,10 @@ What signing in does on the site:
   one can't: `/device/start` answers 403 `{"revoked": true}`, and the
   device makes a new key, once.
 
-Limits: 10 codes an hour a device key and an address; 5 answers a code
-and 30 an address in 10 minutes; a code lives 10 minutes and is good once;
+Limits: 10 codes an hour an address, and a device key (counted once its
+signature checks); 5 answers a code and 30 an address in 10 minutes; 400
+polls a code and 2000 an address in 10 minutes (a code is counted only
+when there is one); a code lives 10 minutes and is good once;
 codes, poll tokens and approvals are kept in memory only, as hashes. 400,
 401 (`nonce`, `signature`), 429 and 503 as for the other identity paths.
 `/v1/connect/claim`'s wrong-code counts cover these codes too.
@@ -2143,19 +2151,24 @@ and no key.
 | `POST /v1/session/devices {}` | The profile page, signed in (a page the game opened may read it) | `{"devices", "legacy_key"}` |
 | `POST /v1/session/devices/revoke {"device_id"}` | The page, a password session | `{"ok", "devices"}`; 404 for another account's |
 | `POST /v1/session/devices/rename {"device_id", "name"}` | The page, a password session | `{"ok", "devices"}` |
-| `POST /v1/session/devices/signout_all {"auth", "code"?}` | The page, with the password (and the two-step code) | `{"ok", "revoked", "devices"}`: every device revoked |
+| `POST /v1/session/devices/signout_all {"auth", "code"?}` | The page, with the password (and the two-step code) | `{"ok", "revoked", "devices"}`: every device revoked, and every other session of the account ended |
 | `POST /v1/identity/devices {}` | A device's token (`profile`) | `{"devices"}` |
-| `POST /v1/identity/device/revoke {"device_id"}` | A device's token (`devices`) | `{"ok", "devices"}`; 409 `{"this": true}` for itself (it signs out instead) |
+| `POST /v1/identity/device/revoke {"device_id"}` | A device's token (`devices`) | `{"ok", "devices"}`; 409 `{"this": true}` for itself (it signs out instead); 404 for a console (the site revokes those) |
 | `POST /v1/game/profile` | As before | `"devices"` beside `"copies"`, without `"build"`, at most 16, cut to fit like the rest |
 
 - **Revoke** stops the device's tokens at once, refuses its refreshes, and
   puts it on the revocation list (CREV) until its last certificate has run
   out. Its copy's link goes too, so a computer's or console's games stop
   counting for the profile (the profile's own player ID has no link to
-  take). Every device it approved by code goes with it, and theirs: the
-  site keeps who approved each device (`approved_by`), consoles approved
-  from a device included, so a stolen device leaves none behind. Revoking
-  doesn't turn the player key back on (stage C, below).
+  take). A player key it was enrolled with is retired: refused for every
+  new thing whatever the account's switch says (stats claims still go),
+  and its moderator key leaves the servers' role lists. The site sessions
+  it opened (`/v1/link` with its token) end. Every device it approved by
+  code goes with it, and theirs: the site keeps who approved each device
+  (`approved_by`), consoles approved from a device included, so a stolen
+  device leaves none behind. Revoked from another device rather than the
+  site, a console approved down the chain is revoked but stays linked.
+  Revoking doesn't turn the player key back on (stage C, below).
 - **Consoles.** A console linked by its own Link Profile
   (`/v1/console/link/*`, "Link Profile on a console") is in the list as a
   device with `"console": true`, its device ID made from its console key as
@@ -2171,7 +2184,8 @@ and no key.
   from DELTA's SETTINGS: this device offers SIGN OUT, another device REVOKE
   (asked first). DELTA's SETTINGS (and X in the list) also have LINK A
   DEVICE, where the player enters another device's code with the d-pad: 8
-  characters, or an older copy's 6-character Link Profile code.
+  characters, or an older copy's 6-character Link Profile code. A device's
+  code shows the device and the warning first, then APPROVE or DENY.
   DELTA's SIGN IN shows a Quick Connect code right in its row, and A there
   answers the question; Link Profile's dialog shows the same code with its
   QR code.
@@ -2182,11 +2196,19 @@ and no key.
 **Stage C: the player key winds down.** Once every copy of an account has
 its own device, the account's player key stops doing new things. It never
 stops a device, and nobody is locked out:
-- A copy counts as moved once a device was ever enrolled with its key (a
-  later revoke doesn't count it back), or it is a console in the list. It
-  doesn't if its key is also seen playing on a console (an identity file),
-  and an account for which an Xbox identity file was made keeps its key on.
-  An account with one copy not moved keeps its key.
+- Counted per install, not per key. A copy counts as moved once a device
+  was ever enrolled with its key or brought it by code (kept for good, past
+  any purge; a later revoke doesn't count it back), or it is a console in
+  the list. It still counts as on the key while a game used its key after
+  it moved (a request the site took, a minute or more after), within the
+  last 30 days: another install of the same key. A request refused for the
+  key being off isn't counted, so off stays off. Its key in use on a
+  console counts it as on the key too, but only as signed console claims
+  (`/v1/claim_signed`, `/v1/console/claim`) and console links say so,
+  never a self-reported platform; and an account for which an Xbox
+  identity file was made keeps its key on. A profile's own player ID whose
+  key no game ever used (a profile made on the site) isn't waited for. An
+  account with one copy not moved keeps its key.
 - With the key off, `/v1/game/*`, `/v1/link`, `/v1/connect/start`,
   `/v1/presence`, `/v1/social/*` and enrolling a new device with that key
   are refused: 403 `{"error": "Update Chupathingy to keep using your
@@ -2198,12 +2220,17 @@ stops a device, and nobody is locked out:
   two-step sign-in): automatic (above, the default), always on, or off now.
   The answer and `/v1/session/devices` carry `"legacy_key": {"setting",
   "on", "waiting"}` (copies not moved yet). The profile page has it under
-  Account and security, and the admin page shows it.
+  Account and security, and the admin page shows it. Any change that turns
+  the key back on is mailed.
 - The profile page no longer offers Install in game, Copy key link or
   Download for Xbox. The `halo://key/` handler, `/v1/session/console_key`
   and the Xbox's identity file keep working for whoever has one.
 - A client with a certificate never sends the key to a site that speaks
-  identity ("How a client falls back", step 3).
+  identity ("How a client falls back", step 3). One the site answers 403
+  `revoked` or `signed_out` counts itself signed out, on disk, and sends
+  neither key nor token until it signs in again by code. Sign-in by code
+  falls back to the old Link Profile with the key only when the site's
+  `/v1/identity/nonce` is a 404.
 
 **More than one account on a copy.** Each Halo profile on a copy may sign
 in to its own Delta profile. A copy has one device key per account it signs
