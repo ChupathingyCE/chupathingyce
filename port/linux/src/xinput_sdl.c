@@ -46,6 +46,9 @@ drive the controller.
 #ifdef HALO_GUIDE
 #include "guide_input.h"
 #endif
+#ifdef HALO_CAPTURE
+#include "capture.h"
+#endif
 #include "../game/network_rules.h"
 
 #include <SDL3/SDL.h>
@@ -196,11 +199,15 @@ int halo_linux_mouse_aiming(short gamepad_index)
 	/* the host's policy (network.block_mouse_aim_assist, network_distributed.c)
 	turns the magnetism off for whoever aims with the mouse, whatever their
 	own setting: the mouse aims unless the right stick (or a touch) did last,
-	and no stick aiming at all is the mouse's */
+	and no stick aiming at all is the mouse's, except before anything aimed
+	with a controller connected (a pad player yet to touch the right stick) */
 	if (network_aim_assist_blocked())
 	{
+		int gamepad_connected = SDL_HasGamepad() ? 1 : 0;
+
 		pthread_mutex_lock(&mouse_lock);
-		aiming = network_rules_mouse_is_aim_device(mouse_aimed_ms, stick_aimed_ms, touch_aimed_ms);
+		aiming = network_rules_mouse_is_aim_device(mouse_aimed_ms, stick_aimed_ms, touch_aimed_ms,
+			gamepad_connected);
 		pthread_mutex_unlock(&mouse_lock);
 		return aiming;
 	}
@@ -550,6 +557,67 @@ static void guide_asks(const struct platform_input_state *input, SDL_Gamepad *ga
 	}
 }
 
+#ifdef HALO_CAPTURE
+/* controls.screenshot's and controls.clip's keys, read again when
+config.toml changes (-1: none) */
+static int capture_key(int clip)
+{
+	static unsigned long read_at = (unsigned long)-1;
+	static int keys[2] = { -1, -1 };
+
+	if (read_at != config_changes())
+	{
+		int index;
+
+		read_at = config_changes();
+		for (index = 0; index < 2; index++)
+		{
+			keys[index] = halo_input_from_name(config_string(index ? "controls.clip" : "controls.screenshot"));
+			if (keys[index] < 0 || keys[index] >= SDL_SCANCODE_COUNT)
+				keys[index] = -1;
+		}
+	}
+	return keys[clip ? 1 : 0];
+}
+
+/* a screenshot or a clip asked for this poll: Print Screen or
+controls.screenshot's key, controls.clip's (neither while typing, should it
+be a letter's), or with controls.capture_buttons the first player's Share
+button or Back with the right stick pressed, and Back with the left stick
+for a clip */
+static void capture_asks(const struct platform_input_state *input, SDL_Gamepad *gamepads[], int count)
+{
+	static BOOL shot_was, clip_was;
+	int shot_key = capture_key(0), clip_key = capture_key(1), index;
+	BOOL typing = chat_typing || text_typing || console_is_active();
+	BOOL shot_down = input->keys[SDL_SCANCODE_PRINTSCREEN] || (shot_key >= 0 && input->keys[shot_key] && !typing);
+	BOOL clip_down = clip_key >= 0 && input->keys[clip_key] && !typing;
+
+	if (config_boolean("controls.capture_buttons"))
+	{
+		for (index = 0; index < count; index++)
+		{
+			SDL_Gamepad *gamepad = gamepads[index];
+			BOOL back = gamepad && SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_BACK);
+
+			if (gamepad && (SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_MISC1) ||
+				(back && SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_RIGHT_STICK))))
+			{
+				shot_down = TRUE;
+			}
+			if (back && SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_LEFT_STICK))
+				clip_down = TRUE;
+		}
+	}
+	if (shot_down && !shot_was)
+		capture_request_screenshot();
+	shot_was = shot_down;
+	if (clip_down && !clip_was)
+		capture_request_clip();
+	clip_was = clip_down;
+}
+
+#endif
 /* the keyboard, as the Guide reads it */
 static void guide_keyboard(const struct platform_input_state *input, XINPUT_GAMEPAD *pad)
 {
@@ -1049,6 +1117,23 @@ static void test_input_menu_pointer(void)
 		return;
 	memcpy(text, token, length);
 	text[length] = 0;
+#ifdef HALO_CAPTURE
+	/* (and capture, a player's screenshot, and clip, a clip) */
+	if (!strcmp(text, "capture"))
+	{
+		if (step_done != step)
+			capture_request_screenshot();
+		step_done = step;
+		return;
+	}
+	if (!strcmp(text, "clip"))
+	{
+		if (step_done != step)
+			capture_request_clip();
+		step_done = step;
+		return;
+	}
+#endif
 	if (!strcmp(text, "shot"))
 	{
 		if (step_done != step)
@@ -2079,6 +2164,9 @@ DWORD WINAPI XInputGetState(HANDLE device, PXINPUT_STATE state)
 					own[own_count++] = port_gamepad(gamepads, count, other);
 			}
 			guide_asks(&input, own, own_count, &state->Gamepad);
+#ifdef HALO_CAPTURE
+			capture_asks(&input, own, own_count);
+#endif
 		}
 		guide_take(&state->Gamepad);
 #endif

@@ -394,6 +394,11 @@ symbols in this file:
 #include "halo_map_families.h" /* port: map_family_from_wire_name */
 #include "halo_join_reasons.h" /* port: why a game can't be joined, as the game lists say it */
 
+#if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_DELTA_PROFILE)
+/* port: port/linux/game/profile_names.c's */
+boolean profile_names_local_game_name(long local_player, wchar_t *name, long size);
+#endif
+
 /* ---------- constants */
 
 enum
@@ -1615,6 +1620,12 @@ boolean network_game_client_add_player(
 	player.machine_index = (char)client->machine_index;
 	ustrncpy(player.name, profile.player_name, NETWORK_PLAYER_NAME_LENGTH - 1);
 	player.name[NETWORK_PLAYER_NAME_LENGTH - 1] = 0;
+#if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_DELTA_PROFILE)
+	/* port: a player whose Halo profile is linked to a Delta profile plays
+	under its verified handle, whatever the Halo profile is named (other
+	players see it as a plain game name) */
+	profile_names_local_game_name(local_player_index, player.name, NETWORK_PLAYER_NAME_LENGTH);
+#endif
 	player.primary_color_index = profile.primary_color_index;
 	player.icon_index = NONE;
 	player.team_index = NONE;
