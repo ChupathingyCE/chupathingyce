@@ -3625,7 +3625,7 @@ static void render_party(void)
 			ui_style_row(x, action_y, width, OPTION_HEIGHT, on);
 			ui_overlay_text(UI_FONT_MENU, 10.0f, x + 10, action_y + 7, UI_ALIGN_LEFT, color, party_action_label(action));
 			if (value)
-				ui_overlay_text(UI_FONT_MENU, 10.0f, x + width - 10, action_y + 7, UI_ALIGN_RIGHT, COLOR_NAME, value);
+				ui_overlay_text(UI_FONT_MENU, 10.0f, x + width - 10, action_y + 7, UI_ALIGN_RIGHT, ui_style_color(UI_COLOR_NAME), value);
 			target_add(x, action_y, x + width, action_y + OPTION_HEIGHT, _target_row, index);
 			action_y += OPTION_HEIGHT + OPTION_GAP;
 		}
