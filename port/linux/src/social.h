@@ -138,6 +138,8 @@ struct social_poll
 	int failures;
 	/* asked for sooner (social_poll_soon) */
 	int soon;
+	/* in a party: the menus' interval is SOCIAL_POLL_PARTY */
+	int party;
 };
 
 /* whether it is time to poll: signed in to Delta, and the interval of
@@ -215,6 +217,118 @@ struct social_invite
 	struct social_game game;
 };
 
+/* ---------- parties (the site's /v1/party, and the party in the state):
+up to SOCIAL_PARTY_LARGEST players who follow their leader into games */
+
+enum
+{
+	SOCIAL_PARTY_LARGEST = 8,
+	SOCIAL_PARTY_ID_SIZE = 20,
+	/* a code's 6 letters and digits (no 0, O, 1, I or L) */
+	SOCIAL_PARTY_CODE_LENGTH = 6,
+	SOCIAL_PARTY_CODE_SIZE = 8,
+	SOCIAL_PARTY_MEMBER_ID_SIZE = 12,
+	/* 16 hexadecimal digits: the 8 bytes the members tell their game's host
+	(Delta Peer's party_teams) */
+	SOCIAL_PARTY_TAG_SIZE = 20,
+	SOCIAL_PARTY_PLATFORM_SIZE = 16,
+	SOCIAL_PARTY_RULE_SIZE = 12,
+	SOCIAL_PARTY_LINK_SIZE = 192,
+	SOCIAL_MAXIMUM_PARTY_INVITES = 8,
+	/* the leader's game offered this long before the member's copy follows */
+	SOCIAL_FOLLOW_TIME = 5000,
+	/* polled this often in the menus while in a party (the leader's go comes
+	sooner) */
+	SOCIAL_POLL_PARTY = 15000,
+};
+
+struct social_party_member
+{
+	char id[SOCIAL_PARTY_MEMBER_ID_SIZE];
+	/* their profile's name, or the game name of a copy with none */
+	char name[SOCIAL_TAG_SIZE];
+	/* "" for a copy with no profile */
+	char handle[SOCIAL_HANDLE_SIZE];
+	/* Delta's registry name ("pc_macos"; "unknown") */
+	char platform[SOCIAL_PARTY_PLATFORM_SIZE];
+	int leader;
+	int you;
+};
+
+/* the leader's game, for a member (never the leader's own) */
+struct social_party_go
+{
+	int has;
+	long long serial;
+	long long time;
+	struct social_game game;
+	/* its halo://join link, or why the member can't follow ("full") and the
+	site's words for it */
+	char join[SOCIAL_PARTY_LINK_SIZE];
+	char reason[16];
+	char error[96];
+};
+
+struct social_party
+{
+	int has;
+	char id[SOCIAL_PARTY_ID_SIZE];
+	char code[SOCIAL_PARTY_CODE_SIZE];
+	/* this player leads it */
+	int leader;
+	/* who the code lets in: "anyone", "friends" or "invite" */
+	char who_can_join[SOCIAL_PARTY_RULE_SIZE];
+	int largest;
+	int member_count;
+	struct social_party_member members[SOCIAL_PARTY_LARGEST];
+	char tag[SOCIAL_PARTY_TAG_SIZE];
+	struct social_party_go go;
+};
+
+/* a friend's invite to their party */
+struct social_party_invite
+{
+	char party[SOCIAL_PARTY_ID_SIZE];
+	char from[SOCIAL_HANDLE_SIZE];
+	char display[SOCIAL_TAG_SIZE];
+	int size;
+	long long time;
+	long long expires;
+};
+
+/* ---------- RECENT: the Delta players this player shared a game with
+(the site's, from its confirmed report lines, and those verified in games
+this run: the identity capability's roster). Only Delta profiles, by handle:
+never an OpenCE player, a name alone or an address */
+
+enum
+{
+	/* the site sends 24 at most; this run's own, as many */
+	SOCIAL_MAXIMUM_RECENT = 24,
+};
+
+struct social_recent
+{
+	char handle[SOCIAL_HANDLE_SIZE];
+	char display[SOCIAL_TAG_SIZE];
+	/* the last game shared (Unix time) and its map ("bloodgulch"; "" not
+	known) */
+	long long time;
+	char map[SOCIAL_GAME_TEXT_SIZE];
+	/* already a friend; this player's request to them waiting */
+	int is_friend;
+	int requested;
+	/* verified in a game this run (not from the site) */
+	int here;
+};
+
+/* this run's verified players, newest first */
+struct social_recent_seen
+{
+	int count;
+	struct social_recent players[SOCIAL_MAXIMUM_RECENT];
+};
+
 struct social_state
 {
 	char cursor[SOCIAL_CURSOR_SIZE];
@@ -229,6 +343,13 @@ struct social_state
 	struct social_request requests[SOCIAL_MAXIMUM_REQUESTS];
 	int invite_count;
 	struct social_invite invites[SOCIAL_MAXIMUM_INVITES];
+	/* the party this player is in (has 0: none), and invites to others */
+	struct social_party party;
+	int party_invite_count;
+	struct social_party_invite party_invites[SOCIAL_MAXIMUM_PARTY_INVITES];
+	/* RECENT as the site says, newest first */
+	int recent_count;
+	struct social_recent recent[SOCIAL_MAXIMUM_RECENT];
 };
 
 /* the name a profile shows: its display name, else its handle */
@@ -244,6 +365,21 @@ listed), "Online" or "Offline" */
 void social_friend_status(const struct social_friend *buddy, char *text, int size);
 /* how many friends are online */
 int social_online_count(const struct social_state *state);
+
+/* a player verified in this run's game noted (a valid handle; display may
+be ""), at the front of seen: once each, the oldest let go when full */
+void social_recent_note(struct social_recent_seen *seen, const char *handle, const char *display, const char *map,
+	long long time);
+/* a handle let go of seen (blocked) */
+void social_recent_forget(struct social_recent_seen *seen, const char *handle);
+/* RECENT's rows into out (most of them): this run's first, then the
+site's, each handle once, never this player's own (own_handle); "friend"
+and "requested" from the state where it knows them. Returns the count */
+int social_recent_merge(const struct social_state *state, const struct social_recent_seen *seen,
+	const char *own_handle, struct social_recent *out, int most);
+/* a recent player's line ("Blood Gulch · 2 hours ago", "In this game"),
+now in Unix time */
+void social_recent_status(const struct social_recent *player, long long now, char *text, int size);
 
 /* ---------- DELTA's CLAN: a clan's ranks as the site has them ("leader",
 "officer", "member") */
@@ -276,7 +412,8 @@ when they do not fit, or for a handle the site could not have given. The
 state asks for the profile's clan too ("clan": DELTA's CLAN, its roster
 with presence; a site from before it leaves it out) */
 int social_state_fields(char *fields, int size, const char *cursor, int limit);
-/* action: "accept", "decline", "remove" or "block" (/v1/game/friends) */
+/* action: "accept", "decline", "remove", "block" or "request"
+(/v1/game/friends) */
 int social_action_fields(char *fields, int size, const char *action, const char *handle);
 int social_join_fields(char *fields, int size, const char *handle);
 /* invite: the game's invite (social_presence_invite_valid), or "" for the
@@ -287,6 +424,85 @@ int social_invite_fields(char *fields, int size, const char *handle, const char 
 invite's (its "reason", else by status) */
 const char *social_join_refusal(const char *reason);
 const char *social_invite_refusal(const char *reason, int status);
+
+/* ---------- parties' helpers */
+
+/* a code as typed or linked ("abc-def", "halo://party/ABCDEF") in its 6
+capitals into code (SOCIAL_PARTY_CODE_SIZE): 1, or 0 if it can't be one */
+int social_party_code_clean(const char *text, char *code);
+/* a code as shown ("ABC-DEF"), and its link ("halo://party/ABCDEF") */
+void social_party_code_shown(const char *code, char *text, int size);
+int social_party_link(const char *code, char *link, int size);
+/* whether a 16-digit tag (Delta Peer's party_teams) reads as 8 bytes */
+int social_party_tag_bytes(const char *tag, unsigned char *bytes);
+/* the party's leader (NULL: none) */
+const struct social_party_member *social_party_leader(const struct social_party *party);
+/* "WHO CAN JOIN"'s value as shown (ANYONE, FRIENDS, INVITE ONLY), and the
+next one (A or right; back with a direction below 0) */
+const char *social_party_rule_shown(const char *rule);
+const char *social_party_rule_next(const char *rule, int direction);
+
+/* /v1/party's request members besides the key: an action ("create",
+"invite" a handle, "accept" or "decline" a party ID, "join" a code,
+"leave", "kick" or "lead" a member ID, "rule" (who can join), "go" an
+invite), with this copy's name and platform; -1 when something is not
+what the site could take, or does not fit */
+int social_party_fields(char *fields, int size, const char *action, const char *value, const char *name,
+	const char *platform);
+/* the line a refusal shows (/v1/party's "reason", else by status) */
+const char *social_party_refusal(const char *reason, int status);
+
+/* what a member's copy does with the leader's game (social_follow_decide) */
+enum
+{
+	/* nothing: no go, the leader's own, one seen already */
+	SOCIAL_FOLLOW_NONE = 0,
+	/* offer it: "Following Sarge to Blood Gulch", B to stay */
+	SOCIAL_FOLLOW_OFFER,
+	/* can't: a line why (social_follow_reason) */
+	SOCIAL_FOLLOW_CANT,
+	/* in that game already: seen, nothing shown */
+	SOCIAL_FOLLOW_THERE,
+};
+
+struct social_follow_inputs
+{
+	/* the go's serial last acted on (0: none) */
+	long long seen_serial;
+	/* this copy hosts a game others are in (leaving would end it) */
+	int hosting_others;
+	/* the game this copy is in now (its invite's code; "" for none) */
+	const char *current_invite;
+	/* delta.follow_leader (social_follow_mode) */
+	int mode;
+};
+
+/* delta.follow_leader: when a member's copy follows the leader. ASK (the
+default) offers it with a countdown that joins when it ends in the menus,
+and stays when it ends in a game (A joins); ALWAYS joins when it ends
+either way; NEVER offers nothing */
+enum
+{
+	SOCIAL_FOLLOW_ASK = 0,
+	SOCIAL_FOLLOW_ALWAYS,
+	SOCIAL_FOLLOW_NEVER,
+};
+
+/* the setting's text ("ask", "always", "never"; anything else: ASK) */
+int social_follow_mode(const char *text);
+/* the next setting's text after this one's (a row cycling them) */
+const char *social_follow_mode_next(const char *text);
+/* whether the offer's countdown ending joins the leader's game (else the
+member stays): never while the member is in a game unless ALWAYS */
+int social_follow_timeout_joins(int mode, int in_game);
+
+int social_follow_decide(const struct social_party *party, const struct social_follow_inputs *inputs);
+/* the one line shown when the member can't follow */
+void social_follow_reason(const struct social_party *party, const struct social_follow_inputs *inputs, char *text,
+	int size);
+/* the line of the offer ("Following Sarge to Blood Gulch"), the leader's
+name and the game's map as the status lines show it */
+void social_follow_line(const struct social_party *party, char *text, int size);
 
 /* ---------- presence: this copy tells the site it is playing
 (network.share_presence), about once a minute while it is in a Delta game

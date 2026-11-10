@@ -96,6 +96,13 @@ enum
 	DELTA_PEER_TRAITS_INTERVAL = 5000,
 	/* ... and the host's rules (HOST_RULES) */
 	DELTA_PEER_HOST_RULES_INTERVAL = 5000,
+	/* a client's party tag (PARTY_TAG): at once when it changes, and again
+	this often (a datagram lost) */
+	DELTA_PEER_PARTY_TAG_INTERVAL = 5000,
+	/* (host) a machine's party tag, once it has one, changes no sooner than
+	this after its last change: a tag is the client's word, and flipping it
+	must not keep the host rearranging teams */
+	DELTA_PEER_PARTY_TAG_HOLD = 30000,
 
 	/* moderation (milliseconds where a time): the host takes MOD_ACTION
 	from a machine at most this often (and at once); checks a machine's
@@ -127,6 +134,11 @@ enum
 	own rules space them out further: team_change.c) */
 	DELTA_PEER_TEAM_RATE = 1,
 	DELTA_PEER_TEAM_BURST = 3,
+
+	/* reports: REPORT a host takes from one machine (the host's own rules,
+	server_reports.c, take fewer still) */
+	DELTA_PEER_REPORT_RATE = 1,
+	DELTA_PEER_REPORT_BURST = 3,
 
 	/* verified names (docs/delta.md, Verified names; milliseconds where a
 	time): the host says ID_CHALLENGE this often; checks a machine's proofs
@@ -292,6 +304,10 @@ struct delta_peer_moderation_host
 	its permissions and its longest timed ban */
 	int (*machine_role)(void *context, int machine_index, const unsigned char *key, delta_u32 *permissions,
 		delta_u32 *ban_minutes);
+	/* (may be NULL: none) the actions it takes beyond the first and their
+	state, MOD_STATE's DELTA_WIRE_MOD_STATE_* (lock and unlock, joins
+	locked now); a change goes out with delta_peer_moderation_roles_changed */
+	int (*actions)(void *context);
 };
 
 /* a host's chat (the game's: delta_peer_game.c routes lines by team and
@@ -316,6 +332,20 @@ struct delta_peer_team_host
 	delta_team_result), the player's team now in team, and with too soon the
 	seconds to wait in seconds */
 	int (*request)(void *context, int machine_index, int player, int team, int *team_now, int *seconds);
+};
+
+/* a host's reports (the dedicated server's: server/src/server_reports.c); a
+host with none does not offer reports */
+struct delta_peer_report_host
+{
+	void *context;
+	/* a machine's player reports another: its answer (enum
+	delta_report_result), and in flags DELTA_WIRE_REPORT_SEND_CLIP when the
+	clip should go to the site, with the token the host made for it in
+	clip_token (DELTA_WIRE_REPORT_CLIP_TOKEN_SIZE bytes; the report it sends
+	the site names it) */
+	int (*report)(void *context, int machine_index, const struct delta_wire_report *report, int *flags,
+		unsigned char *clip_token);
 };
 
 /* the client's object sync (docs/delta.md, Object sync): what its host's
@@ -525,6 +555,9 @@ struct delta_peer_host_peer
 	/* team changes: the last TEAM_REQUEST's sequence, and their rate */
 	delta_u32 team_sequence;
 	struct delta_rate team_rate;
+	/* reports: the last REPORT's sequence, and their rate */
+	delta_u32 report_sequence;
+	struct delta_rate report_rate;
 	/* verified names: its proofs' rate, the challenge last said, and each
 	card's generation as last sent to it (0: not sent), and when every card
 	was last sent again */
@@ -536,6 +569,12 @@ struct delta_peer_host_peer
 	delta_u32 identity_challenge_time;
 	delta_u32 identity_card_sent[DELTA_PEER_IDENTITY_CARDS];
 	delta_u32 identity_cards_time;
+	/* party teams: the party tag it sent (zeros: none), and when it last
+	changed (party_tag_changes: how often, so the first one isn't held) */
+	int has_party_tag;
+	unsigned char party_tag[DELTA_WIRE_PARTY_TAG_SIZE];
+	delta_u32 party_tag_time;
+	int party_tag_changes;
 };
 
 /* the room for a signed legacy table going out or coming in: the console
@@ -670,6 +709,18 @@ struct delta_peer
 	delta_u32 team_sequence;
 	delta_u32 team_results;
 	struct delta_wire_team_result team_result;
+	/* reports: the host's (NULL: none, not offered); the client's last
+	REPORT's sequence, and the results heard (how many, the last) */
+	const struct delta_peer_report_host *report_host;
+	delta_u32 report_sequence;
+	delta_u32 report_results;
+	struct delta_wire_report_result report_result;
+
+	/* party teams: the client's party tag (zeros: none) and when it last
+	went to the host (0: not since it changed) */
+	unsigned char party_tag[DELTA_WIRE_PARTY_TAG_SIZE];
+	delta_u32 party_tag_time;
+	int party_tag_sent;
 
 	/* object sync: the client's (NULL: none, and what the host says of its
 	objects is dropped) */
@@ -863,6 +914,36 @@ delta_u32 delta_peer_client_team_request(struct delta_peer *peer, int player, in
 last in result */
 delta_u32 delta_peer_client_team_result(const struct delta_peer *peer, struct delta_wire_team_result *result);
 
+/* ---------- party teams (docs/delta.md, Party teams)
+
+A client in a party sends its host the party's tag (PARTY_TAG, both agreed
+to party_teams), as it changes and every DELTA_PEER_PARTY_TAG_INTERVAL; the
+host keeps each machine's last. What the host does with it is the game's
+(port/linux/game/party_teams.c). */
+
+/* (client) its party's tag (NULL or zeros: in no party) */
+void delta_peer_client_set_party_tag(struct delta_peer *peer, const unsigned char *tag);
+/* (host) a machine's party tag into tag: 1, or 0 for none (no session,
+not agreed, in no party) */
+int delta_peer_machine_party_tag(const struct delta_peer *peer, int machine_index, unsigned char *tag);
+
+/* ---------- reports (docs/delta.md, Reports)
+
+A client's player reports another (REPORT, both agreed to reports); the
+host checks the session, the rising sequence and its budget, then asks its
+report host, and answers REPORT_RESULT. */
+
+/* (host) its reports (NULL: none; reports is then not offered to clients
+that say HELLO from now) */
+void delta_peer_set_report_host(struct delta_peer *peer, const struct delta_peer_report_host *host);
+/* (client) whether the host agreed to reports */
+int delta_peer_client_report_ready(const struct delta_peer *peer);
+/* (client) a report (its sequence is set here): the sequence, 0 if not sent */
+delta_u32 delta_peer_client_report(struct delta_peer *peer, const struct delta_wire_report *report);
+/* (client) the results heard so far (a count that only grows), and the
+last in result */
+delta_u32 delta_peer_client_report_result(const struct delta_peer *peer, struct delta_wire_report_result *result);
+
 /* ---------- object sync (docs/delta.md, Object sync)
 
 The host's game says what the game's own messages leave out of its objects:
@@ -1044,9 +1125,23 @@ int delta_peer_game_client_state(void);
 none); the client's request for its player (the game's player list index)
 and the results heard (a count that grows, and the last) */
 void delta_peer_game_set_team_host(const struct delta_peer_team_host *host);
+/* party teams: this machine's party tag, the Guide's (NULL: in no party),
+and, on the host, a machine's (delta_peer_machine_party_tag) */
+void delta_peer_game_set_party_tag(const unsigned char *tag);
+int delta_peer_game_machine_party_tag(int machine_index, unsigned char *tag);
 int delta_peer_game_team_ready(void);
 unsigned int delta_peer_game_team_request(int player, int team);
 unsigned int delta_peer_game_team_result(struct delta_wire_team_result *result);
+
+/* reports (port/linux/game/report_player.c, server/src/server_reports.c):
+the host's report host (NULL: none); the client's report of a machine's
+player (the absolute index of their player datum), with clip when the
+reporter would attach one, and the results heard (a clip goes with the
+token the host sent back) */
+void delta_peer_game_set_report_host(const struct delta_peer_report_host *host);
+int delta_peer_game_report_ready(void);
+unsigned int delta_peer_game_report(int machine_index, int player, int reason, int clip);
+unsigned int delta_peer_game_report_result(struct delta_wire_report_result *result);
 
 /* object sync (port/linux/game/network_objects.c): the host's, the clients
 that agreed to it and what goes to them; the client's, where what its host

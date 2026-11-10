@@ -269,6 +269,19 @@ static void map_describe(const struct discord_activity_game *game, char *name, i
 		snprintf(name, (size_t)name_size, "%s", "a custom map");
 }
 
+void discord_activity_map_name(const char *map, int campaign, char *text, int size)
+{
+	struct discord_activity_game game;
+	char art[160];
+
+	if (size <= 0)
+		return;
+	memset(&game, 0, sizeof(game));
+	game.screen = campaign ? DISCORD_SCREEN_CAMPAIGN : DISCORD_SCREEN_MULTIPLAYER;
+	snprintf(game.map, sizeof(game.map), "%s", map ? map : "");
+	map_describe(&game, text, size, art, sizeof(art));
+}
+
 /* the project's buttons: its site and its Discord server */
 static void buttons(struct text *text)
 {

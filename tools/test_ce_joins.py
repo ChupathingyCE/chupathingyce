@@ -562,10 +562,17 @@ def test_server_side_off_without_the_setting():
 
 
 def test_joins_held_to_host_limits():
-    """a Custom Edition join is checked against the bans and the limit on
-    the machines of one address before it takes a seat"""
+    """a Custom Edition join is checked against the join lock, the bans and
+    the limit on the machines of one address before it takes a seat"""
     source = (ROOT / "server/src/server_ce.c").read_text(encoding="utf-8")
     join = _function(source, "static boolean join")
+    # (and none new while joins are locked: sv_lock keeps Custom Edition
+    # players out as it does Chupathingy machines; a client back for the
+    # next game was in already)
+    assert join.index("CE_PHASE_RECONNECTING") < join.index("if (host_rules_joins_locked())")
+    assert join.index("if (host_rules_joins_locked())") < join.index("network_game_client_add_named_player(")
+    locked = join[join.index("if (host_rules_joins_locked())"):]
+    assert locked.index("ce_transport_refuse(event->peer, CE_REJECT_FULL);") < locked.index("return TRUE;")
     assert join.index("network_distributed_banned(event->address, NULL)") < join.index("address_full(event->address)")
     assert join.index("address_full(event->address)") < join.index("network_game_client_add_named_player(")
     assert "network_distributed_address_full(address, others, count)" in \

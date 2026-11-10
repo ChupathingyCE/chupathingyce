@@ -60,6 +60,7 @@ with it under the lock.
 #include <time.h>
 
 #include <SDL3/SDL_stdinc.h>
+#include <SDL3/SDL_filesystem.h>
 
 /* an Xbox map pack's map's name, pack and tag (port/linux/game/map_packs.c) */
 int map_pack_listing(char const *map, char *title, int title_size, char *pack, int pack_size, char *tag, int tag_size);
@@ -281,6 +282,20 @@ static struct
 	int social_action_wanted;
 	struct browser_social_result social_result;
 	char social_join[BROWSER_INVITE_LENGTH + 16];
+
+	/* the party (browser_party_*): as the site last said and its serial;
+	the action asked for (its words), what it came to, and the name a copy
+	with no profile goes by; the leader's game to tell; a copy with no
+	profile's own polling */
+	struct social_party party;
+	int party_serial;
+	int party_action_wanted;
+	char party_action[16];
+	char party_value[96];
+	char party_name[48];
+	struct browser_social_result party_result;
+	char party_go[BROWSER_INVITE_LENGTH + 1];
+	struct social_poll party_poll;
 #endif
 
 	/* the profile this copy's games count for (browser_profile_linked): its
@@ -2680,6 +2695,9 @@ static const char *local_platform_name(void)
 the Delta major it hosts with (0: the legacy protocol alone), its platform
 key, architecture, build, capabilities and its game's machines by platform
 (counts only). A list from before them ignores them */
+/* (host_rules.c's: whether this host takes no new machines now) */
+int host_rules_joins_locked_now(void);
+
 static void host_fields(char *form, int size, const struct hosted_game *game)
 {
 	unsigned char key[8];
@@ -2702,6 +2720,9 @@ static void host_fields(char *form, int size, const struct hosted_game *game)
 		(delta_capability_disabled(_delta_capability_ping) ? 0u : 1u << _delta_capability_ping) |
 		(config_boolean("network.host_cheats") ? 1u << _delta_capability_host_cheats : 0u));
 	form_add(form, size, "capabilities", text);
+	/* (joins locked: sv_lock, a moderator's LOCK; the list shows it) */
+	if (host_rules_joins_locked_now())
+		form_add(form, size, "locked", "1");
 	if (!game->has_delta || !game->delta.delta)
 		return;
 	text[0] = 0;
@@ -3040,15 +3061,16 @@ static void parse_host(char **fields, struct browser_game *game)
 maximum_players open version age score_limit teams roster, and (as asked:
 ?fields=22) region, platform, hosting, protocol, machines, gametype,
 capabilities, an Xbox map pack's map's name, pack and tag, (?fields=23)
-the playlist, and (?fields=24) "opence_server" for an OpenCE dedicated
-server's game (a list from before them sends 19, 22 or 23) */
+the playlist, (?fields=24) "opence_server" for an OpenCE dedicated
+server's game, and (?fields=25) 1 when the host's joins are locked (a list
+from before them sends 19, 22, 23 or 24) */
 static int parse_game(char *line, struct browser_game *game)
 {
-	char *fields[24];
+	char *fields[25];
 	int count = 0;
 	char *cursor = line;
 
-	while (count < 24)
+	while (count < 25)
 	{
 		fields[count++] = cursor;
 		cursor = strchr(cursor, '\t');
@@ -3151,6 +3173,12 @@ static int parse_game(char *line, struct browser_game *game)
 		fields[23][strcspn(fields[23], "\r\n")] = 0;
 		game->opence_server = !strcmp(fields[23], "opence_server");
 	}
+	/* (then whether the host's joins are locked: sv_lock) */
+	if (count >= 25)
+	{
+		fields[24][strcspn(fields[24], "\r\n")] = 0;
+		game->joins_locked = !strcmp(fields[24], "1");
+	}
 	return 1;
 }
 
@@ -3186,7 +3214,7 @@ static void update_list(void)
 	}
 	/* (with the host's fields: a list from before them sends what it has; and
 	co-op games, which the list sends only when asked, for the lists' filter) */
-	server_url("/v1/games.txt?fields=24&coop=1", url, sizeof(url));
+	server_url("/v1/games.txt?fields=25&coop=1", url, sizeof(url));
 	status = posix_browser_request(url, NULL, NULL, response, sizeof(response), error, sizeof(error));
 	if (!p2p_hosting_invite(own, sizeof(own)))
 		own[0] = 0;
@@ -3404,7 +3432,7 @@ how many, never who. */
 #define SOCIAL_RESPONSE (256 * 1024)
 #define SOCIAL_NOT_ANSWERING "The site isn't answering."
 
-static const char *const social_action_names[] = { "accept", "decline", "remove", "block" };
+static const char *const social_action_names[] = { "accept", "decline", "remove", "block", "request" };
 
 /* (under the lock) the state changed: the Guide copies it */
 static void social_status_set(int status)
@@ -3436,12 +3464,25 @@ static void social_log(int status, const struct social_state *state)
 		platform_log("Guide: friends not loaded (the site is busy or not answering; asked again later)");
 }
 
+/* (under the lock) the party as the site says it now */
+static void party_keep(const struct social_party *party)
+{
+	if (memcmp(&browser.party, party, sizeof(*party)))
+	{
+		browser.party = *party;
+		browser.party_serial++;
+	}
+	browser.social_poll.party = party->has;
+	browser.party_poll.party = party->has;
+}
+
 /* a state read (the poll's, or a friends action's): kept */
 static void social_keep(const struct social_state *read)
 {
 	*browser.social_state = *read;
 	browser.social_serial++;
 	browser.social_status = BROWSER_SOCIAL_LOADED;
+	party_keep(&read->party);
 }
 
 static void social_action(int action, const char *handle, char *response, struct social_state *read)
@@ -3451,7 +3492,7 @@ static void social_action(int action, const char *handle, char *response, struct
 	int status, no_key, ok, parsed = 0, logged_status;
 
 	fields[0] = 0;
-	if (action >= BROWSER_SOCIAL_ACCEPT && action <= BROWSER_SOCIAL_BLOCK)
+	if (action >= BROWSER_SOCIAL_ACCEPT && action <= BROWSER_SOCIAL_REQUEST)
 	{
 		path = "/v1/game/friends";
 		ok = social_action_fields(fields, sizeof(fields), social_action_names[action], handle) >= 0;
@@ -3479,7 +3520,7 @@ static void social_action(int action, const char *handle, char *response, struct
 	}
 	response[0] = 0;
 	status = game_request(path, fields, response, SOCIAL_RESPONSE, error, sizeof(error), &no_key);
-	if (status == 200 && action <= BROWSER_SOCIAL_BLOCK)
+	if (status == 200 && action <= BROWSER_SOCIAL_REQUEST)
 		parsed = delta_profile_parse_social(response, read);
 	pthread_mutex_lock(&browser_lock);
 	logged_status = browser.social_status;
@@ -3615,6 +3656,295 @@ static void update_social(void)
 		social_log(after, read);
 }
 
+/* ---------- the Guide's party (the browser thread)
+
+An action asked for (browser_party_act), then the leader's game to tell
+(browser_party_go), go first as POST /v1/party; its answer is the party as
+it is now. A copy linked to a profile has its party from the friends' state
+as well (update_social); one with none asks /v1/party on the friends'
+schedule while it is in a party. Only this copy's key, its game name (for a
+copy with no profile) and its platform are sent; never an address. */
+
+static void update_party(void)
+{
+	static char *response;
+	static struct social_state *read;
+	static int command_line_checked;
+	char fields[320], error[256], action[16], value[96], name[48], text[96];
+	int linked, wanted, going = 0, polling = 0, status, no_key, parsed;
+
+	if (!command_line_checked)
+	{
+		char argument[256];
+		int index;
+
+		command_line_checked = 1;
+		for (index = 1; posix_command_line_argument(index, argument, sizeof(argument)); index++)
+			browser_party_link(argument);
+	}
+	pthread_mutex_lock(&browser_lock);
+	if (!browser.social_state || elapsed(browser.social_said, SOCIAL_SAID_TIMEOUT))
+	{
+		pthread_mutex_unlock(&browser_lock);
+		return;
+	}
+	linked = browser.profile_linked || (browser.game_profile_has && browser.game_profile.linked);
+	wanted = browser.party_action_wanted;
+	browser.party_action_wanted = 0;
+	snprintf(action, sizeof(action), "%s", browser.party_action);
+	snprintf(value, sizeof(value), "%s", browser.party_value);
+	snprintf(name, sizeof(name), "%s", linked ? "" : browser.party_name);
+	if (!wanted && browser.party_go[0])
+	{
+		going = 1;
+		snprintf(action, sizeof(action), "go");
+		snprintf(value, sizeof(value), "%s", browser.party_go);
+		browser.party_go[0] = 0;
+	}
+	else if (!wanted && !linked && browser.party.has)
+		polling = social_poll_due(&browser.party_poll, p2p_now(), browser.social_in_game && !browser.social_guide_open, 1);
+	pthread_mutex_unlock(&browser_lock);
+	if (!wanted && !going && !polling)
+		return;
+	if (!response)
+		response = malloc(SOCIAL_RESPONSE);
+	if (!read)
+		read = malloc(sizeof(*read));
+	if (!response || !read)
+		return;
+	if (polling)
+		action[0] = value[0] = 0;
+	if (social_party_fields(fields, sizeof(fields), action, value, name, local_platform_name()) < 0)
+	{
+		pthread_mutex_lock(&browser_lock);
+		if (wanted)
+		{
+			browser.party_result.state = BROWSER_SOCIAL_REFUSED;
+			snprintf(browser.party_result.message, sizeof(browser.party_result.message), "%s",
+				!strcmp(action, "join") ? "That isn't a party code." : "Can't do that.");
+		}
+		pthread_mutex_unlock(&browser_lock);
+		return;
+	}
+	response[0] = 0;
+	status = game_request("/v1/party", fields, response, SOCIAL_RESPONSE, error, sizeof(error), &no_key);
+	parsed = status == 200 && delta_profile_parse_party(response, read);
+	text[0] = 0;
+	if (status != 200)
+		delta_profile_parse_text(response, "reason", text, sizeof(text));
+	pthread_mutex_lock(&browser_lock);
+	if (parsed)
+		party_keep(&read->party);
+	if (polling)
+		social_poll_answer(&browser.party_poll, no_key ? 0 : status, parsed);
+	if (linked && (wanted || going))
+		social_poll_soon(&browser.social_poll);
+	if (wanted)
+	{
+		browser.party_result.state = parsed ? BROWSER_SOCIAL_DONE : BROWSER_SOCIAL_REFUSED;
+		snprintf(browser.party_result.message, sizeof(browser.party_result.message), "%s",
+			parsed ? "" : no_key || !status ? SOCIAL_NOT_ANSWERING : social_party_refusal(text, status));
+	}
+	pthread_mutex_unlock(&browser_lock);
+	if (wanted || going)
+	{
+		platform_log("Guide: party %s %s", action, parsed ? "done" : status ? "refused" : "no answer");
+	}
+}
+
+/* ---------- a report's clip (docs/delta.md, Reports)
+
+A report a linked server took with REPORT_RESULT's "send the clip": the
+clip's file goes to the site with the token the server made (the report it
+forwards names it), /v1/game/clip/start (the copy's key or device token, as
+the other /v1/game requests; 409 until the report reaches the site, asked
+again every 5 seconds for 2 minutes), then the file itself to
+/v1/game/clip/upload. One at a time; the browser thread does it. */
+
+enum
+{
+	/* the site's cap (a bigger file is never read) */
+	CLIP_MOST_BYTES = 48 * 1024 * 1024,
+};
+
+enum
+{
+	/* the site answers 409 until the report naming the token reaches it
+	(the server's next poll): asked again this often, for this long */
+	CLIP_RETRY_SECONDS = 5,
+	CLIP_WAIT_SECONDS = 120,
+};
+
+static struct
+{
+	int waiting;
+	int state;
+	char path[1024];
+	unsigned char token[16];
+	/* when it was asked for, and when the site may be asked again */
+	time_t asked;
+	time_t next_try;
+} clip_job;
+
+static void clip_done(int state)
+{
+	pthread_mutex_lock(&browser_lock);
+	clip_job.state = state;
+	clip_job.waiting = 0;
+	pthread_mutex_unlock(&browser_lock);
+}
+
+static void update_clip_upload(void)
+{
+	char path[1024], members[160], response[512], error[256], url[600], token[33], upload[80];
+	unsigned char token_bytes[16];
+	char *body, *found;
+	long length;
+	FILE *file;
+	int no_key = 0, status;
+
+	pthread_mutex_lock(&browser_lock);
+	if (!clip_job.waiting || clip_job.state != BROWSER_CLIP_SENDING || time(NULL) < clip_job.next_try)
+	{
+		pthread_mutex_unlock(&browser_lock);
+		return;
+	}
+	snprintf(path, sizeof(path), "%s", clip_job.path);
+	memcpy(token_bytes, clip_job.token, sizeof(token_bytes));
+	pthread_mutex_unlock(&browser_lock);
+	p2p_hex(token_bytes, (int)sizeof(token_bytes), token);
+	/* (its size first: the file is read only once the site takes it) */
+	file = fopen(path, "rb");
+	if (!file || fseek(file, 0, SEEK_END) || (length = ftell(file)) <= 0 || length > CLIP_MOST_BYTES)
+	{
+		if (file)
+			fclose(file);
+		clip_done(file ? BROWSER_CLIP_TOO_BIG : BROWSER_CLIP_FAILED);
+		return;
+	}
+	fclose(file);
+	snprintf(members, sizeof(members), "\"token\": \"%s\", \"size\": %ld", token, length);
+	status = site_request("/v1/game/clip/start", members, response, sizeof(response), error, sizeof(error), &no_key);
+	found = status == 200 ? strstr(response, "\"upload\"") : NULL;
+	if (found)
+		found = strchr(found + 8, '"');
+	/* (409: no report names the token yet; it comes with the server's next
+	poll. Asked again in a while, up to CLIP_WAIT_SECONDS) */
+	if (status == 409)
+	{
+		time_t now = time(NULL);
+
+		pthread_mutex_lock(&browser_lock);
+		if (now - clip_job.asked < CLIP_WAIT_SECONDS)
+		{
+			clip_job.next_try = now + CLIP_RETRY_SECONDS;
+			pthread_mutex_unlock(&browser_lock);
+			return;
+		}
+		pthread_mutex_unlock(&browser_lock);
+		platform_log("clips: the site never had the report (the server may not have sent it)");
+		clip_done(BROWSER_CLIP_FAILED);
+		return;
+	}
+	if (!found || sscanf(found + 1, "%70[A-Za-z0-9_-]", upload) != 1)
+	{
+		platform_log("clips: the site would not take the clip (HTTP %d)", status);
+		clip_done(status == 413 ? BROWSER_CLIP_TOO_BIG : status == 429 ? BROWSER_CLIP_TOO_MANY : BROWSER_CLIP_FAILED);
+		return;
+	}
+	file = fopen(path, "rb");
+	body = file ? malloc((size_t)length) : NULL;
+	if (!body || fread(body, 1, (size_t)length, file) != (size_t)length)
+	{
+		free(body);
+		if (file)
+			fclose(file);
+		clip_done(BROWSER_CLIP_FAILED);
+		return;
+	}
+	fclose(file);
+	server_url("/v1/game/clip/upload?upload=", url, sizeof(url));
+	snprintf(url + strlen(url), sizeof(url) - strlen(url), "%s", upload);
+	status = posix_browser_send(url, body, (size_t)length, "video/mp4", NULL, response, sizeof(response), error,
+		sizeof(error));
+	free(body);
+	platform_log("clips: a report's clip sent (%ld bytes): HTTP %d", length, status);
+	clip_done(status == 200 ? BROWSER_CLIP_SENT : BROWSER_CLIP_FAILED);
+}
+
+int browser_clip_upload(const char *path, const unsigned char *token)
+{
+	int ok = 0;
+
+	pthread_mutex_lock(&browser_lock);
+	if (!clip_job.waiting && path && path[0] && strlen(path) < sizeof(clip_job.path))
+	{
+		snprintf(clip_job.path, sizeof(clip_job.path), "%s", path);
+		memcpy(clip_job.token, token, sizeof(clip_job.token));
+		clip_job.waiting = 1;
+		clip_job.state = BROWSER_CLIP_SENDING;
+		/* (the report rides the server's next poll: the first ask waits a
+		moment for it) */
+		clip_job.asked = time(NULL);
+		clip_job.next_try = clip_job.asked + CLIP_RETRY_SECONDS;
+		ok = 1;
+	}
+	pthread_mutex_unlock(&browser_lock);
+	return ok;
+}
+
+int browser_clips_list(char paths[][512], char names[][48], int most)
+{
+	char folder[1024];
+	char **found;
+	long long times[16];
+	int count = 0, total = 0, index;
+	const char *root = platform_data_root();
+
+	if (most > 16)
+		most = 16;
+	snprintf(folder, sizeof(folder), "%s%sclips", root ? root : "", root && root[0] ? "/" : "");
+	found = SDL_GlobDirectory(folder, "*.mp4", 0, &total);
+	/* (the newest first) */
+	for (index = 0; found && index < total; index++)
+	{
+		SDL_PathInfo info;
+		char path[512];
+		int at;
+
+		snprintf(path, sizeof(path), "%s/%s", folder, found[index]);
+		if (!SDL_GetPathInfo(path, &info) || info.type != SDL_PATHTYPE_FILE || info.size <= 0 ||
+			info.size > CLIP_MOST_BYTES)
+		{
+			continue;
+		}
+		for (at = count; at > 0 && times[at - 1] < (long long)info.modify_time; at--)
+			;
+		if (at >= most)
+			continue;
+		if (count < most)
+			count++;
+		memmove(&times[at + 1], &times[at], (size_t)(count - 1 - at) * sizeof(times[0]));
+		memmove(paths[at + 1], paths[at], (size_t)(count - 1 - at) * sizeof(paths[0]));
+		memmove(names[at + 1], names[at], (size_t)(count - 1 - at) * sizeof(names[0]));
+		times[at] = (long long)info.modify_time;
+		snprintf(paths[at], 512, "%s", path);
+		snprintf(names[at], 48, "%s", found[index]);
+	}
+	SDL_free(found);
+	return count;
+}
+
+int browser_clip_state(void)
+{
+	int state;
+
+	pthread_mutex_lock(&browser_lock);
+	state = clip_job.state;
+	pthread_mutex_unlock(&browser_lock);
+	return state;
+}
+
 static void *browser_thread(void *unused)
 {
 	(void)unused;
@@ -3642,10 +3972,12 @@ static void *browser_thread(void *unused)
 #ifndef HALO_CONSOLE_NO_GUIDE
 			update_presence();
 			update_social();
+			update_party();
 #endif
 			update_cards();
 			update_list();
 			update_anchors();
+			update_clip_upload();
 		}
 		Sleep(THREAD_INTERVAL);
 	}
@@ -4643,6 +4975,96 @@ void browser_social_result(struct browser_social_result *result)
 	pthread_mutex_unlock(&browser_lock);
 }
 
+void browser_party_get(struct social_party *party, int *serial)
+{
+	pthread_mutex_lock(&browser_lock);
+	if (*serial != browser.party_serial)
+	{
+		*party = browser.party;
+		*serial = browser.party_serial;
+	}
+	pthread_mutex_unlock(&browser_lock);
+}
+
+int browser_party_act(const char *action, const char *value, const char *name)
+{
+	int taken = 0;
+
+	if (!action || strlen(action) >= sizeof(browser.party_action) || (value && strlen(value) >= sizeof(browser.party_value)))
+		return 0;
+	pthread_once(&browser_once, start_thread);
+	pthread_mutex_lock(&browser_lock);
+	if (browser.party_result.state != BROWSER_SOCIAL_BUSY)
+	{
+		browser.party_result.serial++;
+		browser.party_result.state = BROWSER_SOCIAL_BUSY;
+		browser.party_result.action = 0;
+		browser.party_result.message[0] = 0;
+		snprintf(browser.party_action, sizeof(browser.party_action), "%s", action);
+		snprintf(browser.party_value, sizeof(browser.party_value), "%s", value ? value : "");
+		if (name && name[0])
+			snprintf(browser.party_name, sizeof(browser.party_name), "%s", name);
+		browser.party_action_wanted = 1;
+		taken = 1;
+	}
+	pthread_mutex_unlock(&browser_lock);
+	return taken;
+}
+
+void browser_party_result(struct browser_social_result *result)
+{
+	pthread_mutex_lock(&browser_lock);
+	*result = browser.party_result;
+	pthread_mutex_unlock(&browser_lock);
+}
+
+void browser_party_go(const char *invite)
+{
+	if (!social_presence_invite_valid(invite))
+		return;
+	pthread_once(&browser_once, start_thread);
+	pthread_mutex_lock(&browser_lock);
+	snprintf(browser.party_go, sizeof(browser.party_go), "%s", invite);
+	pthread_mutex_unlock(&browser_lock);
+}
+
+/* a party's link waiting for the player's word (guide.c asks), under its
+own lock: the link comes from the p2p thread too, which holds p2p_lock */
+static pthread_mutex_t party_link_lock = PTHREAD_MUTEX_INITIALIZER;
+static char party_link_code[SOCIAL_PARTY_CODE_SIZE];
+
+int browser_party_link(const char *text)
+{
+	char code[SOCIAL_PARTY_CODE_SIZE];
+
+	if (!text || SDL_strncasecmp(text, "halo://party/", 13))
+		return 0;
+	if (!social_party_code_clean(text, code))
+	{
+		platform_log("Guide: that party link has no party code");
+		return 1;
+	}
+	/* (never joined unseen: the Guide asks first, guide.c) */
+	platform_log("Guide: a party link, waiting for the player");
+	pthread_mutex_lock(&party_link_lock);
+	snprintf(party_link_code, sizeof(party_link_code), "%s", code);
+	pthread_mutex_unlock(&party_link_lock);
+	return 1;
+}
+
+int browser_party_take_link(char *code, int size)
+{
+	int taken;
+
+	pthread_mutex_lock(&party_link_lock);
+	taken = party_link_code[0] != 0;
+	if (taken)
+		snprintf(code, (size_t)size, "%s", party_link_code);
+	party_link_code[0] = 0;
+	pthread_mutex_unlock(&party_link_lock);
+	return taken;
+}
+
 int browser_social_take_join(char *link, int size)
 {
 	int taken;
@@ -4874,6 +5296,27 @@ int browser_player_card(const char *player_id, struct delta_profile_card *card)
 	}
 	pthread_mutex_unlock(&browser_lock);
 	return known;
+}
+
+/* any short text (a link) as a QR code: its size, 0 if it doesn't fit */
+int browser_text_qr(const char *text, unsigned char *modules)
+{
+	unsigned char qr[qrcodegen_BUFFER_LEN_FOR_VERSION(CONNECT_QR_VERSION)];
+	unsigned char work[qrcodegen_BUFFER_LEN_FOR_VERSION(CONNECT_QR_VERSION)];
+	int size, x, y;
+
+	if (!text || !text[0] || !qrcodegen_encodeText(text, work, qr, qrcodegen_Ecc_MEDIUM, qrcodegen_VERSION_MIN,
+		CONNECT_QR_VERSION, qrcodegen_Mask_AUTO, true))
+	{
+		return 0;
+	}
+	size = qrcodegen_getSize(qr);
+	for (y = 0; y < size; y++)
+	{
+		for (x = 0; x < size; x++)
+			modules[y * size + x] = qrcodegen_getModule(qr, x, y) ? 1 : 0;
+	}
+	return size;
 }
 
 /* a page of the site, as a player types it, and as a QR code */
