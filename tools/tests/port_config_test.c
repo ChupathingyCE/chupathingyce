@@ -11,6 +11,8 @@ the C library (the test's SDL3/SDL.h and platform.h declare them).
 	port_config_test pending                 prints "pending=<count>" and the
 	                                         changes the player would be asked about
 	port_config_test answer <new|keep>       config_new_defaults_answer
+	port_config_test duplicates              a setting or environment variable
+	                                         named twice ("duplicates=none")
 */
 
 #include "platform.h"
@@ -182,6 +184,16 @@ int main(int argc, char **argv)
 			wait = (now.tv_sec - begin.tv_sec) * 1e3 + (now.tv_nsec - begin.tv_nsec) / 1e6;
 		} while (config_changes() == first && wait < 5000.0);
 		printf("follow_ms=%.0f moved=%d\n", wait, config_changes() != first);
+		return 0;
+	}
+	else if (argc >= 2 && !strcmp(argv[1], "duplicates"))
+	{
+		char name[128];
+
+		if (config_duplicate_setting(name, sizeof(name)))
+			printf("duplicate=%s\n", name);
+		else
+			printf("duplicates=none\n");
 		return 0;
 	}
 	else if (argc >= 3 && !strcmp(argv[1], "answer"))

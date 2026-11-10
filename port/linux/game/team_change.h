@@ -40,6 +40,10 @@ list to a team (0 red, 1 blue), whatever the rule: enum delta_team_result,
 and what happened in text */
 int team_change_move(long list_index, short team, char *text, int size);
 
+/* (the host's, party_teams.c) a player who has no unit now (waiting to
+spawn) put on a team, whatever the rule: TRUE if so */
+boolean team_change_party_move(long player_index, short team);
+
 /* (the host's, from game_engine_player_killed) whether the player's death
 is a team change's (nobody's kill, nothing counted, no penalty); and, for
 every death, the team change waiting for it made */

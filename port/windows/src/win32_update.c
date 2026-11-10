@@ -269,3 +269,36 @@ int update_launch_with(const char *path, const char *argument)
 	CloseHandle(process.hProcess);
 	return 1;
 }
+
+int update_windows_runs_64bit(void)
+{
+#ifdef _WIN64
+	return 1;
+#else
+	typedef BOOL (WINAPI *is_wow64_process2_proc)(HANDLE process, USHORT *process_machine, USHORT *native_machine);
+	typedef BOOL (WINAPI *is_wow64_process_proc)(HANDLE process, BOOL *wow64);
+	HMODULE kernel = GetModuleHandleW(L"kernel32.dll");
+	is_wow64_process2_proc is_wow64_process2;
+	is_wow64_process_proc is_wow64_process;
+
+	if (!kernel)
+		return 0;
+	/* (Windows 10 1511 and later: the processor's own kind, so ARM64
+	Windows, whose x64 emulation not every version has, is left out) */
+	is_wow64_process2 = (is_wow64_process2_proc)(void *)GetProcAddress(kernel, "IsWow64Process2");
+	if (is_wow64_process2)
+	{
+		USHORT process_machine = 0, native_machine = 0;
+
+		return is_wow64_process2(GetCurrentProcess(), &process_machine, &native_machine) &&
+			native_machine == IMAGE_FILE_MACHINE_AMD64;
+	}
+	/* (older Windows: a 32-bit program under WOW64 is on x64 Windows) */
+	is_wow64_process = (is_wow64_process_proc)(void *)GetProcAddress(kernel, "IsWow64Process");
+	{
+		BOOL wow64 = FALSE;
+
+		return is_wow64_process && is_wow64_process(GetCurrentProcess(), &wow64) && wow64;
+	}
+#endif
+}
