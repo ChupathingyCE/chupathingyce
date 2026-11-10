@@ -390,6 +390,12 @@ SDL_FunctionPointer SDL_GL_GetProcAddress(const char *name)
 	return NULL;
 }
 
+bool SDL_GL_ExtensionSupported(const char *extension)
+{
+	(void)extension;
+	return false;
+}
+
 SDL_AudioDeviceID *SDL_GetAudioPlaybackDevices(int *count)
 {
 	if (count)
