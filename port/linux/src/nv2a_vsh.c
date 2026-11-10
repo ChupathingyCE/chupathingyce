@@ -362,14 +362,8 @@ static const char shader_prologue[] =
 	"	int z = int(p) >> 22;\n"
 	"	return vec4(float(x) / 1023.0, float(y) / 1023.0, float(z) / 511.0, 1.0);\n"
 	"}\n"
-	/* a component that is not a number, or is infinite, made 0, by its bits
-	(a driver's fast math may take a float comparison to be true). The NV2A
-	made none, and a GPU draws one as anything: black, white or blocks */
-	"vec4 nv2a_finite(vec4 v)\n"
-	"{\n"
-	"	uvec4 exponent = floatBitsToUint(v) & uvec4(0x7f800000u);\n"
-	"	return mix(v, vec4(0.0), equal(exponent, uvec4(0x7f800000u)));\n"
-	"}\n"
+	/* NV2A_FINITE (nv2a_psh.c's too) */
+	NV2A_FINITE
 	"vec4 nv2a_rcc(float x)\n"
 	"{\n"
 	"	float r = 1.0 / x;\n"
@@ -597,7 +591,7 @@ char *nv2a_vertex_shader_to_glsl(const DWORD *instructions, unsigned long instru
 		"\tgl_Position.z = 2.0 * gl_Position.z - gl_Position.w;\n"
 #endif
 		"\tgl_PointSize = oPts.x;\n"
-		/* (the colors, coordinates and fog finite: nv2a_finite) */
+		/* (no color, coordinate or fog not a number: nv2a_finite) */
 		"\txD0 = clamp(nv2a_finite(oD0), 0.0, 1.0);\n"
 		"\txD1 = clamp(nv2a_finite(oD1), 0.0, 1.0);\n"
 		"\txB0 = clamp(nv2a_finite(oB0), 0.0, 1.0);\n"

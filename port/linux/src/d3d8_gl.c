@@ -2254,26 +2254,26 @@ serial, which then took only the checkpoint's registers). */
 static unsigned long long constants_checkpoint_serial;
 static unsigned long constants_checkpoint_first = XGPU_VERTEX_CONSTANT_COUNT, constants_checkpoint_last;
 
-/* A constant's component that is not a number, or is infinite, made 0. A GPU
-draws one as anything it likes (black, white, blocks), and the NV2A made none
-from what the game sends. Said in the log once in a thousand, with the
-register (c[-96] is c[0] here). By its bits, as valid_real does */
-static void constant_finite(float value[4], unsigned long reg)
+/* A constant's component that is not a number is drawn as 0: a GPU draws
+one as anything it likes (black, white, blocks), and the NV2A made none from
+what the game sends. An infinite one is kept: the shaders' clamps take it to
+the end of the range, as the NV2A did. Said in the log once in a thousand,
+with the register (c[-96] is c[0] here). By its bits, as valid_real does */
+#define CONSTANT_EXPONENT 0x7f800000u
+#define CONSTANT_NOT_A_NUMBER(word) (((word) & 0x7fffffffu) > CONSTANT_EXPONENT)
+
+static void constant_finite(float value[4], const unsigned int words[4], unsigned long reg)
 {
 	static unsigned long made;
 	int component;
 
 	for (component = 0; component < 4; component++)
 	{
-		unsigned int bits;
-
-		memcpy(&bits, &value[component], sizeof(bits));
-		if ((bits & 0x7f800000u) != 0x7f800000u)
+		if (!CONSTANT_NOT_A_NUMBER(words[component]))
 			continue;
 		if (made++ % 1000 == 0)
-			platform_log("GPU: vertex constant %ld.%c was %s (%08lx), drawn as 0 (%lu so far)",
-				(long)reg - XGPU_VERTEX_CONSTANT_BIAS, "xyzw"[component],
-				bits & 0x007fffffu ? "not a number" : "infinite", (unsigned long)bits, made);
+			platform_log("GPU: vertex constant %ld.%c was not a number (%08lx), drawn as 0 (%lu so far)",
+				(long)reg - XGPU_VERTEX_CONSTANT_BIAS, "xyzw"[component], (unsigned long)words[component], made);
 		value[component] = 0.0f;
 	}
 }
@@ -2285,10 +2285,21 @@ static void constants_store(unsigned long first, const void *data, unsigned long
 
 	for (index = 0; index < count; index++)
 	{
-		float value[4];
+		const float *value = values[index];
+		float fixed[4];
+		unsigned int words[4];
 
-		memcpy(value, values[index], sizeof(value));
-		constant_finite(value, first + index);
+		/* (the source's words tested as they are, with one check of all
+		four exponents: a copy only for a constant with a bad value, so a
+		console's in-order CPU doesn't store floats and load them back) */
+		memcpy(words, values[index], sizeof(words));
+		if (((words[0] & CONSTANT_EXPONENT) == CONSTANT_EXPONENT) | ((words[1] & CONSTANT_EXPONENT) == CONSTANT_EXPONENT) |
+			((words[2] & CONSTANT_EXPONENT) == CONSTANT_EXPONENT) | ((words[3] & CONSTANT_EXPONENT) == CONSTANT_EXPONENT))
+		{
+			memcpy(fixed, values[index], sizeof(fixed));
+			constant_finite(fixed, words, first + index);
+			value = fixed;
+		}
 		if (memcmp(device.constants[first + index], value, sizeof(device.constants[0])))
 		{
 			memcpy(device.constants[first + index], value, sizeof(device.constants[0]));
