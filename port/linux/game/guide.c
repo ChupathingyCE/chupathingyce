@@ -325,8 +325,9 @@ static struct
 	short section;
 	/* the row chosen in each section */
 	short row[NUMBER_OF_SOCIAL_SECTIONS];
-	/* the first row shown of a long list */
+	/* the first row shown of a long list, and of SETTINGS */
 	short first_row;
+	short settings_first;
 	unsigned int held;
 	unsigned int repeat_held;
 	unsigned long repeat_time;
@@ -1729,7 +1730,9 @@ static char const *voice_help(short setting)
 {
 	int state = channel_state();
 
-	if (setting == _setting_voice_channel && state != _voice_channel_open && state != _voice_channel_voice_off)
+	if (setting == _setting_voice_channel && state != _voice_channel_open)
+		return voice_game_channel_reason(state);
+	if (setting != _setting_voice_chat && state == _voice_channel_voice_off)
 		return voice_game_channel_reason(state);
 	if (setting == _setting_voice_chat && voice_microphone() == _voice_microphone_denied)
 		return "The microphone isn't allowed. You can still listen.";
@@ -1755,9 +1758,20 @@ static void render_settings(void)
 	float y = BODY_Y;
 	/* (the rows that fit above the help line, scrolled to the chosen one) */
 	short shown = (short)((BODY_BOTTOM - BODY_Y - 18) / (SETTING_HEIGHT + ROW_GAP));
-	short first = chosen >= shown ? (short)(chosen - shown + 1) : 0;
+	short rows = settings_rows();
+	short first = guide.settings_first;
 
-	for (setting = first; setting < settings_rows() && setting < first + shown; setting++)
+	/* (the window moves only when the chosen row leaves it) */
+	if (chosen < first)
+		first = chosen;
+	else if (chosen >= first + shown)
+		first = (short)(chosen - shown + 1);
+	if (first > rows - shown)
+		first = (short)(rows - shown);
+	if (first < 0)
+		first = 0;
+	guide.settings_first = first;
+	for (setting = first; setting < rows && setting < first + shown; setting++)
 	{
 		struct settings_row const *row = settings_row_at(SETTINGS_GROUP_GUIDE, setting);
 		boolean on = setting == chosen;
@@ -1782,6 +1796,8 @@ static void render_settings(void)
 		target_add(CONTENT_LEFT, y, CONTENT_RIGHT, y + SETTING_HEIGHT, _target_setting, setting);
 		y += SETTING_HEIGHT + ROW_GAP;
 	}
+	if (first + shown < rows)
+		ui_overlay_text(UI_FONT_MENU, 11.0f, CONTENT_RIGHT - 12, y - ROW_GAP + 1, UI_ALIGN_RIGHT, COLOR_LABEL, "MORE");
 	if (guide.message[0] && system_milliseconds() - guide.message_time < MESSAGE_TIME)
 		ui_style_text(UI_TEXT_LINE, CONTENT_LEFT + 12, y + 4, UI_ALIGN_LEFT, guide.message);
 #ifdef HALO_PORT_VOICE_AUDIO
@@ -1940,7 +1956,7 @@ static void render_prompts(void)
 		break;
 #ifdef HALO_PORT_VOICE_AUDIO
 	case SOCIAL_SECTION_PARTY:
-		word = guide.row[guide.section] == 0 ? "CHANGE" : "SIGN IN";
+		word = guide.row[guide.section] == 0 ? "CHANGE" : sign_in_word(&back);
 		break;
 #endif
 	case SOCIAL_SECTION_FRIENDS:
@@ -2479,8 +2495,11 @@ void guide_pointer(struct halo_ui_pointer const *pointer)
 			activate();
 			break;
 		case _target_action:
-		case _target_sign_in:
 			activate();
+			break;
+		case _target_sign_in:
+			/* (its own: PARTY's chosen row may be the voice channel's) */
+			sign_in_activate();
 			break;
 		case _target_prompt:
 			handle(target->index == UI_BUTTON_A ? GUIDE_INPUT_A : target->index == UI_BUTTON_X ? GUIDE_INPUT_X :

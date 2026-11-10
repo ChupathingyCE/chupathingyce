@@ -399,8 +399,8 @@ static void heard(void *context, struct delta_wire_voice_down const *down, unsig
 	(void)context;
 	if (machine < 0 || machine >= MACHINES)
 		return;
-	if (game && player >= 0 && player < HALO_PORT_MAXIMUM_NETWORK_PLAYERS &&
-		chat_local_muted(machine, game->players[player].name))
+	if (game && player >= 0 && player < HALO_PORT_MAXIMUM_NETWORK_PLAYERS ?
+		chat_local_muted(machine, game->players[player].name) : chat_local_muted(machine, NULL))
 	{
 		return;
 	}
