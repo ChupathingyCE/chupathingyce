@@ -929,6 +929,7 @@ symbols in this file:
 #include "interface/ui_widget_definitions.h"
 #include "interface/ui_widget_instance.h"
 #include "saved games/saved_game_files.h"
+#include "saved games/player_profile_list.h" /* port: the profile list's start */
 #ifdef HALO_64BIT
 /* port: (saved games/playlist_profile.h's, whose other prototypes this unit
 declares its own way; the 64-bit build takes no implicit declarations) */
@@ -4231,8 +4232,11 @@ static boolean player_profile_set_for_game_1wide(
 		name (one made before names were checked: player_name_valid) */
 		if (!player_name_valid(profile.player_name, NUMBEROF(profile.player_name)))
 		{
+			/* (a built-in one, Default or Inverted, has no name to rename) */
 			display_error_text_deferred(
-				L"Sorry, this profile's\r\nname can't be used in\r\nmultiplayer. Please\r\nrename the profile.",
+				player_profile_list_built_in(available_profiles[spinner_list->parameters.list.selected_index]) ?
+					L"Sorry, built-in\r\nprofiles can't be\r\nused in multiplayer.\r\nPlease pick your own." :
+					L"Sorry, this profile's\r\nname can't be used in\r\nmultiplayer. Please\r\nrename the profile.",
 				controller_index);
 			ui_play_audio_feedback_sound(4);
 			return FALSE;
@@ -4603,20 +4607,13 @@ static boolean player_profiles_list_initialize(
 		}
 		widget->parameters.list.number_of_items = (word)profile_count;
 		last_profile_index = player_ui_get_player1_last_used_profile_index();
-		if (last_profile_index != NONE)
-		{
-			byte *profile_indices;
-
-			profile_indices = widget->parameters.list.list_items;
-			for (profile_index = 0; profile_index < (word)widget->parameters.list.number_of_items; profile_index++)
-			{
-				if (*(long *)(profile_indices + profile_index * sizeof(long)) == last_profile_index)
-				{
-					widget->parameters.list.selected_index = (short)profile_index;
-					break;
-				}
-			}
-		}
+		/* port: the one player 1 last used, else (with none: a profile made
+		or renamed in Settings) the first of the player's own; the list began
+		on the built-in Default, whose empty name multiplayer refuses */
+		profile_index = player_profile_list_start(widget->parameters.list.list_items,
+			(short)widget->parameters.list.number_of_items, last_profile_index);
+		if (profile_index != NONE)
+			widget->parameters.list.selected_index = (short)profile_index;
 	}
 	return TRUE;
 }
@@ -6433,7 +6430,9 @@ boolean ui_widget_port_multiplayer_player(
 	if (!player_name_valid(profile.player_name, NUMBEROF(profile.player_name)))
 	{
 		display_error_text_deferred(
-			L"Sorry, this profile's\r\nname can't be used in\r\nmultiplayer. Please\r\nrename the profile.",
+			player_profile_list_built_in(profile_index) ?
+				L"Sorry, built-in\r\nprofiles can't be\r\nused in multiplayer.\r\nPlease pick your own." :
+				L"Sorry, this profile's\r\nname can't be used in\r\nmultiplayer. Please\r\nrename the profile.",
 			controller_index);
 		ui_play_audio_feedback_sound(4);
 		return FALSE;
