@@ -104,6 +104,10 @@ static struct structure_bsp *fixture_bsp_get(void) { CHECK(global_structure_bsp_
 #define shader_definition_get(index) (&fixture_shader)
 #define system_milliseconds() 100UL
 #define environment_vertex_compressed_get_normal(vertex, out) (*(out)=((struct fixture_vertex const *)(vertex))->normal)
+/* the engine's accessor reads the map's little-endian floats (rasterizer_vertex_byte_order.h, in types.inc) */
+#define environment_vertex_compressed_get_point(vertex, out) ((out)->x=vertex_data_read_float(&((struct fixture_vertex const *)(vertex))->point.x), \
+    (out)->y=vertex_data_read_float(&((struct fixture_vertex const *)(vertex))->point.y), \
+    (out)->z=vertex_data_read_float(&((struct fixture_vertex const *)(vertex))->point.z))
 #define _error_silent 0
 #define error(level, ...) (log_count++, snprintf(build_log,sizeof(build_log),__VA_ARGS__))
 static void *fixture_malloc(size_t size) { CHECK(size<0x10000000UL,"engine allocation limit"); ++fixture_malloc_calls; fixture_malloc_size=MAX(fixture_malloc_size,size); return allocation_fails || fixture_malloc_calls==fixture_fail_malloc_call ? NULL : malloc(size); }

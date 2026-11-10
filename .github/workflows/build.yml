@@ -239,7 +239,7 @@ jobs:
             return 1
           }
           apt_try apt-get install -y -q --no-install-recommends gcc-s390x-linux-gnu libc6-dev-s390x-cross qemu-user
-          DELTA_BE_REQUIRED=1 python3 -m pytest -q tools/test_delta_big_endian.py -rs
+          DELTA_BE_REQUIRED=1 python3 -m pytest -q tools/test_delta_big_endian.py tools/test_vertex_byte_order.py -rs
 
       # (HALO_SANITIZERS_REQUIRED: a test without its sanitizers' runtime or
       # libFuzzer fails here, where clang's runtimes are installed, instead of

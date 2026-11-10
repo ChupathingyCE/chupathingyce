@@ -324,8 +324,11 @@ static void structure_culling_pairing_points(
 
 	for (i = 0; i < 3; ++i)
 	{
-		points[i] =
-			*(real_point3d const *)(material->vertices + surface->vertex_indices[i] * COMPRESSED_STRUCTURE_VERTEX_SIZE);
+		/* the map's little-endian bytes on any machine (rasterizer_vertex_byte_order.h) */
+		environment_vertex_compressed_get_point(
+			(struct environment_vertex_compressed const *)(material->vertices +
+				surface->vertex_indices[i] * COMPRESSED_STRUCTURE_VERTEX_SIZE),
+			&points[i]);
 	}
 }
 
@@ -978,13 +981,6 @@ boolean structure_culling_traverse(struct structure_bsp *structure)
 	{
 		memset(structure_culling_recorded, 0, sizeof(structure_culling_recorded));
 	}
-#ifdef HALO_BIG_ENDIAN
-	/* a big-endian console reads the bsp's vertices and normals in the
-	Xbox's byte order here, so the facing tests drop visible triangles:
-	the original walk until they're read the console's way */
-	(void)structure;
-	return FALSE;
-#endif
 	if (!structure_culling_tests || !structure_culling_data_matches(structure))
 	{
 		return FALSE;
