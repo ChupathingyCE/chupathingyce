@@ -161,6 +161,14 @@ struct interpolated_camera
 	struct observer_result previous;
 	struct observer_result latest;
 	struct observer_result blended;
+	/* how far into the next tick the game clock was when each was taken */
+	real previous_fraction;
+	real latest_fraction;
+	/* where each was centered (observer_get_focus), and whether the latest
+	glided there */
+	real_point3d previous_focus;
+	real_point3d latest_focus;
+	boolean focus_glides;
 	/* its player's unit (or what it rides) corrected: as an object's */
 	real_vector3d correction;
 	real_vector3d correction_pending;
@@ -1096,6 +1104,10 @@ static struct observer_result const *render_interpolation_blended_camera(
 		camera->has_previous = camera->valid;
 		camera->previous = camera->latest;
 		camera->latest = *observer;
+		camera->previous_fraction = camera->latest_fraction;
+		camera->latest_fraction = t;
+		camera->previous_focus = camera->latest_focus;
+		camera->focus_glides = observer_get_focus(local_player_index, &camera->latest_focus);
 		/* Several ticks since the last snapshot (a long frame): the objects
 		are drawn between the last two ticks, so the camera's previous is
 		where it was a tick ago, as nearly as a steady move from the last
@@ -1107,8 +1119,23 @@ static struct observer_result const *render_interpolation_blended_camera(
 		{
 			real ticks = (real)(interpolation_tick - camera->tick);
 			struct observer_result previous = camera->previous;
+			real_point3d previous_focus = camera->previous_focus;
+			real along = (ticks - 1.0f) / ticks;
 
-			observer_blend(&previous, &camera->latest, (ticks - 1.0f) / ticks, &camera->previous);
+#ifndef HALO_CONSOLE_VIEW_INTERPOLATION
+			/* (the snapshots taken that far apart in time, parts of a tick
+			included: see the timed blend below) */
+			{
+				real apart = ticks + camera->latest_fraction - camera->previous_fraction;
+
+				if (apart > 1.0f)
+					along = (apart - 1.0f) / apart;
+			}
+#endif
+			observer_blend(&previous, &camera->latest, along, &camera->previous);
+			camera->previous_fraction = camera->latest_fraction;
+			/* (where it is centered moves once a tick) */
+			point_lerp(&previous_focus, &camera->latest_focus, (ticks - 1.0f) / ticks, &camera->previous_focus);
 		}
 		camera->tick = interpolation_tick;
 		camera->valid = TRUE;
@@ -1118,7 +1145,42 @@ static struct observer_result const *render_interpolation_blended_camera(
 		return observer;
 	}
 
+#ifndef HALO_CONSOLE_VIEW_INTERPOLATION
+	/* What moves the camera every frame rather than once a tick (a
+	cutscene's camera animation, a camera point it glides to, the player's
+	facing that turns a vehicle's or a third-person view) is in each
+	snapshot as it was at the frame taken: part of a frame into the tick, a
+	different part each tick. Blended by the fraction alone, it ran ahead
+	one tick and fell back the next, so a cutscene camera moved unevenly
+	and a view turned fast in a vehicle jittered at high frame rates.
+	Blended by the times the snapshots were taken, it is drawn where it was
+	a tick before the frame, as the objects are. Where the camera is
+	centered (the unit it follows) moves once a tick, unless it glides
+	there, and is blended by the fraction, as the objects. */
+	{
+		real timed = (t - camera->previous_fraction) /
+			(1.0f + camera->latest_fraction - camera->previous_fraction);
+
+		timed = PIN(timed, -0.5f, 1.0f);
+		observer_blend(&camera->previous, &camera->latest, timed, &camera->blended);
+		if (director_get_perspective(local_player_index) != _director_perspective_scripted)
+		{
+			real_point3d focus_at_fraction, focus_at_time;
+
+			camera->blended.field_of_view = lerp(camera->previous.field_of_view, camera->latest.field_of_view, t);
+			if (!camera->focus_glides)
+			{
+				point_lerp(&camera->previous_focus, &camera->latest_focus, t, &focus_at_fraction);
+				point_lerp(&camera->previous_focus, &camera->latest_focus, timed, &focus_at_time);
+				camera->blended.position.x += focus_at_fraction.x - focus_at_time.x;
+				camera->blended.position.y += focus_at_fraction.y - focus_at_time.y;
+				camera->blended.position.z += focus_at_fraction.z - focus_at_time.z;
+			}
+		}
+	}
+#else
 	observer_blend(&camera->previous, &camera->latest, t, &camera->blended);
+#endif
 	if (correction_significant(&camera->correction) || correction_significant(&camera->correction_pending))
 	{
 		real_vector3d drawn;
