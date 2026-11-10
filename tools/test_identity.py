@@ -56,9 +56,22 @@ def test_vectors_match():
     vectors = json.loads(VECTORS.read_text())
     c = c_vectors()
     for name, value in vectors.items():
-        if name.endswith("_text") or name == "note":
+        if name.endswith("_text") or name == "note" or isinstance(value, list):
             continue
         assert c.get(name) == value, name
+
+
+def test_lookalike_vectors_match():
+    """The C test's look-alike table is the JSON's (the site's tests check
+    the same pairs against its lookalike_key)."""
+    vectors = json.loads(VECTORS.read_text())
+    text = TEST.read_text()
+    table = text[text.index("lookalikes[][2]"):]
+    table = table[:table.index("};")]
+    pairs = re.findall(r'\{ "((?:[^"\\]|\\.)*)", "([a-z0-9]*)" \}', table)
+    decoded = [(bytes(name, "ascii").decode("unicode_escape").encode("latin-1").decode("utf-8"), key)
+               for name, key in pairs]
+    assert decoded == [tuple(pair) for pair in vectors["lookalikes"]]
 
 
 def test_identity(tmp_path):
@@ -86,3 +99,37 @@ def test_identity_32_bit(tmp_path):
     if run.returncode != 0 and ("Bad CPU type" in run.stderr or not run.stdout):
         pytest.skip("can't run 32-bit programs here")
     assert run.returncode == 0, run.stdout + run.stderr
+
+
+def test_delta_names_rules():
+    """The owner's rules for names on Delta (docs/delta.md, "Verified
+    names"): the @ mark on by default; a Halo profile linked to a Delta
+    profile joins under its handle; a guest's games are never claimed or
+    reported for a profile."""
+    config = (ROOT / "port" / "linux" / "src" / "port_config.c").read_text()
+    assert re.search(r'\{ "display\.verified_mark", _config_boolean, "true"', config)
+    client = (ROOT / "source" / "networking" / "network_client_manager.c").read_text()
+    joined = client[client.index("ustrncpy(player.name, profile.player_name"):]
+    assert "profile_names_local_game_name(local_player_index, player.name" in joined[:600]
+    claims = (ROOT / "port" / "linux" / "game" / "game_list_claims.c").read_text()
+    assert "!local_guest(player->local_player_index)" in claims
+    stats = (ROOT / "port" / "linux" / "game" / "game_stats.c").read_text()
+    assert "!stats_local_guest(player->local_player_index)" in stats
+
+
+def test_names_read_the_same_everywhere():
+    """A player on Delta reads by the same name in chat, the kill feed, the
+    quit line and under the crosshair as on the scoreboard (docs/delta.md,
+    "Verified names"): each goes through profile_names_player."""
+    chat = (ROOT / "port" / "linux" / "game" / "chat.c").read_text()
+    heard = chat[chat.index("static void line_heard("):]
+    heard = heard[:heard.index("\n}\n")]
+    assert "profile_names_player(line->speaker_player, shown, NAME_LENGTH)" in heard
+    engine = (ROOT / "source" / "game" / "game_engine.c").read_text()
+    score = engine[re.search(r"static boolean internal_rasterize_score\([^;{]*\)\n\{", engine).start():]
+    score = score[:score.index("\n}\n")]
+    assert "->name" not in score
+    assert score.count("scoreboard_player_name(message_data, other_player") >= 6
+    target = engine[re.search(r"static void internal_rasterize_target_name\([^;{]*\)\n\{", engine).start():]
+    target = target[:target.index("\n}\n")]
+    assert "scoreboard_player_name(player->player_display_index, target_player" in target

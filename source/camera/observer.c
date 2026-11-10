@@ -104,7 +104,7 @@ symbols in this file:
 #include "observer.h"
 
 #include "game/players.h"
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 #include "game/game.h"
 #endif
 #include "networking/network_connection.h"
@@ -237,7 +237,7 @@ typedef char observer_globals_size_assert[
 	sizeof(struct observer_globals) == 0xA74 ? 1 : -1];
 #endif
 
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 /* The camera's velocity over the last game tick, for the sound listener's
 Doppler shift (sound_manager.c, refresh_listener). The observer runs once a
 frame, and its velocity is that frame's. A first-person camera snaps to
@@ -465,7 +465,7 @@ void observer_dispose_from_old_map(
 	return;
 }
 
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 void observer_get_tick_velocity(
 	short local_player_index,
 	real_vector3d *velocity)
@@ -1408,7 +1408,7 @@ void observer_update(
 		if (local_player_get_player_index(local_player_index) != NONE)
 		{
 			struct observer *observer = observer_get(local_player_index);
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 			boolean gliding, frozen;
 #endif
 
@@ -1424,7 +1424,7 @@ void observer_update(
 
 			observer->updated_for_frame = TRUE;
 			observer_update_command(local_player_index);
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 			/* (as observer_update_velocities will find the focus: gliding
 			to its target over a timed command, or not) */
 			gliding = observer->last_command.parameter_timers[_observer_command_parameter_focus_position] >
@@ -1436,7 +1436,7 @@ void observer_update(
 				observer_pass_time(local_player_index);
 			}
 			observer_postcheck(local_player_index);
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 			if (observer_globals.dtime != 0.f)
 			{
 				observer_tick_velocity_add(
