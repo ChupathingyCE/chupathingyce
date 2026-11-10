@@ -34,6 +34,8 @@ through the follow camera (follow_camera.c) until then.
 #include "late_join.h"
 #include "chat.h"
 
+#ifdef HALO_GAME_BROWSER
+
 /* ---------- constants */
 
 enum
@@ -238,3 +240,5 @@ boolean late_join_waiting(
 	}
 	return now - late_join.unspawned_since[local] >= LATE_JOIN_WAITING_TICKS;
 }
+
+#endif
