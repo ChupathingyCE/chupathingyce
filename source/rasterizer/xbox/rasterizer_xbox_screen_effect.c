@@ -501,7 +501,7 @@ static void rasterizer_screen_effect_set_texture_transforms(
 				223,
 				main_get_window_count()<=1);
 
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 			/* The native builds draw several frames per tick
 			(port/linux/game/render_interpolation.c): move the noise 30 times
 			a second, as the Xbox did once a frame, not every frame. */

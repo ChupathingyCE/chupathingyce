@@ -132,6 +132,19 @@ float ui_style_text(int kind, float x, float y, int align, const char *text)
 	return ui_style_text_faded(kind, 1.0f, x, y, align, text);
 }
 
+float ui_style_text_scaled(int kind, float scale, float x, float y, int align, const char *text)
+{
+	if (kind < 0 || kind > UI_TEXT_WARNING)
+		kind = UI_TEXT_LINE;
+	if (text_kinds[kind].glow >= 0)
+	{
+		return ui_overlay_text_glow(text_kinds[kind].font, text_kinds[kind].size * scale, x, y, align,
+			palette[text_kinds[kind].color], palette[text_kinds[kind].glow], text);
+	}
+	return ui_overlay_text(text_kinds[kind].font, text_kinds[kind].size * scale, x, y, align,
+		palette[text_kinds[kind].color], text);
+}
+
 static unsigned int style_clock;
 
 static unsigned int fade(unsigned int color, float share)
@@ -194,6 +207,34 @@ void ui_style_row(float x, float y, float width, float height, int selected)
 		ui_style_surface(x, y, width, height, 7, COLOR_ROW_ON, COLOR_SELECTED_EDGE, 1);
 	else
 		ui_style_glass(x, y, width, height, 7, COLOR_ROW, COLOR_ROW_EDGE);
+}
+
+void ui_style_setting(float x, float y, float width, float height, float scale, const char *label, const char *badge,
+	const char *value, int selected)
+{
+	float size = ui_style_text_size(UI_TEXT_NAME) * scale;
+	float text_y = y + (height - size) * 0.5f, right = x + width - size * 1.2f, label_end;
+	float value_width = ui_overlay_text_width(UI_FONT_MENU, size, value);
+
+	ui_style_row(x, y, width, height, selected);
+	label_end = x + size * 1.1f + ui_style_text_scaled(UI_TEXT_NAME, scale, x + size * 1.1f, text_y, UI_ALIGN_LEFT,
+		label);
+	if (badge && badge[0])
+	{
+		float badge_scale = scale * 0.75f, badge_size = ui_style_text_size(UI_TEXT_WARNING) * badge_scale;
+		float badge_width = ui_overlay_text_width(UI_FONT_MENU_SMALL, badge_size, badge) + badge_size;
+		float badge_x = label_end + size * 0.6f, badge_height = badge_size * 1.6f;
+
+		ui_overlay_outline(badge_x, y + (height - badge_height) * 0.5f, badge_width, badge_height, 3.0f, 0.8f,
+			fade(PALETTE(WARNING), 0.7f));
+		ui_style_text_scaled(UI_TEXT_WARNING, badge_scale, badge_x + badge_size * 0.5f, y + (height - badge_size) * 0.5f,
+			UI_ALIGN_LEFT, badge);
+	}
+	/* (the value between its arrows, as the menus' settings have it) */
+	ui_overlay_text(UI_FONT_MENU, size, right, text_y, UI_ALIGN_RIGHT, COLOR_TAB, "\xE2\x80\xBA");
+	ui_style_text_scaled(UI_TEXT_NAME, scale, right - size * 1.2f, text_y, UI_ALIGN_RIGHT, value);
+	ui_overlay_text(UI_FONT_MENU, size, right - size * 1.8f - value_width, text_y, UI_ALIGN_RIGHT, COLOR_TAB,
+		"\xE2\x80\xB9");
 }
 
 /* a bumper's glyph: the device's, or (the keyboard) the screen's own key */
