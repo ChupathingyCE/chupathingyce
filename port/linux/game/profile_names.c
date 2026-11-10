@@ -304,18 +304,17 @@ static void utf8_from_name(
 }
 
 /* whether an unverified player's game name looks like the handle of a
-verified player of this game (compared as look-alikes: identity.h's
-identity_lookalike_key, the site's too) */
+verified player of this game (compared as look-alikes, as written and as it
+shows, with every @ dropped; against the whole handle and against the cut
+a linked profile's game name is: identity_impersonates) */
 static boolean impersonates(
 	struct network_game const *game,
 	struct network_player const *player)
 {
-	char text[64], key[IDENTITY_LOOKALIKE_MOST + 1], other[IDENTITY_LOOKALIKE_MOST + 1];
+	char text[64];
 	long index;
 
 	utf8_from_name(player->name, NUMBEROF(player->name), text, (int)sizeof(text));
-	if (identity_lookalike_key(text, key) < 2)
-		return FALSE;
 	for (index = 0; index < (long)NUMBEROF(game->players); index++)
 	{
 		struct network_player const *verified = &game->players[index];
@@ -327,17 +326,17 @@ static boolean impersonates(
 		{
 			continue;
 		}
-		identity_lookalike_key(identity.handle, other);
-		if (!strcmp(key, other))
+		if (identity_impersonates(text, identity.handle, (int)NUMBEROF(player->name) - 1))
 			return TRUE;
 	}
 	return FALSE;
 }
 
 /* an unverified player: masked when their game name looks like a verified
-player's handle, else their game name, with any @ at its front taken off
-while verified names carry it (display.verified_mark); FALSE: the game
-name as it is */
+player's handle, else their game name; while verified names carry the @
+mark (display.verified_mark), with every @ taken out and no spaces or dots
+left at its front (identity_unverified_name), so " @Name" can't pass for
+it. FALSE: the game name as it is */
 static boolean unverified_name(
 	struct network_game const *game,
 	long player_index,
@@ -345,21 +344,24 @@ static boolean unverified_name(
 	long size)
 {
 	struct network_player const *player = &game->players[player_index];
-	long start = 0, index;
+	unsigned short shown[NUMBEROF(player->name) + 1];
+	long length, index;
 
 	if (impersonates(game, player))
 		return masked_name(player_index, name, size);
 	if (!config_boolean("display.verified_mark"))
 		return FALSE;
-	while (start < (long)NUMBEROF(player->name) && player->name[start] == '@')
-		start++;
-	if (!start)
+	length = identity_unverified_name((unsigned short const *)player->name, (int)NUMBEROF(player->name), shown,
+		(int)NUMBEROF(shown));
+	for (index = 0; index < length && player->name[index] == (wchar_t)shown[index]; index++)
+		;
+	if (index == length && (index == (long)NUMBEROF(player->name) || !player->name[index]))
 		return FALSE;
-	for (index = 0; start + index < (long)NUMBEROF(player->name) && player->name[start + index] && index < size - 1;
-		index++)
-	{
-		name[index] = player->name[start + index];
-	}
+	/* (a name of nothing but marks and dots: by its place) */
+	if (!length)
+		return masked_name(player_index, name, size);
+	for (index = 0; index < length && index < size - 1; index++)
+		name[index] = (wchar_t)shown[index];
 	name[index] = 0;
 	return TRUE;
 }

@@ -392,6 +392,17 @@ Extended-A) as their base letters, Cyrillic and Greek look-alikes as Latin,
 everything else dropped, then rn read as m, vv as w and l as i; the site's
 (puma's lookalike_key) is the same. Its length */
 int identity_lookalike_key(const char *name, char *out);
+/* an unverified player's game name as shown while verified names carry the
+@ mark (UCS-2, as the game's names: length letters at most, into out of
+size): every @ taken out (and its full-width and small forms), wherever it
+is, then any spaces, invisible marks and dots left at the front (" @Name",
+".@Name", "\u00B7@Name" all show "Name"). Its length (0: nothing left) */
+int identity_unverified_name(const unsigned short *name, int length, unsigned short *out, int size);
+/* whether a game name (UTF-8) reads as a verified player's handle: its
+look-alike key, as written and with every @ dropped (the way it shows),
+is the handle's, or that of the handle cut to cut letters, as a linked
+profile's game name is (0: no cut) */
+int identity_impersonates(const char *name, const char *handle, int cut);
 /* a Halo profile's delta_account.txt (its first line, as read): 0 a guest
 ("guest"), 2 that account (32 hex digits, into account), 1 the copy's
 own account. A byte order mark and spaces and line ends around it are left

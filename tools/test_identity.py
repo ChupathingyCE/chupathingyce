@@ -115,3 +115,21 @@ def test_delta_names_rules():
     assert "!local_guest(player->local_player_index)" in claims
     stats = (ROOT / "port" / "linux" / "game" / "game_stats.c").read_text()
     assert "!stats_local_guest(player->local_player_index)" in stats
+
+
+def test_names_read_the_same_everywhere():
+    """A player on Delta reads by the same name in chat, the kill feed, the
+    quit line and under the crosshair as on the scoreboard (docs/delta.md,
+    "Verified names"): each goes through profile_names_player."""
+    chat = (ROOT / "port" / "linux" / "game" / "chat.c").read_text()
+    heard = chat[chat.index("static void line_heard("):]
+    heard = heard[:heard.index("\n}\n")]
+    assert "profile_names_player(line->speaker_player, shown, NAME_LENGTH)" in heard
+    engine = (ROOT / "source" / "game" / "game_engine.c").read_text()
+    score = engine[re.search(r"static boolean internal_rasterize_score\([^;{]*\)\n\{", engine).start():]
+    score = score[:score.index("\n}\n")]
+    assert "->name" not in score
+    assert score.count("scoreboard_player_name(message_data, other_player") >= 6
+    target = engine[re.search(r"static void internal_rasterize_target_name\([^;{]*\)\n\{", engine).start():]
+    target = target[:target.index("\n}\n")]
+    assert "scoreboard_player_name(player->player_display_index, target_player" in target

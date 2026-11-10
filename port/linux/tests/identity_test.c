@@ -427,6 +427,74 @@ static void test_key_allowed(void)
 }
 
 /* more than one account on a copy: delta_accounts.txt's slots */
+/* a UCS-2 name from ASCII, and back, for the name tests */
+static void wide_name(const char *text, unsigned short *out, int size)
+{
+	int index;
+
+	for (index = 0; index < size - 1 && text[index]; index++)
+		out[index] = (unsigned char)text[index];
+	out[index] = 0;
+}
+
+static int shows_as(const unsigned short *name, const char *expected)
+{
+	unsigned short out[16];
+	int index, length = identity_unverified_name(name, 12, out, 16);
+
+	for (index = 0; expected[index]; index++)
+	{
+		if (index >= length || out[index] != (unsigned char)expected[index])
+			return 0;
+	}
+	return index == length;
+}
+
+/* an unverified name can't carry the @ mark, wherever it puts it, nor read
+as a verified handle, whole or cut to a game name's 11 letters */
+static void test_unverified_names(void)
+{
+	static const char *const faked[] = { "@Milenko", "@@Milenko", " @Milenko", ".@Milenko", "Mile@nko@", " . @Milenko" };
+	unsigned short name[16];
+	int index;
+
+	for (index = 0; index < (int)(sizeof(faked) / sizeof(faked[0])); index++)
+	{
+		wide_name(faked[index], name, 16);
+		CHECK(shows_as(name, "Milenko"));
+	}
+	/* (the other @s, the middle dot and invisible marks in front) */
+	name[0] = 0xB7, name[1] = '@', name[2] = 'M', name[3] = 'k', name[4] = 0;
+	CHECK(shows_as(name, "Mk"));
+	name[0] = 0x200B, name[1] = 0xFF20, name[2] = 'M', name[3] = 0xFE6B, name[4] = 'k', name[5] = 0;
+	CHECK(shows_as(name, "Mk"));
+	/* (names without them as they are; dots after the front kept) */
+	wide_name("[RvB] Tex", name, 16);
+	CHECK(shows_as(name, "[RvB] Tex"));
+	wide_name("Mr. Tex.", name, 16);
+	CHECK(shows_as(name, "Mr. Tex."));
+	wide_name("@@ .", name, 16);
+	CHECK(identity_unverified_name(name, 12, name + 8, 8) == 0);
+	CHECK(identity_unverified_name(NULL, 0, name, 4) == 0 && !name[0]);
+
+	/* (as written, as shown with the @ gone, and against the cut) */
+	CHECK(identity_impersonates("Milenko", "milenko", 11));
+	CHECK(identity_impersonates("Mi1enk0", "milenko", 11));
+	CHECK(identity_impersonates("@Milenko", "milenko", 11));
+	CHECK(identity_impersonates(" @Milenko", "milenko", 11));
+	CHECK(identity_impersonates(".@Milenko", "milenko", 11));
+	CHECK(identity_impersonates("\xC2\xB7@Milenko", "milenko", 11));
+	CHECK(identity_impersonates("\xEF\xBC\xA0Milenko", "milenko", 11));
+	CHECK(identity_impersonates("S@rge", "sarge", 11));
+	CHECK(identity_impersonates("MilenkoTheG", "milenkothegreat", 11));
+	CHECK(identity_impersonates("MilenkoTheGreat", "milenkothegreat", 11));
+	CHECK(!identity_impersonates("MilenkoTheG", "milenkothegreat", 0));
+	CHECK(!identity_impersonates("Milenko", "milenkothegreat", 11));
+	CHECK(!identity_impersonates("Sarge", "milenko", 11));
+	CHECK(!identity_impersonates("M", "m", 11));
+	CHECK(!identity_impersonates("Milenko", "", 11));
+}
+
 static void test_account_slots(void)
 {
 	static const char text[] = "player1 2\nOther Player 3\r\nbad -1\nfour 16\nplayer 1x\n";
@@ -807,6 +875,7 @@ int main(void)
 	test_messages();
 	test_proof();
 	test_lookalikes();
+	test_unverified_names();
 	test_quick_connect();
 	test_key_allowed();
 	test_account_slots();
