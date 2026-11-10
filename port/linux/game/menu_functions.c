@@ -5816,7 +5816,7 @@ boolean pc_menu_setup_open(void)
 #endif
 }
 
-/* "port pause guide" (the pause menu's GUIDE: menu_tags.c): the Guide over
+/* "port pause guide" (the pause menu's DELTA: menu_tags.c): the Guide over
 the pause menu (guide.c), which B closes back to it */
 static boolean pause_guide(struct widget_instance *widget)
 {
