@@ -616,12 +616,19 @@ static int updater_latest_release(char *version, size_t size)
 	return found;
 }
 
+/* the last check's answer, for the setup screen's Updates: 1 a newer
+version, 0 this is the latest, -1 none (no answer) */
+static SDL_AtomicInt updater_answer;
+
 static int SDLCALL updater_check_thread(void *context)
 {
 	char latest[sizeof(updater_latest_version)];
+	int found;
 
 	(void)context;
-	if (updater_latest_release(latest, sizeof(latest)) && updater_newer(latest))
+	found = updater_latest_release(latest, sizeof(latest));
+	SDL_SetAtomicInt(&updater_answer, !found ? -1 : updater_newer(latest) ? 1 : 0);
+	if (found && updater_newer(latest))
 	{
 		platform_log("update: version %s is available (this is %s)", latest, HALO_VERSION);
 		snprintf(updater_latest_version, sizeof(updater_latest_version), "%s", latest);
@@ -1382,6 +1389,86 @@ void updater_console_check(void)
 }
 #endif
 
+/* ---------- the setup screen's Updates (launcher.c) */
+
+/* the check started now, whatever update.auto says: 0 when this build never
+looks (not a release's) or a check is running */
+int updater_check_now(void)
+{
+	SDL_Thread *thread;
+
+	if (!(HALO_RELEASE_BUILD || UPDATER_TEST) || (HALO_RELEASE_BUILD && !UPDATER_TEST && !update_signature_required()))
+		return 0;
+	if (SDL_GetAtomicInt(&updater_state) == _updater_checking)
+		return 0;
+	if (!updater_directory[0])
+		snprintf(updater_directory, sizeof(updater_directory), "%s", platform_save_root());
+	SDL_SetAtomicInt(&updater_state, _updater_checking);
+	thread = SDL_CreateThread(updater_check_thread, "update check", NULL);
+	if (!thread)
+	{
+		SDL_SetAtomicInt(&updater_state, _updater_handled);
+		return 0;
+	}
+	SDL_DetachThread(thread);
+	return 1;
+}
+
+/* where the check is: UPDATER_CHECKING, UPDATER_NEWER (latest: its
+version), UPDATER_LATEST, UPDATER_UNREACHABLE, or UPDATER_NOT_CHECKED. A
+newer version shown here is not asked about again when the game starts */
+int updater_check_state(char *latest, int size)
+{
+	int state = SDL_GetAtomicInt(&updater_state);
+
+	if (latest && size > 0)
+		latest[0] = 0;
+	if (state == _updater_checking)
+		return UPDATER_CHECKING;
+	if (state == _updater_idle)
+		return UPDATER_NOT_CHECKED;
+	switch (SDL_GetAtomicInt(&updater_answer))
+	{
+	case 1:
+		if (latest && size > 0)
+			snprintf(latest, (size_t)size, "%s", updater_latest_version);
+		SDL_SetAtomicInt(&updater_state, _updater_handled);
+		return UPDATER_NEWER;
+	case 0:
+		return UPDATER_LATEST;
+	default:
+		return UPDATER_UNREACHABLE;
+	}
+}
+
+/* the newer version installed, as Yes does: its download page on macOS,
+nothing in a packaged install (0), else downloaded and started (this one
+then quits) */
+int updater_install(void)
+{
+	if (SDL_GetAtomicInt(&updater_answer) != 1 || platform_packaged())
+		return 0;
+	if (UPDATER_DOWNLOAD_PAGE_ONLY)
+		return SDL_OpenURL(UPDATE_RELEASE_PAGE);
+	if (!updater_executable[0])
+	{
+		updater_appimage = update_appimage_path(updater_executable, sizeof(updater_executable));
+		if (!updater_appimage && !update_executable_path(updater_executable, sizeof(updater_executable)))
+			return 0;
+	}
+	updater_update();
+	return 1;
+}
+
+/* the channel this build is on: a release's, a nightly, or a build of
+one's own */
+const char *updater_channel(void)
+{
+	if (HALO_RELEASE_BUILD)
+		return "release";
+	return strstr(HALO_VERSION, "nightly") ? "nightly" : "dev";
+}
+
 int updater_gamescope(void);
 
 /* every frame, on the game's thread (sdl_platform.c): asks the player once a
@@ -1502,6 +1589,28 @@ void updater_poll(SDL_Window *window)
 
 void updater_start(void)
 {
+}
+
+int updater_check_now(void)
+{
+	return 0;
+}
+
+int updater_check_state(char *latest, int size)
+{
+	if (latest && size > 0)
+		latest[0] = 0;
+	return UPDATER_NOT_CHECKED;
+}
+
+int updater_install(void)
+{
+	return 0;
+}
+
+const char *updater_channel(void)
+{
+	return "release";
 }
 
 #endif

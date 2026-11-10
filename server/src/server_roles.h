@@ -60,10 +60,16 @@ int server_roles_key_role(const unsigned char *key, unsigned int *permissions, c
 
 /* the role a verified player's Delta account has (docs/delta.md, "Verified
 names"): the moderators file's account lines (16 bytes), and the site's
-role list by the handle its certificate names (may be NULL); permissions
-and who as server_roles_key_role's */
+role list by the account each entry carries (an entry with none gives
+nothing; handle, may be NULL, only names it); permissions and who as
+server_roles_key_role's */
 int server_roles_account_role(const unsigned char *account, const char *handle, unsigned int *permissions, char *who,
 	int who_size);
+/* a verified player's role: the account's (server_roles_account_role) when
+its proof was bound to this server and its certificate may moderate
+(IDENTITY_CAN_MODERATE), else 0 */
+int server_roles_verified_role(const unsigned char *account, const char *handle, int bound, int may_moderate,
+	unsigned int *permissions, char *who, int who_size);
 /* where an account's role comes from, for the player ("this server's
 moderators file", "your site profile alice") */
 void server_roles_account_source(const unsigned char *account, const char *handle, char *text, int text_size);

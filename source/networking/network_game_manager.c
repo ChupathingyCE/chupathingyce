@@ -95,6 +95,11 @@ symbols in this file:
 #include "text/unicode.h"
 #include "late_join.h" /* port: port/linux/game/late_join.c */
 
+#if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_DELTA_PROFILE)
+/* port: port/linux/game/profile_names.c's */
+boolean profile_names_local_game_name(long local_player, wchar_t *name, long size);
+#endif
+
 #include <xtl.h>
 
 #ifdef HALO_64BIT
@@ -280,6 +285,11 @@ void network_game_generate_local_machine_name(
 			struct player_profile profile;
 
 			player_ui_get_active_player_profile(joined_player_index, &profile);
+#if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_DELTA_PROFILE)
+			/* (a profile linked to a Delta profile: its verified handle) */
+			profile_names_local_game_name(joined_player_index, profile.player_name,
+				MAXIMUM_PLAYER_PROFILE_NAME_LENGTH);
+#endif
 			if (profile.player_name[0])
 			{
 				ustrncpy(machine_name, profile.player_name, MAXIMUM_PLAYER_PROFILE_NAME_LENGTH);

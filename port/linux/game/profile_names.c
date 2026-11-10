@@ -43,6 +43,7 @@ int config_boolean(char const *name);
 /* delta_peer_game.c's */
 int delta_peer_game_on_delta(void);
 int delta_peer_game_player_identity(int machine_index, int local_player, struct delta_peer_identity *identity);
+int delta_peer_game_linked_name(int choice, const unsigned char *account, char *name, int size);
 /* the network game's (network_game_globals.h, network_client_manager.h) */
 struct network_game_client *global_network_game_client_get(void);
 struct network_game *network_game_client_get_game(struct network_game_client *client);
@@ -303,18 +304,17 @@ static void utf8_from_name(
 }
 
 /* whether an unverified player's game name looks like the handle of a
-verified player of this game (compared as look-alikes: identity.h's
-identity_lookalike_key, the site's too) */
+verified player of this game (compared as look-alikes, as written and as it
+shows, with every @ dropped; against the whole handle and against the cut
+a linked profile's game name is: identity_impersonates) */
 static boolean impersonates(
 	struct network_game const *game,
 	struct network_player const *player)
 {
-	char text[64], key[IDENTITY_LOOKALIKE_MOST + 1], other[IDENTITY_LOOKALIKE_MOST + 1];
+	char text[64];
 	long index;
 
 	utf8_from_name(player->name, NUMBEROF(player->name), text, (int)sizeof(text));
-	if (identity_lookalike_key(text, key) < 2)
-		return FALSE;
 	for (index = 0; index < (long)NUMBEROF(game->players); index++)
 	{
 		struct network_player const *verified = &game->players[index];
@@ -326,17 +326,17 @@ static boolean impersonates(
 		{
 			continue;
 		}
-		identity_lookalike_key(identity.handle, other);
-		if (!strcmp(key, other))
+		if (identity_impersonates(text, identity.handle, (int)NUMBEROF(player->name) - 1))
 			return TRUE;
 	}
 	return FALSE;
 }
 
 /* an unverified player: masked when their game name looks like a verified
-player's handle, else their game name, with any @ at its front taken off
-while verified names carry it (display.verified_mark); FALSE: the game
-name as it is */
+player's handle, else their game name; while verified names carry the @
+mark (display.verified_mark), with every @ taken out and no spaces or dots
+left at its front (identity_unverified_name), so " @Name" can't pass for
+it. FALSE: the game name as it is */
 static boolean unverified_name(
 	struct network_game const *game,
 	long player_index,
@@ -344,21 +344,24 @@ static boolean unverified_name(
 	long size)
 {
 	struct network_player const *player = &game->players[player_index];
-	long start = 0, index;
+	unsigned short shown[NUMBEROF(player->name) + 1];
+	long length, index;
 
 	if (impersonates(game, player))
 		return masked_name(player_index, name, size);
 	if (!config_boolean("display.verified_mark"))
 		return FALSE;
-	while (start < (long)NUMBEROF(player->name) && player->name[start] == '@')
-		start++;
-	if (!start)
+	length = identity_unverified_name((unsigned short const *)player->name, (int)NUMBEROF(player->name), shown,
+		(int)NUMBEROF(shown));
+	for (index = 0; index < length && player->name[index] == (wchar_t)shown[index]; index++)
+		;
+	if (index == length && (index == (long)NUMBEROF(player->name) || !player->name[index]))
 		return FALSE;
-	for (index = 0; start + index < (long)NUMBEROF(player->name) && player->name[start + index] && index < size - 1;
-		index++)
-	{
-		name[index] = player->name[start + index];
-	}
+	/* (a name of nothing but marks and dots: by its place) */
+	if (!length)
+		return masked_name(player_index, name, size);
+	for (index = 0; index < length && index < size - 1; index++)
+		name[index] = (wchar_t)shown[index];
 	name[index] = 0;
 	return TRUE;
 }
@@ -458,7 +461,10 @@ static boolean profile_names_player_unmarked(
 	return name[0] != 0;
 }
 
-int profile_names_local_account(
+/* a local player's Halo profile's choice of account (delta_account.txt,
+read again now and then): 0 a guest, 2 that account (into account), 1 the
+copy's own; a player with no saved Halo profile is the copy's own */
+static int local_account_choice(
 	int local_player,
 	unsigned char *account)
 {
@@ -470,26 +476,12 @@ int profile_names_local_account(
 		unsigned long read_time;
 		boolean read;
 	} cache[4];
-	struct network_game *game = current_game();
-	short own = network_game_client_get_local_machine_index();
 	char folder[256];
-	long index;
-	boolean playing = FALSE;
 	unsigned long now = system_milliseconds();
 
-	if (!game || own < 0 || local_player < 0 || local_player >= (int)NUMBEROF(cache))
+	if (local_player < 0 || local_player >= (int)NUMBEROF(cache))
 		return 0;
-	for (index = 0; index < (long)NUMBEROF(game->players) && !playing; index++)
-	{
-		struct network_player const *player = &game->players[index];
-
-		playing = network_player_is_valid(player) && player->machine_index == own &&
-			player->controller_index == local_player;
-	}
-	if (!playing)
-		return 0;
-	/* (in a network game, a local player's index is its controller's; one
-	playing with no saved Halo profile proves as the copy's own account) */
+	/* (in a network game, a local player's index is its controller's) */
 	if (!player_ui_get_path_to_local_player_profile_directory((short)local_player, folder))
 		return 1;
 	if (!cache[local_player].read || strcmp(cache[local_player].path, folder) ||
@@ -518,6 +510,58 @@ int profile_names_local_account(
 	if (cache[local_player].choice == 2 && account)
 		csmemcpy(account, cache[local_player].account, PLAYER_ID_SIZE);
 	return cache[local_player].choice;
+}
+
+int profile_names_local_account(
+	int local_player,
+	unsigned char *account)
+{
+	struct network_game *game = current_game();
+	short own = network_game_client_get_local_machine_index();
+	long index;
+	boolean playing = FALSE;
+
+	if (!game || own < 0)
+		return 0;
+	for (index = 0; index < (long)NUMBEROF(game->players) && !playing; index++)
+	{
+		struct network_player const *player = &game->players[index];
+
+		playing = network_player_is_valid(player) && player->machine_index == own &&
+			player->controller_index == local_player;
+	}
+	return playing ? local_account_choice(local_player, account) : 0;
+}
+
+boolean profile_names_local_guest(
+	long local_player)
+{
+	unsigned char account[PLAYER_ID_SIZE];
+
+	return local_account_choice((int)local_player, account) == 0;
+}
+
+boolean profile_names_local_game_name(
+	long local_player,
+	wchar_t *name,
+	long size)
+{
+	unsigned char account[PLAYER_ID_SIZE];
+	char text[32];
+	long index;
+	int choice;
+
+	if (!name || size < 2)
+		return FALSE;
+	choice = local_account_choice((int)local_player, account);
+	if (!choice || !delta_peer_game_linked_name(choice, account, text, (int)sizeof(text)) || !text[0])
+		return FALSE;
+	/* (a handle is a-z 0-9 _ -, in the capitals its profile picked: plain
+	letters a Halo name holds as they are, cut to its length) */
+	for (index = 0; index < size - 1 && text[index]; index++)
+		name[index] = (wchar_t)(unsigned char)text[index];
+	name[index] = 0;
+	return TRUE;
 }
 
 #endif

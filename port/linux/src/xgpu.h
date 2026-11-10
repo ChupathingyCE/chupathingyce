@@ -288,6 +288,11 @@ unsigned int xgpu_bgfx_texture_create(unsigned long width, unsigned long height,
 void xgpu_bgfx_texture_rows(unsigned int name, unsigned long top, unsigned long width, unsigned long rows,
 	const unsigned char *rgba);
 void xgpu_bgfx_texture_delete(unsigned int name);
+/* the setup launcher's frame before the game draws (launcher.c): bgfx
+started, the window cleared to color (0xRRGGBBAA), the overlay over it in
+the picture's place (x, y its lower left corner) and the window saved to
+screenshot (a .bmp's path, or NULL); FALSE if bgfx does not start */
+BOOL xgpu_bgfx_launcher_frame(unsigned int color, int x, int y, int width, int height, const char *screenshot);
 /* the overlay's quads (ui_overlay.c) over the window's picture at Present */
 void xgpu_bgfx_overlay_draw(const void *vertices, int count, int vertex_bytes, const unsigned char *atlas, int atlas_size,
 	int dirty_top, int dirty_bottom, const unsigned char *icons, int icon_size, int icon_count,

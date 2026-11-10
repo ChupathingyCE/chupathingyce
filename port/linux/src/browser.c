@@ -1137,6 +1137,8 @@ enum
 static unsigned char revoked_bytes[REVOKED_BYTES];
 static int revoked_size;
 static struct identity_revoked revoked_list;
+/* (each list taken: browser_identity_revoked_changes) */
+static int revoked_changes;
 /* (the browser thread's) */
 static unsigned long revoked_asked;
 static int revoked_loaded;
@@ -1158,12 +1160,15 @@ static int take_revoked(const unsigned char *list, int list_size, const unsigned
 
 	int issuer_check;
 
-	/* (an issuer past its dates still vouches for the list it signed: an
-	old list is better than none, and is said to be stale) */
+	/* (an issuer past its dates still vouches for the list this copy kept,
+	taken while it was good: an old list is better than none, and is said
+	to be stale. One fetched is taken only from an issuer within its dates:
+	a key past them is no longer looked after, and a list it signed could
+	take revoked devices off) */
 	issuer_check = list_size > REVOKED_BYTES ? IDENTITY_MALFORMED :
 		identity_check_issuer(issuer_data, issuer_size, identity_root_keys, IDENTITY_ROOT_KEY_COUNT,
 			now > 0 ? (unsigned long)now : 0, &issuer);
-	if ((issuer_check != IDENTITY_OK && issuer_check != IDENTITY_EXPIRED) ||
+	if (!identity_revoked_issuer_usable(issuer_check, !save) ||
 		identity_check_revoked(list, list_size, &issuer, &parsed) != IDENTITY_OK)
 	{
 		return 0;
@@ -1176,6 +1181,7 @@ static int take_revoked(const unsigned char *list, int list_size, const unsigned
 		memcpy(revoked_bytes, list, (size_t)list_size);
 		revoked_size = list_size;
 		identity_parse_revoked(revoked_bytes, revoked_size, &revoked_list);
+		revoked_changes++;
 		taken = 1;
 	}
 	pthread_mutex_unlock(&browser_lock);
@@ -1271,6 +1277,17 @@ static void update_revoked(void)
 	}
 	free(response);
 	free(text);
+}
+
+int browser_identity_revoked_changes(void)
+{
+	int changes;
+
+	load_saved_revoked();
+	pthread_mutex_lock(&browser_lock);
+	changes = revoked_changes;
+	pthread_mutex_unlock(&browser_lock);
+	return changes;
 }
 
 int browser_identity_revoked(const unsigned char *device_id)

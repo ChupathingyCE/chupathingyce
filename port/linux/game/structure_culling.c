@@ -978,6 +978,13 @@ boolean structure_culling_traverse(struct structure_bsp *structure)
 	{
 		memset(structure_culling_recorded, 0, sizeof(structure_culling_recorded));
 	}
+#ifdef HALO_BIG_ENDIAN
+	/* a big-endian console reads the bsp's vertices and normals in the
+	Xbox's byte order here, so the facing tests drop visible triangles:
+	the original walk until they're read the console's way */
+	(void)structure;
+	return FALSE;
+#endif
 	if (!structure_culling_tests || !structure_culling_data_matches(structure))
 	{
 		return FALSE;

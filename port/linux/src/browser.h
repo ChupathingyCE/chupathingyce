@@ -635,6 +635,9 @@ int browser_identity_moderator_sign(const unsigned char *message, int size, unsi
 fetched and checked (GET /v1/identity/revoked, every ten minutes, kept in
 delta_revoked.bin); 0 when it has none. The dedicated server's too */
 int browser_identity_revoked(const unsigned char *device_id);
+/* a count of the revocation lists taken so far: when it changes, every
+verified player kept is checked against the new one */
+int browser_identity_revoked_changes(void);
 
 /* a page of the site (path: "/profile"): its address as a player types it
 in page, and as a QR code in modules (BROWSER_CONNECT_QR_SIZE squared at

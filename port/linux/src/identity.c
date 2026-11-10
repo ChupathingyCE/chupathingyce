@@ -344,6 +344,11 @@ int identity_parse_revoked(const unsigned char *data, int size, struct identity_
 	return 1;
 }
 
+int identity_revoked_issuer_usable(int issuer_check, int saved)
+{
+	return issuer_check == IDENTITY_OK || (issuer_check == IDENTITY_EXPIRED && saved);
+}
+
 int identity_check_revoked(const unsigned char *data, int size, const struct identity_issuer *issuer,
 	struct identity_revoked *revoked)
 {
@@ -1217,8 +1222,14 @@ int identity_proof_fresh(unsigned long time, unsigned long now, unsigned long ag
 /* a code point's look-alike Latin letter (0: none, dropped) */
 static char lookalike_letter(unsigned long c)
 {
-	/* (0 o, 1 i, 3 e, 4 a, 5 s, 7 t, 8 b; 2, 6 and 9 dropped) */
-	static const char digits[] = "oi\0eas\0tb\0";
+	/* (0 o, 1 i, 3 e, 4 a, 5 s, 7 t, 8 b; 2, 6 and 9 stay digits) */
+	static const char digits[] = "oi2eas6tb9";
+	/* (U+00C0 to U+017F, Latin-1 and Latin Extended-A: each letter's base
+	letter, _ for none: the site's LOOKALIKE_ACCENTS is the same) */
+	static const char accents[] =
+		"aaaaaaaceeeeiiiidnooooo_ouuuuypsaaaaaaaceeeeiiiidnooooo_ouuuuypy"
+		"aaaaaaccccccccddddeeeeeeeeeegggggggghhhhiiiiiiiiiiiijjkkklllllll"
+		"lllnnnnnnnnnoooooooorrrrrrssssssssttttttuuuuuuuuuuuuwwyyyzzzzzzs";
 	static const struct { unsigned long code; char letter; } others[] =
 	{
 		/* Cyrillic */
@@ -1243,6 +1254,8 @@ static char lookalike_letter(unsigned long c)
 		return (char)c;
 	if (c >= '0' && c <= '9')
 		return digits[c - '0'];
+	if (c >= 0xC0 && c < 0x180)
+		return accents[c - 0xC0] == '_' ? 0 : accents[c - 0xC0];
 	for (index = 0; index < (int)(sizeof(others) / sizeof(others[0])); index++)
 	{
 		if (others[index].code == c)
@@ -1299,6 +1312,83 @@ int identity_lookalike_key(const char *name, char *out)
 	}
 	out[used] = 0;
 	return used;
+}
+
+/* an @ or one of its forms (full-width, small) */
+static int at_sign(unsigned long c)
+{
+	return c == '@' || c == 0xFF20 || c == 0xFE6B;
+}
+
+/* what may not lead an unverified name: spaces, invisible marks and dots */
+static int leading_junk(unsigned long c)
+{
+	return c == ' ' || c == '\t' || c == '.' || c == ',' || c == '\'' || c == '`' || c == ':' || c == ';' ||
+		c == 0xA0 || c == 0xAD || c == 0xB7 || c == 0x2022 || c == 0x2027 || c == 0x2219 || c == 0x22C5 ||
+		c == 0x30FB || c == 0x3002 || c == 0xFF0E || c == 0xFF61 || c == 0xFEFF || c == 0x3000 ||
+		(c >= 0x2000 && c <= 0x200F) || (c >= 0x2028 && c <= 0x202F) || (c >= 0x2060 && c <= 0x2064);
+}
+
+int identity_unverified_name(const unsigned short *name, int length, unsigned short *out, int size)
+{
+	int index, used = 0;
+
+	if (!out || size < 1)
+		return 0;
+	for (index = 0; name && index < length && name[index] && used < size - 1; index++)
+	{
+		if (at_sign(name[index]) || (!used && leading_junk(name[index])))
+			continue;
+		out[used++] = name[index];
+	}
+	out[used] = 0;
+	return used;
+}
+
+/* whether a look-alike key is the handle's, or its cut's */
+static int key_is_handle(const char *key, const char *handle, int cut)
+{
+	char other[IDENTITY_LOOKALIKE_MOST + 1], part[IDENTITY_LOOKALIKE_MOST + 1];
+
+	if (strlen(key) < 2)
+		return 0;
+	identity_lookalike_key(handle, other);
+	if (!strcmp(key, other))
+		return 1;
+	if (cut > 0 && (int)strlen(handle) > cut && cut <= IDENTITY_LOOKALIKE_MOST)
+	{
+		memcpy(part, handle, (size_t)cut);
+		part[cut] = 0;
+		identity_lookalike_key(part, other);
+		return strlen(other) >= 2 && !strcmp(key, other);
+	}
+	return 0;
+}
+
+int identity_impersonates(const char *name, const char *handle, int cut)
+{
+	char key[IDENTITY_LOOKALIKE_MOST + 1], shown[IDENTITY_LOOKALIKE_MOST * 4 + 1];
+	const unsigned char *at = (const unsigned char *)name;
+	int used = 0;
+
+	if (!name || !handle || !handle[0])
+		return 0;
+	identity_lookalike_key(name, key);
+	if (key_is_handle(key, handle, cut))
+		return 1;
+	/* (as it shows: every @ dropped, its full-width and small forms too) */
+	while (*at && used < (int)sizeof(shown) - 4)
+	{
+		if (*at == '@')
+			at++;
+		else if ((at[0] == 0xEF && at[1] == 0xBC && at[2] == 0xA0) || (at[0] == 0xEF && at[1] == 0xB9 && at[2] == 0xAB))
+			at += 3;
+		else
+			shown[used++] = (char)*at++;
+	}
+	shown[used] = 0;
+	identity_lookalike_key(shown, key);
+	return key_is_handle(key, handle, cut);
 }
 
 

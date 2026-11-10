@@ -3921,8 +3921,10 @@ static void refresh_listener(
 				&camera->position,
 				&camera->forward,
 				&camera->up);
-#ifndef HALO_XBOX_CONSOLE
-			/* (a tick's velocity, not the last frame's: observer.c) */
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
+			/* (a tick's velocity, not the last frame's: observer.c; a
+			console at one frame a tick takes the frame's, as the Xbox did) */
+			if (halo_port_frames_between_ticks())
 			{
 				real_vector3d velocity;
 
@@ -3932,12 +3934,14 @@ static void refresh_listener(
 					&velocity,
 					&listener->velocity);
 			}
-#else
-			matrix4x3_inverse_transform_vector(
-				&listener->matrix,
-				&camera->velocity,
-				&listener->velocity);
+			else
 #endif
+			{
+				matrix4x3_inverse_transform_vector(
+					&listener->matrix,
+					&camera->velocity,
+					&listener->velocity);
+			}
 		}
 		else
 		{
@@ -4002,7 +4006,7 @@ void sound_render(
 				((real)render_time - sound_manager_globals.render_time) *
 				0.029999999f;
 			sound_manager_globals.render_time = render_time;
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 			/* Sounds are rendered once a frame, and a frame is well under a
 			tick on the native builds, so the ticks truncate to none and
 			scripted sound class fades would never move: carry the
