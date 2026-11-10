@@ -1009,6 +1009,26 @@ long rasterizer_light_submit(
 		"c:\\halo\\SOURCE\\rasterizer\\rasterizer_lights.c",
 		240,
 		parameters);
+
+	/* port: a light whose place, direction, reach or color is not a number
+	(or is infinite) is not drawn. It is refused the way a light past the
+	window's room is (NONE, which every caller handles), before the color
+	checks below would stop the game over it. The passes over the level and
+	the models would draw whatever it reaches with that color. A light with
+	no transition was one (light_port_transition_fraction) */
+	if (!valid_real(parameters->radius) ||
+		!valid_real(parameters->position.x) || !valid_real(parameters->position.y) || !valid_real(parameters->position.z) ||
+		!valid_real(parameters->forward.i) || !valid_real(parameters->forward.j) || !valid_real(parameters->forward.k) ||
+		!valid_real(parameters->up.i) || !valid_real(parameters->up.j) || !valid_real(parameters->up.k) ||
+		!valid_real(parameters->color.red) || !valid_real(parameters->color.green) || !valid_real(parameters->color.blue))
+	{
+		static long refused_lights= 0;
+
+		if (refused_lights++ % 1000 == 0)
+			error(_error_silent, "### ERROR a light that is not a number was submitted to the window (%ld refused so far)",
+				refused_lights);
+		return NONE;
+	}
 	match_assert(
 		"c:\\halo\\SOURCE\\rasterizer\\rasterizer_lights.c",
 		241,

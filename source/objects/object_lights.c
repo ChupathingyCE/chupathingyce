@@ -937,6 +937,16 @@ static void lights_port_first_person_flare_positions(
 	return;
 }
 
+/* port: how far a let-go light is through its transition. A light with no
+transition (the Scorpion's cannon's) is at its end as soon as it is made: the
+Xbox divided 0 by 0 there and gave the light a color that is not a number */
+static real light_port_transition_fraction(
+	real elapsed,
+	real duration)
+{
+	return duration > 0.0f ? MAX(elapsed, 0.0f) / duration : 1.0f;
+}
+
 void lights_preprocess_scene(
 	void)
 {
@@ -1052,8 +1062,9 @@ void lights_preprocess_scene(
 			(port/linux/game/render_interpolation.c) */
 			intensity = (1.0f - transition_function_evaluate(
 				definition->falloff_function,
-				render_interpolation_ticks_since(current_time, light->parent_light_index)
-					/ definition->transition_duration))
+				light_port_transition_fraction(
+					render_interpolation_ticks_since(current_time, light->parent_light_index),
+					definition->transition_duration)))
 				* light->intensity_scale;
 			rgb_colors_interpolate(
 				&light->color,
@@ -1707,6 +1718,15 @@ static void brighten_real_rgb_color(
 	real scale = fraction + 1.0f;
 	real scaled_maximum = scale * maximum;
 
+	/* port: a black color (a weapon or grenade the game lights extra bright,
+	lying where the lightmap is black) goes to the least it is brightened to,
+	grey. Scaling it by fraction / 0 made 0 times infinity, not a number, and
+	the object kept that lighting for as long as it lay there */
+	if (!(maximum > 0.0f))
+	{
+		color->red = color->green = color->blue = fraction;
+		return;
+	}
 	if (scaled_maximum > 1.0f)
 	{
 		scale = 1.0f / maximum;
