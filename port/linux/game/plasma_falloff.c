@@ -1,3 +1,4 @@
+#ifndef HALO_CONSOLE_NO_LIGHT_EFFECTS /* (a console draws no Light effects: halo_port_features.h) */
 /* Feature-owned attenuation for the existing additive world-light pass. */
 #include "cseries.h"
 #include <xtl.h>
@@ -138,3 +139,4 @@ void plasma_falloff_dispose(void)
 		D3DResource_Release((D3DResource *)plasma_falloff_texture);
 	plasma_falloff_texture = NULL;
 }
+#endif

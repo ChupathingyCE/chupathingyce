@@ -397,7 +397,7 @@ symbols in this file:
 #include "interface/marketing_and_strategic_business_development.h"
 #endif
 #include "halo_perf_log.h" /* port: console.perf_log */
-void plasma_lighting_frame_end(void); /* port: port/linux/game/plasma_lighting.c */
+#include "plasma_lighting.h" /* port: port/linux/game/plasma_lighting.c */
 
 /* port: the main loop's stage, for the console's bring-up watchdog
 (port/xbox/src/xbox_port.c); nothing elsewhere */

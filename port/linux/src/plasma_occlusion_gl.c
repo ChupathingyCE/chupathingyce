@@ -1,3 +1,4 @@
+#ifndef HALO_CONSOLE_NO_LIGHT_EFFECTS /* (a console draws no Light effects: halo_port_features.h) */
 /* Additional model samplers use units 6/7; the game's four texture stages
    and their cached bindings are not changed. By chester (GulchCE). */
 #include "plasma_occlusion.h"
@@ -156,3 +157,4 @@ void plasma_occlusion_bind_model(struct plasma_occlusion_uniforms *uniforms)
 		uniforms->known |= 4;
 	}
 }
+#endif

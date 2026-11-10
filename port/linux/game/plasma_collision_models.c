@@ -1,3 +1,4 @@
+#ifndef HALO_CONSOLE_NO_LIGHT_EFFECTS /* (a console draws no Light effects: halo_port_features.h) */
 /* The model-major phase of render-only ray batches. The stock query transforms
    the same origin and looks up the same node/permutation for each ray. Here
    one node serves all eligible rays before its borrowed data is discarded. */
@@ -69,3 +70,4 @@ fallback:
 				result.bsp_result.t < 1.0f && result.bsp_result.t < depths[ray]) depths[ray] = result.bsp_result.t;
 		}
 }
+#endif

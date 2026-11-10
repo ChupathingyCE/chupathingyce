@@ -1,3 +1,4 @@
+#ifndef HALO_CONSOLE_NO_LIGHT_EFFECTS /* (a console draws no Light effects: halo_port_features.h) */
 /* A screen emits into its forward hemisphere. Keep this mask independent of
    the optional collision field and its admission budget. */
 #include "cseries.h"
@@ -144,3 +145,4 @@ void ammo_counter_falloff_dispose(void)
 				D3DResource_Release((D3DResource *)counters[i].texture[j]);
 	memset(counters, 0, sizeof(counters));
 }
+#endif

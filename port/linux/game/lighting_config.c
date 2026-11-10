@@ -1,6 +1,7 @@
+#ifndef HALO_CONSOLE_NO_LIGHT_EFFECTS /* (a console draws no Light effects: halo_port_features.h) */
 /* display.light_effects: the Light effects' level, and the parts of them each
-level turns on. "auto" is "high" where the machine can draw it and "off" on a
-software renderer. OpenGL ES, Android, the consoles and the server never draw
+level turns on. "auto" is "high" where the machine can draw it, "low" on an older Intel HD
+part and "off" on a software renderer or the older drivers' OpenGL 3.3 path. OpenGL ES, Android, the consoles and the server never draw
 them. "low" keeps the projectile and muzzle-flash lights (with their walls),
 "high" adds the emitters and the held weapons' glow. The parts' names are
 chester's from GulchCE, where each was a setting of its own.
@@ -14,8 +15,9 @@ int config_boolean(const char *name);
 const char *config_string(const char *name);
 unsigned long config_changes(void);
 
-/* the renderer draws in software (d3d8_gl.c): "auto" is off there */
-int xgpu_software_renderer;
+/* the renderer draws in software or on the older drivers' OpenGL 3.3 path
+(d3d8_gl.c): "auto" is off there; on an older Intel HD part it is "low" */
+int xgpu_software_renderer, xgpu_weak_renderer;
 
 enum
 {
@@ -58,7 +60,7 @@ static int level_read(void)
 	if (!strcmp(level, "off"))
 		return _level_off;
 	/* (auto, or a word the game doesn't know) */
-	return xgpu_software_renderer ? _level_off : _level_high;
+	return xgpu_software_renderer ? _level_off : xgpu_weak_renderer ? _level_low : _level_high;
 #endif
 }
 
@@ -67,10 +69,10 @@ int lighting_config_level(void)
 	static unsigned long changes;
 	static int ready, level, software;
 
-	if (!ready || changes != config_changes() || software != xgpu_software_renderer)
+	if (!ready || changes != config_changes() || software != xgpu_software_renderer * 2 + xgpu_weak_renderer)
 	{
 		changes = config_changes();
-		software = xgpu_software_renderer;
+		software = xgpu_software_renderer * 2 + xgpu_weak_renderer;
 		level = level_read();
 		ready = 1;
 	}
@@ -89,3 +91,4 @@ int lighting_config_boolean(const char *name)
 	}
 	return config_boolean(name);
 }
+#endif

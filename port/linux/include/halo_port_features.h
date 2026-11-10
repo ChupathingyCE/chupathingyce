@@ -153,6 +153,13 @@ says it hears voices, so no host sends it any */
 #define HALO_CONSOLE_NO_VOICE
 #endif
 
+/* the Light effects (display.light_effects, port/linux/game/plasma_lighting.c):
+a desktop's lighting extra; its headers give a console empty hooks, and its
+sources build to nothing (plasma_occlusion.c's fields alone are 130 KB) */
+#ifndef HALO_CONSOLE_NO_LIGHT_EFFECTS
+#define HALO_CONSOLE_NO_LIGHT_EFFECTS
+#endif
+
 #endif /* HALO_CONSOLE */
 
 /* voice chat over Delta Peer (docs/delta.md, Voice): the desktop builds'

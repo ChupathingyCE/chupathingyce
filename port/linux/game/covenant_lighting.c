@@ -1,3 +1,4 @@
+#ifndef HALO_CONSOLE_NO_LIGHT_EFFECTS /* (a console draws no Light effects: halo_port_features.h) */
 /* Additional Covenant projectile policy and bounded missing-light fallbacks.
    Authored attachments take precedence; effects and simulation stay stock. */
 #include "cseries.h"
@@ -262,3 +263,4 @@ int covenant_lighting_owns(long light_index, long object_index)
 			return TRUE;
 	return FALSE;
 }
+#endif

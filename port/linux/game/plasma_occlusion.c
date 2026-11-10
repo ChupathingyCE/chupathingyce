@@ -1,3 +1,4 @@
+#ifndef HALO_CONSOLE_NO_LIGHT_EFFECTS /* (a console draws no Light effects: halo_port_features.h) */
 /* A filtered local visibility field avoids rejecting a whole model at a door.
    Queries see structure, scenery and machines, plus vehicles for turret flashes.
    The field
@@ -818,3 +819,4 @@ void *plasma_occlusion_model_texture(int slot, float transform[4])
 		return texture ? texture : ammo_counter_falloff_texture(model_slots[slot], 0, transform);
 	}
 }
+#endif

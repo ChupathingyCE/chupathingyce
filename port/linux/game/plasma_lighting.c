@@ -1,3 +1,4 @@
+#ifndef HALO_CONSOLE_NO_LIGHT_EFFECTS /* (a console draws no Light effects: halo_port_features.h) */
 /* The Light effects (display.light_effects): authored projectile lights lit
    for the frame drawn, without editing tags or advancing projectile simulation.
    rocket_lighting.c owns additional flight lights where rockets have none.
@@ -332,5 +333,7 @@ long plasma_lighting_unit_light(long rasterizer_index, real_point3d const *cente
 			return NONE;
 		return unit_lights[index].copy_index;
 	}
-	return rasterizer_index;
+	/* (a Light effects light with no copy, past UNIT_LIGHTS: none at all) */
+	return plasma_lighting_selected(rasterizer_index) ? NONE : rasterizer_index;
 }
+#endif

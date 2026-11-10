@@ -1,3 +1,4 @@
+#ifndef HALO_CONSOLE_NO_LIGHT_EFFECTS /* (a console draws no Light effects: halo_port_features.h) */
 /* Cosmetic samples only: no equipment, vehicle controls or projectile state
    is written. Missing authored markers leave that source unlit. */
 #include "cseries.h"
@@ -171,3 +172,4 @@ int ambient_emitter_lighting_sample(long index, int component, struct emitter_sa
 	}
 	return FALSE;
 }
+#endif

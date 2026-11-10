@@ -1,3 +1,4 @@
+#ifndef HALO_CONSOLE_NO_LIGHT_EFFECTS /* (a console draws no Light effects: halo_port_features.h) */
 /* A depth-only batch for the visibility field. The simulation cannot advance
    during these synchronous render queries. Cache cluster membership and object
    metadata for this batch, but use the engine's exact BSP/model intersection
@@ -380,3 +381,4 @@ void plasma_collision_end(void)
 	batch.bsp = NULL;
 	memset(&batch.cache, 0, sizeof(batch.cache));
 }
+#endif

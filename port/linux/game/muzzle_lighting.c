@@ -1,3 +1,4 @@
+#ifndef HALO_CONSOLE_NO_LIGHT_EFFECTS /* (a console draws no Light effects: halo_port_features.h) */
 /* Short, render-owned light pulses. Successful shots only record identities;
    they never allocate engine lights or alter the weapon's authored effects. */
 #include "cseries.h"
@@ -295,3 +296,4 @@ int muzzle_lighting_vehicle_occlusion(long light)
 			return TRUE;
 	return FALSE;
 }
+#endif

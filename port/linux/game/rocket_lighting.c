@@ -1,3 +1,4 @@
+#ifndef HALO_CONSOLE_NO_LIGHT_EFFECTS /* (a console draws no Light effects: halo_port_features.h) */
 /* Stock rockets have no flight light. These bounded, render-owned glows
    reuse the engine's glow interface without editing projectile/effect tags. */
 #include "cseries.h"
@@ -185,3 +186,4 @@ float rocket_lighting_radius(long light_index, long object_index, float radius)
 			return MAX(radius, 1.75f);
 	return radius;
 }
+#endif

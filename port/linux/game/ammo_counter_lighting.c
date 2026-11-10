@@ -1,3 +1,4 @@
+#ifndef HALO_CONSOLE_NO_LIGHT_EFFECTS /* (a console draws no Light effects: halo_port_features.h) */
 /* The AR display's rendered pose and optional material emission.
    The emitter module owns light allocation, fading and frame cleanup. */
 #include "cseries.h"
@@ -122,3 +123,4 @@ void ammo_counter_lighting_draw_end(void)
 		ammo_counter_draw_active = FALSE;
 	}
 }
+#endif

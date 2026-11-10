@@ -1,3 +1,4 @@
+#ifndef HALO_CONSOLE_NO_LIGHT_EFFECTS /* (a console draws no Light effects: halo_port_features.h) */
 /* Exact collision-input snapshots for stationary visibility fields. Store
    values, never borrowed object/tag pointers. Moving lights still trace at
    their existing cadence; any changed blocker invalidates stationary reuse. */
@@ -96,3 +97,4 @@ unsigned long plasma_collision_scene_revision(struct plasma_collision_scene *sce
 	scene->size = MAX(offset, 0);
 	return scene->revision;
 }
+#endif

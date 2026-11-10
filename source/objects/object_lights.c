@@ -2670,6 +2670,34 @@ void lights_illumination_at_point(
 	return;
 }
 
+/* port: whether a biped rides the object, or rides what rides it: drawn
+with the object's lighting (render_objects.c) */
+static boolean light_port_carries_biped(
+	long object_index)
+{
+	struct object_datum *object = object_try_and_get(object_index);
+	long child_index;
+	short count = 0;
+
+	if (!object)
+		return FALSE;
+	for (child_index = object->object.first_child_object_index;
+		child_index != NONE && count < 64;
+		child_index = object_get(child_index)->object.next_object_index, count++)
+	{
+		struct object_datum *child = object_try_and_get(child_index);
+
+		if (!child)
+			break;
+		if (TEST_FLAG(_object_mask_biped, child->object.type) ||
+			(child->object.first_child_object_index != NONE && light_port_carries_biped(child_index)))
+		{
+			return TRUE;
+		}
+	}
+	return FALSE;
+}
+
 void lights_prepare_for_object_dynamic(
 	long object_index,
 	struct render_lighting *lighting)
@@ -2706,9 +2734,11 @@ void lights_prepare_for_object_dynamic(
 		lighting->point_light_indices[light_index] =
 			light_get(lighting->point_light_indices[light_index])->rasterizer_light_index;
 	}
-	/* port: a biped (a player, an AI) is lit by the Light effects no more
-	than a little, and not through a wall (plasma_lighting_unit_light) */
-	if (TEST_FLAG(_object_mask_biped, object_get(object_index)->object.type))
+	/* port: a unit (a player, an AI, a vehicle and who rides it, drawn with
+	its lighting) is lit by the Light effects no more than a little, and not
+	through a wall (plasma_lighting_unit_light); so is anything a biped rides */
+	if (TEST_FLAG(_object_mask_unit, object_get(object_index)->object.type) ||
+		light_port_carries_biped(object_index))
 	{
 		short kept = 0;
 

@@ -1,3 +1,4 @@
+#ifndef HALO_CONSOLE_NO_LIGHT_EFFECTS /* (a console draws no Light effects: halo_port_features.h) */
 /* Exposed Needler crystals illuminate the holder and nearby surfaces;
    the emitter module owns allocation, fading and frame cleanup. */
 #include "cseries.h"
@@ -104,3 +105,4 @@ void needler_lighting_transparent(struct shader *shader, struct pixel_shader_def
 	if ((*output & 0x38000UL) == 0)
 		*output |= 0x10000UL;
 }
+#endif

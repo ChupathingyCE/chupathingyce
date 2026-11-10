@@ -2218,15 +2218,24 @@ static void gl_initialize(void)
 	device.gl_ready = TRUE;
 	/* display.stats_log's line: the driver's own text for the renderer */
 	stats_log_set_renderer((const char *)glGetString(GL_VENDOR), (const char *)glGetString(GL_RENDERER));
+#ifndef HALO_CONSOLE_NO_LIGHT_EFFECTS
 	{
-		/* a renderer in software: the Light effects' "auto" is off there
+		/* a renderer in software, or the older drivers' OpenGL 3.3 path: the
+		Light effects' "auto" is off there, and low on an older Intel HD
 		(port/linux/game/lighting_config.c) */
-		extern int xgpu_software_renderer;
+		extern int xgpu_software_renderer, xgpu_weak_renderer;
 		const char *renderer = (const char *)glGetString(GL_RENDERER);
 
 		xgpu_software_renderer = renderer && (strstr(renderer, "llvmpipe") || strstr(renderer, "softpipe") ||
 			strstr(renderer, "SwiftShader") || strstr(renderer, "Software") || strstr(renderer, "GDI Generic"));
+#ifdef XGPU_GL_LEGACY_AT_RUN_TIME
+		if (xgpu_gl_legacy)
+			xgpu_software_renderer = 1;
+#endif
+		xgpu_weak_renderer = renderer && strstr(renderer, "Intel") && strstr(renderer, "HD Graphics") &&
+			!strstr(renderer, "Iris");
 	}
+#endif
 	if (anti_aliasing_value < 0)
 		anti_aliasing_read();
 	else

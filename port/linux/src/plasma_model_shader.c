@@ -1,3 +1,4 @@
+#ifndef HALO_CONSOLE_NO_LIGHT_EFFECTS /* (a console draws no Light effects: halo_port_features.h) */
 /* The selected point light gets (1 - d*d/r*r)^2. All other contributions
    and the stock shader's alpha, cone and material terms are retained. */
 #include "xgpu.h"
@@ -49,3 +50,4 @@ void plasma_model_emit_pixel(struct xgpu_text *text)
 		"float plasma_model_falloff(float attenuation, float selected, int slot, vec3 position) {\n"
 		"\treturn selected > 0.5 ? attenuation * attenuation * plasma_visibility(slot,position) : attenuation;\n}\n");
 }
+#endif

@@ -240,7 +240,7 @@ symbols in this file:
 /* port/linux/game/pal_tags.c's */
 short pal_tags_first_person_frames(long graph_index, short animation_index, short frames);
 
-void muzzle_lighting_shot(long weapon_index, short trigger_index); /* port: port/linux/game/muzzle_lighting.c */
+#include "muzzle_lighting.h" /* port: port/linux/game/muzzle_lighting.c */
 
 /* ---------- constants */
 

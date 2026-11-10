@@ -1,3 +1,4 @@
+#ifndef HALO_CONSOLE_NO_LIGHT_EFFECTS /* (a console draws no Light effects: halo_port_features.h) */
 /* Reuse authored attachment timing, colours, cones and render poses. Never
    add a second light beside an existing source or change its simulation. */
 #include "cseries.h"
@@ -104,3 +105,4 @@ int authored_emitter_lighting_profile(long object_index, long definition, float 
 		}
 	return 0;
 }
+#endif

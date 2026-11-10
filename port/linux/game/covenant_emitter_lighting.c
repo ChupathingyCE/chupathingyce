@@ -1,3 +1,4 @@
+#ifndef HALO_CONSOLE_NO_LIGHT_EFFECTS /* (a console draws no Light effects: halo_port_features.h) */
 /* Render-owned illumination from visible Covenant shields and fuel rods.
    No tags, shield state, weapon effects or simulation lights are changed. */
 #include "cseries.h"
@@ -430,3 +431,4 @@ int covenant_emitter_lighting_vehicle_occlusion(long light)
 			return TRUE;
 	return FALSE;
 }
+#endif
