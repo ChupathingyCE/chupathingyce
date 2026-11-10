@@ -9,8 +9,8 @@ a profile, and account matters (password, email, two-step sign-in, export,
 deletion) stay on the site, reached with OPEN ON THE WEB. Linking is per
 copy: every Halo profile on this copy counts for the one Delta profile.
 
-The same sections in every menu set: OVERVIEW, LINKED COPIES, ROLES,
-CLAN, PRIVACY, then LINK PROFILE (or UNLINK THIS COPY) and OPEN ON THE
+The same sections in every menu set: OVERVIEW, DEVICES, ROLES,
+CLAN, PRIVACY, then LINK PROFILE (or UNLINK THIS DEVICE) and OPEN ON THE
 WEB. CLAN shows the profile's clan (its emblem, tag, motto and members by
 rank) or the clans that invited it; its A opens a dialog to show or hide
 the tag, leave the clan, or join or decline an invite. What each shows is made here once (profile_screen_panel_lines):
@@ -111,7 +111,7 @@ enum
 	_section_roles,
 	_section_clan,
 	_section_privacy,
-	/* LINK PROFILE, or UNLINK THIS COPY */
+	/* LINK PROFILE, or UNLINK THIS DEVICE */
 	_section_link,
 	_section_web,
 
@@ -127,6 +127,20 @@ enum
 	_dialog_web,
 	_dialog_copies,
 	_dialog_clan,
+	/* the devices (docs/delta.md, Devices): the list (revoke another), this
+	one signed out, and another device's code entered (Link a device) */
+	_dialog_devices,
+	_dialog_sign_out,
+	_dialog_approve,
+};
+
+/* the devices dialog: its rows, the question before revoking, a request
+sent (as the clan dialog's) */
+enum
+{
+	_devices_rows,
+	_devices_asking,
+	_devices_sent,
 };
 
 /* the clan dialog: its rows, the question before leaving, and a request
@@ -197,7 +211,7 @@ typedef char profile_screen_sections_named[(_section_clan == PROFILE_SCREEN_SECT
 
 static char const *const section_names[NUMBER_OF_PROFILE_SECTIONS] =
 {
-	"OVERVIEW", "LINKED COPIES", "ROLES", "CLAN", "PRIVACY", "LINK PROFILE", "OPEN ON THE WEB",
+	"OVERVIEW", "DEVICES", "ROLES", "CLAN", "PRIVACY", "LINK PROFILE", "OPEN ON THE WEB",
 };
 
 /* the multiplayer maps' names in the menus (as Online Games names them) */
@@ -256,6 +270,17 @@ static struct
 	before leaving, a request sent) */
 	short dialog_row;
 	short clan_state;
+	/* the devices dialog's state; Link a device's code: each slot's
+	character (an index into the code's alphabet, NONE for none yet) and
+	the slot picked, then the site's answer */
+	short devices_state;
+	short code_slots[8];
+	short code_slot;
+	boolean code_sent;
+	struct browser_approve approve;
+	/* when the device to approve first showed: A and B only after
+	DIALOG_SETTLE, so a press meant for the code doesn't answer it */
+	unsigned long approve_shown_time;
 	/* the emblem the Chupathingy menus' panel asked for (where, and when) */
 	float card_x, card_y, card_size;
 	unsigned long card_time;
@@ -309,7 +334,32 @@ static boolean linked(
 	return profile_screen.status.has_profile && profile_screen.profile.linked;
 }
 
-/* a section the player can go to now (Linked Copies and Roles need a
+/* the site keeps this account's devices (a site with device identity) */
+static boolean has_devices(
+	void)
+{
+	return linked() && profile_screen.profile.has_devices;
+}
+
+/* this device, signed in (it signs out, rather than unlinking a copy) */
+static struct delta_profile_device const *this_device(
+	void)
+{
+	short index;
+
+	if (!has_devices())
+		return NULL;
+	for (index = 0; index < profile_screen.profile.device_count; index++)
+	{
+		struct delta_profile_device const *device = &profile_screen.profile.devices[index];
+
+		if (device->this_device && !device->signed_out)
+			return device;
+	}
+	return NULL;
+}
+
+/* a section the player can go to now (Devices and Roles need a
 linked profile) */
 static boolean section_open(
 	short section)
@@ -323,7 +373,7 @@ char const *profile_screen_section_name(
 	short section)
 {
 	if (section == _section_link && linked())
-		return "UNLINK THIS COPY";
+		return this_device() ? "SIGN OUT" : "UNLINK THIS DEVICE";
 	return section >= 0 && section < NUMBER_OF_PROFILE_SECTIONS ? section_names[section] : "";
 }
 
@@ -360,7 +410,7 @@ static char const *platform_name(
 	static char const *const names[][2] =
 	{
 		{ "pc_linux", "Linux PC" }, { "pc_windows", "Windows PC" }, { "pc_macos", "Mac" },
-		{ "android", "Android" }, { "steam_deck", "Steam Deck" }, { "xbox", "Xbox" }, { "xbox360", "Xbox 360" },
+		{ "android", "Android" }, { "steam_deck", "SteamOS" }, { "xbox", "Xbox" }, { "xbox360", "Xbox 360" },
 		{ "xbox_series", "Xbox Series" }, { "psp", "PSP" }, { "vita", "PS Vita" }, { "wiiu", "Wii U" },
 		{ "pc_freebsd", "FreeBSD PC" }, { "xbox_uwp", "Xbox Series" }, { "switch", "Switch" }, { "ps3", "PS3" },
 		{ "ps4", "PS4" }, { "ps5", "PS5" }, { "n64", "Nintendo 64" }, { "pc_legacy", "Legacy PC" },
@@ -373,7 +423,7 @@ static char const *platform_name(
 		if (!strcmp(platform, names[index][0]))
 			return names[index][1];
 	}
-	return platform[0] ? platform : "Copy";
+	return platform[0] ? platform : "Device";
 }
 
 /* a count with thousands' commas */
@@ -631,6 +681,59 @@ static short overview_lines(
 	return count;
 }
 
+/* a day the site keeps (day precision, a UTC day): Today, Yesterday, or its date */
+static void day_text(
+	long long when,
+	char *text,
+	int size)
+{
+	long long today = (long long)time(NULL) / 86400, day = when / 86400;
+	time_t moment = (time_t)when;
+	struct tm *found;
+
+	if (when <= 0)
+		snprintf(text, (size_t)size, "never");
+	else if (day >= today)
+		snprintf(text, (size_t)size, "today");
+	else if (day == today - 1)
+		snprintf(text, (size_t)size, "yesterday");
+	else if ((found = gmtime(&moment)) != NULL)
+		strftime(text, (size_t)size, "%b %d", found);
+	else
+		snprintf(text, (size_t)size, "long ago");
+}
+
+/* a device's name as shown: its own, else its platform's */
+static char const *device_name(
+	struct delta_profile_device const *device)
+{
+	return device->name[0] ? device->name : platform_name(device->platform);
+}
+
+/* a device's state, as its row says it */
+static void device_status(
+	struct delta_profile_device const *device,
+	char *text,
+	int size)
+{
+	char day[32];
+
+	if (device->this_device)
+		snprintf(text, (size_t)size, "This device");
+	else if (device->signed_out)
+		snprintf(text, (size_t)size, "Signed out");
+	else if (device->last_seen > 0)
+	{
+		day_text(device->last_seen, day, sizeof(day));
+		snprintf(text, (size_t)size, "Seen %s", day);
+	}
+	else
+	{
+		day_text(device->created, day, sizeof(day));
+		snprintf(text, (size_t)size, "Added %s", day);
+	}
+}
+
 static short copies_lines(
 	struct profile_line *lines,
 	short count,
@@ -639,6 +742,23 @@ static short copies_lines(
 	struct delta_profile const *profile = &profile_screen.profile;
 	short index;
 
+	if (has_devices())
+	{
+		for (index = 0; index < profile->device_count; index++)
+		{
+			char status[48];
+
+			device_status(&profile->devices[index], status, sizeof(status));
+			count = add_line(lines, count, maximum, _profile_line_row, "%s\t%s", device_name(&profile->devices[index]),
+				status);
+		}
+		if (profile->more_devices)
+			count = add_line(lines, count, maximum, _profile_line_row, "+%d more\t", profile->more_devices);
+		if (!profile->device_count)
+			count = add_line(lines, count, maximum, _profile_line_text, "No devices yet");
+		return count;
+	}
+
 	for (index = 0; index < profile->copy_count; index++)
 	{
 		struct delta_profile_copy const *copy = &profile->copies[index];
@@ -646,7 +766,7 @@ static short copies_lines(
 
 		when_text(copy->last_seen, seen, sizeof(seen));
 		if (copy->this_copy)
-			count = add_line(lines, count, maximum, _profile_line_row, "%s %s\tThis copy", platform_name(copy->platform), copy->label);
+			count = add_line(lines, count, maximum, _profile_line_row, "%s %s\tThis device", platform_name(copy->platform), copy->label);
 		else if (copy->last_seen <= 0)
 			count = add_line(lines, count, maximum, _profile_line_row, "%s %s\tNever played", platform_name(copy->platform), copy->label);
 		else
@@ -743,8 +863,8 @@ static short link_lines(
 	short maximum)
 {
 	if (!linked())
-		return add_line(lines, count, maximum, _profile_line_text, "Link this copy to a Delta profile.");
-	return add_line(lines, count, maximum, _profile_line_text, "Unlink this copy from @%s.", profile_screen.profile.handle);
+		return add_line(lines, count, maximum, _profile_line_text, "Link this device to a Delta profile.");
+	return add_line(lines, count, maximum, _profile_line_text, "Unlink this device from @%s.", profile_screen.profile.handle);
 }
 
 static short web_lines(
@@ -850,7 +970,8 @@ short profile_screen_summary(
 		count = add_line(lines, count, maximum, _profile_line_row, "K/D\t%.2f",
 			(double)profile->record_kills / (double)(profile->record_deaths ? profile->record_deaths : 1));
 	}
-	return add_line(lines, count, maximum, _profile_line_row, "COPIES\t%d", profile->copy_count + profile->more_copies);
+	return add_line(lines, count, maximum, _profile_line_row, "DEVICES\t%d", profile->has_devices ?
+		profile->device_count + profile->more_devices : profile->copy_count + profile->more_copies);
 }
 
 /* ---------- the actions (every menu set's) */
@@ -862,6 +983,17 @@ static void open_dialog(
 	profile_screen.dialog_time = system_milliseconds();
 	profile_screen.dialog_row = 0;
 	profile_screen.clan_state = _clan_rows;
+	profile_screen.devices_state = _devices_rows;
+	if (dialog == _dialog_approve)
+	{
+		short slot;
+
+		for (slot = 0; slot < NUMBEROF(profile_screen.code_slots); slot++)
+			profile_screen.code_slots[slot] = NONE;
+		profile_screen.code_slot = 0;
+		profile_screen.code_sent = FALSE;
+		browser_approve_stop();
+	}
 	browser_profile_action_seen();
 	if (dialog == _dialog_web || dialog == _dialog_copies)
 	{
@@ -877,6 +1009,15 @@ static void open_dialog(
 static void close_dialog(
 	void)
 {
+	if (profile_screen.dialog == _dialog_approve)
+		browser_approve_stop();
+	/* (signed out: the profile again, as not linked) */
+	if (profile_screen.dialog == _dialog_sign_out && profile_screen.status.action == BROWSER_PROFILE_ACTION_DONE)
+	{
+		refresh(TRUE);
+		profile_screen.section = _section_overview;
+		profile_screen.in_panel = FALSE;
+	}
 	if (profile_screen.dialog == _dialog_link)
 	{
 		browser_connect_stop();
@@ -929,7 +1070,9 @@ boolean profile_screen_section_action(
 	switch (section)
 	{
 	case _section_link:
-		if (linked() && !profile_screen.profile.locked)
+		if (this_device())
+			open_dialog(_dialog_sign_out);
+		else if (linked() && !profile_screen.profile.locked)
 			open_dialog(_dialog_unlink);
 		else if (profile_screen.status.has_profile && !linked())
 			open_link();
@@ -944,7 +1087,7 @@ boolean profile_screen_section_action(
 	case _section_copies:
 		if (!linked())
 			return FALSE;
-		open_dialog(_dialog_copies);
+		open_dialog(has_devices() ? _dialog_devices : _dialog_copies);
 		return TRUE;
 	case _section_clan:
 		if (!linked() || profile_screen.profile.locked || (!profile_screen.profile.has_clan && !profile_screen.profile.invite_count))
@@ -955,6 +1098,32 @@ boolean profile_screen_section_action(
 		return FALSE;
 	}
 }
+
+/* DELTA's SETTINGS: the device list, and Link a device (another device's
+code entered here); FALSE when this copy has no devices to show (not
+signed in, or an older site) */
+boolean profile_screen_open_devices(
+	void)
+{
+	refresh(FALSE);
+	if (!has_devices())
+		return FALSE;
+	open_dialog(_dialog_devices);
+	return TRUE;
+}
+
+boolean profile_screen_open_link_a_device(
+	void)
+{
+	refresh(FALSE);
+	if (!this_device())
+		return FALSE;
+	open_dialog(_dialog_approve);
+	return TRUE;
+}
+
+/* (a Quick Connect code's characters, as identity.c's) */
+static char const code_alphabet[] = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
 
 void profile_screen_refresh(
 	void)
@@ -1212,6 +1381,141 @@ static void clan_dialog_button(
 	}
 }
 
+static void devices_dialog_button(
+	short button)
+{
+	struct delta_profile const *profile = &profile_screen.profile;
+	short rows = (short)profile->device_count;
+	struct delta_profile_device const *device = profile_screen.dialog_row < rows ?
+		&profile->devices[profile_screen.dialog_row] : NULL;
+
+	switch (profile_screen.devices_state)
+	{
+	case _devices_sent:
+		if (profile_screen.status.action == BROWSER_PROFILE_ACTION_WORKING)
+			break;
+		if (button == _gamepad_analog_button_a || button == _gamepad_analog_button_b)
+		{
+			profile_screen.devices_state = _devices_rows;
+			profile_screen.dialog_row = 0;
+			browser_profile_action_seen();
+		}
+		break;
+	case _devices_asking:
+		if (button == _gamepad_analog_button_a && device)
+		{
+			browser_profile_revoke(device->id);
+			profile_screen.devices_state = _devices_sent;
+		}
+		else if (button == _gamepad_analog_button_b)
+			profile_screen.devices_state = _devices_rows;
+		break;
+	default:
+		if (button == _gamepad_binary_button_dpad_up && rows)
+			profile_screen.dialog_row = (short)MAX(0, profile_screen.dialog_row - 1);
+		else if (button == _gamepad_binary_button_dpad_down && rows)
+			profile_screen.dialog_row = (short)MIN(rows - 1, profile_screen.dialog_row + 1);
+		else if (button == _gamepad_analog_button_b)
+			close_dialog();
+		else if (button == _gamepad_analog_button_x && this_device())
+			open_dialog(_dialog_approve);
+		else if (button == _gamepad_analog_button_a && device)
+		{
+			/* (this one signs out; another is revoked, asked first; one
+			only this device can revoke if it is signed in) */
+			if (device->this_device && !device->signed_out)
+				open_dialog(_dialog_sign_out);
+			else if (!device->this_device && this_device())
+				profile_screen.devices_state = _devices_asking;
+			else
+				ui_play_audio_feedback_sound(SOUND_ERROR);
+		}
+		break;
+	}
+}
+
+/* Link a device: d-pad up and down pick a slot's character, left and
+right the slot; A sends a full code (8 characters), or one of 6 (an older
+copy's Link Profile code) from the empty slot after it */
+static void approve_dialog_button(
+	short button)
+{
+	short *slot = &profile_screen.code_slots[profile_screen.code_slot];
+	short count = (short)(sizeof(code_alphabet) - 1), index;
+
+	if (profile_screen.code_sent)
+	{
+		short state = (short)profile_screen.approve.state;
+		boolean waiting = state == BROWSER_APPROVE_SENDING || state == BROWSER_APPROVE_ANSWERING ||
+			state == BROWSER_APPROVE_WAITING;
+
+		/* (the device shown: A approves, B denies, and the code is dead) */
+		if (state == BROWSER_APPROVE_SHOWN)
+		{
+			if (system_milliseconds() - profile_screen.approve_shown_time < DIALOG_SETTLE)
+				return;
+			if (button == _gamepad_analog_button_a || button == _gamepad_analog_button_b)
+			{
+				browser_approve_answer(button == _gamepad_analog_button_a);
+				browser_approve_get(&profile_screen.approve);
+			}
+			return;
+		}
+		if (button == _gamepad_analog_button_b || (button == _gamepad_analog_button_a && !waiting))
+			close_dialog();
+		return;
+	}
+	switch (button)
+	{
+	case _gamepad_binary_button_dpad_up:
+		*slot = (short)(*slot == NONE ? 0 : (*slot + 1) % count);
+		break;
+	case _gamepad_binary_button_dpad_down:
+		*slot = (short)(*slot == NONE ? count - 1 : (*slot + count - 1) % count);
+		break;
+	case _gamepad_binary_button_dpad_left:
+		profile_screen.code_slot = (short)MAX(0, profile_screen.code_slot - 1);
+		break;
+	case _gamepad_binary_button_dpad_right:
+		if (*slot != NONE)
+			profile_screen.code_slot = (short)MIN(NUMBEROF(profile_screen.code_slots) - 1, profile_screen.code_slot + 1);
+		break;
+	case _gamepad_analog_button_a:
+	{
+		char code[16];
+
+		for (index = 0; index < NUMBEROF(profile_screen.code_slots); index++)
+		{
+			if (profile_screen.code_slots[index] == NONE)
+				break;
+			code[index] = code_alphabet[profile_screen.code_slots[index]];
+		}
+		code[index] = 0;
+		if ((index == NUMBEROF(profile_screen.code_slots) || (index == 6 && profile_screen.code_slot == 6)) &&
+			browser_approve_start(code))
+		{
+			profile_screen.code_sent = TRUE;
+			browser_approve_get(&profile_screen.approve);
+		}
+		else if (*slot != NONE && profile_screen.code_slot < NUMBEROF(profile_screen.code_slots) - 1)
+			profile_screen.code_slot++;
+		else
+			ui_play_audio_feedback_sound(SOUND_ERROR);
+		break;
+	}
+	case _gamepad_analog_button_x:
+		/* (the slot cleared, and back one) */
+		*slot = NONE;
+		profile_screen.code_slot = (short)MAX(0, profile_screen.code_slot - 1);
+		break;
+	case _gamepad_analog_button_b:
+		close_dialog();
+		break;
+	default:
+		break;
+	}
+}
+
 static void dialog_button(
 	short button)
 {
@@ -1272,6 +1576,25 @@ static void dialog_button(
 		break;
 	case _dialog_clan:
 		clan_dialog_button(button);
+		break;
+	case _dialog_devices:
+		devices_dialog_button(button);
+		break;
+	case _dialog_approve:
+		approve_dialog_button(button);
+		break;
+	case _dialog_sign_out:
+		if (profile_screen.status.action == BROWSER_PROFILE_ACTION_WORKING)
+			break;
+		if (profile_screen.status.action != BROWSER_PROFILE_ACTION_NONE)
+		{
+			if (button == _gamepad_analog_button_a || button == _gamepad_analog_button_b)
+				close_dialog();
+		}
+		else if (button == _gamepad_analog_button_a)
+			browser_profile_sign_out();
+		else if (button == _gamepad_analog_button_b)
+			close_dialog();
 		break;
 	default:
 		break;
@@ -1395,6 +1718,17 @@ void profile_screen_process(
 			refresh(TRUE);
 		}
 	}
+	if (profile_screen.dialog == _dialog_approve && profile_screen.code_sent)
+	{
+		int before = profile_screen.approve.state;
+
+		browser_approve_get(&profile_screen.approve);
+		if (profile_screen.approve.state == BROWSER_APPROVE_SHOWN && before != BROWSER_APPROVE_SHOWN)
+			profile_screen.approve_shown_time = system_milliseconds();
+	}
+	/* (the list emptied under the devices dialog: its row back in it) */
+	if (profile_screen.dialog == _dialog_devices && profile_screen.dialog_row >= profile_screen.profile.device_count)
+		profile_screen.dialog_row = (short)MAX(0, profile_screen.profile.device_count - 1);
 	/* (another copy unlinked on the web: the dialog closes by itself) */
 	if (profile_screen.dialog == _dialog_copies && profile_screen.profile.copy_count < profile_screen.copies_before)
 		close_dialog();
@@ -2070,7 +2404,7 @@ static void draw_bar(
 	if (profile_screen.section == _section_copies && linked())
 	{
 		buttons[count] = UI_BUTTON_X;
-		words[count++] = "=UNLINK A COPY";
+		words[count++] = "=UNLINK A DEVICE";
 	}
 	buttons[count] = UI_BUTTON_B;
 	words[count++] = "=BACK";
@@ -2161,9 +2495,9 @@ static void draw_link_dialog(
 	}
 	case BROWSER_CONNECT_CONFIRM:
 		if (connect->previous[0])
-			snprintf(text, sizeof(text), "Move this copy from @%s to @%s?", connect->previous, connect->handle);
+			snprintf(text, sizeof(text), "Move this device from @%s to @%s?", connect->previous, connect->handle);
 		else
-			snprintf(text, sizeof(text), "Link this copy to @%s?", connect->handle);
+			snprintf(text, sizeof(text), "Link this device to @%s?", connect->handle);
 		ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, DIALOG_Y + 96, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFF90, text);
 		if (connect->answered)
 			ui_overlay_text(UI_FONT_MENU, 11.0f, center, DIALOG_Y + 196, UI_ALIGN_CENTER, COLOR_TEXT, "Sending your answer\xE2\x80\xA6");
@@ -2208,7 +2542,7 @@ static void draw_unlink_dialog(
 	char text[192];
 	float center = DIALOG_X + DIALOG_WIDTH / 2, left = DIALOG_X + 30, width = DIALOG_WIDTH - 60;
 
-	dialog_frame("UNLINK THIS COPY");
+	dialog_frame("UNLINK THIS DEVICE");
 	switch (status->action)
 	{
 	case BROWSER_PROFILE_ACTION_WORKING:
@@ -2220,7 +2554,7 @@ static void draw_unlink_dialog(
 		dialog_prompt(UI_BUTTON_A, "=OK");
 		break;
 	case BROWSER_PROFILE_ACTION_FIRST_COPY:
-		snprintf(text, sizeof(text), "This copy made @%s and can't be unlinked.", profile_screen.profile.handle);
+		snprintf(text, sizeof(text), "This device made @%s and can't be unlinked.", profile_screen.profile.handle);
 		wrapped_text(UI_FONT_MENU, 12.0f, left, DIALOG_Y + 96, width, 17, COLOR_TEXT, text, 4);
 		dialog_prompt(UI_BUTTON_A, "=OK");
 		break;
@@ -2233,7 +2567,7 @@ static void draw_unlink_dialog(
 		static int const buttons[] = { UI_BUTTON_B, UI_BUTTON_A };
 		static char const *const words[] = { "=NO", "=YES" };
 
-		snprintf(text, sizeof(text), "Unlink this copy from @%s?", profile_screen.profile.handle);
+		snprintf(text, sizeof(text), "Unlink this device from @%s?", profile_screen.profile.handle);
 		ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, DIALOG_Y + 90, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFF90, text);
 		dialog_prompts(NUMBEROF(buttons), buttons, words);
 		break;
@@ -2249,11 +2583,11 @@ static void draw_page_dialog(
 	boolean web = profile_screen.dialog == _dialog_web;
 	float left = DIALOG_X + 22, y = DIALOG_Y + 60, width = QR_X - left - 16;
 
-	dialog_frame(web ? "OPEN ON THE WEB" : "UNLINK A COPY");
+	dialog_frame(web ? "OPEN ON THE WEB" : "UNLINK A DEVICE");
 	ui_overlay_text(UI_FONT_MENU_SMALL, 11.5f, left, y, UI_ALIGN_LEFT, COLOR_DIM, "Go to");
 	ui_overlay_text_glow(UI_FONT_MENU, 12.0f, left, y + 16, UI_ALIGN_LEFT, COLOR_LABEL, 0x3D8BFF60, profile_screen.page);
 	if (!web)
-		wrapped_text(UI_FONT_MENU_SMALL, 11.5f, left, y + 44, width, 15, COLOR_TEXT, "Sign in, then unlink the copy.", 2);
+		wrapped_text(UI_FONT_MENU_SMALL, 11.5f, left, y + 44, width, 15, COLOR_TEXT, "Sign in, then unlink the device.", 2);
 	if (profile_screen.page_qr_size)
 		draw_qr(profile_screen.page_qr, (short)profile_screen.page_qr_size);
 	if (web)
@@ -2372,6 +2706,211 @@ static void draw_clan_dialog(
 	}
 }
 
+/* a request's answer in a dialog: working, done (green), or refused */
+static boolean draw_action_result(
+	char const *working,
+	char const *done)
+{
+	struct browser_profile_status const *status = &profile_screen.status;
+	float center = DIALOG_X + DIALOG_WIDTH / 2, left = DIALOG_X + 30, width = DIALOG_WIDTH - 60;
+
+	switch (status->action)
+	{
+	case BROWSER_PROFILE_ACTION_WORKING:
+		ui_overlay_text(UI_FONT_MENU, 12.0f, center, DIALOG_Y + 120, UI_ALIGN_CENTER, COLOR_TEXT, working);
+		return TRUE;
+	case BROWSER_PROFILE_ACTION_DONE:
+		ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, DIALOG_Y + 100, UI_ALIGN_CENTER, COLOR_GOOD, 0x6BE38A80, done);
+		dialog_prompt(UI_BUTTON_A, "=OK");
+		return TRUE;
+	case BROWSER_PROFILE_ACTION_FAILED:
+	case BROWSER_PROFILE_ACTION_FIRST_COPY:
+		wrapped_text(UI_FONT_MENU, 12.0f, left, DIALOG_Y + 100, width, 17, COLOR_WARN, status->message, 4);
+		dialog_prompt(UI_BUTTON_A, "=OK");
+		return TRUE;
+	default:
+		return FALSE;
+	}
+}
+
+static void draw_sign_out_dialog(
+	void)
+{
+	static int const buttons[] = { UI_BUTTON_B, UI_BUTTON_A };
+	static char const *const words[] = { "=NO", "=YES" };
+	char text[192];
+
+	dialog_frame("SIGN OUT");
+	if (draw_action_result("Signing out\xE2\x80\xA6", "Signed out"))
+		return;
+	snprintf(text, sizeof(text), "Sign out of @%s on this device?", profile_screen.profile.handle);
+	fitted_text(UI_FONT_MENU, 15.0f, DIALOG_X + DIALOG_WIDTH / 2, DIALOG_Y + 90, UI_ALIGN_CENTER, 0xFFFFFFFF,
+		DIALOG_WIDTH - 60, text);
+	dialog_prompts(NUMBEROF(buttons), buttons, words);
+}
+
+/* the devices: a row each (its name, platform and state), A on another to
+revoke it (asked first), on this one to sign out; X: Link a device */
+static void draw_devices_dialog(
+	void)
+{
+	struct delta_profile const *profile = &profile_screen.profile;
+	float center = DIALOG_X + DIALOG_WIDTH / 2, left = DIALOG_X + 30, width = DIALOG_WIDTH - 60, y = DIALOG_Y + 64;
+	short rows = (short)profile->device_count, index, first;
+	char text[192];
+
+	dialog_frame("DEVICES");
+	if (profile_screen.devices_state == _devices_sent)
+	{
+		if (!draw_action_result("Revoking\xE2\x80\xA6", "Revoked"))
+			ui_overlay_text(UI_FONT_MENU, 12.0f, center, DIALOG_Y + 120, UI_ALIGN_CENTER, COLOR_TEXT, "Sending\xE2\x80\xA6");
+		return;
+	}
+	if (profile_screen.devices_state == _devices_asking && profile_screen.dialog_row < rows)
+	{
+		static int const buttons[] = { UI_BUTTON_B, UI_BUTTON_A };
+		static char const *const words[] = { "=NO", "=REVOKE" };
+
+		snprintf(text, sizeof(text), "Revoke %s?", device_name(&profile->devices[profile_screen.dialog_row]));
+		fitted_text(UI_FONT_MENU, 15.0f, center, DIALOG_Y + 90, UI_ALIGN_CENTER, 0xFFFFFFFF, width, text);
+		dialog_prompts(NUMBEROF(buttons), buttons, words);
+		return;
+	}
+	first = (short)MAX(0, MIN(profile_screen.dialog_row - 3, rows - 8));
+	for (index = first; index < rows && index < first + 8; index++)
+	{
+		struct delta_profile_device const *device = &profile->devices[index];
+		boolean picked = index == profile_screen.dialog_row;
+		char status[48];
+
+		device_status(device, status, sizeof(status));
+		if (picked)
+		{
+			ui_overlay_rect(left - 6, y - 3, width + 12, 20, 5, COLOR_SELECTION_FILL);
+			ui_overlay_outline(left - 6, y - 3, width + 12, 20, 5, 1.2f, COLOR_SELECTION_EDGE);
+		}
+		if (device->name[0])
+			snprintf(text, sizeof(text), "%s (%s)", device->name, platform_name(device->platform));
+		else
+			snprintf(text, sizeof(text), "%s", platform_name(device->platform));
+		fitted_text(UI_FONT_MENU, 10.0f, left, y, UI_ALIGN_LEFT, picked ? COLOR_TEXT : COLOR_ROW, width - 120, text);
+		ui_overlay_text(UI_FONT_MENU_SMALL, 9.0f, left + width, y + 1, UI_ALIGN_RIGHT,
+			device->this_device ? COLOR_GOOD : COLOR_DIM, status);
+		add_target(left - 6, y - 3, left + width + 6, y + 17, NONE, NONE, index);
+		y += 22;
+	}
+	if (!rows)
+		ui_overlay_text(UI_FONT_MENU, 11.0f, center, DIALOG_Y + 110, UI_ALIGN_CENTER, COLOR_DIM, "No devices yet");
+	if (this_device())
+	{
+		boolean mine = rows && profile->devices[profile_screen.dialog_row].this_device;
+		static int const buttons[] = { UI_BUTTON_B, UI_BUTTON_X, UI_BUTTON_A };
+		char const *words[3] = { "=BACK", "=LINK A DEVICE", NULL };
+
+		words[2] = mine ? "=SIGN OUT" : "=REVOKE";
+		dialog_prompts(rows ? 3 : 2, buttons, words);
+	}
+	else
+		dialog_prompt(UI_BUTTON_B, "=BACK");
+}
+
+/* Link a device: the 8 slots of another device's code, then how it went */
+static void draw_approve_dialog(
+	void)
+{
+	struct browser_approve const *approve = &profile_screen.approve;
+	float center = DIALOG_X + DIALOG_WIDTH / 2, left = DIALOG_X + 30, width = DIALOG_WIDTH - 60;
+	float box = 34, gap = 6, dash = 16, x;
+	char text[192];
+	short slot;
+
+	dialog_frame("LINK A DEVICE");
+	if (profile_screen.code_sent)
+	{
+		switch (approve->state)
+		{
+		case BROWSER_APPROVE_SENDING:
+		case BROWSER_APPROVE_ANSWERING:
+			ui_overlay_text(UI_FONT_MENU, 12.0f, center, DIALOG_Y + 120, UI_ALIGN_CENTER, COLOR_TEXT, "Sending\xE2\x80\xA6");
+			dialog_prompt(UI_BUTTON_B, "=CLOSE");
+			return;
+		case BROWSER_APPROVE_SHOWN:
+		{
+			static int const buttons[] = { UI_BUTTON_B, UI_BUTTON_A };
+			static char const *const words[] = { "=DENY", "=APPROVE" };
+
+			snprintf(text, sizeof(text), "%s%s%s wants to sign in as @%s.", approve->platform[0] ?
+				platform_name(approve->platform) : "A device", approve->name[0] ? " " : "",
+				approve->name[0] ? approve->name : "", approve->handle);
+			wrapped_text(UI_FONT_MENU, 12.0f, left, DIALOG_Y + 76, width, 17, COLOR_TEXT, text, 3);
+			wrapped_text(UI_FONT_MENU_SMALL, 11.0f, left, DIALOG_Y + 140, width, 15, COLOR_WARN,
+				approve->message[0] ? approve->message : "Only enter a code shown on your own screen.", 2);
+			dialog_prompts(NUMBEROF(buttons), buttons, words);
+			return;
+		}
+		case BROWSER_APPROVE_WAITING:
+			snprintf(text, sizeof(text), "%s%s%s wants to sign in as @%s.", approve->platform[0] ?
+				platform_name(approve->platform) : "A device", approve->name[0] ? " " : "",
+				approve->name[0] ? approve->name : "", approve->handle);
+			wrapped_text(UI_FONT_MENU, 12.0f, left, DIALOG_Y + 84, width, 17, COLOR_TEXT, text, 3);
+			ui_overlay_text(UI_FONT_MENU_SMALL, 11.0f, center, DIALOG_Y + 150, UI_ALIGN_CENTER, COLOR_DIM,
+				"Confirm on that device.");
+			dialog_prompt(UI_BUTTON_B, "=CLOSE");
+			return;
+		case BROWSER_APPROVE_DONE:
+			ui_overlay_text_glow(UI_FONT_MENU, 15.0f, center, DIALOG_Y + 100, UI_ALIGN_CENTER, COLOR_GOOD, 0x6BE38A80,
+				"Signed in");
+			break;
+		case BROWSER_APPROVE_DECLINED:
+			ui_overlay_text(UI_FONT_MENU, 12.0f, center, DIALOG_Y + 110, UI_ALIGN_CENTER, COLOR_TEXT, "Declined on that device.");
+			break;
+		case BROWSER_APPROVE_EXPIRED:
+			ui_overlay_text(UI_FONT_MENU, 12.0f, center, DIALOG_Y + 110, UI_ALIGN_CENTER, COLOR_TEXT, "The code expired.");
+			break;
+		case BROWSER_APPROVE_DENIED:
+			ui_overlay_text(UI_FONT_MENU, 12.0f, center, DIALOG_Y + 110, UI_ALIGN_CENTER, COLOR_TEXT,
+				"Denied. That code doesn't work anymore.");
+			break;
+		default:
+			wrapped_text(UI_FONT_MENU, 12.0f, left, DIALOG_Y + 100, width, 17, COLOR_WARN,
+				approve->message[0] ? approve->message : "The site refused the code.", 4);
+			break;
+		}
+		dialog_prompt(UI_BUTTON_A, "=OK");
+		return;
+	}
+	ui_overlay_text(UI_FONT_MENU_SMALL, 11.5f, center, DIALOG_Y + 64, UI_ALIGN_CENTER, COLOR_DIM,
+		"Enter the code the other device shows");
+	x = center - (8 * box + 7 * gap + dash) / 2;
+	for (slot = 0; slot < NUMBEROF(profile_screen.code_slots); slot++)
+	{
+		boolean picked = slot == profile_screen.code_slot;
+		char letter[2] = { 0, 0 };
+
+		if (slot == 4)
+		{
+			ui_overlay_text(UI_FONT_MENU, 24.0f, x + dash / 2 - gap / 2, DIALOG_Y + 112, UI_ALIGN_CENTER, COLOR_DIM, "-");
+			x += dash;
+		}
+		ui_overlay_rect(x, DIALOG_Y + 104, box, 46, 5, picked ? COLOR_SELECTION_FILL : COLOR_TILE);
+		ui_overlay_outline(x, DIALOG_Y + 104, box, 46, 5, picked ? 1.6f : 1.0f,
+			picked ? COLOR_SELECTION_EDGE : COLOR_RULE);
+		if (profile_screen.code_slots[slot] != NONE)
+		{
+			letter[0] = code_alphabet[profile_screen.code_slots[slot]];
+			ui_overlay_text_glow(UI_FONT_MENU, 24.0f, x + box / 2, DIALOG_Y + 113, UI_ALIGN_CENTER, 0xFFFFFFFF,
+				0x3D8BFF90, letter);
+		}
+		x += box + gap;
+	}
+	{
+		static int const buttons[] = { UI_BUTTON_B, UI_BUTTON_X, UI_BUTTON_A };
+		static char const *const words[] = { "=CANCEL", "=CLEAR", "=ENTER" };
+
+		dialog_prompts(NUMBEROF(buttons), buttons, words);
+	}
+}
+
 static void draw_dialog(
 	float margin)
 {
@@ -2382,6 +2921,9 @@ static void draw_dialog(
 	case _dialog_link: draw_link_dialog(); break;
 	case _dialog_unlink: draw_unlink_dialog(); break;
 	case _dialog_clan: draw_clan_dialog(); break;
+	case _dialog_devices: draw_devices_dialog(); break;
+	case _dialog_sign_out: draw_sign_out_dialog(); break;
+	case _dialog_approve: draw_approve_dialog(); break;
 	default: draw_page_dialog(); break;
 	}
 	ui_overlay_layer(0);

@@ -46,6 +46,8 @@ void posix_browser_lock(void);
 void posix_browser_unlock(void);
 
 int posix_browser_private_key(const char *path, unsigned char *key, int size);
+/* the same for the device key (its own log lines: it can always be made again) */
+int posix_browser_device_key(const char *path, unsigned char *key, int size);
 int posix_browser_replace_key(const char *path, const unsigned char *key, int size);
 
 #endif

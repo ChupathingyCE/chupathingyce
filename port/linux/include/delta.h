@@ -224,7 +224,7 @@ empty. delta_test.c checks the rows against the registry. */
 	X(_delta_platform_pc_macos, "pc_macos", "MAC", "Mac", "MAC") \
 	X(_delta_platform_pc_linux, "pc_linux", "LNX", "Linux", "LINUX") \
 	X(_delta_platform_android, "android", "AND", "Android", "ANDROID") \
-	X(_delta_platform_steam_deck, "steam_deck", "DECK", "Steam Deck", "STEAM DECK") \
+	X(_delta_platform_steam_deck, "steam_deck", "STEAMOS", "SteamOS", "STEAMOS") \
 	X(_delta_platform_xbox, "xbox", "XBOX", "Xbox", "XBOX") \
 	X(_delta_platform_xbox360, "xbox360", "360", "Xbox 360", "XBOX 360") \
 	X(_delta_platform_wiiu, "wiiu", "WIIU", "Wii U", "WII U") \

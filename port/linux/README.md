@@ -546,6 +546,7 @@ the setting for one start of the game. It has priority over the file.
 | `display.vsync` | `true` | `HALO_NO_VSYNC=1` sets `false` | `true`: each frame waits for the display. |
 | `display.skip_intro` | `false` | `HALO_SKIP_INTRO` | `true`: skip the intro movie on startup and load straight into the main menu. |
 | `display.max_fps` | `0` | `HALO_MAX_FPS` | With vsync off, the most frames each second. `0`: twice the display's refresh rate (on Android, 120). `-1`: no limit, which can hang some Intel graphics (Raptor Lake), resetting the desktop's graphics too, and heats a phone. |
+| `display.stats_log` | `false` | `HALO_STATS_LOG` | `true`: a line a second in the log with the frame rate, the mode, the map, the renderer and the size of the 3D view (`STATS fps=120.2 mode=Slayer map=bloodgulch gpu="Adreno (TM) 735" res=1068x480`), for a bug report or to compare two builds. Nothing is drawn and nothing is sent. |
 | `display.anti_aliasing` | `"msaa2x"` on 64-bit computers, `"off"` on 32-bit ones, Android and the server | `HALO_ANTI_ALIASING` | The smoothing of jagged edges, which the Xbox did not have. `"off"`: none, as on the Xbox. `"fxaa"` or `"smaa"`: a pass over the 3D view after the game draws it. The HUD and the menus stay sharp. SMAA is the sharper and costs more. `"ssaa2x"`: the game draws at two times the resolution in each direction (at most the GPU's largest texture), and the picture is scaled down. The GPU does four times the work. Not with `display.resolution_scaling = "original"`. `"msaa2x"`, `"msaa4x"` or `"msaa8x"`: each pixel of the 3D view has that many samples (at most the GPU's). On Android, `"smaa"` gives FXAA and `"ssaa2x"` none. A change applies from the next frame. Refer to "Anti-aliasing" in "What operates". |
 | `display.renderer` | `"gl"` | `HALO_RENDERER` | What draws the game. `"gl"`: OpenGL. `"bgfx"`: an experimental test renderer under the same D3D8 interface, config-only with no menu row: Metal on macOS, Vulkan on Windows and Linux. It is in every 64-bit desktop build (macOS, Windows x64, Linux x64; not the 32-bit builds, Android or consoles). If bgfx can't start (no working Vulkan driver, say), the game says so in the log and draws with OpenGL instead. The log names the backend and the GPU. Known differences: the Halo PC ammo and health meters, a brighter first-person pistol and grainy water. FXAA, SMAA and supersampling are OpenGL only, so with bgfx they become `"msaa2x"` and one line says so in the log. Read at start-up. |
 | `debug.gpu_flush_draws` | `-1` | `HALO_GPU_FLUSH_DRAWS` | Flush the GPU's pipeline every this many draws. `-1`: every 3 on Intel graphics with Mesa's driver, which can otherwise hang in the game's long runs of small draws and reset the desktop's graphics too. `0`: never. |
@@ -578,7 +579,9 @@ the setting for one start of the game. It has priority over the file.
 | `display.scoreboard_team_layout` | `"teams"` | `HALO_SCOREBOARD_TEAM_LAYOUT` | How the multiplayer scoreboard (hold BACK, or tab) lists a team game's players. `"teams"`: a column for each team, red on the left and blue on the right. `"score"`: all the players in order of score. With more players than fit, the mouse wheel and Page Up / Page Down scroll the scoreboard. |
 | `display.scoreboard_background` | `true` | `HALO_SCOREBOARD_BACKGROUND` | `true`: the multiplayer scoreboard (hold BACK, or tab) has a panel behind its text, for clearer text. |
 | `display.scoreboard_platforms` | `"auto"` | `HALO_SCOREBOARD_PLATFORMS` | A small logo of each player's platform (Windows, macOS, Linux, Android, Steam Deck, Xbox and so on) before their name on a network game's scoreboard, for players whose client sends it over Delta Peer; other players (OpenCE, retail) get no logo. `"auto"`: shown with the Chupathingy menus only, since the Xbox and Gearbox menus stay close to the originals. `"on"`: with any menus. `"off"`: never. |
-| `display.delta_profile` | `true` | `HALO_DELTA_PROFILE` | Delta Profile in the game: the DELTA row of Profiles (the Chupathingy menus) and button of Select Profile (the Gearbox menus), the "Delta:" line on a Halo profile, and Online Games' Start. `false` hides them all, and Start opens the profile's web page as before. Link Profile (RB in Online Games) stays. Refer to `docs/delta.md`, Delta Profile in the game. |
+| `display.delta_profile` | `true` | `HALO_DELTA_PROFILE` | Delta Profile in the game: the DELTA row of Profiles (the Chupathingy menus) and button of Select Profile (the Gearbox menus), the "Delta:" line on a Halo profile, and Online Games' Start. `false` hides them all, and Start opens the profile's web page as before, or Link Profile while this copy is not linked. Refer to `docs/delta.md`, Delta Profile in the game. |
+| `display.online_games_view` | `"public"` | `HALO_ONLINE_GAMES_VIEW` | The view Online Games opens on in a session (LB and RB switch, and the last one stays): `"all"`, `"public"` (CHUPATHINGY + PUBLIC: every game but OpenCE's dedicated servers), `"chupathingy"` (our servers and Delta hosts) or `"opence"` (OpenCE's dedicated servers). |
+| `display.opence_empty_servers` | `"folded"` | `HALO_OPENCE_EMPTY_SERVERS` | The empty OpenCE dedicated servers in Online Games' ALL and OPENCE views: `"folded"` puts them in one EMPTY SERVERS row at the end (A opens and closes it; closed each session), `"shown"` lists each one at the end. |
 | `display.profile_names` | `true` | `HALO_PROFILE_NAMES` | On the scoreboard, the postgame report and the lobby, players who share their Delta profile (`network.share_profile`) show by the profile's name, in games on Delta. `false`: every player by their game name. OpenCE players, and what OpenCE players see, are unchanged. |
 | `display.show_quit_players` | `true` | `HALO_SHOW_QUIT_PLAYERS` | `true`: players who quit stay on the multiplayer scoreboard (hold BACK, or tab) and the score in the corner, as in the original game. `false`: they are left off, and the players still in the game are ranked among themselves, as OpenCE does. Only what this machine draws changes. |
 | `display.scoreboard_background_color` | `"16, 16, 16, 150"` | `HALO_SCOREBOARD_BACKGROUND_COLOR` | The colour of the scoreboard's panel: `"red, green, blue, alpha"`, each from `0` to `255`. Alpha `0` is see-through, `255` is solid. |
@@ -1218,21 +1221,42 @@ last. The details show the map's picture from the menus, or from Halo PC's
 `network.online` is on and kept in the save root's `map_art` folder. So
 does a HaloMD or Custom Edition map's picture, when the site has one
 (art/maps/md, art/maps/ce). Any other map gets a card with its name in its
-family's color. RB (Link Profile)
-shows only while this copy is not linked to a profile: linked on this copy
-(kept in the save root's `game_list_profile.txt`), or a profile the site
-has for this copy's player ID. Once linked, Start's prompt names the
+family's color. LB and RB (Q and C on the keyboard) switch between four
+views of the list, each sorted with the most players first (the chosen
+order breaks ties): ALL; CHUPATHINGY + PUBLIC, the default, which leaves
+out OpenCE's dedicated servers; CHUPATHINGY (our servers and Delta hosts);
+and OPENCE (OpenCE's dedicated servers). The view shown stays for the
+session, and `display.online_games_view` picks the first. In ALL and
+OPENCE, the empty OpenCE dedicated servers fold into one EMPTY SERVERS row
+at the end, which A opens and closes (`display.opence_empty_servers`). The
+filter (Back) works in every view. Once this copy is linked to a profile
+(on this copy, kept in the save root's `game_list_profile.txt`, or a
+profile the site has for this copy's player ID), Start's prompt names the
 profile. Each copy of the game has a player key in the save root
 (`game_list_player.key`). The key confirms the player's lines in finished
 games. The game sends the key only to an HTTPS server, or to a server on
 this computer (`http://127.0.0.1`, `http://localhost`) for tests.
+
+Builds from 0.9.1 on also make a device key (`delta_device.key`, beside the
+player key, made the same way and readable by you alone). Its private half
+never leaves the computer. The first time the game reaches the site with a
+player key, it sends the player key once more to enroll the device, and the
+site answers a device certificate (`delta_device.cert`, public), which the
+game refreshes every few days with the device key alone. From then on the
+game sends the site an hour's token instead of the player key, and sends
+the key only to a site that doesn't know device identity. Restoring another
+player key makes a new device key, which enrolls with it. The device key can
+always be made again; the player key file stays: older sites and servers
+know only it. Neither file nor any token is ever written to
+`debug.txt` (docs/delta.md, "Device identity").
 
 To link the game to a profile on the site, do one of these steps in Online
 Games:
 
 - Press Start. The game opens the profile page in the web browser, signed
   in as this player.
-- Press RB, or C on the keyboard (Link Profile). Use this step where no web
+- Press Start, or F2 on the keyboard, and pick LINK PROFILE (with
+  `display.delta_profile` off, Start opens it directly). Use this step where no web
   browser opens: Steam's Game Mode, a Steam Deck, a console. The game shows
   a short code and a QR code. On a phone or a computer, go to
   `<server>/connect` (the address that the game shows), sign in, and enter

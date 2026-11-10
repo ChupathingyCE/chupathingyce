@@ -311,6 +311,10 @@ static const struct config_setting config_settings[] =
 		"Draw a frame for every display refresh. The game runs 30 ticks a\n"
 		"second, and the frames between them are blended. false keeps the\n"
 		"game's own 30 frames a second." },
+	{ "display.stats_log", _config_boolean, "false", "HALO_STATS_LOG", _environment_value, _platform_all,
+		"A line a second in the log with the frame rate, the mode, the map, the\n"
+		"renderer and the size of the 3D view, for a bug report or to compare two\n"
+		"builds. Nothing is drawn and nothing is sent; off by default." },
 	{ "display.anti_aliasing", _config_string, DEFAULT_ANTI_ALIASING, "HALO_ANTI_ALIASING", _environment_value,
 		_platform_all,
 		"Smooth jagged edges: \"off\", \"fxaa\", \"smaa\", \"ssaa2x\", \"msaa2x\",\n"
@@ -464,6 +468,19 @@ static const struct config_setting config_settings[] =
 #endif
 	{ "display.delta_profile", _config_boolean, "true", "HALO_DELTA_PROFILE", _environment_value, _platform_all,
 		"Show Delta Profile in the menus and Online Games." },
+#ifdef HALO_GAME_BROWSER
+	{ "display.online_games_view", _config_string, "\"public\"", "HALO_ONLINE_GAMES_VIEW", _environment_value,
+		_platform_all,
+		"The list Online Games opens on (LB and RB switch): \"all\",\n"
+		"\"public\" (Chupathingy and players' public games, no OpenCE\n"
+		"dedicated servers), \"chupathingy\" or \"opence\" (OpenCE's\n"
+		"dedicated servers)." },
+	{ "display.opence_empty_servers", _config_string, "\"folded\"", "HALO_OPENCE_EMPTY_SERVERS", _environment_value,
+		_platform_all,
+		"Empty OpenCE dedicated servers in Online Games' ALL and OPENCE lists:\n"
+		"\"folded\" puts them in one row at the end (A opens it), \"shown\"\n"
+		"lists each one." },
+#endif
 	{ "display.profile_names", _config_boolean, "true", "HALO_PROFILE_NAMES", _environment_value, _platform_all,
 		"In Delta games, show players by their shared Delta profile name." },
 	{ "display.server_messages", _config_boolean, "true", "HALO_SERVER_MESSAGES", _environment_value, _platform_all | _platform_xbox,
@@ -956,7 +973,7 @@ static const struct config_setting config_settings[] =
 	/* (a console's reports of the games it joins too: port/console/reports) */
 #if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_GAME_REPORTS)
 	{ "network.report_joined_games", _config_boolean, "true", "HALO_NET_REPORT_GAMES", _environment_value,
-		_platform_all,
+		_platform_all | _platform_xbox,
 		"Send the scores of internet games you join to the game list." },
 #endif
 #ifdef HALO_GAME_BROWSER
@@ -1033,6 +1050,9 @@ static const struct config_setting config_settings[] =
 	{ "launcher.hold_to_open", _config_boolean, "true", "HALO_LAUNCHER_HOLD", _environment_value, _platform_desktop,
 		"Holding Shift or a controller's Back (View) button while Chupathingy\n"
 		"starts opens the setup screen." },
+	{ "launcher.menu_entry", _config_boolean, "true", "HALO_LAUNCHER_MENU_ENTRY", _environment_value, _platform_desktop,
+		"SETUP in the menus' settings, which starts Chupathingy again on the\n"
+		"setup screen. false leaves it out." },
 	{ "launcher.mode_choice", _config_string, "\"ask\"", "HALO_LAUNCHER_MODE_CHOICE", _environment_value,
 		_platform_desktop,
 		"What to do when there is more than one way to play, like a map pack\n"
@@ -3439,6 +3459,8 @@ static const struct
 	{ "display.scoreboard_team_layout", { "teams", "score", NULL }, "\"teams\"" },
 	{ "display.scoreboard_platforms", { "auto", "on", "off", NULL }, "\"auto\"" },
 	{ "display.follow_camera", { "long_waits", "always", "off", NULL }, "\"off\"" },
+	{ "display.online_games_view", { "all", "public", "chupathingy", "opence", NULL }, "\"public\"" },
+	{ "display.opence_empty_servers", { "folded", "shown", NULL }, "\"folded\"" },
 	{ "display.texture_decode", { "auto", "gpu", "cpu", NULL }, "\"auto\"" },
 	{ "audio.resampling", { "sinc", "linear", NULL }, "\"sinc\"" },
 	{ "input.touch_controls", { "on", "auto", "off", NULL }, "\"on\"" },
@@ -4497,4 +4519,83 @@ const char *config_string(const char *name)
 	const char *string = config_value(name, _config_string)->string;
 
 	return string ? string : "";
+}
+
+/* ---------- the setup screen's Settings (launcher.c, settings_rows.c) */
+
+const char *config_setting_name(int index)
+{
+	if (index < 0 || (size_t)index >= NUMBER_OF_CONFIG_SETTINGS)
+		return NULL;
+	return config_settings[index].platforms & CONFIG_PLATFORM ? config_settings[index].name : "";
+}
+
+int config_setting_kind(const char *name)
+{
+	long index = config_setting_index(name);
+
+	if (index < 0 || !(config_settings[index].platforms & CONFIG_PLATFORM))
+		return -1;
+	switch (config_settings[index].type)
+	{
+	case _config_boolean:
+		return CONFIG_KIND_BOOLEAN;
+	case _config_integer:
+		return CONFIG_KIND_INTEGER;
+	case _config_real:
+		return CONFIG_KIND_REAL;
+	default:
+		return CONFIG_KIND_STRING;
+	}
+}
+
+const char *config_setting_word(const char *name, int index)
+{
+	size_t word_index;
+	int word;
+
+	for (word_index = 0; word_index < NUMBER_OF_CONFIG_WORDS; word_index++)
+	{
+		if (strcmp(config_words[word_index].name, name))
+			continue;
+		for (word = 0; config_words[word_index].words[word]; word++)
+		{
+			if (word == index)
+				return config_words[word_index].words[word];
+		}
+		return NULL;
+	}
+	return NULL;
+}
+
+int config_reset(const char *name)
+{
+	const char *dot = strchr(name, '.');
+	long index = config_setting_index(name);
+	char value[300], line_text[400], path[1024];
+	size_t size = 0;
+	char *text, *changed = NULL;
+	int succeeded = 1;
+
+	if (index < 0 || !dot || !config_default(name, value, sizeof(value)))
+		return 0;
+	/* (the file read first, as the other settings are) */
+	config_value(name, config_settings[index].type);
+	pthread_mutex_lock(&config_lock);
+	config_set_from_text(&config_values[index], config_settings[index].type, value);
+	/* (its value's line commented out at the default: it follows the
+	version's default again) */
+	snprintf(line_text, sizeof(line_text), "# %s = %s\n", dot + 1, config_settings[index].default_value);
+	config_path(path, sizeof(path));
+	text = config_read_file(path, &size);
+	if (text && config_text_has_key(text, name, 0))
+	{
+		changed = config_text_with_line(text, name, line_text);
+		succeeded = changed && config_write_file(path, changed);
+	}
+	config_change_count++;
+	pthread_mutex_unlock(&config_lock);
+	free(changed);
+	free(text);
+	return succeeded;
 }
