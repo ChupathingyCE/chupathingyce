@@ -45,7 +45,11 @@ enum
 with Quick Connect's start and the player key's enroll. "chupathingy" is
 Chupathingy's own builds; a fork registers its own at the site's
 /delta/clients and builds with -DIDENTITY_CLIENT_ID='"its-id"'. Printable
-ASCII, no quotes */
+ASCII, no quotes. A fork also needs a device key of its own: change the save
+root's folder (save_folder_default) or the key's file name
+(identity_slot_files). The site keeps a device key with the app it first
+signed in through, so a fork that finds Chupathingy's key is refused (409
+other_client) */
 #ifndef IDENTITY_CLIENT_ID
 #define IDENTITY_CLIENT_ID "chupathingy"
 #endif

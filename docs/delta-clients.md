@@ -56,6 +56,10 @@ A new app is **pending**: its devices can sign in only to your own profile,
 so you can test it. Once an admin approves it, anyone can sign in with it.
 Ask on our Discord if it's been waiting a while.
 
+A pending app keeps its name only from your own other apps. Two people can
+register the same name; the first one we approve keeps it, and we rename or
+delete the other. Don't register names you don't mean to ship.
+
 You can't rename an approved app or widen its scopes yourself. Ask us, and
 we'll change it from the admin side.
 
@@ -78,6 +82,16 @@ If your fork builds from our code, it already sends a client ID:
 Please don't ship our ID. A request with no client ID, or with
 `chupathingy`, is treated as Chupathingy itself.
 
+Give your build its own device key, too. Our code keeps the key as
+`delta_device.key` in the save root (`identity_slot_files` in
+`identity.c`), and the save root is `ChupathingyCE` or `chupathingyce`
+(`save_folder_default` in `save_folder.h`). A fork that keeps both finds the
+player's Chupathingy key and tries to sign it in as your app. The site
+refuses that with 409 `"other_client": true`: a device key stays with the
+app it first signed in through. Change the save root's folder name to your
+app's (best, so your saves stay apart too), or at least the key's file
+name.
+
 Everything else is the same as for our builds: the nonce, the signatures,
 the poll, the confirm, refresh and tokens ([delta.md](delta.md), "Device
 identity" and "Devices"). The `token` answer's `"scopes"` says what your
@@ -92,8 +106,8 @@ to the certificate for apps; a device of yours just gets fewer bits.
 | --- | --- | --- | --- |
 | `play` | 0x01 | Show you as your profile in games | prove who the player is to hosts and servers |
 | `stats` | 0x02 | Send your games to your stats | `/v1/claim`, `/v1/client_report` |
-| `profile` | 0x04 | See and change your profile's settings (privacy, clan, friends) and see your devices | `/v1/game/profile`, `/unlink`, `/privacy`, `/clan`, `/friends`, `/v1/link`, `/v1/identity/devices` |
-| `social` | 0x10 | See your friends, show them you're online, and send invites | `/v1/presence`, `/v1/social/*` |
+| `profile` | 0x04 | See your profile, change its privacy settings, and see your devices | `/v1/game/profile`, `/unlink`, `/privacy`, `/v1/link` (a site session that can't reach friends, clans or hosting without `social`), `/v1/identity/devices` |
+| `social` | 0x10 | See your friends and clan, show them you're online, send invites, and list your games | `/v1/presence`, `/v1/social/*`, and with `profile`: `/v1/game/clan`, `/v1/game/friends`, and friends, clan and hosting in the site session `/v1/link` opens |
 | `moderate` | 0x08 | Sign you in to moderate on servers where you have a role | moderation sign-in (the server still checks the role). Only we give it, to an approved app |
 | `devices` | 0x20 | (never for apps) | approving and revoking other devices stays with Chupathingy's own builds |
 
@@ -102,8 +116,15 @@ app has, and what any device would get anyway. Approving and revoking
 devices never passes to an app, even when a player approves your device
 from a password session.
 
-If an admin narrows your app's scopes later, your devices' tokens and
-certificates follow at once.
+If an admin narrows your app's scopes later, your devices' tokens follow at
+once, and their certificates at the next refresh. A certificate carries the
+capability bits but not your client ID, and lives up to 7 days (14 for a
+console), so one issued before the change keeps its old bits until then.
+Taking `profile` away also ends the site sessions your devices opened.
+
+If you run a host or server that checks certificates, go by the capability
+bits in each one and fetch the revocation list (`/v1/identity/revoked`,
+[delta.md](delta.md)). That list is how a suspension reaches you.
 
 ## Limits
 
@@ -130,7 +151,7 @@ All are JSON with an `"error"` you can show the player:
 | 403 `"client": "pending"` | your app isn't approved yet, and this isn't your profile |
 | 400 `"client": "scopes"` | none of the scopes asked for are your app's |
 | 429 `"client": "limit"` | your app's own count is used up for now |
-| 409 `"other_client": true` | that device key was enrolled through another app; make a new key |
+| 409 `"other_client": true` | that device key already signed in through another app (often Chupathingy's own key in a shared save root); use a key of your own |
 
 ## The rules
 
@@ -153,8 +174,11 @@ By registering, you agree to these. We'll suspend an app that breaks them.
 - **Keep your contact working.** If something goes wrong, we write to it
   before we do anything, unless players are at risk right now.
 
-Suspending an app revokes every device that came through it at once.
-Approving it again doesn't bring those devices back; players sign in again.
+Suspending an app revokes every device that came through it: its tokens
+and the site sessions it opened stop at once, and the devices go on the
+revocation list, which hosts and servers pick up within ten minutes. It
+never touches the player's other devices. Approving it again doesn't bring
+those devices back; players sign in again.
 
 ## Your own site
 
