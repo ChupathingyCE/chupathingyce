@@ -260,6 +260,23 @@ long _rasterizer_widget_get_occlusion_test_result(
 	return occlusion_test_result;
 }
 
+#ifndef HALO_CONSOLE_WAITED_VISIBILITY_TESTS
+/* port: (rasterizer_widgets.h) the count as the device has it now, a frame
+or more after its test. Never waited for, as the Xbox's was above */
+long rasterizer_widget_port_occlusion_test_count(
+	long index,
+	unsigned long *test)
+{
+	UINT count = 0;
+	ULONGLONG stamp = 0;
+
+	IDirect3DDevice8_GetVisibilityTestResult(global_d3d_device, index, &count, &stamp);
+	*test = (unsigned long)stamp;
+
+	return (long)MIN(count, (UINT)LONG_MAX);
+}
+#endif
+
 void _rasterizer_widget_submit(
 	long object_index,
 	long widget_index,

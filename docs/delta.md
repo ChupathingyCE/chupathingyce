@@ -3124,7 +3124,7 @@ signout signature   f579b26e3db2c34573a7a4e9842d85ef6646513dbf73706aeae41c825a44
 
 ### The doorbell
 
-The Guide asks the site for its friends every 20 seconds in the menus and
+DELTA asks the site for its friends every 20 seconds in the menus and
 every minute in a game (`POST /v1/social/state`; the site takes 6 a minute
 from a copy). The doorbell makes invites, friend requests, party changes
 and friends coming online show up within about a second instead: the site
@@ -3188,7 +3188,7 @@ rings, and the game asks at once.
   rings, never what changed or for whom.
 - **The setting:** `network.doorbell` (on by default; it changes nothing in
   a game). Off, or a copy not linked, no user name and no subscription.
-  Consoles keep polling (they have no Guide's friends yet).
+  Consoles keep polling (they have no DELTA friends yet).
 - **The code:** `p2p_signal.c` (`p2p_signal_doorbell`), `p2p.c`
   (`p2p_doorbell`, `p2p_doorbell_rings`), `browser.c` and `social.c` (the
   ring's poll), and the site's `doorbell.py`. Tests: `tools/test_doorbell.py`
