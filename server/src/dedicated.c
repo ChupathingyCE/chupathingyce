@@ -610,12 +610,13 @@ static void initialize(
 			error(_error_silent, "dedicated: players may watch a follow camera while they wait to respawn");
 	}
 #ifdef HALO_PORT_VOICE
-	/* voice chat: relayed, by team and by proximity, to parties and in the
-	lobby unless set; everyone only when set */
+	/* voice chat: off unless set (relaying costs the server's upload); once
+	on, relayed by team and by proximity, to parties and in the lobby unless
+	set; everyone only when set */
 	{
 		struct voice_host_rules rules;
 
-		rules.on = setting_flag("HALO_DEDICATED_VOICE", &settings, SERVER_SETTING_VOICE, TRUE);
+		rules.on = setting_flag("HALO_DEDICATED_VOICE", &settings, SERVER_SETTING_VOICE, FALSE);
 		rules.team = setting_flag("HALO_DEDICATED_VOICE_TEAM", &settings, SERVER_SETTING_VOICE_TEAM, TRUE);
 		rules.proximity = setting_flag("HALO_DEDICATED_VOICE_PROXIMITY", &settings, SERVER_SETTING_VOICE_PROXIMITY, TRUE);
 		rules.everyone = setting_flag("HALO_DEDICATED_VOICE_EVERYONE", &settings, SERVER_SETTING_VOICE_EVERYONE, FALSE);

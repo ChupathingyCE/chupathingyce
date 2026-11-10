@@ -130,7 +130,9 @@ enum
 	/* voice (docs/delta.md, Voice), budgets of its own beside the ones
 	above (50 frames a second would take a machine's whole budget): VOICE_UP
 	a host takes from a machine, a second (and at once), and VOICE_DOWN a
-	client takes from its host; the machines talking at once (one counts as
+	client takes from its host; the machines talking at once, on a dedicated
+	server and on a player's host, whose upload is a home connection's and
+	sends each talker to every listener (one counts as
 	talking for DELTA_PEER_VOICE_TALKING_TIME after its last frame, and keeps
 	its place); a client says the channels it hears this often, and a host
 	sends a machine voice only while it said so within the expiry; the host
@@ -142,6 +144,7 @@ enum
 	DELTA_PEER_VOICE_DOWN_RATE = 400,
 	DELTA_PEER_VOICE_DOWN_BURST = 80,
 	DELTA_PEER_VOICE_TALKERS = 8,
+	DELTA_PEER_VOICE_TALKERS_LISTEN = 4,
 	DELTA_PEER_VOICE_TALKING_TIME = 500,
 	DELTA_PEER_VOICE_HEARS_INTERVAL = 2000,
 	DELTA_PEER_VOICE_HEARS_EXPIRY = 6000,

@@ -93,6 +93,9 @@ adds to */
 #define MULTIPLAYER_COLLECTION "ui\\shell\\multiplayer"
 /* a campaign map's pause screen, which pause_patch adds to */
 #define SOLO_PAUSE_SCREEN "ui\\shell\\solo_game\\pause_game\\pause_game"
+/* a Custom Edition map's CHANGE SETTINGS, which pause_row_replaced takes out
+(the Halo PC screen it opens is in no map) */
+#define CUSTOM_CHANGE_SETTINGS_BUTTON "ui\\shell\\multiplayer_game\\pause_game\\change_settings_button"
 /* the tags pause_patch adds: six buttons and their texts, and the middle
 and bottom parts of the stock box's pieces, a widget and a bitmap each (the
 campaign's has six pieces) */
@@ -381,7 +384,7 @@ static char const *const port_function_names[] =
 	"port pause end game",
 	"port pause change teams",
 	"port pause moderation",
-	"port pause controls", "port pause guide", "controller screen init", "controller screen defaults", "controller begin binding",
+	"port pause controls", "port pause guide", "port about open", "controller screen init", "controller screen defaults", "controller begin binding",
 	"port coop begin", "port coop player 2 list initialize", "port coop player 2",
 	"port lobby open", "port lobby add player", "port lobby join", "port lobby leave",
 	"port lobby player list initialize", "port lobby player choose",
@@ -410,6 +413,8 @@ static char const *const port_function_names[] =
 	/* (the settings screens' nested lists, and Controls Setup's) */
 	"port settings views init", "port settings view", "port settings back", "port settings accept",
 	"port controls init", "port controls defaults", "port controls accept", "port controls closed",
+	/* (SETUP: menu_functions.c) */
+	"port setup open",
 };
 
 /* the PC version's game data functions that the Xbox's have not, from
@@ -1121,6 +1126,30 @@ static long font_tag(char const *font, char const *file, long line)
 	return map_tag(FONT_TAG, path, file, line);
 }
 
+/* a child left out of its parent: SETUP (setup_entry, the way back to the
+setup screen) in a game's menus, where it would end the game, and where
+launcher.menu_entry turns it off */
+static boolean setup_left_out;
+
+static boolean child_left_out(struct halo_menu_child const *entry)
+{
+	extern boolean pc_menu_setup_offered(void);
+	char const *name = entry->nested != HALO_MENU_NONE ? build.menus->widgets[entry->nested].name : entry->widget;
+	char const *leaf = name && strrchr(name, '/') ? strrchr(name, '/') + 1 : name;
+
+	if (!leaf || strcmp(leaf, "setup_entry"))
+		return FALSE;
+	setup_left_out = build.game_map || !pc_menu_setup_offered();
+	return setup_left_out;
+}
+
+/* whether the menus built last have SETUP (menu_functions.c: the rows after
+it are a place higher without it) */
+boolean pc_menu_setup_shown(void)
+{
+	return !setup_left_out;
+}
+
 static void *widget_build(long widget_index)
 {
 	struct halo_menus const *menus = build.menus;
@@ -1292,9 +1321,9 @@ static void *widget_build(long widget_index)
 		reference_set(&definition->extended_description_widget, UI_WIDGET_DEFINITION_TAG,
 			tag_named(UI_WIDGET_DEFINITION_TAG, source->description, source->file, source->line));
 	}
-	/* the children */
+	/* the children (but SETUP, where it is left out: child_left_out) */
 	for (count = 0, child = source->first_child; child != HALO_MENU_NONE; child = menus->children[child].next)
-		count++;
+		count += !child_left_out(&menus->children[child]);
 	if (definition->type == _widget_type_spinner_list && count != 0 && count != 1 && count != 3)
 		problem(source->file, source->line, "a spinner has 0, 1 or 3 children:", source->name);
 	if (count)
@@ -1306,10 +1335,15 @@ static void *widget_build(long widget_index)
 		for (count = 0, child = source->first_child; children && child != HALO_MENU_NONE; child = menus->children[child].next)
 		{
 			struct halo_menu_child const *entry = &menus->children[child];
-			long tag_index = entry->nested != HALO_MENU_NONE ? build.widget_tags[entry->nested] :
+			long tag_index;
+			char const *name, *child_leaf;
+
+			if (child_left_out(entry))
+				continue;
+			tag_index = entry->nested != HALO_MENU_NONE ? build.widget_tags[entry->nested] :
 				tag_named(UI_WIDGET_DEFINITION_TAG, entry->widget, entry->file, entry->line);
-			char const *name = entry->nested != HALO_MENU_NONE ? menus->widgets[entry->nested].name : entry->widget;
-			char const *child_leaf = strrchr(name, '/') ? strrchr(name, '/') + 1 : name;
+			name = entry->nested != HALO_MENU_NONE ? menus->widgets[entry->nested].name : entry->widget;
+			child_leaf = strrchr(name, '/') ? strrchr(name, '/') + 1 : name;
 
 			reference_set(&children[count].widget_tag, UI_WIDGET_DEFINITION_TAG, tag_index);
 			strncpy(children[count].name, child_leaf, sizeof(children[count].name) - 1);
@@ -2333,11 +2367,14 @@ void menu_tags_loaded(
 		return;
 	}
 	/* the Xbox's menus: only a multiplayer game's CHANGE TEAMS and the host's
-	END GAME, and CONTROLS */
+	END GAME, and CONTROLS; and a Custom Edition map's dead CHANGE SETTINGS
+	taken out even with none of them (a console, which has no CONTROLS, kept
+	it in a client's game that was not a team game) */
 	if (menus_chosen() == _menus_xbox)
 	{
 		if (game_map && (pause_controls_offered() || (tag_loaded(UI_WIDGET_DEFINITION_TAG, SOLO_PAUSE_SCREEN) == NONE &&
-			(global_network_game_server_get() != NULL || team_change_pause_offered()))))
+			(global_network_game_server_get() != NULL || team_change_pause_offered() ||
+			tag_loaded(UI_WIDGET_DEFINITION_TAG, CUSTOM_CHANGE_SETTINGS_BUTTON) != NONE))))
 		{
 			pause_patch_xbox();
 		}

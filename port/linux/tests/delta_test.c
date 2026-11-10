@@ -1472,6 +1472,67 @@ static const struct delta_peer_voice_client voice_clients[MAXIMUM_NODES] =
 	{ &nodes[6], test_voice_heard }, { &nodes[7], test_voice_heard },
 };
 
+/* two players behind one address each talk at the full rate: the voice
+budget is each machine's, found by its session, not its address's */
+static void test_voice_one_address(void)
+{
+	int joined[4] = { 0, 1, 1, 1 };
+	struct delta_wire_voice_config rules;
+	struct delta_peer_voice_world world;
+	unsigned char packet[DELTA_WIRE_VOICE_PACKET_SIZE];
+	delta_u32 now = 9000;
+	int step, index;
+
+	memset(voice_heard, 0, sizeof(voice_heard));
+	memset(packet, 0x22, sizeof(packet));
+	node_start(0, HOST_IPV4, DELTA_PEER_PORT, VOICE_BIT, _delta_platform_pc_linux, 0, 0);
+	node_start(1, 0x0200007F, 40001, VOICE_BIT, _delta_platform_pc_linux, 0, 0);
+	node_start(2, 0x0200007F, 40002, VOICE_BIT, _delta_platform_pc_linux, 0, 0);
+	node_start(3, 0x0300007F, 40003, VOICE_BIT, _delta_platform_pc_linux, 0, 0);
+	memset(&rules, 0, sizeof(rules));
+	rules.channels = DELTA_VOICE_TEAM;
+	rules.kbps = 24;
+	rules.proximity = 150;
+	delta_peer_set_voice_rules(&nodes[0].peer, &rules);
+	for (index = 0; index < 4; index++)
+		delta_peer_set_voice_client(&nodes[index].peer, &voice_clients[index]);
+	game_reset();
+	for (index = 1; index <= 3; index++)
+		game_add(index);
+	memset(&world, 0, sizeof(world));
+	world.in_game = 1;
+	world.teams = 1;
+	for (index = 0; index <= 3; index++)
+		voice_member(&world, index, 0, 1, (float)index);
+	delta_peer_set_voice_world(&nodes[0].peer, &world);
+	for (index = 1; index <= 3; index++)
+		delta_peer_client_set_voice_hears(&nodes[index].peer, DELTA_VOICE_CHANNELS, NULL);
+	delta_peer_set_voice_local(&nodes[0].peer, DELTA_VOICE_CHANNELS, NULL);
+	for (step = 0; step < 8; step++, now += 300)
+		frame(now, 4, joined, 1);
+	CHECK(delta_peer_client_voice_config(&nodes[1].peer, now, NULL) &&
+		delta_peer_client_voice_config(&nodes[2].peer, now, NULL));
+	/* both talk a whole burst at once: every frame of each is relayed */
+	now += 20;
+	for (index = 0; index < DELTA_PEER_VOICE_UP_BURST; index++)
+	{
+		CHECK(delta_peer_client_voice_say(&nodes[1].peer, now, _delta_voice_channel_team, (unsigned short)(10 + index),
+			packet, 40));
+		CHECK(delta_peer_client_voice_say(&nodes[2].peer, now, _delta_voice_channel_team, (unsigned short)(10 + index),
+			packet, 40));
+	}
+	deliver(now);
+	CHECK(voice_heard[3].count == 2 * DELTA_PEER_VOICE_UP_BURST);
+	CHECK(voice_heard[1].count == DELTA_PEER_VOICE_UP_BURST && voice_heard[2].count == DELTA_PEER_VOICE_UP_BURST);
+	/* and each one's budget is still its own: past it, dropped */
+	CHECK(delta_peer_client_voice_say(&nodes[1].peer, now, _delta_voice_channel_team, 99, packet, 40));
+	deliver(now);
+	CHECK(voice_heard[3].count == 2 * DELTA_PEER_VOICE_UP_BURST);
+	delta_peer_set_voice_rules(&nodes[0].peer, NULL);
+	for (index = 0; index < 4; index++)
+		delta_peer_set_voice_client(&nodes[index].peer, NULL);
+}
+
 static void test_voice(void)
 {
 	int joined[5] = { 0, 1, 1, 1, 1 };
@@ -1616,6 +1677,21 @@ static void test_voice(void)
 		CHECK(delta_peer_client_voice_say(&nodes[3].peer, now, _delta_voice_channel_proximity, 2, packet, 40));
 		deliver(now);
 		CHECK(delta_peer_voice_talking(host, now, 3));
+		/* (a player's host, this one, relays 4 at once: a fifth waits while
+		four talk, a fourth is let in beside three) */
+		now += 1000;
+		for (index = 10; index < 10 + DELTA_PEER_VOICE_TALKERS_LISTEN; index++)
+			host->voice_talking_until[index] = now + 400;
+		now += 20;
+		CHECK(delta_peer_client_voice_say(&nodes[3].peer, now, _delta_voice_channel_proximity, 3, packet, 40));
+		deliver(now);
+		CHECK(!delta_peer_voice_talking(host, now, 3));
+		host->voice_talking_until[10] = 0;
+		now += 20;
+		CHECK(delta_peer_client_voice_say(&nodes[3].peer, now, _delta_voice_channel_proximity, 4, packet, 40));
+		deliver(now);
+		CHECK(delta_peer_voice_talking(host, now, 3));
+		now += 1000;
 	}
 	/* a listener that stops saying what it hears is sent nothing after the
 	expiry */
@@ -2397,7 +2473,9 @@ static void test_limits(void)
 		delta_platform_policy_default(_delta_platform_xbox, &key);
 		CHECK(key.memory_class == 6 && key.host_players == 16);
 		delta_platform_policy_default(_delta_platform_xbox360, &key);
-		CHECK(key.memory_class == 9);
+		CHECK(key.memory_class == 9 && key.host_players == 32 && key.join_players == 32);
+		delta_platform_policy_default(_delta_platform_wiiu, &key);
+		CHECK(key.host_players == 32 && key.join_players == 32);
 		delta_platform_policy_default(_delta_platform_pc_windows, &key);
 		CHECK(key.memory_class == 12);
 	}
@@ -2414,6 +2492,14 @@ static void test_limits(void)
 		CHECK(delta_peer_key_join_limit(&nodes[0].peer, &key) == DELTA_PEER_NO_LIMIT);
 		pc_key(&key, 200);
 		CHECK(delta_peer_key_join_limit(&nodes[0].peer, &key) == 128);
+		/* (a 360 or Wii U build of 32 joins up to 32; an older build's key
+		of 16 is still held to its 16) */
+		pc_key(&key, _delta_platform_xbox360);
+		CHECK(delta_peer_key_join_limit(&nodes[0].peer, &key) == 32);
+		key.join_players = 16;
+		CHECK(delta_peer_key_join_limit(&nodes[0].peer, &key) == 16);
+		pc_key(&key, _delta_platform_wiiu);
+		CHECK(delta_peer_key_join_limit(&nodes[0].peer, &key) == 32);
 	}
 
 	/* opted in (network.platform_limits = "off"): no limit from it (it
@@ -4026,6 +4112,7 @@ int main(int argc, char **argv)
 	test_wire_voice();
 	test_voice_route();
 	test_voice();
+	test_voice_one_address();
 	test_random(iterations);
 	if (failures)
 	{

@@ -3,7 +3,8 @@
 their rows, laid out as the Xbox's EDIT PROFILE SETTINGS is (its header, the
 line above SAVE CHANGES, its B and A prompts, "Current Profile:"), from the
 menus' own tags, so that the pause menu's SETTINGS opens it in a game too.
-The rows open the pages of settings_pages.xml. -->
+The rows open the pages of settings_pages.xml; SETUP, after ABOUT, is
+setup_entry.xml's. -->
 <menus>
 	<widget name="chupathingy/settings/profile_edit_screen" width="640" height="480" flags="pass_unhandled_to_focused_child pause_game" bitmap="bitmaps/gradient">
 		<on event="created" run="close if not editing profile"/>
@@ -30,6 +31,7 @@ The rows open the pages of settings_pages.xml. -->
 		<child widget="chupathingy/settings/audio_settings_item"/>
 		<child widget="chupathingy/settings/online_item"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/about_item" y="-64"/>
+		<child widget="chupathingy/settings/setup_entry"/>
 		<child widget="chupathingy/settings/save_item"/>
 	</widget>
 	<!-- (the rows that open a list of pages or a page: chupathingy/settings_pages.xml) -->
@@ -88,6 +90,7 @@ The rows open the pages of settings_pages.xml. -->
 		<frame png="ce/port/blank__0.png" width="4" height="4"/>
 		<frame png="ce/port/blank__0.png" width="4" height="4"/>
 		<frame png="ce/port/blank__0.png" width="4" height="4"/>
+		<frame png="ce/port/blank__0.png" width="4" height="4"/>
 		<frame map="ui\shell\main_menu\settings_select\player_setup\player_profile_edit\profile_options" index="4"/>
 		<frame map="ui\shell\main_menu\settings_select\player_setup\player_profile_edit\controller_edit\config_controller" index="4" width="279" height="279" y="34"/>
 		<frame map="ui\shell\main_menu\settings_select\player_setup\player_profile_edit\controller_edit\config_controller" index="5" width="279" height="279" y="34"/>
@@ -108,7 +111,8 @@ The rows open the pages of settings_pages.xml. -->
 		<string text="Adjust the audio settings.\n\n\nCurrent Profile:"/>
 		<string text="Adjust the network, chat\nand privacy settings.\n\nCurrent Profile:" platform="desktop android switch"/>
 		<string text="Adjust the network\nsettings.\n\nCurrent Profile:" platform="console"/>
-		<string text="Credits: punpckhdq, bnunu and\nmore in the README.\n\nCurrent Profile:"/>
+		<string text="About Chupathingy.\n\n\nCurrent Profile:"/>
+		<string text="Opens the setup screen.\nChupathingy restarts.\n\nCurrent Profile:"/>
 		<string text="Save the changes made\nto this profile.\n\nCurrent Profile:"/>
 	</strings>
 </menus>

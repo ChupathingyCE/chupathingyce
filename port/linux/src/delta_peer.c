@@ -1532,13 +1532,14 @@ static int host_voice_relay(struct delta_peer *peer, delta_u32 now, int speaker_
 		peer->dropped++;
 		return 0;
 	}
-	/* (at most DELTA_PEER_VOICE_TALKERS at once; one talking keeps its
+	/* (at most DELTA_PEER_VOICE_TALKERS at once on a dedicated server, and
+	DELTA_PEER_VOICE_TALKERS_LISTEN on a player's host; one talking keeps its
 	place, a new one waits) */
 	if (!delta_peer_voice_talking(peer, now, speaker_machine))
 	{
 		for (index = 0; index < DELTA_PEER_MAXIMUM_MACHINES; index++)
 			talkers += delta_peer_voice_talking(peer, now, index);
-		if (talkers >= DELTA_PEER_VOICE_TALKERS)
+		if (talkers >= (local < 0 ? DELTA_PEER_VOICE_TALKERS : DELTA_PEER_VOICE_TALKERS_LISTEN))
 		{
 			peer->dropped++;
 			return 0;
@@ -2028,11 +2029,12 @@ static void host_receive(struct delta_peer *peer, delta_u32 now, delta_u32 ipv4,
 		if (!peer->game_machines[index].local && peer->game_machines[index].ipv4 == ipv4)
 			first = peer->game_machines[index].machine_index;
 	}
-	/* (a voice frame takes from the voice budget, not the machine's
-	messages': 50 frames a second would take them all) */
+	/* (a voice frame takes from its own machine's voice budget, once its
+	session names the machine: two players behind one address each talk at
+	the full rate. 50 frames a second would take a machine's messages'
+	budget, so voice never touches it) */
 	if (!valid_machine(first) ||
-		(size > 3 && data[3] == _delta_message_voice_up ?
-			!delta_rate_take(&peer->voice_rates[first], now, DELTA_PEER_VOICE_UP_RATE, DELTA_PEER_VOICE_UP_BURST) :
+		(!(size > 3 && data[3] == _delta_message_voice_up) &&
 			!delta_rate_take(&peer->rates[first], now, DELTA_PEER_HOST_RATE, DELTA_PEER_HOST_BURST)))
 	{
 		peer->dropped++;
@@ -2134,7 +2136,16 @@ static void host_receive(struct delta_peer *peer, delta_u32 now, delta_u32 ipv4,
 	{
 		int machine_index = host_find_session(peer, ipv4, header.session);
 
+		/* (a frame of no session takes from the address's messages, as
+		anything else unknown does) */
 		if (machine_index < 0)
+		{
+			delta_rate_take(&peer->rates[first], now, DELTA_PEER_HOST_RATE, DELTA_PEER_HOST_BURST);
+			peer->dropped++;
+			break;
+		}
+		if (!delta_rate_take(&peer->voice_rates[machine_index], now, DELTA_PEER_VOICE_UP_RATE,
+			DELTA_PEER_VOICE_UP_BURST))
 		{
 			peer->dropped++;
 			break;
