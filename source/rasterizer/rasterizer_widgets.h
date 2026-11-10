@@ -99,6 +99,14 @@ long _rasterizer_widget_submit_occlusion_test(
 	long index);
 long _rasterizer_widget_get_occlusion_test_result(
 	long index);
+#ifndef HALO_CONSOLE_WAITED_VISIBILITY_TESTS
+/* port: a slot's latest count, never waited for, and in test the number of
+the test it is of (d3d8_visibility_test_number's; 0: none yet). The count is
+of that test or a later one of the slot (rasterizer_xbox_widgets.c) */
+long rasterizer_widget_port_occlusion_test_count(
+	long index,
+	unsigned long *test);
+#endif
 void _rasterizer_widget_end(
 	void);
 
