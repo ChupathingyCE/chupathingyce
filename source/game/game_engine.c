@@ -3910,42 +3910,79 @@ void game_engine_rasterize_message(
 }
 
 /* port: display.match_timer (off by default, as the Xbox had none): a
-timed game's time left, at the top of each player's view, in the color of
-the game's messages */
+multiplayer game's clock, the time left ("remaining"; the time played in a
+game with no time limit) or the time played ("elapsed"), in the color of the
+game's messages; display.match_timer_position puts it at the top of each
+player's view or in the view's bottom right corner, clear of the HUD and the
+version watermark */
+enum
+{
+	_match_timer_off,
+	_match_timer_remaining,
+	_match_timer_elapsed
+};
+
 static void game_engine_rasterize_time_left(
 	void)
 {
 	static unsigned long read_at = (unsigned long)-1;
-	static boolean shown = FALSE;
+	static short mode = _match_timer_off;
+	static boolean bottom_right = FALSE;
 	rectangle2d bounds;
 	real_argb_color color;
 	wchar_t time_string[32];
-	long left;
+	long ticks;
+	long time_limit;
 
 	if (read_at != config_changes())
 	{
+		char const *value = config_string("display.match_timer");
+		char const *position = config_string("display.match_timer_position");
+
 		read_at = config_changes();
-		shown = config_boolean("display.match_timer") != 0;
+		if (value && !csstrcmp(value, "remaining"))
+			mode = _match_timer_remaining;
+		else if (value && !csstrcmp(value, "elapsed"))
+			mode = _match_timer_elapsed;
+		else
+			mode = _match_timer_off;
+		bottom_right = position && !csstrcmp(position, "bottom_right");
 	}
-	if (!shown || !game_engine || game_variant_options_get()->time_limit <= 0 ||
+	if (mode == _match_timer_off || !game_engine ||
 		game_engine_globals.postgame_state != game_engine_mode_active)
 	{
 		return;
 	}
 
-	left = game_variant_options_get()->time_limit * 60L * TICKS_PER_SECOND - game_time_get();
-	ticks_to_unicode_time_string(MAX(left, 0), NUMBEROF(time_string), time_string);
+	time_limit = game_variant_options_get()->time_limit;
+	if (mode == _match_timer_remaining && time_limit > 0)
+		ticks = time_limit * 60L * TICKS_PER_SECOND - game_time_get();
+	else
+		ticks = game_time_get();
+	ticks_to_unicode_time_string(MAX(ticks, 0), NUMBEROF(time_string), time_string);
 
 	bounds = render.camera.window_bounds;
 	offset_rectangle2d(&bounds, -render.camera.viewport_bounds.x0, -render.camera.viewport_bounds.y0);
-	bounds.y0 += 8;
-	bounds.y1 = bounds.y0 + 15;
+	if (bottom_right)
+	{
+		/* (lined up with the version watermark's right edge, the line
+		above it: main.c's main_version_watermark_render) */
+		bounds.x1 = (short)(bounds.x1 - 8);
+		bounds.y1 = (short)(bounds.y1 - 26);
+		bounds.y0 = (short)(bounds.y1 - 15);
+	}
+	else
+	{
+		bounds.y0 += 8;
+		bounds.y1 = bounds.y0 + 15;
+	}
 
 	color.alpha = 1.0f;
 	color.red = 0.45882353f;
 	color.green = 0.7294118f;
 	color.blue = 1.0f;
-	draw_string_set_draw_mode(hud_globals->messaging.multi_player_font.index, NONE, 2, 0, &color);
+	/* (justification 2: centered; 1: right) */
+	draw_string_set_draw_mode(hud_globals->messaging.multi_player_font.index, NONE, bottom_right ? 1 : 2, 0, &color);
 	draw_string_set_color(&color);
 	rasterizer_draw_unicode_string(&bounds, NULL, NULL, 0, time_string);
 	draw_string_set_format(NONE, 0, 0);
