@@ -68,7 +68,7 @@ def test_lookalike_vectors_match():
     text = TEST.read_text()
     table = text[text.index("lookalikes[][2]"):]
     table = table[:table.index("};")]
-    pairs = re.findall(r'\{ "((?:[^"\\]|\\.)*)", "([a-z]*)" \}', table)
+    pairs = re.findall(r'\{ "((?:[^"\\]|\\.)*)", "([a-z0-9]*)" \}', table)
     decoded = [(bytes(name, "ascii").decode("unicode_escape").encode("latin-1").decode("utf-8"), key)
                for name, key in pairs]
     assert decoded == [tuple(pair) for pair in vectors["lookalikes"]]

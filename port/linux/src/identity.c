@@ -1217,8 +1217,14 @@ int identity_proof_fresh(unsigned long time, unsigned long now, unsigned long ag
 /* a code point's look-alike Latin letter (0: none, dropped) */
 static char lookalike_letter(unsigned long c)
 {
-	/* (0 o, 1 i, 3 e, 4 a, 5 s, 7 t, 8 b; 2, 6 and 9 dropped) */
-	static const char digits[] = "oi\0eas\0tb\0";
+	/* (0 o, 1 i, 3 e, 4 a, 5 s, 7 t, 8 b; 2, 6 and 9 stay digits) */
+	static const char digits[] = "oi2eas6tb9";
+	/* (U+00C0 to U+017F, Latin-1 and Latin Extended-A: each letter's base
+	letter, _ for none: the site's LOOKALIKE_ACCENTS is the same) */
+	static const char accents[] =
+		"aaaaaaaceeeeiiiidnooooo_ouuuuypsaaaaaaaceeeeiiiidnooooo_ouuuuypy"
+		"aaaaaaccccccccddddeeeeeeeeeegggggggghhhhiiiiiiiiiiiijjkkklllllll"
+		"lllnnnnnnnnnoooooooorrrrrrssssssssttttttuuuuuuuuuuuuwwyyyzzzzzzs";
 	static const struct { unsigned long code; char letter; } others[] =
 	{
 		/* Cyrillic */
@@ -1243,6 +1249,8 @@ static char lookalike_letter(unsigned long c)
 		return (char)c;
 	if (c >= '0' && c <= '9')
 		return digits[c - '0'];
+	if (c >= 0xC0 && c < 0x180)
+		return accents[c - 0xC0] == '_' ? 0 : accents[c - 0xC0];
 	for (index = 0; index < (int)(sizeof(others) / sizeof(others[0])); index++)
 	{
 		if (others[index].code == c)

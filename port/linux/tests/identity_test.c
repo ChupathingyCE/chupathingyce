@@ -307,9 +307,10 @@ static void test_proof(void)
 static const char *const lookalikes[][2] =
 {
 	{ "Milenko", "miienko" }, { "Mi1enk0", "miienko" }, { "MILENK0", "miienko" }, { "mi|enko", "miienko" },
-	{ "milenko2", "miienko" }, { "rnilenko", "miienko" }, { "\xD0\x9Cilenko", "miienko" },
-	{ "vvarthog", "warthog" }, { "Sarge_99", "sarge" }, { "T3x", "tex" }, { "@pollo", "apoiio" },
-	{ "$arge", "sarge" },
+	{ "milenko2", "miienko2" }, { "rnilenko", "miienko" }, { "\xD0\x9Cilenko", "miienko" },
+	{ "vvarthog", "warthog" }, { "Sarge_99", "sarge99" }, { "T3x", "tex" }, { "@pollo", "apoiio" },
+	{ "$arge", "sarge" }, { "Milenk\xC3\xB3", "miienko" }, { "Z\xC3\x84TCHBOT", "zatchbot" },
+	{ "\xC5\x81ord", "iord" }, { "milenko1", "miienkoi" },
 };
 
 static void test_lookalikes(void)

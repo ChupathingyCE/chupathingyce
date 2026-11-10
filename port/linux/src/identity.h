@@ -379,12 +379,13 @@ int identity_proof_message(const unsigned char *nonce, const char *binding, int 
 /* whether a proof signed at time is fresh at now: no more than age
 seconds old, nor from the future (IDENTITY_GRACE either way) */
 int identity_proof_fresh(unsigned long time, unsigned long now, unsigned long age);
-/* a name's look-alike key (UTF-8 in, lowercase a-z out, into out of
-IDENTITY_LOOKALIKE_MOST + 1): digits and signs read as the letters they
-look like (0 o, 1 i, 3 e, 4 a, 5 s, 7 t, 8 b, @ a, $ s, ! i, | i) and
-Cyrillic and Greek look-alikes as Latin, everything else dropped, then
-rn read as m, vv as w and l as i; the site's (puma's lookalike_key) is
-the same. Its length */
+/* a name's look-alike key (UTF-8 in, lowercase a-z and digits out, into
+out of IDENTITY_LOOKALIKE_MOST + 1): digits and signs read as the letters
+they look like (0 o, 1 i, 3 e, 4 a, 5 s, 7 t, 8 b, @ a, $ s, ! i, | i;
+2, 6 and 9 stay digits), accented Latin letters (Latin-1 and Latin
+Extended-A) as their base letters, Cyrillic and Greek look-alikes as Latin,
+everything else dropped, then rn read as m, vv as w and l as i; the site's
+(puma's lookalike_key) is the same. Its length */
 int identity_lookalike_key(const char *name, char *out);
 /* a Halo profile's delta_account.txt (its first line, as read): 0 a guest
 ("guest"), 2 that account (32 hex digits, into account), 1 the copy's
