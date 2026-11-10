@@ -95,4 +95,14 @@ boolean profile_screen_site_setting_write(char const *field, char const *value);
 Delta and display.profile_names is on; FALSE: their game name, as before */
 boolean profile_names_player(long player_index, wchar_t *name, long size);
 
+/* the name a local player plays under (the game name it joins with): while
+its Halo profile is linked to a Delta profile, the handle in the capitals
+the profile picked, cut to size, whatever name the Halo profile was given;
+FALSE: not linked (a guest, or no profile), the Halo profile's own */
+boolean profile_names_local_game_name(long local_player, wchar_t *name, long size);
+/* whether a local player's Halo profile plays as a guest (delta_account.txt
+says "guest"): not connected to Delta, so its games are never claimed for
+a profile */
+boolean profile_names_local_guest(long local_player);
+
 #endif

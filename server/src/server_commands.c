@@ -83,6 +83,8 @@ audit, link or Delta Control, only the startup commands, the owner's) */
 #define server_moderation_update() ((void)0)
 #define server_moderation_notice(machine, warning, title, text) ((void)(machine), FALSE)
 #define server_moderation_machine_key(machine, key) ((void)(machine), (void)(key), FALSE)
+#define server_moderation_machine_profile(machine, local, handle, size, platform, role) \
+	((void)(machine), (void)(local), (void)(handle), (void)(size), (void)(platform), (void)(role), FALSE)
 #define server_roles_key_role(key, permissions, who, who_size) 0
 #endif
 
@@ -237,7 +239,8 @@ static struct server_command const server_commands[] =
 		"once, with no penalty (as changing teams does), whatever the team_change setting says.", 3, 3, TRUE,
 		command_team },
 	{ "sv_ban", "sv_ban <player> [duration] [reason]", "Drops a player and keeps their machine out (by its "
-		"hardware id and address, in bans.txt), for ever or for a while: 30m, 2h, 7d, 1d12h.", 2, 4, TRUE,
+		"hardware id and address, and the Delta accounts and device its game proved, in bans.txt), for ever or for a "
+		"while: 30m, 2h, 7d, 1d12h.", 2, 4, TRUE,
 		command_ban },
 	{ "sv_unban", "sv_unban <ban>", "Takes a ban (its number in sv_banlist) out of bans.txt.", 2, 2, FALSE,
 		command_unban },
@@ -305,9 +308,9 @@ static struct server_command const server_commands[] =
 	{ "sv_mod_list", "sv_mod_list", "Everyone with a role here and where it comes from: the moderators file, "
 		"the control panel's accounts (bound to a game or not) and the site's profiles (capped by "
 		"HALO_DEDICATED_LINK_ROLE; cached while the site cannot be reached).", 1, 1, FALSE, command_mod_list },
-	{ "sv_mod_add", "sv_mod_add <player|key> <role> [name]", "Gives a player (once their game has proved its "
-		"moderator key: sv_players) or a moderator key a role: moderator, admin or owner (moderators.txt).", 3, 4,
-		FALSE, command_mod_add },
+	{ "sv_mod_add", "sv_mod_add <player|key|account> <role> [name]", "Gives a player (once their game has proved "
+		"its moderator key or their Delta profile: sv_players), a moderator key or a Delta account (32 hex digits) a "
+		"role: moderator, admin or owner (moderators.txt).", 3, 4, FALSE, command_mod_add },
 	{ "sv_mod_remove", "sv_mod_remove <key|name>", "Takes a moderator out of moderators.txt.", 2, 2, FALSE,
 		command_mod_remove },
 	{ "sv_link", "sv_link", "Links the server to an account on the Chupathingy site (Delta Control): prints a "
@@ -869,8 +872,8 @@ static boolean command_players(
 		command_output_printf(output, "no players\n");
 	else
 	{
-		command_output_printf(output, "%3s  %-11s  %-4s  %5s  %5s  %-32s  %s\n", "#", "name", "team", "score", "ping",
-			"id", "moderator key");
+		command_output_printf(output, "%3s  %-11s  %-4s  %5s  %5s  %-32s  %-21s  %s\n", "#", "name", "team", "score",
+			"ping", "id", "profile", "moderator key");
 	}
 	for (index = 0; index < count; index++)
 	{
@@ -879,7 +882,10 @@ static boolean command_players(
 		char const *team = !teams ? NULL : player->team_index == 0 ? "red" : player->team_index == 1 ? "blue" : NULL;
 		unsigned char key[32];
 		char key_text[72] = "";
-		int role = 0;
+		char handle[32] = "";
+		char const *device = NULL;
+		int role = 0, account_role = 0;
+		boolean verified;
 
 		/* (the moderator key the player's game proved, and its role here) */
 		if (server_moderation_machine_key(player->machine_index, key))
@@ -890,6 +896,12 @@ static boolean command_players(
 				snprintf(key_text + 2 * (byte - key), 3, "%02x", *byte);
 			role = server_roles_key_role(key, NULL, NULL, 0);
 		}
+		/* (the Delta profile their game proved: docs/delta.md, "Verified
+		names"; its account's role here counts as theirs) */
+		verified = server_moderation_machine_profile(player->machine_index, player->controller_index, handle,
+			(int)sizeof(handle), &device, &account_role);
+		if (account_role > role)
+			role = account_role;
 
 		if (json)
 		{
@@ -915,9 +927,24 @@ static boolean command_players(
 				command_output_printf(output, "null");
 			command_output_printf(output, ", \"moderator_key\": ");
 			if (key_text[0])
-				command_output_printf(output, "\"%s\", \"role\": \"%s\"", key_text, server_role_name(role));
+				command_output_printf(output, "\"%s\"", key_text);
 			else
-				command_output_printf(output, "null, \"role\": null");
+				command_output_printf(output, "null");
+			if (key_text[0] || role)
+				command_output_printf(output, ", \"role\": \"%s\"", server_role_name(role));
+			else
+				command_output_printf(output, ", \"role\": null");
+			/* (verified: the handle, "" for a copy with no profile; null for
+			a player whose game proved no one) */
+			command_output_printf(output, ", \"profile\": ");
+			if (verified)
+			{
+				command_output_json_string(output, handle);
+				command_output_printf(output, ", \"device\": ");
+				command_output_json_string(output, device ? device : "unknown");
+			}
+			else
+				command_output_printf(output, "null, \"device\": null");
 #ifdef HALO_GAME_BROWSER
 			/* (a ChupathingyCE game's chat: muted or not; null for none) */
 			command_output_printf(output, ", \"chat\": %s",
@@ -938,9 +965,16 @@ static boolean command_players(
 				snprintf(ping, sizeof(ping), "%ld", player->ping);
 			else
 				snprintf(ping, sizeof(ping), "-");
-			command_output_printf(output, "%3ld  %-11s  %-4s  %5s  %5s  %-32s  %s%s%s%s\n", player->number, player->name,
-				team ? team : "-", score, ping, hardware_id && hardware_id[0] ? hardware_id : "none",
-				key_text[0] ? key_text : "-", role ? " (" : "", role ? server_role_name(role) : "", role ? ")" : "");
+			{
+				char profile[40];
+
+				snprintf(profile, sizeof(profile), "%s%s", verified ? "@" : "-", verified && handle[0] ? handle :
+					verified ? "(none)" : "");
+				command_output_printf(output, "%3ld  %-11s  %-4s  %5s  %5s  %-32s  %-21s  %s%s%s%s\n", player->number,
+					player->name, team ? team : "-", score, ping, hardware_id && hardware_id[0] ? hardware_id : "none",
+					profile, key_text[0] ? key_text : "-", role ? " (" : "", role ? server_role_name(role) : "",
+					role ? ")" : "");
+			}
 		}
 	}
 	if (json)
@@ -1860,9 +1894,11 @@ static boolean command_mod_add(
 	struct command_output *output)
 {
 	unsigned char key[32];
+	unsigned char account[16];
 	char problem[160];
 	char name[40];
 	int role = server_role_parse(line->words[2]);
+	boolean by_account = FALSE;
 
 	(void)json;
 	if (role <= 0)
@@ -1873,24 +1909,45 @@ static boolean command_mod_add(
 	name[0] = 0;
 	if (line->count == 4)
 		snprintf(name, sizeof(name), "%s", line->words[3]);
-	/* a key given whole, else a player of the game whose game proved theirs */
-	if (!server_key_parse(line->words[1], key))
+	/* a key given whole (64 hex digits), a Delta account (32: docs/delta.md,
+	"Verified names"), else a player of the game whose game proved a key, or
+	proved their profile */
+	if (strlen(line->words[1]) == 32)
+	{
+		char padded[72];
+
+		snprintf(padded, sizeof(padded), "%s00000000000000000000000000000000", line->words[1]);
+		by_account = server_key_parse(padded, key);
+		if (by_account)
+			csmemcpy(account, key, sizeof(account));
+	}
+	if (!by_account && !server_key_parse(line->words[1], key))
 	{
 		struct server_player player;
+		char handle[32];
 
 		if (!find_player(line->words[1], &player, output))
 			return FALSE;
 		if (!server_moderation_machine_key(player.machine_index, key))
 		{
-			command_output_printf(output, "%s's game has not proved a moderator key: they sign in from the game's "
-				"Moderation screen (a ChupathingyCE game; Delta Peer), or give the key itself\n", player.name);
-			return FALSE;
+			if (!server_moderation_machine_account(player.machine_index, player.controller_index, account, handle,
+				(int)sizeof(handle)))
+			{
+				command_output_printf(output, "%s's game has proved neither a moderator key nor their Delta profile: "
+					"they sign in from the game's Moderation screen (a ChupathingyCE game; Delta Peer), or give the key "
+					"itself\n", player.name);
+				return FALSE;
+			}
+			by_account = TRUE;
+			if (!name[0] && handle[0])
+				snprintf(name, sizeof(name), "%s", handle);
 		}
 		if (!name[0])
 			snprintf(name, sizeof(name), "%s", player.name);
 	}
 	note_target(name[0] ? name : line->words[1], NULL);
-	if (!server_roles_moderator_set(role, key, name, problem, sizeof(problem)))
+	if (by_account ? !server_roles_account_set(role, account, name, problem, sizeof(problem)) :
+		!server_roles_moderator_set(role, key, name, problem, sizeof(problem)))
 	{
 		command_output_printf(output, "%s\n", problem);
 		return FALSE;

@@ -603,7 +603,7 @@
     if (!data.players.length) {
       const row = element('tr');
       const cell = element('td', 'No players', 'empty');
-      cell.colSpan = moderator ? 8 : 7;
+      cell.colSpan = moderator ? 9 : 8;
       row.append(cell);
       body.append(row);
       return;
@@ -627,6 +627,7 @@
       row.append(
         element('td', player.number, 'num'),
         element('td', player.name),
+        profileCell(player),
         team,
         element('td', player.score === null ? '-' : player.score, 'num'),
         element('td', player.ping === null ? '-' : player.ping, 'num'),
@@ -636,6 +637,19 @@
       row.append(actions);
       body.append(row);
     });
+  }
+
+  // the Delta profile a player's game proved (verified, so never just a
+  // name they typed), and the device they play on
+  const DEVICES = { pc_windows: 'Windows', pc_macos: 'Mac', pc_linux: 'Linux', pc_freebsd: 'FreeBSD',
+    android: 'Android', steam_deck: 'Steam Deck', ios: 'iPhone', xbox: 'Xbox', xbox360: 'Xbox 360',
+    wiiu: 'Wii U', switch: 'Switch', xbox_uwp: 'Xbox Series' };
+  function profileCell(player) {
+    if (player.profile === null || player.profile === undefined) return element('td', '-');
+    const device = DEVICES[player.device] || player.device || '';
+    const cell = element('td', player.profile ? '@' + player.profile : 'No profile');
+    if (device) cell.append(element('span', ' ' + device, 'muted'));
+    return cell;
   }
 
   // a player's refusals: the total, and each kind it has any of
