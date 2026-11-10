@@ -228,7 +228,7 @@ static void test_quick_connect(void)
 	CHECK(identity_start_body(body, sizeof(body), device_public, VECTOR_NONCE, signature, "pc_linux", "0.9.1",
 		"Desk \"x\"") > 0);
 	CHECK(strstr(body, "\"device_key\": \"" VECTOR_DEVICE_PUBLIC "\"") && strstr(body, "\"name\": \"Desk x\"") &&
-		strstr(body, "\"platform\": \"pc_linux\""));
+		strstr(body, "\"platform\": \"pc_linux\"") && strstr(body, "\"client_id\": \"" IDENTITY_CLIENT_ID "\""));
 	CHECK(identity_start_body(body, 100, device_public, VECTOR_NONCE, signature, "pc_linux", "0.9.1", "") == -1);
 	CHECK(identity_confirm_body(body, sizeof(body), "ab", device_id, VECTOR_NONCE, signature, 1) > 0);
 	CHECK(strstr(body, "\"accept\": true") && strstr(body, "\"device_id\": \"" VECTOR_DEVICE_ID "\""));
@@ -439,7 +439,8 @@ static void test_text(void)
 	length = identity_enroll_body(text, sizeof(text), VECTOR_PLAYER_KEY, device_public, VECTOR_NONCE, signature,
 		"pc_windows", "0.9.1 \"x\"");
 	CHECK(length > 0 && strstr(text, "\"key\": \"" VECTOR_PLAYER_KEY "\"") &&
-		strstr(text, "\"device_key\": \"" VECTOR_DEVICE_PUBLIC "\"") && strstr(text, "\"build\": \"0.9.1 x\""));
+		strstr(text, "\"device_key\": \"" VECTOR_DEVICE_PUBLIC "\"") && strstr(text, "\"build\": \"0.9.1 x\"") &&
+		strstr(text, "\"client_id\": \"chupathingy\""));
 	CHECK(identity_json_member(text, "platform", out, sizeof(out)) == 10 && !strcmp(out, "pc_windows"));
 
 	/* the answers */

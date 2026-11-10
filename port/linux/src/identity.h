@@ -41,6 +41,15 @@ enum
 	IDENTITY_GRACE = 600,
 };
 
+/* the Delta client this build signs in as (docs/delta-clients.md): sent
+with Quick Connect's start and the player key's enroll. "chupathingy" is
+Chupathingy's own builds; a fork registers its own at the site's
+/delta/clients and builds with -DIDENTITY_CLIENT_ID='"its-id"'. Printable
+ASCII, no quotes */
+#ifndef IDENTITY_CLIENT_ID
+#define IDENTITY_CLIENT_ID "chupathingy"
+#endif
+
 /* a certificate's flags and capabilities */
 enum
 {

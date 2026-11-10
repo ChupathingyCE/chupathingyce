@@ -1864,7 +1864,9 @@ code, revoke another device of the account; stage B). A device gets the
 first five; only one signed in by code and approved from a password
 session on the site also gets `devices`, so approving and revoking never
 pass down a chain: not a device enrolled with a player key, not one
-another device approved. Unknown bits and flags are ignored. A certificate lasts 7 days on desktops and Android and 14 on
+another device approved. A device of another app (a Delta client,
+[delta-clients.md](delta-clients.md)) gets only the scopes it asked for
+that its app has, and never `devices`. Unknown bits and flags are ignored. A certificate lasts 7 days on desktops and Android and 14 on
 consoles, and the device refreshes it at half its life. The display name,
 emblem and clan aren't in it; they change, and peers fetch them as today.
 
@@ -2061,11 +2063,16 @@ asks its own player to confirm, then gets its certificate. The player key is
 never sent or shown.
 
 1. `GET /v1/identity/nonce`, then `POST /v1/identity/device/start
-   {"device_key", "nonce", "signature", "platform", "build", "name"?}`,
+   {"device_key", "nonce", "signature", "platform", "build", "name"?,
+   "client_id"?, "scopes"?}`,
    signed by the device key over `"chupathingy device start v1\n"` +
    audience + nonce (16) + device public key (32). `name` is what the
    device calls itself (printable ASCII, at most 32), shown when it is
-   approved; the site defaults to the platform's name.
+   approved; the site defaults to the platform's name. `client_id` is the
+   app the device belongs to, and `scopes` what it asks for (see
+   [delta-clients.md](delta-clients.md)); without them, or with
+   `"chupathingy"`, it is Chupathingy's own, as before. Our builds send
+   `"chupathingy"` (`IDENTITY_CLIENT_ID`), on the enroll too.
    The answer: `{"code_nonce": 32 hex, "poll_token": 64 hex, "interval": 5,
    "expires_in": 600}`.
 2. The device works its code out itself: 8 characters, each
@@ -2935,7 +2942,9 @@ next epoch for that ("Epochs", above).
 
 Delta is public: this document is its specification, and anyone may build a
 client, server or tool that speaks it. Nothing in it depends on being
-ChupathingyCE, and nothing is kept secret but signing keys.
+ChupathingyCE, and nothing is kept secret but signing keys. An app that
+wants to sign players in on our site registers a client ID first:
+[delta-clients.md](delta-clients.md).
 
 Delta may grow past OpenCE's game protocol: a capability can change the game
 protocol itself (co-op, CE map identity, sync), not only add messages beside
