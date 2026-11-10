@@ -160,6 +160,9 @@ struct delta_profile_card
 	char badge[48];
 	/* the clan tag it shows (empty: none) */
 	char clan_tag[16];
+	/* the handle of another profile this one's looks like, as the site
+	marked it (empty: none) */
+	char looks_like[48];
 };
 
 /* /v1/game/profile's answer read into profile: 1, else 0 (not JSON, or

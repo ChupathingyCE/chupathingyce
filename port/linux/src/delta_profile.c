@@ -766,6 +766,8 @@ static void read_card(struct reader *reader, struct delta_profile_card *card, in
 			text_value(reader, card->handle, sizeof(card->handle));
 		else if (!strcmp(key, "display"))
 			text_value(reader, card->display, sizeof(card->display));
+		else if (!strcmp(key, "looks_like"))
+			text_value(reader, card->looks_like, sizeof(card->looks_like));
 		else if (!strcmp(key, "clan"))
 		{
 			char clan_key[16];

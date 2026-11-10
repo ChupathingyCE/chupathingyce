@@ -929,12 +929,14 @@ int identity_tag_is_handle(const char *tag, const char *handle)
 }
 
 int identity_proof_message(const unsigned char *nonce, const char *binding, int binding_length, int machine_index,
-	int local_player, const unsigned char *serial, const char *tag, int tag_length, unsigned char *out)
+	int local_player, const unsigned char *serial, int flags, unsigned long time, const char *tag, int tag_length,
+	unsigned char *out)
 {
 	int length = (int)strlen(proof_label);
 
 	if (binding_length < 0 || binding_length > IDENTITY_BINDING_MOST || machine_index < 0 || machine_index > 255 ||
-		local_player < 0 || local_player >= IDENTITY_LOCAL_PLAYERS || tag_length < 0 || tag_length > IDENTITY_TAG_MOST)
+		local_player < 0 || local_player >= IDENTITY_LOCAL_PLAYERS || tag_length < 0 || tag_length > IDENTITY_TAG_MOST ||
+		flags < 0 || flags > 255)
 	{
 		return -1;
 	}
@@ -949,6 +951,11 @@ int identity_proof_message(const unsigned char *nonce, const char *binding, int 
 	out[length++] = (unsigned char)local_player;
 	memcpy(out + length, serial, 8);
 	length += 8;
+	out[length++] = (unsigned char)flags;
+	out[length++] = (unsigned char)time;
+	out[length++] = (unsigned char)(time >> 8);
+	out[length++] = (unsigned char)(time >> 16);
+	out[length++] = (unsigned char)(time >> 24);
 	out[length++] = (unsigned char)tag_length;
 	if (tag_length)
 		memcpy(out + length, tag, (size_t)tag_length);
@@ -978,6 +985,125 @@ int identity_check_proof(const unsigned char *issuer, int issuer_size, const uns
 	if (message_size <= 0 || !identity_verify(device->public_key, message, message_size, signature))
 		return IDENTITY_NOT_DEVICE_SIGNED;
 	return IDENTITY_OK;
+}
+
+
+int identity_proof_fresh(unsigned long time, unsigned long now, unsigned long age)
+{
+	return time <= now + IDENTITY_GRACE && now <= time + age + IDENTITY_GRACE;
+}
+
+/* a code point's look-alike Latin letter (0: none, dropped) */
+static char lookalike_letter(unsigned long c)
+{
+	/* (0 o, 1 i, 3 e, 4 a, 5 s, 7 t, 8 b; 2, 6 and 9 dropped) */
+	static const char digits[] = "oi\0eas\0tb\0";
+	static const struct { unsigned long code; char letter; } others[] =
+	{
+		/* Cyrillic */
+		{ 0x430, 'a' }, { 0x435, 'e' }, { 0x43E, 'o' }, { 0x440, 'p' }, { 0x441, 'c' }, { 0x443, 'y' },
+		{ 0x445, 'x' }, { 0x456, 'i' }, { 0x458, 'j' }, { 0x455, 's' }, { 0x43A, 'k' }, { 0x43C, 'm' },
+		{ 0x43D, 'h' }, { 0x442, 't' }, { 0x432, 'b' }, { 0x410, 'a' }, { 0x415, 'e' }, { 0x41E, 'o' },
+		{ 0x420, 'p' }, { 0x421, 'c' }, { 0x423, 'y' }, { 0x425, 'x' }, { 0x406, 'i' }, { 0x41A, 'k' },
+		{ 0x41C, 'm' }, { 0x41D, 'h' }, { 0x422, 't' }, { 0x412, 'b' },
+		/* Greek */
+		{ 0x3B1, 'a' }, { 0x3BF, 'o' }, { 0x3C1, 'p' }, { 0x3B9, 'i' }, { 0x3BA, 'k' }, { 0x3BD, 'v' },
+		{ 0x3C4, 't' }, { 0x3C5, 'u' }, { 0x391, 'a' }, { 0x392, 'b' }, { 0x395, 'e' }, { 0x397, 'h' },
+		{ 0x399, 'i' }, { 0x39A, 'k' }, { 0x39C, 'm' }, { 0x39D, 'n' }, { 0x39F, 'o' }, { 0x3A1, 'p' },
+		{ 0x3A4, 't' }, { 0x3A7, 'x' }, { 0x3A5, 'y' },
+		/* signs */
+		{ '@', 'a' }, { '$', 's' }, { '!', 'i' }, { '|', 'i' },
+	};
+	int index;
+
+	if (c >= 'A' && c <= 'Z')
+		return (char)(c - 'A' + 'a');
+	if (c >= 'a' && c <= 'z')
+		return (char)c;
+	if (c >= '0' && c <= '9')
+		return digits[c - '0'];
+	for (index = 0; index < (int)(sizeof(others) / sizeof(others[0])); index++)
+	{
+		if (others[index].code == c)
+			return others[index].letter;
+	}
+	return 0;
+}
+
+int identity_lookalike_key(const char *name, char *out)
+{
+	char folded[IDENTITY_LOOKALIKE_MOST + 1];
+	const unsigned char *at = (const unsigned char *)name;
+	int length = 0, used = 0, index;
+
+	while (at && *at && length < IDENTITY_LOOKALIKE_MOST)
+	{
+		unsigned long c = *at++;
+		char letter;
+
+		if (c >= 0xC0 && (*at & 0xC0) == 0x80)
+		{
+			if (c < 0xE0)
+				c = (c & 0x1F) << 6 | (*at++ & 0x3F);
+			else if (c < 0xF0 && (at[1] & 0xC0) == 0x80)
+			{
+				c = (c & 0x0F) << 12 | (unsigned long)(at[0] & 0x3F) << 6 | (at[1] & 0x3F);
+				at += 2;
+			}
+			else
+			{
+				while ((*at & 0xC0) == 0x80)
+					at++;
+				continue;
+			}
+		}
+		letter = lookalike_letter(c);
+		if (letter)
+			folded[length++] = letter;
+	}
+	for (index = 0; index < length; index++)
+	{
+		if (folded[index] == 'r' && index + 1 < length && folded[index + 1] == 'n')
+		{
+			out[used++] = 'm';
+			index++;
+		}
+		else if (folded[index] == 'v' && index + 1 < length && folded[index + 1] == 'v')
+		{
+			out[used++] = 'w';
+			index++;
+		}
+		else
+			out[used++] = folded[index] == 'l' ? 'i' : folded[index];
+	}
+	out[used] = 0;
+	return used;
+}
+
+
+int identity_account_choice(const char *line, int owner, unsigned char *account)
+{
+	char text[80];
+	const char *at = line ? line : "";
+	int length;
+
+	if ((unsigned char)at[0] == 0xEF && (unsigned char)at[1] == 0xBB && (unsigned char)at[2] == 0xBF)
+		at += 3;
+	while (*at == ' ' || *at == '\t')
+		at++;
+	snprintf(text, sizeof(text), "%s", at);
+	length = (int)strlen(text);
+	while (length && (text[length - 1] == ' ' || text[length - 1] == '\t' || text[length - 1] == '\r' ||
+		text[length - 1] == '\n'))
+	{
+		length--;
+	}
+	text[length] = 0;
+	if (!strcmp(text, "guest"))
+		return 0;
+	if (length == 2 * IDENTITY_ID_SIZE && identity_unhex(text, length, account, IDENTITY_ID_SIZE))
+		return 2;
+	return owner ? 1 : 0;
 }
 
 #endif

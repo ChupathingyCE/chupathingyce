@@ -184,13 +184,24 @@ enum
 	DELTA_WIRE_IDENTITY_TAG_SIZE = 20,
 	DELTA_WIRE_IDENTITY_SIGNATURE_SIZE = 64,
 	/* the messages' fixed parts: ID_CHALLENGE's (its binding follows),
-	ID_PROOF's and ID_CARD's heads (all a withdrawal has), and the rest of
-	their fixed fields (the certificate and tag follow) */
+	ID_PROOF's and ID_CARD's heads (all a withdrawal has), and all their
+	fixed fields (the certificate and name follow) */
 	DELTA_WIRE_ID_CHALLENGE_SIZE = 36,
 	DELTA_WIRE_ID_PROOF_HEAD = 4,
-	DELTA_WIRE_ID_PROOF_SIZE = 180,
+	DELTA_WIRE_ID_PROOF_SIZE = 188,
 	DELTA_WIRE_ID_CARD_HEAD = 8,
-	DELTA_WIRE_ID_CARD_SIZE = 184
+	DELTA_WIRE_ID_CARD_SIZE = 224
+};
+
+/* ID_PROOF's flags (signed with the rest) */
+enum
+{
+	/* the client checked that the challenge's binding is the host it
+	connected to (its invite's key, through the invite tunnel): the only
+	proof a host may give a role for. Without it a proof shows a name, and
+	nothing more */
+	DELTA_WIRE_IDENTITY_BOUND = 0x01,
+	DELTA_WIRE_IDENTITY_KNOWN_FLAGS = 0x01
 };
 
 /* UNIT_VITALS's entry flags: the unit's shield, as the game's own unit
@@ -639,6 +650,10 @@ struct delta_wire_id_proof
 	else is read) */
 	int certificate_length;
 	int tag_length;
+	/* DELTA_WIRE_IDENTITY_BOUND, and when it was signed (Unix seconds, by
+	the signer's clock) */
+	int flags;
+	delta_u32 time;
 	unsigned char signature[DELTA_WIRE_IDENTITY_SIGNATURE_SIZE];
 	unsigned char issuer[DELTA_WIRE_IDENTITY_ISSUER_SIZE];
 	unsigned char certificate[DELTA_WIRE_IDENTITY_CERTIFICATE_MOST];
@@ -649,8 +664,10 @@ struct delta_wire_id_proof
 
 struct delta_wire_id_card
 {
-	/* the player's machine */
+	/* the player's machine, and the nonce the host challenged that
+	machine's session with (what the proof signed) */
 	int machine_index;
+	unsigned char nonce[DELTA_WIRE_IDENTITY_NONCE_SIZE];
 	struct delta_wire_id_proof proof;
 };
 

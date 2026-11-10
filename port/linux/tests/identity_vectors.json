@@ -26,7 +26,60 @@
   "proof_nonce": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
   "proof_binding": "0123456789abcdef0123456789abcdef",
   "proof_tag": "Milenko",
-  "proof_message": "64656c7461206964656e746974792070726f6f662076310a000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20303132333435363738396162636465663031323334353637383961626364656603010102030405060708074d696c656e6b6f",
-  "proof_signature": "47cff25752b29748ab5f732822539bd7dc13a8b3f39802395ef57c29b04e40fd6d9d51115bcaa7cf6c257d944c2f35569fac5d85f5f960a560da981122ae980e",
-  "proof_lan_signature": "b59e0304e57510142faa66b0f1edf4455190c283df0ea7602adc0e93e570ba60b7a1dca2f21071054b454fb2aadfeb5690a6e65d8cab2459eb47ed5f4e1dba0b"
+  "proof_message": "64656c7461206964656e746974792070726f6f662076310a000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f203031323334353637383961626364656630313233343536373839616263646566030101020304050607080108c6b26a074d696c656e6b6f",
+  "proof_signature": "bd00fd2c414b9170b8f9d5af61cf38cf32758b5ab8cf133bf78bfe036a8c3e8e166ebe9da09384d446f9192d05d1aa7235886d4af359f303c3c85c6028c7e400",
+  "proof_lan_signature": "610f07b2e9ff47d104f2daf970467e09962e6e33db53f230054394fd05da9c51e898419ea5f76ef19792f6d6e9681eedac2aae3a06e3fd28e2126e843f9ad00a",
+  "proof_flags": 1,
+  "proof_lan_flags": 0,
+  "proof_time": 1790101000,
+  "lookalikes": [
+    [
+      "Milenko",
+      "miienko"
+    ],
+    [
+      "Mi1enk0",
+      "miienko"
+    ],
+    [
+      "MILENK0",
+      "miienko"
+    ],
+    [
+      "mi|enko",
+      "miienko"
+    ],
+    [
+      "milenko2",
+      "miienko"
+    ],
+    [
+      "rnilenko",
+      "miienko"
+    ],
+    [
+      "Мilenko",
+      "miienko"
+    ],
+    [
+      "vvarthog",
+      "warthog"
+    ],
+    [
+      "Sarge_99",
+      "sarge"
+    ],
+    [
+      "T3x",
+      "tex"
+    ],
+    [
+      "@pollo",
+      "apoiio"
+    ],
+    [
+      "$arge",
+      "sarge"
+    ]
+  ]
 }

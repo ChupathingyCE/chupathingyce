@@ -290,9 +290,18 @@ enum
 	IDENTITY_BINDING_MOST = 64,
 	IDENTITY_LOCAL_PLAYERS = 4,
 	/* label (24), nonce, binding's length and it, machine, local player,
-	serial, tag's length and it */
-	IDENTITY_PROOF_MESSAGE_MOST = 24 + IDENTITY_PROOF_NONCE_SIZE + 1 + IDENTITY_BINDING_MOST + 1 + 1 + 8 + 1 +
+	serial, flags, time, the name's length and it */
+	IDENTITY_PROOF_MESSAGE_MOST = 24 + IDENTITY_PROOF_NONCE_SIZE + 1 + IDENTITY_BINDING_MOST + 1 + 1 + 8 + 1 + 4 + 1 +
 		IDENTITY_TAG_MOST,
+	/* how old a proof may be (seconds, by the checker's clock, past
+	IDENTITY_GRACE either way): when its host takes it, and when another
+	player checks the card the host relays (a client proves again every
+	IDENTITY_PROOF_RENEW seconds, so its card never gets that old) */
+	IDENTITY_PROOF_HOST_AGE = 600,
+	IDENTITY_PROOF_CARD_AGE = 1800,
+	IDENTITY_PROOF_RENEW = 900,
+	/* a name's look-alike key: at most this many bytes, and its end */
+	IDENTITY_LOOKALIKE_MOST = 64,
 };
 
 /* whether text (length bytes) is a name: a handle's characters in any
@@ -302,11 +311,30 @@ int identity_tag_valid(const char *tag, int length);
 shows: "Milenko" for milenko) */
 int identity_tag_is_handle(const char *tag, const char *handle);
 /* what a device signs to prove a local player in a game: "delta identity
-proof v1\n", the host's nonce, the binding's length and it, the machine
-and the local player, the certificate's serial, the tag's length and it.
-Its size, or -1 for a field out of its range */
+proof v1\n", the nonce its host challenged this machine's session with,
+the binding's length and it, the machine and the local player, the
+certificate's serial, the flags (DELTA_WIRE_IDENTITY_BOUND), the time (4,
+little-endian), the name's length and it. Its size, or -1 for a field out
+of its range */
 int identity_proof_message(const unsigned char *nonce, const char *binding, int binding_length, int machine_index,
-	int local_player, const unsigned char *serial, const char *tag, int tag_length, unsigned char *out);
+	int local_player, const unsigned char *serial, int flags, unsigned long time, const char *tag, int tag_length,
+	unsigned char *out);
+/* whether a proof signed at time is fresh at now: no more than age
+seconds old, nor from the future (IDENTITY_GRACE either way) */
+int identity_proof_fresh(unsigned long time, unsigned long now, unsigned long age);
+/* a name's look-alike key (UTF-8 in, lowercase a-z out, into out of
+IDENTITY_LOOKALIKE_MOST + 1): digits and signs read as the letters they
+look like (0 o, 1 i, 3 e, 4 a, 5 s, 7 t, 8 b, @ a, $ s, ! i, | i) and
+Cyrillic and Greek look-alikes as Latin, everything else dropped, then
+rn read as m, vv as w and l as i; the site's (puma's lookalike_key) is
+the same. Its length */
+int identity_lookalike_key(const char *name, char *out);
+/* a Halo profile's delta_account.txt (its first line, as read): 0 a guest
+("guest"), 2 that account (32 hex digits, into account), 1 the copy's
+own account. A byte order mark and spaces and line ends around it are left
+out. A line that is neither is the copy's own account for the copy owner's
+Halo profile (owner: the first local player's), a guest for any other */
+int identity_account_choice(const char *line, int owner, unsigned char *account);
 /* a proof checked as a host or another player checks it: the issuer
 certificate signed by one of the root keys and in date, the device
 certificate by it and in date, play among its capabilities, its device not

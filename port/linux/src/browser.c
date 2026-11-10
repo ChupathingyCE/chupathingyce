@@ -1098,13 +1098,20 @@ static int take_revoked(const unsigned char *list, int list_size, const unsigned
 	time_t now = time(NULL);
 	int taken = 0;
 
-	if (list_size > REVOKED_BYTES ||
+	int issuer_check;
+
+	/* (an issuer past its dates still vouches for the list it signed: an
+	old list is better than none, and is said to be stale) */
+	issuer_check = list_size > REVOKED_BYTES ? IDENTITY_MALFORMED :
 		identity_check_issuer(issuer_data, issuer_size, identity_root_keys, IDENTITY_ROOT_KEY_COUNT,
-			now > 0 ? (unsigned long)now : 0, &issuer) != IDENTITY_OK ||
+			now > 0 ? (unsigned long)now : 0, &issuer);
+	if ((issuer_check != IDENTITY_OK && issuer_check != IDENTITY_EXPIRED) ||
 		identity_check_revoked(list, list_size, &issuer, &parsed) != IDENTITY_OK)
 	{
 		return 0;
 	}
+	if (issuer_check == IDENTITY_EXPIRED)
+		platform_log("Delta identity: the revocation list's issuer has expired: the list is used, but stale");
 	pthread_mutex_lock(&browser_lock);
 	if (!revoked_size || parsed.serial > revoked_list.serial)
 	{
@@ -1114,6 +1121,8 @@ static int take_revoked(const unsigned char *list, int list_size, const unsigned
 		taken = 1;
 	}
 	pthread_mutex_unlock(&browser_lock);
+	if (taken && now > 0 && (unsigned long)now > parsed.next_update + IDENTITY_GRACE)
+		platform_log("Delta identity: the revocation list is stale (its next update has passed): used until a newer one comes");
 	if (taken && save)
 	{
 		static unsigned char file[REVOKED_BYTES + IDENTITY_ISSUER_SIZE];
@@ -1128,6 +1137,32 @@ static int take_revoked(const unsigned char *list, int list_size, const unsigned
 	return taken;
 }
 
+/* the list kept on disk, read once, whichever thread asks first (with or
+without a site to ask: a LAN game still checks against the last list) */
+static void load_saved_revoked(void)
+{
+	static unsigned char data[REVOKED_BYTES + IDENTITY_ISSUER_SIZE];
+	char path[1024];
+	FILE *file;
+	size_t size;
+	int first;
+
+	pthread_mutex_lock(&browser_lock);
+	first = !revoked_loaded;
+	revoked_loaded = 1;
+	pthread_mutex_unlock(&browser_lock);
+	if (!first)
+		return;
+	revoked_path(path, sizeof(path));
+	file = fopen(path, "rb");
+	if (!file)
+		return;
+	size = fread(data, 1, sizeof(data), file);
+	fclose(file);
+	if (size > IDENTITY_ISSUER_SIZE)
+		take_revoked(data + IDENTITY_ISSUER_SIZE, (int)size - IDENTITY_ISSUER_SIZE, data, IDENTITY_ISSUER_SIZE, 0);
+}
+
 /* (the browser thread) the list kept on disk, once; the site's every ten
 minutes */
 static void update_revoked(void)
@@ -1140,24 +1175,7 @@ static void update_revoked(void)
 	int status, length;
 	const int response_size = 2 * (REVOKED_BYTES + IDENTITY_ISSUER_SIZE * 4) + 1024;
 
-	if (!revoked_loaded)
-	{
-		char path[1024];
-		FILE *file;
-
-		revoked_loaded = 1;
-		revoked_path(path, sizeof(path));
-		file = fopen(path, "rb");
-		if (file)
-		{
-			static unsigned char data[REVOKED_BYTES + IDENTITY_ISSUER_SIZE];
-			size_t size = fread(data, 1, sizeof(data), file);
-
-			fclose(file);
-			if (size > IDENTITY_ISSUER_SIZE)
-				take_revoked(data + IDENTITY_ISSUER_SIZE, (int)size - IDENTITY_ISSUER_SIZE, data, IDENTITY_ISSUER_SIZE, 0);
-		}
-	}
+	load_saved_revoked();
 	if (now <= 0 || (revoked_asked && (unsigned long)now < revoked_asked + REVOKED_INTERVAL))
 		return;
 	revoked_asked = (unsigned long)now;
@@ -1201,6 +1219,7 @@ int browser_identity_revoked(const unsigned char *device_id)
 {
 	int revoked;
 
+	load_saved_revoked();
 	pthread_mutex_lock(&browser_lock);
 	revoked = revoked_size && identity_is_revoked(&revoked_list, device_id);
 	pthread_mutex_unlock(&browser_lock);
