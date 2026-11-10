@@ -11,6 +11,7 @@ discord_activity.c and delta_profile.c; exits nonzero on a failure.
 #include "../src/discord_activity.h"
 #include "../src/delta_profile.h"
 
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -402,6 +403,13 @@ static void test_record(void)
 	CHECK(!strcmp(profile.record_top_medals[1].key, "first_strike") && profile.record_top_medals[2].count == 3);
 	CHECK(delta_profile_parse("{\"linked\": true, \"handle\": \"grif\", \"record\": {\"games\": 1, \"medals\": 2}}", &profile));
 	CHECK(profile.record_games == 1 && profile.record_top_medal_count == 0 && !profile.record_favorite_map[0]);
+	/* (numbers past an int's range, or a double's, are held at the end,
+	never cast as they are) */
+	CHECK(delta_profile_parse("{\"linked\": true, \"handle\": \"grif\", \"record\": {\"best_spree\": 1e300, "
+		"\"medal_counts\": {\"victory\": 4294967297, \"killjoy\": -1e300, \"rampage\": 3}}}", &profile));
+	CHECK(profile.record_best_spree == INT_MAX);
+	CHECK(profile.record_top_medal_count == 2 && profile.record_top_medals[0].count == INT_MAX &&
+		!strcmp(profile.record_top_medals[1].key, "rampage") && profile.record_top_medals[1].count == 3);
 }
 
 int main(void)

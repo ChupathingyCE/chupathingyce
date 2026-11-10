@@ -12,6 +12,7 @@ known is skipped, and text keeps no control characters.
 #include "delta_profile.h"
 #include "social.h"
 
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -203,7 +204,23 @@ static long long number_value(struct reader *reader)
 		return 0;
 	}
 	reader->at = end;
+	/* (a number past what a long long holds, or not a number at all, is
+	never cast as it is: that is undefined) */
+	if (value != value)
+		return 0;
+	if (value >= 9.2e18)
+		return LLONG_MAX;
+	if (value <= -9.2e18)
+		return LLONG_MIN;
 	return (long long)value;
+}
+
+/* a number for an int field: past an int's range, held at its end */
+static int int_value(struct reader *reader)
+{
+	long long value = number_value(reader);
+
+	return value > INT_MAX ? INT_MAX : value < INT_MIN ? INT_MIN : (int)value;
 }
 
 static int boolean_value(struct reader *reader)
@@ -307,7 +324,7 @@ static void read_medal_counts(struct reader *reader, struct delta_profile *profi
 	}
 	while (!reader->failed && member(reader, key, sizeof(key), &first))
 	{
-		int count = (int)number_value(reader);
+		int count = int_value(reader);
 		int place = profile->record_top_medal_count;
 
 		if (count <= 0 || !key[0])
@@ -355,7 +372,7 @@ static void read_record(struct reader *reader, struct delta_profile *profile)
 		else if (!strcmp(key, "best_type"))
 			text_value(reader, profile->record_best_type, sizeof(profile->record_best_type));
 		else if (!strcmp(key, "best_spree"))
-			profile->record_best_spree = (int)number_value(reader);
+			profile->record_best_spree = int_value(reader);
 		else if (!strcmp(key, "favorite_map"))
 			text_value(reader, profile->record_favorite_map, sizeof(profile->record_favorite_map));
 		else if (!strcmp(key, "favorite_weapon"))
