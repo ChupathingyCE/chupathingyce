@@ -689,6 +689,8 @@ static const struct config_setting config_settings[] =
 	{ "audio.voice_open_mic_level", _config_real, "0.01", "HALO_VOICE_OPEN_MIC_LEVEL", _environment_value,
 		_platform_all,
 		"How loud you must be for open mic to send (0.001 to 1.0)." },
+	{ "display.voice_speakers", _config_boolean, "true", "HALO_VOICE_SPEAKERS", _environment_value, _platform_all,
+		"Show who is talking in voice chat, small, at the top right." },
 	{ "audio.voice_positional", _config_boolean, "true", "HALO_VOICE_POSITIONAL", _environment_value, _platform_all,
 		"Hear proximity voices from where the players are, with the game's 3D\n"
 		"sound (and Headphone 3D). false pans and fades them only." },

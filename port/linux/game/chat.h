@@ -71,7 +71,8 @@ char const *chat_host_welcome(void);
 
 /* this copy's own mute of a machine's player (the chat log's M, and the
 Guide's Players here): whether they are muted, and muted or not. wchar_t
-is the game's UTF-16 */
+is the game's UTF-16. To ask, machine NONE matches the name on any machine,
+and name NULL anyone muted on the machine */
 boolean chat_local_muted(short machine, wchar_t const *name);
 void chat_local_mute(short machine, wchar_t const *name, boolean mute);
 
