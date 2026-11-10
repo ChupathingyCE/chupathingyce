@@ -756,6 +756,8 @@ static void network_game_server_show_late_joiner_players(
 	struct network_game_server_client_machine *machine);
 static void network_game_server_start_waiting_late_joiners(
 	struct network_game_server *server);
+static void network_game_server_late_joiner_replies(
+	struct network_game_server *server);
 static void network_game_server_keep_late_joiners_alive(
 	struct network_game_server *server);
 static boolean network_game_server_add_new_client(
@@ -883,12 +885,24 @@ static long network_game_server_kicked_address_next;
 added no player this long after holds the lobby's countdown (a machine's
 player is asked for as it joins) */
 static unsigned long network_game_server_client_machine_join_times[MAXIMUM_NETWORK_MACHINE_COUNT];
+/* port: a machine joining the game in progress, in its pregame screen:
+when the host last took a team pick of its players, and last sent it its
+players because it asked (system_milliseconds, 0 for not yet), and whether
+an answer waits for that limit (network_game_server_late_joiner_player_settings):
+one pick every few seconds, and at most one answer a second, however often
+it asks */
+static unsigned long network_game_server_late_joiner_pick_times[MAXIMUM_NETWORK_MACHINE_COUNT];
+static unsigned long network_game_server_late_joiner_reply_times[MAXIMUM_NETWORK_MACHINE_COUNT];
+static boolean network_game_server_late_joiner_reply_due[MAXIMUM_NETWORK_MACHINE_COUNT];
 enum
 {
 	NETWORK_GAME_SERVER_PLAYERLESS_MACHINE_TIMEOUT = 15 * MILLISECONDS_PER_SECOND,
 	/* the connections of one address that have not joined yet a server
 	takes (network_game_server_add_new_client) */
 	MAXIMUM_WAITING_CONNECTIONS_PER_ADDRESS = 2,
+	/* a late joiner's team picks before it starts, and the host's answers */
+	LATE_JOINER_PICK_INTERVAL = 3 * MILLISECONDS_PER_SECOND,
+	LATE_JOINER_REPLY_INTERVAL = MILLISECONDS_PER_SECOND,
 };
 
 /* port: the players added to the game in progress from each client
@@ -1609,6 +1623,7 @@ boolean network_game_server_idle(
 	/* (the settings record to machines it waited for: network version 35's) */
 	network_game_server_settings_frame(server);
 	network_game_server_start_waiting_late_joiners(server);
+	network_game_server_late_joiner_replies(server);
 
 	if (network_game_server_game_is_valid(server))
 	{
@@ -2314,6 +2329,9 @@ boolean network_game_server_accept_client_machine_into_game(
 				network_game_server_client_machine_addresses[machine_index] = address.address.long_words[0];
 				network_game_server_client_machine_datagram_ports[machine_index] = 0;
 				network_game_server_client_machine_join_times[machine_index] = system_milliseconds();
+				network_game_server_late_joiner_pick_times[machine_index] = 0;
+				network_game_server_late_joiner_reply_times[machine_index] = 0;
+				network_game_server_late_joiner_reply_due[machine_index] = FALSE;
 				network_distributed_lobby_budget_reset(machine_index);
 			}
 			else
@@ -3146,15 +3164,18 @@ long team_change_late_joiner(long list_index, short team);
 /* port: a player of a machine joining the game in progress, not started
 yet, changes their settings in its pregame screen (X#83): their team, as
 the host's team rule takes a player who has not played yet
-(team_change_late_joiner); a name or color stays as the other machines
-were told when the player was added. The machine is sent its players
-again either way. FALSE if the machine is not such a one */
+(team_change_late_joiner), one pick every few seconds a machine; a name or
+color stays as the other machines were told when the player was added. The
+machine is sent its players again either way, at most once a second. FALSE
+if the machine is not such a one */
 boolean network_game_server_late_joiner_player_settings(
 	struct network_game_server *server,
 	struct network_game_server_client_machine *machine,
 	struct network_player const *player)
 {
 	struct network_player const *record;
+	unsigned long now;
+	long slot;
 
 	if (!network_game_server_late_joiner_not_started(server, machine))
 		return FALSE;
@@ -3171,17 +3192,70 @@ boolean network_game_server_late_joiner_player_settings(
 		network_event("client machine #%d tried to update a player of another machine", machine->machine_index);
 		return TRUE;
 	}
+	slot = machine->machine_index;
+	if (!VALID_INDEX(slot, MAXIMUM_NETWORK_MACHINE_COUNT))
+		return TRUE;
+	now = system_milliseconds();
 	if (server->game.variant.universal_variant.teams && VALID_INDEX(player->team_index, NUMBER_OF_MULTIPLAYER_TEAMS) &&
 		player->team_index != record->team_index)
 	{
-		long result = team_change_late_joiner(player->player_list_index, player->team_index);
+		char const *answer;
 
+		/* (one pick every few seconds a machine: each would flip the
+		teams and resend the record) */
+		if (network_game_server_late_joiner_pick_times[slot] &&
+			now - network_game_server_late_joiner_pick_times[slot] < (unsigned long)LATE_JOINER_PICK_INTERVAL)
+		{
+			answer = "too soon";
+		}
+		else if (team_change_late_joiner(player->player_list_index, player->team_index))
+		{
+			network_game_server_late_joiner_pick_times[slot] = now ? now : 1;
+			answer = "taken";
+		}
+		else
+		{
+			answer = "refused";
+		}
 		network_event("machine #%d's player %d asked for team %d before joining the game in progress: %s",
-			machine->machine_index, (int)player->player_list_index, (int)player->team_index,
-			result ? "taken" : "refused");
+			machine->machine_index, (int)player->player_list_index, (int)player->team_index, answer);
 	}
-	network_game_server_show_late_joiner_players(server, machine);
+	/* (its players again, so its screen shows what the host took; at most
+	once a second, the last one after the wait: network_game_server_late_joiner_replies) */
+	network_game_server_late_joiner_reply_due[slot] = TRUE;
+	network_game_server_late_joiner_replies(server);
 	return TRUE;
+}
+
+/* port: each frame, the answers to late joiners' settings requests that
+waited for the limit above (one a second a machine) */
+static void network_game_server_late_joiner_replies(
+	struct network_game_server *server)
+{
+	unsigned long now = system_milliseconds();
+	long slot;
+
+	for (slot = 0; slot < MAXIMUM_NETWORK_MACHINE_COUNT; slot++)
+	{
+		struct network_game_server_client_machine *machine = server->client_machines + slot;
+
+		if (!network_game_server_late_joiner_reply_due[slot])
+			continue;
+		if (!network_game_server_late_joiner_not_started(server, machine))
+		{
+			/* (started: its start sent the record) */
+			network_game_server_late_joiner_reply_due[slot] = FALSE;
+			continue;
+		}
+		if (network_game_server_late_joiner_reply_times[slot] &&
+			now - network_game_server_late_joiner_reply_times[slot] < (unsigned long)LATE_JOINER_REPLY_INTERVAL)
+		{
+			continue;
+		}
+		network_game_server_late_joiner_reply_due[slot] = FALSE;
+		network_game_server_late_joiner_reply_times[slot] = now ? now : 1;
+		network_game_server_show_late_joiner_players(server, machine);
+	}
 }
 
 /* port: each frame, the machines joining the game in progress whose start
