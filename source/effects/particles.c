@@ -208,7 +208,7 @@ static boolean particle_update_physics(
 static real const particle_collision_effect_scale_bounds[2] = {1.5f, 0.5f};
 
 static struct profile_section particles_update_section = {"particles_update", NONE, TRUE};
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 /* A frame was a tick on the Xbox. The native builds draw several frames per
 tick (port/linux/game/render_interpolation.c), so what counted frames counts
 30 Hz ticks of game time instead: particles that animate once a frame step
@@ -684,7 +684,7 @@ static boolean particle_update_frame_time(
 	{
 		if (TEST_FLAG(definition->flags, _particle_definition_animate_once_per_frame_bit))
 		{
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 			if (dt != 0.0f && particles_update_ticks > 0)
 #else
 			if (dt != 0.0f)
@@ -1135,7 +1135,7 @@ void particles_update(
 		}
 	}
 
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 	{
 		long tick;
 
@@ -1163,7 +1163,7 @@ void particles_update(
 
 		particles_updating_index = particle_index;
 
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 		if (render.frame_index - particle->last_rendered_frame_index >
 			MAXIMUM_PARTICLE_UNRENDERED_FRAME_COUNT &&
 			particle->last_rendered_frame_index < particles_tick_frame_indices[

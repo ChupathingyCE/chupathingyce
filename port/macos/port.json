@@ -9,6 +9,9 @@
     "OpenGL",
     "CoreGraphics",
     "CoreFoundation",
-    "CoreServices"
+    "CoreServices",
+    "VideoToolbox",
+    "CoreMedia",
+    "CoreVideo"
   ]
 }
