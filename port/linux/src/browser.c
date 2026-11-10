@@ -47,6 +47,7 @@ with it under the lock.
 #include "delta_profile.h"
 #ifndef HALO_CONSOLE_NO_GUIDE
 #include "social.h"
+#include "doorbell.h"
 #endif
 #ifdef HALO_DELTA_PEER_IDENTITY
 #include "identity.h"
@@ -281,6 +282,13 @@ static struct
 	int social_action_wanted;
 	struct browser_social_result social_result;
 	char social_join[BROWSER_INVITE_LENGTH + 16];
+	/* the doorbell (doorbell.h): this copy's (from the friends state), the
+	one its thread listens for (empty: none), whether that thread runs, and
+	the rings it heard since update_social last looked */
+	char doorbell_id[SOCIAL_DOORBELL_SIZE];
+	char doorbell_wanted[SOCIAL_DOORBELL_SIZE];
+	int doorbell_started;
+	int doorbell_rings;
 #endif
 
 	/* the profile this copy's games count for (browser_profile_linked): its
@@ -3509,6 +3517,108 @@ static void social_action(int action, const char *handle, char *response, struct
 		social_log(BROWSER_SOCIAL_LOADED, read);
 }
 
+/* ---------- the doorbell (doorbell.h; docs/delta.md, "The doorbell")
+
+A thread of its own listens for this copy's doorbell on one of the
+brokers (over TLS, failing over between them, with a growing wait when
+neither answers), while this copy is linked, the site gave it a doorbell
+and network.doorbell is on. A ring makes the next friends poll go out at
+once (social_poll_ring, within the site's limit). Nothing is sent but the
+subscription: debug.txt says which broker, never the doorbell. */
+
+static const char *const doorbell_brokers[] =
+{
+	"doorbell.chupathingy.org:8883",
+	"mqtt.chupathingy.org:8883",
+};
+
+static int doorbell_open(void *context, const char *host, const char *port, char *error, int error_size)
+{
+	(void)context;
+	return posix_browser_stream_open(host, port, error, error_size);
+}
+
+static int doorbell_write(void *context, int handle, const unsigned char *data, int size)
+{
+	(void)context;
+	return posix_browser_stream_write(handle, data, size);
+}
+
+static int doorbell_read(void *context, int handle, unsigned char *buffer, int size, int wait)
+{
+	(void)context;
+	return posix_browser_stream_read(handle, buffer, size, wait);
+}
+
+static void doorbell_close(void *context, int handle)
+{
+	(void)context;
+	posix_browser_stream_close(handle);
+}
+
+static void *doorbell_thread(void *unused)
+{
+	static const struct doorbell_transport transport =
+	{
+		NULL, doorbell_open, doorbell_write, doorbell_read, doorbell_close,
+	};
+	static struct doorbell doorbell;
+	char wanted[SOCIAL_DOORBELL_SIZE];
+	int was_listening = 0;
+
+	(void)unused;
+	doorbell_init(&doorbell, &transport, doorbell_brokers, (int)(sizeof(doorbell_brokers) / sizeof(doorbell_brokers[0])),
+		(unsigned long)time(NULL) ^ p2p_now());
+	for (;;)
+	{
+		const char *host;
+		int rings, news;
+
+		pthread_mutex_lock(&browser_lock);
+		memcpy(wanted, browser.doorbell_wanted, sizeof(wanted));
+		pthread_mutex_unlock(&browser_lock);
+		doorbell_want(&doorbell, wanted);
+		rings = doorbell_step(&doorbell, p2p_now(), 1000);
+		news = doorbell_take_news(&doorbell, &host);
+		if (news & _doorbell_news_listening)
+			platform_log("Delta doorbell: listening on %s", host);
+		if (news & _doorbell_news_refused)
+			platform_log("Delta doorbell: %s refused this copy's doorbell; friends are asked on the usual schedule", host);
+		if ((news & _doorbell_news_lost) || ((news & _doorbell_news_failed) && was_listening))
+			platform_log("Delta doorbell: lost %s; trying the next broker", host);
+		if (news & (_doorbell_news_listening | _doorbell_news_lost | _doorbell_news_refused))
+			was_listening = (news & _doorbell_news_listening) && !(news & (_doorbell_news_lost | _doorbell_news_refused));
+		if (rings)
+		{
+			pthread_mutex_lock(&browser_lock);
+			browser.doorbell_rings += rings;
+			pthread_mutex_unlock(&browser_lock);
+		}
+		if (!doorbell.handle)
+			Sleep(THREAD_INTERVAL);
+	}
+	return NULL;
+}
+
+/* (under the lock) the doorbell to listen for, from what is known now; the
+thread started the first time there is one */
+static void doorbell_update(int linked)
+{
+	const char *wanted = linked && config_boolean("network.doorbell") ? browser.doorbell_id : "";
+
+	snprintf(browser.doorbell_wanted, sizeof(browser.doorbell_wanted), "%s", wanted);
+	if (wanted[0] && !browser.doorbell_started)
+	{
+		pthread_t thread;
+
+		browser.doorbell_started = 1;
+		if (pthread_create(&thread, NULL, doorbell_thread, NULL) == 0)
+			pthread_detach(thread);
+		else
+			platform_log("Delta doorbell: could not start its thread; friends are asked on the usual schedule");
+	}
+}
+
 static void update_social(void)
 {
 	static char *response;
@@ -3523,6 +3633,14 @@ static void update_social(void)
 		return;
 	}
 	linked = browser.profile_linked || (browser.game_profile_has && browser.game_profile.linked);
+	if (browser.doorbell_rings)
+	{
+		browser.doorbell_rings = 0;
+		social_poll_ring(&browser.social_poll);
+	}
+	if (!linked)
+		browser.doorbell_id[0] = 0;
+	doorbell_update(linked);
 	if (!linked)
 	{
 		/* (the site asked once a run whether this copy is linked) */
@@ -3566,6 +3684,10 @@ static void update_social(void)
 	pthread_mutex_lock(&browser_lock);
 	before = browser.social_status;
 	social_poll_answer(&browser.social_poll, no_key ? 0 : status, parsed != 0);
+	if (parsed)
+		memcpy(browser.doorbell_id, read->doorbell, sizeof(browser.doorbell_id));
+	else if (status == 404 && !no_key)
+		browser.doorbell_id[0] = 0;
 	if (parsed == 1)
 		social_keep(read);
 	else if (parsed == 2 && before == BROWSER_SOCIAL_LOADED)

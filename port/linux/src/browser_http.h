@@ -45,6 +45,19 @@ downloads (posix_update.c) take it too */
 void posix_browser_lock(void);
 void posix_browser_unlock(void);
 
+/* a long-lived TLS connection to host:port (the doorbell's broker,
+doorbell.c), its certificate checked as a request's: its handle (> 0), or
+0 with why in error. Waits for DNS, the connection and the handshake (up
+to about ten seconds each): call it from a thread of its own. Mbed TLS is
+locked only for each step, never while waiting. At most 2 at a time */
+int posix_browser_stream_open(const char *host, const char *port, char *error, int error_size);
+/* all of data sent: 1, else 0 (the stream is then closed by its owner) */
+int posix_browser_stream_write(int stream, const unsigned char *data, int size);
+/* up to size bytes: their count, 0 when none came within wait
+milliseconds, negative when the connection is over */
+int posix_browser_stream_read(int stream, unsigned char *buffer, int size, int wait);
+void posix_browser_stream_close(int stream);
+
 int posix_browser_private_key(const char *path, unsigned char *key, int size);
 /* the same for the device key (its own log lines: it can always be made again) */
 int posix_browser_device_key(const char *path, unsigned char *key, int size);

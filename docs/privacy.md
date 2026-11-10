@@ -35,6 +35,14 @@ If your copy is linked to a Delta profile, your profile shows which game you're 
 
 To stop it, turn off SHOW WHEN I'M PLAYING in the Guide's SETTINGS (F3), set `share_presence = false` under `[network]` in `config.toml`, or turn off "Show when I'm playing" on your profile's Privacy page on the site.
 
+## The doorbell
+
+If your copy is linked to a Delta profile, it listens for a "doorbell" so invites, friend requests and friends coming online show up right away instead of on the next check. It connects over TLS to doorbell.chupathingy.org or mqtt.chupathingy.org and waits on a topic only your copy knows: a random-looking code the site works out from your player ID with a key only the site has, so nobody can tell whose it is or guess anyone else's.
+
+When something changes for you, the site sends one byte to that topic: what kind of change it was (friends, invite, party or presence). Your game then asks stats.chupathingy.org for your friends as it always does. The ring carries no name, handle, game or message, and the brokers store nothing. Like any server, a broker sees the address your copy connects from while it's connected; it doesn't log or keep it.
+
+To turn it off, set `doorbell = false` under `[network]` in `config.toml`. Your friends list then updates on the usual schedule.
+
 ## Your device key
 
 From 0.9.1, your game also makes a device key of its own. Its private half never leaves your computer. Once, when your game enrolls, it sends the site your player key one more time with the device's public key, platform and build. After that the site gives your game a short-lived certificate and tokens, and your game sends a token in place of your player key.

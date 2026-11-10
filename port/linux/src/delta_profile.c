@@ -1063,6 +1063,8 @@ int delta_profile_parse_social(const char *text, struct social_state *state)
 
 		if (!strcmp(key, "cursor"))
 			text_value(&reader, state->cursor, sizeof(state->cursor));
+		else if (!strcmp(key, "doorbell"))
+			text_value(&reader, state->doorbell, sizeof(state->doorbell));
 		else if (!strcmp(key, "same"))
 			same = boolean_value(&reader);
 		else if (!strcmp(key, "you"))
@@ -1136,6 +1138,10 @@ int delta_profile_parse_social(const char *text, struct social_state *state)
 	}
 	if (reader.failed || !state->cursor[0])
 		return 0;
+	/* (a doorbell is 32 of 0-9 and a-f, else none: it names an MQTT topic) */
+	if (strlen(state->doorbell) != SOCIAL_DOORBELL_SIZE - 1 ||
+		strspn(state->doorbell, "0123456789abcdef") != SOCIAL_DOORBELL_SIZE - 1)
+		state->doorbell[0] = 0;
 	if (same)
 		return 2;
 	return whole ? 1 : 0;

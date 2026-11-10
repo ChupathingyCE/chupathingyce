@@ -170,9 +170,23 @@ static int passed(unsigned long now, unsigned long since, unsigned long interval
 	return now - since >= interval;
 }
 
+/* how many polls went out in the last window before now */
+static int polls_within(const struct social_poll *poll, unsigned long now, unsigned long window)
+{
+	int index, count = 0;
+
+	for (index = 0; index < poll->time_count; index++)
+	{
+		if (!passed(now, poll->times[index], window))
+			count++;
+	}
+	return count;
+}
+
 int social_poll_due(struct social_poll *poll, unsigned long now, int in_game, int signed_in)
 {
 	unsigned long interval = in_game ? SOCIAL_POLL_GAME : SOCIAL_POLL_MENUS;
+	int ring;
 
 	if (!signed_in)
 	{
@@ -180,17 +194,29 @@ int social_poll_due(struct social_poll *poll, unsigned long now, int in_game, in
 		poll->wait = 0;
 		poll->failures = 0;
 		poll->soon = 0;
+		poll->rung = 0;
+		poll->time_count = 0;
+		poll->next_time = 0;
 		return 0;
 	}
 	if (poll->wait > interval)
 		interval = poll->wait;
 	else if (poll->soon)
 		interval = SOCIAL_POLL_SOONEST;
-	if (poll->started && !passed(now, poll->last, interval))
+	/* (a ring: at once when there is room, never through a wait the site
+	asked for) */
+	ring = poll->rung && !poll->wait && passed(now, poll->last, SOCIAL_POLL_RING_GAP) &&
+		polls_within(poll, now, SOCIAL_POLL_RING_WINDOW) < SOCIAL_POLL_RING_ROOM;
+	if (poll->started && !ring && !passed(now, poll->last, interval))
 		return 0;
 	poll->started = 1;
 	poll->last = now;
 	poll->soon = 0;
+	poll->rung = 0;
+	poll->times[poll->next_time] = now;
+	poll->next_time = (poll->next_time + 1) % SOCIAL_POLL_TIMES;
+	if (poll->time_count < SOCIAL_POLL_TIMES)
+		poll->time_count++;
 	return 1;
 }
 
@@ -224,6 +250,12 @@ void social_poll_soon(struct social_poll *poll)
 {
 	if (!poll->wait)
 		poll->soon = 1;
+}
+
+void social_poll_ring(struct social_poll *poll)
+{
+	if (!poll->wait)
+		poll->rung = 1;
 }
 
 /* ---------- the site's friends */

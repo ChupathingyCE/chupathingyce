@@ -990,4 +990,198 @@ int posix_browser_replace_key(const char *path, const unsigned char *key, int si
 
 #endif /* _WIN32 */
 
+
+/* ---------- streams (browser_http.h): a long-lived TLS connection, for the
+doorbell (doorbell.c). The lock is taken around each use of Mbed TLS only,
+never while waiting for the network: the socket is non-blocking and its
+waits are polls outside the lock, so the other users of Mbed TLS are never
+held up by a connection that waits for a ring */
+
+#define STREAMS 2
+#define STREAM_HANDSHAKE_WAIT 10000
+
+static struct
+{
+	int used;
+	struct connection connection;
+} streams[STREAMS];
+
+static struct connection *stream_of(int stream)
+{
+	return stream >= 1 && stream <= STREAMS && streams[stream - 1].used ? &streams[stream - 1].connection : NULL;
+}
+
+static void stream_free(int stream)
+{
+	posix_browser_lock();
+	connection_free(&streams[stream - 1].connection);
+	streams[stream - 1].used = 0;
+	posix_browser_unlock();
+}
+
+int posix_browser_stream_open(const char *host, const char *port, char *error, int error_size)
+{
+	struct connection *connection = NULL;
+	unsigned long waited = 0;
+	int stream = 0, index, result;
+
+	set_up();
+	if (!crypto_ready || !certificates_loaded)
+	{
+		set_error(error, error_size, "no certificate authorities (set SSL_CERT_FILE)", 0);
+		return 0;
+	}
+	posix_browser_lock();
+	for (index = 0; index < STREAMS && !stream; index++)
+	{
+		if (!streams[index].used)
+		{
+			streams[index].used = 1;
+			stream = index + 1;
+			connection = &streams[index].connection;
+			memset(connection, 0, sizeof(*connection));
+			connection->secure = 1;
+			mbedtls_net_init(&connection->net);
+			mbedtls_ssl_init(&connection->ssl);
+			mbedtls_ssl_config_init(&connection->config);
+		}
+	}
+	posix_browser_unlock();
+	if (!stream)
+	{
+		set_error(error, error_size, "too many connections", 0);
+		return 0;
+	}
+	/* (DNS and the TCP connection outside the lock) */
+	if ((result = connect_ipv4(&connection->net, host, port)) != 0)
+	{
+		set_error(error, error_size, "could not connect", result);
+		stream_free(stream);
+		return 0;
+	}
+	posix_browser_lock();
+	result = mbedtls_ssl_config_defaults(&connection->config, MBEDTLS_SSL_IS_CLIENT, MBEDTLS_SSL_TRANSPORT_STREAM,
+		MBEDTLS_SSL_PRESET_DEFAULT);
+	if (result == 0)
+	{
+		/* (the certificate and the host name checked, always) */
+		mbedtls_ssl_conf_authmode(&connection->config, MBEDTLS_SSL_VERIFY_REQUIRED);
+		mbedtls_ssl_conf_ca_chain(&connection->config, &certificates, NULL);
+		mbedtls_ssl_conf_rng(&connection->config, mbedtls_psa_get_random, MBEDTLS_PSA_RANDOM_STATE);
+		result = mbedtls_ssl_setup(&connection->ssl, &connection->config);
+	}
+	if (result == 0)
+		result = mbedtls_ssl_set_hostname(&connection->ssl, host);
+	if (result == 0)
+		result = mbedtls_net_set_nonblock(&connection->net);
+	posix_browser_unlock();
+	if (result != 0)
+	{
+		set_error(error, error_size, "could not set up TLS", result);
+		stream_free(stream);
+		return 0;
+	}
+	mbedtls_ssl_set_bio(&connection->ssl, &connection->net, mbedtls_net_send, mbedtls_net_recv, NULL);
+	for (;;)
+	{
+		posix_browser_lock();
+		result = mbedtls_ssl_handshake(&connection->ssl);
+		posix_browser_unlock();
+		if (result == 0)
+			return stream;
+		if ((result != MBEDTLS_ERR_SSL_WANT_READ && result != MBEDTLS_ERR_SSL_WANT_WRITE) ||
+			waited >= STREAM_HANDSHAKE_WAIT)
+			break;
+		mbedtls_net_poll(&connection->net, result == MBEDTLS_ERR_SSL_WANT_READ ? MBEDTLS_NET_POLL_READ :
+			MBEDTLS_NET_POLL_WRITE, 250);
+		waited += 250;
+	}
+	{
+		unsigned int flags = mbedtls_ssl_get_verify_result(&connection->ssl);
+
+		if (flags && flags != (unsigned int)-1)
+		{
+			char reason[256];
+
+			mbedtls_x509_crt_verify_info(reason, sizeof(reason), "", flags);
+			reason[strcspn(reason, "\n")] = 0;
+			snprintf(error, (size_t)error_size, "the server's certificate was refused (%s)", reason);
+		}
+		else
+		{
+			set_error(error, error_size, waited >= STREAM_HANDSHAKE_WAIT ? "the TLS handshake took too long" :
+				"the TLS handshake failed", waited >= STREAM_HANDSHAKE_WAIT ? 0 : result);
+		}
+	}
+	stream_free(stream);
+	return 0;
+}
+
+int posix_browser_stream_write(int stream, const unsigned char *data, int size)
+{
+	struct connection *connection = stream_of(stream);
+	unsigned long waited = 0;
+
+	if (!connection)
+		return 0;
+	while (size > 0)
+	{
+		int written;
+
+		posix_browser_lock();
+		written = mbedtls_ssl_write(&connection->ssl, data, (size_t)size);
+		posix_browser_unlock();
+		if (written == MBEDTLS_ERR_SSL_WANT_READ || written == MBEDTLS_ERR_SSL_WANT_WRITE)
+		{
+			if (waited >= TIMEOUT_MILLISECONDS)
+				return 0;
+			mbedtls_net_poll(&connection->net, MBEDTLS_NET_POLL_WRITE, 100);
+			waited += 100;
+			continue;
+		}
+		if (written <= 0)
+			return 0;
+		data += written;
+		size -= written;
+	}
+	return 1;
+}
+
+int posix_browser_stream_read(int stream, unsigned char *buffer, int size, int wait)
+{
+	struct connection *connection = stream_of(stream);
+	int count, tries;
+
+	if (!connection)
+		return -1;
+	if (size <= 0)
+		return 0;
+	/* (once with what TLS has, then once more after waiting for the socket) */
+	for (tries = 0; tries < 2; tries++)
+	{
+		posix_browser_lock();
+		count = mbedtls_ssl_read(&connection->ssl, buffer, (size_t)size);
+		posix_browser_unlock();
+		if (count > 0)
+			return count;
+		if (count == 0 || count == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY || count == MBEDTLS_ERR_NET_CONN_RESET)
+			return -1;
+		if (count != MBEDTLS_ERR_SSL_WANT_READ && count != MBEDTLS_ERR_SSL_WANT_WRITE
+#ifdef MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET
+			&& count != MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET
+#endif
+			)
+			return -1;
+		if (tries == 0 && wait > 0 && mbedtls_net_poll(&connection->net, MBEDTLS_NET_POLL_READ, (uint32_t)wait) < 0)
+			return -1;
+	}
+	return 0;
+}
+
+void posix_browser_stream_close(int stream)
+{
+	if (stream_of(stream))
+		stream_free(stream);
+}
+
 #endif

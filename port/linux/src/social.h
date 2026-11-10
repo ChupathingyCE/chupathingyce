@@ -126,6 +126,15 @@ enum
 	/* no answer, or an answer not understood: the wait doubles from the
 	interval up to this */
 	SOCIAL_POLL_FAILED_WAIT = 5 * 60000,
+	/* the doorbell (doorbell.h) rang: polled at once, at least this long
+	after the last poll, and only while fewer than SOCIAL_POLL_RING_ROOM
+	polls went out in the last SOCIAL_POLL_RING_WINDOW (so the menus' 3 a
+	minute and a ring's 3 stay under the site's 6, with one left for a join
+	or an invite) */
+	SOCIAL_POLL_RING_GAP = 2000,
+	SOCIAL_POLL_RING_ROOM = 3,
+	SOCIAL_POLL_RING_WINDOW = 61000,
+	SOCIAL_POLL_TIMES = 8,
 };
 
 struct social_poll
@@ -137,6 +146,13 @@ struct social_poll
 	int failures;
 	/* asked for sooner (social_poll_soon) */
 	int soon;
+	/* the doorbell rang since the last poll (social_poll_ring) */
+	int rung;
+	/* when the latest polls went out (the ring's room), newest at
+	times[(next + SOCIAL_POLL_TIMES - 1) % SOCIAL_POLL_TIMES] */
+	unsigned long times[SOCIAL_POLL_TIMES];
+	int time_count;
+	int next_time;
 };
 
 /* whether it is time to poll: signed in to Delta, and the interval of
@@ -148,6 +164,10 @@ void social_poll_answer(struct social_poll *poll, int status, int understood);
 /* polled again soon (an action, the Guide opening), unless the site asked
 for a wait */
 void social_poll_soon(struct social_poll *poll);
+/* the doorbell rang (something changed for this profile): polled at once
+when there is room (SOCIAL_POLL_RING_*), else as soon as there is, unless
+the site asked for a wait */
+void social_poll_ring(struct social_poll *poll);
 
 /* ---------- the site's friends: what the state answer holds (the parts
 the Guide shows). Only Delta profiles, by handle: nothing of an OpenCE
@@ -159,6 +179,8 @@ enum
 	SOCIAL_HANDLE_SIZE = 24,
 	SOCIAL_GAME_TEXT_SIZE = 64,
 	SOCIAL_CURSOR_SIZE = 40,
+	/* this copy's doorbell (doorbell.h): 32 of 0-9 and a-f */
+	SOCIAL_DOORBELL_SIZE = 33,
 	SOCIAL_INVITE_ID_SIZE = 40,
 	/* the site keeps 200 friends at most, 50 requests waiting */
 	SOCIAL_MAXIMUM_FRIENDS = 200,
@@ -217,6 +239,8 @@ struct social_invite
 struct social_state
 {
 	char cursor[SOCIAL_CURSOR_SIZE];
+	/* this copy's doorbell (empty: the site has none for it) */
+	char doorbell[SOCIAL_DOORBELL_SIZE];
 	/* this player: their handle and name, and whether they appear offline */
 	char handle[SOCIAL_HANDLE_SIZE];
 	char display[SOCIAL_TAG_SIZE];

@@ -2711,6 +2711,64 @@ signout signature   f579b26e3db2c34573a7a4e9842d85ef6646513dbf73706aeae41c825a44
                     1dddea806dbe0ecfd7a39b803e3e520190750980b2c4ff3689f2c19c1a66e80b
 ```
 
+### The doorbell
+
+The Guide asks the site for its friends every 20 seconds in the menus and
+every minute in a game (`POST /v1/social/state`; the site takes 6 a minute
+from a copy). The doorbell makes invites, friend requests, party changes
+and friends coming online show up within about a second instead: the site
+rings, and the game asks at once.
+
+- **Two brokers:** `doorbell.chupathingy.org` (on the site's host) and
+  `mqtt.chupathingy.org` (the game list's broker host), both mosquitto,
+  both on port 8883 over TLS (Let's Encrypt). The site rings on both; a
+  copy listens on one and fails over to the other.
+- **A doorbell per copy:** the site hands each linked copy its doorbell in
+  the friends state (`"doorbell"`: 32 hex digits, also in an unchanged
+  answer). It is the first 128 bits of HMAC-SHA256 under a key only the site
+  has, over the copy's player ID: nobody can work out another copy's
+  doorbell, or whose a doorbell is. The topic is `doorbell/<doorbell>`.
+- **Listening:** the copy connects with its doorbell as its MQTT client ID
+  (3.1.1, clean session, no user name, keep-alive 60 s) and subscribes to
+  its topic at QoS 0. The brokers' ACL lets a client read only
+  `doorbell/<its own client ID>`: a subscription to another doorbell, a
+  wildcard or any other topic gets nothing (mosquitto checks every message
+  against the ACL as it delivers it), and anonymous clients can't publish.
+  A broker that refuses the subscription (SUBACK 0x80) isn't asked again
+  until the site gives another doorbell.
+- **Ringing:** the site alone publishes, as the user `doorbell-site`, to
+  `doorbell/+` only. A ring is QoS 0, not retained, one byte: what changed
+  (1 friends, 2 invite, 3 party, 4 presence; anything else, or none, is a
+  ring all the same). Nothing else: no handle, no name, no game. The brokers
+  keep nothing (no persistence, no retained rings, clean sessions only).
+- **Who hears what:** the site rings only copies that asked for their
+  friends in the last 3 minutes, at most 12 times a minute each. A friend
+  request rings the one it went to (never when they block the sender: a
+  block stays silent and rings only the blocker's own copies), becoming
+  friends or a removal rings both, a decline rings only the one who
+  declined, an invite rings the friend invited, and a profile coming
+  online, going into a game or switching "appear offline" rings its
+  friends (never while it appears offline or hides what it plays).
+  Parties ring with kind 3 once they're on the site.
+- **On a ring:** the game polls at once, at least 2 seconds after the last
+  poll, and only while fewer than 3 polls went out in the last minute, so
+  the menus' 3 a minute plus rings stay at 5 or fewer and a join or an
+  invite still fits. A ring never cuts short a wait the site asked for
+  (429, an unlinked copy).
+- **Failing:** a broker that doesn't answer (connect, subscribe or a ping
+  within 15 s) is dropped for the other a second later; when both failed,
+  the next try waits 5 s, doubling up to 5 minutes, plus up to a quarter
+  more by a per-copy seed. Without a doorbell the polls go on as before.
+- **The setting:** `network.doorbell` (on by default; it changes nothing in
+  a game). Off, or a copy not linked, or a console (they keep polling),
+  no connection is made.
+- **The code:** `port/linux/src/doorbell.c` (MQTT and the schedule, no
+  sockets), `browser.c` (its thread, over `posix_browser_stream_*`: a TLS
+  connection that locks Mbed TLS only for each step, never while waiting),
+  and the site's `doorbell.py`. Tests: `tools/test_doorbell.py` (against a
+  local mosquitto with the brokers' ACL, when installed) and puma's
+  `test_doorbell.py`.
+
 ### Clans
 
 Clans are groups of Delta profiles, kept by the game list (its
