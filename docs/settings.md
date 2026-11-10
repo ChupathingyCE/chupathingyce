@@ -123,8 +123,6 @@ What we know is different from OpenGL:
 - FXAA, SMAA and supersampling are OpenGL only. With bgfx they become MSAA 2x.
 - The Halo PC ammo and health meters look different.
 - The first-person pistol is a little brighter, and water looks grainy.
-- On Linux with a software Vulkan driver, some cliffs looked flatter than
-  with OpenGL. We don't know yet if real graphics cards do this.
 - The **RENDERER** row in the display settings switches it after a restart.
 - The 32-bit builds, Android, FreeBSD and the consoles don't have it.
 
