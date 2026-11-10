@@ -1460,6 +1460,17 @@ boolean pc_menu_button_key_cap(
 	short x1,
 	short y1,
 	float alpha);
+#ifdef HALO_GAME_BROWSER
+/* port: the keyboard's key in a menu text's prompt ("[Enter]") drawn as a
+key cap at x on the line from y0 to y1 (port/linux/game/menu_tags.c): its
+width, or 0 when none is drawn (it is written as text then) */
+short pc_menu_text_key_cap(
+	wchar_t const *key_text,
+	short x,
+	short y0,
+	short y1,
+	float alpha);
+#endif
 /* port: the left edge of the key cap pc_menu_button_key_cap draws in
 these bounds, or x0 when it draws none */
 short pc_menu_button_key_cap_left(
@@ -1635,6 +1646,9 @@ short local_player_index_for_draw_string_and_hack_in_icons;
 /* port: draw_string_and_hack_in_icons draws a widget's text (the menus'
 keys for the buttons, not the game's: input_abstraction_port_icon_key) */
 static boolean draw_string_icons_for_menus = FALSE;
+/* port: and the keyboard's keys in them drawn as key caps (a menu text
+box's text: widget_instance_render_text_box) */
+static boolean draw_string_key_caps = FALSE;
 short draw_string_and_hack_in_icons_end_x = 0;
 
 /* port: draw_string_and_hack_in_icons draws the menus' keys for the buttons
@@ -4910,7 +4924,28 @@ void draw_string_and_hack_in_icons(
 						key_text,
 						NUMBEROF(key_text)))
 				{
-					render_state_text(bounds, &cursor_bounds, key_text);
+					short cap_width = 0;
+
+#ifdef HALO_GAME_BROWSER
+					/* (a menu's text: the key as a key cap, as the menus'
+					footers draw theirs) */
+					if (draw_string_key_caps)
+					{
+						real_argb_color text_color;
+
+						draw_string_get_color(&text_color);
+						cap_width = pc_menu_text_key_cap(
+							key_text,
+							(short)(cursor_bounds.x0 + 2),
+							cursor_bounds.y0,
+							cursor_bounds.y1,
+							text_color.alpha);
+					}
+#endif
+					if (cap_width > 0)
+						cursor_bounds.x0 = (short)(cursor_bounds.x0 + 2 + cap_width - 4);
+					else
+						render_state_text(bounds, &cursor_bounds, key_text);
 					continue;
 				}
 			}
@@ -6262,7 +6297,9 @@ static void widget_instance_render_text_box(
 	if (string_has_icons_to_draw(*text))
 	{
 		draw_string_icons_for_menus = TRUE;
+		draw_string_key_caps = TRUE;
 		draw_string_and_hack_in_icons(&bounds, &clip, NULL, 0, *text, FALSE);
+		draw_string_key_caps = FALSE;
 		draw_string_icons_for_menus = FALSE;
 	}
 	else

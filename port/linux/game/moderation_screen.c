@@ -48,6 +48,7 @@ players are told and bans.txt keeps.
 #include "../src/delta_moderation.h"
 #include "../src/ui_overlay.h"
 #include "halo_ui_pointer.h"
+#include "host_rules.h"
 
 int config_boolean(char const *name);
 char const *config_string(char const *name);
@@ -121,6 +122,9 @@ static struct moderation_choice const moderation_choices[] =
 	{ "Ban forever", _delta_moderation_action_ban, 0, DELTA_MODERATION_BAN, TRUE },
 	{ "End game", _delta_moderation_action_end_game, 0, DELTA_MODERATION_MAP, FALSE },
 	{ "Next map", _delta_moderation_action_next_map, 0, DELTA_MODERATION_MAP, FALSE },
+	/* (joins: sv_lock and sv_unlock; a server that takes them says so) */
+	{ "Lock joins", _delta_moderation_action_lock, 0, DELTA_MODERATION_KICK, FALSE },
+	{ "Unlock joins", _delta_moderation_action_unlock, 0, DELTA_MODERATION_KICK, FALSE },
 };
 
 /* the reasons a confirm may give (left and right), the first none: the same
@@ -259,11 +263,25 @@ static void read_choices(
 			allowed = (permissions & DELTA_MODERATION_BAN) ||
 				(allowed && (unsigned int)choice->minutes <= moderation->ban_minutes);
 		}
-		/* (the host's: kick and ban alone, which its own game does) */
+		/* (the host's: kick, ban and its joins' lock alone, which its own game
+		does) */
 		if (moderation_screen.host && choice->action != _delta_moderation_action_kick &&
-			choice->action != _delta_moderation_action_ban)
+			choice->action != _delta_moderation_action_ban && choice->action != _delta_moderation_action_lock &&
+			choice->action != _delta_moderation_action_unlock)
 		{
 			allowed = FALSE;
+		}
+		/* (lock and unlock: a server that takes them, the one that fits now) */
+		if (choice->action == _delta_moderation_action_lock || choice->action == _delta_moderation_action_unlock)
+		{
+			boolean locked = moderation_screen.host ? host_rules_joins_locked() :
+				(moderation->actions & DELTA_WIRE_MOD_STATE_LOCKED) != 0;
+
+			if ((!moderation_screen.host && !(moderation->actions & DELTA_WIRE_MOD_STATE_LOCK)) ||
+				locked != (choice->action == _delta_moderation_action_unlock))
+			{
+				allowed = FALSE;
+			}
 		}
 		if (allowed)
 			moderation_screen.allowed[moderation_screen.allowed_count++] = index;
@@ -296,6 +314,24 @@ static void act(
 		if (!moderation_screen.player_count)
 			return;
 		target = moderation_screen.players[moderation_screen.selected].machine_index;
+	}
+	/* (the host's own game: its joins locked or unlocked, here) */
+	if (moderation_screen.host &&
+		(choice->action == _delta_moderation_action_lock || choice->action == _delta_moderation_action_unlock))
+	{
+		/* (a lock is for the players of other machines: it ends by itself
+		10 seconds after hosting does or they've all gone, host_rules.c) */
+		if (choice->action == _delta_moderation_action_lock && !host_rules_lock_has_players())
+		{
+			set_status("Nobody else is in the game.");
+			return;
+		}
+		host_rules_set_joins_locked(choice->action == _delta_moderation_action_lock);
+		platform_log("moderation: the host %s its joins", choice->action == _delta_moderation_action_lock ? "locked" :
+			"unlocked");
+		set_status(choice->action == _delta_moderation_action_lock ? "Joins locked." : "Joins unlocked.");
+		read_choices();
+		return;
 	}
 	/* (the host's own game: its kick and ban, here) */
 	if (moderation_screen.host)

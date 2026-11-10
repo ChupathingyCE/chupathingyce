@@ -476,6 +476,7 @@ symbols in this file:
 #include "halo_map_families.h" /* port: map_family_parse */
 #ifdef HALO_GAME_BROWSER
 #include "../../port/linux/src/browser.h"
+#include "../../port/linux/game/party_teams.h"
 #endif
 #include "interface/player_ui.h"
 #include "tag_files/tag_files.h"
@@ -831,6 +832,10 @@ static boolean network_game_server_countdown_slowed[MAXIMUM_NETWORK_MACHINE_COUN
 
 /* port/linux/game/network_distributed.c's (the host's bans: bans.txt) */
 boolean network_distributed_banned(unsigned long address, char const *hardware_id);
+#ifdef HALO_GAME_BROWSER
+/* (port/linux/game/host_rules.c's: whether the host takes no new machines now) */
+boolean host_rules_joins_locked(void);
+#endif
 /* (its budget for a client machine's lobby messages, full again) */
 void network_distributed_lobby_budget_reset(long machine_index);
 /* (its limit on the machines of one address: network.max_machines_per_address,
@@ -2199,6 +2204,17 @@ boolean network_game_server_accept_client_machine_into_game(
 				return FALSE;
 			}
 		}
+#ifdef HALO_GAME_BROWSER
+		/* (and none while the host's joins are locked: sv_lock, host_rules.c;
+		the host's own client is never kept out) */
+		if (!network_game_server_client_machine_is_local(server, machine) &&
+			address.address.long_words[0] != IPV4_LOOPBACK_ADDRESS && host_rules_joins_locked())
+		{
+			network_event("refusing a machine @ %s: joins are locked (sv_lock)", transport_address_to_string(&address));
+			network_game_server_refusal_code = _rejection_code_game_is_closed;
+			return FALSE;
+		}
+#endif
 		/* (and not one the host banned: its address or hardware id in
 		bans.txt) */
 		/* (the host's own client, which connects from 127.0.0.1, never) */
@@ -5112,6 +5128,12 @@ static boolean network_game_server_idle_pregame_tasks(
 	{
 		long itr;
 
+#ifdef HALO_GAME_BROWSER
+		/* port: a party kept on one team where the teams stay even
+		(port/linux/game/party_teams.c; the Guide's parties) */
+		if (party_teams_pregame(&server->game))
+			network_game_server_send_game_data_pregame(server);
+#endif
 		/* port: the gametype's auto team balance (game_variant_options):
 		the lobby's teams kept within a player of each other, the bigger
 		team's last player moved */
