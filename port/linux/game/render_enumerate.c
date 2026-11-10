@@ -17,7 +17,7 @@ clears the target. Two uses:
   pair with a draw's blend, depth and target) only at a draw. These draws
   make them before the first frame is shown, not one at a time in play.
 
-Based on work by goatbutt and the OpenH1 team (OpenH1 57834197, Paul Hontz):
+Based on work by goatbutt and the OpenH1 team (OpenH1 57834197, startupfoundry):
 their render_enumerate.c, which made a map's Metal pipelines at its first
 frame; here it feeds the key lists too.
 
@@ -76,6 +76,13 @@ enum
 };
 
 boolean render_enumerating = FALSE;
+
+/* (the renderer's: d3d8_bgfx.inl keeps the shown frame its share of the
+frame's buffers) */
+int render_enumerate_active(void)
+{
+	return render_enumerating != FALSE;
+}
 
 static struct
 {

@@ -54,8 +54,10 @@ measure of what is left to compile in play.
 play (on a renderer that does not wait for them: bgfx, a parallel GL driver) */
 #define PREP_LOADING_BUDGET 0.025
 #define PREP_PLAY_BUDGET 0.002
-/* the most the loading screen waits for them, from the start of the load */
+/* the most the loading screen waits for them, from the start of the load,
+and the most a load without one does */
 #define PREP_WAIT_SECONDS 5.0
+#define PREP_LOAD_SECONDS 0.5
 /* the most programs waiting on the driver or bgfx's threads at once, and
 the longest bgfx's threads are waited for one (it failed) */
 #define PREP_PENDING_MAXIMUM 4096
@@ -84,6 +86,9 @@ static struct
 	char map[64];
 	struct xgpu_shader_key_list keys;
 	unsigned long next;
+	/* where the keys are made before play: "at the loading screen", or
+	"during the load" (a map in the cache already, loaded without one) */
+	const char *where;
 	/* started at the loading screen, which waits; the time it started */
 	BOOL loading;
 	double started;
@@ -465,8 +470,8 @@ static void prep_frame(void)
 	{
 		/* (in play, a driver that compiles as it is asked would stop the
 		frame: the draws make what is left, as before) */
-		platform_log("shaders: %s: %lu of %lu keys made at the loading screen in %.1f s; the rest at their draws",
-			prep.map, prep.done, prep.total, start - prep.started);
+		platform_log("shaders: %s: %lu of %lu keys made %s in %.1f s; the rest at their draws",
+			prep.map, prep.done, prep.total, prep.where, start - prep.started);
 		prep.reported = TRUE;
 		xgpu_shader_key_list_free(&prep.keys);
 		return;
@@ -480,9 +485,9 @@ static void prep_frame(void)
 	prep.done = prep.next > prep.pending_count ? prep.next - prep.pending_count : 0;
 	if (prep.next >= prep.keys.count && !prep.pending_count)
 	{
-		platform_log("shaders: %s: %lu keys, %lu programs made%s, %lu failed, in %.1f s%s", prep.map, prep.total,
+		platform_log("shaders: %s: %lu keys, %lu programs made%s, %lu failed, in %.1f s %s", prep.map, prep.total,
 			prep.made, prep_in_parallel() ? " in parallel" : "", prep.failed, prep_seconds() - prep.started,
-			prep.loading ? " at the loading screen" : " (some in play)");
+			prep.loading ? prep.where : "(some in play)");
 		prep.reported = TRUE;
 		prep.loading = FALSE;
 		prep.done = prep.total;
@@ -507,6 +512,7 @@ static void prep_begin(const char *map, BOOL loading)
 	prep.next = prep.done = prep.total = prep.made = prep.failed = 0;
 	prep.reported = FALSE;
 	prep.loading = loading;
+	prep.where = "at the loading screen";
 	prep.started = prep_seconds();
 	if (!*map)
 		return;
@@ -519,11 +525,16 @@ static void prep_begin(const char *map, BOOL loading)
 		char *text = NULL;
 		long size;
 
-		if (fseek(file, 0, SEEK_END) == 0 && (size = ftell(file)) > 0 && size < (64L << 20) &&
+		if (fseek(file, 0, SEEK_END) == 0 && (size = ftell(file)) > 0 && size < (8L << 20) &&
 			fseek(file, 0, SEEK_SET) == 0 && (text = malloc((size_t)size)) != NULL &&
 			fread(text, 1, (size_t)size, file) == (size_t)size)
 		{
-			xgpu_shader_keys_parse(text, (unsigned long)size, NULL, &prep.keys);
+			unsigned long whole = (unsigned long)size;
+
+			/* (not a last line cut short by a crash) */
+			while (whole && text[whole - 1] != '\n')
+				whole--;
+			xgpu_shader_keys_parse(text, whole, NULL, &prep.keys);
 		}
 		free(text);
 		fclose(file);
@@ -587,9 +598,16 @@ void d3d8_gl_map_loaded(const char *name)
 		prep_begin(map, FALSE);
 		if (prep.total && !prep_in_parallel())
 		{
+			/* (no frame is shown meanwhile: PREP_LOAD_SECONDS at the most,
+			about what loading a map from the cache takes; the rest at
+			their draws) */
+			double start = prep_seconds();
+
 			prep.loading = TRUE;
-			while (prep.loading && !prep.reported)
+			prep.where = "during the load";
+			while (prep.loading && !prep.reported && prep_seconds() - start < PREP_LOAD_SECONDS)
 				prep_frame();
+			prep.loading = FALSE;
 		}
 	}
 	snprintf(hitches.map, sizeof(hitches.map), "%s", map);
