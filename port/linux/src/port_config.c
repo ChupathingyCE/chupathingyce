@@ -538,6 +538,14 @@ static const struct config_setting config_settings[] =
 	{ "display.per_pixel_lighting", _config_boolean, "false", "HALO_PER_PIXEL_LIGHTING", _environment_value,
 		_platform_all,
 		"Light models for each pixel instead of each vertex." },
+	{ "display.light_effects", _config_string, "\"auto\"", "HALO_LIGHT_EFFECTS", _environment_value,
+		_platform_desktop,
+		"Light from projectiles, muzzle flashes, glowing emitters and held\n"
+		"weapons, with soft falloff, and blocked by walls. \"high\" is all of\n"
+		"it, \"low\" only the shots and muzzle flashes, \"off\" the game's own\n"
+		"lighting. \"auto\" is \"high\", or \"off\" on a software renderer.\n"
+		"It changes only what is drawn, and players are lit by it only a\n"
+		"little. Based on chester's dynamic lighting in GulchCE." },
 	{ "display.particle_limit", _config_integer, DEFAULT_PARTICLE_LIMIT, "HALO_PARTICLE_LIMIT", _environment_value,
 		_platform_all,
 		"The most particles alive at once: sparks, smoke, casings and debris.\n"

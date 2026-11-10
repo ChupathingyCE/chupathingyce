@@ -1387,7 +1387,7 @@ static struct bg_shader *bg_vertex_shader(struct vertex_shader_object *program, 
 	if (!*slot)
 	{
 		/* (packed normals are unpacked as they are staged: bg_vertex_element) */
-		char *glsl = nv2a_vertex_shader_to_glsl(program->instructions, program->instruction_count, 0, NULL);
+		char *glsl = nv2a_vertex_shader_to_glsl(program->instructions, program->instruction_count, 0, NULL, FALSE);
 
 		*slot = bg_shader_get(glsl, FALSE, 0, "vertex", FALSE);
 		free(glsl);

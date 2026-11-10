@@ -18,6 +18,7 @@ before that conversion where it can keep it, and otherwise inverts the
 transform.
 */
 
+#include "plasma_model_shader.h"
 #include "xgpu.h"
 
 #include <stdlib.h>
@@ -387,10 +388,13 @@ static const char shader_prologue[] =
 	"}\n";
 
 char *nv2a_vertex_shader_to_glsl(const DWORD *instructions, unsigned long instruction_count,
-	unsigned long packed_attribute_mask, const struct nv2a_vertex_lighting *lighting)
+	unsigned long packed_attribute_mask, const struct nv2a_vertex_lighting *lighting, BOOL plasma_model)
 {
 	struct xgpu_text text = { 0 };
 	unsigned long index;
+	/* the Light effects' point lights (plasma_model_shader.c): a model
+	lighting program with two point lights */
+	struct nv2a_vertex_lighting plasma_lighting;
 	/* each register's packed bit, read from memory at each test: the Xbox
 	360's compiler unrolled both loops, kept each test's result in a saved
 	condition register field across the calls between them, and read the
@@ -401,11 +405,15 @@ char *nv2a_vertex_shader_to_glsl(const DWORD *instructions, unsigned long instru
 
 	for (index = 0; index < XGPU_VERTEX_ATTRIBUTE_COUNT; index++)
 		packed[index] = (unsigned char)((packed_attribute_mask >> index) & 1);
+	plasma_model = plasma_model && nv2a_vertex_shader_lighting(instructions, instruction_count, &plasma_lighting) &&
+		plasma_lighting.lights == 2;
 
 #ifdef HALO_GL_ES
 	xgpu_text_append(&text, "#version %s\n", xgpu_capabilities.shading_language);
 #endif
 	xgpu_text_append(&text, "%s", shader_prologue);
+	if (plasma_model)
+		plasma_model_emit_uniform(&text);
 	/* (the pixel shader's model_lighting; the normal's length in w) */
 	if (lighting)
 		xgpu_text_append(&text, "out vec4 xWorldNormal;\n");
@@ -468,6 +476,8 @@ char *nv2a_vertex_shader_to_glsl(const DWORD *instructions, unsigned long instru
 		xgpu_text_append(&text, "\tA = "); operand(&text, instruction, 'A', relative); xgpu_text_append(&text, ";\n");
 		xgpu_text_append(&text, "\tB = "); operand(&text, instruction, 'B', relative); xgpu_text_append(&text, ";\n");
 		xgpu_text_append(&text, "\tC = "); operand(&text, instruction, 'C', relative); xgpu_text_append(&text, ";\n");
+		if (plasma_model)
+			plasma_model_emit_vertex(&text, instruction, index, &plasma_lighting);
 
 		switch (mac)
 		{

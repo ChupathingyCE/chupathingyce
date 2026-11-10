@@ -397,6 +397,7 @@ symbols in this file:
 #include "interface/marketing_and_strategic_business_development.h"
 #endif
 #include "halo_perf_log.h" /* port: console.perf_log */
+void plasma_lighting_frame_end(void); /* port: port/linux/game/plasma_lighting.c */
 
 /* port: the main loop's stage, for the console's bring-up watchdog
 (port/xbox/src/xbox_port.c); nothing elsewhere */
@@ -3943,6 +3944,10 @@ void main_loop(
 					main_game_render((double)main_globals.seconds_elapsed);
 					HALO_PERF_END(_halo_perf_render);
 #endif
+					/* port: the lights the Light effects changed for the
+					frame put back before the next tick reads them
+					(port/linux/game/plasma_lighting.c) */
+					plasma_lighting_frame_end();
 					profile_render_end();
 				}
 			}

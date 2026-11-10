@@ -132,6 +132,9 @@ long rasterizer_frame_statistics_count_static_vertices(
 	struct vertex_buffer const *vertex_buffer);
 #endif
 
+#include "needler_lighting.h" /* port: port/linux/game/needler_lighting.c */
+#include "ammo_counter_lighting.h" /* port: port/linux/game/ammo_counter_lighting.c */
+
 /* ---------- constants */
 
 enum
@@ -2006,6 +2009,11 @@ void _rasterizer_model_draw(
 					self_illumination_color.blue *= external_color->blue;
 				}
 
+				/* port: the Light effects' glow of the Assault Rifle's screen
+				and the Needler's needles, inside their authored masks */
+				ammo_counter_lighting_screen(shader, &self_illumination_color);
+				needler_lighting_material(shader, &self_illumination_color);
+
 				if (shader_model->model.change_color_source>0 &&
 					shader_model->model.change_color_source<
 						NUMBER_OF_SHADER_ANIMATION_SOURCES)
@@ -2346,6 +2354,9 @@ void _rasterizer_model_draw(
 						shader_model->model.flags,
 						_shader_model_true_atmospheric_fog_bit));
 
+				/* port: the Assault Rifle screen's draw brighter (Light effects) */
+				ammo_counter_lighting_draw_begin(shader, pixel_shader.rgb_outputs[7]);
+
 				IDirect3DDevice8_SetRenderState(
 					global_d3d_device,
 					D3DRS_CULLMODE,
@@ -2434,6 +2445,8 @@ void _rasterizer_model_draw(
 								vertex_buffer);
 					}
 				}
+				/* port: the screen's output as it was, before the fog or the next material */
+				ammo_counter_lighting_draw_end();
 			}
 
 			if (local_environment_fog_screen_flag)

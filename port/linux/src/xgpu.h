@@ -118,7 +118,7 @@ convert D3D's clip space themselves (nv2a_vsh.c) */
 #endif
 
 char *nv2a_vertex_shader_to_glsl(const DWORD *instructions, unsigned long instruction_count,
-	unsigned long packed_attribute_mask, const struct nv2a_vertex_lighting *lighting);
+	unsigned long packed_attribute_mask, const struct nv2a_vertex_lighting *lighting, BOOL plasma_model);
 
 /* ---------- pixel shaders */
 
@@ -166,6 +166,9 @@ struct nv2a_pixel_shader_key
 	/* Discrete meter thresholds in texture 0's red are read at level zero,
 	without filtering. Coverage/brightness still use the filtered lookup. */
 	unsigned char point_threshold;
+	/* a model lighting program's draw the Light effects light
+	(plasma_model_shader.c): their falloff and walls in model_lighting */
+	unsigned char plasma_model;
 };
 
 char *nv2a_pixel_shader_to_glsl(const struct nv2a_pixel_shader_key *key);
