@@ -1303,6 +1303,9 @@ static const struct config_setting config_settings[] =
 	{ "debug.network_corrupt_after", _config_real, "0.0", "HALO_NETWORK_CORRUPT_AFTER", _environment_value,
 		_platform_all | _platform_server,
 		"Seconds after the start before anything is damaged." },
+	{ "debug.structure_culling", _config_boolean, "true", "HALO_STRUCTURE_CULLING", _environment_value, _platform_all,
+		"Skip the level's surfaces that are off screen or face away. Turn it off\n"
+		"to draw them as the original game does, to check a missing wall." },
 	{ "debug.touch_targets", _config_boolean, "false", "HALO_TOUCH_TARGETS", _environment_set_is_true, _platform_all,
 		"Outline the menus' tap targets and log each tap." },
 	{ "debug.launcher_test", _config_string, "\"\"", "HALO_LAUNCHER_TEST", _environment_value, _platform_desktop,
