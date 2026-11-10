@@ -1027,3 +1027,29 @@ def test_restart_keeps_the_arguments(keys, builds, server, tmp_path):
     lines = log.read_text().splitlines()
     assert has(lines, f"{OLD} halo arguments: --setup two words")
     assert has(lines, f"{NEW} halo arguments: --setup two words")
+
+
+def test_restart_waits_for_lobbies_too():
+    """the game restarts into an update only at the main menu with no network
+    game: the pregame lobby and the carnage report are main menu screens
+    with the game's server or client still up (menu_functions.c)"""
+    functions = (ROOT / "port/linux/game/menu_functions.c").read_text()
+    body = functions[functions.index("int updater_restart_allowed(void)"):]
+    body = body[:body.index("}") + 1]
+    assert "main_menu_is_active()" in body
+    assert "!global_network_game_server_get()" in body and "!global_network_game_client_get()" in body
+
+
+def test_one_new_version_after_a_restart(keys, builds, server, tmp_path):
+    """the watcher left behind starts nothing once the game has become the
+    new version: one new version, the same process"""
+    folder = install(tmp_path, builds)
+    release = tmp_path / "release"
+    zip_path = release_zip(release, builds)
+    update_sign.manifest(keys[0][0], NEW, f"v{NEW}", f"v{NEW}-debug", "0" * 40, [zip_path])
+    server.release(NEW, release, [ASSET, "updates.json", "updates.json.sig"])
+    lines = run(tmp_path, folder, server, f"{NEW} halo")
+    time.sleep(3)
+    lines = (tmp_path / "update.log").read_text().splitlines()
+    assert sum(1 for line in lines if line == f"{NEW} halo started") == 1, lines
+    assert pids(lines, OLD, "halo") == pids(lines, NEW, "halo")

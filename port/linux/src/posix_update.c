@@ -884,18 +884,23 @@ without becoming it (an exit handler crashed or killed it), the watcher
 becomes the new version itself. 1 when it is watching */
 static int start_in_place_watch(char **variables)
 {
-	char old_program[PATH_MAX], exe[64];
-	ssize_t length = readlink("/proc/self/exe", old_program, sizeof(old_program) - 1);
+	struct stat old_program;
+	char exe[64];
 	pid_t game = getpid(), child;
 	int ends[2];
 
-	if (length <= 0 || pipe2(ends, O_CLOEXEC) != 0)
+	/* (the program by its file, device and inode, as /proc/<pid>/exe is
+	compared below: an unchanged path is never taken for the new version) */
+	if (stat("/proc/self/exe", &old_program) != 0 || pipe2(ends, O_CLOEXEC) != 0)
 		return 0;
-	old_program[length] = 0;
 	snprintf(exe, sizeof(exe), "/proc/%ld/exe", (long)game);
 	child = fork();
 	if (child == 0)
 	{
+		static const char gone[] = "update: the game ended without starting the new version: starting it now\n";
+		char byte;
+		int tries;
+
 		if (fork() != 0)
 			_exit(0);
 		/* (the watcher: the read end alone, as descriptor 3) */
@@ -907,31 +912,40 @@ static int start_in_place_watch(char **variables)
 		}
 		fcntl(3, F_SETFD, 0);
 		descriptors_close_from(4, 0);
+		/* (until the write end closes: as the game becomes the new version,
+		or ends) */
+		for (;;)
 		{
-			char byte;
-			int tries;
+			ssize_t got = read(3, &byte, 1);
 
-			while (read(3, &byte, 1) > 0)
-			{
-			}
-			for (tries = 0; tries < 50; tries++)
-			{
-				char program[PATH_MAX];
-				ssize_t got = readlink(exe, program, sizeof(program) - 1);
+			if (got == 0 || (got < 0 && errno != EINTR))
+				break;
+		}
+		for (tries = 0; tries < 50; tries++)
+		{
+			struct stat program;
 
-				/* (gone, or a zombie: it never became the new version) */
-				if (got <= 0)
-				{
-					fprintf(stderr, "update: the game ended without starting %s: starting it now\n",
-						start_in_place_path);
-					execve(start_in_place_path, start_in_place_arguments, variables);
-					_exit(127);
-				}
-				program[got] = 0;
-				if (strcmp(program, old_program))
-					_exit(0);
-				usleep(100000);
+			/* (gone, or a zombie, whose exe is no file: it never became the new
+			version) */
+			if (stat(exe, &program) != 0)
+			{
+				sigset_t signals;
+				ssize_t written = write(2, gone, sizeof(gone) - 1);
+
+				(void)written;
+				/* (the new version starts as a new process would: no signal
+				held back or ignored that the game had so) */
+				signal(SIGTERM, SIG_DFL);
+				signal(SIGINT, SIG_DFL);
+				signal(SIGPIPE, SIG_DFL);
+				sigemptyset(&signals);
+				sigprocmask(SIG_SETMASK, &signals, NULL);
+				execve(start_in_place_path, start_in_place_arguments, variables);
+				_exit(127);
 			}
+			if (program.st_dev != old_program.st_dev || program.st_ino != old_program.st_ino)
+				_exit(0);
+			usleep(100000);
 		}
 		_exit(0);
 	}
@@ -941,7 +955,9 @@ static int start_in_place_watch(char **variables)
 		close(ends[1]);
 		return 0;
 	}
-	waitpid(child, NULL, 0);
+	while (waitpid(child, NULL, 0) < 0 && errno == EINTR)
+	{
+	}
 	/* (ends[1] stays open, close-on-exec, until this process becomes the new
 	version or ends) */
 	return 1;
@@ -965,8 +981,11 @@ static void start_in_place_at_exit(void)
 	variables = launch_environment();
 	fflush(NULL);
 	descriptors_close_from(3, 1);
-	/* (the new game starts with no signal held back, as a new process
-	would) */
+	/* (the new game starts with no signal held back or ignored that this
+	one had so, as a new process would) */
+	signal(SIGTERM, SIG_DFL);
+	signal(SIGINT, SIG_DFL);
+	signal(SIGPIPE, SIG_DFL);
 	sigemptyset(&signals);
 	sigprocmask(SIG_SETMASK, &signals, NULL);
 	execve(start_in_place_path, start_in_place_arguments, variables);

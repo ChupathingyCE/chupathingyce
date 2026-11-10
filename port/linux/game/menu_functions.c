@@ -1585,12 +1585,19 @@ static void install_update_show(struct widget_instance *list, char const *view)
 	text_set(named(row, "install_update_value", 0), text);
 }
 
+/* (network_game_globals.c's, as declared below for the lobby) */
+void *global_network_game_server_get(void);
+void *global_network_game_client_get(void);
+
 /* whether the game may restart into an update now (updater.c): at the main
-menu, not in a game, which for a host would end for everyone. (Only the
-menus' own flag: the game's state is not read before the game is up) */
+menu with no network game, hosted or joined. The pregame lobby and the
+post-game carnage report are main menu screens too, with the game's server
+or client still up: a host restarting there would drop everyone. (Only
+plain flags and pointers, safe before the game is up. A Delta party is the
+site's, with no connection of its own to drop) */
 int updater_restart_allowed(void)
 {
-	return main_menu_is_active();
+	return main_menu_is_active() && !global_network_game_server_get() && !global_network_game_client_get();
 }
 
 /* "port update install" (A on INSTALL UPDATE): the screen's changes
