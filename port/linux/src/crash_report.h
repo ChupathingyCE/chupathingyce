@@ -25,7 +25,9 @@ and crash_report_body makes the request's body of it, JSON:
 	 without one, or past CRASH_REPORT_MAXIMUM_DUMP bytes)}
 
 The log's IP addresses (a public one the log has whole: debug.log_addresses)
-become "[address]" first. Nothing else of the player's goes: no names
+become "[address]" first, and its home folder (one the log has whole:
+debug.log_full_paths) "~" or "%USERPROFILE%" (log_paths.h); a minidump's
+paths lose their account name. Nothing else of the player's goes: no names
 beyond what the log shows, no hardware IDs.
 */
 
@@ -59,7 +61,8 @@ NUL terminated, with its length; NULL without memory */
 char *crash_report_body(const char *report, const char *log, size_t log_size, const void *dump, size_t dump_size,
 	size_t *length);
 
-/* text with each public IP address in it "[address]": its length, written
+/* text with each public IP address in it "[address]" and each home folder
+"~" or "%USERPROFILE%": its length, written
 to out (size bytes, NUL terminated; 3 * length + 1 is enough) */
 size_t crash_report_redact(const char *text, size_t length, char *out, size_t size);
 

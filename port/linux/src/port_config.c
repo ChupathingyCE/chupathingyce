@@ -1189,6 +1189,12 @@ static const struct config_setting config_settings[] =
 		_platform_all | _platform_server,
 		"Write full internet addresses in debug.txt and the console. Don't\n"
 		"post a debug.txt written with this on." },
+	{ "debug.log_full_paths", _config_boolean, "false", "HALO_LOG_FULL_PATHS", _environment_set_is_true,
+		_platform_all | _platform_server,
+		"Write folder paths whole in debug.txt and the console, with this\n"
+		"computer's account name. Off, your home folder is written as ~\n"
+		"(%USERPROFILE% on Windows). Don't post a debug.txt written with this\n"
+		"on. Takes effect at the next start." },
 	{ "debug.telnet_console", _config_boolean, "false", "HALO_TELNET_CONSOLE", _environment_set_is_true,
 		_platform_all | _platform_server,
 		"Open a console on 127.0.0.1, at debug.telnet_console_port. It has no\n"
@@ -4627,6 +4633,11 @@ int config_packaged_update_check(void)
 	return packaged_update_check;
 }
 #endif
+
+int config_loaded_yet(void)
+{
+	return config_loaded;
+}
 
 int config_boolean(const char *name)
 {
