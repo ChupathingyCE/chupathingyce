@@ -46,6 +46,11 @@ threads), so polls are short: one every few seconds, no long poll.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+/* (the Windows server's C runtime has the mode bits, not the macro) */
+#ifndef S_ISREG
+#define S_ISREG(mode) (((mode) & _S_IFMT) == _S_IFREG)
+#endif
 
 /* the platform layer's (xbox_files.c, posix_browser.c, the game's log):
 plain types */
