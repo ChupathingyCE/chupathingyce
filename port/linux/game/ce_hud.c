@@ -33,7 +33,10 @@ know, which are put right when the map's tags load:
     alpha. Every bitmap a unit or weapon HUD interface draws as a meter is
     listed (ce_hud_bitmap_is_meter), and the texture cache has the renderer
     sample its channels from where Halo PC keeps them (xbox_texture_cache.c,
-    D3DCOMMON_PORT_PC_METER; xbox_textures.c, a texture swizzle). A meter
+    D3DCOMMON_PORT_PC_METER; xbox_textures.c, a texture swizzle; on the
+    original Xbox, a 32-bit one's channels are swapped as it loads and the
+    meter shader reads a compressed one's where they are,
+    rasterizer_xbox_dynavobgeom.c). A meter
     flagged "use Xbox shading" (MCC's flag, which Chimera reads too) has
     its bitmap in the Xbox's order, as halopc-restored's Xbox order meters
     and custom HUDs do, so its bitmap is not listed and is drawn as the

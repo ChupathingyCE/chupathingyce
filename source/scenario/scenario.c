@@ -1161,6 +1161,7 @@ boolean scenario_switch_structure_bsp(
 			scenario_globals->structure_bsp_index = structure_bsp_index;
 			global_structure_bsp_index = structure_bsp_index;
 			/* port: cache buckets while the newly current bsp's tags are loaded */
+			structure_culling_load_settings();
 			structure_culling_structure_bsp_loaded();
 
 			if (had_old_structure_bsp)

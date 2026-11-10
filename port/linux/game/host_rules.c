@@ -18,11 +18,16 @@ everyone in the game:
 - **A game played alone** (split screen, a campaign) is its own host's.
 
 HOST_RULES also carries the host's team change rule (team_change.c), so a
-client knows before asking whether its host takes team changes.
+client knows before asking whether its host takes team changes, whether
+late joiners wait for the next game (late_join.c), and whether the host's
+joins are locked (sv_lock).
 */
 
 #include "cseries.h"
+#include "cseries/cseries_windows.h"
+#include "cseries/errors.h"
 #include "networking/network_game_globals.h"
+#include "networking/network_game_manager.h"
 #include "../src/delta_wire.h"
 #ifdef HALO_GAME_BROWSER
 #include "../src/delta_peer.h"
@@ -34,6 +39,20 @@ client knows before asking whether its host takes team changes.
 
 /* the platform layer's (port/linux/src/port_config.c) */
 int config_boolean(char const *name);
+/* (network_server_manager.c's: the host's game record) */
+struct network_game *network_game_server_get_game(struct network_game_server *server);
+#ifdef HOST_RULES_DELTA
+/* (delta_peer_game.c's: MOD_STATE told again, the lock in it) */
+void delta_peer_game_moderation_roles_changed(void);
+#endif
+
+enum
+{
+	/* a lock outlives its game this long, then joins open again: hosting
+	ended, or nobody else is in (a map's change or a moment between games
+	is shorter) */
+	HOST_RULES_LOCK_EMPTY_MILLISECONDS = 10 * 1000,
+};
 
 static struct
 {
@@ -42,6 +61,12 @@ static struct
 	boolean player_names;
 	boolean follow_camera_set;
 	boolean follow_camera;
+	boolean late_join_hold_set;
+	boolean late_join_hold;
+	/* (the host's, any host's) */
+	boolean joins_locked;
+	/* when nobody it keeps out could matter began (0: not now) */
+	unsigned long lock_empty_since;
 } host_rules;
 
 void host_rules_set_player_names(boolean allowed)
@@ -54,6 +79,82 @@ void host_rules_set_follow_camera(boolean allowed)
 {
 	host_rules.follow_camera_set = TRUE;
 	host_rules.follow_camera = allowed ? TRUE : FALSE;
+}
+
+void host_rules_set_late_join_hold(boolean wait)
+{
+	host_rules.late_join_hold_set = TRUE;
+	host_rules.late_join_hold = wait ? TRUE : FALSE;
+}
+
+void host_rules_set_joins_locked(boolean locked)
+{
+	host_rules.joins_locked = locked ? TRUE : FALSE;
+	host_rules.lock_empty_since = 0;
+}
+
+boolean host_rules_lock_has_players(void)
+{
+	struct network_game_server *server = global_network_game_server_get();
+	struct network_game *game = server ? network_game_server_get_game(server) : NULL;
+
+	/* (hosting ended: nobody to keep anyone from) */
+	if (!game)
+		return FALSE;
+#ifdef HALO_SERVER
+	/* (a dedicated server: anyone in, Custom Edition players too) */
+	return game->player_count > 0;
+#else
+	/* (a player's host: someone of another machine) */
+	return game->machine_count > 1;
+#endif
+}
+
+/* (each frame) a lock ends when hosting does, or once nobody is in for a
+while: a lock is for the players in the game, and never outlives them */
+static void host_rules_lock_update(void)
+{
+	unsigned long now;
+
+	if (!host_rules.joins_locked)
+		return;
+	if (host_rules_lock_has_players())
+	{
+		host_rules.lock_empty_since = 0;
+		return;
+	}
+	now = system_milliseconds();
+	if (!now)
+		now = 1;
+	if (!host_rules.lock_empty_since)
+	{
+		host_rules.lock_empty_since = now;
+		return;
+	}
+	if (now - host_rules.lock_empty_since < HOST_RULES_LOCK_EMPTY_MILLISECONDS)
+		return;
+	host_rules_set_joins_locked(FALSE);
+	error(_error_silent, "host rules: joins unlocked (nobody left in the game)");
+#ifdef HOST_RULES_DELTA
+	delta_peer_game_moderation_roles_changed();
+#endif
+}
+
+boolean host_rules_joins_locked(void)
+{
+	return host_rules.joins_locked;
+}
+
+int host_rules_joins_locked_now(void)
+{
+	return host_rules.joins_locked ? 1 : 0;
+}
+
+boolean host_rules_host_late_join_hold(void)
+{
+	if (host_rules.late_join_hold_set)
+		return host_rules.late_join_hold;
+	return config_boolean("network.late_join_hold") ? TRUE : FALSE;
 }
 
 boolean host_rules_host_follow_camera(void)
@@ -115,6 +216,32 @@ boolean host_rules_follow_camera(void)
 	return FALSE;
 }
 
+boolean host_rules_late_join_hold(void)
+{
+#ifdef HOST_RULES_DELTA
+	struct delta_wire_host_rules rules;
+#endif
+
+	if (!host_rules_joined())
+		return host_rules_host_late_join_hold();
+#ifdef HOST_RULES_DELTA
+	if (host_rules_heard(&rules))
+		return (rules.flags & DELTA_WIRE_HOST_LATE_JOIN_HOLD) != 0;
+#endif
+	return FALSE;
+}
+
+boolean host_rules_host_says_locked(void)
+{
+#ifdef HOST_RULES_DELTA
+	struct delta_wire_host_rules rules;
+
+	if (host_rules_joined() && host_rules_heard(&rules))
+		return (rules.flags & DELTA_WIRE_HOST_JOINS_LOCKED) != 0;
+#endif
+	return host_rules_joined() ? FALSE : host_rules.joins_locked;
+}
+
 boolean host_rules_team_change(int *policy)
 {
 #ifdef HOST_RULES_DELTA
@@ -133,6 +260,8 @@ boolean host_rules_team_change(int *policy)
 
 void host_rules_update(void)
 {
+	host_rules_lock_update();
+	{
 #ifdef HOST_RULES_DELTA
 	struct delta_wire_host_rules rules;
 	int policy = team_change_host_policy();
@@ -143,6 +272,10 @@ void host_rules_update(void)
 		rules.flags |= DELTA_WIRE_HOST_PLAYER_NAMES;
 	if (host_rules_host_follow_camera())
 		rules.flags |= DELTA_WIRE_HOST_FOLLOW_CAMERA;
+	if (host_rules_host_late_join_hold())
+		rules.flags |= DELTA_WIRE_HOST_LATE_JOIN_HOLD;
+	if (host_rules.joins_locked)
+		rules.flags |= DELTA_WIRE_HOST_JOINS_LOCKED;
 	rules.team_change = (unsigned char)(policy == _team_change_allow ? DELTA_WIRE_HOST_TEAM_CHANGE_ALLOW :
 		policy == _team_change_balanced ? DELTA_WIRE_HOST_TEAM_CHANGE_BALANCED : DELTA_WIRE_HOST_TEAM_CHANGE_OFF);
 	rules.team_change_margin = (unsigned char)(margin < 0 ? 0 : margin > DELTA_WIRE_HOST_TEAM_CHANGE_MAXIMUM_MARGIN ?
@@ -151,4 +284,5 @@ void host_rules_update(void)
 	a client's Delta Peer logs what its host says) */
 	delta_peer_game_set_host_rules(&rules);
 #endif
+	}
 }

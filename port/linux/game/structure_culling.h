@@ -84,10 +84,12 @@ long structure_culling_gather_pairings(long const *list, long list_count, boolea
 /* (the original Xbox build draws the structure as the Xbox did: its 64 MB
 has no room for the buckets, and the culling file isn't built there) */
 #define structure_culling_structure_bsp_loaded() ((void)0)
+#define structure_culling_load_settings() ((void)0)
 #define structure_culling_dispose() ((void)0)
 #define structure_culling_traverse(structure) ((void)(structure), FALSE)
 #else
 void structure_culling_structure_bsp_loaded(void);
+void structure_culling_load_settings(void);
 void structure_culling_dispose(void);
 #endif
 void structure_culling_order_clusters(short *order, real const *distances, short count);

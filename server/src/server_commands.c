@@ -66,6 +66,10 @@ types only) */
 #include "server_moderation.h"
 #include "server_names.h"
 #include "host_evidence.h"
+#ifdef HALO_SERVER
+#include "server_bans.h"
+#include "server_reports.h"
+#endif
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -132,6 +136,19 @@ void network_distributed_ban_until(long machine_index, unsigned long address, ch
 boolean network_distributed_ban_entry(long index, char *when, long when_size, char *hardware_id, long hardware_id_size,
 	char *players, long players_size, char *reason, long reason_size, unsigned long *until);
 boolean network_distributed_unban(long index);
+/* (the host's rules': port/linux/game/host_rules.h) */
+void host_rules_set_joins_locked(boolean locked);
+boolean host_rules_joins_locked(void);
+boolean host_rules_lock_has_players(void);
+boolean host_rules_host_late_join_hold(void);
+/* (network_distributed.c's: an account's ban, docs/delta.md "Shared ban
+lists") */
+boolean network_distributed_ban_account(char const *account, char const *handle, char const *reason,
+	unsigned long until);
+#ifdef HALO_GAME_BROWSER
+/* (delta_peer_game.c's: MOD_STATE told again, the lock in it) */
+void delta_peer_game_moderation_roles_changed(void);
+#endif
 /* (team changes': port/linux/game/team_change.h) */
 int team_change_move(long list_index, short team, char *text, int size);
 /* (the version: server_platform.c's, updater.c's in the game) */
@@ -198,6 +215,14 @@ static boolean command_welcome(struct command_line const *line, boolean json, st
 static boolean command_mute(struct command_line const *line, boolean json, struct command_output *output);
 static boolean command_unmute(struct command_line const *line, boolean json, struct command_output *output);
 static boolean command_team(struct command_line const *line, boolean json, struct command_output *output);
+static boolean command_lock(struct command_line const *line, boolean json, struct command_output *output);
+static boolean command_unlock(struct command_line const *line, boolean json, struct command_output *output);
+static boolean command_ban_account(struct command_line const *line, boolean json, struct command_output *output);
+#ifdef HALO_SERVER
+static boolean command_reports(struct command_line const *line, boolean json, struct command_output *output);
+static boolean command_report_close(struct command_line const *line, boolean json, struct command_output *output);
+static boolean command_ban_lists(struct command_line const *line, boolean json, struct command_output *output);
+#endif
 static void note_target(char const *target, char const *reason);
 static void log_output(char const *output);
 static char const *actor_display(void);
@@ -243,10 +268,26 @@ static struct server_command const server_commands[] =
 		"hardware id and address, and the Delta accounts and device its game proved, in bans.txt), for ever or for a "
 		"while: 30m, 2h, 7d, 1d12h.", 2, 4, TRUE,
 		command_ban },
-	{ "sv_unban", "sv_unban <ban>", "Takes a ban (its number in sv_banlist) out of bans.txt.", 2, 2, FALSE,
-		command_unban },
-	{ "sv_banlist", "sv_banlist", "The bans in bans.txt: number, when, hardware id, players, how long.", 1, 1, FALSE,
+	{ "sv_unban", "sv_unban <ban>", "Takes a ban (its number in sv_banlist) out of bans.txt; a shared list's ban "
+		"(S and its digits in sv_banlist) lets that player in on this server alone.", 2, 2, FALSE, command_unban },
+	{ "sv_banlist", "sv_banlist", "The bans in bans.txt: number, when, hardware id, players, how long; then the shared "
+		"lists' (S and the first 8 digits of each ref), with their list and the server that banned.", 1, 1, FALSE,
 		command_banlist },
+	{ "sv_ban_account", "sv_ban_account <account> [duration] [reason]", "Bans a Delta account (32 hex digits, from a "
+		"report or sv_players) that need not be in the game, for ever or for a while: a bans.txt line with only its "
+		"account.", 2, 4, FALSE, command_ban_account },
+	{ "sv_lock", "sv_lock", "Locks joins: no new players until sv_unlock (those in the game stay). The game list "
+		"shows it. It ends by itself once the server has been empty for 10 seconds, and isn't kept across a restart.",
+		1, 1, FALSE, command_lock },
+	{ "sv_unlock", "sv_unlock", "Unlocks joins.", 1, 1, FALSE, command_unlock },
+#ifdef HALO_SERVER
+	{ "sv_reports", "sv_reports [all]", "Players' reports of other players: the open ones, newest first (all: the "
+		"closed ones too), with the server's refusals of the reported player then.", 1, 2, FALSE, command_reports },
+	{ "sv_report_close", "sv_report_close <number>", "Closes a report (its number in sv_reports).", 2, 2, FALSE,
+		command_report_close },
+	{ "sv_ban_lists", "sv_ban_lists", "The shared ban lists this server takes (picked on the site's My servers) and "
+		"whether it shares its own bans (ban_share).", 1, 1, FALSE, command_ban_lists },
+#endif
 	{ "sv_map", "sv_map <map> <game type>", "Plays a map (bloodgulch, a Custom Edition map as name@ce, a HaloMD map as "
 		"name@md, a Halo PC map as name@pc, an Xbox map pack's as name@pack: wizard@cex) and game type (slayer, ctf, "
 		"...) now; then the playlist goes on.", 3, 3, FALSE, command_map },
@@ -782,6 +823,12 @@ static void print_status(
 			"\"minimum_players\": %ld, \"public\": %s, \"idle_limit_minutes\": %ld, \"uptime_seconds\": %lu",
 			status.entry + 1, status.entry_count, players, status.maximum_players, status.minimum_players,
 			status.public_game ? "true" : "false", status.idle_limit, status.uptime_seconds);
+		/* (additive: joins locked, late joiners waiting, open reports) */
+		command_output_printf(output, ", \"locked\": %s, \"late_join_hold\": %s", host_rules_joins_locked() ? "true" :
+			"false", host_rules_host_late_join_hold() ? "true" : "false");
+#ifdef HALO_SERVER
+		command_output_printf(output, ", \"open_reports\": %d", server_reports_open());
+#endif
 		/* (additive: the last entry skipped and why, or null) */
 		command_output_printf(output, ", \"skipped\": ");
 		if (status.skipped[0])
@@ -816,6 +863,12 @@ static void print_status(
 	command_output_printf(output, "players: %ld of %ld (a game starts with %ld)\n", players, status.maximum_players,
 		status.minimum_players);
 	command_output_printf(output, "public: %s\n", status.public_game ? "yes (in the Server Browser)" : "no");
+	if (host_rules_joins_locked())
+		command_output_printf(output, "joins: locked (sv_unlock)\n");
+#ifdef HALO_SERVER
+	if (server_reports_open())
+		command_output_printf(output, "reports: %d open (sv_reports)\n", server_reports_open());
+#endif
 	command_output_printf(output, "uptime: %s\n", status.uptime_seconds < 60 ? "under a minute" : uptime);
 	if (status.skipped[0])
 		command_output_printf(output, "last skipped: %s\n", status.skipped);
@@ -1178,6 +1231,38 @@ static boolean command_unban(
 	long number;
 
 	(void)json;
+#ifdef HALO_SERVER
+	/* (a shared list's, by S and its ref's first digits as sv_banlist shows
+	them, never its place in the list, which moves when the site sends the
+	lists again: an exception on this server alone) */
+	if (line->words[1][0] == 'S' || line->words[1][0] == 's')
+	{
+		struct server_shared_ban ban;
+		char prefix[2 * SERVER_BAN_ID_BYTES + 1];
+		long at;
+
+		snprintf(prefix, sizeof(prefix), "%s", line->words[1] + 1);
+		for (at = 0; prefix[at]; at++)
+			prefix[at] = (char)(prefix[at] >= 'A' && prefix[at] <= 'F' ? prefix[at] - 'A' + 'a' : prefix[at]);
+		if (!server_bans_shared_find(prefix, &ban, NULL))
+		{
+			command_output_printf(output, "no shared ban %s (sv_banlist shows each as S and 8 hex digits)\n",
+				line->words[1]);
+			return FALSE;
+		}
+		if (!server_bans_except(ban.ref, TRUE))
+		{
+			command_output_printf(output, "the exception could not be kept (shared_unbans.txt is full or not "
+				"writable)\n");
+			return FALSE;
+		}
+		note_target(ban.handles[0] ? ban.handles : ban.ref, NULL);
+		error(_error_silent, "dedicated: shared ban S%.8s (%s) excepted on this server", ban.ref, ban.list_name);
+		command_output_printf(output, "shared ban S%.8s (%s) no longer keeps anyone out here; its list keeps it\n",
+			ban.ref, ban.list_name);
+		return TRUE;
+	}
+#endif
 	if (!command_line_integer(line->words[1], 1, 1000000, &number))
 	{
 		command_output_printf(output, "%s is not a ban's number (sv_banlist)\n", line->words[1]);
@@ -1248,12 +1333,220 @@ static boolean command_banlist(
 		command_output_printf(output, "%3ld  %-19s  %-32s  %-14s  %s  (%s)\n", index + 1, when[0] ? when : "-",
 			hardware_id, left, players[0] ? players : "-", reason[0] ? reason : "-");
 	}
+#ifdef HALO_SERVER
+	/* (the shared lists' entries: S1, S2, ...) */
+	{
+		long shared = server_bans_shared_count();
+		long entry;
+
+		if (json)
+			command_output_printf(output, "], \"count\": %ld, \"shared\": [", index);
+		else if (!index)
+			command_output_printf(output, "no bans in bans.txt\n");
+		for (entry = 0; entry < shared; entry++)
+		{
+			struct server_shared_ban ban;
+			int excepted = 0;
+			char left[32];
+
+			if (!server_bans_shared_entry((int)entry, &ban, &excepted))
+				break;
+			if (!ban.until)
+				snprintf(left, sizeof(left), "forever");
+			else if ((unsigned long)ban.until <= now)
+				snprintf(left, sizeof(left), "over");
+			else
+			{
+				char duration[24];
+
+				command_line_duration_text((long)((unsigned long)ban.until - now), duration, sizeof(duration));
+				snprintf(left, sizeof(left), "%s left", duration);
+			}
+			if (json)
+			{
+				command_output_printf(output, "%s{\"number\": \"S%.8s\", \"ref\": \"%s\", \"list\": ", entry ? ", " :
+					"", ban.ref, ban.ref);
+				command_output_json_string(output, ban.list_name);
+				command_output_printf(output, ", \"source\": ");
+				command_output_json_string(output, ban.source);
+				command_output_printf(output, ", \"players\": ");
+				command_output_json_string(output, ban.handles);
+				command_output_printf(output, ", \"reason\": ");
+				command_output_json_string(output, ban.reason);
+				command_output_printf(output, ", \"when\": %lld, \"until\": ", ban.time);
+				if (ban.until)
+					command_output_printf(output, "%lld", ban.until);
+				else
+					command_output_printf(output, "null");
+				command_output_printf(output, ", \"excepted\": %s}", excepted ? "true" : "false");
+				continue;
+			}
+			if (!entry)
+				command_output_printf(output, "shared lists:\n");
+			command_output_printf(output, " S%.8s  %-24s  %-16s  %-14s  %s  (%s)%s\n", ban.ref, ban.list_name,
+				ban.source, left, ban.handles[0] ? ban.handles : "-", ban.reason[0] ? ban.reason : "-",
+				excepted ? "  excepted here" : "");
+		}
+		if (json)
+			command_output_printf(output, "], \"shared_count\": %ld}", shared);
+		return TRUE;
+	}
+#else
 	if (json)
 		command_output_printf(output, "], \"count\": %ld}", index);
 	else if (!index)
 		command_output_printf(output, "no bans\n");
 	return TRUE;
+#endif
 }
+
+/* sv_lock, sv_unlock: the host takes no new machines while locked
+(network_server_manager.c), says so in its rules (HOST_RULES) and its
+moderators' MOD_STATE, and its announcement (browser.c) */
+static void set_locked(
+	boolean locked)
+{
+	host_rules_set_joins_locked(locked);
+#ifdef HALO_GAME_BROWSER
+	delta_peer_game_moderation_roles_changed();
+#endif
+	error(_error_silent, "dedicated: joins %s by %s", locked ? "locked" : "unlocked", actor_display());
+}
+
+static boolean command_lock(
+	struct command_line const *line,
+	boolean json,
+	struct command_output *output)
+{
+	(void)line;
+	(void)json;
+	if (host_rules_joins_locked())
+	{
+		command_output_printf(output, "joins are locked already\n");
+		return TRUE;
+	}
+	/* (a lock is for the players in the game: it ends once nobody is in,
+	host_rules.c) */
+	if (!host_rules_lock_has_players())
+	{
+		command_output_printf(output, "nobody is in the game: joins stay open (a lock ends once the server is empty)\n");
+		return FALSE;
+	}
+	set_locked(TRUE);
+	command_output_printf(output, "joins locked: nobody new joins until sv_unlock\n");
+	return TRUE;
+}
+
+static boolean command_unlock(
+	struct command_line const *line,
+	boolean json,
+	struct command_output *output)
+{
+	(void)line;
+	(void)json;
+	if (!host_rules_joins_locked())
+	{
+		command_output_printf(output, "joins are not locked\n");
+		return TRUE;
+	}
+	set_locked(FALSE);
+	command_output_printf(output, "joins unlocked\n");
+	return TRUE;
+}
+
+static boolean command_ban_account(
+	struct command_line const *line,
+	boolean json,
+	struct command_output *output)
+{
+	char account[40], reason[96], duration_text[32];
+	long duration = 0;
+	unsigned long until = 0;
+	long index;
+
+	(void)json;
+	snprintf(account, sizeof(account), "%s", line->words[1]);
+	for (index = 0; account[index]; index++)
+		account[index] = (char)(account[index] >= 'A' && account[index] <= 'F' ? account[index] - 'A' + 'a' : account[index]);
+	if (strlen(account) != 32 || strspn(account, "0123456789abcdef") != 32)
+	{
+		command_output_printf(output, "%s is not a Delta account (32 hex digits)\n", line->words[1]);
+		return FALSE;
+	}
+	if (line->count >= 3 && !command_line_duration(line->words[2], &duration))
+	{
+		command_output_printf(output, "%s is not a duration: 30m, 2h, 7d, 1d12h, or forever\n", line->words[2]);
+		return FALSE;
+	}
+	note_target(account, line->count == 4 ? line->words[3] : NULL);
+	command_line_duration_text(duration, duration_text, sizeof(duration_text));
+	snprintf(reason, sizeof(reason), "banned by %s%s%s%s%s", actor_display(), duration ? " for " : "",
+		duration ? duration_text : "", line->count == 4 ? ": " : "", line->count == 4 ? line->words[3] : "");
+	if (duration)
+		until = (unsigned long)time(NULL) + (unsigned long)duration;
+	if (!network_distributed_ban_account(account, NULL, reason, until))
+	{
+		command_output_printf(output, "the ban could not be written to bans.txt\n");
+		return FALSE;
+	}
+	error(_error_silent, "dedicated: banned account %.8s... (%s)", account, duration_text);
+	command_output_printf(output, "banned account %s %s%s\n", account, duration ? "for " : "", duration_text);
+	return TRUE;
+}
+
+#ifdef HALO_SERVER
+static boolean command_reports(
+	struct command_line const *line,
+	boolean json,
+	struct command_output *output)
+{
+	static char text[96 * 1024];
+
+	if (line->count == 2 && strcmp(line->words[1], "all"))
+	{
+		command_output_printf(output, "sv_reports [all]\n");
+		return FALSE;
+	}
+	server_reports_text(json, line->count == 2, text, (int)sizeof(text));
+	command_output_printf(output, "%s", text);
+	return TRUE;
+}
+
+static boolean command_report_close(
+	struct command_line const *line,
+	boolean json,
+	struct command_output *output)
+{
+	long number;
+
+	(void)json;
+	if (!command_line_integer(line->words[1], 1, 0x7FFFFFFF, &number))
+	{
+		command_output_printf(output, "%s is not a report's number (sv_reports)\n", line->words[1]);
+		return FALSE;
+	}
+	if (!server_reports_close((unsigned int)number, actor_display()))
+	{
+		command_output_printf(output, "no open report #%ld\n", number);
+		return FALSE;
+	}
+	command_output_printf(output, "report #%ld closed\n", number);
+	return TRUE;
+}
+
+static boolean command_ban_lists(
+	struct command_line const *line,
+	boolean json,
+	struct command_output *output)
+{
+	static char text[8192];
+
+	(void)line;
+	server_bans_lists_text(json, text, (int)sizeof(text));
+	command_output_printf(output, "%s", text);
+	return TRUE;
+}
+#endif
 
 static boolean command_map(
 	struct command_line const *line,
@@ -2323,7 +2616,8 @@ static void link_status(
 	command_output_printf(&output, ", \"playlist\": ");
 	command_output_json_string(&output, status.playlist);
 	command_output_printf(&output, ", \"player_count\": %ld, \"maximum_players\": %ld, \"uptime_seconds\": %lu, "
-		"\"players\": [", count, status.maximum_players, status.uptime_seconds);
+		"\"locked\": %s, \"late_join_hold\": %s, \"players\": [", count, status.maximum_players, status.uptime_seconds,
+		host_rules_joins_locked() ? "true" : "false", host_rules_host_late_join_hold() ? "true" : "false");
 	for (index = 0; index < count; index++)
 	{
 		struct server_player const *player = &players[index];

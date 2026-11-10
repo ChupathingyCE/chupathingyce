@@ -136,6 +136,15 @@ static const struct command_permission command_permissions[] =
 	/* (sv_ban: BAN_TIMED or BAN by its duration, below) */
 	{ "sv_ban", CONTROL_PERMISSION_BAN, 1, 0 },
 	{ "sv_unban", CONTROL_PERMISSION_UNBAN, 1, 0 },
+	/* (sv_ban_account: as sv_ban, by its duration) */
+	{ "sv_ban_account", CONTROL_PERMISSION_BAN, 1, 0 },
+	/* (locking joins: a kick's say over who comes in) */
+	{ "sv_lock", CONTROL_PERMISSION_KICK, 1, 0 },
+	{ "sv_unlock", CONTROL_PERMISSION_KICK, 1, 0 },
+	/* (players' reports: moderators' evidence, and closing one) */
+	{ "sv_reports", CONTROL_PERMISSION_WARN, 0, 0 },
+	{ "sv_report_close", CONTROL_PERMISSION_WARN, 1, 0 },
+	{ "sv_ban_lists", CONTROL_PERMISSION_VIEW, 0, 0 },
 	{ "sv_map", CONTROL_PERMISSION_MAP, 1, 0 },
 	{ "sv_mapcycle_next", CONTROL_PERMISSION_MAP, 1, 0 },
 	{ "sv_end_game", CONTROL_PERMISSION_MAP, 1, 0 },
@@ -197,7 +206,7 @@ unsigned int control_command_permission(const char *line, int *changes)
 			return CONTROL_PERMISSION_VIEW;
 		if (changes)
 			*changes = command->changes;
-		if (!strcmp(command->name, "sv_ban"))
+		if (!strcmp(command->name, "sv_ban") || !strcmp(command->name, "sv_ban_account"))
 		{
 			int64_t seconds = words.count >= 3 ? duration_seconds(words.words[2]) : 0;
 

@@ -1814,6 +1814,42 @@ boolean browser_screen_open_map_offer(
 	return TRUE;
 }
 
+/* a game joined by its invite link from outside the screen (DELTA's party
+following its leader, guide.c): the screen opens over the menus and joins
+it as a pasted link does, saying who it follows. FALSE for text with no
+invite, or with no menus up */
+boolean browser_screen_join_link(
+	char const *link,
+	char const *name)
+{
+	char code[BROWSER_INVITE_LENGTH + 1];
+	char const *start = link;
+	long length = 0;
+
+	if (!link || !main_menu_is_active())
+		return FALSE;
+	if (!_strnicmp(start, "halo://join/", 12))
+		start += 12;
+	while (length < BROWSER_INVITE_LENGTH && ((start[length] >= '0' && start[length] <= '9') ||
+		((start[length] | 0x20) >= 'a' && (start[length] | 0x20) <= 'f')))
+	{
+		code[length] = start[length];
+		length++;
+	}
+	code[length] = 0;
+	if (length != 44 && length != 64)
+		return FALSE;
+	if (!browser_screen.active)
+		browser_screen_open();
+	join_invite(code, NULL, FALSE);
+	if (name && name[0])
+	{
+		csstrncpy(browser_screen.connecting_name, name, sizeof(browser_screen.connecting_name) - 1);
+		browser_screen.connecting_name[sizeof(browser_screen.connecting_name) - 1] = 0;
+	}
+	return TRUE;
+}
+
 /* the listed game an invite (its link, or the text around it) is for, if
 the game list knows it: its name and its map as players name it, for the
 clipboard's invite (invite_prompt.c) */
@@ -2152,6 +2188,8 @@ enum
 	COLOR_DIM = 0x8FA6C8FF,
 	/* a neutral label's plain gray (HOST_LABEL_OPENCE_SERVER) */
 	COLOR_NEUTRAL = 0x9AA0A8FF,
+	/* a server's signed badge */
+	COLOR_BADGE = 0xE8C766FF,
 	COLOR_LABEL = 0x7FB8FFFF,
 	COLOR_RULE = 0x2F6DD0A0,
 	/* the roster's players of each team, the Xbox's softened red and blue */
@@ -2327,7 +2365,7 @@ static char const *host_text(
 		game->host_platform < NUMBEROF(platform_names) ? platform_names[game->host_platform] : NULL;
 	char const *protocol = game->protocol == BROWSER_PROTOCOL_DELTA ? "Delta" :
 		game->protocol == BROWSER_PROTOCOL_OPENCE ? "OpenCE (legacy)" : NULL;
-	char host[48], with_version[40];
+	char host[64], with_version[40];
 
 	/* (its network version: an OpenCE host's always, a Delta host's when it
 	is not this build's) */
@@ -2342,7 +2380,13 @@ static char const *host_text(
 		protocol = with_version;
 	}
 
-	if (game->hosting == BROWSER_HOSTING_DEDICATED || game->hosting == BROWSER_HOSTING_OFFICIAL)
+	/* (a signed badge names the server; else the list's own word) */
+	if (browser_badge_name(game->badge))
+	{
+		snprintf(host, sizeof(host), "%s%s%s%s", browser_badge_name(game->badge), platform ? " (" : "",
+			platform ? platform : "", platform ? ")" : "");
+	}
+	else if (game->hosting == BROWSER_HOSTING_DEDICATED || game->hosting == BROWSER_HOSTING_OFFICIAL)
 	{
 		snprintf(host, sizeof(host), "%s%s%s%s", game->hosting == BROWSER_HOSTING_OFFICIAL ? "Official server" :
 			"Dedicated", platform ? " (" : "", platform ? platform : "", platform ? ")" : "");
@@ -3453,6 +3497,17 @@ static void draw_row(
 		width += 5 + ui_overlay_text(UI_FONT_MENU, 6.5f, COLUMN_NAME + width + 5,
 			y + (LIST_ROW - 6.5f) * 0.5f + 0.5f, UI_ALIGN_LEFT, picked ? 0xC8D8F0FF : COLOR_HEAD, "CO-OP");
 	}
+	/* (a server's signed badge: marked, as co-op is) */
+	if (game->badge)
+	{
+		static char const *const tags[] = { "", "OFFICIAL", "DEVELOPER", "COMMUNITY" };
+
+		if (game->badge < NUMBEROF(tags))
+		{
+			width += 5 + ui_overlay_text(UI_FONT_MENU, 6.5f, COLUMN_NAME + width + 5,
+				y + (LIST_ROW - 6.5f) * 0.5f + 0.5f, UI_ALIGN_LEFT, picked ? 0xC8D8F0FF : COLOR_BADGE, tags[game->badge]);
+		}
+	}
 	/* (a game this build can't join, by its network version: marked) */
 	if (version_state)
 	{
@@ -3711,7 +3766,8 @@ the map's name over its family's color (a custom map's) */
 	if (browser_game_version_state(selected))
 		snprintf(text, sizeof(text), "%s", JOIN_REASON_TEXT(JOIN_REASON_OF_VERSION_STATE(browser_game_version_state(selected))));
 	else
-		snprintf(text, sizeof(text), "%s%s", selected->open ? "Accepting players" : "In progress", selected->locked ? ", password" : "");
+		snprintf(text, sizeof(text), "%s%s", selected->joins_locked ? "Locked" : selected->open ? "Accepting players" :
+			"In progress", selected->locked ? ", password" : "");
 	DETAIL_LINE("Status:", text);
 	/* (a host whose console and cheats may change its game, as it says:
 	network.host_cheats) */
@@ -3766,6 +3822,11 @@ the map's name over its family's color (a custom map's) */
 			}
 			ui_overlay_text(UI_FONT_MENU_SMALL, DETAIL_SIZE, label_x, label_y + 0.5f, UI_ALIGN_LEFT, COLOR_NEUTRAL,
 				HOST_LABEL_OPENCE_SERVER);
+		}
+		/* (a badge's label: the developer or group running it) */
+		if (selected->badge && selected->badge_label[0])
+		{
+			DETAIL_LINE("Run by:", selected->badge_label);
 		}
 	}
 #undef DETAIL_LINE

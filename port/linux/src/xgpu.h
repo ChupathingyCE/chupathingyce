@@ -236,6 +236,9 @@ unsigned long xgpu_texture_cache_drop_idle(unsigned long frames);
 /* has the GL texture 'texture' uploaded again the next time it is drawn (the
 port could not make it, and has freed memory since) */
 void xgpu_texture_cache_reload(GLuint texture);
+/* the same for every texture the port says it is missing (more could not be
+made than it kept a list of); returns how many */
+unsigned long xgpu_texture_cache_reload_missing(int (*missing)(GLuint texture));
 /* (not on the consoles: HALO_CONSOLE_NO_GUIDE) a plain 2D texture's first
 level, read for the port's own drawing (the Guide's plasma: ui_overlay.h),
 as RGBA bytes with rows from the top; NULL for one it does not read (a cube,
