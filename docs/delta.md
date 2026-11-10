@@ -2151,19 +2151,20 @@ and no key.
 | `POST /v1/session/devices {}` | The profile page, signed in (a page the game opened may read it) | `{"devices", "legacy_key"}` |
 | `POST /v1/session/devices/revoke {"device_id"}` | The page, a password session | `{"ok", "devices"}`; 404 for another account's |
 | `POST /v1/session/devices/rename {"device_id", "name"}` | The page, a password session | `{"ok", "devices"}` |
-| `POST /v1/session/devices/signout_all {"auth", "code"?}` | The page, with the password (and the two-step code) | `{"ok", "revoked", "devices"}`: every device revoked, and every other session of the account ended |
+| `POST /v1/session/devices/signout_all {"auth", "code"?}` | The page, with the password (and the two-step code) | `{"ok", "revoked", "devices"}`: every device revoked and every other session of the account ended; no copy is unlinked |
 | `POST /v1/identity/devices {}` | A device's token (`profile`) | `{"devices"}` |
 | `POST /v1/identity/device/revoke {"device_id"}` | A device's token (`devices`) | `{"ok", "devices"}`; 409 `{"this": true}` for itself (it signs out instead); 404 for a console (the site revokes those) |
 | `POST /v1/game/profile` | As before | `"devices"` beside `"copies"`, without `"build"`, at most 16, cut to fit like the rest |
 
 - **Revoke** stops the device's tokens at once, refuses its refreshes, and
   puts it on the revocation list (CREV) until its last certificate has run
-  out. Its copy's link goes too, so a computer's or console's games stop
-  counting for the profile (the profile's own player ID has no link to
-  take). A player key it was enrolled with is retired: refused for every
-  new thing whatever the account's switch says (stats claims still go),
-  and its moderator key leaves the servers' role lists. The site sessions
-  it opened (`/v1/link` with its token) end. Every device it approved by
+  out. The device alone stops: a player key it was enrolled with keeps
+  working for the copy's other installs (an older build, an Xbox identity
+  file); a key that leaked is turned off with the account's switch, below.
+  Its copy's link goes too once no other live device of that copy is left,
+  so a computer's or console's games stop counting for the profile (the
+  profile's own player ID has no link to take). The site sessions it opened
+  (`/v1/link` with its token) end. Every device it approved by
   code goes with it, and theirs: the site keeps who approved each device
   (`approved_by`), consoles approved from a device included, so a stolen
   device leaves none behind. Revoked from another device rather than the
@@ -2176,6 +2177,8 @@ and no key.
   Linked again by code later, it comes back. Consoles don't hold
   certificates yet; that's the next step, and verified names on consoles
   wait on it.
+- **Tokens** are checked against the device's capabilities as they are
+  now, not only the token's own.
 - **Mail and the log.** A device added by code, a device revoked, signing
   out everywhere and the player key turned back on are each told to the
   account's confirmed address, and kept in the admin log (by its profile
@@ -2201,14 +2204,18 @@ stops a device, and nobody is locked out:
   any purge; a later revoke doesn't count it back), or it is a console in
   the list. It still counts as on the key while a game used its key after
   it moved (a request the site took, a minute or more after), within the
-  last 30 days: another install of the same key. A request refused for the
-  key being off isn't counted, so off stays off. Its key in use on a
-  console counts it as on the key too, but only as signed console claims
-  (`/v1/claim_signed`, `/v1/console/claim`) and console links say so,
-  never a self-reported platform; and an account for which an Xbox
-  identity file was made keeps its key on. A profile's own player ID whose
-  key no game ever used (a profile made on the site) isn't waited for. An
-  account with one copy not moved keeps its key.
+  last 30 days: another install of the same key. Only game requests the
+  site took count (`/v1/game/*`, `/v1/link`, `/v1/connect/start`,
+  presence, social); claims and reports, which take the key whatever, and
+  refused requests don't, so off stays off. A copy that proved itself a
+  console with its own key (`/v1/console/claim` signed by its console key)
+  within 60 days isn't on the key; a player key's signed claim never says
+  so, nor a self-reported platform. An account for which an Xbox identity
+  file was made keeps its key on. A profile's own player ID whose key no
+  game request ever used (a profile made on the site) isn't waited for;
+  copies that reported games before this came in count as used. Automatic
+  turns the key off only once at least one copy has moved. An account with
+  one copy not moved keeps its key.
 - With the key off, `/v1/game/*`, `/v1/link`, `/v1/connect/start`,
   `/v1/presence`, `/v1/social/*` and enrolling a new device with that key
   are refused: 403 `{"error": "Update Chupathingy to keep using your
@@ -2220,8 +2227,9 @@ stops a device, and nobody is locked out:
   two-step sign-in): automatic (above, the default), always on, or off now.
   The answer and `/v1/session/devices` carry `"legacy_key": {"setting",
   "on", "waiting"}` (copies not moved yet). The profile page has it under
-  Account and security, and the admin page shows it. Any change that turns
-  the key back on is mailed.
+  Account and security, and the admin page shows it. Off is also how a
+  leaked key is turned off; On takes the password (and the two-step code)
+  like any change. Any change that turns the key back on is mailed.
 - The profile page no longer offers Install in game, Copy key link or
   Download for Xbox. The `halo://key/` handler, `/v1/session/console_key`
   and the Xbox's identity file keep working for whoever has one.
