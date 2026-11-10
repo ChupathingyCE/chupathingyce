@@ -14,10 +14,11 @@ void door_portals_new_map(void);
 /* the portals the doors resting closed shut this frame (each frame, before
 the lights are submitted) */
 void door_portals_update(void);
-/* a rasterizer light just submitted, at emitter, with its light partition's
-sphere (center, radius): the clusters it reaches only through a shut portal,
-which its passes over the level and the objects' lights then leave out */
-void door_portals_light(long rasterizer_light_index, real_point3d const *emitter, real_point3d const *center,
+/* a rasterizer light just submitted, from its cluster (its object's, for a
+light on an object), with its light partition's sphere (center, radius): the
+clusters it reaches only through a shut portal, which its passes over the
+level and the objects' lights then leave out */
+void door_portals_light(long rasterizer_light_index, short cluster_index, real_point3d const *center,
 	real radius);
 /* whether a light (its rasterizer index) is behind a shut door from a
 cluster */

@@ -1224,10 +1224,18 @@ void lights_preprocess_scene(
 					{
 						real_point3d partition_center;
 						real partition_radius;
+						struct location emitter_location;
 
+						/* (from its object's cluster when it has one: a
+						light at a marker on a door's or a wall's face can
+						be a hair into the next cluster) */
+						if (object)
+							object_get_location(light->object_index, &emitter_location);
+						else
+							scenario_location_from_point(&emitter_location, &light->position);
 						light_get_bounding_sphere(scene_light_handle, &partition_center, &partition_radius);
-						door_portals_light(light->rasterizer_light_index, &light->position, &partition_center,
-							partition_radius);
+						door_portals_light(light->rasterizer_light_index, emitter_location.cluster_index,
+							&partition_center, partition_radius);
 					}
 				}
 			}
