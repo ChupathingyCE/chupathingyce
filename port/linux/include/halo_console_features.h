@@ -321,6 +321,12 @@ HALO_CONSOLE_FLICKER_FILTER
 	(display.flicker_filter): the port gives the level, 0 to 5
 	(halo_console_flicker_filter), set once the device is made. The Xbox
 	game asked for 5
+HALO_CONSOLE_WAITED_VISIBILITY_TESTS
+	a console whose Direct3D waits for a visibility test's count, as the
+	Xbox's does: a lens flare reads its test from the slot of its index in
+	the frame's list, as the Xbox game did. Every other build's counts come
+	back frames later, so each flare keeps a slot of its own and reads only
+	counts of its own tests (rasterizer_lights.c)
 HALO_PORT_FRAMES_BETWEEN_TICKS
 	(not set by a port) a build that can draw several frames a tick: every
 	native build, and a console with HALO_CONSOLE_FRAME_RATE. What the Xbox
@@ -384,6 +390,7 @@ compile lines: source/cseries/xbox_address.h).
 #define HALO_CONSOLE_FRAME_RATE 1
 #define HALO_CONSOLE_VIEW_INTERPOLATION 1
 #define HALO_CONSOLE_FLICKER_FILTER 1
+#define HALO_CONSOLE_WAITED_VISIBILITY_TESTS 1
 #endif
 
 #if !defined(HALO_XBOX_CONSOLE) || defined(HALO_CONSOLE_ANAMORPHIC_SCREEN)
