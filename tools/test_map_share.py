@@ -19,7 +19,7 @@ def test_settings_registered_off_and_documented():
     config = read("port/linux/src/port_config.c")
     assert re.search(r'\{ "network\.map_share", _config_boolean, "false", "HALO_NET_MAP_SHARE"', config)
     assert re.search(r'\{ "network\.map_share_upload", _config_integer, "1024", "HALO_NET_MAP_SHARE_UPLOAD"', config)
-    for name in ("folder", "result", "held", "maximum"):
+    for name in ("folder", "result", "name", "held", "maximum"):
         assert f'"debug.map_fetch_{name}"' in config
         assert f"`HALO_MAP_FETCH_{name.upper()}`" in read("port/linux/README.md")
     readme = read("port/linux/README.md")

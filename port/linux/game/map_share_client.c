@@ -10,8 +10,9 @@ quits. It takes the least it can from the host:
   machine is named "Chupathingy map bot";
 - it never loads the game: the game record's map name and version are all
   it reads of it;
-- a version it is told it holds (debug.map_fetch_held), it leaves at once
-  without asking;
+- a version it is told it holds (debug.map_fetch_held), or a map other than
+  the one it came for (debug.map_fetch_name), it leaves at once without
+  asking;
 - it asks for the map file alone, never a resource map;
 - it downloads from the host alone, over the host's port 5153: the sources
   list (85, other players' addresses) is dropped unread, and it listens on
@@ -116,6 +117,8 @@ static struct
 	unsigned long maximum;
 	char folder[512];
 	char result_path[600];
+	/* the map come for (its file's name), empty for any */
+	char wanted[MAP_SHARE_LEVEL_SIZE];
 	/* the game record */
 	boolean record;
 	boolean record_changed;
@@ -307,6 +310,7 @@ static void fetch_read_settings(
 	char const *held = config_string("debug.map_fetch_held");
 	char const *folder = config_string("debug.map_fetch_folder");
 	char const *result = config_string("debug.map_fetch_result");
+	char const *wanted = config_string("debug.map_fetch_name");
 	long maximum = config_integer("debug.map_fetch_maximum");
 	unsigned int parts[4];
 	unsigned int port = 0;
@@ -314,6 +318,7 @@ static void fetch_read_settings(
 
 	snprintf(fetch.target, sizeof(fetch.target), "%s", setting + 6);
 	snprintf(fetch.folder, sizeof(fetch.folder), "%s", folder);
+	snprintf(fetch.wanted, sizeof(fetch.wanted), "%s", wanted);
 	if (result[0])
 		snprintf(fetch.result_path, sizeof(fetch.result_path), "%s", result);
 	else
@@ -418,6 +423,11 @@ static void fetch_ask(
 	{
 		fetch.file[0] = 0;
 		fetch_finish("failed", "not shared", "the host's map is not a Custom Edition map");
+		return;
+	}
+	if (fetch.wanted[0] && csstrcasecmp(fetch.file, fetch.wanted))
+	{
+		fetch_finish("failed", "unavailable", "the host is on another map now: left without asking");
 		return;
 	}
 	if (!fetch.version)

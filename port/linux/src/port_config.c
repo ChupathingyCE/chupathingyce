@@ -1236,6 +1236,11 @@ static const struct config_setting config_settings[] =
 		_platform_all,
 		"With debug.network_test's fetch: the file its result is written to (a\n"
 		"JSON object). Leave it empty for result.json in the fetch's folder." },
+	{ "debug.map_fetch_name", _config_string, "\"\"", "HALO_MAP_FETCH_NAME", _environment_value,
+		_platform_all,
+		"With debug.network_test's fetch: the map it came for (its file's name\n"
+		"without .map). On another map the fetch leaves without asking. Leave\n"
+		"it empty for any." },
 	{ "debug.map_fetch_held", _config_string, "\"\"", "HALO_MAP_FETCH_HELD", _environment_value,
 		_platform_all,
 		"With debug.network_test's fetch: the map versions already held (8 hex\n"
