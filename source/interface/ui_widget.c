@@ -9767,10 +9767,12 @@ static boolean ui_check_for_pause_game(
 			}
 		}
 	}
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 	/* This runs once a frame, several frames per tick on the native builds
 	(port/linux/game/render_interpolation.c): count the lock down in 30 Hz
-	ticks of real time, not in frames. */
+	ticks of real time, not in frames. (A console at one frame a tick counts
+	frames, as the Xbox did.) */
+	if (halo_port_frames_between_ticks())
 	{
 		static real leftover_ticks = 0.f;
 		long ticks;
@@ -9781,10 +9783,12 @@ static boolean ui_check_for_pause_game(
 		widget_globals.pause_disabled_ticks =
 			FLOOR(widget_globals.pause_disabled_ticks - ticks, 0);
 	}
-#else
-	widget_globals.pause_disabled_ticks =
-		FLOOR(widget_globals.pause_disabled_ticks - 1, 0);
+	else
 #endif
+	{
+		widget_globals.pause_disabled_ticks =
+			FLOOR(widget_globals.pause_disabled_ticks - 1, 0);
+	}
 
 	return pause_pressed;
 }

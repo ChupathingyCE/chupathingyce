@@ -3047,6 +3047,19 @@ boolean _rasterizer_initialize(
 		dashboard allows it and the cable is component, as without */
 		d3d_present_parameters.Flags |= halo_screen_present_flags();
 #endif
+#ifdef HALO_CONSOLE_FRAME_RATE
+		/* port: 60 frames a second over the 30 Hz ticks when the console's
+		setting asks for it (display.frame_rate), as the H1 Performance Build
+		does (thanks theboy181): a present every vertical blank, with the
+		pacer's stabilization on, so a scene that can't hold 60 is drawn at
+		a steady 30 until it can (main_update_time). 0, the game's own 30,
+		otherwise */
+		if (halo_console_frame_rate() == 60)
+		{
+			rasterizer_globals.framerate_throttle_target = 60;
+			rasterizer_globals.framerate_throttle_debug = TRUE;
+		}
+#endif
 		switch (rasterizer_globals.framerate_throttle_target)
 		{
 		case NONE:
@@ -3545,7 +3558,14 @@ boolean _rasterizer_initialize(
 					IDirect3DDevice8_SetTextureStageState(global_d3d_device, 1, D3DTSS_TEXCOORDINDEX, 1);
 					IDirect3DDevice8_SetTextureStageState(global_d3d_device, 2, D3DTSS_TEXCOORDINDEX, 2);
 					IDirect3DDevice8_SetTextureStageState(global_d3d_device, 3, D3DTSS_TEXCOORDINDEX, 3);
+#ifdef HALO_CONSOLE_FLICKER_FILTER
+					/* port: the level the console's setting asks for
+					(display.flicker_filter: the game's 5 unless set; the
+					H1 Performance Build's 1 is sharper on an interlaced TV) */
+					D3DDevice_SetFlickerFilter(halo_console_flicker_filter());
+#else
 					D3DDevice_SetFlickerFilter(RASTERIZER_FLICKER_FILTER_LEVEL);
+#endif
 					D3DDevice_SetSoftDisplayFilter(FALSE);
 				}
 			}

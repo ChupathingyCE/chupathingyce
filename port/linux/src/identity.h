@@ -79,6 +79,10 @@ enum
 	IDENTITY_OUTSIDE_ISSUER,
 	IDENTITY_REVOKED,
 	IDENTITY_NOT_MINE,
+	/* (a proof in a game: a certificate without play, and a signature that
+	isn't the device's) */
+	IDENTITY_CANNOT_PLAY,
+	IDENTITY_NOT_DEVICE_SIGNED,
 };
 
 struct identity_issuer
@@ -140,6 +144,11 @@ int identity_parse_revoked(const unsigned char *data, int size, struct identity_
 int identity_check_revoked(const unsigned char *data, int size, const struct identity_issuer *issuer,
 	struct identity_revoked *revoked);
 int identity_is_revoked(const struct identity_revoked *revoked, const unsigned char *device_id);
+/* whether a revocation list may be taken given its issuer's check
+(identity_check_issuer's answer): IDENTITY_OK always; IDENTITY_EXPIRED only
+for the list this copy kept (saved 1), taken while its issuer was good,
+never for one fetched; anything else never */
+int identity_revoked_issuer_usable(int issuer_check, int saved);
 
 /* this copy's own certificate and its issuer's, as the site answered: the
 issuer checked against the root keys when any is not all zero (else only
@@ -327,5 +336,87 @@ certificate and not signed out, or to a site that doesn't speak identity */
 int identity_key_allowed(const struct identity_state *state, unsigned long now);
 /* a game or report of the player's confirmed: an unknown copy asks again soon */
 void identity_confirmed(struct identity_state *state, unsigned long now);
+
+/* ---------- proofs in games (Delta Peer's identity capability; docs/delta.md,
+"Verified names") */
+
+enum
+{
+	/* a player's name: their handle (the Delta Tag) in the capitals they
+	picked, 3 to 20 of A-Z a-z 0-9 _ - */
+	IDENTITY_TAG_LEAST = 3,
+	IDENTITY_TAG_MOST = IDENTITY_HANDLE_MOST,
+	/* the host's nonce, its binding (its invite's first 32 hex digits, or
+	none on a LAN) and the local players a machine proves */
+	IDENTITY_PROOF_NONCE_SIZE = 32,
+	IDENTITY_BINDING_MOST = 64,
+	IDENTITY_LOCAL_PLAYERS = 4,
+	/* label (24), nonce, binding's length and it, machine, local player,
+	serial, flags, time, the name's length and it */
+	IDENTITY_PROOF_MESSAGE_MOST = 24 + IDENTITY_PROOF_NONCE_SIZE + 1 + IDENTITY_BINDING_MOST + 1 + 1 + 8 + 1 + 4 + 1 +
+		IDENTITY_TAG_MOST,
+	/* how old a proof may be (seconds, by the checker's clock, past
+	IDENTITY_GRACE either way): when its host takes it, and when another
+	player checks the card the host relays (a client proves again every
+	IDENTITY_PROOF_RENEW seconds, so its card never gets that old) */
+	IDENTITY_PROOF_HOST_AGE = 600,
+	IDENTITY_PROOF_CARD_AGE = 1800,
+	IDENTITY_PROOF_RENEW = 900,
+	/* a name's look-alike key: at most this many bytes, and its end */
+	IDENTITY_LOOKALIKE_MOST = 64,
+};
+
+/* whether text (length bytes) is a name: a handle's characters in any
+capitals */
+int identity_tag_valid(const char *tag, int length);
+/* whether a name is the handle in its owner's capitals (the only name that
+shows: "Milenko" for milenko) */
+int identity_tag_is_handle(const char *tag, const char *handle);
+/* what a device signs to prove a local player in a game: "delta identity
+proof v1\n", the nonce its host challenged this machine's session with,
+the binding's length and it, the machine and the local player, the
+certificate's serial, the flags (DELTA_WIRE_IDENTITY_BOUND), the time (4,
+little-endian), the name's length and it. Its size, or -1 for a field out
+of its range */
+int identity_proof_message(const unsigned char *nonce, const char *binding, int binding_length, int machine_index,
+	int local_player, const unsigned char *serial, int flags, unsigned long time, const char *tag, int tag_length,
+	unsigned char *out);
+/* whether a proof signed at time is fresh at now: no more than age
+seconds old, nor from the future (IDENTITY_GRACE either way) */
+int identity_proof_fresh(unsigned long time, unsigned long now, unsigned long age);
+/* a name's look-alike key (UTF-8 in, lowercase a-z and digits out, into
+out of IDENTITY_LOOKALIKE_MOST + 1): digits and signs read as the letters
+they look like (0 o, 1 i, 3 e, 4 a, 5 s, 7 t, 8 b, @ a, $ s, ! i, | i;
+2, 6 and 9 stay digits), accented Latin letters (Latin-1 and Latin
+Extended-A) as their base letters, Cyrillic and Greek look-alikes as Latin,
+everything else dropped, then rn read as m, vv as w and l as i; the site's
+(puma's lookalike_key) is the same. Its length */
+int identity_lookalike_key(const char *name, char *out);
+/* an unverified player's game name as shown while verified names carry the
+@ mark (UCS-2, as the game's names: length letters at most, into out of
+size): every @ taken out (and its full-width and small forms), wherever it
+is, then any spaces, invisible marks and dots left at the front (" @Name",
+".@Name", "\u00B7@Name" all show "Name"). Its length (0: nothing left) */
+int identity_unverified_name(const unsigned short *name, int length, unsigned short *out, int size);
+/* whether a game name (UTF-8) reads as a verified player's handle: its
+look-alike key, as written and with every @ dropped (the way it shows),
+is the handle's, or that of the handle cut to cut letters, as a linked
+profile's game name is (0: no cut) */
+int identity_impersonates(const char *name, const char *handle, int cut);
+/* a Halo profile's delta_account.txt (its first line, as read): 0 a guest
+("guest"), 2 that account (32 hex digits, into account), 1 the copy's
+own account. A byte order mark and spaces and line ends around it are left
+out. A line that is neither is the copy's own account for the copy owner's
+Halo profile (owner: the first local player's), a guest for any other */
+int identity_account_choice(const char *line, int owner, unsigned char *account);
+/* a proof checked as a host or another player checks it: the issuer
+certificate signed by one of the root keys and in date, the device
+certificate by it and in date, play among its capabilities, its device not
+on the list (revoked may be NULL: none known), and the message's signature
+the device key's. IDENTITY_OK and the certificate in device, or why not */
+int identity_check_proof(const unsigned char *issuer, int issuer_size, const unsigned char *certificate,
+	int certificate_size, const unsigned char (*roots)[IDENTITY_KEY_SIZE], int root_count,
+	const struct identity_revoked *revoked, unsigned long now, const unsigned char *message, int message_size,
+	const unsigned char *signature, struct identity_device *device);
 
 #endif

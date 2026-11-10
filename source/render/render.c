@@ -808,7 +808,7 @@ void render_frame(
 	render.time_delta_since_tick_sec = time_delta_since_tick_sec;
 	memset(&parameters, 0, sizeof(parameters));
 	HALO_PERF_RENDER_PART(_halo_perf_render_begin);
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 	/* continuous between ticks (render_interpolation.c) */
 	parameters.game_time_sec = render_interpolation_game_time_sec(game_time_get());
 #else

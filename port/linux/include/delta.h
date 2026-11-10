@@ -166,6 +166,12 @@ enum delta_capability
 	client whose host says nothing (OpenCE's, an older build) plays by the
 	Xbox's rules */
 	_delta_capability_host_rules = 19,
+	/* verified names (docs/delta.md, Verified names): the host challenges,
+	each local player whose copy has a device certificate proves it
+	(ID_PROOF), and the host relays the card (ID_CARD), which every client
+	checks itself. Only a verified player shows by their Delta profile; a
+	console leaves it out for now (HALO_CONSOLE_NO_DELTA_IDENTITY) */
+	_delta_capability_identity = 20,
 
 	NUMBER_OF_DELTA_CAPABILITIES
 };
@@ -284,7 +290,8 @@ a game it joins (unless its player opted in: network.platform_limits =
 and whether it plays network co-op (a host offers no co-op while a machine
 that does not is in its game: delta_peer_room_coop). One row a platform, in
 the registry's order. The consoles' rows are placeholders until their ports
-play (the original Xbox's is the owner's: 16 and 16, no co-op), as are the
+play (the original Xbox's is the owner's: 16 and 16, no co-op; the Xbox
+360's and the Wii U's hold 32, as their builds do), as are the
 other ports' (docs/delta.md, "Platform numbers"); the signed
 legacy table's "platform_policy" section is to tune them without a release
 (delta_peer_platform_policy, delta_peer_game.c). */
@@ -296,8 +303,8 @@ legacy table's "platform_policy" section is to tune them without a release
 	X(_delta_platform_android, 128, 128, 128, 11, 1) \
 	X(_delta_platform_steam_deck, 128, 128, 128, 14, 1) \
 	X(_delta_platform_xbox, 16, 16, 128, 6, 0) \
-	X(_delta_platform_xbox360, 16, 16, 128, 9, 1) \
-	X(_delta_platform_wiiu, 16, 16, 128, 10, 1) \
+	X(_delta_platform_xbox360, 32, 32, 128, 9, 1) \
+	X(_delta_platform_wiiu, 32, 32, 128, 10, 1) \
 	X(_delta_platform_switch, 16, 16, 128, 12, 1) \
 	X(_delta_platform_psp, 16, 16, 128, 6, 0) \
 	X(_delta_platform_vita, 16, 16, 128, 9, 0) \

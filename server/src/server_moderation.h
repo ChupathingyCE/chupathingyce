@@ -30,6 +30,17 @@ warning: "; text why): TRUE if its game can show it (it speaks Delta Peer's
 moderation) */
 boolean server_moderation_notice(long machine_index, boolean warning, char const *title, char const *text);
 
+/* a machine's local player (its controller) verified over Delta Peer
+(docs/delta.md, "Verified names"): TRUE with their handle (empty: a copy
+with no profile), their device's platform name ("pc_windows") and the role
+their account has here (0 none) */
+boolean server_moderation_machine_profile(long machine_index, long local_player, char *handle, int handle_size,
+	char const **platform, int *role);
+
+/* ... and their account (16 bytes) and handle, for sv_mod_add */
+boolean server_moderation_machine_account(long machine_index, long local_player, unsigned char *account, char *handle,
+	int handle_size);
+
 /* the roles changed (a moderator added or taken out, an account's role, the
 site's list): the games of the players they are told again */
 void server_moderation_roles_changed(void);
