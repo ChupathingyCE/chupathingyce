@@ -1273,6 +1273,12 @@ static const struct config_setting config_settings[] =
 		"Open the Guide once the menus or a map are up, for tests." },
 	{ "debug.guide_toast", _config_string, "\"\"", "HALO_GUIDE_TOAST", _environment_value, _platform_all,
 		"Show a test notification with this text once. Leave it empty for none." },
+	{ "debug.guide_section", _config_string, "\"\"", "HALO_GUIDE_SECTION", _environment_value, _platform_all,
+		"The section debug.guide_open opens on, by name (\"CLAN\"). Leave it\n"
+		"empty for the first." },
+	{ "debug.guide_test", _config_string, "\"\"", "HALO_GUIDE_TEST", _environment_value, _platform_all,
+		"Buttons pressed in the Guide debug.guide_open opened, one at a time,\n"
+		"separated by ; (up, down, left, right, a, b, x, y, lb, rb), for tests." },
 #endif
 	{ "debug.chat_test", _config_string, "\"\"", "HALO_CHAT_TEST", _environment_value, _platform_all,
 		"Scripted chat for tests, as steps separated by ;. Each step is\n"

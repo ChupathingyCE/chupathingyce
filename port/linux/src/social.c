@@ -13,7 +13,7 @@ presence's (social.h). No SDL, no drawing, no game.
 
 static const char *const section_names[NUMBER_OF_SOCIAL_SECTIONS] =
 {
-	"FRIENDS", "PARTY", "PLAYERS HERE", "RECENT", "SETTINGS",
+	"FRIENDS", "PARTY", "CLAN", "PLAYERS HERE", "RECENT", "SETTINGS",
 };
 
 const char *social_section_name(int section)
@@ -290,6 +290,53 @@ int social_online_count(const struct social_state *state)
 	return count;
 }
 
+int social_clan_rank(const char *rank)
+{
+	if (!rank)
+		return 0;
+	return !strcmp(rank, "leader") ? 3 : !strcmp(rank, "officer") ? 2 : !strcmp(rank, "member") ? 1 : 0;
+}
+
+int social_clan_can_invite(const char *rank)
+{
+	return social_clan_rank(rank) >= 2;
+}
+
+int social_clan_can_kick(const char *rank, const char *their_rank)
+{
+	int mine = social_clan_rank(rank), theirs = social_clan_rank(their_rank);
+
+	return theirs > 0 && theirs < 3 && (mine == 3 || (mine == 2 && theirs == 1));
+}
+
+void social_clan_status(const char *rank, int you, int online, int playing, const struct social_game *game, char *text,
+	int size)
+{
+	static const char *const words[] = { "Member", "Member", "Officer", "Leader" };
+	char where[SOCIAL_STATUS_SIZE];
+	const char *word = words[social_clan_rank(rank)];
+	int length;
+
+	if (size <= 0)
+		return;
+	if (you)
+		length = snprintf(text, (size_t)size, "You \xC2\xB7 %s", word);
+	else
+	{
+		if (!playing || social_game_line(game, where, sizeof(where)) < 0)
+			social_copy_text(where, sizeof(where), playing ? "In a game" : online ? "Online" : "Offline");
+		length = snprintf(text, (size_t)size, "%s \xC2\xB7 %s", word, where);
+	}
+	/* (cut at a whole character, as every line) */
+	if (length < 0 || length >= size)
+	{
+		char whole[SOCIAL_STATUS_SIZE * 2];
+
+		snprintf(whole, sizeof(whole), "%s \xC2\xB7 %s", word, you ? "" : where);
+		social_copy_text(text, size, whole);
+	}
+}
+
 static const struct social_friend *find_friend(const struct social_state *state, const char *handle)
 {
 	int index;
@@ -367,8 +414,9 @@ int social_state_fields(char *fields, int size, const char *cursor, int limit)
 			return -1;
 	}
 	if (cursor && cursor[0])
-		return fields_done(fields, size, snprintf(fields, (size_t)size, "\"since\": \"%s\", \"limit\": %d", cursor, limit));
-	return fields_done(fields, size, snprintf(fields, (size_t)size, "\"limit\": %d", limit));
+		return fields_done(fields, size, snprintf(fields, (size_t)size, "\"since\": \"%s\", \"limit\": %d, \"clan\": true",
+			cursor, limit));
+	return fields_done(fields, size, snprintf(fields, (size_t)size, "\"limit\": %d, \"clan\": true", limit));
 }
 
 int social_action_fields(char *fields, int size, const char *action, const char *handle)

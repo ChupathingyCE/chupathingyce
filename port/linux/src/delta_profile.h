@@ -12,6 +12,8 @@ site, port/linux/game/profile_screen.c shows them. Kept in memory only.
 #ifndef __DELTA_PROFILE_H
 #define __DELTA_PROFILE_H
 
+#include "social.h"
+
 /* (as many as the site sends: list_server.py's GAME_BADGES, GAME_RECENT,
 GAME_COPIES and GAME_ROLES) */
 #define DELTA_PROFILE_BADGES 8
@@ -68,11 +70,19 @@ struct delta_profile_role
 
 struct delta_profile_clan_member
 {
+	/* (the handle only in DELTA's roster: /v1/game/clan and the friends
+	state's clan; empty in /v1/game/profile's) */
+	char handle[24];
 	char display[64];
 	/* "leader", "officer" or "member" */
 	char rank[12];
 	/* this profile's own line */
 	int you;
+	/* their presence, as a friend's (the roster's): online, in a game, and
+	that game when it's listed */
+	int online;
+	int playing;
+	struct social_game game;
 };
 
 /* a clan (docs/delta.md, Clans): the profile's own, or one that invited it */
@@ -149,6 +159,10 @@ struct delta_profile
 	struct delta_profile_clan clan;
 	int invite_count;
 	struct delta_profile_invite invites[DELTA_PROFILE_CLAN_INVITES];
+	/* a leader's or officer's: the handles their clan has invited (the
+	roster's "clan_invited") */
+	int clan_invited_count;
+	char clan_invited[DELTA_PROFILE_CLAN_MEMBERS][24];
 };
 
 /* another player's public card (POST /v1/game/players): their profile's

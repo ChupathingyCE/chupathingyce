@@ -293,6 +293,11 @@ static struct
 	/* a clan request waiting (/v1/game/clan): its action and clan */
 	char game_clan_action[12];
 	int game_clan_id;
+	/* (invite and kick, DELTA's: the member's handle) */
+	char game_clan_handle[24];
+	/* the profile was read again (its clan without the roster's handles
+	and presence): the next friends poll asks for the whole state */
+	int social_whole;
 	int game_action;
 	char game_message[128];
 	/* the link kept in the save root forgotten (the copy was unlinked) */
@@ -1456,6 +1461,7 @@ static void update_game_profile(void)
 	static struct delta_profile read;
 	char error[256], fields[160], path[512];
 	char clan_action[sizeof(browser.game_clan_action)];
+	char clan_handle[sizeof(browser.game_clan_handle)];
 	int wanted, unlink, privacy_count, status, no_key, ok, clan_id, index;
 
 	pthread_mutex_lock(&browser_lock);
@@ -1471,6 +1477,7 @@ static void update_game_profile(void)
 	}
 	browser.game_privacy_count = 0;
 	memcpy(clan_action, browser.game_clan_action, sizeof(clan_action));
+	memcpy(clan_handle, browser.game_clan_handle, sizeof(clan_handle));
 	clan_id = browser.game_clan_id;
 	browser.game_clan_action[0] = 0;
 	if (browser.profile_forget_wanted)
@@ -1526,7 +1533,10 @@ static void update_game_profile(void)
 	}
 	if (clan_action[0])
 	{
-		snprintf(fields, sizeof(fields), "\"action\": \"%s\", \"clan\": %d", clan_action, clan_id);
+		if (clan_handle[0])
+			snprintf(fields, sizeof(fields), "\"action\": \"%s\", \"handle\": \"%s\"", clan_action, clan_handle);
+		else
+			snprintf(fields, sizeof(fields), "\"action\": \"%s\", \"clan\": %d", clan_action, clan_id);
 		status = game_request("/v1/game/clan", fields, response, sizeof(response), error, sizeof(error), &no_key);
 		pthread_mutex_lock(&browser_lock);
 		if (no_key)
@@ -1534,7 +1544,8 @@ static void update_game_profile(void)
 		else if (status == 200 && delta_profile_parse_clan(response, &browser.game_profile))
 		{
 			game_action_done(BROWSER_PROFILE_ACTION_DONE, !strcmp(clan_action, "accept") ? "Joined" :
-				!strcmp(clan_action, "leave") ? "Left" : "Declined");
+				!strcmp(clan_action, "leave") ? "Left" : !strcmp(clan_action, "invite") ? "Invite sent" :
+				!strcmp(clan_action, "kick") ? "Removed" : "Declined");
 			browser.game_profile_serial++;
 		}
 		else if (status >= 400 && status < 500 && status != 429)
@@ -1576,6 +1587,13 @@ static void update_game_profile(void)
 		browser.game_profile_state = BROWSER_PROFILE_LOADED;
 		browser.game_profile_time = p2p_now();
 		browser.game_profile_serial++;
+#ifndef HALO_CONSOLE_NO_GUIDE
+		if (read.has_clan)
+		{
+			browser.social_whole = 1;
+			social_poll_soon(&browser.social_poll);
+		}
+#endif
 		/* (what browser_profile_linked says follows the site's word) */
 		if (read.linked && !read.locked && (!browser.profile_linked || strcmp(browser.profile_handle, read.handle)))
 			profile_linked_to(read.handle, 1);
@@ -2731,7 +2749,10 @@ static void update_social(void)
 		social_poll_due(&browser.social_poll, p2p_now(), browser.social_in_game && !browser.social_guide_open, linked);
 	if (due && browser.social_status == BROWSER_SOCIAL_NONE)
 		browser.social_status = BROWSER_SOCIAL_LOADING;
-	snprintf(cursor, sizeof(cursor), "%s", browser.social_status == BROWSER_SOCIAL_LOADED ? browser.social_state->cursor : "");
+	snprintf(cursor, sizeof(cursor), "%s", browser.social_status == BROWSER_SOCIAL_LOADED && !browser.social_whole ?
+		browser.social_state->cursor : "");
+	if (due)
+		browser.social_whole = 0;
 	pthread_mutex_unlock(&browser_lock);
 	if (action < 0 && !due)
 		return;
@@ -2756,7 +2777,13 @@ static void update_social(void)
 	before = browser.social_status;
 	social_poll_answer(&browser.social_poll, no_key ? 0 : status, parsed != 0);
 	if (parsed == 1)
+	{
 		social_keep(read);
+		/* (the clan, asked with the friends: DELTA's CLAN roster; a site
+		from before it sends none, and the profile's own stays) */
+		if (browser.game_profile_has && delta_profile_parse_clan(response, &browser.game_profile))
+			browser.game_profile_serial++;
+	}
 	else if (parsed == 2 && before == BROWSER_SOCIAL_LOADED)
 	{
 		/* (unchanged) */
@@ -3882,10 +3909,28 @@ void browser_profile_clan(const char *action, int clan)
 	pthread_mutex_lock(&browser_lock);
 	snprintf(browser.game_clan_action, sizeof(browser.game_clan_action), "%s", action);
 	browser.game_clan_id = clan;
+	browser.game_clan_handle[0] = 0;
 	browser.game_action = BROWSER_PROFILE_ACTION_WORKING;
 	browser.game_message[0] = 0;
 	pthread_mutex_unlock(&browser_lock);
 }
+
+#ifndef HALO_CONSOLE_NO_GUIDE
+int browser_profile_clan_member(const char *action, const char *handle)
+{
+	if ((strcmp(action, "invite") && strcmp(action, "kick")) || !social_handle_valid(handle))
+		return 0;
+	pthread_once(&browser_once, start_thread);
+	pthread_mutex_lock(&browser_lock);
+	snprintf(browser.game_clan_action, sizeof(browser.game_clan_action), "%s", action);
+	snprintf(browser.game_clan_handle, sizeof(browser.game_clan_handle), "%s", handle);
+	browser.game_clan_id = 0;
+	browser.game_action = BROWSER_PROFILE_ACTION_WORKING;
+	browser.game_message[0] = 0;
+	pthread_mutex_unlock(&browser_lock);
+	return 1;
+}
+#endif
 
 void browser_profile_action_seen(void)
 {
