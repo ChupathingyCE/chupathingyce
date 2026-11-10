@@ -6,8 +6,12 @@ same):
   - A release is built by GitHub Actions from its tag, v<VERSION>
     (tools/ci_build.py gives HALO_VERSION, and HALO_RELEASE_BUILD=1, the
     only builds whose self-updater looks for newer releases).
-  - Other builds of the workflow are nightlies, <VERSION>-nightly.<run>; a
-    build anywhere else is <VERSION>-dev.
+  - Other builds of the workflow are nightlies, <VERSION>-nightly.<serial>,
+    and test builds, <VERSION>-testing.<serial> (the serial the UTC time the
+    build was made, 202611101530); a build anywhere else is <VERSION>-dev.
+  - A nightly's and a test build's self-updater looks for updates on its
+    channel (HALO_UPDATE_CHANNEL: update_channel), as a release's does on
+    the release channel.
   - Each build also records its channel (release, nightly, dev or custom)
     and its commit (HALO_COMMIT, else git's; "unknown" without either), for
     its logs (port/linux/src/build_identity.c).
@@ -38,11 +42,29 @@ def release_build() -> bool:
     return os.environ.get("HALO_RELEASE_BUILD") == "1"
 
 
+# a nightly's or a test build's version: <VERSION>-nightly.<serial>,
+# <VERSION>-testing.<serial> (VERSION's numbers and hotfix letters)
+PRERELEASE_VERSION = re.compile(r"^\d+\.\d+\.\d+[a-z]*-(nightly|testing)\.\d{1,18}$")
+
+
+def update_channel() -> str:
+    """the update channel of a nightly ("nightly") or a test build
+    ("testing"), whose self-updater looks for updates there; "" for any
+    other build (a release's looks on the release channel, HALO_RELEASE_BUILD)"""
+    if release_build():
+        return ""
+    match = PRERELEASE_VERSION.match(version())
+    return match.group(1) if match else ""
+
+
 def channel() -> str:
-    """this build's channel: a release's, a nightly, a -dev build (anywhere
-    but a release workflow), or custom (another version given by hand)"""
+    """this build's channel: a release's, a nightly, a test build, a -dev
+    build (anywhere but a release workflow), or custom (another version
+    given by hand)"""
     if release_build():
         return "release"
+    if update_channel():
+        return update_channel()
     if "-nightly" in version():
         return "nightly"
     if version().endswith("-dev"):
@@ -78,14 +100,18 @@ def commit_inputs() -> List[Path]:
 
 
 # the sources given the version's defines (identity_defines): the
-# self-updater, and the build's identity for the logs
-VERSION_SOURCES = ("updater.c", "build_identity.c")
+# self-updater, the build's identity for the logs, and the settings
+# (update.channel's default is the build's update channel)
+VERSION_SOURCES = ("updater.c", "build_identity.c", "port_config.c")
 
 
 def identity_defines() -> str:
     """the defines of the build's identity (port/linux/src/build_identity.c),
     escaped as the builds' updater_defines are"""
-    return f'-DHALO_CHANNEL=\\"{channel()}\\" -DHALO_COMMIT=\\"{commit()}\\"'
+    defines = f'-DHALO_CHANNEL=\\"{channel()}\\" -DHALO_COMMIT=\\"{commit()}\\"'
+    if update_channel():
+        defines += f' -DHALO_UPDATE_CHANNEL=\\"{update_channel()}\\"'
+    return defines
 
 
 def resource_version() -> Tuple[str, str]:

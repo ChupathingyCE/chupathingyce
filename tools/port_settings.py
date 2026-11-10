@@ -18,6 +18,9 @@ controller's settings and buttons.
 from xml.sax.saxutils import quoteattr
 
 PE = "main_menu/settings_select/player_setup/player_profile_edit"
+# update.channel's help line (port/linux/src/update.h's UPDATE_CHANNEL_HELP,
+# which the setup screen shows: tools/test_update_channels.py checks they agree)
+UPDATE_CHANNEL_HELP = "Testing gets new features first and may have bugs. Going back waits for the next release."
 YES_NO = [("YES", "true"), ("NO", "false")]
 ON_OFF = [("ON", "true"), ("OFF", "false")]
 SENSITIVITIES = [(f"{value:g}", f"{value:g}") for value in (0.1, 0.15, 0.25, 0.4, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4)]
@@ -207,12 +210,18 @@ SCREENS = {
              "Join a game from an invite link on the clipboard.", NOT_CONSOLE),
             ("COPY INVITE LINK:", "network.copy_to_clipboard", ON_OFF,
              "Copy your game's invite link when you host.", NOT_CONSOLE),
-            ("CHECK FOR UPDATES:", "update.auto", ON_OFF,
-             "Check for a new version at startup.", NOT_CONSOLE),
             ("START WITH ONE PLAYER:", "game.start_with_one_player", ON_OFF,
              "Let a game you host start with only you.", None),
         ],
         "views": [
+            # (update.channel's help is update.h's UPDATE_CHANNEL_HELP, as
+            # the setup screen shows it)
+            ("updates", "UPDATES", "Update checks, and which builds you get.", [
+                ("CHECK FOR UPDATES:", "update.auto", ON_OFF,
+                 "Check for a new version at startup.", NOT_CONSOLE),
+                ("CHANNEL:", "update.channel", [("RELEASE", "release"), ("TESTING", "testing"), ("NIGHTLY", "nightly")],
+                 UPDATE_CHANNEL_HELP, NOT_CONSOLE),
+            ]),
             ("chat", "CHAT", "Text chat and the word filter.", [
                 ("CHAT:", "chat.enabled", ON_OFF, "Text chat with other players.", NOT_CONSOLE),
                 ("SHOW CHAT:", "chat.show", [("ALL", "all"), ("TEAM", "team"), ("OFF", "off")],

@@ -23,7 +23,12 @@ halo, then updates itself:
   - as an AppImage (APPIMAGE set, as its runtime sets it): the AppImage file
     itself replaced by the list's AppImage, checked, and started, with
     nothing unpacked beside it; never from a release without the list or an
-    AppImage in it, a changed AppImage, or a packaged install.
+    AppImage in it, a changed AppImage, or a packaged install,
+  - on the testing and nightly channels (update.channel): from the channel's
+    feed (testing/updates.json, signed by the prerelease key or the release
+    key), the newest of the feeds and the latest release; never on the
+    release channel, never from a feed whose list is a release's, another
+    key's or changed, and never a release list signed by the prerelease key.
 
 Linux only (the updater finds itself in /proc/self/exe); the 32-bit build
 where the system's SDL 3 is the i386 one. It needs OpenSSL 3's openssl for
@@ -54,6 +59,8 @@ import update_sign  # noqa: E402
 pytestmark = pytest.mark.skipif(not sys.platform.startswith("linux"), reason="the updater installs on Linux")
 
 OLD, NEW = "0.8.0", "0.8.1"
+# (a test build's and a nightly's, between OLD and NEW: update_manifest.h's order)
+TESTING, NIGHTLY = "0.8.1-testing.202611101200", "0.8.1-nightly.202611110400"
 ASSET = "chupathingyce-linux-release.zip"
 APPIMAGE = "chupathingyce-linux-release.AppImage"
 REPOSITORY = "ChupathingyCE/chupathingyce"
@@ -90,7 +97,9 @@ def keys(tmp_path_factory):
     except SystemExit:
         pytest.skip("needs OpenSSL 3's openssl")
     directory = tmp_path_factory.mktemp("update_key")
-    return [(directory / f"{name}.pem", delta_table.keygen(directory / f"{name}.pem")) for name in ("key", "other")]
+    # (the release key, another, and the prerelease key: never real ones)
+    return [(directory / f"{name}.pem", delta_table.keygen(directory / f"{name}.pem"))
+            for name in ("key", "other", "prerelease")]
 
 
 @pytest.fixture(scope="module")
@@ -108,12 +117,14 @@ def builds(keys, tmp_path_factory):
     library += compile_objects(cc, [*target, "-std=gnu11", "-O1", "-w"],
                                [ROOT / "port/third_party/monocypher" / name for name in MONOCYPHER], directory)
     key = ",".join(f"0x{byte:02x}" for byte in keys[0][1])
+    prerelease_key = ",".join(f"0x{byte:02x}" for byte in keys[2][1])
     programs = {}
-    for version in (OLD, NEW):
+    for version in (OLD, NEW, TESTING, NIGHTLY):
         program = directory / f"update-{version}"
         built = subprocess.run(
             [cc, *target, "-std=gnu11", "-O1", "-Wall", "-Werror", "-Wno-unused-function", f'-DHALO_VERSION="{version}"',
-             "-DHALO_UPDATE_TEST", f"-DHALO_UPDATE_TEST_KEY={key}", "-DZ_PREFIX", "-Dz_errmsg=z_port_errmsg",
+             "-DHALO_UPDATE_TEST", f"-DHALO_UPDATE_TEST_KEY={key}",
+             f"-DHALO_UPDATE_TEST_PRERELEASE_KEY={prerelease_key}", "-DZ_PREFIX", "-Dz_errmsg=z_port_errmsg",
              "-Iport/linux/src", "-Iport/third_party/zlib", "-Iport/third_party/monocypher",
              f"-I{MBEDTLS / 'include'}", "-o", str(program), "tools/update_install_check.c",
              "port/linux/src/posix_update.c", "port/linux/src/update_manifest.c",
@@ -191,6 +202,11 @@ class Server:
         self.files = {f"v{version}/{name}": (directory / name).read_bytes() for name in names}
         self.requests = []
 
+    def add(self, tag, directory, names):
+        """more files (names, in directory) at tag, beside the release's: a
+        feed's list at testing or nightly, its builds at their pre-release"""
+        self.files.update({f"{tag}/{name}": (directory / name).read_bytes() for name in names})
+
 
 @pytest.fixture
 def server(keys, tmp_path):
@@ -213,11 +229,11 @@ def add(archive, name, data, mode=None):
     archive.writestr(info, data)
 
 
-def release_zip(directory, builds, extra=()):
+def release_zip(directory, builds, extra=(), version=NEW):
     """the new version's zip: its halo, a library, the extra (name, data, mode)"""
     directory.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(directory / ASSET, "w") as archive:
-        add(archive, "halo", builds[NEW].read_bytes(), 0o755)
+        add(archive, "halo", builds[version].read_bytes(), 0o755)
         add(archive, "SDL3-LICENSE.txt", b"new data\n", 0o644)
         for name, data, mode in extra:
             add(archive, name, data, mode)
@@ -577,4 +593,122 @@ def test_packaged_appimage_not_updated(keys, builds, server, tmp_path):
     assert has(lines, "update Chupathingy with your package manager")
     assert not has(lines, "downloading") and not any(line.startswith(NEW) for line in lines)
     assert not any(path.startswith("/files/") or path.endswith("updates.json") for path in server.requests)
+    assert snapshot(folder) == before
+
+
+# ---------- the update channels (update.channel: update_manifest.h)
+
+
+def publish_feed(keys, builds, server, tmp_path, channel, version, key_index=2, listed_version=None):
+    """a channel's feed: its build's zip on its pre-release (v0.8.1-testing,
+    nightly), and the list naming it at <channel>/updates.json"""
+    tag = "nightly" if channel == "nightly" else "v0.8.1-testing"
+    directory = tmp_path / f"feed-{channel}"
+    zip_path = release_zip(directory, builds, version=version)
+    update_sign.manifest(keys[key_index][0], listed_version or version, tag, f"{tag}-debug", "0" * 40, [zip_path],
+                         channel)
+    server.add(tag, directory, [ASSET])
+    server.add(channel, directory, ["updates.json", "updates.json.sig"])
+
+
+def the_latest_release(server, tmp_path, builds, version=OLD):
+    """the latest release, the installed one's (nothing newer there)"""
+    directory = tmp_path / "latest"
+    release_zip(directory, builds, version=version)
+    server.latest = version
+    server.release(version, directory, [ASSET])
+
+
+def test_testing_channel_update(keys, builds, server, tmp_path):
+    """Testing: the testing feed's build is newer than the latest release, so
+    it is installed from the feed's list, signed by the prerelease key"""
+    folder = install(tmp_path, builds)
+    the_latest_release(server, tmp_path, builds)
+    publish_feed(keys, builds, server, tmp_path, "testing", TESTING)
+    lines = run(tmp_path, folder, server, f"{TESTING} halo", {"HALO_UPDATE_TEST_CHANNEL": "testing"})
+    assert has(lines, f"{OLD} halo update: version {TESTING} is available (this is {OLD}; the testing channel)")
+    assert has(lines, f"{OLD} halo update: the testing channel's list names {ASSET} (v0.8.1-testing")
+    assert has(lines, f"{OLD} halo update: the download's SHA-256 is the release list's")
+    assert has(lines, f"{TESTING} halo update: this is the latest version ({TESTING})")
+    assert snapshot(folder)["halo"][0] == hashlib.sha256(builds[TESTING].read_bytes()).hexdigest()
+
+
+def test_release_channel_never_reads_a_feed(keys, builds, server, tmp_path):
+    """Release (the default): the feeds are never asked for"""
+    folder = install(tmp_path, builds)
+    before = snapshot(folder)
+    the_latest_release(server, tmp_path, builds)
+    publish_feed(keys, builds, server, tmp_path, "testing", TESTING)
+    lines = run(tmp_path, folder, server, f"{OLD} halo")
+    assert has(lines, f"{OLD} halo update: this is the latest version ({OLD})")
+    assert not any(path.startswith(f"/{REPOSITORY}/releases/download/testing/") for path in server.requests)
+    assert snapshot(folder) == before
+
+
+def test_nightly_channel_takes_the_newest(keys, builds, server, tmp_path):
+    """Nightly: the nightly and testing feeds and the latest release, the
+    newest of them (here the nightly, built after the test build)"""
+    folder = install(tmp_path, builds)
+    the_latest_release(server, tmp_path, builds)
+    publish_feed(keys, builds, server, tmp_path, "testing", TESTING)
+    publish_feed(keys, builds, server, tmp_path, "nightly", NIGHTLY)
+    lines = run(tmp_path, folder, server, f"{NIGHTLY} halo", {"HALO_UPDATE_TEST_CHANNEL": "nightly"})
+    assert has(lines, f"{OLD} halo update: version {NIGHTLY} is available (this is {OLD}; the nightly channel)")
+    assert snapshot(folder)["halo"][0] == hashlib.sha256(builds[NIGHTLY].read_bytes()).hexdigest()
+
+
+def test_a_release_beats_its_test_builds(keys, builds, server, tmp_path):
+    """Testing, with the release out: the release is newer than every test
+    build of its version, and comes from the release's own list"""
+    folder = install(tmp_path, builds)
+    release = tmp_path / "release"
+    zip_path = release_zip(release, builds)
+    update_sign.manifest(keys[0][0], NEW, f"v{NEW}", f"v{NEW}-debug", "0" * 40, [zip_path], "release")
+    server.release(NEW, release, [ASSET, "updates.json", "updates.json.sig"])
+    server.latest = NEW
+    publish_feed(keys, builds, server, tmp_path, "testing", TESTING)
+    lines = run(tmp_path, folder, server, f"{NEW} halo", {"HALO_UPDATE_TEST_CHANNEL": "testing"})
+    assert has(lines, f"{OLD} halo update: version {NEW} is available (this is {OLD}; the latest release)")
+    assert snapshot(folder)["halo"][0] == hashlib.sha256(builds[NEW].read_bytes()).hexdigest()
+
+
+@pytest.mark.parametrize("change", ["release-version", "other-key", "changed-list", "no-signature"])
+def test_feed_refused(keys, builds, server, tmp_path, change):
+    """a feed that is not to be trusted is passed over: the folder is as it
+    was. A list whose version is a release's (the prerelease key may not
+    sign one), another key's, a changed one, or one without a signature"""
+    folder = install(tmp_path, builds)
+    before = snapshot(folder)
+    the_latest_release(server, tmp_path, builds)
+    publish_feed(keys, builds, server, tmp_path, "testing", TESTING, key_index=1 if change == "other-key" else 2,
+                 listed_version=NEW if change == "release-version" else None)
+    if change == "release-version":
+        # (the list's version is a release's, so its channel's check refuses it)
+        listed = tmp_path / "feed-testing" / "updates.json"
+        assert f'"version": "{NEW}"' in listed.read_text()
+    if change == "changed-list":
+        listed = tmp_path / "feed-testing" / "updates.json"
+        listed.write_text(listed.read_text().replace('"size": ', '"size": 1'))
+        server.add("testing", tmp_path / "feed-testing", ["updates.json"])
+    if change == "no-signature":
+        del server.files["testing/updates.json.sig"]
+    lines = run(tmp_path, folder, server, f"{OLD} halo", {"HALO_UPDATE_TEST_CHANNEL": "testing"})
+    assert has(lines, f"{OLD} halo update: the testing channel's list")
+    assert has(lines, f"{OLD} halo update: this is the latest version ({OLD})")
+    assert not any(path.startswith("/files/v0.8.1-testing/") for path in server.requests)
+    assert snapshot(folder) == before
+
+
+def test_release_list_signed_by_the_prerelease_key_refused(keys, builds, server, tmp_path):
+    """a release's list signed by the prerelease key is not used, on any
+    channel: a leaked prerelease key never makes a release"""
+    folder = install(tmp_path, builds)
+    before = snapshot(folder)
+    release = tmp_path / "release"
+    zip_path = release_zip(release, builds)
+    update_sign.manifest(keys[2][0], NEW, f"v{NEW}", f"v{NEW}-debug", "0" * 40, [zip_path], "release")
+    server.release(NEW, release, [ASSET, "updates.json", "updates.json.sig"])
+    server.latest = NEW
+    lines = run(tmp_path, folder, server, f"{OLD} halo", {"HALO_UPDATE_TEST_CHANNEL": "testing"})
+    assert has(lines, f"{OLD} halo update: failed: the release's list of update files was not used")
     assert snapshot(folder) == before

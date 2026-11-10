@@ -705,6 +705,7 @@ the setting for one start of the game. It has priority over the file.
 | `discord.accept_join_requests` | `false` | `HALO_DISCORD_ACCEPT_JOIN_REQUESTS` | `true`: the game accepts every Ask to Join for the public game you host. `false`: Discord handles the request. |
 | `discord.register_launch` | `true` | `HALO_DISCORD_REGISTER_LAUNCH` | `true`: once connected to Discord, the game tells it how to start Chupathingy, as Discord's own SDK does. Then Discord shows Join to friends whose game is closed, and starts the game for it. Windows: `HKEY_CURRENT_USER\Software\Classes\discord-<application>`. Linux and FreeBSD: `discord-<application>.desktop` in `~/.local/share/applications`. macOS: the app becomes the handler of `discord-<application>://`. An entry of another program's is left alone. `false`: nothing is registered. |
 | `update.auto` | `true` | `HALO_UPDATE_AUTO` | `true`: at start-up, the game looks for a new version. Refer to "Updates". `false`: the game does not look. |
+| `update.channel` | `"release"` (a test build: `"testing"`, a nightly: `"nightly"`) | `HALO_UPDATE_CHANNEL` | Which builds to update to. `"release"`: releases. `"testing"`: test builds and releases. `"nightly"`: nightlies, test builds and releases. Refer to "Update channels". |
 | `update.offer_64bit` | `true` | `HALO_UPDATE_OFFER_64BIT` | The 32-bit Windows build only. `true`: on 64-bit Windows, when the game looks for a new version, it offers the 64-bit build once. `false`: it doesn't, and "Keep 32-bit" writes this. |
 | `crash_reports.upload` | `"ask"` | `HALO_CRASH_REPORTS` | Desktop builds (releases and nightlies). `"yes"`: the game sends a report of each crash to the developers, through `network.browser_url`. `"no"`: the game sends no reports. `"ask"`: the game asks after the next crash (on Linux and macOS, when it starts the next time) and writes the answer here. On the Privacy screen (Gearbox menus). Refer to "Crash reports" below and in [port/windows/README.md](../windows/README.md#crash-reports). |
 | `debug.update_answer` | `""` | `HALO_UPDATE_ANSWER` | The answer to the update question, for automatic tests: `yes`, `no` or `never`. Empty: the game asks. |
@@ -763,6 +764,43 @@ If the latest release is newer, the game asks: "Do you want to update?"
 - Select "Do not ask again", then "Yes", to stop the questions. The game
   writes `auto = false` in the `[update]` section of `config.toml`. To get
   the questions again, set `auto = true`.
+
+### Update channels
+
+`update.channel` picks the builds the game updates to: `"release"` (the
+default), `"testing"` or `"nightly"`. The test builds and the nightlies look
+for updates too, and start on their own channel.
+
+- Release reads the latest release, as above.
+- Testing also reads the testing channel's list,
+  `releases/download/testing/updates.json`, on the fixed `testing`
+  pre-release. The list names the newest test build's files on its own
+  pre-release (`v0.9.1-testing`).
+- Nightly also reads the nightly channel's list,
+  `releases/download/nightly/updates.json`.
+
+The game offers the newest of these, and never a build older than the one it
+runs. Versions are in this order: by their numbers, then the hotfix letter,
+then a release before all test builds and nightlies of its version. The test
+builds and the nightlies are `<version>-testing.<serial>` and
+`<version>-nightly.<serial>`. The serial is the time the build was made
+(`202611101530`, UTC). They are in the order they were built, whatever their
+channel:
+
+    0.9.0d < 0.9.1-nightly.202611100400 < 0.9.1-testing.202611101200
+           < 0.9.1-nightly.202611110400 < 0.9.1 < 0.9.2-testing.202611200900
+
+So after a test build, a player who goes back to Release keeps it until the
+next release newer than it.
+
+A channel's list has `"channel": "testing"` or `"nightly"`, and its version
+must be that channel's. It is signed like a release's (`updates.json.sig`),
+by the prerelease key (`src/update_prerelease_key.h`) or a release key. The
+prerelease key is trusted for the testing and nightly lists only, never for a
+release's list or zip. A release's list says `"channel": "release"` from
+0.9.1 on; the builds before it skip that field. Android checks a channel's
+list only on Android 13 or later (Ed25519); before that it offers releases
+only.
 
 The 32-bit Windows build on 64-bit Windows also offers the 64-bit build,
 once. The 32-bit graphics drivers crash much more often. "Yes" installs the

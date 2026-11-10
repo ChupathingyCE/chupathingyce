@@ -48,6 +48,37 @@ public final class UpdateManifestTest {
             System.out.println(answer(text, args[2], args[3], args[4], args[5]));
             return;
         }
+        // (the channels' feeds and the versions' order, answered as
+        // tools/update_check.c's channel, about and compare)
+        if (args.length == 7 && args[0].equals("channel")) {
+            String text = new String(Files.readAllBytes(Paths.get(args[1])), StandardCharsets.UTF_8);
+
+            try {
+                UpdateManifest.Entry found = UpdateManifest.findChannel(text, args[2], args[3], args[4], args[5], args[6]);
+
+                System.out.println(found == null ? "missing" : "found " + found.tag + " " + found.name + " "
+                    + found.size + " " + found.sha256);
+            } catch (UpdateManifest.Refused e) {
+                System.out.println("refused");
+            }
+            return;
+        }
+        if (args.length == 3 && args[0].equals("about")) {
+            String text = new String(Files.readAllBytes(Paths.get(args[1])), StandardCharsets.UTF_8);
+
+            try {
+                System.out.println("version " + UpdateManifest.about(text, args[2]));
+            } catch (UpdateManifest.Refused e) {
+                System.out.println("refused");
+            }
+            return;
+        }
+        if (args.length == 3 && args[0].equals("compare")) {
+            Integer order = UpdateManifest.compare(args[1], args[2]);
+
+            System.out.println(order == null ? "not versions" : order > 0 ? "newer" : order < 0 ? "older" : "same");
+            return;
+        }
         String hash = "ab".repeat(32);
         String good = entry("android", "release", "zip", "v0.8.0", "chupathingyce-android-release.zip", "1000", hash);
         check(answer(list("0.8.0", good), "0.8.0", "android", "release", "zip")

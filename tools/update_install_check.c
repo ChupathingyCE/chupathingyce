@@ -86,6 +86,10 @@ double config_real(const char *name)
 
 const char *config_string(const char *name)
 {
+	/* (update.channel: the test's, HALO_UPDATE_TEST_CHANNEL; none, the
+	release channel) */
+	if (!strcmp(name, "update.channel"))
+		return getenv("HALO_UPDATE_TEST_CHANNEL") ? getenv("HALO_UPDATE_TEST_CHANNEL") : "";
 	return !strcmp(name, "debug.update_answer") ? "yes" : "";
 }
 

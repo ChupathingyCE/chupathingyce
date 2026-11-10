@@ -83,4 +83,8 @@ int updater_install(void);
 /* "release", "nightly" or "dev" */
 const char *updater_channel(void);
 
+/* update.channel's help line on the setup screen (the menus' settings show
+the same: tools/port_settings.py's UPDATE_CHANNEL_HELP) */
+#define UPDATE_CHANNEL_HELP "Testing gets new features first and may have bugs. Going back waits for the next release."
+
 #endif
