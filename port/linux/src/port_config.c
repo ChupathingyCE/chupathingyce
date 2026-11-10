@@ -296,6 +296,10 @@ static const struct config_setting config_settings[] =
 	{ "display.resolution", _config_string, "\"native\"", "HALO_RESOLUTION", _environment_value, _platform_desktop,
 		"The resolution in fullscreen and borderless. \"native\" uses the\n"
 		"display's own. Or give a size, like \"1920x1080\". The smallest is 640x480." },
+	{ "display.refresh_rate", _config_real, "0.0", "HALO_REFRESH_RATE", _environment_value, _platform_desktop,
+		"Fullscreen's refresh rate in Hz (the nearest the display has at the\n"
+		"resolution). 0 keeps the display's own. Windows and X11 only: Wayland,\n"
+		"XWayland, gamescope and the Mac keep their own." },
 	{ "display.window_size", _config_string, "\"\"", "HALO_WINDOW_SIZE", _environment_value, _platform_desktop,
 		"The window's size, like \"1920x1080\". The smallest is 640x480.\n"
 		"Leave it empty to use display.window_scale." },
