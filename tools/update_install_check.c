@@ -25,7 +25,10 @@ install it (the setup screen's UPDATE, Settings > Network > Updates'
 INSTALL UPDATE: updater_install_begin), on its own thread, each line the
 page would show logged as "page: <line>". A dialog or a window the updater
 opens is logged as "dialog: <title>" or "window: <title>", the version
-line's text as "watermark: <text>".
+line's text as "watermark: <text>". With HALO_UPDATE_TEST_IN_GAME=1 a game
+is in progress for two seconds once the install is ready (it waits), and
+with HALO_UPDATE_TEST_CRASH_AT_EXIT=1 an exit handler kills the process
+before the updater's last one runs (the watcher starts the new version).
 */
 
 #ifndef _GNU_SOURCE
@@ -38,6 +41,7 @@ uses of it is here) */
 #include "build_identity.h"
 #include "packaged_install.h"
 
+#include <signal.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -118,6 +122,39 @@ void build_identity_watermark_update(const char *version, const char *where)
 	platform_log("watermark: %s - %s is out: update %s", HALO_VERSION, version, where);
 }
 
+void build_identity_watermark_note(const char *note)
+{
+	platform_log("watermark: %s - %s", HALO_VERSION, note);
+}
+
+/* (menu_functions.c's: with HALO_UPDATE_TEST_IN_GAME=1, a game is in
+progress for two seconds after the install is ready, then the player leaves
+it) */
+int updater_restart_allowed(void)
+{
+	static Uint64 ready;
+	const char *in_game = getenv("HALO_UPDATE_TEST_IN_GAME");
+
+	if (!in_game || strcmp(in_game, "1"))
+		return 1;
+	if (updater_background.phase != _install_ready)
+		return 0;
+	if (!ready)
+		ready = SDL_GetTicks();
+	if (SDL_GetTicks() - ready < 2000)
+		return 0;
+	platform_log("left the game");
+	return 1;
+}
+
+/* (HALO_UPDATE_TEST_CRASH_AT_EXIT=1: an exit handler of the game's that
+kills the process, before the updater's last one can run) */
+static void check_crash_at_exit(void)
+{
+	platform_log("crashing at exit");
+	raise(SIGKILL);
+}
+
 int config_boolean(const char *name)
 {
 	return !strcmp(name, "update.auto");
@@ -170,7 +207,7 @@ int config_write_boolean(const char *name, int value)
 	return 0;
 }
 
-int main(void)
+int main(int argc, char **argv)
 {
 	char path[1024];
 	ssize_t length = readlink("/proc/self/exe", path, sizeof(path) - 1);
@@ -188,7 +225,18 @@ int main(void)
 		platform_log("SDL_Init failed: %s", SDL_GetError());
 		return 1;
 	}
+	if (getenv("HALO_UPDATE_TEST_CRASH_AT_EXIT") && !strcmp(getenv("HALO_UPDATE_TEST_CRASH_AT_EXIT"), "1"))
+		atexit(check_crash_at_exit);
 	platform_log("started");
+	{
+		/* (an update's new version is started with these too) */
+		char arguments[512] = "";
+		int index;
+
+		for (index = 1; index < argc; index++)
+			snprintf(arguments + strlen(arguments), sizeof(arguments) - strlen(arguments), " %s", argv[index]);
+		platform_log("arguments:%s", arguments);
+	}
 	/* (the process: an update's new version is this one, in its place) */
 	platform_log("pid %ld, parent %ld, group %ld", (long)getpid(), (long)getppid(), (long)getpgrp());
 	/* (what an update's AppImage was started with: update_launch) */
@@ -218,7 +266,8 @@ int main(void)
 				platform_log("page: %s", line);
 			}
 			SDL_Delay(5);
-		} while ((state == UPDATER_INSTALL_DOWNLOADING || state == UPDATER_INSTALL_INSTALLING) &&
+		} while ((state == UPDATER_INSTALL_DOWNLOADING || state == UPDATER_INSTALL_INSTALLING ||
+			state == UPDATER_INSTALL_WAITING) &&
 			SDL_GetTicks() < deadline);
 	}
 	platform_log("done");

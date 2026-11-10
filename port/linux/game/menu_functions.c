@@ -1569,6 +1569,8 @@ static void install_update_show(struct widget_instance *list, char const *view)
 		updater_install_amount(value, sizeof(value));
 	else if (state == UPDATER_INSTALL_INSTALLING)
 		snprintf(value, sizeof(value), "RESTARTING");
+	else if (state == UPDATER_INSTALL_WAITING)
+		snprintf(value, sizeof(value), "AFTER THIS GAME");
 	else if (state == UPDATER_INSTALL_FAILED)
 		snprintf(value, sizeof(value), "TRY AGAIN");
 	else
@@ -1583,12 +1585,22 @@ static void install_update_show(struct widget_instance *list, char const *view)
 	text_set(named(row, "install_update_value", 0), text);
 }
 
+/* whether the game may restart into an update now (updater.c): at the main
+menu, not in a game, which for a host would end for everyone. (Only the
+menus' own flag: the game's state is not read before the game is up) */
+int updater_restart_allowed(void)
+{
+	return main_menu_is_active();
+}
+
 /* "port update install" (A on INSTALL UPDATE): the screen's changes
 written first (the game restarts), and the install begun */
 static boolean install_update_begin(struct widget_instance *widget)
 {
 	settings_each(screen_of(widget), setting_changed_save);
-	if (install_update_state(NULL, 0) == UPDATER_INSTALL_DOWNLOADING || !updater_install_begin())
+	if (install_update_state(NULL, 0) == UPDATER_INSTALL_DOWNLOADING ||
+		install_update_state(NULL, 0) == UPDATER_INSTALL_INSTALLING ||
+		install_update_state(NULL, 0) == UPDATER_INSTALL_WAITING || !updater_install_begin())
 	{
 		ui_play_audio_feedback_sound(SOUND_ERROR);
 		return TRUE;

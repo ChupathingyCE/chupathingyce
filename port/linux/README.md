@@ -820,9 +820,15 @@ found), or UPDATE on the setup screen's UPDATES tab. Both show the download
 and any error on the page itself, with no window or dialog, so they work in
 Game Mode too.
 
+An update that finishes downloading during a game waits: the files are put
+in place and the game restarts only once you are back at the main menu (a
+host's game would otherwise end for everyone). The page and the version line
+say so meanwhile.
+
 After an update, the game restarts as the same process (on Linux it
-`execve`s the new version as it exits), so Steam and gamescope keep the
-game's window. An AppImage is replaced by the new one under its own name and
+`execve`s the new version, with the same arguments, as it exits), so Steam
+and gamescope keep the game's window. If the game dies before that, a small
+watcher process it left behind starts the new version instead. An AppImage is replaced by the new one under its own name and
 mode, and the old one waits as `<name>.old` until the new version starts. If
 the new version can't be started (its folder is mounted `noexec`, say), the
 game says so on the page and keeps running.

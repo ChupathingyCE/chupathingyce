@@ -107,6 +107,8 @@ enum
 	UPDATER_INSTALL_DOWNLOADING,
 	UPDATER_INSTALL_INSTALLING,
 	UPDATER_INSTALL_FAILED,
+	/* (ready, put in place when the game in progress ends) */
+	UPDATER_INSTALL_WAITING,
 };
 
 /* whether a newer version can be installed now (latest: its version),
@@ -123,6 +125,10 @@ int updater_install_status(char *line, int size);
 /* how much is downloaded, short, for a row's value: "3 / 27 MB" ("Starting"
 before the server says the size); text */
 const char *updater_install_amount(char *text, int size);
+/* the setup screen's, every frame: an install that is ready is put in place
+and the game restarts (no game runs there). In the game updater_poll does
+it, once no game is in progress (updater_restart_allowed, menu_functions.c) */
+void updater_install_restart(void);
 /* whether the game runs under gamescope (updater.c) */
 int updater_gamescope(void);
 
@@ -130,6 +136,8 @@ int updater_gamescope(void);
 is out: update in Settings > Network > Updates"), in place of the question
 a dialog would ask */
 #define UPDATER_GAMESCOPE_WHERE "in Settings > Network > Updates"
+/* the version line while an update waits for the game in progress to end */
+#define UPDATER_WAITING_NOTE "the update restarts Chupathingy when you leave the game"
 
 /* update.channel's help line on the setup screen (the menus' settings show
 the same: tools/port_settings.py's UPDATE_CHANNEL_HELP) */

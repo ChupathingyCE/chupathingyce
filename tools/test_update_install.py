@@ -967,3 +967,63 @@ def test_page_install_when_the_new_version_cannot_start(keys, builds, server, tm
                       "executable: start it again.")
     assert has(lines, f"{OLD} runner done") and not any(line.startswith(NEW) for line in lines)
     assert shown_nothing(lines)
+
+
+def test_page_install_waits_for_the_game(keys, builds, server, tmp_path):
+    """an install that is ready while a game is in progress waits: the files
+    are put in place and the game restarts only once the player leaves the
+    game (a host's game would end for everyone), the page and the version
+    line saying so meanwhile"""
+    folder, appimage = install_appimage(tmp_path, builds)
+    release = appimage_release(tmp_path, builds, keys)
+    server.release(NEW, release, [ASSET, APPIMAGE, "updates.json", "updates.json.sig"])
+    name = appimage.name
+    lines = run_appimage(tmp_path, appimage, server, f"{NEW} {name}",
+                         {**GAMESCOPE, **NO_ANSWER, **PAGE, "HALO_UPDATE_TEST_IN_GAME": "1"})
+    def at(text):
+        return next(index for index, line in enumerate(lines) if text in line)
+    waiting = at(f"{OLD} {name} page: {NEW} is ready. Chupathingy restarts when you leave the game.")
+    assert has(lines, f"{OLD} {name} watermark: {OLD} - the update restarts Chupathingy when you leave the game")
+    assert at(f"{OLD} {name} update: version {NEW} is ready; it is put in place when the game in progress ends") \
+        < waiting < at(f"{OLD} {name} left the game") < at(f"{OLD} {name} update: starting version {NEW}")
+    assert has(lines, f"{NEW} {name} update: this is the latest version ({NEW})")
+    assert shown_nothing(lines)
+    assert pids(lines, OLD, name) == pids(lines, NEW, name)
+
+
+def test_restart_when_an_exit_handler_crashes(keys, builds, server, tmp_path):
+    """the game becomes the new version in its last exit handler; if a
+    handler of the game's kills it first, the watcher it left starts the new
+    version (a process of its own then)"""
+    folder = install(tmp_path, builds)
+    release = tmp_path / "release"
+    zip_path = release_zip(release, builds)
+    update_sign.manifest(keys[0][0], NEW, f"v{NEW}", f"v{NEW}-debug", "0" * 40, [zip_path])
+    server.release(NEW, release, [ASSET, "updates.json", "updates.json.sig"])
+    lines = run(tmp_path, folder, server, f"{NEW} halo", {"HALO_UPDATE_TEST_CRASH_AT_EXIT": "1"})
+    assert has(lines, f"{OLD} halo update: restarting as version {NEW} in this same process")
+    assert has(lines, f"{OLD} halo crashing at exit")
+    assert has(lines, f"{NEW} halo update: this is the latest version ({NEW})")
+    old, new = pids(lines, OLD, "halo"), pids(lines, NEW, "halo")
+    assert len(old) == 1 and len(new) == 1 and old[0][0] != new[0][0]
+
+
+def test_restart_keeps_the_arguments(keys, builds, server, tmp_path):
+    """the new version is started with the arguments the old one had"""
+    folder = install(tmp_path, builds)
+    release = tmp_path / "release"
+    zip_path = release_zip(release, builds)
+    update_sign.manifest(keys[0][0], NEW, f"v{NEW}", f"v{NEW}-debug", "0" * 40, [zip_path])
+    server.release(NEW, release, [ASSET, "updates.json", "updates.json.sig"])
+    log = tmp_path / "update.log"
+    log.write_text("")
+    home = tmp_path / "home"
+    (home / "saves").mkdir(parents=True, exist_ok=True)
+    environment = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": str(home),
+                   "HALO_SAVE_ROOT": str(home / "saves"), "HALO_UPDATE_TEST_SERVER": server.url,
+                   "HALO_UPDATE_TEST_CA": str(server.authority), "HALO_UPDATE_TEST_LOG": str(log)}
+    subprocess.run([str(folder / "halo"), "--setup", "two words"], cwd=folder, env=environment, timeout=120,
+                   capture_output=True)
+    lines = log.read_text().splitlines()
+    assert has(lines, f"{OLD} halo arguments: --setup two words")
+    assert has(lines, f"{NEW} halo arguments: --setup two words")

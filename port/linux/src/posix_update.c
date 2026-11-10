@@ -21,6 +21,10 @@ trusts only the certificate HALO_UPDATE_TEST_CA names: tools/test_update_install
 Built with the host's ABI, as the other posix_*.c.
 */
 
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+
 #include "update.h"
 #include "build_identity.h"
 #ifdef HALO_GAME_BROWSER
@@ -47,6 +51,8 @@ Built with the host's ABI, as the other posix_*.c.
 #include <signal.h>
 #include <sys/stat.h>
 #include <sys/statvfs.h>
+#include <sys/syscall.h>
+#include <sys/wait.h>
 #include <sys/types.h>
 #include <unistd.h>
 
@@ -807,45 +813,167 @@ int update_can_start(const char *path, char *reason, int reason_size)
 	return 1;
 }
 
-/* the program this process becomes as it exits (update_start_in_place) */
+/* the program this process becomes as it exits (update_start_in_place),
+and its arguments: this one's own (/proc/self/cmdline), the first the new
+program's path */
 static char start_in_place_path[PATH_MAX];
+static char start_in_place_command_line[8192];
+static char *start_in_place_arguments[65];
+/* whether a watcher waits to start the new version should this process end
+without becoming it (start_in_place_watch) */
+static int start_in_place_watched;
+
+/* every file descriptor from first on closed (close-on-exec: on_exec), with
+close_range where the kernel has it (Linux 5.9 and later; 5.11 for
+close-on-exec), else one at a time */
+static void descriptors_close_from(int first, int on_exec)
+{
+	int descriptor, maximum;
+
+#ifdef __NR_close_range
+	if (syscall(__NR_close_range, (unsigned int)first, ~0U, on_exec ? 4U /* CLOSE_RANGE_CLOEXEC */ : 0U) == 0)
+		return;
+#endif
+	maximum = descriptor_limit();
+	for (descriptor = first; descriptor < maximum; descriptor++)
+	{
+		if (on_exec)
+		{
+			int flags = fcntl(descriptor, F_GETFD);
+
+			if (flags >= 0)
+				fcntl(descriptor, F_SETFD, flags | FD_CLOEXEC);
+		}
+		else
+			close(descriptor);
+	}
+}
+
+/* the new program's arguments: this process's own, by /proc/self/cmdline
+(the first replaced by its path); just its path where there is none */
+static void start_in_place_arguments_read(void)
+{
+	FILE *file = fopen("/proc/self/cmdline", "rb");
+	size_t length = 0, offset;
+	int count = 0;
+
+	start_in_place_arguments[count++] = start_in_place_path;
+	if (file)
+	{
+		length = fread(start_in_place_command_line, 1, sizeof(start_in_place_command_line) - 1, file);
+		fclose(file);
+	}
+	start_in_place_command_line[length] = 0;
+	/* (past the first, this one's own path) */
+	offset = strlen(start_in_place_command_line) + 1;
+	while (offset < length && count < (int)(sizeof(start_in_place_arguments) / sizeof(*start_in_place_arguments)) - 1)
+	{
+		start_in_place_arguments[count++] = start_in_place_command_line + offset;
+		offset += strlen(start_in_place_command_line + offset) + 1;
+	}
+	start_in_place_arguments[count] = NULL;
+}
+
+#ifdef __linux__
+/* a watcher of its own (a grandchild, so no process of the game's waits on
+it, holding none of its files but one end of a pipe): it waits for the
+other end, which closes as this process becomes the new version (it is
+close-on-exec) or as it ends. If this process then still is, and is another
+program, the new version is running, and it goes. If this process is gone
+without becoming it (an exit handler crashed or killed it), the watcher
+becomes the new version itself. 1 when it is watching */
+static int start_in_place_watch(char **variables)
+{
+	char old_program[PATH_MAX], exe[64];
+	ssize_t length = readlink("/proc/self/exe", old_program, sizeof(old_program) - 1);
+	pid_t game = getpid(), child;
+	int ends[2];
+
+	if (length <= 0 || pipe2(ends, O_CLOEXEC) != 0)
+		return 0;
+	old_program[length] = 0;
+	snprintf(exe, sizeof(exe), "/proc/%ld/exe", (long)game);
+	child = fork();
+	if (child == 0)
+	{
+		if (fork() != 0)
+			_exit(0);
+		/* (the watcher: the read end alone, as descriptor 3) */
+		close(ends[1]);
+		if (ends[0] != 3)
+		{
+			dup2(ends[0], 3);
+			close(ends[0]);
+		}
+		fcntl(3, F_SETFD, 0);
+		descriptors_close_from(4, 0);
+		{
+			char byte;
+			int tries;
+
+			while (read(3, &byte, 1) > 0)
+			{
+			}
+			for (tries = 0; tries < 50; tries++)
+			{
+				char program[PATH_MAX];
+				ssize_t got = readlink(exe, program, sizeof(program) - 1);
+
+				/* (gone, or a zombie: it never became the new version) */
+				if (got <= 0)
+				{
+					fprintf(stderr, "update: the game ended without starting %s: starting it now\n",
+						start_in_place_path);
+					execve(start_in_place_path, start_in_place_arguments, variables);
+					_exit(127);
+				}
+				program[got] = 0;
+				if (strcmp(program, old_program))
+					_exit(0);
+				usleep(100000);
+			}
+		}
+		_exit(0);
+	}
+	close(ends[0]);
+	if (child < 0)
+	{
+		close(ends[1]);
+		return 0;
+	}
+	waitpid(child, NULL, 0);
+	/* (ends[1] stays open, close-on-exec, until this process becomes the new
+	version or ends) */
+	return 1;
+}
+#endif
 
 /* the last of exit's handlers (registered before main, so after every
 handler of the game's, which run first: the game list's withdrawal, UPnP's
 release, the lobby's goodbye, the events' last upload): this process
 becomes the new game. Its files are closed by the execve itself
-(close-on-exec), so that if it fails the new game is still started as a
-process of its own, as before */
+(close-on-exec). If the execve fails, the watcher starts it once this
+process ends (or, with no watcher, it is started as a process of its own,
+as before); if a handler before this one crashes, the watcher starts it */
 static void start_in_place_at_exit(void)
 {
 	char **variables;
 	sigset_t signals;
-	int descriptor, maximum;
 
 	if (!start_in_place_path[0])
 		return;
 	variables = launch_environment();
 	fflush(NULL);
-	maximum = descriptor_limit();
-	for (descriptor = 3; descriptor < maximum; descriptor++)
-	{
-		int flags = fcntl(descriptor, F_GETFD);
-
-		if (flags >= 0)
-			fcntl(descriptor, F_SETFD, flags | FD_CLOEXEC);
-	}
+	descriptors_close_from(3, 1);
 	/* (the new game starts with no signal held back, as a new process
 	would) */
 	sigemptyset(&signals);
 	sigprocmask(SIG_SETMASK, &signals, NULL);
-	{
-		char *const arguments[] = { start_in_place_path, NULL };
-
-		execve(start_in_place_path, arguments, variables);
-	}
-	fprintf(stderr, "update: could not start %s in place (%s): starting it as a process of its own\n",
-		start_in_place_path, strerror(errno));
-	update_launch(start_in_place_path);
+	execve(start_in_place_path, start_in_place_arguments, variables);
+	fprintf(stderr, "update: could not start %s in place (%s): %s\n", start_in_place_path, strerror(errno),
+		start_in_place_watched ? "the watcher starts it as this one ends" : "starting it as a process of its own");
+	if (!start_in_place_watched)
+		update_launch(start_in_place_path);
 }
 
 __attribute__((constructor)) static void start_in_place_register(void)
@@ -858,6 +986,10 @@ int update_start_in_place(const char *path)
 	if (!path || !*path || strlen(path) >= sizeof(start_in_place_path))
 		return 0;
 	snprintf(start_in_place_path, sizeof(start_in_place_path), "%s", path);
+	start_in_place_arguments_read();
+#ifdef __linux__
+	start_in_place_watched = start_in_place_watch(launch_environment());
+#endif
 	return 1;
 }
 #endif
