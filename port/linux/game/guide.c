@@ -74,6 +74,9 @@ GUIDE counts what waits ("GUIDE 2": invites and requests).
 #include "../src/social.h"
 #include "../src/settings_rows.h"
 #include "../src/ui_overlay.h"
+#ifdef HALO_CAPTURE
+#include "../src/capture.h"
+#endif
 #include "halo_ui_pointer.h"
 #include "halo_profile_screen.h"
 #include "chat.h"
@@ -305,6 +308,9 @@ static struct
 	char toast_line[96];
 	unsigned long toast_time;
 	boolean toast_shown;
+	/* (a toast for something the player just did, as a screenshot: shown
+	in a game too) */
+	boolean toast_always;
 	boolean debug_toast_done;
 	boolean debug_open_done;
 	/* the toast's item (an invite's ID, a handle) and its sender's initial */
@@ -1015,6 +1021,7 @@ static void toast_from(short kind, char const *key, char const *title, char cons
 	social_copy_text(guide.toast_key, sizeof(guide.toast_key), key);
 	guide.toast_time = system_milliseconds();
 	guide.toast_shown = TRUE;
+	guide.toast_always = FALSE;
 }
 
 /* the toasts for what is new: an invite, a request (not those already
@@ -1760,7 +1767,9 @@ static boolean toast_visible(void)
 {
 	if (!guide.toast_shown || system_milliseconds() - guide.toast_time >= TOAST_TIME)
 		return FALSE;
-	if (in_game() && (!config_boolean("guide.notify_in_game") || guide.toast_kind == _toast_friend))
+	/* (quiet in a game unless asked for: a screenshot's or clip's always shows) */
+	if (in_game() && !guide.toast_always &&
+		(!config_boolean("guide.notify_in_game") || guide.toast_kind == _toast_friend))
 		return FALSE;
 	return TRUE;
 }
@@ -1883,7 +1892,27 @@ void guide_toast(char const *title, char const *line)
 	guide.toast_kind = _toast_none;
 	guide.toast_time = system_milliseconds();
 	guide.toast_shown = TRUE;
+	guide.toast_always = FALSE;
 }
+
+#ifdef HALO_CAPTURE
+/* the screenshots' (capture.c): the map's name for their files, and their
+toasts */
+static void capture_update(void)
+{
+	char title[64], line[160];
+	char const *map = "menu";
+
+	if (!main_menu_is_active() && game_map_loaded())
+		map = game_engine_running() ? main_get_multiplayer_map_name() : main_get_map_name();
+	capture_set_map(map);
+	if (capture_take_notice(title, sizeof(title), line, sizeof(line)))
+	{
+		guide_toast(title, line);
+		guide.toast_always = TRUE;
+	}
+}
+#endif
 
 wchar_t const *guide_pause_label(long string_list_tag)
 {
@@ -1903,6 +1932,9 @@ wchar_t const *guide_pause_label(long string_list_tag)
 
 void guide_update(boolean menu_open)
 {
+#ifdef HALO_CAPTURE
+	capture_update();
+#endif
 	friends_update();
 	/* (a toast waits out the intro's video and a map's loading: its time
 	starts once it can show) */

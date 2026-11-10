@@ -305,6 +305,9 @@ def test_menu_settings_exist():
             assert setting in known | profile, f"{path.name}: {setting}"
     # (the Guide's key and button: its own Settings set them, not the Controls screen; game/guide.c)
     guide = {"controls.guide", "controls.guide_button"}
+    # (and the screenshot and clip keys, desktop-only and set in config.toml:
+    # port/linux/src/capture.c)
+    guide |= {"controls.screenshot", "controls.capture_buttons", "controls.clip"}
     controls = set(re.findall(r'"(controls\.[a-z_]+)"', (root / "port/linux/src/xinput_sdl.c").read_text())) - guide
     # (controls.controller_layout is the controller's, not a key's: controller_layout.c)
     assert controls == {name for name in known if name.startswith("controls.")} - {"controls.controller_layout"} - guide

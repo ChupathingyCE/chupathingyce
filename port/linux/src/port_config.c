@@ -730,7 +730,7 @@ static const struct config_setting config_settings[] =
 #ifdef HALO_GUIDE
 	/* ---- the Guide (port/linux/game/guide.c) */
 	{ "controls.guide", _config_string, "\"F3\"", "HALO_KEY_GUIDE", _environment_value, _platform_all,
-		"The key that opens and closes the Guide: F3 to F10." },
+		"The key that opens and closes the Guide: F3 to F8." },
 	{ "controls.guide_button", _config_boolean, "true", "HALO_GUIDE_BUTTON", _environment_value, _platform_all,
 		"Open the Guide with the controller's Guide button, where Chupathingy\n"
 		"can read it (Steam and the Xbox Game Bar may keep it for themselves)." },
@@ -746,6 +746,26 @@ static const struct config_setting config_settings[] =
 	{ "guide.notify_online", _config_boolean, "false", "HALO_GUIDE_NOTIFY_ONLINE", _environment_value,
 		_platform_all,
 		"Show a notification in the menus when a friend comes online." },
+#endif
+#ifdef HALO_CAPTURE
+	/* ---- screenshots (capture.c) */
+	{ "controls.screenshot", _config_string, "\"F9\"", "HALO_KEY_SCREENSHOT", _environment_value, _platform_desktop,
+		"The key that saves a screenshot to the screenshots folder, beside\n"
+		"maps. Print Screen always does too." },
+	{ "controls.capture_buttons", _config_boolean, "false", "HALO_CAPTURE_BUTTONS", _environment_value,
+		_platform_desktop,
+		"Take a screenshot with a controller too: its Share button, or Back\n"
+		"and the right stick pressed together. Back and the left stick save a\n"
+		"clip." },
+	{ "controls.clip", _config_string, "\"F10\"", "HALO_KEY_CLIP", _environment_value, _platform_desktop,
+		"The key that saves the last clips.seconds of the game to the clips\n"
+		"folder, beside maps, when clips.enabled is on." },
+	{ "clips.enabled", _config_boolean, "false", "HALO_CLIPS", _environment_value, _platform_desktop,
+		"Keep the last clips.seconds of the game in memory, so that\n"
+		"controls.clip can save them as a video. Read when Chupathingy starts." },
+	{ "clips.seconds", _config_integer, "30", "HALO_CLIPS_SECONDS", _environment_value, _platform_desktop,
+		"How many seconds a clip keeps, from 5 to 120. Read when Chupathingy\n"
+		"starts." },
 #endif
 
 	/* ---- chat */
@@ -1281,6 +1301,12 @@ static const struct config_setting config_settings[] =
 	{ "debug.guide_toast", _config_string, "\"\"", "HALO_GUIDE_TOAST", _environment_value, _platform_all,
 		"Show a test notification with this text once. Leave it empty for none." },
 #endif
+#ifdef HALO_CAPTURE
+	{ "debug.clips_software", _config_boolean, "false", "HALO_CLIPS_SOFTWARE", _environment_set_is_true,
+		_platform_desktop,
+		"Encode clips in software even where there is a hardware encoder, for\n"
+		"tests." },
+#endif
 	{ "debug.chat_test", _config_string, "\"\"", "HALO_CHAT_TEST", _environment_value, _platform_all,
 		"Scripted chat for tests, as steps separated by ;. Each step is\n"
 		"\"<seconds>:<all|team|server|mute|unmute|localmute|log|close|type>[:<text>]\".\n"
@@ -1568,6 +1594,10 @@ static const struct
 		"\"Left Ctrl\" or \"F1\". The mouse has \"Mouse Left\", \"Mouse Right\",\n"
 		"\"Mouse Middle\", \"Mouse 4\", \"Mouse 5\", \"Wheel\", \"Wheel Up\" and\n"
 		"\"Wheel Down\". Leave a control empty for none." },
+#ifdef HALO_CAPTURE
+	{ "clips", 0,
+		"Video clips of the last moments of a game (F10)." },
+#endif
 	{ "chat", 0,
 		"The text chat you see and send. The chat rules for games you host are\n"
 		"in [network]." },

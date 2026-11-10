@@ -89,7 +89,8 @@ static const char *const hrtf_choices[] = { "on", "off", "auto", NULL };
 static const char *const buffer_choices[] = { "256", "512", "1024", "2048", "4096", NULL };
 /* controls.guide's: the F keys the game leaves free (F1 is Back, F2 Start,
 F11 full screen, F12 the mouse) */
-static const char *const guide_key_choices[] = { "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", NULL };
+/* (F9 takes a screenshot and F10 a clip: capture.c) */
+static const char *const guide_key_choices[] = { "F3", "F4", "F5", "F6", "F7", "F8", NULL };
 
 static const struct settings_row settings_rows[] =
 {
