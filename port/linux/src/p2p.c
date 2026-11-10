@@ -3780,6 +3780,28 @@ static void update_probes(void)
 	}
 }
 
+int p2p_doorbell(const char *doorbell)
+{
+	if (!p2p.running)
+		return 0;
+	pthread_mutex_lock(&p2p_lock);
+	p2p_signal_doorbell(doorbell);
+	pthread_mutex_unlock(&p2p_lock);
+	return 1;
+}
+
+int p2p_doorbell_rings(void)
+{
+	int rings;
+
+	if (!p2p.running)
+		return 0;
+	pthread_mutex_lock(&p2p_lock);
+	rings = p2p_signal_doorbell_rings();
+	pthread_mutex_unlock(&p2p_lock);
+	return rings;
+}
+
 void p2p_probe_browse(int on)
 {
 	pthread_mutex_lock(&p2p_lock);

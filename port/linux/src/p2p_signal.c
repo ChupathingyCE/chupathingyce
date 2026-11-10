@@ -7,6 +7,14 @@ tell each other where they can be reached, through public MQTT brokers
 a broker that refuses 5). Every broker is used at once, so any one of them
 working is enough (an answer goes back through each broker a request came
 through).
+Our own brokers (*.chupathingy.org) also carry Delta's doorbell
+(p2p_signal_doorbell; docs/delta.md, "The doorbell"): a linked copy's
+connection to them names the doorbell as its MQTT user name and subscribes
+to doorbell/<doorbell>, which only the site writes and only a connection of
+that user name may read (the brokers' ACL). A ring is one byte; the Guide
+then asks the site for its friends at once (browser.c). With only the
+doorbell wanted (not hosting, joining or browsing), only our brokers are
+connected.
 They also carry the server browser's listings of public games (p2p_lobby.c):
 retained in each host's slot, published at least once (QoS 1, sent again
 until the broker acknowledges them), expiring at the broker after
@@ -87,7 +95,7 @@ answered it in a while.
 
 enum
 {
-	MAXIMUM_BROKERS = 4,
+	MAXIMUM_BROKERS = 5,
 	/* the joiners a host made sessions for, so a repeated request gets the
 	same session: as many as it takes */
 	MAXIMUM_JOINERS = P2P_MAXIMUM_PEERS + 1,
@@ -128,7 +136,9 @@ enum
 	/* the publishes awaiting acknowledgement on a broker */
 	MAXIMUM_IN_FLIGHT = 4,
 	/* the topics a broker is subscribed to (_topic_*) */
-	NUMBER_OF_TOPICS = 6,
+	NUMBER_OF_TOPICS = 7,
+	/* Delta's doorbell: 32 of 0-9 and a-f */
+	DOORBELL_SIZE = 33,
 	/* a broker's publishes: at most PUBLISH_BURST at once, one more each
 	PUBLISH_INTERVAL milliseconds (EMQX drops a connection's publishes past
 	about 10 a second, without a word) */
@@ -195,6 +205,8 @@ enum
 	_topic_slots,
 	/* the answers to Online Games' pings (p2p_probe.c) */
 	_topic_probe,
+	/* Delta's doorbell (our brokers only) */
+	_topic_doorbell,
 };
 
 /* MQTT 5's properties */
@@ -235,6 +247,10 @@ enum
 struct broker
 {
 	char host[128];
+	/* one of ours (*.chupathingy.org): it carries the doorbell */
+	int ours;
+	/* the doorbell this connection named as its user name (empty: none) */
+	char doorbell[DOORBELL_SIZE];
 	unsigned short port;
 	unsigned long address;
 	int looked_up;
@@ -345,6 +361,14 @@ static struct
 
 	/* the prober's reply topic (p2p_signal_probe_topic; empty: none) */
 	char probe_topic[TOPIC_SIZE];
+
+	/* Delta's doorbell (p2p_signal_doorbell; empty: none), its topic, the
+	rings heard since p2p_signal_doorbell_rings, and whether the brokers
+	were started for it alone (only ours connected) */
+	char doorbell[DOORBELL_SIZE];
+	char doorbell_topic[TOPIC_SIZE];
+	int doorbell_rings;
+	int doorbell_only;
 
 	/* hosting */
 	int hosting;
@@ -714,6 +738,9 @@ static void broker_sync_topics(struct broker *broker)
 	wanted[_topic_query] = lobby && signalling.lobby_listed ? P2P_LOBBY_QUERY_TOPIC : "";
 	wanted[_topic_slots] = lobby && signalling.lobby_browsing ? P2P_LOBBY_SLOT_PREFIX "+" : "";
 	wanted[_topic_probe] = signalling.probe_topic;
+	/* (only on a connection made with this doorbell as its user name) */
+	wanted[_topic_doorbell] = broker->ours && signalling.doorbell[0] && !strcmp(broker->doorbell, signalling.doorbell) ?
+		signalling.doorbell_topic : "";
 	for (index = 0; index < NUMBER_OF_TOPICS; index++)
 	{
 		char *had = broker->topics[index];
@@ -796,16 +823,19 @@ static void broker_update_lobby(struct broker *broker)
 
 static void broker_connected(struct broker *broker)
 {
-	unsigned char body[32 + sizeof(signalling.client_identifier) + TOPIC_SIZE];
+	unsigned char body[32 + sizeof(signalling.client_identifier) + TOPIC_SIZE + 2 + DOORBELL_SIZE];
 	int size = 0;
 
 	if (!broker->protocol)
 		broker->protocol = 5;
+	/* (one of ours, with a doorbell: it is the user name, which our
+	brokers' ACL lets read doorbell/<user name> alone) */
+	snprintf(broker->doorbell, sizeof(broker->doorbell), "%s", broker->ours ? signalling.doorbell : "");
 	size += put_string(body, "MQTT");
 	body[size++] = (unsigned char)broker->protocol;
 	/* a clean session, and a will: an empty retained message to this
 	machine's slot, which clears its listing if the connection dies */
-	body[size++] = 0x02 | 0x04 | 0x20;
+	body[size++] = 0x02 | 0x04 | 0x20 | (broker->doorbell[0] ? 0x80 : 0);
 	body[size++] = 0;
 	body[size++] = KEEP_ALIVE_SECONDS;
 	if (broker->protocol == 5)
@@ -816,6 +846,8 @@ static void broker_connected(struct broker *broker)
 	size += put_string(body + size, signalling.own_slot);
 	body[size++] = 0;
 	body[size++] = 0;
+	if (broker->doorbell[0])
+		size += put_string(body + size, broker->doorbell);
 	broker->state = _broker_awaiting_acknowledgement;
 	broker->state_time = p2p_now();
 	broker_send(broker, 0x10, body, size);
@@ -1420,6 +1452,13 @@ static void publish_received(struct broker *broker, const char *topic, const uns
 
 	if (size > MAXIMUM_MESSAGE_SIZE + P2P_SEAL_OVERHEAD)
 		return;
+	if (broker->ours && signalling.doorbell_topic[0] && !strcmp(topic, signalling.doorbell_topic))
+	{
+		/* (a ring: what kind does not matter here) */
+		if (signalling.doorbell_rings < 1000)
+			signalling.doorbell_rings++;
+		return;
+	}
 	if (!strncmp(topic, P2P_LOBBY_SLOT_PREFIX, sizeof(P2P_LOBBY_SLOT_PREFIX) - 1))
 	{
 		p2p_lobby_slot_heard(topic + sizeof(P2P_LOBBY_SLOT_PREFIX) - 1, payload, size, retained);
@@ -1720,7 +1759,7 @@ static void broker_readable(struct broker *broker)
 beside its config.toml: the dedicated server's container, a macOS
 application (its config.toml in Application Support), a build run from its
 build folder. Keep it the same as that file */
-#define DEFAULT_BROKERS "mqtt.chupathingy.org:1883,broker.emqx.io:1883,broker.hivemq.com:1883,test.mosquitto.org:1883"
+#define DEFAULT_BROKERS "mqtt.chupathingy.org:1883,doorbell.chupathingy.org:1883,broker.emqx.io:1883,broker.hivemq.com:1883,test.mosquitto.org:1883"
 
 /* the brokers in network.brokers_file (beside config.toml, unless a full
 path: port/assets/network/brokers.txt, which the builds put there), one on
@@ -1765,15 +1804,32 @@ static void brokers_list(char *text, size_t size)
 	free(file);
 }
 
-void p2p_signal_start(void)
+/* whether host is one of our brokers (*.chupathingy.org) */
+static int our_broker(const char *host)
+{
+	static const char suffix[] = ".chupathingy.org";
+	size_t length = strlen(host), suffix_length = sizeof(suffix) - 1;
+	size_t index;
+
+	if (length <= suffix_length)
+		return 0;
+	for (index = 0; index < suffix_length; index++)
+	{
+		char letter = host[length - suffix_length + index];
+
+		if ((letter >= 'A' && letter <= 'Z' ? letter + 32 : letter) != suffix[index])
+			return 0;
+	}
+	return 1;
+}
+
+static void start_brokers(void)
 {
 	char list[1024];
 	const char *text;
 	unsigned char random[8];
 	char hex[17];
 
-	if (signalling.started)
-		return;
 	signalling.started = 1;
 	posix_random_bytes(random, sizeof(random));
 	p2p_hex(random, sizeof(random), hex);
@@ -1810,6 +1866,7 @@ void p2p_signal_start(void)
 				broker->port = network_short((unsigned short)atoi(colon + 1));
 				*colon = 0;
 			}
+			broker->ours = our_broker(broker->host);
 			/* connect at once */
 			broker->state_time = p2p_now() - RETRY_INTERVAL;
 			signalling.broker_count++;
@@ -1822,6 +1879,66 @@ void p2p_signal_start(void)
 		platform_log("Internet play: only the first %d signalling brokers are used", MAXIMUM_BROKERS);
 }
 
+void p2p_signal_start(void)
+{
+	if (!signalling.started)
+		start_brokers();
+	/* (every broker from now on) */
+	signalling.doorbell_only = 0;
+}
+
+/* whether a broker is in use now (with the doorbell alone, only ours) */
+static int broker_used(const struct broker *broker)
+{
+	return !signalling.doorbell_only || broker->ours;
+}
+
+void p2p_signal_doorbell(const char *doorbell)
+{
+	char wanted[DOORBELL_SIZE];
+	int index;
+
+	snprintf(wanted, sizeof(wanted), "%s", doorbell && strlen(doorbell) == DOORBELL_SIZE - 1 &&
+		strspn(doorbell, "0123456789abcdef") == DOORBELL_SIZE - 1 ? doorbell : "");
+	if (!strcmp(wanted, signalling.doorbell))
+		return;
+	memcpy(signalling.doorbell, wanted, sizeof(wanted));
+	signalling.doorbell_topic[0] = 0;
+	if (wanted[0])
+	{
+		snprintf(signalling.doorbell_topic, sizeof(signalling.doorbell_topic), "doorbell/%s", wanted);
+		if (!signalling.started)
+		{
+			start_brokers();
+			signalling.doorbell_only = 1;
+		}
+	}
+	/* (our brokers' connections made anew with it as the user name; without
+	one, the old subscription is just dropped) */
+	for (index = 0; index < signalling.broker_count; index++)
+	{
+		struct broker *broker = &signalling.brokers[index];
+
+		if (!broker->ours)
+			continue;
+		if (wanted[0] && strcmp(broker->doorbell, wanted) && broker->socket >= 0)
+		{
+			broker_close(broker, 0);
+			broker->state_time = p2p_now() - MAXIMUM_RETRY_INTERVAL;
+		}
+		else
+			broker_sync_topics(broker);
+	}
+}
+
+int p2p_signal_doorbell_rings(void)
+{
+	int rings = signalling.doorbell_rings;
+
+	signalling.doorbell_rings = 0;
+	return rings;
+}
+
 void p2p_signal_select_sets(int *read, int *read_count, int *write, int *write_count, int maximum_count)
 {
 	int index;
@@ -1831,7 +1948,7 @@ void p2p_signal_select_sets(int *read, int *read_count, int *write, int *write_c
 	{
 		struct broker *broker = &signalling.brokers[index];
 
-		if (broker->socket < 0)
+		if (broker->socket < 0 || !broker_used(broker))
 			continue;
 		read[(*read_count)++] = broker->socket;
 		if (broker->state == _broker_connecting || broker->output_size)
@@ -1862,6 +1979,8 @@ void p2p_signal_update(const int *read, int read_count, const int *write, int wr
 		int retry = broker->failures < 1 ? RETRY_INTERVAL :
 			broker->failures >= 4 ? MAXIMUM_RETRY_INTERVAL : RETRY_INTERVAL << (broker->failures - 1);
 
+		if (!broker_used(broker))
+			continue;
 		switch (broker->state)
 		{
 		case _broker_idle:

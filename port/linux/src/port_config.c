@@ -982,6 +982,11 @@ static const struct config_setting config_settings[] =
 		"Settings copy it." },
 	{ "network.public_lobby", _config_boolean, "true", "HALO_NET_PUBLIC_LOBBY", _environment_value,
 		_platform_all | _platform_server, PUBLIC_LOBBY_HELP },
+	{ "network.doorbell", _config_boolean, "true", "HALO_NET_DOORBELL", _environment_value, _platform_all,
+		"With your copy linked to Delta, hear invites, friend requests and\n"
+		"friends coming online right away instead of on the next check. The\n"
+		"site rings a doorbell only this copy knows; nothing personal goes\n"
+		"through it. false checks on the usual schedule only." },
 	{ "network.ping_games", _config_boolean, "true", "HALO_NET_PING_GAMES", _environment_value, _platform_all,
 		"Ping the hosts listed in Online Games. false shows estimated pings\n"
 		"only." },

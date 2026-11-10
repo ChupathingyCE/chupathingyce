@@ -3122,6 +3122,79 @@ signout signature   f579b26e3db2c34573a7a4e9842d85ef6646513dbf73706aeae41c825a44
                     1dddea806dbe0ecfd7a39b803e3e520190750980b2c4ff3689f2c19c1a66e80b
 ```
 
+### The doorbell
+
+The Guide asks the site for its friends every 20 seconds in the menus and
+every minute in a game (`POST /v1/social/state`; the site takes 6 a minute
+from a copy). The doorbell makes invites, friend requests, party changes
+and friends coming online show up within about a second instead: the site
+rings, and the game asks at once.
+
+- **No new connection:** the doorbell rides internet play's signalling
+  (`p2p_signal.c`), on the connections it keeps to our own brokers, the
+  `*.chupathingy.org` lines of `brokers.txt`: `mqtt.chupathingy.org:1883`
+  (halo-mqtt) and `doorbell.chupathingy.org:1883` (the site's host). The
+  game uses up to 5 brokers at once, so the public ones stay. When the game
+  isn't hosting, joining or browsing, the doorbell starts signalling with
+  our brokers alone; anything else that starts it brings in the rest.
+- **A doorbell per copy:** the site hands each linked copy its doorbell in
+  the friends state (`"doorbell"`: 32 hex digits, also in an unchanged
+  answer). It's the first 128 bits of HMAC-SHA256 under a key only the
+  site has, over `doorbell:<the copy's player ID>:<week>`: nobody can work
+  out another copy's doorbell, or whose a doorbell is. It changes every
+  week, so one that got out goes stale. The site rings the doorbell it last
+  handed each copy, so a ring at the turn of the week still reaches it, and
+  the copy's next poll hands it the new one. The topic is
+  `doorbell/<doorbell>`.
+- **Listening:** on our brokers only, signalling's CONNECT carries the
+  doorbell as its MQTT user name (no password; the client ID stays
+  signalling's own), and subscribes to `doorbell/<doorbell>` at QoS 0. A
+  new doorbell makes those two connections anew; the others never see it.
+- **The brokers' ACL** on the signalling listener (1883, anonymous):
+  `topic readwrite hceu/#` and `pattern readwrite hceu/#` (signalling, for
+  clients with and without a user name: plain `topic` lines cover only
+  clients without one), and `pattern read doorbell/%u`. A client reads
+  only the doorbell that is its user name (mosquitto checks each message as
+  it delivers it, so a wildcard or someone else's doorbell gets nothing,
+  and names with `+` or `#` never match), and nobody on that listener can
+  publish to `doorbell/`. The site rings through a second listener (8883,
+  TLS, `per_listener_settings`) as `doorbell-site`, which may only write
+  `doorbell/+`. Signalling on 1883 is unchanged for every client, OpenCE's
+  included.
+- **Ringing:** a ring is QoS 0, not retained, one byte: what changed (1
+  friends, 2 invite, 3 party, 4 presence; anything else, or none, is a ring
+  all the same). No handle, no name, no game. The site rings both brokers.
+- **Who hears what:** the site rings only copies that asked for their
+  friends in the last 3 minutes, at most 12 times a minute each. A friend
+  request rings the one it went to (never when they block the sender: a
+  block stays silent and rings only the blocker's own copies), becoming
+  friends or a removal rings both, a decline rings only the one who
+  declined, an invite rings the friend invited, and a profile coming
+  online, going into a game or turning "appear offline" off rings its
+  friends (never while it appears offline or hides what it plays; turning
+  it on rings nobody, and friends see it on their next poll).
+  Parties ring with kind 3 once they're on the site.
+- **On a ring:** the game polls at once, at least 2 seconds after the last
+  poll, and only while fewer than 2 polls went out early for a ring and
+  fewer than 5 went out at all in the last minute. The schedule's own
+  polls never use up a ring's room, so a ring speeds things up in the
+  menus too, and the menus' 3 a minute plus rings stay at 5 or fewer, so a
+  join or an invite still fits. A ring never cuts short a wait the site asked for
+  (429, an unlinked copy).
+- **Failing:** our brokers fail and come back as signalling's always have
+  (its retries). Without a doorbell the polls go on as before.
+- **What a watcher sees:** signalling on 1883 is plain MQTT, as it always
+  was: someone on the network path could see a copy's doorbell and when it
+  rings, never what changed or for whom.
+- **The setting:** `network.doorbell` (on by default; it changes nothing in
+  a game). Off, or a copy not linked, no user name and no subscription.
+  Consoles keep polling (they have no Guide's friends yet).
+- **The code:** `p2p_signal.c` (`p2p_signal_doorbell`), `p2p.c`
+  (`p2p_doorbell`, `p2p_doorbell_rings`), `browser.c` and `social.c` (the
+  ring's poll), and the site's `doorbell.py`. Tests: `tools/test_doorbell.py`
+  (signalling against a local mosquitto with the brokers' ACL, when
+  installed), `tools/test_social.py`, and puma's `test_doorbell.py`.
+
 ### Clans
 
 Clans are groups of Delta profiles, kept by the game list (its
