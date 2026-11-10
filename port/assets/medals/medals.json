@@ -1,0 +1,399 @@
+{
+ "generated": "tools/medal_assets.py from ChupathingyCE/puma web/site.js: do not edit",
+ "site_digest": "a855c5b2b773545cb77eb0611d24b495fea40db99913bba7c7e6d02b91280c31",
+ "columns": 8,
+ "sizes": [
+  32,
+  64
+ ],
+ "atlases": {
+  "32": "medals-32.png",
+  "64": "medals-64.png"
+ },
+ "medals": [
+  {
+   "key": "victory",
+   "name": "Victory",
+   "desc": "Won the game",
+   "tier": "gold",
+   "family": "award",
+   "index": 0
+  },
+  {
+   "key": "perfection",
+   "name": "Perfection",
+   "desc": "Won without dying once",
+   "tier": "platinum",
+   "family": "award",
+   "index": 1
+  },
+  {
+   "key": "flawless",
+   "name": "Flawless",
+   "desc": "Finished the game without dying",
+   "tier": "silver",
+   "family": "award",
+   "index": 2
+  },
+  {
+   "key": "most_kills",
+   "name": "Most Kills",
+   "desc": "More kills than anyone in the game",
+   "tier": "red",
+   "family": "award",
+   "index": 3
+  },
+  {
+   "key": "wingman",
+   "name": "Wingman",
+   "desc": "More assists than anyone in the game",
+   "tier": "blue",
+   "family": "award",
+   "index": 4
+  },
+  {
+   "key": "multikill",
+   "name": "Multi Kill",
+   "desc": "Kills close together, counted by the game",
+   "tier": "orange",
+   "family": "multi",
+   "index": 5
+  },
+  {
+   "key": "flag_capture",
+   "name": "Flag Capture",
+   "desc": "Brought the enemy flag home",
+   "tier": "gold",
+   "family": "objective",
+   "index": 6
+  },
+  {
+   "key": "flag_return",
+   "name": "Flag Return",
+   "desc": "Returned your team's flag",
+   "tier": "blue",
+   "family": "objective",
+   "index": 7
+  },
+  {
+   "key": "bomb_goal",
+   "name": "Goal",
+   "desc": "Scored with the bomb",
+   "tier": "gold",
+   "family": "objective",
+   "index": 8
+  },
+  {
+   "key": "bomb_carrier_kill",
+   "name": "Carrier Kill",
+   "desc": "Killed the bomb carrier",
+   "tier": "purple",
+   "family": "objective",
+   "index": 9
+  },
+  {
+   "key": "ball_hunter",
+   "name": "Ball Hunter",
+   "desc": "Killed the ball carrier",
+   "tier": "purple",
+   "family": "objective",
+   "index": 10
+  },
+  {
+   "key": "ball_hog",
+   "name": "Ball Hog",
+   "desc": "Held the ball longest",
+   "tier": "purple",
+   "family": "objective",
+   "index": 11
+  },
+  {
+   "key": "hill_king",
+   "name": "Hill King",
+   "desc": "Held the hill longest",
+   "tier": "gold",
+   "family": "objective",
+   "index": 12
+  },
+  {
+   "key": "lap_leader",
+   "name": "Lap Leader",
+   "desc": "Most laps in the race",
+   "tier": "teal",
+   "family": "objective",
+   "index": 13
+  },
+  {
+   "key": "betrayal",
+   "name": "Betrayal",
+   "desc": "Killed a teammate",
+   "tier": "gray",
+   "family": "shame",
+   "index": 14
+  },
+  {
+   "key": "suicide",
+   "name": "Suicide",
+   "desc": "Killed yourself",
+   "tier": "gray",
+   "family": "shame",
+   "index": 15
+  },
+  {
+   "key": "double_kill",
+   "name": "Double Kill",
+   "desc": "Two kills in quick succession",
+   "tier": "orange",
+   "family": "multi",
+   "index": 16
+  },
+  {
+   "key": "triple_kill",
+   "name": "Triple Kill",
+   "desc": "Three kills in quick succession",
+   "tier": "red",
+   "family": "multi",
+   "index": 17
+  },
+  {
+   "key": "killtacular",
+   "name": "Killtacular",
+   "desc": "Four kills in quick succession",
+   "tier": "purple",
+   "family": "multi",
+   "index": 18
+  },
+  {
+   "key": "killtrocity",
+   "name": "Killtrocity",
+   "desc": "Five kills in quick succession",
+   "tier": "platinum",
+   "family": "multi",
+   "index": 19
+  },
+  {
+   "key": "killing_spree",
+   "name": "Killing Spree",
+   "desc": "Five kills without dying",
+   "tier": "orange",
+   "family": "spree",
+   "index": 20
+  },
+  {
+   "key": "killing_frenzy",
+   "name": "Killing Frenzy",
+   "desc": "Ten kills without dying",
+   "tier": "red",
+   "family": "spree",
+   "index": 21
+  },
+  {
+   "key": "running_riot",
+   "name": "Running Riot",
+   "desc": "Fifteen kills without dying",
+   "tier": "purple",
+   "family": "spree",
+   "index": 22
+  },
+  {
+   "key": "rampage",
+   "name": "Rampage",
+   "desc": "Twenty kills without dying",
+   "tier": "platinum",
+   "family": "spree",
+   "index": 23
+  },
+  {
+   "key": "beat_down",
+   "name": "Beat Down",
+   "desc": "A melee kill",
+   "tier": "teal",
+   "family": "kill",
+   "index": 24
+  },
+  {
+   "key": "assassin",
+   "name": "Assassin",
+   "desc": "Killed an enemy from behind",
+   "tier": "purple",
+   "family": "kill",
+   "index": 25
+  },
+  {
+   "key": "sniper_kill",
+   "name": "Sniper Kill",
+   "desc": "A kill with the sniper rifle",
+   "tier": "blue",
+   "family": "kill",
+   "index": 26
+  },
+  {
+   "key": "grenade_stick",
+   "name": "Stuck",
+   "desc": "Stuck an enemy with a plasma grenade",
+   "tier": "blue",
+   "family": "kill",
+   "index": 27
+  },
+  {
+   "key": "splatter",
+   "name": "Splatter",
+   "desc": "Ran over an enemy",
+   "tier": "green",
+   "family": "kill",
+   "index": 28
+  },
+  {
+   "key": "killjoy",
+   "name": "Killjoy",
+   "desc": "Ended an enemy's spree of five or more",
+   "tier": "orange",
+   "family": "kill",
+   "index": 29
+  },
+  {
+   "key": "from_the_grave",
+   "name": "From the Grave",
+   "desc": "A kill after dying, from a grenade or rocket already on its way",
+   "tier": "purple",
+   "family": "kill",
+   "index": 30
+  },
+  {
+   "key": "killimanjaro",
+   "name": "Killimanjaro",
+   "desc": "Six kills in quick succession",
+   "tier": "gold",
+   "family": "multi",
+   "index": 31
+  },
+  {
+   "key": "killtastrophe",
+   "name": "Killtastrophe",
+   "desc": "Seven kills in quick succession",
+   "tier": "gold",
+   "family": "multi",
+   "index": 32
+  },
+  {
+   "key": "killpocalypse",
+   "name": "Killpocalypse",
+   "desc": "Eight kills in quick succession",
+   "tier": "gold",
+   "family": "multi",
+   "index": 33
+  },
+  {
+   "key": "killionaire",
+   "name": "Killionaire",
+   "desc": "Nine or more kills in quick succession",
+   "tier": "gold",
+   "family": "multi",
+   "index": 34
+  },
+  {
+   "key": "untouchable",
+   "name": "Untouchable",
+   "desc": "Twenty-five kills without dying",
+   "tier": "gold",
+   "family": "spree",
+   "index": 35
+  },
+  {
+   "key": "invincible",
+   "name": "Invincible",
+   "desc": "Thirty kills without dying",
+   "tier": "gold",
+   "family": "spree",
+   "index": 36
+  },
+  {
+   "key": "inconceivable",
+   "name": "Inconceivable",
+   "desc": "Thirty-five kills without dying",
+   "tier": "gold",
+   "family": "spree",
+   "index": 37
+  },
+  {
+   "key": "unfriggenbelievable",
+   "name": "Unfriggenbelievable",
+   "desc": "Forty kills without dying",
+   "tier": "gold",
+   "family": "spree",
+   "index": 38
+  },
+  {
+   "key": "sniper_spree",
+   "name": "Sniper Spree",
+   "desc": "Five sniper rifle kills without dying",
+   "tier": "blue",
+   "family": "spree",
+   "index": 39
+  },
+  {
+   "key": "sharpshooter",
+   "name": "Sharpshooter",
+   "desc": "Ten sniper rifle kills without dying",
+   "tier": "purple",
+   "family": "spree",
+   "index": 40
+  },
+  {
+   "key": "shotgun_spree",
+   "name": "Shotgun Spree",
+   "desc": "Five shotgun kills without dying",
+   "tier": "orange",
+   "family": "spree",
+   "index": 41
+  },
+  {
+   "key": "open_season",
+   "name": "Open Season",
+   "desc": "Ten shotgun kills without dying",
+   "tier": "red",
+   "family": "spree",
+   "index": 42
+  },
+  {
+   "key": "splatter_spree",
+   "name": "Splatter Spree",
+   "desc": "Five splatters without dying",
+   "tier": "green",
+   "family": "spree",
+   "index": 43
+  },
+  {
+   "key": "vehicular_manslaughter",
+   "name": "Vehicular Manslaughter",
+   "desc": "Ten splatters without dying",
+   "tier": "green",
+   "family": "spree",
+   "index": 44
+  },
+  {
+   "key": "stick_spree",
+   "name": "Stick Spree",
+   "desc": "Five plasma grenades stuck without dying",
+   "tier": "blue",
+   "family": "spree",
+   "index": 45
+  },
+  {
+   "key": "first_strike",
+   "name": "First Strike",
+   "desc": "The first kill of the game",
+   "tier": "teal",
+   "family": "kill",
+   "index": 46
+  },
+  {
+   "key": "revenge",
+   "name": "Revenge",
+   "desc": "Killed the player who killed you last",
+   "tier": "red",
+   "family": "kill",
+   "index": 47
+  }
+ ]
+}

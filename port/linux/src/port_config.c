@@ -296,6 +296,10 @@ static const struct config_setting config_settings[] =
 	{ "display.resolution", _config_string, "\"native\"", "HALO_RESOLUTION", _environment_value, _platform_desktop,
 		"The resolution in fullscreen and borderless. \"native\" uses the\n"
 		"display's own. Or give a size, like \"1920x1080\". The smallest is 640x480." },
+	{ "display.refresh_rate", _config_real, "0.0", "HALO_REFRESH_RATE", _environment_value, _platform_desktop,
+		"Fullscreen's refresh rate in Hz (the nearest the display has at the\n"
+		"resolution). 0 keeps the display's own. Windows and X11 only: Wayland,\n"
+		"XWayland, gamescope and the Mac keep their own." },
 	{ "display.window_size", _config_string, "\"\"", "HALO_WINDOW_SIZE", _environment_value, _platform_desktop,
 		"The window's size, like \"1920x1080\". The smallest is 640x480.\n"
 		"Leave it empty to use display.window_scale." },
@@ -441,8 +445,9 @@ static const struct config_setting config_settings[] =
 #if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_GAME_REPORTS)
 	{ "display.medals", _config_boolean, "false", "HALO_MEDALS", _environment_value, _platform_all | _platform_xbox,
 		"Show your medals on the HUD as you earn them in multiplayer (Double\n"
-		"Kill, Killing Spree). Off by default, as Halo shows none. Your medals\n"
-		"are counted in your service record either way." },
+		"Kill, Killing Spree): their icons in a row on the left, or their\n"
+		"names on a build without the icons. Off by default, as Halo shows\n"
+		"none. Your medals are counted in your service record either way." },
 #endif
 	{ "display.follow_camera", _config_string, "\"off\"", "HALO_FOLLOW_CAMERA", _environment_value,
 		_platform_all | _platform_xbox,
@@ -551,6 +556,14 @@ static const struct config_setting config_settings[] =
 	{ "display.per_pixel_lighting", _config_boolean, "false", "HALO_PER_PIXEL_LIGHTING", _environment_value,
 		_platform_all,
 		"Light models for each pixel instead of each vertex." },
+	{ "display.light_effects", _config_string, "\"auto\"", "HALO_LIGHT_EFFECTS", _environment_value,
+		_platform_desktop,
+		"Light from projectiles, muzzle flashes, glowing emitters and held\n"
+		"weapons, with soft falloff, and blocked by walls. \"high\" is all of\n"
+		"it, \"low\" only the shots and muzzle flashes, \"off\" the game's own\n"
+		"lighting. \"auto\" is \"high\", or \"off\" on a software renderer.\n"
+		"It changes only what is drawn, and players are lit by it only a\n"
+		"little. Based on chester's dynamic lighting in GulchCE." },
 	{ "display.doors_block_light", _config_boolean, "true", "HALO_DOORS_BLOCK_LIGHT", _environment_value,
 		_platform_all,
 		"A closed door stops a light behind it from lighting your side, such as\n"
@@ -625,6 +638,10 @@ static const struct config_setting config_settings[] =
 	{ "display.renderer", _config_string, "\"gl\"", "HALO_RENDERER", _environment_value, _platform_desktop,
 		"What draws the game. \"gl\" is OpenGL, the default. \"bgfx\" is a new\n"
 		"renderer we are testing: Metal on macOS, Vulkan on Windows and Linux.\n"
+#ifdef _WIN32
+		"On Windows, \"d3d11\" draws with Direct3D 11 instead, for testing on\n"
+		"computers whose Vulkan is missing or bad.\n"
+#endif
 		"If it can't start, the game draws with OpenGL. Set \"gl\" to go back.\n"
 		"Read when Chupathingy starts." },
 	{ "display.crt_filter", _config_boolean, "false", "HALO_CRT_FILTER", _environment_set_is_true, _platform_desktop,
@@ -1351,6 +1368,10 @@ static const struct config_setting config_settings[] =
 	{ "debug.network_test_moderate_time", _config_real, "20.0", "HALO_NETWORK_TEST_MODERATE_TIME", _environment_value,
 		_platform_all,
 		"Seconds into a test game before the host takes its Moderation action." },
+	{ "debug.medal_test", _config_string, "\"\"", "HALO_MEDAL_TEST", _environment_value, _platform_all,
+		"Tests: medals shown on the first player's HUD every 4 seconds, by\n"
+		"their keys split by spaces (\"double_kill killing_spree\"), with\n"
+		"display.medals on. Leave it empty for none." },
 	{ "debug.network_test_local_players", _config_integer, "1", "HALO_NETWORK_TEST_LOCAL_PLAYERS", _environment_value,
 		_platform_all,
 		"A test machine's players, from 1 to 4." },

@@ -1,0 +1,49 @@
+diff --git a/src/renderer_mtl.cpp b/src/renderer_mtl.cpp
+index 966da2f0..785128e6 100644
+--- a/src/renderer_mtl.cpp
++++ b/src/renderer_mtl.cpp
+@@ -22,6 +22,16 @@
+ #	include <IOKit/IOKitLib.h>
+ #endif // BX_PLATFORM_OSX
+ 
++// Shader libraries and pipeline states Metal has compiled, and the time it
++// took, for the application to read (it declares the same struct).
++struct bgfx_mtl_stats_t
++{
++	uint32_t libraries, pipelines;
++	double library_seconds, pipeline_seconds;
++};
++extern "C" bgfx_mtl_stats_t bgfx_mtl_stats;
++bgfx_mtl_stats_t bgfx_mtl_stats;
++
+ namespace bgfx { namespace mtl
+ {
+ 	struct PrimInfo
+@@ -3499,7 +3509,10 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
+ 
+ 				{
+ 					MTL::RenderPipelineReflection* reflection = NULL;
++					const int64_t start = bx::getHPCounter();
+ 					pso->m_rps = newRenderPipelineStateWithDescriptor(m_device, pd, MTL::PipelineOptionBufferTypeInfo, &reflection);
++					bgfx_mtl_stats.pipelines++;
++					bgfx_mtl_stats.pipeline_seconds += double(bx::getHPCounter() - start) / double(bx::getHPFrequency() );
+ 
+ 					BGFX_FATAL(NULL != pso->m_rps, Fatal::InvalidShader, "Failed to create graphics PSO: %s", s_lastPipelineError);
+ 
+@@ -4096,6 +4109,7 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
+ 		const char* code = (const char*)reader.getDataPtr();
+ 		bx::skip(&reader, shaderSize+1);
+ 
++		const int64_t start = bx::getHPCounter();
+ 		if (shaderSize >= 4
+ 		&&  0 == bx::memCmp(code, "MTLB", 4) )
+ 		{
+@@ -4105,6 +4119,8 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
+ 		{
+ 			m_lib = newLibraryWithSource(s_renderMtl->m_device, code);
+ 		}
++		bgfx_mtl_stats.libraries++;
++		bgfx_mtl_stats.library_seconds += double(bx::getHPCounter() - start) / double(bx::getHPFrequency() );
+ 
+ 		if (NULL != m_lib)
+ 		{

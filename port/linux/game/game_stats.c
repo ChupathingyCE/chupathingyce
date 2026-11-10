@@ -52,6 +52,10 @@ Called each frame from the main loop (main.c).
 #include "../src/browser.h"
 #include "../src/game_report.h"
 #include "../src/medal_rules.h"
+#include "medal_hud.h"
+#ifdef HALO_MEDAL_ICONS
+#include "../src/ui_overlay.h"
+#endif
 #ifdef HALO_GAME_BROWSER
 #include "interface/player_ui.h"
 #include "saved games/player_profile.h"
@@ -223,6 +227,9 @@ static void stats_reset(
 	game_stats.client_reported = FALSE;
 	game_stats.console_claimed = FALSE;
 	medal_game_reset(&game_stats.medal_game);
+#ifdef HALO_MEDAL_ICONS
+	medal_hud_clear();
+#endif
 #ifdef HALO_GAME_BROWSER
 	game_stats.service_recorded = FALSE;
 #endif
@@ -362,7 +369,8 @@ static boolean stats_weapon_has(
 }
 
 /* a medal of this machine's own player, on their HUD (display.medals, off
-by default: retail Halo shows none) */
+by default: retail Halo shows none): its icon (medal_hud.c), else, in a
+build without the icons, its name as a line of the HUD's messages */
 static void stats_medal_popup(
 	long player_index,
 	int medal)
@@ -374,6 +382,13 @@ static void stats_medal_popup(
 
 	if (!player || player->local_player_index == NONE || !config_boolean("display.medals"))
 		return;
+#ifdef HALO_MEDAL_ICONS
+	if (ui_overlay_medals_available())
+	{
+		medal_hud_earned(player->local_player_index, medal_rules_key(medal));
+		return;
+	}
+#endif
 	for (index = 0; name[index] && index < (short)(NUMBEROF(text) - 1); index++)
 		text[index] = (wchar_t)(unsigned char)name[index];
 	text[index] = 0;

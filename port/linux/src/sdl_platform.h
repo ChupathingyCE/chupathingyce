@@ -107,6 +107,9 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height);
 #ifdef HALO_BGFX
 /* the window again for OpenGL, when bgfx does not start (d3d8_bgfx.inl) */
 BOOL platform_video_reopen_for_gl(void);
+/* display.renderer chooses bgfx: "bgfx", or on Windows "d3d11" (bgfx on
+Direct3D 11) */
+BOOL platform_bgfx_chosen(void);
 #endif
 #ifndef HALO_ANDROID
 BOOL platform_screen_mode(long *width, long *height);
