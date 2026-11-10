@@ -1105,6 +1105,11 @@ static const struct config_setting config_settings[] =
 	/* ---- update */
 	{ "update.auto", _config_boolean, "true", "HALO_UPDATE_AUTO", _environment_value, _platform_all,
 		"Check for a new version when Chupathingy starts." },
+#if defined(_WIN32) && !defined(HALO_64BIT)
+	{ "update.offer_64bit", _config_boolean, "true", "HALO_UPDATE_OFFER_64BIT", _environment_value, _platform_windows,
+		"On 64-bit Windows, offer to switch this 32-bit build to the 64-bit\n"
+		"one. Set to false when you say Keep 32-bit." },
+#endif
 #endif
 
 #ifndef HALO_CONSOLE_NO_DISCORD

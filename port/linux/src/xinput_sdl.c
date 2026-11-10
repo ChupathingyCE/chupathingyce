@@ -199,11 +199,15 @@ int halo_linux_mouse_aiming(short gamepad_index)
 	/* the host's policy (network.block_mouse_aim_assist, network_distributed.c)
 	turns the magnetism off for whoever aims with the mouse, whatever their
 	own setting: the mouse aims unless the right stick (or a touch) did last,
-	and no stick aiming at all is the mouse's */
+	and no stick aiming at all is the mouse's, except before anything aimed
+	with a controller connected (a pad player yet to touch the right stick) */
 	if (network_aim_assist_blocked())
 	{
+		int gamepad_connected = SDL_HasGamepad() ? 1 : 0;
+
 		pthread_mutex_lock(&mouse_lock);
-		aiming = network_rules_mouse_is_aim_device(mouse_aimed_ms, stick_aimed_ms, touch_aimed_ms);
+		aiming = network_rules_mouse_is_aim_device(mouse_aimed_ms, stick_aimed_ms, touch_aimed_ms,
+			gamepad_connected);
 		pthread_mutex_unlock(&mouse_lock);
 		return aiming;
 	}
