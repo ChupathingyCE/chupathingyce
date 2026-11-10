@@ -49,6 +49,61 @@ int crash_reporter_process(void);
 /* xbox_files.c's: the logs folder, before the game knows its data root */
 int platform_logs_folder_early(char *path, unsigned long size);
 
+/* Windows 11 throttles a process whose windows are minimized or behind
+others: EcoQoS (a slower, more efficient core and clock) and its timer
+resolution requests ignored, so the 1 ms of timeBeginPeriod (below) turns
+back into 15.6 ms. The game keeps simulating and sending in the background
+(a network game, a host, a player alt-tabbed out), so it opts out of both,
+for a little power. SetProcessInformation's ProcessPowerThrottling is from
+Windows 10 1709 and its IGNORE_TIMER_RESOLUTION from Windows 11: an older
+Windows refuses the flag (asked again without it) or has no such call (the
+game runs on as before). Based on work by goatbutt and the OpenH1 team. */
+#define POWER_THROTTLING_INFORMATION_CLASS 4 /* ProcessPowerThrottling */
+#define POWER_THROTTLING_VERSION 1
+#define POWER_THROTTLING_EXECUTION_SPEED 0x1
+#define POWER_THROTTLING_IGNORE_TIMER_RESOLUTION 0x4
+
+struct power_throttling_state
+{
+	ULONG version;
+	ULONG control_mask;
+	ULONG state_mask;
+};
+
+static void power_throttling_opt_out(void)
+{
+	typedef BOOL (WINAPI *set_information_function)(HANDLE, int, void *, DWORD);
+	HMODULE kernel = GetModuleHandleW(L"kernel32.dll");
+	set_information_function set_information = kernel ?
+		(set_information_function)(void *)GetProcAddress(kernel, "SetProcessInformation") : NULL;
+	struct power_throttling_state state;
+	DWORD error;
+
+	if (!set_information)
+	{
+		fprintf(stderr, "power throttling: left to Windows (no SetProcessInformation)\n");
+		return;
+	}
+	/* (a set control bit with its state bit clear: that throttling off) */
+	memset(&state, 0, sizeof(state));
+	state.version = POWER_THROTTLING_VERSION;
+	state.control_mask = POWER_THROTTLING_EXECUTION_SPEED | POWER_THROTTLING_IGNORE_TIMER_RESOLUTION;
+	if (set_information(GetCurrentProcess(), POWER_THROTTLING_INFORMATION_CLASS, &state, sizeof(state)))
+	{
+		fprintf(stderr, "power throttling: off (full speed and the 1 ms timer kept in the background)\n");
+		return;
+	}
+	error = GetLastError();
+	state.control_mask = POWER_THROTTLING_EXECUTION_SPEED;
+	if (set_information(GetCurrentProcess(), POWER_THROTTLING_INFORMATION_CLASS, &state, sizeof(state)))
+	{
+		fprintf(stderr, "power throttling: off; this Windows keeps the timer's own (error %lu)\n",
+			(unsigned long)error);
+		return;
+	}
+	fprintf(stderr, "power throttling: left to Windows (error %lu)\n", (unsigned long)GetLastError());
+}
+
 __attribute__((constructor))
 static void windows_startup(void)
 {
@@ -89,6 +144,8 @@ static void windows_startup(void)
 				setvbuf(stderr, NULL, _IONBF, 0);
 		}
 	}
+	/* (after the log is open, so its line lands in halo.log) */
+	power_throttling_opt_out();
 }
 
 #ifdef HALO_64BIT
