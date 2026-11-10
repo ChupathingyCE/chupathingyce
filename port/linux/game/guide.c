@@ -9,7 +9,7 @@ data social.c's.
 
 The panel: the player's card (their name and what they're doing), then
 the sections, switched with LB and RB (Q and E, or a click): FRIENDS,
-PARTY, PLAYERS HERE, RECENT and SETTINGS.
+PARTY, PLAYERS HERE, RECENT, SERVICE RECORD and SETTINGS.
 - PLAYERS HERE lists the game's players: their Delta Tag when they share
   their profile (else their game name), their platform's logo when the game
   is on Delta, and a local Mute (the chat log's, chat.c). A player verified
@@ -40,6 +40,9 @@ PARTY, PLAYERS HERE, RECENT and SETTINGS.
   game's halo://join link; or one line why they can't. Each member's copy
   tells the game's host its party (Delta Peer's party_teams), so a host
   that keeps parties together puts them on one team.
+- SERVICE RECORD is the first player's own record: this device's
+  (service_record.c, kept as their games end) beside their Delta
+  profile's, and MEDALS ON HUD (guide_record.c).
 - RECENT is the Delta players from this player's last games: the site's
   (its confirmed report lines) and those verified in games this run, newest
   first. A on a row: ADD FRIEND (Y too), BLOCK (pressed twice) and VIEW
@@ -111,6 +114,7 @@ GUIDE counts what waits ("GUIDE 2": invites and requests).
 #include "halo_ui_pointer.h"
 #include "halo_profile_screen.h"
 #include "chat.h"
+#include "guide_record.h"
 #include "report_player.h"
 
 #include <stdio.h>
@@ -2635,6 +2639,8 @@ static short section_rows(short section)
 		return (short)guide.players.count;
 	case SOCIAL_SECTION_SETTINGS:
 		return settings_rows();
+	case SOCIAL_SECTION_SERVICE_RECORD:
+		return guide_record_rows();
 	case SOCIAL_SECTION_PARTY:
 	{
 		struct party_item items[MAXIMUM_PARTY_ITEMS];
@@ -2673,6 +2679,8 @@ static void section_go(short section)
 	/* (a report left half-made is dropped) */
 	while (report_player_step() != _report_step_none)
 		report_player_back();
+	if (guide.section == SOCIAL_SECTION_SERVICE_RECORD)
+		guide_record_open();
 }
 
 /* A on the chosen row */
@@ -2684,6 +2692,9 @@ static void activate(void)
 	{
 	case SOCIAL_SECTION_PLAYERS_HERE:
 		players_activate(row);
+		return;
+	case SOCIAL_SECTION_SERVICE_RECORD:
+		guide_record_activate();
 		return;
 	case SOCIAL_SECTION_SETTINGS:
 		if (row >= settings_count())
@@ -3826,6 +3837,9 @@ static void render_prompts(void)
 	case SOCIAL_SECTION_SETTINGS:
 		word = guide.row[guide.section] >= settings_count() ? "OPEN" : "CHANGE";
 		break;
+	case SOCIAL_SECTION_SERVICE_RECORD:
+		word = guide_record_prompt();
+		break;
 	case SOCIAL_SECTION_FRIENDS:
 		if (friends_signed_in())
 		{
@@ -4567,6 +4581,9 @@ void guide_render(void)
 		break;
 	case SOCIAL_SECTION_SETTINGS:
 		render_settings();
+		break;
+	case SOCIAL_SECTION_SERVICE_RECORD:
+		guide_record_render(CONTENT_LEFT, BODY_Y, CONTENT_RIGHT, BODY_BOTTOM, TRUE);
 		break;
 	case SOCIAL_SECTION_FRIENDS:
 		if (friends_signed_in())

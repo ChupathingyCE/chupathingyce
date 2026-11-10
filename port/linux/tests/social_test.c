@@ -11,6 +11,7 @@ discord_activity.c and delta_profile.c; exits nonzero on a failure.
 #include "../src/discord_activity.h"
 #include "../src/delta_profile.h"
 
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -44,6 +45,7 @@ static void test_sections(void)
 	CHECK(!strcmp(social_section_name(SOCIAL_SECTION_CLAN), "CLAN"));
 	CHECK(!strcmp(social_section_name(SOCIAL_SECTION_PLAYERS_HERE), "PLAYERS HERE"));
 	CHECK(!strcmp(social_section_name(SOCIAL_SECTION_SETTINGS), "SETTINGS"));
+	CHECK(!strcmp(social_section_name(SOCIAL_SECTION_SERVICE_RECORD), "SERVICE RECORD"));
 	CHECK(!strcmp(social_section_name(-1), ""));
 	CHECK(!strcmp(social_section_name(NUMBER_OF_SOCIAL_SECTIONS), ""));
 }
@@ -441,6 +443,31 @@ static void test_presence(void)
 	CHECK(social_presence_fields(fields, 20, "0123456789abcdef0123456789abcdef0123456789ab") == -1);
 }
 
+/* the service record's details from the site (an older site sends none) */
+static void test_record(void)
+{
+	static struct delta_profile profile;
+
+	CHECK(delta_profile_parse("{\"linked\": true, \"handle\": \"grif\", \"record\": {\"games\": 4, \"kills\": 30, "
+		"\"best_spree\": 7, \"favorite_map\": \"bloodgulch\", \"favorite_weapon\": \"sniper rifle\", "
+		"\"medal_counts\": {\"victory\": 2, \"double_kill\": 9, \"revenge\": 0, \"killjoy\": 3, \"rampage\": 1, "
+		"\"first_strike\": 5}}}", &profile));
+	CHECK(profile.has_record && profile.record_games == 4 && profile.record_best_spree == 7);
+	CHECK(!strcmp(profile.record_favorite_map, "bloodgulch") && !strcmp(profile.record_favorite_weapon, "sniper rifle"));
+	CHECK(profile.record_top_medal_count == 3);
+	CHECK(!strcmp(profile.record_top_medals[0].key, "double_kill") && profile.record_top_medals[0].count == 9);
+	CHECK(!strcmp(profile.record_top_medals[1].key, "first_strike") && profile.record_top_medals[2].count == 3);
+	CHECK(delta_profile_parse("{\"linked\": true, \"handle\": \"grif\", \"record\": {\"games\": 1, \"medals\": 2}}", &profile));
+	CHECK(profile.record_games == 1 && profile.record_top_medal_count == 0 && !profile.record_favorite_map[0]);
+	/* (numbers past an int's range, or a double's, are held at the end,
+	never cast as they are) */
+	CHECK(delta_profile_parse("{\"linked\": true, \"handle\": \"grif\", \"record\": {\"best_spree\": 1e300, "
+		"\"medal_counts\": {\"victory\": 4294967297, \"killjoy\": -1e300, \"rampage\": 3}}}", &profile));
+	CHECK(profile.record_best_spree == INT_MAX);
+	CHECK(profile.record_top_medal_count == 2 && profile.record_top_medals[0].count == INT_MAX &&
+		!strcmp(profile.record_top_medals[1].key, "rampage") && profile.record_top_medals[1].count == 3);
+}
+
 static const char party_text[] =
 	"{\"cursor\": \"0011223344556677\", \"same\": false, \"you\": {\"handle\": \"grif\"}, \"friends\": [],"
 	" \"party\": {\"id\": \"0123456789abcdef\", \"code\": \"GQ7RTX\", \"link\": \"halo://party/GQ7RTX\","
@@ -638,6 +665,7 @@ int main(void)
 	test_party();
 	test_recent();
 	test_clan();
+	test_record();
 	if (failures)
 	{
 		printf("%d failed\n", failures);

@@ -2008,10 +2008,8 @@ ignored.
 How each is known: kills and damage at the blow (`damage.c`), shots per
 projectile a trigger makes (`weapons.c`; grenades thrown count as shots of
 the grenade), hits per projectile that damaged another player (melee
-excluded); medals and sprees are worked out from the kills as Halo does
-(multikills within 4 seconds; sprees at 5, 10, 15, 20; Killjoy for ending
-a spree of 5 or more; From the Grave for a kill that lands after its
-killer died; Beat Down, Sniper Kill, Stuck, Splatter); objectives, rides,
+excluded); medals and sprees are worked out from the kills by the rules
+under "Medals"; objectives, rides,
 pickups, powerups and spawns from each player's state each frame; positions
 every `network.events_positions` seconds (2) per living player; ping every
 10 seconds; health each minute (dedicated servers only).
@@ -2031,6 +2029,40 @@ thread; `server/platform/server_events.c` queues it
 (`event_upload_moderation`) for the game's thread. A game that ends with everyone gone is sent as `empty`; a
 server that stops mid-game sends nothing for it. Anti-cheat `flags` are a
 schema slot with nothing filling it yet.
+
+### Medals
+
+One set of rules gives every medal the game reports
+(`port/linux/src/medal_rules.h`): Delta Stats' batch (`"medals"`, each
+player's `"medals": {key: count}`), the game list's carnage reports and a
+console's reports (each line's `"medals"`, from `game_stats.c`), the local
+service record, and the HUD's pop-ups (`display.medals`, off by default).
+They are worked out from the kills the machine saw and change nothing in
+the game. A betrayal or a suicide earns none and ends the dead player's
+sprees. The keys, in their order:
+
+- Multikills, each kill within 4 seconds of the one before (the game's own
+  window): `double_kill` (2), `triple_kill`, `killtacular`, `killtrocity`
+  (5), as Halo: Combat Evolved has them, then Halo 3's `killimanjaro` (6),
+  `killtastrophe`, `killpocalypse` and `killionaire` (9 and every kill
+  after).
+- Sprees, kills without dying: `killing_spree` (5), `killing_frenzy`,
+  `running_riot`, `rampage` (20), `untouchable`, `invincible`,
+  `inconceivable`, `unfriggenbelievable` (40).
+- A kill's: `beat_down` (melee), `sniper_kill`, `grenade_stick` (Stuck),
+  `splatter`, `from_the_grave` (the killer dead as it landed), `killjoy`
+  (the end of a spree of 5 or more), `first_strike` (the game's first
+  kill), `revenge` (the player who killed you last).
+- A weapon's sprees, its kills without dying: `sniper_spree` (5) and
+  `sharpshooter` (10), `shotgun_spree` and `open_season`, `splatter_spree`
+  and `vehicular_manslaughter`, `stick_spree` (5 stuck).
+
+Splatter and its sprees need the damage's category, which only the host's
+Delta Stats has; the carnage reports leave them out. Older builds report
+fewer keys (Halo CE's four multikills and four sprees, Killtrocity for 5
+and more). The site takes any key (at most 64 a line) and counts the ones
+it knows (`site.js`, `MEDALS`); its checks hold a line's multikill medals
+to its kills, and its sprees, five kills each, too.
 
 ### Map facts
 
@@ -2348,6 +2380,24 @@ copy: every Halo profile on a copy counts for the same Delta profile.
   `display.profile_names = false` shows everyone by their game name.
 - **Consoles:** `HALO_CONSOLE_NO_DELTA_PROFILE` leaves all of it out. A
   console that has the game list keeps Online Games' Link Profile panel.
+- **Service record:** the profile's `"record"` has the site's totals of
+  its confirmed games (host and verified: only games of linked copies
+  count) and, from a site with them, `"best_spree"`, `"favorite_map"` (a
+  map key), `"favorite_weapon"` (a weapon family, "sniper rifle": the
+  second part of `weapons\...` or `vehicles\...` damage paths) and
+  `"medal_counts"` ({key: count}, most first, the medals the games
+  reported). An older site sends none of these and the game shows what it
+  has. `GET /v1/profiles/ID/record` gives the same record to anyone, except
+  for a locked profile or one that hides its service record (404).
+- **DELTA's SERVICE RECORD** (`port/linux/game/guide_record.c`) shows the
+  first player's Halo profile's own record beside the site's. The game
+  keeps it in the profile's folder (`service_record.txt`,
+  `port/linux/src/service_record.c`): every multiplayer game the profile
+  finished on that device, as `game_stats.c` adds it a few seconds after
+  the end (the host's final statistics, the medals and weapons of the
+  kills it saw). It is never sent. A win is counted as the site counts
+  one (the best team, else first place). Its one row, MEDALS ON HUD, is
+  `display.medals`.
 
 ### Link Profile on a console
 

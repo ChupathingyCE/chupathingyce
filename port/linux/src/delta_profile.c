@@ -12,6 +12,8 @@ known is skipped, and text keeps no control characters.
 #include "delta_profile.h"
 #include "social.h"
 
+#include <limits.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -202,7 +204,23 @@ static long long number_value(struct reader *reader)
 		return 0;
 	}
 	reader->at = end;
+	/* (a number past what a long long holds, or not a number at all, is
+	never cast as it is: that is undefined) */
+	if (value != value)
+		return 0;
+	if (value >= 9.2e18)
+		return LLONG_MAX;
+	if (value <= -9.2e18)
+		return LLONG_MIN;
 	return (long long)value;
+}
+
+/* a number for an int field: past an int's range, held at its end */
+static int int_value(struct reader *reader)
+{
+	long long value = number_value(reader);
+
+	return value > INT_MAX ? INT_MAX : value < INT_MIN ? INT_MIN : (int)value;
 }
 
 static int boolean_value(struct reader *reader)
@@ -292,6 +310,38 @@ static void skip_value(struct reader *reader, int depth)
 
 /* ---------- the profile */
 
+/* the record's "medal_counts" ({key: count}): the most earned kept, most
+first (ties: the order they came in) */
+static void read_medal_counts(struct reader *reader, struct delta_profile *profile)
+{
+	char key[32];
+	int first = 1;
+
+	if (!take(reader, '{'))
+	{
+		skip_value(reader, 0);
+		return;
+	}
+	while (!reader->failed && member(reader, key, sizeof(key), &first))
+	{
+		int count = int_value(reader);
+		int place = profile->record_top_medal_count;
+
+		if (count <= 0 || !key[0])
+			continue;
+		while (place > 0 && profile->record_top_medals[place - 1].count < count)
+			place--;
+		if (place >= DELTA_PROFILE_TOP_MEDALS)
+			continue;
+		if (profile->record_top_medal_count < DELTA_PROFILE_TOP_MEDALS)
+			profile->record_top_medal_count++;
+		memmove(&profile->record_top_medals[place + 1], &profile->record_top_medals[place],
+			(size_t)(profile->record_top_medal_count - 1 - place) * sizeof(profile->record_top_medals[0]));
+		snprintf(profile->record_top_medals[place].key, sizeof(profile->record_top_medals[place].key), "%s", key);
+		profile->record_top_medals[place].count = count;
+	}
+}
+
 static void read_record(struct reader *reader, struct delta_profile *profile)
 {
 	char key[32];
@@ -321,6 +371,14 @@ static void read_record(struct reader *reader, struct delta_profile *profile)
 			profile->record_seconds = number_value(reader);
 		else if (!strcmp(key, "best_type"))
 			text_value(reader, profile->record_best_type, sizeof(profile->record_best_type));
+		else if (!strcmp(key, "best_spree"))
+			profile->record_best_spree = int_value(reader);
+		else if (!strcmp(key, "favorite_map"))
+			text_value(reader, profile->record_favorite_map, sizeof(profile->record_favorite_map));
+		else if (!strcmp(key, "favorite_weapon"))
+			text_value(reader, profile->record_favorite_weapon, sizeof(profile->record_favorite_weapon));
+		else if (!strcmp(key, "medal_counts"))
+			read_medal_counts(reader, profile);
 		else
 			skip_value(reader, 1);
 	}
