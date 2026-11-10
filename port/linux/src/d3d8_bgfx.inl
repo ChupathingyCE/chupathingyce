@@ -3,8 +3,8 @@ D3D8_BGFX.INL
 
 A test renderer: the Xbox Direct3D 8 device drawn with bgfx instead of
 OpenGL, so that each platform can draw with its own API: Metal on macOS,
-Vulkan on Windows and Linux, and Direct3D 11 on Windows when Vulkan does not
-start (or display.renderer = "d3d11"). display.renderer = "bgfx" (HALO_RENDERER=bgfx)
+Vulkan on Windows and Linux, and on Windows Direct3D 11 when display.renderer
+= "d3d11" asks for it (for testing). display.renderer = "bgfx" (HALO_RENDERER=bgfx)
 chooses it at start-up, in every 64-bit desktop build (configure.py
 --without-bgfx leaves it out); when bgfx cannot start, the game draws with
 OpenGL as usual (platform_video_reopen_for_gl). It is part of
@@ -82,8 +82,7 @@ BOOL xgpu_bgfx;
 /* the backend bgfx draws with: Vulkan (Windows, Linux) takes SPIR-V and
 its uniforms' table, Metal (macOS) its own language, which it reflects */
 static BOOL bg_vulkan;
-/* Direct3D 11 (Windows, when Vulkan does not start, or display.renderer =
-"d3d11"): the shaders as Metal's GLSL, through SPIRV-Cross to HLSL and
+/* Direct3D 11 (Windows, with display.renderer = "d3d11"): the shaders as Metal's GLSL, through SPIRV-Cross to HLSL and
 d3dcompiler_47 to DXBC (bg_hlsl, bg_dxbc), in the container Vulkan's go in */
 static BOOL bg_d3d11;
 
@@ -740,7 +739,7 @@ done:
 #ifdef __APPLE__
 /* Metal's shading language for the SPIR-V: the uniform block is bgfx's
 _mtl_u in buffer 0, each sampler at its binding, the entry point bgfx's */
-static char *bg_msl(const unsigned int *words, unsigned long word_count, BOOL fragment, const char **error)
+static char *bg_msl(const unsigned int *words, unsigned long word_count, BOOL fragment, char **error)
 {
 	spvc_context context = NULL;
 	spvc_parsed_ir ir;
@@ -753,7 +752,7 @@ static char *bg_msl(const unsigned int *words, unsigned long word_count, BOOL fr
 	char *copy = NULL;
 	SpvExecutionModel model = fragment ? SpvExecutionModelFragment : SpvExecutionModelVertex;
 
-	*error = "SPIRV-Cross";
+	*error = NULL;
 	if (spvc_context_create(&context) != SPVC_SUCCESS)
 		return NULL;
 	if (spvc_context_parse_spirv(context, (const SpvId *)words, word_count, &ir) != SPVC_SUCCESS ||
@@ -795,11 +794,15 @@ static char *bg_msl(const unsigned int *words, unsigned long word_count, BOOL fr
 	}
 	if (spvc_compiler_compile(compiler, &source) == SPVC_SUCCESS && source)
 		copy = strdup(source);
-	else
-		*error = spvc_context_get_last_error_string(context);
 done:
+	/* (the context's error, copied: it goes with the context) */
 	if (!copy)
-		platform_log("bgfx: SPIRV-Cross: %s", spvc_context_get_last_error_string(context));
+	{
+		const char *why = spvc_context_get_last_error_string(context);
+
+		platform_log("bgfx: SPIRV-Cross: %s", why);
+		*error = strdup(why && *why ? why : "SPIRV-Cross");
+	}
 	spvc_context_destroy(context);
 	return copy;
 }
@@ -824,7 +827,7 @@ static const struct
 is the stage's constant buffer 0, where bgfx puts its uniforms, at the
 block's std140 offsets; each sampler a texture and a sampler state at its
 stage (t and s); the inputs at bgfx's semantics */
-static char *bg_hlsl(const unsigned int *words, unsigned long word_count, BOOL fragment, const char **error)
+static char *bg_hlsl(const unsigned int *words, unsigned long word_count, BOOL fragment, char **error)
 {
 	spvc_context context = NULL;
 	spvc_parsed_ir ir;
@@ -836,7 +839,7 @@ static char *bg_hlsl(const unsigned int *words, unsigned long word_count, BOOL f
 	const char *source = NULL;
 	char *copy = NULL;
 
-	*error = "SPIRV-Cross";
+	*error = NULL;
 	if (spvc_context_create(&context) != SPVC_SUCCESS)
 		return NULL;
 	if (spvc_context_parse_spirv(context, (const SpvId *)words, word_count, &ir) != SPVC_SUCCESS ||
@@ -873,11 +876,15 @@ static char *bg_hlsl(const unsigned int *words, unsigned long word_count, BOOL f
 	}
 	if (spvc_compiler_compile(compiler, &source) == SPVC_SUCCESS && source)
 		copy = strdup(source);
-	else
-		*error = spvc_context_get_last_error_string(context);
 done:
+	/* (the context's error, copied: it goes with the context) */
 	if (!copy)
-		platform_log("bgfx: SPIRV-Cross (HLSL): %s", spvc_context_get_last_error_string(context));
+	{
+		const char *why = spvc_context_get_last_error_string(context);
+
+		platform_log("bgfx: SPIRV-Cross (HLSL): %s", why);
+		*error = strdup(why && *why ? why : "SPIRV-Cross");
+	}
 	spvc_context_destroy(context);
 	return copy;
 }
@@ -904,6 +911,14 @@ typedef long (__stdcall *bg_d3d_compile)(const void *source, size_t size, const 
 #define BG_D3DCOMPILE_FLAGS (1u << 15)
 
 static bg_d3d_compile bg_d3d_compiler;
+/* the compiler's file and version ("10.0.22621.1 native", or Wine's), part
+of the shader cache's key with BG_D3DCOMPILE_FLAGS */
+static char bg_d3d_compiler_identity[96] = "none";
+
+/* win32_posix.c's: a DLL from System32 only; a loaded module's file version
+and whether it is Wine's, as text */
+void *win32_system_library(const char *name);
+void win32_library_identity(void *module, char *text, unsigned long size);
 
 /* whether Direct3D's shader compiler is there (bg_initialize, before bgfx
 starts on Direct3D 11) */
@@ -913,9 +928,15 @@ static BOOL bg_dxbc_available(void)
 
 	if (bg_d3d_compiler)
 		return TRUE;
-	library = SDL_LoadObject("d3dcompiler_47.dll");
+	/* (System32's only: never one in the game's folder or the working
+	directory) */
+	library = (SDL_SharedObject *)win32_system_library("d3dcompiler_47.dll");
 	if (library)
+	{
 		bg_d3d_compiler = (bg_d3d_compile)SDL_LoadFunction(library, "D3DCompile");
+		win32_library_identity(library, bg_d3d_compiler_identity, sizeof(bg_d3d_compiler_identity));
+		platform_log("bgfx: d3dcompiler_47.dll %s", bg_d3d_compiler_identity);
+	}
 	if (!bg_d3d_compiler)
 		platform_log("bgfx: Direct3D 11 needs d3dcompiler_47.dll, which is missing");
 	return bg_d3d_compiler != NULL;
@@ -1330,13 +1351,13 @@ static char *bg_compile(const char *source, BOOL fragment, const char *what, cha
 #ifdef _WIN32
 	else if (bg_d3d11)
 	{
-		const char *why = NULL;
+		char *why = NULL;
 		char *hlsl = bg_hlsl(words, count, fragment, &why);
 		unsigned long dxbc_size = 0;
 		unsigned int *dxbc;
 
 		if (!hlsl)
-			*error = strdup(why ? why : "SPIRV-Cross");
+			*error = why ? why : strdup("SPIRV-Cross");
 		else if ((dxbc = bg_dxbc(hlsl, fragment, &dxbc_size, error)) != NULL)
 		{
 			if ((code = bg_vulkan_container(dxbc, dxbc_size, source, fragment, size)) == NULL)
@@ -1349,12 +1370,12 @@ static char *bg_compile(const char *source, BOOL fragment, const char *what, cha
 #ifdef __APPLE__
 	else
 	{
-		const char *why = NULL;
+		char *why = NULL;
 
 		if ((code = bg_msl(words, count, fragment, &why)) != NULL)
 			*size = (unsigned long)strlen(code);
 		else
-			*error = strdup(why ? why : "SPIRV-Cross");
+			*error = why ? why : strdup("SPIRV-Cross");
 	}
 #endif
 	free(words);
@@ -1414,6 +1435,16 @@ static void bg_cache_start(void)
 	snprintf(versions, sizeof(versions), "%s %d glslang %d.%d.%d%s spirv-cross %u.%u.%u bgfx %d",
 		bg_backend_folder(), BG_SHADER_CACHE_FORMAT, glslang.major, glslang.minor, glslang.patch,
 		glslang.flavor ? glslang.flavor : "", major, minor, patch, BGFX_API_VERSION);
+#ifdef _WIN32
+	/* (Direct3D 11's DXBC is the compiler's: its version and flags too) */
+	if (bg_d3d11)
+	{
+		size_t used = strlen(versions);
+
+		snprintf(versions + used, sizeof(versions) - used, " d3dcompiler %s flags %x", bg_d3d_compiler_identity,
+			BG_D3DCOMPILE_FLAGS);
+	}
+#endif
 	bg_jobs.versions = bg_hash(versions, strlen(versions), 14695981039346656037ULL);
 	snprintf(bg_jobs.folder, sizeof(bg_jobs.folder), "%s/bgfx/%s", platform_folder(_port_folder_cache),
 		bg_backend_folder());
@@ -2041,13 +2072,25 @@ static int bg_screen_samples(void)
 		return 0;
 	samples = anti_aliasing_values[anti_aliasing_value].samples;
 	caps = bgfx_get_caps();
-	if (!(caps->formats[BGFX_TEXTURE_FORMAT_BGRA8] & BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER_MSAA) ||
-		!(caps->formats[BGFX_TEXTURE_FORMAT_D24S8] & BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER_MSAA))
+	/* (the most samples up to the setting's that both the color and the
+	depth targets have: bgfx's bit for each count) */
+	for (; samples >= 2; samples /= 2)
+	{
+		uint32_t bit = samples >= 16 ? BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER_MSAA_X16 :
+			samples >= 8 ? BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER_MSAA_X8 :
+			samples >= 4 ? BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER_MSAA_X4 : BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER_MSAA_X2;
+
+		if ((caps->formats[BGFX_TEXTURE_FORMAT_BGRA8] & bit) && (caps->formats[BGFX_TEXTURE_FORMAT_D24S8] & bit))
+			break;
+	}
+	if (samples < 2)
 	{
 		if (!unsupported++)
 			platform_log("anti-aliasing: bgfx's renderer has no multisampled targets, so none");
 		return 0;
 	}
+	if (samples != anti_aliasing_values[anti_aliasing_value].samples && !unsupported++)
+		platform_log("anti-aliasing: bgfx's renderer has %dx multisampling at most here", samples);
 	return samples;
 }
 
@@ -3995,19 +4038,25 @@ draw the game but go to the window only as often as the display shows them,
 leaving the game to run faster as the OpenGL path does */
 static double bg_window_next, bg_window_interval = -1.0;
 
-static BOOL bg_window_due(void)
+/* the display's frame interval, in seconds */
+static double bg_display_interval(void)
 {
-	double now, next = bg_window_next, interval;
-
-	if (bg.reset_flags & BGFX_RESET_VSYNC)
-		return TRUE;
 	if (bg_window_interval < 0.0)
 	{
 		const SDL_DisplayMode *mode = SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(platform_sdl_window()));
 
 		bg_window_interval = mode && mode->refresh_rate > 0.0f ? 1.0 / mode->refresh_rate : 1.0 / 60.0;
 	}
-	interval = bg_window_interval;
+	return bg_window_interval;
+}
+
+static BOOL bg_window_due(void)
+{
+	double now, next = bg_window_next, interval;
+
+	if (bg.reset_flags & BGFX_RESET_VSYNC)
+		return TRUE;
+	interval = bg_display_interval();
 	now = stats_seconds();
 	if (now < next)
 		return FALSE;
@@ -4023,6 +4072,21 @@ static void bg_window_presented(double start, double end)
 {
 	if (!(bg.reset_flags & BGFX_RESET_VSYNC) && end - start > bg_window_interval * 0.25)
 		bg_window_next = end + bg_window_interval;
+}
+
+/* whether the window can't be seen (bg_present's pacing): SDL's flags, and
+on macOS the window's occlusion as bgfx's Metal reads it, which SDL does
+not always report */
+static BOOL bg_window_hidden(void)
+{
+#ifdef __APPLE__
+	int macos_window_occluded(void *window);
+
+	if (macos_window_occluded(SDL_GetPointerProperty(SDL_GetWindowProperties(bg.window),
+		SDL_PROP_WINDOW_COCOA_WINDOW_POINTER, NULL)))
+		return TRUE;
+#endif
+	return (SDL_GetWindowFlags(bg.window) & (SDL_WINDOW_OCCLUDED | SDL_WINDOW_MINIMIZED | SDL_WINDOW_HIDDEN)) != 0;
 }
 
 #ifdef HALO_CAPTURE
@@ -4215,6 +4279,18 @@ static void bg_present(void)
 	bg.stat_frame_wait += frame_end - frame_start;
 	if (window)
 		bg_window_presented(frame_start, frame_end);
+	/* (a covered or minimized window: bgfx shows nothing then, so nothing
+	waits for the display, and the game would run as fast as it can; the
+	frames are paced to the display's rate here instead) */
+	if (bg_window_hidden())
+	{
+		static double hidden_next;
+		double interval = bg_display_interval(), now = stats_seconds();
+
+		if (hidden_next > now && hidden_next - now <= interval)
+			SDL_DelayNS((Uint64)((hidden_next - now) * 1e9));
+		hidden_next = (hidden_next > now ? hidden_next : now) + interval;
+	}
 	if (frame_number >= bg.capture_ready && bg.capture_pending)
 	{
 		bg_callback_screen_shot(NULL, bg.capture_path, (uint32_t)bg.capture_width, (uint32_t)bg.capture_height,
@@ -4514,6 +4590,16 @@ static BOOL bg_start(bgfx_renderer_type_t type, int width, int height)
 		bgfx_shutdown();
 		return FALSE;
 	}
+	/* (Direct3D 11 falls back to Windows' software renderer, WARP, on a GPU
+	it can't use, a feature level 10 laptop say: OpenGL is faster there) */
+	if (bg_d3d11 && (bgfx_get_caps()->vendorId == BGFX_PCI_ID_SOFTWARE_RASTERIZER ||
+		strstr(bgfx_gpu_name, "Basic Render Driver")))
+	{
+		platform_log("bgfx: Direct3D 11 would draw in software (%s), so OpenGL",
+			*bgfx_gpu_name ? bgfx_gpu_name : "WARP");
+		bgfx_shutdown();
+		return FALSE;
+	}
 	return TRUE;
 }
 
@@ -4546,34 +4632,26 @@ static BOOL bg_initialize(void)
 	SDL_GetWindowSizeInPixels(bg.window, &width, &height);
 
 	{
-		/* the renderers to try, in order: on Windows Vulkan, then
-		Direct3D 11 (first with display.renderer = "d3d11"); OpenGL after
-		them (platform_video_reopen_for_gl) */
-		bgfx_renderer_type_t types[2];
-		int type_count = 0, attempt;
-		BOOL started = FALSE;
+		/* the renderer: Metal on macOS, Vulkan elsewhere; Direct3D 11 on
+		Windows only with display.renderer = "d3d11", which is for testing.
+		One that does not start leaves the game to OpenGL
+		(platform_video_reopen_for_gl), with a fresh window */
+		bgfx_renderer_type_t type;
 
 #if defined(__APPLE__)
-		types[type_count++] = BGFX_RENDERER_TYPE_METAL;
+		type = BGFX_RENDERER_TYPE_METAL;
 #elif defined(_WIN32)
-		if (strcmp(config_string("display.renderer"), "d3d11") != 0)
-			types[type_count++] = BGFX_RENDERER_TYPE_VULKAN;
-		types[type_count++] = BGFX_RENDERER_TYPE_DIRECT3D11;
+		type = strcmp(config_string("display.renderer"), "d3d11") == 0 ? BGFX_RENDERER_TYPE_DIRECT3D11 :
+			BGFX_RENDERER_TYPE_VULKAN;
 #else
-		types[type_count++] = BGFX_RENDERER_TYPE_VULKAN;
+		type = BGFX_RENDERER_TYPE_VULKAN;
 #endif
-		for (attempt = 0; attempt < type_count && !started; attempt++)
-		{
-			if (attempt)
-				platform_log("bgfx: trying %s", bgfx_get_renderer_name(types[attempt]));
-			started = bg_start(types[attempt], width, height);
-		}
-		if (!started)
+		if (!bg_start(type, width, height))
 			return FALSE;
 	}
 	bg.window_width = width;
 	bg.window_height = height;
-	bg.reset_flags = init.reset;
+	bg.reset_flags = config_boolean("display.vsync") ? BGFX_RESET_VSYNC : BGFX_RESET_NONE;
 	/* the border colors (bg_sampler_flags) */
 	{
 		static const float colors[3][4] = { { 0, 0, 0, 0 }, { 0, 0, 0, 1 }, { 1, 1, 1, 1 } };

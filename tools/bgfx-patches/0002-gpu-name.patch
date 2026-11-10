@@ -73,7 +73,7 @@ index bb969724..13a6400e 100644
  				: (uint16_t)m_adapterDesc.VendorId
  				;
  			_caps.deviceId = (uint16_t)m_adapterDesc.DeviceId;
-+			wcstombs(bgfx_gpu_name, m_adapterDesc.Description, sizeof(bgfx_gpu_name) - 1);
++			WideCharToMultiByte(CP_UTF8, 0, m_adapterDesc.Description, -1, bgfx_gpu_name, sizeof(bgfx_gpu_name), NULL, NULL);
  		}
  
  		return true;

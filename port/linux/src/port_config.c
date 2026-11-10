@@ -608,8 +608,8 @@ static const struct config_setting config_settings[] =
 		"What draws the game. \"gl\" is OpenGL, the default. \"bgfx\" is a new\n"
 		"renderer we are testing: Metal on macOS, Vulkan on Windows and Linux.\n"
 #ifdef _WIN32
-		"On Windows, if Vulkan can't start it tries Direct3D 11. \"d3d11\" goes\n"
-		"straight to Direct3D 11, for computers whose Vulkan is missing or bad.\n"
+		"On Windows, \"d3d11\" draws with Direct3D 11 instead, for testing on\n"
+		"computers whose Vulkan is missing or bad.\n"
 #endif
 		"If it can't start, the game draws with OpenGL. Set \"gl\" to go back.\n"
 		"Read when Chupathingy starts." },

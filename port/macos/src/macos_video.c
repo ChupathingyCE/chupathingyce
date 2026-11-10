@@ -22,3 +22,19 @@ void macos_set_swap_interval(int interval)
 	if (context)
 		CGLSetParameter(context, kCGLCPSwapInterval, &value);
 }
+
+#include <objc/message.h>
+#include <objc/runtime.h>
+
+/* whether the window (an NSWindow) can't be seen at all: covered by others,
+minimized or on another space. bgfx's Metal shows nothing then, so nothing
+waits for the display (d3d8_bgfx.inl paces the frames itself) */
+int macos_window_occluded(void *window)
+{
+	typedef unsigned long (*occlusion_state)(void *, SEL);
+
+	if (!window)
+		return 0;
+	/* (NSWindowOcclusionStateVisible) */
+	return !(((occlusion_state)objc_msgSend)(window, sel_registerName("occlusionState")) & (1ul << 1));
+}
