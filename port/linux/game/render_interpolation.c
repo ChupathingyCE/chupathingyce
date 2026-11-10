@@ -22,7 +22,9 @@ another weapon's skeleton, a pose left from seconds before) blended node by
 node stretch vertices across the screen.
 
 Particles, contrails and other effects already move every frame
-(game_frame), so they need nothing here.
+(game_frame). A stream of particles from an object, made in the tick all at
+once, is held back to be made through the frames between the ticks, on the
+emitter as drawn (render_interpolation_particle_later).
 
 An object the distributed netcode moves to where the host has it
 (port/linux/game/network_objects.c) is drawn gliding there over a few ticks
@@ -40,6 +42,7 @@ with their unit, and with what it rides.
 #include "camera/observer.h"
 #include "cutscene/cinematics.h"
 #include "game/players.h"
+#include "effects/particles.h"
 #include "render/render_cameras.h"
 #include "units/units.h"
 
@@ -130,6 +133,12 @@ struct interpolated_object
 	pulse with them) in the two snapshots, and the blend drawn this frame */
 	real function_values[2][NUMBER_OF_OUTGOING_OBJECT_FUNCTIONS];
 	real blended_function_values[NUMBER_OF_OUTGOING_OBJECT_FUNCTIONS];
+	/* ... its change colors (what its shaders tint with) and a unit's
+	active camouflage (amount, super amount), the same way */
+	real_rgb_color change_colors[2][NUMBER_OF_OBJECT_CHANGE_COLORS];
+	real_rgb_color blended_change_colors[NUMBER_OF_OBJECT_CHANGE_COLORS];
+	real camouflage[2][2];
+	real blended_camouflage[2];
 	long functions_blended_frame;
 #endif
 };
@@ -165,6 +174,36 @@ static struct interpolated_object *interpolated_objects;
 static struct interpolated_camera interpolated_cameras[MAXIMUM_LOCAL_PLAYERS];
 static struct interpolated_first_person interpolated_first_person[MAXIMUM_LOCAL_PLAYERS];
 static long interpolation_tick;
+
+#ifndef HALO_CONSOLE_NO_PARTICLE_STREAMS
+/* An effect's particles are made in the tick, all of the tick's at once, at
+the emitter's place as the tick found it: a stream from an object (a
+vehicle's exhaust, a burning wreck's smoke) came out in clumps 30 times a
+second, and from a moving object each clump a tick's motion behind the
+last, which the object drawn between the ticks then moved away from. Such a
+particle, the nth of the tick's count, is held back for that part of the
+tick and made in the first frame that far into it, where its node is drawn
+then. Particles take the local random seed, never the game's: holding them
+back changes nothing of the game. */
+
+#define MAXIMUM_LATER_PARTICLES 512
+
+struct later_particle
+{
+	struct new_particle_data data;
+	long object_index;
+	short node_index;
+	/* where it was made in its node's frame */
+	real_point3d node_position;
+	/* made in the frames after this tick, this far into it */
+	long tick;
+	real fraction;
+};
+
+static struct later_particle later_particles[MAXIMUM_LATER_PARTICLES];
+static short later_particle_count;
+#endif
+
 static long interpolation_frame;
 static boolean interpolation_rendering;
 static real interpolation_fraction = 1.0f;
@@ -493,6 +532,19 @@ void render_interpolation_tick(void)
 			record->function_values[record->latest],
 			object->object.outgoing_function_values,
 			sizeof(record->function_values[0]));
+		memcpy(
+			record->change_colors[record->latest],
+			object->object.outgoing_change_colors,
+			sizeof(record->change_colors[0]));
+		record->camouflage[record->latest][0] = 0.0f;
+		record->camouflage[record->latest][1] = 0.0f;
+		if (TEST_FLAG(_object_mask_unit, object->object.type))
+		{
+			struct unit_datum const *unit = (struct unit_datum const *)object;
+
+			record->camouflage[record->latest][0] = unit->unit.active_camouflage;
+			record->camouflage[record->latest][1] = unit->unit.active_camouflage_super_amount;
+		}
 #endif
 		record->rotations_valid[record->latest] = FALSE;
 		record->object_index = iterator.index;
@@ -518,6 +570,10 @@ void render_interpolation_reset(void)
 			interpolated_objects[index].object_index = NONE;
 	}
 	memset(interpolated_cameras, 0, sizeof(interpolated_cameras));
+#ifndef HALO_CONSOLE_NO_PARTICLE_STREAMS
+	/* (the particles held back are the last map's) */
+	later_particle_count = 0;
+#endif
 	for (index = 0; index < MAXIMUM_LOCAL_PLAYERS; index++)
 	{
 		interpolated_first_person[index].node_count = 0;
@@ -632,16 +688,21 @@ real_matrix4x3 *render_interpolation_object_node_matrices(long object_index)
 	return record->nodes + 2 * record->node_capacity;
 }
 
-/* the object's outgoing functions as drawn: between the last two ticks,
-as its pose. Functions are sampled once a tick, so a glow or light pulsing
-with one stepped at 30 Hz however fast the frames came. (NULL, the values
-of the tick, on a console: HALO_CONSOLE_NO_SMOOTH_FUNCTIONS) */
-real *render_interpolation_object_function_values(long object_index)
+#ifndef HALO_CONSOLE_NO_SMOOTH_FUNCTIONS
+/* a value between the last two ticks', or the latest when it changed more
+than a sweep (so written that a value not a number snaps) */
+static real interpolation_value(real previous, real latest)
 {
-#ifdef HALO_CONSOLE_NO_SMOOTH_FUNCTIONS
-	(void)object_index;
-	return NULL;
-#else
+	return fabsf(latest - previous) <= FUNCTION_SNAP_CHANGE ?
+		lerp(previous, latest, interpolation_fraction) :
+		latest;
+}
+
+/* the object's record with its function values, change colors and
+camouflage blended for this frame; NULL when it is drawn as the tick left
+it (interpolation off, no earlier tick) */
+static struct interpolated_object *interpolation_object_values(long object_index)
+{
 	struct interpolated_object *record;
 	long absolute_index;
 
@@ -655,24 +716,104 @@ real *render_interpolation_object_function_values(long object_index)
 		return NULL;
 	if (record->functions_blended_frame != interpolation_frame)
 	{
-		real const *previous = record->function_values[record->latest ^ 1];
-		real const *latest = record->function_values[record->latest];
-		short function_index;
+		short previous = record->latest ^ 1;
+		short latest = record->latest;
+		short index;
 
-		for (function_index = 0; function_index < NUMBER_OF_OUTGOING_OBJECT_FUNCTIONS; function_index++)
+		for (index = 0; index < NUMBER_OF_OUTGOING_OBJECT_FUNCTIONS; index++)
 		{
-			real change = latest[function_index] - previous[function_index];
+			record->blended_function_values[index] = interpolation_value(
+				record->function_values[previous][index], record->function_values[latest][index]);
+		}
+		for (index = 0; index < NUMBER_OF_OBJECT_CHANGE_COLORS; index++)
+		{
+			real_rgb_color const *a = &record->change_colors[previous][index];
+			real_rgb_color const *b = &record->change_colors[latest][index];
+			real_rgb_color *blended = &record->blended_change_colors[index];
 
-			/* (so written that a value not a number snaps) */
-			record->blended_function_values[function_index] =
-				fabsf(change) <= FUNCTION_SNAP_CHANGE ?
-				lerp(previous[function_index], latest[function_index], interpolation_fraction) :
-				latest[function_index];
+			blended->red = interpolation_value(a->red, b->red);
+			blended->green = interpolation_value(a->green, b->green);
+			blended->blue = interpolation_value(a->blue, b->blue);
+		}
+		/* (camouflage fades in and out over a second or more; turned on
+		at once by a cheat or a script, it fades in over the one tick) */
+		for (index = 0; index < 2; index++)
+		{
+			record->blended_camouflage[index] = lerp(record->camouflage[previous][index],
+				record->camouflage[latest][index], interpolation_fraction);
 		}
 		record->functions_blended_frame = interpolation_frame;
 	}
-	return record->blended_function_values;
+	return record;
+}
 #endif
+
+/* the object's outgoing functions as drawn: between the last two ticks,
+as its pose. Functions are sampled once a tick, so a glow or light pulsing
+with one stepped at 30 Hz however fast the frames came. (NULL, the values
+of the tick, on a console: HALO_CONSOLE_NO_SMOOTH_FUNCTIONS) */
+real *render_interpolation_object_function_values(long object_index)
+{
+#ifdef HALO_CONSOLE_NO_SMOOTH_FUNCTIONS
+	(void)object_index;
+	return NULL;
+#else
+	struct interpolated_object *record = interpolation_object_values(object_index);
+
+	return record ? record->blended_function_values : NULL;
+#endif
+}
+
+/* ... its change colors, the same way (NULL: the tick's) */
+real_rgb_color *render_interpolation_object_change_colors(long object_index)
+{
+#ifdef HALO_CONSOLE_NO_SMOOTH_FUNCTIONS
+	(void)object_index;
+	return NULL;
+#else
+	struct interpolated_object *record = interpolation_object_values(object_index);
+
+	return record ? record->blended_change_colors : NULL;
+#endif
+}
+
+/* ... and a unit's active camouflage and its super amount; FALSE: the
+tick's */
+boolean render_interpolation_unit_camouflage(long unit_index, real *amount, real *super_amount)
+{
+#ifdef HALO_CONSOLE_NO_SMOOTH_FUNCTIONS
+	(void)unit_index;
+	(void)amount;
+	(void)super_amount;
+	return FALSE;
+#else
+	struct interpolated_object *record = interpolation_object_values(unit_index);
+
+	if (!record)
+		return FALSE;
+	*amount = record->blended_camouflage[0];
+	*super_amount = record->blended_camouflage[1];
+	return TRUE;
+#endif
+}
+
+/* a point carried by the object's root node (its bounding sphere's center,
+where a nav point sits over it), moved from where the last tick left the
+object to where it is drawn this frame. Left as it is when the object is
+drawn as the tick left it (interpolation off, a snap, no earlier pose). */
+void render_interpolation_object_point(long object_index, real_point3d *point)
+{
+	real_matrix4x3 const *drawn = render_interpolation_object_node_matrices(object_index);
+	real_matrix4x3 const *nodes;
+	real_point3d local;
+
+	if (!drawn)
+		return;
+	/* (as of the last tick: object_get_node_matrices gives the drawn pose
+	while a frame is drawn) */
+	nodes = (real_matrix4x3 const *)object_header_block_get(object_index, &object_get(object_index)->object.node_matrices);
+	matrix4x3_inverse_transform_point(&nodes[0], point, &local);
+	matrix4x3_transform_point(&drawn[0], &local, point);
 }
 
 /* ---------- corrections */
@@ -1024,6 +1165,112 @@ void render_interpolation_first_person(
 			&blended);
 		matrix4x3_multiply(&camera_matrix, &blended, &node_matrices[node_index]);
 	}
+}
+
+/* ---------- particles */
+
+/* (effects.c, in the tick, before objects move) the particle made at the
+object's node, fraction of the way through the tick's count: TRUE as it is
+held back to be made then (render_interpolation_particles_due), FALSE to be
+made now (interpolation off, no earlier pose, too many held) */
+boolean render_interpolation_particle_later(
+	struct new_particle_data const *data,
+	long object_index,
+	short node_index,
+	real fraction)
+{
+#ifdef HALO_CONSOLE_NO_PARTICLE_STREAMS
+	(void)data;
+	(void)object_index;
+	(void)node_index;
+	(void)fraction;
+	return FALSE;
+#else
+	struct interpolated_object *record;
+	struct later_particle *later;
+	long absolute_index;
+
+	/* (so written that a fraction not a number is made now) */
+	if (!halo_interpolation_enabled() || !interpolated_objects || object_index == NONE ||
+		!(fraction > 0.0f && fraction < 1.0f) || later_particle_count >= MAXIMUM_LATER_PARTICLES)
+	{
+		return FALSE;
+	}
+	absolute_index = DATUM_INDEX_TO_ABSOLUTE_INDEX(object_index);
+	if (absolute_index >= MAXIMUM_INTERPOLATED_OBJECTS)
+		return FALSE;
+	record = &interpolated_objects[absolute_index];
+	if (record->object_index != object_index || record->tick != interpolation_tick ||
+		node_index < 0 || node_index >= record->node_count)
+	{
+		return FALSE;
+	}
+	later = &later_particles[later_particle_count++];
+	later->data = *data;
+	later->object_index = object_index;
+	later->node_index = node_index;
+	/* (the latest snapshot is the pose this tick began from) */
+	matrix4x3_inverse_transform_point(record->nodes + record->latest * record->node_capacity + node_index,
+		&data->position, &later->node_position);
+	later->tick = interpolation_tick + 1;
+	later->fraction = fraction;
+	return TRUE;
+#endif
+}
+
+/* (particles.c, each frame before the particles move) the particles held
+back that the frame has reached, made at their nodes as drawn this frame */
+void render_interpolation_particles_due(void)
+{
+#ifndef HALO_CONSOLE_NO_PARTICLE_STREAMS
+	boolean interpolating = halo_interpolation_enabled() && interpolated_objects;
+	real fraction = interpolating ? game_time_get_tick_fraction() : 1.0f;
+	short index = 0;
+
+	while (index < later_particle_count)
+	{
+		struct later_particle *later = &later_particles[index];
+		struct interpolated_object *record;
+
+		if (interpolating && (interpolation_tick < later->tick ||
+			(interpolation_tick == later->tick && fraction < later->fraction)))
+		{
+			index++;
+			continue;
+		}
+		/* its node between the last two ticks' poses, as the object is
+		drawn in this frame; left where the tick made it when the object is
+		gone or drawn as the tick left it */
+		record = interpolating ?
+			&interpolated_objects[DATUM_INDEX_TO_ABSOLUTE_INDEX(later->object_index)] :
+			NULL;
+		if (record && record->object_index == later->object_index && record->tick == interpolation_tick &&
+			record->has_previous && later->node_index < record->node_count)
+		{
+			real_point3d previous, latest;
+
+			matrix4x3_transform_point(
+				record->nodes + (record->latest ^ 1) * record->node_capacity + later->node_index,
+				&later->node_position, &previous);
+			matrix4x3_transform_point(
+				record->nodes + record->latest * record->node_capacity + later->node_index,
+				&later->node_position, &latest);
+			/* (so written that a position not a number snaps) */
+			if (distance_squared(&previous, &latest) <= OBJECT_SNAP_DISTANCE * OBJECT_SNAP_DISTANCE)
+			{
+				later->data.position.x = lerp(previous.x, latest.x, fraction);
+				later->data.position.y = lerp(previous.y, latest.y, fraction);
+				later->data.position.z = lerp(previous.z, latest.z, fraction);
+			}
+			else
+			{
+				later->data.position = latest;
+			}
+		}
+		particle_new(&later->data);
+		*later = later_particles[--later_particle_count];
+	}
+#endif
 }
 
 /* ---------- time */

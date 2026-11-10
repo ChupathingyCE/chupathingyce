@@ -387,6 +387,9 @@ void game_tick(
 	players_update_after_game();
 	hud_update();
 	player_effect_update();
+	/* port: the wind steps once a tick (scenario.c; it stepped by the
+	frames' time) */
+	scenario_tick_update();
 	/* port: and at its end, before the frame draws the lights */
 	game_state_check_data_arrays();
 	lights_port_recover();

@@ -1572,13 +1572,42 @@ int platform_packaged(void)
 }
 
 #if defined(__linux__) && !defined(HALO_ANDROID) && !defined(HALO_XBOX_CONSOLE)
-/* whether folder has maps/ or config.toml, in any case */
-static int folder_has_setup(const char *folder)
+/* An AppImage (which sets APPIMAGE) runs from its own file, mounted
+read-only, and a packaged install (packaged_install.h) from a folder its
+player cannot write: their data and settings go in the save root's usual
+place (save_folder.c), or a test's HALO_SAVE_ROOT. So do those of a game in
+any folder it cannot write, but what that folder has of its own is kept
+where it is: setup is the entry, in any case, that keeps one kind of file
+there ("maps" for the data and the logs, "config.toml" for the settings).
+A read-only copy with maps/ and no config.toml (an administrator's
+/opt folder) keeps its maps and its settings now go home, where they can be
+saved; one with config.toml and no maps/ keeps its settings and copies the
+maps home. One with both, or a folder the game can write, is as before. */
+static int linux_home_folder(char *path, unsigned long size, const char *setup)
 {
+	const char *appimage = getenv("APPIMAGE");
+	const char *save_root = getenv("HALO_SAVE_ROOT");
+	const char *data_home = getenv("XDG_DATA_HOME");
+	const char *home = getenv("HOME");
+	const char *base = SDL_GetBasePath();
+	int writable = !base || !*base || access(base, W_OK) == 0;
 	char found[256];
 
-	return posix_find_entry_case_insensitive(folder, "maps", found, sizeof(found)) ||
-		posix_find_entry_case_insensitive(folder, "config.toml", found, sizeof(found));
+	if (!packaged_install_files_in_home(appimage && *appimage, platform_packaged(), writable,
+			writable || posix_find_entry_case_insensitive(base, setup, found, sizeof(found))))
+	{
+		return 0;
+	}
+	if (save_root && *save_root)
+		snprintf(path, (size_t)size, "%s", save_root);
+	else if (data_home && *data_home)
+		snprintf(path, (size_t)size, "%s/chupathingyce", data_home);
+	else if (home && *home)
+		snprintf(path, (size_t)size, "%s/.local/share/chupathingyce", home);
+	else
+		return 0;
+	SDL_CreateDirectory(path);
+	return 1;
 }
 #endif
 
@@ -1594,34 +1623,9 @@ int platform_app_folder(char *path, unsigned long size)
 	SDL_CreateDirectory(path);
 	return 1;
 #elif defined(__linux__) && !defined(HALO_ANDROID) && !defined(HALO_XBOX_CONSOLE)
-	/* an AppImage (which sets APPIMAGE) runs from its own file, mounted
-	read-only, and a packaged install (packaged_install.h) from a folder
-	its player cannot write: their data and settings go in the save root's
-	usual place (save_folder.c), or a test's HALO_SAVE_ROOT. So do those of
-	a game in any folder it cannot write, unless the folder has its own
-	maps/ or config.toml (a setup made there by hand, kept as it is) */
-	const char *appimage = getenv("APPIMAGE");
-	const char *save_root = getenv("HALO_SAVE_ROOT");
-	const char *data_home = getenv("XDG_DATA_HOME");
-	const char *home = getenv("HOME");
-	const char *base = SDL_GetBasePath();
-	int writable = !base || !*base || access(base, W_OK) == 0;
-
-	if (!packaged_install_files_in_home(appimage && *appimage, platform_packaged(), writable,
-			writable || folder_has_setup(base)))
-	{
-		return 0;
-	}
-	if (save_root && *save_root)
-		snprintf(path, (size_t)size, "%s", save_root);
-	else if (data_home && *data_home)
-		snprintf(path, (size_t)size, "%s/chupathingyce", data_home);
-	else if (home && *home)
-		snprintf(path, (size_t)size, "%s/.local/share/chupathingyce", home);
-	else
-		return 0;
-	SDL_CreateDirectory(path);
-	return 1;
+	/* (the data and the logs: a read-only folder's own maps/ kept where it
+	is; config_path asks for config.toml the same way) */
+	return linux_home_folder(path, size, "maps");
 #else
 	(void)path;
 	(void)size;
@@ -1648,7 +1652,14 @@ static void config_path(char *path, size_t size)
 #if !defined(HALO_ANDROID) && !defined(HALO_XBOX_CONSOLE)
 	/* (the application's folder: not the application, which is signed, or
 	the AppImage, which cannot be written) */
+#if defined(__linux__)
+	/* (on Linux by config.toml, not maps/: a read-only folder's own
+	config.toml is read where it is, and without one the settings go where
+	they can be saved: linux_home_folder) */
+	if (linux_home_folder(folder, sizeof(folder), "config.toml"))
+#else
 	if (platform_app_folder(folder, sizeof(folder)))
+#endif
 	{
 		snprintf(path, size, "%s/config.toml", folder);
 		return;

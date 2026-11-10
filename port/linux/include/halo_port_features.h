@@ -90,11 +90,24 @@ define brings them back when a console gets an updater */
 #define HALO_CONSOLE_NO_UPDATER
 #endif
 
-/* the object functions drawn between ticks
-(port/linux/game/render_interpolation.c): 48 bytes for each object slot,
-about 384 KB; a console draws them as sampled each tick, as retail */
+/* the object functions, change colors and camouflage drawn between ticks
+(port/linux/game/render_interpolation.c): about 220 bytes for each object
+slot, about 1.7 MB; a console draws them as sampled each tick, as retail */
 #ifndef HALO_CONSOLE_NO_SMOOTH_FUNCTIONS
 #define HALO_CONSOLE_NO_SMOOTH_FUNCTIONS
+#endif
+
+/* a stream of particles from an object made through the tick, on the
+emitter as drawn (port/linux/game/render_interpolation.c): about 64 KB held
+back; a console makes them all at the tick, as retail */
+#ifndef HALO_CONSOLE_NO_PARTICLE_STREAMS
+#define HALO_CONSOLE_NO_PARTICLE_STREAMS
+#endif
+
+/* the camera shake drawn between ticks (source/effects/player_effects.c):
+a console shakes once a tick, as retail */
+#ifndef HALO_CONSOLE_NO_SMOOTH_SHAKE
+#define HALO_CONSOLE_NO_SMOOTH_SHAKE
 #endif
 
 /* the Controls screen (port/linux/game/controls_screen.c), the pause menu's

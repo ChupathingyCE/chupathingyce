@@ -1184,7 +1184,11 @@ GLuint xgpu_texture_get(const DWORD *resource, const D3DCOLOR *palette, GLenum *
 		recent_textures[recent].drop_serial == texture_drop_serial)
 	{
 		entry = recent_textures[recent].entry;
-		if (recent_textures[recent].watch_serial == watch_serial)
+		/* (and the high-res HUD and text settings as they were: changed,
+		the entry is checked below and finds its stand-in again, even with
+		no page written since, as on a still menu) */
+		if (recent_textures[recent].watch_serial == watch_serial &&
+			entry->override_settings == hud_hires_settings())
 		{
 			entry->last_used_frame = texture_frame;
 			return texture_entry_result(entry, target, description);

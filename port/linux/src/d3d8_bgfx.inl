@@ -272,6 +272,8 @@ static struct
 	unsigned short present_view;
 
 	bgfx_texture_handle_t blank, blank_cube, blank_volume;
+	/* (1x1 white: a clear of some color channels, bg_clear_channels) */
+	bgfx_texture_handle_t white;
 	struct bg_shader *shaders[BG_SHADER_BUCKETS];
 	struct bg_fragment *fragments[BG_SHADER_BUCKETS];
 	struct bg_program *programs[BG_SHADER_BUCKETS];
@@ -1809,12 +1811,19 @@ static struct bg_target *bg_target_get(const D3DSurface *surface)
 	if (!surface || !surface->Data)
 		return NULL;
 	surface_dimensions(surface, &width, &height, &depth);
-	/* the screen's targets are drawn at the screen's scale, and the shadow
-	maps at display.shadow_resolution's */
+	/* the screen's targets are drawn at the screen's scale, the secondary
+	target at the 3D view's pixels with its samples (it is drawn with the
+	back buffer's depth buffer, and a frame buffer is one size:
+	render_target_scale), and the shadow maps at display.shadow_resolution's */
 	if (width == (unsigned long)halo_screen_width() && height == SCREEN_HEIGHT)
 	{
 		scale[0] = screen_scale[0];
 		scale[1] = screen_scale[1];
+		samples = bg_screen_samples();
+	}
+	else if (!depth && width == SECONDARY_TARGET_WIDTH && height == SECONDARY_TARGET_HEIGHT)
+	{
+		render_target_scale(_render_target_secondary, scale);
 		samples = bg_screen_samples();
 	}
 	else if (!depth && surface_is_shadow_map(surface))
@@ -2521,7 +2530,10 @@ static void bg_uniforms_update(float texture_scale[4][4])
 	bg_depth_range[1] = device.viewport.MaxZ - device.viewport.MinZ;
 	bg_depth_range[2] = bg_depth_range[3] = 0.0f;
 	/* (glPolygonOffset's units: the depth buffer's smallest step, 2^-24) */
-	bg_depth_bias[0] = dword_to_float(D3D__RenderState[D3DRS_POLYGONOFFSETZSLOPESCALE]);
+	/* (the slope's factor scaled by the target's pixels a unit, as the
+	OpenGL path's: apply_raster_state) */
+	bg_depth_bias[0] = dword_to_float(D3D__RenderState[D3DRS_POLYGONOFFSETZSLOPESCALE]) *
+		(bg.target_scale[0] > bg.target_scale[1] ? bg.target_scale[0] : bg.target_scale[1]);
 	bg_depth_bias[1] = dword_to_float(D3D__RenderState[D3DRS_POLYGONOFFSETZOFFSET]) / 16777216.0f;
 	bg_depth_bias[2] = bg_depth_bias[3] = 0.0f;
 	for (index = 0; index < BG_UNIFORM_COUNT; index++)
@@ -3074,23 +3086,56 @@ static void bg_draw_immediate(D3DPRIMITIVETYPE type, unsigned long count)
 	bg_draw(type, TRUE, 0, count, NULL, 0, 0);
 }
 
+/* a clear of some of the color channels (the Xbox's D3DCLEAR_TARGET_R, _G,
+_B, _A: the fog screen clears only alpha, leaving the picture under the
+fog), which bgfx's view clear can't mask: a quad over the view that writes
+only those channels, the blit's program sampling white times the blend
+factor, the clear's color */
+static void bg_clear_channels(DWORD channels, D3DCOLOR color)
+{
+	bgfx_transient_vertex_buffer_t vertices;
+	uint64_t state = BGFX_STATE_PT_TRISTRIP | BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_FACTOR, BGFX_STATE_BLEND_ZERO);
+	int corner;
+
+	if (!BGFX_HANDLE_IS_VALID(bg.blit) || bgfx_get_avail_transient_vertex_buffer(4, &bg.layout) < 4)
+		return;
+	state |= channels & D3DCLEAR_TARGET_R ? BGFX_STATE_WRITE_R : 0;
+	state |= channels & D3DCLEAR_TARGET_G ? BGFX_STATE_WRITE_G : 0;
+	state |= channels & D3DCLEAR_TARGET_B ? BGFX_STATE_WRITE_B : 0;
+	state |= channels & D3DCLEAR_TARGET_A ? BGFX_STATE_WRITE_A : 0;
+	bgfx_alloc_transient_vertex_buffer(&vertices, 4, &bg.layout);
+	memset(vertices.data, 0, 4 * BG_VERTEX_BYTES);
+	for (corner = 0; corner < 4; corner++)
+	{
+		float *out = (float *)(vertices.data + corner * BG_VERTEX_BYTES);
+
+		out[0] = corner & 1 ? 1.0f : -1.0f;
+		out[1] = corner & 2 ? -1.0f : 1.0f;
+	}
+	bgfx_set_transient_vertex_buffer(0, &vertices, 0, 4);
+	bgfx_set_texture(0, bg.samplers[0], bg.white, BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
+	bgfx_set_state(state, (uint32_t)((color << 8) | (color >> 24)));
+	bgfx_submit(bg.view, bg.blit, 0, BGFX_DISCARD_ALL);
+}
+
 static void bg_clear(DWORD count, const D3DRECT *rectangles, DWORD flags, D3DCOLOR color, float z, DWORD stencil)
 {
 	unsigned short rect[4];
 	uint16_t clear = 0;
+	DWORD channels = flags & D3DCLEAR_TARGET;
 	BOOL has_depth, done;
 
 	if (!bg_bind_targets(&has_depth))
 		return;
-	if ((flags & D3DCLEAR_TARGET) && (flags & D3DCLEAR_TARGET) != D3DCLEAR_TARGET)
-		bg_log_once("clears of some color channels");
-	if (flags & D3DCLEAR_TARGET)
+	if (channels == D3DCLEAR_TARGET)
 		clear |= BGFX_CLEAR_COLOR;
+	else if (!channels || !bg.target_color)
+		channels = 0;
 	if (has_depth && (flags & D3DCLEAR_ZBUFFER))
 		clear |= BGFX_CLEAR_DEPTH;
 	if (has_depth && (flags & D3DCLEAR_STENCIL))
 		clear |= BGFX_CLEAR_STENCIL;
-	if (!clear)
+	if (!clear && !channels)
 		return;
 	/* the viewport's, or each rectangle's: a view of its own, which clears
 	as it starts */
@@ -3116,6 +3161,8 @@ static void bg_clear(DWORD count, const D3DRECT *rectangles, DWORD flags, D3DCOL
 		bg_view_set(bg.framebuffer, rect, TRUE);
 		bgfx_set_view_clear(bg.view, clear, (uint32_t)((color << 8) | (color >> 24)), z, (uint8_t)stencil);
 		bgfx_touch(bg.view);
+		if (channels && channels != D3DCLEAR_TARGET)
+			bg_clear_channels(channels, color);
 		bg.view_used = TRUE;
 	}
 }
@@ -4033,6 +4080,12 @@ static BOOL bg_initialize(void)
 	without one */
 	bg.blank = bgfx_create_texture_2d(1, 1, false, 1, BGFX_TEXTURE_FORMAT_BGRA8, BGFX_TEXTURE_NONE,
 		bgfx_copy(&black, 4), 0);
+	{
+		static const unsigned int white = 0xffffffff;
+
+		bg.white = bgfx_create_texture_2d(1, 1, false, 1, BGFX_TEXTURE_FORMAT_BGRA8, BGFX_TEXTURE_NONE,
+			bgfx_copy(&white, 4), 0);
+	}
 	{
 		unsigned int faces[6] = { black, black, black, black, black, black };
 
