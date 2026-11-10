@@ -3588,15 +3588,24 @@ static void update_social(void)
 /* ---------- a report's clip (docs/delta.md, Reports)
 
 A report a linked server took with REPORT_RESULT's "send the clip": the
-clip's file goes to the site with the report's token, /v1/game/clip/start
-(the copy's key or device token, as the other /v1/game requests), then the
-file itself to /v1/game/clip/upload. One at a time; the browser thread does
-it. */
+clip's file goes to the site with the token the server made (the report it
+forwards names it), /v1/game/clip/start (the copy's key or device token, as
+the other /v1/game requests; 409 until the report reaches the site, asked
+again every 5 seconds for 2 minutes), then the file itself to
+/v1/game/clip/upload. One at a time; the browser thread does it. */
 
 enum
 {
 	/* the site's cap (a bigger file is never read) */
 	CLIP_MOST_BYTES = 48 * 1024 * 1024,
+};
+
+enum
+{
+	/* the site answers 409 until the report naming the token reaches it
+	(the server's next poll): asked again this often, for this long */
+	CLIP_RETRY_SECONDS = 5,
+	CLIP_WAIT_SECONDS = 120,
 };
 
 static struct
@@ -3605,6 +3614,9 @@ static struct
 	int state;
 	char path[1024];
 	unsigned char token[16];
+	/* when it was asked for, and when the site may be asked again */
+	time_t asked;
+	time_t next_try;
 } clip_job;
 
 static void clip_done(int state)
@@ -3625,7 +3637,7 @@ static void update_clip_upload(void)
 	int no_key = 0, status;
 
 	pthread_mutex_lock(&browser_lock);
-	if (!clip_job.waiting || clip_job.state != BROWSER_CLIP_SENDING)
+	if (!clip_job.waiting || clip_job.state != BROWSER_CLIP_SENDING || time(NULL) < clip_job.next_try)
 	{
 		pthread_mutex_unlock(&browser_lock);
 		return;
@@ -3634,6 +3646,7 @@ static void update_clip_upload(void)
 	memcpy(token_bytes, clip_job.token, sizeof(token_bytes));
 	pthread_mutex_unlock(&browser_lock);
 	p2p_hex(token_bytes, (int)sizeof(token_bytes), token);
+	/* (its size first: the file is read only once the site takes it) */
 	file = fopen(path, "rb");
 	if (!file || fseek(file, 0, SEEK_END) || (length = ftell(file)) <= 0 || length > CLIP_MOST_BYTES)
 	{
@@ -3642,28 +3655,47 @@ static void update_clip_upload(void)
 		clip_done(file ? BROWSER_CLIP_TOO_BIG : BROWSER_CLIP_FAILED);
 		return;
 	}
-	rewind(file);
-	body = malloc((size_t)length);
-	if (!body || fread(body, 1, (size_t)length, file) != (size_t)length)
-	{
-		free(body);
-		fclose(file);
-		clip_done(BROWSER_CLIP_FAILED);
-		return;
-	}
 	fclose(file);
 	snprintf(members, sizeof(members), "\"token\": \"%s\", \"size\": %ld", token, length);
 	status = site_request("/v1/game/clip/start", members, response, sizeof(response), error, sizeof(error), &no_key);
 	found = status == 200 ? strstr(response, "\"upload\"") : NULL;
 	if (found)
 		found = strchr(found + 8, '"');
+	/* (409: no report names the token yet; it comes with the server's next
+	poll. Asked again in a while, up to CLIP_WAIT_SECONDS) */
+	if (status == 409)
+	{
+		time_t now = time(NULL);
+
+		pthread_mutex_lock(&browser_lock);
+		if (now - clip_job.asked < CLIP_WAIT_SECONDS)
+		{
+			clip_job.next_try = now + CLIP_RETRY_SECONDS;
+			pthread_mutex_unlock(&browser_lock);
+			return;
+		}
+		pthread_mutex_unlock(&browser_lock);
+		platform_log("clips: the site never had the report (the server may not have sent it)");
+		clip_done(BROWSER_CLIP_FAILED);
+		return;
+	}
 	if (!found || sscanf(found + 1, "%70[A-Za-z0-9_-]", upload) != 1)
 	{
-		free(body);
 		platform_log("clips: the site would not take the clip (HTTP %d)", status);
 		clip_done(status == 413 ? BROWSER_CLIP_TOO_BIG : status == 429 ? BROWSER_CLIP_TOO_MANY : BROWSER_CLIP_FAILED);
 		return;
 	}
+	file = fopen(path, "rb");
+	body = file ? malloc((size_t)length) : NULL;
+	if (!body || fread(body, 1, (size_t)length, file) != (size_t)length)
+	{
+		free(body);
+		if (file)
+			fclose(file);
+		clip_done(BROWSER_CLIP_FAILED);
+		return;
+	}
+	fclose(file);
 	server_url("/v1/game/clip/upload?upload=", url, sizeof(url));
 	snprintf(url + strlen(url), sizeof(url) - strlen(url), "%s", upload);
 	status = posix_browser_send(url, body, (size_t)length, "video/mp4", NULL, response, sizeof(response), error,
@@ -3684,6 +3716,10 @@ int browser_clip_upload(const char *path, const unsigned char *token)
 		memcpy(clip_job.token, token, sizeof(clip_job.token));
 		clip_job.waiting = 1;
 		clip_job.state = BROWSER_CLIP_SENDING;
+		/* (the report rides the server's next poll: the first ask waits a
+		moment for it) */
+		clip_job.asked = time(NULL);
+		clip_job.next_try = clip_job.asked + CLIP_RETRY_SECONDS;
 		ok = 1;
 	}
 	pthread_mutex_unlock(&browser_lock);

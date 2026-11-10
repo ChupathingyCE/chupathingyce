@@ -319,6 +319,13 @@ static void act(
 	if (moderation_screen.host &&
 		(choice->action == _delta_moderation_action_lock || choice->action == _delta_moderation_action_unlock))
 	{
+		/* (a lock is for the players of other machines: it ends by itself
+		10 seconds after hosting does or they've all gone, host_rules.c) */
+		if (choice->action == _delta_moderation_action_lock && !host_rules_lock_has_players())
+		{
+			set_status("Nobody else is in the game.");
+			return;
+		}
 		host_rules_set_joins_locked(choice->action == _delta_moderation_action_lock);
 		platform_log("moderation: the host %s its joins", choice->action == _delta_moderation_action_lock ? "locked" :
 			"unlocked");

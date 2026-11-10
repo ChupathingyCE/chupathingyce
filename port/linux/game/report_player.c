@@ -7,8 +7,9 @@ host takes reports (Delta Peer's reports capability: only a dedicated
 server does). The player picks a reason from a short list, then whether to
 attach a clip: none, the last one saved, or one of clips/ (capture's). The
 report goes to the host (REPORT); when the host is linked to the site and
-asks for the clip (REPORT_RESULT), the browser's thread sends the file to
-the site with the report's token (browser_clip_upload). Never an address,
+asks for the clip (REPORT_RESULT, with the token the host made), the
+browser's thread sends the file to the site with that token
+(browser_clip_upload). Never an address,
 and nothing is sent anywhere else.
 */
 
@@ -20,7 +21,6 @@ and nothing is sent anywhere else.
 
 #include "../src/browser.h"
 #include "../src/delta_peer.h"
-#include "../src/posix.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -56,12 +56,11 @@ static struct
 	char clip_paths[CLIPS_SHOWN][512];
 	char clip_names[CLIPS_SHOWN][48];
 	short clip_count;
-	/* the report sent: its sequence, its clip (and token), when */
+	/* the report sent: its sequence, its clip, when */
 	unsigned int sequence;
 	unsigned int results_before;
 	boolean clip;
 	char clip_path[512];
-	unsigned char token[DELTA_WIRE_REPORT_CLIP_TOKEN_SIZE];
 	unsigned long sent_time;
 	/* the clip's upload being watched */
 	boolean uploading;
@@ -80,20 +79,17 @@ static void say(char const *text)
 static void send_report(short clip_choice)
 {
 	struct delta_wire_report_result last;
-	unsigned char const *token = NULL;
 
 	report.clip = FALSE;
 	report.clip_path[0] = 0;
 	/* (0: no clip; then the clips offered, the last first) */
 	if (clip_choice > 0 && clip_choice <= report.clip_count)
 	{
-		posix_random_bytes(report.token, sizeof(report.token));
 		snprintf(report.clip_path, sizeof(report.clip_path), "%s", report.clip_paths[clip_choice - 1]);
 		report.clip = TRUE;
-		token = report.token;
 	}
 	report.results_before = delta_peer_game_report_result(&last);
-	report.sequence = delta_peer_game_report((int)report.machine, (int)report.player, report.reason, token);
+	report.sequence = delta_peer_game_report((int)report.machine, (int)report.player, report.reason, report.clip);
 	report.step = _report_step_none;
 	if (!report.sequence)
 	{
@@ -207,8 +203,10 @@ void report_player_update(
 			switch (result.result)
 			{
 			case _delta_report_taken:
+				/* (with the token the host made: the site takes the clip
+				only for the report that names it) */
 				if (report.clip && (result.flags & DELTA_WIRE_REPORT_SEND_CLIP) &&
-					browser_clip_upload(report.clip_path, report.token))
+					browser_clip_upload(report.clip_path, result.clip_token))
 				{
 					report.uploading = TRUE;
 					say("Report sent. Sending the clip");

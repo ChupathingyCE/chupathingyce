@@ -1081,10 +1081,12 @@ unsigned int delta_peer_game_team_result(struct delta_wire_team_result *result);
 
 /* reports (port/linux/game/report_player.c, server/src/server_reports.c):
 the host's report host (NULL: none); the client's report of a machine's
-player (the game's player list index) and the results heard */
+player (the absolute index of their player datum), with clip when the
+reporter would attach one, and the results heard (a clip goes with the
+token the host sent back) */
 void delta_peer_game_set_report_host(const struct delta_peer_report_host *host);
 int delta_peer_game_report_ready(void);
-unsigned int delta_peer_game_report(int machine_index, int player, int reason, const unsigned char *clip_token);
+unsigned int delta_peer_game_report(int machine_index, int player, int reason, int clip);
 unsigned int delta_peer_game_report_result(struct delta_wire_report_result *result);
 
 /* object sync (port/linux/game/network_objects.c): the host's, the clients
