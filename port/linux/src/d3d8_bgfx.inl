@@ -3643,6 +3643,32 @@ void xgpu_bgfx_overlay_draw(const void *vertices, int count, int vertex_bytes, c
 static void bg_callback_screen_shot(bgfx_callback_interface_t *self, const char *path, uint32_t width,
 	uint32_t height, uint32_t pitch, bgfx_texture_format_t format, const void *data, uint32_t size, bool flip);
 
+/* the setup launcher's frame (launcher.c), before the game draws: bgfx
+started (once; the device's start then finds it so), the window cleared to
+color (0xRRGGBBAA) and the overlay's quads over it, in the picture's place
+(x and y its lower left corner, as OpenGL's), and the window saved to
+screenshot (a .bmp's path, or NULL). FALSE if bgfx does not start */
+BOOL xgpu_bgfx_launcher_frame(unsigned int color, int x, int y, int width, int height, const char *screenshot)
+{
+	if (!bg.ready && !bg_initialize())
+		return FALSE;
+	bg_window_update();
+	bgfx_set_view_frame_buffer(0, (bgfx_frame_buffer_handle_t)BGFX_INVALID_HANDLE);
+	bgfx_set_view_rect(0, 0, 0, (uint16_t)bg.window_width, (uint16_t)bg.window_height);
+	bgfx_set_view_clear(0, BGFX_CLEAR_COLOR, color, 1.0f, 0);
+	bgfx_touch(0);
+	bg.present_view = 0;
+#ifdef HALO_GAME_BROWSER
+	ui_overlay_present(x, y, width, height, bg.window_width, bg.window_height);
+#endif
+	if (screenshot && *screenshot)
+		bgfx_request_screen_shot((bgfx_frame_buffer_handle_t)BGFX_INVALID_HANDLE, screenshot);
+	bgfx_frame(BGFX_FRAME_NONE);
+	/* (the game's first frame starts its views as bg_present leaves them) */
+	bgfx_set_view_clear(0, BGFX_CLEAR_NONE, 0, 1.0f, 0);
+	return TRUE;
+}
+
 #ifdef __APPLE__
 /* Metal's compiles (the bgfx patch, tools/bgfx-patches) */
 struct bgfx_mtl_stats_t
@@ -3998,6 +4024,11 @@ static BOOL bg_initialize(void)
 	unsigned long index;
 	int width = 0, height = 0;
 	static const unsigned int black = 0xff000000;
+
+	/* (started already: the setup launcher draws with it before the
+	device starts, xgpu_bgfx_launcher_frame) */
+	if (bg.ready)
+		return TRUE;
 
 	bg.window = platform_sdl_window();
 	bg.view = 0;

@@ -173,6 +173,39 @@ enum
 	/* a friend's emblem on a toast, and its letter */
 	UI_COLOR_EMBLEM_FRIEND,
 	UI_COLOR_EMBLEM_LETTER,
+	/* the setup screen's (launcher.c): its title, its sections (lit: their
+	glow), a row's label not ready, a lit label's glow, a lit section's glow,
+	quieter and fainter text, its states (good, bad), a row's tag, the
+	prompts, the full-screen rule and its glow, a separator, a field (a path,
+	a progress bar's track) and its edge, a progress bar's fill from its top
+	to its bottom, the backdrop's space from its top to its middle and
+	bottom, its stars (their alpha their own), and what is cleared behind */
+	UI_COLOR_TITLE,
+	UI_COLOR_TITLE_GLOW,
+	UI_COLOR_NAV,
+	UI_COLOR_NAV_GLOW,
+	UI_COLOR_LABEL_DIM,
+	UI_COLOR_LABEL_GLOW,
+	UI_COLOR_SELECTED_GLOW,
+	UI_COLOR_TEXT_DIM,
+	UI_COLOR_FAINT,
+	UI_COLOR_GOOD,
+	UI_COLOR_BAD,
+	UI_COLOR_TAG,
+	UI_COLOR_PROMPT,
+	UI_COLOR_PROMPT_GLOW,
+	UI_COLOR_LINE,
+	UI_COLOR_LINE_GLOW,
+	UI_COLOR_SEPARATOR,
+	UI_COLOR_FIELD,
+	UI_COLOR_FIELD_EDGE,
+	UI_COLOR_PROGRESS_TOP,
+	UI_COLOR_PROGRESS_BOTTOM,
+	UI_COLOR_BACKDROP_TOP,
+	UI_COLOR_BACKDROP_MIDDLE,
+	UI_COLOR_BACKDROP_BOTTOM,
+	UI_COLOR_STAR,
+	UI_COLOR_CLEAR,
 	NUMBER_OF_UI_COLORS
 };
 unsigned int ui_style_color(int name);
