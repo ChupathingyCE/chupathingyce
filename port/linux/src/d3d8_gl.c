@@ -576,7 +576,7 @@ struct vertex_shader_object
 	shaders_tried's bits 4 and 5) */
 	struct console_shader *console_shader[2];
 #endif
-#if !defined(HALO_GL_ES) && !defined(__APPLE__)
+#if XGPU_GL_BINDINGS
 	/* the vertex array its draws last used, and the streams they had
 	(setup_streams: the layout follows from the two) */
 	struct vertex_array_entry *vertex_array;
@@ -968,8 +968,9 @@ values are all ones, which no real value matches (floats become NaN, which
 compares unequal to everything). */
 
 /* (each attribute pointed at on its own, glVertexAttribPointer: OpenGL ES,
-and macOS, whose OpenGL 4.1 has no vertex attribute binding of 4.3) */
-#if defined(HALO_GL_ES) || defined(__APPLE__)
+and macOS, whose OpenGL 4.1 has no vertex attribute binding of 4.3, and an
+older driver's: xgpu.h) */
+#if XGPU_GL_POINTERS
 struct attribute_pointer
 {
 	GLuint buffer;
@@ -980,7 +981,8 @@ struct attribute_pointer
 	GLsizei stride;
 	unsigned long offset;
 };
-#else
+#endif
+#if XGPU_GL_BINDINGS
 /* desktop GL (4.3) separates an attribute's format from the buffer it
 reads: the attributes of a stream share one binding, so a draw that moves
 the stream rebinds it once instead of pointing each attribute again */
@@ -1058,9 +1060,10 @@ static struct
 	GLuint array_buffer;
 	GLuint element_array_buffer;
 	unsigned char attribute_enabled[XGPU_VERTEX_ATTRIBUTE_COUNT];
-#if defined(HALO_GL_ES) || defined(__APPLE__)
+#if XGPU_GL_POINTERS
 	struct attribute_pointer attribute_pointers[XGPU_VERTEX_ATTRIBUTE_COUNT];
-#else
+#endif
+#if XGPU_GL_BINDINGS
 	GLuint vertex_array;
 #endif
 	/* a disabled attribute's value; kind 1 is the integer zero */
@@ -1110,7 +1113,7 @@ static int texture_slot(GLenum target)
 	return target == GL_TEXTURE_CUBE_MAP ? 1 : target == GL_TEXTURE_3D ? 2 : 0;
 }
 
-#if defined(HALO_GL_ES) || defined(__APPLE__)
+#if XGPU_GL_POINTERS
 static void state_texture(int unit, GLenum target, GLuint texture)
 {
 	int slot = texture_slot(target);
@@ -1154,7 +1157,7 @@ static void state_element_array_buffer(GLuint buffer)
 	}
 }
 
-#if defined(HALO_GL_ES) || defined(__APPLE__)
+#if XGPU_GL_POINTERS
 /* enables the attribute, reading size elements of type from buffer: each
 vertex is stride bytes on from the one before it, starting at
 buffer_offset, with the attribute relative_offset bytes into it */
@@ -1189,7 +1192,8 @@ static void state_attribute_stream(GLuint index, GLuint binding, GLuint buffer, 
 	pointer->stride = stride;
 	pointer->offset = offset;
 }
-#else
+#endif
+#if XGPU_GL_BINDINGS
 /* the vertex array of a layout, made the first time (its attributes enabled,
 formatted and bound to their bindings) */
 static struct vertex_array_entry *vertex_array_get(const struct vertex_layout *layout)
@@ -1281,8 +1285,9 @@ static void state_attribute_value(GLuint index, const float *value)
 {
 	unsigned char kind = value ? 0 : 1;
 
-#if defined(HALO_GL_ES) || defined(__APPLE__)
-	if (gl_state.attribute_enabled[index] != 0)
+#if XGPU_GL_POINTERS
+	/* (the 4.5 path's attributes are enabled by their vertex arrays) */
+	if (XGPU_GL_LEGACY && gl_state.attribute_enabled[index] != 0)
 	{
 		gl_state.attribute_enabled[index] = 0;
 		glDisableVertexAttribArray(index);
@@ -1927,7 +1932,9 @@ chester (GulchCE). */
 static void visibility_queries_create(void)
 {
 #if !defined(HALO_GL_ES) && !defined(__APPLE__) && !defined(HALO_CONSOLE_GL_LAYER)
-	PFNGLCREATEQUERIESPROC create_queries = (PFNGLCREATEQUERIESPROC)gl_function_extra("glCreateQueries");
+	/* (OpenGL 4.5's: not on an older driver's path, xgpu.h) */
+	PFNGLCREATEQUERIESPROC create_queries = XGPU_GL_LEGACY ? NULL :
+		(PFNGLCREATEQUERIESPROC)gl_function_extra("glCreateQueries");
 
 	if (create_queries)
 	{
@@ -2050,7 +2057,10 @@ static void gl_initialize(void)
 		glDebugMessageCallback(gl_debug_callback, NULL);
 	}
 #ifndef HALO_GL_NO_CLIP_CONTROL
-	glClipControl(GL_UPPER_LEFT, GL_ZERO_TO_ONE);
+	/* (an older driver's path converts the clip space in its shaders
+	instead, as macOS's does: nv2a_vsh.c) */
+	if (!XGPU_GL_LEGACY)
+		glClipControl(GL_UPPER_LEFT, GL_ZERO_TO_ONE);
 #endif
 	glEnable(GL_PROGRAM_POINT_SIZE);
 #endif
@@ -2122,6 +2132,10 @@ static void gl_initialize(void)
 			device.flush_every = (unsigned long)every;
 			platform_log("GPU: a pipeline flush every %ld draws", every);
 		}
+#ifdef XGPU_GL_LEGACY_AT_RUN_TIME
+		else if (every > 0)
+			platform_log("GPU: no glMemoryBarrier (OpenGL 4.2) in this context: the pipeline flush every %ld draws is unavailable", every);
+#endif
 	}
 #endif
 #ifdef HALO_GL_ES
@@ -3799,7 +3813,7 @@ static void render_targets_evict(void)
 	}
 }
 
-#if defined(HALO_GL_ES) || defined(__APPLE__) || defined(HALO_CONSOLE_GL_LAYER)
+#if defined(HALO_GL_ES) || defined(__APPLE__) || defined(HALO_CONSOLE_GL_LAYER) || defined(XGPU_GL_LEGACY_AT_RUN_TIME)
 #ifdef HALO_GL_ES
 #define HOST_GL_COPY_IMAGE xgpu_capabilities.copy_image
 #else
@@ -3903,8 +3917,9 @@ static GLuint mip_composite_get(const struct xgpu_texture_description *descripti
 		composite->level_sources[level] = target->texture;
 		composite->level_written[level] = target->written;
 		render_target_resolve(target);
-#if defined(HALO_GL_ES) || defined(__APPLE__) || defined(HALO_CONSOLE_GL_LAYER)
-		/* (OpenGL 4.3: macOS's 4.1 copies levels with a blit instead) */
+#if defined(HALO_GL_ES) || defined(__APPLE__) || defined(HALO_CONSOLE_GL_LAYER) || defined(XGPU_GL_LEGACY_AT_RUN_TIME)
+		/* (OpenGL 4.3: macOS's 4.1, and an older driver's path, copy levels
+		with a blit instead) */
 		if (!HOST_GL_COPY_IMAGE)
 		{
 			copy_level_by_blit(target->texture, composite->texture, (GLint)level, width, height);
@@ -3996,11 +4011,17 @@ static void bind_textures(struct nv2a_pixel_shader_key *key, float texture_scale
 				gl_target == GL_TEXTURE_3D ? _xgpu_sampler_3d : _xgpu_sampler_2d;
 		}
 	}
-#if defined(HALO_GL_ES) || defined(__APPLE__)
-	/* (each unit on its own: macOS's OpenGL 4.1 has no multi-bind of 4.4) */
-	for (stage = 0; stage < D3DTSS_MAXSTAGES; stage++)
-		state_texture(stage, gl_targets[stage], gl_textures[stage]);
-#else
+#if XGPU_GL_POINTERS
+	/* (each unit on its own: macOS's OpenGL 4.1, and an older driver's, has
+	no multi-bind of 4.4) */
+	if (XGPU_GL_LEGACY)
+	{
+		for (stage = 0; stage < D3DTSS_MAXSTAGES; stage++)
+			state_texture(stage, gl_targets[stage], gl_textures[stage]);
+	}
+#endif
+#if XGPU_GL_BINDINGS
+	if (!XGPU_GL_LEGACY)
 	{
 		/* the units whose texture changes, bound in one call (GL 4.4's
 		multi-bind) rather than selecting and binding each unit; binding no
@@ -4176,13 +4197,10 @@ static void apply_raster_state(BOOL has_depth)
 	state_enable(&gl_state.cull_face, GL_CULL_FACE, rs[D3DRS_CULLMODE] != D3DCULL_NONE);
 	if (rs[D3DRS_CULLMODE] != D3DCULL_NONE)
 	{
-#ifdef HALO_GL_NO_CLIP_CONTROL
-		/* the vertex shader flips y in clip space, which (unlike desktop
-		GL's upper-left clip origin) also flips the winding */
-		GLenum front_face = rs[D3DRS_FRONTFACE] == D3DFRONT_CCW ? GL_CW : GL_CCW;
-#else
-		GLenum front_face = rs[D3DRS_FRONTFACE] == D3DFRONT_CCW ? GL_CCW : GL_CW;
-#endif
+		/* (where the vertex shader flips y in clip space, as without
+		glClipControl, xgpu.h, which unlike desktop GL's upper-left clip
+		origin also flips the winding, the front is the other winding) */
+		GLenum front_face = (rs[D3DRS_FRONTFACE] == D3DFRONT_CCW) != (XGPU_GL_LEGACY != 0) ? GL_CCW : GL_CW;
 		GLenum cull_mode = rs[D3DRS_CULLMODE] == rs[D3DRS_FRONTFACE] ? GL_FRONT : GL_BACK;
 
 		if (gl_state.front_face != front_face)
@@ -4387,7 +4405,8 @@ static struct program_entry *prepare_draw(BOOL immediate)
 	key.alpha_test_function = D3D__RenderState[D3DRS_ALPHATESTENABLE] ? D3D__RenderState[D3DRS_ALPHAFUNC] : 0;
 #ifndef HALO_GL_ES
 	/* (gl_SampleMask: ES has it only from 3.2) */
-	if (target_samples > 1 && key.alpha_test_function && !D3D__RenderState[D3DRS_ALPHABLENDENABLE])
+	if (target_samples > 1 && key.alpha_test_function && !D3D__RenderState[D3DRS_ALPHABLENDENABLE] &&
+		XGPU_GL_SAMPLE_MASK)
 		key.alpha_test_samples = (unsigned char)target_samples;
 #endif
 	key.fog_enable = D3D__RenderState[D3DRS_FOGENABLE] != 0;
@@ -5217,7 +5236,7 @@ static void setup_streams(unsigned long first, unsigned long count)
 	BOOL placed[16] = { FALSE };
 	BOOL enabled[XGPU_VERTEX_ATTRIBUTE_COUNT] = { FALSE };
 	unsigned long index, total = 0;
-#if !defined(HALO_GL_ES) && !defined(__APPLE__)
+#if XGPU_GL_BINDINGS
 	struct vertex_layout layout;
 	unsigned long streams_used = 0;
 
@@ -5272,24 +5291,25 @@ static void setup_streams(unsigned long first, unsigned long count)
 			stream_buffers[stream] = device.stream_buffer;
 			stats.streamed_bytes += bytes;
 		}
-#if defined(HALO_GL_ES) || defined(__APPLE__)
-		if (element->type == D3DVSDT_NORMPACKED3)
+#if XGPU_GL_POINTERS
+		if (XGPU_GL_LEGACY && element->type == D3DVSDT_NORMPACKED3)
 		{
 			state_attribute_stream(element->reg, (GLuint)stream, stream_buffers[stream], 1, GL_UNSIGNED_INT, GL_FALSE,
 				TRUE, (GLsizei)stride, stream_offsets[stream], element->offset);
 		}
-		else
+		else if (XGPU_GL_LEGACY)
 		{
 			attribute_format(element, &size, &type, &normalized);
 			state_attribute_stream(element->reg, (GLuint)stream, stream_buffers[stream], size, type, normalized,
 				FALSE, (GLsizei)stride, stream_offsets[stream], element->offset);
 		}
-#else
-		if (element->type == D3DVSDT_NORMPACKED3)
+#endif
+#if XGPU_GL_BINDINGS
+		if (!XGPU_GL_LEGACY && element->type == D3DVSDT_NORMPACKED3)
 		{
 			layout_attribute(&layout, element->reg, (GLuint)stream, 1, GL_UNSIGNED_INT, GL_FALSE, TRUE, element->offset);
 		}
-		else
+		else if (!XGPU_GL_LEGACY)
 		{
 			attribute_format(element, &size, &type, &normalized);
 			layout_attribute(&layout, element->reg, (GLuint)stream, size, type, normalized, FALSE, element->offset);
@@ -5298,20 +5318,23 @@ static void setup_streams(unsigned long first, unsigned long count)
 #endif
 		enabled[element->reg] = TRUE;
 	}
-#if !defined(HALO_GL_ES) && !defined(__APPLE__)
+#if XGPU_GL_BINDINGS
 	/* (the layout follows from the declaration and the streams it has, so
 	the same two have the same vertex array: no need to look it up) */
-	if (!declaration->vertex_array || declaration->vertex_array_streams != streams_used)
+	if (!XGPU_GL_LEGACY)
 	{
-		declaration->vertex_array = vertex_array_get(&layout);
-		declaration->vertex_array_streams = streams_used;
-	}
-	state_vertex_array(declaration->vertex_array);
-	for (index = 0; index < 16; index++)
-	{
-		if (streams_used & (1UL << index))
-			state_vertex_buffer((GLuint)index, stream_buffers[index], stream_offsets[index],
-				(GLsizei)device.streams[index].stride);
+		if (!declaration->vertex_array || declaration->vertex_array_streams != streams_used)
+		{
+			declaration->vertex_array = vertex_array_get(&layout);
+			declaration->vertex_array_streams = streams_used;
+		}
+		state_vertex_array(declaration->vertex_array);
+		for (index = 0; index < 16; index++)
+		{
+			if (streams_used & (1UL << index))
+				state_vertex_buffer((GLuint)index, stream_buffers[index], stream_offsets[index],
+					(GLsizei)device.streams[index].stride);
+		}
 	}
 #endif
 	for (index = 0; index < XGPU_VERTEX_ATTRIBUTE_COUNT; index++)
@@ -5634,13 +5657,18 @@ static void end_untimed(void)
 		visibility_run.type = type;
 	}
 #endif
-#if defined(HALO_GL_ES) || defined(__APPLE__)
-	for (index = 0; index < XGPU_VERTEX_ATTRIBUTE_COUNT; index++)
+#if XGPU_GL_POINTERS
+	if (XGPU_GL_LEGACY)
 	{
-		state_attribute_stream(index, 0, device.stream_buffer, 4, GL_FLOAT, GL_FALSE, FALSE, (GLsizei)stride,
-			offset, index * 4 * sizeof(float));
+		for (index = 0; index < XGPU_VERTEX_ATTRIBUTE_COUNT; index++)
+		{
+			state_attribute_stream(index, 0, device.stream_buffer, 4, GL_FLOAT, GL_FALSE, FALSE, (GLsizei)stride,
+				offset, index * 4 * sizeof(float));
+		}
 	}
-#else
+#endif
+#if XGPU_GL_BINDINGS
+	if (!XGPU_GL_LEGACY)
 	{
 		/* every attribute four floats, one after another */
 		static struct vertex_array_entry *immediate_array;

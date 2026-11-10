@@ -75,6 +75,10 @@ void platform_log(char const *format, ...);
 enum
 {
 	MACHINES = DELTA_PEER_MAXIMUM_MACHINES,
+	/* a party member heard over the party's path is a speaker past the
+	game's machines */
+	PARTY_SPEAKERS = 1000,
+	PARTY_MEMBERS = 16,
 	/* a speaker's place kept this long after their last frame (ms) */
 	PLACE_TIME = 2000
 };
@@ -84,7 +88,8 @@ static struct
 	/* the dedicated server's rules (else config.toml's) */
 	boolean host_set;
 	struct voice_host_rules host;
-	/* the party's tag (none: all 0) */
+	/* the party's tag (none: all 0), and its own path (none: NULL) */
+	struct voice_party_path const *party_path;
 	boolean has_party;
 	unsigned char party[DELTA_WIRE_VOICE_PARTY_TAG_SIZE];
 	/* this copy's: the channel, the controls, and who was heard */
@@ -281,6 +286,26 @@ void voice_game_set_party(unsigned char const *tag)
 	}
 }
 
+void voice_game_set_party_path(struct voice_party_path const *path)
+{
+	voice_game.party_path = path;
+}
+
+void voice_game_party_heard(int member, wchar_t const *name, unsigned short sequence, unsigned char const *packet,
+	int length)
+{
+	/* (a member this copy muted is never played: no name, no way to tell,
+	so nothing played either) */
+	if (member < 0 || member >= PARTY_MEMBERS || !name || !name[0] || chat_local_muted(NONE, name) || !packet ||
+		length <= 0 || length > VOICE_PACKET_SIZE ||
+		voice_game_channel_state(_delta_voice_channel_party) == _voice_channel_voice_off)
+	{
+		return;
+	}
+	voice_heard(system_milliseconds(), PARTY_SPEAKERS + member, -1, _delta_voice_route_global,
+		_delta_voice_channel_party, sequence, packet, length);
+}
+
 int voice_game_channel_state(int channel)
 {
 	struct delta_wire_voice_config config;
@@ -289,6 +314,9 @@ int voice_game_channel_state(int channel)
 
 	if (voice_mode() == _voice_mode_off)
 		return _voice_channel_voice_off;
+	/* (the party's own path needs no host) */
+	if (channel == _delta_voice_channel_party && voice_game.has_party && voice_game.party_path)
+		return _voice_channel_open;
 	if (!delta_peer_game_voice_config(&config))
 		return _voice_channel_no_host;
 	if (config.flags & DELTA_VOICE_CONFIG_MUTED)
@@ -371,8 +399,8 @@ static void heard(void *context, struct delta_wire_voice_down const *down, unsig
 	(void)context;
 	if (machine < 0 || machine >= MACHINES)
 		return;
-	if (game && player >= 0 && player < HALO_PORT_MAXIMUM_NETWORK_PLAYERS &&
-		chat_local_muted(machine, game->players[player].name))
+	if (game && player >= 0 && player < HALO_PORT_MAXIMUM_NETWORK_PLAYERS ?
+		chat_local_muted(machine, game->players[player].name) : chat_local_muted(machine, NULL))
 	{
 		return;
 	}
@@ -425,7 +453,8 @@ static void local_update(int role)
 	struct voice_frame frame;
 	short machine;
 
-	if (!role)
+	/* (out of a game, only the party's own path has voice) */
+	if (!role && !(voice_game.party_path && voice_game.has_party))
 	{
 		if (voice_game.role)
 			voice_reset();
@@ -433,6 +462,8 @@ static void local_update(int role)
 		voice_update(now, FALSE, FALSE, 24);
 		return;
 	}
+	if (!role && voice_game.role)
+		voice_reset();
 	voice_game.role = role;
 	delta_peer_game_set_voice_client(&voice_client);
 	controls(&push, &next);
@@ -448,10 +479,14 @@ static void local_update(int role)
 		}
 	}
 	configured = delta_peer_game_voice_config(&config) != 0;
-	voice_update(now, push, configured && voice_game_channel_state(channel) == _voice_channel_open,
-		configured ? config.kbps : 24);
+	voice_update(now, push, voice_game_channel_state(channel) == _voice_channel_open, configured ? config.kbps : 24);
 	while (voice_take_frame(&frame))
+	{
 		delta_peer_game_voice_say(channel, frame.sequence, frame.data, frame.length);
+		/* (a party frame to the members in other games too) */
+		if (channel == _delta_voice_channel_party && voice_game.party_path && voice_game.party_path->send)
+			voice_game.party_path->send(voice_game.party_path->context, frame.sequence, frame.data, frame.length);
+	}
 	hears = voice_hears();
 	if (!voice_game.has_party)
 		hears &= ~DELTA_VOICE_PARTY;
@@ -487,6 +522,16 @@ int voice_game_channel_state(int channel) { (void)channel; return _voice_channel
 char const *voice_game_channel_reason(int state) { (void)state; return ""; }
 char const *voice_game_channel_name(int channel) { (void)channel; return ""; }
 void voice_game_set_party(unsigned char const *tag) { (void)tag; }
+void voice_game_set_party_path(struct voice_party_path const *path) { (void)path; }
+void voice_game_party_heard(int member, wchar_t const *name, unsigned short sequence, unsigned char const *packet,
+	int length)
+{
+	(void)member;
+	(void)name;
+	(void)sequence;
+	(void)packet;
+	(void)length;
+}
 boolean voice_game_talking(void) { return FALSE; }
 
 #endif
@@ -496,10 +541,14 @@ boolean voice_game_machine_talking(short machine_index)
 #ifdef HALO_PORT_VOICE_AUDIO
 	if (machine_index == network_game_client_get_local_machine_index())
 		return voice_game_talking();
-	if (voice_speaker_talking(system_milliseconds(), machine_index))
-		return TRUE;
+	/* (only a voice this player hears: a frame routed to it and not muted
+	here. On a host, a frame it only relays to others, an enemy team's,
+	never shows) */
+	return voice_speaker_talking(system_milliseconds(), machine_index) ? TRUE : FALSE;
+#else
+	(void)machine_index;
+	return FALSE;
 #endif
-	return delta_peer_game_voice_talking(machine_index) ? TRUE : FALSE;
 }
 
 void voice_game_update(void)
