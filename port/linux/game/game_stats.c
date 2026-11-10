@@ -72,6 +72,17 @@ int console_reports_joined_game(int teams, int red_score, int blue_score, int du
 const char *console_reports_build(void);
 #define stats_send_client_report console_reports_joined_game
 #endif
+#if !defined(HALO_GAME_BROWSER) && defined(HALO_CONSOLE_GAME_CLAIMS)
+/* a console's claim of its own line, hosted or joined
+(port/console/reports/console_claims.h) */
+int console_claims_game_ended(int hosted, const char *invite, const char *map, const unsigned short *host_name,
+	int host_length, const unsigned short *player_name, int name_length, int team, int score, int kills, int deaths,
+	int duration_seconds);
+/* internet play's (port/linux/src/p2p.c) */
+int p2p_joined_invite(char *text, int size);
+/* the hosted game (network_server_manager_internal.h) */
+struct network_game *network_game_server_get_game(struct network_game_server *server);
+#endif
 /* Delta Peer's (delta_peer_game.c): a player's platform, 0 if their machine
 is not on Chupathingy */
 int delta_peer_player_platform(int player_index);
@@ -192,6 +203,8 @@ static struct
 	boolean over;
 	unsigned long over_time;
 	boolean client_reported;
+	/* a console's claim of its line (console_claims_game_ended) */
+	boolean console_claimed;
 } game_stats = { .recording = FALSE, .kill_damage = NONE };
 
 /* ---------- private code */
@@ -213,6 +226,7 @@ static void stats_reset(
 	game_stats.last_tick = tick;
 	game_stats.over = FALSE;
 	game_stats.client_reported = FALSE;
+	game_stats.console_claimed = FALSE;
 }
 
 /* a new game (the game's time went back: a new map, or the next game) */
@@ -542,12 +556,16 @@ static long stats_departed_json(
 	return stats_append(text, size, used, "}");
 }
 
+/* the game's report lines, as game_engine_report_lines gives them (a
+client's report, a console's claim: one after the other, on the main thread) */
+static struct browser_report_player stats_lines[MAXIMUM_STATS_PLAYERS];
+
 /* a client's report of the game it joined, sent once it has its last
 statistics from the host */
 static void stats_client_report(
 	void)
 {
-	static struct browser_report_player players[MAXIMUM_STATS_PLAYERS];
+	struct browser_report_player *players = stats_lines;
 	static char extra[BROWSER_REPORT_GAME_EXTRA_SIZE];
 	struct network_game_client *client = global_network_game_client_get();
 	struct network_game *game = client ? network_game_client_get_game(client) : NULL;
@@ -608,6 +626,56 @@ static void stats_client_report(
 		platform_log("Game list: the joined game's report is on its way (%ld players)", count);
 	}
 }
+
+#if !defined(HALO_GAME_BROWSER) && defined(HALO_CONSOLE_GAME_CLAIMS)
+/* a console's claim of its own line in the game that ended, hosted or
+joined: its first local player's line, as the game's report lines have it
+(the scoreboard's team, score, kills and deaths, which the site matches) */
+static void stats_console_claim(
+	void)
+{
+	struct browser_report_player *lines = stats_lines;
+	boolean hosted = game_connection() == _game_connection_network_server;
+	struct network_game_server *server = hosted ? global_network_game_server_get() : NULL;
+	struct network_game_client *client = hosted ? NULL : global_network_game_client_get();
+	struct network_game *game = server ? network_game_server_get_game(server) :
+		client ? network_game_client_get_game(client) : NULL;
+	struct player_datum const *claimant = NULL;
+	struct data_iterator iterator;
+	struct player_datum *player;
+	char invite[BROWSER_INVITE_LENGTH + 1];
+	long count, index;
+
+	if (!game)
+		return;
+	data_iterator_new(&iterator, player_data);
+	while ((player = (struct player_datum *)data_iterator_next(&iterator)) != NULL)
+	{
+		/* (the console's first player: the one its profile is) */
+		if (player->local_player_index == 0)
+		{
+			claimant = player;
+			break;
+		}
+	}
+	if (!claimant)
+		return;
+	count = game_engine_report_lines(lines, MAXIMUM_STATS_PLAYERS);
+	/* (its line: game_engine_report_lines copies each player's name whole) */
+	for (index = 0; index < count; index++)
+	{
+		if (!csmemcmp(lines[index].name, claimant->name, sizeof(lines[index].name)))
+			break;
+	}
+	if (index >= count)
+		return;
+	if (hosted || !p2p_joined_invite(invite, sizeof(invite)))
+		invite[0] = 0;
+	console_claims_game_ended(hosted, invite, game->map.name, (unsigned short const *)game->name, 16,
+		lines[index].name, BROWSER_PLAYER_NAME_LENGTH, lines[index].team, lines[index].score, lines[index].kills,
+		lines[index].deaths, (int)(game_time_get() / TICKS_PER_SECOND));
+}
+#endif
 
 /* ---------- public code */
 
@@ -783,6 +851,17 @@ void game_stats_update(
 		game_stats.client_reported = TRUE;
 		stats_client_report();
 	}
+#if !defined(HALO_GAME_BROWSER) && defined(HALO_CONSOLE_GAME_CLAIMS)
+	/* a console's claim of its own line, hosted or joined, once its report
+	(a joined game's) is on its way */
+	if (!game_stats.console_claimed &&
+		(game_connection() == _game_connection_network_client || game_connection() == _game_connection_network_server) &&
+		system_milliseconds() - game_stats.over_time >= CLIENT_REPORT_DELAY_MILLISECONDS)
+	{
+		game_stats.console_claimed = TRUE;
+		stats_console_claim();
+	}
+#endif
 }
 
 #endif

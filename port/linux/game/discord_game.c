@@ -6,7 +6,8 @@ discord_activity.h, p2p_discord.c): the menus, the campaign (its level,
 difficulty and whether others play it too) or a multiplayer game (its game
 type, map, network game's name and players, a team game's score), when it
 began, and the player's discord settings. Looked at once a second; the p2p
-thread sends what changed.
+thread sends what changed. The same look says whether this copy plays a
+Delta game, for its presence on the site (browser_presence_playing).
 
 Scores shown are the team games' that count in points: Capture the Flag,
 Slayer and Race (Oddball and King of the Hill count time, or kills, as the
@@ -42,6 +43,11 @@ char const *config_string(char const *name);
 int config_boolean(char const *name);
 const char *build_identity_user_agent(void);
 int browser_dedicated(void);
+#ifndef HALO_CONSOLE_NO_GUIDE
+/* (presence: browser.c; whether the game is a Delta one: delta_peer_game.c) */
+void browser_presence_playing(int playing);
+int delta_peer_game_on_delta(void);
+#endif
 
 enum
 {
@@ -180,6 +186,15 @@ static void look(struct discord_activity_game *game)
 	discord_game.last_tick = tick;
 }
 
+/* the last look (the Guide's card: guide.c); FALSE before the first */
+boolean discord_game_get(struct discord_activity_game *game)
+{
+	if (!discord_game.looked)
+		return FALSE;
+	*game = discord_game.game;
+	return TRUE;
+}
+
 void discord_game_update(void)
 {
 	struct discord_activity_options options;
@@ -198,6 +213,12 @@ void discord_game_update(void)
 
 		look(&game);
 		discord_game.game = game;
+#ifndef HALO_CONSOLE_NO_GUIDE
+		/* (and the site, about once a minute, while this copy plays a Delta
+		game over the network: never an OpenCE host's) */
+		browser_presence_playing(game.screen != DISCORD_SCREEN_MENUS && network_game_get_game() &&
+			delta_peer_game_on_delta());
+#endif
 	}
 	csmemset(&options, 0, sizeof(options));
 	options.presence = discord_activity_presence(config_string("discord.presence"));
