@@ -17,5 +17,6 @@ licensed, as the user chooses (see `LICENSE`), vendored unchanged from
   in the file): allocation sizes that would overflow refused, the vendor and
   comment lengths and the comment count kept within the stream, the comment
   list zeroed and its length reset when it cannot be read, room for all 16
-  submaps, a failed sparse codebook decode not used as an index, and a
-  codebook's entries times dimensions bounded.
+  submaps, a failed sparse codebook decode not used as an index, a
+  codebook's entries times dimensions bounded, and the flat run after a
+  floor's last point masked to the table as `draw_line` masks its own.
