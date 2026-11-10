@@ -972,7 +972,7 @@ static const struct config_setting config_settings[] =
 	/* (a console's reports of the games it joins too: port/console/reports) */
 #if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_GAME_REPORTS)
 	{ "network.report_joined_games", _config_boolean, "true", "HALO_NET_REPORT_GAMES", _environment_value,
-		_platform_all,
+		_platform_all | _platform_xbox,
 		"Send the scores of internet games you join to the game list." },
 #endif
 #ifdef HALO_GAME_BROWSER
