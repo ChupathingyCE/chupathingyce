@@ -99,3 +99,19 @@ def test_identity_32_bit(tmp_path):
     if run.returncode != 0 and ("Bad CPU type" in run.stderr or not run.stdout):
         pytest.skip("can't run 32-bit programs here")
     assert run.returncode == 0, run.stdout + run.stderr
+
+
+def test_delta_names_rules():
+    """The owner's rules for names on Delta (docs/delta.md, "Verified
+    names"): the @ mark on by default; a Halo profile linked to a Delta
+    profile joins under its handle; a guest's games are never claimed or
+    reported for a profile."""
+    config = (ROOT / "port" / "linux" / "src" / "port_config.c").read_text()
+    assert re.search(r'\{ "display\.verified_mark", _config_boolean, "true"', config)
+    client = (ROOT / "source" / "networking" / "network_client_manager.c").read_text()
+    joined = client[client.index("ustrncpy(player.name, profile.player_name"):]
+    assert "profile_names_local_game_name(local_player_index, player.name" in joined[:600]
+    claims = (ROOT / "port" / "linux" / "game" / "game_list_claims.c").read_text()
+    assert "!local_guest(player->local_player_index)" in claims
+    stats = (ROOT / "port" / "linux" / "game" / "game_stats.c").read_text()
+    assert "!stats_local_guest(player->local_player_index)" in stats
