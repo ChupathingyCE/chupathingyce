@@ -1278,7 +1278,8 @@ static const struct config_setting config_settings[] =
 		"empty for the first." },
 	{ "debug.guide_test", _config_string, "\"\"", "HALO_GUIDE_TEST", _environment_value, _platform_all,
 		"Buttons pressed in the Guide debug.guide_open opened, one at a time,\n"
-		"separated by ; (up, down, left, right, a, b, x, y, lb, rb), for tests." },
+		"separated by ; (up, down, left, right, a, b, x, y, lb, rb), for tests.\n"
+		"Debug builds only: a release build ignores it." },
 #endif
 	{ "debug.chat_test", _config_string, "\"\"", "HALO_CHAT_TEST", _environment_value, _platform_all,
 		"Scripted chat for tests, as steps separated by ;. Each step is\n"

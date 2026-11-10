@@ -597,3 +597,14 @@ def test_menus_quit_on_android():
     pump = re.search(r"^void platform_pump_events\(.*?^\}", platform, re.M | re.S).group(0)
     assert re.search(r"if \(android_quit_requested\)\s*\{[^}]*exit\(EXIT_SUCCESS\);", pump)
     assert "SDL_PushEvent" not in (root / "port/android/host_imports.list").read_text()
+
+
+def test_guide_test_steps_are_for_debug_builds_only():
+    """debug.guide_test presses the Guide's buttons (accepting an invite,
+    kicking from a clan): a release build (HALO_RELEASE) compiles that out
+    and keeps the setting harmless"""
+    guide = (Path(__file__).resolve().parent.parent / "port/linux/game/guide.c").read_text()
+    gated = re.search(r"#ifdef HALO_RELEASE\nstatic void debug_steps\(void\)\n\{\n\}\n#else\n(.*?)\n#endif\n", guide, re.S)
+    assert gated, "debug_steps has no empty release version"
+    assert 'config_string("debug.guide_test")' in gated.group(1)
+    assert guide.count('"debug.guide_test"') == 1

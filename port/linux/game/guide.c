@@ -2415,9 +2415,16 @@ static void handle(unsigned int pressed);
 /* debug.guide_test: once the Guide opened by itself (debug.guide_open),
 its steps pressed one at a time, DEBUG_STEP_INTERVAL apart, from
 DEBUG_STEP_WAIT after it opened ("down;down;a":
-up, down, left, right, a, b, x, y, lb, rb) */
+up, down, left, right, a, b, x, y, lb, rb). Debug builds only: a release
+build never presses the Guide's buttons for anyone (accepting an invite,
+kicking from a clan) */
 #define DEBUG_STEP_INTERVAL 600
 #define DEBUG_STEP_WAIT 8000
+#ifdef HALO_RELEASE
+static void debug_steps(void)
+{
+}
+#else
 static void debug_steps(void)
 {
 	static char const *const words[] = { "up", "down", "left", "right", "a", "b", "x", "y", "lb", "rb" };
@@ -2452,6 +2459,7 @@ static void debug_steps(void)
 		}
 	}
 }
+#endif
 
 /* what was pressed (or clicked on the prompt bar) */
 static void handle(unsigned int pressed)
