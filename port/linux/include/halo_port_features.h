@@ -186,7 +186,8 @@ whose game list sends it), and a console's that sends its own reports
 a desktop's lighting extra, on no console (any console's build, whichever
 switches it sets on its own): its headers give empty hooks, and its sources
 build to nothing (plasma_occlusion.c's fields alone are 130 KB) */
-#if (defined(HALO_CONSOLE) || defined(HALO_XBOX_CONSOLE) || defined(HALO_CONSOLE_GL_LAYER)) && \
+#if (defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
+	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE) || defined(HALO_CONSOLE_GL_LAYER)) && \
 	!defined(HALO_CONSOLE_NO_LIGHT_EFFECTS)
 #define HALO_CONSOLE_NO_LIGHT_EFFECTS
 #endif

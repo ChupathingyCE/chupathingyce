@@ -2670,6 +2670,7 @@ void lights_illumination_at_point(
 	return;
 }
 
+#ifndef HALO_CONSOLE_NO_LIGHT_EFFECTS
 /* port: whether a biped rides the object, or rides what rides it: drawn
 with the object's lighting (render_objects.c) */
 static boolean light_port_carries_biped(
@@ -2697,6 +2698,7 @@ static boolean light_port_carries_biped(
 	}
 	return FALSE;
 }
+#endif
 
 void lights_prepare_for_object_dynamic(
 	long object_index,
@@ -2734,6 +2736,7 @@ void lights_prepare_for_object_dynamic(
 		lighting->point_light_indices[light_index] =
 			light_get(lighting->point_light_indices[light_index])->rasterizer_light_index;
 	}
+#ifndef HALO_CONSOLE_NO_LIGHT_EFFECTS
 	/* port: a unit (a player, an AI, a vehicle and who rides it, drawn with
 	its lighting) is lit by the Light effects no more than a little, and not
 	through a wall (plasma_lighting_unit_light); so is anything a biped rides */
@@ -2752,6 +2755,7 @@ void lights_prepare_for_object_dynamic(
 		}
 		lighting->point_light_count = kept;
 	}
+#endif
 
 	return;
 }
