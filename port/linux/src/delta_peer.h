@@ -271,10 +271,11 @@ struct delta_peer_badge_host
 {
 	void *context;
 	/* the certificate (at most size bytes) and the key's signature of the
-	nonce (server_badge.h's proof message): the certificate's length, 0 if
-	there is none now */
-	int (*answer)(void *context, const unsigned char *nonce, unsigned char *signature, unsigned char *certificate,
-		int size);
+	nonce, the host's invite and the client's session (server_badge.h's
+	proof message, DELTA_WIRE_BADGE_PROOF_BOUND): the certificate's length,
+	0 if there is none now */
+	int (*answer)(void *context, const unsigned char *nonce, delta_u32 session, unsigned char *signature,
+		unsigned char *certificate, int size);
 };
 
 /* a client's badge check with its host */

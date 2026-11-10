@@ -64,16 +64,25 @@ names:
   its clock, from a dedicated server, with a certificate that is a badge
   key's, in date and not revoked. A developer or community certificate
   also needs the server still linked, and a developer certificate needs
-  its owner to still hold the Developer profile badge. The list then says
-  `badge` and `badge_label` (`/v1/games`, and `/v1/games.txt` fields 25
-  and 26 with `?fields=26`).
+  its owner to still hold the Developer profile badge. Every badge also
+  needs the server linked and the announcement to come from the address its
+  Delta Control link polls from. The list then says `badge`, `badge_label`
+  and `badge_key`, the server key the certificate names (`/v1/games`, and
+  `/v1/games.txt` fields 25 to 27 with `?fields=27`).
 - **Joining.** Over Delta Peer (`server_badge`, BADGE_ASK and BADGE in
-  [delta.md](delta.md), "Server badges"): the client's fresh nonce, signed
-  with the same key as `chupathingy server badge proof v1\n` and the nonce.
-  A host that fails the check shows no badge from then on.
+  [delta.md](delta.md), "Server badges"): signed with the same key,
+  `chupathingy server badge proof v2\n`, the client's fresh nonce (32
+  bytes), the invite the client joined in lowercase, `\n`, the Delta Peer
+  session in 8 lowercase hexadecimal digits and `\n`. Binding the invite
+  and the session means a host can't pass on another server's proof as its
+  own. The first drafts' proof (`v1`, the nonce alone) is never taken.
 
-A build shows a badge only from the list, and only with badge keys of its
-own. It drops the badge of a host that does not prove it on joining.
+A build shows a badge only from the list, only when the list is the
+community's site (`network.browser_url`'s default), and only with badge keys
+of its own. A dedicated server sends its badge only to that site too. The
+game remembers the last 8 hosts it joined: one that proved no badge shows
+none, and one that proved a badge shows the list's only while the list
+says the same tier, label and server key.
 
 ## The keys
 
@@ -95,11 +104,13 @@ use have it.
 
 The command repository's **Issue server badge** workflow signs one
 certificate for a link key, tier, label and lifetime (a year by default,
-two at most). The site starts it when an admin approves a request, then
-takes the certificate back at `POST /v1/badges/issued` (only for an
-approved request of the same key, tier and label). It can also be run by
-hand and the certificate uploaded in the admin panel. Official badges are
-issued by hand only.
+two at most). Only the owner runs it, by hand (its `BADGE_ISSUERS` list):
+the site never starts it. An admin approving a request on the site (with
+the authenticator) queues it; the owner then runs the workflow with the
+request's number, and the certificate goes back to the site at
+`POST /v1/badges/issued` (only for an approved request of the same key,
+tier and label) or is uploaded in the admin panel. Developer and community
+badges need a request; official badges never have one.
 
 The site's revoked list (`/v1/badges/revoked.txt`) names certificate IDs,
 or `key <hex>` for every certificate of a server key. A server unlinked,

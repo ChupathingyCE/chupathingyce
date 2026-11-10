@@ -1294,6 +1294,7 @@ static void test_wire_badge(void)
 	for (index = 0; index < DELTA_WIRE_BADGE_SIGNATURE_SIZE; index++)
 		badge.signature[index] = (unsigned char)(0xA0 ^ index);
 	badge.certificate_length = DELTA_WIRE_BADGE_CERTIFICATE_SIZE;
+	badge.proof = DELTA_WIRE_BADGE_PROOF_BOUND;
 	for (index = 0; index < DELTA_WIRE_BADGE_CERTIFICATE_SIZE; index++)
 		badge.certificate[index] = (unsigned char)index;
 	size = delta_wire_write_badge(data, 7, &badge);
@@ -1319,14 +1320,16 @@ static void test_wire_badge(void)
 static struct
 {
 	int asked;
+	delta_u32 session;
 	unsigned char nonce[DELTA_WIRE_BADGE_NONCE_SIZE];
 } host_badge;
 
-static int test_badge_answer(void *context, const unsigned char *nonce, unsigned char *signature,
+static int test_badge_answer(void *context, const unsigned char *nonce, delta_u32 session, unsigned char *signature,
 	unsigned char *certificate, int size)
 {
 	(void)context;
 	host_badge.asked++;
+	host_badge.session = session;
 	memcpy(host_badge.nonce, nonce, sizeof(host_badge.nonce));
 	memset(signature, 0x5A, DELTA_WIRE_BADGE_SIGNATURE_SIZE);
 	memset(certificate, 0xC3, 120);
@@ -1358,6 +1361,8 @@ static void test_badge(void)
 	CHECK(delta_peer_client_badge(&nodes[1].peer, &badge, NULL) == _delta_peer_badge_answered);
 	CHECK(!memcmp(badge.nonce, host_badge.nonce, sizeof(badge.nonce)) && badge.certificate_length == 120 &&
 		badge.certificate[0] == 0xC3 && badge.signature[0] == 0x5A);
+	/* (the proof is bound to the client's session, and says so) */
+	CHECK(host_badge.session == nodes[1].peer.session && badge.proof == DELTA_WIRE_BADGE_PROOF_BOUND);
 	CHECK(delta_peer_client_badge(&nodes[2].peer, NULL, NULL) == _delta_peer_badge_unoffered);
 	/* (an answer to another nonce, or a second one: dropped) */
 	{

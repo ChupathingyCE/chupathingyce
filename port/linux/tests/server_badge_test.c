@@ -142,28 +142,115 @@ static void test_proof(const unsigned char *certificate, int size)
 	crypto_ed25519_key_pair(secret, public_key, seed);
 	CHECK(!memcmp(public_key, badge.server_key, sizeof(public_key)));
 
-	/* the proof to a joining game: the key's signature of its nonce */
+	/* the proof to a joining game: the key's signature of its nonce, the
+	invite it joined and the session */
 	for (index = 0; index < SERVER_BADGE_NONCE_SIZE; index++)
 		nonce[index] = (unsigned char)(index * 3);
-	length = server_badge_proof_message(message, nonce);
-	CHECK(length == (int)strlen("chupathingy server badge proof v1\n") + SERVER_BADGE_NONCE_SIZE);
-	CHECK(!memcmp(message, "chupathingy server badge proof v1\n", 34));
-	crypto_ed25519_sign(signature, secret, message, (size_t)length);
-	CHECK(server_badge_signature_valid(&badge, message, length, signature));
-	nonce[0] ^= 1;
-	length = server_badge_proof_message(message, nonce);
-	CHECK(!server_badge_signature_valid(&badge, message, length, signature));
-
-	/* the announcement to the list: the invite and the time, as puma's
-	server_badges.announce_message has them */
 	memset(invite, 0, sizeof(invite));
 	for (index = 0; index < 64; index++)
 		invite[index] = index % 2 ? 'b' : 'a';
+	length = server_badge_proof_message(message, nonce, invite, 0x0102abcdu);
+	CHECK(length == (int)strlen("chupathingy server badge proof v2\n") + SERVER_BADGE_NONCE_SIZE + 64 + 1 + 8 + 1);
+	CHECK(!memcmp(message, "chupathingy server badge proof v2\n", 34));
+	CHECK(!memcmp(message + 34 + SERVER_BADGE_NONCE_SIZE, invite, 64) &&
+		!memcmp(message + 34 + SERVER_BADGE_NONCE_SIZE + 64, "\n0102abcd\n", 10));
+	crypto_ed25519_sign(signature, secret, message, (size_t)length);
+	CHECK(server_badge_signature_valid(&badge, message, length, signature));
+	/* (the invite is signed in lowercase) */
+	invite[0] = 'A';
+	CHECK(server_badge_signature_valid(&badge, message, server_badge_proof_message(message, nonce, invite, 0x0102abcdu),
+		signature));
+	invite[0] = 'a';
+	/* (another nonce, another host's invite, another session: no proof) */
+	nonce[0] ^= 1;
+	length = server_badge_proof_message(message, nonce, invite, 0x0102abcdu);
+	CHECK(!server_badge_signature_valid(&badge, message, length, signature));
+	nonce[0] ^= 1;
+	invite[63] = 'c';
+	length = server_badge_proof_message(message, nonce, invite, 0x0102abcdu);
+	CHECK(!server_badge_signature_valid(&badge, message, length, signature));
+	invite[63] = 'b';
+	length = server_badge_proof_message(message, nonce, invite, 0x0102abceu);
+	CHECK(!server_badge_signature_valid(&badge, message, length, signature));
+	/* (and the first drafts' proof, of the nonce alone, is none) */
+	memcpy(message, "chupathingy server badge proof v1\n", 34);
+	memcpy(message + 34, nonce, SERVER_BADGE_NONCE_SIZE);
+	crypto_ed25519_sign(signature, secret, message, 34 + SERVER_BADGE_NONCE_SIZE);
+	length = server_badge_proof_message(message, nonce, invite, 0x0102abcdu);
+	CHECK(!server_badge_signature_valid(&badge, message, length, signature));
+	/* (no invite, or one too long: nothing to sign) */
+	CHECK(server_badge_proof_message(message, nonce, "", 1) == 0);
+	CHECK(server_badge_proof_message(message, nonce, NULL, 1) == 0);
+	{
+		char long_invite[SERVER_BADGE_INVITE_SIZE + 2];
+
+		memset(long_invite, 'a', sizeof(long_invite) - 1);
+		long_invite[sizeof(long_invite) - 1] = 0;
+		CHECK(server_badge_proof_message(message, nonce, long_invite, 1) == 0);
+	}
+
+	/* the announcement to the list: the invite and the time, as puma's
+	server_badges.announce_message has them */
 	length = server_badge_announce_message(message, invite, 1790000000ull);
 	CHECK(length == (int)strlen(announce_expected) && !memcmp(message, announce_expected, (size_t)length));
 	crypto_ed25519_sign(signature, secret, message, (size_t)length);
 	CHECK(server_badge_signature_valid(&badge, message, length, signature));
 	crypto_wipe(secret, sizeof(secret));
+}
+
+/* the hosts a game joined: a listed badge shown only as proven */
+static void test_joined(void)
+{
+	static struct server_badge_joined_set set;
+	struct server_badge proven;
+	char invite[SERVER_BADGE_INVITE_SIZE + 1];
+	unsigned char key[SERVER_BADGE_KEY_SIZE], other_key[SERVER_BADGE_KEY_SIZE];
+	int index;
+
+	memset(&proven, 0, sizeof(proven));
+	proven.tier = _server_badge_tier_community;
+	strcpy(proven.label, "My clan");
+	memset(key, 0x11, sizeof(key));
+	memset(other_key, 0x22, sizeof(other_key));
+	memcpy(proven.server_key, key, sizeof(key));
+	memset(invite, 'a', SERVER_BADGE_INVITE_SIZE);
+	invite[SERVER_BADGE_INVITE_SIZE] = 0;
+
+	/* (a host not joined: the list's word) */
+	CHECK(server_badge_joined_allows(&set, invite, _server_badge_tier_official, "", NULL));
+	/* (proven: the same badge only) */
+	server_badge_joined_note(&set, invite, &proven);
+	CHECK(server_badge_joined_allows(&set, invite, _server_badge_tier_community, "My clan", key));
+	CHECK(server_badge_joined_allows(&set, invite, _server_badge_tier_community, "My clan", NULL));
+	CHECK(!server_badge_joined_allows(&set, invite, _server_badge_tier_official, "My clan", key));
+	CHECK(!server_badge_joined_allows(&set, invite, _server_badge_tier_community, "Milenko", key));
+	CHECK(!server_badge_joined_allows(&set, invite, _server_badge_tier_community, "My clan", other_key));
+	/* (an invite in capitals is the same invite) */
+	invite[0] = 'A';
+	CHECK(!server_badge_joined_allows(&set, invite, _server_badge_tier_official, "My clan", key));
+	invite[0] = 'a';
+	/* (none proven: no badge) */
+	server_badge_joined_note(&set, invite, NULL);
+	CHECK(!server_badge_joined_allows(&set, invite, _server_badge_tier_community, "My clan", key));
+	/* (several hosts each kept, the oldest forgotten past the set's size) */
+	for (index = 0; index < SERVER_BADGE_JOINED_COUNT - 1; index++)
+	{
+		invite[1] = (char)('b' + index);
+		server_badge_joined_note(&set, invite, NULL);
+	}
+	invite[1] = 'a';
+	CHECK(!server_badge_joined_allows(&set, invite, _server_badge_tier_community, "My clan", key));
+	invite[1] = 'b';
+	CHECK(!server_badge_joined_allows(&set, invite, _server_badge_tier_community, "My clan", key));
+	invite[1] = 'z';
+	server_badge_joined_note(&set, invite, NULL);
+	invite[1] = 'a';
+	CHECK(server_badge_joined_allows(&set, invite, _server_badge_tier_community, "My clan", key));
+	invite[1] = 'b';
+	CHECK(!server_badge_joined_allows(&set, invite, _server_badge_tier_community, "My clan", key));
+	/* (no invite: nothing noted) */
+	server_badge_joined_note(&set, "", &proven);
+	CHECK(server_badge_joined_allows(&set, "", _server_badge_tier_official, "", NULL));
 }
 
 int main(void)
@@ -175,6 +262,7 @@ int main(void)
 	test_text();
 	test_signed(certificate, size);
 	test_proof(certificate, size);
+	test_joined();
 	if (failures)
 	{
 		fprintf(stderr, "%d checks failed\n", failures);

@@ -397,7 +397,7 @@ a later version may append):
 | 23 | TEAM_REQUEST | client to host | sequence (4, above the session's last), player (1, the game's player list index), team (1: 0 red, 1 blue, 255 the other one), reserved (2) |
 | 24 | TEAM_RESULT | host to client | sequence (4, the TEAM_REQUEST's), result (1: 0 changed, 1 at the next respawn, 2 the host takes none, 3 the teams would be uneven, 4 no teams, 5 too soon, 6 not now, 7 no such player of the machine, 8 already on that team, 9 the last player of their team), team (1, the player's now), seconds until the player may change again (2; with 5) |
 | 25 | BADGE_ASK | client to host | nonce (32, fresh for each session) |
-| 26 | BADGE | host to client | nonce (32, the BADGE_ASK's), signature (64, the certificate's server key's, of "chupathingy server badge proof v1\n" and the nonce), certificate length (2, at most 143; 0 for none), reserved (2), then the certificate ([server-badges.md](server-badges.md)) |
+| 26 | BADGE | host to client | nonce (32, the BADGE_ASK's), signature (64, the certificate's server key's, of the proof below), certificate length (2, at most 143; 0 for none), proof (1: 2, "chupathingy server badge proof v2\n", the nonce, the host's invite and the session, [server-badges.md](server-badges.md); 0, the first drafts' nonce alone, shows no badge), reserved (1), then the certificate |
 | 27 | UNIT_VITALS | host to client | count (1, at most 98), flags (1: 0x01 the last datagram of a full pass), reserved (2), then 12-byte entries: the host's object (4, its datum index, which a client's copy shares), flags (1: 0x01 shield depleted, 0x02 shield charging, 0x04 shield over charging), reserved (1), body vitality (2), shield vitality (2), reserved (2); vitality in 16384ths, as the game's own unit states have it |
 | 28 | OBJECT_NAMES | host to client | total (2, the host's named objects and removed names in all, at most 512), first (2, this datagram's first entry's place among them), count (1, at most 98), reserved (3), then 12-byte entries: the host's object (4; 0xFFFFFFFF for a removed name), its scenario name index (2), flags (1: 0x01 removed, a name the host had an object of this game and has none of now; others ignored), and for a removed name its unit's last vitals: shield flags (1, as UNIT_VITALS's), body vitality (2), shield vitality (2) (full for an object that was not a unit; 0 for the others) |
 | 29 | HOST_RULES | host to client | version (1; 1 now, 0 refused, a later one read as far as this build knows it), flags (1: 0x01 names above heads allowed, 0x02 the follow camera allowed; others ignored), team changes (1: 0 off, 1 balanced, 2 allow), their margin (1, 0 to 16), reserved (4); values past their ranges refused. Sent at once when they change and every 5 seconds |
@@ -734,10 +734,12 @@ one is issued are in [server-badges.md](server-badges.md).
   key's signature of the nonce, at most once a second for a machine. A
   host without a certificate does not offer `server_badge`.
 - **Checking.** The client takes the badge only if the certificate is a
-  badge key's, in date, of a tier it knows, and the nonce's signature is
-  the key the certificate names. A host that does not offer the badge,
-  does not answer in time, or fails the check shows no badge in Online
-  Games from then on, whatever the list says.
+  badge key's, in date, of a tier it knows, and the signature is the key
+  the certificate names, of the nonce, the invite the client joined and
+  this session (proof 2). A host that does not offer the badge, does not
+  answer in time, or fails the check shows no badge in Online Games from
+  then on, whatever the list says; one that proves a badge shows the
+  list's only while the list names the same tier, label and server key.
 
 The game's side is `port/linux/src/server_badge.c` and
 `port/linux/src/delta_peer_game.c`; the dedicated server's certificate is

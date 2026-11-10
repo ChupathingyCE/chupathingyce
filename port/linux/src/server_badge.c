@@ -15,7 +15,9 @@ docs/server-badges.md).
 
 /* (a certificate's magic, and the labels before what each key signs) */
 static const char certificate_label[] = "chupathingy server badge v1\n";
-static const char proof_label[] = "chupathingy server badge proof v1\n";
+/* (v1, the nonce alone, is never taken: a proof for one host's game could
+be passed on by another host) */
+static const char proof_label[] = "chupathingy server badge proof v2\n";
 static const char announce_label[] = "chupathingy server badge announce v1\n";
 
 static const char *const tier_names[] = { "", "official", "developer", "community" };
@@ -130,11 +132,32 @@ int server_badge_check(const unsigned char *certificate, int size, unsigned long
 	return server_badge_verdict(certificate, size, now, badge) == _server_badge_good;
 }
 
-int server_badge_proof_message(unsigned char *message, const unsigned char *nonce)
+static char lower(char character)
 {
+	return (char)(character >= 'A' && character <= 'Z' ? character - 'A' + 'a' : character);
+}
+
+int server_badge_proof_message(unsigned char *message, const unsigned char *nonce, const char *invite,
+	unsigned int session)
+{
+	static const char digits[] = "0123456789abcdef";
+	size_t invite_length = invite ? strlen(invite) : 0;
+	int length = (int)(sizeof(proof_label) - 1), index;
+
+	/* (the label, the nonce, the invite and the session in hexadecimal,
+	each line ended) */
+	if (!invite_length || invite_length > SERVER_BADGE_INVITE_SIZE)
+		return 0;
 	memcpy(message, proof_label, sizeof(proof_label) - 1);
-	memcpy(message + sizeof(proof_label) - 1, nonce, SERVER_BADGE_NONCE_SIZE);
-	return (int)(sizeof(proof_label) - 1) + SERVER_BADGE_NONCE_SIZE;
+	memcpy(message + length, nonce, SERVER_BADGE_NONCE_SIZE);
+	length += SERVER_BADGE_NONCE_SIZE;
+	for (index = 0; index < (int)invite_length; index++)
+		message[length++] = (unsigned char)lower(invite[index]);
+	message[length++] = '\n';
+	for (index = 7; index >= 0; index--)
+		message[length++] = (unsigned char)digits[(session >> (index * 4)) & 15];
+	message[length++] = '\n';
+	return length;
 }
 
 int server_badge_announce_message(unsigned char *message, const char *invite, unsigned long long time)
@@ -221,4 +244,73 @@ int server_badge_from_text(const char *text, unsigned char *certificate, int siz
 		text = *end ? end + 1 : end;
 	}
 	return 0;
+}
+
+/* ---------- the hosts a game joined */
+
+static int same_invite(const char *a, const char *b)
+{
+	int index;
+
+	for (index = 0; a[index] && b[index]; index++)
+	{
+		if (lower(a[index]) != lower(b[index]))
+			return 0;
+	}
+	return !a[index] && !b[index];
+}
+
+static const struct server_badge_joined *find_joined(const struct server_badge_joined_set *set, const char *invite)
+{
+	int index;
+
+	for (index = 0; invite && invite[0] && index < SERVER_BADGE_JOINED_COUNT; index++)
+	{
+		if (set->entries[index].result && same_invite(set->entries[index].invite, invite))
+			return &set->entries[index];
+	}
+	return NULL;
+}
+
+void server_badge_joined_note(struct server_badge_joined_set *set, const char *invite,
+	const struct server_badge *proven)
+{
+	struct server_badge_joined *entry = (struct server_badge_joined *)find_joined(set, invite);
+	int index;
+
+	if (!invite || !invite[0] || strlen(invite) > SERVER_BADGE_INVITE_SIZE)
+		return;
+	/* (else an empty entry, else the oldest) */
+	for (index = 0; !entry && index < SERVER_BADGE_JOINED_COUNT; index++)
+	{
+		if (!set->entries[index].result)
+			entry = &set->entries[index];
+	}
+	if (!entry)
+	{
+		entry = &set->entries[0];
+		for (index = 1; index < SERVER_BADGE_JOINED_COUNT; index++)
+		{
+			if (set->entries[index].order < entry->order)
+				entry = &set->entries[index];
+		}
+	}
+	memset(entry, 0, sizeof(*entry));
+	for (index = 0; invite[index]; index++)
+		entry->invite[index] = lower(invite[index]);
+	entry->result = proven ? 1 : -1;
+	if (proven)
+		entry->badge = *proven;
+	entry->order = ++set->next_order;
+}
+
+int server_badge_joined_allows(const struct server_badge_joined_set *set, const char *invite, int tier,
+	const char *label, const unsigned char *listed_key)
+{
+	const struct server_badge_joined *entry = find_joined(set, invite);
+
+	if (!entry)
+		return 1;
+	return entry->result > 0 && entry->badge.tier == tier && !strcmp(entry->badge.label, label ? label : "") &&
+		(!listed_key || !memcmp(entry->badge.server_key, listed_key, SERVER_BADGE_KEY_SIZE));
 }

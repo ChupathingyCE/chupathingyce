@@ -25,6 +25,10 @@ enum
 	SERVER_BADGE_SIGNATURE_SIZE = 64,
 	SERVER_BADGE_LABEL_SIZE = 31,
 	SERVER_BADGE_NONCE_SIZE = 32,
+	/* an invite as the list and the game spell it (hexadecimal) */
+	SERVER_BADGE_INVITE_SIZE = 64,
+	/* the hosts whose proof a game remembers (server_badge_joined_set) */
+	SERVER_BADGE_JOINED_COUNT = 8,
 	/* a whole certificate: 112 bytes and its label */
 	SERVER_BADGE_MINIMUM_SIZE = SERVER_BADGE_HEADER_SIZE + SERVER_BADGE_SIGNATURE_SIZE,
 	SERVER_BADGE_MAXIMUM_SIZE = SERVER_BADGE_MINIMUM_SIZE + SERVER_BADGE_LABEL_SIZE,
@@ -86,9 +90,13 @@ int server_badge_has_keys(void);
 
 /* the bytes the server's key signs, into message (at least
 SERVER_BADGE_MESSAGE_SIZE): its proof to a joining game, of the game's
-nonce; its announcement of a game, of the invite and the time (Unix
-seconds). Their length (0: an invite that does not fit) */
-int server_badge_proof_message(unsigned char *message, const unsigned char *nonce);
+nonce, the invite the game joined and the Delta Peer session between them
+(so a proof made for one host's game is no proof for another's); its
+announcement of a game, of the invite and the time (Unix seconds). Their
+length (0: no invite, or one that does not fit). The invite is taken in
+any case and signed in lowercase */
+int server_badge_proof_message(unsigned char *message, const unsigned char *nonce, const char *invite,
+	unsigned int session);
 int server_badge_announce_message(unsigned char *message, const char *invite, unsigned long long time);
 /* whether a signature is the certificate's server key's, of message (never
 for a key of small order) */
@@ -104,5 +112,38 @@ int server_badge_tier_number(const char *name);
 one line; lines starting with '#' and blank lines skipped): its size, 0 if
 there is none */
 int server_badge_from_text(const char *text, unsigned char *certificate, int size);
+
+/* ---------- what a game made of the hosts it joined
+
+The list's badge is the site's word; a game that joins the host checks it
+itself (BADGE_ASK). The last SERVER_BADGE_JOINED_COUNT hosts' outcomes are
+kept by invite: a host that proved no badge shows none, and one that
+proved a badge shows the list's only while the list says the same tier,
+label and server key. */
+
+struct server_badge_joined
+{
+	char invite[SERVER_BADGE_INVITE_SIZE + 1];
+	/* 1 proven (badge), -1 none proven, 0 an empty entry */
+	int result;
+	struct server_badge badge;
+	unsigned int order;
+};
+
+struct server_badge_joined_set
+{
+	struct server_badge_joined entries[SERVER_BADGE_JOINED_COUNT];
+	unsigned int next_order;
+};
+
+/* a joined host's outcome (proven NULL: it proved none), replacing what was
+kept for its invite, else the oldest entry */
+void server_badge_joined_note(struct server_badge_joined_set *set, const char *invite,
+	const struct server_badge *proven);
+/* whether a listed badge (tier, label, and the server key the list names;
+NULL for a list that names none) may be shown: 1 for a host not joined, or
+one that proved the same badge */
+int server_badge_joined_allows(const struct server_badge_joined_set *set, const char *invite, int tier,
+	const char *label, const unsigned char *listed_key);
 
 #endif

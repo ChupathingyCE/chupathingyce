@@ -1520,6 +1520,7 @@ int delta_wire_read_badge(const unsigned char *payload, int size, struct delta_w
 		return 0;
 	copy_bytes(badge->nonce, payload, DELTA_WIRE_BADGE_NONCE_SIZE);
 	copy_bytes(badge->signature, payload + 32, DELTA_WIRE_BADGE_SIGNATURE_SIZE);
+	badge->proof = payload[98];
 	badge->certificate_length = (unsigned short)length;
 	copy_bytes(badge->certificate, payload + DELTA_WIRE_BADGE_SIZE, length);
 	return 1;
@@ -1536,6 +1537,7 @@ int delta_wire_write_badge(unsigned char *data, delta_u32 session, const struct 
 	copy_bytes(payload, badge->nonce, DELTA_WIRE_BADGE_NONCE_SIZE);
 	copy_bytes(payload + 32, badge->signature, DELTA_WIRE_BADGE_SIGNATURE_SIZE);
 	write_u16(payload + 96, (unsigned short)length);
+	payload[98] = badge->proof;
 	copy_bytes(payload + DELTA_WIRE_BADGE_SIZE, badge->certificate, length);
 	delta_wire_write_header(data, DELTA_MAJOR, _delta_message_badge, DELTA_WIRE_BADGE_SIZE + length, session);
 	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_BADGE_SIZE + length;

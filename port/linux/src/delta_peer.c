@@ -1405,8 +1405,9 @@ static void host_badge_ask(struct delta_peer *peer, delta_u32 now, int machine_i
 		return;
 	}
 	memset(badge.signature, 0, sizeof(badge.signature));
-	length = peer->badge_host->answer(peer->badge_host->context, badge.nonce, badge.signature, badge.certificate,
-		DELTA_WIRE_BADGE_CERTIFICATE_SIZE);
+	length = peer->badge_host->answer(peer->badge_host->context, badge.nonce, client->session, badge.signature,
+		badge.certificate, DELTA_WIRE_BADGE_CERTIFICATE_SIZE);
+	badge.proof = DELTA_WIRE_BADGE_PROOF_BOUND;
 	/* (none now: said as none, so the client stops asking) */
 	badge.certificate_length = (unsigned short)(length > 0 && length <= DELTA_WIRE_BADGE_CERTIFICATE_SIZE ? length : 0);
 	peer_send(peer, client->ipv4, client->port, data, delta_wire_write_badge(data, client->session, &badge));

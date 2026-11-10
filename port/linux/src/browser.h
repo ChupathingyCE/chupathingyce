@@ -136,13 +136,20 @@ struct browser_game
 	for a host that failed its proof on joining (docs/server-badges.md) */
 	unsigned char badge;
 	char badge_label[32];
+	/* the server key the badge's certificate names (field 26), to match
+	the host's proof on joining; has_badge_key 0 from a list without it */
+	unsigned char has_badge_key;
+	unsigned char badge_key[32];
 };
 
 /* a listed game's badge as players read it ("Official server"; NULL for none) */
 const char *browser_badge_name(int badge);
-/* the joined host's badge proof (delta_peer_game.c): a host whose proof
-failed shows no badge from then on, until it proves one */
-void browser_server_badge_proven(const char *invite, int proven);
+/* the joined host's badge proof (delta_peer_game.c; proven NULL: none):
+a host that proved none shows no badge from then on, and one that proved
+a badge shows the list's only while it is the same (server_badge.h's
+server_badge_joined_allows), until it joins again */
+struct server_badge;
+void browser_server_badge_proven(const char *invite, const struct server_badge *proven);
 
 /* the note a screen of listed games shows while the list is down and its
 games are those found directly (browser_list_status: BROWSER_LIST_FAILED) */

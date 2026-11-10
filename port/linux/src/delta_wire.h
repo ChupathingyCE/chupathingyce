@@ -178,7 +178,11 @@ enum
 	DELTA_WIRE_BADGE_CERTIFICATE_SIZE = 143,
 	/* the messages' fixed parts (the certificate follows BADGE's) */
 	DELTA_WIRE_BADGE_ASK_SIZE = 32,
-	DELTA_WIRE_BADGE_SIZE = 100
+	DELTA_WIRE_BADGE_SIZE = 100,
+	/* BADGE's proof: what the signature is of (server_badge.h). 2, the
+	nonce, the invite and the session; anything else (0, the first
+	drafts' nonce alone) shows no badge */
+	DELTA_WIRE_BADGE_PROOF_BOUND = 2
 };
 
 /* UNIT_VITALS's entry flags: the unit's shield, as the game's own unit
@@ -810,6 +814,8 @@ struct delta_wire_badge
 	/* the certificate's server key's signature of the nonce
 	(server_badge.h's proof message) */
 	unsigned char signature[DELTA_WIRE_BADGE_SIGNATURE_SIZE];
+	/* what the signature is of (DELTA_WIRE_BADGE_PROOF_BOUND) */
+	unsigned char proof;
 	/* the certificate as the host has it, 0 bytes for none (server_badge.h
 	reads it) */
 	unsigned short certificate_length;

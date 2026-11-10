@@ -701,15 +701,21 @@ static void stop(void)
 
 /* a host's answer to BADGE_ASK: its certificate a badge key's, in date and
 of a tier this build knows, and the certificate's key's signature of this
-session's nonce */
-static int badge_proven(const struct delta_wire_badge *answer, struct server_badge *badge)
+session's nonce, the invite this game joined and the session (a proof of
+the nonce alone, the first drafts', is none). A game joined without an
+invite (an address typed in) has no listed badge, so nothing to prove */
+static int badge_proven(const struct delta_wire_badge *answer, const char *invite, struct server_badge *badge)
 {
 	unsigned char message[SERVER_BADGE_MESSAGE_SIZE];
+	int length;
 
-	return answer->certificate_length &&
-		server_badge_check(answer->certificate, answer->certificate_length, (unsigned long long)time(NULL), badge) &&
-		server_badge_signature_valid(badge, message, server_badge_proof_message(message, answer->nonce),
-			answer->signature);
+	if (!answer->certificate_length || answer->proof != DELTA_WIRE_BADGE_PROOF_BOUND || !invite || !invite[0] ||
+		!server_badge_check(answer->certificate, answer->certificate_length, (unsigned long long)time(NULL), badge))
+	{
+		return 0;
+	}
+	length = server_badge_proof_message(message, answer->nonce, invite, delta_game.peer.session);
+	return length && server_badge_signature_valid(badge, message, length, answer->signature);
 }
 
 /* (a client) its host's badge judged once a session: proven, or none (not
@@ -721,6 +727,7 @@ static void client_badge(void)
 	delta_u32 start = 0;
 	int state = delta_peer_client_badge(&delta_game.peer, &answer, &start);
 	int result = 0;
+	char invite[SERVER_BADGE_INVITE_SIZE + 1] = "";
 
 	if (state == _delta_peer_badge_none)
 	{
@@ -729,10 +736,14 @@ static void client_badge(void)
 	}
 	if (delta_game.client_badge_result)
 		return;
+#ifdef HALO_GAME_BROWSER
+	if (!p2p_joined_invite(invite, (int)sizeof(invite)))
+		invite[0] = 0;
+#endif
 	if (state == _delta_peer_badge_unoffered)
 		result = -1;
 	else if (state == _delta_peer_badge_answered)
-		result = badge_proven(&answer, &delta_game.client_badge) ? 1 : -1;
+		result = badge_proven(&answer, invite, &delta_game.client_badge) ? 1 : -1;
 	else if (GetTickCount() - start > DELTA_PEER_BADGE_ASKS * DELTA_PEER_BADGE_INTERVAL + 2000)
 		result = -1;
 	if (!result)
@@ -747,12 +758,8 @@ static void client_badge(void)
 	else if (state == _delta_peer_badge_answered && answer.certificate_length)
 		platform_log("Delta Peer: the host's server badge did not check: no badge shown");
 #ifdef HALO_GAME_BROWSER
-	{
-		char invite[BROWSER_INVITE_LENGTH + 1];
-
-		if (p2p_joined_invite(invite, (int)sizeof(invite)))
-			browser_server_badge_proven(invite, result > 0);
-	}
+	if (invite[0])
+		browser_server_badge_proven(invite, result > 0 ? &delta_game.client_badge : NULL);
 #endif
 }
 #endif
@@ -762,15 +769,24 @@ static void client_badge(void)
 #include "../../../server/src/server_link.h"
 
 /* a joining game's BADGE_ASK: the certificate and the link key's signature
-of its nonce (docs/server-badges.md) */
-static int game_badge_answer(void *context, const unsigned char *nonce, unsigned char *signature,
+of its nonce, this server's invite and the game's session
+(docs/server-badges.md). None without an invite: a game not listed shows
+no badge */
+static int game_badge_answer(void *context, const unsigned char *nonce, delta_u32 session, unsigned char *signature,
 	unsigned char *certificate, int size)
 {
 	unsigned char message[SERVER_BADGE_MESSAGE_SIZE];
+	char invite[SERVER_BADGE_INVITE_SIZE + 1] = "";
+	int length;
 
 	(void)context;
-	if (!delta_game.badge_size || delta_game.badge_size > size ||
-		!server_link_badge_sign(message, server_badge_proof_message(message, nonce), signature))
+#ifdef HALO_GAME_BROWSER
+	if (!p2p_hosting_invite(invite, (int)sizeof(invite)))
+		invite[0] = 0;
+#endif
+	length = server_badge_proof_message(message, nonce, invite, session);
+	if (!delta_game.badge_size || delta_game.badge_size > size || !length ||
+		!server_link_badge_sign(message, length, signature))
 	{
 		return 0;
 	}
