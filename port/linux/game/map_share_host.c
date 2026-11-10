@@ -158,6 +158,8 @@ static struct
 	short next_stream;
 } host;
 
+int browser_dedicated(void);
+
 /* ---------- private code */
 
 static unsigned long host_now(
@@ -168,10 +170,12 @@ static unsigned long host_now(
 	return now ? now : 1;
 }
 
+/* dedicated servers only for now: a listen host (a player's own game) never
+shares, whatever network.map_share says; listen hosts may come later */
 static boolean host_sharing(
 	void)
 {
-	return config_boolean("network.map_share") != 0;
+	return browser_dedicated() && config_boolean("network.map_share") != 0;
 }
 
 static double host_upload_rate(

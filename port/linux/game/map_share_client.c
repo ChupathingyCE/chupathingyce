@@ -323,7 +323,7 @@ static void fetch_read_settings(
 		snprintf(fetch.result_path, sizeof(fetch.result_path), "%s", result);
 	else
 		snprintf(fetch.result_path, sizeof(fetch.result_path), "%s/result.json", folder[0] ? folder : ".");
-	fetch.maximum = (unsigned long)(maximum <= 0 ? 512 : MIN(maximum, 768)) << 20;
+	fetch.maximum = (unsigned long)(maximum <= 0 ? 512 : MIN(maximum, 512)) << 20;
 	if (fetch.maximum > MAP_LIMIT)
 		fetch.maximum = MAP_LIMIT;
 	/* a.b.c.d[:port], else an invite */

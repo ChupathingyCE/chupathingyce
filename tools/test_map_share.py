@@ -35,6 +35,16 @@ def test_host_clamps_upload_and_reads_its_setting():
     assert "kilobytes < 16 ? 16 : kilobytes > 20480 ? 20480 : kilobytes" in host
 
 
+def test_dedicated_servers_only_and_a_512_mb_fetch_cap():
+    # listen hosts never share for now, whatever the setting says
+    host = (GAME / "map_share_host.c").read_text(encoding="utf-8")
+    assert 'return browser_dedicated() && config_boolean("network.map_share") != 0;' in host
+    # the bot takes at most 512 MB
+    client = (GAME / "map_share_client.c").read_text(encoding="utf-8")
+    assert "MIN(maximum, 512)) << 20;" in client
+    assert "(up to 512)" in read("port/linux/README.md")
+
+
 def test_messages_stay_unknown_to_the_distributed_netcode():
     # 83 to 86 are not distributed kinds this build knows: anything but the
     # map share hooks drops them, as before

@@ -971,9 +971,10 @@ static const struct config_setting config_settings[] =
 		"Send the stats of games you host to the game list." },
 	{ "network.map_share", _config_boolean, "false", "HALO_NET_MAP_SHARE", _environment_value,
 		_platform_all | _platform_server,
-		"Hand the Custom Edition map your game is on to players who join\n"
-		"without it and ask (map sharing, over TCP port 5153). Only the map\n"
-		"file the game is on now, only to machines in your game." },
+		"Dedicated servers: hand the Custom Edition map the game is on to\n"
+		"players who join without it and ask (map sharing, over TCP port\n"
+		"5153). Only the map file the game is on now, only to machines in\n"
+		"the game. A game you host from the menus never shares, for now." },
 	{ "network.map_share_upload", _config_integer, "1024", "HALO_NET_MAP_SHARE_UPLOAD", _environment_value,
 		_platform_all | _platform_server,
 		"The most map sharing sends, in KB a second, for everyone downloading\n"
