@@ -306,9 +306,9 @@ static const struct config_setting config_settings[] =
 	{ "display.max_fps", _config_integer, "0", "HALO_MAX_FPS", _environment_value, _platform_all,
 		"The frame rate limit when V-Sync is off. 0 is twice the display's\n"
 		"refresh rate. -1 is no limit. No limit can hang some Intel graphics,\n"
-		"and it heats up a phone. On Linux, the display's refresh rate or a\n"
-		"whole fraction of it (60 at 60 Hz, or 30) keeps the frames in step\n"
-		"with the display, as V-Sync does." },
+		"and it heats up a phone. Under gamescope (the Steam Deck's Game Mode),\n"
+		"the display's refresh rate or a whole fraction of it (60 at 60 Hz, or\n"
+		"30) keeps the frames in step with the display, as V-Sync does." },
 	{ "display.interpolation", _config_boolean, "true", "HALO_INTERPOLATION", _environment_value, _platform_all,
 		"Draw a frame for every display refresh. The game runs 30 ticks a\n"
 		"second, and the frames between them are blended. false keeps the\n"
