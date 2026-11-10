@@ -576,7 +576,7 @@ the setting for one start of the game. It has priority over the file.
 | `display.follow_camera` | `"off"` | `HALO_FOLLOW_CAMERA` | In multiplayer, when a dead player's camera follows a living player from behind once the original death camera is done (3 seconds): a teammate in a team game, the killer (or the leader) in a game without teams. LB and RB (Q and E, or the mouse wheel, on the keyboard) switch who, and a "FOLLOWING" line near the bottom says who; it returns to the player's own view on respawn. `"long_waits"`: only when the wait to respawn is long (`display.follow_camera_after`), the player is out of lives or odd man out, or the game type holds spawns until its next round; a short respawn keeps the original death camera. `"always"`: after every death. `"off"`: the original death camera only, as on the Xbox. Only where the game's host allows it (its `network.allow_follow_camera`, a dedicated server's `allow_follow_camera`); a host that says nothing (OpenCE's, an older build) allows none. Split screen: each player's own. |
 | `display.follow_camera_after` | `5.0` | `HALO_FOLLOW_CAMERA_AFTER` | For `display.follow_camera`'s `"long_waits"`: how many seconds of the wait to respawn must be left once the death camera is done for the camera to follow someone. |
 | `display.powerup_timers` | `false` | `HALO_POWERUP_TIMERS` | `true`: a small line of the HUD's text near the top of the view shows the seconds left on the player's active camouflage, overshield and full spectrum vision while one is on ("CAMO 12   OVERSHIELD 41"). The overshield's time is what is left of it above full: it counts down only in multiplayer, where it drains, so in campaign it shows none. Split screen: each player's own. `false`: none, as the original game. |
-| `display.medals` | `false` | `HALO_MEDALS` | `true`: in a multiplayer game, each medal you earn shows as a line of the HUD's messages ("Double Kill", "Killing Spree"), by the rules of `port/linux/src/medal_rules.h`. Off by default, as Halo shows none; nothing in the game changes. DELTA's SERVICE RECORD has the same switch. Medals are counted for the reports and your service record either way. |
+| `display.medals` | `false` | `HALO_MEDALS` | `true`: in a multiplayer game, each medal you earn shows as its icon at the end of the kill's line in the HUD's messages ("You killed Sarge" and a Double Kill after it), by the rules of `port/linux/src/medal_rules.h`, with the site's icons (`port/assets/medals`). Medals no kill's line took get a line of their own. A build without the icons (every console build: they need the game list) shows each medal's name as a line instead. Off by default, as Halo shows none; nothing in the game changes. DELTA's SERVICE RECORD has the same switch. Medals are counted for the reports and your service record either way. |
 | `display.loading_screen` | `true` | `HALO_LOADING_SCREEN` | Keep the original loading screen (the picture with the glow that crosses it) up for a while when a level loads, as loading from the Xbox's disc did; the port's loads are usually over before it shows. How long is set for each kind of game below; the default is no wait. Press A (Space or Enter on the keyboard) to skip the rest of the wait; a load that is still running finishes first. Also when the level is already loaded (a restart). Never for the main menu or a saved film. `false`: every level loads as fast as it can. |
 | `display.loading_screen_campaign_seconds` | `0.0` | `HALO_LOADING_SCREEN_CAMPAIGN_SECONDS` | The least seconds the loading screen stays up when a campaign level loads on this machine alone, split screen co-op too, up to 30. A load that takes longer shows for as long as it takes. `0`: no wait. A value set in 0.8.0's `display.loading_screen_min_seconds` is moved to this setting the first time the game starts. |
 | `display.loading_screen_multiplayer_seconds` | `0.0` | `HALO_LOADING_SCREEN_MULTIPLAYER_SECONDS` | The same for every other game: split screen multiplayer, system link, online and network co-op, on a machine that joins and on one that hosts and plays, up to 5: while the loading screen is held, the machine hears nothing from the network, and a host drops a machine it hears nothing from for 15 seconds. Machines already finish loading at their own times. Never on the dedicated server. `0`: no wait. |
@@ -709,6 +709,7 @@ the setting for one start of the game. It has priority over the file.
 | `discord.accept_join_requests` | `false` | `HALO_DISCORD_ACCEPT_JOIN_REQUESTS` | `true`: the game accepts every Ask to Join for the public game you host. `false`: Discord handles the request. |
 | `discord.register_launch` | `true` | `HALO_DISCORD_REGISTER_LAUNCH` | `true`: once connected to Discord, the game tells it how to start Chupathingy, as Discord's own SDK does. Then Discord shows Join to friends whose game is closed, and starts the game for it. Windows: `HKEY_CURRENT_USER\Software\Classes\discord-<application>`. Linux and FreeBSD: `discord-<application>.desktop` in `~/.local/share/applications`. macOS: the app becomes the handler of `discord-<application>://`. An entry of another program's is left alone. `false`: nothing is registered. |
 | `update.auto` | `true` | `HALO_UPDATE_AUTO` | `true`: at start-up, the game looks for a new version. Refer to "Updates". `false`: the game does not look. |
+| `update.channel` | `"release"` (a test build: `"testing"`, a nightly: `"nightly"`) | `HALO_UPDATE_CHANNEL` | Which builds to update to. `"release"`: releases. `"testing"`: test builds and releases. `"nightly"`: nightlies, test builds and releases. Refer to "Update channels". |
 | `update.offer_64bit` | `true` | `HALO_UPDATE_OFFER_64BIT` | The 32-bit Windows build only. `true`: on 64-bit Windows, when the game looks for a new version, it offers the 64-bit build once. `false`: it doesn't, and "Keep 32-bit" writes this. |
 | `crash_reports.upload` | `"ask"` | `HALO_CRASH_REPORTS` | Desktop builds (releases and nightlies). `"yes"`: the game sends a report of each crash to the developers, through `network.browser_url`. `"no"`: the game sends no reports. `"ask"`: the game asks after the next crash (on Linux and macOS, when it starts the next time) and writes the answer here. On the Privacy screen (Gearbox menus). Refer to "Crash reports" below and in [port/windows/README.md](../windows/README.md#crash-reports). |
 | `debug.update_answer` | `""` | `HALO_UPDATE_ANSWER` | The answer to the update question, for automatic tests: `yes`, `no` or `never`. Empty: the game asks. |
@@ -727,26 +728,27 @@ the setting for one start of the game. It has priority over the file.
 | `debug.map_fetch_folder`, `debug.map_fetch_result`, `debug.map_fetch_name`, `debug.map_fetch_held`, `debug.map_fetch_maximum` | `""`, `""`, `""`, `""`, `512` | `HALO_MAP_FETCH_FOLDER`, `HALO_MAP_FETCH_RESULT`, `HALO_MAP_FETCH_NAME`, `HALO_MAP_FETCH_HELD`, `HALO_MAP_FETCH_MAXIMUM` | The map bot's fetch (`debug.network_test = "fetch:<host>"`): the folder the map goes in, the result file (empty: `result.json` in the folder), the map it came for (its file's name; empty for any), the map versions already held (8 hex digits each, commas between), and the largest map taken in MB (up to 512). Refer to "Map sharing". |
 | `debug.test_gamepads` | 0 | `HALO_TEST_GAMEPADS` | Virtual gamepads (SDL's, up to 4) for tests of split screen: `debug.test_input`'s `menu:` script presses their buttons and sticks as `pad<n>:<button>` (`pad2:a`, `pad1:rs_left`) and takes them out and back with `pad<n>:unplug` and `pad<n>:plug`. |
 | `debug.determinism`, `debug.determinism_hashes`, `debug.determinism_positions`, `debug.determinism_ticks`, `debug.determinism_seed` | off | `HALO_DETERMINISM`, `HALO_DETERMINISM_HASHES`, `HALO_DETERMINISM_POSITIONS`, `HALO_DETERMINISM_TICKS`, `HALO_DETERMINISM_SEED` | The input-replay check of the simulation (`game/determinism_check.c`, `tools/test_determinism.py`): `record:<file>` writes every tick's player actions, `replay:<file>` plays them back, with a line of hashes of the game's state after each tick, and each player's unit position, velocity and vitality (for the trick replays, `tools/test_tricks.py`). |
-| `controls.guide` | `"F3"` | `HALO_KEY_GUIDE` | The key that opens and closes the Guide (`game/guide.c`): `"F3"` to `"F8"` (F9 and F10 are the screenshot and clip keys). Not on the consoles yet. |
-| `controls.guide_button` | `true` | `HALO_GUIDE_BUTTON` | The first player's controller Guide button opens the Guide, where SDL can read it (Steam and the Xbox Game Bar may keep it). Split screen's other players never open it, and it doesn't open over chat typing. |
+| `controls.delta` | `"F3"` | `HALO_KEY_DELTA` | The key that opens and closes DELTA (`game/guide.c`): `"F3"` to `"F8"` (F9 and F10 are the screenshot and clip keys). Not on the consoles yet. |
+| `controls.delta_button` | `true` | `HALO_DELTA_BUTTON` | The first player's controller Guide button opens DELTA, where SDL can read it (Steam and the Xbox Game Bar may keep it). Split screen's other players never open it, and it doesn't open over chat typing. |
 | `controls.screenshot` | `"F9"` | `HALO_KEY_SCREENSHOT` | Saves a screenshot (`src/capture.c`): the game's frame at full size with the HUD, without the DELTA overlay or toasts, as a PNG in `<data root>/screenshots/`, named `<map>_<YYYY-MM-DD_HH-MM-SS>.png`. Print Screen always works too. Read back without waiting for the GPU and written on a thread of its own. Desktop only (`HALO_CONSOLE_NO_CAPTURE`). |
 | `controls.capture_buttons` | `false` | `HALO_CAPTURE_BUTTONS` | A controller takes screenshots too: its Share button, or Back and the right stick together. Back and the left stick save a clip. |
 | `controls.clip` | `"F10"` | `HALO_KEY_CLIP` | Saves the last `clips.seconds` as an MP4 in `<data root>/clips/`, named as screenshots are, when `clips.enabled` is on (`src/capture_clips.c`). |
 | `clips.enabled`, `clips.seconds` | `false`, `30` | `HALO_CLIPS`, `HALO_CLIPS_SECONDS` | Keep the last 5 to 120 seconds of the game encoded in memory, picture and sound, for `controls.clip`: the hardware's H.264 on macOS (VideoToolbox, up to 1920x1080 at 60), else FFmpeg's MPEG-4 Part 2 (up to 1280x720 at 30); AAC sound. The renderer scales and reads the frame back behind fences and lends it to an encoder thread; nothing runs while off. Read at start. `debug.clips_software` forces the software encoder, for tests. |
-| `guide.hold_back` | `false` | `HALO_GUIDE_HOLD_BACK` | Holding Back about 0.6 s in the menus opens the Guide. Off by default, since the menus get the Back press first, which isn't the Xbox's behavior. |
-| `guide.pause_menu` | `true` | `HALO_GUIDE_PAUSE_MENU` | GUIDE in the pause menu, after CONTROLS, in all three menu sets. |
-| `guide.notify_in_game` | `false` | `HALO_GUIDE_NOTIFY_IN_GAME` | The Guide's notifications (a new invite or friend request) during a game. They always show in the menus. |
+| `delta.hold_back` | `false` | `HALO_DELTA_HOLD_BACK` | Holding Back about 0.6 s in the menus opens DELTA. Off by default, since the menus get the Back press first, which isn't the Xbox's behavior. |
+| `delta.pause_menu` | `true` | `HALO_DELTA_PAUSE_MENU` | DELTA in the pause menu, after CONTROLS, in all three menu sets. |
+| `delta.notify_in_game` | `false` | `HALO_DELTA_NOTIFY_IN_GAME` | DELTA's notifications (a new invite or friend request) during a game. They always show in the menus. |
 | `delta.notify_online` | `false` | `HALO_DELTA_NOTIFY_ONLINE` | A notification in the menus when a friend comes online. Never during a game. |
 | `delta.bring_party` | `true` | `HALO_DELTA_BRING_PARTY` | DELTA's BRING PARTY TO MY GAME: when you lead a party, the games you join or host are told to its members, who follow you (each can stay with B). |
-| `debug.guide_open` | `false` | `HALO_GUIDE_OPEN` | Opens the Guide once the menus or a map are up, for tests and screenshots. |
-| `debug.guide_toast` | `""` | `HALO_GUIDE_TOAST` | Shows a test notification with this text once the main menu is up. |
-| `debug.guide_section` | `""` | `HALO_GUIDE_SECTION` | The section `debug.guide_open` opens on, by name (`PARTY`, `CLAN`). Empty: the first. |
-| `debug.guide_row` | `-1` | `HALO_GUIDE_ROW` | With `debug.guide_open`, chooses this row of the section it opened on once the row is there, for screenshots. |
-| `debug.guide_test` | `""` | `HALO_GUIDE_TEST` | Buttons pressed in that Guide one at a time, separated by `;` (`up`, `down`, `left`, `right`, `a`, `b`, `x`, `y`, `lb`, `rb`), for tests. Debug builds only: a release build (`--release`) ignores it. |
+| `debug.delta_open` | `false` | `HALO_DELTA_OPEN` | Opens DELTA once the menus or a map are up, for tests and screenshots. |
+| `debug.delta_toast` | `""` | `HALO_DELTA_TOAST` | Shows a test notification with this text once the main menu is up. |
+| `debug.delta_section` | `""` | `HALO_DELTA_SECTION` | The section `debug.delta_open` opens on, by name (`PARTY`, `CLAN`). Empty: the first. |
+| `debug.delta_row` | `-1` | `HALO_DELTA_ROW` | With `debug.delta_open`, chooses this row of the section it opened on once the row is there, for screenshots. |
+| `debug.delta_test` | `""` | `HALO_DELTA_TEST` | Buttons pressed in DELTA once `debug.delta_open` opened it, one at a time, separated by `;` (`up`, `down`, `left`, `right`, `a`, `b`, `x`, `y`, `lb`, `rb`), for tests. Debug builds only: a release build (`--release`) ignores it. |
 | `debug.chat_test` | `""` | `HALO_CHAT_TEST` | A script of text chat for the tests (`game/chat.c`): `"<seconds>:<what>[:<text>]"` steps separated by `;`, from when this copy is in a game: `all` and `team` say a line, `server` says one as the host's server, `mute` and `unmute` mute a machine as a moderator does (the host), `localmute` mutes one for this copy, `log` and `close` open and close the log, `type` shows a line being typed. |
 | `debug.structure_culling` | `true` | `HALO_STRUCTURE_CULLING` | Skips the level's surfaces that are off screen or face away. Turn it off to draw them as the original game does, to check whether a missing wall comes from this. Read as each map loads. |
 | `debug.touch_targets` | `false` | `HALO_TOUCH_TARGETS` | Outlines the tap targets of the menus (item green, value blue, list slot yellow, legend button red, the band beside the slots of a list orange, keys of the on-screen keyboard white), marks where the last finger went down and the last tap landed for 3 seconds, and logs each tap with the target that it hit (for a value, also where it splits into previous and next): to judge the accuracy of touch. |
 | `debug.solo_game` | retired | `HALO_SOLO_GAME` | The older name of `game.start_with_one_player`. An old config.toml that has it still loads: a `true` moves to `game.start_with_one_player` once, and the old line is taken out. `HALO_SOLO_GAME=1` still turns `game.start_with_one_player` on for one run. |
+| `controls.guide`, `controls.guide_button`, `guide.*`, `debug.guide_*` | retired | `HALO_KEY_GUIDE`, `HALO_GUIDE_*` | The names of DELTA's settings until 0.9.1. An old config.toml that has them still loads: each value a player chose moves to its new name (`controls.delta`, `controls.delta_button`, `delta.*`, `debug.delta_*`) once, the old lines and the empty `[guide]` section are taken out, and nothing is asked. The old environment variables still work when the new one isn't set. |
 | `debug.network_latency`, `debug.network_loss`, `debug.network_corrupt`, `debug.network_corrupt_stream`, `debug.network_corrupt_after` | `0` | `HALO_NETWORK_LATENCY`, `HALO_NETWORK_LOSS`, `HALO_NETWORK_CORRUPT`, `HALO_NETWORK_CORRUPT_STREAM`, `HALO_NETWORK_CORRUPT_AFTER` | The game holds all the data that it receives for this number of milliseconds, ignores this percentage of the datagrams, and damages this percentage of the datagrams it receives, and this percentage of its reads of streams, at random (bytes changed, cut short, stretched or replaced), from this many seconds after the start. Use the first two to test the netcode as on the internet, and the others to test that nothing another machine sends can crash the game (a damaged stream is closed, so a little goes a long way; a host's messages to its own client are damaged too, so start damaging once the game has started). |
 | `debug.telnet_console`, `debug.telnet_console_port` | `false`, `2323` | `HALO_TELNET_CONSOLE`, `HALO_TELNET_CONSOLE_PORT` | The game listens on 127.0.0.1, on this port, for a script console (connect with telnet). The console has no password, so only this computer can reach it. |
 
@@ -769,6 +771,43 @@ If the latest release is newer, the game asks: "Do you want to update?"
 - Select "Do not ask again", then "Yes", to stop the questions. The game
   writes `auto = false` in the `[update]` section of `config.toml`. To get
   the questions again, set `auto = true`.
+
+### Update channels
+
+`update.channel` picks the builds the game updates to: `"release"` (the
+default), `"testing"` or `"nightly"`. The test builds and the nightlies look
+for updates too, and start on their own channel.
+
+- Release reads the latest release, as above.
+- Testing also reads the testing channel's list,
+  `releases/download/testing/updates.json`, on the fixed `testing`
+  pre-release. The list names the newest test build's files on its own
+  pre-release (`v0.9.1-testing`).
+- Nightly also reads the nightly channel's list,
+  `releases/download/nightly/updates.json`.
+
+The game offers the newest of these, and never a build older than the one it
+runs. Versions are in this order: by their numbers, then the hotfix letter,
+then a release before all test builds and nightlies of its version. The test
+builds and the nightlies are `<version>-testing.<serial>` and
+`<version>-nightly.<serial>`. The serial is the time the build was made
+(`202611101530`, UTC). They are in the order they were built, whatever their
+channel:
+
+    0.9.0d < 0.9.1-nightly.202611100400 < 0.9.1-testing.202611101200
+           < 0.9.1-nightly.202611110400 < 0.9.1 < 0.9.2-testing.202611200900
+
+So after a test build, a player who goes back to Release keeps it until the
+next release newer than it.
+
+A channel's list has `"channel": "testing"` or `"nightly"`, and its version
+must be that channel's. It is signed like a release's (`updates.json.sig`),
+by the prerelease key (`src/update_prerelease_key.h`) or a release key. The
+prerelease key is trusted for the testing and nightly lists only, never for a
+release's list or zip. A release's list says `"channel": "release"` from
+0.9.1 on; the builds before it skip that field. Android checks a channel's
+list only on Android 13 or later (Ed25519); before that it offers releases
+only.
 
 The 32-bit Windows build on 64-bit Windows also offers the 64-bit build,
 once. The 32-bit graphics drivers crash much more often. "Yes" installs the
