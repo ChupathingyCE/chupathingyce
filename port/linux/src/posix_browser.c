@@ -46,6 +46,7 @@ platform.
 #include <pthread.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 #include <unistd.h>
 #include <strings.h>
 #define close_socket close
