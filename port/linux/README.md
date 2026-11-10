@@ -1456,7 +1456,9 @@ Custom Edition maps on a console (`HALO_CUSTOM_EDITION` with the port's
 hooks):
 
 - `HALO_CONSOLE_CE_BITMAPS`: a Custom Edition map's bitmaps are made the
-  console's as they are read (`platform_ce_bitmap_loaded`).
+  console's as they are read (`platform_ce_bitmap_loaded`); a HUD meter
+  whose bitmap keeps Halo PC's channels (`platform_ce_meter_in_pc_channels`)
+  is read from them by the meter shader.
 - `HALO_CONSOLE_CE_SHARED_TAG_CACHE`: a console with no room for a second
   tag cache lends its own to the map while it plays (the `platform_ce_*`
   hooks).
