@@ -658,6 +658,7 @@ the setting for one start of the game. It has priority over the file.
 | `network.keep_parties_together` | `true` | `HALO_NET_KEEP_PARTIES_TOGETHER` | In team games this copy hosts, a party's players go to one team where the teams stay within one player of each other (Delta Peer's party teams; docs/delta.md). Late joiners move only before they spawn. |
 | `network.allow_follow_camera` | `false` | `HALO_NET_ALLOW_FOLLOW_CAMERA` | In the games this copy hosts, whether players may watch a living player's view while they wait to respawn (`display.follow_camera`). `false` plays as the Xbox did: the death camera alone. Chupathingy clients are told over Delta Peer (the host's rules). |
 | `network.allow_player_names` | `false` | `HALO_NET_ALLOW_PLAYER_NAMES` | In the games this copy hosts, whether players may show names above heads (`display.player_names`). `false` plays as the Xbox did: a name shows only on the player aimed at. Chupathingy clients are told over Delta Peer (the host's rules). |
+| `network.late_join_hold` | `false` | `HALO_NET_LATE_JOIN_HOLD` | In the games this copy hosts, whether a player who joins a game in progress waits for the next game, watching through the follow camera (at most 5 minutes). `false` spawns them at once, as Halo does. Not the split-screen wait (`network.late_join_wait`). Chupathingy clients are told over Delta Peer (the host's rules). |
 | `network.max_machines_per_address` | `0` | `HALO_NET_MAX_MACHINES_PER_ADDRESS` | In the games this copy hosts, the most machines that may join from one internet address (1 to 16); a machine past it is refused with OpenCE's "too many players from your address" code (13). `0`: no limit. Local network addresses (10/8, 172.16/12, 192.168/16, 127/8, 169.254/16) are never limited; carrier-grade NAT (100.64/10) is counted. Internet play's peers are counted by the address their tunnel comes from, not their stand-in address. A dedicated server uses its own `max_machines_per_address` (8 by default). |
 | `network.chat_legacy` | `true` | `HALO_NET_CHAT_LEGACY` | In the games this copy hosts, OpenCE players chat too, over their own text chat, which the host bridges to Delta chat (`docs/delta.md`, Chat): they see every line and theirs reach everyone, under the same rules. Follows `network.chat` (off there is off for them too). `false`: OpenCE players get no chat here. |
 | `network.chat_filter` | `true` | `HALO_NET_CHAT_FILTER` | In the games this copy hosts, a line with a blocked word (the blocked names list's) is not passed on, and its sender is told. Nobody is kicked. |
@@ -696,6 +697,7 @@ the setting for one start of the game. It has priority over the file.
 | `discord.accept_join_requests` | `false` | `HALO_DISCORD_ACCEPT_JOIN_REQUESTS` | `true`: the game accepts every Ask to Join for the public game you host. `false`: Discord handles the request. |
 | `discord.register_launch` | `true` | `HALO_DISCORD_REGISTER_LAUNCH` | `true`: once connected to Discord, the game tells it how to start Chupathingy, as Discord's own SDK does. Then Discord shows Join to friends whose game is closed, and starts the game for it. Windows: `HKEY_CURRENT_USER\Software\Classes\discord-<application>`. Linux and FreeBSD: `discord-<application>.desktop` in `~/.local/share/applications`. macOS: the app becomes the handler of `discord-<application>://`. An entry of another program's is left alone. `false`: nothing is registered. |
 | `update.auto` | `true` | `HALO_UPDATE_AUTO` | `true`: at start-up, the game looks for a new version. Refer to "Updates". `false`: the game does not look. |
+| `update.offer_64bit` | `true` | `HALO_UPDATE_OFFER_64BIT` | The 32-bit Windows build only. `true`: on 64-bit Windows, when the game looks for a new version, it offers the 64-bit build once. `false`: it doesn't, and "Keep 32-bit" writes this. |
 | `crash_reports.upload` | `"ask"` | `HALO_CRASH_REPORTS` | Desktop builds (releases and nightlies). `"yes"`: the game sends a report of each crash to the developers, through `network.browser_url`. `"no"`: the game sends no reports. `"ask"`: the game asks after the next crash (on Linux and macOS, when it starts the next time) and writes the answer here. On the Privacy screen (Gearbox menus). Refer to "Crash reports" below and in [port/windows/README.md](../windows/README.md#crash-reports). |
 | `debug.update_answer` | `""` | `HALO_UPDATE_ANSWER` | The answer to the update question, for automatic tests: `yes`, `no` or `never`. Empty: the game asks. |
 | `debug.exit_after` | `0.0` | `HALO_EXIT_AFTER` | The game stops after this number of seconds. `0`: never. |
@@ -748,6 +750,12 @@ If the latest release is newer, the game asks: "Do you want to update?"
 - Select "Do not ask again", then "Yes", to stop the questions. The game
   writes `auto = false` in the `[update]` section of `config.toml`. To get
   the questions again, set `auto = true`.
+
+The 32-bit Windows build on 64-bit Windows also offers the 64-bit build,
+once. The 32-bit graphics drivers crash much more often. "Yes" installs the
+64-bit build of the new version, or of the version you have, and your saves
+and settings stay. "Keep 32-bit" writes `offer_64bit = false` in the
+`[update]` section of `config.toml`, and the game doesn't ask again.
 
 Under gamescope (the Game Mode of the Steam Deck), the game does not ask,
 because a system dialog stops the game there. The game writes the new

@@ -50,6 +50,9 @@ struct delta_peer_game_moderation
 	int role;
 	unsigned int permissions;
 	unsigned int ban_minutes;
+	/* MOD_STATE's DELTA_WIRE_MOD_STATE_*: the host takes lock and unlock,
+	and whether joins are locked now (0 from an older host) */
+	int actions;
 	/* the last action's result, and how many have come */
 	delta_u32 result_count;
 	int result_ok;

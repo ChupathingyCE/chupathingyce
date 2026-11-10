@@ -323,6 +323,12 @@ enum
 	/* a party's players kept on one team where the teams stay even
 	(port/linux/game/party_teams.h; Delta Peer's party teams) */
 	SERVER_SETTING_KEEP_PARTIES_TOGETHER,
+	/* a player who joins a game in progress waits for the next game
+	(port/linux/game/late_join.h) */
+	SERVER_SETTING_LATE_JOIN_HOLD,
+	/* the bans that name a Delta account or device sent to the site's shared
+	ban lists while linked (server_bans.h) */
+	SERVER_SETTING_BAN_SHARE,
 	SERVER_SETTINGS,
 	/* a game's players, at most (halo_port_limits.h's) */
 	SERVER_SETTINGS_MAXIMUM_PLAYERS = 128,

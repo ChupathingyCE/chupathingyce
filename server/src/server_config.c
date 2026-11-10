@@ -262,6 +262,10 @@ const struct server_setting server_settings_table[SERVER_SETTINGS] =
 		"Chat line each Custom Edition player gets as they join (empty: none)" },
 	{ "keep_parties_together", SERVER_FIELD_BOOLEAN, 0, 1, "HALO_DEDICATED_KEEP_PARTIES_TOGETHER",
 		"Put a Chupathingy party's players on one team where the teams stay within one player of each other" },
+	{ "late_join_hold", SERVER_FIELD_BOOLEAN, 0, 1, "HALO_DEDICATED_LATE_JOIN_HOLD",
+		"Players who join a game in progress watch until the next game starts (off: they spawn at once)" },
+	{ "ban_share", SERVER_FIELD_BOOLEAN, 0, 1, "HALO_DEDICATED_BAN_SHARE",
+		"Bans that name a Delta account or device go to your shared ban list on the site (while linked)" },
 };
 
 /* ---------- private code */

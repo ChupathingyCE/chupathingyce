@@ -75,6 +75,7 @@ GUIDE counts what waits ("GUIDE 2": invites and requests).
 #include "game/game.h"
 #include "game/game_engine.h"
 #include "game/players.h"
+#include "input/input.h"
 #include "memory/data.h"
 #include "interface/event_manager.h"
 #include "interface/interface.h"
@@ -103,6 +104,7 @@ GUIDE counts what waits ("GUIDE 2": invites and requests).
 #include "halo_ui_pointer.h"
 #include "halo_profile_screen.h"
 #include "chat.h"
+#include "report_player.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -410,6 +412,8 @@ static struct
 	char qr_code[SOCIAL_PARTY_CODE_SIZE];
 	int qr_size;
 	unsigned char qr[BROWSER_CONNECT_QR_SIZE * BROWSER_CONNECT_QR_SIZE];
+	/* ... and their index in the game's player list (a report's) */
+	short player_lists[SOCIAL_MAXIMUM_ROWS];
 
 	/* the card */
 	char name[SOCIAL_TAG_SIZE];
@@ -802,6 +806,7 @@ static void players_update(void)
 		{
 			guide.machines[guide.players_fresh.count - 1] = player->network_player_data.machine_index;
 			social_copy_text(guide.handles[guide.players_fresh.count - 1], SOCIAL_HANDLE_SIZE, handle);
+			guide.player_lists[guide.players_fresh.count - 1] = (short)absolute;
 			csmemcpy(guide.names[guide.players_fresh.count - 1], player->name, sizeof(guide.names[0]));
 			count++;
 		}
@@ -832,6 +837,101 @@ static void player_mute_toggle(short row)
 		return;
 	chat_local_mute(guide.machines[row], guide.names[row], !player->muted);
 	players_update();
+}
+
+/* a player's options (A on their row): MUTE or UNMUTE, ADD FRIEND for a
+verified player, and REPORT where the host takes reports (report_player.c);
+their count, and their labels */
+enum
+{
+	_player_option_mute,
+	_player_option_add_friend,
+	_player_option_report,
+	MAXIMUM_PLAYER_OPTIONS = REPORT_PLAYER_MOST_CHOICES,
+};
+
+static short player_options(short row, short *kinds, char labels[][REPORT_PLAYER_CHOICE_SIZE])
+{
+	struct social_row const *player;
+	short count = 0;
+
+	if (row < 0 || row >= guide.players.count)
+		return 0;
+	player = &guide.players.rows[row];
+	if (player->actions & SOCIAL_ACTION_MUTE)
+	{
+		kinds[count] = _player_option_mute;
+		snprintf(labels[count++], REPORT_PLAYER_CHOICE_SIZE, "%s", player->muted ? "UNMUTE" : "MUTE");
+	}
+	if (player->actions & SOCIAL_ACTION_ADD_FRIEND)
+	{
+		kinds[count] = _player_option_add_friend;
+		snprintf(labels[count++], REPORT_PLAYER_CHOICE_SIZE, "ADD FRIEND");
+	}
+	if ((player->actions & SOCIAL_ACTION_MUTE) && report_player_available(guide.machines[row]))
+	{
+		kinds[count] = _player_option_report;
+		snprintf(labels[count++], REPORT_PLAYER_CHOICE_SIZE, "REPORT");
+	}
+	return count;
+}
+
+/* the choices the detail panel lists now: a report's step's, else the
+player's options */
+static short player_choices(short row, short *kinds, char labels[][REPORT_PLAYER_CHOICE_SIZE])
+{
+	if (report_player_step() != _report_step_none)
+		return report_player_choices(labels, MAXIMUM_PLAYER_OPTIONS);
+	return player_options(row, kinds, labels);
+}
+
+/* A on PLAYERS HERE: the choice made in the report, or the option run, or
+the player's options shown */
+static void players_activate(short row)
+{
+	short kinds[MAXIMUM_PLAYER_OPTIONS];
+	char labels[MAXIMUM_PLAYER_OPTIONS][REPORT_PLAYER_CHOICE_SIZE];
+	short count;
+
+	if (report_player_step() != _report_step_none)
+	{
+		report_player_choose(guide.option);
+		guide.option = 0;
+		if (report_player_step() == _report_step_none)
+			guide.options = FALSE;
+		return;
+	}
+	count = player_options(row, kinds, labels);
+	if (!guide.options)
+	{
+		if (count > 0)
+		{
+			guide.options = TRUE;
+			guide.option = 0;
+		}
+		return;
+	}
+	if (guide.option < 0 || guide.option >= count)
+		return;
+	if (kinds[guide.option] == _player_option_mute)
+	{
+		guide.options = FALSE;
+		player_mute_toggle(row);
+		return;
+	}
+	if (kinds[guide.option] == _player_option_add_friend)
+	{
+		guide.options = FALSE;
+		player_add_friend(row);
+		return;
+	}
+	{
+		char name[64];
+
+		snprintf(name, sizeof(name), "%s", guide.players.rows[row].tag);
+		report_player_begin(guide.player_lists[row], guide.machines[row], name);
+		guide.option = 0;
+	}
 }
 
 static void message_set(char const *text);
@@ -2198,6 +2298,9 @@ static void section_go(short section)
 	guide.party_member = NONE;
 	guide.party_armed = NONE;
 	guide.code_entry = FALSE;
+	/* (a report left half-made is dropped) */
+	while (report_player_step() != _report_step_none)
+		report_player_back();
 }
 
 /* A on the chosen row */
@@ -2208,7 +2311,7 @@ static void activate(void)
 	switch (guide.section)
 	{
 	case SOCIAL_SECTION_PLAYERS_HERE:
-		player_mute_toggle(row);
+		players_activate(row);
 		return;
 	case SOCIAL_SECTION_SETTINGS:
 		if (row >= settings_count())
@@ -2256,6 +2359,17 @@ static void move(short step)
 	if (guide.section == SOCIAL_SECTION_RECENT && friends_signed_in())
 	{
 		recent_move(step);
+		return;
+	}
+	/* (in a player's options or a report: its choices) */
+	if (guide.section == SOCIAL_SECTION_PLAYERS_HERE && guide.options)
+	{
+		short kinds[MAXIMUM_PLAYER_OPTIONS];
+		char labels[MAXIMUM_PLAYER_OPTIONS][REPORT_PLAYER_CHOICE_SIZE];
+		short count = player_choices(*row, kinds, labels);
+
+		if (count > 0)
+			guide.option = (short)PIN(guide.option + step, 0, count - 1);
 		return;
 	}
 	*row = (short)PIN(*row + step, 0, rows - 1);
@@ -2411,26 +2525,35 @@ static void render_players(void)
 			ui_overlay_platform(row->platform, 13.0f, x + width - 18, BODY_Y + 12, COLOR_LABEL, 0);
 		if (row->status[0])
 			ui_style_text(row->muted ? UI_TEXT_WARNING : UI_TEXT_LINE, x + 12, BODY_Y + 32, UI_ALIGN_LEFT, row->status);
-		if (row->actions & SOCIAL_ACTION_MUTE)
+		/* (its options, or a report's step: A on the row opens them) */
 		{
-			ui_style_row(x + 12, BODY_Y + 54, width - 24, OPTION_HEIGHT, TRUE);
-			ui_overlay_text(UI_FONT_MENU, 10.0f, x + 22, BODY_Y + 61, UI_ALIGN_LEFT, COLOR_VALUE,
-				row->muted ? "UNMUTE" : "MUTE");
-			target_add(x + 12, BODY_Y + 54, x + width - 12, BODY_Y + 54 + OPTION_HEIGHT, _target_player_action, 0);
-		}
-		if (row->actions & SOCIAL_ACTION_ADD_FRIEND)
-		{
-			float y = BODY_Y + 54 + OPTION_HEIGHT + OPTION_GAP;
+			short kinds[MAXIMUM_PLAYER_OPTIONS];
+			char labels[MAXIMUM_PLAYER_OPTIONS][REPORT_PLAYER_CHOICE_SIZE];
+			short choices = player_choices(chosen, kinds, labels), index;
+			float option_y = BODY_Y + 54;
+			char const *message = report_player_message();
 
-			ui_style_row(x + 12, y, width - 24, OPTION_HEIGHT, FALSE);
-			ui_overlay_text(UI_FONT_MENU, 10.0f, x + 22, y + 7, UI_ALIGN_LEFT, guide.acting ? fade(COLOR_VALUE, 0.5f) :
-				COLOR_VALUE, "ADD FRIEND");
-			target_add(x + 12, y, x + width - 12, y + OPTION_HEIGHT, _target_player_action, 1);
+			if (report_player_step() != _report_step_none)
+			{
+				ui_style_text(UI_TEXT_HEADING, x + 12, option_y, UI_ALIGN_LEFT, report_player_title());
+				option_y += 20;
+			}
+			for (index = 0; index < choices; index++)
+			{
+				boolean on = guide.options && index == guide.option;
+
+				ui_style_row(x + 12, option_y, width - 24, OPTION_HEIGHT, on);
+				ui_overlay_text(UI_FONT_MENU, 10.0f, x + 22, option_y + 7, UI_ALIGN_LEFT, COLOR_VALUE, labels[index]);
+				target_add(x + 12, option_y, x + width - 12, option_y + OPTION_HEIGHT, _target_option, index);
+				option_y += OPTION_HEIGHT + OPTION_GAP;
+			}
+			if (guide.acting)
+				ui_style_text(UI_TEXT_LINE, x + 12, option_y + 4, UI_ALIGN_LEFT, "Sending");
+			else if (message[0])
+				ui_style_text(UI_TEXT_LINE, x + 12, option_y + 4, UI_ALIGN_LEFT, message);
+			else if (guide.message[0] && system_milliseconds() - guide.message_time < MESSAGE_TIME)
+				ui_style_text(UI_TEXT_WARNING, x + 12, option_y + 4, UI_ALIGN_LEFT, guide.message);
 		}
-		if (guide.acting)
-			ui_style_text(UI_TEXT_LINE, x + 12, BODY_Y + 116, UI_ALIGN_LEFT, "Sending");
-		else if (guide.message[0] && system_milliseconds() - guide.message_time < MESSAGE_TIME)
-			ui_style_text(UI_TEXT_WARNING, x + 12, BODY_Y + 116, UI_ALIGN_LEFT, guide.message);
 	}
 }
 
@@ -3088,10 +3211,11 @@ static void render_prompts(void)
 		if (guide.row[guide.section] < guide.players.count &&
 			(guide.players.rows[guide.row[guide.section]].actions & SOCIAL_ACTION_MUTE))
 		{
-			word = guide.players.rows[guide.row[guide.section]].muted ? "UNMUTE" : "MUTE";
+			word = "SELECT";
 		}
 		add_friend = guide.row[guide.section] < guide.players.count &&
 			(guide.players.rows[guide.row[guide.section]].actions & SOCIAL_ACTION_ADD_FRIEND);
+		back = guide.options;
 		break;
 	case SOCIAL_SECTION_RECENT:
 		if (friends_signed_in())
@@ -3297,6 +3421,9 @@ void guide_close(void)
 	guide.code_entry = FALSE;
 	guide.party_member = NONE;
 	guide.party_armed = NONE;
+	guide.options = FALSE;
+	while (report_player_step() != _report_step_none)
+		report_player_back();
 	sign_in_stop();
 	if (!guide.follow_active)
 		platform_guide_capture(FALSE);
@@ -3351,6 +3478,18 @@ wchar_t const *guide_pause_label(long string_list_tag)
 	return label;
 }
 
+/* whether the multiplayer scoreboard shows (Back held on the first
+controller, or its key: game_engine.c's in-game score) */
+static boolean scoreboard_showing(void)
+{
+	struct gamepad_state const *gamepad;
+
+	if (!game_engine_running() || !network_game_get_game())
+		return FALSE;
+	gamepad = input_get_gamepad_state(0);
+	return gamepad && gamepad->buttons[_gamepad_binary_button_back];
+}
+
 void guide_update(boolean menu_open)
 {
 	if (!guide.party_ready)
@@ -3364,6 +3503,8 @@ void guide_update(boolean menu_open)
 #endif
 	friends_update();
 	recent_notice();
+	/* (a report's answer, and its clip: report_player.c) */
+	report_player_update();
 	/* (a toast waits out the intro's video and a map's loading: its time
 	starts once it can show) */
 	if (guide.toast_shown && (bink_playback_active() || (!main_menu_is_active() && !game_map_loaded())))
@@ -3425,9 +3566,15 @@ void guide_update(boolean menu_open)
 			/* (a toast up: its item) */
 			boolean toast = toast_visible() && guide.toast_kind != _toast_none;
 
+			/* (opened over the scoreboard: straight to the game's players,
+			where REPORT is) */
+			boolean scoreboard = scoreboard_showing();
+
 			guide_open();
 			if (toast && guide.open)
 				toast_go();
+			else if (scoreboard && guide.open)
+				section_go(SOCIAL_SECTION_PLAYERS_HERE);
 		}
 	}
 	if (guide.open)
@@ -3484,6 +3631,15 @@ static void handle(unsigned int pressed)
 	}
 	if (pressed & GUIDE_INPUT_B)
 	{
+		/* (in a report: back a step) */
+		if (guide.section == SOCIAL_SECTION_PLAYERS_HERE && report_player_step() != _report_step_none)
+		{
+			report_player_back();
+			guide.option = 0;
+			if (report_player_step() == _report_step_none)
+				guide.options = FALSE;
+			return;
+		}
 		/* (in FRIENDS' options panel, or PARTY's on a member: back to the
 		list; signing in: a no, or the code dropped) */
 		if (guide.options)

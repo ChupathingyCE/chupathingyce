@@ -57,6 +57,7 @@ A few people look for most:
 | `network.keep_parties_together` | In team games you host, put a party's players on one team when the teams stay even. On by default. |
 | `delta.follow_leader` | When your party's leader goes to a game: `"ask"` (the default) gives you a few seconds to stay and then follows, but in a game you stay unless you press join; `"always"` follows when the seconds run out, in a game too; `"never"` doesn't offer it. Also FOLLOW LEADER in DELTA's PARTY. |
 | `network.allow_player_names`, `network.allow_follow_camera` | In games you host, let players turn on names above heads and the follow camera. Both off by default, as on the Xbox. |
+| `network.late_join_hold` | In games you host, players who join a game in progress watch through the follow camera until the next game starts. Off by default: they spawn at once, as Halo does. |
 | `network.team_change` | Team changes in team games you host: `"off"` (the default: players keep their team, as on the Xbox), `"balanced"` (a change is allowed while no team ends up more than `network.team_change_margin` players ahead, 1 by default) or `"allow"`. |
 | `network.hit_line_of_sight` | `true` (the default): in games you host, a hit through a wall is refused. The shot or the explosion needs a clear line to its target. Turn it off if good hits are refused. |
 | `network.late_join_wait` | `5` (the default): in games you host, how many seconds a machine that joins a game in progress waits after its first player is in, so the players on its other controllers can join too (split screen). 0 to 30; it starts sooner when the machine has four players. `0` starts it at once. |
@@ -66,6 +67,7 @@ A few people look for most:
 | `network.tunnel_port` | The UDP port for games you host, to forward on your router: 2302 by default (the next free one up to 2306 if 2302 is taken). A port you set here is used as is, also when you join. `0` picks a new port each run, as versions before 0.8.1b did. |
 | `network.announce` | The OpenCE network version your hosted games announce. `"latest"` (the default) follows the newest the signed table proves, so OpenCE's newest players see your games. A number pins it. |
 | `update.auto` | Whether the game updates itself. |
+| `update.offer_64bit` | 32-bit Windows build: whether to offer the 64-bit build on 64-bit Windows. "Keep 32-bit" turns it off. |
 | `paths.data`, `paths.saves` | Where the maps and the saves are, if not the usual place. |
 | `paths.logs`, `paths.cache` | Where the logs and the cache go, if not the usual place ([Where your files go](install.md#where-your-files-go)). |
 

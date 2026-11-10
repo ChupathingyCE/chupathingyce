@@ -951,6 +951,10 @@ static const struct config_setting config_settings[] =
 		"In games you host, let players watch a living player's view while\n"
 		"they wait to respawn (display.follow_camera). Off plays as the Xbox\n"
 		"did: the death camera alone." },
+	{ "network.late_join_hold", _config_boolean, "false", "HALO_NET_LATE_JOIN_HOLD", _environment_value,
+		_platform_all,
+		"In games you host, players who join a game in progress watch until\n"
+		"the next game starts. Off spawns them at once, as Halo does." },
 	{ "network.block_mouse_aim_assist", _config_boolean, "false", "HALO_NET_BLOCK_MOUSE_AIM_ASSIST", _environment_value,
 		_platform_all | _platform_server,
 		"Turn off mouse aim assist for everyone in games you host." },
@@ -1115,6 +1119,11 @@ static const struct config_setting config_settings[] =
 	/* ---- update */
 	{ "update.auto", _config_boolean, "true", "HALO_UPDATE_AUTO", _environment_value, _platform_all,
 		"Check for a new version when Chupathingy starts." },
+#if defined(_WIN32) && !defined(HALO_64BIT)
+	{ "update.offer_64bit", _config_boolean, "true", "HALO_UPDATE_OFFER_64BIT", _environment_value, _platform_windows,
+		"On 64-bit Windows, offer to switch this 32-bit build to the 64-bit\n"
+		"one. Set to false when you say Keep 32-bit." },
+#endif
 #endif
 
 #ifndef HALO_CONSOLE_NO_DISCORD
@@ -2524,6 +2533,33 @@ enum
 	CONFIG_INDEX_GUESSES = 64
 };
 static long config_index_guesses[CONFIG_INDEX_GUESSES];
+
+/* the first setting named twice in this build's table, or its environment
+variable twice (a second entry is never read: config_setting_index finds
+the first), into name: 1, else 0. tools/test_port_config.py checks every
+kind of build has none */
+int config_duplicate_setting(char *name, size_t size)
+{
+	size_t index, other;
+
+	for (index = 0; index < NUMBER_OF_CONFIG_SETTINGS; index++)
+	{
+		for (other = index + 1; other < NUMBER_OF_CONFIG_SETTINGS; other++)
+		{
+			const char *variable = config_settings[index].environment;
+
+			if (strcmp(config_settings[index].name, config_settings[other].name) &&
+				(!variable || !config_settings[other].environment ||
+				strcmp(variable, config_settings[other].environment)))
+			{
+				continue;
+			}
+			snprintf(name, size, "%s", config_settings[other].name);
+			return 1;
+		}
+	}
+	return 0;
+}
 
 static long config_setting_index(const char *name)
 {

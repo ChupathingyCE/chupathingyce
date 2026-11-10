@@ -179,6 +179,14 @@ enum delta_capability
 	that says nothing (OpenCE's, an older build) places them as it always
 	did */
 	_delta_capability_party_teams = 21,
+	/* (22 is voice, being built: reserved here, and never offered by this
+	build) */
+	_delta_capability_voice = 22,
+	/* players' reports (docs/delta.md, Reports): a client reports another
+	player to its host (REPORT), and the host says what it did
+	(REPORT_RESULT). A dedicated server takes them for its moderators; a
+	host without them does not offer it */
+	_delta_capability_reports = 23,
 
 	NUMBER_OF_DELTA_CAPABILITIES
 };

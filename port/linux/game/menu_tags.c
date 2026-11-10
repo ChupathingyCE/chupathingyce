@@ -2796,6 +2796,59 @@ boolean pc_menu_button_key_cap(
 	return FALSE;
 }
 
+/* the keyboard's key in a menu text's prompt ("Press [Enter] to Join",
+input_abstraction_port_icon_key's text) drawn as a key cap, as the footers'
+pictures are, at x on the line from y0 (its top) to y1 (its bottom), centered
+on its capital letters: its width, or 0 when it is written as text (no key
+caps here, or a name the menus' font may not have) */
+short pc_menu_text_key_cap(
+	wchar_t const *key_text,
+	short x,
+	short y0,
+	short y1,
+	float alpha)
+{
+#ifdef HALO_GAME_BROWSER
+	extern boolean moderation_screen_active(void);
+	char label[32];
+	int length = 0;
+	int index;
+	float height = (float)(y1 - y0);
+	float size;
+	float width;
+	unsigned int shade;
+
+	if (!key_text || key_text[0] != L'[' || height <= 0.f)
+		return 0;
+	for (index = 1; key_text[index] && key_text[index] != L']'; index++)
+	{
+		wchar_t character = key_text[index];
+
+		if (character < 0x20 || character > 0x7E || length >= (int)sizeof(label) - 1)
+			return 0;
+		label[length++] = (char)(character >= 'a' && character <= 'z' ? character - 'a' + 'A' : character);
+	}
+	label[length] = 0;
+	if (!length || key_text[index] != L']')
+		return 0;
+	size = height * 0.9f;
+	width = ui_overlay_key_width(label, size);
+	/* (hidden with the menu under the Moderation screen) */
+	if (moderation_screen_active())
+		return (short)ceilf(width);
+	shade = (unsigned int)(alpha < 0.f ? 0.f : alpha > 1.f ? 255.f : alpha * 255.f);
+	ui_overlay_key(label, size, (float)x, (float)y0 + height * 0.47f - size * 0.5f, 0xFFFFFF00 | shade);
+	return (short)ceilf(width);
+#else
+	(void)key_text;
+	(void)x;
+	(void)y0;
+	(void)y1;
+	(void)alpha;
+	return 0;
+#endif
+}
+
 /* the left edge of the key cap pc_menu_button_key_cap draws for a prompt
 in these bounds (a wide one, ENTER's, reaches left of them), or x0 when
 the picture is drawn as it is */

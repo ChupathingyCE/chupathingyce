@@ -3723,7 +3723,8 @@ the map's name over its family's color (a custom map's) */
 	if (browser_game_version_state(selected))
 		snprintf(text, sizeof(text), "%s", JOIN_REASON_TEXT(JOIN_REASON_OF_VERSION_STATE(browser_game_version_state(selected))));
 	else
-		snprintf(text, sizeof(text), "%s%s", selected->open ? "Accepting players" : "In progress", selected->locked ? ", password" : "");
+		snprintf(text, sizeof(text), "%s%s", selected->joins_locked ? "Locked" : selected->open ? "Accepting players" :
+			"In progress", selected->locked ? ", password" : "");
 	DETAIL_LINE("Status:", text);
 	/* (a host whose console and cheats may change its game, as it says:
 	network.host_cheats) */
