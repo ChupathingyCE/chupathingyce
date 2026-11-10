@@ -286,6 +286,10 @@ static struct
 	int social_action_wanted;
 	struct browser_social_result social_result;
 	char social_join[BROWSER_INVITE_LENGTH + 16];
+	/* the doorbell (p2p_doorbell): this copy's (from the friends state), and
+	the one internet play's signalling was last given (empty: none) */
+	char doorbell_id[SOCIAL_DOORBELL_SIZE];
+	char doorbell_given[SOCIAL_DOORBELL_SIZE];
 
 	/* the party (browser_party_*): as the site last said and its serial;
 	the action asked for (its words), what it came to, and the name a copy
@@ -3678,12 +3682,42 @@ static void social_action(int action, const char *handle, char *response, struct
 		social_log(BROWSER_SOCIAL_LOADED, read);
 }
 
+/* ---------- the doorbell (docs/delta.md, "The doorbell")
+
+While this copy is linked, the site gave it a doorbell and network.doorbell
+is on, internet play's signalling listens for it on our own brokers, over
+the connections it keeps to them anyway (p2p_doorbell). A ring makes the
+next friends poll go out at once (social_poll_ring, within the site's
+limit). */
+
+/* the doorbell signalling should listen for now: given to it when it
+changed (outside the lock: p2p takes its own) */
+static void doorbell_update(int linked)
+{
+	char wanted[SOCIAL_DOORBELL_SIZE];
+
+	pthread_mutex_lock(&browser_lock);
+	snprintf(wanted, sizeof(wanted), "%s", linked && config_boolean("network.doorbell") ? browser.doorbell_id : "");
+	if (!strcmp(wanted, browser.doorbell_given))
+	{
+		pthread_mutex_unlock(&browser_lock);
+		return;
+	}
+	pthread_mutex_unlock(&browser_lock);
+	if (!p2p_doorbell(wanted))
+		return;
+	pthread_mutex_lock(&browser_lock);
+	memcpy(browser.doorbell_given, wanted, sizeof(wanted));
+	pthread_mutex_unlock(&browser_lock);
+}
+
 static void update_social(void)
 {
 	static char *response;
 	static struct social_state *read;
 	char fields[128], error[256], cursor[SOCIAL_CURSOR_SIZE], handle[SOCIAL_HANDLE_SIZE];
 	int linked, due, action, status, no_key, parsed, before, after;
+	int rings = p2p_doorbell_rings();
 
 	pthread_mutex_lock(&browser_lock);
 	if (!browser.social_state || elapsed(browser.social_said, SOCIAL_SAID_TIMEOUT))
@@ -3692,8 +3726,11 @@ static void update_social(void)
 		return;
 	}
 	linked = browser.profile_linked || (browser.game_profile_has && browser.game_profile.linked);
+	if (rings)
+		social_poll_ring(&browser.social_poll);
 	if (!linked)
 	{
+		browser.doorbell_id[0] = 0;
 		/* (the site asked once a run whether this copy is linked) */
 		browser.profile_check_wanted = 1;
 		if (browser.social_status != BROWSER_SOCIAL_NONE)
@@ -3716,6 +3753,7 @@ static void update_social(void)
 	if (due)
 		browser.social_whole = 0;
 	pthread_mutex_unlock(&browser_lock);
+	doorbell_update(linked);
 	if (action < 0 && !due)
 		return;
 	if (!response)
@@ -3738,6 +3776,10 @@ static void update_social(void)
 	pthread_mutex_lock(&browser_lock);
 	before = browser.social_status;
 	social_poll_answer(&browser.social_poll, no_key ? 0 : status, parsed != 0);
+	if (parsed)
+		memcpy(browser.doorbell_id, read->doorbell, sizeof(browser.doorbell_id));
+	else if (status == 404 && !no_key)
+		browser.doorbell_id[0] = 0;
 	if (parsed == 1)
 	{
 		social_keep(read);

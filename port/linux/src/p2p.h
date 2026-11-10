@@ -69,6 +69,12 @@ int p2p_peer_address(const unsigned char *identifier, unsigned long *address);
 is open, and network.ping_games), the hosts asked about may be probed; never
 when internet play is off */
 void p2p_probe_browse(int on);
+/* Delta's doorbell (browser.c; docs/delta.md, "The doorbell"): listened
+for over the signalling connections to our brokers, NULL or "" for none
+(0 while internet play is off: nothing taken); and the rings heard since
+the last call */
+int p2p_doorbell(const char *doorbell);
+int p2p_doorbell_rings(void);
 /* the round trip in milliseconds to the host of an invite (its code: the
 host's key hash and token in hexadecimal), as a probe measured it; -1 if
 none has. wanted: probe it (only a host that answers pings, as the list
