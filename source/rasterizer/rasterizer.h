@@ -732,6 +732,14 @@ long rasterizer_transparent_geometry_sort_depths(
 	long maximum_depth_count);
 long rasterizer_transparent_geometry_free_group_count(
 	void);
+long rasterizer_dynamic_vertex_buffer_free_count(
+	void);
+void rasterizer_transparent_geometry_group_set_secondary_map_radius(
+	struct transparent_geometry_group const *group,
+	real radius);
+real rasterizer_transparent_geometry_group_secondary_map_radius(
+	struct transparent_geometry_group const *group,
+	real shader_radius);
 void rasterizer_psuedo_dynamic_screen_quad_draw(
 	struct rasterizer_dynamic_screen_geometry_parameters *parameters,
 	struct dynamic_screen_vertex *vertices);

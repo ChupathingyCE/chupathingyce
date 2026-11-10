@@ -174,6 +174,12 @@ static long transparent_geometry_group_count = 0;
 static long transparent_geometry_group_count2 = 0;
 static short *transparent_geometry_group_sorted_indices = NULL;
 static short transparent_geometry_next_group_sorted_index = 0;
+/* port: each group's effect shader secondary map radius, as it was when the
+group was queued, or -1 when the shader's own is used: a run of particles
+built in parts makes several groups of one shared shader, each with the
+radius of its own particles (render_particles, the zsprite draw) */
+static real transparent_geometry_group_secondary_map_radii[
+	RASTERIZER_MAXIMUM_TRANSPARENT_GEOMETRY_GROUPS_EXTRAS];
 
 
 /* ---------- public code */
@@ -385,6 +391,7 @@ struct transparent_geometry_group *rasterizer_transparent_geometry_new_group(
 #endif
 		group->sorted_index = group_index;
 		transparent_geometry_group_count = group_index + 1;
+		transparent_geometry_group_secondary_map_radii[group_index] = -1.0f;
 	}
 
 	return group;
@@ -443,11 +450,59 @@ void rasterizer_transparent_geometry_dispose(
 	return;
 }
 
-/* port: how many more groups the queue has room for (render_particles) */
+/* port: how many more groups the queue has room for (render_particles):
+the frame's maximum, more on a console above its memory baseline */
 long rasterizer_transparent_geometry_free_group_count(
 	void)
 {
-	return RASTERIZER_MAXIMUM_TRANSPARENT_GEOMETRY_GROUPS - transparent_geometry_group_count;
+	long free_count = transparent_geometry_group_maximum - transparent_geometry_group_count;
+
+	return free_count > 0 ? free_count : 0;
+}
+
+/* port: the index of one of the queue's groups, or NONE (groups2's) */
+static long transparent_geometry_group_index_of(
+	struct transparent_geometry_group const *group)
+{
+	long group_index = NONE;
+
+	if (transparent_geometry_groups && group >= transparent_geometry_groups &&
+		group < transparent_geometry_groups + transparent_geometry_group_count)
+	{
+		group_index = (long)(group - transparent_geometry_groups);
+	}
+
+	return group_index;
+}
+
+/* port: (transparent_geometry_group_secondary_map_radii) */
+void rasterizer_transparent_geometry_group_set_secondary_map_radius(
+	struct transparent_geometry_group const *group,
+	real radius)
+{
+	long group_index = transparent_geometry_group_index_of(group);
+
+	if (group_index != NONE)
+	{
+		transparent_geometry_group_secondary_map_radii[group_index] = radius;
+	}
+
+	return;
+}
+
+real rasterizer_transparent_geometry_group_secondary_map_radius(
+	struct transparent_geometry_group const *group,
+	real shader_radius)
+{
+	long group_index = transparent_geometry_group_index_of(group);
+	real radius = shader_radius;
+
+	if (group_index != NONE && transparent_geometry_group_secondary_map_radii[group_index] >= 0.0f)
+	{
+		radius = transparent_geometry_group_secondary_map_radii[group_index];
+	}
+
+	return radius;
 }
 
 /* port: (rasterizer_transparent_geometry_sort_depths) */

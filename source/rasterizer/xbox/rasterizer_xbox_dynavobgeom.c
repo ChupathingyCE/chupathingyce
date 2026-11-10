@@ -807,6 +807,12 @@ void _rasterizer_dynamic_unlit_geometry_draw(
 		group->node_matrix_count = 0;
 		group->lighting = NULL;
 		group->animation = NULL;
+		/* port: the radius the shader holds now, its run's (render_particles
+		and particle_systems set it before each run; the zsprite draw reads it
+		later, when the shader holds the last run's) */
+		rasterizer_transparent_geometry_group_set_secondary_map_radius(
+			group,
+			SHADER_GET_EFFECT(shader)->secondary_map_radius);
 
 		if (rasterizer_debug_options.statistics_mode == _rasterizer_statistics_mode_geometry)
 		{

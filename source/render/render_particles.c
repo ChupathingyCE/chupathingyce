@@ -30,6 +30,7 @@ symbols in this file:
 #include "units/unit_definitions.h"
 #include "units/units.h"
 #include "rasterizer/rasterizer.h" /* port: (render_particles_cut_run) */
+#include "bitmaps/bitmap_group.h" /* port: (render_particles_part_group_bound) */
 
 /* ---------- constants */
 
@@ -206,15 +207,15 @@ static void rendered_particles_sort(
 }
 
 /* port: the depths the transparent queue's groups sort at, and a run of
-particles where they are drawn, the depth each sorts at alone and the order
-they are built in (render_particles_cut_run) */
-static real render_particles_depths[RASTERIZER_MAXIMUM_TRANSPARENT_GEOMETRY_GROUPS];
-static short render_particles_part_counts[RASTERIZER_MAXIMUM_TRANSPARENT_GEOMETRY_GROUPS + 1];
+particles where they are drawn, the key of the part each is in (NONE when
+it is not drawn) and the order they are built in (render_particles_cut_run):
+sized for the most groups a frame may have, a console's above its memory
+baseline (halo_port_capacity.h) */
+static real render_particles_depths[RASTERIZER_MAXIMUM_TRANSPARENT_GEOMETRY_GROUPS_EXTRAS];
+static short render_particles_part_counts[RASTERIZER_MAXIMUM_TRANSPARENT_GEOMETRY_GROUPS_EXTRAS + 1];
 static short render_particles_part_ends[MAXIMUM_RENDERED_PARTICLES];
 static real_point3d render_particles_run_positions[MAXIMUM_RENDERED_PARTICLES];
 static real_vector3d render_particles_run_directions[MAXIMUM_RENDERED_PARTICLES];
-static real render_particles_run_depths[MAXIMUM_RENDERED_PARTICLES];
-static boolean render_particles_run_valid[MAXIMUM_RENDERED_PARTICLES];
 static short render_particles_run_keys[MAXIMUM_RENDERED_PARTICLES];
 static short render_particles_run_order[MAXIMUM_RENDERED_PARTICLES];
 
@@ -274,27 +275,52 @@ static boolean render_particle_place(
 	return TRUE;
 }
 
+/* port: the key of the part of a run of particles a particle that sorts
+at particle_depth is in: the count of the depths (ascending: z_sort's, the
+farthest first) the queue's other groups sort at below its own (a depth it
+equals is not) */
+static short render_particles_run_key(
+	real particle_depth,
+	real const *depths,
+	long depth_count)
+{
+	long low = 0;
+	long high = depth_count;
+
+	while (low < high)
+	{
+		long middle = (low + high) / 2;
+
+		if (depths[middle] < particle_depth)
+		{
+			low = middle + 1;
+		}
+		else
+		{
+			high = middle;
+		}
+	}
+
+	return (short)low;
+}
+
 /* port: a run of particles (one definition's in one cluster) is one group
 of the transparent queue, sorted at its particles' centroid, so an object
 amid the run was drawn over all of it or under all of it: a pickup behind
 a waterfall's mist showed through the mist in front of it. The run
-is built in parts instead, cut at the depths (ascending: z_sort's, the
-farthest first) the queue's other groups sort at: each particle in the
-part of the depths below its own, the parts from the farthest, each in the
-run's order. A part's centroid, the average of its particles' depths, sorts
-among the queue's groups where each of its particles would alone. Returns
-the parts' count and where each ends in order; a particle not valid is in
-none. With no depth among its particles', or more parts than
-maximum_part_count, the run is one part in its order, as the Xbox built it.
-keys holds one key a particle; counts one a depth, and one more. */
+is built in parts instead, cut at the depths the queue's other groups sort
+at: each particle in the part of its key (render_particles_run_key), the
+parts from the farthest, each in the run's order. A part's centroid, the
+average of its particles' depths, sorts among the queue's groups where each
+of its particles would alone. Returns the parts' count and where each ends
+in order; a particle whose key is NONE is in none. With one key among the
+particles', or more parts than maximum_part_count, the run is one part in
+its order, as the Xbox built it. counts holds one a depth, and one more. */
 static short render_particles_cut_run(
-	real const *particle_depths,
-	boolean const *valid,
+	short const *keys,
 	short particle_count,
-	real const *depths,
 	long depth_count,
 	short maximum_part_count,
-	short *keys,
 	short *counts,
 	short *order,
 	short *part_ends)
@@ -310,29 +336,11 @@ static short render_particles_cut_run(
 	}
 	for (particle_index = 0; particle_index < particle_count; particle_index++)
 	{
-		long low = 0;
-		long high = depth_count;
-
-		if (!valid[particle_index])
+		if (keys[particle_index] == NONE)
 		{
 			continue;
 		}
-		/* (the depths below the particle's: a depth it equals is not) */
-		while (low < high)
-		{
-			long middle = (low + high) / 2;
-
-			if (depths[middle] < particle_depths[particle_index])
-			{
-				low = middle + 1;
-			}
-			else
-			{
-				high = middle;
-			}
-		}
-		keys[particle_index] = (short)low;
-		if (!counts[low]++)
+		if (!counts[keys[particle_index]]++)
 		{
 			part_count++;
 		}
@@ -342,7 +350,7 @@ static short render_particles_cut_run(
 	{
 		for (particle_index = 0; particle_index < particle_count; particle_index++)
 		{
-			if (valid[particle_index])
+			if (keys[particle_index] != NONE)
 			{
 				order[order_count++] = particle_index;
 			}
@@ -366,13 +374,56 @@ static short render_particles_cut_run(
 	}
 	for (particle_index = 0; particle_index < particle_count; particle_index++)
 	{
-		if (valid[particle_index])
+		if (keys[particle_index] != NONE)
 		{
 			order[counts[keys[particle_index]]++] = particle_index;
 		}
 	}
 
 	return part_count;
+}
+
+/* port: the most parts a run may be cut into now: as many as the room left
+allows (the queue's free groups or the free dynamic vertex buffers, the
+fewer, less this run built whole and the later runs built whole, and no
+more than the frame's cut_budget), each charged the most groups a part of
+it makes (part_group_bound); one, the run whole, when there is none */
+static short render_particles_maximum_part_count(
+	long free_group_count,
+	long free_vertex_buffer_count,
+	long part_group_bound,
+	long later_group_count,
+	long cut_budget)
+{
+	long room = MIN(free_group_count, free_vertex_buffer_count) - part_group_bound - later_group_count;
+	short maximum_part_count = 1;
+
+	room = MIN(room, cut_budget);
+	if (room > 0 && part_group_bound > 0)
+	{
+		maximum_part_count = (short)MIN(room / part_group_bound + 1, SHORT_MAX);
+	}
+
+	return maximum_part_count;
+}
+
+/* port: the most transparent groups, and dynamic vertex buffers, one part
+of a run of particles of this definition makes: one a bitmap its sprites
+are on, at most a build_sprites_begin call's (render_sprite.c) */
+static long render_particles_part_group_bound(
+	struct particle_definition const *definition)
+{
+	long bound = 1;
+
+	if (definition->bitmap.index != NONE)
+	{
+		struct bitmap_group const *bitmap_group = bitmap_group_get(definition->bitmap.index);
+
+		bound = PIN((long)bitmap_group->bitmaps.count, 1,
+			(long)NUMBEROF(((struct build_sprite_data *)0)->groups));
+	}
+
+	return bound;
 }
 
 void render_particles(
@@ -483,12 +534,26 @@ void render_particles(
 					rendered_particles;
 				short group_index;
 				/* port: the depths the queue's groups sort at, where a run is cut
-				(render_particles_cut_run), and as many more groups as the cuts
-				may add this frame: a quarter of the queue's room, so that the
-				effects after these still have theirs */
+				(render_particles_cut_run), and how many more groups the cuts may
+				add this frame: a quarter of the room the runs built whole leave
+				(the queue's, and the dynamic vertex buffers', one a group), so
+				that the effects after these (plasma, contrails, particle
+				systems) still have theirs. A part is charged the most groups it
+				can make (render_particles_part_group_bound). */
 				long depth_count = rasterizer_transparent_geometry_sort_depths(
 					render_particles_depths, NUMBEROF(render_particles_depths));
-				long cut_budget = rasterizer_transparent_geometry_free_group_count() / 4;
+				long whole_group_count = 0;
+				long cut_budget;
+
+				for (group_index = 0; group_index < group_count; group_index++)
+				{
+					whole_group_count += render_particles_part_group_bound(
+						particle_definition_get(rendered_particle->definition_index));
+					rendered_particle += group_particle_counts[group_index];
+				}
+				rendered_particle = rendered_particles;
+				cut_budget = MAX(0, MIN(rasterizer_transparent_geometry_free_group_count(),
+					rasterizer_dynamic_vertex_buffer_free_count()) - whole_group_count) / 4;
 
 				for (group_index = 0; group_index < group_count; group_index++)
 				{
@@ -496,43 +561,51 @@ void render_particles(
 						particle_definition_get(
 							rendered_particle->definition_index);
 					short particle_count = group_particle_counts[group_index];
+					long part_group_bound = render_particles_part_group_bound(definition);
 					short part_count;
 					short part_index;
 					short run_index;
 					short order_index = 0;
 
 					/* port: each of the run's particles where it is drawn, first,
-					and the depth it would sort at alone */
+					and the part it is in by the depth it would sort at alone (the
+					first-person weapon's runs, which sort after the world, one
+					part) */
 					for (run_index = 0; run_index < particle_count; run_index++)
 					{
-						render_particles_run_valid[run_index] = render_particle_place(
+						render_particles_run_keys[run_index] = NONE;
+						if (render_particle_place(
 							&rendered_particle[run_index],
 							&render_particles_run_positions[run_index],
-							&render_particles_run_directions[run_index]);
-						if (render_particles_run_valid[run_index])
+							&render_particles_run_directions[run_index]))
 						{
-							render_particles_run_depths[run_index] = rasterizer_dynamic_unlit_geometry_z_sort(
-								(struct shader const *)&definition->shader,
-								&render_particles_run_positions[run_index]);
+							render_particles_run_keys[run_index] = render_particles_run_key(
+								rasterizer_dynamic_unlit_geometry_z_sort(
+									(struct shader const *)&definition->shader,
+									&render_particles_run_positions[run_index]),
+								render_particles_depths,
+								rendered_particle->attached_to_first_person_weapon ? 0 : depth_count);
 						}
 					}
 					/* port: and the run built in parts, cut where the queue's groups
-					sort among its particles (the first-person weapon's runs, which
-					sort after the world, whole) */
+					sort among its particles, in as many as the room now allows */
+					whole_group_count -= part_group_bound;
 					part_count = render_particles_cut_run(
-						render_particles_run_depths,
-						render_particles_run_valid,
-						particle_count,
-						render_particles_depths,
-						rendered_particle->attached_to_first_person_weapon ? 0 : depth_count,
-						(short)MIN(cut_budget + 1, SHORT_MAX),
 						render_particles_run_keys,
+						particle_count,
+						rendered_particle->attached_to_first_person_weapon ? 0 : depth_count,
+						render_particles_maximum_part_count(
+							rasterizer_transparent_geometry_free_group_count(),
+							rasterizer_dynamic_vertex_buffer_free_count(),
+							part_group_bound,
+							whole_group_count,
+							cut_budget),
 						render_particles_part_counts,
 						render_particles_run_order,
 						render_particles_part_ends);
 					if (part_count > 1)
 					{
-						cut_budget -= part_count - 1;
+						cut_budget -= (part_count - 1) * part_group_bound;
 					}
 
 					for (part_index = 0; part_index < part_count; part_index++)

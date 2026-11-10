@@ -1746,8 +1746,12 @@ void rasterizer_transparent_geometry_group_draw(
 
 									vsh_constants__zsprite[0][0] = z_far*depth_range/(z_far - z_near);
 									vsh_constants__zsprite[0][1] = -(vsh_constants__zsprite[0][0]*z_near);
+									/* port: the group's own radius (a part of a run of
+									particles), not the shared shader's last one */
 									vsh_constants__zsprite[0][2] =
-										radius_scale*shader_effect->secondary_map_radius;
+										radius_scale*rasterizer_transparent_geometry_group_secondary_map_radius(
+											group,
+											shader_effect->secondary_map_radius);
 									vsh_constants__zsprite[0][3] =
 										camera->z_near + 0.01f;
 									vsh_constants__zsprite[1][0] =
