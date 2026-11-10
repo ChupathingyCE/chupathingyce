@@ -240,7 +240,7 @@ jobs:
             return 1
           }
           apt_try apt-get install -y -q --no-install-recommends gcc-s390x-linux-gnu libc6-dev-s390x-cross qemu-user
-          DELTA_BE_REQUIRED=1 python3 -m pytest -q tools/test_delta_big_endian.py -rs
+          DELTA_BE_REQUIRED=1 python3 -m pytest -q tools/test_delta_big_endian.py tools/test_vertex_byte_order.py -rs
           # (structure culling from the Xbox's vertex bytes, #925)
           if [ -f tools/harness/tests/test_structure_culling_byte_order.py ]; then
             DELTA_BE_REQUIRED=1 python3 -m pytest -q tools/harness/tests/test_structure_culling_byte_order.py -rs
