@@ -456,6 +456,8 @@ enum
 	BROWSER_SOCIAL_DECLINE,
 	BROWSER_SOCIAL_REMOVE,
 	BROWSER_SOCIAL_BLOCK,
+	/* a friend request (ADD FRIEND: RECENT, PLAYERS HERE) */
+	BROWSER_SOCIAL_REQUEST,
 	/* /v1/social/join: the halo://join link, taken by
 	browser_social_take_join */
 	BROWSER_SOCIAL_JOIN,
@@ -646,5 +648,8 @@ int browser_identity_revoked_changes(void);
 in page, and as a QR code in modules (BROWSER_CONNECT_QR_SIZE squared at
 most, nonzero for a dark one); the QR code's size, 0 for none */
 int browser_page_qr(const char *path, char *page, int page_size, unsigned char *modules);
+/* any short text (PARTY's halo://party/ link) as a QR code in modules, as
+browser_page_qr's: its size, 0 for none */
+int browser_text_qr(const char *text, unsigned char *modules);
 
 #endif

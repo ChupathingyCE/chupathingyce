@@ -756,7 +756,7 @@ static const struct config_setting config_settings[] =
 		_platform_all,
 		"Show the Guide's notifications during a game. They always show in\n"
 		"the menus." },
-	{ "guide.notify_online", _config_boolean, "false", "HALO_GUIDE_NOTIFY_ONLINE", _environment_value,
+	{ "delta.notify_online", _config_boolean, "false", "HALO_DELTA_NOTIFY_ONLINE", _environment_value,
 		_platform_all,
 		"Show a notification in the menus when a friend comes online." },
 	{ "delta.bring_party", _config_boolean, "true", "HALO_DELTA_BRING_PARTY", _environment_value,
@@ -1330,6 +1330,9 @@ static const struct config_setting config_settings[] =
 	{ "debug.guide_section", _config_string, "\"\"", "HALO_GUIDE_SECTION", _environment_value, _platform_all,
 		"With debug.guide_open, the section it opens on (\"party\", \"friends\"),\n"
 		"for tests. Leave it empty for the first." },
+	{ "debug.guide_row", _config_integer, "-1", "HALO_GUIDE_ROW", _environment_value, _platform_all,
+		"With debug.guide_open, the row chosen once that section has it, for\n"
+		"tests. -1 for none." },
 	{ "debug.party_test", _config_string, "\"\"", "HALO_PARTY_TEST", _environment_value, _platform_all,
 		"A party step once the menus are up, for tests: \"create\" or\n"
 		"\"join:<code>\". Leave it empty for none." },

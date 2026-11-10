@@ -993,6 +993,39 @@ static void read_social_request(struct reader *reader, struct social_request *re
 	}
 }
 
+static void read_social_recent(struct reader *reader, struct social_recent *player)
+{
+	char key[32];
+	int first = 1;
+
+	memset(player, 0, sizeof(*player));
+	if (!take(reader, '{'))
+	{
+		skip_value(reader, 0);
+		return;
+	}
+	while (!reader->failed && member(reader, key, sizeof(key), &first))
+	{
+		if (!strcmp(key, "handle"))
+			text_value(reader, player->handle, sizeof(player->handle));
+		else if (!strcmp(key, "display"))
+			text_value(reader, player->display, sizeof(player->display));
+		else if (!strcmp(key, "time"))
+			player->time = number_value(reader);
+		else if (!strcmp(key, "map"))
+			text_value(reader, player->map, sizeof(player->map));
+		else if (!strcmp(key, "friend"))
+			player->is_friend = boolean_value(reader);
+		else if (!strcmp(key, "requested"))
+			player->requested = boolean_value(reader);
+		else
+			skip_value(reader, 1);
+	}
+	/* (a handle the site could not have given is none) */
+	if (!social_handle_valid(player->handle))
+		player->handle[0] = 0;
+}
+
 static void read_social_invite(struct reader *reader, struct social_invite *invite)
 {
 	char key[32];
@@ -1313,6 +1346,22 @@ int delta_profile_parse_social(const char *text, struct social_state *state)
 				}
 				else
 					read_social_invite(&reader, &skipped);
+			}
+		}
+		else if (!strcmp(key, "recent") && take(&reader, '['))
+		{
+			struct social_recent skipped;
+
+			while (!reader.failed && item(&reader, &item_first))
+			{
+				if (state->recent_count < SOCIAL_MAXIMUM_RECENT)
+				{
+					read_social_recent(&reader, &state->recent[state->recent_count]);
+					if (state->recent[state->recent_count].handle[0])
+						state->recent_count++;
+				}
+				else
+					read_social_recent(&reader, &skipped);
 			}
 		}
 		else if (!strcmp(key, "requests") && take(&reader, '{'))

@@ -44,7 +44,7 @@ boolean guide_takes_player(void);
 /* a toast: a short line at the bottom of the screen for a few seconds,
 quiet, never over a game unless guide.notify_in_game is on (the Guide's
 own: a new invite or friend request, a friend online with
-guide.notify_online) */
+delta.notify_online) */
 void guide_toast(char const *title, char const *line);
 
 /* the pause menu's GUIDE with what waits in it (invites, friend
