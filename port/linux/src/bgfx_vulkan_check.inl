@@ -35,7 +35,7 @@ for it to be passed over, then "#" and the reason the log gives.
 	                 amdvlk, anv (Mesa's Intel, hasvk included), intel
 	                 (Intel's Windows driver), lavapipe, venus, turnip,
 	                 dozen, moltenvk, honeykrisp, v3dv, panvk; unknown when
-	                 the driver does not say
+	                 the driver does not say, other for one not listed here
 	vendor=HEX       the PCI vendor (10de NVIDIA, 1002 AMD, 8086 Intel)
 	device_below=HEX the PCI device ID is below this
 	version_below=N  the driver's version is below N (NVIDIA's own numbers,
@@ -107,7 +107,7 @@ static const char *bg_vulkan_driver_name(VkDriverId id)
 		if (bg_vulkan_drivers[index].id == id)
 			return bg_vulkan_drivers[index].name;
 	}
-	return "unknown";
+	return "other";
 }
 
 /* the driver's version as it numbers it: NVIDIA's 10.8.8.6 bits (major
