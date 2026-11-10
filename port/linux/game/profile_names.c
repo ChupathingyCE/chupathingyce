@@ -43,6 +43,7 @@ int config_boolean(char const *name);
 /* delta_peer_game.c's */
 int delta_peer_game_on_delta(void);
 int delta_peer_game_player_identity(int machine_index, int local_player, struct delta_peer_identity *identity);
+int delta_peer_game_linked_name(int choice, const unsigned char *account, char *name, int size);
 /* the network game's (network_game_globals.h, network_client_manager.h) */
 struct network_game_client *global_network_game_client_get(void);
 struct network_game *network_game_client_get_game(struct network_game_client *client);
@@ -458,7 +459,10 @@ static boolean profile_names_player_unmarked(
 	return name[0] != 0;
 }
 
-int profile_names_local_account(
+/* a local player's Halo profile's choice of account (delta_account.txt,
+read again now and then): 0 a guest, 2 that account (into account), 1 the
+copy's own; a player with no saved Halo profile is the copy's own */
+static int local_account_choice(
 	int local_player,
 	unsigned char *account)
 {
@@ -470,26 +474,12 @@ int profile_names_local_account(
 		unsigned long read_time;
 		boolean read;
 	} cache[4];
-	struct network_game *game = current_game();
-	short own = network_game_client_get_local_machine_index();
 	char folder[256];
-	long index;
-	boolean playing = FALSE;
 	unsigned long now = system_milliseconds();
 
-	if (!game || own < 0 || local_player < 0 || local_player >= (int)NUMBEROF(cache))
+	if (local_player < 0 || local_player >= (int)NUMBEROF(cache))
 		return 0;
-	for (index = 0; index < (long)NUMBEROF(game->players) && !playing; index++)
-	{
-		struct network_player const *player = &game->players[index];
-
-		playing = network_player_is_valid(player) && player->machine_index == own &&
-			player->controller_index == local_player;
-	}
-	if (!playing)
-		return 0;
-	/* (in a network game, a local player's index is its controller's; one
-	playing with no saved Halo profile proves as the copy's own account) */
+	/* (in a network game, a local player's index is its controller's) */
 	if (!player_ui_get_path_to_local_player_profile_directory((short)local_player, folder))
 		return 1;
 	if (!cache[local_player].read || strcmp(cache[local_player].path, folder) ||
@@ -518,6 +508,58 @@ int profile_names_local_account(
 	if (cache[local_player].choice == 2 && account)
 		csmemcpy(account, cache[local_player].account, PLAYER_ID_SIZE);
 	return cache[local_player].choice;
+}
+
+int profile_names_local_account(
+	int local_player,
+	unsigned char *account)
+{
+	struct network_game *game = current_game();
+	short own = network_game_client_get_local_machine_index();
+	long index;
+	boolean playing = FALSE;
+
+	if (!game || own < 0)
+		return 0;
+	for (index = 0; index < (long)NUMBEROF(game->players) && !playing; index++)
+	{
+		struct network_player const *player = &game->players[index];
+
+		playing = network_player_is_valid(player) && player->machine_index == own &&
+			player->controller_index == local_player;
+	}
+	return playing ? local_account_choice(local_player, account) : 0;
+}
+
+boolean profile_names_local_guest(
+	long local_player)
+{
+	unsigned char account[PLAYER_ID_SIZE];
+
+	return local_account_choice((int)local_player, account) == 0;
+}
+
+boolean profile_names_local_game_name(
+	long local_player,
+	wchar_t *name,
+	long size)
+{
+	unsigned char account[PLAYER_ID_SIZE];
+	char text[32];
+	long index;
+	int choice;
+
+	if (!name || size < 2)
+		return FALSE;
+	choice = local_account_choice((int)local_player, account);
+	if (!choice || !delta_peer_game_linked_name(choice, account, text, (int)sizeof(text)) || !text[0])
+		return FALSE;
+	/* (a handle is a-z 0-9 _ -, in the capitals its profile picked: plain
+	letters a Halo name holds as they are, cut to its length) */
+	for (index = 0; index < size - 1 && text[index]; index++)
+		name[index] = (wchar_t)(unsigned char)text[index];
+	name[index] = 0;
+	return TRUE;
 }
 
 #endif

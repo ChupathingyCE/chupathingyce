@@ -1001,6 +1001,11 @@ int delta_peer_player_platform(int player_index);
 with the host's welcome (a machine knows its own platform either way, so
 the scoreboard asks this before it shows any) */
 int delta_peer_game_on_delta(void);
+/* the name a local player plays under while its Halo profile is linked to
+a Delta profile (choice and account: profile_names.c's, 2 that account, 1
+the copy's own): the handle, in the capitals the profile picked; 0 when it
+is not linked (a guest, no certificate, or not shared) */
+int delta_peer_game_linked_name(int choice, const unsigned char *account, char *name, int size);
 /* a machine's profile claim: its player ID and revision (0 if none) */
 int delta_peer_machine_profile(int machine_index, unsigned char *player_id, delta_u32 *revision);
 /* a player's machine's profile claim, while the machine has that one player
