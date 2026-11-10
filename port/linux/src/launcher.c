@@ -2032,6 +2032,7 @@ static void draw(void)
 
 	launcher.target_count = 0;
 	ui_style_clock((unsigned int)SDL_GetTicks());
+	ui_style_theme(ui_style_theme_named(config_string("display.theme")));
 	build_rows();
 	draw_backdrop();
 	draw_header();

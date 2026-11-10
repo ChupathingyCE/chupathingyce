@@ -106,6 +106,9 @@ void ui_overlay_plasma_source(int serial, const unsigned char *pixels, int width
 hardware format, the texture cache's: the interface's plasma map), once:
 nonzero if it was read */
 int ui_overlay_plasma_from_texture(const void *hardware_format);
+/* the color of the plasma's bright threads (0xRRGGBBAA, its alpha unused):
+the theme's (ui_style_theme) */
+void ui_overlay_plasma_thread(unsigned int color);
 
 /* what is drawn from here on goes over what was drawn before at a lower
 layer (0 to 4; each frame starts at 0): text is drawn over the shapes of
@@ -206,9 +209,43 @@ enum
 	UI_COLOR_BACKDROP_BOTTOM,
 	UI_COLOR_STAR,
 	UI_COLOR_CLEAR,
+	/* the look's own pieces (ui_overlay_style.c): a panel's edge and the
+	glow around what is lit, the card's rule, a tab, the lit tab, the
+	selection's edge, a row's glass, its edge and the lit row's plasma, and
+	the plasma's bright threads */
+	UI_COLOR_PANEL_EDGE,
+	UI_COLOR_GLOW,
+	UI_COLOR_RULE,
+	UI_COLOR_TAB,
+	UI_COLOR_TAB_ON,
+	UI_COLOR_SELECTED_EDGE,
+	UI_COLOR_ROW,
+	UI_COLOR_ROW_EDGE,
+	UI_COLOR_ROW_ON,
+	UI_COLOR_PLASMA_THREAD,
+	/* the Guide's (guide.c): a quieter label, a setting's name, and the
+	dots of a friend in a game and offline */
+	UI_COLOR_LABEL_SOFT,
+	UI_COLOR_SETTING,
+	UI_COLOR_DOT_GAME,
+	UI_COLOR_DOT_OFFLINE,
 	NUMBER_OF_UI_COLORS
 };
 unsigned int ui_style_color(int name);
+
+/* the themes the palette comes in: Halo Blue (the default) and
+Chupathingy Red (display.theme) */
+enum
+{
+	UI_THEME_BLUE,
+	UI_THEME_RED,
+	NUMBER_OF_UI_THEMES
+};
+/* the palette from here on (live: the next frame draws in it) */
+void ui_style_theme(int theme);
+int ui_style_theme_current(void);
+/* display.theme's value ("blue", "red") as a theme: blue for anything else */
+int ui_style_theme_named(const char *name);
 
 /* the look's text, each kind in the menus' fonts (ui_style_text): a list's
 headings ("ONLINE (2 OF 3)"), a row's name and its status line, a pane's

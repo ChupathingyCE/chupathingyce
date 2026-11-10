@@ -150,32 +150,20 @@ enum
 	MAXIMUM_TARGETS = 48,
 };
 
-/* the Chupathingy menus' blues (the mockups': review/guide-mockup) */
+/* the colors: the theme's (ui_style_color: Halo Blue or Chupathingy Red),
+and those the same in both */
+#define COLOR_PANEL_EDGE ui_style_color(UI_COLOR_PANEL_EDGE)
+#define COLOR_LABEL ui_style_color(UI_COLOR_LABEL_SOFT)
+#define COLOR_ROW_EDGE ui_style_color(UI_COLOR_ROW_EDGE)
+#define COLOR_SETTING ui_style_color(UI_COLOR_SETTING)
+#define COLOR_PROMPT_GLOW ui_style_color(UI_COLOR_PROMPT_GLOW)
+#define COLOR_DOT_GAME ui_style_color(UI_COLOR_DOT_GAME)
+#define COLOR_DOT_OFFLINE ui_style_color(UI_COLOR_DOT_OFFLINE)
 enum
 {
-	COLOR_PANEL = 0x0A2652E0,
-	COLOR_PANEL_EDGE = 0x2F7FD6FF,
-	COLOR_GLOW = 0x2F8FFFFF,
-	COLOR_RULE = 0x50A0FF5A,
-	COLOR_TITLE = 0x3D9BFFFF,
-	COLOR_NAME = 0xFFFFFFFF,
-	COLOR_STATUS = 0x8FC4FFFF,
-	COLOR_LABEL = 0x6FA6DDFF,
-	COLOR_TAB = 0x7FB6EEFF,
-	COLOR_TAB_ON = 0x2F7FD68C,
-	COLOR_SELECTED_EDGE = 0x9FD4FFFF,
-	COLOR_ROW = 0x0A2246E6,
-	COLOR_ROW_EDGE = 0x50A0FF40,
-	COLOR_ROW_ON = 0x2F7FD670,
-	COLOR_DETAIL = 0x020C1EA0,
 	COLOR_VALUE = 0xFFFFFFFF,
-	COLOR_SETTING = 0x9FD0FFFF,
-	COLOR_PROMPT = 0x3D9BFFFF,
-	COLOR_PROMPT_GLOW = 0x3D8BFF80,
-	COLOR_DOT_GAME = 0x4FB3FFFF,
 	COLOR_DOT_ONLINE = 0x7FE39AFF,
 	COLOR_DOT_AWAY = 0xE0A53AFF,
-	COLOR_DOT_OFFLINE = 0x4A5A70FF,
 	COLOR_MUTED = 0xFF9F9FFF,
 };
 
@@ -187,12 +175,13 @@ enum
 	_setting_notify_in_game,
 	_setting_notify_online,
 	_setting_share_presence,
+	_setting_theme,
 	NUMBER_OF_SETTINGS
 };
 
 static char const *const setting_labels[NUMBER_OF_SETTINGS] =
 {
-	"OPEN KEY", "GUIDE BUTTON", "NOTIFICATIONS IN GAME", "FRIEND ONLINE ALERTS", "SHOW WHEN I'M PLAYING",
+	"OPEN KEY", "GUIDE BUTTON", "NOTIFICATIONS IN GAME", "FRIEND ONLINE ALERTS", "SHOW WHEN I'M PLAYING", "THEME",
 };
 
 /* SETTINGS' rows after the settings, signed in: the devices (Delta
@@ -212,6 +201,7 @@ static char const *const device_row_labels[NUMBER_OF_DEVICE_ROWS] =
 static char const *const setting_keys[NUMBER_OF_SETTINGS] =
 {
 	"controls.guide", "controls.guide_button", "guide.notify_in_game", "guide.notify_online", "network.share_presence",
+	"display.theme",
 };
 
 /* controls.guide's choices: the F keys the game leaves free (F1 is Back,
@@ -594,6 +584,12 @@ static void setting_value(short setting, char *text, int size)
 
 		snprintf(text, (size_t)size, "%s", key[0] ? key : "F3");
 	}
+	else if (setting == _setting_theme)
+	{
+		snprintf(text, (size_t)size, "%s",
+			ui_style_theme_named(config_string(setting_keys[setting])) == UI_THEME_RED ? "CHUPATHINGY RED" :
+			"HALO BLUE");
+	}
 	else
 		snprintf(text, (size_t)size, "%s", setting_on(setting) ? "ON" : "OFF");
 }
@@ -616,6 +612,15 @@ static void setting_change(short setting, short direction)
 		}
 		found = (short)((found + (direction < 0 ? count - 1 : 1)) % count);
 		config_write(setting_keys[setting], open_keys[found]);
+	}
+	else if (setting == _setting_theme)
+	{
+		/* (two themes: either way is the other one, seen at once) */
+		int theme = ui_style_theme_named(config_string(setting_keys[setting])) == UI_THEME_RED ? UI_THEME_BLUE :
+			UI_THEME_RED;
+
+		config_write(setting_keys[setting], theme == UI_THEME_RED ? "red" : "blue");
+		ui_style_theme(theme);
 	}
 	else if (setting >= 0 && setting < NUMBER_OF_SETTINGS)
 		config_write_boolean(setting_keys[setting], !setting_on(setting));
@@ -2103,6 +2108,8 @@ void guide_render(void)
 {
 	if (!ui_overlay_available())
 		return;
+	/* (display.theme's palette, as it is now: a change shows at once) */
+	ui_style_theme(ui_style_theme_named(config_string("display.theme")));
 	if (!guide.open)
 	{
 		render_toast();

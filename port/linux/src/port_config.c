@@ -379,6 +379,9 @@ static const struct config_setting config_settings[] =
 		"Which menus to use: \"chupathingy\", \"xbox\" or \"gearbox\".\n"
 		"Put your own menus in a menus folder next to config.toml.\n"
 		"Restart Chupathingy after a change." },
+	{ "display.theme", _config_string, "\"blue\"", "HALO_THEME", _environment_value, _platform_all,
+		"The colors of DELTA and the setup screen: \"blue\" (Halo Blue) or\n"
+		"\"red\" (Chupathingy Red). A change shows at once." },
 	{ "display.high_res_text", _config_boolean, "true", "HALO_HIGH_RES_TEXT", _environment_value, _platform_all,
 		"Draw the text and titles of the menus and the HUD with sharp,\n"
 		"high-res fonts." },
