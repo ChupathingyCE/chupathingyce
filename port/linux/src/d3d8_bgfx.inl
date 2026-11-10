@@ -811,6 +811,10 @@ static char *bg_hlsl(const unsigned int *words, unsigned long word_count, BOOL f
 		goto done;
 	spvc_compiler_create_compiler_options(compiler, &options);
 	spvc_compiler_options_set_uint(options, SPVC_COMPILER_OPTION_HLSL_SHADER_MODEL, 50);
+	/* (Direct3D has no point size: the vertex shaders' gl_PointSize is
+	left out, as Direct3D 11 draws points one pixel wide) */
+	spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_HLSL_POINT_SIZE_COMPAT, SPVC_TRUE);
+	spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_HLSL_POINT_COORD_COMPAT, SPVC_TRUE);
 	spvc_compiler_install_compiler_options(compiler, options);
 	spvc_compiler_create_shader_resources(compiler, &resources);
 	spvc_resources_get_resource_list_for_type(resources, SPVC_RESOURCE_TYPE_UNIFORM_BUFFER, &list, &count);

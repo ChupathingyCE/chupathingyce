@@ -196,8 +196,13 @@ def bgfx_build(n: Writer, target: BgfxTarget) -> List[Path]:
         "glslang": (glslang_sources, f"-x c++ -std=c++17 -fno-strict-aliasing -I{glslang} -I{glslang.parent}"),
     }
     if target.platform in SPIRV_CROSS_UNITS:
+        # (on Windows with C++ exceptions, which its C interface catches: a
+        # shader HLSL can't express fails alone instead of ending the game;
+        # macOS keeps the assertions it has shipped with)
+        errors = ("-fexceptions -fcxx-exceptions -U_HAS_EXCEPTIONS -D_HAS_EXCEPTIONS=1"
+                  if target.platform == "windows" else "-DSPIRV_CROSS_EXCEPTIONS_TO_ASSERTIONS")
         units["spirv-cross"] = ([spirv_cross / name for name in SPIRV_CROSS_UNITS[target.platform]],
-                                f"-x c++ -DSPIRV_CROSS_EXCEPTIONS_TO_ASSERTIONS -DSPIRV_CROSS_C_API_GLSL=1 "
+                                f"-x c++ {errors} -DSPIRV_CROSS_C_API_GLSL=1 "
                                 f"{SPIRV_CROSS_BACKENDS[target.platform]} -I{spirv_cross / 'include'}")
     libraries = []
     for name, (sources, extra) in units.items():
