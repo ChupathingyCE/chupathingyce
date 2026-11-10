@@ -36,7 +36,8 @@ It opens with controls.guide (F3), the first player's Guide button
 guide.hold_back (off by default), or the first player's pause menu's GUIDE
 (menu_tags.c, guide.pause_menu); the same key or button, or B, closes it.
 
-Toasts show low in the middle of the screen for a few seconds: a new
+Toasts show for a few seconds (in the menus in the bottom left corner,
+clear of their items; in a game low in the middle): a new
 invite or friend request, and a friend come online (guide.notify_online,
 off by default, menus only). In a game only with guide.notify_in_game. The
 Guide's key or button while one shows opens its item. The pause menu's
@@ -135,7 +136,10 @@ enum
 
 	/* the toast's place */
 	TOAST_WIDTH = 260, TOAST_HEIGHT = 34,
-	TOAST_X = 320 - TOAST_WIDTH / 2, TOAST_Y = 404,
+	/* (in a game, low in the middle; in the menus, in the bottom left
+	corner, clear of their items, QUIT the lowest, and their prompts) */
+	TOAST_GAME_X = 320 - TOAST_WIDTH / 2, TOAST_GAME_Y = 404,
+	TOAST_MENU_X = 24, TOAST_MENU_Y = 442,
 	TOAST_TIME = 5000,
 	TOAST_FADE = 400,
 
@@ -1783,7 +1787,8 @@ static boolean toast_visible(void)
 static void render_toast(void)
 {
 	unsigned long age = system_milliseconds() - guide.toast_time;
-	float share, text_right = TOAST_X + TOAST_WIDTH - 10;
+	float x = in_game() ? TOAST_GAME_X : TOAST_MENU_X, y = in_game() ? TOAST_GAME_Y : TOAST_MENU_Y;
+	float share, text_right = x + TOAST_WIDTH - 10;
 
 	if (!guide.toast_shown)
 		return;
@@ -1799,15 +1804,15 @@ static void render_toast(void)
 		age > TOAST_TIME - TOAST_FADE ? (float)(TOAST_TIME - age) / TOAST_FADE : 1.0f;
 	ui_overlay_layer(4);
 	ui_style_clock((unsigned int)system_milliseconds());
-	ui_style_glass(TOAST_X, TOAST_Y, TOAST_WIDTH, TOAST_HEIGHT, 8, fade(ui_style_color(UI_COLOR_GLASS_TOP), share),
+	ui_style_glass(x, y, TOAST_WIDTH, TOAST_HEIGHT, 8, fade(ui_style_color(UI_COLOR_GLASS_TOP), share),
 		fade(COLOR_PANEL_EDGE, share));
 	/* (a friend's: their initial on gold; else the player's own color) */
 	if (guide.toast_kind != _toast_none)
 	{
-		ui_overlay_rect(TOAST_X + 8, TOAST_Y + 7, 20, 20, 4, fade(ui_style_color(UI_COLOR_EMBLEM_FRIEND), share));
+		ui_overlay_rect(x + 8, y + 7, 20, 20, 4, fade(ui_style_color(UI_COLOR_EMBLEM_FRIEND), share));
 		if (guide.toast_initial[0])
 		{
-			ui_overlay_text(UI_FONT_BOLD, 11.0f, TOAST_X + 18, TOAST_Y + 11, UI_ALIGN_CENTER, fade(ui_style_color(UI_COLOR_EMBLEM_LETTER), share),
+			ui_overlay_text(UI_FONT_BOLD, 11.0f, x + 18, y + 11, UI_ALIGN_CENTER, fade(ui_style_color(UI_COLOR_EMBLEM_LETTER), share),
 				guide.toast_initial);
 		}
 		/* (the key that opens it) */
@@ -1817,13 +1822,13 @@ static void render_toast(void)
 
 			key = key[0] ? key : "F3";
 			text_right -= ui_overlay_key_width(key, 12.0f) + 6;
-			ui_overlay_key(key, 12.0f, text_right + 6, TOAST_Y + 11, fade(ui_style_color(UI_COLOR_NAME), share));
+			ui_overlay_key(key, 12.0f, text_right + 6, y + 11, fade(ui_style_color(UI_COLOR_NAME), share));
 		}
 	}
 	else
-		ui_overlay_rect(TOAST_X + 8, TOAST_Y + 7, 20, 20, 4, fade(guide.color ? guide.color : 0x2F6DD0FF, share));
-	ui_style_text_faded(UI_TEXT_NAME, share, TOAST_X + 36, TOAST_Y + 5, UI_ALIGN_LEFT, guide.toast_title);
-	ui_style_text_faded(UI_TEXT_STATUS, share, TOAST_X + 36, TOAST_Y + 20, UI_ALIGN_LEFT, guide.toast_line);
+		ui_overlay_rect(x + 8, y + 7, 20, 20, 4, fade(guide.color ? guide.color : 0x2F6DD0FF, share));
+	ui_style_text_faded(UI_TEXT_NAME, share, x + 36, y + 5, UI_ALIGN_LEFT, guide.toast_title);
+	ui_style_text_faded(UI_TEXT_STATUS, share, x + 36, y + 20, UI_ALIGN_LEFT, guide.toast_line);
 	ui_overlay_layer(0);
 }
 
