@@ -163,6 +163,11 @@ static const char *const bg_varyings[] =
 {
 	"xD0", "xD1", "xB0", "xB1", "xT0", "xT1", "xT2", "xT3", "xFog", "xWorldNormal", "xWorldPosition",
 };
+/* their types, as the translators declare them */
+static const char *const bg_varying_types[] =
+{
+	"vec4", "vec4", "vec4", "vec4", "vec4", "vec4", "vec4", "vec4", "float", "vec4", "vec3",
+};
 
 /* the input registers v0 to v15 as bgfx's attributes, which its Metal
 renderer finds by these names */
@@ -503,6 +508,7 @@ static char *bg_vulkan_glsl(const char *source, BOOL fragment, int flags, unsign
 	const char *line = source;
 	unsigned long index, size = 0;
 	int sampler_next = 0;
+	BOOL declared[sizeof(bg_varyings) / sizeof(bg_varyings[0])] = { FALSE };
 
 	xgpu_text_append(&block, "#version 450\n");
 	xgpu_text_append(&block, "layout(set = 0, binding = %d, std140) uniform Uniforms\n{\n",
@@ -587,6 +593,7 @@ static char *bg_vulkan_glsl(const char *source, BOOL fragment, int flags, unsign
 			if (index < sizeof(bg_varyings) / sizeof(bg_varyings[0]))
 			{
 				xgpu_text_append(&body, "layout(location = %lu) %s\n", index, text);
+				declared[index] = TRUE;
 				continue;
 			}
 		}
@@ -597,13 +604,38 @@ static char *bg_vulkan_glsl(const char *source, BOOL fragment, int flags, unsign
 		}
 		xgpu_text_append(&body, "%s\n", text);
 	}
+	/* (Direct3D 11 joins the stages by register, not by name or location:
+	both declare every varying, in order, so that a pixel shader that reads
+	a few finds them where the vertex shader wrote them) */
+	if (bg_d3d11)
+	{
+		for (index = 0; index < sizeof(bg_varyings) / sizeof(bg_varyings[0]); index++)
+		{
+			if (!declared[index])
+				xgpu_text_append(&body, "layout(location = %lu) %s %s %s;\n", index, fragment ? "in" : "out",
+					bg_varying_types[index], bg_varyings[index]);
+		}
+		/* (and the pixel shader reads each, so that each stays in its
+		signature) */
+		if (fragment)
+		{
+			xgpu_text_append(&body, "float bg_kept;\nfloat bg_read_varyings()\n{\n\tfloat all = 0.0;\n");
+			for (index = 0; index < sizeof(bg_varyings) / sizeof(bg_varyings[0]); index++)
+				xgpu_text_append(&body, "\tall += %s.x;\n", bg_varyings[index]);
+			xgpu_text_append(&body, "\treturn all;\n}\n");
+		}
+	}
 	if (!fragment)
 	{
 		/* (glDepthRange's: the viewport's MinZ to MaxZ) */
 		xgpu_text_append(&block, "\tvec4 depth_range;\n");
+		xgpu_text_append(&body, "void main()\n{\n");
+		for (index = 0; bg_d3d11 && index < sizeof(bg_varyings) / sizeof(bg_varyings[0]); index++)
+		{
+			if (!declared[index])
+				xgpu_text_append(&body, "\t%s = %s(0.0);\n", bg_varyings[index], bg_varying_types[index]);
+		}
 		xgpu_text_append(&body,
-			"void main()\n"
-			"{\n"
 			"\tbg_main();\n"
 			"\tgl_Position.z = gl_Position.z * depth_range.y + depth_range.x * gl_Position.w;\n"
 			"}\n");
@@ -616,14 +648,16 @@ static char *bg_vulkan_glsl(const char *source, BOOL fragment, int flags, unsign
 		xgpu_text_append(&body,
 			"void main()\n"
 			"{\n"
+			"%s"
 			"\tbg_main();\n"
 			"\tfloat slope = max(abs(dFdx(gl_FragCoord.z)), abs(dFdy(gl_FragCoord.z)));\n"
 			"\tgl_FragDepth = clamp(gl_FragCoord.z + depth_bias.x * slope + depth_bias.y, 0.0, 1.0);\n"
-			"}\n");
+			"}\n", bg_d3d11 ? "\tbg_kept = bg_read_varyings();\n" : "");
 	}
 	else
 	{
-		xgpu_text_append(&body, "void main()\n{\n\tbg_main();\n}\n");
+		xgpu_text_append(&body, "void main()\n{\n%s\tbg_main();\n}\n",
+			bg_d3d11 && fragment ? "\tbg_kept = bg_read_varyings();\n" : "");
 	}
 	size += 16;
 	/* (a block may not be empty) */
