@@ -129,7 +129,7 @@ symbols in this file:
 #include "bitmaps/bitmaps_inlines.h"
 #include "effects/decals.h"
 #include "game/game_globals.h"
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 #include "main/main.h"
 #endif
 #include "interface/hud_draw.h"
@@ -920,7 +920,7 @@ static void rasterizer_environment_fog_screen_wind_update(
 	if (screen->wind_velocity.upper > 0.0f)
 	{
 		real_vector2d *target_direction = &wind->target_direction;
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 		/* This runs once a frame, several frames per tick on the native
 		builds (port/linux/game/render_interpolation.c): turn toward the
 		target as far per 30 Hz tick as the Xbox turned per frame. */
@@ -947,7 +947,7 @@ static void rasterizer_environment_fog_screen_wind_update(
 			wind->direction.i = 1.0f;
 			wind->direction.j = 0.0f;
 		}
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 		scalars_interpolate(
 			wind->magnitude,
 			wind->target_magnitude,

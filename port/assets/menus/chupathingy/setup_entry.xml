@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SETUP: the way back to the setup screen (port/linux/src/launcher.c) from
+the menus, in each menu set's own look and the same word. The Chupathingy
+menus have it as a row of SETTINGS, after ABOUT (settings.xml);
+Gearbox's as a button of EDIT PROFILE SETTINGS's bar, beside OK and CANCEL
+(tools/port_settings.py); the Xbox's as the last row of EDIT PROFILE
+SETTINGS (source/interface/ui_widget.c). A starts Chupathingy again on the
+setup screen. A child named setup_entry is left out in a game, and with
+launcher.menu_entry = false (menu_tags.c). -->
+<menus>
+	<widget name="chupathingy/settings/setup_entry" type="text" left="51" top="274" width="232" height="32" bitmap="bitmaps/list_item_bkd" text="SETUP" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="5">
+		<on event="a" run="port setup open"/>
+		<on event="start" run="port setup open"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
+	<widget name="gearbox/setup_entry" type="text" width="128" height="24" bitmap="bitmaps/text_button_background" text="SETUP" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">
+		<on event="a" run="port setup open"/>
+		<on event="start" run="port setup open"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
+</menus>

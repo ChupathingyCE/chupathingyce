@@ -548,6 +548,51 @@ the site's /v1/game/clan, its result the action's. 0 for a handle the site
 could not have given. Not on the consoles (no DELTA there yet) */
 int browser_profile_clan_member(const char *action, const char *handle);
 
+/* the devices (docs/delta.md, Devices): this device signed out (its
+certificate dropped, its key kept; nothing goes to the site as the account
+until it signs in again by code), and another device of the account revoked
+(by its ID, 32 hex digits); each the action's result */
+void browser_profile_sign_out(void);
+void browser_profile_revoke(const char *device_id);
+
+/* Link a device: another device's Quick Connect code (as typed, ABCD-EFGH)
+approved as this device's account, then that device asks its player */
+enum
+{
+	BROWSER_APPROVE_NONE,
+	/* sent, not answered yet */
+	BROWSER_APPROVE_SENDING,
+	/* a device's code: what it says it is (name, platform, message: the
+	site's warning), for the player to approve or deny
+	(browser_approve_answer) */
+	BROWSER_APPROVE_SHOWN,
+	/* the answer sent */
+	BROWSER_APPROVE_ANSWERING,
+	/* taken: the other device asks its player (handle, name, platform) */
+	BROWSER_APPROVE_WAITING,
+	BROWSER_APPROVE_DONE,
+	BROWSER_APPROVE_DECLINED,
+	BROWSER_APPROVE_EXPIRED,
+	/* denied here: the code is dead */
+	BROWSER_APPROVE_DENIED,
+	/* refused (message) */
+	BROWSER_APPROVE_FAILED,
+};
+struct browser_approve
+{
+	int state;
+	char handle[48];
+	char name[40];
+	char platform[24];
+	char message[96];
+};
+/* 0 if the code isn't one */
+int browser_approve_start(const char *code);
+/* the player's answer to a device shown (BROWSER_APPROVE_SHOWN) */
+void browser_approve_answer(int approve);
+void browser_approve_stop(void);
+void browser_approve_get(struct browser_approve *approve);
+
 /* another player's public profile card, by the player ID they shared in a
 game (32 hex digits): 1 with it in card, else 0 (asked of the site in the
 background, or they have none to show). Kept for the run */
