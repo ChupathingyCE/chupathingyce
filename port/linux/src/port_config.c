@@ -411,9 +411,14 @@ static const struct config_setting config_settings[] =
 		"you aim at, as on the Xbox." },
 	{ "display.player_name_scale", _config_real, "1.0", "HALO_PLAYER_NAME_SCALE", _environment_value, _platform_all,
 		"The size of player names, from 0.25 to 4." },
-	{ "display.match_timer", _config_boolean, "false", "HALO_MATCH_TIMER", _environment_value, _platform_all | _platform_xbox,
-		"Show the time left at the top of the screen in a multiplayer game\n"
-		"with a time limit." },
+	{ "display.match_timer", _config_string, "\"off\"", "HALO_MATCH_TIMER", _environment_value, _platform_all | _platform_xbox,
+		"A multiplayer game's clock on screen: \"off\", \"remaining\" (the time\n"
+		"left, or the time played in a game with no time limit) or \"elapsed\"\n"
+		"(the time played). An older true is \"remaining\", false is \"off\"." },
+	{ "display.match_timer_position", _config_string, "\"top\"", "HALO_MATCH_TIMER_POSITION", _environment_value,
+		_platform_all | _platform_xbox,
+		"Where display.match_timer draws the clock: \"top\" (centered at the top\n"
+		"of the view) or \"bottom_right\" (the view's bottom right corner)." },
 	{ "display.powerup_timers", _config_boolean, "false", "HALO_POWERUP_TIMERS", _environment_value, _platform_all | _platform_xbox,
 		"Show the seconds left on your active camouflage, overshield and\n"
 		"full spectrum vision." },
@@ -3573,6 +3578,8 @@ static const struct
 	{ "display.scoreboard_team_layout", { "teams", "score", NULL }, "\"teams\"" },
 	{ "display.scoreboard_platforms", { "auto", "on", "off", NULL }, "\"auto\"" },
 	{ "display.follow_camera", { "long_waits", "always", "off", NULL }, "\"off\"" },
+	{ "display.match_timer", { "off", "remaining", "elapsed", NULL }, "\"off\"" },
+	{ "display.match_timer_position", { "top", "bottom_right", NULL }, "\"top\"" },
 	{ "display.online_games_view", { "all", "public", "chupathingy", "opence", NULL }, "\"public\"" },
 	{ "display.opence_empty_servers", { "folded", "shown", NULL }, "\"folded\"" },
 	{ "display.texture_decode", { "auto", "gpu", "cpu", NULL }, "\"auto\"" },
@@ -3611,6 +3618,11 @@ static const struct
 {
 	{ "network.join_from_clipboard", "true", "always" },
 	{ "network.join_from_clipboard", "false", "never" },
+	/* (on or off until v0.9.1; on was the time left) */
+	{ "display.match_timer", "true", "remaining" },
+	{ "display.match_timer", "false", "off" },
+	{ "display.match_timer", "1", "remaining" },
+	{ "display.match_timer", "0", "off" },
 };
 
 #define NUMBER_OF_CONFIG_OLD_WORDS (sizeof(config_old_words) / sizeof(config_old_words[0]))
