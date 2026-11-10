@@ -151,7 +151,7 @@ shares.
 | 18 | `host_cheats` | not a feature: the host's console and cheats may change its public game while others are in it (`network.host_cheats`); announced on Delta List only, never in a HELLO, and Online Games shows "Host cheats on" |
 | 19 | `host_rules` | the host's rules for its players' extras (HOST_RULES): names above heads, the follow camera, team changes; a client whose host says nothing plays by the Xbox's rules. See "Host rules" |
 | 20 | `identity` | verified names: the host challenges (ID_CHALLENGE), each local player with a device certificate proves it (ID_PROOF), the host relays the card (ID_CARD) and every client checks it again. Only verified players show by their Delta profile. See "Verified names" |
-| 21 | `party_teams` | a party's tag, so a host can keep parties together (being built) |
+| 21 | `party_teams` | a party's members tell their host their party's tag (PARTY_TAG), and a host that keeps parties together puts them on one team where the teams stay even. See "Party teams" |
 | 22 | `voice` | voice chat (VOICE_UP, VOICE_DOWN, VOICE_CONFIG): a player talks on a channel, the host relays each frame by its rules without decoding it. Agreed per pair, so OpenCE machines and builds without voice are never sent any. See "Voice" |
 
 The registry lives in the repository next to the compatibility table and is
@@ -159,7 +159,7 @@ the single source for the bit numbers. Built so far: `platform`, `profile`,
 `ce_maps`, `moderation` (see "Moderation"), `chat` and `server_messages`
 (see "Chat"), `bomb`, `bomb_movement` and `bomb_traits` ([bomb.md](bomb.md)),
 `ping`, `team_change`, `object_sync`, `host_cheats`, `host_rules`,
-`identity` (see "Verified names") and `voice` (see "Voice"). No
+`identity` (see "Verified names"), `party_teams` and `voice` (see "Voice"). No
 build sets `coop`, `ai_sync`, `vote` or `server_badge` yet. The first two's values are
 claims, shown as claims, never used for game state:
 
@@ -409,7 +409,7 @@ a later version may append):
 | 30 | ID_CHALLENGE | host to client | version (1; 1 now, 0 refused, a later one read as this), binding length (1, at most 64), reserved (2), nonce (32: this session's), binding (printable ASCII) |
 | 31 | ID_PROOF | client to host | version (1), local player (1, 0 to 3), certificate length (1: 0 withdraws the local player and nothing follows; else 148 to 168), name length (1, at most 20), flags (1: 0x01 bound), reserved (3), time (4, Unix seconds), signature (64), issuer certificate (CISS, 112), device certificate (CDEV, the length's bytes), name (the handle in the player's capitals: `A-Z a-z 0-9 _ -`) |
 | 32 | ID_CARD | host to client | version (1), machine index (1), local player (1, 0 to 3), certificate length (1: 0 withdraws the card and nothing follows; else 148 to 168), name length (1, at most 20), reserved (3), flags (1, the proof's), reserved (3), time (4, the proof's), nonce (32: the one the host challenged that machine's session with), signature (64), CISS (112), CDEV, name. At most 412 bytes |
-| 33 | | | taken by party teams (being built) |
+| 33 | PARTY_TAG | client to host | the party's tag (8; zeros: in no party); a longer payload is read as far as this build knows. Sent once both agreed to `party_teams`, at once when it changes, and every 5 seconds while in a party |
 | 34 | VOICE_UP | client to host | sequence (2, the speaker's own count), length (1, 0 to 255: the Opus frame's bytes; 0 none), channel (1: 0 none, 1 team, 2 proximity, 3 everyone, 4 party; none with no frame), hears (1: 0x01 team, 0x02 proximity, 0x04 everyone, 0x08 party: the channels this machine plays; 0 none), reserved (3), then the frame (length bytes); with no frame, a party's tag (8) may follow (none: all 0 or left out). The length must be the bytes that came, exactly |
 | 35 | VOICE_DOWN | host to client | sequence (2, the speaker's), speaker's machine (1), speaker's player (1, the game's player list index; 255 none), route (1: 1 global, played as said; 2 proximity, played from where the speaker's player is), channel (1, as VOICE_UP's), length (1, 1 to 255), reserved (1), then the frame. The length must be the bytes that came, exactly |
 | 36 | VOICE_CONFIG | host to client | version (1; 1 now, 0 refused), channels (1: 0x01 team, 0x02 proximity, 0x04 everyone, 0x08 party, the channels the host relays; 0x10 lobby, everyone hears everyone outside a game), flags (1: 0x01 this machine is muted), quality (1, 8 to 64 kbps), proximity (2, tenths of a world unit, 50 to 1000), reserved (2), a timed mute's seconds left (4; 0 none, or until the game ends); values past their ranges refused |
@@ -912,6 +912,56 @@ bridge off in every build already out, while Delta voice keeps working.
 bad-key and bad-length inputs; the router with OpenCE machines in the
 room; and a cross-play `voice` step (ours hosting an OpenCE client, theirs
 hosting ours), each side logging the other's test tone as heard.
+
+### Party teams
+
+A party (DELTA's PARTY: up to 8 players who follow their leader into
+games, kept by the site in memory) wants to play on one
+team. Halo's teams are the host's to place, so the party asks and the host
+decides, over `party_teams` (bit 21). It is additive and host-side: nothing
+in the game protocol changes, and an OpenCE host, or one that says nothing,
+places the party as it always did.
+
+- **The tag.** The site gives each party a random 8-byte tag and hands it
+  to the party's members only. It names no one and lasts the party's
+  lifetime: a new party has a new one, and the site makes a new one (and a
+  new code) when the leader kicks a member or asks for a new code. A
+  member's game sends it to its game's host in PARTY_TAG (33) once both
+  agreed to `party_teams`, at once when it changes (joined, left, a new
+  party), and every 5 seconds while it is in a party, in case a datagram
+  was lost. Zeros mean "in no party". The host keeps each machine's last
+  tag and forgets it with the machine's session. It learns only which of
+  its machines share a party; split screen players share their machine's.
+- **The client's word.** The host can't check a tag: it takes it on the
+  client's word, so a tag only ever moves the players who send it. A
+  machine's tag, once it has one, changes no sooner than 30 seconds after
+  its last change (a sooner one is dropped, and the next resend lands), so
+  flipping it can't keep a lobby rearranging. A tag only one machine sends
+  is no party: one machine's own players are never a party of their own.
+- **Whether the host honors it.** A player's host does unless its
+  `network.keep_parties_together` is off (on by default). A dedicated
+  server does only with its `keep_parties_together` setting on (off by
+  default; `sv_set keep_parties_together true`, `server/docs/settings.md`).
+  Only in team games, never in co-op.
+- **Where balance allows.** A split party goes to the team where most of
+  its members are (a tie: the smaller team first). One member moves at a
+  time, only when the teams then stay within one player of each other.
+  Where a move would unbalance them, the party stays split: only party
+  members are ever moved, never a player in no party (no trades).
+- **When.** In the lobby, each time its players or their parties change
+  (the host sends the lobby again); a player who picks the other team
+  afterwards keeps their pick until the lobby changes again. In a game in
+  progress, only a member who joined late and hasn't spawned yet moves (as
+  a team change does, without a death); nobody playing is moved.
+- **What it isn't.** The host's own team rules (auto team balance, team
+  changes, an admin's `sv_team`) stay as they are, and a party never
+  overrides them. A client that doesn't speak `party_teams` sends nothing
+  and is placed as before.
+
+The host's side is `port/linux/game/party_teams.c` (which change: the
+plan in `port/linux/src/party_teams_plan.c`, tested by
+`tools/test_party_teams.py`); the members' tag comes from
+`port/linux/game/guide.c`.
 
 ### Object sync
 

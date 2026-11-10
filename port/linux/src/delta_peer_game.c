@@ -29,6 +29,15 @@ HALO_GAME_BROWSER; network.protocol = "opence" turns all of it off.
 #include "browser.h"
 #include "p2p.h"
 #endif
+#ifdef HALO_DELTA_PEER_IDENTITY
+#include "identity.h"
+#include "identity_key.h"
+#include "delta_profile.h"
+#include <time.h>
+/* (port/linux/game/profile_names.c's: the account a local player of this
+machine proves as: 0 none, 1 the copy's own, 2 the one in account) */
+int profile_names_local_account(int local_player, unsigned char *account);
+#endif
 #ifdef HALO_CONSOLE_PROFILE_ID
 /* (the port's: this console's player ID while its player linked it to a
 Delta profile, port/console/link/console_link.h, or put an identity file
@@ -351,13 +360,20 @@ static int game_legacy_table_offer(void *context, const unsigned char *table, in
 #endif
 
 /* moderation: the moderator key's signature (browser.c's; signed only when
-the player acts) */
+the player acts); a copy without a player key signs with its device key
+when its certificate may moderate (the role is its verified account's) */
 static int game_moderation_sign(void *context, const unsigned char *message, int size, unsigned char *key,
 	unsigned char *signature)
 {
 	(void)context;
 #ifdef HALO_GAME_BROWSER
-	return browser_moderator_sign(message, size, key, signature);
+	if (browser_moderator_sign(message, size, key, signature))
+		return 1;
+#ifdef HALO_DELTA_IDENTITY
+	return browser_identity_moderator_sign(message, size, key, signature);
+#else
+	return 0;
+#endif
 #else
 	(void)message;
 	(void)size;
@@ -394,6 +410,160 @@ static int game_moderation_binding(void *context, delta_u32 host_ipv4, char *bin
 	(void)size;
 #endif
 	return -1;
+}
+
+/* a new revocation list: every verified player kept is checked against it
+on this frame, instead of within the minute */
+static void identity_revoked_changed(void)
+{
+#ifdef HALO_DELTA_PEER_IDENTITY
+	static int changes;
+	int now_changes = browser_identity_revoked_changes();
+
+	if (now_changes != changes)
+	{
+		changes = now_changes;
+		delta_peer_identity_recheck(&delta_game.peer);
+	}
+#endif
+}
+
+#ifdef HALO_DELTA_PEER_IDENTITY
+/* verified names (docs/delta.md, Verified names): a proof checked, as a host
+and as a client of a relayed card: the chain to the root keys, the dates by
+this machine's clock, play, the revocation list this copy last fetched, and
+the device key's signature of the host's nonce, binding, machine, local
+player, serial and tag */
+static int game_identity_check(void *context, const struct delta_wire_id_proof *proof, const unsigned char *nonce,
+	const char *binding, int binding_length, int machine_index, unsigned long age, struct delta_peer_identity *identity)
+{
+	struct identity_device device;
+	unsigned char message[IDENTITY_PROOF_MESSAGE_MOST];
+	time_t now = time(NULL);
+	int size;
+
+	(void)context;
+	/* (signed lately by the signer's clock, as this machine's has it: an old
+	proof is never taken into a later game) */
+	if (now <= 0 || !identity_parse_device(proof->certificate, proof->certificate_length, &device) ||
+		(proof->tag_length && !identity_tag_valid(proof->tag, proof->tag_length)) ||
+		!identity_proof_fresh(proof->time, (unsigned long)now, age))
+	{
+		return 0;
+	}
+	size = identity_proof_message(nonce, binding, binding_length, machine_index, proof->local_player, device.serial,
+		proof->flags, proof->time, proof->tag, proof->tag_length, message);
+	if (size <= 0 || identity_check_proof(proof->issuer, IDENTITY_ISSUER_SIZE, proof->certificate,
+		proof->certificate_length, identity_root_keys, IDENTITY_ROOT_KEY_COUNT, NULL, (unsigned long)now, message,
+		size, proof->signature, &device) != IDENTITY_OK ||
+		browser_identity_revoked(device.device_id))
+	{
+		return 0;
+	}
+	memset(identity, 0, sizeof(*identity));
+	memcpy(identity->account, device.account, sizeof(identity->account));
+	memcpy(identity->device_id, device.device_id, sizeof(identity->device_id));
+	memcpy(identity->device_key, device.public_key, sizeof(identity->device_key));
+	snprintf(identity->handle, sizeof(identity->handle), "%s", device.handle);
+	/* (the name shows only as the handle in other capitals: anything else a
+	proof says is no name of this account's) */
+	if (identity_tag_is_handle(proof->tag, device.handle))
+		snprintf(identity->tag, sizeof(identity->tag), "%s", proof->tag);
+	identity->platform = device.platform;
+	identity->flags = device.flags;
+	identity->capabilities = (delta_u32)device.capabilities;
+	return 1;
+}
+#endif
+
+#ifdef HALO_DELTA_IDENTITY
+/* the certificate a local player proves with (its Halo profile's choice:
+profile_names_local_account's) and the name it shows, the handle in the
+capitals the profile picked, as the site last answered (none: the handle):
+1 when this copy holds an in-date certificate with a profile for that
+account and its player shares their profile (network.share_profile) */
+static int local_certificate(int choice, const unsigned char *account, unsigned char *certificate,
+	int *certificate_size, unsigned char *issuer, struct identity_device *device, char *tag, int *tag_length)
+{
+	static struct browser_profile_status status;
+	static struct delta_profile profile;
+	int length;
+
+	if (!choice || !config_boolean("network.share_profile") || browser_headless() ||
+		!browser_identity_card(choice == 2 ? account : NULL, certificate, certificate_size, issuer, device) ||
+		!device->handle[0])
+	{
+		return 0;
+	}
+	*tag_length = 0;
+	tag[0] = 0;
+	browser_profile_get(&status, &profile);
+	length = (int)strlen(profile.display);
+	if (!strcmp(profile.handle, device->handle) && identity_tag_valid(profile.display, length) &&
+		identity_tag_is_handle(profile.display, device->handle))
+	{
+		memcpy(tag, profile.display, (size_t)length);
+		tag[length] = 0;
+		*tag_length = length;
+	}
+	return 1;
+}
+
+/* a local player's proof (with proof NULL, only whether it would): its
+Halo profile is signed in (not a guest: profile_names_local_account) and
+local_certificate has one for it */
+static int game_identity_prove(void *context, int local_player, const unsigned char *nonce, const char *binding,
+	int binding_length, int machine_index, int flags, struct delta_wire_id_proof *made)
+{
+	struct identity_device device;
+	unsigned char account[IDENTITY_ID_SIZE], message[IDENTITY_PROOF_MESSAGE_MOST];
+	unsigned char certificate[IDENTITY_DEVICE_MOST], issuer[IDENTITY_ISSUER_SIZE];
+	char tag[DELTA_WIRE_IDENTITY_TAG_SIZE + 1];
+	int choice, certificate_size, size, tag_length;
+
+	(void)context;
+	choice = profile_names_local_account(local_player, account);
+	if (!local_certificate(choice, account, certificate, &certificate_size, issuer, &device, tag, &tag_length))
+		return 0;
+	if (!made)
+		return 1;
+	memset(made, 0, sizeof(*made));
+	made->local_player = local_player;
+	made->certificate_length = certificate_size;
+	memcpy(made->certificate, certificate, (size_t)certificate_size);
+	memcpy(made->issuer, issuer, IDENTITY_ISSUER_SIZE);
+	memcpy(made->tag, tag, (size_t)tag_length);
+	made->tag_length = tag_length;
+	made->flags = flags;
+	made->time = (delta_u32)time(NULL);
+	size = identity_proof_message(nonce, binding, binding_length, machine_index, local_player, device.serial,
+		made->flags, made->time, made->tag, made->tag_length, message);
+	return size > 0 && browser_identity_sign(message, size, made->signature, NULL);
+}
+#endif
+
+int delta_peer_game_linked_name(int choice, const unsigned char *account, char *name, int size)
+{
+#ifdef HALO_DELTA_IDENTITY
+	struct identity_device device;
+	unsigned char certificate[IDENTITY_DEVICE_MOST], issuer[IDENTITY_ISSUER_SIZE];
+	char tag[DELTA_WIRE_IDENTITY_TAG_SIZE + 1];
+	int certificate_size, tag_length;
+
+	if (size <= 0 ||
+		!local_certificate(choice, account, certificate, &certificate_size, issuer, &device, tag, &tag_length))
+	{
+		return 0;
+	}
+	snprintf(name, (size_t)size, "%s", tag_length ? tag : device.handle);
+	return 1;
+#else
+	(void)choice;
+	(void)account;
+	(void)name;
+	(void)size;
+	return 0;
+#endif
 }
 
 int delta_peer_protocol(void)
@@ -444,6 +614,14 @@ int delta_peer_protocol(void)
 		env.platform_policy = game_platform_policy;
 		env.moderation_sign = game_moderation_sign;
 		env.moderation_binding = game_moderation_binding;
+#ifdef HALO_DELTA_PEER_IDENTITY
+		/* (verified names: every build that checks, the dedicated server's
+		too; only a copy with players proves) */
+		env.identity_check = game_identity_check;
+#ifdef HALO_DELTA_IDENTITY
+		env.identity_prove = game_identity_prove;
+#endif
+#endif
 		memset(&local, 0, sizeof(local));
 #ifdef HALO_CONSOLE_DELTA
 		/* (a console says what it is: no maps or moderation; its
@@ -483,6 +661,10 @@ int delta_peer_protocol(void)
 		host offers it only with the dedicated server's moderation) */
 #ifdef HALO_GAME_BROWSER
 		local.capabilities |= (delta_u32)1 << _delta_capability_moderation;
+#ifdef HALO_DELTA_PEER_IDENTITY
+		/* (verified names: profile_names.c shows only these) */
+		local.capabilities |= (delta_u32)1 << _delta_capability_identity;
+#endif
 		/* (Bomb game types and their traits: game_engine_bomb.c) */
 		local.capabilities |= (delta_u32)1 << _delta_capability_bomb;
 		local.capabilities |= (delta_u32)1 << _delta_capability_bomb_movement;
@@ -740,6 +922,7 @@ void delta_peer_game_host_frame(const struct delta_peer_game_machine *machines, 
 	}
 #endif
 	receive();
+	identity_revoked_changed();
 	delta_peer_host_frame(&delta_game.peer, GetTickCount(), machines, count, player_machines);
 	host_map();
 	delta_peer_set_traits(&delta_game.peer, delta_game.has_traits ? &delta_game.traits : NULL);
@@ -768,6 +951,7 @@ void delta_peer_game_client_frame(int joined, delta_u32 host_ipv4, int host_spea
 	if (host_speaks_delta && !open_socket(0))
 		host_speaks_delta = 0;
 	receive();
+	identity_revoked_changed();
 	delta_peer_client_frame(&delta_game.peer, GetTickCount(), joined, host_ipv4, DELTA_PEER_PORT, host_speaks_delta,
 		(unsigned char)(machine_index >= 0 && machine_index < DELTA_PEER_MAXIMUM_MACHINES ? machine_index :
 			DELTA_WIRE_NO_MACHINE),
@@ -937,6 +1121,60 @@ int delta_peer_player_profile(int player_index, unsigned char *player_id)
 			players++;
 	}
 	return players == 1 && delta_peer_machine_profile(machine, player_id, NULL);
+}
+
+/* a verified player of the game (its machine, and its local player: its
+controller): 1 and who in identity */
+int delta_peer_game_player_identity(int machine_index, int local_player, struct delta_peer_identity *identity)
+{
+	if (!delta_game.ready || !delta_peer_game_on_delta())
+		return 0;
+	return delta_peer_identity(&delta_game.peer, machine_index, local_player, identity);
+}
+
+/* (the host's bans, network_distributed.c) a machine's accounts and device,
+of its players' bound proofs alone (a proof not bound to this host could be
+another's, relayed: it never bans anyone), as a ban line's fields
+("account=<hex>[,<hex>]\tdevice=<hex>"): its length, 0 when it has none */
+int delta_peer_game_machine_identity_text(int machine_index, char *text, int size)
+{
+	static const char digits[] = "0123456789abcdef";
+	struct delta_peer_identity identity;
+	unsigned char device[DELTA_WIRE_PLAYER_ID_SIZE];
+	int local, used = 0, accounts = 0, index;
+
+	if (size <= 0)
+		return 0;
+	text[0] = 0;
+	for (local = 0; local < DELTA_WIRE_IDENTITY_LOCAL_PLAYERS; local++)
+	{
+		if (!delta_peer_game_player_identity(machine_index, local, &identity) || !identity.bound ||
+			used + 40 >= size)
+		{
+			continue;
+		}
+		used += snprintf(text + used, (size_t)(size - used), "%s", accounts ? "," : "account=");
+		for (index = 0; index < DELTA_WIRE_PLAYER_ID_SIZE; index++)
+		{
+			text[used++] = digits[identity.account[index] >> 4];
+			text[used++] = digits[identity.account[index] & 15];
+		}
+		text[used] = 0;
+		if (!accounts)
+			memcpy(device, identity.device_id, sizeof(device));
+		accounts++;
+	}
+	if (accounts && used + 48 < size)
+	{
+		used += snprintf(text + used, (size_t)(size - used), "\tdevice=");
+		for (index = 0; index < DELTA_WIRE_PLAYER_ID_SIZE; index++)
+		{
+			text[used++] = digits[device[index] >> 4];
+			text[used++] = digits[device[index] & 15];
+		}
+		text[used] = 0;
+	}
+	return used;
 }
 
 /* ---------- Bomb game types (game_engine_bomb.c) */

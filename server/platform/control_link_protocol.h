@@ -109,6 +109,10 @@ struct control_link_role
 	int role;
 	int key_count;
 	uint8_t keys[CONTROL_LINK_ENTRY_KEYS][32];
+	/* its Delta account (the profile's player ID), from a site that sends
+	it: verified players' roles match by it */
+	int has_account;
+	uint8_t account[16];
 };
 
 struct control_link_poll

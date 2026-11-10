@@ -1898,9 +1898,14 @@ static void scoreboard_draw_row(
 	return;
 }
 
-/* port: a player by their Delta profile's name, as long as the column (16
-characters) */
-#define SCOREBOARD_PROFILE_NAME_LENGTH 17
+/* port: a player by their Delta profile's name, as long as the column (14
+lowercase letters' width at the menus' 640x480; the postgame report's, 11,
+as a game name's: a longer name is cut with "...") */
+#define SCOREBOARD_PROFILE_NAME_LENGTH 15
+#define POSTGAME_PROFILE_NAME_LENGTH 12
+/* (the HUD's lines, the kill feed's and the crosshair's: a whole handle
+with its mark, "@" and 20 letters) */
+#define EVENT_PROFILE_NAME_LENGTH 22
 #if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_DELTA_PROFILE)
 /* port/linux/game/profile_names.c's */
 boolean profile_names_player(long player_index, wchar_t *name, long size);
@@ -2843,7 +2848,7 @@ void game_engine_post_rasterize_post_game(
 		struct player_datum *player = player_get(player_index);
 		real_argb_color team_colors[2];
 		wchar_t const *place_string;
-		wchar_t profile_name[SCOREBOARD_PROFILE_NAME_LENGTH];
+		wchar_t profile_name[POSTGAME_PROFILE_NAME_LENGTH];
 
 		if (player->local_player_index != NONE)
 			draw_string_set_color(&normal_color);
@@ -2872,7 +2877,7 @@ void game_engine_post_rasterize_post_game(
 				&team_colors[PIN(team_index, 0, 1)]);
 		}
 		usnprintf(row_string, NUMBEROF(row_string), L" \t \t%s",
-			scoreboard_player_name(player_index, player, profile_name, SCOREBOARD_PROFILE_NAME_LENGTH));
+			scoreboard_player_name(player_index, player, profile_name, POSTGAME_PROFILE_NAME_LENGTH));
 		row_string[NUMBEROF(row_string) - 1] = 0;
 		drawline(row_string, draw_row, 0);
 		draw_string_set_color(&winner_color);
@@ -8809,13 +8814,15 @@ static void internal_rasterize_target_name(
 	if (player->player_display_index != NONE)
 	{
 		struct player_datum *target_player = player_get(player->player_display_index);
-		wchar_t target_name[12] = { 0 };
+		wchar_t target_name[EVENT_PROFILE_NAME_LENGTH] = { 0 }, shown[EVENT_PROFILE_NAME_LENGTH];
 		long hold_time = player->player_display_count;
 		real alpha;
 
 		if (hold_time >= 10)
 			hold_time = 10;
-		ustrncpy(target_name, target_player->name, NUMBEROF(target_name) - 1);
+		/* port: the name under the crosshair as the scoreboard shows it */
+		ustrncpy(target_name, scoreboard_player_name(player->player_display_index, target_player, shown,
+			NUMBEROF(shown)), NUMBEROF(target_name) - 1);
 		target_name[NUMBEROF(target_name) - 1] = 0;
 		alpha = linear_to_non_linear_alpha(hold_time * 0.1f) * 0.5f;
 		game_engine_rasterize_message(target_name, alpha);
@@ -8837,6 +8844,10 @@ static boolean internal_rasterize_score(
 	long string_list_index;
 	wchar_t const *format;
 	boolean result;
+	/* port: the kill feed's and the quit line's names, as the scoreboard
+	shows them (a verified player by their Delta name, an impersonation
+	masked: scoreboard_player_name) */
+	wchar_t player_name[EVENT_PROFILE_NAME_LENGTH], other_name[EVENT_PROFILE_NAME_LENGTH];
 
 	result = TRUE;
 	player = player_get(player_index);
@@ -8891,7 +8902,7 @@ static boolean internal_rasterize_score(
 			buffer,
 			buffer_size,
 			ustring_format_checked(format, "s"),
-			player->name);
+			scoreboard_player_name(player_index, player, player_name, NUMBEROF(player_name)));
 		break;
 	case _game_engine_message_killed_by_unknown:
 		string_list_index = tag_loaded('ustr', "ui\\multiplayer_game_text");
@@ -8903,7 +8914,7 @@ static boolean internal_rasterize_score(
 			buffer,
 			buffer_size,
 			ustring_format_checked(format, "s"),
-			player->name);
+			scoreboard_player_name(player_index, player, player_name, NUMBEROF(player_name)));
 		break;
 	case _game_engine_message_killed_by_biped:
 		string_list_index = tag_loaded('ustr', "ui\\multiplayer_game_text");
@@ -8915,7 +8926,7 @@ static boolean internal_rasterize_score(
 			buffer,
 			buffer_size,
 			ustring_format_checked(format, "s"),
-			player->name);
+			scoreboard_player_name(player_index, player, player_name, NUMBEROF(player_name)));
 		break;
 	case _game_engine_message_killed_by_vehicle:
 		string_list_index = tag_loaded('ustr', "ui\\multiplayer_game_text");
@@ -8927,7 +8938,7 @@ static boolean internal_rasterize_score(
 			buffer,
 			buffer_size,
 			ustring_format_checked(format, "s"),
-			player->name);
+			scoreboard_player_name(player_index, player, player_name, NUMBEROF(player_name)));
 		break;
 	case _game_engine_message_killed_by_player:
 		other_player = player_get(message_data);
@@ -8940,8 +8951,8 @@ static boolean internal_rasterize_score(
 			buffer,
 			buffer_size,
 			ustring_format_checked(format, "ss"),
-			player->name,
-			other_player->name);
+			scoreboard_player_name(player_index, player, player_name, NUMBEROF(player_name)),
+			scoreboard_player_name(message_data, other_player, other_name, NUMBEROF(other_name)));
 		break;
 	case _game_engine_message_killed_by_friendly_fire:
 		other_player = player_get(message_data);
@@ -8954,8 +8965,8 @@ static boolean internal_rasterize_score(
 			buffer,
 			buffer_size,
 			ustring_format_checked(format, "ss"),
-			player->name,
-			other_player->name);
+			scoreboard_player_name(player_index, player, player_name, NUMBEROF(player_name)),
+			scoreboard_player_name(message_data, other_player, other_name, NUMBEROF(other_name)));
 		break;
 	case _game_engine_message_quit:
 		other_player = player_get(message_data);
@@ -8968,7 +8979,7 @@ static boolean internal_rasterize_score(
 			buffer,
 			buffer_size,
 			ustring_format_checked(format, "s"),
-			other_player->name);
+			scoreboard_player_name(message_data, other_player, other_name, NUMBEROF(other_name)));
 		break;
 	case _game_engine_message_killed_by_self:
 		string_list_index = tag_loaded('ustr', "ui\\multiplayer_game_text");
@@ -8980,7 +8991,7 @@ static boolean internal_rasterize_score(
 			buffer,
 			buffer_size,
 			ustring_format_checked(format, "s"),
-			player->name);
+			scoreboard_player_name(player_index, player, player_name, NUMBEROF(player_name)));
 		break;
 	case _game_engine_message_killed_friendly:
 		other_player = player_get(message_data);
@@ -8993,7 +9004,7 @@ static boolean internal_rasterize_score(
 			buffer,
 			buffer_size,
 			ustring_format_checked(format, "s"),
-			other_player->name);
+			scoreboard_player_name(message_data, other_player, other_name, NUMBEROF(other_name)));
 		break;
 	case _game_engine_message_multi_kill:
 		string_list_index = tag_loaded('ustr', "ui\\multiplayer_game_text");
@@ -9066,7 +9077,7 @@ static boolean internal_rasterize_score(
 			buffer,
 			buffer_size,
 			ustring_format_checked(format, "s"),
-			other_player->name);
+			scoreboard_player_name(message_data, other_player, other_name, NUMBEROF(other_name)));
 		break;
 	case _game_engine_message_multi_kill_with_score:
 		string_list_index = tag_loaded('ustr', "ui\\multiplayer_game_text");
@@ -9144,7 +9155,7 @@ static boolean internal_rasterize_score(
 			buffer,
 			buffer_size,
 			ustring_format_checked(format, "sd"),
-			other_player->name,
+			scoreboard_player_name(message_data, other_player, other_name, NUMBEROF(other_name)),
 			score);
 		break;
 	case _game_engine_message_odd_man_out:

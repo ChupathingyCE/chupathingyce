@@ -124,9 +124,12 @@ void network_rules_input_head_read(uint8_t const *head, int *player, int *struct
 /* whether the mouse is the device a player aims with, by when (milliseconds,
 0 for never) the mouse, the right stick and a touch screen last aimed: the
 mouse when the stick never aimed or the mouse moved at or after it, unless
-touch aimed at or after both. A controller merely being connected changes
-nothing. */
-int network_rules_mouse_is_aim_device(uint64_t mouse_ms, uint64_t stick_ms, uint64_t touch_ms);
+touch aimed at or after both. Before anything has aimed, it is the mouse
+only when no controller is connected: a pad player who hasn't touched the
+right stick yet keeps the stick's magnetism. Once something aims, a
+connected controller changes nothing. */
+int network_rules_mouse_is_aim_device(uint64_t mouse_ms, uint64_t stick_ms, uint64_t touch_ms,
+	int gamepad_connected);
 
 /* whether the host's policy blocks mouse magnetism now: only in a game in
 progress, off the main menu's scene; on the host its own setting, on a client
