@@ -56,3 +56,24 @@ index e490fbd9..6771cc92 100644
  
  				VkPhysicalDeviceFeatures supportedFeatures;
  
+diff --git a/src/dxgi.cpp b/src/dxgi.cpp
+index bb969724..13a6400e 100644
+--- a/src/dxgi.cpp
++++ b/src/dxgi.cpp
+@@ -8,6 +8,8 @@
+ #if BGFX_CONFIG_RENDERER_DIRECT3D11 || (BGFX_CONFIG_RENDERER_DIRECT3D12 && !BX_PLATFORM_LINUX)
+ 
+ #include "dxgi.h"
++
++extern "C" char bgfx_gpu_name[256];
+ #include "renderer_d3d.h"
+ 
+ #if BX_PLATFORM_WINDOWS
+@@ -448,6 +450,7 @@ namespace bgfx
+ 				: (uint16_t)m_adapterDesc.VendorId
+ 				;
+ 			_caps.deviceId = (uint16_t)m_adapterDesc.DeviceId;
++			wcstombs(bgfx_gpu_name, m_adapterDesc.Description, sizeof(bgfx_gpu_name) - 1);
+ 		}
+ 
+ 		return true;
