@@ -79,4 +79,8 @@ def test_documents_get_a_short_body_deadline_and_no_second_open():
     assert "mbedtls_ssl_conf_read_timeout(&connection->config, TIMEOUT_MILLISECONDS)" in text
     assert "receive_until_deadline(connection, buffer, size, TIMEOUT_MILLISECONDS)" in text
     body = re.search(r"^int posix_browser_download_open\(.*?^\}", text, re.M | re.S).group(0)
-    assert body.index("download.owner == thread_token()") < body.index("posix_browser_lock();")
+    assert body.index("owner_get() == thread_token()") < body.index("posix_browser_lock();")
+    close = re.search(r"^void posix_browser_download_close\(.*?^\}", text, re.M | re.S).group(0)
+    assert close.index("owner_put(0);") < close.index("download_unlock();")
+    # (the owner only through relaxed atomics, never read or written bare)
+    assert not re.search(r"download\.owner\b(?!_)", text.replace("&download.owner", ""))

@@ -854,13 +854,14 @@ static int request_as(const char *url, const char *body_data, size_t body_length
 
 /* ---------- downloads (map_download.c): a response's body read as it comes */
 
-/* the calling thread, as a number */
-static unsigned long long thread_token(void)
+/* the calling thread, as a number (pointer-sized: atomic without help
+on every target, 32-bit ones too) */
+static uintptr_t thread_token(void)
 {
 #ifdef _WIN32
-	return (unsigned long long)GetCurrentThreadId();
+	return (uintptr_t)GetCurrentThreadId();
 #else
-	return (unsigned long long)(uintptr_t)pthread_self();
+	return (uintptr_t)pthread_self();
 #endif
 }
 
@@ -878,11 +879,23 @@ static struct
 	/* the body's first bytes, read with the head */
 	unsigned char head[MAXIMUM_HEAD];
 	size_t pending, pending_used;
-	/* the thread that holds it open, to refuse that thread's second open
-	(it would wait on itself forever) */
-	unsigned long long owner;
-	int owner_set;
+	/* the thread that holds it open (thread_token; 0: none), to refuse that
+	thread's second open (it would wait on itself forever). Read before the
+	lock is taken, so only through owner_get and owner_put: a thread can
+	only ever find its own token there while it holds the download itself,
+	as it alone stores that token and puts 0 back before it lets go */
+	uintptr_t owner;
 } download;
+
+static uintptr_t owner_get(void)
+{
+	return __atomic_load_n(&download.owner, __ATOMIC_RELAXED);
+}
+
+static void owner_put(uintptr_t token)
+{
+	__atomic_store_n(&download.owner, token, __ATOMIC_RELAXED);
+}
 
 /* a header's value (name ends in ':'), trimmed, into value; 0 if the head
 has none */
@@ -1005,7 +1018,7 @@ int posix_browser_download_open(const char *url, const char *user_agent, int *st
 	*status = 0;
 	*length = -1;
 	error[0] = 0;
-	if (download.open && download.owner_set && download.owner == thread_token())
+	if (owner_get() == thread_token())
 	{
 		set_error(error, error_size, "this thread has a download open already", 0);
 		return 0;
@@ -1032,8 +1045,7 @@ int posix_browser_download_open(const char *url, const char *user_agent, int *st
 			/* (the body: a long one, a map, but never forever) */
 			download.connection.deadline = monotonic_milliseconds() + DOWNLOAD_DEADLINE_MILLISECONDS;
 			download.open = 1;
-			download.owner = thread_token();
-			download.owner_set = 1;
+			owner_put(thread_token());
 			return 1;
 		}
 		connection_free(&download.connection);
@@ -1092,7 +1104,7 @@ void posix_browser_download_close(int handle)
 		return;
 	connection_free(&download.connection);
 	download.open = 0;
-	download.owner_set = 0;
+	owner_put(0);
 	download_unlock();
 }
 
