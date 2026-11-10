@@ -798,8 +798,9 @@ static int run_poll(void)
 	{
 		server_bans_set_shared(poll.shared_bans, poll.shared_ban_count, poll.shared_bans_version, 0);
 		write_shared_bans_cache(opened, &poll);
-		platform_log("Delta Control: the shared ban lists, version %llu: %d bans",
-			(unsigned long long)poll.shared_bans_version, poll.shared_ban_count);
+		platform_log("Delta Control: the shared ban lists, version %llu: %d bans%s", (unsigned long long)
+			poll.shared_bans_version, poll.shared_ban_count, poll.shared_bans_skipped ? " (some entries were not "
+			"right and were left out)" : "");
 	}
 	for (index = 0; index < poll.command_count; index++)
 	{

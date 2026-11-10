@@ -2036,22 +2036,45 @@ static void test_link_extras(int rounds)
 	/* (the member's text is the object's, braces and all) */
 	CHECK(answer[poll.shared_bans_start] == '{' && answer[poll.shared_bans_end - 1] == '}');
 	/* (an entry naming no one, a ref or account that isn't 32 hex digits,
-	or a ref that isn't: the whole answer refused) */
+	text that isn't printable ASCII or too long: that entry left out, the
+	others and the rest of the poll taken; a ref that isn't: left out; a
+	member that isn't right at all: ignored, the poll taken) */
 	{
+		static const char good[] = "{\"list\": \"a\", \"ref\": \"00000000000000000000000000000001\", "
+			"\"device\": \"cccccccccccccccccccccccccccccccc\"}";
 		static const char *const bad[] = {
-			"{\"shared_bans\": {\"version\": 1, \"entries\": [{\"list\": \"a\", \"ref\": "
-				"\"0123456789abcdef0123456789abcdef\", \"accounts\": []}]}}",
-			"{\"shared_bans\": {\"version\": 1, \"entries\": [{\"list\": \"a\", \"ref\": "
-				"\"0123456789abcdef0123456789abcdef\", \"accounts\": [\"xyz\"]}]}}",
-			"{\"shared_bans\": {\"version\": 1, \"entries\": [{\"list\": \"a\", \"ref\": \"short\", "
-				"\"device\": \"cccccccccccccccccccccccccccccccc\"}]}}",
-			"{\"reports_taken\": [\"NOTHEX\"]}",
-			"{\"reports_taken\": \"00112233445566778899aabbccddeeff\"}",
-			"{\"shared_bans\": {\"entries\": []}}",
+			"{\"list\": \"a\", \"ref\": \"0123456789abcdef0123456789abcdef\", \"accounts\": []}",
+			"{\"list\": \"a\", \"ref\": \"0123456789abcdef0123456789abcdef\", \"accounts\": [\"xyz\"]}",
+			"{\"list\": \"a\", \"ref\": \"short\", \"device\": \"cccccccccccccccccccccccccccccccc\"}",
+			"{\"list\": \"a\", \"ref\": \"0123456789ABCDEF0123456789ABCDEF\", "
+				"\"device\": \"cccccccccccccccccccccccccccccccc\"}",
+			"{\"list\": \"a\", \"ref\": \"0123456789abcdef0123456789abcdef\", "
+				"\"device\": \"cccccccccccccccccccccccccccccccc\", \"reason\": \"caf\\u00e9\"}",
+			"{\"list\": \"a\", \"ref\": \"0123456789abcdef0123456789abcdef\", "
+				"\"device\": \"cccccccccccccccccccccccccccccccc\", \"source\": "
+				"\"a source name far longer than the thirty-two bytes a server keeps\"}",
+			"{\"list\": \"a list id longer than twenty-four\", \"ref\": \"0123456789abcdef0123456789abcdef\", "
+				"\"device\": \"cccccccccccccccccccccccccccccccc\"}",
+			"\"not an object\"",
 		};
+		static char poll_text[4096];
 
 		for (index = 0; index < (int)(sizeof(bad) / sizeof(bad[0])); index++)
-			CHECK(!control_link_parse_poll(bad[index], strlen(bad[index]), &back));
+		{
+			snprintf(poll_text, sizeof(poll_text), "{\"commands\": [{\"id\": 9, \"actor\": \"a\", \"command\": "
+				"\"sv_lock\"}], \"shared_bans\": {\"version\": 3, \"entries\": [%s, %s, %s]}}", good, bad[index], good);
+			CHECK(control_link_parse_poll(poll_text, strlen(poll_text), &back) && back.command_count == 1 &&
+				back.has_shared_bans && back.shared_bans_version == 3 && back.shared_ban_count == 2 &&
+				back.shared_bans_skipped == 1);
+		}
+		CHECK(control_link_parse_poll("{\"commands\": [], \"reports_taken\": [\"NOTHEX\", "
+			"\"00112233445566778899aabbccddeeff\"]}", 81, &back) && back.reports_taken_count == 1);
+		CHECK(control_link_parse_poll("{\"commands\": [], \"reports_taken\": \"00112233445566778899aabbccddeeff\"}",
+			69, &back) && !back.reports_taken_count);
+		CHECK(control_link_parse_poll("{\"commands\": [], \"shared_bans\": {\"entries\": []}}", 48, &back) &&
+			!back.has_shared_bans);
+		CHECK(control_link_parse_poll("{\"commands\": [], \"bans_digest\": \"xyz\"}", 38, &back) &&
+			!back.has_bans_digest);
 	}
 	/* (an older site's answer: none of them) */
 	CHECK(control_link_parse_poll("{\"commands\": []}", 16, &back) && !back.has_shared_bans && !back.has_bans_digest &&

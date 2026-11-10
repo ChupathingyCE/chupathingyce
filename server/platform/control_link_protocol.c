@@ -562,9 +562,12 @@ static int parse_shared_ban(const char *payload, int at, struct server_shared_ba
 	return 1;
 }
 
-/* a poll's newer members (reports_taken, bans_digest, shared_bans): 1, else
-0 */
-static int parse_poll_extras(const char *payload, struct control_link_poll *poll)
+/* a poll's newer members (reports_taken, bans_digest, shared_bans). None of
+them ever refuses the poll: an item that is not right is left out (a ref,
+a shared ban entry), and a member that is not right at all is ignored, so
+one bad entry on the site never stops a server's polls (its commands, its
+roles) */
+static void parse_poll_extras(const char *payload, struct control_link_poll *poll)
 {
 	static const char *const report_keys[] = { "reports_taken", "reports_refused" };
 	int key, value;
@@ -575,35 +578,32 @@ static int parse_poll_extras(const char *payload, struct control_link_poll *poll
 		int item, at;
 
 		value = control_json_member(payload, json_tokens, 0, report_keys[key]);
-		if (value < 0)
+		if (value < 0 || json_tokens[value].type != CONTROL_JSON_ARRAY)
 			continue;
-		if (json_tokens[value].type != CONTROL_JSON_ARRAY)
-			return 0;
 		at = value + 1;
 		for (item = 0; item < json_tokens[value].size; item++)
 		{
 			char ref[SERVER_REPORT_ID_SIZE + 1];
 
-			if (!control_json_text(payload, &json_tokens[at], ref, sizeof(ref)) || !ref_valid(ref))
-				return 0;
-			if (poll->reports_taken_count < CONTROL_LINK_REPORTS_TAKEN)
+			if (control_json_text(payload, &json_tokens[at], ref, sizeof(ref)) && ref_valid(ref) &&
+				poll->reports_taken_count < CONTROL_LINK_REPORTS_TAKEN)
+			{
 				memcpy(poll->reports_taken[poll->reports_taken_count++], ref, SERVER_REPORT_ID_SIZE);
+			}
 			at = json_tokens[at].next;
 		}
 	}
 	value = control_json_member(payload, json_tokens, 0, "bans_digest");
-	if (value >= 0 && json_tokens[value].type == CONTROL_JSON_STRING)
+	if (value >= 0 && json_tokens[value].type == CONTROL_JSON_STRING &&
+		control_json_text(payload, &json_tokens[value], poll->bans_digest, sizeof(poll->bans_digest)))
 	{
 		size_t index;
 
-		if (!control_json_text(payload, &json_tokens[value], poll->bans_digest, sizeof(poll->bans_digest)))
-			return 0;
-		for (index = 0; poll->bans_digest[index]; index++)
-		{
-			if (hex_digit(poll->bans_digest[index]) < 0)
-				return 0;
-		}
-		poll->has_bans_digest = 1;
+		for (index = 0; poll->bans_digest[index] && hex_digit(poll->bans_digest[index]) >= 0; index++)
+			;
+		poll->has_bans_digest = !poll->bans_digest[index];
+		if (!poll->has_bans_digest)
+			poll->bans_digest[0] = 0;
 	}
 	value = control_json_member(payload, json_tokens, 0, "shared_bans");
 	if (value >= 0 && json_tokens[value].type == CONTROL_JSON_OBJECT)
@@ -612,29 +612,33 @@ static int parse_poll_extras(const char *payload, struct control_link_poll *poll
 		int entries = control_json_member(payload, json_tokens, value, "entries");
 		int item, at;
 
+		/* (no version or no entries: the member is left alone, and the site
+		sends it again) */
 		if (version < 0 || entries < 0 ||
 			!control_json_number(payload, &json_tokens[version], &poll->shared_bans_version) ||
 			json_tokens[entries].type != CONTROL_JSON_ARRAY)
 		{
-			return 0;
+			poll->shared_bans_version = 0;
+			return;
 		}
 		at = entries + 1;
 		for (item = 0; item < json_tokens[entries].size; item++)
 		{
-			/* (entries past the most the server takes are left out) */
-			if (poll->shared_ban_count < SERVER_BAN_SHARED_MOST)
+			/* (entries past the most the server takes, and an entry that is
+			not right, are left out) */
+			if (poll->shared_ban_count < SERVER_BAN_SHARED_MOST &&
+				parse_shared_ban(payload, at, &poll->shared_bans[poll->shared_ban_count]))
 			{
-				if (!parse_shared_ban(payload, at, &poll->shared_bans[poll->shared_ban_count]))
-					return 0;
 				poll->shared_ban_count++;
 			}
+			else
+				poll->shared_bans_skipped++;
 			at = json_tokens[at].next;
 		}
 		poll->has_shared_bans = 1;
 		poll->shared_bans_start = json_tokens[value].start;
 		poll->shared_bans_end = json_tokens[value].end;
 	}
-	return 1;
 }
 
 int control_link_parse_poll(const char *payload, size_t length, struct control_link_poll *poll)
@@ -759,8 +763,7 @@ int control_link_parse_poll(const char *payload, size_t length, struct control_l
 			at = json_tokens[at].next;
 		}
 	}
-	if (!parse_poll_extras(payload, poll))
-		return 0;
+	parse_poll_extras(payload, poll);
 	return 1;
 }
 

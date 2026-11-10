@@ -144,6 +144,8 @@ struct control_link_poll
 	uint64_t shared_bans_version;
 	int shared_ban_count;
 	struct server_shared_ban shared_bans[SERVER_BAN_SHARED_MOST];
+	/* the entries left out: not right, or past the most */
+	int shared_bans_skipped;
 	int shared_bans_start;
 	int shared_bans_end;
 };
