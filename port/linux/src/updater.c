@@ -160,6 +160,14 @@ never the Linux one) */
 #define PATH_SEPARATOR "/"
 #endif
 #define UPDATE_ASSET "chupathingyce-" UPDATE_PLATFORM "-" HALO_BUILD_FLAVOR ".zip"
+/* the 32-bit Windows build on 64-bit Windows offers the 64-bit build's
+download once (update.offer_64bit, updater_poll): its graphics drivers'
+32-bit parts crash far more (game issue #833) */
+#if defined(_WIN32) && !defined(HALO_64BIT) && !defined(HALO_PORT_UPDATE_PLATFORM)
+#define UPDATER_OFFER_64BIT 1
+#else
+#define UPDATER_OFFER_64BIT 0
+#endif
 /* (an AppImage's update: the release's list names it, kind "appimage") */
 #define UPDATE_APPIMAGE_ASSET "chupathingyce-" UPDATE_PLATFORM "-" HALO_BUILD_FLAVOR ".AppImage"
 /* the release's list of its update files (update_manifest.h) */
@@ -203,6 +211,22 @@ static struct
 	/* (the list's "main", or empty) */
 	char main_name[160];
 } updater_file;
+
+/* the platform whose download is installed: this build's (UPDATE_PLATFORM),
+or the 64-bit Windows build's once the player takes it (UPDATER_OFFER_64BIT) */
+static const char *updater_platform = UPDATE_PLATFORM;
+/* whether to ask about the 64-bit build when the check is answered */
+static int updater_offer_64bit;
+
+/* the zip of updater_platform's download, by its name before the list:
+chupathingyce-<platform>-<release|debug>.zip */
+static const char *updater_asset(void)
+{
+	static char name[96];
+
+	snprintf(name, sizeof(name), "chupathingyce-%s-" HALO_BUILD_FLAVOR ".zip", updater_platform);
+	return name;
+}
 
 /* where releases are looked for and downloaded from: GitHub, or a test's
 server (HALO_UPDATE_TEST) */
@@ -634,6 +658,13 @@ static int SDLCALL updater_check_thread(void *context)
 		snprintf(updater_latest_version, sizeof(updater_latest_version), "%s", latest);
 		SDL_SetAtomicInt(&updater_state, _updater_available);
 	}
+	else if (found && updater_offer_64bit && !strcmp(latest, HALO_VERSION))
+	{
+		/* (no newer version, but this one's 64-bit build to offer) */
+		platform_log("update: this is the latest version (%s); its 64-bit build is offered", HALO_VERSION);
+		snprintf(updater_latest_version, sizeof(updater_latest_version), "%s", latest);
+		SDL_SetAtomicInt(&updater_state, _updater_available);
+	}
 	else
 	{
 		platform_log("update: this is the latest version (%s)", HALO_VERSION);
@@ -821,10 +852,12 @@ static int updater_unpack(const char *zip_path, char names[][256], int *executab
 	{
 		char url[512], reason[256] = "";
 
-		updater_partial_path(signature_path, sizeof(signature_path), UPDATE_ASSET ".sig");
+		char signature_name[120];
 		char path[200];
 
-		snprintf(path, sizeof(path), "v%s/" UPDATE_ASSET ".sig", updater_latest_version);
+		snprintf(signature_name, sizeof(signature_name), "%s.sig", updater_asset());
+		updater_partial_path(signature_path, sizeof(signature_path), signature_name);
+		snprintf(path, sizeof(path), "v%s/%s", updater_latest_version, signature_name);
 		updater_url(url, sizeof(url), 0, path);
 		if (!update_download(url, signature_path, MAXIMUM_SIGNATURE_SIZE, NULL, NULL, reason, sizeof(reason)))
 		{
@@ -833,7 +866,7 @@ static int updater_unpack(const char *zip_path, char names[][256], int *executab
 		}
 		signature = SDL_LoadFile(signature_path, &signature_size);
 		update_delete_file(signature_path);
-		if (!update_signature_check(zip, zip_size, UPDATE_ASSET, updater_latest_version, signature,
+		if (!update_signature_check(zip, zip_size, updater_asset(), updater_latest_version, signature,
 			signature ? signature_size : 0, reason, sizeof(reason)))
 		{
 			snprintf(error, error_size, "the download was not installed: %s", reason);
@@ -874,7 +907,7 @@ static int updater_find_file(char *error, size_t error_size)
 
 	memset(&updater_file, 0, sizeof(updater_file));
 	snprintf(updater_file.tag, sizeof(updater_file.tag), "v%s", updater_latest_version);
-	snprintf(updater_file.name, sizeof(updater_file.name), "%s", UPDATE_ASSET);
+	snprintf(updater_file.name, sizeof(updater_file.name), "%s", updater_asset());
 	updater_partial_path(manifest_path, sizeof(manifest_path), UPDATE_MANIFEST);
 	updater_partial_path(signature_path, sizeof(signature_path), UPDATE_MANIFEST ".sig");
 	snprintf(path, sizeof(path), "v%s/" UPDATE_MANIFEST, updater_latest_version);
@@ -889,7 +922,7 @@ static int updater_find_file(char *error, size_t error_size)
 			return 0;
 		}
 		/* (its zip's own signature is checked instead) */
-		platform_log("update: no list of update files (%s): downloading " UPDATE_ASSET, reason);
+		platform_log("update: no list of update files (%s): downloading %s", reason, updater_asset());
 		return 1;
 	}
 	manifest = SDL_LoadFile(manifest_path, &manifest_size);
@@ -921,7 +954,7 @@ static int updater_find_file(char *error, size_t error_size)
 	{
 		platform_log("update: this build has no release key: the list's signature is not checked");
 	}
-	result = update_manifest_find(manifest, manifest_size, updater_latest_version, UPDATE_PLATFORM, HALO_BUILD_FLAVOR,
+	result = update_manifest_find(manifest, manifest_size, updater_latest_version, updater_platform, HALO_BUILD_FLAVOR,
 		updater_appimage ? "appimage" : "zip", updater_file.tag, sizeof(updater_file.tag), updater_file.name, sizeof(updater_file.name),
 		&updater_file.size, updater_file.sha256, sizeof(updater_file.sha256), updater_file.main_name,
 		sizeof(updater_file.main_name), reason, sizeof(reason));
@@ -945,7 +978,7 @@ static int updater_find_file(char *error, size_t error_size)
 	else if (result == _update_manifest_missing)
 	{
 		/* (updater_file as it was: the zip by its old name) */
-		platform_log("update: %s: downloading " UPDATE_ASSET, reason);
+		platform_log("update: %s: downloading %s", reason, updater_asset());
 		succeeded = 1;
 	}
 	else
@@ -1109,7 +1142,7 @@ static void updater_update(void)
 	int name_count = 0;
 
 	updater_path(partial, sizeof(partial), UPDATE_DIRECTORY);
-	updater_partial_path(zip_path, sizeof(zip_path), updater_appimage ? UPDATE_APPIMAGE_ASSET : UPDATE_ASSET);
+	updater_partial_path(zip_path, sizeof(zip_path), updater_appimage ? UPDATE_APPIMAGE_ASSET : updater_asset());
 	platform_log("update: downloading version %s", updater_latest_version);
 	if (!update_make_directory(partial))
 	{
@@ -1227,7 +1260,7 @@ static void updater_clean_up(void)
 		"halo.old", "halo.exe.old", "chupathingy.old", "chupathingy.exe.old", "SDL3.dll.old", "libSDL3.so.0.old",
 		"SDL3-LICENSE.txt.old", "mbedtls-LICENSE.txt.old", "LICENSE.txt.old",
 	};
-	char path[1300];
+	char path[1300], signature_name[120];
 	size_t index;
 
 	/* (an AppImage's folder is the player's, not the game's: only the
@@ -1248,9 +1281,10 @@ static void updater_clean_up(void)
 		}
 		updater_remove_old_program();
 	}
-	updater_partial_path(path, sizeof(path), UPDATE_ASSET);
+	updater_partial_path(path, sizeof(path), updater_asset());
 	update_delete_file(path);
-	updater_partial_path(path, sizeof(path), UPDATE_ASSET ".sig");
+	snprintf(signature_name, sizeof(signature_name), "%s.sig", updater_asset());
+	updater_partial_path(path, sizeof(path), signature_name);
 	update_delete_file(path);
 	updater_partial_path(path, sizeof(path), UPDATE_MANIFEST);
 	update_delete_file(path);
@@ -1315,6 +1349,12 @@ void updater_start(void)
 	{
 		return;
 	}
+#if UPDATER_OFFER_64BIT
+	/* (asked once, with the check's answer: updater_poll) */
+	updater_offer_64bit = config_boolean("update.offer_64bit") && update_windows_runs_64bit();
+	if (updater_offer_64bit)
+		platform_log("update: this is the 32-bit build on 64-bit Windows: the 64-bit build will be offered");
+#endif
 	SDL_SetAtomicInt(&updater_state, _updater_checking);
 	{
 		SDL_Thread *thread = SDL_CreateThread(updater_check_thread, "update check", NULL);
@@ -1486,7 +1526,7 @@ void updater_poll(SDL_Window *window)
 		{ SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 1, "Yes" },
 		{ SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "No" },
 	};
-	char message[400];
+	char message[600];
 	int answer = 0;
 	int fullscreen;
 	const char *test_answer = config_string("debug.update_answer");
@@ -1511,6 +1551,9 @@ void updater_poll(SDL_Window *window)
 	/* (an automated test's answer: debug.update_answer) */
 	if (test_answer[0])
 	{
+		/* (a test does not answer the 64-bit offer: only a newer version) */
+		if (!updater_newer(updater_latest_version))
+			return;
 		platform_log("update: answering %s (debug.update_answer)", test_answer);
 		if (!strcmp(test_answer, "yes") && UPDATER_DOWNLOAD_PAGE_ONLY)
 			platform_log("update: would open " UPDATE_RELEASE_PAGE);
@@ -1534,6 +1577,71 @@ void updater_poll(SDL_Window *window)
 	fullscreen = window && (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN);
 	if (fullscreen)
 		SDL_SetWindowFullscreen(window, false);
+#if UPDATER_OFFER_64BIT
+	/* the 32-bit build on 64-bit Windows: the 64-bit build offered, once.
+	Yes installs it as an update would (the new version's, or this one's);
+	No is written to update.offer_64bit, and a newer version is then asked
+	about as usual */
+	if (updater_offer_64bit)
+	{
+		static const SDL_MessageBoxButtonData offer_buttons[] =
+		{
+			{ SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 1, "Yes" },
+			{ SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "Keep 32-bit" },
+		};
+		int newer = updater_newer(updater_latest_version);
+
+		updater_offer_64bit = 0;
+		if (newer)
+		{
+			snprintf(message, sizeof(message),
+				"Chupathingy %s is out. You have %s.\n\n"
+				"This PC runs 64-bit Windows, and you have the 32-bit build. The 64-bit build runs better here "
+				"and crashes less in graphics drivers.\n\n"
+				"Update to the 64-bit build? Your saves and settings stay. The game will restart.",
+				updater_latest_version, HALO_VERSION);
+		}
+		else
+		{
+			snprintf(message, sizeof(message),
+				"This PC runs 64-bit Windows, and you have the 32-bit build of Chupathingy. The 64-bit build "
+				"runs better here and crashes less in graphics drivers.\n\n"
+				"Switch to the 64-bit build? Your saves and settings stay. The game will restart.");
+		}
+		{
+			SDL_MessageBoxData offer = { SDL_MESSAGEBOX_INFORMATION, window, "Chupathingy: 64-bit build", message,
+				2, offer_buttons, NULL };
+
+			if (!SDL_ShowMessageBox(&offer, &answer))
+				answer = -1;
+		}
+		if (answer == 1)
+		{
+			/* (returns only if it failed: asked again at the next start) */
+			platform_log("update: switching to the 64-bit build");
+			updater_platform = "windows64";
+			updater_update();
+			updater_platform = UPDATE_PLATFORM;
+			if (fullscreen)
+				SDL_SetWindowFullscreen(window, true);
+			return;
+		}
+		if (answer == 0)
+		{
+			if (config_write_boolean("update.offer_64bit", 0))
+				platform_log("update: keeping the 32-bit build; update.offer_64bit = false written to config.toml");
+			else
+				platform_log("update: keeping the 32-bit build; could not write update.offer_64bit to config.toml");
+		}
+		if (!newer)
+		{
+			if (fullscreen)
+				SDL_SetWindowFullscreen(window, true);
+			return;
+		}
+		answer = 0;
+	}
+#endif
 	if (UPDATER_DOWNLOAD_PAGE_ONLY)
 	{
 		snprintf(message, sizeof(message),
