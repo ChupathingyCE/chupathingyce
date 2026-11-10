@@ -15,6 +15,7 @@ Six-plane rejection and conservative facing summaries for structure buckets.
 #include "structures/structure_bsp_definitions.h"
 #include "shaders/shader_definitions.h"
 #include "rasterizer/rasterizer_geometry_environment.h"
+#include "rasterizer/rasterizer_vertex_byte_order.h"
 #include "rasterizer/rasterizer.h"
 #include "render/render.h"
 #include "render/render_cameras_internal.h"
@@ -325,10 +326,8 @@ static void structure_culling_pairing_points(
 	for (i = 0; i < 3; ++i)
 	{
 		/* the map's little-endian bytes on any machine (rasterizer_vertex_byte_order.h) */
-		environment_vertex_compressed_get_point(
-			(struct environment_vertex_compressed const *)(material->vertices +
-				surface->vertex_indices[i] * COMPRESSED_STRUCTURE_VERTEX_SIZE),
-			&points[i]);
+		vertex_data_read_point(
+			material->vertices + surface->vertex_indices[i] * COMPRESSED_STRUCTURE_VERTEX_SIZE, points[i].n);
 	}
 }
 

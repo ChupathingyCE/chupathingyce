@@ -9,6 +9,8 @@ The game also reads some of them on the CPU: the level's triangles for
 visibility and culling, and the lightmap and normals under an object for its
 lighting. These read such a field the same on any machine; on a
 little-endian one it is a plain load.
+Custom Edition vertices that ce_bsp.c compresses are in machine order; a
+big-endian Custom Edition build would need them written little-endian.
 */
 
 #ifndef __RASTERIZER_VERTEX_BYTE_ORDER_H
@@ -47,6 +49,19 @@ static __inline float vertex_data_read_float(
 
 	word.bits = vertex_data_read_dword(data);
 	return word.value;
+}
+
+/* a compressed vertex's position (its first three floats), for the
+per-triangle walks: inline, so on a little-endian machine it is three loads */
+static __inline void vertex_data_read_point(
+	void const *data,
+	float *point)
+{
+	unsigned char const *bytes = (unsigned char const *)data;
+
+	point[0] = vertex_data_read_float(bytes);
+	point[1] = vertex_data_read_float(bytes + 4);
+	point[2] = vertex_data_read_float(bytes + 8);
 }
 
 #endif /* __RASTERIZER_VERTEX_BYTE_ORDER_H */

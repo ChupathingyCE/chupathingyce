@@ -118,7 +118,7 @@ symbols in this file:
 #include "scenario/sky_definitions.h"
 #include "shaders/shader_definitions.h"
 #include "structures/structure_bsp_definitions.h"
-#include "rasterizer/rasterizer_geometry_environment.h" /* port: (the surface walk's vertices) */
+#include "rasterizer/rasterizer_vertex_byte_order.h" /* port: (the surface walk's vertices) */
 #include "tag_files/tag_groups.h"
 #include "structure_culling.h" /* port: port/linux/game/structure_culling.c */
 
@@ -613,10 +613,9 @@ static void structure_visibility_traverse_surface_lists(
 					{
 						for (point_index = 0; point_index < 3; point_index++)
 						{
-							environment_vertex_compressed_get_point(
-								(struct environment_vertex_compressed const *)(vertices +
-									surface->vertex_indices[point_index] * COMPRESSED_STRUCTURE_VERTEX_SIZE),
-								&points[point_index]);
+							vertex_data_read_point(
+								vertices + surface->vertex_indices[point_index] * COMPRESSED_STRUCTURE_VERTEX_SIZE,
+								points[point_index].n);
 						}
 						if (render_frustum_triangle_visible(
 							frustum,

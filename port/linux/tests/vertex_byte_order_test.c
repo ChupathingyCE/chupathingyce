@@ -93,6 +93,12 @@ int main(void)
 		{
 			CHECK(vertex_data_read_float(bytes + 4 * axis) == points[vertex][axis]);
 		}
+		{
+			float point[3];
+
+			vertex_data_read_point(bytes, point);
+			CHECK(point[0] == points[vertex][0] && point[1] == points[vertex][1] && point[2] == points[vertex][2]);
+		}
 		CHECK(vertex_data_read_dword(bytes + NORMAL_OFFSET) == normals[vertex]);
 		CHECK(vertex_data_read_float(bytes + TEXCOORD_OFFSET) == 0.25f * (float)vertex);
 		CHECK(vertex_data_read_float(bytes + TEXCOORD_OFFSET + 4) == -1.5f);
