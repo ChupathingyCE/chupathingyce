@@ -234,6 +234,25 @@ static void test_poll(void)
 		CHECK(!social_poll_due(&poll, now + SOCIAL_POLL_MENUS + 70000, 0, 1));
 		social_poll_answer(&poll, 200, 1);
 
+		/* (in the menus, after a minute of the schedule's own polls, a ring
+		still polls early: the schedule never uses up the ring's room) */
+		memset(&poll, 0, sizeof(poll));
+		now = 500000;
+		CHECK(social_poll_due(&poll, now, 0, 1));
+		CHECK(social_poll_due(&poll, now + SOCIAL_POLL_MENUS, 0, 1));
+		CHECK(social_poll_due(&poll, now + 2 * SOCIAL_POLL_MENUS, 0, 1));
+		now += 2 * SOCIAL_POLL_MENUS + 5000;
+		CHECK(!social_poll_due(&poll, now, 0, 1));
+		social_poll_ring(&poll);
+		CHECK(social_poll_due(&poll, now, 0, 1));
+		CHECK(!poll.rung);
+		/* (and a second, then the room is full) */
+		social_poll_ring(&poll);
+		CHECK(social_poll_due(&poll, now + SOCIAL_POLL_RING_GAP, 0, 1));
+		social_poll_ring(&poll);
+		CHECK(!social_poll_due(&poll, now + 2 * SOCIAL_POLL_RING_GAP, 0, 1));
+		CHECK(poll.rung);
+
 		/* (rings all the time, in the menus, for five minutes: never more
 		than 5 polls in any minute (the site takes 6), and at least the
 		schedule's) */
@@ -248,7 +267,7 @@ static void test_poll(void)
 				if (social_poll_due(&poll, now, 0, 1) && count < 128)
 					times[count++] = now;
 			}
-			CHECK(count >= 15);
+			CHECK(count >= 20);
 			for (index = 0; index < count; index++)
 			{
 				polls = 0;

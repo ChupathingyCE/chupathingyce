@@ -2729,8 +2729,12 @@ rings, and the game asks at once.
 - **A doorbell per copy:** the site hands each linked copy its doorbell in
   the friends state (`"doorbell"`: 32 hex digits, also in an unchanged
   answer). It's the first 128 bits of HMAC-SHA256 under a key only the
-  site has, over the copy's player ID: nobody can work out another copy's
-  doorbell, or whose a doorbell is. The topic is `doorbell/<doorbell>`.
+  site has, over `doorbell:<the copy's player ID>:<week>`: nobody can work
+  out another copy's doorbell, or whose a doorbell is. It changes every
+  week, so one that got out goes stale. The site rings the doorbell it last
+  handed each copy, so a ring at the turn of the week still reaches it, and
+  the copy's next poll hands it the new one. The topic is
+  `doorbell/<doorbell>`.
 - **Listening:** on our brokers only, signalling's CONNECT carries the
   doorbell as its MQTT user name (no password; the client ID stays
   signalling's own), and subscribes to `doorbell/<doorbell>` at QoS 0. A
@@ -2755,13 +2759,16 @@ rings, and the game asks at once.
   block stays silent and rings only the blocker's own copies), becoming
   friends or a removal rings both, a decline rings only the one who
   declined, an invite rings the friend invited, and a profile coming
-  online, going into a game or switching "appear offline" rings its
-  friends (never while it appears offline or hides what it plays).
+  online, going into a game or turning "appear offline" off rings its
+  friends (never while it appears offline or hides what it plays; turning
+  it on rings nobody, and friends see it on their next poll).
   Parties ring with kind 3 once they're on the site.
 - **On a ring:** the game polls at once, at least 2 seconds after the last
-  poll, and only while fewer than 3 polls went out in the last minute, so
-  the menus' 3 a minute plus rings stay at 5 or fewer and a join or an
-  invite still fits. A ring never cuts short a wait the site asked for
+  poll, and only while fewer than 2 polls went out early for a ring and
+  fewer than 5 went out at all in the last minute. The schedule's own
+  polls never use up a ring's room, so a ring speeds things up in the
+  menus too, and the menus' 3 a minute plus rings stay at 5 or fewer, so a
+  join or an invite still fits. A ring never cuts short a wait the site asked for
   (429, an unlinked copy).
 - **Failing:** our brokers fail and come back as signalling's always have
   (its retries). Without a doorbell the polls go on as before.

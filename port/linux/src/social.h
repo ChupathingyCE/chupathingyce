@@ -127,12 +127,13 @@ enum
 	interval up to this */
 	SOCIAL_POLL_FAILED_WAIT = 5 * 60000,
 	/* the doorbell (p2p_doorbell) rang: polled at once, at least this long
-	after the last poll, and only while fewer than SOCIAL_POLL_RING_ROOM
-	polls went out in the last SOCIAL_POLL_RING_WINDOW (so the menus' 3 a
-	minute and a ring's 3 stay under the site's 6, with one left for a join
-	or an invite) */
+	after the last poll, while fewer than SOCIAL_POLL_RING_ROOM polls went out
+	for a ring in the last SOCIAL_POLL_RING_WINDOW and fewer than
+	SOCIAL_POLL_ROOM went out at all (the menus' 3 a minute and a ring's 2
+	stay under the site's 6, with one left for a join or an invite) */
 	SOCIAL_POLL_RING_GAP = 2000,
-	SOCIAL_POLL_RING_ROOM = 3,
+	SOCIAL_POLL_RING_ROOM = 2,
+	SOCIAL_POLL_ROOM = 5,
 	SOCIAL_POLL_RING_WINDOW = 61000,
 	SOCIAL_POLL_TIMES = 8,
 };
@@ -149,8 +150,10 @@ struct social_poll
 	/* the doorbell rang since the last poll (social_poll_ring) */
 	int rung;
 	/* when the latest polls went out (the ring's room), newest at
-	times[(next + SOCIAL_POLL_TIMES - 1) % SOCIAL_POLL_TIMES] */
+	times[(next + SOCIAL_POLL_TIMES - 1) % SOCIAL_POLL_TIMES], and which of
+	them only went out early for a ring */
 	unsigned long times[SOCIAL_POLL_TIMES];
+	int rang[SOCIAL_POLL_TIMES];
 	int time_count;
 	int next_time;
 };

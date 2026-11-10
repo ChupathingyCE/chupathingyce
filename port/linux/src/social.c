@@ -170,14 +170,15 @@ static int passed(unsigned long now, unsigned long since, unsigned long interval
 	return now - since >= interval;
 }
 
-/* how many polls went out in the last window before now */
-static int polls_within(const struct social_poll *poll, unsigned long now, unsigned long window)
+/* how many polls went out in the last window before now (only those that
+went out early for a ring, if rings) */
+static int polls_within(const struct social_poll *poll, unsigned long now, unsigned long window, int rings)
 {
 	int index, count = 0;
 
 	for (index = 0; index < poll->time_count; index++)
 	{
-		if (!passed(now, poll->times[index], window))
+		if ((!rings || poll->rang[index]) && !passed(now, poll->times[index], window))
 			count++;
 	}
 	return count;
@@ -186,7 +187,7 @@ static int polls_within(const struct social_poll *poll, unsigned long now, unsig
 int social_poll_due(struct social_poll *poll, unsigned long now, int in_game, int signed_in)
 {
 	unsigned long interval = in_game ? SOCIAL_POLL_GAME : SOCIAL_POLL_MENUS;
-	int ring;
+	int ring, early;
 
 	if (!signed_in)
 	{
@@ -204,16 +205,20 @@ int social_poll_due(struct social_poll *poll, unsigned long now, int in_game, in
 	else if (poll->soon)
 		interval = SOCIAL_POLL_SOONEST;
 	/* (a ring: at once when there is room, never through a wait the site
-	asked for) */
+	asked for; only the polls that went out early for a ring count against
+	its room, so the schedule's own never use it up) */
 	ring = poll->rung && !poll->wait && passed(now, poll->last, SOCIAL_POLL_RING_GAP) &&
-		polls_within(poll, now, SOCIAL_POLL_RING_WINDOW) < SOCIAL_POLL_RING_ROOM;
-	if (poll->started && !ring && !passed(now, poll->last, interval))
+		polls_within(poll, now, SOCIAL_POLL_RING_WINDOW, 1) < SOCIAL_POLL_RING_ROOM &&
+		polls_within(poll, now, SOCIAL_POLL_RING_WINDOW, 0) < SOCIAL_POLL_ROOM;
+	early = poll->started && !passed(now, poll->last, interval);
+	if (early && !ring)
 		return 0;
 	poll->started = 1;
 	poll->last = now;
 	poll->soon = 0;
 	poll->rung = 0;
 	poll->times[poll->next_time] = now;
+	poll->rang[poll->next_time] = early;
 	poll->next_time = (poll->next_time + 1) % SOCIAL_POLL_TIMES;
 	if (poll->time_count < SOCIAL_POLL_TIMES)
 		poll->time_count++;
