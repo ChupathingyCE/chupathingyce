@@ -66,6 +66,11 @@ char const *profile_screen_section_name(short section);
 boolean profile_screen_section_open(short section);
 short profile_screen_panel_lines(short section, struct profile_line *lines, short maximum);
 boolean profile_screen_section_action(short section);
+/* DELTA's SETTINGS: the devices dialog, and Link a device (another
+device's code entered); FALSE when there is nothing to show (not signed
+in, or a site without devices) */
+boolean profile_screen_open_devices(void);
+boolean profile_screen_open_link_a_device(void);
 /* the profile asked of the site again (Y) */
 void profile_screen_refresh(void);
 

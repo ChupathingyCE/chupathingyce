@@ -53,5 +53,28 @@ this process's environment and none of its files (from an AppImage, with the
 library path its AppRun was given, not the one it set for its own mount); 1
 on success */
 int update_launch(const char *path);
+/* the same, with one argument for it (NULL: none), as "--setup" */
+int update_launch_with(const char *path, const char *argument);
+
+/* ---------- updater.c's, for the setup screen's Updates (launcher.c) */
+
+enum
+{
+	UPDATER_NOT_CHECKED,
+	UPDATER_CHECKING,
+	UPDATER_NEWER,
+	UPDATER_LATEST,
+	UPDATER_UNREACHABLE,
+};
+
+/* a check started now, whatever update.auto says: 0 when this build never
+looks (not a release's) or one is running */
+int updater_check_now(void);
+/* where the check is (UPDATER_*); latest: the newer version's */
+int updater_check_state(char *latest, int size);
+/* the newer version installed (its download page on macOS); 0 if not */
+int updater_install(void);
+/* "release", "nightly" or "dev" */
+const char *updater_channel(void);
 
 #endif

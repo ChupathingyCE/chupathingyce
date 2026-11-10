@@ -960,6 +960,11 @@ WIDGET_PATCHES = {
         "offsets": {f"{PE}/controller_setup_profile_item": (0, -166), f"{PE}/gamepads_profile_item": (0, 33),
                     f"{PE}/network_settings_profile_item": (0, -34)},
     },
+    # (SETUP beside OK and CANCEL: the way back to the setup screen, its
+    # widget port/assets/menus/chupathingy/setup_entry.xml's)
+    f"{PE}/profile_edit_button_bar": {"insert_before": {
+        f"{PE}/profile_edit_button_ok": ['<child widget="gearbox/setup_entry" x="250" y="1"/>'],
+    }},
     f"{PE}/controller_setup_profile_item": {"set": {"string_index": 12}, "handlers": [
         f'<on event="a" open="{PE}/{CONTROLS_SCREEN}/{CONTROLS_SPEC["screen"]}"/>',
         f'<on event="start" open="{PE}/{CONTROLS_SCREEN}/{CONTROLS_SPEC["screen"]}"/>',
@@ -972,6 +977,12 @@ WIDGET_PATCHES = {
         f'<on event="start" open="{PE}/{CONTROLS_SCREEN}/{CONTROLS_SPEC["screen"]}"/>',
         '<on event="left_mouse" run="mouse emit accept event"/>',
     ]} for row in ("gamepads", "mouse_settings")},
+    # (ABOUT: the About screen, in the Guide: menu_functions.c's about_open)
+    f"{PE}/about_item": {"handlers": [
+        '<on event="a" run="port about open"/>',
+        '<on event="start" run="port about open"/>',
+        '<on event="left_mouse" run="mouse emit accept event"/>',
+    ]},
     f"{PE}/audio_settings_profile_item": {"set": {"string_index": 14}},
     # (the profile settings' picture: on CONTROLS' row, the profile's
     # button settings, BITMAP_FRAMES; menu_functions.c's

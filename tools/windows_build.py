@@ -650,7 +650,7 @@ def generate_windows_target(n: Writer, sln: Any, target: WindowsTarget) -> None:
                 # (the game list's requests: on Winsock, with Mbed TLS, as
                 # on Linux)
                 add_object(source, f"{win32_cflags} -I{MBEDTLS_DIR / 'include'}")
-            elif source.name in ("bink_ffmpeg.c", "bink_null.c"):
+            elif source.name in ("bink_ffmpeg.c", "bink_null.c", "capture_clips.c"):
                 add_object(source, " ".join([platform_cflags, *ffmpeg_cflags]), ffmpeg_inputs)
             elif source.name == "posix_ui_font.c":
                 # (the overlay's fonts: stb_truetype; their data, tools/embed_assets.py --fonts)
