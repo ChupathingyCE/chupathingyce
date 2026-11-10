@@ -26,10 +26,10 @@ enum
 };
 
 /* the capabilities this build knows (the retired md_maps and console_slots
-bits never count, nor the reserved server_badge) */
+bits never count) */
 #define KNOWN_CAPABILITIES \
 	((((delta_u32)1 << NUMBER_OF_DELTA_CAPABILITIES) - 1) & ~((delta_u32)1 << _delta_capability_md_maps) & \
-		~((delta_u32)1 << _delta_capability_console_slots) & ~((delta_u32)1 << _delta_capability_server_badge))
+		~((delta_u32)1 << _delta_capability_console_slots))
 #define CAPABILITY(bit) ((delta_u32)1 << (bit))
 /* TRAITS (22) needs both: bomb alone is a Grifball test build 2 or 3's,
 which says TRAITS as 18 */
@@ -92,9 +92,15 @@ static delta_u32 offered(const struct delta_peer *peer)
 	/* (nor team changes without its team host) */
 	if (peer->mode == _mode_host && !peer->team_host)
 		capabilities &= ~CAPABILITY(_delta_capability_team_change);
+	/* (nor reports without its report host) */
+	if (peer->mode == _mode_host && !peer->report_host)
+		capabilities &= ~CAPABILITY(_delta_capability_reports);
 	/* (nor verified names without a way to check a proof) */
 	if (!peer->env.identity_check)
 		capabilities &= ~CAPABILITY(_delta_capability_identity);
+	/* (nor a badge without one) */
+	if (peer->mode == _mode_host && !peer->badge_host)
+		capabilities &= ~CAPABILITY(_delta_capability_server_badge);
 	if (!peer->env.capability_disabled)
 		return capabilities;
 	for (capability = 0; capability < NUMBER_OF_DELTA_CAPABILITIES; capability++)
@@ -236,6 +242,7 @@ static void forget_all(struct delta_peer *peer)
 	peer->identity_challenged = 0;
 	memset(&peer->identity_challenge, 0, sizeof(peer->identity_challenge));
 	memset(peer->identity_sent, 0, sizeof(peer->identity_sent));
+	memset(&peer->client_badge, 0, sizeof(peer->client_badge));
 }
 
 void delta_peer_initialize(struct delta_peer *peer, const struct delta_peer_env *env,
@@ -715,6 +722,9 @@ static void host_send_state(struct delta_peer *peer, int machine_index, int alwa
 		state.role = (unsigned char)role;
 		state.permissions = permissions;
 		state.ban_minutes = ban_minutes;
+		if (peer->moderation_host->actions)
+			state.actions = (unsigned char)(peer->moderation_host->actions(peer->moderation_host->context) &
+				DELTA_WIRE_MOD_STATE_KNOWN);
 	}
 	if (!always && moderation->state_sent && !memcmp(&state, &moderation->state, sizeof(state)))
 		return;
@@ -1416,6 +1426,98 @@ static void host_team_request(struct delta_peer *peer, delta_u32 now, int machin
 	peer_send(peer, client->ipv4, client->port, data, delta_wire_write_team_result(data, client->session, &result));
 }
 
+/* ---------- server badges */
+
+void delta_peer_set_badge_host(struct delta_peer *peer, const struct delta_peer_badge_host *host)
+{
+	peer->badge_host = host;
+}
+
+static void host_badge_ask(struct delta_peer *peer, delta_u32 now, int machine_index,
+	const struct delta_wire_header *header, const unsigned char *payload)
+{
+	struct delta_peer_host_peer *client = &peer->peers[machine_index];
+	struct delta_wire_badge badge;
+	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
+	int length;
+
+	if (!(client->agreed & offered(peer) & CAPABILITY(_delta_capability_server_badge)) || !peer->badge_host ||
+		!delta_wire_read_badge_ask(payload, header->length, badge.nonce) ||
+		!delta_rate_take(&client->badge_rate, now, DELTA_PEER_BADGE_RATE, DELTA_PEER_BADGE_BURST))
+	{
+		peer->dropped++;
+		return;
+	}
+	memset(badge.signature, 0, sizeof(badge.signature));
+	length = peer->badge_host->answer(peer->badge_host->context, badge.nonce, client->session, badge.signature,
+		badge.certificate, DELTA_WIRE_BADGE_CERTIFICATE_SIZE);
+	badge.proof = DELTA_WIRE_BADGE_PROOF_BOUND;
+	/* (none now: said as none, so the client stops asking) */
+	badge.certificate_length = (unsigned short)(length > 0 && length <= DELTA_WIRE_BADGE_CERTIFICATE_SIZE ? length : 0);
+	peer_send(peer, client->ipv4, client->port, data, delta_wire_write_badge(data, client->session, &badge));
+}
+
+static void client_badge_frame(struct delta_peer *peer, delta_u32 now)
+{
+	struct delta_peer_client_badge *badge = &peer->client_badge;
+	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
+	int index;
+
+	if (!client_chatting(peer, _delta_capability_server_badge) || badge->state == _delta_peer_badge_answered)
+		return;
+	if (badge->state == _delta_peer_badge_none)
+	{
+		/* (a nonce of this session's, never one the host could have signed
+		before) */
+		for (index = 0; index < DELTA_WIRE_BADGE_NONCE_SIZE; index += 4)
+		{
+			delta_u32 value = peer->env.random_number ? peer->env.random_number(peer->env.context) : 0;
+
+			badge->nonce[index] = (unsigned char)value;
+			badge->nonce[index + 1] = (unsigned char)(value >> 8);
+			badge->nonce[index + 2] = (unsigned char)(value >> 16);
+			badge->nonce[index + 3] = (unsigned char)(value >> 24);
+		}
+		badge->state = _delta_peer_badge_asking;
+	}
+	else if (badge->asks >= DELTA_PEER_BADGE_ASKS || !elapsed(now, badge->ask_time, DELTA_PEER_BADGE_INTERVAL))
+		return;
+	badge->asks++;
+	badge->ask_time = now;
+	peer_send(peer, peer->host_ipv4, peer->host_port, data, delta_wire_write_badge_ask(data, peer->session, badge->nonce));
+}
+
+static void client_badge_receive(struct delta_peer *peer, const struct delta_wire_header *header,
+	const unsigned char *payload)
+{
+	struct delta_peer_client_badge *badge = &peer->client_badge;
+	struct delta_wire_badge answer;
+
+	/* (only the answer to this session's ask, once) */
+	if (!client_chatting(peer, _delta_capability_server_badge) || badge->state != _delta_peer_badge_asking ||
+		!delta_wire_read_badge(payload, header->length, &answer) ||
+		memcmp(answer.nonce, badge->nonce, sizeof(badge->nonce)))
+	{
+		peer->dropped++;
+		return;
+	}
+	badge->badge = answer;
+	badge->state = _delta_peer_badge_answered;
+}
+
+int delta_peer_client_badge(const struct delta_peer *peer, struct delta_wire_badge *badge, delta_u32 *handshake_start)
+{
+	if (badge)
+		*badge = peer->client_badge.badge;
+	if (handshake_start)
+		*handshake_start = peer->handshake_start;
+	if (peer->mode != _mode_client || peer->client_state != _delta_peer_client_delta)
+		return _delta_peer_badge_none;
+	if (!client_chatting(peer, _delta_capability_server_badge))
+		return _delta_peer_badge_unoffered;
+	return peer->client_badge.state;
+}
+
 int delta_peer_client_team_ready(const struct delta_peer *peer)
 {
 	return client_chatting(peer, _delta_capability_team_change);
@@ -1447,6 +1549,80 @@ delta_u32 delta_peer_client_team_result(const struct delta_peer *peer, struct de
 	if (result)
 		*result = peer->team_result;
 	return peer->team_results;
+}
+
+/* ---------- reports */
+
+void delta_peer_set_report_host(struct delta_peer *peer, const struct delta_peer_report_host *host)
+{
+	peer->report_host = host;
+}
+
+static void host_report(struct delta_peer *peer, delta_u32 now, int machine_index,
+	const struct delta_wire_header *header, const unsigned char *payload)
+{
+	struct delta_peer_host_peer *client = &peer->peers[machine_index];
+	struct delta_wire_report report;
+	struct delta_wire_report_result result;
+	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
+	int flags = 0;
+
+	if (!(client->agreed & offered(peer) & CAPABILITY(_delta_capability_reports)) || !peer->report_host ||
+		!delta_wire_read_report(payload, header->length, &report) || report.sequence <= client->report_sequence ||
+		!delta_rate_take(&client->report_rate, now, DELTA_PEER_REPORT_RATE, DELTA_PEER_REPORT_BURST))
+	{
+		peer->dropped++;
+		return;
+	}
+	client->report_sequence = report.sequence;
+	memset(&result, 0, sizeof(result));
+	result.sequence = report.sequence;
+	/* (a report of the reporter's own machine is never taken) */
+	if (report.target_machine == machine_index)
+		result.result = _delta_report_no_player;
+	else
+	{
+		result.result = (unsigned char)peer->report_host->report(peer->report_host->context, machine_index, &report,
+			&flags, result.clip_token);
+		if (result.result >= NUMBER_OF_DELTA_REPORT_RESULTS)
+			result.result = _delta_report_not_taken;
+	}
+	result.flags = (unsigned char)(result.result == _delta_report_taken && (report.flags & DELTA_WIRE_REPORT_CLIP) ?
+		(flags & DELTA_WIRE_REPORT_SEND_CLIP) : 0);
+	if (!(result.flags & DELTA_WIRE_REPORT_SEND_CLIP))
+		memset(result.clip_token, 0, sizeof(result.clip_token));
+	peer_send(peer, client->ipv4, client->port, data, delta_wire_write_report_result(data, client->session, &result));
+}
+
+int delta_peer_client_report_ready(const struct delta_peer *peer)
+{
+	return client_chatting(peer, _delta_capability_reports);
+}
+
+delta_u32 delta_peer_client_report(struct delta_peer *peer, const struct delta_wire_report *report)
+{
+	struct delta_wire_report sent;
+	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
+	int size;
+
+	if (!delta_peer_client_report_ready(peer) || !report)
+		return 0;
+	sent = *report;
+	sent.sequence = ++peer->report_sequence;
+	if (!sent.sequence)
+		sent.sequence = ++peer->report_sequence;
+	size = delta_wire_write_report(data, peer->session, &sent);
+	if (!size)
+		return 0;
+	peer_send(peer, peer->host_ipv4, peer->host_port, data, size);
+	return sent.sequence;
+}
+
+delta_u32 delta_peer_client_report_result(const struct delta_peer *peer, struct delta_wire_report_result *result)
+{
+	if (result)
+		*result = peer->report_result;
+	return peer->report_results;
 }
 
 /* ---------- object sync */
@@ -1684,6 +1860,40 @@ static void host_receive(struct delta_peer *peer, delta_u32 now, delta_u32 ipv4,
 		host_chat_say(peer, now, machine_index, &header, payload);
 		break;
 	}
+	case _delta_message_party_tag:
+	{
+		int machine_index = host_find_session(peer, ipv4, header.session);
+		struct delta_peer_host_peer *client;
+		unsigned char tag[DELTA_WIRE_PARTY_TAG_SIZE];
+		static const unsigned char none[DELTA_WIRE_PARTY_TAG_SIZE];
+
+		if (machine_index < 0 ||
+			!(peer->peers[machine_index].agreed & offered(peer) & CAPABILITY(_delta_capability_party_teams)) ||
+			!delta_wire_read_party_tag(payload, header.length, tag))
+		{
+			peer->dropped++;
+			break;
+		}
+		client = &peer->peers[machine_index];
+		if (client->has_party_tag != (memcmp(tag, none, sizeof(tag)) != 0) ||
+			memcmp(client->party_tag, tag, sizeof(tag)))
+		{
+			/* (a change soon after the last one: dropped, the client sends it
+			again every DELTA_PEER_PARTY_TAG_INTERVAL) */
+			if (client->party_tag_changes &&
+				(delta_u32)(now - client->party_tag_time) < (delta_u32)DELTA_PEER_PARTY_TAG_HOLD)
+			{
+				break;
+			}
+			client->party_tag_changes++;
+			client->party_tag_time = now;
+			client->has_party_tag = memcmp(tag, none, sizeof(tag)) != 0;
+			memcpy(client->party_tag, tag, sizeof(tag));
+			say(peer, "Delta Peer: machine %d is %s", machine_index, client->has_party_tag ? "in a party" :
+				"in no party");
+		}
+		break;
+	}
 	case _delta_message_team_request:
 	{
 		int machine_index = host_find_session(peer, ipv4, header.session);
@@ -1696,6 +1906,18 @@ static void host_receive(struct delta_peer *peer, delta_u32 now, delta_u32 ipv4,
 		host_team_request(peer, now, machine_index, &header, payload);
 		break;
 	}
+	case _delta_message_report:
+	{
+		int machine_index = host_find_session(peer, ipv4, header.session);
+
+		if (machine_index < 0)
+		{
+			peer->dropped++;
+			break;
+		}
+		host_report(peer, now, machine_index, &header, payload);
+		break;
+	}
 	case _delta_message_id_proof:
 	{
 		int machine_index = host_find_session(peer, ipv4, header.session);
@@ -1706,6 +1928,18 @@ static void host_receive(struct delta_peer *peer, delta_u32 now, delta_u32 ipv4,
 			break;
 		}
 		host_identity_proof(peer, now, machine_index, &header, payload);
+		break;
+	}
+	case _delta_message_badge_ask:
+	{
+		int machine_index = host_find_session(peer, ipv4, header.session);
+
+		if (machine_index < 0)
+		{
+			peer->dropped++;
+			break;
+		}
+		host_badge_ask(peer, now, machine_index, &header, payload);
 		break;
 	}
 	case _delta_message_table:
@@ -2181,6 +2415,49 @@ static void client_send_hello(struct delta_peer *peer, delta_u32 now)
 	peer->hello_time = now;
 }
 
+/* (client) the party tag to the host, if both agreed to party_teams */
+static void client_send_party_tag(struct delta_peer *peer, delta_u32 now)
+{
+	unsigned char data[DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_PARTY_TAG_SIZE];
+
+	if (!(peer->agreed & offered(peer) & CAPABILITY(_delta_capability_party_teams)))
+		return;
+	peer_send(peer, peer->host_ipv4, peer->host_port, data, delta_wire_write_party_tag(data, peer->session,
+		peer->party_tag));
+	peer->party_tag_time = now;
+	peer->party_tag_sent = 1;
+}
+
+void delta_peer_client_set_party_tag(struct delta_peer *peer, const unsigned char *tag)
+{
+	static const unsigned char none[DELTA_WIRE_PARTY_TAG_SIZE];
+
+	if (!tag)
+		tag = none;
+	if (memcmp(peer->party_tag, tag, DELTA_WIRE_PARTY_TAG_SIZE))
+	{
+		memcpy(peer->party_tag, tag, DELTA_WIRE_PARTY_TAG_SIZE);
+		/* (sent at the next frame) */
+		peer->party_tag_sent = 0;
+	}
+}
+
+int delta_peer_machine_party_tag(const struct delta_peer *peer, int machine_index, unsigned char *tag)
+{
+	const struct delta_peer_host_peer *client;
+
+	if (peer->mode != _mode_host || !valid_machine(machine_index))
+		return 0;
+	client = &peer->peers[machine_index];
+	if (!client->used || !client->has_party_tag ||
+		!(client->agreed & offered(peer) & CAPABILITY(_delta_capability_party_teams)))
+	{
+		return 0;
+	}
+	memcpy(tag, client->party_tag, DELTA_WIRE_PARTY_TAG_SIZE);
+	return 1;
+}
+
 static void client_send_profile(struct delta_peer *peer)
 {
 	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
@@ -2201,6 +2478,7 @@ static void client_legacy(struct delta_peer *peer, const char *why)
 	peer->client_state = _delta_peer_client_legacy;
 	memset(&peer->client_moderation, 0, sizeof(peer->client_moderation));
 	memset(&peer->client_chat, 0, sizeof(peer->client_chat));
+	memset(&peer->client_badge, 0, sizeof(peer->client_badge));
 	peer->agreed = 0;
 	peer->room_capabilities = 0;
 	peer->room_players = DELTA_PEER_NO_LIMIT;
@@ -2286,6 +2564,17 @@ void delta_peer_client_frame(struct delta_peer *peer, delta_u32 now, int joined,
 				memset(machine, 0, sizeof(*machine));
 		}
 		relay_frame(peer, &peer->host_relay, -1, now, peer->host_ipv4, peer->host_port, peer->session, NULL);
+		/* (the party tag: as it changes, and again now and then while in a
+		party) */
+		{
+			static const unsigned char none[DELTA_WIRE_PARTY_TAG_SIZE];
+
+			if (!peer->party_tag_sent || (memcmp(peer->party_tag, none, sizeof(none)) &&
+				elapsed(now, peer->party_tag_time, DELTA_PEER_PARTY_TAG_INTERVAL)))
+			{
+				client_send_party_tag(peer, now);
+			}
+		}
 		/* (a bind the player did not answer in time) */
 		if (peer->client_moderation.bind_waiting &&
 			elapsed(now, peer->client_moderation.bind_time, DELTA_PEER_MODERATION_BIND_TIME))
@@ -2293,6 +2582,7 @@ void delta_peer_client_frame(struct delta_peer *peer, delta_u32 now, int joined,
 			peer->client_moderation.bind_waiting = 0;
 		}
 		client_identity_frame(peer, now);
+		client_badge_frame(peer, now);
 		break;
 	}
 }
@@ -2580,6 +2870,7 @@ static void client_receive(struct delta_peer *peer, delta_u32 now, delta_u32 ipv
 		}
 		relay_start(peer, &peer->host_relay, now, welcome.legacy_table_serial);
 		client_send_profile(peer);
+		client_send_party_tag(peer, now);
 		break;
 	}
 	case _delta_message_legacy:
@@ -2696,6 +2987,24 @@ static void client_receive(struct delta_peer *peer, delta_u32 now, delta_u32 ipv
 		}
 		peer->team_result = result;
 		peer->team_results++;
+		break;
+	}
+	case _delta_message_badge:
+		client_badge_receive(peer, &header, payload);
+		break;
+	case _delta_message_report_result:
+	{
+		struct delta_wire_report_result result;
+
+		/* (only an answer to a report of this session's) */
+		if (!delta_peer_client_report_ready(peer) || !delta_wire_read_report_result(payload, header.length, &result) ||
+			!result.sequence || result.sequence > peer->report_sequence)
+		{
+			peer->dropped++;
+			break;
+		}
+		peer->report_result = result;
+		peer->report_results++;
 		break;
 	}
 	case _delta_message_map:

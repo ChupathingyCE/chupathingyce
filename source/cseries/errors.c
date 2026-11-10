@@ -72,6 +72,15 @@ symbols in this file:
 begun again (write_to_debug_file) */
 #define DEBUG_FILE_PORT_MAXIMUM_SIZE (64L * 1024 * 1024)
 
+/* port: the home folder in a line of the log written as "~" (or
+"%USERPROFILE%"), unless debug.log_full_paths (port/linux/src/log_paths.h):
+the account name is in it. A console has no home folder. */
+#if !defined(HALO_CONSOLE) && !defined(HALO_XBOX_CONSOLE) && !defined(HALO_XBOX360_CONSOLE) && \
+	!defined(HALO_SWITCH_CONSOLE) && !defined(HALO_WIIU_CONSOLE)
+#define ERROR_LOG_HOME_FOLDER 1
+void log_paths_redact_line(char *line, size_t size);
+#endif
+
 /* ---------- macros */
 
 /* ---------- structures */
@@ -407,6 +416,9 @@ void write_to_error_file(
 {
 	char line[1024];
 	long time_value;
+#ifdef ERROR_LOG_HOME_FOLDER
+	char redacted[2048];
+#endif
 
 	/* port: the header again in a debug.txt begun again (its reference
 	address places a crash report's addresses) */
@@ -427,6 +439,16 @@ void write_to_error_file(
 		sprintf(line, "reference address: %x\r\n", write_to_error_file);
 		write_to_error_file(line, TRUE);
 	}
+#ifdef ERROR_LOG_HOME_FOLDER
+	/* port: the line as the log may show it (above), for every place it
+	goes; a line too long for the copy goes as it is */
+	if (csstrlen(string) < sizeof(redacted))
+	{
+		csstrcpy(redacted, string);
+		log_paths_redact_line(redacted, sizeof(redacted));
+		string = redacted;
+	}
+#endif
 
 #ifdef HALO_CONSOLE_DEBUG_CHANNEL
 	/* port: the console's debug channel has the game's log too */
