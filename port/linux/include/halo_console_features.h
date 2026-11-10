@@ -40,6 +40,10 @@ HALO_CONSOLE_NO_GUIDE
 	sent to the site (browser.c, network.share_presence), their settings
 	left out of config.toml: every console for now, until the Guide is
 	sized to each one's memory and input
+HALO_CONSOLE_NO_DELTA_IDENTITY
+	no device key, device certificate or site token (port/linux/src/
+	identity.c, browser.c; docs/delta.md, "Device identity"): every console
+	for now, until their own endpoints come; the player key alone, as before
 HALO_CONSOLE_NO_WRITE_WATCH
 	a console that will not write-protect guest memory, so the renderer's
 	write watch cannot see the game write a resource: locks and file reads
@@ -382,6 +386,18 @@ console gets them sized to its limits later */
 server's, which has no player) */
 #if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_GUIDE) && !defined(HALO_SERVER)
 #define HALO_GUIDE 1
+#endif
+
+/* Delta's device identity (port/linux/src/identity.c, browser.c): desktop and
+Android; consoles get it with their own endpoints later */
+#if (defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
+	defined(HALO_XBOX_CONSOLE) || defined(HALO_XBOX360_CONSOLE)) && !defined(HALO_CONSOLE_NO_DELTA_IDENTITY)
+#define HALO_CONSOLE_NO_DELTA_IDENTITY 1
+#endif
+/* (its builds: the game list's, not the consoles' nor the dedicated
+server's, which has no player) */
+#if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_DELTA_IDENTITY) && !defined(HALO_SERVER)
+#define HALO_DELTA_IDENTITY 1
 #endif
 
 #if (defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \

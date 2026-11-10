@@ -1674,8 +1674,9 @@ static void test_platform_names(void)
 		CHECK((index == 0) == (rows[index].tag[0] == 0));
 		CHECK((index == 0) == (rows[index].name[0] == 0));
 		CHECK((index == 0) == (rows[index].caps_name[0] == 0));
-		/* (a row's tag is short: four letters at most) */
-		CHECK(strlen(rows[index].tag) <= 4);
+		/* (a row's tag is short: it fits in the room before an Online
+		Games row's name; STEAMOS, the longest, is about 27 of its 34) */
+		CHECK(strlen(rows[index].tag) <= 7);
 		for (other = 0; other < index; other++)
 			CHECK(strcmp(rows[index].key, rows[other].key) != 0);
 	}

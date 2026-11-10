@@ -781,6 +781,9 @@ void _rasterizer_widget_draw_sprite3d(
 	real axis_y;
 	real scale_x;
 	real scale_y;
+#ifdef HALO_CONSOLE_ANAMORPHIC_SCREEN
+	real pixel_aspect;
+#endif
 
 	match_assert(
 		"c:\\halo\\SOURCE\\rasterizer\\xbox\\rasterizer_xbox_widgets.c",
@@ -798,6 +801,16 @@ void _rasterizer_widget_draw_sprite3d(
 			&projected_center,
 			&projected_axes))
 	{
+#ifdef HALO_CONSOLE_ANAMORPHIC_SCREEN
+		/* port: the quad's corners mix its two axes (a square turned), so
+		they must be as long as each other. A 16:9 television stretches the
+		640 pixels, which makes the projected axis across that much shorter
+		in them: the square is made in the television's units, then drawn
+		narrower across the pixels by as much as the television widens them,
+		so a lens flare is round once stretched */
+		pixel_aspect = rasterizer_screen_pixel_aspect();
+		projected_axes.i *= pixel_aspect;
+#endif
 		if (rotation != 0.0f)
 		{
 			cos_theta = (real)cos(DEGREES_TO_RADIANS(rotation));
@@ -824,6 +837,9 @@ void _rasterizer_widget_draw_sprite3d(
 		{
 			scale_x = scale_y = 1.0f;
 		}
+#ifdef HALO_CONSOLE_ANAMORPHIC_SCREEN
+		scale_x /= pixel_aspect;
+#endif
 
 		IDirect3DDevice8_Begin(
 			global_d3d_device,
