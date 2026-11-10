@@ -101,7 +101,7 @@ symbols in this file:
 #include "main/main.h"
 #include <xtl.h>
 #include "rasterizer/xbox/rasterizer_xbox.h"
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 #include "main/main.h"
 #endif
 
@@ -700,7 +700,7 @@ void rasterizer_lights_begin_for_new_frame(
 			{
 				byte previous_visibility= *occlusion_test_result;
 
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 				/* The native builds draw several frames per tick
 				(port/linux/game/render_interpolation.c): move a quarter of the
 				way up and half of the way down per 30 Hz tick, not per frame,

@@ -40,6 +40,10 @@ void launcher_open_on_maps(void);
 /* the window and its OpenGL context made (platform_video_initialize): the
 launcher, when something asked for it; returns when the player picks PLAY */
 void launcher_at_start(void);
+
+/* the menus' SETUP (launcher.menu_entry): Chupathingy started again on this
+screen (--setup), and this one quits; 0 if it could not be started */
+int launcher_restart_to_setup(void);
 #endif
 
 #endif

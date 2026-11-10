@@ -3469,7 +3469,7 @@ static void main_game_render(
 			MAIN_STAGE("render: observer_get_camera");
 			observer = observer_get_camera(window->local_player_index);
 			MAIN_STAGE("render: render_interpolation_camera");
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 			observer = render_interpolation_camera(window->local_player_index, observer);
 #endif
 		}
@@ -3882,7 +3882,7 @@ void main_loop(
 					render_frame = main_globals.main_menu_scenario_loaded ||
 						(main_globals.halt_time_scale &&
 							(game_time_get_paused() || game_time_get_elapsed()>0 || game_time_get_speed()<1.0f));
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 					/* frames between ticks too (render_interpolation.c) */
 					if (halo_interpolation_enabled())
 						render_frame = main_globals.main_menu_scenario_loaded || main_globals.halt_time_scale;
@@ -3912,7 +3912,7 @@ void main_loop(
 					MAIN_STAGE("profile_render_start");
 					profile_render_start();
 					MAIN_STAGE("render_interpolation_frame_begin");
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 					render_interpolation_frame_begin();
 					MAIN_STAGE("main_game_render");
 					HALO_PERF_BEGIN(_halo_perf_render);
