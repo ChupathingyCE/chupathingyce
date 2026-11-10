@@ -339,6 +339,8 @@ static void test_lookalikes(void)
 	CHECK(identity_account_choice("nonsense", 0, account) == 0);
 	CHECK(identity_account_choice("", 2, account) == 1 && identity_account_choice("", 0, account) == 0);
 	CHECK(identity_account_choice("31ea6b25b20006a252c816cd2077ffzz", 0, account) == 0);
+}
+
 /* Quick Connect (stage B): the code, its messages, bodies and answers */
 static void test_quick_connect(void)
 {
