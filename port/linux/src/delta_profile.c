@@ -391,6 +391,42 @@ static void read_copy(struct reader *reader, struct delta_profile_copy *copy)
 	}
 }
 
+static void read_device(struct reader *reader, struct delta_profile_device *device)
+{
+	char key[32];
+	int first = 1;
+
+	memset(device, 0, sizeof(*device));
+	if (!take(reader, '{'))
+	{
+		skip_value(reader, 0);
+		return;
+	}
+	while (!reader->failed && member(reader, key, sizeof(key), &first))
+	{
+		if (!strcmp(key, "id"))
+			text_value(reader, device->id, sizeof(device->id));
+		else if (!strcmp(key, "name"))
+			text_value(reader, device->name, sizeof(device->name));
+		else if (!strcmp(key, "platform"))
+			text_value(reader, device->platform, sizeof(device->platform));
+		else if (!strcmp(key, "created"))
+			device->created = number_value(reader);
+		else if (!strcmp(key, "last_seen"))
+			device->last_seen = number_value(reader);
+		else if (!strcmp(key, "legacy"))
+			device->legacy = boolean_value(reader);
+		else if (!strcmp(key, "console"))
+			device->console = boolean_value(reader);
+		else if (!strcmp(key, "signed_out"))
+			device->signed_out = boolean_value(reader);
+		else if (!strcmp(key, "this"))
+			device->this_device = boolean_value(reader);
+		else
+			skip_value(reader, 1);
+	}
+}
+
 static void read_role(struct reader *reader, struct delta_profile_role *role)
 {
 	char key[32];
@@ -657,6 +693,14 @@ int delta_profile_parse(const char *text, struct delta_profile *profile)
 		else if (!strcmp(key, "copies"))
 			READ_ARRAY(&reader, DELTA_PROFILE_COPIES, profile->copy_count,
 				read_copy(&reader, &profile->copies[profile->copy_count]));
+		else if (!strcmp(key, "devices"))
+		{
+			profile->has_devices = 1;
+			READ_ARRAY(&reader, DELTA_PROFILE_DEVICES, profile->device_count,
+				read_device(&reader, &profile->devices[profile->device_count]));
+		}
+		else if (!strcmp(key, "more_devices"))
+			profile->more_devices = (int)number_value(&reader);
 		else if (!strcmp(key, "roles"))
 			READ_ARRAY(&reader, DELTA_PROFILE_ROLES, profile->role_count,
 				read_role(&reader, &profile->roles[profile->role_count]));
@@ -766,6 +810,8 @@ static void read_card(struct reader *reader, struct delta_profile_card *card, in
 			text_value(reader, card->handle, sizeof(card->handle));
 		else if (!strcmp(key, "display"))
 			text_value(reader, card->display, sizeof(card->display));
+		else if (!strcmp(key, "looks_like"))
+			text_value(reader, card->looks_like, sizeof(card->looks_like));
 		else if (!strcmp(key, "clan"))
 		{
 			char clan_key[16];

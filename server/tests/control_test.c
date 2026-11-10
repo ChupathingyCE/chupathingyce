@@ -1195,6 +1195,15 @@ static void test_roles(void)
 		CHECK(control_moderator_parse(line, &back, &reason) == 1 && back.role == CONTROL_ROLE_OWNER &&
 			!memcmp(back.key, key, 32) && !strcmp(back.name, "Milenko"));
 	}
+	/* (a Delta account's line: 32 hex digits, back the same) */
+	CHECK(control_moderator_parse("moderator 31ea6b25b20006a252c816cd2077ff5b Zatchbot", &moderator, &reason) == 1 &&
+		moderator.account && moderator.key[0] == 0x31 && moderator.key[15] == 0x5b && !moderator.key[16] &&
+		!strcmp(moderator.name, "Zatchbot"));
+	CHECK(control_moderator_line(&moderator, line, sizeof(line)) > 0 &&
+		!strcmp(line, "moderator 31ea6b25b20006a252c816cd2077ff5b Zatchbot"));
+	CHECK(control_moderator_parse("moderator 31ea6b25b20006a252c816cd2077ff5 x", &moderator, &reason) < 0);
+	CHECK(control_moderator_parse("moderator 31ea6b25b20006a252c816cd2077ffzz x", &moderator, &reason) < 0);
+	moderator.account = 0;
 	moderator.role = CONTROL_ROLE_NONE;
 	CHECK(control_moderator_line(&moderator, line, sizeof(line)) < 0);
 	/* (random lines: never more than the line, never a crash) */
@@ -1759,6 +1768,26 @@ static void test_link(int rounds)
 		CHECK(crypto_ed25519_check(signature, public_key, (const uint8_t *)message, (size_t)message_length));
 	}
 	CHECK(control_link_signed_body("/v1/control/poll", "s_1", seed, 1, nonce, "{}", body, 20) < 0);
+	/* (a payload of tens of kilobytes, as twenty reports or a shared ban
+	list make, is signed: it once needed six times its size in a 64 KB
+	buffer; one whose body would pass what the site reads is not) */
+	{
+		static char big_payload[CONTROL_LINK_BODY_MOST], big_body[2 * CONTROL_LINK_BODY_MOST];
+		size_t fill;
+
+		fill = (size_t)snprintf(big_payload, sizeof(big_payload), "{\"reports\": \"");
+		while (fill < 40 * 1024)
+			big_payload[fill++] = 'r';
+		snprintf(big_payload + fill, sizeof(big_payload) - fill, "\"}");
+		length = control_link_signed_body("/v1/control/poll", "s_1", seed, 1, nonce, big_payload, big_body,
+			sizeof(big_body));
+		CHECK(length > 40 * 1024 && length <= CONTROL_LINK_BODY_MOST);
+		while (fill < CONTROL_LINK_BODY_MOST - 64)
+			big_payload[fill++] = 'r';
+		snprintf(big_payload + fill, sizeof(big_payload) - fill, "\"}");
+		CHECK(control_link_signed_body("/v1/control/poll", "s_1", seed, 1, nonce, big_payload, big_body,
+			sizeof(big_body)) < 0);
+	}
 
 	/* an answer: taken only with the right MAC, of this request's nonce */
 	{
@@ -1806,6 +1835,17 @@ static void test_link(int rounds)
 	CHECK(!control_link_parse_poll("{\"roles\": {\"version\": 1, \"entries\": [{\"handle\": \"a\", \"role\": \"admin\", "
 		"\"keys\": [\"12\"]}]}}", 87, &poll));
 	CHECK(!control_link_parse_poll("{\"unlinked\": \"yes\"}", 19, &poll));
+	/* (a role entry's account: 32 hex digits, or the whole poll refused) */
+	{
+		const char *with = "{\"roles\": {\"version\": 1, \"entries\": [{\"handle\": \"a\", \"role\": \"admin\", "
+			"\"account\": \"31ea6b25b20006a252c816cd2077ff5b\"}]}}";
+		const char *bad = "{\"roles\": {\"version\": 1, \"entries\": [{\"handle\": \"a\", \"role\": \"admin\", "
+			"\"account\": \"31ea\"}]}}";
+
+		CHECK(control_link_parse_poll(with, strlen(with), &poll) && poll.role_count == 1 && poll.roles[0].has_account &&
+			poll.roles[0].account[0] == 0x31 && poll.roles[0].account[15] == 0x5b);
+		CHECK(!control_link_parse_poll(bad, strlen(bad), &poll));
+	}
 	CHECK(control_link_parse_poll("{\"unlinked\": true}", 18, &poll) && poll.unlinked && !poll.command_count);
 	/* the link's start and state */
 	{
@@ -1927,6 +1967,8 @@ static void test_roles_cache(int rounds)
 	memset(poll.roles[0].keys[1], 0xA5, 32);
 	snprintf(poll.roles[1].handle, sizeof(poll.roles[1].handle), "milenko");
 	poll.roles[1].role = CONTROL_ROLE_OWNER;
+	poll.roles[1].has_account = 1;
+	memset(poll.roles[1].account, 0x3C, 16);
 	length = control_link_roles_cache_text(&poll, 1791168674, secret, text, sizeof(text));
 	CHECK(length > 0 && (size_t)length == strlen(text) && text[0] == '#');
 	CHECK(control_link_roles_cache_open(text, (size_t)length, secret, &back, &heard));
@@ -1934,6 +1976,9 @@ static void test_roles_cache(int rounds)
 		!strcmp(back.roles[0].handle, "odb \"the\" mod") && back.roles[0].role == CONTROL_ROLE_MODERATOR &&
 		back.roles[0].key_count == 2 && back.roles[0].keys[1][31] == 0xA5 && back.roles[1].role == CONTROL_ROLE_OWNER &&
 		!back.roles[1].key_count && !back.command_count);
+	/* (an account kept, and none where the site sent none) */
+	CHECK(!back.roles[0].has_account && back.roles[1].has_account && back.roles[1].account[0] == 0x3C &&
+		back.roles[1].account[15] == 0x3C);
 	/* (another link's secret; any byte changed, the time heard among them) */
 	secret[5] ^= 1;
 	CHECK(!control_link_roles_cache_open(text, (size_t)length, secret, &back, &heard));
@@ -2011,22 +2056,45 @@ static void test_link_extras(int rounds)
 	/* (the member's text is the object's, braces and all) */
 	CHECK(answer[poll.shared_bans_start] == '{' && answer[poll.shared_bans_end - 1] == '}');
 	/* (an entry naming no one, a ref or account that isn't 32 hex digits,
-	or a ref that isn't: the whole answer refused) */
+	text that isn't printable ASCII or too long: that entry left out, the
+	others and the rest of the poll taken; a ref that isn't: left out; a
+	member that isn't right at all: ignored, the poll taken) */
 	{
+		static const char good[] = "{\"list\": \"a\", \"ref\": \"00000000000000000000000000000001\", "
+			"\"device\": \"cccccccccccccccccccccccccccccccc\"}";
 		static const char *const bad[] = {
-			"{\"shared_bans\": {\"version\": 1, \"entries\": [{\"list\": \"a\", \"ref\": "
-				"\"0123456789abcdef0123456789abcdef\", \"accounts\": []}]}}",
-			"{\"shared_bans\": {\"version\": 1, \"entries\": [{\"list\": \"a\", \"ref\": "
-				"\"0123456789abcdef0123456789abcdef\", \"accounts\": [\"xyz\"]}]}}",
-			"{\"shared_bans\": {\"version\": 1, \"entries\": [{\"list\": \"a\", \"ref\": \"short\", "
-				"\"device\": \"cccccccccccccccccccccccccccccccc\"}]}}",
-			"{\"reports_taken\": [\"NOTHEX\"]}",
-			"{\"reports_taken\": \"00112233445566778899aabbccddeeff\"}",
-			"{\"shared_bans\": {\"entries\": []}}",
+			"{\"list\": \"a\", \"ref\": \"0123456789abcdef0123456789abcdef\", \"accounts\": []}",
+			"{\"list\": \"a\", \"ref\": \"0123456789abcdef0123456789abcdef\", \"accounts\": [\"xyz\"]}",
+			"{\"list\": \"a\", \"ref\": \"short\", \"device\": \"cccccccccccccccccccccccccccccccc\"}",
+			"{\"list\": \"a\", \"ref\": \"0123456789ABCDEF0123456789ABCDEF\", "
+				"\"device\": \"cccccccccccccccccccccccccccccccc\"}",
+			"{\"list\": \"a\", \"ref\": \"0123456789abcdef0123456789abcdef\", "
+				"\"device\": \"cccccccccccccccccccccccccccccccc\", \"reason\": \"caf\\u00e9\"}",
+			"{\"list\": \"a\", \"ref\": \"0123456789abcdef0123456789abcdef\", "
+				"\"device\": \"cccccccccccccccccccccccccccccccc\", \"source\": "
+				"\"a source name far longer than the thirty-two bytes a server keeps\"}",
+			"{\"list\": \"a list id longer than twenty-four\", \"ref\": \"0123456789abcdef0123456789abcdef\", "
+				"\"device\": \"cccccccccccccccccccccccccccccccc\"}",
+			"\"not an object\"",
 		};
+		static char poll_text[4096];
 
 		for (index = 0; index < (int)(sizeof(bad) / sizeof(bad[0])); index++)
-			CHECK(!control_link_parse_poll(bad[index], strlen(bad[index]), &back));
+		{
+			snprintf(poll_text, sizeof(poll_text), "{\"commands\": [{\"id\": 9, \"actor\": \"a\", \"command\": "
+				"\"sv_lock\"}], \"shared_bans\": {\"version\": 3, \"entries\": [%s, %s, %s]}}", good, bad[index], good);
+			CHECK(control_link_parse_poll(poll_text, strlen(poll_text), &back) && back.command_count == 1 &&
+				back.has_shared_bans && back.shared_bans_version == 3 && back.shared_ban_count == 2 &&
+				back.shared_bans_skipped == 1);
+		}
+		CHECK(control_link_parse_poll("{\"commands\": [], \"reports_taken\": [\"NOTHEX\", "
+			"\"00112233445566778899aabbccddeeff\"]}", 81, &back) && back.reports_taken_count == 1);
+		CHECK(control_link_parse_poll("{\"commands\": [], \"reports_taken\": \"00112233445566778899aabbccddeeff\"}",
+			69, &back) && !back.reports_taken_count);
+		CHECK(control_link_parse_poll("{\"commands\": [], \"shared_bans\": {\"entries\": []}}", 48, &back) &&
+			!back.has_shared_bans);
+		CHECK(control_link_parse_poll("{\"commands\": [], \"bans_digest\": \"xyz\"}", 38, &back) &&
+			!back.has_bans_digest);
 	}
 	/* (an older site's answer: none of them) */
 	CHECK(control_link_parse_poll("{\"commands\": []}", 16, &back) && !back.has_shared_bans && !back.has_bans_digest &&

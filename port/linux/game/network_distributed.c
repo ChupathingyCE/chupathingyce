@@ -4276,8 +4276,9 @@ static void distributed_write_player_record(
 	if (until)
 		fprintf(file, "\tuntil=%lu", until);
 #ifdef HALO_GAME_BROWSER
-	/* (a machine whose players proved who they are over Delta Peer: their
-	accounts, device and handles, so the ban follows the account too) */
+	/* (a machine whose players proved who they are over Delta Peer, bound
+	to this host: their accounts and device, so the ban follows the account
+	too) */
 	if (machine_index >= 0 && machine_index < HALO_PORT_MAXIMUM_NETWORK_MACHINES)
 	{
 		char identity[256];

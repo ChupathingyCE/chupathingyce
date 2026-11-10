@@ -417,7 +417,7 @@ this machine's clock, play, the revocation list this copy last fetched, and
 the device key's signature of the host's nonce, binding, machine, local
 player, serial and tag */
 static int game_identity_check(void *context, const struct delta_wire_id_proof *proof, const unsigned char *nonce,
-	const char *binding, int binding_length, int machine_index, struct delta_peer_identity *identity)
+	const char *binding, int binding_length, int machine_index, unsigned long age, struct delta_peer_identity *identity)
 {
 	struct identity_device device;
 	unsigned char message[IDENTITY_PROOF_MESSAGE_MOST];
@@ -425,13 +425,16 @@ static int game_identity_check(void *context, const struct delta_wire_id_proof *
 	int size;
 
 	(void)context;
+	/* (signed lately by the signer's clock, as this machine's has it: an old
+	proof is never taken into a later game) */
 	if (now <= 0 || !identity_parse_device(proof->certificate, proof->certificate_length, &device) ||
-		(proof->tag_length && !identity_tag_valid(proof->tag, proof->tag_length)))
+		(proof->tag_length && !identity_tag_valid(proof->tag, proof->tag_length)) ||
+		!identity_proof_fresh(proof->time, (unsigned long)now, age))
 	{
 		return 0;
 	}
 	size = identity_proof_message(nonce, binding, binding_length, machine_index, proof->local_player, device.serial,
-		proof->tag, proof->tag_length, message);
+		proof->flags, proof->time, proof->tag, proof->tag_length, message);
 	if (size <= 0 || identity_check_proof(proof->issuer, IDENTITY_ISSUER_SIZE, proof->certificate,
 		proof->certificate_length, identity_root_keys, IDENTITY_ROOT_KEY_COUNT, NULL, (unsigned long)now, message,
 		size, proof->signature, &device) != IDENTITY_OK ||
@@ -463,7 +466,7 @@ an in-date certificate with a profile for that account; the name is the
 handle in the capitals the profile picked, as the site last answered
 (none: the handle shows) */
 static int game_identity_prove(void *context, int local_player, const unsigned char *nonce, const char *binding,
-	int binding_length, int machine_index, struct delta_wire_id_proof *made)
+	int binding_length, int machine_index, int flags, struct delta_wire_id_proof *made)
 {
 	static struct browser_profile_status status;
 	static struct delta_profile profile;
@@ -496,8 +499,10 @@ static int game_identity_prove(void *context, int local_player, const unsigned c
 		memcpy(made->tag, profile.display, (size_t)length);
 		made->tag_length = length;
 	}
+	made->flags = flags;
+	made->time = (delta_u32)time(NULL);
 	size = identity_proof_message(nonce, binding, binding_length, machine_index, local_player, device.serial,
-		made->tag, made->tag_length, message);
+		made->flags, made->time, made->tag, made->tag_length, message);
 	return size > 0 && browser_identity_sign(message, size, made->signature, NULL);
 }
 #endif
@@ -1056,25 +1061,27 @@ int delta_peer_game_player_identity(int machine_index, int local_player, struct 
 	return delta_peer_identity(&delta_game.peer, machine_index, local_player, identity);
 }
 
-/* (the host's bans, network_distributed.c) a machine's verified accounts,
-device and handles as a ban line's fields ("account=<hex>[,<hex>]\tdevice=
-<hex>\tprofile=<handle>[,<handle>]"): its length, 0 when it has none */
+/* (the host's bans, network_distributed.c) a machine's accounts and device,
+of its players' bound proofs alone (a proof not bound to this host could be
+another's, relayed: it never bans anyone), as a ban line's fields
+("account=<hex>[,<hex>]\tdevice=<hex>"): its length, 0 when it has none */
 int delta_peer_game_machine_identity_text(int machine_index, char *text, int size)
 {
 	static const char digits[] = "0123456789abcdef";
 	struct delta_peer_identity identity;
-	char handles[4 * 24 + 8];
 	unsigned char device[DELTA_WIRE_PLAYER_ID_SIZE];
-	int local, used = 0, accounts = 0, index, handles_used = 0;
+	int local, used = 0, accounts = 0, index;
 
 	if (size <= 0)
 		return 0;
 	text[0] = 0;
-	handles[0] = 0;
 	for (local = 0; local < DELTA_WIRE_IDENTITY_LOCAL_PLAYERS; local++)
 	{
-		if (!delta_peer_game_player_identity(machine_index, local, &identity) || used + 40 >= size)
+		if (!delta_peer_game_player_identity(machine_index, local, &identity) || !identity.bound ||
+			used + 40 >= size)
+		{
 			continue;
+		}
 		used += snprintf(text + used, (size_t)(size - used), "%s", accounts ? "," : "account=");
 		for (index = 0; index < DELTA_WIRE_PLAYER_ID_SIZE; index++)
 		{
@@ -1082,11 +1089,6 @@ int delta_peer_game_machine_identity_text(int machine_index, char *text, int siz
 			text[used++] = digits[identity.account[index] & 15];
 		}
 		text[used] = 0;
-		if (identity.handle[0])
-		{
-			handles_used += snprintf(handles + handles_used, sizeof(handles) - (size_t)handles_used, "%s%s",
-				handles_used ? "," : "", identity.handle);
-		}
 		if (!accounts)
 			memcpy(device, identity.device_id, sizeof(device));
 		accounts++;
@@ -1101,8 +1103,6 @@ int delta_peer_game_machine_identity_text(int machine_index, char *text, int siz
 		}
 		text[used] = 0;
 	}
-	if (handles[0] && used + handles_used + 10 < size)
-		used += snprintf(text + used, (size_t)(size - used), "\tprofile=%s", handles);
 	return used;
 }
 

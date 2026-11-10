@@ -41,6 +41,9 @@ enum
 	CONTROL_LINK_COMMANDS = 16,
 	CONTROL_LINK_ROLE_ENTRIES = 128,
 	CONTROL_LINK_ENTRY_KEYS = 8,
+	/* a signed request's body, at most: the site refuses a bigger one before
+	it reads it */
+	CONTROL_LINK_BODY_MOST = 384 * 1024,
 	/* the refs of reports an answer says the site took, at most */
 	CONTROL_LINK_REPORTS_TAKEN = 20,
 	/* a JSON answer's tokens, at most (a full shared ban list's take about
@@ -115,6 +118,10 @@ struct control_link_role
 	int role;
 	int key_count;
 	uint8_t keys[CONTROL_LINK_ENTRY_KEYS][32];
+	/* its Delta account (the profile's player ID), from a site that sends
+	it: verified players' roles match by it */
+	int has_account;
+	uint8_t account[16];
 };
 
 struct control_link_poll
@@ -140,6 +147,8 @@ struct control_link_poll
 	uint64_t shared_bans_version;
 	int shared_ban_count;
 	struct server_shared_ban shared_bans[SERVER_BAN_SHARED_MOST];
+	/* the entries left out: not right, or past the most */
+	int shared_bans_skipped;
 	int shared_bans_start;
 	int shared_bans_end;
 };

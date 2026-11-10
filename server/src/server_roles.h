@@ -102,8 +102,9 @@ void server_roles_set_site(int count, const unsigned char *keys, const int *role
 int server_roles_site_handle_role(const char *handle);
 /* the site's handles: their roles here (capped by HALO_DEDICATED_LINK_ROLE),
 the roles the site gave them, and how many games' keys each has */
+/* (accounts: 16 bytes each, zeros for an entry without one; NULL: none) */
 void server_roles_set_site_handles(int count, const char *const *handles, const int *roles, const int *site_roles,
-	const int *key_counts);
+	const int *key_counts, const unsigned char *accounts);
 
 /* where the site's role list stands (control_link.c's) */
 enum

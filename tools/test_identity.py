@@ -56,9 +56,22 @@ def test_vectors_match():
     vectors = json.loads(VECTORS.read_text())
     c = c_vectors()
     for name, value in vectors.items():
-        if name.endswith("_text") or name == "note":
+        if name.endswith("_text") or name == "note" or isinstance(value, list):
             continue
         assert c.get(name) == value, name
+
+
+def test_lookalike_vectors_match():
+    """The C test's look-alike table is the JSON's (the site's tests check
+    the same pairs against its lookalike_key)."""
+    vectors = json.loads(VECTORS.read_text())
+    text = TEST.read_text()
+    table = text[text.index("lookalikes[][2]"):]
+    table = table[:table.index("};")]
+    pairs = re.findall(r'\{ "((?:[^"\\]|\\.)*)", "([a-z]*)" \}', table)
+    decoded = [(bytes(name, "ascii").decode("unicode_escape").encode("latin-1").decode("utf-8"), key)
+               for name, key in pairs]
+    assert decoded == [tuple(pair) for pair in vectors["lookalikes"]]
 
 
 def test_identity(tmp_path):

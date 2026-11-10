@@ -479,6 +479,9 @@ static const struct config_setting config_settings[] =
 #endif
 	{ "display.profile_names", _config_boolean, "true", "HALO_PROFILE_NAMES", _environment_value, _platform_all,
 		"In Delta games, show players by their shared Delta profile name." },
+	{ "display.verified_mark", _config_boolean, "false", "HALO_VERIFIED_MARK", _environment_value, _platform_all,
+		"In Delta games, put @ in front of the names of players whose Delta\n"
+		"profile is proven. Other players' names never start with @ then." },
 	{ "display.server_messages", _config_boolean, "true", "HALO_SERVER_MESSAGES", _environment_value, _platform_all | _platform_xbox,
 		"Show the banner for a Delta server's warnings and notices." },
 	{ "display.server_message_text_color", _config_string, "\"\"", "HALO_SERVER_MESSAGE_TEXT_COLOR",
@@ -900,7 +903,7 @@ static const struct config_setting config_settings[] =
 		"In games you host, let players watch a living player's view while\n"
 		"they wait to respawn (display.follow_camera). Off plays as the Xbox\n"
 		"did: the death camera alone." },
-	{ "network.late_join_wait", _config_boolean, "false", "HALO_NET_LATE_JOIN_WAIT", _environment_value,
+	{ "network.late_join_hold", _config_boolean, "false", "HALO_NET_LATE_JOIN_HOLD", _environment_value,
 		_platform_all,
 		"In games you host, players who join a game in progress watch until\n"
 		"the next game starts. Off spawns them at once, as Halo does." },
@@ -973,7 +976,7 @@ static const struct config_setting config_settings[] =
 	/* (a console's reports of the games it joins too: port/console/reports) */
 #if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_GAME_REPORTS)
 	{ "network.report_joined_games", _config_boolean, "true", "HALO_NET_REPORT_GAMES", _environment_value,
-		_platform_all,
+		_platform_all | _platform_xbox,
 		"Send the scores of internet games you join to the game list." },
 #endif
 #ifdef HALO_GAME_BROWSER
@@ -2453,6 +2456,33 @@ enum
 	CONFIG_INDEX_GUESSES = 64
 };
 static long config_index_guesses[CONFIG_INDEX_GUESSES];
+
+/* the first setting named twice in this build's table, or its environment
+variable twice (a second entry is never read: config_setting_index finds
+the first), into name: 1, else 0. tools/test_port_config.py checks every
+kind of build has none */
+int config_duplicate_setting(char *name, size_t size)
+{
+	size_t index, other;
+
+	for (index = 0; index < NUMBER_OF_CONFIG_SETTINGS; index++)
+	{
+		for (other = index + 1; other < NUMBER_OF_CONFIG_SETTINGS; other++)
+		{
+			const char *variable = config_settings[index].environment;
+
+			if (strcmp(config_settings[index].name, config_settings[other].name) &&
+				(!variable || !config_settings[other].environment ||
+				strcmp(variable, config_settings[other].environment)))
+			{
+				continue;
+			}
+			snprintf(name, size, "%s", config_settings[other].name);
+			return 1;
+		}
+	}
+	return 0;
+}
 
 static long config_setting_index(const char *name)
 {

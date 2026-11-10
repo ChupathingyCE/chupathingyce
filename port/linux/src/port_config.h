@@ -62,5 +62,8 @@ void config_new_defaults_answer(int use_new);
 /* how many times config_write has changed a setting: what keeps one reads
 it again when this moves */
 unsigned long config_changes(void);
+/* (the tests') the first setting or environment variable named twice: 1
+and its name, else 0 */
+int config_duplicate_setting(char *name, size_t size);
 
 #endif

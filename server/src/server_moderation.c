@@ -49,6 +49,9 @@ struct delta_peer_identity
 	int platform;
 	int flags;
 	delta_u32 capabilities;
+	/* the proof was bound to this host: only such a player's account gets a
+	role, a ban, a report's account or a shared list's match */
+	int bound;
 };
 
 struct delta_peer_moderation_host
@@ -264,6 +267,10 @@ static void hook_machine_identity(
 	{
 		return;
 	}
+	/* (Delta Peer gives moderation bound proofs alone; one that is not
+	bound is never kept, here too) */
+	if (identity && !identity->bound)
+		identity = NULL;
 	if (identity)
 	{
 		moderation.identities[machine_index][local_player] = *identity;

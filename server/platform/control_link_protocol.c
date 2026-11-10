@@ -342,12 +342,10 @@ int control_link_signed_body(const char *path, const char *server_id, const uint
 	uint8_t copy[CONTROL_LINK_SEED_BYTES];
 	size_t message_size = strlen(path) + strlen(server_id) + strlen(payload) + 96;
 	char *message;
-	char *quoted;
-	size_t quoted_size = strlen(payload) * 6 + 3;
 	int length;
 
 	control_hex_text(nonce, CONTROL_LINK_NONCE_BYTES, nonce_text);
-	if (message_size > size || quoted_size > size)
+	if (message_size > size)
 		return -1;
 	/* (the message signed: in the out buffer's room, before the body is
 	written there) */
@@ -361,19 +359,17 @@ int control_link_signed_body(const char *path, const char *server_id, const uint
 	crypto_ed25519_sign(signature, secret, (const uint8_t *)message, (size_t)length);
 	crypto_wipe(secret, sizeof(secret));
 	control_hex_text(signature, sizeof(signature), signature_text);
-	/* the body: the payload as a JSON string */
+	/* the body: the payload as a JSON string (its escaped length, not a
+	guess at it: a payload of more than a few kilobytes once never fit) */
 	{
-		static char quoted_buffer[64 * 1024];
+		static char quoted[CONTROL_LINK_BODY_MOST];
 
-		if (quoted_size > sizeof(quoted_buffer))
-			return -1;
-		quoted = quoted_buffer;
-		if (control_json_string(payload, quoted, sizeof(quoted_buffer)) < 0)
+		if (control_json_string(payload, quoted, sizeof(quoted)) < 0)
 			return -1;
 		length = snprintf(out, size, "{\"server_id\": \"%s\", \"time\": %lld, \"nonce\": \"%s\", \"payload\": %s, "
 			"\"signature\": \"%s\"}", server_id, (long long)time, nonce_text, quoted, signature_text);
 	}
-	return length < 0 || (size_t)length >= size ? -1 : length;
+	return length < 0 || (size_t)length >= size || length > CONTROL_LINK_BODY_MOST ? -1 : length;
 }
 
 int control_link_open_answer(const char *answer, size_t length, const uint8_t secret[CONTROL_LINK_SECRET_BYTES],
@@ -562,9 +558,12 @@ static int parse_shared_ban(const char *payload, int at, struct server_shared_ba
 	return 1;
 }
 
-/* a poll's newer members (reports_taken, bans_digest, shared_bans): 1, else
-0 */
-static int parse_poll_extras(const char *payload, struct control_link_poll *poll)
+/* a poll's newer members (reports_taken, bans_digest, shared_bans). None of
+them ever refuses the poll: an item that is not right is left out (a ref,
+a shared ban entry), and a member that is not right at all is ignored, so
+one bad entry on the site never stops a server's polls (its commands, its
+roles) */
+static void parse_poll_extras(const char *payload, struct control_link_poll *poll)
 {
 	static const char *const report_keys[] = { "reports_taken", "reports_refused" };
 	int key, value;
@@ -575,35 +574,32 @@ static int parse_poll_extras(const char *payload, struct control_link_poll *poll
 		int item, at;
 
 		value = control_json_member(payload, json_tokens, 0, report_keys[key]);
-		if (value < 0)
+		if (value < 0 || json_tokens[value].type != CONTROL_JSON_ARRAY)
 			continue;
-		if (json_tokens[value].type != CONTROL_JSON_ARRAY)
-			return 0;
 		at = value + 1;
 		for (item = 0; item < json_tokens[value].size; item++)
 		{
 			char ref[SERVER_REPORT_ID_SIZE + 1];
 
-			if (!control_json_text(payload, &json_tokens[at], ref, sizeof(ref)) || !ref_valid(ref))
-				return 0;
-			if (poll->reports_taken_count < CONTROL_LINK_REPORTS_TAKEN)
+			if (control_json_text(payload, &json_tokens[at], ref, sizeof(ref)) && ref_valid(ref) &&
+				poll->reports_taken_count < CONTROL_LINK_REPORTS_TAKEN)
+			{
 				memcpy(poll->reports_taken[poll->reports_taken_count++], ref, SERVER_REPORT_ID_SIZE);
+			}
 			at = json_tokens[at].next;
 		}
 	}
 	value = control_json_member(payload, json_tokens, 0, "bans_digest");
-	if (value >= 0 && json_tokens[value].type == CONTROL_JSON_STRING)
+	if (value >= 0 && json_tokens[value].type == CONTROL_JSON_STRING &&
+		control_json_text(payload, &json_tokens[value], poll->bans_digest, sizeof(poll->bans_digest)))
 	{
 		size_t index;
 
-		if (!control_json_text(payload, &json_tokens[value], poll->bans_digest, sizeof(poll->bans_digest)))
-			return 0;
-		for (index = 0; poll->bans_digest[index]; index++)
-		{
-			if (hex_digit(poll->bans_digest[index]) < 0)
-				return 0;
-		}
-		poll->has_bans_digest = 1;
+		for (index = 0; poll->bans_digest[index] && hex_digit(poll->bans_digest[index]) >= 0; index++)
+			;
+		poll->has_bans_digest = !poll->bans_digest[index];
+		if (!poll->has_bans_digest)
+			poll->bans_digest[0] = 0;
 	}
 	value = control_json_member(payload, json_tokens, 0, "shared_bans");
 	if (value >= 0 && json_tokens[value].type == CONTROL_JSON_OBJECT)
@@ -612,29 +608,33 @@ static int parse_poll_extras(const char *payload, struct control_link_poll *poll
 		int entries = control_json_member(payload, json_tokens, value, "entries");
 		int item, at;
 
+		/* (no version or no entries: the member is left alone, and the site
+		sends it again) */
 		if (version < 0 || entries < 0 ||
 			!control_json_number(payload, &json_tokens[version], &poll->shared_bans_version) ||
 			json_tokens[entries].type != CONTROL_JSON_ARRAY)
 		{
-			return 0;
+			poll->shared_bans_version = 0;
+			return;
 		}
 		at = entries + 1;
 		for (item = 0; item < json_tokens[entries].size; item++)
 		{
-			/* (entries past the most the server takes are left out) */
-			if (poll->shared_ban_count < SERVER_BAN_SHARED_MOST)
+			/* (entries past the most the server takes, and an entry that is
+			not right, are left out) */
+			if (poll->shared_ban_count < SERVER_BAN_SHARED_MOST &&
+				parse_shared_ban(payload, at, &poll->shared_bans[poll->shared_ban_count]))
 			{
-				if (!parse_shared_ban(payload, at, &poll->shared_bans[poll->shared_ban_count]))
-					return 0;
 				poll->shared_ban_count++;
 			}
+			else
+				poll->shared_bans_skipped++;
 			at = json_tokens[at].next;
 		}
 		poll->has_shared_bans = 1;
 		poll->shared_bans_start = json_tokens[value].start;
 		poll->shared_bans_end = json_tokens[value].end;
 	}
-	return 1;
 }
 
 int control_link_parse_poll(const char *payload, size_t length, struct control_link_poll *poll)
@@ -706,6 +706,7 @@ int control_link_parse_poll(const char *payload, size_t length, struct control_l
 			struct control_link_role *role = &poll->roles[poll->role_count];
 			char role_text[16];
 			int keys = control_json_member(payload, json_tokens, at, "keys");
+			char account_text[40];
 
 			if (json_tokens[at].type != CONTROL_JSON_OBJECT ||
 				!member_text(payload, at, "handle", role->handle, sizeof(role->handle)) ||
@@ -713,6 +714,23 @@ int control_link_parse_poll(const char *payload, size_t length, struct control_l
 				(role->role = control_role_parse(role_text)) < 0)
 			{
 				return 0;
+			}
+			/* (an account: 32 hex digits; a site before them sends none) */
+			if (control_json_member(payload, json_tokens, at, "account") >= 0)
+			{
+				char padded[CONTROL_KEY_TEXT + 1];
+				uint8_t bytes[CONTROL_KEY_BYTES];
+
+				if (!member_text(payload, at, "account", account_text, sizeof(account_text)) ||
+					strlen(account_text) != 32)
+				{
+					return 0;
+				}
+				snprintf(padded, sizeof(padded), "%s00000000000000000000000000000000", account_text);
+				if (!control_key_parse(padded, bytes))
+					return 0;
+				memcpy(role->account, bytes, sizeof(role->account));
+				role->has_account = 1;
 			}
 			if (keys >= 0)
 			{
@@ -741,8 +759,7 @@ int control_link_parse_poll(const char *payload, size_t length, struct control_l
 			at = json_tokens[at].next;
 		}
 	}
-	if (!parse_poll_extras(payload, poll))
-		return 0;
+	parse_poll_extras(payload, poll);
 	return 1;
 }
 
@@ -811,10 +828,27 @@ int control_link_roles_cache_text(const struct control_link_poll *poll, int64_t 
 		if (control_json_string(role->handle, handle, sizeof(handle)) < 0 ||
 			!put(out, size, &length, index ? ", {\"handle\": " : "{\"handle\": ") || !put(out, size, &length, handle) ||
 			!put(out, size, &length, ", \"role\": \"") || !put(out, size, &length, control_role_name(role->role)) ||
-			!put(out, size, &length, "\", \"keys\": ["))
+			!put(out, size, &length, "\", "))
 		{
 			return -1;
 		}
+		if (role->has_account)
+		{
+			char account[CONTROL_KEY_TEXT + 1];
+			uint8_t bytes[CONTROL_KEY_BYTES];
+
+			memset(bytes, 0, sizeof(bytes));
+			memcpy(bytes, role->account, sizeof(role->account));
+			control_key_text(bytes, account);
+			account[32] = 0;
+			if (!put(out, size, &length, "\"account\": \"") || !put(out, size, &length, account) ||
+				!put(out, size, &length, "\", "))
+			{
+				return -1;
+			}
+		}
+		if (!put(out, size, &length, "\"keys\": ["))
+			return -1;
 		for (key = 0; key < role->key_count; key++)
 		{
 			char key_text[CONTROL_KEY_TEXT + 1];

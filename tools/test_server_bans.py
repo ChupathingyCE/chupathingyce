@@ -48,3 +48,47 @@ def test_server_bans(tmp_path):
     # (the queue's file: no address in it)
     log = (data / "reports.log").read_text(encoding="utf-8")
     assert "\"event\": \"report\"" in log and "\"event\": \"closed\"" in log
+
+
+def test_poll_sends_without_extras_before_failing():
+    """a poll whose signed body would pass what the site reads
+    (CONTROL_LINK_BODY_MOST) goes without the shared bans, then without the
+    reports too, so the commands' results and the status never wait on them"""
+    source = (ROOT / "server" / "platform" / "control_link.c").read_text(encoding="utf-8")
+    start = source.index("static int run_poll(void)")
+    body = source[start:source.index("\n}\n", start)]
+    assert "for (extras_sent = 2; extras_sent >= 0; extras_sent--)" in body
+    assert body.index("extras_sent >= 1 && ") < body.index("server_reports_site_payload(")
+    assert body.index("extras_sent >= 2 && ") < body.index("server_bans_share_payload(")
+    assert "if (status != REQUEST_TOO_BIG)\n\t\t\tbreak;" in body
+    assert "return REQUEST_TOO_BIG;" in source
+    protocol = (ROOT / "server" / "platform" / "control_link_protocol.h").read_text(encoding="utf-8")
+    assert "CONTROL_LINK_BODY_MOST = 384 * 1024," in protocol
+
+
+def _struct_fields(source, name):
+    import re
+    start = source.index(f"struct {name}\n{{")
+    body = re.sub(r"/\*.*?\*/", "", source[start:source.index("\n};", start)], flags=re.S)
+    return re.findall(r"^\s+[A-Za-z_][\w ]*?\**\s*\**(\w+)(?:\[[^\]]*\])*;", body, re.M)
+
+
+def test_only_bound_identities_reach_reports_and_bans():
+    """reports, the shared lists and sv_ban_account's targets go by a
+    player's account only when their proof was bound to this server: Delta
+    Peer tells moderation of bound proofs alone, the server's copy of the
+    identity has the same layout and drops one that isn't bound, a report's
+    accounts come from moderation's, and a shared list is matched against
+    the bound proofs alone"""
+    peer_header = (ROOT / "port/linux/src/delta_peer.h").read_text(encoding="utf-8")
+    peer = (ROOT / "port/linux/src/delta_peer.c").read_text(encoding="utf-8")
+    peer_game = (ROOT / "port/linux/src/delta_peer_game.c").read_text(encoding="utf-8")
+    moderation = (ROOT / "server/src/server_moderation.c").read_text(encoding="utf-8")
+    reports = (ROOT / "server/src/server_reports.c").read_text(encoding="utf-8")
+    assert _struct_fields(moderation, "delta_peer_identity") == _struct_fields(peer_header, "delta_peer_identity")
+    assert "identity && identity->bound ? identity : NULL" in peer
+    assert "if (identity && !identity->bound)\n\t\tidentity = NULL;" in moderation
+    start = peer_game.index("int delta_peer_game_machine_identity_text(")
+    assert "!identity.bound" in peer_game[start:peer_game.index("\n}\n", start)]
+    assert "server_moderation_machine_account(" in reports
+    assert "delta_peer_game_player_identity" not in reports and "delta_peer_identity(" not in reports

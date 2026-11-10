@@ -27,6 +27,12 @@ static const char enroll_label[] = "chupathingy legacy enroll v1\n";
 static const char refresh_label[] = "chupathingy device refresh v1\n";
 static const char token_label[] = "chupathingy device token v1\n";
 static const char proof_label[] = "delta identity proof v1\n";
+static const char start_label[] = "chupathingy device start v1\n";
+static const char confirm_label[] = "chupathingy device confirm v1\n";
+static const char signout_label[] = "chupathingy device signout v1\n";
+static const char code_label[] = "chupathingy device code v1\n";
+/* (a code's characters: no 0, 1, I, L or O, as a console's Link Profile code) */
+static const char code_alphabet[] = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
 
 /* ---------- SHA-256 (FIPS 180-4), for the IDs */
 
@@ -482,6 +488,93 @@ int identity_token_message(const char *audience, const unsigned char *nonce, con
 	return message(token_label, audience, nonce, IDENTITY_NONCE_SIZE, device_id, IDENTITY_ID_SIZE, NULL, 0, out);
 }
 
+int identity_start_message(const char *audience, const unsigned char *nonce, const unsigned char *public_key,
+	unsigned char *out)
+{
+	return message(start_label, audience, nonce, IDENTITY_NONCE_SIZE, public_key, IDENTITY_KEY_SIZE, NULL, 0, out);
+}
+
+int identity_confirm_message(const char *audience, const unsigned char *nonce, const unsigned char *device_id,
+	int accept, const char *handle, unsigned char *out)
+{
+	unsigned char tail[2 + IDENTITY_HANDLE_MOST];
+	int length = handle ? (int)strlen(handle) : 0;
+
+	if (length > IDENTITY_HANDLE_MOST)
+		return -1;
+	tail[0] = (unsigned char)(accept ? 1 : 0);
+	tail[1] = (unsigned char)length;
+	if (length)
+		memcpy(tail + 2, handle, (size_t)length);
+	return message(confirm_label, audience, nonce, IDENTITY_NONCE_SIZE, device_id, IDENTITY_ID_SIZE, tail,
+		2 + length, out);
+}
+
+int identity_signout_message(const char *audience, const unsigned char *nonce, const unsigned char *device_id,
+	unsigned char *out)
+{
+	return message(signout_label, audience, nonce, IDENTITY_NONCE_SIZE, device_id, IDENTITY_ID_SIZE, NULL, 0, out);
+}
+
+void identity_device_code(const unsigned char *public_key, const unsigned char *code_nonce, char *code)
+{
+	unsigned char data[sizeof(code_label) - 1 + IDENTITY_KEY_SIZE + IDENTITY_NONCE_SIZE], digest[32];
+	int index, at = 0;
+
+	memcpy(data, code_label, sizeof(code_label) - 1);
+	memcpy(data + sizeof(code_label) - 1, public_key, IDENTITY_KEY_SIZE);
+	memcpy(data + sizeof(code_label) - 1 + IDENTITY_KEY_SIZE, code_nonce, IDENTITY_NONCE_SIZE);
+	identity_sha256(data, (int)sizeof(data), digest);
+	for (index = 0; index < IDENTITY_CODE_LENGTH; index++)
+	{
+		if (index == IDENTITY_CODE_LENGTH / 2)
+			code[at++] = '-';
+		code[at++] = code_alphabet[digest[index] % (sizeof(code_alphabet) - 1)];
+	}
+	code[at] = 0;
+}
+
+int identity_clean_code(const char *typed, char *code)
+{
+	int count = 0, at = 0;
+
+	for (; typed && *typed; typed++)
+	{
+		char c = *typed;
+
+		if (c == '-' || c == ' ')
+			continue;
+		if (c >= 'a' && c <= 'z')
+			c = (char)(c - 'a' + 'A');
+		if (!strchr(code_alphabet, c) || !c || count == IDENTITY_CODE_LENGTH)
+			return code[0] = 0, 0;
+		if (count == IDENTITY_CODE_LENGTH / 2)
+			code[at++] = '-';
+		code[at++] = c;
+		count++;
+	}
+	code[at] = 0;
+	return count == IDENTITY_CODE_LENGTH || (code[0] = 0, 0);
+}
+
+int identity_approval_code(const char *typed, char *code)
+{
+	int length = 0;
+
+	for (; typed && *typed; typed++)
+	{
+		char c = *typed >= 'a' && *typed <= 'z' ? (char)(*typed - 'a' + 'A') : *typed;
+
+		if (c == '-' || c == ' ')
+			continue;
+		if (!c || !strchr(code_alphabet, c) || length == IDENTITY_CODE_LENGTH)
+			return code[0] = 0, 0;
+		code[length++] = c;
+	}
+	code[length] = 0;
+	return length == 6 || length == IDENTITY_CODE_LENGTH || (code[0] = 0, 0);
+}
+
 /* ---------- text */
 
 void identity_hex(const unsigned char *bytes, int size, char *text)
@@ -674,6 +767,82 @@ int identity_signed_body(char *out, int size, const unsigned char *device_id, co
 	return length < 0 || length >= size ? -1 : length;
 }
 
+int identity_start_body(char *out, int size, const unsigned char *public_key, const char *nonce_hex,
+	const unsigned char *signature, const char *platform, const char *build, const char *name)
+{
+	char key_text[2 * IDENTITY_KEY_SIZE + 1], signature_text[2 * IDENTITY_SIGNATURE_SIZE + 1];
+	char platform_text[24], build_text[48], name_text[40];
+	int length;
+
+	identity_hex(public_key, IDENTITY_KEY_SIZE, key_text);
+	identity_hex(signature, IDENTITY_SIGNATURE_SIZE, signature_text);
+	clean_text(platform_text, sizeof(platform_text), platform);
+	clean_text(build_text, sizeof(build_text), build);
+	clean_text(name_text, 33, name);
+	length = snprintf(out, (size_t)size, "{\"device_key\": \"%s\", \"nonce\": \"%s\", \"signature\": \"%s\", "
+		"\"platform\": \"%s\", \"build\": \"%s\", \"name\": \"%s\"}", key_text, nonce_hex, signature_text,
+		platform_text, build_text, name_text);
+	return length < 0 || length >= size ? -1 : length;
+}
+
+int identity_confirm_body(char *out, int size, const char *poll_token, const unsigned char *device_id,
+	const char *nonce_hex, const unsigned char *signature, int accept)
+{
+	char id_text[2 * IDENTITY_ID_SIZE + 1], signature_text[2 * IDENTITY_SIGNATURE_SIZE + 1], token_text[72];
+	int length;
+
+	identity_hex(device_id, IDENTITY_ID_SIZE, id_text);
+	identity_hex(signature, IDENTITY_SIGNATURE_SIZE, signature_text);
+	clean_text(token_text, IDENTITY_POLL_TOKEN_SIZE, poll_token);
+	length = snprintf(out, (size_t)size, "{\"poll_token\": \"%s\", \"device_id\": \"%s\", \"nonce\": \"%s\", "
+		"\"accept\": %s, \"signature\": \"%s\"}", token_text, id_text, nonce_hex, accept ? "true" : "false",
+		signature_text);
+	return length < 0 || length >= size ? -1 : length;
+}
+
+/* a member of decimal digits: 1 and its value, or 0 */
+static int json_number(const char *json, const char *name, unsigned long *value)
+{
+	char number[16];
+	int length, index;
+	unsigned long seconds = 0;
+
+	length = identity_json_member(json, name, number, sizeof(number));
+	for (index = 0; index < length && number[index] >= '0' && number[index] <= '9'; index++)
+		seconds = seconds * 10 + (unsigned long)(number[index] - '0');
+	if (length <= 0 || index != length)
+		return 0;
+	*value = seconds;
+	return 1;
+}
+
+int identity_start_answer(const char *json, unsigned char *code_nonce, char *poll_token, unsigned long *interval,
+	unsigned long *lifetime)
+{
+	char text[2 * IDENTITY_NONCE_SIZE + 1];
+	int index;
+
+	if (identity_json_member(json, "code_nonce", text, sizeof(text)) != 2 * IDENTITY_NONCE_SIZE ||
+		!identity_unhex(text, 2 * IDENTITY_NONCE_SIZE, code_nonce, IDENTITY_NONCE_SIZE) ||
+		identity_json_member(json, "poll_token", poll_token, IDENTITY_POLL_TOKEN_SIZE) != IDENTITY_POLL_TOKEN_SIZE - 1 ||
+		!json_number(json, "interval", interval) || !json_number(json, "expires_in", lifetime) || !*lifetime)
+	{
+		poll_token[0] = 0;
+		return 0;
+	}
+	for (index = 0; index < IDENTITY_POLL_TOKEN_SIZE - 1; index++)
+	{
+		if (!((poll_token[index] >= '0' && poll_token[index] <= '9') || (poll_token[index] >= 'a' && poll_token[index] <= 'f')))
+			return poll_token[0] = 0, 0;
+	}
+	/* (asked no more often than every 2 seconds, nor less than every 30) */
+	if (*interval < 2)
+		*interval = 2;
+	if (*interval > 30)
+		*interval = 30;
+	return 1;
+}
+
 int identity_nonce_answer(const char *json, char *nonce_hex, unsigned char *nonce)
 {
 	return identity_json_member(json, "nonce", nonce_hex, 2 * IDENTITY_NONCE_SIZE + 1) == 2 * IDENTITY_NONCE_SIZE &&
@@ -736,7 +905,7 @@ int identity_token_answer(const char *json, char *token, int size, unsigned long
 
 int identity_due(const struct identity_state *state, int has_player_key, unsigned long now)
 {
-	if (state->off || now < state->wait_until)
+	if (state->off || state->signed_out || now < state->wait_until)
 		return IDENTITY_STEP_NONE;
 	if (!state->has_certificate || state->must_enroll)
 		return has_player_key ? IDENTITY_STEP_ENROLL : IDENTITY_STEP_NONE;
@@ -809,7 +978,10 @@ int identity_answered(struct identity_state *state, int status, const char *resp
 		identity_wipe(state->token, sizeof(state->token));
 		break;
 	case IDENTITY_ANSWER_OFF:
+		/* (revoked or signed out on the site: signed out here too, so the
+		player key never goes in its place; browser.c keeps it on disk) */
 		state->off = 1;
+		state->signed_out = 1;
 		state->has_certificate = 0;
 		identity_wipe(state->token, sizeof(state->token));
 		break;
@@ -883,6 +1055,55 @@ int identity_token_sent(struct identity_state *state, int status, const char *re
 	return IDENTITY_SENT_DONE;
 }
 
+int identity_account_slot(const char *text, const char *profile)
+{
+	size_t length = profile ? strlen(profile) : 0;
+
+	while (text && *text && length)
+	{
+		const char *end = strchr(text, '\n');
+		size_t line = end ? (size_t)(end - text) : strlen(text);
+
+		/* ("name n": the name up to the last space, n 1 to 15) */
+		if (line > length + 1 && !strncmp(text, profile, length) && text[length] == ' ')
+		{
+			int slot = 0;
+			size_t at;
+
+			for (at = length + 1; at < line && text[at] >= '0' && text[at] <= '9' && slot < 100; at++)
+				slot = slot * 10 + (text[at] - '0');
+			while (at < line && (text[at] == '\r' || text[at] == ' '))
+				at++;
+			if (at == line && slot >= 1 && slot <= 15)
+				return slot;
+		}
+		text = end ? end + 1 : NULL;
+	}
+	return 0;
+}
+
+void identity_slot_files(int slot, char *key_name, char *cert_name, int size)
+{
+	if (slot <= 0)
+	{
+		snprintf(key_name, (size_t)size, "delta_device.key");
+		snprintf(cert_name, (size_t)size, "delta_device.cert");
+	}
+	else
+	{
+		snprintf(key_name, (size_t)size, "delta_device_%d.key", slot);
+		snprintf(cert_name, (size_t)size, "delta_device_%d.cert", slot);
+	}
+}
+
+int identity_key_allowed(const struct identity_state *state, unsigned long now)
+{
+	/* (a site that answered 404 for identity: it knows only the key) */
+	if (now < state->tokens_off_until)
+		return 1;
+	return !state->has_certificate && !state->signed_out;
+}
+
 void identity_confirmed(struct identity_state *state, unsigned long now)
 {
 	if (state->waiting_for_game)
@@ -929,12 +1150,14 @@ int identity_tag_is_handle(const char *tag, const char *handle)
 }
 
 int identity_proof_message(const unsigned char *nonce, const char *binding, int binding_length, int machine_index,
-	int local_player, const unsigned char *serial, const char *tag, int tag_length, unsigned char *out)
+	int local_player, const unsigned char *serial, int flags, unsigned long time, const char *tag, int tag_length,
+	unsigned char *out)
 {
 	int length = (int)strlen(proof_label);
 
 	if (binding_length < 0 || binding_length > IDENTITY_BINDING_MOST || machine_index < 0 || machine_index > 255 ||
-		local_player < 0 || local_player >= IDENTITY_LOCAL_PLAYERS || tag_length < 0 || tag_length > IDENTITY_TAG_MOST)
+		local_player < 0 || local_player >= IDENTITY_LOCAL_PLAYERS || tag_length < 0 || tag_length > IDENTITY_TAG_MOST ||
+		flags < 0 || flags > 255)
 	{
 		return -1;
 	}
@@ -949,6 +1172,11 @@ int identity_proof_message(const unsigned char *nonce, const char *binding, int 
 	out[length++] = (unsigned char)local_player;
 	memcpy(out + length, serial, 8);
 	length += 8;
+	out[length++] = (unsigned char)flags;
+	out[length++] = (unsigned char)time;
+	out[length++] = (unsigned char)(time >> 8);
+	out[length++] = (unsigned char)(time >> 16);
+	out[length++] = (unsigned char)(time >> 24);
 	out[length++] = (unsigned char)tag_length;
 	if (tag_length)
 		memcpy(out + length, tag, (size_t)tag_length);
@@ -978,6 +1206,125 @@ int identity_check_proof(const unsigned char *issuer, int issuer_size, const uns
 	if (message_size <= 0 || !identity_verify(device->public_key, message, message_size, signature))
 		return IDENTITY_NOT_DEVICE_SIGNED;
 	return IDENTITY_OK;
+}
+
+
+int identity_proof_fresh(unsigned long time, unsigned long now, unsigned long age)
+{
+	return time <= now + IDENTITY_GRACE && now <= time + age + IDENTITY_GRACE;
+}
+
+/* a code point's look-alike Latin letter (0: none, dropped) */
+static char lookalike_letter(unsigned long c)
+{
+	/* (0 o, 1 i, 3 e, 4 a, 5 s, 7 t, 8 b; 2, 6 and 9 dropped) */
+	static const char digits[] = "oi\0eas\0tb\0";
+	static const struct { unsigned long code; char letter; } others[] =
+	{
+		/* Cyrillic */
+		{ 0x430, 'a' }, { 0x435, 'e' }, { 0x43E, 'o' }, { 0x440, 'p' }, { 0x441, 'c' }, { 0x443, 'y' },
+		{ 0x445, 'x' }, { 0x456, 'i' }, { 0x458, 'j' }, { 0x455, 's' }, { 0x43A, 'k' }, { 0x43C, 'm' },
+		{ 0x43D, 'h' }, { 0x442, 't' }, { 0x432, 'b' }, { 0x410, 'a' }, { 0x415, 'e' }, { 0x41E, 'o' },
+		{ 0x420, 'p' }, { 0x421, 'c' }, { 0x423, 'y' }, { 0x425, 'x' }, { 0x406, 'i' }, { 0x41A, 'k' },
+		{ 0x41C, 'm' }, { 0x41D, 'h' }, { 0x422, 't' }, { 0x412, 'b' },
+		/* Greek */
+		{ 0x3B1, 'a' }, { 0x3BF, 'o' }, { 0x3C1, 'p' }, { 0x3B9, 'i' }, { 0x3BA, 'k' }, { 0x3BD, 'v' },
+		{ 0x3C4, 't' }, { 0x3C5, 'u' }, { 0x391, 'a' }, { 0x392, 'b' }, { 0x395, 'e' }, { 0x397, 'h' },
+		{ 0x399, 'i' }, { 0x39A, 'k' }, { 0x39C, 'm' }, { 0x39D, 'n' }, { 0x39F, 'o' }, { 0x3A1, 'p' },
+		{ 0x3A4, 't' }, { 0x3A7, 'x' }, { 0x3A5, 'y' },
+		/* signs */
+		{ '@', 'a' }, { '$', 's' }, { '!', 'i' }, { '|', 'i' },
+	};
+	int index;
+
+	if (c >= 'A' && c <= 'Z')
+		return (char)(c - 'A' + 'a');
+	if (c >= 'a' && c <= 'z')
+		return (char)c;
+	if (c >= '0' && c <= '9')
+		return digits[c - '0'];
+	for (index = 0; index < (int)(sizeof(others) / sizeof(others[0])); index++)
+	{
+		if (others[index].code == c)
+			return others[index].letter;
+	}
+	return 0;
+}
+
+int identity_lookalike_key(const char *name, char *out)
+{
+	char folded[IDENTITY_LOOKALIKE_MOST + 1];
+	const unsigned char *at = (const unsigned char *)name;
+	int length = 0, used = 0, index;
+
+	while (at && *at && length < IDENTITY_LOOKALIKE_MOST)
+	{
+		unsigned long c = *at++;
+		char letter;
+
+		if (c >= 0xC0 && (*at & 0xC0) == 0x80)
+		{
+			if (c < 0xE0)
+				c = (c & 0x1F) << 6 | (*at++ & 0x3F);
+			else if (c < 0xF0 && (at[1] & 0xC0) == 0x80)
+			{
+				c = (c & 0x0F) << 12 | (unsigned long)(at[0] & 0x3F) << 6 | (at[1] & 0x3F);
+				at += 2;
+			}
+			else
+			{
+				while ((*at & 0xC0) == 0x80)
+					at++;
+				continue;
+			}
+		}
+		letter = lookalike_letter(c);
+		if (letter)
+			folded[length++] = letter;
+	}
+	for (index = 0; index < length; index++)
+	{
+		if (folded[index] == 'r' && index + 1 < length && folded[index + 1] == 'n')
+		{
+			out[used++] = 'm';
+			index++;
+		}
+		else if (folded[index] == 'v' && index + 1 < length && folded[index + 1] == 'v')
+		{
+			out[used++] = 'w';
+			index++;
+		}
+		else
+			out[used++] = folded[index] == 'l' ? 'i' : folded[index];
+	}
+	out[used] = 0;
+	return used;
+}
+
+
+int identity_account_choice(const char *line, int owner, unsigned char *account)
+{
+	char text[80];
+	const char *at = line ? line : "";
+	int length;
+
+	if ((unsigned char)at[0] == 0xEF && (unsigned char)at[1] == 0xBB && (unsigned char)at[2] == 0xBF)
+		at += 3;
+	while (*at == ' ' || *at == '\t')
+		at++;
+	snprintf(text, sizeof(text), "%s", at);
+	length = (int)strlen(text);
+	while (length && (text[length - 1] == ' ' || text[length - 1] == '\t' || text[length - 1] == '\r' ||
+		text[length - 1] == '\n'))
+	{
+		length--;
+	}
+	text[length] = 0;
+	if (!strcmp(text, "guest"))
+		return 0;
+	if (length == 2 * IDENTITY_ID_SIZE && identity_unhex(text, length, account, IDENTITY_ID_SIZE))
+		return 2;
+	return owner ? 1 : 0;
 }
 
 #endif

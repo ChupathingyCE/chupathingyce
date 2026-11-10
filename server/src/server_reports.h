@@ -22,7 +22,8 @@ enum
 	SERVER_REPORT_MAP_SIZE = 64,
 	SERVER_REPORT_GAME_TYPE_SIZE = 32,
 	SERVER_REPORT_CLOSED_BY_SIZE = 64,
-	/* the reports the queue keeps, at most (the oldest closed go first) */
+	/* the reports the queue keeps, at most (the oldest closed go first; an
+	open one never goes: a new report waits for room instead) */
 	SERVER_REPORTS_KEPT = 200,
 	/* the refusal counts kept with a report (host_evidence.h's: movement,
 	vehicle, hits, clock) */
@@ -64,13 +65,63 @@ struct server_report
 	long target_number;
 	char map[SERVER_REPORT_MAP_SIZE];
 	char game_type[SERVER_REPORT_GAME_TYPE_SIZE];
-	/* the clip's token (32 hex digits), empty without one */
+	/* the clip's token (32 hex digits), empty without one: made by
+	server_reports_add when want_clip, the server's own, never the
+	reporter's (the site takes a clip only for a token a report names) */
+	int want_clip;
 	char clip[SERVER_REPORT_ID_SIZE];
 	int evidence[SERVER_REPORT_EVIDENCE];
 	/* closed (sv_report_close), and by whom */
 	int closed;
 	char closed_by[SERVER_REPORT_CLOSED_BY_SIZE];
 };
+
+/* ---------- the limits on reports (the main thread's)
+
+Each counted by who reports and who is reported: a verified player's
+account (their proof bound to this server: docs/delta.md, "Verified
+names"), else the player themselves this game (their datum index, which a
+new player in a slot someone left, or the same player back after leaving,
+never has). Never by a machine's slot. A reporter: 3 a minute, 10 a game,
+each player once a game. A reported player: 5 a game from everyone. They
+start over with each game. */
+enum
+{
+	SERVER_REPORTS_PER_MINUTE = 3,
+	SERVER_REPORTS_PER_GAME = 10,
+	SERVER_REPORTS_PER_TARGET = 5,
+	/* the players one reporter reported this game, remembered */
+	SERVER_REPORTS_REPORTED_KEPT = 16,
+	/* the reporters and reported players a game remembers (past them, a new
+	one's report is refused: a count is never forgotten) */
+	SERVER_REPORTS_REPORTERS_KEPT = 256,
+	SERVER_REPORTS_TARGETS_KEPT = 256,
+};
+
+enum
+{
+	SERVER_REPORT_LIMIT_OK,
+	/* too many from this reporter (a minute's, a game's), or no room */
+	SERVER_REPORT_LIMIT_TOO_SOON,
+	/* this reporter reported them this game, or they have the most */
+	SERVER_REPORT_LIMIT_ALREADY,
+};
+
+struct server_report_who
+{
+	int has_account;
+	unsigned char account[16];
+	long player;
+};
+
+/* whether a report from reporter of target may be taken now
+(SERVER_REPORT_LIMIT_*); then, once taken, counted */
+int server_reports_limit_check(const struct server_report_who *reporter, const struct server_report_who *target,
+	long long now);
+void server_reports_limit_count(const struct server_report_who *reporter, const struct server_report_who *target,
+	long long now);
+/* a new game: the counts start over */
+void server_reports_limit_reset(void);
 
 /* (the main thread's, each frame: server_moderation_update) the report
 host given to Delta Peer once; each machine's counts start over with each
@@ -81,8 +132,9 @@ void server_reports_update(void);
 const char *server_report_reason_name(int reason);
 
 /* (the main thread's) a report into the queue: its number and ref given
-here (a random ref), the line written to reports.log. Its number, 0 if
-none */
+here (a random ref; and a random clip token with want_clip), the line
+written to reports.log. Its number, 0 if none (no room: every report kept
+is open; one is never let go for a new one) */
 unsigned int server_reports_add(struct server_report *report);
 /* (any thread's) sv_reports: the open reports, newest first (all with
 all), as text or JSON */

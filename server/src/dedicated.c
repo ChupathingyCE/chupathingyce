@@ -97,7 +97,7 @@ void team_change_host_set(int policy, int margin);
 /* (the host's rules', port/linux/game/host_rules.h) */
 void host_rules_set_player_names(boolean allowed);
 void host_rules_set_follow_camera(boolean allowed);
-void host_rules_set_late_join_wait(boolean wait);
+void host_rules_set_late_join_hold(boolean wait);
 #ifdef HALO_SERVER
 /* (the shared ban lists', server_bans.h) */
 void server_bans_set_sharing(int sharing);
@@ -599,14 +599,14 @@ static void initialize(
 	/* late joiners waiting for the next game, and the shared ban lists: off
 	unless true, 1, yes or on */
 	{
-		char const *wait = getenv("HALO_DEDICATED_LATE_JOIN_WAIT");
+		char const *wait = getenv("HALO_DEDICATED_LATE_JOIN_HOLD");
 		boolean on;
 
 		if (wait && wait[0])
 			on = !_stricmp(wait, "true") || !strcmp(wait, "1") || !_stricmp(wait, "yes") || !_stricmp(wait, "on");
 		else
-			on = settings.set[SERVER_SETTING_LATE_JOIN_WAIT] && settings.values[SERVER_SETTING_LATE_JOIN_WAIT];
-		host_rules_set_late_join_wait(on);
+			on = settings.set[SERVER_SETTING_LATE_JOIN_HOLD] && settings.values[SERVER_SETTING_LATE_JOIN_HOLD];
+		host_rules_set_late_join_hold(on);
 		if (on)
 			error(_error_silent, "dedicated: players who join a game in progress wait for the next game");
 	}

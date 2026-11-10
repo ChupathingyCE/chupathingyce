@@ -32,11 +32,16 @@ const char *platform_data_root(void);
 
 #define BANS_FILE "bans.txt"
 #define EXCEPTIONS_FILE "shared_unbans.txt"
+#define REF_KEY_FILE "shared_bans.key"
 
 enum
 {
 	LINE_SIZE = 1024,
 	MAXIMUM_EXCEPTIONS = 512,
+	/* the shared entries' text a poll carries, at most (the rest go when
+	there is room: a poll's body stays under what the site reads) */
+	SHARE_ENTRIES_MOST = 96 * 1024,
+	REF_KEY_BYTES = 32,
 	/* bans.txt is read again for the share at most this often, unless it
 	changed */
 	SHARE_READ_SECONDS = 30,
@@ -64,6 +69,9 @@ static struct
 	int exceptions_read;
 	char exceptions[MAXIMUM_EXCEPTIONS][SERVER_BAN_REF_SIZE];
 	int exception_count;
+	/* the key a ban's ref is made with (shared_bans.key) */
+	int ref_key_read;
+	uint8_t ref_key[REF_KEY_BYTES];
 } bans;
 
 /* ---------- private code */
@@ -200,6 +208,43 @@ static int excepted(const char *ref)
 	return 0;
 }
 
+/* (the lock held) this server's key for its bans' refs: shared_bans.key in
+the data folder, 32 random bytes made the first time. A ref is the line
+keyed with it, so it says nothing of the line (its address or hardware
+ID) to anyone without the key, and stays the same while the line does.
+1, else 0 */
+static int ref_key(void)
+{
+	char path[1024], temporary[1040];
+	FILE *file;
+
+	if (bans.ref_key_read)
+		return 1;
+	data_file(REF_KEY_FILE, path, sizeof(path));
+	file = fopen(path, "rb");
+	if (file)
+	{
+		bans.ref_key_read = fread(bans.ref_key, 1, sizeof(bans.ref_key), file) == sizeof(bans.ref_key);
+		fclose(file);
+		if (bans.ref_key_read)
+			return 1;
+	}
+	if (!host_random_bytes(bans.ref_key, sizeof(bans.ref_key)))
+		return 0;
+	snprintf(temporary, sizeof(temporary), "%s.new", path);
+	file = fopen(temporary, "wb");
+	if (!file)
+		return 0;
+	if (fwrite(bans.ref_key, 1, sizeof(bans.ref_key), file) != sizeof(bans.ref_key) || fclose(file) != 0 ||
+		rename(temporary, path) != 0)
+	{
+		remove(temporary);
+		return 0;
+	}
+	bans.ref_key_read = 1;
+	return 1;
+}
+
 static void put_id(const unsigned char *id, char *text)
 {
 	control_hex_text(id, SERVER_BAN_ID_BYTES, text);
@@ -333,14 +378,23 @@ int server_bans_line_entry(const char *line, long long now, struct server_shared
 				ban->time = 0;
 		}
 	}
-	crypto_blake2b(hash, sizeof(hash), (const uint8_t *)line_copy, length);
+	/* (its ref: the line keyed with this server's key, never the line's
+	plain hash, which anyone could check guesses of its address against) */
+	pthread_mutex_lock(&bans_mutex);
+	if (!ref_key())
+	{
+		pthread_mutex_unlock(&bans_mutex);
+		return 0;
+	}
+	crypto_blake2b_keyed(hash, sizeof(hash), bans.ref_key, sizeof(bans.ref_key), (const uint8_t *)line_copy, length);
+	pthread_mutex_unlock(&bans_mutex);
 	control_hex_text(hash, sizeof(hash), ban->ref);
 	return 1;
 }
 
 int server_bans_share_payload(char *out, int size)
 {
-	static char entries[SERVER_BAN_SHARE_MOST * 1024];
+	static char entries[SHARE_ENTRIES_MOST];
 	static long long read_at;
 	static long long modified;
 	char path[1024], line[LINE_SIZE], digest_text[65];
@@ -383,7 +437,7 @@ int server_bans_share_payload(char *out, int size)
 
 			if (!server_bans_line_entry(line, now, &ban))
 				continue;
-			written = entry_json(&ban, entries + length + (count ? 2 : 0), sizeof(entries) - length - 2);
+			written = entry_json(&ban, entries + length + (count ? 2 : 0), SHARE_ENTRIES_MOST - length - 2);
 			if (written < 0)
 				break;
 			if (count)
@@ -551,7 +605,26 @@ int server_bans_except(const char *ref, int except)
 		return 0;
 	pthread_mutex_lock(&bans_mutex);
 	read_exceptions();
-	if (except && !excepted(ref) && bans.exception_count < MAXIMUM_EXCEPTIONS)
+	if (except && !excepted(ref) && bans.exception_count >= MAXIMUM_EXCEPTIONS)
+	{
+		/* (full: the exceptions for entries no list has now go first) */
+		int kept = 0, entry;
+
+		for (index = 0; index < bans.exception_count; index++)
+		{
+			for (entry = 0; entry < bans.shared_count && strcmp(bans.shared[entry].ref, bans.exceptions[index]); entry++)
+				;
+			if (entry < bans.shared_count)
+				memmove(bans.exceptions[kept++], bans.exceptions[index], sizeof(bans.exceptions[0]));
+		}
+		bans.exception_count = kept;
+		if (bans.exception_count >= MAXIMUM_EXCEPTIONS)
+		{
+			pthread_mutex_unlock(&bans_mutex);
+			return 0;
+		}
+	}
+	if (except && !excepted(ref))
 		snprintf(bans.exceptions[bans.exception_count++], SERVER_BAN_REF_SIZE, "%s", ref);
 	else if (!except)
 	{
@@ -640,4 +713,30 @@ void server_bans_lists_text(int json, char *out, int size)
 				bans.cached ? "from the cache, read" : "from the site,", ago);
 	}
 	pthread_mutex_unlock(&bans_mutex);
+}
+
+int server_bans_shared_find(const char *prefix, struct server_shared_ban *ban, int *is_excepted)
+{
+	size_t length = prefix ? strlen(prefix) : 0;
+	int index, found = -1, matches = 0;
+
+	if (length < SERVER_BAN_REF_SHOWN || length > 2 * SERVER_BAN_ID_BYTES || strspn(prefix, "0123456789abcdef") != length)
+		return 0;
+	pthread_mutex_lock(&bans_mutex);
+	for (index = 0; index < bans.shared_count; index++)
+	{
+		if (!strncmp(bans.shared[index].ref, prefix, length))
+		{
+			found = index;
+			matches++;
+		}
+	}
+	if (matches == 1)
+	{
+		*ban = bans.shared[found];
+		if (is_excepted)
+			*is_excepted = excepted(ban->ref);
+	}
+	pthread_mutex_unlock(&bans_mutex);
+	return matches == 1;
 }

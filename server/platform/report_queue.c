@@ -140,19 +140,24 @@ static void log_line(const struct server_report *report, const char *what)
 
 unsigned int server_reports_add(struct server_report *report)
 {
-	unsigned char random[16];
+	unsigned char random[16], clip[16];
 	int index;
 
-	if (!host_random_bytes(random, sizeof(random)))
+	if (!host_random_bytes(random, sizeof(random)) || (report->want_clip && !host_random_bytes(clip, sizeof(clip))))
 		return 0;
 	pthread_mutex_lock(&queue_mutex);
 	if (queue.count == SERVER_REPORTS_KEPT)
 	{
-		/* (room: the oldest closed one, else the oldest) */
+		/* (room: the oldest closed one. None closed: the new one is refused,
+		never an open one let go, which a flood of reports would otherwise
+		push out before the moderators or the site saw it) */
 		for (index = 0; index < queue.count && !queue.reports[index].closed; index++)
 			;
 		if (index == queue.count)
-			index = 0;
+		{
+			pthread_mutex_unlock(&queue_mutex);
+			return 0;
+		}
 		memmove(&queue.reports[index], &queue.reports[index + 1], (size_t)(queue.count - index - 1) *
 			sizeof(queue.reports[0]));
 		memmove(&queue.for_site[index], &queue.for_site[index + 1], (size_t)(queue.count - index - 1) *
@@ -163,6 +168,10 @@ unsigned int server_reports_add(struct server_report *report)
 	if (!report->id)
 		report->id = ++queue.next_id;
 	control_hex_text(random, sizeof(random), report->ref);
+	if (report->want_clip)
+		control_hex_text(clip, sizeof(clip), report->clip);
+	else
+		report->clip[0] = 0;
 	if (!report->time)
 		report->time = (long long)time(NULL);
 	report->closed = 0;
@@ -324,4 +333,125 @@ void server_reports_site_taken(const char refs[][SERVER_REPORT_ID_SIZE], int cou
 		}
 	}
 	pthread_mutex_unlock(&queue_mutex);
+}
+
+/* ---------- the limits on reports (server_reports.h) */
+
+static struct
+{
+	struct
+	{
+		struct server_report_who who;
+		/* when its last reports were taken (unix seconds), its count this
+		game, and whom it reported */
+		long long times[SERVER_REPORTS_PER_MINUTE];
+		int count;
+		struct server_report_who reported[SERVER_REPORTS_REPORTED_KEPT];
+		int reported_count;
+	} reporters[SERVER_REPORTS_REPORTERS_KEPT];
+	int reporter_count;
+	struct
+	{
+		struct server_report_who who;
+		int count;
+	} targets[SERVER_REPORTS_TARGETS_KEPT];
+	int target_count;
+} limits;
+
+static int same_who(const struct server_report_who *a, const struct server_report_who *b)
+{
+	if (a->has_account || b->has_account)
+		return a->has_account && b->has_account && !memcmp(a->account, b->account, sizeof(a->account));
+	return a->player == b->player;
+}
+
+static int reporter_slot(const struct server_report_who *who)
+{
+	int index;
+
+	for (index = 0; index < limits.reporter_count; index++)
+	{
+		if (same_who(&limits.reporters[index].who, who))
+			return index;
+	}
+	return -1;
+}
+
+static int target_slot(const struct server_report_who *who)
+{
+	int index;
+
+	for (index = 0; index < limits.target_count; index++)
+	{
+		if (same_who(&limits.targets[index].who, who))
+			return index;
+	}
+	return -1;
+}
+
+int server_reports_limit_check(const struct server_report_who *reporter, const struct server_report_who *target,
+	long long now)
+{
+	int slot = reporter_slot(reporter);
+	int target_index = target_slot(target);
+	int index;
+
+	if (slot >= 0)
+	{
+		for (index = 0; index < limits.reporters[slot].reported_count; index++)
+		{
+			if (same_who(&limits.reporters[slot].reported[index], target))
+				return SERVER_REPORT_LIMIT_ALREADY;
+		}
+		if (limits.reporters[slot].count >= SERVER_REPORTS_PER_GAME ||
+			(limits.reporters[slot].times[0] && now - limits.reporters[slot].times[0] < 60))
+		{
+			return SERVER_REPORT_LIMIT_TOO_SOON;
+		}
+	}
+	if (target_index >= 0 && limits.targets[target_index].count >= SERVER_REPORTS_PER_TARGET)
+		return SERVER_REPORT_LIMIT_ALREADY;
+	if ((slot < 0 && limits.reporter_count >= SERVER_REPORTS_REPORTERS_KEPT) ||
+		(target_index < 0 && limits.target_count >= SERVER_REPORTS_TARGETS_KEPT))
+	{
+		return SERVER_REPORT_LIMIT_TOO_SOON;
+	}
+	return SERVER_REPORT_LIMIT_OK;
+}
+
+void server_reports_limit_count(const struct server_report_who *reporter, const struct server_report_who *target,
+	long long now)
+{
+	int slot = reporter_slot(reporter);
+	int target_index = target_slot(target);
+	int index;
+
+	if (slot < 0)
+	{
+		if (limits.reporter_count >= SERVER_REPORTS_REPORTERS_KEPT)
+			return;
+		slot = limits.reporter_count++;
+		memset(&limits.reporters[slot], 0, sizeof(limits.reporters[slot]));
+		limits.reporters[slot].who = *reporter;
+	}
+	if (target_index < 0 && limits.target_count < SERVER_REPORTS_TARGETS_KEPT)
+	{
+		target_index = limits.target_count++;
+		memset(&limits.targets[target_index], 0, sizeof(limits.targets[target_index]));
+		limits.targets[target_index].who = *target;
+	}
+	for (index = 0; index < SERVER_REPORTS_PER_MINUTE - 1; index++)
+		limits.reporters[slot].times[index] = limits.reporters[slot].times[index + 1];
+	limits.reporters[slot].times[SERVER_REPORTS_PER_MINUTE - 1] = now;
+	limits.reporters[slot].count++;
+	if (limits.reporters[slot].reported_count < SERVER_REPORTS_REPORTED_KEPT)
+		limits.reporters[slot].reported[limits.reporters[slot].reported_count++] = *target;
+	if (target_index >= 0)
+		limits.targets[target_index].count++;
+}
+
+void server_reports_limit_reset(void)
+{
+	limits.reporter_count = 0;
+	limits.target_count = 0;
 }

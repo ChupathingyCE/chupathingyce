@@ -18,6 +18,8 @@ GAME_COPIES and GAME_ROLES) */
 #define DELTA_PROFILE_RECENT 4
 #define DELTA_PROFILE_COPIES 16
 #define DELTA_PROFILE_ROLES 32
+/* (list_server.py's GAME_DEVICES) */
+#define DELTA_PROFILE_DEVICES 16
 /* (list_server.py's GAME_CLAN_MEMBERS; invites, at most clans.py's
 PLAYER_INVITES) */
 #define DELTA_PROFILE_CLAN_MEMBERS 24
@@ -50,6 +52,24 @@ struct delta_profile_copy
 	/* this copy; the copy that made the profile (it can't be unlinked) */
 	int this_copy;
 	int first;
+};
+
+/* a device of the account (docs/delta.md, Devices): signed in to it by
+code, or one of its copies' */
+struct delta_profile_device
+{
+	/* its device ID (32 hex digits), the name its owner gave it (else
+	empty), and its platform (delta.h's platform keys) */
+	char id[DELTA_PROFILE_ID_LENGTH + 1];
+	char name[40];
+	char platform[24];
+	long long created;
+	long long last_seen;
+	/* enrolled with a player key; a console; signed out; this device */
+	int legacy;
+	int console;
+	int signed_out;
+	int this_device;
 };
 
 struct delta_profile_role
@@ -133,6 +153,11 @@ struct delta_profile
 	int copy_count;
 	int more_copies;
 	struct delta_profile_copy copies[DELTA_PROFILE_COPIES];
+	/* (a site with device identity: has_devices) */
+	int has_devices;
+	int device_count;
+	int more_devices;
+	struct delta_profile_device devices[DELTA_PROFILE_DEVICES];
 	int role_count;
 	int more_roles;
 	struct delta_profile_role roles[DELTA_PROFILE_ROLES];
@@ -160,6 +185,9 @@ struct delta_profile_card
 	char badge[48];
 	/* the clan tag it shows (empty: none) */
 	char clan_tag[16];
+	/* the handle of another profile this one's looks like, as the site
+	marked it (empty: none) */
+	char looks_like[48];
 };
 
 /* /v1/game/profile's answer read into profile: 1, else 0 (not JSON, or

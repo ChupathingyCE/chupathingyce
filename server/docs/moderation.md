@@ -57,12 +57,15 @@ every server), so other servers never learn it.
 
 A player can also be known by their **Delta account**. A ChupathingyCE game
 that shares its profile proves who its players are when it joins, with its
-device certificate (docs/delta.md, "Verified names"). The server checks the
-proof, and the Players page shows each verified player's profile. When the
+device certificate (docs/delta.md, "Verified names"). Only a proof bound to
+this server counts here: the player joined through the server's invite, so
+their game could check the challenge came from this server. The server
+checks it, and the Players page shows each such player's profile. When the
 certificate lets the device moderate, the account's role here counts as the
 player's: from an account line in the moderators file, or from the site's
-role list. A copy with no player key signs in to moderation with its device
-key, and its role comes from its account.
+role list (by account). A copy with no player key signs in to moderation
+with its device key, and its role comes from its account. A player who
+joined by address proves a name only, which never gets a role or a ban.
 
 ## Setting up moderators without the site
 
@@ -97,7 +100,7 @@ until it is fixed.
 | `sv_warn <player> <reason>` | A warning in the player's game (a ChupathingyCE game shows it; any warning is in the audit file). |
 | `sv_mute <player> [minutes]`, `sv_unmute <player>` | A player's chat lines not passed on (until they leave, or for a while), and on again. |
 | `sv_say <text>` | A server message in every ChupathingyCE player's chat. |
-| `sv_kick <player> [reason]`, `sv_ban <player> [duration] [reason]` | As before, with a reason. A ChupathingyCE player sees it as their game drops them. A ban also names the Delta accounts and device the player's game proved, and a machine that proves a banned account or device later is dropped. |
+| `sv_kick <player> [reason]`, `sv_ban <player> [duration] [reason]` | As before, with a reason. A ChupathingyCE player sees it as their game drops them. A ban also names the Delta accounts and device the player's game proved bound to this server, and a machine that proves a banned account or device later is dropped. This only reaches players who share their profile; address and hardware id bans reach everyone. |
 | `sv_team <player> <red\|blue>` | Moves a player to a team (a team game); the control panel's To Red and To Blue. |
 
 ### In the game
@@ -164,17 +167,21 @@ server's moderators and the site's admins can watch it. It's deleted after
 ### Locking joins
 
 `sv_lock` stops anyone new from joining (the lobby or the game in
-progress) until `sv_unlock`. Players already in stay; one who drops can't
-come back while it's locked. The game list shows the server as Locked.
-Moderators can lock from the panel's Status tab, the game's Moderation
-screen, or the site. A restart unlocks.
+progress, Custom Edition players too) until `sv_unlock`. Players already
+in stay; one who drops can't come back while it's locked. The game list
+shows the server as Locked. Moderators can lock from the panel's Status
+tab, the game's Moderation screen, or the site. The lock ends by itself
+once the server has been empty for 10 seconds (an empty server can't be
+locked), and a restart unlocks.
 
 ### Late joiners
 
-With `late_join_wait` on (`sv_set late_join_wait 1`), a player who joins a
+With `late_join_hold` on (`sv_set late_join_hold 1`), a player who joins a
 game in progress doesn't spawn until the next game. They watch a living
 player through the follow camera, with "Waiting for the next game" on
-screen. Off by default: Halo spawns them at once.
+screen (an OpenCE player gets a line in their chat). The wait is never
+longer than 5 minutes, and a player who drops and comes back isn't held.
+Off by default: Halo spawns them at once.
 
 ### Shared ban lists
 
@@ -191,10 +198,13 @@ by address or hardware ID.
   come with the server's poll and are kept in `shared_bans.cache`, so a
   restart while the site is down keeps them. `sv_ban_lists` shows them.
 - **Here:** `sv_banlist` (and the panel's Bans) shows the shared entries
-  as S1, S2, ... with their list and the server that banned. A player
-  whose proven account or device is on one is kicked with "Banned on <list>".
-  `sv_unban S3` lets that player in on this server alone
-  (`shared_unbans.txt`); the list keeps the ban. Unlinking drops the lists.
+  as S and the first 8 hex digits of each one's ref (S3f9a01c2), with
+  their list and the server that banned. A player whose proven account or
+  device is on one is kicked with "Banned on <list>". `sv_unban S3f9a01c2`
+  lets that player in on this server alone (`shared_unbans.txt`); the list
+  keeps the ban. Unlinking drops the lists. A shared ban's ref is made with
+  this server's own key (`shared_bans.key`), so it says nothing about the
+  bans.txt line it came from.
 
 ### Betrayal and AFK limits
 

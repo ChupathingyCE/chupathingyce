@@ -13,13 +13,14 @@ release notes.
   be reported by name; those reports stay on the server.
 - `sv_lock` and `sv_unlock` stop and start new joins (the panel's Status
   tab, the game's Moderation screen and the site have it too). The game
-  list shows a locked server. A restart unlocks.
-- `late_join_wait` (off by default): players who join a game in progress
+  list shows a locked server. It ends once the server has been empty for
+  10 seconds, and a restart unlocks.
+- `late_join_hold` (off by default): players who join a game in progress
   watch until the next game.
 - Shared ban lists for linked servers (both off by default): `ban_share`
   sends your account and device bans to your list on the site, and the
   lists you pick on My servers come back as `sv_banlist`'s S entries
-  (`sv_ban_lists`, `sv_unban S<n>` for an exception here).
+  (`sv_ban_lists`, `sv_unban S<ref>` for an exception here).
   `sv_ban_account` bans a Delta account that isn't in the game.
 - The control panel is on by default, at `http://127.0.0.1:8080` (this
   machine only). New hosts get the one-time setup link on the console and in
