@@ -70,7 +70,7 @@ def test_documents_get_a_short_body_deadline_and_no_second_open():
     ten minutes at most (a slow link still gets a full index through), a
     host that goes silent is given up on after each read's ten seconds,
     and a thread that has a download open can't open another (it would
-    wait on itself)."""
+    wait on itself). The site's map pictures get thirty seconds."""
     game = (SOURCE / "map_repo_game.c").read_text()
     assert "DOCUMENT_DEADLINE_MILLISECONDS = 10 * 60 * 1000" in game
     assert "posix_browser_download_deadline(download, deadline)" in game
@@ -82,5 +82,8 @@ def test_documents_get_a_short_body_deadline_and_no_second_open():
     assert body.index("owner_get() == thread_token()") < body.index("posix_browser_lock();")
     close = re.search(r"^void posix_browser_download_close\(.*?^\}", text, re.M | re.S).group(0)
     assert close.index("owner_put(0);") < close.index("download_unlock();")
+    art = (SOURCE / "map_art.c").read_text()
+    assert "DEADLINE_MILLISECONDS = 30 * 1000" in art
+    assert "posix_browser_download_deadline(handle, DEADLINE_MILLISECONDS)" in art
     # (the owner only through relaxed atomics, never read or written bare)
     assert not re.search(r"download\.owner\b(?!_)", text.replace("&download.owner", ""))
