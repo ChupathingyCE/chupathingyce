@@ -409,8 +409,8 @@ a later version may append):
 | 30 | ID_CHALLENGE | host to client | version (1; 1 now, 0 refused, a later one read as this), binding length (1, at most 64), reserved (2), nonce (32: this session's), binding (printable ASCII) |
 | 31 | ID_PROOF | client to host | version (1), local player (1, 0 to 3), certificate length (1: 0 withdraws the local player and nothing follows; else 148 to 168), name length (1, at most 20), flags (1: 0x01 bound), reserved (3), time (4, Unix seconds), signature (64), issuer certificate (CISS, 112), device certificate (CDEV, the length's bytes), name (the handle in the player's capitals: `A-Z a-z 0-9 _ -`) |
 | 32 | ID_CARD | host to client | version (1), machine index (1), local player (1, 0 to 3), certificate length (1: 0 withdraws the card and nothing follows; else 148 to 168), name length (1, at most 20), reserved (3), flags (1, the proof's), reserved (3), time (4, the proof's), nonce (32: the one the host challenged that machine's session with), signature (64), CISS (112), CDEV, name. At most 412 bytes |
-| 37 | REPORT | client to host | sequence (4, above the session's last), target's machine (1), target's player (1, the game's player list index), reason (1: 1 cheating, 2 abuse in chat or voice, 3 griefing or betraying, 4 an offensive name, 5 something else), flags (1: 0x01 a clip will follow to the site), clip token (16; zeros without the flag) |
-| 38 | REPORT_RESULT | host to client | sequence (4, the REPORT's), result (1: 0 taken, 1 too soon, 2 no such player, 3 not taken here, 4 already reported this game), flags (1: 0x01 send the clip: the server is linked to the site), reserved (2) |
+| 37 | REPORT | client to host | sequence (4, above the session's last), target's machine (1), target's player (1, the absolute index of the player's datum in the host's player data, as the game's player datum index has it), reason (1: 1 cheating, 2 abuse in chat or voice, 3 griefing or betraying, 4 an offensive name, 5 something else), flags (1: 0x01 the reporter would attach a clip), reserved (16: zeros; a host ignores them) |
+| 38 | REPORT_RESULT | host to client | sequence (4, the REPORT's), result (1: 0 taken, 1 too soon, 2 no such player, 3 not taken here, 4 already reported), flags (1: 0x01 send the clip: the server is linked to the site), reserved (2), clip token (16, the host's: zeros without 0x01). A host before the token sent the first 8 bytes alone, and its 0x01 is read as no clip |
 
 A roster covers every machine of the game, in as many datagrams as it takes
 (32 machines each). A client forgets a machine the roster has not named for
@@ -759,30 +759,40 @@ A player reports another player to a dedicated server's moderators over
 `reports` (bit 23). A host offers it only when it takes reports (the
 dedicated server registers them; a game a player hosts offers none).
 
-- **REPORT** names the player by their machine and player list index, and
-  gives a reason from a short list: 1 cheating, 2 abuse in chat or voice,
-  3 griefing or betraying, 4 an offensive name, 5 something else. There is
-  no free text. Its sequence must be above the session's last.
+- **REPORT** names the player by their machine and the absolute index of
+  their player datum (the low 16 bits of the game's player datum index),
+  and gives a reason from a short list: 1 cheating, 2 abuse in chat or
+  voice, 3 griefing or betraying, 4 an offensive name, 5 something else.
+  There is no free text. Its sequence must be above the session's last.
 - **The host decides.** It refuses a report of a player who isn't there,
   of the reporter themselves, a second report of the same player in one
-  game, and more than 3 a minute or 10 a game from one machine
-  (REPORT_RESULT says which). Each report it takes goes to its moderators'
-  queue with what it knows: both players' game names, their verified
-  handles ("Verified names") when they proved one, the map, the game type,
-  and the host's refusal counts for the reported machine (`sv_evidence`).
-  Never an address.
+  game from one reporter, more than 3 a minute or 10 a game from one
+  reporter, and more than 5 a game of one player from everyone
+  (REPORT_RESULT says which). It counts by who reports and who is
+  reported: a player's verified account when their proof is bound to this
+  host ("Verified names"), else that player in this game, never by the
+  machine's slot. So a player who joins a slot someone left starts with
+  their own counts, and a verified player who leaves and comes back keeps
+  theirs. The counts start over with each game. Each report it takes goes
+  to its moderators' queue with what it knows: both players' game names,
+  their verified handles when they proved one bound to this host, the map,
+  the game type, and the host's refusal counts for the reported machine
+  (`sv_evidence`). Never an address. The queue keeps 200: when they are all
+  open, a new report is refused rather than one pushed out.
 - **OpenCE players** can be reported by their game name. Their reports stay
   on the host: they never go to the site. A report by an OpenCE player isn't
   possible (they can't send REPORT).
 - **Clips.** A reporter may attach a clip (the last one saved, or one from
-  `clips/`). REPORT then says so and carries a clip token, 16 random bytes
-  the reporter's copy makes. When the host is linked to the site (Delta
-  Control), REPORT_RESULT's 0x01 asks for the clip, and the copy uploads it
-  to the site with the same token (`/v1/game/clip/start`, then
-  `/v1/game/clip/upload`). The site keeps it beside the report the server
-  forwards, for that server's moderators and the site's admins alone, and
-  deletes it after 14 days (unclaimed after 30 minutes). A host that isn't
-  linked takes the report without the clip.
+  `clips/`); REPORT then says so. When the host is linked to the site
+  (Delta Control) and the report is about a Delta player, REPORT_RESULT's
+  0x01 asks for the clip and carries its token: 16 random bytes the host
+  makes, never the reporter, and puts in the report it forwards. The copy
+  uploads the clip to the site with that token (`/v1/game/clip/start`,
+  then `/v1/game/clip/upload`). The site takes a clip only for a token a
+  report of a linked server names, once, and keeps it beside that report,
+  for that server's moderators and the site's admins alone, and deletes it
+  after 14 days. A host that isn't linked takes the report without the
+  clip.
 - **Linked servers** forward reports to the site with their next poll
   ("The link to the site", `reports`), but only those about a Delta
   player.
@@ -791,13 +801,16 @@ The clip upload, as `/v1/game/*` (the copy's key in the body, or its
 device token):
 
 - `POST /v1/game/clip/start` `{"key", "token", "size", "seconds"}` answers
-  `{"upload", "max"}`: an upload ID good for 30 minutes. 413 when `size`
-  is past the cap (48 MB), 429 past 3 clips an hour or 10 a day from one
-  copy, 507 when the site's clip store is full.
+  `{"upload", "max"}`: an upload ID good for 30 minutes. 409 while no
+  report names the token yet (the report rides the server's next poll: the
+  copy asks again every 5 seconds, for up to 2 minutes), 413 when `size` is
+  past the cap (48 MB), 429 past the copy's or the server's clips a day,
+  507 when the site's clip store or the server's share of it is full. The
+  site counts the bytes it has, not the sizes uploads promised.
 - `POST /v1/game/clip/upload?upload=<id>`, the MP4 as the body
   (`video/mp4`, exactly `size` bytes), answers `{"ok": true}`. The site
-  refuses a body that isn't an MP4 (`ftyp` at byte 4).
-- A clip whose token no report names within 30 minutes is deleted.
+  refuses a body that isn't an MP4 (its top-level boxes, `ftyp` first and
+  a `moov`), and drops an upload that sends nothing for a minute.
 
 The game's side is `port/linux/game/report_player.c` (DELTA's PLAYERS
 HERE and the scoreboard's REPORT), the dedicated server's

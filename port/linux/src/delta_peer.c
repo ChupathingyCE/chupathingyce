@@ -1483,12 +1483,14 @@ static void host_report(struct delta_peer *peer, delta_u32 now, int machine_inde
 	else
 	{
 		result.result = (unsigned char)peer->report_host->report(peer->report_host->context, machine_index, &report,
-			&flags);
+			&flags, result.clip_token);
 		if (result.result >= NUMBER_OF_DELTA_REPORT_RESULTS)
 			result.result = _delta_report_not_taken;
 	}
 	result.flags = (unsigned char)(result.result == _delta_report_taken && (report.flags & DELTA_WIRE_REPORT_CLIP) ?
 		(flags & DELTA_WIRE_REPORT_SEND_CLIP) : 0);
+	if (!(result.flags & DELTA_WIRE_REPORT_SEND_CLIP))
+		memset(result.clip_token, 0, sizeof(result.clip_token));
 	peer_send(peer, client->ipv4, client->port, data, delta_wire_write_report_result(data, client->session, &result));
 }
 

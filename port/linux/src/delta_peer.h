@@ -328,8 +328,11 @@ struct delta_peer_report_host
 	void *context;
 	/* a machine's player reports another: its answer (enum
 	delta_report_result), and in flags DELTA_WIRE_REPORT_SEND_CLIP when the
-	clip should go to the site */
-	int (*report)(void *context, int machine_index, const struct delta_wire_report *report, int *flags);
+	clip should go to the site, with the token the host made for it in
+	clip_token (DELTA_WIRE_REPORT_CLIP_TOKEN_SIZE bytes; the report it sends
+	the site names it) */
+	int (*report)(void *context, int machine_index, const struct delta_wire_report *report, int *flags,
+		unsigned char *clip_token);
 };
 
 /* the client's object sync (docs/delta.md, Object sync): what its host's

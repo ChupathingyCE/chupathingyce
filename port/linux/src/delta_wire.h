@@ -139,10 +139,12 @@ enum
 	DELTA_WIRE_CHAT_LINE_SIZE = 12,
 	DELTA_WIRE_CHAT_REFUSED_SIZE = 8,
 
-	/* reports (docs/delta.md, Reports): REPORT's and REPORT_RESULT's sizes,
-	and the clip token a reporter's copy makes */
+	/* reports (docs/delta.md, Reports): REPORT's and REPORT_RESULT's sizes
+	(REPORT_RESULT's first 8 bytes alone from a host before the clip
+	token), and the clip token the host makes */
 	DELTA_WIRE_REPORT_SIZE = 24,
-	DELTA_WIRE_REPORT_RESULT_SIZE = 8,
+	DELTA_WIRE_REPORT_RESULT_SIZE = 24,
+	DELTA_WIRE_REPORT_RESULT_SHORT_SIZE = 8,
 	DELTA_WIRE_REPORT_CLIP_TOKEN_SIZE = 16,
 	/* REPORT's flags: a clip will follow to the site */
 	DELTA_WIRE_REPORT_CLIP = 0x01,
@@ -880,15 +882,17 @@ struct delta_wire_report
 {
 	/* strictly more than the session's last */
 	delta_u32 sequence;
-	/* the reported player: their machine, and their index in the game's
-	player list (the host's) */
+	/* the reported player: their machine, and the absolute index of their
+	player datum in the host's player data (DATUM_INDEX_TO_ABSOLUTE_INDEX
+	of the game's player index, which every machine's copy shares) */
 	unsigned char target_machine;
 	unsigned char target_player;
 	/* enum delta_report_reason */
 	unsigned char reason;
 	/* DELTA_WIRE_REPORT_CLIP */
 	unsigned char flags;
-	/* (with DELTA_WIRE_REPORT_CLIP) the token the clip goes to the site with */
+	/* (kept for its place: a host ignores it, and makes the clip's token
+	itself, REPORT_RESULT's; this build sends zeros) */
 	unsigned char clip_token[DELTA_WIRE_REPORT_CLIP_TOKEN_SIZE];
 };
 
@@ -901,6 +905,10 @@ struct delta_wire_report_result
 	unsigned char result;
 	/* DELTA_WIRE_REPORT_SEND_CLIP */
 	unsigned char flags;
+	/* (with DELTA_WIRE_REPORT_SEND_CLIP) the token the host made for the
+	clip, which the site takes it by: its report names it. Without the flag,
+	or from a host before it, zeros (and no clip goes) */
+	unsigned char clip_token[DELTA_WIRE_REPORT_CLIP_TOKEN_SIZE];
 };
 
 /* a unit's shield and health (UNIT_VITALS) */

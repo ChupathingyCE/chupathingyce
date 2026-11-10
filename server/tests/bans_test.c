@@ -252,7 +252,7 @@ static void test_shared(void)
 static void test_reports(void)
 {
 	static struct server_report report;
-	static char text[64 * 1024];
+	static char text[512 * 1024];
 	char refs[1][SERVER_REPORT_ID_SIZE];
 	unsigned int first, index;
 
@@ -301,17 +301,130 @@ static void test_reports(void)
 	CHECK(strstr(text, "closed by Odb") != NULL);
 	server_reports_text(0, 0, text, sizeof(text));
 	CHECK(!strstr(text, "closed by Odb"));
-	/* the queue keeps SERVER_REPORTS_KEPT, the closed going first */
-	for (index = 0; index < SERVER_REPORTS_KEPT + 5; index++)
+	/* a clip's token: the server's own, random, only when asked for */
+	memset(&report, 0, sizeof(report));
+	report.reason = SERVER_REPORT_CHEATING;
+	report.target.delta = 1;
+	snprintf(report.clip, sizeof(report.clip), "00000000000000000000000000000000");
+	CHECK(server_reports_add(&report) && !report.clip[0]);
+	report.want_clip = 1;
+	CHECK(server_reports_add(&report) && strlen(report.clip) == 32 &&
+		strspn(report.clip, "0123456789abcdef") == 32 && strcmp(report.clip, "00000000000000000000000000000000"));
 	{
-		memset(&report, 0, sizeof(report));
-		report.reason = SERVER_REPORT_OTHER;
-		snprintf(report.target.name, sizeof(report.target.name), "p%u", index);
-		CHECK(server_reports_add(&report));
+		char first_clip[SERVER_REPORT_ID_SIZE];
+
+		snprintf(first_clip, sizeof(first_clip), "%s", report.clip);
+		CHECK(server_reports_add(&report) && strcmp(report.clip, first_clip));
+	}
+	/* the queue keeps SERVER_REPORTS_KEPT: the closed go first, and an open
+	one never goes for a new one (a flood is refused instead) */
+	{
+		unsigned int taken = 0;
+
+		for (index = 0; index < SERVER_REPORTS_KEPT + 5; index++)
+		{
+			memset(&report, 0, sizeof(report));
+			report.reason = SERVER_REPORT_OTHER;
+			snprintf(report.target.name, sizeof(report.target.name), "p%u", index);
+			taken += server_reports_add(&report) ? 1 : 0;
+		}
+		/* (room for 195 open beside the 5 kept, and the closed one's place) */
+		CHECK(taken == SERVER_REPORTS_KEPT - 5 + 1);
 	}
 	CHECK(server_reports_open() == SERVER_REPORTS_KEPT);
+	server_reports_text(1, 1, text, sizeof(text));
+	CHECK(strstr(text, "OpenGuy") && !strstr(text, "closed by Odb") && strstr(text, "\"p0\"") && !strstr(text, "\"p199\""));
 	CHECK(!strcmp(server_report_reason_name(SERVER_REPORT_GRIEFING), "griefing or betraying") &&
 		!strcmp(server_report_reason_name(99), "?"));
+}
+
+/* the limits on reports: by who reports and who is reported, never by a
+machine's slot */
+static void test_report_limits(void)
+{
+	struct server_report_who a, b, c, verified, verified_back, target, other;
+	long long now = 1000000;
+	int index;
+
+	memset(&a, 0, sizeof(a));
+	b = c = target = other = verified = a;
+	a.player = 0x10001;
+	b.player = 0x20001;
+	c.player = 0x30001;
+	target.player = 0x40002;
+	other.player = 0x50003;
+	verified.has_account = 1;
+	memset(verified.account, 0x77, 16);
+	verified.player = 0x60004;
+	/* (the same account back as another player after leaving) */
+	verified_back = verified;
+	verified_back.player = 0x70005;
+	server_reports_limit_reset();
+	CHECK(server_reports_limit_check(&a, &target, now) == SERVER_REPORT_LIMIT_OK);
+	server_reports_limit_count(&a, &target, now);
+	/* (once a game a player, from one reporter) */
+	CHECK(server_reports_limit_check(&a, &target, now + 100) == SERVER_REPORT_LIMIT_ALREADY);
+	/* (a new player in the slot a left: their own counts, never a's) */
+	CHECK(server_reports_limit_check(&b, &target, now + 100) == SERVER_REPORT_LIMIT_OK);
+	/* (3 a minute) */
+	server_reports_limit_count(&a, &other, now + 1);
+	c.player = 0x30009;
+	server_reports_limit_count(&a, &c, now + 2);
+	b.player = 0x20009;
+	CHECK(server_reports_limit_check(&a, &b, now + 30) == SERVER_REPORT_LIMIT_TOO_SOON);
+	CHECK(server_reports_limit_check(&a, &b, now + 61) == SERVER_REPORT_LIMIT_OK);
+	/* (a verified reporter is counted by their account: back after leaving,
+	as another player, the counts are theirs still) */
+	server_reports_limit_count(&verified, &target, now);
+	CHECK(server_reports_limit_check(&verified_back, &target, now + 100) == SERVER_REPORT_LIMIT_ALREADY);
+	/* (at most 5 of one player a game, from everyone) */
+	for (index = 0; index < 3; index++)
+	{
+		struct server_report_who someone = a;
+
+		someone.player = 0x80000 + index;
+		CHECK(server_reports_limit_check(&someone, &target, now) == SERVER_REPORT_LIMIT_OK);
+		server_reports_limit_count(&someone, &target, now);
+	}
+	{
+		struct server_report_who sixth = a;
+
+		sixth.player = 0x90000;
+		CHECK(server_reports_limit_check(&sixth, &target, now) == SERVER_REPORT_LIMIT_ALREADY);
+		CHECK(server_reports_limit_check(&sixth, &other, now) == SERVER_REPORT_LIMIT_OK);
+	}
+	/* (10 a game) */
+	{
+		struct server_report_who busy = a, someone = a;
+
+		busy.player = 0xA0000;
+		for (index = 0; index < SERVER_REPORTS_PER_GAME; index++)
+		{
+			someone.player = 0xB0000 + index;
+			server_reports_limit_count(&busy, &someone, now + 100 * index);
+		}
+		someone.player = 0xC0000;
+		CHECK(server_reports_limit_check(&busy, &someone, now + 100000) == SERVER_REPORT_LIMIT_TOO_SOON);
+	}
+	/* (no room to count a new reporter: refused, never a count forgotten) */
+	server_reports_limit_reset();
+	for (index = 0; index < SERVER_REPORTS_REPORTERS_KEPT; index++)
+	{
+		struct server_report_who someone = a, someone_else = a;
+
+		someone.player = 0x100000 + index;
+		someone_else.player = 0x200000 + (index % 50);
+		server_reports_limit_count(&someone, &someone_else, now);
+	}
+	{
+		struct server_report_who late = a;
+
+		late.player = 0x300000;
+		CHECK(server_reports_limit_check(&late, &other, now) == SERVER_REPORT_LIMIT_TOO_SOON);
+	}
+	/* (a new game: they start over) */
+	server_reports_limit_reset();
+	CHECK(server_reports_limit_check(&a, &target, now) == SERVER_REPORT_LIMIT_OK);
 }
 
 int main(int argc, char **argv)
@@ -323,6 +436,7 @@ int main(int argc, char **argv)
 	test_share();
 	test_shared();
 	test_reports();
+	test_report_limits();
 	printf("%d checks, %d failures\n", checks, failures);
 	return failures ? 1 : 0;
 }

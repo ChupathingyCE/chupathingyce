@@ -1216,15 +1216,19 @@ static void test_wire_report(void)
 		report.clip_token[index] = (unsigned char)(0x10 + index);
 	size = delta_wire_write_report(data, 7, &report);
 	CHECK(size == DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_REPORT_SIZE);
+	/* (the client's token never goes, and is never read: the host makes
+	the clip's token, so a client can't pick the one its clip goes with) */
 	CHECK(delta_wire_read_header(data, size, &header) && header.type == _delta_message_report &&
 		delta_wire_read_report(data + DELTA_WIRE_HEADER_SIZE, header.length, &report_in) &&
 		report_in.sequence == 4 && report_in.target_machine == 2 && report_in.target_player == 5 &&
 		report_in.reason == _delta_report_griefing && report_in.flags == DELTA_WIRE_REPORT_CLIP &&
-		report_in.clip_token[15] == 0x1F);
-	/* (no clip: its token reads as zeros, whatever the bytes) */
+		!report_in.clip_token[15] && !data[DELTA_WIRE_HEADER_SIZE + 8 + 15]);
+	data[DELTA_WIRE_HEADER_SIZE + 8 + 15] = 0x1F;
+	CHECK(delta_wire_read_report(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_REPORT_SIZE, &report_in) &&
+		!report_in.clip_token[15]);
 	data[DELTA_WIRE_HEADER_SIZE + 7] = 0;
 	CHECK(delta_wire_read_report(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_REPORT_SIZE, &report_in) &&
-		!report_in.flags && !report_in.clip_token[15]);
+		!report_in.flags);
 	/* (a reason or flag this build doesn't know, no machine, short: refused) */
 	report.reason = NUMBER_OF_DELTA_REPORT_REASONS;
 	CHECK(!delta_wire_write_report(data, 7, &report));
@@ -1246,11 +1250,24 @@ static void test_wire_report(void)
 	result.sequence = 4;
 	result.result = _delta_report_taken;
 	result.flags = DELTA_WIRE_REPORT_SEND_CLIP;
+	for (index = 0; index < DELTA_WIRE_REPORT_CLIP_TOKEN_SIZE; index++)
+		result.clip_token[index] = (unsigned char)(0x40 + index);
 	size = delta_wire_write_report_result(data, 7, &result);
+	CHECK(size == DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_REPORT_RESULT_SIZE);
 	CHECK(delta_wire_read_header(data, size, &header) && header.type == _delta_message_report_result &&
 		delta_wire_read_report_result(data + DELTA_WIRE_HEADER_SIZE, header.length, &result_in) &&
 		result_in.sequence == 4 && result_in.result == _delta_report_taken &&
-		result_in.flags == DELTA_WIRE_REPORT_SEND_CLIP);
+		result_in.flags == DELTA_WIRE_REPORT_SEND_CLIP && result_in.clip_token[0] == 0x40 &&
+		result_in.clip_token[15] == 0x4F);
+	/* (a host before the token sends 8 bytes, and a host's zeros: no clip goes) */
+	CHECK(delta_wire_read_report_result(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_REPORT_RESULT_SHORT_SIZE,
+		&result_in) && result_in.result == _delta_report_taken && !result_in.flags && !result_in.clip_token[0]);
+	memset(result.clip_token, 0, sizeof(result.clip_token));
+	size = delta_wire_write_report_result(data, 7, &result);
+	CHECK(delta_wire_read_report_result(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_REPORT_RESULT_SIZE, &result_in) &&
+		!result_in.flags);
+	result.clip_token[3] = 9;
+	size = delta_wire_write_report_result(data, 7, &result);
 	/* (a later flag is dropped; a later result refused) */
 	data[DELTA_WIRE_HEADER_SIZE + 5] = 0xFF;
 	CHECK(delta_wire_read_report_result(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_REPORT_RESULT_SIZE, &result_in) &&
@@ -1293,13 +1310,15 @@ static struct
 	int flags;
 } host_report;
 
-static int test_report(void *context, int machine_index, const struct delta_wire_report *report, int *flags)
+static int test_report(void *context, int machine_index, const struct delta_wire_report *report, int *flags,
+	unsigned char *clip_token)
 {
 	(void)context;
 	host_report.asked++;
 	host_report.machine = machine_index;
 	host_report.report = *report;
 	*flags = host_report.flags;
+	memset(clip_token, 0xC5, DELTA_WIRE_REPORT_CLIP_TOKEN_SIZE);
 	return host_report.answer;
 }
 
@@ -1339,16 +1358,19 @@ static void test_reports(void)
 	results = delta_peer_client_report_result(&nodes[1].peer, NULL);
 	CHECK(delta_peer_client_report(&nodes[1].peer, &report));
 	deliver(now);
+	/* (the client's token never reaches the host; the host's comes back) */
 	CHECK(host_report.asked == 1 && host_report.machine == 1 && host_report.report.target_machine == 2 &&
-		host_report.report.clip_token[0] == 0xAB);
+		!host_report.report.clip_token[0]);
 	CHECK(delta_peer_client_report_result(&nodes[1].peer, &result) == results + 1 &&
-		result.result == _delta_report_taken && result.flags == DELTA_WIRE_REPORT_SEND_CLIP);
-	/* (no clip asked for: the host's flag never goes out) */
+		result.result == _delta_report_taken && result.flags == DELTA_WIRE_REPORT_SEND_CLIP &&
+		result.clip_token[0] == 0xC5 && result.clip_token[15] == 0xC5);
+	/* (no clip asked for: the host's flag and token never go out) */
 	now += 2000;
 	report.flags = 0;
 	CHECK(delta_peer_client_report(&nodes[1].peer, &report));
 	deliver(now);
-	CHECK(delta_peer_client_report_result(&nodes[1].peer, &result) == results + 2 && !result.flags);
+	CHECK(delta_peer_client_report_result(&nodes[1].peer, &result) == results + 2 && !result.flags &&
+		!result.clip_token[0]);
 	/* (a report of the reporter's own machine never reaches the host) */
 	now += 2000;
 	host_report.asked = 0;
@@ -3557,7 +3579,7 @@ static void identity_machine_identity(void *context, int machine_index, int loca
 
 static const struct delta_peer_moderation_host identity_moderation_host =
 {
-	NULL, identity_machine_key, identity_key_role, NULL, NULL, identity_machine_identity, NULL
+	NULL, identity_machine_key, identity_key_role, NULL, NULL, identity_machine_identity, NULL, NULL
 };
 
 static void test_wire_identity(void)

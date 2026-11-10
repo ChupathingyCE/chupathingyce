@@ -1328,12 +1328,15 @@ REPORT
 	5  target player (1)
 	6  reason (1)
 	7  flags (1)
-	8  clip token (16; zeros without the clip flag)
+	8  clip token (16; ignored by the host, which makes the clip's token:
+	   zeros)
 REPORT_RESULT
 	0  sequence (4)
 	4  result (1)
 	5  flags (1)
-	6  reserved (2) */
+	6  reserved (2)
+	8  clip token (16, the host's: zeros without the send-clip flag; a host
+	   before it sends the first 8 bytes alone) */
 
 static int report_valid(const struct delta_wire_report *report)
 {
@@ -1351,8 +1354,8 @@ int delta_wire_read_report(const unsigned char *payload, int size, struct delta_
 	report->target_player = payload[5];
 	report->reason = payload[6];
 	report->flags = payload[7];
-	if (report->flags & DELTA_WIRE_REPORT_CLIP)
-		copy_bytes(report->clip_token, payload + 8, DELTA_WIRE_REPORT_CLIP_TOKEN_SIZE);
+	/* (its clip token is not read: the host makes the clip's token, so a
+	client can't pick the one its clip goes to the site with) */
 	return report_valid(report);
 }
 
@@ -1368,8 +1371,6 @@ int delta_wire_write_report(unsigned char *data, delta_u32 session, const struct
 	payload[5] = report->target_player;
 	payload[6] = report->reason;
 	payload[7] = report->flags;
-	if (report->flags & DELTA_WIRE_REPORT_CLIP)
-		copy_bytes(payload + 8, report->clip_token, DELTA_WIRE_REPORT_CLIP_TOKEN_SIZE);
 	delta_wire_write_header(data, DELTA_MAJOR, _delta_message_report, DELTA_WIRE_REPORT_SIZE, session);
 	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_REPORT_SIZE;
 }
@@ -1377,12 +1378,25 @@ int delta_wire_write_report(unsigned char *data, delta_u32 session, const struct
 int delta_wire_read_report_result(const unsigned char *payload, int size, struct delta_wire_report_result *result)
 {
 	clear(result, (int)sizeof(*result));
-	if (!payload || size < DELTA_WIRE_REPORT_RESULT_SIZE || size > DELTA_WIRE_MAXIMUM_PAYLOAD)
+	if (!payload || size < DELTA_WIRE_REPORT_RESULT_SHORT_SIZE || size > DELTA_WIRE_MAXIMUM_PAYLOAD)
 		return 0;
 	result->sequence = read_u32(payload);
 	result->result = payload[4];
 	/* (flags a build does not know are dropped) */
 	result->flags = (unsigned char)(payload[5] & DELTA_WIRE_REPORT_SEND_CLIP);
+	/* (the clip goes only with the host's token: a host before it, or one
+	that sent zeros, gets none) */
+	if (result->flags & DELTA_WIRE_REPORT_SEND_CLIP)
+	{
+		int index, any = 0;
+
+		if (size >= DELTA_WIRE_REPORT_RESULT_SIZE)
+			copy_bytes(result->clip_token, payload + 8, DELTA_WIRE_REPORT_CLIP_TOKEN_SIZE);
+		for (index = 0; index < DELTA_WIRE_REPORT_CLIP_TOKEN_SIZE; index++)
+			any |= result->clip_token[index];
+		if (!any)
+			result->flags = (unsigned char)(result->flags & ~DELTA_WIRE_REPORT_SEND_CLIP);
+	}
 	return result->result < NUMBER_OF_DELTA_REPORT_RESULTS;
 }
 
@@ -1397,6 +1411,8 @@ int delta_wire_write_report_result(unsigned char *data, delta_u32 session,
 	write_u32(payload, result->sequence);
 	payload[4] = result->result;
 	payload[5] = (unsigned char)(result->flags & DELTA_WIRE_REPORT_SEND_CLIP);
+	if (result->flags & DELTA_WIRE_REPORT_SEND_CLIP)
+		copy_bytes(payload + 8, result->clip_token, DELTA_WIRE_REPORT_CLIP_TOKEN_SIZE);
 	delta_wire_write_header(data, DELTA_MAJOR, _delta_message_report_result, DELTA_WIRE_REPORT_RESULT_SIZE, session);
 	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_REPORT_RESULT_SIZE;
 }
