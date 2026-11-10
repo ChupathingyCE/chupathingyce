@@ -834,6 +834,9 @@ checked that the challenge came from the host it connected to (the
   host passing on another host's challenge) proves nothing, and shows no one
   as verified in that game.
 - A host takes the bound flag only while it has a binding of its own.
+- A client shows another player's card as bound only when the card has
+  the flag and its own join is bound (it came in through that invite).
+  A client that joined by address shows every card unbound.
 - **Only a bound proof gives a role or a ban.** An unbound proof shows a
   name and nothing more: the dedicated server's moderation never hears of
   it, and it is never written to bans.txt or matched against it.
@@ -841,15 +844,20 @@ checked that the challenge came from the host it connected to (the
   proof from its own game into another, at the same time, can be shown
   there under that player's name. That is why it never carries a role.
 - **Accepted risk: a card replayed by a host.** A host that joined another
-  game as a client keeps the cards it was sent there. Each card carries
-  its nonce and its binding, both chosen by that game's host, so a host
-  can send an unbound card it collected to its own players who joined by
-  address, at the same machine index, and they check it. The player then
-  shows as verified in that game for up to 30 minutes after they signed
-  (a client's card age), with no role and no ban. A bound card can't be
-  replayed this way: it names the other host's binding. Closing this for
-  unbound cards needs a nonce from every client in each proof, so a proof
-  would be made again whenever anyone joins. We left that out for now.
+  game as a client keeps the cards it was sent there. Each card is signed
+  over its nonce and its binding, both chosen by that game's host, so a
+  host can send a card it collected, bound or not, to its own players who
+  joined by address, at the same machine index, with the other game's
+  nonce and binding in its challenge, and they check it. The player then
+  shows as verified in that game for up to about 40 minutes after they
+  signed (a client's card age of 30 minutes plus the 10 minutes of
+  clock grace), with no role and no ban. A client takes a card as bound
+  only when its own join checks against the challenge's binding (it came
+  in through that invite), so a replayed bound card shows unbound there,
+  and players who joined by invite refuse a challenge that isn't their
+  invite's. Closing this needs a nonce from every client in each proof,
+  so a proof would be made again whenever anyone joins. We left that out
+  for now.
 
 **The flow.**
 
@@ -890,7 +898,9 @@ checked that the challenge came from the host it connected to (the
   host withdraws a card whose proof is more than 25 minutes old (10
   minutes, what it takes, plus the 15 a client proves again in), and a
   client drops one more than 30 minutes old, however often the host sends
-  it again. When a new revocation list comes, every card is checked
+  it again. Both ages get the 10 minutes of clock grace on top, so in
+  practice a card lasts up to about 35 minutes on the host and about 40
+  on a client. When a new revocation list comes, every card is checked
   against it on the next frame.
 - **What every player gets.** An ID_CARD goes to every client in the game
   that agreed to `identity`, and it holds the whole certificate: the
@@ -949,8 +959,9 @@ checked that the challenge came from the host it connected to (the
 - The certificate has `play` (0x01).
 - Its device isn't on the revocation list this copy last has (below).
 - The proof is fresh by this machine's clock, with 10 minutes of grace
-  either way. The host takes it no more than 10 minutes old, and a client
-  takes a card no more than 30 minutes old.
+  (`IDENTITY_GRACE`) either way. The host takes it no more than 10
+  minutes old (20 with the grace), keeps it to 25 (about 35), and a
+  client takes a card no more than 30 minutes old (about 40).
 - The signature is the device key's over the message above, as Monocypher
   4's `crypto_ed25519_check` checks it. A key of small order is refused.
 - The name, if any, is the handle's characters (`A-Z a-z 0-9 _ -`). A
@@ -999,13 +1010,22 @@ and show their handle until their owner picks its capitals.
 - **Impersonation.** A player who isn't verified, but whose game name looks
   like the handle of a verified player of the same game (compared by the
   look-alike key below), shows as "Player N" (their place in the game's
-  player list), never by that name. A verified player whose handle the
-  site marked as a look-alike of another (its card's `looks_like`) shows as
+  player list), never by that name. The name is compared as it is
+  written and as it shows (every @ left out), against the whole handle
+  and against the 11 characters a linked profile's game name is cut to,
+  so "MilenkoTheG" is masked next to a verified "MilenkoTheGreat". A
+  verified player whose handle the site marked as a look-alike of another (its card's `looks_like`) shows as
   "Player N" too.
 - **The mark** (`display.verified_mark`, on by default): verified names
-  show with an @ in front ("@Milenko"), and an @ at the front of anyone
-  else's game name is left out. A player who isn't connected to Delta (no
+  show with an @ in front ("@Milenko"). Every @ in anyone else's game
+  name is left out, wherever it is, and so are spaces, dots and invisible
+  marks left at its front, so " @Milenko", ".@Milenko" and "·@Milenko"
+  all show as "Milenko" (and as "Player N" next to a verified Milenko). A player who isn't connected to Delta (no
   linked profile, or a guest) never has the mark.
+- **The same name everywhere.** The scoreboard, the postgame report, the
+  lobby, DELTA, chat, the kill feed and the other HUD lines (a player
+  quitting, the name under the crosshair) all show a player the same way:
+  a verified player by their Delta name, an impersonation as "Player N".
 - **On Delta you play under your verified name.** A Halo profile linked to
   a Delta profile (it would prove: shared, not a guest, with a certificate
   that has a handle) joins every game with the handle as its game name, in
@@ -1039,7 +1059,9 @@ against the same vectors):
 On the site:
 - A new handle that looks like the handle of a profile that proves who it
   is in games (it has a device that isn't revoked or signed out) is
-  refused.
+  refused. It is checked when the name is asked for and again when the
+  email link that makes the profile is opened, so a look-alike asked for
+  early can't be made after the real player enrolls.
 - Any other look-alike is made, but marked: its public card and service
   record carry `looks_like` with the older handle, and the admin panel
   lists it with the reserved and blocked names.
@@ -1973,9 +1995,8 @@ by their Delta account, when their proof is bound to the server. A
 machine's role is the highest of its key's and its bound, verified
 accounts' (those whose certificates have `moderate`). An account's role
 comes from `moderators.txt`'s account lines (`<role> <32 hex digits>
-[name]`) and from the site's role list by each entry's account (an entry
-from a site that sends none, by the certificate's handle), under the same
-cap. Bans can name accounts and devices too ("Verified names").
+[name]`) and from the site's role list by each entry's account, under the
+same cap. Bans can name accounts and devices too ("Verified names").
 
 ### Accounts and remote access
 
@@ -2081,7 +2102,8 @@ copy: every Halo profile on a copy counts for the same Delta profile.
   holds.
 - **Profile names:** in a game on Delta, a verified player (Delta Peer's
   `identity`: "Verified names") shows by their Delta Tag, in the
-  capitals they picked, on the scoreboard, the postgame report and the lobby
+  capitals they picked, on the scoreboard, the postgame report, the lobby,
+  chat, the kill feed and the HUD's other lines
   (`port/linux/game/profile_names.c`). The game asks the site for those
   players' public cards by their proven accounts (`POST /v1/game/players`,
   no key). Split-screen players each prove their own Halo profile's
