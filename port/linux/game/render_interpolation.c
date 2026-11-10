@@ -169,6 +169,10 @@ struct interpolated_camera
 	real_point3d previous_focus;
 	real_point3d latest_focus;
 	boolean focus_glides;
+	/* the director's perspective at each (a change between them, first
+	person to a scripted view or back, is a cut for the focus) */
+	short previous_perspective;
+	short latest_perspective;
 	/* its player's unit (or what it rides) corrected: as an object's */
 	real_vector3d correction;
 	real_vector3d correction_pending;
@@ -1030,6 +1034,56 @@ static boolean observer_cut(
 		!(a->forward.i * b->forward.i + a->forward.j * b->forward.j + a->forward.k * b->forward.k >= CAMERA_CUT_COSINE);
 }
 
+#ifndef HALO_CONSOLE_VIEW_INTERPOLATION
+/* Two snapshots whose times can be told apart: each taken while the clock
+ran (a paused or stopped clock gives a whole tick, 1.0, at every frame) and
+far enough apart. Written so a fraction or a gap not a number fails. */
+static boolean camera_snapshot_times_usable(
+	real previous_fraction,
+	real latest_fraction,
+	real apart,
+	real least_apart)
+{
+	return previous_fraction < 1.0f && latest_fraction < 1.0f && apart > least_apart;
+}
+
+/* how far from the previous snapshot to the latest the camera is drawn at
+the fraction t, by the times the snapshots were taken (the timed blend in
+render_interpolation_blended_camera); by the fraction alone when their times
+can't be told apart, so the camera never stops for a tick after a pause and
+is never drawn at a division by nothing */
+static real camera_timed_fraction(
+	real t,
+	real previous_fraction,
+	real latest_fraction)
+{
+	real apart = 1.0f + latest_fraction - previous_fraction;
+
+	if (!camera_snapshot_times_usable(previous_fraction, latest_fraction, apart, 0.05f))
+	{
+		return t;
+	}
+	return PIN((t - previous_fraction) / apart, -0.5f, 1.0f);
+}
+
+/* after a long frame (ticks since the last snapshot), how far from the
+last snapshot to the latest the camera stood a tick before the latest */
+static real camera_long_frame_along(
+	real ticks,
+	real previous_fraction,
+	real latest_fraction)
+{
+	real apart = ticks + latest_fraction - previous_fraction;
+
+	if (!camera_snapshot_times_usable(previous_fraction, latest_fraction, apart, 1.0f))
+	{
+		return (ticks - 1.0f) / ticks;
+	}
+	return (apart - 1.0f) / apart;
+}
+
+#endif
+
 static struct observer_result const *render_interpolation_blended_camera(
 	short local_player_index,
 	struct observer_result const *observer)
@@ -1108,6 +1162,8 @@ static struct observer_result const *render_interpolation_blended_camera(
 		camera->latest_fraction = t;
 		camera->previous_focus = camera->latest_focus;
 		camera->focus_glides = observer_get_focus(local_player_index, &camera->latest_focus);
+		camera->previous_perspective = camera->latest_perspective;
+		camera->latest_perspective = (short)director_get_perspective(local_player_index);
 		/* Several ticks since the last snapshot (a long frame): the objects
 		are drawn between the last two ticks, so the camera's previous is
 		where it was a tick ago, as nearly as a steady move from the last
@@ -1125,12 +1181,7 @@ static struct observer_result const *render_interpolation_blended_camera(
 #ifndef HALO_CONSOLE_VIEW_INTERPOLATION
 			/* (the snapshots taken that far apart in time, parts of a tick
 			included: see the timed blend below) */
-			{
-				real apart = ticks + camera->latest_fraction - camera->previous_fraction;
-
-				if (apart > 1.0f)
-					along = (apart - 1.0f) / apart;
-			}
+			along = camera_long_frame_along(ticks, camera->previous_fraction, camera->latest_fraction);
 #endif
 			observer_blend(&previous, &camera->latest, along, &camera->previous);
 			camera->previous_fraction = camera->latest_fraction;
@@ -1156,22 +1207,32 @@ static struct observer_result const *render_interpolation_blended_camera(
 	Blended by the times the snapshots were taken, it is drawn where it was
 	a tick before the frame, as the objects are. Where the camera is
 	centered (the unit it follows) moves once a tick, unless it glides
-	there, and is blended by the fraction, as the objects. */
+	there, and is blended by the fraction, as the objects. A third-person or
+	vehicle view's position stays between its two snapshots (its facing may
+	run a little before the earlier one): both were kept off the walls by the
+	camera's collision, and a point past them could be inside one. Snapshots
+	taken in different perspectives (first person to a scripted view) are
+	not centered on the same thing, so the focus isn't blended between them. */
 	{
-		real timed = (t - camera->previous_fraction) /
-			(1.0f + camera->latest_fraction - camera->previous_fraction);
+		director_perspective perspective = director_get_perspective(local_player_index);
+		real timed = camera_timed_fraction(t, camera->previous_fraction, camera->latest_fraction);
+		real placed = timed;
 
-		timed = PIN(timed, -0.5f, 1.0f);
 		observer_blend(&camera->previous, &camera->latest, timed, &camera->blended);
-		if (director_get_perspective(local_player_index) != _director_perspective_scripted)
+		if (perspective != _director_perspective_scripted)
 		{
 			real_point3d focus_at_fraction, focus_at_time;
 
 			camera->blended.field_of_view = lerp(camera->previous.field_of_view, camera->latest.field_of_view, t);
-			if (!camera->focus_glides)
+			if (perspective == _director_perspective_third_person)
+			{
+				placed = PIN(timed, 0.0f, 1.0f);
+				point_lerp(&camera->previous.position, &camera->latest.position, placed, &camera->blended.position);
+			}
+			if (!camera->focus_glides && camera->previous_perspective == camera->latest_perspective)
 			{
 				point_lerp(&camera->previous_focus, &camera->latest_focus, t, &focus_at_fraction);
-				point_lerp(&camera->previous_focus, &camera->latest_focus, timed, &focus_at_time);
+				point_lerp(&camera->previous_focus, &camera->latest_focus, placed, &focus_at_time);
 				camera->blended.position.x += focus_at_fraction.x - focus_at_time.x;
 				camera->blended.position.y += focus_at_fraction.y - focus_at_time.y;
 				camera->blended.position.z += focus_at_fraction.z - focus_at_time.z;
