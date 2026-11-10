@@ -48,6 +48,7 @@ A few people look for most:
 | `audio.voice_channel` | The channel you talk on: `"party"`, `"team"` (the default), `"proximity"` (players near you, who hear you from where you stand) or `"everyone"` (only where the host allows it). B, or the D-pad left, switches it. |
 | `audio.voice_volume`, `audio.voice_volume_party`, `_team`, `_proximity`, `_everyone` | Voices' volume, and each channel's, from 0.0 to 2.0. A channel at 0 is off: the host sends you none of it. |
 | `audio.voice_input_device`, `audio.voice_open_mic_level`, `audio.voice_positional` | The microphone (empty for the system's), how loud you must be for open mic to send, and whether proximity voices use the game's 3D sound (else a plain pan and fade). |
+| `display.voice_speakers` | Show who is talking in voice chat, small, at the top right (on by default). Your own channel shows there while you talk either way. |
 | `audio.doppler` | Moving sounds shift in pitch as on the Xbox (on by default). |
 | `input.mouse_sensitivity`, `input.invert_mouse` | Mouse aim. |
 | `input.keyboard_prompts` | Button prompts follow the device you used last: keys after the keyboard or mouse, as Halo PC did, and buttons after a controller. This setting is no longer in the menus; `false` keeps the controller's buttons everywhere. |
