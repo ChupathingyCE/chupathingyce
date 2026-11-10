@@ -449,9 +449,14 @@ struct message_client_settings_request
 	byte padding[3];
 };
 
+/* (one short on the wire, the request's countdown event: the client's
+struct is a short too. The original's long here took the short's two bytes
+as its low half only on a little-endian machine; a big-endian host read the
+other half) */
 struct message_client_game_start_request
 {
-	long countdown_time;
+	short countdown_event;
+	byte padding[2];
 };
 
 struct message_client_graceful_game_exit_pregame
@@ -2867,8 +2872,7 @@ static boolean network_game_server_handle_message_client_game_start_request(
 			&packet_version,
 			_network_game_packet_class_client_pregame))
 		{
-			/* (a short on the wire: the rest of the long is not written) */
-			short countdown_event = (short)game_start_request.countdown_time;
+			short countdown_event = game_start_request.countdown_event;
 
 			/* port: the pregame screen's faster and slower, from any machine;
 			to stop the countdown or start at once (a script's), the host's own
