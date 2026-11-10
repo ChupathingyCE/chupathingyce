@@ -298,9 +298,13 @@ static struct
 		{
 			unsigned long first, count, frame;
 			float area;
+			/* the test's number (D3DDevice_EndVisibilityTest) */
+			unsigned long number;
 		} pending[BG_TESTS_PENDING];
 		unsigned char pending_count;
 		UINT known;
+		/* the number of the test known is of (0: none yet) */
+		unsigned long known_number;
 	} tests[VISIBILITY_TEST_SLOTS];
 
 	/* the overlay's (xgpu_bgfx_overlay_draw) */
@@ -3205,12 +3209,14 @@ static void bg_visibility_begin(void)
 	bg.test_count = 0;
 }
 
-static void bg_visibility_end(DWORD index)
+/* number: the test's (D3DDevice_EndVisibilityTest); FALSE when no test
+was running */
+static BOOL bg_visibility_end(DWORD index, unsigned long number)
 {
 	unsigned char count;
 
 	if (!bg.test_active)
-		return;
+		return FALSE;
 	bg.test_active = FALSE;
 	index %= VISIBILITY_TEST_SLOTS;
 	count = bg.tests[index].pending_count;
@@ -3224,26 +3230,34 @@ static void bg_visibility_end(DWORD index)
 	bg.tests[index].pending[count].first = bg.test_first;
 	bg.tests[index].pending[count].count = bg.test_count < BG_QUERY_COUNT ? bg.test_count : BG_QUERY_COUNT;
 	bg.tests[index].pending[count].frame = bg.frame;
+	bg.tests[index].pending[count].number = number;
 	/* (the count in the game's pixels: lens flares divide it by their area;
 	a multisampled target's queries count its samples) */
 	bg.tests[index].pending[count].area = bg.target_scale[0] * bg.target_scale[1] *
 		(float)(bg.target_samples > 1 ? bg.target_samples : 1);
 	bg.tests[index].pending_count = (unsigned char)(count + 1);
 	bg.stat_tests++;
+	return TRUE;
 }
 
 /* the slot's latest count known: its newest test whose queries have their
 results (bgfx's results are a query's latest, this test's once the GPU has
 finished its frame, which bgfx reads that many frames later:
-tools/bgfx-patches); until then, the slot's earlier count */
-static UINT bg_visibility_result(DWORD index)
+tools/bgfx-patches); until then, the slot's earlier count. number: the
+test the count is of (0: none yet) */
+static UINT bg_visibility_result(DWORD index, unsigned long *number)
 {
 	int test, done = -1;
 	unsigned long query;
 
 	index %= VISIBILITY_TEST_SLOTS;
+	*number = bg.tests[index].known_number;
 	for (test = 0; test < bg.tests[index].pending_count; test++)
 	{
+		/* (not one whose queries the ring has given to later tests since:
+		their results are those tests') */
+		if (bg.query_next - bg.tests[index].pending[test].first > BG_QUERY_COUNT)
+			continue;
 		if (bg.frame >= bg.tests[index].pending[test].frame + BG_QUERY_LATENCY)
 			done = test;
 	}
@@ -3271,6 +3285,8 @@ static UINT bg_visibility_result(DWORD index)
 			float area = bg.tests[index].pending[done].area;
 
 			bg.tests[index].known = area > 1.0f ? (UINT)(samples / area + 0.5f) : (UINT)samples;
+			bg.tests[index].known_number = bg.tests[index].pending[done].number;
+			*number = bg.tests[index].known_number;
 			if (bg.tests[index].known)
 				bg.stat_seen++;
 		}
