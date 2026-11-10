@@ -1529,6 +1529,10 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 		platform_event_thread = SDL_GetCurrentThreadID();
 		platform_log("renderer: bgfx");
 		platform_mouse_capture(TRUE);
+#ifdef HALO_LAUNCHER
+		/* (the launcher starts bgfx itself to draw: xgpu_bgfx_launcher_frame) */
+		launcher_at_start();
+#endif
 		return TRUE;
 	}
 #endif

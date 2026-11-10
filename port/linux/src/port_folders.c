@@ -15,6 +15,8 @@ static const char *const folder_names[k_port_folder_count] = {
 	"cache",
 	"private",
 	"gametypes",
+	"screenshots",
+	"clips",
 };
 
 static int is_set(const char *value)

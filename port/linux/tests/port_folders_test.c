@@ -61,9 +61,13 @@ int main(void)
 	CHECK(!strcmp(port_folder_name(_port_folder_cache), "cache"));
 	CHECK(!strcmp(port_folder_name(_port_folder_private), "private"));
 	CHECK(!strcmp(port_folder_name(_port_folder_gametypes), "gametypes"));
+	CHECK(!strcmp(port_folder_name(_port_folder_screenshots), "screenshots"));
+	CHECK(!strcmp(port_folder_name(_port_folder_clips), "clips"));
 	CHECK(!strcmp(port_folder_name(k_port_folder_count), ""));
 	CHECK(!port_folder_in_save_root(_port_folder_data));
 	CHECK(!port_folder_in_save_root(_port_folder_logs));
+	CHECK(!port_folder_in_save_root(_port_folder_screenshots));
+	CHECK(!port_folder_in_save_root(_port_folder_clips));
 	CHECK(port_folder_in_save_root(_port_folder_cache));
 	CHECK(port_folder_in_save_root(_port_folder_private));
 	CHECK(port_folder_in_save_root(_port_folder_gametypes));
