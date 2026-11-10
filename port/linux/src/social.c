@@ -759,6 +759,49 @@ int social_party_tag_bytes(const char *tag, unsigned char *bytes)
 	return 1;
 }
 
+static int list_key_same(const struct social_list_key *a, const struct social_list_key *b)
+{
+	return a->kind == b->kind && a->index == b->index && !strncmp(a->id, b->id, SOCIAL_LIST_KEY_ID_SIZE);
+}
+
+int social_list_keep(const struct social_list_key *kept, int kept_row, const struct social_list_key *keys, int count,
+	int row, int *changed)
+{
+	int index, moved = row != kept_row;
+
+	*changed = 0;
+	if (count <= 0)
+	{
+		*changed = kept != NULL;
+		return 0;
+	}
+	if (row < 0)
+		row = 0;
+	if (row >= count)
+		row = count - 1;
+	if (!kept)
+		return row;
+	if (list_key_same(&keys[row], kept))
+		return row;
+	/* (the list changed under a row nobody moved: its item followed) */
+	if (!moved)
+	{
+		for (index = 0; index < count; index++)
+		{
+			if (list_key_same(&keys[index], kept))
+				return index;
+		}
+	}
+	*changed = 1;
+	return row;
+}
+
+int social_list_same_item(const struct social_list_key *drawn, int drawn_count, const struct social_list_key *keys,
+	int count, int index)
+{
+	return index >= 0 && index < drawn_count && index < count && list_key_same(&drawn[index], &keys[index]);
+}
+
 const struct social_party_member *social_party_leader(const struct social_party *party)
 {
 	int index;

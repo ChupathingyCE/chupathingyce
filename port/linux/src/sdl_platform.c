@@ -12,9 +12,8 @@ and the debug keyboard that the game's console reads.
 #include "platform.h"
 #include "sdl_platform.h"
 #include "gl.h"
-#ifdef HALO_BGFX
+/* (bgfx's switch, and the older drivers' path: XGPU_GL_LEGACY_AT_RUN_TIME) */
 #include "xgpu.h"
-#endif
 #include "port_config.h"
 #include "p2p.h"
 #include "posix.h"
@@ -1345,11 +1344,13 @@ static int platform_window_mode = _display_mode_windowed;
 #endif
 
 #ifndef HALO_ANDROID
-/* the OpenGL version the renderer needs (platform_video_initialize) */
+/* the OpenGL version the renderer needs (platform_video_initialize): 4.5
+draws as it was written, and 3.3 to 4.4 without what came after 3.3, as
+macOS's 4.1 does (xgpu.h) */
 #ifdef __APPLE__
 #define PLATFORM_GL_NEEDED "4.1"
 #else
-#define PLATFORM_GL_NEEDED "4.5"
+#define PLATFORM_GL_NEEDED "3.3"
 #endif
 
 /* this computer's graphics can't run the renderer (no OpenGL context of the
@@ -1545,7 +1546,25 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 #ifdef _WIN32
 	platform_borderless_styles();
 #endif
+#ifdef XGPU_GL_LEGACY_AT_RUN_TIME
+	/* (HALO_GL_LEGACY=1: the older drivers' path on any, to test it) */
+	xgpu_gl_legacy = SDL_getenv("HALO_GL_LEGACY") && !strcmp(SDL_getenv("HALO_GL_LEGACY"), "1");
+	platform_gl_context = xgpu_gl_legacy ? NULL : SDL_GL_CreateContext(platform_window);
+	if (!platform_gl_context)
+	{
+		/* a driver without OpenGL 4.5 (an older integrated GPU's: game
+		issue #78): a 3.3 context, which a 4.0 to 4.4 driver gives as its
+		own newest, and the renderer's path without what came after 3.3 */
+		if (!xgpu_gl_legacy)
+			platform_log("graphics: no OpenGL 4.5 context (%s); trying 3.3", SDL_GetError());
+		SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+		SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
+		platform_gl_context = SDL_GL_CreateContext(platform_window);
+		xgpu_gl_legacy = 1;
+	}
+#else
 	platform_gl_context = SDL_GL_CreateContext(platform_window);
+#endif
 #ifdef HALO_ANDROID
 	/* ES 3.2 where the driver has it, otherwise the renderer makes do with
 	3.0 plus extensions */
@@ -1571,6 +1590,27 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 #endif
 		return FALSE;
 	}
+#ifdef XGPU_GL_LEGACY_AT_RUN_TIME
+	if (xgpu_gl_legacy)
+	{
+		GLint major = 0, minor = 0;
+
+		glGetIntegerv(GL_MAJOR_VERSION, &major);
+		glGetIntegerv(GL_MINOR_VERSION, &minor);
+		if (major < 3 || (major == 3 && minor < 3))
+		{
+			platform_gl_missing("no OpenGL 3.3 context");
+			return FALSE;
+		}
+		/* (the shaders in the newest language the context has, of the
+		ones macOS's 4.1 path is written for) */
+		xgpu_gl_version_line = major > 4 || (major == 4 && minor >= 1) ? "#version 410 core\n" :
+			major == 4 ? "#version 400 core\n" : "#version 330 core\n";
+		xgpu_gl_sample_mask = major >= 4;
+		platform_log("graphics: OpenGL %d.%d, without OpenGL 4.5: the renderer's older drivers' path (%.17s)",
+			(int)major, (int)minor, xgpu_gl_version_line);
+	}
+#endif
 #if defined(__APPLE__) && !defined(HALO_IOS)
 	{
 		/* port/macos/src/macos_video.c */
