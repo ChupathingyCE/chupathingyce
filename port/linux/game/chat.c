@@ -1565,7 +1565,20 @@ static void mute_toggle(short machine, wchar_t const *name)
 
 boolean chat_local_muted(short machine, wchar_t const *name)
 {
-	return muted(machine, name);
+	short index;
+
+	if (machine != NONE && name)
+		return muted(machine, name);
+	/* (by name on any machine, or anyone on the machine) */
+	for (index = 0; index < chat.mute_count; index++)
+	{
+		if ((machine == NONE || chat.mutes[index].machine == machine) &&
+			(!name || same_wide(chat.mutes[index].name, name)))
+		{
+			return TRUE;
+		}
+	}
+	return FALSE;
 }
 
 void chat_local_mute(short machine, wchar_t const *name, boolean mute)
