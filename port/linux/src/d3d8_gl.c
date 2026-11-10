@@ -24,6 +24,7 @@ Conventions carried over from the Xbox:
 #include "plasma_model_shader.h" /* the Light effects (port/linux/src/plasma_model_shader.c) */
 #include "plasma_occlusion.h"
 #include "xgpu.h"
+#include "xgpu_shader_keys.h"
 #include "sdl_platform.h"
 #include "halo_ui_pointer.h"
 #include "ui_point.h"
@@ -39,6 +40,20 @@ Conventions carried over from the Xbox:
 #include "browser.h"
 #include "ui_overlay.h"
 #include "capture.h"
+#endif
+
+#ifdef HALO_SHADER_PREP
+/* a map's shaders made while its loading screen is up (d3d8_shader_prep.inl,
+at the end of this file): the game's vertex programs, each draw's key the
+first time the map draws with its program (prep_note: noted is the
+program's, set to shader_prep_serial), and each frame's part */
+static unsigned long shader_prep_serial = 1;
+struct vertex_shader_object;
+struct nv2a_pixel_shader_key;
+static void prep_vertex_program_made(struct vertex_shader_object *object);
+static void prep_note(unsigned long *noted, struct vertex_shader_object *object, BOOL immediate, BOOL lit,
+	BOOL plasma, BOOL depth_bias, unsigned long packed_mask, const struct nv2a_pixel_shader_key *pixel);
+static void prep_present(void);
 #endif
 
 #ifdef HALO_BGFX
@@ -462,7 +477,7 @@ float halo_screen_pixel_scale(void)
 	return screen_scale[1];
 }
 
-#ifdef HALO_CONSOLE_MAP_LOAD_HOOKS
+#if defined(HALO_CONSOLE_MAP_LOAD_HOOKS) && !defined(HALO_SHADER_PREP)
 /* a map has finished loading (scenario_load): a console's renderer gives
 its shaders priority (the first, the Switch's deko3d renderer:
 port/switch/guest/d3d8_dk.c); nothing to do here */
@@ -570,6 +585,13 @@ struct vertex_shader_object
 	/* shader[] and lit_shader[] tried already (bits 0 and 1, and 2 and 3 lit):
 	one that failed (0) is not compiled again at each draw */
 	unsigned char shaders_tried;
+#ifdef HALO_SHADER_PREP
+	/* xgpu_vertex_code_hash of its instructions (its shader keys': d3d8_shader_prep.inl),
+	and the packed mask each of shader[], lit_shader[] and their Light effects forms
+	was made for (vertex_shader_make) */
+	unsigned long long code_hash;
+	unsigned long packed_mask_made[8];
+#endif
 	/* a model lighting program with two point lights, which the Light
 	effects can light (plasma_model_shader.c): its shaders that do, as
 	shader[] and lit_shader[], tried as shaders_tried (plasma_tried) */
@@ -657,6 +679,10 @@ struct program_entry
 	unsigned long uniforms_serial;
 	/* what the program's other uniforms hold (all ones: unknown) */
 	struct draw_uniforms uniforms;
+#ifdef HALO_SHADER_PREP
+	/* the map whose shader key list has it (d3d8_shader_prep.inl's prep.serial) */
+	unsigned long noted;
+#endif
 };
 
 #define FRAGMENT_BUCKETS 1024
@@ -2241,6 +2267,16 @@ static void gl_initialize(void)
 #endif
 	/* the shaders and programs of earlier runs, made now rather than in the
 	middle of the frames that first draw with them (xgpu_shader_cache.c) */
+#if defined(HALO_SHADER_PREP) && !defined(HALO_GL_ES)
+	{
+		int gl_parallel_compile_start(void);
+
+		/* (before the warming, which asks for every compile before any result) */
+		xgpu_parallel_compile = gl_parallel_compile_start();
+		platform_log("GPU: shaders compiled %s", xgpu_parallel_compile ? "in parallel (parallel_shader_compile)" :
+			"in turn (no parallel_shader_compile)");
+	}
+#endif
 	xgpu_shader_cache_warm(program_adopt);
 	xgpu_gl_state_invalidate();
 	device.gl_ready = TRUE;
@@ -3317,6 +3353,10 @@ HRESULT WINAPI D3DDevice_CreateVertexShader(CONST DWORD *declaration, CONST DWOR
 		object->instruction_count = function[0] >> 16;
 		object->instructions = malloc(object->instruction_count * 4 * sizeof(DWORD));
 		memcpy(object->instructions, function + 1, object->instruction_count * 4 * sizeof(DWORD));
+#ifdef HALO_SHADER_PREP
+		object->code_hash = xgpu_vertex_code_hash(object->instructions, object->instruction_count * 4);
+		prep_vertex_program_made(object);
+#endif
 	}
 	parse_declaration(object, declaration);
 	/* odd values are FVF codes; programmable shader handles are even */
@@ -3448,7 +3488,18 @@ static BOOL words_equal(const void *a, const void *b, unsigned long size)
 
 /* lit: the shader that hands the lighting's normal and position on
 (vertex_shader_object lit_shader) */
+static GLuint vertex_shader_make(struct vertex_shader_object *program, BOOL immediate, BOOL lit, BOOL plasma,
+	unsigned long packed_mask, BOOL prepare);
+
 static GLuint vertex_shader_get(struct vertex_shader_object *program, BOOL immediate, BOOL lit, BOOL plasma)
+{
+	return vertex_shader_make(program, immediate, lit, plasma, device.vertex_shader->packed_mask, FALSE);
+}
+
+/* (prepare: its compile asked for and not waited on, a map's loading
+screen's: d3d8_shader_prep.inl) */
+static GLuint vertex_shader_make(struct vertex_shader_object *program, BOOL immediate, BOOL lit, BOOL plasma,
+	unsigned long packed_mask, BOOL prepare)
 {
 	int variant = immediate ? 1 : 0;
 	GLuint *shader = plasma ? (lit ? &program->plasma_lit_shader[variant] : &program->plasma_shader[variant]) :
@@ -3460,9 +3511,16 @@ static GLuint vertex_shader_get(struct vertex_shader_object *program, BOOL immed
 	{
 		*tried_bits |= tried;
 		char *source = nv2a_vertex_shader_to_glsl(program->instructions, program->instruction_count,
-			immediate ? 0 : device.vertex_shader->packed_mask, lit ? &program->lighting : NULL, plasma);
+			immediate ? 0 : packed_mask, lit ? &program->lighting : NULL, plasma);
 
+#ifdef HALO_SHADER_PREP
+		program->packed_mask_made[variant + (lit ? 2 : 0) + (plasma ? 4 : 0)] = immediate ? 0 : packed_mask;
+		*shader = prepare ? xgpu_shader_cache_submit(GL_VERTEX_SHADER, source) :
+			xgpu_shader_cache_compile(GL_VERTEX_SHADER, source, "vertex");
+#else
+		(void)prepare;
 		*shader = xgpu_shader_cache_compile(GL_VERTEX_SHADER, source, "vertex");
+#endif
 		if (debug_settings.dump_shaders)
 		{
 			char path[512];
@@ -3483,7 +3541,15 @@ static GLuint vertex_shader_get(struct vertex_shader_object *program, BOOL immed
 
 typedef char pixel_shader_key_size_assert[sizeof(struct nv2a_pixel_shader_key) % 4 == 0 ? 1 : -1];
 
+static GLuint fragment_shader_make(const struct nv2a_pixel_shader_key *key, BOOL prepare);
+
 static GLuint fragment_shader_get(const struct nv2a_pixel_shader_key *key)
+{
+	return fragment_shader_make(key, FALSE);
+}
+
+/* (prepare: as vertex_shader_make's) */
+static GLuint fragment_shader_make(const struct nv2a_pixel_shader_key *key, BOOL prepare)
 {
 	/* consecutive draws mostly use one of a few pixel shaders (an object's
 	parts take turns) */
@@ -3514,7 +3580,13 @@ static GLuint fragment_shader_get(const struct nv2a_pixel_shader_key *key)
 	entry->hash = hash;
 	entry->key = *key;
 	source = nv2a_pixel_shader_to_glsl(key);
+#ifdef HALO_SHADER_PREP
+	entry->shader = prepare ? xgpu_shader_cache_submit(GL_FRAGMENT_SHADER, source) :
+		xgpu_shader_cache_compile(GL_FRAGMENT_SHADER, source, "pixel");
+#else
+	(void)prepare;
 	entry->shader = xgpu_shader_cache_compile(GL_FRAGMENT_SHADER, source, "pixel");
+#endif
 	if (debug_settings.dump_shaders)
 	{
 		char path[512];
@@ -4620,6 +4692,16 @@ static struct program_entry *prepare_draw(BOOL immediate)
 		gl_check_errors("program");
 		return NULL;
 	}
+#ifdef HALO_SHADER_PREP
+	if (entry->noted != shader_prep_serial)
+	{
+		BOOL lit = key.per_pixel_lighting != 0;
+
+		prep_note(&entry->noted, program, immediate, lit, plasma_mask != 0,
+			has_depth && D3D__RenderState[D3DRS_SOLIDOFFSETENABLE],
+			immediate ? 0 : program->packed_mask_made[(immediate ? 1 : 0) + (lit ? 2 : 0) + (plasma_mask ? 4 : 0)], &key);
+	}
+#endif
 	gl_check_errors("state");
 	if (immediate)
 		stats.immediate_draws++;
@@ -6828,6 +6910,9 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 	if (cr_active())
 		cr_present();
 #endif
+#ifdef HALO_SHADER_PREP
+	prep_present();
+#endif
 	device.frame++;
 	stats.presents++;
 #ifdef HALO_BGFX
@@ -6921,4 +7006,7 @@ HRESULT WINAPI D3DDevice_PersistDisplay(void)
 #endif
 #ifdef HALO_CONSOLE_NATIVE_RENDERER
 #include "d3d8_console.inl"
+#endif
+#ifdef HALO_SHADER_PREP
+#include "d3d8_shader_prep.inl"
 #endif

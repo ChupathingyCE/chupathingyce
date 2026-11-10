@@ -215,6 +215,10 @@ struct bg_program
 	struct bg_program *next;
 	struct bg_shader *vertex, *fragment;
 	bgfx_program_handle_t program;
+#ifdef HALO_SHADER_PREP
+	/* the map whose shader key list has it (d3d8_shader_prep.inl) */
+	unsigned long noted;
+#endif
 };
 
 struct bg_texture
@@ -1865,7 +1869,14 @@ static void bg_warm(void)
 	}
 }
 
+static struct bg_program *bg_program_entry(struct bg_shader *vertex, struct bg_shader *fragment);
+
 static bgfx_program_handle_t bg_program_get(struct bg_shader *vertex, struct bg_shader *fragment)
+{
+	return bg_program_entry(vertex, fragment)->program;
+}
+
+static struct bg_program *bg_program_entry(struct bg_shader *vertex, struct bg_shader *fragment)
 {
 	unsigned long hash = (unsigned long)(((uintptr_t)vertex >> 4) ^ ((uintptr_t)fragment >> 2) * 31);
 	struct bg_program **bucket = &bg.programs[hash % BG_SHADER_BUCKETS], *entry;
@@ -1873,7 +1884,7 @@ static bgfx_program_handle_t bg_program_get(struct bg_shader *vertex, struct bg_
 	for (entry = *bucket; entry; entry = entry->next)
 	{
 		if (entry->vertex == vertex && entry->fragment == fragment)
-			return entry->program;
+			return entry;
 	}
 	entry = calloc(1, sizeof(*entry));
 	entry->vertex = vertex;
@@ -1883,7 +1894,7 @@ static bgfx_program_handle_t bg_program_get(struct bg_shader *vertex, struct bg_
 	entry->next = *bucket;
 	*bucket = entry;
 	bg_pair_record(vertex->hash, fragment->hash);
-	return entry->program;
+	return entry;
 }
 
 /* ---------- state (Xbox render states hold OpenGL's enumerants) */
@@ -3244,6 +3255,35 @@ static bgfx_vertex_buffer_handle_t bg_vertex_cache_get(const struct vertex_shade
 
 /* ---------- drawing */
 
+#ifdef HALO_SHADER_PREP
+/* (port/linux/game/render_enumerate.c: a map's first frame is being drawn
+through every shader, unseen) */
+int render_enumerate_active(void);
+
+/* whether a draw of the pass through every shader leaves the frame that is
+shown half of the uniform space and of the transient buffers there were
+when the pass started */
+static BOOL bg_enumerate_room(unsigned long uniform_bytes, unsigned long vertices, unsigned long indices)
+{
+	static unsigned long frame = ~0UL;
+	static uint32_t vertices_at_start, indices_at_start;
+
+	if (frame != bg.frame)
+	{
+		frame = bg.frame;
+		vertices_at_start = bgfx_get_avail_transient_vertex_buffer(0x7fffffffU, &bg.layout);
+		indices_at_start = bgfx_get_avail_transient_index_buffer(0x7fffffffU, false);
+	}
+	if (bg.uniform_bytes + uniform_bytes > BG_UNIFORM_BUDGET / 2)
+		return FALSE;
+	if (vertices && bgfx_get_avail_transient_vertex_buffer(0x7fffffffU, &bg.layout) < vertices + vertices_at_start / 2)
+		return FALSE;
+	if (indices && bgfx_get_avail_transient_index_buffer(0x7fffffffU, false) < indices + indices_at_start / 2)
+		return FALSE;
+	return TRUE;
+}
+#endif
+
 static void bg_draw(D3DPRIMITIVETYPE type, BOOL immediate, unsigned long first, unsigned long vertex_count,
 	const WORD *indices, unsigned long index_count, unsigned long rebase)
 {
@@ -3308,8 +3348,19 @@ static void bg_draw(D3DPRIMITIVETYPE type, BOOL immediate, unsigned long first, 
 	vertex_shader = bg_vertex_shader(program, immediate);
 	fragment_shader = bg_fragment_shader(&key, has_depth && D3D__RenderState[D3DRS_SOLIDOFFSETENABLE] ?
 		_bg_shader_depth_bias : 0);
-	handle = vertex_shader && fragment_shader ? bg_program_get(vertex_shader, fragment_shader) :
-		(bgfx_program_handle_t)BGFX_INVALID_HANDLE;
+	{
+		struct bg_program *entry = vertex_shader && fragment_shader ? bg_program_entry(vertex_shader, fragment_shader) :
+			NULL;
+
+		handle = entry ? entry->program : (bgfx_program_handle_t)BGFX_INVALID_HANDLE;
+#ifdef HALO_SHADER_PREP
+		if (entry && entry->noted != shader_prep_serial)
+		{
+			prep_note(&entry->noted, program, immediate, FALSE, FALSE,
+				has_depth && D3D__RenderState[D3DRS_SOLIDOFFSETENABLE], declaration->packed_mask, &key);
+		}
+#endif
+	}
 	native = !indices && type != D3DPT_QUADLIST && type != D3DPT_TRIANGLEFAN && type != D3DPT_POLYGON &&
 		type != D3DPT_LINELOOP;
 	generated = native ? 0 : bg_index_count(type, indices ? index_count : vertex_count);
@@ -3321,6 +3372,18 @@ static void bg_draw(D3DPRIMITIVETYPE type, BOOL immediate, unsigned long first, 
 		bg_log_once("more draws than a frame's uniform space holds");
 	if (!immediate && BGFX_HANDLE_IS_VALID(handle))
 		cached = bg_vertex_cache_get(declaration, first, vertex_count);
+#ifdef HALO_SHADER_PREP
+	/* (a map's first frame drawn first through every shader, unseen, leaves
+	half of the frame's uniform space and transient buffers to the frame that
+	is shown: past it, its draws are left out) */
+	if (BGFX_HANDLE_IS_VALID(handle) && render_enumerate_active() &&
+		!bg_enumerate_room(uniform_bytes, BGFX_HANDLE_IS_VALID(cached) ? 0 : vertex_count, generated))
+	{
+		bgfx_discard(BGFX_DISCARD_ALL);
+		bg.skipped++;
+		return;
+	}
+#endif
 	if (!BGFX_HANDLE_IS_VALID(handle) || (!native && !generated) || bg.uniform_bytes + uniform_bytes > BG_UNIFORM_BUDGET ||
 		(!BGFX_HANDLE_IS_VALID(cached) &&
 			bgfx_get_avail_transient_vertex_buffer((uint32_t)vertex_count, &bg.layout) < vertex_count) ||

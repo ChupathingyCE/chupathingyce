@@ -115,6 +115,19 @@ each program handed to linked() */
 GLuint xgpu_shader_cache_compile(GLenum type, const char *source, const char *what);
 void xgpu_shader_cache_linked(GLuint vertex_shader, GLuint fragment_shader);
 void xgpu_shader_cache_warm(void (*linked)(GLuint vertex_shader, GLuint fragment_shader, GLuint program));
+#ifdef HALO_SHADER_PREP
+/* the shaders a map's loading screen makes (d3d8_shader_prep.inl): a text's
+shader with its compile asked for and not waited on (one made before as it
+is), or 0; then whether it is compiled, kept in the file as any other: 1 it
+is, 0 it failed (its log written; the shader kept, as the renderer holds its
+name, so that a program linked of it fails and its draws are left out, and
+never saved, so that the next run compiles it again), -1 not yet (wait FALSE, on a driver that compiles in parallel). A draw that
+comes to a shader first waits for it. As for a linked program's. */
+extern BOOL xgpu_parallel_compile;
+GLuint xgpu_shader_cache_submit(GLenum type, const char *source);
+int xgpu_shader_cache_finish(GLuint shader, BOOL wait);
+int xgpu_program_finish(GLuint program, BOOL wait);
+#endif
 
 /* ---------- generated source text */
 
@@ -177,46 +190,8 @@ enum
 	_xgpu_sampler_cube,
 };
 
-/* everything a translated pixel shader depends on; the GLSL program cache
-is keyed by these bytes */
-struct nv2a_pixel_shader_key
-{
-	DWORD combiner_state[D3DRS_PS_MAX];
-	/* D3DRS_PSTEXTUREMODES lies past D3DRS_PS_MAX */
-	DWORD texture_modes;
-	unsigned char sampler_type[4];
-	unsigned char alpha_kill[4];
-	/* D3DTSS_COLORSIGN: channels (bit 0 alpha ... bit 3 blue, as
-	D3DTSIGN_*) that hold signed data in an unsigned texture format */
-	unsigned char color_sign[4];
-	/* D3DCMP_* function for the alpha test, or 0 when disabled */
-	unsigned long alpha_test_function;
-	unsigned char fog_enable;
-	unsigned char fog_table_mode;
-	/* inside a visibility test: count the samples that pass (Android) */
-	unsigned char count_samples;
-	/* a high-res HUD meter (hud_hires.h) drawn with the meter's blend (the
-	destination kept by the source's alpha): that alpha is eased to 1 by the
-	coverage texture 0's green holds, so that the meter darkens what is
-	behind it only where it covers it (the Xbox's point-sampled meters stop
-	at their texels' edges; filtered ones have a fringe of faint texels) */
-	unsigned char coverage_alpha;
-	/* a model lighting program's draw lit for each pixel
-	(display.per_pixel_lighting): nv2a_vertex_lighting's lights, or 0 for
-	the diffuse color the vertex shader computed */
-	unsigned char per_pixel_lighting;
-	/* drawn into a multisampled target (display.anti_aliasing's
-	multisampling), its samples a pixel: the alpha test covers samples in
-	proportion to how far alpha is past the reference, not all of the pixel
-	or none of it, so that cut-out edges (foliage, grates) are smoothed too */
-	unsigned char alpha_test_samples;
-	/* Discrete meter thresholds in texture 0's red are read at level zero,
-	without filtering. Coverage/brightness still use the filtered lookup. */
-	unsigned char point_threshold;
-	/* a model lighting program's draw the Light effects light
-	(plasma_model_shader.c): their falloff and walls in model_lighting */
-	unsigned char plasma_model;
-};
+/* everything a translated pixel shader depends on (nv2a_pixel_key.h) */
+#include "nv2a_pixel_key.h"
 
 char *nv2a_pixel_shader_to_glsl(const struct nv2a_pixel_shader_key *key);
 
