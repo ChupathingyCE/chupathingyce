@@ -66,4 +66,27 @@ unsigned long config_changes(void);
 and its name, else 0 */
 int config_duplicate_setting(char *name, size_t size);
 
+/* ---------- every setting, for the setup screen's Settings (launcher.c) */
+
+enum
+{
+	CONFIG_KIND_BOOLEAN,
+	CONFIG_KIND_INTEGER,
+	CONFIG_KIND_REAL,
+	CONFIG_KIND_STRING,
+};
+
+/* the table's setting at index, in its order: NULL past the end, "" for one
+that is not this build's */
+const char *config_setting_name(int index);
+/* a setting's kind (CONFIG_KIND_*), -1 for none of this build's */
+int config_setting_kind(const char *name);
+/* the words a setting takes (display.mode's "windowed", ...), as config.toml
+is checked against them: the one at index, NULL past the last or for a
+setting that takes any text */
+const char *config_setting_word(const char *name, int index);
+/* a setting back to its default: its line in config.toml commented out, so
+that it follows the version's default again; 1 on success */
+int config_reset(const char *name);
+
 #endif

@@ -780,13 +780,12 @@ int server_roles_account_role(const unsigned char *account, const char *handle, 
 					handle && handle[0] ? handle : "account");
 		}
 	}
-	/* (the site's list by account; an entry from a site that sends no
-	account, by the handle the certificate names) */
+	/* (the site's list by account alone: an entry from a site that sends
+	none gives a verified player no role) */
 	for (index = 0; index < roles.site_handle_count; index++)
 	{
-		if ((roles.site_handles[index].has_account ? account &&
-			!memcmp(roles.site_handles[index].account, account, 16) :
-			handle && handle[0] && !strcmp(roles.site_handles[index].handle, handle)) &&
+		if (roles.site_handles[index].has_account && account &&
+			!memcmp(roles.site_handles[index].account, account, 16) &&
 			roles.site_handles[index].role > best)
 		{
 			best = roles.site_handles[index].role;
@@ -800,11 +799,27 @@ int server_roles_account_role(const unsigned char *account, const char *handle, 
 	return best;
 }
 
+int server_roles_verified_role(const unsigned char *account, const char *handle, int bound, int may_moderate,
+	unsigned int *permissions, char *who, int who_size)
+{
+	if (!bound || !may_moderate)
+	{
+		if (permissions)
+			*permissions = 0;
+		if (who && who_size > 0)
+			who[0] = 0;
+		return 0;
+	}
+	return server_roles_account_role(account, handle, permissions, who, who_size);
+}
+
 void server_roles_account_source(const unsigned char *account, const char *handle, char *text, int text_size)
 {
 	int best = CONTROL_ROLE_NONE;
 	int index;
 
+	/* (by the account alone: the handle names nothing here) */
+	(void)handle;
 	if (text_size <= 0)
 		return;
 	text[0] = 0;
@@ -821,9 +836,8 @@ void server_roles_account_source(const unsigned char *account, const char *handl
 	}
 	for (index = 0; index < roles.site_handle_count; index++)
 	{
-		if ((roles.site_handles[index].has_account ? account &&
-			!memcmp(roles.site_handles[index].account, account, 16) :
-			handle && handle[0] && !strcmp(roles.site_handles[index].handle, handle)) &&
+		if (roles.site_handles[index].has_account && account &&
+			!memcmp(roles.site_handles[index].account, account, 16) &&
 			roles.site_handles[index].role > best)
 		{
 			best = roles.site_handles[index].role;

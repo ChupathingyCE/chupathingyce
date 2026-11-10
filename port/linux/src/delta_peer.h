@@ -149,10 +149,16 @@ enum
 	DELTA_PEER_IDENTITY_WITHDRAWN_TIME = 30000,
 	DELTA_PEER_IDENTITY_PROOF_GAP = 10000,
 	DELTA_PEER_IDENTITY_RENEW = 900000,
+	/* every card kept is checked again this often (its proof's age, its
+	certificate's dates, the revocation list as it is now): one that fails
+	is withdrawn (the host) or dropped (a client) */
+	DELTA_PEER_IDENTITY_RECHECK = 60000,
 	/* (seconds) how old a proof may be when its host takes it, and when
-	another client checks its card */
+	another client checks its card; and when the host checks a card it
+	keeps again (its own age and the time its client proves again in) */
 	DELTA_PEER_IDENTITY_HOST_AGE = 600,
-	DELTA_PEER_IDENTITY_CARD_AGE = 1800
+	DELTA_PEER_IDENTITY_CARD_AGE = 1800,
+	DELTA_PEER_IDENTITY_KEPT_AGE = 1500
 };
 
 /* the verified players' cards a session keeps: one for each player the game
@@ -440,6 +446,8 @@ struct delta_peer_card
 	(proof.certificate_length 0), kept a while so that every client hears */
 	delta_u32 generation;
 	delta_u32 withdrawn_time;
+	/* when it was last checked (DELTA_PEER_IDENTITY_RECHECK) */
+	delta_u32 checked_time;
 	/* the nonce its machine's session was challenged with */
 	unsigned char nonce[DELTA_WIRE_IDENTITY_NONCE_SIZE];
 	struct delta_wire_id_proof proof;
@@ -707,6 +715,8 @@ struct delta_peer
 	withdrawal sent) */
 	struct delta_peer_card cards[DELTA_PEER_IDENTITY_CARDS];
 	delta_u32 identity_generation;
+	/* (every card checked again on the next frame: delta_peer_identity_recheck) */
+	int identity_recheck;
 	/* (the host's own players' nonce, made once it hosts, and the binding
 	they were proved with: proved again when it changes) */
 	int identity_nonce_made;
@@ -799,6 +809,9 @@ clients that say HELLO from now) */
 void delta_peer_set_moderation_host(struct delta_peer *peer, const struct delta_peer_moderation_host *host);
 /* the host's binding: what its challenges carry (none: a LAN host) */
 void delta_peer_set_moderation_binding(struct delta_peer *peer, const char *binding);
+/* every verified player's card kept is checked again on the next frame
+(the revocation list changed: a device on it is withdrawn, or dropped) */
+void delta_peer_identity_recheck(struct delta_peer *peer);
 /* (host) a machine's key proved this session: 1 and it in key */
 int delta_peer_moderation_key(const struct delta_peer *peer, int machine_index, unsigned char *key);
 /* (host) whether a machine's session agreed to moderation */
@@ -1037,6 +1050,11 @@ int delta_peer_player_platform(int player_index);
 with the host's welcome (a machine knows its own platform either way, so
 the scoreboard asks this before it shows any) */
 int delta_peer_game_on_delta(void);
+/* the name a local player plays under while its Halo profile is linked to
+a Delta profile (choice and account: profile_names.c's, 2 that account, 1
+the copy's own): the handle, in the capitals the profile picked; 0 when it
+is not linked (a guest, no certificate, or not shared) */
+int delta_peer_game_linked_name(int choice, const unsigned char *account, char *name, int size);
 /* a machine's profile claim: its player ID and revision (0 if none) */
 int delta_peer_machine_profile(int machine_index, unsigned char *player_id, delta_u32 *revision);
 /* a player's machine's profile claim, while the machine has that one player

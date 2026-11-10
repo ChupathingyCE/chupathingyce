@@ -168,6 +168,10 @@ NULL for none */
 void p2p_signal_probe_topic(const unsigned char *reply);
 /* whether any broker is connected */
 int p2p_signal_connected(void);
+/* every broker's connection made anew at once: after the p2p thread was
+stopped (the process was suspended, or the machine slept), the old ones
+may carry nothing, and would be noticed only at their silence timeout */
+void p2p_signal_reconnect(void);
 /* the server browser's topics: the own slot and the queries (a listed
 game), and every slot (browsing) */
 void p2p_signal_lobby_topics(int listed, int browsing);

@@ -144,6 +144,11 @@ int identity_parse_revoked(const unsigned char *data, int size, struct identity_
 int identity_check_revoked(const unsigned char *data, int size, const struct identity_issuer *issuer,
 	struct identity_revoked *revoked);
 int identity_is_revoked(const struct identity_revoked *revoked, const unsigned char *device_id);
+/* whether a revocation list may be taken given its issuer's check
+(identity_check_issuer's answer): IDENTITY_OK always; IDENTITY_EXPIRED only
+for the list this copy kept (saved 1), taken while its issuer was good,
+never for one fetched; anything else never */
+int identity_revoked_issuer_usable(int issuer_check, int saved);
 
 /* this copy's own certificate and its issuer's, as the site answered: the
 issuer checked against the root keys when any is not all zero (else only
@@ -379,13 +384,25 @@ int identity_proof_message(const unsigned char *nonce, const char *binding, int 
 /* whether a proof signed at time is fresh at now: no more than age
 seconds old, nor from the future (IDENTITY_GRACE either way) */
 int identity_proof_fresh(unsigned long time, unsigned long now, unsigned long age);
-/* a name's look-alike key (UTF-8 in, lowercase a-z out, into out of
-IDENTITY_LOOKALIKE_MOST + 1): digits and signs read as the letters they
-look like (0 o, 1 i, 3 e, 4 a, 5 s, 7 t, 8 b, @ a, $ s, ! i, | i) and
-Cyrillic and Greek look-alikes as Latin, everything else dropped, then
-rn read as m, vv as w and l as i; the site's (puma's lookalike_key) is
-the same. Its length */
+/* a name's look-alike key (UTF-8 in, lowercase a-z and digits out, into
+out of IDENTITY_LOOKALIKE_MOST + 1): digits and signs read as the letters
+they look like (0 o, 1 i, 3 e, 4 a, 5 s, 7 t, 8 b, @ a, $ s, ! i, | i;
+2, 6 and 9 stay digits), accented Latin letters (Latin-1 and Latin
+Extended-A) as their base letters, Cyrillic and Greek look-alikes as Latin,
+everything else dropped, then rn read as m, vv as w and l as i; the site's
+(puma's lookalike_key) is the same. Its length */
 int identity_lookalike_key(const char *name, char *out);
+/* an unverified player's game name as shown while verified names carry the
+@ mark (UCS-2, as the game's names: length letters at most, into out of
+size): every @ taken out (and its full-width and small forms), wherever it
+is, then any spaces, invisible marks and dots left at the front (" @Name",
+".@Name", "\u00B7@Name" all show "Name"). Its length (0: nothing left) */
+int identity_unverified_name(const unsigned short *name, int length, unsigned short *out, int size);
+/* whether a game name (UTF-8) reads as a verified player's handle: its
+look-alike key, as written and with every @ dropped (the way it shows),
+is the handle's, or that of the handle cut to cut letters, as a linked
+profile's game name is (0: no cut) */
+int identity_impersonates(const char *name, const char *handle, int cut);
 /* a Halo profile's delta_account.txt (its first line, as read): 0 a guest
 ("guest"), 2 that account (32 hex digits, into account), 1 the copy's
 own account. A byte order mark and spaces and line ends around it are left

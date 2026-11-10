@@ -822,7 +822,7 @@ static void particle_system_new_particles(
 
 	if ((real)type->particle_count < type->variables.minimum_particle_count)
 	{
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 		/* cut short at the rate of 0.3 a tick, not a frame: the native
 		builds update several frames a tick
 		(port/linux/game/render_interpolation.c) */

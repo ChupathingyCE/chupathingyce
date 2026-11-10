@@ -35,77 +35,22 @@ kicks and bans are the server's, through the game's own protocol.
 #include <string.h>
 #include <time.h>
 
-/* (Delta Peer's, port/linux/src/delta_moderation.h and delta_peer.h, which
-the game's units do not include: plain types, the same layout) */
-typedef unsigned int delta_u32;
-
-struct delta_peer_identity
-{
-	unsigned char account[16];
-	unsigned char device_id[16];
-	unsigned char device_key[32];
-	char handle[24];
-	char tag[25];
-	int platform;
-	int flags;
-	delta_u32 capabilities;
-	/* the proof was bound to this host: only such a player's account gets a
-	role, a ban, a report's account or a shared list's match */
-	int bound;
-};
-
-struct delta_peer_moderation_host
-{
-	void *context;
-	void (*machine_key)(void *context, int machine_index, unsigned char const *key);
-	int (*key_role)(void *context, unsigned char const *key, delta_u32 *permissions, delta_u32 *ban_minutes);
-	int (*action)(void *context, int machine_index, unsigned char const *key, int action, int target_machine,
-		int minutes, char const *reason, char *result, int result_size);
-	void (*bind_answer)(void *context, int machine_index, delta_u32 request, int accepted, unsigned char const *key);
-	void (*machine_identity)(void *context, int machine_index, int local_player,
-		struct delta_peer_identity const *identity);
-	int (*machine_role)(void *context, int machine_index, unsigned char const *key, delta_u32 *permissions,
-		delta_u32 *ban_minutes);
-	int (*actions)(void *context);
-};
+/* (Delta Peer's own headers: the moderation host's hooks and the verified
+player they pass, shared with delta_peer.c so the layout can't drift; and
+identity.h's certificate capabilities) */
+#include "../../port/linux/src/delta_moderation.h"
+#include "../../port/linux/src/identity.h"
 
 enum
 {
-	/* (identity.h's: a certificate that may moderate) */
-	IDENTITY_CAN_MODERATE = 0x08,
-	LOCAL_PLAYERS = 4,
+	LOCAL_PLAYERS = DELTA_WIRE_IDENTITY_LOCAL_PLAYERS,
 };
 
-enum
-{
-	_delta_moderation_action_warn = 1,
-	_delta_moderation_action_kick = 2,
-	_delta_moderation_action_ban = 3,
-	_delta_moderation_action_end_game = 4,
-	_delta_moderation_action_next_map = 5,
-	_delta_moderation_action_mute = 6,
-	_delta_moderation_action_unmute = 7,
-	_delta_moderation_action_lock = 8,
-	_delta_moderation_action_unlock = 9,
-	DELTA_WIRE_MOD_STATE_LOCK = 0x01,
-	DELTA_WIRE_MOD_STATE_LOCKED = 0x02,
-	_delta_moderation_notice_warning = 1,
-	_delta_moderation_notice_info = 2,
-};
-
-void delta_peer_game_set_moderation_host(struct delta_peer_moderation_host const *host);
-int delta_peer_game_moderation_key(int machine_index, unsigned char *key);
-int delta_peer_game_moderation_capable(int machine_index);
-int delta_peer_game_moderation_notice(int machine_index, int kind, char const *text);
-int delta_peer_game_moderation_bind(int machine_index, unsigned int request, char const *account, char const *server);
-void delta_peer_game_moderation_roles_changed(void);
 /* (text chat's, port/linux/game/chat.h) */
 void chat_set_moderator_check(int (*check)(int machine_index));
 /* (network_distributed.c's: whether a machine's verified account or device
 is banned in bans.txt) */
 boolean network_distributed_identity_banned(long machine_index);
-/* (delta_peer_game.c's: a platform's registry name) */
-char const *delta_peer_platform_name(int platform);
 /* (delta_peer_game.c's: a machine's verified accounts, device and handles as
 a ban line's fields; 0 when it has none) */
 int delta_peer_game_machine_identity_text(int machine_index, char *text, int size);
@@ -166,9 +111,10 @@ static int machine_role(
 			struct delta_peer_identity const *identity = &moderation.identities[machine_index][local];
 			int role;
 
-			if (!moderation.verified[machine_index][local] || !(identity->capabilities & IDENTITY_CAN_MODERATE))
+			if (!moderation.verified[machine_index][local])
 				continue;
-			role = server_roles_account_role(identity->account, identity->handle, NULL, found, sizeof(found));
+			role = server_roles_verified_role(identity->account, identity->handle, identity->bound,
+				(identity->capabilities & IDENTITY_CAN_MODERATE) != 0, NULL, found, sizeof(found));
 			if (role > best)
 			{
 				best = role;
@@ -668,8 +614,8 @@ boolean server_moderation_machine_profile(
 		*platform = delta_peer_platform_name(identity->platform);
 	if (role)
 	{
-		*role = identity->capabilities & IDENTITY_CAN_MODERATE ?
-			server_roles_account_role(identity->account, identity->handle, NULL, NULL, 0) : 0;
+		*role = server_roles_verified_role(identity->account, identity->handle, identity->bound,
+			(identity->capabilities & IDENTITY_CAN_MODERATE) != 0, NULL, NULL, 0);
 	}
 	return TRUE;
 }

@@ -311,6 +311,10 @@ static const struct config_setting config_settings[] =
 		"Draw a frame for every display refresh. The game runs 30 ticks a\n"
 		"second, and the frames between them are blended. false keeps the\n"
 		"game's own 30 frames a second." },
+	{ "display.stats_log", _config_boolean, "false", "HALO_STATS_LOG", _environment_value, _platform_all,
+		"A line a second in the log with the frame rate, the mode, the map, the\n"
+		"renderer and the size of the 3D view, for a bug report or to compare two\n"
+		"builds. Nothing is drawn and nothing is sent; off by default." },
 	{ "display.anti_aliasing", _config_string, DEFAULT_ANTI_ALIASING, "HALO_ANTI_ALIASING", _environment_value,
 		_platform_all,
 		"Smooth jagged edges: \"off\", \"fxaa\", \"smaa\", \"ssaa2x\", \"msaa2x\",\n"
@@ -340,6 +344,16 @@ static const struct config_setting config_settings[] =
 		"with Widescreen set there, the game shows more to the sides and the\n"
 		"HUD and menus fit the wide screen. \"off\" keeps the 4:3 picture, as\n"
 		"the original game did. Read when Chupathingy starts." },
+	{ "display.frame_rate", _config_integer, "30", NULL, _environment_value, _platform_xbox,
+		"Frames a second: 30, as the original game drew, or 60. The game\n"
+		"still runs 30 ticks a second. At 60 the view turns every frame and\n"
+		"everything else moves as at 30. A busy scene drops to a steady 30\n"
+		"until it can hold 60 again. Read when Chupathingy starts." },
+	{ "display.flicker_filter", _config_integer, "5", NULL, _environment_value, _platform_xbox,
+		"How much the picture is softened against flicker on an interlaced\n"
+		"TV (480i), from 0 to 5. The original game used 5. Lower is sharper\n"
+		"and flickers more. The H1 Performance Build uses 1. It does nothing\n"
+		"at 480p. Read when Chupathingy starts." },
 #ifdef HALO_CONSOLE_PERFORMANCE_MODE
 	{ "display.performance_mode", _config_boolean, "true", "HALO_PERFORMANCE_MODE", _environment_value, _platform_all,
 		"Start in performance mode: the level drawn without its decals, dynamic lights, reflections and specular\n"
@@ -479,7 +493,7 @@ static const struct config_setting config_settings[] =
 #endif
 	{ "display.profile_names", _config_boolean, "true", "HALO_PROFILE_NAMES", _environment_value, _platform_all,
 		"In Delta games, show players by their shared Delta profile name." },
-	{ "display.verified_mark", _config_boolean, "false", "HALO_VERIFIED_MARK", _environment_value, _platform_all,
+	{ "display.verified_mark", _config_boolean, "true", "HALO_VERIFIED_MARK", _environment_value, _platform_all,
 		"In Delta games, put @ in front of the names of players whose Delta\n"
 		"profile is proven. Other players' names never start with @ then." },
 	{ "display.server_messages", _config_boolean, "true", "HALO_SERVER_MESSAGES", _environment_value, _platform_all | _platform_xbox,
@@ -729,7 +743,7 @@ static const struct config_setting config_settings[] =
 #ifdef HALO_GUIDE
 	/* ---- the Guide (port/linux/game/guide.c) */
 	{ "controls.guide", _config_string, "\"F3\"", "HALO_KEY_GUIDE", _environment_value, _platform_all,
-		"The key that opens and closes the Guide: F3 to F10." },
+		"The key that opens and closes the Guide: F3 to F8." },
 	{ "controls.guide_button", _config_boolean, "true", "HALO_GUIDE_BUTTON", _environment_value, _platform_all,
 		"Open the Guide with the controller's Guide button, where Chupathingy\n"
 		"can read it (Steam and the Xbox Game Bar may keep it for themselves)." },
@@ -745,6 +759,26 @@ static const struct config_setting config_settings[] =
 	{ "guide.notify_online", _config_boolean, "false", "HALO_GUIDE_NOTIFY_ONLINE", _environment_value,
 		_platform_all,
 		"Show a notification in the menus when a friend comes online." },
+#endif
+#ifdef HALO_CAPTURE
+	/* ---- screenshots (capture.c) */
+	{ "controls.screenshot", _config_string, "\"F9\"", "HALO_KEY_SCREENSHOT", _environment_value, _platform_desktop,
+		"The key that saves a screenshot to the screenshots folder, beside\n"
+		"maps. Print Screen always does too." },
+	{ "controls.capture_buttons", _config_boolean, "false", "HALO_CAPTURE_BUTTONS", _environment_value,
+		_platform_desktop,
+		"Take a screenshot with a controller too: its Share button, or Back\n"
+		"and the right stick pressed together. Back and the left stick save a\n"
+		"clip." },
+	{ "controls.clip", _config_string, "\"F10\"", "HALO_KEY_CLIP", _environment_value, _platform_desktop,
+		"The key that saves the last clips.seconds of the game to the clips\n"
+		"folder, beside maps, when clips.enabled is on." },
+	{ "clips.enabled", _config_boolean, "false", "HALO_CLIPS", _environment_value, _platform_desktop,
+		"Keep the last clips.seconds of the game in memory, so that\n"
+		"controls.clip can save them as a video. Read when Chupathingy starts." },
+	{ "clips.seconds", _config_integer, "30", "HALO_CLIPS_SECONDS", _environment_value, _platform_desktop,
+		"How many seconds a clip keeps, from 5 to 120. Read when Chupathingy\n"
+		"starts." },
 #endif
 
 	/* ---- chat */
@@ -1053,6 +1087,9 @@ static const struct config_setting config_settings[] =
 	{ "launcher.hold_to_open", _config_boolean, "true", "HALO_LAUNCHER_HOLD", _environment_value, _platform_desktop,
 		"Holding Shift or a controller's Back (View) button while Chupathingy\n"
 		"starts opens the setup screen." },
+	{ "launcher.menu_entry", _config_boolean, "true", "HALO_LAUNCHER_MENU_ENTRY", _environment_value, _platform_desktop,
+		"SETUP in the menus' settings, which starts Chupathingy again on the\n"
+		"setup screen. false leaves it out." },
 	{ "launcher.mode_choice", _config_string, "\"ask\"", "HALO_LAUNCHER_MODE_CHOICE", _environment_value,
 		_platform_desktop,
 		"What to do when there is more than one way to play, like a map pack\n"
@@ -1280,6 +1317,12 @@ static const struct config_setting config_settings[] =
 		"Open the Guide once the menus or a map are up, for tests." },
 	{ "debug.guide_toast", _config_string, "\"\"", "HALO_GUIDE_TOAST", _environment_value, _platform_all,
 		"Show a test notification with this text once. Leave it empty for none." },
+#endif
+#ifdef HALO_CAPTURE
+	{ "debug.clips_software", _config_boolean, "false", "HALO_CLIPS_SOFTWARE", _environment_set_is_true,
+		_platform_desktop,
+		"Encode clips in software even where there is a hardware encoder, for\n"
+		"tests." },
 #endif
 	{ "debug.chat_test", _config_string, "\"\"", "HALO_CHAT_TEST", _environment_value, _platform_all,
 		"Scripted chat for tests, as steps separated by ;. Each step is\n"
@@ -1568,6 +1611,10 @@ static const struct
 		"\"Left Ctrl\" or \"F1\". The mouse has \"Mouse Left\", \"Mouse Right\",\n"
 		"\"Mouse Middle\", \"Mouse 4\", \"Mouse 5\", \"Wheel\", \"Wheel Up\" and\n"
 		"\"Wheel Down\". Leave a control empty for none." },
+#ifdef HALO_CAPTURE
+	{ "clips", 0,
+		"Video clips of the last moments of a game (F10)." },
+#endif
 	{ "chat", 0,
 		"The text chat you see and send. The chat rules for games you host are\n"
 		"in [network]." },
@@ -4546,4 +4593,83 @@ const char *config_string(const char *name)
 	const char *string = config_value(name, _config_string)->string;
 
 	return string ? string : "";
+}
+
+/* ---------- the setup screen's Settings (launcher.c, settings_rows.c) */
+
+const char *config_setting_name(int index)
+{
+	if (index < 0 || (size_t)index >= NUMBER_OF_CONFIG_SETTINGS)
+		return NULL;
+	return config_settings[index].platforms & CONFIG_PLATFORM ? config_settings[index].name : "";
+}
+
+int config_setting_kind(const char *name)
+{
+	long index = config_setting_index(name);
+
+	if (index < 0 || !(config_settings[index].platforms & CONFIG_PLATFORM))
+		return -1;
+	switch (config_settings[index].type)
+	{
+	case _config_boolean:
+		return CONFIG_KIND_BOOLEAN;
+	case _config_integer:
+		return CONFIG_KIND_INTEGER;
+	case _config_real:
+		return CONFIG_KIND_REAL;
+	default:
+		return CONFIG_KIND_STRING;
+	}
+}
+
+const char *config_setting_word(const char *name, int index)
+{
+	size_t word_index;
+	int word;
+
+	for (word_index = 0; word_index < NUMBER_OF_CONFIG_WORDS; word_index++)
+	{
+		if (strcmp(config_words[word_index].name, name))
+			continue;
+		for (word = 0; config_words[word_index].words[word]; word++)
+		{
+			if (word == index)
+				return config_words[word_index].words[word];
+		}
+		return NULL;
+	}
+	return NULL;
+}
+
+int config_reset(const char *name)
+{
+	const char *dot = strchr(name, '.');
+	long index = config_setting_index(name);
+	char value[300], line_text[400], path[1024];
+	size_t size = 0;
+	char *text, *changed = NULL;
+	int succeeded = 1;
+
+	if (index < 0 || !dot || !config_default(name, value, sizeof(value)))
+		return 0;
+	/* (the file read first, as the other settings are) */
+	config_value(name, config_settings[index].type);
+	pthread_mutex_lock(&config_lock);
+	config_set_from_text(&config_values[index], config_settings[index].type, value);
+	/* (its value's line commented out at the default: it follows the
+	version's default again) */
+	snprintf(line_text, sizeof(line_text), "# %s = %s\n", dot + 1, config_settings[index].default_value);
+	config_path(path, sizeof(path));
+	text = config_read_file(path, &size);
+	if (text && config_text_has_key(text, name, 0))
+	{
+		changed = config_text_with_line(text, name, line_text);
+		succeeded = changed && config_write_file(path, changed);
+	}
+	config_change_count++;
+	pthread_mutex_unlock(&config_lock);
+	free(changed);
+	free(text);
+	return succeeded;
 }
