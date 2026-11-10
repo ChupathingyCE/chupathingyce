@@ -800,6 +800,9 @@ extern D3DCAPS8 global_d3d_caps;
  * is the only symbol csplit knows there, so the split still anchors their
  * relocations on `_global_d3d_device + 8` / `+ 12` (image 0x0045E8D8 and
  * 0x0045E8DC).  symbols.json names for those two addresses close the gap. */
+/* port: the viewport rasterizer_set_target gave the device last, for
+rasterizer_set_depth_range */
+static D3DVIEWPORT8 rasterizer_target_viewport;
 static boolean suppress_window_begin_end = FALSE;
 static short previous_window_index = 0;
 
@@ -1670,6 +1673,7 @@ void rasterizer_set_target(
 	}
 	viewport.MinZ = 0.0f;
 	viewport.MaxZ = 1.0f;
+	rasterizer_target_viewport = viewport;
 	IDirect3DDevice8_SetViewport(global_d3d_device, &viewport);
 	if (clear)
 	{
@@ -1687,6 +1691,24 @@ void rasterizer_set_target(
 			1.0f,
 			0);
 	}
+	return;
+}
+
+/* port: the current target's viewport again with another depth range
+(D3DVIEWPORT8's MinZ and MaxZ); 0 to 1 is the one rasterizer_set_target
+gives. A range in the depth buffer's last step before 1 draws behind
+everything drawn so far, still clipped at the far plane (the water's fog
+past the world's edge: rasterizer_xbox_water.c) */
+void rasterizer_set_depth_range(
+	real minimum,
+	real maximum)
+{
+	D3DVIEWPORT8 viewport = rasterizer_target_viewport;
+
+	viewport.MinZ = minimum;
+	viewport.MaxZ = maximum;
+	IDirect3DDevice8_SetViewport(global_d3d_device, &viewport);
+
 	return;
 }
 

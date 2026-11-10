@@ -338,12 +338,9 @@ static void dot_input(struct xgpu_text *text, const DWORD *state, int stage)
 	"precision highp samplerCube;\n"
 #else
 #define SAMPLE_BIAS ""
-#ifdef __APPLE__
-/* macOS stops at OpenGL 4.1 */
-#define SHADER_VERSION "#version 410 core\n"
-#else
-#define SHADER_VERSION "#version 450 core\n"
-#endif
+/* (macOS stops at OpenGL 4.1, and an older driver may be older: xgpu.h) */
+#define SHADER_VERSION_LINE XGPU_GL_VERSION_LINE
+#define SHADER_VERSION ""
 #endif
 
 static void sample(struct xgpu_text *text, const struct nv2a_pixel_shader_key *key, int stage, const char *coordinates)
@@ -636,6 +633,9 @@ char *nv2a_pixel_shader_to_glsl(const struct nv2a_pixel_shader_key *key)
 			"layout(early_fragment_tests) in;\n"
 			"layout(binding = 0, offset = 0) uniform atomic_uint visible_samples;\n");
 	}
+#endif
+#ifndef HALO_GL_ES
+	xgpu_text_append(&text, "%s", SHADER_VERSION_LINE);
 #endif
 	xgpu_text_append(&text,
 		SHADER_VERSION

@@ -97,8 +97,9 @@ was kept) */
 int map_repo_load(const struct map_repo_transport *transport, long long now, char *why, int why_size);
 /* the index and mirror list fetched from base_url and checked at now
 (seconds since 1970), unless it isn't due (map_repo_refresh_due) or a
-failed refresh's wait isn't over (flags: MAP_REPO_REFRESH_*).
-Each taken is kept through transport's save. 1 if an unexpired index that
+failed refresh's wait isn't over (flags: MAP_REPO_REFRESH_*); when
+only the mirror list is due (it failed, or was never asked for, and the
+index is still good) it alone is fetched. Each taken is kept through transport's save. 1 if an unexpired index that
 checks is held after it, else 0 with why in why */
 int map_repo_refresh(const struct map_repo_transport *transport, const char *base_url, long long now, int flags,
 	char *why, int why_size);
