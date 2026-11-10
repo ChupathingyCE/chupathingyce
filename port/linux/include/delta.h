@@ -182,8 +182,10 @@ enum delta_capability
 	that says nothing (OpenCE's, an older build) places them as it always
 	did */
 	_delta_capability_party_teams = 21,
-	/* (22 is voice, being built: reserved here, and never offered by this
-	build) */
+	/* voice chat (docs/delta.md, Voice): a client says its player's frames
+	(VOICE_UP) on a channel, the host decides who hears them by its rules
+	(VOICE_CONFIG) and sends them on (VOICE_DOWN), never decoding them; a
+	dedicated server relays it without any audio of its own */
 	_delta_capability_voice = 22,
 	/* players' reports (docs/delta.md, Reports): a client reports another
 	player to its host (REPORT), and the host says what it did
