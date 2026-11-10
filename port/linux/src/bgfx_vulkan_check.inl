@@ -344,8 +344,10 @@ static BOOL bg_vulkan_check(uint16_t *vendor, uint16_t *device)
 		if (!blocked && bg_vulkan_rank(gpu.type) < best_rank)
 		{
 			best_rank = bg_vulkan_rank(gpu.type);
-			*vendor = (uint16_t)gpu.vendor;
-			*device = (uint16_t)gpu.device;
+			/* (bgfx's IDs are 16 bits: a Khronos vendor ID such as Mesa's
+			0x10005 lets bgfx choose, as it would) */
+			*vendor = gpu.vendor <= 0xffff ? (uint16_t)gpu.vendor : 0;
+			*device = gpu.vendor <= 0xffff ? (uint16_t)gpu.device : 0;
 			found = TRUE;
 		}
 	}
