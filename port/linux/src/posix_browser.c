@@ -70,6 +70,9 @@ host that doesn't answer for minutes) */
 byte every few seconds never holds a thread longer); a download's head,
 and its whole body */
 #define REQUEST_DEADLINE_MILLISECONDS 30000LL
+/* a host name's lookup (getaddrinfo has no timeout of its own: a resolver
+that never answers would hold the thread, and the Mbed TLS lock with it) */
+#define RESOLVE_TIMEOUT_MILLISECONDS 10000
 #define DOWNLOAD_DEADLINE_MILLISECONDS (2LL * 3600 * 1000)
 
 #ifndef _WIN32
@@ -364,11 +367,177 @@ static int connect_within(socket_type descriptor, const struct sockaddr *address
 	return connected;
 }
 
+/* ---------- host name lookups, given up after RESOLVE_TIMEOUT_MILLISECONDS
+
+getaddrinfo runs on a thread of its own, waited for until the timeout. A
+lookup given up on is left to finish there (it frees itself), so a resolver
+that hangs costs a sleeping thread, never the caller's. */
+
+/* resolve_within's answer when the time was up */
+#define RESOLVE_TIMED_OUT 1
+
+struct lookup
+{
+	char host[256], port[16];
+	struct addrinfo *addresses;
+	int result, done;
+	/* (the caller and the thread: freed by the last done with it) */
+	int references;
+};
+
+#ifdef _WIN32
+static SRWLOCK lookup_lock = SRWLOCK_INIT;
+static CONDITION_VARIABLE lookup_done = CONDITION_VARIABLE_INIT;
+#else
+static pthread_mutex_t lookup_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t lookup_done = PTHREAD_COND_INITIALIZER;
+#endif
+
+static void lookup_enter(void)
+{
+#ifdef _WIN32
+	AcquireSRWLockExclusive(&lookup_lock);
+#else
+	pthread_mutex_lock(&lookup_lock);
+#endif
+}
+
+static void lookup_leave(void)
+{
+#ifdef _WIN32
+	ReleaseSRWLockExclusive(&lookup_lock);
+#else
+	pthread_mutex_unlock(&lookup_lock);
+#endif
+}
+
+/* (lookup_lock held) one of its two holders done with it */
+static void lookup_release(struct lookup *lookup)
+{
+	if (--lookup->references)
+		return;
+	if (lookup->addresses)
+		freeaddrinfo(lookup->addresses);
+	free(lookup);
+}
+
+static void lookup_run(struct lookup *lookup)
+{
+	struct addrinfo hints, *addresses = NULL;
+	int result;
+
+	memset(&hints, 0, sizeof(hints));
+	hints.ai_family = AF_INET;
+	hints.ai_socktype = SOCK_STREAM;
+	hints.ai_protocol = IPPROTO_TCP;
+	result = getaddrinfo(lookup->host, lookup->port, &hints, &addresses);
+	lookup_enter();
+	lookup->result = result;
+	lookup->addresses = result == 0 ? addresses : NULL;
+	lookup->done = 1;
+#ifdef _WIN32
+	WakeAllConditionVariable(&lookup_done);
+#else
+	pthread_cond_broadcast(&lookup_done);
+#endif
+	lookup_release(lookup);
+	lookup_leave();
+}
+
+#ifdef _WIN32
+static DWORD WINAPI lookup_thread(LPVOID argument)
+{
+	lookup_run((struct lookup *)argument);
+	return 0;
+}
+#else
+static void *lookup_thread(void *argument)
+{
+	lookup_run((struct lookup *)argument);
+	return NULL;
+}
+#endif
+
+/* host's IPv4 addresses (getaddrinfo's, freed with freeaddrinfo) into
+*addresses: 0, else getaddrinfo's error or RESOLVE_TIMED_OUT */
+static int resolve_within(const char *host, const char *port, struct addrinfo **addresses)
+{
+	struct lookup *lookup = (struct lookup *)calloc(1, sizeof(*lookup));
+	long long deadline = monotonic_milliseconds() + RESOLVE_TIMEOUT_MILLISECONDS;
+	int started, result;
+
+	*addresses = NULL;
+	if (!lookup)
+		return EAI_MEMORY;
+	snprintf(lookup->host, sizeof(lookup->host), "%s", host);
+	snprintf(lookup->port, sizeof(lookup->port), "%s", port);
+	lookup->references = 2;
+#ifdef _WIN32
+	{
+		HANDLE thread = CreateThread(NULL, 0, lookup_thread, lookup, 0, NULL);
+
+		started = thread != NULL;
+		if (thread)
+			CloseHandle(thread);
+	}
+#else
+	{
+		pthread_attr_t attributes;
+		pthread_t thread;
+
+		pthread_attr_init(&attributes);
+		pthread_attr_setdetachstate(&attributes, PTHREAD_CREATE_DETACHED);
+		started = pthread_create(&thread, &attributes, lookup_thread, lookup) == 0;
+		pthread_attr_destroy(&attributes);
+	}
+#endif
+	/* (no thread to be had: looked up here, as before) */
+	if (!started)
+		lookup_run(lookup);
+	lookup_enter();
+	while (!lookup->done)
+	{
+		long long left = deadline - monotonic_milliseconds();
+
+		if (left <= 0)
+			break;
+#ifdef _WIN32
+		SleepConditionVariableSRW(&lookup_done, &lookup_lock, (DWORD)left, 0);
+#else
+		{
+			struct timespec until;
+
+			clock_gettime(CLOCK_REALTIME, &until);
+			until.tv_sec += (time_t)(left / 1000);
+			until.tv_nsec += (long)(left % 1000) * 1000000L;
+			if (until.tv_nsec >= 1000000000L)
+			{
+				until.tv_sec++;
+				until.tv_nsec -= 1000000000L;
+			}
+			pthread_cond_timedwait(&lookup_done, &lookup_lock, &until);
+		}
+#endif
+	}
+	if (lookup->done)
+	{
+		result = lookup->result;
+		*addresses = lookup->addresses;
+		lookup->addresses = NULL;
+	}
+	else
+		result = RESOLVE_TIMED_OUT;
+	lookup_release(lookup);
+	lookup_leave();
+	return result;
+}
+
 /* a TCP connection over IPv4 alone: the game list matches a player's
 address as their game's host saw it, which internet play (IPv4) has */
 static int connect_ipv4(mbedtls_net_context *net, const char *host, const char *port)
 {
-	struct addrinfo hints, *addresses, *address;
+	struct addrinfo *addresses, *address;
+	int resolved;
 #ifdef _WIN32
 	SOCKET descriptor = INVALID_SOCKET;
 #define NO_SOCKET INVALID_SOCKET
@@ -377,11 +546,10 @@ static int connect_ipv4(mbedtls_net_context *net, const char *host, const char *
 #define NO_SOCKET (-1)
 #endif
 
-	memset(&hints, 0, sizeof(hints));
-	hints.ai_family = AF_INET;
-	hints.ai_socktype = SOCK_STREAM;
-	hints.ai_protocol = IPPROTO_TCP;
-	if (getaddrinfo(host, port, &hints, &addresses) != 0)
+	resolved = resolve_within(host, port, &addresses);
+	if (resolved == RESOLVE_TIMED_OUT)
+		return RESOLVE_TIMED_OUT;
+	if (resolved != 0)
 		return MBEDTLS_ERR_NET_UNKNOWN_HOST;
 	for (address = addresses; address && descriptor == NO_SOCKET; address = address->ai_next)
 	{
@@ -411,7 +579,8 @@ static int connection_open(struct connection *connection, const char *host, cons
 
 	if ((result = connect_ipv4(&connection->net, host, port)) != 0)
 	{
-		set_error(error, error_size, "could not connect", result);
+		set_error(error, error_size, result == RESOLVE_TIMED_OUT ? "could not connect (looking up the host name took "
+			"too long)" : "could not connect", result == RESOLVE_TIMED_OUT ? 0 : result);
 		return 0;
 	}
 	if (!connection->secure)
@@ -821,14 +990,16 @@ int posix_browser_download_open(const char *url, const char *user_agent, int *st
 	*status = 0;
 	*length = -1;
 	error[0] = 0;
+	/* (held until it is closed: one Mbed TLS user at a time, as the
+	requests are; another thread's download is waited for, as a request
+	waits for it) */
+	posix_browser_lock();
 	if (download.open)
 	{
+		posix_browser_unlock();
 		set_error(error, error_size, "a download is open already", 0);
 		return 0;
 	}
-	/* (held until it is closed: one Mbed TLS user at a time, as the
-	requests are) */
-	posix_browser_lock();
 	snprintf(current, sizeof(current), "%s", url);
 	for (redirect = 0; redirect <= MAXIMUM_REDIRECTS; redirect++)
 	{

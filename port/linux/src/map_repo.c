@@ -49,6 +49,11 @@ enum
 	FLOOR_FILE_SIZE = 512,
 };
 
+/* the files the index and the mirror list are streamed into as they are
+fetched (in the save root, beside what is kept; deleted once read) */
+#define INDEX_FETCH_FILE "chupathingy_maps_index.part"
+#define MIRRORS_FETCH_FILE "chupathingy_maps_mirrors.part"
+
 /* ---------- globals */
 
 struct document_floor
@@ -73,6 +78,9 @@ static struct
 	long long fetched;
 	long long failed;
 	long long retry;
+	/* the last refresh that took an index asked for it alone (no mirror
+	list): one that wants the mirror list is due at once */
+	int index_only;
 	struct map_mirrors mirrors;
 	int has_mirrors;
 	struct document_floor index_floor, mirrors_floor;
@@ -261,27 +269,31 @@ static char *kept(const struct map_repo_transport *transport, const char *name, 
 	return data;
 }
 
-/* a document and its signature fetched: the document's size, or -1 with why */
-static long fetch_pair(const struct map_repo_transport *transport, const char *url, char *document, int document_size,
-	char *signature, char *why, int why_size)
+/* a document (at most maximum bytes) and its signature fetched, the
+document streamed through the file kept as name: the document's size, or
+-1 with why */
+static long fetch_pair(const struct map_repo_transport *transport, const char *url, const char *name, char *document,
+	long maximum, char *signature, char *why, int why_size)
 {
 	char signature_url[URL_SIZE + 8], error[160] = "";
-	int status;
-	size_t size;
+	long size = -1;
+	int status = 0;
 
-	status = transport->get(transport->context, url, document, document_size, error, (int)sizeof(error));
-	if (status != 200)
+	if (!transport->get_document(transport->context, url, name, document, maximum, &size, &status, error,
+		(int)sizeof(error)))
 	{
-		if (status)
+		if (status && status != 200)
 			snprintf(why, (size_t)why_size, "the repository answered %d", status);
+		else if (status)
+			snprintf(why, (size_t)why_size, "%s", error);
 		else
 			snprintf(why, (size_t)why_size, "the repository did not answer (%s)", error);
 		return -1;
 	}
-	size = strlen(document);
-	if (size >= (size_t)document_size - 1)
+	/* (a document is text: no NUL in it) */
+	if (size < 0 || size > maximum || strlen(document) != (size_t)size)
 	{
-		snprintf(why, (size_t)why_size, "it is too large");
+		snprintf(why, (size_t)why_size, "it is not a text document");
 		return -1;
 	}
 	snprintf(signature_url, sizeof(signature_url), "%s.sig", url);
@@ -292,7 +304,7 @@ static long fetch_pair(const struct map_repo_transport *transport, const char *u
 		snprintf(why, (size_t)why_size, "its signature could not be fetched");
 		return -1;
 	}
-	return (long)size;
+	return size;
 }
 
 /* (the lock held) a failed refresh: the next no sooner than its wait,
@@ -321,13 +333,13 @@ int map_repo_enabled(void)
 	return 0;
 }
 
-int map_repo_refresh_due(long long now)
+int map_repo_refresh_due(long long now, int flags)
 {
 	int due;
 
 	pthread_mutex_lock(&map_repo_lock);
 	due = !map_repo.index || !map_repo.fetched || now - map_repo.fetched >= map_repo.info.refresh ||
-		now > map_repo.info.expires;
+		now > map_repo.info.expires || (!(flags & MAP_REPO_REFRESH_INDEX_ONLY) && map_repo.index_only);
 	/* (not again before a failure's wait is over) */
 	if (due && map_repo.failed && now - map_repo.failed < map_repo.retry && now >= map_repo.failed)
 		due = 0;
@@ -441,7 +453,7 @@ int map_repo_refresh(const struct map_repo_transport *transport, const char *bas
 		why[0] = 0;
 	if (!map_repo_enabled())
 		return fail(why, why_size, "this build has no key for it");
-	if (!(flags & MAP_REPO_REFRESH_FORCE) && !map_repo_refresh_due(now))
+	if (!(flags & MAP_REPO_REFRESH_FORCE) && !map_repo_refresh_due(now, flags))
 	{
 		int held;
 
@@ -455,7 +467,7 @@ int map_repo_refresh(const struct map_repo_transport *transport, const char *bas
 		return fail(why, why_size, "no memory for it");
 	pthread_mutex_lock(&map_repo_refresh_lock);
 	/* (another refresh may have run meanwhile) */
-	if (!(flags & MAP_REPO_REFRESH_FORCE) && !map_repo_refresh_due(now))
+	if (!(flags & MAP_REPO_REFRESH_FORCE) && !map_repo_refresh_due(now, flags))
 	{
 		int held;
 
@@ -468,7 +480,8 @@ int map_repo_refresh(const struct map_repo_transport *transport, const char *bas
 	}
 	/* (the index) */
 	snprintf(url, sizeof(url), "%s/index.json", base_url);
-	size = fetch_pair(transport, url, document, MAP_INDEX_DOCUMENT_SIZE + 2, signature, detail, (int)sizeof(detail));
+	size = fetch_pair(transport, url, INDEX_FETCH_FILE, document, MAP_INDEX_DOCUMENT_SIZE, signature, detail,
+		(int)sizeof(detail));
 	if (size < 0 || !map_index_check(document, (size_t)size, signature, strlen(signature), now, &info, detail,
 		(int)sizeof(detail)))
 	{
@@ -487,8 +500,8 @@ int map_repo_refresh(const struct map_repo_transport *transport, const char *bas
 		mirrors = (struct map_mirrors *)malloc(sizeof(*mirrors));
 		mirrors_text = mirrors ? (char *)malloc(MAP_MIRRORS_DOCUMENT_SIZE + 2) : NULL;
 		snprintf(url, sizeof(url), "%s/mirrors.json", base_url);
-		mirrors_size = mirrors_text ? fetch_pair(transport, url, mirrors_text, MAP_MIRRORS_DOCUMENT_SIZE + 2,
-			mirrors_signature, mirrors_detail, (int)sizeof(mirrors_detail)) : -1;
+		mirrors_size = mirrors_text ? fetch_pair(transport, url, MIRRORS_FETCH_FILE, mirrors_text,
+			MAP_MIRRORS_DOCUMENT_SIZE, mirrors_signature, mirrors_detail, (int)sizeof(mirrors_detail)) : -1;
 		has_mirrors = mirrors_size >= 0 && map_mirrors_check(mirrors_text, (size_t)mirrors_size, mirrors_signature,
 			strlen(mirrors_signature), now, mirrors, mirrors_detail, (int)sizeof(mirrors_detail));
 		if (has_mirrors)
@@ -514,6 +527,7 @@ int map_repo_refresh(const struct map_repo_transport *transport, const char *bas
 	map_repo.fetched = now;
 	map_repo.failed = 0;
 	map_repo.retry = 0;
+	map_repo.index_only = (flags & MAP_REPO_REFRESH_INDEX_ONLY) != 0;
 	floor_set(&map_repo.index_floor, info.serial, sha256);
 	if (has_mirrors)
 	{
@@ -673,6 +687,7 @@ void map_repo_reset(void)
 	map_repo.fetched = 0;
 	map_repo.failed = 0;
 	map_repo.retry = 0;
+	map_repo.index_only = 0;
 	map_repo.has_mirrors = 0;
 	memset(&map_repo.index_floor, 0, sizeof(map_repo.index_floor));
 	memset(&map_repo.mirrors_floor, 0, sizeof(map_repo.mirrors_floor));

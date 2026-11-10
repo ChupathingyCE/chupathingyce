@@ -147,7 +147,8 @@ still play it by yourself or in split screen. The game fetches the list when
 it starts and about once an hour after that, whatever `network.map_downloads`
 says: the list is a public file, and the request carries nothing about you.
 With `"never"` (and on the dedicated server) only that list is fetched, not
-the mirror list. The game keeps the last list it took in its save folder
+the mirror list. Switch back to `"ask"` or `"always"` and the mirror list is
+fetched the next time the game checks, not an hour later. The game keeps the last list it took in its save folder
 and reads it back when it starts, so the blacklist holds before the first
 fetch and while the site can't be reached. A kept list that has expired
 still blocks its maps until a newer one comes, but nothing is downloaded on

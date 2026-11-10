@@ -586,6 +586,69 @@ def test_failed_refresh_waits_longer_each_time(driver):
     assert lines == ["refresh 0 1", "refresh 0 1", "refresh 0 2", "refresh 0 2", "refresh 0 3"]
 
 
+def many_maps(count):
+    """count small maps of their own: an index the size of a repository
+    with a few hundred maps"""
+    return [map_entry(f"map{number:04d}", f"map {number} bytes ".encode() * 40) for number in range(count)]
+
+
+def test_index_larger_than_a_request_streamed(driver, repository, keys, tmp_path):
+    # (the game's plain requests read 64 KB at most, the driver's as well:
+    # the index and the mirror list come through the streamed download,
+    # kept whole, and the file they were streamed into is gone after)
+    environment, folder = kept(tmp_path)
+    entry = map_entry("bigass", DATA)
+    index = index_document([*many_maps(400), entry], blacklist=blacklisted(entry, "crashes"))
+    assert len(dumps(index)) > 3 * 65536
+    repository.publish("", keys, index, mirrors_document([mirror("m", repository.url + "/m", 1)]))
+    out = run(driver, "blocked", NOW, entry["sha256"], "-", repository.url, environment=environment).splitlines()
+    assert out == ["load 0 ", "refresh 1 ", "blocked crashes"]
+    assert sorted(path.name for path in folder.iterdir()) == [
+        "chupathingy_maps_floor.txt", "chupathingy_maps_index.signed", "chupathingy_maps_mirrors.signed"]
+    assert (folder / "chupathingy_maps_index.signed").read_bytes().endswith(dumps(index))
+    # (and read back whole in the next run, the repository gone)
+    repository.close()
+    out = run(driver, "blocked", NOW + 60, entry["sha256"], "-", environment=environment).splitlines()
+    assert out == ["load 1 kept index 12 (unexpired)", "blocked crashes"]
+
+
+def test_large_index_downloads(driver, repository, keys, tmp_path):
+    entry = map_entry("bigass", DATA)
+    index = index_document([*many_maps(400), entry])
+    assert len(dumps(index)) > 65536
+    repository.publish("", keys, index, mirrors_document([mirror("m", repository.url + "/m", 1)]))
+    repository.host_file("/m", DATA)
+    out = tmp_path / "bigass.map.download"
+    lines = download(driver, repository, out, "bigass", entry["version"])
+    assert lines[0] == "refresh 1 " and lines[1] == "has 1"
+    assert lines[-1] == f"downloaded bigass {len(DATA)}"
+    assert out.read_bytes() == DATA
+
+
+def test_documents_past_their_limits_refused(driver, repository, keys, tmp_path):
+    # (8 MB for the index, 256 KB for the mirror list: refused as they
+    # come, not cut short)
+    entry = map_entry("bigass", DATA)
+    repository.publish("", keys, index_document([entry]), mirrors_document([mirror("m", repository.url + "/m", 1)]))
+    repository.routes["/mirrors.json"] = b" " * (256 * 1024 + 1)
+    lines = download(driver, repository, tmp_path / "x", "bigass", entry["version"])
+    assert lines[0] == "refresh 1 the mirror list was refused: it is larger than the 262144 bytes allowed"
+    repository.routes["/index.json"] = b" " * (8 * 1024 * 1024 + 1)
+    lines = download(driver, repository, tmp_path / "x", "bigass", entry["version"])
+    assert lines[0] == "refresh 0 the index was refused: it is larger than the 8388608 bytes allowed"
+
+
+def test_mirror_list_fetched_when_downloads_turn_back_on(driver, repository, keys):
+    # (network.map_downloads "never", then "ask" or "always": the next
+    # refresh asks for the mirror list at once, not after the index's hour;
+    # then nothing until the hour is up)
+    entry = map_entry("bigass", DATA)
+    repository.publish("", keys, index_document([entry]), mirrors_document([mirror("m", repository.url + "/m", 1)]))
+    lines = run(driver, "refreshes", repository.url, f"{NOW}:index", f"{NOW + 60}:index", NOW + 120, NOW + 180,
+                NOW + 3800).splitlines()
+    assert lines == ["refresh 1 2", "refresh 1 2", "refresh 1 6", "refresh 1 6", "refresh 1 10"]
+
+
 # ---------- what is kept between runs
 
 def kept(tmp_path):
@@ -796,6 +859,65 @@ int main(void)
     assert result.returncode == 0 and result.stdout == "ok\n", (result.returncode, result.stdout)
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="the POSIX half")
+def test_host_name_lookup_gives_up(tmp_path):
+    """A resolver that never answers doesn't hold the caller: the lookup is
+    given up after its timeout and left to finish on its own thread, which
+    frees it; one that answers is taken."""
+    cc = compiler()
+    if not cc:
+        pytest.skip("no C compiler")
+    browser = (SRC / "posix_browser.c").read_text()
+    lookups = browser[browser.index("/* ---------- host name lookups"):browser.index("/* a TCP connection over IPv4")]
+    source = r"""
+#define _DEFAULT_SOURCE
+#include <netdb.h>
+#include <netinet/in.h>
+#include <pthread.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <time.h>
+#include <unistd.h>
+#define RESOLVE_TIMEOUT_MILLISECONDS 300
+static int freed;
+static int fake_getaddrinfo(const char *host, const char *port, const struct addrinfo *hints, struct addrinfo **found)
+{
+	(void)port; (void)hints;
+	if (!strcmp(host, "slow")) usleep(1500 * 1000);
+	*found = calloc(1, sizeof(**found));
+	return 0;
+}
+static void fake_freeaddrinfo(struct addrinfo *addresses) { free(addresses); __sync_fetch_and_add(&freed, 1); }
+#define getaddrinfo fake_getaddrinfo
+#define freeaddrinfo fake_freeaddrinfo
+""" + browser_function(browser, "monotonic_milliseconds") + lookups + r"""
+int main(void)
+{
+	struct addrinfo *addresses;
+	long long start = monotonic_milliseconds();
+
+	if (resolve_within("slow", "80", &addresses) != RESOLVE_TIMED_OUT || addresses) return 10;
+	if (monotonic_milliseconds() - start > 1000) return 11;
+	if (resolve_within("fast", "80", &addresses) != 0 || !addresses) return 12;
+	freeaddrinfo(addresses);
+	/* (the slow lookup's thread, done later, frees what it found) */
+	usleep(2000 * 1000);
+	if (freed != 2) return 13;
+	printf("ok\n");
+	return 0;
+}
+"""
+    (tmp_path / "lookups.c").write_text(source)
+    program = tmp_path / "lookups"
+    built = subprocess.run([cc, "-std=c11", "-Wall", "-Werror", "-o", str(program), str(tmp_path / "lookups.c"),
+                            "-lpthread"], capture_output=True, text=True)
+    assert built.returncode == 0, built.stderr[-3000:]
+    result = subprocess.run([str(program)], capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0 and result.stdout == "ok\n", (result.returncode, result.stdout)
+
+
 # ---------- the game: the community map repositories first, then ours
 
 GAME = os.environ.get("HALO_MAP_REPO_GAME")
@@ -850,10 +972,10 @@ def game_map():
     return Path(GAME_MAP).stem.lower(), data
 
 
-def publish_for_game(repository, name, data, blacklist=()):
+def publish_for_game(repository, name, data, blacklist=(), more=()):
     key = Path(GAME_KEY)
     entry = map_entry(name, data)
-    index = dumps(index_document([entry], blacklist=blacklist, issued=int(time.time()) - 60))
+    index = dumps(index_document([*more, entry], blacklist=blacklist, issued=int(time.time()) - 60))
     mirrors = dumps(mirrors_document([mirror("m", repository.url + "/mirror", 1)],
                                      issued=int(time.time()) - 60))
     repository.routes["/ours/index.json"] = index
@@ -881,6 +1003,22 @@ def test_game_takes_ours_when_the_community_lacks_it(repository, game_map, tmp_p
     assert asked[0].startswith("/hac2/halonet/locator.php")
     assert asked[-1].startswith("/mirror/maps/")
     assert "from Chupathingy maps" in log
+
+
+def test_game_takes_ours_from_a_large_index(repository, game_map, tmp_path):
+    """An index larger than the game's plain requests read (64 KB): a
+    repository of a few hundred maps. The game streams it into its save
+    folder, checks it, keeps it, and downloads from it."""
+    name, data = game_map
+    entry = publish_for_game(repository, name, data, more=many_maps(400))
+    assert len(repository.routes["/ours/index.json"]) > 3 * 65536
+    code, log, folder = run_game(tmp_path, repository, name, entry["version"])
+    assert code == 0, log[-3000:]
+    assert (folder / f"{name}.map").read_bytes() == data
+    assert "from Chupathingy maps" in log
+    save = tmp_path / "save"
+    assert (save / "chupathingy_maps_index.signed").read_bytes().endswith(repository.routes["/ours/index.json"])
+    assert not list(save.glob("*.part"))
 
 
 def test_game_takes_the_community_first(repository, game_map, tmp_path):

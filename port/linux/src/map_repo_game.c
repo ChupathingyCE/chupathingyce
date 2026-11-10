@@ -14,7 +14,8 @@ downloads (map_download.c), and the dedicated server's, which only checks
 the blacklist (it downloads nothing). The index is fetched for its
 blacklist whatever network.map_downloads says: it is a public document and
 the request carries nothing about the player. With "never" (and on the
-dedicated server) the mirror list isn't asked for. An empty
+dedicated server) the mirror list isn't asked for; set back to "ask" or
+"always", the next refresh asks for it at once (map_repo_refresh_due). An empty
 network.maps_url turns all of it off: nothing fetched, nothing kept read
 back, nothing refused. Elsewhere nothing is asked and nothing refused.
 
@@ -72,35 +73,35 @@ static int game_get(void *context, const char *url, char *buffer, int size, char
 	return posix_browser_request_as(url, NULL, NULL, build_identity_user_agent(), buffer, size, why, why_size);
 }
 
-static int game_get_file(void *context, const char *url, const char *path, unsigned int maximum, unsigned char *sha256,
-	unsigned int *received, int *status, char *why, int why_size)
+/* where the bytes of a streamed GET go: 1 when written */
+typedef int (*stream_write)(void *file, const char *data, int count);
+
+/* a GET of url streamed to write (file), at most maximum bytes: 1 with
+the bytes received in *received and their SHA-256 in sha256 (NULL: not
+wanted), else 0 with the HTTP status in *status (0 for none) and why in
+why; a map's download tells hooks (NULL: none) */
+static int stream_get(const char *url, stream_write write, void *file, unsigned int maximum, unsigned char *sha256,
+	unsigned int *received, int *status, const struct map_repo_game_hooks *hooks, char *why, int why_size)
 {
-	const struct map_repo_game_hooks *hooks = (const struct map_repo_game_hooks *)context;
 	struct playlist_sha256 hash;
 	char *buffer;
-	HANDLE file;
 	int length = -1, download, ok = 1;
 
 	*received = 0;
-	platform_log("chupathingy maps: GET %s", url);
 	download = posix_browser_download_open(url, build_identity_user_agent(), status, &length, why, why_size);
 	if (!download)
 		return 0;
 	if (length >= 0 && (unsigned int)length > maximum)
 	{
 		posix_browser_download_close(download);
-		snprintf(why, (size_t)why_size, "the file is %d bytes, more than the index's", length);
+		snprintf(why, (size_t)why_size, "it is %d bytes, more than the %u allowed", length, maximum);
 		return 0;
 	}
 	buffer = (char *)malloc(CHUNK_SIZE);
-	file = CreateFileA(path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-	if (!buffer || file == INVALID_HANDLE_VALUE)
+	if (!buffer)
 	{
 		posix_browser_download_close(download);
-		free(buffer);
-		if (file != INVALID_HANDLE_VALUE)
-			CloseHandle(file);
-		snprintf(why, (size_t)why_size, "could not write the map's file");
+		snprintf(why, (size_t)why_size, "out of memory");
 		return 0;
 	}
 	playlist_sha256_begin(&hash);
@@ -108,7 +109,6 @@ static int game_get_file(void *context, const char *url, const char *path, unsig
 		hooks->progress(0, length > 0 ? (unsigned int)length : maximum);
 	for (;;)
 	{
-		DWORD written = 0;
 		int count;
 
 		if (hooks && hooks->stop && hooks->stop(NULL))
@@ -128,13 +128,13 @@ static int game_get_file(void *context, const char *url, const char *path, unsig
 		}
 		if ((unsigned int)count > maximum - *received)
 		{
-			snprintf(why, (size_t)why_size, "the file is larger than the index's %u bytes", maximum);
+			snprintf(why, (size_t)why_size, "it is larger than the %u bytes allowed", maximum);
 			ok = 0;
 			break;
 		}
-		if (!WriteFile(file, buffer, (DWORD)count, &written, NULL) || written != (DWORD)count)
+		if (!write(file, buffer, count))
 		{
-			snprintf(why, (size_t)why_size, "could not write the map's file (is the disk full?)");
+			snprintf(why, (size_t)why_size, "could not write it (is the disk full?)");
 			ok = 0;
 			break;
 		}
@@ -145,8 +145,41 @@ static int game_get_file(void *context, const char *url, const char *path, unsig
 	}
 	posix_browser_download_close(download);
 	free(buffer);
+	if (sha256)
+		playlist_sha256_end(&hash, sha256);
+	return ok;
+}
+
+static int write_handle(void *file, const char *data, int count)
+{
+	DWORD written = 0;
+
+	return WriteFile((HANDLE)file, data, (DWORD)count, &written, NULL) && written == (DWORD)count;
+}
+
+static int write_stdio(void *file, const char *data, int count)
+{
+	return fwrite(data, 1, (size_t)count, (FILE *)file) == (size_t)count;
+}
+
+static int game_get_file(void *context, const char *url, const char *path, unsigned int maximum, unsigned char *sha256,
+	unsigned int *received, int *status, char *why, int why_size)
+{
+	const struct map_repo_game_hooks *hooks = (const struct map_repo_game_hooks *)context;
+	HANDLE file;
+	int ok;
+
+	*received = 0;
+	*status = 0;
+	platform_log("chupathingy maps: GET %s", url);
+	file = CreateFileA(path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+	if (file == INVALID_HANDLE_VALUE)
+	{
+		snprintf(why, (size_t)why_size, "could not write the map's file");
+		return 0;
+	}
+	ok = stream_get(url, write_handle, (void *)file, maximum, sha256, received, status, hooks, why, why_size);
 	CloseHandle(file);
-	playlist_sha256_end(&hash, sha256);
 	if (!ok)
 		platform_log("chupathingy maps: %s", why);
 	return ok;
@@ -189,6 +222,49 @@ static long game_load(void *context, const char *name, char *buffer, long size)
 	return count ? (long)count : -1;
 }
 
+/* the index or the mirror list streamed into the save root's file name
+(never more than maximum bytes on disk or in memory), then read back */
+static int game_get_document(void *context, const char *url, const char *name, char *buffer, long maximum, long *size,
+	int *status, char *why, int why_size)
+{
+	char path[1024];
+	unsigned int received = 0;
+	FILE *file;
+	size_t count;
+	int ok;
+
+	(void)context;
+	*size = -1;
+	*status = 0;
+	buffer[0] = 0;
+	kept_path(name, path, sizeof(path));
+	file = fopen(path, "wb");
+	if (!file)
+	{
+		snprintf(why, (size_t)why_size, "could not write %s", name);
+		return 0;
+	}
+	ok = stream_get(url, write_stdio, file, (unsigned int)maximum, NULL, &received, status, NULL, why, why_size);
+	ok = fclose(file) == 0 && ok;
+	if (ok && !(file = fopen(path, "rb")))
+		ok = 0;
+	if (ok)
+	{
+		count = fread(buffer, 1, (size_t)maximum + 1, file);
+		fclose(file);
+		ok = count == (size_t)received;
+		if (ok)
+		{
+			buffer[count] = 0;
+			*size = (long)count;
+		}
+	}
+	if (!ok && !why[0])
+		snprintf(why, (size_t)why_size, "could not read %s back", name);
+	remove(path);
+	return ok;
+}
+
 /* a new file beside it, then moved over it (as Delta's cache is written) */
 static void game_save(void *context, const char *name, const char *data, long size)
 {
@@ -219,7 +295,7 @@ static void game_save(void *context, const char *name, const char *data, long si
 
 static const struct map_repo_transport map_repo_game_transport_value =
 {
-	NULL, game_get, game_get_file, game_remove, game_stop, game_load, game_save,
+	NULL, game_get, game_get_document, game_get_file, game_remove, game_stop, game_load, game_save,
 };
 
 /* whether Chupathingy maps is asked anything: the build has its key, and
@@ -314,7 +390,7 @@ int map_repo_game_refresh_now(void)
 	load_once();
 	map_repo_game_url(url, (int)sizeof(url));
 	flags = refresh_flags();
-	if (!map_repo_refresh_due(now))
+	if (!map_repo_refresh_due(now, flags))
 		return map_repo_refresh(&map_repo_game_transport_value, url, now, flags, why, (int)sizeof(why));
 	held = map_repo_refresh(&map_repo_game_transport_value, url, now, flags, why, (int)sizeof(why));
 	/* (one line, whatever happened: a repository that can't be reached is
@@ -340,7 +416,7 @@ void map_repo_game_refresh_soon(void)
 	if (!game_enabled())
 		return;
 	load_once();
-	if (!map_repo_refresh_due((long long)time(NULL)))
+	if (!map_repo_refresh_due((long long)time(NULL), refresh_flags()))
 		return;
 	pthread_mutex_lock(&map_repo_game.lock);
 	if (map_repo_game.refreshing)

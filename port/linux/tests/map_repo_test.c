@@ -14,13 +14,13 @@ files the host's.
     map_repo_test choose DOCUMENT SHA256
     map_repo_test download BASE_URL NOW NAME VERSION PATH [BASE_URL NOW]...
     map_repo_test blocked NOW SHA256|- MAP_HASH|- [BASE_URL]
-    map_repo_test refreshes BASE_URL NOW...
+    map_repo_test refreshes BASE_URL NOW[:index]...
 
 With MAP_REPO_TEST_SAVE (a folder), what is kept between runs is kept
 there, and read back first (its result printed as "load"); with
 MAP_REPO_TEST_USE_AT (a time), the download and "has" are asked at that
 time rather than the last refresh's; with MAP_REPO_TEST_INDEX_ONLY, the
-refreshes ask for the index alone.
+refreshes ask for the index alone (as does a refresh's NOW:index).
 */
 
 #include "map_index.h"
@@ -175,6 +175,13 @@ static int http_get(const char *url, struct response *response, char *why, int w
 
 static int get_count;
 
+enum
+{
+	/* the game's get reads 64 KB of a response at most
+	(posix_browser.c's request_as), so the test's does too */
+	GET_MOST = 65536,
+};
+
 static int test_get(void *context, const char *url, char *buffer, int size, char *why, int why_size)
 {
 	struct response response;
@@ -184,6 +191,8 @@ static int test_get(void *context, const char *url, char *buffer, int size, char
 	get_count++;
 	if (!http_get(url, &response, why, why_size))
 		return 0;
+	if (response.size > GET_MOST)
+		response.size = GET_MOST;
 	count = response.size < (size_t)size - 1 ? response.size : (size_t)size - 1;
 	memcpy(buffer, response.body, count);
 	buffer[count] = 0;
@@ -234,6 +243,69 @@ static int test_get_file(void *context, const char *url, const char *path, unsig
 	return 1;
 }
 
+/* where a document is streamed: the save folder (MAP_REPO_TEST_SAVE), or
+the temporary folder */
+static void fetch_path(const char *name, char *path, size_t size)
+{
+	const char *save = getenv("MAP_REPO_TEST_SAVE");
+
+	if (save)
+		snprintf(path, size, "%s/%s", save, name);
+	else
+		snprintf(path, size, "%s/map_repo_test_%d_%s", getenv("TMPDIR") ? getenv("TMPDIR") : "/tmp", (int)getpid(),
+			name);
+}
+
+static int test_get_document(void *context, const char *url, const char *name, char *buffer, long maximum, long *size,
+	int *status, char *why, int why_size)
+{
+	struct response response;
+	char path[1024];
+	FILE *file;
+	size_t count;
+	int ok;
+
+	(void)context;
+	*size = -1;
+	*status = 0;
+	get_count++;
+	if (!http_get(url, &response, why, why_size))
+		return 0;
+	*status = response.status;
+	if (response.status != 200)
+	{
+		free(response.body);
+		snprintf(why, (size_t)why_size, "status %d", response.status);
+		return 0;
+	}
+	if (response.size > (size_t)maximum)
+	{
+		free(response.body);
+		snprintf(why, (size_t)why_size, "it is larger than the %ld bytes allowed", maximum);
+		return 0;
+	}
+	/* (through a file, as the game's: written, then read back) */
+	fetch_path(name, path, sizeof(path));
+	file = fopen(path, "wb");
+	ok = file && fwrite(response.body, 1, response.size, file) == response.size;
+	if (file)
+		ok = fclose(file) == 0 && ok;
+	free(response.body);
+	file = ok ? fopen(path, "rb") : NULL;
+	count = file ? fread(buffer, 1, (size_t)maximum + 1, file) : 0;
+	if (file)
+		fclose(file);
+	remove(path);
+	if (!file || count != response.size)
+	{
+		snprintf(why, (size_t)why_size, "could not write %s", name);
+		return 0;
+	}
+	buffer[count] = 0;
+	*size = (long)count;
+	return 1;
+}
+
 static void test_remove(void *context, const char *path)
 {
 	(void)context;
@@ -276,7 +348,8 @@ static void test_save(void *context, const char *name, const char *data, long si
 	}
 }
 
-static struct map_repo_transport transport = { NULL, test_get, test_get_file, test_remove, NULL, NULL, NULL };
+static struct map_repo_transport transport = { NULL, test_get, test_get_document, test_get_file, test_remove, NULL, NULL,
+	NULL };
 
 static int refresh_flags(int force)
 {
@@ -327,8 +400,9 @@ int main(int count, char **arguments)
 			int held;
 
 			why[0] = 0;
-			held = map_repo_refresh(&transport, arguments[2], atoll(arguments[argument]), refresh_flags(0), why,
-				(int)sizeof(why));
+			/* (NOW:index: that refresh for the index alone) */
+			held = map_repo_refresh(&transport, arguments[2], atoll(arguments[argument]), refresh_flags(0) |
+				(strstr(arguments[argument], ":index") ? MAP_REPO_REFRESH_INDEX_ONLY : 0), why, (int)sizeof(why));
 			printf("refresh %d %d\n", held, get_count);
 		}
 		return 0;

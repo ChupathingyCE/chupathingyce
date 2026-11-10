@@ -42,6 +42,15 @@ struct map_repo_transport
 	/* a GET of url, its body into buffer (NUL terminated, cut to size - 1
 	bytes): the HTTP status, or 0 with why in why when there was no answer */
 	int (*get)(void *context, const char *url, char *buffer, int size, char *why, int why_size);
+	/* a GET of url streamed into the file kept as name (made anew, beside
+	MAP_REPO_*_FILE in the save root), refused once past maximum bytes, then
+	read back into buffer (maximum + 1 bytes, NUL terminated) and the file
+	deleted: 1 with the body's size in *size, else 0 with the HTTP status in
+	*status (0 for none) and why in why. The index and the mirror list come
+	this way, as large as they may be (MAP_*_DOCUMENT_SIZE); get has its
+	own limit */
+	int (*get_document)(void *context, const char *url, const char *name, char *buffer, long maximum, long *size,
+		int *status, char *why, int why_size);
 	/* a GET of url into the file at path (made anew), at most maximum bytes:
 	1 with the bytes received in *received and their SHA-256 in sha256,
 	else 0 with the HTTP status in *status (0 for none) and why in why */
@@ -87,14 +96,17 @@ index is held after it; what happened in why either way (empty: nothing
 was kept) */
 int map_repo_load(const struct map_repo_transport *transport, long long now, char *why, int why_size);
 /* the index and mirror list fetched from base_url and checked at now
-(seconds since 1970), unless the index held is younger than its refresh
-time or a failed refresh's wait isn't over (flags: MAP_REPO_REFRESH_*).
+(seconds since 1970), unless it isn't due (map_repo_refresh_due) or a
+failed refresh's wait isn't over (flags: MAP_REPO_REFRESH_*).
 Each taken is kept through transport's save. 1 if an unexpired index that
 checks is held after it, else 0 with why in why */
 int map_repo_refresh(const struct map_repo_transport *transport, const char *base_url, long long now, int flags,
 	char *why, int why_size);
-/* whether the index held is due a refresh at now (none held: 1) */
-int map_repo_refresh_due(long long now);
+/* whether the index held is due a refresh at now (none held: 1), for a
+refresh with flags (MAP_REPO_REFRESH_*): without MAP_REPO_REFRESH_INDEX_ONLY,
+also when the last one asked for the index alone (map downloads turned back
+on: the mirror list fetched then, not an hour later) */
+int map_repo_refresh_due(long long now, int flags);
 
 /* whether a file of this SHA-256 or map hash (either NULL when not known)
 is on the blacklist of the index held, expired or not (now unused): 1 with
