@@ -1566,6 +1566,26 @@ static boolean distributed_host_moved_at_rest(
 	return moved;
 }
 
+/* The host's lists of a tick's states and inventories, made and sent in
+one call each (distributed_host_send_states, _inventories), one after the
+other and never together: they share their memory. On a console, which
+joins far more than it hosts, that is about 90 KB more free in every game. */
+static union
+{
+	struct
+	{
+		/* (one come to rest may be in its turn too) */
+		struct distributed_object_state states[MAXIMUM_TRACKED_OBJECTS + RESTING_STATES_PER_TICK];
+		byte kinds[MAXIMUM_TRACKED_OBJECTS + RESTING_STATES_PER_TICK];
+	} states;
+	struct
+	{
+		struct distributed_inventory inventories[MAXIMUM_TRACKED_OBJECTS];
+		byte kinds[MAXIMUM_TRACKED_OBJECTS];
+		real_point3d origins[MAXIMUM_TRACKED_OBJECTS];
+	} inventories;
+} host_send_lists;
+
 /* where the moving objects are, to each client those near its players
 every tick, those further less often, and the vehicle it drives itself
 (which it has already) every few ticks, with which of its ticks the host
@@ -1574,9 +1594,8 @@ times), and a few at rest, round them all */
 static void distributed_host_send_states(
 	void)
 {
-	/* (one come to rest may be in its turn too) */
-	static struct distributed_object_state states[MAXIMUM_TRACKED_OBJECTS + RESTING_STATES_PER_TICK];
-	static byte kinds[MAXIMUM_TRACKED_OBJECTS + RESTING_STATES_PER_TICK];
+	struct distributed_object_state *states = host_send_lists.states.states;
+	byte *kinds = host_send_lists.states.kinds;
 	struct distributed_object_state_message message;
 	short limit = MIN(MAXIMUM_ENTRIES_PER_MESSAGE, DATAGRAM_ENTRIES(struct distributed_object_state));
 	short resting = 0;
@@ -1770,9 +1789,9 @@ see its shots less) */
 static void distributed_host_send_inventories(
 	void)
 {
-	static struct distributed_inventory inventories[MAXIMUM_TRACKED_OBJECTS];
-	static byte kinds[MAXIMUM_TRACKED_OBJECTS];
-	static real_point3d origins[MAXIMUM_TRACKED_OBJECTS];
+	struct distributed_inventory *inventories = host_send_lists.inventories.inventories;
+	byte *kinds = host_send_lists.inventories.kinds;
+	real_point3d *origins = host_send_lists.inventories.origins;
 	struct distributed_inventory_message message;
 	short limit = MIN(MAXIMUM_ENTRIES_PER_MESSAGE, DATAGRAM_ENTRIES(struct distributed_inventory));
 	long inventory_count = 0;
