@@ -26,6 +26,21 @@ ON_OFF = [("ON", "true"), ("OFF", "false")]
 SENSITIVITIES = [(f"{value:g}", f"{value:g}") for value in (0.1, 0.15, 0.25, 0.4, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4)]
 VOLUMES = [(str(step), f"{step / 10:g}") for step in range(11)]
 
+# A row that does something rather than set a setting (A runs its function,
+# port/linux/game/menu_functions.c's), with a value its function shows in
+# place of a spinner: Network Setup's INSTALL UPDATE. It stands in a list of
+# rows as a setting's row does, (label, None, function, help, platform, key),
+# and menu_functions.c shows or hides it.
+class Action(tuple):
+    def __new__(cls, label, key, run, help_text, platform):
+        return super().__new__(cls, (label, None, run, help_text, platform, key))
+
+
+# update.h's UPDATER_GAMESCOPE_WHERE names the page: Settings > Network >
+# Updates (tools/test_update_install.py checks they agree)
+INSTALL_UPDATE = Action("INSTALL UPDATE:", "install_update", "port update install",
+                        "Download the new version. Chupathingy restarts.", "desktop")
+
 # A row's platform: None for every platform, else the names it is on,
 # separated by spaces (port/linux/src/menu_files.c): "desktop", "android",
 # "switch", and "console" for the Xbox 360 and the Wii U, which show the
@@ -200,6 +215,9 @@ SCREENS = {
         "screen": "network_settings_screen",
         "header": ("header_profile_network_settings", f"{PE}/network_setup/header_profile_network_settings"),
         "spacing": 30,
+        # (its help is its own text, which menu_functions.c reads from its
+        # help_strings, and sets to how INSTALL UPDATE's install goes)
+        "help_text": True,
         "rows": [
             ("INTERNET PLAY:", "network.online", ON_OFF,
              "Host and join games over the internet.", None),
@@ -223,6 +241,9 @@ SCREENS = {
                  "Check for a new version at startup.", NOT_CONSOLE),
                 ("CHANNEL:", "update.channel", [("RELEASE", "release"), ("TESTING", "testing"), ("NIGHTLY", "nightly")],
                  UPDATE_CHANNEL_HELP, NOT_CONSOLE),
+                # (shown once a newer version is found; how the install
+                # goes is its value and the help line: menu_functions.c)
+                INSTALL_UPDATE,
             ]),
             ("chat", "CHAT", "Text chat and the word filter.", [
                 ("CHAT:", "chat.enabled", ON_OFF, "Text chat with other players.", NOT_CONSOLE),
@@ -440,6 +461,27 @@ def _setting_row(base: str, row: tuple, key: str, label_index: int) -> list:
     return lines
 
 
+def _action_row(base: str, row: Action, key: str, label_index: int) -> list:
+    """an Action's row: its label, and its value (a text of its own, which
+    its function sets)"""
+    label, _, run, _, platform, *_ = row
+    lines = _widget(f"{base}/op_{key}", [("width", 512), ("height", 28), ("flags", "pass_unhandled_to_focused_child"),
+                                         ("bitmap", "bitmaps/option_bkds"), ("color", "#FF2896FF"),
+                                         ("platform", platform)],
+                    [f'<on event="a" run="{run}"/>', f'<on event="start" run="{run}"/>',
+                     '<on event="left_mouse" run="mouse emit accept event"/>',
+                     f'<child{attributes([("widget", f"{base}/{key}_label")])}/>',
+                     f'<child{attributes([("widget", f"{base}/{key}_value"), ("x", 320), ("y", 1)])}/>'])
+    lines += _widget(f"{base}/{key}_label",
+                     [("type", "text"), ("controller", 1), ("width", 300), ("height", 22),
+                      ("string_list", f"{base}/labels"), ("string_index", label_index), ("font", "ui\\large_ui"),
+                      ("color", "#FF2896FF"), ("text_x", 13), ("text_y", 4)], [])
+    lines += _widget(f"{base}/{key}_value",
+                     [("type", "text"), ("controller", 1), ("width", 170), ("height", 22), ("font", "ui\\large_ui"),
+                      ("color", "#FF2896FF"), ("align", "center"), ("text_y", 3), ("text_flags", "no_focus_test")], [])
+    return lines
+
+
 def _link_row(base: str, key: str, label_index: int) -> list:
     """a row that opens a nested list (VIEWS): its label alone"""
     lines = _widget(f"{base}/op_{key}", [("width", 512), ("height", 28), ("flags", "pass_unhandled_to_focused_child"),
@@ -526,7 +568,10 @@ def _setting_rows(base: str, spec: dict) -> tuple:
             _, row, key, place, label_index = entry
             if row[1] not in spec.get("unplaced", ()):
                 rows.append((f"{base}/op_{key}", row[4], place))
-            extra += _setting_row(base, row, key, label_index)
+            if isinstance(row, Action):
+                extra += _action_row(base, row, key, label_index)
+            else:
+                extra += _setting_row(base, row, key, label_index)
     # (the help of the row whose label is string n is n + 1: the buttons' is 0)
     strings = _strings(f"{base}/labels", labels)
     strings += _strings(f"{base}/help_strings", [""] + [text.replace("\n", "\\n") for text in helps])
