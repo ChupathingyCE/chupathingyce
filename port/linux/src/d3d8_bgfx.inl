@@ -307,7 +307,7 @@ static struct
 	bgfx_program_handle_t overlay;
 	bgfx_vertex_layout_t overlay_layout;
 	bgfx_texture_handle_t overlay_atlas, overlay_icons, overlay_picture, overlay_plasma;
-	bgfx_uniform_handle_t overlay_uniforms[3], overlay_samplers[4];
+	bgfx_uniform_handle_t overlay_uniforms[4], overlay_samplers[4];
 	int overlay_picture_serial, overlay_plasma_serial;
 	BOOL overlay_failed;
 
@@ -3487,6 +3487,7 @@ static const char bg_overlay_fragment_source[] =
 	"uniform sampler2D picture;\n"
 	"uniform sampler2D plasma;\n"
 	"uniform vec4 plasma_shift;\n"
+	"uniform vec4 plasma_thread;\n"
 	"uniform vec4 cutouts[4];\n"
 	"layout(location = 0) out vec4 fragment_color;\n"
 	"void main()\n"
@@ -3506,7 +3507,7 @@ static const char bg_overlay_fragment_source[] =
 	"\t\tfloat a0 = t0.a * dot(t0.rgb, vec3(0.3333));\n"
 	"\t\tfloat a1 = t1.a * dot(t1.rgb, vec3(0.3333));\n"
 	"\t\tfloat thread = pow(clamp(1.0 - abs(a0 - a1) * 3.0, 0.0, 1.0), 8.0);\n"
-	"\t\tvec3 color = xD0.rgb * (0.8 + 0.6 * a0 * a1) + vec3(0.2, 0.45, 1.0) * thread * 0.18;\n"
+	"\t\tvec3 color = xD0.rgb * (0.8 + 0.6 * a0 * a1) + plasma_thread.rgb * thread * 0.18;\n"
 	"\t\tfragment_color = vec4(color, xD0.a * clamp(0.5 - d, 0.0, 1.0) * (0.92 + 0.08 * thread));\n"
 	"\t\treturn;\n"
 	"\t}\n"
@@ -3547,6 +3548,7 @@ static BOOL bg_overlay_prepare(int atlas_size, const unsigned char *icons, int i
 	bg.overlay_uniforms[0] = bgfx_create_uniform("scale_v4", BGFX_UNIFORM_TYPE_VEC4, 1);
 	bg.overlay_uniforms[1] = bgfx_create_uniform("cutouts", BGFX_UNIFORM_TYPE_VEC4, 4);
 	bg.overlay_uniforms[2] = bgfx_create_uniform("plasma_shift", BGFX_UNIFORM_TYPE_VEC4, 1);
+	bg.overlay_uniforms[3] = bgfx_create_uniform("plasma_thread", BGFX_UNIFORM_TYPE_VEC4, 1);
 	for (index = 0; index < 4; index++)
 		bg.overlay_samplers[index] = bgfx_create_uniform(samplers[index], BGFX_UNIFORM_TYPE_SAMPLER, 1);
 	vertex = bg_shader_get(bg_overlay_vertex_source, FALSE, 0, "overlay vertex", TRUE);
@@ -3611,7 +3613,7 @@ static BOOL bg_overlay_prepare(int atlas_size, const unsigned char *icons, int i
 void xgpu_bgfx_overlay_draw(const void *vertices, int count, int vertex_bytes, const unsigned char *atlas, int atlas_size,
 	int dirty_top, int dirty_bottom, const unsigned char *icons, int icon_size, int icon_count,
 	const unsigned char *picture, int picture_width, int picture_height, int picture_serial,
-	const unsigned char *plasma, int plasma_width, int plasma_height, int plasma_serial, const float plasma_shift[4],
+	const unsigned char *plasma, int plasma_width, int plasma_height, int plasma_serial, const float plasma_shift[8],
 	const float cutouts[4][4], int window_width, int window_height)
 {
 	bgfx_transient_vertex_buffer_t buffer;
@@ -3651,6 +3653,7 @@ void xgpu_bgfx_overlay_draw(const void *vertices, int count, int vertex_bytes, c
 	bgfx_set_uniform(bg.overlay_uniforms[0], scale, 1);
 	bgfx_set_uniform(bg.overlay_uniforms[1], cutouts, 4);
 	bgfx_set_uniform(bg.overlay_uniforms[2], plasma_shift, 1);
+	bgfx_set_uniform(bg.overlay_uniforms[3], plasma_shift + 4, 1);
 	bgfx_set_texture(0, bg.overlay_samplers[0], bg.overlay_atlas, BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
 	bgfx_set_texture(1, bg.overlay_samplers[1], bg.overlay_icons, BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
 	bgfx_set_texture(2, bg.overlay_samplers[2], bg.overlay_picture, BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);

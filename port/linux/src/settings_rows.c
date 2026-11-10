@@ -91,6 +91,9 @@ static const char *const buffer_choices[] = { "256", "512", "1024", "2048", "409
 F11 full screen, F12 the mouse) */
 /* (F9 takes a screenshot and F10 a clip: capture.c) */
 static const char *const guide_key_choices[] = { "F3", "F4", "F5", "F6", "F7", "F8", NULL };
+/* display.theme's: the Guide's and the setup screen's colors (ui_style_theme) */
+static const char *const theme_choices[] = { "blue", "red", NULL };
+static const char *const theme_names[] = { "HALO BLUE", "CHUPATHINGY RED", NULL };
 
 static const struct settings_row settings_rows[] =
 {
@@ -130,6 +133,7 @@ static const struct settings_row settings_rows[] =
 	{ _in_guide, "NOTIFICATIONS IN GAME", "guide.notify_in_game", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_guide, "FRIEND ONLINE ALERTS", "delta.notify_online", _kind_toggle, NULL, NULL, 0, 0 },
 	{ _in_network | _in_guide, "SHOW WHEN I'M PLAYING", "network.share_presence", _kind_toggle, NULL, NULL, 0, 0 },
+	{ _in_display | _in_guide, "THEME", "display.theme", _kind_choices, theme_choices, theme_names, 0, 0 },
 	{ _in_network, "DISCORD", "discord.presence", _kind_words, NULL, NULL, 0, 0 },
 	{ _in_network, "CRASH REPORTS", "crash_reports.upload", _kind_words, NULL, NULL, 0, 0 },
 

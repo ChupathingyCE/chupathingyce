@@ -304,11 +304,12 @@ started, the window cleared to color (0xRRGGBBAA), the overlay over it in
 the picture's place (x, y its lower left corner) and the window saved to
 screenshot (a .bmp's path, or NULL); FALSE if bgfx does not start */
 BOOL xgpu_bgfx_launcher_frame(unsigned int color, int x, int y, int width, int height, const char *screenshot);
-/* the overlay's quads (ui_overlay.c) over the window's picture at Present */
+/* the overlay's quads (ui_overlay.c) over the window's picture at Present
+(plasma_shift: the plasma's second map's place, then its threads' color) */
 void xgpu_bgfx_overlay_draw(const void *vertices, int count, int vertex_bytes, const unsigned char *atlas, int atlas_size,
 	int dirty_top, int dirty_bottom, const unsigned char *icons, int icon_size, int icon_count,
 	const unsigned char *picture, int picture_width, int picture_height, int picture_serial,
-	const unsigned char *plasma, int plasma_width, int plasma_height, int plasma_serial, const float plasma_shift[4],
+	const unsigned char *plasma, int plasma_width, int plasma_height, int plasma_serial, const float plasma_shift[8],
 	const float cutouts[4][4], int window_width, int window_height);
 #endif
 

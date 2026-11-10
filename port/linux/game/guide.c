@@ -223,31 +223,19 @@ enum
 	EMBLEM_PIXELS = 64,
 };
 
-/* the Chupathingy menus' blues (the mockups': review/guide-mockup) */
+/* the colors: the theme's (ui_style_color: Halo Blue or Chupathingy Red),
+and those the same in both */
+#define COLOR_PANEL_EDGE ui_style_color(UI_COLOR_PANEL_EDGE)
+#define COLOR_LABEL ui_style_color(UI_COLOR_LABEL_SOFT)
+#define COLOR_ROW_EDGE ui_style_color(UI_COLOR_ROW_EDGE)
+#define COLOR_PROMPT_GLOW ui_style_color(UI_COLOR_PROMPT_GLOW)
+#define COLOR_DOT_GAME ui_style_color(UI_COLOR_DOT_GAME)
+#define COLOR_DOT_OFFLINE ui_style_color(UI_COLOR_DOT_OFFLINE)
 enum
 {
-	COLOR_PANEL = 0x0A2652E0,
-	COLOR_PANEL_EDGE = 0x2F7FD6FF,
-	COLOR_GLOW = 0x2F8FFFFF,
-	COLOR_RULE = 0x50A0FF5A,
-	COLOR_TITLE = 0x3D9BFFFF,
-	COLOR_NAME = 0xFFFFFFFF,
-	COLOR_STATUS = 0x8FC4FFFF,
-	COLOR_LABEL = 0x6FA6DDFF,
-	COLOR_TAB = 0x7FB6EEFF,
-	COLOR_TAB_ON = 0x2F7FD68C,
-	COLOR_SELECTED_EDGE = 0x9FD4FFFF,
-	COLOR_ROW = 0x0A2246E6,
-	COLOR_ROW_EDGE = 0x50A0FF40,
-	COLOR_ROW_ON = 0x2F7FD670,
-	COLOR_DETAIL = 0x020C1EA0,
 	COLOR_VALUE = 0xFFFFFFFF,
-	COLOR_PROMPT = 0x3D9BFFFF,
-	COLOR_PROMPT_GLOW = 0x3D8BFF80,
-	COLOR_DOT_GAME = 0x4FB3FFFF,
 	COLOR_DOT_ONLINE = 0x7FE39AFF,
 	COLOR_DOT_AWAY = 0xE0A53AFF,
-	COLOR_DOT_OFFLINE = 0x4A5A70FF,
 	COLOR_MUTED = 0xFF9F9FFF,
 };
 
@@ -4550,6 +4538,8 @@ void guide_render(void)
 {
 	if (!ui_overlay_available())
 		return;
+	/* (display.theme's palette, as it is now: a change shows at once) */
+	ui_style_theme(ui_style_theme_named(config_string("display.theme")));
 	if (!guide.open)
 	{
 		if (guide.follow_active)
