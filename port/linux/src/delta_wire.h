@@ -119,6 +119,10 @@ enum
 	DELTA_WIRE_MOD_NOTICE_SIZE = 4,
 	DELTA_WIRE_MOD_BIND_SIZE = 8,
 	DELTA_WIRE_MOD_BIND_ANSWER_SIZE = 104,
+	/* MOD_STATE's actions byte (a host before them sends 0) */
+	DELTA_WIRE_MOD_STATE_LOCK = 0x01,
+	DELTA_WIRE_MOD_STATE_LOCKED = 0x02,
+	DELTA_WIRE_MOD_STATE_KNOWN = 0x03,
 	/* a signed message's bytes, at most (moderation_*_message) */
 	DELTA_WIRE_MODERATION_MESSAGE_SIZE = 256,
 
@@ -134,6 +138,20 @@ enum
 	DELTA_WIRE_CHAT_SAY_SIZE = 8,
 	DELTA_WIRE_CHAT_LINE_SIZE = 12,
 	DELTA_WIRE_CHAT_REFUSED_SIZE = 8,
+
+	/* party teams (docs/delta.md, Party teams): the party's tag */
+	DELTA_WIRE_PARTY_TAG_SIZE = 8,
+	/* reports (docs/delta.md, Reports): REPORT's and REPORT_RESULT's sizes
+	(REPORT_RESULT's first 8 bytes alone from a host before the clip
+	token), and the clip token the host makes */
+	DELTA_WIRE_REPORT_SIZE = 24,
+	DELTA_WIRE_REPORT_RESULT_SIZE = 24,
+	DELTA_WIRE_REPORT_RESULT_SHORT_SIZE = 8,
+	DELTA_WIRE_REPORT_CLIP_TOKEN_SIZE = 16,
+	/* REPORT's flags: a clip will follow to the site */
+	DELTA_WIRE_REPORT_CLIP = 0x01,
+	/* REPORT_RESULT's flags: send the clip (the host is linked to the site) */
+	DELTA_WIRE_REPORT_SEND_CLIP = 0x01,
 
 	/* team changes (docs/delta.md, Team changes) */
 	DELTA_WIRE_TEAM_REQUEST_SIZE = 8,
@@ -168,7 +186,69 @@ enum
 	DELTA_WIRE_MAXIMUM_OBJECT_NAMES_ENTRIES =
 		(DELTA_WIRE_MAXIMUM_PAYLOAD - DELTA_WIRE_OBJECT_NAMES_SIZE) / DELTA_WIRE_OBJECT_NAMES_ENTRY_SIZE,
 	/* (the game's MAXIMUM_OBJECT_NAMES_PER_SCENARIO) */
-	DELTA_WIRE_MAXIMUM_OBJECT_NAMES = 512
+	DELTA_WIRE_MAXIMUM_OBJECT_NAMES = 512,
+
+	/* voice (docs/delta.md, Voice): VOICE_UP's and VOICE_DOWN's fixed
+	parts (the Opus packet follows), VOICE_CONFIG's, a party's tag (after
+	an empty VOICE_UP), the most an Opus packet may be (its length is a
+	byte), and the host's quality's range and its proximity's (tenths of a
+	world unit) */
+	DELTA_WIRE_VOICE_UP_SIZE = 8,
+	DELTA_WIRE_VOICE_DOWN_SIZE = 8,
+	DELTA_WIRE_VOICE_CONFIG_SIZE = 12,
+	DELTA_WIRE_VOICE_CONFIG_VERSION = 1,
+	DELTA_WIRE_VOICE_PARTY_TAG_SIZE = 8,
+	DELTA_WIRE_VOICE_PACKET_SIZE = 255,
+	DELTA_WIRE_VOICE_MINIMUM_KBPS = 8,
+	DELTA_WIRE_VOICE_MAXIMUM_KBPS = 64,
+	DELTA_WIRE_VOICE_MINIMUM_PROXIMITY = 50,
+	DELTA_WIRE_VOICE_MAXIMUM_PROXIMITY = 1000,
+
+	/* server badges (docs/server-badges.md): the client's nonce, the
+	host's signature of it, and its certificate, at most this long (a
+	format 1 certificate with a 31-character label) */
+	DELTA_WIRE_BADGE_NONCE_SIZE = 32,
+	DELTA_WIRE_BADGE_SIGNATURE_SIZE = 64,
+	DELTA_WIRE_BADGE_CERTIFICATE_SIZE = 143,
+	/* the messages' fixed parts (the certificate follows BADGE's) */
+	DELTA_WIRE_BADGE_ASK_SIZE = 32,
+	DELTA_WIRE_BADGE_SIZE = 100,
+	/* BADGE's proof: what the signature is of (server_badge.h). 2, the
+	nonce, the invite and the session; anything else (0, the first
+	drafts' nonce alone) shows no badge */
+	DELTA_WIRE_BADGE_PROOF_BOUND = 2,
+	/* verified names (docs/delta.md, Verified names): the messages'
+	version, the local players a machine proves (0 to 3), the host's nonce
+	and binding, the certificates' sizes (identity.h's CISS and CDEV), a
+	Delta Tag's bytes, an Ed25519 signature */
+	DELTA_WIRE_IDENTITY_VERSION = 1,
+	DELTA_WIRE_IDENTITY_LOCAL_PLAYERS = 4,
+	DELTA_WIRE_IDENTITY_NONCE_SIZE = 32,
+	DELTA_WIRE_IDENTITY_BINDING_SIZE = 64,
+	DELTA_WIRE_IDENTITY_ISSUER_SIZE = 112,
+	DELTA_WIRE_IDENTITY_CERTIFICATE_LEAST = 148,
+	DELTA_WIRE_IDENTITY_CERTIFICATE_MOST = 168,
+	DELTA_WIRE_IDENTITY_TAG_SIZE = 20,
+	DELTA_WIRE_IDENTITY_SIGNATURE_SIZE = 64,
+	/* the messages' fixed parts: ID_CHALLENGE's (its binding follows),
+	ID_PROOF's and ID_CARD's heads (all a withdrawal has), and all their
+	fixed fields (the certificate and name follow) */
+	DELTA_WIRE_ID_CHALLENGE_SIZE = 36,
+	DELTA_WIRE_ID_PROOF_HEAD = 4,
+	DELTA_WIRE_ID_PROOF_SIZE = 188,
+	DELTA_WIRE_ID_CARD_HEAD = 8,
+	DELTA_WIRE_ID_CARD_SIZE = 224
+};
+
+/* ID_PROOF's flags (signed with the rest) */
+enum
+{
+	/* the client checked that the challenge's binding is the host it
+	connected to (its invite's key, through the invite tunnel): the only
+	proof a host may give a role for. Without it a proof shows a name, and
+	nothing more */
+	DELTA_WIRE_IDENTITY_BOUND = 0x01,
+	DELTA_WIRE_IDENTITY_KNOWN_FLAGS = 0x01
 };
 
 /* UNIT_VITALS's entry flags: the unit's shield, as the game's own unit
@@ -311,6 +391,10 @@ enum delta_moderation_action
 	and relayed again */
 	_delta_moderation_action_mute = 6,
 	_delta_moderation_action_unmute = 7,
+	/* joins: no new machines until unlocked (no target; MOD_STATE says
+	whether a host takes them) */
+	_delta_moderation_action_lock = 8,
+	_delta_moderation_action_unlock = 9,
 
 	NUMBER_OF_DELTA_MODERATION_ACTIONS
 };
@@ -391,7 +475,11 @@ enum delta_message_type
 	_delta_message_team_request = 23,
 	/* host to client: what the host did with it */
 	_delta_message_team_result = 24,
-	/* (25 and 26 are kept for server badges, a draft) */
+	/* server badges (both agreed to server_badge): client to host, a
+	fresh nonce */
+	_delta_message_badge_ask = 25,
+	/* host to client: its certificate and its signature of the nonce */
+	_delta_message_badge = 26,
 	/* object sync (both agreed to object_sync): host to client, units'
 	shield and health as they changed, and a few of the rest in turn */
 	_delta_message_unit_vitals = 27,
@@ -400,7 +488,117 @@ enum delta_message_type
 	_delta_message_object_names = 28,
 	/* host to client, if both agreed to host_rules: the host's rules for
 	its players' extras, whenever they change and every few seconds */
-	_delta_message_host_rules = 29
+	_delta_message_host_rules = 29,
+	/* verified names (both agreed to identity): host to client, the host's
+	nonce for its game and its binding */
+	_delta_message_id_challenge = 30,
+	/* client to host: a local player's device certificate, its issuer's,
+	and the nonce signed with the device key (or the proof withdrawn) */
+	_delta_message_id_proof = 31,
+	/* host to client: a verified player's proof, relayed, which the client
+	checks itself (or withdrawn) */
+	_delta_message_id_card = 32,
+	/* client to host, if both agreed to party_teams: its party's tag (8
+	bytes; zeros: in no party), as it changes and every few seconds */
+	_delta_message_party_tag = 33,
+	/* voice (both agreed to voice): client to host, a frame its player
+	said on a channel, or with no frame, the channels it hears (every
+	DELTA_PEER_VOICE_HEARS_INTERVAL) */
+	_delta_message_voice_up = 34,
+	/* host to client: a frame of another machine's player, for a channel
+	the client hears, and how to play it (its route) */
+	_delta_message_voice_down = 35,
+	/* host to client: the host's voice rules (the channels it relays, its
+	quality, its proximity) and this machine's mute */
+	_delta_message_voice_config = 36,
+	/* reports (both agreed to reports): client to host, its player reports
+	another */
+	_delta_message_report = 37,
+	/* host to client: what the host did with it */
+	_delta_message_report_result = 38
+};
+
+/* voice's channels: who a player talks to (VOICE_UP, VOICE_DOWN); a number
+is never reused */
+enum delta_voice_channel
+{
+	_delta_voice_channel_none = 0,
+	/* the player's team in the game (everyone in the lobby) */
+	_delta_voice_channel_team = 1,
+	/* the players near the player in the game, heard from where they are
+	(everyone in the lobby) */
+	_delta_voice_channel_proximity = 2,
+	/* everyone in the game, when the host allows it */
+	_delta_voice_channel_everyone = 3,
+	/* the player's party (the machines whose VOICE_UP says the same tag) */
+	_delta_voice_channel_party = 4,
+
+	NUMBER_OF_DELTA_VOICE_CHANNELS
+};
+
+/* VOICE_UP's hears: the channels a machine plays (0: none, the host sends
+it no voice); VOICE_CONFIG's channels: those the host relays, and its lobby
+voice. A bit a build does not know is ignored */
+enum
+{
+	DELTA_VOICE_TEAM = 0x01,
+	DELTA_VOICE_PROXIMITY = 0x02,
+	DELTA_VOICE_EVERYONE = 0x04,
+	DELTA_VOICE_PARTY = 0x08,
+	DELTA_VOICE_CHANNELS = 0x0F,
+	/* (VOICE_CONFIG's alone) everyone hears everyone outside a game: the
+	pregame lobby and the postgame */
+	DELTA_VOICE_LOBBY = 0x10,
+	DELTA_VOICE_KNOWN_CONFIG = 0x1F
+};
+
+/* VOICE_DOWN's routes: how the listener plays a frame */
+enum delta_voice_route
+{
+	_delta_voice_route_none = 0,
+	/* as it was said, at the voices' volume */
+	_delta_voice_route_global = 1,
+	/* from where the speaker's player is, fading with distance */
+	_delta_voice_route_proximity = 2
+};
+
+/* VOICE_CONFIG's flags */
+enum
+{
+	/* this machine's voice is not relayed (the host's mute, or a
+	moderator's: chat's, which covers both) */
+	DELTA_VOICE_CONFIG_MUTED = 0x01
+};
+
+/* REPORT's reasons; a number is never reused, and a host refuses one it
+does not know */
+enum delta_report_reason
+{
+	_delta_report_cheating = 1,
+	/* abuse in chat or voice */
+	_delta_report_abuse = 2,
+	/* griefing or betraying */
+	_delta_report_griefing = 3,
+	_delta_report_name = 4,
+	_delta_report_other = 5,
+
+	NUMBER_OF_DELTA_REPORT_REASONS
+};
+
+/* REPORT_RESULT's results; a number is never reused */
+enum delta_report_result
+{
+	_delta_report_taken = 0,
+	/* more than the host takes from one machine (a minute's, a game's) */
+	_delta_report_too_soon = 1,
+	/* no such player, or the reporter's own */
+	_delta_report_no_player = 2,
+	/* this host takes no reports */
+	_delta_report_not_taken = 3,
+	/* this machine reported that player this game already */
+	_delta_report_already = 4,
+
+	NUMBER_OF_DELTA_REPORT_RESULTS
 };
 
 /* HOST_RULES's flags: what the host lets its players turn on (a flag a
@@ -412,7 +610,12 @@ enum
 	DELTA_WIRE_HOST_PLAYER_NAMES = 0x01,
 	/* a follow camera while waiting to respawn (display.follow_camera) */
 	DELTA_WIRE_HOST_FOLLOW_CAMERA = 0x02,
-	DELTA_WIRE_HOST_KNOWN_FLAGS = 0x03
+	/* a player who joins a game in progress waits for the next game, and
+	watches (docs/delta.md, Host rules) */
+	DELTA_WIRE_HOST_LATE_JOIN_HOLD = 0x04,
+	/* the host takes no new machines now (sv_lock) */
+	DELTA_WIRE_HOST_JOINS_LOCKED = 0x08,
+	DELTA_WIRE_HOST_KNOWN_FLAGS = 0x0F
 };
 
 /* TRAITS's game kinds: what the traits are for */
@@ -591,6 +794,44 @@ struct delta_wire_mod_challenge
 	char binding[DELTA_WIRE_MODERATION_BINDING_SIZE + 1];
 };
 
+/* verified names (docs/delta.md, Verified names) */
+struct delta_wire_id_challenge
+{
+	unsigned char nonce[DELTA_WIRE_IDENTITY_NONCE_SIZE];
+	int binding_length;
+	char binding[DELTA_WIRE_IDENTITY_BINDING_SIZE + 1];
+};
+
+/* a local player's proof: what ID_PROOF carries, and ID_CARD relays */
+struct delta_wire_id_proof
+{
+	/* the machine's local player (0 to 3) */
+	int local_player;
+	/* the device certificate's bytes (0: the proof withdrawn, and nothing
+	else is read) */
+	int certificate_length;
+	int tag_length;
+	/* DELTA_WIRE_IDENTITY_BOUND, and when it was signed (Unix seconds, by
+	the signer's clock) */
+	int flags;
+	delta_u32 time;
+	unsigned char signature[DELTA_WIRE_IDENTITY_SIGNATURE_SIZE];
+	unsigned char issuer[DELTA_WIRE_IDENTITY_ISSUER_SIZE];
+	unsigned char certificate[DELTA_WIRE_IDENTITY_CERTIFICATE_MOST];
+	/* the player's name: their handle (the Delta Tag) in the capitals they
+	picked, A-Z a-z 0-9 _ - (empty: none, the handle shows) */
+	char tag[DELTA_WIRE_IDENTITY_TAG_SIZE + 1];
+};
+
+struct delta_wire_id_card
+{
+	/* the player's machine, and the nonce the host challenged that
+	machine's session with (what the proof signed) */
+	int machine_index;
+	unsigned char nonce[DELTA_WIRE_IDENTITY_NONCE_SIZE];
+	struct delta_wire_id_proof proof;
+};
+
 struct delta_wire_mod_proof
 {
 	unsigned char key[DELTA_WIRE_MODERATION_KEY_SIZE];
@@ -601,6 +842,9 @@ struct delta_wire_mod_state
 {
 	/* enum delta_moderation_role */
 	unsigned char role;
+	/* DELTA_WIRE_MOD_STATE_LOCK and _LOCKED: what the host takes beyond the
+	first actions (0 from a host before them) */
+	unsigned char actions;
 	/* DELTA_MODERATION_* */
 	delta_u32 permissions;
 	/* the longest ban DELTA_MODERATION_BAN_TIMED allows */
@@ -720,6 +964,53 @@ struct delta_wire_host_rules
 	unsigned char team_change_margin;
 };
 
+/* voice (VOICE_UP, VOICE_DOWN, VOICE_CONFIG); the Opus packet itself is
+read in place: payload + DELTA_WIRE_VOICE_*_SIZE, length bytes */
+struct delta_wire_voice_up
+{
+	/* the speaker's own count, passed on as it is */
+	unsigned short sequence;
+	/* the Opus packet's bytes (0: no frame, the channels heard, and maybe
+	a party's tag) */
+	unsigned char length;
+	/* enum delta_voice_channel (none with no frame) */
+	unsigned char channel;
+	/* DELTA_VOICE_* channels this machine plays */
+	unsigned char hears;
+	/* (with no frame) its party's tag, the same as party teams' PARTY_TAG:
+	all 0 for none */
+	unsigned char party[DELTA_WIRE_VOICE_PARTY_TAG_SIZE];
+};
+
+struct delta_wire_voice_down
+{
+	unsigned short sequence;
+	/* who said it: the machine, and its player (the game's player list
+	index; DELTA_WIRE_NO_MACHINE: none) */
+	unsigned char speaker_machine;
+	unsigned char speaker_player;
+	/* enum delta_voice_route, and the channel it was said on */
+	unsigned char route;
+	unsigned char channel;
+	/* the Opus packet's bytes, 1 or more */
+	unsigned char length;
+};
+
+struct delta_wire_voice_config
+{
+	/* DELTA_VOICE_* channels relayed, and DELTA_VOICE_LOBBY */
+	unsigned char channels;
+	/* DELTA_VOICE_CONFIG_* */
+	unsigned char flags;
+	/* the quality each machine encodes at (kbps), and the size cap it gives
+	(delta_wire_voice_packet_cap) */
+	unsigned char kbps;
+	/* how near is near, in tenths of a world unit */
+	unsigned short proximity;
+	/* a timed mute's seconds left (0: none, or until the game ends) */
+	delta_u32 mute_seconds;
+};
+
 struct delta_wire_team_result
 {
 	/* the TEAM_REQUEST's */
@@ -730,6 +1021,40 @@ struct delta_wire_team_result
 	unsigned char team;
 	/* (too soon) the seconds until the player may change again */
 	unsigned short seconds;
+};
+
+/* a player's report of another (REPORT) */
+struct delta_wire_report
+{
+	/* strictly more than the session's last */
+	delta_u32 sequence;
+	/* the reported player: their machine, and the absolute index of their
+	player datum in the host's player data (DATUM_INDEX_TO_ABSOLUTE_INDEX
+	of the game's player index, which every machine's copy shares) */
+	unsigned char target_machine;
+	unsigned char target_player;
+	/* enum delta_report_reason */
+	unsigned char reason;
+	/* DELTA_WIRE_REPORT_CLIP */
+	unsigned char flags;
+	/* (kept for its place: a host ignores it, and makes the clip's token
+	itself, REPORT_RESULT's; this build sends zeros) */
+	unsigned char clip_token[DELTA_WIRE_REPORT_CLIP_TOKEN_SIZE];
+};
+
+/* what the host did with a report (REPORT_RESULT) */
+struct delta_wire_report_result
+{
+	/* the REPORT's */
+	delta_u32 sequence;
+	/* enum delta_report_result */
+	unsigned char result;
+	/* DELTA_WIRE_REPORT_SEND_CLIP */
+	unsigned char flags;
+	/* (with DELTA_WIRE_REPORT_SEND_CLIP) the token the host made for the
+	clip, which the site takes it by: its report names it. Without the flag,
+	or from a host before it, zeros (and no clip goes) */
+	unsigned char clip_token[DELTA_WIRE_REPORT_CLIP_TOKEN_SIZE];
 };
 
 /* a unit's shield and health (UNIT_VITALS) */
@@ -787,6 +1112,21 @@ struct delta_wire_object_names
 	int first;
 	int count;
 	struct delta_wire_object_name entries[DELTA_WIRE_MAXIMUM_OBJECT_NAMES_ENTRIES];
+};
+
+struct delta_wire_badge
+{
+	/* the BADGE_ASK's */
+	unsigned char nonce[DELTA_WIRE_BADGE_NONCE_SIZE];
+	/* the certificate's server key's signature of the nonce
+	(server_badge.h's proof message) */
+	unsigned char signature[DELTA_WIRE_BADGE_SIGNATURE_SIZE];
+	/* what the signature is of (DELTA_WIRE_BADGE_PROOF_BOUND) */
+	unsigned char proof;
+	/* the certificate as the host has it, 0 bytes for none (server_badge.h
+	reads it) */
+	unsigned short certificate_length;
+	unsigned char certificate[DELTA_WIRE_BADGE_CERTIFICATE_SIZE];
 };
 
 /* a datagram's header: 1 if it is Delta's (the magic) and its length is the
@@ -883,10 +1223,42 @@ int delta_wire_read_team_result(const unsigned char *payload, int size, struct d
 int delta_wire_write_team_request(unsigned char *data, delta_u32 session,
 	const struct delta_wire_team_request *request);
 int delta_wire_write_team_result(unsigned char *data, delta_u32 session, const struct delta_wire_team_result *result);
+/* a party's tag (DELTA_WIRE_PARTY_TAG_SIZE bytes; a longer payload is read
+as far as this build knows) */
+int delta_wire_read_party_tag(const unsigned char *payload, int size, unsigned char *tag);
+int delta_wire_write_party_tag(unsigned char *data, delta_u32 session, const unsigned char *tag);
+
+/* reports: an unknown reason, or unknown flags, are refused; a clip token
+without the clip flag is read as zeros */
+int delta_wire_read_report(const unsigned char *payload, int size, struct delta_wire_report *report);
+int delta_wire_write_report(unsigned char *data, delta_u32 session, const struct delta_wire_report *report);
+int delta_wire_read_report_result(const unsigned char *payload, int size, struct delta_wire_report_result *result);
+int delta_wire_write_report_result(unsigned char *data, delta_u32 session,
+	const struct delta_wire_report_result *result);
 /* the host's rules: a version past this build's is read as far as it
 knows; a team change or margin past their ranges is refused */
 int delta_wire_read_host_rules(const unsigned char *payload, int size, struct delta_wire_host_rules *rules);
 int delta_wire_write_host_rules(unsigned char *data, delta_u32 session, const struct delta_wire_host_rules *rules);
+/* voice's messages. VOICE_UP's and VOICE_DOWN's length must be the bytes
+that came after their fixed part, exactly (a party's tag aside), and no more
+than DELTA_WIRE_VOICE_PACKET_SIZE; a channel or route this build does not
+know, a VOICE_DOWN of no frame, a frame said on no channel, or a quality or
+proximity past its range is refused. packet is set to the Opus packet's
+bytes, in payload */
+int delta_wire_read_voice_up(const unsigned char *payload, int size, struct delta_wire_voice_up *up,
+	const unsigned char **packet);
+int delta_wire_read_voice_down(const unsigned char *payload, int size, struct delta_wire_voice_down *down,
+	const unsigned char **packet);
+int delta_wire_read_voice_config(const unsigned char *payload, int size, struct delta_wire_voice_config *config);
+/* (0 for what the reader would refuse; packet: up's or down's length bytes) */
+int delta_wire_write_voice_up(unsigned char *data, delta_u32 session, const struct delta_wire_voice_up *up,
+	const unsigned char *packet);
+int delta_wire_write_voice_down(unsigned char *data, delta_u32 session, const struct delta_wire_voice_down *down,
+	const unsigned char *packet);
+int delta_wire_write_voice_config(unsigned char *data, delta_u32 session, const struct delta_wire_voice_config *config);
+/* the most bytes a frame may be at a quality (kbps): twice a 20 ms frame's
+average share, and 16 more, never past DELTA_WIRE_VOICE_PACKET_SIZE */
+int delta_wire_voice_packet_cap(int kbps);
 /* object sync's messages. A count past what the datagram holds, unknown
 flags, or names past DELTA_WIRE_MAXIMUM_OBJECT_NAMES are refused */
 int delta_wire_read_unit_vitals(const unsigned char *payload, int size, struct delta_wire_unit_vitals *vitals);
@@ -894,6 +1266,26 @@ int delta_wire_read_object_names(const unsigned char *payload, int size, struct 
 /* (0 for what the reader would refuse) */
 int delta_wire_write_unit_vitals(unsigned char *data, delta_u32 session, const struct delta_wire_unit_vitals *vitals);
 int delta_wire_write_object_names(unsigned char *data, delta_u32 session, const struct delta_wire_object_names *names);
+
+/* verified names' messages. A version of 0, a local player past 3, a
+certificate's length outside 148 to 168 (but 0, a withdrawal), or a name
+of other characters than A-Z a-z 0-9 _ - is refused; a later version is read as far as this
+build knows it */
+int delta_wire_read_id_challenge(const unsigned char *payload, int size, struct delta_wire_id_challenge *challenge);
+int delta_wire_read_id_proof(const unsigned char *payload, int size, struct delta_wire_id_proof *proof);
+int delta_wire_read_id_card(const unsigned char *payload, int size, struct delta_wire_id_card *card);
+/* (0 for what the reader would refuse) */
+int delta_wire_write_id_challenge(unsigned char *data, delta_u32 session,
+	const struct delta_wire_id_challenge *challenge);
+int delta_wire_write_id_proof(unsigned char *data, delta_u32 session, const struct delta_wire_id_proof *proof);
+int delta_wire_write_id_card(unsigned char *data, delta_u32 session, const struct delta_wire_id_card *card);
+/* server badges' messages. A certificate longer than its field is refused
+(its bytes are not read here: server_badge.c does) */
+int delta_wire_read_badge_ask(const unsigned char *payload, int size, unsigned char *nonce);
+int delta_wire_read_badge(const unsigned char *payload, int size, struct delta_wire_badge *badge);
+/* (0 for what the reader would refuse) */
+int delta_wire_write_badge_ask(unsigned char *data, delta_u32 session, const unsigned char *nonce);
+int delta_wire_write_badge(unsigned char *data, delta_u32 session, const struct delta_wire_badge *badge);
 
 /* whether length bytes of text are a line to show: valid UTF-8 (shortest
 forms, no surrogates, nothing past U+10FFFF), no control characters (C0,

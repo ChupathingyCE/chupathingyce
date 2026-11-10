@@ -170,6 +170,16 @@ void p2p_signal_stop_hosting(void)
 {
 }
 
+void p2p_signal_doorbell(const char *doorbell)
+{
+	(void)doorbell;
+}
+
+int p2p_signal_doorbell_rings(void)
+{
+	return 0;
+}
+
 void p2p_signal_stop_joining(void)
 {
 }

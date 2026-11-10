@@ -2807,6 +2807,11 @@ static int join_invite_text(const char *text, int public)
 	/* (a restored player key's link, not an invite: browser.c) */
 	if (browser_key_link(text))
 		return 1;
+#ifndef HALO_CONSOLE_NO_GUIDE
+	/* (a party's link: the Guide's party joins it, browser.c) */
+	if (browser_party_link(text))
+		return 1;
+#endif
 	if (browser_dedicated())
 	{
 		platform_log("dedicated server: the invite is not joined");
@@ -2851,6 +2856,12 @@ int p2p_join_listed_invite(const char *text)
 
 void p2p_invite_received(const char *text, int public)
 {
+#if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_GUIDE)
+	/* (a party's link opened while the game runs: the Guide asks about it,
+	browser.c; join_invite alone would drop it) */
+	if (browser_party_link(text))
+		return;
+#endif
 	/* (an older version's is logged as such) */
 	if (!join_invite(text, public))
 		platform_log("Internet play: that is not an invite");
@@ -3767,6 +3778,28 @@ static void update_probes(void)
 				probe_send(&to[index], packets[index]);
 		}
 	}
+}
+
+int p2p_doorbell(const char *doorbell)
+{
+	if (!p2p.running)
+		return 0;
+	pthread_mutex_lock(&p2p_lock);
+	p2p_signal_doorbell(doorbell);
+	pthread_mutex_unlock(&p2p_lock);
+	return 1;
+}
+
+int p2p_doorbell_rings(void)
+{
+	int rings;
+
+	if (!p2p.running)
+		return 0;
+	pthread_mutex_lock(&p2p_lock);
+	rings = p2p_signal_doorbell_rings();
+	pthread_mutex_unlock(&p2p_lock);
+	return rings;
 }
 
 void p2p_probe_browse(int on)

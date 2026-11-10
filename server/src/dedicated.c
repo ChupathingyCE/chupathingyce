@@ -80,6 +80,7 @@ played instead of HALO_DEDICATED's until HALO_DEDICATED is changed.
 #include "server_admin.h"
 #include "server_conduct.h"
 #include "server_config.h"
+#include "voice_game.h"
 #ifdef HALO_SERVER
 /* (the server program's control unit, built with the host's ABI: plain
 types only) */
@@ -97,8 +98,15 @@ void team_change_host_set(int policy, int margin);
 /* (the host's rules', port/linux/game/host_rules.h) */
 void host_rules_set_player_names(boolean allowed);
 void host_rules_set_follow_camera(boolean allowed);
+void host_rules_set_late_join_hold(boolean wait);
+#ifdef HALO_SERVER
+/* (the shared ban lists', server_bans.h) */
+void server_bans_set_sharing(int sharing);
+#endif
 /* (the limit on machines of one address, port/linux/game/network_distributed.c) */
 void network_distributed_set_address_limit(long maximum);
+/* (parties kept on one team, port/linux/game/party_teams.h) */
+void party_teams_host_set(boolean keep);
 
 enum
 {
@@ -160,6 +168,9 @@ boolean cache_files_map_can_open(char const *map_name);
 #endif
 /* (server_commands.c's) */
 void server_commands_update(void);
+/* (port/linux/src/map_repo_game.c's: Chupathingy maps' index, whose
+blacklist server_map_playable holds every map to) */
+void map_repo_game_refresh_wait(int milliseconds);
 
 enum
 {
@@ -354,6 +365,23 @@ static long setting_number(
 		return atol(value);
 	if (settings->set[setting])
 		return settings->values[setting];
+	return default_value;
+}
+
+/* a yes or no setting: the environment's (true, 1, yes or on; anything
+else no), else the settings file's, else the default */
+static boolean setting_flag(
+	char const *environment,
+	struct server_settings const *settings,
+	short setting,
+	boolean default_value)
+{
+	char const *value = getenv(environment);
+
+	if (value && value[0])
+		return !_stricmp(value, "true") || !strcmp(value, "1") || !_stricmp(value, "yes") || !_stricmp(value, "on");
+	if (settings->set[setting])
+		return settings->values[setting] ? TRUE : FALSE;
 	return default_value;
 }
 
@@ -591,6 +619,69 @@ static void initialize(
 		if (allowed)
 			error(_error_silent, "dedicated: players may watch a follow camera while they wait to respawn");
 	}
+	/* a party kept on one team: off (the Xbox's teams) unless true, 1, yes
+	or on */
+	{
+		char const *keep = getenv("HALO_DEDICATED_KEEP_PARTIES_TOGETHER");
+		boolean on;
+
+		if (keep && keep[0])
+			on = !_stricmp(keep, "true") || !strcmp(keep, "1") || !_stricmp(keep, "yes") || !_stricmp(keep, "on");
+		else
+		{
+			on = settings.set[SERVER_SETTING_KEEP_PARTIES_TOGETHER] &&
+				settings.values[SERVER_SETTING_KEEP_PARTIES_TOGETHER];
+		}
+		party_teams_host_set(on);
+		if (on)
+			error(_error_silent, "dedicated: a party's players go to one team where the teams stay even");
+	}
+	/* late joiners waiting for the next game, and the shared ban lists: off
+	unless true, 1, yes or on */
+	{
+		char const *wait = getenv("HALO_DEDICATED_LATE_JOIN_HOLD");
+		boolean on;
+
+		if (wait && wait[0])
+			on = !_stricmp(wait, "true") || !strcmp(wait, "1") || !_stricmp(wait, "yes") || !_stricmp(wait, "on");
+		else
+			on = settings.set[SERVER_SETTING_LATE_JOIN_HOLD] && settings.values[SERVER_SETTING_LATE_JOIN_HOLD];
+		host_rules_set_late_join_hold(on);
+		if (on)
+			error(_error_silent, "dedicated: players who join a game in progress wait for the next game");
+	}
+#ifdef HALO_SERVER
+	{
+		char const *share = getenv("HALO_DEDICATED_BAN_SHARE");
+		boolean on;
+
+		if (share && share[0])
+			on = !_stricmp(share, "true") || !strcmp(share, "1") || !_stricmp(share, "yes") || !_stricmp(share, "on");
+		else
+			on = settings.set[SERVER_SETTING_BAN_SHARE] && settings.values[SERVER_SETTING_BAN_SHARE];
+		server_bans_set_sharing(on);
+	}
+#endif
+#ifdef HALO_PORT_VOICE
+	/* voice chat: off unless set (relaying costs the server's upload); once
+	on, relayed by team and by proximity, to parties and in the lobby unless
+	set; everyone only when set */
+	{
+		struct voice_host_rules rules;
+
+		rules.on = setting_flag("HALO_DEDICATED_VOICE", &settings, SERVER_SETTING_VOICE, FALSE);
+		rules.team = setting_flag("HALO_DEDICATED_VOICE_TEAM", &settings, SERVER_SETTING_VOICE_TEAM, TRUE);
+		rules.proximity = setting_flag("HALO_DEDICATED_VOICE_PROXIMITY", &settings, SERVER_SETTING_VOICE_PROXIMITY, TRUE);
+		rules.everyone = setting_flag("HALO_DEDICATED_VOICE_EVERYONE", &settings, SERVER_SETTING_VOICE_EVERYONE, FALSE);
+		rules.party = setting_flag("HALO_DEDICATED_VOICE_PARTY", &settings, SERVER_SETTING_VOICE_PARTY, TRUE);
+		rules.lobby = setting_flag("HALO_DEDICATED_VOICE_LOBBY", &settings, SERVER_SETTING_VOICE_LOBBY, TRUE);
+		rules.range = setting_number("HALO_DEDICATED_VOICE_RANGE", &settings, SERVER_SETTING_VOICE_RANGE, 15);
+		rules.kbps = setting_number("HALO_DEDICATED_VOICE_KBPS", &settings, SERVER_SETTING_VOICE_KBPS, 24);
+		voice_game_host_set(&rules);
+		voice_game_host_get(&rules);
+		error(_error_silent, "dedicated: voice chat %s", rules.on ? "relayed" : "off");
+	}
+#endif
 	/* the machines of one internet address a game takes: 8 unless set */
 	{
 		long maximum = setting_number("HALO_DEDICATED_MAX_MACHINES_PER_ADDRESS", &settings,
@@ -621,6 +712,12 @@ static void initialize(
 				server_conduct_afk_minutes());
 		}
 	}
+	/* Chupathingy maps' blacklist, before the first map is chosen: a map on
+	it is skipped (server_map_playable). The one kept from the last run is
+	read back at once; a fresh one is fetched in the background, waited for
+	a few seconds at most (a repository that doesn't answer never holds the
+	server up), and refetched hourly after this */
+	map_repo_game_refresh_wait(3000);
 	dedicated.active = dedicated.entry_count > 0;
 }
 
@@ -870,7 +967,7 @@ static boolean set_entry(
 	/* (and a map that is there, and opens: one missing or refused as it
 	loads would stop the server on the damaged disc error) */
 	{
-		static char scratch[160];
+		static char scratch[320];
 		struct command_output output;
 
 		command_output_begin(&output, scratch, sizeof(scratch));

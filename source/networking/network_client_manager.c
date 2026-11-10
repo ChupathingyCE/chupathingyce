@@ -393,6 +393,14 @@ symbols in this file:
 #include "text/unicode.h"
 #include "halo_map_families.h" /* port: map_family_from_wire_name */
 #include "halo_join_reasons.h" /* port: why a game can't be joined, as the game lists say it */
+#ifdef HALO_GAME_BROWSER
+#include "map_share.h" /* port: the map bot's fetch (port/linux/game/map_share_client.c) */
+#endif
+
+#if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_DELTA_PROFILE)
+/* port: port/linux/game/profile_names.c's */
+boolean profile_names_local_game_name(long local_player, wchar_t *name, long size);
+#endif
 
 /* ---------- constants */
 
@@ -825,6 +833,10 @@ static struct
 known, the host's own game); a client has the host's policies of the versions
 that have them (network_distributed.c's aim assist policy, version 32) */
 static unsigned int network_game_client_joined_version = 0xFFFF;
+#ifdef HALO_GAME_BROWSER
+/* port: the last refusal of a join, for the map bot's fetch: 1 full, 2 any other */
+static short network_game_client_fetch_rejection;
+#endif
 /* port/linux/game/network_rules.c's: the zero bytes a join request to a host
 of the version carries after the Xbox's and the hardware id */
 int network_rules_join_request_extra(unsigned version);
@@ -1368,6 +1380,22 @@ boolean network_game_client_game_settings_updated(
 			network_event("invalid message_server_game_settings_update message received: its players");
 			return FALSE;
 		}
+#ifdef HALO_GAME_BROWSER
+		/* port: a map fetch's machine (port/linux/game/map_share_client.c)
+		reads the record's map as the wire names it, and never looks for it
+		or loads it: the record kept, nothing precached */
+		if (map_share_fetching())
+		{
+			struct network_game_local_data local_data;
+
+			map_share_fetch_game_record(message_packet->map.name, (unsigned long)message_packet->map.version,
+				message_packet->player_count);
+			csmemcpy(&local_data, &client->game.local_data, sizeof(local_data));
+			csmemcpy(&client->game, message_packet, sizeof(client->game));
+			csmemcpy(&client->game.local_data, &local_data, sizeof(local_data));
+			return TRUE;
+		}
+#endif
 		/* port: a Halo PC map named as the game's protocol names it
 		(custom_maps\\<name>) as this port names it (<name>@ce:
 		halo_map_families.h), for everything that reads it from here */
@@ -1615,6 +1643,12 @@ boolean network_game_client_add_player(
 	player.machine_index = (char)client->machine_index;
 	ustrncpy(player.name, profile.player_name, NETWORK_PLAYER_NAME_LENGTH - 1);
 	player.name[NETWORK_PLAYER_NAME_LENGTH - 1] = 0;
+#if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_DELTA_PROFILE)
+	/* port: a player whose Halo profile is linked to a Delta profile plays
+	under its verified handle, whatever the Halo profile is named (other
+	players see it as a plain game name) */
+	profile_names_local_game_name(local_player_index, player.name, NETWORK_PLAYER_NAME_LENGTH);
+#endif
 	player.primary_color_index = profile.primary_color_index;
 	player.icon_index = NONE;
 	player.team_index = NONE;
@@ -2512,6 +2546,10 @@ void network_game_client_rejected_by_game(
 		client && source_address);
 
 	client->state = _network_game_client_state_searching;
+#ifdef HALO_GAME_BROWSER
+	/* port: the map bot's fetch reads why (network_game_client_map_fetch_rejection) */
+	network_game_client_fetch_rejection = rejection_code == _rejection_code_game_is_full ? 1 : 2;
+#endif
 
 	switch (rejection_code)
 	{
@@ -3239,6 +3277,10 @@ static boolean network_game_client_idle_pregame(
 		if (network_connection_active(client->connection) &&
 			(boolean)network_connection_connected(client->connection))
 		{
+#ifdef HALO_GAME_BROWSER
+			/* (a map fetch's machine precaches nothing) */
+			if (!map_share_fetching())
+#endif
 			network_game_client_update_precache_status(client);
 
 			/* (port: no timeout on the host, network_game_client_connection_timeout) */
@@ -3629,6 +3671,94 @@ boolean network_game_client_join_first_available_game(
 	}
 	return FALSE;
 }
+
+#ifdef HALO_GAME_BROWSER
+/* port: the map bot's fetch (port/linux/game/map_share_client.c) */
+
+/* the client's state: 0 searching, 1 joining, 2 in the lobby, 3 in the game,
+4 after it; -1 with no client */
+long network_game_client_map_fetch_state(
+	void)
+{
+	struct network_game_client *client = global_network_game_client_get();
+
+	return client ? (long)client->state : -1;
+}
+
+/* why the last join was refused, once: 1 the game was full, 2 any other
+reason, 0 none */
+short network_game_client_map_fetch_rejection(
+	void)
+{
+	short rejection = network_game_client_fetch_rejection;
+
+	network_game_client_fetch_rejection = 0;
+	return rejection;
+}
+
+/* joins the game of the host at address (IPv4, first byte highest): the one
+it advertises, once heard (as picking it in the system link list does), or
+with direct, the host at that address and port without its advertisement
+(as the Xbox's console.join does). TRUE once the join is under way */
+boolean network_game_client_join_address(
+	unsigned long address,
+	word port,
+	boolean direct)
+{
+	struct network_game_client *client = global_network_game_client_get();
+	struct network_join_parameters join_parameters;
+	long game_index;
+
+	if (!client || client->state != _network_game_client_state_searching || client->join_in_progress ||
+		!client->connection || network_connection_connected(client->connection))
+	{
+		return FALSE;
+	}
+	for (game_index = 0; game_index < MAXIMUM_NETWORK_ADVERTISED_GAMES; game_index++)
+	{
+		struct network_advertised_game *game = &client->available_games[game_index];
+		struct transport_address game_address = { { { 0 } } };
+		byte const *ina;
+
+		if (!network_game_client_advertised_game_is_valid(game) || game->platform != network_game_get_local_platform())
+			continue;
+		/* (the XNADDR's ina, after its size, flags and abEnet: the host's
+		system link address, first byte first) */
+		ina = game->xnaddr.data + 8;
+		if ((((unsigned long)ina[0] << 24) | ((unsigned long)ina[1] << 16) | ((unsigned long)ina[2] << 8) |
+				(unsigned long)ina[3]) != address)
+		{
+			continue;
+		}
+		if (!network_game_client_advertised_game_compatible(client, game, TRUE))
+			return FALSE;
+		csmemset(&join_parameters, 0, sizeof(join_parameters));
+		transport_client_start((XNADDR const *)&game->xnaddr, (XNKEY const *)&game->key,
+			(XNKID const *)&game->key_id, port ? port : NETWORK_GAME_SERVER_PORT, &game_address);
+		if (!game_address.address.long_words[0] || !game_address.port)
+			return FALSE;
+		network_game_generate_join_game_token(join_parameters.join_token);
+		return network_game_client_initiate_join_game(client, game, &join_parameters, &game_address);
+	}
+	if (direct)
+	{
+		static struct network_advertised_game direct_game;
+		struct transport_address server_address = { { { 0 } } };
+
+		csmemset(&direct_game, 0, sizeof(direct_game));
+		server_address.address.long_words[0] = address;
+		server_address.port = port ? port : NETWORK_GAME_SERVER_PORT;
+		server_address.address_length = IPV4_ADDRESS_LENGTH;
+		direct_game.platform = network_game_get_local_platform();
+		transport_get_nonce(direct_game.nonce, sizeof(direct_game.nonce));
+		csmemset(&join_parameters, 0, sizeof(join_parameters));
+		network_game_generate_join_game_token(join_parameters.join_token);
+		network_event("map fetch: joining the host directly");
+		return network_game_client_initiate_join_game(client, &direct_game, &join_parameters, &server_address);
+	}
+	return FALSE;
+}
+#endif
 
 /* ... and puts this machine's players on a team (a team game needs both
 teams), as the pregame screen's team choice does; NONE: the other team from

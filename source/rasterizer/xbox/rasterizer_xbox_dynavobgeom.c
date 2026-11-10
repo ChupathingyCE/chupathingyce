@@ -235,6 +235,13 @@ typedef char rasterizer_dynamic_geometry_camera_offset_assert[
 static void submit_screen_vertex(
 	struct dynamic_screen_vertex const *vertex);
 
+#if defined(HALO_CUSTOM_EDITION) && defined(HALO_CONSOLE_CE_BITMAPS)
+/* the port's: whether a Custom Edition HUD meter's bitmap still has Halo
+PC's channels (halo_port_features.h, HALO_CONSOLE_CE_BITMAPS) */
+boolean platform_ce_meter_in_pc_channels(
+	struct bitmap_data const *bitmap);
+#endif
+
 /* ---------- globals */
 
 
@@ -489,6 +496,39 @@ void _rasterizer_psuedo_dynamic_screen_quad_draw(
 
 		pixel_shader.final_combiner_inputs_abcd = 0x0C180000;
 		pixel_shader.final_combiner_inputs_efg = 0x00001C00;
+
+#if defined(HALO_CUSTOM_EDITION) && defined(HALO_CONSOLE_CE_BITMAPS)
+		/* port: a Custom Edition map's meter whose bitmap the console left in
+		Halo PC's channels (platform_ce_meter_in_pc_channels: a compressed
+		one, as Custom Edition's own shield and health meters are, which
+		can't have its channels swapped as it loads): the fill order is in
+		its alpha and its shape in its color, so the meter reads them from
+		there. The fill order is compared where the color was (stage 0) and
+		makes the edge (stage 2); the shape, where alpha was, darkens the
+		color (the final combiner) and, as the alpha kill no longer can,
+		leaves the screen as it was outside the meter (a fifth stage: the
+		alpha that scales what's behind goes to 1 where there's no shape) */
+		if (platform_ce_meter_in_pc_channels(parameters->map[0]))
+		{
+			IDirect3DDevice8_SetTextureStageState(
+				global_d3d_device,
+				0,
+				D3DTSS_ALPHAKILL,
+				D3DTALPHAKILL_DISABLE);
+
+			pixel_shader.combiner_count = 0x00011105;
+			pixel_shader.alpha_inputs[0] = 0x12181218;
+			pixel_shader.rgb_inputs[0] = 0x1120F820;
+			pixel_shader.alpha_inputs[2] = 0x1820B220;
+
+			pixel_shader.alpha_inputs[4] = 0x081C2820;
+			pixel_shader.alpha_outputs[4] = 0x00000C00;
+			pixel_shader.rgb_inputs[4] = 0x00000000;
+			pixel_shader.rgb_outputs[4] = 0x00000000;
+
+			pixel_shader.final_combiner_inputs_abcd = 0x0C080000;
+		}
+#endif
 	}
 	else if (parameters->map[0])
 	{

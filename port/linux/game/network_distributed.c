@@ -78,6 +78,11 @@ machine (their datum identifiers need not be).
 #include "network_distributed.h"
 #include "network_rules.h"
 #include "../src/delta_chat_bridge.h"
+#ifdef HALO_GAME_BROWSER
+/* (delta_peer_game.c's: a machine's verified accounts, device and handles
+as a ban line's fields; 0 when it has none) */
+int delta_peer_game_machine_identity_text(int machine_index, char *text, int size);
+#endif
 #ifdef HALO_PORT_CHAT
 #include "chat.h"
 #endif
@@ -4270,6 +4275,18 @@ static void distributed_write_player_record(
 		kept_names, kept_reason);
 	if (until)
 		fprintf(file, "\tuntil=%lu", until);
+#ifdef HALO_GAME_BROWSER
+	/* (a machine whose players proved who they are over Delta Peer, bound
+	to this host: their accounts and device, so the ban follows the account
+	too) */
+	if (machine_index >= 0 && machine_index < HALO_PORT_MAXIMUM_NETWORK_MACHINES)
+	{
+		char identity[256];
+
+		if (delta_peer_game_machine_identity_text((int)machine_index, identity, (int)sizeof(identity)) > 0)
+			fprintf(file, "\t%s", identity);
+	}
+#endif
 	fprintf(file, "\n");
 	fclose(file);
 }
@@ -4340,7 +4357,8 @@ refuse; # begins a comment) */
 static boolean distributed_ban_line(
 	char const *line)
 {
-	return line[0] != '#' && (strstr(line, "ip=") || strstr(line, "hwid="));
+	return line[0] != '#' && (strstr(line, "ip=") || strstr(line, "hwid=") || strstr(line, "account=") ||
+		strstr(line, "device="));
 }
 
 /* (the host's) each client machine's budget for its lobby messages
@@ -4448,6 +4466,120 @@ boolean network_distributed_banned(
 	}
 	fclose(file);
 	return banned;
+}
+
+#ifdef HALO_GAME_BROWSER
+/* whether an ID (32 hex digits) is one of a comma list's */
+static boolean distributed_listed(
+	char const *list,
+	char const *id)
+{
+	size_t length = csstrlen(id);
+	char const *cursor = list;
+
+	while (length && cursor && *cursor)
+	{
+		if (!strncmp(cursor, id, length) && (cursor[length] == ',' || cursor[length] == 0))
+			return TRUE;
+		cursor = strchr(cursor, ',');
+		if (cursor)
+			cursor++;
+	}
+	return FALSE;
+}
+
+/* (the dedicated server: server_moderation.c, once a machine's players
+proved who they are) whether one of its verified accounts, or its device,
+is banned in BANS_FILE (a line's "account=" or "device=", the ban not
+over) */
+boolean network_distributed_identity_banned(
+	long machine_index)
+{
+	char identity[256], accounts[160], device[40], line[768], field[160];
+	FILE *file;
+	boolean banned = FALSE;
+
+	if (delta_peer_game_machine_identity_text((int)machine_index, identity, (int)sizeof(identity)) <= 0)
+		return FALSE;
+	distributed_ban_field(identity, "account=", accounts, sizeof(accounts));
+	distributed_ban_field(identity, "device=", device, sizeof(device));
+	file = fopen(BANS_FILE, "r");
+	if (!file)
+		return FALSE;
+	while (!banned && fgets(line, sizeof(line), file))
+	{
+		unsigned long until = distributed_ban_until(line);
+		char const *cursor;
+
+		if (!distributed_ban_line(line) || (until && (unsigned long)time(NULL) >= until))
+			continue;
+		if (device[0] && distributed_ban_field(line, "device=", field, sizeof(field)) && !strcmp(field, device))
+			banned = TRUE;
+		if (!banned && distributed_ban_field(line, "account=", field, sizeof(field)))
+		{
+			for (cursor = accounts; cursor && *cursor && !banned; )
+			{
+				char one[40];
+				size_t length = strcspn(cursor, ",");
+
+				if (length < sizeof(one))
+				{
+					csmemcpy(one, cursor, length);
+					one[length] = 0;
+					banned = distributed_listed(field, one);
+				}
+				cursor = strchr(cursor, ',');
+				if (cursor)
+					cursor++;
+			}
+		}
+	}
+	fclose(file);
+	return banned;
+}
+#endif
+
+/* (the dedicated server's sv_ban_account) a Delta account banned that need
+not be in the game: a line of BANS_FILE with only its account (32 hex
+digits), for ever (until 0) or until then, its handle as the players';
+docs/delta.md, "Shared ban lists". TRUE if written */
+boolean network_distributed_ban_account(
+	char const *account,
+	char const *handle,
+	char const *reason,
+	unsigned long until)
+{
+	char kept_handle[64];
+	char kept_reason[96];
+	char when[32] = "";
+	time_t now = time(NULL);
+	struct tm *local = localtime(&now);
+	FILE *file;
+	long index;
+
+	for (index = 0; index < 32; index++)
+	{
+		if (!account || !((account[index] >= '0' && account[index] <= '9') ||
+			(account[index] >= 'a' && account[index] <= 'f')))
+		{
+			return FALSE;
+		}
+	}
+	if (account[32])
+		return FALSE;
+	distributed_printable(kept_handle, sizeof(kept_handle), handle && handle[0] ? handle : "-");
+	distributed_printable(kept_reason, sizeof(kept_reason), reason);
+	if (local)
+		strftime(when, sizeof(when), "%Y-%m-%d %H:%M:%S", local);
+	file = fopen(BANS_FILE, "a");
+	if (!file)
+		return FALSE;
+	fprintf(file, "%s\tip=none\thwid=none\tplayers=%s\treason=%s", when, kept_handle, kept_reason);
+	if (until)
+		fprintf(file, "\tuntil=%lu", until);
+	fprintf(file, "\taccount=%s\n", account);
+	fclose(file);
+	return TRUE;
 }
 
 /* (the host: network_server_manager.c, its ban command; the dedicated

@@ -695,9 +695,14 @@ void team_change_update(void);
 #endif
 #ifdef HALO_GAME_BROWSER
 void host_rules_update(void);
+void party_teams_update(void);
+void map_share_update(void);
 #endif
 #ifdef HALO_PORT_CHAT
 void chat_update(void);
+#endif
+#ifdef HALO_PORT_VOICE
+void voice_game_update(void);
 #endif
 
 /* ---------- prototypes */
@@ -3733,12 +3738,24 @@ void main_loop(
 #ifdef HALO_GAME_BROWSER
 			/* the host's rules for its players' extras (port/linux/game/host_rules.c) */
 			host_rules_update();
+			/* a party kept on one team in games this machine hosts
+			(port/linux/game/party_teams.c) */
+			party_teams_update();
+			/* map sharing's host (port/linux/game/map_share_host.c) */
+			MAIN_STAGE("map_share_update");
+			map_share_update();
 #endif
 #ifdef HALO_PORT_CHAT
 			/* text chat (port/linux/game/chat.c; on a console, its client's
 			part) */
 			MAIN_STAGE("chat_update");
 			chat_update();
+#endif
+#ifdef HALO_PORT_VOICE
+			/* voice chat (port/linux/game/voice_game.c; a dedicated server
+			relays it) */
+			MAIN_STAGE("voice_update");
+			voice_game_update();
 #endif
 			/* the audio probe's scripted recording (port/linux/game/audio_probe.c),
 			on the consoles too */

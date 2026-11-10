@@ -1520,7 +1520,10 @@ mirrors' view is drawn into it, and active camouflage reads it */
 gets the 3D view's pixels: it keeps the game's 320x240 units, which its
 shaders' constants are in, and is drawn with the back buffer's depth buffer
 (rasterizer_set_target), so it is that buffer's size in pixels. The Xbox drew
-it at half the screen's pixels, so mirrors looked soft. */
+it at half the screen's pixels, so mirrors looked soft. A console's keeps the
+Xbox's size: the Xbox 360's GL layer has no room left in EDRAM for a third
+screen-sized target, and the camouflage copy went into the 3D view instead,
+upside down. */
 static void render_target_scale(enum render_target_kind kind, float scale[2])
 {
 	switch (kind)
@@ -1530,8 +1533,12 @@ static void render_target_scale(enum render_target_kind kind, float scale[2])
 		scale[1] = screen_scale[1];
 		break;
 	case _render_target_secondary:
+#if defined(HALO_CONSOLE_GL_LAYER) || defined(HALO_CONSOLE_GLES2)
+		scale[0] = scale[1] = 1.0f;
+#else
 		scale[0] = (float)(unsigned long)(halo_screen_width() * screen_scale[0] + 0.5f) / SECONDARY_TARGET_WIDTH;
 		scale[1] = (float)(unsigned long)(SCREEN_HEIGHT * screen_scale[1] + 0.5f) / SECONDARY_TARGET_HEIGHT;
+#endif
 		break;
 	case _render_target_shadow_map:
 		scale[0] = (float)halo_shadow_map_scale();

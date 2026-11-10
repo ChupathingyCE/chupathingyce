@@ -93,8 +93,17 @@ symbols in this file:
 #include "objects/objects.h"
 #include "units/units.h"
 #include "text/unicode.h"
+#include "late_join.h" /* port: port/linux/game/late_join.c */
+
+#if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_DELTA_PROFILE)
+/* port: port/linux/game/profile_names.c's */
+boolean profile_names_local_game_name(long local_player, wchar_t *name, long size);
+#endif
 
 #include <xtl.h>
+#ifdef HALO_GAME_BROWSER
+#include "map_share.h" /* port: the map bot's machine name */
+#endif
 
 #ifdef HALO_64BIT
 /* (declared for the 64-bit build, which takes no implicit declarations; the
@@ -258,6 +267,15 @@ void network_game_generate_local_machine_name(
 	char ascii_machine_name[32];
 	HANDLE find_handle;
 
+#ifdef HALO_GAME_BROWSER
+	/* port: the map bot's machine says what it is (port/linux/game/map_share_client.c) */
+	if (map_share_fetch_machine_name())
+	{
+		ascii_to_wide(map_share_fetch_machine_name(), machine_name, 32 * sizeof(wchar_t));
+		machine_name[31] = 0;
+		return;
+	}
+#endif
 	/* port: a machine that brings one player to the game (the one who
 	joined multiplayer on it) is named after that player's profile, not the
 	system's random nickname: the system link list shows a host's game by it */
@@ -279,6 +297,11 @@ void network_game_generate_local_machine_name(
 			struct player_profile profile;
 
 			player_ui_get_active_player_profile(joined_player_index, &profile);
+#if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_DELTA_PROFILE)
+			/* (a profile linked to a Delta profile: its verified handle) */
+			profile_names_local_game_name(joined_player_index, profile.player_name,
+				MAXIMUM_PLAYER_PROFILE_NAME_LENGTH);
+#endif
 			if (profile.player_name[0])
 			{
 				ustrncpy(machine_name, profile.player_name, MAXIMUM_PLAYER_PROFILE_NAME_LENGTH);
@@ -558,6 +581,9 @@ boolean network_game_spawn_player(
 	if (player_index != NONE)
 	{
 		player->player_list_index = (char)player_index;
+		/* port: a player made for a game in progress may wait for the next
+		(late_join.c: the host's rule) */
+		late_join_player_added(player_index);
 		return TRUE;
 	}
 

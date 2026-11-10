@@ -130,7 +130,28 @@ struct browser_game
 	(p2p_listing's opence_server): the lists' neutral label
 	(HOST_LABEL_OPENCE_SERVER), nothing more */
 	unsigned char opence_server;
+	/* the host takes no new players now (sv_lock: the list's field 25) */
+	unsigned char joins_locked;
+	/* a dedicated server's signed badge, as the list says it (fields 26 and
+	27: server_badge.h's tier, 0 for none, and its label, a handle or a
+	group, empty for none). Only from a build with badge keys, and dropped
+	for a host that failed its proof on joining (docs/server-badges.md) */
+	unsigned char badge;
+	char badge_label[32];
+	/* the server key the badge's certificate names (field 28), to match
+	the host's proof on joining; has_badge_key 0 from a list without it */
+	unsigned char has_badge_key;
+	unsigned char badge_key[32];
 };
+
+/* a listed game's badge as players read it ("Official server"; NULL for none) */
+const char *browser_badge_name(int badge);
+/* the joined host's badge proof (delta_peer_game.c; proven NULL: none):
+a host that proved none shows no badge from then on, and one that proved
+a badge shows the list's only while it is the same (server_badge.h's
+server_badge_joined_allows), until it joins again */
+struct server_badge;
+void browser_server_badge_proven(const char *invite, const struct server_badge *proven);
 
 /* the note a screen of listed games shows while the list is down and its
 games are those found directly (browser_list_status: BROWSER_LIST_FAILED) */
@@ -456,6 +477,8 @@ enum
 	BROWSER_SOCIAL_DECLINE,
 	BROWSER_SOCIAL_REMOVE,
 	BROWSER_SOCIAL_BLOCK,
+	/* a friend request (ADD FRIEND: RECENT, PLAYERS HERE) */
+	BROWSER_SOCIAL_REQUEST,
 	/* /v1/social/join: the halo://join link, taken by
 	browser_social_take_join */
 	BROWSER_SOCIAL_JOIN,
@@ -482,9 +505,52 @@ struct browser_social_result
 };
 /* 0 if one is still out */
 int browser_social_act(int action, const char *handle);
+
+/* a report's clip (docs/delta.md, Reports): the file at path sent to the
+site with the report's token (16 bytes), on the browser's thread: 1 if
+taken (one at a time). Its state: BROWSER_CLIP_* */
+enum
+{
+	BROWSER_CLIP_NONE,
+	BROWSER_CLIP_SENDING,
+	BROWSER_CLIP_SENT,
+	BROWSER_CLIP_TOO_BIG,
+	BROWSER_CLIP_TOO_MANY,
+	BROWSER_CLIP_FAILED,
+};
+int browser_clip_upload(const char *path, const unsigned char *token);
+int browser_clip_state(void);
+/* the clips in <data root>/clips (capture's: *.mp4 no bigger than the site
+takes), newest first, at most most (16): their paths and file names; the
+count */
+int browser_clips_list(char paths[][512], char names[][48], int most);
 void browser_social_result(struct browser_social_result *result);
 /* a join the site allowed: its halo://join link, once (1) */
 int browser_social_take_join(char *link, int size);
+
+/* the Guide's party (social.h): for a copy linked to a profile, the
+party in the friends' state; for one with none, POST /v1/party alone,
+polled while it is in one (it joins by a code). Not on the consoles
+(HALO_CONSOLE_NO_GUIDE) */
+struct social_party;
+/* the party as the site last said (has 0: none) into party, when its
+serial is not *serial (then *serial is its serial) */
+void browser_party_get(struct social_party *party, int *serial);
+/* an action on the party (social_party_fields's: "create", "invite" a
+handle, "accept" a party ID, "join" a code, ...), with this copy's game
+name for a copy with no profile; one at a time (0 if one is still out).
+Its result as browser_social_result's (its action is 0) */
+int browser_party_act(const char *action, const char *value, const char *name);
+void browser_party_result(struct browser_social_result *result);
+/* the leader's game (its invite's code) told to the party, apart from the
+actions (the latest wins) */
+void browser_party_go(const char *invite);
+/* a halo://party/ link (opened, or on the command line): kept for the
+Guide, which asks the player before joining it as a code typed would be. 1
+if the text was one */
+int browser_party_link(const char *text);
+/* the party link waiting (its code), taken: 1, or 0 for none */
+int browser_party_take_link(char *code, int size);
 
 /* Delta Profile in the game (port/linux/game/profile_screen.c;
 delta_profile.h): this copy's own profile, as the site has it, kept in
@@ -542,6 +608,12 @@ void browser_profile_action_seen(void);
 /* a clan's invite answered ("accept" or "decline", clan its ID), or the
 clan left ("leave"): the site's /v1/game/clan, its result the action's */
 void browser_profile_clan(const char *action, int clan);
+/* a member of the profile's clan kicked, or a player invited to it
+("kick" or "invite", by handle: a leader's or officer's, DELTA's CLAN);
+the site's /v1/game/clan, its result the action's. 0 for a handle the site
+could not have given. Not on the consoles (no DELTA there yet) */
+int browser_profile_clan_member(const char *action, const char *handle);
+
 /* the devices (docs/delta.md, Devices): this device signed out (its
 certificate dropped, its key kept; nothing goes to the site as the account
 until it signs in again by code), and another device of the account revoked
@@ -593,9 +665,37 @@ background, or they have none to show). Kept for the run */
 #define BROWSER_PLAYER_CARDS 64
 int browser_player_card(const char *player_id, struct delta_profile_card *card);
 
+/* verified names in games (Delta Peer's identity capability; docs/delta.md,
+"Verified names"). This copy's device certificate and its issuer's, to
+prove a local player whose Halo profile is signed in to account (32 bytes
+of the certificate's account; NULL: the copy's own): 1 with them (the
+certificate's size, and what it says when device is not NULL), else 0
+(none, not in date, not for that account, or without play) */
+struct identity_device;
+int browser_identity_card(const unsigned char *account, unsigned char *certificate, int *certificate_size,
+	unsigned char *issuer, struct identity_device *device);
+/* the device key's signature of message (64 bytes), and its public key
+(may be NULL): 1, else 0 (no device key) */
+int browser_identity_sign(const unsigned char *message, int size, unsigned char *signature, unsigned char *public_key);
+/* a moderator's sign-in or action signed with the device key, for a device
+whose certificate may moderate (the role is its account's on the server):
+1, else 0 */
+int browser_identity_moderator_sign(const unsigned char *message, int size, unsigned char *public_key,
+	unsigned char *signature);
+/* whether a device ID (16 bytes) is on the revocation list this copy last
+fetched and checked (GET /v1/identity/revoked, every ten minutes, kept in
+delta_revoked.bin); 0 when it has none. The dedicated server's too */
+int browser_identity_revoked(const unsigned char *device_id);
+/* a count of the revocation lists taken so far: when it changes, every
+verified player kept is checked against the new one */
+int browser_identity_revoked_changes(void);
+
 /* a page of the site (path: "/profile"): its address as a player types it
 in page, and as a QR code in modules (BROWSER_CONNECT_QR_SIZE squared at
 most, nonzero for a dark one); the QR code's size, 0 for none */
 int browser_page_qr(const char *path, char *page, int page_size, unsigned char *modules);
+/* any short text (PARTY's halo://party/ link) as a QR code in modules, as
+browser_page_qr's: its size, 0 for none */
+int browser_text_qr(const char *text, unsigned char *modules);
 
 #endif

@@ -96,6 +96,7 @@
       <button type="button" role="tab" data-tab="status" aria-selected="true">Status</button>
       <button type="button" role="tab" data-tab="players">Players</button>
       <button type="button" role="tab" data-tab="maps">Maps</button>
+      <button type="button" role="tab" data-tab="reports" data-needs="2">Reports <span class="badge" id="reports-badge" hidden></span></button>
       <button type="button" role="tab" data-tab="bans">Bans</button>
       <button type="button" role="tab" data-tab="log">Log</button>
       <button type="button" role="tab" data-tab="playlists" data-needs="64">Playlists</button>
@@ -124,13 +125,16 @@
       </div>
       <h2>Status</h2>
       <dl class="facts" id="status-facts"></dl>
+      <div class="row" id="lock-controls" hidden>
+        <button type="button" id="lock-toggle">Lock joins</button>
+      </div>
     </section>
 
     <section class="panel" data-panel="players" hidden>
       <h2>Players <span class="count" id="players-count"></span></h2>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>#</th><th>Name</th><th>Team</th><th class="num">Score</th><th class="num">Ping</th><th>Role</th><th id="evidence-head" title="What the server refused of the player's machine this game. Evidence for moderators, never a verdict: a bad connection makes some too." hidden>Refused</th><th>Actions</th></tr></thead>
+          <thead><tr><th>#</th><th>Name</th><th>Profile</th><th>Team</th><th class="num">Score</th><th class="num">Ping</th><th>Role</th><th id="evidence-head" title="What the server refused of the player's machine this game. Evidence for moderators, never a verdict: a bad connection makes some too." hidden>Refused</th><th>Actions</th></tr></thead>
           <tbody id="players-body"></tbody>
         </table>
       </div>
@@ -165,12 +169,33 @@
       <p class="hint" id="playlist-extra"></p>
     </section>
 
+    <section class="panel" data-panel="reports" hidden>
+      <h2>Reports <span class="count" id="reports-count"></span></h2>
+      <div class="row">
+        <label class="check"><input type="checkbox" id="reports-closed"> Show closed</label>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>#</th><th>When</th><th>Player</th><th>Reason</th><th>By</th><th>Map</th><th class="num" title="What the server refused of the reported player's machine in that game, when the report came">Refused</th><th>Clip</th><th>Actions</th></tr></thead>
+          <tbody id="reports-body"></tbody>
+        </table>
+      </div>
+    </section>
+
     <section class="panel" data-panel="bans" hidden>
       <h2>Bans <span class="count" id="bans-count"></span></h2>
       <div class="table-wrap">
         <table>
           <thead><tr><th>#</th><th>When</th><th>Players</th><th>Left</th><th>Reason</th><th></th></tr></thead>
           <tbody id="bans-body"></tbody>
+        </table>
+      </div>
+      <h2>Shared lists <span class="count" id="shared-count"></span></h2>
+      <p class="hint" id="shared-state"></p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>#</th><th>List</th><th>Banned on</th><th>Players</th><th>Left</th><th>Reason</th><th></th></tr></thead>
+          <tbody id="shared-body"></tbody>
         </table>
       </div>
     </section>
@@ -259,6 +284,7 @@
       </form>
       <h2>Chupathingy site</h2>
       <p class="hint" id="link-state"></p>
+      <p class="hint" id="link-badge" hidden></p>
       <div class="link-code" id="link-code" hidden>
         <p>Open this link, signed in to the Chupathingy site, to finish linking:</p>
         <p><a id="link-url" target="_blank" rel="noopener noreferrer"></a></p>

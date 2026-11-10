@@ -22,6 +22,7 @@ and the debug keyboard that the game's console reads.
 #include "ce_installer.h"
 #include "touch_input.h"
 #include "delta.h"
+#include "map_repo.h"
 #include "crash_report.h"
 #include "launcher.h"
 
@@ -464,6 +465,11 @@ BOOL platform_sdl_initialize(void)
 #endif
 	/* (the legacy table: a newer one fetched meanwhile) */
 	delta_legacy_start();
+#if defined(HALO_GAME_BROWSER) && !defined(HALO_SERVER)
+	/* (Chupathingy maps' index, for its blacklist before the first join:
+	map_repo.h) */
+	map_repo_game_refresh_soon();
+#endif
 	return TRUE;
 }
 
@@ -1841,6 +1847,33 @@ void platform_video_swap(void)
 	next_frame = now - next_frame > interval ? now + interval : next_frame + interval;
 }
 
+/* The quit event comes while a frame is presented (D3DDevice_Present pumps
+the events), and the game exited from there with its OpenGL context still
+current. Crash reports from 0.9.0c (game issue #829) then crashed in the
+graphics driver (or in OBS's hook of it) as the process went down, after
+"window closed". Nothing is drawn after this: the context is released and
+deleted and the window destroyed before the exit. bgfx's window is left to
+the process's end, as its device still draws into it. */
+void platform_exit_window_closed(void)
+{
+	platform_log("window closed");
+	if (platform_gl_context)
+	{
+		SDL_GL_MakeCurrent(platform_window, NULL);
+		SDL_GL_DestroyContext(platform_gl_context);
+		platform_gl_context = NULL;
+	}
+#ifdef HALO_BGFX
+	if (!xgpu_bgfx)
+#endif
+	if (platform_window)
+	{
+		SDL_DestroyWindow(platform_window);
+		platform_window = NULL;
+	}
+	exit(EXIT_SUCCESS);
+}
+
 SDL_Window *platform_sdl_window(void)
 {
 	return platform_window;
@@ -2473,8 +2506,7 @@ void platform_pump_events(void)
 				break;
 			}
 			pthread_mutex_unlock(&input_lock);
-			platform_log("window closed");
-			exit(EXIT_SUCCESS);
+			platform_exit_window_closed();
 #endif
 		case SDL_EVENT_QUIT:
 #ifdef __APPLE__
@@ -2495,8 +2527,7 @@ void platform_pump_events(void)
 			}
 #endif
 			pthread_mutex_unlock(&input_lock);
-			platform_log("window closed");
-			exit(EXIT_SUCCESS);
+			platform_exit_window_closed();
 		case SDL_EVENT_KEY_DOWN:
 		case SDL_EVENT_KEY_UP:
 			if (event.key.scancode < SDL_SCANCODE_COUNT)

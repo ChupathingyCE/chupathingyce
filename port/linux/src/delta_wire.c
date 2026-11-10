@@ -42,6 +42,16 @@ static void clear(void *destination, int size)
 		bytes[index] = 0;
 }
 
+static void copy(void *destination, const void *source, int size)
+{
+	unsigned char *to = (unsigned char *)destination;
+	const unsigned char *from = (const unsigned char *)source;
+	int index;
+
+	for (index = 0; index < size; index++)
+		to[index] = from[index];
+}
+
 /* length bytes of text into build (DELTA_WIRE_BUILD_SIZE + 1), printable
 ASCII kept and the rest '?' */
 static void read_text(const unsigned char *data, int length, char *build)
@@ -367,6 +377,32 @@ int delta_wire_write_profile(unsigned char *data, delta_u32 session, const struc
 		payload[4 + byte] = profile->player_id[byte];
 	delta_wire_write_header(data, DELTA_MAJOR, _delta_message_profile, DELTA_WIRE_PROFILE_SIZE, session);
 	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_PROFILE_SIZE;
+}
+
+/* ---------- PARTY_TAG
+	0  the party's tag (8; zeros: in no party) */
+
+int delta_wire_read_party_tag(const unsigned char *payload, int size, unsigned char *tag)
+{
+	int byte;
+
+	clear(tag, DELTA_WIRE_PARTY_TAG_SIZE);
+	if (!payload || size < DELTA_WIRE_PARTY_TAG_SIZE || size > DELTA_WIRE_MAXIMUM_PAYLOAD)
+		return 0;
+	for (byte = 0; byte < DELTA_WIRE_PARTY_TAG_SIZE; byte++)
+		tag[byte] = payload[byte];
+	return 1;
+}
+
+int delta_wire_write_party_tag(unsigned char *data, delta_u32 session, const unsigned char *tag)
+{
+	unsigned char *payload = data + DELTA_WIRE_HEADER_SIZE;
+	int byte;
+
+	for (byte = 0; byte < DELTA_WIRE_PARTY_TAG_SIZE; byte++)
+		payload[byte] = tag ? tag[byte] : 0;
+	delta_wire_write_header(data, DELTA_MAJOR, _delta_message_party_tag, DELTA_WIRE_PARTY_TAG_SIZE, session);
+	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_PARTY_TAG_SIZE;
 }
 
 /* ---------- TABLE
@@ -805,6 +841,8 @@ int delta_wire_read_mod_state(const unsigned char *payload, int size, struct del
 	if (!payload || size < DELTA_WIRE_MOD_STATE_SIZE || size > DELTA_WIRE_MAXIMUM_PAYLOAD)
 		return 0;
 	state->role = payload[0];
+	/* (flags a build does not know are dropped) */
+	state->actions = (unsigned char)(payload[1] & DELTA_WIRE_MOD_STATE_KNOWN);
 	state->permissions = read_u32(payload + 4);
 	state->ban_minutes = read_u32(payload + 8);
 	return 1;
@@ -816,6 +854,7 @@ int delta_wire_write_mod_state(unsigned char *data, delta_u32 session, const str
 
 	clear(payload, DELTA_WIRE_MOD_STATE_SIZE);
 	payload[0] = state->role;
+	payload[1] = (unsigned char)(state->actions & DELTA_WIRE_MOD_STATE_KNOWN);
 	write_u32(payload + 4, state->permissions);
 	write_u32(payload + 8, state->ban_minutes);
 	delta_wire_write_header(data, DELTA_MAJOR, _delta_message_mod_state, DELTA_WIRE_MOD_STATE_SIZE, session);
@@ -1317,6 +1356,103 @@ int delta_wire_write_team_result(unsigned char *data, delta_u32 session, const s
 	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_TEAM_RESULT_SIZE;
 }
 
+/* ---------- reports
+
+REPORT
+	0  sequence (4)
+	4  target machine (1)
+	5  target player (1)
+	6  reason (1)
+	7  flags (1)
+	8  clip token (16; ignored by the host, which makes the clip's token:
+	   zeros)
+REPORT_RESULT
+	0  sequence (4)
+	4  result (1)
+	5  flags (1)
+	6  reserved (2)
+	8  clip token (16, the host's: zeros without the send-clip flag; a host
+	   before it sends the first 8 bytes alone) */
+
+static int report_valid(const struct delta_wire_report *report)
+{
+	return report->reason >= _delta_report_cheating && report->reason < NUMBER_OF_DELTA_REPORT_REASONS &&
+		!(report->flags & ~DELTA_WIRE_REPORT_CLIP) && report->target_machine != DELTA_WIRE_NO_MACHINE;
+}
+
+int delta_wire_read_report(const unsigned char *payload, int size, struct delta_wire_report *report)
+{
+	clear(report, (int)sizeof(*report));
+	if (!payload || size < DELTA_WIRE_REPORT_SIZE || size > DELTA_WIRE_MAXIMUM_PAYLOAD)
+		return 0;
+	report->sequence = read_u32(payload);
+	report->target_machine = payload[4];
+	report->target_player = payload[5];
+	report->reason = payload[6];
+	report->flags = payload[7];
+	/* (its clip token is not read: the host makes the clip's token, so a
+	client can't pick the one its clip goes to the site with) */
+	return report_valid(report);
+}
+
+int delta_wire_write_report(unsigned char *data, delta_u32 session, const struct delta_wire_report *report)
+{
+	unsigned char *payload = data + DELTA_WIRE_HEADER_SIZE;
+
+	if (!report_valid(report))
+		return 0;
+	clear(payload, DELTA_WIRE_REPORT_SIZE);
+	write_u32(payload, report->sequence);
+	payload[4] = report->target_machine;
+	payload[5] = report->target_player;
+	payload[6] = report->reason;
+	payload[7] = report->flags;
+	delta_wire_write_header(data, DELTA_MAJOR, _delta_message_report, DELTA_WIRE_REPORT_SIZE, session);
+	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_REPORT_SIZE;
+}
+
+int delta_wire_read_report_result(const unsigned char *payload, int size, struct delta_wire_report_result *result)
+{
+	clear(result, (int)sizeof(*result));
+	if (!payload || size < DELTA_WIRE_REPORT_RESULT_SHORT_SIZE || size > DELTA_WIRE_MAXIMUM_PAYLOAD)
+		return 0;
+	result->sequence = read_u32(payload);
+	result->result = payload[4];
+	/* (flags a build does not know are dropped) */
+	result->flags = (unsigned char)(payload[5] & DELTA_WIRE_REPORT_SEND_CLIP);
+	/* (the clip goes only with the host's token: a host before it, or one
+	that sent zeros, gets none) */
+	if (result->flags & DELTA_WIRE_REPORT_SEND_CLIP)
+	{
+		int index, any = 0;
+
+		if (size >= DELTA_WIRE_REPORT_RESULT_SIZE)
+			copy_bytes(result->clip_token, payload + 8, DELTA_WIRE_REPORT_CLIP_TOKEN_SIZE);
+		for (index = 0; index < DELTA_WIRE_REPORT_CLIP_TOKEN_SIZE; index++)
+			any |= result->clip_token[index];
+		if (!any)
+			result->flags = (unsigned char)(result->flags & ~DELTA_WIRE_REPORT_SEND_CLIP);
+	}
+	return result->result < NUMBER_OF_DELTA_REPORT_RESULTS;
+}
+
+int delta_wire_write_report_result(unsigned char *data, delta_u32 session,
+	const struct delta_wire_report_result *result)
+{
+	unsigned char *payload = data + DELTA_WIRE_HEADER_SIZE;
+
+	if (result->result >= NUMBER_OF_DELTA_REPORT_RESULTS)
+		return 0;
+	clear(payload, DELTA_WIRE_REPORT_RESULT_SIZE);
+	write_u32(payload, result->sequence);
+	payload[4] = result->result;
+	payload[5] = (unsigned char)(result->flags & DELTA_WIRE_REPORT_SEND_CLIP);
+	if (result->flags & DELTA_WIRE_REPORT_SEND_CLIP)
+		copy_bytes(payload + 8, result->clip_token, DELTA_WIRE_REPORT_CLIP_TOKEN_SIZE);
+	delta_wire_write_header(data, DELTA_MAJOR, _delta_message_report_result, DELTA_WIRE_REPORT_RESULT_SIZE, session);
+	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_REPORT_RESULT_SIZE;
+}
+
 /* ---------- the host's rules */
 
 static int host_rules_valid(const struct delta_wire_host_rules *rules)
@@ -1354,6 +1490,182 @@ int delta_wire_write_host_rules(unsigned char *data, delta_u32 session, const st
 	payload[3] = rules->team_change_margin;
 	delta_wire_write_header(data, DELTA_MAJOR, _delta_message_host_rules, DELTA_WIRE_HOST_RULES_SIZE, session);
 	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_HOST_RULES_SIZE;
+}
+
+/* ---------- voice */
+
+int delta_wire_voice_packet_cap(int kbps)
+{
+	int cap;
+
+	if (kbps < DELTA_WIRE_VOICE_MINIMUM_KBPS)
+		kbps = DELTA_WIRE_VOICE_MINIMUM_KBPS;
+	if (kbps > DELTA_WIRE_VOICE_MAXIMUM_KBPS)
+		kbps = DELTA_WIRE_VOICE_MAXIMUM_KBPS;
+	/* (a 20 ms frame's average share is kbps * 1000 / 8 / 50 bytes) */
+	cap = kbps * 1000 / 8 / 50 * 2 + 16;
+	return cap < DELTA_WIRE_VOICE_PACKET_SIZE ? cap : DELTA_WIRE_VOICE_PACKET_SIZE;
+}
+
+static int voice_channel_valid(int channel)
+{
+	return channel > _delta_voice_channel_none && channel < NUMBER_OF_DELTA_VOICE_CHANNELS;
+}
+
+int delta_wire_read_voice_up(const unsigned char *payload, int size, struct delta_wire_voice_up *up,
+	const unsigned char **packet)
+{
+	clear(up, (int)sizeof(*up));
+	*packet = 0;
+	if (!payload || size < DELTA_WIRE_VOICE_UP_SIZE || size > DELTA_WIRE_MAXIMUM_PAYLOAD)
+		return 0;
+	up->sequence = read_u16(payload);
+	up->length = payload[2];
+	up->channel = payload[3];
+	up->hears = (unsigned char)(payload[4] & DELTA_VOICE_CHANNELS);
+	if (up->length)
+	{
+		/* (a frame: said on a channel, its bytes exactly what came) */
+		if (size != DELTA_WIRE_VOICE_UP_SIZE + up->length || !voice_channel_valid(up->channel))
+			goto refused;
+		*packet = payload + DELTA_WIRE_VOICE_UP_SIZE;
+		return 1;
+	}
+	/* (no frame: the channels heard, and maybe a party's tag) */
+	if (up->channel != _delta_voice_channel_none)
+		goto refused;
+	if (size == DELTA_WIRE_VOICE_UP_SIZE)
+		return 1;
+	if (size != DELTA_WIRE_VOICE_UP_SIZE + DELTA_WIRE_VOICE_PARTY_TAG_SIZE)
+		goto refused;
+	copy(up->party, payload + DELTA_WIRE_VOICE_UP_SIZE, DELTA_WIRE_VOICE_PARTY_TAG_SIZE);
+	return 1;
+
+refused:
+	clear(up, (int)sizeof(*up));
+	return 0;
+}
+
+int delta_wire_write_voice_up(unsigned char *data, delta_u32 session, const struct delta_wire_voice_up *up,
+	const unsigned char *packet)
+{
+	unsigned char *payload = data + DELTA_WIRE_HEADER_SIZE;
+	int size = DELTA_WIRE_VOICE_UP_SIZE;
+	int index, party = 0;
+
+	if (up->length ? !packet || !voice_channel_valid(up->channel) : up->channel != _delta_voice_channel_none)
+		return 0;
+	for (index = 0; index < DELTA_WIRE_VOICE_PARTY_TAG_SIZE; index++)
+		party |= up->party[index];
+	clear(payload, DELTA_WIRE_VOICE_UP_SIZE);
+	write_u16(payload, up->sequence);
+	payload[2] = up->length;
+	payload[3] = up->channel;
+	payload[4] = (unsigned char)(up->hears & DELTA_VOICE_CHANNELS);
+	if (up->length)
+	{
+		copy(payload + size, packet, up->length);
+		size += up->length;
+	}
+	else if (party)
+	{
+		copy(payload + size, up->party, DELTA_WIRE_VOICE_PARTY_TAG_SIZE);
+		size += DELTA_WIRE_VOICE_PARTY_TAG_SIZE;
+	}
+	delta_wire_write_header(data, DELTA_MAJOR, _delta_message_voice_up, size, session);
+	return DELTA_WIRE_HEADER_SIZE + size;
+}
+
+int delta_wire_read_voice_down(const unsigned char *payload, int size, struct delta_wire_voice_down *down,
+	const unsigned char **packet)
+{
+	clear(down, (int)sizeof(*down));
+	*packet = 0;
+	if (!payload || size < DELTA_WIRE_VOICE_DOWN_SIZE + 1 || size > DELTA_WIRE_MAXIMUM_PAYLOAD)
+		return 0;
+	down->sequence = read_u16(payload);
+	down->speaker_machine = payload[2];
+	down->speaker_player = payload[3];
+	down->route = payload[4];
+	down->channel = payload[5];
+	down->length = payload[6];
+	if (!down->length || size != DELTA_WIRE_VOICE_DOWN_SIZE + down->length ||
+		(down->route != _delta_voice_route_global && down->route != _delta_voice_route_proximity) ||
+		!voice_channel_valid(down->channel))
+	{
+		clear(down, (int)sizeof(*down));
+		return 0;
+	}
+	*packet = payload + DELTA_WIRE_VOICE_DOWN_SIZE;
+	return 1;
+}
+
+int delta_wire_write_voice_down(unsigned char *data, delta_u32 session, const struct delta_wire_voice_down *down,
+	const unsigned char *packet)
+{
+	unsigned char *payload = data + DELTA_WIRE_HEADER_SIZE;
+
+	if (!down->length || !packet || !voice_channel_valid(down->channel) ||
+		(down->route != _delta_voice_route_global && down->route != _delta_voice_route_proximity))
+	{
+		return 0;
+	}
+	clear(payload, DELTA_WIRE_VOICE_DOWN_SIZE);
+	write_u16(payload, down->sequence);
+	payload[2] = down->speaker_machine;
+	payload[3] = down->speaker_player;
+	payload[4] = down->route;
+	payload[5] = down->channel;
+	payload[6] = down->length;
+	copy(payload + DELTA_WIRE_VOICE_DOWN_SIZE, packet, down->length);
+	delta_wire_write_header(data, DELTA_MAJOR, _delta_message_voice_down, DELTA_WIRE_VOICE_DOWN_SIZE + down->length,
+		session);
+	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_VOICE_DOWN_SIZE + down->length;
+}
+
+static int voice_config_valid(const struct delta_wire_voice_config *config)
+{
+	return config->kbps >= DELTA_WIRE_VOICE_MINIMUM_KBPS && config->kbps <= DELTA_WIRE_VOICE_MAXIMUM_KBPS &&
+		config->proximity >= DELTA_WIRE_VOICE_MINIMUM_PROXIMITY &&
+		config->proximity <= DELTA_WIRE_VOICE_MAXIMUM_PROXIMITY;
+}
+
+int delta_wire_read_voice_config(const unsigned char *payload, int size, struct delta_wire_voice_config *config)
+{
+	clear(config, (int)sizeof(*config));
+	if (!payload || size < DELTA_WIRE_VOICE_CONFIG_SIZE || size > DELTA_WIRE_MAXIMUM_PAYLOAD || !payload[0])
+		return 0;
+	config->channels = (unsigned char)(payload[1] & DELTA_VOICE_KNOWN_CONFIG);
+	config->flags = (unsigned char)(payload[2] & DELTA_VOICE_CONFIG_MUTED);
+	config->kbps = payload[3];
+	config->proximity = read_u16(payload + 4);
+	config->mute_seconds = read_u32(payload + 8);
+	if (!voice_config_valid(config))
+	{
+		clear(config, (int)sizeof(*config));
+		return 0;
+	}
+	return 1;
+}
+
+int delta_wire_write_voice_config(unsigned char *data, delta_u32 session, const struct delta_wire_voice_config *config)
+{
+	unsigned char *payload = data + DELTA_WIRE_HEADER_SIZE;
+
+	if (!voice_config_valid(config) || (config->channels & ~DELTA_VOICE_KNOWN_CONFIG) ||
+		(config->flags & ~DELTA_VOICE_CONFIG_MUTED))
+	{
+		return 0;
+	}
+	clear(payload, DELTA_WIRE_VOICE_CONFIG_SIZE);
+	payload[0] = DELTA_WIRE_VOICE_CONFIG_VERSION;
+	payload[1] = config->channels;
+	payload[2] = config->flags;
+	payload[3] = config->kbps;
+	write_u16(payload + 4, config->proximity);
+	write_u32(payload + 8, config->mute_seconds);
+	delta_wire_write_header(data, DELTA_MAJOR, _delta_message_voice_config, DELTA_WIRE_VOICE_CONFIG_SIZE, session);
+	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_VOICE_CONFIG_SIZE;
 }
 
 /* ---------- object sync */
@@ -1492,6 +1804,57 @@ int delta_wire_write_object_names(unsigned char *data, delta_u32 session, const 
 	return DELTA_WIRE_HEADER_SIZE + length;
 }
 
+int delta_wire_read_badge_ask(const unsigned char *payload, int size, unsigned char *nonce)
+{
+	clear(nonce, DELTA_WIRE_BADGE_NONCE_SIZE);
+	if (!payload || size < DELTA_WIRE_BADGE_ASK_SIZE || size > DELTA_WIRE_MAXIMUM_PAYLOAD)
+		return 0;
+	copy_bytes(nonce, payload, DELTA_WIRE_BADGE_NONCE_SIZE);
+	return 1;
+}
+
+int delta_wire_write_badge_ask(unsigned char *data, delta_u32 session, const unsigned char *nonce)
+{
+	copy_bytes(data + DELTA_WIRE_HEADER_SIZE, nonce, DELTA_WIRE_BADGE_NONCE_SIZE);
+	delta_wire_write_header(data, DELTA_MAJOR, _delta_message_badge_ask, DELTA_WIRE_BADGE_ASK_SIZE, session);
+	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_BADGE_ASK_SIZE;
+}
+
+int delta_wire_read_badge(const unsigned char *payload, int size, struct delta_wire_badge *badge)
+{
+	int length;
+
+	clear(badge, (int)sizeof(*badge));
+	if (!payload || size < DELTA_WIRE_BADGE_SIZE || size > DELTA_WIRE_MAXIMUM_PAYLOAD)
+		return 0;
+	length = read_u16(payload + 96);
+	if (length > DELTA_WIRE_BADGE_CERTIFICATE_SIZE || size < DELTA_WIRE_BADGE_SIZE + length)
+		return 0;
+	copy_bytes(badge->nonce, payload, DELTA_WIRE_BADGE_NONCE_SIZE);
+	copy_bytes(badge->signature, payload + 32, DELTA_WIRE_BADGE_SIGNATURE_SIZE);
+	badge->proof = payload[98];
+	badge->certificate_length = (unsigned short)length;
+	copy_bytes(badge->certificate, payload + DELTA_WIRE_BADGE_SIZE, length);
+	return 1;
+}
+
+int delta_wire_write_badge(unsigned char *data, delta_u32 session, const struct delta_wire_badge *badge)
+{
+	unsigned char *payload = data + DELTA_WIRE_HEADER_SIZE;
+	int length = badge->certificate_length;
+
+	if (length > DELTA_WIRE_BADGE_CERTIFICATE_SIZE)
+		return 0;
+	clear(payload, DELTA_WIRE_BADGE_SIZE);
+	copy_bytes(payload, badge->nonce, DELTA_WIRE_BADGE_NONCE_SIZE);
+	copy_bytes(payload + 32, badge->signature, DELTA_WIRE_BADGE_SIGNATURE_SIZE);
+	write_u16(payload + 96, (unsigned short)length);
+	payload[98] = badge->proof;
+	copy_bytes(payload + DELTA_WIRE_BADGE_SIZE, badge->certificate, length);
+	delta_wire_write_header(data, DELTA_MAJOR, _delta_message_badge, DELTA_WIRE_BADGE_SIZE + length, session);
+	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_BADGE_SIZE + length;
+}
+
 int delta_wire_chat_text_valid(const char *text, int length, int maximum_characters)
 {
 	const unsigned char *bytes = (const unsigned char *)text;
@@ -1553,6 +1916,246 @@ int delta_wire_chat_text_valid(const char *text, int length, int maximum_charact
 	if (!shown || (maximum_characters > 0 && characters > maximum_characters))
 		return -1;
 	return characters;
+}
+
+
+/* ---------- verified names */
+
+/* ID_CHALLENGE
+	0  version (1)
+	1  binding length (1, at most 64)
+	2  reserved (2)
+	4  nonce (32)
+	36 binding (printable ASCII) */
+
+int delta_wire_read_id_challenge(const unsigned char *payload, int size, struct delta_wire_id_challenge *challenge)
+{
+	int length;
+
+	clear(challenge, (int)sizeof(*challenge));
+	if (!payload || size < DELTA_WIRE_ID_CHALLENGE_SIZE || size > DELTA_WIRE_MAXIMUM_PAYLOAD || !payload[0])
+		return 0;
+	length = payload[1];
+	if (length > DELTA_WIRE_IDENTITY_BINDING_SIZE || size < DELTA_WIRE_ID_CHALLENGE_SIZE + length ||
+		!printable(payload + DELTA_WIRE_ID_CHALLENGE_SIZE, length))
+	{
+		return 0;
+	}
+	copy_bytes(challenge->nonce, payload + 4, DELTA_WIRE_IDENTITY_NONCE_SIZE);
+	challenge->binding_length = length;
+	read_moderation_text(payload + DELTA_WIRE_ID_CHALLENGE_SIZE, length, challenge->binding,
+		DELTA_WIRE_IDENTITY_BINDING_SIZE);
+	return 1;
+}
+
+int delta_wire_write_id_challenge(unsigned char *data, delta_u32 session,
+	const struct delta_wire_id_challenge *challenge)
+{
+	unsigned char *payload = data + DELTA_WIRE_HEADER_SIZE;
+	int length = challenge->binding_length;
+
+	if (length < 0 || length > DELTA_WIRE_IDENTITY_BINDING_SIZE ||
+		!printable((const unsigned char *)challenge->binding, length))
+	{
+		return 0;
+	}
+	clear(payload, DELTA_WIRE_ID_CHALLENGE_SIZE);
+	payload[0] = DELTA_WIRE_IDENTITY_VERSION;
+	payload[1] = (unsigned char)length;
+	copy_bytes(payload + 4, challenge->nonce, DELTA_WIRE_IDENTITY_NONCE_SIZE);
+	copy_bytes(payload + DELTA_WIRE_ID_CHALLENGE_SIZE, (const unsigned char *)challenge->binding, length);
+	delta_wire_write_header(data, DELTA_MAJOR, _delta_message_id_challenge, DELTA_WIRE_ID_CHALLENGE_SIZE + length,
+		session);
+	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_ID_CHALLENGE_SIZE + length;
+}
+
+/* whether length bytes are a name's characters: a handle's in any capitals
+(A-Z a-z 0-9 _ -) */
+static int tag_characters(const unsigned char *data, int length)
+{
+	int index;
+
+	for (index = 0; index < length; index++)
+	{
+		unsigned char c = data[index];
+
+		if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '-'))
+			return 0;
+	}
+	return 1;
+}
+
+/* a proof's fixed fields after the head (flags, time) and its body (the
+signature, the issuer, the certificate, the name), from fields: flags at
+0, time at 4, the body at body_offset; size bytes in all */
+static int read_proof_fields(const unsigned char *fields, int body_offset, int size, struct delta_wire_id_proof *proof)
+{
+	const unsigned char *body = fields + body_offset;
+	int certificate = proof->certificate_length, tag = proof->tag_length, index;
+
+	if (certificate < DELTA_WIRE_IDENTITY_CERTIFICATE_LEAST || certificate > DELTA_WIRE_IDENTITY_CERTIFICATE_MOST ||
+		tag > DELTA_WIRE_IDENTITY_TAG_SIZE || size < body_offset + 176 + certificate + tag ||
+		!tag_characters(body + 176 + certificate, tag))
+	{
+		return 0;
+	}
+	/* (flags this build doesn't know are kept: they are signed) */
+	proof->flags = fields[0];
+	proof->time = read_u32(fields + 4);
+	copy_bytes(proof->signature, body, DELTA_WIRE_IDENTITY_SIGNATURE_SIZE);
+	copy_bytes(proof->issuer, body + 64, DELTA_WIRE_IDENTITY_ISSUER_SIZE);
+	copy_bytes(proof->certificate, body + 176, certificate);
+	for (index = 0; index < tag; index++)
+		proof->tag[index] = (char)body[176 + certificate + index];
+	proof->tag[tag] = 0;
+	return 1;
+}
+
+static int proof_writable(const struct delta_wire_id_proof *proof)
+{
+	if (proof->local_player < 0 || proof->local_player >= DELTA_WIRE_IDENTITY_LOCAL_PLAYERS)
+		return 0;
+	if (!proof->certificate_length)
+		return 1;
+	return proof->certificate_length >= DELTA_WIRE_IDENTITY_CERTIFICATE_LEAST &&
+		proof->certificate_length <= DELTA_WIRE_IDENTITY_CERTIFICATE_MOST && proof->tag_length >= 0 &&
+		proof->tag_length <= DELTA_WIRE_IDENTITY_TAG_SIZE && proof->flags >= 0 && proof->flags <= 255 &&
+		tag_characters((const unsigned char *)proof->tag, proof->tag_length);
+}
+
+static void write_proof_fields(unsigned char *fields, int body_offset, const struct delta_wire_id_proof *proof)
+{
+	unsigned char *body = fields + body_offset;
+
+	fields[0] = (unsigned char)proof->flags;
+	write_u32(fields + 4, proof->time);
+	copy_bytes(body, proof->signature, DELTA_WIRE_IDENTITY_SIGNATURE_SIZE);
+	copy_bytes(body + 64, proof->issuer, DELTA_WIRE_IDENTITY_ISSUER_SIZE);
+	copy_bytes(body + 176, proof->certificate, proof->certificate_length);
+	copy_bytes(body + 176 + proof->certificate_length, (const unsigned char *)proof->tag, proof->tag_length);
+}
+
+/* ID_PROOF
+	0   version (1)
+	1   local player (1, 0 to 3)
+	2   certificate length (1: 0 withdrawn, and nothing follows; else 148 to
+	    168)
+	3   name length (1, at most 20)
+	4   flags (1: 0x01 bound)
+	5   reserved (3)
+	8   time (4, Unix seconds)
+	12  signature (64)
+	76  issuer certificate (112)
+	188 device certificate (L)
+	    name (T: the handle in its capitals, A-Z a-z 0-9 _ -) */
+
+int delta_wire_read_id_proof(const unsigned char *payload, int size, struct delta_wire_id_proof *proof)
+{
+	clear(proof, (int)sizeof(*proof));
+	if (!payload || size < DELTA_WIRE_ID_PROOF_HEAD || size > DELTA_WIRE_MAXIMUM_PAYLOAD || !payload[0] ||
+		payload[1] >= DELTA_WIRE_IDENTITY_LOCAL_PLAYERS)
+	{
+		return 0;
+	}
+	proof->local_player = payload[1];
+	proof->certificate_length = payload[2];
+	proof->tag_length = payload[3];
+	if (!proof->certificate_length)
+	{
+		proof->tag_length = 0;
+		return 1;
+	}
+	if (read_proof_fields(payload + 4, 8, size - 4, proof))
+		return 1;
+	clear(proof, (int)sizeof(*proof));
+	return 0;
+}
+
+int delta_wire_write_id_proof(unsigned char *data, delta_u32 session, const struct delta_wire_id_proof *proof)
+{
+	unsigned char *payload = data + DELTA_WIRE_HEADER_SIZE;
+	int length;
+
+	if (!proof_writable(proof))
+		return 0;
+	length = proof->certificate_length ? DELTA_WIRE_ID_PROOF_SIZE + proof->certificate_length + proof->tag_length :
+		DELTA_WIRE_ID_PROOF_HEAD;
+	clear(payload, length);
+	payload[0] = DELTA_WIRE_IDENTITY_VERSION;
+	payload[1] = (unsigned char)proof->local_player;
+	payload[2] = (unsigned char)proof->certificate_length;
+	payload[3] = (unsigned char)(proof->certificate_length ? proof->tag_length : 0);
+	if (proof->certificate_length)
+		write_proof_fields(payload + 4, 8, proof);
+	delta_wire_write_header(data, DELTA_MAJOR, _delta_message_id_proof, length, session);
+	return DELTA_WIRE_HEADER_SIZE + length;
+}
+
+/* ID_CARD
+	0   version (1)
+	1   machine index (1)
+	2   local player (1, 0 to 3)
+	3   certificate length (1: 0 withdrawn, and nothing follows; else 148 to
+	    168)
+	4   name length (1, at most 20)
+	5   reserved (3)
+	8   flags (1, the proof's)
+	9   reserved (3)
+	12  time (4, the proof's)
+	16  nonce (32: the one the host challenged the machine's session with)
+	48  signature (64)
+	112 issuer certificate (112)
+	224 device certificate (L)
+	    name (T) */
+
+int delta_wire_read_id_card(const unsigned char *payload, int size, struct delta_wire_id_card *card)
+{
+	clear(card, (int)sizeof(*card));
+	if (!payload || size < DELTA_WIRE_ID_CARD_HEAD || size > DELTA_WIRE_MAXIMUM_PAYLOAD || !payload[0] ||
+		payload[2] >= DELTA_WIRE_IDENTITY_LOCAL_PLAYERS)
+	{
+		return 0;
+	}
+	card->machine_index = payload[1];
+	card->proof.local_player = payload[2];
+	card->proof.certificate_length = payload[3];
+	card->proof.tag_length = payload[4];
+	if (!card->proof.certificate_length)
+	{
+		card->proof.tag_length = 0;
+		return 1;
+	}
+	if (size >= DELTA_WIRE_ID_CARD_SIZE && read_proof_fields(payload + 8, 40, size - 8, &card->proof))
+	{
+		copy_bytes(card->nonce, payload + 16, DELTA_WIRE_IDENTITY_NONCE_SIZE);
+		return 1;
+	}
+	clear(card, (int)sizeof(*card));
+	return 0;
+}
+
+int delta_wire_write_id_card(unsigned char *data, delta_u32 session, const struct delta_wire_id_card *card)
+{
+	unsigned char *payload = data + DELTA_WIRE_HEADER_SIZE;
+	int length;
+
+	if (card->machine_index < 0 || card->machine_index > 255 || !proof_writable(&card->proof))
+		return 0;
+	length = card->proof.certificate_length ?
+		DELTA_WIRE_ID_CARD_SIZE + card->proof.certificate_length + card->proof.tag_length : DELTA_WIRE_ID_CARD_HEAD;
+	clear(payload, length);
+	payload[0] = DELTA_WIRE_IDENTITY_VERSION;
+	payload[1] = (unsigned char)card->machine_index;
+	payload[2] = (unsigned char)card->proof.local_player;
+	payload[3] = (unsigned char)card->proof.certificate_length;
+	payload[4] = (unsigned char)(card->proof.certificate_length ? card->proof.tag_length : 0);
+	if (card->proof.certificate_length)
+	{
+		write_proof_fields(payload + 8, 40, &card->proof);
+		copy_bytes(payload + 16, card->nonce, DELTA_WIRE_IDENTITY_NONCE_SIZE);
+	}
+	delta_wire_write_header(data, DELTA_MAJOR, _delta_message_id_card, length, session);
+	return DELTA_WIRE_HEADER_SIZE + length;
 }
 
 /* ---------- rate limits */

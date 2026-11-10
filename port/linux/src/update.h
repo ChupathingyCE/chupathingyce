@@ -56,6 +56,12 @@ int update_launch(const char *path);
 /* the same, with one argument for it (NULL: none), as "--setup" */
 int update_launch_with(const char *path, const char *argument);
 
+#ifdef _WIN32
+/* whether this program runs on 64-bit Windows on an x64 processor, where
+the 64-bit build runs (win32_update.c; the 32-bit build offers it) */
+int update_windows_runs_64bit(void);
+#endif
+
 /* ---------- updater.c's, for the setup screen's Updates (launcher.c) */
 
 enum

@@ -12,6 +12,9 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <!-- system link multiplayer on the local network -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- voice chat: asked for the first time the player talks, never at
+    start; without it they still hear others (port/linux/src/voice.c) -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
