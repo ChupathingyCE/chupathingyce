@@ -8,6 +8,7 @@ base64. Plain C, for the platform layer and the system side alike.
 
 #include "build_identity.h"
 #include "log_address.h"
+#include "log_paths.h"
 #include "crash_report.h"
 
 #include <stdio.h>
@@ -225,6 +226,21 @@ size_t crash_report_redact(const char *text, size_t length, char *out, size_t si
 		size_t found = 0;
 		int public_address = 0;
 
+		const char *placeholder;
+		size_t home = log_paths_home_at(text, length, used, &placeholder);
+
+		/* (the home folder, as ~: log_paths.h) */
+		if (home)
+		{
+			size_t placeholder_length = strlen(placeholder);
+
+			if (written + placeholder_length >= size)
+				break;
+			memcpy(out + written, placeholder, placeholder_length);
+			written += placeholder_length;
+			used += home;
+			continue;
+		}
 		if (!word(previous) && previous != '.' && previous != ':')
 		{
 			if ((found = ipv4_at(text + used, length - used, bytes)) != 0)
@@ -443,9 +459,18 @@ char *crash_report_body(const char *report, const char *log, size_t log_size, co
 	}
 	if (dump && dump_size && dump_size <= CRASH_REPORT_MAXIMUM_DUMP)
 	{
-		text_string(&body, ", \"minidump\": \"");
-		base64(&body, dump, dump_size);
-		text_string(&body, "\"");
+		/* (its modules' paths without the account name: log_paths.h) */
+		unsigned char *masked = malloc(dump_size);
+
+		if (masked)
+		{
+			memcpy(masked, dump, dump_size);
+			log_paths_mask(masked, dump_size);
+			text_string(&body, ", \"minidump\": \"");
+			base64(&body, masked, dump_size);
+			text_string(&body, "\"");
+			free(masked);
+		}
 	}
 	text_string(&body, "}");
 	if (body.failed)

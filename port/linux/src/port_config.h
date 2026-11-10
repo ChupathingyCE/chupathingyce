@@ -19,6 +19,8 @@ Settings are named "section.key", as in the file: "display.vsync".
 #include <stddef.h>
 
 int config_boolean(const char *name);
+/* whether config.toml has been read (the settings above read it first) */
+int config_loaded_yet(void);
 long config_integer(const char *name);
 double config_real(const char *name);
 /* never NULL; "" when unset */
