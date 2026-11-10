@@ -655,6 +655,39 @@ static const struct config_setting config_settings[] =
 	{ "audio.resampling", _config_string, "\"sinc\"", "HALO_AUDIO_RESAMPLING", _environment_value, _platform_all,
 #endif
 		"How sounds are converted to 48 kHz: \"sinc\" or \"linear\"." },
+#ifdef HALO_PORT_VOICE_AUDIO
+	/* ---- voice chat (port/linux/src/voice.c, port/linux/game/voice_game.c) */
+	{ "audio.voice_chat", _config_string, "\"off\"", "HALO_VOICE_CHAT", _environment_value, _platform_all,
+		"Voice chat: \"off\" (the default), \"push_to_talk\" (hold V, or the\n"
+		"D-pad right) or \"open_mic\" (talks while you speak). The microphone\n"
+		"opens only when you first talk. Voice goes through the game's host and\n"
+		"is never recorded." },
+	{ "audio.voice_channel", _config_string, "\"team\"", "HALO_VOICE_CHANNEL", _environment_value, _platform_all,
+		"The channel you talk on: \"party\", \"team\", \"proximity\" (players\n"
+		"near you, heard from where you are) or \"everyone\" (if the host\n"
+		"allows it). B, or the D-pad left, switches it." },
+	{ "audio.voice_volume", _config_real, "1.0", "HALO_VOICE_VOLUME", _environment_value, _platform_all,
+		"The volume of other players' voices, from 0.0 to 2.0." },
+	{ "audio.voice_volume_party", _config_real, "1.0", "HALO_VOICE_VOLUME_PARTY", _environment_value, _platform_all,
+		"The party channel's volume, from 0.0 to 2.0. 0 turns it off." },
+	{ "audio.voice_volume_team", _config_real, "1.0", "HALO_VOICE_VOLUME_TEAM", _environment_value, _platform_all,
+		"The team channel's volume, from 0.0 to 2.0. 0 turns it off." },
+	{ "audio.voice_volume_proximity", _config_real, "1.0", "HALO_VOICE_VOLUME_PROXIMITY", _environment_value,
+		_platform_all,
+		"The proximity channel's volume, from 0.0 to 2.0. 0 turns it off." },
+	{ "audio.voice_volume_everyone", _config_real, "1.0", "HALO_VOICE_VOLUME_EVERYONE", _environment_value,
+		_platform_all,
+		"The everyone channel's volume, from 0.0 to 2.0. 0 turns it off." },
+	{ "audio.voice_input_device", _config_string, "\"\"", "HALO_VOICE_INPUT_DEVICE", _environment_value,
+		_platform_all,
+		"The microphone, by its system name. Empty for the system's." },
+	{ "audio.voice_open_mic_level", _config_real, "0.01", "HALO_VOICE_OPEN_MIC_LEVEL", _environment_value,
+		_platform_all,
+		"How loud you must be for open mic to send (0.001 to 1.0)." },
+	{ "audio.voice_positional", _config_boolean, "true", "HALO_VOICE_POSITIONAL", _environment_value, _platform_all,
+		"Hear proximity voices from where the players are, with the game's 3D\n"
+		"sound (and Headphone 3D). false pans and fades them only." },
+#endif
 
 	/* ---- input */
 	{ "input.mouse_sensitivity", _config_real, "1.0", "HALO_MOUSE_SENSITIVITY", _environment_value, _platform_all,
@@ -1031,6 +1064,16 @@ static const struct config_setting config_settings[] =
 	{ "network.report_hosted_games", _config_boolean, "true", "HALO_NET_REPORT_HOSTED", _environment_value,
 		_platform_all | _platform_server,
 		"Send the stats of games you host to the game list." },
+	{ "network.map_share", _config_boolean, "false", "HALO_NET_MAP_SHARE", _environment_value,
+		_platform_all | _platform_server,
+		"Dedicated servers: hand the Custom Edition map the game is on to\n"
+		"players who join without it and ask (map sharing, over TCP port\n"
+		"5153). Only the map file the game is on now, only to machines in\n"
+		"the game. A game you host from the menus never shares, for now." },
+	{ "network.map_share_upload", _config_integer, "1024", "HALO_NET_MAP_SHARE_UPLOAD", _environment_value,
+		_platform_all | _platform_server,
+		"The most map sharing sends, in KB a second, for everyone downloading\n"
+		"together: 16 to 20480." },
 #endif
 	/* (a console's reports of the games it joins too: port/console/reports) */
 #if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_GAME_REPORTS)
@@ -1295,6 +1338,28 @@ static const struct config_setting config_settings[] =
 		"With debug.network_test's host: a file the host writes its invite link\n"
 		"to once it has one, for a joining machine's command line. Leave it\n"
 		"empty for none." },
+	{ "debug.map_fetch_folder", _config_string, "\"\"", "HALO_MAP_FETCH_FOLDER", _environment_value,
+		_platform_all,
+		"With debug.network_test's fetch: the folder the host's map is written\n"
+		"to (<name>.map.part, then <name>.map)." },
+	{ "debug.map_fetch_result", _config_string, "\"\"", "HALO_MAP_FETCH_RESULT", _environment_value,
+		_platform_all,
+		"With debug.network_test's fetch: the file its result is written to (a\n"
+		"JSON object). Leave it empty for result.json in the fetch's folder." },
+	{ "debug.map_fetch_name", _config_string, "\"\"", "HALO_MAP_FETCH_NAME", _environment_value,
+		_platform_all,
+		"With debug.network_test's fetch: the map it came for (its file's name\n"
+		"without .map). On another map the fetch leaves without asking. Leave\n"
+		"it empty for any." },
+	{ "debug.map_fetch_held", _config_string, "\"\"", "HALO_MAP_FETCH_HELD", _environment_value,
+		_platform_all,
+		"With debug.network_test's fetch: the map versions already held (8 hex\n"
+		"digits each, separated by commas). On one of them the fetch leaves\n"
+		"without asking." },
+	{ "debug.map_fetch_maximum", _config_integer, "512", "HALO_MAP_FETCH_MAXIMUM", _environment_value,
+		_platform_all,
+		"With debug.network_test's fetch: the largest map it takes, in MB (up\n"
+		"to 768)." },
 	{ "debug.network_latency", _config_real, "0.0", "HALO_NETWORK_LATENCY", _environment_value,
 		_platform_all | _platform_server,
 		"Milliseconds to delay everything received. 0 for none." },
@@ -1380,6 +1445,13 @@ static const struct config_setting config_settings[] =
 		"Scripted chat for tests, as steps separated by ;. Each step is\n"
 		"\"<seconds>:<all|team|server|mute|unmute|localmute|log|close|type>[:<text>]\".\n"
 		"Leave it empty for none." },
+#ifdef HALO_PORT_VOICE_AUDIO
+	{ "debug.voice_test", _config_string, "\"\"", "HALO_VOICE_TEST", _environment_value, _platform_all,
+		"Voice chat tests: \"tone\" (a 440 Hz tone) or a WAV file (16-bit, 48 kHz)\n"
+		"said in place of the microphone, all the time, and each voice heard\n"
+		"logged once a second. Leave it empty for none. Release builds ignore\n"
+		"it." },
+#endif
 #ifndef HALO_CONSOLE_NO_AUDIO_PROBE
 	{ "debug.audio_probe", _config_string, "\"\"", "HALO_AUDIO_PROBE", _environment_value, _platform_all | _platform_xbox,
 		"A probe file to run (port/linux/game/audio_probe.c), named the way\n"

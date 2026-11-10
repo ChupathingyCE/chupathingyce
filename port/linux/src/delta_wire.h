@@ -188,6 +188,22 @@ enum
 	/* (the game's MAXIMUM_OBJECT_NAMES_PER_SCENARIO) */
 	DELTA_WIRE_MAXIMUM_OBJECT_NAMES = 512,
 
+	/* voice (docs/delta.md, Voice): VOICE_UP's and VOICE_DOWN's fixed
+	parts (the Opus packet follows), VOICE_CONFIG's, a party's tag (after
+	an empty VOICE_UP), the most an Opus packet may be (its length is a
+	byte), and the host's quality's range and its proximity's (tenths of a
+	world unit) */
+	DELTA_WIRE_VOICE_UP_SIZE = 8,
+	DELTA_WIRE_VOICE_DOWN_SIZE = 8,
+	DELTA_WIRE_VOICE_CONFIG_SIZE = 12,
+	DELTA_WIRE_VOICE_CONFIG_VERSION = 1,
+	DELTA_WIRE_VOICE_PARTY_TAG_SIZE = 8,
+	DELTA_WIRE_VOICE_PACKET_SIZE = 255,
+	DELTA_WIRE_VOICE_MINIMUM_KBPS = 8,
+	DELTA_WIRE_VOICE_MAXIMUM_KBPS = 64,
+	DELTA_WIRE_VOICE_MINIMUM_PROXIMITY = 50,
+	DELTA_WIRE_VOICE_MAXIMUM_PROXIMITY = 1000,
+
 	/* server badges (docs/server-badges.md): the client's nonce, the
 	host's signature of it, and its certificate, at most this long (a
 	format 1 certificate with a 31-character label) */
@@ -485,12 +501,73 @@ enum delta_message_type
 	/* client to host, if both agreed to party_teams: its party's tag (8
 	bytes; zeros: in no party), as it changes and every few seconds */
 	_delta_message_party_tag = 33,
-	/* (34 to 36 are voice, being built) */
+	/* voice (both agreed to voice): client to host, a frame its player
+	said on a channel, or with no frame, the channels it hears (every
+	DELTA_PEER_VOICE_HEARS_INTERVAL) */
+	_delta_message_voice_up = 34,
+	/* host to client: a frame of another machine's player, for a channel
+	the client hears, and how to play it (its route) */
+	_delta_message_voice_down = 35,
+	/* host to client: the host's voice rules (the channels it relays, its
+	quality, its proximity) and this machine's mute */
+	_delta_message_voice_config = 36,
 	/* reports (both agreed to reports): client to host, its player reports
 	another */
 	_delta_message_report = 37,
 	/* host to client: what the host did with it */
 	_delta_message_report_result = 38
+};
+
+/* voice's channels: who a player talks to (VOICE_UP, VOICE_DOWN); a number
+is never reused */
+enum delta_voice_channel
+{
+	_delta_voice_channel_none = 0,
+	/* the player's team in the game (everyone in the lobby) */
+	_delta_voice_channel_team = 1,
+	/* the players near the player in the game, heard from where they are
+	(everyone in the lobby) */
+	_delta_voice_channel_proximity = 2,
+	/* everyone in the game, when the host allows it */
+	_delta_voice_channel_everyone = 3,
+	/* the player's party (the machines whose VOICE_UP says the same tag) */
+	_delta_voice_channel_party = 4,
+
+	NUMBER_OF_DELTA_VOICE_CHANNELS
+};
+
+/* VOICE_UP's hears: the channels a machine plays (0: none, the host sends
+it no voice); VOICE_CONFIG's channels: those the host relays, and its lobby
+voice. A bit a build does not know is ignored */
+enum
+{
+	DELTA_VOICE_TEAM = 0x01,
+	DELTA_VOICE_PROXIMITY = 0x02,
+	DELTA_VOICE_EVERYONE = 0x04,
+	DELTA_VOICE_PARTY = 0x08,
+	DELTA_VOICE_CHANNELS = 0x0F,
+	/* (VOICE_CONFIG's alone) everyone hears everyone outside a game: the
+	pregame lobby and the postgame */
+	DELTA_VOICE_LOBBY = 0x10,
+	DELTA_VOICE_KNOWN_CONFIG = 0x1F
+};
+
+/* VOICE_DOWN's routes: how the listener plays a frame */
+enum delta_voice_route
+{
+	_delta_voice_route_none = 0,
+	/* as it was said, at the voices' volume */
+	_delta_voice_route_global = 1,
+	/* from where the speaker's player is, fading with distance */
+	_delta_voice_route_proximity = 2
+};
+
+/* VOICE_CONFIG's flags */
+enum
+{
+	/* this machine's voice is not relayed (the host's mute, or a
+	moderator's: chat's, which covers both) */
+	DELTA_VOICE_CONFIG_MUTED = 0x01
 };
 
 /* REPORT's reasons; a number is never reused, and a host refuses one it
@@ -887,6 +964,53 @@ struct delta_wire_host_rules
 	unsigned char team_change_margin;
 };
 
+/* voice (VOICE_UP, VOICE_DOWN, VOICE_CONFIG); the Opus packet itself is
+read in place: payload + DELTA_WIRE_VOICE_*_SIZE, length bytes */
+struct delta_wire_voice_up
+{
+	/* the speaker's own count, passed on as it is */
+	unsigned short sequence;
+	/* the Opus packet's bytes (0: no frame, the channels heard, and maybe
+	a party's tag) */
+	unsigned char length;
+	/* enum delta_voice_channel (none with no frame) */
+	unsigned char channel;
+	/* DELTA_VOICE_* channels this machine plays */
+	unsigned char hears;
+	/* (with no frame) its party's tag, the same as party teams' PARTY_TAG:
+	all 0 for none */
+	unsigned char party[DELTA_WIRE_VOICE_PARTY_TAG_SIZE];
+};
+
+struct delta_wire_voice_down
+{
+	unsigned short sequence;
+	/* who said it: the machine, and its player (the game's player list
+	index; DELTA_WIRE_NO_MACHINE: none) */
+	unsigned char speaker_machine;
+	unsigned char speaker_player;
+	/* enum delta_voice_route, and the channel it was said on */
+	unsigned char route;
+	unsigned char channel;
+	/* the Opus packet's bytes, 1 or more */
+	unsigned char length;
+};
+
+struct delta_wire_voice_config
+{
+	/* DELTA_VOICE_* channels relayed, and DELTA_VOICE_LOBBY */
+	unsigned char channels;
+	/* DELTA_VOICE_CONFIG_* */
+	unsigned char flags;
+	/* the quality each machine encodes at (kbps), and the size cap it gives
+	(delta_wire_voice_packet_cap) */
+	unsigned char kbps;
+	/* how near is near, in tenths of a world unit */
+	unsigned short proximity;
+	/* a timed mute's seconds left (0: none, or until the game ends) */
+	delta_u32 mute_seconds;
+};
+
 struct delta_wire_team_result
 {
 	/* the TEAM_REQUEST's */
@@ -1115,6 +1239,26 @@ int delta_wire_write_report_result(unsigned char *data, delta_u32 session,
 knows; a team change or margin past their ranges is refused */
 int delta_wire_read_host_rules(const unsigned char *payload, int size, struct delta_wire_host_rules *rules);
 int delta_wire_write_host_rules(unsigned char *data, delta_u32 session, const struct delta_wire_host_rules *rules);
+/* voice's messages. VOICE_UP's and VOICE_DOWN's length must be the bytes
+that came after their fixed part, exactly (a party's tag aside), and no more
+than DELTA_WIRE_VOICE_PACKET_SIZE; a channel or route this build does not
+know, a VOICE_DOWN of no frame, a frame said on no channel, or a quality or
+proximity past its range is refused. packet is set to the Opus packet's
+bytes, in payload */
+int delta_wire_read_voice_up(const unsigned char *payload, int size, struct delta_wire_voice_up *up,
+	const unsigned char **packet);
+int delta_wire_read_voice_down(const unsigned char *payload, int size, struct delta_wire_voice_down *down,
+	const unsigned char **packet);
+int delta_wire_read_voice_config(const unsigned char *payload, int size, struct delta_wire_voice_config *config);
+/* (0 for what the reader would refuse; packet: up's or down's length bytes) */
+int delta_wire_write_voice_up(unsigned char *data, delta_u32 session, const struct delta_wire_voice_up *up,
+	const unsigned char *packet);
+int delta_wire_write_voice_down(unsigned char *data, delta_u32 session, const struct delta_wire_voice_down *down,
+	const unsigned char *packet);
+int delta_wire_write_voice_config(unsigned char *data, delta_u32 session, const struct delta_wire_voice_config *config);
+/* the most bytes a frame may be at a quality (kbps): twice a 20 ms frame's
+average share, and 16 more, never past DELTA_WIRE_VOICE_PACKET_SIZE */
+int delta_wire_voice_packet_cap(int kbps);
 /* object sync's messages. A count past what the datagram holds, unknown
 flags, or names past DELTA_WIRE_MAXIMUM_OBJECT_NAMES are refused */
 int delta_wire_read_unit_vitals(const unsigned char *payload, int size, struct delta_wire_unit_vitals *vitals);

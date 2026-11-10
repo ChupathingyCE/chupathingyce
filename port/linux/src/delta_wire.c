@@ -42,6 +42,16 @@ static void clear(void *destination, int size)
 		bytes[index] = 0;
 }
 
+static void copy(void *destination, const void *source, int size)
+{
+	unsigned char *to = (unsigned char *)destination;
+	const unsigned char *from = (const unsigned char *)source;
+	int index;
+
+	for (index = 0; index < size; index++)
+		to[index] = from[index];
+}
+
 /* length bytes of text into build (DELTA_WIRE_BUILD_SIZE + 1), printable
 ASCII kept and the rest '?' */
 static void read_text(const unsigned char *data, int length, char *build)
@@ -1480,6 +1490,182 @@ int delta_wire_write_host_rules(unsigned char *data, delta_u32 session, const st
 	payload[3] = rules->team_change_margin;
 	delta_wire_write_header(data, DELTA_MAJOR, _delta_message_host_rules, DELTA_WIRE_HOST_RULES_SIZE, session);
 	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_HOST_RULES_SIZE;
+}
+
+/* ---------- voice */
+
+int delta_wire_voice_packet_cap(int kbps)
+{
+	int cap;
+
+	if (kbps < DELTA_WIRE_VOICE_MINIMUM_KBPS)
+		kbps = DELTA_WIRE_VOICE_MINIMUM_KBPS;
+	if (kbps > DELTA_WIRE_VOICE_MAXIMUM_KBPS)
+		kbps = DELTA_WIRE_VOICE_MAXIMUM_KBPS;
+	/* (a 20 ms frame's average share is kbps * 1000 / 8 / 50 bytes) */
+	cap = kbps * 1000 / 8 / 50 * 2 + 16;
+	return cap < DELTA_WIRE_VOICE_PACKET_SIZE ? cap : DELTA_WIRE_VOICE_PACKET_SIZE;
+}
+
+static int voice_channel_valid(int channel)
+{
+	return channel > _delta_voice_channel_none && channel < NUMBER_OF_DELTA_VOICE_CHANNELS;
+}
+
+int delta_wire_read_voice_up(const unsigned char *payload, int size, struct delta_wire_voice_up *up,
+	const unsigned char **packet)
+{
+	clear(up, (int)sizeof(*up));
+	*packet = 0;
+	if (!payload || size < DELTA_WIRE_VOICE_UP_SIZE || size > DELTA_WIRE_MAXIMUM_PAYLOAD)
+		return 0;
+	up->sequence = read_u16(payload);
+	up->length = payload[2];
+	up->channel = payload[3];
+	up->hears = (unsigned char)(payload[4] & DELTA_VOICE_CHANNELS);
+	if (up->length)
+	{
+		/* (a frame: said on a channel, its bytes exactly what came) */
+		if (size != DELTA_WIRE_VOICE_UP_SIZE + up->length || !voice_channel_valid(up->channel))
+			goto refused;
+		*packet = payload + DELTA_WIRE_VOICE_UP_SIZE;
+		return 1;
+	}
+	/* (no frame: the channels heard, and maybe a party's tag) */
+	if (up->channel != _delta_voice_channel_none)
+		goto refused;
+	if (size == DELTA_WIRE_VOICE_UP_SIZE)
+		return 1;
+	if (size != DELTA_WIRE_VOICE_UP_SIZE + DELTA_WIRE_VOICE_PARTY_TAG_SIZE)
+		goto refused;
+	copy(up->party, payload + DELTA_WIRE_VOICE_UP_SIZE, DELTA_WIRE_VOICE_PARTY_TAG_SIZE);
+	return 1;
+
+refused:
+	clear(up, (int)sizeof(*up));
+	return 0;
+}
+
+int delta_wire_write_voice_up(unsigned char *data, delta_u32 session, const struct delta_wire_voice_up *up,
+	const unsigned char *packet)
+{
+	unsigned char *payload = data + DELTA_WIRE_HEADER_SIZE;
+	int size = DELTA_WIRE_VOICE_UP_SIZE;
+	int index, party = 0;
+
+	if (up->length ? !packet || !voice_channel_valid(up->channel) : up->channel != _delta_voice_channel_none)
+		return 0;
+	for (index = 0; index < DELTA_WIRE_VOICE_PARTY_TAG_SIZE; index++)
+		party |= up->party[index];
+	clear(payload, DELTA_WIRE_VOICE_UP_SIZE);
+	write_u16(payload, up->sequence);
+	payload[2] = up->length;
+	payload[3] = up->channel;
+	payload[4] = (unsigned char)(up->hears & DELTA_VOICE_CHANNELS);
+	if (up->length)
+	{
+		copy(payload + size, packet, up->length);
+		size += up->length;
+	}
+	else if (party)
+	{
+		copy(payload + size, up->party, DELTA_WIRE_VOICE_PARTY_TAG_SIZE);
+		size += DELTA_WIRE_VOICE_PARTY_TAG_SIZE;
+	}
+	delta_wire_write_header(data, DELTA_MAJOR, _delta_message_voice_up, size, session);
+	return DELTA_WIRE_HEADER_SIZE + size;
+}
+
+int delta_wire_read_voice_down(const unsigned char *payload, int size, struct delta_wire_voice_down *down,
+	const unsigned char **packet)
+{
+	clear(down, (int)sizeof(*down));
+	*packet = 0;
+	if (!payload || size < DELTA_WIRE_VOICE_DOWN_SIZE + 1 || size > DELTA_WIRE_MAXIMUM_PAYLOAD)
+		return 0;
+	down->sequence = read_u16(payload);
+	down->speaker_machine = payload[2];
+	down->speaker_player = payload[3];
+	down->route = payload[4];
+	down->channel = payload[5];
+	down->length = payload[6];
+	if (!down->length || size != DELTA_WIRE_VOICE_DOWN_SIZE + down->length ||
+		(down->route != _delta_voice_route_global && down->route != _delta_voice_route_proximity) ||
+		!voice_channel_valid(down->channel))
+	{
+		clear(down, (int)sizeof(*down));
+		return 0;
+	}
+	*packet = payload + DELTA_WIRE_VOICE_DOWN_SIZE;
+	return 1;
+}
+
+int delta_wire_write_voice_down(unsigned char *data, delta_u32 session, const struct delta_wire_voice_down *down,
+	const unsigned char *packet)
+{
+	unsigned char *payload = data + DELTA_WIRE_HEADER_SIZE;
+
+	if (!down->length || !packet || !voice_channel_valid(down->channel) ||
+		(down->route != _delta_voice_route_global && down->route != _delta_voice_route_proximity))
+	{
+		return 0;
+	}
+	clear(payload, DELTA_WIRE_VOICE_DOWN_SIZE);
+	write_u16(payload, down->sequence);
+	payload[2] = down->speaker_machine;
+	payload[3] = down->speaker_player;
+	payload[4] = down->route;
+	payload[5] = down->channel;
+	payload[6] = down->length;
+	copy(payload + DELTA_WIRE_VOICE_DOWN_SIZE, packet, down->length);
+	delta_wire_write_header(data, DELTA_MAJOR, _delta_message_voice_down, DELTA_WIRE_VOICE_DOWN_SIZE + down->length,
+		session);
+	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_VOICE_DOWN_SIZE + down->length;
+}
+
+static int voice_config_valid(const struct delta_wire_voice_config *config)
+{
+	return config->kbps >= DELTA_WIRE_VOICE_MINIMUM_KBPS && config->kbps <= DELTA_WIRE_VOICE_MAXIMUM_KBPS &&
+		config->proximity >= DELTA_WIRE_VOICE_MINIMUM_PROXIMITY &&
+		config->proximity <= DELTA_WIRE_VOICE_MAXIMUM_PROXIMITY;
+}
+
+int delta_wire_read_voice_config(const unsigned char *payload, int size, struct delta_wire_voice_config *config)
+{
+	clear(config, (int)sizeof(*config));
+	if (!payload || size < DELTA_WIRE_VOICE_CONFIG_SIZE || size > DELTA_WIRE_MAXIMUM_PAYLOAD || !payload[0])
+		return 0;
+	config->channels = (unsigned char)(payload[1] & DELTA_VOICE_KNOWN_CONFIG);
+	config->flags = (unsigned char)(payload[2] & DELTA_VOICE_CONFIG_MUTED);
+	config->kbps = payload[3];
+	config->proximity = read_u16(payload + 4);
+	config->mute_seconds = read_u32(payload + 8);
+	if (!voice_config_valid(config))
+	{
+		clear(config, (int)sizeof(*config));
+		return 0;
+	}
+	return 1;
+}
+
+int delta_wire_write_voice_config(unsigned char *data, delta_u32 session, const struct delta_wire_voice_config *config)
+{
+	unsigned char *payload = data + DELTA_WIRE_HEADER_SIZE;
+
+	if (!voice_config_valid(config) || (config->channels & ~DELTA_VOICE_KNOWN_CONFIG) ||
+		(config->flags & ~DELTA_VOICE_CONFIG_MUTED))
+	{
+		return 0;
+	}
+	clear(payload, DELTA_WIRE_VOICE_CONFIG_SIZE);
+	payload[0] = DELTA_WIRE_VOICE_CONFIG_VERSION;
+	payload[1] = config->channels;
+	payload[2] = config->flags;
+	payload[3] = config->kbps;
+	write_u16(payload + 4, config->proximity);
+	write_u32(payload + 8, config->mute_seconds);
+	delta_wire_write_header(data, DELTA_MAJOR, _delta_message_voice_config, DELTA_WIRE_VOICE_CONFIG_SIZE, session);
+	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_VOICE_CONFIG_SIZE;
 }
 
 /* ---------- object sync */

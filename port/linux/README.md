@@ -650,6 +650,8 @@ the setting for one start of the game. It has priority over the file.
 | `network.join_from_clipboard` | `"never"` | `HALO_NET_JOIN_FROM_CLIPBOARD` | An invite link on the clipboard when the game comes to the front: `"ask"` asks over the menus whether to join its game (with its name and map when the game list knows them; No is kept for that invite), `"always"` joins it, `"never"` leaves it. `true` and `false`, from older versions, mean `"always"` and `"never"`. Network Settings in the Chupathingy and Gearbox menus. |
 | `network.copy_to_clipboard` | `false` | `HALO_NET_COPY_TO_CLIPBOARD` | `true`: when this copy starts to host a game, its invite link goes on the clipboard. `false`: the game leaves the clipboard alone; the link is in the log, and INVITE LINK in the Gearbox menus' Server Settings copies it. Network Settings in the Chupathingy and Gearbox menus. |
 | `network.map_downloads` | `"ask"` | `HALO_NET_MAP_DOWNLOADS` | A Custom Edition map a game you join needs and you don't have, from the community map repositories (maps.halonet.net and its mirrors, as Chimera downloads from them). `"ask"`: the Online Games screen offers to download it (Yes, No, Don't ask again, which writes `"always"` or `"never"` here). `"always"`: downloaded without asking. `"never"`: the game only says which map is missing. Network Settings in the PC menus. The map is checked before it goes in `maps_ce`: refer to "Halo PC maps" in [docs/maps.md](../../docs/maps.md#halo-pc-maps). Not on the dedicated server. |
+| `network.map_share` | `false` | `HALO_NET_MAP_SHARE` | Map sharing, for the dedicated server only for now (a game you host from the menus never shares; that may come later): a player who joins without your Custom Edition map, and asks for it, gets it from your game. Only the map your game is on now, only the map file (never `bitmaps.map`, `sounds.map` or `loc.map`), only to machines in your game, over TCP port 5153. Off by default. Refer to "Map sharing". |
+| `network.map_share_upload` | `1024` | `HALO_NET_MAP_SHARE_UPLOAD` | The most map sharing sends, in KB a second, shared by everyone downloading at once (16 to 20480). |
 | `network.playlist_downloads` | `"ask"` | `HALO_NET_PLAYLIST_DOWNLOADS` | When you join a game of a verified playlist, its map set (refer to [docs/playlist-maps.md](../../docs/playlist-maps.md)): `"ask"` says which of its maps you don't have and offers to download them (Yes, No, Don't ask again, which writes `"always"` or `"never"` here); `"always"` downloads them without asking; `"never"` doesn't check. Each file is checked against the signed list before it goes in its folder. Separate from `network.map_downloads`. Desktop and Android. |
 | `network.tunnel_port` | `2302` on the desktop and Android, `0` on the consoles and the server | `HALO_NET_TUNNEL_PORT` | The UDP port for internet play. At its default, every copy of the game starts on a port it selects, and moves to 2302 when it hosts an internet game (Server Setup, or the game's start); if another program has 2302, the next free port up to 2306; if all are taken, the selected port stays. The log names the port. A port that you set (in the file, Server Setup's PORT, or the environment variable) is used from the start, to join as well as to host, and no other is tried. `0`: the game selects a port each run, also to host. Refer to "Internet play". |
 | `network.allow_upnp` | `true` | `HALO_NET_ALLOW_UPNP` | `true`: internet play can ask the router to forward its port (UPnP). `false`: the game does not ask. Refer to "Internet play". |
@@ -711,6 +713,7 @@ the setting for one start of the game. It has priority over the file.
 | `debug.menu_open` | `""` | `HALO_MENU_OPEN` | Start on this screen of the menus (`main_menu/settings_select/...`, as `port/assets/menus` names it), a player profile being edited, to look at it. |
 | `debug.gpu_skip_vertex_shaders`, `debug.gpu_debug_expression`, `debug.gpu_debug_flat`, `debug.gpu_debug_texture0` | off | `HALO_GPU_SKIP_VS`, `HALO_GPU_DEBUG_EXPR`, `HALO_GPU_DEBUG_FLAT`, `HALO_GPU_DEBUG_T0` | Tools to find problems in the graphics: skip the draws of a vertex shader, or replace the output of all pixel shaders with a GLSL expression (for example `t0.rgb`). |
 | `debug.network_test`, `debug.network_test_start`, `debug.network_test_kill`, `debug.network_test_score`, `debug.network_test_shoot`, `debug.network_test_shoot_walls`, `debug.network_test_vehicle`, `debug.network_test_pickup`, `debug.network_test_pickup_weapon`, `debug.network_test_fall`, `debug.network_test_bomb_in_goal`, `debug.network_test_bomb_throw`, `debug.network_test_bomb_keep`, `debug.network_test_team_change`, `debug.network_test_pause`, `debug.network_test_moderate`, `debug.network_test_moderate_time`, `debug.network_test_local_players`, `debug.network_test_password`, `debug.network_test_invite_file`, `debug.test_input` | off | `HALO_NETWORK_TEST`, `HALO_NETWORK_TEST_START`, `HALO_NETWORK_TEST_KILL`, `HALO_NETWORK_TEST_SCORE`, `HALO_NETWORK_TEST_SHOOT`, `HALO_NETWORK_TEST_SHOOT_WALLS`, `HALO_NETWORK_TEST_VEHICLE`, `HALO_NETWORK_TEST_PICKUP`, `HALO_NETWORK_TEST_PICKUP_WEAPON`, `HALO_NETWORK_TEST_FALL`, `HALO_NETWORK_TEST_BOMB_IN_GOAL`, `HALO_NETWORK_TEST_BOMB_THROW`, `HALO_NETWORK_TEST_BOMB_KEEP`, `HALO_NETWORK_TEST_TEAM_CHANGE`, `HALO_NETWORK_TEST_PAUSE`, `HALO_NETWORK_TEST_MODERATE`, `HALO_NETWORK_TEST_MODERATE_TIME`, `HALO_NETWORK_TEST_LOCAL_PLAYERS`, `HALO_NETWORK_TEST_PASSWORD`, `HALO_NETWORK_TEST_INVITE_FILE`, `HALO_TEST_INPUT` | Automatic tests of system link (`game/network_test.c`). Refer to `NETCODE.md`. |
+| `debug.map_fetch_folder`, `debug.map_fetch_result`, `debug.map_fetch_name`, `debug.map_fetch_held`, `debug.map_fetch_maximum` | `""`, `""`, `""`, `""`, `512` | `HALO_MAP_FETCH_FOLDER`, `HALO_MAP_FETCH_RESULT`, `HALO_MAP_FETCH_NAME`, `HALO_MAP_FETCH_HELD`, `HALO_MAP_FETCH_MAXIMUM` | The map bot's fetch (`debug.network_test = "fetch:<host>"`): the folder the map goes in, the result file (empty: `result.json` in the folder), the map it came for (its file's name; empty for any), the map versions already held (8 hex digits each, commas between), and the largest map taken in MB (up to 512). Refer to "Map sharing". |
 | `debug.test_gamepads` | 0 | `HALO_TEST_GAMEPADS` | Virtual gamepads (SDL's, up to 4) for tests of split screen: `debug.test_input`'s `menu:` script presses their buttons and sticks as `pad<n>:<button>` (`pad2:a`, `pad1:rs_left`) and takes them out and back with `pad<n>:unplug` and `pad<n>:plug`. |
 | `debug.determinism`, `debug.determinism_hashes`, `debug.determinism_positions`, `debug.determinism_ticks`, `debug.determinism_seed` | off | `HALO_DETERMINISM`, `HALO_DETERMINISM_HASHES`, `HALO_DETERMINISM_POSITIONS`, `HALO_DETERMINISM_TICKS`, `HALO_DETERMINISM_SEED` | The input-replay check of the simulation (`game/determinism_check.c`, `tools/test_determinism.py`): `record:<file>` writes every tick's player actions, `replay:<file>` plays them back, with a line of hashes of the game's state after each tick, and each player's unit position, velocity and vitality (for the trick replays, `tools/test_tricks.py`). |
 | `controls.guide` | `"F3"` | `HALO_KEY_GUIDE` | The key that opens and closes the Guide (`game/guide.c`): `"F3"` to `"F8"` (F9 and F10 are the screenshot and clip keys). Not on the consoles yet. |
@@ -1309,6 +1312,64 @@ name of the profile) gives `ok <code> <seconds> <token>`.
 `POST /v1/connect/confirm` with the token and the answer gives
 `connected <name>`, `declined` or `expired`. The QR code is from
 `port/third_party/qrcodegen`.
+
+### Map sharing
+
+A dedicated server with `network.map_share` on (off by default) hands the
+Custom Edition map its game is on to a machine that joined and asks for it,
+as OpenCE's hosts do: players missing the map get it from the game. A game
+hosted from the menus (a listen host) never shares for now, whatever the
+setting says; that may come later. Our [C] servers turn it on only after
+the map bot's first invite test. The
+request, the offer, the list of other sources and the progress ride the
+game's connection as distributed messages 83 to 86; the file goes over TCP
+port 5153 on the host, in 256 KiB pieces, each checked against its hash.
+Builds that don't know the messages drop them, and nothing here changes the
+network version.
+
+What the host serves, and to whom:
+
+- the map its game is on now, as a Custom Edition map
+  (`custom_maps\<name>`), and only the map file. Halo PC's own maps and the
+  Xbox maps are never shared, nor a map whose file changed since the game
+  started;
+- only to machines in its game: port 5153 takes connections only from
+  their addresses, 15 at once at most, 4 from one address;
+- from the host alone: the list of other sources it sends is empty, so no
+  player's address goes to anyone;
+- at `network.map_share_upload` KB a second in all;
+- one request a machine every 5 seconds.
+
+Only maps whose file names use letters, digits, `_`, `.` and `-` are
+shared. At most 8 machines download at once, 2 from one address. A machine
+that is downloading isn't refused or timed out for having no player, in the
+lobby or in a game in progress, while the host keeps sending it data: its
+stay grows with the bytes the host really sends, not with what the machine
+says it has, and ends after the map's size at 16 KB a second plus two
+minutes, and never after more than 30 minutes, however often it asks
+again. A machine that leaves before the host sent its address the whole
+map keeps that address from starting another download for 15 minutes, so
+a few addresses can't hold every slot by joining again. Its download doesn't hold
+the game up. The host's log says who asked, the progress in tenths and
+each stream closed, with addresses as tags (`debug.log_addresses`).
+
+The map bot of maps.chupathingy.org fetches with this build:
+`debug.network_test = "fetch:<host>"` (`HALO_NETWORK_TEST`), headless
+(`SDL_VIDEO_DRIVER=dummy`). `<host>` is a system link address
+(`a.b.c.d`, or `a.b.c.d:port`) or an internet invite. It joins the game as
+a machine named "Chupathingy map bot" and never adds a player or loads the
+game. It reads the map's name and version from the game's settings and
+leaves at once if `debug.map_fetch_held` lists that version, or if the map
+isn't the one `debug.map_fetch_name` names. Otherwise it
+asks for the map file alone, downloads it from the host alone, reports its
+progress every 2 seconds, and writes `<name>.map.part` in
+`debug.map_fetch_folder`, renamed to `<name>.map` once every piece and the
+whole file check. It listens on no port. Its result is a JSON object in
+`debug.map_fetch_result`: `result` (`fetched`, `held` or `failed`),
+`reason` for a failure (`refused`, `full`, `sharing off`, `unavailable`,
+`not shared`, `timed out`, `too large`, `bad data`, `not reachable`,
+`failed`), `level`, `version`, `size`, `map_hash` and `players`. It exits
+with 0 when it fetched, 10 when it held the version, 1 otherwise.
 
 ## Map checks
 

@@ -262,6 +262,9 @@ symbols in this file:
 #include "networking/network_messages.h"
 #include "networking/network_server_manager_internal.h"
 #include "networking/network_server_message_handler.h"
+#ifdef HALO_GAME_BROWSER
+#include "map_share.h" /* port: map sharing's requests (port/linux/game/map_share_host.c) */
+#endif
 #include "text/unicode.h"
 /* system_milliseconds(), for the settings update interval */
 #include "cseries/cseries_windows.h"
@@ -1755,6 +1758,20 @@ boolean network_game_server_handle_client_message(
 
 			case _message_type_data:
 				/* the distributed netcode's messages (port/linux/NETCODE.md) */
+#ifdef HALO_GAME_BROWSER
+				/* port: map sharing's (83 to 86) from a machine that joined,
+				loaded or not, in the lobby or in the game: a machine
+				downloading the map has not loaded it (port/linux/game/
+				map_share_host.c) */
+				if (network_game_server_client_machine_is_joined_to_game(server, machine))
+				{
+					long machine_index;
+
+					network_game_server_get_client_machine(server, machine, &machine_index);
+					if (map_share_host_message(machine_index, message, message_buffer_size))
+						break;
+				}
+#endif
 				/* (in game, from a machine that has loaded it, as a datagram
 				is: else dropped) */
 				if (network_game_server_client_machine_is_joined_to_game(server, machine) &&
