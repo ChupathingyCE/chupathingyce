@@ -4591,8 +4591,11 @@ static BOOL bg_start(bgfx_renderer_type_t type, int width, int height)
 		return FALSE;
 	}
 	/* (Direct3D 11 falls back to Windows' software renderer, WARP, on a GPU
-	it can't use, a feature level 10 laptop say: OpenGL is faster there) */
+	it can't use, a feature level 10 laptop say: OpenGL is faster there.
+	bgfx names it by Microsoft's IDs, 1414 and 008c, or the software
+	rasterizer's) */
 	if (bg_d3d11 && (bgfx_get_caps()->vendorId == BGFX_PCI_ID_SOFTWARE_RASTERIZER ||
+		(bgfx_get_caps()->vendorId == 0x1414 && bgfx_get_caps()->deviceId == 0x008c) ||
 		strstr(bgfx_gpu_name, "Basic Render Driver")))
 	{
 		platform_log("bgfx: Direct3D 11 would draw in software (%s), so OpenGL",
@@ -4605,7 +4608,6 @@ static BOOL bg_start(bgfx_renderer_type_t type, int width, int height)
 
 static BOOL bg_initialize(void)
 {
-	bgfx_init_t init;
 	unsigned long index;
 	int width = 0, height = 0;
 	static const unsigned int black = 0xff000000;
