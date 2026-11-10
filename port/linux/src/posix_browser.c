@@ -51,6 +51,7 @@ platform.
 #include <strings.h>
 #define close_socket close
 #endif
+#include <stdint.h>
 #include <time.h>
 #include <stdio.h>
 #include <stdlib.h>
