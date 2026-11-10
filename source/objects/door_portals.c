@@ -30,8 +30,10 @@ nothing goes over the network. display.doors_block_light = false leaves the
 portals open, as the Xbox had them, and debug.door_portals_log logs each
 door's pairing.
 
-A door is paired at an end only once it has rested there DOOR_PORTALS_REST_FRAMES
-frames, so that its pose has settled. The original Xbox, with its CPU and 64
+A door is paired at an end only once it has rested there DOOR_PORTALS_REST_TICKS
+game ticks, so that its pose (moved once a tick, however many frames are drawn)
+has settled. Turning the setting off forgets every door, so turning it on
+again pairs each one afresh. The original Xbox, with its CPU and 64
 MB, keeps fewer doors, polygons and lights (HALO_CONSOLE_XBOX_MAP_SIZES):
 about 20 KB in all, and a door with more polygons than it looks at only
 covers less of its doorway, so it may shut nothing.
@@ -45,6 +47,7 @@ Based on work by goatbutt and the OpenH1 team (erin.cena's door portals).
 #include "math/real_math.h"
 #include "objects/objects.h"
 #include "devices/devices.h"
+#include "game/game.h"
 #include "devices/device_definitions.h"
 #include "devices/device_machines.h"
 #include "physics/collision_bsp.h"
@@ -105,8 +108,8 @@ enum
 #else
 	DOOR_PORTALS_BLOCKED_LIGHTS = 64,
 #endif
-	/* the frames a door rests at an end before it is paired there */
-	DOOR_PORTALS_REST_FRAMES = 10,
+	/* the game ticks a door rests at an end before it is paired there */
+	DOOR_PORTALS_REST_TICKS = 3,
 	DOOR_PORTALS_CLUSTER_WORDS = MAXIMUM_CLUSTERS_PER_STRUCTURE / 32,
 };
 
@@ -159,9 +162,9 @@ struct door_portals_door
 	/* the frame it was last seen in */
 	unsigned long frame;
 	boolean paired[2];
-	/* the end it rests at (NONE: moving) and for how many frames */
+	/* the end it rests at (NONE: moving) and the game tick it came to rest */
 	short rest_end;
-	short rest_frames;
+	long rest_since;
 	short portal_count[2];
 	short portals[2][DOOR_PORTALS_PER_DOOR];
 };
@@ -472,7 +475,12 @@ void door_portals_update(
 	door_portals.blocked_count = 0;
 	door_portals.frame++;
 	if (!structure || !config_boolean("display.doors_block_light"))
+	{
+		/* (forgotten, so that when the setting is on again no door pairs
+		from a rest counted before) */
+		door_portals.door_count = 0;
 		return;
+	}
 	object_iterator_new(&iterator, _object_mask_machine, 0);
 	while ((machine = (struct machine_datum *)object_iterator_next(&iterator)) != NULL)
 	{
@@ -502,17 +510,15 @@ void door_portals_update(
 		if (end != door->rest_end)
 		{
 			door->rest_end = end;
-			door->rest_frames = 0;
+			door->rest_since = game_time_get();
 		}
 		if (end == NONE)
 			continue;
-		if (door->rest_frames < DOOR_PORTALS_REST_FRAMES)
-			door->rest_frames++;
 		/* (paired once it has rested there long enough for its pose to
 		settle; it shuts nothing there before) */
 		if (!door->paired[end])
 		{
-			if (door->rest_frames < DOOR_PORTALS_REST_FRAMES)
+			if (game_time_get() - door->rest_since < DOOR_PORTALS_REST_TICKS)
 				continue;
 			door_portals_pair(iterator.index, door, end);
 			door->paired[end] = TRUE;
