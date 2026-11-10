@@ -173,6 +173,17 @@ random port (0), as before. */
 #define DEFAULT_TUNNEL_PORT "2302"
 #endif
 
+/* update.channel's default is the build's own channel: a release's
+"release", a test build's "testing", a nightly's "nightly" (tools/version.py
+gives HALO_UPDATE_CHANNEL only to those two), so a test build keeps getting
+test builds until its player picks Release. A new setting: nobody has
+chosen it, so nothing is asked (config_new_defaults_pending). */
+#ifdef HALO_UPDATE_CHANNEL
+#define UPDATE_CHANNEL_DEFAULT "\"" HALO_UPDATE_CHANNEL "\""
+#else
+#define UPDATE_CHANNEL_DEFAULT "\"release\""
+#endif
+
 /* A game you host starts with only you by default (the older
 debug.solo_game, from Mootjuh, was the same setting: config_renamed). The
 dedicated server keeps waiting for a second player: it never needs this. */
@@ -285,6 +296,10 @@ static const struct config_setting config_settings[] =
 	{ "display.resolution", _config_string, "\"native\"", "HALO_RESOLUTION", _environment_value, _platform_desktop,
 		"The resolution in fullscreen and borderless. \"native\" uses the\n"
 		"display's own. Or give a size, like \"1920x1080\". The smallest is 640x480." },
+	{ "display.refresh_rate", _config_real, "0.0", "HALO_REFRESH_RATE", _environment_value, _platform_desktop,
+		"Fullscreen's refresh rate in Hz (the nearest the display has at the\n"
+		"resolution). 0 keeps the display's own. Windows and X11 only: Wayland,\n"
+		"XWayland, gamescope and the Mac keep their own." },
 	{ "display.window_size", _config_string, "\"\"", "HALO_WINDOW_SIZE", _environment_value, _platform_desktop,
 		"The window's size, like \"1920x1080\". The smallest is 640x480.\n"
 		"Leave it empty to use display.window_scale." },
@@ -430,8 +445,9 @@ static const struct config_setting config_settings[] =
 #if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_GAME_REPORTS)
 	{ "display.medals", _config_boolean, "false", "HALO_MEDALS", _environment_value, _platform_all | _platform_xbox,
 		"Show your medals on the HUD as you earn them in multiplayer (Double\n"
-		"Kill, Killing Spree). Off by default, as Halo shows none. Your medals\n"
-		"are counted in your service record either way." },
+		"Kill, Killing Spree): their icons in a row on the left, or their\n"
+		"names on a build without the icons. Off by default, as Halo shows\n"
+		"none. Your medals are counted in your service record either way." },
 #endif
 	{ "display.follow_camera", _config_string, "\"off\"", "HALO_FOLLOW_CAMERA", _environment_value,
 		_platform_all | _platform_xbox,
@@ -1245,6 +1261,13 @@ static const struct config_setting config_settings[] =
 	/* ---- update */
 	{ "update.auto", _config_boolean, "true", "HALO_UPDATE_AUTO", _environment_value, _platform_all,
 		"Check for a new version when Chupathingy starts." },
+	{ "update.channel", _config_string, UPDATE_CHANNEL_DEFAULT, "HALO_UPDATE_CHANNEL", _environment_value,
+		_platform_desktop | _platform_android,
+		"Which builds to update to: \"release\", \"testing\" or \"nightly\".\n"
+		"Testing gets new features first, and may have bugs. Nightly is built\n"
+		"every night and gets them earlier still. Each also gets the more\n"
+		"stable builds. Going back to \"release\" waits for the next release\n"
+		"newer than the build you have." },
 #if defined(_WIN32) && !defined(HALO_64BIT)
 	{ "update.offer_64bit", _config_boolean, "true", "HALO_UPDATE_OFFER_64BIT", _environment_value, _platform_windows,
 		"On 64-bit Windows, offer to switch this 32-bit build to the 64-bit\n"
@@ -1341,6 +1364,10 @@ static const struct config_setting config_settings[] =
 	{ "debug.network_test_moderate_time", _config_real, "20.0", "HALO_NETWORK_TEST_MODERATE_TIME", _environment_value,
 		_platform_all,
 		"Seconds into a test game before the host takes its Moderation action." },
+	{ "debug.medal_test", _config_string, "\"\"", "HALO_MEDAL_TEST", _environment_value, _platform_all,
+		"Tests: medals shown on the first player's HUD every 4 seconds, by\n"
+		"their keys split by spaces (\"double_kill killing_spree\"), with\n"
+		"display.medals on. Leave it empty for none." },
 	{ "debug.network_test_local_players", _config_integer, "1", "HALO_NETWORK_TEST_LOCAL_PLAYERS", _environment_value,
 		_platform_all,
 		"A test machine's players, from 1 to 4." },
@@ -3947,6 +3974,9 @@ static const struct
 	{ "crash_reports.upload", { "ask", "yes", "no", NULL }, "\"ask\"" },
 	{ "launcher.show_at_start", { "when_needed", "always", NULL }, "\"when_needed\"" },
 	{ "launcher.mode_choice", { "ask", "default", NULL }, "\"ask\"" },
+#ifndef HALO_CONSOLE_NO_UPDATER
+	{ "update.channel", { "release", "testing", "nightly", NULL }, "\"release\"" },
+#endif
 };
 
 #define NUMBER_OF_CONFIG_WORDS (sizeof(config_words) / sizeof(config_words[0]))

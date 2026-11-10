@@ -542,6 +542,7 @@ the setting for one start of the game. It has priority over the file.
 | `display.mode` | `""` | `HALO_DISPLAY_MODE` | `"fullscreen"`: the display, taken at the mode of `display.resolution` (the nearest the display has), or at its desktop mode. `"borderless"`: a window over the whole desktop, whose mode does not change. `"windowed"`: a window of `display.window_size`. Empty: `display.fullscreen` decides (`true`: borderless). When it is set, `display.fullscreen` is ignored, and the log says so if both are set. F11 changes between the window and the fullscreen mode. Video Setup sets it. |
 | `display.fullscreen` | `true` (macOS: `false`) | `HALO_FULLSCREEN` | `true`: borderless, as `display.mode = "borderless"`. `false`: a window, as `display.mode = "windowed"`. Used only when `display.mode` is empty. |
 | `display.resolution` | `"native"` | `HALO_RESOLUTION` | What fullscreen and borderless draw at: `"native"`, the display's own resolution, or `"<width>x<height>"`, such as `"1920x1080"`, 640x480 or more. Fullscreen sets the display to it. Borderless draws at it and scales the picture to the display, where the display has room for it. The picture has 480 lines of the game and the width of the resolution's shape. A window draws at its own size instead. Video Setup's Resolution sets it, from the display's modes; it shows with Fullscreen and Borderless. |
+| `display.refresh_rate` | `0.0` | `HALO_REFRESH_RATE` | Fullscreen's refresh rate in Hz: the display's mode nearest it, at `display.resolution` (or the display's own size). `0`: the display's own rate. Only Windows and X11 can change it. Wayland, XWayland, gamescope, macOS and Android keep their own rate. Borderless and windowed keep the desktop's. The log names the mode taken. config.toml only. |
 | `display.resolution_scaling` | `"native"` | `HALO_RESOLUTION_SCALING` | `"native"`: the game draws at the resolution of the window, or of the display (or `display.resolution`) fullscreen. `"original"`: the game draws the 640x480 picture of the Xbox and scales it up to the window or the display, whatever `display.mode` is. Video Setup sets it. |
 | `display.window_size` | `""` | `HALO_WINDOW_SIZE` | The size of the window, as `"<width>x<height>"`, such as `"1920x1080"`, 640x480 or more. You can change the size of the window; the game's picture takes its shape. Empty: `display.window_scale` decides. Video Setup's Window Size sets it, from sizes of each shape (4:3, 16:10, 16:9 and 21:9) that fit the desktop; it shows with Windowed. |
 | `display.window_scale` | `2` | `HALO_WINDOW_SCALE` | Used when `display.window_size` is empty: the size of the window, as a multiple of 640x480. |
@@ -576,7 +577,7 @@ the setting for one start of the game. It has priority over the file.
 | `display.follow_camera` | `"off"` | `HALO_FOLLOW_CAMERA` | In multiplayer, when a dead player's camera follows a living player from behind once the original death camera is done (3 seconds): a teammate in a team game, the killer (or the leader) in a game without teams. LB and RB (Q and E, or the mouse wheel, on the keyboard) switch who, and a "FOLLOWING" line near the bottom says who; it returns to the player's own view on respawn. `"long_waits"`: only when the wait to respawn is long (`display.follow_camera_after`), the player is out of lives or odd man out, or the game type holds spawns until its next round; a short respawn keeps the original death camera. `"always"`: after every death. `"off"`: the original death camera only, as on the Xbox. Only where the game's host allows it (its `network.allow_follow_camera`, a dedicated server's `allow_follow_camera`); a host that says nothing (OpenCE's, an older build) allows none. Split screen: each player's own. |
 | `display.follow_camera_after` | `5.0` | `HALO_FOLLOW_CAMERA_AFTER` | For `display.follow_camera`'s `"long_waits"`: how many seconds of the wait to respawn must be left once the death camera is done for the camera to follow someone. |
 | `display.powerup_timers` | `false` | `HALO_POWERUP_TIMERS` | `true`: a small line of the HUD's text near the top of the view shows the seconds left on the player's active camouflage, overshield and full spectrum vision while one is on ("CAMO 12   OVERSHIELD 41"). The overshield's time is what is left of it above full: it counts down only in multiplayer, where it drains, so in campaign it shows none. Split screen: each player's own. `false`: none, as the original game. |
-| `display.medals` | `false` | `HALO_MEDALS` | `true`: in a multiplayer game, each medal you earn shows as a line of the HUD's messages ("Double Kill", "Killing Spree"), by the rules of `port/linux/src/medal_rules.h`. Off by default, as Halo shows none; nothing in the game changes. DELTA's SERVICE RECORD has the same switch. Medals are counted for the reports and your service record either way. |
+| `display.medals` | `false` | `HALO_MEDALS` | `true`: in a multiplayer game, each medal you earn shows as its icon at the end of the kill's line in the HUD's messages ("You killed Sarge" and a Double Kill after it), by the rules of `port/linux/src/medal_rules.h`, with the site's icons (`port/assets/medals`). Medals no kill's line took get a line of their own. A build without the icons (every console build: they need the game list) shows each medal's name as a line instead. Off by default, as Halo shows none; nothing in the game changes. DELTA's SERVICE RECORD has the same switch. Medals are counted for the reports and your service record either way. |
 | `display.loading_screen` | `true` | `HALO_LOADING_SCREEN` | Keep the original loading screen (the picture with the glow that crosses it) up for a while when a level loads, as loading from the Xbox's disc did; the port's loads are usually over before it shows. How long is set for each kind of game below; the default is no wait. Press A (Space or Enter on the keyboard) to skip the rest of the wait; a load that is still running finishes first. Also when the level is already loaded (a restart). Never for the main menu or a saved film. `false`: every level loads as fast as it can. |
 | `display.loading_screen_campaign_seconds` | `0.0` | `HALO_LOADING_SCREEN_CAMPAIGN_SECONDS` | The least seconds the loading screen stays up when a campaign level loads on this machine alone, split screen co-op too, up to 30. A load that takes longer shows for as long as it takes. `0`: no wait. A value set in 0.8.0's `display.loading_screen_min_seconds` is moved to this setting the first time the game starts. |
 | `display.loading_screen_multiplayer_seconds` | `0.0` | `HALO_LOADING_SCREEN_MULTIPLAYER_SECONDS` | The same for every other game: split screen multiplayer, system link, online and network co-op, on a machine that joins and on one that hosts and plays, up to 5: while the loading screen is held, the machine hears nothing from the network, and a host drops a machine it hears nothing from for 15 seconds. Machines already finish loading at their own times. Never on the dedicated server. `0`: no wait. |
@@ -708,6 +709,7 @@ the setting for one start of the game. It has priority over the file.
 | `discord.accept_join_requests` | `false` | `HALO_DISCORD_ACCEPT_JOIN_REQUESTS` | `true`: the game accepts every Ask to Join for the public game you host. `false`: Discord handles the request. |
 | `discord.register_launch` | `true` | `HALO_DISCORD_REGISTER_LAUNCH` | `true`: once connected to Discord, the game tells it how to start Chupathingy, as Discord's own SDK does. Then Discord shows Join to friends whose game is closed, and starts the game for it. Windows: `HKEY_CURRENT_USER\Software\Classes\discord-<application>`. Linux and FreeBSD: `discord-<application>.desktop` in `~/.local/share/applications`. macOS: the app becomes the handler of `discord-<application>://`. An entry of another program's is left alone. `false`: nothing is registered. |
 | `update.auto` | `true` | `HALO_UPDATE_AUTO` | `true`: at start-up, the game looks for a new version. Refer to "Updates". `false`: the game does not look. |
+| `update.channel` | `"release"` (a test build: `"testing"`, a nightly: `"nightly"`) | `HALO_UPDATE_CHANNEL` | Which builds to update to. `"release"`: releases. `"testing"`: test builds and releases. `"nightly"`: nightlies, test builds and releases. Refer to "Update channels". |
 | `update.offer_64bit` | `true` | `HALO_UPDATE_OFFER_64BIT` | The 32-bit Windows build only. `true`: on 64-bit Windows, when the game looks for a new version, it offers the 64-bit build once. `false`: it doesn't, and "Keep 32-bit" writes this. |
 | `crash_reports.upload` | `"ask"` | `HALO_CRASH_REPORTS` | Desktop builds (releases and nightlies). `"yes"`: the game sends a report of each crash to the developers, through `network.browser_url`. `"no"`: the game sends no reports. `"ask"`: the game asks after the next crash (on Linux and macOS, when it starts the next time) and writes the answer here. On the Privacy screen (Gearbox menus). Refer to "Crash reports" below and in [port/windows/README.md](../windows/README.md#crash-reports). |
 | `debug.update_answer` | `""` | `HALO_UPDATE_ANSWER` | The answer to the update question, for automatic tests: `yes`, `no` or `never`. Empty: the game asks. |
@@ -767,6 +769,43 @@ If the latest release is newer, the game asks: "Do you want to update?"
 - Select "Do not ask again", then "Yes", to stop the questions. The game
   writes `auto = false` in the `[update]` section of `config.toml`. To get
   the questions again, set `auto = true`.
+
+### Update channels
+
+`update.channel` picks the builds the game updates to: `"release"` (the
+default), `"testing"` or `"nightly"`. The test builds and the nightlies look
+for updates too, and start on their own channel.
+
+- Release reads the latest release, as above.
+- Testing also reads the testing channel's list,
+  `releases/download/testing/updates.json`, on the fixed `testing`
+  pre-release. The list names the newest test build's files on its own
+  pre-release (`v0.9.1-testing`).
+- Nightly also reads the nightly channel's list,
+  `releases/download/nightly/updates.json`.
+
+The game offers the newest of these, and never a build older than the one it
+runs. Versions are in this order: by their numbers, then the hotfix letter,
+then a release before all test builds and nightlies of its version. The test
+builds and the nightlies are `<version>-testing.<serial>` and
+`<version>-nightly.<serial>`. The serial is the time the build was made
+(`202611101530`, UTC). They are in the order they were built, whatever their
+channel:
+
+    0.9.0d < 0.9.1-nightly.202611100400 < 0.9.1-testing.202611101200
+           < 0.9.1-nightly.202611110400 < 0.9.1 < 0.9.2-testing.202611200900
+
+So after a test build, a player who goes back to Release keeps it until the
+next release newer than it.
+
+A channel's list has `"channel": "testing"` or `"nightly"`, and its version
+must be that channel's. It is signed like a release's (`updates.json.sig`),
+by the prerelease key (`src/update_prerelease_key.h`) or a release key. The
+prerelease key is trusted for the testing and nightly lists only, never for a
+release's list or zip. A release's list says `"channel": "release"` from
+0.9.1 on; the builds before it skip that field. Android checks a channel's
+list only on Android 13 or later (Ed25519); before that it offers releases
+only.
 
 The 32-bit Windows build on 64-bit Windows also offers the 64-bit build,
 once. The 32-bit graphics drivers crash much more often. "Yes" installs the

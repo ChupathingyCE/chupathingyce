@@ -141,6 +141,7 @@ static const struct settings_row settings_rows[] =
 	{ _in_network, "CRASH REPORTS", "crash_reports.upload", _kind_words, NULL, NULL, 0, 0 },
 
 	{ _in_updates, "CHECK FOR UPDATES", "update.auto", _kind_toggle, NULL, NULL, 0, 0 },
+	{ _in_updates, "CHANNEL", "update.channel", _kind_words, NULL, NULL, 0, 0 },
 
 };
 

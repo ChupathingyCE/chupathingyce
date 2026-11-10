@@ -27,6 +27,7 @@ A few people look for most:
 | --- | --- |
 | `display.mode` | `"fullscreen"`, `"borderless"` or `"windowed"`. F11 switches between a window and the whole screen. When it is set, `display.fullscreen` is ignored; when it is empty, `display.fullscreen = true` is borderless and `false` a window. |
 | `display.window_scale` | The window's size, as a multiple of 640x480. |
+| `display.refresh_rate` | Fullscreen's refresh rate in Hz, the nearest the display has. 0 (the default) keeps the display's own. It only works on Windows and X11. Wayland, gamescope and the Mac keep their own rate. config.toml only for now. |
 | `display.vsync`, `display.max_fps` | Vertical sync, and a frame rate cap with V-Sync off (0 for twice the display's refresh rate, -1 for none). On the Steam Deck in Game Mode (under gamescope), a cap at the display's refresh rate or a whole fraction of it (60 at 60 Hz, or 30) keeps the frames in step with the display, so they don't judder. Everywhere else a cap with V-Sync off works as before. |
 | `display.interpolation` | `false` keeps the game's own 30 frames a second; Video Setup's Frame Rate at 30 (Xbox) sets it. |
 | `display.direct_camera` | Instant aim: the view turns the frame the mouse, stick or touch moves it. On by default; config.toml only. |
@@ -120,8 +121,6 @@ What we know is different from OpenGL:
 - FXAA, SMAA and supersampling are OpenGL only. With bgfx they become MSAA 2x.
 - The Halo PC ammo and health meters look different.
 - The first-person pistol is a little brighter, and water looks grainy.
-- On Linux with a software Vulkan driver, some cliffs looked flatter than
-  with OpenGL. We don't know yet if real graphics cards do this.
 - There's no menu option for it yet. It's in `config.toml` only.
 - The 32-bit builds, Android, FreeBSD and the consoles don't have it.
 
