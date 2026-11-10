@@ -103,8 +103,11 @@ static struct structure_bsp *fixture_bsp_get(void) { CHECK(global_structure_bsp_
 #define tag_index_is_group(index, group) ((index)==0)
 #define shader_definition_get(index) (&fixture_shader)
 #define system_milliseconds() 100UL
-#define environment_vertex_compressed_get_normal(vertex, out) (*(out)=((struct fixture_vertex const *)(vertex))->normal)
-/* the engine's accessor reads the map's little-endian floats (rasterizer_vertex_byte_order.h, in types.inc) */
+/* the engine's accessors read the map's little-endian bytes (rasterizer_vertex_byte_order.h, in types.inc); the
+fixture keeps its normal as three floats rather than the packed dword */
+#define environment_vertex_compressed_get_normal(vertex, out) ((out)->i=vertex_data_read_float(&((struct fixture_vertex const *)(vertex))->normal.i), \
+    (out)->j=vertex_data_read_float(&((struct fixture_vertex const *)(vertex))->normal.j), \
+    (out)->k=vertex_data_read_float(&((struct fixture_vertex const *)(vertex))->normal.k))
 #define environment_vertex_compressed_get_point(vertex, out) ((out)->x=vertex_data_read_float(&((struct fixture_vertex const *)(vertex))->point.x), \
     (out)->y=vertex_data_read_float(&((struct fixture_vertex const *)(vertex))->point.y), \
     (out)->z=vertex_data_read_float(&((struct fixture_vertex const *)(vertex))->point.z))
