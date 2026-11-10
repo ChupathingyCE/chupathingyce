@@ -153,13 +153,6 @@ says it hears voices, so no host sends it any */
 #define HALO_CONSOLE_NO_VOICE
 #endif
 
-/* the Light effects (display.light_effects, port/linux/game/plasma_lighting.c):
-a desktop's lighting extra; its headers give a console empty hooks, and its
-sources build to nothing (plasma_occlusion.c's fields alone are 130 KB) */
-#ifndef HALO_CONSOLE_NO_LIGHT_EFFECTS
-#define HALO_CONSOLE_NO_LIGHT_EFFECTS
-#endif
-
 #endif /* HALO_CONSOLE */
 
 /* voice chat over Delta Peer (docs/delta.md, Voice): the desktop builds'
@@ -187,6 +180,15 @@ whose game list sends it), and a console's that sends its own reports
 (HALO_CONSOLE_GAME_REPORTS: port/console/reports/console_reports.h) */
 #if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_GAME_REPORTS)
 #define HALO_PORT_GAME_REPORTS
+#endif
+
+/* the Light effects (display.light_effects, port/linux/game/plasma_lighting.c):
+a desktop's lighting extra, on no console (any console's build, whichever
+switches it sets on its own): its headers give empty hooks, and its sources
+build to nothing (plasma_occlusion.c's fields alone are 130 KB) */
+#if (defined(HALO_CONSOLE) || defined(HALO_XBOX_CONSOLE) || defined(HALO_CONSOLE_GL_LAYER)) && \
+	!defined(HALO_CONSOLE_NO_LIGHT_EFFECTS)
+#define HALO_CONSOLE_NO_LIGHT_EFFECTS
 #endif
 
 #endif /* __HALO_PORT_FEATURES_H */
