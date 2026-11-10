@@ -139,6 +139,8 @@ DEFINES = {
 	"android": ["-U__APPLE__", "-DHALO_ANDROID", "-DHALO_GAME_BROWSER"],
 	"server": ["-U__APPLE__", "-DHALO_SERVER", "-DHALO_64BIT", "-DHALO_GAME_BROWSER"],
 	"console": ["-U__APPLE__", "-DHALO_CONSOLE", "-DHALO_CONSOLE_GL_LAYER", "-DHALO_GAME_BROWSER"],
+	# (the original Xbox's: the settings only, test_xbox_follows_new_defaults)
+	"xbox": ["-U__APPLE__", "-DHALO_CONSOLE", "-DHALO_XBOX_CONSOLE", "-D_strnicmp=strncasecmp"],
 }
 
 STUB_PLATFORM = """#include <stddef.h>
@@ -242,7 +244,7 @@ class Case:
 		environment["HALO_DATA_ROOT"] = str(self.folder)
 		environment.update(environment_extra or {})
 		result = subprocess.run([str(self.program), *arguments], capture_output=True, text=True,
-			env=environment, check=True)
+			env=environment, check=True, cwd=self.folder)
 		values = dict(re.findall(r"^([a-z_]+\.[a-z_0-9]+)=(.*)$", result.stdout, re.M))
 		return values, result.stdout
 
@@ -1009,6 +1011,34 @@ def test_follow_file(program, directory, defaults, kind):
 	check(float(match.group(1)) < 200.0, f"follow/{kind}: config_changes takes {match.group(1)} ns a call")
 
 
+def test_xbox_follows_new_defaults(program, directory):
+	"""The original Xbox has no screen to ask about new defaults on: a file it
+	wrote before one changed, the setting commented out at the old default,
+	follows the new one (an Xbox that ran an earlier build kept waiting for a
+	second player, warthog-xbox#106), and nothing is left pending; a value the
+	file names keeps."""
+	case = Case(program, directory / "xbox_follow")
+	# (the Xbox's file is d:\\config.toml, which here is that name in the
+	# folder the test runs in)
+	case.path = case.folder / "d:\\config.toml"
+	text = fresh_file(case, "xbox")
+	for key, old in (("start_with_one_player", "false"), ("follow_camera", '"long_waits"')):
+		text = re.sub(rf"^# {key} = .*$", f"# {key} = {old}", text, flags=re.M)
+	case.path.write_text(text)
+	count, output = pending(case)
+	check(count == 0, f"xbox/follow: asked: {count} {output}")
+	values, _ = case.get("game.start_with_one_player", "display.follow_camera")
+	check(values["game.start_with_one_player"] == "true" and values["display.follow_camera"] == "off",
+		f"xbox/follow: {values}")
+	case = Case(program, directory / "xbox_chosen")
+	case.path = case.folder / "d:\\config.toml"
+	text = fresh_file(case, "xbox")
+	text = re.sub(r"^# start_with_one_player = .*$", "start_with_one_player = false", text, flags=re.M)
+	case.path.write_text(text)
+	values, _ = case.get("game.start_with_one_player")
+	check(values["game.start_with_one_player"] == "false", f"xbox/chosen: {values}")
+
+
 def main():
 	parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
 	parser.add_argument("--cc", default=os.environ.get("CC", "cc"))
@@ -1016,6 +1046,13 @@ def main():
 	failures = 0
 	with tempfile.TemporaryDirectory() as directory:
 		directory = Path(directory)
+		program = build(arguments.cc, "xbox", directory / "xbox")
+		try:
+			test_xbox_follows_new_defaults(program, directory / "xbox" / "cases")
+			print("ok   xbox: test_xbox_follows_new_defaults")
+		except AssertionError as error:
+			print(f"FAIL xbox: test_xbox_follows_new_defaults: {error}")
+			failures += 1
 		for kind in DEFAULTS:
 			program = build(arguments.cc, kind, directory / kind)
 			if kind == "desktop32":
