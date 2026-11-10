@@ -136,7 +136,7 @@ def bgfx_include_flags() -> List[str]:
     """the headers d3d8_gl.c includes for the bgfx renderer"""
     bgfx, bx, glslang = BGFX_SOURCES / "bgfx", BGFX_SOURCES / "bx", BGFX_SOURCES / "bgfx/3rdparty/glslang"
     return ["-DHALO_BGFX", f"-I{bgfx / 'include'}", f"-I{bx / 'include'}", f"-I{glslang}",
-            f"-I{bgfx / '3rdparty/spirv-cross'}"]
+            f"-I{bgfx / '3rdparty/spirv-cross'}", f"-I{bgfx / '3rdparty/khronos'}"]
 
 
 def bgfx_build(n: Writer, target: BgfxTarget) -> List[Path]:

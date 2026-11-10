@@ -23,6 +23,21 @@ Xbox memory window uses. Also the process start-up the Windows build needs.
 
 /* ---------- start-up */
 
+void *win32_system_library(const char *name)
+{
+	wchar_t path[MAX_PATH];
+	UINT length = GetSystemDirectoryW(path, MAX_PATH);
+
+	/* (System32's full path, which every Windows takes: the
+	LOAD_LIBRARY_SEARCH flags need KB2533623 on Windows 7) */
+	if (!length || length + 2 >= MAX_PATH)
+		return NULL;
+	path[length++] = L'\\';
+	if (!MultiByteToWideChar(CP_UTF8, 0, name, -1, path + length, (int)(MAX_PATH - length)))
+		return NULL;
+	return (void *)LoadLibraryExW(path, NULL, LOAD_WITH_ALTERED_SEARCH_PATH);
+}
+
 /* laptops with a second, faster GPU (NVIDIA Optimus, AMD switchable
 graphics) run a program on the integrated one unless it exports these */
 __declspec(dllexport) DWORD NvOptimusEnablement = 1;
@@ -95,6 +110,20 @@ static void windows_startup(void)
 	/* files are binary unless opened otherwise, as on the Xbox (the C
 	runtime's default text mode would translate line ends) */
 	_set_fmode(_O_BINARY);
+	/* DLLs the game loads by name come from its own folder and System32,
+	never the working directory or PATH, where a planted one could stand in
+	(a game started from a downloads folder). The DLLs it links (SDL3.dll)
+	are loaded before this runs, from its folder as before. (Looked up, not
+	imported: Windows 7 without KB2533623 has no such call, and an import
+	of one would keep the game from starting there) */
+	{
+		typedef BOOL (WINAPI *set_directories_proc)(DWORD flags);
+		set_directories_proc set_directories = (set_directories_proc)(void *)GetProcAddress(
+			GetModuleHandleW(L"kernel32.dll"), "SetDefaultDllDirectories");
+
+		if (set_directories)
+			set_directories(LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
+	}
 	/* Sleep() waits in 1 ms steps rather than the default 15.6 ms: the
 	game's frame pacing sleeps for short intervals */
 	timeBeginPeriod(1);
