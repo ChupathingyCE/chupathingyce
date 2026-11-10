@@ -162,7 +162,13 @@ The dedicated server runs a playlist of games around the clock. It runs on Linux
 
 ## Builds
 
-Releases are the stable builds, and the game updates itself from them. Want the newest changes early? Try the [nightly build](https://github.com/ChupathingyCE/chupathingyce/releases/tag/nightly). More in [docs/install.md](docs/install.md#which-build).
+Releases are the stable builds, and the game updates itself from them. Want the newest changes early? Pick an update channel in Settings > Network > Updates, or on the setup screen's Updates tab:
+
+- **Release** (the default) gets releases only.
+- **Testing** gets test builds first, and may have bugs.
+- **Nightly** gets a build of main every night, and the test builds too.
+
+Testing and Nightly still get each release. You can switch back to Release anytime. The game never installs an older build, so after a test build you stay on it until the next release comes out. More in [docs/install.md](docs/install.md#which-build).
 
 ## Help
 
