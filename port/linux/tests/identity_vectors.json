@@ -27,5 +27,80 @@
   "start_signature": "14a41005d7d1e060eeb46b1af3de5cae53771df0ccf627ceb6d5c54b9a1ff6b1822ee2de4135bcaaa4a4ebf7b7cf743aa6cbb5ba00a107ef660a1f798e8abc08",
   "confirm_signature": "0ad07709c097a5b192b6c0763ce5f0859ff801d3eccad5c1249b0ac07ebdfdbd9e0500b05b6c9ca512eb860968a70b1be1166a8720af25fae633431ee7fd1a02",
   "decline_signature": "0f0f2b8e63f0ef1136a0aefaf3f51437b5fd37fb2f82e4806271bb37b7f38402d5ba02d1f96430bac33a6e201d034f0fe657f236fb84c77e6a737bf2991ab80f",
-  "signout_signature": "f579b26e3db2c34573a7a4e9842d85ef6646513dbf73706aeae41c825a4478051dddea806dbe0ecfd7a39b803e3e520190750980b2c4ff3689f2c19c1a66e80b"
+  "signout_signature": "f579b26e3db2c34573a7a4e9842d85ef6646513dbf73706aeae41c825a4478051dddea806dbe0ecfd7a39b803e3e520190750980b2c4ff3689f2c19c1a66e80b",
+  "proof_nonce": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "proof_binding": "0123456789abcdef0123456789abcdef",
+  "proof_tag": "Milenko",
+  "proof_message": "64656c7461206964656e746974792070726f6f662076310a000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f203031323334353637383961626364656630313233343536373839616263646566030101020304050607080108c6b26a074d696c656e6b6f",
+  "proof_signature": "bd00fd2c414b9170b8f9d5af61cf38cf32758b5ab8cf133bf78bfe036a8c3e8e166ebe9da09384d446f9192d05d1aa7235886d4af359f303c3c85c6028c7e400",
+  "proof_lan_signature": "610f07b2e9ff47d104f2daf970467e09962e6e33db53f230054394fd05da9c51e898419ea5f76ef19792f6d6e9681eedac2aae3a06e3fd28e2126e843f9ad00a",
+  "proof_flags": 1,
+  "proof_lan_flags": 0,
+  "proof_time": 1790101000,
+  "lookalikes": [
+    [
+      "Milenko",
+      "miienko"
+    ],
+    [
+      "Mi1enk0",
+      "miienko"
+    ],
+    [
+      "MILENK0",
+      "miienko"
+    ],
+    [
+      "mi|enko",
+      "miienko"
+    ],
+    [
+      "milenko2",
+      "miienko2"
+    ],
+    [
+      "rnilenko",
+      "miienko"
+    ],
+    [
+      "Мilenko",
+      "miienko"
+    ],
+    [
+      "vvarthog",
+      "warthog"
+    ],
+    [
+      "Sarge_99",
+      "sarge99"
+    ],
+    [
+      "T3x",
+      "tex"
+    ],
+    [
+      "@pollo",
+      "apoiio"
+    ],
+    [
+      "$arge",
+      "sarge"
+    ],
+    [
+      "Milenkó",
+      "miienko"
+    ],
+    [
+      "ZÄTCHBOT",
+      "zatchbot"
+    ],
+    [
+      "Łord",
+      "iord"
+    ],
+    [
+      "milenko1",
+      "miienkoi"
+    ]
+  ]
 }

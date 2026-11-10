@@ -13,6 +13,10 @@ controller emulation (see sdl_platform.c).
 
 #define PLATFORM_MOUSE_BUTTON_COUNT 8
 
+/* the window closed, or the game was told to quit: logs "window closed",
+lets go of the OpenGL context and the window, and exits (sdl_platform.c) */
+void platform_exit_window_closed(void);
+
 struct platform_input_state
 {
 	unsigned char keys[SDL_SCANCODE_COUNT];
