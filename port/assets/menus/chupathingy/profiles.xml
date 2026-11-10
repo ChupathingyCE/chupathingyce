@@ -43,8 +43,7 @@ DELTA PROFILE (menu_functions.c), which opens delta_profile.xml. -->
 	<!-- (the profile chosen, as the Xbox's card shows it, in the Xbox's panel
 	beside the list as Settings has it; its header names the kind of profile,
 	Halo's, where others could go later) -->
-	<widget name="chupathingy/profiles/card" width="640" height="480">
-		<child widget="chupathingy/profiles/panel"/>
+	<widget name="chupathingy/profiles/card" left="275" top="78" width="320" height="362" bitmap="bitmaps/list_field">
 		<child widget="chupathingy/profiles/kind" x="294" y="88"/>
 		<child widget="main_menu/player_profiles_select/player_profile_right_name" x="363" y="112"/>
 		<child widget="main_menu/multiplayer_type_select/connected/4way_profile_select/qtr_screen_profile_color_pic" x="280" y="118"/>
@@ -62,8 +61,6 @@ DELTA PROFILE (menu_functions.c), which opens delta_profile.xml. -->
 		<child widget="chupathingy/profiles/delta_value_3" x="400" y="206"/>
 		<child widget="chupathingy/profiles/delta_label_4" x="400" y="223"/>
 		<child widget="chupathingy/profiles/delta_value_4" x="400" y="223"/>
-	</widget>
-	<widget name="chupathingy/profiles/panel" controller="1" left="275" top="78" width="320" height="362" bitmap="bitmaps/list_field">
 	</widget>
 	<widget name="chupathingy/profiles/help" type="text" controller="1" width="290" height="90" string_list="chupathingy/profiles/help_strings" font="ui\large_ui" color="#FF2896FF">
 	</widget>

@@ -96,10 +96,10 @@ adds to */
 /* a Custom Edition map's CHANGE SETTINGS, which pause_row_replaced takes out
 (the Halo PC screen it opens is in no map) */
 #define CUSTOM_CHANGE_SETTINGS_BUTTON "ui\\shell\\multiplayer_game\\pause_game\\change_settings_button"
-/* the tags pause_patch adds: five buttons and their texts, and the middle
+/* the tags pause_patch adds: six buttons and their texts, and the middle
 and bottom parts of the stock box's pieces, a widget and a bitmap each (the
 campaign's has six pieces) */
-#define PAUSE_PATCH_TAGS (10 + 4 * 6)
+#define PAUSE_PATCH_TAGS (12 + 4 * 6)
 /* what a frame of ui.map's is drawn as in a game map, which has not got it */
 #define BLANK_PNG "ce/port/blank__0.png"
 #define UI_WIDGET_DEFINITION_TAG 'DeLa'
@@ -384,7 +384,7 @@ static char const *const port_function_names[] =
 	"port pause end game",
 	"port pause change teams",
 	"port pause moderation",
-	"port pause controls", "controller screen init", "controller screen defaults", "controller begin binding",
+	"port pause controls", "port pause guide", "controller screen init", "controller screen defaults", "controller begin binding",
 	"port coop begin", "port coop player 2 list initialize", "port coop player 2",
 	"port lobby open", "port lobby add player", "port lobby join", "port lobby leave",
 	"port lobby player list initialize", "port lobby player choose",
@@ -1481,10 +1481,20 @@ static void instance_set(struct cache_file_tag_instance *instances, long group_t
 	instance->base_address = XBOX_ADDRESS(definition);
 }
 
+/* the pause menus' GUIDE's text (its string list's tag), for the count
+of what waits in the Guide (guide_pause_label); NONE in a map without it */
+static long pause_guide_label = NONE;
+
+long pc_menu_pause_guide_label(void)
+{
+	return pause_guide_label;
+}
+
 static void menu_tags_release(void)
 {
 	long index;
 
+	pause_guide_label = NONE;
 	for (index = 0; index < menu_tags.bitmap_count; index++)
 	{
 		if (menu_tags.bitmaps[index]->hardware_format)
@@ -1514,7 +1524,8 @@ static void menu_tags_release(void)
 /* ---------- the in-game pause menus (a campaign map's, a multiplayer map's)
 
 Their list gets SETTINGS after RESUME GAME, the menus' settings (as the
-main menu's SETTINGS opens them), and CONTROLS; a multiplayer map's, for
+main menu's SETTINGS opens them), CONTROLS, and GUIDE (the Guide over the
+pause menu, guide.pause_menu); a multiplayer map's, for
 the host, MODERATION, the host's kick and ban of its players
 (moderation_screen.c, the builds with it), and END GAME, which ends the game
 as its time limit would: its players stay, and the host picks the next map
@@ -1670,6 +1681,21 @@ static boolean pause_controls_offered(void)
 #endif
 }
 
+/* whether the pause menus have GUIDE (the Guide over the pause menu,
+port/linux/game/guide.c), as guide.pause_menu says, in every menu set */
+static boolean pause_guide_offered(void)
+{
+#ifdef HALO_GUIDE
+	/* (the Guide is the first player's: not with split screen, where the
+	row would be dead in the others' pause menus) */
+	extern unsigned char pc_menu_split_players(void);
+
+	return config_boolean("guide.pause_menu") != 0 && !pc_menu_split_players();
+#else
+	return FALSE;
+#endif
+}
+
 /* whether a multiplayer game's pause menus have the host's MODERATION (the
 Moderation screen over them, moderation_screen.c: kick and ban): a game
 this machine hosts, in a build with the screen */
@@ -1765,7 +1791,8 @@ static boolean pause_list_patch(struct cache_file_tag_instance *instances, struc
 	/* (the Xbox's menus have none of ours: the Controls screen, by code) */
 	long controls_widget = !controls || !build.menus ? NONE :
 		widget_named(menus_chosen() == _menus_chupathingy ? PAUSE_CONTROLS_SCREEN_CHUPATHINGY : PAUSE_CONTROLS_SCREEN);
-	long everyday = (change_teams != FALSE) + (settings != FALSE) + (controls != FALSE);
+	boolean guide_row = pause_guide_offered();
+	long everyday = (change_teams != FALSE) + (settings != FALSE) + (controls != FALSE) + (guide_row != FALSE);
 	long added = everyday + (end_game != FALSE) + (moderation != FALSE);
 	struct ui_widget_child_reference *grown = allocate((count + added) * sizeof(struct ui_widget_child_reference));
 	struct ui_widget_definition const *model = tag_get(UI_WIDGET_DEFINITION_TAG, children[resume].widget_tag.index);
@@ -1775,9 +1802,9 @@ static boolean pause_list_patch(struct cache_file_tag_instance *instances, struc
 		PAUSE_BUTTON_SPACING;
 	long quit = quit_function != NONE ? pause_quit_button(list, quit_function) : NONE;
 	long removed = 0, total;
-	void *buttons[5];
-	long tags[5];
-	char const *names[5];
+	void *buttons[6];
+	long tags[6];
+	char const *names[6];
 
 	*grow = 0;
 	for (child = resume + 1; child < count; child++)
@@ -1813,6 +1840,15 @@ static boolean pause_list_patch(struct cache_file_tag_instance *instances, struc
 		buttons[added++] = pause_button(instances, model, "pause/controls_button", "CONTROLS",
 			function_index("port pause controls", "pause", 0),
 			controls_widget == NONE ? NONE : build.widget_tags[controls_widget], FALSE);
+	}
+	if (guide_row)
+	{
+		names[added] = "pause/guide_button";
+		tags[added] = next_tag();
+		buttons[added++] = pause_button(instances, model, "pause/guide_button", "GUIDE",
+			function_index("port pause guide", "pause", 0), NONE, FALSE);
+		if (buttons[added - 1])
+			pause_guide_label = ((struct ui_widget_definition *)buttons[added - 1])->text_label_string_list.index;
 	}
 	if (moderation)
 	{
@@ -2116,7 +2152,7 @@ static void pause_patch(struct cache_file_tag_instance *instances, boolean setti
 	the multiplayer game engine's */
 	if (solo_screen != NONE)
 	{
-		if (settings || pause_controls_offered())
+		if (settings || pause_controls_offered() || pause_guide_offered())
 			pause_screen_patch(instances, solo_screen, NONE, FALSE, settings, FALSE, &patched_list, &grow, &box_grown);
 	}
 	else if (collection != NONE)
@@ -2137,8 +2173,9 @@ static void pause_patch(struct cache_file_tag_instance *instances, boolean setti
 	}
 	if (patched_list != NONE)
 	{
-		platform_log("menus: the pause menu has%s%s%s%s%s", change_teams ? " CHANGE TEAMS" : "",
+		platform_log("menus: the pause menu has%s%s%s%s%s%s", change_teams ? " CHANGE TEAMS" : "",
 			settings ? " SETTINGS" : "", pause_controls_offered() ? " CONTROLS" : "",
+			pause_guide_offered() ? " GUIDE" : "",
 			solo_screen == NONE && pause_moderation_offered(host) ? " MODERATION" : "",
 			host && solo_screen == NONE ? " END GAME" : "");
 	}
@@ -2284,6 +2321,7 @@ void menu_tags_loaded(
 
 	boolean game_map = strcmp(map_name, "ui") != 0;
 
+	pause_guide_label = NONE;
 #ifdef HALO_GAME_BROWSER
 	/* (the save folder's game type files, in every menus' gametype lists:
 	gametype_files.c) */

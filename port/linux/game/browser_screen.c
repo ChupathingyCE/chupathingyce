@@ -45,12 +45,22 @@ downloads, so the game is left and joined again). If the map is not
 downloaded after all, Online Games closes and the main menu says the map is
 missing, as without the downloader.
 
-Start opens Delta Profile (profile_screen.c; the web page with
-display.delta_profile off); RB (only while
-this copy is not linked to a profile: browser_profile_linked) opens Link
-Profile over the list, for where no web browser opens: a code (and a QR
-code) to type at the game list's /connect page on another device, then the
-profile it was typed for, to confirm with A or refuse with B (browser.c).
+LB and RB switch between the list's views (_view_*): ALL, CHUPATHINGY +
+PUBLIC (every game but OpenCE's dedicated servers; the first a session
+shows, as display.online_games_view says), CHUPATHINGY (our servers and
+Delta hosts) and OPENCE (OpenCE's dedicated servers). Each is sorted with
+the most players first, the chosen order breaking ties. In ALL and OPENCE
+the empty OpenCE dedicated servers are one row at the end, EMPTY SERVERS,
+which A opens and closes (display.opence_empty_servers "shown" lists them
+instead).
+
+Start opens Delta Profile (profile_screen.c), which links an unlinked copy;
+with display.delta_profile off, Start opens Link Profile over the list
+while this copy is not linked to a profile (browser_profile_linked), else
+the web page. Link Profile is for where no web browser opens: a code (and a
+QR code) to type at the game list's /connect page on another device, then
+the profile it was typed for, to confirm with A or refuse with B
+(browser.c).
 
 The menus' pointer (the mouse, or the touchscreen's taps and drags:
 halo_ui_pointer.h) works it as the PC menus' lists: a click on a game picks
@@ -109,7 +119,7 @@ enum
 	BROWSER_EVENT_LEFT_STICK = 1,
 	BROWSER_EVENT_BUTTON = 3,
 
-	ROWS_PER_PAGE = 9,
+	ROWS_PER_PAGE = 8,
 	STATUS_DURATION = 6000,
 	/* a picked game's host answers this soon, or it is given up on */
 	CONNECT_TIMEOUT = 15000,
@@ -191,8 +201,8 @@ static char const *const map_names[][2] =
 	{ "putput", "Chiron TL-34" }, { "ratrace", "Rat Race" }, { "sidewinder", "Sidewinder" }, { "wizard", "Wizard" },
 };
 
-/* the list's orders (RT steps through them, LT and LB back; RB is Link
-Profile's) */
+/* the list's orders, after the players (RT steps through them, LT back;
+LB and RB are the views') */
 enum
 {
 	SORT_PLAYERS,
@@ -204,6 +214,24 @@ enum
 
 	NUMBER_OF_SORTS
 };
+
+/* the list's views, LB and RB between them (display.online_games_view the
+first a session shows): every game; ours and every player's public game
+(OpenCE players' too), without OpenCE's dedicated servers; ours alone (our
+servers and Delta hosts); and OpenCE's dedicated servers alone */
+enum
+{
+	_view_all,
+	_view_public,
+	_view_chupathingy,
+	_view_opence,
+
+	NUMBER_OF_VIEWS
+};
+
+static char const *const view_names[NUMBER_OF_VIEWS] = { "ALL", "CHUPATHINGY + PUBLIC", "CHUPATHINGY", "OPENCE" };
+/* (display.online_games_view's words for them) */
+static char const *const view_keys[NUMBER_OF_VIEWS] = { "all", "public", "chupathingy", "opence" };
 
 /* the longest password (Server Setup's, menu_functions.c), and a key
 stroke's modifier for control (input_xbox.c's, as menu_functions.c has it) */
@@ -217,7 +245,21 @@ static struct
 	boolean active;
 	short selected;
 	short count;
-	struct browser_game games[BROWSER_MAXIMUM_GAMES];
+	/* (and room for the empty servers' row: fold_row) */
+	struct browser_game games[BROWSER_MAXIMUM_GAMES + 1];
+	/* the view shown (_view_*), kept for the session once chosen (the
+	first from display.online_games_view); the games in it (the empty
+	servers' row not one), and their players */
+	boolean view_chosen;
+	short view;
+	short listed;
+	long listed_players;
+	/* the empty OpenCE dedicated servers of the ALL and OPENCE views: their
+	row (NONE: none, or display.opence_empty_servers "shown"), how many, and
+	whether A opened it (closed each session) */
+	short fold_row;
+	short empty_count;
+	boolean empty_open;
 	char status[96];
 	unsigned long status_time;
 	short sort;
@@ -276,6 +318,8 @@ static struct
 		short button;
 		/* a column's head: the order it puts the list in (NONE: a button) */
 		short sort;
+		/* a view's tab: the view it shows (NONE: none) */
+		short view;
 	} targets[MAXIMUM_TARGETS];
 	short drawn_first;
 	/* a playlist's map set (_playlist_*): the game's invite it is offered
@@ -518,6 +562,7 @@ int platform_clipboard_get(char *text, int size);
 void platform_text_field(int typing);
 void platform_log(char const *format, ...);
 int config_boolean(char const *name);
+char const *config_string(char const *name);
 void display_error_text_deferred(wchar_t const *text, short local_player_index);
 
 /* a game left for want of the map, which is not downloaded after all (the
@@ -766,6 +811,9 @@ static char const *no_answer_reason(
 /* ---------- a playlist's map set the game being joined plays */
 
 static void join_selected(void);
+static void toggle_fold(void);
+static boolean fold_selected(void);
+static short find_game(char const *invite, long length);
 static void join_invite(char const *invite, unsigned short const *name, boolean open);
 static void password_open(struct browser_game const *game);
 static void fetch_games(void);
@@ -806,14 +854,12 @@ static void playlist_offer_end(
 	if (!join)
 		return;
 	fetch_games();
-	for (index = 0; index < browser_screen.count; index++)
+	index = find_game(browser_screen.playlist_invite, BROWSER_INVITE_LENGTH + 1);
+	if (index != NONE)
 	{
-		if (!strcmp(browser_screen.games[index].invite, browser_screen.playlist_invite))
-		{
-			browser_screen.selected = index;
-			join_selected();
-			return;
-		}
+		browser_screen.selected = index;
+		join_selected();
+		return;
 	}
 	set_status("The game is no longer listed.");
 }
@@ -937,6 +983,12 @@ static void join_selected(
 
 	if (browser_screen.selected < 0 || browser_screen.selected >= browser_screen.count)
 		return;
+	/* (the empty servers' row: opened or closed) */
+	if (fold_selected())
+	{
+		toggle_fold();
+		return;
+	}
 	game = &browser_screen.games[browser_screen.selected];
 	{
 		char text[96];
@@ -1238,12 +1290,66 @@ static long compare_names(
 	return 0;
 }
 
+/* whether a game is in the view shown */
+static boolean view_has(
+	struct browser_game const *game)
+{
+	switch (browser_screen.view)
+	{
+	case _view_public: return !game->opence_server;
+	case _view_chupathingy:
+		return !game->opence_server &&
+			(game->hosting == BROWSER_HOSTING_OFFICIAL || game->protocol == BROWSER_PROTOCOL_DELTA);
+	case _view_opence: return game->opence_server != 0;
+	default: return TRUE;
+	}
+}
+
+/* whether the view folds its empty OpenCE dedicated servers into one row */
+static boolean view_folds(
+	void)
+{
+	return (browser_screen.view == _view_all || browser_screen.view == _view_opence) &&
+		strcmp(config_string("display.opence_empty_servers"), "shown") != 0;
+}
+
+/* an empty OpenCE dedicated server, in a view that folds them: after every
+other game, in their row */
+static boolean folded_game(
+	struct browser_game const *game)
+{
+	return !game->players && game->opence_server && view_folds();
+}
+
+/* an OpenCE game no one is in (a player's or a dedicated server's): after
+the other empty games */
+static boolean empty_opence_game(
+	struct browser_game const *game)
+{
+	return !game->players && (game->opence_server || game->protocol == BROWSER_PROTOCOL_OPENCE);
+}
+
+/* the selected row: the empty servers' (fold_row) */
+static boolean fold_selected(
+	void)
+{
+	return browser_screen.fold_row != NONE && browser_screen.selected == browser_screen.fold_row;
+}
+
 static long compare_games(
 	struct browser_game const *a,
 	struct browser_game const *b)
 {
 	long order;
 
+	/* (the folded servers last, then by players, most first, whatever the
+	order: it breaks ties; empty OpenCE games after the other empty games) */
+	if (folded_game(a) != folded_game(b))
+		return folded_game(a) ? 1 : -1;
+	if (a->players != b->players)
+		return (long)b->players - (long)a->players;
+	if (empty_opence_game(a) != empty_opence_game(b))
+		return empty_opence_game(a) ? 1 : -1;
 	/* (closed games last, those of another version after them, whatever the order) */
 	if (!browser_game_version_state(a) != !browser_game_version_state(b))
 		return browser_game_version_state(a) ? 1 : -1;
@@ -1281,16 +1387,18 @@ static void fetch_games(
 	char invite[BROWSER_INVITE_LENGTH + 1];
 	short index, other;
 
+	boolean fold = view_folds();
+
 	invite[0] = 0;
-	if (browser_screen.selected >= 0 && browser_screen.selected < browser_screen.count)
+	if (browser_screen.selected >= 0 && browser_screen.selected < browser_screen.count && !fold_selected())
 		csstrncpy(invite, browser_screen.games[browser_screen.selected].invite, sizeof(invite) - 1);
 	invite[sizeof(invite) - 1] = 0;
 	browser_screen.count = (short)browser_get_games(browser_screen.games, BROWSER_MAXIMUM_GAMES);
 	/* (co-op games are listed with the others, whatever list they came from;
-	the filter, Back, picks which kind) */
+	the filter, Back, picks which kind, in either list) */
 	for (index = other = 0; index < browser_screen.count; index++)
 	{
-		if (browser_list_filter_allows(browser_screen.games[index].map))
+		if (browser_list_filter_allows(browser_screen.games[index].map) && view_has(&browser_screen.games[index]))
 			browser_screen.games[other++] = browser_screen.games[index];
 	}
 	browser_screen.count = other;
@@ -1303,11 +1411,82 @@ static void fetch_games(
 			browser_screen.games[other] = browser_screen.games[other - 1];
 		browser_screen.games[other] = game;
 	}
+	browser_screen.listed = browser_screen.count;
+	browser_screen.listed_players = 0;
+	browser_screen.empty_count = 0;
+	for (index = 0; index < browser_screen.count; index++)
+	{
+		browser_screen.listed_players += browser_screen.games[index].players;
+		if (folded_game(&browser_screen.games[index]))
+			browser_screen.empty_count++;
+	}
+	/* the empty servers (last, compare_games) in one row of their own, and
+	under it once opened */
+	browser_screen.fold_row = NONE;
+	if (fold && browser_screen.empty_count)
+	{
+		browser_screen.fold_row = (short)(browser_screen.count - browser_screen.empty_count);
+		if (browser_screen.empty_open)
+		{
+			for (index = browser_screen.count; index > browser_screen.fold_row; index--)
+				browser_screen.games[index] = browser_screen.games[index - 1];
+			browser_screen.count++;
+		}
+		else
+			browser_screen.count = (short)(browser_screen.fold_row + 1);
+		csmemset(&browser_screen.games[browser_screen.fold_row], 0, sizeof(browser_screen.games[0]));
+	}
 	for (index = 0; invite[0] && index < browser_screen.count; index++)
 	{
-		if (!strcmp(browser_screen.games[index].invite, invite))
+		if (index != browser_screen.fold_row && !strcmp(browser_screen.games[index].invite, invite))
 			browser_screen.selected = index;
 	}
+}
+
+/* another view (LB, RB, or the pointer on its tab), on its first game, its
+empty servers closed */
+static void show_view(
+	short view)
+{
+	browser_screen.view = (short)((view + NUMBER_OF_VIEWS) % NUMBER_OF_VIEWS);
+	browser_screen.selected = 0;
+	browser_screen.empty_open = FALSE;
+	fetch_games();
+}
+
+/* A on the empty servers' row: opened, or closed */
+static void toggle_fold(
+	void)
+{
+	browser_screen.empty_open = !browser_screen.empty_open;
+	fetch_games();
+	browser_screen.selected = browser_screen.fold_row == NONE ? 0 : browser_screen.fold_row;
+}
+
+/* a game picked by its invite (its first length characters, any case):
+the view shown, else ALL, with its empty servers opened if it is one of
+them. Its index, else NONE */
+static short find_game(
+	char const *invite,
+	long length)
+{
+	short attempt, index;
+
+	for (attempt = 0; attempt < 2; attempt++)
+	{
+		if (attempt)
+		{
+			browser_screen.view = _view_all;
+			browser_screen.empty_open = TRUE;
+			fetch_games();
+		}
+		for (index = 0; index < browser_screen.count; index++)
+		{
+			if (index != browser_screen.fold_row && !_strnicmp(browser_screen.games[index].invite, invite, length))
+				return index;
+		}
+	}
+	return NONE;
 }
 
 /* the game types this build plays: the Xbox's (0 is co-op), and Bomb
@@ -1418,7 +1597,19 @@ static boolean profile_linked(
 	return browser_profile_linked(handle, (int)size) != 0;
 }
 
-/* RB: a Link Profile code, for the profile the screen's games are joined
+/* whether Start opens Link Profile: no Delta Profile screen to do it
+(display.delta_profile off) and this copy not linked */
+static boolean start_links(
+	void)
+{
+#ifndef HALO_CONSOLE_NO_DELTA_PROFILE
+	if (profile_screen_available())
+		return FALSE;
+#endif
+	return !profile_linked(NULL, 0);
+}
+
+/* Start (start_links): a Link Profile code, for the profile the screen's games are joined
 with (its name goes to the page, to say who it links) */
 static void open_link_profile(
 	void)
@@ -1498,6 +1689,19 @@ void browser_screen_open(
 {
 	browser_screen.active = TRUE;
 	browser_screen.selected = 0;
+	/* (the session's first: the config's view, else CHUPATHINGY + PUBLIC) */
+	if (!browser_screen.view_chosen)
+	{
+		short view;
+
+		browser_screen.view = _view_public;
+		for (view = 0; view < NUMBER_OF_VIEWS; view++)
+		{
+			if (!strcmp(config_string("display.online_games_view"), view_keys[view]))
+				browser_screen.view = view;
+		}
+		browser_screen.view_chosen = TRUE;
+	}
 	browser_screen.status[0] = 0;
 	browser_screen.connecting = FALSE;
 	if (browser_screen.connect_open)
@@ -1676,17 +1880,12 @@ boolean browser_screen_playlist_offer(
 	if (length < BROWSER_INVITE_LENGTH)
 		return FALSE;
 	browser_screen_open();
-	for (index = 0; index < browser_screen.count; index++)
+	index = find_game(invite, BROWSER_INVITE_LENGTH);
+	if (index != NONE && browser_screen.games[index].playlist[0])
 	{
-		struct browser_game const *game = &browser_screen.games[index];
-
-		if (!_strnicmp(game->invite, invite, BROWSER_INVITE_LENGTH) && game->playlist[0])
-		{
-			browser_screen.selected = index;
-			if (playlist_offer_begin(game))
-				return TRUE;
-			break;
-		}
+		browser_screen.selected = index;
+		if (playlist_offer_begin(&browser_screen.games[index]))
+			return TRUE;
 	}
 	browser_screen.active = FALSE;
 	return FALSE;
@@ -1799,7 +1998,7 @@ offer's while it is) */
 	case _gamepad_binary_button_start:
 #ifndef HALO_CONSOLE_NO_DELTA_PROFILE
 		/* (Delta Profile's screen: the Chupathingy menus' own, else the
-		screen of code; with display.delta_profile off, the web page) */
+		screen of code, which links an unlinked copy itself) */
 		if (profile_screen_available())
 		{
 			if (pc_menus_chupathingy() ? pc_menu_delta_profile_open() : (profile_screen_open(TRUE), TRUE))
@@ -1807,6 +2006,14 @@ offer's while it is) */
 			break;
 		}
 #endif
+		/* (without it, with display.delta_profile off: Link Profile while
+		this copy is not linked, else the web page) */
+		if (start_links())
+		{
+			if (!browser_screen.connecting)
+				open_link_profile();
+			break;
+		}
 		browser_open_profile();
 		set_status("Opening your profile in the web browser");
 		break;
@@ -1825,18 +2032,19 @@ offer's while it is) */
 		browser_screen.selected = 0;
 		break;
 	case _gamepad_analog_button_left_trigger:
-	case _gamepad_analog_button_white:
 		browser_screen.sort = (short)((browser_screen.sort + NUMBER_OF_SORTS - 1) % NUMBER_OF_SORTS);
 		fetch_games();
+		break;
+	/* (LB and RB: the views) */
+	case _gamepad_analog_button_white:
+		show_view((short)(browser_screen.view - 1));
 		break;
 	case _gamepad_analog_button_right_trigger:
 		browser_screen.sort = (short)((browser_screen.sort + 1) % NUMBER_OF_SORTS);
 		fetch_games();
 		break;
 	case _gamepad_analog_button_black:
-		/* (not once this copy is linked: its prompt is not shown) */
-		if (!browser_screen.connecting && !profile_linked(NULL, 0))
-			open_link_profile();
+		show_view((short)(browser_screen.view + 1));
 		break;
 	case _gamepad_analog_button_b:
 		/* (B while a host is waited for: the wait given up) */
@@ -1949,7 +2157,9 @@ enum
 {
 	/* the band under the title, and the prompt bar */
 	BAND_Y = 70, BAR_Y = 409, BAR_BOTTOM = 445,
-	LIST_X = 32, LIST_Y = 79, LIST_WIDTH = 576, LIST_HEAD = 21, LIST_ROW = 19, LIST_FOOT = 20,
+	/* the views' tabs over the list */
+	TABS_Y = 76, TABS_HEIGHT = 18,
+	LIST_X = 32, LIST_Y = 97, LIST_WIDTH = 576, LIST_HEAD = 21, LIST_ROW = 19, LIST_FOOT = 20,
 	DETAIL_Y = 297, DETAIL_HEIGHT = 106,
 	/* the roster's places in the details */
 	ROSTER_COLUMNS = 2, ROSTER_ROWS = 7,
@@ -2141,7 +2351,7 @@ static char const *machines_text(
 	/* (the registry's numbers grouped as players say them, each group's
 	numbers ending with -1; the last, those without Delta) */
 	static struct { char const *name; signed char kinds[6]; } const groups[] = {
-		{ "PC", { 1, 2, 3, 13, 18, -1 } }, { "Steam Deck", { 5, -1 } }, { "Android", { 4, -1 } },
+		{ "PC", { 1, 2, 3, 13, 18, -1 } }, { "SteamOS", { 5, -1 } }, { "Android", { 4, -1 } },
 		{ "Xbox", { 6, -1 } }, { "Xbox 360", { 7, -1 } }, { "Wii U", { 8, -1 } }, { "Switch", { 9, -1 } },
 		{ "PSP", { 10, -1 } }, { "Vita", { 11, -1 } }, { "Xbox Series", { 12, -1 } }, { "PS3", { 14, -1 } },
 		{ "PS4", { 15, -1 } }, { "PS5", { 16, -1 } }, { "N64", { 17, -1 } }, { "Steam Link", { 19, -1 } },
@@ -2321,6 +2531,7 @@ static void add_target(
 		browser_screen.targets[browser_screen.target_count].y1 = y1;
 		browser_screen.targets[browser_screen.target_count].button = glyph_buttons[button];
 		browser_screen.targets[browser_screen.target_count].sort = NONE;
+		browser_screen.targets[browser_screen.target_count].view = NONE;
 		browser_screen.target_count++;
 	}
 }
@@ -2341,6 +2552,7 @@ static void add_sort_target(
 		browser_screen.targets[browser_screen.target_count].y1 = y1;
 		browser_screen.targets[browser_screen.target_count].button = NONE;
 		browser_screen.targets[browser_screen.target_count].sort = sort;
+		browser_screen.targets[browser_screen.target_count].view = NONE;
 		browser_screen.target_count++;
 	}
 }
@@ -3028,8 +3240,7 @@ static void draw_header(
 	char text[160];
 	float x, y;
 
-	for (index = 0; index < browser_screen.count; index++)
-		players += browser_screen.games[index].players;
+	players = browser_screen.listed_players;
 	ui_overlay_band(left, right, BAND_Y, BAR_Y);
 	/* (the size and place of the Xbox screens' titles, MULTIPLAYER's) */
 	ui_overlay_text_glow(UI_FONT_TITLE, 13.5f, 64, 45.0f, UI_ALIGN_LEFT, COLOR_TITLE, COLOR_TITLE_GLOW, "ONLINE GAMES");
@@ -3041,7 +3252,7 @@ static void draw_header(
 	snprintf(text, sizeof(text), "%ld", players);
 	x -= ui_overlay_text_glow(UI_FONT_MENU, 9.5f, x, y, UI_ALIGN_RIGHT, COLOR_TEXT, COLOR_HALO, text) + 3;
 	x -= ui_overlay_text_glow(UI_FONT_MENU, 9.5f, x, y, UI_ALIGN_RIGHT, COLOR_HEAD, COLOR_HALO, "PLAYERS") + 10;
-	snprintf(text, sizeof(text), "%d", browser_screen.count);
+	snprintf(text, sizeof(text), "%d", browser_screen.listed);
 	x -= ui_overlay_text_glow(UI_FONT_MENU, 9.5f, x, y, UI_ALIGN_RIGHT, COLOR_TEXT, COLOR_HALO, text) + 3;
 	ui_overlay_text_glow(UI_FONT_MENU, 9.5f, x, y, UI_ALIGN_RIGHT, COLOR_HEAD, COLOR_HALO, "SERVERS");
 	/* (the game list's address, in capitals as the rest) */
@@ -3060,31 +3271,119 @@ static void draw_header(
 		ui_overlay_text_glow(UI_FONT_MENU, 9.5f, x, y, UI_ALIGN_RIGHT, COLOR_HEAD, COLOR_HALO, "MASTER");
 	}
 
-	/* RB and Start, the prompts past the bar's four: Link Profile only while
-	this copy is not linked to a profile, and My Profile with its name when
-	known and there is room */
+	/* Start, the prompt past the bar's four: My Profile with its name when
+	known and there is room, or Link Profile (start_links) */
 	if (browser_screen.offer == _offer_none && !browser_screen.connect_open)
 	{
-		int buttons[] = { UI_BUTTON_RIGHT_SHOULDER, UI_BUTTON_START };
-		char const *words[] = { "=LINK PROFILE", "=MY PROFILE" };
-		boolean on[] = { !browser_screen.connecting, TRUE };
+		int button = UI_BUTTON_START;
+		char const *word = "=MY PROFILE";
+		boolean on = TRUE;
 		char handle[64], mine[96];
-		boolean linked = profile_linked(handle, sizeof(handle));
-		short first = linked ? 1 : 0;
 		float width;
 
-		if (linked && handle[0])
+		if (start_links())
+		{
+			word = "=LINK PROFILE";
+			on = !browser_screen.connecting;
+		}
+		else if (profile_linked(handle, sizeof(handle)) && handle[0])
 		{
 			snprintf(mine, sizeof(mine), "=MY PROFILE (%s)", handle);
-			words[1] = mine;
-			if (prompts_width(1, &buttons[1], &words[1], SMALL_BUTTON, SMALL_TEXT) > PROFILE_PROMPT_ROOM)
-				words[1] = "=MY PROFILE";
+			word = mine;
+			if (prompts_width(1, &button, &word, SMALL_BUTTON, SMALL_TEXT) > PROFILE_PROMPT_ROOM)
+				word = "=MY PROFILE";
 		}
-		width = prompts_width((short)(NUMBEROF(buttons) - first), buttons + first, words + first, SMALL_BUTTON,
-			SMALL_TEXT);
-		prompts((short)(NUMBEROF(buttons) - first), buttons + first, words + first, on + first, PROMPTS_RIGHT - width,
-			43, SMALL_BUTTON, SMALL_TEXT, 38, 60);
+		width = prompts_width(1, &button, &word, SMALL_BUTTON, SMALL_TEXT);
+		prompts(1, &button, &word, &on, PROMPTS_RIGHT - width, 43, SMALL_BUTTON, SMALL_TEXT, 38, 60);
 	}
+}
+
+/* the views' tabs, as the Guide draws its sections': LB and RB at the
+ends, the tabs between them, the view shown lit; the pointer shows the view
+of the tab it is on (dialog: none, under one) */
+static void draw_tabs(
+	boolean dialog)
+{
+	float size = TABS_HEIGHT * 0.45f, pad = TABS_HEIGHT * 0.45f, gap = 3.0f, glyph = TABS_HEIGHT * 0.72f;
+	float total = 0.0f, x, width;
+	short view;
+
+	for (view = 0; view < NUMBER_OF_VIEWS; view++)
+		total += ui_overlay_text_width(UI_FONT_MENU, size, view_names[view]) + 2 * pad + gap;
+	total -= gap;
+	x = LIST_X + 4;
+	width = ui_overlay_button(UI_BUTTON_LEFT_SHOULDER, glyph, x, TABS_Y + (TABS_HEIGHT - glyph) * 0.5f, 0xFFFFFFFF);
+	if (!dialog)
+		add_target(x - 4, TABS_Y, x + width + 4, TABS_Y + TABS_HEIGHT, UI_BUTTON_LEFT_SHOULDER);
+	width = ui_overlay_button_width(UI_BUTTON_RIGHT_SHOULDER, glyph);
+	x = LIST_X + LIST_WIDTH - 4 - width;
+	ui_overlay_button(UI_BUTTON_RIGHT_SHOULDER, glyph, x, TABS_Y + (TABS_HEIGHT - glyph) * 0.5f, 0xFFFFFFFF);
+	if (!dialog)
+		add_target(x - 4, TABS_Y, x + width + 4, TABS_Y + TABS_HEIGHT, UI_BUTTON_RIGHT_SHOULDER);
+	x = LIST_X + LIST_WIDTH * 0.5f - total * 0.5f;
+	for (view = 0; view < NUMBER_OF_VIEWS; view++)
+	{
+		float text_y = TABS_Y + (TABS_HEIGHT - size) * 0.5f + 0.5f;
+
+		width = ui_overlay_text_width(UI_FONT_MENU, size, view_names[view]) + 2 * pad;
+		if (view == browser_screen.view)
+		{
+			short ring;
+
+			for (ring = 1; ring <= 3; ring++)
+				ui_overlay_outline(x - ring, TABS_Y - ring, width + 2 * ring, TABS_HEIGHT + 2 * ring, 6 + ring, 1.0f,
+					(unsigned int)(0x2F8FFF00 | (0x40 / ring)));
+			ui_overlay_rect(x, TABS_Y, width, TABS_HEIGHT, 6, 0x2F7FD68C);
+			ui_overlay_outline(x, TABS_Y, width, TABS_HEIGHT, 6, 1.0f, 0x9FD4FFFF);
+			ui_overlay_text_glow(UI_FONT_MENU, size, x + width * 0.5f, text_y, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFF80,
+				view_names[view]);
+		}
+		else
+			ui_overlay_text(UI_FONT_MENU, size, x + width * 0.5f, text_y, UI_ALIGN_CENTER, 0x7FB6EEFF, view_names[view]);
+		if (!dialog && browser_screen.target_count < MAXIMUM_TARGETS)
+		{
+			browser_screen.targets[browser_screen.target_count].x0 = x;
+			browser_screen.targets[browser_screen.target_count].y0 = TABS_Y;
+			browser_screen.targets[browser_screen.target_count].x1 = x + width;
+			browser_screen.targets[browser_screen.target_count].y1 = TABS_Y + TABS_HEIGHT;
+			browser_screen.targets[browser_screen.target_count].button = NONE;
+			browser_screen.targets[browser_screen.target_count].sort = NONE;
+			browser_screen.targets[browser_screen.target_count].view = view;
+			browser_screen.target_count++;
+		}
+		x += width + gap;
+	}
+}
+
+/* the empty servers' row (fold_row): how many, and an arrow, right while
+closed and down while open */
+static void draw_fold_row(
+	short row,
+	boolean picked)
+{
+	float y = (float)(LIST_Y + LIST_HEAD + row * LIST_ROW);
+	float text_y = y + (LIST_ROW - ROW_SIZE) * 0.5f + 0.5f;
+	unsigned int color = picked ? COLOR_ROW_SELECTED : COLOR_ROW_DIM;
+	float mark_x = COLUMN_TAG - 2.5f, mark_y = y + LIST_ROW * 0.5f;
+	char text[48];
+	short step;
+
+	if (picked)
+	{
+		ui_overlay_rect(LIST_X + 5, y, LIST_WIDTH - 10, LIST_ROW, 7, COLOR_SELECTION_FILL);
+		ui_overlay_outline(LIST_X + 4, y - 1, LIST_WIDTH - 8, LIST_ROW + 2, 8, 1.0f, 0x6FB2FF40);
+		ui_overlay_outline(LIST_X + 5, y, LIST_WIDTH - 10, LIST_ROW, 7, 1.25f, COLOR_SELECTION_EDGE);
+	}
+	for (step = 0; step < 4; step++)
+	{
+		if (browser_screen.empty_open)
+			ui_overlay_rect(mark_x + step, mark_y - 2 + step, 7.0f - 2 * step, 1.0f, 0, color);
+		else
+			ui_overlay_rect(mark_x + step, mark_y - 3.5f + step, 1.0f, 7.0f - 2 * step, 0, color);
+	}
+	snprintf(text, sizeof(text), "EMPTY SERVERS (%d)", browser_screen.empty_count);
+	ui_overlay_text_glow(UI_FONT_MENU, ROW_SIZE, COLUMN_NAME, text_y, UI_ALIGN_LEFT, color, picked ? 0x6FB2FFC0 : 0,
+		text);
 }
 
 /* a listed game's row (row: its place on the page) */
@@ -3192,6 +3491,13 @@ static void draw_empty_list(
 				"to change the filter.");
 			return;
 		}
+		if (browser_screen.view == _view_opence || browser_screen.view == _view_chupathingy)
+		{
+			ui_overlay_text_glow(UI_FONT_MENU, 14.0f, center, y, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFFA0,
+				browser_screen.view == _view_opence ? "No OpenCE servers right now." :
+				"No Chupathingy games right now.");
+			return;
+		}
 		ui_overlay_text_glow(UI_FONT_MENU, 14.0f, center, y, UI_ALIGN_CENTER, 0xFFFFFFFF, 0x3D8BFFA0,
 			"No one is hosting right now.");
 		text_with_button(UI_FONT_MENU_SMALL, 10.0f, center, y + 24, COLOR_DIM, "Press", UI_BUTTON_Y,
@@ -3256,7 +3562,10 @@ static void draw_list_footer(
 
 		x += ui_overlay_button(UI_BUTTON_RIGHT_TRIGGER, SMALL_BUTTON, x, text_y - (SMALL_BUTTON - FOOT_SIZE) / 2,
 			0xFFFFFFFF) + 6;
-		snprintf(text, sizeof(text), "SORTED BY %s  \xC2\xB7  CLOSED GAMES LAST%s%s", sort_names[browser_screen.sort],
+		/* (most players first in every view: the order breaks ties) */
+		snprintf(text, sizeof(text), "SORTED BY PLAYERS%s%s%s%s",
+			browser_screen.sort == SORT_PLAYERS ? "" : ", THEN ",
+			browser_screen.sort == SORT_PLAYERS ? "" : sort_names[browser_screen.sort],
 			browser_list_filter() ? "  \xC2\xB7  ONLY " : "", browser_list_filter() ? browser_list_filter_name() : "");
 		width = ui_overlay_text(UI_FONT_MENU_SMALL, FOOT_SIZE, x, text_y, UI_ALIGN_LEFT, COLOR_HEAD, text);
 		add_target(LIST_X, y, x + width + 10, y + LIST_FOOT, UI_BUTTON_RIGHT_TRIGGER);
@@ -3490,6 +3799,14 @@ static void draw_bar_prompts(
 	short count = selected ? 5 : 4;
 	float width;
 
+	/* (the empty servers' row: A opens or closes it) */
+	if (fold_selected())
+	{
+		words[4] = browser_screen.empty_open ? "=HIDE" : "=SHOW";
+		on[4] = TRUE;
+		count = 5;
+	}
+
 	snprintf(filter_word, sizeof(filter_word), "=FILTER: %s", browser_list_filter_name());
 	width = prompts_width(count, buttons, words, PROMPT_BUTTON, PROMPT_TEXT);
 	prompts(count, buttons, words, on, PROMPTS_RIGHT - width, BAR_Y + (BAR_BOTTOM - BAR_Y - PROMPT_BUTTON) / 2,
@@ -3501,7 +3818,8 @@ void browser_screen_render(
 {
 	short page_first, page_count, row;
 	float margin = (float)((halo_screen_width() - 640) / 2 + 2);
-	struct browser_game const *selected = browser_screen.count ? &browser_screen.games[browser_screen.selected] : NULL;
+	struct browser_game const *selected = browser_screen.count && !fold_selected() ?
+		&browser_screen.games[browser_screen.selected] : NULL;
 	boolean dialog = browser_screen.connect_open || browser_screen.offer != _offer_none ||
 		browser_screen.playlist_offer != _playlist_none ||
 		browser_screen.password_open;
@@ -3517,7 +3835,8 @@ void browser_screen_render(
 	draw_header(-margin, 640 + margin);
 	ui_overlay_prompt_bar(-margin, 640 + margin, BAR_Y, BAR_BOTTOM);
 
-	/* the list */
+	/* the views, then the list */
+	draw_tabs(dialog);
 	ui_overlay_panel(LIST_X, LIST_Y, LIST_WIDTH, LIST_HEAD + ROWS_PER_PAGE * LIST_ROW + 3 + LIST_FOOT, FALSE);
 	column_head(COLUMN_NAME, UI_ALIGN_LEFT, "SERVER", browser_screen.sort == SORT_NAME, dialog ? NONE : SORT_NAME);
 	column_head(COLUMN_MAP, UI_ALIGN_LEFT, "MAP", browser_screen.sort == SORT_MAP, dialog ? NONE : SORT_MAP);
@@ -3533,7 +3852,12 @@ void browser_screen_render(
 	if (!browser_screen.count)
 		draw_empty_list();
 	for (row = 0; row < ROWS_PER_PAGE && page_first + row < browser_screen.count; row++)
-		draw_row(&browser_screen.games[page_first + row], row, page_first + row == browser_screen.selected && !dialog);
+	{
+		if (page_first + row == browser_screen.fold_row)
+			draw_fold_row(row, page_first + row == browser_screen.selected && !dialog);
+		else
+			draw_row(&browser_screen.games[page_first + row], row, page_first + row == browser_screen.selected && !dialog);
+	}
 	if (!dialog)
 		draw_list_footer(selected, page_first, page_count);
 
@@ -3626,7 +3950,12 @@ void browser_screen_pointer(
 		if (pointer->click_x >= browser_screen.targets[index].x0 && pointer->click_x < browser_screen.targets[index].x1 &&
 			pointer->click_y >= browser_screen.targets[index].y0 && pointer->click_y < browser_screen.targets[index].y1)
 		{
-			if (browser_screen.targets[index].sort == NONE)
+			if (browser_screen.targets[index].view != NONE)
+			{
+				if (browser_screen.view != browser_screen.targets[index].view)
+					show_view(browser_screen.targets[index].view);
+			}
+			else if (browser_screen.targets[index].sort == NONE)
 				press(browser_screen.targets[index].button);
 			else if (browser_screen.sort != browser_screen.targets[index].sort)
 			{
