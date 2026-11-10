@@ -23,7 +23,7 @@ Your service record is on [stats.chupathingy.org](https://stats.chupathingy.org)
 
 On a console linked to a Delta profile, the game also claims your own line after each online game, hosted or joined: your name, team, score, kills and deaths, the game's name, map and length, signed by the console. That puts the game on your profile. `report_joined_games = false` turns this off as well.
 
-Only players connected to Delta get games on a profile. If your Halo profile plays as a guest, or your copy isn't linked to a Delta profile, your line is never claimed and the site doesn't put the game on any profile.
+If your Halo profile plays as a guest, your line is never claimed and your copy sends no report of games it joined. If your copy isn't linked to a Delta profile, the site doesn't take its claims. Games your copy reported itself still count if you link it later.
 
 ## Your verified name in games
 

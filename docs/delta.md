@@ -1016,9 +1016,11 @@ and show their handle until their owner picks its capitals.
   a linked profile, its handle).
 - **Not connected, not recorded.** A guest Halo profile's line is never
   claimed, and a machine whose local players are all guests sends no
-  report of a game it joined. The site attaches a line to a player ID only
-  when that ID is linked to a Delta profile. So a player who isn't
-  connected to Delta never has a game put on a profile.
+  report of a game it joined. The site takes a claim (`/v1/claim`) only
+  from a player ID linked to a Delta profile: an unlinked one gets its 200
+  and the line stays unowned. (Open: a copy's own report of a game it
+  joined still names its player ID on its line, so a copy that links
+  later pulls those games in.)
 
 **Look-alikes.** The site and the game read names the same way
 (`lookalike_key` in puma, `identity_lookalike_key` in the game, checked
