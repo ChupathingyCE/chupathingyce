@@ -1589,6 +1589,15 @@ static void test_voice(void)
 		frame(now, 5, joined, 1);
 	CHECK(delta_peer_client_voice_config(&nodes[1].peer, now, &heard) && heard.kbps == 24 && heard.proximity == 150 &&
 		heard.channels == rules.channels && !heard.flags);
+	/* a frame the host only relays (the other team's) never reaches the
+	host's own player, though the host counts its speaker as talking: who's
+	talking (voice_game_machine_talking) goes by what the player hears */
+	sent = voice_heard[0].count;
+	now += 20;
+	CHECK(delta_peer_client_voice_say(&nodes[3].peer, now, _delta_voice_channel_team, 5, packet, 40));
+	deliver(now);
+	CHECK(voice_heard[0].count == sent && delta_peer_voice_talking(&nodes[0].peer, now, 3));
+	now += 1000;
 	CHECK(!delta_peer_client_voice_config(&nodes[4].peer, now, NULL));
 
 	/* a team frame: the host's own player and the teammate hear it, the

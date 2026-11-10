@@ -291,9 +291,13 @@ void voice_game_set_party_path(struct voice_party_path const *path)
 	voice_game.party_path = path;
 }
 
-void voice_game_party_heard(int member, unsigned short sequence, unsigned char const *packet, int length)
+void voice_game_party_heard(int member, wchar_t const *name, unsigned short sequence, unsigned char const *packet,
+	int length)
 {
-	if (member < 0 || member >= PARTY_MEMBERS || !packet || length <= 0 || length > VOICE_PACKET_SIZE ||
+	/* (a member this copy muted is never played: no name, no way to tell,
+	so nothing played either) */
+	if (member < 0 || member >= PARTY_MEMBERS || !name || !name[0] || chat_local_muted(NONE, name) || !packet ||
+		length <= 0 || length > VOICE_PACKET_SIZE ||
 		voice_game_channel_state(_delta_voice_channel_party) == _voice_channel_voice_off)
 	{
 		return;
@@ -519,9 +523,11 @@ char const *voice_game_channel_reason(int state) { (void)state; return ""; }
 char const *voice_game_channel_name(int channel) { (void)channel; return ""; }
 void voice_game_set_party(unsigned char const *tag) { (void)tag; }
 void voice_game_set_party_path(struct voice_party_path const *path) { (void)path; }
-void voice_game_party_heard(int member, unsigned short sequence, unsigned char const *packet, int length)
+void voice_game_party_heard(int member, wchar_t const *name, unsigned short sequence, unsigned char const *packet,
+	int length)
 {
 	(void)member;
+	(void)name;
 	(void)sequence;
 	(void)packet;
 	(void)length;
@@ -535,10 +541,14 @@ boolean voice_game_machine_talking(short machine_index)
 #ifdef HALO_PORT_VOICE_AUDIO
 	if (machine_index == network_game_client_get_local_machine_index())
 		return voice_game_talking();
-	if (voice_speaker_talking(system_milliseconds(), machine_index))
-		return TRUE;
+	/* (only a voice this player hears: a frame routed to it and not muted
+	here. On a host, a frame it only relays to others, an enemy team's,
+	never shows) */
+	return voice_speaker_talking(system_milliseconds(), machine_index) ? TRUE : FALSE;
+#else
+	(void)machine_index;
+	return FALSE;
 #endif
-	return delta_peer_game_voice_talking(machine_index) ? TRUE : FALSE;
 }
 
 void voice_game_update(void)

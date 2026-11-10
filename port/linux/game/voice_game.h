@@ -9,6 +9,8 @@ and hearing on their channel.
 #ifndef __VOICE_GAME_H
 #define __VOICE_GAME_H
 
+#include <stddef.h>
+
 /* the host's rules: a player's host reads config.toml's network.voice_*, a
 dedicated server sets its own (voice_game_host_set) */
 struct voice_host_rules
@@ -74,17 +76,20 @@ none). Until there is one, the party channel reaches the members in this
 game alone, through its host. With one, a party frame also goes out over it,
 and frames its members say in other games come back in through
 voice_game_party_heard (member: the party's own number for them, 0 to 15;
-never this copy's own) */
+never this copy's own; name: theirs, for this copy's mutes, chat's
+chat_local_mute(NONE, name): a muted member is never played) */
 struct voice_party_path
 {
 	void *context;
 	int (*send)(void *context, unsigned short sequence, unsigned char const *packet, int length);
 };
 void voice_game_set_party_path(struct voice_party_path const *path);
-void voice_game_party_heard(int member, unsigned short sequence, unsigned char const *packet, int length);
+void voice_game_party_heard(int member, wchar_t const *name, unsigned short sequence, unsigned char const *packet,
+	int length);
 
 /* whether this copy's player talks now, and another machine's (a frame of
-it heard, or relayed by this host, just now) */
+it this player heard just now: never one a host only relays, nor a muted
+player's) */
 boolean voice_game_talking(void);
 boolean voice_game_machine_talking(short machine_index);
 

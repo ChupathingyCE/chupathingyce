@@ -2124,7 +2124,7 @@ static void render_voice_indicator(void)
 		char name[48];
 
 		if (!network_player_is_valid(player) || machine == network_game_client_get_local_machine_index() ||
-			!voice_game_machine_talking(machine))
+			chat_local_muted(machine, player->name) || !voice_game_machine_talking(machine))
 		{
 			continue;
 		}
