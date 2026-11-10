@@ -3254,6 +3254,10 @@ static UINT bg_visibility_result(DWORD index, unsigned long *number)
 	*number = bg.tests[index].known_number;
 	for (test = 0; test < bg.tests[index].pending_count; test++)
 	{
+		/* (not one whose queries the ring has given to later tests since:
+		their results are those tests') */
+		if (bg.query_next - bg.tests[index].pending[test].first > BG_QUERY_COUNT)
+			continue;
 		if (bg.frame >= bg.tests[index].pending[test].frame + BG_QUERY_LATENCY)
 			done = test;
 	}

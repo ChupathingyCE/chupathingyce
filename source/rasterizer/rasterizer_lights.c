@@ -600,6 +600,9 @@ static boolean lens_flare_test_slot_count(
 	/* (the numbers wrap at 2^32: a test at or after the flare's first) */
 	if (!slot->first_test || !test || (((test - slot->first_test) & 0xffffffffUL) & 0x80000000UL))
 		return FALSE;
+	/* (the next counts are compared with this one, so that a flare in view
+	for longer than half the numbers, hours, never seems to go back in time) */
+	slot->first_test = test;
 	*visible_pixels = count;
 	if (slot->tests[test % LENS_FLARE_TEST_HISTORY] == test && slot->pixels[test % LENS_FLARE_TEST_HISTORY] > 0)
 		*occlusion_pixels = slot->pixels[test % LENS_FLARE_TEST_HISTORY];
