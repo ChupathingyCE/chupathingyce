@@ -1534,6 +1534,11 @@ static const struct config_setting config_settings[] =
 	{ "debug.gpu_visibility_readback", _config_string, "\"auto\"", "HALO_GPU_VISIBILITY_READBACK", _environment_value, _platform_desktop,
 		"How lens flare and light glow tests get their results. auto reads\n"
 		"them on the CPU except on NVIDIA. cpu or buffer forces one." },
+	{ "debug.doors_pass_light", _config_boolean, "false", "HALO_DOORS_PASS_LIGHT", _environment_set_is_true, _platform_all,
+		"Leave closed doors' portals open to the dynamic lights, as the Xbox did:\n"
+		"a light behind a closed door lights the near side. For comparing." },
+	{ "debug.door_portals_log", _config_boolean, "false", "HALO_DOOR_PORTALS_LOG", _environment_set_is_true, _platform_all,
+		"Log which level portals each door covers, as it is paired with them." },
 	{ "debug.gpu_stats", _config_boolean, "false", "HALO_GPU_STATS", _environment_set_is_true, _platform_all,
 		"Log the renderer's draw counts once a second." },
 	{ "debug.gpu_trace_frame", _config_integer, "-1", "HALO_GPU_TRACE", _environment_value, _platform_all,
