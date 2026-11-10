@@ -92,8 +92,22 @@ int gl_functions_load(void)
 	for every name they know, not only their context's) */
 	if (xgpu_gl_legacy)
 	{
+		GLint major = 0, minor = 0;
+		int barrier;
+
+		/* but glMemoryBarrier where the context has it (OpenGL 4.2, or
+		ARB_shader_image_load_store before it): Mesa Intel's pipeline
+		flush is one (draw_flush, d3d8_gl.c), and Ivy Bridge's 4.2 takes
+		this path */
+		if (halo_glGetIntegerv)
+		{
+			halo_glGetIntegerv(GL_MAJOR_VERSION, &major);
+			halo_glGetIntegerv(GL_MINOR_VERSION, &minor);
+		}
+		barrier = major > 4 || (major == 4 && minor >= 2) ||
+			SDL_GL_ExtensionSupported("GL_ARB_shader_image_load_store");
 #define GL_DROP_OPTIONAL_FUNCTION(name) \
-	if (GL_OPTIONAL_FUNCTION(name)) \
+	if (GL_OPTIONAL_FUNCTION(name) && !(barrier && !strcmp(#name, "glMemoryBarrier"))) \
 		halo_##name = NULL;
 		GL_FUNCTIONS(GL_DROP_OPTIONAL_FUNCTION)
 #undef GL_DROP_OPTIONAL_FUNCTION

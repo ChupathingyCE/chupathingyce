@@ -2132,6 +2132,10 @@ static void gl_initialize(void)
 			device.flush_every = (unsigned long)every;
 			platform_log("GPU: a pipeline flush every %ld draws", every);
 		}
+#ifdef XGPU_GL_LEGACY_AT_RUN_TIME
+		else if (every > 0)
+			platform_log("GPU: no glMemoryBarrier (OpenGL 4.2) in this context: the pipeline flush every %ld draws is unavailable", every);
+#endif
 	}
 #endif
 #ifdef HALO_GL_ES
