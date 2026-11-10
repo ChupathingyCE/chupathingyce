@@ -76,8 +76,12 @@ sees */
 void platform_input_scheme_used(void *gamepad);
 
 /* whether the game runs without anyone to answer a question (a test run, a
-null renderer, the Steam Deck's Game Mode): no launcher, no message boxes */
+null renderer, the Steam Deck's Game Mode): no message boxes */
 BOOL platform_run_is_quiet(void);
+/* whether it runs without anyone to watch it (a test run, a null renderer;
+not Game Mode, which shows the setup screen, drawn in the game's own window):
+no setup screen either */
+BOOL platform_run_is_unwatched(void);
 
 /* the maps out of a file the player picked (the first start, the
 launcher's Add maps), on a thread of their own: the kind of file it is

@@ -1412,8 +1412,11 @@ static void settings_rows_build(void)
 	}
 	case _tab_updates:
 	{
-		char latest[32];
+		char latest[32], progress[sizeof(launcher.status)];
 		int state = updater_check_state(latest, sizeof(latest));
+		/* (an install begun here: how it goes, in the status line, on this
+		page, with no window or dialog, so under gamescope too) */
+		int installing = updater_install_status(progress, sizeof(progress));
 
 		row = row_add(_action_none, "THIS VERSION");
 		snprintf(row->value, sizeof(row->value), "%s", build_identity_version());
@@ -1445,14 +1448,28 @@ static void settings_rows_build(void)
 				}
 			}
 		}
+		if (installing != UPDATER_INSTALL_IDLE)
+		{
+			snprintf(launcher.status, sizeof(launcher.status), "%s", progress);
+			launcher.status_color = installing == UPDATER_INSTALL_FAILED ? COLOR_AMBER : COLOR_GREEN;
+		}
 		row = row_add(_action_check_updates, "CHECK NOW");
 		row->gap = 1;
-		if (state == UPDATER_NEWER)
+		/* (in UPDATE's place while it installs, with no second check or
+		install: the selection stays where it was) */
+		if (installing == UPDATER_INSTALL_DOWNLOADING || installing == UPDATER_INSTALL_INSTALLING)
+		{
+			row = row_add(_action_none, "UPDATING");
+			row->value_color = COLOR_GREEN;
+			snprintf(row->value, sizeof(row->value), "%s", installing == UPDATER_INSTALL_INSTALLING ?
+				"Restarting" : updater_install_amount(progress, sizeof(progress)));
+		}
+		else if (state == UPDATER_NEWER || updater_ready(NULL, 0))
 		{
 #ifdef __APPLE__
 			row_add(_action_install_update, "OPEN THE DOWNLOAD PAGE");
 #else
-			row_add(_action_install_update, "UPDATE");
+			row_add(_action_install_update, installing == UPDATER_INSTALL_FAILED ? "TRY AGAIN" : "UPDATE");
 #endif
 		}
 		break;
@@ -3136,12 +3153,21 @@ static void act(const struct row *row)
 			open_folder(platform_folder((enum port_folder)row->argument));
 		break;
 	case _action_check_updates:
+		/* (not while an update installs: the tab shows it) */
+		if (updater_install_status(NULL, 0) == UPDATER_INSTALL_DOWNLOADING ||
+			updater_install_status(NULL, 0) == UPDATER_INSTALL_INSTALLING)
+		{
+			break;
+		}
 		if (!updater_check_now() && updater_check_state(NULL, 0) != UPDATER_CHECKING)
 			set_status(COLOR_GREY, "This build doesn't update itself.");
 		break;
 	case _action_install_update:
-		if (!updater_install())
+		/* (on its own thread: the tab shows how it goes, updater_install_status) */
+		if (!updater_install_begin())
 			set_status(COLOR_AMBER, "That didn't work. Get it from the release page.");
+		else
+			launcher.status[0] = '\0';
 		break;
 	case _action_discord:
 		if (!SDL_OpenURL(LAUNCHER_DISCORD_URL))
@@ -4120,7 +4146,7 @@ void launcher_at_start(void)
 	int setup, play_now, joining, open = 0, question = 0;
 	char mode[64];
 
-	if (launcher.shown || platform_run_is_quiet() || !drawable(0))
+	if (launcher.shown || platform_run_is_unwatched() || !drawable(0))
 		return;
 	command_line(&setup, &play_now, mode, sizeof(mode), &joining);
 	set_root(platform_data_root());

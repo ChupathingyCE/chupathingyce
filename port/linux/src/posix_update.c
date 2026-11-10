@@ -3,7 +3,10 @@ POSIX_UPDATE.C
 
 The Linux self-updater's system side (update.h): a download over HTTPS with
 Mbed TLS (port/third_party/mbedtls), and the files of the running game
-replaced and the game started again.
+replaced and the game started again: in this process's place as it exits
+(update_start_in_place: an execve at the end of exit's handlers), so the
+new game keeps the process Steam and gamescope follow, or else as a process
+of its own (update_launch).
 
 The download is a plain HTTP/1.1 GET over TLS 1.2 or 1.3, following
 redirects (GitHub sends release downloads to its file host). The server's
@@ -40,7 +43,10 @@ Built with the host's ABI, as the other posix_*.c.
 #include <string.h>
 #include <strings.h>
 #include <sys/resource.h>
+#include <fcntl.h>
+#include <signal.h>
 #include <sys/stat.h>
+#include <sys/statvfs.h>
 #include <sys/types.h>
 #include <unistd.h>
 
@@ -691,48 +697,75 @@ int update_launch_with(const char *path, const char *argument)
 	(void)argument;
 	return 0;
 }
-#else
-int update_launch_with(const char *path, const char *argument)
+
+int update_can_start(const char *path, char *reason, int reason_size)
 {
-	/* (the environment for the new game, made before the fork: an AppImage's
-	AppRun put its own mount's libraries first in LD_LIBRARY_PATH, keeping
-	the caller's in CHUPATHINGYCE_HOST_LD_LIBRARY_PATH, and that mount goes
-	when this game quits; the new game's AppRun puts its own first again) */
+	(void)path;
+	(void)reason;
+	(void)reason_size;
+	return 1;
+}
+
+int update_start_in_place(const char *path)
+{
+	(void)path;
+	return 0;
+}
+#else
+/* the environment for the new game: an AppImage's AppRun put its own
+mount's libraries first in LD_LIBRARY_PATH, keeping the caller's in
+CHUPATHINGYCE_HOST_LD_LIBRARY_PATH, and that mount goes when this game
+quits; the new game's AppRun puts its own first again. The rest is this
+process's, so Steam's (SteamAppId, its overlay) and gamescope's go on */
+static char **launch_environment(void)
+{
 	static char *environment[MAXIMUM_ENVIRONMENT + 1];
 	static char library_path[8192];
 	const char *host_library_path = getenv("CHUPATHINGYCE_HOST_LD_LIBRARY_PATH");
-	char **variables = environ;
-	pid_t child;
 	int count = 0, index;
 
-	if (host_library_path)
+	if (!host_library_path)
+		return environ;
+	for (index = 0; environ[index] && count < MAXIMUM_ENVIRONMENT - 1; index++)
 	{
-		for (index = 0; environ[index] && count < MAXIMUM_ENVIRONMENT - 1; index++)
+		if (!strncmp(environ[index], "LD_LIBRARY_PATH=", 16) ||
+			!strncmp(environ[index], "CHUPATHINGYCE_HOST_LD_LIBRARY_PATH=", 35))
 		{
-			if (!strncmp(environ[index], "LD_LIBRARY_PATH=", 16) ||
-				!strncmp(environ[index], "CHUPATHINGYCE_HOST_LD_LIBRARY_PATH=", 35))
-			{
-				continue;
-			}
-			environment[count++] = environ[index];
+			continue;
 		}
-		if (*host_library_path)
-		{
-			snprintf(library_path, sizeof(library_path), "LD_LIBRARY_PATH=%s", host_library_path);
-			environment[count++] = library_path;
-		}
-		environment[count] = NULL;
-		variables = environment;
+		environment[count++] = environ[index];
 	}
+	if (*host_library_path)
+	{
+		snprintf(library_path, sizeof(library_path), "LD_LIBRARY_PATH=%s", host_library_path);
+		environment[count++] = library_path;
+	}
+	environment[count] = NULL;
+	return environment;
+}
+
+/* one past the highest file descriptor to let go of */
+static int descriptor_limit(void)
+{
+	struct rlimit limit;
+
+	if (getrlimit(RLIMIT_NOFILE, &limit) == 0 && limit.rlim_cur != RLIM_INFINITY && limit.rlim_cur < 65536)
+		return (int)limit.rlim_cur;
+	return 4096;
+}
+
+int update_launch_with(const char *path, const char *argument)
+{
+	/* (made before the fork) */
+	char **variables = launch_environment();
+	pid_t child;
+
 	child = fork();
 	if (child == 0)
 	{
 		/* none of this process's files (its sockets hold the game's ports) */
-		struct rlimit limit;
-		int descriptor, maximum = 4096;
+		int descriptor, maximum = descriptor_limit();
 
-		if (getrlimit(RLIMIT_NOFILE, &limit) == 0 && limit.rlim_cur != RLIM_INFINITY && limit.rlim_cur < 65536)
-			maximum = (int)limit.rlim_cur;
 		for (descriptor = 3; descriptor < maximum; descriptor++)
 			close(descriptor);
 		{
@@ -743,6 +776,89 @@ int update_launch_with(const char *path, const char *argument)
 		_exit(127);
 	}
 	return child > 0;
+}
+
+int update_can_start(const char *path, char *reason, int reason_size)
+{
+	struct stat information;
+	struct statvfs file_system;
+
+	if (stat(path, &information) != 0 || !S_ISREG(information.st_mode))
+	{
+		snprintf(reason, (size_t)reason_size, "it is not there");
+		return 0;
+	}
+	/* (a folder on a file system mounted noexec runs nothing, whatever the
+	file's mode says: a USB stick or SD card mounted so, or a /tmp) */
+#ifdef ST_NOEXEC
+	if (statvfs(path, &file_system) == 0 && (file_system.f_flag & ST_NOEXEC))
+	{
+		snprintf(reason, (size_t)reason_size, "its folder doesn't run programs (it is mounted noexec)");
+		return 0;
+	}
+#else
+	(void)file_system;
+#endif
+	if (access(path, X_OK) != 0)
+	{
+		snprintf(reason, (size_t)reason_size, "it isn't executable");
+		return 0;
+	}
+	return 1;
+}
+
+/* the program this process becomes as it exits (update_start_in_place) */
+static char start_in_place_path[PATH_MAX];
+
+/* the last of exit's handlers (registered before main, so after every
+handler of the game's, which run first: the game list's withdrawal, UPnP's
+release, the lobby's goodbye, the events' last upload): this process
+becomes the new game. Its files are closed by the execve itself
+(close-on-exec), so that if it fails the new game is still started as a
+process of its own, as before */
+static void start_in_place_at_exit(void)
+{
+	char **variables;
+	sigset_t signals;
+	int descriptor, maximum;
+
+	if (!start_in_place_path[0])
+		return;
+	variables = launch_environment();
+	fflush(NULL);
+	maximum = descriptor_limit();
+	for (descriptor = 3; descriptor < maximum; descriptor++)
+	{
+		int flags = fcntl(descriptor, F_GETFD);
+
+		if (flags >= 0)
+			fcntl(descriptor, F_SETFD, flags | FD_CLOEXEC);
+	}
+	/* (the new game starts with no signal held back, as a new process
+	would) */
+	sigemptyset(&signals);
+	sigprocmask(SIG_SETMASK, &signals, NULL);
+	{
+		char *const arguments[] = { start_in_place_path, NULL };
+
+		execve(start_in_place_path, arguments, variables);
+	}
+	fprintf(stderr, "update: could not start %s in place (%s): starting it as a process of its own\n",
+		start_in_place_path, strerror(errno));
+	update_launch(start_in_place_path);
+}
+
+__attribute__((constructor)) static void start_in_place_register(void)
+{
+	atexit(start_in_place_at_exit);
+}
+
+int update_start_in_place(const char *path)
+{
+	if (!path || !*path || strlen(path) >= sizeof(start_in_place_path))
+		return 0;
+	snprintf(start_in_place_path, sizeof(start_in_place_path), "%s", path);
+	return 1;
 }
 #endif
 
