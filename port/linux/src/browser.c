@@ -48,7 +48,7 @@ with it under the lock.
 #ifndef HALO_CONSOLE_NO_GUIDE
 #include "social.h"
 #endif
-#ifdef HALO_DELTA_IDENTITY
+#ifdef HALO_DELTA_PEER_IDENTITY
 #include "identity.h"
 #include "identity_key.h"
 #endif
@@ -607,6 +607,13 @@ enum
 
 static struct identity_state identity;
 static int identity_read;
+/* (under browser_lock) the certificate in use, for proofs in games
+(browser_identity_card): its bytes, its issuer's, and what it says */
+static int shown_valid;
+static unsigned char shown_certificate[IDENTITY_DEVICE_MOST];
+static int shown_certificate_size;
+static unsigned char shown_issuer[IDENTITY_ISSUER_SIZE];
+static struct identity_device shown_device;
 /* the copy ID the certificate is for (the player key's when it enrolled) */
 static unsigned char identity_copy[IDENTITY_ID_SIZE];
 /* (under browser_lock) another player key was put in */
@@ -696,6 +703,9 @@ static void identity_new_device(void)
 	identity_wipe(&identity, sizeof(identity));
 	identity.new_key_made = new_key_made;
 	identity_wipe(identity_copy, sizeof(identity_copy));
+	pthread_mutex_lock(&browser_lock);
+	shown_valid = 0;
+	pthread_mutex_unlock(&browser_lock);
 	identity_path("delta_device.cert", path, sizeof(path));
 	remove(path);
 	identity_path("delta_device.key", path, sizeof(path));
@@ -724,6 +734,13 @@ static int take_certificate(const unsigned char *certificate, int certificate_si
 	if (reason == IDENTITY_OK)
 	{
 		identity_have_certificate(&identity, &device, refresh_after, now);
+		pthread_mutex_lock(&browser_lock);
+		memcpy(shown_certificate, certificate, (size_t)certificate_size);
+		shown_certificate_size = certificate_size;
+		memcpy(shown_issuer, issuer, IDENTITY_ISSUER_SIZE);
+		shown_device = device;
+		shown_valid = issuer_size == IDENTITY_ISSUER_SIZE;
+		pthread_mutex_unlock(&browser_lock);
 		return 1;
 	}
 	/* (a saved one past its time: checked all the same, the issuer's
@@ -856,6 +873,9 @@ static void identity_refused(int status, const char *response)
 		code again ends it) */
 		identity_path("delta_device.cert", path, sizeof(path));
 		remove(path);
+		pthread_mutex_lock(&browser_lock);
+		shown_valid = 0;
+		pthread_mutex_unlock(&browser_lock);
 		identity_path("delta_device.out", path, sizeof(path));
 		file = fopen(path, "w");
 		if (file)
@@ -1057,6 +1077,241 @@ static void update_token(void)
 		identity_refused(status, response);
 	identity_wipe(token, sizeof(token));
 	identity_wipe(response, sizeof(response));
+}
+
+int browser_identity_card(const unsigned char *account, unsigned char *certificate, int *certificate_size,
+	unsigned char *issuer, struct identity_device *device)
+{
+	int ok;
+	time_t now = time(NULL);
+
+	pthread_mutex_lock(&browser_lock);
+	/* (in date by this machine's clock: an expired one proves nothing until
+	it refreshes) */
+	ok = shown_valid && now > 0 && (unsigned long)now >= shown_device.issued &&
+		(unsigned long)now < shown_device.expires && (shown_device.capabilities & IDENTITY_CAN_PLAY) &&
+		(!account || !memcmp(account, shown_device.account, IDENTITY_ID_SIZE));
+	if (ok)
+	{
+		memcpy(certificate, shown_certificate, (size_t)shown_certificate_size);
+		*certificate_size = shown_certificate_size;
+		memcpy(issuer, shown_issuer, IDENTITY_ISSUER_SIZE);
+		if (device)
+			*device = shown_device;
+	}
+	pthread_mutex_unlock(&browser_lock);
+	return ok;
+}
+
+int browser_identity_sign(const unsigned char *message, int size, unsigned char *signature, unsigned char *public_key)
+{
+	unsigned char seed[IDENTITY_SEED_SIZE], key[IDENTITY_KEY_SIZE], id[IDENTITY_ID_SIZE];
+
+	if (!device_key(seed, key, id))
+		return 0;
+	identity_sign(seed, message, size, signature);
+	identity_wipe(seed, sizeof(seed));
+	if (public_key)
+		memcpy(public_key, key, IDENTITY_KEY_SIZE);
+	return 1;
+}
+
+int browser_identity_moderator_sign(const unsigned char *message, int size, unsigned char *public_key,
+	unsigned char *signature)
+{
+	struct identity_device device;
+	unsigned char certificate[IDENTITY_DEVICE_MOST], issuer[IDENTITY_ISSUER_SIZE];
+	int certificate_size;
+
+	/* (a device whose certificate lets it moderate: the role is the
+	account's, which the host knows from the device's proof) */
+	if (!browser_identity_card(NULL, certificate, &certificate_size, issuer, &device) ||
+		!(device.capabilities & IDENTITY_CAN_MODERATE))
+	{
+		return 0;
+	}
+	return browser_identity_sign(message, size, signature, public_key);
+}
+#endif
+
+#ifdef HALO_DELTA_PEER_IDENTITY
+/* ---------- verified names: the revocation list (docs/delta.md, Verified
+names). Asked of the site every ten minutes (GET /v1/identity/revoked),
+checked (its issuer by the root keys, the list by its issuer, a serial past
+the one kept) and kept in delta_revoked.bin in the save root, so a host or
+player that can't reach the site still knows the last one. Under
+browser_lock. */
+enum
+{
+	REVOKED_INTERVAL = 600,
+	REVOKED_BYTES = IDENTITY_REVOKED_HEADER + 16 * IDENTITY_REVOKED_MOST + IDENTITY_SIGNATURE_SIZE,
+};
+
+static unsigned char revoked_bytes[REVOKED_BYTES];
+static int revoked_size;
+static struct identity_revoked revoked_list;
+/* (each list taken: browser_identity_revoked_changes) */
+static int revoked_changes;
+/* (the browser thread's) */
+static unsigned long revoked_asked;
+static int revoked_loaded;
+
+static void revoked_path(char *path, int size)
+{
+	snprintf(path, (size_t)size, "%s/delta_revoked.bin", platform_save_root());
+}
+
+/* a list and its issuer certificate checked: taken (1) when newer than the
+one kept */
+static int take_revoked(const unsigned char *list, int list_size, const unsigned char *issuer_data, int issuer_size,
+	int save)
+{
+	struct identity_issuer issuer;
+	struct identity_revoked parsed;
+	time_t now = time(NULL);
+	int taken = 0;
+
+	int issuer_check;
+
+	/* (an issuer past its dates still vouches for the list this copy kept,
+	taken while it was good: an old list is better than none, and is said
+	to be stale. One fetched is taken only from an issuer within its dates:
+	a key past them is no longer looked after, and a list it signed could
+	take revoked devices off) */
+	issuer_check = list_size > REVOKED_BYTES ? IDENTITY_MALFORMED :
+		identity_check_issuer(issuer_data, issuer_size, identity_root_keys, IDENTITY_ROOT_KEY_COUNT,
+			now > 0 ? (unsigned long)now : 0, &issuer);
+	if (!identity_revoked_issuer_usable(issuer_check, !save) ||
+		identity_check_revoked(list, list_size, &issuer, &parsed) != IDENTITY_OK)
+	{
+		return 0;
+	}
+	if (issuer_check == IDENTITY_EXPIRED)
+		platform_log("Delta identity: the revocation list's issuer has expired: the list is used, but stale");
+	pthread_mutex_lock(&browser_lock);
+	if (!revoked_size || parsed.serial > revoked_list.serial)
+	{
+		memcpy(revoked_bytes, list, (size_t)list_size);
+		revoked_size = list_size;
+		identity_parse_revoked(revoked_bytes, revoked_size, &revoked_list);
+		revoked_changes++;
+		taken = 1;
+	}
+	pthread_mutex_unlock(&browser_lock);
+	if (taken && now > 0 && (unsigned long)now > parsed.next_update + IDENTITY_GRACE)
+		platform_log("Delta identity: the revocation list is stale (its next update has passed): used until a newer one comes");
+	if (taken && save)
+	{
+		static unsigned char file[REVOKED_BYTES + IDENTITY_ISSUER_SIZE];
+		char path[1024];
+
+		memcpy(file, issuer_data, IDENTITY_ISSUER_SIZE);
+		memcpy(file + IDENTITY_ISSUER_SIZE, list, (size_t)list_size);
+		revoked_path(path, sizeof(path));
+		if (!posix_browser_replace_key(path, file, IDENTITY_ISSUER_SIZE + list_size))
+			platform_log("Delta identity: could not save the revocation list");
+	}
+	return taken;
+}
+
+/* the list kept on disk, read once, whichever thread asks first (with or
+without a site to ask: a LAN game still checks against the last list) */
+static void load_saved_revoked(void)
+{
+	static unsigned char data[REVOKED_BYTES + IDENTITY_ISSUER_SIZE];
+	char path[1024];
+	FILE *file;
+	size_t size;
+	int first;
+
+	pthread_mutex_lock(&browser_lock);
+	first = !revoked_loaded;
+	revoked_loaded = 1;
+	pthread_mutex_unlock(&browser_lock);
+	if (!first)
+		return;
+	revoked_path(path, sizeof(path));
+	file = fopen(path, "rb");
+	if (!file)
+		return;
+	size = fread(data, 1, sizeof(data), file);
+	fclose(file);
+	if (size > IDENTITY_ISSUER_SIZE)
+		take_revoked(data + IDENTITY_ISSUER_SIZE, (int)size - IDENTITY_ISSUER_SIZE, data, IDENTITY_ISSUER_SIZE, 0);
+}
+
+/* (the browser thread) the list kept on disk, once; the site's every ten
+minutes */
+static void update_revoked(void)
+{
+	static unsigned char issuer[IDENTITY_ISSUER_SIZE];
+	static unsigned char list[REVOKED_BYTES];
+	char url[512], error[256], first[2 * IDENTITY_ISSUER_SIZE + 8];
+	char *response, *text;
+	time_t now = time(NULL);
+	int status, length;
+	const int response_size = 2 * (REVOKED_BYTES + IDENTITY_ISSUER_SIZE * 4) + 1024;
+
+	load_saved_revoked();
+	if (now <= 0 || (revoked_asked && (unsigned long)now < revoked_asked + REVOKED_INTERVAL))
+		return;
+	revoked_asked = (unsigned long)now;
+	server_url("/v1/identity/revoked", url, sizeof(url));
+	response = malloc((size_t)response_size);
+	text = malloc(2 * REVOKED_BYTES + 2);
+	if (!response || !text)
+	{
+		free(response);
+		free(text);
+		return;
+	}
+	status = posix_browser_request(url, NULL, NULL, response, response_size, error, sizeof(error));
+	/* ("revoked": the list's hex; "issuers": the issuer certificates, the
+	current first) */
+	length = status == 200 ? identity_json_member(response, "revoked", text, 2 * REVOKED_BYTES + 2) : -1;
+	if (length > 0 && length % 2 == 0 && length / 2 <= REVOKED_BYTES &&
+		identity_unhex(text, length, list, length / 2) &&
+		identity_json_member(response, "issuers", first, sizeof(first)) > 0)
+	{
+		char *start = strchr(first, '"');
+		int issuer_length;
+
+		/* ("[\"<hex>\", ...]": the first) */
+		if (start)
+		{
+			start++;
+			issuer_length = (int)strcspn(start, "\"");
+			if (issuer_length == 2 * IDENTITY_ISSUER_SIZE &&
+				identity_unhex(start, issuer_length, issuer, IDENTITY_ISSUER_SIZE))
+			{
+				take_revoked(list, length / 2, issuer, IDENTITY_ISSUER_SIZE, 1);
+			}
+		}
+	}
+	free(response);
+	free(text);
+}
+
+int browser_identity_revoked_changes(void)
+{
+	int changes;
+
+	load_saved_revoked();
+	pthread_mutex_lock(&browser_lock);
+	changes = revoked_changes;
+	pthread_mutex_unlock(&browser_lock);
+	return changes;
+}
+
+int browser_identity_revoked(const unsigned char *device_id)
+{
+	int revoked;
+
+	load_saved_revoked();
+	pthread_mutex_lock(&browser_lock);
+	revoked = revoked_size && identity_is_revoked(&revoked_list, device_id);
+	pthread_mutex_unlock(&browser_lock);
+	return revoked;
 }
 #endif
 
@@ -1557,6 +1812,10 @@ static int device_sign_out(void)
 	identity.has_certificate = 0;
 	identity.signed_out = 1;
 	signed_out_mark(1);
+	/* (no more proofs in games from it: verified names) */
+	pthread_mutex_lock(&browser_lock);
+	shown_valid = 0;
+	pthread_mutex_unlock(&browser_lock);
 	platform_log("Delta identity: this device signed out");
 	return 1;
 }
@@ -3461,6 +3720,9 @@ static void *browser_thread(void *unused)
 		{
 #ifdef HALO_DELTA_IDENTITY
 			update_identity();
+#endif
+#ifdef HALO_DELTA_PEER_IDENTITY
+			update_revoked();
 #endif
 			update_hosting();
 			send_report();

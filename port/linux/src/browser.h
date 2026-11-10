@@ -617,6 +617,31 @@ background, or they have none to show). Kept for the run */
 #define BROWSER_PLAYER_CARDS 64
 int browser_player_card(const char *player_id, struct delta_profile_card *card);
 
+/* verified names in games (Delta Peer's identity capability; docs/delta.md,
+"Verified names"). This copy's device certificate and its issuer's, to
+prove a local player whose Halo profile is signed in to account (32 bytes
+of the certificate's account; NULL: the copy's own): 1 with them (the
+certificate's size, and what it says when device is not NULL), else 0
+(none, not in date, not for that account, or without play) */
+struct identity_device;
+int browser_identity_card(const unsigned char *account, unsigned char *certificate, int *certificate_size,
+	unsigned char *issuer, struct identity_device *device);
+/* the device key's signature of message (64 bytes), and its public key
+(may be NULL): 1, else 0 (no device key) */
+int browser_identity_sign(const unsigned char *message, int size, unsigned char *signature, unsigned char *public_key);
+/* a moderator's sign-in or action signed with the device key, for a device
+whose certificate may moderate (the role is its account's on the server):
+1, else 0 */
+int browser_identity_moderator_sign(const unsigned char *message, int size, unsigned char *public_key,
+	unsigned char *signature);
+/* whether a device ID (16 bytes) is on the revocation list this copy last
+fetched and checked (GET /v1/identity/revoked, every ten minutes, kept in
+delta_revoked.bin); 0 when it has none. The dedicated server's too */
+int browser_identity_revoked(const unsigned char *device_id);
+/* a count of the revocation lists taken so far: when it changes, every
+verified player kept is checked against the new one */
+int browser_identity_revoked_changes(void);
+
 /* a page of the site (path: "/profile"): its address as a player types it
 in page, and as a QR code in modules (BROWSER_CONNECT_QR_SIZE squared at
 most, nonzero for a dark one); the QR code's size, 0 for none */
