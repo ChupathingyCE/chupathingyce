@@ -361,6 +361,12 @@ static void cache_initialize(void)
 	if (!root || !*root)
 		return;
 	snprintf(cache.path, sizeof(cache.path), "%s/" SHADER_CACHE_FILE, root);
+#ifdef XGPU_GL_LEGACY_AT_RUN_TIME
+	/* (an older driver's path has shaders of its own, xgpu.h: kept apart,
+	so neither kind is compiled for the other) */
+	if (xgpu_gl_legacy)
+		snprintf(cache.path, sizeof(cache.path), "%s/shader_cache_older_gl.bin", root);
+#endif
 	if (!file_read())
 	{
 		/* (cut short, or another layout: what was read whole is kept) */
