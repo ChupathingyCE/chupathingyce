@@ -29,6 +29,7 @@ symbols in this file:
 #include "tag_files/tag_groups.h"
 #include "units/unit_definitions.h"
 #include "units/units.h"
+#include "rasterizer/rasterizer.h" /* port: (render_particles_cut_run) */
 
 /* ---------- constants */
 
@@ -204,6 +205,176 @@ static void rendered_particles_sort(
 	return;
 }
 
+/* port: the depths the transparent queue's groups sort at, and a run of
+particles where they are drawn, the depth each sorts at alone and the order
+they are built in (render_particles_cut_run) */
+static real render_particles_depths[RASTERIZER_MAXIMUM_TRANSPARENT_GEOMETRY_GROUPS];
+static short render_particles_part_counts[RASTERIZER_MAXIMUM_TRANSPARENT_GEOMETRY_GROUPS + 1];
+static short render_particles_part_ends[MAXIMUM_RENDERED_PARTICLES];
+static real_point3d render_particles_run_positions[MAXIMUM_RENDERED_PARTICLES];
+static real_vector3d render_particles_run_directions[MAXIMUM_RENDERED_PARTICLES];
+static real render_particles_run_depths[MAXIMUM_RENDERED_PARTICLES];
+static boolean render_particles_run_valid[MAXIMUM_RENDERED_PARTICLES];
+static short render_particles_run_keys[MAXIMUM_RENDERED_PARTICLES];
+static short render_particles_run_order[MAXIMUM_RENDERED_PARTICLES];
+
+/* port: a particle's place and direction, as render_particles found them
+as it built the particle's sprite: FALSE, the particle deleted, when the
+object it is on is gone */
+static boolean render_particle_place(
+	struct rendered_particle_datum const *rendered_particle,
+	real_point3d *position,
+	real_vector3d *direction)
+{
+	struct particle_datum *particle = particle_get(rendered_particle->particle_index);
+
+	if (particle->object_index != NONE)
+	{
+		real_matrix4x3 const *node_matrix;
+
+		if (TEST_FLAG(
+			particle->flags,
+			_particle_datum_attached_to_local_player_bit))
+		{
+			node_matrix =
+				first_person_weapon_get_node_matrix(
+					particle->local_player_index,
+					particle->node_index);
+		}
+		else if (object_try_and_get(particle->object_index))
+		{
+			node_matrix = object_get_node_matrix(
+				particle->object_index,
+				particle->node_index);
+		}
+		else
+		{
+			particle_delete(rendered_particle->particle_index);
+			return FALSE;
+		}
+
+		matrix4x3_transform_point(
+			node_matrix,
+			&particle->position,
+			position);
+		matrix4x3_transform_normal(
+			node_matrix,
+			&particle->direction,
+			direction);
+	}
+	else
+	{
+		/* (where it is drawn: a tick behind, as the objects, particles.c) */
+		particle_render_position(rendered_particle->particle_index, position);
+		*direction = particle->direction;
+		/* January explicitly reasserts the detached sentinel here. */
+		particle->object_index = NONE;
+	}
+
+	return TRUE;
+}
+
+/* port: a run of particles (one definition's in one cluster) is one group
+of the transparent queue, sorted at its particles' centroid, so an object
+amid the run was drawn over all of it or under all of it: a pickup behind
+a waterfall's mist showed through the mist in front of it. The run
+is built in parts instead, cut at the depths (ascending: z_sort's, the
+farthest first) the queue's other groups sort at: each particle in the
+part of the depths below its own, the parts from the farthest, each in the
+run's order. A part's centroid, the average of its particles' depths, sorts
+among the queue's groups where each of its particles would alone. Returns
+the parts' count and where each ends in order; a particle not valid is in
+none. With no depth among its particles', or more parts than
+maximum_part_count, the run is one part in its order, as the Xbox built it.
+keys holds one key a particle; counts one a depth, and one more. */
+static short render_particles_cut_run(
+	real const *particle_depths,
+	boolean const *valid,
+	short particle_count,
+	real const *depths,
+	long depth_count,
+	short maximum_part_count,
+	short *keys,
+	short *counts,
+	short *order,
+	short *part_ends)
+{
+	short particle_index;
+	short part_count = 0;
+	short order_count = 0;
+	long key;
+
+	for (key = 0; key <= depth_count; key++)
+	{
+		counts[key] = 0;
+	}
+	for (particle_index = 0; particle_index < particle_count; particle_index++)
+	{
+		long low = 0;
+		long high = depth_count;
+
+		if (!valid[particle_index])
+		{
+			continue;
+		}
+		/* (the depths below the particle's: a depth it equals is not) */
+		while (low < high)
+		{
+			long middle = (low + high) / 2;
+
+			if (depths[middle] < particle_depths[particle_index])
+			{
+				low = middle + 1;
+			}
+			else
+			{
+				high = middle;
+			}
+		}
+		keys[particle_index] = (short)low;
+		if (!counts[low]++)
+		{
+			part_count++;
+		}
+	}
+
+	if (part_count > maximum_part_count)
+	{
+		for (particle_index = 0; particle_index < particle_count; particle_index++)
+		{
+			if (valid[particle_index])
+			{
+				order[order_count++] = particle_index;
+			}
+		}
+		part_ends[0] = order_count;
+		return order_count ? 1 : 0;
+	}
+
+	/* (each key's count become where its part starts) */
+	part_count = 0;
+	for (key = 0; key <= depth_count; key++)
+	{
+		short count = counts[key];
+
+		if (count)
+		{
+			counts[key] = order_count;
+			order_count += count;
+			part_ends[part_count++] = order_count;
+		}
+	}
+	for (particle_index = 0; particle_index < particle_count; particle_index++)
+	{
+		if (valid[particle_index])
+		{
+			order[counts[keys[particle_index]]++] = particle_index;
+		}
+	}
+
+	return part_count;
+}
+
 void render_particles(
 	void)
 {
@@ -311,6 +482,13 @@ void render_particles(
 				struct rendered_particle_datum *rendered_particle =
 					rendered_particles;
 				short group_index;
+				/* port: the depths the queue's groups sort at, where a run is cut
+				(render_particles_cut_run), and as many more groups as the cuts
+				may add this frame: a quarter of the queue's room, so that the
+				effects after these still have theirs */
+				long depth_count = rasterizer_transparent_geometry_sort_depths(
+					render_particles_depths, NUMBEROF(render_particles_depths));
+				long cut_budget = rasterizer_transparent_geometry_free_group_count() / 4;
 
 				for (group_index = 0; group_index < group_count; group_index++)
 				{
@@ -318,151 +496,154 @@ void render_particles(
 						particle_definition_get(
 							rendered_particle->definition_index);
 					short particle_count = group_particle_counts[group_index];
-					real total_radius = 0.0f;
-					short built_particle_count = 0;
+					short part_count;
+					short part_index;
+					short run_index;
+					short order_index = 0;
 
-					build_sprites_begin(
-						&sprite_data,
-						particle_count,
-						definition->bitmap.index,
-						&definition->shader,
-						rendered_particle->attached_to_first_person_weapon
-							? FLAG(_build_sprites_first_person_bit)
-							: 0);
-
-					while (particle_count-- > 0)
+					/* port: each of the run's particles where it is drawn, first,
+					and the depth it would sort at alone */
+					for (run_index = 0; run_index < particle_count; run_index++)
 					{
-						struct particle_datum *particle =
-							particle_get(rendered_particle->particle_index);
-						real radius =
-							particle_get_radius(rendered_particle->particle_index);
-
-						if (particle->object_index != NONE)
+						render_particles_run_valid[run_index] = render_particle_place(
+							&rendered_particle[run_index],
+							&render_particles_run_positions[run_index],
+							&render_particles_run_directions[run_index]);
+						if (render_particles_run_valid[run_index])
 						{
-							real_matrix4x3 const *node_matrix;
-
-							if (TEST_FLAG(
-								particle->flags,
-								_particle_datum_attached_to_local_player_bit))
-							{
-								node_matrix =
-									first_person_weapon_get_node_matrix(
-										particle->local_player_index,
-										particle->node_index);
-							}
-							else if (object_try_and_get(particle->object_index))
-							{
-								node_matrix = object_get_node_matrix(
-									particle->object_index,
-									particle->node_index);
-							}
-							else
-							{
-								particle_delete(rendered_particle->particle_index);
-								rendered_particle++;
-								continue;
-							}
-
-							matrix4x3_transform_point(
-								node_matrix,
-								&particle->position,
-								&position);
-							matrix4x3_transform_normal(
-								node_matrix,
-								&particle->direction,
-								&direction);
+							render_particles_run_depths[run_index] = rasterizer_dynamic_unlit_geometry_z_sort(
+								(struct shader const *)&definition->shader,
+								&render_particles_run_positions[run_index]);
 						}
-						else
-						{
-							particle_render_position(rendered_particle->particle_index, &position);
-							direction = particle->direction;
-							/* January explicitly reasserts the detached sentinel here. */
-							particle->object_index = NONE;
-						}
-
-						{
-							real diameter =
-								render_frustum_sphere_diameter_in_pixels(
-									&render.frustum,
-									&position,
-									radius);
-
-							if (diameter > definition->lod_cutoff)
-							{
-								real fade;
-								real scale;
-								real remaining_life;
-								unsigned long flags;
-								word particle_flags;
-
-								fade = 1.0f;
-								built_particle_count++;
-								scale =
-									(radius + radius) *
-									definition->runtime_oo_width;
-								remaining_life =
-									particle->lifespan - particle->age;
-								total_radius += radius;
-
-								if (diameter < definition->minimum_pixels)
-								{
-									scale =
-										(definition->minimum_pixels / diameter) * scale;
-								}
-
-								if (definition->fade_in_time > 0.0f &&
-									particle->age < definition->fade_in_time)
-								{
-									fade = particle->age / definition->fade_in_time;
-								}
-
-								if (definition->fade_out_time > 0.0f &&
-									remaining_life < definition->fade_out_time)
-								{
-									fade *=
-										remaining_life / definition->fade_out_time;
-								}
-
-								flags = 0;
-								particle_flags = particle->flags;
-								SET_FLAG(
-									flags,
-									_build_sprite_u_mirror_bit,
-									TEST_FLAG(
-										particle_flags,
-										_particle_datum_u_mirror_bit));
-								SET_FLAG(
-									flags,
-									_build_sprite_v_mirror_bit,
-									TEST_FLAG(
-										particle_flags,
-										_particle_datum_v_mirror_bit));
-
-								build_sprite(
-									&sprite_data,
-									definition->sprite_orientation,
-									particle->sequence_index,
-									particle->frame_index,
-									&position,
-									&direction,
-									particle->rotation,
-									scale,
-									&particle->color,
-									fade,
-									flags);
-
-								particle->last_rendered_frame_index =
-									render.frame_index;
-							}
-						}
-
-						rendered_particle++;
+					}
+					/* port: and the run built in parts, cut where the queue's groups
+					sort among its particles (the first-person weapon's runs, which
+					sort after the world, whole) */
+					part_count = render_particles_cut_run(
+						render_particles_run_depths,
+						render_particles_run_valid,
+						particle_count,
+						render_particles_depths,
+						rendered_particle->attached_to_first_person_weapon ? 0 : depth_count,
+						(short)MIN(cut_budget + 1, SHORT_MAX),
+						render_particles_run_keys,
+						render_particles_part_counts,
+						render_particles_run_order,
+						render_particles_part_ends);
+					if (part_count > 1)
+					{
+						cut_budget -= part_count - 1;
 					}
 
-					((struct shader_effect_definition *)sprite_data.shader)->
-						secondary_map_radius = built_particle_count ?
-						total_radius / built_particle_count : 0.0f;
-					build_sprites_end(&sprite_data);
+					for (part_index = 0; part_index < part_count; part_index++)
+					{
+						real total_radius = 0.0f;
+						short built_particle_count = 0;
+
+						build_sprites_begin(
+							&sprite_data,
+							render_particles_part_ends[part_index] - order_index,
+							definition->bitmap.index,
+							&definition->shader,
+							rendered_particle->attached_to_first_person_weapon
+								? FLAG(_build_sprites_first_person_bit)
+								: 0);
+
+						for (; order_index < render_particles_part_ends[part_index]; order_index++)
+						{
+							short particle_run_index = render_particles_run_order[order_index];
+							struct particle_datum *particle =
+								particle_get(rendered_particle[particle_run_index].particle_index);
+							real radius =
+								particle_get_radius(rendered_particle[particle_run_index].particle_index);
+
+							position = render_particles_run_positions[particle_run_index];
+							direction = render_particles_run_directions[particle_run_index];
+
+							{
+								real diameter =
+									render_frustum_sphere_diameter_in_pixels(
+										&render.frustum,
+										&position,
+										radius);
+
+								if (diameter > definition->lod_cutoff)
+								{
+									real fade;
+									real scale;
+									real remaining_life;
+									unsigned long flags;
+									word particle_flags;
+
+									fade = 1.0f;
+									built_particle_count++;
+									scale =
+										(radius + radius) *
+										definition->runtime_oo_width;
+									remaining_life =
+										particle->lifespan - particle->age;
+									total_radius += radius;
+
+									if (diameter < definition->minimum_pixels)
+									{
+										scale =
+											(definition->minimum_pixels / diameter) * scale;
+									}
+
+									if (definition->fade_in_time > 0.0f &&
+										particle->age < definition->fade_in_time)
+									{
+										fade = particle->age / definition->fade_in_time;
+									}
+
+									if (definition->fade_out_time > 0.0f &&
+										remaining_life < definition->fade_out_time)
+									{
+										fade *=
+											remaining_life / definition->fade_out_time;
+									}
+
+									flags = 0;
+									particle_flags = particle->flags;
+									SET_FLAG(
+										flags,
+										_build_sprite_u_mirror_bit,
+										TEST_FLAG(
+											particle_flags,
+											_particle_datum_u_mirror_bit));
+									SET_FLAG(
+										flags,
+										_build_sprite_v_mirror_bit,
+										TEST_FLAG(
+											particle_flags,
+											_particle_datum_v_mirror_bit));
+
+									build_sprite(
+										&sprite_data,
+										definition->sprite_orientation,
+										particle->sequence_index,
+										particle->frame_index,
+										&position,
+										&direction,
+										particle->rotation,
+										scale,
+										&particle->color,
+										fade,
+										flags);
+
+									particle->last_rendered_frame_index =
+										render.frame_index;
+								}
+							}
+						}
+
+						((struct shader_effect_definition *)sprite_data.shader)->
+							secondary_map_radius = built_particle_count ?
+							total_radius / built_particle_count : 0.0f;
+						build_sprites_end(&sprite_data);
+					}
+
+					rendered_particle += particle_count;
 				}
 			}
 		}

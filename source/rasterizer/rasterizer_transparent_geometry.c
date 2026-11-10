@@ -443,6 +443,68 @@ void rasterizer_transparent_geometry_dispose(
 	return;
 }
 
+/* port: how many more groups the queue has room for (render_particles) */
+long rasterizer_transparent_geometry_free_group_count(
+	void)
+{
+	return RASTERIZER_MAXIMUM_TRANSPARENT_GEOMETRY_GROUPS - transparent_geometry_group_count;
+}
+
+/* port: (rasterizer_transparent_geometry_sort_depths) */
+static int __cdecl sort_depths_cmpfn(
+	void const *depth1_pointer,
+	void const *depth2_pointer)
+{
+	real depth1 = *(real const *)depth1_pointer;
+	real depth2 = *(real const *)depth2_pointer;
+
+	return depth1 < depth2 ? -1 : depth1 > depth2 ? 1 : 0;
+}
+
+/* port: the depths (z_sort) of the groups queued so far that the sort puts
+in order of depth among the world's, ascending, each once: the depths at
+which render_particles cuts a run of particles, whose one centroid would
+otherwise put an object amid the run in front of all of it or behind it.
+Not water and what is drawn before it, nor the first-person weapon's or a
+cortana hack's groups, which the sort keeps apart from the depths. */
+long rasterizer_transparent_geometry_sort_depths(
+	real *depths,
+	long maximum_depth_count)
+{
+	long depth_count = 0;
+	long unique_count = 0;
+	long depth_index;
+	short group_index;
+
+	for (group_index = 0;
+		group_index < transparent_geometry_group_count && depth_count < maximum_depth_count;
+		group_index++)
+	{
+		struct transparent_geometry_group const *group = transparent_geometry_groups + group_index;
+
+		if ((group->shader && group->shader->base.type == _shader_type_transparent_water) ||
+			shader_is_water_decal(group->shader) ||
+			TEST_FLAG(group->geometry_flags, _rasterizer_geometry_first_person_bit) ||
+			group->cortana_hack ||
+			!(group->z_sort > -1000000.0f && group->z_sort < 1000000.0f))
+		{
+			continue;
+		}
+		depths[depth_count++] = group->z_sort;
+	}
+
+	qsort(depths, depth_count, sizeof(*depths), sort_depths_cmpfn);
+	for (depth_index = 0; depth_index < depth_count; depth_index++)
+	{
+		if (!unique_count || depths[depth_index] != depths[unique_count - 1])
+		{
+			depths[unique_count++] = depths[depth_index];
+		}
+	}
+
+	return unique_count;
+}
+
 /* ---------- private code */
 
 static void rasterizer_sort_internal(
