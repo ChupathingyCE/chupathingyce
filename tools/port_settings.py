@@ -960,6 +960,11 @@ WIDGET_PATCHES = {
         "offsets": {f"{PE}/controller_setup_profile_item": (0, -166), f"{PE}/gamepads_profile_item": (0, 33),
                     f"{PE}/network_settings_profile_item": (0, -34)},
     },
+    # (SETUP beside OK and CANCEL: the way back to the setup screen, its
+    # widget port/assets/menus/chupathingy/setup_entry.xml's)
+    f"{PE}/profile_edit_button_bar": {"insert_before": {
+        f"{PE}/profile_edit_button_ok": ['<child widget="gearbox/setup_entry" x="250" y="1"/>'],
+    }},
     f"{PE}/controller_setup_profile_item": {"set": {"string_index": 12}, "handlers": [
         f'<on event="a" open="{PE}/{CONTROLS_SCREEN}/{CONTROLS_SPEC["screen"]}"/>',
         f'<on event="start" open="{PE}/{CONTROLS_SCREEN}/{CONTROLS_SPEC["screen"]}"/>',
