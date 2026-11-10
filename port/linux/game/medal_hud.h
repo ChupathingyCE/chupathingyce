@@ -18,6 +18,9 @@ void medal_hud_earned(short local_player_index, char const *key);
 /* a line printed for a local player (hud_print_message: its time and
 number): the medals waiting go with it */
 void medal_hud_printed(short local_player_index, long time, short number);
+/* while hold, the lines printed take no medals (a player quitting's:
+game_engine.c) */
+void medal_hud_hold(boolean hold);
 /* before a player's HUD messages are drawn: medals no line took get a
 line of their own */
 void medal_hud_flush(short local_player_index);

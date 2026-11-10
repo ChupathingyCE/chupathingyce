@@ -3621,7 +3621,7 @@ static BOOL bg_overlay_prepare(int atlas_size, const unsigned char *icons, int i
 	return TRUE;
 }
 
-void xgpu_bgfx_overlay_draw(const void *vertices, int count, int vertex_bytes, const unsigned char *atlas, int atlas_size,
+int xgpu_bgfx_overlay_draw(const void *vertices, int count, int vertex_bytes, const unsigned char *atlas, int atlas_size,
 	int dirty_top, int dirty_bottom, const unsigned char *icons, int icon_size, int icon_count,
 	const unsigned char *picture, int picture_width, int picture_height, int picture_serial,
 	const unsigned char *plasma, int plasma_width, int plasma_height, int plasma_serial, const float plasma_shift[8],
@@ -3634,7 +3634,7 @@ void xgpu_bgfx_overlay_draw(const void *vertices, int count, int vertex_bytes, c
 	if (!bg.ready || !count || !atlas || !bg_overlay_prepare(atlas_size, icons, icon_size, icon_count) ||
 		vertex_bytes != (int)bg.overlay_layout.stride ||
 		bgfx_get_avail_transient_vertex_buffer((uint32_t)count, &bg.overlay_layout) < (uint32_t)count)
-		return;
+		return bg.overlay_medals_ready;
 	if (dirty_bottom > dirty_top)
 		bgfx_update_texture_2d(bg.overlay_atlas, 0, 0, 0, (uint16_t)dirty_top, (uint16_t)atlas_size,
 			(uint16_t)(dirty_bottom - dirty_top),
@@ -3708,6 +3708,7 @@ void xgpu_bgfx_overlay_draw(const void *vertices, int count, int vertex_bytes, c
 	bgfx_set_state(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_BLEND_FUNC_SEPARATE(BGFX_STATE_BLEND_SRC_ALPHA,
 		BGFX_STATE_BLEND_INV_SRC_ALPHA, BGFX_STATE_BLEND_ONE, BGFX_STATE_BLEND_INV_SRC_ALPHA), 0);
 	bgfx_submit(bg.present_view, bg.overlay, 0, BGFX_DISCARD_ALL);
+	return bg.overlay_medals_ready;
 }
 
 static void bg_callback_screen_shot(bgfx_callback_interface_t *self, const char *path, uint32_t width,

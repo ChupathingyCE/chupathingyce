@@ -1737,7 +1737,8 @@ void ui_overlay_present(int x, int y, int width, int height, int window_width, i
 			cutouts[cutout][2] = origin_x + overlay.cutouts[cutout][2] * scale;
 			cutouts[cutout][3] = origin_y + overlay.cutouts[cutout][3] * scale;
 		}
-		xgpu_bgfx_overlay_draw(overlay.vertices, count, (int)sizeof(struct vertex), overlay.atlas_texels, ATLAS_SIZE,
+		/* (the medals' atlas let go once bgfx has it) */
+		if (xgpu_bgfx_overlay_draw(overlay.vertices, count, (int)sizeof(struct vertex), overlay.atlas_texels, ATLAS_SIZE,
 			overlay.dirty_top, overlay.dirty_bottom, overlay.icon_texels, ui_prompt_icon_size, NUMBER_OF_ICONS,
 			overlay.picture_pixels, overlay.picture_width, overlay.picture_height, overlay.picture_serial,
 			overlay.plasma_drawn ? overlay.plasma_pixels : NULL, overlay.plasma_width, overlay.plasma_height,
@@ -1747,7 +1748,12 @@ void ui_overlay_present(int x, int y, int width, int height, int window_width, i
 #else
 			NULL, 0, 0,
 #endif
-			(const float (*)[4])cutouts, window_width, window_height);
+			(const float (*)[4])cutouts, window_width, window_height) && overlay.medal_texels)
+		{
+			free(overlay.medal_texels);
+			overlay.medal_texels = NULL;
+			overlay.medals_uploaded = 1;
+		}
 		overlay.dirty_top = ATLAS_SIZE;
 		overlay.dirty_bottom = 0;
 		overlay.quad_count = overlay.text_count = overlay.text_used = 0;

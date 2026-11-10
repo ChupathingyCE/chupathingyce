@@ -2245,7 +2245,8 @@ The names and icons are the site's too, one set for both. `tools/medal_assets.py
 run by hand with a checkout of ChupathingyCE/puma, reads `site.js`'s
 tables (`MEDALS`, `TIERS`, `SHAPES`, `GLYPHS`), draws each icon as the
 site's `medalSVG` does, and writes `port/assets/medals` (`medals.json` and
-an atlas of 64 and of 32 pixels a medal) and `port/linux/src/medal_icons.h`.
+an atlas of 64 pixels a medal, which the builds embed, and one of 32
+for a console later) and `port/linux/src/medal_icons.h`.
 puma's `test_medals_sync.py` keeps the digest of the tables the game was
 made from, so a change on the site says to run it again;
 `tools/test_medal_rules.py` checks every key of `medal_rules.h` has its
@@ -2256,9 +2257,9 @@ the end of the kill's line in the kill feed, at the text's height
 (`port/linux/game/medal_hud.c`, from `source/interface/hud_messaging.c`,
 drawn by the overlay). The icons come, fade and scroll with that line.
 Medals no kill's line took get a line of their own, the icons alone. Off,
-the kill feed is retail's. Builds without the icons (the original Xbox,
-the builds without the overlay) show the medal's name as a line of the
-HUD's messages. DELTA's SERVICE
+the kill feed is retail's. The icons need the game list
+(`HALO_GAME_BROWSER`), so every console build and the dedicated server are
+without them and show the medal's name as a line of the HUD's messages. DELTA's SERVICE
 RECORD shows your top medals with their icons, names and counts.
 
 ### Map facts

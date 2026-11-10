@@ -46,11 +46,9 @@ HALO_CONSOLE_NO_CAPTURE
 	builds have them
 HALO_CONSOLE_NO_MEDAL_ICONS
 	no medal icons (port/assets/medals, ui_overlay_medal): the HUD's medals
-	are lines of its messages, as without the overlay. The original Xbox
-	(its 64 MB); the builds without the overlay have none either
-HALO_CONSOLE_SMALL_MEDAL_ICONS
-	the medals' 32-pixel atlas (192 KB) in place of the 64-pixel one (768
-	KB): a console's, should one draw them
+	are lines of its messages. The original Xbox sets it (its 64 MB); every
+	console is without them anyway for now, as the icons need the game list
+	(HALO_GAME_BROWSER), which no console build has
 HALO_CONSOLE_NO_DELTA_IDENTITY
 	no device key, device certificate or site token (port/linux/src/
 	identity.c, browser.c; docs/delta.md, "Device identity"), and no
@@ -453,15 +451,13 @@ server's, which has no player) */
 #endif
 
 /* the medals' icons (port/assets/medals, tools/medal_assets.py: the site's
-medals), on the HUD (display.medals) and in DELTA's SERVICE RECORD: the
-overlay's builds with a player. The original Xbox has none (the HUD's text
-lines), another console the smaller atlas */
+medals), in the kill feed (display.medals) and DELTA's SERVICE RECORD: the
+game list's builds with a player (HALO_GAME_BROWSER: the desktops and the
+phones), so no console build and not the dedicated server. Those keep the
+HUD's text lines. (The 32-pixel atlas is there for a console that draws
+them one day; the builds embed the 64-pixel one) */
 #if defined(HALO_XBOX_CONSOLE) && !defined(HALO_CONSOLE_NO_MEDAL_ICONS)
 #define HALO_CONSOLE_NO_MEDAL_ICONS 1
-#endif
-#if (defined(HALO_CONSOLE) || defined(HALO_SWITCH_CONSOLE) || defined(HALO_WIIU_CONSOLE) || \
-	defined(HALO_XBOX360_CONSOLE)) && !defined(HALO_CONSOLE_SMALL_MEDAL_ICONS)
-#define HALO_CONSOLE_SMALL_MEDAL_ICONS 1
 #endif
 #if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_MEDAL_ICONS) && !defined(HALO_SERVER)
 #define HALO_MEDAL_ICONS 1

@@ -13,14 +13,18 @@ with that line: it is drawn with it each frame, in its color
 A kill's medals are worked out (game_stats.c) just before the game prints
 the kill's line, in the same tick: they wait here (medal_hud_earned) for
 the next line printed for that player (medal_hud_printed), which they are
-tied to by its time and number. Medals no line took by the time the HUD is
-drawn (medal_hud_flush) get a line of their own, the icons alone.
+tied to by its time and number (medal_lines.h). Medals no line of their
+tick took get a line of their own, the icons alone, as the HUD is drawn
+(medal_hud_flush) or as the next tick's medals come. A player quitting's
+lines take none (medal_hud_hold).
 
-Hidden while a menu is over that player's view (the overlay draws over the
-game's menus). With display.medals off nothing is kept and the kill feed is
-retail's. The builds without the icons (HALO_MEDAL_ICONS,
-halo_console_features.h: the original Xbox, the builds without the overlay)
-show each medal as a line of the HUD's messages instead (game_stats.c).
+Hidden while anything covers the kill feed: a menu over that player's view,
+the scoreboard, the carnage report, this port's screens and DELTA (the
+overlay draws over the game's own drawing). With display.medals off nothing
+is kept and the kill feed is retail's. The builds without the icons
+(HALO_MEDAL_ICONS, halo_console_features.h: every build without the game
+list, the consoles' too, and the dedicated server) show each medal as a
+line of the HUD's messages instead (game_stats.c).
 */
 
 #include "cseries.h"
@@ -29,28 +33,38 @@ show each medal as a line of the HUD's messages instead (game_stats.c).
 #ifdef HALO_MEDAL_ICONS
 
 #include "game/game.h"
+#include "game/game_engine.h"
+#include "game/players.h"
 #include "interface/hud_messaging.h"
 #include "interface/ui_widget.h"
 #include "rasterizer/rasterizer.h"
 #include "render/render.h"
 #include "../src/medal_icons.h"
+#include "../src/medal_lines.h"
 #include "../src/ui_overlay.h"
 #include "medal_hud.h"
 
 unsigned long system_milliseconds(void);
 int config_boolean(char const *name);
 char const *config_string(char const *name);
+/* the screens drawn over the game (ui_widget.c's) */
+boolean browser_screen_active(void);
+boolean moderation_screen_active(void);
+boolean invite_prompt_active(void);
+#ifndef HALO_CONSOLE_NO_CONTROLS
+boolean controls_screen_active(void);
+#endif
+#ifndef HALO_CONSOLE_NO_DELTA_PROFILE
+boolean profile_screen_active(void);
+#endif
+#ifdef HALO_GUIDE
+boolean guide_active(void);
+#endif
 
 /* ---------- constants */
 
 enum
 {
-	/* the medals one line holds at most (medal_rules.h's most for a kill
-	is more, but a line has room for these) */
-	MAXIMUM_PER_LINE = 6,
-	/* the lines with medals kept for each player (more than a player's HUD
-	shows) */
-	MAXIMUM_LINES = 8,
 	/* the local players (MAXIMUM_NUMBER_OF_LOCAL_PLAYERS's) */
 	MAXIMUM_PLAYERS = 4,
 	/* debug.medal_test's line comes again this often (milliseconds) */
@@ -59,22 +73,11 @@ enum
 
 /* ---------- globals */
 
-static struct
-{
-	/* the medals waiting for the kill's line, and the tick they came in */
-	short pending[MAXIMUM_PER_LINE];
-	short pending_count;
-	long pending_time;
-	/* the lines that have medals: a message's time and number, its medals */
-	struct
-	{
-		long time;
-		short number;
-		short count;
-		short icons[MAXIMUM_PER_LINE];
-	} lines[MAXIMUM_LINES];
-	short next_line;
-} medal_hud[MAXIMUM_PLAYERS];
+static struct medal_lines medal_hud[MAXIMUM_PLAYERS];
+/* a leftovers' line being printed (it takes them whatever their tick), and
+lines printed that take none (a player quitting's) */
+static boolean medal_hud_leftovers_printing;
+static boolean medal_hud_holding;
 
 static unsigned long medal_hud_test_time;
 
@@ -84,6 +87,46 @@ static boolean medal_hud_on(
 	void)
 {
 	return config_boolean("display.medals") && ui_overlay_medals_available();
+}
+
+/* leftovers (medals no line of their tick took): a line of their own */
+static void print_leftovers(
+	short local_player_index)
+{
+	if (!medal_hud[local_player_index].pending_count)
+		return;
+	medal_hud_leftovers_printing = TRUE;
+	hud_print_message(local_player_index, L"");
+	medal_hud_leftovers_printing = FALSE;
+	medal_hud[local_player_index].pending_count = 0;
+}
+
+/* whether something covers the player's kill feed: a menu over their view,
+the scoreboard (BACK held: their messages hidden), the carnage report, this
+port's screens or DELTA */
+static boolean feed_covered(
+	short local_player_index)
+{
+	if (ui_widgets_active_for_local_player(local_player_index) ||
+		!game_engine_hud_draw_messages(local_player_get_player_index(local_player_index)) ||
+		game_engine_showing_postgame() || game_engine_postgame_mode() != 0 || browser_screen_active() ||
+		moderation_screen_active() || invite_prompt_active())
+	{
+		return TRUE;
+	}
+#ifndef HALO_CONSOLE_NO_CONTROLS
+	if (controls_screen_active())
+		return TRUE;
+#endif
+#ifndef HALO_CONSOLE_NO_DELTA_PROFILE
+	if (profile_screen_active())
+		return TRUE;
+#endif
+#ifdef HALO_GUIDE
+	if (guide_active())
+		return TRUE;
+#endif
+	return FALSE;
 }
 
 /* debug.medal_test ("double_kill killing_spree : You killed Sarge"): those
@@ -141,11 +184,11 @@ void medal_hud_earned(
 
 	if (local_player_index < 0 || local_player_index >= MAXIMUM_PLAYERS || icon < 0 || !medal_hud_on())
 		return;
-	if (medal_hud[local_player_index].pending_time != now)
-		medal_hud[local_player_index].pending_count = 0;
-	medal_hud[local_player_index].pending_time = now;
-	if (medal_hud[local_player_index].pending_count < MAXIMUM_PER_LINE)
-		medal_hud[local_player_index].pending[medal_hud[local_player_index].pending_count++] = (short)icon;
+	/* (an earlier tick's that no line took, two ticks run between frames:
+	their own line first) */
+	if (medal_lines_leftover(&medal_hud[local_player_index], now))
+		print_leftovers(local_player_index);
+	medal_lines_earn(&medal_hud[local_player_index], icon, now);
 }
 
 void medal_hud_printed(
@@ -153,21 +196,15 @@ void medal_hud_printed(
 	long time,
 	short number)
 {
-	short slot, index;
-
-	if (local_player_index < 0 || local_player_index >= MAXIMUM_PLAYERS ||
-		!medal_hud[local_player_index].pending_count || medal_hud[local_player_index].pending_time != time)
-	{
+	if (local_player_index < 0 || local_player_index >= MAXIMUM_PLAYERS || medal_hud_holding)
 		return;
-	}
-	slot = medal_hud[local_player_index].next_line;
-	medal_hud[local_player_index].next_line = (short)((slot + 1) % MAXIMUM_LINES);
-	medal_hud[local_player_index].lines[slot].time = time;
-	medal_hud[local_player_index].lines[slot].number = number;
-	medal_hud[local_player_index].lines[slot].count = medal_hud[local_player_index].pending_count;
-	for (index = 0; index < medal_hud[local_player_index].pending_count; index++)
-		medal_hud[local_player_index].lines[slot].icons[index] = medal_hud[local_player_index].pending[index];
-	medal_hud[local_player_index].pending_count = 0;
+	medal_lines_printed(&medal_hud[local_player_index], time, number, medal_hud_leftovers_printing);
+}
+
+void medal_hud_hold(
+	boolean hold)
+{
+	medal_hud_holding = hold;
 }
 
 void medal_hud_flush(
@@ -178,9 +215,7 @@ void medal_hud_flush(
 	if (config_boolean("display.medals"))
 		test_medals(local_player_index);
 	/* (medals no line took: a line of their own) */
-	if (medal_hud[local_player_index].pending_count)
-		hud_print_message(local_player_index, L"");
-	medal_hud[local_player_index].pending_count = 0;
+	print_leftovers(local_player_index);
 }
 
 short medal_hud_line_count(
@@ -188,19 +223,12 @@ short medal_hud_line_count(
 	long time,
 	short number)
 {
-	short slot;
+	int slot;
 
 	if (local_player_index < 0 || local_player_index >= MAXIMUM_PLAYERS || time == NONE)
 		return 0;
-	for (slot = 0; slot < MAXIMUM_LINES; slot++)
-	{
-		if (medal_hud[local_player_index].lines[slot].count && medal_hud[local_player_index].lines[slot].time == time &&
-			medal_hud[local_player_index].lines[slot].number == number)
-		{
-			return medal_hud[local_player_index].lines[slot].count;
-		}
-	}
-	return 0;
+	slot = medal_lines_find(&medal_hud[local_player_index], time, number);
+	return slot >= 0 ? medal_hud[local_player_index].lines[slot].count : 0;
 }
 
 void medal_hud_draw_line(
@@ -218,23 +246,16 @@ void medal_hud_draw_line(
 	real screen_height = (real)(screen->screen_bounds.y1 - screen->screen_bounds.y0);
 	real scale, layout_x, layout_y, layout_size, layout_step;
 	unsigned int color_alpha;
-	short slot, index;
+	int slot;
+	short index;
 
 	if (local_player_index < 0 || local_player_index >= MAXIMUM_PLAYERS || screen_width <= 0.0f ||
-		screen_height <= 0.0f || alpha <= 0.0f || !medal_hud_on() ||
-		ui_widgets_active_for_local_player(local_player_index))
+		screen_height <= 0.0f || alpha <= 0.0f || !medal_hud_on() || feed_covered(local_player_index))
 	{
 		return;
 	}
-	for (slot = 0; slot < MAXIMUM_LINES; slot++)
-	{
-		if (medal_hud[local_player_index].lines[slot].count && medal_hud[local_player_index].lines[slot].time == time &&
-			medal_hud[local_player_index].lines[slot].number == number)
-		{
-			break;
-		}
-	}
-	if (slot == MAXIMUM_LINES)
+	slot = medal_lines_find(&medal_hud[local_player_index], time, number);
+	if (slot < 0)
 		return;
 	/* (the HUD's coordinates are its view's; the overlay's, the picture's
 	480 lines, its middle the layout's) */

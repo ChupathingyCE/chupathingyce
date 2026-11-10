@@ -79,9 +79,10 @@ PROMPT_ICONS = [Path("port/assets/prompts") / f"{name}.png" for name in (
     "button-a", "button-b", "button-x", "button-y", "button-start", "trigger-left", "trigger-right", "bumper-left",
     "bumper-right", "button-back")]
 # the medals' icons (port/assets/medals, tools/medal_assets.py from the site's
-# medals): the atlas of each cell size; a build embeds one (HALO_MEDAL_ICONS,
-# HALO_CONSOLE_SMALL_MEDAL_ICONS: halo_console_features.h)
-MEDAL_ATLASES = {size: Path("port/assets/medals") / f"medals-{size}.png" for size in (64, 32)}
+# medals): the 64-pixel atlas, in the builds with them (HALO_MEDAL_ICONS:
+# halo_console_features.h). The 32-pixel one is kept for a console later
+MEDAL_ATLAS = Path("port/assets/medals/medals-64.png")
+MEDAL_ATLAS_CELL = 64
 
 
 def font_files() -> List[str]:
@@ -174,7 +175,7 @@ def ui_fonts_build(n: Any, prefix: str, output: Path, sln: Any) -> List[Path]:
     )
     n.build(outputs=output, rule=f"{prefix}_embed_fonts",
             implicit=[Path("tools/embed_assets.py"), FONT_LIST, *UI_FONT_FILES, *PROMPT_ICONS,
-                      *MEDAL_ATLASES.values()])
+                      MEDAL_ATLAS])
     return [output]
 
 
@@ -234,18 +235,15 @@ def overlay_fonts(output: Path) -> None:
     lines.append("};")
     lines.append("")
     # the medals' icons: one atlas, RGBA, rows from the top, a cell each
-    # (medal_icons.h's order), the larger unless the build asks for the smaller
+    # (medal_icons.h's order)
+    width, height, pixels = png_rgba((ROOT / MEDAL_ATLAS).read_bytes(), str(MEDAL_ATLAS))
     lines.append("/* (ui_overlay.c's: the medals' atlas, ui_medal_atlas_cell pixels a medal) */")
     lines.append("#ifdef HALO_MEDAL_ICONS")
-    for size, path in MEDAL_ATLASES.items():
-        width, height, pixels = png_rgba((ROOT / path).read_bytes(), str(path))
-        lines.append("#ifdef HALO_CONSOLE_SMALL_MEDAL_ICONS" if size == 32 else "#ifndef HALO_CONSOLE_SMALL_MEDAL_ICONS")
-        lines.append("static const unsigned int medal_atlas[] = {")
-        lines.extend(words(pixels))
-        lines.append("};")
-        lines.append(f"const int ui_medal_atlas_cell = {size}, ui_medal_atlas_width = {width}, "
-                     f"ui_medal_atlas_height = {height};")
-        lines.append("#endif")
+    lines.append("static const unsigned int medal_atlas[] = {")
+    lines.extend(words(pixels))
+    lines.append("};")
+    lines.append(f"const int ui_medal_atlas_cell = {MEDAL_ATLAS_CELL}, ui_medal_atlas_width = {width}, "
+                 f"ui_medal_atlas_height = {height};")
     lines.append("const unsigned int *const ui_medal_atlas = medal_atlas;")
     lines.append("#endif")
     write(output, lines)

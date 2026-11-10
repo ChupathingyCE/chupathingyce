@@ -166,6 +166,25 @@ def test_icons_header_builds_as_gnu89(tmp_path):
     assert build.returncode == 0, build.stdout + build.stderr
 
 
+def test_kill_feed_lines(tmp_path):
+    """The kill feed's medals (medal_lines.h): two kills in one tick on one
+    line, a line of another tick taking none, leftovers on their own line
+    (and no blank line for none), as gnu89 and C11, warnings as errors."""
+    cc = compiler()
+    if not cc:
+        pytest.skip("no C compiler")
+    for standard in ("gnu89", "c11"):
+        binary = tmp_path / f"medal_lines_test_{standard}"
+        build = subprocess.run(
+            [cc, f"-std={standard}", "-Wall", "-Wextra", "-Werror", "-I", str(ROOT / "port" / "linux" / "src"),
+             str(ROOT / "port" / "linux" / "tests" / "medal_lines_test.c"), "-o", str(binary)],
+            capture_output=True, text=True,
+        )
+        assert build.returncode == 0, build.stdout + build.stderr
+        result = subprocess.run([str(binary)], capture_output=True, text=True)
+        assert result.returncode == 0, result.stdout + result.stderr
+
+
 def test_hud_medals_stay_behind_the_setting():
     """The kill feed's medals (medal_hud.c) only with display.medals on: off,
     nothing is kept and the kill feed is retail's."""
