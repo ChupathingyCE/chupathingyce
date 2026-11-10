@@ -203,16 +203,18 @@ void delta_peer_local_key(struct delta_platform_key *key)
 	6 for one it cannot tell) */
 	if (xbox_memory_delta_class())
 		key->memory_class = (unsigned char)xbox_memory_delta_class();
+#endif
 #if defined(HALO_CONSOLE_PLAYERS) && HALO_CONSOLE_PLAYERS > 16
-	/* a test build of more than 16 players claims its own count. A host
-	holds a key to its platform's row, never above it (delta_peer.c), so
-	the Xbox's 16 still stand on others' hosts and its own unless its
-	player sets network.platform_limits = "off" (docs/delta.md) */
+	/* a console build of more than 16 players (configure.py
+	--console-players) claims its own count, whichever console it is. A
+	host holds a key to its platform's row, never above it (delta_peer.c):
+	the original Xbox's row stays 16 on others' hosts and its own unless its
+	player sets network.platform_limits = "off"; the Xbox 360's and the
+	Wii U's rows are 32 (docs/delta.md) */
 	key->host_players = (unsigned char)HALO_CONSOLE_PLAYERS;
 	key->join_players = (unsigned char)HALO_CONSOLE_PLAYERS;
 	if (key->join_players_opt_in < key->join_players)
 		key->join_players_opt_in = key->join_players;
-#endif
 #endif
 	/* (its player takes whatever the host runs: no caveat protects it) */
 	if (same_word(limits, "off"))

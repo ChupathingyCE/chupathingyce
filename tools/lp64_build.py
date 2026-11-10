@@ -335,10 +335,10 @@ class Lp64Build:
                 add(source, posix_cflags, native=True)
             elif source.name in VERSION_SOURCES:
                 add(lp64(source), f"{platform_cflags} {updater_defines(getattr(sln, 'port_release', False))}")
-            elif source.name in ("bink_ffmpeg.c", "bink_null.c"):
+            elif source.name in ("bink_ffmpeg.c", "bink_null.c", "capture_clips.c"):
                 add(lp64(source), " ".join([platform_cflags, *host.ffmpeg_cflags]))
-            elif source.name == "text_hires.c":
-                # (it includes stb_truetype by a path from its own folder: the
+            elif source.name in ("text_hires.c", "capture.c"):
+                # (they include stb by a path from their own folder: the
                 # copy's folder has no third_party beside it, the original's has)
                 add(lp64(source), f"{platform_cflags} -idirafter {LINUX_PORT_DIR / 'src'}")
             else:

@@ -94,6 +94,7 @@ their handlers open opens.
 #include "networking/network_connection.h"
 /* (the game list's filter and the campaign levels: every build) */
 #include "../src/browser.h"
+#include "../src/launcher.h"
 #include "delta.h"
 #include "../src/server_badge.h"
 #ifdef HALO_GAME_BROWSER
@@ -1791,6 +1792,24 @@ static boolean color_list_initialize(struct widget_instance *list)
 	return TRUE;
 }
 
+#ifndef HALO_XBOX_CONSOLE
+/* (ui_widget.c) whether the pointer moved the menus' focus last */
+boolean ui_widget_port_pointer_focused(void);
+#endif
+
+/* Whether a list whose focus is on its first or last row moves on: when the
+d-pad put it there. The pointer resting there would make it move every
+frame, the row under it taking the focus back each time, until the list
+ran through all its items; the wheel scrolls it instead. */
+static boolean list_scrolls_at_end(void)
+{
+#ifdef HALO_XBOX_CONSOLE
+	return TRUE;
+#else
+	return !ui_widget_port_pointer_focused();
+#endif
+}
+
 /* a list of more items than its rows: the row chosen kept off its ends
 while there are more past them, the list moving instead; the item chosen,
 or NONE (its buttons) */
@@ -1798,12 +1817,12 @@ static short list_scroll(struct widget_instance *list, short *first, short count
 {
 	short row = focused_row(list);
 
-	if (row == rows - 1 && *first + rows < count)
+	if (row == rows - 1 && *first + rows < count && list_scrolls_at_end())
 	{
 		(*first)++;
 		focus_row(list, --row);
 	}
-	else if (row == 0 && *first > 0)
+	else if (row == 0 && *first > 0 && list_scrolls_at_end())
 	{
 		(*first)--;
 		focus_row(list, ++row);
@@ -1872,9 +1891,12 @@ static void profile_gamepad_layout(struct widget_instance *picture)
 }
 
 /* the Chupathingy menus' settings picture (port/assets/menus/chupathingy):
-a frame for each of its eight rows, then the Xbox's five button settings,
+a frame for each of its nine rows (SETUP's last), then the Xbox's five button settings,
 which CONTROLS' row shows for the edited profile */
-#define CHUPATHINGY_FIRST_LAYOUT_FRAME 8
+#define CHUPATHINGY_FIRST_LAYOUT_FRAME 9
+/* SETUP's frame, and its words in the descriptions (after ABOUT's) */
+#define CHUPATHINGY_SETUP_FRAME 7
+#define CHUPATHINGY_SETUP_DESCRIPTION 7
 
 /* ABOUT's row (the picture's frame for it is blank): this build and the
 project, in the picture's place (its about_text) */
@@ -1922,13 +1944,15 @@ static void chupathingy_settings_about(struct widget_instance *picture)
 		"Chupathingy %s\r\n"
 		"%s\r\n"
 		"\r\n"
+		"By Milenko and contributors.\r\n"
+		"\r\n"
 		"A fan-made port of the Halo: Combat\r\n"
 		"Evolved decompilation. Not affiliated\r\n"
 		"with Microsoft or Bungie.\r\n"
 		"\r\n"
 		"Free software under the GPL-3.0.\r\n"
-		"chupathingy.org\r\n"
-		"discord.gg/chupathingy",
+		"stats.chupathingy.org\r\n"
+		"github.com/ChupathingyCE/chupathingyce",
 		version, platform);
 	for (index = 0; text[index] && index < CHUPATHINGY_ABOUT_LENGTH - 1; index++)
 		wide[index] = (wchar_t)(unsigned char)text[index];
@@ -1939,7 +1963,19 @@ static void chupathingy_settings_about(struct widget_instance *picture)
 /* "chupathingy settings picture" (the picture's own) */
 static void chupathingy_settings_picture(struct widget_instance *picture)
 {
+	extern boolean pc_menu_setup_shown(void);
 	struct player_profile *profile = player_ui_get_edit_player_profile();
+
+	/* (without SETUP, SAVE CHANGES is in its place: its words and picture,
+	the next ones) */
+	if (!pc_menu_setup_shown() && picture->animation.current_frame_index == CHUPATHINGY_SETUP_FRAME)
+	{
+		struct widget_instance *text = named(picture->parent, "description_text", 0);
+
+		picture->animation.current_frame_index = CHUPATHINGY_SETUP_FRAME + 1;
+		if (text)
+			text->parameters.text_box.string_list_index = CHUPATHINGY_SETUP_DESCRIPTION + 1;
+	}
 
 	chupathingy_settings_about(picture);
 	if (picture->animation.current_frame_index == PROFILE_GAMEPAD_FRAME)
@@ -3684,13 +3720,13 @@ static void gametype_list_update(struct widget_instance *list)
 		if (row == list->focused_child && row_index >= 1 && row_index <= GAMETYPE_ROWS)
 			focused = (short)(row_index - 1);
 	}
-	if (focused == count - 1 && multiplayer.gametype_first + count < multiplayer.bank_count)
+	if (focused == count - 1 && multiplayer.gametype_first + count < multiplayer.bank_count && list_scrolls_at_end())
 	{
 		multiplayer.gametype_first++;
 		focus_row(list, (short)focused);
 		focused--;
 	}
-	else if (focused == 0 && multiplayer.gametype_first > 0)
+	else if (focused == 0 && multiplayer.gametype_first > 0 && list_scrolls_at_end())
 	{
 		multiplayer.gametype_first--;
 		focus_row(list, 2);
@@ -4648,12 +4684,13 @@ static short lobby_browser_rows_place(struct widget_instance *list)
 		focused = (short)(found - lobby_browser.first);
 		lobby_browser_focus_row(list, focused);
 	}
-	else if (focused == BROWSER_ROWS - 1 && lobby_browser.first + BROWSER_ROWS < lobby_browser.count)
+	else if (focused == BROWSER_ROWS - 1 && lobby_browser.first + BROWSER_ROWS < lobby_browser.count &&
+		list_scrolls_at_end())
 	{
 		lobby_browser.first++;
 		lobby_browser_focus_row(list, --focused);
 	}
-	else if (focused == 0 && lobby_browser.first > 0)
+	else if (focused == 0 && lobby_browser.first > 0 && list_scrolls_at_end())
 	{
 		lobby_browser.first--;
 		lobby_browser_focus_row(list, ++focused);
@@ -5753,6 +5790,30 @@ static boolean pause_moderation(void)
 #endif
 }
 
+/* ---------- SETUP (port/assets/menus/chupathingy/setup_entry.xml): back to
+the setup screen, by starting Chupathingy again on it (launcher.c); in the
+menus' settings of every menu set, unless launcher.menu_entry is false (the
+builds without the setup screen have none) */
+
+boolean pc_menu_setup_offered(void)
+{
+#ifdef HALO_LAUNCHER
+	return config_boolean("launcher.menu_entry") != 0;
+#else
+	return FALSE;
+#endif
+}
+
+/* "port setup open" (its A) */
+boolean pc_menu_setup_open(void)
+{
+#ifdef HALO_LAUNCHER
+	return launcher_restart_to_setup() != 0;
+#else
+	return FALSE;
+#endif
+}
+
 /* "port pause guide" (the pause menu's GUIDE: menu_tags.c): the Guide over
 the pause menu (guide.c), which B closes back to it */
 static boolean pause_guide(struct widget_instance *widget)
@@ -5764,6 +5825,25 @@ static boolean pause_guide(struct widget_instance *widget)
 	if (widget->local_player_index != 0)
 		return FALSE;
 	guide_open();
+	return TRUE;
+#else
+	(void)widget;
+	return FALSE;
+#endif
+}
+
+/* "port about open" (Settings' ABOUT, in the Gearbox and Chupathingy
+menus): the About screen, in the Guide (guide.c), which B closes back to
+Settings. Without the Guide (the consoles), the Chupathingy menus' picture
+shows the build instead */
+static boolean about_open(struct widget_instance *widget)
+{
+#ifdef HALO_GUIDE
+	extern void guide_about_open(void);
+
+	if (widget->local_player_index != 0)
+		return FALSE;
+	guide_about_open();
 	return TRUE;
 #else
 	(void)widget;
@@ -8182,7 +8262,7 @@ static void host_update(struct widget_instance *list)
 		if (row == list->focused_child)
 			focused = slot;
 	}
-	if (focused != NONE && host_setup.row_count > slots)
+	if (focused != NONE && host_setup.row_count > slots && list_scrolls_at_end())
 	{
 		if (focused == 0 && host_setup.focused == slots - 1)
 			host_setup.first = 0;
@@ -9136,9 +9216,17 @@ boolean pc_menu_event_function_invoke(
 		{
 			return pause_moderation();
 		}
+		else if (!strcmp(name, "port setup open"))
+		{
+			return pc_menu_setup_open();
+		}
 		else if (!strcmp(name, "port pause guide"))
 		{
 			return pause_guide(widget);
+		}
+		else if (!strcmp(name, "port about open"))
+		{
+			return about_open(widget);
 		}
 		else if (!strcmp(name, "port pause controls"))
 		{

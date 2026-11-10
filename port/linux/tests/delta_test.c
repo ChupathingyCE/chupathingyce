@@ -2158,7 +2158,9 @@ static void test_limits(void)
 		delta_platform_policy_default(_delta_platform_xbox, &key);
 		CHECK(key.memory_class == 6 && key.host_players == 16);
 		delta_platform_policy_default(_delta_platform_xbox360, &key);
-		CHECK(key.memory_class == 9);
+		CHECK(key.memory_class == 9 && key.host_players == 32 && key.join_players == 32);
+		delta_platform_policy_default(_delta_platform_wiiu, &key);
+		CHECK(key.host_players == 32 && key.join_players == 32);
 		delta_platform_policy_default(_delta_platform_pc_windows, &key);
 		CHECK(key.memory_class == 12);
 	}
@@ -2175,6 +2177,14 @@ static void test_limits(void)
 		CHECK(delta_peer_key_join_limit(&nodes[0].peer, &key) == DELTA_PEER_NO_LIMIT);
 		pc_key(&key, 200);
 		CHECK(delta_peer_key_join_limit(&nodes[0].peer, &key) == 128);
+		/* (a 360 or Wii U build of 32 joins up to 32; an older build's key
+		of 16 is still held to its 16) */
+		pc_key(&key, _delta_platform_xbox360);
+		CHECK(delta_peer_key_join_limit(&nodes[0].peer, &key) == 32);
+		key.join_players = 16;
+		CHECK(delta_peer_key_join_limit(&nodes[0].peer, &key) == 16);
+		pc_key(&key, _delta_platform_wiiu);
+		CHECK(delta_peer_key_join_limit(&nodes[0].peer, &key) == 32);
 	}
 
 	/* opted in (network.platform_limits = "off"): no limit from it (it
