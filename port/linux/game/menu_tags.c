@@ -384,7 +384,7 @@ static char const *const port_function_names[] =
 	"port pause end game",
 	"port pause change teams",
 	"port pause moderation",
-	"port pause controls", "port pause guide", "controller screen init", "controller screen defaults", "controller begin binding",
+	"port pause controls", "port pause guide", "port about open", "controller screen init", "controller screen defaults", "controller begin binding",
 	"port coop begin", "port coop player 2 list initialize", "port coop player 2",
 	"port lobby open", "port lobby add player", "port lobby join", "port lobby leave",
 	"port lobby player list initialize", "port lobby player choose",
@@ -413,6 +413,8 @@ static char const *const port_function_names[] =
 	/* (the settings screens' nested lists, and Controls Setup's) */
 	"port settings views init", "port settings view", "port settings back", "port settings accept",
 	"port controls init", "port controls defaults", "port controls accept", "port controls closed",
+	/* (SETUP: menu_functions.c) */
+	"port setup open",
 };
 
 /* the PC version's game data functions that the Xbox's have not, from
@@ -1124,6 +1126,30 @@ static long font_tag(char const *font, char const *file, long line)
 	return map_tag(FONT_TAG, path, file, line);
 }
 
+/* a child left out of its parent: SETUP (setup_entry, the way back to the
+setup screen) in a game's menus, where it would end the game, and where
+launcher.menu_entry turns it off */
+static boolean setup_left_out;
+
+static boolean child_left_out(struct halo_menu_child const *entry)
+{
+	extern boolean pc_menu_setup_offered(void);
+	char const *name = entry->nested != HALO_MENU_NONE ? build.menus->widgets[entry->nested].name : entry->widget;
+	char const *leaf = name && strrchr(name, '/') ? strrchr(name, '/') + 1 : name;
+
+	if (!leaf || strcmp(leaf, "setup_entry"))
+		return FALSE;
+	setup_left_out = build.game_map || !pc_menu_setup_offered();
+	return setup_left_out;
+}
+
+/* whether the menus built last have SETUP (menu_functions.c: the rows after
+it are a place higher without it) */
+boolean pc_menu_setup_shown(void)
+{
+	return !setup_left_out;
+}
+
 static void *widget_build(long widget_index)
 {
 	struct halo_menus const *menus = build.menus;
@@ -1295,9 +1321,9 @@ static void *widget_build(long widget_index)
 		reference_set(&definition->extended_description_widget, UI_WIDGET_DEFINITION_TAG,
 			tag_named(UI_WIDGET_DEFINITION_TAG, source->description, source->file, source->line));
 	}
-	/* the children */
+	/* the children (but SETUP, where it is left out: child_left_out) */
 	for (count = 0, child = source->first_child; child != HALO_MENU_NONE; child = menus->children[child].next)
-		count++;
+		count += !child_left_out(&menus->children[child]);
 	if (definition->type == _widget_type_spinner_list && count != 0 && count != 1 && count != 3)
 		problem(source->file, source->line, "a spinner has 0, 1 or 3 children:", source->name);
 	if (count)
@@ -1309,10 +1335,15 @@ static void *widget_build(long widget_index)
 		for (count = 0, child = source->first_child; children && child != HALO_MENU_NONE; child = menus->children[child].next)
 		{
 			struct halo_menu_child const *entry = &menus->children[child];
-			long tag_index = entry->nested != HALO_MENU_NONE ? build.widget_tags[entry->nested] :
+			long tag_index;
+			char const *name, *child_leaf;
+
+			if (child_left_out(entry))
+				continue;
+			tag_index = entry->nested != HALO_MENU_NONE ? build.widget_tags[entry->nested] :
 				tag_named(UI_WIDGET_DEFINITION_TAG, entry->widget, entry->file, entry->line);
-			char const *name = entry->nested != HALO_MENU_NONE ? menus->widgets[entry->nested].name : entry->widget;
-			char const *child_leaf = strrchr(name, '/') ? strrchr(name, '/') + 1 : name;
+			name = entry->nested != HALO_MENU_NONE ? menus->widgets[entry->nested].name : entry->widget;
+			child_leaf = strrchr(name, '/') ? strrchr(name, '/') + 1 : name;
 
 			reference_set(&children[count].widget_tag, UI_WIDGET_DEFINITION_TAG, tag_index);
 			strncpy(children[count].name, child_leaf, sizeof(children[count].name) - 1);
@@ -2763,6 +2794,59 @@ boolean pc_menu_button_key_cap(
 	(void)alpha;
 #endif
 	return FALSE;
+}
+
+/* the keyboard's key in a menu text's prompt ("Press [Enter] to Join",
+input_abstraction_port_icon_key's text) drawn as a key cap, as the footers'
+pictures are, at x on the line from y0 (its top) to y1 (its bottom), centered
+on its capital letters: its width, or 0 when it is written as text (no key
+caps here, or a name the menus' font may not have) */
+short pc_menu_text_key_cap(
+	wchar_t const *key_text,
+	short x,
+	short y0,
+	short y1,
+	float alpha)
+{
+#ifdef HALO_GAME_BROWSER
+	extern boolean moderation_screen_active(void);
+	char label[32];
+	int length = 0;
+	int index;
+	float height = (float)(y1 - y0);
+	float size;
+	float width;
+	unsigned int shade;
+
+	if (!key_text || key_text[0] != L'[' || height <= 0.f)
+		return 0;
+	for (index = 1; key_text[index] && key_text[index] != L']'; index++)
+	{
+		wchar_t character = key_text[index];
+
+		if (character < 0x20 || character > 0x7E || length >= (int)sizeof(label) - 1)
+			return 0;
+		label[length++] = (char)(character >= 'a' && character <= 'z' ? character - 'a' + 'A' : character);
+	}
+	label[length] = 0;
+	if (!length || key_text[index] != L']')
+		return 0;
+	size = height * 0.9f;
+	width = ui_overlay_key_width(label, size);
+	/* (hidden with the menu under the Moderation screen) */
+	if (moderation_screen_active())
+		return (short)ceilf(width);
+	shade = (unsigned int)(alpha < 0.f ? 0.f : alpha > 1.f ? 255.f : alpha * 255.f);
+	ui_overlay_key(label, size, (float)x, (float)y0 + height * 0.47f - size * 0.5f, 0xFFFFFF00 | shade);
+	return (short)ceilf(width);
+#else
+	(void)key_text;
+	(void)x;
+	(void)y0;
+	(void)y1;
+	(void)alpha;
+	return 0;
+#endif
 }
 
 /* the left edge of the key cap pc_menu_button_key_cap draws for a prompt

@@ -282,3 +282,8 @@ td.actions select { padding: 3px 6px; font-size: 13px; margin-right: 6px; }
 .link-code { margin-top: 10px; }
 .link-code p { margin: 0 0 8px; }
 .link-code a { color: var(--accent); font-weight: 600; overflow-wrap: anywhere; }
+.muted { color: var(--muted); }
+
+/* the Reports tab's count of open reports, and closed rows */
+.badge { display: inline-block; min-width: 1.4em; padding: 0 5px; margin-left: 4px; border-radius: 9px; background: var(--accent); color: var(--accent-text); font-size: 0.75em; line-height: 1.5; text-align: center; }
+tr.closed td { opacity: 0.55; }

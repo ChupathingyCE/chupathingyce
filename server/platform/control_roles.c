@@ -136,6 +136,15 @@ static const struct command_permission command_permissions[] =
 	/* (sv_ban: BAN_TIMED or BAN by its duration, below) */
 	{ "sv_ban", CONTROL_PERMISSION_BAN, 1, 0 },
 	{ "sv_unban", CONTROL_PERMISSION_UNBAN, 1, 0 },
+	/* (sv_ban_account: as sv_ban, by its duration) */
+	{ "sv_ban_account", CONTROL_PERMISSION_BAN, 1, 0 },
+	/* (locking joins: a kick's say over who comes in) */
+	{ "sv_lock", CONTROL_PERMISSION_KICK, 1, 0 },
+	{ "sv_unlock", CONTROL_PERMISSION_KICK, 1, 0 },
+	/* (players' reports: moderators' evidence, and closing one) */
+	{ "sv_reports", CONTROL_PERMISSION_WARN, 0, 0 },
+	{ "sv_report_close", CONTROL_PERMISSION_WARN, 1, 0 },
+	{ "sv_ban_lists", CONTROL_PERMISSION_VIEW, 0, 0 },
 	{ "sv_map", CONTROL_PERMISSION_MAP, 1, 0 },
 	{ "sv_mapcycle_next", CONTROL_PERMISSION_MAP, 1, 0 },
 	{ "sv_end_game", CONTROL_PERMISSION_MAP, 1, 0 },
@@ -197,7 +206,7 @@ unsigned int control_command_permission(const char *line, int *changes)
 			return CONTROL_PERMISSION_VIEW;
 		if (changes)
 			*changes = command->changes;
-		if (!strcmp(command->name, "sv_ban"))
+		if (!strcmp(command->name, "sv_ban") || !strcmp(command->name, "sv_ban_account"))
 		{
 			int64_t seconds = words.count >= 3 ? duration_seconds(words.words[2]) : 0;
 
@@ -323,18 +332,26 @@ int control_moderator_parse(const char *line, struct control_moderator *moderato
 	cursor += length;
 	while (*cursor == ' ' || *cursor == '\t')
 		cursor++;
-	/* the key */
+	/* the key, or a Delta account (32 hex digits: its 16 bytes, then
+	zeros) */
 	length = strcspn(cursor, " \t\r\n");
-	if (length != CONTROL_KEY_TEXT)
+	if (length != CONTROL_KEY_TEXT && length != CONTROL_ACCOUNT_TEXT)
 	{
-		*reason = "the second word is a moderator key: 64 hex digits";
+		*reason = "the second word is a moderator key (64 hex digits) or a Delta account (32)";
 		return -1;
 	}
 	memcpy(key_text, cursor, length);
 	key_text[length] = 0;
+	if (length == CONTROL_ACCOUNT_TEXT)
+	{
+		/* (the account's digits, then zeros: as a key's text) */
+		memset(key_text + length, '0', CONTROL_KEY_TEXT - length);
+		key_text[CONTROL_KEY_TEXT] = 0;
+		moderator->account = 1;
+	}
 	if (!control_key_parse(key_text, moderator->key))
 	{
-		*reason = "the second word is a moderator key: 64 hex digits";
+		*reason = "the second word is a moderator key (64 hex digits) or a Delta account (32)";
 		return -1;
 	}
 	cursor += length;
@@ -375,6 +392,9 @@ int control_moderator_line(const struct control_moderator *moderator, char *out,
 		return -1;
 	}
 	control_key_text(moderator->key, key);
+	/* (an account's line: its 32 hex digits) */
+	if (moderator->account)
+		key[CONTROL_ACCOUNT_TEXT] = 0;
 	length = snprintf(out, size, "%-9s %s%s%s", control_role_name(moderator->role), key, moderator->name[0] ? " " : "",
 		moderator->name);
 	return length < 0 || (size_t)length >= size ? -1 : length;

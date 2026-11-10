@@ -85,7 +85,7 @@ def generated(control=None):
         else:
             parts[name] = mutated(parts[name], before, after)
     header = read("port/linux/game/structure_culling.h")
-    types = structure(header, "structure_culling_cone") + "\n" + enum_with(header, "_structure_culling_facing_away")
+    types = read("source/rasterizer/rasterizer_vertex_byte_order.h") + "\n" + structure(header, "structure_culling_cone") + "\n" + enum_with(header, "_structure_culling_facing_away")
     types += "\n" + structure(header, "structure_culling_split_surface") + "\n" + structure(header, "structure_culling_pairing")
     dependencies = [
         ("source/tag_files/tag_groups.h", ["tag_block", "tag_reference", "tag_data"]),

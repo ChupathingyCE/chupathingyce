@@ -24,6 +24,8 @@ the file.
 | `HALO_DEDICATED_TEAM_CHANGE_MARGIN` | `1` | With `balanced`, the most players one team may have over the other after a change, 0 to 16 (`team_change_margin`). |
 | `HALO_DEDICATED_ALLOW_PLAYER_NAMES` | `false` | `true`: Chupathingy players may show names above other players' heads (their `display.player_names`). `false` plays as the Xbox did: a name shows only on the player aimed at (`allow_player_names`; the host's rules, [docs/delta.md](../../docs/delta.md#host-rules)). |
 | `HALO_DEDICATED_ALLOW_FOLLOW_CAMERA` | `false` | `true`: Chupathingy players may watch a living player's view while they wait to respawn (their `display.follow_camera`). `false` plays as the Xbox did: the death camera alone (`allow_follow_camera`). |
+| `HALO_DEDICATED_LATE_JOIN_HOLD` | `false` | `true`: a player who joins a game in progress watches through the follow camera until the next game starts (everyone, OpenCE players too). `false` spawns them at once, as Halo does (`late_join_hold`). |
+| `HALO_DEDICATED_BAN_SHARE` | `false` | `true`: while linked, your bans that name a Delta account or device go to your shared ban list on the site (`ban_share`). Never an address. |
 | `HALO_DEDICATED_WELCOME` | (none) | A welcome: a server message each Chupathingy player gets in their chat as they join, up to 127 printable ASCII characters (`sv_welcome` sets it). OpenCE players get it as the host's notice in their chat, while they may chat. |
 | `HALO_DEDICATED_POSTGAME_SECONDS` | `20` | How long the carnage report shows after each game before the next game's lobby, 0 to 300 seconds. |
 | `HALO_DEDICATED_SKIP_LOBBY` | `false` | `true`: after the carnage report, if enough players stayed (`HALO_DEDICATED_MINIMUM_PLAYERS`, and teams as the game needs), the next game starts after a 3-second countdown instead of waiting out the lobby's. Otherwise the lobby opens as always. |
@@ -37,6 +39,7 @@ the file.
 | `HALO_DEDICATED_CE_WELCOME` | a line about cross-play | The chat line each Custom Edition player gets as they join (`ce_welcome`, up to 255 characters). Set but empty: none. |
 | `HALO_DEDICATED_BETRAYAL_KICK` | `0` | Betrayals (teammates killed) in one game that kick a player, 1 to 100; they are warned one short of it, and a second such kick within 24 hours bans them for 30 minutes ([moderation.md](moderation.md#betrayal-and-afk-limits)). `0`: off. `sv_set betrayal_kick 3` sets it while the server runs. |
 | `HALO_DEDICATED_AFK_KICK_MINUTES` | `0` | Minutes without input in a game in progress that kick a player, 1 to 120, warned 30 seconds before; never in the lobby or the carnage report, never a moderator ([moderation.md](moderation.md#betrayal-and-afk-limits)). `0`: off (`afk_kick_minutes`). |
+| `HALO_DEDICATED_KEEP_PARTIES_TOGETHER` | `false` | `true`: in team games, Chupathingy players in one party go to one team where the teams stay within one player of each other: in the lobby (a member moved, or traded with a player in no party), and a late joiner before they spawn. Players can still change team in the lobby afterwards. `false` places them as the Xbox did (`keep_parties_together`; [docs/delta.md](../../docs/delta.md#party-teams)). |
 | `HALO_DEDICATED_COMMANDS` | (none) | A file of [commands](admin.md#startup-commands) in the data folder, run once the server first hosts. |
 | `HALO_DEDICATED_CONSOLE` | on in a terminal | Commands typed on the server's standard input ([the console](admin.md#the-console)). `true`: read them even when it is not a terminal; `false`: never. |
 | `HALO_DEDICATED_CONTROL` | `127.0.0.1:8080` (`off` in our Docker image) | The [control API](admin.md#the-control-api)'s address, or `off` for none: a port (`8080`, on 127.0.0.1 only) or an address and port (`127.0.0.1:8080`, `[::1]:8080`, `0.0.0.0:8443`). Its token is made and printed the first time, and the first owner's setup link. The [control panel](moderation.md#the-control-panel) is on the same address: plain HTTP on the loopback address, HTTPS beyond it. |
@@ -52,7 +55,7 @@ The settings file's keys (`sv_settings` lists them, with where each value
 comes from): `name`, `maximum_players`, `minimum_players`, `idle_limit`,
 `public` (from the next start), `name_filter`, `chat`, `chat_filter`,
 `welcome`, `postgame_seconds`, `skip_lobby`, `chat_cooldown`, `team_change`
-(0 off, 1 balanced, 2 allow), `team_change_margin`, `playlist_shuffle`, `chat_legacy`, `gamespy_listing`, `gamespy_port`, `ce_joins`, `allow_player_names`, `allow_follow_camera`, `max_machines_per_address`, `betrayal_kick`, `afk_kick_minutes`, and the playlist
+(0 off, 1 balanced, 2 allow), `team_change_margin`, `playlist_shuffle`, `chat_legacy`, `gamespy_listing`, `gamespy_port`, `ce_joins`, `allow_player_names`, `allow_follow_camera`, `max_machines_per_address`, `betrayal_kick`, `afk_kick_minutes`, `keep_parties_together`, `late_join_hold`, `ban_share`, and the playlist
 `sv_playlist_use` chose. `sv_set welcome Hello and welcome` takes
 the rest of the line as the value (quotes optional).
 

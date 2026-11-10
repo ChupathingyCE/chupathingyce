@@ -146,16 +146,21 @@ shares.
 | 13 | `bomb_movement` | TRAITS' movement and melee traits (jump, gravity, melee reach), for a player whose machine and host both agreed to it |
 | 14 | `bomb_traits` | TRAITS at 22 (Grifball test builds 2 and 3 sent it as 18, chat's CHAT_CONFIG). Room-wide with `bomb`: a host playing a Bomb game type drops every machine without both |
 | 15 | `team_change` | changing teams during a game: a client asks its host (TEAM_REQUEST), the host decides and answers (TEAM_RESULT); see "Team changes" |
-| 16 | `server_badge` | reserved for server badges (a draft); never set until that is built |
+| 16 | `server_badge` | a dedicated server's signed badge: a client asks its host (BADGE_ASK), the host answers with its certificate and proof of its key (BADGE); see "Server badges" and [server-badges.md](server-badges.md). A host offers it only with a certificate |
 | 17 | `object_sync` | what the game's messages leave out of the host's objects: every unit's shield and health (UNIT_VITALS) and the scenario names of the objects the host made (OBJECT_NAMES); see "Object sync" |
 | 18 | `host_cheats` | not a feature: the host's console and cheats may change its public game while others are in it (`network.host_cheats`); announced on Delta List only, never in a HELLO, and Online Games shows "Host cheats on" |
 | 19 | `host_rules` | the host's rules for its players' extras (HOST_RULES): names above heads, the follow camera, team changes; a client whose host says nothing plays by the Xbox's rules. See "Host rules" |
+| 20 | `identity` | verified names: the host challenges (ID_CHALLENGE), each local player with a device certificate proves it (ID_PROOF), the host relays the card (ID_CARD) and every client checks it again. Only verified players show by their Delta profile. See "Verified names" |
+| 21 | `party_teams` | a party's members tell their host their party's tag (PARTY_TAG), and a host that keeps parties together puts them on one team where the teams stay even. See "Party teams" |
+| 22 | `voice` | reserved: voice chat (being built) |
+| 23 | `reports` | a dedicated server takes its players' reports of other players (REPORT, REPORT_RESULT); see "Reports" |
 
 The registry lives in the repository next to the compatibility table and is
 the single source for the bit numbers. Built so far: `platform`, `profile`,
 `ce_maps`, `moderation` (see "Moderation"), `chat` and `server_messages`
 (see "Chat"), `bomb`, `bomb_movement` and `bomb_traits` ([bomb.md](bomb.md)),
-`ping`, `team_change`, `object_sync`, `host_cheats` and `host_rules`. No
+`ping`, `team_change`, `object_sync`, `host_cheats`, `host_rules`,
+`identity` (see "Verified names") and `party_teams`. No
 build sets `coop`, `ai_sync`, `vote` or `server_badge` yet. The first two's values are
 claims, shown as claims, never used for game state:
 
@@ -168,8 +173,9 @@ claims, shown as claims, never used for game state:
 - **`profile`**: a machine's player ID (the game list's, 16 bytes) and its
   profile revision (0 until the game knows it); the profile itself is the
   site's. Opt-in: a copy shares its own only with `network.share_profile`,
-  since the ID is the same in every game. Profiles are exchanged, but
-  nothing in the game shows them yet.
+  since the ID is the same in every game. It proves nothing, so builds
+  with `identity` never show a name from it: only a verified player shows
+  by their profile ("Verified names").
 - **`ce_maps`**: the game's map's identity, host to client (MAP, below), so
   a client with another file of the same name leaves rather than playing a
   map that is not the host's. See "Map identity".
@@ -238,7 +244,8 @@ defaults every machine's key starts from:
 | Android | 128 | 128 | 128 | 11 (2 GB) | yes |
 | unknown | 128 | 128 | 128 | 0 | yes |
 | Xbox | 16 | 16 | 128 | 6 (64 MB) | no |
-| Xbox 360, Wii U, Switch | 16 | 16 | 128 | 9, 10, 12 (placeholders until their ports play) | yes |
+| Xbox 360, Wii U | 32 | 32 | 128 | 9, 10 (placeholders) | yes |
+| Switch | 16 | 16 | 128 | 12 (placeholder until its port plays) | yes |
 | PSP, Vita | 16 | 16 | 128 | 6, 9 (placeholders) | no |
 | Xbox Series (developer mode) | 128 | 128 | 128 | 12 | yes |
 | PS3 | 16 | 16 | 128 | 8 (256 MB; placeholder) | no |
@@ -382,7 +389,7 @@ a later version may append):
 | 8 | TABLE_HAVE | either | serial (4: 0 the built-in table, 0xFFFFFFFF takes no tables) |
 | 9 | MOD_CHALLENGE | host to client | nonce (32), binding length (1, at most 64), reserved (3), binding (printable ASCII) |
 | 10 | MOD_PROOF | client to host | moderator key (32), signature (64) |
-| 11 | MOD_STATE | host to client | role (1), reserved (3), permissions (4), longest timed ban in minutes (4) |
+| 11 | MOD_STATE | host to client | role (1), the host's actions (1: 0x01 it takes LOCK and UNLOCK, 0x02 joins are locked now; 0 from an older host), reserved (2), permissions (4), longest timed ban in minutes (4) |
 | 12 | MOD_ACTION | client to host | sequence (4), action (1), target machine (1), minutes (2; 0 for ever), reason length (1, at most 63), reserved (3), signature (64), reason (printable ASCII) |
 | 13 | MOD_RESULT | host to client | sequence (4), ok (1), text length (1, at most 127), reserved (2), text |
 | 14 | MOD_NOTICE | host to client | kind (1: 1 warning, 2 notice), text length (1, at most 127), reserved (2), text |
@@ -396,10 +403,17 @@ a later version may append):
 | 22 | TRAITS | host to client | kind (1: 0 none, 1 Bomb), reserved (3), everyone's then the carrier's player traits, 12 bytes each: health, damage, resistance, speed (2 each, percent), shields (1: 0 unchanged, 1 none, 2 normal, 3 overshield), highlight (1), reserved (2); then, from the `bomb_movement` builds on, a version (1), reserved (3), and everyone's then the carrier's movement traits, 8 bytes each: jump, gravity, melee reach (2 each, percent; 0 unchanged), reserved (2), 48 bytes in all (older builds read the first 28); values past their ranges ([bomb.md](bomb.md)) refused. Grifball test builds 2 and 3 sent it as 18, which is CHAT_CONFIG's (a host drops those builds from a Bomb game: `bomb_traits`) |
 | 23 | TEAM_REQUEST | client to host | sequence (4, above the session's last), player (1, the game's player list index), team (1: 0 red, 1 blue, 255 the other one), reserved (2) |
 | 24 | TEAM_RESULT | host to client | sequence (4, the TEAM_REQUEST's), result (1: 0 changed, 1 at the next respawn, 2 the host takes none, 3 the teams would be uneven, 4 no teams, 5 too soon, 6 not now, 7 no such player of the machine, 8 already on that team, 9 the last player of their team), team (1, the player's now), seconds until the player may change again (2; with 5) |
-| 25, 26 | | | kept for server badges (a draft) |
+| 25 | BADGE_ASK | client to host | nonce (32, fresh for each session) |
+| 26 | BADGE | host to client | nonce (32, the BADGE_ASK's), signature (64, the certificate's server key's, of the proof below), certificate length (2, at most 143; 0 for none), proof (1: 2, "chupathingy server badge proof v2\n", the nonce, the host's invite and the session, [server-badges.md](server-badges.md); 0, the first drafts' nonce alone, shows no badge), reserved (1), then the certificate |
 | 27 | UNIT_VITALS | host to client | count (1, at most 98), flags (1: 0x01 the last datagram of a full pass), reserved (2), then 12-byte entries: the host's object (4, its datum index, which a client's copy shares), flags (1: 0x01 shield depleted, 0x02 shield charging, 0x04 shield over charging), reserved (1), body vitality (2), shield vitality (2), reserved (2); vitality in 16384ths, as the game's own unit states have it |
 | 28 | OBJECT_NAMES | host to client | total (2, the host's named objects and removed names in all, at most 512), first (2, this datagram's first entry's place among them), count (1, at most 98), reserved (3), then 12-byte entries: the host's object (4; 0xFFFFFFFF for a removed name), its scenario name index (2), flags (1: 0x01 removed, a name the host had an object of this game and has none of now; others ignored), and for a removed name its unit's last vitals: shield flags (1, as UNIT_VITALS's), body vitality (2), shield vitality (2) (full for an object that was not a unit; 0 for the others) |
-| 29 | HOST_RULES | host to client | version (1; 1 now, 0 refused, a later one read as far as this build knows it), flags (1: 0x01 names above heads allowed, 0x02 the follow camera allowed; others ignored), team changes (1: 0 off, 1 balanced, 2 allow), their margin (1, 0 to 16), reserved (4); values past their ranges refused. Sent at once when they change and every 5 seconds |
+| 29 | HOST_RULES | host to client | version (1; 1 now, 0 refused, a later one read as far as this build knows it), flags (1: 0x01 names above heads allowed, 0x02 the follow camera allowed, 0x04 late joiners wait for the next game, 0x08 joins are locked; others ignored), team changes (1: 0 off, 1 balanced, 2 allow), their margin (1, 0 to 16), reserved (4); values past their ranges refused. Sent at once when they change and every 5 seconds |
+| 30 | ID_CHALLENGE | host to client | version (1; 1 now, 0 refused, a later one read as this), binding length (1, at most 64), reserved (2), nonce (32: this session's), binding (printable ASCII) |
+| 31 | ID_PROOF | client to host | version (1), local player (1, 0 to 3), certificate length (1: 0 withdraws the local player and nothing follows; else 148 to 168), name length (1, at most 20), flags (1: 0x01 bound), reserved (3), time (4, Unix seconds), signature (64), issuer certificate (CISS, 112), device certificate (CDEV, the length's bytes), name (the handle in the player's capitals: `A-Z a-z 0-9 _ -`) |
+| 32 | ID_CARD | host to client | version (1), machine index (1), local player (1, 0 to 3), certificate length (1: 0 withdraws the card and nothing follows; else 148 to 168), name length (1, at most 20), reserved (3), flags (1, the proof's), reserved (3), time (4, the proof's), nonce (32: the one the host challenged that machine's session with), signature (64), CISS (112), CDEV, name. At most 412 bytes |
+| 33 | PARTY_TAG | client to host | the party's tag (8; zeros: in no party); a longer payload is read as far as this build knows. Sent once both agreed to `party_teams`, at once when it changes, and every 5 seconds while in a party |
+| 37 | REPORT | client to host | sequence (4, above the session's last), target's machine (1), target's player (1, the absolute index of the player's datum in the host's player data, as the game's player datum index has it), reason (1: 1 cheating, 2 abuse in chat or voice, 3 griefing or betraying, 4 an offensive name, 5 something else), flags (1: 0x01 the reporter would attach a clip), reserved (16: zeros; a host ignores them) |
+| 38 | REPORT_RESULT | host to client | sequence (4, the REPORT's), result (1: 0 taken, 1 too soon, 2 no such player, 3 not taken here, 4 already reported), flags (1: 0x01 send the clip: the server is linked to the site), reserved (2), clip token (16, the host's: zeros without 0x01). A host before the token sent the first 8 bytes alone, and its 0x01 is read as no clip |
 
 A roster covers every machine of the game, in as many datagrams as it takes
 (32 machines each). A client forgets a machine the roster has not named for
@@ -431,6 +445,12 @@ Limits and timeouts (`delta_peer.h`):
 | chat: CHAT_LINE a client takes from its host | 10 a second, 20 at once |
 | chat: CHAT_CONFIG | at the handshake, on a change (at most every 250 ms), and every 10 s |
 | team changes: TEAM_REQUEST a host takes from one machine | 1 a second, 3 at once (and a player's changes 10 s apart: the host's rule) |
+| verified names: ID_CHALLENGE | at the handshake, and every 5 s |
+| verified names: ID_PROOF a host takes (and checks) from one machine | 4 a second, 4 at once |
+| verified names: ID_CARD to a client | at once when a card changes, every card again every 30 s, 8 a frame at most |
+| verified names: a client's proof sent again, while its card has not come | every 10 s |
+| verified names: a client proves again anyway | every 15 minutes |
+| verified names: a withdrawn card kept (so every client hears it) | 30 s |
 
 Who is heard: a host reads a datagram only from an address of a machine of
 its game (anything else is dropped before parsing), and ties a HELLO to the
@@ -534,7 +554,8 @@ Delta client can be an in-game moderator.
   sequence must be above the session's last, so a replay does nothing.
   Actions: 1 warn, 2 kick, 3 ban (minutes, 0 for ever), 4 end the game, 5
   next map, 6 mute the target's chat (minutes, 0 until they leave), 7 unmute
-  it; a host refuses one it does not know. Whether the key may do it
+  it, 8 lock joins, 9 unlock them (no target; a host that takes them says
+  so in MOD_STATE); a host refuses one it does not know. Whether the key may do it
   is the host's moderation's decision (the server's permission table), and
   MOD_RESULT says what happened.
 - **Notices.** MOD_NOTICE is a warning (or notice) the server shows the
@@ -714,11 +735,168 @@ game, over `host_rules` (bit 19):
   above) rides along, so a client offers it in the pause menu only where
   the host allows it. An older Chupathingy host that takes team changes
   but says no rules is asked as before.
+- **Late joiners wait** (0x04, off by default: a player's host's
+  `network.late_join_hold`, a dedicated server's `late_join_hold`). A
+  player who joins a game in progress doesn't spawn until the next game
+  starts. They watch through the follow camera (LB and RB switch who),
+  whatever their own `display.follow_camera` says, with "Waiting for the
+  next game" under it. The host holds their spawn, so an OpenCE player who
+  joins late waits too and sees Halo's own death view, with a line in
+  their chat saying why. Nobody else's game changes. A joiner spawns at
+  once when no one else is playing, the wait ends with the game, and it
+  never lasts more than 5 minutes. A player who was in the game, dropped
+  and came back (the same name) isn't held.
+- **Joins are locked** (0x08): the host takes no new machines until it's
+  unlocked (a dedicated server's `sv_lock`). Players already in stay, and
+  a dropped player can't come back while it's locked (Custom Edition
+  players are kept out too). A lock ends by itself 10 seconds after the
+  host stops hosting or nobody it was for is in (a dedicated server's
+  players, or a player's host's players of other machines). The host's Delta
+  List announcement says `locked=1`, which the site keeps as
+  `joins_locked` (games.txt's field 25), and the game list shows it.
 - **A host that says nothing** (OpenCE's, an older Chupathingy, a console
   without Delta) gets the Xbox's rules: no extras. A game played alone
   (split screen) is its own host's.
 
-The game's side is `port/linux/game/host_rules.c`.
+The game's side is `port/linux/game/host_rules.c` and
+`port/linux/game/late_join.c`.
+
+### Reports
+
+A player reports another player to a dedicated server's moderators over
+`reports` (bit 23). A host offers it only when it takes reports (the
+dedicated server registers them; a game a player hosts offers none).
+
+- **REPORT** names the player by their machine and the absolute index of
+  their player datum (the low 16 bits of the game's player datum index),
+  and gives a reason from a short list: 1 cheating, 2 abuse in chat or
+  voice, 3 griefing or betraying, 4 an offensive name, 5 something else.
+  There is no free text. Its sequence must be above the session's last.
+- **The host decides.** It refuses a report of a player who isn't there,
+  of the reporter themselves, a second report of the same player in one
+  game from one reporter, more than 3 a minute or 10 a game from one
+  reporter, and more than 5 a game of one player from everyone
+  (REPORT_RESULT says which). It counts by who reports and who is
+  reported: a player's verified account when their proof is bound to this
+  host ("Verified names"), else that player in this game, never by the
+  machine's slot. So a player who joins a slot someone left starts with
+  their own counts, and a verified player who leaves and comes back keeps
+  theirs. The counts start over with each game. Each report it takes goes
+  to its moderators' queue with what it knows: both players' game names,
+  their verified handles when they proved one bound to this host, the map,
+  the game type, and the host's refusal counts for the reported machine
+  (`sv_evidence`). Never an address. The queue keeps 200: when they are all
+  open, a new report is refused rather than one pushed out.
+- **OpenCE players** can be reported by their game name. Their reports stay
+  on the host: they never go to the site. A report by an OpenCE player isn't
+  possible (they can't send REPORT).
+- **Clips.** A reporter may attach a clip (the last one saved, or one from
+  `clips/`); REPORT then says so. When the host is linked to the site
+  (Delta Control) and the report is about a Delta player, REPORT_RESULT's
+  0x01 asks for the clip and carries its token: 16 random bytes the host
+  makes, never the reporter, and puts in the report it forwards. The copy
+  uploads the clip to the site with that token (`/v1/game/clip/start`,
+  then `/v1/game/clip/upload`). The site takes a clip only for a token a
+  report of a linked server names, once, and keeps it beside that report,
+  for that server's moderators and the site's admins alone, and deletes it
+  after 14 days. A host that isn't linked takes the report without the
+  clip.
+- **Linked servers** forward reports to the site with their next poll
+  ("The link to the site", `reports`), but only those about a Delta
+  player.
+
+The clip upload, as `/v1/game/*` (the copy's key in the body, or its
+device token):
+
+- `POST /v1/game/clip/start` `{"key", "token", "size", "seconds"}` answers
+  `{"upload", "max"}`: an upload ID good for 30 minutes. 409 while no
+  report names the token yet (the report rides the server's next poll: the
+  copy asks again every 5 seconds, for up to 2 minutes), 413 when `size` is
+  past the cap (48 MB), 429 past the copy's or the server's clips a day,
+  507 when the site's clip store or the server's share of it is full. The
+  site counts the bytes it has, not the sizes uploads promised.
+- `POST /v1/game/clip/upload?upload=<id>`, the MP4 as the body
+  (`video/mp4`, exactly `size` bytes), answers `{"ok": true}`. The site
+  refuses a body that isn't an MP4 (its top-level boxes, `ftyp` first and
+  a `moov`), and drops an upload that sends nothing for a minute.
+
+The game's side is `port/linux/game/report_player.c` (DELTA's PLAYERS
+HERE and the scoreboard's REPORT), the dedicated server's
+`server/src/server_reports.c` (`sv_reports`, the control panel's Reports).
+
+### Server badges
+
+A dedicated server's OFFICIAL, DEVELOPER or COMMUNITY badge, over
+`server_badge` (bit 16). The badge is a certificate signed with our badge
+key for the server's Delta Control link key; the format, the keys and how
+one is issued are in [server-badges.md](server-badges.md).
+
+- **Asking.** A client sends BADGE_ASK with a fresh nonce once the
+  handshake is done (again every 2 seconds, 3 times at most, while
+  unanswered). The host answers BADGE with its certificate and its link
+  key's signature of the nonce, at most once a second for a machine. A
+  host without a certificate does not offer `server_badge`.
+- **Checking.** The client takes the badge only if the certificate is a
+  badge key's, in date, of a tier it knows, and the signature is the key
+  the certificate names, of the nonce, the invite the client joined and
+  this session (proof 2). A host that does not offer the badge, does not
+  answer in time, or fails the check shows no badge in Online Games from
+  then on, whatever the list says; one that proves a badge shows the
+  list's only while the list names the same tier, label and server key.
+
+The game's side is `port/linux/src/server_badge.c` and
+`port/linux/src/delta_peer_game.c`; the dedicated server's certificate is
+`server_badge.cert` in its data folder (`server/platform/control_link.c`).
+
+### Party teams
+
+A party (DELTA's PARTY: up to 8 players who follow their leader into
+games, kept by the site in memory) wants to play on one
+team. Halo's teams are the host's to place, so the party asks and the host
+decides, over `party_teams` (bit 21). It is additive and host-side: nothing
+in the game protocol changes, and an OpenCE host, or one that says nothing,
+places the party as it always did.
+
+- **The tag.** The site gives each party a random 8-byte tag and hands it
+  to the party's members only. It names no one and lasts the party's
+  lifetime: a new party has a new one, and the site makes a new one (and a
+  new code) when the leader kicks a member or asks for a new code. A
+  member's game sends it to its game's host in PARTY_TAG (33) once both
+  agreed to `party_teams`, at once when it changes (joined, left, a new
+  party), and every 5 seconds while it is in a party, in case a datagram
+  was lost. Zeros mean "in no party". The host keeps each machine's last
+  tag and forgets it with the machine's session. It learns only which of
+  its machines share a party; split screen players share their machine's.
+- **The client's word.** The host can't check a tag: it takes it on the
+  client's word, so a tag only ever moves the players who send it. A
+  machine's tag, once it has one, changes no sooner than 30 seconds after
+  its last change (a sooner one is dropped, and the next resend lands), so
+  flipping it can't keep a lobby rearranging. A tag only one machine sends
+  is no party: one machine's own players are never a party of their own.
+- **Whether the host honors it.** A player's host does unless its
+  `network.keep_parties_together` is off (on by default). A dedicated
+  server does only with its `keep_parties_together` setting on (off by
+  default; `sv_set keep_parties_together true`, `server/docs/settings.md`).
+  Only in team games, never in co-op.
+- **Where balance allows.** A split party goes to the team where most of
+  its members are (a tie: the smaller team first). One member moves at a
+  time, only when the teams then stay within one player of each other.
+  Where a move would unbalance them, the party stays split: only party
+  members are ever moved, never a player in no party (no trades).
+- **When.** In the lobby, each time its players or their parties change
+  (the host sends the lobby again); a player who picks the other team
+  afterwards keeps their pick until the lobby changes again. In a game in
+  progress, only a member who joined late and hasn't spawned yet moves (as
+  a team change does, without a death); nobody playing is moved.
+- **What it isn't.** The host's own team rules (auto team balance, team
+  changes, an admin's `sv_team`) stay as they are, and a party never
+  overrides them. A client that doesn't speak `party_teams` sends nothing
+  and is placed as before.
+
+The host's side is `port/linux/game/party_teams.c` (which change: the
+plan in `port/linux/src/party_teams_plan.c`, tested by
+`tools/test_party_teams.py`); the members' tag comes from
+`port/linux/game/guide.c`.
 
 ### Object sync
 
@@ -786,6 +964,370 @@ the map and the report):
 It is offered by the builds with the game list (`HALO_GAME_BROWSER`: the
 desktop builds, Android, the Switch and the dedicated server), not by the
 original Xbox's. The game's side is `port/linux/game/network_objects.c`.
+
+### Verified names
+
+Over `identity` (bit 20), a player proves who they are with the device
+certificate their copy holds ("Device identity" under Delta Link). The host
+checks the proof, then relays it to every other client that agreed, and each
+client checks it again itself. A host can't make a proof up, but it can
+show one it saw elsewhere (below).
+
+**Only verified players show by their Delta profile.** Profile names, clan
+tags and badges show only for a player whose proof checked here. Everyone
+else shows by their game name. That includes OpenCE players and players who
+don't share. It also includes an older build's PROFILE claim, which proves
+nothing. There is no "unverified" label that still shows a claimed name.
+This is stage D of the profile transition, and it is in from the builds
+that speak `identity`.
+
+What OpenCE machines get doesn't change. They see the 11-character Halo
+name, as the game's own messages carry it, and nothing of `identity`
+reaches them. Older Delta builds keep working: they never agree to
+`identity`, get none of its messages, and show game names as they did.
+Network determinism is untouched. Nothing here feeds game state.
+
+**Bound to the host, or a name only.** A proof says whether the client
+checked that the challenge came from the host it connected to (the
+**bound** flag, signed with the rest).
+
+- A client marks a proof bound only when it reached its host through the
+  invite tunnel, and the challenge's binding is that invite's identity (the
+  first 32 hex digits of its key's hash, which the tunnel authenticates).
+- A client that reached its host any other way (a LAN, an address from the
+  game list or typed in) can't check, so it proves unbound.
+- A client whose challenge carries a binding that isn't its invite's (a
+  host passing on another host's challenge) proves nothing, and shows no one
+  as verified in that game.
+- A host takes the bound flag only while it has a binding of its own.
+- A client shows another player's card as bound only when the card has
+  the flag and its own join is bound (it came in through that invite).
+  A client that joined by address shows every card unbound.
+- **Only a bound proof gives a role or a ban.** An unbound proof shows a
+  name and nothing more: the dedicated server's moderation never hears of
+  it, and it is never written to bans.txt or matched against it.
+- What an unbound proof can't stop: a host that relays a real player's
+  proof from its own game into another, at the same time, can be shown
+  there under that player's name. That is why it never carries a role.
+- **Accepted risk: a card replayed by a host.** A host that joined another
+  game as a client keeps the cards it was sent there. Each card is signed
+  over its nonce and its binding, both chosen by that game's host, so a
+  host can send a card it collected, bound or not, to its own players who
+  joined by address, at the same machine index, with the other game's
+  nonce and binding in its challenge, and they check it. The player then
+  shows as verified in that game for up to about 40 minutes after they
+  signed (a client's card age of 30 minutes plus the 10 minutes of
+  clock grace), with no role and no ban. A client takes a card as bound
+  only when its own join checks against the challenge's binding (it came
+  in through that invite), so a replayed bound card shows unbound there,
+  and players who joined by invite refuse a challenge that isn't their
+  invite's. Closing this needs a nonce from every client in each proof,
+  so a proof would be made again whenever anyone joins. We left that out
+  for now.
+
+**The flow.**
+
+1. With `identity` agreed, the host sends **ID_CHALLENGE**: a nonce of 32
+   random bytes made for that client's Delta session (a new one with every
+   new session: every new HELLO, a machine joining, a machine taking
+   another's index), and its binding. It says it again every 5 seconds.
+2. For each local player (0 to 3, the player's controller in the network
+   game) whose copy can prove them, the client sends **ID_PROOF**: the
+   device certificate (CDEV), its issuer's (CISS), the flags, the time it
+   signed (Unix seconds), the player's name in their capitals, and the
+   device key's signature (below). A local player proves only when their
+   player shares their profile (`network.share_profile`), their Halo
+   profile is signed in (not a guest), and the copy holds an in-date
+   certificate for that account with `play` and a handle. An ID_PROOF with
+   a certificate length of 0 withdraws a local player (they signed out of
+   Delta, or stopped sharing).
+3. The host checks it (below). It keeps a checked proof as that player's
+   **card**, with the nonce it checked it with, and sends it as **ID_CARD**
+   to every client that agreed. A bound card is also told to its
+   moderation (a dedicated server's). A host proves its own local players
+   the same way, with a nonce of its own, and relays their cards too.
+4. Each client checks each card itself, against the nonce the card carries
+   and the binding of its own challenge, and keeps only cards that check.
+   It forgets a machine's cards when the roster forgets the machine, or
+   when the host sends a withdrawal (an ID_CARD with a certificate length
+   of 0).
+
+- **One identity, one player.** A host refuses a proof whose device or
+  account is already verified for another player of the game, and a client
+  refuses such a card. One exception: a bound proof takes the place of an
+  unbound card of the same identity (an unbound card may be someone else's
+  relay), and the unbound one is withdrawn. A bound card is never replaced
+  by an unbound one.
+- **Cards are checked again.** The host and every client check each card
+  they keep again every 60 seconds, with all the checks below: its
+  certificate's dates, the revocation list as it is now, and its age. The
+  host withdraws a card whose proof is more than 25 minutes old (10
+  minutes, what it takes, plus the 15 a client proves again in), and a
+  client drops one more than 30 minutes old, however often the host sends
+  it again. Both ages get the 10 minutes of clock grace on top, so in
+  practice a card lasts up to about 35 minutes on the host and about 40
+  on a client. When a new revocation list comes, every card is checked
+  against it on the next frame.
+- **What every player gets.** An ID_CARD goes to every client in the game
+  that agreed to `identity`, and it holds the whole certificate: the
+  account's player ID, the device's ID and its public key, the platform,
+  the handle and the certificate's dates. Every other Delta player in the
+  game can see them. No address and no secret travels in it.
+- **Open: the local player isn't matched to a player.** The host takes a
+  proof for local players 0 to 3 of a machine without checking that the
+  machine has a player at that index in the game. A card for a local
+  player who isn't playing shows nowhere, since names are looked up by a
+  player's machine and controller, but it does take its identity, so
+  that account can't be verified for another player of the game.
+- **Nothing outlives a session.** The host withdraws a machine's cards when
+  it takes a new session from that index, when the machine leaves, and
+  every card when it stops hosting, and its moderation hears of each.
+- **A new binding.** When the host's binding changes (its invite came or
+  went), it withdraws every card, its own players' too, and challenges
+  every client again at once.
+- **Timing.** The host sends every card again to every client every 30
+  seconds (8 a frame at most), at once when one changes, and a withdrawal
+  before it forgets it. A client sends a local player's proof again every
+  10 seconds until the host relays its card, and proves again every 15
+  minutes, so its card is never older than the checks take.
+
+**What the device signs** (the label, then the fields, byte by byte):
+
+| Bytes | Field |
+| --- | --- |
+| 24 | `"delta identity proof v1\n"` |
+| 32 | the nonce the host challenged this machine's session with |
+| 1 | the binding's length B (0 to 64) |
+| B | the binding (printable ASCII) |
+| 1 | the machine index |
+| 1 | the local player (0 to 3) |
+| 8 | the device certificate's serial |
+| 1 | the flags: 0x01 bound |
+| 4 | the time it signed, Unix seconds, little-endian |
+| 1 | the name's length T (0 to 20) |
+| T | the name |
+
+- **The nonce** is the host's for this one session, so a proof doesn't
+  work in another session, even at the same machine index.
+- **The machine index** ties a proof to the machine that sent it.
+- **The binding and the bound flag** tie it to the host, as above.
+- **The time** keeps an old proof out of a later game.
+- **The serial** ties it to one certificate, so a device signed in to two
+  accounts can't have its proof paired with the other.
+
+**The checks** (the host's, and every client's of a card):
+
+- The CISS is signed by one of the root keys (`identity_key.h`) and in
+  date. A build never takes another player's certificate on its word, even
+  with no root keys.
+- The CDEV is signed by that issuer, issued inside the CISS's dates, and
+  in date by this machine's clock, with 10 minutes of grace.
+- The certificate has `play` (0x01).
+- Its device isn't on the revocation list this copy last has (below).
+- The proof is fresh by this machine's clock, with 10 minutes of grace
+  (`IDENTITY_GRACE`) either way. The host takes it no more than 10
+  minutes old (20 with the grace), keeps it to 25 (about 35), and a
+  client takes a card no more than 30 minutes old (about 40).
+- The signature is the device key's over the message above, as Monocypher
+  4's `crypto_ed25519_check` checks it. A key of small order is refused.
+- The name, if any, is the handle's characters (`A-Z a-z 0-9 _ -`). A
+  name that isn't the certificate's handle in other capitals is dropped,
+  and the handle shows instead.
+
+A proof that fails is dropped, logged without its contents, and the
+player shows by their game name.
+
+**The revocation list.** Every build that speaks `identity`, and the
+dedicated server, fetches `GET /v1/identity/revoked` every ten minutes.
+- It checks the list: its issuer by the root keys, the list by its issuer,
+  and a serial past the one it has.
+- It keeps the list in `delta_revoked.bin` in the save root. A copy reads
+  the saved list the first time it needs one, with or without a site, so a
+  LAN game still checks against the last list.
+- A list whose next update has passed is still used. The log says it is
+  stale.
+- A list fetched from the site is taken only while its issuer certificate
+  is in date. The list a copy saved, taken while its issuer was in date,
+  is still read after that issuer expires, and the log says it is stale.
+  An issuer past its dates is no longer looked after, so a list it signed
+  later could take revoked devices off.
+- Hosts don't relay the list over Delta Peer yet.
+
+**One name.** A Delta profile has one name, its **Delta Tag**: the handle,
+3 to 20 of `a-z 0-9 _ -`, unique on the site however it's capitalized, and
+the key of every lookup and URL. The account shows it in the capitals its
+owner picked ("Milenko" for `milenko`), on the site, on DELTA, in ID_CARD
+and on the scoreboard. The capitals are ASCII, can change on the site at
+any time, and the letters can't. There's no other display name. Profiles
+from before keep their old free-form names on the site (`old_display`),
+and show their handle until their owner picks its capitals.
+
+**What shows.**
+- The account and handle come from the certificate, and are signed.
+- The capitals come from the site's public card for that account
+  (`/v1/game/players`, asked by the proven account), or, before the card
+  comes or with no site, from the proof. Either way they show only when
+  they are the handle in other capitals; else the handle shows as the
+  certificate has it. So no one can show a name that isn't their own
+  handle.
+- A clan tag shows before it ("[TAG] Name") when the card has one.
+- A copy with no profile (a certificate with no handle) proves nothing, and
+  its player shows by their game name.
+- **Impersonation.** A player who isn't verified, but whose game name looks
+  like the handle of a verified player of the same game (compared by the
+  look-alike key below), shows as "Player N" (their place in the game's
+  player list), never by that name. The name is compared as it is
+  written and as it shows (every @ left out), against the whole handle
+  and against the 11 characters a linked profile's game name is cut to,
+  so "MilenkoTheG" is masked next to a verified "MilenkoTheGreat". A
+  verified player whose handle the site marked as a look-alike of another (its card's `looks_like`) shows as
+  "Player N" too.
+- **The mark** (`display.verified_mark`, on by default): verified names
+  show with an @ in front ("@Milenko"). Every @ in anyone else's game
+  name is left out, wherever it is, and so are spaces, dots and invisible
+  marks left at its front, so " @Milenko", ".@Milenko" and "·@Milenko"
+  all show as "Milenko" (and as "Player N" next to a verified Milenko). A player who isn't connected to Delta (no
+  linked profile, or a guest) never has the mark.
+- **The same name everywhere.** The scoreboard, the postgame report, the
+  lobby, DELTA, chat, the kill feed and the other HUD lines (a player
+  quitting, the name under the crosshair) all show a player the same way:
+  a verified player by their Delta name, an impersonation as "Player N".
+- **On Delta you play under your verified name.** A Halo profile linked to
+  a Delta profile (it would prove: shared, not a guest, with a certificate
+  that has a handle) joins every game with the handle as its game name, in
+  the capitals its owner picked, cut to Halo's 11 characters. The name
+  typed into the Halo profile doesn't override it while it is linked.
+- The mark and the profile never reach OpenCE. Their players see a plain
+  game name, 11 characters, which the game's messages carry unchanged (for
+  a linked profile, its handle).
+- **Not connected, not recorded.** A guest Halo profile's line is never
+  claimed, and a machine whose local players are all guests sends no
+  report of a game it joined. The site takes a claim (`/v1/claim`) only
+  from a player ID linked to a Delta profile: an unlinked one gets its 200
+  and the line stays unowned. (Open: a copy's own report of a game it
+  joined still names its player ID on its line, so a copy that links
+  later pulls those games in.)
+
+**Look-alikes.** The site and the game read names the same way
+(`lookalike_key` in puma, `identity_lookalike_key` in the game, checked
+against the same vectors):
+1. Each character becomes the letter it looks like: A-Z as a-z; 0 o, 1 i,
+   3 e, 4 a, 5 s, 7 t, 8 b; @ a, $ s, ! i, | i; the accented Latin letters
+   (Latin-1 and Latin Extended-A, U+00C0 to U+017F) as their base letter
+   ("ó" o, "Ä" a, "Ł" l, "ß" s); and the Cyrillic and Greek letters drawn
+   like Latin ones.
+2. The digits 2, 6 and 9 stay digits, so "milenko2" and "milenko9" are
+   different names, as "milenko1" ("miienkoi") is from both.
+3. Everything else is dropped (spaces, separators, signs not above, ×
+   and ÷).
+4. Then rn reads as m, vv as w and l as i.
+
+On the site:
+- A new handle that looks like the handle of a profile that proves who it
+  is in games (it has a device that isn't revoked or signed out) is
+  refused. It is checked when the name is asked for and again when the
+  email link that makes the profile is opened, so a look-alike asked for
+  early can't be made after the real player enrolls.
+- Any other look-alike is made, but marked: its public card and service
+  record carry `looks_like` with the older handle, and the admin panel
+  lists it with the reserved and blocked names.
+- The move to one name marks every existing pair, once: the older profile
+  keeps its name clean, and each later one is marked.
+
+**Each Halo profile's account.** A Halo profile's folder may hold
+`delta_account.txt`. Its first line, with a byte order mark and spaces and
+line ends around it left out, is:
+- `guest`: the profile proves no one;
+- an account's 32 hex digits: the profile proves as that account, with that
+  account's certificate;
+- anything else: the copy owner's own Halo profile (the first local
+  player's) proves as the copy's own account, and any other profile is a
+  guest.
+
+Without the file, the profile proves as the copy's own account, so every
+existing Halo profile keeps the link it had, and nobody is signed out by an
+update. Writing the file belongs to signing a Halo profile in to another
+account (sign-in by code), which keeps that account's certificate beside
+the copy's. That writer isn't built here.
+
+**Where names are drawn, and how long they can be.**
+- A name can be 20 characters, and a clan tag adds up to 11 more. Where a
+  column is shorter, the name is cut with "...".
+- At the menus' 640x480 the columns hold: the in-game scoreboard 14
+  characters, the pregame panel 16 for a player's own line and 12 for
+  another machine's, the Chupathingy menus' lobby 32, and the postgame
+  report 11 (as a Halo name: its column is drawn to that width).
+- Those are lowercase letters' widths. Wide letters (M, W) count for more
+  and narrow ones (i, l) for less, so a name of wide letters is cut sooner
+  and the "..." always shows.
+- A clan tag stays in front only while the name keeps 6 characters after
+  it ("[TAG] Milen..."); else the name shows alone.
+- Names above heads and the name of the player aimed at stay the Halo name
+  (11 characters), as the Xbox draws them.
+
+**Moderation by account.** A verified, bound certificate with `moderate`
+(0x08) gives its player's machine the role its account has on a dedicated
+server, beside the moderator key's:
+
+- The server's role for a machine is the highest of its moderator key's
+  role (as before) and the role of each bound, verified account on it with
+  `moderate`.
+- An account's role comes from the moderators file's account lines
+  (`<role> <32 hex digits> [name]`; `sv_mod_add` takes an account or a
+  verified player) and from the site's role list, by the account each entry
+  carries. An entry from a site that sends no account gives no role: a
+  handle alone never matches.
+- The player still signs in from the Moderation screen (MOD_PROOF). A copy
+  with no player key signs it, and its actions, with the device key when
+  its certificate has `moderate`. The host takes the key the proof names,
+  as always, and its role comes from the account.
+- Old clients' MOD_PROOF with the derived moderator key keeps working, as
+  do `moderators.txt` key lines and the site's moderator keys.
+- A device enrolled with a player key gets all five capabilities, `moderate`
+  among them, because the key could already do all of it.
+
+**Bans by account.** When a dedicated server bans a machine (`sv_ban`, a
+moderator's ban from the game, a cheater dropped), its bans.txt line also
+names the accounts and the device of its players' bound proofs:
+`account=<hex>[,<hex>]`, `device=<hex>`. A machine whose players then make
+a bound proof of a banned account or device is dropped at once. A line with
+only those fields is a ban too. These sit beside the address and hardware
+ID bans, which still work alone. A ban by account only reaches players who
+share their profile (`network.share_profile`); everyone is still checked by
+address and hardware ID.
+
+**The server panel** shows a Profile column on its Players page: the name
+and the device's platform for a player with a bound proof, "No profile" for
+a copy with no profile, and "-" for anyone else. Its Role column counts the
+account's role too. `sv_players` has the same as `"profile"` (the name, or
+null) and `"device"`.
+
+**Consoles** leave all of it out for now (`HALO_CONSOLE_NO_DELTA_IDENTITY`):
+they never offer `identity` and show game names. The messages are fixed
+fields, little-endian, read byte by byte, so a console can take them up
+later without a special case.
+
+**Test vectors** (also in `port/linux/tests/identity_vectors.json`; the
+device key and certificate are "Device identity"'s). The nonce is the bytes
+00 to 1f, the binding `0123456789abcdef0123456789abcdef`, machine 3, local
+player 1, the certificate's serial 01 02 ... 08, bound (flags 1), signed at
+1790101000, and the name `Milenko`:
+
+```
+message      64656c7461206964656e746974792070726f6f662076310a000102030405060708
+             090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20303132333435363738
+             396162636465663031323334353637383961626364656603010102030405060708
+             0108c6b26a074d696c656e6b6f
+signature    bd00fd2c414b9170b8f9d5af61cf38cf32758b5ab8cf133bf78bfe036a8c3e8e
+             166ebe9da09384d446f9192d05d1aa7235886d4af359f303c3c85c6028c7e400
+LAN (no binding: its length 0, nothing after it; flags 0)
+signature    610f07b2e9ff47d104f2daf970467e09962e6e33db53f230054394fd05da9c51
+             e898419ea5f76ef19792f6d6e9681eedac2aae3a06e3fd28e2126e843f9ad00a
+```
+
+With the "Device identity" certificates, both check at 1790101000. They
+fail once the certificate expires, or with the test device on the list.
+The look-alike vectors are the JSON's `"lookalikes"`.
 
 ### The protocol setting
 
@@ -1270,11 +1812,13 @@ From them the site lists each game's `platform`, `hosting` (`official`: our
 `[C]` servers, by their hosts; `dedicated`; `player`), `protocol` (`delta`,
 `opence`), `family` (`xbox`, `ce`, `pc`, `md`, by the map's suffix) and
 `machines`; OpenCE's public games (the brokers) are `opence` and nothing
-more. The game's browser reads them from `/v1/games.txt?fields=24&coop=1` (field
+more. The game's browser reads them from `/v1/games.txt?fields=28&coop=1` (field
 13 the region; 14 to 17: platform, hosting, protocol, machines; 18 an
 OpenCE game's gametype; 19 the announced capabilities; 20 to 22 an Xbox map
 pack's map name, pack and tag; 23 the playlist; 24 `opence_server` for an
-OpenCE dedicated server's game; `coop=1` asks for co-op games too, which the
+OpenCE dedicated server's game; 25 `1` when the host's joins are locked; 26
+and 27 a server badge and its label; 28 the server key its certificate
+names; `coop=1` asks for co-op games too, which the
 list leaves out unless asked). A list from before a field sends fewer, and
 the browser reads what it gets. It shows them: the Online
 Games screen's rows (a platform tag before the name, `SRV` for a server), its details (a Host line; the machines beside IN GAME;
@@ -1464,10 +2008,8 @@ ignored.
 How each is known: kills and damage at the blow (`damage.c`), shots per
 projectile a trigger makes (`weapons.c`; grenades thrown count as shots of
 the grenade), hits per projectile that damaged another player (melee
-excluded); medals and sprees are worked out from the kills as Halo does
-(multikills within 4 seconds; sprees at 5, 10, 15, 20; Killjoy for ending
-a spree of 5 or more; From the Grave for a kill that lands after its
-killer died; Beat Down, Sniper Kill, Stuck, Splatter); objectives, rides,
+excluded); medals and sprees are worked out from the kills by the rules
+under "Medals"; objectives, rides,
 pickups, powerups and spawns from each player's state each frame; positions
 every `network.events_positions` seconds (2) per living player; ping every
 10 seconds; health each minute (dedicated servers only).
@@ -1487,6 +2029,40 @@ thread; `server/platform/server_events.c` queues it
 (`event_upload_moderation`) for the game's thread. A game that ends with everyone gone is sent as `empty`; a
 server that stops mid-game sends nothing for it. Anti-cheat `flags` are a
 schema slot with nothing filling it yet.
+
+### Medals
+
+One set of rules gives every medal the game reports
+(`port/linux/src/medal_rules.h`): Delta Stats' batch (`"medals"`, each
+player's `"medals": {key: count}`), the game list's carnage reports and a
+console's reports (each line's `"medals"`, from `game_stats.c`), the local
+service record, and the HUD's pop-ups (`display.medals`, off by default).
+They are worked out from the kills the machine saw and change nothing in
+the game. A betrayal or a suicide earns none and ends the dead player's
+sprees. The keys, in their order:
+
+- Multikills, each kill within 4 seconds of the one before (the game's own
+  window): `double_kill` (2), `triple_kill`, `killtacular`, `killtrocity`
+  (5), as Halo: Combat Evolved has them, then Halo 3's `killimanjaro` (6),
+  `killtastrophe`, `killpocalypse` and `killionaire` (9 and every kill
+  after).
+- Sprees, kills without dying: `killing_spree` (5), `killing_frenzy`,
+  `running_riot`, `rampage` (20), `untouchable`, `invincible`,
+  `inconceivable`, `unfriggenbelievable` (40).
+- A kill's: `beat_down` (melee), `sniper_kill`, `grenade_stick` (Stuck),
+  `splatter`, `from_the_grave` (the killer dead as it landed), `killjoy`
+  (the end of a spree of 5 or more), `first_strike` (the game's first
+  kill), `revenge` (the player who killed you last).
+- A weapon's sprees, its kills without dying: `sniper_spree` (5) and
+  `sharpshooter` (10), `shotgun_spree` and `open_season`, `splatter_spree`
+  and `vehicular_manslaughter`, `stick_spree` (5 stuck).
+
+Splatter and its sprees need the damage's category, which only the host's
+Delta Stats has; the carnage reports leave them out. Older builds report
+fewer keys (Halo CE's four multikills and four sprees, Killtrocity for 5
+and more). The site takes any key (at most 64 a line) and counts the ones
+it knows (`site.js`, `MEDALS`); its checks hold a line's multikill medals
+to its kills, and its sprees, five kills each, too.
 
 ### Map facts
 
@@ -1614,6 +2190,14 @@ panel account bound to the key (the server asks the game over Delta Peer,
 its player confirms); the site's role list, when the server is linked,
 never above `HALO_DEDICATED_LINK_ROLE` (admin unless set).
 
+A verified player (Delta Peer's `identity`, "Verified names") is also known
+by their Delta account, when their proof is bound to the server. A
+machine's role is the highest of its key's and its bound, verified
+accounts' (those whose certificates have `moderate`). An account's role
+comes from `moderators.txt`'s account lines (`<role> <32 hex digits>
+[name]`) and from the site's role list by each entry's account, under the
+same cap. Bans can name accounts and devices too ("Verified names").
+
 ### Accounts and remote access
 
 The control panel has an account for each person: a name, an Argon2id
@@ -1665,9 +2249,64 @@ Optional and outbound: the server dials the site; no port is opened.
    answer says so and the server deletes it. `HALO_DEDICATED_LINK=false`
    turns the link off for good.
 
+7. Newer servers add to the poll (an older site ignores them, an older
+   server sends none, and the site's answer keeps its fields):
+   - `status.locked` and `status.late_join_hold` (booleans);
+   - `reports`: the reports taken since the last poll the site
+     acknowledged, at most 20 a poll, each `{"ref", "time", "reason",
+     "target": {"name", "handle", "account"}, "reporter": {"name",
+     "handle", "account"}, "map", "game_type", "clip", "evidence"}`. `ref`
+     is 32 hex digits, `clip` the clip token (32 hex digits) or null,
+     `handle` and `account` null for a player who proved no one,
+     `evidence` the refusal counts (`{"movement", "vehicle", "hits",
+     "clock"}`). Never a report about an OpenCE player. The answer's
+     `reports_taken` lists the refs the site kept and `reports_refused`
+     those it never will; the rest go again.
+   - `bans`: when the server shares its bans (`ban_share`), `{"digest",
+     "entries"}` with every ban in bans.txt that names an account or a
+     device, each `{"ref", "accounts", "device", "handles", "reason",
+     "time", "until"}` (`until` 0 for ever). Never an address or hardware
+     ID. It's sent only when its digest isn't the answer's last
+     `bans_digest`; `{"digest": "", "entries": []}` withdraws them. The
+     answer's `bans_sharing` says whether the owner shares that server's
+     bans on the site.
+   - `shared_bans_version`: the version of the subscribed lists the server
+     holds. When the site's isn't that, its answer has `shared_bans`:
+     `{"version", "entries"}`, each entry `{"list", "list_name", "ref",
+     "accounts", "device", "handles", "reason", "time", "until",
+     "source"}` (`source`: the name of the server that banned).
+
 HTTPS requests in the server go one at a time across its threads (Mbed TLS
 is built without locks), so polls are short; long polling waits for a build
 of Mbed TLS with its threading on.
+
+### Shared ban lists
+
+A linked server's owner may share its bans and take other servers'. Both
+are off until the owner turns them on, and both only go by Delta account
+and device, never by address or hardware ID.
+
+- **Sharing.** `ban_share` (`sv_set ban_share 1`, or "Share my bans" for
+  each server on the site's My servers) sends the server's bans that name
+  an account or device ("Verified names") to the site. They go into the
+  owner's own list. The owner picks who may subscribe to it: servers they
+  name, or every server, once a site admin marks the list trusted.
+- **Subscribing.** On My servers, an owner picks which lists each of their
+  servers takes: their own, those shared with that server, and the trusted
+  ones. The site sends the entries with the server's poll. The server keeps
+  them in `shared_bans.cache` (with the link secret's MAC, as the role
+  cache) and checks each machine whose players prove an account or device
+  against them, as it checks bans.txt. A match is kicked with "Banned on
+  <list name>".
+- **The server decides.** `sv_banlist` and the panel's Bans show the
+  shared entries beside bans.txt's, with their list and the server that
+  banned. `sv_unban` on one makes an exception on this server alone
+  (`shared_unbans.txt`); the list keeps it. Taking a ban out of bans.txt on
+  the server that made it takes it out of its list with the next poll.
+  `sv_ban_lists` shows the lists the server takes and when they came.
+- **Bans from the site.** `sv_ban_account <account> [duration] [reason]`
+  bans a Delta account that isn't in the game (a bans.txt line with only
+  `account=`), so a moderator can act on a report after the player left.
 
 ### The event log's hook
 
@@ -1679,7 +2318,20 @@ Stats' event log records moderation through it.
 ## Delta Link
 
 - **Players** (exists): Link Profile ties a game install to a site profile
-  with a code (`/v1/link`, `/v1/connect`, `/v1/claim`).
+  with a code (`/v1/link`, `/v1/connect`, `/v1/claim`). A link counts the
+  install's games from the moment it's made. Games it played before count
+  for no one until the profile's owner claims the ones that were theirs
+  (the site's Past games from this device), since a shared computer or a
+  second-hand console may have played someone else's. Claimed games and
+  games played while linked stay with the profile after an unlink. Links
+  made before this rule keep the games they had. Each device's line in a
+  game is its own entry, so two of your devices in one game count once.
+  A game that reaches the site late goes by the link that applied when it
+  was played. A second-hand console: if someone else linked it first, the
+  games from before their link stay theirs to claim, and the games it
+  played while linked to them stay theirs; only the games after their
+  unlink wait for you. An admin can move waiting games to another profile
+  when they turn out to be someone else's.
 - **Servers** (exists): see Delta Control, The link to the site.
 
 ### Delta Profile in the game
@@ -1716,17 +2368,36 @@ copy: every Halo profile on a copy counts for the same Delta profile.
   identity"). The answer is
   kept in memory only. `debug.txt` says whether it loaded, never what it
   holds.
-- **Profile names:** in a game on Delta, a player whose copy shares its
-  profile (`network.share_profile`, Delta Peer's `profile` capability)
-  shows by the profile's display name on the scoreboard, the postgame
-  report and the lobby (`port/linux/game/profile_names.c`). The game asks
-  the site for those players' public cards (`POST /v1/game/players`, no
-  key). A machine with more than one player keeps the game names, because
-  a profile belongs to a copy. OpenCE players, players who don't share,
-  and what OpenCE clients see are unchanged. `display.profile_names =
-  false` shows everyone by their game name.
+- **Profile names:** in a game on Delta, a verified player (Delta Peer's
+  `identity`: "Verified names") shows by their Delta Tag, in the
+  capitals they picked, on the scoreboard, the postgame report, the lobby,
+  chat, the kill feed and the HUD's other lines
+  (`port/linux/game/profile_names.c`). The game asks the site for those
+  players' public cards by their proven accounts (`POST /v1/game/players`,
+  no key). Split-screen players each prove their own Halo profile's
+  account. OpenCE players, players who don't share, an older build's
+  unproven PROFILE claim, and what OpenCE clients see show game names.
+  `display.profile_names = false` shows everyone by their game name.
 - **Consoles:** `HALO_CONSOLE_NO_DELTA_PROFILE` leaves all of it out. A
   console that has the game list keeps Online Games' Link Profile panel.
+- **Service record:** the profile's `"record"` has the site's totals of
+  its confirmed games (host and verified: only games of linked copies
+  count) and, from a site with them, `"best_spree"`, `"favorite_map"` (a
+  map key), `"favorite_weapon"` (a weapon family, "sniper rifle": the
+  second part of `weapons\...` or `vehicles\...` damage paths) and
+  `"medal_counts"` ({key: count}, most first, the medals the games
+  reported). An older site sends none of these and the game shows what it
+  has. `GET /v1/profiles/ID/record` gives the same record to anyone, except
+  for a locked profile or one that hides its service record (404).
+- **DELTA's SERVICE RECORD** (`port/linux/game/guide_record.c`) shows the
+  first player's Halo profile's own record beside the site's. The game
+  keeps it in the profile's folder (`service_record.txt`,
+  `port/linux/src/service_record.c`): every multiplayer game the profile
+  finished on that device, as `game_stats.c` adds it a few seconds after
+  the end (the host's final statistics, the medals and weapons of the
+  kills it saw). It is never sent. A win is counted as the site counts
+  one (the best team, else first place). Its one row, MEDALS ON HUD, is
+  `display.medals`.
 
 ### Link Profile on a console
 
@@ -1788,7 +2459,8 @@ players see changes, the key keeps working everywhere it works today, and
 OpenCE players see nothing at all. **Stage B** adds sign-in by code
 (Quick Connect) and the device list with revoke, and **stage C** winds the
 player key down per account ("Devices", below). Proof of identity over
-Delta Peer comes after.
+Delta Peer, and showing only proven names in games, are "Verified names"
+under Delta Peer.
 
 **Keys.**
 
@@ -1799,8 +2471,9 @@ Delta Peer comes after.
 | Device | Each install, made on first use. Never sent anywhere | Its requests to the site, and later its proofs in games |
 | Player key (legacy) | Existing copies, as today | Nothing new. Sent once more, to enroll |
 
-A build trusts both root keys (`identity_key.h`; all zeros until the keys
-are made). The issuer key changes every few months: the site makes a new
+A build trusts both root keys (`identity_key.h`: the primary
+`9c1c4454...468e` and the recovery `a3124502...d29f` of command's
+`keys/identity.pub.json`, made 2026-11-09). The issuer key changes every few months: the site makes a new
 pair and command's `identity-issuer.yml` signs a CISS for it with the root
 key. A device certificate verifies while the issuer certificate that
 vouches for it is in date.
@@ -2110,8 +2783,9 @@ never sent or shown.
 
 What signing in does on the site:
 - A device enrolled with its player key (stage A) brings its copy: the
-  copy's games move to the profile, as Link Profile moves them, and the
-  certificate follows the copy as before.
+  copy's games from then on count for the profile, as Link Profile links
+  them (its older games wait to be claimed), and the certificate follows
+  the copy as before.
 - A device with no copy (a new install the site hasn't seen, or a second
   account on a copy) is signed in to the account itself. Its certificate's
   account is the profile's player ID, its flags have no 0x01, and its
@@ -2276,8 +2950,19 @@ signout signature   f579b26e3db2c34573a7a4e9842d85ef6646513dbf73706aeae41c825a44
 Clans are groups of Delta profiles, kept by the game list (its
 `clans.py`). A clan has a name, a tag of 2 to 8 letters and digits, a
 motto, an emblem and ranked members (leader, officers, members). Making a
-clan, inviting, ranks, kicking, handing the clan to another member and
-the emblem are on the site (`/profile#clan`, `/clans/TAG`).
+clan, ranks, handing the clan to another member and the emblem are on the
+site (`/profile#clan`, `/clans/TAG`). Inviting and kicking are on the site
+and in DELTA.
+
+- **In DELTA:** the CLAN section shows the clan's members by rank, each
+  with where they are (in a game, online or offline, worked out as a
+  friend's: hidden while they appear offline or hide their game). The
+  leader and officers also see the invites they have out, and get INVITE
+  FRIENDS (it opens FRIENDS, where a friend has INVITE TO CLAN) and, on a
+  member of a lower rank, KICK (pressed twice). Everyone has LEAVE CLAN
+  (pressed twice). With no clan, CLAN lists the clans' invites: JOIN CLAN
+  and DECLINE. The clan's card (emblem, tag, name, motto) shows beside the
+  player's own line.
 
 - **In the game:** Delta Profile's CLAN section shows the profile's clan:
   its emblem, name, tag, member count and motto, then its members by rank
@@ -2292,10 +2977,15 @@ the emblem are on the site (`/profile#clan`, `/clans/TAG`).
   them the way the site does.
 - **Requests:** `/v1/game/profile` carries `clan` and `clan_invites`, and
   its privacy `show_clan_tag`; `POST /v1/game/clan` (the player key, an
-  action: `accept`, `decline` or `leave`) answers with the same two.
-- **Tags in games:** a player who shares their profile and shows their tag
-  is "[TAG] Name" on the scoreboard, the postgame report and the lobby, the
-  name cut to fit with "...". The public card (`/v1/game/players`) carries
+  action: `accept`, `decline` or `leave` with the clan, `invite` or `kick`
+  with a handle, or `roster`) answers with the same two, the members'
+  handles and presence, and a leader's or officer's `clan_invited`. The
+  friends poll (`/v1/social/state` with `"clan": true`) carries the same
+  roster, so DELTA spends no extra requests on it. A site from before
+  these leaves them out, and the game shows what `/v1/game/profile` has.
+- **Tags in games:** a verified player ("Verified names") who shows their
+  clan tag is "[TAG] Name" on the scoreboard, the postgame report and the
+  lobby, the name cut to fit with "...". The public card (`/v1/game/players`) carries
   the tag only while its owner shows it. OpenCE players and clients see
   nothing new.
 - **Privacy:** SHOW CLAN TAG (Delta Profile's Privacy, and the clan dialog)

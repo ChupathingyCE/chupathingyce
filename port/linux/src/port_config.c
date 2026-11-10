@@ -344,6 +344,16 @@ static const struct config_setting config_settings[] =
 		"with Widescreen set there, the game shows more to the sides and the\n"
 		"HUD and menus fit the wide screen. \"off\" keeps the 4:3 picture, as\n"
 		"the original game did. Read when Chupathingy starts." },
+	{ "display.frame_rate", _config_integer, "30", NULL, _environment_value, _platform_xbox,
+		"Frames a second: 30, as the original game drew, or 60. The game\n"
+		"still runs 30 ticks a second. At 60 the view turns every frame and\n"
+		"everything else moves as at 30. A busy scene drops to a steady 30\n"
+		"until it can hold 60 again. Read when Chupathingy starts." },
+	{ "display.flicker_filter", _config_integer, "5", NULL, _environment_value, _platform_xbox,
+		"How much the picture is softened against flicker on an interlaced\n"
+		"TV (480i), from 0 to 5. The original game used 5. Lower is sharper\n"
+		"and flickers more. The H1 Performance Build uses 1. It does nothing\n"
+		"at 480p. Read when Chupathingy starts." },
 #ifdef HALO_CONSOLE_PERFORMANCE_MODE
 	{ "display.performance_mode", _config_boolean, "true", "HALO_PERFORMANCE_MODE", _environment_value, _platform_all,
 		"Start in performance mode: the level drawn without its decals, dynamic lights, reflections and specular\n"
@@ -401,12 +411,23 @@ static const struct config_setting config_settings[] =
 		"you aim at, as on the Xbox." },
 	{ "display.player_name_scale", _config_real, "1.0", "HALO_PLAYER_NAME_SCALE", _environment_value, _platform_all,
 		"The size of player names, from 0.25 to 4." },
-	{ "display.match_timer", _config_boolean, "false", "HALO_MATCH_TIMER", _environment_value, _platform_all | _platform_xbox,
-		"Show the time left at the top of the screen in a multiplayer game\n"
-		"with a time limit." },
+	{ "display.match_timer", _config_string, "\"off\"", "HALO_MATCH_TIMER", _environment_value, _platform_all | _platform_xbox,
+		"A multiplayer game's clock on screen: \"off\", \"remaining\" (the time\n"
+		"left, or the time played in a game with no time limit) or \"elapsed\"\n"
+		"(the time played). An older true is \"remaining\", false is \"off\"." },
+	{ "display.match_timer_position", _config_string, "\"top\"", "HALO_MATCH_TIMER_POSITION", _environment_value,
+		_platform_all | _platform_xbox,
+		"Where display.match_timer draws the clock: \"top\" (centered at the top\n"
+		"of the view) or \"bottom_right\" (the view's bottom right corner)." },
 	{ "display.powerup_timers", _config_boolean, "false", "HALO_POWERUP_TIMERS", _environment_value, _platform_all | _platform_xbox,
 		"Show the seconds left on your active camouflage, overshield and\n"
 		"full spectrum vision." },
+#if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_GAME_REPORTS)
+	{ "display.medals", _config_boolean, "false", "HALO_MEDALS", _environment_value, _platform_all | _platform_xbox,
+		"Show your medals on the HUD as you earn them in multiplayer (Double\n"
+		"Kill, Killing Spree). Off by default, as Halo shows none. Your medals\n"
+		"are counted in your service record either way." },
+#endif
 	{ "display.follow_camera", _config_string, "\"off\"", "HALO_FOLLOW_CAMERA", _environment_value,
 		_platform_all | _platform_xbox,
 		"After you die, watch a living player's view, where the host allows it\n"
@@ -483,6 +504,9 @@ static const struct config_setting config_settings[] =
 #endif
 	{ "display.profile_names", _config_boolean, "true", "HALO_PROFILE_NAMES", _environment_value, _platform_all,
 		"In Delta games, show players by their shared Delta profile name." },
+	{ "display.verified_mark", _config_boolean, "true", "HALO_VERIFIED_MARK", _environment_value, _platform_all,
+		"In Delta games, put @ in front of the names of players whose Delta\n"
+		"profile is proven. Other players' names never start with @ then." },
 	{ "display.server_messages", _config_boolean, "true", "HALO_SERVER_MESSAGES", _environment_value, _platform_all | _platform_xbox,
 		"Show the banner for a Delta server's warnings and notices." },
 	{ "display.server_message_text_color", _config_string, "\"\"", "HALO_SERVER_MESSAGE_TEXT_COLOR",
@@ -730,7 +754,7 @@ static const struct config_setting config_settings[] =
 #ifdef HALO_GUIDE
 	/* ---- the Guide (port/linux/game/guide.c) */
 	{ "controls.guide", _config_string, "\"F3\"", "HALO_KEY_GUIDE", _environment_value, _platform_all,
-		"The key that opens and closes the Guide: F3 to F10." },
+		"The key that opens and closes the Guide: F3 to F8." },
 	{ "controls.guide_button", _config_boolean, "true", "HALO_GUIDE_BUTTON", _environment_value, _platform_all,
 		"Open the Guide with the controller's Guide button, where Chupathingy\n"
 		"can read it (Steam and the Xbox Game Bar may keep it for themselves)." },
@@ -743,9 +767,39 @@ static const struct config_setting config_settings[] =
 		_platform_all,
 		"Show the Guide's notifications during a game. They always show in\n"
 		"the menus." },
-	{ "guide.notify_online", _config_boolean, "false", "HALO_GUIDE_NOTIFY_ONLINE", _environment_value,
+	{ "delta.notify_online", _config_boolean, "false", "HALO_DELTA_NOTIFY_ONLINE", _environment_value,
 		_platform_all,
 		"Show a notification in the menus when a friend comes online." },
+	{ "delta.bring_party", _config_boolean, "true", "HALO_DELTA_BRING_PARTY", _environment_value,
+		_platform_all,
+		"When you lead a party, it follows you into the games you join or\n"
+		"host." },
+	{ "delta.follow_leader", _config_string, "\"ask\"", "HALO_DELTA_FOLLOW_LEADER", _environment_value,
+		_platform_all,
+		"When you're in a party and its leader goes to a game: \"ask\" (a few\n"
+		"seconds to stay, then you follow; in a game you stay unless you press\n"
+		"join), \"always\" (you follow when the seconds run out, in a game\n"
+		"too) or \"never\"." },
+#endif
+#ifdef HALO_CAPTURE
+	/* ---- screenshots (capture.c) */
+	{ "controls.screenshot", _config_string, "\"F9\"", "HALO_KEY_SCREENSHOT", _environment_value, _platform_desktop,
+		"The key that saves a screenshot to the screenshots folder, beside\n"
+		"maps. Print Screen always does too." },
+	{ "controls.capture_buttons", _config_boolean, "false", "HALO_CAPTURE_BUTTONS", _environment_value,
+		_platform_desktop,
+		"Take a screenshot with a controller too: its Share button, or Back\n"
+		"and the right stick pressed together. Back and the left stick save a\n"
+		"clip." },
+	{ "controls.clip", _config_string, "\"F10\"", "HALO_KEY_CLIP", _environment_value, _platform_desktop,
+		"The key that saves the last clips.seconds of the game to the clips\n"
+		"folder, beside maps, when clips.enabled is on." },
+	{ "clips.enabled", _config_boolean, "false", "HALO_CLIPS", _environment_value, _platform_desktop,
+		"Keep the last clips.seconds of the game in memory, so that\n"
+		"controls.clip can save them as a video. Read when Chupathingy starts." },
+	{ "clips.seconds", _config_integer, "30", "HALO_CLIPS_SECONDS", _environment_value, _platform_desktop,
+		"How many seconds a clip keeps, from 5 to 120. Read when Chupathingy\n"
+		"starts." },
 #endif
 
 	/* ---- chat */
@@ -887,6 +941,10 @@ static const struct config_setting config_settings[] =
 	{ "network.chat_legacy", _config_boolean, "true", "HALO_NET_CHAT_LEGACY", _environment_value, _platform_all,
 		"In games you host, let OpenCE players chat too while network.chat is\n"
 		"on. Their own text chat is bridged in." },
+	{ "network.keep_parties_together", _config_boolean, "true", "HALO_NET_KEEP_PARTIES_TOGETHER", _environment_value,
+		_platform_all,
+		"In team games you host, put a party's players on one team when the\n"
+		"teams stay even." },
 	{ "network.team_change", _config_string, "\"off\"", "HALO_NET_TEAM_CHANGE", _environment_value,
 		_platform_all,
 		"Team changes in team games you host: \"off\" (players keep their team,\n"
@@ -904,6 +962,10 @@ static const struct config_setting config_settings[] =
 		"In games you host, let players watch a living player's view while\n"
 		"they wait to respawn (display.follow_camera). Off plays as the Xbox\n"
 		"did: the death camera alone." },
+	{ "network.late_join_hold", _config_boolean, "false", "HALO_NET_LATE_JOIN_HOLD", _environment_value,
+		_platform_all,
+		"In games you host, players who join a game in progress watch until\n"
+		"the next game starts. Off spawns them at once, as Halo does." },
 	{ "network.block_mouse_aim_assist", _config_boolean, "false", "HALO_NET_BLOCK_MOUSE_AIM_ASSIST", _environment_value,
 		_platform_all | _platform_server,
 		"Turn off mouse aim assist for everyone in games you host." },
@@ -1060,6 +1122,9 @@ static const struct config_setting config_settings[] =
 	{ "launcher.hold_to_open", _config_boolean, "true", "HALO_LAUNCHER_HOLD", _environment_value, _platform_desktop,
 		"Holding Shift or a controller's Back (View) button while Chupathingy\n"
 		"starts opens the setup screen." },
+	{ "launcher.menu_entry", _config_boolean, "true", "HALO_LAUNCHER_MENU_ENTRY", _environment_value, _platform_desktop,
+		"SETUP in the menus' settings, which starts Chupathingy again on the\n"
+		"setup screen. false leaves it out." },
 	{ "launcher.mode_choice", _config_string, "\"ask\"", "HALO_LAUNCHER_MODE_CHOICE", _environment_value,
 		_platform_desktop,
 		"What to do when there is more than one way to play, like a map pack\n"
@@ -1075,6 +1140,11 @@ static const struct config_setting config_settings[] =
 	/* ---- update */
 	{ "update.auto", _config_boolean, "true", "HALO_UPDATE_AUTO", _environment_value, _platform_all,
 		"Check for a new version when Chupathingy starts." },
+#if defined(_WIN32) && !defined(HALO_64BIT)
+	{ "update.offer_64bit", _config_boolean, "true", "HALO_UPDATE_OFFER_64BIT", _environment_value, _platform_windows,
+		"On 64-bit Windows, offer to switch this 32-bit build to the 64-bit\n"
+		"one. Set to false when you say Keep 32-bit." },
+#endif
 #endif
 
 #ifndef HALO_CONSOLE_NO_DISCORD
@@ -1129,6 +1199,12 @@ static const struct config_setting config_settings[] =
 		_platform_all | _platform_server,
 		"Write full internet addresses in debug.txt and the console. Don't\n"
 		"post a debug.txt written with this on." },
+	{ "debug.log_full_paths", _config_boolean, "false", "HALO_LOG_FULL_PATHS", _environment_set_is_true,
+		_platform_all | _platform_server,
+		"Write folder paths whole in debug.txt and the console, with this\n"
+		"computer's account name. Off, your home folder is written as ~\n"
+		"(%USERPROFILE% on Windows). Don't post a debug.txt written with this\n"
+		"on. Takes effect at the next start." },
 	{ "debug.telnet_console", _config_boolean, "false", "HALO_TELNET_CONSOLE", _environment_set_is_true,
 		_platform_all | _platform_server,
 		"Open a console on 127.0.0.1, at debug.telnet_console_port. It has no\n"
@@ -1265,6 +1341,9 @@ static const struct config_setting config_settings[] =
 	{ "debug.network_corrupt_after", _config_real, "0.0", "HALO_NETWORK_CORRUPT_AFTER", _environment_value,
 		_platform_all | _platform_server,
 		"Seconds after the start before anything is damaged." },
+	{ "debug.structure_culling", _config_boolean, "true", "HALO_STRUCTURE_CULLING", _environment_value, _platform_all,
+		"Skip the level's surfaces that are off screen or face away. Turn it off\n"
+		"to draw them as the original game does, to check a missing wall." },
 	{ "debug.touch_targets", _config_boolean, "false", "HALO_TOUCH_TARGETS", _environment_set_is_true, _platform_all,
 		"Outline the menus' tap targets and log each tap." },
 	{ "debug.launcher_test", _config_string, "\"\"", "HALO_LAUNCHER_TEST", _environment_value, _platform_desktop,
@@ -1309,6 +1388,25 @@ static const struct config_setting config_settings[] =
 		"Open the Guide once the menus or a map are up, for tests." },
 	{ "debug.guide_toast", _config_string, "\"\"", "HALO_GUIDE_TOAST", _environment_value, _platform_all,
 		"Show a test notification with this text once. Leave it empty for none." },
+	{ "debug.guide_section", _config_string, "\"\"", "HALO_GUIDE_SECTION", _environment_value, _platform_all,
+		"With debug.guide_open, the section it opens on (\"party\", \"friends\"),\n"
+		"for tests. Leave it empty for the first." },
+	{ "debug.guide_row", _config_integer, "-1", "HALO_GUIDE_ROW", _environment_value, _platform_all,
+		"With debug.guide_open, the row chosen once that section has it, for\n"
+		"tests. -1 for none." },
+	{ "debug.party_test", _config_string, "\"\"", "HALO_PARTY_TEST", _environment_value, _platform_all,
+		"A party step once the menus are up, for tests: \"create\" or\n"
+		"\"join:<code>\". Leave it empty for none." },
+	{ "debug.guide_test", _config_string, "\"\"", "HALO_GUIDE_TEST", _environment_value, _platform_all,
+		"Buttons pressed in the Guide debug.guide_open opened, one at a time,\n"
+		"separated by ; (up, down, left, right, a, b, x, y, lb, rb), for tests.\n"
+		"Debug builds only: a release build ignores it." },
+#endif
+#ifdef HALO_CAPTURE
+	{ "debug.clips_software", _config_boolean, "false", "HALO_CLIPS_SOFTWARE", _environment_set_is_true,
+		_platform_desktop,
+		"Encode clips in software even where there is a hardware encoder, for\n"
+		"tests." },
 #endif
 	{ "debug.chat_test", _config_string, "\"\"", "HALO_CHAT_TEST", _environment_value, _platform_all,
 		"Scripted chat for tests, as steps separated by ;. Each step is\n"
@@ -1597,12 +1695,18 @@ static const struct
 		"\"Left Ctrl\" or \"F1\". The mouse has \"Mouse Left\", \"Mouse Right\",\n"
 		"\"Mouse Middle\", \"Mouse 4\", \"Mouse 5\", \"Wheel\", \"Wheel Up\" and\n"
 		"\"Wheel Down\". Leave a control empty for none." },
+#ifdef HALO_CAPTURE
+	{ "clips", 0,
+		"Video clips of the last moments of a game (F10)." },
+#endif
 	{ "chat", 0,
 		"The text chat you see and send. The chat rules for games you host are\n"
 		"in [network]." },
 #ifdef HALO_GUIDE
 	{ "guide", 0,
 		"The Guide, which opens over the menus or a game (F3)." },
+	{ "delta", 0,
+		"DELTA's party." },
 #endif
 	{ "game", 0,
 		"How games play. The bomb settings are for Bomb and Grifball games you\n"
@@ -2485,6 +2589,33 @@ enum
 	CONFIG_INDEX_GUESSES = 64
 };
 static long config_index_guesses[CONFIG_INDEX_GUESSES];
+
+/* the first setting named twice in this build's table, or its environment
+variable twice (a second entry is never read: config_setting_index finds
+the first), into name: 1, else 0. tools/test_port_config.py checks every
+kind of build has none */
+int config_duplicate_setting(char *name, size_t size)
+{
+	size_t index, other;
+
+	for (index = 0; index < NUMBER_OF_CONFIG_SETTINGS; index++)
+	{
+		for (other = index + 1; other < NUMBER_OF_CONFIG_SETTINGS; other++)
+		{
+			const char *variable = config_settings[index].environment;
+
+			if (strcmp(config_settings[index].name, config_settings[other].name) &&
+				(!variable || !config_settings[other].environment ||
+				strcmp(variable, config_settings[other].environment)))
+			{
+				continue;
+			}
+			snprintf(name, size, "%s", config_settings[other].name);
+			return 1;
+		}
+	}
+	return 0;
+}
 
 static long config_setting_index(const char *name)
 {
@@ -3488,6 +3619,8 @@ static const struct
 	{ "display.scoreboard_team_layout", { "teams", "score", NULL }, "\"teams\"" },
 	{ "display.scoreboard_platforms", { "auto", "on", "off", NULL }, "\"auto\"" },
 	{ "display.follow_camera", { "long_waits", "always", "off", NULL }, "\"off\"" },
+	{ "display.match_timer", { "off", "remaining", "elapsed", NULL }, "\"off\"" },
+	{ "display.match_timer_position", { "top", "bottom_right", NULL }, "\"top\"" },
 	{ "display.online_games_view", { "all", "public", "chupathingy", "opence", NULL }, "\"public\"" },
 	{ "display.opence_empty_servers", { "folded", "shown", NULL }, "\"folded\"" },
 	{ "display.texture_decode", { "auto", "gpu", "cpu", NULL }, "\"auto\"" },
@@ -3526,6 +3659,11 @@ static const struct
 {
 	{ "network.join_from_clipboard", "true", "always" },
 	{ "network.join_from_clipboard", "false", "never" },
+	/* (on or off until v0.9.1; on was the time left) */
+	{ "display.match_timer", "true", "remaining" },
+	{ "display.match_timer", "false", "off" },
+	{ "display.match_timer", "1", "remaining" },
+	{ "display.match_timer", "0", "off" },
 };
 
 #define NUMBER_OF_CONFIG_OLD_WORDS (sizeof(config_old_words) / sizeof(config_old_words[0]))
@@ -4528,6 +4666,11 @@ int config_packaged_update_check(void)
 }
 #endif
 
+int config_loaded_yet(void)
+{
+	return config_loaded;
+}
+
 int config_boolean(const char *name)
 {
 	return config_value(name, _config_boolean)->boolean;
@@ -4548,4 +4691,83 @@ const char *config_string(const char *name)
 	const char *string = config_value(name, _config_string)->string;
 
 	return string ? string : "";
+}
+
+/* ---------- the setup screen's Settings (launcher.c, settings_rows.c) */
+
+const char *config_setting_name(int index)
+{
+	if (index < 0 || (size_t)index >= NUMBER_OF_CONFIG_SETTINGS)
+		return NULL;
+	return config_settings[index].platforms & CONFIG_PLATFORM ? config_settings[index].name : "";
+}
+
+int config_setting_kind(const char *name)
+{
+	long index = config_setting_index(name);
+
+	if (index < 0 || !(config_settings[index].platforms & CONFIG_PLATFORM))
+		return -1;
+	switch (config_settings[index].type)
+	{
+	case _config_boolean:
+		return CONFIG_KIND_BOOLEAN;
+	case _config_integer:
+		return CONFIG_KIND_INTEGER;
+	case _config_real:
+		return CONFIG_KIND_REAL;
+	default:
+		return CONFIG_KIND_STRING;
+	}
+}
+
+const char *config_setting_word(const char *name, int index)
+{
+	size_t word_index;
+	int word;
+
+	for (word_index = 0; word_index < NUMBER_OF_CONFIG_WORDS; word_index++)
+	{
+		if (strcmp(config_words[word_index].name, name))
+			continue;
+		for (word = 0; config_words[word_index].words[word]; word++)
+		{
+			if (word == index)
+				return config_words[word_index].words[word];
+		}
+		return NULL;
+	}
+	return NULL;
+}
+
+int config_reset(const char *name)
+{
+	const char *dot = strchr(name, '.');
+	long index = config_setting_index(name);
+	char value[300], line_text[400], path[1024];
+	size_t size = 0;
+	char *text, *changed = NULL;
+	int succeeded = 1;
+
+	if (index < 0 || !dot || !config_default(name, value, sizeof(value)))
+		return 0;
+	/* (the file read first, as the other settings are) */
+	config_value(name, config_settings[index].type);
+	pthread_mutex_lock(&config_lock);
+	config_set_from_text(&config_values[index], config_settings[index].type, value);
+	/* (its value's line commented out at the default: it follows the
+	version's default again) */
+	snprintf(line_text, sizeof(line_text), "# %s = %s\n", dot + 1, config_settings[index].default_value);
+	config_path(path, sizeof(path));
+	text = config_read_file(path, &size);
+	if (text && config_text_has_key(text, name, 0))
+	{
+		changed = config_text_with_line(text, name, line_text);
+		succeeded = changed && config_write_file(path, changed);
+	}
+	config_change_count++;
+	pthread_mutex_unlock(&config_lock);
+	free(changed);
+	free(text);
+	return succeeded;
 }

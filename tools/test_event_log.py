@@ -82,8 +82,9 @@ def test_sample_batch(program):
     assert walter["shots"] == 10 and walter["hits"] == 2
     assert walter["grenades"] == {"frag": 0, "plasma": 1}
     assert walter["damage_dealt"] == 1.5 and jo["damage_taken"] == 1.5
-    assert walter["best_spree"] == 2 and walter["medals"] == {"double_kill": 1}
-    assert jo["medals"] == {"beat_down": 1}
+    # (medal_rules.h: the game's first kill, then Jo's melee on the player who killed them)
+    assert walter["best_spree"] == 2 and walter["medals"] == {"first_strike": 1, "double_kill": 1}
+    assert jo["medals"] == {"beat_down": 1, "revenge": 1}
     assert jo["vehicles"] == [{"vehicle": "vehicles\\warthog\\mp_warthog", "seat": "driver", "seconds": 10.0}]
     assert walter["pickups"] == {"weapons\\sniper rifle\\sniper rifle": 1}
     kills = batch["kills"]
@@ -94,7 +95,8 @@ def test_sample_batch(program):
     assert kills[4]["suicide"] is True and "headshot" not in kills[1]
     # (a kill of an OpenCE player keeps its slot, not where they stood)
     assert "killer_pos" in kills[1] and "victim_pos" not in kills[1] and "victim_pos" not in kills[3]
-    assert {(m["player"], m["medal"]) for m in batch["medals"]} == {(0, "double_kill"), (1, "beat_down")}
+    assert {(m["player"], m["medal"]) for m in batch["medals"]} == {
+        (0, "first_strike"), (0, "double_kill"), (1, "beat_down"), (1, "revenge")}
     assert batch["objectives"] == [{"t": pytest.approx(16.67), "player": 0, "team": 0, "kind": "flag_grab", "pos": [90.0, -150.0, 0.25]}]
     assert batch["rides"] == [[20.0, 30.0, 1, "vehicles\\warthog\\mp_warthog", "driver"]]
     assert batch["spawns"] == [[1.0, 0, 40.0, -100.0, 0.25]]

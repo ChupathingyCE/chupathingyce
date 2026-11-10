@@ -46,8 +46,12 @@ build 2 or 3's) */
 #define CHAT_BIT ((delta_u32)1 << _delta_capability_chat)
 #define SERVER_MESSAGES_BIT ((delta_u32)1 << _delta_capability_server_messages)
 #define TEAM_CHANGE_BIT ((delta_u32)1 << _delta_capability_team_change)
+#define REPORTS_BIT ((delta_u32)1 << _delta_capability_reports)
 #define OBJECT_SYNC_BIT ((delta_u32)1 << _delta_capability_object_sync)
 #define HOST_RULES_BIT ((delta_u32)1 << _delta_capability_host_rules)
+#define IDENTITY_BIT ((delta_u32)1 << _delta_capability_identity)
+#define SERVER_BADGE_BIT ((delta_u32)1 << _delta_capability_server_badge)
+#define PARTY_TEAMS_BIT ((delta_u32)1 << _delta_capability_party_teams)
 
 /* ---------- a simulated network */
 
@@ -88,6 +92,19 @@ struct node
 	/* the kill switch's bits */
 	delta_u32 disabled;
 	char last_log[256];
+	/* verified names: the local players it proves (bit n: local player n),
+	the machines whose proofs its check refuses (bit n: machine n), and the
+	checks it made */
+	int proves;
+	delta_u32 refuses;
+	int identity_checks;
+	/* the account its proofs name (0: by its machine and local player),
+	its clock (Unix seconds), and its binding check's answer and binding
+	(moderation_binding's: 0 any, 1 this one, -1 cannot tell) */
+	int account;
+	delta_u32 clock;
+	int binding_result;
+	char binding[DELTA_WIRE_IDENTITY_BINDING_SIZE + 1];
 };
 
 static struct node nodes[MAXIMUM_NODES];
@@ -1181,6 +1198,244 @@ static void test_team(void)
 	CHECK(!delta_peer_client_team_ready(&nodes[1].peer));
 }
 
+/* ---------- party teams: a machine's tag, held a while after it changes */
+
+static void test_party_tag_hold(void)
+{
+	int joined[2] = { 0, 1 };
+	unsigned char first[DELTA_WIRE_PARTY_TAG_SIZE], second[DELTA_WIRE_PARTY_TAG_SIZE];
+	unsigned char seen[DELTA_WIRE_PARTY_TAG_SIZE];
+	delta_u32 now = 5000;
+	int step;
+
+	memset(first, 0x11, sizeof(first));
+	memset(second, 0x22, sizeof(second));
+	node_start(0, HOST_IPV4, DELTA_PEER_PORT, PARTY_TEAMS_BIT, _delta_platform_pc_linux, 0, 0);
+	node_start(1, 0x0300007F, 40001, PARTY_TEAMS_BIT, _delta_platform_pc_linux, 0, 0);
+	game_reset();
+	game_add(1);
+	for (step = 0; step < 4; step++, now += 300)
+		frame(now, 2, joined, 1);
+	CHECK(!delta_peer_machine_party_tag(&nodes[0].peer, 1, seen));
+	/* (the first tag: at once) */
+	delta_peer_client_set_party_tag(&nodes[1].peer, first);
+	for (step = 0; step < 2; step++, now += 300)
+		frame(now, 2, joined, 1);
+	CHECK(delta_peer_machine_party_tag(&nodes[0].peer, 1, seen) && !memcmp(seen, first, sizeof(seen)));
+	/* (flipped soon after: held, the first kept) */
+	delta_peer_client_set_party_tag(&nodes[1].peer, second);
+	for (step = 0; step < 4; step++, now += 300)
+		frame(now, 2, joined, 1);
+	CHECK(delta_peer_machine_party_tag(&nodes[0].peer, 1, seen) && !memcmp(seen, first, sizeof(seen)));
+	delta_peer_client_set_party_tag(&nodes[1].peer, NULL);
+	for (step = 0; step < 4; step++, now += 300)
+		frame(now, 2, joined, 1);
+	CHECK(delta_peer_machine_party_tag(&nodes[0].peer, 1, seen) && !memcmp(seen, first, sizeof(seen)));
+	/* (after the hold, the client's tag again every few seconds: taken) */
+	delta_peer_client_set_party_tag(&nodes[1].peer, second);
+	for (step = 0; step * 300 < DELTA_PEER_PARTY_TAG_HOLD + DELTA_PEER_PARTY_TAG_INTERVAL * 2; step++, now += 300)
+		frame(now, 2, joined, 1);
+	CHECK(delta_peer_machine_party_tag(&nodes[0].peer, 1, seen) && !memcmp(seen, second, sizeof(seen)));
+}
+
+/* ---------- reports */
+
+static void test_wire_report(void)
+{
+	struct delta_wire_report report, report_in;
+	struct delta_wire_report_result result, result_in;
+	struct delta_wire_header header;
+	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
+	int size, index;
+
+	memset(&report, 0, sizeof(report));
+	report.sequence = 4;
+	report.target_machine = 2;
+	report.target_player = 5;
+	report.reason = _delta_report_griefing;
+	report.flags = DELTA_WIRE_REPORT_CLIP;
+	for (index = 0; index < DELTA_WIRE_REPORT_CLIP_TOKEN_SIZE; index++)
+		report.clip_token[index] = (unsigned char)(0x10 + index);
+	size = delta_wire_write_report(data, 7, &report);
+	CHECK(size == DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_REPORT_SIZE);
+	/* (the client's token never goes, and is never read: the host makes
+	the clip's token, so a client can't pick the one its clip goes with) */
+	CHECK(delta_wire_read_header(data, size, &header) && header.type == _delta_message_report &&
+		delta_wire_read_report(data + DELTA_WIRE_HEADER_SIZE, header.length, &report_in) &&
+		report_in.sequence == 4 && report_in.target_machine == 2 && report_in.target_player == 5 &&
+		report_in.reason == _delta_report_griefing && report_in.flags == DELTA_WIRE_REPORT_CLIP &&
+		!report_in.clip_token[15] && !data[DELTA_WIRE_HEADER_SIZE + 8 + 15]);
+	data[DELTA_WIRE_HEADER_SIZE + 8 + 15] = 0x1F;
+	CHECK(delta_wire_read_report(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_REPORT_SIZE, &report_in) &&
+		!report_in.clip_token[15]);
+	data[DELTA_WIRE_HEADER_SIZE + 7] = 0;
+	CHECK(delta_wire_read_report(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_REPORT_SIZE, &report_in) &&
+		!report_in.flags);
+	/* (a reason or flag this build doesn't know, no machine, short: refused) */
+	report.reason = NUMBER_OF_DELTA_REPORT_REASONS;
+	CHECK(!delta_wire_write_report(data, 7, &report));
+	report.reason = 0;
+	CHECK(!delta_wire_write_report(data, 7, &report));
+	report.reason = _delta_report_cheating;
+	report.flags = 0x02;
+	CHECK(!delta_wire_write_report(data, 7, &report));
+	report.flags = 0;
+	report.target_machine = DELTA_WIRE_NO_MACHINE;
+	CHECK(!delta_wire_write_report(data, 7, &report));
+	report.target_machine = 1;
+	size = delta_wire_write_report(data, 7, &report);
+	CHECK(!delta_wire_read_report(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_REPORT_SIZE - 1, &report_in));
+	data[DELTA_WIRE_HEADER_SIZE + 6] = 9;
+	CHECK(!delta_wire_read_report(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_REPORT_SIZE, &report_in));
+
+	memset(&result, 0, sizeof(result));
+	result.sequence = 4;
+	result.result = _delta_report_taken;
+	result.flags = DELTA_WIRE_REPORT_SEND_CLIP;
+	for (index = 0; index < DELTA_WIRE_REPORT_CLIP_TOKEN_SIZE; index++)
+		result.clip_token[index] = (unsigned char)(0x40 + index);
+	size = delta_wire_write_report_result(data, 7, &result);
+	CHECK(size == DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_REPORT_RESULT_SIZE);
+	CHECK(delta_wire_read_header(data, size, &header) && header.type == _delta_message_report_result &&
+		delta_wire_read_report_result(data + DELTA_WIRE_HEADER_SIZE, header.length, &result_in) &&
+		result_in.sequence == 4 && result_in.result == _delta_report_taken &&
+		result_in.flags == DELTA_WIRE_REPORT_SEND_CLIP && result_in.clip_token[0] == 0x40 &&
+		result_in.clip_token[15] == 0x4F);
+	/* (a host before the token sends 8 bytes, and a host's zeros: no clip goes) */
+	CHECK(delta_wire_read_report_result(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_REPORT_RESULT_SHORT_SIZE,
+		&result_in) && result_in.result == _delta_report_taken && !result_in.flags && !result_in.clip_token[0]);
+	memset(result.clip_token, 0, sizeof(result.clip_token));
+	size = delta_wire_write_report_result(data, 7, &result);
+	CHECK(delta_wire_read_report_result(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_REPORT_RESULT_SIZE, &result_in) &&
+		!result_in.flags);
+	result.clip_token[3] = 9;
+	size = delta_wire_write_report_result(data, 7, &result);
+	/* (a later flag is dropped; a later result refused) */
+	data[DELTA_WIRE_HEADER_SIZE + 5] = 0xFF;
+	CHECK(delta_wire_read_report_result(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_REPORT_RESULT_SIZE, &result_in) &&
+		result_in.flags == DELTA_WIRE_REPORT_SEND_CLIP);
+	data[DELTA_WIRE_HEADER_SIZE + 4] = NUMBER_OF_DELTA_REPORT_RESULTS;
+	CHECK(!delta_wire_read_report_result(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_REPORT_RESULT_SIZE, &result_in));
+
+	/* MOD_STATE's actions byte, and the new host rules flags */
+	{
+		struct delta_wire_mod_state state, state_in;
+
+		memset(&state, 0, sizeof(state));
+		state.role = _delta_moderation_role_moderator;
+		state.actions = DELTA_WIRE_MOD_STATE_LOCK | DELTA_WIRE_MOD_STATE_LOCKED;
+		size = delta_wire_write_mod_state(data, 7, &state);
+		CHECK(delta_wire_read_mod_state(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_MOD_STATE_SIZE, &state_in) &&
+			state_in.actions == (DELTA_WIRE_MOD_STATE_LOCK | DELTA_WIRE_MOD_STATE_LOCKED));
+		/* (an older host's: 0) */
+		data[DELTA_WIRE_HEADER_SIZE + 1] = 0;
+		CHECK(delta_wire_read_mod_state(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_MOD_STATE_SIZE, &state_in) &&
+			!state_in.actions);
+	}
+	{
+		struct delta_wire_host_rules rules, rules_in;
+
+		memset(&rules, 0, sizeof(rules));
+		rules.flags = DELTA_WIRE_HOST_LATE_JOIN_HOLD | DELTA_WIRE_HOST_JOINS_LOCKED;
+		size = delta_wire_write_host_rules(data, 7, &rules);
+		CHECK(size > 0 && delta_wire_read_host_rules(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_HOST_RULES_SIZE,
+			&rules_in) && rules_in.flags == (DELTA_WIRE_HOST_LATE_JOIN_HOLD | DELTA_WIRE_HOST_JOINS_LOCKED));
+	}
+}
+
+static struct
+{
+	int asked;
+	int machine;
+	struct delta_wire_report report;
+	int answer;
+	int flags;
+} host_report;
+
+static int test_report(void *context, int machine_index, const struct delta_wire_report *report, int *flags,
+	unsigned char *clip_token)
+{
+	(void)context;
+	host_report.asked++;
+	host_report.machine = machine_index;
+	host_report.report = *report;
+	*flags = host_report.flags;
+	memset(clip_token, 0xC5, DELTA_WIRE_REPORT_CLIP_TOKEN_SIZE);
+	return host_report.answer;
+}
+
+static const struct delta_peer_report_host test_report_host = { NULL, test_report };
+
+static void test_reports(void)
+{
+	int joined[3] = { 0, 1, 1 };
+	struct delta_wire_report report;
+	struct delta_wire_report_result result;
+	delta_u32 now = 5000, results;
+	int step, index;
+
+	memset(&host_report, 0, sizeof(host_report));
+	node_start(0, HOST_IPV4, DELTA_PEER_PORT, REPORTS_BIT, _delta_platform_pc_linux, 0, 0);
+	node_start(1, 0x0300007F, 40001, REPORTS_BIT, _delta_platform_pc_linux, 0, 0);
+	/* (a Delta machine without reports: an older build) */
+	node_start(2, 0x0400007F, 40002, 0, _delta_platform_pc_macos, 0, 0);
+	delta_peer_set_report_host(&nodes[0].peer, &test_report_host);
+	game_reset();
+	game_add(1);
+	game_add(2);
+	for (step = 0; step < 4; step++, now += 300)
+		frame(now, 3, joined, 1);
+	CHECK(delta_peer_client_report_ready(&nodes[1].peer) && !delta_peer_client_report_ready(&nodes[2].peer));
+	memset(&report, 0, sizeof(report));
+	report.target_machine = 2;
+	report.target_player = 3;
+	report.reason = _delta_report_cheating;
+	CHECK(!delta_peer_client_report(&nodes[2].peer, &report));
+
+	/* taken, with a clip the host asks for */
+	host_report.answer = _delta_report_taken;
+	host_report.flags = DELTA_WIRE_REPORT_SEND_CLIP;
+	report.flags = DELTA_WIRE_REPORT_CLIP;
+	report.clip_token[0] = 0xAB;
+	results = delta_peer_client_report_result(&nodes[1].peer, NULL);
+	CHECK(delta_peer_client_report(&nodes[1].peer, &report));
+	deliver(now);
+	/* (the client's token never reaches the host; the host's comes back) */
+	CHECK(host_report.asked == 1 && host_report.machine == 1 && host_report.report.target_machine == 2 &&
+		!host_report.report.clip_token[0]);
+	CHECK(delta_peer_client_report_result(&nodes[1].peer, &result) == results + 1 &&
+		result.result == _delta_report_taken && result.flags == DELTA_WIRE_REPORT_SEND_CLIP &&
+		result.clip_token[0] == 0xC5 && result.clip_token[15] == 0xC5);
+	/* (no clip asked for: the host's flag and token never go out) */
+	now += 2000;
+	report.flags = 0;
+	CHECK(delta_peer_client_report(&nodes[1].peer, &report));
+	deliver(now);
+	CHECK(delta_peer_client_report_result(&nodes[1].peer, &result) == results + 2 && !result.flags &&
+		!result.clip_token[0]);
+	/* (a report of the reporter's own machine never reaches the host) */
+	now += 2000;
+	host_report.asked = 0;
+	report.target_machine = 1;
+	CHECK(delta_peer_client_report(&nodes[1].peer, &report));
+	deliver(now);
+	CHECK(!host_report.asked && delta_peer_client_report_result(&nodes[1].peer, &result) == results + 3 &&
+		result.result == _delta_report_no_player);
+	/* the budget: 3 at once */
+	now += 5000;
+	report.target_machine = 2;
+	for (index = 0; index < 6; index++)
+		delta_peer_client_report(&nodes[1].peer, &report);
+	deliver(now);
+	CHECK(host_report.asked == 3);
+	/* a host without its report host offers none */
+	delta_peer_set_report_host(&nodes[0].peer, NULL);
+	node_start(1, 0x0300007F, 40001, REPORTS_BIT, _delta_platform_pc_linux, 0, 0);
+	for (step = 0; step < 4; step++, now += 300)
+		frame(now, 3, joined, 1);
+	CHECK(!delta_peer_client_report_ready(&nodes[1].peer));
+}
+
 /* ---------- the host's rules */
 
 static void test_wire_host_rules(void)
@@ -1268,6 +1523,134 @@ static void test_host_rules(void)
 		frame(now, 3, joined, 1);
 	CHECK(delta_peer_host_rules(&nodes[1].peer, &heard) && heard.team_change == DELTA_WIRE_HOST_TEAM_CHANGE_ALLOW);
 	delta_peer_set_host_rules(&nodes[0].peer, NULL);
+}
+
+/* ---------- server badges (docs/server-badges.md) */
+
+static void test_wire_badge(void)
+{
+	struct delta_wire_badge badge, badge_in;
+	struct delta_wire_header header;
+	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM], nonce[DELTA_WIRE_BADGE_NONCE_SIZE], nonce_in[DELTA_WIRE_BADGE_NONCE_SIZE];
+	int size, index;
+
+	for (index = 0; index < DELTA_WIRE_BADGE_NONCE_SIZE; index++)
+		nonce[index] = (unsigned char)(index * 7 + 1);
+	size = delta_wire_write_badge_ask(data, 7, nonce);
+	CHECK(size == DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_BADGE_ASK_SIZE);
+	CHECK(delta_wire_read_header(data, size, &header) && header.type == _delta_message_badge_ask &&
+		delta_wire_read_badge_ask(data + DELTA_WIRE_HEADER_SIZE, header.length, nonce_in) &&
+		!memcmp(nonce, nonce_in, sizeof(nonce)));
+	CHECK(!delta_wire_read_badge_ask(data + DELTA_WIRE_HEADER_SIZE, DELTA_WIRE_BADGE_ASK_SIZE - 1, nonce_in));
+
+	memset(&badge, 0, sizeof(badge));
+	memcpy(badge.nonce, nonce, sizeof(nonce));
+	for (index = 0; index < DELTA_WIRE_BADGE_SIGNATURE_SIZE; index++)
+		badge.signature[index] = (unsigned char)(0xA0 ^ index);
+	badge.certificate_length = DELTA_WIRE_BADGE_CERTIFICATE_SIZE;
+	badge.proof = DELTA_WIRE_BADGE_PROOF_BOUND;
+	for (index = 0; index < DELTA_WIRE_BADGE_CERTIFICATE_SIZE; index++)
+		badge.certificate[index] = (unsigned char)index;
+	size = delta_wire_write_badge(data, 7, &badge);
+	CHECK(size == DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_BADGE_SIZE + DELTA_WIRE_BADGE_CERTIFICATE_SIZE);
+	CHECK(size <= DELTA_WIRE_MAXIMUM_DATAGRAM);
+	CHECK(delta_wire_read_header(data, size, &header) && header.type == _delta_message_badge &&
+		delta_wire_read_badge(data + DELTA_WIRE_HEADER_SIZE, header.length, &badge_in) &&
+		!memcmp(&badge, &badge_in, sizeof(badge)));
+	/* (a certificate cut short, or longer than its field: refused) */
+	CHECK(!delta_wire_read_badge(data + DELTA_WIRE_HEADER_SIZE, header.length - 1, &badge_in));
+	data[DELTA_WIRE_HEADER_SIZE + 96] = DELTA_WIRE_BADGE_CERTIFICATE_SIZE + 1;
+	CHECK(!delta_wire_read_badge(data + DELTA_WIRE_HEADER_SIZE, header.length + 1, &badge_in));
+	badge.certificate_length = DELTA_WIRE_BADGE_CERTIFICATE_SIZE + 1;
+	CHECK(!delta_wire_write_badge(data, 7, &badge));
+	/* (none: said as none) */
+	badge.certificate_length = 0;
+	size = delta_wire_write_badge(data, 7, &badge);
+	CHECK(delta_wire_read_header(data, size, &header) &&
+		delta_wire_read_badge(data + DELTA_WIRE_HEADER_SIZE, header.length, &badge_in) &&
+		badge_in.certificate_length == 0);
+}
+
+static struct
+{
+	int asked;
+	delta_u32 session;
+	unsigned char nonce[DELTA_WIRE_BADGE_NONCE_SIZE];
+} host_badge;
+
+static int test_badge_answer(void *context, const unsigned char *nonce, delta_u32 session, unsigned char *signature,
+	unsigned char *certificate, int size)
+{
+	(void)context;
+	host_badge.asked++;
+	host_badge.session = session;
+	memcpy(host_badge.nonce, nonce, sizeof(host_badge.nonce));
+	memset(signature, 0x5A, DELTA_WIRE_BADGE_SIGNATURE_SIZE);
+	memset(certificate, 0xC3, 120);
+	return size >= 120 ? 120 : 0;
+}
+
+static const struct delta_peer_badge_host test_badge_host = { NULL, test_badge_answer };
+
+static void test_badge(void)
+{
+	int joined[3] = { 0, 1, 1 };
+	struct delta_wire_badge badge;
+	delta_u32 now = 5000;
+	int step;
+
+	memset(&host_badge, 0, sizeof(host_badge));
+	node_start(0, HOST_IPV4, DELTA_PEER_PORT, SERVER_BADGE_BIT, _delta_platform_pc_linux, 0, 0);
+	node_start(1, 0x0300007F, 40001, SERVER_BADGE_BIT, _delta_platform_pc_linux, 0, 0);
+	/* (a Delta machine without server badges: an older build) */
+	node_start(2, 0x0400007F, 40002, 0, _delta_platform_pc_macos, 0, 0);
+	delta_peer_set_badge_host(&nodes[0].peer, &test_badge_host);
+	game_reset();
+	game_add(1);
+	game_add(2);
+	for (step = 0; step < 6; step++, now += 300)
+		frame(now, 3, joined, 1);
+	/* asked once, answered for this session's nonce */
+	CHECK(host_badge.asked == 1);
+	CHECK(delta_peer_client_badge(&nodes[1].peer, &badge, NULL) == _delta_peer_badge_answered);
+	CHECK(!memcmp(badge.nonce, host_badge.nonce, sizeof(badge.nonce)) && badge.certificate_length == 120 &&
+		badge.certificate[0] == 0xC3 && badge.signature[0] == 0x5A);
+	/* (the proof is bound to the client's session, and says so) */
+	CHECK(host_badge.session == nodes[1].peer.session && badge.proof == DELTA_WIRE_BADGE_PROOF_BOUND);
+	CHECK(delta_peer_client_badge(&nodes[2].peer, NULL, NULL) == _delta_peer_badge_unoffered);
+	/* (an answer to another nonce, or a second one: dropped) */
+	{
+		unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
+		struct delta_wire_badge stray = badge;
+		int size;
+
+		stray.nonce[0] ^= 1;
+		stray.certificate[0] = 0x11;
+		size = delta_wire_write_badge(data, nodes[1].peer.session, &stray);
+		delta_peer_receive(&nodes[1].peer, now, HOST_IPV4, DELTA_PEER_PORT, data, size);
+		CHECK(delta_peer_client_badge(&nodes[1].peer, &badge, NULL) == _delta_peer_badge_answered &&
+			badge.certificate[0] == 0xC3);
+		/* (asks past the host's budget: one answered a second) */
+		host_badge.asked = 0;
+		size = delta_wire_write_badge_ask(data, nodes[1].peer.session, stray.nonce);
+		delta_peer_receive(&nodes[0].peer, now, nodes[1].ipv4, nodes[1].port, data, size);
+		delta_peer_receive(&nodes[0].peer, now, nodes[1].ipv4, nodes[1].port, data, size);
+		delta_peer_receive(&nodes[0].peer, now, nodes[1].ipv4, nodes[1].port, data, size);
+		CHECK(host_badge.asked <= 1);
+		/* (an ask from a machine that did not agree to it: dropped) */
+		host_badge.asked = 0;
+		now += 5000;
+		size = delta_wire_write_badge_ask(data, nodes[2].peer.session, stray.nonce);
+		delta_peer_receive(&nodes[0].peer, now, nodes[2].ipv4, nodes[2].port, data, size);
+		CHECK(host_badge.asked == 0);
+		queued = 0;
+	}
+	/* a host without a badge offers none: a new client is told it has none */
+	delta_peer_set_badge_host(&nodes[0].peer, NULL);
+	node_start(1, 0x0300007F, 40001, SERVER_BADGE_BIT, _delta_platform_pc_linux, 0, 0);
+	for (step = 0; step < 6; step++, now += 300)
+		frame(now, 3, joined, 1);
+	CHECK(delta_peer_client_badge(&nodes[1].peer, NULL, NULL) == _delta_peer_badge_unoffered);
 }
 
 /* ---------- object sync */
@@ -2029,7 +2412,9 @@ static void test_limits(void)
 		delta_platform_policy_default(_delta_platform_xbox, &key);
 		CHECK(key.memory_class == 6 && key.host_players == 16);
 		delta_platform_policy_default(_delta_platform_xbox360, &key);
-		CHECK(key.memory_class == 9);
+		CHECK(key.memory_class == 9 && key.host_players == 32 && key.join_players == 32);
+		delta_platform_policy_default(_delta_platform_wiiu, &key);
+		CHECK(key.host_players == 32 && key.join_players == 32);
 		delta_platform_policy_default(_delta_platform_pc_windows, &key);
 		CHECK(key.memory_class == 12);
 	}
@@ -2046,6 +2431,14 @@ static void test_limits(void)
 		CHECK(delta_peer_key_join_limit(&nodes[0].peer, &key) == DELTA_PEER_NO_LIMIT);
 		pc_key(&key, 200);
 		CHECK(delta_peer_key_join_limit(&nodes[0].peer, &key) == 128);
+		/* (a 360 or Wii U build of 32 joins up to 32; an older build's key
+		of 16 is still held to its 16) */
+		pc_key(&key, _delta_platform_xbox360);
+		CHECK(delta_peer_key_join_limit(&nodes[0].peer, &key) == 32);
+		key.join_players = 16;
+		CHECK(delta_peer_key_join_limit(&nodes[0].peer, &key) == 16);
+		pc_key(&key, _delta_platform_wiiu);
+		CHECK(delta_peer_key_join_limit(&nodes[0].peer, &key) == 32);
 	}
 
 	/* opted in (network.platform_limits = "off"): no limit from it (it
@@ -2784,7 +3177,7 @@ static void host_bind_answer(void *context, int machine_index, delta_u32 request
 
 static const struct delta_peer_moderation_host test_moderation_host =
 {
-	NULL, host_machine_key, host_key_role, host_action, host_bind_answer
+	NULL, host_machine_key, host_key_role, host_action, host_bind_answer, NULL, NULL, NULL
 };
 
 /* a node's env given the moderation callbacks (after node_start) */
@@ -3225,6 +3618,619 @@ static void random_bytes(unsigned char *data, int size)
 		data[index] = (unsigned char)next_random();
 }
 
+
+/* ---------- verified names */
+
+/* a test's proof: a certificate of 148 bytes (its first byte the machine
+and local player, its second the account, 0 for theirs), and a signature
+whose first four bytes are an FNV-1a hash of everything a real one covers:
+the nonce, the binding, the machine, the local player, the flags and the
+time (the session layer never reads them: env's check does) */
+static delta_u32 identity_mark(const unsigned char *nonce, const char *binding, int binding_length, int machine_index,
+	int local, const struct delta_wire_id_proof *proof)
+{
+	delta_u32 hash = 2166136261u;
+	int index;
+
+#define MIX(byte) (hash = (hash ^ (unsigned char)(byte)) * 16777619u)
+	for (index = 0; index < DELTA_WIRE_IDENTITY_NONCE_SIZE; index++)
+		MIX(nonce[index]);
+	MIX(binding_length);
+	for (index = 0; index < binding_length; index++)
+		MIX(binding[index]);
+	MIX(machine_index);
+	MIX(local);
+	MIX(proof->certificate[1]);
+	MIX(proof->flags);
+	MIX(proof->time);
+	MIX(proof->time >> 8);
+	MIX(proof->time >> 16);
+	MIX(proof->time >> 24);
+#undef MIX
+	return hash;
+}
+
+static void put_mark(unsigned char *signature, delta_u32 mark)
+{
+	signature[0] = (unsigned char)mark;
+	signature[1] = (unsigned char)(mark >> 8);
+	signature[2] = (unsigned char)(mark >> 16);
+	signature[3] = (unsigned char)(mark >> 24);
+}
+
+static int node_identity_prove(void *context, int local_player, const unsigned char *nonce, const char *binding,
+	int binding_length, int machine_index, int flags, struct delta_wire_id_proof *proof)
+{
+	struct node *node = (struct node *)context;
+	unsigned char mark[4];
+
+	if (!((node->proves >> local_player) & 1))
+		return 0;
+	if (!proof)
+		return 1;
+	memset(proof, 0, sizeof(*proof));
+	proof->local_player = local_player;
+	proof->certificate_length = DELTA_WIRE_IDENTITY_CERTIFICATE_LEAST;
+	memset(proof->certificate, machine_index * 4 + local_player, (size_t)proof->certificate_length);
+	proof->certificate[1] = (unsigned char)(node->account ? node->account : machine_index * 4 + local_player + 1);
+	proof->flags = flags;
+	proof->time = node->clock;
+	put_mark(mark, identity_mark(nonce, binding, binding_length, machine_index, local_player, proof));
+	memcpy(proof->signature, mark, sizeof(mark));
+	snprintf(proof->tag, sizeof(proof->tag), "Player%d_%d", machine_index, local_player);
+	proof->tag_length = (int)strlen(proof->tag);
+	return 1;
+}
+
+static int node_identity_check(void *context, const struct delta_wire_id_proof *proof, const unsigned char *nonce,
+	const char *binding, int binding_length, int machine_index, unsigned long age, struct delta_peer_identity *identity)
+{
+	struct node *node = (struct node *)context;
+	unsigned char mark[4];
+
+	node->identity_checks++;
+	put_mark(mark, identity_mark(nonce, binding, binding_length, machine_index, proof->local_player, proof));
+	/* (identity.h's identity_proof_fresh, with its 600 seconds of grace) */
+	if (((node->refuses >> machine_index) & 1) || proof->certificate_length != DELTA_WIRE_IDENTITY_CERTIFICATE_LEAST ||
+		proof->certificate[0] != (unsigned char)(machine_index * 4 + proof->local_player) ||
+		memcmp(proof->signature, mark, sizeof(mark)) || proof->time > node->clock + 600 ||
+		node->clock > proof->time + age + 600)
+	{
+		return 0;
+	}
+	memset(identity, 0, sizeof(*identity));
+	memset(identity->account, proof->certificate[1], sizeof(identity->account));
+	memset(identity->device_id, proof->certificate[1] ^ 0x80, sizeof(identity->device_id));
+	snprintf(identity->handle, sizeof(identity->handle), "player%d%d", machine_index, proof->local_player);
+	memcpy(identity->tag, proof->tag, sizeof(identity->tag));
+	identity->capabilities = 0x1F;
+	return 1;
+}
+
+static int node_identity_binding(void *context, delta_u32 host_ipv4, char *binding, int size)
+{
+	struct node *node = (struct node *)context;
+
+	(void)host_ipv4;
+	snprintf(binding, (size_t)size, "%s", node->binding);
+	return node->binding_result;
+}
+
+static void node_identity(int index, int proves)
+{
+	nodes[index].peer.env.identity_check = node_identity_check;
+	nodes[index].peer.env.identity_prove = node_identity_prove;
+	nodes[index].peer.env.moderation_binding = node_identity_binding;
+	nodes[index].proves = proves;
+	nodes[index].clock = 1800000000u;
+}
+
+/* the host's moderation's view of verified players (machine_identity):
+each slot's account byte (0: none), and how many times it was told */
+static struct
+{
+	int account[DELTA_PEER_MAXIMUM_MACHINES][DELTA_WIRE_IDENTITY_LOCAL_PLAYERS];
+	int told;
+} identity_host;
+
+static void identity_machine_key(void *context, int machine_index, const unsigned char *key)
+{
+	(void)context;
+	(void)machine_index;
+	(void)key;
+}
+
+static int identity_key_role(void *context, const unsigned char *key, delta_u32 *permissions, delta_u32 *ban_minutes)
+{
+	(void)context;
+	(void)key;
+	*permissions = 0;
+	*ban_minutes = 0;
+	return 0;
+}
+
+static void identity_machine_identity(void *context, int machine_index, int local_player,
+	const struct delta_peer_identity *identity)
+{
+	(void)context;
+	identity_host.account[machine_index][local_player] = identity ? identity->account[0] : 0;
+	identity_host.told++;
+}
+
+static const struct delta_peer_moderation_host identity_moderation_host =
+{
+	NULL, identity_machine_key, identity_key_role, NULL, NULL, identity_machine_identity, NULL, NULL
+};
+
+static void test_wire_identity(void)
+{
+	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
+	struct delta_wire_header header;
+	struct delta_wire_id_challenge challenge, challenge_in;
+	struct delta_wire_id_proof proof, proof_in;
+	struct delta_wire_id_card card, card_in;
+	int size, index;
+
+	memset(&challenge, 0, sizeof(challenge));
+	for (index = 0; index < DELTA_WIRE_IDENTITY_NONCE_SIZE; index++)
+		challenge.nonce[index] = (unsigned char)index;
+	snprintf(challenge.binding, sizeof(challenge.binding), "0123456789abcdef0123456789abcdef");
+	challenge.binding_length = 32;
+	size = delta_wire_write_id_challenge(data, 9, &challenge);
+	CHECK(size == DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_ID_CHALLENGE_SIZE + 32);
+	CHECK(delta_wire_read_header(data, size, &header) && header.type == _delta_message_id_challenge);
+	CHECK(delta_wire_read_id_challenge(data + DELTA_WIRE_HEADER_SIZE, header.length, &challenge_in) &&
+		!memcmp(&challenge, &challenge_in, sizeof(challenge)));
+	/* (version 0 refused; a later one read as this) */
+	data[DELTA_WIRE_HEADER_SIZE] = 0;
+	CHECK(!delta_wire_read_id_challenge(data + DELTA_WIRE_HEADER_SIZE, header.length, &challenge_in));
+	data[DELTA_WIRE_HEADER_SIZE] = 2;
+	CHECK(delta_wire_read_id_challenge(data + DELTA_WIRE_HEADER_SIZE, header.length, &challenge_in));
+	/* (a binding not printable, or past its size, refused) */
+	data[DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_ID_CHALLENGE_SIZE] = 1;
+	CHECK(!delta_wire_read_id_challenge(data + DELTA_WIRE_HEADER_SIZE, header.length, &challenge_in));
+	challenge.binding_length = 65;
+	CHECK(!delta_wire_write_id_challenge(data, 9, &challenge));
+
+	memset(&proof, 0, sizeof(proof));
+	proof.local_player = 2;
+	proof.certificate_length = 155;
+	for (index = 0; index < 155; index++)
+		proof.certificate[index] = (unsigned char)(index * 3);
+	for (index = 0; index < 64; index++)
+		proof.signature[index] = (unsigned char)(index + 100);
+	for (index = 0; index < 112; index++)
+		proof.issuer[index] = (unsigned char)(255 - index);
+	snprintf(proof.tag, sizeof(proof.tag), "The_Real-Milenko");
+	proof.tag_length = (int)strlen(proof.tag);
+	proof.flags = DELTA_WIRE_IDENTITY_BOUND;
+	proof.time = 1800000123u;
+	size = delta_wire_write_id_proof(data, 9, &proof);
+	CHECK(size == DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_ID_PROOF_SIZE + 155 + proof.tag_length);
+	CHECK(delta_wire_read_header(data, size, &header) && header.type == _delta_message_id_proof);
+	CHECK(delta_wire_read_id_proof(data + DELTA_WIRE_HEADER_SIZE, header.length, &proof_in) &&
+		!memcmp(&proof, &proof_in, sizeof(proof)));
+	/* (the flags at 4, the time at 8, the signature at 12) */
+	CHECK(data[DELTA_WIRE_HEADER_SIZE + 4] == 1 && data[DELTA_WIRE_HEADER_SIZE + 8] == (unsigned char)1800000123u &&
+		data[DELTA_WIRE_HEADER_SIZE + 12] == 100);
+	/* (cut short, a local player past 3, a certificate's length out of its
+	range, a tag's character not a tag's: refused) */
+	CHECK(!delta_wire_read_id_proof(data + DELTA_WIRE_HEADER_SIZE, header.length - 1, &proof_in));
+	data[DELTA_WIRE_HEADER_SIZE + 1] = 4;
+	CHECK(!delta_wire_read_id_proof(data + DELTA_WIRE_HEADER_SIZE, header.length, &proof_in));
+	data[DELTA_WIRE_HEADER_SIZE + 1] = 2;
+	data[DELTA_WIRE_HEADER_SIZE + 2] = 147;
+	CHECK(!delta_wire_read_id_proof(data + DELTA_WIRE_HEADER_SIZE, header.length, &proof_in));
+	data[DELTA_WIRE_HEADER_SIZE + 2] = 155;
+	data[size - 1] = '!';
+	CHECK(!delta_wire_read_id_proof(data + DELTA_WIRE_HEADER_SIZE, header.length, &proof_in));
+	proof.tag[0] = '<';
+	CHECK(!delta_wire_write_id_proof(data, 9, &proof));
+	proof.tag[0] = 'T';
+	proof.certificate_length = 169;
+	CHECK(!delta_wire_write_id_proof(data, 9, &proof));
+	/* (a withdrawal: the head alone) */
+	memset(&proof, 0, sizeof(proof));
+	proof.local_player = 1;
+	size = delta_wire_write_id_proof(data, 9, &proof);
+	CHECK(size == DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_ID_PROOF_HEAD);
+	CHECK(delta_wire_read_header(data, size, &header) &&
+		delta_wire_read_id_proof(data + DELTA_WIRE_HEADER_SIZE, header.length, &proof_in) &&
+		proof_in.local_player == 1 && !proof_in.certificate_length);
+
+	memset(&card, 0, sizeof(card));
+	card.machine_index = 7;
+	card.proof.local_player = 3;
+	card.proof.certificate_length = 168;
+	memset(card.proof.certificate, 0xAB, 168);
+	memset(card.proof.issuer, 0xCD, 112);
+	memset(card.proof.signature, 0xEF, 64);
+	memset(card.nonce, 0x5C, sizeof(card.nonce));
+	card.proof.flags = DELTA_WIRE_IDENTITY_BOUND;
+	card.proof.time = 0x12345678;
+	size = delta_wire_write_id_card(data, 9, &card);
+	CHECK(size == DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_ID_CARD_SIZE + 168);
+	CHECK(size <= DELTA_WIRE_MAXIMUM_DATAGRAM);
+	CHECK(delta_wire_read_header(data, size, &header) && header.type == _delta_message_id_card);
+	CHECK(delta_wire_read_id_card(data + DELTA_WIRE_HEADER_SIZE, header.length, &card_in) &&
+		!memcmp(&card, &card_in, sizeof(card)));
+	/* (byte by byte: the machine at 1, the local player at 2, the lengths
+	at 3 and 4, the flags at 8, the time at 12, the nonce at 16, the
+	signature at 48, the issuer at 112, the certificate at 224) */
+	CHECK(data[DELTA_WIRE_HEADER_SIZE + 1] == 7 && data[DELTA_WIRE_HEADER_SIZE + 2] == 3 &&
+		data[DELTA_WIRE_HEADER_SIZE + 3] == 168 && data[DELTA_WIRE_HEADER_SIZE + 4] == 0 &&
+		data[DELTA_WIRE_HEADER_SIZE + 8] == 1 && data[DELTA_WIRE_HEADER_SIZE + 12] == 0x78 &&
+		data[DELTA_WIRE_HEADER_SIZE + 15] == 0x12 && data[DELTA_WIRE_HEADER_SIZE + 16] == 0x5C &&
+		data[DELTA_WIRE_HEADER_SIZE + 48] == 0xEF && data[DELTA_WIRE_HEADER_SIZE + 112] == 0xCD &&
+		data[DELTA_WIRE_HEADER_SIZE + 224] == 0xAB);
+	memset(&card, 0, sizeof(card));
+	card.machine_index = 4;
+	size = delta_wire_write_id_card(data, 9, &card);
+	CHECK(size == DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_ID_CARD_HEAD);
+	CHECK(delta_wire_read_header(data, size, &header) &&
+		delta_wire_read_id_card(data + DELTA_WIRE_HEADER_SIZE, header.length, &card_in) &&
+		card_in.machine_index == 4 && !card_in.proof.certificate_length);
+}
+
+/* how many datagrams of a type are queued to a node */
+static int queued_to(int node, int type)
+{
+	int index, count = 0;
+
+	for (index = 0; index < queued; index++)
+	{
+		if (queue[index].to_ipv4 == nodes[node].ipv4 && queue[index].to_port == nodes[node].port &&
+			queue[index].size > 3 && queue[index].data[3] == type)
+		{
+			count++;
+		}
+	}
+	return count;
+}
+
+/* a game of verified names: the host (node 0, its own player proving),
+client 1 (two players), client 2 (none) and an older Delta build (3); the
+host's moderation hears of them (identity_host) */
+static void identity_start(delta_u32 *now, int *joined, const char *host_binding)
+{
+	delta_u32 base = PLATFORM_BIT | PROFILE_BIT | MODERATION_BIT;
+	int step, index;
+
+	node_start(0, HOST_IPV4, DELTA_PEER_PORT, base | IDENTITY_BIT, _delta_platform_pc_linux, 0x10, 0);
+	node_start(1, 0x0200007F, 40001, base | IDENTITY_BIT, _delta_platform_pc_linux, 0x11, 0);
+	node_start(2, 0x0300007F, 40002, base | IDENTITY_BIT, _delta_platform_pc_macos, 0x12, 0);
+	node_start(3, 0x0400007F, 40003, base, _delta_platform_pc_windows, 0x13, 0);
+	node_identity(0, 1);
+	node_identity(1, 3);
+	node_identity(2, 0);
+	memset(&identity_host, 0, sizeof(identity_host));
+	delta_peer_set_moderation_host(&nodes[0].peer, &identity_moderation_host);
+	delta_peer_set_moderation_binding(&nodes[0].peer, host_binding);
+	for (index = 1; index <= 2; index++)
+	{
+		snprintf(nodes[index].binding, sizeof(nodes[index].binding), "%s", host_binding);
+		nodes[index].binding_result = host_binding[0] ? 1 : 0;
+	}
+	game_reset();
+	game_add(1);
+	game_add(2);
+	game_add(3);
+	joined[0] = 0;
+	joined[1] = joined[2] = joined[3] = 1;
+	for (step = 0; step < 10; step++, *now += 300)
+		frame(*now, 4, joined, 1);
+}
+
+static void test_identity(void)
+{
+	int joined[4];
+	delta_u32 now = 1000;
+	struct delta_peer_identity identity;
+	int step, node;
+
+	/* a LAN game: no binding, so every proof shows a name and nothing more */
+	identity_start(&now, joined, "");
+	CHECK(nodes[1].peer.agreed & IDENTITY_BIT);
+	CHECK(!(nodes[3].peer.agreed & IDENTITY_BIT));
+	CHECK(delta_peer_identity(&nodes[0].peer, 0, 0, &identity) && !strcmp(identity.handle, "player00"));
+	CHECK(delta_peer_identity(&nodes[0].peer, 1, 0, &identity) && !strcmp(identity.tag, "Player1_0") && !identity.bound);
+	CHECK(delta_peer_identity(&nodes[0].peer, 1, 1, &identity) && !strcmp(identity.handle, "player11"));
+	CHECK(!delta_peer_identity(&nodes[0].peer, 2, 0, NULL) && !delta_peer_identity(&nodes[0].peer, 3, 0, NULL));
+	/* (shown, never given to moderation: not bound) */
+	CHECK(!identity_host.account[1][0] && !identity_host.account[1][1] && !identity_host.account[0][0]);
+	for (node = 1; node <= 2; node++)
+	{
+		CHECK(delta_peer_identity(&nodes[node].peer, 0, 0, NULL));
+		CHECK(delta_peer_identity(&nodes[node].peer, 1, 0, NULL) && delta_peer_identity(&nodes[node].peer, 1, 1, NULL));
+		CHECK(!delta_peer_identity(&nodes[node].peer, 2, 0, NULL));
+		CHECK(nodes[node].identity_checks >= 3);
+	}
+	/* (each machine's session its own nonce) */
+	CHECK(memcmp(nodes[0].peer.peers[1].identity_nonce, nodes[0].peer.peers[2].identity_nonce, 32) != 0);
+	/* the older build: nothing, and nothing sent it */
+	CHECK(!delta_peer_identity(&nodes[3].peer, 1, 0, NULL));
+	queued = 0;
+	delta_peer_host_frame(&nodes[0].peer, now + DELTA_PEER_IDENTITY_CARD_INTERVAL, game_machines, game_machine_count,
+		player_machines);
+	CHECK(queued_to(2, _delta_message_id_card) == 3 && queued_to(3, _delta_message_id_card) == 0 &&
+		queued_to(3, _delta_message_id_challenge) == 0);
+	deliver(now + DELTA_PEER_IDENTITY_CARD_INTERVAL);
+	now += DELTA_PEER_IDENTITY_CARD_INTERVAL;
+
+	/* a host whose relay doesn't check (here: client 2 refuses machine 1's):
+	never shown */
+	nodes[2].refuses = 1u << 1;
+	memset(nodes[2].peer.cards, 0, sizeof(nodes[2].peer.cards));
+	for (step = 0; step < 3; step++, now += DELTA_PEER_IDENTITY_CARD_INTERVAL / 2)
+		frame(now, 4, joined, 1);
+	CHECK(!delta_peer_identity(&nodes[2].peer, 1, 0, NULL) && delta_peer_identity(&nodes[2].peer, 0, 0, NULL));
+	nodes[2].refuses = 0;
+
+	/* a forged proof sent to the host (another machine's): refused */
+	{
+		struct delta_wire_id_proof proof;
+		unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
+		int size, checks = nodes[0].identity_checks;
+
+		nodes[2].proves = 1;
+		node_identity_prove(&nodes[2], 0, nodes[0].peer.peers[2].identity_nonce, "", 0, 1, 0, &proof);
+		size = delta_wire_write_id_proof(data, nodes[2].peer.session, &proof);
+		now += 1000;
+		delta_peer_receive(&nodes[0].peer, now, nodes[2].ipv4, nodes[2].port, data, size);
+		CHECK(nodes[0].identity_checks == checks + 1 && !delta_peer_identity(&nodes[0].peer, 2, 0, NULL));
+		nodes[2].proves = 0;
+	}
+
+	/* the same account on another machine: refused there */
+	nodes[2].proves = 1;
+	nodes[2].account = 1 * 4 + 0 + 1;
+	for (step = 0; step < 4; step++, now += DELTA_PEER_IDENTITY_PROOF_GAP)
+		frame(now, 4, joined, 1);
+	CHECK(!delta_peer_identity(&nodes[0].peer, 2, 0, NULL) && delta_peer_identity(&nodes[0].peer, 1, 0, NULL));
+	/* (an old proof: its clock two hours behind the host's) */
+	nodes[2].account = 0;
+	nodes[2].clock -= 7200;
+	for (step = 0; step < 4; step++, now += DELTA_PEER_IDENTITY_PROOF_GAP)
+		frame(now, 4, joined, 1);
+	CHECK(!delta_peer_identity(&nodes[0].peer, 2, 0, NULL));
+	nodes[2].clock += 7200;
+	for (step = 0; step < 4; step++, now += DELTA_PEER_IDENTITY_PROOF_GAP)
+		frame(now, 4, joined, 1);
+	CHECK(delta_peer_identity(&nodes[0].peer, 2, 0, NULL));
+	nodes[2].proves = 0;
+
+	/* machine 1's second player signs out: withdrawn everywhere */
+	nodes[1].proves = 1;
+	for (step = 0; step < 4; step++, now += 300)
+		frame(now, 4, joined, 1);
+	CHECK(!delta_peer_identity(&nodes[0].peer, 1, 1, NULL) && delta_peer_identity(&nodes[0].peer, 1, 0, NULL));
+	CHECK(!delta_peer_identity(&nodes[2].peer, 1, 1, NULL));
+
+	/* machine 1 leaves: its card goes, on the host and the other client */
+	game_remove(1);
+	joined[1] = 0;
+	for (step = 0; step < 4; step++, now += 300)
+		frame(now, 4, joined, 1);
+	CHECK(!delta_peer_identity(&nodes[0].peer, 1, 0, NULL));
+	CHECK(!delta_peer_identity(&nodes[2].peer, 1, 0, NULL));
+	CHECK(delta_peer_identity(&nodes[2].peer, 0, 0, NULL));
+}
+
+/* proofs bound to the host: only they reach moderation; a relay's
+challenge (another host's binding) is proved for by no one */
+static void test_identity_bound(void)
+{
+	static const char binding[] = "0123456789abcdef0123456789abcdef";
+	int joined[4];
+	delta_u32 now = 1000;
+	struct delta_peer_identity identity;
+	int step, index;
+
+	identity_start(&now, joined, binding);
+	CHECK(delta_peer_identity(&nodes[0].peer, 1, 0, &identity) && identity.bound);
+	CHECK(identity_host.account[1][0] == 1 * 4 + 0 + 1 && identity_host.account[1][1] == 1 * 4 + 1 + 1);
+	/* (the host's own player: bound to its own binding) */
+	CHECK(identity_host.account[0][0] == 1);
+	/* (client 2 checks cards with the binding: shown) */
+	CHECK(delta_peer_identity(&nodes[2].peer, 1, 0, &identity) && identity.bound);
+	/* (the same bound cards heard by a client that joined by address: their
+	flag is the host's, and proves nothing to it: shown unbound) */
+	nodes[2].binding_result = 0;
+	memset(nodes[2].peer.cards, 0, sizeof(nodes[2].peer.cards));
+	for (step = 0; step * 300 < DELTA_PEER_IDENTITY_CARD_INTERVAL + 1200; step++, now += 300)
+		frame(now, 4, joined, 1);
+	CHECK(delta_peer_identity(&nodes[2].peer, 1, 0, &identity) && !identity.bound);
+	nodes[2].binding_result = 1;
+	memset(nodes[2].peer.cards, 0, sizeof(nodes[2].peer.cards));
+	for (step = 0; step * 300 < DELTA_PEER_IDENTITY_CARD_INTERVAL + 1200; step++, now += 300)
+		frame(now, 4, joined, 1);
+	CHECK(delta_peer_identity(&nodes[2].peer, 1, 0, &identity) && identity.bound);
+
+	/* a client reached by address (no invite to check): shows, no role */
+	nodes[2].proves = 1;
+	nodes[2].binding_result = 0;
+	for (step = 0; step < 4; step++, now += DELTA_PEER_IDENTITY_PROOF_GAP)
+		frame(now, 4, joined, 1);
+	CHECK(delta_peer_identity(&nodes[0].peer, 2, 0, &identity) && !identity.bound && !identity_host.account[2][0]);
+
+	/* a relay: the challenge's binding is another host's: nothing proved,
+	no one shown */
+	game_remove(1);
+	joined[1] = 0;
+	for (step = 0; step < 3; step++, now += 300)
+		frame(now, 4, joined, 1);
+	node_start(1, 0x0500007F, 40005, PLATFORM_BIT | PROFILE_BIT | MODERATION_BIT | IDENTITY_BIT,
+		_delta_platform_pc_linux, 0x15, 0);
+	node_identity(1, 1);
+	snprintf(nodes[1].binding, sizeof(nodes[1].binding), "%s", "ffffffffffffffffffffffffffffffff");
+	nodes[1].binding_result = 1;
+	game_add(1);
+	joined[1] = 1;
+	for (step = 0; step < 8; step++, now += 300)
+		frame(now, 4, joined, 1);
+	CHECK(!delta_peer_identity(&nodes[0].peer, 1, 0, NULL) && !delta_peer_identity(&nodes[1].peer, 0, 0, NULL));
+
+	/* the host's binding changes: every card proved again with the new one */
+	snprintf(nodes[1].binding, sizeof(nodes[1].binding), "%s", "fedcba9876543210fedcba9876543210");
+	delta_peer_set_moderation_binding(&nodes[0].peer, "fedcba9876543210fedcba9876543210");
+	nodes[2].binding_result = 1;
+	snprintf(nodes[2].binding, sizeof(nodes[2].binding), "%s", "fedcba9876543210fedcba9876543210");
+	for (step = 0; step < 8; step++, now += DELTA_PEER_IDENTITY_PROOF_GAP)
+		frame(now, 4, joined, 1);
+	CHECK(delta_peer_identity(&nodes[0].peer, 1, 0, &identity) && identity.bound);
+	CHECK(delta_peer_identity(&nodes[0].peer, 0, 0, &identity) && identity.bound);
+	CHECK(delta_peer_identity(&nodes[0].peer, 2, 0, &identity) && identity.bound);
+	CHECK(!memcmp(nodes[0].peer.cards[0].nonce, nodes[0].peer.cards[0].nonce, 32));
+
+	/* the host stops: its moderation hears every verified player is gone */
+	delta_peer_stop(&nodes[0].peer);
+	for (index = 0; index < 4; index++)
+		CHECK(!identity_host.account[index][0] && !identity_host.account[index][1]);
+}
+
+/* a departed player's proof replayed on the index another machine now
+has: refused (a new session, a new nonce), and a new session of the same
+machine inherits nothing */
+static void test_identity_replay(void)
+{
+	static const char binding[] = "0123456789abcdef0123456789abcdef";
+	int joined[4];
+	delta_u32 now = 1000;
+	struct delta_wire_id_proof proof;
+	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM], old_nonce[32];
+	int step, size;
+
+	identity_start(&now, joined, binding);
+	CHECK(delta_peer_identity(&nodes[0].peer, 1, 0, NULL) && identity_host.account[1][0]);
+	/* (what a listener on machine 1's link could have kept) */
+	memcpy(old_nonce, nodes[0].peer.peers[1].identity_nonce, 32);
+	node_identity_prove(&nodes[1], 0, old_nonce, binding, 32, 1, DELTA_WIRE_IDENTITY_BOUND, &proof);
+
+	/* machine 1's game restarts without a BYE (a crash): a new session at
+	the same address and index, proving no one */
+	node_start(1, 0x0200007F, 40001, PLATFORM_BIT | PROFILE_BIT | MODERATION_BIT | IDENTITY_BIT,
+		_delta_platform_pc_linux, 0x11, 0);
+	node_identity(1, 0);
+	snprintf(nodes[1].binding, sizeof(nodes[1].binding), "%s", binding);
+	nodes[1].binding_result = 1;
+	{
+		delta_u32 old_session = nodes[0].peer.peers[1].session;
+
+		/* (the frame the host takes the new session: the old card already
+		gone, before any client could say anything of it) */
+		for (step = 0; step < 8 && nodes[0].peer.peers[1].session == old_session; step++, now += 1100)
+			frame(now, 4, joined, 1);
+		CHECK(nodes[0].peer.peers[1].session != old_session);
+		CHECK(!delta_peer_identity(&nodes[0].peer, 1, 0, NULL) && !identity_host.account[1][0]);
+	}
+	for (step = 0; step < 8; step++, now += 1100)
+		frame(now, 4, joined, 1);
+	CHECK(nodes[0].peer.peers[1].used && memcmp(nodes[0].peer.peers[1].identity_nonce, old_nonce, 32));
+	CHECK(!delta_peer_identity(&nodes[0].peer, 1, 0, NULL) && !identity_host.account[1][0]);
+
+	/* another machine at index 1 replays the old proof: refused */
+	game_remove(1);
+	joined[1] = 0;
+	for (step = 0; step < 3; step++, now += 300)
+		frame(now, 4, joined, 1);
+	node_start(1, 0x0600007F, 40006, PLATFORM_BIT | PROFILE_BIT | MODERATION_BIT | IDENTITY_BIT,
+		_delta_platform_pc_linux, 0x16, 0);
+	node_identity(1, 0);
+	game_add(1);
+	joined[1] = 1;
+	for (step = 0; step < 8; step++, now += 300)
+		frame(now, 4, joined, 1);
+	CHECK(nodes[0].peer.peers[1].used);
+	size = delta_wire_write_id_proof(data, nodes[1].peer.session, &proof);
+	delta_peer_receive(&nodes[0].peer, now, nodes[1].ipv4, nodes[1].port, data, size);
+	CHECK(!delta_peer_identity(&nodes[0].peer, 1, 0, NULL) && !identity_host.account[1][0]);
+}
+
+
+/* cards kept are checked again: a proof grown old, a device revoked since,
+on the host and on clients; and a bound proof takes an unbound card's place */
+static void test_identity_recheck(void)
+{
+	static const char binding[] = "0123456789abcdef0123456789abcdef";
+	int joined[4];
+	delta_u32 now = 1000;
+	struct delta_peer_identity identity;
+	int step;
+
+	/* a card grown older than the host keeps one: withdrawn, and the old
+	proof sent again not taken */
+	identity_start(&now, joined, "");
+	CHECK(delta_peer_identity(&nodes[0].peer, 1, 0, NULL));
+	nodes[0].clock += 2200;
+	for (step = 0; step < 8; step++, now += DELTA_PEER_IDENTITY_RECHECK / 4)
+		frame(now, 4, joined, 1);
+	CHECK(!delta_peer_identity(&nodes[0].peer, 1, 0, NULL) && delta_peer_identity(&nodes[0].peer, 0, 0, NULL));
+	/* (its player proves again, with a fresh time: taken again) */
+	nodes[1].clock += 2200;
+	nodes[2].clock += 2200;
+	for (step = 0; step < 6; step++, now += DELTA_PEER_IDENTITY_PROOF_GAP)
+		frame(now, 4, joined, 1);
+	CHECK(delta_peer_identity(&nodes[0].peer, 1, 0, NULL) && delta_peer_identity(&nodes[2].peer, 1, 0, NULL));
+
+	/* a client whose clock says the cards are too old: drops them, however
+	often the host sends them again */
+	nodes[2].clock += 2600;
+	for (step = 0; step < 8; step++, now += DELTA_PEER_IDENTITY_RECHECK / 2)
+		frame(now, 4, joined, 1);
+	CHECK(!delta_peer_identity(&nodes[2].peer, 1, 0, NULL) && delta_peer_identity(&nodes[0].peer, 1, 0, NULL));
+	nodes[2].clock -= 2600;
+
+	/* a device revoked since (the checks now refuse machine 1): dropped
+	within the minute, and at once when a new revocation list comes
+	(delta_peer_identity_recheck), on a client and on the host */
+	for (step = 0; step < 4; step++, now += DELTA_PEER_IDENTITY_PROOF_GAP)
+		frame(now, 4, joined, 1);
+	CHECK(delta_peer_identity(&nodes[0].peer, 1, 0, NULL) && delta_peer_identity(&nodes[2].peer, 1, 0, NULL));
+	nodes[0].refuses = nodes[2].refuses = 1u << 1;
+	frame(now, 4, joined, 1);
+	now += 100;
+	CHECK(delta_peer_identity(&nodes[0].peer, 1, 0, NULL) && delta_peer_identity(&nodes[2].peer, 1, 0, NULL));
+	delta_peer_identity_recheck(&nodes[2].peer);
+	frame(now, 4, joined, 1);
+	now += 100;
+	CHECK(delta_peer_identity(&nodes[0].peer, 1, 0, NULL) && !delta_peer_identity(&nodes[2].peer, 1, 0, NULL));
+	delta_peer_identity_recheck(&nodes[0].peer);
+	frame(now, 4, joined, 1);
+	now += 100;
+	CHECK(!delta_peer_identity(&nodes[0].peer, 1, 0, NULL) && !delta_peer_identity(&nodes[0].peer, 1, 1, NULL));
+	nodes[0].refuses = nodes[2].refuses = 0;
+
+	/* someone shows an identity unbound first (joined by address); its
+	owner then proves it bound: the bound one takes its place */
+	identity_start(&now, joined, binding);
+	nodes[1].proves = 0;
+	for (step = 0; step < 6; step++, now += DELTA_PEER_IDENTITY_PROOF_GAP)
+		frame(now, 4, joined, 1);
+	CHECK(!delta_peer_identity(&nodes[0].peer, 1, 0, NULL));
+	nodes[2].proves = 1;
+	nodes[2].account = 1 * 4 + 0 + 1;
+	nodes[2].binding_result = 0;
+	for (step = 0; step < 6; step++, now += DELTA_PEER_IDENTITY_PROOF_GAP)
+		frame(now, 4, joined, 1);
+	CHECK(delta_peer_identity(&nodes[0].peer, 2, 0, &identity) && !identity.bound && !identity_host.account[2][0]);
+	/* (the host's sends lost meanwhile: a client may then hear the bound
+	card before the unbound one's withdrawal, and takes it all the same) */
+	nodes[0].mute = 1;
+	nodes[1].proves = 1;
+	for (step = 0; step < 2; step++, now += 500)
+		frame(now, 4, joined, 1);
+	CHECK(delta_peer_identity(&nodes[0].peer, 1, 0, &identity) && identity.bound &&
+		identity_host.account[1][0] == 1 * 4 + 0 + 1);
+	CHECK(!delta_peer_identity(&nodes[0].peer, 2, 0, NULL));
+	CHECK(delta_peer_identity(&nodes[1].peer, 2, 0, NULL) && !delta_peer_identity(&nodes[1].peer, 1, 0, NULL));
+	nodes[0].mute = 0;
+	/* (and the unbound one doesn't take it back) */
+	for (step = 0; step < 6; step++, now += DELTA_PEER_IDENTITY_PROOF_GAP)
+		frame(now, 4, joined, 1);
+	CHECK(delta_peer_identity(&nodes[0].peer, 1, 0, NULL) && !delta_peer_identity(&nodes[0].peer, 2, 0, NULL));
+	CHECK(delta_peer_identity(&nodes[1].peer, 1, 0, NULL) && !delta_peer_identity(&nodes[1].peer, 2, 0, NULL));
+}
+
 /* a valid message of the session's, then some of its bytes changed */
 static int mutated_message(unsigned char *data, delta_u32 session)
 {
@@ -3235,8 +4241,32 @@ static int mutated_message(unsigned char *data, delta_u32 session)
 	int size;
 	int flips;
 
-	switch (next_random() % 14)
+	switch (next_random() % 15)
 	{
+	case 14:
+	{
+		/* verified names: a challenge, a proof, a card (their sizes right,
+		their bytes random: a check of nothing, mostly) */
+		struct delta_wire_id_challenge challenge;
+		struct delta_wire_id_card card;
+
+		random_bytes((unsigned char *)&challenge, (int)sizeof(challenge));
+		challenge.binding_length = 0;
+		random_bytes((unsigned char *)&card, (int)sizeof(card));
+		card.machine_index = (int)(next_random() % 4);
+		card.proof.local_player = (int)(next_random() % DELTA_WIRE_IDENTITY_LOCAL_PLAYERS);
+		card.proof.certificate_length = next_random() % 3 ? DELTA_WIRE_IDENTITY_CERTIFICATE_LEAST : 0;
+		memset(card.proof.tag, 'x', sizeof(card.proof.tag));
+		card.proof.tag_length = (int)(next_random() % (DELTA_WIRE_IDENTITY_TAG_SIZE + 1));
+		card.proof.tag[card.proof.tag_length] = 0;
+		switch (next_random() % 3)
+		{
+		case 0: size = delta_wire_write_id_challenge(data, session, &challenge); break;
+		case 1: size = delta_wire_write_id_proof(data, session, &card.proof); break;
+		default: size = delta_wire_write_id_card(data, session, &card); break;
+		}
+		break;
+	}
 	case 13:
 	{
 		struct delta_wire_chat_config config;
@@ -3414,9 +4444,11 @@ static void test_random(long iterations)
 	static struct moderator moderator;
 
 	node_start(0, HOST_IPV4, DELTA_PEER_PORT, PLATFORM_BIT | PROFILE_BIT | MAPS_BIT | MODERATION_BIT | CHAT_BIT |
-		SERVER_MESSAGES_BIT, _delta_platform_pc_linux, 0x33, 3);
+		SERVER_MESSAGES_BIT | IDENTITY_BIT, _delta_platform_pc_linux, 0x33, 3);
 	node_start(1, 0x0300007F, 40001, PLATFORM_BIT | PROFILE_BIT | MAPS_BIT | MODERATION_BIT | CHAT_BIT |
-		SERVER_MESSAGES_BIT, _delta_platform_pc_linux, 0x44, 0);
+		SERVER_MESSAGES_BIT | IDENTITY_BIT, _delta_platform_pc_linux, 0x44, 0);
+	node_identity(0, 1);
+	node_identity(1, 5);
 	memset(&host_chat, 0, sizeof(host_chat));
 	host_chat.teams = 1;
 	host_chat.mode = _delta_chat_mode_on;
@@ -3530,6 +4562,22 @@ static void test_random(long iterations)
 			}
 			if (delta_wire_read_roster(data + DELTA_WIRE_HEADER_SIZE, header.length, &roster))
 				CHECK(roster.count <= DELTA_WIRE_MAXIMUM_ROSTER_ENTRIES);
+			{
+				struct delta_wire_id_challenge challenge;
+				struct delta_wire_id_proof proof;
+				struct delta_wire_id_card card;
+				const unsigned char *payload = data + DELTA_WIRE_HEADER_SIZE;
+
+				if (delta_wire_read_id_challenge(payload, header.length, &challenge))
+					CHECK((int)strlen(challenge.binding) == challenge.binding_length);
+				if (delta_wire_read_id_proof(payload, header.length, &proof))
+					CHECK(proof.local_player < DELTA_WIRE_IDENTITY_LOCAL_PLAYERS &&
+						proof.certificate_length <= DELTA_WIRE_IDENTITY_CERTIFICATE_MOST &&
+						(int)strlen(proof.tag) == proof.tag_length);
+				if (delta_wire_read_id_card(payload, header.length, &card))
+					CHECK(card.proof.local_player < DELTA_WIRE_IDENTITY_LOCAL_PLAYERS &&
+						card.machine_index <= 255 && (int)strlen(card.proof.tag) == card.proof.tag_length);
+			}
 			for (index = 0; index < DELTA_WIRE_BUILD_SIZE + 1 && hello.build[index]; index++)
 				CHECK(hello.build[index] >= 0x20 && hello.build[index] <= 0x7E);
 			CHECK(index <= DELTA_WIRE_BUILD_SIZE);
@@ -3617,10 +4665,20 @@ int main(int argc, char **argv)
 	test_chat();
 	test_wire_team();
 	test_team();
+	test_party_tag_hold();
+	test_wire_report();
+	test_reports();
 	test_wire_host_rules();
 	test_host_rules();
+	test_wire_badge();
+	test_badge();
 	test_wire_objects();
 	test_objects();
+	test_wire_identity();
+	test_identity();
+	test_identity_bound();
+	test_identity_replay();
+	test_identity_recheck();
 	test_random(iterations);
 	if (failures)
 	{

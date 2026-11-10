@@ -10,15 +10,15 @@ on the selection alone). No map, tag or bitmap of the game's is read, so nothing
 retail game's is on screen. It draws with OpenGL, or with bgfx when that is
 the renderer (xgpu_bgfx_launcher_frame).
 
-Screens: Welcome (the first start), and PLAY, MAPS and LOGS & HELP with
-QUIT, as a list of sections on the left and the open one in a panel on the
+Screens: Welcome (the first start), and PLAY, MAPS, SETTINGS, LOGS & HELP
+and ABOUT (about.c's page) with QUIT, as a list of sections on the left and the open one in a panel on the
 right. Maps shows each family of maps (halo_map_families.h) by its folder,
 with its state read from the files' headers; a family's own screen opens
 its folder, checks its maps and adds them from a file (xiso.c, pc_disc.c,
 ce_installer.c, through sdl_platform.c's import thread). Logs & help sends
 debug.txt and the last crash report (and config.toml, if the player says
-so) to the log dump site, with addresses taken out first
-(crash_report_redact), and copies the version.
+so) to the log dump site, with addresses and the home folder taken out
+first (crash_report_redact), and copies the version.
 
 Everything here runs on the game's main thread, but the import and the
 upload, which have threads of their own.
@@ -38,8 +38,14 @@ upload, which have threads of their own.
 #include "crash_report.h"
 #include "browser_http.h"
 #include "build_identity.h"
+#include "about.h"
+#include "settings_rows.h"
+#include "update.h"
 
 #include <SDL3/SDL.h>
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
+#endif
 #include <ctype.h>
 #include <math.h>
 #include <stdarg.h>
@@ -68,7 +74,7 @@ unless debug.dump_url says otherwise; and the Discord invite */
 enum
 {
 	MAXIMUM_FAMILIES = 16,
-	MAXIMUM_ROWS = 80,
+	MAXIMUM_ROWS = 128,
 	MAXIMUM_MAP_ENTRIES = 512,
 	MAXIMUM_TARGETS = 48,
 	MAXIMUM_DIALOG_ROWS = 4,
@@ -122,18 +128,39 @@ enum
 	_screen_family,
 	_screen_map_list,
 	_screen_logs,
+	_screen_settings,
+	/* ALL's: one section's keys */
+	_screen_setting_keys,
+	_screen_about,
 };
 
 enum
 {
 	_section_play,
 	_section_maps,
+	_section_settings,
 	_section_logs,
+	_section_about,
 	_section_quit,
 	NUMBER_OF_SECTIONS
 };
 
-static const char *const section_names[NUMBER_OF_SECTIONS] = { "PLAY", "MAPS", "LOGS & HELP", "QUIT" };
+static const char *const section_names[NUMBER_OF_SECTIONS] = { "PLAY", "MAPS", "SETTINGS", "LOGS & HELP", "ABOUT",
+	"QUIT" };
+
+/* Settings' tabs: settings_rows.h's groups, then PATHS and ALL */
+enum
+{
+	_tab_display,
+	_tab_audio,
+	_tab_network,
+	_tab_paths,
+	_tab_updates,
+	_tab_all,
+	NUMBER_OF_TABS
+};
+
+static const char *const tab_names[NUMBER_OF_TABS] = { "DISPLAY", "AUDIO", "NETWORK", "PATHS", "UPDATES", "ALL" };
 
 enum
 {
@@ -156,6 +183,13 @@ enum
 	_action_open_crashes,
 	_action_copy_version,
 	_action_discord,
+	/* Settings' */
+	_action_setting,
+	_action_setting_key,
+	_action_settings_section,
+	_action_open_path,
+	_action_check_updates,
+	_action_install_update,
 	/* the dialogs' */
 	_action_send_with_settings,
 	_action_send_without_settings,
@@ -216,6 +250,11 @@ struct row
 	int cycles;
 	/* a gap above it */
 	int gap;
+	/* Settings': its row of settings_rows.h's, or (ALL) its key, and the
+	tag after its label */
+	const struct settings_row *setting;
+	char key[64];
+	char badge[24];
 };
 
 /* a way to play: the game as it is (vanilla), or a pack with its own menus
@@ -246,6 +285,7 @@ enum
 	_target_section,
 	_target_dialog_row,
 	_target_button,
+	_target_tab,
 };
 
 struct target
@@ -340,6 +380,13 @@ static struct
 	/* the mode PLAY starts (the last one picked, else the default) */
 	int mode;
 
+	/* Settings: the tab, ALL's section (its name) and row, and whether a
+	setting that shows only after a restart was changed */
+	int tab;
+	char setting_section[32];
+	int settings_row;
+	int restart_needed;
+
 	struct map_entry map_entries[MAXIMUM_MAP_ENTRIES];
 	int map_entry_count;
 
@@ -391,6 +438,9 @@ static struct
 	const char *script_cursor;
 	Uint64 script_next;
 	char screenshot[128];
+
+	/* ABOUT's page */
+	struct about_view about;
 } launcher;
 
 static void modes_find(void);
@@ -1220,6 +1270,182 @@ static time_t last_crash(void)
 	return newest;
 }
 
+/* ---------- Settings' rows */
+
+/* whether ALL lists a section: debug's only when one of its keys is set,
+the console's never on the desktop */
+static int section_listed(const char *section)
+{
+	const char *name;
+	int index;
+
+	if (!strcmp(section, "console"))
+		return 0;
+	if (strcmp(section, "debug"))
+		return 1;
+	for (index = 0; (name = config_setting_name(index)) != NULL; index++)
+	{
+		if (!strncmp(name, "debug.", 6) && config_chosen(name))
+			return 1;
+	}
+	return 0;
+}
+
+/* ALL: each section with its count, or one section's keys */
+static void all_rows(void)
+{
+	char sections[24][32];
+	int counts[24], section_count = 0, index, section;
+	const char *name;
+	struct row *row;
+
+	for (index = 0; (name = config_setting_name(index)) != NULL; index++)
+	{
+		const char *dot = strchr(name, '.');
+		char section_name[32];
+
+		if (!name[0] || !dot || (size_t)(dot - name) >= sizeof(section_name))
+			continue;
+		snprintf(section_name, sizeof(section_name), "%.*s", (int)(dot - name), name);
+		if (launcher.screen == _screen_setting_keys)
+		{
+			if (strcmp(section_name, launcher.setting_section))
+				continue;
+			row = row_add(_action_setting_key, dot + 1);
+			snprintf(row->key, sizeof(row->key), "%s", name);
+			settings_key_value(name, row->value, sizeof(row->value));
+			row->cycles = config_setting_kind(name) != CONFIG_KIND_STRING || config_setting_word(name, 0) != NULL;
+			continue;
+		}
+		for (section = 0; section < section_count && strcmp(sections[section], section_name); section++)
+			;
+		if (section == section_count && section_count < 24)
+		{
+			snprintf(sections[section_count], sizeof(sections[0]), "%s", section_name);
+			counts[section_count++] = 0;
+		}
+		if (section < section_count)
+			counts[section]++;
+	}
+	for (section = 0; section < section_count; section++)
+	{
+		if (!section_listed(sections[section]))
+			continue;
+		row = row_add(_action_settings_section, sections[section]);
+		upper(row->label);
+		for (index = 0; row->label[index]; index++)
+		{
+			if (row->label[index] == '_')
+				row->label[index] = ' ';
+		}
+		snprintf(row->key, sizeof(row->key), "%s", sections[section]);
+		snprintf(row->value, sizeof(row->value), "%d", counts[section]);
+		row->value_color = COLOR_GREY;
+	}
+}
+
+/* a tab's rows of settings_rows.h's group */
+static void group_rows(int group)
+{
+	const struct settings_row *setting;
+	int index;
+
+	for (index = 0; (setting = settings_row_at(group, index)) != NULL; index++)
+	{
+		struct row *row = row_add(_action_setting, settings_row_label(setting));
+
+		row->setting = setting;
+		row->cycles = 1;
+		settings_row_value(setting, row->value, sizeof(row->value));
+		if (settings_row_restart(setting))
+			snprintf(row->badge, sizeof(row->badge), "NEEDS A RESTART");
+	}
+}
+
+static void path_row(const char *label, int folder, const char *path)
+{
+	struct row *row = row_add(_action_open_path, label);
+
+	char whole[PATH_SIZE];
+	size_t length;
+
+	row->argument = folder;
+	shown_path(path, whole, sizeof(whole));
+	/* (a long one: its end, where the folders differ) */
+	length = strlen(whole);
+	if (length > 72)
+		snprintf(row->sub, sizeof(row->sub), "\xE2\x80\xA6%s", whole + length - 70);
+	else
+		snprintf(row->sub, sizeof(row->sub), "%s", whole);
+}
+
+static void settings_rows_build(void)
+{
+	struct row *row;
+
+	if (launcher.screen == _screen_setting_keys)
+	{
+		all_rows();
+		return;
+	}
+	switch (launcher.tab)
+	{
+	case _tab_display:
+		group_rows(SETTINGS_GROUP_DISPLAY);
+		break;
+	case _tab_audio:
+		group_rows(SETTINGS_GROUP_AUDIO);
+		break;
+	case _tab_network:
+		group_rows(SETTINGS_GROUP_NETWORK);
+		break;
+	case _tab_paths:
+	{
+		char logs[PATH_SIZE];
+
+		logs_folder(logs, sizeof(logs));
+		path_row("GAME DATA", _port_folder_data, launcher.root);
+		path_row("SAVES", -1, platform_save_root());
+		path_row("LOGS", _port_folder_logs, logs);
+		path_row("CACHE", _port_folder_cache, platform_folder(_port_folder_cache));
+		break;
+	}
+	case _tab_updates:
+	{
+		char latest[32];
+		int state = updater_check_state(latest, sizeof(latest));
+
+		row = row_add(_action_none, "THIS VERSION");
+		snprintf(row->value, sizeof(row->value), "%s", build_identity_version());
+		row = row_add(_action_none, "CHANNEL");
+		snprintf(row->value, sizeof(row->value), "%s", updater_channel());
+		upper(row->value);
+		if (state != UPDATER_NOT_CHECKED)
+		{
+			row = row_add(_action_none, "NEWEST");
+			row->value_color = state == UPDATER_NEWER ? COLOR_GREEN : COLOR_GREY;
+			snprintf(row->value, sizeof(row->value), "%s", state == UPDATER_CHECKING ? "Checking\xE2\x80\xA6" :
+				state == UPDATER_NEWER ? latest : state == UPDATER_LATEST ? "You have it" : "Couldn't check");
+		}
+		group_rows(SETTINGS_GROUP_UPDATES);
+		row = row_add(_action_check_updates, "CHECK NOW");
+		row->gap = 1;
+		if (state == UPDATER_NEWER)
+		{
+#ifdef __APPLE__
+			row_add(_action_install_update, "OPEN THE DOWNLOAD PAGE");
+#else
+			row_add(_action_install_update, "UPDATE");
+#endif
+		}
+		break;
+	}
+	default:
+		all_rows();
+		break;
+	}
+}
+
 static void build_rows(void)
 {
 	struct row *row;
@@ -1351,6 +1577,10 @@ static void build_rows(void)
 				launcher.map_entry_count - MAXIMUM_ROWS + 1);
 			launcher.rows[MAXIMUM_ROWS - 1].value[0] = '\0';
 		}
+		break;
+	case _screen_settings:
+	case _screen_setting_keys:
+		settings_rows_build();
 		break;
 	case _screen_logs:
 	{
@@ -1540,6 +1770,11 @@ static const char *screen_title(void)
 		return title;
 	case _screen_logs:
 		return "LOGS & HELP";
+	case _screen_settings:
+	case _screen_setting_keys:
+		return "SETTINGS";
+	case _screen_about:
+		return "ABOUT";
 	default:
 		return "CHUPATHINGY";
 	}
@@ -1632,6 +1867,13 @@ static float draw_row(const struct row *row, int index, float x, float y, float 
 	float value_width = 0.0f;
 	unsigned int label_color = row->disabled || row->dim ? COLOR_ROW_DIM : picked && lit ? COLOR_WHITE : COLOR_ROW;
 
+	/* (a setting: the row the Guide's SETTINGS draws too) */
+	if ((row->setting || row->key[0]) && row->cycles)
+	{
+		ui_style_setting(x, y, width, height, 1.3f, row->label, row->badge, row->value, picked && lit);
+		target_add(x, y, x + width, y + height, _target_row, index);
+		return height;
+	}
 	ui_style_row(x, y, width, height, picked && lit);
 	if (row->tag[0])
 	{
@@ -1717,8 +1959,40 @@ static void draw_panel(float x0, float y0, float x1, float y1)
 		heading = "HELP";
 		break;
 	}
-	ui_style_text(UI_TEXT_HEADING, x + 1.0f, y + 1.0f, UI_ALIGN_LEFT, heading);
-	y += 22.0f;
+	if (launcher.screen == _screen_about)
+	{
+		/* (about.c's page, its headings its own) */
+		about_render(&launcher.about, x + 1.0f, y, x + inner, y1 - 14.0f);
+		if (launcher.about.licenses_x1 > launcher.about.licenses_x0)
+		{
+			target_add(launcher.about.licenses_x0, launcher.about.licenses_y0, launcher.about.licenses_x1,
+				launcher.about.licenses_y1, _target_button, _button_a);
+		}
+		return;
+	}
+	if (launcher.screen == _screen_settings || launcher.screen == _screen_setting_keys)
+	{
+		float starts[NUMBER_OF_TABS], ends[NUMBER_OF_TABS];
+
+		ui_style_tabs(x, x + inner, y - 3.0f, 20.0f, tab_names, NUMBER_OF_TABS, launcher.tab, "Q", "C", starts, ends);
+		for (index = 0; index < NUMBER_OF_TABS; index++)
+			target_add(starts[index], y - 3.0f, ends[index], y + 17.0f, _target_tab, index);
+		y += 25.0f;
+		if (launcher.screen == _screen_setting_keys)
+		{
+			char section[40];
+
+			snprintf(section, sizeof(section), "%s", launcher.setting_section);
+			upper(section);
+			ui_style_text(UI_TEXT_HEADING, x + 1.0f, y + 1.0f, UI_ALIGN_LEFT, section);
+			y += 18.0f;
+		}
+	}
+	else
+	{
+		ui_style_text(UI_TEXT_HEADING, x + 1.0f, y + 1.0f, UI_ALIGN_LEFT, heading);
+		y += 22.0f;
+	}
 	if (launcher.screen == _screen_family)
 	{
 		char folder[PATH_SIZE], shown[PATH_SIZE];
@@ -1913,14 +2187,29 @@ static void draw_prompts(void)
 		prompt_add(UI_BUTTON_A, launcher.section == _section_quit ? "QUIT" : "SELECT", 1, _button_a);
 		return;
 	}
+	if (launcher.screen == _screen_about)
+	{
+		if (about_a_word(&launcher.about))
+			prompt_add(UI_BUTTON_A, about_a_word(&launcher.about), 1, _button_a);
+		prompt_add(UI_BUTTON_B, "BACK", 1, _button_b);
+		return;
+	}
 	prompt_add(UI_BUTTON_A, launcher.screen == _screen_play ? "PLAY" :
-		launcher.screen == _screen_logs && row && row->action == _action_send_logs ? "SEND" : "SELECT",
+		launcher.screen == _screen_logs && row && row->action == _action_send_logs ? "SEND" :
+		row && row->action == _action_open_path ? "OPEN" : row && row->cycles ? "CHANGE" : "SELECT",
 		row && row->action != _action_none, _button_a);
 	prompt_add(UI_BUTTON_B, "BACK", 1, _button_b);
 	if (launcher.screen == _screen_play && row && row->action == _action_play_mode &&
 		launcher.modes[row->argument].installed && launcher.installed_modes > 1)
 	{
 		prompt_add(UI_BUTTON_X, "MAKE DEFAULT", 1, _button_x);
+	}
+	if ((launcher.screen == _screen_settings || launcher.screen == _screen_setting_keys) && row)
+	{
+		if (row->setting || (row->key[0] && row->action == _action_setting_key))
+			prompt_add(UI_BUTTON_Y, "DEFAULT", 1, _button_y);
+		else if (row->action == _action_open_path && row->argument == _port_folder_data)
+			prompt_add(UI_BUTTON_Y, "CHANGE", 1, _button_y);
 	}
 	if (launcher.screen == _screen_maps)
 	{
@@ -2247,6 +2536,13 @@ static void folder_picked(const char *picked)
 		snprintf(launcher.destination, launcher.destination_size, "%s", root);
 	set_root(root);
 	scan();
+	/* (from Settings' Paths: the game's folders were found already) */
+	if (launcher.screen == _screen_settings)
+	{
+		launcher.restart_needed = 1;
+		set_status(COLOR_GREEN, "Found your Xbox maps.");
+		return;
+	}
 	go_home();
 	set_status(COLOR_GREEN, "Found your Xbox maps.");
 }
@@ -2375,7 +2671,7 @@ static void text_string(struct text *text, const char *string)
 }
 
 /* a file's text, its last maximum bytes from the start of a line, with
-its addresses taken out; NULL when there is none */
+its addresses and home folder taken out; NULL when there is none */
 static char *redacted_file(const char *path, size_t maximum, size_t *length)
 {
 	FILE *file = fopen(path, "rb");
@@ -2619,10 +2915,67 @@ static void upload_finished(void)
 
 static void enter_screen(int screen)
 {
+	if (screen == _screen_about && launcher.screen != _screen_about)
+		about_reset(&launcher.about);
 	launcher.screen = screen;
 	launcher.selected = 0;
 	launcher.scroll = 0;
 	launcher.status[0] = '\0';
+}
+
+/* the game's executable (an AppImage: its file), to start it again */
+static int executable_path(char *path, size_t size)
+{
+	if (update_appimage_path(path, (int)size))
+		return 1;
+#ifdef __APPLE__
+	{
+		char found[PATH_SIZE];
+		uint32_t found_size = sizeof(found);
+
+		/* (the update path's /proc is Linux's) */
+		if (_NSGetExecutablePath(found, &found_size) != 0 || !realpath(found, path))
+			return 0;
+		return 1;
+	}
+#else
+	return update_executable_path(path, (int)size);
+#endif
+}
+
+/* Chupathingy started again, in mode (its id) and past this screen, for
+the settings that show only after a restart; 0 if it could not be */
+static int restart_with(const char *mode)
+{
+	char path[PATH_SIZE], argument[64];
+
+	if (!executable_path(path, sizeof(path)))
+	{
+		platform_log("launcher: could not find the game's executable to start it again");
+		return 0;
+	}
+	snprintf(argument, sizeof(argument), "--mode=%s", mode);
+	if (!update_launch_with(path, argument))
+	{
+		platform_log("launcher: could not start again for the settings that need it");
+		return 0;
+	}
+	platform_log("launcher: started again for the settings that need it");
+	return 1;
+}
+
+int launcher_restart_to_setup(void)
+{
+	char path[PATH_SIZE];
+
+	if (!executable_path(path, sizeof(path)) || !update_launch_with(path, "--setup"))
+	{
+		platform_log("launcher: could not start again on the setup screen");
+		return 0;
+	}
+	platform_log("launcher: SETUP: starting again on the setup screen");
+	exit(EXIT_SUCCESS);
+	return 1;
 }
 
 static void play(void)
@@ -2638,6 +2991,11 @@ static void play(void)
 	}
 	platform_log("launcher: play");
 	mode_apply(launcher.mode, 1);
+	if (launcher.restart_needed && restart_with(launcher.mode >= 0 && launcher.mode < launcher.mode_count ?
+		launcher.modes[launcher.mode].id : "vanilla"))
+	{
+		exit(EXIT_SUCCESS);
+	}
 	launcher.done = 1;
 }
 
@@ -2741,6 +3099,32 @@ static void act(const struct row *row)
 			set_status(COLOR_AMBER, "We couldn't copy it.");
 		break;
 	}
+	case _action_settings_section:
+		snprintf(launcher.setting_section, sizeof(launcher.setting_section), "%s", row->key);
+		launcher.settings_row = launcher.selected;
+		enter_screen(_screen_setting_keys);
+		break;
+	case _action_open_path:
+		if (row->argument < 0)
+			open_folder(platform_save_root());
+		else if (row->argument == _port_folder_data)
+			open_folder(launcher.root);
+		else if (row->argument == _port_folder_logs)
+		{
+			logs_folder(path, sizeof(path));
+			open_folder(path);
+		}
+		else
+			open_folder(platform_folder((enum port_folder)row->argument));
+		break;
+	case _action_check_updates:
+		if (!updater_check_now() && updater_check_state(NULL, 0) != UPDATER_CHECKING)
+			set_status(COLOR_GREY, "This build doesn't update itself.");
+		break;
+	case _action_install_update:
+		if (!updater_install())
+			set_status(COLOR_AMBER, "That didn't work. Get it from the release page.");
+		break;
 	case _action_discord:
 		if (!SDL_OpenURL(LAUNCHER_DISCORD_URL))
 			set_status(COLOR_AMBER, "We couldn't open your browser. The link is %s", LAUNCHER_DISCORD_URL);
@@ -2783,6 +3167,29 @@ static void cycle(const struct row *row, int step)
 		}
 		return;
 	}
+	if (row->action == _action_setting)
+	{
+		char before[72];
+
+		snprintf(before, sizeof(before), "%s", row->value);
+		settings_row_change(row->setting, step);
+		if (settings_row_restart(row->setting))
+			launcher.restart_needed = 1;
+		if (!strcmp(settings_row_key(row->setting), "display.particle_limit"))
+		{
+			char now[72];
+
+			settings_row_value(row->setting, now, sizeof(now));
+			if (!strcmp(now, "POTATO"))
+				set_status(COLOR_WHITE, "Lower shadows, particles and lights, no anti-aliasing, drawn at 640x480.");
+		}
+		return;
+	}
+	if (row->action == _action_setting_key)
+	{
+		settings_key_change(row->key, step);
+		return;
+	}
 	if (row->action != _action_downloads)
 		return;
 	setting = config_string("network.map_downloads");
@@ -2802,6 +3209,12 @@ static void back(void)
 	case _screen_map_list:
 		launcher.screen = _screen_family;
 		launcher.selected = launcher.family_row;
+		launcher.scroll = 0;
+		launcher.status[0] = '\0';
+		break;
+	case _screen_setting_keys:
+		launcher.screen = _screen_settings;
+		launcher.selected = launcher.settings_row;
 		launcher.scroll = 0;
 		launcher.status[0] = '\0';
 		break;
@@ -2825,11 +3238,18 @@ static void back(void)
 /* the section picked: its screen in the panel */
 static void open_section(int section)
 {
-	static const int screens[NUMBER_OF_SECTIONS] = { _screen_play, _screen_maps, _screen_logs, _screen_play };
+	static const int screens[NUMBER_OF_SECTIONS] = { _screen_play, _screen_maps, _screen_settings, _screen_logs,
+		_screen_about, _screen_play };
 
 	launcher.section = section;
 	if (section != _section_quit)
 		enter_screen(screens[section]);
+}
+
+static void open_tab(int tab)
+{
+	launcher.tab = tab;
+	enter_screen(_screen_settings);
 }
 
 static void dialog_input(int button)
@@ -2940,6 +3360,38 @@ static void input(int button)
 		}
 		return;
 	}
+	if (launcher.screen == _screen_about)
+	{
+		switch (button)
+		{
+		case _button_up:
+			about_input(&launcher.about, ABOUT_INPUT_UP);
+			break;
+		case _button_down:
+			about_input(&launcher.about, ABOUT_INPUT_DOWN);
+			break;
+		case _button_a:
+			about_input(&launcher.about, ABOUT_INPUT_A);
+			break;
+		case _button_b:
+		case _button_left:
+			if (!about_input(&launcher.about, ABOUT_INPUT_B))
+				launcher.in_panel = 0;
+			break;
+		case _button_previous:
+		case _button_next:
+		{
+			int section = launcher.section + (button == _button_next ? 1 : -1);
+
+			if (section >= 0 && section < _section_quit)
+				open_section(section);
+			break;
+		}
+		default:
+			break;
+		}
+		return;
+	}
 	switch (button)
 	{
 	case _button_up:
@@ -2968,6 +3420,12 @@ static void input(int button)
 		break;
 	case _button_previous:
 	case _button_next:
+		/* (Settings: its tabs) */
+		if (launcher.screen == _screen_settings || launcher.screen == _screen_setting_keys)
+		{
+			open_tab((launcher.tab + (button == _button_next ? 1 : NUMBER_OF_TABS - 1)) % NUMBER_OF_TABS);
+			break;
+		}
 		if (launcher.screen != _screen_welcome && launcher.screen != _screen_family &&
 			launcher.screen != _screen_map_list)
 		{
@@ -3024,6 +3482,16 @@ static void input(int button)
 			root_path(launcher.families[row->argument].folder, path, sizeof(path));
 			open_folder(path);
 		}
+		else if (row && row->action == _action_setting)
+		{
+			settings_row_reset(row->setting);
+			if (settings_row_restart(row->setting))
+				launcher.restart_needed = 1;
+		}
+		else if (row && row->action == _action_setting_key)
+			config_reset(row->key);
+		else if (row && row->action == _action_open_path && row->argument == _port_folder_data)
+			choose(_action_pick_folder);
 		break;
 	default:
 		break;
@@ -3097,6 +3565,13 @@ static void point_at(float x, float y, int click)
 				input(_button_a);
 		}
 		break;
+	case _target_tab:
+		if (click)
+		{
+			launcher.in_panel = 1;
+			open_tab(target->index);
+		}
+		break;
 	case _target_dialog_row:
 		launcher.dialog_selected = target->index;
 		if (click)
@@ -3162,8 +3637,8 @@ static void events(void)
 		{
 		case SDL_EVENT_QUIT:
 		case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
-			platform_log("window closed");
-			exit(EXIT_SUCCESS);
+			platform_exit_window_closed();
+			break;
 		case SDL_EVENT_KEY_DOWN:
 		{
 			int button = key_button(event.key.scancode);

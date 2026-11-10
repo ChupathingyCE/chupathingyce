@@ -26,7 +26,10 @@ linked to (port/console/reports/console_claims.h); the port builds
 console_claims.c and gives its hooks
 HALO_CONSOLE_CE_BITMAPS (with HALO_CUSTOM_EDITION): a Custom Edition map's
 bitmaps made the console's as they are read, by the port's
-platform_ce_bitmap_loaded (the desktop builds' renderer draws them as they are)
+platform_ce_bitmap_loaded (the desktop builds' renderer draws them as they are);
+a HUD meter's bitmap it leaves in Halo PC's channels is said by the port's
+platform_ce_meter_in_pc_channels, and the meter shader reads them there
+(rasterizer_xbox_dynavobgeom.c)
 HALO_CONSOLE_CE_SHARED_TAG_CACHE (with HALO_CUSTOM_EDITION): a console with no
 room for a second tag cache lends its own to a Custom Edition map: the map
 checked as it loads, the load's memory borrowed and given back, by the port's
