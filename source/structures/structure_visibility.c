@@ -615,7 +615,7 @@ static void structure_visibility_traverse_surface_lists(
 						{
 							vertex_data_read_point(
 								vertices + surface->vertex_indices[point_index] * COMPRESSED_STRUCTURE_VERTEX_SIZE,
-								points[point_index].n);
+								&points[point_index].x);
 						}
 						if (render_frustum_triangle_visible(
 							frustum,

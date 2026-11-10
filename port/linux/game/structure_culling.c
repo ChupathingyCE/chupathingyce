@@ -327,7 +327,7 @@ static void structure_culling_pairing_points(
 	{
 		/* the map's little-endian bytes on any machine (rasterizer_vertex_byte_order.h) */
 		vertex_data_read_point(
-			material->vertices + surface->vertex_indices[i] * COMPRESSED_STRUCTURE_VERTEX_SIZE, points[i].n);
+			material->vertices + surface->vertex_indices[i] * COMPRESSED_STRUCTURE_VERTEX_SIZE, &points[i].x);
 	}
 }
 

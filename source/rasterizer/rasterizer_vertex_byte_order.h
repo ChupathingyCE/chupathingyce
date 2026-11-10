@@ -51,8 +51,9 @@ static __inline float vertex_data_read_float(
 	return word.value;
 }
 
-/* a compressed vertex's position (its first three floats), for the
-per-triangle walks: inline, so on a little-endian machine it is three loads */
+/* a compressed vertex's position (its first three floats) into a point's x,
+y and z, for the per-triangle walks: inline, so on a little-endian machine it
+is three loads */
 static __inline void vertex_data_read_point(
 	void const *data,
 	float *point)
