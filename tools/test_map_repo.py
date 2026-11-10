@@ -389,7 +389,8 @@ def test_mirror_choice(driver, tmp_path):
 # ---------- downloads, from a fake repository
 
 class FakeRepository:
-    """paths answered on this machine: bytes (200), or a status"""
+    """paths answered on this machine: bytes (200), or a status (either
+    given by a function, asked each time)"""
 
     def __init__(self):
         self.routes = {}
@@ -400,6 +401,8 @@ class FakeRepository:
             def do_GET(self):
                 repository.asked.append(self.path)
                 answer = repository.routes.get(self.path, 404)
+                if callable(answer):
+                    answer = answer()
                 if isinstance(answer, int):
                     self.send_response(answer)
                     self.send_header("Content-Length", "0")
@@ -550,13 +553,42 @@ def test_mirror_list_refused_index_kept(driver, repository, keys, tmp_path):
 
 
 def test_refused_mirror_list_asked_again_after_five_minutes(driver, repository, keys):
-    # (a full refresh that got no mirror list: the mirror list alone is due
-    # again after 5 minutes, not at the index's next refresh an hour on)
+    # (a full refresh that got no mirror list: the mirror list alone, not the
+    # index, is asked for again after 5 minutes, then 10, not at the index's
+    # next refresh an hour on)
     entry = map_entry("bigass", DATA)
     repository.publish("", keys, index_document([entry]), mirrors_document([mirror("m", repository.url + "/m", 1)]))
     repository.routes["/mirrors.json.sig"] = b"00" * 64 + b"\n"
-    lines = run(driver, "refreshes", repository.url, NOW, NOW + 120, NOW + 301, NOW + 700).splitlines()
-    assert lines == ["refresh 1 4", "refresh 1 4", "refresh 1 8", "refresh 1 12"]
+    lines = run(driver, "refreshes", repository.url, NOW, NOW + 120, NOW + 301, NOW + 700, NOW + 902).splitlines()
+    assert lines == ["refresh 1 4", "refresh 1 4", "refresh 1 6", "refresh 1 6", "refresh 1 8"]
+    assert repository.asked[4:] == ["/mirrors.json", "/mirrors.json.sig"] * 2
+
+
+def test_refused_mirror_list_waits_longer_each_time(driver, repository, keys):
+    # (a mirror list refused for good: its wait doubles up to an hour, and
+    # the index taken at its own refresh doesn't start it over)
+    entry = map_entry("bigass", DATA)
+    repository.publish("", keys, index_document([entry]), mirrors_document([mirror("m", repository.url + "/m", 1)]))
+    repository.routes["/mirrors.json.sig"] = b"00" * 64 + b"\n"
+    # (asked at 0; alone again at 300, 900 and 2100, not at 2000; the
+    # index's hour at 3700 asks for both, and the mirror list's wait is then
+    # the hour, so nothing at 5000 or 7000)
+    lines = run(driver, "refreshes", repository.url, NOW, NOW + 300, NOW + 900, NOW + 2000, NOW + 2100, NOW + 3700,
+                NOW + 5000, NOW + 7000).splitlines()
+    assert lines == ["refresh 1 4", "refresh 1 6", "refresh 1 8", "refresh 1 8", "refresh 1 10", "refresh 1 14",
+                     "refresh 1 14", "refresh 1 14"]
+
+
+def test_mirror_list_that_checks_ends_the_wait(driver, repository, keys):
+    # (refused once, then fixed: taken at the next try, then asked for only
+    # with the index an hour on)
+    entry = map_entry("bigass", DATA)
+    repository.publish("", keys, index_document([entry]), mirrors_document([mirror("m", repository.url + "/m", 1)]))
+    good = repository.routes["/mirrors.json.sig"]
+    answers = [b"00" * 64 + b"\n"]
+    repository.routes["/mirrors.json.sig"] = lambda: answers.pop() if answers else good
+    lines = run(driver, "refreshes", repository.url, NOW, NOW + 300, NOW + 900, NOW + 3000, NOW + 3700).splitlines()
+    assert lines == ["refresh 1 4", "refresh 1 6", "refresh 1 6", "refresh 1 6", "refresh 1 10"]
 
 
 def test_expired_mirror_list_never_used(driver, repository, keys, tmp_path):
@@ -656,7 +688,7 @@ def test_mirror_list_fetched_when_downloads_turn_back_on(driver, repository, key
     repository.publish("", keys, index_document([entry]), mirrors_document([mirror("m", repository.url + "/m", 1)]))
     lines = run(driver, "refreshes", repository.url, f"{NOW}:index", f"{NOW + 60}:index", NOW + 120, NOW + 180,
                 NOW + 3800).splitlines()
-    assert lines == ["refresh 1 2", "refresh 1 2", "refresh 1 6", "refresh 1 6", "refresh 1 10"]
+    assert lines == ["refresh 1 2", "refresh 1 2", "refresh 1 4", "refresh 1 4", "refresh 1 8"]
 
 
 # ---------- what is kept between runs
