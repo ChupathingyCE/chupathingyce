@@ -476,6 +476,7 @@ symbols in this file:
 #include "halo_map_families.h" /* port: map_family_parse */
 #ifdef HALO_GAME_BROWSER
 #include "../../port/linux/src/browser.h"
+#include "../../port/linux/game/party_teams.h"
 #endif
 #include "interface/player_ui.h"
 #include "tag_files/tag_files.h"
@@ -5127,6 +5128,12 @@ static boolean network_game_server_idle_pregame_tasks(
 	{
 		long itr;
 
+#ifdef HALO_GAME_BROWSER
+		/* port: a party kept on one team where the teams stay even
+		(port/linux/game/party_teams.c; the Guide's parties) */
+		if (party_teams_pregame(&server->game))
+			network_game_server_send_game_data_pregame(server);
+#endif
 		/* port: the gametype's auto team balance (game_variant_options):
 		the lobby's teams kept within a player of each other, the bigger
 		team's last player moved */

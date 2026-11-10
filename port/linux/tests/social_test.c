@@ -281,7 +281,9 @@ static void test_state(void)
 	CHECK(social_state_fields(text, sizeof(text), "\"}", 200) == -1);
 	CHECK(social_action_fields(text, sizeof(text), "accept", "donut") > 0);
 	CHECK(!strcmp(text, "\"action\": \"accept\", \"handle\": \"donut\""));
-	CHECK(social_action_fields(text, sizeof(text), "request", "donut") == -1);
+	CHECK(social_action_fields(text, sizeof(text), "request", "donut") > 0);
+	CHECK(!strcmp(text, "\"action\": \"request\", \"handle\": \"donut\""));
+	CHECK(social_action_fields(text, sizeof(text), "unknown", "donut") == -1);
 	CHECK(social_action_fields(text, sizeof(text), "block", "Donut") == -1);
 	CHECK(social_action_fields(text, sizeof(text), "block", "do\"nut") == -1);
 	CHECK(social_join_fields(text, sizeof(text), "grif") > 0 && !strcmp(text, "\"friend\": \"grif\""));
@@ -385,6 +387,191 @@ static void test_presence(void)
 	CHECK(social_presence_fields(fields, 20, "0123456789abcdef0123456789abcdef0123456789ab") == -1);
 }
 
+static const char party_text[] =
+	"{\"cursor\": \"0011223344556677\", \"same\": false, \"you\": {\"handle\": \"grif\"}, \"friends\": [],"
+	" \"party\": {\"id\": \"0123456789abcdef\", \"code\": \"GQ7RTX\", \"link\": \"halo://party/GQ7RTX\","
+	" \"leader\": false, \"who_can_join\": \"friends\", \"largest\": 8, \"tag\": \"00112233aabbccdd\","
+	" \"members\": [{\"id\": \"aa11bb22\", \"name\": \"Sarge\", \"handle\": \"sarge\", \"platform\": \"pc_macos\","
+	" \"leader\": true, \"you\": false}, {\"id\": \"cc33dd44\", \"name\": \"Lopez\", \"handle\": null,"
+	" \"platform\": \"xbox\", \"leader\": false, \"you\": true}],"
+	" \"go\": {\"serial\": 3, \"time\": 1700000000, \"game\": {\"name\": \"Red Base\", \"map\": \"bloodgulch\","
+	" \"engine\": 1, \"players\": 4, \"maximum_players\": 16, \"teams\": true},"
+	" \"join\": \"halo://join/0123456789abcdef0123456789abcdef0123456789ab\"}},"
+	" \"party_invites\": [{\"party\": \"fedcba9876543210\", \"from\": \"simmons\", \"display\": \"Simmons\","
+	" \"size\": 3, \"time\": 1, \"expires\": 301}]}";
+
+static void test_party(void)
+{
+	static struct social_state read;
+	struct social_follow_inputs inputs;
+	char text[192], code[SOCIAL_PARTY_CODE_SIZE];
+	unsigned char tag[8];
+
+	CHECK(delta_profile_parse_social(party_text, &read) == 1);
+	CHECK(read.party.has && !read.party.leader && read.party.member_count == 2 && read.party.largest == 8);
+	CHECK(!strcmp(read.party.code, "GQ7RTX") && !strcmp(read.party.who_can_join, "friends"));
+	CHECK(!strcmp(read.party.members[0].handle, "sarge") && read.party.members[0].leader);
+	CHECK(!read.party.members[1].handle[0] && read.party.members[1].you && !strcmp(read.party.members[1].platform, "xbox"));
+	CHECK(read.party.go.has && read.party.go.serial == 3 && read.party.go.game.listed);
+	CHECK(read.party_invite_count == 1 && read.party_invites[0].size == 3);
+	CHECK(!strcmp(social_party_leader(&read.party)->name, "Sarge"));
+	CHECK(social_party_tag_bytes(read.party.tag, tag) && tag[0] == 0x00 && tag[7] == 0xdd);
+	CHECK(!social_party_tag_bytes("00112233aabbccdX", tag) && !social_party_tag_bytes("0011", tag));
+
+	/* /v1/party's own answer, and no party */
+	CHECK(delta_profile_parse_party("{\"party\": null, \"party_invites\": []}", &read) == 1);
+	CHECK(!read.party.has && !read.party_invite_count);
+	CHECK(delta_profile_parse_party("{\"error\": \"x\", \"reason\": \"full\"}", &read) == 0);
+	CHECK(delta_profile_parse_social(party_text, &read) == 1);
+	/* (a go whose join isn't a game link is none) */
+	{
+		static struct social_state odd;
+
+		CHECK(delta_profile_parse_party("{\"party\": {\"id\": \"0123456789abcdef\", \"members\": [{\"id\": "
+			"\"aa11bb22\", \"name\": \"x\", \"leader\": true}], \"go\": {\"serial\": 1, \"join\": \"http://x\"}}}",
+			&odd) == 1);
+		CHECK(odd.party.has && odd.party.go.has && !odd.party.go.join[0]);
+	}
+
+	/* codes */
+	CHECK(social_party_code_clean("gq7-rtx", code) && !strcmp(code, "GQ7RTX"));
+	CHECK(social_party_code_clean("halo://party/GQ7RTX/", code) && !strcmp(code, "GQ7RTX"));
+	CHECK(social_party_code_clean("HALO://PARTY/gq7rtx", code) && !strcmp(code, "GQ7RTX"));
+	CHECK(!social_party_code_clean("GQ7RT", code) && !code[0]);
+	CHECK(!social_party_code_clean("GQ7RTXX", code));
+	CHECK(!social_party_code_clean("GQ0RTX", code));
+	CHECK(!social_party_code_clean("halo://party/GQ7RTX/more", code));
+	social_party_code_shown("GQ7RTX", text, sizeof(text));
+	CHECK(!strcmp(text, "GQ7-RTX"));
+	CHECK(social_party_link("gq7rtx", text, sizeof(text)) && !strcmp(text, "halo://party/GQ7RTX"));
+	CHECK(!strcmp(social_party_rule_shown("invite"), "INVITE ONLY"));
+	CHECK(!strcmp(social_party_rule_next("friends", 1), "invite"));
+	CHECK(!strcmp(social_party_rule_next("anyone", -1), "invite"));
+
+	/* the requests' fields */
+	CHECK(social_party_fields(text, sizeof(text), "create", "", "Lopez", "xbox") > 0);
+	CHECK(!strcmp(text, "\"action\": \"create\", \"name\": \"Lopez\", \"platform\": \"xbox\""));
+	CHECK(social_party_fields(text, sizeof(text), "join", "gq7-rtx", "", "") > 0);
+	CHECK(!strcmp(text, "\"action\": \"join\", \"code\": \"GQ7RTX\""));
+	CHECK(social_party_fields(text, sizeof(text), "invite", "grif", "", "") > 0);
+	CHECK(social_party_fields(text, sizeof(text), "invite", "Gr\"if", "", "") == -1);
+	CHECK(social_party_fields(text, sizeof(text), "kick", "aa11bb22", "", "") > 0);
+	CHECK(social_party_fields(text, sizeof(text), "kick", "nope", "", "") == -1);
+	CHECK(social_party_fields(text, sizeof(text), "rule", "anyone", "", "") > 0);
+	CHECK(social_party_fields(text, sizeof(text), "rule", "all", "", "") == -1);
+	CHECK(social_party_fields(text, sizeof(text), "go", "0123456789abcdef0123456789abcdef0123456789ab", "", "") > 0);
+	CHECK(social_party_fields(text, sizeof(text), "go", "192.168.1.1", "", "") == -1);
+	CHECK(social_party_fields(text, sizeof(text), "dance", "", "", "") == -1);
+	CHECK(social_party_fields(text, sizeof(text), "create", "", "Lo\"pez", "") == -1);
+	CHECK(!strcmp(social_party_refusal("friends_only", 403), "Only the leader's friends can join."));
+	CHECK(!strcmp(social_party_refusal("", 500), "Can't do that right now."));
+
+	/* following */
+	memset(&inputs, 0, sizeof(inputs));
+	inputs.current_invite = "";
+	CHECK(social_follow_decide(&read.party, &inputs) == SOCIAL_FOLLOW_OFFER);
+	social_follow_line(&read.party, text, sizeof(text));
+	CHECK(!strcmp(text, "Following Sarge to Blood Gulch"));
+	inputs.seen_serial = 3;
+	CHECK(social_follow_decide(&read.party, &inputs) == SOCIAL_FOLLOW_NONE);
+	inputs.seen_serial = 2;
+	inputs.current_invite = "halo://join/0123456789abcdef0123456789abcdef0123456789ab";
+	CHECK(social_follow_decide(&read.party, &inputs) == SOCIAL_FOLLOW_THERE);
+	inputs.current_invite = "";
+	inputs.hosting_others = 1;
+	CHECK(social_follow_decide(&read.party, &inputs) == SOCIAL_FOLLOW_CANT);
+	social_follow_reason(&read.party, &inputs, text, sizeof(text));
+	CHECK(!strcmp(text, "Can't follow: you're hosting a game."));
+	inputs.hosting_others = 0;
+	inputs.mode = social_follow_mode("never");
+	CHECK(social_follow_decide(&read.party, &inputs) == SOCIAL_FOLLOW_NONE);
+	inputs.mode = social_follow_mode("always");
+	CHECK(social_follow_decide(&read.party, &inputs) == SOCIAL_FOLLOW_OFFER);
+	inputs.mode = social_follow_mode("");
+	CHECK(inputs.mode == SOCIAL_FOLLOW_ASK && social_follow_mode("ask") == SOCIAL_FOLLOW_ASK &&
+		social_follow_mode("Always") == SOCIAL_FOLLOW_ASK);
+	/* (the countdown ending: joins in the menus, stays in a game unless
+	"always", never with "never") */
+	CHECK(social_follow_timeout_joins(SOCIAL_FOLLOW_ASK, 0) && !social_follow_timeout_joins(SOCIAL_FOLLOW_ASK, 1));
+	CHECK(social_follow_timeout_joins(SOCIAL_FOLLOW_ALWAYS, 0) && social_follow_timeout_joins(SOCIAL_FOLLOW_ALWAYS, 1));
+	CHECK(!social_follow_timeout_joins(SOCIAL_FOLLOW_NEVER, 0) && !social_follow_timeout_joins(SOCIAL_FOLLOW_NEVER, 1));
+	CHECK(!strcmp(social_follow_mode_next("ask"), "always") && !strcmp(social_follow_mode_next("always"), "never") &&
+		!strcmp(social_follow_mode_next("never"), "ask") && !strcmp(social_follow_mode_next("junk"), "always"));
+	read.party.go.join[0] = 0;
+	social_copy_text(read.party.go.error, sizeof(read.party.go.error), "Can't follow: the game is full.");
+	CHECK(social_follow_decide(&read.party, &inputs) == SOCIAL_FOLLOW_CANT);
+	social_follow_reason(&read.party, &inputs, text, sizeof(text));
+	CHECK(!strcmp(text, "Can't follow: the game is full."));
+	/* (the leader never follows) */
+	read.party.leader = 1;
+	CHECK(social_follow_decide(&read.party, &inputs) == SOCIAL_FOLLOW_NONE);
+}
+
+/* RECENT: the site's list, this run's verified players first */
+static void test_recent(void)
+{
+	static struct social_state state;
+	struct social_recent_seen seen;
+	struct social_recent out[SOCIAL_MAXIMUM_RECENT];
+	char text[SOCIAL_STATUS_SIZE];
+	int count, index;
+	static const char recent_text[] =
+		"{\"cursor\": \"aa\", \"you\": {\"handle\": \"sarge\", \"display\": \"Sarge\"}, "
+		"\"friends\": [{\"handle\": \"grif\", \"display\": \"Grif\", \"online\": true}], "
+		"\"recent\": [{\"handle\": \"caboose\", \"display\": \"Caboose\", \"time\": 1000, \"map\": \"bloodgulch\", "
+		"\"friend\": false, \"requested\": true}, "
+		"{\"handle\": \"Not A Handle\", \"display\": \"x\", \"time\": 900}, "
+		"{\"handle\": \"grif\", \"display\": \"Grif\", \"time\": 800, \"map\": \"hangemhigh\", \"friend\": true, "
+		"\"requested\": false, \"later\": [1, {\"a\": 2}]}]}";
+
+	CHECK(delta_profile_parse_social(recent_text, &state) == 1);
+	CHECK(state.recent_count == 2);
+	CHECK(!strcmp(state.recent[0].handle, "caboose") && state.recent[0].requested && !state.recent[0].is_friend);
+	CHECK(state.recent[0].time == 1000 && !strcmp(state.recent[0].map, "bloodgulch"));
+	CHECK(!strcmp(state.recent[1].handle, "grif") && state.recent[1].is_friend);
+
+	/* this run's: newest first, once each, never this player */
+	memset(&seen, 0, sizeof(seen));
+	social_recent_note(&seen, "donut", "", "dangercanyon", 5000);
+	social_recent_note(&seen, "caboose", "Caboose", "dangercanyon", 5000);
+	social_recent_note(&seen, "sarge", "Sarge", "dangercanyon", 5000);
+	social_recent_note(&seen, "donut", "Donut", "dangercanyon", 5100);
+	social_recent_note(&seen, "Bad Name", "", "", 5100);
+	CHECK(seen.count == 3 && !strcmp(seen.players[0].handle, "donut") && !strcmp(seen.players[0].display, "Donut"));
+	count = social_recent_merge(&state, &seen, "sarge", out, SOCIAL_MAXIMUM_RECENT);
+	CHECK(count == 3);
+	CHECK(!strcmp(out[0].handle, "donut") && out[0].here && !out[0].is_friend);
+	/* (caboose: this run's, with the site's request waiting) */
+	CHECK(!strcmp(out[1].handle, "caboose") && out[1].here && out[1].requested && out[1].time == 5000);
+	CHECK(!strcmp(out[2].handle, "grif") && !out[2].here && out[2].is_friend);
+	CHECK(social_recent_merge(&state, &seen, "sarge", out, 1) == 1);
+
+	/* a block lets them go; the list keeps the newest */
+	social_recent_forget(&seen, "donut");
+	CHECK(seen.count == 2 && !strcmp(seen.players[0].handle, "sarge"));
+	for (index = 0; index < SOCIAL_MAXIMUM_RECENT + 4; index++)
+	{
+		char handle[16];
+
+		snprintf(handle, sizeof(handle), "player%d", index);
+		social_recent_note(&seen, handle, "", "", index);
+	}
+	CHECK(seen.count == SOCIAL_MAXIMUM_RECENT && !strcmp(seen.players[0].handle, "player27"));
+
+	/* the line */
+	social_recent_status(&state.recent[0], 1000 + 2 * 3600, text, sizeof(text));
+	CHECK(!strcmp(text, "Blood Gulch \xC2\xB7 2 hours ago"));
+	social_recent_status(&state.recent[0], 1000 + 86400, text, sizeof(text));
+	CHECK(!strcmp(text, "Blood Gulch \xC2\xB7 1 day ago"));
+	social_recent_status(&state.recent[0], 1060, text, sizeof(text));
+	CHECK(!strcmp(text, "Blood Gulch \xC2\xB7 Just now"));
+	social_recent_status(&state.recent[0], 1000 + 25 * 60, text, sizeof(text));
+	CHECK(!strcmp(text, "Blood Gulch \xC2\xB7 25 minutes ago"));
+	state.recent[0].map[0] = 0;
+	social_recent_status(&state.recent[0], 1000 + 40 * 86400LL, text, sizeof(text));
+	CHECK(!strcmp(text, "A while ago"));
+}
+
 int main(void)
 {
 	test_sections();
@@ -394,6 +581,8 @@ int main(void)
 	test_poll();
 	test_presence();
 	test_state();
+	test_party();
+	test_recent();
 	if (failures)
 	{
 		printf("%d failed\n", failures);

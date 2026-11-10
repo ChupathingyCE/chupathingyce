@@ -369,6 +369,32 @@ int delta_wire_write_profile(unsigned char *data, delta_u32 session, const struc
 	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_PROFILE_SIZE;
 }
 
+/* ---------- PARTY_TAG
+	0  the party's tag (8; zeros: in no party) */
+
+int delta_wire_read_party_tag(const unsigned char *payload, int size, unsigned char *tag)
+{
+	int byte;
+
+	clear(tag, DELTA_WIRE_PARTY_TAG_SIZE);
+	if (!payload || size < DELTA_WIRE_PARTY_TAG_SIZE || size > DELTA_WIRE_MAXIMUM_PAYLOAD)
+		return 0;
+	for (byte = 0; byte < DELTA_WIRE_PARTY_TAG_SIZE; byte++)
+		tag[byte] = payload[byte];
+	return 1;
+}
+
+int delta_wire_write_party_tag(unsigned char *data, delta_u32 session, const unsigned char *tag)
+{
+	unsigned char *payload = data + DELTA_WIRE_HEADER_SIZE;
+	int byte;
+
+	for (byte = 0; byte < DELTA_WIRE_PARTY_TAG_SIZE; byte++)
+		payload[byte] = tag ? tag[byte] : 0;
+	delta_wire_write_header(data, DELTA_MAJOR, _delta_message_party_tag, DELTA_WIRE_PARTY_TAG_SIZE, session);
+	return DELTA_WIRE_HEADER_SIZE + DELTA_WIRE_PARTY_TAG_SIZE;
+}
+
 /* ---------- TABLE
 	0  serial (4)
 	4  the signed table's whole size (4, at most DELTA_LEGACY_SIGNED_SIZE)

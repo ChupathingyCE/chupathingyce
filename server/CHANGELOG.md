@@ -6,6 +6,10 @@ release notes.
 
 ## Unreleased
 
+- Parties can stay together (`keep_parties_together`, off by default): in
+  team games, Chupathingy players in one party go to one team when the
+  teams stay within one player of each other. `sv_set keep_parties_together
+  true` turns it on while the server runs.
 - Players' reports: Chupathingy players report others from DELTA, and they
   land in `sv_reports` and the panel's new Reports tab with the server's
   refusal counts for that player. Linked servers send them to the site too,

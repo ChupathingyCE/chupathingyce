@@ -458,6 +458,8 @@ enum
 	BROWSER_SOCIAL_DECLINE,
 	BROWSER_SOCIAL_REMOVE,
 	BROWSER_SOCIAL_BLOCK,
+	/* a friend request (ADD FRIEND: RECENT, PLAYERS HERE) */
+	BROWSER_SOCIAL_REQUEST,
 	/* /v1/social/join: the halo://join link, taken by
 	browser_social_take_join */
 	BROWSER_SOCIAL_JOIN,
@@ -506,6 +508,30 @@ int browser_clips_list(char paths[][512], char names[][48], int most);
 void browser_social_result(struct browser_social_result *result);
 /* a join the site allowed: its halo://join link, once (1) */
 int browser_social_take_join(char *link, int size);
+
+/* the Guide's party (social.h): for a copy linked to a profile, the
+party in the friends' state; for one with none, POST /v1/party alone,
+polled while it is in one (it joins by a code). Not on the consoles
+(HALO_CONSOLE_NO_GUIDE) */
+struct social_party;
+/* the party as the site last said (has 0: none) into party, when its
+serial is not *serial (then *serial is its serial) */
+void browser_party_get(struct social_party *party, int *serial);
+/* an action on the party (social_party_fields's: "create", "invite" a
+handle, "accept" a party ID, "join" a code, ...), with this copy's game
+name for a copy with no profile; one at a time (0 if one is still out).
+Its result as browser_social_result's (its action is 0) */
+int browser_party_act(const char *action, const char *value, const char *name);
+void browser_party_result(struct browser_social_result *result);
+/* the leader's game (its invite's code) told to the party, apart from the
+actions (the latest wins) */
+void browser_party_go(const char *invite);
+/* a halo://party/ link (opened, or on the command line): kept for the
+Guide, which asks the player before joining it as a code typed would be. 1
+if the text was one */
+int browser_party_link(const char *text);
+/* the party link waiting (its code), taken: 1, or 0 for none */
+int browser_party_take_link(char *code, int size);
 
 /* Delta Profile in the game (port/linux/game/profile_screen.c;
 delta_profile.h): this copy's own profile, as the site has it, kept in
@@ -643,5 +669,8 @@ int browser_identity_revoked_changes(void);
 in page, and as a QR code in modules (BROWSER_CONNECT_QR_SIZE squared at
 most, nonzero for a dark one); the QR code's size, 0 for none */
 int browser_page_qr(const char *path, char *page, int page_size, unsigned char *modules);
+/* any short text (PARTY's halo://party/ link) as a QR code in modules, as
+browser_page_qr's: its size, 0 for none */
+int browser_text_qr(const char *text, unsigned char *modules);
 
 #endif

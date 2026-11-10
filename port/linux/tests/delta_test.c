@@ -50,6 +50,7 @@ build 2 or 3's) */
 #define OBJECT_SYNC_BIT ((delta_u32)1 << _delta_capability_object_sync)
 #define HOST_RULES_BIT ((delta_u32)1 << _delta_capability_host_rules)
 #define IDENTITY_BIT ((delta_u32)1 << _delta_capability_identity)
+#define PARTY_TEAMS_BIT ((delta_u32)1 << _delta_capability_party_teams)
 
 /* ---------- a simulated network */
 
@@ -1194,6 +1195,46 @@ static void test_team(void)
 	for (step = 0; step < 4; step++, now += 300)
 		frame(now, 3, joined, 1);
 	CHECK(!delta_peer_client_team_ready(&nodes[1].peer));
+}
+
+/* ---------- party teams: a machine's tag, held a while after it changes */
+
+static void test_party_tag_hold(void)
+{
+	int joined[2] = { 0, 1 };
+	unsigned char first[DELTA_WIRE_PARTY_TAG_SIZE], second[DELTA_WIRE_PARTY_TAG_SIZE];
+	unsigned char seen[DELTA_WIRE_PARTY_TAG_SIZE];
+	delta_u32 now = 5000;
+	int step;
+
+	memset(first, 0x11, sizeof(first));
+	memset(second, 0x22, sizeof(second));
+	node_start(0, HOST_IPV4, DELTA_PEER_PORT, PARTY_TEAMS_BIT, _delta_platform_pc_linux, 0, 0);
+	node_start(1, 0x0300007F, 40001, PARTY_TEAMS_BIT, _delta_platform_pc_linux, 0, 0);
+	game_reset();
+	game_add(1);
+	for (step = 0; step < 4; step++, now += 300)
+		frame(now, 2, joined, 1);
+	CHECK(!delta_peer_machine_party_tag(&nodes[0].peer, 1, seen));
+	/* (the first tag: at once) */
+	delta_peer_client_set_party_tag(&nodes[1].peer, first);
+	for (step = 0; step < 2; step++, now += 300)
+		frame(now, 2, joined, 1);
+	CHECK(delta_peer_machine_party_tag(&nodes[0].peer, 1, seen) && !memcmp(seen, first, sizeof(seen)));
+	/* (flipped soon after: held, the first kept) */
+	delta_peer_client_set_party_tag(&nodes[1].peer, second);
+	for (step = 0; step < 4; step++, now += 300)
+		frame(now, 2, joined, 1);
+	CHECK(delta_peer_machine_party_tag(&nodes[0].peer, 1, seen) && !memcmp(seen, first, sizeof(seen)));
+	delta_peer_client_set_party_tag(&nodes[1].peer, NULL);
+	for (step = 0; step < 4; step++, now += 300)
+		frame(now, 2, joined, 1);
+	CHECK(delta_peer_machine_party_tag(&nodes[0].peer, 1, seen) && !memcmp(seen, first, sizeof(seen)));
+	/* (after the hold, the client's tag again every few seconds: taken) */
+	delta_peer_client_set_party_tag(&nodes[1].peer, second);
+	for (step = 0; step * 300 < DELTA_PEER_PARTY_TAG_HOLD + DELTA_PEER_PARTY_TAG_INTERVAL * 2; step++, now += 300)
+		frame(now, 2, joined, 1);
+	CHECK(delta_peer_machine_party_tag(&nodes[0].peer, 1, seen) && !memcmp(seen, second, sizeof(seen)));
 }
 
 /* ---------- reports */
@@ -4495,6 +4536,7 @@ int main(int argc, char **argv)
 	test_chat();
 	test_wire_team();
 	test_team();
+	test_party_tag_hold();
 	test_wire_report();
 	test_reports();
 	test_wire_host_rules();

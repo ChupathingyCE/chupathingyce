@@ -172,9 +172,15 @@ enum delta_capability
 	checks itself. Only a verified player shows by their Delta profile; a
 	console leaves it out for now (HALO_CONSOLE_NO_DELTA_IDENTITY) */
 	_delta_capability_identity = 20,
-	/* (21 and 22 are party_teams and voice, being built: reserved here, and
-	never offered by this build) */
+	/* a party's members ask their host to keep them on one team (docs/
+	delta.md, Party teams): each sends its party's tag (PARTY_TAG), and a
+	host that honors it puts the party on one team where the teams stay
+	within one player of each other. Teams stay the host's call; a host
+	that says nothing (OpenCE's, an older build) places them as it always
+	did */
 	_delta_capability_party_teams = 21,
+	/* (22 is voice, being built: reserved here, and never offered by this
+	build) */
 	_delta_capability_voice = 22,
 	/* players' reports (docs/delta.md, Reports): a client reports another
 	player to its host (REPORT), and the host says what it did

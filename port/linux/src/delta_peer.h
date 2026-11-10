@@ -96,6 +96,13 @@ enum
 	DELTA_PEER_TRAITS_INTERVAL = 5000,
 	/* ... and the host's rules (HOST_RULES) */
 	DELTA_PEER_HOST_RULES_INTERVAL = 5000,
+	/* a client's party tag (PARTY_TAG): at once when it changes, and again
+	this often (a datagram lost) */
+	DELTA_PEER_PARTY_TAG_INTERVAL = 5000,
+	/* (host) a machine's party tag, once it has one, changes no sooner than
+	this after its last change: a tag is the client's word, and flipping it
+	must not keep the host rearranging teams */
+	DELTA_PEER_PARTY_TAG_HOLD = 30000,
 
 	/* moderation (milliseconds where a time): the host takes MOD_ACTION
 	from a machine at most this often (and at once); checks a machine's
@@ -562,6 +569,12 @@ struct delta_peer_host_peer
 	delta_u32 identity_challenge_time;
 	delta_u32 identity_card_sent[DELTA_PEER_IDENTITY_CARDS];
 	delta_u32 identity_cards_time;
+	/* party teams: the party tag it sent (zeros: none), and when it last
+	changed (party_tag_changes: how often, so the first one isn't held) */
+	int has_party_tag;
+	unsigned char party_tag[DELTA_WIRE_PARTY_TAG_SIZE];
+	delta_u32 party_tag_time;
+	int party_tag_changes;
 };
 
 /* the room for a signed legacy table going out or coming in: the console
@@ -702,6 +715,12 @@ struct delta_peer
 	delta_u32 report_sequence;
 	delta_u32 report_results;
 	struct delta_wire_report_result report_result;
+
+	/* party teams: the client's party tag (zeros: none) and when it last
+	went to the host (0: not since it changed) */
+	unsigned char party_tag[DELTA_WIRE_PARTY_TAG_SIZE];
+	delta_u32 party_tag_time;
+	int party_tag_sent;
 
 	/* object sync: the client's (NULL: none, and what the host says of its
 	objects is dropped) */
@@ -894,6 +913,19 @@ delta_u32 delta_peer_client_team_request(struct delta_peer *peer, int player, in
 /* (client) the results heard so far (a count that only grows), and the
 last in result */
 delta_u32 delta_peer_client_team_result(const struct delta_peer *peer, struct delta_wire_team_result *result);
+
+/* ---------- party teams (docs/delta.md, Party teams)
+
+A client in a party sends its host the party's tag (PARTY_TAG, both agreed
+to party_teams), as it changes and every DELTA_PEER_PARTY_TAG_INTERVAL; the
+host keeps each machine's last. What the host does with it is the game's
+(port/linux/game/party_teams.c). */
+
+/* (client) its party's tag (NULL or zeros: in no party) */
+void delta_peer_client_set_party_tag(struct delta_peer *peer, const unsigned char *tag);
+/* (host) a machine's party tag into tag: 1, or 0 for none (no session,
+not agreed, in no party) */
+int delta_peer_machine_party_tag(const struct delta_peer *peer, int machine_index, unsigned char *tag);
 
 /* ---------- reports (docs/delta.md, Reports)
 
@@ -1093,6 +1125,10 @@ int delta_peer_game_client_state(void);
 none); the client's request for its player (the game's player list index)
 and the results heard (a count that grows, and the last) */
 void delta_peer_game_set_team_host(const struct delta_peer_team_host *host);
+/* party teams: this machine's party tag, the Guide's (NULL: in no party),
+and, on the host, a machine's (delta_peer_machine_party_tag) */
+void delta_peer_game_set_party_tag(const unsigned char *tag);
+int delta_peer_game_machine_party_tag(int machine_index, unsigned char *tag);
 int delta_peer_game_team_ready(void);
 unsigned int delta_peer_game_team_request(int player, int team);
 unsigned int delta_peer_game_team_result(struct delta_wire_team_result *result);

@@ -139,6 +139,8 @@ enum
 	DELTA_WIRE_CHAT_LINE_SIZE = 12,
 	DELTA_WIRE_CHAT_REFUSED_SIZE = 8,
 
+	/* party teams (docs/delta.md, Party teams): the party's tag */
+	DELTA_WIRE_PARTY_TAG_SIZE = 8,
 	/* reports (docs/delta.md, Reports): REPORT's and REPORT_RESULT's sizes
 	(REPORT_RESULT's first 8 bytes alone from a host before the clip
 	token), and the clip token the host makes */
@@ -463,7 +465,10 @@ enum delta_message_type
 	/* host to client: a verified player's proof, relayed, which the client
 	checks itself (or withdrawn) */
 	_delta_message_id_card = 32,
-	/* (33 to 36 are a party's tag and voice, being built) */
+	/* client to host, if both agreed to party_teams: its party's tag (8
+	bytes; zeros: in no party), as it changes and every few seconds */
+	_delta_message_party_tag = 33,
+	/* (34 to 36 are voice, being built) */
 	/* reports (both agreed to reports): client to host, its player reports
 	another */
 	_delta_message_report = 37,
@@ -1062,6 +1067,11 @@ int delta_wire_read_team_result(const unsigned char *payload, int size, struct d
 int delta_wire_write_team_request(unsigned char *data, delta_u32 session,
 	const struct delta_wire_team_request *request);
 int delta_wire_write_team_result(unsigned char *data, delta_u32 session, const struct delta_wire_team_result *result);
+/* a party's tag (DELTA_WIRE_PARTY_TAG_SIZE bytes; a longer payload is read
+as far as this build knows) */
+int delta_wire_read_party_tag(const unsigned char *payload, int size, unsigned char *tag);
+int delta_wire_write_party_tag(unsigned char *data, delta_u32 session, const unsigned char *tag);
+
 /* reports: an unknown reason, or unknown flags, are refused; a clip token
 without the clip flag is read as zeros */
 int delta_wire_read_report(const unsigned char *payload, int size, struct delta_wire_report *report);

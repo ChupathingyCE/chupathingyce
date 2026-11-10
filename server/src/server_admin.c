@@ -71,6 +71,9 @@ void server_bans_set_sharing(int sharing);
 /* (the limit on machines of one address, port/linux/game/network_distributed.c) */
 void network_distributed_set_address_limit(long maximum);
 long network_distributed_address_limit(void);
+/* (parties kept on one team, port/linux/game/party_teams.h) */
+void party_teams_host_set(boolean keep);
+boolean party_teams_host_on(void);
 
 #include <errno.h>
 #include <stdio.h>
@@ -1671,6 +1674,9 @@ static void setting_now(
 		break;
 	case SERVER_SETTING_BETRAYAL_KICK: snprintf(text, (size_t)size, "%d", server_conduct_betrayal_limit()); break;
 	case SERVER_SETTING_AFK_KICK_MINUTES: snprintf(text, (size_t)size, "%d", server_conduct_afk_minutes()); break;
+	case SERVER_SETTING_KEEP_PARTIES_TOGETHER:
+		snprintf(text, (size_t)size, "%s", party_teams_host_on() ? "true" : "false");
+		break;
 #ifdef HALO_SERVER
 	case SERVER_SETTING_GAMESPY_LISTING: snprintf(text, (size_t)size, "%s", server_gamespy_enabled() ? "true" : "false"); break;
 	case SERVER_SETTING_GAMESPY_PORT: snprintf(text, (size_t)size, "%ld", server_gamespy_port()); break;
@@ -1724,8 +1730,8 @@ static boolean setting_applies_now(
 		setting == SERVER_SETTING_CE_JOINS || setting == SERVER_SETTING_ALLOW_PLAYER_NAMES ||
 		setting == SERVER_SETTING_ALLOW_FOLLOW_CAMERA || setting == SERVER_SETTING_MAX_MACHINES_PER_ADDRESS ||
 		setting == SERVER_SETTING_BETRAYAL_KICK || setting == SERVER_SETTING_AFK_KICK_MINUTES ||
-		setting == SERVER_SETTING_CE_WELCOME || setting == SERVER_SETTING_LATE_JOIN_HOLD ||
-		setting == SERVER_SETTING_BAN_SHARE;
+		setting == SERVER_SETTING_CE_WELCOME || setting == SERVER_SETTING_KEEP_PARTIES_TOGETHER ||
+		setting == SERVER_SETTING_LATE_JOIN_HOLD || setting == SERVER_SETTING_BAN_SHARE;
 }
 
 static char const *environment_value(
@@ -1841,7 +1847,7 @@ boolean server_admin_set(
 				"chat, chat_filter, welcome, postgame_seconds, skip_lobby, chat_cooldown, team_change, "
 				"team_change_margin, playlist_shuffle, chat_legacy, gamespy_listing, gamespy_port, ce_joins, "
 				"allow_player_names, allow_follow_camera, max_machines_per_address, betrayal_kick, "
-				"afk_kick_minutes, ce_welcome, late_join_hold, ban_share)\n");
+				"afk_kick_minutes, ce_welcome, keep_parties_together, late_join_hold, ban_share)\n");
 		return FALSE;
 	}
 	environment = environment_value((short)setting);
@@ -1897,6 +1903,7 @@ boolean server_admin_set(
 	case SERVER_SETTING_MAX_MACHINES_PER_ADDRESS: network_distributed_set_address_limit(change.values[setting]); break;
 	case SERVER_SETTING_BETRAYAL_KICK: server_conduct_set_betrayal_limit(change.values[setting]); break;
 	case SERVER_SETTING_AFK_KICK_MINUTES: server_conduct_set_afk_minutes(change.values[setting]); break;
+	case SERVER_SETTING_KEEP_PARTIES_TOGETHER: party_teams_host_set(change.values[setting] ? TRUE : FALSE); break;
 #ifdef HALO_SERVER
 	case SERVER_SETTING_GAMESPY_LISTING:
 		server_gamespy_configure(change.values[setting] ? TRUE : FALSE, server_gamespy_port());

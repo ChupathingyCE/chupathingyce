@@ -54,6 +54,8 @@ A few people look for most:
 | `network.browser_url` | The game list Online Games shows (stats.chupathingy.org). |
 | `network.copy_to_clipboard` | `false` (the default) leaves the clipboard alone; `true` puts the invite link of a game you host on it. The link is also in the log and under INVITE LINK in the Gearbox menus' Server Settings. |
 | `network.host_public` | Whether games you host are listed for everyone (true) or only joinable by invite (false). |
+| `network.keep_parties_together` | In team games you host, put a party's players on one team when the teams stay even. On by default. |
+| `delta.follow_leader` | When your party's leader goes to a game: `"ask"` (the default) gives you a few seconds to stay and then follows, but in a game you stay unless you press join; `"always"` follows when the seconds run out, in a game too; `"never"` doesn't offer it. Also FOLLOW LEADER in DELTA's PARTY. |
 | `network.allow_player_names`, `network.allow_follow_camera` | In games you host, let players turn on names above heads and the follow camera. Both off by default, as on the Xbox. |
 | `network.late_join_hold` | In games you host, players who join a game in progress watch through the follow camera until the next game starts. Off by default: they spawn at once, as Halo does. |
 | `network.team_change` | Team changes in team games you host: `"off"` (the default: players keep their team, as on the Xbox), `"balanced"` (a change is allowed while no team ends up more than `network.team_change_margin` players ahead, 1 by default) or `"allow"`. |
