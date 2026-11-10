@@ -179,6 +179,18 @@ int host_sdl_poll_event(void *event)
 
 	if (!SDL_PollEvent(&host_event))
 		return 0;
+	if (host_event.type >= SDL_EVENT_GAMEPAD_AXIS_MOTION && host_event.type <= SDL_EVENT_GAMEPAD_BUTTON_UP)
+	{
+		static uint64_t last_log_ticks;
+		uint64_t now = SDL_GetTicksNS();
+		if (now - last_log_ticks >= 500000000ULL) /* log sample every ~500ms */
+		{
+			uint64_t delta_us = (now > host_event.common.timestamp) ? (now - host_event.common.timestamp) / 1000 : 0;
+			host_logf(HOST_LOG_INFO, "[RAW-HID-LATENCY] Event %u latency: %llu us",
+				(unsigned)host_event.type, (unsigned long long)delta_us);
+			last_log_ticks = now;
+		}
+	}
 	/* the layouts agree except for the pointers of text, drop and user
 	events, which the guest does not read */
 	memcpy(event, &host_event, sizeof(host_event));
@@ -207,8 +219,15 @@ uint32_t host_sdl_open_gamepad(uint32_t id)
 	SDL_Gamepad *gamepad = SDL_OpenGamepad((SDL_JoystickID)id);
 
 	if (gamepad)
-		host_logf(HOST_LOG_INFO, "gamepad %u: %s (type %d, %04x:%04x)", (unsigned)id, SDL_GetGamepadName(gamepad),
-			(int)SDL_GetGamepadType(gamepad), SDL_GetGamepadVendor(gamepad), SDL_GetGamepadProduct(gamepad));
+	{
+		bool has_rumble = SDL_GamepadHasRumble(gamepad);
+		bool has_triggers = SDL_GamepadHasRumbleTriggers(gamepad);
+		host_logf(HOST_LOG_INFO, "gamepad %u opened via %s: %s (type %d, %04x:%04x, rumble=%d, trigger_rumble=%d)",
+			(unsigned)id, (has_rumble || has_triggers) ? "HIDAPI/RawUSB" : "Android_InputDevice",
+			SDL_GetGamepadName(gamepad), (int)SDL_GetGamepadType(gamepad),
+			SDL_GetGamepadVendor(gamepad), SDL_GetGamepadProduct(gamepad),
+			(int)has_rumble, (int)has_triggers);
+	}
 	return handle_new(_handle_gamepad, gamepad);
 }
 
