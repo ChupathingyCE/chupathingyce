@@ -293,6 +293,37 @@ HALO_CONSOLE_SERVER_CLOSE_GRACE
 	networking/network_server_manager.c): for a console on the XDK's XNet,
 	whose sockets need it. The native transports flush before they close
 	and need no wait
+HALO_CONSOLE_FRAME_RATE
+	a console that draws one frame a tick, as the Xbox did, and can draw
+	60 frames a second over its 30 Hz ticks instead (display.frame_rate,
+	off by default). The port says the refresh rate the device is made for
+	(halo_console_frame_rate: 30 or 60, read once, before
+	rasterizer_initialize makes it) and whether frames are drawn between
+	the ticks (halo_interpolation_enabled, the same answer for the whole
+	run). At 60 the frame pacer steps down to 30 while a scene can't hold
+	60 and back up when it can (main_update_time's stabilization)
+HALO_CONSOLE_VIEW_INTERPOLATION
+	the frames between ticks move the view only, with no memory of their
+	own (port/linux/game/render_interpolation.c): on foot in first person
+	the camera turns with the stick every frame and eases into each tick's
+	place, and the first-person weapon eases with it; the objects are drawn
+	where the tick left them, as the H1 Performance Build drew them. The
+	native builds' blend of every object between ticks (about 0.5 MB more
+	on a busy map) is not made
+HALO_CONSOLE_FLICKER_FILTER
+	a console on a television whose flicker filter is a setting
+	(display.flicker_filter): the port gives the level, 0 to 5
+	(halo_console_flicker_filter), set once the device is made. The Xbox
+	game asked for 5
+HALO_PORT_FRAMES_BETWEEN_TICKS
+	(not set by a port) a build that can draw several frames a tick: every
+	native build, and a console with HALO_CONSOLE_FRAME_RATE. What the Xbox
+	counted in frames, a frame being a tick there, is counted in ticks
+	(the HUD's timers, effects, particles, contrails, lighting refreshes);
+	where that would change play or sound at one frame a tick (a held
+	button's count, the listener's velocity, the pause lock), the build
+	asks halo_port_frames_between_ticks() and keeps the Xbox's counting
+	when the answer is no
 
 A big-endian console (HALO_BIG_ENDIAN, its prefix header) reads the maps,
 which are the Xbox's, little-endian, through port/console/game's byte swap
@@ -344,10 +375,30 @@ compile lines: source/cseries/xbox_address.h).
 #define HALO_CONSOLE_NO_HALOMD_MAPS "the Xbox"
 #define HALO_CONSOLE_SERVER_CLOSE_GRACE 1
 #define HALO_CONSOLE_ANAMORPHIC_SCREEN 1
+#define HALO_CONSOLE_FRAME_RATE 1
+#define HALO_CONSOLE_VIEW_INTERPOLATION 1
+#define HALO_CONSOLE_FLICKER_FILTER 1
 #endif
 
 #if !defined(HALO_XBOX_CONSOLE) || defined(HALO_CONSOLE_ANAMORPHIC_SCREEN)
 #define HALO_PORT_WIDE_INTERFACE 1
+#endif
+
+#if !defined(HALO_XBOX_CONSOLE) || defined(HALO_CONSOLE_FRAME_RATE)
+#define HALO_PORT_FRAMES_BETWEEN_TICKS 1
+#endif
+#ifdef HALO_CONSOLE_FRAME_RATE
+/* (defined by the port) */
+short halo_console_frame_rate(void);
+int halo_interpolation_enabled(void);
+/* (a console draws its ticks only, unless its setting asks for more) */
+#define halo_port_frames_between_ticks() (halo_interpolation_enabled() != 0)
+#else
+#define halo_port_frames_between_ticks() 1
+#endif
+#ifdef HALO_CONSOLE_FLICKER_FILTER
+/* (defined by the port) */
+long halo_console_flicker_filter(void);
 #endif
 
 /* (the desktop builds copy maps to the Xbox's cache files too: a map pack's

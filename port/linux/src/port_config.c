@@ -340,6 +340,16 @@ static const struct config_setting config_settings[] =
 		"with Widescreen set there, the game shows more to the sides and the\n"
 		"HUD and menus fit the wide screen. \"off\" keeps the 4:3 picture, as\n"
 		"the original game did. Read when Chupathingy starts." },
+	{ "display.frame_rate", _config_integer, "30", NULL, _environment_value, _platform_xbox,
+		"Frames a second: 30, as the original game drew, or 60. The game\n"
+		"still runs 30 ticks a second. At 60 the view turns every frame and\n"
+		"everything else moves as at 30. A busy scene drops to a steady 30\n"
+		"until it can hold 60 again. Read when Chupathingy starts." },
+	{ "display.flicker_filter", _config_integer, "5", NULL, _environment_value, _platform_xbox,
+		"How much the picture is softened against flicker on an interlaced\n"
+		"TV (480i), from 0 to 5. The original game used 5. Lower is sharper\n"
+		"and flickers more. The H1 Performance Build uses 1. It does nothing\n"
+		"at 480p. Read when Chupathingy starts." },
 #ifdef HALO_CONSOLE_PERFORMANCE_MODE
 	{ "display.performance_mode", _config_boolean, "true", "HALO_PERFORMANCE_MODE", _environment_value, _platform_all,
 		"Start in performance mode: the level drawn without its decals, dynamic lights, reflections and specular\n"
