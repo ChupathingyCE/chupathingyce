@@ -162,7 +162,7 @@ boolean cache_files_map_can_open(char const *map_name);
 void server_commands_update(void);
 /* (port/linux/src/map_repo_game.c's: Chupathingy maps' index, whose
 blacklist server_map_playable holds every map to) */
-int map_repo_game_refresh_now(void);
+void map_repo_game_refresh_wait(int milliseconds);
 
 enum
 {
@@ -625,8 +625,11 @@ static void initialize(
 		}
 	}
 	/* Chupathingy maps' blacklist, before the first map is chosen: a map on
-	it is skipped (server_map_playable), refetched hourly after this */
-	map_repo_game_refresh_now();
+	it is skipped (server_map_playable). The one kept from the last run is
+	read back at once; a fresh one is fetched in the background, waited for
+	a few seconds at most (a repository that doesn't answer never holds the
+	server up), and refetched hourly after this */
+	map_repo_game_refresh_wait(3000);
 	dedicated.active = dedicated.entry_count > 0;
 }
 

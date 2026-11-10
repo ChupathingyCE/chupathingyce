@@ -13,6 +13,14 @@ files the host's.
     map_repo_test blacklisted DOCUMENT SHA256|- MAP_HASH|-
     map_repo_test choose DOCUMENT SHA256
     map_repo_test download BASE_URL NOW NAME VERSION PATH [BASE_URL NOW]...
+    map_repo_test blocked NOW SHA256|- MAP_HASH|- [BASE_URL]
+    map_repo_test refreshes BASE_URL NOW...
+
+With MAP_REPO_TEST_SAVE (a folder), what is kept between runs is kept
+there, and read back first (its result printed as "load"); with
+MAP_REPO_TEST_USE_AT (a time), the download and "has" are asked at that
+time rather than the last refresh's; with MAP_REPO_TEST_INDEX_ONLY, the
+refreshes ask for the index alone.
 */
 
 #include "map_index.h"
@@ -165,12 +173,15 @@ static int http_get(const char *url, struct response *response, char *why, int w
 	return 1;
 }
 
+static int get_count;
+
 static int test_get(void *context, const char *url, char *buffer, int size, char *why, int why_size)
 {
 	struct response response;
 	size_t count;
 
 	(void)context;
+	get_count++;
 	if (!http_get(url, &response, why, why_size))
 		return 0;
 	count = response.size < (size_t)size - 1 ? response.size : (size_t)size - 1;
@@ -229,7 +240,48 @@ static void test_remove(void *context, const char *path)
 	remove(path);
 }
 
-static const struct map_repo_transport transport = { NULL, test_get, test_get_file, test_remove, NULL };
+static void kept_path(const char *name, char *path, size_t size)
+{
+	snprintf(path, size, "%s/%s", getenv("MAP_REPO_TEST_SAVE"), name);
+}
+
+static long test_load(void *context, const char *name, char *buffer, long size)
+{
+	char path[1024];
+	FILE *file;
+	size_t count;
+
+	(void)context;
+	kept_path(name, path, sizeof(path));
+	file = fopen(path, "rb");
+	if (!file)
+		return -1;
+	count = fread(buffer, 1, (size_t)size, file);
+	fclose(file);
+	return count ? (long)count : -1;
+}
+
+static void test_save(void *context, const char *name, const char *data, long size)
+{
+	char path[1024];
+	FILE *file;
+
+	(void)context;
+	kept_path(name, path, sizeof(path));
+	file = fopen(path, "wb");
+	if (file)
+	{
+		fwrite(data, 1, (size_t)size, file);
+		fclose(file);
+	}
+}
+
+static struct map_repo_transport transport = { NULL, test_get, test_get_file, test_remove, NULL, NULL, NULL };
+
+static int refresh_flags(int force)
+{
+	return (force ? MAP_REPO_REFRESH_FORCE : 0) | (getenv("MAP_REPO_TEST_INDEX_ONLY") ? MAP_REPO_REFRESH_INDEX_ONLY : 0);
+}
 
 int main(int count, char **arguments)
 {
@@ -237,6 +289,50 @@ int main(int count, char **arguments)
 	size_t size = 0, signature_size = 0;
 
 	atexit(free_all);
+	if (getenv("MAP_REPO_TEST_SAVE"))
+	{
+		long long now = count > 3 && !strcmp(arguments[1], "blocked") ? atoll(arguments[2]) :
+			count > 3 ? atoll(arguments[3]) : 0;
+		int held;
+
+		transport.load = test_load;
+		transport.save = test_save;
+		held = map_repo_load(&transport, now, why, (int)sizeof(why));
+		printf("load %d %s\n", held, why);
+		why[0] = 0;
+	}
+	if (count >= 5 && !strcmp(arguments[1], "blocked"))
+	{
+		unsigned char sha256[32], map_hash[32];
+		long long now = atoll(arguments[2]);
+		int has_sha = hex_hash(arguments[3], sha256), has_map = hex_hash(arguments[4], map_hash);
+
+		if (count >= 6)
+		{
+			printf("refresh %d %s\n", map_repo_refresh(&transport, arguments[5], now, refresh_flags(1), why,
+				(int)sizeof(why)), why);
+		}
+		if (map_repo_blocked(has_sha ? sha256 : NULL, has_map ? map_hash : NULL, now, why, (int)sizeof(why)))
+			printf("blocked %s\n", why);
+		else
+			printf("clear\n");
+		return 0;
+	}
+	if (count >= 4 && !strcmp(arguments[1], "refreshes"))
+	{
+		int argument;
+
+		for (argument = 3; argument < count; argument++)
+		{
+			int held;
+
+			why[0] = 0;
+			held = map_repo_refresh(&transport, arguments[2], atoll(arguments[argument]), refresh_flags(0), why,
+				(int)sizeof(why));
+			printf("refresh %d %d\n", held, get_count);
+		}
+		return 0;
+	}
 	if (count == 5 && !strcmp(arguments[1], "index"))
 	{
 		struct map_index_info info;
@@ -330,12 +426,16 @@ int main(int count, char **arguments)
 		{
 			now = atoll(arguments[argument + 1]);
 			why[0] = 0;
-			printf("refresh %d %s\n", map_repo_refresh(&transport, arguments[argument], now, 1, why, (int)sizeof(why)),
+			printf("refresh %d %s\n", map_repo_refresh(&transport, arguments[argument], now, refresh_flags(1), why,
+				(int)sizeof(why)),
 				why);
 		}
 		why[0] = 0;
 		now = atoll(arguments[3]);
-		printf("refresh %d %s\n", map_repo_refresh(&transport, arguments[2], now, 1, why, (int)sizeof(why)), why);
+		printf("refresh %d %s\n", map_repo_refresh(&transport, arguments[2], now, refresh_flags(1), why,
+			(int)sizeof(why)), why);
+		if (getenv("MAP_REPO_TEST_USE_AT"))
+			now = atoll(getenv("MAP_REPO_TEST_USE_AT"));
 		printf("has %d\n", map_repo_has(arguments[4], (unsigned int)strtoul(arguments[5], NULL, 16), now));
 		if (!map_repo_download(&transport, arguments[4], (unsigned int)strtoul(arguments[5], NULL, 16), arguments[6], now,
 			&entry, &missing, why, (int)sizeof(why)))

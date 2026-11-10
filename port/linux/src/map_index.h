@@ -145,6 +145,10 @@ document, the key allowed the serial's epoch, the document read whole, and
 not expired. 1 with its facts in info, else 0 with why in why */
 int map_index_check(const char *document, size_t size, const char *signature, size_t signature_length, long long now,
 	struct map_index_info *info, char *why, int why_size);
+/* the same, its expiry not checked (an index kept from an earlier run,
+whose blacklist outlives it: map_repo.c) */
+int map_index_verify(const char *document, size_t size, const char *signature, size_t signature_length,
+	struct map_index_info *info, char *why, int why_size);
 /* the index alone read (its signature and expiry not checked: the tests'
 and map_index_check's) */
 int map_index_parse(const char *document, size_t size, struct map_index_info *info, char *why, int why_size);
@@ -165,6 +169,8 @@ int map_index_blacklisted(const char *document, size_t size, const unsigned char
 /* the mirror list, checked as map_index_check checks the index (over
 MAP_MIRRORS_CONTEXT) */
 int map_mirrors_check(const char *document, size_t size, const char *signature, size_t signature_length, long long now,
+	struct map_mirrors *mirrors, char *why, int why_size);
+int map_mirrors_verify(const char *document, size_t size, const char *signature, size_t signature_length,
 	struct map_mirrors *mirrors, char *why, int why_size);
 int map_mirrors_parse(const char *document, size_t size, struct map_mirrors *mirrors, char *why, int why_size);
 

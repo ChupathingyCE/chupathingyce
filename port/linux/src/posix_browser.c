@@ -42,6 +42,7 @@ platform.
 #include <fcntl.h>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <poll.h>
 #include <pthread.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -60,7 +61,15 @@ void platform_log(const char *format, ...);
 #endif
 
 #define BROWSER_USER_AGENT "chupathingyce-browser"
+/* a read's longest wait, and a connection's (as connect() would wait for a
+host that doesn't answer for minutes) */
 #define TIMEOUT_MILLISECONDS 10000
+#define CONNECT_TIMEOUT_MILLISECONDS 10000
+/* a request's whole answer, from its handshake on (a server that sends a
+byte every few seconds never holds a thread longer); a download's head,
+and its whole body */
+#define REQUEST_DEADLINE_MILLISECONDS 30000LL
+#define DOWNLOAD_DEADLINE_MILLISECONDS (2LL * 3600 * 1000)
 
 #ifndef _WIN32
 /* where systems keep their certificate authorities */
@@ -238,10 +247,47 @@ static int parse_url(const char *url, int *secure, char *host, size_t host_size,
 struct connection
 {
 	int secure;
+	/* (when its reads give up: monotonic_milliseconds, 0 for never) */
+	long long deadline;
 	mbedtls_net_context net;
 	mbedtls_ssl_context ssl;
 	mbedtls_ssl_config config;
 };
+
+static long long monotonic_milliseconds(void)
+{
+#ifdef _WIN32
+	return (long long)GetTickCount64();
+#else
+	struct timespec now;
+
+	clock_gettime(CLOCK_MONOTONIC, &now);
+	return (long long)now.tv_sec * 1000 + now.tv_nsec / 1000000;
+#endif
+}
+
+/* a connection's reads (TLS's and plain), each no longer than timeout nor
+past the connection's deadline */
+static int receive_until_deadline(void *context, unsigned char *buffer, size_t size, uint32_t timeout)
+{
+	struct connection *connection = (struct connection *)context;
+
+	if (connection->deadline)
+	{
+		long long left = connection->deadline - monotonic_milliseconds();
+
+		if (left <= 0)
+			return MBEDTLS_ERR_SSL_TIMEOUT;
+		if (!timeout || (long long)timeout > left)
+			timeout = (uint32_t)left;
+	}
+	return mbedtls_net_recv_timeout(&connection->net, buffer, size, timeout);
+}
+
+static int send_on(void *context, const unsigned char *buffer, size_t size)
+{
+	return mbedtls_net_send(&((struct connection *)context)->net, buffer, size);
+}
 
 static void connection_free(struct connection *connection)
 {
@@ -252,6 +298,69 @@ static void connection_free(struct connection *connection)
 	mbedtls_ssl_free(&connection->ssl);
 	mbedtls_ssl_config_free(&connection->config);
 	mbedtls_net_free(&connection->net);
+}
+
+#ifdef _WIN32
+typedef SOCKET socket_type;
+#else
+typedef int socket_type;
+#endif
+
+/* a connect() given up after CONNECT_TIMEOUT_MILLISECONDS, and the socket's
+sends after TIMEOUT_MILLISECONDS each: 1 when connected */
+static int connect_within(socket_type descriptor, const struct sockaddr *address, int length)
+{
+	int connected, error = 0;
+#ifdef _WIN32
+	u_long blocking = 1;
+	DWORD send_timeout = TIMEOUT_MILLISECONDS;
+	int size = (int)sizeof(error);
+
+	ioctlsocket(descriptor, FIONBIO, &blocking);
+	connected = connect(descriptor, address, length) == 0;
+	if (!connected && WSAGetLastError() == WSAEWOULDBLOCK)
+	{
+		fd_set writable, failed;
+		struct timeval wait;
+
+		FD_ZERO(&writable);
+		FD_ZERO(&failed);
+		FD_SET(descriptor, &writable);
+		FD_SET(descriptor, &failed);
+		wait.tv_sec = CONNECT_TIMEOUT_MILLISECONDS / 1000;
+		wait.tv_usec = (CONNECT_TIMEOUT_MILLISECONDS % 1000) * 1000;
+		connected = select(0, NULL, &writable, &failed, &wait) > 0 && FD_ISSET(descriptor, &writable) &&
+			getsockopt(descriptor, SOL_SOCKET, SO_ERROR, (char *)&error, &size) == 0 && !error;
+	}
+	blocking = 0;
+	ioctlsocket(descriptor, FIONBIO, &blocking);
+	setsockopt(descriptor, SOL_SOCKET, SO_SNDTIMEO, (const char *)&send_timeout, (int)sizeof(send_timeout));
+#else
+	int flags = fcntl(descriptor, F_GETFL, 0);
+	socklen_t size = (socklen_t)sizeof(error);
+	struct timeval send_timeout;
+
+	fcntl(descriptor, F_SETFL, flags | O_NONBLOCK);
+	connected = connect(descriptor, address, (socklen_t)length) == 0;
+	if (!connected && errno == EINPROGRESS)
+	{
+		struct pollfd wait;
+		int ready;
+
+		wait.fd = descriptor;
+		wait.events = POLLOUT;
+		wait.revents = 0;
+		do
+			ready = poll(&wait, 1, CONNECT_TIMEOUT_MILLISECONDS);
+		while (ready < 0 && errno == EINTR);
+		connected = ready == 1 && getsockopt(descriptor, SOL_SOCKET, SO_ERROR, &error, &size) == 0 && !error;
+	}
+	fcntl(descriptor, F_SETFL, flags);
+	send_timeout.tv_sec = TIMEOUT_MILLISECONDS / 1000;
+	send_timeout.tv_usec = (TIMEOUT_MILLISECONDS % 1000) * 1000;
+	setsockopt(descriptor, SOL_SOCKET, SO_SNDTIMEO, &send_timeout, sizeof(send_timeout));
+#endif
+	return connected;
 }
 
 /* a TCP connection over IPv4 alone: the game list matches a player's
@@ -278,7 +387,7 @@ static int connect_ipv4(mbedtls_net_context *net, const char *host, const char *
 		descriptor = socket(address->ai_family, address->ai_socktype, address->ai_protocol);
 		if (descriptor == NO_SOCKET)
 			continue;
-		if (connect(descriptor, address->ai_addr, (int)address->ai_addrlen) != 0)
+		if (!connect_within(descriptor, address->ai_addr, (int)address->ai_addrlen))
 		{
 			close_socket(descriptor);
 			descriptor = NO_SOCKET;
@@ -325,7 +434,7 @@ static int connection_open(struct connection *connection, const char *host, cons
 		set_error(error, error_size, "could not set up TLS", result);
 		return 0;
 	}
-	mbedtls_ssl_set_bio(&connection->ssl, &connection->net, mbedtls_net_send, NULL, mbedtls_net_recv_timeout);
+	mbedtls_ssl_set_bio(&connection->ssl, connection, send_on, NULL, receive_until_deadline);
 	while ((result = mbedtls_ssl_handshake(&connection->ssl)) != 0)
 	{
 		if (result != MBEDTLS_ERR_SSL_WANT_READ && result != MBEDTLS_ERR_SSL_WANT_WRITE)
@@ -375,7 +484,7 @@ static int connection_read(struct connection *connection, unsigned char *buffer,
 	{
 		int count = connection->secure
 			? mbedtls_ssl_read(&connection->ssl, buffer, size)
-			: mbedtls_net_recv_timeout(&connection->net, buffer, size, TIMEOUT_MILLISECONDS);
+			: receive_until_deadline(connection, buffer, size, TIMEOUT_MILLISECONDS);
 
 		if (count == MBEDTLS_ERR_SSL_WANT_READ || count == MBEDTLS_ERR_SSL_WANT_WRITE)
 			continue;
@@ -523,6 +632,7 @@ static int request_as(const char *url, const char *body_data, size_t body_length
 	}
 	memset(&connection, 0, sizeof(connection));
 	connection.secure = secure;
+	connection.deadline = monotonic_milliseconds() + REQUEST_DEADLINE_MILLISECONDS;
 	mbedtls_net_init(&connection.net);
 	mbedtls_ssl_init(&connection.ssl);
 	mbedtls_ssl_config_init(&connection.config);
@@ -544,6 +654,9 @@ static int request_as(const char *url, const char *body_data, size_t body_length
 		{
 			int count;
 
+			/* (the answer's own time, from the request sent: a long body
+			uploaded first doesn't use it up) */
+			connection.deadline = monotonic_milliseconds() + REQUEST_DEADLINE_MILLISECONDS;
 			while (used < capacity && (count = connection_read(&connection, (unsigned char *)buffer + used,
 				capacity - used)) > 0)
 			{
@@ -662,6 +775,7 @@ static int download_request(const char *url, const char *user_agent, char *locat
 		return 0;
 	}
 	download.connection.secure = secure;
+	download.connection.deadline = monotonic_milliseconds() + REQUEST_DEADLINE_MILLISECONDS;
 	if (!connection_open(&download.connection, host, port, error, error_size))
 		return 0;
 	if (!connection_write(&download.connection, request, (size_t)count))
@@ -669,6 +783,7 @@ static int download_request(const char *url, const char *user_agent, char *locat
 		set_error(error, error_size, "could not send the request", 0);
 		return 0;
 	}
+	download.connection.deadline = monotonic_milliseconds() + REQUEST_DEADLINE_MILLISECONDS;
 	/* the head, and whatever of the body came with it */
 	while (!end && used < sizeof(download.head) - 1)
 	{
@@ -722,6 +837,8 @@ int posix_browser_download_open(const char *url, const char *user_agent, int *st
 		if (*status == 200)
 		{
 			*length = size >= 0 && size <= 0x7fffffff ? (int)size : -1;
+			/* (the body: a long one, a map, but never forever) */
+			download.connection.deadline = monotonic_milliseconds() + DOWNLOAD_DEADLINE_MILLISECONDS;
 			download.open = 1;
 			return 1;
 		}

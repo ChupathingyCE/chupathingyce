@@ -67,12 +67,31 @@ static int name_valid(const char *text)
 	return 1;
 }
 
-/* printable text for people: no control characters (UTF-8 kept) */
+/* printable text for people: no control characters, C1's in UTF-8 (U+0080
+to U+009F, a terminal's escapes among them) included; other UTF-8 kept */
 static int text_printable(const char *text)
 {
 	for (; *text; text++)
 	{
-		if ((unsigned char)*text < 0x20 || *text == 0x7f)
+		unsigned char c = (unsigned char)*text;
+
+		if (c < 0x20 || c == 0x7f || (c == 0xc2 && (unsigned char)text[1] >= 0x80 && (unsigned char)text[1] <= 0x9f))
+			return 0;
+	}
+	return 1;
+}
+
+/* a field's name and its ':': printable ASCII alone, as a name a field is
+refused by is logged ("its <name> is wrong") */
+static int json_key(struct json *json, char *key, size_t size)
+{
+	size_t index;
+
+	if (!json_string(json, key, size) || !take(json, ':'))
+		return 0;
+	for (index = 0; key[index]; index++)
+	{
+		if ((unsigned char)key[index] <= 0x20 || (unsigned char)key[index] >= 0x7f)
 			return 0;
 	}
 	return 1;
@@ -110,8 +129,12 @@ static int base_url_valid(const char *text)
 
 	if (!strncmp(text, "https://", 8))
 		rest = text + 8;
-	else if (!strncmp(text, "http://127.0.0.1", 16) || !strncmp(text, "http://localhost", 16))
+	else if ((!strncmp(text, "http://127.0.0.1", 16) || !strncmp(text, "http://localhost", 16)) &&
+		(!text[16] || text[16] == ':' || text[16] == '/'))
+	{
+		/* (the host itself, not one it begins: http://localhost.example.org) */
 		rest = text + 7;
+	}
 	else
 		return 0;
 	if (length > MAP_MIRROR_URL_SIZE - 1 || !*rest || *rest == '/' || text[length - 1] == '/' || strstr(text, ".."))
@@ -231,11 +254,12 @@ static int read_map(struct json *json, struct index_reader *reader, int *usable,
 		return fail(why, why_size, "a map is empty");
 	do
 	{
-		char key[KEY_SIZE], text[MAP_INDEX_REASON_SIZE];
+		/* (text cleared: a value that is not a string is never compared as one) */
+		char key[KEY_SIZE], text[MAP_INDEX_REASON_SIZE] = "";
 		long long value = 0;
 		int bit = 0, ok;
 
-		if (!json_string(json, key, sizeof(key)) || !take(json, ':'))
+		if (!json_key(json, key, sizeof(key)))
 			return fail(why, why_size, "a map's field is not one");
 		if (!strcmp(key, "sha256"))
 			bit = HAS_SHA256, ok = json_string(json, text, sizeof(text)) && hex_bytes(text, entry.sha256, 64);
@@ -353,7 +377,7 @@ static int read_block(struct json *json, struct index_reader *reader, char *why,
 		HAS_REASON = 1 << 2,
 	};
 	struct map_index_block block;
-	char hash_text[MAP_INDEX_REASON_SIZE];
+	char hash_text[MAP_INDEX_REASON_SIZE] = "";
 	int seen = 0, known_kind = 0;
 
 	memset(&block, 0, sizeof(block));
@@ -363,11 +387,12 @@ static int read_block(struct json *json, struct index_reader *reader, char *why,
 		return fail(why, why_size, "a blacklist entry is empty");
 	do
 	{
-		char key[KEY_SIZE], text[MAP_INDEX_REASON_SIZE];
+		/* (text cleared: a value that is not a string is never compared as one) */
+		char key[KEY_SIZE], text[MAP_INDEX_REASON_SIZE] = "";
 		long long value;
 		int bit = 0, ok;
 
-		if (!json_string(json, key, sizeof(key)) || !take(json, ':'))
+		if (!json_key(json, key, sizeof(key)))
 			return fail(why, why_size, "a blacklist entry's field is not one");
 		if (!strcmp(key, "hash"))
 			bit = HAS_HASH, ok = json_string(json, hash_text, sizeof(hash_text));
@@ -454,7 +479,7 @@ static int read_index(const char *document, size_t size, struct map_index_info *
 		long long value = 0;
 		int bit = 0, ok;
 
-		if (!json_string(&json, key, sizeof(key)) || !take(&json, ':'))
+		if (!json_key(&json, key, sizeof(key)))
 			return fail(why, why_size, "a field is not one");
 		if (!strcmp(key, "map_index"))
 		{
@@ -569,11 +594,12 @@ static int read_mirror(struct json *json, struct map_mirror *mirror, char *why, 
 		return fail(why, why_size, "a mirror is empty");
 	do
 	{
-		char key[KEY_SIZE], text[MAP_INDEX_REASON_SIZE];
+		/* (text cleared: a value that is not a string is never compared as one) */
+		char key[KEY_SIZE], text[MAP_INDEX_REASON_SIZE] = "";
 		int bit = 0, ok;
 		size_t index;
 
-		if (!json_string(json, key, sizeof(key)) || !take(json, ':'))
+		if (!json_key(json, key, sizeof(key)))
 			return fail(why, why_size, "a mirror's field is not one");
 		if (!strcmp(key, "id"))
 		{
@@ -643,6 +669,16 @@ int map_index_parse(const char *document, size_t size, struct map_index_info *in
 int map_index_check(const char *document, size_t size, const char *signature, size_t signature_length, long long now,
 	struct map_index_info *info, char *why, int why_size)
 {
+	if (!map_index_verify(document, size, signature, signature_length, info, why, why_size))
+		return 0;
+	if (now > info->expires)
+		return fail(why, why_size, "it has expired");
+	return 1;
+}
+
+int map_index_verify(const char *document, size_t size, const char *signature, size_t signature_length,
+	struct map_index_info *info, char *why, int why_size)
+{
 	int signer;
 
 	memset(info, 0, sizeof(*info));
@@ -655,8 +691,6 @@ int map_index_check(const char *document, size_t size, const char *signature, si
 		return 0;
 	if (MAP_INDEX_EPOCH(info->serial) > maps_key_last_epochs[signer])
 		return fail(why, why_size, "its serial's epoch is past its key's");
-	if (now > info->expires)
-		return fail(why, why_size, "it has expired");
 	return 1;
 }
 
@@ -731,7 +765,7 @@ int map_mirrors_parse(const char *document, size_t size, struct map_mirrors *mir
 		long long value = 0;
 		int bit = 0, ok;
 
-		if (!json_string(&json, key, sizeof(key)) || !take(&json, ':'))
+		if (!json_key(&json, key, sizeof(key)))
 			return fail(why, why_size, "a field is not one");
 		if (!strcmp(key, "map_mirrors"))
 		{
@@ -794,6 +828,16 @@ int map_mirrors_parse(const char *document, size_t size, struct map_mirrors *mir
 int map_mirrors_check(const char *document, size_t size, const char *signature, size_t signature_length, long long now,
 	struct map_mirrors *mirrors, char *why, int why_size)
 {
+	if (!map_mirrors_verify(document, size, signature, signature_length, mirrors, why, why_size))
+		return 0;
+	if (now > mirrors->expires)
+		return fail(why, why_size, "it has expired");
+	return 1;
+}
+
+int map_mirrors_verify(const char *document, size_t size, const char *signature, size_t signature_length,
+	struct map_mirrors *mirrors, char *why, int why_size)
+{
 	int signer;
 
 	memset(mirrors, 0, sizeof(*mirrors));
@@ -806,8 +850,6 @@ int map_mirrors_check(const char *document, size_t size, const char *signature, 
 		return 0;
 	if (MAP_INDEX_EPOCH(mirrors->serial) > maps_key_last_epochs[signer])
 		return fail(why, why_size, "its serial's epoch is past its key's");
-	if (now > mirrors->expires)
-		return fail(why, why_size, "it has expired");
 	return 1;
 }
 

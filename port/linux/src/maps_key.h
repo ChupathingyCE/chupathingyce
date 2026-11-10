@@ -12,17 +12,16 @@ byte is its epoch, the primary key signs epoch 0 and the recovery key every
 one, so a leaked primary is followed by a recovery-signed document of epoch 1
 that it can never follow.
 
-A build whose keys are all zero has no key: it never asks Chupathingy maps
-for anything (no index, no mirror list, no download from it), and the
-community map repositories are asked as before.
+The keys were made inside GitHub Actions by ChupathingyCE's command
+repository (keys.yml, set maps) on 2026-11-10; their secret halves live only
+in its environment secrets MAP_INDEX_SIGNING_KEY (environment signing) and
+MAP_INDEX_RECOVERY_KEY (environment signing-recovery), and the public halves
+below are keys/maps.pub.json's there. The index workflow signs with them.
 
-TODO(maps keys): the keys aren't made yet. They will be made inside GitHub
-Actions by ChupathingyCE's command repository (keys.yml, set maps), into the
-environment secrets MAP_INDEX_SIGNING_KEY (environment signing) and
-MAP_INDEX_RECOVERY_KEY (environment signing-recovery), and published as
-keys/maps.pub.json in that repository; the index workflow (map-index.yml,
-done like playlist-maps.yml) signs with them. Paste the two public halves
-below then, as identity_key.h has its keys.
+A build whose keys are all zero (none now; a fork may blank them) has no
+key: it never asks Chupathingy maps for anything (no index, no mirror list,
+no download from it), and the community map repositories are asked as
+before.
 */
 
 #ifndef MAPS_KEY_H
@@ -31,15 +30,15 @@ below then, as identity_key.h has its keys.
 #ifndef HALO_MAPS_TEST_KEY
 static const unsigned char maps_public_keys[][32] =
 {
-	/* primary (keys/maps.pub.json: not made yet) */
+	/* primary (keys/maps.pub.json: cf69b2e5ac2fea2d2418013bb35d1c04ee0352bc6bcc348e567e3592823246ad) */
 	{
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0xcf, 0x69, 0xb2, 0xe5, 0xac, 0x2f, 0xea, 0x2d, 0x24, 0x18, 0x01, 0x3b, 0xb3, 0x5d, 0x1c, 0x04,
+		0xee, 0x03, 0x52, 0xbc, 0x6b, 0xcc, 0x34, 0x8e, 0x56, 0x7e, 0x35, 0x92, 0x82, 0x32, 0x46, 0xad,
 	},
-	/* recovery (keys/maps.pub.json: not made yet) */
+	/* recovery (keys/maps.pub.json: 5ab67b8db3b60211b29fac31408bc08cf924dd4e95ab2be78d308a4aeae07d05) */
 	{
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x5a, 0xb6, 0x7b, 0x8d, 0xb3, 0xb6, 0x02, 0x11, 0xb2, 0x9f, 0xac, 0x31, 0x40, 0x8b, 0xc0, 0x8c,
+		0xf9, 0x24, 0xdd, 0x4e, 0x95, 0xab, 0x2b, 0xe7, 0x8d, 0x30, 0x8a, 0x4a, 0xea, 0xe0, 0x7d, 0x05,
 	},
 };
 #else

@@ -16,6 +16,7 @@ import hashlib
 import http.server
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -80,8 +81,8 @@ def index_document(maps, blacklist=(), serial=12, issued=NOW - 100, lifetime=3 *
     return document
 
 
-def mirrors_document(mirrors, serial=4, issued=NOW - 100) -> dict:
-    return {"map_mirrors": 1, "serial": serial, "issued": issued, "expires": issued + 3 * 86400, "mirrors": list(mirrors)}
+def mirrors_document(mirrors, serial=4, issued=NOW - 100, lifetime=3 * 86400) -> dict:
+    return {"map_mirrors": 1, "serial": serial, "issued": issued, "expires": issued + lifetime, "mirrors": list(mirrors)}
 
 
 def mirror(identifier, base_url, priority=10, status="ok", **changes) -> dict:
@@ -129,8 +130,9 @@ def driver(keys, tmp_path_factory):
     return program
 
 
-def run(program, *arguments) -> str:
-    result = subprocess.run([str(program), *map(str, arguments)], capture_output=True, text=True, timeout=60)
+def run(program, *arguments, environment=None) -> str:
+    result = subprocess.run([str(program), *map(str, arguments)], capture_output=True, text=True, timeout=60,
+                            env=dict(os.environ, **(environment or {})))
     assert result.returncode == 0, result.stderr
     return result.stdout
 
@@ -326,11 +328,45 @@ def test_mirrors_check(driver, signed):
 
 
 @pytest.mark.parametrize("url", ["http://maps.example.org", "https://user@example.org/x", "https://example.org/a?b=c",
-                                 "https://example.org/../x", "https://example.org/", "ftp://example.org", "https://"])
+                                 "https://example.org/../x", "https://example.org/", "ftp://example.org", "https://",
+                                 "http://localhost.example.org", "http://127.0.0.1.example.org/maps",
+                                 "http://localhostevil.org"])
 def test_mirror_addresses_refused(driver, signed, url):
     document = mirrors_document([mirror("m", url)])
     assert run(driver, "mirrors", *signed.write(document, context=MIRRORS_CONTEXT), NOW) == \
         "refused: a mirror's base_url is wrong\n"
+
+
+@pytest.mark.parametrize("url", ["http://localhost", "http://localhost:8080/maps", "http://127.0.0.1:9/x",
+                                 "https://maps.example.org/files"])
+def test_mirror_addresses_taken(driver, signed, url):
+    document = mirrors_document([mirror("m", url)])
+    assert run(driver, "mirrors", *signed.write(document, context=MIRRORS_CONTEXT), NOW) == "ok 4 1\n"
+
+
+def test_control_characters_refused(driver, signed):
+    # (a field's name is logged when it is wrong: never one with a control
+    # character, escaped or not)
+    raw = dumps(index_document([]))[:-2] + b',\n "bad\\nname": "x"\n}\n'
+    assert run(driver, "index", *signed.write(None, raw=raw), NOW) == "refused: a field is not one\n"
+    raw = dumps(index_document([]))[:-2] + b',\n "bad\x1bname": 1\n}\n'
+    assert run(driver, "index", *signed.write(None, raw=raw), NOW) == "refused: a field is not one\n"
+    # (a terminal's escape as UTF-8's C1 characters, in a text shown and logged)
+    raw = dumps(index_document([], halt=True, halt_reason="HALTREASON")).replace(b"HALTREASON", b"x\xc2\x9b31m")
+    assert run(driver, "index", *signed.write(None, raw=raw), NOW) == "refused: its halt_reason is wrong\n"
+    raw = dumps(index_document([], blacklist=[{"hash": "ab" * 32, "kind": "sha256", "name": "x", "reason": "RR",
+                                               "since": NOW}])).replace(b'"RR"', b'"a\\tb"')
+    assert run(driver, "index", *signed.write(None, raw=raw), NOW).startswith("refused: ")
+
+
+@pytest.mark.parametrize("field", ["kind", "status"])
+def test_a_text_field_of_another_type_refused(driver, signed, field):
+    # (a value that isn't a string is never compared as one)
+    document = index_document([map_entry("bigass", DATA, **{field: 7})])
+    assert run(driver, "index", *signed.write(document), NOW).startswith("refused: a map's ")
+    document = mirrors_document([mirror("m", "https://maps.example.org", status=7)])
+    assert run(driver, "mirrors", *signed.write(document, context=MIRRORS_CONTEXT), NOW) == \
+        "refused: a mirror's status is wrong\n"
 
 
 def test_mirror_choice(driver, tmp_path):
@@ -500,7 +536,7 @@ def test_older_index_never_replaces_a_newer(driver, repository, keys, tmp_path):
     lines = download(driver, repository, tmp_path / "x", "bigass", entry["version"], NOW, "/old",
                      repository.url + "/new", NOW)
     assert lines[0] == "refresh 1 "
-    assert lines[1] == "refresh 0 the index was refused: its serial is 12, older than the 13 held"
+    assert lines[1] == "refresh 0 the index was refused: its serial is 12, older than the 13 taken"
     assert lines[-1] == "failed 0 it is blocked: found to crash"
 
 
@@ -511,6 +547,253 @@ def test_mirror_list_refused_index_kept(driver, repository, keys, tmp_path):
     lines = download(driver, repository, tmp_path / "x", "bigass", entry["version"])
     assert lines[0] == "refresh 1 the mirror list was refused: its signature does not match"
     assert lines[-1] == "failed 0 Chupathingy maps has no mirror list that checks"
+
+
+def test_expired_mirror_list_never_used(driver, repository, keys, tmp_path):
+    # (checked at use, not only when fetched: a list that expired since)
+    entry = map_entry("bigass", DATA)
+    repository.publish("", keys, index_document([entry], lifetime=5 * 86400),
+                       mirrors_document([mirror("m", repository.url + "/m", 1)], lifetime=86400))
+    repository.host_file("/m", DATA)
+    lines = run(driver, "download", repository.url, NOW, "bigass", entry["version"], tmp_path / "x",
+                environment={"MAP_REPO_TEST_USE_AT": str(NOW + 2 * 86400)}).splitlines()
+    assert lines[0] == "refresh 1 "
+    assert lines[1] == "has 0"
+    assert lines[-1] == "failed 0 Chupathingy maps has no mirror list that checks"
+    assert not [path for path in repository.asked if path.startswith("/m/")]
+
+
+def test_index_alone_when_nothing_is_downloaded(driver, repository, keys, tmp_path):
+    # (network.map_downloads "never", and the dedicated server: the
+    # blacklist is fetched, the mirror list never asked for)
+    entry = map_entry("bigass", DATA)
+    blacklist = [{"hash": entry["sha256"], "kind": "sha256", "name": "bigass", "reason": "crashes", "since": NOW}]
+    repository.publish("", keys, index_document([entry], blacklist=blacklist),
+                       mirrors_document([mirror("m", repository.url + "/m", 1)]))
+    out = run(driver, "blocked", NOW, entry["sha256"], "-", repository.url,
+              environment={"MAP_REPO_TEST_INDEX_ONLY": "1"}).splitlines()
+    assert out == ["refresh 1 ", "blocked crashes"]
+    assert repository.asked == ["/index.json", "/index.json.sig"]
+
+
+def test_failed_refresh_waits_longer_each_time(driver):
+    # (a repository that doesn't answer: asked again after 5 minutes, then
+    # 10, never in between)
+    closed = FakeRepository()
+    url = closed.url
+    closed.close()
+    lines = run(driver, "refreshes", url, NOW, NOW + 100, NOW + 301, NOW + 800, NOW + 902).splitlines()
+    assert lines == ["refresh 0 1", "refresh 0 1", "refresh 0 2", "refresh 0 2", "refresh 0 3"]
+
+
+# ---------- what is kept between runs
+
+def kept(tmp_path):
+    folder = tmp_path / "save"
+    folder.mkdir(exist_ok=True)
+    return {"MAP_REPO_TEST_SAVE": str(folder)}, folder
+
+
+def blacklisted(entry, reason="found to crash"):
+    return [{"hash": entry["sha256"], "kind": "sha256", "name": entry["name"], "reason": reason, "since": NOW}]
+
+
+def test_kept_index_blocks_before_any_fetch(driver, repository, keys, tmp_path):
+    environment, folder = kept(tmp_path)
+    entry = map_entry("bigass", DATA)
+    repository.publish("", keys, index_document([entry], blacklist=blacklisted(entry)),
+                       mirrors_document([mirror("m", repository.url + "/m", 1)]))
+    out = run(driver, "blocked", NOW, entry["sha256"], "-", repository.url, environment=environment).splitlines()
+    assert out == ["load 0 ", "refresh 1 ", "blocked found to crash"]
+    assert sorted(path.name for path in folder.iterdir()) == [
+        "chupathingy_maps_floor.txt", "chupathingy_maps_index.signed", "chupathingy_maps_mirrors.signed"]
+    assert (folder / "chupathingy_maps_floor.txt").read_text().startswith("index 12 ")
+    # (the next run, the repository gone: the kept index's blacklist)
+    repository.close()
+    out = run(driver, "blocked", NOW + 60, entry["sha256"], "-", environment=environment).splitlines()
+    assert out == ["load 1 kept index 12 (unexpired)", "blocked found to crash"]
+
+
+def test_expired_kept_index_blocks_but_never_downloads(driver, repository, keys, tmp_path):
+    environment, _ = kept(tmp_path)
+    entry = map_entry("bigass", DATA)
+    other = map_entry("other", OTHER)
+    repository.publish("", keys, index_document([entry, other], blacklist=blacklisted(entry)),
+                       mirrors_document([mirror("m", repository.url + "/m", 1)]))
+    repository.host_file("/m", OTHER)
+    assert run(driver, "blocked", NOW, "-", "-", repository.url, environment=environment).splitlines()[1] == "refresh 1 "
+    later = NOW + 10 * 86400
+    repository.routes.clear()
+    out = run(driver, "blocked", later, entry["sha256"], "-", environment=environment).splitlines()
+    assert out == ["load 1 kept index 12 (expired: its blacklist alone used)", "blocked found to crash"]
+    lines = run(driver, "download", repository.url, later, "other", other["version"], tmp_path / "x",
+                environment=environment).splitlines()
+    assert lines[0] == "load 1 kept index 12 (expired: its blacklist alone used)"
+    assert lines[1].startswith("refresh 0 the index was refused")
+    assert lines[2] == "has 0"
+    assert lines[-1] == "failed 1 no index that checks"
+    assert not [path for path in repository.asked if path.startswith("/m/")]
+
+
+def test_floor_outlives_a_lost_index(driver, repository, keys, tmp_path):
+    environment, folder = kept(tmp_path)
+    entry = map_entry("bigass", DATA)
+    mirrors = mirrors_document([mirror("m", repository.url + "/m", 1)])
+    repository.publish("/new", keys, index_document([entry], blacklist=blacklisted(entry), serial=13), mirrors)
+    repository.publish("/old", keys, index_document([entry], serial=12), mirrors)
+    repository.publish("/same", keys, index_document([entry], serial=13, refresh=7200), mirrors)
+    assert run(driver, "blocked", NOW, "-", "-", repository.url + "/new", environment=environment).splitlines()[1] == \
+        "refresh 1 "
+    (folder / "chupathingy_maps_index.signed").unlink()
+    # (an older one replayed, its newer lost from the save folder: the floor
+    # still refuses it)
+    out = run(driver, "blocked", NOW, entry["sha256"], "-", repository.url + "/old", environment=environment)
+    assert out.splitlines() == ["load 0 ", "refresh 0 the index was refused: its serial is 12, older than the 13 taken",
+                                "clear"]
+    # (another document of the same serial: refused too)
+    out = run(driver, "blocked", NOW, entry["sha256"], "-", repository.url + "/same", environment=environment)
+    assert out.splitlines()[1] == "refresh 0 the index was refused: its serial is 13, as the one taken, but it differs"
+    # (the same document again: taken)
+    out = run(driver, "blocked", NOW, entry["sha256"], "-", repository.url + "/new", environment=environment)
+    assert out.splitlines()[1:] == ["refresh 1 ", "blocked found to crash"]
+
+
+def test_kept_index_older_than_the_floor_dropped(driver, repository, keys, tmp_path):
+    environment, folder = kept(tmp_path)
+    entry = map_entry("bigass", DATA)
+    mirrors = mirrors_document([mirror("m", repository.url + "/m", 1)])
+    repository.publish("/old", keys, index_document([entry], serial=12), mirrors)
+    repository.publish("/new", keys, index_document([entry], blacklist=blacklisted(entry), serial=13), mirrors)
+    run(driver, "blocked", NOW, "-", "-", repository.url + "/old", environment=environment)
+    old = (folder / "chupathingy_maps_index.signed").read_bytes()
+    run(driver, "blocked", NOW, "-", "-", repository.url + "/new", environment=environment)
+    (folder / "chupathingy_maps_index.signed").write_bytes(old)
+    out = run(driver, "blocked", NOW, entry["sha256"], "-", environment=environment).splitlines()
+    assert out == ["load 0 the kept index was dropped: its serial is 12, older than the 13 taken", "clear"]
+
+
+def test_tampered_kept_index_dropped(driver, repository, keys, tmp_path):
+    environment, folder = kept(tmp_path)
+    entry = map_entry("bigass", DATA)
+    repository.publish("", keys, index_document([entry], blacklist=blacklisted(entry)),
+                       mirrors_document([mirror("m", repository.url + "/m", 1)]))
+    run(driver, "blocked", NOW, "-", "-", repository.url, environment=environment)
+    path = folder / "chupathingy_maps_index.signed"
+    path.write_bytes(path.read_bytes().replace(b"found to crash", b"found to crasH"))
+    out = run(driver, "blocked", NOW, entry["sha256"], "-", environment=environment).splitlines()
+    assert out == ["load 0 the kept index was dropped: its signature does not match", "clear"]
+
+
+def test_recovery_epoch_never_goes_back(driver, repository, keys, tmp_path):
+    # (once a recovery-signed epoch is taken, epoch 0's primary-signed
+    # documents never are again, whatever their serial, in this run or the
+    # next)
+    environment, _ = kept(tmp_path)
+    entry = map_entry("bigass", DATA)
+    mirrors = mirrors_document([mirror("m", repository.url + "/m", 1)])
+    repository.publish("/recovered", keys, index_document([entry], blacklist=blacklisted(entry), serial=(1 << 24) + 1),
+                       mirrors, index_key=keys[1][0])
+    repository.publish("/primary", keys, index_document([entry], serial=500), mirrors)
+    lines = download(driver, repository, tmp_path / "x", "bigass", entry["version"], NOW, "/primary",
+                     repository.url + "/recovered", NOW)
+    assert lines[0] == "refresh 1 "
+    assert lines[1] == f"refresh 0 the index was refused: its serial is 500, older than the {(1 << 24) + 1} taken"
+    run(driver, "blocked", NOW, "-", "-", repository.url + "/recovered", environment=environment)
+    out = run(driver, "blocked", NOW, entry["sha256"], "-", repository.url + "/primary", environment=environment)
+    assert out.splitlines() == [f"load 1 kept index {(1 << 24) + 1} (unexpired)",
+                                f"refresh 0 the index was refused: its serial is 500, older than the {(1 << 24) + 1} "
+                                "taken", "blocked found to crash"]
+
+
+def test_release_keys_are_the_command_repositorys():
+    # (ChupathingyCE/command's keys/maps.pub.json: the primary, then the
+    # recovery key)
+    header = (SRC / "maps_key.h").read_text()
+    table = header[header.index("maps_public_keys[][32] =\n{"):header.index("#else")]
+    found = ["".join(row) for row in
+             (re.findall(r"0x([0-9a-f]{2})", block) for block in re.findall(r"\{([^{}]*)\}", table))]
+    assert found == ["cf69b2e5ac2fea2d2418013bb35d1c04ee0352bc6bcc348e567e3592823246ad",
+                     "5ab67b8db3b60211b29fac31408bc08cf924dd4e95ab2be78d308a4aeae07d05"]
+
+
+# ---------- the HTTP client's waits (port/linux/src/posix_browser.c)
+
+def browser_function(source, name):
+    at = re.search(r"\n(static [^\n]*\b" + name + r"\([^\n]*\n(?:[^\n]*\n)*?\}\n)", source).group(1)
+    return at
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="the POSIX half")
+def test_http_client_gives_up(tmp_path):
+    """A connection to a host that doesn't answer is given up after its
+    timeout, and a read never runs past the connection's deadline."""
+    cc = compiler()
+    if not cc:
+        pytest.skip("no C compiler")
+    browser = (SRC / "posix_browser.c").read_text()
+    source = r"""
+#define _DEFAULT_SOURCE
+#include <errno.h>
+#include <fcntl.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <poll.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <sys/time.h>
+#include <time.h>
+#include <unistd.h>
+#define TIMEOUT_MILLISECONDS 10000
+#define CONNECT_TIMEOUT_MILLISECONDS 1000
+#define MBEDTLS_ERR_SSL_TIMEOUT -0x6800
+typedef int socket_type;
+typedef struct { int fd; } mbedtls_net_context;
+typedef struct { int unused; } mbedtls_ssl_context, mbedtls_ssl_config;
+struct connection { int secure; long long deadline; mbedtls_net_context net; mbedtls_ssl_context ssl;
+	mbedtls_ssl_config config; };
+static uint32_t asked = 0;
+static int mbedtls_net_recv_timeout(void *context, unsigned char *buffer, size_t size, uint32_t timeout)
+{ (void)context; (void)buffer; (void)size; asked = timeout; return 0; }
+""" + browser_function(browser, "monotonic_milliseconds") + browser_function(browser, "receive_until_deadline") + \
+        browser_function(browser, "connect_within") + r"""
+int main(void)
+{
+	struct connection connection;
+	struct sockaddr_in address;
+	long long start;
+	unsigned char byte;
+	int descriptor, connected;
+
+	memset(&connection, 0, sizeof(connection));
+	if (receive_until_deadline(&connection, &byte, 1, 10000) != 0 || asked != 10000) return 10;
+	connection.deadline = monotonic_milliseconds() + 400;
+	if (receive_until_deadline(&connection, &byte, 1, 10000) != 0 || asked > 400 || asked < 100) return 11;
+	connection.deadline = monotonic_milliseconds() - 1;
+	if (receive_until_deadline(&connection, &byte, 1, 10000) != MBEDTLS_ERR_SSL_TIMEOUT) return 12;
+	/* (TEST-NET-1: nothing answers there) */
+	memset(&address, 0, sizeof(address));
+	address.sin_family = AF_INET;
+	address.sin_port = htons(9);
+	inet_pton(AF_INET, "192.0.2.1", &address.sin_addr);
+	descriptor = socket(AF_INET, SOCK_STREAM, 0);
+	start = monotonic_milliseconds();
+	connected = connect_within(descriptor, (struct sockaddr *)&address, (int)sizeof(address));
+	close(descriptor);
+	if (connected || monotonic_milliseconds() - start > 3000) return 13;
+	printf("ok\n");
+	return 0;
+}
+"""
+    (tmp_path / "waits.c").write_text(source)
+    program = tmp_path / "waits"
+    built = subprocess.run([cc, "-std=c11", "-Wall", "-Werror", "-o", str(program), str(tmp_path / "waits.c")],
+                           capture_output=True, text=True)
+    assert built.returncode == 0, built.stderr[-3000:]
+    result = subprocess.run([str(program)], capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0 and result.stdout == "ok\n", (result.returncode, result.stdout)
 
 
 # ---------- the game: the community map repositories first, then ours
@@ -531,7 +814,8 @@ def zipped(name: str, data: bytes) -> bytes:
     return buffer.getvalue()
 
 
-def run_game(tmp_path, repository, name, version, network_test=None, have_map=False):
+def run_game(tmp_path, repository, name, version, network_test=None, have_map=False, downloads="always",
+             maps_url=None, seconds=300):
     """the game's download of name (debug.network_test "download:", or
     network_test), its own data and save folders in tmp_path, the map in its
     maps_ce (a link to HALO_MAP_REPO_MAP, never a copy) when have_map: (its
@@ -543,13 +827,19 @@ def run_game(tmp_path, repository, name, version, network_test=None, have_map=Fa
     if have_map:
         (data / "maps_ce" / f"{name}.map").symlink_to(Path(GAME_MAP).resolve())
     environment = dict(os.environ, HALO_DATA_ROOT=str(data), HALO_SAVE_ROOT=str(save), HALO_NULL_RENDERER="1",
-                       HALO_HIDDEN_WINDOW="1", HALO_NET_MAP_DOWNLOADS="always",
+                       HALO_HIDDEN_WINDOW="1", HALO_NET_MAP_DOWNLOADS=downloads,
                        HALO_NETWORK_TEST=network_test or f"download:{name}:{version}",
-                       HALO_MAP_REPOSITORIES=repository.url + "/hac2", HALO_NET_MAPS_URL=repository.url + "/ours")
-    result = subprocess.run([GAME], env=environment, capture_output=True, text=True, timeout=300)
+                       HALO_MAP_REPOSITORIES=repository.url + "/hac2",
+                       HALO_NET_MAPS_URL=repository.url + "/ours" if maps_url is None else maps_url)
+    try:
+        result = subprocess.run([GAME], env=environment, capture_output=True, text=True, timeout=seconds)
+        code, output = result.returncode, result.stdout + result.stderr
+    except subprocess.TimeoutExpired:
+        # (still hosting when the time was up: no exit code)
+        code, output = None, ""
     logs = sorted(tmp_path.rglob("debug*.txt"))
-    log = "\n".join(path.read_text(errors="replace") for path in logs) + result.stdout + result.stderr
-    return result.returncode, log, data / "maps_ce"
+    log = "\n".join(path.read_text(errors="replace") for path in logs) + output
+    return code, log, data / "maps_ce"
 
 
 @pytest.fixture
@@ -630,3 +920,34 @@ def test_game_refuses_to_host_a_blacklisted_map(repository, game_map, tmp_path):
     assert code == 2, log[-3000:]
     assert "Chupathingy won't host network games on it" in log
     assert "crashes the server on load" in log
+
+
+@pytest.mark.parametrize("kind", ["map_hash", "sha256"])
+def test_game_refuses_to_host_by_either_hash_even_with_downloads_off(repository, game_map, tmp_path, kind):
+    """The blacklist names a file by its map hash or its SHA-256 (both read
+    in one pass, map_file_hash.c), and is fetched and held with
+    network.map_downloads "never" too: only the index is asked for then."""
+    name, data = game_map
+    digest = map_hash(data) if kind == "map_hash" else hashlib.sha256(data).hexdigest()
+    blacklist = [{"hash": digest, "kind": kind, "name": name, "reason": "crashes the server on load", "since": NOW}]
+    publish_for_game(repository, name, data, blacklist)
+    code, log, _ = run_game(tmp_path, repository, name, 0, network_test=f"host:{name}@ce", have_map=True,
+                            downloads="never")
+    assert code == 2, log[-3000:]
+    assert "crashes the server on load" in log
+    assert not [path for path in repository.asked if "mirrors.json" in path]
+
+
+def test_game_with_no_maps_url_asks_nothing(repository, game_map, tmp_path):
+    """An empty network.maps_url turns Chupathingy maps off: nothing asked,
+    nothing blocked."""
+    name, data = game_map
+    blacklist = [{"hash": map_hash(data), "kind": "map_hash", "name": name, "reason": "crashes the server on load",
+                  "since": NOW}]
+    publish_for_game(repository, name, data, blacklist)
+    code, log, _ = run_game(tmp_path, repository, name, 0, network_test=f"host:{name}@ce", have_map=True,
+                            maps_url="", seconds=40)
+    # (hosting it, until the time is up)
+    assert code is None, log[-3000:]
+    assert "crashes the server on load" not in log
+    assert not [path for path in repository.asked if path.startswith("/ours/")]

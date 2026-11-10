@@ -11,11 +11,19 @@ alone or in split screen is never refused.
 
 On the builds with the game browser (HALO_GAME_BROWSER): the game's, which
 downloads (map_download.c), and the dedicated server's, which only checks
-the blacklist (it downloads nothing, and fetches the index whatever
-network.map_downloads says); elsewhere nothing is asked and nothing
-refused. The log
-(debug.txt) has each request's address (the repository's or a mirror's,
-never a player's) and why a document or a file was refused.
+the blacklist (it downloads nothing). The index is fetched for its
+blacklist whatever network.map_downloads says: it is a public document and
+the request carries nothing about the player. With "never" (and on the
+dedicated server) the mirror list isn't asked for. An empty
+network.maps_url turns all of it off: nothing fetched, nothing kept read
+back, nothing refused. Elsewhere nothing is asked and nothing refused.
+
+What was taken is kept in the save root and read back at start
+(map_repo_load), so the blacklist holds before the first fetch and while
+the repository can't be reached. A fetch that fails is one line in the log
+(debug.txt) and is tried again later (map_repo.c's wait); nothing is shown
+and nothing else waits on it. The log has the repository's and mirrors'
+addresses (never a player's) and why a document or a file was refused.
 */
 
 #include "platform.h"
@@ -50,15 +58,17 @@ enum
 static struct
 {
 	pthread_mutex_t lock;
+	pthread_cond_t done;
 	int refreshing;
-} map_repo_game = { PTHREAD_MUTEX_INITIALIZER, 0 };
+	int loaded;
+} map_repo_game = { PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER, 0, 0 };
 
 /* ---------- the transport */
 
 static int game_get(void *context, const char *url, char *buffer, int size, char *why, int why_size)
 {
 	(void)context;
-	platform_log("chupathingy maps: GET %s", url);
+	/* (not logged: the refresh logs its one line, naming the address) */
 	return posix_browser_request_as(url, NULL, NULL, build_identity_user_agent(), buffer, size, why, why_size);
 }
 
@@ -155,20 +165,101 @@ static int game_stop(void *context)
 	return hooks && hooks->stop && hooks->stop(NULL);
 }
 
+static void kept_path(const char *name, char *path, size_t size)
+{
+	snprintf(path, size, "%s/%s", platform_save_root(), name);
+}
+
+static long game_load(void *context, const char *name, char *buffer, long size)
+{
+	char path[1024];
+	FILE *file;
+	size_t count;
+
+	(void)context;
+	kept_path(name, path, sizeof(path));
+	file = fopen(path, "rb");
+	if (!file)
+		return -1;
+	count = fread(buffer, 1, (size_t)size, file);
+	/* (a file larger than any document kept: none of ours) */
+	if (count == (size_t)size && fgetc(file) != EOF)
+		count = 0;
+	fclose(file);
+	return count ? (long)count : -1;
+}
+
+/* a new file beside it, then moved over it (as Delta's cache is written) */
+static void game_save(void *context, const char *name, const char *data, long size)
+{
+	char path[1024], temporary[1100];
+	FILE *file;
+	int ok;
+
+	(void)context;
+	kept_path(name, path, sizeof(path));
+	snprintf(temporary, sizeof(temporary), "%s.new", path);
+	file = fopen(temporary, "wb");
+	if (!file)
+		return;
+	ok = fwrite(data, 1, (size_t)size, file) == (size_t)size;
+	ok = fclose(file) == 0 && ok;
+	/* (Windows does not rename over a file) */
+	if (ok && rename(temporary, path) != 0)
+	{
+		remove(path);
+		ok = rename(temporary, path) == 0;
+	}
+	if (!ok)
+	{
+		remove(temporary);
+		platform_log("chupathingy maps: could not keep %s", name);
+	}
+}
+
 static const struct map_repo_transport map_repo_game_transport_value =
 {
-	NULL, game_get, game_get_file, game_remove, game_stop,
+	NULL, game_get, game_get_file, game_remove, game_stop, game_load, game_save,
 };
 
-/* whether the index may be asked for: the game's not when the player said
-never to download maps (network.map_downloads); the dedicated server's
-always, as it downloads nothing and honors the blacklist for what it hosts */
-static int refresh_allowed(void)
+/* whether Chupathingy maps is asked anything: the build has its key, and
+network.maps_url isn't empty */
+static int game_enabled(void)
+{
+	char url[256];
+
+	if (!map_repo_enabled())
+		return 0;
+	map_repo_game_url(url, (int)sizeof(url));
+	return url[0] != 0;
+}
+
+/* what an earlier run kept, read back once */
+static void load_once(void)
+{
+	char why[200] = "";
+	int load;
+
+	pthread_mutex_lock(&map_repo_game.lock);
+	load = !map_repo_game.loaded;
+	map_repo_game.loaded = 1;
+	pthread_mutex_unlock(&map_repo_game.lock);
+	if (!load)
+		return;
+	map_repo_load(&map_repo_game_transport_value, (long long)time(NULL), why, (int)sizeof(why));
+	if (why[0])
+		platform_log("chupathingy maps: %s", why);
+}
+
+/* the refresh's flags: the index alone when nothing is downloaded from it
+(network.map_downloads "never", or the dedicated server, which downloads
+nothing): the blacklist is all that's wanted */
+static int refresh_flags(void)
 {
 #ifdef HALO_SERVER
-	return 1;
+	return MAP_REPO_REFRESH_INDEX_ONLY;
 #else
-	return map_download_setting() != MAP_DOWNLOADS_NEVER;
+	return map_download_setting() == MAP_DOWNLOADS_NEVER ? MAP_REPO_REFRESH_INDEX_ONLY : 0;
 #endif
 }
 
@@ -178,6 +269,7 @@ static void *refresh_thread(void *argument)
 	map_repo_game_refresh_now();
 	pthread_mutex_lock(&map_repo_game.lock);
 	map_repo_game.refreshing = 0;
+	pthread_cond_broadcast(&map_repo_game.done);
 	pthread_mutex_unlock(&map_repo_game.lock);
 	return NULL;
 }
@@ -202,7 +294,9 @@ void map_repo_game_url(char *url, int size)
 	const char *setting = config_string("network.maps_url");
 	size_t length;
 
-	snprintf(url, (size_t)size, "%s", setting && setting[0] ? setting : MAP_REPO_DEFAULT_URL);
+	/* (its default is MAP_REPO_DEFAULT_URL, port_config.c; an empty one is
+	the player's own choice: none) */
+	snprintf(url, (size_t)size, "%s", setting ? setting : "");
 	length = strlen(url);
 	while (length && url[length - 1] == '/')
 		url[--length] = 0;
@@ -213,20 +307,25 @@ int map_repo_game_refresh_now(void)
 #if defined(HALO_GAME_BROWSER)
 	char url[256], why[200] = "";
 	long long now = (long long)time(NULL);
-	int held;
+	int held, flags;
 
-	if (!map_repo_enabled() || !refresh_allowed())
+	if (!game_enabled())
 		return 0;
+	load_once();
 	map_repo_game_url(url, (int)sizeof(url));
-	if (!url[0])
-		return 0;
+	flags = refresh_flags();
 	if (!map_repo_refresh_due(now))
-		return map_repo_refresh(&map_repo_game_transport_value, url, now, 0, why, (int)sizeof(why));
-	held = map_repo_refresh(&map_repo_game_transport_value, url, now, 0, why, (int)sizeof(why));
-	if (why[0])
-		platform_log("chupathingy maps: %s", why);
+		return map_repo_refresh(&map_repo_game_transport_value, url, now, flags, why, (int)sizeof(why));
+	held = map_repo_refresh(&map_repo_game_transport_value, url, now, flags, why, (int)sizeof(why));
+	/* (one line, whatever happened: a repository that can't be reached is
+	asked again later, map_repo.c's wait growing each time) */
+	if (!held)
+		platform_log("chupathingy maps: no new index from %s (%s); trying again later", url, why);
+	else if (why[0])
+		platform_log("chupathingy maps: index from %s checked; %s", url, why);
 	else
-		platform_log("chupathingy maps: index and mirror list checked");
+		platform_log("chupathingy maps: index%s from %s checked", flags & MAP_REPO_REFRESH_INDEX_ONLY ? "" :
+			" and mirror list", url);
 	return held;
 #else
 	return 0;
@@ -238,11 +337,11 @@ void map_repo_game_refresh_soon(void)
 #if defined(HALO_GAME_BROWSER)
 	pthread_t thread;
 
-	if (!map_repo_enabled() || !refresh_allowed() ||
-		!map_repo_refresh_due((long long)time(NULL)))
-	{
+	if (!game_enabled())
 		return;
-	}
+	load_once();
+	if (!map_repo_refresh_due((long long)time(NULL)))
+		return;
 	pthread_mutex_lock(&map_repo_game.lock);
 	if (map_repo_game.refreshing)
 	{
@@ -262,17 +361,46 @@ void map_repo_game_refresh_soon(void)
 #endif
 }
 
+void map_repo_game_refresh_wait(int milliseconds)
+{
+#if defined(HALO_GAME_BROWSER)
+	struct timespec until;
+
+	map_repo_game_refresh_soon();
+	clock_gettime(CLOCK_REALTIME, &until);
+	until.tv_sec += milliseconds / 1000;
+	until.tv_nsec += (long)(milliseconds % 1000) * 1000000L;
+	if (until.tv_nsec >= 1000000000L)
+	{
+		until.tv_sec++;
+		until.tv_nsec -= 1000000000L;
+	}
+	pthread_mutex_lock(&map_repo_game.lock);
+	while (map_repo_game.refreshing)
+	{
+		if (pthread_cond_timedwait(&map_repo_game.done, &map_repo_game.lock, &until) != 0)
+			break;
+	}
+	pthread_mutex_unlock(&map_repo_game.lock);
+#else
+	(void)milliseconds;
+#endif
+}
+
 /* whether the map file at path is on the blacklist: 1 with its entry's
 reason in reason, else 0 (a fresher blacklist fetched for the next ask, if
 this one is due) */
 static int file_blocked(const char *path, char *reason, int size)
 {
 #if defined(HALO_GAME_BROWSER)
-	unsigned char hash[MAP_ARCHIVE_HASH_SIZE];
+	unsigned char hash[MAP_ARCHIVE_HASH_SIZE], sha256[MAP_INDEX_HASH_SIZE];
 
+	if (!game_enabled())
+		return 0;
 	map_repo_game_refresh_soon();
-	return map_repo_enabled() && map_file_hash_whole(path, hash) &&
-		map_repo_blocked(NULL, hash, (long long)time(NULL), reason, size);
+	/* (by its map hash or its SHA-256: the blacklist names a file either
+	way, both read in one pass and kept for the run, map_file_hash.c) */
+	return map_file_hash_both(path, hash, sha256) && map_repo_blocked(sha256, hash, (long long)time(NULL), reason, size);
 #else
 	(void)path;
 	(void)reason;

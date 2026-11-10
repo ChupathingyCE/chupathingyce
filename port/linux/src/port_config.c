@@ -861,12 +861,16 @@ static const struct config_setting config_settings[] =
 	{ "network.map_downloads", _config_string, "\"ask\"", "HALO_NET_MAP_DOWNLOADS", _environment_value,
 		_platform_all,
 		"Download a missing Custom Edition map from the community repositories:\n"
-		"\"ask\", \"always\" or \"never\"." },
+		"\"ask\", \"always\" or \"never\". \"never\" downloads no maps, but the\n"
+		"blacklist of maps that crash games is still fetched and checked (see\n"
+		"network.maps_url)." },
 	{ "network.maps_url", _config_string, "\"https://maps.chupathingy.org\"", "HALO_NET_MAPS_URL", _environment_value,
 		_platform_all,
 		"Chupathingy maps, where a missing map is looked for when the community\n"
-		"repositories don't have it. Its index is signed, so a copy of it\n"
-		"elsewhere works too. Leave it empty for none." },
+		"repositories don't have it, and where the blacklist of maps that crash\n"
+		"games comes from. Its index is signed, so a copy of it elsewhere works\n"
+		"too. Leave it empty to turn it off: nothing is fetched from it and no\n"
+		"map is blocked." },
 	{ "network.playlist_downloads", _config_string, "\"ask\"", "HALO_NET_PLAYLIST_DOWNLOADS", _environment_value,
 		_platform_all,
 		"When you join a playlist's game, offer its missing maps from the\n"
