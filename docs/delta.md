@@ -2116,7 +2116,20 @@ Stats' event log records moderation through it.
 ## Delta Link
 
 - **Players** (exists): Link Profile ties a game install to a site profile
-  with a code (`/v1/link`, `/v1/connect`, `/v1/claim`).
+  with a code (`/v1/link`, `/v1/connect`, `/v1/claim`). A link counts the
+  install's games from the moment it's made. Games it played before count
+  for no one until the profile's owner claims the ones that were theirs
+  (the site's Past games from this device), since a shared computer or a
+  second-hand console may have played someone else's. Claimed games and
+  games played while linked stay with the profile after an unlink. Links
+  made before this rule keep the games they had. Each device's line in a
+  game is its own entry, so two of your devices in one game count once.
+  A game that reaches the site late goes by the link that applied when it
+  was played. A second-hand console: if someone else linked it first, the
+  games from before their link stay theirs to claim, and the games it
+  played while linked to them stay theirs; only the games after their
+  unlink wait for you. An admin can move waiting games to another profile
+  when they turn out to be someone else's.
 - **Servers** (exists): see Delta Control, The link to the site.
 
 ### Delta Profile in the game
@@ -2550,8 +2563,9 @@ never sent or shown.
 
 What signing in does on the site:
 - A device enrolled with its player key (stage A) brings its copy: the
-  copy's games move to the profile, as Link Profile moves them, and the
-  certificate follows the copy as before.
+  copy's games from then on count for the profile, as Link Profile links
+  them (its older games wait to be claimed), and the certificate follows
+  the copy as before.
 - A device with no copy (a new install the site hasn't seen, or a second
   account on a copy) is signed in to the account itself. Its certificate's
   account is the profile's player ID, its flags have no 0x01, and its
