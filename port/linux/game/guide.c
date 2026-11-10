@@ -577,6 +577,10 @@ static struct
 	boolean party_kept;
 	short party_kept_row;
 	struct social_list_key party_kept_key;
+	/* the items as last drawn, row by row: a tap is aimed at what was drawn
+	(party_tap_lands) */
+	struct social_list_key party_drawn[MAXIMUM_PARTY_ITEMS];
+	short party_drawn_count;
 	/* (the two above set to NONE, once) */
 	boolean party_ready;
 	boolean code_entry;
@@ -2133,19 +2137,29 @@ static void party_item_key(struct party_item const *item, struct social_list_key
 	}
 }
 
-/* before a press, a click or a frame drawn: the row back on the item
-remembered if the list moved it (a member joined or left, VOICE came or
-went), and LEAVE or KICK disarmed if the item under the row is another now
-(else the next A could hand over leadership with no second press) */
-static void party_selection_keep(void)
+/* the items now, as remembered (party_item_key); their count */
+static short party_keys(struct social_list_key *keys)
 {
 	struct party_item items[MAXIMUM_PARTY_ITEMS];
-	struct social_list_key keys[MAXIMUM_PARTY_ITEMS];
 	short count = party_items(items), index;
-	int changed;
 
 	for (index = 0; index < count; index++)
 		party_item_key(&items[index], &keys[index]);
+	return count;
+}
+
+/* before a press, a click or a frame drawn: the row back on the item
+remembered if the list moved it (a member joined or left, VOICE came or
+went), and LEAVE or KICK disarmed if the item under the row is another now
+(else the next A could hand over leadership with no second press). TRUE when
+the item under the row is another than the one remembered: a press made this
+frame was aimed at the old one, so handle drops what would act on it */
+static boolean party_selection_keep(void)
+{
+	struct social_list_key keys[MAXIMUM_PARTY_ITEMS];
+	short count = party_keys(keys);
+	int changed;
+
 	guide.row[SOCIAL_SECTION_PARTY] = (short)social_list_keep(guide.party_kept ? &guide.party_kept_key : NULL,
 		guide.party_kept_row, keys, count, guide.row[SOCIAL_SECTION_PARTY], &changed);
 	if (changed)
@@ -2154,6 +2168,24 @@ static void party_selection_keep(void)
 	guide.party_kept_row = guide.row[SOCIAL_SECTION_PARTY];
 	if (count > 0)
 		guide.party_kept_key = keys[guide.party_kept_row];
+	return changed != 0;
+}
+
+/* the list as drawn this frame, for the taps on it (party_tap_lands) */
+static void party_drawn_remember(void)
+{
+	guide.party_drawn_count = party_keys(guide.party_drawn);
+}
+
+/* whether a tap on row (a target from the frame last drawn) still lands on
+the item drawn there: not when the list changed under it since (a member
+left, VOICE came or went), the tap then dropped as aimed at another item */
+static boolean party_tap_lands(short row)
+{
+	struct social_list_key keys[MAXIMUM_PARTY_ITEMS];
+	short count = party_keys(keys);
+
+	return social_list_same_item(guide.party_drawn, guide.party_drawn_count, keys, count, row) != 0;
 }
 
 /* after a press or a click: the item chosen now remembered as it is (what
@@ -3831,6 +3863,41 @@ static void render_party_qr(float left, float top)
 	}
 }
 
+/* a PARTY row's one line, centered on its dot and icon: the name, and its
+note ("Leader", "You", "Party of 3") right after it as a small tag in the
+label color; the name cut short (with "...") before the tag would reach
+right, the icon's side */
+static void party_row_line(float x, float y, float right, char const *name, char const *note)
+{
+	/* (UI_TEXT_NAME's and UI_TEXT_LABEL's fonts, ui_overlay_style.c) */
+	float const name_size = ui_style_text_size(UI_TEXT_NAME), note_size = ui_style_text_size(UI_TEXT_LABEL), gap = 6.0f;
+	float const name_y = y + (PARTY_ROW_HEIGHT - name_size) * 0.5f;
+	float note_width = note[0] ? ui_overlay_text_width(UI_FONT_MENU_SMALL, note_size, note) : 0.0f;
+	float room = right - x - (note[0] ? gap + note_width : 0.0f), name_width;
+	char shown[SOCIAL_TAG_SIZE + 4];
+
+	social_copy_text(shown, sizeof(shown), name);
+	if (ui_overlay_text_width(UI_FONT_MENU, name_size, shown) > room)
+	{
+		size_t length = strlen(shown);
+
+		/* (a character off at a time, never half of one in UTF-8) */
+		while (length > 0)
+		{
+			do
+				length--;
+			while (length > 0 && ((unsigned char)shown[length] & 0xC0) == 0x80);
+			memcpy(shown + length, "...", 4);
+			if (ui_overlay_text_width(UI_FONT_MENU, name_size, shown) <= room)
+				break;
+		}
+	}
+	name_width = ui_style_text(UI_TEXT_NAME, x, name_y, UI_ALIGN_LEFT, shown);
+	/* (the tag on the name's baseline) */
+	if (note[0])
+		ui_style_text(UI_TEXT_LABEL, x + name_width + gap, name_y + (name_size - note_size) * 0.8f, UI_ALIGN_LEFT, note);
+}
+
 static void render_party(void)
 {
 	struct party_item items[MAXIMUM_PARTY_ITEMS];
@@ -3839,8 +3906,10 @@ static void render_party(void)
 	char text[96], code[16];
 	boolean any_list = FALSE;
 
-	/* (the list as it is now, the row on the item it was on) */
+	/* (the list as it is now, the row on the item it was on, and as drawn
+	for the taps) */
 	party_selection_keep();
+	party_drawn_remember();
 	count = party_items(items);
 	chosen = guide.row[SOCIAL_SECTION_PARTY];
 	if (chosen >= count)
@@ -3884,9 +3953,8 @@ static void render_party(void)
 		ui_style_row(CONTENT_LEFT, y, LIST_WIDTH, PARTY_ROW_HEIGHT, on);
 		if (row.state >= 0)
 			ui_overlay_rect(CONTENT_LEFT + 9, y + PARTY_ROW_HEIGHT * 0.5f - 3, 6, 6, 3, dot_color(row.state));
-		ui_style_text(UI_TEXT_NAME, CONTENT_LEFT + 22, y + 2, UI_ALIGN_LEFT, row.tag);
-		if (row.status[0])
-			ui_style_text(UI_TEXT_STATUS, CONTENT_LEFT + 22, y + 15, UI_ALIGN_LEFT, row.status);
+		party_row_line(CONTENT_LEFT + 22, y, CONTENT_LEFT + LIST_WIDTH - (row.platform > 0 ? 22 : 10), row.tag,
+			row.status);
 		if (row.platform > 0)
 		{
 			ui_overlay_platform(row.platform, 11.0f, CONTENT_LEFT + LIST_WIDTH - 14, y + (PARTY_ROW_HEIGHT - 11.0f) * 0.5f,
@@ -4708,12 +4776,24 @@ static void debug_steps(void)
 
 static void handle_pressed(unsigned int pressed);
 
+/* what acts on PARTY's item chosen (A, X, Y, and Start and Back for good
+measure): dropped for a frame the item under the row changed in; the d-pad,
+the bumpers and B only move or go back */
+#define PARTY_ACTING_INPUTS (GUIDE_INPUT_A | GUIDE_INPUT_X | GUIDE_INPUT_Y | GUIDE_INPUT_START | GUIDE_INPUT_BACK)
+
 /* what was pressed (or clicked on the prompt bar), PARTY's row kept on its
-item around it */
+item around it: a press in the frame the item under the row changed (KICK
+gone as the leader left and the row on MAKE LEADER now, a member gone and
+the row on WHO CAN JOIN) was aimed at the old item, so only its moves go
+through (not the code being picked, nor a follow offer: neither is on the
+list) */
 static void handle(unsigned int pressed)
 {
-	if (guide.section == SOCIAL_SECTION_PARTY)
-		party_selection_keep();
+	if (guide.section == SOCIAL_SECTION_PARTY && party_selection_keep() && guide.open && !guide.code_entry &&
+		!guide.about)
+	{
+		pressed &= ~(unsigned int)PARTY_ACTING_INPUTS;
+	}
 	handle_pressed(pressed);
 	if (guide.section == SOCIAL_SECTION_PARTY)
 		party_selection_remember();
@@ -4904,8 +4984,17 @@ void guide_pointer(struct halo_ui_pointer const *pointer)
 			if (guide.section == SOCIAL_SECTION_PARTY)
 			{
 				struct party_item items[MAXIMUM_PARTY_ITEMS];
-				boolean again = guide.row[guide.section] == target->index;
+				/* (the row back on its item first; the item under the
+				cursor another now: nothing armed carries over) */
+				boolean moved = party_selection_keep(), again = !moved && guide.row[guide.section] == target->index;
 
+				/* (the list changed under the tap since it was drawn: it was
+				aimed at another item, so nothing) */
+				if (!party_tap_lands(target->index))
+				{
+					party_selection_remember();
+					break;
+				}
 				/* (another item clicked: what was armed was on the one
 				before) */
 				if (!again)

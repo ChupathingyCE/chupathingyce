@@ -796,6 +796,12 @@ int social_list_keep(const struct social_list_key *kept, int kept_row, const str
 	return row;
 }
 
+int social_list_same_item(const struct social_list_key *drawn, int drawn_count, const struct social_list_key *keys,
+	int count, int index)
+{
+	return index >= 0 && index < drawn_count && index < count && list_key_same(&drawn[index], &keys[index]);
+}
+
 const struct social_party_member *social_party_leader(const struct social_party *party)
 {
 	int index;

@@ -702,8 +702,12 @@ static void test_list_keep(void)
 	after[3] = before[2];
 	after[4] = before[3];
 	CHECK(social_list_keep(&kick, 3, after, 5, 3, &changed) == 4 && !changed);
-	/* (a member leaves: KICK up a row, never MAKE LEADER under the cursor) */
+	/* (one member out and one in from the four as remembered, m1 gone and m3
+	there: KICK still on row 3, where it was) */
 	CHECK(social_list_keep(&kick, 3, after + 1, 4, 3, &changed) == 3 && !changed);
+	/* (from the five, m1 leaves: KICK up a row, from 4 to 3, never MAKE
+	LEADER under the cursor) */
+	CHECK(social_list_keep(&kick, 4, after + 1, 4, 4, &changed) == 3 && !changed);
 	after[1] = before[2];
 	after[2] = before[3];
 	CHECK(social_list_keep(&kick, 3, after, 3, 3, &changed) == 2 && !changed);
@@ -722,12 +726,52 @@ static void test_list_keep(void)
 		after[0] = moved;
 		CHECK(social_list_keep(&moved, 0, after, 2, 0, &changed) == 0 && !changed);
 	}
+	/* (as guide.c keys them, a member's number zeroed and only its ID kept:
+	m1 leaves, m2 moves from row 1 to row 0, and the cursor on m2 follows it,
+	nothing changed under it) */
+	{
+		struct social_list_key m2 = list_key(0, 0, "m2"), now[3];
+
+		now[0] = list_key(0, 0, "m2");
+		now[1] = list_key(2, 2, "");
+		now[2] = list_key(2, 3, "");
+		CHECK(social_list_keep(&m2, 1, now, 3, 1, &changed) == 0 && !changed);
+		/* (and m2 gone too: the row clamped onto MAKE LEADER, changed) */
+		CHECK(social_list_keep(&m2, 1, now + 1, 2, 1, &changed) == 1 && changed);
+	}
 	/* (the row moved since: that row, and changed when its item differs) */
 	CHECK(social_list_keep(&kick, 3, before, 4, 2, &changed) == 2 && changed);
 	CHECK(social_list_keep(&kick, 2, before, 4, 3, &changed) == 3 && !changed);
 	/* (nothing remembered yet, and an empty list) */
 	CHECK(social_list_keep(NULL, 0, before, 4, 9, &changed) == 3 && !changed);
 	CHECK(social_list_keep(&kick, 3, before, 0, 3, &changed) == 0 && changed);
+}
+
+/* a tap on PARTY's row as last drawn (guide.c): it lands only on the item
+drawn there. 0 a member, 1 VOICE, 2 a button (2 COPY PARTY LINK, 3 LEAVE) */
+static void test_list_tap(void)
+{
+	struct social_list_key drawn[4], now[4];
+
+	drawn[0] = list_key(0, 0, "m1");
+	drawn[1] = list_key(2, 2, "");
+	drawn[2] = list_key(2, 3, "");
+	CHECK(social_list_same_item(drawn, 3, drawn, 3, 1));
+	/* (VOICE shows above the buttons since: the tap on COPY PARTY LINK's
+	row would land on VOICE, and LEAVE's on COPY PARTY LINK) */
+	now[0] = drawn[0];
+	now[1] = list_key(1, 0, "");
+	now[2] = drawn[1];
+	now[3] = drawn[2];
+	CHECK(!social_list_same_item(drawn, 3, now, 4, 1));
+	CHECK(!social_list_same_item(drawn, 3, now, 4, 2));
+	CHECK(social_list_same_item(drawn, 3, now, 4, 0));
+	/* (and gone again: the tap drawn on VOICE lands on a button) */
+	CHECK(!social_list_same_item(now, 4, drawn, 3, 1));
+	/* (a row past the list now, or past the one drawn) */
+	CHECK(!social_list_same_item(now, 4, drawn, 3, 3));
+	CHECK(!social_list_same_item(drawn, 3, now, 4, 3));
+	CHECK(!social_list_same_item(drawn, 3, drawn, 3, -1));
 }
 
 /* RECENT: the site's list, this run's verified players first */
@@ -806,6 +850,7 @@ int main(void)
 	test_state();
 	test_party();
 	test_list_keep();
+	test_list_tap();
 	test_recent();
 	test_clan();
 	test_record();

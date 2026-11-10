@@ -485,6 +485,11 @@ is 1 when the item at the row returned isn't the one remembered (anything
 armed on it no longer applies), else 0 */
 int social_list_keep(const struct social_list_key *kept, int kept_row, const struct social_list_key *keys, int count,
 	int row, int *changed);
+/* whether the item at index now (keys, count) is the one drawn there
+(drawn, drawn_count: the list as last drawn), so a tap on that row, aimed at
+what the player saw, still lands on it (0: the list changed under the tap) */
+int social_list_same_item(const struct social_list_key *drawn, int drawn_count, const struct social_list_key *keys,
+	int count, int index);
 /* "WHO CAN JOIN"'s value as shown (ANYONE, FRIENDS, INVITE ONLY), and the
 next one (A or right; back with a direction below 0) */
 const char *social_party_rule_shown(const char *rule);
