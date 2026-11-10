@@ -1,10 +1,9 @@
-"""Runs the C tests of Delta's doorbell (port/linux/src/doorbell.c: its
-packets, the subscription, pings, failover and backoff) with the build
-machine's C compiler, and, when mosquitto is installed, listens on a local
-mosquitto set up as the doorbell's brokers are (docs/delta.md, "The
-doorbell": anonymous clients read only the topic of their own client ID; the
-site alone writes), and checks that a ring from the site arrives and that
-nobody else's does."""
+"""Tests of Delta's doorbell in internet play's signalling
+(port/linux/src/p2p_signal.c; docs/delta.md, "The doorbell"), against a
+local mosquitto set up as our brokers are: the anonymous listener carries
+signalling (hceu/, for clients with or without a user name) and lets a
+client read only doorbell/<its user name>; the site rings through its own
+listener with a password. Skipped without mosquitto or a C compiler."""
 import os
 import shutil
 import socket
@@ -18,13 +17,16 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 ID = "0123456789abcdef0123456789abcdef"
 OTHER = "fedcba9876543210fedcba9876543210"
+# (the brokers' ACL on the signalling listener: the doorbell-setup.sh model)
+SIGNALLING_ACL = ("# anonymous clients, and clients with a user name (a doorbell)\n"
+                  "topic readwrite hceu/#\n"
+                  "pattern readwrite hceu/#\n"
+                  "pattern read doorbell/%u\n")
+SITE_ACL = "user doorbell-site\ntopic write doorbell/+\n"
 
 
 def compiler():
-    """Finds a C compiler on the build machine.
-
-    Returns the path of clang, cc or gcc (the first found), or None.
-    """
+    """Finds a C compiler: clang, cc or gcc (the first found), or None."""
     for name in ("clang", "cc", "gcc"):
         path = shutil.which(name)
         if path:
@@ -33,10 +35,7 @@ def compiler():
 
 
 def mosquitto_tool(name):
-    """Finds one of mosquitto's programs (PATH, then Homebrew's sbin and bin).
-
-    Returns its path, or None.
-    """
+    """Finds one of mosquitto's programs (PATH, then Homebrew's). Its path, or None."""
     found = shutil.which(name)
     if found:
         return found
@@ -48,157 +47,129 @@ def mosquitto_tool(name):
     return None
 
 
-@pytest.fixture(scope="module")
-def binary(tmp_path_factory):
-    """Builds the doorbell unit with its tests, warnings as errors.
-
-    Returns the test program's path.
-    """
-    cc = compiler()
-    if not cc:
-        pytest.skip("no C compiler")
-    if sys.platform == "win32":
-        pytest.skip("POSIX only")
-    output = tmp_path_factory.mktemp("doorbell") / "doorbell_test"
-    build = subprocess.run(
-        [cc, "-std=c11", "-Wall", "-Wextra", "-Werror", "-O1",
-         str(ROOT / "port" / "linux" / "tests" / "doorbell_test.c"),
-         str(ROOT / "port" / "linux" / "src" / "doorbell.c"),
-         "-o", str(output)],
-        capture_output=True, text=True,
-    )
-    assert build.returncode == 0, build.stdout + build.stderr
-    return output
-
-
-def test_doorbell(binary):
-    """The unit's own tests pass."""
-    result = subprocess.run([str(binary)], capture_output=True, text=True)
-    assert result.returncode == 0, result.stdout + result.stderr
-
-
 def free_port():
-    """Returns a TCP port free on 127.0.0.1."""
+    """A TCP port free on 127.0.0.1."""
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
         return probe.getsockname()[1]
 
 
 @pytest.fixture(scope="module")
-def broker(tmp_path_factory):
-    """A local mosquitto with the doorbell's settings (a plain listener: the
-    real ones are TLS, which the game's transport adds).
+def binary(tmp_path_factory):
+    """The test program (p2p_doorbell_test.c with p2p_signal.c), warnings as errors."""
+    cc = compiler()
+    if not cc or sys.platform == "win32":
+        pytest.skip("no C compiler, or not POSIX")
+    output = tmp_path_factory.mktemp("doorbell") / "p2p_doorbell_test"
+    build = subprocess.run(
+        [cc, "-std=gnu11", "-Wall", "-Wextra", "-Werror", "-O1", "-D__HALO_LINUX_PLATFORM_H", "-D__HALO_LINUX_POSIX_H",
+         "-include", "port/linux/tests/p2p_fuzz_prelude.h", "-Iport/third_party/monocypher", "-Iport/linux/src",
+         "port/linux/tests/p2p_doorbell_test.c", "port/linux/src/p2p_crypto.c", "port/linux/src/p2p_probe.c",
+         "port/third_party/monocypher/monocypher.c", "port/third_party/monocypher/monocypher-ed25519.c",
+         "-o", str(output)],
+        capture_output=True, text=True, cwd=ROOT,
+    )
+    assert build.returncode == 0, build.stdout + build.stderr
+    return output
 
-    Returns (host:port, the site's password).
-    """
-    mosquitto = mosquitto_tool("mosquitto")
-    passwd = mosquitto_tool("mosquitto_passwd")
-    if not mosquitto or not passwd or not mosquitto_tool("mosquitto_pub"):
+
+@pytest.fixture(scope="module")
+def broker(tmp_path_factory):
+    """A local mosquitto: the signalling listener (anonymous) and the site's
+    (a password), and a second mosquitto standing for a broker that isn't
+    ours. Returns (signalling port, site port, password, folder,
+    the other's port)."""
+    mosquitto, passwd = mosquitto_tool("mosquitto"), mosquitto_tool("mosquitto_passwd")
+    if not mosquitto or not passwd or not mosquitto_tool("mosquitto_pub") or not mosquitto_tool("mosquitto_sub"):
         pytest.skip("mosquitto is not installed")
     folder = tmp_path_factory.mktemp("broker")
     password = "site-test-password"
     subprocess.run([passwd, "-c", "-b", str(folder / "passwords"), "doorbell-site", password], check=True,
                    capture_output=True)
-    os.chmod(folder / "passwords", 0o600)
-    (folder / "acl").write_text(
-        "# the site: rings to any doorbell, nothing else\n"
-        "user doorbell-site\n"
-        "topic write doorbell/+\n"
-        "\n"
-        "# every other client: its own doorbell, read only (its client ID)\n"
-        "pattern read doorbell/%c\n")
-    os.chmod(folder / "acl", 0o600)
-    port = free_port()
+    (folder / "signalling-acl").write_text(SIGNALLING_ACL)
+    (folder / "site-acl").write_text(SITE_ACL)
+    for name in ("passwords", "signalling-acl", "site-acl"):
+        os.chmod(folder / name, 0o600)
+    signalling, site, other = free_port(), free_port(), free_port()
     (folder / "mosquitto.conf").write_text(
         "per_listener_settings true\n"
-        f"listener {port} 127.0.0.1\n"
-        "allow_anonymous true\n"
-        f"password_file {folder / 'passwords'}\n"
-        f"acl_file {folder / 'acl'}\n"
-        "max_packet_size 512\n"
-        "max_keepalive 300\n"
         "persistence false\n"
-        "retain_available false\n"
-        "max_queued_messages 10\n"
-        "log_dest stderr\n"
-        "log_type error\n")
+        "log_dest stderr\nlog_type error\n"
+        f"listener {signalling} 127.0.0.1\nallow_anonymous true\nacl_file {folder / 'signalling-acl'}\n"
+        f"listener {site} 127.0.0.1\nallow_anonymous false\npassword_file {folder / 'passwords'}\n"
+        f"acl_file {folder / 'site-acl'}\n")
+    # (a broker of its own: signalling uses one client ID on every broker)
+    (folder / "other.conf").write_text(
+        f"persistence false\nlog_dest stderr\nlog_type error\nlistener {other} 127.0.0.1\nallow_anonymous true\n")
     process = subprocess.Popen([mosquitto, "-c", str(folder / "mosquitto.conf")], stdout=subprocess.DEVNULL,
-                               stderr=subprocess.PIPE)
+                               stderr=subprocess.DEVNULL)
+    other_process = subprocess.Popen([mosquitto, "-c", str(folder / "other.conf")], stdout=subprocess.DEVNULL,
+                                     stderr=subprocess.DEVNULL)
     for _ in range(50):
         try:
-            socket.create_connection(("127.0.0.1", port), timeout=0.2).close()
+            socket.create_connection(("127.0.0.1", signalling), timeout=0.2).close()
+            socket.create_connection(("127.0.0.1", site), timeout=0.2).close()
+            socket.create_connection(("127.0.0.1", other), timeout=0.2).close()
             break
         except OSError:
             time.sleep(0.1)
-    else:
-        process.kill()
-        pytest.fail("mosquitto did not start: " + process.stderr.read().decode(errors="replace"))
-    yield f"127.0.0.1:{port}", password
-    process.terminate()
-    process.wait(timeout=5)
+    yield signalling, site, password, folder, other
+    for running in (process, other_process):
+        running.terminate()
+        running.wait(timeout=5)
 
 
-def publish(address, topic, user=None, password=None, payload="\x02"):
-    """One ring published to topic as user (none: anonymous)."""
-    host, port = address.split(":")
-    command = [mosquitto_tool("mosquitto_pub"), "-h", host, "-p", port, "-V", "mqttv311", "-t", topic, "-m", payload]
+def publish(port, topic, payload, user=None, password=None):
+    command = [mosquitto_tool("mosquitto_pub"), "-h", "127.0.0.1", "-p", str(port), "-V", "mqttv311",
+               "-i", "pub-" + os.urandom(4).hex(), "-t", topic, "-m", payload]
     if user:
-        command += ["-u", user, "-P", password]
+        command += ["-u", user] + (["-P", password] if password else [])
     subprocess.run(command, check=True, capture_output=True, timeout=10)
 
 
-def listener(binary, address, doorbell):
-    """The test program listening for doorbell on address, once it says it
-    listens. Returns the process."""
-    process = subprocess.Popen([str(binary), "--broker", address, "--id", doorbell], stdout=subprocess.PIPE, text=True)
+def test_the_game_hears_its_doorbell(binary, broker):
+    """Signalling, started for the doorbell alone, connects to our broker
+    only (with the doorbell as its user name), hears the site's ring, then
+    connects to the others without it."""
+    signalling, site, password, folder, other = broker
+    (folder / "brokers.txt").write_text(f"broker.example.org:{other}\ndoorbell.chupathingy.org:{signalling}\n")
+    process = subprocess.Popen([str(binary), str(folder / "brokers.txt"), ID, str(signalling), str(other)],
+                               stdout=subprocess.PIPE, text=True, cwd=ROOT)
     line = process.stdout.readline().strip()
-    assert line == "listening", line
-    return process
+    assert line == "listening", line + process.stdout.read()
+    # (rings from anyone else go nowhere; the site's arrives)
+    publish(signalling, "doorbell/" + ID, "x")
+    publish(signalling, "doorbell/" + ID, "x", user=ID)
+    publish(site, "doorbell/" + ID, "\x02", "doorbell-site", password)
+    output, _ = process.communicate(timeout=30)
+    assert process.returncode == 0, line + "\n" + output
+    assert output.split() == ["ring", "ok"], output
 
 
-def test_ring_from_the_site(binary, broker):
-    """The site's ring reaches the copy whose doorbell it is."""
-    address, password = broker
-    process = listener(binary, address, ID)
-    publish(address, "doorbell/" + ID, "doorbell-site", password)
-    output, _ = process.communicate(timeout=20)
-    assert process.returncode == 0 and output.strip() == "ring 2", output
-
-
-def test_only_the_site_rings(binary, broker):
-    """Rings from anyone but the site, and rings to another doorbell, never
-    arrive; the site's still does."""
-    address, password = broker
-    process = listener(binary, address, ID)
-    publish(address, "doorbell/" + ID, payload="\x01")
-    publish(address, "doorbell/" + OTHER, "doorbell-site", password, payload="\x01")
-    with pytest.raises(subprocess.CalledProcessError):
-        publish(address, "doorbell/" + ID, "doorbell-site", "wrong password", payload="\x01")
-    time.sleep(0.5)
-    publish(address, "doorbell/" + ID, "doorbell-site", password, payload="\x04")
-    output, _ = process.communicate(timeout=20)
-    assert process.returncode == 0 and output.strip() == "ring 4", output
-
-
-def test_no_snooping(broker):
-    """A client can't read another doorbell, or every doorbell, whatever its
-    client ID says."""
-    address, password = broker
-    host, port = address.split(":")
+def test_the_acl_keeps_signalling_and_doorbells_apart(broker):
+    """Signalling works for clients with and without a user name; nobody
+    reads a doorbell that isn't their user name, and only the site rings."""
+    signalling, site, password, _, _ = broker
     sub = mosquitto_tool("mosquitto_sub")
-    if not sub:
-        pytest.skip("no mosquitto_sub")
-    snoopers = [subprocess.Popen([sub, "-h", host, "-p", port, "-V", "mqttv311", "-i", client, "-t", topic, "-C", "1",
-                                  "-W", "3"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-                for client, topic in ((OTHER, "doorbell/" + ID), (OTHER, "doorbell/+"), (OTHER, "doorbell/#"),
-                                      ("#", "doorbell/#"), ("+", "doorbell/+"), (OTHER, "#"))]
-    owner = subprocess.Popen([sub, "-h", host, "-p", port, "-V", "mqttv311", "-i", ID, "-t", "doorbell/" + ID, "-C", "1",
-                              "-W", "3"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+    def listen(topic, user=None, count=1):
+        command = [sub, "-h", "127.0.0.1", "-p", str(signalling), "-V", "mqttv311", "-i", "sub-" + os.urandom(4).hex(),
+                   "-t", topic, "-C", str(count), "-W", "3"]
+        if user:
+            command += ["-u", user]
+        return subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+
+    owner = listen("doorbell/" + ID, ID, count=2)
+    snoopers = [listen("doorbell/" + ID, OTHER), listen("doorbell/+", OTHER), listen("doorbell/#"),
+                listen("doorbell/#", "#"), listen("#", "+")]
+    signalling_named, signalling_anonymous = listen("hceu/3/test", ID), listen("hceu/3/test")
     time.sleep(1)
-    publish(address, "doorbell/" + ID, "doorbell-site", password, payload="ring")
+    publish(signalling, "doorbell/" + ID, "fake", user=ID)
+    publish(signalling, "doorbell/" + ID, "fake")
+    publish(site, "doorbell/" + ID, "ring", "doorbell-site", password)
+    publish(signalling, "hceu/3/test", "listing", user=OTHER)
+    assert owner.communicate(timeout=10)[0].split() == ["ring"]
     for snooper in snoopers:
-        output, _ = snooper.communicate(timeout=10)
-        assert output == "", output
-    # (the doorbell's own client heard it: the snoopers were really listening)
-    output, _ = owner.communicate(timeout=10)
-    assert output.strip() == "ring", output
+        assert snooper.communicate(timeout=10)[0] == ""
+    assert signalling_named.communicate(timeout=10)[0].strip() == "listing"
+    assert signalling_anonymous.communicate(timeout=10)[0].strip() == "listing"

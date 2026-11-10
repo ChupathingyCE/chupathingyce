@@ -126,7 +126,7 @@ enum
 	/* no answer, or an answer not understood: the wait doubles from the
 	interval up to this */
 	SOCIAL_POLL_FAILED_WAIT = 5 * 60000,
-	/* the doorbell (doorbell.h) rang: polled at once, at least this long
+	/* the doorbell (p2p_doorbell) rang: polled at once, at least this long
 	after the last poll, and only while fewer than SOCIAL_POLL_RING_ROOM
 	polls went out in the last SOCIAL_POLL_RING_WINDOW (so the menus' 3 a
 	minute and a ring's 3 stay under the site's 6, with one left for a join
@@ -179,7 +179,7 @@ enum
 	SOCIAL_HANDLE_SIZE = 24,
 	SOCIAL_GAME_TEXT_SIZE = 64,
 	SOCIAL_CURSOR_SIZE = 40,
-	/* this copy's doorbell (doorbell.h): 32 of 0-9 and a-f */
+	/* this copy's doorbell (p2p_doorbell): 32 of 0-9 and a-f */
 	SOCIAL_DOORBELL_SIZE = 33,
 	SOCIAL_INVITE_ID_SIZE = 40,
 	/* the site keeps 200 friends at most, 50 requests waiting */
