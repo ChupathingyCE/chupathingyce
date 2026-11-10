@@ -14,13 +14,16 @@ crashed:
 	architecture x64
 	os Windows 10.0.19045
 	exception c0000005            (a Windows exception's code, or SIGSEGV)
+	renderer bgfx-vulkan          (optional: else the log's last renderer=
+	                              line, d3d8_gl.c)
 	frame chupathingy.exe+0x1a2b3c (where it crashed, then its callers: a
 	frame ntdll.dll+0x4f2a0        module and the offset in it, "?" for none)
 
 and crash_report_body makes the request's body of it, JSON:
 
 	{"format": 1, "version", "channel", "commit", "platform", "architecture",
-	 "os", "exception", "frames": [...], "log": the log's last
+	 "os", "exception", "renderer" (gl, bgfx-metal, bgfx-vulkan, bgfx-d3d11,
+	 native, none; left out when not known), "frames": [...], "log": the log's last
 	 CRASH_REPORT_LOG_LINES lines, "minidump": base64 (Windows; left out
 	 without one, or past CRASH_REPORT_MAXIMUM_DUMP bytes)}
 
@@ -60,6 +63,10 @@ CRASH_REPORT_LOG_LINES lines taken; dump: a minidump or NULL), malloc'd and
 NUL terminated, with its length; NULL without memory */
 char *crash_report_body(const char *report, const char *log, size_t log_size, const void *dump, size_t dump_size,
 	size_t *length);
+
+/* the renderer the log names last (its "renderer=NAME" line): its length,
+written to out (NUL terminated); 0 for none */
+size_t crash_report_renderer(const char *log, size_t size, char *out, size_t out_size);
 
 /* text with each public IP address in it "[address]" and each home folder
 "~" or "%USERPROFILE%": its length, written
