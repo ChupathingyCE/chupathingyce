@@ -107,6 +107,7 @@ symbols in this file:
 #include "units/unit_definitions.h"
 #include "units/units.h"
 #include "halo_perf_log.h" /* port: console.perf_log */
+#include "stats_log.h" /* port: port/linux/game/stats_log.c */
 
 /* ---------- constants */
 
@@ -400,6 +401,8 @@ void interface_draw_fullscreen_overlays(
 	interface_splitscreen_render();
 	hud_render_timer();
 	terminal_draw();
+	/* port: display.stats_log, a line a second in the log (stats_log.c) */
+	stats_log_tick();
 	main_framerate_render();
 	render_debug_profile();
 

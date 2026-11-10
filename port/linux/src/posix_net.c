@@ -21,7 +21,10 @@ with the host ABI.
 #include <string.h>
 #include <sys/ioctl.h>
 #ifdef __APPLE__
+#include <TargetConditionals.h>
+#if TARGET_OS_OSX
 #include <CoreGraphics/CGEventSource.h>
+#endif
 #include <crt_externs.h>
 #include <uuid/uuid.h>
 #include <stdlib.h>
@@ -819,7 +822,7 @@ int posix_command_line_argument(int index, char *buffer, posix_ulong size)
 
 int posix_shift_key_held(void)
 {
-#ifdef __APPLE__
+#if defined(__APPLE__) && TARGET_OS_OSX
 	return (CGEventSourceFlagsState(kCGEventSourceStateCombinedSessionState) & kCGEventFlagMaskShift) ? 1 : 0;
 #else
 	return -1;

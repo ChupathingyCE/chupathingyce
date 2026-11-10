@@ -956,7 +956,7 @@ static void object_render_state_refresh(
 	struct object_render_state *state = object_render_state_get(render_state_index);
 	long scene_age = render.scene_index - state->render_scene_index;
 	long render_age = render.frame_index - state->render_frame_index;
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 	/* The native builds draw several frames per tick
 	(port/linux/game/render_interpolation.c), and a refresh moves the lighting
 	a fixed step toward its target: refresh at the intervals in ticks the
@@ -1003,7 +1003,7 @@ static void object_render_state_refresh(
 		state->object_index = object_index;
 		lights_prepare_for_object_static(object_index, &state->desired_lighting);
 		state->level_of_detail_pixels = level_of_detail_pixels;
-#ifndef HALO_XBOX_CONSOLE
+#ifdef HALO_PORT_FRAMES_BETWEEN_TICKS
 		state->refresh_frame_index = game_time_get();
 #else
 		state->refresh_frame_index = render.frame_index;

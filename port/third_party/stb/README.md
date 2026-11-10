@@ -10,6 +10,8 @@ licensed, as the user chooses (see `LICENSE`), vendored unchanged from
   (`port/linux/src/text_hires.c`); and the overlay's text with the fonts
   of `port/linux/ui/fonts` (`port/linux/src/ui_overlay.c`, the game browser's).
 - `stb_image.h` v2.30: PNG and JPEG decoding, for the overlay's pictures.
+- `stb_image_write.h` v1.16 (same commit as stb_truetype): PNG encoding,
+  for the player's screenshots (`port/linux/src/capture.c`).
 - `stb_vorbis.c` v1.22 (same commit): Ogg Vorbis decoding, for Halo PC's
   sounds in Custom Edition maps (`port/linux/game/ce_vorbis.c`).
   Not unchanged: a map's sounds come from anyone, so its setup parsing is
@@ -17,5 +19,6 @@ licensed, as the user chooses (see `LICENSE`), vendored unchanged from
   in the file): allocation sizes that would overflow refused, the vendor and
   comment lengths and the comment count kept within the stream, the comment
   list zeroed and its length reset when it cannot be read, room for all 16
-  submaps, a failed sparse codebook decode not used as an index, and a
-  codebook's entries times dimensions bounded.
+  submaps, a failed sparse codebook decode not used as an index, a
+  codebook's entries times dimensions bounded, and the flat run after a
+  floor's last point masked to the table as `draw_line` masks its own.
