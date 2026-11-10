@@ -804,7 +804,8 @@ original Xbox's. The game's side is `port/linux/game/network_objects.c`.
 Over `identity` (bit 20), a player proves who they are with the device
 certificate their copy holds ("Device identity" under Delta Link). The host
 checks the proof, then relays it to every other client that agreed, and each
-client checks it again itself. A host can't make up a verified player.
+client checks it again itself. A host can't make a proof up, but it can
+show one it saw elsewhere (below).
 
 **Only verified players show by their Delta profile.** Profile names, clan
 tags and badges show only for a player whose proof checked here. Everyone
@@ -839,6 +840,16 @@ checked that the challenge came from the host it connected to (the
 - What an unbound proof can't stop: a host that relays a real player's
   proof from its own game into another, at the same time, can be shown
   there under that player's name. That is why it never carries a role.
+- **Accepted risk: a card replayed by a host.** A host that joined another
+  game as a client keeps the cards it was sent there. Each card carries
+  its nonce and its binding, both chosen by that game's host, so a host
+  can send an unbound card it collected to its own players who joined by
+  address, at the same machine index, and they check it. The player then
+  shows as verified in that game for up to 30 minutes after they signed
+  (a client's card age), with no role and no ban. A bound card can't be
+  replayed this way: it names the other host's binding. Closing this for
+  unbound cards needs a nonce from every client in each proof, so a proof
+  would be made again whenever anyone joins. We left that out for now.
 
 **The flow.**
 
@@ -869,7 +880,29 @@ checked that the challenge came from the host it connected to (the
 
 - **One identity, one player.** A host refuses a proof whose device or
   account is already verified for another player of the game, and a client
-  refuses such a card.
+  refuses such a card. One exception: a bound proof takes the place of an
+  unbound card of the same identity (an unbound card may be someone else's
+  relay), and the unbound one is withdrawn. A bound card is never replaced
+  by an unbound one.
+- **Cards are checked again.** The host and every client check each card
+  they keep again every 60 seconds, with all the checks below: its
+  certificate's dates, the revocation list as it is now, and its age. The
+  host withdraws a card whose proof is more than 25 minutes old (10
+  minutes, what it takes, plus the 15 a client proves again in), and a
+  client drops one more than 30 minutes old, however often the host sends
+  it again. When a new revocation list comes, every card is checked
+  against it on the next frame.
+- **What every player gets.** An ID_CARD goes to every client in the game
+  that agreed to `identity`, and it holds the whole certificate: the
+  account's player ID, the device's ID and its public key, the platform,
+  the handle and the certificate's dates. Every other Delta player in the
+  game can see them. No address and no secret travels in it.
+- **Open: the local player isn't matched to a player.** The host takes a
+  proof for local players 0 to 3 of a machine without checking that the
+  machine has a player at that index in the game. A card for a local
+  player who isn't playing shows nowhere, since names are looked up by a
+  player's machine and controller, but it does take its identity, so
+  that account can't be verified for another player of the game.
 - **Nothing outlives a session.** The host withdraws a machine's cards when
   it takes a new session from that index, when the machine leaves, and
   every card when it stops hosting, and its moderation hears of each.
@@ -934,8 +967,13 @@ dedicated server, fetches `GET /v1/identity/revoked` every ten minutes.
 - It keeps the list in `delta_revoked.bin` in the save root. A copy reads
   the saved list the first time it needs one, with or without a site, so a
   LAN game still checks against the last list.
-- A list whose issuer certificate has expired, or whose next update has
-  passed, is still used. The log says it is stale.
+- A list whose next update has passed is still used. The log says it is
+  stale.
+- A list fetched from the site is taken only while its issuer certificate
+  is in date. The list a copy saved, taken while its issuer was in date,
+  is still read after that issuer expires, and the log says it is stale.
+  An issuer past its dates is no longer looked after, so a list it signed
+  later could take revoked devices off.
 - Hosts don't relay the list over Delta Peer yet.
 
 **One name.** A Delta profile has one name, its **Delta Tag**: the handle,
@@ -964,21 +1002,37 @@ and show their handle until their owner picks its capitals.
   player list), never by that name. A verified player whose handle the
   site marked as a look-alike of another (its card's `looks_like`) shows as
   "Player N" too.
-- **The mark** (`display.verified_mark`, off unless set): verified names
+- **The mark** (`display.verified_mark`, on by default): verified names
   show with an @ in front ("@Milenko"), and an @ at the front of anyone
-  else's game name is left out.
-- The name never reaches OpenCE. Their players see the Halo profile's own
-  name, 11 characters, which the game's messages carry unchanged.
+  else's game name is left out. A player who isn't connected to Delta (no
+  linked profile, or a guest) never has the mark.
+- **On Delta you play under your verified name.** A Halo profile linked to
+  a Delta profile (it would prove: shared, not a guest, with a certificate
+  that has a handle) joins every game with the handle as its game name, in
+  the capitals its owner picked, cut to Halo's 11 characters. The name
+  typed into the Halo profile doesn't override it while it is linked.
+- The mark and the profile never reach OpenCE. Their players see a plain
+  game name, 11 characters, which the game's messages carry unchanged (for
+  a linked profile, its handle).
+- **Not connected, not recorded.** A guest Halo profile's line is never
+  claimed, and a machine whose local players are all guests sends no
+  report of a game it joined. The site attaches a line to a player ID only
+  when that ID is linked to a Delta profile. So a player who isn't
+  connected to Delta never has a game put on a profile.
 
 **Look-alikes.** The site and the game read names the same way
 (`lookalike_key` in puma, `identity_lookalike_key` in the game, checked
 against the same vectors):
 1. Each character becomes the letter it looks like: A-Z as a-z; 0 o, 1 i,
-   3 e, 4 a, 5 s, 7 t, 8 b; @ a, $ s, ! i, | i; and the Cyrillic and Greek
-   letters drawn like Latin ones.
-2. Everything else is dropped (other digits, spaces, separators, accents),
-   only after the digits above were read as letters.
-3. Then rn reads as m, vv as w and l as i.
+   3 e, 4 a, 5 s, 7 t, 8 b; @ a, $ s, ! i, | i; the accented Latin letters
+   (Latin-1 and Latin Extended-A, U+00C0 to U+017F) as their base letter
+   ("ó" o, "Ä" a, "Ł" l, "ß" s); and the Cyrillic and Greek letters drawn
+   like Latin ones.
+2. The digits 2, 6 and 9 stay digits, so "milenko2" and "milenko9" are
+   different names, as "milenko1" ("miienkoi") is from both.
+3. Everything else is dropped (spaces, separators, signs not above, ×
+   and ÷).
+4. Then rn reads as m, vv as w and l as i.
 
 On the site:
 - A new handle that looks like the handle of a profile that proves who it
@@ -1031,8 +1085,8 @@ server, beside the moderator key's:
 - An account's role comes from the moderators file's account lines
   (`<role> <32 hex digits> [name]`; `sv_mod_add` takes an account or a
   verified player) and from the site's role list, by the account each entry
-  carries. An entry from a site that sends no account is matched by the
-  handle the certificate names.
+  carries. An entry from a site that sends no account gives no role: a
+  handle alone never matches.
 - The player still signs in from the Moderation screen (MOD_PROOF). A copy
   with no player key signs it, and its actions, with the device key when
   its certificate has `moderate`. The host takes the key the proof names,

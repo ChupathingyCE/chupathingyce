@@ -23,6 +23,12 @@ Your service record is on [stats.chupathingy.org](https://stats.chupathingy.org)
 
 On a console linked to a Delta profile, the game also claims your own line after each online game, hosted or joined: your name, team, score, kills and deaths, the game's name, map and length, signed by the console. That puts the game on your profile. `report_joined_games = false` turns this off as well.
 
+Only players connected to Delta get games on a profile. If your Halo profile plays as a guest, or your copy isn't linked to a Delta profile, your line is never claimed and the site doesn't put the game on any profile.
+
+## Your verified name in games
+
+If your copy is linked to a Delta profile and you share it (`share_profile`), you play under your profile's name, and other Delta players in the game see you as verified (with an @ in front, unless they turned the mark off). To check that, your game sends the host your device certificate, and the host passes it to every Delta player in the game. It holds your account's player ID, your device's ID and its public key, your platform and your name. It never holds your address or any secret. OpenCE players see only your game name. To stop it, turn off sharing your profile.
+
 ## Showing that you're playing
 
 If your copy is linked to a Delta profile, your profile shows which game you're playing. While you're in a Delta game, your game tells stats.chupathingy.org which game it is, about once a minute: your player key and the game's invite, nothing about other players. The site shows that game (its name, map and player count) only to the people you allow, and the invite itself only to people allowed to join you. It keeps this in memory for a few minutes and never stores your address. Nothing is sent from the menus, or for a game whose host doesn't run Delta.
