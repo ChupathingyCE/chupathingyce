@@ -1050,6 +1050,8 @@ real console_performance_model_detail(void);
 /* port: display.full_model_detail, every model drawn with its most detailed
 geometry wherever it is, not the coarser ones the game swaps in as it gets
 smaller on the screen. Drawing only: the game's state never reads it. */
+#define FULL_MODEL_DETAIL_MAXIMUM_PIXELS 1000.0f
+
 static boolean full_model_detail(
 	void)
 {
@@ -1165,7 +1167,21 @@ void render_model(
 		}
 		if (full_model_detail())
 		{
-			geometry_detail_level_index = NUMBER_OF_DETAIL_LEVELS_PER_MODEL-1;
+			/* port: the most detailed level a model gets when it is drawn
+			whole on the screen, not one the game keeps for a camera that is
+			inside or right against it: a cutoff past FULL_MODEL_DETAIL_MAXIMUM_PIXELS
+			marks one, as the cryo tube's on The Pillar of Autumn has (its
+			super high geometry has no Master Chief's head, so the camera in
+			the tube can see out). Such a level is still drawn when the model
+			is that big on the screen. */
+			short full_detail_level_index = NUMBER_OF_DETAIL_LEVELS_PER_MODEL-1;
+
+			while (full_detail_level_index>geometry_detail_level_index &&
+				model->detail_cutoff_pixels[full_detail_level_index]>FULL_MODEL_DETAIL_MAXIMUM_PIXELS)
+			{
+				full_detail_level_index--;
+			}
+			geometry_detail_level_index = full_detail_level_index;
 		}
 		if (rasterizer_debug_options.debug_model_lod!=NONE)
 		{

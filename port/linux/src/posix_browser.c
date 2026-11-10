@@ -836,6 +836,12 @@ int posix_browser_private_key(const char *path, unsigned char *key, int size)
 	return 0;
 }
 
+/* the device key (browser.c's device identity): the same, its own file */
+int posix_browser_device_key(const char *path, unsigned char *key, int size)
+{
+	return posix_browser_private_key(path, key, size);
+}
+
 /* a player key put in place of the one at path (a restored key): written
 to a new file beside it, then moved over it */
 int posix_browser_replace_key(const char *path, const unsigned char *key, int size)
@@ -880,7 +886,9 @@ Profile and the game list's reports never had a key */
 #define PRIVATE_KEY_PRIVATE(status) ((status).st_uid == getuid() && !((status).st_mode & 077))
 #endif
 
-int posix_browser_private_key(const char *path, unsigned char *key, int size)
+/* (what: "the player key", "the device key"; identity: a key whose loss
+loses the player's identity, which is never to be deleted for a new one) */
+static int private_key(const char *path, unsigned char *key, int size, const char *what, int identity)
 {
 	int attempt;
 
@@ -903,16 +911,19 @@ int posix_browser_private_key(const char *path, unsigned char *key, int size)
 			{
 				if (fchmod(descriptor, status.st_mode & 0700) == 0)
 				{
-					platform_log("Game list: the player key (%s) was readable by others; made private again", path);
+					platform_log("Game list: %s (%s) was readable by others; made private again", what, path);
 					status.st_mode &= ~(mode_t)077;
 				}
 			}
 #endif
 			ok = ok && PRIVATE_KEY_PRIVATE(status) && read(descriptor, key, (size_t)size) == size;
 #ifndef __ANDROID__
-			if (!ok)
-				platform_log("Game list: the player key (%s) can't be used (not a plain file of yours, or too short); "
-					"it is left as it is: don't delete it, it is your identity", path);
+			if (!ok && identity)
+				platform_log("Game list: %s (%s) can't be used (not a plain file of yours, or too short); "
+					"it is left as it is: don't delete it, it is your identity", what, path);
+			else if (!ok)
+				platform_log("Game list: %s (%s) can't be used (not a plain file of yours, or too short); "
+					"delete it and the game makes a new one", what, path);
 #endif
 			close(descriptor);
 			return ok;
@@ -942,6 +953,16 @@ int posix_browser_private_key(const char *path, unsigned char *key, int size)
 		return ok;
 	}
 	return 0;
+}
+
+int posix_browser_private_key(const char *path, unsigned char *key, int size)
+{
+	return private_key(path, key, size, "the player key", 1);
+}
+
+int posix_browser_device_key(const char *path, unsigned char *key, int size)
+{
+	return private_key(path, key, size, "the device key", 0);
 }
 
 /* a player key put in place of the one at path (a restored key): written
