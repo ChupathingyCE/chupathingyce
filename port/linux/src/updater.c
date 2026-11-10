@@ -49,6 +49,17 @@ no AppImage, is not installed over an AppImage (its zip would only fill the
 AppImage's folder with a second copy of the game), and the player is told to
 download the new AppImage.
 
+Under gamescope (the Steam Deck's Game Mode: updater_gamescope) a system
+dialog crashes the game, so nothing is asked: the main menu's version line
+says where to update (UPDATER_GAMESCOPE_WHERE), and no download window or
+failure dialog is shown either. The game's own pages install it, there and
+everywhere else: the setup screen's UPDATES and Settings > Network >
+Updates' INSTALL UPDATE (updater_install_begin) download and put it in
+place on a thread of their own, the page showing how it goes and why it
+failed (updater_install_status), and the game's thread then starts the new
+version. On Linux the new version is this same process (update_start_in_place),
+so Steam and gamescope keep the game.
+
 The update channel (update.channel: "release", "testing" or "nightly";
 a build's default is its own channel, so a release's is "release"): Release
 is offered the latest release alone, as before. Testing is also offered the
@@ -274,6 +285,43 @@ or the 64-bit Windows build's once the player takes it (UPDATER_OFFER_64BIT) */
 static const char *updater_platform = UPDATE_PLATFORM;
 /* whether to ask about the 64-bit build when the check is answered */
 static int updater_offer_64bit;
+
+/* an install from a page of the game's own (the setup screen's UPDATES, the
+menus' INSTALL UPDATE: updater_install_begin), on a thread of its own while
+the page goes on drawing, with no window or dialog of its own: where it is,
+how much is downloaded, why it failed, and the program to start once it is
+in place (the game's thread starts it: updater_install_finish) */
+enum
+{
+	_install_idle,
+	_install_downloading,
+	_install_installing,
+	_install_ready,
+	_install_failed,
+};
+
+static struct
+{
+	SDL_Mutex *lock;
+	int phase;
+	unsigned long long received, total;
+	char version[sizeof(updater_latest_version)];
+	char error[512];
+	char start[1200];
+} updater_background;
+
+/* whether the install running is the background's (its download reports to
+updater_background, not to a window) */
+static int updater_in_background;
+
+/* whether the background install is ready, waiting for the game to end
+(a game in progress: a host's would end for everyone) */
+static int updater_background_waiting;
+/* (set with _install_ready: whether updater_poll has anything to finish) */
+static SDL_AtomicInt updater_background_ready;
+
+int updater_gamescope(void);
+static int updater_background_busy(void);
 
 /* the zip of updater_platform's download, by its name before the list:
 chupathingyce-<platform>-<release|debug>.zip */
@@ -919,8 +967,21 @@ static int SDLCALL updater_download_thread(void *context)
 	return 0;
 }
 
+/* (the background install's download: how far it has got, for its page) */
+static void updater_background_progress(void *context, unsigned long long received, unsigned long long total)
+{
+	(void)context;
+	SDL_LockMutex(updater_background.lock);
+	updater_background.received = received;
+	updater_background.total = total;
+	SDL_UnlockMutex(updater_background.lock);
+}
+
 /* downloads the release's zip, showing how far it has got in a window of its
-own (drawn in software, clear of the game's OpenGL); 1 when it is there */
+own (drawn in software, clear of the game's OpenGL); 1 when it is there. The
+background install's (updater_in_background) downloads on its own thread
+and tells its page instead; under gamescope (the Steam Deck's Game Mode) no
+second window is opened, as gamescope shows one window of the game's */
 static int updater_download_zip(const char *zip_path, char *error, size_t error_size)
 {
 	static struct updater_download download;
@@ -933,7 +994,6 @@ static int updater_download_zip(const char *zip_path, char *error, size_t error_
 #endif
 
 	memset(&download, 0, sizeof(download));
-	download.lock = SDL_CreateMutex();
 	{
 		char path[400];
 
@@ -941,6 +1001,25 @@ static int updater_download_zip(const char *zip_path, char *error, size_t error_
 		updater_url(download.url, sizeof(download.url), 0, path);
 	}
 	snprintf(download.zip_path, sizeof(download.zip_path), "%s", zip_path);
+	if (updater_in_background)
+	{
+		char reason[512] = "";
+		int succeeded = update_download(download.url, download.zip_path,
+			updater_file.listed ? updater_file.size : MAXIMUM_UPDATE_SIZE, updater_background_progress, NULL, reason,
+			sizeof(reason));
+
+		if (!succeeded)
+			snprintf(error, error_size, "%s", reason);
+		else
+		{
+			/* (checked and unpacked next: the page says it installs) */
+			SDL_LockMutex(updater_background.lock);
+			updater_background.phase = _install_installing;
+			SDL_UnlockMutex(updater_background.lock);
+		}
+		return succeeded;
+	}
+	download.lock = SDL_CreateMutex();
 	thread = SDL_CreateThread(updater_download_thread, "update download", &download);
 	if (!thread)
 	{
@@ -951,7 +1030,7 @@ static int updater_download_zip(const char *zip_path, char *error, size_t error_
 	window = NULL;
 	screen = console_setup_screen_open();
 #else
-	window = SDL_CreateWindow("Chupathingy", 640, 150, 0);
+	window = updater_gamescope() ? NULL : SDL_CreateWindow("Chupathingy", 640, 150, 0);
 	if (window)
 		renderer = SDL_CreateRenderer(window, SDL_SOFTWARE_RENDERER);
 #endif
@@ -1250,12 +1329,11 @@ done:
 }
 
 /* the downloaded AppImage, checked against the release's list (its size and
-SHA-256), written again from the copy that was checked, and put in place of
-the AppImage file this runs from (which becomes <name>.old), executable as
-it was; 1 when it is there */
-static int updater_install_appimage(const char *download_path, char *error, size_t error_size)
+SHA-256), and written again from the copy that was checked, ready to be put
+in place (updater_swap); 1 when it is there */
+static int updater_check_appimage(const char *download_path, char *error, size_t error_size)
 {
-	char old_path[1300], digest[UPDATE_SHA256_TEXT_SIZE];
+	char digest[UPDATE_SHA256_TEXT_SIZE];
 	size_t size = 0;
 	unsigned char *data = SDL_LoadFile(download_path, &size);
 	int succeeded = 0;
@@ -1283,13 +1361,6 @@ static int updater_install_appimage(const char *download_path, char *error, size
 	if (!SDL_SaveFile(download_path, data, size))
 	{
 		snprintf(error, error_size, "could not write the new AppImage beside the old one");
-		goto done;
-	}
-	snprintf(old_path, sizeof(old_path), "%s.old", updater_executable);
-	if (!update_replace_file(updater_executable, download_path, old_path))
-	{
-		update_delete_file(download_path);
-		snprintf(error, error_size, "could not replace %s", updater_executable);
 		goto done;
 	}
 	succeeded = 1;
@@ -1389,73 +1460,161 @@ static void updater_new_executable(char names[][256], int name_count, char *path
 	platform_log("update: the list's main, %s, is not in the download: starting %s", updater_file.main_name, path);
 }
 
-/* downloads, unpacks and puts in place the new build, and starts it; returns
-only if something failed */
-static void updater_update(void)
+/* what is downloaded, checked and unpacked, waiting to be put in place
+(updater_fetch, then updater_swap): the AppImage's file, or the zip's files
+in the update folder */
+static struct
 {
+	char download[1200];
 	char names[MAXIMUM_UPDATE_FILES][256];
 	int executable[MAXIMUM_UPDATE_FILES];
-	char zip_path[1200], partial[1200], start[1200], error[512] = "";
-	int name_count = 0;
+	int count;
+} updater_staged;
+
+/* downloads, checks and unpacks the new build into the update folder,
+nothing of the game's changed yet: 1 when it is ready for updater_swap, else
+0 and why in error. Nothing is shown here but the download's window
+(updater_download_zip). It can run on a thread of its own */
+static int updater_fetch(char *error, size_t error_size)
+{
+	char partial[1200];
 	/* (the check's results, copied once: the version, the channel and the
 	feed's list stay these for the whole install) */
 	int taken = updater_take_results();
 
+	memset(&updater_staged, 0, sizeof(updater_staged));
 	updater_path(partial, sizeof(partial), UPDATE_DIRECTORY);
-	updater_partial_path(zip_path, sizeof(zip_path), updater_appimage ? UPDATE_APPIMAGE_ASSET : updater_asset());
+	updater_partial_path(updater_staged.download, sizeof(updater_staged.download),
+		updater_appimage ? UPDATE_APPIMAGE_ASSET : updater_asset());
 	if (taken)
 		platform_log("update: downloading version %s", updater_install_version);
 	if (!taken)
 	{
-		snprintf(error, sizeof(error), "a check for updates is running: try again when it is done");
+		snprintf(error, error_size, "a check for updates is running: try again when it is done");
+		return 0;
 	}
-	else if (!update_make_directory(partial))
+	if (!update_make_directory(partial))
 	{
-		snprintf(error, sizeof(error), "could not make %s (is the %s folder read-only?)", partial,
+		snprintf(error, error_size, "could not make %s (is the %s folder read-only?)", partial,
 			updater_appimage ? "AppImage's" : "game's");
+		return 0;
 	}
-	else if (updater_appimage)
+	if (updater_find_file(error, error_size) &&
+		updater_download_zip(updater_staged.download, error, error_size) &&
+		(updater_appimage ? updater_check_appimage(updater_staged.download, error, error_size) :
+		updater_unpack(updater_staged.download, updater_staged.names, updater_staged.executable,
+			&updater_staged.count, error, error_size)))
 	{
-		/* (the AppImage, whole: started by the name it had) */
-		if (updater_find_file(error, sizeof(error)) && updater_download_zip(zip_path, error, sizeof(error)) &&
-			updater_install_appimage(zip_path, error, sizeof(error)))
-		{
-			update_delete_file(partial);
-			platform_log("update: starting version %s (%s)", updater_install_version,
-				strrchr(updater_executable, PATH_SEPARATOR[0]) ? strrchr(updater_executable, PATH_SEPARATOR[0]) + 1 :
-				updater_executable);
-			if (update_launch(updater_executable))
-				exit(EXIT_SUCCESS);
-			snprintf(error, sizeof(error), "the new version is in place, but could not be started: start it again");
-		}
-		else
-		{
-			update_delete_file(partial);
-		}
+		return 1;
 	}
-	else if (updater_find_file(error, sizeof(error)) && updater_download_zip(zip_path, error, sizeof(error)) &&
-		updater_unpack(zip_path, names, executable, &name_count, error, sizeof(error)))
+	update_delete_file(updater_staged.download);
+	update_delete_file(partial);
+	return 0;
+}
+
+/* what updater_fetch made ready put in place of the running game's files:
+the AppImage file this runs from (which becomes <name>.old), executable as
+it was, or the zip's files (each old one <name>.old). 1 when it is there,
+start then the program to start (the AppImage file by the name it had, or
+the zip's game); else 0, the game as it was, and why in error. On the
+game's thread, so the files never change under a game that is quitting */
+static int updater_swap(char *start, size_t start_size, char *error, size_t error_size)
+{
+	char partial[1200];
+
+	updater_path(partial, sizeof(partial), UPDATE_DIRECTORY);
+	if (updater_appimage)
 	{
-		if (updater_replace_files(names, executable, name_count, error, sizeof(error)))
+		char old_path[1300];
+
+		snprintf(old_path, sizeof(old_path), "%s.old", updater_executable);
+		if (!update_replace_file(updater_executable, updater_staged.download, old_path))
 		{
+			update_delete_file(updater_staged.download);
 			update_delete_file(partial);
-			updater_new_executable(names, name_count, start, sizeof(start));
-			platform_log("update: starting version %s (%s)", updater_install_version,
-				strrchr(start, PATH_SEPARATOR[0]) ? strrchr(start, PATH_SEPARATOR[0]) + 1 : start);
+			snprintf(error, error_size, "could not replace %s", updater_executable);
+			return 0;
+		}
+		update_delete_file(partial);
+		snprintf(start, start_size, "%s", updater_executable);
+		return 1;
+	}
+	if (!updater_replace_files(updater_staged.names, updater_staged.executable, updater_staged.count, error,
+		error_size))
+	{
+		return 0;
+	}
+	update_delete_file(partial);
+	updater_new_executable(updater_staged.names, updater_staged.count, start, start_size);
+	return 1;
+}
+
+/* downloads, unpacks and puts in place the new build: updater_fetch, then
+updater_swap */
+static int updater_put_in_place(char *start, size_t start_size, char *error, size_t error_size)
+{
+	return updater_fetch(error, error_size) && updater_swap(start, start_size, error, error_size);
+}
+
+/* the new version, in place, started in this one's place (start: the
+program updater_put_in_place gave): on Linux this very process becomes it
+as it exits (update_start_in_place: the same process, so Steam and gamescope
+keep the game, in Game Mode too), elsewhere it is started and this one
+quits. Returns only if it cannot be started, with why in error */
+static void updater_restart(const char *start, char *error, size_t error_size)
+{
+	char reason[256] = "";
+
+	platform_log("update: starting version %s (%s)", updater_install_version,
+		strrchr(start, PATH_SEPARATOR[0]) ? strrchr(start, PATH_SEPARATOR[0]) + 1 : start);
 #ifdef HALO_PORT_UPDATE_RESTART_EXIT_CODE
-			/* (the port's script starts the new version itself when the game
-			exits with this code) */
-			exit(HALO_PORT_UPDATE_RESTART_EXIT_CODE);
+	/* (the port's script starts the new version itself when the game exits
+	with this code; an AppImage is no port's) */
+	if (!updater_appimage)
+		exit(HALO_PORT_UPDATE_RESTART_EXIT_CODE);
 #endif
-			if (update_launch(start))
-				exit(EXIT_SUCCESS);
-			snprintf(error, sizeof(error), "the new version is in place, but could not be started: start it again");
-		}
+#ifndef HALO_PORT_UPDATE_PLATFORM
+	/* (checked before this one goes: a folder that runs no programs, noexec,
+	would leave the player with no game at all. A console port's system side
+	is its own, and starts the new version as before) */
+	if (!update_can_start(start, reason, (int)sizeof(reason)))
+	{
+		snprintf(error, error_size, "the new version is in place, but %s: start it again", reason);
+		return;
 	}
+	if (update_start_in_place(start))
+	{
+		platform_log("update: restarting as version %s in this same process as the game exits (should it end "
+			"first, the new version is started for it)", updater_install_version);
+		exit(EXIT_SUCCESS);
+	}
+#else
+	(void)reason;
+#endif
+	if (update_launch(start))
+		exit(EXIT_SUCCESS);
+	snprintf(error, error_size, "the new version is in place, but could not be started: start it again");
+}
+
+/* downloads, unpacks and puts in place the new build, and starts it; returns
+only if something failed, which is shown in a dialog (never under gamescope,
+where a dialog crashes the game: the log has it, and the page that began the
+install shows it, updater_install_status) */
+static void updater_update(void)
+{
+	char start[1200], error[512] = "";
+
+	if (updater_put_in_place(start, sizeof(start), error, sizeof(error)))
+		updater_restart(start, error, sizeof(error));
 	platform_log("update: failed: %s", error);
 #ifdef HALO_CONSOLE_SETUP_SCREENS
 	console_setup_notice("The update failed, and the game goes on as it was:", error);
 #else
+	if (updater_gamescope())
+	{
+		platform_log("update: not showing the failure in a dialog under gamescope (Steam Deck Game Mode)");
+	}
+	else
 	{
 		char message[800];
 
@@ -1463,6 +1622,96 @@ static void updater_update(void)
 		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Chupathingy", message, NULL);
 	}
 #endif
+}
+
+/* (the background install's thread: updater_fetch, the new build ready to
+be put in place by the game's thread, updater_install_finish) */
+static int SDLCALL updater_background_thread(void *context)
+{
+	char error[512] = "";
+	int succeeded;
+
+	(void)context;
+	succeeded = updater_fetch(error, sizeof(error));
+	if (!succeeded)
+		platform_log("update: failed: %s", error);
+	else
+		platform_log("update: version %s is downloaded and checked, ready to put in place", updater_install_version);
+	SDL_LockMutex(updater_background.lock);
+	updater_in_background = 0;
+	if (succeeded)
+	{
+		updater_background.phase = _install_ready;
+		SDL_SetAtomicInt(&updater_background_ready, 1);
+	}
+	else
+	{
+		snprintf(updater_background.error, sizeof(updater_background.error), "%s", error);
+		updater_background.phase = _install_failed;
+	}
+	SDL_UnlockMutex(updater_background.lock);
+	return 0;
+}
+
+#ifndef HALO_CONSOLE_SETUP_SCREENS
+/* whether the game may restart now: no game in progress, only the menus
+(menu_functions.c: the main menu, or the setup screen before the game) */
+int updater_restart_allowed(void);
+#endif
+
+
+/* on the game's thread (updater_poll every frame, the setup screen): the
+background install's new build, once it is ready, put in place and started,
+or why not kept for its page. Not while a game is in progress (allowed 0):
+it waits, the page and the version line saying it restarts when the player
+leaves the game */
+static void updater_install_finish(int allowed)
+{
+#ifndef HALO_CONSOLE_SETUP_SCREENS
+	char start[1200], error[512] = "";
+
+	if (!updater_background.lock)
+		return;
+	SDL_LockMutex(updater_background.lock);
+	if (updater_background.phase != _install_ready)
+	{
+		SDL_UnlockMutex(updater_background.lock);
+		return;
+	}
+	if (!allowed)
+	{
+		SDL_UnlockMutex(updater_background.lock);
+		if (!updater_background_waiting)
+		{
+			updater_background_waiting = 1;
+			platform_log("update: version %s is ready; it is put in place when the game in progress ends",
+				updater_install_version);
+			build_identity_watermark_note(UPDATER_WAITING_NOTE);
+		}
+		return;
+	}
+	updater_background.phase = _install_installing;
+	SDL_UnlockMutex(updater_background.lock);
+	SDL_SetAtomicInt(&updater_background_ready, 0);
+	updater_background_waiting = 0;
+	/* (here, on the game's thread, the files put in place; returns only if
+	the new version could not be put in place or started) */
+	if (updater_swap(start, sizeof(start), error, sizeof(error)))
+		updater_restart(start, error, sizeof(error));
+	platform_log("update: failed: %s", error);
+	SDL_LockMutex(updater_background.lock);
+	snprintf(updater_background.error, sizeof(updater_background.error), "%s", error);
+	updater_background.phase = _install_failed;
+	SDL_UnlockMutex(updater_background.lock);
+#else
+	(void)allowed;
+#endif
+}
+
+/* the setup screen's (launcher.c), every frame: no game runs before it */
+void updater_install_restart(void)
+{
+	updater_install_finish(1);
 }
 
 /* the game's program from before the rename, beside the renamed one: halo
@@ -1729,7 +1978,7 @@ int updater_check_now(void)
 
 	if (!UPDATER_LOOKS || UPDATER_KEYLESS)
 		return 0;
-	if (SDL_GetAtomicInt(&updater_state) == _updater_checking)
+	if (SDL_GetAtomicInt(&updater_state) == _updater_checking || updater_background_busy())
 		return 0;
 	if (!updater_directory[0])
 		snprintf(updater_directory, sizeof(updater_directory), "%s", platform_save_root());
@@ -1794,6 +2043,157 @@ int updater_install(void)
 	return 1;
 }
 
+/* whether an install from a page is running (no second, and no check) */
+static int updater_background_busy(void)
+{
+	int busy;
+
+	if (!updater_background.lock)
+		return 0;
+	SDL_LockMutex(updater_background.lock);
+	busy = updater_background.phase == _install_downloading || updater_background.phase == _install_installing ||
+		updater_background.phase == _install_ready;
+	SDL_UnlockMutex(updater_background.lock);
+	return busy;
+}
+
+/* whether a newer version can be installed now (latest: its version), as
+updater_check_state's UPDATER_NEWER, but changing nothing: the menus' page
+asks it every frame, and the start's question (updater_poll) is still
+asked */
+int updater_ready(char *latest, int size)
+{
+	int ready = SDL_GetAtomicInt(&updater_answer) == 1 && SDL_GetAtomicInt(&updater_state) != _updater_checking &&
+		SDL_GetAtomicInt(&updater_state) != _updater_idle && !platform_packaged();
+
+	if (latest && size > 0)
+		snprintf(latest, (size_t)size, "%s", ready ? updater_latest_version : "");
+	return ready;
+}
+
+/* the newer version installed from a page of the game's own (the setup
+screen's UPDATE, the menus' INSTALL UPDATE), on a thread of its own: no
+window or dialog, the page shows how it goes (updater_install_status), and
+the game's thread starts the new version once it is in place. 1 when it
+began (or one is running); 0 when there is nothing to install. On macOS the
+download page opens instead, and a console's install is its own screens' */
+int updater_install_begin(void)
+{
+	SDL_Thread *thread;
+
+	if (updater_background_busy())
+		return 1;
+#ifdef HALO_CONSOLE_SETUP_SCREENS
+	return updater_install();
+#else
+	if (UPDATER_DOWNLOAD_PAGE_ONLY)
+		return updater_install();
+	if (SDL_GetAtomicInt(&updater_answer) != 1 || platform_packaged() ||
+		SDL_GetAtomicInt(&updater_state) == _updater_checking)
+	{
+		return 0;
+	}
+	if (!updater_executable[0])
+	{
+		updater_appimage = update_appimage_path(updater_executable, sizeof(updater_executable));
+		if (!updater_appimage && !update_executable_path(updater_executable, sizeof(updater_executable)))
+			return 0;
+	}
+	/* (asked here, the start's question is not asked as well) */
+	SDL_SetAtomicInt(&updater_state, _updater_handled);
+	if (!updater_background.lock)
+		updater_background.lock = SDL_CreateMutex();
+	if (!updater_background.lock)
+		return 0;
+	SDL_LockMutex(updater_background.lock);
+	updater_background.phase = _install_downloading;
+	updater_background.received = updater_background.total = 0;
+	updater_background.error[0] = updater_background.start[0] = 0;
+	snprintf(updater_background.version, sizeof(updater_background.version), "%s", updater_latest_version);
+	SDL_UnlockMutex(updater_background.lock);
+	updater_in_background = 1;
+	platform_log("update: installing version %s from the game's own page%s", updater_latest_version,
+		updater_gamescope() ? " (under gamescope: no window or dialog)" : "");
+	thread = SDL_CreateThread(updater_background_thread, "update install", NULL);
+	if (!thread)
+	{
+		updater_in_background = 0;
+		SDL_LockMutex(updater_background.lock);
+		snprintf(updater_background.error, sizeof(updater_background.error), "could not start the download");
+		updater_background.phase = _install_failed;
+		SDL_UnlockMutex(updater_background.lock);
+		return 1;
+	}
+	SDL_DetachThread(thread);
+	return 1;
+#endif
+}
+
+/* where the install from a page is (UPDATER_INSTALL_*), and line, what the
+page shows of it: how much is downloaded, or why it failed. On the game's
+thread: an install in place is started from here (or updater_poll) */
+int updater_install_status(char *line, int size)
+{
+	int phase;
+
+	if (line && size > 0)
+		line[0] = 0;
+	if (!updater_background.lock)
+		return UPDATER_INSTALL_IDLE;
+	SDL_LockMutex(updater_background.lock);
+	phase = updater_background.phase;
+	if (line && size > 0)
+	{
+		if (phase == _install_downloading && updater_background.total)
+		{
+			snprintf(line, (size_t)size, "Downloading %s: %llu of %llu MB.", updater_background.version,
+				updater_background.received >> 20, (updater_background.total + (1 << 20) - 1) >> 20);
+		}
+		else if (phase == _install_downloading)
+			snprintf(line, (size_t)size, "Downloading %s...", updater_background.version);
+		else if (phase == _install_ready && updater_background_waiting)
+			snprintf(line, (size_t)size, "%s is ready. Chupathingy restarts when you leave the game.",
+				updater_background.version);
+		else if (phase == _install_installing || phase == _install_ready)
+			snprintf(line, (size_t)size, "Installing %s. Chupathingy restarts in a moment.", updater_background.version);
+		else if (phase == _install_failed)
+			snprintf(line, (size_t)size, "The update failed: %s.", updater_background.error);
+	}
+	SDL_UnlockMutex(updater_background.lock);
+	switch (phase)
+	{
+	case _install_downloading:
+		return UPDATER_INSTALL_DOWNLOADING;
+	case _install_ready:
+		return updater_background_waiting ? UPDATER_INSTALL_WAITING : UPDATER_INSTALL_INSTALLING;
+	case _install_installing:
+		return UPDATER_INSTALL_INSTALLING;
+	case _install_failed:
+		return UPDATER_INSTALL_FAILED;
+	default:
+		return UPDATER_INSTALL_IDLE;
+	}
+}
+
+/* how much the install from a page has downloaded, for a row's value */
+const char *updater_install_amount(char *text, int size)
+{
+	unsigned long long received = 0, total = 0;
+
+	if (updater_background.lock)
+	{
+		SDL_LockMutex(updater_background.lock);
+		received = updater_background.received;
+		total = updater_background.total;
+		SDL_UnlockMutex(updater_background.lock);
+	}
+	if (total)
+		snprintf(text, (size_t)size, "%llu / %llu MB", received >> 20, (total + (1 << 20) - 1) >> 20);
+	else
+		snprintf(text, (size_t)size, "Starting");
+	return text;
+}
+
 /* the channel this build is on: a release's, a nightly, or a build of
 one's own */
 const char *updater_channel(void)
@@ -1806,8 +2206,6 @@ const char *updater_channel(void)
 	return strstr(HALO_VERSION, "nightly") ? "nightly" : "dev";
 #endif
 }
-
-int updater_gamescope(void);
 
 /* every frame, on the game's thread (sdl_platform.c): asks the player once a
 new version is found */
@@ -1833,6 +2231,13 @@ void updater_poll(SDL_Window *window)
 	/* (an answer too late for updater_console_check waits for the next start:
 	the console has no dialogs) */
 	return;
+#endif
+	/* (an install from a page, once it is ready, wherever the player went
+	meanwhile; not during a game) */
+#ifndef HALO_CONSOLE_SETUP_SCREENS
+	/* (the game asked only once the install is ready) */
+	if (updater_background.lock && SDL_GetAtomicInt(&updater_background_ready))
+		updater_install_finish(updater_restart_allowed());
 #endif
 	if (SDL_GetAtomicInt(&updater_state) != _updater_available)
 		return;
@@ -1861,14 +2266,15 @@ void updater_poll(SDL_Window *window)
 			config_write_boolean("update.auto", 0);
 		return;
 	}
-	/* (no question under gamescope: the main menu's version line says the
-	new version is out, and the player updates from the desktop, or with
-	debug.update_answer) */
+	/* (no question under gamescope, where a dialog crashes the game: the main
+	menu's version line says the new version is out, and the player installs
+	it from the game's own pages, Settings' Updates or the setup screen's, which
+	show how it goes without a window or dialog: updater_install_begin) */
 	if (updater_gamescope())
 	{
 		platform_log("update: %s is out (this is %s); not asking under gamescope (Steam Deck Game Mode)",
 			updater_latest_version, HALO_VERSION);
-		build_identity_watermark_update(updater_latest_version, "from Desktop Mode");
+		build_identity_watermark_update(updater_latest_version, UPDATER_GAMESCOPE_WHERE);
 		return;
 	}
 	/* (a dialog cannot show above a fullscreen game) */
@@ -2012,6 +2418,36 @@ int updater_check_state(char *latest, int size)
 int updater_install(void)
 {
 	return 0;
+}
+
+int updater_ready(char *latest, int size)
+{
+	if (latest && size > 0)
+		latest[0] = 0;
+	return 0;
+}
+
+int updater_install_begin(void)
+{
+	return 0;
+}
+
+int updater_install_status(char *line, int size)
+{
+	if (line && size > 0)
+		line[0] = 0;
+	return UPDATER_INSTALL_IDLE;
+}
+
+const char *updater_install_amount(char *text, int size)
+{
+	if (text && size > 0)
+		text[0] = 0;
+	return text;
+}
+
+void updater_install_restart(void)
+{
 }
 
 const char *updater_channel(void)

@@ -158,18 +158,25 @@ static void old_map_folders_offer(BOOL quiet)
 	platform_old_map_folders_move();
 }
 
-/* whether the game is run without anyone to answer a question (a test run,
-a null renderer), or where a question cannot be shown (under gamescope, the
+/* whether the game is run without anyone to watch it (a test run, a null
+renderer, a headless game list run) */
+BOOL platform_run_is_unwatched(void)
+{
+	BOOL unwatched = config_boolean("debug.hidden_window") || config_real("debug.exit_after") > 0.0 ||
+		config_boolean("debug.null_renderer");
+
+#ifdef HALO_GAME_BROWSER
+	unwatched = unwatched || browser_headless();
+#endif
+	return unwatched;
+}
+
+/* whether the game is run without anyone to answer a question (an
+unwatched run), or where a question cannot be shown (under gamescope, the
 Steam Deck's Game Mode: updater_gamescope) */
 BOOL platform_run_is_quiet(void)
 {
-	BOOL quiet = config_boolean("debug.hidden_window") || config_real("debug.exit_after") > 0.0 ||
-		config_boolean("debug.null_renderer") || updater_gamescope();
-
-#ifdef HALO_GAME_BROWSER
-	quiet = quiet || browser_headless();
-#endif
-	return quiet;
+	return platform_run_is_unwatched() || updater_gamescope();
 }
 
 /* the settings whose defaults this version changed, for a player whose

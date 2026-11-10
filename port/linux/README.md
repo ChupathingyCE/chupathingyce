@@ -814,9 +814,25 @@ and settings stay. "Keep 32-bit" writes `offer_64bit = false` in the
 `[update]` section of `config.toml`, and the game doesn't ask again.
 
 Under gamescope (the Game Mode of the Steam Deck), the game does not ask,
-because a system dialog stops the game there. The game writes the new
-version in the log. To update, start the game from the desktop, or set
-`update_answer = "yes"` in the `[debug]` section of `config.toml`.
+because a system dialog stops the game there. The main menu's version line
+says the new version is out, and the log has it. To update, pick INSTALL
+UPDATE in Settings > Network > Updates (it shows up once a new version is
+found), or UPDATE on the setup screen's UPDATES tab. Both show the download
+and any error on the page itself, with no window or dialog, so they work in
+Game Mode too.
+
+An update that finishes downloading during a game waits: the files are put
+in place and the game restarts only once you are back at the main menu (a
+host's game would otherwise end for everyone). The page and the version line
+say so meanwhile.
+
+After an update, the game restarts as the same process (on Linux it
+`execve`s the new version, with the same arguments, as it exits), so Steam
+and gamescope keep the game's window. If the game dies before that, a small
+watcher process it left behind starts the new version instead. An AppImage is replaced by the new one under its own name and
+mode, and the old one waits as `<name>.old` until the new version starts. If
+the new version can't be started (its folder is mounted `noexec`, say), the
+game says so on the page and keeps running.
 
 A packaged install (a package manager's, such as the AUR's
 `chupathingy-bin`) never updates itself. A package turns it on with a file

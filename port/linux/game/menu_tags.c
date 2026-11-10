@@ -415,6 +415,8 @@ static char const *const port_function_names[] =
 	"port controls init", "port controls defaults", "port controls accept", "port controls closed",
 	/* (SETUP: menu_functions.c) */
 	"port setup open",
+	/* (Network Setup's INSTALL UPDATE: menu_functions.c) */
+	"port update install",
 };
 
 /* the PC version's game data functions that the Xbox's have not, from
