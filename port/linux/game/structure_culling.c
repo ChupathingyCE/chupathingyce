@@ -150,6 +150,7 @@ static unsigned long structure_culling_recorded[2][BIT_VECTOR_SIZE_IN_LONGS(MAXI
 /* ---------- prototypes */
 
 boolean tag_index_is_group(long tag_index, long group_tag);
+int config_boolean(char const *name);
 static void structure_culling_pairing_points(
 	struct structure_bsp *structure, struct structure_culling_pairing const *pairing, real_point3d *points);
 
@@ -961,6 +962,19 @@ void structure_culling_set_tests(long tests)
 	{
 		structure_culling_structure_bsp_loaded();
 	}
+}
+
+void structure_culling_load_settings(void)
+{
+	static long enabled_tests = NONE;
+
+	/* (debug.structure_culling off: the original walk draws every surface it
+	picks, to check a missing wall against it; read as each map loads) */
+	if (enabled_tests == NONE)
+	{
+		enabled_tests = structure_culling_tests;
+	}
+	structure_culling_tests = config_boolean("debug.structure_culling") ? enabled_tests : 0;
 }
 
 boolean structure_culling_traverse(struct structure_bsp *structure)

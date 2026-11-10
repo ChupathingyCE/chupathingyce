@@ -1,0 +1,22 @@
+# Camera spots for tools/picture_check.py (docs/picture-checks.md).
+# map name x y z yaw pitch [sky_x sky_y]
+#   map: as init.txt's map_name (a Custom Edition map: name@ce, from maps_ce)
+#   yaw and pitch in degrees (yaw 0 looks along +x, 90 along +y)
+#   sky_x sky_y: a pixel of the reference's capture that is sky (default 640 8)
+
+# Blood Gulch (the Xbox map): the cliffs the culling once cut holes in
+bloodgulch red_canyon 96 -150 3 126 2
+bloodgulch red_cliffs 96 -150 3 20 8
+bloodgulch red_cliffs_wide 92 -154 4 0 0
+bloodgulch red_to_arch 92 -154 4 90 0
+bloodgulch mid_far_cliffs 68 -118 5 200 6
+bloodgulch blue_canyon 44 -86 3 -54 2
+bloodgulch blue_cliffs 55 -100 2.5 105 5
+
+# Timberland (Custom Edition): trees, cliffs and fog
+timberland@ce center_north 0 0 10 0 -10
+timberland@ce center_east 0 0 10 90 -10
+
+# Coldsnap 20th Anniversary XL (Custom Edition) has no spots yet: early on its
+# scripts keep taking the camera back, and the middle of the map is inside
+# its rock. Add spots once a pose there is shown to hold still.
