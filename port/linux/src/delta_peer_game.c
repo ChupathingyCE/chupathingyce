@@ -1566,7 +1566,7 @@ int delta_peer_game_report_ready(void)
 	return delta_game.ready && delta_game.role == _role_client && delta_peer_client_report_ready(&delta_game.peer);
 }
 
-unsigned int delta_peer_game_report(int machine_index, int player, int reason, const unsigned char *clip_token)
+unsigned int delta_peer_game_report(int machine_index, int player, int reason, int clip)
 {
 	struct delta_wire_report report;
 
@@ -1579,11 +1579,9 @@ unsigned int delta_peer_game_report(int machine_index, int player, int reason, c
 	report.target_machine = (unsigned char)machine_index;
 	report.target_player = (unsigned char)player;
 	report.reason = (unsigned char)reason;
-	if (clip_token)
-	{
+	/* (a clip's token is the host's: REPORT_RESULT's, when it asks) */
+	if (clip)
 		report.flags = DELTA_WIRE_REPORT_CLIP;
-		memcpy(report.clip_token, clip_token, DELTA_WIRE_REPORT_CLIP_TOKEN_SIZE);
-	}
 	return delta_peer_client_report(&delta_game.peer, &report);
 }
 
