@@ -115,7 +115,7 @@ static long character_width(
 		return 17;
 	}
 	if (character >= 'A' && character <= 'Z')
-		return 12;
+		return 13;
 	if (character == 'i' || character == 'l' || character == 'j' || character == 'I' || character == '.' ||
 		character == ',' || character == ':' || character == ';' || character == '\'' || character == '!' ||
 		character == '|')

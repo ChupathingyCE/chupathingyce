@@ -1898,10 +1898,10 @@ static void scoreboard_draw_row(
 	return;
 }
 
-/* port: a player by their Delta profile's name, as long as the column (16
-characters; the postgame report's column, 11 at the menus' 640x480, as a
-game name's: a longer name is cut with "...") */
-#define SCOREBOARD_PROFILE_NAME_LENGTH 17
+/* port: a player by their Delta profile's name, as long as the column (14
+lowercase letters' width at the menus' 640x480; the postgame report's, 11,
+as a game name's: a longer name is cut with "...") */
+#define SCOREBOARD_PROFILE_NAME_LENGTH 15
 #define POSTGAME_PROFILE_NAME_LENGTH 12
 #if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_DELTA_PROFILE)
 /* port/linux/game/profile_names.c's */
