@@ -108,6 +108,12 @@ the game with the environment variable `HALO_RENDERER=bgfx`. If bgfx can't
 start, for example with no working Vulkan driver, the game uses OpenGL and
 says so in `logs/debug.txt`.
 
+On Windows there's also Direct3D 11, for testing on computers whose Vulkan
+is missing or bad. It's only used when you ask for it: set `renderer` to
+`"d3d11"`, or pick **DIRECT3D 11** on the **RENDERER** row of the display
+settings and restart. If it can't start, or Windows would draw it in
+software, the game uses OpenGL.
+
 Some Vulkan drivers start but run badly on older computers, so the game
 skips them and uses OpenGL. Right now that's nouveau's Vulkan (NVK) on a
 GeForce older than the 20 series, NVIDIA drivers older than 470, Mesa's
@@ -121,7 +127,7 @@ What we know is different from OpenGL:
 - FXAA, SMAA and supersampling are OpenGL only. With bgfx they become MSAA 2x.
 - The Halo PC ammo and health meters look different.
 - The first-person pistol is a little brighter, and water looks grainy.
-- There's no menu option for it yet. It's in `config.toml` only.
+- The **RENDERER** row in the display settings switches it after a restart.
 - The 32-bit builds, Android, FreeBSD and the consoles don't have it.
 
 Tell us how it runs. Post in the Discord with your system and graphics card,

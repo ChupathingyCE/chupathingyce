@@ -1458,6 +1458,17 @@ static void platform_gl_missing(const char *reason)
 #ifdef HALO_BGFX
 /* bgfx could not start (d3d8_bgfx.inl): the game draws with OpenGL */
 static BOOL platform_bgfx_refused;
+
+BOOL platform_bgfx_chosen(void)
+{
+	const char *renderer = config_string("display.renderer");
+
+#ifdef _WIN32
+	if (strcmp(renderer, "d3d11") == 0)
+		return TRUE;
+#endif
+	return strcmp(renderer, "bgfx") == 0;
+}
 #endif
 
 #if !defined(HALO_ANDROID) && !defined(_WIN32) && !defined(__APPLE__)
@@ -1625,7 +1636,7 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 	/* the bgfx renderer draws instead (d3d8_bgfx.inl): a window without an
 	OpenGL context, whose Metal layer (macOS) or Vulkan surface bgfx draws
 	into; unless it could not start before (platform_video_reopen_for_gl) */
-	xgpu_bgfx = !platform_bgfx_refused && strcmp(config_string("display.renderer"), "bgfx") == 0;
+	xgpu_bgfx = !platform_bgfx_refused && platform_bgfx_chosen();
 #endif
 
 #ifdef HALO_ANDROID

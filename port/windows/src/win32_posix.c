@@ -38,6 +38,36 @@ void *win32_system_library(const char *name)
 	return (void *)LoadLibraryExW(path, NULL, LOAD_WITH_ALTERED_SEARCH_PATH);
 }
 
+void win32_library_identity(void *module, char *text, unsigned long size)
+{
+	typedef const char *(__cdecl *wine_version)(void);
+	wchar_t path[MAX_PATH];
+	DWORD handle = 0, length;
+	unsigned major = 0, minor = 0, build = 0, revision = 0;
+	wine_version wine = (wine_version)(void *)GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "wine_get_version");
+
+	if (GetModuleFileNameW((HMODULE)module, path, MAX_PATH) &&
+		(length = GetFileVersionInfoSizeW(path, &handle)) != 0)
+	{
+		void *data = malloc(length);
+		VS_FIXEDFILEINFO *info;
+		UINT info_length;
+
+		if (data && GetFileVersionInfoW(path, 0, length, data) &&
+			VerQueryValueW(data, L"\\", (void **)&info, &info_length) && info_length >= sizeof(*info))
+		{
+			major = HIWORD(info->dwFileVersionMS);
+			minor = LOWORD(info->dwFileVersionMS);
+			build = HIWORD(info->dwFileVersionLS);
+			revision = LOWORD(info->dwFileVersionLS);
+		}
+		free(data);
+	}
+	/* (Wine's own DLLs carry Windows-like versions: which one it is too) */
+	snprintf(text, size, "%u.%u.%u.%u %s%s", major, minor, build, revision, wine ? "wine " : "native",
+		wine ? wine() : "");
+}
+
 /* laptops with a second, faster GPU (NVIDIA Optimus, AMD switchable
 graphics) run a program on the integrated one unless it exports these */
 __declspec(dllexport) DWORD NvOptimusEnablement = 1;
