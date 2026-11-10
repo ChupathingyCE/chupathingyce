@@ -18,7 +18,9 @@ everyone in the game:
 - **A game played alone** (split screen, a campaign) is its own host's.
 
 HOST_RULES also carries the host's team change rule (team_change.c), so a
-client knows before asking whether its host takes team changes.
+client knows before asking whether its host takes team changes, whether
+late joiners wait for the next game (late_join.c), and whether the host's
+joins are locked (sv_lock).
 */
 
 #include "cseries.h"
@@ -42,6 +44,10 @@ static struct
 	boolean player_names;
 	boolean follow_camera_set;
 	boolean follow_camera;
+	boolean late_join_wait_set;
+	boolean late_join_wait;
+	/* (the host's, any host's) */
+	boolean joins_locked;
 } host_rules;
 
 void host_rules_set_player_names(boolean allowed)
@@ -54,6 +60,34 @@ void host_rules_set_follow_camera(boolean allowed)
 {
 	host_rules.follow_camera_set = TRUE;
 	host_rules.follow_camera = allowed ? TRUE : FALSE;
+}
+
+void host_rules_set_late_join_wait(boolean wait)
+{
+	host_rules.late_join_wait_set = TRUE;
+	host_rules.late_join_wait = wait ? TRUE : FALSE;
+}
+
+void host_rules_set_joins_locked(boolean locked)
+{
+	host_rules.joins_locked = locked ? TRUE : FALSE;
+}
+
+boolean host_rules_joins_locked(void)
+{
+	return host_rules.joins_locked;
+}
+
+int host_rules_joins_locked_now(void)
+{
+	return host_rules.joins_locked ? 1 : 0;
+}
+
+boolean host_rules_host_late_join_wait(void)
+{
+	if (host_rules.late_join_wait_set)
+		return host_rules.late_join_wait;
+	return config_boolean("network.late_join_wait") ? TRUE : FALSE;
 }
 
 boolean host_rules_host_follow_camera(void)
@@ -115,6 +149,32 @@ boolean host_rules_follow_camera(void)
 	return FALSE;
 }
 
+boolean host_rules_late_join_wait(void)
+{
+#ifdef HOST_RULES_DELTA
+	struct delta_wire_host_rules rules;
+#endif
+
+	if (!host_rules_joined())
+		return host_rules_host_late_join_wait();
+#ifdef HOST_RULES_DELTA
+	if (host_rules_heard(&rules))
+		return (rules.flags & DELTA_WIRE_HOST_LATE_JOIN_WAIT) != 0;
+#endif
+	return FALSE;
+}
+
+boolean host_rules_host_says_locked(void)
+{
+#ifdef HOST_RULES_DELTA
+	struct delta_wire_host_rules rules;
+
+	if (host_rules_joined() && host_rules_heard(&rules))
+		return (rules.flags & DELTA_WIRE_HOST_JOINS_LOCKED) != 0;
+#endif
+	return host_rules_joined() ? FALSE : host_rules.joins_locked;
+}
+
 boolean host_rules_team_change(int *policy)
 {
 #ifdef HOST_RULES_DELTA
@@ -143,6 +203,10 @@ void host_rules_update(void)
 		rules.flags |= DELTA_WIRE_HOST_PLAYER_NAMES;
 	if (host_rules_host_follow_camera())
 		rules.flags |= DELTA_WIRE_HOST_FOLLOW_CAMERA;
+	if (host_rules_host_late_join_wait())
+		rules.flags |= DELTA_WIRE_HOST_LATE_JOIN_WAIT;
+	if (host_rules.joins_locked)
+		rules.flags |= DELTA_WIRE_HOST_JOINS_LOCKED;
 	rules.team_change = (unsigned char)(policy == _team_change_allow ? DELTA_WIRE_HOST_TEAM_CHANGE_ALLOW :
 		policy == _team_change_balanced ? DELTA_WIRE_HOST_TEAM_CHANGE_BALANCED : DELTA_WIRE_HOST_TEAM_CHANGE_OFF);
 	rules.team_change_margin = (unsigned char)(margin < 0 ? 0 : margin > DELTA_WIRE_HOST_TEAM_CHANGE_MAXIMUM_MARGIN ?

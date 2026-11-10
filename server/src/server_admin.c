@@ -61,6 +61,13 @@ void host_rules_set_player_names(boolean allowed);
 boolean host_rules_host_player_names(void);
 void host_rules_set_follow_camera(boolean allowed);
 boolean host_rules_host_follow_camera(void);
+void host_rules_set_late_join_wait(boolean wait);
+boolean host_rules_host_late_join_wait(void);
+#ifdef HALO_SERVER
+/* (the shared ban lists', server_bans.h) */
+int server_bans_sharing(void);
+void server_bans_set_sharing(int sharing);
+#endif
 /* (the limit on machines of one address, port/linux/game/network_distributed.c) */
 void network_distributed_set_address_limit(long maximum);
 long network_distributed_address_limit(void);
@@ -1669,7 +1676,11 @@ static void setting_now(
 	case SERVER_SETTING_GAMESPY_PORT: snprintf(text, (size_t)size, "%ld", server_gamespy_port()); break;
 	case SERVER_SETTING_CE_JOINS: snprintf(text, (size_t)size, "%s", server_gamespy_joins() ? "true" : "false"); break;
 	case SERVER_SETTING_CE_WELCOME: snprintf(text, (size_t)size, "%s", server_ce_welcome()); break;
+	case SERVER_SETTING_BAN_SHARE: snprintf(text, (size_t)size, "%s", server_bans_sharing() ? "true" : "false"); break;
 #endif
+	case SERVER_SETTING_LATE_JOIN_WAIT:
+		snprintf(text, (size_t)size, "%s", host_rules_host_late_join_wait() ? "true" : "false");
+		break;
 	default: text[0] = 0; break;
 	}
 }
@@ -1713,7 +1724,8 @@ static boolean setting_applies_now(
 		setting == SERVER_SETTING_CE_JOINS || setting == SERVER_SETTING_ALLOW_PLAYER_NAMES ||
 		setting == SERVER_SETTING_ALLOW_FOLLOW_CAMERA || setting == SERVER_SETTING_MAX_MACHINES_PER_ADDRESS ||
 		setting == SERVER_SETTING_BETRAYAL_KICK || setting == SERVER_SETTING_AFK_KICK_MINUTES ||
-		setting == SERVER_SETTING_CE_WELCOME;
+		setting == SERVER_SETTING_CE_WELCOME || setting == SERVER_SETTING_LATE_JOIN_WAIT ||
+		setting == SERVER_SETTING_BAN_SHARE;
 }
 
 static char const *environment_value(
@@ -1829,7 +1841,7 @@ boolean server_admin_set(
 				"chat, chat_filter, welcome, postgame_seconds, skip_lobby, chat_cooldown, team_change, "
 				"team_change_margin, playlist_shuffle, chat_legacy, gamespy_listing, gamespy_port, ce_joins, "
 				"allow_player_names, allow_follow_camera, max_machines_per_address, betrayal_kick, "
-				"afk_kick_minutes, ce_welcome)\n");
+				"afk_kick_minutes, ce_welcome, late_join_wait, ban_share)\n");
 		return FALSE;
 	}
 	environment = environment_value((short)setting);
@@ -1892,7 +1904,9 @@ boolean server_admin_set(
 	case SERVER_SETTING_GAMESPY_PORT: server_gamespy_configure(server_gamespy_enabled(), change.values[setting]); break;
 	case SERVER_SETTING_CE_JOINS: server_gamespy_set_joins(change.values[setting] ? TRUE : FALSE); break;
 	case SERVER_SETTING_CE_WELCOME: server_ce_set_welcome(change.ce_welcome); break;
+	case SERVER_SETTING_BAN_SHARE: server_bans_set_sharing(change.values[setting] ? TRUE : FALSE); break;
 #endif
+	case SERVER_SETTING_LATE_JOIN_WAIT: host_rules_set_late_join_wait(change.values[setting] ? TRUE : FALSE); break;
 	}
 	error(_error_silent, "dedicated: a command sets %s to %s", server_settings_table[setting].key, line->words[2]);
 	command_output_printf(output, "%s is %s, saved in %s (%s)\n", server_settings_table[setting].key, line->words[2],

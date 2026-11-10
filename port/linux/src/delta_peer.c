@@ -29,7 +29,8 @@ enum
 bits never count, nor the reserved server_badge) */
 #define KNOWN_CAPABILITIES \
 	((((delta_u32)1 << NUMBER_OF_DELTA_CAPABILITIES) - 1) & ~((delta_u32)1 << _delta_capability_md_maps) & \
-		~((delta_u32)1 << _delta_capability_console_slots) & ~((delta_u32)1 << _delta_capability_server_badge))
+		~((delta_u32)1 << _delta_capability_console_slots) & ~((delta_u32)1 << _delta_capability_server_badge) & \
+		~((delta_u32)1 << _delta_capability_party_teams) & ~((delta_u32)1 << _delta_capability_voice))
 #define CAPABILITY(bit) ((delta_u32)1 << (bit))
 /* TRAITS (22) needs both: bomb alone is a Grifball test build 2 or 3's,
 which says TRAITS as 18 */
@@ -92,6 +93,9 @@ static delta_u32 offered(const struct delta_peer *peer)
 	/* (nor team changes without its team host) */
 	if (peer->mode == _mode_host && !peer->team_host)
 		capabilities &= ~CAPABILITY(_delta_capability_team_change);
+	/* (nor reports without its report host) */
+	if (peer->mode == _mode_host && !peer->report_host)
+		capabilities &= ~CAPABILITY(_delta_capability_reports);
 	/* (nor verified names without a way to check a proof) */
 	if (!peer->env.identity_check)
 		capabilities &= ~CAPABILITY(_delta_capability_identity);
@@ -707,6 +711,9 @@ static void host_send_state(struct delta_peer *peer, int machine_index, int alwa
 		state.role = (unsigned char)role;
 		state.permissions = permissions;
 		state.ban_minutes = ban_minutes;
+		if (peer->moderation_host->actions)
+			state.actions = (unsigned char)(peer->moderation_host->actions(peer->moderation_host->context) &
+				DELTA_WIRE_MOD_STATE_KNOWN);
 	}
 	if (!always && moderation->state_sent && !memcmp(&state, &moderation->state, sizeof(state)))
 		return;
@@ -1436,6 +1443,78 @@ delta_u32 delta_peer_client_team_result(const struct delta_peer *peer, struct de
 	return peer->team_results;
 }
 
+/* ---------- reports */
+
+void delta_peer_set_report_host(struct delta_peer *peer, const struct delta_peer_report_host *host)
+{
+	peer->report_host = host;
+}
+
+static void host_report(struct delta_peer *peer, delta_u32 now, int machine_index,
+	const struct delta_wire_header *header, const unsigned char *payload)
+{
+	struct delta_peer_host_peer *client = &peer->peers[machine_index];
+	struct delta_wire_report report;
+	struct delta_wire_report_result result;
+	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
+	int flags = 0;
+
+	if (!(client->agreed & offered(peer) & CAPABILITY(_delta_capability_reports)) || !peer->report_host ||
+		!delta_wire_read_report(payload, header->length, &report) || report.sequence <= client->report_sequence ||
+		!delta_rate_take(&client->report_rate, now, DELTA_PEER_REPORT_RATE, DELTA_PEER_REPORT_BURST))
+	{
+		peer->dropped++;
+		return;
+	}
+	client->report_sequence = report.sequence;
+	memset(&result, 0, sizeof(result));
+	result.sequence = report.sequence;
+	/* (a report of the reporter's own machine is never taken) */
+	if (report.target_machine == machine_index)
+		result.result = _delta_report_no_player;
+	else
+	{
+		result.result = (unsigned char)peer->report_host->report(peer->report_host->context, machine_index, &report,
+			&flags);
+		if (result.result >= NUMBER_OF_DELTA_REPORT_RESULTS)
+			result.result = _delta_report_not_taken;
+	}
+	result.flags = (unsigned char)(result.result == _delta_report_taken && (report.flags & DELTA_WIRE_REPORT_CLIP) ?
+		(flags & DELTA_WIRE_REPORT_SEND_CLIP) : 0);
+	peer_send(peer, client->ipv4, client->port, data, delta_wire_write_report_result(data, client->session, &result));
+}
+
+int delta_peer_client_report_ready(const struct delta_peer *peer)
+{
+	return client_chatting(peer, _delta_capability_reports);
+}
+
+delta_u32 delta_peer_client_report(struct delta_peer *peer, const struct delta_wire_report *report)
+{
+	struct delta_wire_report sent;
+	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
+	int size;
+
+	if (!delta_peer_client_report_ready(peer) || !report)
+		return 0;
+	sent = *report;
+	sent.sequence = ++peer->report_sequence;
+	if (!sent.sequence)
+		sent.sequence = ++peer->report_sequence;
+	size = delta_wire_write_report(data, peer->session, &sent);
+	if (!size)
+		return 0;
+	peer_send(peer, peer->host_ipv4, peer->host_port, data, size);
+	return sent.sequence;
+}
+
+delta_u32 delta_peer_client_report_result(const struct delta_peer *peer, struct delta_wire_report_result *result)
+{
+	if (result)
+		*result = peer->report_result;
+	return peer->report_results;
+}
+
 /* ---------- object sync */
 
 /* (whether a client's session takes object sync) */
@@ -1680,6 +1759,18 @@ static void host_receive(struct delta_peer *peer, delta_u32 now, delta_u32 ipv4,
 			break;
 		}
 		host_team_request(peer, now, machine_index, &header, payload);
+		break;
+	}
+	case _delta_message_report:
+	{
+		int machine_index = host_find_session(peer, ipv4, header.session);
+
+		if (machine_index < 0)
+		{
+			peer->dropped++;
+			break;
+		}
+		host_report(peer, now, machine_index, &header, payload);
 		break;
 	}
 	case _delta_message_id_proof:
@@ -2682,6 +2773,21 @@ static void client_receive(struct delta_peer *peer, delta_u32 now, delta_u32 ipv
 		}
 		peer->team_result = result;
 		peer->team_results++;
+		break;
+	}
+	case _delta_message_report_result:
+	{
+		struct delta_wire_report_result result;
+
+		/* (only an answer to a report of this session's) */
+		if (!delta_peer_client_report_ready(peer) || !delta_wire_read_report_result(payload, header.length, &result) ||
+			!result.sequence || result.sequence > peer->report_sequence)
+		{
+			peer->dropped++;
+			break;
+		}
+		peer->report_result = result;
+		peer->report_results++;
 		break;
 	}
 	case _delta_message_map:

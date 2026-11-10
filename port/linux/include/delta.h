@@ -172,6 +172,15 @@ enum delta_capability
 	checks itself. Only a verified player shows by their Delta profile; a
 	console leaves it out for now (HALO_CONSOLE_NO_DELTA_IDENTITY) */
 	_delta_capability_identity = 20,
+	/* (21 and 22 are party_teams and voice, being built: reserved here, and
+	never offered by this build) */
+	_delta_capability_party_teams = 21,
+	_delta_capability_voice = 22,
+	/* players' reports (docs/delta.md, Reports): a client reports another
+	player to its host (REPORT), and the host says what it did
+	(REPORT_RESULT). A dedicated server takes them for its moderators; a
+	host without them does not offer it */
+	_delta_capability_reports = 23,
 
 	NUMBER_OF_DELTA_CAPABILITIES
 };

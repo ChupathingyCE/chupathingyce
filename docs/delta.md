@@ -743,7 +743,8 @@ game, over `host_rules` (bit 19):
 - **Joins are locked** (0x08): the host takes no new machines until it's
   unlocked (a dedicated server's `sv_lock`). Players already in stay, and
   a dropped player can't come back while it's locked. The host's Delta
-  List announcement says `locked=1`, and the game list shows it.
+  List announcement says `locked=1`, which the site keeps as
+  `joins_locked` (games.txt's field 25), and the game list shows it.
 - **A host that says nothing** (OpenCE's, an older Chupathingy, a console
   without Delta) gets the Xbox's rules: no extras. A game played alone
   (split screen) is its own host's.
@@ -1559,11 +1560,11 @@ From them the site lists each game's `platform`, `hosting` (`official`: our
 `[C]` servers, by their hosts; `dedicated`; `player`), `protocol` (`delta`,
 `opence`), `family` (`xbox`, `ce`, `pc`, `md`, by the map's suffix) and
 `machines`; OpenCE's public games (the brokers) are `opence` and nothing
-more. The game's browser reads them from `/v1/games.txt?fields=24&coop=1` (field
+more. The game's browser reads them from `/v1/games.txt?fields=25&coop=1` (field
 13 the region; 14 to 17: platform, hosting, protocol, machines; 18 an
 OpenCE game's gametype; 19 the announced capabilities; 20 to 22 an Xbox map
 pack's map name, pack and tag; 23 the playlist; 24 `opence_server` for an
-OpenCE dedicated server's game; `coop=1` asks for co-op games too, which the
+OpenCE dedicated server's game; 25 `1` when the host's joins are locked; `coop=1` asks for co-op games too, which the
 list leaves out unless asked). A list from before a field sends fewer, and
 the browser reads what it gets. It shows them: the Online
 Games screen's rows (a platform tag before the name, `SRV` for a server), its details (a Host line; the machines beside IN GAME;
@@ -1973,13 +1974,16 @@ Optional and outbound: the server dials the site; no port is opened.
      `handle` and `account` null for a player who proved no one,
      `evidence` the refusal counts (`{"movement", "vehicle", "hits",
      "clock"}`). Never a report about an OpenCE player. The answer's
-     `reports_taken` lists the refs the site kept; the rest go again.
+     `reports_taken` lists the refs the site kept and `reports_refused`
+     those it never will; the rest go again.
    - `bans`: when the server shares its bans (`ban_share`), `{"digest",
      "entries"}` with every ban in bans.txt that names an account or a
      device, each `{"ref", "accounts", "device", "handles", "reason",
      "time", "until"}` (`until` 0 for ever). Never an address or hardware
      ID. It's sent only when its digest isn't the answer's last
-     `bans_digest`; `{"digest": "", "entries": []}` withdraws them.
+     `bans_digest`; `{"digest": "", "entries": []}` withdraws them. The
+     answer's `bans_sharing` says whether the owner shares that server's
+     bans on the site.
    - `shared_bans_version`: the version of the subscribed lists the server
      holds. When the site's isn't that, its answer has `shared_bans`:
      `{"version", "entries"}`, each entry `{"list", "list_name", "ref",

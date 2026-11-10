@@ -900,6 +900,10 @@ static const struct config_setting config_settings[] =
 		"In games you host, let players watch a living player's view while\n"
 		"they wait to respawn (display.follow_camera). Off plays as the Xbox\n"
 		"did: the death camera alone." },
+	{ "network.late_join_wait", _config_boolean, "false", "HALO_NET_LATE_JOIN_WAIT", _environment_value,
+		_platform_all,
+		"In games you host, players who join a game in progress watch until\n"
+		"the next game starts. Off spawns them at once, as Halo does." },
 	{ "network.block_mouse_aim_assist", _config_boolean, "false", "HALO_NET_BLOCK_MOUSE_AIM_ASSIST", _environment_value,
 		_platform_all | _platform_server,
 		"Turn off mouse aim assist for everyone in games you host." },

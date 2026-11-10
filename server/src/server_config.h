@@ -320,6 +320,12 @@ enum
 	/* the line each Custom Edition player gets in their chat as they join
 	(server/src/server_ce.c; empty: none) */
 	SERVER_SETTING_CE_WELCOME,
+	/* a player who joins a game in progress waits for the next game
+	(port/linux/game/late_join.h) */
+	SERVER_SETTING_LATE_JOIN_WAIT,
+	/* the bans that name a Delta account or device sent to the site's shared
+	ban lists while linked (server_bans.h) */
+	SERVER_SETTING_BAN_SHARE,
 	SERVER_SETTINGS,
 	/* a game's players, at most (halo_port_limits.h's) */
 	SERVER_SETTINGS_MAXIMUM_PLAYERS = 128,

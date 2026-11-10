@@ -1973,6 +1973,110 @@ static void test_roles_cache(int rounds)
 	}
 }
 
+/* the poll's newer members: the reports the site took, what it has of the
+server's shared bans, the lists the server takes, and their cache */
+static void test_link_extras(int rounds)
+{
+	static struct control_link_poll poll, back;
+	static char text[64 * 1024];
+	static const char answer[] = "{\"commands\": [], \"unlinked\": false, \"poll_seconds\": 5, "
+		"\"reports_taken\": [\"00112233445566778899aabbccddeeff\"], "
+		"\"reports_refused\": [\"ffeeddccbbaa99887766554433221100\"], "
+		"\"bans_digest\": \"abc123\", \"bans_sharing\": true, "
+		"\"shared_bans\": {\"version\": 7, \"entries\": ["
+		"{\"list\": \"milenko\", \"list_name\": \"milenko's bans\", \"ref\": \"0123456789abcdef0123456789abcdef\", "
+		"\"accounts\": [\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\", \"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"], \"device\": null, "
+		"\"handles\": [\"cheater\", \"alt\"], \"reason\": \"aimbot\", \"time\": 1791168674, \"until\": 0, "
+		"\"source\": \"[C] Gulch\"}, "
+		"{\"list\": \"milenko\", \"ref\": \"fedcba9876543210fedcba9876543210\", \"accounts\": [], "
+		"\"device\": \"cccccccccccccccccccccccccccccccc\", \"handles\": [], \"reason\": \"\", \"time\": 1, "
+		"\"until\": 1791999999, \"source\": \"x\"}]}}";
+	uint8_t secret[32];
+	int64_t heard = 0;
+	char line[300];
+	const char *why;
+	int length, index;
+
+	CHECK(control_link_parse_poll(answer, sizeof(answer) - 1, &poll));
+	CHECK(poll.reports_taken_count == 2 && !strcmp(poll.reports_taken[0], "00112233445566778899aabbccddeeff") &&
+		!strcmp(poll.reports_taken[1], "ffeeddccbbaa99887766554433221100"));
+	CHECK(poll.has_bans_digest && !strcmp(poll.bans_digest, "abc123"));
+	CHECK(poll.has_shared_bans && poll.shared_bans_version == 7 && poll.shared_ban_count == 2);
+	CHECK(poll.shared_bans[0].account_count == 2 && !poll.shared_bans[0].has_device &&
+		poll.shared_bans[0].accounts[1][15] == 0xbb && !strcmp(poll.shared_bans[0].handles, "cheater, alt") &&
+		!strcmp(poll.shared_bans[0].source, "[C] Gulch") && !strcmp(poll.shared_bans[0].list_name, "milenko's bans") &&
+		poll.shared_bans[0].until == 0 && poll.shared_bans[0].time == 1791168674);
+	CHECK(poll.shared_bans[1].has_device && !poll.shared_bans[1].account_count &&
+		poll.shared_bans[1].until == 1791999999);
+	/* (the member's text is the object's, braces and all) */
+	CHECK(answer[poll.shared_bans_start] == '{' && answer[poll.shared_bans_end - 1] == '}');
+	/* (an entry naming no one, a ref or account that isn't 32 hex digits,
+	or a ref that isn't: the whole answer refused) */
+	{
+		static const char *const bad[] = {
+			"{\"shared_bans\": {\"version\": 1, \"entries\": [{\"list\": \"a\", \"ref\": "
+				"\"0123456789abcdef0123456789abcdef\", \"accounts\": []}]}}",
+			"{\"shared_bans\": {\"version\": 1, \"entries\": [{\"list\": \"a\", \"ref\": "
+				"\"0123456789abcdef0123456789abcdef\", \"accounts\": [\"xyz\"]}]}}",
+			"{\"shared_bans\": {\"version\": 1, \"entries\": [{\"list\": \"a\", \"ref\": \"short\", "
+				"\"device\": \"cccccccccccccccccccccccccccccccc\"}]}}",
+			"{\"reports_taken\": [\"NOTHEX\"]}",
+			"{\"reports_taken\": \"00112233445566778899aabbccddeeff\"}",
+			"{\"shared_bans\": {\"entries\": []}}",
+		};
+
+		for (index = 0; index < (int)(sizeof(bad) / sizeof(bad[0])); index++)
+			CHECK(!control_link_parse_poll(bad[index], strlen(bad[index]), &back));
+	}
+	/* (an older site's answer: none of them) */
+	CHECK(control_link_parse_poll("{\"commands\": []}", 16, &back) && !back.has_shared_bans && !back.has_bans_digest &&
+		!back.reports_taken_count);
+
+	/* the cache: written, read back, refused when edited or another link's */
+	for (index = 0; index < 32; index++)
+		secret[index] = (uint8_t)(0x30 + index);
+	length = control_link_shared_bans_cache_text(answer, &poll, 1791168674, secret, text, sizeof(text));
+	CHECK(length > 0 && (size_t)length == strlen(text) && text[0] == '#');
+	CHECK(control_link_shared_bans_cache_open(text, (size_t)length, secret, &back, &heard));
+	CHECK(heard == 1791168674 && back.shared_bans_version == 7 && back.shared_ban_count == 2 &&
+		!strcmp(back.shared_bans[0].ref, "0123456789abcdef0123456789abcdef"));
+	secret[0] ^= 1;
+	CHECK(!control_link_shared_bans_cache_open(text, (size_t)length, secret, &back, &heard));
+	secret[0] ^= 1;
+	text[length - 10] = text[length - 10] == '1' ? '2' : '1';
+	CHECK(!control_link_shared_bans_cache_open(text, (size_t)length, secret, &back, &heard));
+	for (index = 0; index < rounds; index++)
+	{
+		int size = (int)(random_next() % 600);
+		int at;
+
+		for (at = 0; at < size; at++)
+			text[at] = random_next() % 8 ? "v1 0123456789abcdef{}[]\":,#\n"[random_next() % 28] : (char)(random_next() & 0xFF);
+		text[size] = 0;
+		control_link_shared_bans_cache_open(text, (size_t)size, secret, &back, &heard);
+		control_link_parse_poll(text, (size_t)size, &back);
+	}
+
+	/* the site's new commands, and their permissions */
+	CHECK(control_link_command_line("sv_lock", "", line, sizeof(line), &why) && !strcmp(line, "sv_lock"));
+	CHECK(control_link_command_line("sv_unlock", "why", line, sizeof(line), &why) && !strcmp(line, "sv_unlock"));
+	CHECK(control_link_command_line("sv_ban_account 0123456789abcdef0123456789abcdef 1d", "cheating", line,
+		sizeof(line), &why) && !strcmp(line, "sv_ban_account 0123456789abcdef0123456789abcdef 1d \"cheating\""));
+	CHECK(!control_link_command_line("sv_reports", "", line, sizeof(line), &why));
+	CHECK(!control_link_command_line("sv_ban_lists", "", line, sizeof(line), &why));
+	CHECK(control_command_permission("sv_lock", NULL) == CONTROL_PERMISSION_KICK);
+	CHECK(control_command_permission("sv_unlock", NULL) == CONTROL_PERMISSION_KICK);
+	CHECK(control_command_permission("sv_reports", NULL) == CONTROL_PERMISSION_WARN);
+	CHECK(control_command_permission("sv_report_close 3", NULL) == CONTROL_PERMISSION_WARN);
+	CHECK(control_command_permission("sv_ban_lists", NULL) == CONTROL_PERMISSION_VIEW);
+	CHECK(control_command_permission("sv_ban_account 0123456789abcdef0123456789abcdef 2h", NULL) ==
+		CONTROL_PERMISSION_BAN_TIMED);
+	CHECK(control_command_permission("sv_ban_account 0123456789abcdef0123456789abcdef", NULL) ==
+		CONTROL_PERMISSION_BAN);
+	CHECK(control_command_permission("sv_ban_account 0123456789abcdef0123456789abcdef 30d", NULL) ==
+		CONTROL_PERMISSION_BAN);
+}
+
 int main(int argc, char **argv)
 {
 	int rounds = argc > 1 ? atoi(argv[1]) : 5000;
@@ -1995,6 +2099,7 @@ int main(int argc, char **argv)
 	test_gametype_files(rounds);
 	test_link(rounds);
 	test_roles_cache(rounds);
+	test_link_extras(rounds);
 	test_names();
 	printf("%d checks, %d failures\n", checks, failures);
 	return failures ? 1 : 0;
