@@ -2200,6 +2200,11 @@ static void draw_prompts(void)
 		prompt_add(UI_BUTTON_A, "OK", 1, _button_a);
 		return;
 	}
+	if (launcher.dialog == _dialog_picking)
+	{
+		prompt_add(UI_BUTTON_B, "CANCEL", 1, _button_b);
+		return;
+	}
 	if (launcher.dialog)
 		return;
 	switch (launcher.screen)
@@ -2384,6 +2389,17 @@ static void open_folder(const char *path)
 	const unsigned char *cursor;
 
 	make_directories(path);
+	/* (under gamescope, the Steam Deck's Game Mode, there is no file manager
+	to show it, and the system's dialogs can stop the game: Desktop Mode
+	has it) */
+	if (updater_gamescope())
+	{
+		char shown[PATH_SIZE];
+
+		shown_path(path, shown, sizeof(shown));
+		set_status(COLOR_AMBER, "Open this folder in Desktop Mode. It's at %s", shown);
+		return;
+	}
 	length = (size_t)snprintf(url, sizeof(url), "file://%s", path[0] == '/' ? "" : "/");
 	for (cursor = (const unsigned char *)path; *cursor && length + 4 < sizeof(url); cursor++)
 	{
@@ -2499,6 +2515,13 @@ static void choose(int purpose)
 		{ "All files", "*" },
 	};
 
+	/* (no file dialog under gamescope, the Steam Deck's Game Mode: it would
+	never show, and the screen would wait for it) */
+	if (updater_gamescope())
+	{
+		set_status(COLOR_AMBER, "Do this in Desktop Mode. Game Mode can't show the file picker.");
+		return;
+	}
 	memset(&launcher.chooser, 0, sizeof(launcher.chooser));
 	launcher.chooser_purpose = purpose;
 	launcher.dialog = _dialog_picking;
@@ -3298,6 +3321,17 @@ static void open_tab(int tab)
 
 static void dialog_input(int button)
 {
+	/* (B gives up on a file dialog that never came, or that is behind the
+	window: its answer, if it comes, is not taken) */
+	if (launcher.dialog == _dialog_picking)
+	{
+		if (button == _button_b)
+		{
+			launcher.dialog = _dialog_none;
+			platform_log("launcher: the file dialog was given up on");
+		}
+		return;
+	}
 	if (launcher.dialog == _dialog_message)
 	{
 		if (button == _button_a || button == _button_b)
@@ -3798,6 +3832,9 @@ static void poll_work(void)
 	}
 	if (launcher.dialog == _dialog_sending && SDL_GetAtomicInt(&launcher.upload.done))
 		upload_finished();
+	/* (an update begun on UPDATES, once it is ready: put in place, and the
+	game restarts) */
+	updater_install_restart();
 }
 
 /* ---------- debug.launcher_test: scripted input and screenshots, for the
