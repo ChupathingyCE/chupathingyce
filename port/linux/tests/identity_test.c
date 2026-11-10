@@ -73,6 +73,32 @@ static int failures;
 #define VECTOR_TOKEN_SIGNATURE \
 	"0c02b24be2e9caa6385ef49de7bf80cb0740c7a73085d8a267c1f7f87978f1e8331b870581b254a5a258c85465b3130d" \
 	"5153e68646b300265f8ea304f0fd0901"
+/* a proof in a game (Delta Peer's identity): the host's nonce 00 to 1f, its
+binding the hex digits twice (an invite's 32), machine 3, local player 1,
+the device certificate's serial, bound (flags 1), signed at 1790101000,
+the name "Milenko"; and the same on a LAN (no binding, flags 0) */
+#define VECTOR_PROOF_TIME 1790101000UL
+#define VECTOR_PROOF_FLAGS 1UL
+#define VECTOR_PROOF_LAN_FLAGS 0UL
+#define VECTOR_PROOF_NONCE \
+	"000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+#define VECTOR_PROOF_BINDING \
+	"0123456789abcdef0123456789abcdef"
+#define VECTOR_PROOF_TAG \
+	"Milenko"
+#define VECTOR_PROOF_MESSAGE \
+	"64656c7461206964656e746974792070726f6f662076310a000102030405060708090a0b0c0d0e0f1011121314151617" \
+	"18191a1b1c1d1e1f20303132333435363738396162636465663031323334353637383961626364656603010102030405" \
+	"0607080108c6b26a074d696c656e6b6f"
+
+#define VECTOR_PROOF_SIGNATURE \
+	"bd00fd2c414b9170b8f9d5af61cf38cf32758b5ab8cf133bf78bfe036a8c3e8e166ebe9da09384d446f9192d05d1aa72" \
+	"35886d4af359f303c3c85c6028c7e400"
+
+#define VECTOR_PROOF_LAN_SIGNATURE \
+	"610f07b2e9ff47d104f2daf970467e09962e6e33db53f230054394fd05da9c51e898419ea5f76ef19792f6d6e9681eed" \
+	"ac2aae3a06e3fd28e2126e843f9ad00a"
+
 #define VECTOR_DEVICE_CODE \
 	"DVG69E5J"
 #define VECTOR_START_SIGNATURE \
@@ -186,6 +212,136 @@ static void test_messages(void)
 	CHECK(same_hex(signature, 64, VECTOR_TOKEN_SIGNATURE));
 }
 
+static void test_proof(void)
+{
+	unsigned char seed[32], proof_nonce[32], serial[8], message[IDENTITY_PROOF_MESSAGE_MOST], signature[64];
+	struct identity_device device;
+	struct identity_revoked revoked;
+	int size, index;
+	unsigned long now = VECTOR_ISSUED + 1000;
+
+	CHECK(from_hex(VECTOR_PROOF_NONCE, proof_nonce, 32));
+	for (index = 0; index < 8; index++)
+		serial[index] = (unsigned char)(index + 1);
+	seed_of(DEVICE_SEED_TEXT, seed);
+	size = identity_proof_message(proof_nonce, VECTOR_PROOF_BINDING, 32, 3, 1, serial, (int)VECTOR_PROOF_FLAGS,
+		VECTOR_PROOF_TIME, VECTOR_PROOF_TAG, 7, message);
+	CHECK(size == 24 + 32 + 1 + 32 + 1 + 1 + 8 + 1 + 4 + 1 + 7 && size <= IDENTITY_PROOF_MESSAGE_MOST);
+	CHECK(same_hex(message, size, VECTOR_PROOF_MESSAGE));
+	identity_sign(seed, message, size, signature);
+	CHECK(same_hex(signature, 64, VECTOR_PROOF_SIGNATURE));
+	if (getenv("IDENTITY_TEST_PRINT"))
+	{
+		char hex[1024];
+
+		identity_hex(message, size, hex);
+		printf("proof message %s\n", hex);
+		identity_hex(signature, 64, hex);
+		printf("proof signature %s\n", hex);
+	}
+	/* the host's check: the chain, the dates, play, the list, the signature */
+	CHECK(identity_check_proof(issuer_data, IDENTITY_ISSUER_SIZE, device_data, device_size, roots, 2, NULL, now,
+		message, size, signature, &device) == IDENTITY_OK);
+	CHECK(!strcmp(device.handle, "milenko") && !memcmp(device.account, copy_id, 16));
+	/* (another machine, local player, nonce, flags, time or name: not this
+	signature) */
+	message[size - 1] ^= 1;
+	CHECK(identity_check_proof(issuer_data, IDENTITY_ISSUER_SIZE, device_data, device_size, roots, 2, NULL, now,
+		message, size, signature, &device) == IDENTITY_NOT_DEVICE_SIGNED);
+	message[size - 1] ^= 1;
+	message[size - 9] ^= 1;
+	CHECK(identity_check_proof(issuer_data, IDENTITY_ISSUER_SIZE, device_data, device_size, roots, 2, NULL, now,
+		message, size, signature, &device) == IDENTITY_NOT_DEVICE_SIGNED);
+	message[size - 9] ^= 1;
+	/* (fresh: the host takes ten minutes, a card half an hour, and the
+	grace either way) */
+	CHECK(identity_proof_fresh(VECTOR_PROOF_TIME, VECTOR_PROOF_TIME + IDENTITY_PROOF_HOST_AGE + IDENTITY_GRACE,
+		IDENTITY_PROOF_HOST_AGE));
+	CHECK(!identity_proof_fresh(VECTOR_PROOF_TIME, VECTOR_PROOF_TIME + IDENTITY_PROOF_HOST_AGE + IDENTITY_GRACE + 1,
+		IDENTITY_PROOF_HOST_AGE));
+	CHECK(identity_proof_fresh(VECTOR_PROOF_TIME, VECTOR_PROOF_TIME + IDENTITY_PROOF_HOST_AGE + 1,
+		IDENTITY_PROOF_CARD_AGE));
+	CHECK(identity_proof_fresh(VECTOR_PROOF_TIME, VECTOR_PROOF_TIME - IDENTITY_GRACE, IDENTITY_PROOF_HOST_AGE));
+	CHECK(!identity_proof_fresh(VECTOR_PROOF_TIME, VECTOR_PROOF_TIME - IDENTITY_GRACE - 1, IDENTITY_PROOF_HOST_AGE));
+	/* (the device on the list) */
+	CHECK(identity_parse_revoked(revoked_data, revoked_size, &revoked));
+	CHECK(identity_check_proof(issuer_data, IDENTITY_ISSUER_SIZE, device_data, device_size, roots, 2, &revoked, now,
+		message, size, signature, &device) == IDENTITY_REVOKED);
+	/* (expired, or no root trusted: never taken on its word) */
+	CHECK(identity_check_proof(issuer_data, IDENTITY_ISSUER_SIZE, device_data, device_size, roots, 2, NULL,
+		VECTOR_EXPIRES + IDENTITY_GRACE + 1, message, size, signature, &device) == IDENTITY_EXPIRED);
+	{
+		unsigned char none[2][IDENTITY_KEY_SIZE];
+
+		memset(none, 0, sizeof(none));
+		CHECK(identity_check_proof(issuer_data, IDENTITY_ISSUER_SIZE, device_data, device_size, none, 2, NULL, now,
+			message, size, signature, &device) == IDENTITY_NOT_ROOT_SIGNED);
+	}
+	/* on a LAN: no binding */
+	size = identity_proof_message(proof_nonce, "", 0, 3, 1, serial, (int)VECTOR_PROOF_LAN_FLAGS, VECTOR_PROOF_TIME,
+		VECTOR_PROOF_TAG, 7, message);
+	identity_sign(seed, message, size, signature);
+	CHECK(same_hex(signature, 64, VECTOR_PROOF_LAN_SIGNATURE));
+	if (getenv("IDENTITY_TEST_PRINT"))
+	{
+		char hex[256];
+
+		identity_hex(signature, 64, hex);
+		printf("proof lan signature %s\n", hex);
+	}
+	/* fields out of range */
+	CHECK(identity_proof_message(proof_nonce, "", 0, 3, 4, serial, 0, 0, "", 0, message) < 0);
+	CHECK(identity_proof_message(proof_nonce, "", 65, 3, 0, serial, 0, 0, "", 0, message) < 0);
+	CHECK(identity_proof_message(proof_nonce, "", 0, 3, 0, serial, 0, 0, "", 25, message) < 0);
+	/* tags */
+	CHECK(identity_tag_valid("Milenko", 7) && identity_tag_valid("The_Real-Milenko", 16));
+	CHECK(identity_tag_valid("abcdefghijklmnopqrst", 20) && !identity_tag_valid("abcdefghijklmnopqrstu", 21));
+	CHECK(!identity_tag_valid("ab", 2) && !identity_tag_valid("a bc", 4) && !identity_tag_valid("abc.", 4) &&
+		!identity_tag_valid("ab<c", 4));
+	CHECK(identity_tag_is_handle("Milenko", "milenko") && !identity_tag_is_handle("Milenk0", "milenko") &&
+		!identity_tag_is_handle("Milenko", "") && !identity_tag_is_handle("Mile", "milenko"));
+}
+
+/* the look-alike keys (port/linux/tests/identity_vectors.json's
+"lookalikes", which the site's tests check too) */
+static const char *const lookalikes[][2] =
+{
+	{ "Milenko", "miienko" }, { "Mi1enk0", "miienko" }, { "MILENK0", "miienko" }, { "mi|enko", "miienko" },
+	{ "milenko2", "miienko2" }, { "rnilenko", "miienko" }, { "\xD0\x9Cilenko", "miienko" },
+	{ "vvarthog", "warthog" }, { "Sarge_99", "sarge99" }, { "T3x", "tex" }, { "@pollo", "apoiio" },
+	{ "$arge", "sarge" }, { "Milenk\xC3\xB3", "miienko" }, { "Z\xC3\x84TCHBOT", "zatchbot" },
+	{ "\xC5\x81ord", "iord" }, { "milenko1", "miienkoi" },
+};
+
+static void test_lookalikes(void)
+{
+	char key[IDENTITY_LOOKALIKE_MOST + 1];
+	unsigned char account[16];
+	int index;
+
+	for (index = 0; index < (int)(sizeof(lookalikes) / sizeof(lookalikes[0])); index++)
+	{
+		identity_lookalike_key(lookalikes[index][0], key);
+		if (strcmp(key, lookalikes[index][1]))
+			printf("lookalike %s: %s, not %s\n", lookalikes[index][0], key, lookalikes[index][1]);
+		CHECK(!strcmp(key, lookalikes[index][1]));
+	}
+	/* (long names stop at the key's size) */
+	CHECK(identity_lookalike_key("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", key) ==
+		IDENTITY_LOOKALIKE_MOST);
+	/* delta_account.txt: guest, an account, the copy's own; a byte order
+	mark and spaces left out; a file that is neither a guest but for the
+	owner's profile */
+	CHECK(identity_account_choice("guest\n", 0, account) == 0);
+	CHECK(identity_account_choice("\xEF\xBB\xBF  31ea6b25b20006a252c816cd2077ff5b \r\n", 0, account) == 2 &&
+		account[0] == 0x31 && account[15] == 0x5b);
+	CHECK(identity_account_choice("\tguest\r\n", 1, account) == 0);
+	CHECK(identity_account_choice("nonsense", 1, account) == 1);
+	CHECK(identity_account_choice("nonsense", 0, account) == 0);
+	CHECK(identity_account_choice("", 2, account) == 1 && identity_account_choice("", 0, account) == 0);
+	CHECK(identity_account_choice("31ea6b25b20006a252c816cd2077ffzz", 0, account) == 0);
+}
+
 /* Quick Connect (stage B): the code, its messages, bodies and answers */
 static void test_quick_connect(void)
 {
@@ -271,6 +427,74 @@ static void test_key_allowed(void)
 }
 
 /* more than one account on a copy: delta_accounts.txt's slots */
+/* a UCS-2 name from ASCII, and back, for the name tests */
+static void wide_name(const char *text, unsigned short *out, int size)
+{
+	int index;
+
+	for (index = 0; index < size - 1 && text[index]; index++)
+		out[index] = (unsigned char)text[index];
+	out[index] = 0;
+}
+
+static int shows_as(const unsigned short *name, const char *expected)
+{
+	unsigned short out[16];
+	int index, length = identity_unverified_name(name, 12, out, 16);
+
+	for (index = 0; expected[index]; index++)
+	{
+		if (index >= length || out[index] != (unsigned char)expected[index])
+			return 0;
+	}
+	return index == length;
+}
+
+/* an unverified name can't carry the @ mark, wherever it puts it, nor read
+as a verified handle, whole or cut to a game name's 11 letters */
+static void test_unverified_names(void)
+{
+	static const char *const faked[] = { "@Milenko", "@@Milenko", " @Milenko", ".@Milenko", "Mile@nko@", " . @Milenko" };
+	unsigned short name[16];
+	int index;
+
+	for (index = 0; index < (int)(sizeof(faked) / sizeof(faked[0])); index++)
+	{
+		wide_name(faked[index], name, 16);
+		CHECK(shows_as(name, "Milenko"));
+	}
+	/* (the other @s, the middle dot and invisible marks in front) */
+	name[0] = 0xB7, name[1] = '@', name[2] = 'M', name[3] = 'k', name[4] = 0;
+	CHECK(shows_as(name, "Mk"));
+	name[0] = 0x200B, name[1] = 0xFF20, name[2] = 'M', name[3] = 0xFE6B, name[4] = 'k', name[5] = 0;
+	CHECK(shows_as(name, "Mk"));
+	/* (names without them as they are; dots after the front kept) */
+	wide_name("[RvB] Tex", name, 16);
+	CHECK(shows_as(name, "[RvB] Tex"));
+	wide_name("Mr. Tex.", name, 16);
+	CHECK(shows_as(name, "Mr. Tex."));
+	wide_name("@@ .", name, 16);
+	CHECK(identity_unverified_name(name, 12, name + 8, 8) == 0);
+	CHECK(identity_unverified_name(NULL, 0, name, 4) == 0 && !name[0]);
+
+	/* (as written, as shown with the @ gone, and against the cut) */
+	CHECK(identity_impersonates("Milenko", "milenko", 11));
+	CHECK(identity_impersonates("Mi1enk0", "milenko", 11));
+	CHECK(identity_impersonates("@Milenko", "milenko", 11));
+	CHECK(identity_impersonates(" @Milenko", "milenko", 11));
+	CHECK(identity_impersonates(".@Milenko", "milenko", 11));
+	CHECK(identity_impersonates("\xC2\xB7@Milenko", "milenko", 11));
+	CHECK(identity_impersonates("\xEF\xBC\xA0Milenko", "milenko", 11));
+	CHECK(identity_impersonates("S@rge", "sarge", 11));
+	CHECK(identity_impersonates("MilenkoTheG", "milenkothegreat", 11));
+	CHECK(identity_impersonates("MilenkoTheGreat", "milenkothegreat", 11));
+	CHECK(!identity_impersonates("MilenkoTheG", "milenkothegreat", 0));
+	CHECK(!identity_impersonates("Milenko", "milenkothegreat", 11));
+	CHECK(!identity_impersonates("Sarge", "milenko", 11));
+	CHECK(!identity_impersonates("M", "m", 11));
+	CHECK(!identity_impersonates("Milenko", "", 11));
+}
+
 static void test_account_slots(void)
 {
 	static const char text[] = "player1 2\nOther Player 3\r\nbad -1\nfour 16\nplayer 1x\n";
@@ -398,6 +622,10 @@ static void test_revoked(void)
 	unsigned char broken[256], other[16];
 
 	CHECK(identity_parse_issuer(issuer_data, IDENTITY_ISSUER_SIZE, &issuer));
+	/* (an issuer past its dates: only the list kept, never one fetched) */
+	CHECK(identity_revoked_issuer_usable(IDENTITY_OK, 0) && identity_revoked_issuer_usable(IDENTITY_OK, 1));
+	CHECK(identity_revoked_issuer_usable(IDENTITY_EXPIRED, 1) && !identity_revoked_issuer_usable(IDENTITY_EXPIRED, 0));
+	CHECK(!identity_revoked_issuer_usable(IDENTITY_NOT_ROOT_SIGNED, 1) && !identity_revoked_issuer_usable(IDENTITY_MALFORMED, 0));
 	CHECK(identity_check_revoked(revoked_data, revoked_size, &issuer, &revoked) == IDENTITY_OK);
 	CHECK(revoked.serial == VECTOR_ISSUED && revoked.issued == VECTOR_ISSUED &&
 		revoked.next_update == VECTOR_ISSUED + 86400 && revoked.count == 2);
@@ -421,6 +649,19 @@ static void test_revoked(void)
 	broken[30] = 1;
 	CHECK(!identity_parse_revoked(broken, revoked_size, &revoked));
 	CHECK(!identity_parse_revoked(revoked_data, 95, &revoked));
+	/* (an issuer past its dates: its signature still checked, the issuer
+	read, and the list it signed still checks against it: browser.c uses
+	it, and says it is stale) */
+	CHECK(identity_check_issuer(issuer_data, IDENTITY_ISSUER_SIZE, roots, 2, VECTOR_VALID_UNTIL + IDENTITY_GRACE + 1,
+		&issuer) == IDENTITY_EXPIRED);
+	CHECK(identity_check_revoked(revoked_data, revoked_size, &issuer, &revoked) == IDENTITY_OK);
+	{
+		unsigned char none[2][IDENTITY_KEY_SIZE];
+
+		memset(none, 0, sizeof(none));
+		CHECK(identity_check_issuer(issuer_data, IDENTITY_ISSUER_SIZE, none, 2, VECTOR_VALID_UNTIL + IDENTITY_GRACE + 1,
+			&issuer) == IDENTITY_NOT_ROOT_SIGNED);
+	}
 }
 
 static void test_text(void)
@@ -632,6 +873,9 @@ int main(void)
 	load();
 	test_keys();
 	test_messages();
+	test_proof();
+	test_lookalikes();
+	test_unverified_names();
 	test_quick_connect();
 	test_key_allowed();
 	test_account_slots();
