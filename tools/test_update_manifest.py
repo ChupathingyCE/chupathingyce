@@ -268,7 +268,10 @@ def test_android_reader(java_classes):
 
 def test_android_keys_are_the_games(java_classes):
     """the Android updater's keys are update_key.h's"""
-    listed = re.findall(r'"([0-9a-f]{64})"', ANDROID.read_text())
+    text = ANDROID.read_text()
+    # (the release keys' array; the prerelease key's is its own:
+    # tools/test_update_channels.py)
+    listed = re.findall(r'"([0-9a-f]{64})"', text[text.index("String[] KEYS"):].split("};", 1)[0])
     assert listed == [key.hex() for key in update_sign.header_keys()]
 
 
@@ -306,6 +309,8 @@ def test_release_builds_need_an_update_key(tmp_path):
     check = configure.index("if release_build() and not header_keys():")
     assert configure.index("args = parser.parse_args()") < check < configure.index("sln = SimpleNamespace(")
     updater = (root / "port/linux/src/updater.c").read_text()
-    assert "if (HALO_RELEASE_BUILD && !UPDATER_TEST && !update_signature_required())" in updater
-    assert updater.index("!update_signature_required())\n\t{") < updater.index("SDL_CreateThread(updater_check_thread")
+    # (a release's or a test build's or a nightly's, UPDATER_KEYLESS)
+    assert ("#define UPDATER_KEYLESS ((HALO_RELEASE_BUILD || UPDATER_PRERELEASE_BUILD) && !UPDATER_TEST && "
+            "!update_signature_required())") in updater
+    assert updater.index("if (UPDATER_KEYLESS)\n\t{") < updater.index("SDL_CreateThread(updater_check_thread")
 
