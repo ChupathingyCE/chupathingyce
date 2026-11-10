@@ -23,6 +23,15 @@ Xbox memory window uses. Also the process start-up the Windows build needs.
 
 /* ---------- start-up */
 
+void *win32_system_library(const char *name)
+{
+	wchar_t wide[MAX_PATH];
+
+	if (!MultiByteToWideChar(CP_UTF8, 0, name, -1, wide, MAX_PATH))
+		return NULL;
+	return (void *)LoadLibraryExW(wide, NULL, LOAD_LIBRARY_SEARCH_SYSTEM32);
+}
+
 /* laptops with a second, faster GPU (NVIDIA Optimus, AMD switchable
 graphics) run a program on the integrated one unless it exports these */
 __declspec(dllexport) DWORD NvOptimusEnablement = 1;
@@ -40,6 +49,11 @@ static void windows_startup(void)
 	/* files are binary unless opened otherwise, as on the Xbox (the C
 	runtime's default text mode would translate line ends) */
 	_set_fmode(_O_BINARY);
+	/* DLLs the game loads by name come from its own folder and System32,
+	never the working directory or PATH, where a planted one could stand in
+	(a game started from a downloads folder). The DLLs it links (SDL3.dll)
+	are loaded before this runs, from its folder as before */
+	SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
 	/* Sleep() waits in 1 ms steps rather than the default 15.6 ms: the
 	game's frame pacing sleeps for short intervals */
 	timeBeginPeriod(1);
