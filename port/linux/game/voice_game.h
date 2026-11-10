@@ -77,7 +77,8 @@ game alone, through its host. With one, a party frame also goes out over it,
 and frames its members say in other games come back in through
 voice_game_party_heard (member: the party's own number for them, 0 to 15;
 never this copy's own; name: theirs, for this copy's mutes, chat's
-chat_local_mute(NONE, name): a muted member is never played) */
+chat_local_mute(NONE, name): a muted member is never played). These two
+are for the party path to come: nothing calls them yet */
 struct voice_party_path
 {
 	void *context;

@@ -670,6 +670,66 @@ static void test_party(void)
 	CHECK(social_follow_decide(&read.party, &inputs) == SOCIAL_FOLLOW_NONE);
 }
 
+static struct social_list_key list_key(int kind, int index, const char *id)
+{
+	struct social_list_key key;
+
+	memset(&key, 0, sizeof(key));
+	key.kind = kind;
+	key.index = index;
+	social_copy_text(key.id, sizeof(key.id), id);
+	return key;
+}
+
+/* PARTY's chosen row kept on its item as the list changes (guide.c): 0 a
+member, 1 VOICE, 2 a button (2 MAKE LEADER, 3 KICK) */
+static void test_list_keep(void)
+{
+	struct social_list_key before[4], after[5], kick = list_key(2, 3, "");
+	int changed;
+
+	/* (the leader on a member: two members, then MAKE LEADER and KICK) */
+	before[0] = list_key(0, 0, "m1");
+	before[1] = list_key(0, 1, "m2");
+	before[2] = list_key(2, 2, "");
+	before[3] = list_key(2, 3, "");
+	CHECK(social_list_keep(&kick, 3, before, 4, 3, &changed) == 3 && !changed);
+	/* (a member joins above: KICK moves down a row and stays chosen, still
+	armed) */
+	after[0] = before[0];
+	after[1] = before[1];
+	after[2] = list_key(0, 2, "m3");
+	after[3] = before[2];
+	after[4] = before[3];
+	CHECK(social_list_keep(&kick, 3, after, 5, 3, &changed) == 4 && !changed);
+	/* (a member leaves: KICK up a row, never MAKE LEADER under the cursor) */
+	CHECK(social_list_keep(&kick, 3, after + 1, 4, 3, &changed) == 3 && !changed);
+	after[1] = before[2];
+	after[2] = before[3];
+	CHECK(social_list_keep(&kick, 3, after, 3, 3, &changed) == 2 && !changed);
+	/* (KICK gone: the row stays, clamped, and what was armed is dropped) */
+	after[0] = list_key(0, 0, "m1");
+	after[1] = list_key(1, 0, "");
+	after[2] = list_key(2, 0, "");
+	CHECK(social_list_keep(&kick, 3, after, 3, 3, &changed) == 2 && changed);
+	/* (a member found by ID, not by number) */
+	{
+		struct social_list_key member = list_key(0, 1, "m2"), moved = list_key(0, 0, "m2");
+
+		after[0] = list_key(0, 0, "m1");
+		after[1] = list_key(0, 1, "m3");
+		CHECK(social_list_keep(&member, 1, after, 2, 1, &changed) == 1 && changed);
+		after[0] = moved;
+		CHECK(social_list_keep(&moved, 0, after, 2, 0, &changed) == 0 && !changed);
+	}
+	/* (the row moved since: that row, and changed when its item differs) */
+	CHECK(social_list_keep(&kick, 3, before, 4, 2, &changed) == 2 && changed);
+	CHECK(social_list_keep(&kick, 2, before, 4, 3, &changed) == 3 && !changed);
+	/* (nothing remembered yet, and an empty list) */
+	CHECK(social_list_keep(NULL, 0, before, 4, 9, &changed) == 3 && !changed);
+	CHECK(social_list_keep(&kick, 3, before, 0, 3, &changed) == 0 && changed);
+}
+
 /* RECENT: the site's list, this run's verified players first */
 static void test_recent(void)
 {
@@ -745,6 +805,7 @@ int main(void)
 	test_presence();
 	test_state();
 	test_party();
+	test_list_keep();
 	test_recent();
 	test_clan();
 	test_record();

@@ -417,8 +417,8 @@ enum
 	_toast_party_note,
 };
 
-/* PARTY's items: members (or, out of a party, its invites), the party's
-VOICE row (in a party with voice), then its buttons */
+/* PARTY's items: members (or, out of a party, its invites), then its
+buttons, VOICE first (in a party whose game carries party voice) */
 enum
 {
 	_party_item_member,
@@ -570,6 +570,13 @@ static struct
 	unsigned long party_message_time;
 	short party_armed;
 	short party_member;
+	/* that member's ID, to find them again as the party changes */
+	char party_member_id[SOCIAL_PARTY_MEMBER_ID_SIZE];
+	/* the item chosen, and its row, as last remembered: the row follows
+	its item when the list changes under it (party_selection_keep) */
+	boolean party_kept;
+	short party_kept_row;
+	struct social_list_key party_kept_key;
 	/* (the two above set to NONE, once) */
 	boolean party_ready;
 	boolean code_entry;
@@ -2042,24 +2049,22 @@ static short party_actions(short *actions)
 	return count;
 }
 
-/* PARTY's VOICE row: in a party, with voice on here and a game (or the
-party's own path) that carries it */
+/* PARTY's VOICE button: in a party whose party channel can be talked on
+now (voice on here, a host with Delta voice that allows it and hasn't muted
+this player, a party tag that reads); not on a member. Why not, when it
+can't, is SETTINGS' VOICE CHANNEL's to say */
 static boolean party_voice_shown(void)
 {
 #ifdef HALO_PORT_VOICE_AUDIO
-	int state;
-
-	if (!guide.party.has)
-		return FALSE;
-	state = voice_game_channel_state(_delta_voice_channel_party);
-	return state != _voice_channel_voice_off && state != _voice_channel_no_host;
+	return guide.party.has && guide.party_member == NONE &&
+		voice_game_channel_state(_delta_voice_channel_party) == _voice_channel_open;
 #else
 	return FALSE;
 #endif
 }
 
-/* PARTY's items: the members (or the party invites), VOICE, then the
-buttons */
+/* PARTY's items: the members (or the party invites), then the buttons,
+VOICE first */
 static short party_items(struct party_item *items)
 {
 	short actions[8], count = 0, index, action_count = party_actions(actions);
@@ -2093,14 +2098,76 @@ static short party_items(struct party_item *items)
 	return count;
 }
 
+/* whether an item is in the button column (VOICE and the buttons) */
+static boolean party_item_button(struct party_item const *item)
+{
+	return item->kind == _party_item_action || item->kind == _party_item_voice;
+}
+
 /* the first button's row */
 static short party_first_action(struct party_item const *items, short count)
 {
 	short first = 0;
 
-	while (first < count && items[first].kind != _party_item_action)
+	while (first < count && !party_item_button(&items[first]))
 		first++;
 	return first;
+}
+
+/* an item as remembered: a member and an invite by their IDs, as their
+numbers change when others come and go */
+static void party_item_key(struct party_item const *item, struct social_list_key *key)
+{
+	csmemset(key, 0, sizeof(*key));
+	key->kind = item->kind;
+	key->index = item->index;
+	if (item->kind == _party_item_member && item->index >= 0 && item->index < guide.party.member_count)
+	{
+		social_copy_text(key->id, sizeof(key->id), guide.party.members[item->index].id);
+		key->index = 0;
+	}
+	else if (item->kind == _party_item_invite && item->index >= 0 && item->index < friends_state.party_invite_count)
+	{
+		social_copy_text(key->id, sizeof(key->id), friends_state.party_invites[item->index].party);
+		key->index = 0;
+	}
+}
+
+/* before a press, a click or a frame drawn: the row back on the item
+remembered if the list moved it (a member joined or left, VOICE came or
+went), and LEAVE or KICK disarmed if the item under the row is another now
+(else the next A could hand over leadership with no second press) */
+static void party_selection_keep(void)
+{
+	struct party_item items[MAXIMUM_PARTY_ITEMS];
+	struct social_list_key keys[MAXIMUM_PARTY_ITEMS];
+	short count = party_items(items), index;
+	int changed;
+
+	for (index = 0; index < count; index++)
+		party_item_key(&items[index], &keys[index]);
+	guide.row[SOCIAL_SECTION_PARTY] = (short)social_list_keep(guide.party_kept ? &guide.party_kept_key : NULL,
+		guide.party_kept_row, keys, count, guide.row[SOCIAL_SECTION_PARTY], &changed);
+	if (changed)
+		guide.party_armed = NONE;
+	guide.party_kept = count > 0;
+	guide.party_kept_row = guide.row[SOCIAL_SECTION_PARTY];
+	if (count > 0)
+		guide.party_kept_key = keys[guide.party_kept_row];
+}
+
+/* after a press or a click: the item chosen now remembered as it is (what
+the press armed stays armed) */
+static void party_selection_remember(void)
+{
+	struct party_item items[MAXIMUM_PARTY_ITEMS];
+	short count = party_items(items), row = guide.row[SOCIAL_SECTION_PARTY];
+
+	guide.party_kept = row >= 0 && row < count;
+	if (!guide.party_kept)
+		return;
+	guide.party_kept_row = row;
+	party_item_key(&items[row], &guide.party_kept_key);
 }
 
 static boolean party_chosen(struct party_item *item)
@@ -2226,6 +2293,7 @@ static void party_activate(void)
 			short count;
 
 			guide.party_member = item.index;
+			social_copy_text(guide.party_member_id, sizeof(guide.party_member_id), member->id);
 			guide.party_armed = NONE;
 			count = party_items(items);
 			guide.row[SOCIAL_SECTION_PARTY] = party_first_action(items, count);
@@ -2235,8 +2303,9 @@ static void party_activate(void)
 #ifdef HALO_PORT_VOICE_AUDIO
 	if (item.kind == _party_item_voice)
 	{
-		/* (the channel talked on, the same as SETTINGS' VOICE CHANNEL) */
-		voice_setting_change(_setting_voice_channel, 1);
+		/* (the channel talked on, stepped to the next one that can be used
+		now; SETTINGS' VOICE CHANNEL steps through all of them) */
+		voice_game_set_channel(voice_game_next_channel());
 		return;
 	}
 #endif
@@ -2324,7 +2393,7 @@ static void party_side(void)
 
 	if (!party_chosen(&item) || first_action == 0 || first_action >= count)
 		return;
-	guide.row[SOCIAL_SECTION_PARTY] = item.kind == _party_item_action ? 0 : first_action;
+	guide.row[SOCIAL_SECTION_PARTY] = party_item_button(&item) ? 0 : first_action;
 	guide.party_armed = NONE;
 }
 
@@ -2358,7 +2427,20 @@ static void party_update(void)
 	{
 		guide.party_serial = serial;
 		party_news(&before);
-		if (guide.party_member >= guide.party.member_count || (!guide.party.leader && party_has_leader()))
+		/* (the member the leader's options are on, found again by ID: one
+		who left takes their options with them) */
+		if (guide.party_member != NONE)
+		{
+			short index, found = NONE;
+
+			for (index = 0; index < guide.party.member_count; index++)
+			{
+				if (!strcmp(guide.party.members[index].id, guide.party_member_id))
+					found = index;
+			}
+			guide.party_member = found;
+		}
+		if (guide.party_member != NONE && !guide.party.leader && party_has_leader())
 			guide.party_member = NONE;
 		if (!guide.party.has)
 			guide.go_sent[0] = 0;
@@ -3749,38 +3831,18 @@ static void render_party_qr(float left, float top)
 	}
 }
 
-#ifdef HALO_PORT_VOICE_AUDIO
-/* PARTY's VOICE row: the channel talked on, and whether it can be used */
-static void render_party_voice(float y, boolean on)
-{
-	int state = voice_game_channel_state(voice_game_channel());
-	char const *status = state != _voice_channel_open ? "Not available" : voice_game_talking() ? "Talking" : "";
-	unsigned int color = state == _voice_channel_open ? ui_style_color(UI_COLOR_NAME) : COLOR_DIMMED;
-
-	ui_style_row(CONTENT_LEFT, y, LIST_WIDTH, PARTY_ROW_HEIGHT, on);
-	if (status[0])
-	{
-		ui_style_text(UI_TEXT_NAME, CONTENT_LEFT + 22, y + 2, UI_ALIGN_LEFT, "VOICE");
-		ui_style_text(UI_TEXT_STATUS, CONTENT_LEFT + 22, y + 15, UI_ALIGN_LEFT, status);
-	}
-	else
-	{
-		ui_style_text(UI_TEXT_NAME, CONTENT_LEFT + 22, y + (PARTY_ROW_HEIGHT - ui_style_text_size(UI_TEXT_NAME)) * 0.5f,
-			UI_ALIGN_LEFT, "VOICE");
-	}
-	ui_overlay_text(UI_FONT_MENU, 10.0f, CONTENT_LEFT + LIST_WIDTH - 10, y + (PARTY_ROW_HEIGHT - 10.0f) * 0.5f,
-		UI_ALIGN_RIGHT, color, voice_game_channel_name(voice_game_channel()));
-}
-#endif
-
 static void render_party(void)
 {
 	struct party_item items[MAXIMUM_PARTY_ITEMS];
-	short count = party_items(items), index, chosen = guide.row[SOCIAL_SECTION_PARTY];
+	short count, index, chosen;
 	float y = BODY_Y, x = DETAIL_LEFT, width = CONTENT_RIGHT - DETAIL_LEFT, action_y = BODY_Y + 18;
 	char text[96], code[16];
 	boolean any_list = FALSE;
 
+	/* (the list as it is now, the row on the item it was on) */
+	party_selection_keep();
+	count = party_items(items);
+	chosen = guide.row[SOCIAL_SECTION_PARTY];
 	if (chosen >= count)
 		chosen = guide.row[SOCIAL_SECTION_PARTY] = (short)MAX(0, count - 1);
 	/* (the list: the members, or the party invites) */
@@ -3797,18 +3859,9 @@ static void render_party(void)
 		struct social_row row;
 		boolean on = index == chosen && !guide.code_entry;
 
-		if (items[index].kind == _party_item_action)
+		if (party_item_button(&items[index]))
 			continue;
 		any_list = TRUE;
-#ifdef HALO_PORT_VOICE_AUDIO
-		if (items[index].kind == _party_item_voice)
-		{
-			render_party_voice(y, on);
-			target_add(CONTENT_LEFT, y, CONTENT_LEFT + LIST_WIDTH, y + PARTY_ROW_HEIGHT, _target_row, index);
-			y += PARTY_ROW_HEIGHT + PARTY_ROW_GAP;
-			continue;
-		}
-#endif
 		csmemset(&row, 0, sizeof(row));
 		if (items[index].kind == _party_item_member)
 		{
@@ -3879,11 +3932,23 @@ static void render_party(void)
 			short action = items[index].index;
 			boolean on = index == chosen;
 			unsigned int color = action == _party_action_leave ? COLOR_LEAVE : COLOR_VALUE;
-			char const *value = NULL;
+			char const *value = NULL, *label;
+			unsigned int value_color = ui_style_color(UI_COLOR_NAME);
 
-			if (items[index].kind != _party_item_action)
+			if (!party_item_button(&items[index]))
 				continue;
-			if (action == _party_action_bring)
+			label = items[index].kind == _party_item_voice ? "VOICE" : party_action_label(action);
+			if (items[index].kind == _party_item_voice)
+			{
+#ifdef HALO_PORT_VOICE_AUDIO
+				/* (the channel talked on; dimmed when it can't be used now,
+				SETTINGS saying why) */
+				value = voice_game_channel_name(voice_game_channel());
+				if (voice_game_channel_state(voice_game_channel()) != _voice_channel_open)
+					value_color = COLOR_DIMMED;
+#endif
+			}
+			else if (action == _party_action_bring)
 				value = config_boolean("delta.bring_party") ? "ON" : "OFF";
 			else if (action == _party_action_follow)
 			{
@@ -3901,9 +3966,9 @@ static void render_party(void)
 			if (guide.party_acting)
 				color = fade(color, 0.5f);
 			ui_style_row(x, action_y, width, OPTION_HEIGHT, on);
-			ui_overlay_text(UI_FONT_MENU, 10.0f, x + 10, action_y + 7, UI_ALIGN_LEFT, color, party_action_label(action));
+			ui_overlay_text(UI_FONT_MENU, 10.0f, x + 10, action_y + 7, UI_ALIGN_LEFT, color, label);
 			if (value)
-				ui_overlay_text(UI_FONT_MENU, 10.0f, x + width - 10, action_y + 7, UI_ALIGN_RIGHT, ui_style_color(UI_COLOR_NAME), value);
+				ui_overlay_text(UI_FONT_MENU, 10.0f, x + width - 10, action_y + 7, UI_ALIGN_RIGHT, value_color, value);
 			target_add(x, action_y, x + width, action_y + OPTION_HEIGHT, _target_row, index);
 			action_y += OPTION_HEIGHT + OPTION_GAP;
 		}
@@ -3912,15 +3977,6 @@ static void render_party(void)
 		ui_style_text(UI_TEXT_LINE, x, action_y + 4, UI_ALIGN_LEFT, "Sending");
 	else if (guide.party_message[0] && system_milliseconds() - guide.party_message_time < MESSAGE_TIME)
 		ui_style_text(UI_TEXT_WARNING, x, action_y + 4, UI_ALIGN_LEFT, guide.party_message);
-#ifdef HALO_PORT_VOICE_AUDIO
-	/* (VOICE chosen on a channel that can't be used: why) */
-	else if (!guide.code_entry && chosen >= 0 && chosen < count && items[chosen].kind == _party_item_voice &&
-		voice_game_channel_state(voice_game_channel()) != _voice_channel_open)
-	{
-		ui_style_text(UI_TEXT_WARNING, x, action_y + 4, UI_ALIGN_LEFT,
-			voice_game_channel_reason(voice_game_channel_state(voice_game_channel())));
-	}
-#endif
 	/* (COPY PARTY LINK chosen: its link as a QR code too) */
 	if (!guide.code_entry && chosen >= 0 && chosen < count && items[chosen].kind == _party_item_action &&
 		items[chosen].index == _party_action_copy_link)
@@ -4650,8 +4706,20 @@ static void debug_steps(void)
 }
 #endif
 
-/* what was pressed (or clicked on the prompt bar) */
+static void handle_pressed(unsigned int pressed);
+
+/* what was pressed (or clicked on the prompt bar), PARTY's row kept on its
+item around it */
 static void handle(unsigned int pressed)
+{
+	if (guide.section == SOCIAL_SECTION_PARTY)
+		party_selection_keep();
+	handle_pressed(pressed);
+	if (guide.section == SOCIAL_SECTION_PARTY)
+		party_selection_remember();
+}
+
+static void handle_pressed(unsigned int pressed)
 {
 	short option;
 
@@ -4838,14 +4906,16 @@ void guide_pointer(struct halo_ui_pointer const *pointer)
 				struct party_item items[MAXIMUM_PARTY_ITEMS];
 				boolean again = guide.row[guide.section] == target->index;
 
+				/* (another item clicked: what was armed was on the one
+				before) */
+				if (!again)
+					guide.party_armed = NONE;
 				guide.row[guide.section] = target->index;
 				/* (a button or VOICE at once; a member or an invite on its
 				second) */
-				if (again || (target->index < party_items(items) && (items[target->index].kind == _party_item_action ||
-					items[target->index].kind == _party_item_voice)))
+				if (again || (target->index < party_items(items) && party_item_button(&items[target->index])))
 					activate();
-				else
-					guide.party_armed = NONE;
+				party_selection_remember();
 				break;
 			}
 			if (guide.section == SOCIAL_SECTION_RECENT && friends_signed_in())
