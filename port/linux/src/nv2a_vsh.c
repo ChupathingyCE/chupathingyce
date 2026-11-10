@@ -591,7 +591,9 @@ char *nv2a_vertex_shader_to_glsl(const DWORD *instructions, unsigned long instru
 		"\tgl_Position.z = 2.0 * gl_Position.z - gl_Position.w;\n"
 #endif
 		"\tgl_PointSize = oPts.x;\n"
-		/* (no color, coordinate or fog not a number: nv2a_finite) */
+		/* (no color, coordinate or fog not a number: nv2a_finite). The
+		colors are clamped after it; the texture coordinates and fog are not,
+		so an infinite one goes on as it is, as it did before */
 		"\txD0 = clamp(nv2a_finite(oD0), 0.0, 1.0);\n"
 		"\txD1 = clamp(nv2a_finite(oD1), 0.0, 1.0);\n"
 		"\txB0 = clamp(nv2a_finite(oB0), 0.0, 1.0);\n"
