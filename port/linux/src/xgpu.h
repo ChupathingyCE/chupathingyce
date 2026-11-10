@@ -52,12 +52,12 @@ extern const char *xgpu_gl_version_line;
 /* (GLSL 3.30's has no gl_SampleMask: alpha tested over the samples, nv2a_psh.c) */
 extern int xgpu_gl_sample_mask;
 #define XGPU_GL_SAMPLE_MASK xgpu_gl_sample_mask
-#else
-#define XGPU_GL_SAMPLE_MASK 1
 #elif defined(__APPLE__)
 #define XGPU_GL_VERSION_LINE "#version 410 core\n"
+#define XGPU_GL_SAMPLE_MASK 1
 #else
 #define XGPU_GL_VERSION_LINE "#version 450 core\n"
+#define XGPU_GL_SAMPLE_MASK 1
 #endif
 
 #ifdef HALO_GL_ES
