@@ -349,12 +349,13 @@ static struct
 	/* from the first time a game is hosted or joined */
 	int stun_started;
 	int reported_symmetric;
-	/* network.public_address (p2p_public_address.h): the address advertised
-	in place of the STUN servers', which are then not asked; looked up on
-	the p2p thread, when STUN would be, and again now and then (a dynamic
-	DNS name). A host with one only answers the players who reach it there:
-	it sends nothing to their addresses first (a relay passes on only what
-	comes in through it) */
+	/* network.public_address (p2p_public_address.h), a host setting: while
+	hosting, the address advertised in place of the STUN servers', and UPnP
+	is not asked; looked up on the p2p thread while hosting, and again now
+	and then (a dynamic DNS name). A host with one only answers the players
+	who reach it there: it sends nothing to their addresses first (a relay
+	passes on only what comes in through it). Joining another's game, it
+	changes nothing: STUN, UPnP and hole punching as usual (public_active) */
 	int public_set;
 	int public_looked_up;
 	int public_logged;
@@ -438,6 +439,12 @@ static struct
 112 KB on the console. Its sockets are none, -1, from p2p_initialize on;
 nothing reads them before, as nothing runs until then) */
 } p2p;
+
+/* network.public_address applies: set, and hosting */
+static int public_active(void)
+{
+	return p2p.public_set && p2p.hosting;
+}
 
 /* the router's answer to UPnP, as the host's status says it */
 enum
@@ -1237,7 +1244,7 @@ static void update_peers(void)
 				"connection; forwarding network.tunnel_port on one router helps, as UPnP does where the "
 				"router allows it: network.allow_upnp)");
 		}
-		else if (p2p.public_set && !peer->is_host)
+		else if (public_active() && !peer->is_host)
 		{
 			/* (a player reaches this host at its public address; it is
 			answered where it is heard from) */
@@ -1285,16 +1292,17 @@ static void stun_setup(void)
 	const char *text = config_string("network.stun_servers");
 
 	/* (a public address set: STUN would find the address of the connection
-	out, which players are not to be sent to) */
+	out, which players of this host are not to be sent to; it is still
+	asked, for joining others' games) */
 	if (p2p_parse_public_address(config_string("network.public_address"), p2p.public_host,
 		(int)sizeof(p2p.public_host), &p2p.public_port))
 	{
 		p2p.public_set = 1;
 		p2p.public_port = network_short(p2p.public_port);
-		platform_log("Internet play: the public address comes from network.public_address (STUN is not asked)");
-		return;
+		platform_log("Internet play: games hosted here advertise network.public_address in place of the STUN "
+			"address (joining others' games is unchanged)");
 	}
-	if (config_string("network.public_address")[0])
+	else if (config_string("network.public_address")[0])
 		platform_log("Internet play: network.public_address is not a host or host:port, so STUN finds the address");
 
 	while (*text && p2p.stun_count < MAXIMUM_STUN_SERVERS)
@@ -1335,7 +1343,7 @@ static void public_update(void)
 {
 	unsigned long address;
 
-	if (!p2p.public_set || !p2p.stun_started)
+	if (!public_active() || !p2p.stun_started)
 		return;
 	if (p2p.public_looked_up && !elapsed(p2p.public_time, p2p.public_address ? PUBLIC_LOOKUP_INTERVAL :
 		STUN_REFRESH_INTERVAL))
@@ -1498,7 +1506,7 @@ int p2p_local_candidates(struct p2p_candidate *candidates, int maximum_count)
 	take the real address's place) */
 	/* (a public address set is the only one offered from outside: the
 	router's and STUN's are the connection out's) */
-	if (p2p.public_set)
+	if (public_active())
 	{
 		if (p2p.public_address && count < maximum_count)
 		{
@@ -1536,7 +1544,7 @@ static int stun_settled(void)
 {
 	int index;
 
-	if (p2p.public_set)
+	if (public_active())
 		return p2p.public_looked_up;
 	for (index = 0; index < p2p.stun_count; index++)
 	{
@@ -2736,7 +2744,7 @@ unsigned long p2p_public_address(void)
 	int index;
 
 	pthread_mutex_lock(&p2p_lock);
-	if (p2p.public_set)
+	if (public_active())
 		result = p2p.public_address;
 	for (index = 0; index < p2p.stun_count && !result; index++)
 	{
@@ -3299,7 +3307,7 @@ static void update_upnp(void)
 
 	if (allowed < 0)
 		allowed = config_boolean("network.allow_upnp") ? 1 : 0;
-	if (!allowed || p2p.public_set || p2p.upnp_working || p2p.upnp_released)
+	if (!allowed || public_active() || p2p.upnp_working || p2p.upnp_released)
 		return;
 	if (p2p.upnp_forwarded)
 		ask = elapsed(p2p.upnp_time, UPNP_RENEW_INTERVAL);
@@ -3386,7 +3394,7 @@ int p2p_hosting_status(char *text, int size)
 	fixed = p2p.port_fixed;
 	pthread_mutex_unlock(&p2p_lock);
 	upnp_allowed = config_boolean("network.allow_upnp");
-	if (p2p.public_set)
+	if (public_active())
 	{
 		if (!settled)
 			snprintf(text, (size_t)size, "Checking your network...");
@@ -3482,7 +3490,7 @@ int p2p_hosting_reach(struct p2p_reach *reach)
 	}
 	reach->settled = p2p.stun_started && stun_settled();
 	/* (a public address set counts as an answer: players are sent there) */
-	if (p2p.public_set && p2p.public_address)
+	if (public_active() && p2p.public_address)
 		reach->stun_answers = 1;
 	switch (p2p.upnp_forwarded ? _upnp_forwarded : p2p.upnp_status)
 	{
@@ -3811,7 +3819,7 @@ static void update_probes(void)
 		count = p2p_probe_host_due(&probe.host, now, packets, to, 2 * P2P_PROBE_MAXIMUM_ADDRESSES);
 		/* (a host with a public address set answers the pings that reach
 		it there only, as it does players) */
-		for (index = 0; index < count && !p2p.public_set; index++)
+		for (index = 0; index < count && !public_active(); index++)
 			probe_send(&to[index], packets[index]);
 	}
 	if (!probe.browsing)
