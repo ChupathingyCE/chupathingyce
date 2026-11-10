@@ -14,6 +14,11 @@ to stdout (the vertex code, flags and packed mask in hexadecimal, then the
 pixel key's slots that are not 0, each as slot:value), then writes them
 through the writer to OUT, reads OUT back and exits nonzero if it does not
 give the same keys in the same order.
+
+	shader_keys_test --append FILE LIST MAP
+
+adds LIST's keys for MAP to FILE through the writer, as a later run adds
+to a map's own list (whose last line a crash may have cut short).
 */
 
 #include <stdint.h>
@@ -93,9 +98,24 @@ int main(int argc, char **argv)
 	/* (the hash of a vertex program's words: the same on every machine) */
 	static const DWORD words[] = { 0x00000000, 0x0020001b, 0x0836106c, 0x2f100ff8 };
 
+	if (argc == 5 && !strcmp(argv[1], "--append"))
+	{
+		/* (shader_keys_test --append FILE LIST MAP: LIST's keys for MAP added
+		to FILE, a map's own list, whatever its last line) */
+		if (!(text = read_file(argv[3], &size)) || !xgpu_shader_keys_parse(text, size, argv[4], &list))
+			return 1;
+		free(text);
+		if (!(writer = xgpu_shader_key_writer_open(argv[2])))
+			return 1;
+		for (index = 0; index < list.count; index++)
+			xgpu_shader_key_writer_add(writer, &list.keys[index]);
+		xgpu_shader_key_writer_close(writer);
+		xgpu_shader_key_list_free(&list);
+		return 0;
+	}
 	if (argc != 4)
 	{
-		fprintf(stderr, "usage: shader_keys_test LIST MAP OUT\n");
+		fprintf(stderr, "usage: shader_keys_test LIST MAP OUT | --append FILE LIST MAP\n");
 		return 2;
 	}
 	printf("code hash %016llx\n", xgpu_vertex_code_hash(words, 4));

@@ -119,8 +119,9 @@ void xgpu_shader_cache_warm(void (*linked)(GLuint vertex_shader, GLuint fragment
 /* the shaders a map's loading screen makes (d3d8_shader_prep.inl): a text's
 shader with its compile asked for and not waited on (one made before as it
 is), or 0; then whether it is compiled, kept in the file as any other: 1 it
-is, 0 it failed (deleted, to be compiled again at its draw, which logs why),
--1 not yet (wait FALSE, on a driver that compiles in parallel). A draw that
+is, 0 it failed (its log written; the shader kept, as the renderer holds its
+name, so that a program linked of it fails and its draws are left out, and
+never saved, so that the next run compiles it again), -1 not yet (wait FALSE, on a driver that compiles in parallel). A draw that
 comes to a shader first waits for it. As for a linked program's. */
 extern BOOL xgpu_parallel_compile;
 GLuint xgpu_shader_cache_submit(GLenum type, const char *source);

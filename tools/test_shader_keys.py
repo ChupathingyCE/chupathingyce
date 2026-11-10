@@ -110,6 +110,63 @@ def test_reader_and_writer(tmp_path, machine):
         assert lines_of(written) == sorted(got)
 
 
+# numbers too large for their records: each line is refused, and leaves the
+# pixel key it would have overwritten (on 64-bit Windows, unsigned long is 32
+# bits: 4294967296 would have been 0)
+HOSTILE = """chupathingy shader keys 1
+p 0 0:18200000 100:421
+p 4294967296 0:1
+p 18446744073709551616 0:2
+p 99999999999999999999999 0:3
+p 1048576 0:4
+p 16384 0:5
+p 1 3:ffffffffff 4:7
+k 6822c58b59dab8f8 0 e 0
+k 6822c58b59dab8f8 0 e 4294967296
+k 6822c58b59dab8f8 0 e 18446744073709551616
+k 6822c58b59dab8f8 100000000 e 0
+k 6822c58b59dab8f8 0 100000000 0
+k 16822c58b59dab8f8 0 e 0
+k 00000000000000ff 1 0 1
+k 00000000000000ff 1 0 16384
+"""
+HOSTILE_KEYS = ["6822c58b59dab8f8 0 e 0:18200000 100:421", "00000000000000ff 1 0 4:7"]
+
+
+@pytest.mark.parametrize("machine", ["native", "32-bit", "big-endian"])
+def test_reader_refuses_numbers_too_large(tmp_path, machine):
+    machines = {entry[0]: entry for entry in compilers()}
+    if machine not in machines or machines[machine][1] is None:
+        if machine == "big-endian" and machine in machines:
+            assert os.environ.get("DELTA_BE_REQUIRED") != "1", "no big-endian cross compiler and QEMU"
+        pytest.skip(f"not built for {machine} here")
+    _, command, runner = machines[machine]
+    binary = build(tmp_path, machine.replace("-", ""), command)
+    hostile = tmp_path / "hostile.keys"
+    hostile.write_text(HOSTILE)
+    assert run(binary, runner, hostile, "-", tmp_path / "hostile-out.keys") == HOSTILE_KEYS
+
+
+def test_writer_after_a_cut_line(tmp_path):
+    """a map's own list whose last line a crash cut short: the next run's
+    keys start on a line of their own, and the list reads whole"""
+    machines = {entry[0]: entry for entry in compilers()}
+    if "native" not in machines:
+        pytest.skip("no C compiler")
+    binary = build(tmp_path, "native", machines["native"][1])
+    own = tmp_path / "own.keys"
+    own.write_text("chupathingy shader keys 1\np 0 0:18200000\nk 6822c58b59dab8f8 0 e 0\nk 6822c58b")
+    sample = tmp_path / "sample.keys"
+    sample.write_text(SAMPLE)
+    result = subprocess.run([str(binary), "--append", str(own), str(sample), "-"], capture_output=True, text=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+    text = own.read_text()
+    assert "\nk 6822c58b\n" in text
+    keys = shader_keys.read_keys(text.replace("\nk 6822c58b\n", "\n"))[None]
+    assert lines_of(keys) == sorted(set(lines_of(shader_keys.read_keys(SAMPLE)[None]) +
+                                        ["6822c58b59dab8f8 0 e 0:18200000"]))
+
+
 def test_stock_list_whole():
     if not STOCK.exists():
         pytest.skip("no stock list in this checkout")

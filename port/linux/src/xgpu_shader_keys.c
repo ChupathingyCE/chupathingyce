@@ -32,6 +32,11 @@ same on every machine, whatever its byte order or word size.
 #include <stddef.h>
 
 #define KEYS_HEADER "chupathingy shader keys 1"
+/* the most pixel key numbers a list can use (its numbers' table, about
+5 MB at the most, is as long as the largest number), and the largest list
+read (a map's own is a few hundred KB) */
+#define PIXEL_NUMBER_LIMIT (1UL << 14)
+#define KEYS_FILE_LIMIT (8L << 20)
 #define WRITER_BUCKETS 4096
 
 /* ---------- a pixel shader key's slots */
@@ -154,7 +159,7 @@ static BOOL numbers_grow(struct pixel_numbers *numbers, unsigned long number)
 	struct nv2a_pixel_shader_key *keys;
 	BOOL *given;
 
-	if (number >= (1UL << 20))
+	if (number >= PIXEL_NUMBER_LIMIT)
 		return FALSE;
 	if (number < numbers->count)
 		return TRUE;
@@ -196,12 +201,15 @@ static const char *skip_spaces(const char *at, const char *end)
 	return at;
 }
 
-/* a number of the line (base 10 or 16), the end of it in *at */
+/* a number of the line (base 10 or 16), the end of it in *at; one too
+large (decimal past 32 bits, hexadecimal past 16 digits) is all ones,
+whatever its digits, so that no value wraps around into a small one: the
+callers' limits refuse it */
 static BOOL read_number(const char **at, const char *end, int base, unsigned long long *value)
 {
 	const char *cursor = skip_spaces(*at, end);
 	unsigned long long result = 0;
-	BOOL any = FALSE;
+	BOOL any = FALSE, too_large = FALSE;
 
 	while (cursor < end)
 	{
@@ -215,12 +223,18 @@ static BOOL read_number(const char **at, const char *end, int base, unsigned lon
 			digit = *cursor - 'A' + 10;
 		else
 			break;
-		result = result * (unsigned long long)base + (unsigned long long)digit;
+		if (!too_large)
+		{
+			result = result * (unsigned long long)base + (unsigned long long)digit;
+			/* (16 hex digits fit, a code hash's; the callers check the
+			others' 32 bits) */
+			too_large = base == 16 ? cursor - skip_spaces(*at, end) >= 16 : result > 0xffffffffULL;
+		}
 		any = TRUE;
 		cursor++;
 	}
 	*at = cursor;
-	*value = result;
+	*value = too_large ? ~0ULL : result;
 	return any;
 }
 
@@ -273,7 +287,9 @@ BOOL xgpu_shader_keys_parse(const char *text, unsigned long size, const char *ma
 			unsigned long long number, slot, value;
 
 			cursor++;
-			if (read_number(&cursor, line_end, 10, &number) && numbers_grow(&numbers, (unsigned long)number))
+			/* (checked before any narrowing: unsigned long is 32 bits on 64-bit Windows) */
+			if (read_number(&cursor, line_end, 10, &number) && number < PIXEL_NUMBER_LIMIT &&
+				numbers_grow(&numbers, (unsigned long)number))
 			{
 				struct nv2a_pixel_shader_key *key = &numbers.keys[number];
 
@@ -284,7 +300,8 @@ BOOL xgpu_shader_keys_parse(const char *text, unsigned long size, const char *ma
 					cursor++;
 					if (!read_number(&cursor, line_end, 16, &value))
 						break;
-					if (slot < D3DRS_PS_MAX || (slot >= _slot_texture_modes && slot <= _slot_last))
+					if (value <= 0xffffffffULL &&
+						(slot < D3DRS_PS_MAX || (slot >= _slot_texture_modes && slot <= _slot_last)))
 						slot_set(key, (unsigned long)slot, (unsigned long)value);
 				}
 			}
@@ -297,7 +314,8 @@ BOOL xgpu_shader_keys_parse(const char *text, unsigned long size, const char *ma
 			cursor++;
 			if (read_number(&cursor, line_end, 16, &code) && read_number(&cursor, line_end, 16, &flags) &&
 				read_number(&cursor, line_end, 16, &packed) && read_number(&cursor, line_end, 10, &number) &&
-				number < numbers.count && numbers.given[number])
+				flags <= 0xffffffffULL && packed <= 0xffffffffULL && code != ~0ULL &&
+				number < PIXEL_NUMBER_LIMIT && number < numbers.count && numbers.given[number])
 			{
 				memset(&key, 0, sizeof(key));
 				key.vertex_code = code;
@@ -436,7 +454,7 @@ struct xgpu_shader_key_writer *xgpu_shader_key_writer_open(const char *path)
 {
 	struct xgpu_shader_key_writer *writer = calloc(1, sizeof(*writer));
 	struct xgpu_shader_key_list list = { NULL, 0, 0 };
-	BOOL fresh = TRUE;
+	BOOL fresh = TRUE, unfinished = FALSE;
 	FILE *file;
 	unsigned long index;
 
@@ -449,11 +467,18 @@ struct xgpu_shader_key_writer *xgpu_shader_key_writer_open(const char *path)
 		long size;
 		char *text = NULL;
 
-		if (fseek(file, 0, SEEK_END) == 0 && (size = ftell(file)) > 0 && size < (64L << 20) &&
+		if (fseek(file, 0, SEEK_END) == 0 && (size = ftell(file)) > 0 && size < KEYS_FILE_LIMIT &&
 			fseek(file, 0, SEEK_SET) == 0 && (text = malloc((size_t)size)) != NULL &&
 			fread(text, 1, (size_t)size, file) == (size_t)size)
 		{
-			fresh = !xgpu_shader_keys_parse(text, (unsigned long)size, NULL, &list);
+			unsigned long whole = (unsigned long)size;
+
+			/* (a line cut short, by a crash as it was written, is not read,
+			and the next starts on a line of its own) */
+			while (whole && text[whole - 1] != '\n')
+				whole--;
+			unfinished = whole != (unsigned long)size;
+			fresh = !whole || !xgpu_shader_keys_parse(text, whole, NULL, &list);
 		}
 		free(text);
 		fclose(file);
@@ -465,6 +490,8 @@ struct xgpu_shader_key_writer *xgpu_shader_key_writer_open(const char *path)
 		free(writer);
 		return NULL;
 	}
+	if (!fresh && unfinished)
+		fputc('\n', writer->file);
 	if (fresh)
 	{
 		fprintf(writer->file, KEYS_HEADER "\n# this map's shaders, made at its loading screen (xgpu_shader_keys.c)\n");
