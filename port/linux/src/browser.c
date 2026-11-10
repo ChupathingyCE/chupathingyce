@@ -2821,6 +2821,27 @@ static void parse_host(char **fields, struct browser_game *game)
 	}
 }
 
+/* a badge's server key from the list's 64 hexadecimal digits: 1, or 0 */
+static int badge_key_from_hex(const char *text, unsigned char *key)
+{
+	int index;
+
+	if (strlen(text) != 2 * SERVER_BADGE_KEY_SIZE)
+		return 0;
+	for (index = 0; index < 2 * SERVER_BADGE_KEY_SIZE; index++)
+	{
+		char character = text[index];
+		int value = character >= '0' && character <= '9' ? character - '0' :
+			character >= 'a' && character <= 'f' ? character - 'a' + 10 :
+			character >= 'A' && character <= 'F' ? character - 'A' + 10 : -1;
+
+		if (value < 0)
+			return 0;
+		key[index / 2] = (unsigned char)(index % 2 ? key[index / 2] | value : value << 4);
+	}
+	return 1;
+}
+
 /* one line of /v1/games.txt: invite name map engine players
 maximum_players open version age score_limit teams roster, and (as asked:
 ?fields=22) region, platform, hosting, protocol, machines, gametype,
@@ -2960,8 +2981,7 @@ static int parse_game(char *line, struct browser_game *game)
 		if (game->badge && count >= 27)
 		{
 			fields[26][strcspn(fields[26], "\r\n")] = 0;
-			game->has_badge_key = strlen(fields[26]) == 2 * sizeof(game->badge_key) &&
-				identity_unhex(fields[26], (int)strlen(fields[26]), game->badge_key, (int)sizeof(game->badge_key));
+			game->has_badge_key = badge_key_from_hex(fields[26], game->badge_key);
 		}
 	}
 	return 1;
