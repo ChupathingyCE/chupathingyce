@@ -233,6 +233,14 @@ struct control_link_status
 	int role_accounts;
 	unsigned long long roles_version;
 	int roles_hours;
+	/* the server badge (docs/server-badges.md): off (not linked), none,
+	unreadable, other_server, checking, not_signed, unknown_tier, expired,
+	not_yet, good; and a good or checked certificate's tier name, label and
+	expiry (Unix seconds, 0 none) */
+	const char *badge_state;
+	const char *badge_tier;
+	const char *badge_label;
+	unsigned long long badge_expires;
 };
 
 int control_link_status_json(const struct control_link_status *status, char *out, size_t size);

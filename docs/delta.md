@@ -146,7 +146,7 @@ shares.
 | 13 | `bomb_movement` | TRAITS' movement and melee traits (jump, gravity, melee reach), for a player whose machine and host both agreed to it |
 | 14 | `bomb_traits` | TRAITS at 22 (Grifball test builds 2 and 3 sent it as 18, chat's CHAT_CONFIG). Room-wide with `bomb`: a host playing a Bomb game type drops every machine without both |
 | 15 | `team_change` | changing teams during a game: a client asks its host (TEAM_REQUEST), the host decides and answers (TEAM_RESULT); see "Team changes" |
-| 16 | `server_badge` | reserved for server badges (a draft); never set until that is built |
+| 16 | `server_badge` | a dedicated server's signed badge: a client asks its host (BADGE_ASK), the host answers with its certificate and proof of its key (BADGE); see "Server badges" and [server-badges.md](server-badges.md). A host offers it only with a certificate |
 | 17 | `object_sync` | what the game's messages leave out of the host's objects: every unit's shield and health (UNIT_VITALS) and the scenario names of the objects the host made (OBJECT_NAMES); see "Object sync" |
 | 18 | `host_cheats` | not a feature: the host's console and cheats may change its public game while others are in it (`network.host_cheats`); announced on Delta List only, never in a HELLO, and Online Games shows "Host cheats on" |
 | 19 | `host_rules` | the host's rules for its players' extras (HOST_RULES): names above heads, the follow camera, team changes; a client whose host says nothing plays by the Xbox's rules. See "Host rules" |
@@ -403,7 +403,8 @@ a later version may append):
 | 22 | TRAITS | host to client | kind (1: 0 none, 1 Bomb), reserved (3), everyone's then the carrier's player traits, 12 bytes each: health, damage, resistance, speed (2 each, percent), shields (1: 0 unchanged, 1 none, 2 normal, 3 overshield), highlight (1), reserved (2); then, from the `bomb_movement` builds on, a version (1), reserved (3), and everyone's then the carrier's movement traits, 8 bytes each: jump, gravity, melee reach (2 each, percent; 0 unchanged), reserved (2), 48 bytes in all (older builds read the first 28); values past their ranges ([bomb.md](bomb.md)) refused. Grifball test builds 2 and 3 sent it as 18, which is CHAT_CONFIG's (a host drops those builds from a Bomb game: `bomb_traits`) |
 | 23 | TEAM_REQUEST | client to host | sequence (4, above the session's last), player (1, the game's player list index), team (1: 0 red, 1 blue, 255 the other one), reserved (2) |
 | 24 | TEAM_RESULT | host to client | sequence (4, the TEAM_REQUEST's), result (1: 0 changed, 1 at the next respawn, 2 the host takes none, 3 the teams would be uneven, 4 no teams, 5 too soon, 6 not now, 7 no such player of the machine, 8 already on that team, 9 the last player of their team), team (1, the player's now), seconds until the player may change again (2; with 5) |
-| 25, 26 | | | kept for server badges (a draft) |
+| 25 | BADGE_ASK | client to host | nonce (32, fresh for each session) |
+| 26 | BADGE | host to client | nonce (32, the BADGE_ASK's), signature (64, the certificate's server key's, of the proof below), certificate length (2, at most 143; 0 for none), proof (1: 2, "chupathingy server badge proof v2\n", the nonce, the host's invite and the session, [server-badges.md](server-badges.md); 0, the first drafts' nonce alone, shows no badge), reserved (1), then the certificate |
 | 27 | UNIT_VITALS | host to client | count (1, at most 98), flags (1: 0x01 the last datagram of a full pass), reserved (2), then 12-byte entries: the host's object (4, its datum index, which a client's copy shares), flags (1: 0x01 shield depleted, 0x02 shield charging, 0x04 shield over charging), reserved (1), body vitality (2), shield vitality (2), reserved (2); vitality in 16384ths, as the game's own unit states have it |
 | 28 | OBJECT_NAMES | host to client | total (2, the host's named objects and removed names in all, at most 512), first (2, this datagram's first entry's place among them), count (1, at most 98), reserved (3), then 12-byte entries: the host's object (4; 0xFFFFFFFF for a removed name), its scenario name index (2), flags (1: 0x01 removed, a name the host had an object of this game and has none of now; others ignored), and for a removed name its unit's last vitals: shield flags (1, as UNIT_VITALS's), body vitality (2), shield vitality (2) (full for an object that was not a unit; 0 for the others) |
 | 29 | HOST_RULES | host to client | version (1; 1 now, 0 refused, a later one read as far as this build knows it), flags (1: 0x01 names above heads allowed, 0x02 the follow camera allowed, 0x04 late joiners wait for the next game, 0x08 joins are locked; others ignored), team changes (1: 0 off, 1 balanced, 2 allow), their margin (1, 0 to 16), reserved (4); values past their ranges refused. Sent at once when they change and every 5 seconds |
@@ -822,6 +823,30 @@ device token):
 The game's side is `port/linux/game/report_player.c` (DELTA's PLAYERS
 HERE and the scoreboard's REPORT), the dedicated server's
 `server/src/server_reports.c` (`sv_reports`, the control panel's Reports).
+
+### Server badges
+
+A dedicated server's OFFICIAL, DEVELOPER or COMMUNITY badge, over
+`server_badge` (bit 16). The badge is a certificate signed with our badge
+key for the server's Delta Control link key; the format, the keys and how
+one is issued are in [server-badges.md](server-badges.md).
+
+- **Asking.** A client sends BADGE_ASK with a fresh nonce once the
+  handshake is done (again every 2 seconds, 3 times at most, while
+  unanswered). The host answers BADGE with its certificate and its link
+  key's signature of the nonce, at most once a second for a machine. A
+  host without a certificate does not offer `server_badge`.
+- **Checking.** The client takes the badge only if the certificate is a
+  badge key's, in date, of a tier it knows, and the signature is the key
+  the certificate names, of the nonce, the invite the client joined and
+  this session (proof 2). A host that does not offer the badge, does not
+  answer in time, or fails the check shows no badge in Online Games from
+  then on, whatever the list says; one that proves a badge shows the
+  list's only while the list names the same tier, label and server key.
+
+The game's side is `port/linux/src/server_badge.c` and
+`port/linux/src/delta_peer_game.c`; the dedicated server's certificate is
+`server_badge.cert` in its data folder (`server/platform/control_link.c`).
 
 ### Party teams
 
@@ -1787,11 +1812,13 @@ From them the site lists each game's `platform`, `hosting` (`official`: our
 `[C]` servers, by their hosts; `dedicated`; `player`), `protocol` (`delta`,
 `opence`), `family` (`xbox`, `ce`, `pc`, `md`, by the map's suffix) and
 `machines`; OpenCE's public games (the brokers) are `opence` and nothing
-more. The game's browser reads them from `/v1/games.txt?fields=25&coop=1` (field
+more. The game's browser reads them from `/v1/games.txt?fields=28&coop=1` (field
 13 the region; 14 to 17: platform, hosting, protocol, machines; 18 an
 OpenCE game's gametype; 19 the announced capabilities; 20 to 22 an Xbox map
 pack's map name, pack and tag; 23 the playlist; 24 `opence_server` for an
-OpenCE dedicated server's game; 25 `1` when the host's joins are locked; `coop=1` asks for co-op games too, which the
+OpenCE dedicated server's game; 25 `1` when the host's joins are locked; 26
+and 27 a server badge and its label; 28 the server key its certificate
+names; `coop=1` asks for co-op games too, which the
 list leaves out unless asked). A list from before a field sends fewer, and
 the browser reads what it gets. It shows them: the Online
 Games screen's rows (a platform tag before the name, `SRV` for a server), its details (a Host line; the machines beside IN GAME;

@@ -37,6 +37,7 @@ threads), so polls are short: one every few seconds, no long poll.
 #include "../src/server_reports.h"
 
 #include "monocypher.h"
+#include "monocypher-ed25519.h"
 
 /* (the files and random bytes, on Linux and Windows) */
 #include "server_host.h"
@@ -47,6 +48,11 @@ threads), so polls are short: one every few seconds, no long poll.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+/* (the Windows server's C runtime has the mode bits, not the macro) */
+#ifndef S_ISREG
+#define S_ISREG(mode) (((mode) & _S_IFMT) == _S_IFREG)
+#endif
 
 /* the platform layer's (xbox_files.c, posix_browser.c, the game's log):
 plain types */
@@ -86,6 +92,7 @@ enum
 
 #define LINK_FILE "delta_link.key"
 #define ROLES_FILE "delta_roles.cache"
+#define BADGE_FILE "server_badge.cert"
 #define SHARED_BANS_FILE "shared_bans.cache"
 
 enum
@@ -94,6 +101,12 @@ enum
 	answers (its time heard, for the expiry after a restart) */
 	ROLES_CACHE_SECONDS = 10 * 60,
 	ROLES_CACHE_SIZE = 96 * 1024,
+	/* a badge's certificate at most (server_badge.h's
+	SERVER_BADGE_MAXIMUM_SIZE), and its file; the file looked at again
+	this often */
+	BADGE_SIZE = 143,
+	BADGE_FILE_SIZE = 4096,
+	BADGE_CHECK_SECONDS = 5,
 	SHARED_BANS_CACHE_SIZE = 512 * 1024,
 	/* the reports and shared bans a poll carries */
 	EXTRAS_SIZE = 256 * 1024,
@@ -153,6 +166,22 @@ static struct
 	} results[MAXIMUM_PENDING];
 	int result_count;
 	char status[STATUS_SIZE];
+	/* the badge's certificate (server_badge.cert): when its file was last
+	looked at, as it was then, and its bytes (badge_size 0: none) */
+	int64_t badge_checked;
+	int64_t badge_modified;
+	int64_t badge_file_size;
+	int badge_exists;
+	int badge_size;
+	uint8_t badge[BADGE_SIZE];
+	/* its certificate names another key than the link's (relinked since it
+	was issued) */
+	int badge_other_key;
+	/* what the game made of it (server_link_set_badge_check) */
+	int badge_check;
+	char badge_tier[16];
+	char badge_label[32];
+	unsigned int badge_expires;
 } link_state;
 
 /* ---------- private code */
@@ -1082,6 +1111,8 @@ int server_link_stop(char *text, int text_size)
 	return ok;
 }
 
+static const char *badge_state(void);
+
 void server_link_status(int json, int show_code, char *text, int text_size)
 {
 	static const char *const names[] = { "off", "linking", "linking", "linked" };
@@ -1110,15 +1141,23 @@ void server_link_status(int json, int show_code, char *text, int text_size)
 		status.role_accounts = link_state.roles_state == SERVER_SITE_ROLES_EXPIRED ? 0 : link_state.roles.role_count;
 		status.roles_version = (unsigned long long)link_state.roles_version;
 		status.roles_hours = link_state.roles_hours;
+		status.badge_state = badge_state();
+		status.badge_tier = strcmp(status.badge_state, "off") ? link_state.badge_tier : "";
+		status.badge_label = strcmp(status.badge_state, "off") ? link_state.badge_label : "";
+		status.badge_expires = strcmp(status.badge_state, "off") ? link_state.badge_expires : 0;
 		if (control_link_status_json(&status, text, (size_t)text_size) < 0)
 			snprintf(text, (size_t)text_size, "{\"error\": \"the status does not fit\"}");
 	}
 	else if (link_state.disabled)
 		snprintf(text, (size_t)text_size, "the link to the Chupathingy site is off (HALO_DEDICATED_LINK)");
 	else if (link_state.state == LINK_LINKED)
-		snprintf(text, (size_t)text_size, "linked to %s's account on %s (%s); site roles at most %s; last heard %s%s%s",
-			link_state.owner, link_state.url, link_state.server_id, control_role_name(link_state.cap),
-			link_state.heard ? "a few seconds ago" : "not yet", link_state.problem[0] ? "; " : "", link_state.problem);
+		snprintf(text, (size_t)text_size, "linked to %s's account on %s (%s); site roles at most %s; last heard %s; "
+			"server badge: %s%s%s%s%s", link_state.owner, link_state.url, link_state.server_id,
+			control_role_name(link_state.cap), link_state.heard ? "a few seconds ago" : "not yet",
+			!strcmp(badge_state(), "good") ? link_state.badge_tier : badge_state(),
+			!strcmp(badge_state(), "good") && link_state.badge_label[0] ? " " : "",
+			!strcmp(badge_state(), "good") ? link_state.badge_label : "", link_state.problem[0] ? "; " : "",
+			link_state.problem);
 	else if (link_state.state == LINK_WAITING && code[0])
 		snprintf(text, (size_t)text_size, "linking: open %s/servers/link?code=%s, signed in", link_state.url, code);
 	else if (link_state.state == LINK_WAITING)
@@ -1197,4 +1236,161 @@ void server_link_set_status(const char *json)
 	if (link_state.state == LINK_LINKED && strlen(json) < sizeof(link_state.status))
 		snprintf(link_state.status, sizeof(link_state.status), "%s", json);
 	pthread_mutex_unlock(&link_mutex);
+}
+
+/* ---------- the badge (docs/server-badges.md) */
+
+static int badge_hex(char character)
+{
+	if (character >= '0' && character <= '9')
+		return character - '0';
+	if (character >= 'a' && character <= 'f')
+		return character - 'a' + 10;
+	if (character >= 'A' && character <= 'F')
+		return character - 'A' + 10;
+	return -1;
+}
+
+/* server_badge.cert read again if it changed (the lock held): its first
+line of hexadecimal digits, '#' lines skipped */
+static void refresh_badge(void)
+{
+	char path[1024];
+	char text[BADGE_FILE_SIZE + 1];
+	struct stat information;
+	int64_t now = now_seconds();
+	int exists;
+	size_t count = 0;
+	FILE *file;
+	char *line;
+
+	if (link_state.badge_checked && now - link_state.badge_checked < BADGE_CHECK_SECONDS &&
+		now >= link_state.badge_checked)
+	{
+		return;
+	}
+	link_state.badge_checked = now;
+	data_file(BADGE_FILE, path, sizeof(path));
+	exists = !stat(path, &information) && S_ISREG(information.st_mode);
+	if (exists == link_state.badge_exists && (!exists || ((int64_t)information.st_mtime == link_state.badge_modified &&
+		(int64_t)information.st_size == link_state.badge_file_size)))
+	{
+		return;
+	}
+	link_state.badge_exists = exists;
+	link_state.badge_size = 0;
+	if (!exists)
+	{
+		platform_log("Delta Control: no %s in the data folder: no server badge", BADGE_FILE);
+		return;
+	}
+	link_state.badge_modified = (int64_t)information.st_mtime;
+	link_state.badge_file_size = (int64_t)information.st_size;
+	file = fopen(path, "r");
+	if (file)
+	{
+		count = fread(text, 1, BADGE_FILE_SIZE, file);
+		fclose(file);
+	}
+	text[count] = 0;
+	for (line = text; *line;)
+	{
+		char *end = line + strcspn(line, "\r\n");
+		char *cursor = line;
+		int size = 0;
+
+		while (cursor < end && (*cursor == ' ' || *cursor == '\t'))
+			cursor++;
+		if (cursor < end && *cursor != '#')
+		{
+			while (cursor + 1 < end && badge_hex(cursor[0]) >= 0 && badge_hex(cursor[1]) >= 0 && size < BADGE_SIZE)
+			{
+				link_state.badge[size++] = (uint8_t)(badge_hex(cursor[0]) << 4 | badge_hex(cursor[1]));
+				cursor += 2;
+			}
+			while (cursor < end && (*cursor == ' ' || *cursor == '\t'))
+				cursor++;
+			if (cursor == end)
+				link_state.badge_size = size;
+			break;
+		}
+		line = *end ? end + 1 : end;
+	}
+	if (!link_state.badge_size)
+		platform_log("Delta Control: %s is not a certificate (one line of hexadecimal digits): no server badge", BADGE_FILE);
+	else
+		platform_log("Delta Control: read %s (%d bytes)", BADGE_FILE, link_state.badge_size);
+}
+
+int server_link_badge_certificate(unsigned char *certificate, int size)
+{
+	uint8_t public_key[32];
+	int length = 0;
+
+	pthread_mutex_lock(&link_mutex);
+	if (link_state.state == LINK_LINKED && !link_state.disabled)
+	{
+		refresh_badge();
+		/* (format 1's server key, at 16: the link key's, or no badge) */
+		control_link_public_key(link_state.seed, public_key);
+		link_state.badge_other_key = link_state.badge_size >= 48 &&
+			memcmp(link_state.badge + 16, public_key, sizeof(public_key)) != 0;
+		if (link_state.badge_size >= 48 && link_state.badge_size <= size && !link_state.badge_other_key)
+		{
+			memcpy(certificate, link_state.badge, (size_t)link_state.badge_size);
+			length = link_state.badge_size;
+		}
+	}
+	pthread_mutex_unlock(&link_mutex);
+	return length;
+}
+
+int server_link_badge_sign(const unsigned char *message, int size, unsigned char *signature)
+{
+	uint8_t secret[64];
+	uint8_t public_key[32];
+	uint8_t seed[CONTROL_LINK_SEED_BYTES];
+	int ok = 0;
+
+	pthread_mutex_lock(&link_mutex);
+	if (link_state.state == LINK_LINKED && !link_state.disabled && size >= 0)
+	{
+		/* (Monocypher wipes the seed it is given) */
+		memcpy(seed, link_state.seed, sizeof(seed));
+		crypto_ed25519_key_pair(secret, public_key, seed);
+		crypto_ed25519_sign(signature, secret, message, (size_t)size);
+		crypto_wipe(secret, sizeof(secret));
+		ok = 1;
+	}
+	pthread_mutex_unlock(&link_mutex);
+	return ok;
+}
+
+void server_link_set_badge_check(int check, const char *tier, const char *label, unsigned int expires)
+{
+	pthread_mutex_lock(&link_mutex);
+	link_state.badge_check = check;
+	snprintf(link_state.badge_tier, sizeof(link_state.badge_tier), "%s", tier ? tier : "");
+	snprintf(link_state.badge_label, sizeof(link_state.badge_label), "%s", label ? label : "");
+	link_state.badge_expires = expires;
+	pthread_mutex_unlock(&link_mutex);
+}
+
+/* the badge's state for sv_link_status and the panel (the lock held) */
+static const char *badge_state(void)
+{
+	static const char *const checks[] = { "checking", "good", "not_signed", "unknown_tier", "expired", "not_yet",
+		"unreadable" };
+
+	if (link_state.disabled || link_state.state != LINK_LINKED)
+		return "off";
+	if (!link_state.badge_exists)
+		return "none";
+	if (!link_state.badge_size)
+		return "unreadable";
+	if (link_state.badge_other_key)
+		return "other_server";
+	if (link_state.badge_check < 0 || link_state.badge_check >= (int)(sizeof(checks) / sizeof(*checks)))
+		return "checking";
+	return checks[link_state.badge_check];
 }
