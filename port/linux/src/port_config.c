@@ -479,6 +479,9 @@ static const struct config_setting config_settings[] =
 #endif
 	{ "display.profile_names", _config_boolean, "true", "HALO_PROFILE_NAMES", _environment_value, _platform_all,
 		"In Delta games, show players by their shared Delta profile name." },
+	{ "display.verified_mark", _config_boolean, "false", "HALO_VERIFIED_MARK", _environment_value, _platform_all,
+		"In Delta games, put @ in front of the names of players whose Delta\n"
+		"profile is proven. Other players' names never start with @ then." },
 	{ "display.server_messages", _config_boolean, "true", "HALO_SERVER_MESSAGES", _environment_value, _platform_all | _platform_xbox,
 		"Show the banner for a Delta server's warnings and notices." },
 	{ "display.server_message_text_color", _config_string, "\"\"", "HALO_SERVER_MESSAGE_TEXT_COLOR",
@@ -973,7 +976,7 @@ static const struct config_setting config_settings[] =
 	/* (a console's reports of the games it joins too: port/console/reports) */
 #if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_GAME_REPORTS)
 	{ "network.report_joined_games", _config_boolean, "true", "HALO_NET_REPORT_GAMES", _environment_value,
-		_platform_all,
+		_platform_all | _platform_xbox,
 		"Send the scores of internet games you join to the game list." },
 #endif
 #ifdef HALO_GAME_BROWSER

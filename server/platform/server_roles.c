@@ -77,6 +77,9 @@ static struct
 		int role;
 		int site_role;
 		int key_count;
+		/* (its account, from a site that sends it) */
+		int has_account;
+		unsigned char account[16];
 	} site_handles[MAXIMUM_SITE_HANDLES];
 	int site_handle_count;
 	int site_state;
@@ -524,8 +527,9 @@ void server_roles_set_site(int count, const unsigned char *keys, const int *list
 }
 
 void server_roles_set_site_handles(int count, const char *const *handles, const int *list_roles, const int *site_roles,
-	const int *key_counts)
+	const int *key_counts, const unsigned char *accounts)
 {
+	static const unsigned char no_account[16];
 	int index;
 
 	pthread_mutex_lock(&roles_mutex);
@@ -539,6 +543,10 @@ void server_roles_set_site_handles(int count, const char *const *handles, const 
 		roles.site_handles[roles.site_handle_count].role = list_roles[index];
 		roles.site_handles[roles.site_handle_count].site_role = site_roles ? site_roles[index] : list_roles[index];
 		roles.site_handles[roles.site_handle_count].key_count = key_counts ? key_counts[index] : 0;
+		roles.site_handles[roles.site_handle_count].has_account = accounts &&
+			memcmp(accounts + index * 16, no_account, 16) != 0;
+		if (roles.site_handles[roles.site_handle_count].has_account)
+			memcpy(roles.site_handles[roles.site_handle_count].account, accounts + index * 16, 16);
 		roles.site_handle_count++;
 	}
 	pthread_mutex_unlock(&roles_mutex);
@@ -772,15 +780,18 @@ int server_roles_account_role(const unsigned char *account, const char *handle, 
 					handle && handle[0] ? handle : "account");
 		}
 	}
-	/* (the site's list names handles; a verified player's handle is the
-	one its certificate names, and a handle never changes on the site) */
-	for (index = 0; handle && handle[0] && index < roles.site_handle_count; index++)
+	/* (the site's list by account; an entry from a site that sends no
+	account, by the handle the certificate names) */
+	for (index = 0; index < roles.site_handle_count; index++)
 	{
-		if (!strcmp(roles.site_handles[index].handle, handle) && roles.site_handles[index].role > best)
+		if ((roles.site_handles[index].has_account ? account &&
+			!memcmp(roles.site_handles[index].account, account, 16) :
+			handle && handle[0] && !strcmp(roles.site_handles[index].handle, handle)) &&
+			roles.site_handles[index].role > best)
 		{
 			best = roles.site_handles[index].role;
 			if (who && who_size > 0)
-				snprintf(who, (size_t)who_size, "%s (site)", handle);
+				snprintf(who, (size_t)who_size, "%s (site)", roles.site_handles[index].handle);
 		}
 	}
 	pthread_mutex_unlock(&roles_mutex);
@@ -808,12 +819,15 @@ void server_roles_account_source(const unsigned char *account, const char *handl
 			snprintf(text, (size_t)text_size, "this server's moderators file");
 		}
 	}
-	for (index = 0; handle && handle[0] && index < roles.site_handle_count; index++)
+	for (index = 0; index < roles.site_handle_count; index++)
 	{
-		if (!strcmp(roles.site_handles[index].handle, handle) && roles.site_handles[index].role > best)
+		if ((roles.site_handles[index].has_account ? account &&
+			!memcmp(roles.site_handles[index].account, account, 16) :
+			handle && handle[0] && !strcmp(roles.site_handles[index].handle, handle)) &&
+			roles.site_handles[index].role > best)
 		{
 			best = roles.site_handles[index].role;
-			snprintf(text, (size_t)text_size, "your site profile %s%s", handle,
+			snprintf(text, (size_t)text_size, "your site profile %s%s", roles.site_handles[index].handle,
 				roles.site_state == SERVER_SITE_ROLES_CACHED ? " (cached)" : "");
 		}
 	}

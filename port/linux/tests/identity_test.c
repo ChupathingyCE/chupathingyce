@@ -75,8 +75,11 @@ static int failures;
 	"5153e68646b300265f8ea304f0fd0901"
 /* a proof in a game (Delta Peer's identity): the host's nonce 00 to 1f, its
 binding the hex digits twice (an invite's 32), machine 3, local player 1,
-the device certificate's serial, the tag "Milenko"; and the same on a LAN
-(no binding) */
+the device certificate's serial, bound (flags 1), signed at 1790101000,
+the name "Milenko"; and the same on a LAN (no binding, flags 0) */
+#define VECTOR_PROOF_TIME 1790101000UL
+#define VECTOR_PROOF_FLAGS 1UL
+#define VECTOR_PROOF_LAN_FLAGS 0UL
 #define VECTOR_PROOF_NONCE \
 	"000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
 #define VECTOR_PROOF_BINDING \
@@ -86,13 +89,30 @@ the device certificate's serial, the tag "Milenko"; and the same on a LAN
 #define VECTOR_PROOF_MESSAGE \
 	"64656c7461206964656e746974792070726f6f662076310a000102030405060708090a0b0c0d0e0f1011121314151617" \
 	"18191a1b1c1d1e1f20303132333435363738396162636465663031323334353637383961626364656603010102030405" \
-	"060708074d696c656e6b6f"
+	"0607080108c6b26a074d696c656e6b6f"
+
 #define VECTOR_PROOF_SIGNATURE \
-	"47cff25752b29748ab5f732822539bd7dc13a8b3f39802395ef57c29b04e40fd6d9d51115bcaa7cf6c257d944c2f3556" \
-	"9fac5d85f5f960a560da981122ae980e"
+	"bd00fd2c414b9170b8f9d5af61cf38cf32758b5ab8cf133bf78bfe036a8c3e8e166ebe9da09384d446f9192d05d1aa72" \
+	"35886d4af359f303c3c85c6028c7e400"
+
 #define VECTOR_PROOF_LAN_SIGNATURE \
-	"b59e0304e57510142faa66b0f1edf4455190c283df0ea7602adc0e93e570ba60b7a1dca2f21071054b454fb2aadfeb56" \
-	"90a6e65d8cab2459eb47ed5f4e1dba0b"
+	"610f07b2e9ff47d104f2daf970467e09962e6e33db53f230054394fd05da9c51e898419ea5f76ef19792f6d6e9681eed" \
+	"ac2aae3a06e3fd28e2126e843f9ad00a"
+
+#define VECTOR_DEVICE_CODE \
+	"DVG69E5J"
+#define VECTOR_START_SIGNATURE \
+	"14a41005d7d1e060eeb46b1af3de5cae53771df0ccf627ceb6d5c54b9a1ff6b1822ee2de4135bcaaa4a4ebf7b7cf743a" \
+	"a6cbb5ba00a107ef660a1f798e8abc08"
+#define VECTOR_CONFIRM_SIGNATURE \
+	"0ad07709c097a5b192b6c0763ce5f0859ff801d3eccad5c1249b0ac07ebdfdbd9e0500b05b6c9ca512eb860968a70b1b" \
+	"e1166a8720af25fae633431ee7fd1a02"
+#define VECTOR_DECLINE_SIGNATURE \
+	"0f0f2b8e63f0ef1136a0aefaf3f51437b5fd37fb2f82e4806271bb37b7f38402d5ba02d1f96430bac33a6e201d034f0f" \
+	"e657f236fb84c77e6a737bf2991ab80f"
+#define VECTOR_SIGNOUT_SIGNATURE \
+	"f579b26e3db2c34573a7a4e9842d85ef6646513dbf73706aeae41c825a4478051dddea806dbe0ecfd7a39b803e3e5201" \
+	"90750980b2c4ff3689f2c19c1a66e80b"
 #define VECTOR_VALID_FROM 1790000000UL
 #define VECTOR_VALID_UNTIL 1797776000UL
 #define VECTOR_ISSUED 1790100000UL
@@ -204,8 +224,9 @@ static void test_proof(void)
 	for (index = 0; index < 8; index++)
 		serial[index] = (unsigned char)(index + 1);
 	seed_of(DEVICE_SEED_TEXT, seed);
-	size = identity_proof_message(proof_nonce, VECTOR_PROOF_BINDING, 32, 3, 1, serial, VECTOR_PROOF_TAG, 7, message);
-	CHECK(size == 24 + 32 + 1 + 32 + 1 + 1 + 8 + 1 + 7 && size <= IDENTITY_PROOF_MESSAGE_MOST);
+	size = identity_proof_message(proof_nonce, VECTOR_PROOF_BINDING, 32, 3, 1, serial, (int)VECTOR_PROOF_FLAGS,
+		VECTOR_PROOF_TIME, VECTOR_PROOF_TAG, 7, message);
+	CHECK(size == 24 + 32 + 1 + 32 + 1 + 1 + 8 + 1 + 4 + 1 + 7 && size <= IDENTITY_PROOF_MESSAGE_MOST);
 	CHECK(same_hex(message, size, VECTOR_PROOF_MESSAGE));
 	identity_sign(seed, message, size, signature);
 	CHECK(same_hex(signature, 64, VECTOR_PROOF_SIGNATURE));
@@ -222,11 +243,26 @@ static void test_proof(void)
 	CHECK(identity_check_proof(issuer_data, IDENTITY_ISSUER_SIZE, device_data, device_size, roots, 2, NULL, now,
 		message, size, signature, &device) == IDENTITY_OK);
 	CHECK(!strcmp(device.handle, "milenko") && !memcmp(device.account, copy_id, 16));
-	/* (another machine, local player, nonce or tag: not this signature) */
+	/* (another machine, local player, nonce, flags, time or name: not this
+	signature) */
 	message[size - 1] ^= 1;
 	CHECK(identity_check_proof(issuer_data, IDENTITY_ISSUER_SIZE, device_data, device_size, roots, 2, NULL, now,
 		message, size, signature, &device) == IDENTITY_NOT_DEVICE_SIGNED);
 	message[size - 1] ^= 1;
+	message[size - 9] ^= 1;
+	CHECK(identity_check_proof(issuer_data, IDENTITY_ISSUER_SIZE, device_data, device_size, roots, 2, NULL, now,
+		message, size, signature, &device) == IDENTITY_NOT_DEVICE_SIGNED);
+	message[size - 9] ^= 1;
+	/* (fresh: the host takes ten minutes, a card half an hour, and the
+	grace either way) */
+	CHECK(identity_proof_fresh(VECTOR_PROOF_TIME, VECTOR_PROOF_TIME + IDENTITY_PROOF_HOST_AGE + IDENTITY_GRACE,
+		IDENTITY_PROOF_HOST_AGE));
+	CHECK(!identity_proof_fresh(VECTOR_PROOF_TIME, VECTOR_PROOF_TIME + IDENTITY_PROOF_HOST_AGE + IDENTITY_GRACE + 1,
+		IDENTITY_PROOF_HOST_AGE));
+	CHECK(identity_proof_fresh(VECTOR_PROOF_TIME, VECTOR_PROOF_TIME + IDENTITY_PROOF_HOST_AGE + 1,
+		IDENTITY_PROOF_CARD_AGE));
+	CHECK(identity_proof_fresh(VECTOR_PROOF_TIME, VECTOR_PROOF_TIME - IDENTITY_GRACE, IDENTITY_PROOF_HOST_AGE));
+	CHECK(!identity_proof_fresh(VECTOR_PROOF_TIME, VECTOR_PROOF_TIME - IDENTITY_GRACE - 1, IDENTITY_PROOF_HOST_AGE));
 	/* (the device on the list) */
 	CHECK(identity_parse_revoked(revoked_data, revoked_size, &revoked));
 	CHECK(identity_check_proof(issuer_data, IDENTITY_ISSUER_SIZE, device_data, device_size, roots, 2, &revoked, now,
@@ -242,7 +278,8 @@ static void test_proof(void)
 			message, size, signature, &device) == IDENTITY_NOT_ROOT_SIGNED);
 	}
 	/* on a LAN: no binding */
-	size = identity_proof_message(proof_nonce, "", 0, 3, 1, serial, VECTOR_PROOF_TAG, 7, message);
+	size = identity_proof_message(proof_nonce, "", 0, 3, 1, serial, (int)VECTOR_PROOF_LAN_FLAGS, VECTOR_PROOF_TIME,
+		VECTOR_PROOF_TAG, 7, message);
 	identity_sign(seed, message, size, signature);
 	CHECK(same_hex(signature, 64, VECTOR_PROOF_LAN_SIGNATURE));
 	if (getenv("IDENTITY_TEST_PRINT"))
@@ -253,9 +290,9 @@ static void test_proof(void)
 		printf("proof lan signature %s\n", hex);
 	}
 	/* fields out of range */
-	CHECK(identity_proof_message(proof_nonce, "", 0, 3, 4, serial, "", 0, message) < 0);
-	CHECK(identity_proof_message(proof_nonce, "", 65, 3, 0, serial, "", 0, message) < 0);
-	CHECK(identity_proof_message(proof_nonce, "", 0, 3, 0, serial, "", 25, message) < 0);
+	CHECK(identity_proof_message(proof_nonce, "", 0, 3, 4, serial, 0, 0, "", 0, message) < 0);
+	CHECK(identity_proof_message(proof_nonce, "", 65, 3, 0, serial, 0, 0, "", 0, message) < 0);
+	CHECK(identity_proof_message(proof_nonce, "", 0, 3, 0, serial, 0, 0, "", 25, message) < 0);
 	/* tags */
 	CHECK(identity_tag_valid("Milenko", 7) && identity_tag_valid("The_Real-Milenko", 16));
 	CHECK(identity_tag_valid("abcdefghijklmnopqrst", 20) && !identity_tag_valid("abcdefghijklmnopqrstu", 21));
@@ -263,6 +300,146 @@ static void test_proof(void)
 		!identity_tag_valid("ab<c", 4));
 	CHECK(identity_tag_is_handle("Milenko", "milenko") && !identity_tag_is_handle("Milenk0", "milenko") &&
 		!identity_tag_is_handle("Milenko", "") && !identity_tag_is_handle("Mile", "milenko"));
+}
+
+/* the look-alike keys (port/linux/tests/identity_vectors.json's
+"lookalikes", which the site's tests check too) */
+static const char *const lookalikes[][2] =
+{
+	{ "Milenko", "miienko" }, { "Mi1enk0", "miienko" }, { "MILENK0", "miienko" }, { "mi|enko", "miienko" },
+	{ "milenko2", "miienko" }, { "rnilenko", "miienko" }, { "\xD0\x9Cilenko", "miienko" },
+	{ "vvarthog", "warthog" }, { "Sarge_99", "sarge" }, { "T3x", "tex" }, { "@pollo", "apoiio" },
+	{ "$arge", "sarge" },
+};
+
+static void test_lookalikes(void)
+{
+	char key[IDENTITY_LOOKALIKE_MOST + 1];
+	unsigned char account[16];
+	int index;
+
+	for (index = 0; index < (int)(sizeof(lookalikes) / sizeof(lookalikes[0])); index++)
+	{
+		identity_lookalike_key(lookalikes[index][0], key);
+		if (strcmp(key, lookalikes[index][1]))
+			printf("lookalike %s: %s, not %s\n", lookalikes[index][0], key, lookalikes[index][1]);
+		CHECK(!strcmp(key, lookalikes[index][1]));
+	}
+	/* (long names stop at the key's size) */
+	CHECK(identity_lookalike_key("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", key) ==
+		IDENTITY_LOOKALIKE_MOST);
+	/* delta_account.txt: guest, an account, the copy's own; a byte order
+	mark and spaces left out; a file that is neither a guest but for the
+	owner's profile */
+	CHECK(identity_account_choice("guest\n", 0, account) == 0);
+	CHECK(identity_account_choice("\xEF\xBB\xBF  31ea6b25b20006a252c816cd2077ff5b \r\n", 0, account) == 2 &&
+		account[0] == 0x31 && account[15] == 0x5b);
+	CHECK(identity_account_choice("\tguest\r\n", 1, account) == 0);
+	CHECK(identity_account_choice("nonsense", 1, account) == 1);
+	CHECK(identity_account_choice("nonsense", 0, account) == 0);
+	CHECK(identity_account_choice("", 2, account) == 1 && identity_account_choice("", 0, account) == 0);
+	CHECK(identity_account_choice("31ea6b25b20006a252c816cd2077ffzz", 0, account) == 0);
+}
+
+/* Quick Connect (stage B): the code, its messages, bodies and answers */
+static void test_quick_connect(void)
+{
+	unsigned char seed[32], message[IDENTITY_MESSAGE_MOST], signature[64], code_nonce[16];
+	char code[IDENTITY_CODE_TEXT], body[1024], token[IDENTITY_POLL_TOKEN_SIZE];
+	unsigned long interval = 0, lifetime = 0;
+	int size;
+
+	identity_device_code(device_public, nonce, code);
+	CHECK(!strcmp(code, "DVG6-9E5J"));
+	CHECK(identity_clean_code("dvg6 9e5j", code) && !strcmp(code, "DVG6-9E5J"));
+	CHECK(identity_clean_code(VECTOR_DEVICE_CODE, code) && !strcmp(code, "DVG6-9E5J"));
+	CHECK(!identity_clean_code("DVG6-9E5", code) && !code[0]);
+	CHECK(!identity_clean_code("DVG6-9E5JX", code));
+	CHECK(!identity_clean_code("DVG6-9E5O", code));
+	/* (Link a device takes an older copy's 6-character code too) */
+	CHECK(identity_approval_code("dvg6-9e5j", code) && !strcmp(code, "DVG69E5J"));
+	CHECK(identity_approval_code("K7Q-4MD", code) && !strcmp(code, "K7Q4MD"));
+	CHECK(!identity_approval_code("K7Q-4M", code) && !code[0]);
+	CHECK(!identity_approval_code("K7Q-4MD2", code));
+	CHECK(!identity_approval_code("K7Q-4M0", code));
+	CHECK(!identity_approval_code("DVG69E5J2", code));
+	seed_of(DEVICE_SEED_TEXT, seed);
+	size = identity_start_message(VECTOR_AUDIENCE, nonce, device_public, message);
+	CHECK(size == 28 + 1 + 21 + 16 + 32);
+	identity_sign(seed, message, size, signature);
+	CHECK(same_hex(signature, 64, VECTOR_START_SIGNATURE));
+	size = identity_confirm_message(VECTOR_AUDIENCE, nonce, device_id, 1, "milenko", message);
+	CHECK(size == 30 + 1 + 21 + 16 + 16 + 2 + 7 && size <= IDENTITY_MESSAGE_MOST);
+	identity_sign(seed, message, size, signature);
+	CHECK(same_hex(signature, 64, VECTOR_CONFIRM_SIGNATURE));
+	size = identity_confirm_message(VECTOR_AUDIENCE, nonce, device_id, 0, "milenko", message);
+	identity_sign(seed, message, size, signature);
+	CHECK(same_hex(signature, 64, VECTOR_DECLINE_SIGNATURE));
+	CHECK(identity_confirm_message(VECTOR_AUDIENCE, nonce, device_id, 1, "a_handle_far_too_long_x", message) < 0);
+	size = identity_signout_message(VECTOR_AUDIENCE, nonce, device_id, message);
+	identity_sign(seed, message, size, signature);
+	CHECK(same_hex(signature, 64, VECTOR_SIGNOUT_SIGNATURE));
+	/* the bodies */
+	CHECK(identity_start_body(body, sizeof(body), device_public, VECTOR_NONCE, signature, "pc_linux", "0.9.1",
+		"Desk \"x\"") > 0);
+	CHECK(strstr(body, "\"device_key\": \"" VECTOR_DEVICE_PUBLIC "\"") && strstr(body, "\"name\": \"Desk x\"") &&
+		strstr(body, "\"platform\": \"pc_linux\""));
+	CHECK(identity_start_body(body, 100, device_public, VECTOR_NONCE, signature, "pc_linux", "0.9.1", "") == -1);
+	CHECK(identity_confirm_body(body, sizeof(body), "ab", device_id, VECTOR_NONCE, signature, 1) > 0);
+	CHECK(strstr(body, "\"accept\": true") && strstr(body, "\"device_id\": \"" VECTOR_DEVICE_ID "\""));
+	/* the start's answer */
+	CHECK(identity_start_answer("{\"code_nonce\": \"" VECTOR_NONCE "\", \"poll_token\": \""
+		"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\", \"interval\": 5, \"expires_in\": 600}",
+		code_nonce, token, &interval, &lifetime));
+	CHECK(!memcmp(code_nonce, nonce, 16) && interval == 5 && lifetime == 600 && strlen(token) == 64);
+	CHECK(!identity_start_answer("{\"code_nonce\": \"" VECTOR_NONCE "\", \"poll_token\": \"XYZ\", \"interval\": 5, "
+		"\"expires_in\": 600}", code_nonce, token, &interval, &lifetime) && !token[0]);
+	CHECK(identity_start_answer("{\"code_nonce\": \"" VECTOR_NONCE "\", \"poll_token\": \""
+		"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\", \"interval\": 0, \"expires_in\": 600}",
+		code_nonce, token, &interval, &lifetime) && interval == 2);
+}
+
+/* stage C: when the player key may go */
+static void test_key_allowed(void)
+{
+	struct identity_state state;
+	struct identity_device device;
+	unsigned long now = VECTOR_ISSUED + 100;
+
+	memset(&state, 0, sizeof(state));
+	CHECK(identity_key_allowed(&state, now));
+	CHECK(identity_parse_device(device_data, device_size, &device));
+	identity_have_certificate(&state, &device, 0, now);
+	CHECK(!identity_key_allowed(&state, now));
+	/* (a site that doesn't speak identity takes only the key) */
+	CHECK(identity_answered(&state, 404, "", now) == IDENTITY_ANSWER_LATER);
+	CHECK(identity_key_allowed(&state, now) && !identity_key_allowed(&state, now + IDENTITY_LATER));
+	/* (revoked or signed out on the site: no key either, from then on) */
+	memset(&state, 0, sizeof(state));
+	identity_have_certificate(&state, &device, 0, now);
+	CHECK(identity_answered(&state, 403, "{\"revoked\": true}", now) == IDENTITY_ANSWER_OFF);
+	CHECK(state.signed_out && !identity_key_allowed(&state, now) && identity_due(&state, 1, now) == IDENTITY_STEP_NONE);
+	/* (signed out by its player: neither, and nothing due) */
+	memset(&state, 0, sizeof(state));
+	state.signed_out = 1;
+	CHECK(!identity_key_allowed(&state, now) && identity_due(&state, 1, now) == IDENTITY_STEP_NONE);
+}
+
+/* more than one account on a copy: delta_accounts.txt's slots */
+static void test_account_slots(void)
+{
+	static const char text[] = "player1 2\nOther Player 3\r\nbad -1\nfour 16\nplayer 1x\n";
+	char key[64], cert[64];
+
+	CHECK(identity_account_slot(text, "player1") == 2);
+	CHECK(identity_account_slot(text, "Other Player") == 3);
+	CHECK(identity_account_slot(text, "player") == 0);
+	CHECK(identity_account_slot(text, "bad") == 0 && identity_account_slot(text, "four") == 0);
+	CHECK(identity_account_slot(text, "nobody") == 0 && identity_account_slot("", "player1") == 0);
+	identity_slot_files(0, key, cert, sizeof(key));
+	CHECK(!strcmp(key, "delta_device.key") && !strcmp(cert, "delta_device.cert"));
+	identity_slot_files(2, key, cert, sizeof(key));
+	CHECK(!strcmp(key, "delta_device_2.key") && !strcmp(cert, "delta_device_2.cert"));
 }
 
 static void test_issuer(void)
@@ -399,6 +576,19 @@ static void test_revoked(void)
 	broken[30] = 1;
 	CHECK(!identity_parse_revoked(broken, revoked_size, &revoked));
 	CHECK(!identity_parse_revoked(revoked_data, 95, &revoked));
+	/* (an issuer past its dates: its signature still checked, the issuer
+	read, and the list it signed still checks against it: browser.c uses
+	it, and says it is stale) */
+	CHECK(identity_check_issuer(issuer_data, IDENTITY_ISSUER_SIZE, roots, 2, VECTOR_VALID_UNTIL + IDENTITY_GRACE + 1,
+		&issuer) == IDENTITY_EXPIRED);
+	CHECK(identity_check_revoked(revoked_data, revoked_size, &issuer, &revoked) == IDENTITY_OK);
+	{
+		unsigned char none[2][IDENTITY_KEY_SIZE];
+
+		memset(none, 0, sizeof(none));
+		CHECK(identity_check_issuer(issuer_data, IDENTITY_ISSUER_SIZE, none, 2, VECTOR_VALID_UNTIL + IDENTITY_GRACE + 1,
+			&issuer) == IDENTITY_NOT_ROOT_SIGNED);
+	}
 }
 
 static void test_text(void)
@@ -611,6 +801,10 @@ int main(void)
 	test_keys();
 	test_messages();
 	test_proof();
+	test_lookalikes();
+	test_quick_connect();
+	test_key_allowed();
+	test_account_slots();
 	test_issuer();
 	test_device();
 	test_revoked();

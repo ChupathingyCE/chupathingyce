@@ -285,7 +285,7 @@ static void forget_credential(void)
 	link_state.roles_heard = 0;
 	memset(&link_state.roles, 0, sizeof(link_state.roles));
 	server_roles_set_site(0, NULL, NULL, NULL, 0);
-	server_roles_set_site_handles(0, NULL, NULL, NULL, NULL);
+	server_roles_set_site_handles(0, NULL, NULL, NULL, NULL, NULL);
 	server_roles_set_site_state(SERVER_SITE_ROLES_NONE, 0, link_state.cap, link_state.roles_hours);
 	/* (the shared lists were the site's: gone with it) */
 	data_file(SHARED_BANS_FILE, path, sizeof(path));
@@ -354,6 +354,7 @@ static void take_roles(const struct control_link_poll *poll, int state)
 	static int handle_roles[CONTROL_LINK_ROLE_ENTRIES];
 	static int site_roles[CONTROL_LINK_ROLE_ENTRIES];
 	static int key_counts[CONTROL_LINK_ROLE_ENTRIES];
+	static unsigned char accounts[CONTROL_LINK_ROLE_ENTRIES * 16];
 	int key_count = 0;
 	int index;
 
@@ -390,6 +391,10 @@ static void take_roles(const struct control_link_poll *poll, int state)
 		handle_roles[index] = capped;
 		site_roles[index] = role->role;
 		key_counts[index] = role->key_count;
+		if (role->has_account)
+			memcpy(accounts + index * 16, role->account, 16);
+		else
+			memset(accounts + index * 16, 0, 16);
 		for (key = 0; key < role->key_count; key++)
 		{
 			memcpy(keys + key_count * 32, role->keys[key], 32);
@@ -398,7 +403,7 @@ static void take_roles(const struct control_link_poll *poll, int state)
 			key_count++;
 		}
 	}
-	server_roles_set_site_handles(poll->role_count, handles, handle_roles, site_roles, key_counts);
+	server_roles_set_site_handles(poll->role_count, handles, handle_roles, site_roles, key_counts, accounts);
 	server_roles_set_site(key_count, keys, key_roles, key_names, (unsigned int)poll->roles_version);
 	link_state.roles_state = state;
 	server_roles_set_site_state(state, (long long)link_state.roles_heard, link_state.cap, link_state.roles_hours);
@@ -415,7 +420,7 @@ static void expire_roles(void)
 		return;
 	}
 	server_roles_set_site(0, NULL, NULL, NULL, 0);
-	server_roles_set_site_handles(0, NULL, NULL, NULL, NULL);
+	server_roles_set_site_handles(0, NULL, NULL, NULL, NULL, NULL);
 	link_state.roles_version = 0;
 	link_state.roles_state = SERVER_SITE_ROLES_EXPIRED;
 	server_roles_set_site_state(SERVER_SITE_ROLES_EXPIRED, (long long)link_state.roles_heard, link_state.cap,

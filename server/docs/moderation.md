@@ -57,12 +57,15 @@ every server), so other servers never learn it.
 
 A player can also be known by their **Delta account**. A ChupathingyCE game
 that shares its profile proves who its players are when it joins, with its
-device certificate (docs/delta.md, "Verified names"). The server checks the
-proof, and the Players page shows each verified player's profile. When the
+device certificate (docs/delta.md, "Verified names"). Only a proof bound to
+this server counts here: the player joined through the server's invite, so
+their game could check the challenge came from this server. The server
+checks it, and the Players page shows each such player's profile. When the
 certificate lets the device moderate, the account's role here counts as the
 player's: from an account line in the moderators file, or from the site's
-role list. A copy with no player key signs in to moderation with its device
-key, and its role comes from its account.
+role list (by account). A copy with no player key signs in to moderation
+with its device key, and its role comes from its account. A player who
+joined by address proves a name only, which never gets a role or a ban.
 
 ## Setting up moderators without the site
 
@@ -97,7 +100,7 @@ until it is fixed.
 | `sv_warn <player> <reason>` | A warning in the player's game (a ChupathingyCE game shows it; any warning is in the audit file). |
 | `sv_mute <player> [minutes]`, `sv_unmute <player>` | A player's chat lines not passed on (until they leave, or for a while), and on again. |
 | `sv_say <text>` | A server message in every ChupathingyCE player's chat. |
-| `sv_kick <player> [reason]`, `sv_ban <player> [duration] [reason]` | As before, with a reason. A ChupathingyCE player sees it as their game drops them. A ban also names the Delta accounts and device the player's game proved, and a machine that proves a banned account or device later is dropped. |
+| `sv_kick <player> [reason]`, `sv_ban <player> [duration] [reason]` | As before, with a reason. A ChupathingyCE player sees it as their game drops them. A ban also names the Delta accounts and device the player's game proved bound to this server, and a machine that proves a banned account or device later is dropped. This only reaches players who share their profile; address and hardware id bans reach everyone. |
 | `sv_team <player> <red\|blue>` | Moves a player to a team (a team game); the control panel's To Red and To Blue. |
 
 ### In the game

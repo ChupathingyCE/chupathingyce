@@ -406,9 +406,9 @@ a later version may append):
 | 27 | UNIT_VITALS | host to client | count (1, at most 98), flags (1: 0x01 the last datagram of a full pass), reserved (2), then 12-byte entries: the host's object (4, its datum index, which a client's copy shares), flags (1: 0x01 shield depleted, 0x02 shield charging, 0x04 shield over charging), reserved (1), body vitality (2), shield vitality (2), reserved (2); vitality in 16384ths, as the game's own unit states have it |
 | 28 | OBJECT_NAMES | host to client | total (2, the host's named objects and removed names in all, at most 512), first (2, this datagram's first entry's place among them), count (1, at most 98), reserved (3), then 12-byte entries: the host's object (4; 0xFFFFFFFF for a removed name), its scenario name index (2), flags (1: 0x01 removed, a name the host had an object of this game and has none of now; others ignored), and for a removed name its unit's last vitals: shield flags (1, as UNIT_VITALS's), body vitality (2), shield vitality (2) (full for an object that was not a unit; 0 for the others) |
 | 29 | HOST_RULES | host to client | version (1; 1 now, 0 refused, a later one read as far as this build knows it), flags (1: 0x01 names above heads allowed, 0x02 the follow camera allowed, 0x04 late joiners wait for the next game, 0x08 joins are locked; others ignored), team changes (1: 0 off, 1 balanced, 2 allow), their margin (1, 0 to 16), reserved (4); values past their ranges refused. Sent at once when they change and every 5 seconds |
-| 30 | ID_CHALLENGE | host to client | version (1; 1 now, 0 refused, a later one read as this), binding length (1, at most 64), reserved (2), nonce (32), binding (printable ASCII) |
-| 31 | ID_PROOF | client to host | version (1), local player (1, 0 to 3), certificate length (1: 0 withdraws the local player and nothing follows; else 148 to 168), name length (1, at most 20), signature (64), issuer certificate (CISS, 112), device certificate (CDEV, the length's bytes), name (the handle in the player's capitals: `A-Z a-z 0-9 _ -`) |
-| 32 | ID_CARD | host to client | version (1), machine index (1), local player (1, 0 to 3), certificate length (1: 0 withdraws the card and nothing follows; else 148 to 168), name length (1, at most 20), reserved (3), then as ID_PROOF's from the signature on: signature (64), CISS (112), CDEV, name. At most 400 bytes |
+| 30 | ID_CHALLENGE | host to client | version (1; 1 now, 0 refused, a later one read as this), binding length (1, at most 64), reserved (2), nonce (32: this session's), binding (printable ASCII) |
+| 31 | ID_PROOF | client to host | version (1), local player (1, 0 to 3), certificate length (1: 0 withdraws the local player and nothing follows; else 148 to 168), name length (1, at most 20), flags (1: 0x01 bound), reserved (3), time (4, Unix seconds), signature (64), issuer certificate (CISS, 112), device certificate (CDEV, the length's bytes), name (the handle in the player's capitals: `A-Z a-z 0-9 _ -`) |
+| 32 | ID_CARD | host to client | version (1), machine index (1), local player (1, 0 to 3), certificate length (1: 0 withdraws the card and nothing follows; else 148 to 168), name length (1, at most 20), reserved (3), flags (1, the proof's), reserved (3), time (4, the proof's), nonce (32: the one the host challenged that machine's session with), signature (64), CISS (112), CDEV, name. At most 412 bytes |
 | 37 | REPORT | client to host | sequence (4, above the session's last), target's machine (1), target's player (1, the game's player list index), reason (1: 1 cheating, 2 abuse in chat or voice, 3 griefing or betraying, 4 an offensive name, 5 something else), flags (1: 0x01 a clip will follow to the site), clip token (16; zeros without the flag) |
 | 38 | REPORT_RESULT | host to client | sequence (4, the REPORT's), result (1: 0 taken, 1 too soon, 2 no such player, 3 not taken here, 4 already reported this game), flags (1: 0x01 send the clip: the server is linked to the site), reserved (2) |
 
@@ -446,6 +446,7 @@ Limits and timeouts (`delta_peer.h`):
 | verified names: ID_PROOF a host takes (and checks) from one machine | 4 a second, 4 at once |
 | verified names: ID_CARD to a client | at once when a card changes, every card again every 30 s, 8 a frame at most |
 | verified names: a client's proof sent again, while its card has not come | every 10 s |
+| verified names: a client proves again anyway | every 15 minutes |
 | verified names: a withdrawn card kept (so every client hears it) | 30 s |
 
 Who is heard: a host reads a datagram only from an address of a machine of
@@ -876,13 +877,13 @@ certificate their copy holds ("Device identity" under Delta Link). The host
 checks the proof, then relays it to every other client that agreed, and each
 client checks it again itself. A host can't make up a verified player.
 
-**Only verified players show by their Delta profile.** Profile names, Delta
-Tags, clan tags and badges show only for a player whose proof checked here.
-Everyone else shows by their game name. That includes OpenCE players and
-players who don't share. It also includes an older build's PROFILE claim,
-which proves nothing. There is no "unverified" label that still shows a
-claimed name. This is stage D of the profile transition, and it is in from
-the builds that speak `identity`.
+**Only verified players show by their Delta profile.** Profile names, clan
+tags and badges show only for a player whose proof checked here. Everyone
+else shows by their game name. That includes OpenCE players and players who
+don't share. It also includes an older build's PROFILE claim, which proves
+nothing. There is no "unverified" label that still shows a claimed name.
+This is stage D of the profile transition, and it is in from the builds
+that speak `identity`.
 
 What OpenCE machines get doesn't change. They see the 11-character Halo
 name, as the game's own messages carry it, and nothing of `identity`
@@ -890,58 +891,91 @@ reaches them. Older Delta builds keep working: they never agree to
 `identity`, get none of its messages, and show game names as they did.
 Network determinism is untouched. Nothing here feeds game state.
 
+**Bound to the host, or a name only.** A proof says whether the client
+checked that the challenge came from the host it connected to (the
+**bound** flag, signed with the rest).
+
+- A client marks a proof bound only when it reached its host through the
+  invite tunnel, and the challenge's binding is that invite's identity (the
+  first 32 hex digits of its key's hash, which the tunnel authenticates).
+- A client that reached its host any other way (a LAN, an address from the
+  game list or typed in) can't check, so it proves unbound.
+- A client whose challenge carries a binding that isn't its invite's (a
+  host passing on another host's challenge) proves nothing, and shows no one
+  as verified in that game.
+- A host takes the bound flag only while it has a binding of its own.
+- **Only a bound proof gives a role or a ban.** An unbound proof shows a
+  name and nothing more: the dedicated server's moderation never hears of
+  it, and it is never written to bans.txt or matched against it.
+- What an unbound proof can't stop: a host that relays a real player's
+  proof from its own game into another, at the same time, can be shown
+  there under that player's name. That is why it never carries a role.
+
 **The flow.**
 
-1. With `identity` agreed, the host sends **ID_CHALLENGE**: its nonce
-   (32 random bytes, one for the whole hosted game, the same in every
-   client's challenge) and its binding. The binding is the one moderation
-   uses: the first 32 hex digits of the host's invite on the internet,
-   nothing on a LAN. It says it again every 5 seconds.
-2. A client proves only a challenge whose binding is the host it joined
-   (its invite), or any on a LAN. Otherwise it proves nothing, and it also
-   shows no one as verified in that game.
-3. For each local player (0 to 3, the player's controller in the network
+1. With `identity` agreed, the host sends **ID_CHALLENGE**: a nonce of 32
+   random bytes made for that client's Delta session (a new one with every
+   new session: every new HELLO, a machine joining, a machine taking
+   another's index), and its binding. It says it again every 5 seconds.
+2. For each local player (0 to 3, the player's controller in the network
    game) whose copy can prove them, the client sends **ID_PROOF**: the
-   device certificate (CDEV), its issuer's (CISS), the player's name in
-   their capitals, and the device key's signature (below). A local player proves
-   only when their player shares their profile (`network.share_profile`),
-   their Halo profile is signed in (not a guest), and the copy holds an
-   in-date certificate for that account with `play` and a handle. An
-   ID_PROOF with a certificate length of 0 withdraws a local player (they
-   signed out of Delta, or stopped sharing).
-4. The host checks it (below). It keeps a checked proof as that player's
-   **card**, tells its moderation (a dedicated server's), and sends the
-   card as **ID_CARD** to every client that agreed. A host proves its own
-   local players the same way and relays their cards too.
-5. Each client checks each card itself against the challenge's nonce and
-   binding, and keeps only cards that check. It forgets a machine's cards
-   when the roster forgets the machine, or when the host sends a
-   withdrawal (an ID_CARD with a certificate length of 0).
+   device certificate (CDEV), its issuer's (CISS), the flags, the time it
+   signed (Unix seconds), the player's name in their capitals, and the
+   device key's signature (below). A local player proves only when their
+   player shares their profile (`network.share_profile`), their Halo
+   profile is signed in (not a guest), and the copy holds an in-date
+   certificate for that account with `play` and a handle. An ID_PROOF with
+   a certificate length of 0 withdraws a local player (they signed out of
+   Delta, or stopped sharing).
+3. The host checks it (below). It keeps a checked proof as that player's
+   **card**, with the nonce it checked it with, and sends it as **ID_CARD**
+   to every client that agreed. A bound card is also told to its
+   moderation (a dedicated server's). A host proves its own local players
+   the same way, with a nonce of its own, and relays their cards too.
+4. Each client checks each card itself, against the nonce the card carries
+   and the binding of its own challenge, and keeps only cards that check.
+   It forgets a machine's cards when the roster forgets the machine, or
+   when the host sends a withdrawal (an ID_CARD with a certificate length
+   of 0).
 
-The host sends every card again to every client every 30 seconds (8 a
-frame at most), at once when one changes, and a withdrawal to every client
-before it forgets it. A client sends a local player's proof again every 10
-seconds until the host relays its card.
+- **One identity, one player.** A host refuses a proof whose device or
+  account is already verified for another player of the game, and a client
+  refuses such a card.
+- **Nothing outlives a session.** The host withdraws a machine's cards when
+  it takes a new session from that index, when the machine leaves, and
+  every card when it stops hosting, and its moderation hears of each.
+- **A new binding.** When the host's binding changes (its invite came or
+  went), it withdraws every card, its own players' too, and challenges
+  every client again at once.
+- **Timing.** The host sends every card again to every client every 30
+  seconds (8 a frame at most), at once when one changes, and a withdrawal
+  before it forgets it. A client sends a local player's proof again every
+  10 seconds until the host relays its card, and proves again every 15
+  minutes, so its card is never older than the checks take.
 
 **What the device signs** (the label, then the fields, byte by byte):
 
 | Bytes | Field |
 | --- | --- |
 | 24 | `"delta identity proof v1\n"` |
-| 32 | the host's nonce |
+| 32 | the nonce the host challenged this machine's session with |
 | 1 | the binding's length B (0 to 64) |
 | B | the binding (printable ASCII) |
 | 1 | the machine index |
 | 1 | the local player (0 to 3) |
 | 8 | the device certificate's serial |
+| 1 | the flags: 0x01 bound |
+| 4 | the time it signed, Unix seconds, little-endian |
 | 1 | the name's length T (0 to 20) |
 | T | the name |
 
-The machine index ties a proof to the machine that sent it. A client
-replaying another machine's proof gets nothing, and the host checks the
-proof against the sender's own index. The nonce and binding tie it to this
-host's game. The serial ties it to one certificate, so a device signed in
-to two accounts can't have its proof paired with the other.
+- **The nonce** is the host's for this one session, so a proof doesn't
+  work in another session, even at the same machine index.
+- **The machine index** ties a proof to the machine that sent it.
+- **The binding and the bound flag** tie it to the host, as above.
+- **The time** keeps an old proof out of a later game.
+- **The serial** ties it to one certificate, so a device signed in to two
+  accounts can't have its proof paired with the other.
 
 **The checks** (the host's, and every client's of a card):
 
@@ -951,7 +985,10 @@ to two accounts can't have its proof paired with the other.
 - The CDEV is signed by that issuer, issued inside the CISS's dates, and
   in date by this machine's clock, with 10 minutes of grace.
 - The certificate has `play` (0x01).
-- Its device isn't on the revocation list this copy last fetched (below).
+- Its device isn't on the revocation list this copy last has (below).
+- The proof is fresh by this machine's clock, with 10 minutes of grace
+  either way. The host takes it no more than 10 minutes old, and a client
+  takes a card no more than 30 minutes old.
 - The signature is the device key's over the message above, as Monocypher
   4's `crypto_ed25519_check` checks it. A key of small order is refused.
 - The name, if any, is the handle's characters (`A-Z a-z 0-9 _ -`). A
@@ -962,94 +999,135 @@ A proof that fails is dropped, logged without its contents, and the
 player shows by their game name.
 
 **The revocation list.** Every build that speaks `identity`, and the
-dedicated server, fetches `GET /v1/identity/revoked` every ten minutes. It
-checks the list (its issuer by the root keys, the list by its issuer, a
-serial past the one it has) and keeps it in `delta_revoked.bin` in the save
-root, so a host or player that can't reach the site still knows the last
-list. Hosts don't relay the list over Delta Peer yet.
+dedicated server, fetches `GET /v1/identity/revoked` every ten minutes.
+- It checks the list: its issuer by the root keys, the list by its issuer,
+  and a serial past the one it has.
+- It keeps the list in `delta_revoked.bin` in the save root. A copy reads
+  the saved list the first time it needs one, with or without a site, so a
+  LAN game still checks against the last list.
+- A list whose issuer certificate has expired, or whose next update has
+  passed, is still used. The log says it is stale.
+- Hosts don't relay the list over Delta Peer yet.
 
 **One name.** A Delta profile has one name, its **Delta Tag**: the handle,
 3 to 20 of `a-z 0-9 _ -`, unique on the site however it's capitalized, and
 the key of every lookup and URL. The account shows it in the capitals its
 owner picked ("Milenko" for `milenko`), on the site, on DELTA, in ID_CARD
-and on the scoreboard. The capitals can change on the site at any time; the
-letters can't. There's no other display name. Profiles from before keep
-their old free-form names on the site (`old_display`), and show their
-handle until their owner picks its capitals.
+and on the scoreboard. The capitals are ASCII, can change on the site at
+any time, and the letters can't. There's no other display name. Profiles
+from before keep their old free-form names on the site (`old_display`),
+and show their handle until their owner picks its capitals.
 
-**What shows.** The account and handle come from the certificate, and are
-signed. The capitals come from the site's public card for that account
-(`/v1/game/players`, asked by the proven account), or, before the card
-comes or with no site, from the proof. Either way they show only when they
-are the handle in other capitals; else the handle shows as the certificate
-has it. So no one can show a name that isn't their own handle.
+**What shows.**
+- The account and handle come from the certificate, and are signed.
+- The capitals come from the site's public card for that account
+  (`/v1/game/players`, asked by the proven account), or, before the card
+  comes or with no site, from the proof. Either way they show only when
+  they are the handle in other capitals; else the handle shows as the
+  certificate has it. So no one can show a name that isn't their own
+  handle.
+- A clan tag shows before it ("[TAG] Name") when the card has one.
+- A copy with no profile (a certificate with no handle) proves nothing, and
+  its player shows by their game name.
+- **Impersonation.** A player who isn't verified, but whose game name looks
+  like the handle of a verified player of the same game (compared by the
+  look-alike key below), shows as "Player N" (their place in the game's
+  player list), never by that name. A verified player whose handle the
+  site marked as a look-alike of another (its card's `looks_like`) shows as
+  "Player N" too.
+- **The mark** (`display.verified_mark`, off unless set): verified names
+  show with an @ in front ("@Milenko"), and an @ at the front of anyone
+  else's game name is left out.
+- The name never reaches OpenCE. Their players see the Halo profile's own
+  name, 11 characters, which the game's messages carry unchanged.
 
-A clan tag shows before it ("[TAG] Name") when the card has one. A copy
-with no profile (a certificate with no handle) proves nothing, and its
-player shows by their game name. The name never reaches OpenCE: their
-players see the Halo profile's own name, 11 characters, which the game's
-messages carry unchanged.
+**Look-alikes.** The site and the game read names the same way
+(`lookalike_key` in puma, `identity_lookalike_key` in the game, checked
+against the same vectors):
+1. Each character becomes the letter it looks like: A-Z as a-z; 0 o, 1 i,
+   3 e, 4 a, 5 s, 7 t, 8 b; @ a, $ s, ! i, | i; and the Cyrillic and Greek
+   letters drawn like Latin ones.
+2. Everything else is dropped (other digits, spaces, separators, accents),
+   only after the digits above were read as letters.
+3. Then rn reads as m, vv as w and l as i.
 
-**Look-alikes.** The site marks a new handle that looks like an existing
-one when it's made: `1` and `I` read as `l`, `rn` as `m`, `vv` as `w`,
-`0` as `o`, digits at the end dropped, accents and separators gone. Its
-public card and service record carry `looks_like` with the other handle,
-and the admin panel lists it with the reserved and blocked names.
+On the site:
+- A new handle that looks like the handle of a profile that proves who it
+  is in games (it has a device that isn't revoked or signed out) is
+  refused.
+- Any other look-alike is made, but marked: its public card and service
+  record carry `looks_like` with the older handle, and the admin panel
+  lists it with the reserved and blocked names.
+- The move to one name marks every existing pair, once: the older profile
+  keeps its name clean, and each later one is marked.
 
 **Each Halo profile's account.** A Halo profile's folder may hold
-`delta_account.txt`: `guest` (the profile proves no one) or an account's 32
-hex digits (the profile proves as that account, with that account's
-certificate). Without the file, the profile proves as the copy's own
-account. So every existing Halo profile keeps the link it had, and nobody
-is signed out by an update. Signing a Halo profile in to another account
-(sign-in by code) writes the file, and keeps that account's certificate
-beside the copy's.
+`delta_account.txt`. Its first line, with a byte order mark and spaces and
+line ends around it left out, is:
+- `guest`: the profile proves no one;
+- an account's 32 hex digits: the profile proves as that account, with that
+  account's certificate;
+- anything else: the copy owner's own Halo profile (the first local
+  player's) proves as the copy's own account, and any other profile is a
+  guest.
 
-**Where names are drawn, and how long they can be.** A name can be 20
-characters, and a clan tag adds up to 11 more. Where a column is shorter, the name is cut with "...". At the
-menus' 640x480 the columns hold: the in-game scoreboard 14 characters, the
-pregame panel 16 for a player's own line and 12 for another machine's, the
-Chupathingy menus' lobby 32, and the postgame report 11 (as a Halo name:
-its column is drawn to that width). Those are lowercase letters' widths:
-wide letters (M, W) count for more and narrow ones (i, l) for less, so a
-name of wide letters is cut sooner and the "..." always shows. A clan tag
-stays in front only while
-the name keeps 6 characters after it ("[TAG] Milen..."); else the name
-shows alone. Names above heads and the name of the player aimed at stay
-the Halo name (11 characters), as the Xbox draws them.
+Without the file, the profile proves as the copy's own account, so every
+existing Halo profile keeps the link it had, and nobody is signed out by an
+update. Writing the file belongs to signing a Halo profile in to another
+account (sign-in by code), which keeps that account's certificate beside
+the copy's. That writer isn't built here.
 
-**Moderation by account.** A verified certificate with `moderate` (0x08)
-gives its player's machine the role its account has on a dedicated server,
-beside the moderator key's:
+**Where names are drawn, and how long they can be.**
+- A name can be 20 characters, and a clan tag adds up to 11 more. Where a
+  column is shorter, the name is cut with "...".
+- At the menus' 640x480 the columns hold: the in-game scoreboard 14
+  characters, the pregame panel 16 for a player's own line and 12 for
+  another machine's, the Chupathingy menus' lobby 32, and the postgame
+  report 11 (as a Halo name: its column is drawn to that width).
+- Those are lowercase letters' widths. Wide letters (M, W) count for more
+  and narrow ones (i, l) for less, so a name of wide letters is cut sooner
+  and the "..." always shows.
+- A clan tag stays in front only while the name keeps 6 characters after
+  it ("[TAG] Milen..."); else the name shows alone.
+- Names above heads and the name of the player aimed at stay the Halo name
+  (11 characters), as the Xbox draws them.
+
+**Moderation by account.** A verified, bound certificate with `moderate`
+(0x08) gives its player's machine the role its account has on a dedicated
+server, beside the moderator key's:
 
 - The server's role for a machine is the highest of its moderator key's
-  role (as before) and the role of each verified account on it with
-  `moderate`. An account's role comes from the moderators file's account
-  lines (`<role> <32 hex digits> [name]`; `sv_mod_add` takes an account or
-  a verified player) and from the site's role list, by the handle the
-  certificate names. A handle never changes on the site, so the role list
-  needs no new field.
+  role (as before) and the role of each bound, verified account on it with
+  `moderate`.
+- An account's role comes from the moderators file's account lines
+  (`<role> <32 hex digits> [name]`; `sv_mod_add` takes an account or a
+  verified player) and from the site's role list, by the account each entry
+  carries. An entry from a site that sends no account is matched by the
+  handle the certificate names.
 - The player still signs in from the Moderation screen (MOD_PROOF). A copy
   with no player key signs it, and its actions, with the device key when
   its certificate has `moderate`. The host takes the key the proof names,
   as always, and its role comes from the account.
 - Old clients' MOD_PROOF with the derived moderator key keeps working, as
   do `moderators.txt` key lines and the site's moderator keys.
+- A device enrolled with a player key gets all five capabilities, `moderate`
+  among them, because the key could already do all of it.
 
 **Bans by account.** When a dedicated server bans a machine (`sv_ban`, a
 moderator's ban from the game, a cheater dropped), its bans.txt line also
-names the accounts, the device and the handles its players proved:
-`account=<hex>[,<hex>]`, `device=<hex>`, `profile=<handle>[,<handle>]`. A
-machine whose players then prove a banned account or device is dropped at
-once. A line with only those fields is a ban too. These sit beside the
-address and hardware ID bans, which still work alone. A player who proves
-no one is checked by those alone.
+names the accounts and the device of its players' bound proofs:
+`account=<hex>[,<hex>]`, `device=<hex>`. A machine whose players then make
+a bound proof of a banned account or device is dropped at once. A line with
+only those fields is a ban too. These sit beside the address and hardware
+ID bans, which still work alone. A ban by account only reaches players who
+share their profile (`network.share_profile`); everyone is still checked by
+address and hardware ID.
 
-**The server panel** shows a Profile column on its Players page: `@handle`
-and the device's platform for a verified player, "No profile" for a copy
-with no profile, and "-" for a player whose game proved no one. Its Role
-column counts the account's role too. `sv_players` has the same as
-`"profile"` (the handle, or null) and `"device"`.
+**The server panel** shows a Profile column on its Players page: the name
+and the device's platform for a player with a bound proof, "No profile" for
+a copy with no profile, and "-" for anyone else. Its Role column counts the
+account's role too. `sv_players` has the same as `"profile"` (the name, or
+null) and `"device"`.
 
 **Consoles** leave all of it out for now (`HALO_CONSOLE_NO_DELTA_IDENTITY`):
 they never offer `identity` and show game names. The messages are fixed
@@ -1057,25 +1135,26 @@ fields, little-endian, read byte by byte, so a console can take them up
 later without a special case.
 
 **Test vectors** (also in `port/linux/tests/identity_vectors.json`; the
-device key and certificate are "Device identity"'s). The host's nonce is the
-bytes 00 to 1f, the binding `0123456789abcdef0123456789abcdef`, machine 3,
-local player 1, the certificate's serial 01 02 ... 08, and the name
-`Milenko`:
+device key and certificate are "Device identity"'s). The nonce is the bytes
+00 to 1f, the binding `0123456789abcdef0123456789abcdef`, machine 3, local
+player 1, the certificate's serial 01 02 ... 08, bound (flags 1), signed at
+1790101000, and the name `Milenko`:
 
 ```
 message      64656c7461206964656e746974792070726f6f662076310a000102030405060708
              090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20303132333435363738
              396162636465663031323334353637383961626364656603010102030405060708
-             074d696c656e6b6f
-signature    47cff25752b29748ab5f732822539bd7dc13a8b3f39802395ef57c29b04e40fd
-             6d9d51115bcaa7cf6c257d944c2f35569fac5d85f5f960a560da981122ae980e
-LAN (no binding: its length 0, nothing after it)
-signature    b59e0304e57510142faa66b0f1edf4455190c283df0ea7602adc0e93e570ba60
-             b7a1dca2f21071054b454fb2aadfeb5690a6e65d8cab2459eb47ed5f4e1dba0b
+             0108c6b26a074d696c656e6b6f
+signature    bd00fd2c414b9170b8f9d5af61cf38cf32758b5ab8cf133bf78bfe036a8c3e8e
+             166ebe9da09384d446f9192d05d1aa7235886d4af359f303c3c85c6028c7e400
+LAN (no binding: its length 0, nothing after it; flags 0)
+signature    610f07b2e9ff47d104f2daf970467e09962e6e33db53f230054394fd05da9c51
+             e898419ea5f76ef19792f6d6e9681eedac2aae3a06e3fd28e2126e843f9ad00a
 ```
 
 With the "Device identity" certificates, both check at 1790101000. They
 fail once the certificate expires, or with the test device on the list.
+The look-alike vectors are the JSON's `"lookalikes"`.
 
 ### The protocol setting
 
@@ -1905,12 +1984,13 @@ its player confirms); the site's role list, when the server is linked,
 never above `HALO_DEDICATED_LINK_ROLE` (admin unless set).
 
 A verified player (Delta Peer's `identity`, "Verified names") is also known
-by their Delta account. A machine's role is the highest of its key's and
-its verified accounts' (those whose certificates have `moderate`). An
-account's role comes from `moderators.txt`'s account lines (`<role> <32 hex
-digits> [name]`) and from the site's role list by the certificate's handle,
-under the same cap. Bans can name accounts and devices too
-("Verified names").
+by their Delta account, when their proof is bound to the server. A
+machine's role is the highest of its key's and its bound, verified
+accounts' (those whose certificates have `moderate`). An account's role
+comes from `moderators.txt`'s account lines (`<role> <32 hex digits>
+[name]`) and from the site's role list by each entry's account (an entry
+from a site that sends none, by the certificate's handle), under the same
+cap. Bans can name accounts and devices too ("Verified names").
 
 ### Accounts and remote access
 
@@ -2138,10 +2218,11 @@ It comes in stages. **Stage A** (this section) runs beside the player key:
 a new build proves its player key once, gets a device certificate, and from
 then on sends the site a short-lived token instead of the key. Nothing
 players see changes, the key keeps working everywhere it works today, and
-OpenCE players see nothing at all. Later stages add the device list and
-revoke on the site and sign-in by code for new installs. Proof of identity
-over Delta Peer, and showing only proven names in games, are "Verified
-names" under Delta Peer.
+OpenCE players see nothing at all. **Stage B** adds sign-in by code
+(Quick Connect) and the device list with revoke, and **stage C** winds the
+player key down per account ("Devices", below). Proof of identity over
+Delta Peer, and showing only proven names in games, are "Verified names"
+under Delta Peer.
 
 **Keys.**
 
@@ -2213,9 +2294,12 @@ Capabilities say what the device may do as the account: 0x01 `play` (prove
 identity in games), 0x02 `stats` (confirm stats lines, send reports),
 0x04 `profile` (privacy and clan answers from the game), 0x08 `moderate`
 (sign in to moderation; the server still checks the role), 0x10 `social`
-(friends, presence, invites). A device enrolled with a player key gets all
-five, since the key could already do all of it. Unknown bits and flags are
-ignored. A certificate lasts 7 days on desktops and Android and 14 on
+(friends, presence, invites), 0x20 `devices` (approve another device's
+code, revoke another device of the account; stage B). A device gets the
+first five; only one signed in by code and approved from a password
+session on the site also gets `devices`, so approving and revoking never
+pass down a chain: not a device enrolled with a player key, not one
+another device approved. Unknown bits and flags are ignored. A certificate lasts 7 days on desktops and Android and 14 on
 consoles, and the device refreshes it at half its life. The display name,
 emblem and clan aren't in it; they change, and peers fetch them as today.
 
@@ -2295,15 +2379,16 @@ and signatures in lowercase hex):
 **Tokens.** A token is opaque ASCII, at most 200 characters of
 `A-Z a-z 0-9 . _ -`. It goes in a header, `Authorization: Delta <token>`,
 in place of the `"key"` member, on every request that takes the player key
-from the game today except the sign-in link (`/v1/link`) and Link Profile
-(`/v1/connect/start`), which keep the key until sign-in by code replaces
-them:
+from the game today except Link Profile (`/v1/connect/start`), which sign-in
+by code replaces on a site that speaks identity:
 
 | Requests | Capability |
 | --- | --- |
 | `/v1/claim`, `/v1/client_report` | `stats` |
-| `/v1/game/profile`, `/unlink`, `/privacy`, `/clan`, `/friends` | `profile` |
+| `/v1/game/profile`, `/unlink`, `/privacy`, `/clan`, `/friends`, `/v1/link` (stage B) | `profile` |
 | `/v1/presence`, `/v1/social/*` | `social` |
+| `/v1/identity/devices` (stage B) | `profile` |
+| `/v1/identity/device/revoke`, `/approve`, `/approved` (stage B) | `devices` |
 
 The request acts for the copy the device enrolled with, exactly as its key
 would. A token the site can't use gets 401 `{"token": "unknown" |
@@ -2326,7 +2411,10 @@ would. A token the site can't use gets 401 `{"token": "unknown" |
    goes with the key only when the site doesn't speak identity (its
    `/v1/identity/nonce` answers 404) or refuses the token as `"unknown"`
    and no new token can be had. Otherwise the answer is returned as it is,
-   and a request the site answered is never sent again.
+   and a request the site answered is never sent again. From stage C a
+   client with a certificate (or signed out by its player) never sends the
+   key unless the site doesn't speak identity: without a token to send, the
+   request waits and is tried again later.
 4. At `refresh_after`, or on start when the saved certificate is past it or
    expired, it refreshes with the device key; it never enrolls again just
    because a certificate expired. A 404 with `"enroll"` enrolls again. A
@@ -2389,6 +2477,233 @@ refresh signature  f09ba64e6aa8ca29d8414d334dca2759d86d29f3757493a2b00be775a770f
                    0f7dc0388671683b6868a493416b50a27f11a1458bb1e29fc89541849b00170d
 token signature    0c02b24be2e9caa6385ef49de7bf80cb0740c7a73085d8a267c1f7f87978f1e8
                    331b870581b254a5a258c85465b3130d5153e68646b300265f8ea304f0fd0901
+```
+
+### Devices
+
+Stages B and C of device identity, on top of "Device identity". Stage B
+lets a copy sign in to a Delta profile with a short code instead of a key,
+like Plex's or Jellyfin's Quick Connect, and gives every account a device
+list with revoke. Stage C stops the player key doing new things once an
+account no longer needs it. Old clients and old sites keep working: every
+endpoint below is new, and the player key's endpoints stay.
+
+**Sign-in by code (Quick Connect).** A copy with a device key and no
+account (or one that signs in to another) asks for a code. Its player
+approves the code where they're already signed in: on the site at
+`/connect`, or from another signed-in device's LINK A DEVICE (in DELTA). The device
+asks its own player to confirm, then gets its certificate. The player key is
+never sent or shown.
+
+1. `GET /v1/identity/nonce`, then `POST /v1/identity/device/start
+   {"device_key", "nonce", "signature", "platform", "build", "name"?}`,
+   signed by the device key over `"chupathingy device start v1\n"` +
+   audience + nonce (16) + device public key (32). `name` is what the
+   device calls itself (printable ASCII, at most 32), shown when it is
+   approved; the site defaults to the platform's name.
+   The answer: `{"code_nonce": 32 hex, "poll_token": 64 hex, "interval": 5,
+   "expires_in": 600}`.
+2. The device works its code out itself: 8 characters, each
+   `ALPHABET[d[i] % 31]` for the first 8 bytes d of SHA-256(`"chupathingy
+   device code v1\n"` + device public key + code nonce), with ALPHABET
+   `23456789ABCDEFGHJKMNPQRSTUVWXYZ`. It shows them as ABCD-EFGH, with a QR
+   code of `<site>/connect?code=ABCD-EFGH`. The site picks the nonce after
+   it has seen the key, so someone in the middle who swaps in a key of
+   their own gets a code that isn't the one on the screen. The alphabet,
+   length and life are a console's Link Profile code's, so both go in the
+   same box at `/connect`, under the same counts.
+3. The player types the code in, signed in: `POST /v1/connect/claim
+   {"code"}` on the site (a password session), or `POST
+   /v1/identity/device/approve {"code"}` from another device with a token
+   (capability `devices`). Either takes any code `/connect` takes. A
+   device's code is shown first: 202 `{"shown": true, "handle",
+   "confirm_seconds", "device": {"name", "platform", "build"}, "warning":
+   "Only enter a code shown on your own screen."}`, so the page can say
+   "Windows (Living room), build 0.9.1, wants to sign in as @handle". Then
+   `POST /v1/connect/approve {"approve": true | false}` (the page) or
+   `/v1/identity/device/approve {"approve": ...}` (the device) approves it
+   (202 `{"waiting": true, ...}`) or denies it (`{"state": "declined"}`: the
+   code is dead). The approver never sees which profile the device counted
+   for before. A code is spent when it's typed, right or not.
+   `/v1/connect/claimed` (the page) and `/v1/identity/device/approved` (a
+   device) say how it went: `{"state": "shown" | "waiting" | "connected" |
+   "declined" | "expired", ...}`.
+4. The device polls `POST /v1/identity/device/poll {"poll_token"}` every
+   `interval` seconds: `{"state": "pending"}` (shown too), `{"state": "confirm",
+   "handle", "previous"}`, `{"state": "connected", "handle"}`, or
+   `{"state": "declined" | "expired"}` (an unknown token too).
+5. On "confirm" it asks its player (A to sign in, B not), then `POST
+   /v1/identity/device/confirm {"poll_token", "device_id", "nonce",
+   "accept", "signature"}`, signed over `"chupathingy device confirm v1\n"`
+   + audience + nonce (16) + device ID (16) + one byte (1 yes, 0 no) + one
+   byte of the handle's length + the handle it showed. A yes is answered
+   with a certificate (the certificate answer, plus `"state":
+   "connected"`), a no with `{"state": "declined"}`. The player has 120
+   seconds after the approval to answer. Asked again after a lost answer,
+   a yes gets a new certificate and nothing is done twice, unless the
+   device was signed out, revoked or locked since.
+
+What signing in does on the site:
+- A device enrolled with its player key (stage A) brings its copy: the
+  copy's games move to the profile, as Link Profile moves them, and the
+  certificate follows the copy as before.
+- A device with no copy (a new install the site hasn't seen, or a second
+  account on a copy) is signed in to the account itself. Its certificate's
+  account is the profile's player ID, its flags have no 0x01, and its
+  token acts for the profile: the lines it confirms and the reports it
+  sends count for the profile directly.
+- A device signed out before signs in again with the same key. A revoked
+  one can't: `/device/start` answers 403 `{"revoked": true}`, and the
+  device makes a new key, once.
+
+Limits: 10 codes an hour an address, and a device key (counted once its
+signature checks); 5 answers a code and 30 an address in 10 minutes; 400
+polls a code and 2000 an address in 10 minutes (a code is counted only
+when there is one); a code lives 10 minutes and is good once;
+codes, poll tokens and approvals are kept in memory only, as hashes. 400,
+401 (`nonce`, `signature`), 429 and 503 as for the other identity paths.
+`/v1/connect/claim`'s wrong-code counts cover these codes too.
+
+**Signing out on the device.** `POST /v1/identity/device/signout
+{"device_id", "nonce", "signature"}`, signed over `"chupathingy device
+signout v1\n"` + audience + nonce (16) + device ID (16). The site marks the
+device signed out (no more refreshes or tokens) and answers `{"ok": true}`.
+The device drops its certificate and token and keeps its key, and until it
+signs in again it sends the site nothing as that account, the player key
+neither. Signing in again is a new code.
+
+**The device list.** Every device of an account that isn't revoked: those
+signed in to it by code, and those of the copies whose games count for it
+(its own player ID and the IDs linked to it). Each is `{"id"` (the device
+ID, 32 hex), `"name"`, `"platform"`, `"build"`, `"created"`,
+`"last_seen"` (day precision, or null), `"legacy"` (enrolled with a
+player key), `"console"`, `"signed_out"`, `"this"}` (the device asking),
+this device first, then the latest seen; at most 32. No address, ever,
+and no key.
+
+| Request | Who | Answer |
+| --- | --- | --- |
+| `POST /v1/session/devices {}` | The profile page, signed in (a page the game opened may read it) | `{"devices", "legacy_key"}` |
+| `POST /v1/session/devices/revoke {"device_id"}` | The page, a password session | `{"ok", "devices"}`; 404 for another account's |
+| `POST /v1/session/devices/rename {"device_id", "name"}` | The page, a password session | `{"ok", "devices"}` |
+| `POST /v1/session/devices/signout_all {"auth", "code"?}` | The page, with the password (and the two-step code) | `{"ok", "revoked", "devices"}`: every device revoked and every other session of the account ended; consoles are unlinked, computers' copies aren't |
+| `POST /v1/identity/devices {}` | A device's token (`profile`) | `{"devices"}` |
+| `POST /v1/identity/device/revoke {"device_id"}` | A device's token (`devices`) | `{"ok", "devices"}`; 409 `{"this": true}` for itself (it signs out instead); 404 for a console (the site revokes those) |
+| `POST /v1/game/profile` | As before | `"devices"` beside `"copies"`, without `"build"`, at most 16, cut to fit like the rest |
+
+- **Revoke** stops the device's tokens at once, refuses its refreshes, and
+  puts it on the revocation list (CREV) until its last certificate has run
+  out. The device alone stops: a player key it was enrolled with keeps
+  working for the copy's other installs (an older build, an Xbox identity
+  file); a key that leaked is turned off with the account's switch, below,
+  and the page and the mail say so when such a device is revoked. A
+  computer's copy is unlinked once no other live device of that copy is
+  left (the profile's own player ID has no link to take). A console's link
+  is its key, so a console revoked is always unlinked: from the site, down
+  an approval chain, and by signing out everywhere. A console still linked
+  is never left out of the list. The site sessions it opened
+  (`/v1/link` with its token) end. Every device it approved by
+  code goes with it, and theirs: the site keeps who approved each device
+  (`approved_by`), consoles approved from a device included, so a stolen
+  device leaves none behind. Revoked from another device rather than the
+  site, a console down the chain is revoked and unlinked all the same.
+  Revoking doesn't turn the player key back on (stage C, below).
+- **Consoles.** A console linked by its own Link Profile
+  (`/v1/console/link/*`, "Link Profile on a console") is in the list as a
+  device with `"console": true`, its device ID made from its console key as
+  any device's is. Its key is its link, so revoking it unlinks it as well.
+  Linked again by code later, it comes back. Consoles don't hold
+  certificates yet; that's the next step, and verified names on consoles
+  wait on it.
+- **Tokens** are checked against the device's capabilities as they are
+  now, not only the token's own.
+- **Mail and the log.** A device added by code, a device revoked, signing
+  out everywhere and the player key turned back on are each told to the
+  account's confirmed address, and kept in the admin log (by its profile
+  name, never an address).
+- **The game** shows the list under Delta Profile's DEVICES, also opened
+  from DELTA's SETTINGS: this device offers SIGN OUT, another device REVOKE
+  (asked first). DELTA's SETTINGS (and X in the list) also have LINK A
+  DEVICE, where the player enters another device's code with the d-pad: 8
+  characters, or an older copy's 6-character Link Profile code. A device's
+  code shows the device and the warning first, then APPROVE or DENY.
+  DELTA's SIGN IN shows a Quick Connect code right in its row, and A there
+  answers the question; Link Profile's dialog shows the same code with its
+  QR code.
+- **The server panel** shows a player's verified profile name (from proof
+  of identity over Delta Peer) and nothing of their devices: no platform,
+  device name or ID.
+
+**Stage C: the player key winds down.** Once every copy of an account has
+its own device, the account's player key stops doing new things. It never
+stops a device, and nobody is locked out:
+- Counted per install, not per key. A copy counts as moved once a device
+  was ever enrolled with its key or brought it by code (kept for good, past
+  any purge; a later revoke doesn't count it back), or it is a console in
+  the list. It still counts as on the key while a game used its key after
+  it moved (a request the site took, a minute or more after), within the
+  last 30 days: another install of the same key. Only game requests the
+  site took count (`/v1/game/*`, `/v1/link`, `/v1/connect/start`,
+  presence, social); claims and reports, which take the key whatever, and
+  refused requests don't, so off stays off. A copy that proved itself a
+  console with its own key (`/v1/console/claim` signed by its console key)
+  within 60 days isn't on the key; a player key's signed claim never says
+  so, nor a self-reported platform. An account for which an Xbox identity
+  file was made keeps its key on. A profile's own player ID whose key no
+  game request ever used (a profile made on the site) isn't waited for;
+  copies that reported games before this came in count as used. Automatic
+  turns the key off only once at least one copy has moved. An account with
+  one copy not moved keeps its key.
+- With the key off, `/v1/game/*`, `/v1/link`, `/v1/connect/start`,
+  `/v1/presence`, `/v1/social/*` and enrolling a new device with that key
+  are refused: 403 `{"error": "Update Chupathingy to keep using your
+  profile.", "legacy_key_off": true}` (plain text for the text paths).
+  `/v1/claim` and `/v1/client_report` keep taking it, so stats never stop.
+  A device enrolled already enrolls again as before.
+- Each account has a switch, `POST /v1/session/legacy_key {"setting":
+  "auto" | "on" | "off", "auth", "code"?}` (the password, and the code with
+  two-step sign-in): automatic (above, the default), always on, or off now.
+  The answer and `/v1/session/devices` carry `"legacy_key": {"setting",
+  "on", "waiting", "used"}` (copies not moved yet; `used` false for an
+  account none of whose copies ever used the key from a game, shown as
+  "Not used"). The profile page has it under
+  Account and security, and the admin page shows it. Off is also how a
+  leaked key is turned off; On takes the password (and the two-step code)
+  like any change. Any change that turns the key back on is mailed.
+- The profile page no longer offers Install in game, Copy key link or
+  Download for Xbox. The `halo://key/` handler, `/v1/session/console_key`
+  and the Xbox's identity file keep working for whoever has one.
+- A client with a certificate never sends the key to a site that speaks
+  identity ("How a client falls back", step 3). One the site answers 403
+  `revoked` or `signed_out` counts itself signed out, on disk, and sends
+  neither key nor token until it signs in again by code. Sign-in by code
+  falls back to the old Link Profile with the key only when the site's
+  `/v1/identity/nonce` is a 404.
+
+**More than one account on a copy.** Each Halo profile on a copy may sign
+in to its own Delta profile. A copy has one device key per account it signs
+in to: the copy's own (`delta_device.key`, the one stage A enrolls) and,
+for each Halo profile that signs in elsewhere, its own
+(`delta_device_<n>.key` and `.cert`, n from 1), signed in by code with no
+copy. The site needs nothing more, since each key is a device of its own
+account, and two accounts can't be tied together by a shared key.
+`delta_accounts.txt` in the save root maps a Halo profile (by its save
+folder's name) to n; a Halo profile not in it uses the copy's own. Builds of
+0.9.1 keep the file and its parsing, and show one account per copy.
+
+**Test vectors** (the device of "Device identity", its nonce as the code
+nonce and the nonce, handle `milenko`):
+
+```
+device code         DVG69E5J
+start signature     14a41005d7d1e060eeb46b1af3de5cae53771df0ccf627ceb6d5c54b9a1ff6b1
+                    822ee2de4135bcaaa4a4ebf7b7cf743aa6cbb5ba00a107ef660a1f798e8abc08
+confirm signature   0ad07709c097a5b192b6c0763ce5f0859ff801d3eccad5c1249b0ac07ebdfdbd
+                    9e0500b05b6c9ca512eb860968a70b1be1166a8720af25fae633431ee7fd1a02
+decline signature   0f0f2b8e63f0ef1136a0aefaf3f51437b5fd37fb2f82e4806271bb37b7f38402
+                    d5ba02d1f96430bac33a6e201d034f0fe657f236fb84c77e6a737bf2991ab80f
+signout signature   f579b26e3db2c34573a7a4e9842d85ef6646513dbf73706aeae41c825a447805
+                    1dddea806dbe0ecfd7a39b803e3e520190750980b2c4ff3689f2c19c1a66e80b
 ```
 
 ### Clans

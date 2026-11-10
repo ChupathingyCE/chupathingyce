@@ -706,6 +706,7 @@ int control_link_parse_poll(const char *payload, size_t length, struct control_l
 			struct control_link_role *role = &poll->roles[poll->role_count];
 			char role_text[16];
 			int keys = control_json_member(payload, json_tokens, at, "keys");
+			char account_text[40];
 
 			if (json_tokens[at].type != CONTROL_JSON_OBJECT ||
 				!member_text(payload, at, "handle", role->handle, sizeof(role->handle)) ||
@@ -713,6 +714,23 @@ int control_link_parse_poll(const char *payload, size_t length, struct control_l
 				(role->role = control_role_parse(role_text)) < 0)
 			{
 				return 0;
+			}
+			/* (an account: 32 hex digits; a site before them sends none) */
+			if (control_json_member(payload, json_tokens, at, "account") >= 0)
+			{
+				char padded[CONTROL_KEY_TEXT + 1];
+				uint8_t bytes[CONTROL_KEY_BYTES];
+
+				if (!member_text(payload, at, "account", account_text, sizeof(account_text)) ||
+					strlen(account_text) != 32)
+				{
+					return 0;
+				}
+				snprintf(padded, sizeof(padded), "%s00000000000000000000000000000000", account_text);
+				if (!control_key_parse(padded, bytes))
+					return 0;
+				memcpy(role->account, bytes, sizeof(role->account));
+				role->has_account = 1;
 			}
 			if (keys >= 0)
 			{
@@ -811,10 +829,27 @@ int control_link_roles_cache_text(const struct control_link_poll *poll, int64_t 
 		if (control_json_string(role->handle, handle, sizeof(handle)) < 0 ||
 			!put(out, size, &length, index ? ", {\"handle\": " : "{\"handle\": ") || !put(out, size, &length, handle) ||
 			!put(out, size, &length, ", \"role\": \"") || !put(out, size, &length, control_role_name(role->role)) ||
-			!put(out, size, &length, "\", \"keys\": ["))
+			!put(out, size, &length, "\", "))
 		{
 			return -1;
 		}
+		if (role->has_account)
+		{
+			char account[CONTROL_KEY_TEXT + 1];
+			uint8_t bytes[CONTROL_KEY_BYTES];
+
+			memset(bytes, 0, sizeof(bytes));
+			memcpy(bytes, role->account, sizeof(role->account));
+			control_key_text(bytes, account);
+			account[32] = 0;
+			if (!put(out, size, &length, "\"account\": \"") || !put(out, size, &length, account) ||
+				!put(out, size, &length, "\", "))
+			{
+				return -1;
+			}
+		}
+		if (!put(out, size, &length, "\"keys\": ["))
+			return -1;
 		for (key = 0; key < role->key_count; key++)
 		{
 			char key_text[CONTROL_KEY_TEXT + 1];

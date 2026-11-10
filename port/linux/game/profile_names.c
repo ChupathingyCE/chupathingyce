@@ -27,11 +27,13 @@ without one it proves as the copy's own account.
 #if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_DELTA_PROFILE)
 
 #include "cseries.h"
+#include "text/unicode.h"
 #include "interface/player_ui.h"
 #include "networking/network_game_manager.h"
 #include "../src/browser.h"
 #include "../src/delta_profile.h"
 #include "../src/delta_peer.h"
+#include "../src/identity.h"
 #include "halo_profile_screen.h"
 
 #include <stdio.h>
@@ -183,18 +185,6 @@ static void fit(
 	fit_room(text, out, size, (size - 1) * 10);
 }
 
-static int hex_digit(
-	char c)
-{
-	if (c >= '0' && c <= '9')
-		return c - '0';
-	if (c >= 'a' && c <= 'f')
-		return c - 'a' + 10;
-	if (c >= 'A' && c <= 'F')
-		return c - 'A' + 10;
-	return -1;
-}
-
 /* the network game this copy is in (its client's: a host has one too) */
 static struct network_game *current_game(
 	void)
@@ -229,7 +219,8 @@ static boolean verified_name(
 	char *name,
 	int name_size,
 	char *clan_tag,
-	int clan_size)
+	int clan_size,
+	boolean *looks_like)
 {
 	static char const digits[] = "0123456789abcdef";
 	char hex[2 * PLAYER_ID_SIZE + 1];
@@ -237,6 +228,7 @@ static boolean verified_name(
 	long index;
 
 	clan_tag[0] = 0;
+	*looks_like = FALSE;
 	if (!identity->handle[0])
 		return FALSE;
 	for (index = 0; index < PLAYER_ID_SIZE; index++)
@@ -252,11 +244,122 @@ static boolean verified_name(
 		snprintf(name, (size_t)name_size, "%s", same_name(card.display, identity->handle) ? card.display :
 			identity->tag[0] ? identity->tag : identity->handle);
 		snprintf(clan_tag, (size_t)clan_size, "%s", card.clan_tag);
+		/* (a handle the site marked as looking like another's: not shown) */
+		*looks_like = card.looks_like[0] != 0;
 		return TRUE;
 	}
 	/* (no card yet, or none: the proof's capitals, checked to be the
 	handle's, else the handle, which the certificate names) */
 	snprintf(name, (size_t)name_size, "%s", identity->tag[0] ? identity->tag : identity->handle);
+	return TRUE;
+}
+
+static boolean profile_names_player_unmarked(struct delta_peer_identity const *identity, char const *text,
+	char const *clan, wchar_t *name, long size);
+
+/* a player's name masked: "Player 4" (their place in the game's list) */
+static boolean masked_name(
+	long player_index,
+	wchar_t *name,
+	long size)
+{
+	wchar_t text[24];
+
+	usnprintf(text, NUMBEROF(text), L"Player %ld", player_index + 1);
+	text[NUMBEROF(text) - 1] = 0;
+	fit(text, name, size);
+	return TRUE;
+}
+
+/* the game's wide name as UTF-8 */
+static void utf8_from_name(
+	wchar_t const *name,
+	long length,
+	char *out,
+	int size)
+{
+	int used = 0;
+	long index;
+
+	for (index = 0; index < length && name[index] && used < size - 4; index++)
+	{
+		unsigned int c = (unsigned short)name[index];
+
+		if (c < 0x80)
+			out[used++] = (char)c;
+		else if (c < 0x800)
+		{
+			out[used++] = (char)(0xC0 | c >> 6);
+			out[used++] = (char)(0x80 | (c & 0x3F));
+		}
+		else
+		{
+			out[used++] = (char)(0xE0 | c >> 12);
+			out[used++] = (char)(0x80 | (c >> 6 & 0x3F));
+			out[used++] = (char)(0x80 | (c & 0x3F));
+		}
+	}
+	out[used] = 0;
+}
+
+/* whether an unverified player's game name looks like the handle of a
+verified player of this game (compared as look-alikes: identity.h's
+identity_lookalike_key, the site's too) */
+static boolean impersonates(
+	struct network_game const *game,
+	struct network_player const *player)
+{
+	char text[64], key[IDENTITY_LOOKALIKE_MOST + 1], other[IDENTITY_LOOKALIKE_MOST + 1];
+	long index;
+
+	utf8_from_name(player->name, NUMBEROF(player->name), text, (int)sizeof(text));
+	if (identity_lookalike_key(text, key) < 2)
+		return FALSE;
+	for (index = 0; index < (long)NUMBEROF(game->players); index++)
+	{
+		struct network_player const *verified = &game->players[index];
+		struct delta_peer_identity identity;
+
+		if (verified == player || !network_player_is_valid(verified) ||
+			!delta_peer_game_player_identity(verified->machine_index, verified->controller_index, &identity) ||
+			!identity.handle[0])
+		{
+			continue;
+		}
+		identity_lookalike_key(identity.handle, other);
+		if (!strcmp(key, other))
+			return TRUE;
+	}
+	return FALSE;
+}
+
+/* an unverified player: masked when their game name looks like a verified
+player's handle, else their game name, with any @ at its front taken off
+while verified names carry it (display.verified_mark); FALSE: the game
+name as it is */
+static boolean unverified_name(
+	struct network_game const *game,
+	long player_index,
+	wchar_t *name,
+	long size)
+{
+	struct network_player const *player = &game->players[player_index];
+	long start = 0, index;
+
+	if (impersonates(game, player))
+		return masked_name(player_index, name, size);
+	if (!config_boolean("display.verified_mark"))
+		return FALSE;
+	while (start < (long)NUMBEROF(player->name) && player->name[start] == '@')
+		start++;
+	if (!start)
+		return FALSE;
+	for (index = 0; start + index < (long)NUMBEROF(player->name) && player->name[start + index] && index < size - 1;
+		index++)
+	{
+		name[index] = player->name[start + index];
+	}
+	name[index] = 0;
 	return TRUE;
 }
 
@@ -269,7 +372,7 @@ boolean profile_names_player(
 	struct network_player const *player;
 	struct delta_peer_identity identity;
 	char text[64], clan[16];
-	wchar_t whole[64];
+	boolean looks_like;
 
 	if (!config_boolean("display.profile_names") || !profile_screen_available() || !delta_peer_game_on_delta() ||
 		size < 2)
@@ -280,12 +383,40 @@ boolean profile_names_player(
 	if (!game || player_index < 0 || player_index >= (long)NUMBEROF(game->players))
 		return FALSE;
 	player = &game->players[player_index];
-	if (!network_player_is_valid(player) ||
-		!delta_peer_game_player_identity(player->machine_index, player->controller_index, &identity) ||
-		!verified_name(&identity, text, (int)sizeof(text), clan, (int)sizeof(clan)))
-	{
+	if (!network_player_is_valid(player))
 		return FALSE;
+	if (!delta_peer_game_player_identity(player->machine_index, player->controller_index, &identity) ||
+		!verified_name(&identity, text, (int)sizeof(text), clan, (int)sizeof(clan), &looks_like))
+	{
+		return unverified_name(game, player_index, name, size);
 	}
+	/* (a verified handle the site marked as another's look-alike: masked as
+	an impersonation is) */
+	if (looks_like)
+		return masked_name(player_index, name, size);
+	/* (the quiet mark: "@Milenko", its room taken from the name's) */
+	if (config_boolean("display.verified_mark") && size > 2)
+	{
+		boolean fitted = profile_names_player_unmarked(&identity, text, clan, name + 1, size - 1);
+
+		name[0] = '@';
+		return fitted;
+	}
+	return profile_names_player_unmarked(&identity, text, clan, name, size);
+}
+
+/* (profile_names_player's) a verified name and its clan tag into name,
+fitted to its column */
+static boolean profile_names_player_unmarked(
+	struct delta_peer_identity const *identity,
+	char const *text,
+	char const *clan,
+	wchar_t *name,
+	long size)
+{
+	wchar_t whole[64];
+
+	(void)identity;
 	if (clan[0])
 	{
 		wchar_t tag[24];
@@ -377,26 +508,11 @@ int profile_names_local_account(
 		file = fopen(path, "r");
 		if (file)
 		{
-			if (fgets(line, sizeof(line), file))
-			{
-				line[strcspn(line, " \t\r\n")] = 0;
-				if (!strcmp(line, "guest"))
-					cache[local_player].choice = 0;
-				else if (strlen(line) == 2 * PLAYER_ID_SIZE)
-				{
-					for (index = 0; index < PLAYER_ID_SIZE; index++)
-					{
-						int high = hex_digit(line[2 * index]), low = hex_digit(line[2 * index + 1]);
-
-						if (high < 0 || low < 0)
-							break;
-						cache[local_player].account[index] = (unsigned char)(high << 4 | low);
-					}
-					if (index == PLAYER_ID_SIZE)
-						cache[local_player].choice = 2;
-				}
-			}
+			if (!fgets(line, sizeof(line), file))
+				line[0] = 0;
 			fclose(file);
+			cache[local_player].choice = identity_account_choice(line, local_player == 0,
+				cache[local_player].account);
 		}
 	}
 	if (cache[local_player].choice == 2 && account)

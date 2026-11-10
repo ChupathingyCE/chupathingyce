@@ -1706,18 +1706,23 @@ static int tag_characters(const unsigned char *data, int length)
 	return 1;
 }
 
-/* a proof's body after its head (the signature, the issuer, the
-certificate, the tag) from body, of size bytes */
-static int read_proof_body(const unsigned char *body, int size, struct delta_wire_id_proof *proof)
+/* a proof's fixed fields after the head (flags, time) and its body (the
+signature, the issuer, the certificate, the name), from fields: flags at
+0, time at 4, the body at body_offset; size bytes in all */
+static int read_proof_fields(const unsigned char *fields, int body_offset, int size, struct delta_wire_id_proof *proof)
 {
+	const unsigned char *body = fields + body_offset;
 	int certificate = proof->certificate_length, tag = proof->tag_length, index;
 
 	if (certificate < DELTA_WIRE_IDENTITY_CERTIFICATE_LEAST || certificate > DELTA_WIRE_IDENTITY_CERTIFICATE_MOST ||
-		tag > DELTA_WIRE_IDENTITY_TAG_SIZE || size < 176 + certificate + tag ||
+		tag > DELTA_WIRE_IDENTITY_TAG_SIZE || size < body_offset + 176 + certificate + tag ||
 		!tag_characters(body + 176 + certificate, tag))
 	{
 		return 0;
 	}
+	/* (flags this build doesn't know are kept: they are signed) */
+	proof->flags = fields[0];
+	proof->time = read_u32(fields + 4);
 	copy_bytes(proof->signature, body, DELTA_WIRE_IDENTITY_SIGNATURE_SIZE);
 	copy_bytes(proof->issuer, body + 64, DELTA_WIRE_IDENTITY_ISSUER_SIZE);
 	copy_bytes(proof->certificate, body + 176, certificate);
@@ -1735,12 +1740,16 @@ static int proof_writable(const struct delta_wire_id_proof *proof)
 		return 1;
 	return proof->certificate_length >= DELTA_WIRE_IDENTITY_CERTIFICATE_LEAST &&
 		proof->certificate_length <= DELTA_WIRE_IDENTITY_CERTIFICATE_MOST && proof->tag_length >= 0 &&
-		proof->tag_length <= DELTA_WIRE_IDENTITY_TAG_SIZE &&
+		proof->tag_length <= DELTA_WIRE_IDENTITY_TAG_SIZE && proof->flags >= 0 && proof->flags <= 255 &&
 		tag_characters((const unsigned char *)proof->tag, proof->tag_length);
 }
 
-static void write_proof_body(unsigned char *body, const struct delta_wire_id_proof *proof)
+static void write_proof_fields(unsigned char *fields, int body_offset, const struct delta_wire_id_proof *proof)
 {
+	unsigned char *body = fields + body_offset;
+
+	fields[0] = (unsigned char)proof->flags;
+	write_u32(fields + 4, proof->time);
 	copy_bytes(body, proof->signature, DELTA_WIRE_IDENTITY_SIGNATURE_SIZE);
 	copy_bytes(body + 64, proof->issuer, DELTA_WIRE_IDENTITY_ISSUER_SIZE);
 	copy_bytes(body + 176, proof->certificate, proof->certificate_length);
@@ -1753,9 +1762,12 @@ static void write_proof_body(unsigned char *body, const struct delta_wire_id_pro
 	2   certificate length (1: 0 withdrawn, and nothing follows; else 148 to
 	    168)
 	3   name length (1, at most 20)
-	4   signature (64)
-	68  issuer certificate (112)
-	180 device certificate (L)
+	4   flags (1: 0x01 bound)
+	5   reserved (3)
+	8   time (4, Unix seconds)
+	12  signature (64)
+	76  issuer certificate (112)
+	188 device certificate (L)
 	    name (T: the handle in its capitals, A-Z a-z 0-9 _ -) */
 
 int delta_wire_read_id_proof(const unsigned char *payload, int size, struct delta_wire_id_proof *proof)
@@ -1774,7 +1786,7 @@ int delta_wire_read_id_proof(const unsigned char *payload, int size, struct delt
 		proof->tag_length = 0;
 		return 1;
 	}
-	if (read_proof_body(payload + DELTA_WIRE_ID_PROOF_HEAD, size - DELTA_WIRE_ID_PROOF_HEAD, proof))
+	if (read_proof_fields(payload + 4, 8, size - 4, proof))
 		return 1;
 	clear(proof, (int)sizeof(*proof));
 	return 0;
@@ -1795,7 +1807,7 @@ int delta_wire_write_id_proof(unsigned char *data, delta_u32 session, const stru
 	payload[2] = (unsigned char)proof->certificate_length;
 	payload[3] = (unsigned char)(proof->certificate_length ? proof->tag_length : 0);
 	if (proof->certificate_length)
-		write_proof_body(payload + DELTA_WIRE_ID_PROOF_HEAD, proof);
+		write_proof_fields(payload + 4, 8, proof);
 	delta_wire_write_header(data, DELTA_MAJOR, _delta_message_id_proof, length, session);
 	return DELTA_WIRE_HEADER_SIZE + length;
 }
@@ -1808,9 +1820,13 @@ int delta_wire_write_id_proof(unsigned char *data, delta_u32 session, const stru
 	    168)
 	4   name length (1, at most 20)
 	5   reserved (3)
-	8   signature (64)
-	72  issuer certificate (112)
-	184 device certificate (L)
+	8   flags (1, the proof's)
+	9   reserved (3)
+	12  time (4, the proof's)
+	16  nonce (32: the one the host challenged the machine's session with)
+	48  signature (64)
+	112 issuer certificate (112)
+	224 device certificate (L)
 	    name (T) */
 
 int delta_wire_read_id_card(const unsigned char *payload, int size, struct delta_wire_id_card *card)
@@ -1830,8 +1846,11 @@ int delta_wire_read_id_card(const unsigned char *payload, int size, struct delta
 		card->proof.tag_length = 0;
 		return 1;
 	}
-	if (read_proof_body(payload + DELTA_WIRE_ID_CARD_HEAD, size - DELTA_WIRE_ID_CARD_HEAD, &card->proof))
+	if (size >= DELTA_WIRE_ID_CARD_SIZE && read_proof_fields(payload + 8, 40, size - 8, &card->proof))
+	{
+		copy_bytes(card->nonce, payload + 16, DELTA_WIRE_IDENTITY_NONCE_SIZE);
 		return 1;
+	}
 	clear(card, (int)sizeof(*card));
 	return 0;
 }
@@ -1852,7 +1871,10 @@ int delta_wire_write_id_card(unsigned char *data, delta_u32 session, const struc
 	payload[3] = (unsigned char)card->proof.certificate_length;
 	payload[4] = (unsigned char)(card->proof.certificate_length ? card->proof.tag_length : 0);
 	if (card->proof.certificate_length)
-		write_proof_body(payload + DELTA_WIRE_ID_CARD_HEAD, &card->proof);
+	{
+		write_proof_fields(payload + 8, 40, &card->proof);
+		copy_bytes(payload + 16, card->nonce, DELTA_WIRE_IDENTITY_NONCE_SIZE);
+	}
 	delta_wire_write_header(data, DELTA_MAJOR, _delta_message_id_card, length, session);
 	return DELTA_WIRE_HEADER_SIZE + length;
 }

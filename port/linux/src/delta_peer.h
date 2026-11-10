@@ -139,14 +139,20 @@ enum
 	card to every client again this often, at most this many cards a frame
 	to a client; keeps a withdrawn card this long (so every client hears it);
 	a client sends a local player's proof again this often while the host
-	has not relayed it */
+	has not relayed it, and proves again this often anyway (so its card is
+	never older than the checkers take: identity.h's IDENTITY_PROOF_*) */
 	DELTA_PEER_IDENTITY_CHALLENGE_INTERVAL = 5000,
 	DELTA_PEER_IDENTITY_PROOF_RATE = 4,
 	DELTA_PEER_IDENTITY_PROOF_BURST = 4,
 	DELTA_PEER_IDENTITY_CARD_INTERVAL = 30000,
 	DELTA_PEER_IDENTITY_CARDS_A_FRAME = 8,
 	DELTA_PEER_IDENTITY_WITHDRAWN_TIME = 30000,
-	DELTA_PEER_IDENTITY_PROOF_GAP = 10000
+	DELTA_PEER_IDENTITY_PROOF_GAP = 10000,
+	DELTA_PEER_IDENTITY_RENEW = 900000,
+	/* (seconds) how old a proof may be when its host takes it, and when
+	another client checks its card */
+	DELTA_PEER_IDENTITY_HOST_AGE = 600,
+	DELTA_PEER_IDENTITY_CARD_AGE = 1800
 };
 
 /* the verified players' cards a session keeps: one for each player the game
@@ -176,6 +182,10 @@ struct delta_peer_identity
 	int platform;
 	int flags;
 	delta_u32 capabilities;
+	/* the proof said the challenge was bound to the host its player
+	connected to (DELTA_WIRE_IDENTITY_BOUND): only such a player's account
+	is given roles or bans; any other shows a name, and nothing more */
+	int bound;
 };
 
 /* the room's limits (delta_peer_room_limit) */
@@ -237,17 +247,21 @@ struct delta_peer_env
 	int (*moderation_binding)(void *context, delta_u32 host_ipv4, char *binding, int size);
 	/* verified names (may be NULL: the identity capability is never
 	offered): a proof of a local player of machine_index checked against
-	the host's nonce and binding (the root keys, the dates, the revocation
-	list, the signature): 1 and who it proves in identity, else 0 */
+	the nonce the host challenged that machine's session with and the
+	host's binding (the root keys, the dates, the revocation list, the
+	proof no older than age seconds, the signature): 1 and who it proves in
+	identity, else 0 */
 	int (*identity_check)(void *context, const struct delta_wire_id_proof *proof, const unsigned char *nonce,
-		const char *binding, int binding_length, int machine_index, struct delta_peer_identity *identity);
+		const char *binding, int binding_length, int machine_index, unsigned long age,
+		struct delta_peer_identity *identity);
 	/* (may be NULL: this machine proves no one) a proof of this machine's
 	local player for the nonce and binding, as machine_index: 1 and it in
 	proof, 0 if that local player proves nothing (no certificate, a guest
-	Halo profile, not shared). With proof NULL, only whether it would: no
-	signature made */
+	Halo profile, not shared). It signs flags (DELTA_WIRE_IDENTITY_BOUND
+	when this machine checked the binding against its connection) and the
+	time now. With proof NULL, only whether it would: no signature made */
 	int (*identity_prove)(void *context, int local_player, const unsigned char *nonce, const char *binding,
-		int binding_length, int machine_index, struct delta_wire_id_proof *proof);
+		int binding_length, int machine_index, int flags, struct delta_wire_id_proof *proof);
 };
 
 /* a host's moderation (the dedicated server's: delta_moderation.h's
@@ -423,6 +437,8 @@ struct delta_peer_card
 	(proof.certificate_length 0), kept a while so that every client hears */
 	delta_u32 generation;
 	delta_u32 withdrawn_time;
+	/* the nonce its machine's session was challenged with */
+	unsigned char nonce[DELTA_WIRE_IDENTITY_NONCE_SIZE];
 	struct delta_wire_id_proof proof;
 	struct delta_peer_identity identity;
 };
@@ -528,6 +544,10 @@ struct delta_peer_host_peer
 	card's generation as last sent to it (0: not sent), and when every card
 	was last sent again */
 	struct delta_rate identity_rate;
+	/* the nonce of this session (a new one with every session: a new HELLO,
+	a machine joining or taking another's index) */
+	unsigned char identity_nonce[DELTA_WIRE_IDENTITY_NONCE_SIZE];
+	int identity_challenged;
 	delta_u32 identity_challenge_time;
 	delta_u32 identity_card_sent[DELTA_PEER_IDENTITY_CARDS];
 	delta_u32 identity_cards_time;
@@ -684,9 +704,13 @@ struct delta_peer
 	withdrawal sent) */
 	struct delta_peer_card cards[DELTA_PEER_IDENTITY_CARDS];
 	delta_u32 identity_generation;
+	/* (the host's own players' nonce, made once it hosts, and the binding
+	they were proved with: proved again when it changes) */
 	int identity_nonce_made;
 	unsigned char identity_nonce[DELTA_WIRE_IDENTITY_NONCE_SIZE];
 	delta_u32 identity_own_time;
+	int identity_own_binding_length;
+	char identity_own_binding[DELTA_WIRE_IDENTITY_BINDING_SIZE + 1];
 	int identity_challenged;
 	struct delta_wire_id_challenge identity_challenge;
 	unsigned char identity_sent[DELTA_WIRE_IDENTITY_LOCAL_PLAYERS];
@@ -891,14 +915,18 @@ void delta_peer_set_objects_client(struct delta_peer *peer, const struct delta_p
 
 /* ---------- verified names (docs/delta.md, Verified names)
 
-With identity agreed, the host challenges each client with its game's nonce
-and binding (ID_CHALLENGE); each local player whose copy holds a device
-certificate proves it (ID_PROOF: the certificate, its issuer's, and the
-device key's signature). The host checks it (env identity_check) and relays
-the card to every client that agreed (ID_CARD), which checks it again
-itself, so a host cannot make up a verified player. Only a verified player
-shows by their profile; everyone else, an older build's PROFILE claim too,
-by their game name. */
+With identity agreed, the host challenges each client's session with a
+nonce of its own and its binding (ID_CHALLENGE); each local player whose
+copy holds a device certificate proves it (ID_PROOF: the certificate, its
+issuer's, the time, whether the binding is the host the client connected
+to, and the device key's signature). The host checks it (env
+identity_check) and relays the card, with that session's nonce, to every
+client that agreed (ID_CARD), which checks it again itself, so a host
+cannot make up a verified player. A device or account verified on one
+machine is refused on another. Only a verified player shows by their
+profile; everyone else, an older build's PROFILE claim too, by their game
+name. Only a bound proof gives roles or bans (the host's moderation hears
+of no other). */
 
 /* a verified player (machine and local player, 0 to 3): 1 and who in
 identity (may be NULL), else 0 */

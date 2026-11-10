@@ -1195,6 +1195,15 @@ static void test_roles(void)
 		CHECK(control_moderator_parse(line, &back, &reason) == 1 && back.role == CONTROL_ROLE_OWNER &&
 			!memcmp(back.key, key, 32) && !strcmp(back.name, "Milenko"));
 	}
+	/* (a Delta account's line: 32 hex digits, back the same) */
+	CHECK(control_moderator_parse("moderator 31ea6b25b20006a252c816cd2077ff5b Zatchbot", &moderator, &reason) == 1 &&
+		moderator.account && moderator.key[0] == 0x31 && moderator.key[15] == 0x5b && !moderator.key[16] &&
+		!strcmp(moderator.name, "Zatchbot"));
+	CHECK(control_moderator_line(&moderator, line, sizeof(line)) > 0 &&
+		!strcmp(line, "moderator 31ea6b25b20006a252c816cd2077ff5b Zatchbot"));
+	CHECK(control_moderator_parse("moderator 31ea6b25b20006a252c816cd2077ff5 x", &moderator, &reason) < 0);
+	CHECK(control_moderator_parse("moderator 31ea6b25b20006a252c816cd2077ffzz x", &moderator, &reason) < 0);
+	moderator.account = 0;
 	moderator.role = CONTROL_ROLE_NONE;
 	CHECK(control_moderator_line(&moderator, line, sizeof(line)) < 0);
 	/* (random lines: never more than the line, never a crash) */
@@ -1806,6 +1815,17 @@ static void test_link(int rounds)
 	CHECK(!control_link_parse_poll("{\"roles\": {\"version\": 1, \"entries\": [{\"handle\": \"a\", \"role\": \"admin\", "
 		"\"keys\": [\"12\"]}]}}", 87, &poll));
 	CHECK(!control_link_parse_poll("{\"unlinked\": \"yes\"}", 19, &poll));
+	/* (a role entry's account: 32 hex digits, or the whole poll refused) */
+	{
+		const char *with = "{\"roles\": {\"version\": 1, \"entries\": [{\"handle\": \"a\", \"role\": \"admin\", "
+			"\"account\": \"31ea6b25b20006a252c816cd2077ff5b\"}]}}";
+		const char *bad = "{\"roles\": {\"version\": 1, \"entries\": [{\"handle\": \"a\", \"role\": \"admin\", "
+			"\"account\": \"31ea\"}]}}";
+
+		CHECK(control_link_parse_poll(with, strlen(with), &poll) && poll.role_count == 1 && poll.roles[0].has_account &&
+			poll.roles[0].account[0] == 0x31 && poll.roles[0].account[15] == 0x5b);
+		CHECK(!control_link_parse_poll(bad, strlen(bad), &poll));
+	}
 	CHECK(control_link_parse_poll("{\"unlinked\": true}", 18, &poll) && poll.unlinked && !poll.command_count);
 	/* the link's start and state */
 	{
@@ -1927,6 +1947,8 @@ static void test_roles_cache(int rounds)
 	memset(poll.roles[0].keys[1], 0xA5, 32);
 	snprintf(poll.roles[1].handle, sizeof(poll.roles[1].handle), "milenko");
 	poll.roles[1].role = CONTROL_ROLE_OWNER;
+	poll.roles[1].has_account = 1;
+	memset(poll.roles[1].account, 0x3C, 16);
 	length = control_link_roles_cache_text(&poll, 1791168674, secret, text, sizeof(text));
 	CHECK(length > 0 && (size_t)length == strlen(text) && text[0] == '#');
 	CHECK(control_link_roles_cache_open(text, (size_t)length, secret, &back, &heard));
@@ -1934,6 +1956,9 @@ static void test_roles_cache(int rounds)
 		!strcmp(back.roles[0].handle, "odb \"the\" mod") && back.roles[0].role == CONTROL_ROLE_MODERATOR &&
 		back.roles[0].key_count == 2 && back.roles[0].keys[1][31] == 0xA5 && back.roles[1].role == CONTROL_ROLE_OWNER &&
 		!back.roles[1].key_count && !back.command_count);
+	/* (an account kept, and none where the site sent none) */
+	CHECK(!back.roles[0].has_account && back.roles[1].has_account && back.roles[1].account[0] == 0x3C &&
+		back.roles[1].account[15] == 0x3C);
 	/* (another link's secret; any byte changed, the time heard among them) */
 	secret[5] ^= 1;
 	CHECK(!control_link_roles_cache_open(text, (size_t)length, secret, &back, &heard));
