@@ -549,6 +549,16 @@ def test_mirror_list_refused_index_kept(driver, repository, keys, tmp_path):
     assert lines[-1] == "failed 0 Chupathingy maps has no mirror list that checks"
 
 
+def test_refused_mirror_list_asked_again_after_five_minutes(driver, repository, keys):
+    # (a full refresh that got no mirror list: the mirror list alone is due
+    # again after 5 minutes, not at the index's next refresh an hour on)
+    entry = map_entry("bigass", DATA)
+    repository.publish("", keys, index_document([entry]), mirrors_document([mirror("m", repository.url + "/m", 1)]))
+    repository.routes["/mirrors.json.sig"] = b"00" * 64 + b"\n"
+    lines = run(driver, "refreshes", repository.url, NOW, NOW + 120, NOW + 301, NOW + 700).splitlines()
+    assert lines == ["refresh 1 4", "refresh 1 4", "refresh 1 8", "refresh 1 12"]
+
+
 def test_expired_mirror_list_never_used(driver, repository, keys, tmp_path):
     # (checked at use, not only when fetched: a list that expired since)
     entry = map_entry("bigass", DATA)

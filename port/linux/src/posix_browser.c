@@ -374,7 +374,7 @@ lookup given up on is left to finish there (it frees itself), so a resolver
 that hangs costs a sleeping thread, never the caller's. */
 
 /* resolve_within's answer when the time was up */
-#define RESOLVE_TIMED_OUT 1
+#define RESOLVE_TIMED_OUT (-0x7fff0001)
 
 struct lookup
 {
@@ -867,6 +867,10 @@ static struct
 	/* the body's first bytes, read with the head */
 	unsigned char head[MAXIMUM_HEAD];
 	size_t pending, pending_used;
+	/* the thread that holds it open, to refuse that thread's second open
+	(it would wait on itself forever) */
+	pthread_t owner;
+	int owner_set;
 } download;
 
 /* a header's value (name ends in ':'), trimmed, into value; 0 if the head
@@ -990,6 +994,11 @@ int posix_browser_download_open(const char *url, const char *user_agent, int *st
 	*status = 0;
 	*length = -1;
 	error[0] = 0;
+	if (download.open && download.owner_set && pthread_equal(download.owner, pthread_self()))
+	{
+		set_error(error, error_size, "this thread has a download open already", 0);
+		return 0;
+	}
 	/* (held until it is closed: one Mbed TLS user at a time, as the
 	requests are; another thread's download is waited for, as a request
 	waits for it) */
@@ -1012,6 +1021,8 @@ int posix_browser_download_open(const char *url, const char *user_agent, int *st
 			/* (the body: a long one, a map, but never forever) */
 			download.connection.deadline = monotonic_milliseconds() + DOWNLOAD_DEADLINE_MILLISECONDS;
 			download.open = 1;
+			download.owner = pthread_self();
+			download.owner_set = 1;
 			return 1;
 		}
 		connection_free(&download.connection);
@@ -1070,7 +1081,15 @@ void posix_browser_download_close(int handle)
 		return;
 	connection_free(&download.connection);
 	download.open = 0;
+	download.owner_set = 0;
 	download_unlock();
+}
+
+void posix_browser_download_deadline(int handle, int milliseconds)
+{
+	if (handle != 1 || !download.open || milliseconds <= 0)
+		return;
+	download.connection.deadline = monotonic_milliseconds() + milliseconds;
 }
 
 
