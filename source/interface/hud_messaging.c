@@ -146,6 +146,9 @@ symbols in this file:
 #include "text/text_group.h"
 #include "text/unicode.h"
 #include "network_coop.h" /* port: port/linux/game/network_coop.c */
+#ifdef HALO_MEDAL_ICONS
+#include "../../port/linux/game/medal_hud.h" /* port: display.medals */
+#endif
 
 #include <stddef.h>
 #ifdef HALO_64BIT
@@ -698,6 +701,70 @@ static void hud_message_text_place(
 
 	return;
 }
+
+#ifdef HALO_MEDAL_ICONS
+/* port: a kill's medals at the end of its line (display.medals,
+port/linux/game/medal_hud.c): after the ink of its last line drawn, with a
+button icon's gap to it (the ink, not the font tag's advance, as above), as
+tall as the text and a little more, centered on it; the icons alone at the
+line's start. A line is drawn in one line's bounds: a text of more lines
+("|n") shows its first, and the medals follow that one */
+static void hud_message_port_medals(
+	short local_player_index,
+	struct hud_message_definition const *message,
+	rectangle2d *bounds,
+	long font_index,
+	real alpha)
+{
+	struct font_header *font = font_definition_get(font_index);
+	short text_height = font->ascending_height + font->descending_height;
+	real size = text_height * 1.2f;
+	real gap = text_height * 0.3f;
+	real x = bounds->x0;
+	real top = bounds->y0 - (size - text_height) * 0.5f;
+	wchar_t line[NUMBEROF(message->text)];
+	real ink_x0;
+	real ink_x1;
+	long first_end;
+	long last_start;
+
+	if (!medal_hud_line_count(local_player_index, message->time, message->magic_number))
+		return;
+	hud_message_text_lines(message->text, &first_end, &last_start);
+	draw_string_set_indents(0, 0);
+	/* (the ink measured before the layout below, which leaves draw_string's
+	state at the text's end) */
+	if (last_start != 0)
+	{
+		long length = MIN(first_end, (long)NUMBEROF(line) - 1);
+
+		csmemcpy(line, message->text, length * sizeof(wchar_t));
+		line[length] = 0;
+		if (line[0] && rasterizer_text_ink_span(bounds, line, &ink_x0, &ink_x1))
+			x = ink_x1 + gap;
+		if (message->text[last_start] &&
+			rasterizer_text_ink_span(bounds, message->text + last_start, &ink_x0, &ink_x1))
+		{
+			rectangle2d text_bounds;
+			rectangle2d cursor;
+
+			/* (its last line, if the bounds show it) */
+			draw_unicode_string_compute_bounds(bounds, message->text, &text_bounds, &cursor);
+			if (cursor.y0 + text_height <= bounds->y1)
+			{
+				x = ink_x1 + gap;
+				top = cursor.y0 - (size - text_height) * 0.5f;
+			}
+		}
+	}
+	else if (message->text[0] && rasterizer_text_ink_span(bounds, message->text, &ink_x0, &ink_x1))
+		x = ink_x1 + gap;
+	medal_hud_draw_line(local_player_index, message->time, message->magic_number, x, top, size, gap * 0.5f,
+		alpha);
+
+	return;
+}
+#endif
 
 static void render_state_text(
 	rectangle2d *bounds,
@@ -1618,6 +1685,10 @@ void hud_print_message(
 		message->valid = TRUE;
 		message->magic_number = hud_messaging_globals->magic_number++;
 		datum->leave_first_line_blank = FALSE;
+#ifdef HALO_MEDAL_ICONS
+		/* port: the medals of the kill this line tells of (display.medals) */
+		medal_hud_printed(local_player_index, message->time, message->magic_number);
+#endif
 	}
 
 	return;
@@ -1757,6 +1828,10 @@ void hud_messaging_update(
 		boolean state_active;
 		short message_index;
 
+#ifdef HALO_MEDAL_ICONS
+		/* port: medals no kill's line took, a line of their own */
+		medal_hud_flush(local_player_index);
+#endif
 		hud_calculate_point(
 			local_player_index,
 			&hud_msg_def->absolute_placement,
@@ -2333,6 +2408,11 @@ void hud_messaging_update(
 					NULL,
 					0,
 					message->text);
+#ifdef HALO_MEDAL_ICONS
+				/* (the line's fade, not the text color's own translucence) */
+				hud_message_port_medals(local_player_index, message, &message_bounds, font_index,
+					hud_msg_def->text_color.alpha > 0.0f ? text_color.alpha / hud_msg_def->text_color.alpha : 0.0f);
+#endif
 			}
 			message->valid = (real)(now - message->time) <
 				(hud_msg_def->fade_time + hud_msg_def->up_time) * TICKS_PER_SECOND;
