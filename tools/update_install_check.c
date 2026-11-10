@@ -17,7 +17,9 @@ an update that succeeds ends it by starting the new one. Started with
 APPIMAGE set, it is an AppImage, as the AppImage runtime would start it.
 */
 
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
 /* (in place of the game's platform.h and its SDK headers: what updater.c
 uses of it is here) */
 #define __HALO_LINUX_PLATFORM_H

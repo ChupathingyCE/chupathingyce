@@ -92,8 +92,18 @@ def abi():
         include = folder / "third_party" / "SDL3" / "include"
         if not library.is_file() or not include.is_dir():
             unavailable(f"no SDL 3 built in {folder} (its sdl3-build and third_party/SDL3)")
-        target = ["-m32"] if folder.name == "linux" else []
-        return target, [f"-isystem{include}"], [str(library), f"-Wl,-rpath,{library.parent}"]
+        # (compiled and linked as that build is, against its system root,
+        # Debian 11's: the host has no 32-bit kernel headers. The program then
+        # runs on the host's own 32-bit C library, as the release's does)
+        sysroot = folder / "third_party" / "sysroot"
+        if not sysroot.is_dir():
+            unavailable(f"no system root in {folder}")
+        target = (["--target=i686-linux-gnu", "-m32"] if folder.name == "linux" else ["--target=x86_64-linux-gnu"])
+        target += [f"--sysroot={sysroot}"]
+        # (and with the build's _GNU_SOURCE: that C library hides strcasestr
+        # without it, as tools/linux_build.py's PLATFORM_FLAGS know)
+        return target, [f"-isystem{include}", "-D_GNU_SOURCE"], ["-fuse-ld=lld", str(library),
+                                                                f"-Wl,-rpath,{library.parent}"]
     found = subprocess.run(["pkg-config", "--exists", "sdl3"], capture_output=True).returncode == 0 \
         if shutil.which("pkg-config") else False
     if found:
