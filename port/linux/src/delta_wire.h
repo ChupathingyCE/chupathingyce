@@ -119,6 +119,10 @@ enum
 	DELTA_WIRE_MOD_NOTICE_SIZE = 4,
 	DELTA_WIRE_MOD_BIND_SIZE = 8,
 	DELTA_WIRE_MOD_BIND_ANSWER_SIZE = 104,
+	/* MOD_STATE's actions byte (a host before them sends 0) */
+	DELTA_WIRE_MOD_STATE_LOCK = 0x01,
+	DELTA_WIRE_MOD_STATE_LOCKED = 0x02,
+	DELTA_WIRE_MOD_STATE_KNOWN = 0x03,
 	/* a signed message's bytes, at most (moderation_*_message) */
 	DELTA_WIRE_MODERATION_MESSAGE_SIZE = 256,
 
@@ -134,6 +138,20 @@ enum
 	DELTA_WIRE_CHAT_SAY_SIZE = 8,
 	DELTA_WIRE_CHAT_LINE_SIZE = 12,
 	DELTA_WIRE_CHAT_REFUSED_SIZE = 8,
+
+	/* party teams (docs/delta.md, Party teams): the party's tag */
+	DELTA_WIRE_PARTY_TAG_SIZE = 8,
+	/* reports (docs/delta.md, Reports): REPORT's and REPORT_RESULT's sizes
+	(REPORT_RESULT's first 8 bytes alone from a host before the clip
+	token), and the clip token the host makes */
+	DELTA_WIRE_REPORT_SIZE = 24,
+	DELTA_WIRE_REPORT_RESULT_SIZE = 24,
+	DELTA_WIRE_REPORT_RESULT_SHORT_SIZE = 8,
+	DELTA_WIRE_REPORT_CLIP_TOKEN_SIZE = 16,
+	/* REPORT's flags: a clip will follow to the site */
+	DELTA_WIRE_REPORT_CLIP = 0x01,
+	/* REPORT_RESULT's flags: send the clip (the host is linked to the site) */
+	DELTA_WIRE_REPORT_SEND_CLIP = 0x01,
 
 	/* team changes (docs/delta.md, Team changes) */
 	DELTA_WIRE_TEAM_REQUEST_SIZE = 8,
@@ -357,6 +375,10 @@ enum delta_moderation_action
 	and relayed again */
 	_delta_moderation_action_mute = 6,
 	_delta_moderation_action_unmute = 7,
+	/* joins: no new machines until unlocked (no target; MOD_STATE says
+	whether a host takes them) */
+	_delta_moderation_action_lock = 8,
+	_delta_moderation_action_unlock = 9,
 
 	NUMBER_OF_DELTA_MODERATION_ACTIONS
 };
@@ -459,7 +481,47 @@ enum delta_message_type
 	_delta_message_id_proof = 31,
 	/* host to client: a verified player's proof, relayed, which the client
 	checks itself (or withdrawn) */
-	_delta_message_id_card = 32
+	_delta_message_id_card = 32,
+	/* client to host, if both agreed to party_teams: its party's tag (8
+	bytes; zeros: in no party), as it changes and every few seconds */
+	_delta_message_party_tag = 33,
+	/* (34 to 36 are voice, being built) */
+	/* reports (both agreed to reports): client to host, its player reports
+	another */
+	_delta_message_report = 37,
+	/* host to client: what the host did with it */
+	_delta_message_report_result = 38
+};
+
+/* REPORT's reasons; a number is never reused, and a host refuses one it
+does not know */
+enum delta_report_reason
+{
+	_delta_report_cheating = 1,
+	/* abuse in chat or voice */
+	_delta_report_abuse = 2,
+	/* griefing or betraying */
+	_delta_report_griefing = 3,
+	_delta_report_name = 4,
+	_delta_report_other = 5,
+
+	NUMBER_OF_DELTA_REPORT_REASONS
+};
+
+/* REPORT_RESULT's results; a number is never reused */
+enum delta_report_result
+{
+	_delta_report_taken = 0,
+	/* more than the host takes from one machine (a minute's, a game's) */
+	_delta_report_too_soon = 1,
+	/* no such player, or the reporter's own */
+	_delta_report_no_player = 2,
+	/* this host takes no reports */
+	_delta_report_not_taken = 3,
+	/* this machine reported that player this game already */
+	_delta_report_already = 4,
+
+	NUMBER_OF_DELTA_REPORT_RESULTS
 };
 
 /* HOST_RULES's flags: what the host lets its players turn on (a flag a
@@ -471,7 +533,12 @@ enum
 	DELTA_WIRE_HOST_PLAYER_NAMES = 0x01,
 	/* a follow camera while waiting to respawn (display.follow_camera) */
 	DELTA_WIRE_HOST_FOLLOW_CAMERA = 0x02,
-	DELTA_WIRE_HOST_KNOWN_FLAGS = 0x03
+	/* a player who joins a game in progress waits for the next game, and
+	watches (docs/delta.md, Host rules) */
+	DELTA_WIRE_HOST_LATE_JOIN_HOLD = 0x04,
+	/* the host takes no new machines now (sv_lock) */
+	DELTA_WIRE_HOST_JOINS_LOCKED = 0x08,
+	DELTA_WIRE_HOST_KNOWN_FLAGS = 0x0F
 };
 
 /* TRAITS's game kinds: what the traits are for */
@@ -698,6 +765,9 @@ struct delta_wire_mod_state
 {
 	/* enum delta_moderation_role */
 	unsigned char role;
+	/* DELTA_WIRE_MOD_STATE_LOCK and _LOCKED: what the host takes beyond the
+	first actions (0 from a host before them) */
+	unsigned char actions;
 	/* DELTA_MODERATION_* */
 	delta_u32 permissions;
 	/* the longest ban DELTA_MODERATION_BAN_TIMED allows */
@@ -827,6 +897,40 @@ struct delta_wire_team_result
 	unsigned char team;
 	/* (too soon) the seconds until the player may change again */
 	unsigned short seconds;
+};
+
+/* a player's report of another (REPORT) */
+struct delta_wire_report
+{
+	/* strictly more than the session's last */
+	delta_u32 sequence;
+	/* the reported player: their machine, and the absolute index of their
+	player datum in the host's player data (DATUM_INDEX_TO_ABSOLUTE_INDEX
+	of the game's player index, which every machine's copy shares) */
+	unsigned char target_machine;
+	unsigned char target_player;
+	/* enum delta_report_reason */
+	unsigned char reason;
+	/* DELTA_WIRE_REPORT_CLIP */
+	unsigned char flags;
+	/* (kept for its place: a host ignores it, and makes the clip's token
+	itself, REPORT_RESULT's; this build sends zeros) */
+	unsigned char clip_token[DELTA_WIRE_REPORT_CLIP_TOKEN_SIZE];
+};
+
+/* what the host did with a report (REPORT_RESULT) */
+struct delta_wire_report_result
+{
+	/* the REPORT's */
+	delta_u32 sequence;
+	/* enum delta_report_result */
+	unsigned char result;
+	/* DELTA_WIRE_REPORT_SEND_CLIP */
+	unsigned char flags;
+	/* (with DELTA_WIRE_REPORT_SEND_CLIP) the token the host made for the
+	clip, which the site takes it by: its report names it. Without the flag,
+	or from a host before it, zeros (and no clip goes) */
+	unsigned char clip_token[DELTA_WIRE_REPORT_CLIP_TOKEN_SIZE];
 };
 
 /* a unit's shield and health (UNIT_VITALS) */
@@ -995,6 +1099,18 @@ int delta_wire_read_team_result(const unsigned char *payload, int size, struct d
 int delta_wire_write_team_request(unsigned char *data, delta_u32 session,
 	const struct delta_wire_team_request *request);
 int delta_wire_write_team_result(unsigned char *data, delta_u32 session, const struct delta_wire_team_result *result);
+/* a party's tag (DELTA_WIRE_PARTY_TAG_SIZE bytes; a longer payload is read
+as far as this build knows) */
+int delta_wire_read_party_tag(const unsigned char *payload, int size, unsigned char *tag);
+int delta_wire_write_party_tag(unsigned char *data, delta_u32 session, const unsigned char *tag);
+
+/* reports: an unknown reason, or unknown flags, are refused; a clip token
+without the clip flag is read as zeros */
+int delta_wire_read_report(const unsigned char *payload, int size, struct delta_wire_report *report);
+int delta_wire_write_report(unsigned char *data, delta_u32 session, const struct delta_wire_report *report);
+int delta_wire_read_report_result(const unsigned char *payload, int size, struct delta_wire_report_result *result);
+int delta_wire_write_report_result(unsigned char *data, delta_u32 session,
+	const struct delta_wire_report_result *result);
 /* the host's rules: a version past this build's is read as far as it
 knows; a team change or margin past their ranges is refused */
 int delta_wire_read_host_rules(const unsigned char *payload, int size, struct delta_wire_host_rules *rules);

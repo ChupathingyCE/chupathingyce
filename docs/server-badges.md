@@ -68,7 +68,7 @@ names:
   needs the server linked and the announcement to come from the address its
   Delta Control link polls from. The list then says `badge`, `badge_label`
   and `badge_key`, the server key the certificate names (`/v1/games`, and
-  `/v1/games.txt` fields 25 to 27 with `?fields=27`).
+  `/v1/games.txt` fields 26 to 28 with `?fields=28`).
 - **Joining.** Over Delta Peer (`server_badge`, BADGE_ASK and BADGE in
   [delta.md](delta.md), "Server badges"): signed with the same key,
   `chupathingy server badge proof v2\n`, the client's fresh nonce (32

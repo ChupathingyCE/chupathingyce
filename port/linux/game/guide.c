@@ -12,8 +12,9 @@ the sections, switched with LB and RB (Q and E, or a click): FRIENDS,
 PARTY, PLAYERS HERE, RECENT and SETTINGS.
 - PLAYERS HERE lists the game's players: their Delta Tag when they share
   their profile (else their game name), their platform's logo when the game
-  is on Delta, and a local Mute (the chat log's, chat.c). No address is ever
-  shown.
+  is on Delta, and a local Mute (the chat log's, chat.c). A player verified
+  in this game (the identity capability's roster, delta_peer.h) also gets
+  ADD FRIEND (Y); a name alone never does. No address is ever shown.
 - SETTINGS has the Guide's own settings (settings_rows.c's rows, which the
   setup screen's Settings shares), then ABOUT: the About screen (about.c),
   which the menus' ABOUT rows open too (guide_about_open).
@@ -24,8 +25,33 @@ PARTY, PLAYERS HERE, RECENT and SETTINGS.
   (in a game on Delta), REMOVE and BLOCK (each pressed twice); an invite's
   JOIN and DISMISS; a request's ACCEPT and DECLINE. Only Delta profiles,
   never an OpenCE player, never an address.
-- PARTY and RECENT are still empty. Without a Delta profile, FRIENDS,
-  PARTY and RECENT offer SIGN IN (Delta Profile's Link Profile).
+- PARTY is the site's party (browser.c, social.h): its members (LEADER, and
+  each one's platform), the open slots with the party's code, then INVITE
+  FRIENDS (FRIENDS' INVITE TO PARTY), COPY PARTY LINK (halo://party/CODE),
+  BRING PARTY TO MY GAME (delta.bring_party), WHO CAN JOIN (the leader's)
+  and LEAVE PARTY. The leader's A on a member: MAKE LEADER and KICK. Out of
+  a party: the party invites, START A PARTY and JOIN WITH A CODE (the d-pad
+  picks the letters, Y pastes a code or a link). A copy with no Delta
+  profile can start one, and join by a code. With COPY PARTY LINK chosen,
+  its link shows as a QR code too.
+- Following the leader: when the leader joins or hosts a game (with BRING
+  PARTY TO MY GAME), each member gets "Following Sarge to Blood Gulch" for
+  a few seconds, A to go now and B to stay, then joins through the
+  game's halo://join link; or one line why they can't. Each member's copy
+  tells the game's host its party (Delta Peer's party_teams), so a host
+  that keeps parties together puts them on one team.
+- RECENT is the Delta players from this player's last games: the site's
+  (its confirmed report lines) and those verified in games this run, newest
+  first. A on a row: ADD FRIEND (Y too), BLOCK (pressed twice) and VIEW
+  PROFILE (the site's page, /u/HANDLE). Never an OpenCE player.
+- CLAN is the profile's clan (browser.c: the profile, its roster asked
+  for with the friends): its members by rank with where they are, and for
+  the leader and officers the invites out, INVITE FRIENDS (FRIENDS, where
+  a friend has INVITE TO CLAN) and A on a member of a lower rank, KICK
+  (pressed twice). LEAVE CLAN last (pressed twice). With no clan: the
+  clans' invites (JOIN CLAN, DECLINE). Making a clan stays on the site.
+- Without a Delta profile, FRIENDS, CLAN and RECENT offer SIGN IN (Delta
+  Profile's Link Profile).
 
 It takes the first player's input while open (guide_input.h): the game
 gets a controller at rest, and their player stands still
@@ -40,7 +66,7 @@ guide.hold_back (off by default), or the first player's pause menu's GUIDE
 
 Toasts show for a few seconds (in the menus in the bottom left corner,
 clear of their items; in a game low in the middle): a new
-invite or friend request, and a friend come online (guide.notify_online,
+invite or friend request, and a friend come online (delta.notify_online,
 off by default, menus only). In a game only with guide.notify_in_game. The
 Guide's key or button while one shows opens its item. The pause menu's
 GUIDE counts what waits ("GUIDE 2": invites and requests).
@@ -55,6 +81,7 @@ GUIDE counts what waits ("GUIDE 2": invites and requests).
 #include "game/game.h"
 #include "game/game_engine.h"
 #include "game/players.h"
+#include "input/input.h"
 #include "memory/data.h"
 #include "interface/event_manager.h"
 #include "interface/interface.h"
@@ -62,30 +89,37 @@ GUIDE counts what waits ("GUIDE 2": invites and requests).
 #include "bitmaps/bitmap_group.h"
 #include "cache/texture_cache.h"
 #include "networking/network_game_globals.h"
+#include "networking/network_game_manager.h"
 #include "saved games/player_profile.h"
 #include "interface/player_ui.h"
 #include "main/main.h"
 #include "bink/bink_playback.h"
 #include "../src/about.h"
 #include "../src/browser.h"
+#include "../src/delta_peer.h"
+#include "../src/clan_emblem.h"
 #include "../src/delta_profile.h"
 #include "../src/discord_activity.h"
 #include "../src/guide_input.h"
 #include "../src/social.h"
 #include "../src/settings_rows.h"
 #include "../src/ui_overlay.h"
+#include "delta.h"
 #ifdef HALO_CAPTURE
 #include "../src/capture.h"
 #endif
 #include "halo_ui_pointer.h"
 #include "halo_profile_screen.h"
 #include "chat.h"
+#include "report_player.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
 int config_boolean(char const *name);
+long config_integer(char const *name);
 char const *config_string(char const *name);
 int config_write(char const *name, char const *value);
 int config_write_boolean(char const *name, int value);
@@ -107,6 +141,22 @@ int p2p_join_invite(char const *text);
 long pc_menu_pause_guide_label(void);
 /* ui_widget.c's: the game paused as a menu pauses it */
 void ui_widgets_port_pause_game(boolean pause);
+/* the platform layer's clipboard (sdl_platform.c) */
+int platform_clipboard_get(char *text, int size);
+void platform_clipboard_set(char const *text);
+/* delta_peer.c's and delta_peer_game.c's: a platform's registry name, and
+this machine's party tag told to its game's host (party_teams) */
+char const *delta_peer_platform_name(int platform);
+void delta_peer_game_set_party_tag(unsigned char const *tag);
+/* browser_screen.c's: a game joined by its link over the menus */
+boolean browser_screen_join_link(char const *link, char const *name);
+/* the platform layer's (sdl_platform.c) */
+void platform_open_url(char const *url);
+#ifdef DELTA_PEER_IDENTITY_CARDS
+/* delta_peer_game.c's: a player verified in this game (the identity
+capability, docs/delta.md "Verified names") */
+int delta_peer_game_player_identity(int machine_index, int local_player, struct delta_peer_identity *identity);
+#endif
 
 /* ---------- constants */
 
@@ -140,6 +190,8 @@ enum
 	CONFIRM_SETTLE = 400,
 	/* the browser thread told where the player is this often */
 	WHERE_INTERVAL = 1000,
+	/* the game's verified players looked at for RECENT this often */
+	RECENT_NOTICE_INTERVAL = 5000,
 
 	/* the toast's place */
 	TOAST_WIDTH = 260, TOAST_HEIGHT = 34,
@@ -159,6 +211,12 @@ enum
 	PLASMA_TRIES = 240,
 
 	MAXIMUM_TARGETS = 48,
+
+	/* CLAN: the profile (and its clan) looked at this often while it's
+	open or an action is out; the emblem's pixels */
+	CLAN_LOOK_INTERVAL = 250,
+	CLAN_LOOK_CLOSED = 2000,
+	EMBLEM_PIXELS = 64,
 };
 
 /* the Chupathingy menus' blues (the mockups': review/guide-mockup) */
@@ -214,6 +272,21 @@ enum
 	_target_close,
 	_target_option,
 	_target_prompt,
+	/* PLAYERS HERE's buttons: MUTE, ADD FRIEND */
+	_target_player_action,
+};
+
+/* RECENT's options on a player */
+enum
+{
+	_recent_add,
+	_recent_block,
+	_recent_view,
+	MAXIMUM_RECENT_OPTIONS = 3,
+	/* the handles asked to be friends this run (ADD FRIEND) */
+	MAXIMUM_ASKED = 32,
+	/* PARTY's QR code: its side, in the menus' 640x480 */
+	PARTY_QR_WIDTH = 92,
 };
 
 /* FRIENDS' items, top to bottom: the invites, the friends online, the
@@ -254,8 +327,46 @@ enum
 	_option_accept,
 	_option_decline,
 	_option_dismiss,
-	MAXIMUM_OPTIONS = 4
+	_option_party_invite,
+	/* a friend asked into the clan (a leader's or officer's) */
+	_option_clan_invite,
+	/* CLAN's: a clan's invite answered, a member kicked */
+	_option_clan_join,
+	_option_clan_decline,
+	_option_kick,
+	MAXIMUM_OPTIONS = 6
 };
+
+/* CLAN's items, top to bottom: the members, the invites out (a leader's
+or officer's), INVITE FRIENDS and LEAVE CLAN; with no clan, the clans'
+invites */
+enum
+{
+	_clan_heading,
+	_clan_member,
+	_clan_invited,
+	_clan_invite,
+	_clan_action,
+};
+
+enum
+{
+	_clan_heading_members,
+	_clan_heading_invited,
+	_clan_heading_invites,
+};
+
+enum
+{
+	_clan_action_invite,
+	_clan_action_leave,
+};
+
+/* guide.armed for LEAVE CLAN's first press (past every _option_*) */
+#define ARMED_LEAVE 100
+
+#define MAXIMUM_CLAN_ITEMS (5 + 2 * DELTA_PROFILE_CLAN_MEMBERS + DELTA_PROFILE_CLAN_INVITES)
+
 
 /* what a toast leads to */
 enum
@@ -264,6 +375,42 @@ enum
 	_toast_invite,
 	_toast_request,
 	_toast_friend,
+	/* a party invite (its party's ID), and a party's line (shown in a game
+	too: following the leader, or why not) */
+	_toast_party_invite,
+	_toast_party_note,
+};
+
+/* PARTY's items: members (or, out of a party, its invites), then its
+buttons */
+enum
+{
+	_party_item_member,
+	_party_item_invite,
+	_party_item_action,
+};
+
+enum
+{
+	_party_action_invite_friends,
+	_party_action_copy_link,
+	_party_action_bring,
+	_party_action_who,
+	_party_action_new_code,
+	_party_action_follow,
+	_party_action_leave,
+	_party_action_start,
+	_party_action_join_code,
+	/* the leader's on a member */
+	_party_action_make_leader,
+	_party_action_kick,
+	MAXIMUM_PARTY_ITEMS = SOCIAL_PARTY_LARGEST + SOCIAL_MAXIMUM_PARTY_INVITES + 8
+};
+
+struct party_item
+{
+	short kind;
+	short index;
 };
 
 struct guide_target
@@ -296,6 +443,28 @@ static struct
 	struct social_list players_fresh;
 	short machines[SOCIAL_MAXIMUM_ROWS];
 	wchar_t names[SOCIAL_MAXIMUM_ROWS][12];
+	/* each row's handle when they're verified in this game ("": not) */
+	char handles[SOCIAL_MAXIMUM_ROWS][SOCIAL_HANDLE_SIZE];
+
+	/* RECENT: the players verified in games this run, the rows shown
+	(those and the site's), the chosen one's options (open, which, BLOCK
+	waiting for its second press: NONE for none), the handles asked to be
+	friends this run */
+	struct social_recent_seen recent_seen;
+	struct social_recent recent[SOCIAL_MAXIMUM_RECENT];
+	short recent_count;
+	boolean recent_options;
+	short recent_option;
+	short recent_armed;
+	char asked[MAXIMUM_ASKED][SOCIAL_HANDLE_SIZE];
+	short asked_next;
+
+	/* PARTY's QR code of its link, and the code it was made for */
+	char qr_code[SOCIAL_PARTY_CODE_SIZE];
+	int qr_size;
+	unsigned char qr[BROWSER_CONNECT_QR_SIZE * BROWSER_CONNECT_QR_SIZE];
+	/* ... and their index in the game's player list (a report's) */
+	short player_lists[SOCIAL_MAXIMUM_ROWS];
 
 	/* the card */
 	char name[SOCIAL_TAG_SIZE];
@@ -313,6 +482,11 @@ static struct
 	boolean toast_always;
 	boolean debug_toast_done;
 	boolean debug_open_done;
+	/* debug.guide_test: the next step, and when the last one ran */
+	short debug_step;
+	unsigned long debug_step_time;
+	boolean debug_row_done;
+	boolean debug_party_done;
 	/* the toast's item (an invite's ID, a handle) and its sender's initial */
 	short toast_kind;
 	char toast_key[SOCIAL_INVITE_ID_SIZE];
@@ -345,6 +519,52 @@ static struct
 	char dismissed[SOCIAL_MAXIMUM_INVITES][SOCIAL_INVITE_ID_SIZE];
 	short dismissed_next;
 
+	/* PARTY: the party as the site said (browser_party_get) and its
+	serial; whether this copy was in one; the action out and a line about
+	the last; LEAVE PARTY or KICK waiting for its second press (NONE: none);
+	the leader's options on a member (its index); the code being picked */
+	struct social_party party;
+	int party_serial;
+	boolean had_party;
+	boolean party_acting;
+	int party_result_seen;
+	char party_message[96];
+	unsigned long party_message_time;
+	short party_armed;
+	short party_member;
+	/* (the two above set to NONE, once) */
+	boolean party_ready;
+	boolean code_entry;
+	char code[SOCIAL_PARTY_CODE_SIZE];
+	short code_cursor;
+	/* the leader's game last told to the party (its invite's code) */
+	char go_sent[160];
+	/* following the leader: the offer up, since when, its link and line;
+	the last go acted on. Or a party's link opened (follow_party: its code),
+	asked about the same way with no countdown */
+	boolean follow_active;
+	unsigned long follow_time;
+	char follow_link[SOCIAL_PARTY_LINK_SIZE];
+	char follow_line[96];
+	long long follow_seen;
+	char follow_party[SOCIAL_PARTY_CODE_SIZE];
+
+	/* CLAN: the profile's state (browser_profile_get) and serial, when it
+	was last looked at, its items and the chosen one (by what it is), and
+	an action out (browser_profile_clan*) */
+	int clan_state;
+	int clan_serial;
+	boolean clan_loaded;
+	unsigned long clan_time;
+	struct friend_item clan_items[MAXIMUM_CLAN_ITEMS];
+	short clan_count;
+	short clan_chosen_kind;
+	char clan_chosen_key[SOCIAL_TAG_SIZE];
+	boolean clan_acting;
+	/* the emblem's pixels, made again when it changes */
+	unsigned char *emblem_pixels;
+	int emblem_serial;
+
 	int plasma_tries;
 
 	/* SIGN IN here (Quick Connect, browser.c's Link Profile): its code
@@ -368,6 +588,22 @@ asked for, and what it came to */
 /* the site's friends: as shown, and as just read (browser_social_get) */
 static struct social_state friends_state;
 static struct social_state friends_fresh;
+
+static void party_act(char const *action, char const *value);
+static void party_update(void);
+static void party_where(void);
+static boolean party_has_leader(void);
+static void party_link_offer(void);
+static void section_go(short section);
+static void recent_build(void);
+static void toast_from(short kind, char const *key, char const *title, char const *line, char const *name);
+
+/* CLAN: the Delta profile as browser.c keeps it (its clan, its invites) */
+static struct delta_profile clan_profile;
+
+static boolean clan_can_invite(void);
+static void clan_act_started(void);
+static void debug_steps(void);
 
 /* ---------- private code */
 
@@ -497,6 +733,101 @@ static void card_update(void)
 
 /* ---------- PLAYERS HERE: the game's players (none outside a network game) */
 
+/* a player verified in this game (the identity capability's roster):
+their handle and the tag their proof says ("" if none); FALSE for anyone
+else (an OpenCE player, a name alone, or a build without it) */
+static boolean player_verified(struct player_datum const *player, char *handle, char *display)
+{
+#ifdef DELTA_PEER_IDENTITY_CARDS
+	struct delta_peer_identity identity;
+
+	if (delta_peer_game_on_delta() && delta_peer_game_player_identity(player->network_player_data.machine_index,
+		player->network_player_data.controller_index, &identity) && social_handle_valid(identity.handle))
+	{
+		social_copy_text(handle, SOCIAL_HANDLE_SIZE, identity.handle);
+		social_copy_text(display, SOCIAL_TAG_SIZE, identity.tag);
+		return TRUE;
+	}
+#else
+	(void)player;
+#endif
+	handle[0] = 0;
+	display[0] = 0;
+	return FALSE;
+}
+
+/* whether this player is a friend of handle's, asked them this run, or is
+them */
+static boolean handle_is_friend(char const *handle)
+{
+	short index;
+
+	for (index = 0; index < friends_state.friend_count; index++)
+	{
+		if (!strcmp(friends_state.friends[index].handle, handle))
+			return TRUE;
+	}
+	return FALSE;
+}
+
+static boolean handle_asked(char const *handle)
+{
+	short index;
+
+	for (index = 0; index < MAXIMUM_ASKED; index++)
+	{
+		if (guide.asked[index][0] && !strcmp(guide.asked[index], handle))
+			return TRUE;
+	}
+	return FALSE;
+}
+
+static boolean handle_is_own(char const *handle)
+{
+	return friends_state.handle[0] && !strcmp(friends_state.handle, handle);
+}
+
+/* ADD FRIEND for a handle: signed in to Delta, not them, not a friend or
+asked already */
+static boolean can_add_friend(char const *handle)
+{
+	return handle[0] && guide.linked && guide.friends_loaded && guide.friends_status != BROWSER_SOCIAL_UNLINKED &&
+		!handle_is_own(handle) && !handle_is_friend(handle) && !handle_asked(handle);
+}
+
+/* the game's verified players noted for RECENT (every few seconds in a
+network game, the Guide open or not) */
+static void recent_notice(void)
+{
+	static unsigned long last;
+	unsigned long now = system_milliseconds();
+	struct data_iterator iterator;
+	struct player_datum *player;
+	struct discord_activity_game game;
+	char handle[SOCIAL_HANDLE_SIZE], display[SOCIAL_TAG_SIZE];
+	char const *map = "";
+	boolean noted = FALSE;
+
+	if (last && now - last < RECENT_NOTICE_INTERVAL)
+		return;
+	last = now ? now : 1;
+	if (!network_game_get_game() || main_menu_is_active() || !game_in_progress())
+		return;
+	csmemset(&game, 0, sizeof(game));
+	if (discord_game_get(&game))
+		map = game.map;
+	data_iterator_new(&iterator, player_data);
+	while ((player = (struct player_datum *)data_iterator_next(&iterator)) != NULL)
+	{
+		if (player->local_player_index != NONE || player->quit_out_of_game || !player_verified(player, handle, display))
+			continue;
+		social_recent_note(&guide.recent_seen, handle, display, map, (long long)time(NULL));
+		noted = TRUE;
+	}
+	if (noted)
+		recent_build();
+}
+
 static void players_update(void)
 {
 	struct data_iterator iterator;
@@ -517,11 +848,14 @@ static void players_update(void)
 		long absolute = DATUM_INDEX_TO_ABSOLUTE_INDEX(iterator.datum_index);
 		struct social_row row;
 		wchar_t shown[48];
+		char handle[SOCIAL_HANDLE_SIZE], display[SOCIAL_TAG_SIZE];
 		boolean you = player->local_player_index != NONE;
 
 		if (player->quit_out_of_game)
 			continue;
 		csmemset(&row, 0, sizeof(row));
+		if (you || !player_verified(player, handle, display))
+			handle[0] = 0;
 		/* (a shared Delta profile's name, else the game name) */
 		if (profile_names_player(absolute, shown, NUMBEROF(shown)))
 		{
@@ -537,6 +871,8 @@ static void players_update(void)
 		row.key = (int)absolute;
 		row.muted = !you && chat_local_muted(player->network_player_data.machine_index, player->name);
 		row.actions = you ? 0 : SOCIAL_ACTION_MUTE;
+		if (can_add_friend(handle))
+			row.actions |= SOCIAL_ACTION_ADD_FRIEND;
 		if (you)
 			snprintf(row.status, sizeof(row.status), "You");
 		else if (row.muted)
@@ -546,6 +882,8 @@ static void players_update(void)
 		if (social_list_add(&guide.players_fresh, &row) >= 0)
 		{
 			guide.machines[guide.players_fresh.count - 1] = player->network_player_data.machine_index;
+			social_copy_text(guide.handles[guide.players_fresh.count - 1], SOCIAL_HANDLE_SIZE, handle);
+			guide.player_lists[guide.players_fresh.count - 1] = (short)absolute;
 			csmemcpy(guide.names[guide.players_fresh.count - 1], player->name, sizeof(guide.names[0]));
 			count++;
 		}
@@ -553,6 +891,16 @@ static void players_update(void)
 	social_list_commit(&guide.players, &guide.players_fresh);
 	if (guide.row[SOCIAL_SECTION_PLAYERS_HERE] >= guide.players.count)
 		guide.row[SOCIAL_SECTION_PLAYERS_HERE] = (short)MAX(0, guide.players.count - 1);
+}
+
+static void friend_act(short action, char const *handle);
+
+/* ADD FRIEND on a row of PLAYERS HERE (a verified player only) */
+static void player_add_friend(short row)
+{
+	if (row < 0 || row >= guide.players.count || !(guide.players.rows[row].actions & SOCIAL_ACTION_ADD_FRIEND))
+		return;
+	friend_act(BROWSER_SOCIAL_REQUEST, guide.handles[row]);
 }
 
 static void player_mute_toggle(short row)
@@ -566,6 +914,101 @@ static void player_mute_toggle(short row)
 		return;
 	chat_local_mute(guide.machines[row], guide.names[row], !player->muted);
 	players_update();
+}
+
+/* a player's options (A on their row): MUTE or UNMUTE, ADD FRIEND for a
+verified player, and REPORT where the host takes reports (report_player.c);
+their count, and their labels */
+enum
+{
+	_player_option_mute,
+	_player_option_add_friend,
+	_player_option_report,
+	MAXIMUM_PLAYER_OPTIONS = REPORT_PLAYER_MOST_CHOICES,
+};
+
+static short player_options(short row, short *kinds, char labels[][REPORT_PLAYER_CHOICE_SIZE])
+{
+	struct social_row const *player;
+	short count = 0;
+
+	if (row < 0 || row >= guide.players.count)
+		return 0;
+	player = &guide.players.rows[row];
+	if (player->actions & SOCIAL_ACTION_MUTE)
+	{
+		kinds[count] = _player_option_mute;
+		snprintf(labels[count++], REPORT_PLAYER_CHOICE_SIZE, "%s", player->muted ? "UNMUTE" : "MUTE");
+	}
+	if (player->actions & SOCIAL_ACTION_ADD_FRIEND)
+	{
+		kinds[count] = _player_option_add_friend;
+		snprintf(labels[count++], REPORT_PLAYER_CHOICE_SIZE, "ADD FRIEND");
+	}
+	if ((player->actions & SOCIAL_ACTION_MUTE) && report_player_available(guide.machines[row]))
+	{
+		kinds[count] = _player_option_report;
+		snprintf(labels[count++], REPORT_PLAYER_CHOICE_SIZE, "REPORT");
+	}
+	return count;
+}
+
+/* the choices the detail panel lists now: a report's step's, else the
+player's options */
+static short player_choices(short row, short *kinds, char labels[][REPORT_PLAYER_CHOICE_SIZE])
+{
+	if (report_player_step() != _report_step_none)
+		return report_player_choices(labels, MAXIMUM_PLAYER_OPTIONS);
+	return player_options(row, kinds, labels);
+}
+
+/* A on PLAYERS HERE: the choice made in the report, or the option run, or
+the player's options shown */
+static void players_activate(short row)
+{
+	short kinds[MAXIMUM_PLAYER_OPTIONS];
+	char labels[MAXIMUM_PLAYER_OPTIONS][REPORT_PLAYER_CHOICE_SIZE];
+	short count;
+
+	if (report_player_step() != _report_step_none)
+	{
+		report_player_choose(guide.option);
+		guide.option = 0;
+		if (report_player_step() == _report_step_none)
+			guide.options = FALSE;
+		return;
+	}
+	count = player_options(row, kinds, labels);
+	if (!guide.options)
+	{
+		if (count > 0)
+		{
+			guide.options = TRUE;
+			guide.option = 0;
+		}
+		return;
+	}
+	if (guide.option < 0 || guide.option >= count)
+		return;
+	if (kinds[guide.option] == _player_option_mute)
+	{
+		guide.options = FALSE;
+		player_mute_toggle(row);
+		return;
+	}
+	if (kinds[guide.option] == _player_option_add_friend)
+	{
+		guide.options = FALSE;
+		player_add_friend(row);
+		return;
+	}
+	{
+		char name[64];
+
+		snprintf(name, sizeof(name), "%s", guide.players.rows[row].tag);
+		report_player_begin(guide.player_lists[row], guide.machines[row], name);
+		guide.option = 0;
+	}
 }
 
 static void message_set(char const *text);
@@ -711,7 +1154,7 @@ static short friends_waiting(void)
 	{
 		return 0;
 	}
-	return (short)(invites_waiting() + friends_state.request_count);
+	return (short)(invites_waiting() + friends_state.request_count + friends_state.party_invite_count);
 }
 
 /* an item's key: an invite's ID, a player's handle */
@@ -835,6 +1278,19 @@ static boolean can_invite(void)
 	return social_presence_invite_valid(invite) != 0;
 }
 
+/* whether a handle's player is in this player's party */
+static boolean party_has_handle(char const *handle)
+{
+	short index;
+
+	for (index = 0; guide.party.has && index < guide.party.member_count; index++)
+	{
+		if (guide.party.members[index].handle[0] && !strcmp(guide.party.members[index].handle, handle))
+			return TRUE;
+	}
+	return FALSE;
+}
+
 /* an item's options (_option_*): their count */
 static short item_options(struct friend_item const *item, short *options)
 {
@@ -847,6 +1303,13 @@ static short item_options(struct friend_item const *item, short *options)
 			options[count++] = _option_join;
 		if (can_invite())
 			options[count++] = _option_invite;
+		if (guide.party.has && guide.party.member_count < guide.party.largest &&
+			!party_has_handle(friends_state.friends[item->index].handle))
+		{
+			options[count++] = _option_party_invite;
+		}
+		if (clan_can_invite())
+			options[count++] = _option_clan_invite;
 		options[count++] = _option_remove;
 		options[count++] = _option_block;
 		break;
@@ -884,6 +1347,11 @@ static char const *option_label(short option, boolean armed)
 	case _option_block: return armed ? "CONFIRM BLOCK" : "BLOCK";
 	case _option_accept: return "ACCEPT";
 	case _option_decline: return "DECLINE";
+	case _option_party_invite: return "INVITE TO PARTY";
+	case _option_clan_invite: return "INVITE TO CLAN";
+	case _option_clan_join: return "JOIN CLAN";
+	case _option_clan_decline: return "DECLINE";
+	case _option_kick: return armed ? "CONFIRM KICK" : "KICK";
 	default: return "DISMISS";
 	}
 }
@@ -948,6 +1416,11 @@ static void option_run(short option)
 	case _option_accept: friend_act(BROWSER_SOCIAL_ACCEPT, item_handle(item)); break;
 	case _option_decline: friend_act(BROWSER_SOCIAL_DECLINE, item_handle(item)); break;
 	case _option_dismiss: invite_dismiss(item_key(item)); break;
+	case _option_party_invite: party_act("invite", item_handle(item)); guide.options = FALSE; break;
+	case _option_clan_invite:
+		if (!guide.clan_acting && browser_profile_clan_member("invite", item_handle(item)))
+			clan_act_started();
+		break;
 	}
 }
 
@@ -1024,13 +1497,33 @@ static void toast_from(short kind, char const *key, char const *title, char cons
 	guide.toast_always = FALSE;
 }
 
-/* the toasts for what is new: an invite, a request (not those already
-waiting at the first state), a friend online (guide.notify_online, menus) */
+/* the first party invite in fresh that was not in the state shown (-1:
+none) */
+static short party_invite_news(void)
+{
+	short index, old;
+
+	for (index = 0; index < friends_fresh.party_invite_count; index++)
+	{
+		boolean seen = FALSE;
+
+		for (old = 0; old < friends_state.party_invite_count && !seen; old++)
+			seen = !strcmp(friends_state.party_invites[old].party, friends_fresh.party_invites[index].party);
+		if (!seen)
+			return index;
+	}
+	return NONE;
+}
+
+/* the toasts for what is new: an invite, a party invite, a request (not
+those already waiting at the first state), a friend online
+(delta.notify_online, menus) */
 static void friends_news(boolean first)
 {
 	struct social_news news;
 	boolean streamer = config_boolean("chat.streamer_mode") != 0;
 	char title[96], line[96];
+	short party_invite = first ? NONE : party_invite_news();
 
 	social_news(&friends_state, &friends_fresh, &news);
 	if (news.invite >= 0 && !invite_dismissed(friends_fresh.invites[news.invite].id))
@@ -1047,6 +1540,19 @@ static void friends_news(boolean first)
 		toast_from(_toast_invite, invite->id, title, line, streamer ? "" : name);
 		platform_log("Guide: a new invite");
 	}
+	else if (party_invite != NONE)
+	{
+		struct social_party_invite const *invite = &friends_fresh.party_invites[party_invite];
+		char const *name = social_name(invite->display, invite->from);
+
+		if (streamer)
+			snprintf(title, sizeof(title), "Party invite");
+		else
+			snprintf(title, sizeof(title), "%s invited you", name);
+		snprintf(line, sizeof(line), "Party of %d", invite->size);
+		toast_from(_toast_party_invite, invite->party, title, line, streamer ? "" : name);
+		platform_log("Guide: a new party invite");
+	}
 	else if (news.request >= 0 && !first)
 	{
 		struct social_request const *request = &friends_fresh.requests[news.request];
@@ -1056,7 +1562,7 @@ static void friends_news(boolean first)
 			streamer ? "" : name);
 		platform_log("Guide: a new friend request");
 	}
-	else if (news.online >= 0 && !first && !in_game() && config_boolean("guide.notify_online"))
+	else if (news.online >= 0 && !first && !in_game() && config_boolean("delta.notify_online"))
 	{
 		struct social_friend const *buddy = &friends_fresh.friends[news.online];
 		char const *name = social_name(buddy->display, buddy->handle);
@@ -1078,7 +1584,10 @@ static void friends_update(void)
 	{
 		guide.where_time = now ? now : 1;
 		browser_social_where(in_game(), guide.open);
+		party_where();
+		party_link_offer();
 	}
+	party_update();
 	guide.friends_status = browser_social_get(&friends_fresh, &serial);
 	if (serial != guide.friends_serial)
 	{
@@ -1094,6 +1603,7 @@ static void friends_update(void)
 			guide.friends_loaded = FALSE;
 		friends_state = friends_fresh;
 		items_build();
+		recent_build();
 	}
 	if (!guide.acting)
 		return;
@@ -1121,8 +1631,25 @@ static void friends_update(void)
 	}
 	if (result.action == BROWSER_SOCIAL_INVITE)
 		message_set("Invite sent");
+	else if (result.action == BROWSER_SOCIAL_REQUEST)
+	{
+		/* (asked: no ADD FRIEND for them again this run) */
+		social_copy_text(guide.asked[guide.asked_next], SOCIAL_HANDLE_SIZE, result.handle);
+		guide.asked_next = (short)((guide.asked_next + 1) % MAXIMUM_ASKED);
+		guide.recent_options = FALSE;
+		message_set("Request sent");
+		recent_build();
+	}
 	else
+	{
+		if (result.action == BROWSER_SOCIAL_BLOCK)
+		{
+			social_recent_forget(&guide.recent_seen, result.handle);
+			guide.recent_options = FALSE;
+			recent_build();
+		}
 		guide.options = FALSE;
+	}
 }
 
 /* the toast's item chosen on FRIENDS, its options open */
@@ -1132,6 +1659,19 @@ static boolean toast_go(void)
 	short kind = guide.toast_kind == _toast_invite ? _item_invite : guide.toast_kind == _toast_request ? _item_request :
 		guide.toast_kind == _toast_friend ? _item_friend : NONE;
 
+	if (guide.toast_kind == _toast_party_invite || guide.toast_kind == _toast_party_note)
+	{
+		guide.section = SOCIAL_SECTION_PARTY;
+		guide.first_row = 0;
+		guide.row[SOCIAL_SECTION_PARTY] = 0;
+		for (index = 0; guide.toast_kind == _toast_party_invite && index < friends_state.party_invite_count; index++)
+		{
+			if (!strcmp(friends_state.party_invites[index].party, guide.toast_key))
+				guide.row[SOCIAL_SECTION_PARTY] = index;
+		}
+		guide.toast_shown = FALSE;
+		return TRUE;
+	}
 	if (kind == NONE)
 		return FALSE;
 	guide.section = SOCIAL_SECTION_FRIENDS;
@@ -1152,6 +1692,939 @@ static boolean toast_go(void)
 	return TRUE;
 }
 
+/* ---------- RECENT: the Delta players of this player's last games */
+
+/* the rows from the site's list and this run's, the chosen one kept */
+static void recent_build(void)
+{
+	short index, *row = &guide.row[SOCIAL_SECTION_RECENT];
+	char chosen[SOCIAL_HANDLE_SIZE];
+
+	chosen[0] = 0;
+	if (*row >= 0 && *row < guide.recent_count)
+		social_copy_text(chosen, sizeof(chosen), guide.recent[*row].handle);
+	guide.recent_count = (short)social_recent_merge(&friends_state, &guide.recent_seen, friends_state.handle,
+		guide.recent, SOCIAL_MAXIMUM_RECENT);
+	for (index = 0; index < guide.recent_count; index++)
+	{
+		if (handle_asked(guide.recent[index].handle))
+			guide.recent[index].requested = TRUE;
+		if (handle_is_friend(guide.recent[index].handle))
+			guide.recent[index].is_friend = TRUE;
+		if (chosen[0] && !strcmp(guide.recent[index].handle, chosen))
+			*row = index;
+	}
+	if (*row >= guide.recent_count)
+	{
+		*row = (short)MAX(0, guide.recent_count - 1);
+		guide.recent_options = FALSE;
+	}
+}
+
+static struct social_recent const *recent_chosen(void)
+{
+	short row = guide.row[SOCIAL_SECTION_RECENT];
+
+	return row >= 0 && row < guide.recent_count ? &guide.recent[row] : NULL;
+}
+
+/* a recent player's options (_recent_*): their count */
+static short recent_option_list(struct social_recent const *player, short *options)
+{
+	short count = 0;
+
+	if (!player->is_friend && !player->requested && can_add_friend(player->handle))
+		options[count++] = _recent_add;
+	options[count++] = _recent_block;
+	options[count++] = _recent_view;
+	return count;
+}
+
+static char const *recent_option_label(short option, boolean armed)
+{
+	switch (option)
+	{
+	case _recent_add: return "ADD FRIEND";
+	case _recent_block: return armed ? "CONFIRM BLOCK" : "BLOCK";
+	default: return "VIEW PROFILE";
+	}
+}
+
+/* the site's page of a profile (/u/HANDLE), in the system's browser */
+static void profile_page_open(char const *handle)
+{
+	char const *base = config_string("network.browser_url");
+	size_t length = strlen(base);
+	char url[256];
+
+	if (!social_handle_valid(handle) || !length)
+		return;
+	while (length && base[length - 1] == '/')
+		length--;
+	snprintf(url, sizeof(url), "%.*s/u/%s", (int)length, base, handle);
+	platform_log("DELTA: opening a profile page");
+	platform_open_url(url);
+}
+
+static void recent_option_run(short option)
+{
+	struct social_recent const *player = recent_chosen();
+	short options[MAXIMUM_RECENT_OPTIONS], count, index;
+	boolean has = FALSE;
+
+	if (!player)
+		return;
+	count = recent_option_list(player, options);
+	for (index = 0; index < count; index++)
+		has = has || options[index] == option;
+	if (!has)
+		return;
+	if (option == _recent_block && guide.recent_armed != option)
+	{
+		guide.recent_armed = option;
+		return;
+	}
+	guide.recent_armed = NONE;
+	switch (option)
+	{
+	case _recent_add: friend_act(BROWSER_SOCIAL_REQUEST, player->handle); break;
+	case _recent_block: friend_act(BROWSER_SOCIAL_BLOCK, player->handle); break;
+	case _recent_view: profile_page_open(player->handle); break;
+	}
+}
+
+/* A on RECENT: the chosen player's options, or the one chosen in them */
+static void recent_activate(void)
+{
+	struct social_recent const *player = recent_chosen();
+	short options[MAXIMUM_RECENT_OPTIONS], count;
+
+	if (!player)
+		return;
+	count = recent_option_list(player, options);
+	if (guide.recent_options)
+	{
+		if (guide.recent_option >= 0 && guide.recent_option < count)
+			recent_option_run(options[guide.recent_option]);
+		return;
+	}
+	guide.recent_options = TRUE;
+	guide.recent_option = 0;
+	guide.recent_armed = NONE;
+}
+
+static void recent_move(short step)
+{
+	struct social_recent const *player = recent_chosen();
+	short *row = &guide.row[SOCIAL_SECTION_RECENT];
+
+	if (guide.recent_options && player)
+	{
+		short options[MAXIMUM_RECENT_OPTIONS], count = recent_option_list(player, options);
+
+		guide.recent_option = (short)PIN(guide.recent_option + step, 0, MAX(0, count - 1));
+		guide.recent_armed = NONE;
+		return;
+	}
+	if (guide.recent_count > 0)
+		*row = (short)PIN(*row + step, 0, guide.recent_count - 1);
+	guide.recent_armed = NONE;
+	guide.message[0] = 0;
+}
+
+/* Y on RECENT: ADD FRIEND, where it is offered */
+static boolean recent_can_add(void)
+{
+	struct social_recent const *player = recent_chosen();
+	short options[MAXIMUM_RECENT_OPTIONS];
+
+	return guide.section == SOCIAL_SECTION_RECENT && friends_signed_in() && guide.friends_loaded &&
+		!guide.recent_options && player && recent_option_list(player, options) > 0 && options[0] == _recent_add;
+}
+
+/* ---------- PARTY: the site's party (browser.c), following its leader */
+
+/* a platform's number from its registry name (0: not known) */
+static int platform_number(char const *name)
+{
+	int platform;
+
+	for (platform = 1; name && name[0] && platform < NUMBER_OF_DELTA_PLATFORMS; platform++)
+	{
+		if (!strcmp(delta_peer_platform_name(platform), name))
+			return platform;
+	}
+	return 0;
+}
+
+static void party_message_set(char const *text)
+{
+	social_copy_text(guide.party_message, sizeof(guide.party_message), text);
+	guide.party_message_time = system_milliseconds();
+}
+
+/* an action on the party (browser_party_act), one at a time */
+static void party_act(char const *action, char const *value)
+{
+	struct browser_social_result result;
+
+	if (guide.party_acting)
+		return;
+	/* (a copy with no profile goes by its game name) */
+	if (!browser_party_act(action, value, guide.name))
+		return;
+	browser_party_result(&result);
+	guide.party_acting = TRUE;
+	guide.party_result_seen = result.serial;
+	guide.party_message[0] = 0;
+	guide.party_armed = NONE;
+}
+
+/* the party's own buttons, in the order they show */
+static short party_actions(short *actions)
+{
+	short count = 0;
+
+	if (!guide.party.has)
+	{
+		actions[count++] = _party_action_start;
+		actions[count++] = _party_action_join_code;
+		return count;
+	}
+	if (guide.party_member != NONE)
+	{
+		actions[count++] = _party_action_make_leader;
+		if (party_has_leader())
+			actions[count++] = _party_action_kick;
+		return count;
+	}
+	if (friends_signed_in() && guide.party.member_count < guide.party.largest)
+		actions[count++] = _party_action_invite_friends;
+	actions[count++] = _party_action_copy_link;
+	actions[count++] = _party_action_bring;
+	actions[count++] = _party_action_who;
+	if (guide.party.leader)
+		actions[count++] = _party_action_new_code;
+	else
+		actions[count++] = _party_action_follow;
+	actions[count++] = _party_action_leave;
+	return count;
+}
+
+/* PARTY's items: the members (or the party invites), then the buttons */
+static short party_items(struct party_item *items)
+{
+	short actions[8], count = 0, index, action_count = party_actions(actions);
+
+	if (guide.party.has)
+	{
+		for (index = 0; index < guide.party.member_count; index++)
+		{
+			items[count].kind = _party_item_member;
+			items[count++].index = index;
+		}
+	}
+	else
+	{
+		for (index = 0; index < friends_state.party_invite_count && guide.friends_loaded && friends_signed_in(); index++)
+		{
+			items[count].kind = _party_item_invite;
+			items[count++].index = index;
+		}
+	}
+	for (index = 0; index < action_count; index++)
+	{
+		items[count].kind = _party_item_action;
+		items[count++].index = actions[index];
+	}
+	return count;
+}
+
+static boolean party_chosen(struct party_item *item)
+{
+	struct party_item items[MAXIMUM_PARTY_ITEMS];
+	short count = party_items(items), row = guide.row[SOCIAL_SECTION_PARTY];
+
+	if (row < 0 || row >= count)
+		return FALSE;
+	*item = items[row];
+	return TRUE;
+}
+
+/* whether anyone leads the party (a leader who went quiet hands it only to
+an invited member; with none, the members choose) */
+static boolean party_has_leader(void)
+{
+	return social_party_leader(&guide.party) != NULL;
+}
+
+static char const *party_action_label(short action)
+{
+	switch (action)
+	{
+	case _party_action_invite_friends: return "INVITE FRIENDS";
+	case _party_action_copy_link: return "COPY PARTY LINK";
+	case _party_action_bring: return "BRING PARTY TO MY GAME";
+	case _party_action_who: return "WHO CAN JOIN";
+	case _party_action_new_code: return "NEW PARTY CODE";
+	case _party_action_follow: return "FOLLOW LEADER";
+	case _party_action_leave: return guide.party_armed == _party_action_leave ? "CONFIRM LEAVE" : "LEAVE PARTY";
+	case _party_action_start: return "START A PARTY";
+	case _party_action_join_code: return "JOIN WITH A CODE";
+	case _party_action_make_leader: return party_has_leader() ? "MAKE LEADER" : "CHOOSE AS LEADER";
+	default: return guide.party_armed == _party_action_kick ? "CONFIRM KICK" : "KICK";
+	}
+}
+
+/* the party's line on a member (LEADER, YOU); a member with no Delta
+profile is marked unverified (their name is only the game name they send) */
+static char const *member_note(struct social_party_member const *member)
+{
+	if (!member->handle[0])
+		return member->leader ? "Leader \xC2\xB7 Unverified" : member->you ? "You \xC2\xB7 Unverified" : "Unverified";
+	return member->leader ? "Leader" : member->you ? "You" : "";
+}
+
+/* the code picked so far (with JOIN WITH A CODE), as social.c reads it */
+static void code_pasted(void)
+{
+	char text[256], code[SOCIAL_PARTY_CODE_SIZE];
+
+	if (!platform_clipboard_get(text, sizeof(text)) || !social_party_code_clean(text, code))
+	{
+		party_message_set("No party code on the clipboard");
+		return;
+	}
+	social_copy_text(guide.code, sizeof(guide.code), code);
+	guide.code_cursor = SOCIAL_PARTY_CODE_LENGTH - 1;
+}
+
+static void code_step(short direction)
+{
+	static char const letters[] = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+	short count = (short)(sizeof(letters) - 1), at = 0;
+	char *c = &guide.code[guide.code_cursor];
+	char const *found = strchr(letters, *c);
+
+	if (*c && found)
+		at = (short)(found - letters);
+	at = (short)((at + (direction < 0 ? count - 1 : 1)) % count);
+	*c = letters[at];
+}
+
+static void code_entry_handle(unsigned int pressed)
+{
+	char code[SOCIAL_PARTY_CODE_SIZE];
+
+	if (pressed & GUIDE_INPUT_B)
+	{
+		guide.code_entry = FALSE;
+		return;
+	}
+	if (pressed & GUIDE_INPUT_UP)
+		code_step(1);
+	if (pressed & GUIDE_INPUT_DOWN)
+		code_step(-1);
+	if (pressed & GUIDE_INPUT_LEFT)
+		guide.code_cursor = (short)MAX(0, guide.code_cursor - 1);
+	if (pressed & GUIDE_INPUT_RIGHT)
+		guide.code_cursor = (short)MIN(SOCIAL_PARTY_CODE_LENGTH - 1, guide.code_cursor + 1);
+	if (pressed & GUIDE_INPUT_Y)
+		code_pasted();
+	if (pressed & GUIDE_INPUT_A)
+	{
+		if (social_party_code_clean(guide.code, code))
+		{
+			party_act("join", code);
+			guide.code_entry = FALSE;
+		}
+		else
+			party_message_set("That isn't a party code.");
+	}
+}
+
+/* A on PARTY */
+static void party_activate(void)
+{
+	struct party_item item;
+	char link[SOCIAL_PARTY_LINK_SIZE];
+
+	if (!party_chosen(&item) || guide.party_acting)
+		return;
+	if (item.kind == _party_item_member)
+	{
+		struct social_party_member const *member = &guide.party.members[item.index];
+
+		/* (the leader's options on another member; with no leader, any
+		member's choice of one, themselves too) */
+		if ((guide.party.leader && !member->you) || !party_has_leader())
+		{
+			guide.party_member = item.index;
+			guide.party_armed = NONE;
+			guide.row[SOCIAL_SECTION_PARTY] = guide.party.member_count;
+		}
+		return;
+	}
+	if (item.kind == _party_item_invite)
+	{
+		party_act("accept", friends_state.party_invites[item.index].party);
+		return;
+	}
+	switch (item.index)
+	{
+	case _party_action_invite_friends:
+		section_go(SOCIAL_SECTION_FRIENDS);
+		break;
+	case _party_action_copy_link:
+		if (social_party_link(guide.party.code, link, sizeof(link)))
+		{
+			platform_clipboard_set(link);
+			party_message_set("Link copied");
+		}
+		break;
+	case _party_action_bring:
+		config_write_boolean("delta.bring_party", !config_boolean("delta.bring_party"));
+		guide.go_sent[0] = 0;
+		break;
+	case _party_action_who:
+		if (guide.party.leader)
+			party_act("rule", social_party_rule_next(guide.party.who_can_join, 1));
+		break;
+	case _party_action_new_code:
+		if (guide.party.leader)
+		{
+			party_act("code", "");
+			party_message_set("The old code no longer works");
+		}
+		break;
+	case _party_action_follow:
+		config_write("delta.follow_leader", social_follow_mode_next(config_string("delta.follow_leader")));
+		break;
+	case _party_action_leave:
+		if (guide.party_armed != _party_action_leave)
+			guide.party_armed = _party_action_leave;
+		else
+			party_act("leave", "");
+		break;
+	case _party_action_start:
+		party_act("create", "");
+		break;
+	case _party_action_join_code:
+		guide.code_entry = TRUE;
+		guide.code_cursor = 0;
+		memset(guide.code, 0, sizeof(guide.code));
+		memset(guide.code, 'A', SOCIAL_PARTY_CODE_LENGTH);
+		guide.party_message[0] = 0;
+		break;
+	case _party_action_make_leader:
+	case _party_action_kick:
+		if (guide.party_member < 0 || guide.party_member >= guide.party.member_count)
+			break;
+		if (item.index == _party_action_kick && guide.party_armed != _party_action_kick)
+		{
+			guide.party_armed = _party_action_kick;
+			break;
+		}
+		party_act(item.index == _party_action_kick ? "kick" : "lead", guide.party.members[guide.party_member].id);
+		guide.row[SOCIAL_SECTION_PARTY] = guide.party_member;
+		guide.party_member = NONE;
+		break;
+	}
+}
+
+/* X on PARTY: a party invite declined */
+static void party_decline(void)
+{
+	struct party_item item;
+
+	if (party_chosen(&item) && item.kind == _party_item_invite)
+		party_act("decline", friends_state.party_invites[item.index].party);
+}
+
+/* LEFT and RIGHT on PARTY: between the list and the buttons */
+static void party_side(void)
+{
+	struct party_item items[MAXIMUM_PARTY_ITEMS], item;
+	short count = party_items(items), first_action = 0;
+
+	while (first_action < count && items[first_action].kind != _party_item_action)
+		first_action++;
+	if (!party_chosen(&item) || first_action == 0 || first_action >= count)
+		return;
+	guide.row[SOCIAL_SECTION_PARTY] = item.kind == _party_item_action ? 0 : first_action;
+	guide.party_armed = NONE;
+}
+
+/* the toasts, and what is said, as the party changes */
+static void party_news(struct social_party const *before)
+{
+	struct social_party_member const *leader = social_party_leader(&guide.party);
+	char line[96];
+
+	if (!before->has && guide.party.has && !guide.party.leader && leader)
+	{
+		snprintf(line, sizeof(line), "You're in %s's party", leader->name);
+		toast_from(_toast_party_note, "", "Party", line, "");
+	}
+	else if (before->has && !guide.party.has && !guide.party_acting && !guide.open)
+		toast_from(_toast_party_note, "", "Party", "You're not in a party now", "");
+}
+
+/* each frame: the party read, its tag told to the game's host, the
+leader's game told to the party, a member's following */
+static void party_update(void)
+{
+	struct browser_social_result result;
+	struct social_party before = guide.party;
+	int serial = guide.party_serial;
+	unsigned char tag[8];
+
+	browser_party_get(&guide.party, &serial);
+	if (serial != guide.party_serial)
+	{
+		guide.party_serial = serial;
+		party_news(&before);
+		if (guide.party_member >= guide.party.member_count || (!guide.party.leader && party_has_leader()))
+			guide.party_member = NONE;
+		if (!guide.party.has)
+			guide.go_sent[0] = 0;
+		/* (a new party's go is new; an older one's isn't followed again) */
+		if (!before.has || strcmp(before.id, guide.party.id))
+			guide.follow_seen = guide.party.go.has ? guide.party.go.serial : 0;
+	}
+	/* (an action's answer: a refusal's line; one a link asked for, in a
+	toast) */
+	browser_party_result(&result);
+	if (result.serial == guide.party_result_seen && guide.party_acting && result.state != BROWSER_SOCIAL_BUSY)
+	{
+		guide.party_acting = FALSE;
+		if (result.state == BROWSER_SOCIAL_REFUSED)
+			party_message_set(result.message);
+	}
+	else if (result.serial != guide.party_result_seen && result.state != BROWSER_SOCIAL_BUSY)
+	{
+		guide.party_result_seen = result.serial;
+		if (result.state == BROWSER_SOCIAL_REFUSED)
+			toast_from(_toast_party_note, "", "Party", result.message, "");
+	}
+	delta_peer_game_set_party_tag(guide.party.has && social_party_tag_bytes(guide.party.tag, tag) ? tag : NULL);
+}
+
+/* about once a second: the leader's game told to the party (with BRING PARTY
+TO MY GAME), a member's copy following it */
+static void party_where(void)
+{
+	char invite[160];
+	boolean in_network_game = network_game_get_game() != NULL;
+	struct social_follow_inputs inputs;
+	int decision;
+
+	invite[0] = 0;
+	if (in_network_game && !p2p_hosting_invite(invite, sizeof(invite)) && !p2p_joined_invite(invite, sizeof(invite)))
+		invite[0] = 0;
+	if (guide.party.has && guide.party.leader)
+	{
+		if (!in_network_game || !invite[0])
+			guide.go_sent[0] = 0;
+		else if (config_boolean("delta.bring_party") && social_presence_invite_valid(invite) &&
+			strcmp(invite, guide.go_sent))
+		{
+			social_copy_text(guide.go_sent, sizeof(guide.go_sent), invite);
+			browser_party_go(invite);
+			platform_log("Guide: the party is told where its leader went");
+		}
+		return;
+	}
+	if (guide.follow_active)
+		return;
+	memset(&inputs, 0, sizeof(inputs));
+	inputs.seen_serial = guide.follow_seen;
+	inputs.current_invite = invite;
+	inputs.mode = social_follow_mode(config_string("delta.follow_leader"));
+	inputs.hosting_others = global_network_game_server_get() && network_game_get_game() &&
+		network_game_get_game()->machine_count > 1;
+	decision = social_follow_decide(&guide.party, &inputs);
+	if (decision == SOCIAL_FOLLOW_NONE)
+		return;
+	guide.follow_seen = guide.party.go.serial;
+	if (decision == SOCIAL_FOLLOW_CANT)
+	{
+		char line[96];
+
+		social_follow_reason(&guide.party, &inputs, line, sizeof(line));
+		toast_from(_toast_party_note, "", "Party", line, "");
+		platform_log("Guide: can't follow the party's leader (%s)", guide.party.go.reason[0] ? guide.party.go.reason :
+			"hosting");
+		return;
+	}
+	if (decision != SOCIAL_FOLLOW_OFFER || virtual_keyboard_active())
+		return;
+	/* (the offer: over the Guide, which closes) */
+	if (guide.open)
+		guide_close();
+	social_copy_text(guide.follow_link, sizeof(guide.follow_link), guide.party.go.join);
+	social_follow_line(&guide.party, guide.follow_line, sizeof(guide.follow_line));
+	guide.follow_party[0] = 0;
+	guide.follow_active = TRUE;
+	guide.follow_time = system_milliseconds();
+	guide.held = 0xFFFFFFFF;
+	platform_guide_capture(TRUE);
+	event_manager_flush();
+	platform_log("Guide: following the party's leader in a few seconds");
+}
+
+static void follow_end(boolean go)
+{
+	guide.follow_active = FALSE;
+	if (!guide.open)
+		platform_guide_capture(FALSE);
+	event_manager_flush();
+	/* (a party's link: joined only on the player's word) */
+	if (guide.follow_party[0])
+	{
+		if (go)
+			party_act("join", guide.follow_party);
+		platform_log(go ? "Guide: joining a party by its link" : "Guide: the party link was not joined");
+		guide.follow_party[0] = 0;
+		return;
+	}
+	if (go)
+	{
+		struct social_party_member const *leader = social_party_leader(&guide.party);
+		char name[64];
+
+		platform_log("Guide: following the party's leader");
+		snprintf(name, sizeof(name), "%s's game", leader ? leader->name : "the leader");
+		/* (in the menus, Online Games joins it as a pasted link; in a game,
+		the link alone: the host shows under System Link) */
+		if (!browser_screen_join_link(guide.follow_link, name))
+			p2p_join_invite(guide.follow_link);
+	}
+	else
+		platform_log("Guide: stayed");
+}
+
+/* whether the offer's countdown ending joins (else the member stays): in
+a game, only with delta.follow_leader "always"; a party's link waits for
+an answer */
+static boolean follow_timeout_joins(void)
+{
+	return social_follow_timeout_joins(social_follow_mode(config_string("delta.follow_leader")), in_game()) ? TRUE :
+		FALSE;
+}
+
+static void follow_handle(unsigned int pressed)
+{
+	if (pressed & GUIDE_INPUT_B)
+		follow_end(FALSE);
+	else if (pressed & GUIDE_INPUT_A)
+		follow_end(TRUE);
+	else if (!guide.follow_party[0] && system_milliseconds() - guide.follow_time >= SOCIAL_FOLLOW_TIME)
+		follow_end(follow_timeout_joins());
+}
+
+/* a party's link opened (or on the command line): asked about first, never
+joined unseen */
+static void party_link_offer(void)
+{
+	char code[SOCIAL_PARTY_CODE_SIZE], shown[16];
+
+	if (guide.follow_active || virtual_keyboard_active() || !browser_party_take_link(code, sizeof(code)))
+		return;
+	if (guide.open)
+		guide_close();
+	social_party_code_shown(code, shown, sizeof(shown));
+	social_copy_text(guide.follow_party, sizeof(guide.follow_party), code);
+	snprintf(guide.follow_line, sizeof(guide.follow_line), "Join the party %s?", shown);
+	guide.follow_active = TRUE;
+	guide.follow_time = system_milliseconds();
+	guide.held = 0xFFFFFFFF;
+	platform_guide_capture(TRUE);
+	event_manager_flush();
+	platform_log("Guide: a party link, asking first");
+}
+
+
+/* ---------- CLAN: the profile's clan (browser.c keeps the profile; its
+roster, with handles and where each member is, comes with the friends) */
+
+static boolean clan_in(void)
+{
+	return guide.clan_loaded && clan_profile.linked && clan_profile.has_clan;
+}
+
+static boolean clan_can_invite(void)
+{
+	return clan_in() && social_clan_can_invite(clan_profile.clan.rank);
+}
+
+static void clan_act_started(void)
+{
+	guide.clan_acting = TRUE;
+	guide.message[0] = 0;
+}
+
+static void clan_item_add(short kind, short index)
+{
+	if (guide.clan_count >= MAXIMUM_CLAN_ITEMS)
+		return;
+	guide.clan_items[guide.clan_count].kind = kind;
+	guide.clan_items[guide.clan_count].index = index;
+	guide.clan_count++;
+}
+
+/* an item's key, to keep it chosen as the list changes: a member's handle
+(their name before the roster comes), an invite's clan tag, a handle out */
+static char const *clan_item_key(struct friend_item const *item)
+{
+	switch (item->kind)
+	{
+	case _clan_member:
+	{
+		struct delta_profile_clan_member const *member = &clan_profile.clan.members[item->index];
+
+		return member->handle[0] ? member->handle : member->display;
+	}
+	case _clan_invited: return clan_profile.clan_invited[item->index];
+	case _clan_invite: return clan_profile.invites[item->index].tag;
+	case _clan_action: return item->index == _clan_action_invite ? "invite" : "leave";
+	default: return "";
+	}
+}
+
+static boolean clan_item_selectable(short index)
+{
+	return index >= 0 && index < guide.clan_count && guide.clan_items[index].kind != _clan_heading;
+}
+
+static struct friend_item const *clan_chosen_item(void)
+{
+	short row = guide.row[SOCIAL_SECTION_CLAN];
+
+	return row >= 0 && row < guide.clan_count ? &guide.clan_items[row] : NULL;
+}
+
+static void clan_chosen_remember(void)
+{
+	struct friend_item const *item = clan_chosen_item();
+
+	if (!item)
+		return;
+	guide.clan_chosen_kind = item->kind;
+	social_copy_text(guide.clan_chosen_key, sizeof(guide.clan_chosen_key), clan_item_key(item));
+}
+
+static void clan_items_build(void)
+{
+	short index, found = NONE;
+	short *row = &guide.row[SOCIAL_SECTION_CLAN];
+
+	guide.clan_count = 0;
+	if (clan_in())
+	{
+		clan_item_add(_clan_heading, _clan_heading_members);
+		for (index = 0; index < clan_profile.clan.member_count; index++)
+			clan_item_add(_clan_member, index);
+		if (social_clan_can_invite(clan_profile.clan.rank) && clan_profile.clan_invited_count > 0)
+		{
+			clan_item_add(_clan_heading, _clan_heading_invited);
+			for (index = 0; index < clan_profile.clan_invited_count; index++)
+				clan_item_add(_clan_invited, index);
+		}
+		if (social_clan_can_invite(clan_profile.clan.rank))
+			clan_item_add(_clan_action, _clan_action_invite);
+		clan_item_add(_clan_action, _clan_action_leave);
+	}
+	else if (guide.clan_loaded && clan_profile.linked && clan_profile.invite_count > 0)
+	{
+		clan_item_add(_clan_heading, _clan_heading_invites);
+		for (index = 0; index < clan_profile.invite_count; index++)
+			clan_item_add(_clan_invite, index);
+	}
+	for (index = 0; index < guide.clan_count && found == NONE; index++)
+	{
+		if (clan_item_selectable(index) && guide.clan_items[index].kind == guide.clan_chosen_kind &&
+			!strcmp(clan_item_key(&guide.clan_items[index]), guide.clan_chosen_key))
+		{
+			found = index;
+		}
+	}
+	if (found != NONE)
+		*row = found;
+	else
+	{
+		if (guide.section == SOCIAL_SECTION_CLAN)
+			guide.options = FALSE;
+		*row = (short)PIN(*row, 0, MAX(0, guide.clan_count - 1));
+		while (*row > 0 && !clan_item_selectable(*row))
+			(*row)--;
+		while (*row < guide.clan_count - 1 && !clan_item_selectable(*row))
+			(*row)++;
+		clan_chosen_remember();
+	}
+}
+
+/* an item's options (_option_*): their count */
+static short clan_item_options(struct friend_item const *item, short *options)
+{
+	short count = 0;
+
+	if (item->kind == _clan_member)
+	{
+		struct delta_profile_clan_member const *member = &clan_profile.clan.members[item->index];
+
+		if (!member->you && member->handle[0] && social_clan_can_kick(clan_profile.clan.rank, member->rank))
+			options[count++] = _option_kick;
+	}
+	else if (item->kind == _clan_invite)
+	{
+		options[count++] = _option_clan_join;
+		options[count++] = _option_clan_decline;
+	}
+	return count;
+}
+
+static void clan_option_run(short option)
+{
+	struct friend_item const *item = clan_chosen_item();
+	short options[MAXIMUM_OPTIONS], count, index;
+	boolean found = FALSE;
+
+	if (!item || guide.clan_acting)
+		return;
+	count = clan_item_options(item, options);
+	for (index = 0; index < count; index++)
+		found |= options[index] == option;
+	if (!found)
+		return;
+	/* (KICK takes a second press) */
+	if (option == _option_kick && guide.armed != option)
+	{
+		guide.armed = option;
+		return;
+	}
+	guide.armed = NONE;
+	if (option == _option_kick)
+	{
+		if (browser_profile_clan_member("kick", clan_profile.clan.members[item->index].handle))
+			clan_act_started();
+	}
+	else
+	{
+		browser_profile_clan(option == _option_clan_join ? "accept" : "decline", clan_profile.invites[item->index].id);
+		clan_act_started();
+	}
+}
+
+/* A on CLAN: the chosen item's options, INVITE FRIENDS, LEAVE CLAN */
+static void clan_activate(void)
+{
+	struct friend_item const *item = clan_chosen_item();
+	short options[MAXIMUM_OPTIONS], count;
+
+	if (!item)
+		return;
+	if (guide.options)
+	{
+		count = clan_item_options(item, options);
+		if (guide.option >= 0 && guide.option < count)
+			clan_option_run(options[guide.option]);
+		return;
+	}
+	if (item->kind == _clan_action)
+	{
+		if (item->index == _clan_action_invite)
+		{
+			/* (FRIENDS, where a friend has INVITE TO CLAN) */
+			guide.section = SOCIAL_SECTION_FRIENDS;
+			guide.first_row = 0;
+			guide.armed = NONE;
+			return;
+		}
+		/* (LEAVE CLAN takes a second press) */
+		if (guide.armed != ARMED_LEAVE)
+		{
+			guide.armed = ARMED_LEAVE;
+			return;
+		}
+		guide.armed = NONE;
+		if (!guide.clan_acting)
+		{
+			browser_profile_clan("leave", 0);
+			clan_act_started();
+		}
+		return;
+	}
+	if (clan_item_options(item, options) > 0)
+	{
+		guide.options = TRUE;
+		guide.option = 0;
+		guide.armed = NONE;
+	}
+}
+
+static void clan_move(short step)
+{
+	short *row = &guide.row[SOCIAL_SECTION_CLAN];
+	short next = *row;
+	struct friend_item const *item = clan_chosen_item();
+
+	if (guide.options && item)
+	{
+		short options[MAXIMUM_OPTIONS], count = clan_item_options(item, options);
+
+		guide.option = (short)PIN(guide.option + step, 0, MAX(0, count - 1));
+		guide.armed = NONE;
+		return;
+	}
+	do
+		next = (short)(next + step);
+	while (next > 0 && next < guide.clan_count && !clan_item_selectable(next));
+	if (clan_item_selectable(next))
+	{
+		*row = next;
+		guide.armed = NONE;
+		guide.message[0] = 0;
+		clan_chosen_remember();
+	}
+}
+
+/* the profile looked at (often while the Guide is open or an action is
+out, now and then while it's closed, for the pause row's count): a new one,
+the items again; an action's answer, its line */
+static void clan_update(void)
+{
+	struct browser_profile_status status;
+	unsigned long now = system_milliseconds();
+	unsigned long interval = guide.open || guide.clan_acting ? CLAN_LOOK_INTERVAL : CLAN_LOOK_CLOSED;
+
+	if (guide.clan_time && now - guide.clan_time < interval)
+		return;
+	guide.clan_time = now ? now : 1;
+	browser_profile_get(&status, &clan_profile);
+	guide.clan_state = status.state;
+	if (status.serial != guide.clan_serial || guide.clan_loaded != (status.has_profile != 0))
+	{
+		guide.clan_serial = status.serial;
+		guide.clan_loaded = status.has_profile != 0;
+		clan_items_build();
+	}
+	if (!guide.clan_acting || status.action == BROWSER_PROFILE_ACTION_WORKING)
+		return;
+	guide.clan_acting = FALSE;
+	if (status.message[0])
+		message_set(status.message);
+	if (guide.section == SOCIAL_SECTION_CLAN)
+		guide.options = FALSE;
+	browser_profile_action_seen();
+}
+
+/* the clans' invites waiting (the pause row's count) */
+static short clan_invites_waiting(void)
+{
+	return guide.clan_loaded && clan_profile.linked && !clan_profile.has_clan ? (short)clan_profile.invite_count : 0;
+}
+
 /* ---------- the sections' rows */
 
 static short section_rows(short section)
@@ -1162,9 +2635,23 @@ static short section_rows(short section)
 		return (short)guide.players.count;
 	case SOCIAL_SECTION_SETTINGS:
 		return settings_rows();
+	case SOCIAL_SECTION_PARTY:
+	{
+		struct party_item items[MAXIMUM_PARTY_ITEMS];
+
+		return party_items(items);
+	}
 	case SOCIAL_SECTION_FRIENDS:
 		if (friends_signed_in())
 			return guide.friends_loaded ? guide.item_count : 0;
+		return sign_in_section() != NONE ? 1 : 0;
+	case SOCIAL_SECTION_RECENT:
+		if (friends_signed_in())
+			return guide.friends_loaded ? guide.recent_count : 0;
+		return sign_in_section() != NONE ? 1 : 0;
+	case SOCIAL_SECTION_CLAN:
+		if (friends_signed_in())
+			return guide.clan_loaded ? guide.clan_count : 0;
 		return sign_in_section() != NONE ? 1 : 0;
 	default:
 		/* (SIGN IN, without a Delta profile) */
@@ -1178,6 +2665,14 @@ static void section_go(short section)
 	guide.first_row = 0;
 	guide.options = FALSE;
 	guide.armed = NONE;
+	guide.recent_options = FALSE;
+	guide.recent_armed = NONE;
+	guide.party_member = NONE;
+	guide.party_armed = NONE;
+	guide.code_entry = FALSE;
+	/* (a report left half-made is dropped) */
+	while (report_player_step() != _report_step_none)
+		report_player_back();
 }
 
 /* A on the chosen row */
@@ -1188,7 +2683,7 @@ static void activate(void)
 	switch (guide.section)
 	{
 	case SOCIAL_SECTION_PLAYERS_HERE:
-		player_mute_toggle(row);
+		players_activate(row);
 		return;
 	case SOCIAL_SECTION_SETTINGS:
 		if (row >= settings_count())
@@ -1196,11 +2691,30 @@ static void activate(void)
 		else
 			setting_change(row, 1);
 		return;
+	case SOCIAL_SECTION_PARTY:
+		party_activate();
+		return;
 	case SOCIAL_SECTION_FRIENDS:
 		if (friends_signed_in())
 		{
 			if (guide.friends_loaded)
 				friends_activate();
+			return;
+		}
+		break;
+	case SOCIAL_SECTION_RECENT:
+		if (friends_signed_in())
+		{
+			if (guide.friends_loaded)
+				recent_activate();
+			return;
+		}
+		break;
+	case SOCIAL_SECTION_CLAN:
+		if (friends_signed_in())
+		{
+			if (guide.clan_loaded)
+				clan_activate();
 			return;
 		}
 		break;
@@ -1222,7 +2736,29 @@ static void move(short step)
 		friends_move(step);
 		return;
 	}
+	if (guide.section == SOCIAL_SECTION_RECENT && friends_signed_in())
+	{
+		recent_move(step);
+		return;
+	}
+	/* (in a player's options or a report: its choices) */
+	if (guide.section == SOCIAL_SECTION_PLAYERS_HERE && guide.options)
+	{
+		short kinds[MAXIMUM_PLAYER_OPTIONS];
+		char labels[MAXIMUM_PLAYER_OPTIONS][REPORT_PLAYER_CHOICE_SIZE];
+		short count = player_choices(*row, kinds, labels);
+
+		if (count > 0)
+			guide.option = (short)PIN(guide.option + step, 0, count - 1);
+		return;
+	}
+	if (guide.section == SOCIAL_SECTION_CLAN && friends_signed_in())
+	{
+		clan_move(step);
+		return;
+	}
 	*row = (short)PIN(*row + step, 0, rows - 1);
+	guide.party_armed = NONE;
 }
 
 /* what was just pressed (and a d-pad held, again and again) */
@@ -1374,8 +2910,35 @@ static void render_players(void)
 			ui_overlay_platform(row->platform, 13.0f, x + width - 18, BODY_Y + 12, COLOR_LABEL, 0);
 		if (row->status[0])
 			ui_style_text(row->muted ? UI_TEXT_WARNING : UI_TEXT_LINE, x + 12, BODY_Y + 32, UI_ALIGN_LEFT, row->status);
-		if (row->actions & SOCIAL_ACTION_MUTE)
-			render_action(row->muted ? "UNMUTE" : "MUTE", x + 12, BODY_Y + 54, width - 24, TRUE, COLOR_VALUE, 0);
+		/* (its options, or a report's step: A on the row opens them) */
+		{
+			short kinds[MAXIMUM_PLAYER_OPTIONS];
+			char labels[MAXIMUM_PLAYER_OPTIONS][REPORT_PLAYER_CHOICE_SIZE];
+			short choices = player_choices(chosen, kinds, labels), index;
+			float option_y = BODY_Y + 54;
+			char const *message = report_player_message();
+
+			if (report_player_step() != _report_step_none)
+			{
+				ui_style_text(UI_TEXT_HEADING, x + 12, option_y, UI_ALIGN_LEFT, report_player_title());
+				option_y += 20;
+			}
+			for (index = 0; index < choices; index++)
+			{
+				boolean on = guide.options && index == guide.option;
+
+				ui_style_row(x + 12, option_y, width - 24, OPTION_HEIGHT, on);
+				ui_overlay_text(UI_FONT_MENU, 10.0f, x + 22, option_y + 7, UI_ALIGN_LEFT, COLOR_VALUE, labels[index]);
+				target_add(x + 12, option_y, x + width - 12, option_y + OPTION_HEIGHT, _target_option, index);
+				option_y += OPTION_HEIGHT + OPTION_GAP;
+			}
+			if (guide.acting)
+				ui_style_text(UI_TEXT_LINE, x + 12, option_y + 4, UI_ALIGN_LEFT, "Sending");
+			else if (message[0])
+				ui_style_text(UI_TEXT_LINE, x + 12, option_y + 4, UI_ALIGN_LEFT, message);
+			else if (guide.message[0] && system_milliseconds() - guide.message_time < MESSAGE_TIME)
+				ui_style_text(UI_TEXT_WARNING, x + 12, option_y + 4, UI_ALIGN_LEFT, guide.message);
+		}
 	}
 }
 
@@ -1490,7 +3053,7 @@ static void render_friend_detail(struct friend_item const *item)
 	if (line[0])
 		ui_style_text(UI_TEXT_LABEL, x + 12, BODY_Y + 48, UI_ALIGN_LEFT, line);
 	count = item_options(item, options);
-	busy = guide.acting;
+	busy = guide.acting || guide.clan_acting;
 	y = BODY_Y + 68;
 	for (index = 0; index < count; index++)
 	{
@@ -1565,6 +3128,291 @@ static void render_friends(void)
 		render_friend_detail(&guide.items[chosen]);
 }
 
+
+/* the clan's emblem, size square at x, y (its pixels made again only when
+it changes) */
+static void render_emblem(float x, float y, float size)
+{
+	int const *fields = clan_profile.clan.emblem;
+	struct clan_emblem emblem;
+	int serial;
+
+	emblem.foreground = fields[0];
+	emblem.background = fields[1];
+	emblem.primary = fields[2];
+	emblem.secondary = fields[3];
+	emblem.background_color = fields[4];
+	serial = clan_emblem_serial(&emblem);
+	if (!guide.emblem_pixels)
+	{
+		guide.emblem_pixels = malloc(EMBLEM_PIXELS * EMBLEM_PIXELS * 4);
+		if (!guide.emblem_pixels)
+			return;
+		guide.emblem_serial = 0;
+	}
+	if (serial != guide.emblem_serial)
+	{
+		clan_emblem_render(&emblem, EMBLEM_PIXELS, guide.emblem_pixels);
+		guide.emblem_serial = serial;
+	}
+	ui_overlay_picture(serial, guide.emblem_pixels, EMBLEM_PIXELS, EMBLEM_PIXELS, x, y, size, size, 0xFFFFFFFF);
+}
+
+/* a CLAN item's row as the list draws it */
+static void clan_item_row(struct friend_item const *item, struct social_row *row)
+{
+	csmemset(row, 0, sizeof(*row));
+	switch (item->kind)
+	{
+	case _clan_member:
+	{
+		struct delta_profile_clan_member const *member = &clan_profile.clan.members[item->index];
+
+		social_copy_text(row->tag, sizeof(row->tag), social_name(member->display, member->handle));
+		social_clan_status(member->rank, member->you, member->online, member->playing, &member->game, row->status,
+			sizeof(row->status));
+		row->state = member->playing ? SOCIAL_STATE_IN_GAME : member->you || member->online ? SOCIAL_STATE_ONLINE :
+			SOCIAL_STATE_OFFLINE;
+		break;
+	}
+	case _clan_invited:
+		social_copy_text(row->tag, sizeof(row->tag), clan_profile.clan_invited[item->index]);
+		social_copy_text(row->status, sizeof(row->status), "Invited");
+		row->state = -1;
+		break;
+	case _clan_invite:
+	{
+		struct delta_profile_invite const *invite = &clan_profile.invites[item->index];
+
+		snprintf(row->tag, sizeof(row->tag), "[%s] %s", invite->tag, invite->name);
+		snprintf(row->status, sizeof(row->status), invite->count == 1 ? "%d member" : "%d members", invite->count);
+		row->state = -1;
+		break;
+	}
+	}
+}
+
+/* the clan's card in the detail pane: its emblem, tag and name, motto and
+members */
+static float render_clan_card(float x, float width)
+{
+	char line[SOCIAL_STATUS_SIZE];
+	float size = 48;
+
+	render_emblem(x + width - size - 12, BODY_Y + 12, size);
+	snprintf(line, sizeof(line), "[%s]", clan_profile.clan.tag);
+	ui_style_text(UI_TEXT_TITLE, x + 12, BODY_Y + 12, UI_ALIGN_LEFT, line);
+	ui_style_text(UI_TEXT_NAME, x + 12, BODY_Y + 32, UI_ALIGN_LEFT, clan_profile.clan.name);
+	if (clan_profile.clan.motto[0])
+		ui_style_text(UI_TEXT_LINE, x + 12, BODY_Y + 48, UI_ALIGN_LEFT, clan_profile.clan.motto);
+	snprintf(line, sizeof(line), clan_profile.clan.count == 1 ? "%d member" : "%d members", clan_profile.clan.count);
+	ui_style_text(UI_TEXT_LABEL, x + 12, BODY_Y + 66, UI_ALIGN_LEFT, line);
+	return BODY_Y + 88;
+}
+
+static void render_clan_detail(struct friend_item const *item)
+{
+	struct social_row row;
+	float x = DETAIL_LEFT, width = CONTENT_RIGHT - DETAIL_LEFT, y;
+	short options[MAXIMUM_OPTIONS], count = 0, index;
+
+	ui_style_glass(x, BODY_Y, width, BODY_BOTTOM - BODY_Y, 8, ui_style_color(UI_COLOR_PANE), COLOR_ROW_EDGE);
+	/* (the clan's card: on its actions, and on the player's own line) */
+	if (!item || item->kind == _clan_action ||
+		(item->kind == _clan_member && clan_profile.clan.members[item->index].you))
+	{
+		y = clan_in() ? render_clan_card(x, width) : BODY_Y + 12;
+	}
+	else
+	{
+		clan_item_row(item, &row);
+		ui_style_text(UI_TEXT_TITLE, x + 12, BODY_Y + 12, UI_ALIGN_LEFT, row.tag);
+		if (row.status[0])
+			ui_style_text(UI_TEXT_LINE, x + 12, BODY_Y + 32, UI_ALIGN_LEFT, row.status);
+		if (item->kind == _clan_member && clan_profile.clan.members[item->index].handle[0])
+		{
+			char handle[SOCIAL_HANDLE_SIZE + 2];
+
+			snprintf(handle, sizeof(handle), "@%s", clan_profile.clan.members[item->index].handle);
+			ui_style_text(UI_TEXT_LABEL, x + 12, BODY_Y + 48, UI_ALIGN_LEFT, handle);
+		}
+		count = clan_item_options(item, options);
+		y = BODY_Y + 68;
+	}
+	for (index = 0; index < count; index++)
+	{
+		boolean on = guide.options && index == guide.option;
+
+		ui_style_row(x + 12, y, width - 24, OPTION_HEIGHT, on);
+		ui_overlay_text(UI_FONT_MENU, 10.0f, x + 22, y + 7, UI_ALIGN_LEFT,
+			guide.clan_acting ? fade(COLOR_VALUE, 0.5f) : COLOR_VALUE, option_label(options[index], guide.armed == options[index]));
+		target_add(x + 12, y, x + width - 12, y + OPTION_HEIGHT, _target_option, index);
+		y += OPTION_HEIGHT + OPTION_GAP;
+	}
+	if (guide.clan_acting)
+		ui_style_text(UI_TEXT_LINE, x + 12, y + 4, UI_ALIGN_LEFT, "Sending");
+	else if (guide.message[0] && system_milliseconds() - guide.message_time < MESSAGE_TIME)
+		ui_style_text(UI_TEXT_WARNING, x + 12, y + 4, UI_ALIGN_LEFT, guide.message);
+}
+
+static void render_clan(void)
+{
+	short index, chosen = guide.row[SOCIAL_SECTION_CLAN];
+	float y = BODY_Y, center = (CONTENT_LEFT + CONTENT_RIGHT) * 0.5f;
+	char heading[48];
+
+	if (!guide.clan_loaded)
+	{
+		ui_style_text(UI_TEXT_LINE, center, (BODY_Y + BODY_BOTTOM) * 0.5f - 6, UI_ALIGN_CENTER,
+			guide.clan_state == BROWSER_PROFILE_FAILED ? "Can't reach the site" : "Loading");
+		return;
+	}
+	if (!guide.clan_count)
+	{
+		char page[160];
+		unsigned char modules[BROWSER_CONNECT_QR_SIZE * BROWSER_CONNECT_QR_SIZE];
+
+		ui_style_text(UI_TEXT_LINE, center, (BODY_Y + BODY_BOTTOM) * 0.5f - 16, UI_ALIGN_CENTER, "No clan");
+		if (browser_page_qr("/clans", page, sizeof(page), modules) > 0)
+		{
+			char line[200];
+
+			snprintf(line, sizeof(line), "Start one at %s", page);
+			ui_style_text(UI_TEXT_LABEL, center, (BODY_Y + BODY_BOTTOM) * 0.5f + 4, UI_ALIGN_CENTER, line);
+		}
+		return;
+	}
+	/* (the chosen item in view, as FRIENDS scrolls) */
+	if (guide.first_row > chosen)
+		guide.first_row = chosen;
+	if (guide.first_row == chosen && chosen > 0 && guide.clan_items[chosen - 1].kind == _clan_heading)
+		guide.first_row = (short)(chosen - 1);
+	for (;;)
+	{
+		float used = 0;
+
+		for (index = guide.first_row; index <= chosen && index < guide.clan_count; index++)
+			used += item_height(guide.clan_items[index].kind == _clan_heading ? _item_heading : _item_friend);
+		if (used <= BODY_BOTTOM - BODY_Y + ROW_GAP || guide.first_row >= chosen)
+			break;
+		guide.first_row++;
+	}
+	for (index = guide.first_row; index < guide.clan_count; index++)
+	{
+		struct friend_item const *item = &guide.clan_items[index];
+		float height = item_height(item->kind == _clan_heading ? _item_heading : _item_friend);
+		boolean on = index == chosen && !guide.options;
+
+		if (y + height - (item->kind == _clan_heading ? 0 : ROW_GAP) > BODY_BOTTOM)
+			break;
+		if (item->kind == _clan_heading)
+		{
+			if (item->index == _clan_heading_members)
+				snprintf(heading, sizeof(heading), "MEMBERS (%d)", clan_profile.clan.count);
+			else if (item->index == _clan_heading_invited)
+				snprintf(heading, sizeof(heading), "INVITES OUT (%d)", clan_profile.clan_invited_count);
+			else
+				snprintf(heading, sizeof(heading), "CLAN INVITES (%d)", clan_profile.invite_count);
+			ui_style_text(UI_TEXT_HEADING, CONTENT_LEFT, y + 2, UI_ALIGN_LEFT, heading);
+		}
+		else if (item->kind == _clan_action)
+		{
+			boolean leave = item->index == _clan_action_leave;
+
+			ui_style_row(CONTENT_LEFT, y, LIST_WIDTH, ROW_HEIGHT, on);
+			ui_overlay_text(UI_FONT_MENU, 10.0f, CONTENT_LEFT + 12, y + (ROW_HEIGHT - 10.0f) * 0.5f, UI_ALIGN_LEFT,
+				leave && guide.armed == ARMED_LEAVE ? COLOR_MUTED : COLOR_VALUE,
+				!leave ? "INVITE FRIENDS" : guide.armed == ARMED_LEAVE ? "CONFIRM LEAVE" : "LEAVE CLAN");
+			target_add(CONTENT_LEFT, y, CONTENT_LEFT + LIST_WIDTH, y + ROW_HEIGHT, _target_row, index);
+		}
+		else
+		{
+			struct social_row row;
+
+			clan_item_row(item, &row);
+			render_row(&row, CONTENT_LEFT, y, LIST_WIDTH, on, index);
+		}
+		y += height;
+	}
+	render_clan_detail(clan_chosen_item());
+}
+
+/* RECENT: the players, newest first; the chosen one's panel and options */
+static void render_recent(void)
+{
+	short count = guide.recent_count, visible, index, chosen = guide.row[SOCIAL_SECTION_RECENT];
+	float y = BODY_Y + 16, x = DETAIL_LEFT, width = CONTENT_RIGHT - DETAIL_LEFT;
+	long long now = (long long)time(NULL);
+	char heading[48];
+
+	if (!guide.friends_loaded)
+	{
+		ui_style_text(UI_TEXT_LINE, (CONTENT_LEFT + CONTENT_RIGHT) * 0.5f, (BODY_Y + BODY_BOTTOM) * 0.5f - 6,
+			UI_ALIGN_CENTER, guide.friends_status == BROWSER_SOCIAL_FAILED ? "Can't reach the site" : "Loading");
+		return;
+	}
+	if (!count)
+	{
+		ui_style_text(UI_TEXT_LINE, CONTENT_LEFT + LIST_WIDTH * 0.5f, (BODY_Y + BODY_BOTTOM) * 0.5f - 6, UI_ALIGN_CENTER,
+			"No recent players");
+		return;
+	}
+	snprintf(heading, sizeof(heading), "RECENT PLAYERS (%d)", count);
+	ui_style_text(UI_TEXT_HEADING, CONTENT_LEFT, BODY_Y, UI_ALIGN_LEFT, heading);
+	visible = (short)((BODY_BOTTOM - y + ROW_GAP) / (ROW_HEIGHT + ROW_GAP));
+	if (chosen < guide.first_row)
+		guide.first_row = chosen;
+	else if (chosen >= guide.first_row + visible)
+		guide.first_row = (short)(chosen - visible + 1);
+	for (index = guide.first_row; index < count && index < guide.first_row + visible; index++)
+	{
+		struct social_recent const *player = &guide.recent[index];
+		struct social_row row;
+
+		csmemset(&row, 0, sizeof(row));
+		social_copy_text(row.tag, sizeof(row.tag), social_name(player->display, player->handle));
+		social_recent_status(player, now, row.status, sizeof(row.status));
+		/* (no dot: who's online is for friends) */
+		row.state = -1;
+		render_row(&row, CONTENT_LEFT, y, LIST_WIDTH, index == chosen && !guide.recent_options, index);
+		y += ROW_HEIGHT + ROW_GAP;
+	}
+	/* the chosen player: their name, the last game, and the options */
+	if (chosen >= 0 && chosen < count)
+	{
+		struct social_recent const *player = &guide.recent[chosen];
+		short options[MAXIMUM_RECENT_OPTIONS], option_count = recent_option_list(player, options);
+		char line[SOCIAL_STATUS_SIZE];
+
+		ui_style_glass(x, BODY_Y, width, BODY_BOTTOM - BODY_Y, 8, ui_style_color(UI_COLOR_PANE), COLOR_ROW_EDGE);
+		ui_style_text(UI_TEXT_TITLE, x + 12, BODY_Y + 12, UI_ALIGN_LEFT, social_name(player->display, player->handle));
+		social_recent_status(player, now, line, sizeof(line));
+		if (line[0])
+			ui_style_text(UI_TEXT_LINE, x + 12, BODY_Y + 32, UI_ALIGN_LEFT, line);
+		if (player->is_friend)
+			ui_style_text(UI_TEXT_LABEL, x + 12, BODY_Y + 48, UI_ALIGN_LEFT, "Friend");
+		else if (player->requested)
+			ui_style_text(UI_TEXT_LABEL, x + 12, BODY_Y + 48, UI_ALIGN_LEFT, "Request sent");
+		y = BODY_Y + 68;
+		for (index = 0; index < option_count; index++)
+		{
+			boolean on = guide.recent_options && index == guide.recent_option;
+			unsigned int color = options[index] == _recent_block && guide.recent_armed == _recent_block ? COLOR_MUTED :
+				COLOR_VALUE;
+
+			ui_style_row(x + 12, y, width - 24, OPTION_HEIGHT, on);
+			ui_overlay_text(UI_FONT_MENU, 10.0f, x + 22, y + 7, UI_ALIGN_LEFT, guide.acting ? fade(color, 0.5f) : color,
+				recent_option_label(options[index], guide.recent_armed == options[index]));
+			target_add(x + 12, y, x + width - 12, y + OPTION_HEIGHT, _target_option, index);
+			y += OPTION_HEIGHT + OPTION_GAP;
+		}
+		if (guide.acting)
+			ui_style_text(UI_TEXT_LINE, x + 12, y + 4, UI_ALIGN_LEFT, "Sending");
+		else if (guide.message[0] && system_milliseconds() - guide.message_time < MESSAGE_TIME)
+			ui_style_text(UI_TEXT_WARNING, x + 12, y + 4, UI_ALIGN_LEFT, guide.message);
+	}
+}
+
 static void render_settings(void)
 {
 	struct settings_row const *row;
@@ -1591,6 +3439,244 @@ static void render_settings(void)
 	}
 	if (guide.message[0] && system_milliseconds() - guide.message_time < MESSAGE_TIME)
 		ui_style_text(UI_TEXT_LINE, CONTENT_LEFT + 12, y + 4, UI_ALIGN_LEFT, guide.message);
+}
+
+enum
+{
+	PARTY_ROW_HEIGHT = 28,
+	PARTY_ROW_GAP = 3,
+	PARTY_SLOTS_HEIGHT = 26,
+	COLOR_LEAVE = 0xFF9F9FFF,
+};
+
+/* JOIN WITH A CODE: the six letters, the one being picked lit */
+static void render_code_entry(float x, float y, float width)
+{
+	float box = 26, gap = 6, dash = 10, left;
+	short index;
+
+	ui_style_text(UI_TEXT_LABEL, x, y, UI_ALIGN_LEFT, "PARTY CODE");
+	y += 20;
+	left = x + (width - (box * SOCIAL_PARTY_CODE_LENGTH + gap * (SOCIAL_PARTY_CODE_LENGTH - 2) + dash)) * 0.5f;
+	for (index = 0; index < SOCIAL_PARTY_CODE_LENGTH; index++)
+	{
+		char letter[2];
+
+		letter[0] = guide.code[index] ? guide.code[index] : ' ';
+		letter[1] = 0;
+		ui_style_row(left, y, box, 30, index == guide.code_cursor);
+		ui_overlay_text(UI_FONT_MENU, 14.0f, left + box * 0.5f, y + 8, UI_ALIGN_CENTER, COLOR_VALUE, letter);
+		left += box + (index == 2 ? dash : gap);
+		if (index == 2)
+			ui_overlay_text(UI_FONT_MENU, 14.0f, left - dash * 0.5f - gap * 0.5f, y + 8, UI_ALIGN_CENTER, COLOR_LABEL, "-");
+	}
+}
+
+/* the party's link (halo://party/CODE) as a QR code, made once a code */
+static void render_party_qr(float left, float top)
+{
+	char link[SOCIAL_PARTY_LINK_SIZE];
+	float module;
+	short x, y, run, size;
+
+	if (strcmp(guide.qr_code, guide.party.code))
+	{
+		social_copy_text(guide.qr_code, sizeof(guide.qr_code), guide.party.code);
+		guide.qr_size = social_party_link(guide.party.code, link, sizeof(link)) ? browser_text_qr(link, guide.qr) : 0;
+	}
+	size = (short)guide.qr_size;
+	if (size <= 0 || top + PARTY_QR_WIDTH > BODY_BOTTOM)
+		return;
+	/* (dark on white, with the quiet edge readers need) */
+	module = (float)PARTY_QR_WIDTH / (size + 8);
+	ui_overlay_rect(left, top, PARTY_QR_WIDTH, PARTY_QR_WIDTH, 4, 0xFFFFFFFF);
+	for (y = 0; y < size; y++)
+	{
+		for (x = 0; x < size; x = (short)(x + run))
+		{
+			for (run = 0; x + run < size && guide.qr[y * size + x + run] == guide.qr[y * size + x]; run++)
+				;
+			if (guide.qr[y * size + x])
+			{
+				ui_overlay_rect(left + (x + 4) * module, top + (y + 4) * module, run * module + 0.3f, module + 0.3f, 0,
+					0x0A1A33FF);
+			}
+		}
+	}
+}
+
+static void render_party(void)
+{
+	struct party_item items[MAXIMUM_PARTY_ITEMS];
+	short count = party_items(items), index, chosen = guide.row[SOCIAL_SECTION_PARTY];
+	float y = BODY_Y, x = DETAIL_LEFT, width = CONTENT_RIGHT - DETAIL_LEFT, action_y = BODY_Y + 18;
+	char text[96], code[16];
+	boolean any_list = FALSE;
+
+	if (chosen >= count)
+		chosen = guide.row[SOCIAL_SECTION_PARTY] = (short)MAX(0, count - 1);
+	/* (the list: the members, or the party invites) */
+	if (guide.party.has)
+	{
+		snprintf(text, sizeof(text), "YOUR PARTY (%d OF %d)", guide.party.member_count, guide.party.largest);
+		ui_style_text(UI_TEXT_HEADING, CONTENT_LEFT, y, UI_ALIGN_LEFT, text);
+	}
+	else if (friends_state.party_invite_count && guide.friends_loaded && friends_signed_in())
+		ui_style_text(UI_TEXT_HEADING, CONTENT_LEFT, y, UI_ALIGN_LEFT, "PARTY INVITES");
+	y += 18;
+	for (index = 0; index < count; index++)
+	{
+		struct social_row row;
+		boolean on = index == chosen && !guide.code_entry;
+
+		if (items[index].kind == _party_item_action)
+			continue;
+		any_list = TRUE;
+		csmemset(&row, 0, sizeof(row));
+		if (items[index].kind == _party_item_member)
+		{
+			struct social_party_member const *member = &guide.party.members[items[index].index];
+
+			social_copy_text(row.tag, sizeof(row.tag), member->name);
+			social_copy_text(row.status, sizeof(row.status), member_note(member));
+			row.platform = platform_number(member->platform);
+			row.state = SOCIAL_STATE_ONLINE;
+			on = on || (guide.party_member == items[index].index);
+		}
+		else
+		{
+			struct social_party_invite const *invite = &friends_state.party_invites[items[index].index];
+
+			social_copy_text(row.tag, sizeof(row.tag), social_name(invite->display, invite->from));
+			snprintf(row.status, sizeof(row.status), "Party of %d", invite->size);
+			row.state = -1;
+		}
+		ui_style_row(CONTENT_LEFT, y, LIST_WIDTH, PARTY_ROW_HEIGHT, on);
+		if (row.state >= 0)
+			ui_overlay_rect(CONTENT_LEFT + 9, y + PARTY_ROW_HEIGHT * 0.5f - 3, 6, 6, 3, dot_color(row.state));
+		ui_style_text(UI_TEXT_NAME, CONTENT_LEFT + 22, y + 2, UI_ALIGN_LEFT, row.tag);
+		if (row.status[0])
+			ui_style_text(UI_TEXT_STATUS, CONTENT_LEFT + 22, y + 15, UI_ALIGN_LEFT, row.status);
+		if (row.platform > 0)
+		{
+			ui_overlay_platform(row.platform, 11.0f, CONTENT_LEFT + LIST_WIDTH - 14, y + (PARTY_ROW_HEIGHT - 11.0f) * 0.5f,
+				COLOR_LABEL, 0);
+		}
+		target_add(CONTENT_LEFT, y, CONTENT_LEFT + LIST_WIDTH, y + PARTY_ROW_HEIGHT, _target_row, index);
+		y += PARTY_ROW_HEIGHT + PARTY_ROW_GAP;
+	}
+	/* (the open slots, and the code that lets players in) */
+	if (guide.party.has && guide.party.member_count < guide.party.largest)
+	{
+		int open = guide.party.largest - guide.party.member_count;
+
+		social_party_code_shown(guide.party.code, code, sizeof(code));
+		if (!strcmp(guide.party.who_can_join, "invite"))
+			snprintf(text, sizeof(text), "%d open slot%s \xC2\xB7 Invite only", open, open == 1 ? "" : "s");
+		else
+			snprintf(text, sizeof(text), "%d open slot%s \xC2\xB7 Party code %s", open, open == 1 ? "" : "s", code);
+		ui_style_glass(CONTENT_LEFT, y, LIST_WIDTH, PARTY_SLOTS_HEIGHT, 8, ui_style_color(UI_COLOR_PANE), COLOR_ROW_EDGE);
+		ui_style_text(UI_TEXT_LABEL, CONTENT_LEFT + 12, y + (PARTY_SLOTS_HEIGHT - ui_style_text_size(UI_TEXT_LABEL)) * 0.5f,
+			UI_ALIGN_LEFT, text);
+	}
+	else if (!any_list && !guide.party.has)
+	{
+		ui_style_text(UI_TEXT_LINE, CONTENT_LEFT + LIST_WIDTH * 0.5f, (BODY_Y + BODY_BOTTOM) * 0.5f - 6, UI_ALIGN_CENTER,
+			"Not in a party");
+	}
+
+	/* (the buttons, or the code being picked) */
+	if (guide.party_member != NONE && guide.party_member < guide.party.member_count)
+		ui_style_text(UI_TEXT_HEADING, x, BODY_Y, UI_ALIGN_LEFT, guide.party.members[guide.party_member].name);
+	else
+		ui_style_text(UI_TEXT_HEADING, x, BODY_Y, UI_ALIGN_LEFT, "PARTY");
+	if (guide.code_entry)
+	{
+		render_code_entry(x, action_y, width);
+		action_y += 64;
+	}
+	else
+	{
+		for (index = 0; index < count; index++)
+		{
+			short action = items[index].index;
+			boolean on = index == chosen;
+			unsigned int color = action == _party_action_leave ? COLOR_LEAVE : COLOR_VALUE;
+			char const *value = NULL;
+
+			if (items[index].kind != _party_item_action)
+				continue;
+			if (action == _party_action_bring)
+				value = config_boolean("delta.bring_party") ? "ON" : "OFF";
+			else if (action == _party_action_follow)
+			{
+				int mode = social_follow_mode(config_string("delta.follow_leader"));
+
+				value = mode == SOCIAL_FOLLOW_ALWAYS ? "ALWAYS" : mode == SOCIAL_FOLLOW_NEVER ? "NEVER" : "ASK";
+			}
+			else if (action == _party_action_who)
+			{
+				value = social_party_rule_shown(guide.party.who_can_join);
+				/* (the leader's to change) */
+				if (!guide.party.leader)
+					color = fade(color, 0.55f);
+			}
+			if (guide.party_acting)
+				color = fade(color, 0.5f);
+			ui_style_row(x, action_y, width, OPTION_HEIGHT, on);
+			ui_overlay_text(UI_FONT_MENU, 10.0f, x + 10, action_y + 7, UI_ALIGN_LEFT, color, party_action_label(action));
+			if (value)
+				ui_overlay_text(UI_FONT_MENU, 10.0f, x + width - 10, action_y + 7, UI_ALIGN_RIGHT, COLOR_NAME, value);
+			target_add(x, action_y, x + width, action_y + OPTION_HEIGHT, _target_row, index);
+			action_y += OPTION_HEIGHT + OPTION_GAP;
+		}
+	}
+	if (guide.party_acting)
+		ui_style_text(UI_TEXT_LINE, x, action_y + 4, UI_ALIGN_LEFT, "Sending");
+	else if (guide.party_message[0] && system_milliseconds() - guide.party_message_time < MESSAGE_TIME)
+		ui_style_text(UI_TEXT_WARNING, x, action_y + 4, UI_ALIGN_LEFT, guide.party_message);
+	/* (COPY PARTY LINK chosen: its link as a QR code too) */
+	if (!guide.code_entry && chosen >= 0 && chosen < count && items[chosen].kind == _party_item_action &&
+		items[chosen].index == _party_action_copy_link)
+	{
+		render_party_qr(x + width - PARTY_QR_WIDTH, action_y + 2);
+	}
+}
+
+/* following the leader: the offer, its seconds and its two buttons, over
+the menus or a game */
+static void render_follow(void)
+{
+	struct ui_style_prompt prompts[2];
+	float starts[2], ends[2], width = 300, height = 56, left = 320 - width * 0.5f, top = TOAST_GAME_Y - 22;
+	unsigned long age = system_milliseconds() - guide.follow_time;
+	long seconds = (long)((SOCIAL_FOLLOW_TIME - (age < SOCIAL_FOLLOW_TIME ? age : SOCIAL_FOLLOW_TIME) + 999) / 1000);
+	char line[48];
+	short index;
+
+	guide.target_count = 0;
+	ui_overlay_layer(4);
+	ui_style_clock((unsigned int)system_milliseconds());
+	ui_style_glass(left, top, width, height, 8, ui_style_color(UI_COLOR_GLASS_TOP), COLOR_PANEL_EDGE);
+	ui_style_text(UI_TEXT_NAME, left + 12, top + 7, UI_ALIGN_LEFT, guide.follow_line);
+	if (guide.follow_party[0])
+		social_copy_text(line, sizeof(line), "Only join parties from people you know");
+	else
+		snprintf(line, sizeof(line), follow_timeout_joins() ? "Joining in %ld" : "Staying in %ld", seconds);
+	ui_style_text(UI_TEXT_STATUS, left + 12, top + 22, UI_ALIGN_LEFT, line);
+	prompts[0].button = UI_BUTTON_A;
+	prompts[0].key = "ENTER";
+	prompts[0].word = guide.follow_party[0] ? "JOIN" : "JOIN NOW";
+	prompts[1].button = UI_BUTTON_B;
+	prompts[1].key = "ESC";
+	prompts[1].word = guide.follow_party[0] ? "NO" : "STAY";
+	ui_style_prompts(left + width - 10, top + height - 19, 12.0f, prompts, 2, starts, ends);
+	for (index = 0; index < 2; index++)
+	{
+		target_add(starts[index] - 4, top + height - 22, ends[index] + 4, top + height - 2, _target_prompt,
+			(short)prompts[index].button);
+	}
+	ui_overlay_layer(0);
 }
 
 /* FRIENDS, PARTY and RECENT: SIGN IN without a Delta profile; nothing yet
@@ -1698,7 +3784,7 @@ static void render_prompts(void)
 	float starts[4], ends[4];
 	char const *word = NULL;
 	short count = 0, index;
-	boolean back = FALSE;
+	boolean back = FALSE, add_friend = FALSE;
 
 	if (guide.about)
 	{
@@ -1719,8 +3805,23 @@ static void render_prompts(void)
 		if (guide.row[guide.section] < guide.players.count &&
 			(guide.players.rows[guide.row[guide.section]].actions & SOCIAL_ACTION_MUTE))
 		{
-			word = guide.players.rows[guide.row[guide.section]].muted ? "UNMUTE" : "MUTE";
+			word = "SELECT";
 		}
+		add_friend = guide.row[guide.section] < guide.players.count &&
+			(guide.players.rows[guide.row[guide.section]].actions & SOCIAL_ACTION_ADD_FRIEND);
+		back = guide.options;
+		break;
+	case SOCIAL_SECTION_RECENT:
+		if (friends_signed_in())
+		{
+			if (guide.friends_loaded && recent_chosen())
+				word = "SELECT";
+			add_friend = recent_can_add();
+			back = guide.recent_options;
+			break;
+		}
+		if (section_rows(guide.section))
+			word = "SIGN IN";
 		break;
 	case SOCIAL_SECTION_SETTINGS:
 		word = guide.row[guide.section] >= settings_count() ? "OPEN" : "CHANGE";
@@ -1743,6 +3844,51 @@ static void render_prompts(void)
 		if (section_rows(guide.section))
 			word = sign_in_word(&back);
 		break;
+	case SOCIAL_SECTION_CLAN:
+		if (friends_signed_in())
+		{
+			struct friend_item const *item = guide.clan_loaded ? clan_chosen_item() : NULL;
+			short options[MAXIMUM_OPTIONS];
+
+			if (item && guide.options)
+				word = "SELECT";
+			else if (item && item->kind == _clan_action)
+				word = item->index == _clan_action_invite ? "INVITE" : guide.armed == ARMED_LEAVE ?
+					"CONFIRM" : "LEAVE";
+			else if (item && clan_item_options(item, options) > 0)
+				word = "SELECT";
+			back = guide.options;
+			break;
+		}
+		if (section_rows(guide.section))
+			word = "SIGN IN";
+		break;
+	case SOCIAL_SECTION_PARTY:
+	{
+		struct party_item item;
+
+		if (guide.code_entry)
+		{
+			prompt_add(prompts, &count, UI_BUTTON_A, "ENTER", "JOIN");
+			prompt_add(prompts, &count, UI_BUTTON_Y, "TAB", "PASTE");
+			back = TRUE;
+		}
+		else if (party_chosen(&item))
+		{
+			if (item.kind == _party_item_invite)
+			{
+				prompt_add(prompts, &count, UI_BUTTON_A, "ENTER", "JOIN");
+				prompt_add(prompts, &count, UI_BUTTON_X, "M", "DECLINE");
+			}
+			else if (item.kind == _party_item_action || !party_has_leader() ||
+				(guide.party.leader && !guide.party.members[item.index].you))
+			{
+				word = "SELECT";
+			}
+		}
+		back = back || guide.party_member != NONE || guide.party_armed != NONE;
+		break;
+	}
 	default:
 		if (section_rows(guide.section))
 			word = sign_in_word(&back);
@@ -1750,6 +3896,8 @@ static void render_prompts(void)
 	}
 	if (word)
 		prompt_add(prompts, &count, UI_BUTTON_A, "ENTER", word);
+	if (add_friend)
+		prompt_add(prompts, &count, UI_BUTTON_Y, "TAB", "ADD FRIEND");
 	if (shortcut_option(GUIDE_INPUT_Y) != NONE)
 		prompt_add(prompts, &count, UI_BUTTON_Y, "TAB", "JOIN");
 	if (shortcut_option(GUIDE_INPUT_X) != NONE)
@@ -1767,10 +3915,13 @@ static boolean toast_visible(void)
 {
 	if (!guide.toast_shown || system_milliseconds() - guide.toast_time >= TOAST_TIME)
 		return FALSE;
-	/* (quiet in a game unless asked for: a screenshot's or clip's always shows) */
-	if (in_game() && !guide.toast_always &&
+	/* (quiet in a game unless asked for: a screenshot's or clip's, and a
+	party's note, always show) */
+	if (in_game() && !guide.toast_always && guide.toast_kind != _toast_party_note &&
 		(!config_boolean("guide.notify_in_game") || guide.toast_kind == _toast_friend))
+	{
 		return FALSE;
+	}
 	return TRUE;
 }
 
@@ -1826,18 +3977,21 @@ static void render_toast(void)
 
 boolean guide_active(void)
 {
-	return guide.open;
+	return guide.open || guide.follow_active;
 }
 
 boolean guide_takes_player(void)
 {
-	return guide.open;
+	return guide.open || guide.follow_active;
 }
 
 void guide_open(void)
 {
 	if (guide.open || !ui_overlay_available())
 		return;
+	/* (the Guide's key over the leader's offer: staying) */
+	if (guide.follow_active)
+		follow_end(FALSE);
 	guide.open = TRUE;
 	guide.opened_time = system_milliseconds();
 	/* (what is held as it opens is not pressed in it) */
@@ -1877,8 +4031,15 @@ void guide_close(void)
 	guide.open = FALSE;
 	guide.about = FALSE;
 	guide.target_count = 0;
+	guide.code_entry = FALSE;
+	guide.party_member = NONE;
+	guide.party_armed = NONE;
+	guide.options = FALSE;
+	while (report_player_step() != _report_step_none)
+		report_player_back();
 	sign_in_stop();
-	platform_guide_capture(FALSE);
+	if (!guide.follow_active)
+		platform_guide_capture(FALSE);
 	event_manager_flush();
 	if (guide.paused_game)
 		ui_widgets_port_pause_game(FALSE);
@@ -1921,7 +4082,7 @@ wchar_t const *guide_pause_label(long string_list_tag)
 	long tag = pc_menu_pause_guide_label();
 	short waiting, index;
 
-	if (tag == NONE || string_list_tag != tag || (waiting = friends_waiting()) <= 0)
+	if (tag == NONE || string_list_tag != tag || (waiting = (short)(friends_waiting() + clan_invites_waiting())) <= 0)
 		return NULL;
 	snprintf(text, sizeof(text), "GUIDE %d", MIN(waiting, 99));
 	for (index = 0; text[index] && index < (short)NUMBEROF(label) - 1; index++)
@@ -1930,12 +4091,34 @@ wchar_t const *guide_pause_label(long string_list_tag)
 	return label;
 }
 
+/* whether the multiplayer scoreboard shows (Back held on the first
+controller, or its key: game_engine.c's in-game score) */
+static boolean scoreboard_showing(void)
+{
+	struct gamepad_state const *gamepad;
+
+	if (!game_engine_running() || !network_game_get_game())
+		return FALSE;
+	gamepad = input_get_gamepad_state(0);
+	return gamepad && gamepad->buttons[_gamepad_binary_button_back];
+}
+
 void guide_update(boolean menu_open)
 {
+	if (!guide.party_ready)
+	{
+		guide.party_ready = TRUE;
+		guide.party_member = NONE;
+		guide.party_armed = NONE;
+	}
 #ifdef HALO_CAPTURE
 	capture_update();
 #endif
 	friends_update();
+	clan_update();
+	recent_notice();
+	/* (a report's answer, and its clip: report_player.c) */
+	report_player_update();
 	/* (a toast waits out the intro's video and a map's loading: its time
 	starts once it can show) */
 	if (guide.toast_shown && (bink_playback_active() || (!main_menu_is_active() && !game_map_loaded())))
@@ -1944,8 +4127,41 @@ void guide_update(boolean menu_open)
 	once a run) */
 	if (!guide.debug_open_done && config_boolean("debug.guide_open") && (main_menu_is_active() || game_map_loaded()))
 	{
+		char const *wanted = config_string("debug.guide_section");
+		short section;
+
 		guide.debug_open_done = TRUE;
 		guide_open();
+		for (section = 0; wanted[0] && section < NUMBER_OF_SOCIAL_SECTIONS; section++)
+		{
+			char const *a = wanted, *b = social_section_name(section);
+
+			while (*a && (*a | 0x20) == (*b | 0x20))
+				a++, b++;
+			if (!*a && !*b)
+				section_go(section);
+		}
+	}
+	/* (debug.guide_row: that row chosen once its section has it) */
+	if (guide.debug_open_done && !guide.debug_row_done && guide.open && config_integer("debug.guide_row") >= 0 &&
+		section_rows(guide.section) > config_integer("debug.guide_row"))
+	{
+		guide.debug_row_done = TRUE;
+		guide.row[guide.section] = (short)config_integer("debug.guide_row");
+		if (guide.section == SOCIAL_SECTION_FRIENDS)
+			chosen_remember();
+	}
+	/* (debug.party_test: a party step, once, for tests) */
+	if (!guide.debug_party_done && config_string("debug.party_test")[0] && main_menu_is_active() && menu_open)
+	{
+		char const *step = config_string("debug.party_test");
+
+		guide.debug_party_done = TRUE;
+		card_update();
+		if (!strncmp(step, "join:", 5))
+			party_act("join", step + 5);
+		else
+			party_act(step, "");
 	}
 	if (!guide.debug_toast_done && config_string("debug.guide_toast")[0] && main_menu_is_active() &&
 		menu_open)
@@ -1964,11 +4180,18 @@ void guide_update(boolean menu_open)
 			/* (a toast up: its item) */
 			boolean toast = toast_visible() && guide.toast_kind != _toast_none;
 
+			/* (opened over the scoreboard: straight to the game's players,
+			where REPORT is) */
+			boolean scoreboard = scoreboard_showing();
+
 			guide_open();
 			if (toast && guide.open)
 				toast_go();
+			else if (scoreboard && guide.open)
+				section_go(SOCIAL_SECTION_PLAYERS_HERE);
 		}
 	}
+	debug_steps();
 	if (guide.open)
 	{
 		/* (a game that ended under it lets go of its pause) */
@@ -1982,11 +4205,68 @@ void guide_update(boolean menu_open)
 	}
 }
 
+static void handle(unsigned int pressed);
+
+/* debug.guide_test: once the Guide opened by itself (debug.guide_open),
+its steps pressed one at a time, DEBUG_STEP_INTERVAL apart, from
+DEBUG_STEP_WAIT after it opened ("down;down;a":
+up, down, left, right, a, b, x, y, lb, rb). Debug builds only: a release
+build never presses the Guide's buttons for anyone (accepting an invite,
+kicking from a clan) */
+#define DEBUG_STEP_INTERVAL 600
+#define DEBUG_STEP_WAIT 8000
+#ifdef HALO_RELEASE
+static void debug_steps(void)
+{
+}
+#else
+static void debug_steps(void)
+{
+	static char const *const words[] = { "up", "down", "left", "right", "a", "b", "x", "y", "lb", "rb" };
+	char const *steps = config_string("debug.guide_test");
+	unsigned long now = system_milliseconds();
+	short step = 0, index;
+
+	/* (the first a few seconds after it opened: the site's answers in) */
+	if (!guide.open || !guide.debug_open_done || !steps[0] || now - guide.debug_step_time < DEBUG_STEP_INTERVAL ||
+		now - guide.opened_time < DEBUG_STEP_WAIT)
+	{
+		return;
+	}
+	while (*steps && step < guide.debug_step)
+	{
+		if (*steps++ == ';')
+			step++;
+	}
+	if (!*steps)
+		return;
+	guide.debug_step_time = now;
+	guide.debug_step++;
+	for (index = 0; index < (short)NUMBEROF(words); index++)
+	{
+		size_t length = strlen(words[index]);
+
+		if (!strncmp(steps, words[index], length) && (steps[length] == ';' || !steps[length]))
+		{
+			handle(1u << index);
+			platform_log("Guide: test step %s", words[index]);
+			return;
+		}
+	}
+}
+#endif
+
 /* what was pressed (or clicked on the prompt bar) */
 static void handle(unsigned int pressed)
 {
 	short option;
 
+	/* (following the leader: its offer takes the input) */
+	if (guide.follow_active && !guide.open)
+	{
+		follow_handle(pressed);
+		return;
+	}
 	if (guide.about)
 	{
 		if (pressed & GUIDE_INPUT_B)
@@ -2008,14 +4288,42 @@ static void handle(unsigned int pressed)
 			about_input(&guide.about_view, ABOUT_INPUT_A);
 		return;
 	}
+	/* (PARTY's code being picked: the d-pad is its letters) */
+	if (guide.section == SOCIAL_SECTION_PARTY && guide.code_entry &&
+		!(pressed & (GUIDE_INPUT_LEFT_BUMPER | GUIDE_INPUT_RIGHT_BUMPER)))
+	{
+		code_entry_handle(pressed);
+		return;
+	}
 	if (pressed & GUIDE_INPUT_B)
 	{
-		/* (in FRIENDS' options panel: back to the list; signing in: a no, or
-		the code dropped) */
+		/* (in a report: back a step) */
+		if (guide.section == SOCIAL_SECTION_PLAYERS_HERE && report_player_step() != _report_step_none)
+		{
+			report_player_back();
+			guide.option = 0;
+			if (report_player_step() == _report_step_none)
+				guide.options = FALSE;
+			return;
+		}
+		/* (in FRIENDS' options panel, or PARTY's on a member: back to the
+		list; signing in: a no, or the code dropped) */
 		if (guide.options)
 		{
 			guide.options = FALSE;
 			guide.armed = NONE;
+		}
+		else if (guide.section == SOCIAL_SECTION_RECENT && guide.recent_options)
+		{
+			guide.recent_options = FALSE;
+			guide.recent_armed = NONE;
+		}
+		else if (guide.section == SOCIAL_SECTION_PARTY && (guide.party_member != NONE || guide.party_armed != NONE))
+		{
+			if (guide.party_member != NONE)
+				guide.row[SOCIAL_SECTION_PARTY] = guide.party_member;
+			guide.party_member = NONE;
+			guide.party_armed = NONE;
 		}
 		else if (guide.signing_in && signing_in_here() && guide.connect.state == BROWSER_CONNECT_CONFIRM &&
 			!guide.connect.answered)
@@ -2028,6 +4336,10 @@ static void handle(unsigned int pressed)
 			guide_close();
 		return;
 	}
+	if (guide.section == SOCIAL_SECTION_PARTY && (pressed & (GUIDE_INPUT_LEFT | GUIDE_INPUT_RIGHT)))
+		party_side();
+	if (guide.section == SOCIAL_SECTION_PARTY && (pressed & GUIDE_INPUT_X))
+		party_decline();
 	if (pressed & GUIDE_INPUT_LEFT_BUMPER)
 		section_go((short)(guide.section - 1));
 	if (pressed & GUIDE_INPUT_RIGHT_BUMPER)
@@ -2043,6 +4355,10 @@ static void handle(unsigned int pressed)
 		activate();
 	else if ((pressed & GUIDE_INPUT_X) && guide.section == SOCIAL_SECTION_PLAYERS_HERE)
 		player_mute_toggle(guide.row[guide.section]);
+	else if ((pressed & GUIDE_INPUT_Y) && guide.section == SOCIAL_SECTION_PLAYERS_HERE)
+		player_add_friend(guide.row[guide.section]);
+	else if ((pressed & GUIDE_INPUT_Y) && recent_can_add())
+		recent_option_run(_recent_add);
 	else if ((pressed & GUIDE_INPUT_Y) && (option = shortcut_option(GUIDE_INPUT_Y)) != NONE)
 		option_run(option);
 	else if ((pressed & GUIDE_INPUT_X) && (option = shortcut_option(GUIDE_INPUT_X)) != NONE)
@@ -2051,7 +4367,7 @@ static void handle(unsigned int pressed)
 
 void guide_process(void)
 {
-	if (!guide.open)
+	if (!guide.open && !guide.follow_active)
 		return;
 	if (guide.signing_in)
 	{
@@ -2071,7 +4387,7 @@ void guide_pointer(struct halo_ui_pointer const *pointer)
 {
 	short index;
 
-	if (!guide.open)
+	if (!guide.open && !guide.follow_active)
 		return;
 	if (pointer->right_clicks)
 	{
@@ -2110,6 +4426,43 @@ void guide_pointer(struct halo_ui_pointer const *pointer)
 			break;
 		case _target_row:
 			/* (a tap chooses the row; on the one chosen, it is its A) */
+			if (guide.section == SOCIAL_SECTION_CLAN)
+			{
+				boolean again = guide.row[guide.section] == target->index && !guide.options;
+
+				if (!again)
+					guide.armed = NONE;
+				guide.options = FALSE;
+				guide.row[guide.section] = target->index;
+				clan_chosen_remember();
+				if (again || guide.clan_items[target->index].kind == _clan_action)
+					activate();
+				break;
+			}
+			if (guide.section == SOCIAL_SECTION_PARTY)
+			{
+				struct party_item items[MAXIMUM_PARTY_ITEMS];
+				boolean again = guide.row[guide.section] == target->index;
+
+				guide.row[guide.section] = target->index;
+				/* (a button at once; a member or an invite on its second) */
+				if (again || (target->index < party_items(items) && items[target->index].kind == _party_item_action))
+					activate();
+				else
+					guide.party_armed = NONE;
+				break;
+			}
+			if (guide.section == SOCIAL_SECTION_RECENT && friends_signed_in())
+			{
+				boolean again = guide.row[guide.section] == target->index && !guide.recent_options;
+
+				guide.recent_options = FALSE;
+				guide.recent_armed = NONE;
+				guide.row[guide.section] = target->index;
+				if (again)
+					activate();
+				break;
+			}
 			if (guide.section == SOCIAL_SECTION_FRIENDS)
 			{
 				boolean again = guide.row[guide.section] == target->index && !guide.options;
@@ -2135,6 +4488,15 @@ void guide_pointer(struct halo_ui_pointer const *pointer)
 				setting_change(target->index, 1);
 			break;
 		case _target_option:
+			if (guide.section == SOCIAL_SECTION_RECENT)
+			{
+				guide.recent_options = TRUE;
+				if (guide.recent_option != target->index)
+					guide.recent_armed = NONE;
+				guide.recent_option = target->index;
+				activate();
+				break;
+			}
 			guide.options = TRUE;
 			if (guide.option != target->index)
 				guide.armed = NONE;
@@ -2144,6 +4506,12 @@ void guide_pointer(struct halo_ui_pointer const *pointer)
 		case _target_action:
 		case _target_sign_in:
 			activate();
+			break;
+		case _target_player_action:
+			if (target->index)
+				player_add_friend(guide.row[guide.section]);
+			else
+				player_mute_toggle(guide.row[guide.section]);
 			break;
 		case _target_prompt:
 			handle(target->index == UI_BUTTON_A ? GUIDE_INPUT_A : target->index == UI_BUTTON_X ? GUIDE_INPUT_X :
@@ -2155,9 +4523,10 @@ void guide_pointer(struct halo_ui_pointer const *pointer)
 		}
 		return;
 	}
-	/* (a click outside the panel closes it) */
-	if (pointer->click_x < PANEL_X || pointer->click_x >= PANEL_RIGHT || pointer->click_y < PANEL_Y ||
-		pointer->click_y >= PANEL_Y + PANEL_HEIGHT)
+	/* (a click outside the panel closes it; outside the leader's offer,
+	nothing) */
+	if (guide.open && (pointer->click_x < PANEL_X || pointer->click_x >= PANEL_RIGHT || pointer->click_y < PANEL_Y ||
+		pointer->click_y >= PANEL_Y + PANEL_HEIGHT))
 	{
 		guide_close();
 	}
@@ -2169,7 +4538,10 @@ void guide_render(void)
 		return;
 	if (!guide.open)
 	{
-		render_toast();
+		if (guide.follow_active)
+			render_follow();
+		else
+			render_toast();
 		return;
 	}
 	plasma_look();
@@ -2199,6 +4571,21 @@ void guide_render(void)
 	case SOCIAL_SECTION_FRIENDS:
 		if (friends_signed_in())
 			render_friends();
+		else
+			render_coming();
+		break;
+	case SOCIAL_SECTION_PARTY:
+		render_party();
+		break;
+	case SOCIAL_SECTION_RECENT:
+		if (friends_signed_in())
+			render_recent();
+		else
+			render_coming();
+		break;
+	case SOCIAL_SECTION_CLAN:
+		if (friends_signed_in())
+			render_clan();
 		else
 			render_coming();
 		break;

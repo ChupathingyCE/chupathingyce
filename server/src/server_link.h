@@ -32,6 +32,9 @@ time: 1 and the command, its id and the handle it came from, else 0; and
 its answer, once run */
 int server_link_next_command(char *line, int line_size, char *handle, int handle_size, unsigned int *id);
 void server_link_finish_command(unsigned int id, int ok, const char *output);
+/* whether the server is linked now: 1, else 0 */
+int server_link_linked(void);
+
 /* (the main thread's, now and then) the server's state for the site: a JSON
 object */
 void server_link_set_status(const char *json);

@@ -564,6 +564,93 @@ static wchar_t const *hud_message_port_key_verb(
 	return buffer;
 }
 
+/* port: where a message's text breaks its line ("|n", as draw_string reads
+it, or a return): the first break's index, and the index just past the last
+one (0 with none) */
+static void hud_message_text_lines(
+	wchar_t const *text,
+	long *first_end,
+	long *last_start)
+{
+	long index;
+
+	*first_end = NONE;
+	*last_start = 0;
+	for (index = 0; text[index]; index++)
+	{
+		long next = NONE;
+
+		if (text[index] == L'|' && text[index + 1] == L'n')
+			next = index + 2;
+		else if (text[index] == L'\r' || text[index] == L'\n')
+			next = index + 1;
+		if (next != NONE)
+		{
+			if (*first_end == NONE)
+				*first_end = index;
+			*last_start = next;
+		}
+	}
+	if (*first_end == NONE)
+		*first_end = index;
+
+	return;
+}
+
+/* port: hud_message_text_place for a text of more than one line ("Vertical
+looking is now inverted|n|nPress ", the Pillar of Autumn's look test). Its
+first line follows the icon before it and its last line leads to the icon
+after it, so those are the lines measured. The whole text's ink (its widest
+line, and the lines after the first, which start at the left edge) put the
+words and the icons on top of each other. start is where its first line
+starts (the cursor's, before the text's layout moved it). */
+static void hud_message_text_place_lines(
+	rectangle2d *bounds,
+	rectangle2d *cursor_bounds,
+	wchar_t const *text,
+	rectangle2d *text_bounds,
+	short start,
+	long first_end,
+	long last_start)
+{
+	real ink_x0;
+	real ink_x1;
+	wchar_t line[128];
+	long length = MIN(first_end, (long)NUMBEROF(line) - 1);
+
+	csmemcpy(line, text, length * sizeof(wchar_t));
+	line[length] = 0;
+	if (hud_message_after_icon && length > 0 &&
+		rasterizer_text_ink_span(bounds, line, &ink_x0, &ink_x1))
+	{
+		short shift = hud_message_round(ink_x0 - (hud_message_icon_x1 + hud_message_icon_gap));
+
+		if (shift != 0 && start - shift >= bounds->x0)
+		{
+			start -= shift;
+			draw_string_set_indents(start - bounds->x0, 0);
+			draw_unicode_string_compute_bounds(bounds, text, text_bounds, cursor_bounds);
+		}
+	}
+	/* (the last line from the left edge, where it is drawn) */
+	draw_string_set_indents(0, 0);
+	if (text[last_start] &&
+		rasterizer_text_ink_span(bounds, text + last_start, &ink_x0, &ink_x1))
+	{
+		rectangle2d line_bounds;
+		rectangle2d line_cursor;
+
+		draw_unicode_string_compute_bounds(bounds, text + last_start, &line_bounds, &line_cursor);
+		hud_message_icon_shift = hud_message_round(ink_x1 - line_bounds.x1);
+		hud_message_text_ink_valid = TRUE;
+		hud_message_text_ink_x1 = ink_x1;
+	}
+	draw_string_set_indents(start - bounds->x0, 0);
+	hud_message_after_icon = FALSE;
+
+	return;
+}
+
 /* the text's layout from the cursor (draw_unicode_string_compute_bounds),
 moved after an icon as above */
 static void hud_message_text_place(
@@ -575,11 +662,19 @@ static void hud_message_text_place(
 	short start = cursor_bounds->x0;
 	real ink_x0;
 	real ink_x1;
+	long first_end;
+	long last_start;
 
 	draw_string_set_indents(start - bounds->x0, 0);
 	draw_unicode_string_compute_bounds(bounds, text, text_bounds, cursor_bounds);
 	hud_message_icon_shift = 0;
 	hud_message_text_ink_valid = FALSE;
+	hud_message_text_lines(text, &first_end, &last_start);
+	if (last_start != 0)
+	{
+		hud_message_text_place_lines(bounds, cursor_bounds, text, text_bounds, start, first_end, last_start);
+		return;
+	}
 	if (text_bounds->x1 > text_bounds->x0 &&
 		rasterizer_text_ink_span(bounds, text, &ink_x0, &ink_x1))
 	{

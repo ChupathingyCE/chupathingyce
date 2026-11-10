@@ -1797,6 +1797,42 @@ boolean browser_screen_open_map_offer(
 	return TRUE;
 }
 
+/* a game joined by its invite link from outside the screen (DELTA's party
+following its leader, guide.c): the screen opens over the menus and joins
+it as a pasted link does, saying who it follows. FALSE for text with no
+invite, or with no menus up */
+boolean browser_screen_join_link(
+	char const *link,
+	char const *name)
+{
+	char code[BROWSER_INVITE_LENGTH + 1];
+	char const *start = link;
+	long length = 0;
+
+	if (!link || !main_menu_is_active())
+		return FALSE;
+	if (!_strnicmp(start, "halo://join/", 12))
+		start += 12;
+	while (length < BROWSER_INVITE_LENGTH && ((start[length] >= '0' && start[length] <= '9') ||
+		((start[length] | 0x20) >= 'a' && (start[length] | 0x20) <= 'f')))
+	{
+		code[length] = start[length];
+		length++;
+	}
+	code[length] = 0;
+	if (length != 44 && length != 64)
+		return FALSE;
+	if (!browser_screen.active)
+		browser_screen_open();
+	join_invite(code, NULL, FALSE);
+	if (name && name[0])
+	{
+		csstrncpy(browser_screen.connecting_name, name, sizeof(browser_screen.connecting_name) - 1);
+		browser_screen.connecting_name[sizeof(browser_screen.connecting_name) - 1] = 0;
+	}
+	return TRUE;
+}
+
 /* the listed game an invite (its link, or the text around it) is for, if
 the game list knows it: its name and its map as players name it, for the
 clipboard's invite (invite_prompt.c) */
@@ -3706,7 +3742,8 @@ the map's name over its family's color (a custom map's) */
 	if (browser_game_version_state(selected))
 		snprintf(text, sizeof(text), "%s", JOIN_REASON_TEXT(JOIN_REASON_OF_VERSION_STATE(browser_game_version_state(selected))));
 	else
-		snprintf(text, sizeof(text), "%s%s", selected->open ? "Accepting players" : "In progress", selected->locked ? ", password" : "");
+		snprintf(text, sizeof(text), "%s%s", selected->joins_locked ? "Locked" : selected->open ? "Accepting players" :
+			"In progress", selected->locked ? ", password" : "");
 	DETAIL_LINE("Status:", text);
 	/* (a host whose console and cheats may change its game, as it says:
 	network.host_cheats) */
