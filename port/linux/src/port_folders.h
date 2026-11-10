@@ -7,6 +7,8 @@ platform (the desktops, Android, the dedicated server):
 	<data root>/data/     what a player puts or edits that is not a map
 	                      (data/fonts/: display.high_res_font)
 	<data root>/logs/     debug.txt, halo.log (Windows), crashes/
+	<data root>/screenshots/ the player's screenshots (capture.c)
+	<data root>/clips/    the player's saved clips (capture.c)
 	<save root>/cache/    what the game can make again (safe to delete)
 	<save root>/private/  what is the player's alone, never shared
 	<save root>/gametypes/ the player's game type files (the dedicated
@@ -32,12 +34,14 @@ enum port_folder
 	_port_folder_cache,
 	_port_folder_private,
 	_port_folder_gametypes,
+	_port_folder_screenshots,
+	_port_folder_clips,
 
 	k_port_folder_count
 };
 
-/* the folder's name in its root: "data", "logs", "cache", "private" or
-"gametypes" */
+/* the folder's name in its root: "data", "logs", "cache", "private",
+"gametypes", "screenshots" or "clips" */
 const char *port_folder_name(enum port_folder folder);
 
 /* whether the folder is in the save root (cache, private, gametypes) rather

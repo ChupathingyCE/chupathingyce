@@ -236,14 +236,26 @@ int update_make_directory(const char *path)
 
 int update_launch(const char *path)
 {
-	wchar_t wide[MAX_PATH * 2], command[MAX_PATH * 2 + 3], directory[MAX_PATH * 2];
+	return update_launch_with(path, NULL);
+}
+
+int update_launch_with(const char *path, const char *argument)
+{
+	wchar_t wide[MAX_PATH * 2], command[MAX_PATH * 2 + 64], directory[MAX_PATH * 2], wide_argument[48];
 	wchar_t *slash;
 	STARTUPINFOW startup;
 	PROCESS_INFORMATION process;
 
 	if (!wide_from_utf8(path, wide, MAX_PATH * 2))
 		return 0;
-	_snwprintf(command, MAX_PATH * 2 + 3, L"\"%ls\"", wide);
+	if (argument && *argument)
+	{
+		if (!wide_from_utf8(argument, wide_argument, 48))
+			return 0;
+		_snwprintf(command, MAX_PATH * 2 + 64, L"\"%ls\" %ls", wide, wide_argument);
+	}
+	else
+		_snwprintf(command, MAX_PATH * 2 + 64, L"\"%ls\"", wide);
 	wcscpy(directory, wide);
 	slash = wcsrchr(directory, L'\\');
 	if (slash)

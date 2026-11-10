@@ -54,6 +54,7 @@ OBJECTS.C
 #include "sound/game_sound.h"
 #include "structures/structure_bsp_definitions.h"
 #include "units/units.h"
+#include "halo_perf_log.h" /* port: console.perf_log */
 /* port: object_bounds_cache.c's */
 void object_bounds_cache_update(long object_index, real_point3d const *center, real radius);
 
@@ -3868,6 +3869,28 @@ boolean object_force_inside_bsp(
 	return result;
 }
 
+#ifdef HALO_PERF_LOG
+/* port: the perf log's phase for an object type's own update
+(halo_perf_log.h) */
+static int object_update_perf_phase(
+	short type)
+{
+	switch (type)
+	{
+	case _object_type_biped: return _halo_perf_objects_bipeds;
+	case _object_type_vehicle: return _halo_perf_objects_vehicles;
+	case _object_type_weapon: return _halo_perf_objects_weapons;
+	case _object_type_equipment:
+	case _object_type_garbage: return _halo_perf_objects_items;
+	case _object_type_projectile: return _halo_perf_objects_projectiles;
+	default: return _halo_perf_objects_other_types;
+	}
+}
+#define OBJECT_UPDATE_PERF_PHASE(type) object_update_perf_phase(type)
+#else
+#define OBJECT_UPDATE_PERF_PHASE(type) 0
+#endif
+
 static boolean object_update(
 	long object_index)
 {
@@ -3899,17 +3922,26 @@ static boolean object_update(
 		elevator_sampled = object->object.type == _object_type_machine &&
 			machine_elevator_sample(object_index, &elevator_sample);
 
+		HALO_PERF_COUNT(_halo_perf_objects_updated, 1);
+		HALO_PERF_BEGIN(OBJECT_UPDATE_PERF_PHASE(object->object.type));
 		object_type_update(object_index);
+		HALO_PERF_END(OBJECT_UPDATE_PERF_PHASE(object->object.type));
 		if (object_definition->object.collision_model.index!=NONE)
 		{
+			HALO_PERF_BEGIN(_halo_perf_objects_damage);
 			object_damage_update(object_index);
+			HALO_PERF_END(_halo_perf_objects_damage);
 		}
 
+		HALO_PERF_BEGIN(_halo_perf_objects_functions);
 		object_type_export_function_values(object_index);
+		HALO_PERF_END(_halo_perf_objects_functions);
 
 		if (!TEST_FLAG(object->object.flags, _object_do_not_recompute_node_matrices_bit))
 		{
+			HALO_PERF_BEGIN(_halo_perf_objects_nodes);
 			object_compute_node_matrices(object_index);
+			HALO_PERF_END(_halo_perf_objects_nodes);
 		}
 
 		if (elevator_sampled)
@@ -3917,8 +3949,10 @@ static boolean object_update(
 			machine_elevator_carry_riders(object_index, &elevator_sample);
 		}
 
+		HALO_PERF_BEGIN(_halo_perf_objects_functions);
 		object_compute_function_values(object_index);
 		object_compute_change_colors(object_index);
+		HALO_PERF_END(_halo_perf_objects_functions);
 
 		if (
 			TEST_FLAG(object->object.flags, _object_dynamic_lighting_recompute_bit) &&
@@ -3928,7 +3962,9 @@ static boolean object_update(
 			)
 		)
 		{
+			HALO_PERF_BEGIN(_halo_perf_objects_lights);
 			object_connect_lights(object_index, TRUE, TRUE);
+			HALO_PERF_END(_halo_perf_objects_lights);
 		}
 
 		// Update children (if we have any)
@@ -3945,7 +3981,9 @@ static boolean object_update(
 			}
 		}
 
+		HALO_PERF_BEGIN(_halo_perf_objects_nodes);
 		object_postprocess_node_matrices(object_index);
+		HALO_PERF_END(_halo_perf_objects_nodes);
 	}
 
 	return result;
@@ -4545,6 +4583,7 @@ void objects_update(
 	memcpy(last_active_cluster_bits, active_cluster_bits, BIT_VECTOR_SIZE_IN_BYTES(cluster_count));
 	memcpy(active_cluster_bits, players_get_combined_pvs(), BIT_VECTOR_SIZE_IN_BYTES(cluster_count));
 
+	HALO_PERF_BEGIN(_halo_perf_objects_activation);
 	if (csmemcmp(last_active_cluster_bits, active_cluster_bits, BIT_VECTOR_SIZE_IN_BYTES(cluster_count)))
 	{
 		object_header = (struct object_header_datum *)xbox_pointer(object_header_data->data);
@@ -4556,8 +4595,14 @@ void objects_update(
 			{
 				if (TEST_FLAG(object_header->flags, _object_header_active_bit))
 				{
-					match_assert("c:\\halo\\SOURCE\\objects\\objects.c", 369, object_header->cluster_index!=NONE);
-					if (!BIT_VECTOR_TEST_FLAG(active_cluster_bits, object_header->cluster_index))
+					/* port: a carried weapon put back in the world, or an
+					object whose position is outside the map, can be active
+					with no cluster (a machine joining a game in progress
+					halted here); it is in no active cluster, rather than
+					reading the bits before the first */
+					if (object_header->cluster_index<0 ||
+						object_header->cluster_index>=cluster_count ||
+						!BIT_VECTOR_TEST_FLAG(active_cluster_bits, object_header->cluster_index))
 					{
 						if (TEST_FLAG(object_header->datum->object.flags, _object_deleted_when_deactivated_bit))
 						{
@@ -4587,6 +4632,7 @@ void objects_update(
 			active_cluster_bits,
 			cluster_count);
 	}
+	HALO_PERF_END(_halo_perf_objects_activation);
 
 	object_header = (struct object_header_datum *)xbox_pointer(object_header_data->data);
 	for (i = 0; i<object_header_data->count; ++object_header)
@@ -4635,7 +4681,9 @@ void objects_update(
 		++i;
 	}
 
+	HALO_PERF_BEGIN(_halo_perf_objects_garbage);
 	objects_garbage_collection();
+	HALO_PERF_END(_halo_perf_objects_garbage);
 
 	profile_exit(section);
 
