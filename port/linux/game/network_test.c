@@ -34,6 +34,11 @@ Automated system link sessions for testing the netcode without the menus
 - "offer:<name>[:<checksum>]" shows the Online Games screen's offer of that
   map over the main menu, as a join left for want of it does
   (browser_screen_map_missing), for its panel to be seen and driven;
+- "fetch:<host>" is the map bot's fetch (map_share_client.c): it joins the
+  game of the host at that system link address (a.b.c.d[:port]) or of that
+  internet invite as a machine with no player, asks the host for its
+  current Custom Edition map, downloads it, writes it and a result
+  (debug.map_fetch_*), leaves and quits;
 - "browse" opens the Online Games screen once the main menu is up, as the
   Multiplayer menu's ONLINE GAMES does, and logs each listed game's ping
   every few seconds (measured or estimated, never an address) with its
@@ -117,6 +122,9 @@ network_test_update, which does nothing there */
 #include "halo_map_families.h"
 #include "../src/map_download.h"
 #ifdef HALO_GAME_BROWSER
+#include "map_share.h"
+#endif
+#ifdef HALO_GAME_BROWSER
 #include "../src/browser.h"
 #endif
 
@@ -159,6 +167,8 @@ enum
 	and plays the scripted parts that need no host's menus (the bomb's) */
 	_network_test_watch,
 	_network_test_browse,
+	/* the map bot's fetch (map_share_client.c) */
+	_network_test_fetch,
 };
 
 static struct
@@ -297,6 +307,12 @@ static void network_test_read_settings(
 	{
 		network_test.mode = _network_test_browse;
 	}
+#ifdef HALO_GAME_BROWSER
+	else if (!strncmp(setting, "fetch:", 6) && setting[6])
+	{
+		network_test.mode = _network_test_fetch;
+	}
+#endif
 	else if (!strncmp(setting, "find:", 5) && setting[5])
 	{
 		network_test.mode = _network_test_find;
@@ -1261,6 +1277,19 @@ void network_test_update(
 		network_test_download(main_menu_loaded);
 		return;
 	}
+#ifdef HALO_GAME_BROWSER
+	if (network_test.mode == _network_test_fetch)
+	{
+		/* (the intro movie skipped first, as a button press does) */
+		if (bink_playback_in_progress())
+		{
+			bink_playback_stop();
+			return;
+		}
+		map_share_fetch_update(main_menu_loaded, seconds);
+		return;
+	}
+#endif
 	if (network_test.mode == _network_test_find)
 	{
 		if (main_menu_loaded)

@@ -152,7 +152,7 @@ shares.
 | 19 | `host_rules` | the host's rules for its players' extras (HOST_RULES): names above heads, the follow camera, team changes; a client whose host says nothing plays by the Xbox's rules. See "Host rules" |
 | 20 | `identity` | verified names: the host challenges (ID_CHALLENGE), each local player with a device certificate proves it (ID_PROOF), the host relays the card (ID_CARD) and every client checks it again. Only verified players show by their Delta profile. See "Verified names" |
 | 21 | `party_teams` | a party's members tell their host their party's tag (PARTY_TAG), and a host that keeps parties together puts them on one team where the teams stay even. See "Party teams" |
-| 22 | `voice` | reserved: voice chat (being built) |
+| 22 | `voice` | voice chat (VOICE_UP, VOICE_DOWN, VOICE_CONFIG): a player talks on a channel, the host relays each frame by its rules without decoding it. Agreed per pair, so OpenCE machines and builds without voice are never sent any. See "Voice" |
 | 23 | `reports` | a dedicated server takes its players' reports of other players (REPORT, REPORT_RESULT); see "Reports" |
 
 The registry lives in the repository next to the compatibility table and is
@@ -160,7 +160,7 @@ the single source for the bit numbers. Built so far: `platform`, `profile`,
 `ce_maps`, `moderation` (see "Moderation"), `chat` and `server_messages`
 (see "Chat"), `bomb`, `bomb_movement` and `bomb_traits` ([bomb.md](bomb.md)),
 `ping`, `team_change`, `object_sync`, `host_cheats`, `host_rules`,
-`identity` (see "Verified names") and `party_teams`. No
+`identity` (see "Verified names"), `party_teams` and `voice` (see "Voice"). No
 build sets `coop`, `ai_sync`, `vote` or `server_badge` yet. The first two's values are
 claims, shown as claims, never used for game state:
 
@@ -412,6 +412,9 @@ a later version may append):
 | 31 | ID_PROOF | client to host | version (1), local player (1, 0 to 3), certificate length (1: 0 withdraws the local player and nothing follows; else 148 to 168), name length (1, at most 20), flags (1: 0x01 bound), reserved (3), time (4, Unix seconds), signature (64), issuer certificate (CISS, 112), device certificate (CDEV, the length's bytes), name (the handle in the player's capitals: `A-Z a-z 0-9 _ -`) |
 | 32 | ID_CARD | host to client | version (1), machine index (1), local player (1, 0 to 3), certificate length (1: 0 withdraws the card and nothing follows; else 148 to 168), name length (1, at most 20), reserved (3), flags (1, the proof's), reserved (3), time (4, the proof's), nonce (32: the one the host challenged that machine's session with), signature (64), CISS (112), CDEV, name. At most 412 bytes |
 | 33 | PARTY_TAG | client to host | the party's tag (8; zeros: in no party); a longer payload is read as far as this build knows. Sent once both agreed to `party_teams`, at once when it changes, and every 5 seconds while in a party |
+| 34 | VOICE_UP | client to host | sequence (2, the speaker's own count), length (1, 0 to 255: the Opus frame's bytes; 0 none), channel (1: 0 none, 1 team, 2 proximity, 3 everyone, 4 party; none with no frame), hears (1: 0x01 team, 0x02 proximity, 0x04 everyone, 0x08 party: the channels this machine plays; 0 none), reserved (3), then the frame (length bytes); with no frame, a party's tag (8) may follow (none: all 0 or left out). The length must be the bytes that came, exactly |
+| 35 | VOICE_DOWN | host to client | sequence (2, the speaker's), speaker's machine (1), speaker's player (1, the game's player list index; 255 none), route (1: 1 global, played as said; 2 proximity, played from where the speaker's player is), channel (1, as VOICE_UP's), length (1, 1 to 255), reserved (1), then the frame. The length must be the bytes that came, exactly |
+| 36 | VOICE_CONFIG | host to client | version (1; 1 now, 0 refused), channels (1: 0x01 team, 0x02 proximity, 0x04 everyone, 0x08 party, the channels the host relays; 0x10 lobby, everyone hears everyone outside a game), flags (1: 0x01 this machine is muted), quality (1, 8 to 64 kbps), proximity (2, tenths of a world unit, 50 to 1000), reserved (2), a timed mute's seconds left (4; 0 none, or until the game ends); values past their ranges refused |
 | 37 | REPORT | client to host | sequence (4, above the session's last), target's machine (1), target's player (1, the absolute index of the player's datum in the host's player data, as the game's player datum index has it), reason (1: 1 cheating, 2 abuse in chat or voice, 3 griefing or betraying, 4 an offensive name, 5 something else), flags (1: 0x01 the reporter would attach a clip), reserved (16: zeros; a host ignores them) |
 | 38 | REPORT_RESULT | host to client | sequence (4, the REPORT's), result (1: 0 taken, 1 too soon, 2 no such player, 3 not taken here, 4 already reported), flags (1: 0x01 send the clip: the server is linked to the site), reserved (2), clip token (16, the host's: zeros without 0x01). A host before the token sent the first 8 bytes alone, and its 0x01 is read as no clip |
 
@@ -451,6 +454,13 @@ Limits and timeouts (`delta_peer.h`):
 | verified names: a client's proof sent again, while its card has not come | every 10 s |
 | verified names: a client proves again anyway | every 15 minutes |
 | verified names: a withdrawn card kept (so every client hears it) | 30 s |
+| voice: VOICE_UP a host takes from one machine | 50 a second, 10 at once, a budget of its own (the messages' above are left alone) |
+| voice: a frame's bytes | at most `min(kbps * 1000 / 8 / 50 * 2 + 16, 255)`: 136 at 24 kbps |
+| voice: machines talking at once | 8 on a dedicated server, 4 on a player's host (a machine talks for 500 ms after its last frame; one talking keeps its place, a new one waits) |
+| voice: the channels heard (VOICE_UP with no frame) | every 2 s; a host sends a machine voice only while it said them within 6 s |
+| voice: VOICE_DOWN a client takes from its host | 400 a second, 80 at once, a budget of its own |
+| voice: VOICE_CONFIG | at the handshake, on a change (at most every 250 ms), and every 10 s; a client that hears none for 25 s has no voice |
+| voice: datagrams read a frame | 256, beside the 64 of everything else |
 
 Who is heard: a host reads a datagram only from an address of a machine of
 its game (anything else is dropped before parsing), and ties a HELLO to the
@@ -847,6 +857,173 @@ one is issued are in [server-badges.md](server-badges.md).
 The game's side is `port/linux/src/server_badge.c` and
 `port/linux/src/delta_peer_game.c`; the dedicated server's certificate is
 `server_badge.cert` in its data folder (`server/platform/control_link.c`).
+
+### Voice
+
+Voice chat between Chupathingy players, over `voice` (bit 22). The host
+decides who hears whom; a client never does. Voice is off on each player's
+copy until they turn it on (`audio.voice_chat`: retail had none), and push
+to talk is its default way once on. Nothing is recorded: frames go to the
+host, which sends them on and keeps nothing, and nothing of voice goes to
+the site.
+
+- **Channels.** A player talks on one channel at a time
+  (`audio.voice_channel`; B, or the D-pad left, switches it):
+  - **PARTY** (4): their party. The host relays a party frame to the
+    machines whose VOICE_UP said the same party's tag, wherever their
+    players are. The tag is the party's to give (8 bytes, never an ID the
+    site keeps; the same tag party teams' PARTY_TAG carries): no party, no tag, and the channel can't be picked.
+    Anyone who knows a tag hears that party, so a tag must be at least 64
+    bits from the system's secure random source (never a counter, a time,
+    a name or an ID), and nothing ever echoes it: a host never puts it in
+    a roster or a VOICE_DOWN, and party teams' messages never send it back
+    to other machines.
+  - **TEAM** (1): their team in the game; everyone in co-op; nobody in a
+    game without teams.
+  - **PROXIMITY** (2): anyone within the host's proximity whose player is
+    alive, the speaker too, played from where the speaker's player stands
+    (route 2) through the listener's game sound: its distance, pan or
+    Headphone 3D, and the room's echo.
+  - **EVERYONE** (3): everyone in the game, only when the host allows it
+    (off unless set).
+  - Outside a game (the pregame lobby, the postgame) everyone hears
+    everyone on any channel but party, if the host's lobby voice is on.
+- **The host's rules** go to each client that agreed to `voice` in
+  VOICE_CONFIG: the channels it relays (a player can't talk on another,
+  and the menus show it dimmed with one plain reason), lobby voice, its
+  quality and its proximity. A player's host takes them from its
+  config.toml (`network.voice`, `network.voice_team`,
+  `network.voice_proximity`, `network.voice_everyone`,
+  `network.voice_party`, `network.voice_lobby`, `network.voice_range`,
+  `network.voice_kbps`), a dedicated server from its settings (`voice`,
+  `voice_team`, `voice_proximity`, `voice_everyone`, `voice_party`,
+  `voice_lobby`, `voice_range`, `voice_kbps`; `sv_set` and the control
+  panel's Settings change them at once). A host with `network.voice` off
+  doesn't offer the capability at all. A dedicated server's `voice` is off
+  unless its host turns it on (`voice = true` in its settings, or
+  `sv_set voice 1`), since relaying costs its upload.
+- **Listening.** A client says the channels it plays and its party's tag in
+  a VOICE_UP with no frame every 2 seconds (any frame it says counts too).
+  The host sends it a frame only on a channel it plays, and nothing once
+  it has said nothing for 6 seconds: a player with voice off, or with a
+  channel's volume at 0, costs the host no upload. A build without voice
+  never agrees to `voice`, so it is never sent any.
+- **Relaying.** The host checks each VOICE_UP's session, the voice budget,
+  its size (the length exactly the bytes that came, no more than its
+  quality's cap), the channel (one it relays now), the machine's mute and
+  the talkers at once (8 on a dedicated server, 4 on a player's host, whose
+  upload is a home connection's), then sends the frame to each machine that may hear it,
+  with the speaker's machine and player named by the host, never by the
+  frame. It never decodes a frame and never sends one back to its
+  speaker. A player's host is a speaker and a listener like any other.
+- **Mutes.** A player muted by a moderator or the host (chat's mute,
+  MOD_ACTION 6, `sv_mute`, `/mute`) is muted in voice too: the host relays
+  none of their frames and tells them in VOICE_CONFIG (flag 0x01, and the
+  seconds left), so their game stops sending. A player's own mutes (the
+  chat log's, DELTA's PLAYERS HERE) are their game's alone and never sent.
+- **The codec** is Opus (our own copy of Xiph's release), set up as
+  OpenCE's voice is, so that a frame could pass between the two unchanged:
+  48 kHz mono, 20 ms frames, one a datagram, VOIP with the voice signal,
+  variable bitrate at the host's quality, in-band FEC for 10% loss,
+  complexity 5. Each speaker heard has its own decoder and a 60 ms jitter
+  buffer; a lost frame is rebuilt from the next one's FEC, or concealed.
+- **What it costs.** At 24 kbps a frame is about 60 bytes, about 105 on the
+  wire with the headers: about 5 KB a second for each talker to each
+  listener (a host's upload is that for each pair). Encoding takes about
+  0.12 ms a frame on an Apple M4 (0.6% of a core while talking), decoding
+  about 0.015 ms a frame for each speaker heard.
+
+The game's side is `port/linux/game/voice_game.c` (the channels, the host's
+rules and its view of the game), `port/linux/src/voice.c` (the microphone,
+Opus and the voices' playback, through the game's mixer, `dsound_sdl.c`)
+and `port/linux/src/voice_jitter.c`; Delta Peer's checks and routing are in
+`delta_peer.c` (`delta_peer_voice_route`), all tested in `delta_test.c` and
+`voice_test.c`. A dedicated server relays without any audio or Opus of its
+own. The consoles leave voice out for now (`HALO_CONSOLE_NO_VOICE`): a
+console is never sent any.
+
+### Voice bridge (planned)
+
+Not built. This is the behavior a bridge between OpenCE's voice and ours
+must match, written from how their released clients and hosts behave (as
+their voice shipped on 2026-10-09, before their license changed), so that
+it can be built later without their code. Nothing of it is in any build,
+and nothing here changes the game protocol: their voice already rides the
+game's own distributed messages, and a build that doesn't know them drops
+them.
+
+**One module.** The bridge is one file (`opence_voice.c`), the only place
+that knows OpenCE's voice messages. To the rest of voice it is "a frame from
+machine M with sequence S on a channel" and "send this frame to machine L
+with route R". For each machine it says which voice it speaks: Delta's,
+OpenCE's or none. A machine that agreed to `voice` over Delta Peer always
+uses Delta's.
+
+**Their messages.** Three of the game's distributed message types, after
+the usual 8-byte distributed header (the message header of 2 bytes with
+type 2, the distributed type, a count of 1, the game time; little-endian):
+
+| Type | Name | Way | Channel | Body |
+| --- | --- | --- | --- | --- |
+| 80 | voice_up | client to host | datagram | key (4), sequence (2), length (1), pad (1), then the Opus frame |
+| 81 | voice_down | host to client | datagram | key (4), sequence (2), speaker machine (1), speaker player (1, absolute index; 0xFF none), route (1: 1 global, 2 proximity), length (1), pad (2), then the Opus frame |
+| 82 | voice_config | host to client | the client's reliable stream | key (4), flags (1: 0x01 lobby voice), mode (1), kbps (1), pad (1), proximity in tenths of a world unit (2), pad (2) |
+
+Their fixed parts are 8, 12 and 12 bytes.
+
+**What their host does,** and so what ours must do for an OpenCE client:
+- It gives each machine a random 32-bit key, never 0, when it first sees
+  it, and says it only in voice_config, over that machine's reliable
+  stream. Every voice_up must carry the key, and every voice_down to that
+  machine carries it.
+- It says voice_config when it first sees a machine, whenever its settings
+  change, and every 10 seconds. Ours sends it to every machine that did not
+  finish the Delta handshake. Its mode byte: 0 when our voice is off;
+  otherwise always 4 (their "team, enemies near" mode). Their client uses
+  the mode only to decide whether it may talk, and our host stamps each
+  frame's route itself, so 4 is right for any of our rules. Never 5 or
+  more, which their client reads as off. The lobby flag, quality and
+  proximity are ours as they are.
+- It takes voice_up on both its datagram and stream paths, before any "a
+  game is running" check, so voice works in the lobby. It checks the key,
+  that the length byte is the bytes that came, the size cap
+  (`min(kbps * 1000 / 8 / 50 * 2 + 16, 255)`), 50 frames a second with 10 at
+  once, that voice is on, and the 8 talkers. A voice_up of length 0 means
+  "I hear voices".
+- It sends voice_down only to a machine that sent a voice_up (empty or
+  not) within 6 seconds and has its key; never a machine its own voice.
+  It never decodes.
+- An OpenCE player has no channels. Their frames are taken as said on
+  TEAM in a team game and PROXIMITY otherwise, routed by our rules, and
+  sent to them with our route. Party frames never go to them.
+
+**What their client does,** and so what ours must do on an OpenCE host
+(no Delta handshake):
+- Take voice_config only from the host's stream; forget it after 25
+  seconds without one (voice off). Voice is shown as available only while
+  one has been heard, and the mode says whether push to talk works.
+- Once configured, send an empty voice_up every 2 seconds, and each frame
+  as voice_up with the key.
+- Play voice_down only with its key, the right length, and not its own
+  machine; route 1 as said, route 2 from where the speaker is.
+- The channel row shows one choice, the host's, with "Channels need a
+  Chupathingy host".
+
+**Mismatches fail silent.** A frame that fails any check (size, key,
+length, route, header) is dropped and counted, never mended, and the log
+says "voice: OpenCE frames refused (N)" once. An OpenCE build without voice
+never says it hears voices, so it is never sent any. If OpenCE changes the
+format, every frame fails the checks and voice is quietly off for their
+machines. The watch of their `network_format.txt` (the three structs'
+hashes and the enum values 80 to 82) flags a change for review, and the
+signed legacy table's kill-switch name `opence_voice` (no capability bit,
+never sent in HELLO; a build that doesn't know it ignores it) turns the
+bridge off in every build already out, while Delta voice keeps working.
+
+**Tests to build with it:** the three parsers with exact, short, long,
+bad-key and bad-length inputs; the router with OpenCE machines in the
+room; and a cross-play `voice` step (ours hosting an OpenCE client, theirs
+hosting ours), each side logging the other's test tone as heard.
 
 ### Party teams
 

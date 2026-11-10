@@ -210,9 +210,12 @@ PROFILE_USE_FLAGS = [
 ]
 
 
-# voice chat's codec (port/third_party/opus; network_voice.c): the
-# floating-point library in plain C, its files as sources.txt lists them
+# voice chat's codec (port/third_party/opus; voice.c): the floating-point
+# library in plain C, its files as sources.txt lists them. A build without
+# voice.c (the dedicated server, which relays voice without decoding it)
+# leaves it out too
 OPUS_DIR = Path("port/third_party/opus")
+VOICE_SOURCE = "port/linux/src/voice.c"
 # FFmpeg (LGPL) decodes the movies, which the port has no decoder for
 # (bink_ffmpeg.c implements the SDK's own entry points behind it, and
 # bink_null.c keeps the stubs). The build brings its own, for this target and
@@ -675,6 +678,7 @@ def linux32_objects(n: Writer, units: Linux32Units, obj_dir: Path, extra_cflags:
         f"-I{MONOCYPHER_DIR}",
         f"-I{ZLIB_DIR}",
         f"-I{ZSTD_DIR / 'lib'}",
+        f"-I{OPUS_DIR / 'include'}",
         "-Isource -Isource/cseries",
         sdk_flags,
         *units.include_flags,
@@ -740,6 +744,10 @@ def linux32_objects(n: Writer, units: Linux32Units, obj_dir: Path, extra_cflags:
     # Zstandard's decoder, for compressed Halo PC maps (map_compressed.c)
     for name in ZSTD_SOURCES:
         add_object(ZSTD_DIR / name, " ".join([abi, "-std=gnu11", *ZSTD_DEFINES, "-w"]))
+    # voice chat's codec (voice.c)
+    if VOICE_SOURCE not in units.excluded:
+        for source in opus_sources():
+            add_object(source, opus_cflags(abi))
     # the game's sin, pow and the rest, the same on every port
     # (port/include/halo_math.h)
     for source in musl_math_sources():
