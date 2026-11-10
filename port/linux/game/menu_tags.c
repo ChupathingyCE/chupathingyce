@@ -1512,7 +1512,7 @@ static void instance_set(struct cache_file_tag_instance *instances, long group_t
 	instance->base_address = XBOX_ADDRESS(definition);
 }
 
-/* the pause menus' GUIDE's text (its string list's tag), for the count
+/* the pause menus' DELTA's text (its string list's tag), for the count
 of what waits in the Guide (guide_pause_label); NONE in a map without it */
 static long pause_guide_label = NONE;
 
@@ -1555,8 +1555,8 @@ static void menu_tags_release(void)
 /* ---------- the in-game pause menus (a campaign map's, a multiplayer map's)
 
 Their list gets SETTINGS after RESUME GAME, the menus' settings (as the
-main menu's SETTINGS opens them), CONTROLS, and GUIDE (the Guide over the
-pause menu, guide.pause_menu); a multiplayer map's, for
+main menu's SETTINGS opens them), CONTROLS, and DELTA (DELTA over the
+pause menu, delta.pause_menu); a multiplayer map's, for
 the host, MODERATION, the host's kick and ban of its players
 (moderation_screen.c, the builds with it), and END GAME, which ends the game
 as its time limit would: its players stay, and the host picks the next map
@@ -1712,8 +1712,8 @@ static boolean pause_controls_offered(void)
 #endif
 }
 
-/* whether the pause menus have GUIDE (the Guide over the pause menu,
-port/linux/game/guide.c), as guide.pause_menu says, in every menu set */
+/* whether the pause menus have DELTA (DELTA over the pause menu,
+port/linux/game/guide.c), as delta.pause_menu says, in every menu set */
 static boolean pause_guide_offered(void)
 {
 #ifdef HALO_GUIDE
@@ -1721,7 +1721,7 @@ static boolean pause_guide_offered(void)
 	row would be dead in the others' pause menus) */
 	extern unsigned char pc_menu_split_players(void);
 
-	return config_boolean("guide.pause_menu") != 0 && !pc_menu_split_players();
+	return config_boolean("delta.pause_menu") != 0 && !pc_menu_split_players();
 #else
 	return FALSE;
 #endif
@@ -1876,7 +1876,7 @@ static boolean pause_list_patch(struct cache_file_tag_instance *instances, struc
 	{
 		names[added] = "pause/guide_button";
 		tags[added] = next_tag();
-		buttons[added++] = pause_button(instances, model, "pause/guide_button", "GUIDE",
+		buttons[added++] = pause_button(instances, model, "pause/guide_button", "DELTA",
 			function_index("port pause guide", "pause", 0), NONE, FALSE);
 		if (buttons[added - 1])
 			pause_guide_label = ((struct ui_widget_definition *)buttons[added - 1])->text_label_string_list.index;
@@ -2206,7 +2206,7 @@ static void pause_patch(struct cache_file_tag_instance *instances, boolean setti
 	{
 		platform_log("menus: the pause menu has%s%s%s%s%s%s", change_teams ? " CHANGE TEAMS" : "",
 			settings ? " SETTINGS" : "", pause_controls_offered() ? " CONTROLS" : "",
-			pause_guide_offered() ? " GUIDE" : "",
+			pause_guide_offered() ? " DELTA" : "",
 			solo_screen == NONE && pause_moderation_offered(host) ? " MODERATION" : "",
 			host && solo_screen == NONE ? " END GAME" : "");
 	}

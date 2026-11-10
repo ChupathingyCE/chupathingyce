@@ -3569,13 +3569,13 @@ static void social_log(int status, const struct social_state *state)
 {
 	if (status == BROWSER_SOCIAL_LOADED)
 	{
-		platform_log("Guide: friends loaded (%d of %d online, %d requests, %d invites)", social_online_count(state),
+		platform_log("DELTA: friends loaded (%d of %d online, %d requests, %d invites)", social_online_count(state),
 			state->friend_count, state->request_count, state->invite_count);
 	}
 	else if (status == BROWSER_SOCIAL_UNLINKED)
-		platform_log("Guide: the site says this copy is linked to no profile");
+		platform_log("DELTA: the site says this copy is linked to no profile");
 	else if (status == BROWSER_SOCIAL_FAILED)
-		platform_log("Guide: friends not loaded (the site is busy or not answering; asked again later)");
+		platform_log("DELTA: friends not loaded (the site is busy or not answering; asked again later)");
 }
 
 /* (under the lock) the party as the site says it now */
@@ -3676,7 +3676,7 @@ static void social_action(int action, const char *handle, char *response, struct
 			text[0] && status >= 400 && status < 500 ? text : "Can't do that right now.");
 	}
 	pthread_mutex_unlock(&browser_lock);
-	platform_log("Guide: %s %s", action == BROWSER_SOCIAL_JOIN ? "join" : action == BROWSER_SOCIAL_INVITE ? "invite" :
+	platform_log("DELTA: %s %s", action == BROWSER_SOCIAL_JOIN ? "join" : action == BROWSER_SOCIAL_INVITE ? "invite" :
 		social_action_names[action], status == 200 ? "done" : status ? "refused" : "no answer");
 	if (parsed == 1 && logged_status != BROWSER_SOCIAL_LOADED)
 		social_log(BROWSER_SOCIAL_LOADED, read);
@@ -3900,7 +3900,7 @@ static void update_party(void)
 	pthread_mutex_unlock(&browser_lock);
 	if (wanted || going)
 	{
-		platform_log("Guide: party %s %s", action, parsed ? "done" : status ? "refused" : "no answer");
+		platform_log("DELTA: party %s %s", action, parsed ? "done" : status ? "refused" : "no answer");
 	}
 }
 
@@ -5230,11 +5230,11 @@ int browser_party_link(const char *text)
 		return 0;
 	if (!social_party_code_clean(text, code))
 	{
-		platform_log("Guide: that party link has no party code");
+		platform_log("DELTA: that party link has no party code");
 		return 1;
 	}
 	/* (never joined unseen: the Guide asks first, guide.c) */
-	platform_log("Guide: a party link, waiting for the player");
+	platform_log("DELTA: a party link, waiting for the player");
 	pthread_mutex_lock(&party_link_lock);
 	snprintf(party_link_code, sizeof(party_link_code), "%s", code);
 	pthread_mutex_unlock(&party_link_lock);

@@ -810,21 +810,22 @@ static const struct config_setting config_settings[] =
 #endif
 
 #ifdef HALO_GUIDE
-	/* ---- the Guide (port/linux/game/guide.c) */
-	{ "controls.guide", _config_string, "\"F3\"", "HALO_KEY_GUIDE", _environment_value, _platform_all,
-		"The key that opens and closes the Guide: F3 to F8." },
-	{ "controls.guide_button", _config_boolean, "true", "HALO_GUIDE_BUTTON", _environment_value, _platform_all,
-		"Open the Guide with the controller's Guide button, where Chupathingy\n"
-		"can read it (Steam and the Xbox Game Bar may keep it for themselves)." },
-	{ "guide.hold_back", _config_boolean, "false", "HALO_GUIDE_HOLD_BACK", _environment_value, _platform_all,
-		"Open the Guide by holding Back for about half a second in the menus.\n"
+	/* ---- DELTA (port/linux/game/guide.c); an older version's guide.* and
+	controls.guide names go on under these (config_renamed) */
+	{ "controls.delta", _config_string, "\"F3\"", "HALO_KEY_DELTA", _environment_value, _platform_all,
+		"The key that opens and closes DELTA: F3 to F8." },
+	{ "controls.delta_button", _config_boolean, "true", "HALO_DELTA_BUTTON", _environment_value, _platform_all,
+		"Open DELTA with the controller's Guide button, where Chupathingy can\n"
+		"read it (Steam and the Xbox Game Bar may keep it for themselves)." },
+	{ "delta.hold_back", _config_boolean, "false", "HALO_DELTA_HOLD_BACK", _environment_value, _platform_all,
+		"Open DELTA by holding Back for about half a second in the menus.\n"
 		"Off by default: the menus get the Back press first, as on the Xbox." },
-	{ "guide.pause_menu", _config_boolean, "true", "HALO_GUIDE_PAUSE_MENU", _environment_value, _platform_all,
-		"Put GUIDE in the pause menu, in every menu set." },
-	{ "guide.notify_in_game", _config_boolean, "false", "HALO_GUIDE_NOTIFY_IN_GAME", _environment_value,
+	{ "delta.pause_menu", _config_boolean, "true", "HALO_DELTA_PAUSE_MENU", _environment_value, _platform_all,
+		"Put DELTA in the pause menu, in every menu set." },
+	{ "delta.notify_in_game", _config_boolean, "false", "HALO_DELTA_NOTIFY_IN_GAME", _environment_value,
 		_platform_all,
-		"Show the Guide's notifications during a game. They always show in\n"
-		"the menus." },
+		"Show DELTA's notifications during a game. They always show in the\n"
+		"menus." },
 	{ "delta.notify_online", _config_boolean, "false", "HALO_DELTA_NOTIFY_ONLINE", _environment_value,
 		_platform_all,
 		"Show a notification in the menus when a friend comes online." },
@@ -1483,21 +1484,21 @@ static const struct config_setting config_settings[] =
 		"\"never\". Leave it empty to ask." },
 #endif
 #ifdef HALO_GUIDE
-	{ "debug.guide_open", _config_boolean, "false", "HALO_GUIDE_OPEN", _environment_set_is_true, _platform_all,
-		"Open the Guide once the menus or a map are up, for tests." },
-	{ "debug.guide_toast", _config_string, "\"\"", "HALO_GUIDE_TOAST", _environment_value, _platform_all,
+	{ "debug.delta_open", _config_boolean, "false", "HALO_DELTA_OPEN", _environment_set_is_true, _platform_all,
+		"Open DELTA once the menus or a map are up, for tests." },
+	{ "debug.delta_toast", _config_string, "\"\"", "HALO_DELTA_TOAST", _environment_value, _platform_all,
 		"Show a test notification with this text once. Leave it empty for none." },
-	{ "debug.guide_section", _config_string, "\"\"", "HALO_GUIDE_SECTION", _environment_value, _platform_all,
-		"With debug.guide_open, the section it opens on (\"party\", \"friends\"),\n"
+	{ "debug.delta_section", _config_string, "\"\"", "HALO_DELTA_SECTION", _environment_value, _platform_all,
+		"With debug.delta_open, the section it opens on (\"party\", \"friends\"),\n"
 		"for tests. Leave it empty for the first." },
-	{ "debug.guide_row", _config_integer, "-1", "HALO_GUIDE_ROW", _environment_value, _platform_all,
-		"With debug.guide_open, the row chosen once that section has it, for\n"
+	{ "debug.delta_row", _config_integer, "-1", "HALO_DELTA_ROW", _environment_value, _platform_all,
+		"With debug.delta_open, the row chosen once that section has it, for\n"
 		"tests. -1 for none." },
 	{ "debug.party_test", _config_string, "\"\"", "HALO_PARTY_TEST", _environment_value, _platform_all,
 		"A party step once the menus are up, for tests: \"create\" or\n"
 		"\"join:<code>\". Leave it empty for none." },
-	{ "debug.guide_test", _config_string, "\"\"", "HALO_GUIDE_TEST", _environment_value, _platform_all,
-		"Buttons pressed in the Guide debug.guide_open opened, one at a time,\n"
+	{ "debug.delta_test", _config_string, "\"\"", "HALO_DELTA_TEST", _environment_value, _platform_all,
+		"Buttons pressed in DELTA once debug.delta_open opened it, one at a time,\n"
 		"separated by ; (up, down, left, right, a, b, x, y, lb, rb), for tests.\n"
 		"Debug builds only: a release build ignores it." },
 #endif
@@ -1811,10 +1812,8 @@ static const struct
 		"The text chat you see and send. The chat rules for games you host are\n"
 		"in [network]." },
 #ifdef HALO_GUIDE
-	{ "guide", 0,
-		"The Guide, which opens over the menus or a game (F3)." },
 	{ "delta", 0,
-		"DELTA's party." },
+		"DELTA, which opens over the menus or a game (F3), and its party." },
 #endif
 	{ "game", 0,
 		"How games play. The bomb settings are for Bomb and Grifball games you\n"
@@ -2898,6 +2897,18 @@ static const struct
 	either one being true started it alone (its environment variable,
 	HALO_SOLO_GAME, still does: config_environment_aliases) */
 	{ "debug.solo_game", "game.start_with_one_player", "false", 1 },
+	/* the Guide's names, until v0.9.1, when it was named DELTA (its
+	environment variables still work: config_environment_renamed) */
+	{ "controls.guide", "controls.delta", NULL, 0 },
+	{ "controls.guide_button", "controls.delta_button", NULL, 0 },
+	{ "guide.hold_back", "delta.hold_back", NULL, 0 },
+	{ "guide.pause_menu", "delta.pause_menu", NULL, 0 },
+	{ "guide.notify_in_game", "delta.notify_in_game", NULL, 0 },
+	{ "debug.guide_open", "debug.delta_open", NULL, 0 },
+	{ "debug.guide_toast", "debug.delta_toast", NULL, 0 },
+	{ "debug.guide_section", "debug.delta_section", NULL, 0 },
+	{ "debug.guide_row", "debug.delta_row", NULL, 0 },
+	{ "debug.guide_test", "debug.delta_test", NULL, 0 },
 };
 
 #define NUMBER_OF_CONFIG_RENAMED (sizeof(config_renamed) / sizeof(config_renamed[0]))
@@ -2917,6 +2928,45 @@ static const struct
 };
 
 #define NUMBER_OF_CONFIG_ENVIRONMENT_ALIASES (sizeof(config_environment_aliases) / sizeof(config_environment_aliases[0]))
+
+/* the environment variables a renamed setting had (config_renamed): read the
+same way as its own, when its own is not set */
+static const struct
+{
+	const char *old_environment;
+	const char *environment;
+} config_environment_renamed[] =
+{
+	{ "HALO_KEY_GUIDE", "HALO_KEY_DELTA" },
+	{ "HALO_GUIDE_BUTTON", "HALO_DELTA_BUTTON" },
+	{ "HALO_GUIDE_HOLD_BACK", "HALO_DELTA_HOLD_BACK" },
+	{ "HALO_GUIDE_PAUSE_MENU", "HALO_DELTA_PAUSE_MENU" },
+	{ "HALO_GUIDE_NOTIFY_IN_GAME", "HALO_DELTA_NOTIFY_IN_GAME" },
+	{ "HALO_GUIDE_OPEN", "HALO_DELTA_OPEN" },
+	{ "HALO_GUIDE_TOAST", "HALO_DELTA_TOAST" },
+	{ "HALO_GUIDE_SECTION", "HALO_DELTA_SECTION" },
+	{ "HALO_GUIDE_ROW", "HALO_DELTA_ROW" },
+	{ "HALO_GUIDE_TEST", "HALO_DELTA_TEST" },
+};
+
+#define NUMBER_OF_CONFIG_ENVIRONMENT_RENAMED (sizeof(config_environment_renamed) / sizeof(config_environment_renamed[0]))
+
+/* a setting's environment variable, or the one it had before it was renamed */
+static const char *config_getenv(const char *environment)
+{
+	const char *value;
+	size_t index;
+
+	if (!environment)
+		return NULL;
+	value = getenv(environment);
+	for (index = 0; !value && index < NUMBER_OF_CONFIG_ENVIRONMENT_RENAMED; index++)
+	{
+		if (!strcmp(config_environment_renamed[index].environment, environment))
+			value = getenv(config_environment_renamed[index].old_environment);
+	}
+	return value;
+}
 #endif
 
 /* whether the file's value is the default written as text */
@@ -3546,6 +3596,130 @@ static char *config_text_with_line(const char *text, const char *name, const cha
 	return out.buffer;
 }
 
+/* text with a renamed setting's value (as written) in its section, as
+config_add_missing adds a setting: after the section's last line that is
+not blank, with its help text, the value in place of its commented-out
+default. Returns the new text, or NULL when the file has no such section */
+static char *config_text_with_setting(const char *text, const struct config_setting *setting, const char *value)
+{
+	const char *dot = strchr(setting->name, '.');
+	const char *line, *insert = NULL;
+	char header[72], buffer[320];
+	struct config_text block = { NULL, 0, 0 };
+	struct config_text updated = { NULL, 0, 0 };
+	size_t last;
+
+	snprintf(header, sizeof(header), "[%.*s]", (int)(dot - setting->name), setting->name);
+	for (line = text; *line;)
+	{
+		const char *start = line;
+		size_t length = strcspn(line, "\n");
+
+		while (*start == ' ' || *start == '\t')
+			start++;
+		if (insert && (*start == '[' || !strncmp(start, CONFIG_ADVANCED_MARK, strlen(CONFIG_ADVANCED_MARK))))
+			break;
+		if (!insert && !strncmp(start, header, strlen(header)))
+			insert = line + length;
+		else if (insert && start < line + length && *start != '\r')
+			insert = line + length;
+		line += length;
+		if (*line)
+			line++;
+	}
+	if (!insert)
+		return NULL;
+	if (*insert)
+		insert++;
+	config_append_setting(&block, setting);
+	if (!block.buffer)
+		return NULL;
+	/* (the commented-out default, its last line, becomes the value) */
+	for (last = block.length - 1; last > 0 && block.buffer[last - 1] != '\n'; last--)
+		;
+	block.buffer[last] = 0;
+	block.length = last;
+	snprintf(buffer, sizeof(buffer), "%s = %s\n", dot + 1, value);
+	config_append(&block, buffer);
+	{
+		char *before = config_copy(text, (size_t)(insert - text));
+
+		if (before)
+			config_append(&updated, before);
+		free(before);
+	}
+	if (insert > text && insert[-1] != '\n')
+		config_append(&updated, "\n");
+	config_append(&updated, block.buffer);
+	config_append(&updated, insert);
+	free(block.buffer);
+	return updated.buffer;
+}
+
+/* the sections an older version wrote whose settings all moved to another
+(config_renamed): the Guide's [guide], until v0.9.1, now [delta] */
+static const char *const config_retired_sections[] = { "guide" };
+
+/* a file with a retired section left empty (comments and blank lines only,
+once config_forward_renamed took its settings out): its header and note
+are taken out, with the blank line before them. A section with a line of
+any other kind stays. Returns the new text, or NULL if there was nothing to
+change */
+static char *config_drop_retired_sections(const char *text)
+{
+	char *result = NULL;
+	size_t retired;
+
+	for (retired = 0; retired < sizeof(config_retired_sections) / sizeof(config_retired_sections[0]); retired++)
+	{
+		const char *source = result ? result : text;
+		const char *line, *header = NULL, *after = NULL, *start;
+		char current[64];
+		int in_section = 0, empty = 1;
+		struct config_text out = { NULL, 0, 0 };
+
+		for (line = source; *line && !after;)
+		{
+			const char *end = line + strcspn(line, "\n");
+			const char *next = *end ? end + 1 : end;
+
+			if (config_line_section(line, end, current, sizeof(current)))
+			{
+				if (in_section)
+					after = line;
+				else if (!strcmp(current, config_retired_sections[retired]))
+				{
+					header = line;
+					in_section = 1;
+				}
+			}
+			else if (in_section && !config_line_blank(line, end) && !config_line_comment(line, end))
+				empty = 0;
+			line = next;
+		}
+		if (!header || !empty)
+			continue;
+		if (!after)
+			after = source + strlen(source);
+		/* (the blank line before the header stays, before the next one) */
+		start = header;
+		{
+			char *before = config_copy(source, (size_t)(start - source));
+
+			if (before)
+				config_append(&out, before);
+			free(before);
+		}
+		config_append(&out, after);
+		if (!out.buffer)
+			continue;
+		free(result);
+		result = out.buffer;
+		platform_log("settings: [%s] (an older version's) taken out of config.toml", config_retired_sections[retired]);
+	}
+	return result;
+}
+
 /* a file that holds a setting under its older name (config_renamed): that
 name's lines are taken out of it (its value, and its line commented out at
 the default with its help text of that day, each with the comment above it
@@ -3681,7 +3855,11 @@ static char *config_forward_renamed(const char *text, toml_datum_t table)
 				char *moved;
 
 				snprintf(line_text, sizeof(line_text), "%s = %s\n", strchr(setting->name, '.') + 1, value);
-				moved = config_text_with_line(out.buffer, setting->name, line_text);
+				/* (a section without the setting's line: its whole block) */
+				moved = config_text_has_key(out.buffer, setting->name, 1) ? NULL :
+					config_text_with_setting(out.buffer, setting, value);
+				if (!moved)
+					moved = config_text_with_line(out.buffer, setting->name, line_text);
 				if (moved)
 				{
 					free(out.buffer);
@@ -3701,6 +3879,15 @@ static char *config_forward_renamed(const char *text, toml_datum_t table)
 		free(block.buffer);
 		free(starts);
 		free(drop);
+	}
+	{
+		char *dropped = config_drop_retired_sections(result ? result : text);
+
+		if (dropped)
+		{
+			free(result);
+			result = dropped;
+		}
 	}
 	return result;
 }
@@ -4154,7 +4341,7 @@ static void config_load(void)
 	for (index = 0; index < NUMBER_OF_CONFIG_SETTINGS; index++)
 	{
 		const struct config_setting *setting = &config_settings[index];
-		const char *environment = setting->environment ? getenv(setting->environment) : NULL;
+		const char *environment = config_getenv(setting->environment);
 
 		/* (one set to "", "0", "false", "no" or "off" is as if it were not:
 		HALO_LOG_ADDRESSES=0 never turns a setting on) */
