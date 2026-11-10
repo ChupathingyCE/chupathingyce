@@ -1075,6 +1075,61 @@ real_vector4d *offset_vector4d(
 	return result;
 }
 
+/* port: a camouflaged object's model parts (its active camouflage) and its
+other parts (groups2: a weapon's ammo counter, a display, a glow) belong to
+one view: the first-person weapon's (its own projection and depth range,
+drawn after the world) or the world's. The other parts follow the last of
+the model parts of their object in their view, drawn once: a first-person
+weapon's after the arms' and the weapon's camouflage, a body's in the world
+after the body's. Drawn after an earlier run of its model parts (a run split
+by another object's group sorted between), a counter was drawn in the
+world's projection, and the next run's copy of the screen
+(rasterizer_active_camouflage_cache_primary_render_target) held it, so the
+camouflage showed it again, moved: a double counter. From OpenH1 (erin.cena) */
+static boolean active_camouflage_same_view(
+	struct transparent_geometry_group const *group,
+	long source_object_index,
+	unsigned long geometry_flags)
+{
+	return group->effect_type == _render_model_effect_type_active_camouflage &&
+		group->source_object_index == source_object_index &&
+		TEST_FLAG(group->geometry_flags, _rasterizer_geometry_first_person_bit) ==
+			TEST_FLAG(geometry_flags, _rasterizer_geometry_first_person_bit);
+}
+
+/* port: whether the group is the last of its object's camouflaged model parts
+in its view still to be drawn (one sorted after it and not drawn yet, or
+drawn with it as its presorted chain's, comes later) */
+static boolean active_camouflage_last_model_group(
+	struct transparent_geometry_group const *group)
+{
+	struct transparent_geometry_group const *next_group;
+
+	for (next_group = rasterizer_transparent_geometry_next_group(group);
+		next_group;
+		next_group = rasterizer_transparent_geometry_next_group(next_group))
+	{
+		if (next_group->shader &&
+			next_group->shader->base.type == _shader_type_model &&
+			active_camouflage_same_view(next_group, group->source_object_index, group->geometry_flags) &&
+			rasterizer_transparent_geometry_get_group_pending_status(next_group))
+		{
+			return FALSE;
+		}
+	}
+	return TRUE;
+}
+
+/* port: a camouflaged object's other part (groups2) drawn after this run of
+its model parts: the same object's, in the same view */
+static boolean active_camouflage_part_follows(
+	struct transparent_geometry_group const *part,
+	struct transparent_geometry_group const *group)
+{
+	return part->active_camouflage_transparent_source_object_index == group->source_object_index &&
+		active_camouflage_same_view(part, group->source_object_index, group->geometry_flags);
+}
+
 void rasterizer_transparent_geometry_group_draw(
 	struct transparent_geometry_group *group,
 	boolean dirty)
@@ -1411,14 +1466,9 @@ void rasterizer_transparent_geometry_group_draw(
 				group->shader->base.type == _shader_type_model &&
 				!dirty)
 			{
-				struct transparent_geometry_group const *next_group =
-					rasterizer_transparent_geometry_next_group(group);
-
-				if (!next_group ||
-					next_group->effect_type != _render_model_effect_type_active_camouflage ||
-					next_group->source_object_index != group->source_object_index ||
-					!next_group->shader ||
-					next_group->shader->base.type != _shader_type_model)
+				/* port: after the last of the object's model parts in this
+				view, not each run of them (active_camouflage_same_view) */
+				if (active_camouflage_last_model_group(group))
 					draw_active_camouflage_groups2 = TRUE;
 			}
 
@@ -3601,10 +3651,8 @@ void rasterizer_transparent_geometry_group_draw(
 
 			for (group_index = 0; group_index < group_count; group_index++)
 			{
-				if (groups2[group_index].active_camouflage_transparent_source_object_index ==
-						group->source_object_index &&
-					groups2[group_index].effect_type ==
-						_render_model_effect_type_active_camouflage)
+				/* port: and in its view (active_camouflage_same_view) */
+				if (active_camouflage_part_follows(&groups2[group_index], group))
 				{
 					rasterizer_transparent_geometry_group_draw(&groups2[group_index], TRUE);
 
