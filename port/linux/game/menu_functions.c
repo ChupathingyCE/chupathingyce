@@ -96,6 +96,7 @@ their handlers open opens.
 #include "../src/browser.h"
 #include "../src/launcher.h"
 #include "delta.h"
+#include "../src/server_badge.h"
 #ifdef HALO_GAME_BROWSER
 #include "halo_port_limits.h"
 #endif
@@ -2334,6 +2335,8 @@ static struct
 	{ "controls.chat_all", L"CHAT", 2 },
 	{ "controls.chat_team", L"TEAM CHAT", 2 },
 	{ "controls.chat_log", L"CHAT LOG", 2 },
+	{ "controls.push_to_talk", L"PUSH TO TALK", 2 },
+	{ "controls.voice_channel", L"VOICE CHANNEL", 2 },
 };
 
 static struct
@@ -4934,6 +4937,9 @@ static void lobby_browser_host_text(struct p2p_listing const *game, wchar_t *tex
 	dedicated = listed->hosting == BROWSER_HOSTING_DEDICATED || listed->hosting == BROWSER_HOSTING_OFFICIAL;
 	platform = listed->has_platform && listed->host_platform < NUMBEROF(platforms) ? platforms[listed->host_platform] : L"";
 	usnprintf(text, size - 1, L"%s%s%s%s%s%s%s",
+		listed->badge == _server_badge_tier_official ? L"OFFICIAL SERVER" :
+		listed->badge == _server_badge_tier_developer ? L"DEVELOPER SERVER" :
+		listed->badge == _server_badge_tier_community ? L"COMMUNITY SERVER" :
 		dedicated ? (listed->hosting == BROWSER_HOSTING_OFFICIAL ? L"OFFICIAL SERVER" : L"DEDICATED") : L"",
 		dedicated && platform[0] ? L", " : L"", platform, !dedicated && platform[0] ? L" HOST" : L"",
 		(dedicated || platform[0]) && listed->protocol ? L", " : L"",

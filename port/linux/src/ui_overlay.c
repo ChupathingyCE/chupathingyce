@@ -124,10 +124,11 @@ static struct
 	place from the first's this frame (x, y, then its scale), and whether a
 	plasma is drawn this frame */
 	GLuint plasma;
-	GLint plasma_location, plasma_shift_location;
+	GLint plasma_location, plasma_shift_location, plasma_thread_location;
 	int plasma_serial, plasma_width, plasma_height, plasma_uploaded;
 	unsigned char *plasma_pixels;
-	float plasma_shift[4];
+	/* (the second map's place, then its threads' color: ui_overlay_plasma_thread) */
+	float plasma_shift[8];
 	int plasma_drawn;
 	/* each icon's drawn columns (from its left, of ui_prompt_icon_size) */
 	int icon_left[NUMBER_OF_ICONS], icon_right[NUMBER_OF_ICONS];
@@ -794,7 +795,18 @@ void ui_overlay_plasma(float x, float y, float width, float height, float radius
 	overlay.plasma_shift[1] = second_y - first_y * first / second;
 	overlay.plasma_shift[2] = first / second;
 	overlay.plasma_shift[3] = 0.0f;
+	/* (no theme set: Halo Blue's) */
+	if (overlay.plasma_shift[7] == 0.0f)
+		ui_overlay_plasma_thread(0x3373FFFF);
 	overlay.plasma_drawn = 1;
+}
+
+void ui_overlay_plasma_thread(unsigned int color)
+{
+	overlay.plasma_shift[4] = (float)((color >> 24) & 0xFF) / 255.0f;
+	overlay.plasma_shift[5] = (float)((color >> 16) & 0xFF) / 255.0f;
+	overlay.plasma_shift[6] = (float)((color >> 8) & 0xFF) / 255.0f;
+	overlay.plasma_shift[7] = 1.0f;
 }
 
 static int face_button(int button)
@@ -985,6 +997,7 @@ static const char fragment_source[] =
 	"uniform sampler2D picture;\n"
 	"uniform sampler2D plasma;\n"
 	"uniform vec4 plasma_shift;\n"
+	"uniform vec4 plasma_thread;\n"
 	"uniform vec4 cutouts[4];\n"
 	"uniform float window_height;\n"
 #ifdef HALO_CONSOLE_GLES2
@@ -1016,7 +1029,7 @@ static const char fragment_source[] =
 	"\t\tfloat a0 = t0.a * dot(t0.rgb, vec3(0.3333));\n"
 	"\t\tfloat a1 = t1.a * dot(t1.rgb, vec3(0.3333));\n"
 	"\t\tfloat thread = pow(clamp(1.0 - abs(a0 - a1) * 3.0, 0.0, 1.0), 8.0);\n"
-	"\t\tvec3 color = v_color.rgb * (0.8 + 0.6 * a0 * a1) + vec3(0.2, 0.45, 1.0) * thread * 0.18;\n"
+	"\t\tvec3 color = v_color.rgb * (0.8 + 0.6 * a0 * a1) + plasma_thread.rgb * thread * 0.18;\n"
 	"\t\tfragment = vec4(color, v_color.a * clamp(0.5 - d, 0.0, 1.0) * (0.92 + 0.08 * thread));\n"
 	"\t\treturn;\n"
 	"\t}\n"
@@ -1166,6 +1179,7 @@ static int set_up(void)
 	overlay.picture_location = glGetUniformLocation(overlay.program, "picture");
 	overlay.plasma_location = glGetUniformLocation(overlay.program, "plasma");
 	overlay.plasma_shift_location = glGetUniformLocation(overlay.program, "plasma_shift");
+	overlay.plasma_thread_location = glGetUniformLocation(overlay.program, "plasma_thread");
 	overlay.cutouts_location = glGetUniformLocation(overlay.program, "cutouts");
 	overlay.window_height_location = glGetUniformLocation(overlay.program, "window_height");
 
@@ -1825,6 +1839,7 @@ void ui_overlay_present(int x, int y, int width, int height, int window_width, i
 	}
 	glUniform1i(overlay.plasma_location, 3);
 	glUniform4fv(overlay.plasma_shift_location, 1, overlay.plasma_shift);
+	glUniform4fv(overlay.plasma_thread_location, 1, overlay.plasma_shift + 4);
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, overlay.atlas);
 	glUniform1i(overlay.atlas_location, 0);

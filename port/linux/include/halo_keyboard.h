@@ -39,6 +39,10 @@ enum halo_keyboard_action
 	HALO_KEYBOARD_CHAT_ALL,
 	HALO_KEYBOARD_CHAT_TEAM,
 	HALO_KEYBOARD_CHAT_LOG,
+	/* voice chat's (port/linux/game/voice_game.c reads them): talk while
+	held, and the next channel */
+	HALO_KEYBOARD_PUSH_TO_TALK,
+	HALO_KEYBOARD_VOICE_CHANNEL,
 	NUMBER_OF_HALO_KEYBOARD_ACTIONS
 };
 

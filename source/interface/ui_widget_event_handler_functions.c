@@ -1080,6 +1080,21 @@ static boolean network_game_start_new_server(
 
 extern byte cached_player_profile[0x9C];
 
+/* port: whether a network game this machine hosts may be on the map; if
+not (a map on Chupathingy maps' blacklist: cache_files_map_host_refused),
+the player is told why */
+static boolean ui_widget_port_map_hostable(
+	char const *map_name)
+{
+	void platform_show_message(char const *title, char const *message);
+	char message[320];
+
+	if (!cache_files_map_host_refused(map_name, message, sizeof(message)))
+		return TRUE;
+	platform_show_message("Halo: map blocked", message);
+	return FALSE;
+}
+
 long playlist_profile_new(
 	short local_player_index,
 	wchar_t *name);
@@ -5912,6 +5927,13 @@ static boolean multiplayer_level_select(
 			return FALSE;
 		}
 	}
+	/* port: nor a map on Chupathingy maps' blacklist: said, and the list
+	stays (cache_files_map_host_refused; alone or in split screen it plays) */
+	if (global_network_game_server_get() && !network_game_is_splitscreen_local() &&
+		!ui_widget_port_map_hostable(map_name))
+	{
+		return FALSE;
+	}
 	main_set_multiplayer_map_name(map_name);
 	game_engine_override_map_name(map_name);
 	{
@@ -6225,6 +6247,8 @@ boolean ui_widget_port_multiplayer_map_choose(
 			return FALSE;
 		}
 	}
+	if (server && !network_game_is_splitscreen_local() && !ui_widget_port_map_hostable(map_name))
+		return FALSE;
 	main_set_multiplayer_map_name(map_name);
 	game_engine_override_map_name(map_name);
 	if (server)

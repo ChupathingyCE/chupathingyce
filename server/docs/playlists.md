@@ -61,6 +61,11 @@ map's game with the map in their `custom_maps/`; HaloMD and Halo PC retail
 games are ChupathingyCE's only (an OpenCE player is told the map is
 missing).
 
+The server doesn't host a map on Chupathingy maps' blacklist (maps that
+crash games or break the engine; see the game's `docs/maps.md`). It fetches
+the list when it starts and about once an hour after that. A playlist entry
+on such a map is skipped, and `sv_map` refuses it; both say why in the log.
+
 **Xbox map packs** (community packs of Xbox maps, such as Halo CE+ X), each
 in its own `maps_<pack>/` folder beside `maps/`, go in as `<name>@<pack>`:
 Halo CE+'s maps are in `maps_cex/` and its Gothra is `wizard@cex`, whatever

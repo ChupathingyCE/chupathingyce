@@ -17,8 +17,8 @@ with its state read from the files' headers; a family's own screen opens
 its folder, checks its maps and adds them from a file (xiso.c, pc_disc.c,
 ce_installer.c, through sdl_platform.c's import thread). Logs & help sends
 debug.txt and the last crash report (and config.toml, if the player says
-so) to the log dump site, with addresses taken out first
-(crash_report_redact), and copies the version.
+so) to the log dump site, with addresses and the home folder taken out
+first (crash_report_redact), and copies the version.
 
 Everything here runs on the game's main thread, but the import and the
 upload, which have threads of their own.
@@ -2321,6 +2321,7 @@ static void draw(void)
 
 	launcher.target_count = 0;
 	ui_style_clock((unsigned int)SDL_GetTicks());
+	ui_style_theme(ui_style_theme_named(config_string("display.theme")));
 	build_rows();
 	draw_backdrop();
 	draw_header();
@@ -2671,7 +2672,7 @@ static void text_string(struct text *text, const char *string)
 }
 
 /* a file's text, its last maximum bytes from the start of a line, with
-its addresses taken out; NULL when there is none */
+its addresses and home folder taken out; NULL when there is none */
 static char *redacted_file(const char *path, size_t maximum, size_t *length)
 {
 	FILE *file = fopen(path, "rb");
@@ -3637,8 +3638,8 @@ static void events(void)
 		{
 		case SDL_EVENT_QUIT:
 		case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
-			platform_log("window closed");
-			exit(EXIT_SUCCESS);
+			platform_exit_window_closed();
+			break;
 		case SDL_EVENT_KEY_DOWN:
 		{
 			int button = key_button(event.key.scancode);

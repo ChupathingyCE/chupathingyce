@@ -228,6 +228,17 @@ from guest memory as needed; *target receives GL_TEXTURE_2D etc. */
 GLuint xgpu_texture_get(const DWORD *resource, const D3DCOLOR *palette, GLenum *target,
 	struct xgpu_texture_description *description);
 void xgpu_texture_cache_begin_frame(void);
+/* for a port whose GL can run short of texture memory (the Xbox 360's):
+drops the textures not drawn in the last 'frames' frames (at least one; the
+next draw that needs one uploads it again), between frames, and returns how
+many it dropped */
+unsigned long xgpu_texture_cache_drop_idle(unsigned long frames);
+/* has the GL texture 'texture' uploaded again the next time it is drawn (the
+port could not make it, and has freed memory since) */
+void xgpu_texture_cache_reload(GLuint texture);
+/* the same for every texture the port says it is missing (more could not be
+made than it kept a list of); returns how many */
+unsigned long xgpu_texture_cache_reload_missing(int (*missing)(GLuint texture));
 /* (not on the consoles: HALO_CONSOLE_NO_GUIDE) a plain 2D texture's first
 level, read for the port's own drawing (the Guide's plasma: ui_overlay.h),
 as RGBA bytes with rows from the top; NULL for one it does not read (a cube,
@@ -293,11 +304,12 @@ started, the window cleared to color (0xRRGGBBAA), the overlay over it in
 the picture's place (x, y its lower left corner) and the window saved to
 screenshot (a .bmp's path, or NULL); FALSE if bgfx does not start */
 BOOL xgpu_bgfx_launcher_frame(unsigned int color, int x, int y, int width, int height, const char *screenshot);
-/* the overlay's quads (ui_overlay.c) over the window's picture at Present */
+/* the overlay's quads (ui_overlay.c) over the window's picture at Present
+(plasma_shift: the plasma's second map's place, then its threads' color) */
 void xgpu_bgfx_overlay_draw(const void *vertices, int count, int vertex_bytes, const unsigned char *atlas, int atlas_size,
 	int dirty_top, int dirty_bottom, const unsigned char *icons, int icon_size, int icon_count,
 	const unsigned char *picture, int picture_width, int picture_height, int picture_serial,
-	const unsigned char *plasma, int plasma_width, int plasma_height, int plasma_serial, const float plasma_shift[4],
+	const unsigned char *plasma, int plasma_width, int plasma_height, int plasma_serial, const float plasma_shift[8],
 	const float cutouts[4][4], int window_width, int window_height);
 #endif
 

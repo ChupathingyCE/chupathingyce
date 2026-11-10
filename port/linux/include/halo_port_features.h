@@ -26,7 +26,10 @@ linked to (port/console/reports/console_claims.h); the port builds
 console_claims.c and gives its hooks
 HALO_CONSOLE_CE_BITMAPS (with HALO_CUSTOM_EDITION): a Custom Edition map's
 bitmaps made the console's as they are read, by the port's
-platform_ce_bitmap_loaded (the desktop builds' renderer draws them as they are)
+platform_ce_bitmap_loaded (the desktop builds' renderer draws them as they are);
+a HUD meter's bitmap it leaves in Halo PC's channels is said by the port's
+platform_ce_meter_in_pc_channels, and the meter shader reads them there
+(rasterizer_xbox_dynavobgeom.c)
 HALO_CONSOLE_CE_SHARED_TAG_CACHE (with HALO_CUSTOM_EDITION): a console with no
 room for a second tag cache lends its own to a Custom Edition map: the map
 checked as it loads, the load's memory borrowed and given back, by the port's
@@ -143,7 +146,26 @@ out the two settings and their help text */
 #define HALO_CONSOLE_NO_AUDIO_PROBE
 #endif
 
+/* voice chat (port/linux/src/voice.c, port/linux/game/voice_game.c): a
+console has no microphone path or Opus yet; until it does, its player never
+says it hears voices, so no host sends it any */
+#ifndef HALO_CONSOLE_NO_VOICE
+#define HALO_CONSOLE_NO_VOICE
+#endif
+
 #endif /* HALO_CONSOLE */
+
+/* voice chat over Delta Peer (docs/delta.md, Voice): the desktop builds'
+and Android's (HALO_GAME_BROWSER), as host and client, and the dedicated
+server's as a relay alone; HALO_PORT_VOICE_AUDIO is the microphone, Opus
+and playback, which a dedicated server (HALO_SERVER) leaves out: it relays
+frames without decoding them */
+#if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_VOICE)
+#define HALO_PORT_VOICE
+#if !defined(HALO_SERVER)
+#define HALO_PORT_VOICE_AUDIO
+#endif
+#endif
 
 /* text chat (port/linux/game/chat.c): the desktop builds' (HALO_GAME_BROWSER),
 and a console's with Delta Peer as a client (HALO_CONSOLE_DELTA), the

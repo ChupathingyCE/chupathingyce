@@ -5,7 +5,15 @@ The About screen's page (about.h): CHUPATHINGY, CONTRIBUTORS, THANKS and a
 LICENSES row, top to bottom, as lines that scroll; the LICENSES row opens
 the list of what Chupathingy uses and their licenses in its place. The same
 words as the README's Credits, by handle only.
+
+Drawn in DELTA (guide.c) with the overlay's text and rows, so it's built
+where the Guide is (HALO_GUIDE). The consoles have no Guide yet
+(HALO_CONSOLE_NO_GUIDE) and keep the game menu's About.
 */
+
+#include "halo_console_features.h"
+
+#ifdef HALO_GUIDE
 
 #include "about.h"
 #include "build_identity.h"
@@ -359,3 +367,5 @@ void about_render(struct about_view *view, float left, float top, float right, f
 	if (last < count)
 		arrow(right - 6.0f, bottom + 1.0f, 0);
 }
+
+#endif /* HALO_GUIDE */
