@@ -936,7 +936,7 @@ beside the copy's.
 
 **Where names are drawn, and how long they can be.** A name can be 20
 characters, and a clan tag adds up to 11 more. Where a column is shorter, the name is cut with "...". At the
-menus' 640x480 the columns hold: the in-game scoreboard 16 characters, the
+menus' 640x480 the columns hold: the in-game scoreboard 14 characters, the
 pregame panel 16 for a player's own line and 12 for another machine's, the
 Chupathingy menus' lobby 32, and the postgame report 11 (as a Halo name:
 its column is drawn to that width). Those are lowercase letters' widths:
