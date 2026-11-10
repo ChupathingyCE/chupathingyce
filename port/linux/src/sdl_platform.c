@@ -23,6 +23,7 @@ and the debug keyboard that the game's console reads.
 #include "ce_installer.h"
 #include "touch_input.h"
 #include "delta.h"
+#include "map_repo.h"
 #include "crash_report.h"
 #include "launcher.h"
 
@@ -465,6 +466,11 @@ BOOL platform_sdl_initialize(void)
 #endif
 	/* (the legacy table: a newer one fetched meanwhile) */
 	delta_legacy_start();
+#if defined(HALO_GAME_BROWSER) && !defined(HALO_SERVER)
+	/* (Chupathingy maps' index, for its blacklist before the first join:
+	map_repo.h) */
+	map_repo_game_refresh_soon();
+#endif
 	return TRUE;
 }
 

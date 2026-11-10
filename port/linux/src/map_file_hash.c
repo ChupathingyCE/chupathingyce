@@ -1,7 +1,7 @@
 /*
 MAP_FILE_HASH.C
 
-Map files' whole-file hash prefixes (map_file_hash.h), each read once for
+Map files' whole-file hashes and their prefixes (map_file_hash.h), each read once for
 the run: a map is a few to a few hundred MB, and the game asks for its
 file again whenever it looks for the map.
 */
@@ -18,7 +18,7 @@ file again whenever it looks for the map.
 
 enum
 {
-	/* the files whose prefixes are kept */
+	/* the files whose hashes are kept */
 	MAP_FILE_HASHES_KEPT = 32,
 	MAP_FILE_HASH_PATH_SIZE = 256,
 };
@@ -31,7 +31,7 @@ struct map_file_hash_entry
 	unsigned int size;
 	unsigned int time_low;
 	unsigned int time_high;
-	unsigned int prefix;
+	unsigned char hash[MAP_ARCHIVE_HASH_SIZE];
 };
 
 static struct
@@ -57,9 +57,8 @@ static int file_read(void *context, unsigned int offset, void *buffer, unsigned 
 
 /* ---------- public code */
 
-int map_file_hash_prefix(const char *path, unsigned int *prefix)
+int map_file_hash_whole(const char *path, unsigned char *hash)
 {
-	unsigned char hash[MAP_ARCHIVE_HASH_SIZE];
 	struct map_file_hash_entry entry;
 	FILETIME written;
 	DWORD high = 0;
@@ -93,7 +92,7 @@ int map_file_hash_prefix(const char *path, unsigned int *prefix)
 		if (!strcmp(kept->path, entry.path) && kept->size == entry.size && kept->time_low == entry.time_low &&
 			kept->time_high == entry.time_high)
 		{
-			*prefix = kept->prefix;
+			memcpy(hash, kept->hash, MAP_ARCHIVE_HASH_SIZE);
 			pthread_mutex_unlock(&map_file_hashes.lock);
 			CloseHandle(file);
 			return 1;
@@ -104,8 +103,7 @@ int map_file_hash_prefix(const char *path, unsigned int *prefix)
 	CloseHandle(file);
 	if (!ok)
 		return 0;
-	entry.prefix = map_archive_hash_prefix(hash);
-	*prefix = entry.prefix;
+	memcpy(entry.hash, hash, MAP_ARCHIVE_HASH_SIZE);
 	pthread_mutex_lock(&map_file_hashes.lock);
 	if (map_file_hashes.count < MAP_FILE_HASHES_KEPT)
 		index = map_file_hashes.count++;
@@ -116,6 +114,16 @@ int map_file_hash_prefix(const char *path, unsigned int *prefix)
 	}
 	map_file_hashes.entries[index] = entry;
 	pthread_mutex_unlock(&map_file_hashes.lock);
+	return 1;
+}
+
+int map_file_hash_prefix(const char *path, unsigned int *prefix)
+{
+	unsigned char hash[MAP_ARCHIVE_HASH_SIZE];
+
+	if (!map_file_hash_whole(path, hash))
+		return 0;
+	*prefix = map_archive_hash_prefix(hash);
 	return 1;
 }
 

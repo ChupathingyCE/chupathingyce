@@ -1487,6 +1487,7 @@ boolean cache_files_map_present(
 	else if (family != _map_family_xbox)
 	{
 		char path[256];
+		boolean refused = FALSE;
 
 		/* (the host's version of it, when the host says which: its file
 		of the map's name, or one of another name of that version, which
@@ -1496,9 +1497,24 @@ boolean cache_files_map_present(
 		{
 			if (version)
 				platform_log("map version: %s is the host's %08lx (%s)", map_name, version, path);
-			return TRUE;
+#ifdef HALO_GAME_BROWSER
+			/* (a map on Chupathingy maps' blacklist, however it came here, is
+			not played in another's game: port/linux/src/map_repo_game.c says
+			why. The host's own map is the player's to play) */
+			{
+				int map_repo_file_refused(char const *path, char const *map_name, char *message, int size);
+				struct network_game_server *global_network_game_server_get(void);
+
+				refused = !global_network_game_server_get() &&
+					map_repo_file_refused(path, file, message, (int)sizeof(message)) != 0;
+			}
+#endif
+			if (!refused)
+				return TRUE;
 		}
-		if (map_family_find(family, file, path, sizeof(path)))
+		if (refused)
+			platform_log("map %s: on Chupathingy maps' blacklist, the join given up", map_name);
+		else if (map_family_find(family, file, path, sizeof(path)))
 		{
 			platform_log("map version: %s is %08lx here, %08lx on the host", map_name, cache_files_map_version(map_name),
 				version);

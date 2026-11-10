@@ -26,6 +26,15 @@ enum
 	MAP_DOWNLOAD_CANCELLED,
 };
 
+/* where a download comes from */
+enum
+{
+	/* the community map repositories (HaloNet's) */
+	MAP_DOWNLOAD_SOURCE_COMMUNITY,
+	/* Chupathingy maps (map_repo.h), when they don't have it */
+	MAP_DOWNLOAD_SOURCE_CHUPATHINGY,
+};
+
 /* what a running download is doing */
 enum
 {
@@ -39,6 +48,8 @@ struct map_download_progress
 {
 	int state;
 	int phase;
+	/* MAP_DOWNLOAD_SOURCE_* */
+	int source;
 	/* the bytes received, of total (0 when not known) */
 	unsigned int received;
 	unsigned int total;
@@ -60,7 +71,9 @@ asked for */
 int map_download_possible(const char *name);
 
 /* the Custom Edition map name (its file's name) downloaded into maps_ce, on
-a thread of its own; version, when not 0, the host's (its whole-file
+a thread of its own, from the community map repositories, or when they
+don't have it (of the host's version), from Chupathingy maps (map_repo.h);
+a map on Chupathingy maps' blacklist is refused, whichever gave it; version, when not 0, the host's (its whole-file
 hash's first 32 bits, or from a host older than network version 29 its
 header's checksum: map_archive_version_matches), which the file must have.
 1 if it started (none was running) */
