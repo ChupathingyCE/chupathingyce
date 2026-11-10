@@ -62,6 +62,7 @@ chooses stereo or 5.1 (port_config.c).
 #include "sdl_platform.h"
 #include "port_config.h"
 #include "thread_stop.h"
+#include "capture.h"
 
 #include <SDL3/SDL.h>
 #include <math.h>
@@ -2341,6 +2342,10 @@ static void mix(float *output, unsigned long frames)
 	limit(output, frames);
 	if (capturing)
 		capture_push(output, frames);
+#ifdef HALO_CAPTURE
+	/* (the clips' sound, when they are on: capture_clips.c) */
+	capture_clip_audio(output, frames, output_channels);
+#endif
 }
 
 /* ---------- output */

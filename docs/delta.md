@@ -241,7 +241,8 @@ defaults every machine's key starts from:
 | Android | 128 | 128 | 128 | 11 (2 GB) | yes |
 | unknown | 128 | 128 | 128 | 0 | yes |
 | Xbox | 16 | 16 | 128 | 6 (64 MB) | no |
-| Xbox 360, Wii U, Switch | 16 | 16 | 128 | 9, 10, 12 (placeholders until their ports play) | yes |
+| Xbox 360, Wii U | 32 | 32 | 128 | 9, 10 (placeholders) | yes |
+| Switch | 16 | 16 | 128 | 12 (placeholder until its port plays) | yes |
 | PSP, Vita | 16 | 16 | 128 | 6, 9 (placeholders) | no |
 | Xbox Series (developer mode) | 128 | 128 | 128 | 12 | yes |
 | PS3 | 16 | 16 | 128 | 8 (256 MB; placeholder) | no |

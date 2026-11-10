@@ -18,6 +18,11 @@ decoder, parser, filter and protocol is left out (--disable-everything), so
 the libraries cannot open anything but a Bink file on disk. No assembly, no
 network, no programs, and no threads: the movies decode synchronously.
 
+Clips (port/linux/src/capture_clips.c) add the MP4 muxer and two encoders,
+AAC and MPEG-4 Part 2 (FFmpeg's own, LGPL), and on macOS the hardware H.264
+encoder through VideoToolbox, which needs FFmpeg's threads there. Nothing
+GPL: no x264.
+
 The libraries are called from the game's own units, so they are built with the
 same ABI those units have (the build passes them with --flags): on 32-bit x86
 the port's flags change how structures are laid out and how they come back from
@@ -140,12 +145,20 @@ def main():
                  "--disable-network", "--disable-autodetect", "--disable-asm",
                  "--disable-shared", "--enable-static", "--disable-debug", "--enable-small",
                  "--disable-avfilter", "--disable-avdevice", "--disable-postproc",
-                 "--disable-linux-perf", "--disable-pthreads", "--disable-w32threads",
+                 "--disable-linux-perf", *([] if target_os == "darwin" else ["--disable-pthreads"]),
+                 "--disable-w32threads",
                  # (the video decoder's configure name is "bink": "binkvideo" is only its
                  # codec id)
                  "--enable-demuxer=bink",
                  "--enable-decoder=bink,binkaudio_dct,binkaudio_rdft",
                  "--enable-protocol=file", "--enable-swscale", "--enable-swresample",
+                 # (clips, port/linux/src/capture_clips.c: the MP4 muxer, AAC for
+                 # the sound and MPEG-4 Part 2 for the picture where the system
+                 # has no hardware encoder FFmpeg can drive; all LGPL)
+                 "--enable-muxer=mp4", "--enable-encoder=aac,mpeg4",
+                 # (macOS: the hardware's H.264 through VideoToolbox, which needs
+                 # FFmpeg's threads; the movies still decode on the caller's)
+                 *(["--enable-videotoolbox", "--enable-encoder=h264_videotoolbox"] if target_os == "darwin" else []),
                  # (a shared library's, the 64-bit Android app's: position independent)
                  *(["--enable-pic"] if "-fPIC" in target else [])]
     stamp = root / "configure.stamp"
