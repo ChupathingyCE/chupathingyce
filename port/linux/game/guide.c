@@ -14,7 +14,8 @@ PARTY, PLAYERS HERE, RECENT and SETTINGS.
   their profile (else their game name), their platform's logo when the game
   is on Delta, and a local Mute (the chat log's, chat.c). No address is ever
   shown.
-- SETTINGS has the Guide's own settings.
+- SETTINGS has the Guide's own settings (settings_rows.c's rows, which the
+  setup screen's Settings shares).
 - FRIENDS is the site's friends (browser.c polls them, social.h): the
   invites, the friends online, the offline ones (a row that shows them),
   the friend requests. A on a row opens its options: a friend's JOIN (the
@@ -69,6 +70,7 @@ GUIDE counts what waits ("GUIDE 2": invites and requests).
 #include "../src/discord_activity.h"
 #include "../src/guide_input.h"
 #include "../src/social.h"
+#include "../src/settings_rows.h"
 #include "../src/ui_overlay.h"
 #ifdef HALO_CAPTURE
 #include "../src/capture.h"
@@ -176,7 +178,6 @@ enum
 	COLOR_ROW_ON = 0x2F7FD670,
 	COLOR_DETAIL = 0x020C1EA0,
 	COLOR_VALUE = 0xFFFFFFFF,
-	COLOR_SETTING = 0x9FD0FFFF,
 	COLOR_PROMPT = 0x3D9BFFFF,
 	COLOR_PROMPT_GLOW = 0x3D8BFF80,
 	COLOR_DOT_GAME = 0x4FB3FFFF,
@@ -184,22 +185,6 @@ enum
 	COLOR_DOT_AWAY = 0xE0A53AFF,
 	COLOR_DOT_OFFLINE = 0x4A5A70FF,
 	COLOR_MUTED = 0xFF9F9FFF,
-};
-
-/* the Guide's own settings, as SETTINGS lists them */
-enum
-{
-	_setting_open_key,
-	_setting_guide_button,
-	_setting_notify_in_game,
-	_setting_notify_online,
-	_setting_share_presence,
-	NUMBER_OF_SETTINGS
-};
-
-static char const *const setting_labels[NUMBER_OF_SETTINGS] =
-{
-	"OPEN KEY", "GUIDE BUTTON", "NOTIFICATIONS IN GAME", "FRIEND ONLINE ALERTS", "SHOW WHEN I'M PLAYING",
 };
 
 /* SETTINGS' rows after the settings, signed in: the devices (Delta
@@ -214,18 +199,6 @@ enum
 static char const *const device_row_labels[NUMBER_OF_DEVICE_ROWS] =
 {
 	"DEVICES", "LINK A DEVICE",
-};
-
-static char const *const setting_keys[NUMBER_OF_SETTINGS] =
-{
-	"controls.guide", "controls.guide_button", "guide.notify_in_game", "guide.notify_online", "network.share_presence",
-};
-
-/* controls.guide's choices: the F keys the game leaves free (F1 is Back,
-F2 Start, F9 a screenshot, F10 a clip, F11 full screen, F12 the mouse) */
-static char const *const open_keys[] =
-{
-	"F3", "F4", "F5", "F6", "F7", "F8",
 };
 
 /* what a click or tap lands on */
@@ -591,50 +564,28 @@ static void message_set(char const *text);
 
 /* ---------- SETTINGS */
 
-static boolean setting_on(short setting)
+/* (settings_rows.h's: the rows the setup screen's Settings shares) */
+static short settings_count(void)
 {
-	return config_boolean(setting_keys[setting]) != 0;
-}
+	short count = 0;
 
-static void setting_value(short setting, char *text, int size)
-{
-	if (setting == _setting_open_key)
-	{
-		char const *key = config_string(setting_keys[setting]);
-
-		snprintf(text, (size_t)size, "%s", key[0] ? key : "F3");
-	}
-	else
-		snprintf(text, (size_t)size, "%s", setting_on(setting) ? "ON" : "OFF");
+	while (settings_row_at(SETTINGS_GROUP_GUIDE, count))
+		count++;
+	return count;
 }
 
 static void setting_change(short setting, short direction)
 {
-	if (setting == _setting_open_key)
-	{
-		char const *key = config_string(setting_keys[setting]);
-		short count = (short)NUMBEROF(open_keys), index, found = 0;
+	struct settings_row const *row = settings_row_at(SETTINGS_GROUP_GUIDE, setting);
 
-		for (index = 0; index < count; index++)
-		{
-			char const *a = key, *b = open_keys[index];
-
-			while (*a && (*a | 0x20) == (*b | 0x20))
-				a++, b++;
-			if (!*a && !*b)
-				found = index;
-		}
-		found = (short)((found + (direction < 0 ? count - 1 : 1)) % count);
-		config_write(setting_keys[setting], open_keys[found]);
-	}
-	else if (setting >= 0 && setting < NUMBER_OF_SETTINGS)
-		config_write_boolean(setting_keys[setting], !setting_on(setting));
+	if (row)
+		settings_row_change(row, direction < 0 ? -1 : 1);
 }
 
 /* SETTINGS' rows: the settings, then the devices' rows when signed in */
 static short settings_rows(void)
 {
-	return (short)(NUMBER_OF_SETTINGS + (guide.linked && profile_screen_available() ? NUMBER_OF_DEVICE_ROWS : 0));
+	return (short)(settings_count() + (guide.linked && profile_screen_available() ? NUMBER_OF_DEVICE_ROWS : 0));
 }
 
 /* a device row's A: Delta Profile's dialog, over what was under DELTA */
@@ -1212,8 +1163,8 @@ static void activate(void)
 		player_mute_toggle(row);
 		return;
 	case SOCIAL_SECTION_SETTINGS:
-		if (row >= NUMBER_OF_SETTINGS)
-			device_row_activate((short)(row - NUMBER_OF_SETTINGS));
+		if (row >= settings_count())
+			device_row_activate((short)(row - settings_count()));
 		else
 			setting_change(row, 1);
 		return;
@@ -1588,36 +1539,25 @@ static void render_friends(void)
 
 static void render_settings(void)
 {
+	struct settings_row const *row;
 	short setting;
 	float y = BODY_Y;
 
-	for (setting = 0; setting < NUMBER_OF_SETTINGS; setting++)
+	for (setting = 0; (row = settings_row_at(SETTINGS_GROUP_GUIDE, setting)) != NULL; setting++)
 	{
-		boolean on = setting == guide.row[SOCIAL_SECTION_SETTINGS];
-		char value[32];
-		float width = CONTENT_RIGHT - CONTENT_LEFT, value_right = CONTENT_RIGHT - 14;
+		char value[96];
 
-		setting_value(setting, value, sizeof(value));
-		ui_style_row(CONTENT_LEFT, y, width, SETTING_HEIGHT, on);
-		ui_overlay_text(UI_FONT_MENU, 10.0f, CONTENT_LEFT + 12, y + 8, UI_ALIGN_LEFT, COLOR_SETTING,
-			setting_labels[setting]);
-		/* (the value between its arrows, as the menus' settings have it) */
-		ui_overlay_text(UI_FONT_MENU, 10.0f, value_right, y + 8, UI_ALIGN_RIGHT, COLOR_VALUE, "\xE2\x80\xBA");
-		ui_overlay_text(UI_FONT_MENU, 10.0f, value_right - 12, y + 8, UI_ALIGN_RIGHT, COLOR_VALUE, value);
-		ui_overlay_text(UI_FONT_MENU, 10.0f, value_right - 18 - ui_overlay_text_width(UI_FONT_MENU, 10.0f, value),
-			y + 8, UI_ALIGN_RIGHT, COLOR_VALUE, "\xE2\x80\xB9");
+		settings_row_value(row, value, sizeof(value));
+		ui_style_setting(CONTENT_LEFT, y, CONTENT_RIGHT - CONTENT_LEFT, SETTING_HEIGHT, 1.0f, settings_row_label(row),
+			NULL, value, setting == guide.row[SOCIAL_SECTION_SETTINGS]);
 		target_add(CONTENT_LEFT, y, CONTENT_RIGHT, y + SETTING_HEIGHT, _target_setting, setting);
 		y += SETTING_HEIGHT + ROW_GAP;
 	}
-	for (setting = NUMBER_OF_SETTINGS; setting < settings_rows(); setting++)
+	for (setting = settings_count(); setting < settings_rows(); setting++)
 	{
-		boolean on = setting == guide.row[SOCIAL_SECTION_SETTINGS];
-		float width = CONTENT_RIGHT - CONTENT_LEFT;
-
-		ui_style_row(CONTENT_LEFT, y, width, SETTING_HEIGHT, on);
-		ui_overlay_text(UI_FONT_MENU, 10.0f, CONTENT_LEFT + 12, y + 8, UI_ALIGN_LEFT, COLOR_SETTING,
-			device_row_labels[setting - NUMBER_OF_SETTINGS]);
-		ui_overlay_text(UI_FONT_MENU, 10.0f, CONTENT_RIGHT - 14, y + 8, UI_ALIGN_RIGHT, COLOR_VALUE, "\xE2\x80\xBA");
+		ui_style_setting(CONTENT_LEFT, y, CONTENT_RIGHT - CONTENT_LEFT, SETTING_HEIGHT, 1.0f,
+			device_row_labels[setting - settings_count()], NULL, "\xE2\x80\xBA",
+			setting == guide.row[SOCIAL_SECTION_SETTINGS]);
 		target_add(CONTENT_LEFT, y, CONTENT_RIGHT, y + SETTING_HEIGHT, _target_setting, setting);
 		y += SETTING_HEIGHT + ROW_GAP;
 	}
@@ -1742,7 +1682,7 @@ static void render_prompts(void)
 		}
 		break;
 	case SOCIAL_SECTION_SETTINGS:
-		word = guide.row[guide.section] >= NUMBER_OF_SETTINGS ? "OPEN" : "CHANGE";
+		word = guide.row[guide.section] >= settings_count() ? "OPEN" : "CHANGE";
 		break;
 	case SOCIAL_SECTION_FRIENDS:
 		if (friends_signed_in())
@@ -2023,7 +1963,7 @@ static void handle(unsigned int pressed)
 		move(-1);
 	if (pressed & GUIDE_INPUT_DOWN)
 		move(1);
-	if (guide.section == SOCIAL_SECTION_SETTINGS && guide.row[guide.section] < NUMBER_OF_SETTINGS &&
+	if (guide.section == SOCIAL_SECTION_SETTINGS && guide.row[guide.section] < settings_count() &&
 		(pressed & (GUIDE_INPUT_LEFT | GUIDE_INPUT_RIGHT)))
 		setting_change(guide.row[guide.section], (pressed & GUIDE_INPUT_LEFT) ? -1 : 1);
 	if (pressed & GUIDE_INPUT_A)
@@ -2102,8 +2042,8 @@ void guide_pointer(struct halo_ui_pointer const *pointer)
 			break;
 		case _target_setting:
 			guide.row[guide.section] = target->index;
-			if (target->index >= NUMBER_OF_SETTINGS)
-				device_row_activate((short)(target->index - NUMBER_OF_SETTINGS));
+			if (target->index >= settings_count())
+				device_row_activate((short)(target->index - settings_count()));
 			else
 				setting_change(target->index, 1);
 			break;
