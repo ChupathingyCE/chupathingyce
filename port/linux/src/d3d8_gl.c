@@ -54,6 +54,7 @@ static void bg_visibility_begin(void);
 static void bg_visibility_end(DWORD index);
 static UINT bg_visibility_result(DWORD index);
 static BOOL bg_back_buffer_size(int *width, int *height, int *pixel_width, int *pixel_height);
+static const char *bg_renderer_name(void);
 #endif
 
 #ifdef HALO_CONSOLE_NATIVE_RENDERER
@@ -2418,6 +2419,21 @@ HRESULT WINAPI Direct3D_CreateDevice(UINT adapter, D3DDEVTYPE device_type, void 
 #endif
 		else
 			platform_log("Direct3D: running without a window (nothing is displayed)");
+		/* the renderer that draws, in a line of its own for crash reports
+		and people reading debug.txt (crash_report.c): gl, bgfx-metal,
+		bgfx-vulkan, native or none */
+		{
+			const char *renderer = device.gl_ready ? "gl" : "none";
+
+#ifdef HALO_BGFX
+			if (xgpu_bgfx)
+				renderer = bg_renderer_name();
+#elif defined(HALO_CONSOLE_NATIVE_RENDERER)
+			if (cr_active())
+				renderer = "native";
+#endif
+			platform_log("renderer=%s", renderer);
+		}
 		device.created = TRUE;
 	}
 	*returned_device = device_pointer();

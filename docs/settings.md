@@ -27,7 +27,7 @@ A few people look for most:
 | --- | --- |
 | `display.mode` | `"fullscreen"`, `"borderless"` or `"windowed"`. F11 switches between a window and the whole screen. When it is set, `display.fullscreen` is ignored; when it is empty, `display.fullscreen = true` is borderless and `false` a window. |
 | `display.window_scale` | The window's size, as a multiple of 640x480. |
-| `display.vsync`, `display.max_fps` | Vertical sync, and a frame rate cap with V-Sync off (0 for twice the display's refresh rate, -1 for none). |
+| `display.vsync`, `display.max_fps` | Vertical sync, and a frame rate cap with V-Sync off (0 for twice the display's refresh rate, -1 for none). On the Steam Deck in Game Mode (under gamescope), a cap at the display's refresh rate or a whole fraction of it (60 at 60 Hz, or 30) keeps the frames in step with the display, so they don't judder. Everywhere else a cap with V-Sync off works as before. |
 | `display.interpolation` | `false` keeps the game's own 30 frames a second; Video Setup's Frame Rate at 30 (Xbox) sets it. |
 | `display.direct_camera` | Instant aim: the view turns the frame the mouse, stick or touch moves it. On by default; config.toml only. |
 | `display.menus` | `"chupathingy"` (the default: the Xbox's look with Halo PC's settings, profiles and more), `"xbox"` (as close to the console as can be) or `"gearbox"` (Halo PC's menus with their Server Browser; `"pc"` still works). |
@@ -106,6 +106,14 @@ To go back, set it to `"gl"` or put the `#` back. For one run only, start
 the game with the environment variable `HALO_RENDERER=bgfx`. If bgfx can't
 start, for example with no working Vulkan driver, the game uses OpenGL and
 says so in `logs/debug.txt`.
+
+Some Vulkan drivers start but run badly on older computers, so the game
+skips them and uses OpenGL. Right now that's nouveau's Vulkan (NVK) on a
+GeForce older than the 20 series, NVIDIA drivers older than 470, Mesa's
+Vulkan for Intel Ivy Bridge, Haswell and Bay Trail graphics, and software
+Vulkan. `debug.txt` has a `bgfx: Vulkan GPU` line for each card with the
+reason. To try Vulkan anyway, set `vulkan_blocklist = false` under
+`[display]`. The line `renderer=` in `debug.txt` says what drew the game.
 
 What we know is different from OpenGL:
 
