@@ -4208,6 +4208,23 @@ static bgfx_callback_interface_t bg_callback = { &bg_callback_table };
 
 /* ---------- start-up */
 
+/* the renderer=... name of what draws (d3d8_gl.c's device creation) */
+static const char *bg_renderer_name(void)
+{
+	switch (bgfx_get_renderer_type())
+	{
+	case BGFX_RENDERER_TYPE_METAL: return "bgfx-metal";
+	case BGFX_RENDERER_TYPE_VULKAN: return "bgfx-vulkan";
+	case BGFX_RENDERER_TYPE_DIRECT3D11: return "bgfx-d3d11";
+	case BGFX_RENDERER_TYPE_DIRECT3D12: return "bgfx-d3d12";
+	default: return "bgfx";
+	}
+}
+
+#ifndef __APPLE__
+#include "bgfx_vulkan_check.inl"
+#endif
+
 static BOOL bg_initialize(void)
 {
 	bgfx_init_t init;
@@ -4278,6 +4295,12 @@ static BOOL bg_initialize(void)
 		platform_log("bgfx: the window has no handle for %s", bgfx_get_renderer_name(init.type));
 		return FALSE;
 	}
+#ifndef __APPLE__
+	/* (a computer without a working Vulkan, or with a driver the blocklist
+	names, draws with OpenGL: bgfx_vulkan_check.inl) */
+	if (bg_vulkan && !bg_vulkan_check(&init.vendorId, &init.deviceId))
+		return FALSE;
+#endif
 	bgfx_vk_gpu_timer = config_boolean("debug.gpu_stats");
 	if (!bgfx_init(&init))
 	{

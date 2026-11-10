@@ -619,6 +619,13 @@ static const struct config_setting config_settings[] =
 	{ "display.crt_filter", _config_boolean, "false", "HALO_CRT_FILTER", _environment_set_is_true, _platform_desktop,
 		"Put a CRT look over the picture: scanlines, curvature and a phosphor\n"
 		"mask. Only the bgfx renderer has it for now." },
+#ifndef __APPLE__
+	{ "display.vulkan_blocklist", _config_boolean, "true", "HALO_VULKAN_BLOCKLIST", _environment_value,
+		_platform_desktop,
+		"With the bgfx renderer, skip Vulkan drivers known to be broken or slow\n"
+		"on older computers and draw with OpenGL instead. Set false to try\n"
+		"Vulkan anyway. Read when Chupathingy starts." },
+#endif
 #endif
 
 	/* ---- audio */
