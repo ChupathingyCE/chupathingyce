@@ -1064,6 +1064,16 @@ static const struct config_setting config_settings[] =
 	{ "network.report_hosted_games", _config_boolean, "true", "HALO_NET_REPORT_HOSTED", _environment_value,
 		_platform_all | _platform_server,
 		"Send the stats of games you host to the game list." },
+	{ "network.map_share", _config_boolean, "false", "HALO_NET_MAP_SHARE", _environment_value,
+		_platform_all | _platform_server,
+		"Dedicated servers: hand the Custom Edition map the game is on to\n"
+		"players who join without it and ask (map sharing, over TCP port\n"
+		"5153). Only the map file the game is on now, only to machines in\n"
+		"the game. A game you host from the menus never shares, for now." },
+	{ "network.map_share_upload", _config_integer, "1024", "HALO_NET_MAP_SHARE_UPLOAD", _environment_value,
+		_platform_all | _platform_server,
+		"The most map sharing sends, in KB a second, for everyone downloading\n"
+		"together: 16 to 20480." },
 #endif
 	/* (a console's reports of the games it joins too: port/console/reports) */
 #if defined(HALO_GAME_BROWSER) || defined(HALO_CONSOLE_GAME_REPORTS)
@@ -1328,6 +1338,28 @@ static const struct config_setting config_settings[] =
 		"With debug.network_test's host: a file the host writes its invite link\n"
 		"to once it has one, for a joining machine's command line. Leave it\n"
 		"empty for none." },
+	{ "debug.map_fetch_folder", _config_string, "\"\"", "HALO_MAP_FETCH_FOLDER", _environment_value,
+		_platform_all,
+		"With debug.network_test's fetch: the folder the host's map is written\n"
+		"to (<name>.map.part, then <name>.map)." },
+	{ "debug.map_fetch_result", _config_string, "\"\"", "HALO_MAP_FETCH_RESULT", _environment_value,
+		_platform_all,
+		"With debug.network_test's fetch: the file its result is written to (a\n"
+		"JSON object). Leave it empty for result.json in the fetch's folder." },
+	{ "debug.map_fetch_name", _config_string, "\"\"", "HALO_MAP_FETCH_NAME", _environment_value,
+		_platform_all,
+		"With debug.network_test's fetch: the map it came for (its file's name\n"
+		"without .map). On another map the fetch leaves without asking. Leave\n"
+		"it empty for any." },
+	{ "debug.map_fetch_held", _config_string, "\"\"", "HALO_MAP_FETCH_HELD", _environment_value,
+		_platform_all,
+		"With debug.network_test's fetch: the map versions already held (8 hex\n"
+		"digits each, separated by commas). On one of them the fetch leaves\n"
+		"without asking." },
+	{ "debug.map_fetch_maximum", _config_integer, "512", "HALO_MAP_FETCH_MAXIMUM", _environment_value,
+		_platform_all,
+		"With debug.network_test's fetch: the largest map it takes, in MB (up\n"
+		"to 768)." },
 	{ "debug.network_latency", _config_real, "0.0", "HALO_NETWORK_LATENCY", _environment_value,
 		_platform_all | _platform_server,
 		"Milliseconds to delay everything received. 0 for none." },

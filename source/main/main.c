@@ -696,6 +696,7 @@ void team_change_update(void);
 #ifdef HALO_GAME_BROWSER
 void host_rules_update(void);
 void party_teams_update(void);
+void map_share_update(void);
 #endif
 #ifdef HALO_PORT_CHAT
 void chat_update(void);
@@ -3737,6 +3738,9 @@ void main_loop(
 			/* a party kept on one team in games this machine hosts
 			(port/linux/game/party_teams.c) */
 			party_teams_update();
+			/* map sharing's host (port/linux/game/map_share_host.c) */
+			MAIN_STAGE("map_share_update");
+			map_share_update();
 #endif
 #ifdef HALO_PORT_CHAT
 			/* text chat (port/linux/game/chat.c; on a console, its client's
