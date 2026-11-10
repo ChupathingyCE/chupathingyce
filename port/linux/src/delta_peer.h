@@ -98,6 +98,10 @@ enum
 	/* a client's party tag (PARTY_TAG): at once when it changes, and again
 	this often (a datagram lost) */
 	DELTA_PEER_PARTY_TAG_INTERVAL = 5000,
+	/* (host) a machine's party tag, once it has one, changes no sooner than
+	this after its last change: a tag is the client's word, and flipping it
+	must not keep the host rearranging teams */
+	DELTA_PEER_PARTY_TAG_HOLD = 30000,
 
 	/* moderation (milliseconds where a time): the host takes MOD_ACTION
 	from a machine at most this often (and at once); checks a machine's
@@ -422,9 +426,12 @@ struct delta_peer_host_peer
 	/* team changes: the last TEAM_REQUEST's sequence, and their rate */
 	delta_u32 team_sequence;
 	struct delta_rate team_rate;
-	/* party teams: the party tag it sent (zeros: none) */
+	/* party teams: the party tag it sent (zeros: none), and when it last
+	changed (party_tag_changes: how often, so the first one isn't held) */
 	int has_party_tag;
 	unsigned char party_tag[DELTA_WIRE_PARTY_TAG_SIZE];
+	delta_u32 party_tag_time;
+	int party_tag_changes;
 };
 
 /* the room for a signed legacy table going out or coming in: the console

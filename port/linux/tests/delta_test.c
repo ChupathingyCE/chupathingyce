@@ -48,6 +48,7 @@ build 2 or 3's) */
 #define TEAM_CHANGE_BIT ((delta_u32)1 << _delta_capability_team_change)
 #define OBJECT_SYNC_BIT ((delta_u32)1 << _delta_capability_object_sync)
 #define HOST_RULES_BIT ((delta_u32)1 << _delta_capability_host_rules)
+#define PARTY_TEAMS_BIT ((delta_u32)1 << _delta_capability_party_teams)
 
 /* ---------- a simulated network */
 
@@ -1181,6 +1182,46 @@ static void test_team(void)
 	CHECK(!delta_peer_client_team_ready(&nodes[1].peer));
 }
 
+/* ---------- party teams: a machine's tag, held a while after it changes */
+
+static void test_party_tag_hold(void)
+{
+	int joined[2] = { 0, 1 };
+	unsigned char first[DELTA_WIRE_PARTY_TAG_SIZE], second[DELTA_WIRE_PARTY_TAG_SIZE];
+	unsigned char seen[DELTA_WIRE_PARTY_TAG_SIZE];
+	delta_u32 now = 5000;
+	int step;
+
+	memset(first, 0x11, sizeof(first));
+	memset(second, 0x22, sizeof(second));
+	node_start(0, HOST_IPV4, DELTA_PEER_PORT, PARTY_TEAMS_BIT, _delta_platform_pc_linux, 0, 0);
+	node_start(1, 0x0300007F, 40001, PARTY_TEAMS_BIT, _delta_platform_pc_linux, 0, 0);
+	game_reset();
+	game_add(1);
+	for (step = 0; step < 4; step++, now += 300)
+		frame(now, 2, joined, 1);
+	CHECK(!delta_peer_machine_party_tag(&nodes[0].peer, 1, seen));
+	/* (the first tag: at once) */
+	delta_peer_client_set_party_tag(&nodes[1].peer, first);
+	for (step = 0; step < 2; step++, now += 300)
+		frame(now, 2, joined, 1);
+	CHECK(delta_peer_machine_party_tag(&nodes[0].peer, 1, seen) && !memcmp(seen, first, sizeof(seen)));
+	/* (flipped soon after: held, the first kept) */
+	delta_peer_client_set_party_tag(&nodes[1].peer, second);
+	for (step = 0; step < 4; step++, now += 300)
+		frame(now, 2, joined, 1);
+	CHECK(delta_peer_machine_party_tag(&nodes[0].peer, 1, seen) && !memcmp(seen, first, sizeof(seen)));
+	delta_peer_client_set_party_tag(&nodes[1].peer, NULL);
+	for (step = 0; step < 4; step++, now += 300)
+		frame(now, 2, joined, 1);
+	CHECK(delta_peer_machine_party_tag(&nodes[0].peer, 1, seen) && !memcmp(seen, first, sizeof(seen)));
+	/* (after the hold, the client's tag again every few seconds: taken) */
+	delta_peer_client_set_party_tag(&nodes[1].peer, second);
+	for (step = 0; step * 300 < DELTA_PEER_PARTY_TAG_HOLD + DELTA_PEER_PARTY_TAG_INTERVAL * 2; step++, now += 300)
+		frame(now, 2, joined, 1);
+	CHECK(delta_peer_machine_party_tag(&nodes[0].peer, 1, seen) && !memcmp(seen, second, sizeof(seen)));
+}
+
 /* ---------- the host's rules */
 
 static void test_wire_host_rules(void)
@@ -2029,7 +2070,9 @@ static void test_limits(void)
 		delta_platform_policy_default(_delta_platform_xbox, &key);
 		CHECK(key.memory_class == 6 && key.host_players == 16);
 		delta_platform_policy_default(_delta_platform_xbox360, &key);
-		CHECK(key.memory_class == 9);
+		CHECK(key.memory_class == 9 && key.host_players == 32 && key.join_players == 32);
+		delta_platform_policy_default(_delta_platform_wiiu, &key);
+		CHECK(key.host_players == 32 && key.join_players == 32);
 		delta_platform_policy_default(_delta_platform_pc_windows, &key);
 		CHECK(key.memory_class == 12);
 	}
@@ -2046,6 +2089,14 @@ static void test_limits(void)
 		CHECK(delta_peer_key_join_limit(&nodes[0].peer, &key) == DELTA_PEER_NO_LIMIT);
 		pc_key(&key, 200);
 		CHECK(delta_peer_key_join_limit(&nodes[0].peer, &key) == 128);
+		/* (a 360 or Wii U build of 32 joins up to 32; an older build's key
+		of 16 is still held to its 16) */
+		pc_key(&key, _delta_platform_xbox360);
+		CHECK(delta_peer_key_join_limit(&nodes[0].peer, &key) == 32);
+		key.join_players = 16;
+		CHECK(delta_peer_key_join_limit(&nodes[0].peer, &key) == 16);
+		pc_key(&key, _delta_platform_wiiu);
+		CHECK(delta_peer_key_join_limit(&nodes[0].peer, &key) == 32);
 	}
 
 	/* opted in (network.platform_limits = "off"): no limit from it (it
@@ -3617,6 +3668,7 @@ int main(int argc, char **argv)
 	test_chat();
 	test_wire_team();
 	test_team();
+	test_party_tag_hold();
 	test_wire_host_rules();
 	test_host_rules();
 	test_wire_objects();

@@ -54,6 +54,32 @@ static const unsigned int palette[NUMBER_OF_UI_COLORS] =
 	[UI_COLOR_PANE] = 0x03102AE0,
 	[UI_COLOR_EMBLEM_FRIEND] = 0xC9A227FF,
 	[UI_COLOR_EMBLEM_LETTER] = 0x071A33FF,
+	[UI_COLOR_TITLE] = 0x3D9BFFFF,
+	[UI_COLOR_TITLE_GLOW] = 0x3D9BFFC0,
+	[UI_COLOR_NAV] = 0x4FA6FFFF,
+	[UI_COLOR_NAV_GLOW] = 0x3D9BFF70,
+	[UI_COLOR_LABEL_DIM] = 0x4A6A8FFF,
+	[UI_COLOR_LABEL_GLOW] = 0x3D8BFF60,
+	[UI_COLOR_SELECTED_GLOW] = 0x9FD4FF8C,
+	[UI_COLOR_TEXT_DIM] = 0x9AA9BBFF,
+	[UI_COLOR_FAINT] = 0x7F9CBDFF,
+	[UI_COLOR_GOOD] = 0x7FE39AFF,
+	[UI_COLOR_BAD] = 0xFF8A80FF,
+	[UI_COLOR_TAG] = 0x9FC9F2FF,
+	[UI_COLOR_PROMPT] = 0x3D9BFFFF,
+	[UI_COLOR_PROMPT_GLOW] = 0x3D8BFF80,
+	[UI_COLOR_LINE] = 0x6EB4FF8C,
+	[UI_COLOR_LINE_GLOW] = 0x3D9BFF30,
+	[UI_COLOR_SEPARATOR] = 0x6EB4FF5A,
+	[UI_COLOR_FIELD] = 0x02081A80,
+	[UI_COLOR_FIELD_EDGE] = 0x50A0FF40,
+	[UI_COLOR_PROGRESS_TOP] = 0x5AAEFFFF,
+	[UI_COLOR_PROGRESS_BOTTOM] = 0x2F7FD6FF,
+	[UI_COLOR_BACKDROP_TOP] = 0x030A1AFF,
+	[UI_COLOR_BACKDROP_MIDDLE] = 0x061430FF,
+	[UI_COLOR_BACKDROP_BOTTOM] = 0x030915FF,
+	[UI_COLOR_STAR] = 0xC8E1FFFF,
+	[UI_COLOR_CLEAR] = 0x020611FF,
 };
 
 #define PALETTE(name) palette[UI_COLOR_##name]
@@ -104,6 +130,19 @@ float ui_style_text_faded(int kind, float share, float x, float y, int align, co
 float ui_style_text(int kind, float x, float y, int align, const char *text)
 {
 	return ui_style_text_faded(kind, 1.0f, x, y, align, text);
+}
+
+float ui_style_text_scaled(int kind, float scale, float x, float y, int align, const char *text)
+{
+	if (kind < 0 || kind > UI_TEXT_WARNING)
+		kind = UI_TEXT_LINE;
+	if (text_kinds[kind].glow >= 0)
+	{
+		return ui_overlay_text_glow(text_kinds[kind].font, text_kinds[kind].size * scale, x, y, align,
+			palette[text_kinds[kind].color], palette[text_kinds[kind].glow], text);
+	}
+	return ui_overlay_text(text_kinds[kind].font, text_kinds[kind].size * scale, x, y, align,
+		palette[text_kinds[kind].color], text);
 }
 
 static unsigned int style_clock;
@@ -168,6 +207,34 @@ void ui_style_row(float x, float y, float width, float height, int selected)
 		ui_style_surface(x, y, width, height, 7, COLOR_ROW_ON, COLOR_SELECTED_EDGE, 1);
 	else
 		ui_style_glass(x, y, width, height, 7, COLOR_ROW, COLOR_ROW_EDGE);
+}
+
+void ui_style_setting(float x, float y, float width, float height, float scale, const char *label, const char *badge,
+	const char *value, int selected)
+{
+	float size = ui_style_text_size(UI_TEXT_NAME) * scale;
+	float text_y = y + (height - size) * 0.5f, right = x + width - size * 1.2f, label_end;
+	float value_width = ui_overlay_text_width(UI_FONT_MENU, size, value);
+
+	ui_style_row(x, y, width, height, selected);
+	label_end = x + size * 1.1f + ui_style_text_scaled(UI_TEXT_NAME, scale, x + size * 1.1f, text_y, UI_ALIGN_LEFT,
+		label);
+	if (badge && badge[0])
+	{
+		float badge_scale = scale * 0.75f, badge_size = ui_style_text_size(UI_TEXT_WARNING) * badge_scale;
+		float badge_width = ui_overlay_text_width(UI_FONT_MENU_SMALL, badge_size, badge) + badge_size;
+		float badge_x = label_end + size * 0.6f, badge_height = badge_size * 1.6f;
+
+		ui_overlay_outline(badge_x, y + (height - badge_height) * 0.5f, badge_width, badge_height, 3.0f, 0.8f,
+			fade(PALETTE(WARNING), 0.7f));
+		ui_style_text_scaled(UI_TEXT_WARNING, badge_scale, badge_x + badge_size * 0.5f, y + (height - badge_size) * 0.5f,
+			UI_ALIGN_LEFT, badge);
+	}
+	/* (the value between its arrows, as the menus' settings have it) */
+	ui_overlay_text(UI_FONT_MENU, size, right, text_y, UI_ALIGN_RIGHT, COLOR_TAB, "\xE2\x80\xBA");
+	ui_style_text_scaled(UI_TEXT_NAME, scale, right - size * 1.2f, text_y, UI_ALIGN_RIGHT, value);
+	ui_overlay_text(UI_FONT_MENU, size, right - size * 1.8f - value_width, text_y, UI_ALIGN_RIGHT, COLOR_TAB,
+		"\xE2\x80\xB9");
 }
 
 /* a bumper's glyph: the device's, or (the keyboard) the screen's own key */

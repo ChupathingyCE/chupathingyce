@@ -294,7 +294,8 @@ a game it joins (unless its player opted in: network.platform_limits =
 and whether it plays network co-op (a host offers no co-op while a machine
 that does not is in its game: delta_peer_room_coop). One row a platform, in
 the registry's order. The consoles' rows are placeholders until their ports
-play (the original Xbox's is the owner's: 16 and 16, no co-op), as are the
+play (the original Xbox's is the owner's: 16 and 16, no co-op; the Xbox
+360's and the Wii U's hold 32, as their builds do), as are the
 other ports' (docs/delta.md, "Platform numbers"); the signed
 legacy table's "platform_policy" section is to tune them without a release
 (delta_peer_platform_policy, delta_peer_game.c). */
@@ -306,8 +307,8 @@ legacy table's "platform_policy" section is to tune them without a release
 	X(_delta_platform_android, 128, 128, 128, 11, 1) \
 	X(_delta_platform_steam_deck, 128, 128, 128, 14, 1) \
 	X(_delta_platform_xbox, 16, 16, 128, 6, 0) \
-	X(_delta_platform_xbox360, 16, 16, 128, 9, 1) \
-	X(_delta_platform_wiiu, 16, 16, 128, 10, 1) \
+	X(_delta_platform_xbox360, 32, 32, 128, 9, 1) \
+	X(_delta_platform_wiiu, 32, 32, 128, 10, 1) \
 	X(_delta_platform_switch, 16, 16, 128, 12, 1) \
 	X(_delta_platform_psp, 16, 16, 128, 6, 0) \
 	X(_delta_platform_vita, 16, 16, 128, 9, 0) \

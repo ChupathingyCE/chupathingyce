@@ -846,6 +846,32 @@ static const char *join_code(const char *link)
 	return !strncmp(link, prefix, sizeof(prefix) - 1) ? link + sizeof(prefix) - 1 : link;
 }
 
+int social_follow_mode(const char *text)
+{
+	if (text && !strcmp(text, "always"))
+		return SOCIAL_FOLLOW_ALWAYS;
+	if (text && !strcmp(text, "never"))
+		return SOCIAL_FOLLOW_NEVER;
+	return SOCIAL_FOLLOW_ASK;
+}
+
+const char *social_follow_mode_next(const char *text)
+{
+	switch (social_follow_mode(text))
+	{
+	case SOCIAL_FOLLOW_ASK: return "always";
+	case SOCIAL_FOLLOW_ALWAYS: return "never";
+	default: return "ask";
+	}
+}
+
+int social_follow_timeout_joins(int mode, int in_game)
+{
+	if (mode == SOCIAL_FOLLOW_NEVER)
+		return 0;
+	return mode == SOCIAL_FOLLOW_ALWAYS || !in_game;
+}
+
 int social_follow_decide(const struct social_party *party, const struct social_follow_inputs *inputs)
 {
 	const struct social_party_go *go;
@@ -853,7 +879,7 @@ int social_follow_decide(const struct social_party *party, const struct social_f
 	if (!party || !party->has || party->leader || !party->go.has)
 		return SOCIAL_FOLLOW_NONE;
 	go = &party->go;
-	if (go->serial <= inputs->seen_serial || inputs->off)
+	if (go->serial <= inputs->seen_serial || inputs->mode == SOCIAL_FOLLOW_NEVER)
 		return SOCIAL_FOLLOW_NONE;
 	if (go->join[0] && inputs->current_invite && inputs->current_invite[0] &&
 		!strcmp(join_code(go->join), join_code(inputs->current_invite)))

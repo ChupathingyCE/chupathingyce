@@ -15,7 +15,9 @@ PARTY, PLAYERS HERE, RECENT and SETTINGS.
   is on Delta, and a local Mute (the chat log's, chat.c). A player verified
   in this game (the identity capability's roster, delta_peer.h) also gets
   ADD FRIEND (Y); a name alone never does. No address is ever shown.
-- SETTINGS has the Guide's own settings.
+- SETTINGS has the Guide's own settings (settings_rows.c's rows, which the
+  setup screen's Settings shares), then ABOUT: the About screen (about.c),
+  which the menus' ABOUT rows open too (guide_about_open).
 - FRIENDS is the site's friends (browser.c polls them, social.h): the
   invites, the friends online, the offline ones (a row that shows them),
   the friend requests. A on a row opens its options: a friend's JOIN (the
@@ -56,7 +58,8 @@ It opens with controls.guide (F3), the first player's Guide button
 guide.hold_back (off by default), or the first player's pause menu's GUIDE
 (menu_tags.c, guide.pause_menu); the same key or button, or B, closes it.
 
-Toasts show low in the middle of the screen for a few seconds: a new
+Toasts show for a few seconds (in the menus in the bottom left corner,
+clear of their items; in a game low in the middle): a new
 invite or friend request, and a friend come online (delta.notify_online,
 off by default, menus only). In a game only with guide.notify_in_game. The
 Guide's key or button while one shows opens its item. The pause menu's
@@ -84,14 +87,19 @@ GUIDE counts what waits ("GUIDE 2": invites and requests).
 #include "interface/player_ui.h"
 #include "main/main.h"
 #include "bink/bink_playback.h"
+#include "../src/about.h"
 #include "../src/browser.h"
 #include "../src/delta_peer.h"
 #include "../src/delta_profile.h"
 #include "../src/discord_activity.h"
 #include "../src/guide_input.h"
 #include "../src/social.h"
+#include "../src/settings_rows.h"
 #include "../src/ui_overlay.h"
 #include "delta.h"
+#ifdef HALO_CAPTURE
+#include "../src/capture.h"
+#endif
 #include "halo_ui_pointer.h"
 #include "halo_profile_screen.h"
 #include "chat.h"
@@ -168,6 +176,8 @@ enum
 	OPTION_GAP = 4,
 	/* a refusal's line, shown this long */
 	MESSAGE_TIME = 6000,
+	/* (as Delta Profile's dialogs: DIALOG_SETTLE) */
+	CONFIRM_SETTLE = 400,
 	/* the browser thread told where the player is this often */
 	WHERE_INTERVAL = 1000,
 	/* the game's verified players looked at for RECENT this often */
@@ -175,7 +185,10 @@ enum
 
 	/* the toast's place */
 	TOAST_WIDTH = 260, TOAST_HEIGHT = 34,
-	TOAST_X = 320 - TOAST_WIDTH / 2, TOAST_Y = 404,
+	/* (in a game, low in the middle; in the menus, in the bottom left
+	corner, clear of their items, QUIT the lowest, and their prompts) */
+	TOAST_GAME_X = 320 - TOAST_WIDTH / 2, TOAST_GAME_Y = 404,
+	TOAST_MENU_X = 24, TOAST_MENU_Y = 442,
 	TOAST_TIME = 5000,
 	TOAST_FADE = 400,
 
@@ -209,7 +222,6 @@ enum
 	COLOR_ROW_ON = 0x2F7FD670,
 	COLOR_DETAIL = 0x020C1EA0,
 	COLOR_VALUE = 0xFFFFFFFF,
-	COLOR_SETTING = 0x9FD0FFFF,
 	COLOR_PROMPT = 0x3D9BFFFF,
 	COLOR_PROMPT_GLOW = 0x3D8BFF80,
 	COLOR_DOT_GAME = 0x4FB3FFFF,
@@ -219,32 +231,18 @@ enum
 	COLOR_MUTED = 0xFF9F9FFF,
 };
 
-/* the Guide's own settings, as SETTINGS lists them */
+/* SETTINGS' rows after the settings, signed in: the devices (Delta
+Profile's devices dialog) and Link a device (another device's code) */
 enum
 {
-	_setting_open_key,
-	_setting_guide_button,
-	_setting_notify_in_game,
-	_setting_notify_online,
-	_setting_share_presence,
-	NUMBER_OF_SETTINGS
+	_device_row_devices,
+	_device_row_link,
+	NUMBER_OF_DEVICE_ROWS
 };
 
-static char const *const setting_labels[NUMBER_OF_SETTINGS] =
+static char const *const device_row_labels[NUMBER_OF_DEVICE_ROWS] =
 {
-	"OPEN KEY", "GUIDE BUTTON", "NOTIFICATIONS IN GAME", "FRIEND ONLINE ALERTS", "SHOW WHEN I'M PLAYING",
-};
-
-static char const *const setting_keys[NUMBER_OF_SETTINGS] =
-{
-	"controls.guide", "controls.guide_button", "guide.notify_in_game", "delta.notify_online", "network.share_presence",
-};
-
-/* controls.guide's choices: the F keys the game leaves free (F1 is Back,
-F2 Start, F11 full screen, F12 the mouse) */
-static char const *const open_keys[] =
-{
-	"F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10",
+	"DEVICES", "LINK A DEVICE",
 };
 
 /* what a click or tap lands on */
@@ -345,6 +343,8 @@ enum
 	_party_action_copy_link,
 	_party_action_bring,
 	_party_action_who,
+	_party_action_new_code,
+	_party_action_follow,
 	_party_action_leave,
 	_party_action_start,
 	_party_action_join_code,
@@ -422,6 +422,9 @@ static struct
 	char toast_line[96];
 	unsigned long toast_time;
 	boolean toast_shown;
+	/* (a toast for something the player just did, as a screenshot: shown
+	in a game too) */
+	boolean toast_always;
 	boolean debug_toast_done;
 	boolean debug_open_done;
 	boolean debug_row_done;
@@ -479,14 +482,30 @@ static struct
 	/* the leader's game last told to the party (its invite's code) */
 	char go_sent[160];
 	/* following the leader: the offer up, since when, its link and line;
-	the last go acted on */
+	the last go acted on. Or a party's link opened (follow_party: its code),
+	asked about the same way with no countdown */
 	boolean follow_active;
 	unsigned long follow_time;
 	char follow_link[SOCIAL_PARTY_LINK_SIZE];
 	char follow_line[96];
 	long long follow_seen;
+	char follow_party[SOCIAL_PARTY_CODE_SIZE];
 
 	int plasma_tries;
+
+	/* SIGN IN here (Quick Connect, browser.c's Link Profile): its code
+asked for, and what it came to */
+	boolean signing_in;
+	struct browser_connect connect;
+	/* when its question first showed: A only after CONFIRM_SETTLE, so a
+	press meant for something else doesn't answer it */
+	unsigned long confirm_shown;
+
+	/* the About screen in the panel (from SETTINGS' ABOUT: B goes back
+	there; from the menus' ABOUT: B closes it) */
+	boolean about;
+	boolean about_from_settings;
+	struct about_view about_view;
 
 	struct guide_target targets[MAXIMUM_TARGETS];
 	short target_count;
@@ -499,6 +518,8 @@ static struct social_state friends_fresh;
 static void party_act(char const *action, char const *value);
 static void party_update(void);
 static void party_where(void);
+static boolean party_has_leader(void);
+static void party_link_offer(void);
 static void section_go(short section);
 static void recent_build(void);
 static void toast_from(short kind, char const *key, char const *title, char const *line, char const *name);
@@ -813,46 +834,110 @@ static void player_mute_toggle(short row)
 	players_update();
 }
 
+static void message_set(char const *text);
+
 /* ---------- SETTINGS */
 
-static boolean setting_on(short setting)
+/* (settings_rows.h's: the rows the setup screen's Settings shares) */
+static short settings_count(void)
 {
-	return config_boolean(setting_keys[setting]) != 0;
-}
+	short count = 0;
 
-static void setting_value(short setting, char *text, int size)
-{
-	if (setting == _setting_open_key)
-	{
-		char const *key = config_string(setting_keys[setting]);
-
-		snprintf(text, (size_t)size, "%s", key[0] ? key : "F3");
-	}
-	else
-		snprintf(text, (size_t)size, "%s", setting_on(setting) ? "ON" : "OFF");
+	while (settings_row_at(SETTINGS_GROUP_GUIDE, count))
+		count++;
+	return count;
 }
 
 static void setting_change(short setting, short direction)
 {
-	if (setting == _setting_open_key)
+	struct settings_row const *row = settings_row_at(SETTINGS_GROUP_GUIDE, setting);
+
+	if (row)
+		settings_row_change(row, direction < 0 ? -1 : 1);
+}
+
+/* SETTINGS' rows: the settings, then the devices' rows when signed in,
+then ABOUT */
+static short settings_rows(void)
+{
+	return (short)(settings_count() + (guide.linked && profile_screen_available() ? NUMBER_OF_DEVICE_ROWS : 0) + 1);
+}
+
+/* ABOUT's row, the last */
+static short about_row(void)
+{
+	return (short)(settings_rows() - 1);
+}
+
+/* a device row's A: Delta Profile's dialog, over what was under DELTA */
+static void device_row_activate(short row)
+{
+	guide_close();
+	if (!(row == _device_row_devices ? profile_screen_open_devices() : profile_screen_open_link_a_device()))
 	{
-		char const *key = config_string(setting_keys[setting]);
-		short count = (short)NUMBEROF(open_keys), index, found = 0;
-
-		for (index = 0; index < count; index++)
-		{
-			char const *a = key, *b = open_keys[index];
-
-			while (*a && (*a | 0x20) == (*b | 0x20))
-				a++, b++;
-			if (!*a && !*b)
-				found = index;
-		}
-		found = (short)((found + (direction < 0 ? count - 1 : 1)) % count);
-		config_write(setting_keys[setting], open_keys[found]);
+		guide_open();
+		message_set(row == _device_row_devices ? "Your devices aren't loaded yet." :
+			"Sign in on this device first.");
 	}
-	else if (setting >= 0 && setting < NUMBER_OF_SETTINGS)
-		config_write_boolean(setting_keys[setting], !setting_on(setting));
+}
+
+/* A on a row after the settings: a device row's dialog, or ABOUT's screen */
+static void extra_row_activate(short row)
+{
+	if (row == about_row())
+	{
+		guide.about = TRUE;
+		guide.about_from_settings = TRUE;
+		about_reset(&guide.about_view);
+	}
+	else
+		device_row_activate((short)(row - settings_count()));
+}
+
+/* ---------- SIGN IN: Quick Connect's code, shown here */
+
+static void sign_in_start(void)
+{
+	browser_connect_start(NULL);
+	browser_connect_get(&guide.connect);
+	guide.signing_in = TRUE;
+}
+
+static void sign_in_stop(void)
+{
+	if (guide.signing_in)
+		browser_connect_stop();
+	guide.signing_in = FALSE;
+}
+
+/* the section shows SIGN IN (FRIENDS, PARTY, RECENT) */
+static boolean signing_in_here(void)
+{
+	return guide.section != SOCIAL_SECTION_SETTINGS && guide.section != SOCIAL_SECTION_PLAYERS_HERE;
+}
+
+/* SIGN IN's A: a code, the player's yes, or a new code after one ran out */
+static void sign_in_activate(void)
+{
+	struct browser_connect const *connect = &guide.connect;
+
+	if (!guide.signing_in)
+		sign_in_start();
+	else if (connect->state == BROWSER_CONNECT_CONFIRM && !connect->answered)
+	{
+		if (system_milliseconds() - guide.confirm_shown >= CONFIRM_SETTLE)
+			browser_connect_answer(TRUE);
+	}
+	else if (connect->state == BROWSER_CONNECT_EXPIRED || connect->state == BROWSER_CONNECT_DECLINED ||
+		connect->state == BROWSER_CONNECT_FAILED)
+	{
+		sign_in_start();
+	}
+	else if (connect->state == BROWSER_CONNECT_CONNECTED)
+	{
+		sign_in_stop();
+		browser_profile_load(TRUE);
+	}
 }
 
 /* ---------- FRIENDS: the site's friends (browser.c polls them) */
@@ -1222,6 +1307,7 @@ static void toast_from(short kind, char const *key, char const *title, char cons
 	social_copy_text(guide.toast_key, sizeof(guide.toast_key), key);
 	guide.toast_time = system_milliseconds();
 	guide.toast_shown = TRUE;
+	guide.toast_always = FALSE;
 }
 
 /* the first party invite in fresh that was not in the state shown (-1:
@@ -1312,6 +1398,7 @@ static void friends_update(void)
 		guide.where_time = now ? now : 1;
 		browser_social_where(in_game(), guide.open);
 		party_where();
+		party_link_offer();
 	}
 	party_update();
 	guide.friends_status = browser_social_get(&friends_fresh, &serial);
@@ -1620,7 +1707,8 @@ static short party_actions(short *actions)
 	if (guide.party_member != NONE)
 	{
 		actions[count++] = _party_action_make_leader;
-		actions[count++] = _party_action_kick;
+		if (party_has_leader())
+			actions[count++] = _party_action_kick;
 		return count;
 	}
 	if (friends_signed_in() && guide.party.member_count < guide.party.largest)
@@ -1628,6 +1716,10 @@ static short party_actions(short *actions)
 	actions[count++] = _party_action_copy_link;
 	actions[count++] = _party_action_bring;
 	actions[count++] = _party_action_who;
+	if (guide.party.leader)
+		actions[count++] = _party_action_new_code;
+	else
+		actions[count++] = _party_action_follow;
 	actions[count++] = _party_action_leave;
 	return count;
 }
@@ -1672,6 +1764,13 @@ static boolean party_chosen(struct party_item *item)
 	return TRUE;
 }
 
+/* whether anyone leads the party (a leader who went quiet hands it only to
+an invited member; with none, the members choose) */
+static boolean party_has_leader(void)
+{
+	return social_party_leader(&guide.party) != NULL;
+}
+
 static char const *party_action_label(short action)
 {
 	switch (action)
@@ -1680,17 +1779,22 @@ static char const *party_action_label(short action)
 	case _party_action_copy_link: return "COPY PARTY LINK";
 	case _party_action_bring: return "BRING PARTY TO MY GAME";
 	case _party_action_who: return "WHO CAN JOIN";
+	case _party_action_new_code: return "NEW PARTY CODE";
+	case _party_action_follow: return "FOLLOW LEADER";
 	case _party_action_leave: return guide.party_armed == _party_action_leave ? "CONFIRM LEAVE" : "LEAVE PARTY";
 	case _party_action_start: return "START A PARTY";
 	case _party_action_join_code: return "JOIN WITH A CODE";
-	case _party_action_make_leader: return "MAKE LEADER";
+	case _party_action_make_leader: return party_has_leader() ? "MAKE LEADER" : "CHOOSE AS LEADER";
 	default: return guide.party_armed == _party_action_kick ? "CONFIRM KICK" : "KICK";
 	}
 }
 
-/* the party's line on a member (LEADER, YOU) */
+/* the party's line on a member (LEADER, YOU); a member with no Delta
+profile is marked unverified (their name is only the game name they send) */
 static char const *member_note(struct social_party_member const *member)
 {
+	if (!member->handle[0])
+		return member->leader ? "Leader \xC2\xB7 Unverified" : member->you ? "You \xC2\xB7 Unverified" : "Unverified";
 	return member->leader ? "Leader" : member->you ? "You" : "";
 }
 
@@ -1764,8 +1868,9 @@ static void party_activate(void)
 	{
 		struct social_party_member const *member = &guide.party.members[item.index];
 
-		/* (the leader's options on another member) */
-		if (guide.party.leader && !member->you)
+		/* (the leader's options on another member; with no leader, any
+		member's choice of one, themselves too) */
+		if ((guide.party.leader && !member->you) || !party_has_leader())
 		{
 			guide.party_member = item.index;
 			guide.party_armed = NONE;
@@ -1797,6 +1902,16 @@ static void party_activate(void)
 	case _party_action_who:
 		if (guide.party.leader)
 			party_act("rule", social_party_rule_next(guide.party.who_can_join, 1));
+		break;
+	case _party_action_new_code:
+		if (guide.party.leader)
+		{
+			party_act("code", "");
+			party_message_set("The old code no longer works");
+		}
+		break;
+	case _party_action_follow:
+		config_write("delta.follow_leader", social_follow_mode_next(config_string("delta.follow_leader")));
 		break;
 	case _party_action_leave:
 		if (guide.party_armed != _party_action_leave)
@@ -1882,7 +1997,7 @@ static void party_update(void)
 	{
 		guide.party_serial = serial;
 		party_news(&before);
-		if (guide.party_member >= guide.party.member_count || !guide.party.leader)
+		if (guide.party_member >= guide.party.member_count || (!guide.party.leader && party_has_leader()))
 			guide.party_member = NONE;
 		if (!guide.party.has)
 			guide.go_sent[0] = 0;
@@ -1938,6 +2053,7 @@ static void party_where(void)
 	memset(&inputs, 0, sizeof(inputs));
 	inputs.seen_serial = guide.follow_seen;
 	inputs.current_invite = invite;
+	inputs.mode = social_follow_mode(config_string("delta.follow_leader"));
 	inputs.hosting_others = global_network_game_server_get() && network_game_get_game() &&
 		network_game_get_game()->machine_count > 1;
 	decision = social_follow_decide(&guide.party, &inputs);
@@ -1961,6 +2077,7 @@ static void party_where(void)
 		guide_close();
 	social_copy_text(guide.follow_link, sizeof(guide.follow_link), guide.party.go.join);
 	social_follow_line(&guide.party, guide.follow_line, sizeof(guide.follow_line));
+	guide.follow_party[0] = 0;
 	guide.follow_active = TRUE;
 	guide.follow_time = system_milliseconds();
 	guide.held = 0xFFFFFFFF;
@@ -1975,6 +2092,15 @@ static void follow_end(boolean go)
 	if (!guide.open)
 		platform_guide_capture(FALSE);
 	event_manager_flush();
+	/* (a party's link: joined only on the player's word) */
+	if (guide.follow_party[0])
+	{
+		if (go)
+			party_act("join", guide.follow_party);
+		platform_log(go ? "Guide: joining a party by its link" : "Guide: the party link was not joined");
+		guide.follow_party[0] = 0;
+		return;
+	}
 	if (go)
 	{
 		struct social_party_member const *leader = social_party_leader(&guide.party);
@@ -1991,14 +2117,44 @@ static void follow_end(boolean go)
 		platform_log("Guide: stayed");
 }
 
+/* whether the offer's countdown ending joins (else the member stays): in
+a game, only with delta.follow_leader "always"; a party's link waits for
+an answer */
+static boolean follow_timeout_joins(void)
+{
+	return social_follow_timeout_joins(social_follow_mode(config_string("delta.follow_leader")), in_game()) ? TRUE :
+		FALSE;
+}
+
 static void follow_handle(unsigned int pressed)
 {
 	if (pressed & GUIDE_INPUT_B)
 		follow_end(FALSE);
 	else if (pressed & GUIDE_INPUT_A)
 		follow_end(TRUE);
-	else if (system_milliseconds() - guide.follow_time >= SOCIAL_FOLLOW_TIME)
-		follow_end(TRUE);
+	else if (!guide.follow_party[0] && system_milliseconds() - guide.follow_time >= SOCIAL_FOLLOW_TIME)
+		follow_end(follow_timeout_joins());
+}
+
+/* a party's link opened (or on the command line): asked about first, never
+joined unseen */
+static void party_link_offer(void)
+{
+	char code[SOCIAL_PARTY_CODE_SIZE], shown[16];
+
+	if (guide.follow_active || virtual_keyboard_active() || !browser_party_take_link(code, sizeof(code)))
+		return;
+	if (guide.open)
+		guide_close();
+	social_party_code_shown(code, shown, sizeof(shown));
+	social_copy_text(guide.follow_party, sizeof(guide.follow_party), code);
+	snprintf(guide.follow_line, sizeof(guide.follow_line), "Join the party %s?", shown);
+	guide.follow_active = TRUE;
+	guide.follow_time = system_milliseconds();
+	guide.held = 0xFFFFFFFF;
+	platform_guide_capture(TRUE);
+	event_manager_flush();
+	platform_log("Guide: a party link, asking first");
 }
 
 /* ---------- the sections' rows */
@@ -2010,7 +2166,7 @@ static short section_rows(short section)
 	case SOCIAL_SECTION_PLAYERS_HERE:
 		return (short)guide.players.count;
 	case SOCIAL_SECTION_SETTINGS:
-		return NUMBER_OF_SETTINGS;
+		return settings_rows();
 	case SOCIAL_SECTION_PARTY:
 	{
 		struct party_item items[MAXIMUM_PARTY_ITEMS];
@@ -2055,7 +2211,10 @@ static void activate(void)
 		player_mute_toggle(row);
 		return;
 	case SOCIAL_SECTION_SETTINGS:
-		setting_change(row, 1);
+		if (row >= settings_count())
+			extra_row_activate(row);
+		else
+			setting_change(row, 1);
 		return;
 	case SOCIAL_SECTION_PARTY:
 		party_activate();
@@ -2077,15 +2236,9 @@ static void activate(void)
 		}
 		break;
 	}
+	/* (Quick Connect's code, shown here) */
 	if (!friends_signed_in() && sign_in_section() != NONE)
-	{
-		short section = sign_in_section();
-
-		/* (Delta Profile's Link Profile, its dialog over what was under
-		the Guide) */
-		guide_close();
-		profile_screen_section_action(section);
-	}
+		sign_in_activate();
 }
 
 static void move(short step)
@@ -2545,27 +2698,30 @@ static void render_recent(void)
 
 static void render_settings(void)
 {
+	struct settings_row const *row;
 	short setting;
 	float y = BODY_Y;
 
-	for (setting = 0; setting < NUMBER_OF_SETTINGS; setting++)
+	for (setting = 0; (row = settings_row_at(SETTINGS_GROUP_GUIDE, setting)) != NULL; setting++)
 	{
-		boolean on = setting == guide.row[SOCIAL_SECTION_SETTINGS];
-		char value[32];
-		float width = CONTENT_RIGHT - CONTENT_LEFT, value_right = CONTENT_RIGHT - 14;
+		char value[96];
 
-		setting_value(setting, value, sizeof(value));
-		ui_style_row(CONTENT_LEFT, y, width, SETTING_HEIGHT, on);
-		ui_overlay_text(UI_FONT_MENU, 10.0f, CONTENT_LEFT + 12, y + 8, UI_ALIGN_LEFT, COLOR_SETTING,
-			setting_labels[setting]);
-		/* (the value between its arrows, as the menus' settings have it) */
-		ui_overlay_text(UI_FONT_MENU, 10.0f, value_right, y + 8, UI_ALIGN_RIGHT, COLOR_VALUE, "\xE2\x80\xBA");
-		ui_overlay_text(UI_FONT_MENU, 10.0f, value_right - 12, y + 8, UI_ALIGN_RIGHT, COLOR_VALUE, value);
-		ui_overlay_text(UI_FONT_MENU, 10.0f, value_right - 18 - ui_overlay_text_width(UI_FONT_MENU, 10.0f, value),
-			y + 8, UI_ALIGN_RIGHT, COLOR_VALUE, "\xE2\x80\xB9");
+		settings_row_value(row, value, sizeof(value));
+		ui_style_setting(CONTENT_LEFT, y, CONTENT_RIGHT - CONTENT_LEFT, SETTING_HEIGHT, 1.0f, settings_row_label(row),
+			NULL, value, setting == guide.row[SOCIAL_SECTION_SETTINGS]);
 		target_add(CONTENT_LEFT, y, CONTENT_RIGHT, y + SETTING_HEIGHT, _target_setting, setting);
 		y += SETTING_HEIGHT + ROW_GAP;
 	}
+	for (setting = settings_count(); setting < settings_rows(); setting++)
+	{
+		ui_style_setting(CONTENT_LEFT, y, CONTENT_RIGHT - CONTENT_LEFT, SETTING_HEIGHT, 1.0f,
+			setting == about_row() ? "ABOUT" : device_row_labels[setting - settings_count()], NULL, "\xE2\x80\xBA",
+			setting == guide.row[SOCIAL_SECTION_SETTINGS]);
+		target_add(CONTENT_LEFT, y, CONTENT_RIGHT, y + SETTING_HEIGHT, _target_setting, setting);
+		y += SETTING_HEIGHT + ROW_GAP;
+	}
+	if (guide.message[0] && system_milliseconds() - guide.message_time < MESSAGE_TIME)
+		ui_style_text(UI_TEXT_LINE, CONTENT_LEFT + 12, y + 4, UI_ALIGN_LEFT, guide.message);
 }
 
 enum
@@ -2735,6 +2891,12 @@ static void render_party(void)
 				continue;
 			if (action == _party_action_bring)
 				value = config_boolean("delta.bring_party") ? "ON" : "OFF";
+			else if (action == _party_action_follow)
+			{
+				int mode = social_follow_mode(config_string("delta.follow_leader"));
+
+				value = mode == SOCIAL_FOLLOW_ALWAYS ? "ALWAYS" : mode == SOCIAL_FOLLOW_NEVER ? "NEVER" : "ASK";
+			}
 			else if (action == _party_action_who)
 			{
 				value = social_party_rule_shown(guide.party.who_can_join);
@@ -2769,7 +2931,7 @@ the menus or a game */
 static void render_follow(void)
 {
 	struct ui_style_prompt prompts[2];
-	float starts[2], ends[2], width = 300, height = 56, left = 320 - width * 0.5f, top = TOAST_Y - 22;
+	float starts[2], ends[2], width = 300, height = 56, left = 320 - width * 0.5f, top = TOAST_GAME_Y - 22;
 	unsigned long age = system_milliseconds() - guide.follow_time;
 	long seconds = (long)((SOCIAL_FOLLOW_TIME - (age < SOCIAL_FOLLOW_TIME ? age : SOCIAL_FOLLOW_TIME) + 999) / 1000);
 	char line[48];
@@ -2780,14 +2942,17 @@ static void render_follow(void)
 	ui_style_clock((unsigned int)system_milliseconds());
 	ui_style_glass(left, top, width, height, 8, ui_style_color(UI_COLOR_GLASS_TOP), COLOR_PANEL_EDGE);
 	ui_style_text(UI_TEXT_NAME, left + 12, top + 7, UI_ALIGN_LEFT, guide.follow_line);
-	snprintf(line, sizeof(line), "Joining in %ld", seconds);
+	if (guide.follow_party[0])
+		social_copy_text(line, sizeof(line), "Only join parties from people you know");
+	else
+		snprintf(line, sizeof(line), follow_timeout_joins() ? "Joining in %ld" : "Staying in %ld", seconds);
 	ui_style_text(UI_TEXT_STATUS, left + 12, top + 22, UI_ALIGN_LEFT, line);
 	prompts[0].button = UI_BUTTON_A;
 	prompts[0].key = "ENTER";
-	prompts[0].word = "JOIN NOW";
+	prompts[0].word = guide.follow_party[0] ? "JOIN" : "JOIN NOW";
 	prompts[1].button = UI_BUTTON_B;
 	prompts[1].key = "ESC";
-	prompts[1].word = "STAY";
+	prompts[1].word = guide.follow_party[0] ? "NO" : "STAY";
 	ui_style_prompts(left + width - 10, top + height - 19, 12.0f, prompts, 2, starts, ends);
 	for (index = 0; index < 2; index++)
 	{
@@ -2806,6 +2971,46 @@ static void render_coming(void)
 
 	if (friends_signed_in() || sign_in_section() == NONE)
 		return;
+	if (guide.signing_in)
+	{
+		struct browser_connect const *connect = &guide.connect;
+		char text[160];
+
+		switch (connect->state)
+		{
+		case BROWSER_CONNECT_WAITING:
+			snprintf(text, sizeof(text), "Enter this code at %s", connect->page);
+			ui_style_text(UI_TEXT_LINE, center, y - 18, UI_ALIGN_CENTER, text);
+			ui_style_row(center - 110, y + 2, 220, 50, TRUE);
+			ui_overlay_text_glow(UI_FONT_MENU, 26.0f, center, y + 10, UI_ALIGN_CENTER, 0xFFFFFFFF, COLOR_PROMPT_GLOW,
+				connect->code);
+			snprintf(text, sizeof(text), "Expires in %d:%02d", connect->seconds / 60, connect->seconds % 60);
+			ui_style_text(UI_TEXT_LINE, center, y + 62, UI_ALIGN_CENTER, text);
+			break;
+		case BROWSER_CONNECT_CONFIRM:
+			snprintf(text, sizeof(text), connect->previous[0] ? "Sign in as @%s (from @%s)?" : "Sign in as @%s?",
+				connect->handle, connect->previous);
+			ui_overlay_text_glow(UI_FONT_MENU, 14.0f, center, y + 10, UI_ALIGN_CENTER, 0xFFFFFFFF, COLOR_PROMPT_GLOW, text);
+			if (connect->answered)
+				ui_style_text(UI_TEXT_LINE, center, y + 40, UI_ALIGN_CENTER, "Sending your answer\xE2\x80\xA6");
+			break;
+		case BROWSER_CONNECT_CONNECTED:
+			snprintf(text, sizeof(text), "Signed in as @%s", connect->handle);
+			ui_overlay_text_glow(UI_FONT_MENU, 14.0f, center, y + 10, UI_ALIGN_CENTER, 0xFFFFFFFF, COLOR_PROMPT_GLOW, text);
+			break;
+		case BROWSER_CONNECT_EXPIRED:
+		case BROWSER_CONNECT_DECLINED:
+		case BROWSER_CONNECT_FAILED:
+			ui_style_text(UI_TEXT_LINE, center, y + 10, UI_ALIGN_CENTER,
+				connect->state == BROWSER_CONNECT_EXPIRED ? "The code expired." :
+				connect->state == BROWSER_CONNECT_DECLINED ? "Not signed in." : connect->message);
+			break;
+		default:
+			ui_style_text(UI_TEXT_LINE, center, y + 10, UI_ALIGN_CENTER, "Getting a code\xE2\x80\xA6");
+			break;
+		}
+		return;
+	}
 	ui_style_text(UI_TEXT_LINE, center, y, UI_ALIGN_CENTER, "Sign in to Delta to see friends");
 	ui_style_row(center - width * 0.5f, y + 22, width, 26, TRUE);
 	ui_overlay_text_glow(UI_FONT_MENU, 11.0f, center, y + 29, UI_ALIGN_CENTER, 0xFFFFFFFF, COLOR_PROMPT_GLOW,
@@ -2827,6 +3032,28 @@ static short shortcut_option(unsigned int button)
 	return option;
 }
 
+/* SIGN IN's A: its word as the sign-in goes (NULL: none now); B goes back
+while signing in */
+static char const *sign_in_word(boolean *back)
+{
+	if (!guide.signing_in)
+		return "SIGN IN";
+	*back = TRUE;
+	switch (guide.connect.state)
+	{
+	case BROWSER_CONNECT_CONFIRM:
+		return guide.connect.answered ? NULL : "YES";
+	case BROWSER_CONNECT_CONNECTED:
+		return "DONE";
+	case BROWSER_CONNECT_EXPIRED:
+	case BROWSER_CONNECT_DECLINED:
+	case BROWSER_CONNECT_FAILED:
+		return "NEW CODE";
+	default:
+		return NULL;
+	}
+}
+
 static void prompt_add(struct ui_style_prompt *prompts, short *count, int button, char const *key, char const *word)
 {
 	prompts[*count].button = button;
@@ -2842,6 +3069,19 @@ static void render_prompts(void)
 	short count = 0, index;
 	boolean back = FALSE, add_friend = FALSE;
 
+	if (guide.about)
+	{
+		word = about_a_word(&guide.about_view);
+		if (word)
+			prompt_add(prompts, &count, UI_BUTTON_A, "ENTER", word);
+		prompt_add(prompts, &count, UI_BUTTON_B, "ESC",
+			about_b_word(&guide.about_view, guide.about_from_settings ? "BACK" : "CLOSE"));
+		ui_style_prompts(CONTENT_RIGHT, PROMPTS_Y, 15.0f, prompts, count, starts, ends);
+		for (index = 0; index < count; index++)
+			target_add(starts[index] - 4, PROMPTS_Y - 4, ends[index] + 4, PROMPTS_Y + 19, _target_prompt,
+				(short)prompts[index].button);
+		return;
+	}
 	switch (guide.section)
 	{
 	case SOCIAL_SECTION_PLAYERS_HERE:
@@ -2866,7 +3106,7 @@ static void render_prompts(void)
 			word = "SIGN IN";
 		break;
 	case SOCIAL_SECTION_SETTINGS:
-		word = "CHANGE";
+		word = guide.row[guide.section] >= settings_count() ? "OPEN" : "CHANGE";
 		break;
 	case SOCIAL_SECTION_FRIENDS:
 		if (friends_signed_in())
@@ -2884,7 +3124,7 @@ static void render_prompts(void)
 			break;
 		}
 		if (section_rows(guide.section))
-			word = "SIGN IN";
+			word = sign_in_word(&back);
 		break;
 	case SOCIAL_SECTION_PARTY:
 	{
@@ -2903,7 +3143,7 @@ static void render_prompts(void)
 				prompt_add(prompts, &count, UI_BUTTON_A, "ENTER", "JOIN");
 				prompt_add(prompts, &count, UI_BUTTON_X, "M", "DECLINE");
 			}
-			else if (item.kind == _party_item_action ||
+			else if (item.kind == _party_item_action || !party_has_leader() ||
 				(guide.party.leader && !guide.party.members[item.index].you))
 			{
 				word = "SELECT";
@@ -2914,7 +3154,7 @@ static void render_prompts(void)
 	}
 	default:
 		if (section_rows(guide.section))
-			word = "SIGN IN";
+			word = sign_in_word(&back);
 		break;
 	}
 	if (word)
@@ -2925,7 +3165,8 @@ static void render_prompts(void)
 		prompt_add(prompts, &count, UI_BUTTON_Y, "TAB", "JOIN");
 	if (shortcut_option(GUIDE_INPUT_X) != NONE)
 		prompt_add(prompts, &count, UI_BUTTON_X, "M", "INVITE");
-	prompt_add(prompts, &count, UI_BUTTON_B, "ESC", back ? "BACK" : "CLOSE");
+	prompt_add(prompts, &count, UI_BUTTON_B, "ESC", guide.signing_in && signing_in_here() &&
+		guide.connect.state == BROWSER_CONNECT_CONFIRM && !guide.connect.answered ? "NO" : back ? "BACK" : "CLOSE");
 	ui_style_prompts(CONTENT_RIGHT, PROMPTS_Y, 15.0f, prompts, count, starts, ends);
 	for (index = 0; index < count; index++)
 		target_add(starts[index] - 4, PROMPTS_Y - 4, ends[index] + 4, PROMPTS_Y + 19, _target_prompt, (short)prompts[index].button);
@@ -2937,7 +3178,9 @@ static boolean toast_visible(void)
 {
 	if (!guide.toast_shown || system_milliseconds() - guide.toast_time >= TOAST_TIME)
 		return FALSE;
-	if (in_game() && guide.toast_kind != _toast_party_note &&
+	/* (quiet in a game unless asked for: a screenshot's or clip's, and a
+	party's note, always show) */
+	if (in_game() && !guide.toast_always && guide.toast_kind != _toast_party_note &&
 		(!config_boolean("guide.notify_in_game") || guide.toast_kind == _toast_friend))
 	{
 		return FALSE;
@@ -2948,7 +3191,8 @@ static boolean toast_visible(void)
 static void render_toast(void)
 {
 	unsigned long age = system_milliseconds() - guide.toast_time;
-	float share, text_right = TOAST_X + TOAST_WIDTH - 10;
+	float x = in_game() ? TOAST_GAME_X : TOAST_MENU_X, y = in_game() ? TOAST_GAME_Y : TOAST_MENU_Y;
+	float share, text_right = x + TOAST_WIDTH - 10;
 
 	if (!guide.toast_shown)
 		return;
@@ -2964,15 +3208,15 @@ static void render_toast(void)
 		age > TOAST_TIME - TOAST_FADE ? (float)(TOAST_TIME - age) / TOAST_FADE : 1.0f;
 	ui_overlay_layer(4);
 	ui_style_clock((unsigned int)system_milliseconds());
-	ui_style_glass(TOAST_X, TOAST_Y, TOAST_WIDTH, TOAST_HEIGHT, 8, fade(ui_style_color(UI_COLOR_GLASS_TOP), share),
+	ui_style_glass(x, y, TOAST_WIDTH, TOAST_HEIGHT, 8, fade(ui_style_color(UI_COLOR_GLASS_TOP), share),
 		fade(COLOR_PANEL_EDGE, share));
 	/* (a friend's: their initial on gold; else the player's own color) */
 	if (guide.toast_kind != _toast_none)
 	{
-		ui_overlay_rect(TOAST_X + 8, TOAST_Y + 7, 20, 20, 4, fade(ui_style_color(UI_COLOR_EMBLEM_FRIEND), share));
+		ui_overlay_rect(x + 8, y + 7, 20, 20, 4, fade(ui_style_color(UI_COLOR_EMBLEM_FRIEND), share));
 		if (guide.toast_initial[0])
 		{
-			ui_overlay_text(UI_FONT_BOLD, 11.0f, TOAST_X + 18, TOAST_Y + 11, UI_ALIGN_CENTER, fade(ui_style_color(UI_COLOR_EMBLEM_LETTER), share),
+			ui_overlay_text(UI_FONT_BOLD, 11.0f, x + 18, y + 11, UI_ALIGN_CENTER, fade(ui_style_color(UI_COLOR_EMBLEM_LETTER), share),
 				guide.toast_initial);
 		}
 		/* (the key that opens it) */
@@ -2982,13 +3226,13 @@ static void render_toast(void)
 
 			key = key[0] ? key : "F3";
 			text_right -= ui_overlay_key_width(key, 12.0f) + 6;
-			ui_overlay_key(key, 12.0f, text_right + 6, TOAST_Y + 11, fade(ui_style_color(UI_COLOR_NAME), share));
+			ui_overlay_key(key, 12.0f, text_right + 6, y + 11, fade(ui_style_color(UI_COLOR_NAME), share));
 		}
 	}
 	else
-		ui_overlay_rect(TOAST_X + 8, TOAST_Y + 7, 20, 20, 4, fade(guide.color ? guide.color : 0x2F6DD0FF, share));
-	ui_style_text_faded(UI_TEXT_NAME, share, TOAST_X + 36, TOAST_Y + 5, UI_ALIGN_LEFT, guide.toast_title);
-	ui_style_text_faded(UI_TEXT_STATUS, share, TOAST_X + 36, TOAST_Y + 20, UI_ALIGN_LEFT, guide.toast_line);
+		ui_overlay_rect(x + 8, y + 7, 20, 20, 4, fade(guide.color ? guide.color : 0x2F6DD0FF, share));
+	ui_style_text_faded(UI_TEXT_NAME, share, x + 36, y + 5, UI_ALIGN_LEFT, guide.toast_title);
+	ui_style_text_faded(UI_TEXT_STATUS, share, x + 36, y + 20, UI_ALIGN_LEFT, guide.toast_line);
 	ui_overlay_layer(0);
 }
 
@@ -3033,15 +3277,27 @@ void guide_open(void)
 	platform_log("Guide: opened");
 }
 
+void guide_about_open(void)
+{
+	guide_open();
+	if (!guide.open)
+		return;
+	guide.about = TRUE;
+	guide.about_from_settings = FALSE;
+	about_reset(&guide.about_view);
+}
+
 void guide_close(void)
 {
 	if (!guide.open)
 		return;
 	guide.open = FALSE;
+	guide.about = FALSE;
 	guide.target_count = 0;
 	guide.code_entry = FALSE;
 	guide.party_member = NONE;
 	guide.party_armed = NONE;
+	sign_in_stop();
 	if (!guide.follow_active)
 		platform_guide_capture(FALSE);
 	event_manager_flush();
@@ -3057,7 +3313,27 @@ void guide_toast(char const *title, char const *line)
 	guide.toast_kind = _toast_none;
 	guide.toast_time = system_milliseconds();
 	guide.toast_shown = TRUE;
+	guide.toast_always = FALSE;
 }
+
+#ifdef HALO_CAPTURE
+/* the screenshots' (capture.c): the map's name for their files, and their
+toasts */
+static void capture_update(void)
+{
+	char title[64], line[160];
+	char const *map = "menu";
+
+	if (!main_menu_is_active() && game_map_loaded())
+		map = game_engine_running() ? main_get_multiplayer_map_name() : main_get_map_name();
+	capture_set_map(map);
+	if (capture_take_notice(title, sizeof(title), line, sizeof(line)))
+	{
+		guide_toast(title, line);
+		guide.toast_always = TRUE;
+	}
+}
+#endif
 
 wchar_t const *guide_pause_label(long string_list_tag)
 {
@@ -3083,6 +3359,9 @@ void guide_update(boolean menu_open)
 		guide.party_member = NONE;
 		guide.party_armed = NONE;
 	}
+#ifdef HALO_CAPTURE
+	capture_update();
+#endif
 	friends_update();
 	recent_notice();
 	/* (a toast waits out the intro's video and a map's loading: its time
@@ -3175,6 +3454,27 @@ static void handle(unsigned int pressed)
 		follow_handle(pressed);
 		return;
 	}
+	if (guide.about)
+	{
+		if (pressed & GUIDE_INPUT_B)
+		{
+			if (!about_input(&guide.about_view, ABOUT_INPUT_B))
+			{
+				if (guide.about_from_settings)
+					guide.about = FALSE;
+				else
+					guide_close();
+			}
+			return;
+		}
+		if (pressed & GUIDE_INPUT_UP)
+			about_input(&guide.about_view, ABOUT_INPUT_UP);
+		if (pressed & GUIDE_INPUT_DOWN)
+			about_input(&guide.about_view, ABOUT_INPUT_DOWN);
+		if (pressed & GUIDE_INPUT_A)
+			about_input(&guide.about_view, ABOUT_INPUT_A);
+		return;
+	}
 	/* (PARTY's code being picked: the d-pad is its letters) */
 	if (guide.section == SOCIAL_SECTION_PARTY && guide.code_entry &&
 		!(pressed & (GUIDE_INPUT_LEFT_BUMPER | GUIDE_INPUT_RIGHT_BUMPER)))
@@ -3185,7 +3485,7 @@ static void handle(unsigned int pressed)
 	if (pressed & GUIDE_INPUT_B)
 	{
 		/* (in FRIENDS' options panel, or PARTY's on a member: back to the
-		list) */
+		list; signing in: a no, or the code dropped) */
 		if (guide.options)
 		{
 			guide.options = FALSE;
@@ -3203,6 +3503,13 @@ static void handle(unsigned int pressed)
 			guide.party_member = NONE;
 			guide.party_armed = NONE;
 		}
+		else if (guide.signing_in && signing_in_here() && guide.connect.state == BROWSER_CONNECT_CONFIRM &&
+			!guide.connect.answered)
+		{
+			browser_connect_answer(FALSE);
+		}
+		else if (guide.signing_in && signing_in_here())
+			sign_in_stop();
 		else
 			guide_close();
 		return;
@@ -3219,7 +3526,8 @@ static void handle(unsigned int pressed)
 		move(-1);
 	if (pressed & GUIDE_INPUT_DOWN)
 		move(1);
-	if (guide.section == SOCIAL_SECTION_SETTINGS && (pressed & (GUIDE_INPUT_LEFT | GUIDE_INPUT_RIGHT)))
+	if (guide.section == SOCIAL_SECTION_SETTINGS && guide.row[guide.section] < settings_count() &&
+		(pressed & (GUIDE_INPUT_LEFT | GUIDE_INPUT_RIGHT)))
 		setting_change(guide.row[guide.section], (pressed & GUIDE_INPUT_LEFT) ? -1 : 1);
 	if (pressed & GUIDE_INPUT_A)
 		activate();
@@ -3239,6 +3547,17 @@ void guide_process(void)
 {
 	if (!guide.open && !guide.follow_active)
 		return;
+	if (guide.signing_in)
+	{
+		int before = guide.connect.state;
+
+		browser_connect_get(&guide.connect);
+		if (guide.connect.state == BROWSER_CONNECT_CONFIRM && before != BROWSER_CONNECT_CONFIRM)
+			guide.confirm_shown = system_milliseconds();
+		/* (signed in: the card and the friends follow) */
+		if (guide.connect.state == BROWSER_CONNECT_CONNECTED && guide.linked)
+			guide.signing_in = FALSE;
+	}
 	handle(presses());
 }
 
@@ -3253,8 +3572,22 @@ void guide_pointer(struct halo_ui_pointer const *pointer)
 		handle(GUIDE_INPUT_B);
 		return;
 	}
+	if (guide.about && pointer->wheel_steps)
+	{
+		short step;
+
+		for (step = 0; step < ABS(pointer->wheel_steps); step++)
+			about_input(&guide.about_view, pointer->wheel_steps > 0 ? ABOUT_INPUT_UP : ABOUT_INPUT_DOWN);
+	}
 	if (!pointer->left_clicks)
 		return;
+	if (guide.about && guide.about_view.licenses_x1 > guide.about_view.licenses_x0 &&
+		pointer->click_x >= guide.about_view.licenses_x0 && pointer->click_x < guide.about_view.licenses_x1 &&
+		pointer->click_y >= guide.about_view.licenses_y0 && pointer->click_y < guide.about_view.licenses_y1)
+	{
+		about_input(&guide.about_view, ABOUT_INPUT_A);
+		return;
+	}
 	for (index = 0; index < guide.target_count; index++)
 	{
 		struct guide_target const *target = &guide.targets[index];
@@ -3314,7 +3647,10 @@ void guide_pointer(struct halo_ui_pointer const *pointer)
 			break;
 		case _target_setting:
 			guide.row[guide.section] = target->index;
-			setting_change(target->index, 1);
+			if (target->index >= settings_count())
+				extra_row_activate(target->index);
+			else
+				setting_change(target->index, 1);
 			break;
 		case _target_option:
 			if (guide.section == SOCIAL_SECTION_RECENT)
@@ -3379,6 +3715,14 @@ void guide_render(void)
 	ui_overlay_rect(-200, 0, 1040, 480, 0, ui_style_color(UI_COLOR_SHADE));
 	ui_style_clock((unsigned int)system_milliseconds());
 	ui_style_panel(PANEL_X, PANEL_Y, PANEL_WIDTH, PANEL_HEIGHT, 1.0f);
+	if (guide.about)
+	{
+		ui_style_card(CONTENT_LEFT, CONTENT_RIGHT, HEADER_Y, NULL, NULL, 0, "ABOUT");
+		about_render(&guide.about_view, CONTENT_LEFT, RULE_Y + 12, CONTENT_RIGHT, BODY_BOTTOM);
+		render_prompts();
+		ui_overlay_layer(0);
+		return;
+	}
 	render_card();
 	render_tabs();
 	switch (guide.section)

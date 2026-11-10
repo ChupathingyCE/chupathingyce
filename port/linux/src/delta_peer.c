@@ -1660,6 +1660,15 @@ static void host_receive(struct delta_peer *peer, delta_u32 now, delta_u32 ipv4,
 		if (client->has_party_tag != (memcmp(tag, none, sizeof(tag)) != 0) ||
 			memcmp(client->party_tag, tag, sizeof(tag)))
 		{
+			/* (a change soon after the last one: dropped, the client sends it
+			again every DELTA_PEER_PARTY_TAG_INTERVAL) */
+			if (client->party_tag_changes &&
+				(delta_u32)(now - client->party_tag_time) < (delta_u32)DELTA_PEER_PARTY_TAG_HOLD)
+			{
+				break;
+			}
+			client->party_tag_changes++;
+			client->party_tag_time = now;
 			client->has_party_tag = memcmp(tag, none, sizeof(tag)) != 0;
 			memcpy(client->party_tag, tag, sizeof(tag));
 			say(peer, "Delta Peer: machine %d is %s", machine_index, client->has_party_tag ? "in a party" :

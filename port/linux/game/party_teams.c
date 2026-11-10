@@ -10,12 +10,18 @@ split party on one team, where the teams stay within one player of each
 other (party_teams_plan.c says which change).
 
 - **In the lobby**, each time the lobby's players or their parties change,
-  the host moves a member, or trades them with a player in no party, and
-  sends the lobby again. Players still choose their own team afterwards;
-  the host does not undo it until the lobby changes again.
+  the host moves a member and sends the lobby again. Players still choose
+  their own team afterwards; the host does not undo it until the lobby
+  changes again.
 - **In a game**, only a member who joined late and has not spawned yet is
   moved (the game's own team change: team_change_party_move), never a
-  player who is playing, and nobody is traded.
+  player who is playing.
+
+A tag is the client's word, so it moves nobody else: only party members
+are ever moved, never a player in no party (no trades); a tag one machine
+alone has is no party (its own players are not a party of their own); and
+Delta Peer keeps a machine's new tag only a while after its last change
+(DELTA_PEER_PARTY_TAG_HOLD), so flipping it can't keep a lobby rearranging.
 
 Teams stay the host's: an OpenCE host, or one that says nothing, places a
 party as it always did, and nothing here changes what the game protocol
@@ -90,10 +96,12 @@ boolean party_teams_host_on(void)
 #if defined(HALO_GAME_BROWSER) && !defined(HALO_CONSOLE_NO_GUIDE)
 
 /* the parties' numbers from their machines' tags: each machine's (-1: in no
-party), machines that share a tag sharing a number */
+party), machines that share a tag sharing a number; a tag no other machine
+shares is no party (one machine's own players aren't one) */
 static void machine_parties(int *parties)
 {
 	unsigned char tags[DELTA_PEER_MAXIMUM_MACHINES][DELTA_WIRE_PARTY_TAG_SIZE];
+	int sharing[DELTA_PEER_MAXIMUM_MACHINES];
 	int machine, earlier;
 
 	for (machine = 0; machine < DELTA_PEER_MAXIMUM_MACHINES; machine++)
@@ -110,6 +118,17 @@ static void machine_parties(int *parties)
 				break;
 			}
 		}
+	}
+	memset(sharing, 0, sizeof(sharing));
+	for (machine = 0; machine < DELTA_PEER_MAXIMUM_MACHINES; machine++)
+	{
+		if (parties[machine] >= 0)
+			sharing[parties[machine]]++;
+	}
+	for (machine = 0; machine < DELTA_PEER_MAXIMUM_MACHINES; machine++)
+	{
+		if (parties[machine] >= 0 && sharing[parties[machine]] < 2)
+			parties[machine] = -1;
 	}
 }
 
@@ -158,11 +177,6 @@ boolean party_teams_pregame(struct network_game *game)
 	{
 		game->players[list[change.player]].team_index = (char)change.team;
 		players[change.player].team = change.team;
-		if (change.traded >= 0)
-		{
-			game->players[list[change.traded]].team_index = (char)(1 - change.team);
-			players[change.traded].team = 1 - change.team;
-		}
 		changes++;
 	}
 	if (changes)
@@ -219,15 +233,14 @@ void party_teams_update(void)
 		indexes[count] = iterator.datum_index;
 		players[count].team = (int)player->team_index;
 		players[count].party = party_of(parties, player->network_player_data.machine_index);
-		/* (a late joiner not spawned yet: in a party, so it may move; nobody
-		is traded in a game) */
+		/* (a late joiner not spawned yet: in a party, so it may move) */
 		players[count].movable = players[count].party >= 0 && absolute >= 0 && absolute < PARTY_TEAMS_PLAYERS &&
 			!party_teams.spawned[absolute];
 		count++;
 	}
 	while (changes < PARTY_TEAMS_CHANGES && party_teams_plan(players, count, &change))
 	{
-		if (change.traded >= 0 || !team_change_party_move(indexes[change.player], (short)change.team))
+		if (!team_change_party_move(indexes[change.player], (short)change.team))
 			break;
 		players[change.player].team = change.team;
 		changes++;

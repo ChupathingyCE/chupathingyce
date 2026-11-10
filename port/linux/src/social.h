@@ -455,9 +455,28 @@ struct social_follow_inputs
 	int hosting_others;
 	/* the game this copy is in now (its invite's code; "" for none) */
 	const char *current_invite;
-	/* following is off (party.follow_leader) */
-	int off;
+	/* delta.follow_leader (social_follow_mode) */
+	int mode;
 };
+
+/* delta.follow_leader: when a member's copy follows the leader. ASK (the
+default) offers it with a countdown that joins when it ends in the menus,
+and stays when it ends in a game (A joins); ALWAYS joins when it ends
+either way; NEVER offers nothing */
+enum
+{
+	SOCIAL_FOLLOW_ASK = 0,
+	SOCIAL_FOLLOW_ALWAYS,
+	SOCIAL_FOLLOW_NEVER,
+};
+
+/* the setting's text ("ask", "always", "never"; anything else: ASK) */
+int social_follow_mode(const char *text);
+/* the next setting's text after this one's (a row cycling them) */
+const char *social_follow_mode_next(const char *text);
+/* whether the offer's countdown ending joins the leader's game (else the
+member stays): never while the member is in a game unless ALWAYS */
+int social_follow_timeout_joins(int mode, int in_game);
 
 int social_follow_decide(const struct social_party *party, const struct social_follow_inputs *inputs);
 /* the one line shown when the member can't follow */

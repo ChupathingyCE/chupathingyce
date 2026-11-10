@@ -18,7 +18,6 @@ int party_teams_plan(const struct party_teams_player *players, int count, struct
 
 	change->player = -1;
 	change->team = -1;
-	change->traded = -1;
 	counts[0] = counts[1] = 0;
 	for (index = 0; index < count; index++)
 	{
@@ -29,7 +28,7 @@ int party_teams_plan(const struct party_teams_player *players, int count, struct
 	for (index = 0; index < count; index++)
 	{
 		const struct party_teams_player *first = &players[index];
-		int members[2], target, other, member, earlier, trade, tries;
+		int members[2], target, other, member, earlier, tries;
 
 		if (first->party < 0 || !on_team(first))
 			continue;
@@ -63,23 +62,13 @@ int party_teams_plan(const struct party_teams_player *players, int count, struct
 
 				if (player->party != first->party || player->team != other || !player->movable)
 					continue;
-				/* (a move: the teams within one of each other after it) */
+				/* (a move: the teams within one of each other after it; never a
+				trade, so a player in no party is never moved for one) */
 				if (counts[target] + 1 - (counts[other] - 1) <= 1)
 				{
 					change->player = member;
 					change->team = target;
 					return 1;
-				}
-				/* (else a trade with a player in no party on the target team) */
-				for (trade = 0; trade < count; trade++)
-				{
-					if (players[trade].team == target && players[trade].party < 0 && players[trade].movable)
-					{
-						change->player = member;
-						change->team = target;
-						change->traded = trade;
-						return 1;
-					}
 				}
 			}
 		}

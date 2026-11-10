@@ -32,6 +32,16 @@ rather than jumping: its snapshots move with it, and the difference is drawn
 on top of it, whole until the next tick and fading from then on (no more than
 a few world units of it: further is a jump). A local player's view glides so
 with their unit, and with what it rides.
+
+A console that draws between its ticks with no memory to spare for that
+(HALO_CONSOLE_VIEW_INTERPOLATION, the original Xbox at display.frame_rate
+60) keeps none of the objects' snapshots: they are drawn where the tick left
+them. Only the view moves between ticks: on foot in first person the camera
+turns with the stick every frame and eases into each tick's place over the
+frame before the next tick, the first-person weapon with it, and what is
+timed in ticks (fades, flashes, animated shaders) runs on the same clock. At
+a steady 60 that is half a tick behind; at 30 (the pacer stepped down, or a
+frame a tick) nothing is behind.
 */
 
 #include "cseries.h"
@@ -207,6 +217,11 @@ static short later_particle_count;
 static long interpolation_frame;
 static boolean interpolation_rendering;
 static real interpolation_fraction = 1.0f;
+#ifdef HALO_CONSOLE_VIEW_INTERPOLATION
+/* the last tick a frame was drawn between ticks in (the console is drawing
+at 60, not one frame a tick) */
+static long view_between_tick = -2;
+#endif
 
 /* ---------- blending */
 
@@ -462,6 +477,13 @@ void render_interpolation_tick(void)
 				correction_advance(&camera->correction, &camera->correction_pending);
 		}
 	}
+#ifdef HALO_CONSOLE_VIEW_INTERPOLATION
+	/* (no object's snapshots: they are drawn as the tick left them) */
+	(void)iterator;
+	(void)object;
+	(void)previous_tick;
+	return;
+#else
 	if (!interpolated_objects)
 	{
 		long index;
@@ -556,6 +578,7 @@ void render_interpolation_tick(void)
 		record->functions_blended_frame = NONE;
 #endif
 	}
+#endif
 }
 
 /* a new map (game.c): its objects take the indices of the last one's, and
@@ -588,6 +611,18 @@ void render_interpolation_frame_begin(void)
 	interpolation_rendering = halo_interpolation_enabled();
 	interpolation_frame++;
 	interpolation_fraction = game_time_get_tick_fraction();
+#ifdef HALO_CONSOLE_VIEW_INTERPOLATION
+	/* The view eases into each tick over the frame before the next: at 60
+	frames a second, half way on the frame of the tick and there on the frame
+	between. At one frame a tick (the pacer stepped down to 30 for a heavy
+	scene) every frame is the tick's own, and is drawn where the tick is,
+	nothing behind. (A frame between ticks is half a tick into the next.) */
+	if (interpolation_fraction > 0.25f)
+		view_between_tick = interpolation_tick;
+	interpolation_fraction = interpolation_tick - view_between_tick <= 1 ?
+		MIN(interpolation_fraction + 0.5f, 1.0f) :
+		1.0f;
+#endif
 }
 
 void render_interpolation_frame_end(void)
@@ -911,6 +946,12 @@ static struct observer_result const *render_interpolation_direct_camera(
 		read_at = config_changes();
 		enabled = config_boolean("display.direct_camera");
 	}
+#ifdef HALO_CONSOLE_VIEW_INTERPOLATION
+	/* (a console at one frame a tick turns the view as the Xbox did, from
+	the tick's facing) */
+	if (!interpolation_rendering)
+		return observer;
+#endif
 	if (!enabled || !observer ||
 		director_get_perspective(local_player_index) != _director_perspective_first_person ||
 		director_inhibited_facing(local_player_index) ||
@@ -992,6 +1033,22 @@ static struct observer_result const *render_interpolation_blended_camera(
 	{
 		return observer;
 	}
+#ifdef HALO_CONSOLE_VIEW_INTERPOLATION
+	/* (the objects are drawn as the tick left them, so a view that moves
+	with one stays with it: only a first-person view on foot, whose unit
+	isn't drawn, eases between ticks) */
+	{
+		long unit_index = player_control_get_unit_index(local_player_index);
+
+		if (director_get_perspective(local_player_index) != _director_perspective_first_person ||
+			cinematic_in_progress() ||
+			unit_index == NONE || object_get(unit_index)->object.parent_object_index != NONE)
+		{
+			interpolated_cameras[local_player_index].valid = FALSE;
+			return observer;
+		}
+	}
+#endif
 	camera = &interpolated_cameras[local_player_index];
 	/* A scripted camera that moves with an object (a cinematic's camera
 	point relative to a lifepod or dropship, or a unit's eyes in one) is

@@ -10,9 +10,10 @@ tools/test_party_teams.py).
 The rule: a party's members go to the team most of them are on (a tie: the
 team with fewer players), one at a time, only where the teams then stay
 within one player of each other. Where a move would unbalance them, the
-member trades places with a player in no party on that team. A player the
-host may not move now (one playing: party_teams.c moves only players who
-have not spawned yet) is never moved, and never traded.
+party stays split: only party members are ever moved, never a player in no
+party (a party's tag is the client's word, so it must not move anyone
+else). A player the host may not move now (one playing: party_teams.c moves
+only players who have not spawned yet) is never moved.
 
 Plain C89 (the consoles' compilers read it too).
 */
@@ -33,12 +34,9 @@ struct party_teams_player
 
 struct party_teams_change
 {
-	/* the player moved, and to which team */
+	/* the party member moved, and to which team */
 	int player;
 	int team;
-	/* the player in no party traded to the other team (-1: none, a plain
-	move) */
-	int traded;
 };
 
 /* the next change that brings a party together: 1 and the change, or 0
