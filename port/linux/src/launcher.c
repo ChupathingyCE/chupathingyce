@@ -17,8 +17,8 @@ with its state read from the files' headers; a family's own screen opens
 its folder, checks its maps and adds them from a file (xiso.c, pc_disc.c,
 ce_installer.c, through sdl_platform.c's import thread). Logs & help sends
 debug.txt and the last crash report (and config.toml, if the player says
-so) to the log dump site, with addresses taken out first
-(crash_report_redact), and copies the version.
+so) to the log dump site, with addresses and the home folder taken out
+first (crash_report_redact), and copies the version.
 
 Everything here runs on the game's main thread, but the import and the
 upload, which have threads of their own.
@@ -2671,7 +2671,7 @@ static void text_string(struct text *text, const char *string)
 }
 
 /* a file's text, its last maximum bytes from the start of a line, with
-its addresses taken out; NULL when there is none */
+its addresses and home folder taken out; NULL when there is none */
 static char *redacted_file(const char *path, size_t maximum, size_t *length)
 {
 	FILE *file = fopen(path, "rb");
