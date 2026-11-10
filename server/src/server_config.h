@@ -329,6 +329,18 @@ enum
 	/* the bans that name a Delta account or device sent to the site's shared
 	ban lists while linked (server_bans.h) */
 	SERVER_SETTING_BAN_SHARE,
+	/* voice chat (port/linux/game/voice_game.h): relayed at all, its
+	channels (team, proximity, everyone, party), everyone heard in the
+	lobby, how near is near (world units) and its quality (kbps). The server
+	relays voice without decoding it */
+	SERVER_SETTING_VOICE,
+	SERVER_SETTING_VOICE_TEAM,
+	SERVER_SETTING_VOICE_PROXIMITY,
+	SERVER_SETTING_VOICE_EVERYONE,
+	SERVER_SETTING_VOICE_PARTY,
+	SERVER_SETTING_VOICE_LOBBY,
+	SERVER_SETTING_VOICE_RANGE,
+	SERVER_SETTING_VOICE_KBPS,
 	SERVER_SETTINGS,
 	/* a game's players, at most (halo_port_limits.h's) */
 	SERVER_SETTINGS_MAXIMUM_PLAYERS = 128,

@@ -95,6 +95,9 @@ static delta_u32 offered(const struct delta_peer *peer)
 	/* (nor reports without its report host) */
 	if (peer->mode == _mode_host && !peer->report_host)
 		capabilities &= ~CAPABILITY(_delta_capability_reports);
+	/* (nor voice without its rules) */
+	if (peer->mode == _mode_host && !peer->voice_hosting)
+		capabilities &= ~CAPABILITY(_delta_capability_voice);
 	/* (nor verified names without a way to check a proof) */
 	if (!peer->env.identity_check)
 		capabilities &= ~CAPABILITY(_delta_capability_identity);
@@ -234,6 +237,13 @@ static void forget_all(struct delta_peer *peer)
 	memset(peer->chat_muted, 0, sizeof(peer->chat_muted));
 	memset(peer->chat_mute_until, 0, sizeof(peer->chat_mute_until));
 	memset(&peer->client_chat, 0, sizeof(peer->client_chat));
+	memset(peer->voice_talking_until, 0, sizeof(peer->voice_talking_until));
+	memset(peer->voice_rates, 0, sizeof(peer->voice_rates));
+	memset(&peer->voice_world, 0, sizeof(peer->voice_world));
+	peer->client_voice_has_config = 0;
+	memset(&peer->client_voice_config, 0, sizeof(peer->client_voice_config));
+	peer->client_voice_said = 0;
+	memset(&peer->client_voice_rate, 0, sizeof(peer->client_voice_rate));
 	memset(peer->cards, 0, sizeof(peer->cards));
 	peer->identity_nonce_made = 0;
 	peer->identity_own_time = 0;
@@ -1393,6 +1403,470 @@ static void client_chat_receive(struct delta_peer *peer, delta_u32 now, const st
 	}
 }
 
+/* ---------- voice */
+
+int delta_peer_voice_route(const struct delta_wire_voice_config *rules, const struct delta_peer_voice_world *world,
+	int speaker_machine, int listener_machine, int channel)
+{
+	const struct delta_peer_voice_member *speaker, *listener;
+
+	if (!rules || !world || !valid_machine(speaker_machine) || !valid_machine(listener_machine) ||
+		speaker_machine == listener_machine)
+	{
+		return _delta_voice_route_none;
+	}
+	speaker = &world->members[speaker_machine];
+	listener = &world->members[listener_machine];
+	if (!speaker->present || !listener->present)
+		return _delta_voice_route_none;
+	switch (channel)
+	{
+	case _delta_voice_channel_party:
+		/* (the parties' tags are the caller's to match) */
+		return rules->channels & DELTA_VOICE_PARTY ? _delta_voice_route_global : _delta_voice_route_none;
+	case _delta_voice_channel_team:
+	case _delta_voice_channel_proximity:
+	case _delta_voice_channel_everyone:
+		break;
+	default:
+		return _delta_voice_route_none;
+	}
+	/* (outside a game, the lobby: everyone hears everyone, if the host lets
+	them, whatever the channel) */
+	if (!world->in_game)
+		return rules->channels & DELTA_VOICE_LOBBY ? _delta_voice_route_global : _delta_voice_route_none;
+	switch (channel)
+	{
+	case _delta_voice_channel_everyone:
+		return rules->channels & DELTA_VOICE_EVERYONE ? _delta_voice_route_global : _delta_voice_route_none;
+	case _delta_voice_channel_team:
+		/* (co-op: everyone is a teammate; free-for-all: nobody is) */
+		if (!(rules->channels & DELTA_VOICE_TEAM))
+			return _delta_voice_route_none;
+		if (world->coop || (world->teams && speaker->team == listener->team))
+			return _delta_voice_route_global;
+		return _delta_voice_route_none;
+	default:
+	{
+		/* (proximity: both alive, within the host's range) */
+		float range = (float)rules->proximity / 10.0f;
+		float dx = speaker->position[0] - listener->position[0];
+		float dy = speaker->position[1] - listener->position[1];
+		float dz = speaker->position[2] - listener->position[2];
+
+		if (!(rules->channels & DELTA_VOICE_PROXIMITY) || !speaker->alive || !listener->alive)
+			return _delta_voice_route_none;
+		return dx * dx + dy * dy + dz * dz <= range * range ? _delta_voice_route_proximity : _delta_voice_route_none;
+	}
+	}
+}
+
+static int host_voice_takes(const struct delta_peer *peer, int machine_index)
+{
+	return peer->mode == _mode_host && peer->voice_hosting && valid_machine(machine_index) &&
+		peer->peers[machine_index].used &&
+		(peer->peers[machine_index].agreed & offered(peer) & CAPABILITY(_delta_capability_voice));
+}
+
+/* the host's own machine in its game (a dedicated server has none: -1) */
+static int host_local_machine(const struct delta_peer *peer)
+{
+	int index;
+
+	for (index = 0; index < peer->game_machine_count; index++)
+	{
+		if (peer->game_machines[index].local)
+			return peer->game_machines[index].machine_index;
+	}
+	return -1;
+}
+
+static int voice_channel_bit(int channel)
+{
+	switch (channel)
+	{
+	case _delta_voice_channel_team: return DELTA_VOICE_TEAM;
+	case _delta_voice_channel_proximity: return DELTA_VOICE_PROXIMITY;
+	case _delta_voice_channel_everyone: return DELTA_VOICE_EVERYONE;
+	case _delta_voice_channel_party: return DELTA_VOICE_PARTY;
+	default: return 0;
+	}
+}
+
+static int voice_party_set(const unsigned char *party)
+{
+	int index, any = 0;
+
+	for (index = 0; index < DELTA_WIRE_VOICE_PARTY_TAG_SIZE; index++)
+		any |= party[index];
+	return any != 0;
+}
+
+/* whether the host relays a channel now: one of its channels in a game,
+any but party in the lobby with lobby voice, party anywhere */
+static int voice_channel_open(const struct delta_peer *peer, int channel)
+{
+	int bit = voice_channel_bit(channel);
+
+	if (!bit)
+		return 0;
+	if (channel != _delta_voice_channel_party && !peer->voice_world.in_game)
+		return (peer->voice_rules.channels & DELTA_VOICE_LOBBY) != 0;
+	return (peer->voice_rules.channels & bit) != 0;
+}
+
+int delta_peer_voice_talking(const struct delta_peer *peer, delta_u32 now, int machine_index)
+{
+	return valid_machine(machine_index) && peer->voice_talking_until[machine_index] &&
+		(delta_u32)(peer->voice_talking_until[machine_index] - now) < 0x80000000u;
+}
+
+/* VOICE_CONFIG for a machine as it is now */
+static void host_voice_config(const struct delta_peer *peer, delta_u32 now, int machine_index,
+	struct delta_wire_voice_config *config)
+{
+	*config = peer->voice_rules;
+	config->flags = 0;
+	config->mute_seconds = 0;
+	if (delta_peer_chat_muted(peer, now, machine_index))
+	{
+		config->flags |= DELTA_VOICE_CONFIG_MUTED;
+		if (peer->chat_mute_until[machine_index])
+			config->mute_seconds = (peer->chat_mute_until[machine_index] - now + 999u) / 1000u;
+	}
+}
+
+/* each frame: VOICE_CONFIG to each machine whose changed (no sooner than the
+roster's gap), and again every DELTA_PEER_VOICE_CONFIG_INTERVAL */
+static void host_voice_frame(struct delta_peer *peer, delta_u32 now)
+{
+	int index;
+
+	for (index = 0; index < DELTA_PEER_MAXIMUM_MACHINES; index++)
+	{
+		struct delta_peer_host_peer *client = &peer->peers[index];
+		struct delta_wire_voice_config config;
+		unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
+
+		if (!host_voice_takes(peer, index))
+			continue;
+		host_voice_config(peer, now, index, &config);
+		if (client->voice.config_sent && !elapsed(now, client->voice.config_time, DELTA_PEER_VOICE_CONFIG_INTERVAL) &&
+			((config.channels == client->voice.config.channels && config.flags == client->voice.config.flags &&
+				config.kbps == client->voice.config.kbps && config.proximity == client->voice.config.proximity) ||
+				!elapsed(now, client->voice.config_time, DELTA_PEER_ROSTER_GAP)))
+		{
+			continue;
+		}
+		client->voice.config = config;
+		client->voice.config_sent = 1;
+		client->voice.config_time = now;
+		peer_send(peer, client->ipv4, client->port, data, delta_wire_write_voice_config(data, client->session, &config));
+	}
+	peer->voice_dirty = 0;
+}
+
+/* a frame of a machine's player (the host's own: speaker_machine its
+machine), checked: to each machine whose player may hear it */
+static int host_voice_relay(struct delta_peer *peer, delta_u32 now, int speaker_machine, int channel,
+	unsigned short sequence, const unsigned char *packet, int length, const unsigned char *speaker_party)
+{
+	struct delta_wire_voice_down down;
+	int index, talkers = 0, sent = 0, local = host_local_machine(peer);
+
+	if (!voice_channel_open(peer, channel) || length <= 0 ||
+		length > delta_wire_voice_packet_cap(peer->voice_rules.kbps) || delta_peer_chat_muted(peer, now, speaker_machine))
+	{
+		peer->dropped++;
+		return 0;
+	}
+	/* (at most DELTA_PEER_VOICE_TALKERS at once on a dedicated server, and
+	DELTA_PEER_VOICE_TALKERS_LISTEN on a player's host; one talking keeps its
+	place, a new one waits) */
+	if (!delta_peer_voice_talking(peer, now, speaker_machine))
+	{
+		for (index = 0; index < DELTA_PEER_MAXIMUM_MACHINES; index++)
+			talkers += delta_peer_voice_talking(peer, now, index);
+		if (talkers >= (local < 0 ? DELTA_PEER_VOICE_TALKERS : DELTA_PEER_VOICE_TALKERS_LISTEN))
+		{
+			peer->dropped++;
+			return 0;
+		}
+	}
+	peer->voice_talking_until[speaker_machine] = now + DELTA_PEER_VOICE_TALKING_TIME;
+	if (!peer->voice_talking_until[speaker_machine])
+		peer->voice_talking_until[speaker_machine] = 1;
+
+	memset(&down, 0, sizeof(down));
+	down.sequence = sequence;
+	down.speaker_machine = (unsigned char)speaker_machine;
+	down.speaker_player = peer->voice_world.members[speaker_machine].present ?
+		peer->voice_world.members[speaker_machine].player : DELTA_WIRE_NO_MACHINE;
+	down.channel = (unsigned char)channel;
+	down.length = (unsigned char)length;
+	for (index = 0; index < DELTA_PEER_MAXIMUM_MACHINES; index++)
+	{
+		const unsigned char *party;
+		int hears, route;
+
+		if (index == speaker_machine)
+			continue;
+		if (index == local)
+		{
+			hears = peer->voice_local_hears;
+			party = peer->voice_local_party;
+			if (!peer->voice_client)
+				continue;
+		}
+		else
+		{
+			const struct delta_peer_host_peer *client = &peer->peers[index];
+
+			if (!host_voice_takes(peer, index) || !client->voice.has_hears ||
+				elapsed(now, client->voice.hears_time, DELTA_PEER_VOICE_HEARS_EXPIRY))
+			{
+				continue;
+			}
+			hears = client->voice.hears;
+			party = client->voice.party;
+		}
+		if (!(hears & voice_channel_bit(channel)))
+			continue;
+		if (channel == _delta_voice_channel_party &&
+			(!speaker_party || !voice_party_set(speaker_party) ||
+				memcmp(speaker_party, party, DELTA_WIRE_VOICE_PARTY_TAG_SIZE)))
+		{
+			continue;
+		}
+		route = delta_peer_voice_route(&peer->voice_rules, &peer->voice_world, speaker_machine, index, channel);
+		if (route == _delta_voice_route_none)
+			continue;
+		down.route = (unsigned char)route;
+		if (index == local)
+		{
+			peer->voice_client->heard(peer->voice_client->context, &down, packet);
+		}
+		else
+		{
+			const struct delta_peer_host_peer *client = &peer->peers[index];
+			unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
+
+			peer_send(peer, client->ipv4, client->port, data,
+				delta_wire_write_voice_down(data, client->session, &down, packet));
+		}
+		sent++;
+	}
+	peer->voice_relayed++;
+	return sent;
+}
+
+static void host_voice_up(struct delta_peer *peer, delta_u32 now, int machine_index,
+	const struct delta_wire_header *header, const unsigned char *payload)
+{
+	struct delta_peer_host_peer *client = &peer->peers[machine_index];
+	struct delta_wire_voice_up up;
+	const unsigned char *packet;
+
+	if (!host_voice_takes(peer, machine_index) || !delta_wire_read_voice_up(payload, header->length, &up, &packet))
+	{
+		peer->dropped++;
+		return;
+	}
+	/* (any VOICE_UP says what it hears; one with no frame its party too) */
+	client->voice.has_hears = 1;
+	client->voice.hears = up.hears;
+	client->voice.hears_time = now;
+	if (!up.length)
+	{
+		memcpy(client->voice.party, up.party, sizeof(client->voice.party));
+		return;
+	}
+	host_voice_relay(peer, now, machine_index, up.channel, up.sequence, packet, up.length, client->voice.party);
+}
+
+void delta_peer_set_voice_rules(struct delta_peer *peer, const struct delta_wire_voice_config *rules)
+{
+	struct delta_wire_voice_config clean;
+
+	if (!rules)
+	{
+		peer->voice_hosting = 0;
+		return;
+	}
+	clean = *rules;
+	clean.channels &= DELTA_VOICE_KNOWN_CONFIG;
+	clean.flags = 0;
+	clean.mute_seconds = 0;
+	if (clean.kbps < DELTA_WIRE_VOICE_MINIMUM_KBPS)
+		clean.kbps = DELTA_WIRE_VOICE_MINIMUM_KBPS;
+	if (clean.kbps > DELTA_WIRE_VOICE_MAXIMUM_KBPS)
+		clean.kbps = DELTA_WIRE_VOICE_MAXIMUM_KBPS;
+	if (clean.proximity < DELTA_WIRE_VOICE_MINIMUM_PROXIMITY)
+		clean.proximity = DELTA_WIRE_VOICE_MINIMUM_PROXIMITY;
+	if (clean.proximity > DELTA_WIRE_VOICE_MAXIMUM_PROXIMITY)
+		clean.proximity = DELTA_WIRE_VOICE_MAXIMUM_PROXIMITY;
+	if (!peer->voice_hosting || memcmp(&clean, &peer->voice_rules, sizeof(clean)))
+		peer->voice_dirty = 1;
+	peer->voice_rules = clean;
+	peer->voice_hosting = 1;
+}
+
+void delta_peer_set_voice_world(struct delta_peer *peer, const struct delta_peer_voice_world *world)
+{
+	if (world)
+		peer->voice_world = *world;
+	else
+		memset(&peer->voice_world, 0, sizeof(peer->voice_world));
+}
+
+int delta_peer_host_voice_say(struct delta_peer *peer, delta_u32 now, int channel, unsigned short sequence,
+	const unsigned char *packet, int length)
+{
+	int local = host_local_machine(peer);
+
+	if (peer->mode != _mode_host || !peer->voice_hosting || local < 0 || !packet)
+		return 0;
+	return host_voice_relay(peer, now, local, channel, sequence, packet, length, peer->voice_local_party) >= 0;
+}
+
+void delta_peer_set_voice_local(struct delta_peer *peer, int hears, const unsigned char *party)
+{
+	peer->voice_local_hears = (unsigned char)(hears & DELTA_VOICE_CHANNELS);
+	if (party)
+		memcpy(peer->voice_local_party, party, sizeof(peer->voice_local_party));
+	else
+		memset(peer->voice_local_party, 0, sizeof(peer->voice_local_party));
+}
+
+void delta_peer_set_voice_client(struct delta_peer *peer, const struct delta_peer_voice_client *client)
+{
+	peer->voice_client = client;
+}
+
+static int client_voicing(const struct delta_peer *peer)
+{
+	return peer->mode == _mode_client && peer->client_state == _delta_peer_client_delta &&
+		(peer->agreed & offered(peer) & CAPABILITY(_delta_capability_voice));
+}
+
+int delta_peer_client_voice_config(const struct delta_peer *peer, delta_u32 now, struct delta_wire_voice_config *config)
+{
+	if (!client_voicing(peer) || !peer->client_voice_has_config ||
+		elapsed(now, peer->client_voice_config_time, DELTA_PEER_VOICE_CONFIG_EXPIRY))
+	{
+		if (config)
+			memset(config, 0, sizeof(*config));
+		return 0;
+	}
+	if (config)
+		*config = peer->client_voice_config;
+	return 1;
+}
+
+static void client_send_voice_hears(struct delta_peer *peer, delta_u32 now)
+{
+	struct delta_wire_voice_up up;
+	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
+
+	memset(&up, 0, sizeof(up));
+	up.hears = peer->client_voice_hears;
+	memcpy(up.party, peer->client_voice_party, sizeof(up.party));
+	peer->client_voice_said = 1;
+	peer->client_voice_said_time = now;
+	peer_send(peer, peer->host_ipv4, peer->host_port, data, delta_wire_write_voice_up(data, peer->session, &up, NULL));
+}
+
+/* (client, each frame) what it hears, every DELTA_PEER_VOICE_HEARS_INTERVAL
+while the host has said its rules */
+static void client_voice_frame(struct delta_peer *peer, delta_u32 now)
+{
+	if (!delta_peer_client_voice_config(peer, now, NULL))
+		return;
+	if (!peer->client_voice_said || elapsed(now, peer->client_voice_said_time, DELTA_PEER_VOICE_HEARS_INTERVAL))
+		client_send_voice_hears(peer, now);
+}
+
+void delta_peer_client_set_voice_hears(struct delta_peer *peer, int hears, const unsigned char *party)
+{
+	unsigned char tag[DELTA_WIRE_VOICE_PARTY_TAG_SIZE];
+
+	hears &= DELTA_VOICE_CHANNELS;
+	if (party)
+		memcpy(tag, party, sizeof(tag));
+	else
+		memset(tag, 0, sizeof(tag));
+	if (hears == peer->client_voice_hears && !memcmp(tag, peer->client_voice_party, sizeof(tag)))
+		return;
+	peer->client_voice_hears = (unsigned char)hears;
+	memcpy(peer->client_voice_party, tag, sizeof(tag));
+	/* (said with the next frame's) */
+	peer->client_voice_said = 0;
+}
+
+int delta_peer_client_voice_say(struct delta_peer *peer, delta_u32 now, int channel, unsigned short sequence,
+	const unsigned char *packet, int length)
+{
+	struct delta_wire_voice_up up;
+	unsigned char data[DELTA_WIRE_MAXIMUM_DATAGRAM];
+	int size;
+
+	if (!delta_peer_client_voice_config(peer, now, NULL) || !packet || length <= 0 ||
+		length > delta_wire_voice_packet_cap(peer->client_voice_config.kbps))
+	{
+		return 0;
+	}
+	memset(&up, 0, sizeof(up));
+	up.sequence = sequence;
+	up.length = (unsigned char)length;
+	up.channel = (unsigned char)channel;
+	up.hears = peer->client_voice_hears;
+	size = delta_wire_write_voice_up(data, peer->session, &up, packet);
+	if (!size)
+		return 0;
+	peer_send(peer, peer->host_ipv4, peer->host_port, data, size);
+	/* (a frame says what it hears as well) */
+	peer->client_voice_said = 1;
+	peer->client_voice_said_time = now;
+	return 1;
+}
+
+static void client_voice_receive(struct delta_peer *peer, delta_u32 now, const struct delta_wire_header *header,
+	const unsigned char *payload)
+{
+	if (header->type == _delta_message_voice_config)
+	{
+		struct delta_wire_voice_config config;
+
+		if (!client_voicing(peer) || !delta_wire_read_voice_config(payload, header->length, &config))
+		{
+			peer->dropped++;
+			return;
+		}
+		peer->client_voice_has_config = 1;
+		peer->client_voice_config = config;
+		peer->client_voice_config_time = now;
+		return;
+	}
+	{
+		struct delta_wire_voice_down down;
+		const unsigned char *packet;
+
+		/* (its own voice, a frame over the host's quality, or one while the
+		player hears no voice: dropped) */
+		if (!client_voicing(peer) || !peer->client_voice_has_config ||
+			!delta_wire_read_voice_down(payload, header->length, &down, &packet) ||
+			down.speaker_machine == peer->machine_index || !peer->client_voice_hears ||
+			down.length > delta_wire_voice_packet_cap(peer->client_voice_config.kbps))
+		{
+			peer->dropped++;
+			return;
+		}
+		peer->voice_heard++;
+		if (peer->voice_client)
+			peer->voice_client->heard(peer->voice_client->context, &down, packet);
+	}
+}
+
 /* ---------- team changes */
 
 void delta_peer_set_team_host(struct delta_peer *peer, const struct delta_peer_team_host *host)
@@ -1774,8 +2248,13 @@ static void host_receive(struct delta_peer *peer, delta_u32 now, delta_u32 ipv4,
 		if (!peer->game_machines[index].local && peer->game_machines[index].ipv4 == ipv4)
 			first = peer->game_machines[index].machine_index;
 	}
-	if (!valid_machine(first) || !delta_rate_take(&peer->rates[first], now, DELTA_PEER_HOST_RATE,
-		DELTA_PEER_HOST_BURST))
+	/* (a voice frame takes from its own machine's voice budget, once its
+	session names the machine: two players behind one address each talk at
+	the full rate. 50 frames a second would take a machine's messages'
+	budget, so voice never touches it) */
+	if (!valid_machine(first) ||
+		(!(size > 3 && data[3] == _delta_message_voice_up) &&
+			!delta_rate_take(&peer->rates[first], now, DELTA_PEER_HOST_RATE, DELTA_PEER_HOST_BURST)))
 	{
 		peer->dropped++;
 		return;
@@ -1916,6 +2395,27 @@ static void host_receive(struct delta_peer *peer, delta_u32 now, delta_u32 ipv4,
 			break;
 		}
 		host_report(peer, now, machine_index, &header, payload);
+		break;
+	}
+	case _delta_message_voice_up:
+	{
+		int machine_index = host_find_session(peer, ipv4, header.session);
+
+		/* (a frame of no session takes from the address's messages, as
+		anything else unknown does) */
+		if (machine_index < 0)
+		{
+			delta_rate_take(&peer->rates[first], now, DELTA_PEER_HOST_RATE, DELTA_PEER_HOST_BURST);
+			peer->dropped++;
+			break;
+		}
+		if (!delta_rate_take(&peer->voice_rates[machine_index], now, DELTA_PEER_VOICE_UP_RATE,
+			DELTA_PEER_VOICE_UP_BURST))
+		{
+			peer->dropped++;
+			break;
+		}
+		host_voice_up(peer, now, machine_index, &header, payload);
 		break;
 	}
 	case _delta_message_id_proof:
@@ -2303,6 +2803,7 @@ void delta_peer_host_frame(struct delta_peer *peer, delta_u32 now, const struct 
 	}
 	host_moderation_frame(peer, now);
 	host_chat_frame(peer, now);
+	host_voice_frame(peer, now);
 
 	memset(peer->machines, 0, sizeof(peer->machines));
 	room_capabilities = offered(peer);
@@ -2575,6 +3076,7 @@ void delta_peer_client_frame(struct delta_peer *peer, delta_u32 now, int joined,
 				client_send_party_tag(peer, now);
 			}
 		}
+		client_voice_frame(peer, now);
 		/* (a bind the player did not answer in time) */
 		if (peer->client_moderation.bind_waiting &&
 			elapsed(now, peer->client_moderation.bind_time, DELTA_PEER_MODERATION_BIND_TIME))
@@ -2816,7 +3318,10 @@ static void client_receive(struct delta_peer *peer, delta_u32 now, delta_u32 ipv
 
 	if ((peer->client_state != _delta_peer_client_waiting && peer->client_state != _delta_peer_client_delta) ||
 		ipv4 != peer->host_ipv4 || port != peer->host_port ||
-		!delta_rate_take(&peer->host_rate, now, DELTA_PEER_CLIENT_RATE, DELTA_PEER_CLIENT_BURST) ||
+		/* (voice frames take from a budget of their own) */
+		(size > 3 && data[3] == _delta_message_voice_down ?
+			!delta_rate_take(&peer->client_voice_rate, now, DELTA_PEER_VOICE_DOWN_RATE, DELTA_PEER_VOICE_DOWN_BURST) :
+			!delta_rate_take(&peer->host_rate, now, DELTA_PEER_CLIENT_RATE, DELTA_PEER_CLIENT_BURST)) ||
 		!delta_wire_read_header(data, size, &header) || header.session != peer->session)
 	{
 		peer->dropped++;
@@ -2964,6 +3469,10 @@ static void client_receive(struct delta_peer *peer, delta_u32 now, delta_u32 ipv
 	case _delta_message_mod_notice:
 	case _delta_message_mod_bind:
 		client_moderation_receive(peer, now, &header, payload);
+		break;
+	case _delta_message_voice_config:
+	case _delta_message_voice_down:
+		client_voice_receive(peer, now, &header, payload);
 		break;
 	case _delta_message_chat_config:
 	case _delta_message_chat_line:

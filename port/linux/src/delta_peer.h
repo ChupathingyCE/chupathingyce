@@ -147,6 +147,31 @@ enum
 	DELTA_PEER_REPORT_RATE = 1,
 	DELTA_PEER_REPORT_BURST = 3,
 
+	/* voice (docs/delta.md, Voice), budgets of its own beside the ones
+	above (50 frames a second would take a machine's whole budget): VOICE_UP
+	a host takes from a machine, a second (and at once), and VOICE_DOWN a
+	client takes from its host; the machines talking at once, on a dedicated
+	server and on a player's host, whose upload is a home connection's and
+	sends each talker to every listener (one counts as
+	talking for DELTA_PEER_VOICE_TALKING_TIME after its last frame, and keeps
+	its place); a client says the channels it hears this often, and a host
+	sends a machine voice only while it said so within the expiry; the host
+	says VOICE_CONFIG this often (and on a change, no sooner than the
+	roster's gap), and a client that hears none for the expiry forgets it
+	(voice off); the voice datagrams read in one frame, beside the others */
+	DELTA_PEER_VOICE_UP_RATE = 50,
+	DELTA_PEER_VOICE_UP_BURST = 10,
+	DELTA_PEER_VOICE_DOWN_RATE = 400,
+	DELTA_PEER_VOICE_DOWN_BURST = 80,
+	DELTA_PEER_VOICE_TALKERS = 8,
+	DELTA_PEER_VOICE_TALKERS_LISTEN = 4,
+	DELTA_PEER_VOICE_TALKING_TIME = 500,
+	DELTA_PEER_VOICE_HEARS_INTERVAL = 2000,
+	DELTA_PEER_VOICE_HEARS_EXPIRY = 6000,
+	DELTA_PEER_VOICE_CONFIG_INTERVAL = 10000,
+	DELTA_PEER_VOICE_CONFIG_EXPIRY = 25000,
+	DELTA_PEER_VOICE_FRAME_DATAGRAMS = 256,
+
 	/* verified names (docs/delta.md, Verified names; milliseconds where a
 	time): the host says ID_CHALLENGE this often; checks a machine's proofs
 	at most this often (and at once: one for each local player); sends every
@@ -368,6 +393,55 @@ struct delta_peer_report_host
 	the site names it) */
 	int (*report)(void *context, int machine_index, const struct delta_wire_report *report, int *flags,
 		unsigned char *clip_token);
+};
+
+/* voice: where a game's machines' players are, as the host's game has them
+each frame (delta_peer_set_voice_world), for its routing (delta_peer_voice_route) */
+struct delta_peer_voice_member
+{
+	/* a machine of the game with a player: its first player's index (the
+	game's player list), team, whether it is alive, and where it is (the
+	game's world units) */
+	unsigned char present;
+	unsigned char player;
+	unsigned char team;
+	unsigned char alive;
+	float position[3];
+};
+
+struct delta_peer_voice_world
+{
+	/* a game is being played (not the pregame lobby or the postgame), its
+	game type has teams, it is co-op (everyone a teammate) */
+	unsigned char in_game;
+	unsigned char teams;
+	unsigned char coop;
+	struct delta_peer_voice_member members[DELTA_PEER_MAXIMUM_MACHINES];
+};
+
+/* where frames heard go: a client's from its host (VOICE_DOWN), and a
+player's host's own player's from its clients (the same, made by the host);
+the frame's bytes are down->length, read in place */
+struct delta_peer_voice_client
+{
+	void *context;
+	void (*heard)(void *context, const struct delta_wire_voice_down *down, const unsigned char *packet);
+};
+
+/* the host's voice with a client's session */
+struct delta_peer_host_voice
+{
+	struct delta_rate rate;
+	/* the channels it hears (VOICE_UP's), its party's tag, and when it last
+	said them (any VOICE_UP) */
+	int has_hears;
+	unsigned char hears;
+	unsigned char party[DELTA_WIRE_VOICE_PARTY_TAG_SIZE];
+	delta_u32 hears_time;
+	/* VOICE_CONFIG as last sent, and when */
+	int config_sent;
+	struct delta_wire_voice_config config;
+	delta_u32 config_time;
 };
 
 /* the client's object sync (docs/delta.md, Object sync): what its host's
@@ -605,6 +679,7 @@ struct delta_peer_host_peer
 	/* reports: the last REPORT's sequence, and their rate */
 	delta_u32 report_sequence;
 	struct delta_rate report_rate;
+	struct delta_peer_host_voice voice;
 	/* verified names: its proofs' rate, the challenge last said, and each
 	card's generation as last sent to it (0: not sent), and when every card
 	was last sent again */
@@ -775,6 +850,33 @@ struct delta_peer
 	objects is dropped) */
 	const struct delta_peer_objects_client *objects_client;
 
+	/* voice: the host's rules (voice_hosting: it relays, and offers voice),
+	its game's players (voice_world), each machine's last frame's time
+	plus DELTA_PEER_VOICE_TALKING_TIME while it talks, and its own player's
+	channels heard and party's tag; where frames heard go (both: the
+	client's, and a player's host's own); the client's: the host's config
+	and when heard, the channels it hears and its party's tag, when it said
+	them last, and VOICE_DOWN's budget */
+	int voice_hosting;
+	struct delta_wire_voice_config voice_rules;
+	int voice_dirty;
+	struct delta_peer_voice_world voice_world;
+	delta_u32 voice_talking_until[DELTA_PEER_MAXIMUM_MACHINES];
+	struct delta_rate voice_rates[DELTA_PEER_MAXIMUM_MACHINES];
+	unsigned char voice_local_hears;
+	unsigned char voice_local_party[DELTA_WIRE_VOICE_PARTY_TAG_SIZE];
+	const struct delta_peer_voice_client *voice_client;
+	int client_voice_has_config;
+	struct delta_wire_voice_config client_voice_config;
+	delta_u32 client_voice_config_time;
+	unsigned char client_voice_hears;
+	unsigned char client_voice_party[DELTA_WIRE_VOICE_PARTY_TAG_SIZE];
+	int client_voice_said;
+	delta_u32 client_voice_said_time;
+	struct delta_rate client_voice_rate;
+	/* frames relayed (host) and heard (client), for the log and the tests */
+	unsigned long voice_relayed;
+	unsigned long voice_heard;
 	/* verified names: the cards (the host's: of its own players and its
 	clients'; a client's: relayed and checked), a number raised with each
 	change; the host's nonce for its game (made once a host starts) and
@@ -1014,6 +1116,52 @@ int delta_peer_client_objects_ready(const struct delta_peer *peer);
 /* (client) where what the host says goes (NULL: nowhere, dropped) */
 void delta_peer_set_objects_client(struct delta_peer *peer, const struct delta_peer_objects_client *client);
 
+/* ---------- voice (docs/delta.md, Voice)
+
+A client says its player's frames on a channel (VOICE_UP); with no frame,
+every DELTA_PEER_VOICE_HEARS_INTERVAL, it says the channels it hears and its
+party's tag. The host checks the session, the voice budget, the frame's size
+against its quality, its rules and the machine's mute (chat's) and the
+talkers' cap, then sends the frame to each machine whose player may hear it
+(delta_peer_voice_route), as it is: the host never decodes. A player's host
+is a speaker and a listener like any other. */
+
+/* (host) its rules: the channels it relays, its quality and its proximity
+(rules NULL: no voice, and voice is not offered to clients that say HELLO
+from now; flags and mute_seconds are each machine's own) */
+void delta_peer_set_voice_rules(struct delta_peer *peer, const struct delta_wire_voice_config *rules);
+/* (host) where its game's players are, each frame (copied) */
+void delta_peer_set_voice_world(struct delta_peer *peer, const struct delta_peer_voice_world *world);
+/* (host) its own player's frame (none for a dedicated server): routed as a
+client's */
+int delta_peer_host_voice_say(struct delta_peer *peer, delta_u32 now, int channel, unsigned short sequence,
+	const unsigned char *packet, int length);
+/* (host) the channels its own player hears and its party's tag (party
+NULL: none) */
+void delta_peer_set_voice_local(struct delta_peer *peer, int hears, const unsigned char *party);
+/* (host) whether a machine talks now (its frames relayed within
+DELTA_PEER_VOICE_TALKING_TIME) */
+int delta_peer_voice_talking(const struct delta_peer *peer, delta_u32 now, int machine_index);
+/* (both) where frames heard go (NULL: nowhere) */
+void delta_peer_set_voice_client(struct delta_peer *peer, const struct delta_peer_voice_client *client);
+/* (client) the host's voice rules as VOICE_CONFIG said them (0: none heard
+within DELTA_PEER_VOICE_CONFIG_EXPIRY, or the host did not agree to voice) */
+int delta_peer_client_voice_config(const struct delta_peer *peer, delta_u32 now, struct delta_wire_voice_config *config);
+/* (client) the channels its player hears (DELTA_VOICE_*; 0: none, the host
+sends it no voice) and its party's tag (NULL: none); said to the host at once
+if they changed */
+void delta_peer_client_set_voice_hears(struct delta_peer *peer, int hears, const unsigned char *party);
+/* (client) a frame its player says on a channel: 1 if sent */
+int delta_peer_client_voice_say(struct delta_peer *peer, delta_u32 now, int channel, unsigned short sequence,
+	const unsigned char *packet, int length);
+/* who hears a frame of the speaker's machine on a channel (enum
+delta_voice_channel), as the host's rules and its game decide: enum
+delta_voice_route (none: not this listener). The listener's channels heard,
+the mute and the parties' tags are the caller's to check (a party's frame
+is global for any listener of the same party) */
+int delta_peer_voice_route(const struct delta_wire_voice_config *rules, const struct delta_peer_voice_world *world,
+	int speaker_machine, int listener_machine, int channel);
+
 /* ---------- verified names (docs/delta.md, Verified names)
 
 With identity agreed, the host challenges each client's session with a
@@ -1230,6 +1378,20 @@ void delta_peer_game_set_objects_client(const struct delta_peer_objects_client *
 delta_peer_badge_state; the answer in badge, the host's address in
 host_ipv4, and the milliseconds since the handshake began in waited) */
 int delta_peer_game_client_badge(struct delta_wire_badge *badge, delta_u32 *host_ipv4, delta_u32 *waited);
+
+/* voice (port/linux/game/voice_game.c): the host's rules (NULL: none),
+its game's players each frame, its own player's frames and what it hears;
+the client's frames, what it hears and its host's rules; where frames heard
+go; whether a machine talks (the host's view: its frames relayed now) */
+void delta_peer_game_set_voice_rules(const struct delta_wire_voice_config *rules);
+void delta_peer_game_set_voice_world(const struct delta_peer_voice_world *world);
+void delta_peer_game_set_voice_client(const struct delta_peer_voice_client *client);
+void delta_peer_game_set_voice_hears(int hears, const unsigned char *party);
+int delta_peer_game_voice_say(int channel, unsigned short sequence, const unsigned char *packet, int length);
+/* (client) the host's voice rules (0: none: the host has no Delta voice);
+(host) its own, 1 */
+int delta_peer_game_voice_config(struct delta_wire_voice_config *config);
+int delta_peer_game_voice_talking(int machine_index);
 
 /* ---------- what Delta List says of a hosted game (browser.c's
 announcement; docs/delta.md, Delta List) */

@@ -738,7 +738,7 @@ static const char *const binding_settings[NUMBER_OF_HALO_KEYBOARD_ACTIONS] =
 	"controls.jump", "controls.crouch", "controls.fire", "controls.throw_grenade", "controls.melee",
 	"controls.reload", "controls.zoom", "controls.switch_weapon", "controls.switch_grenade", "controls.action",
 	"controls.flashlight", "controls.scoreboard", "controls.pause", "controls.chat_all", "controls.chat_team",
-	"controls.chat_log",
+	"controls.chat_log", "controls.push_to_talk", "controls.voice_channel",
 };
 
 static const struct
